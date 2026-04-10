@@ -17,6 +17,7 @@
 #include <utility>
 #include <vector>
 
+#include <gtopt/ampl_variable.hpp>
 #include <gtopt/block_lp.hpp>
 #include <gtopt/phase_lp.hpp>
 #include <gtopt/planning_options_lp.hpp>
@@ -232,6 +233,116 @@ public:
     return (it != map.end()) ? result_t {it->second} : result_t {};
   }
 
+  // ── PAMPL / user-constraint variable registry ─────────────────────────────
+  //
+  // Each LP element calls `add_ampl_variable` from its `add_to_lp` once per
+  // (scenario, stage) after populating its per-block column map, and once
+  // per stage-level scalar column (capainst, eini, efin, ...).  The resolver
+  // later looks them up via `find_ampl_col` without any per-element-type
+  // dispatch.
+  //
+  // Names (for `generator("G1")` style references) are registered once per
+  // element via `register_ampl_element`.
+
+  /// Register a per-block variable map (e.g., generator.generation).
+  /// @param class_name  canonical lowercase class name ("generator", "line")
+  /// @param element_uid element's Uid
+  /// @param attribute   PAMPL attribute name ("generation", "flowp", ...)
+  /// @param scenario_uid / stage_uid the (scenario, stage) this map is for
+  /// @param block_cols  reference to the element's BIndexHolder for this
+  ///                    (scenario, stage).  Stored by pointer — lifetime
+  ///                    must extend through the end of LP solving.
+  void add_ampl_variable(std::string_view class_name,
+                         Uid element_uid,
+                         std::string_view attribute,
+                         ScenarioUid scenario_uid,
+                         StageUid stage_uid,
+                         const BIndexHolder<ColIndex>& block_cols)
+  {
+    m_ampl_variables_.insert_or_assign(
+        AmplVariableKey {
+            .class_name = std::string {class_name},
+            .element_uid = element_uid,
+            .attribute = attribute,
+            .scenario_uid = scenario_uid,
+            .stage_uid = stage_uid,
+        },
+        AmplVariable {
+            .block_cols = &block_cols,
+            .stage_col = ColIndex {unknown_index},
+        });
+  }
+
+  /// Register a stage-level scalar column (e.g., eini, efin, capainst).
+  /// Returns the same value for every block in the stage.
+  void add_ampl_variable(std::string_view class_name,
+                         Uid element_uid,
+                         std::string_view attribute,
+                         ScenarioUid scenario_uid,
+                         StageUid stage_uid,
+                         ColIndex stage_col)
+  {
+    m_ampl_variables_.insert_or_assign(
+        AmplVariableKey {
+            .class_name = std::string {class_name},
+            .element_uid = element_uid,
+            .attribute = attribute,
+            .scenario_uid = scenario_uid,
+            .stage_uid = stage_uid,
+        },
+        AmplVariable {
+            .block_cols = nullptr,
+            .stage_col = stage_col,
+        });
+  }
+
+  /// Look up a registered variable.  Returns nullopt if the
+  /// (class, uid, attribute, scenario, stage, block) combination was not
+  /// registered — e.g., when the column is conditional (soft_emin, drain)
+  /// and was never created.
+  [[nodiscard]] std::optional<ColIndex> find_ampl_col(
+      std::string_view class_name,
+      Uid element_uid,
+      std::string_view attribute,
+      ScenarioUid scenario_uid,
+      StageUid stage_uid,
+      BlockUid block_uid) const
+  {
+    const auto it = m_ampl_variables_.find(AmplVariableKey {
+        .class_name = std::string {class_name},
+        .element_uid = element_uid,
+        .attribute = attribute,
+        .scenario_uid = scenario_uid,
+        .stage_uid = stage_uid,
+    });
+    if (it == m_ampl_variables_.end()) {
+      return std::nullopt;
+    }
+    return it->second.col_at(block_uid);
+  }
+
+  /// Register an element's name so that user-expressions like
+  /// `generator("G1")` resolve "G1" to its Uid.
+  void register_ampl_element(std::string_view class_name,
+                             std::string_view element_name,
+                             Uid element_uid)
+  {
+    m_ampl_element_names_.insert_or_assign(
+        AmplElementNameKey {std::string {class_name},
+                            std::string {element_name}},
+        element_uid);
+  }
+
+  /// Look up an element Uid by (class_name, name).
+  [[nodiscard]] std::optional<Uid> lookup_ampl_element_uid(
+      std::string_view class_name, std::string_view element_name) const
+  {
+    const auto it = m_ampl_element_names_.find(AmplElementNameKey {
+        std::string {class_name}, std::string {element_name}});
+    return (it != m_ampl_element_names_.end()) ? std::optional<Uid> {it->second}
+                                               : std::nullopt;
+  }
+
 private:
   std::reference_wrapper<const Simulation> m_simulation_;
   std::reference_wrapper<const PlanningOptionsLP> m_options_;
@@ -242,6 +353,11 @@ private:
   std::vector<SceneLP> m_scene_array_;
 
   global_variable_map_t m_global_variable_map_;
+
+  // PAMPL variable registry — populated by each LP element's add_to_lp
+  // and queried by element_column_resolver.cpp.
+  AmplVariableMap m_ampl_variables_;
+  AmplElementNameMap m_ampl_element_names_;
 };
 
 }  // namespace gtopt

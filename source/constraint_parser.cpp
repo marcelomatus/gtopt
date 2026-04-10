@@ -799,6 +799,62 @@ IndexRange ConstraintParser::Parser::parse_index_set()
                   m_current_.value));
 }
 
+// ── Post-parse AST rewrites ─────────────────────────────────────────────────
+
+namespace
+{
+
+/// @brief Rewrite `line.flow` references into `line.flowp - line.flown`.
+///
+/// `flow` is not a real LP column on a line: the LP formulation uses the
+/// non-negative `flowp` (forward) and `flown` (reverse) variables, and the
+/// physical net flow is semantically `flowp - flown`.  Rather than exposing
+/// this asymmetry to AMPL users, we accept `line("X").flow` at the AST
+/// level and expand every affected term into a pair:
+///
+///   +c · line("X").flowp  and  −c · line("X").flown
+///
+/// The same rule applies to `sum(line(...).flow)` aggregation terms.
+void expand_line_flow(ConstraintExpr& expr)
+{
+  std::vector<ConstraintTerm> out;
+  out.reserve(expr.terms.size());
+  for (auto& t : expr.terms) {
+    // Single-element reference: line("X").flow
+    if (t.element && t.element->element_type == "line"
+        && t.element->attribute == "flow")
+    {
+      ConstraintTerm pos = t;
+      pos.element->attribute = "flowp";
+      out.push_back(std::move(pos));
+
+      ConstraintTerm neg = t;
+      neg.coefficient = -t.coefficient;
+      neg.element->attribute = "flown";
+      out.push_back(std::move(neg));
+      continue;
+    }
+    // Sum aggregation: sum(line(...).flow)
+    if (t.sum_ref && t.sum_ref->element_type == "line"
+        && t.sum_ref->attribute == "flow")
+    {
+      ConstraintTerm pos = t;
+      pos.sum_ref->attribute = "flowp";
+      out.push_back(std::move(pos));
+
+      ConstraintTerm neg = t;
+      neg.coefficient = -t.coefficient;
+      neg.sum_ref->attribute = "flown";
+      out.push_back(std::move(neg));
+      continue;
+    }
+    out.push_back(std::move(t));
+  }
+  expr.terms = std::move(out);
+}
+
+}  // namespace
+
 // ── Public API ──────────────────────────────────────────────────────────────
 
 ConstraintExpr ConstraintParser::parse(std::string_view name,
@@ -815,6 +871,7 @@ ConstraintExpr ConstraintParser::parse(std::string_view name,
   Parser parser(lexer);
   auto result = parser.parse_constraint();
   result.name = std::string {name};
+  expand_line_flow(result);
   return result;
 }
 

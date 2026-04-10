@@ -41,7 +41,7 @@ using TurbineLPSId = ObjectSingleId<class TurbineLP>;
 class TurbineLP : public ObjectLP<Turbine>
 {
 public:
-  static constexpr LPClassName ClassName {"Turbine", "tur"};
+  static constexpr LPClassName ClassName {"Turbine"};
   static constexpr std::string_view ConversionName {"conversion"};
   static constexpr std::string_view CapacityName {"capacity"};
 

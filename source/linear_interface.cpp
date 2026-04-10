@@ -375,7 +375,7 @@ std::string LinearInterface::get_prob_name() const
 
 // ── Log file ──
 
-void LinearInterface::set_log_file(const std::string& plog_file)
+void LinearInterface::set_log_file(std::string_view plog_file)
 {
   m_log_file_ = plog_file;
 }

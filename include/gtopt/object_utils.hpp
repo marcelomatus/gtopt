@@ -45,7 +45,7 @@ public:
                         std::string_view col_name) noexcept
   {
     return StateVariable::key(
-        scenario, stage, self.short_name(), self.uid(), col_name);
+        scenario, stage, self.class_name(), self.uid(), col_name);
   }
 
   template<typename Self, typename StageLP>
@@ -54,7 +54,7 @@ public:
                         const StageLP& stage,
                         std::string_view col_name) noexcept
   {
-    return StateVariable::key(stage, self.short_name(), self.uid(), col_name);
+    return StateVariable::key(stage, self.class_name(), self.uid(), col_name);
   }
 
   /**

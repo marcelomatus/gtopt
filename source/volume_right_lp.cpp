@@ -54,7 +54,7 @@ bool VolumeRightLP::add_to_lp(SystemContext& sc,
                               const StageLP& stage,
                               LinearProblem& lp)
 {
-  static constexpr std::string_view cname = ClassName.short_name();
+  static constexpr std::string_view cname = ClassName.full_name();
 
   if (!is_active(stage)) {
     return true;

@@ -10,12 +10,14 @@
  */
 
 #include <algorithm>  // For std::find
+#include <array>
 #include <concepts>
 #include <filesystem>
 #include <format>
 #include <fstream>
 #include <string>
 #include <unordered_map>
+#include <utility>
 
 #include <arrow/csv/api.h>
 #include <arrow/io/api.h>
@@ -181,17 +183,25 @@ auto make_table(FieldVector&& field_vector)
 [[nodiscard]] auto resolve_parquet_codec(std::string_view zfmt)
 {
   using codec_t = decltype(parquet::Compression::UNCOMPRESSED);
-  static const std::unordered_map<std::string, codec_t> codec_map {
-      {"", parquet::Compression::UNCOMPRESSED},
-      {"none", parquet::Compression::UNCOMPRESSED},
-      {"uncompressed", parquet::Compression::UNCOMPRESSED},
-      {"gzip", parquet::Compression::GZIP},
-      {"zstd", parquet::Compression::ZSTD},
-      {"lzo", parquet::Compression::LZO},
-  };
-  const auto it = codec_map.find(std::string(zfmt));
-  return it != codec_map.end() ? it->second
-                               : parquet::Compression::UNCOMPRESSED;
+  // Small fixed table — linear scan is cheaper than a hash lookup and
+  // avoids constructing a std::string from the string_view key.
+  static constexpr std::array<std::pair<std::string_view, codec_t>, 6>
+      codec_map {
+          {
+              {"", parquet::Compression::UNCOMPRESSED},
+              {"none", parquet::Compression::UNCOMPRESSED},
+              {"uncompressed", parquet::Compression::UNCOMPRESSED},
+              {"gzip", parquet::Compression::GZIP},
+              {"zstd", parquet::Compression::ZSTD},
+              {"lzo", parquet::Compression::LZO},
+          },
+      };
+  for (const auto& [name, codec] : codec_map) {
+    if (name == zfmt) {
+      return codec;
+    }
+  }
+  return parquet::Compression::UNCOMPRESSED;
 }
 
 auto parquet_write_table(const auto& fpath, const auto& table, const auto& zfmt)

@@ -51,7 +51,7 @@ TEST_CASE(  // NOLINT
   for (int pi = 0; pi < num_phases; ++pi) {
     const auto& sv_map = sim.state_variables(scene, PhaseIndex {pi});
     for (const auto& [key, svar] : sv_map) {
-      if (key.col_name == "efin" && key.class_name == "rsv"
+      if (key.col_name == "efin" && key.class_name == "Reservoir"
           && key.uid == Uid {1})
       {
         ++efin_found;
@@ -85,7 +85,7 @@ TEST_CASE(  // NOLINT
 
     bool found_efin_with_dep = false;
     for (const auto& [key, svar] : sv_map) {
-      if (key.col_name == "efin" && key.class_name == "rsv"
+      if (key.col_name == "efin" && key.class_name == "Reservoir"
           && key.uid == Uid {1})
       {
         const auto deps = svar.dependent_variables();
@@ -108,7 +108,7 @@ TEST_CASE(  // NOLINT
   {
     const auto& sv_map = sim.state_variables(scene, PhaseIndex {2});
     for (const auto& [key, svar] : sv_map) {
-      if (key.col_name == "efin" && key.class_name == "rsv"
+      if (key.col_name == "efin" && key.class_name == "Reservoir"
           && key.uid == Uid {1})
       {
         CHECK(svar.dependent_variables().empty());
@@ -428,7 +428,7 @@ TEST_CASE(  // NOLINT
   for (int pi = 0; pi < 2; ++pi) {
     const auto& sv_map = sim.state_variables(scene, PhaseIndex {pi});
     for (const auto& [key, svar] : sv_map) {
-      if (key.col_name == "efin" && key.class_name == "bat"
+      if (key.col_name == "efin" && key.class_name == "Battery"
           && key.uid == Uid {1})
       {
         ++bat_efin_count;
@@ -442,7 +442,7 @@ TEST_CASE(  // NOLINT
   {
     const auto& sv_map0 = sim.state_variables(scene, PhaseIndex {0});
     for (const auto& [key, svar] : sv_map0) {
-      if (key.col_name == "efin" && key.class_name == "bat"
+      if (key.col_name == "efin" && key.class_name == "Battery"
           && key.uid == Uid {1})
       {
         const auto deps = svar.dependent_variables();
@@ -458,7 +458,7 @@ TEST_CASE(  // NOLINT
   {
     const auto& sv_map1 = sim.state_variables(scene, PhaseIndex {1});
     for (const auto& [key, svar] : sv_map1) {
-      if (key.col_name == "efin" && key.class_name == "bat"
+      if (key.col_name == "efin" && key.class_name == "Battery"
           && key.uid == Uid {1})
       {
         CHECK(svar.dependent_variables().empty());

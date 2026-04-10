@@ -5,13 +5,17 @@
  * @author    ai-developer
  * @copyright BSD-3-Clause
  *
- * This header defines the LPClassName struct used to hold both the full and
- * short names for LP object classes with C++23 features.
+ * This header defines the LPClassName struct used to hold the full class
+ * name for LP object types.  The legacy abbreviated short name was
+ * removed — `short_name()` now returns a lazy lowercase view of the
+ * full name via `gtopt::lowercase()`.
  */
 #pragma once
 
 #include <format>
 #include <string_view>
+
+#include <gtopt/as_label.hpp>
 
 namespace gtopt
 {
@@ -20,14 +24,6 @@ struct LPClassName
 {
   explicit constexpr LPClassName(std::string_view pfull_name) noexcept
       : m_full_name(pfull_name)
-      , m_short_name(pfull_name)
-  {
-  }
-
-  explicit constexpr LPClassName(std::string_view pfull_name,
-                                 std::string_view pshort_name) noexcept
-      : m_full_name(pfull_name)
-      , m_short_name(pshort_name)
   {
   }
 
@@ -35,9 +31,14 @@ struct LPClassName
   {
     return m_full_name;
   }
-  [[nodiscard]] constexpr std::string_view short_name() const noexcept
+
+  /// Lowercase view of the full class name.  Returns a lazy, zero-copy
+  /// `LowercaseView` suitable for direct use in `as_label(...)`.  Callers
+  /// that need a materialized `std::string` should wrap this in
+  /// `as_label(lowercase(...))` or build a `std::string` from the view.
+  [[nodiscard]] constexpr auto short_name() const noexcept
   {
-    return m_short_name;
+    return lowercase(m_full_name);
   }
 
   // NOLINTNEXTLINE(google-explicit-constructor,hicpp-explicit-conversions)
@@ -45,7 +46,6 @@ struct LPClassName
 
 private:
   std::string_view m_full_name;
-  std::string_view m_short_name;
 };
 
 }  // namespace gtopt

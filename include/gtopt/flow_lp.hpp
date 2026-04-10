@@ -34,8 +34,10 @@ using FlowLPSId = ObjectSingleId<class FlowLP>;
 class FlowLP : public ObjectLP<Flow>
 {
 public:
-  static constexpr LPClassName ClassName {"Flow", "flw"};
+  static constexpr LPClassName ClassName {"Flow"};
   static constexpr std::string_view FlowName {"flow"};
+  // PAMPL attribute alias: "discharge" resolves to flow.
+  static constexpr std::string_view DischargeName {"discharge"};
 
   explicit FlowLP(const Flow& pflow, const InputContext& ic);
 

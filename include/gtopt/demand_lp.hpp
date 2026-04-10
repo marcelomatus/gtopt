@@ -11,7 +11,7 @@ namespace gtopt
 class DemandLP : public CapacityObjectLP<Demand>
 {
 public:
-  static constexpr LPClassName ClassName {"Demand", "dem"};
+  static constexpr LPClassName ClassName {"Demand"};
   static constexpr std::string_view LoadName {"load"};
   static constexpr std::string_view FailName {"fail"};
   static constexpr std::string_view BalanceName {"balance"};

@@ -42,7 +42,7 @@ class SystemLP;
 class ReservoirDischargeLimitLP : public ObjectLP<ReservoirDischargeLimit>
 {
 public:
-  static constexpr LPClassName ClassName {"ReservoirDischargeLimit", "rdl"};
+  static constexpr LPClassName ClassName {"ReservoirDischargeLimit"};
 
   explicit ReservoirDischargeLimitLP(const ReservoirDischargeLimit& ddl,
                                      InputContext& ic);

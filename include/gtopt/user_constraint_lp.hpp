@@ -55,7 +55,7 @@ namespace gtopt
 class UserConstraintLP : public ObjectLP<UserConstraint>
 {
 public:
-  static constexpr LPClassName ClassName {"UserConstraint", "uc"};
+  static constexpr LPClassName ClassName {"UserConstraint"};
   static constexpr std::string_view ConstraintName {"constraint"};
 
   explicit UserConstraintLP(const UserConstraint& uc, InputContext& ic);

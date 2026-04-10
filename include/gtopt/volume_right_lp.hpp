@@ -43,7 +43,13 @@ using VolumeRightLPSId = ObjectSingleId<class VolumeRightLP>;
 class VolumeRightLP : public StorageLP<ObjectLP<VolumeRight>>
 {
 public:
-  static constexpr LPClassName ClassName {"VolumeRight", "vrt"};
+  static constexpr LPClassName ClassName {"VolumeRight"};
+  static constexpr std::string_view ExtractionName {"extraction"};
+  static constexpr std::string_view SavingName {"saving"};
+  static constexpr std::string_view FailName {"fail"};
+  // PAMPL attribute aliases for extraction.
+  static constexpr std::string_view FlowName {"flow"};
+  static constexpr std::string_view FoutName {"fout"};
 
   using StorageBase = StorageLP<ObjectLP<VolumeRight>>;
 

@@ -132,9 +132,16 @@ TEST_CASE("User constraint - parse expressions from Planning JSON")
     auto expr = ConstraintParser::parse(uc.name, uc.expression);
 
     CHECK(expr.name == "flow_bound");
-    REQUIRE(expr.terms.size() == 1);
+    // `line.flow` is rewritten as `line.flowp - line.flown`, so the
+    // single-term original expression becomes two terms after parsing.
+    REQUIRE(expr.terms.size() == 2);
     REQUIRE(expr.terms[0].element.has_value());
     CHECK(expr.terms[0].element.value_or(ElementRef {}).element_type == "line");
+    CHECK(expr.terms[0].element.value_or(ElementRef {}).attribute == "flowp");
+    REQUIRE(expr.terms[1].element.has_value());
+    CHECK(expr.terms[1].element.value_or(ElementRef {}).element_type == "line");
+    CHECK(expr.terms[1].element.value_or(ElementRef {}).attribute == "flown");
+    CHECK(expr.terms[1].coefficient == doctest::Approx(-1.0));
     CHECK(expr.domain.stages.is_all);
     CHECK(expr.domain.blocks.is_all);
   }

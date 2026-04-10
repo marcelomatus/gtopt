@@ -19,6 +19,7 @@
 #include <expected>
 #include <memory>
 #include <span>
+#include <string_view>
 #include <unordered_map>
 
 #include <gtopt/error.hpp>
@@ -1041,7 +1042,7 @@ public:
   void set_col_sol(std::span<const double> sol);
   void set_row_dual(std::span<const double> dual);
 
-  void set_log_file(const std::string& plog_file);
+  void set_log_file(std::string_view plog_file);
   [[nodiscard]] constexpr const auto& get_log_file() const
   {
     return m_log_file_;

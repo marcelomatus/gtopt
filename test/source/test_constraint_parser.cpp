@@ -220,14 +220,142 @@ TEST_SUITE("ConstraintParser")
   {
     using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
+    // `line.flow` is rewritten by the parser into the pair
+    // `line.flowp - line.flown` because a line has no single `flow`
+    // column in the LP (only directional flowp/flown).
     auto expr = ConstraintParser::parse(R"(line("L1_2").flow <= 300)");
 
-    REQUIRE(expr.terms.size() == 1);
+    REQUIRE(expr.terms.size() == 2);
     REQUIRE(expr.terms[0].element.has_value());
     const auto& ref0 = expr.terms[0].element.value_or(ElementRef {});
     CHECK(ref0.element_type == "line");
     CHECK(ref0.element_id == "L1_2");
-    CHECK(ref0.attribute == "flow");
+    CHECK(ref0.attribute == "flowp");
+    CHECK(expr.terms[0].coefficient == doctest::Approx(1.0));
+
+    REQUIRE(expr.terms[1].element.has_value());
+    const auto& ref1 = expr.terms[1].element.value_or(ElementRef {});
+    CHECK(ref1.element_type == "line");
+    CHECK(ref1.element_id == "L1_2");
+    CHECK(ref1.attribute == "flown");
+    CHECK(expr.terms[1].coefficient == doctest::Approx(-1.0));
+  }
+
+  // ── line.flow AMPL-side expansion ──────────────────────────────────────
+  //
+  // Lines have no direct `flow` column in the LP: the formulation uses
+  // directional `flowp` (forward) and `flown` (reverse) variables, so the
+  // physical net flow is `flowp - flown`.  The parser hides this by
+  // rewriting every `line(...).flow` reference (single or sum) into the
+  // equivalent pair of terms.  These tests pin the expansion semantics.
+
+  TEST_CASE("Parse line.flow expands preserving outer coefficient")
+  {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+    // A non-trivial outer coefficient must multiply both sides of the
+    // rewrite: 2.5 * line.flow → 2.5*flowp - 2.5*flown
+    auto expr = ConstraintParser::parse(R"(2.5 * line("L1").flow <= 100)");
+
+    REQUIRE(expr.terms.size() == 2);
+    REQUIRE(expr.terms[0].element.has_value());
+    CHECK(expr.terms[0].element->attribute == "flowp");
+    CHECK(expr.terms[0].coefficient == doctest::Approx(2.5));
+    REQUIRE(expr.terms[1].element.has_value());
+    CHECK(expr.terms[1].element->attribute == "flown");
+    CHECK(expr.terms[1].coefficient == doctest::Approx(-2.5));
+  }
+
+  TEST_CASE("Parse line.flow with negative sign flips both legs")
+  {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+    // Leading minus sign: -line.flow → -flowp + flown
+    auto expr = ConstraintParser::parse(R"(-line("L1").flow <= 100)");
+
+    REQUIRE(expr.terms.size() == 2);
+    REQUIRE(expr.terms[0].element.has_value());
+    CHECK(expr.terms[0].element->attribute == "flowp");
+    CHECK(expr.terms[0].coefficient == doctest::Approx(-1.0));
+    REQUIRE(expr.terms[1].element.has_value());
+    CHECK(expr.terms[1].element->attribute == "flown");
+    CHECK(expr.terms[1].coefficient == doctest::Approx(1.0));
+  }
+
+  TEST_CASE("Parse line.flow inside range constraint")
+  {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+    // Range constraints share the same rewrite path.
+    auto expr = ConstraintParser::parse(R"(-50 <= line("L1").flow <= 50)");
+
+    REQUIRE(expr.terms.size() == 2);
+    REQUIRE(expr.terms[0].element.has_value());
+    CHECK(expr.terms[0].element->element_type == "line");
+    CHECK(expr.terms[0].element->attribute == "flowp");
+    CHECK(expr.terms[0].coefficient == doctest::Approx(1.0));
+    REQUIRE(expr.terms[1].element.has_value());
+    CHECK(expr.terms[1].element->element_type == "line");
+    CHECK(expr.terms[1].element->attribute == "flown");
+    CHECK(expr.terms[1].coefficient == doctest::Approx(-1.0));
+  }
+
+  TEST_CASE("Parse sum(line(all).flow) expands into flowp/flown sum pair")
+  {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+    auto expr = ConstraintParser::parse(R"(sum(line(all).flow) <= 0)");
+
+    REQUIRE(expr.terms.size() == 2);
+    // Both terms carry sum_ref (not element), and the sum_ref attribute
+    // is rewritten the same way a single ElementRef would be.
+    REQUIRE(expr.terms[0].sum_ref.has_value());
+    CHECK(expr.terms[0].sum_ref->element_type == "line");
+    CHECK(expr.terms[0].sum_ref->attribute == "flowp");
+    CHECK(expr.terms[0].sum_ref->all_elements);
+    CHECK(expr.terms[0].coefficient == doctest::Approx(1.0));
+    REQUIRE(expr.terms[1].sum_ref.has_value());
+    CHECK(expr.terms[1].sum_ref->element_type == "line");
+    CHECK(expr.terms[1].sum_ref->attribute == "flown");
+    CHECK(expr.terms[1].sum_ref->all_elements);
+    CHECK(expr.terms[1].coefficient == doctest::Approx(-1.0));
+  }
+
+  TEST_CASE("Parse sum(line(\"L1\",\"L2\").flow) preserves explicit id list")
+  {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+    auto expr = ConstraintParser::parse(R"(sum(line("L1","L2").flow) <= 300)");
+
+    REQUIRE(expr.terms.size() == 2);
+    REQUIRE(expr.terms[0].sum_ref.has_value());
+    CHECK(expr.terms[0].sum_ref->attribute == "flowp");
+    CHECK(expr.terms[0].sum_ref->element_ids.size() == 2);
+    CHECK(expr.terms[0].sum_ref->element_ids[0] == "L1");
+    CHECK(expr.terms[0].sum_ref->element_ids[1] == "L2");
+    REQUIRE(expr.terms[1].sum_ref.has_value());
+    CHECK(expr.terms[1].sum_ref->attribute == "flown");
+    CHECK(expr.terms[1].sum_ref->element_ids.size() == 2);
+    CHECK(expr.terms[1].sum_ref->element_ids[0] == "L1");
+    CHECK(expr.terms[1].sum_ref->element_ids[1] == "L2");
+    CHECK(expr.terms[1].coefficient == doctest::Approx(-1.0));
+  }
+
+  TEST_CASE("Parse line.flowp and line.flown remain single terms")
+  {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+    // Explicit directional references must NOT be rewritten — only `flow`
+    // triggers the expansion.
+    auto flowp_expr = ConstraintParser::parse(R"(line("L1").flowp <= 100)");
+    REQUIRE(flowp_expr.terms.size() == 1);
+    REQUIRE(flowp_expr.terms[0].element.has_value());
+    CHECK(flowp_expr.terms[0].element->attribute == "flowp");
+
+    auto flown_expr = ConstraintParser::parse(R"(line("L1").flown <= 100)");
+    REQUIRE(flown_expr.terms.size() == 1);
+    REQUIRE(flown_expr.terms[0].element.has_value());
+    CHECK(flown_expr.terms[0].element->attribute == "flown");
   }
 
   TEST_CASE("Parse battery energy constraint")
@@ -322,7 +450,9 @@ TEST_SUITE("ConstraintParser")
         R"(2 * generator("G1").generation - demand("D1").load + line("L1").flow >= 0)");
 
     CHECK(expr.constraint_type == ConstraintType::GREATER_EQUAL);
-    REQUIRE(expr.terms.size() == 3);
+    // line.flow is rewritten into (flowp - flown), so the original 3-term
+    // expression becomes 4 terms after normalization.
+    REQUIRE(expr.terms.size() == 4);
     REQUIRE(expr.terms[0].element.has_value());
     const auto& ref0 = expr.terms[0].element.value_or(ElementRef {});
     CHECK(expr.terms[0].coefficient == doctest::Approx(2.0));
@@ -335,6 +465,12 @@ TEST_SUITE("ConstraintParser")
     const auto& ref2 = expr.terms[2].element.value_or(ElementRef {});
     CHECK(expr.terms[2].coefficient == doctest::Approx(1.0));
     CHECK(ref2.element_type == "line");
+    CHECK(ref2.attribute == "flowp");
+    REQUIRE(expr.terms[3].element.has_value());
+    const auto& ref3 = expr.terms[3].element.value_or(ElementRef {});
+    CHECK(expr.terms[3].coefficient == doctest::Approx(-1.0));
+    CHECK(ref3.element_type == "line");
+    CHECK(ref3.attribute == "flown");
   }
 
   // ── Variables on both sides ────────────────────────────────────────────

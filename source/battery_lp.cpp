@@ -45,7 +45,7 @@ bool BatteryLP::add_to_lp(SystemContext& sc,
                           const StageLP& stage,
                           LinearProblem& lp)
 {
-  static constexpr std::string_view cname = ClassName.short_name();
+  static constexpr std::string_view cname = ClassName.full_name();
   static constexpr double flow_conversion_rate = 1.0;
 
   // Add capacity-related variables and constraints

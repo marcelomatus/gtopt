@@ -294,6 +294,81 @@ public:
     return simulation().state_variable(std::forward<Key>(key));
   }
 
+  // ── PAMPL / user-constraint variable registry forwarders ────────────────
+  //
+  // Each LP element calls these from `add_to_lp` once per (scenario, stage)
+  // to register its PAMPL-visible columns.  Mirrors `add_state_variable`.
+  //
+  // `class_name` and `attribute` must refer to storage with static (or at
+  // least solve-long) lifetime — in practice the `constexpr string_view`
+  // constants on each `*LP` class (e.g. `GeneratorLP::GenerationName`).
+
+  /// Register a per-block column map (e.g., generator.generation).
+  /// Stores a pointer to `block_cols`; the element must keep it alive
+  /// for the rest of the solve.
+  void add_ampl_variable(std::string_view class_name,
+                         Uid element_uid,
+                         std::string_view attribute,
+                         const ScenarioLP& scenario,
+                         const StageLP& stage,
+                         const BIndexHolder<ColIndex>& block_cols)
+  {
+    simulation().add_ampl_variable(class_name,
+                                   element_uid,
+                                   attribute,
+                                   scenario.uid(),
+                                   stage.uid(),
+                                   block_cols);
+  }
+
+  /// Register a stage-level scalar column (e.g., eini, efin, capainst).
+  void add_ampl_variable(std::string_view class_name,
+                         Uid element_uid,
+                         std::string_view attribute,
+                         const ScenarioLP& scenario,
+                         const StageLP& stage,
+                         ColIndex stage_col)
+  {
+    simulation().add_ampl_variable(class_name,
+                                   element_uid,
+                                   attribute,
+                                   scenario.uid(),
+                                   stage.uid(),
+                                   stage_col);
+  }
+
+  /// Register an element's name so that `generator("G1")` resolves
+  /// "G1" to its Uid.  Call once per element (constructor or first
+  /// `add_to_lp`).
+  void register_ampl_element(std::string_view class_name,
+                             std::string_view element_name,
+                             Uid element_uid)
+  {
+    simulation().register_ampl_element(class_name, element_name, element_uid);
+  }
+
+  /// Look up a registered variable column.  Returns nullopt if the
+  /// (class, uid, attribute, scenario, stage, block) combination was
+  /// never registered.
+  [[nodiscard]] std::optional<ColIndex> find_ampl_col(
+      std::string_view class_name,
+      Uid element_uid,
+      std::string_view attribute,
+      ScenarioUid scenario_uid,
+      StageUid stage_uid,
+      BlockUid block_uid) const
+  {
+    return simulation().find_ampl_col(
+        class_name, element_uid, attribute, scenario_uid, stage_uid, block_uid);
+  }
+
+  /// Resolve an element name to its Uid within a class.
+  [[nodiscard]] std::optional<Uid> lookup_ampl_element_uid(
+      std::string_view class_name, std::string_view element_name) const
+  {
+    return simulation().lookup_ampl_element_uid(class_name, element_name);
+  }
+
 private:
   std::reference_wrapper<SimulationLP> m_simulation_;
   std::reference_wrapper<SystemLP> m_system_;

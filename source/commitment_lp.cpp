@@ -59,7 +59,7 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
     return true;
   }
 
-  static constexpr std::string_view cname = ClassName.short_name();
+  static constexpr std::string_view cname = ClassName.full_name();
   const auto cuid = uid();
 
   // Resolve commitment parameters
@@ -183,6 +183,11 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
   map_reserve(lrows, nperiods);
   map_reserve(erows, nperiods);
 
+  // Period-indexed v/w columns: avoid repeated map lookups per block in the
+  // phase-B loop (each period is visited once per block in that period).
+  std::vector<ColIndex> period_vcol(nperiods);
+  std::vector<ColIndex> period_wcol(nperiods);
+
   // block_ucol maps EVERY block uid → its period's u column
   BIndexHolder<ColIndex> block_ucol;
   map_reserve(block_ucol, blocks.size());
@@ -244,6 +249,7 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
         .context = ctx,
     });
     vcols[rep_buid] = vcol;
+    period_vcol[p] = vcol;
 
     // ── Create w (shutdown) variable ──
     const auto w_cost = CostHelper::block_ecost(
@@ -259,6 +265,7 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
         .context = ctx,
     });
     wcols[rep_buid] = wcol;
+    period_wcol[p] = wcol;
 
     // ── C1: Logic transition (per period) ──
     // u[p] - u[p-1] - v[p] + w[p] = 0
@@ -327,11 +334,11 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
     const auto gcol = gcol_it->second;
     const auto ucol = block_ucol.at(buid);
 
-    // Look up period's v/w for ramp constraints
+    // Look up period's v/w for ramp constraints via period-indexed cache
+    // (avoids two map .at() lookups per block).
     const auto pidx = block_period[bidx];
-    const auto rep_buid = blocks[period_starts[pidx]].uid();
-    const auto vcol = vcols.at(rep_buid);
-    const auto wcol = wcols.at(rep_buid);
+    const auto vcol = period_vcol[pidx];
+    const auto wcol = period_wcol[pidx];
 
     const auto gen_pmax = lp.get_col_uppb(gcol);
     const auto gen_pmin = lp.get_col_lowb(gcol);

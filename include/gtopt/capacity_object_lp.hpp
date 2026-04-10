@@ -58,7 +58,6 @@ struct CapacityObjectBase
                                         OF&& annual_capcost,
                                         OF&& annual_derating)
       : m_class_name_(cname.full_name())
-      , m_short_name_(cname.short_name())
       , m_id_(std::move(pid))
       , m_capacity_(ic, cname.full_name(), id(), std::forward<OF>(capacity))
       , m_expcap_(ic, cname.full_name(), id(), std::forward<OF>(expcap))
@@ -169,7 +168,7 @@ private:
                           std::string_view col_name) noexcept
   {
     return StateVariable::key(
-        scenario, stage, self.m_short_name_, self.uid(), col_name);
+        scenario, stage, self.m_class_name_, self.uid(), col_name);
   }
 
   template<typename Self, typename SystemContext, typename... Args>
@@ -179,11 +178,10 @@ private:
                                                  Args&&... args)
   {
     return sc.state_col_label(
-        stage, self.m_short_name_, std::forward<Args>(args)..., self.uid());
+        stage, self.m_class_name_, std::forward<Args>(args)..., self.uid());
   }
 
   std::string_view m_class_name_ = "CapacityObject";
-  std::string_view m_short_name_ = "cob";
 
   Id m_id_;
   OptTRealSched m_capacity_;

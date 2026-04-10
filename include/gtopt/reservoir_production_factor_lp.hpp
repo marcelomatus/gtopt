@@ -42,7 +42,7 @@ class LinearInterface;
 class ReservoirProductionFactorLP : public ObjectLP<ReservoirProductionFactor>
 {
 public:
-  static constexpr LPClassName ClassName {"ReservoirProductionFactor", "ref"};
+  static constexpr LPClassName ClassName {"ReservoirProductionFactor"};
 
   explicit ReservoirProductionFactorLP(
       const ReservoirProductionFactor& pre,

@@ -20,7 +20,7 @@ namespace gtopt
 class DemandProfileLP : public ProfileObjectLP<DemandProfile, DemandLP>
 {
 public:
-  static constexpr LPClassName ClassName {"DemandProfile", "dpr"};
+  static constexpr LPClassName ClassName {"DemandProfile"};
   static constexpr std::string_view UnservedName {"unserved"};
 
   explicit DemandProfileLP(const DemandProfile& pdemand_profile,

@@ -45,7 +45,7 @@ namespace gtopt
 class JunctionLP : public ObjectLP<Junction>
 {
 public:
-  static constexpr LPClassName ClassName {"Junction", "jun"};
+  static constexpr LPClassName ClassName {"Junction"};
   static constexpr std::string_view BalanceName {"balance"};
   static constexpr std::string_view DrainName {"drain"};
 

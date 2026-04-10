@@ -20,6 +20,7 @@
 
 #include <map>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include <gtopt/lp_context.hpp>
@@ -68,7 +69,7 @@ struct LpFingerprint
 };
 
 /// Compute SHA-256 hash of a string, returning a 64-character hex string.
-[[nodiscard]] auto sha256_hex(const std::string& input) -> std::string;
+[[nodiscard]] auto sha256_hex(std::string_view input) -> std::string;
 
 /// Map an LpContext variant to its human-readable type name.
 /// Returns "monostate" for context-free entries.

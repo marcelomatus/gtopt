@@ -105,6 +105,9 @@ public:
   static constexpr std::string_view EfinName {"efin"};
   static constexpr std::string_view CapacityName {"capacity"};
   static constexpr std::string_view SeminGeName {"semin_ge"};
+  // PAMPL attribute aliases: "volume" resolves to energy, "spill" to drain.
+  static constexpr std::string_view VolumeName {"volume"};
+  static constexpr std::string_view SpillName {"spill"};
 
   [[nodiscard]] constexpr auto&& storage(this auto&& self) noexcept
   {
