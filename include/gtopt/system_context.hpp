@@ -66,6 +66,15 @@ public:
   // Core Context Management
   explicit SystemContext(SimulationLP& simulation, SystemLP& system);
 
+  /// Re-point the back-reference to a new SystemLP owner (used by
+  /// `SystemLP`'s move-ctor/assign so the embedded SystemContext stays
+  /// consistent after the SystemLP is relocated).  Also rebuilds
+  /// `m_collection_ptrs_` from the new owner's collections tuple,
+  /// because each pointer is an interior pointer into the SystemLP that
+  /// just moved.  Defined out-of-line in `system_context.cpp` because
+  /// reaching `SystemLP::collections()` requires `system_lp.hpp`.
+  void rebind_system(SystemLP& sys) noexcept;
+
   //
   //  get methods
   //

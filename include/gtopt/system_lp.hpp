@@ -132,8 +132,17 @@ public:
   SystemLP(const SystemLP&) = delete;
   SystemLP& operator=(const SystemLP&) noexcept = delete;
 
-  SystemLP(SystemLP&&) noexcept = default;
-  SystemLP& operator=(SystemLP&&) noexcept = default;
+  /// Move constructor: member-wise moves, then re-points the embedded
+  /// `m_system_context_` back-reference to `*this` (and rebuilds its
+  /// `m_collection_ptrs_` table from `this->m_collections_`).  A defaulted
+  /// move would leave SystemContext referring to the moved-from SystemLP,
+  /// which only worked previously because PlanningLP::create_systems
+  /// happened to never move SystemLP after construction.  Required for
+  /// the parallel phase build path that emplaces SystemLPs into a
+  /// `vector<optional<SystemLP>>` and then moves them into the final
+  /// `vector<SystemLP>`.
+  SystemLP(SystemLP&& other) noexcept;
+  SystemLP& operator=(SystemLP&& other) noexcept;
   ~SystemLP() noexcept = default;
 
   /**

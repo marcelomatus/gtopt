@@ -250,56 +250,77 @@ auto PlanningLP::create_systems(System& system,
 
   PlanningLP::scene_phase_systems_t all_systems(scenes.size());
 
-  // Use the work pool to build scenes in parallel.  Each scene's phases
-  // are constructed sequentially (state variables within a scene depend
-  // on phase order), but different scenes are independent.
+  // Use the work pool to build (scene, phase) cells in parallel.  All
+  // cells are independent at build time: cross-phase state-variable
+  // links are queued (PendingStateLink) inside each SystemLP and
+  // resolved later by `tighten_scene_phase_links`, which runs after
+  // every cell of a given scene has been built.  Flat (scene × phase)
+  // submission gives better load balancing than nested per-scene
+  // parallelism — especially for cases with few scenes but many phases.
+  //
+  // Each cell is constructed in-place into a `vector<vector<optional<>>>`
+  // build buffer, then moved into the final `phase_systems_t` during a
+  // sequential merge step.  The custom SystemLP move-ctor re-points the
+  // embedded SystemContext back-reference (`m_system_`) and rebuilds its
+  // `m_collection_ptrs_` interior-pointer table to the new owner, so
+  // post-move SystemLPs are valid even though the build buffer holds
+  // them at a different address than the final vector.
   auto pool = make_solver_work_pool();
 
   const auto build_start = std::chrono::steady_clock::now();
 
+  std::vector<std::vector<std::optional<SystemLP>>> build_buf(scenes.size());
+  for (auto& row : build_buf) {
+    row.resize(phases.size());
+  }
+
   std::vector<std::future<void>> futures;
-  futures.reserve(scenes.size());
+  futures.reserve(scenes.size() * phases.size());
 
   for (auto&& [scene_index, scene] : enumerate<SceneIndex>(scenes)) {
-    auto result = pool->submit(
-        [&, scene_index]
-        {
-          [[maybe_unused]] const auto sn =
-              static_cast<int>(scene_index) + 1;  // 1-based for logging
-          SPDLOG_DEBUG("  Building LP scene {}/{} (uid {})",
-                       sn,
-                       num_scenes,
-                       scene.uid());
-          PlanningLP::phase_systems_t phase_systems;
-          phase_systems.reserve(phases.size());
-          for (auto&& phase : phases) {
-            SPDLOG_TRACE("    Building LP scene {}/{} phase {} (uid {})",
-                         sn,
+    for (auto&& [phase_index, phase] : enumerate<PhaseIndex>(phases)) {
+      auto result = pool->submit(
+          [&, scene_index, phase_index]
+          {
+            SPDLOG_TRACE("    Building LP scene {}/{} phase {}/{} (uid {})",
+                         static_cast<int>(scene_index) + 1,
                          num_scenes,
-                         phase.index(),
+                         static_cast<int>(phase_index) + 1,
+                         num_phases,
                          phase.uid());
-            phase_systems.emplace_back(
-                system, simulation, phase, scene, resolved_opts);
-          }
-
-          // Resolve any deferred cross-phase state-variable links
-          // queued by this scene's phases.  Runs inside the scene
-          // task so that different scenes' tightening passes can
-          // overlap and so that linking happens before the per-scene
-          // update_lp pass below sees the dependent columns.
-          tighten_scene_phase_links(phase_systems, simulation);
-
-          all_systems[scene_index] = std::move(phase_systems);
-        });
-    if (!result.has_value()) {
-      throw std::runtime_error(
-          std::format("Failed to submit scene {} to work pool", scene_index));
+            build_buf[static_cast<size_t>(scene_index)][static_cast<size_t>(
+                                                            phase_index)]
+                .emplace(system, simulation, phase, scene, resolved_opts);
+          });
+      if (!result.has_value()) {
+        throw std::runtime_error(
+            std::format("Failed to submit scene {} phase {} to work pool",
+                        scene_index,
+                        phase_index));
+      }
+      futures.push_back(std::move(*result));
     }
-    futures.push_back(std::move(*result));
   }
 
   for (auto& fut : futures) {
     fut.get();
+  }
+
+  // Sequentially merge cells into per-scene phase_systems_t and resolve
+  // deferred cross-phase state-variable links.  The merge itself is
+  // cheap (a few moves per scene) and `tighten_scene_phase_links` only
+  // touches simulation.state_variable() lookups for this scene's links,
+  // so a sequential pass keeps the code simple without giving up much
+  // parallelism — the dominant cost (per-cell SystemLP construction and
+  // create_lp) has already been parallelized above.
+  for (auto&& [scene_index, scene] : enumerate<SceneIndex>(scenes)) {
+    PlanningLP::phase_systems_t phase_systems;
+    phase_systems.reserve(phases.size());
+    for (auto& slot : build_buf[static_cast<size_t>(scene_index)]) {
+      phase_systems.emplace_back(*std::move(slot));
+    }
+    tighten_scene_phase_links(phase_systems, simulation);
+    all_systems[scene_index] = std::move(phase_systems);
   }
 
   // After all add_to_lp calls, dispatch a single initial update_lp pass

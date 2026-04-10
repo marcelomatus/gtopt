@@ -28,7 +28,6 @@
 #include <gtopt/system_lp.hpp>
 #include <spdlog/spdlog.h>
 
-#include "gtopt/options_lp.hpp"
 #include "gtopt/simulation_lp.hpp"
 #include "gtopt/system_context.hpp"
 
@@ -685,6 +684,44 @@ SystemLP::SystemLP(const System& system,
   }
 
   create_lp(flat_opts);
+}
+
+SystemLP::SystemLP(SystemLP&& other) noexcept
+    : m_system_(other.m_system_)
+    , m_system_context_(std::move(other.m_system_context_))
+    , m_collections_(std::move(other.m_collections_))
+    , m_phase_(std::move(other.m_phase_))
+    , m_scene_(std::move(other.m_scene_))
+    , m_linear_interface_(std::move(other.m_linear_interface_))
+    , m_fingerprint_(std::move(other.m_fingerprint_))
+    , m_single_bus_id_(std::move(other.m_single_bus_id_))
+    , m_pending_state_links_(std::move(other.m_pending_state_links_))
+    , m_prev_phase_sys_(other.m_prev_phase_sys_)
+{
+  // After member-wise move, m_system_context_ still holds a
+  // reference_wrapper to the moved-from SystemLP and stale interior
+  // pointers into the moved-from m_collections_ tuple.  Re-point both
+  // to *this.
+  m_system_context_.rebind_system(*this);
+}
+
+SystemLP& SystemLP::operator=(SystemLP&& other) noexcept
+{
+  if (this == &other) {
+    return *this;
+  }
+  m_system_ = other.m_system_;
+  m_system_context_ = std::move(other.m_system_context_);
+  m_collections_ = std::move(other.m_collections_);
+  m_phase_ = std::move(other.m_phase_);
+  m_scene_ = std::move(other.m_scene_);
+  m_linear_interface_ = std::move(other.m_linear_interface_);
+  m_fingerprint_ = std::move(other.m_fingerprint_);
+  m_single_bus_id_ = std::move(other.m_single_bus_id_);
+  m_pending_state_links_ = std::move(other.m_pending_state_links_);
+  m_prev_phase_sys_ = other.m_prev_phase_sys_;
+  m_system_context_.rebind_system(*this);
+  return *this;
 }
 
 void SystemLP::write_out()
