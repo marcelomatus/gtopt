@@ -442,7 +442,11 @@ auto CascadePlanningMethod::solve(PlanningLP& planning_lp,
             const auto sa =
                 effective_scale_alpha(*current_lp, level_opts.scale_alpha);
             auto load_result =
-                load_cuts_csv(*current_lp, tmp_path.string(), sa, label_maker);
+                load_cuts_csv(*current_lp,
+                              tmp_path.string(),
+                              sa,
+                              label_maker,
+                              &current_solver->all_scene_phase_states());
 
             if (load_result.has_value()) {
               inherited_cut_count = load_result->count;

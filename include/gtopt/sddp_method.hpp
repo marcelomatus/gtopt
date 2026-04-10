@@ -232,6 +232,13 @@ public:
     return m_scene_phase_states_[SceneIndex {0}];
   }
 
+  /// Full scene-phase states (valid after ensure_initialized()).
+  /// Used by cascade cut inheritance to resolve @alpha columns.
+  [[nodiscard]] constexpr auto& all_scene_phase_states() const noexcept
+  {
+    return m_scene_phase_states_;
+  }
+
   /// SDDP options (const)
   [[nodiscard]] constexpr auto& options() const noexcept { return m_options_; }
 

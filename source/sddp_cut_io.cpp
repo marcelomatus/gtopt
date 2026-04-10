@@ -772,8 +772,10 @@ auto load_scene_cuts_from_directory(
     PlanningLP& planning_lp,
     const std::string& directory,
     double scale_alpha,
-    [[maybe_unused]] const LabelMaker& label_maker)
-    -> std::expected<CutLoadResult, Error>
+    [[maybe_unused]] const LabelMaker& label_maker,
+    const StrongIndexVector<SceneIndex,
+                            StrongIndexVector<PhaseIndex, PhaseStateInfo>>*
+        scene_phase_states) -> std::expected<CutLoadResult, Error>
 {
   CutLoadResult total {};
 
@@ -802,8 +804,11 @@ auto load_scene_cuts_from_directory(
       continue;
     }
 
-    auto result = load_cuts_csv(
-        planning_lp, entry.path().string(), scale_alpha, label_maker);
+    auto result = load_cuts_csv(planning_lp,
+                                entry.path().string(),
+                                scale_alpha,
+                                label_maker,
+                                scene_phase_states);
     if (result.has_value()) {
       total.count += result->count;
       total.max_iteration =
