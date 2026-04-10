@@ -432,8 +432,9 @@ void SDDPCutStore::apply_cut_sharing_for_iteration(
     return row;
   };
 
-  flat_map<SceneUid, SceneIndex> scene_uid_map;
   const auto& scenes = planning_lp.simulation().scenes();
+  flat_map<SceneUid, SceneIndex> scene_uid_map;
+  map_reserve(scene_uid_map, scenes.size());
   for (auto&& [si, sc_lp] : enumerate<SceneIndex>(scenes)) {
     scene_uid_map[sc_lp.uid()] = si;
   }

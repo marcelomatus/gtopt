@@ -18,6 +18,7 @@
 #include <gtopt/bus.hpp>
 #include <gtopt/bus_island.hpp>
 #include <gtopt/line.hpp>
+#include <gtopt/map_reserve.hpp>
 #include <gtopt/planning_options_lp.hpp>
 #include <spdlog/spdlog.h>
 
@@ -83,8 +84,9 @@ auto detect_islands_and_fix_references(Array<Bus>& buses,
   constexpr auto sentinel = std::numeric_limits<std::size_t>::max();
 
   std::unordered_map<Uid, std::size_t> uid_to_index;
-  uid_to_index.reserve(num_buses);
   std::unordered_map<std::string, std::size_t> name_to_index;
+  map_reserve(uid_to_index, num_buses);
+  map_reserve(name_to_index, num_buses);
 
   for (auto&& [idx, bus] : std::views::enumerate(buses)) {
     const auto i = static_cast<std::size_t>(idx);

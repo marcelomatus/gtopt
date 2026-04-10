@@ -8,7 +8,10 @@
  * This module defines the flat_map alias and two map utility helpers:
  *
  *   map_reserve(map, n)
- *       Reserve capacity for @p n elements.  No-op for std::map.
+ *       Reserve capacity for @p n elements.  Generic over flat_map,
+ *       std::unordered_map, std::flat_map, and std::map (no-op).
+ *       Defined in `map_reserve.hpp`, re-exported from this header
+ *       for backward compatibility.
  *
  *   map_insert_sorted_unique(map, first, last)
  *       Insert from a pre-sorted, deduplicated range using the most
@@ -70,6 +73,8 @@
 #  include <boost/container/flat_map.hpp>
 #endif
 
+#include <gtopt/map_reserve.hpp>
+
 // ---------------------------------------------------------------------------
 // gtopt namespace — type alias and helpers
 // ---------------------------------------------------------------------------
@@ -91,38 +96,11 @@ using flat_map = boost::container::flat_map<key_type, value_type>;
 #endif
 
 // ── map_reserve ──────────────────────────────────────────────────────────────
-
-/// @brief Reserve capacity in a flat_map for @p n elements.
-///
-/// For `std::flat_map`, extracts the underlying key/value containers,
-/// reserves capacity in both, then re-inserts them via `replace()`.
-/// For `boost::container::flat_map`, delegates to `map.reserve(n)`.
-/// For `std::map`, this is intentionally a no-op (std::map does not
-/// support reserve()).
-///
-/// Calling with @p n == 0 is a no-op for all backends to avoid
-/// unnecessary allocations.
-template<typename Map, typename Size>
-void map_reserve([[maybe_unused]] Map& map, [[maybe_unused]] Size n)
-{
-#ifdef GTOPT_USE_STD_MAP
-  // std::map does not support reserve() — intentional no-op.
-#elifdef GTOPT_USE_STD_FLAT_MAP
-  if (n == 0) {
-    return;
-  }
-  auto containers = std::move(map).extract();
-  containers.keys.reserve(static_cast<size_t>(n));
-  containers.values.reserve(static_cast<size_t>(n));
-  map.replace(std::move(containers.keys),  // NOLINT
-              std::move(containers.values));
-#else  // GTOPT_USE_BOOST_FLAT_MAP
-  if (n == 0) {
-    return;
-  }
-  map.reserve(n);
-#endif
-}
+//
+// `map_reserve(map, n)` is now defined in `map_reserve.hpp` (above) and
+// dispatched generically by `requires`-expressions on the actual container
+// type, so it works for `flat_map`, `std::unordered_map`, `std::flat_map`,
+// and `std::map` (no-op) — independent of the flat_map backend selected.
 
 // ── map_insert_sorted_unique ─────────────────────────────────────────────────
 

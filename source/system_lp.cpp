@@ -21,6 +21,7 @@
 #include <gtopt/bus_island.hpp>
 #include <gtopt/linear_interface.hpp>
 #include <gtopt/lp_fingerprint.hpp>
+#include <gtopt/map_reserve.hpp>
 #include <gtopt/output_context.hpp>
 #include <gtopt/system_lp.hpp>
 #include <spdlog/spdlog.h>
@@ -215,6 +216,8 @@ void fix_stage_islands(const auto& collections,
   // contains a reference bus.  If not, pin the first bus's theta to zero.
   std::unordered_map<std::size_t, bool> root_has_ref;
   std::unordered_map<std::size_t, std::size_t> root_first_theta;
+  map_reserve(root_has_ref, n_buses);
+  map_reserve(root_first_theta, n_buses);
 
   for (std::size_t i = 0; i < n_buses; ++i) {
     if (!has_theta[i]) {

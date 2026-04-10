@@ -45,10 +45,10 @@ namespace gtopt
 auto build_phase_uid_map(const PlanningLP& planning_lp)
     -> flat_map<PhaseUid, PhaseIndex>
 {
+  const auto& phases = planning_lp.simulation().phases();
   flat_map<PhaseUid, PhaseIndex> phase_map;
-  for (auto&& [pi, phase] :
-       enumerate<PhaseIndex>(planning_lp.simulation().phases()))
-  {
+  map_reserve(phase_map, phases.size());
+  for (auto&& [pi, phase] : enumerate<PhaseIndex>(phases)) {
     phase_map.emplace(phase.uid(), pi);
   }
   return phase_map;
@@ -57,10 +57,10 @@ auto build_phase_uid_map(const PlanningLP& planning_lp)
 auto build_scene_uid_map(const PlanningLP& planning_lp)
     -> flat_map<SceneUid, SceneIndex>
 {
+  const auto& scenes = planning_lp.simulation().scenes();
   flat_map<SceneUid, SceneIndex> scene_map;
-  for (auto&& [si, scene] :
-       enumerate<SceneIndex>(planning_lp.simulation().scenes()))
-  {
+  map_reserve(scene_map, scenes.size());
+  for (auto&& [si, scene] : enumerate<SceneIndex>(scenes)) {
     scene_map.emplace(scene.uid(), si);
   }
   return scene_map;
@@ -247,6 +247,7 @@ auto save_cuts_csv(std::span<const StoredCut> cuts,
     // Build per-phase ColIndex → structured key reverse maps (cached).
     const auto& sim = planning_lp.simulation();
     flat_map<PhaseIndex, ColKeyMap> phase_col_keys;
+    map_reserve(phase_col_keys, phase_map.size());
     for (const auto& [uid, pi] : phase_map) {
       phase_col_keys.try_emplace(pi,
                                  build_col_key_map(sim, SceneIndex {0}, pi));
@@ -332,6 +333,7 @@ auto save_scene_cuts_csv(std::span<const StoredCut> cuts,
     // Build per-phase ColIndex → structured key reverse maps (cached).
     const auto& sim = planning_lp.simulation();
     flat_map<PhaseIndex, ColKeyMap> phase_col_keys;
+    map_reserve(phase_col_keys, phase_map.size());
     for (const auto& [uid, pi] : phase_map) {
       phase_col_keys.try_emplace(pi, build_col_key_map(sim, scene_index, pi));
     }
@@ -888,6 +890,7 @@ auto load_boundary_cuts_csv(
 
     // Build scene UID -> SceneIndex lookup (for "separated" mode)
     flat_map<SceneUid, SceneIndex> scene_uid_to_index;
+    map_reserve(scene_uid_to_index, static_cast<std::size_t>(num_scenes));
     for (const auto si : iota_range<SceneIndex>(0, num_scenes)) {
       scene_uid_to_index[sim.scenes()[si].uid()] = si;
     }
@@ -897,6 +900,8 @@ auto load_boundary_cuts_csv(
 
     std::unordered_map<std::string, std::pair<std::string_view, Uid>>
         name_to_class_uid;
+    map_reserve(name_to_class_uid,
+                sys.junction_array.size() + sys.battery_array.size());
     for (const auto& junc : sys.junction_array) {
       name_to_class_uid[junc.name] = {"Junction", junc.uid};
     }
@@ -1270,6 +1275,8 @@ auto load_named_cuts_csv(
 
     std::unordered_map<std::string, std::pair<std::string_view, Uid>>
         name_to_class_uid;
+    map_reserve(name_to_class_uid,
+                sys.junction_array.size() + sys.battery_array.size());
     for (const auto& junc : sys.junction_array) {
       name_to_class_uid[junc.name] = {"Junction", junc.uid};
     }
@@ -1286,6 +1293,7 @@ auto load_named_cuts_csv(
     // Cache per-phase column maps (lazy: built on first use)
     std::unordered_map<PhaseIndex, std::vector<std::optional<ColIndex>>>
         phase_col_maps;
+    map_reserve(phase_col_maps, sim.phases().size());
 
     auto get_col_map = [&](PhaseIndex phase_index)
         -> const std::vector<std::optional<ColIndex>>&
@@ -1527,6 +1535,7 @@ auto save_cuts_json(std::span<const StoredCut> cuts,
 
     // Build per-phase ColKeyMap (cached)
     flat_map<PhaseIndex, ColKeyMap> phase_col_keys;
+    map_reserve(phase_col_keys, phase_map.size());
     for (const auto& [uid, pi] : phase_map) {
       phase_col_keys.try_emplace(pi,
                                  build_col_key_map(sim, SceneIndex {0}, pi));

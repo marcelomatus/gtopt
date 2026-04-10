@@ -413,8 +413,11 @@ auto average_benders_cut(const std::vector<SparseRow>& cuts) -> SparseRow
 
   const auto n = static_cast<double>(cuts.size());
 
-  // Collect all column indices that appear in any cut
+  // Collect all column indices that appear in any cut.
+  // Use the first cut's column count as a lower-bound size hint —
+  // all cuts typically share most columns.
   flat_map<ColIndex, double> avg_coeffs;
+  map_reserve(avg_coeffs, cuts.front().cmap.size());
   double avg_rhs = 0.0;
 
   for (const auto& cut : cuts) {
@@ -469,6 +472,7 @@ auto weighted_average_benders_cut(const std::vector<SparseRow>& cuts,
   }
 
   flat_map<ColIndex, double> avg_coeffs;
+  map_reserve(avg_coeffs, cuts.front().cmap.size());
   double avg_rhs = 0.0;
 
   for (std::size_t i = 0; i < cuts.size(); ++i) {
@@ -504,6 +508,7 @@ auto accumulate_benders_cuts(const std::vector<SparseRow>& cuts) -> SparseRow
 
   // Accumulate (sum) all cuts: no division by count or weight normalisation
   flat_map<ColIndex, double> sum_coeffs;
+  map_reserve(sum_coeffs, cuts.front().cmap.size());
   double sum_rhs = 0.0;
 
   for (const auto& cut : cuts) {
