@@ -994,3 +994,140 @@ TEST_CASE("Planning JSON parse and solve - hydro system")
   auto result = planning_lp.resolve();
   REQUIRE(result.has_value());
 }
+
+// ──────────────────────────────────────────────────────────────────────
+// Parallel (scene × phase) build path
+//
+// PlanningLP::create_systems builds every (scene, phase) cell in
+// parallel into a `vector<vector<optional<SystemLP>>>` build buffer
+// and then moves the cells into the final `phase_systems_t`.  Each
+// move triggers `SystemLP::operator SystemLP(SystemLP&&)`, which
+// re-points the embedded SystemContext at the new owner.
+//
+// This test exercises the path with multiple scenes × multiple phases
+// so the build buffer holds more than one cell, and verifies that
+// every (scene, phase) cell ends up with:
+//   - the correct phase / scene metadata,
+//   - a SystemContext whose `system()` back-reference points at
+//     itself (proving the rebind ran), and
+//   - a non-empty bus collection (proving `m_collection_ptrs_` was
+//     rebuilt to point at the moved-in collections tuple).
+// ──────────────────────────────────────────────────────────────────────
+
+TEST_CASE("PlanningLP - parallel multi-scene multi-phase build")
+{
+  // 2 scenes × 3 phases × 1 stage per phase × 2 blocks per stage.
+  Array<Block> block_array;
+  for (int i = 0; i < 6; ++i) {
+    block_array.push_back(Block {
+        .uid = Uid {i + 1},
+        .duration = 1.0,
+    });
+  }
+
+  Array<Stage> stage_array;
+  Array<Phase> phase_array;
+  for (Size p = 0; p < 3; ++p) {
+    stage_array.push_back(Stage {
+        .uid = Uid {static_cast<int>(p) + 1},
+        .first_block = p * 2,
+        .count_block = 2,
+    });
+    phase_array.push_back(Phase {
+        .uid = Uid {static_cast<int>(p) + 1},
+        .first_stage = p,
+        .count_stage = 1,
+    });
+  }
+
+  const Simulation simulation = {
+      .block_array = block_array,
+      .stage_array = stage_array,
+      .scenario_array =
+          {
+              {.uid = Uid {1}},
+              {.uid = Uid {2}},
+          },
+      .phase_array = phase_array,
+      .scene_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .name = {},
+                  .active = {},
+                  .first_scenario = 0,
+                  .count_scenario = 1,
+              },
+              {
+                  .uid = Uid {2},
+                  .name = {},
+                  .active = {},
+                  .first_scenario = 1,
+                  .count_scenario = 1,
+              },
+          },
+  };
+
+  const Array<Bus> bus_array = {
+      {.uid = Uid {1}, .name = "b1"},
+      {.uid = Uid {2}, .name = "b2"},
+  };
+  const Array<Generator> generator_array = {
+      {
+          .uid = Uid {1},
+          .name = "g1",
+          .bus = Uid {1},
+          .gcost = 50.0,
+          .capacity = 100.0,
+      },
+  };
+  const Array<Demand> demand_array = {
+      {.uid = Uid {1}, .name = "d1", .bus = Uid {1}, .capacity = 50.0},
+  };
+
+  const System system = {
+      .name = "MultiPhaseTestSystem",
+      .bus_array = bus_array,
+      .demand_array = demand_array,
+      .generator_array = generator_array,
+  };
+
+  const Planning planning = {
+      .simulation = simulation,
+      .system = system,
+  };
+
+  PlanningLP planning_lp(planning);
+
+  // Shape: 2 scenes × 3 phases.
+  REQUIRE(planning_lp.systems().size() == 2);
+  for (const auto& phase_systems : planning_lp.systems()) {
+    REQUIRE(phase_systems.size() == 3);
+  }
+
+  // Each (scene, phase) cell must satisfy the post-move invariants.
+  for (auto&& [scene_index, phase_systems] :
+       enumerate<SceneIndex>(planning_lp.systems()))
+  {
+    for (auto&& [phase_index, sys] : enumerate<PhaseIndex>(phase_systems)) {
+      // SystemContext back-ref points at this slot, not at the
+      // build-buffer SystemLP it was moved out of.
+      CHECK(&sys.system_context().system() == &sys);
+
+      // Collection-ptr table was rebuilt: bus collection has 2 buses.
+      CHECK(sys.elements<BusLP>().size() == bus_array.size());
+      CHECK(sys.elements<GeneratorLP>().size() == generator_array.size());
+      CHECK(sys.elements<DemandLP>().size() == demand_array.size());
+
+      // Phase / scene metadata matches the slot we are looking at.
+      CHECK(sys.phase().index() == phase_index);
+      CHECK(sys.scene().index() == scene_index);
+    }
+  }
+
+  // Resolve runs every (scene, phase) cell — proves SystemContext is
+  // wired correctly for downstream solver work, not just for direct
+  // accessor reads.
+  auto result = planning_lp.resolve();
+  REQUIRE(result.has_value());
+}
