@@ -54,17 +54,44 @@ bool CapacityObjectBase::add_to_lp(SystemContext& sc,
     }
   } else {
     if (prev_stage != nullptr) {
-      const auto stg_ctx = make_stage_context(scenario.uid(), stage.uid());
-      auto process_prev_state =
-          [&](const std::string_view col_name) -> std::optional<ColIndex>
-      {
-        if (auto prev_svar = sc.get_state_variable(
-                sv_key_p(scenario, *prev_stage, col_name));
-            prev_svar)
+      // Cross-phase boundary.  Under parallel phase construction within
+      // a scene, the producer-side `StateVariable` in the previous
+      // phase may not yet exist when this phase runs, so we cannot
+      // call `get_state_variable(prev_key)` here.  Instead we
+      // determine deterministically — from this element's own
+      // expansion schedules — whether the previous phase will publish
+      // capainst/capacost StateVariables (publishing is sticky from
+      // the first stage where `stage_maxexpcap > 0`).  When yes, we
+      // allocate the dependent columns up-front and queue the
+      // producer-side `add_dependent_variable` link to be resolved
+      // later by `PlanningLP::tighten_scene_phase_links`.
+      bool prev_phase_publishes = false;
+      for (const auto& s : sc.simulation().stages()) {
+        if (s.index() > prev_stage->index()) {
+          break;
+        }
+        const auto suid = s.uid();
+        const auto se_expcap = m_expcap_.at(suid).value_or(0.0);
+        const auto se_expmod = m_expmod_.at(suid).value_or(0.0);
+        if (se_expcap * se_expmod > 0) {
+          prev_phase_publishes = true;
+          break;
+        }
+      }
+
+      prev_stage_capacity = stage_capacity;
+
+      if (prev_phase_publishes) {
+        const auto stg_ctx = make_stage_context(scenario.uid(), stage.uid());
+        auto make_dependent_col =
+            [&](const std::string_view col_name) -> ColIndex
         {
           // Dependent state column: mirrors a state variable from the
           // previous phase.  Marked is_state so its label is emitted at
-          // LpNamesLevel::minimal (SDDP cut I/O needs it).
+          // LpNamesLevel::minimal (SDDP cut I/O needs it).  The
+          // producer-side link is queued via `defer_state_link` and
+          // resolved in `PlanningLP::tighten_scene_phase_links` after
+          // parallel phase construction joins.
           auto col = lp.add_col({
               .is_state = true,
               .class_name = m_class_name_,
@@ -72,15 +99,13 @@ bool CapacityObjectBase::add_to_lp(SystemContext& sc,
               .variable_uid = uid(),
               .context = stg_ctx,
           });
-          prev_svar->get().add_dependent_variable(scenario, stage, col);
+          sc.defer_state_link(sv_key_p(scenario, *prev_stage, col_name), col);
           return col;
-        }
-        return std::nullopt;
-      };
+        };
 
-      prev_stage_capacity = stage_capacity;
-      prev_capainst_col = process_prev_state(CapainstName);
-      prev_capacost_col = process_prev_state(CapacostName);
+        prev_capainst_col = make_dependent_col(CapainstName);
+        prev_capacost_col = make_dependent_col(CapacostName);
+      }
     }
   }
 
