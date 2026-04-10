@@ -2534,3 +2534,183 @@ TEST_CASE("User constraint - F5 abs(line.flow) lowers via flowp - flown")
   REQUIRE(result.has_value());
   CHECK(result.value() == 1);
 }
+
+// -- Soft constraints (Tier 0+ A4) --------------------------------------
+
+// clang-format off
+
+/// Soft `<=` constraint: a tight cap below the natural dispatch
+/// optimum.  With penalty < generator gcost, the LP must prefer paying
+/// the slack penalty over forgoing dispatch — slack > 0, problem still
+/// feasible.  Without the soft sugar this would either force load
+/// curtailment or refuse to relax the bound.
+static constexpr std::string_view soft_le_uc_json = R"json({
+  "options": {
+    "annual_discount_rate": 0.0,
+    "output_format": "csv",
+    "output_compression": "uncompressed",
+    "use_single_bus": true,
+    "demand_fail_cost": 1000,
+    "scale_objective": 1
+  },
+  "simulation": {
+    "block_array": [{"uid": 1, "duration": 1}],
+    "stage_array": [{"uid": 1, "first_block": 0, "count_block": 1, "active": 1}],
+    "scenario_array": [{"uid": 1, "probability_factor": 1}]
+  },
+  "system": {
+    "name": "soft_le_test",
+    "bus_array": [{"uid": 1, "name": "b1"}],
+    "generator_array": [
+      {"uid": 1, "name": "g1", "bus": "b1", "pmin": 0, "pmax": 100, "gcost": 20, "capacity": 100}
+    ],
+    "demand_array": [
+      {"uid": 1, "name": "d1", "bus": "b1", "lmax": [[90.0]]}
+    ],
+    "user_constraint_array": [
+      {
+        "uid": 1,
+        "name": "soft_cap",
+        "expression": "generator('g1').generation <= 50",
+        "constraint_type": "raw",
+        "penalty": 5
+      }
+    ]
+  }
+})json";
+
+/// Soft `=` constraint: an equality with two slacks.  Demand of 90
+/// MW would normally be split between dispatch and demand failure,
+/// but the soft equality `gen = 70` introduces both slacks so the
+/// optimizer can deviate either way at penalty cost.
+static constexpr std::string_view soft_eq_uc_json = R"json({
+  "options": {
+    "annual_discount_rate": 0.0,
+    "output_format": "csv",
+    "output_compression": "uncompressed",
+    "use_single_bus": true,
+    "demand_fail_cost": 1000,
+    "scale_objective": 1
+  },
+  "simulation": {
+    "block_array": [{"uid": 1, "duration": 1}],
+    "stage_array": [{"uid": 1, "first_block": 0, "count_block": 1, "active": 1}],
+    "scenario_array": [{"uid": 1, "probability_factor": 1}]
+  },
+  "system": {
+    "name": "soft_eq_test",
+    "bus_array": [{"uid": 1, "name": "b1"}],
+    "generator_array": [
+      {"uid": 1, "name": "g1", "bus": "b1", "pmin": 0, "pmax": 100, "gcost": 20, "capacity": 100}
+    ],
+    "demand_array": [
+      {"uid": 1, "name": "d1", "bus": "b1", "lmax": [[90.0]]}
+    ],
+    "user_constraint_array": [
+      {
+        "uid": 1,
+        "name": "soft_target",
+        "expression": "generator('g1').generation = 70",
+        "constraint_type": "raw",
+        "penalty": 1
+      }
+    ]
+  }
+})json";
+
+// clang-format on
+
+TEST_CASE("User constraint - penalty field round-trips through JSON")
+{
+  using namespace gtopt;
+
+  auto planning = daw::json::from_json<Planning>(soft_le_uc_json);
+  REQUIRE(planning.system.user_constraint_array.size() == 1);
+  const auto& uc = planning.system.user_constraint_array[0];
+
+  REQUIRE(uc.penalty.has_value());
+  CHECK(uc.penalty.value_or(0.0) == doctest::Approx(5.0));
+}
+
+TEST_CASE("User constraint - missing penalty field defaults to nullopt")
+{
+  using namespace gtopt;
+
+  // The legacy fixture has no `penalty` field at all — verify that
+  // the optional stays empty rather than defaulting to 0 (a future
+  // refactor might be tempted to coerce missing → 0 and accidentally
+  // turn every constraint into a soft one).
+  auto planning = daw::json::from_json<Planning>(single_bus_uc_dual_json);
+  REQUIRE(planning.system.user_constraint_array.size() == 1);
+  CHECK_FALSE(planning.system.user_constraint_array[0].penalty.has_value());
+}
+
+TEST_CASE("User constraint - soft `<=` builds and solves")
+{
+  using namespace gtopt;
+
+  // The constraint `g1.generation <= 50` is tighter than the natural
+  // dispatch optimum (90 MW demand at gcost 20).  With penalty=5, the
+  // LP must add a slack column with cost 5 and let the constraint be
+  // violated.  Without the soft sugar this would force the optimizer
+  // to leave 40 MW of demand unserved at fail_cost=1000.
+  auto planning = daw::json::from_json<Planning>(soft_le_uc_json);
+  PlanningLP planning_lp(std::move(planning));
+
+  auto result = planning_lp.resolve();
+  REQUIRE(result.has_value());
+  CHECK(result.value() == 1);
+}
+
+TEST_CASE("User constraint - soft `=` builds and solves with two slacks")
+{
+  using namespace gtopt;
+
+  auto planning = daw::json::from_json<Planning>(soft_eq_uc_json);
+  PlanningLP planning_lp(std::move(planning));
+
+  auto result = planning_lp.resolve();
+  REQUIRE(result.has_value());
+  CHECK(result.value() == 1);
+}
+
+TEST_CASE("User constraint - soft slack columns appear in CSV output")
+{
+  using namespace gtopt;
+
+  const auto tmpdir =
+      std::filesystem::temp_directory_path() / "gtopt_uc_soft_slack_test";
+  std::filesystem::remove_all(tmpdir);
+  std::filesystem::create_directories(tmpdir);
+
+  auto planning = daw::json::from_json<Planning>(soft_le_uc_json);
+  planning.options.output_directory = tmpdir.string();
+
+  const PlanningOptionsLP options(planning.options);
+  SimulationLP sim_lp(planning.simulation, options);
+  SystemLP sys_lp(planning.system, sim_lp);
+
+  auto res = sys_lp.linear_interface().resolve();
+  REQUIRE(res.has_value());
+
+  sys_lp.write_out();
+
+  // The visible-slack contract requires the slack primal value AND
+  // its realized cost to land in the standard output stream.
+  const auto sol_file = tmpdir / "UserConstraint" / "slack_sol.csv";
+  const auto cost_file = tmpdir / "UserConstraint" / "slack_cost.csv";
+  CHECK(std::filesystem::exists(sol_file));
+  CHECK(std::filesystem::exists(cost_file));
+
+  if (std::filesystem::exists(sol_file)) {
+    std::ifstream f(sol_file);
+    const std::string content((std::istreambuf_iterator<char>(f)),
+                              std::istreambuf_iterator<char>());
+    CHECK_FALSE(content.empty());
+    CHECK(content.find("scenario") != std::string::npos);
+    CHECK(content.find("stage") != std::string::npos);
+    CHECK(content.find("block") != std::string::npos);
+  }
+
+  std::filesystem::remove_all(tmpdir);
+}

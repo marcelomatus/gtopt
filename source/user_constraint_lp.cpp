@@ -582,8 +582,32 @@ bool UserConstraintLP::add_to_lp(const SystemContext& sc,
   const bool is_debug = (mode == ConstraintMode::debug);
   const bool is_strict = (mode == ConstraintMode::strict || is_debug);
 
+  // Soft-constraint sugar: when `penalty` is set on the underlying
+  // UserConstraint, the LP row gets one or two auto-created slack
+  // columns folded in so the constraint can be relaxed at that
+  // per-unit cost.  RANGE form is not yet supported.
+  const auto penalty = uc.penalty.value_or(0.0);
+  const bool is_soft = penalty > 0.0;
+  if (is_soft && expr.constraint_type == ConstraintType::RANGE) {
+    throw std::runtime_error(
+        std::format("user_constraint '{}': `penalty` is not supported on RANGE "
+                    "(`lower <= expr <= upper`) constraints — split into two "
+                    "one-sided constraints instead",
+                    uc.name));
+  }
+  const bool soft_needs_neg =
+      is_soft && expr.constraint_type == ConstraintType::EQUAL;
+
   BIndexHolder<RowIndex> block_rows;
+  BIndexHolder<ColIndex> block_slack_cols;
+  BIndexHolder<ColIndex> block_slack_neg_cols;
   map_reserve(block_rows, stage.blocks().size());
+  if (is_soft) {
+    map_reserve(block_slack_cols, stage.blocks().size());
+    if (soft_needs_neg) {
+      map_reserve(block_slack_neg_cols, stage.blocks().size());
+    }
+  }
 
   for (const auto& block : stage.blocks()) {
     if (!in_range(domain.blocks, block.uid())) {
@@ -631,6 +655,56 @@ bool UserConstraintLP::add_to_lp(const SystemContext& sc,
     if (adjusted_expr.upper_bound) {
       *adjusted_expr.upper_bound -= param_shift;
     }
+
+    // Soft-constraint relaxation — fold one or two slack columns into
+    // the row before sealing it.  Each slack carries `cost = penalty`,
+    // is non-negative, and is registered through `add_ampl_variable`
+    // so other constraints / reports can reference it by the canonical
+    // names `slack`, `slack_pos`, `slack_neg`.
+    if (is_soft) {
+      const auto block_ctx =
+          make_block_context(scenario.uid(), stage.uid(), block.uid());
+      const auto slack_col = lp.add_col(SparseCol {
+          .cost = penalty,
+          .class_name = ClassName.full_name(),
+          .variable_name = soft_needs_neg ? SlackPosName : SlackName,
+          .variable_uid = uid(),
+          .context = block_ctx,
+      });
+      // LE: row gets `−1·slack` so the optimizer can absorb overage.
+      // GE: row gets `+1·slack` so the optimizer can absorb shortfall.
+      // EQ (slack_pos): row gets `+1·slack_pos`, paired with slack_neg.
+      double pos_coeff = 0.0;
+      switch (expr.constraint_type) {
+        case ConstraintType::LESS_EQUAL:
+          pos_coeff = -1.0;
+          break;
+        case ConstraintType::GREATER_EQUAL:
+          pos_coeff = +1.0;
+          break;
+        case ConstraintType::EQUAL:
+          pos_coeff = +1.0;
+          break;
+        case ConstraintType::RANGE:
+          // Already rejected at the top of add_to_lp.
+          break;
+      }
+      row.cmap[slack_col] = pos_coeff;
+      block_slack_cols[block.uid()] = slack_col;
+
+      if (soft_needs_neg) {
+        const auto slack_neg_col = lp.add_col(SparseCol {
+            .cost = penalty,
+            .class_name = ClassName.full_name(),
+            .variable_name = SlackNegName,
+            .variable_uid = uid(),
+            .context = block_ctx,
+        });
+        row.cmap[slack_neg_col] = -1.0;
+        block_slack_neg_cols[block.uid()] = slack_neg_col;
+      }
+    }
+
     apply_constraint_bounds(row, adjusted_expr);
     const auto row_nterms = row.size();
     // Compute row_name lazily only when debug logging is enabled — otherwise
@@ -665,6 +739,31 @@ bool UserConstraintLP::add_to_lp(const SystemContext& sc,
     }
   }
 
+  // Publish auto-created slack columns to the AMPL registry so other
+  // user constraints / reports can reference them, and stash the per-
+  // (scenario, stage) holders for `add_to_output`.
+  if (is_soft && !block_slack_cols.empty()) {
+    static const auto ampl_name = std::string {ClassName.snake_case()};
+    const auto st_key = std::tuple {scenario.uid(), stage.uid()};
+    sc.add_ampl_variable(ampl_name,
+                         uid(),
+                         soft_needs_neg ? SlackPosName : SlackName,
+                         scenario,
+                         stage,
+                         block_slack_cols);
+    m_slack_cols_[st_key] = std::move(block_slack_cols);
+
+    if (soft_needs_neg && !block_slack_neg_cols.empty()) {
+      sc.add_ampl_variable(ampl_name,
+                           uid(),
+                           SlackNegName,
+                           scenario,
+                           stage,
+                           block_slack_neg_cols);
+      m_slack_neg_cols_[st_key] = std::move(block_slack_neg_cols);
+    }
+  }
+
   return true;
 }
 
@@ -685,6 +784,21 @@ bool UserConstraintLP::add_to_output(OutputContext& out) const
     // (scale_obj / (prob × discount × Δt)).
     // "power"  → dual in $/MW;  "energy" → dual in $/MWh.
     out.add_row_dual(ClassName.full_name(), ConstraintName, pid, m_rows_);
+  }
+
+  // Auto-created slack columns from soft-constraint sugar.  The
+  // visible-slack contract requires both the primal value and the
+  // realized cost to land in the standard output stream.
+  const auto slack_name = m_slack_neg_cols_.empty() ? SlackName : SlackPosName;
+  if (!m_slack_cols_.empty()) {
+    out.add_col_sol(ClassName.full_name(), slack_name, pid, m_slack_cols_);
+    out.add_col_cost(ClassName.full_name(), slack_name, pid, m_slack_cols_);
+  }
+  if (!m_slack_neg_cols_.empty()) {
+    out.add_col_sol(
+        ClassName.full_name(), SlackNegName, pid, m_slack_neg_cols_);
+    out.add_col_cost(
+        ClassName.full_name(), SlackNegName, pid, m_slack_neg_cols_);
   }
 
   return true;

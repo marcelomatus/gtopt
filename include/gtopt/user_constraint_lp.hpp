@@ -57,6 +57,14 @@ class UserConstraintLP : public ObjectLP<UserConstraint>
 public:
   static constexpr LPClassName ClassName {"UserConstraint"};
   static constexpr std::string_view ConstraintName {"constraint"};
+  /// Slack column emitted for one-sided soft constraints (`<=` / `>=`).
+  static constexpr std::string_view SlackName {"slack"};
+  /// Positive-deviation slack for soft equality constraints
+  /// (`expr = rhs`).  Sign convention: row gets `+1.0 * slack_pos`.
+  static constexpr std::string_view SlackPosName {"slack_pos"};
+  /// Negative-deviation slack for soft equality constraints
+  /// (`expr = rhs`).  Sign convention: row gets `-1.0 * slack_neg`.
+  static constexpr std::string_view SlackNegName {"slack_neg"};
 
   explicit UserConstraintLP(const UserConstraint& uc, InputContext& ic);
 
@@ -99,6 +107,15 @@ private:
   ConstraintScaleType m_scale_type_ {ConstraintScaleType::Power};
   /// Per-(scenario, stage) row indices produced by add_to_lp
   STBIndexHolder<RowIndex> m_rows_ {};
+  /// Per-(scenario, stage) slack columns for soft constraints.
+  /// Used by `LESS_EQUAL` / `GREATER_EQUAL` (single slack) and as the
+  /// `+` slack for soft `EQUAL` constraints.  Empty when `penalty` is
+  /// not set on the underlying `UserConstraint`.
+  STBIndexHolder<ColIndex> m_slack_cols_ {};
+  /// Per-(scenario, stage) negative-deviation slack columns used only
+  /// for soft `EQUAL` constraints (the `−` half of the absolute-value
+  /// relaxation).  Empty for one-sided soft constraints.
+  STBIndexHolder<ColIndex> m_slack_neg_cols_ {};
 };
 
 }  // namespace gtopt
