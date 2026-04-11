@@ -33,7 +33,7 @@ public:
 
   [[nodiscard]] constexpr auto uid() const noexcept
   {
-    return ScenarioUid(m_scenario_.uid);
+    return make_uid<Scenario>(m_scenario_.uid);
   }
 
   [[nodiscard]] constexpr auto probability_factor() const noexcept

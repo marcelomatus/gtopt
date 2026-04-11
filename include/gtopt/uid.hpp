@@ -158,6 +158,16 @@ template<class Tag>
   return UidOf<Tag> {};
 }
 
+/// ADL-friendly accessor matching the rollbear/strong_type `value_of`
+/// free function used throughout the codebase (see
+/// `source/user_constraint_lp.cpp`, `source/sddp_method.cpp` etc.).
+/// Returning `uid_t` directly keeps existing call sites unchanged.
+template<class Tag>
+[[nodiscard]] constexpr auto value_of(const UidOf<Tag>& u) noexcept -> uid_t
+{
+  return u.value();
+}
+
 }  // namespace gtopt
 
 // ─── std::hash specialization ───────────────────────────────────────────────

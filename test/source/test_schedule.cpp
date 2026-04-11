@@ -59,12 +59,18 @@ TEST_CASE("schedule test vector")
 
     const STBRealSched stbsched {ic, "class", id, stbfield};
 
-    REQUIRE(stbsched.at(ScenarioUid {1}, StageUid {1}, BlockUid {1}) == 1);
-    REQUIRE(stbsched.at(ScenarioUid {1}, StageUid {2}, BlockUid {2}) == 2);
-    REQUIRE(stbsched.at(ScenarioUid {1}, StageUid {2}, BlockUid {3}) == 3);
-    REQUIRE(stbsched.at(ScenarioUid {2}, StageUid {1}, BlockUid {1}) == 4);
-    REQUIRE(stbsched.at(ScenarioUid {2}, StageUid {2}, BlockUid {2}) == 5);
-    REQUIRE(stbsched.at(ScenarioUid {2}, StageUid {2}, BlockUid {3}) == 6);
+    REQUIRE(stbsched.at(make_uid<Scenario>(1), StageUid {1}, BlockUid {1})
+            == 1);
+    REQUIRE(stbsched.at(make_uid<Scenario>(1), StageUid {2}, BlockUid {2})
+            == 2);
+    REQUIRE(stbsched.at(make_uid<Scenario>(1), StageUid {2}, BlockUid {3})
+            == 3);
+    REQUIRE(stbsched.at(make_uid<Scenario>(2), StageUid {1}, BlockUid {1})
+            == 4);
+    REQUIRE(stbsched.at(make_uid<Scenario>(2), StageUid {2}, BlockUid {2})
+            == 5);
+    REQUIRE(stbsched.at(make_uid<Scenario>(2), StageUid {2}, BlockUid {3})
+            == 6);
   }
 
   SUBCASE("tbfield")
@@ -86,10 +92,10 @@ TEST_CASE("schedule test vector")
 
     const STRealSched stsched {ic, "class", id, stfield};
 
-    REQUIRE(stsched.at(ScenarioUid {1}, StageUid {1}) == 1);
-    REQUIRE(stsched.at(ScenarioUid {1}, StageUid {2}) == 2);
-    REQUIRE(stsched.at(ScenarioUid {2}, StageUid {1}) == 3);
-    REQUIRE(stsched.at(ScenarioUid {2}, StageUid {2}) == 4);
+    REQUIRE(stsched.at(make_uid<Scenario>(1), StageUid {1}) == 1);
+    REQUIRE(stsched.at(make_uid<Scenario>(1), StageUid {2}) == 2);
+    REQUIRE(stsched.at(make_uid<Scenario>(2), StageUid {1}) == 3);
+    REQUIRE(stsched.at(make_uid<Scenario>(2), StageUid {2}) == 4);
   }
 }
 
@@ -134,6 +140,6 @@ TEST_CASE("schedule test 3")
   const gtopt::FieldSched<int, Vector> fs = {4};
   const gtopt::Schedule<int, ScenarioUid, StageUid> sched(fs);
 
-  REQUIRE(sched.at(ScenarioUid {0}, StageUid {0}) == 4);
-  REQUIRE(sched.at(ScenarioUid {1}, StageUid {1}) == 4);
+  REQUIRE(sched.at(make_uid<Scenario>(0), StageUid {0}) == 4);
+  REQUIRE(sched.at(make_uid<Scenario>(1), StageUid {1}) == 4);
 }

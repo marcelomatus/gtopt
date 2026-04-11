@@ -33,7 +33,7 @@ TEST_CASE("Active Elements Accessors")
   {
     CHECK(helper.active_scenarios().size() == 1);
     CHECK(helper.active_scenario_count() == 1);
-    CHECK(helper.is_first_scenario(ScenarioUid {0}));
+    CHECK(helper.is_first_scenario(make_uid<Scenario>(0)));
   }
 
   SUBCASE("Stage accessors")
@@ -70,8 +70,8 @@ TEST_CASE("Flat helper - Flat Methods")
   SUBCASE("GSTBIndexHolder")
   {
     GSTBIndexHolder holder;
-    holder[{ScenarioUid {0}, StageUid {0}, BlockUid {0}}] = 10;
-    holder[{ScenarioUid {0}, StageUid {0}, BlockUid {1}}] = 20;
+    holder[{make_uid<Scenario>(0), StageUid {0}, BlockUid {0}}] = 10;
+    holder[{make_uid<Scenario>(0), StageUid {0}, BlockUid {1}}] = 20;
 
     const block_factor_matrix_t factor;
     auto [values, valid] = helper.flat(holder, [](auto v) { return v; });
@@ -90,7 +90,7 @@ TEST_CASE("Flat helper - Flat Methods")
         {BlockUid {1}, 20},
     };
 
-    holder[{ScenarioUid {0}, StageUid {0}}] = blocks;
+    holder[{make_uid<Scenario>(0), StageUid {0}}] = blocks;
 
     const block_factor_matrix_t factor;
     auto [values, valid] = helper.flat(holder, [](auto v) { return v; });
@@ -104,7 +104,7 @@ TEST_CASE("Flat helper - Flat Methods")
   SUBCASE("STIndexHolder")
   {
     STIndexHolder<Index> holder;
-    holder[{ScenarioUid {0}, StageUid {0}}] = 42;
+    holder[{make_uid<Scenario>(0), StageUid {0}}] = 42;
 
     const scenario_stage_factor_matrix_t factor;
     auto [values, valid] = helper.flat(holder, [](auto v) { return v; });
@@ -130,7 +130,7 @@ TEST_CASE("Flat helper - Flat Methods")
   SUBCASE("With Factor")
   {
     GSTBIndexHolder holder;
-    holder[{ScenarioUid {0}, StageUid {0}, BlockUid {0}}] = 10;
+    holder[{make_uid<Scenario>(0), StageUid {0}, BlockUid {0}}] = 10;
 
     block_factor_matrix_t factor(1, 1);
     factor[0][0] = {2.0};  // Factor for block 0
@@ -159,7 +159,7 @@ TEST_CASE("Flat Helper - Edge Cases")
     CHECK(helper.active_scenario_count() == 0);
     CHECK(helper.active_stage_count() == 0);
     CHECK(helper.active_block_count() == 0);
-    CHECK_FALSE(helper.is_first_scenario(ScenarioUid {0}));
+    CHECK_FALSE(helper.is_first_scenario(make_uid<Scenario>(0)));
     CHECK_FALSE(helper.is_first_stage(StageUid {0}));
     CHECK_FALSE(helper.is_last_stage(StageUid {0}));
 
@@ -218,8 +218,8 @@ TEST_CASE("Flat Helper - Edge Cases")
     const FlatHelper helper(simulation);
 
     GSTBIndexHolder holder;
-    holder[{ScenarioUid {0}, StageUid {0}, BlockUid {0}}] = 10;
-    holder[{ScenarioUid {0}, StageUid {1}, BlockUid {1}}] =
+    holder[{make_uid<Scenario>(0), StageUid {0}, BlockUid {0}}] = 10;
+    holder[{make_uid<Scenario>(0), StageUid {1}, BlockUid {1}}] =
         20;  // Inactive block
 
     auto [values, valid] = helper.flat(holder, [](auto v) { return v; });
@@ -241,7 +241,7 @@ TEST_CASE("Flat Helper - Edge Cases")
     const FlatHelper helper(simulation);
 
     GSTBIndexHolder holder;
-    holder[{ScenarioUid {0}, StageUid {0}, BlockUid {0}}] = 10;
+    holder[{make_uid<Scenario>(0), StageUid {0}, BlockUid {0}}] = 10;
 
     const block_factor_matrix_t factor;
     auto [values, valid] = helper.flat(holder, [](auto v) { return v; });
@@ -315,7 +315,7 @@ TEST_CASE("FlatHelper Const Correctness")
   SUBCASE("Const Flat Methods")
   {
     GSTBIndexHolder holder;
-    holder[{ScenarioUid {0}, StageUid {0}, BlockUid {0}}] = 10;
+    holder[{make_uid<Scenario>(0), StageUid {0}, BlockUid {0}}] = 10;
 
     CHECK_NOTHROW(auto&& _ = helper.flat(holder, [](auto v) { return v; }));
   }
@@ -332,7 +332,7 @@ TEST_CASE("FlatHelper Template Constraints")
 
   const FlatHelper helper(simulation);
   GSTBIndexHolder holder;
-  holder[{ScenarioUid {0}, StageUid {0}, BlockUid {0}}] = 10;
+  holder[{make_uid<Scenario>(0), StageUid {0}, BlockUid {0}}] = 10;
 
   SUBCASE("Valid Projection")
   {
@@ -524,12 +524,12 @@ TEST_CASE("FlatHelper - GSTB flat with non-zero UIDs and factors")  // NOLINT
   SUBCASE("GSTB flat without factor works with non-zero UIDs")
   {
     GSTBIndexHolder holder;
-    holder[{ScenarioUid {3}, StageUid {5}, BlockUid {10}}] = 100;
-    holder[{ScenarioUid {3}, StageUid {5}, BlockUid {20}}] = 200;
-    holder[{ScenarioUid {3}, StageUid {7}, BlockUid {30}}] = 300;
-    holder[{ScenarioUid {8}, StageUid {5}, BlockUid {10}}] = 400;
-    holder[{ScenarioUid {8}, StageUid {5}, BlockUid {20}}] = 500;
-    holder[{ScenarioUid {8}, StageUid {7}, BlockUid {30}}] = 600;
+    holder[{make_uid<Scenario>(3), StageUid {5}, BlockUid {10}}] = 100;
+    holder[{make_uid<Scenario>(3), StageUid {5}, BlockUid {20}}] = 200;
+    holder[{make_uid<Scenario>(3), StageUid {7}, BlockUid {30}}] = 300;
+    holder[{make_uid<Scenario>(8), StageUid {5}, BlockUid {10}}] = 400;
+    holder[{make_uid<Scenario>(8), StageUid {5}, BlockUid {20}}] = 500;
+    holder[{make_uid<Scenario>(8), StageUid {7}, BlockUid {30}}] = 600;
 
     auto [values, valid] = helper.flat(holder, [](auto v) { return v; });
 
@@ -549,12 +549,12 @@ TEST_CASE("FlatHelper - GSTB flat with non-zero UIDs and factors")  // NOLINT
   SUBCASE("GSTB flat with factor uses index-based lookup, not UID-based")
   {
     GSTBIndexHolder holder;
-    holder[{ScenarioUid {3}, StageUid {5}, BlockUid {10}}] = 100;
-    holder[{ScenarioUid {3}, StageUid {5}, BlockUid {20}}] = 200;
-    holder[{ScenarioUid {3}, StageUid {7}, BlockUid {30}}] = 300;
-    holder[{ScenarioUid {8}, StageUid {5}, BlockUid {10}}] = 400;
-    holder[{ScenarioUid {8}, StageUid {5}, BlockUid {20}}] = 500;
-    holder[{ScenarioUid {8}, StageUid {7}, BlockUid {30}}] = 600;
+    holder[{make_uid<Scenario>(3), StageUid {5}, BlockUid {10}}] = 100;
+    holder[{make_uid<Scenario>(3), StageUid {5}, BlockUid {20}}] = 200;
+    holder[{make_uid<Scenario>(3), StageUid {7}, BlockUid {30}}] = 300;
+    holder[{make_uid<Scenario>(8), StageUid {5}, BlockUid {10}}] = 400;
+    holder[{make_uid<Scenario>(8), StageUid {5}, BlockUid {20}}] = 500;
+    holder[{make_uid<Scenario>(8), StageUid {7}, BlockUid {30}}] = 600;
 
     // Factor matrix: 2 scenarios × 2 stages, each stage has its block factors
     block_factor_matrix_t factor(2, 2);
@@ -586,18 +586,18 @@ TEST_CASE("FlatHelper - GSTB flat with non-zero UIDs and factors")  // NOLINT
   SUBCASE("STB flat with factor and non-zero UIDs")
   {
     STBIndexHolder<Index> holder;
-    holder[{ScenarioUid {3}, StageUid {5}}] = {
+    holder[{make_uid<Scenario>(3), StageUid {5}}] = {
         {BlockUid {10}, 100},
         {BlockUid {20}, 200},
     };
-    holder[{ScenarioUid {3}, StageUid {7}}] = {
+    holder[{make_uid<Scenario>(3), StageUid {7}}] = {
         {BlockUid {30}, 300},
     };
-    holder[{ScenarioUid {8}, StageUid {5}}] = {
+    holder[{make_uid<Scenario>(8), StageUid {5}}] = {
         {BlockUid {10}, 400},
         {BlockUid {20}, 500},
     };
-    holder[{ScenarioUid {8}, StageUid {7}}] = {
+    holder[{make_uid<Scenario>(8), StageUid {7}}] = {
         {BlockUid {30}, 600},
     };
 
@@ -623,10 +623,10 @@ TEST_CASE("FlatHelper - GSTB flat with non-zero UIDs and factors")  // NOLINT
   SUBCASE("ST flat with factor and non-zero UIDs")
   {
     STIndexHolder<Index> holder;
-    holder[{ScenarioUid {3}, StageUid {5}}] = 100;
-    holder[{ScenarioUid {3}, StageUid {7}}] = 200;
-    holder[{ScenarioUid {8}, StageUid {5}}] = 300;
-    holder[{ScenarioUid {8}, StageUid {7}}] = 400;
+    holder[{make_uid<Scenario>(3), StageUid {5}}] = 100;
+    holder[{make_uid<Scenario>(3), StageUid {7}}] = 200;
+    holder[{make_uid<Scenario>(8), StageUid {5}}] = 300;
+    holder[{make_uid<Scenario>(8), StageUid {7}}] = 400;
 
     scenario_stage_factor_matrix_t factor(2, 2);
     factor[0][0] = 2.0;
@@ -686,7 +686,7 @@ TEST_CASE("FlatHelper - GSTB flat sparse with non-zero UIDs")  // NOLINT
 
   // Only populate one of two blocks
   GSTBIndexHolder holder;
-  holder[{ScenarioUid {3}, StageUid {5}, BlockUid {10}}] = 100;
+  holder[{make_uid<Scenario>(3), StageUid {5}, BlockUid {10}}] = 100;
   // BlockUid {20} is missing → sparse
 
   block_factor_matrix_t factor(1, 1);

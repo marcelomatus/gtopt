@@ -20,6 +20,7 @@
 #pragma once
 
 #include <gtopt/basic_types.hpp>
+#include <gtopt/uid.hpp>
 
 namespace gtopt
 {
@@ -49,7 +50,7 @@ struct Scenario
   }
 };
 
-using ScenarioUid = StrongUidType<Scenario>;
+using ScenarioUid = UidOf<Scenario>;
 using ScenarioIndex = StrongPositionIndexType<struct Scenario>;
 
 /// @brief First scenario index.

@@ -21,14 +21,14 @@ TEST_CASE("LpFingerprint basic computation")  // NOLINT
       .variable_name = "generation",
       .variable_uid = Uid {1},
       .context =
-          make_block_context(ScenarioUid {0}, StageUid {0}, BlockUid {0}),
+          make_block_context(make_uid<Scenario>(0), StageUid {0}, BlockUid {0}),
   });
   cols.push_back(SparseCol {
       .class_name = "Generator",
       .variable_name = "generation",
       .variable_uid = Uid {2},
       .context =
-          make_block_context(ScenarioUid {0}, StageUid {0}, BlockUid {0}),
+          make_block_context(make_uid<Scenario>(0), StageUid {0}, BlockUid {0}),
   });
 
   // Add a bus theta column (different type)
@@ -37,7 +37,7 @@ TEST_CASE("LpFingerprint basic computation")  // NOLINT
       .variable_name = "theta",
       .variable_uid = Uid {1},
       .context =
-          make_block_context(ScenarioUid {0}, StageUid {0}, BlockUid {0}),
+          make_block_context(make_uid<Scenario>(0), StageUid {0}, BlockUid {0}),
   });
 
   // Add a bus balance row
@@ -46,7 +46,7 @@ TEST_CASE("LpFingerprint basic computation")  // NOLINT
       .constraint_name = "balance",
       .variable_uid = Uid {1},
       .context =
-          make_block_context(ScenarioUid {0}, StageUid {0}, BlockUid {0}),
+          make_block_context(make_uid<Scenario>(0), StageUid {0}, BlockUid {0}),
   });
 
   // Add a generator capacity row (stage context)
@@ -54,7 +54,7 @@ TEST_CASE("LpFingerprint basic computation")  // NOLINT
       .class_name = "Generator",
       .constraint_name = "capacity",
       .variable_uid = Uid {1},
-      .context = make_stage_context(ScenarioUid {0}, StageUid {0}),
+      .context = make_stage_context(make_uid<Scenario>(0), StageUid {0}),
   });
 
   auto fp = compute_lp_fingerprint(cols, rows);
@@ -119,16 +119,16 @@ TEST_CASE("LpFingerprint is element-count independent")  // NOLINT
           .class_name = "Generator",
           .variable_name = "generation",
           .variable_uid = Uid {i},
-          .context =
-              make_block_context(ScenarioUid {0}, StageUid {0}, BlockUid {0}),
+          .context = make_block_context(
+              make_uid<Scenario>(0), StageUid {0}, BlockUid {0}),
       });
     }
     cols.push_back(SparseCol {
         .class_name = "Bus",
         .variable_name = "theta",
         .variable_uid = Uid {0},
-        .context =
-            make_block_context(ScenarioUid {0}, StageUid {0}, BlockUid {0}),
+        .context = make_block_context(
+            make_uid<Scenario>(0), StageUid {0}, BlockUid {0}),
     });
     return cols;
   };
@@ -156,8 +156,8 @@ TEST_CASE("LpFingerprint hash is deterministic")  // NOLINT
           .class_name = "Line",
           .variable_name = "flow",
           .variable_uid = Uid {0},
-          .context =
-              make_block_context(ScenarioUid {0}, StageUid {0}, BlockUid {0}),
+          .context = make_block_context(
+              make_uid<Scenario>(0), StageUid {0}, BlockUid {0}),
       },
   };
   std::vector<SparseRow> rows;
@@ -177,8 +177,8 @@ TEST_CASE("LpFingerprint detects structural changes")  // NOLINT
           .class_name = "Generator",
           .variable_name = "generation",
           .variable_uid = Uid {0},
-          .context =
-              make_block_context(ScenarioUid {0}, StageUid {0}, BlockUid {0}),
+          .context = make_block_context(
+              make_uid<Scenario>(0), StageUid {0}, BlockUid {0}),
       },
   };
   std::vector<SparseRow> rows;
@@ -192,7 +192,7 @@ TEST_CASE("LpFingerprint detects structural changes")  // NOLINT
         .class_name = "Generator",
         .variable_name = "capacity",
         .variable_uid = Uid {0},
-        .context = make_stage_context(ScenarioUid {0}, StageUid {0}),
+        .context = make_stage_context(make_uid<Scenario>(0), StageUid {0}),
     });
 
     auto fp_extended = compute_lp_fingerprint(cols_extended, rows);
@@ -207,7 +207,7 @@ TEST_CASE("LpFingerprint detects structural changes")  // NOLINT
             .class_name = "Generator",
             .variable_name = "generation",
             .variable_uid = Uid {0},
-            .context = make_stage_context(ScenarioUid {0}, StageUid {0}),
+            .context = make_stage_context(make_uid<Scenario>(0), StageUid {0}),
         },
     };
 
@@ -224,8 +224,8 @@ TEST_CASE("LpFingerprint untracked detection")  // NOLINT
         SparseCol {
             .class_name = "",
             .variable_name = "mystery",
-            .context =
-                make_block_context(ScenarioUid {0}, StageUid {0}, BlockUid {0}),
+            .context = make_block_context(
+                make_uid<Scenario>(0), StageUid {0}, BlockUid {0}),
         },
     };
     std::vector<SparseRow> rows;
@@ -256,15 +256,17 @@ TEST_CASE("context_type_name returns correct names")  // NOLINT
 {
   CHECK(context_type_name(LpContext {}) == "monostate");
   CHECK(context_type_name(LpContext {
-            make_stage_context(ScenarioUid {0}, StageUid {0}),
+            make_stage_context(make_uid<Scenario>(0), StageUid {0}),
         })
         == "StageContext");
+  CHECK(
+      context_type_name(LpContext {
+          make_block_context(make_uid<Scenario>(0), StageUid {0}, BlockUid {0}),
+      })
+      == "BlockContext");
   CHECK(context_type_name(LpContext {
-            make_block_context(ScenarioUid {0}, StageUid {0}, BlockUid {0}),
-        })
-        == "BlockContext");
-  CHECK(context_type_name(LpContext {
-            make_block_context(ScenarioUid {0}, StageUid {0}, BlockUid {0}, 1),
+            make_block_context(
+                make_uid<Scenario>(0), StageUid {0}, BlockUid {0}, 1),
         })
         == "BlockExContext");
   CHECK(context_type_name(LpContext {
@@ -280,8 +282,8 @@ TEST_CASE("LpFingerprint JSON output")  // NOLINT
           .class_name = "Bus",
           .variable_name = "theta",
           .variable_uid = Uid {0},
-          .context =
-              make_block_context(ScenarioUid {0}, StageUid {0}, BlockUid {0}),
+          .context = make_block_context(
+              make_uid<Scenario>(0), StageUid {0}, BlockUid {0}),
       },
   };
   std::vector<SparseRow> rows = {
@@ -289,8 +291,8 @@ TEST_CASE("LpFingerprint JSON output")  // NOLINT
           .class_name = "Bus",
           .constraint_name = "balance",
           .variable_uid = Uid {0},
-          .context =
-              make_block_context(ScenarioUid {0}, StageUid {0}, BlockUid {0}),
+          .context = make_block_context(
+              make_uid<Scenario>(0), StageUid {0}, BlockUid {0}),
       },
   };
 

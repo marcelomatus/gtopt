@@ -38,7 +38,8 @@ namespace
 // ── Domain check ─────────────────────────────────────────────────────────────
 
 template<typename T>
-  requires(strong::is_strong_type<T>::value)
+  requires(strong::is_strong_type<T>::value
+           || requires(const T& t) { value_of(t); })
 [[nodiscard]] bool in_range(const IndexRange& range, T value)
 {
   if (range.is_all) {

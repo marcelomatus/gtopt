@@ -182,7 +182,7 @@ auto solve_apertures_for_phase(
 
   for (const auto& [ap_ref, ap_count] : effective_apertures) {
     const auto& aperture = ap_ref.get();
-    const ApertureUid ap_uid {aperture.uid};
+    const ApertureUid ap_uid = make_uid<Scenario>(aperture.uid);
     const double pf = aperture.probability_factor.value_or(1.0);
     if (pf <= 0.0) {
       SPDLOG_WARN(
@@ -261,7 +261,8 @@ auto solve_apertures_for_phase(
                                    BlockUid bl) -> std::optional<double>
                     { return e.aperture_value(ap_scen.uid(), st, bl); };
                   } else {
-                    const ScenarioUid ap_uid_val {aperture.source_scenario};
+                    const ScenarioUid ap_uid_val =
+                        make_uid<Scenario>(aperture.source_scenario);
                     value_fn = [&e, &aperture_cache, ap_uid_val](
                                    StageUid st,
                                    BlockUid bl) -> std::optional<double>

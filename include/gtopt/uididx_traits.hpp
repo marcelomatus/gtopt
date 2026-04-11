@@ -147,7 +147,7 @@ struct UidToArrowIdx<ScenarioUid, StageUid, BlockUid>
     map_reserve(uid_idx, static_cast<size_t>(table->num_rows()));
 
     for (ArrowIndex i = 0; i < table->num_rows(); ++i) {
-      const auto key = key_type {ScenarioUid {(*scenarios)->Value(i)},
+      const auto key = key_type {make_uid<Scenario>((*scenarios)->Value(i)),
                                  StageUid {(*stages)->Value(i)},
                                  BlockUid {(*blocks)->Value(i)}};
       const auto res = uid_idx.emplace(key, i);
@@ -218,7 +218,7 @@ struct UidToArrowIdx<ScenarioUid, StageUid>
     map_reserve(uid_idx, static_cast<size_t>(table->num_rows()));
 
     for (ArrowIndex i = 0; i < table->num_rows(); ++i) {
-      const auto key = key_type {ScenarioUid {(*scenarios)->Value(i)},
+      const auto key = key_type {make_uid<Scenario>((*scenarios)->Value(i)),
                                  StageUid {(*stages)->Value(i)}};
       const auto res = uid_idx.emplace(key, i);
       if (!res.second) {

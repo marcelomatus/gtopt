@@ -94,7 +94,7 @@ auto load_one_file(const FileInfo& info) -> std::optional<FileResult>
     if (ec != std::errc {}) {
       continue;
     }
-    const ScenarioUid scen_uid {raw_uid};
+    const ScenarioUid scen_uid = make_uid<Scenario>(raw_uid);
 
     auto val_col = table->column(c);
     auto val_arr =

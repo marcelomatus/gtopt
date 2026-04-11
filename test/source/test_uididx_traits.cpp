@@ -88,8 +88,8 @@ TEST_CASE("Scenario-Stage-Block mapping")
   SUBCASE("Multiple entries")
   {
     Simulation sim;
-    sim.scenario_array.emplace_back(Scenario {.uid = ScenarioUid {1}});
-    sim.scenario_array.emplace_back(Scenario {.uid = ScenarioUid {2}});
+    sim.scenario_array.emplace_back(Scenario {.uid = make_uid<Scenario>(1)});
+    sim.scenario_array.emplace_back(Scenario {.uid = make_uid<Scenario>(2)});
 
     sim.stage_array.emplace_back(
         Stage {.uid = StageUid {1}, .first_block = 0, .count_block = 1});
@@ -106,10 +106,10 @@ TEST_CASE("Scenario-Stage-Block mapping")
 
     auto result = TestTraits::make_vector_uids_idx(sim_lp);
     CHECK(result->size() == 6);
-    CHECK(result->at({ScenarioUid {1}, StageUid {1}, BlockUid {1}})
+    CHECK(result->at({make_uid<Scenario>(1), StageUid {1}, BlockUid {1}})
           == std::tuple {0, 0, 0});
 
-    auto tuid = std::tuple {ScenarioUid {1}, StageUid {2}, BlockUid {3}};
+    auto tuid = std::tuple {make_uid<Scenario>(1), StageUid {2}, BlockUid {3}};
     auto tidx = std::tuple {0, 1, 1};
     CHECK(as_string(result->at(tuid)) == as_string(tidx));
     CHECK(result->at(tuid) == tidx);
@@ -123,7 +123,7 @@ TEST_CASE("Scenario-Stage mapping")
   SUBCASE("Basic mapping")
   {
     Simulation sim;
-    sim.scenario_array.emplace_back(Scenario {.uid = ScenarioUid {1}});
+    sim.scenario_array.emplace_back(Scenario {.uid = make_uid<Scenario>(1)});
     sim.stage_array.emplace_back(Stage {.uid = StageUid {1}});
 
     const PlanningOptionsLP options;
@@ -132,7 +132,7 @@ TEST_CASE("Scenario-Stage mapping")
     // Remove constexpr requirement since flat_map isn't constexpr
     auto result = TestTraits::make_vector_uids_idx(sim_lp);
     CHECK(result->size() == 1);
-    CHECK(result->at(std::make_tuple(ScenarioUid {1}, StageUid {1}))
+    CHECK(result->at(std::make_tuple(make_uid<Scenario>(1), StageUid {1}))
           == std::make_tuple(0, 0));
   }
 }

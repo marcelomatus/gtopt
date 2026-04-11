@@ -88,7 +88,7 @@ TEST_CASE("LabelMaker level predicates")
 
 TEST_CASE("LabelMaker::make_col_label honors the level gate")
 {
-  const auto ctx = make_stage_context(ScenarioUid {0}, StageUid {1});
+  const auto ctx = make_stage_context(make_uid<Scenario>(0), StageUid {1});
   const auto regular =
       make_col("Bus", "theta", Uid {3}, ctx, /*is_state*/ false);
   const auto state = make_col("Bus", "eini", Uid {5}, ctx, /*is_state*/ true);
@@ -143,7 +143,7 @@ TEST_CASE(
 TEST_CASE("LabelMaker::make_row_label requires cols_and_rows")
 {
   const auto ctx =
-      make_block_context(ScenarioUid {1}, StageUid {2}, BlockUid {3});
+      make_block_context(make_uid<Scenario>(1), StageUid {2}, BlockUid {3});
   const auto row = make_row("Bus", "bal", Uid {4}, ctx);
 
   SUBCASE("none / minimal / only_cols emit nothing")
@@ -164,7 +164,7 @@ TEST_CASE("LabelMaker::make_row_label requires cols_and_rows")
 
 TEST_CASE("LabelMaker::force_col_label ignores level")
 {
-  const auto ctx = make_stage_context(ScenarioUid {0}, StageUid {1});
+  const auto ctx = make_stage_context(make_uid<Scenario>(0), StageUid {1});
   const auto col = make_col("Bus", "theta", Uid {3}, ctx);
   CHECK(LabelMaker::force_col_label(col) == "bus_theta_3_0_1");
 
@@ -176,7 +176,7 @@ TEST_CASE("LabelMaker::force_col_label ignores level")
 TEST_CASE("LabelMaker::force_row_label ignores level")
 {
   const auto ctx =
-      make_block_context(ScenarioUid {1}, StageUid {2}, BlockUid {3});
+      make_block_context(make_uid<Scenario>(1), StageUid {2}, BlockUid {3});
   const auto row = make_row("Bus", "bal", Uid {4}, ctx);
   CHECK(LabelMaker::force_row_label(row) == "bus_bal_4_1_2_3");
 }

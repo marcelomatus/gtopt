@@ -237,12 +237,18 @@ TEST_CASE("Parquet file write and read test")
 
       const STBRealSched stbsched {ic, cname, id, stbfield};
 
-      REQUIRE(stbsched.at(ScenarioUid {1}, StageUid {1}, BlockUid {1}) == 1);
-      REQUIRE(stbsched.at(ScenarioUid {1}, StageUid {2}, BlockUid {2}) == 2);
-      REQUIRE(stbsched.at(ScenarioUid {1}, StageUid {2}, BlockUid {3}) == 3);
-      REQUIRE(stbsched.at(ScenarioUid {2}, StageUid {1}, BlockUid {1}) == 4);
-      REQUIRE(stbsched.at(ScenarioUid {2}, StageUid {2}, BlockUid {2}) == 5);
-      REQUIRE(stbsched.at(ScenarioUid {2}, StageUid {2}, BlockUid {3}) == 6);
+      REQUIRE(stbsched.at(make_uid<Scenario>(1), StageUid {1}, BlockUid {1})
+              == 1);
+      REQUIRE(stbsched.at(make_uid<Scenario>(1), StageUid {2}, BlockUid {2})
+              == 2);
+      REQUIRE(stbsched.at(make_uid<Scenario>(1), StageUid {2}, BlockUid {3})
+              == 3);
+      REQUIRE(stbsched.at(make_uid<Scenario>(2), StageUid {1}, BlockUid {1})
+              == 4);
+      REQUIRE(stbsched.at(make_uid<Scenario>(2), StageUid {2}, BlockUid {2})
+              == 5);
+      REQUIRE(stbsched.at(make_uid<Scenario>(2), StageUid {2}, BlockUid {3})
+              == 6);
     }
 
     // Clean up test files and directory
@@ -339,10 +345,10 @@ TEST_CASE("Parquet read int16 columns as int32")
     CHECK(result->size() == 4);
 
     // Verify the index was built correctly from int16 data
-    CHECK(result->at({ScenarioUid {1}, StageUid {1}, BlockUid {1}}) == 0);
-    CHECK(result->at({ScenarioUid {1}, StageUid {2}, BlockUid {1}}) == 1);
-    CHECK(result->at({ScenarioUid {2}, StageUid {1}, BlockUid {1}}) == 2);
-    CHECK(result->at({ScenarioUid {2}, StageUid {2}, BlockUid {1}}) == 3);
+    CHECK(result->at({make_uid<Scenario>(1), StageUid {1}, BlockUid {1}}) == 0);
+    CHECK(result->at({make_uid<Scenario>(1), StageUid {2}, BlockUid {1}}) == 1);
+    CHECK(result->at({make_uid<Scenario>(2), StageUid {1}, BlockUid {1}}) == 2);
+    CHECK(result->at({make_uid<Scenario>(2), StageUid {2}, BlockUid {1}}) == 3);
   }
 }
 
@@ -559,11 +565,16 @@ TEST_CASE("Parquet file write and read test 2")
 
       const STBRealSched stbsched {ic, cname, id, stbfield};
 
-      REQUIRE(stbsched.at(ScenarioUid {1}, StageUid {1}, BlockUid {1}) == 1);
-      REQUIRE(stbsched.at(ScenarioUid {1}, StageUid {2}, BlockUid {2}) == 2);
-      REQUIRE(stbsched.at(ScenarioUid {1}, StageUid {3}, BlockUid {3}) == 3);
-      REQUIRE(stbsched.at(ScenarioUid {1}, StageUid {4}, BlockUid {4}) == 4);
-      REQUIRE(stbsched.at(ScenarioUid {1}, StageUid {5}, BlockUid {5}) == 5);
+      REQUIRE(stbsched.at(make_uid<Scenario>(1), StageUid {1}, BlockUid {1})
+              == 1);
+      REQUIRE(stbsched.at(make_uid<Scenario>(1), StageUid {2}, BlockUid {2})
+              == 2);
+      REQUIRE(stbsched.at(make_uid<Scenario>(1), StageUid {3}, BlockUid {3})
+              == 3);
+      REQUIRE(stbsched.at(make_uid<Scenario>(1), StageUid {4}, BlockUid {4})
+              == 4);
+      REQUIRE(stbsched.at(make_uid<Scenario>(1), StageUid {5}, BlockUid {5})
+              == 5);
     }
 
     SUBCASE("stfield")

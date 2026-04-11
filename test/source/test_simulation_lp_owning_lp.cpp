@@ -155,16 +155,16 @@ TEST_CASE("SimulationLP::scene_of / phase_of — monolithic")  // NOLINT
   const PlanningOptionsLP options(PlanningOptions {});
   const SimulationLP slp(sim, options);
 
-  CHECK(slp.scene_of(ScenarioUid {100}).value_or(SceneIndex {99})
+  CHECK(slp.scene_of(make_uid<Scenario>(100)).value_or(SceneIndex {99})
         == first_scene_index());
   CHECK(slp.phase_of(StageUid {10}).value_or(PhaseIndex {99})
         == first_phase_index());
 
   // Unknown uids return nullopt.
-  CHECK_FALSE(slp.scene_of(ScenarioUid {999}).has_value());
+  CHECK_FALSE(slp.scene_of(make_uid<Scenario>(999)).has_value());
   CHECK_FALSE(slp.phase_of(StageUid {999}).has_value());
 
-  const auto own = slp.owning_lp_of(ScenarioUid {100}, StageUid {10});
+  const auto own = slp.owning_lp_of(make_uid<Scenario>(100), StageUid {10});
   const auto own_val =
       own.value_or(std::pair {SceneIndex {99}, PhaseIndex {99}});
   CHECK(own_val == std::pair {first_scene_index(), first_phase_index()});
@@ -178,13 +178,13 @@ TEST_CASE("SimulationLP::scene_of / phase_of — multi-scene / multi-phase")
   const SimulationLP slp(sim, options);
 
   // Scene 0 owns scenarios 100, 101.  Scene 1 owns 102, 103.
-  CHECK(slp.scene_of(ScenarioUid {100}).value_or(SceneIndex {99})
+  CHECK(slp.scene_of(make_uid<Scenario>(100)).value_or(SceneIndex {99})
         == first_scene_index());
-  CHECK(slp.scene_of(ScenarioUid {101}).value_or(SceneIndex {99})
+  CHECK(slp.scene_of(make_uid<Scenario>(101)).value_or(SceneIndex {99})
         == first_scene_index());
-  CHECK(slp.scene_of(ScenarioUid {102}).value_or(SceneIndex {99})
+  CHECK(slp.scene_of(make_uid<Scenario>(102)).value_or(SceneIndex {99})
         == SceneIndex {1});
-  CHECK(slp.scene_of(ScenarioUid {103}).value_or(SceneIndex {99})
+  CHECK(slp.scene_of(make_uid<Scenario>(103)).value_or(SceneIndex {99})
         == SceneIndex {1});
 
   // Phase 0 owns stages 10, 11.  Phase 1 owns 12, 13.
@@ -207,20 +207,25 @@ TEST_CASE("SimulationLP::owning_lp_of — multi-scene factored lookup")  // NOLI
   constexpr std::pair sentinel {SceneIndex {99}, PhaseIndex {99}};
 
   // (scenario in scene 0, stage in phase 0) → (0, 0)
-  CHECK(slp.owning_lp_of(ScenarioUid {100}, StageUid {10}).value_or(sentinel)
+  CHECK(slp.owning_lp_of(make_uid<Scenario>(100), StageUid {10})
+            .value_or(sentinel)
         == std::pair {first_scene_index(), first_phase_index()});
 
   // (scenario in scene 1, stage in phase 1) → (1, 1)
-  CHECK(slp.owning_lp_of(ScenarioUid {103}, StageUid {13}).value_or(sentinel)
+  CHECK(slp.owning_lp_of(make_uid<Scenario>(103), StageUid {13})
+            .value_or(sentinel)
         == std::pair {SceneIndex {1}, PhaseIndex {1}});
 
   // Cross combinations are valid: scene 1 × phase 0 = (1, 0).
-  CHECK(slp.owning_lp_of(ScenarioUid {102}, StageUid {11}).value_or(sentinel)
+  CHECK(slp.owning_lp_of(make_uid<Scenario>(102), StageUid {11})
+            .value_or(sentinel)
         == std::pair {SceneIndex {1}, first_phase_index()});
 
   // Unknown uid on either side → nullopt.
-  CHECK_FALSE(slp.owning_lp_of(ScenarioUid {999}, StageUid {10}).has_value());
-  CHECK_FALSE(slp.owning_lp_of(ScenarioUid {100}, StageUid {999}).has_value());
+  CHECK_FALSE(
+      slp.owning_lp_of(make_uid<Scenario>(999), StageUid {10}).has_value());
+  CHECK_FALSE(
+      slp.owning_lp_of(make_uid<Scenario>(100), StageUid {999}).has_value());
 }
 
 TEST_CASE("SimulationLP::unique_owning_lp_of — agreement and conflicts")
@@ -234,8 +239,8 @@ TEST_CASE("SimulationLP::unique_owning_lp_of — agreement and conflicts")
 
   // All entries within the same (scene, phase) → unique LP found.
   const std::vector<std::pair<ScenarioUid, StageUid>> same_lp {
-      {ScenarioUid {100}, StageUid {10}},
-      {ScenarioUid {101}, StageUid {11}},
+      {make_uid<Scenario>(100), StageUid {10}},
+      {make_uid<Scenario>(101), StageUid {11}},
   };
   CHECK(slp.unique_owning_lp_of(same_lp).value_or(sentinel)
         == std::pair {first_scene_index(), first_phase_index()});
@@ -243,16 +248,16 @@ TEST_CASE("SimulationLP::unique_owning_lp_of — agreement and conflicts")
   // Cross-phase: scenario 100 is in scene 0, but stage 12 is in phase 1.
   // The first entry is (0, 0), the second is (0, 1) → mismatch.
   const std::vector<std::pair<ScenarioUid, StageUid>> cross_phase {
-      {ScenarioUid {100}, StageUid {10}},
-      {ScenarioUid {100}, StageUid {12}},
+      {make_uid<Scenario>(100), StageUid {10}},
+      {make_uid<Scenario>(100), StageUid {12}},
   };
   CHECK_FALSE(slp.unique_owning_lp_of(cross_phase).has_value());
 
   // Cross-scene: stages stay in phase 0, but scenarios move from scene 0
   // to scene 1.  First entry is (0, 0), second is (1, 0) → mismatch.
   const std::vector<std::pair<ScenarioUid, StageUid>> cross_scene {
-      {ScenarioUid {100}, StageUid {10}},
-      {ScenarioUid {102}, StageUid {10}},
+      {make_uid<Scenario>(100), StageUid {10}},
+      {make_uid<Scenario>(102), StageUid {10}},
   };
   CHECK_FALSE(slp.unique_owning_lp_of(cross_scene).has_value());
 
@@ -262,8 +267,8 @@ TEST_CASE("SimulationLP::unique_owning_lp_of — agreement and conflicts")
 
   // Any unknown uid taints the entire span.
   const std::vector<std::pair<ScenarioUid, StageUid>> with_unknown {
-      {ScenarioUid {100}, StageUid {10}},
-      {ScenarioUid {999}, StageUid {10}},
+      {make_uid<Scenario>(100), StageUid {10}},
+      {make_uid<Scenario>(999), StageUid {10}},
   };
   CHECK_FALSE(slp.unique_owning_lp_of(with_unknown).has_value());
 }

@@ -217,7 +217,7 @@ TEST_SUITE("ScenarioLP")
 
     SUBCASE("uid")
     {
-      CHECK(scenario_lp.uid() == ScenarioUid {123});
+      CHECK(scenario_lp.uid() == make_uid<Scenario>(123));
     }
 
     SUBCASE("probability_factor")

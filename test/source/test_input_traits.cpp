@@ -290,11 +290,11 @@ TEST_CASE("InputTraits FileSched double - STBRealSched via Parquet")
   const STBRealFieldSched fsched {std::string("profile")};
   const STBRealSched sched {ic, "TestGen", id, fsched};
 
-  CHECK(sched.at(ScenarioUid {1}, StageUid {1}, BlockUid {1})
+  CHECK(sched.at(make_uid<Scenario>(1), StageUid {1}, BlockUid {1})
         == doctest::Approx(100.0));
-  CHECK(sched.at(ScenarioUid {1}, StageUid {2}, BlockUid {2})
+  CHECK(sched.at(make_uid<Scenario>(1), StageUid {2}, BlockUid {2})
         == doctest::Approx(200.0));
-  CHECK(sched.at(ScenarioUid {1}, StageUid {2}, BlockUid {3})
+  CHECK(sched.at(make_uid<Scenario>(1), StageUid {2}, BlockUid {3})
         == doctest::Approx(300.0));
 
   std::filesystem::remove_all(tmp_root);

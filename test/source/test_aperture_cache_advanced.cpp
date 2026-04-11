@@ -73,26 +73,38 @@ TEST_CASE("ApertureDataCache multi-stage multi-block lookup")  // NOLINT
   CHECK_FALSE(cache.empty());
 
   // Spot-check various (scenario, stage, block) combinations
-  CHECK(
-      cache
-          .lookup("Flow", "RIVER1", ScenarioUid {1}, StageUid {0}, BlockUid {0})
-          .value_or(0.0)
-      == doctest::Approx(10.0));
-  CHECK(
-      cache
-          .lookup("Flow", "RIVER1", ScenarioUid {1}, StageUid {1}, BlockUid {1})
-          .value_or(0.0)
-      == doctest::Approx(21.0));
-  CHECK(
-      cache
-          .lookup("Flow", "RIVER1", ScenarioUid {2}, StageUid {2}, BlockUid {0})
-          .value_or(0.0)
-      == doctest::Approx(130.0));
-  CHECK(
-      cache
-          .lookup("Flow", "RIVER1", ScenarioUid {2}, StageUid {2}, BlockUid {1})
-          .value_or(0.0)
-      == doctest::Approx(131.0));
+  CHECK(cache
+            .lookup("Flow",
+                    "RIVER1",
+                    make_uid<Scenario>(1),
+                    StageUid {0},
+                    BlockUid {0})
+            .value_or(0.0)
+        == doctest::Approx(10.0));
+  CHECK(cache
+            .lookup("Flow",
+                    "RIVER1",
+                    make_uid<Scenario>(1),
+                    StageUid {1},
+                    BlockUid {1})
+            .value_or(0.0)
+        == doctest::Approx(21.0));
+  CHECK(cache
+            .lookup("Flow",
+                    "RIVER1",
+                    make_uid<Scenario>(2),
+                    StageUid {2},
+                    BlockUid {0})
+            .value_or(0.0)
+        == doctest::Approx(130.0));
+  CHECK(cache
+            .lookup("Flow",
+                    "RIVER1",
+                    make_uid<Scenario>(2),
+                    StageUid {2},
+                    BlockUid {1})
+            .value_or(0.0)
+        == doctest::Approx(131.0));
 }
 
 TEST_CASE("ApertureDataCache many scenarios bulk loading")  // NOLINT
@@ -141,7 +153,7 @@ TEST_CASE("ApertureDataCache many scenarios bulk loading")  // NOLINT
     CHECK(cache
               .lookup("Generator",
                       "GEN_BIG",
-                      ScenarioUid {1},
+                      make_uid<Scenario>(1),
                       StageUid {0},
                       BlockUid {0})
               .value_or(0.0)
@@ -154,7 +166,7 @@ TEST_CASE("ApertureDataCache many scenarios bulk loading")  // NOLINT
     CHECK(cache
               .lookup("Generator",
                       "GEN_BIG",
-                      ScenarioUid {10},
+                      make_uid<Scenario>(10),
                       StageUid {4},
                       BlockUid {1})
               .value_or(0.0)
@@ -167,7 +179,7 @@ TEST_CASE("ApertureDataCache many scenarios bulk loading")  // NOLINT
     CHECK(cache
               .lookup("Generator",
                       "GEN_BIG",
-                      ScenarioUid {5},
+                      make_uid<Scenario>(5),
                       StageUid {2},
                       BlockUid {1})
               .value_or(0.0)
@@ -233,27 +245,38 @@ TEST_CASE("ApertureDataCache multiple elements in same class")  // NOLINT
   CHECK_FALSE(cache.empty());
 
   CHECK(cache
-            .lookup(
-                "Flow", "RIVER_A", ScenarioUid {1}, StageUid {0}, BlockUid {0})
+            .lookup("Flow",
+                    "RIVER_A",
+                    make_uid<Scenario>(1),
+                    StageUid {0},
+                    BlockUid {0})
             .value_or(0.0)
         == doctest::Approx(100.0));
   CHECK(cache
-            .lookup(
-                "Flow", "RIVER_B", ScenarioUid {1}, StageUid {0}, BlockUid {0})
+            .lookup("Flow",
+                    "RIVER_B",
+                    make_uid<Scenario>(1),
+                    StageUid {0},
+                    BlockUid {0})
             .value_or(0.0)
         == doctest::Approx(200.0));
   CHECK(cache
-            .lookup(
-                "Flow", "RIVER_C", ScenarioUid {1}, StageUid {0}, BlockUid {0})
+            .lookup("Flow",
+                    "RIVER_C",
+                    make_uid<Scenario>(1),
+                    StageUid {0},
+                    BlockUid {0})
             .value_or(0.0)
         == doctest::Approx(300.0));
 
   // Cross-element lookup should fail
-  CHECK_FALSE(
-      cache
-          .lookup(
-              "Flow", "RIVER_A", ScenarioUid {1}, StageUid {0}, BlockUid {1})
-          .has_value());
+  CHECK_FALSE(cache
+                  .lookup("Flow",
+                          "RIVER_A",
+                          make_uid<Scenario>(1),
+                          StageUid {0},
+                          BlockUid {1})
+                  .has_value());
 }
 
 }  // namespace

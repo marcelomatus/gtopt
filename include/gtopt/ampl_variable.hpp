@@ -69,7 +69,7 @@ struct AmplVariableKey
   std::string class_name;  ///< e.g. "generator", "line", "battery"
   Uid element_uid {unknown_uid};
   std::string_view attribute;  ///< e.g. "generation", "flowp", "theta"
-  ScenarioUid scenario_uid {unknown_uid};
+  ScenarioUid scenario_uid = unknown_uid_of<Scenario>();
   StageUid stage_uid {unknown_uid};
 
   [[nodiscard]] friend auto operator<=>(

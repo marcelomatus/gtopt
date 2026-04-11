@@ -788,7 +788,8 @@ TEST_CASE(
     // update_lp, the coefficient should differ (set from piecewise curve
     // at the solution volume, which is near eini=500).
     auto& eff = system_lp.elements<ReservoirProductionFactorLP>().front();
-    const auto& bmap = eff.coeff_indices_at(ScenarioUid {0}, StageUid {1});
+    const auto& bmap =
+        eff.coeff_indices_at(make_uid<Scenario>(0), StageUid {1});
     CHECK_FALSE(bmap.empty());
     for (const auto& [buid, ci] : bmap) {
       const auto coeff = lp.get_coeff(ci.row, ci.col);

@@ -17,7 +17,7 @@ TEST_CASE("StateVariable::Key functionality")
     CHECK(key.col_name == "test_col");
     CHECK(key.lp_key.phase_index == PhaseIndex {1});
     CHECK(key.stage_uid == StageUid {2});
-    CHECK(key.scenario_uid == ScenarioUid {unknown_uid});
+    CHECK(key.scenario_uid == make_uid<Scenario>(unknown_uid));
     CHECK(key.lp_key.scene_index == SceneIndex {unknown_index});
   }
 
@@ -105,7 +105,7 @@ TEST_CASE("StateVariable carries LpContext")
 {
   using namespace gtopt;
 
-  const auto ctx = make_stage_context(ScenarioUid {0}, StageUid {3});
+  const auto ctx = make_stage_context(make_uid<Scenario>(0), StageUid {3});
   const StateVariable var {
       {.scene_index = first_scene_index(), .phase_index = PhaseIndex {1}},
       ColIndex {5},
@@ -120,7 +120,7 @@ TEST_CASE("StateVariable carries LpContext")
 
   REQUIRE(std::holds_alternative<StageContext>(var.context()));
   const auto& stg = std::get<StageContext>(var.context());
-  CHECK(std::get<0>(stg) == ScenarioUid {0});
+  CHECK(std::get<0>(stg) == make_uid<Scenario>(0));
   CHECK(std::get<1>(stg) == StageUid {3});
 }
 
@@ -129,7 +129,7 @@ TEST_CASE("StateVariable with BlockContext")
   using namespace gtopt;
 
   const auto ctx =
-      make_block_context(ScenarioUid {1}, StageUid {2}, BlockUid {4});
+      make_block_context(make_uid<Scenario>(1), StageUid {2}, BlockUid {4});
   const StateVariable var {
       {.scene_index = first_scene_index(), .phase_index = first_phase_index()},
       ColIndex {8},
@@ -140,7 +140,7 @@ TEST_CASE("StateVariable with BlockContext")
 
   REQUIRE(std::holds_alternative<BlockContext>(var.context()));
   const auto& blk = std::get<BlockContext>(var.context());
-  CHECK(std::get<0>(blk) == ScenarioUid {1});
+  CHECK(std::get<0>(blk) == make_uid<Scenario>(1));
   CHECK(std::get<1>(blk) == StageUid {2});
   CHECK(std::get<2>(blk) == BlockUid {4});
 }

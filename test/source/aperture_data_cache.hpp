@@ -155,7 +155,7 @@ TEST_CASE("ApertureDataCache loads parquet files")  // NOLINT
   SUBCASE("lookup existing entry")
   {
     const auto val = cache.lookup(
-        "Flow", "RAPEL", ScenarioUid {10}, StageUid {0}, BlockUid {0});
+        "Flow", "RAPEL", make_uid<Scenario>(10), StageUid {0}, BlockUid {0});
     REQUIRE(val.has_value());
     CHECK(val.value_or(0.0) == doctest::Approx(100.0));
   }
@@ -163,7 +163,7 @@ TEST_CASE("ApertureDataCache loads parquet files")  // NOLINT
   SUBCASE("lookup second scenario")
   {
     const auto val = cache.lookup(
-        "Flow", "RAPEL", ScenarioUid {20}, StageUid {0}, BlockUid {1});
+        "Flow", "RAPEL", make_uid<Scenario>(20), StageUid {0}, BlockUid {1});
     REQUIRE(val.has_value());
     CHECK(val.value_or(0.0) == doctest::Approx(400.0));
   }
@@ -171,35 +171,35 @@ TEST_CASE("ApertureDataCache loads parquet files")  // NOLINT
   SUBCASE("lookup nonexistent class returns nullopt")
   {
     const auto val = cache.lookup(
-        "Power", "RAPEL", ScenarioUid {10}, StageUid {0}, BlockUid {0});
+        "Power", "RAPEL", make_uid<Scenario>(10), StageUid {0}, BlockUid {0});
     CHECK_FALSE(val.has_value());
   }
 
   SUBCASE("lookup nonexistent element returns nullopt")
   {
     const auto val = cache.lookup(
-        "Flow", "MISSING", ScenarioUid {10}, StageUid {0}, BlockUid {0});
+        "Flow", "MISSING", make_uid<Scenario>(10), StageUid {0}, BlockUid {0});
     CHECK_FALSE(val.has_value());
   }
 
   SUBCASE("lookup nonexistent scenario returns nullopt")
   {
     const auto val = cache.lookup(
-        "Flow", "RAPEL", ScenarioUid {99}, StageUid {0}, BlockUid {0});
+        "Flow", "RAPEL", make_uid<Scenario>(99), StageUid {0}, BlockUid {0});
     CHECK_FALSE(val.has_value());
   }
 
   SUBCASE("lookup nonexistent stage returns nullopt")
   {
     const auto val = cache.lookup(
-        "Flow", "RAPEL", ScenarioUid {10}, StageUid {5}, BlockUid {0});
+        "Flow", "RAPEL", make_uid<Scenario>(10), StageUid {5}, BlockUid {0});
     CHECK_FALSE(val.has_value());
   }
 
   SUBCASE("lookup nonexistent block returns nullopt")
   {
     const auto val = cache.lookup(
-        "Flow", "RAPEL", ScenarioUid {10}, StageUid {0}, BlockUid {99});
+        "Flow", "RAPEL", make_uid<Scenario>(10), StageUid {0}, BlockUid {99});
     CHECK_FALSE(val.has_value());
   }
 
@@ -208,8 +208,8 @@ TEST_CASE("ApertureDataCache loads parquet files")  // NOLINT
     const auto uids = cache.scenario_uids();
     REQUIRE(uids.size() == 2);
     // UIDs are sorted (via std::set)
-    CHECK(uids[0] == ScenarioUid {10});
-    CHECK(uids[1] == ScenarioUid {20});
+    CHECK(uids[0] == make_uid<Scenario>(10));
+    CHECK(uids[1] == make_uid<Scenario>(20));
   }
 }
 
@@ -261,7 +261,7 @@ TEST_CASE("ApertureDataCache multiple classes and elements")  // NOLINT
   SUBCASE("lookup Flow/RAPEL")
   {
     const auto val = cache.lookup(
-        "Flow", "RAPEL", ScenarioUid {1}, StageUid {0}, BlockUid {0});
+        "Flow", "RAPEL", make_uid<Scenario>(1), StageUid {0}, BlockUid {0});
     REQUIRE(val.has_value());
     CHECK(val.value_or(0.0) == doctest::Approx(10.0));
   }
@@ -269,7 +269,7 @@ TEST_CASE("ApertureDataCache multiple classes and elements")  // NOLINT
   SUBCASE("lookup Generator/GEN1")
   {
     const auto val = cache.lookup(
-        "Generator", "GEN1", ScenarioUid {1}, StageUid {0}, BlockUid {0});
+        "Generator", "GEN1", make_uid<Scenario>(1), StageUid {0}, BlockUid {0});
     REQUIRE(val.has_value());
     CHECK(val.value_or(0.0) == doctest::Approx(20.0));
   }

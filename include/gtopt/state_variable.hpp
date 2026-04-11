@@ -88,7 +88,7 @@ public:
 
   struct Key
   {
-    ScenarioUid scenario_uid {unknown_uid};
+    ScenarioUid scenario_uid = unknown_uid_of<Scenario>();
     StageUid stage_uid {unknown_uid};
     Uid uid {unknown_uid};
     std::string_view col_name;
@@ -105,7 +105,8 @@ public:
       PhaseIndex phase_index,
       StageUid stage_uid,
       SceneIndex scene_index = SceneIndex {unknown_index},
-      ScenarioUid scenario_uid = ScenarioUid {unknown_uid}) noexcept -> Key
+      ScenarioUid scenario_uid = make_uid<Scenario>(unknown_uid)) noexcept
+      -> Key
   {
     return {
         .scenario_uid = scenario_uid,
