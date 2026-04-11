@@ -1555,7 +1555,7 @@ auto SDDPMethod::run_backward_pass_synchronized(
             .scale = sc.scale,
         };
         for (const auto& [col, coeff] : sc.coefficients) {
-          row[ColIndex {col}] = coeff;
+          row[col] = coeff;
         }
         auto sit = scene_uid_map.find(sc.scene_uid);
         if (sit != scene_uid_map.end()) {

@@ -14,6 +14,7 @@
 #include <arrow/api.h>
 #include <gtopt/aperture_data_cache.hpp>
 #include <gtopt/array_index_traits.hpp>
+#include <gtopt/utils.hpp>
 #include <spdlog/spdlog.h>
 
 namespace gtopt
@@ -167,8 +168,8 @@ ApertureDataCache::ApertureDataCache(const std::filesystem::path& aperture_dir)
 
   if (num_threads <= 1) {
     // Single-threaded fallback
-    for (size_t i = 0; i < file_list.size(); ++i) {
-      results[i] = load_one_file(file_list[i]);
+    for (const auto& [i, file] : enumerate(file_list)) {
+      results[i] = load_one_file(file);
     }
   } else {
     // Parallel loading with simple work partitioning

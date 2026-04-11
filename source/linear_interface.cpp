@@ -285,14 +285,14 @@ void LinearInterface::capture_hot_start_cuts()
     const auto row_lo = get_row_low_raw();
     const auto row_hi = get_row_upp_raw();
 
-    for (int r = base; r < current; ++r) {
+    for (const auto r : iota_range<RowIndex>(base, current)) {
       SparseRow row;
-      row.lowb = row_lo[r];
-      row.uppb = row_hi[r];
-      for (int c = 0; c < ncols; ++c) {
-        const auto val = get_coeff_raw(RowIndex {r}, ColIndex {c});
+      row.lowb = row_lo[static_cast<std::size_t>(r)];
+      row.uppb = row_hi[static_cast<std::size_t>(r)];
+      for (const auto c : iota_range<ColIndex>(0, ncols)) {
+        const auto val = get_coeff_raw(r, c);
         if (val != 0.0) {
-          row[ColIndex {c}] = val;
+          row[c] = val;
         }
       }
       m_active_cuts_.push_back(std::move(row));

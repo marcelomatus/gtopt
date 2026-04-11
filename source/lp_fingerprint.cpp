@@ -16,6 +16,7 @@
 #include <string_view>
 
 #include <gtopt/lp_fingerprint.hpp>
+#include <gtopt/utils.hpp>
 
 namespace gtopt
 {
@@ -286,8 +287,7 @@ void write_lp_fingerprint(const LpFingerprint& fingerprint,
   // columns
   out << "    \"columns\": {\n";
   out << "      \"template\": [\n";
-  for (size_t i = 0; i < fingerprint.col_template.size(); ++i) {
-    const auto& e = fingerprint.col_template[i];
+  for (const auto& [i, e] : enumerate(fingerprint.col_template)) {
     out << std::format(
         "        {{\"class\": \"{}\", \"variable\": \"{}\", "
         "\"context_type\": \"{}\"}}",
@@ -305,8 +305,7 @@ void write_lp_fingerprint(const LpFingerprint& fingerprint,
   // rows
   out << "    \"rows\": {\n";
   out << "      \"template\": [\n";
-  for (size_t i = 0; i < fingerprint.row_template.size(); ++i) {
-    const auto& e = fingerprint.row_template[i];
+  for (const auto& [i, e] : enumerate(fingerprint.row_template)) {
     out << std::format(
         "        {{\"class\": \"{}\", \"constraint\": \"{}\", "
         "\"context_type\": \"{}\"}}",
