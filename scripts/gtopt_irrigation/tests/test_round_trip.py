@@ -228,6 +228,76 @@ class TestCli:
         assert entities_path.exists()
 
 
+class TestCliErrorExitCodes:
+    """CLI returns exit code 2 with a one-line ``ERROR:`` on user errors."""
+
+    def test_missing_input_file(self, tmp_path, capsys):
+        rc = cli_main(
+            [
+                "laja",
+                "--input",
+                str(tmp_path / "does_not_exist.json"),
+                "--output",
+                str(tmp_path / "out"),
+            ]
+        )
+        assert rc == 2
+        err = capsys.readouterr().err
+        assert err.startswith("ERROR: input file not found")
+
+    def test_invalid_json_input(self, tmp_path, capsys):
+        bad_json = tmp_path / "bad.json"
+        bad_json.write_text("{not valid", encoding="utf-8")
+        rc = cli_main(
+            [
+                "maule",
+                "--input",
+                str(bad_json),
+                "--output",
+                str(tmp_path / "out"),
+            ]
+        )
+        assert rc == 2
+        err = capsys.readouterr().err
+        assert err.startswith("ERROR: invalid JSON in input")
+
+    def test_schema_violation(self, tmp_path, capsys):
+        empty = tmp_path / "empty.json"
+        empty.write_text("{}", encoding="utf-8")
+        rc = cli_main(
+            [
+                "laja",
+                "--input",
+                str(empty),
+                "--output",
+                str(tmp_path / "out"),
+            ]
+        )
+        assert rc == 2
+        err = capsys.readouterr().err
+        assert err.startswith("ERROR: laja agreement:")
+
+    def test_input_output_aliases(self, tmp_path):
+        """The canonical ``--input``/``--output`` names work alongside ``--in``/``--out``."""
+        json_path = tmp_path / "laja.json"
+        with open(json_path, "w", encoding="utf-8") as fh:
+            json.dump(_minimal_laja_config(), fh)
+
+        out_dir = tmp_path / "out"
+        rc = cli_main(
+            [
+                "laja",
+                "--input",
+                str(json_path),
+                "--output",
+                str(out_dir),
+            ]
+        )
+        assert rc == 0
+        assert (out_dir / "laja.pampl").exists()
+        assert (out_dir / "laja_entities.json").exists()
+
+
 class TestBackwardCompatibilityShims:
     """plp2gtopt.laja_writer and .maule_writer still work via shims."""
 

@@ -15,4 +15,6 @@ path via ``LajaAgreement.from_json`` / ``MauleAgreement.from_json``.
 from gtopt_irrigation.laja_agreement import LajaAgreement
 from gtopt_irrigation.maule_agreement import MauleAgreement
 
-__all__ = ["LajaAgreement", "MauleAgreement"]
+__version__ = "0.1.0"
+
+__all__ = ["LajaAgreement", "MauleAgreement", "__version__"]

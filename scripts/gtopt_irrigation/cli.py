@@ -5,10 +5,11 @@
 Usage::
 
     # Stage 2: laja.json → FlowRight/VolumeRight/UserConstraint + laja.pampl
-    gtopt_irrigation laja --in laja.json --out outdir/
+    gtopt_irrigation laja --input laja.json --output outdir/
 
     # With explicit stage metadata (calendar months for monthly schedules)
-    gtopt_irrigation maule --in maule.json --out outdir/ --stages stages.json
+    gtopt_irrigation maule --input maule.json --output outdir/ \\
+        --stages stages.json
 
 The ``--stages`` file must be a JSON document compatible with the
 ``BaseParser.get_all()`` shape: ``[{"number": 1, "month": 4}, ...]``.
@@ -16,14 +17,25 @@ The ``--stages`` file must be a JSON document compatible with the
 When ``--stages`` is omitted, monthly arrays are emitted in their raw
 hydro-year (Laja) or calendar (Maule) form, suitable for cases that don't
 need a per-stage materialization.
+
+Exit codes
+----------
+
+* ``0`` — success.
+* ``2`` — input/validation/IO error (missing file, bad JSON, schema
+  violation, template failure).  A one-line ``ERROR:`` is written to
+  stderr before exiting.
 """
+
+from __future__ import annotations
 
 import argparse
 import json
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
+from gtopt_irrigation import __version__ as _pkg_version
 from gtopt_irrigation.laja_agreement import LajaAgreement
 from gtopt_irrigation.maule_agreement import MauleAgreement
 
@@ -35,14 +47,14 @@ class _StageList:
     pre-loaded list of dicts so callers don't need a full ``BaseParser``.
     """
 
-    def __init__(self, stages: List[Dict[str, Any]]):
+    def __init__(self, stages: list[dict[str, Any]]):
         self._stages = stages
 
-    def get_all(self) -> List[Dict[str, Any]]:
+    def get_all(self) -> list[dict[str, Any]]:
         return self._stages
 
 
-def _load_stages(path: Optional[str]) -> Optional[_StageList]:
+def _load_stages(path: str | None) -> _StageList | None:
     if path is None:
         return None
     with open(path, "r", encoding="utf-8") as fh:
@@ -61,16 +73,19 @@ def _emit(
     agreement: Any,
     out_dir: Path,
     artifact_name: str,
-) -> None:
+) -> Path:
     """Write the agreement's entities and PAMPL file to ``out_dir``.
 
     The entities are written as ``<artifact_name>_entities.json`` containing
     ``flow_right_array`` / ``volume_right_array``.  The PAMPL file is
-    written as ``<artifact_name>.pampl``.  When the agreement is
-    constraint-only (no inline UserConstraint array left over), the
-    ``user_constraint_files`` pointer in the entities document references
-    the .pampl filename — matching the layout that ``gtopt`` expects via
-    its plural ``user_constraint_files`` field.
+    written as ``<artifact_name>.pampl`` (by ``to_json_dict`` itself).
+    When the agreement is constraint-only (no inline UserConstraint array
+    left over), the ``user_constraint_file`` pointer in the entities
+    document references the ``.pampl`` filename — both singular
+    ``user_constraint_file`` and plural ``user_constraint_files`` are
+    accepted by the ``gtopt`` C++ ``System`` parser.
+
+    Returns the path to the written entities JSON file.
     """
     out_dir.mkdir(parents=True, exist_ok=True)
     entities = agreement.to_json_dict(output_dir=out_dir)
@@ -78,6 +93,7 @@ def _emit(
     with open(entities_path, "w", encoding="utf-8") as fh:
         json.dump(entities, fh, indent=2, sort_keys=False)
         fh.write("\n")
+    return entities_path
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -88,6 +104,15 @@ def _build_parser() -> argparse.ArgumentParser:
             " into gtopt FlowRight/VolumeRight/UserConstraint entities and"
             " their companion PAMPL files."
         ),
+        epilog=(
+            "See docs/irrigation_pipeline.md for the full Stage-1 → Stage-3"
+            " pipeline and the canonical laja.json / maule.json schemas."
+        ),
+    )
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=f"%(prog)s {_pkg_version}",
     )
     sub = parser.add_subparsers(dest="agreement", required=True)
 
@@ -97,12 +122,14 @@ def _build_parser() -> argparse.ArgumentParser:
             help=f"emit gtopt entities for the {name.capitalize()} agreement",
         )
         sp.add_argument(
+            "--input",
             "--in",
             dest="input_path",
             required=True,
             help=f"path to {name}.json",
         )
         sp.add_argument(
+            "--output",
             "--out",
             dest="output_dir",
             required=True,
@@ -135,10 +162,8 @@ def _build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def main(argv: Optional[List[str]] = None) -> int:
-    parser = _build_parser()
-    args = parser.parse_args(argv)
-
+def _run(args: argparse.Namespace) -> Path:
+    """Execute the requested conversion and return the entities path."""
     stages = _load_stages(args.stages_path)
     options = {
         "last_stage": args.last_stage,
@@ -157,7 +182,34 @@ def main(argv: Optional[List[str]] = None) -> int:
         artifact = "maule"
 
     out_dir = Path(args.output_dir)
-    _emit(agreement, out_dir, artifact)
+    return _emit(agreement, out_dir, artifact)
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = _build_parser()
+    args = parser.parse_args(argv)
+
+    try:
+        entities_path = _run(args)
+    except FileNotFoundError as exc:
+        print(f"ERROR: input file not found: {exc}", file=sys.stderr)
+        return 2
+    except json.JSONDecodeError as exc:
+        print(f"ERROR: invalid JSON in input: {exc}", file=sys.stderr)
+        return 2
+    except (KeyError, ValueError, TypeError) as exc:
+        print(f"ERROR: {args.agreement} agreement: {exc}", file=sys.stderr)
+        return 2
+    except OSError as exc:
+        print(f"ERROR: I/O failure: {exc}", file=sys.stderr)
+        return 2
+
+    pampl_path = entities_path.with_name(f"{args.agreement}.pampl")
+    print(
+        f"wrote {entities_path}"
+        + (f" and {pampl_path}" if pampl_path.exists() else ""),
+        file=sys.stderr,
+    )
     return 0
 
 
