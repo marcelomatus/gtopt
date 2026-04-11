@@ -16,7 +16,12 @@
 #include <gtopt/planning_method.hpp>
 #include <gtopt/sddp_method.hpp>
 
+#include "fixture_helpers.hpp"
+
 using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using gtopt::test_fixtures::make_single_stage_phases;
+using gtopt::test_fixtures::make_uniform_blocks;
+using gtopt::test_fixtures::make_uniform_stages;
 
 /// Create a 3-phase hydro+thermal planning problem.
 ///
@@ -31,13 +36,7 @@ using namespace gtopt;  // NOLINT(google-global-names-in-headers)
 inline auto make_3phase_hydro_planning() -> Planning
 {
   // ── Blocks: 72 total (24 per phase × 3 phases) ──
-  Array<Block> block_array;
-  for (int i = 0; i < 72; ++i) {
-    block_array.push_back(Block {
-        .uid = Uid {i + 1},
-        .duration = 1.0,
-    });
-  }
+  Array<Block> block_array = make_uniform_blocks(72, 1.0);
 
   // ── Stages: 3 stages, one per phase ──
   Array<Stage> stage_array = {
@@ -296,34 +295,14 @@ inline auto make_5phase_reservoir_planning() -> Planning
   constexpr double block_duration = 3.0;
   constexpr int total_blocks = num_phases * blocks_per_phase;
 
-  Array<Block> block_array;
-  block_array.reserve(total_blocks);
-  for (int i = 0; i < total_blocks; ++i) {
-    block_array.push_back(Block {
-        .uid = Uid {i + 1},
-        .duration = block_duration,
-    });
-  }
+  auto block_array = make_uniform_blocks(static_cast<std::size_t>(total_blocks),
+                                         block_duration);
 
-  Array<Stage> stage_array;
-  stage_array.reserve(num_phases);
-  for (int s = 0; s < num_phases; ++s) {
-    stage_array.push_back(Stage {
-        .uid = Uid {s + 1},
-        .first_block = static_cast<Size>(s * blocks_per_phase),
-        .count_block = blocks_per_phase,
-    });
-  }
-
-  Array<Phase> phase_array;
-  phase_array.reserve(num_phases);
-  for (int p = 0; p < num_phases; ++p) {
-    phase_array.push_back(Phase {
-        .uid = Uid {p + 1},
-        .first_stage = static_cast<Size>(p),
-        .count_stage = 1,
-    });
-  }
+  auto stage_array =
+      make_uniform_stages(static_cast<std::size_t>(num_phases),
+                          static_cast<std::size_t>(blocks_per_phase));
+  auto phase_array =
+      make_single_stage_phases(static_cast<std::size_t>(num_phases));
 
   const Array<Bus> bus_array = {
       {
@@ -480,34 +459,14 @@ inline auto make_5phase_small_reservoir_planning() -> Planning
   constexpr double block_duration = 3.0;
   constexpr int total_blocks = num_phases * blocks_per_phase;
 
-  Array<Block> block_array;
-  block_array.reserve(total_blocks);
-  for (int i = 0; i < total_blocks; ++i) {
-    block_array.push_back(Block {
-        .uid = Uid {i + 1},
-        .duration = block_duration,
-    });
-  }
+  auto block_array = make_uniform_blocks(static_cast<std::size_t>(total_blocks),
+                                         block_duration);
 
-  Array<Stage> stage_array;
-  stage_array.reserve(num_phases);
-  for (int s = 0; s < num_phases; ++s) {
-    stage_array.push_back(Stage {
-        .uid = Uid {s + 1},
-        .first_block = static_cast<Size>(s * blocks_per_phase),
-        .count_block = blocks_per_phase,
-    });
-  }
-
-  Array<Phase> phase_array;
-  phase_array.reserve(num_phases);
-  for (int p = 0; p < num_phases; ++p) {
-    phase_array.push_back(Phase {
-        .uid = Uid {p + 1},
-        .first_stage = static_cast<Size>(p),
-        .count_stage = 1,
-    });
-  }
+  auto stage_array =
+      make_uniform_stages(static_cast<std::size_t>(num_phases),
+                          static_cast<std::size_t>(blocks_per_phase));
+  auto phase_array =
+      make_single_stage_phases(static_cast<std::size_t>(num_phases));
 
   const Array<Bus> bus_array = {
       {
@@ -661,34 +620,14 @@ inline auto make_5phase_expansion_planning() -> Planning
   constexpr double block_duration = 3.0;
   constexpr int total_blocks = num_phases * blocks_per_phase;
 
-  Array<Block> block_array;
-  block_array.reserve(total_blocks);
-  for (int i = 0; i < total_blocks; ++i) {
-    block_array.push_back(Block {
-        .uid = Uid {i + 1},
-        .duration = block_duration,
-    });
-  }
+  auto block_array = make_uniform_blocks(static_cast<std::size_t>(total_blocks),
+                                         block_duration);
 
-  Array<Stage> stage_array;
-  stage_array.reserve(num_phases);
-  for (int s = 0; s < num_phases; ++s) {
-    stage_array.push_back(Stage {
-        .uid = Uid {s + 1},
-        .first_block = static_cast<Size>(s * blocks_per_phase),
-        .count_block = blocks_per_phase,
-    });
-  }
-
-  Array<Phase> phase_array;
-  phase_array.reserve(num_phases);
-  for (int p = 0; p < num_phases; ++p) {
-    phase_array.push_back(Phase {
-        .uid = Uid {p + 1},
-        .first_stage = static_cast<Size>(p),
-        .count_stage = 1,
-    });
-  }
+  auto stage_array =
+      make_uniform_stages(static_cast<std::size_t>(num_phases),
+                          static_cast<std::size_t>(blocks_per_phase));
+  auto phase_array =
+      make_single_stage_phases(static_cast<std::size_t>(num_phases));
 
   const Array<Bus> bus_array = {
       {
@@ -780,34 +719,14 @@ inline auto make_12phase_yearly_hydro_planning() -> Planning
   constexpr double block_duration = 1.0;
   constexpr int total_blocks = num_phases * blocks_per_phase;
 
-  Array<Block> block_array;
-  block_array.reserve(total_blocks);
-  for (int i = 0; i < total_blocks; ++i) {
-    block_array.push_back(Block {
-        .uid = Uid {i + 1},
-        .duration = block_duration,
-    });
-  }
+  auto block_array = make_uniform_blocks(static_cast<std::size_t>(total_blocks),
+                                         block_duration);
 
-  Array<Stage> stage_array;
-  stage_array.reserve(num_phases);
-  for (int s = 0; s < num_phases; ++s) {
-    stage_array.push_back(Stage {
-        .uid = Uid {s + 1},
-        .first_block = static_cast<Size>(s * blocks_per_phase),
-        .count_block = blocks_per_phase,
-    });
-  }
-
-  Array<Phase> phase_array;
-  phase_array.reserve(num_phases);
-  for (int p = 0; p < num_phases; ++p) {
-    phase_array.push_back(Phase {
-        .uid = Uid {p + 1},
-        .first_stage = static_cast<Size>(p),
-        .count_stage = 1,
-    });
-  }
+  auto stage_array =
+      make_uniform_stages(static_cast<std::size_t>(num_phases),
+                          static_cast<std::size_t>(blocks_per_phase));
+  auto phase_array =
+      make_single_stage_phases(static_cast<std::size_t>(num_phases));
 
   const Array<Bus> bus_array = {
       {
@@ -946,34 +865,14 @@ inline auto make_2scene_3phase_hydro_planning(double prob1 = 0.7,
   constexpr int blocks_per_phase = 4;
   constexpr int total_blocks = num_phases * blocks_per_phase;
 
-  Array<Block> block_array;
-  block_array.reserve(total_blocks);
-  for (int i = 0; i < total_blocks; ++i) {
-    block_array.push_back(Block {
-        .uid = Uid {i + 1},
-        .duration = 1.0,
-    });
-  }
+  auto block_array =
+      make_uniform_blocks(static_cast<std::size_t>(total_blocks), 1.0);
 
-  Array<Stage> stage_array;
-  stage_array.reserve(num_phases);
-  for (int s = 0; s < num_phases; ++s) {
-    stage_array.push_back(Stage {
-        .uid = Uid {s + 1},
-        .first_block = static_cast<Size>(s * blocks_per_phase),
-        .count_block = blocks_per_phase,
-    });
-  }
-
-  Array<Phase> phase_array;
-  phase_array.reserve(num_phases);
-  for (int p = 0; p < num_phases; ++p) {
-    phase_array.push_back(Phase {
-        .uid = Uid {p + 1},
-        .first_stage = static_cast<Size>(p),
-        .count_stage = 1,
-    });
-  }
+  auto stage_array =
+      make_uniform_stages(static_cast<std::size_t>(num_phases),
+                          static_cast<std::size_t>(blocks_per_phase));
+  auto phase_array =
+      make_single_stage_phases(static_cast<std::size_t>(num_phases));
 
   Simulation simulation = {
       .block_array = std::move(block_array),
@@ -1131,14 +1030,8 @@ inline auto make_2phase_linear_planning() -> Planning
   constexpr int blocks_per_phase = 4;
   constexpr int total_blocks = num_phases * blocks_per_phase;
 
-  Array<Block> block_array;
-  block_array.reserve(total_blocks);
-  for (int i = 0; i < total_blocks; ++i) {
-    block_array.push_back(Block {
-        .uid = Uid {i + 1},
-        .duration = 1.0,
-    });
-  }
+  auto block_array =
+      make_uniform_blocks(static_cast<std::size_t>(total_blocks), 1.0);
 
   Array<Stage> stage_array = {
       Stage {
@@ -1338,34 +1231,13 @@ inline auto make_nphase_simple_hydro_planning(int num_phases) -> Planning
   constexpr int blocks_per_phase = 4;
   const int total_blocks = num_phases * blocks_per_phase;
 
-  Array<Block> block_array;
-  block_array.reserve(static_cast<std::size_t>(total_blocks));
-  for (int i = 0; i < total_blocks; ++i) {
-    block_array.push_back(Block {
-        .uid = Uid {i + 1},
-        .duration = 1.0,
-    });
-  }
-
-  Array<Stage> stage_array;
-  stage_array.reserve(static_cast<std::size_t>(num_phases));
-  for (int s = 0; s < num_phases; ++s) {
-    stage_array.push_back(Stage {
-        .uid = Uid {s + 1},
-        .first_block = static_cast<Size>(s * blocks_per_phase),
-        .count_block = blocks_per_phase,
-    });
-  }
-
-  Array<Phase> phase_array;
-  phase_array.reserve(static_cast<std::size_t>(num_phases));
-  for (int p = 0; p < num_phases; ++p) {
-    phase_array.push_back(Phase {
-        .uid = Uid {p + 1},
-        .first_stage = static_cast<Size>(p),
-        .count_stage = 1,
-    });
-  }
+  auto block_array =
+      make_uniform_blocks(static_cast<std::size_t>(total_blocks), 1.0);
+  auto stage_array =
+      make_uniform_stages(static_cast<std::size_t>(num_phases),
+                          static_cast<std::size_t>(blocks_per_phase));
+  auto phase_array =
+      make_single_stage_phases(static_cast<std::size_t>(num_phases));
 
   Simulation simulation = {
       .block_array = std::move(block_array),
@@ -1498,34 +1370,14 @@ inline auto make_tight_reservoir_3phase_planning() -> Planning
   constexpr int blocks_per_phase = 4;
   constexpr int total_blocks = num_phases * blocks_per_phase;
 
-  Array<Block> block_array;
-  block_array.reserve(total_blocks);
-  for (int i = 0; i < total_blocks; ++i) {
-    block_array.push_back(Block {
-        .uid = Uid {i + 1},
-        .duration = 1.0,
-    });
-  }
+  auto block_array =
+      make_uniform_blocks(static_cast<std::size_t>(total_blocks), 1.0);
 
-  Array<Stage> stage_array;
-  stage_array.reserve(num_phases);
-  for (int s = 0; s < num_phases; ++s) {
-    stage_array.push_back(Stage {
-        .uid = Uid {s + 1},
-        .first_block = static_cast<Size>(s * blocks_per_phase),
-        .count_block = blocks_per_phase,
-    });
-  }
-
-  Array<Phase> phase_array;
-  phase_array.reserve(num_phases);
-  for (int p = 0; p < num_phases; ++p) {
-    phase_array.push_back(Phase {
-        .uid = Uid {p + 1},
-        .first_stage = static_cast<Size>(p),
-        .count_stage = 1,
-    });
-  }
+  auto stage_array =
+      make_uniform_stages(static_cast<std::size_t>(num_phases),
+                          static_cast<std::size_t>(blocks_per_phase));
+  auto phase_array =
+      make_single_stage_phases(static_cast<std::size_t>(num_phases));
 
   const Array<Bus> bus_array = {{
       .uid = Uid {1},

@@ -311,13 +311,7 @@ TEST_CASE(  // NOLINT
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
   // Build a 2-phase planning with a battery that has use_state_variable=true
-  Array<Block> block_array;
-  for (int i = 0; i < 4; ++i) {
-    block_array.push_back(Block {
-        .uid = Uid {i + 1},
-        .duration = 1.0,
-    });
-  }
+  auto block_array = make_uniform_blocks(4, 1.0);
 
   Array<Stage> stage_array = {
       Stage {

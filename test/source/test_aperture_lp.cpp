@@ -33,7 +33,10 @@
 #include <gtopt/simulation_lp.hpp>
 #include <gtopt/system_lp.hpp>
 
+#include "fixture_helpers.hpp"
+
 using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using gtopt::test_fixtures::make_uniform_blocks;
 
 // ─── 1. Aperture struct ─────────────────────────────────────────────────────
 
@@ -1367,14 +1370,8 @@ auto make_2phase_aperture_planning() -> Planning
   constexpr int blocks_per_phase = 4;
   constexpr int total_blocks = 2 * blocks_per_phase;
 
-  Array<Block> block_array;
-  block_array.reserve(total_blocks);
-  for (int i = 0; i < total_blocks; ++i) {
-    block_array.push_back(Block {
-        .uid = Uid {i + 1},
-        .duration = 1.0,
-    });
-  }
+  auto block_array =
+      make_uniform_blocks(static_cast<std::size_t>(total_blocks), 1.0);
 
   Array<Stage> stage_array = {
       Stage {

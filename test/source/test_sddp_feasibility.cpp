@@ -38,34 +38,13 @@ auto make_infeasible_middle_phase_planning() -> Planning
   constexpr int blocks_per_phase = 4;
   constexpr int total_blocks = num_phases * blocks_per_phase;
 
-  Array<Block> block_array;
-  block_array.reserve(total_blocks);
-  for (int i = 0; i < total_blocks; ++i) {
-    block_array.push_back(Block {
-        .uid = Uid {i + 1},
-        .duration = 1.0,
-    });
-  }
-
-  Array<Stage> stage_array;
-  stage_array.reserve(num_phases);
-  for (int s = 0; s < num_phases; ++s) {
-    stage_array.push_back(Stage {
-        .uid = Uid {s + 1},
-        .first_block = static_cast<Size>(s * blocks_per_phase),
-        .count_block = blocks_per_phase,
-    });
-  }
-
-  Array<Phase> phase_array;
-  phase_array.reserve(num_phases);
-  for (int p = 0; p < num_phases; ++p) {
-    phase_array.push_back(Phase {
-        .uid = Uid {p + 1},
-        .first_stage = static_cast<Size>(p),
-        .count_stage = 1,
-    });
-  }
+  auto block_array =
+      make_uniform_blocks(static_cast<std::size_t>(total_blocks), 1.0);
+  auto stage_array =
+      make_uniform_stages(static_cast<std::size_t>(num_phases),
+                          static_cast<std::size_t>(blocks_per_phase));
+  auto phase_array =
+      make_single_stage_phases(static_cast<std::size_t>(num_phases));
 
   const Array<Bus> bus_array = {{
       .uid = Uid {1},
@@ -214,34 +193,13 @@ auto make_feasible_2phase_thermal_planning() -> Planning
   constexpr int blocks_per_phase = 4;
   constexpr int total_blocks = num_phases * blocks_per_phase;
 
-  Array<Block> block_array;
-  block_array.reserve(total_blocks);
-  for (int i = 0; i < total_blocks; ++i) {
-    block_array.push_back(Block {
-        .uid = Uid {i + 1},
-        .duration = 1.0,
-    });
-  }
-
-  Array<Stage> stage_array;
-  stage_array.reserve(num_phases);
-  for (int s = 0; s < num_phases; ++s) {
-    stage_array.push_back(Stage {
-        .uid = Uid {s + 1},
-        .first_block = static_cast<Size>(s * blocks_per_phase),
-        .count_block = blocks_per_phase,
-    });
-  }
-
-  Array<Phase> phase_array;
-  phase_array.reserve(num_phases);
-  for (int p = 0; p < num_phases; ++p) {
-    phase_array.push_back(Phase {
-        .uid = Uid {p + 1},
-        .first_stage = static_cast<Size>(p),
-        .count_stage = 1,
-    });
-  }
+  auto block_array =
+      make_uniform_blocks(static_cast<std::size_t>(total_blocks), 1.0);
+  auto stage_array =
+      make_uniform_stages(static_cast<std::size_t>(num_phases),
+                          static_cast<std::size_t>(blocks_per_phase));
+  auto phase_array =
+      make_single_stage_phases(static_cast<std::size_t>(num_phases));
 
   const Array<Bus> bus_array = {{
       .uid = Uid {1},
@@ -326,34 +284,13 @@ auto make_deep_backpropagation_planning() -> Planning
   constexpr int blocks_per_phase = 4;
   constexpr int total_blocks = num_phases * blocks_per_phase;
 
-  Array<Block> block_array;
-  block_array.reserve(total_blocks);
-  for (int i = 0; i < total_blocks; ++i) {
-    block_array.push_back(Block {
-        .uid = Uid {i + 1},
-        .duration = 1.0,
-    });
-  }
-
-  Array<Stage> stage_array;
-  stage_array.reserve(num_phases);
-  for (int s = 0; s < num_phases; ++s) {
-    stage_array.push_back(Stage {
-        .uid = Uid {s + 1},
-        .first_block = static_cast<Size>(s * blocks_per_phase),
-        .count_block = blocks_per_phase,
-    });
-  }
-
-  Array<Phase> phase_array;
-  phase_array.reserve(num_phases);
-  for (int p = 0; p < num_phases; ++p) {
-    phase_array.push_back(Phase {
-        .uid = Uid {p + 1},
-        .first_stage = static_cast<Size>(p),
-        .count_stage = 1,
-    });
-  }
+  auto block_array =
+      make_uniform_blocks(static_cast<std::size_t>(total_blocks), 1.0);
+  auto stage_array =
+      make_uniform_stages(static_cast<std::size_t>(num_phases),
+                          static_cast<std::size_t>(blocks_per_phase));
+  auto phase_array =
+      make_single_stage_phases(static_cast<std::size_t>(num_phases));
 
   const Array<Bus> bus_array = {{
       .uid = Uid {1},

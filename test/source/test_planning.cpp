@@ -9,7 +9,12 @@
 #include <gtopt/simulation_lp.hpp>
 #include <gtopt/system_lp.hpp>
 
+#include "fixture_helpers.hpp"
+
 using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using gtopt::test_fixtures::make_single_stage_phases;
+using gtopt::test_fixtures::make_uniform_blocks;
+using gtopt::test_fixtures::make_uniform_stages;
 
 TEST_CASE("Planning - Default construction")
 {
@@ -1107,28 +1112,9 @@ TEST_CASE("Planning JSON parse and solve - hydro system")
 TEST_CASE("PlanningLP - parallel multi-scene multi-phase build")
 {
   // 2 scenes × 3 phases × 1 stage per phase × 2 blocks per stage.
-  Array<Block> block_array;
-  for (int i = 0; i < 6; ++i) {
-    block_array.push_back(Block {
-        .uid = Uid {i + 1},
-        .duration = 1.0,
-    });
-  }
-
-  Array<Stage> stage_array;
-  Array<Phase> phase_array;
-  for (Size p = 0; p < 3; ++p) {
-    stage_array.push_back(Stage {
-        .uid = Uid {static_cast<int>(p) + 1},
-        .first_block = p * 2,
-        .count_block = 2,
-    });
-    phase_array.push_back(Phase {
-        .uid = Uid {static_cast<int>(p) + 1},
-        .first_stage = p,
-        .count_stage = 1,
-    });
-  }
+  auto block_array = make_uniform_blocks(6, 1.0);
+  auto stage_array = make_uniform_stages(3, 2);
+  auto phase_array = make_single_stage_phases(3);
 
   const Simulation simulation = {
       .block_array = block_array,
