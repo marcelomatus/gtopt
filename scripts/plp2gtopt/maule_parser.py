@@ -36,24 +36,6 @@ from typing import Any, Dict, List, Optional
 from .base_parser import BaseParser
 
 
-# Month names used by gtopt Stage (1-indexed: january=1 .. december=12)
-_MONTH_NAMES = [
-    "",
-    "january",
-    "february",
-    "march",
-    "april",
-    "may",
-    "june",
-    "july",
-    "august",
-    "september",
-    "october",
-    "november",
-    "december",
-]
-
-
 class MauleParser(BaseParser):
     """Parser for plpmaulen.dat files containing Maule convention data.
 

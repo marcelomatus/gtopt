@@ -33,7 +33,10 @@ from typing import Any
 
 import jinja2
 
-from gtopt_irrigation._template_engine import _TEMPLATE_DIR, render_tson
+from gtopt_irrigation._template_engine import (
+    _TEMPLATE_DIR,
+    render_tson,
+)
 
 
 class _RightsAgreementBase:
@@ -180,6 +183,10 @@ class _RightsAgreementBase:
         Returns:
             Filename of the generated ``.pampl`` file (relative name only).
         """
+        # NOTE: do NOT reuse `create_template_env` here.  That environment
+        # applies `finalize=_json_finalize`, which is correct for `.tson`
+        # templates (rendered as JSON) but wrong for `.tampl` templates,
+        # which expect bare AMPL identifiers.  Keep a separate env.
         env = jinja2.Environment(
             loader=jinja2.FileSystemLoader(str(_TEMPLATE_DIR)),
             keep_trailing_newline=True,

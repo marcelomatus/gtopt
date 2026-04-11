@@ -55,7 +55,7 @@ def create_template_env(
         Configured Jinja2 Environment.
     """
     return jinja2.Environment(
-        loader=jinja2.FileSystemLoader(str(template_dir)),
+        loader=jinja2.FileSystemLoader(template_dir),
         trim_blocks=True,
         lstrip_blocks=True,
         keep_trailing_newline=True,
