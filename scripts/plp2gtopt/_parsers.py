@@ -702,7 +702,8 @@ def add_ror_arguments(parser: argparse.ArgumentParser, _conf: dict[str, str]) ->
             "Required columns: name, vmax_hm3.  Optional columns: "
             "enabled (true/false), comment.  Only centrals whose vmax "
             "is known should be listed here — this file is the sole "
-            "source of truth for --ror-as-reservoirs."
+            "source of truth for --ror-as-reservoirs.  See "
+            "docs/templates/ror_equivalence.example.csv for the schema."
         ),
     )
 

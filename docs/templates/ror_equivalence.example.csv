@@ -1,0 +1,4 @@
+name,vmax_hm3,enabled,comment
+EXAMPLE_CENTRAL_A,1.50,true,schema template — replace with real central whose vmax is known
+EXAMPLE_CENTRAL_B,0.75,true,pasada or serie only; bus>0 and efficiency>0 are required
+EXAMPLE_CENTRAL_C,2.00,false,enabled=false skips the row (kept as documentation)
