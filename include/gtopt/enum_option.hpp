@@ -61,15 +61,52 @@ struct EnumEntry
   E value;
 };
 
+namespace detail
+{
+/**
+ * @brief ASCII case-insensitive equality (no locale, constexpr-friendly).
+ *
+ * Folds [A-Z] to [a-z] on the fly and compares byte-for-byte.  Non-ASCII
+ * bytes are compared literally, which is fine because every entry in the
+ * project's enum tables is lowercase ASCII.
+ */
+[[nodiscard]] constexpr auto ascii_iequals(std::string_view a,
+                                           std::string_view b) noexcept -> bool
+{
+  if (a.size() != b.size()) {
+    return false;
+  }
+  for (std::size_t i = 0; i < a.size(); ++i) {
+    auto ca = static_cast<unsigned char>(a[i]);
+    auto cb = static_cast<unsigned char>(b[i]);
+    if (ca >= 'A' && ca <= 'Z') {
+      ca = static_cast<unsigned char>(ca + ('a' - 'A'));
+    }
+    if (cb >= 'A' && cb <= 'Z') {
+      cb = static_cast<unsigned char>(cb + ('a' - 'A'));
+    }
+    if (ca != cb) {
+      return false;
+    }
+  }
+  return true;
+}
+}  // namespace detail
+
 // ─── Low-level span-based lookup (explicit table) ───────────────────────────
 
 /**
- * @brief Look up an enumerator by its canonical name (span overload).
+ * @brief Look up an enumerator by name (span overload).
+ *
+ * The comparison is ASCII case-insensitive so CLI / JSON / config callers
+ * can accept ``"january"``, ``"January"``, ``"JANUARY"`` interchangeably.
+ * Every entry in the project's enum tables is lowercase ASCII, so no
+ * locale is involved.
  *
  * @tparam E  Enum type.
  * @tparam N  Table size (deduced from the span extent).
  * @param entries  Compile-time table of name-value pairs.
- * @param name     Case-sensitive name to search for.
+ * @param name     Name to search for (ASCII case-insensitive).
  * @return The matching enumerator, or @c std::nullopt if not found.
  */
 template<typename E, std::size_t N>
@@ -77,8 +114,10 @@ template<typename E, std::size_t N>
     std::span<const EnumEntry<E>, N> entries, std::string_view name) noexcept
     -> std::optional<E>
 {
-  const auto it = std::ranges::find_if(
-      entries, [name](const EnumEntry<E>& e) { return e.name == name; });
+  const auto it =
+      std::ranges::find_if(entries,
+                           [name](const EnumEntry<E>& e)
+                           { return detail::ascii_iequals(e.name, name); });
   if (it != entries.end()) {
     return it->value;
   }
@@ -126,7 +165,7 @@ concept NamedEnum = requires(E e) {
  * lookup table, then delegates to the span-based overload.
  *
  * @tparam E  A type satisfying the NamedEnum concept.
- * @param name  Case-sensitive name to search for.
+ * @param name  Name to search for (ASCII case-insensitive).
  * @return The matching enumerator, or @c std::nullopt if not found.
  */
 template<NamedEnum E>

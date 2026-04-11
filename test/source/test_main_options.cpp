@@ -595,7 +595,19 @@ TEST_CASE("LPAlgo enum_from_name - returns nullopt for unknown name")  // NOLINT
 {
   CHECK_FALSE(enum_from_name<LPAlgo>("interior").has_value());
   CHECK_FALSE(enum_from_name<LPAlgo>("").has_value());
-  CHECK_FALSE(enum_from_name<LPAlgo>("Barrier").has_value());  // case-sensitive
+  CHECK_FALSE(enum_from_name<LPAlgo>("bogus").has_value());
+}
+
+TEST_CASE("LPAlgo enum_from_name - ASCII case-insensitive")  // NOLINT
+{
+  // enum_from_name folds ASCII case, so these all match the lowercase
+  // "barrier" entry in the table.
+  CHECK(enum_from_name<LPAlgo>("Barrier").value_or(LPAlgo::default_algo)
+        == LPAlgo::barrier);
+  CHECK(enum_from_name<LPAlgo>("BARRIER").value_or(LPAlgo::default_algo)
+        == LPAlgo::barrier);
+  CHECK(enum_from_name<LPAlgo>("Primal").value_or(LPAlgo::default_algo)
+        == LPAlgo::primal);
 }
 
 TEST_CASE("LPAlgo enum_name - round-trips all enumerators")  // NOLINT
@@ -635,10 +647,23 @@ TEST_CASE(
   const auto throws = [](const std::string& s)
   { [[maybe_unused]] auto r = parse_lp_algorithm(s); };
   CHECK_THROWS_AS(throws("interior"), cli::parse_error);
-  CHECK_THROWS_AS(throws("Barrier"), cli::parse_error);
+  // "Barrier" (mixed case) is now accepted because enum_from_name is
+  // ASCII case-insensitive — use a genuinely unknown token instead.
+  CHECK_THROWS_AS(throws("bogus"), cli::parse_error);
   CHECK_THROWS_AS(throws("4"), cli::parse_error);
   CHECK_THROWS_AS(throws("-1"), cli::parse_error);
   CHECK_THROWS_AS(throws("abc"), cli::parse_error);
+}
+
+TEST_CASE("parse_lp_algorithm - accepts mixed-case names")  // NOLINT
+{
+  // Round-trip verification that the case-insensitive lookup flows all
+  // the way through parse_lp_algorithm and produces the same int as the
+  // lowercase name.
+  CHECK(parse_lp_algorithm("Barrier") == parse_lp_algorithm("barrier"));
+  CHECK(parse_lp_algorithm("PRIMAL") == parse_lp_algorithm("primal"));
+  CHECK(parse_lp_algorithm("Dual") == parse_lp_algorithm("dual"));
+  CHECK(parse_lp_algorithm("Default") == parse_lp_algorithm("default"));
 }
 
 // ---- Tests for --algorithm CLI option ----

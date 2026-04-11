@@ -54,35 +54,55 @@ class _StageList:
         return self._stages
 
 
+# English month names (as produced by ``plp2gtopt.stage_writer``) and
+# Spanish month names (as they appear in PLP source data and Chilean
+# hydrology spreadsheets).  ``setiembre`` is the accepted alternate
+# spelling of ``septiembre`` still in common use.
+_MONTH_NAMES_EN: list[str] = [
+    "january",
+    "february",
+    "march",
+    "april",
+    "may",
+    "june",
+    "july",
+    "august",
+    "september",
+    "october",
+    "november",
+    "december",
+]
+_MONTH_NAMES_ES: list[str] = [
+    "enero",
+    "febrero",
+    "marzo",
+    "abril",
+    "mayo",
+    "junio",
+    "julio",
+    "agosto",
+    "septiembre",
+    "octubre",
+    "noviembre",
+    "diciembre",
+]
 _MONTH_NAME_TO_NUMBER: dict[str, int] = {
     name: idx
-    for idx, name in enumerate(
-        [
-            "january",
-            "february",
-            "march",
-            "april",
-            "may",
-            "june",
-            "july",
-            "august",
-            "september",
-            "october",
-            "november",
-            "december",
-        ],
-        start=1,
-    )
+    for names in (_MONTH_NAMES_EN, _MONTH_NAMES_ES)
+    for idx, name in enumerate(names, start=1)
 }
+# Alternate Spanish spelling for September.
+_MONTH_NAME_TO_NUMBER["setiembre"] = 9
 
 
 def _normalize_month(raw: Any) -> int:
     """Coerce a stage ``month`` field to a 1..12 integer.
 
-    Accepts an int already in range, a decimal string, or an English month
-    name as produced by ``plp2gtopt.stage_writer`` (``"march"`` etc.).
-    Unknown values fall back to ``1`` so ``_monthly_schedule`` at least
-    reads a valid index instead of raising ``KeyError``.
+    Accepts an int already in range, a decimal string, or an English or
+    Spanish month name (e.g. ``"march"`` as produced by
+    ``plp2gtopt.stage_writer`` or ``"marzo"`` as it appears in PLP source
+    data).  Unknown values fall back to ``1`` so ``_monthly_schedule`` at
+    least reads a valid index instead of raising ``KeyError``.
     """
     if isinstance(raw, int):
         return raw if 1 <= raw <= 12 else ((raw - 1) % 12) + 1

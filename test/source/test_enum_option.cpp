@@ -10,6 +10,7 @@
 #include <doctest/doctest.h>
 #include <gtopt/enum_option.hpp>
 #include <gtopt/planning_options_lp.hpp>
+#include <gtopt/stage_enums.hpp>
 
 using namespace gtopt;  // NOLINT(google-global-names-in-headers)
 
@@ -439,4 +440,92 @@ TEST_CASE("sddp_state_variable_lookup_mode cross_phase when set")  // NOLINT
   const PlanningOptionsLP opts(std::move(raw));
   CHECK(opts.sddp_state_variable_lookup_mode()
         == StateVariableLookupMode::cross_phase);
+}
+
+// ─── MonthType: English + Spanish, full + abbrev, case-insensitive ──────────
+
+TEST_CASE("MonthType accepts English full names, case-insensitive")  // NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  CHECK(enum_from_name<MonthType>("january") == MonthType::january);
+  CHECK(enum_from_name<MonthType>("January") == MonthType::january);
+  CHECK(enum_from_name<MonthType>("JANUARY") == MonthType::january);
+  CHECK(enum_from_name<MonthType>("december") == MonthType::december);
+  CHECK(enum_from_name<MonthType>("December") == MonthType::december);
+  CHECK(enum_from_name<MonthType>("DECEMBER") == MonthType::december);
+}
+
+TEST_CASE("MonthType accepts Spanish full names, case-insensitive")  // NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  CHECK(enum_from_name<MonthType>("enero") == MonthType::january);
+  CHECK(enum_from_name<MonthType>("Enero") == MonthType::january);
+  CHECK(enum_from_name<MonthType>("ENERO") == MonthType::january);
+  CHECK(enum_from_name<MonthType>("febrero") == MonthType::february);
+  CHECK(enum_from_name<MonthType>("marzo") == MonthType::march);
+  CHECK(enum_from_name<MonthType>("abril") == MonthType::april);
+  CHECK(enum_from_name<MonthType>("mayo") == MonthType::may);
+  CHECK(enum_from_name<MonthType>("junio") == MonthType::june);
+  CHECK(enum_from_name<MonthType>("julio") == MonthType::july);
+  CHECK(enum_from_name<MonthType>("agosto") == MonthType::august);
+  CHECK(enum_from_name<MonthType>("septiembre") == MonthType::september);
+  CHECK(enum_from_name<MonthType>("setiembre") == MonthType::september);
+  CHECK(enum_from_name<MonthType>("octubre") == MonthType::october);
+  CHECK(enum_from_name<MonthType>("noviembre") == MonthType::november);
+  CHECK(enum_from_name<MonthType>("diciembre") == MonthType::december);
+}
+
+TEST_CASE("MonthType accepts 3-letter abbreviations (EN + ES)")  // NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  // English abbreviations.
+  CHECK(enum_from_name<MonthType>("jan") == MonthType::january);
+  CHECK(enum_from_name<MonthType>("Feb") == MonthType::february);
+  CHECK(enum_from_name<MonthType>("MAR") == MonthType::march);
+  CHECK(enum_from_name<MonthType>("apr") == MonthType::april);
+  CHECK(enum_from_name<MonthType>("may") == MonthType::may);
+  CHECK(enum_from_name<MonthType>("jun") == MonthType::june);
+  CHECK(enum_from_name<MonthType>("jul") == MonthType::july);
+  CHECK(enum_from_name<MonthType>("aug") == MonthType::august);
+  CHECK(enum_from_name<MonthType>("sep") == MonthType::september);
+  CHECK(enum_from_name<MonthType>("oct") == MonthType::october);
+  CHECK(enum_from_name<MonthType>("nov") == MonthType::november);
+  CHECK(enum_from_name<MonthType>("dec") == MonthType::december);
+
+  // Spanish-only abbreviations.
+  CHECK(enum_from_name<MonthType>("ene") == MonthType::january);
+  CHECK(enum_from_name<MonthType>("Ene") == MonthType::january);
+  CHECK(enum_from_name<MonthType>("ENE") == MonthType::january);
+  CHECK(enum_from_name<MonthType>("abr") == MonthType::april);
+  CHECK(enum_from_name<MonthType>("ago") == MonthType::august);
+  CHECK(enum_from_name<MonthType>("set") == MonthType::september);
+  CHECK(enum_from_name<MonthType>("dic") == MonthType::december);
+}
+
+TEST_CASE("MonthType reverse lookup returns canonical English name")  // NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  // enum_name() walks the table in order and returns the first match by
+  // value; English full names are listed first, so the canonical name
+  // for MonthType::january must be "january" even though "enero", "jan"
+  // and "ene" also map to it.
+  CHECK(enum_name(MonthType::january) == "january");
+  CHECK(enum_name(MonthType::february) == "february");
+  CHECK(enum_name(MonthType::september) == "september");
+  CHECK(enum_name(MonthType::december) == "december");
+}
+
+TEST_CASE("MonthType rejects unknown names")  // NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  CHECK_FALSE(enum_from_name<MonthType>("").has_value());
+  CHECK_FALSE(enum_from_name<MonthType>("bogus").has_value());
+  CHECK_FALSE(enum_from_name<MonthType>("januar").has_value());
+  CHECK_FALSE(enum_from_name<MonthType>("januarys").has_value());
+  CHECK_FALSE(enum_from_name<MonthType>("ja").has_value());
 }
