@@ -18,6 +18,7 @@
 #include <filesystem>
 #include <format>
 #include <mutex>
+#include <ranges>
 #include <unordered_map>
 
 #include <gtopt/bus_island.hpp>
@@ -27,6 +28,7 @@
 #include <gtopt/memory_compress.hpp>
 #include <gtopt/output_context.hpp>
 #include <gtopt/system_lp.hpp>
+#include <gtopt/utils.hpp>
 #include <spdlog/spdlog.h>
 
 #include "gtopt/simulation_lp.hpp"
@@ -239,7 +241,7 @@ void fix_stage_islands(const auto& collections,
   map_reserve(root_has_ref, n_buses);
   map_reserve(root_first_theta, n_buses);
 
-  for (std::size_t i = 0; i < n_buses; ++i) {
+  for (const auto i : iota_range(std::size_t {0}, n_buses)) {
     if (!has_theta[i]) {
       continue;
     }

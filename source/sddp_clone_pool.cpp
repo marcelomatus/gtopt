@@ -9,6 +9,7 @@
 #include <gtopt/planning_lp.hpp>
 #include <gtopt/sddp_clone_pool.hpp>
 #include <gtopt/system_lp.hpp>
+#include <gtopt/utils.hpp>
 
 #ifndef SPDLOG_ACTIVE_LEVEL
 #  define SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_TRACE

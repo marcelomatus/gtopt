@@ -20,6 +20,7 @@
 #include <gtopt/line.hpp>
 #include <gtopt/map_reserve.hpp>
 #include <gtopt/planning_options_lp.hpp>
+#include <gtopt/utils.hpp>
 #include <spdlog/spdlog.h>
 
 namespace gtopt
@@ -140,7 +141,7 @@ auto detect_islands_and_fix_references(Array<Bus>& buses,
   //   island_roots: set of unique root indices
   //   For each root, check if any bus already has reference_theta
   std::set<std::size_t> island_roots;
-  for (std::size_t i = 0; i < num_buses; ++i) {
+  for (const auto i : iota_range(std::size_t {0}, num_buses)) {
     island_roots.insert(dsu.find(i));
   }
 
@@ -179,7 +180,7 @@ auto detect_islands_and_fix_references(Array<Bus>& buses,
     bool has_reference = false;
     std::size_t first_kirchhoff_idx = num_buses;  // sentinel
 
-    for (std::size_t i = 0; i < num_buses; ++i) {
+    for (const auto i : iota_range(std::size_t {0}, num_buses)) {
       if (dsu.find(i) != root) {
         continue;
       }

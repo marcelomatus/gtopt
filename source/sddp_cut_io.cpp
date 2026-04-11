@@ -921,7 +921,10 @@ auto load_boundary_cuts_csv(
     std::vector<std::string> header_names;
     header_names.reserve(num_state_cols);
 
-    for (int hi = state_var_start; std::cmp_less(hi, headers.size()); ++hi) {
+    for (auto hi = static_cast<std::size_t>(state_var_start);
+         hi < headers.size();
+         ++hi)
+    {
       const auto& hdr = headers[hi];
       std::optional<ColIndex> found_col;
 
@@ -963,7 +966,7 @@ auto load_boundary_cuts_csv(
     }
 
     // Track which missing state variables have already been warned about.
-    std::set<int> warned_missing_cols;
+    std::set<std::size_t> warned_missing_cols;
 
     // ── Pre-scan: collect all rows for max_iterations filtering ──
     struct RawBoundaryCut
@@ -1096,7 +1099,7 @@ auto load_boundary_cuts_csv(
       {
         std::istringstream scan_ss(rc.coeff_line);
         std::string tok;
-        for (int ci = 0; std::cmp_less(ci, header_col_map.size()); ++ci) {
+        for (std::size_t ci = 0; ci < header_col_map.size(); ++ci) {
           if (!std::getline(scan_ss, tok, ',')) {
             break;
           }
@@ -1157,7 +1160,7 @@ auto load_boundary_cuts_csv(
             planning_lp.system(scene_index, last_phase).linear_interface();
         std::istringstream coeff_ss(rc.coeff_line);
         std::string token;
-        for (int ci = 0; std::cmp_less(ci, header_col_map.size()); ++ci) {
+        for (std::size_t ci = 0; ci < header_col_map.size(); ++ci) {
           if (!std::getline(coeff_ss, token, ',')) {
             break;
           }
@@ -1313,7 +1316,7 @@ auto load_named_cuts_csv(
       std::vector<std::optional<ColIndex>> col_map;
       col_map.reserve(num_state_cols);
 
-      for (int hi = kFixedCols; std::cmp_less(hi, headers.size()); ++hi) {
+      for (std::size_t hi = kFixedCols; hi < headers.size(); ++hi) {
         const auto& hdr = headers[hi];
         std::optional<ColIndex> found_col;
 
@@ -1358,7 +1361,7 @@ auto load_named_cuts_csv(
     };
 
     // Track which missing state variables have already been warned about.
-    std::set<std::pair<PhaseIndex, int>> warned_missing_named;
+    std::set<std::pair<PhaseIndex, std::size_t>> warned_missing_named;
 
     // ── Read all cut rows ───────────────────────────────────────
     CutLoadResult result {};
@@ -1437,7 +1440,7 @@ auto load_named_cuts_csv(
       {
         std::istringstream scan_ss(remainder);
         std::string tok;
-        for (int ci = 0; std::cmp_less(ci, col_map.size()); ++ci) {
+        for (std::size_t ci = 0; ci < col_map.size(); ++ci) {
           if (!std::getline(scan_ss, tok, ',')) {
             break;
           }
@@ -1482,7 +1485,7 @@ auto load_named_cuts_csv(
             planning_lp.system(scene_index, phase_index).linear_interface();
         std::istringstream coeff_ss(remainder);
         std::string ctok;
-        for (int ci = 0; std::cmp_less(ci, col_map.size()); ++ci) {
+        for (std::size_t ci = 0; ci < col_map.size(); ++ci) {
           if (!std::getline(coeff_ss, ctok, ',')) {
             break;
           }

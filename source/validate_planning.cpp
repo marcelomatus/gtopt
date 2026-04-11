@@ -229,8 +229,8 @@ void check_vector_positive(ValidationResult& result,
   if constexpr (std::is_arithmetic_v<
                     std::remove_cvref_t<decltype(values.front())>>)
   {
-    for (std::size_t i = 0; i < values.size(); ++i) {
-      const auto v = static_cast<double>(values[i]);
+    for (const auto& [i, v_raw] : std::views::enumerate(values)) {
+      const auto v = static_cast<double>(v_raw);
       if (violates(v, p)) {
         result.errors.push_back(std::format("{} '{}': {}[{}] = {} must be {}",
                                             owner_kind,
@@ -244,9 +244,8 @@ void check_vector_positive(ValidationResult& result,
     }
   } else {
     // Nested vector (TBReal / STBReal).  Recurse one level.
-    for (std::size_t i = 0; i < values.size(); ++i) {
-      check_vector_positive(
-          result, values[i], p, owner_kind, owner_name, field_name);
+    for (const auto& sub : values) {
+      check_vector_positive(result, sub, p, owner_kind, owner_name, field_name);
     }
   }
 }
