@@ -44,13 +44,9 @@ stage_parser is given the schedules stay in raw hydro-year form.
 
 from __future__ import annotations
 
-import json
-from pathlib import Path
 from typing import Any
 
-import jinja2
-
-from gtopt_irrigation._template_engine import _TEMPLATE_DIR, render_tson
+from gtopt_irrigation._base import _RightsAgreementBase
 
 
 # Hydrological year mapping: PLP uses Apr=1..Mar=12
@@ -117,7 +113,7 @@ def _zones_to_bound_rule_segments(
     return segments
 
 
-class LajaAgreement:
+class LajaAgreement(_RightsAgreementBase):
     """Stage-2 transform: laja.json → FlowRight/VolumeRight/UserConstraint.
 
     The JSON entity structure is defined in ``templates/laja.tson``.
@@ -134,60 +130,16 @@ class LajaAgreement:
             ``blocks_per_stage``).
     """
 
+    _ARTIFACT = "laja"
+    _UID_START = 2000  # avoid collisions with Maule (1000..)
+
     def __init__(
         self,
         laja_config: dict[str, Any],
         stage_parser: Any = None,
         options: dict[str, Any] | None = None,
     ):
-        self._cfg = laja_config
-        self._stage_parser = stage_parser
-        self._options = options or {}
-        self._uid_counter = 2000  # Start UIDs at 2000 to avoid collisions
-
-        self.flow_rights: list[dict[str, Any]] = []
-        self.volume_rights: list[dict[str, Any]] = []
-        self.user_constraints: list[dict[str, Any]] = []
-
-        self._build()
-
-    @classmethod
-    def from_json(
-        cls,
-        json_path: Path | str,
-        stage_parser: Any = None,
-        options: dict[str, Any] | None = None,
-    ) -> LajaAgreement:
-        """Load a canonical ``laja.json`` and construct an agreement.
-
-        Args:
-            json_path: Path to a ``laja.json`` file.
-            stage_parser: Optional stage-parser-shaped object (see ``__init__``).
-            options: Conversion options dict.
-        """
-        with open(json_path, "r", encoding="utf-8") as fh:
-            cfg = json.load(fh)
-        return cls(cfg, stage_parser=stage_parser, options=options)
-
-    def _next_uid(self) -> int:
-        """Generate a unique UID for rights entities."""
-        uid = self._uid_counter
-        self._uid_counter += 1
-        return uid
-
-    def _get_stages(self) -> list[dict[str, Any]]:
-        """Return the effective list of stages, truncated to match options."""
-        if self._stage_parser is None:
-            return []
-        stages = self._stage_parser.get_all()
-        last_stage = self._options.get("last_stage", -1)
-        try:
-            last_stage = int(last_stage)
-        except (ValueError, TypeError):
-            last_stage = -1
-        if last_stage > 0:
-            stages = [s for s in stages if s["number"] <= last_stage]
-        return stages
+        super().__init__(laja_config, stage_parser=stage_parser, options=options)
 
     def _hydro_to_stage_schedule(self, hydro_monthly: list[float]) -> list[float]:
         """Convert 12-element hydrological-year array to per-stage schedule.
@@ -206,42 +158,6 @@ class LajaAgreement:
             hydro_idx = (cal_month - 4) % 12
             schedule.append(hydro_monthly[hydro_idx])
         return schedule
-
-    def _to_stb_sched(
-        self,
-        values: list[float],
-    ) -> float | list[list[list[float]]]:
-        """Convert per-stage values to STBRealFieldSched format (3D).
-
-        The 3D format is [scenario][stage][block].  Each stage value is
-        replicated for every block in that stage (constant across blocks).
-        Returns scalar 0.0 on empty input, or the single value if all
-        stages match.
-        """
-        if not values:
-            return 0.0
-        if len(set(values)) == 1:
-            return values[0]
-        nblocks = self._options.get("blocks_per_stage", 1)
-        return [[[v] * nblocks for v in values]]
-
-    def _to_tb_sched(
-        self,
-        values: list[float],
-    ) -> float | list[list[float]]:
-        """Convert per-stage values to TBRealFieldSched format (2D).
-
-        The 2D format is [stage][block].  Each stage value is
-        replicated across all blocks in that stage.
-        Returns scalar 0.0 on empty input, or the single value if all
-        stages match.
-        """
-        if not values:
-            return 0.0
-        if len(set(values)) == 1:
-            return values[0]
-        nblocks = self._options.get("blocks_per_stage", 1)
-        return [[v] * nblocks for v in values]
 
     def _fmax_schedule(
         self,
@@ -438,77 +354,4 @@ class LajaAgreement:
                     fr_district["junction"] = injection
                 result.append(fr_district)
 
-        return result
-
-    def _assign_uids(self) -> None:
-        """Assign unique UIDs to all entities after template rendering."""
-        for entity_list in [
-            self.flow_rights,
-            self.volume_rights,
-            self.user_constraints,
-        ]:
-            for entity in entity_list:
-                entity["uid"] = self._next_uid()
-
-    def _build(self) -> None:
-        """Build all rights entities from the parsed configuration.
-
-        Renders the laja.tson template with pre-computed context values,
-        then assigns unique UIDs to all entities.
-        """
-        context = self._prepare_context()
-        entities = render_tson("laja.tson", context)
-
-        self.flow_rights = entities.get("flow_right_array", [])
-        self.volume_rights = entities.get("volume_right_array", [])
-        self.user_constraints = entities.get("user_constraint_array", [])
-
-        self._assign_uids()
-
-    def generate_pampl(self, output_path: Path) -> str:
-        """Render the Laja agreement PAMPL file from the Jinja2 template.
-
-        Args:
-            output_path: Directory where the .pampl file will be written.
-
-        Returns:
-            Filename of the generated .pampl file (relative name only).
-        """
-        env = jinja2.Environment(
-            loader=jinja2.FileSystemLoader(str(_TEMPLATE_DIR)),
-            keep_trailing_newline=True,
-            undefined=jinja2.StrictUndefined,
-        )
-        template = env.get_template("laja.tampl")
-
-        rendered = template.render(self._cfg)
-
-        output_path = Path(output_path)
-        output_path.mkdir(parents=True, exist_ok=True)
-        pampl_file = output_path / "laja.pampl"
-        pampl_file.write_text(rendered, encoding="utf-8")
-
-        return "laja.pampl"
-
-    def to_json_dict(
-        self,
-        output_dir: Path | None = None,
-    ) -> dict[str, Any]:
-        """Return all entities as a dict of arrays for system JSON.
-
-        Args:
-            output_dir: If provided, generates a .pampl file in this
-                directory and sets ``user_constraint_file`` instead of
-                embedding constraints in ``user_constraint_array``.
-        """
-        result: dict[str, Any] = {}
-        if self.flow_rights:
-            result["flow_right_array"] = self.flow_rights
-        if self.volume_rights:
-            result["volume_right_array"] = self.volume_rights
-        if self.user_constraints:
-            if output_dir is not None:
-                result["user_constraint_file"] = self.generate_pampl(output_dir)
-            else:
-                result["user_constraint_array"] = self.user_constraints
         return result
