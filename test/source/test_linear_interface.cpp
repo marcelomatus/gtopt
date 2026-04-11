@@ -197,7 +197,7 @@ TEST_CASE("LinearInterface - LP file output")
   row.class_name = "C";
   row.constraint_name = "1";
   row.variable_uid = Uid {0};
-  row.context = make_stage_context(make_uid<Scenario>(0), StageUid {0});
+  row.context = make_stage_context(make_uid<Scenario>(0), make_uid<Stage>(0));
   interface.add_row(row);
 
   // Set problem name
@@ -804,7 +804,8 @@ TEST_CASE("LinearInterface - duplicate name detection at cols_and_rows (error)")
   CHECK(li.col_name_map().size() == 2);
 
   // Same for rows
-  const auto ctx = make_stage_context(make_uid<Scenario>(0), StageUid {0});
+  const auto ctx =
+      make_stage_context(make_uid<Scenario>(0), make_uid<Stage>(0));
   SparseRow row1;
   row1[ColIndex {0}] = 1.0;
   row1.uppb = 1.0;
@@ -1464,7 +1465,8 @@ TEST_CASE("LinearInterface - row_index_to_name updated by add_row")  // NOLINT
       .uppb = 10.0,
       .name = "x",
   });
-  const auto ctx = make_stage_context(make_uid<Scenario>(0), StageUid {0});
+  const auto ctx =
+      make_stage_context(make_uid<Scenario>(0), make_uid<Stage>(0));
 
   auto make_row = [&](std::string_view cname, Uid uid, double uppb) -> SparseRow
   {
@@ -1503,7 +1505,8 @@ TEST_CASE(
       .uppb = 10.0,
       .name = "x",
   });
-  const auto ctx = make_stage_context(make_uid<Scenario>(0), StageUid {0});
+  const auto ctx =
+      make_stage_context(make_uid<Scenario>(0), make_uid<Stage>(0));
 
   // Add 4 rows using SparseRow with metadata for name generation.
   // Use different UIDs to produce unique names: r_x_<uid>_0_0

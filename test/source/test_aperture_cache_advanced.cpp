@@ -77,7 +77,7 @@ TEST_CASE("ApertureDataCache multi-stage multi-block lookup")  // NOLINT
             .lookup("Flow",
                     "RIVER1",
                     make_uid<Scenario>(1),
-                    StageUid {0},
+                    make_uid<Stage>(0),
                     make_uid<Block>(0))
             .value_or(0.0)
         == doctest::Approx(10.0));
@@ -85,7 +85,7 @@ TEST_CASE("ApertureDataCache multi-stage multi-block lookup")  // NOLINT
             .lookup("Flow",
                     "RIVER1",
                     make_uid<Scenario>(1),
-                    StageUid {1},
+                    make_uid<Stage>(1),
                     make_uid<Block>(1))
             .value_or(0.0)
         == doctest::Approx(21.0));
@@ -93,7 +93,7 @@ TEST_CASE("ApertureDataCache multi-stage multi-block lookup")  // NOLINT
             .lookup("Flow",
                     "RIVER1",
                     make_uid<Scenario>(2),
-                    StageUid {2},
+                    make_uid<Stage>(2),
                     make_uid<Block>(0))
             .value_or(0.0)
         == doctest::Approx(130.0));
@@ -101,7 +101,7 @@ TEST_CASE("ApertureDataCache multi-stage multi-block lookup")  // NOLINT
             .lookup("Flow",
                     "RIVER1",
                     make_uid<Scenario>(2),
-                    StageUid {2},
+                    make_uid<Stage>(2),
                     make_uid<Block>(1))
             .value_or(0.0)
         == doctest::Approx(131.0));
@@ -154,7 +154,7 @@ TEST_CASE("ApertureDataCache many scenarios bulk loading")  // NOLINT
               .lookup("Generator",
                       "GEN_BIG",
                       make_uid<Scenario>(1),
-                      StageUid {0},
+                      make_uid<Stage>(0),
                       make_uid<Block>(0))
               .value_or(0.0)
           == doctest::Approx(1000.0));
@@ -167,7 +167,7 @@ TEST_CASE("ApertureDataCache many scenarios bulk loading")  // NOLINT
               .lookup("Generator",
                       "GEN_BIG",
                       make_uid<Scenario>(10),
-                      StageUid {4},
+                      make_uid<Stage>(4),
                       make_uid<Block>(1))
               .value_or(0.0)
           == doctest::Approx(10041.0));
@@ -180,7 +180,7 @@ TEST_CASE("ApertureDataCache many scenarios bulk loading")  // NOLINT
               .lookup("Generator",
                       "GEN_BIG",
                       make_uid<Scenario>(5),
-                      StageUid {2},
+                      make_uid<Stage>(2),
                       make_uid<Block>(1))
               .value_or(0.0)
           == doctest::Approx(5021.0));
@@ -248,7 +248,7 @@ TEST_CASE("ApertureDataCache multiple elements in same class")  // NOLINT
             .lookup("Flow",
                     "RIVER_A",
                     make_uid<Scenario>(1),
-                    StageUid {0},
+                    make_uid<Stage>(0),
                     make_uid<Block>(0))
             .value_or(0.0)
         == doctest::Approx(100.0));
@@ -256,7 +256,7 @@ TEST_CASE("ApertureDataCache multiple elements in same class")  // NOLINT
             .lookup("Flow",
                     "RIVER_B",
                     make_uid<Scenario>(1),
-                    StageUid {0},
+                    make_uid<Stage>(0),
                     make_uid<Block>(0))
             .value_or(0.0)
         == doctest::Approx(200.0));
@@ -264,7 +264,7 @@ TEST_CASE("ApertureDataCache multiple elements in same class")  // NOLINT
             .lookup("Flow",
                     "RIVER_C",
                     make_uid<Scenario>(1),
-                    StageUid {0},
+                    make_uid<Stage>(0),
                     make_uid<Block>(0))
             .value_or(0.0)
         == doctest::Approx(300.0));
@@ -274,7 +274,7 @@ TEST_CASE("ApertureDataCache multiple elements in same class")  // NOLINT
                   .lookup("Flow",
                           "RIVER_A",
                           make_uid<Scenario>(1),
-                          StageUid {0},
+                          make_uid<Stage>(0),
                           make_uid<Block>(1))
                   .has_value());
 }

@@ -317,10 +317,10 @@ TEST_CASE("SystemLP with reservoir production factor element")
     REQUIRE(effs.size() == 1);
 
     auto& eff = effs.front();
-    CHECK(eff.has_coeff_indices(make_uid<Scenario>(0), StageUid {1}));
+    CHECK(eff.has_coeff_indices(make_uid<Scenario>(0), make_uid<Stage>(1)));
 
     const auto& bmap =
-        eff.coeff_indices_at(make_uid<Scenario>(0), StageUid {1});
+        eff.coeff_indices_at(make_uid<Scenario>(0), make_uid<Stage>(1));
     CHECK(bmap.size() == 2);  // 2 blocks
   }
 
@@ -348,7 +348,7 @@ TEST_CASE("SystemLP with reservoir production factor element")
 
     // Check that the LP coefficient matches
     const auto& bmap =
-        eff.coeff_indices_at(make_uid<Scenario>(0), StageUid {1});
+        eff.coeff_indices_at(make_uid<Scenario>(0), make_uid<Stage>(1));
     for (const auto& [buid, ci] : bmap) {
       const auto coeff = lp.get_coeff(ci.row, ci.col);
       CHECK(coeff == doctest::Approx(-expected_rate));
@@ -489,7 +489,8 @@ TEST_CASE("ReservoirProductionFactorLP - update_lp with different eini segment")
   // The coefficient is updated using vavg = (eini + efin_from_solution) / 2.
   // eini = 100 (first-stage fallback), efin comes from the LP solution.
   // With eini=100, seg1 applies: rate ≈ 1.0 + 0.001 * vavg (near 1.1).
-  const auto& bmap = eff.coeff_indices_at(make_uid<Scenario>(0), StageUid {1});
+  const auto& bmap =
+      eff.coeff_indices_at(make_uid<Scenario>(0), make_uid<Stage>(1));
   for (const auto& [buid, ci] : bmap) {
     const auto coeff = lp.get_coeff(ci.row, ci.col);
     // Coefficient is negative rate; should be close to -1.1

@@ -104,7 +104,7 @@ auto load_one_file(const FileInfo& info) -> std::optional<FileResult>
       data.try_emplace(
           ApertureDataCache::InnerKey {
               .scenario_uid = scen_uid,
-              .stage_uid = StageUid {stage_arr->Value(row)},
+              .stage_uid = make_uid<Stage>(stage_arr->Value(row)),
               .block_uid = make_uid<Block>(block_arr->Value(row)),
           },
           val_arr->Value(row));

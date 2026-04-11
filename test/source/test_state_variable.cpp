@@ -10,25 +10,25 @@ TEST_CASE("StateVariable::Key functionality")
   SUBCASE("Basic key creation")
   {
     const auto key = StateVariable::key(
-        "TestClass", 123, "test_col", PhaseIndex {1}, StageUid {2});
+        "TestClass", 123, "test_col", PhaseIndex {1}, make_uid<Stage>(2));
 
     CHECK(key.class_name == "TestClass");
     CHECK(key.uid == 123);
     CHECK(key.col_name == "test_col");
     CHECK(key.lp_key.phase_index == PhaseIndex {1});
-    CHECK(key.stage_uid == StageUid {2});
+    CHECK(key.stage_uid == make_uid<Stage>(2));
     CHECK(key.scenario_uid == make_uid<Scenario>(unknown_uid));
     CHECK(key.lp_key.scene_index == SceneIndex {unknown_index});
   }
 
   SUBCASE("Key comparison")
   {
-    const auto key1 =
-        StateVariable::key("ClassA", 1, "col1", PhaseIndex {1}, StageUid {1});
-    const auto key2 =
-        StateVariable::key("ClassA", 1, "col1", PhaseIndex {1}, StageUid {1});
-    const auto key3 =
-        StateVariable::key("ClassB", 1, "col1", PhaseIndex {1}, StageUid {1});
+    const auto key1 = StateVariable::key(
+        "ClassA", 1, "col1", PhaseIndex {1}, make_uid<Stage>(1));
+    const auto key2 = StateVariable::key(
+        "ClassA", 1, "col1", PhaseIndex {1}, make_uid<Stage>(1));
+    const auto key3 = StateVariable::key(
+        "ClassB", 1, "col1", PhaseIndex {1}, make_uid<Stage>(1));
 
     CHECK(key1 == key2);
     CHECK(key1 != key3);
@@ -105,7 +105,8 @@ TEST_CASE("StateVariable carries LpContext")
 {
   using namespace gtopt;
 
-  const auto ctx = make_stage_context(make_uid<Scenario>(0), StageUid {3});
+  const auto ctx =
+      make_stage_context(make_uid<Scenario>(0), make_uid<Stage>(3));
   const StateVariable var {
       {.scene_index = first_scene_index(), .phase_index = PhaseIndex {1}},
       ColIndex {5},
@@ -121,7 +122,7 @@ TEST_CASE("StateVariable carries LpContext")
   REQUIRE(std::holds_alternative<StageContext>(var.context()));
   const auto& stg = std::get<StageContext>(var.context());
   CHECK(std::get<0>(stg) == make_uid<Scenario>(0));
-  CHECK(std::get<1>(stg) == StageUid {3});
+  CHECK(std::get<1>(stg) == make_uid<Stage>(3));
 }
 
 TEST_CASE("StateVariable with BlockContext")
@@ -129,7 +130,7 @@ TEST_CASE("StateVariable with BlockContext")
   using namespace gtopt;
 
   const auto ctx = make_block_context(
-      make_uid<Scenario>(1), StageUid {2}, make_uid<Block>(4));
+      make_uid<Scenario>(1), make_uid<Stage>(2), make_uid<Block>(4));
   const StateVariable var {
       {.scene_index = first_scene_index(), .phase_index = first_phase_index()},
       ColIndex {8},
@@ -141,7 +142,7 @@ TEST_CASE("StateVariable with BlockContext")
   REQUIRE(std::holds_alternative<BlockContext>(var.context()));
   const auto& blk = std::get<BlockContext>(var.context());
   CHECK(std::get<0>(blk) == make_uid<Scenario>(1));
-  CHECK(std::get<1>(blk) == StageUid {2});
+  CHECK(std::get<1>(blk) == make_uid<Stage>(2));
   CHECK(std::get<2>(blk) == make_uid<Block>(4));
 }
 

@@ -374,7 +374,7 @@ TEST_SUITE("StageLP")
       CHECK(stage_lp.index() == StageIndex {1});
       CHECK(stage_lp.phase_index() == PhaseIndex {2});
       CHECK(stage_lp.is_active() == true);
-      CHECK(stage_lp.uid() == StageUid {42});
+      CHECK(stage_lp.uid() == make_uid<Stage>(42));
     }
 
     SUBCASE("Duration calculations")
@@ -455,7 +455,7 @@ TEST_SUITE("StageLP")
     StageLP original(stage, blocks);
     const StageLP moved(std::move(original));
 
-    CHECK(moved.uid() == StageUid {10});
+    CHECK(moved.uid() == make_uid<Stage>(10));
     CHECK(moved.blocks().size() == 1);
     CHECK(moved.duration() == doctest::Approx(24.0));
   }

@@ -31,7 +31,7 @@ auto make_simple_lp() -> LinearProblem
 {
   LinearProblem lp("test_lp");
   const auto ctx = make_block_context(
-      make_uid<Scenario>(0), StageUid {0}, make_uid<Block>(0));
+      make_uid<Scenario>(0), make_uid<Stage>(0), make_uid<Block>(0));
   auto c0 = lp.add_col(SparseCol {
       .class_name = "Generator",
       .variable_name = "gen",
@@ -353,13 +353,14 @@ TEST_CASE("LpFingerprint with ScenePhaseContext entries")  // NOLINT
           .variable_name = "generation",
           .variable_uid = Uid {1},
           .context = make_block_context(
-              make_uid<Scenario>(0), StageUid {0}, make_uid<Block>(0)),
+              make_uid<Scenario>(0), make_uid<Stage>(0), make_uid<Block>(0)),
       },
       SparseCol {
           .class_name = "Reservoir",
           .variable_name = "efin",
           .variable_uid = Uid {1},
-          .context = make_stage_context(make_uid<Scenario>(0), StageUid {0}),
+          .context =
+              make_stage_context(make_uid<Scenario>(0), make_uid<Stage>(0)),
       },
   };
   std::vector<SparseRow> rows = {
@@ -368,7 +369,7 @@ TEST_CASE("LpFingerprint with ScenePhaseContext entries")  // NOLINT
           .constraint_name = "balance",
           .variable_uid = Uid {1},
           .context = make_block_context(
-              make_uid<Scenario>(0), StageUid {0}, make_uid<Block>(0)),
+              make_uid<Scenario>(0), make_uid<Stage>(0), make_uid<Block>(0)),
       },
   };
 
@@ -422,7 +423,8 @@ TEST_CASE(  // NOLINT
             .class_name = "Reservoir",
             .variable_name = "efin",
             .variable_uid = uid,
-            .context = make_stage_context(make_uid<Scenario>(0), StageUid {0}),
+            .context =
+                make_stage_context(make_uid<Scenario>(0), make_uid<Stage>(0)),
         },
     };
   };
@@ -455,7 +457,8 @@ TEST_CASE(  // NOLINT
           .class_name = "Reservoir",
           .variable_name = "efin",
           .variable_uid = Uid {1},
-          .context = make_stage_context(make_uid<Scenario>(0), StageUid {0}),
+          .context =
+              make_stage_context(make_uid<Scenario>(0), make_uid<Stage>(0)),
       },
   };
   std::vector<SparseRow> rows;

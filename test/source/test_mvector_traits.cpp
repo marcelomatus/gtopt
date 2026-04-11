@@ -214,36 +214,36 @@ TEST_CASE("2D vector access Uid")
   };
 
   {
-    CHECK(traits_2d::at_value(vec,
-                              std::make_tuple(StageUid {0}, make_uid<Block>(0)))
+    CHECK(traits_2d::at_value(
+              vec, std::make_tuple(make_uid<Stage>(0), make_uid<Block>(0)))
           == 1);
-    CHECK(traits_2d::at_value(vec,
-                              std::make_tuple(StageUid {0}, make_uid<Block>(3)))
+    CHECK(traits_2d::at_value(
+              vec, std::make_tuple(make_uid<Stage>(0), make_uid<Block>(3)))
           == 4);
-    CHECK(traits_2d::at_value(vec,
-                              std::make_tuple(StageUid {1}, make_uid<Block>(1)))
+    CHECK(traits_2d::at_value(
+              vec, std::make_tuple(make_uid<Stage>(1), make_uid<Block>(1)))
           == 6);
-    CHECK(traits_2d::at_value(vec,
-                              std::make_tuple(StageUid {2}, make_uid<Block>(3)))
+    CHECK(traits_2d::at_value(
+              vec, std::make_tuple(make_uid<Stage>(2), make_uid<Block>(3)))
           == 12);
   }
 
   {
     // Top-left
-    CHECK(traits_2d::at_value(vec,
-                              std::make_tuple(StageUid {0}, make_uid<Block>(0)))
+    CHECK(traits_2d::at_value(
+              vec, std::make_tuple(make_uid<Stage>(0), make_uid<Block>(0)))
           == 1);
     // Top-right
-    CHECK(traits_2d::at_value(vec,
-                              std::make_tuple(StageUid {0}, make_uid<Block>(3)))
+    CHECK(traits_2d::at_value(
+              vec, std::make_tuple(make_uid<Stage>(0), make_uid<Block>(3)))
           == 4);
     // Bottom-left
-    CHECK(traits_2d::at_value(vec,
-                              std::make_tuple(StageUid {2}, make_uid<Block>(0)))
+    CHECK(traits_2d::at_value(
+              vec, std::make_tuple(make_uid<Stage>(2), make_uid<Block>(0)))
           == 9);
     // Bottom-right
-    CHECK(traits_2d::at_value(vec,
-                              std::make_tuple(StageUid {2}, make_uid<Block>(3)))
+    CHECK(traits_2d::at_value(
+              vec, std::make_tuple(make_uid<Stage>(2), make_uid<Block>(3)))
           == 12);
 
     // CHECK(

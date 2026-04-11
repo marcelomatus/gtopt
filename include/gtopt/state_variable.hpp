@@ -89,7 +89,7 @@ public:
   struct Key
   {
     ScenarioUid scenario_uid = unknown_uid_of<Scenario>();
-    StageUid stage_uid {unknown_uid};
+    StageUid stage_uid = unknown_uid_of<Stage>();
     Uid uid {unknown_uid};
     std::string_view col_name;
     std::string_view class_name;

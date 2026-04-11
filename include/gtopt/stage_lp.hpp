@@ -138,7 +138,7 @@ public:
   /// @return Unique identifier for this stage
   [[nodiscard]] constexpr auto uid() const noexcept
   {
-    return StageUid {stage().uid};
+    return make_uid<Stage>(stage().uid);
   }
 
   /// @return Index of this stage in the parent container

@@ -26,6 +26,7 @@
 
 #include <gtopt/basic_types.hpp>
 #include <gtopt/stage_enums.hpp>
+#include <gtopt/uid.hpp>
 
 namespace gtopt
 {
@@ -74,7 +75,7 @@ struct Stage
   }
 };
 
-using StageUid = StrongUidType<Stage>;
+using StageUid = UidOf<Stage>;
 using StageIndex = StrongPositionIndexType<Stage>;
 using OptStageIndex = std::optional<StageIndex>;
 

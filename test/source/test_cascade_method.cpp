@@ -98,7 +98,8 @@ TEST_CASE("StateTarget with structured fields")  // NOLINT
 {
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
-  const auto ctx = make_stage_context(make_uid<Scenario>(0), StageUid {3});
+  const auto ctx =
+      make_stage_context(make_uid<Scenario>(0), make_uid<Stage>(3));
   const StateTarget t {
       .class_name = "Reservoir",
       .col_name = "efin",
@@ -120,7 +121,7 @@ TEST_CASE("StateTarget with structured fields")  // NOLINT
   CHECK(std::holds_alternative<StageContext>(t.context));
   const auto& stg = std::get<StageContext>(t.context);
   CHECK(std::get<0>(stg) == make_uid<Scenario>(0));
-  CHECK(std::get<1>(stg) == StageUid {3});
+  CHECK(std::get<1>(stg) == make_uid<Stage>(3));
 }
 
 TEST_CASE(  // NOLINT
@@ -134,7 +135,7 @@ TEST_CASE(  // NOLINT
       .class_name = "Reservoir",
       .col_name = "efin",
       .uid = Uid {5},
-      .context = make_stage_context(make_uid<Scenario>(0), StageUid {2}),
+      .context = make_stage_context(make_uid<Scenario>(0), make_uid<Stage>(2)),
       .target_value = 50.0,
   };
 
