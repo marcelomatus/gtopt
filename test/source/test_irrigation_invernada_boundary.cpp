@@ -7,12 +7,13 @@
  * @copyright BSD-3-Clause
  *
  * These tests extend the Tier 8.6 "La Invernada P0 defender" with
- * defensive guards around the CURRENT hard-constraint behavior of
- * `invernada_balance`.  They are intentionally passing-on-master:
- * they pin down the baseline shape of the LP so the upcoming
- * Phase C soft-constraint work (penalty_class = "hydro_flow") can
- * demonstrably flip one of the assertions (Test 4) from infeasible
- * to feasible-with-priced-slack.
+ * defensive guards around both the HARD-constraint baseline and the
+ * Phase C soft-constraint path (`penalty_class = "hydro_flow"`) for
+ * `invernada_balance`.  Test 4 pins down the baseline infeasibility
+ * of the hard equality under a pathological RHS; Test 4b then
+ * demonstrates that the same fixture becomes feasible once the
+ * soft penalty is wired, closing the gap with visible slack columns
+ * priced at `penalty × duration[h] × 3600`.
  *
  * The UCFixture + make_uc_simulation + make_uc_system helpers are
  * copy-pasted from test_irrigation_user_constraints.cpp.  Refactoring
@@ -253,6 +254,25 @@ struct UCFixture
   };
 }
 
+/// Soft variant of the invernada_balance fixture.  Carries `penalty`
+/// and `penalty_class = "hydro_flow"` so the LP absorbs any PLP-style
+/// conditional-bound infeasibility through visible slack columns
+/// priced at `penalty × duration[h] × 3600` per m³/s — the Phase C
+/// mechanism added in `source/user_constraint_lp.cpp::
+/// resolve_block_soft_penalty`.
+[[nodiscard]] UserConstraint make_invernada_balance_soft_uc(Real penalty)
+{
+  return UserConstraint {
+      .uid = Uid {1},
+      .name = "invernada_balance",
+      .expression =
+          R"(flow_right("inv_deficit").flow + flow_right("inv_sin_deficit").flow + flow_right("inv_caudal_natural").flow = flow_right("inv_embalsar").flow + flow_right("inv_no_embalsar").flow)",
+      .constraint_type = "raw",
+      .penalty = penalty,
+      .penalty_class = "hydro_flow",
+  };
+}
+
 }  // namespace
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -425,9 +445,102 @@ TEST_CASE(  // NOLINT
 
   const auto result = lp.resolve();
   // Baseline (hard constraint): the LP must report infeasibility.
-  // Phase C will flip this assertion to REQUIRE(result.has_value())
-  // once priced slacks are wired.
+  // Regression guard — preserves the Phase B motivator after Phase C
+  // wired the priced-slack path; Test 4b below demonstrates the flip.
   CHECK_FALSE(result.has_value());
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Test 4b — soft balance with penalty_class="hydro_flow" restores
+//           feasibility (Phase C: source/user_constraint_lp.cpp)
+// ─────────────────────────────────────────────────────────────────────────
+
+TEST_CASE(  // NOLINT
+    "Tier 8.6b - Invernada soft balance with penalty_class hydro_flow is "
+    "feasible when LHS and RHS column bounds disagree")
+{
+  // Phase C flip of the Test 4 motivator.  Instead of reusing the
+  // `>= 1200` HARD floor (which is itself infeasible by column
+  // bounds — max LHS = 3·kQmax = 600 < 1200 — and therefore can't
+  // be rescued by softening a DIFFERENT constraint), this test
+  // constructs a fixture where the **balance equation itself** is
+  // the sole source of infeasibility:
+  //
+  //   LHS (3 × +1 flows, discharge=kLhs, fmax=kLhs):  pinned to 3·kLhs = 600
+  //   RHS (2 × −1 flows, discharge=0,    fmax=0   ):  pinned to 0
+  //
+  // With a HARD equality, `600 = 0` is infeasible.  With the Phase C
+  // soft path (`penalty = 10 $/m³`, `penalty_class = "hydro_flow"`),
+  // the LP absorbs the 600 m³/s gap through the `slack_neg` column.
+  //
+  // Per-unit LP slack cost with the default `scale_objective = 1000`:
+  //   penalty × duration[h] × 3600 / scale_objective
+  //     = 10 × 24 × 3600 / 1000
+  //     = 864
+  // Gap = 600 m³/s → total raw LP objective = 600 × 864 = 518 400.
+  // `make_uc_simulation()` uses a single 24-hour block, so the
+  // duration factor is non-trivial — this is exactly what the
+  // `PenaltyClass::HydroFlow` conversion is supposed to pick up.
+  const UCFixture fx;
+  constexpr Real kLhs = 200.0;  // m³/s pinned per LHS flow
+  constexpr Real kPenalty = 10.0;  // $/m³
+  const Array<FlowRight> frs {
+      {
+          .uid = Uid {1},
+          .name = "inv_deficit",
+          .direction = 1,
+          .discharge = kLhs,
+          .fmax = kLhs,
+      },
+      {
+          .uid = Uid {2},
+          .name = "inv_sin_deficit",
+          .direction = 1,
+          .discharge = kLhs,
+          .fmax = kLhs,
+      },
+      {
+          .uid = Uid {3},
+          .name = "inv_caudal_natural",
+          .direction = 1,
+          .discharge = kLhs,
+          .fmax = kLhs,
+      },
+      {
+          .uid = Uid {4},
+          .name = "inv_embalsar",
+          .direction = -1,
+          .discharge = 0.0,
+          .fmax = 0.0,
+      },
+      {
+          .uid = Uid {5},
+          .name = "inv_no_embalsar",
+          .direction = -1,
+          .discharge = 0.0,
+          .fmax = 0.0,
+      },
+  };
+  const Array<UserConstraint> ucs = {
+      make_invernada_balance_soft_uc(kPenalty),
+  };
+
+  const auto system =
+      make_uc_system(fx, {}, frs, ucs, "Tier8_6b_Invernada_soft_feasible");
+  const PlanningOptionsLP options;
+  SimulationLP simulation_lp(make_uc_simulation(), options);
+  SystemLP system_lp(system, simulation_lp);
+  auto&& lp = system_lp.linear_interface();
+
+  const auto result = lp.resolve();
+  // Phase C assertion: priced slack closes the infeasibility gap.
+  REQUIRE(result.has_value());
+  CHECK(result.value() == 0);
+
+  // Raw LP objective (after `scale_objective=1000` division).  See
+  // the header comment above for the 864 × 600 = 518 400 derivation.
+  const auto obj = lp.get_obj_value();
+  CHECK(obj == doctest::Approx(518'400.0).epsilon(1e-6));
 }
 
 // ─────────────────────────────────────────────────────────────────────────

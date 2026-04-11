@@ -1096,9 +1096,20 @@ making both sides of the equation visible in the LP.
 {
   "name": "invernada_balance",
   "expression": {{ expression_invernada }},
-  "description": {{ description_invernada }}
+  "description": {{ description_invernada }},
+  "penalty": {{ penalty_invernada }},
+  "penalty_class": "hydro_flow"
 }
 ```
+
+> **Soft balance.** `penalty` is the cost (in $/m³) the LP pays for each
+> unit of slack absorbed into the balance when the PLP-style conditional
+> bound flipping would otherwise have pinned the deficit variable and
+> made the constraint infeasible.  `penalty_class = "hydro_flow"`
+> multiplies the raw penalty by `block_duration[h] × 3600` so the slack
+> column's LP cost is in $/(m³/s), matching the unit of the flow
+> variables.  Defaults to `hydro_fail_cost` from the surrounding
+> `model_options`.
 
 ```pampl maule_agreement.tampl
 # =============================================================================

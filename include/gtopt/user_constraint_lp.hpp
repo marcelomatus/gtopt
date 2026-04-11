@@ -105,6 +105,10 @@ private:
   std::optional<ConstraintExpr> m_expr_ {};
   /// How the LP dual should be scaled for output
   ConstraintScaleType m_scale_type_ {ConstraintScaleType::Power};
+  /// How the `penalty` scalar is converted to the slack-column cost.
+  /// Parsed once at construction; per-block conversion is applied inside
+  /// the `add_to_lp` block loop when the constraint is soft.
+  PenaltyClass m_penalty_class_ {PenaltyClass::Raw};
   /// Per-(scenario, stage) row indices produced by add_to_lp
   STBIndexHolder<RowIndex> m_rows_ {};
   /// Per-(scenario, stage) slack columns for soft constraints.

@@ -552,12 +552,60 @@ BuildResult build_row_from_terms(LowerCtx& ctx,
 
 // ── UserConstraintLP implementation ─────────────────────────────────────────
 
+namespace
+{
+
+/// Resolve a soft constraint's slack cost for one block.
+///
+/// The caller supplies the base `penalty` scalar stored on the
+/// `UserConstraint` and the `PenaltyClass` parsed at construction; this
+/// helper folds in any per-block unit conversion so that the returned
+/// value can be plugged directly into the slack column's LP objective
+/// coefficient.
+///
+/// - `PenaltyClass::Raw` — identity (backwards-compatible).
+/// - `PenaltyClass::HydroFlow` — `penalty` is $/m³; multiply by
+///   `block_duration_hours × 3600` to obtain $/(m³/s), mirroring
+///   `source/flow_right_lp.cpp:74` so soft-flow `UserConstraint` rows
+///   compose uniformly with element-level `hydro_fail_cost` pricing.
+[[nodiscard]] constexpr Real resolve_block_soft_penalty(
+    Real base_penalty,
+    PenaltyClass penalty_class,
+    Real block_duration_hours) noexcept
+{
+  switch (penalty_class) {
+    case PenaltyClass::Raw:
+      return base_penalty;
+    case PenaltyClass::HydroFlow:
+      return base_penalty * block_duration_hours * 3600.0;
+  }
+  return base_penalty;  // unreachable (switch is exhaustive)
+}
+
+}  // namespace
+
 UserConstraintLP::UserConstraintLP(const UserConstraint& uc, InputContext& ic)
     : ObjectLP<UserConstraint>(uc, ic, ClassName)
     , m_scale_type_(enum_from_name<ConstraintScaleType>(
                         uc.constraint_type.value_or("power"))
                         .value_or(ConstraintScaleType::Power))
 {
+  // Parse `penalty_class` at construction so the hot per-block loop can
+  // dispatch on a plain enum.  An unrecognised value is a hard error —
+  // silently falling back to `raw` was the exact class of bug that the
+  // 2026-04 fail-fast audit was meant to eliminate.
+  if (uc.penalty_class.has_value() && !uc.penalty_class->empty()) {
+    const auto parsed = enum_from_name<PenaltyClass>(*uc.penalty_class);
+    if (!parsed.has_value()) {
+      throw std::runtime_error(
+          std::format("user_constraint '{}': unknown penalty_class '{}' — "
+                      "valid values are: raw, hydro_flow",
+                      uc.name,
+                      *uc.penalty_class));
+    }
+    m_penalty_class_ = *parsed;
+  }
+
   if (!uc.expression.empty()) {
     try {
       m_expr_ = ConstraintParser::parse(uc.name, uc.expression);
@@ -680,15 +728,21 @@ bool UserConstraintLP::add_to_lp(const SystemContext& sc,
     }
 
     // Soft-constraint relaxation — fold one or two slack columns into
-    // the row before sealing it.  Each slack carries `cost = penalty`,
+    // the row before sealing it.  Each slack carries `cost = block_penalty`,
     // is non-negative, and is registered through `add_ampl_variable`
     // so other constraints / reports can reference it by the canonical
     // names `slack`, `slack_pos`, `slack_neg`.
+    //
+    // `block_penalty` is resolved inside the block loop (not hoisted)
+    // because `PenaltyClass::HydroFlow` converts $/m³ → $/(m³/s) via
+    // `× duration[h] × 3600`, and block duration is per-block.
     if (is_soft) {
+      const auto block_penalty = resolve_block_soft_penalty(
+          penalty, m_penalty_class_, block.duration());
       const auto block_ctx =
           make_block_context(scenario.uid(), stage.uid(), block.uid());
       const auto slack_col = lp.add_col(SparseCol {
-          .cost = penalty,
+          .cost = block_penalty,
           .class_name = ClassName.full_name(),
           .variable_name = soft_needs_neg ? SlackPosName : SlackName,
           .variable_uid = uid(),
@@ -703,8 +757,6 @@ bool UserConstraintLP::add_to_lp(const SystemContext& sc,
           pos_coeff = -1.0;
           break;
         case ConstraintType::GREATER_EQUAL:
-          pos_coeff = +1.0;
-          break;
         case ConstraintType::EQUAL:
           pos_coeff = +1.0;
           break;
@@ -717,7 +769,7 @@ bool UserConstraintLP::add_to_lp(const SystemContext& sc,
 
       if (soft_needs_neg) {
         const auto slack_neg_col = lp.add_col(SparseCol {
-            .cost = penalty,
+            .cost = block_penalty,
             .class_name = ClassName.full_name(),
             .variable_name = SlackNegName,
             .variable_uid = uid(),

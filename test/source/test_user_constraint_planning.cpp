@@ -2714,3 +2714,171 @@ TEST_CASE("User constraint - soft slack columns appear in CSV output")
 
   std::filesystem::remove_all(tmpdir);
 }
+
+// -- penalty_class: hydro-flow unit conversion ---------------------------
+
+// clang-format off
+
+/// Same LP as `soft_le_uc_json` but with `penalty_class: "hydro_flow"`.
+/// Authoring intent: `penalty` is $/m³ and should be converted to
+/// $/(m³/s) per block via `× duration[h] × 3600`.  With duration=1h
+/// and penalty=5, the slack column cost becomes 5 × 1 × 3600 = 18 000,
+/// which is well above demand_fail_cost=1000 — so the LP should
+/// *refuse* to relax the cap and fall back on demand failure, instead
+/// of the raw-mode behavior that relaxes at a flat cost of 5.
+static constexpr std::string_view soft_le_hydro_flow_json = R"json({
+  "options": {
+    "annual_discount_rate": 0.0,
+    "output_format": "csv",
+    "output_compression": "uncompressed",
+    "use_single_bus": true,
+    "demand_fail_cost": 1000,
+    "scale_objective": 1
+  },
+  "simulation": {
+    "block_array": [{"uid": 1, "duration": 1}],
+    "stage_array": [{"uid": 1, "first_block": 0, "count_block": 1, "active": 1}],
+    "scenario_array": [{"uid": 1, "probability_factor": 1}]
+  },
+  "system": {
+    "name": "soft_le_hydro_flow_test",
+    "bus_array": [{"uid": 1, "name": "b1"}],
+    "generator_array": [
+      {"uid": 1, "name": "g1", "bus": "b1", "pmin": 0, "pmax": 100, "gcost": 20, "capacity": 100}
+    ],
+    "demand_array": [
+      {"uid": 1, "name": "d1", "bus": "b1", "lmax": [[90.0]]}
+    ],
+    "user_constraint_array": [
+      {
+        "uid": 1,
+        "name": "soft_cap",
+        "expression": "generator('g1').generation <= 50",
+        "constraint_type": "raw",
+        "penalty": 5,
+        "penalty_class": "hydro_flow"
+      }
+    ]
+  }
+})json";
+
+/// Invalid `penalty_class` string — the constructor must reject it
+/// hard rather than silently falling back to `raw`.
+static constexpr std::string_view soft_le_bad_class_json = R"json({
+  "options": {
+    "annual_discount_rate": 0.0,
+    "output_format": "csv",
+    "output_compression": "uncompressed",
+    "use_single_bus": true,
+    "demand_fail_cost": 1000,
+    "scale_objective": 1
+  },
+  "simulation": {
+    "block_array": [{"uid": 1, "duration": 1}],
+    "stage_array": [{"uid": 1, "first_block": 0, "count_block": 1, "active": 1}],
+    "scenario_array": [{"uid": 1, "probability_factor": 1}]
+  },
+  "system": {
+    "name": "soft_le_bad_class_test",
+    "bus_array": [{"uid": 1, "name": "b1"}],
+    "generator_array": [
+      {"uid": 1, "name": "g1", "bus": "b1", "pmin": 0, "pmax": 100, "gcost": 20, "capacity": 100}
+    ],
+    "demand_array": [
+      {"uid": 1, "name": "d1", "bus": "b1", "lmax": [[90.0]]}
+    ],
+    "user_constraint_array": [
+      {
+        "uid": 1,
+        "name": "soft_cap",
+        "expression": "generator('g1').generation <= 50",
+        "penalty": 5,
+        "penalty_class": "not_a_real_class"
+      }
+    ]
+  }
+})json";
+
+// clang-format on
+
+TEST_CASE("User constraint - penalty_class field round-trips through JSON")
+{
+  using namespace gtopt;
+
+  auto planning = daw::json::from_json<Planning>(soft_le_hydro_flow_json);
+  REQUIRE(planning.system.user_constraint_array.size() == 1);
+  const auto& uc = planning.system.user_constraint_array[0];
+
+  REQUIRE(uc.penalty_class.has_value());
+  CHECK(uc.penalty_class.value_or("") == std::string {"hydro_flow"});
+  CHECK(enum_from_name<PenaltyClass>(uc.penalty_class.value_or(""))
+            .value_or(PenaltyClass::Raw)
+        == PenaltyClass::HydroFlow);
+}
+
+TEST_CASE(
+    "User constraint - missing penalty_class defaults to PenaltyClass::Raw")
+{
+  using namespace gtopt;
+
+  // Legacy soft-LE fixture has no `penalty_class` field — the LP must
+  // behave as if `penalty_class = "raw"` so pre-2026-04 inputs continue
+  // to produce identical objectives.
+  auto planning = daw::json::from_json<Planning>(soft_le_uc_json);
+  REQUIRE(planning.system.user_constraint_array.size() == 1);
+  CHECK_FALSE(
+      planning.system.user_constraint_array[0].penalty_class.has_value());
+}
+
+TEST_CASE(
+    "User constraint - penalty_class='hydro_flow' scales slack by dur*3600")
+{
+  using namespace gtopt;
+
+  // Raw penalty_class: penalty=5 is used verbatim → slack cheap, LP
+  // relaxes the 50 MW cap to serve all 90 MW demand via slack.
+  auto planning_raw = daw::json::from_json<Planning>(soft_le_uc_json);
+  PlanningLP raw_lp(std::move(planning_raw));
+  auto raw_res = raw_lp.resolve();
+  REQUIRE(raw_res.has_value());
+  const auto raw_obj =
+      raw_lp.systems().front().front().linear_interface().get_obj_value();
+
+  // hydro_flow penalty_class: penalty=5 × duration(1h) × 3600 = 18 000
+  // per unit, which is >> demand_fail_cost=1000.  The LP must now keep
+  // the cap tight (slack≈0) and pay demand failure instead.
+  auto planning_hf = daw::json::from_json<Planning>(soft_le_hydro_flow_json);
+  PlanningLP hf_lp(std::move(planning_hf));
+  auto hf_res = hf_lp.resolve();
+  REQUIRE(hf_res.has_value());
+  const auto hf_obj =
+      hf_lp.systems().front().front().linear_interface().get_obj_value();
+
+  // Raw: gen=90 @ $20 + slack=40 @ $5 = 1800 + 200 = 2000
+  CHECK(raw_obj == doctest::Approx(2000.0));
+
+  // hydro_flow: gen=50 @ $20 + dfail=40 @ $1000 = 1000 + 40000 = 41000
+  CHECK(hf_obj == doctest::Approx(41000.0));
+
+  // Sanity: the two modes MUST differ — otherwise penalty_class is a no-op.
+  CHECK(hf_obj > raw_obj + 1000.0);
+}
+
+TEST_CASE("User constraint - unknown penalty_class string throws runtime_error")
+{
+  using namespace gtopt;
+
+  // A typo in `penalty_class` must be a hard error at construction
+  // time, not a silent fallback to `raw`.  The 2026-04 fail-fast audit
+  // explicitly listed this pattern as the kind of silent behaviour
+  // that must be eliminated.
+  const auto build = [&]()
+  {
+    auto planning = daw::json::from_json<Planning>(soft_le_bad_class_json);
+    PlanningLP planning_lp(std::move(planning));
+    auto r = planning_lp.resolve();
+    (void)r;
+  };
+
+  CHECK_THROWS_AS(build(), std::runtime_error);
+}

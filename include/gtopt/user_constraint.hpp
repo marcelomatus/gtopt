@@ -69,6 +69,18 @@ namespace gtopt
  *   cost `+penalty`.
  * - `RANGE`: not yet supported with `penalty`; an explicit pair of
  *   one-sided constraints should be used instead.
+ *
+ * ### Penalty unit conversion (`penalty_class`)
+ *
+ * By default (`penalty_class` absent or `"raw"`) the `penalty` scalar is
+ * fed directly into the slack column's LP objective coefficient.  When
+ * `penalty_class` is set to `"hydro_flow"`, the `penalty` is interpreted
+ * as $/m³ (volume) and converted to $/(m³/s) per block via
+ * `× duration[h] × 3600`, mirroring how `hydro_fail_cost` is applied to
+ * FlowRight fail columns.  This lets an irrigation balance authored with
+ * `penalty = hydro_fail_cost` degrade gracefully without hard
+ * infeasibility while still being priced in the same unit system as the
+ * surrounding hydro network.  See `PenaltyClass` for the full table.
  */
 struct UserConstraint
 {
@@ -82,6 +94,8 @@ struct UserConstraint
   OptReal penalty {};  ///< Per-unit slack cost.  When set and > 0, the
                        ///< constraint is relaxed via auto-created slack
                        ///< columns.  See "Soft constraints" above.
+  OptName penalty_class {};  ///< Penalty unit hint: "raw" (default) or
+                             ///< "hydro_flow".  See `PenaltyClass`.
 };
 
 }  // namespace gtopt

@@ -208,6 +208,15 @@ class MauleAgreement(_RightsAgreementBase):
             "central_invernada": cfg["central_invernada"],
             "v_econ_inver_ini": cfg["v_econ_inver_ini"],
             "qmax_invernada": cfg.get("qmax_invernada", 200),
+            # Soft-constraint penalty for the invernada_balance UserConstraint
+            # ($/m³).  Rendered as `penalty` with `penalty_class = "hydro_flow"`
+            # so the LP assembly converts it to $/(m³/s) per block via
+            # `× duration[h] × 3600`, mirroring FlowRight.fail_cost.  Defaults
+            # to the global `hydro_fail_cost` so the soft relaxation composes
+            # with element-level pricing without a separate tuning knob.
+            "penalty_invernada": cfg.get(
+                "penalty_invernada", cfg.get("hydro_fail_cost", 10.0)
+            ),
             # UserConstraint expressions
             "expression_invernada": expression_invernada,
             "description_invernada": description_invernada,

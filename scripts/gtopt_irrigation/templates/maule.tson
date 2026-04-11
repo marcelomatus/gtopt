@@ -704,10 +704,19 @@
     {# on the supply side, making both sides of the equation visible #}
     {# in the LP.                                                    #}
     {# ============================================================= #}
+    {# `penalty` + `penalty_class = "hydro_flow"` makes the balance     #}
+    {# soft: if the PLP-style conditional bound-flipping would have    #}
+    {# forced infeasibility (irr_demand > inflow with deficit pinned),  #}
+    {# the LP absorbs the gap through visible slack columns priced at  #}
+    {# `penalty_invernada` $/m³ × block_duration × 3600 (mirroring     #}
+    {# FlowRight.fail_cost).  Setting `penalty` to 0 disables the     #}
+    {# soft relaxation and restores the hard-equality behaviour.       #}
     {
       "name": "invernada_balance",
       "expression": {{ expression_invernada }},
-      "description": {{ description_invernada }}
+      "description": {{ description_invernada }},
+      "penalty": {{ penalty_invernada }},
+      "penalty_class": "hydro_flow"
     },
 
     {# ============================================================= #}
