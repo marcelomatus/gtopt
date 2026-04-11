@@ -40,7 +40,7 @@ public:
 
   [[nodiscard]] constexpr auto uid() const noexcept -> BlockUid
   {
-    return BlockUid {m_block_.uid};
+    return make_uid<Block>(m_block_.uid);
   }
 
   [[nodiscard]] constexpr auto duration() const noexcept -> double

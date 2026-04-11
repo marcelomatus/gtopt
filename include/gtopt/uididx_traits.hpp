@@ -149,7 +149,7 @@ struct UidToArrowIdx<ScenarioUid, StageUid, BlockUid>
     for (ArrowIndex i = 0; i < table->num_rows(); ++i) {
       const auto key = key_type {make_uid<Scenario>((*scenarios)->Value(i)),
                                  StageUid {(*stages)->Value(i)},
-                                 BlockUid {(*blocks)->Value(i)}};
+                                 make_uid<Block>((*blocks)->Value(i))};
       const auto res = uid_idx.emplace(key, i);
       if (!res.second) {
         SPDLOG_WARN("using duplicate uid values at element {}", as_string(key));
@@ -183,7 +183,7 @@ struct UidToArrowIdx<StageUid, BlockUid> : ArrowUidTraits<StageUid, BlockUid>
 
     for (ArrowIndex i = 0; i < table->num_rows(); ++i) {
       const auto key = key_type {StageUid {(*stages)->Value(i)},
-                                 BlockUid {(*blocks)->Value(i)}};
+                                 make_uid<Block>((*blocks)->Value(i))};
       SPDLOG_DEBUG("uididx Processing key: {} and {}", as_string(key), i);
       const auto res = uid_idx.emplace(key, i);
       if (!res.second) {

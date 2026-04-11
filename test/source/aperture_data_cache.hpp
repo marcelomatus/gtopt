@@ -154,52 +154,73 @@ TEST_CASE("ApertureDataCache loads parquet files")  // NOLINT
 
   SUBCASE("lookup existing entry")
   {
-    const auto val = cache.lookup(
-        "Flow", "RAPEL", make_uid<Scenario>(10), StageUid {0}, BlockUid {0});
+    const auto val = cache.lookup("Flow",
+                                  "RAPEL",
+                                  make_uid<Scenario>(10),
+                                  StageUid {0},
+                                  make_uid<Block>(0));
     REQUIRE(val.has_value());
     CHECK(val.value_or(0.0) == doctest::Approx(100.0));
   }
 
   SUBCASE("lookup second scenario")
   {
-    const auto val = cache.lookup(
-        "Flow", "RAPEL", make_uid<Scenario>(20), StageUid {0}, BlockUid {1});
+    const auto val = cache.lookup("Flow",
+                                  "RAPEL",
+                                  make_uid<Scenario>(20),
+                                  StageUid {0},
+                                  make_uid<Block>(1));
     REQUIRE(val.has_value());
     CHECK(val.value_or(0.0) == doctest::Approx(400.0));
   }
 
   SUBCASE("lookup nonexistent class returns nullopt")
   {
-    const auto val = cache.lookup(
-        "Power", "RAPEL", make_uid<Scenario>(10), StageUid {0}, BlockUid {0});
+    const auto val = cache.lookup("Power",
+                                  "RAPEL",
+                                  make_uid<Scenario>(10),
+                                  StageUid {0},
+                                  make_uid<Block>(0));
     CHECK_FALSE(val.has_value());
   }
 
   SUBCASE("lookup nonexistent element returns nullopt")
   {
-    const auto val = cache.lookup(
-        "Flow", "MISSING", make_uid<Scenario>(10), StageUid {0}, BlockUid {0});
+    const auto val = cache.lookup("Flow",
+                                  "MISSING",
+                                  make_uid<Scenario>(10),
+                                  StageUid {0},
+                                  make_uid<Block>(0));
     CHECK_FALSE(val.has_value());
   }
 
   SUBCASE("lookup nonexistent scenario returns nullopt")
   {
-    const auto val = cache.lookup(
-        "Flow", "RAPEL", make_uid<Scenario>(99), StageUid {0}, BlockUid {0});
+    const auto val = cache.lookup("Flow",
+                                  "RAPEL",
+                                  make_uid<Scenario>(99),
+                                  StageUid {0},
+                                  make_uid<Block>(0));
     CHECK_FALSE(val.has_value());
   }
 
   SUBCASE("lookup nonexistent stage returns nullopt")
   {
-    const auto val = cache.lookup(
-        "Flow", "RAPEL", make_uid<Scenario>(10), StageUid {5}, BlockUid {0});
+    const auto val = cache.lookup("Flow",
+                                  "RAPEL",
+                                  make_uid<Scenario>(10),
+                                  StageUid {5},
+                                  make_uid<Block>(0));
     CHECK_FALSE(val.has_value());
   }
 
   SUBCASE("lookup nonexistent block returns nullopt")
   {
-    const auto val = cache.lookup(
-        "Flow", "RAPEL", make_uid<Scenario>(10), StageUid {0}, BlockUid {99});
+    const auto val = cache.lookup("Flow",
+                                  "RAPEL",
+                                  make_uid<Scenario>(10),
+                                  StageUid {0},
+                                  make_uid<Block>(99));
     CHECK_FALSE(val.has_value());
   }
 
@@ -260,16 +281,22 @@ TEST_CASE("ApertureDataCache multiple classes and elements")  // NOLINT
 
   SUBCASE("lookup Flow/RAPEL")
   {
-    const auto val = cache.lookup(
-        "Flow", "RAPEL", make_uid<Scenario>(1), StageUid {0}, BlockUid {0});
+    const auto val = cache.lookup("Flow",
+                                  "RAPEL",
+                                  make_uid<Scenario>(1),
+                                  StageUid {0},
+                                  make_uid<Block>(0));
     REQUIRE(val.has_value());
     CHECK(val.value_or(0.0) == doctest::Approx(10.0));
   }
 
   SUBCASE("lookup Generator/GEN1")
   {
-    const auto val = cache.lookup(
-        "Generator", "GEN1", make_uid<Scenario>(1), StageUid {0}, BlockUid {0});
+    const auto val = cache.lookup("Generator",
+                                  "GEN1",
+                                  make_uid<Scenario>(1),
+                                  StageUid {0},
+                                  make_uid<Block>(0));
     REQUIRE(val.has_value());
     CHECK(val.value_or(0.0) == doctest::Approx(20.0));
   }

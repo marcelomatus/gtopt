@@ -21,7 +21,7 @@ TEST_CASE("BlockLP default construction")
 
   SUBCASE("Default constructed BlockLP has default Block")
   {
-    CHECK(block.uid() == BlockUid {unknown_uid});
+    CHECK(block.uid() == make_uid<Block>(unknown_uid));
     CHECK(block.duration() == 0);
   }
 }
@@ -34,7 +34,7 @@ TEST_CASE("BlockLP construction with parameters")
 
   SUBCASE("Constructor properly initializes members")
   {
-    CHECK(block.uid() == BlockUid {test_block.uid});
+    CHECK(block.uid() == make_uid<Block>(test_block.uid));
     CHECK(block.duration() == test_block.duration);
     CHECK(block.index() == test_index);
   }
@@ -55,7 +55,7 @@ TEST_CASE("BlockLP move semantics")
   {
     BlockLP original(test_block, test_index);
     const BlockLP moved(std::move(original));
-    CHECK(moved.uid() == BlockUid {test_block.uid});
+    CHECK(moved.uid() == make_uid<Block>(test_block.uid));
     CHECK(moved.index() == test_index);
   }
 
@@ -64,7 +64,7 @@ TEST_CASE("BlockLP move semantics")
     BlockLP original(test_block, test_index);
     BlockLP moved;
     moved = std::move(original);
-    CHECK(moved.uid() == BlockUid {test_block.uid});
+    CHECK(moved.uid() == make_uid<Block>(test_block.uid));
     CHECK(moved.index() == test_index);
   }
 }
@@ -102,7 +102,7 @@ TEST_CASE("BlockLP constexpr usage")
 
   SUBCASE("Constexpr construction")
   {
-    static_assert(block.uid() == BlockUid {test_block.uid});
+    static_assert(block.uid() == make_uid<Block>(test_block.uid));
     static_assert(block.index() == test_index);
   }
 
@@ -110,7 +110,7 @@ TEST_CASE("BlockLP constexpr usage")
   {
     constexpr auto uid = block.uid();
     constexpr auto idx = block.index();
-    CHECK(uid == BlockUid {test_block.uid});
+    CHECK(uid == make_uid<Block>(test_block.uid));
     CHECK(idx == test_index);
   }
 }
@@ -398,8 +398,8 @@ TEST_SUITE("StageLP")
     {
       const auto& stage_blocks = stage_lp.blocks();
       REQUIRE(stage_blocks.size() == 2);
-      CHECK(stage_blocks[0].uid() == BlockUid {2});
-      CHECK(stage_blocks[1].uid() == BlockUid {3});
+      CHECK(stage_blocks[0].uid() == make_uid<Block>(2));
+      CHECK(stage_blocks[1].uid() == make_uid<Block>(3));
     }
   }
 

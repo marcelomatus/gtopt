@@ -78,7 +78,7 @@ TEST_CASE("ApertureDataCache multi-stage multi-block lookup")  // NOLINT
                     "RIVER1",
                     make_uid<Scenario>(1),
                     StageUid {0},
-                    BlockUid {0})
+                    make_uid<Block>(0))
             .value_or(0.0)
         == doctest::Approx(10.0));
   CHECK(cache
@@ -86,7 +86,7 @@ TEST_CASE("ApertureDataCache multi-stage multi-block lookup")  // NOLINT
                     "RIVER1",
                     make_uid<Scenario>(1),
                     StageUid {1},
-                    BlockUid {1})
+                    make_uid<Block>(1))
             .value_or(0.0)
         == doctest::Approx(21.0));
   CHECK(cache
@@ -94,7 +94,7 @@ TEST_CASE("ApertureDataCache multi-stage multi-block lookup")  // NOLINT
                     "RIVER1",
                     make_uid<Scenario>(2),
                     StageUid {2},
-                    BlockUid {0})
+                    make_uid<Block>(0))
             .value_or(0.0)
         == doctest::Approx(130.0));
   CHECK(cache
@@ -102,7 +102,7 @@ TEST_CASE("ApertureDataCache multi-stage multi-block lookup")  // NOLINT
                     "RIVER1",
                     make_uid<Scenario>(2),
                     StageUid {2},
-                    BlockUid {1})
+                    make_uid<Block>(1))
             .value_or(0.0)
         == doctest::Approx(131.0));
 }
@@ -155,7 +155,7 @@ TEST_CASE("ApertureDataCache many scenarios bulk loading")  // NOLINT
                       "GEN_BIG",
                       make_uid<Scenario>(1),
                       StageUid {0},
-                      BlockUid {0})
+                      make_uid<Block>(0))
               .value_or(0.0)
           == doctest::Approx(1000.0));
   }
@@ -168,7 +168,7 @@ TEST_CASE("ApertureDataCache many scenarios bulk loading")  // NOLINT
                       "GEN_BIG",
                       make_uid<Scenario>(10),
                       StageUid {4},
-                      BlockUid {1})
+                      make_uid<Block>(1))
               .value_or(0.0)
           == doctest::Approx(10041.0));
   }
@@ -181,7 +181,7 @@ TEST_CASE("ApertureDataCache many scenarios bulk loading")  // NOLINT
                       "GEN_BIG",
                       make_uid<Scenario>(5),
                       StageUid {2},
-                      BlockUid {1})
+                      make_uid<Block>(1))
               .value_or(0.0)
           == doctest::Approx(5021.0));
   }
@@ -249,7 +249,7 @@ TEST_CASE("ApertureDataCache multiple elements in same class")  // NOLINT
                     "RIVER_A",
                     make_uid<Scenario>(1),
                     StageUid {0},
-                    BlockUid {0})
+                    make_uid<Block>(0))
             .value_or(0.0)
         == doctest::Approx(100.0));
   CHECK(cache
@@ -257,7 +257,7 @@ TEST_CASE("ApertureDataCache multiple elements in same class")  // NOLINT
                     "RIVER_B",
                     make_uid<Scenario>(1),
                     StageUid {0},
-                    BlockUid {0})
+                    make_uid<Block>(0))
             .value_or(0.0)
         == doctest::Approx(200.0));
   CHECK(cache
@@ -265,7 +265,7 @@ TEST_CASE("ApertureDataCache multiple elements in same class")  // NOLINT
                     "RIVER_C",
                     make_uid<Scenario>(1),
                     StageUid {0},
-                    BlockUid {0})
+                    make_uid<Block>(0))
             .value_or(0.0)
         == doctest::Approx(300.0));
 
@@ -275,7 +275,7 @@ TEST_CASE("ApertureDataCache multiple elements in same class")  // NOLINT
                           "RIVER_A",
                           make_uid<Scenario>(1),
                           StageUid {0},
-                          BlockUid {1})
+                          make_uid<Block>(1))
                   .has_value());
 }
 

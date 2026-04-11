@@ -128,8 +128,8 @@ TEST_CASE("StateVariable with BlockContext")
 {
   using namespace gtopt;
 
-  const auto ctx =
-      make_block_context(make_uid<Scenario>(1), StageUid {2}, BlockUid {4});
+  const auto ctx = make_block_context(
+      make_uid<Scenario>(1), StageUid {2}, make_uid<Block>(4));
   const StateVariable var {
       {.scene_index = first_scene_index(), .phase_index = first_phase_index()},
       ColIndex {8},
@@ -142,7 +142,7 @@ TEST_CASE("StateVariable with BlockContext")
   const auto& blk = std::get<BlockContext>(var.context());
   CHECK(std::get<0>(blk) == make_uid<Scenario>(1));
   CHECK(std::get<1>(blk) == StageUid {2});
-  CHECK(std::get<2>(blk) == BlockUid {4});
+  CHECK(std::get<2>(blk) == make_uid<Block>(4));
 }
 
 TEST_CASE("StateVariable default context is monostate")

@@ -142,8 +142,8 @@ TEST_CASE(
 
 TEST_CASE("LabelMaker::make_row_label requires cols_and_rows")
 {
-  const auto ctx =
-      make_block_context(make_uid<Scenario>(1), StageUid {2}, BlockUid {3});
+  const auto ctx = make_block_context(
+      make_uid<Scenario>(1), StageUid {2}, make_uid<Block>(3));
   const auto row = make_row("Bus", "bal", Uid {4}, ctx);
 
   SUBCASE("none / minimal / only_cols emit nothing")
@@ -175,8 +175,8 @@ TEST_CASE("LabelMaker::force_col_label ignores level")
 
 TEST_CASE("LabelMaker::force_row_label ignores level")
 {
-  const auto ctx =
-      make_block_context(make_uid<Scenario>(1), StageUid {2}, BlockUid {3});
+  const auto ctx = make_block_context(
+      make_uid<Scenario>(1), StageUid {2}, make_uid<Block>(3));
   const auto row = make_row("Bus", "bal", Uid {4}, ctx);
   CHECK(LabelMaker::force_row_label(row) == "bus_bal_4_1_2_3");
 }

@@ -828,7 +828,7 @@ TEST_CASE("ReserveZoneLP - lookup methods on LP objects")
   // Access scenario and stage for lookup
   const auto& scenario = simulation_lp.scenarios()[0];
   const auto& stage = simulation_lp.stages()[0];
-  const auto buid = BlockUid {Uid {1}};
+  const auto buid = make_uid<Block>(1);
 
   // Test lookup_urequirement_col - should find the column
   const auto ur_col = rz_lp.lookup_urequirement_col(scenario, stage, buid);
@@ -840,11 +840,11 @@ TEST_CASE("ReserveZoneLP - lookup methods on LP objects")
 
   // Test lookup with non-existent block
   const auto missing_ur =
-      rz_lp.lookup_urequirement_col(scenario, stage, BlockUid {Uid {999}});
+      rz_lp.lookup_urequirement_col(scenario, stage, make_uid<Block>(999));
   CHECK_FALSE(missing_ur.has_value());
 
   const auto missing_dr =
-      rz_lp.lookup_drequirement_col(scenario, stage, BlockUid {Uid {999}});
+      rz_lp.lookup_drequirement_col(scenario, stage, make_uid<Block>(999));
   CHECK_FALSE(missing_dr.has_value());
 
   // Test row/col accessors
@@ -875,11 +875,11 @@ TEST_CASE("ReserveZoneLP - lookup methods on LP objects")
 
   // Test lookup with non-existent block
   const auto missing_up =
-      rp_lp.lookup_up_provision_col(scenario, stage, BlockUid {Uid {999}});
+      rp_lp.lookup_up_provision_col(scenario, stage, make_uid<Block>(999));
   CHECK_FALSE(missing_up.has_value());
 
   const auto missing_dn =
-      rp_lp.lookup_dn_provision_col(scenario, stage, BlockUid {Uid {999}});
+      rp_lp.lookup_dn_provision_col(scenario, stage, make_uid<Block>(999));
   CHECK_FALSE(missing_dn.has_value());
 }
 
@@ -987,7 +987,7 @@ TEST_CASE("ReserveZoneLP - reserve fail cost with insufficient provision")
 
   const auto& scenario = simulation_lp.scenarios()[0];
   const auto& stage = simulation_lp.stages()[0];
-  const auto buid = BlockUid {Uid {1}};
+  const auto buid = make_uid<Block>(1);
 
   // The urequirement column exists and its solution should be > 0
   // (some reserve requirement is unmet, covered by fail cost)
@@ -1107,7 +1107,7 @@ TEST_CASE("ReserveZoneLP - no reserve_fail_cost (fixed requirement)")
 
   const auto& scenario = simulation_lp.scenarios()[0];
   const auto& stage = simulation_lp.stages()[0];
-  const auto buid = BlockUid {Uid {1}};
+  const auto buid = make_uid<Block>(1);
 
   const auto ur_col = rz_lp.lookup_urequirement_col(scenario, stage, buid);
   REQUIRE(ur_col.has_value());
@@ -1222,7 +1222,7 @@ TEST_CASE(
 
   const auto& scenario = simulation_lp.scenarios()[0];
   const auto& stage = simulation_lp.stages()[0];
-  const auto buid = BlockUid {Uid {1}};
+  const auto buid = make_uid<Block>(1);
 
   const auto dn_col = rp_lp.lookup_dn_provision_col(scenario, stage, buid);
   REQUIRE(dn_col.has_value());
@@ -1345,9 +1345,9 @@ TEST_CASE("ReserveZoneLP - multiple blocks with reserve duals")
   const auto& stage = simulation_lp.stages()[0];
 
   const auto ur_col_b1 =
-      rz_lp.lookup_urequirement_col(scenario, stage, BlockUid {Uid {1}});
+      rz_lp.lookup_urequirement_col(scenario, stage, make_uid<Block>(1));
   const auto ur_col_b2 =
-      rz_lp.lookup_urequirement_col(scenario, stage, BlockUid {Uid {2}});
+      rz_lp.lookup_urequirement_col(scenario, stage, make_uid<Block>(2));
   CHECK(ur_col_b1.has_value());
   CHECK(ur_col_b2.has_value());
 
@@ -1357,9 +1357,9 @@ TEST_CASE("ReserveZoneLP - multiple blocks with reserve duals")
   const auto& rp_lp = rp_collection.elements()[0];
 
   const auto up_col_b1 =
-      rp_lp.lookup_up_provision_col(scenario, stage, BlockUid {Uid {1}});
+      rp_lp.lookup_up_provision_col(scenario, stage, make_uid<Block>(1));
   const auto up_col_b2 =
-      rp_lp.lookup_up_provision_col(scenario, stage, BlockUid {Uid {2}});
+      rp_lp.lookup_up_provision_col(scenario, stage, make_uid<Block>(2));
   CHECK(up_col_b1.has_value());
   CHECK(up_col_b2.has_value());
 
@@ -1474,7 +1474,7 @@ TEST_CASE("ReserveZoneLP - reserve provision by zone name")
   const auto& scenario = simulation_lp.scenarios()[0];
   const auto& stage = simulation_lp.stages()[0];
   const auto up_col =
-      rp_lp.lookup_up_provision_col(scenario, stage, BlockUid {Uid {1}});
+      rp_lp.lookup_up_provision_col(scenario, stage, make_uid<Block>(1));
   CHECK(up_col.has_value());
 }
 

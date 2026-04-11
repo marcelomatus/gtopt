@@ -59,17 +59,17 @@ TEST_CASE("schedule test vector")
 
     const STBRealSched stbsched {ic, "class", id, stbfield};
 
-    REQUIRE(stbsched.at(make_uid<Scenario>(1), StageUid {1}, BlockUid {1})
+    REQUIRE(stbsched.at(make_uid<Scenario>(1), StageUid {1}, make_uid<Block>(1))
             == 1);
-    REQUIRE(stbsched.at(make_uid<Scenario>(1), StageUid {2}, BlockUid {2})
+    REQUIRE(stbsched.at(make_uid<Scenario>(1), StageUid {2}, make_uid<Block>(2))
             == 2);
-    REQUIRE(stbsched.at(make_uid<Scenario>(1), StageUid {2}, BlockUid {3})
+    REQUIRE(stbsched.at(make_uid<Scenario>(1), StageUid {2}, make_uid<Block>(3))
             == 3);
-    REQUIRE(stbsched.at(make_uid<Scenario>(2), StageUid {1}, BlockUid {1})
+    REQUIRE(stbsched.at(make_uid<Scenario>(2), StageUid {1}, make_uid<Block>(1))
             == 4);
-    REQUIRE(stbsched.at(make_uid<Scenario>(2), StageUid {2}, BlockUid {2})
+    REQUIRE(stbsched.at(make_uid<Scenario>(2), StageUid {2}, make_uid<Block>(2))
             == 5);
-    REQUIRE(stbsched.at(make_uid<Scenario>(2), StageUid {2}, BlockUid {3})
+    REQUIRE(stbsched.at(make_uid<Scenario>(2), StageUid {2}, make_uid<Block>(3))
             == 6);
   }
 
@@ -80,9 +80,9 @@ TEST_CASE("schedule test vector")
 
     const TBRealSched tbsched {ic, "class", id, tbfield};
 
-    REQUIRE(tbsched.at(StageUid {1}, BlockUid {1}) == 1);
-    REQUIRE(tbsched.at(StageUid {2}, BlockUid {2}) == 2);
-    REQUIRE(tbsched.at(StageUid {2}, BlockUid {3}) == 3);
+    REQUIRE(tbsched.at(StageUid {1}, make_uid<Block>(1)) == 1);
+    REQUIRE(tbsched.at(StageUid {2}, make_uid<Block>(2)) == 2);
+    REQUIRE(tbsched.at(StageUid {2}, make_uid<Block>(3)) == 3);
   }
 
   SUBCASE("stfield")
@@ -111,14 +111,14 @@ TEST_CASE("opt schedule test ")
   FieldSched2<Int> field_sched = -3;
   const gtopt::OptSchedule<int, StageUid, BlockUid> sched(field_sched);
 
-  REQUIRE(sched.at(StageUid {1}, BlockUid {1}) == -3);
+  REQUIRE(sched.at(StageUid {1}, make_uid<Block>(1)) == -3);
 }
 
 TEST_CASE("schedule test ")
 {
   const gtopt::Schedule<int, StageUid, BlockUid> sched {-3};
 
-  REQUIRE(sched.at(StageUid {1}, BlockUid {1}) == -3);
+  REQUIRE(sched.at(StageUid {1}, make_uid<Block>(1)) == -3);
 }
 
 TEST_CASE("schedule test 2")

@@ -96,9 +96,9 @@ TEST_CASE("Scenario-Stage-Block mapping")
     sim.stage_array.emplace_back(
         Stage {.uid = StageUid {2}, .first_block = 1, .count_block = 2});
 
-    sim.block_array.emplace_back(Block {.uid = BlockUid {1}});
-    sim.block_array.emplace_back(Block {.uid = BlockUid {2}});
-    sim.block_array.emplace_back(Block {.uid = BlockUid {3}});
+    sim.block_array.emplace_back(Block {.uid = make_uid<Block>(1)});
+    sim.block_array.emplace_back(Block {.uid = make_uid<Block>(2)});
+    sim.block_array.emplace_back(Block {.uid = make_uid<Block>(3)});
     // Need to add blocks to test full mapping
 
     const PlanningOptionsLP options;
@@ -106,10 +106,11 @@ TEST_CASE("Scenario-Stage-Block mapping")
 
     auto result = TestTraits::make_vector_uids_idx(sim_lp);
     CHECK(result->size() == 6);
-    CHECK(result->at({make_uid<Scenario>(1), StageUid {1}, BlockUid {1}})
+    CHECK(result->at({make_uid<Scenario>(1), StageUid {1}, make_uid<Block>(1)})
           == std::tuple {0, 0, 0});
 
-    auto tuid = std::tuple {make_uid<Scenario>(1), StageUid {2}, BlockUid {3}};
+    auto tuid =
+        std::tuple {make_uid<Scenario>(1), StageUid {2}, make_uid<Block>(3)};
     auto tidx = std::tuple {0, 1, 1};
     CHECK(as_string(result->at(tuid)) == as_string(tidx));
     CHECK(result->at(tuid) == tidx);
