@@ -9,11 +9,12 @@
  *
  * Historically a UID in gtopt was just `int32_t`, and strong UID aliases like
  * `BlockUid`, `StageUid`, `PhaseUid`, … were `strong::type<int32_t, Tag>`
- * which *did* allow brace-construction from a raw integer: `BlockUid{3}`
- * compiles anywhere.  This let test fixtures and production code synthesize
- * UIDs from loop counters — a well-known class of bug, because a UID is an
- * identity token, not a counter, and the N-th row in an array is not in
- * general the element with UID N.
+ * (via the now-removed `StrongUidType` template) which *did* allow brace-
+ * construction from a raw integer: `BlockUid{3}` compiled anywhere.  This
+ * let test fixtures and production code synthesize UIDs from loop counters
+ * — a well-known class of bug, because a UID is an identity token, not a
+ * counter, and the N-th row in an array is not in general the element with
+ * UID N.
  *
  * `UidOf<Tag>` closes that loophole.  It has no public constructor taking a
  * `uid_t`: the only way a user can materialize one from an integer is via
@@ -41,13 +42,11 @@
  * - `static_cast<UidOf<Block>>(3)` — same, no conversion path.
  * - Cross-tag assignment: `UidOf<Block>{stage_uid}` — distinct types.
  *
- * ### What Phase A does *not* touch
+ * ### Out of scope
  *
- * This header is purely additive.  `BlockUid`, `StageUid`, `PhaseUid`,
- * `SceneUid`, `ScenarioUid` are still `StrongUidType<Tag>` in their entity
- * headers — they will be flipped to `UidOf<Tag>` in Phase B.  Index strong
- * types (`BlockIndex`, `RowIndex`, …) are intentionally out of scope and
- * stay exactly as they are.
+ * Index strong types (`BlockIndex`, `RowIndex`, …) are intentionally left
+ * as `StrongIndexType` / `StrongPositionIndexType` — they carry arithmetic
+ * and positional semantics that the passkey model would make awkward.
  */
 
 #pragma once

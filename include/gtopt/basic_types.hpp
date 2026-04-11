@@ -95,23 +95,6 @@ template<typename Type>
 using Array = std::vector<Type>;
 
 /**
- * @brief Strong type for unique identifiers with additional type safety
- * @tparam Type The tag type for compile-time type checking
- *
- * Uids are identity tokens, not counters: no arithmetic, no increment,
- * no contextual-bool conversion.  They are ordered and hashable so they
- * can be used as map keys and in sorted containers.
- */
-template<typename Type>
-using StrongUidType = strong::type<uid_t,
-                                   Type,
-                                   strong::formattable,
-                                   strong::regular,
-                                   strong::ordered,
-                                   strong::hashable,
-                                   strong::implicitly_convertible_to<uid_t>>;
-
-/**
  * @brief Strong type for count-like indices (LP rows, LP columns).
  * @tparam Type The tag type for compile-time type checking
  *
