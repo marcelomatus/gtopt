@@ -462,12 +462,21 @@ class JunctionWriter(BaseWriter):
             central_id,
             central["ser_hid"],
         )
+        # PLP convention: vert_max == 0 in plpcnfce.dat means "not specified"
+        # for the spillway flow cap (there is still a physical spillway; the
+        # file just does not constrain its flow).  gtopt's validator rejects
+        # waterway fmax == 0 as "must be > 0", so we translate 0 → None and
+        # let the field be omitted, yielding an unbounded spillway.
+        vert_max_raw = central.get("vert_max", 0.0)
+        vert_fmax: Optional[float] = (
+            None if vert_max_raw in (0, 0.0) else float(vert_max_raw)
+        )
         ver_waterway = self._create_waterway(
             central_name + "_ver",
             central_id,
             central["ser_ver"],
             central.get("vert_min", 0.0),
-            central.get("vert_max", 0.0),
+            vert_fmax,
         )
 
         # For embalse/serie/pasada centrals with ser_hid=0, complete the

@@ -95,6 +95,8 @@ class TestWaterRightsIntegration:
         assert len(json_files) == 1, f"Expected 1 JSON file, got {json_files}"
 
         # ---------- Stage 2: gtopt_irrigation ----------
+        # Pass the planning JSON as ``--stages`` so schedules are sized to
+        # the real stage_array (see TestGtoptLpBuild for the rationale).
         for agreement in ("laja", "maule"):
             stage2 = subprocess.run(
                 [
@@ -106,6 +108,8 @@ class TestWaterRightsIntegration:
                     str(output_dir / f"{agreement}.json"),
                     "--output",
                     str(output_dir),
+                    "--stages",
+                    str(json_files[0]),
                 ],
                 capture_output=True,
                 text=True,
@@ -357,7 +361,12 @@ class TestGtoptLpBuild:
         assert len(json_files) == 1
 
         # Step 1b: Stage 2 — gtopt_irrigation renders the rights entities
-        # from the canonical JSON files.
+        # from the canonical JSON files.  Pass the planning JSON itself as
+        # ``--stages`` so per-stage monthly schedules (FlowRight fmax, etc.)
+        # are sized to match the planning's ``simulation.stage_array``.
+        # Without this, schedules stay in raw 12-element form and gtopt's
+        # LP assembly walks off the end of the vector when the planning
+        # has more than 12 stages.
         for agreement in ("laja", "maule"):
             stage2 = subprocess.run(
                 [
@@ -369,6 +378,8 @@ class TestGtoptLpBuild:
                     str(output_dir / f"{agreement}.json"),
                     "--output",
                     str(output_dir),
+                    "--stages",
+                    str(json_files[0]),
                 ],
                 capture_output=True,
                 text=True,

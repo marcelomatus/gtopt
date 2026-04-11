@@ -54,19 +54,92 @@ class _StageList:
         return self._stages
 
 
+_MONTH_NAME_TO_NUMBER: dict[str, int] = {
+    name: idx
+    for idx, name in enumerate(
+        [
+            "january",
+            "february",
+            "march",
+            "april",
+            "may",
+            "june",
+            "july",
+            "august",
+            "september",
+            "october",
+            "november",
+            "december",
+        ],
+        start=1,
+    )
+}
+
+
+def _normalize_month(raw: Any) -> int:
+    """Coerce a stage ``month`` field to a 1..12 integer.
+
+    Accepts an int already in range, a decimal string, or an English month
+    name as produced by ``plp2gtopt.stage_writer`` (``"march"`` etc.).
+    Unknown values fall back to ``1`` so ``_monthly_schedule`` at least
+    reads a valid index instead of raising ``KeyError``.
+    """
+    if isinstance(raw, int):
+        return raw if 1 <= raw <= 12 else ((raw - 1) % 12) + 1
+    if isinstance(raw, str):
+        s = raw.strip().lower()
+        if s.isdigit():
+            n = int(s)
+            return n if 1 <= n <= 12 else ((n - 1) % 12) + 1
+        if s in _MONTH_NAME_TO_NUMBER:
+            return _MONTH_NAME_TO_NUMBER[s]
+    return 1
+
+
+def _extract_stage_list(data: Any) -> list[dict[str, Any]] | None:
+    """Return a stage-dict list from several accepted top-level shapes.
+
+    Accepted forms:
+
+    * bare list of ``{"number": int, "month": int|str}`` dicts — the
+      historical ``--stages`` contract;
+    * ``{"stages": [...]}`` wrapper around the bare list;
+    * a full plp2gtopt planning JSON — returns
+      ``data["simulation"]["stage_array"]``.
+    """
+    if isinstance(data, list):
+        return data
+    if isinstance(data, dict):
+        if isinstance(data.get("stages"), list):
+            return data["stages"]
+        sim = data.get("simulation")
+        if isinstance(sim, dict) and isinstance(sim.get("stage_array"), list):
+            return sim["stage_array"]
+    return None
+
+
 def _load_stages(path: str | None) -> _StageList | None:
     if path is None:
         return None
     with open(path, "r", encoding="utf-8") as fh:
         data = json.load(fh)
-    # Accept either a bare list or a dict containing "stages".
-    if isinstance(data, dict) and "stages" in data:
-        data = data["stages"]
-    if not isinstance(data, list):
+    stages = _extract_stage_list(data)
+    if stages is None:
         raise ValueError(
-            f"--stages file '{path}' must contain a list (or {{'stages': [...]}})"
+            f"--stages file '{path}' must contain a stage list, a "
+            f"{{'stages': [...]}} wrapper, or a planning JSON with "
+            f"'simulation.stage_array'"
         )
-    return _StageList(data)
+    # Normalize to the shape _RightsAgreementBase._monthly_schedule expects:
+    # each stage must have a ``number`` key and an integer ``month`` in 1..12.
+    normalized: list[dict[str, Any]] = []
+    for idx, raw in enumerate(stages, start=1):
+        stage = dict(raw)
+        if "number" not in stage:
+            stage["number"] = stage.get("uid", idx)
+        stage["month"] = _normalize_month(stage.get("month"))
+        normalized.append(stage)
+    return _StageList(normalized)
 
 
 def _emit(
