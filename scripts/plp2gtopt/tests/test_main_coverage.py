@@ -201,6 +201,8 @@ class TestBuildOptions:
             "embed_reservoir_constraints": False,
             "emit_water_rights": False,
             "machicura_model": "pasada",
+            "ror_as_reservoirs": None,
+            "ror_as_reservoirs_file": None,
             "run_check": True,
             "auto_detect_tech": True,
             "tech_overrides": None,

@@ -665,6 +665,49 @@ def add_reservoir_battery_arguments(
 
 
 # ---------------------------------------------------------------------------
+# 6b. RoR-as-reservoirs equivalence arguments
+# ---------------------------------------------------------------------------
+
+
+def add_ror_arguments(parser: argparse.ArgumentParser, _conf: dict[str, str]) -> None:
+    """Register ``--ror-as-reservoirs`` and ``--ror-as-reservoirs-file``.
+
+    These options let a user promote selected ``pasada`` / ``serie`` PLP
+    centrals to **daily-cycle reservoirs** (mirroring the ESS DCMod=2
+    regulation-tank pattern).  The feature is strictly whitelist-gated:
+    a central can only be promoted if its name appears in the CSV file
+    passed via ``--ror-as-reservoirs-file`` (so we never invent a vmax).
+    """
+    parser.add_argument(
+        "--ror-as-reservoirs",
+        dest="ror_as_reservoirs",
+        metavar="SELECTION",
+        default=None,
+        help=(
+            "promote run-of-river (pasada/serie) centrals to daily-cycle "
+            "reservoirs.  SELECTION is 'all', 'none', or a comma-separated "
+            "list of central names (e.g. 'CentralA,CentralB').  Requires "
+            "--ror-as-reservoirs-file; only centrals whose vmax is listed "
+            "in that CSV are eligible.  (default: feature disabled)"
+        ),
+    )
+    parser.add_argument(
+        "--ror-as-reservoirs-file",
+        dest="ror_as_reservoirs_file",
+        type=Path,
+        metavar="FILE",
+        default=None,
+        help=(
+            "CSV file mapping central names to daily-cycle vmax [hm3]. "
+            "Required columns: name, vmax_hm3.  Optional columns: "
+            "enabled (true/false), comment.  Only centrals whose vmax "
+            "is known should be listed here — this file is the sole "
+            "source of truth for --ror-as-reservoirs."
+        ),
+    )
+
+
+# ---------------------------------------------------------------------------
 # 7. Technology detection arguments
 # ---------------------------------------------------------------------------
 
