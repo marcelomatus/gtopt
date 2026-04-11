@@ -13,6 +13,35 @@ of ``plp2gtopt`` or hand-authored) and produces:
 * A companion ``maule.pampl`` file containing the named sets and
   parameters.
 
+Machicura-model variants
+------------------------
+
+The agreement supports two topology variants for Central Machicura,
+selectable via the ``machicura_model`` field in ``maule.json`` (or via
+the ``options`` dict passed to the constructor / CLI):
+
+* ``"pasada"`` (default; English synonym ``"run-of-river"``): historical
+  PLP-compatible variant.  Machicura is a pass-through junction (pasada
+  semantics, no volumetric balance of its own) and the retiros of riego
+  and Res 105 are implicitly anchored at the Colbun reservoir.  Uses
+  ``templates/maule.tson`` and ``templates/maule.tampl``.
+
+* ``"embalse"`` (English synonym ``"reservoir"``): full physical variant.
+  Machicura is modelled as a daily-cycle reservoir aguas abajo of Colbun
+  and the three riego/Res 105 FlowRights carry an explicit ``junction``
+  reference to it.  Uses ``templates/maule_machicura.tson`` and
+  ``templates/maule_machicura.tampl``.
+
+The ``embalse`` variant additionally requires:
+
+* ``junction_retiro``: name of the downstream junction (auto-resolved from
+  ``extrac_entries`` if present — matches the ``downstream`` field of the
+  PLP COLBUN extraction entry — or defaults to ``"MACHICURA"``).
+* ``machicura_vmax``: useful regulation volume [hm³] (default 12.0).
+* ``machicura_capacity``: installed capacity [MW] (default 95.0).
+* ``machicura_qmax``: turbine max flow [m³/s] (default 280.0).
+* ``machicura_prod_factor``: production factor [MW/(m³/s)] (default 0.327).
+
 This is the canonical Stage-2 transform in the irrigation pipeline (see
 ``project_irrigation_pipeline.md``).  Stage 1 (``plp2gtopt``) converts
 ``plpmaulen.dat`` to ``maule.json``; Stage 3 (``gtopt``) consumes the
@@ -59,6 +88,22 @@ class MauleAgreement(_RightsAgreementBase):
     _ARTIFACT = "maule"
     _UID_START = 1000  # avoid collisions with Laja (2000..)
 
+    #: supported ``machicura_model`` values → template stem
+    _VARIANT_TEMPLATES: dict[str, str] = {
+        "pasada": "maule",
+        "embalse": "maule_machicura",
+    }
+
+    #: English synonyms accepted for ``machicura_model`` — normalized to the
+    #: canonical Spanish keys of ``_VARIANT_TEMPLATES``.
+    _VARIANT_SYNONYMS: dict[str, str] = {
+        "pasada": "pasada",
+        "run-of-river": "pasada",
+        "run_of_river": "pasada",
+        "embalse": "embalse",
+        "reservoir": "embalse",
+    }
+
     def __init__(
         self,
         maule_config: dict[str, Any],
@@ -66,6 +111,55 @@ class MauleAgreement(_RightsAgreementBase):
         options: dict[str, Any] | None = None,
     ):
         super().__init__(maule_config, stage_parser=stage_parser, options=options)
+
+    # ----------------------------------------------------------- variant
+    def _machicura_model(self) -> str:
+        """Return the active Machicura topology variant.
+
+        Precedence: ``options["machicura_model"]`` overrides
+        ``cfg["machicura_model"]``, which defaults to ``"pasada"``.
+
+        Accepts both the canonical Spanish keys (``pasada``, ``embalse``)
+        and their English synonyms (``run-of-river``, ``reservoir``), all
+        normalized via ``_VARIANT_SYNONYMS``.
+        """
+        raw = self._options.get("machicura_model") or self._cfg.get(
+            "machicura_model", "pasada"
+        )
+        key = str(raw).strip().lower()
+        if key not in self._VARIANT_SYNONYMS:
+            raise ValueError(
+                f"unknown machicura_model {raw!r}: "
+                f"expected one of {sorted(self._VARIANT_SYNONYMS)}"
+            )
+        return self._VARIANT_SYNONYMS[key]
+
+    def _template_name(self) -> str:  # noqa: D401
+        return self._VARIANT_TEMPLATES[self._machicura_model()]
+
+    def _resolve_junction_retiro(self) -> str:
+        """Resolve the downstream junction name for the machicura variant.
+
+        Looks up ``cfg["extrac_entries"]`` (Stage-1 output of
+        ``plpextrac.dat``) for a COLBUN entry and returns its ``downstream``
+        field.  Falls back to ``cfg["junction_retiro"]`` or ``"MACHICURA"``
+        so hand-authored fixtures can override the PLP default.
+        """
+        cfg = self._cfg
+        override = cfg.get("junction_retiro")
+        if override:
+            return str(override)
+
+        extrac_entries = cfg.get("extrac_entries") or []
+        central_colbun = str(cfg.get("central_colbun", "")).upper()
+        for entry in extrac_entries:
+            name = str(entry.get("name", "")).upper()
+            if name == central_colbun or name == "COLBUN":
+                downstream = entry.get("downstream")
+                if downstream:
+                    return str(downstream)
+
+        return "MACHICURA"
 
     def _monthly_schedule(self, monthly_values: list[float]) -> list[float]:
         """Convert 12-element monthly array to per-stage values.
@@ -171,6 +265,16 @@ class MauleAgreement(_RightsAgreementBase):
             irr_fmax_schedule
         )
 
+        # --- Machicura variant parameters ---
+        # These are always computed (cheap) so tests and debug dumps can
+        # inspect them; the machicura template uses `junction_retiro`
+        # unconditionally, the plp template ignores them.
+        junction_retiro = self._resolve_junction_retiro()
+        machicura_vmax = cfg.get("machicura_vmax", 12.0)
+        machicura_capacity = cfg.get("machicura_capacity", 95.0)
+        machicura_qmax = cfg.get("machicura_qmax", 280.0)
+        machicura_prod_factor = cfg.get("machicura_prod_factor", 0.327)
+
         return {
             # Reservoir / zone thresholds
             "res_colbun": res_colbun,
@@ -227,6 +331,12 @@ class MauleAgreement(_RightsAgreementBase):
             # District entities
             "district_flow_rights": district_flow_rights,
             "district_constraints": district_constraints,
+            # Machicura variant parameters (see class docstring)
+            "junction_retiro": junction_retiro,
+            "machicura_vmax": machicura_vmax,
+            "machicura_capacity": machicura_capacity,
+            "machicura_qmax": machicura_qmax,
+            "machicura_prod_factor": machicura_prod_factor,
         }
 
     def _compute_district_entities(

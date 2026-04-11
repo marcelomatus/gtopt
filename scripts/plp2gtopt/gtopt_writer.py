@@ -25,9 +25,7 @@ from .generator_profile_writer import GeneratorProfileWriter
 from .index_utils import parse_index_range, parse_stages_phase
 from .indhor_writer import IndhorWriter
 from .junction_writer import JunctionWriter
-from .laja_writer import LajaWriter
 from .line_writer import LineWriter
-from .maule_writer import MauleWriter
 from .planos_writer import write_boundary_cuts_csv, write_hot_start_cuts_csv
 from .plp_parser import PLPParser
 from .stage_writer import StageWriter
@@ -620,105 +618,64 @@ class GTOptWriter:
                 self.planning["system"][key] = val
 
     def process_water_rights(self, options):
-        """Process irrigation agreement conventions into rights entities.
+        """Emit canonical Stage-1 irrigation agreement JSON files.
 
-        Only emits entities when ``emit_water_rights`` option is set to
-        True.  The conventions create FlowRight, VolumeRight,
-        RightJunction and UserConstraint entities that reference physical
-        elements by name — these references must match the converted
-        hydro topology, so emission is opt-in until the converter is
-        validated for each PLP case.
+        This method is purely Stage 1 of the irrigation pipeline (see
+        ``project_irrigation_pipeline.md``): when ``emit_water_rights`` is
+        True, the parsed Laja / Maule convention dicts are dumped to
+        ``laja.json`` / ``maule.json`` in the output directory.
+
+        The Stage-2 transform (rendering FlowRight/VolumeRight/UserConstraint
+        entities and the companion ``.pampl`` file) is explicitly *not*
+        performed here: that work now lives exclusively in
+        ``gtopt_irrigation`` and must be invoked as a separate step (via
+        ``gtopt_irrigation maule --input maule.json ...`` or by calling
+        ``MauleAgreement.from_json`` from a Python driver).  Keeping
+        Stage 1 and Stage 2 separated means the canonical JSON files are
+        always authoritative and the rendering code has exactly one home.
+
+        Additional Maule enrichments produced here so the canonical JSON
+        is self-contained for downstream ``gtopt_irrigation`` runs:
+
+        * ``machicura_model`` — set from ``options['machicura_model']``
+          (default ``"pasada"``).  Selects PLP-simplified (``pasada``) vs
+          full physical (``embalse``) Machicura variant in Stage 2.
+        * ``extrac_entries`` — echo of ``plpextrac.dat`` entries so
+          Stage 2 can resolve ``junction_retiro`` from the downstream
+          field of the COLBUN extraction without re-reading the raw PLP
+          files.
         """
         if not options.get("emit_water_rights", False):
             return
 
-        stage_parser = self.parser.parsed_data.get("stage_parser")
         output_dir = Path(options["output_dir"]) if options.get("output_dir") else None
-
-        # Pass the effective number of stages (after -s/-t truncation) so
-        # that rights writers truncate their per-stage schedules to match.
-        sim = self.planning.get("simulation", {})
-        stage_array = sim.get("stage_array", [])
-        num_stages = len(stage_array)
-        # Determine blocks-per-stage so 3D schedules have correct inner dim
-        blocks_per_stage = stage_array[0].get("count_block", 1) if stage_array else 1
-        wr_options = {
-            **options,
-            "last_stage": num_stages,
-            "blocks_per_stage": blocks_per_stage,
-        }
-
-        pampl_files: list[str] = []
-
-        def _merge_writer(name: str, writer_dict: dict) -> None:
-            """Merge writer output into planning and log entity counts."""
-            for key, val in writer_dict.items():
-                if key == "user_constraint_file":
-                    pampl_files.append(val)
-                    _logger.info(
-                        "%s: user_constraint_file = %s",
-                        name,
-                        val,
-                    )
-                else:
-                    existing = self.planning["system"].get(key, [])
-                    self.planning["system"][key] = existing + val
-                    if val:
-                        _logger.info(
-                            "%s: %d %s",
-                            name,
-                            len(val),
-                            key,
-                        )
+        if output_dir is None:
+            return
 
         def _dump_canonical_json(name: str, cfg: Dict[str, Any]) -> None:
-            """Persist the parser config dict as canonical Stage-1 output.
-
-            Per the irrigation pipeline redesign (Stage 1 → laja.json /
-            maule.json → Stage 2), plp2gtopt's only Maule/Laja
-            responsibility is producing the canonical agreement JSON.
-            The companion FlowRight/VolumeRight/UserConstraint emission
-            (Stage 2) still happens here for compatibility, but the
-            canonical artifact is now the source of truth.
-            """
-            if output_dir is None:
-                return
-            target = Path(output_dir) / f"{name}.json"
+            """Persist the parser config dict as canonical Stage-1 output."""
+            target = output_dir / f"{name}.json"
             with open(target, "w", encoding="utf-8") as fh:
                 json.dump(cfg, fh, indent=2, sort_keys=False)
                 fh.write("\n")
             _logger.info("%s: canonical agreement JSON → %s", name, target.name)
 
-        # Laja convention
+        # Laja convention (Stage 1 only — no Stage-2 rendering here)
         laja_parser = self.parser.parsed_data.get("laja_parser")
         if laja_parser is not None:
             _dump_canonical_json("laja", laja_parser.config)
-            lw = LajaWriter(
-                laja_config=laja_parser.config,
-                stage_parser=stage_parser,
-                options=wr_options,
-            )
-            _merge_writer("Laja", lw.to_json_dict(output_dir=output_dir))
 
-        # Maule convention
+        # Maule convention: enrich the config dict with the machicura
+        # model flag and the extrac entries before dumping, so that
+        # Stage 2 (gtopt_irrigation) is fully data-driven by the file.
         maule_parser = self.parser.parsed_data.get("maule_parser")
         if maule_parser is not None:
-            _dump_canonical_json("maule", maule_parser.config)
-            mw = MauleWriter(
-                maule_config=maule_parser.config,
-                stage_parser=stage_parser,
-                options=wr_options,
-            )
-            _merge_writer("Maule", mw.to_json_dict(output_dir=output_dir))
-
-        # Use user_constraint_files (plural) to keep PAMPL files separate
-        if pampl_files:
-            self.planning["system"]["user_constraint_files"] = pampl_files
-            _logger.info(
-                "Registered %d PAMPL file(s): %s",
-                len(pampl_files),
-                ", ".join(pampl_files),
-            )
+            cfg = dict(maule_parser.config)
+            cfg["machicura_model"] = options.get("machicura_model", "pasada")
+            extrac_parser = self.parser.parsed_data.get("extrac_parser")
+            if extrac_parser is not None:
+                cfg["extrac_entries"] = list(extrac_parser.get_all())
+            _dump_canonical_json("maule", cfg)
 
     def process_flow_turbines(self, options):
         """Create Flow + Turbine(flow=ref) for hydro pasada centrals.

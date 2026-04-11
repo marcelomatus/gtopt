@@ -66,6 +66,17 @@ class _RightsAgreementBase:
 
         self._build()
 
+    # -------------------------------------------------------- template naming
+
+    def _template_name(self) -> str:
+        """Return the template stem used for ``.tson`` / ``.tampl`` lookup.
+
+        Subclasses that support multiple variants may override this to
+        return a variant-specific stem (e.g. ``maule_machicura``).  The
+        default is the class-level ``_ARTIFACT`` attribute.
+        """
+        return self._ARTIFACT
+
     @classmethod
     def from_json(
         cls,
@@ -164,7 +175,7 @@ class _RightsAgreementBase:
         context values and assigns unique UIDs to all rendered entities.
         """
         context = self._prepare_context()
-        entities = render_tson(f"{self._ARTIFACT}.tson", context)
+        entities = render_tson(f"{self._template_name()}.tson", context)
 
         self.flow_rights = entities.get("flow_right_array", [])
         self.volume_rights = entities.get("volume_right_array", [])
@@ -192,7 +203,7 @@ class _RightsAgreementBase:
             keep_trailing_newline=True,
             undefined=jinja2.StrictUndefined,
         )
-        template = env.get_template(f"{self._ARTIFACT}.tampl")
+        template = env.get_template(f"{self._template_name()}.tampl")
 
         rendered = template.render(self._cfg)
 

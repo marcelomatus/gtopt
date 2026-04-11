@@ -200,6 +200,7 @@ class TestBuildOptions:
             "soft_emin_cost": None,
             "embed_reservoir_constraints": False,
             "emit_water_rights": False,
+            "machicura_model": "pasada",
             "run_check": True,
             "auto_detect_tech": True,
             "tech_overrides": None,

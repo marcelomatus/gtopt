@@ -315,6 +315,7 @@ def build_options(args: argparse.Namespace) -> dict:
     opts["soft_emin_cost"] = args.soft_emin_cost
     opts["embed_reservoir_constraints"] = args.embed_reservoir_constraints
     opts["emit_water_rights"] = args.emit_water_rights
+    opts["machicura_model"] = args.machicura_model
     opts["run_check"] = args.run_check
     # Technology detection
     opts["auto_detect_tech"] = args.auto_detect_tech

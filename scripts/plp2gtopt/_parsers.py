@@ -818,11 +818,28 @@ def add_general_arguments(
         action=argparse.BooleanOptionalAction,
         default=False,
         help=(
-            "emit irrigation agreement entities (RightJunction, FlowRight, "
-            "VolumeRight, UserConstraint) from plplajam.dat and "
-            "plpmaulen.dat when present.  Also generates PAMPL parameter "
-            "files (laja.pampl, maule.pampl). "
-            "(default: %(default)s)"
+            "emit canonical Stage-1 irrigation agreement JSON files "
+            "(laja.json, maule.json) from plplajam.dat / plpmaulen.dat. "
+            "The Stage-2 transform (FlowRight/VolumeRight/UserConstraint "
+            "entities and the companion PAMPL file) is now handled "
+            "exclusively by `gtopt_irrigation` — run it on the dumped "
+            "JSON to get the rights entities. (default: %(default)s)"
+        ),
+    )
+    parser.add_argument(
+        "--machicura-model",
+        dest="machicura_model",
+        choices=("pasada", "embalse", "run-of-river", "reservoir"),
+        default="pasada",
+        help=(
+            "Machicura topology variant recorded in the canonical "
+            "maule.json.  'pasada' (default; English synonym 'run-of-river') "
+            "mirrors the historical PLP simplification (retiros implicit at "
+            "Colbun, Machicura as a pass-through junction).  'embalse' "
+            "(English synonym 'reservoir') re-anchors riego + Res 105 "
+            "retiros at the downstream junction and instructs Stage 2 to "
+            "model Machicura as a daily-cycle reservoir.  Only takes effect "
+            "when --emit-water-rights is set. (default: %(default)s)"
         ),
     )
     parser.add_argument(

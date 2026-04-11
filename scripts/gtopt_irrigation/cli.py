@@ -159,6 +159,24 @@ def _build_parser() -> argparse.ArgumentParser:
             default=1,
             help="number of blocks per stage (default: 1)",
         )
+        if name == "maule":
+            sp.add_argument(
+                "--machicura-model",
+                dest="machicura_model",
+                choices=("pasada", "embalse", "run-of-river", "reservoir"),
+                default=None,
+                help=(
+                    "Machicura topology variant.  'pasada' (default; English"
+                    " synonym 'run-of-river') mirrors the historical PLP"
+                    " simplification (Machicura is a pass-through junction,"
+                    " retiros implicit at Colbun).  'embalse' (English"
+                    " synonym 'reservoir') physically re-anchors riego +"
+                    " Res 105 retiros at the downstream junction and models"
+                    " Machicura as a daily-cycle reservoir.  When omitted,"
+                    " the value stored in maule.json is used (or 'pasada' if"
+                    " absent)."
+                ),
+            )
 
     return parser
 
@@ -166,7 +184,7 @@ def _build_parser() -> argparse.ArgumentParser:
 def _run(args: argparse.Namespace) -> Path:
     """Execute the requested conversion and return the entities path."""
     stages = _load_stages(args.stages_path)
-    options = {
+    options: dict[str, Any] = {
         "last_stage": args.last_stage,
         "blocks_per_stage": args.blocks_per_stage,
     }
@@ -177,6 +195,8 @@ def _run(args: argparse.Namespace) -> Path:
         )
         artifact = "laja"
     else:
+        if getattr(args, "machicura_model", None) is not None:
+            options["machicura_model"] = args.machicura_model
         agreement = MauleAgreement.from_json(
             args.input_path, stage_parser=stages, options=options
         )
