@@ -268,7 +268,7 @@ TEST_CASE("context_type_name returns correct names")  // NOLINT
         })
         == "BlockExContext");
   CHECK(context_type_name(LpContext {
-            make_scene_phase_context(SceneUid {0}, PhaseUid {0}),
+            make_scene_phase_context(make_uid<Scene>(0), PhaseUid {0}),
         })
         == "ScenePhaseContext");
 }

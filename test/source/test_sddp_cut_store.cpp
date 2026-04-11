@@ -76,7 +76,7 @@ TEST_CASE(
                   CutType::Optimality,
                   RowIndex {7},
                   /*single_cut_storage=*/false,
-                  SceneUid {100},
+                  make_uid<Scene>(100),
                   PhaseUid {200});
 
   CHECK(store.stored_cuts().size() == 1);
@@ -90,7 +90,7 @@ TEST_CASE(
   const auto& stored = store.stored_cuts().front();
   CHECK(stored.type == CutType::Optimality);
   CHECK(stored.phase_uid == PhaseUid {200});
-  CHECK(stored.scene_uid == SceneUid {100});
+  CHECK(stored.scene_uid == make_uid<Scene>(100));
   CHECK(stored.rhs == doctest::Approx(10.5));
   CHECK(stored.scale == doctest::Approx(1.0));
   CHECK(stored.row == RowIndex {7});
@@ -121,7 +121,7 @@ TEST_CASE(
                   CutType::Feasibility,
                   RowIndex {12},
                   /*single_cut_storage=*/true,
-                  SceneUid {7},
+                  make_uid<Scene>(7),
                   PhaseUid {11});
 
   // Combined storage is NOT touched.
@@ -136,7 +136,7 @@ TEST_CASE(
   const auto& stored = store.scene_cuts()[SceneIndex {1}].front();
   CHECK(stored.type == CutType::Feasibility);
   CHECK(stored.phase_uid == PhaseUid {11});
-  CHECK(stored.scene_uid == SceneUid {7});
+  CHECK(stored.scene_uid == make_uid<Scene>(7));
   CHECK(stored.row == RowIndex {12});
 }
 
@@ -153,7 +153,7 @@ TEST_CASE(
                   CutType::Optimality,
                   RowIndex {10},
                   /*single_cut_storage=*/false,
-                  SceneUid {1},
+                  make_uid<Scene>(1),
                   PhaseUid {1});
   store.store_cut(first_scene_index(),
                   PhaseIndex {1},
@@ -161,7 +161,7 @@ TEST_CASE(
                   CutType::Optimality,
                   RowIndex {11},
                   /*single_cut_storage=*/false,
-                  SceneUid {1},
+                  make_uid<Scene>(1),
                   PhaseUid {1});
   store.store_cut(SceneIndex {2},
                   PhaseIndex {1},
@@ -169,7 +169,7 @@ TEST_CASE(
                   CutType::Feasibility,
                   RowIndex {20},
                   /*single_cut_storage=*/false,
-                  SceneUid {3},
+                  make_uid<Scene>(3),
                   PhaseUid {1});
 
   CHECK(store.stored_cuts().size() == 3);
@@ -197,7 +197,7 @@ TEST_CASE(
                   CutType::Optimality,
                   RowIndex {0},
                   /*single_cut_storage=*/false,
-                  SceneUid {1},
+                  make_uid<Scene>(1),
                   PhaseUid {1});
   store.store_cut(SceneIndex {1},
                   first_phase_index(),
@@ -205,7 +205,7 @@ TEST_CASE(
                   CutType::Optimality,
                   RowIndex {1},
                   /*single_cut_storage=*/true,
-                  SceneUid {2},
+                  make_uid<Scene>(2),
                   PhaseUid {1});
 
   REQUIRE(store.num_stored_cuts(false) == 1);
@@ -235,7 +235,7 @@ TEST_CASE("SDDPCutStore - scene_cuts_before snapshot is mutable")  // NOLINT
                   CutType::Optimality,
                   RowIndex {0},
                   /*single_cut_storage=*/true,
-                  SceneUid {1},
+                  make_uid<Scene>(1),
                   PhaseUid {1});
 
   // Record a snapshot of how many cuts existed before an iteration.

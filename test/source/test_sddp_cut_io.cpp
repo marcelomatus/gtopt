@@ -196,7 +196,7 @@ TEST_CASE(
   std::vector<StoredCut> cuts = {
       StoredCut {
           .phase_uid = PhaseUid {999},
-          .scene_uid = SceneUid {1},
+          .scene_uid = make_uid<Scene>(1),
           .name = "bad_phase_cut",
           .rhs = 42.0,
           .coefficients =
@@ -473,7 +473,7 @@ TEST_CASE("save_scene_cuts_csv creates per-scene file")  // NOLINT
           .string();
 
   auto save_result = save_scene_cuts_csv(
-      stored, first_scene_index(), SceneUid {1}, planning_lp, tmp_dir);
+      stored, first_scene_index(), make_uid<Scene>(1), planning_lp, tmp_dir);
   REQUIRE(save_result.has_value());
 
   // Verify scene_1.csv was created
@@ -506,7 +506,7 @@ TEST_CASE(
   std::vector<StoredCut> empty_cuts;
   auto save_result = save_scene_cuts_csv(std::span<const StoredCut>(empty_cuts),
                                          first_scene_index(),
-                                         SceneUid {1},
+                                         make_uid<Scene>(1),
                                          planning_lp,
                                          tmp_dir);
   REQUIRE(save_result.has_value());
@@ -547,7 +547,7 @@ TEST_CASE(
 
   // Save scene cuts
   auto save_result = save_scene_cuts_csv(
-      stored, first_scene_index(), SceneUid {1}, planning_lp, tmp_dir);
+      stored, first_scene_index(), make_uid<Scene>(1), planning_lp, tmp_dir);
   REQUIRE(save_result.has_value());
 
   // Also create an error file that should be skipped

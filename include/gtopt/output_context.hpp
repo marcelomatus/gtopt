@@ -61,7 +61,7 @@ public:
 
   explicit OutputContext(const SystemContext& psc,
                          LinearInterface& linear_interface,
-                         SceneUid scene_uid = SceneUid {0},
+                         SceneUid scene_uid = make_uid<Scene>(0),
                          PhaseUid phase_uid = PhaseUid {0});
 
   [[nodiscard]] auto&& options() const { return sc.get().options(); }

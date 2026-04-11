@@ -12,6 +12,7 @@
 #pragma once
 
 #include <gtopt/basic_types.hpp>
+#include <gtopt/uid.hpp>
 
 namespace gtopt
 {
@@ -33,7 +34,7 @@ struct Scene
   }
 };
 
-using SceneUid = StrongUidType<Scene>;
+using SceneUid = UidOf<Scene>;
 using SceneIndex = StrongPositionIndexType<Scene>;
 using OptSceneIndex = std::optional<SceneIndex>;
 

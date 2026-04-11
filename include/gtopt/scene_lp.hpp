@@ -102,7 +102,7 @@ public:
    */
   [[nodiscard]] constexpr auto uid() const noexcept
   {
-    return SceneUid {m_scene_.uid};
+    return make_uid<Scene>(m_scene_.uid);
   }
 
   /**

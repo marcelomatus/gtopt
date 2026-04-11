@@ -496,7 +496,7 @@ auto load_cuts_csv(
       // are broadcast to all scenes as warm-start approximations.
       [[maybe_unused]] SceneUid scene_uid {};
       try {
-        scene_uid = SceneUid {std::stoi(token)};
+        scene_uid = make_uid<Scene>(std::stoi(token));
       } catch (const std::exception&) {
         SPDLOG_WARN(
             "SDDP load_cuts: malformed line {} in {}: "
@@ -1002,7 +1002,7 @@ auto load_boundary_cuts_csv(
 
       // Next column: scene UID
       std::getline(iss, token, ',');
-      const SceneUid scene_uid {std::stoi(token)};
+      const SceneUid scene_uid = make_uid<Scene>(std::stoi(token));
 
       // Next column: rhs
       std::getline(iss, token, ',');
@@ -1385,7 +1385,8 @@ auto load_named_cuts_csv(
 
       // Column 2: scene UID
       std::getline(iss, token, ',');
-      [[maybe_unused]] const SceneUid scene_uid {std::stoi(token)};
+      [[maybe_unused]] const SceneUid scene_uid =
+          make_uid<Scene>(std::stoi(token));
 
       // Column 3: phase UID
       std::getline(iss, token, ',');
