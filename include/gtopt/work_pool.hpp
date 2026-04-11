@@ -329,7 +329,17 @@ public:
             : "");
   }
 
-  ~BasicWorkPool() { shutdown(); }
+  ~BasicWorkPool() noexcept
+  {
+    // Destructor must not throw.  `shutdown()` calls spdlog / std::format
+    // which can in principle throw `std::format_error`; swallow any such
+    // exception rather than terminating the program during teardown.
+    try {
+      shutdown();
+    } catch (...) {  // NOLINT(bugprone-empty-catch)
+      // best-effort cleanup; deliberately swallowed
+    }
+  }
 
   void start()
   {

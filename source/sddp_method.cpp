@@ -586,8 +586,7 @@ void SDDPMethod::dispatch_update_lp(SceneIndex scene_index,
     return;
   }
 
-  const auto num_phases =
-      static_cast<Index>(planning_lp().simulation().phases().size());
+  const auto num_phases = planning_lp().simulation().phase_count();
 
   for (const auto phase_index : iota_range<PhaseIndex>(0, num_phases)) {
     const auto updated = update_lp_for_phase(scene_index, phase_index);
@@ -844,8 +843,7 @@ auto SDDPMethod::backward_pass(SceneIndex scene_index,
                                IterationIndex iteration_index)
     -> std::expected<int, Error>
 {
-  const auto num_phases =
-      static_cast<Index>(planning_lp().simulation().phases().size());
+  const auto num_phases = planning_lp().simulation().phase_count();
   int total_cuts = 0;
 
   SPDLOG_DEBUG("{}: starting ({} phases)",
@@ -940,8 +938,7 @@ auto SDDPMethod::save_scene_cuts(SceneIndex scene_index,
 auto SDDPMethod::save_all_scene_cuts(const std::string& directory) const
     -> std::expected<void, Error>
 {
-  const auto num_scenes =
-      static_cast<Index>(planning_lp().simulation().scenes().size());
+  const auto num_scenes = planning_lp().simulation().scene_count();
 
   for (const auto scene_index : iota_range<SceneIndex>(0, num_scenes)) {
     auto result = save_scene_cuts(scene_index, directory);
@@ -1042,8 +1039,8 @@ auto SDDPMethod::initialize_solver() -> std::expected<void, Error>
   const auto init_start = std::chrono::steady_clock::now();
 
   const auto& sim = planning_lp().simulation();
-  const auto num_scenes = static_cast<Index>(sim.scenes().size());
-  const auto num_phases = static_cast<Index>(sim.phases().size());
+  const auto num_scenes = sim.scene_count();
+  const auto num_phases = sim.phase_count();
 
   SPDLOG_INFO("SDDP: {} scene(s), {} phase(s)", num_scenes, num_phases);
 
@@ -1291,8 +1288,7 @@ auto SDDPMethod::run_forward_pass_all_scenes(SDDPWorkPool& pool,
                                              IterationIndex iteration_index)
     -> std::expected<ForwardPassOutcome, Error>
 {
-  const auto num_scenes =
-      static_cast<Index>(planning_lp().simulation().scenes().size());
+  const auto num_scenes = planning_lp().simulation().scene_count();
 
   m_current_pass_.store(1);
   m_scenes_done_.store(0);
@@ -1383,8 +1379,7 @@ auto SDDPMethod::run_backward_pass_all_scenes(
     return result;
   }
 
-  const auto num_scenes =
-      static_cast<Index>(planning_lp().simulation().scenes().size());
+  const auto num_scenes = planning_lp().simulation().scene_count();
 
   SPDLOG_INFO(
       "{}: dispatching {} scene(s) to work pool "
@@ -1454,10 +1449,8 @@ auto SDDPMethod::run_backward_pass_synchronized(
     const SolverOptions& opts,
     IterationIndex iteration_index) -> BackwardPassOutcome
 {
-  const auto num_scenes =
-      static_cast<Index>(planning_lp().simulation().scenes().size());
-  const auto num_phases =
-      static_cast<Index>(planning_lp().simulation().phases().size());
+  const auto num_scenes = planning_lp().simulation().scene_count();
+  const auto num_phases = planning_lp().simulation().phase_count();
 
   const auto bwd_start = std::chrono::steady_clock::now();
   BackwardPassOutcome out;
@@ -1590,8 +1583,7 @@ void SDDPMethod::compute_iteration_bounds(
     std::span<const uint8_t> scene_feasible,
     std::span<const double> weights) const
 {
-  const auto num_scenes =
-      static_cast<Index>(planning_lp().simulation().scenes().size());
+  const auto num_scenes = planning_lp().simulation().scene_count();
 
   double weighted_upper = 0.0;
   for (const auto scene : iota_range<SceneIndex>(0, num_scenes)) {

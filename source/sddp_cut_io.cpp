@@ -425,7 +425,7 @@ auto load_cuts_csv(
 
     CutLoadResult result {};
     const auto& sim = planning_lp.simulation();
-    const auto num_scenes = static_cast<Index>(sim.scenes().size());
+    const auto num_scenes = sim.scene_count();
     const auto& rep_li =
         planning_lp.system(first_scene_index(), first_phase_index())
             .linear_interface();
@@ -886,7 +886,7 @@ auto load_boundary_cuts_csv(
 
     // ── Determine last phase and build name->column mapping ─────
     const auto& sim = planning_lp.simulation();
-    const auto num_scenes = static_cast<Index>(sim.scenes().size());
+    const auto num_scenes = sim.scene_count();
     const auto last_phase = sim.last_phase_index();
 
     // Build scene UID -> SceneIndex lookup (for "separated" mode)
@@ -1267,7 +1267,7 @@ auto load_named_cuts_csv(
 
     // ── Build element-name -> uid lookup from the System ────────
     const auto& sim = planning_lp.simulation();
-    const auto num_scenes = static_cast<Index>(sim.scenes().size());
+    const auto num_scenes = sim.scene_count();
     const auto& sys = planning_lp.planning().system;
     const auto& named_rep_li =
         planning_lp.system(first_scene_index(), first_phase_index())
@@ -1663,7 +1663,7 @@ auto load_cuts_json(
     [[maybe_unused]] const auto scale_obj_file = file_data.scale_objective;
 
     const auto& sim = planning_lp.simulation();
-    const auto num_scenes = static_cast<Index>(sim.scenes().size());
+    const auto num_scenes = sim.scene_count();
     const auto& rep_li =
         planning_lp.system(first_scene_index(), first_phase_index())
             .linear_interface();

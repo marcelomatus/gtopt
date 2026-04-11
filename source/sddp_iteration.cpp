@@ -102,8 +102,7 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
   // SDDPTaskKey priority queue self-regulates: slower scenes (lower
   // iteration) get higher priority.
   {
-    const auto num_scenes_check =
-        static_cast<Index>(planning_lp().simulation().scenes().size());
+    const auto num_scenes_check = planning_lp().simulation().scene_count();
     if (m_options_.max_iterations > 0
         && m_options_.cut_sharing == CutSharingMode::none
         && m_options_.max_async_spread > 0 && num_scenes_check > 1)
@@ -174,8 +173,7 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
                    sddp_log("Backward", iteration_index));
       // Save per-scene cut counts for cut sharing offset tracking
       const auto cuts_before = m_cut_store_.stored_cuts().size();
-      const auto num_scenes_bwd =
-          static_cast<Index>(planning_lp().simulation().scenes().size());
+      const auto num_scenes_bwd = planning_lp().simulation().scene_count();
       m_cut_store_.scene_cuts_before().resize(
           static_cast<std::size_t>(num_scenes_bwd));
       for (const auto scene_index : iota_range<SceneIndex>(0, num_scenes_bwd)) {
@@ -394,10 +392,8 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
       // Free solver memory after each iteration.  Backends are
       // reconstructed on demand in the next forward/backward pass.
       if (m_options_.low_memory_mode != LowMemoryMode::off) {
-        const auto ns =
-            static_cast<Index>(planning_lp().simulation().scenes().size());
-        const auto np =
-            static_cast<Index>(planning_lp().simulation().phases().size());
+        const auto ns = planning_lp().simulation().scene_count();
+        const auto np = planning_lp().simulation().phase_count();
         for (const auto si : iota_range<SceneIndex>(0, ns)) {
           for (const auto pi : iota_range<PhaseIndex>(0, np)) {
             planning_lp().system(si, pi).release_backend();
@@ -501,8 +497,7 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
 
   // ── Cut persistence ──
   if (!m_options_.cuts_output_file.empty() && !results.empty()) {
-    const auto num_scenes_final =
-        static_cast<Index>(planning_lp().simulation().scenes().size());
+    const auto num_scenes_final = planning_lp().simulation().scene_count();
     std::vector<uint8_t> final_feasible(
         static_cast<std::size_t>(num_scenes_final), 1U);
     save_cuts_for_iteration(results.back().iteration_index, final_feasible);
@@ -554,10 +549,8 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
                              const SolverOptions& bwd_opts)
     -> std::expected<std::vector<SDDPIterationResult>, Error>
 {
-  const auto num_scenes =
-      static_cast<Index>(planning_lp().simulation().scenes().size());
-  const auto num_phases =
-      static_cast<Index>(planning_lp().simulation().phases().size());
+  const auto num_scenes = planning_lp().simulation().scene_count();
+  const auto num_phases = planning_lp().simulation().phase_count();
   const auto max_spread = m_options_.max_async_spread;
   const auto last_iteration_index =
       m_iteration_offset_ + IterationIndex {m_options_.max_iterations - 1};
@@ -1140,8 +1133,7 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
 
   // ── Cut persistence ──
   if (!m_options_.cuts_output_file.empty() && !results.empty()) {
-    const auto num_scenes_final =
-        static_cast<Index>(planning_lp().simulation().scenes().size());
+    const auto num_scenes_final = planning_lp().simulation().scene_count();
     std::vector<uint8_t> final_feasible(
         static_cast<std::size_t>(num_scenes_final), 1U);
     save_cuts_for_iteration(results.back().iteration_index, final_feasible);

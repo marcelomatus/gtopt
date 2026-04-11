@@ -117,6 +117,28 @@ public:
   }
 
   /**
+   * @brief Number of phases as a signed ``Index``.
+   *
+   * Convenience wrapper that avoids the repeated
+   * ``static_cast<Index>(sim.phases().size())`` idiom at SDDP call sites.
+   */
+  [[nodiscard]] constexpr auto phase_count() const noexcept -> Index
+  {
+    return static_cast<Index>(m_phase_array_.size());
+  }
+
+  /**
+   * @brief Number of scenes as a signed ``Index``.
+   *
+   * Convenience wrapper that avoids the repeated
+   * ``static_cast<Index>(sim.scenes().size())`` idiom at SDDP call sites.
+   */
+  [[nodiscard]] constexpr auto scene_count() const noexcept -> Index
+  {
+    return static_cast<Index>(m_scene_array_.size());
+  }
+
+  /**
    * @brief Gets the index of the last phase.
    * @pre The simulation has at least one phase.
    * @return `previous(PhaseIndex{phases().size()})`.

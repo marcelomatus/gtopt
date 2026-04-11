@@ -484,7 +484,7 @@ auto PlanningLP::create_systems(System& system,
     PlanningLP::phase_systems_t phase_systems;
     phase_systems.reserve(phases.size());
     for (auto& slot : build_buf[scene_index]) {
-      phase_systems.emplace_back(*std::move(slot));
+      phase_systems.emplace_back(std::move(slot).value());
     }
     tighten_scene_phase_links(phase_systems, simulation);
     all_systems[scene_index] = std::move(phase_systems);

@@ -174,7 +174,8 @@ template<NamedEnum E>
   if (auto opt = enum_from_name<E>(value)) {
     return *opt;
   }
-  const auto entries = enum_entries(E {});
+  const auto entries = enum_entries(
+      E {});  // NOLINT(bugprone-invalid-enum-default-initialization)
   std::string valid;
   for (const auto& e : entries) {
     if (!valid.empty()) {
