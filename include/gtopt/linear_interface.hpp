@@ -1101,15 +1101,17 @@ public:
   /// @name Name-to-index maps (col: level >= 0, row: level >= 1)
   /// @{
 
-  /// Row (constraint) name → row index map.
-  using name_index_map_t = std::unordered_map<std::string, int32_t>;
+  /// Column (variable) name → strong column index map.
+  using col_name_map_t = std::unordered_map<std::string, ColIndex>;
+  /// Row (constraint) name → strong row index map.
+  using row_name_map_t = std::unordered_map<std::string, RowIndex>;
 
-  [[nodiscard]] constexpr const name_index_map_t& row_name_map() const noexcept
+  [[nodiscard]] constexpr const row_name_map_t& row_name_map() const noexcept
   {
     return m_row_names_;
   }
 
-  [[nodiscard]] constexpr const name_index_map_t& col_name_map() const noexcept
+  [[nodiscard]] constexpr const col_name_map_t& col_name_map() const noexcept
   {
     return m_col_names_;
   }
@@ -1260,8 +1262,8 @@ private:
 
   /// Name-to-index maps for duplicate detection and later lookup.
   /// Populated when lp_names_level >= 1.
-  name_index_map_t m_row_names_;  ///< Row (constraint) name → row index
-  name_index_map_t m_col_names_;  ///< Column (variable) name → col index
+  row_name_map_t m_row_names_;  ///< Row (constraint) name → row index
+  col_name_map_t m_col_names_;  ///< Column (variable) name → col index
   StrongIndexVector<ColIndex, std::string> m_col_index_to_name_;
   StrongIndexVector<RowIndex, std::string> m_row_index_to_name_;
 

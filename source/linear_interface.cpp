@@ -28,9 +28,13 @@ namespace
 /// (LabelMaker::duplicates_are_errors() at cols_and_rows level) a
 /// std::runtime_error is thrown; otherwise a warning is logged and the
 /// function returns true.
-inline bool check_name_unique(LinearInterface::name_index_map_t& name_map,
+///
+/// The map is either `col_name_map_t` (keyed to `ColIndex`) or
+/// `row_name_map_t` (keyed to `RowIndex`); the index parameter must match.
+template<typename Map, typename IndexType>
+inline bool check_name_unique(Map& name_map,
                               const std::string& name,
-                              int32_t index,
+                              IndexType index,
                               std::string_view entity_type,
                               bool errors_on_dup)
 {
@@ -552,7 +556,7 @@ void LinearInterface::load_flat(const FlatLinearProblem& flat_lp)
   // Build name maps — clear first so reconstruction doesn't accumulate
   // duplicates from a previous load_flat() call.
   auto build_name_map = []<typename IndexType>(const auto& names_vec,
-                                               name_index_map_t& name_map,
+                                               auto& name_map,
                                                auto& index_to_name)
   {
     name_map.clear();
@@ -561,7 +565,7 @@ void LinearInterface::load_flat(const FlatLinearProblem& flat_lp)
 
     for (const auto [i, name] : enumerate<IndexType>(names_vec)) {
       if (!name.empty()) {
-        name_map.emplace(name, static_cast<int>(i));
+        name_map.emplace(name, i);
       }
     }
   };
@@ -593,15 +597,15 @@ ColIndex LinearInterface::add_col(const std::string& name,
                                   double colub)
 {
   const auto index = m_backend_->get_num_cols();
+  const auto col = ColIndex {index};
   check_name_unique(m_col_names_,
                     name,
-                    index,
+                    col,
                     "column",
                     m_label_maker_.duplicates_are_errors());
 
   m_backend_->add_col(normalize_bound(collb), normalize_bound(colub), 0.0);
 
-  const auto col = ColIndex {index};
   if (m_label_maker_.col_names_enabled() && !name.empty()) {
     if (m_col_index_to_name_.size() <= static_cast<size_t>(index)) {
       m_col_index_to_name_.resize(static_cast<size_t>(index) + 1);
@@ -634,15 +638,15 @@ ColIndex LinearInterface::add_col(const SparseCol& col)
   const auto [lowb, uppb] = normalize_bounds(col.lowb, col.uppb);
 
   const auto index = m_backend_->get_num_cols();
+  const auto col_idx = ColIndex {index};
   check_name_unique(m_col_names_,
                     name,
-                    index,
+                    col_idx,
                     "column",
                     m_label_maker_.duplicates_are_errors());
 
   m_backend_->add_col(lowb, uppb, col.cost);
 
-  const auto col_idx = ColIndex {index};
   if (!name.empty()) {
     if (m_col_index_to_name_.size() <= static_cast<size_t>(index)) {
       m_col_index_to_name_.resize(static_cast<size_t>(index) + 1);
@@ -675,8 +679,12 @@ RowIndex LinearInterface::add_row(const std::string& name,
                                   const double rowub)
 {
   const auto index = m_backend_->get_num_rows();
-  check_name_unique(
-      m_row_names_, name, index, "row", m_label_maker_.duplicates_are_errors());
+  const auto row_idx = RowIndex {index};
+  check_name_unique(m_row_names_,
+                    name,
+                    row_idx,
+                    "row",
+                    m_label_maker_.duplicates_are_errors());
 
   m_backend_->add_row(static_cast<int>(numberElements),
                       columns.data(),
@@ -684,7 +692,6 @@ RowIndex LinearInterface::add_row(const std::string& name,
                       normalize_bound(rowlb),
                       normalize_bound(rowub));
 
-  const auto row_idx = RowIndex {index};
   if (m_label_maker_.row_names_enabled() && !name.empty()) {
     if (m_row_index_to_name_.size() <= static_cast<size_t>(index)) {
       m_row_index_to_name_.resize(static_cast<size_t>(index) + 1);
@@ -822,7 +829,7 @@ void LinearInterface::add_rows(const std::span<const SparseRow> rows,
 
       check_name_unique(m_row_names_,
                         name,
-                        static_cast<int>(row_idx),
+                        row_idx,
                         "row",
                         m_label_maker_.duplicates_are_errors());
 
@@ -863,7 +870,7 @@ void LinearInterface::rebuild_row_name_maps()
     m_row_names_.reserve(m_row_index_to_name_.size());
     for (const auto [i, name] : enumerate<RowIndex>(m_row_index_to_name_)) {
       if (!name.empty()) {
-        m_row_names_.emplace(name, static_cast<int32_t>(i));
+        m_row_names_.emplace(name, i);
       }
     }
   }

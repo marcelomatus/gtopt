@@ -768,7 +768,7 @@ TEST_CASE("LinearInterface - duplicate name detection at only_cols")
 
   // Col name map is populated (first "x" wins)
   CHECK(li.col_name_map().size() == 1);
-  CHECK(li.col_name_map().at("x") == static_cast<int32_t>(c1));
+  CHECK(li.col_name_map().at("x") == c1);
   // Row name map stays empty — row names disabled at only_cols
   CHECK(li.row_name_map().empty());
 }
@@ -1543,9 +1543,9 @@ TEST_CASE(
     CHECK(names[RowIndex {2}] == "r_x_3_0_0");
 
     // row_name_map must agree
-    CHECK(li.row_name_map().at("r_x_0_0_0") == 0);
-    CHECK(li.row_name_map().at("r_x_2_0_0") == 1);
-    CHECK(li.row_name_map().at("r_x_3_0_0") == 2);
+    CHECK(li.row_name_map().at("r_x_0_0_0") == RowIndex {0});
+    CHECK(li.row_name_map().at("r_x_2_0_0") == RowIndex {1});
+    CHECK(li.row_name_map().at("r_x_3_0_0") == RowIndex {2});
     CHECK(li.row_name_map().count("r_x_1_0_0") == 0);
   }
 
@@ -1563,8 +1563,8 @@ TEST_CASE(
     CHECK(names[RowIndex {0}] == "r_x_1_0_0");
     CHECK(names[RowIndex {1}] == "r_x_2_0_0");
 
-    CHECK(li.row_name_map().at("r_x_1_0_0") == 0);
-    CHECK(li.row_name_map().at("r_x_2_0_0") == 1);
+    CHECK(li.row_name_map().at("r_x_1_0_0") == RowIndex {0});
+    CHECK(li.row_name_map().at("r_x_2_0_0") == RowIndex {1});
   }
 
   SUBCASE("delete all rows leaves empty maps")

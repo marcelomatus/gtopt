@@ -629,7 +629,7 @@ auto load_cuts_csv(
               for (const auto& [nm, idx] : name_map) {
                 if (nm.starts_with("sddp_alpha_")) {
                   resolved_coeffs.push_back({
-                      .col = ColIndex {idx},
+                      .col = idx,
                       .coeff = coeff,
                   });
                   break;
@@ -683,7 +683,7 @@ auto load_cuts_csv(
             auto it = name_map.find(key_part);
             if (it != name_map.end()) {
               resolved_coeffs.push_back({
-                  .col = ColIndex {it->second},
+                  .col = it->second,
                   .coeff = coeff,
               });
             } else {
@@ -1743,7 +1743,7 @@ auto load_cuts_json(
             for (const auto& [nm, idx] : name_map) {
               if (nm.starts_with("sddp_alpha_")) {
                 resolved_coeffs.push_back({
-                    .col = ColIndex {idx},
+                    .col = idx,
                     .coeff = coeff,
                 });
                 break;

@@ -223,13 +223,14 @@ auto load_state_csv(PlanningLP& planning_lp, const std::string& filepath)
         continue;
       }
 
-      const auto col_idx = static_cast<size_t>(cit->second);
+      const auto col = cit->second;
+      const auto col_idx = static_cast<size_t>(col);
       if (col_idx >= entry->col_sol.size()) {
         continue;
       }
 
       // Convert physical value back to LP units
-      const auto scale = li.get_col_scale(ColIndex {static_cast<int>(col_idx)});
+      const auto scale = li.get_col_scale(col);
       entry->col_sol[col_idx] = (scale != 0.0) ? value / scale : value;
       entry->has_data = true;
       ++loaded;

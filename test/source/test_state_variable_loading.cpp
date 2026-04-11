@@ -209,14 +209,13 @@ TEST_CASE(  // NOLINT
       continue;
     }
 
-    const auto col_idx = static_cast<size_t>(cit->second);
-    if (col_idx >= warm.size()) {
+    const auto col = cit->second;
+    if (static_cast<size_t>(col) >= warm.size()) {
       continue;
     }
 
-    const auto scale = li.get_col_scale(ColIndex {static_cast<int>(col_idx)});
-    const double loaded_phys =
-        warm[ColIndex {static_cast<int>(col_idx)}] * scale;
+    const auto scale = li.get_col_scale(col);
+    const double loaded_phys = warm[col] * scale;
 
     // Physical values should match within tolerance
     CHECK(loaded_phys == doctest::Approx(ref.value).epsilon(1e-6));
