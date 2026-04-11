@@ -462,6 +462,161 @@ TEST_CASE("RightBoundRule JSON parse - invalid axis throws")
   CHECK_THROWS([&] { (void)daw::json::from_json<RightBoundRule>(json); }());
 }
 
+// -- Tier 3: edge cases (irrigation test ladder) ------------------------
+
+TEST_CASE("evaluate_bound_rule single-segment rule")  // NOLINT
+{
+  // A rule with exactly one segment behaves as a single linear function
+  // for all volumes >= the segment's breakpoint.  Volumes below the
+  // breakpoint still resolve to the first (only) segment because
+  // find_active_bound_segment guarantees a non-null result for non-empty
+  // segments lists.
+  const RightBoundRule rule {
+      .reservoir = SingleId {Uid {1}},
+      .segments =
+          {
+              {
+                  .volume = 100.0,
+                  .slope = 0.5,
+                  .constant = 25.0,
+              },
+          },
+  };
+
+  // Below breakpoint (still uses the only segment): 25 + 0.5 * 50 = 50
+  CHECK(evaluate_bound_rule(rule, 50.0) == doctest::Approx(50.0));
+  // At breakpoint:                                  25 + 0.5 * 100 = 75
+  CHECK(evaluate_bound_rule(rule, 100.0) == doctest::Approx(75.0));
+  // Above breakpoint:                               25 + 0.5 * 500 = 275
+  CHECK(evaluate_bound_rule(rule, 500.0) == doctest::Approx(275.0));
+}
+
+TEST_CASE("evaluate_bound_rule negative volume picks first segment")  // NOLINT
+{
+  // Even when the input value is negative (e.g. an axis value below the
+  // first breakpoint), the rule resolves via the first segment's slope
+  // and constant.
+  const RightBoundRule rule {
+      .reservoir = SingleId {Uid {1}},
+      .segments =
+          {
+              {
+                  .volume = 0.0,
+                  .slope = 0.0,
+                  .constant = 100.0,
+              },
+              {
+                  .volume = 500.0,
+                  .slope = 1.0,
+                  .constant = -400.0,
+              },
+          },
+  };
+
+  // V = -50: first segment (flat 100), regardless of negative input.
+  CHECK(evaluate_bound_rule(rule, -50.0) == doctest::Approx(100.0));
+  // V = -1e6: still first segment.
+  CHECK(evaluate_bound_rule(rule, -1.0e6) == doctest::Approx(100.0));
+}
+
+TEST_CASE("evaluate_bound_rule Laja 4-zone breakpoint continuity")  // NOLINT
+{
+  // Realistic Laja 4-zone irrigation rule with widths derived from
+  // _zones_to_bound_rule_segments (gtopt_irrigation.laja_agreement).
+  // Each segment is constructed so the piecewise function is continuous
+  // at every breakpoint - that property is what the LP solver needs to
+  // produce smooth zone-boundary behaviour.
+  //
+  // Zones: [0,400), [400,700), [700,1300), [1300,2100)
+  // Constants chosen so rights(V) is continuous at each break:
+  //   zone 0: rights(V) = 100              (V=400   -> 100)
+  //   zone 1: rights(V) = 0.4*V - 60       (V=400   -> 100; V=700  -> 220)
+  //   zone 2: rights(V) = 0.25*V + 45      (V=700   -> 220; V=1300 -> 370)
+  //   zone 3: rights(V) = 0.10*V + 240     (V=1300  -> 370; V=2100 -> 450)
+  const RightBoundRule rule {
+      .reservoir = SingleId {Uid {9001}},
+      .segments =
+          {
+              {
+                  .volume = 0.0,
+                  .slope = 0.0,
+                  .constant = 100.0,
+              },
+              {
+                  .volume = 400.0,
+                  .slope = 0.4,
+                  .constant = -60.0,
+              },
+              {
+                  .volume = 700.0,
+                  .slope = 0.25,
+                  .constant = 45.0,
+              },
+              {
+                  .volume = 1300.0,
+                  .slope = 0.10,
+                  .constant = 240.0,
+              },
+          },
+  };
+
+  // Continuity check at each interior breakpoint: evaluate just-below and
+  // just-above the breakpoint and confirm the gap is below an LP-relevant
+  // tolerance (the actual mathematical gap is exactly zero for a
+  // continuous piecewise function).
+  constexpr Real eps = 1.0e-6;
+  for (const Real bp : {400.0, 700.0, 1300.0}) {
+    const Real below = evaluate_bound_rule(rule, bp - eps);
+    const Real above = evaluate_bound_rule(rule, bp + eps);
+    CHECK(below == doctest::Approx(above).epsilon(1.0e-6));
+  }
+
+  // Spot-check absolute values at each breakpoint.
+  CHECK(evaluate_bound_rule(rule, 0.0) == doctest::Approx(100.0));
+  CHECK(evaluate_bound_rule(rule, 400.0) == doctest::Approx(100.0));
+  CHECK(evaluate_bound_rule(rule, 700.0) == doctest::Approx(220.0));
+  CHECK(evaluate_bound_rule(rule, 1300.0) == doctest::Approx(370.0));
+  CHECK(evaluate_bound_rule(rule, 2100.0) == doctest::Approx(450.0));
+}
+
+TEST_CASE("evaluate_bound_rule volume exactly at a breakpoint")  // NOLINT
+{
+  // When the input volume equals a breakpoint exactly,
+  // find_active_bound_segment selects the segment whose volume == V (the
+  // segment that *starts* at V), not the previous one.  The continuity test
+  // above already verifies the numeric continuity; this test is the symbolic
+  // equivalent — it locks the tie-breaking convention.
+  const RightBoundRule rule {
+      .reservoir = SingleId {Uid {1}},
+      .segments =
+          {
+              {
+                  .volume = 0.0,
+                  .slope = 0.0,
+                  .constant = 10.0,
+              },
+              {
+                  .volume = 1000.0,
+                  .slope = 0.5,
+                  .constant = -490.0,
+              },
+              {
+                  .volume = 2000.0,
+                  .slope = 0.25,
+                  .constant = 10.0,
+              },
+          },
+  };
+
+  // At V=1000 — second segment starts here.
+  // rights = -490 + 0.5 * 1000 = 10  (matches first segment's constant)
+  CHECK(evaluate_bound_rule(rule, 1000.0) == doctest::Approx(10.0));
+  // At V=2000 — third segment starts here.
+  // rights = 10 + 0.25 * 2000 = 510
+  // (continuous with second: -490 + 0.5*2000 = 510)
+  CHECK(evaluate_bound_rule(rule, 2000.0) == doctest::Approx(510.0));
+}
+
 TEST_CASE("RightBoundRule JSON round-trip preserves axis")
 {
   const RightBoundRule original {

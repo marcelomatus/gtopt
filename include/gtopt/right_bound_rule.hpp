@@ -242,8 +242,8 @@ template<typename VolumeGetter>
  * when the configured axis does not consume reservoir state, so the
  * `reservoir` field can be left unset on stage-month rules.
  */
-[[nodiscard]] inline constexpr auto axis_uses_reservoir(
-    BoundRuleAxis axis) noexcept -> bool
+[[nodiscard]] constexpr auto axis_uses_reservoir(BoundRuleAxis axis) noexcept
+    -> bool
 {
   return axis == BoundRuleAxis::reservoir_volume;
 }
