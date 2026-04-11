@@ -10,11 +10,14 @@
  * phases using elastic filter and Benders feasibility cuts.
  */
 
+#include <ranges>
+
 #include <gtopt/benders_cut.hpp>
 #include <gtopt/lp_context.hpp>
 #include <gtopt/planning_lp.hpp>
 #include <gtopt/sddp_method.hpp>
 #include <gtopt/system_lp.hpp>
+#include <gtopt/utils.hpp>
 
 #ifndef SPDLOG_ACTIVE_LEVEL
 #  define SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_TRACE
@@ -26,7 +29,7 @@ namespace gtopt
 {
 
 auto SDDPMethod::feasibility_backpropagate(SceneIndex scene_index,
-                                           PhaseIndex start_phase,
+                                           PhaseIndex start_phase_index,
                                            int total_cuts,
                                            const SolverOptions& opts,
                                            IterationIndex iteration_index)
@@ -35,33 +38,35 @@ auto SDDPMethod::feasibility_backpropagate(SceneIndex scene_index,
   auto& phase_states = m_scene_phase_states_[scene_index];
   int cuts_added = 0;
 
-  // Iterate backward from start_phase to phase 0
-  for (auto back_phase = start_phase;; --back_phase) {
-    if (back_phase > PhaseIndex {0}) {
+  // Iterate backward from start_phase_index down to phase 0 (inclusive).
+  for (const auto back_phase_index :
+       iota_range<PhaseIndex>(0, next(start_phase_index)) | std::views::reverse)
+  {
+    if (back_phase_index) {
       SPDLOG_WARN("{}: infeasible after cut, backpropagating to phase {}",
                   sddp_log("Backward",
                            iteration_index,
                            scene_uid(scene_index),
-                           phase_uid(back_phase)),
-                  phase_uid(back_phase - PhaseIndex {1}));
+                           phase_uid(back_phase_index)),
+                  phase_uid(previous(back_phase_index)));
     }
 
     // Clone the LP, apply elastic filter, solve the clone.
     // The original LP is never modified by the elastic filter.
-    auto elastic_result = elastic_solve(scene_index, back_phase, opts);
+    auto elastic_result = elastic_solve(scene_index, back_phase_index, opts);
     if (elastic_result.has_value()) {
-      if (back_phase > PhaseIndex {0}) {
+      if (back_phase_index) {
         // Build a feasibility-like cut for the previous phase
-        const auto prev_bp = back_phase - PhaseIndex {1};
-        auto& prev_sys = planning_lp().system(scene_index, prev_bp);
+        const auto prev_bp_index = previous(back_phase_index);
+        auto& prev_sys = planning_lp().system(scene_index, prev_bp_index);
         // Reconstruct if released by low_memory mode
         if (prev_sys.is_backend_released()) {
-          const auto& prev_st = phase_states[prev_bp];
+          const auto& prev_st = phase_states[prev_bp_index];
           prev_sys.reconstruct_backend(prev_st.forward_col_sol,
                                        prev_st.forward_row_dual);
         }
         auto& prev_li = prev_sys.linear_interface();
-        const auto& prev_state = phase_states[prev_bp];
+        const auto& prev_state = phase_states[prev_bp_index];
 
         if (m_options_.elastic_filter_mode == ElasticFilterMode::backpropagate)
         {
@@ -82,7 +87,7 @@ auto SDDPMethod::feasibility_backpropagate(SceneIndex scene_index,
               "SDDP backward (BackpropagateBounds): scene {} phase {} "
               "bounds updated to elastic trial values",
               scene_index,
-              prev_bp);
+              prev_bp_index);
         } else {
           // single_cut or multi_cut mode:
           // Always add the regular Benders feasibility cut.
@@ -96,7 +101,7 @@ auto SDDPMethod::feasibility_backpropagate(SceneIndex scene_index,
           feas_cut.class_name = "Sddp";
           feas_cut.constraint_name = "fcut";
           feas_cut.context = make_iteration_context(scene_uid(scene_index),
-                                                    phase_uid(back_phase),
+                                                    phase_uid(back_phase_index),
                                                     iteration_index,
                                                     total_cuts + cuts_added);
           rescale_benders_cut(
@@ -106,8 +111,11 @@ auto SDDPMethod::feasibility_backpropagate(SceneIndex scene_index,
 
           {
             const auto cut_row = prev_li.add_row(feas_cut);
-            store_cut(
-                scene_index, prev_bp, feas_cut, CutType::Feasibility, cut_row);
+            store_cut(scene_index,
+                      prev_bp_index,
+                      feas_cut,
+                      CutType::Feasibility,
+                      cut_row);
           }
           ++cuts_added;
 
@@ -120,7 +128,7 @@ auto SDDPMethod::feasibility_backpropagate(SceneIndex scene_index,
               (m_options_.elastic_filter_mode == ElasticFilterMode::multi_cut)
               || (m_options_.multi_cut_threshold == 0)
               || (m_options_.multi_cut_threshold > 0
-                  && m_infeasibility_counter_[scene_index][back_phase]
+                  && m_infeasibility_counter_[scene_index][back_phase_index]
                       > m_options_.multi_cut_threshold);
 
           if (use_multi_cut) {
@@ -128,20 +136,27 @@ auto SDDPMethod::feasibility_backpropagate(SceneIndex scene_index,
                 *elastic_result,
                 prev_state.outgoing_links,
                 make_iteration_context(scene_uid(scene_index),
-                                       phase_uid(back_phase),
+                                       phase_uid(back_phase_index),
                                        iteration_index,
                                        total_cuts + cuts_added));
 
             for (auto& mc : mc_cuts) {
               const auto cut_row = prev_li.add_row(mc);
-              store_cut(
-                  scene_index, prev_bp, mc, CutType::Feasibility, cut_row);
+              store_cut(scene_index,
+                        prev_bp_index,
+                        mc,
+                        CutType::Feasibility,
+                        cut_row);
               ++cuts_added;
             }
           }
         }
 
         // Re-solve the previous phase with updated cuts or bounds
+        prev_li.set_log_tag(sddp_log("Backward",
+                                     iteration_index,
+                                     scene_uid(scene_index),
+                                     phase_uid(prev_bp_index)));
         auto r3 = prev_li.resolve(opts);
         if (r3.has_value() && prev_li.is_optimal()) {
           break;  // Feasibility restored
@@ -150,7 +165,7 @@ auto SDDPMethod::feasibility_backpropagate(SceneIndex scene_index,
       } else {
         break;  // Restored at phase 0
       }
-    } else if (back_phase == PhaseIndex {0}) {
+    } else if (!back_phase_index) {
       // Phase 0 with no elastic filter available = scene infeasible
       return std::unexpected(Error {
           .code = ErrorCode::SolverError,

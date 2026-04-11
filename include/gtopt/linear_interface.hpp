@@ -1066,6 +1066,18 @@ public:
   void set_prob_name(const std::string& pname);
   [[nodiscard]] std::string get_prob_name() const;
 
+  /// Set a human-readable log tag (e.g. "SDDP Forward [i0 s1 p2]") that
+  /// prefixes solver warnings emitted by `initial_solve()` / `resolve()`.
+  /// When empty, warnings fall back to `get_prob_name()`.  Callers are
+  /// expected to set this before each solve so fallback messages carry
+  /// the same context as the surrounding SDDP/monolithic info logs.
+  void set_log_tag(std::string_view tag) { m_log_tag_.assign(tag); }
+
+  [[nodiscard]] constexpr const std::string& get_log_tag() const noexcept
+  {
+    return m_log_tag_;
+  }
+
   /**
    * @brief Sets the LabelMaker used to generate and gate LP col/row labels.
    *
@@ -1243,6 +1255,7 @@ private:
   std::string m_solver_version_ {};  ///< Cached version for released backends
   SolverOptions m_last_solver_options_ {};  ///< Options from last solve
   std::string m_log_file_ {};
+  std::string m_log_tag_ {};  ///< Context tag prefixed to fallback warnings
   LabelMaker m_label_maker_ {};  ///< Label generator + level gate
 
   /// Name-to-index maps for duplicate detection and later lookup.

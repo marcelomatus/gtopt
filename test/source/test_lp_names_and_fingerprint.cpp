@@ -521,7 +521,8 @@ TEST_CASE(  // NOLINT
   {
     // Each phase should have the same structural fingerprint
     // (same variable types and constraints, different element counts).
-    const auto& sys0 = plp.systems().front()[PhaseIndex {0}].linear_interface();
+    const auto& sys0 =
+        plp.systems().front()[first_phase_index()].linear_interface();
     const auto& sys1 = plp.systems().front()[PhaseIndex {1}].linear_interface();
 
     // Both phases should have the same number of structural columns
@@ -535,7 +536,7 @@ TEST_CASE(  // NOLINT
 
   SUBCASE("low-memory compress preserves names across cycles")
   {
-    auto& sys = plp.systems().front()[PhaseIndex {0}];
+    auto& sys = plp.systems().front()[first_phase_index()];
     auto& li = sys.linear_interface();
 
     // Solve first
@@ -573,16 +574,16 @@ TEST_CASE(  // NOLINT
 
   SUBCASE("solver_id is safe after backend release")
   {
-    auto& li = plp.systems().front()[PhaseIndex {0}].linear_interface();
+    auto& li = plp.systems().front()[first_phase_index()].linear_interface();
     auto res = li.initial_solve();
     REQUIRE(res.has_value());
 
     const auto id_before = li.solver_id();
     CHECK_FALSE(id_before.empty());
 
-    plp.systems().front()[PhaseIndex {0}].set_low_memory(
+    plp.systems().front()[first_phase_index()].set_low_memory(
         LowMemoryMode::compress, CompressionCodec::lz4);
-    plp.systems().front()[PhaseIndex {0}].release_backend();
+    plp.systems().front()[first_phase_index()].release_backend();
 
     // solver_id must not crash even with backend released
     const auto id_after = li.solver_id();
@@ -606,7 +607,7 @@ TEST_CASE("write_lp succeeds with full names (cols_and_rows)")  // NOLINT
   REQUIRE(plp.systems().size() == 1);
   REQUIRE(plp.systems().front().size() == 3);
 
-  auto& li = plp.systems().front()[PhaseIndex {0}].linear_interface();
+  auto& li = plp.systems().front()[first_phase_index()].linear_interface();
   auto res = li.initial_solve();
   REQUIRE(res.has_value());
 
@@ -642,7 +643,7 @@ TEST_CASE(  // NOLINT
   PlanningLP plp(std::move(planning), flat_opts);
   REQUIRE(plp.systems().size() == 1);
 
-  auto& sys = plp.systems().front()[PhaseIndex {0}];
+  auto& sys = plp.systems().front()[first_phase_index()];
   auto& li = sys.linear_interface();
   auto res = li.initial_solve();
   REQUIRE(res.has_value());
@@ -846,11 +847,12 @@ TEST_CASE(  // NOLINT
 
   SUBCASE("solver_id survives all low-memory modes")
   {
-    const auto& li = plp.systems().front()[PhaseIndex {0}].linear_interface();
+    const auto& li =
+        plp.systems().front()[first_phase_index()].linear_interface();
     const auto id = li.solver_id();
     CHECK_FALSE(id.empty());
 
-    auto& sys = plp.systems().front()[PhaseIndex {0}];
+    auto& sys = plp.systems().front()[first_phase_index()];
 
     // snapshot mode
     sys.set_low_memory(LowMemoryMode::snapshot);

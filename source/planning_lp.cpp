@@ -374,11 +374,11 @@ auto PlanningLP::create_systems(System& system,
 
   const auto num_scenes = static_cast<int>(scenes.size());
   const auto num_phases = static_cast<int>(phases.size());
-  SPDLOG_INFO(
-      "  Building LP: {} scene(s) × {} phase(s)", num_scenes, num_phases);
 
   // Pre-resolve the solver name on the main thread so worker threads
-  // don't race through the plugin registry in parallel.
+  // don't race through the plugin registry in parallel.  This triggers
+  // the "Loaded solver plugin" log before the "Building LP" banner so
+  // the output order reflects setup → pool → build.
   auto resolved_opts = flat_opts;
   if (resolved_opts.solver_name.empty()) {
     resolved_opts.solver_name =
@@ -416,7 +416,15 @@ auto PlanningLP::create_systems(System& system,
   // `m_collection_ptrs_` interior-pointer table to the new owner, so
   // post-move SystemLPs are valid even though the build buffer holds
   // them at a different address than the final vector.
+  //
+  // NOTE: create the pool *before* logging "Building LP: N × N" so the
+  // output order makes it obvious that every per-cell task is scheduled
+  // through the pool.  Before this reorder, the banner appeared first
+  // and looked as if LP building happened outside the pool.
   auto pool = make_solver_work_pool();
+
+  SPDLOG_INFO(
+      "  Building LP: {} scene(s) × {} phase(s)", num_scenes, num_phases);
 
   const auto build_start = std::chrono::steady_clock::now();
 
@@ -714,6 +722,11 @@ std::expected<void, Error> PlanningLP::resolve_scene_phases(
                "{}_sc{}_ph{}", li.solver_name(), scene_index, phase_index))
               .string());
     }
+
+    // Tag the LP with the Monolithic context so fallback warnings carry
+    // the same (scene, phase) key as the surrounding info logs.
+    system_sp.linear_interface().set_log_tag(
+        std::format("Monolithic [s{} p{}]", scene_index, phase_index));
 
     if (auto result = system_sp.resolve(lp_opts); !result) {
       // Log the solver error with scene/phase context before writing the LP

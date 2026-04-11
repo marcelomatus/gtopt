@@ -72,7 +72,7 @@ TEST_CASE("relax_fixed_state_variable respects source bounds")  // NOLINT
 
   const StateVarLink link {
       .dependent_col = col,
-      .source_phase = PhaseIndex {0},
+      .source_phase_index = first_phase_index(),
       .trial_value = 80.0,
       .source_low = 0.0,
       .source_upp = 150.0,
@@ -148,7 +148,7 @@ TEST_CASE("relax_fixed_state_variable returns slack column indices")  // NOLINT
 
   const StateVarLink link {
       .dependent_col = col,
-      .source_phase = PhaseIndex {0},
+      .source_phase_index = first_phase_index(),
       .trial_value = 50.0,
       .source_low = 0.0,
       .source_upp = 100.0,
@@ -421,7 +421,7 @@ TEST_CASE(  // NOLINT
       StateVarLink {
           .source_col = ColIndex {10},
           .dependent_col = dep,
-          .target_phase = PhaseIndex {1},
+          .target_phase_index = PhaseIndex {1},
           .trial_value = 50.0,
           .source_low = 0.0,
           .source_upp = 200.0,
@@ -511,7 +511,7 @@ TEST_CASE(  // NOLINT
       StateVarLink {
           .source_col = src,
           .dependent_col = dep,
-          .target_phase = PhaseIndex {1},
+          .target_phase_index = PhaseIndex {1},
           .trial_value = 50.0,
           .source_low = 0.0,
           .source_upp = 200.0,
@@ -603,7 +603,7 @@ TEST_CASE(  // NOLINT
       StateVarLink {
           .source_col = src,
           .dependent_col = dep,
-          .target_phase = PhaseIndex {1},
+          .target_phase_index = PhaseIndex {1},
           .trial_value = 50.0,
           .source_low = 0.0,
           .source_upp = 200.0,
@@ -662,7 +662,7 @@ TEST_CASE(  // NOLINT
       StateVarLink {
           .source_col = ColIndex {10},
           .dependent_col = dep,
-          .target_phase = PhaseIndex {1},
+          .target_phase_index = PhaseIndex {1},
           .trial_value = 50.0,
           .source_low = 0.0,
           .source_upp = 200.0,
@@ -812,7 +812,7 @@ TEST_CASE(
       StateVarLink {
           .source_col = ColIndex {10},
           .dependent_col = dep,
-          .target_phase = PhaseIndex {1},
+          .target_phase_index = PhaseIndex {1},
           .trial_value = 50.0,
           .source_low = 0.0,
           .source_upp = 200.0,
@@ -873,7 +873,7 @@ TEST_CASE("BendersCut - elastic_filter_solve with work pool")  // NOLINT
       StateVarLink {
           .source_col = ColIndex {10},
           .dependent_col = dep,
-          .target_phase = PhaseIndex {1},
+          .target_phase_index = PhaseIndex {1},
           .trial_value = 50.0,
           .source_low = 0.0,
           .source_upp = 200.0,
@@ -959,7 +959,7 @@ TEST_CASE("BendersCut - build_feasibility_cut increments counter")  // NOLINT
       StateVarLink {
           .source_col = src,
           .dependent_col = dep,
-          .target_phase = PhaseIndex {1},
+          .target_phase_index = PhaseIndex {1},
           .trial_value = 50.0,
           .source_low = 0.0,
           .source_upp = 200.0,

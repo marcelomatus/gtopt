@@ -239,7 +239,7 @@ TEST_SUITE("ScenarioLP")
     {
       CHECK_FALSE(scenario_lp.is_first());
       const ScenarioLP first_scenario(
-          Scenario(), ScenarioIndex {0}, SceneIndex {0});
+          Scenario(), first_scenario_index(), first_scene_index());
       CHECK(first_scenario.is_first());
     }
   }
@@ -252,7 +252,7 @@ TEST_SUITE("SceneLP")
     const SceneLP scene;
     CHECK(scene.index() == ElementIndex<SceneLP> {unknown_index});
     CHECK(scene.count_scenario() == -1);
-    CHECK(scene.first_scenario() == ScenarioIndex {0});
+    CHECK(scene.first_scenario() == first_scenario_index());
     CHECK(scene.is_active());
   }
 
@@ -276,7 +276,7 @@ TEST_SUITE("SceneLP")
 
     CHECK(scene_lp.index() == SceneIndex {1});
     CHECK(scene_lp.is_active());
-    CHECK(scene_lp.first_scenario() == ScenarioIndex {0});
+    CHECK(scene_lp.first_scenario() == first_scenario_index());
     CHECK(scene_lp.count_scenario() == 2);
   }
 
@@ -342,7 +342,7 @@ TEST_SUITE("SceneLP")
       const SceneLP scene_lp(scene, std::vector<Scenario> {});
 
       CHECK(scene_lp.count_scenario() == 0);
-      CHECK(scene_lp.first_scenario() == ScenarioIndex {0});
+      CHECK(scene_lp.first_scenario() == first_scenario_index());
     }
   }
 }

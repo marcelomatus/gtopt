@@ -40,15 +40,16 @@ TEST_CASE(
   REQUIRE(mono_result.has_value());
   CHECK(*mono_result == 1);
 
-  const auto mono_obj = plp_mono.system(SceneIndex {0}, PhaseIndex {0})
-                            .linear_interface()
-                            .get_obj_value();
+  const auto mono_obj =
+      plp_mono.system(first_scene_index(), first_phase_index())
+          .linear_interface()
+          .get_obj_value();
   SPDLOG_INFO("Reservoir mono: phase-0 obj = {:.4f}", mono_obj);
 
   // Compute total monolithic cost across all phases
   double mono_total = 0.0;
   for (int p = 0; p < 5; ++p) {
-    const auto ph_obj = plp_mono.system(SceneIndex {0}, PhaseIndex {p})
+    const auto ph_obj = plp_mono.system(first_scene_index(), PhaseIndex {p})
                             .linear_interface()
                             .get_obj_value();
     SPDLOG_INFO("  phase {} obj = {:.4f}", p, ph_obj);
@@ -72,7 +73,7 @@ TEST_CASE(
 
   const auto& last = sddp_results->back();
   SPDLOG_INFO("Reservoir SDDP: {} iterations, LB={:.4f} UB={:.4f} gap={:.6f}",
-              last.iteration,
+              last.iteration_index,
               last.lower_bound,
               last.upper_bound,
               last.gap);
@@ -110,7 +111,7 @@ TEST_CASE(
 
   double mono_total = 0.0;
   for (int p = 0; p < 5; ++p) {
-    const auto ph_obj = plp_mono.system(SceneIndex {0}, PhaseIndex {p})
+    const auto ph_obj = plp_mono.system(first_scene_index(), PhaseIndex {p})
                             .linear_interface()
                             .get_obj_value();
     SPDLOG_INFO("Small reservoir mono: phase {} obj = {:.4f}", p, ph_obj);
@@ -135,7 +136,7 @@ TEST_CASE(
   const auto& last = sddp_results->back();
   SPDLOG_INFO(
       "Small reservoir SDDP: {} iterations, LB={:.4f} UB={:.4f} gap={:.6f}",
-      last.iteration,
+      last.iteration_index,
       last.lower_bound,
       last.upper_bound,
       last.gap);
@@ -171,7 +172,7 @@ TEST_CASE(
 
   double mono_total = 0.0;
   for (int p = 0; p < 5; ++p) {
-    const auto ph_obj = plp_mono.system(SceneIndex {0}, PhaseIndex {p})
+    const auto ph_obj = plp_mono.system(first_scene_index(), PhaseIndex {p})
                             .linear_interface()
                             .get_obj_value();
     SPDLOG_INFO("Expansion mono: phase {} obj = {:.4f}", p, ph_obj);
@@ -195,7 +196,7 @@ TEST_CASE(
 
   const auto& last = sddp_results->back();
   SPDLOG_INFO("Expansion SDDP: {} iterations, LB={:.4f} UB={:.4f} gap={:.6f}",
-              last.iteration,
+              last.iteration_index,
               last.lower_bound,
               last.upper_bound,
               last.gap);
@@ -231,7 +232,7 @@ TEST_CASE(
 
   double mono_total = 0.0;
   for (int p = 0; p < 12; ++p) {
-    const auto ph_obj = plp_mono.system(SceneIndex {0}, PhaseIndex {p})
+    const auto ph_obj = plp_mono.system(first_scene_index(), PhaseIndex {p})
                             .linear_interface()
                             .get_obj_value();
     SPDLOG_INFO("Yearly hydro mono: phase {} obj = {:.4f}", p, ph_obj);
@@ -256,7 +257,7 @@ TEST_CASE(
   const auto& last = sddp_results->back();
   SPDLOG_INFO(
       "Yearly hydro SDDP: {} iterations, LB={:.4f} UB={:.4f} gap={:.6f}",
-      last.iteration,
+      last.iteration_index,
       last.lower_bound,
       last.upper_bound,
       last.gap);
@@ -297,8 +298,9 @@ TEST_CASE("SDDPMethod API - iteration callback")  // NOLINT
       [&callback_results](const SDDPIterationResult& r) -> bool
       {
         callback_results.push_back(r);
-        SPDLOG_INFO("API callback: iter {} gap={:.6f}", r.iteration, r.gap);
-        return r.iteration >= 3;  // stop after 3 iterations
+        SPDLOG_INFO(
+            "API callback: iter {} gap={:.6f}", r.iteration_index, r.gap);
+        return r.iteration_index >= 3;  // stop after 3 iterations
       });
 
   auto results = sddp.solve();
@@ -311,7 +313,7 @@ TEST_CASE("SDDPMethod API - iteration callback")  // NOLINT
   CHECK(results->size() <= 4);
   // Callback iteration numbers should be sequential
   for (size_t i = 0; i < callback_results.size(); ++i) {
-    CHECK(callback_results[i].iteration
+    CHECK(callback_results[i].iteration_index
           == IterationIndex {static_cast<int>(i)});
   }
 }
@@ -331,7 +333,7 @@ TEST_CASE("SDDPMethod API - programmatic stop")  // NOLINT
   sddp.set_iteration_callback(
       [&sddp](const SDDPIterationResult& r) -> bool
       {
-        if (r.iteration >= 2) {
+        if (r.iteration_index >= 2) {
           sddp.request_stop();
         }
         return false;  // don't stop via callback return value
@@ -367,7 +369,7 @@ TEST_CASE("SDDPMethod API - live query atomics")  // NOLINT
       [&sddp, &last_gap](const SDDPIterationResult& r) -> bool
       {
         // The live-query values should match the iteration result
-        CHECK(sddp.current_iteration() == r.iteration);
+        CHECK(sddp.current_iteration() == r.iteration_index);
         CHECK(sddp.current_gap() == doctest::Approx(r.gap));
         CHECK(sddp.current_lower_bound() == doctest::Approx(r.lower_bound));
         CHECK(sddp.current_upper_bound() == doctest::Approx(r.upper_bound));

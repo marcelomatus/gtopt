@@ -104,7 +104,7 @@ TEST_CASE("StateTarget with structured fields")  // NOLINT
       .col_name = "efin",
       .uid = Uid {42},
       .context = ctx,
-      .scene_index = SceneIndex {0},
+      .scene_index = first_scene_index(),
       .phase_index = PhaseIndex {1},
       .target_value = 100.5,
       .var_scale = 1000.0,
@@ -115,7 +115,7 @@ TEST_CASE("StateTarget with structured fields")  // NOLINT
   CHECK(t.uid == Uid {42});
   CHECK(t.target_value == doctest::Approx(100.5));
   CHECK(t.var_scale == doctest::Approx(1000.0));
-  CHECK(t.scene_index == SceneIndex {0});
+  CHECK(t.scene_index == first_scene_index());
   CHECK(t.phase_index == PhaseIndex {1});
   CHECK(std::holds_alternative<StageContext>(t.context));
   const auto& stg = std::get<StageContext>(t.context);

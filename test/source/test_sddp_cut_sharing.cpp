@@ -35,16 +35,17 @@ TEST_CASE("share_cuts_for_phase none mode is a no-op")  // NOLINT
   cut[ColIndex {
       0,
   }] = 1.0;
-  scene_cuts[SceneIndex {0}].push_back(cut);
+  scene_cuts[first_scene_index()].push_back(cut);
 
-  const auto rows_before = plp.system(SceneIndex {0}, PhaseIndex {0})
+  const auto rows_before = plp.system(first_scene_index(), first_phase_index())
                                .linear_interface()
                                .get_numrows();
 
-  share_cuts_for_phase(PhaseIndex {0}, scene_cuts, CutSharingMode::none, plp);
+  share_cuts_for_phase(
+      first_phase_index(), scene_cuts, CutSharingMode::none, plp);
 
   // none mode should not add any rows
-  const auto rows_after = plp.system(SceneIndex {0}, PhaseIndex {0})
+  const auto rows_after = plp.system(first_scene_index(), first_phase_index())
                               .linear_interface()
                               .get_numrows();
   CHECK(rows_after == rows_before);
@@ -75,17 +76,17 @@ TEST_CASE("share_cuts_for_phase single scene returns early")  // NOLINT
   cut[ColIndex {
       0,
   }] = 2.0;
-  scene_cuts[SceneIndex {0}].push_back(cut);
+  scene_cuts[first_scene_index()].push_back(cut);
 
-  const auto rows_before = plp.system(SceneIndex {0}, PhaseIndex {0})
+  const auto rows_before = plp.system(first_scene_index(), first_phase_index())
                                .linear_interface()
                                .get_numrows();
 
   // Even with accumulate mode, single scene should not add cuts
   share_cuts_for_phase(
-      PhaseIndex {0}, scene_cuts, CutSharingMode::accumulate, plp);
+      first_phase_index(), scene_cuts, CutSharingMode::accumulate, plp);
 
-  const auto rows_after = plp.system(SceneIndex {0}, PhaseIndex {0})
+  const auto rows_after = plp.system(first_scene_index(), first_phase_index())
                               .linear_interface()
                               .get_numrows();
   CHECK(rows_after == rows_before);
@@ -108,13 +109,14 @@ TEST_CASE("share_cuts_for_phase with empty cuts is a no-op")  // NOLINT
   scene_cuts.resize(num_scenes);
   // No cuts in any scene
 
-  const auto rows_before = plp.system(SceneIndex {0}, PhaseIndex {0})
+  const auto rows_before = plp.system(first_scene_index(), first_phase_index())
                                .linear_interface()
                                .get_numrows();
 
-  share_cuts_for_phase(PhaseIndex {0}, scene_cuts, CutSharingMode::max, plp);
+  share_cuts_for_phase(
+      first_phase_index(), scene_cuts, CutSharingMode::max, plp);
 
-  const auto rows_after = plp.system(SceneIndex {0}, PhaseIndex {0})
+  const auto rows_after = plp.system(first_scene_index(), first_phase_index())
                               .linear_interface()
                               .get_numrows();
   CHECK(rows_after == rows_before);
@@ -144,7 +146,7 @@ TEST_CASE(  // NOLINT
   cut_s0[ColIndex {
       0,
   }] = 1.0;
-  scene_cuts[SceneIndex {0}].push_back(cut_s0);
+  scene_cuts[first_scene_index()].push_back(cut_s0);
 
   SparseRow cut_s1;
   cut_s1.lowb = 20.0;
@@ -154,20 +156,20 @@ TEST_CASE(  // NOLINT
   }] = 2.0;
   scene_cuts[SceneIndex {1}].push_back(cut_s1);
 
-  const auto rows_before = plp.system(SceneIndex {0}, PhaseIndex {0})
+  const auto rows_before = plp.system(first_scene_index(), first_phase_index())
                                .linear_interface()
                                .get_numrows();
 
   share_cuts_for_phase(
-      PhaseIndex {0}, scene_cuts, CutSharingMode::accumulate, plp);
+      first_phase_index(), scene_cuts, CutSharingMode::accumulate, plp);
 
   // accumulate: one accumulated cut added to each scene
-  const auto rows_s0 = plp.system(SceneIndex {0}, PhaseIndex {0})
+  const auto rows_s0 = plp.system(first_scene_index(), first_phase_index())
                            .linear_interface()
                            .get_numrows();
   CHECK(rows_s0 == rows_before + 1);
 
-  const auto rows_s1 = plp.system(SceneIndex {1}, PhaseIndex {0})
+  const auto rows_s1 = plp.system(SceneIndex {1}, first_phase_index())
                            .linear_interface()
                            .get_numrows();
   CHECK(rows_s1 == rows_before + 1);
@@ -197,7 +199,7 @@ TEST_CASE(  // NOLINT
   cut_s0[ColIndex {
       0,
   }] = 3.0;
-  scene_cuts[SceneIndex {0}].push_back(cut_s0);
+  scene_cuts[first_scene_index()].push_back(cut_s0);
 
   SparseRow cut_s1;
   cut_s1.lowb = 25.0;
@@ -207,20 +209,20 @@ TEST_CASE(  // NOLINT
   }] = 5.0;
   scene_cuts[SceneIndex {1}].push_back(cut_s1);
 
-  const auto rows_before = plp.system(SceneIndex {0}, PhaseIndex {0})
+  const auto rows_before = plp.system(first_scene_index(), first_phase_index())
                                .linear_interface()
                                .get_numrows();
 
   share_cuts_for_phase(
-      PhaseIndex {0}, scene_cuts, CutSharingMode::expected, plp);
+      first_phase_index(), scene_cuts, CutSharingMode::expected, plp);
 
   // expected: one accumulated cut (sum of scene averages) added to each scene
-  const auto rows_s0 = plp.system(SceneIndex {0}, PhaseIndex {0})
+  const auto rows_s0 = plp.system(first_scene_index(), first_phase_index())
                            .linear_interface()
                            .get_numrows();
   CHECK(rows_s0 == rows_before + 1);
 
-  const auto rows_s1 = plp.system(SceneIndex {1}, PhaseIndex {0})
+  const auto rows_s1 = plp.system(SceneIndex {1}, first_phase_index())
                            .linear_interface()
                            .get_numrows();
   CHECK(rows_s1 == rows_before + 1);
@@ -251,7 +253,7 @@ TEST_CASE(  // NOLINT
   cut_a[ColIndex {
       0,
   }] = 1.0;
-  scene_cuts[SceneIndex {0}].push_back(cut_a);
+  scene_cuts[first_scene_index()].push_back(cut_a);
 
   SparseRow cut_b;
   cut_b.lowb = 7.0;
@@ -259,7 +261,7 @@ TEST_CASE(  // NOLINT
   cut_b[ColIndex {
       0,
   }] = 1.5;
-  scene_cuts[SceneIndex {0}].push_back(cut_b);
+  scene_cuts[first_scene_index()].push_back(cut_b);
 
   SparseRow cut_c;
   cut_c.lowb = 12.0;
@@ -269,19 +271,20 @@ TEST_CASE(  // NOLINT
   }] = 2.5;
   scene_cuts[SceneIndex {1}].push_back(cut_c);
 
-  const auto rows_before = plp.system(SceneIndex {0}, PhaseIndex {0})
+  const auto rows_before = plp.system(first_scene_index(), first_phase_index())
                                .linear_interface()
                                .get_numrows();
 
-  share_cuts_for_phase(PhaseIndex {0}, scene_cuts, CutSharingMode::max, plp);
+  share_cuts_for_phase(
+      first_phase_index(), scene_cuts, CutSharingMode::max, plp);
 
   // max: all 3 cuts added to each scene
-  const auto rows_s0 = plp.system(SceneIndex {0}, PhaseIndex {0})
+  const auto rows_s0 = plp.system(first_scene_index(), first_phase_index())
                            .linear_interface()
                            .get_numrows();
   CHECK(rows_s0 == rows_before + 3);
 
-  const auto rows_s1 = plp.system(SceneIndex {1}, PhaseIndex {0})
+  const auto rows_s1 = plp.system(SceneIndex {1}, first_phase_index())
                            .linear_interface()
                            .get_numrows();
   CHECK(rows_s1 == rows_before + 3);
@@ -311,17 +314,17 @@ TEST_CASE(  // NOLINT
   cut[ColIndex {
       0,
   }] = 1.0;
-  scene_cuts[SceneIndex {0}].push_back(cut);
+  scene_cuts[first_scene_index()].push_back(cut);
 
-  const auto rows_before = plp.system(SceneIndex {0}, PhaseIndex {0})
+  const auto rows_before = plp.system(first_scene_index(), first_phase_index())
                                .linear_interface()
                                .get_numrows();
 
   share_cuts_for_phase(
-      PhaseIndex {0}, scene_cuts, CutSharingMode::accumulate, plp);
+      first_phase_index(), scene_cuts, CutSharingMode::accumulate, plp);
 
   // The single cut is still accumulated and shared to both scenes
-  const auto rows_s0 = plp.system(SceneIndex {0}, PhaseIndex {0})
+  const auto rows_s0 = plp.system(first_scene_index(), first_phase_index())
                            .linear_interface()
                            .get_numrows();
   CHECK(rows_s0 == rows_before + 1);
@@ -345,15 +348,15 @@ TEST_CASE(  // NOLINT
   scene_cuts.resize(num_scenes);
   // Both scenes have empty cuts
 
-  const auto rows_before = plp.system(SceneIndex {0}, PhaseIndex {0})
+  const auto rows_before = plp.system(first_scene_index(), first_phase_index())
                                .linear_interface()
                                .get_numrows();
 
   share_cuts_for_phase(
-      PhaseIndex {0}, scene_cuts, CutSharingMode::expected, plp);
+      first_phase_index(), scene_cuts, CutSharingMode::expected, plp);
 
   // No cuts to average → no rows added
-  const auto rows_after = plp.system(SceneIndex {0}, PhaseIndex {0})
+  const auto rows_after = plp.system(first_scene_index(), first_phase_index())
                               .linear_interface()
                               .get_numrows();
   CHECK(rows_after == rows_before);

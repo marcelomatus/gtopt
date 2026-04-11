@@ -220,7 +220,7 @@ TEST_CASE(
           Scenario {
               .uid = Uid {10},
           },
-          ScenarioIndex {0},
+          first_scenario_index(),
       },
       ScenarioLP {
           Scenario {
@@ -265,7 +265,7 @@ TEST_CASE("build_synthetic_apertures — caps at scenario count")  // NOLINT
           Scenario {
               .uid = Uid {1},
           },
-          ScenarioIndex {0},
+          first_scenario_index(),
       },
       ScenarioLP {
           Scenario {
@@ -291,7 +291,7 @@ TEST_CASE(
           Scenario {
               .uid = Uid {5},
           },
-          ScenarioIndex {0},
+          first_scenario_index(),
       },
       ScenarioLP {
           Scenario {

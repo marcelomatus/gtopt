@@ -97,19 +97,29 @@ using Array = std::vector<Type>;
 /**
  * @brief Strong type for unique identifiers with additional type safety
  * @tparam Type The tag type for compile-time type checking
+ *
+ * Uids are identity tokens, not counters: no arithmetic, no increment,
+ * no contextual-bool conversion.  They are ordered and hashable so they
+ * can be used as map keys and in sorted containers.
  */
 template<typename Type>
 using StrongUidType = strong::type<uid_t,
                                    Type,
                                    strong::formattable,
                                    strong::regular,
+                                   strong::ordered,
                                    strong::hashable,
-                                   strong::arithmetic,
                                    strong::implicitly_convertible_to<uid_t>>;
 
 /**
- * @brief Strong type for indices with additional type safety and operations
+ * @brief Strong type for count-like indices (LP rows, LP columns).
  * @tparam Type The tag type for compile-time type checking
+ *
+ * Retains full arithmetic because row/column positions may need to
+ * shift after deletions (`row -= RowIndex{k}`) and to participate in
+ * offset bookkeeping.  For positional indices that should never take
+ * part in free-form arithmetic (scene, phase, stage, scenario, block)
+ * use `StrongPositionIndexType` instead.
  */
 template<typename Type>
 using StrongIndexType = strong::type<Index,
@@ -121,6 +131,29 @@ using StrongIndexType = strong::type<Index,
                                      strong::bicrementable,
                                      strong::implicitly_convertible_to<Index>>;
 
+/**
+ * @brief Strong type for positional indices into a logical sequence
+ *        (scene, phase, stage, scenario, block).
+ * @tparam Type The tag type for compile-time type checking
+ *
+ * Unlike `StrongIndexType`, these indices do **not** support free-form
+ * arithmetic (`idx + idx`, `idx * k`, …) — stepping is done through the
+ * `next()` / `previous()` helpers and through `iota_range`.  They are
+ * contextually convertible to bool so that `!idx` detects the zeroth
+ * element (`if (!phase_index)` ≡ "first phase").
+ */
+template<typename Type>
+using StrongPositionIndexType =
+    strong::type<Index,
+                 Type,
+                 strong::formattable,
+                 strong::regular,
+                 strong::ordered,
+                 strong::hashable,
+                 strong::bicrementable,
+                 strong::boolean,
+                 strong::implicitly_convertible_to<Index>>;
+
 }  // namespace gtopt
 
 /// Specialise std::incrementable_traits for StrongIndexType so that
@@ -130,6 +163,16 @@ template<typename Tag>
 // NOLINTNEXTLINE(cert-dcl58-cpp) - valid std template specialization for
 // user-defined type
 struct std::incrementable_traits<gtopt::StrongIndexType<Tag>>
+{
+  using difference_type = gtopt::Index;
+};
+
+/// Same specialisation for `StrongPositionIndexType` so positional
+/// indices remain usable with `IotaRange` and other range adaptors.
+template<typename Tag>
+// NOLINTNEXTLINE(cert-dcl58-cpp) - valid std template specialization for
+// user-defined type
+struct std::incrementable_traits<gtopt::StrongPositionIndexType<Tag>>
 {
   using difference_type = gtopt::Index;
 };

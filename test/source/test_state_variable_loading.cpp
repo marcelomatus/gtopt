@@ -45,7 +45,7 @@ TEST_CASE(  // NOLINT
   // The reservoir (uid=1, class "rsv") should have an efin state
   // variable registered for each (scene=0, phase) combination because
   // the default reservoir use_state_variable is true.
-  const auto scene = SceneIndex {0};
+  const auto scene = first_scene_index();
   int efin_found = 0;
 
   for (int pi = 0; pi < num_phases; ++pi) {
@@ -76,7 +76,7 @@ TEST_CASE(  // NOLINT
   PlanningLP planning_lp(std::move(planning));
 
   const auto& sim = planning_lp.simulation();
-  const auto scene = SceneIndex {0};
+  const auto scene = first_scene_index();
 
   // Phase 0's efin state variable should have a dependent variable that
   // points to Phase 1's sini column. Similarly for Phase 1 → Phase 2.
@@ -249,8 +249,8 @@ TEST_CASE(  // NOLINT
   REQUIRE(results.has_value());
 
   // Capture the physical efin from the solved LP for phase 0
-  const auto scene = SceneIndex {0};
-  const auto phase0 = PhaseIndex {0};
+  const auto scene = first_scene_index();
+  const auto phase0 = first_phase_index();
   const auto& sys0 = planning_lp.system(scene, phase0);
   const auto& rsv_lp = sys0.elements<ReservoirLP>().front();
   const auto& scens = planning_lp.simulation().scenarios();
@@ -421,7 +421,7 @@ TEST_CASE(  // NOLINT
   PlanningLP planning_lp(std::move(planning));
 
   const auto& sim = planning_lp.simulation();
-  const auto scene = SceneIndex {0};
+  const auto scene = first_scene_index();
 
   // Verify battery efin state variable is registered in both phases
   int bat_efin_count = 0;
@@ -440,7 +440,7 @@ TEST_CASE(  // NOLINT
 
   // Verify phase 0 efin has dependent variable pointing to phase 1
   {
-    const auto& sv_map0 = sim.state_variables(scene, PhaseIndex {0});
+    const auto& sv_map0 = sim.state_variables(scene, first_phase_index());
     for (const auto& [key, svar] : sv_map0) {
       if (key.col_name == "efin" && key.class_name == "Battery"
           && key.uid == Uid {1})

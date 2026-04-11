@@ -428,8 +428,8 @@ TEST_CASE(  // NOLINT
   const auto& sim = planning_lp.simulation();
   REQUIRE(sim.phases().size() == 2);
 
-  const auto scene = SceneIndex {0};
-  const auto& sv_map_p0 = sim.state_variables(scene, PhaseIndex {0});
+  const auto scene = first_scene_index();
+  const auto& sv_map_p0 = sim.state_variables(scene, first_phase_index());
 
   bool vr_found = false;
   bool rsv_found = false;
@@ -478,8 +478,8 @@ TEST_CASE(  // NOLINT
   const auto& sim = planning_lp.simulation();
   REQUIRE(sim.phases().size() == 2);
 
-  const auto scene = SceneIndex {0};
-  const auto& sv_map_p0 = sim.state_variables(scene, PhaseIndex {0});
+  const auto scene = first_scene_index();
+  const auto& sv_map_p0 = sim.state_variables(scene, first_phase_index());
 
   bool found_with_dep = false;
   for (const auto& [key, svar] : sv_map_p0) {

@@ -89,7 +89,7 @@ TEST_CASE("build_phase_uid_map produces correct mapping")  // NOLINT
   CHECK(phase_map.contains(PhaseUid {3}));
 
   // Verify the indices map correctly
-  CHECK(phase_map.at(PhaseUid {1}) == PhaseIndex {0});
+  CHECK(phase_map.at(PhaseUid {1}) == first_phase_index());
   CHECK(phase_map.at(PhaseUid {2}) == PhaseIndex {1});
   CHECK(phase_map.at(PhaseUid {3}) == PhaseIndex {2});
 }
@@ -107,7 +107,7 @@ TEST_CASE("build_phase_uid_map with single-phase planning")  // NOLINT
 
   // Verify there is exactly one entry mapping to PhaseIndex{0}
   const auto it = phase_map.begin();
-  CHECK(it->second == PhaseIndex {0});
+  CHECK(it->second == first_phase_index());
 }
 
 // ─── save_cuts_csv tests ────────────────────────────────────────────────────
@@ -473,7 +473,7 @@ TEST_CASE("save_scene_cuts_csv creates per-scene file")  // NOLINT
           .string();
 
   auto save_result = save_scene_cuts_csv(
-      stored, SceneIndex {0}, SceneUid {1}, planning_lp, tmp_dir);
+      stored, first_scene_index(), SceneUid {1}, planning_lp, tmp_dir);
   REQUIRE(save_result.has_value());
 
   // Verify scene_1.csv was created
@@ -505,7 +505,7 @@ TEST_CASE(
 
   std::vector<StoredCut> empty_cuts;
   auto save_result = save_scene_cuts_csv(std::span<const StoredCut>(empty_cuts),
-                                         SceneIndex {0},
+                                         first_scene_index(),
                                          SceneUid {1},
                                          planning_lp,
                                          tmp_dir);
@@ -547,7 +547,7 @@ TEST_CASE(
 
   // Save scene cuts
   auto save_result = save_scene_cuts_csv(
-      stored, SceneIndex {0}, SceneUid {1}, planning_lp, tmp_dir);
+      stored, first_scene_index(), SceneUid {1}, planning_lp, tmp_dir);
   REQUIRE(save_result.has_value());
 
   // Also create an error file that should be skipped
@@ -1052,7 +1052,7 @@ TEST_CASE(
   // Before loading, alpha_col should be unknown
   const auto last_phase =
       PhaseIndex {planning_lp.simulation().phases().size() - 1};
-  CHECK(states[SceneIndex {0}][last_phase].alpha_col
+  CHECK(states[first_scene_index()][last_phase].alpha_col
         == ColIndex {unknown_index});
 
   auto result =
@@ -1061,7 +1061,7 @@ TEST_CASE(
   CHECK(result->count == 1);
 
   // After loading, alpha_col should be set
-  CHECK(states[SceneIndex {0}][last_phase].alpha_col
+  CHECK(states[first_scene_index()][last_phase].alpha_col
         != ColIndex {unknown_index});
 
   std::filesystem::remove(tmp_file);
@@ -1211,7 +1211,7 @@ TEST_CASE(
 
   // Verify alpha columns were created for all phases
   for (Index pi = 0; pi < 3; ++pi) {
-    CHECK(states[SceneIndex {0}][PhaseIndex {pi}].alpha_col
+    CHECK(states[first_scene_index()][PhaseIndex {pi}].alpha_col
           != ColIndex {unknown_index});
   }
 

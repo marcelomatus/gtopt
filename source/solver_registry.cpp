@@ -211,7 +211,9 @@ bool SolverRegistry::load_plugin(const std::filesystem::path& path)
     solver_names.emplace_back(*names);
   }
 
-  SPDLOG_INFO("Loaded solver plugin '{}' from {} (solvers: {})",
+  // Indent two spaces so the message sits under the "Building LP model"
+  // section when plugin loading is triggered as a side effect of LP build.
+  SPDLOG_INFO("  Loaded solver plugin '{}' from {} (solvers: {})",
               plugin_name,
               path.string(),
               join_strings(solver_names, ", "));

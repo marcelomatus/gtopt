@@ -169,8 +169,9 @@ auto detect_islands_and_fix_references(Array<Bus>& buses,
     return num_islands;
   }
 
-  // Multiple islands detected
-  SPDLOG_INFO("Network has {} islands", num_islands);
+  // Multiple islands detected — indent two spaces to match the surrounding
+  // "Building LP model" section hierarchy.
+  SPDLOG_INFO("  Network has {} islands", num_islands);
 
   // For each island, ensure at least one reference bus
   for (const auto root : island_roots) {

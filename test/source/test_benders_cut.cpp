@@ -484,11 +484,11 @@ TEST_CASE("relax_fixed_state_variable relaxes a fixed column")  // NOLINT
               99,
           },
       .dependent_col = dep,
-      .source_phase =
+      .source_phase_index =
           PhaseIndex {
               0,
           },
-      .target_phase =
+      .target_phase_index =
           PhaseIndex {
               1,
           },
@@ -795,7 +795,7 @@ TEST_CASE("elastic_filter_solve free function succeeds")  // NOLINT
                   99,
               },
           .dependent_col = x1,
-          .target_phase =
+          .target_phase_index =
               PhaseIndex {
                   1,
               },
@@ -1460,11 +1460,11 @@ TEST_CASE(  // NOLINT
                   99,
               },
           .dependent_col = efin,
-          .source_phase =
+          .source_phase_index =
               PhaseIndex {
                   0,
               },
-          .target_phase =
+          .target_phase_index =
               PhaseIndex {
                   1,
               },

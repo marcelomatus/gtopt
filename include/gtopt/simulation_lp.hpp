@@ -116,6 +116,25 @@ public:
     return m_phase_array_;
   }
 
+  /**
+   * @brief Gets the index of the last phase.
+   * @pre The simulation has at least one phase.
+   * @return `previous(PhaseIndex{phases().size()})`.
+   */
+  [[nodiscard]] constexpr auto last_phase_index() const noexcept -> PhaseIndex
+  {
+    return previous(PhaseIndex {m_phase_array_.size()});
+  }
+
+  /**
+   * @brief Gets the index of the last scene.
+   * @pre The simulation has at least one scene.
+   */
+  [[nodiscard]] constexpr auto last_scene_index() const noexcept -> SceneIndex
+  {
+    return previous(SceneIndex {m_scene_array_.size()});
+  }
+
   [[nodiscard]] constexpr const auto& blocks() const noexcept
   {
     return m_block_array_;
@@ -137,27 +156,25 @@ public:
 
   [[nodiscard]] constexpr auto previous_stage(const StageLP& stage)
   {
-    if (stage.index() == StageIndex {0}) {
+    if (!stage.index()) {
       throw std::out_of_range("No previous stage for the first stage");
     }
-    return m_stage_array_[stage.index() - 1];
+    return m_stage_array_[previous(stage.index())];
   }
 
   [[nodiscard]] constexpr auto prev_stage(const StageLP& stage) const noexcept
       -> std::pair<const StageLP*, const PhaseLP*>
   {
-    if (stage.index() == StageIndex {0}) {
-      if (const auto phase_index = stage.phase_index();
-          phase_index == PhaseIndex {0})
-      {
+    if (!stage.index()) {
+      if (const auto phase_index = stage.phase_index(); !phase_index) {
         return {nullptr, nullptr};
       }
-      auto&& prev_phase = phases()[stage.phase_index() - 1];
+      auto&& prev_phase = phases()[previous(stage.phase_index())];
       auto&& prev_stage = prev_phase.stages().back();
       return {&prev_stage, &prev_phase};
     }
 
-    const auto prev_stage_index = stage.index() - StageIndex {1};
+    const auto prev_stage_index = previous(stage.index());
     return {&m_stage_array_[prev_stage_index], nullptr};
   }
 

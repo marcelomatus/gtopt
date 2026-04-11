@@ -70,7 +70,7 @@ TEST_CASE(
   store.resize_scenes(2);
 
   const auto cut = make_test_cut(/*rhs=*/10.5);
-  store.store_cut(SceneIndex {0},
+  store.store_cut(first_scene_index(),
                   PhaseIndex {1},
                   cut,
                   CutType::Optimality,
@@ -80,7 +80,7 @@ TEST_CASE(
                   PhaseUid {200});
 
   CHECK(store.stored_cuts().size() == 1);
-  REQUIRE(store.scene_cuts()[SceneIndex {0}].size() == 1);
+  REQUIRE(store.scene_cuts()[first_scene_index()].size() == 1);
   CHECK(store.scene_cuts()[SceneIndex {1}].empty());
 
   // num_stored_cuts reflects both modes correctly.
@@ -102,7 +102,7 @@ TEST_CASE(
   CHECK(stored.coefficients[1].second == doctest::Approx(-2.5));
 
   // The per-scene entry is the same StoredCut.
-  const auto& per_scene = store.scene_cuts()[SceneIndex {0}].front();
+  const auto& per_scene = store.scene_cuts()[first_scene_index()].front();
   CHECK(per_scene.type == stored.type);
   CHECK(per_scene.rhs == doctest::Approx(stored.rhs));
   CHECK(per_scene.row == stored.row);
@@ -116,7 +116,7 @@ TEST_CASE(
 
   const auto cut = make_test_cut(/*rhs=*/3.0);
   store.store_cut(SceneIndex {1},
-                  PhaseIndex {0},
+                  first_phase_index(),
                   cut,
                   CutType::Feasibility,
                   RowIndex {12},
@@ -126,7 +126,7 @@ TEST_CASE(
 
   // Combined storage is NOT touched.
   CHECK(store.stored_cuts().empty());
-  CHECK(store.scene_cuts()[SceneIndex {0}].empty());
+  CHECK(store.scene_cuts()[first_scene_index()].empty());
   REQUIRE(store.scene_cuts()[SceneIndex {1}].size() == 1);
 
   // In single_cut_storage mode num_stored_cuts counts per-scene entries.
@@ -147,7 +147,7 @@ TEST_CASE(
   store.resize_scenes(3);
 
   // Three cuts in combined mode, distributed across two scenes.
-  store.store_cut(SceneIndex {0},
+  store.store_cut(first_scene_index(),
                   PhaseIndex {1},
                   make_test_cut(1.0),
                   CutType::Optimality,
@@ -155,7 +155,7 @@ TEST_CASE(
                   /*single_cut_storage=*/false,
                   SceneUid {1},
                   PhaseUid {1});
-  store.store_cut(SceneIndex {0},
+  store.store_cut(first_scene_index(),
                   PhaseIndex {1},
                   make_test_cut(2.0),
                   CutType::Optimality,
@@ -173,7 +173,7 @@ TEST_CASE(
                   PhaseUid {1});
 
   CHECK(store.stored_cuts().size() == 3);
-  CHECK(store.scene_cuts()[SceneIndex {0}].size() == 2);
+  CHECK(store.scene_cuts()[first_scene_index()].size() == 2);
   CHECK(store.scene_cuts()[SceneIndex {1}].empty());
   CHECK(store.scene_cuts()[SceneIndex {2}].size() == 1);
   CHECK(store.num_stored_cuts(false) == 3);
@@ -191,8 +191,8 @@ TEST_CASE(
   SDDPCutStore store;
   store.resize_scenes(2);
 
-  store.store_cut(SceneIndex {0},
-                  PhaseIndex {0},
+  store.store_cut(first_scene_index(),
+                  first_phase_index(),
                   make_test_cut(1.0),
                   CutType::Optimality,
                   RowIndex {0},
@@ -200,7 +200,7 @@ TEST_CASE(
                   SceneUid {1},
                   PhaseUid {1});
   store.store_cut(SceneIndex {1},
-                  PhaseIndex {0},
+                  first_phase_index(),
                   make_test_cut(2.0),
                   CutType::Optimality,
                   RowIndex {1},
@@ -215,7 +215,7 @@ TEST_CASE(
 
   CHECK(store.stored_cuts().empty());
   REQUIRE(store.scene_cuts().size() == 2);
-  CHECK(store.scene_cuts()[SceneIndex {0}].empty());
+  CHECK(store.scene_cuts()[first_scene_index()].empty());
   CHECK(store.scene_cuts()[SceneIndex {1}].empty());
   CHECK(store.num_stored_cuts(false) == 0);
   CHECK(store.num_stored_cuts(true) == 0);
@@ -229,8 +229,8 @@ TEST_CASE("SDDPCutStore - scene_cuts_before snapshot is mutable")  // NOLINT
   before.assign(3, std::size_t {0});
   CHECK(store.scene_cuts_before().size() == 3);
 
-  store.store_cut(SceneIndex {0},
-                  PhaseIndex {0},
+  store.store_cut(first_scene_index(),
+                  first_phase_index(),
                   make_test_cut(5.0),
                   CutType::Optimality,
                   RowIndex {0},
@@ -239,6 +239,6 @@ TEST_CASE("SDDPCutStore - scene_cuts_before snapshot is mutable")  // NOLINT
                   PhaseUid {1});
 
   // Record a snapshot of how many cuts existed before an iteration.
-  before[0] = store.scene_cuts()[SceneIndex {0}].size();
+  before[0] = store.scene_cuts()[first_scene_index()].size();
   CHECK(store.scene_cuts_before()[0] == 1);
 }

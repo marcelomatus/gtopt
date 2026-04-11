@@ -46,7 +46,13 @@ struct Block
 };
 
 using BlockUid = StrongUidType<struct Block>;
-using BlockIndex = StrongIndexType<Block>;
+using BlockIndex = StrongPositionIndexType<Block>;
+
+/// @brief First block index.
+[[nodiscard]] constexpr auto first_block_index() noexcept -> BlockIndex
+{
+  return BlockIndex {0};
+}
 
 }  // namespace gtopt
 

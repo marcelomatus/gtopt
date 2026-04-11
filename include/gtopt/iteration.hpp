@@ -57,4 +57,19 @@ struct IterationTag;
 /// Strongly-typed index for SDDP iterations
 using IterationIndex = StrongIndexType<IterationTag>;
 
+/// @brief Next iteration index (iteration_index + 1), preserving strong type.
+[[nodiscard]] constexpr auto next(IterationIndex iteration_index) noexcept
+    -> IterationIndex
+{
+  return ++iteration_index;
+}
+
+/// @brief Previous iteration index (iteration_index - 1), preserving strong
+/// type.
+[[nodiscard]] constexpr auto previous(IterationIndex iteration_index) noexcept
+    -> IterationIndex
+{
+  return --iteration_index;
+}
+
 }  // namespace gtopt

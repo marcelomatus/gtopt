@@ -461,6 +461,7 @@ LinearInterface LinearInterface::clone(std::span<const double> col_sol,
   cloned.m_scale_objective_ = m_scale_objective_;
   cloned.m_col_scales_ = m_col_scales_;
   cloned.m_variable_scale_map_ = m_variable_scale_map_;
+  cloned.m_log_tag_ = m_log_tag_;
 
   if (!col_sol.empty() || !row_dual.empty()) {
     cloned.set_warm_start_solution(col_sol, row_dual);
@@ -1198,12 +1199,10 @@ std::expected<int, Error> LinearInterface::initial_solve(
            ++attempt)
       {
         const auto next_algo = next_fallback_algo(current_algo);
-        spdlog::warn(
-            "initial_solve: {} non-optimal with {}, "
-            "fallback to {}",
-            get_prob_name(),
-            current_algo,
-            next_algo);
+        spdlog::warn("{}: initial_solve non-optimal with {}, fallback to {}",
+                     m_log_tag_.empty() ? get_prob_name() : m_log_tag_,
+                     current_algo,
+                     next_algo);
 
         fallback_opts.algorithm = next_algo;
         fallback_opts.presolve = false;
@@ -1288,12 +1287,10 @@ std::expected<int, Error> LinearInterface::resolve(
            ++attempt)
       {
         const auto next_algo = next_fallback_algo(current_algo);
-        spdlog::warn(
-            "resolve: {} non-optimal with {}, "
-            "fallback to {}",
-            get_prob_name(),
-            current_algo,
-            next_algo);
+        spdlog::warn("{}: resolve non-optimal with {}, fallback to {}",
+                     m_log_tag_.empty() ? get_prob_name() : m_log_tag_,
+                     current_algo,
+                     next_algo);
 
         fallback_opts.algorithm = next_algo;
         fallback_opts.presolve = false;

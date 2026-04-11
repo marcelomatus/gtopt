@@ -481,7 +481,7 @@ void SDDPCutStore::apply_cut_sharing_for_iteration(
 // ── save_cuts_for_iteration ────────────────────────────────────────────────
 
 void SDDPCutStore::save_cuts_for_iteration(
-    IterationIndex iter,
+    IterationIndex iteration_index,
     std::span<const uint8_t> scene_feasible,
     const SDDPOptions& options,
     PlanningLP& planning_lp,
@@ -511,11 +511,12 @@ void SDDPCutStore::save_cuts_for_iteration(
   // Save to a versioned file: sddp_cuts_<iter>.csv
   if (!cut_dir.empty()) {
     const auto versioned_file =
-        (cut_dir / std::format(sddp_file::versioned_cuts_fmt, iter)).string();
+        (cut_dir / std::format(sddp_file::versioned_cuts_fmt, iteration_index))
+            .string();
     auto result = save_all(versioned_file);
     if (!result.has_value()) {
       SPDLOG_WARN("SDDP: could not save versioned cuts at iter {}: {}",
-                  iter,
+                  iteration_index,
                   result.error().message);
     }
   }
@@ -533,7 +534,7 @@ void SDDPCutStore::save_cuts_for_iteration(
                                         cut_dir.string());
       if (!result.has_value()) {
         SPDLOG_WARN("SDDP: could not save per-scene cuts at iter {}: {}",
-                    iter,
+                    iteration_index,
                     result.error().message);
         break;
       }
@@ -547,16 +548,17 @@ void SDDPCutStore::save_cuts_for_iteration(
         planning_lp, state_file, IterationIndex {current_iteration});
     if (!sr.has_value()) {
       SPDLOG_WARN("SDDP: could not save state at iter {}: {}",
-                  iter,
+                  iteration_index,
                   sr.error().message);
     }
     const auto versioned_state =
-        (cut_dir / std::format(sddp_file::versioned_state_fmt, iter)).string();
+        (cut_dir / std::format(sddp_file::versioned_state_fmt, iteration_index))
+            .string();
     sr = save_state_csv(
         planning_lp, versioned_state, IterationIndex {current_iteration});
     if (!sr.has_value()) {
       SPDLOG_WARN("SDDP: could not save versioned state at iter {}: {}",
-                  iter,
+                  iteration_index,
                   sr.error().message);
     }
   }

@@ -51,7 +51,7 @@ TEST_CASE("SDDPMethod - 3-phase hydro+thermal converges")  // NOLINT
 
   const auto& first = results->front();
   const auto& last = results->back();
-  CHECK(first.iteration == IterationIndex {0});
+  CHECK(first.iteration_index == IterationIndex {0});
   CHECK(last.upper_bound > 0.0);
   CHECK(last.lower_bound > 0.0);
   // Allow a tiny negative gap from floating-point rounding when LB ≈ UB at
@@ -629,11 +629,11 @@ TEST_CASE(  // NOLINT
   // After the forward pass each phase must have been dispatched.
   // forward_objective is the per-phase OPEX (excluding alpha).
   const auto& states = sddp.phase_states();
-  CHECK(states[PhaseIndex {0}].forward_objective >= 0.0);
+  CHECK(states[first_phase_index()].forward_objective >= 0.0);
   CHECK(states[PhaseIndex {1}].forward_objective >= 0.0);
 
   // Total forward cost across phases must be strictly positive.
-  const double total_fwd = states[PhaseIndex {0}].forward_objective
+  const double total_fwd = states[first_phase_index()].forward_objective
       + states[PhaseIndex {1}].forward_objective;
   CHECK(total_fwd > 0.0);
 }
@@ -690,7 +690,7 @@ TEST_CASE(  // NOLINT
 
   // Outgoing state-variable links must be established for phases 0 and 1
   // (links connect phase p to phase p+1; the last phase has no outgoing links).
-  CHECK_FALSE(states[PhaseIndex {0}].outgoing_links.empty());
+  CHECK_FALSE(states[first_phase_index()].outgoing_links.empty());
   CHECK_FALSE(states[PhaseIndex {1}].outgoing_links.empty());
   CHECK(states[PhaseIndex {2}].outgoing_links.empty());
 }
@@ -931,7 +931,7 @@ TEST_CASE(  // NOLINT
 
     double mono_total = 0.0;
     for (int p = 0; p < n; ++p) {
-      mono_total += plp_mono.system(SceneIndex {0}, PhaseIndex {p})
+      mono_total += plp_mono.system(first_scene_index(), PhaseIndex {p})
                         .linear_interface()
                         .get_obj_value();
     }

@@ -68,7 +68,7 @@ TEST_CASE("Task<SDDPTaskKey> ordering is lexicographic")  // NOLINT
         SReq {
             .priority_key = make_sddp_task_key(IterationIndex {0},
                                                SDDPPassDirection::forward,
-                                               PhaseIndex {0},
+                                               first_phase_index(),
                                                SDDPTaskKind::lp),
             .name = {},
         }};
@@ -77,7 +77,7 @@ TEST_CASE("Task<SDDPTaskKey> ordering is lexicographic")  // NOLINT
         SReq {
             .priority_key = make_sddp_task_key(IterationIndex {1},
                                                SDDPPassDirection::forward,
-                                               PhaseIndex {0},
+                                               first_phase_index(),
                                                SDDPTaskKind::lp),
             .name = {},
         }};
@@ -92,7 +92,7 @@ TEST_CASE("Task<SDDPTaskKey> ordering is lexicographic")  // NOLINT
         SReq {
             .priority_key = make_sddp_task_key(IterationIndex {0},
                                                SDDPPassDirection::forward,
-                                               PhaseIndex {0},
+                                               first_phase_index(),
                                                SDDPTaskKind::lp),
             .name = {},
         }};
@@ -101,7 +101,7 @@ TEST_CASE("Task<SDDPTaskKey> ordering is lexicographic")  // NOLINT
         SReq {
             .priority_key = make_sddp_task_key(IterationIndex {0},
                                                SDDPPassDirection::backward,
-                                               PhaseIndex {0},
+                                               first_phase_index(),
                                                SDDPTaskKind::lp),
             .name = {},
         }};
@@ -115,7 +115,7 @@ TEST_CASE("Task<SDDPTaskKey> ordering is lexicographic")  // NOLINT
               SReq {
                   .priority_key = make_sddp_task_key(IterationIndex {0},
                                                      SDDPPassDirection::forward,
-                                                     PhaseIndex {0},
+                                                     first_phase_index(),
                                                      SDDPTaskKind::lp),
                   .name = {},
               }};
@@ -124,7 +124,7 @@ TEST_CASE("Task<SDDPTaskKey> ordering is lexicographic")  // NOLINT
         SReq {
             .priority_key = make_sddp_task_key(IterationIndex {0},
                                                SDDPPassDirection::forward,
-                                               PhaseIndex {0},
+                                               first_phase_index(),
                                                SDDPTaskKind::non_lp),
             .name = {},
         }};
@@ -139,7 +139,7 @@ TEST_CASE("Task<SDDPTaskKey> ordering is lexicographic")  // NOLINT
         SReq {
             .priority_key = make_sddp_task_key(IterationIndex {0},
                                                SDDPPassDirection::forward,
-                                               PhaseIndex {0},
+                                               first_phase_index(),
                                                SDDPTaskKind::lp),
             .name = {},
         }};
@@ -198,7 +198,7 @@ TEST_CASE("SDDPWorkPool submit and execute")  // NOLINT
             .priority = TaskPriority::Medium,
             .priority_key = make_sddp_task_key(IterationIndex {0},
                                                SDDPPassDirection::forward,
-                                               PhaseIndex {0},
+                                               first_phase_index(),
                                                SDDPTaskKind::lp),
             .name = {},
         });
@@ -231,7 +231,7 @@ TEST_CASE("SDDPWorkPool submit and execute")  // NOLINT
         Req {
             .priority_key = make_sddp_task_key(IterationIndex {0},
                                                SDDPPassDirection::forward,
-                                               PhaseIndex {0},
+                                               first_phase_index(),
                                                SDDPTaskKind::lp),
             .name = {},
         });
@@ -246,7 +246,7 @@ TEST_CASE("SDDPWorkPool submit and execute")  // NOLINT
         Req {
             .priority_key = make_sddp_task_key(IterationIndex {0},
                                                SDDPPassDirection::backward,
-                                               PhaseIndex {0},
+                                               first_phase_index(),
                                                SDDPTaskKind::lp),
             .name = {},
         });
@@ -274,7 +274,7 @@ TEST_CASE("SDDPWorkPool submit and execute")  // NOLINT
         Req {
             .priority_key = make_sddp_task_key(IterationIndex {1},
                                                SDDPPassDirection::forward,
-                                               PhaseIndex {0},
+                                               first_phase_index(),
                                                SDDPTaskKind::lp),
             .name = {},
         });
@@ -283,7 +283,7 @@ TEST_CASE("SDDPWorkPool submit and execute")  // NOLINT
         Req {
             .priority_key = make_sddp_task_key(IterationIndex {0},
                                                SDDPPassDirection::forward,
-                                               PhaseIndex {0},
+                                               first_phase_index(),
                                                SDDPTaskKind::lp),
             .name = {},
         });
@@ -317,7 +317,7 @@ TEST_CASE("make_sddp_work_pool factory")  // NOLINT
         Req {
             .priority_key = make_sddp_task_key(IterationIndex {0},
                                                SDDPPassDirection::forward,
-                                               PhaseIndex {0},
+                                               first_phase_index(),
                                                SDDPTaskKind::lp),
             .name = {},
         });

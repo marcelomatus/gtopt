@@ -180,7 +180,7 @@ TEST_CASE("SDDPMethod API - monitoring API stop-request file")  // NOLINT
   sddp.set_iteration_callback(
       [&stop_request_path](const SDDPIterationResult& r) -> bool
       {
-        if (r.iteration >= 1) {
+        if (r.iteration_index >= 1) {
           std::ofstream ofs(stop_request_path);
           ofs << R"({"stop_requested":true})" << '\n';
         }

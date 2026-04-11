@@ -129,10 +129,9 @@ void write_solver_status(const std::string& filepath,
 
   // ── Iteration history ──
   json += "  \"history\": [\n";
-  for (std::size_t i = 0; i < results.size(); ++i) {
-    const auto& r = results[i];
+  for (const auto& [i, r] : std::views::enumerate(results)) {
     json += "    {\n";
-    json += std::format("      \"iteration\": {},\n", r.iteration);
+    json += std::format("      \"iteration\": {},\n", r.iteration_index);
     json += std::format("      \"lower_bound\": {:.6f},\n", r.lower_bound);
     json += std::format("      \"upper_bound\": {:.6f},\n", r.upper_bound);
     json += std::format("      \"gap\": {:.6f},\n", r.gap);
@@ -149,38 +148,33 @@ void write_solver_status(const std::string& filepath,
 
     // Per-scene upper bounds
     json += "      \"scene_upper_bounds\": [";
-    for (std::size_t si = 0; si < r.scene_upper_bounds.size(); ++si) {
-      if (si > 0) {
-        json += ", ";
-      }
-      json += std::format("{:.6f}", r.scene_upper_bounds[si]);
+    for (const auto& [si, ub] : std::views::enumerate(r.scene_upper_bounds)) {
+      json += (si > 0) ? ", " : "";
+      json += std::format("{:.6f}", ub);
     }
     json += "],\n";
 
     // Per-scene lower bounds
     json += "      \"scene_lower_bounds\": [";
-    for (std::size_t si = 0; si < r.scene_lower_bounds.size(); ++si) {
-      if (si > 0) {
-        json += ", ";
-      }
-      json += std::format("{:.6f}", r.scene_lower_bounds[si]);
+    for (const auto& [si, lb] : std::views::enumerate(r.scene_lower_bounds)) {
+      json += (si > 0) ? ", " : "";
+      json += std::format("{:.6f}", lb);
     }
     json += ']';
 
     // Per-scene iteration snapshot (async mode only)
     if (!r.scene_iterations.empty()) {
       json += ",\n      \"scene_iterations\": [";
-      for (std::size_t si = 0; si < r.scene_iterations.size(); ++si) {
-        if (si > 0) {
-          json += ", ";
-        }
-        json += std::format("{}", r.scene_iterations[si]);
+      for (const auto& [si, it] : std::views::enumerate(r.scene_iterations)) {
+        json += (si > 0) ? ", " : "";
+        json += std::format("{}", it);
       }
       json += ']';
     }
     json += '\n';
 
-    json += (i + 1 < results.size()) ? "    },\n" : "    }\n";
+    const bool is_last = static_cast<std::size_t>(i) + 1 == results.size();
+    json += is_last ? "    }\n" : "    },\n";
   }
   json += "  ],\n";
 

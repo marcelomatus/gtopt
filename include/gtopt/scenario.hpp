@@ -50,6 +50,12 @@ struct Scenario
 };
 
 using ScenarioUid = StrongUidType<struct Scenario>;
-using ScenarioIndex = StrongIndexType<struct Scenario>;
+using ScenarioIndex = StrongPositionIndexType<struct Scenario>;
+
+/// @brief First scenario index.
+[[nodiscard]] constexpr auto first_scenario_index() noexcept -> ScenarioIndex
+{
+  return ScenarioIndex {0};
+}
 
 }  // namespace gtopt

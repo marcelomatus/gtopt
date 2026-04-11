@@ -28,7 +28,7 @@ namespace
 {
 auto create_block_array(const Simulation& simulation)
 {
-  auto index = BlockIndex {0};
+  auto index = first_block_index();
 
   return std::ranges::to<std::vector>(
       simulation.stage_array | std::views::filter(&Stage::is_active)

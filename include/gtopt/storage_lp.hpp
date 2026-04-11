@@ -278,9 +278,7 @@ public:
                                      double default_eini,
                                      const SIdT& sid) const
   {
-    if (stage.index() == StageIndex {0}
-        && stage.phase_index() == PhaseIndex {0})
-    {
+    if (!stage.index() && !stage.phase_index()) {
       return default_eini;
     }
     const auto& li = sys.linear_interface();
@@ -317,9 +315,7 @@ public:
                                      const StageLP& stage,
                                      double default_eini) const
   {
-    if (stage.index() == StageIndex {0}
-        && stage.phase_index() == PhaseIndex {0})
-    {
+    if (!stage.index() && !stage.phase_index()) {
       return default_eini;
     }
     const auto col = eini_col_at(scenario, stage);

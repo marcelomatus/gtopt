@@ -170,7 +170,7 @@ public:
 
   /// Save cuts (combined + per-scene) after an iteration.
   void save_cuts_for_iteration(
-      IterationIndex iter,
+      IterationIndex iteration_index,
       std::span<const uint8_t> scene_feasible,
       const SDDPOptions& options,
       PlanningLP& planning_lp,

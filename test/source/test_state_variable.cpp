@@ -107,7 +107,7 @@ TEST_CASE("StateVariable carries LpContext")
 
   const auto ctx = make_stage_context(ScenarioUid {0}, StageUid {3});
   const StateVariable var {
-      {.scene_index = SceneIndex {0}, .phase_index = PhaseIndex {1}},
+      {.scene_index = first_scene_index(), .phase_index = PhaseIndex {1}},
       ColIndex {5},
       10.0,
       100.0,
@@ -131,7 +131,7 @@ TEST_CASE("StateVariable with BlockContext")
   const auto ctx =
       make_block_context(ScenarioUid {1}, StageUid {2}, BlockUid {4});
   const StateVariable var {
-      {.scene_index = SceneIndex {0}, .phase_index = PhaseIndex {0}},
+      {.scene_index = first_scene_index(), .phase_index = first_phase_index()},
       ColIndex {8},
       0.0,
       1.0,
@@ -150,7 +150,7 @@ TEST_CASE("StateVariable default context is monostate")
   using namespace gtopt;
 
   const StateVariable var {
-      {.scene_index = SceneIndex {0}, .phase_index = PhaseIndex {0}},
+      {.scene_index = first_scene_index(), .phase_index = first_phase_index()},
       ColIndex {0},
       0.0,
       1.0,

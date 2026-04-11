@@ -168,12 +168,12 @@ public:
                      Phase(),
                      simulation.options(),
                      simulation.simulation(),
-                     PhaseIndex {0},
+                     first_phase_index(),
                  },
                  SceneLP {
                      Scene(),
                      simulation.simulation(),
-                     SceneIndex {0},
+                     first_scene_index(),
                  },
                  flat_opts)
   {

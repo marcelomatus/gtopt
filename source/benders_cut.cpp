@@ -265,7 +265,7 @@ RelaxedVarInfo relax_fixed_state_variable(
       dep,
       link.source_low,
       link.source_upp,
-      link.source_phase);
+      link.source_phase_index);
 
   return RelaxedVarInfo {
       .relaxed = true,
@@ -290,8 +290,8 @@ auto elastic_filter_solve(const LinearInterface& li,
 
   bool modified = false;
   for (const auto& link : links) {
-    auto info =
-        relax_fixed_state_variable(cloned, link, link.target_phase, penalty);
+    auto info = relax_fixed_state_variable(
+        cloned, link, link.target_phase_index, penalty);
     modified |= info.relaxed;
     result.link_infos.push_back(info);
   }
@@ -559,8 +559,8 @@ auto BendersCut::elastic_filter_solve(const LinearInterface& li,
 
   bool modified = false;
   for (const auto& link : links) {
-    auto info =
-        relax_fixed_state_variable(cloned, link, link.target_phase, penalty);
+    auto info = relax_fixed_state_variable(
+        cloned, link, link.target_phase_index, penalty);
     modified |= info.relaxed;
     result.link_infos.push_back(info);
   }

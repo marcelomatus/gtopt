@@ -31,9 +31,10 @@ public:
   BlockLP() = default;
 
   explicit constexpr BlockLP(
-      Block pblock, BlockIndex index = BlockIndex {unknown_index}) noexcept
+      Block pblock,
+      BlockIndex block_index = BlockIndex {unknown_index}) noexcept
       : m_block_ {std::move(pblock)}
-      , m_index_ {index}
+      , m_index_ {block_index}
   {
   }
 

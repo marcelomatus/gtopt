@@ -75,7 +75,26 @@ struct Stage
 };
 
 using StageUid = StrongUidType<Stage>;
-using StageIndex = StrongIndexType<Stage>;
+using StageIndex = StrongPositionIndexType<Stage>;
 using OptStageIndex = std::optional<StageIndex>;
+
+/// @brief First stage index — the root of the planning horizon.
+[[nodiscard]] constexpr auto first_stage_index() noexcept -> StageIndex
+{
+  return StageIndex {0};
+}
+
+/// @brief Next stage index (stage_index + 1), preserving strong type.
+[[nodiscard]] constexpr auto next(StageIndex stage_index) noexcept -> StageIndex
+{
+  return ++stage_index;
+}
+
+/// @brief Previous stage index (stage_index - 1), preserving strong type.
+[[nodiscard]] constexpr auto previous(StageIndex stage_index) noexcept
+    -> StageIndex
+{
+  return --stage_index;
+}
 
 }  // namespace gtopt
