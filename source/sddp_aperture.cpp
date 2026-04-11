@@ -25,6 +25,7 @@
 #include <gtopt/sddp_aperture.hpp>
 #include <gtopt/sddp_method.hpp>
 #include <gtopt/system_lp.hpp>
+#include <gtopt/utils.hpp>
 
 #ifndef SPDLOG_ACTIVE_LEVEL
 #  define SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_TRACE
@@ -95,8 +96,8 @@ auto build_synthetic_apertures(std::span<const ScenarioLP> all_scenarios,
   Array<Aperture> synthetic;
   synthetic.reserve(n);
   const double prob = 1.0 / static_cast<double>(n);
-  for (std::size_t i = 0; i < n; ++i) {
-    const auto scen_uid = Uid {all_scenarios[ScenarioIndex {i}].uid()};
+  for (const auto sidx : iota_range<ScenarioIndex>(0, n)) {
+    const auto scen_uid = Uid {all_scenarios[sidx].uid()};
     synthetic.push_back(Aperture {
         .uid = scen_uid,
         .source_scenario = scen_uid,

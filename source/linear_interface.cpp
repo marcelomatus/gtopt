@@ -771,8 +771,8 @@ void LinearInterface::add_rows(const std::span<const SparseRow> rows,
   const auto infy = m_backend_->infinity();
 
   // Second pass: fill CSR arrays with scaled coefficients and bounds.
-  for (const auto [r, row] : std::views::enumerate(rows)) {
-    rowbeg[static_cast<size_t>(r)] = static_cast<int>(rowind.size());
+  for (const auto& [r, row] : enumerate(rows)) {
+    rowbeg[r] = static_cast<int>(rowind.size());
 
     const auto rs = row.scale;
     const auto inv_rs = (rs != 1.0) ? 1.0 / rs : 1.0;
@@ -796,8 +796,8 @@ void LinearInterface::add_rows(const std::span<const SparseRow> rows,
         ub *= inv_rs;
       }
     }
-    rowlb[static_cast<size_t>(r)] = normalize_bound(lb);
-    rowub[static_cast<size_t>(r)] = normalize_bound(ub);
+    rowlb[r] = normalize_bound(lb);
+    rowub[r] = normalize_bound(ub);
   }
   rowbeg[static_cast<size_t>(num_rows)] = static_cast<int>(rowind.size());
 
@@ -810,7 +810,7 @@ void LinearInterface::add_rows(const std::span<const SparseRow> rows,
                        rowub.data());
 
   // Update row scales and name maps for all new rows
-  for (const auto [r, row] : std::views::enumerate(rows)) {
+  for (const auto& [r, row] : enumerate(rows)) {
     const auto row_idx = RowIndex {first_row_index + static_cast<int>(r)};
 
     if (row.scale != 1.0) {

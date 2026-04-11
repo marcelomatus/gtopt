@@ -19,6 +19,7 @@
 #include <vector>
 
 #include <gtopt/field_sched.hpp>
+#include <gtopt/utils.hpp>
 #include <gtopt/validate_planning.hpp>
 #include <spdlog/spdlog.h>
 
@@ -229,7 +230,7 @@ void check_vector_positive(ValidationResult& result,
   if constexpr (std::is_arithmetic_v<
                     std::remove_cvref_t<decltype(values.front())>>)
   {
-    for (const auto& [i, v_raw] : std::views::enumerate(values)) {
+    for (const auto& [i, v_raw] : enumerate(values)) {
       const auto v = static_cast<double>(v_raw);
       if (violates(v, p)) {
         result.errors.push_back(std::format("{} '{}': {}[{}] = {} must be {}",

@@ -21,6 +21,7 @@
 #include <unordered_map>
 
 #include <gtopt/linear_problem.hpp>
+#include <gtopt/utils.hpp>
 #include <spdlog/spdlog.h>
 
 namespace gtopt
@@ -336,14 +337,14 @@ auto LinearProblem::flatten(const LpMatrixOptions& opts) -> FlatLinearProblem
   // physical_value = LP_value × col_scale, so LP_coeff = phys_coeff ×
   // col_scale.
   std::vector<double> col_scales(ncols, 1.0);
-  for (const auto& [i, col] : std::views::enumerate(cols)) {
+  for (const auto& [i, col] : enumerate(cols)) {
     col_scales[i] = col.scale;
   }
 
   std::vector<double> rowlb(nrows);
   std::vector<double> rowub(nrows);
 
-  for (const auto& [i, row] : std::views::enumerate(rows)) {
+  for (const auto& [i, row] : enumerate(rows)) {
     const auto rs = row.scale;
     const auto inv_rs = (rs != 1.0) ? 1.0 / rs : 1.0;
     rowlb[i] = (rs != 1.0 && row.lowb > -m_infinity_ && row.lowb < m_infinity_)
@@ -399,7 +400,7 @@ auto LinearProblem::flatten(const LpMatrixOptions& opts) -> FlatLinearProblem
   std::vector<fp_index_t> colint;
   colint.reserve(colints);
 
-  for (const auto& [i, col] : std::views::enumerate(cols)) {
+  for (const auto& [i, col] : enumerate(cols)) {
     // SparseCol bounds are physical; convert to LP units by dividing
     // by the column scale factor.  Infinite bounds are preserved as-is
     // (IEEE 754 guarantees inf / finite = inf, but we skip the division
@@ -463,7 +464,7 @@ auto LinearProblem::flatten(const LpMatrixOptions& opts) -> FlatLinearProblem
     fp_index_map_t map;
     map.reserve(names.size());
 
-    for (const auto& [i, name] : std::views::enumerate(names)) {
+    for (const auto& [i, name] : enumerate(names)) {
       if (name.empty()) [[unlikely]] {
         continue;  // skip empty names to avoid false-positive duplicates
       }
@@ -551,9 +552,9 @@ auto LinearProblem::flatten(const LpMatrixOptions& opts) -> FlatLinearProblem
       if (row_scales_vec.empty()) {
         row_scales_vec.resize(nrows, 1.0);
       }
-      for (const auto& [i, row] : std::views::enumerate(rows)) {
+      for (const auto& [i, row] : enumerate(rows)) {
         if (row.scale != 1.0) {
-          row_scales_vec[static_cast<size_t>(i)] *= row.scale;
+          row_scales_vec[i] *= row.scale;
         }
       }
     }

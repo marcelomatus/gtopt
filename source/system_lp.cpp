@@ -189,8 +189,7 @@ void fix_stage_islands(const auto& collections,
   std::vector<bool> is_reference(n_buses, false);
   std::size_t theta_count = 0;
 
-  for (auto&& [idx, bus] : std::views::enumerate(buses)) {
-    const auto i = static_cast<std::size_t>(idx);
+  for (const auto& [i, bus] : enumerate(buses)) {
     if (bus.lookup_theta_col(scenario, stage, first_buid).has_value()) {
       has_theta[i] = true;
       ++theta_count;

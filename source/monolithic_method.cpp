@@ -21,6 +21,7 @@
 #include <gtopt/planning_options_lp.hpp>
 #include <gtopt/sddp_cut_io.hpp>
 #include <gtopt/solver_monitor.hpp>
+#include <gtopt/utils.hpp>
 #include <gtopt/work_pool.hpp>
 #include <spdlog/spdlog.h>
 
@@ -257,7 +258,7 @@ auto MonolithicMethod::solve(PlanningLP& planning_lp, const SolverOptions& opts)
       json += "  \"scene_times\": [";
       {
         const std::scoped_lock lk(times_mutex);
-        for (const auto [i, t] : std::views::enumerate(scene_times)) {
+        for (const auto& [i, t] : enumerate(scene_times)) {
           if (i > 0) {
             json += ", ";
           }

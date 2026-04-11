@@ -73,11 +73,11 @@ std::vector<double> compute_scene_weights(
   std::vector<double> weights(num_scenes, 0.0);
   double total = 0.0;
 
-  for (const auto [si, feasible] : std::views::enumerate(scene_feasible)) {
+  for (const auto& [si, feasible] : enumerate(scene_feasible)) {
     if (feasible == 0U) {
       continue;  // Infeasible → weight stays 0
     }
-    if (std::cmp_less(si, scenes.size())) {
+    if (si < scenes.size()) {
       for (const auto& sc : scenes[si].scenarios()) {
         weights[si] += sc.probability_factor();
       }
@@ -99,14 +99,14 @@ std::vector<double> compute_scene_weights(
   } else {
     // All infeasible or zero probability → equal weight among feasible
     int feasible_count = 0;
-    for (const auto [si, feasible] : std::views::enumerate(scene_feasible)) {
+    for (const auto& [si, feasible] : enumerate(scene_feasible)) {
       if (feasible != 0U) {
         ++feasible_count;
       }
     }
     if (feasible_count > 0) {
       const double eq_w = 1.0 / static_cast<double>(feasible_count);
-      for (const auto [si, feasible] : std::views::enumerate(scene_feasible)) {
+      for (const auto& [si, feasible] : enumerate(scene_feasible)) {
         if (feasible != 0U) {
           weights[si] = eq_w;
         }

@@ -20,6 +20,7 @@
 #include <gtopt/sddp_method.hpp>
 #include <gtopt/sddp_pool.hpp>
 #include <gtopt/solver_status.hpp>
+#include <gtopt/utils.hpp>
 
 #ifndef SPDLOG_ACTIVE_LEVEL
 #  define SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_TRACE
@@ -924,7 +925,7 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
       // Build scene_feasible and weights for convergence computation
       std::vector<uint8_t> scene_feasible(static_cast<std::size_t>(num_scenes),
                                           0U);
-      for (const auto& [si, b] : std::views::enumerate(bounds)) {
+      for (const auto& [si, b] : enumerate(bounds)) {
         scene_feasible[si] = b.feasible ? 1U : 0U;
       }
 
@@ -941,7 +942,7 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
       ir.scene_lower_bounds.resize(static_cast<std::size_t>(num_scenes));
       double weighted_upper = 0.0;
       double weighted_lower = 0.0;
-      for (const auto& [si, b] : std::views::enumerate(bounds)) {
+      for (const auto& [si, b] : enumerate(bounds)) {
         ir.scene_upper_bounds[si] = b.upper_bound;
         ir.scene_lower_bounds[si] = b.lower_bound;
         weighted_upper += weights[si] * b.upper_bound;

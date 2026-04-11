@@ -19,6 +19,7 @@
 
 #include <gtopt/solver_monitor.hpp>
 #include <gtopt/solver_status.hpp>
+#include <gtopt/utils.hpp>
 
 namespace gtopt
 {
@@ -129,7 +130,7 @@ void write_solver_status(const std::string& filepath,
 
   // ── Iteration history ──
   json += "  \"history\": [\n";
-  for (const auto& [i, r] : std::views::enumerate(results)) {
+  for (const auto& [i, r] : enumerate(results)) {
     json += "    {\n";
     json += std::format("      \"iteration\": {},\n", r.iteration_index);
     json += std::format("      \"lower_bound\": {:.6f},\n", r.lower_bound);
@@ -148,7 +149,7 @@ void write_solver_status(const std::string& filepath,
 
     // Per-scene upper bounds
     json += "      \"scene_upper_bounds\": [";
-    for (const auto& [si, ub] : std::views::enumerate(r.scene_upper_bounds)) {
+    for (const auto& [si, ub] : enumerate(r.scene_upper_bounds)) {
       json += (si > 0) ? ", " : "";
       json += std::format("{:.6f}", ub);
     }
@@ -156,7 +157,7 @@ void write_solver_status(const std::string& filepath,
 
     // Per-scene lower bounds
     json += "      \"scene_lower_bounds\": [";
-    for (const auto& [si, lb] : std::views::enumerate(r.scene_lower_bounds)) {
+    for (const auto& [si, lb] : enumerate(r.scene_lower_bounds)) {
       json += (si > 0) ? ", " : "";
       json += std::format("{:.6f}", lb);
     }
@@ -165,7 +166,7 @@ void write_solver_status(const std::string& filepath,
     // Per-scene iteration snapshot (async mode only)
     if (!r.scene_iterations.empty()) {
       json += ",\n      \"scene_iterations\": [";
-      for (const auto& [si, it] : std::views::enumerate(r.scene_iterations)) {
+      for (const auto& [si, it] : enumerate(r.scene_iterations)) {
         json += (si > 0) ? ", " : "";
         json += std::format("{}", it);
       }
@@ -173,7 +174,7 @@ void write_solver_status(const std::string& filepath,
     }
     json += '\n';
 
-    const bool is_last = static_cast<std::size_t>(i) + 1 == results.size();
+    const bool is_last = i + 1 == results.size();
     json += is_last ? "    }\n" : "    },\n";
   }
   json += "  ],\n";

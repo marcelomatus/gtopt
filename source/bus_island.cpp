@@ -89,8 +89,7 @@ auto detect_islands_and_fix_references(Array<Bus>& buses,
   map_reserve(uid_to_index, num_buses);
   map_reserve(name_to_index, num_buses);
 
-  for (auto&& [idx, bus] : std::views::enumerate(buses)) {
-    const auto i = static_cast<std::size_t>(idx);
+  for (const auto& [i, bus] : enumerate(buses)) {
     uid_to_index[bus.uid] = i;
     if (!bus.name.empty()) {
       name_to_index[bus.name] = i;
