@@ -132,7 +132,7 @@ public:
   /// @return Unique identifier for this phase
   [[nodiscard]] constexpr auto uid() const noexcept
   {
-    return PhaseUid {m_phase_.uid};
+    return make_uid<Phase>(m_phase_.uid);
   }
 
   /// @return Index of this phase in parent container

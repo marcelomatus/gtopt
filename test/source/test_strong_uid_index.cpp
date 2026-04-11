@@ -97,7 +97,7 @@ TEST_CASE("PhaseUid and PhaseIndex are distinct strong types")  // NOLINT
 
   SUBCASE("same underlying value does not make them interchangeable")
   {
-    const PhaseUid uid {3};
+    const PhaseUid uid = make_uid<Phase>(3);
     const PhaseIndex idx {3};
 
     CHECK(static_cast<gtopt::uid_t>(uid) == 3);
@@ -114,15 +114,15 @@ TEST_CASE("PhaseUid and PhaseIndex are distinct strong types")  // NOLINT
     //   index 0 → uid 100
     //   index 1 → uid 200
     flat_map<PhaseUid, PhaseIndex> phase_uid_map;
-    phase_uid_map[PhaseUid {100}] = PhaseIndex {0};
-    phase_uid_map[PhaseUid {200}] = PhaseIndex {1};
+    phase_uid_map[make_uid<Phase>(100)] = PhaseIndex {0};
+    phase_uid_map[make_uid<Phase>(200)] = PhaseIndex {1};
 
-    CHECK(phase_uid_map.at(PhaseUid {100}) == PhaseIndex {0});
-    CHECK(phase_uid_map.at(PhaseUid {200}) == PhaseIndex {1});
+    CHECK(phase_uid_map.at(make_uid<Phase>(100)) == PhaseIndex {0});
+    CHECK(phase_uid_map.at(make_uid<Phase>(200)) == PhaseIndex {1});
 
     // Using the index value as a UID key must not find anything
-    CHECK_FALSE(phase_uid_map.contains(PhaseUid {0}));
-    CHECK_FALSE(phase_uid_map.contains(PhaseUid {1}));
+    CHECK_FALSE(phase_uid_map.contains(make_uid<Phase>(0)));
+    CHECK_FALSE(phase_uid_map.contains(make_uid<Phase>(1)));
   }
 
   SUBCASE("StoredCut.phase_uid is a PhaseUid, not an index")
@@ -176,10 +176,10 @@ TEST_CASE("UID must not be used as array index in StrongIndexVector")  // NOLINT
     phase_values[PhaseIndex {1}] = 2.5;
 
     flat_map<PhaseUid, PhaseIndex> uid_map;
-    uid_map[PhaseUid {100}] = PhaseIndex {0};
-    uid_map[PhaseUid {200}] = PhaseIndex {1};
+    uid_map[make_uid<Phase>(100)] = PhaseIndex {0};
+    uid_map[make_uid<Phase>(200)] = PhaseIndex {1};
 
-    const auto it = uid_map.find(PhaseUid {200});
+    const auto it = uid_map.find(make_uid<Phase>(200));
     REQUIRE(it != uid_map.end());
     CHECK(phase_values[it->second] == doctest::Approx(2.5));
 
@@ -196,7 +196,7 @@ TEST_CASE("StoredCut preserves strong-typed scene and phase UIDs")  // NOLINT
 
   const StoredCut cut {
       .type = CutType::Optimality,
-      .phase_uid = PhaseUid {42},
+      .phase_uid = make_uid<Phase>(42),
       .scene_uid = make_uid<Scene>(7),
       .name = "test_cut",
       .rhs = -1.5,
@@ -207,7 +207,7 @@ TEST_CASE("StoredCut preserves strong-typed scene and phase UIDs")  // NOLINT
           },
   };
 
-  CHECK(cut.phase_uid == PhaseUid {42});
+  CHECK(cut.phase_uid == make_uid<Phase>(42));
   CHECK(cut.scene_uid == make_uid<Scene>(7));
   CHECK(cut.type == CutType::Optimality);
   CHECK(cut.rhs == doctest::Approx(-1.5));

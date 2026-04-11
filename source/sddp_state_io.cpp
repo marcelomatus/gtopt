@@ -195,7 +195,7 @@ auto load_state_csv(PlanningLP& planning_lp, const std::string& filepath)
         continue;
       }
 
-      const PhaseUid phase_uid {pu};
+      const PhaseUid phase_uid = make_uid<Phase>(pu);
       const SceneUid scene_uid = make_uid<Scene>(su);
 
       // Resolve phase and scene indices

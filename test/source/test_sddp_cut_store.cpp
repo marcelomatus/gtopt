@@ -77,7 +77,7 @@ TEST_CASE(
                   RowIndex {7},
                   /*single_cut_storage=*/false,
                   make_uid<Scene>(100),
-                  PhaseUid {200});
+                  make_uid<Phase>(200));
 
   CHECK(store.stored_cuts().size() == 1);
   REQUIRE(store.scene_cuts()[first_scene_index()].size() == 1);
@@ -89,7 +89,7 @@ TEST_CASE(
 
   const auto& stored = store.stored_cuts().front();
   CHECK(stored.type == CutType::Optimality);
-  CHECK(stored.phase_uid == PhaseUid {200});
+  CHECK(stored.phase_uid == make_uid<Phase>(200));
   CHECK(stored.scene_uid == make_uid<Scene>(100));
   CHECK(stored.rhs == doctest::Approx(10.5));
   CHECK(stored.scale == doctest::Approx(1.0));
@@ -122,7 +122,7 @@ TEST_CASE(
                   RowIndex {12},
                   /*single_cut_storage=*/true,
                   make_uid<Scene>(7),
-                  PhaseUid {11});
+                  make_uid<Phase>(11));
 
   // Combined storage is NOT touched.
   CHECK(store.stored_cuts().empty());
@@ -135,7 +135,7 @@ TEST_CASE(
 
   const auto& stored = store.scene_cuts()[SceneIndex {1}].front();
   CHECK(stored.type == CutType::Feasibility);
-  CHECK(stored.phase_uid == PhaseUid {11});
+  CHECK(stored.phase_uid == make_uid<Phase>(11));
   CHECK(stored.scene_uid == make_uid<Scene>(7));
   CHECK(stored.row == RowIndex {12});
 }
@@ -154,7 +154,7 @@ TEST_CASE(
                   RowIndex {10},
                   /*single_cut_storage=*/false,
                   make_uid<Scene>(1),
-                  PhaseUid {1});
+                  make_uid<Phase>(1));
   store.store_cut(first_scene_index(),
                   PhaseIndex {1},
                   make_test_cut(2.0),
@@ -162,7 +162,7 @@ TEST_CASE(
                   RowIndex {11},
                   /*single_cut_storage=*/false,
                   make_uid<Scene>(1),
-                  PhaseUid {1});
+                  make_uid<Phase>(1));
   store.store_cut(SceneIndex {2},
                   PhaseIndex {1},
                   make_test_cut(3.0),
@@ -170,7 +170,7 @@ TEST_CASE(
                   RowIndex {20},
                   /*single_cut_storage=*/false,
                   make_uid<Scene>(3),
-                  PhaseUid {1});
+                  make_uid<Phase>(1));
 
   CHECK(store.stored_cuts().size() == 3);
   CHECK(store.scene_cuts()[first_scene_index()].size() == 2);
@@ -198,7 +198,7 @@ TEST_CASE(
                   RowIndex {0},
                   /*single_cut_storage=*/false,
                   make_uid<Scene>(1),
-                  PhaseUid {1});
+                  make_uid<Phase>(1));
   store.store_cut(SceneIndex {1},
                   first_phase_index(),
                   make_test_cut(2.0),
@@ -206,7 +206,7 @@ TEST_CASE(
                   RowIndex {1},
                   /*single_cut_storage=*/true,
                   make_uid<Scene>(2),
-                  PhaseUid {1});
+                  make_uid<Phase>(1));
 
   REQUIRE(store.num_stored_cuts(false) == 1);
   REQUIRE(store.num_stored_cuts(true) == 2);  // 1 per-scene + 1 per-scene
@@ -236,7 +236,7 @@ TEST_CASE("SDDPCutStore - scene_cuts_before snapshot is mutable")  // NOLINT
                   RowIndex {0},
                   /*single_cut_storage=*/true,
                   make_uid<Scene>(1),
-                  PhaseUid {1});
+                  make_uid<Phase>(1));
 
   // Record a snapshot of how many cuts existed before an iteration.
   before[0] = store.scene_cuts()[first_scene_index()].size();

@@ -22,6 +22,7 @@
 #include <span>
 
 #include <gtopt/basic_types.hpp>
+#include <gtopt/uid.hpp>
 
 namespace gtopt
 {
@@ -69,7 +70,7 @@ struct Phase
 };
 
 /// Strongly-typed unique identifier for Phase objects
-using PhaseUid = StrongUidType<Phase>;
+using PhaseUid = UidOf<Phase>;
 
 /// Strongly-typed index for Phase objects in collections
 using PhaseIndex = StrongPositionIndexType<Phase>;

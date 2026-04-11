@@ -84,14 +84,14 @@ TEST_CASE("build_phase_uid_map produces correct mapping")  // NOLINT
 
   // 3-phase planning has UIDs 1, 2, 3
   REQUIRE(phase_map.size() == 3);
-  CHECK(phase_map.contains(PhaseUid {1}));
-  CHECK(phase_map.contains(PhaseUid {2}));
-  CHECK(phase_map.contains(PhaseUid {3}));
+  CHECK(phase_map.contains(make_uid<Phase>(1)));
+  CHECK(phase_map.contains(make_uid<Phase>(2)));
+  CHECK(phase_map.contains(make_uid<Phase>(3)));
 
   // Verify the indices map correctly
-  CHECK(phase_map.at(PhaseUid {1}) == first_phase_index());
-  CHECK(phase_map.at(PhaseUid {2}) == PhaseIndex {1});
-  CHECK(phase_map.at(PhaseUid {3}) == PhaseIndex {2});
+  CHECK(phase_map.at(make_uid<Phase>(1)) == first_phase_index());
+  CHECK(phase_map.at(make_uid<Phase>(2)) == PhaseIndex {1});
+  CHECK(phase_map.at(make_uid<Phase>(3)) == PhaseIndex {2});
 }
 
 TEST_CASE("build_phase_uid_map with single-phase planning")  // NOLINT
@@ -195,7 +195,7 @@ TEST_CASE(
   // Create a StoredCut with a phase UID that does not exist
   std::vector<StoredCut> cuts = {
       StoredCut {
-          .phase_uid = PhaseUid {999},
+          .phase_uid = make_uid<Phase>(999),
           .scene_uid = make_uid<Scene>(1),
           .name = "bad_phase_cut",
           .rhs = 42.0,

@@ -473,7 +473,7 @@ auto load_cuts_csv(
       }
       PhaseUid phase_uid {};
       try {
-        phase_uid = PhaseUid {std::stoi(token)};
+        phase_uid = make_uid<Phase>(std::stoi(token));
       } catch (const std::exception&) {
         SPDLOG_WARN(
             "SDDP load_cuts: malformed line {} in {}: "
@@ -1390,7 +1390,7 @@ auto load_named_cuts_csv(
 
       // Column 3: phase UID
       std::getline(iss, token, ',');
-      const PhaseUid phase_uid {std::stoi(token)};
+      const PhaseUid phase_uid = make_uid<Phase>(std::stoi(token));
 
       // Column 4: rhs
       std::getline(iss, token, ',');
@@ -1688,7 +1688,7 @@ auto load_cuts_json(
       result.max_iteration = std::max(result.max_iteration,
                                       extract_iteration_from_name(entry.name));
 
-      auto pit = phase_uid_to_index.find(PhaseUid {entry.phase_uid});
+      auto pit = phase_uid_to_index.find(make_uid<Phase>(entry.phase_uid));
       if (pit == phase_uid_to_index.end()) {
         SPDLOG_WARN(
             "SDDP load_cuts_json: unknown phase UID {} for cut '{}'; "
