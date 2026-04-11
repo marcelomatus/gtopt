@@ -90,21 +90,21 @@ void write_solver_status(const std::string& filepath,
 
     // Per-scene iterations
     json += "    \"scene_iterations\": [";
-    for (std::size_t si = 0; si < snapshot.scene_iterations.size(); ++si) {
+    for (const auto& [si, iters] : enumerate(snapshot.scene_iterations)) {
       if (si > 0) {
         json += ", ";
       }
-      json += std::format("{}", snapshot.scene_iterations[si]);
+      json += std::format("{}", iters);
     }
     json += "],\n";
 
     // Per-scene states
     json += "    \"scene_states\": [";
-    for (std::size_t si = 0; si < snapshot.scene_states.size(); ++si) {
+    for (const auto& [si, st] : enumerate(snapshot.scene_states)) {
       if (si > 0) {
         json += ", ";
       }
-      json += std::format("\"{}\"", snapshot.scene_states[si]);
+      json += std::format("\"{}\"", st);
     }
     json += "]\n";
     json += "  },\n";

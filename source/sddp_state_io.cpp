@@ -75,13 +75,15 @@ auto save_state_csv(const PlanningLP& planning_lp,
         const auto phase_uid = phase.uid();
         const auto scene_uid = scene.uid();
 
-        for (size_t c = 0; c < ncols && c < names.size(); ++c) {
-          const auto ci = ColIndex {static_cast<int>(c)};
+        const auto col_upper = std::min(ncols, names.size());
+        const auto rc_upper = std::min(col_upper, col_rc.size());
+        for (const auto ci : iota_range<ColIndex>(0, col_upper)) {
           if (names[ci].empty()) {
             continue;
           }
           const auto phys_val = col_sol[ci];
-          const auto rc = c < col_rc.size() ? col_rc[ci] : 0.0;
+          const auto rc =
+              static_cast<std::size_t>(ci) < rc_upper ? col_rc[ci] : 0.0;
 
           ofs << names[ci] << "," << phase_uid << "," << scene_uid << ","
               << phys_val << "," << rc << "\n";

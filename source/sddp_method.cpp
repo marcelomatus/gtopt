@@ -1240,12 +1240,12 @@ auto SDDPMethod::initialize_solver() -> std::expected<void, Error>
     const auto total_iterations =
         static_cast<Index>(m_iteration_offset_) + m_options_.max_iterations;
     m_iterations_.resize(total_iterations);
-    for (auto i = Index {0}; i < total_iterations; ++i) {
-      m_iterations_[IterationIndex {i}] = IterationLP {
+    for (const auto iidx : iota_range<IterationIndex>(0, total_iterations)) {
+      m_iterations_[iidx] = IterationLP {
           Iteration {
-              .index = i,
+              .index = static_cast<Index>(iidx),
           },
-          IterationIndex {i},
+          iidx,
       };
     }
     // Overlay user-specified entries from simulation.iteration_array
