@@ -296,6 +296,26 @@ constraint dist_{{ district.name }} "{{ district.name }}: {{ district.percentage
   flow_right('{{ district.name }}').flow {{ '<=' if district.has_slack else '=' }} {{ district.percentage / 100.0 }} * flow_right('maule_gasto_normal_riego').flow;
 {% endfor %}
 
+# ---------------------------------------------------------------------------
+# Storage-eligibility flags and season-end targets (PLP plpmaulen.dat)
+# ---------------------------------------------------------------------------
+#
+# These parameters are exposed verbatim from the parsed convention file
+# for downstream AMPL constraints; no agreement constraint currently
+# references them.
+
+# "Caudal Maule Minimum embalsa" eligibility flags (T/F → 1/0)
+param flag_embalsa_1 = {{ 1 if (flag_embalsa_1 | default(false)) else 0 }};
+param flag_embalsa_2 = {{ 1 if (flag_embalsa_2 | default(false)) else 0 }};
+
+# Number of initial years that use manual irrigation percentages
+# (instead of the automatic monthly schedule)
+param n_agnos_pct_manual = {{ n_agnos_pct_manual | default(0) }};
+
+# End-of-season cumulative irrigation volume targets [hm3]
+# (12 values; raw PLP order matches plpmaulen.dat)
+param vol_acum_riego_temp[month] = [{{ (vol_acum_riego_temp | default([0,0,0,0,0,0,0,0,0,0,0,0])) | join(', ') }}];
+
 # =============================================================================
 # End of Maule Agreement
 # =============================================================================

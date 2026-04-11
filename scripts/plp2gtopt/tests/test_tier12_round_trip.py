@@ -18,18 +18,17 @@ pipeline against silent data loss.  They come in two flavors:
    parsed value perturbs the rendered pampl — i.e. that the field is
    genuinely reachable, not accidentally shadowed by another source.
 
-3. **Currently-dropped fields (xfail regression gates)**: ``LajaParser``
-   populates ``forced_flows`` and ``manual_withdrawals`` and ``MauleParser``
-   populates ``flag_embalsa_1`` / ``flag_embalsa_2`` / ``n_agnos_pct_manual``
-   / ``vol_acum_riego_temp``, but none of these fields are consumed anywhere
-   in ``gtopt_irrigation`` (neither the ``_prepare_context`` path nor the
-   ``.tampl`` templates reference them).  Each ``xfail(strict=True)`` test
-   builds two agreements that differ *only* in one of these fields and
-   asserts the rendered outputs differ.  Today they don't — so the tests
-   xfail.  When a future change starts consuming any of these fields, the
-   corresponding test will XPASS and fail loudly under strict xfail,
-   forcing the author to remove the xfail marker and document the new
-   behavior (see ``project_irrigation_test_ladder.md`` Tier 12).
+3. **Optional override / parameter round-trip**: ``LajaParser`` populates
+   ``forced_flows`` and ``manual_withdrawals`` and ``MauleParser`` populates
+   ``flag_embalsa_1`` / ``flag_embalsa_2`` / ``n_agnos_pct_manual`` /
+   ``vol_acum_riego_temp``.  These are emitted as AMPL ``param``/``set``
+   declarations in ``laja.tampl`` / ``maule.tampl`` so downstream AMPL
+   models can reference them.  Each test below builds two agreements that
+   differ *only* in one field and asserts the rendered pampl diverges,
+   guarding against silent regressions in either the parser or the
+   template.  No agreement constraint currently references these fields;
+   they live alongside ``filtracion_laja`` as exposed-but-unconstrained
+   data (see ``project_irrigation_test_ladder.md`` Tier 12).
 """
 
 import copy
@@ -318,29 +317,20 @@ class TestFiltracionLajaRoundTrip:
 
 
 # ---------------------------------------------------------------------------
-# 12.3 / 12.4 — Laja dropped-field regression gates (xfail strict)
+# 12.3 / 12.4 — Laja optional-override round-trip
 # ---------------------------------------------------------------------------
 
 
-class TestLajaDroppedFields:
-    """XFAIL gates for Laja fields the parser keeps but the writer ignores.
+class TestLajaOptionalOverrides:
+    """``forced_flows`` and ``manual_withdrawals`` are exposed in laja.pampl.
 
-    Each test builds two agreements that differ only in one dropped field.
-    If the two outputs diverge (entities JSON or rendered pampl), the field
-    is now wired up and the test XPASSES → strict=True turns that into a
-    hard failure, forcing the author to delete the xfail marker and update
-    this file (and ``project_irrigation_test_ladder.md``) to describe the
-    new behavior.
+    Each test builds two agreements that differ only in one override field
+    and asserts the rendered pampl diverges.  These fields are emitted as
+    AMPL ``param``/``set`` declarations (see ``templates/laja.tampl``); no
+    constraint references them yet, but downstream AMPL models can read
+    them to implement custom dispatch rules.
     """
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason=(
-            "Laja parser populates `forced_flows` but LajaAgreement does "
-            "not consume it (neither `_prepare_context` nor `laja.tampl` "
-            "reference it). Remove this xfail when the field is wired up."
-        ),
-    )
     def test_forced_flows_affect_output(self, tmp_path):
         cfg_a = _minimal_laja_config()
         cfg_b = _minimal_laja_config()
@@ -364,14 +354,6 @@ class TestLajaDroppedFields:
         # diverge — if neither changes, the field is silently dropped.
         assert _entities_json(agr_a) != _entities_json(agr_b) or pampl_a != pampl_b
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason=(
-            "Laja parser populates `manual_withdrawals` but LajaAgreement "
-            "does not consume it. Remove this xfail when the field is "
-            "wired up."
-        ),
-    )
     def test_manual_withdrawals_affect_output(self, tmp_path):
         cfg_a = _minimal_laja_config()
         cfg_b = _minimal_laja_config()
@@ -400,21 +382,20 @@ class TestLajaDroppedFields:
 
 
 # ---------------------------------------------------------------------------
-# 12.5 / 12.6 / 12.7 — Maule dropped-field regression gates (xfail strict)
+# 12.5 / 12.6 / 12.7 — Maule storage-flag and target round-trip
 # ---------------------------------------------------------------------------
 
 
-class TestMauleDroppedFields:
-    """XFAIL gates for Maule fields the parser keeps but the writer ignores."""
+class TestMauleOptionalParameters:
+    """Maule storage-eligibility flags and season-end targets reach maule.pampl.
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason=(
-            "Maule parser populates `flag_embalsa_1`/`flag_embalsa_2` but "
-            "MauleAgreement does not consume them. Remove this xfail when "
-            "the storage-eligibility flags are wired up."
-        ),
-    )
+    Each test builds two agreements that differ only in one parameter and
+    asserts the rendered pampl diverges.  These fields are emitted as
+    AMPL ``param`` declarations (see ``templates/maule.tampl``); no
+    constraint references them yet, but downstream AMPL models can read
+    them to implement custom rules.
+    """
+
     def test_flag_embalsa_affect_output(self, tmp_path):
         cfg_a = _minimal_maule_config()
         cfg_b = _minimal_maule_config()
@@ -435,14 +416,6 @@ class TestMauleDroppedFields:
 
         assert _entities_json(agr_a) != _entities_json(agr_b) or pampl_a != pampl_b
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason=(
-            "Maule parser populates `n_agnos_pct_manual` but MauleAgreement "
-            "does not consume it. Remove this xfail when manual irrigation "
-            "percentage overrides are wired up."
-        ),
-    )
     def test_n_agnos_pct_manual_affect_output(self, tmp_path):
         cfg_a = _minimal_maule_config()
         cfg_b = _minimal_maule_config()
@@ -461,15 +434,6 @@ class TestMauleDroppedFields:
 
         assert _entities_json(agr_a) != _entities_json(agr_b) or pampl_a != pampl_b
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason=(
-            "Maule parser populates `vol_acum_riego_temp` (season-end "
-            "accumulated irrigation volume targets) but MauleAgreement does "
-            "not consume it. Remove this xfail when the season-end targets "
-            "are wired up."
-        ),
-    )
     def test_vol_acum_riego_temp_affect_output(self, tmp_path):
         cfg_a = _minimal_maule_config()
         cfg_b = _minimal_maule_config()
