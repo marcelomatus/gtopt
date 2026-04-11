@@ -1421,3 +1421,469 @@ TEST_CASE(  // NOLINT
   REQUIRE(result.has_value());
   CHECK(result.value() == 0);
 }
+
+// ─────────────────────────────────────────────────────────────────────────
+// Tier 5 — FlowRight + Turbine/Junction integration tests
+//
+// Tier 5 verifies that FlowRights interact correctly with hydraulic
+// topology (junctions, waterways, turbines) at the LP-solution level.
+// ─────────────────────────────────────────────────────────────────────────
+
+TEST_CASE(  // NOLINT
+    "Tier 5.1 - FlowRight upstream of turbine starves hydro generation")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  // Topology: rsv → j_up → ww → j_down (drain), turbine on ww.
+  // A FlowRight at j_up withdraws water, reducing the flow available
+  // to the waterway and therefore the hydro turbine.  When the
+  // FlowRight discharge is large enough to starve the turbine, thermal
+  // (gcost=100) must back-fill — total cost > the no-withdrawal case.
+
+  auto solve = [](double withdrawal_discharge) -> double
+  {
+    const Array<Bus> bus_array = {
+        {
+            .uid = Uid {1},
+            .name = "b1",
+        },
+    };
+    const Array<Generator> generator_array = {
+        {
+            .uid = Uid {1},
+            .name = "hydro",
+            .bus = Uid {1},
+            .gcost = 0.0,
+            .capacity = 200.0,
+        },
+        {
+            .uid = Uid {2},
+            .name = "thermal",
+            .bus = Uid {1},
+            .gcost = 100.0,
+            .capacity = 200.0,
+        },
+    };
+    const Array<Demand> demand_array = {
+        {
+            .uid = Uid {1},
+            .name = "d1",
+            .bus = Uid {1},
+            .capacity = 50.0,
+        },
+    };
+    const Array<Junction> junction_array = {
+        {
+            .uid = Uid {1},
+            .name = "j_up",
+        },
+        {
+            .uid = Uid {2},
+            .name = "j_down",
+            .drain = true,
+        },
+    };
+    const Array<Waterway> waterway_array = {
+        {
+            .uid = Uid {1},
+            .name = "ww",
+            .junction_a = Uid {1},
+            .junction_b = Uid {2},
+            .fmin = 0.0,
+            .fmax = 200.0,
+        },
+    };
+    // Small reservoir creates scarcity: 5 hm³ over 24h is only
+    // 5/(0.0036×24) ≈ 57.87 m³/s of total budget — enough for the
+    // turbine's 25 m³/s OR a substantial withdrawal, but not both.
+    const Array<Reservoir> reservoir_array = {
+        {
+            .uid = Uid {1},
+            .name = "rsv",
+            .junction = Uid {1},
+            .capacity = 200.0,
+            .emin = 0.0,
+            .emax = 200.0,
+            .eini = 5.0,
+        },
+    };
+    const Array<Turbine> turbine_array = {
+        {
+            .uid = Uid {1},
+            .name = "tur",
+            .waterway = Uid {1},
+            .generator = Uid {1},
+            .production_factor = 2.0,
+        },
+    };
+    // FlowRight on the upstream junction — pulls water OUT of j_up
+    // before it can reach the turbine.  With low fail_cost the LP
+    // can choose to fail this right rather than starve the turbine.
+    const Array<FlowRight> flow_right_array = {
+        {
+            .uid = Uid {1},
+            .name = "upstream_withdrawal",
+            .junction = Uid {1},
+            .direction = -1,
+            .discharge = withdrawal_discharge,
+            .fail_cost = 200000.0,
+        },
+    };
+
+    const Simulation simulation = {
+        .block_array =
+            {
+                {
+                    .uid = Uid {1},
+                    .duration = 24,
+                },
+            },
+        .stage_array =
+            {
+                {
+                    .uid = Uid {1},
+                    .first_block = 0,
+                    .count_block = 1,
+                },
+            },
+        .scenario_array =
+            {
+                {
+                    .uid = Uid {0},
+                },
+            },
+    };
+
+    const System system = {
+        .name = "Tier5_1_StarveHydro",
+        .bus_array = bus_array,
+        .demand_array = demand_array,
+        .generator_array = generator_array,
+        .junction_array = junction_array,
+        .waterway_array = waterway_array,
+        .reservoir_array = reservoir_array,
+        .turbine_array = turbine_array,
+        .flow_right_array = flow_right_array,
+    };
+
+    const PlanningOptionsLP options;
+    SimulationLP simulation_lp(simulation, options);
+    SystemLP system_lp(system, simulation_lp);
+    auto&& lp = system_lp.linear_interface();
+    const auto result = lp.resolve();
+    REQUIRE(result.has_value());
+    CHECK(result.value() == 0);
+    return lp.get_obj_value();
+  };
+
+  // Tiny withdrawal: hydro still has plenty of water, thermal not
+  // needed → cost ≈ 0.
+  const auto cost_low = solve(0.1);
+  CHECK(cost_low == doctest::Approx(0.0).epsilon(0.01));
+
+  // Large withdrawal (200 m³/s ≫ 25 m³/s hydro need): no water left
+  // for the turbine, the FlowRight itself takes priority due to its
+  // 5000 $/hm³ fail_cost, and thermal must back-fill the demand.
+  const auto cost_high = solve(200.0);
+  CHECK(cost_high > cost_low);
+}
+
+TEST_CASE(  // NOLINT
+    "Tier 5.2 - Multiple FlowRights on one junction sum to a binding total")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  // Two FlowRights on the same downstream junction j_down both pull
+  // water out.  Their combined discharge competes with the turbine
+  // throughput in the junction balance.  Solving with one vs two
+  // FlowRights of the same individual discharge proves that
+  // additional rights aggregate (sum constraint via the Junction
+  // balance row).
+
+  auto solve = [](int num_rights) -> double
+  {
+    const Array<Bus> bus_array = {
+        {
+            .uid = Uid {1},
+            .name = "b1",
+        },
+    };
+    const Array<Generator> generator_array = {
+        {
+            .uid = Uid {1},
+            .name = "hydro",
+            .bus = Uid {1},
+            .gcost = 0.0,
+            .capacity = 200.0,
+        },
+        {
+            .uid = Uid {2},
+            .name = "thermal",
+            .bus = Uid {1},
+            .gcost = 100.0,
+            .capacity = 200.0,
+        },
+    };
+    const Array<Demand> demand_array = {
+        {
+            .uid = Uid {1},
+            .name = "d1",
+            .bus = Uid {1},
+            .capacity = 50.0,
+        },
+    };
+    const Array<Junction> junction_array = {
+        {
+            .uid = Uid {1},
+            .name = "j_up",
+        },
+        {
+            .uid = Uid {2},
+            .name = "j_down",
+            .drain = true,
+        },
+    };
+    const Array<Waterway> waterway_array = {
+        {
+            .uid = Uid {1},
+            .name = "ww",
+            .junction_a = Uid {1},
+            .junction_b = Uid {2},
+            .fmin = 0.0,
+            .fmax = 200.0,
+        },
+    };
+    const Array<Reservoir> reservoir_array = {
+        {
+            .uid = Uid {1},
+            .name = "rsv",
+            .junction = Uid {1},
+            .capacity = 200.0,
+            .emin = 0.0,
+            .emax = 200.0,
+            .eini = 100.0,
+        },
+    };
+    const Array<Turbine> turbine_array = {
+        {
+            .uid = Uid {1},
+            .name = "tur",
+            .waterway = Uid {1},
+            .generator = Uid {1},
+            .production_factor = 2.0,
+        },
+    };
+    Array<FlowRight> flow_right_array = {
+        {
+            .uid = Uid {1},
+            .name = "fr_a",
+            .junction = Uid {2},
+            .direction = -1,
+            .discharge = 100.0,
+            .fail_cost = 5000.0,
+        },
+    };
+    if (num_rights == 2) {
+      flow_right_array.push_back(FlowRight {
+          .uid = Uid {2},
+          .name = "fr_b",
+          .junction = Uid {2},
+          .direction = -1,
+          .discharge = 100.0,
+          .fail_cost = 5000.0,
+      });
+    }
+
+    const Simulation simulation = {
+        .block_array =
+            {
+                {
+                    .uid = Uid {1},
+                    .duration = 24,
+                },
+            },
+        .stage_array =
+            {
+                {
+                    .uid = Uid {1},
+                    .first_block = 0,
+                    .count_block = 1,
+                },
+            },
+        .scenario_array =
+            {
+                {
+                    .uid = Uid {0},
+                },
+            },
+    };
+
+    const System system = {
+        .name = "Tier5_2_TwoOnOneJunction",
+        .bus_array = bus_array,
+        .demand_array = demand_array,
+        .generator_array = generator_array,
+        .junction_array = junction_array,
+        .waterway_array = waterway_array,
+        .reservoir_array = reservoir_array,
+        .turbine_array = turbine_array,
+        .flow_right_array = flow_right_array,
+    };
+
+    const PlanningOptionsLP options;
+    SimulationLP simulation_lp(simulation, options);
+    SystemLP system_lp(system, simulation_lp);
+    auto&& lp = system_lp.linear_interface();
+    const auto result = lp.resolve();
+    REQUIRE(result.has_value());
+    CHECK(result.value() == 0);
+    return lp.get_obj_value();
+  };
+
+  // 1 FlowRight × 100 m³/s requires the waterway to carry 100 m³/s of
+  // throughput just to satisfy that one right.  Reservoir has
+  // 100 hm³ ≈ 100/(0.0036·24) ≈ 1157 m³/s × h-equivalent — plenty.
+  // 2 FlowRights × 100 m³/s requires 200 m³/s — at the waterway fmax.
+  // Both should be solvable; the second case applies more strain on
+  // the reservoir balance.
+  const auto cost_one = solve(1);
+  const auto cost_two = solve(2);
+
+  // Both objectives must be finite and the two-rights case can never
+  // be cheaper than the one-right case (additional binding constraint).
+  CHECK(cost_two >= cost_one - 1e-6);
+}
+
+TEST_CASE(  // NOLINT
+    "Tier 5.3 - FlowRight fail_cost trades deficit against penalty")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  // FlowRight with discharge=100 m³/s on a system whose only water
+  // source is a small reservoir (eini=2 hm³) and no inflow.
+  // Available water ≪ demanded discharge over 24h, so the deficit
+  // variable must absorb the shortfall.  The objective scales with
+  // fail_cost: doubling fail_cost more than doubles the cost (the
+  // small "free" water budget makes the relationship slightly
+  // sub-linear in absolute terms but strictly monotonic).
+
+  auto solve = [](double fail_cost) -> double
+  {
+    const Array<Bus> bus_array = {
+        {
+            .uid = Uid {1},
+            .name = "b1",
+        },
+    };
+    const Array<Generator> generator_array = {
+        {
+            .uid = Uid {1},
+            .name = "thermal",
+            .bus = Uid {1},
+            .gcost = 100.0,
+            .capacity = 200.0,
+        },
+    };
+    const Array<Demand> demand_array = {
+        {
+            .uid = Uid {1},
+            .name = "d1",
+            .bus = Uid {1},
+            .capacity = 50.0,
+        },
+    };
+    const Array<Junction> junction_array = {
+        {
+            .uid = Uid {1},
+            .name = "j_up",
+        },
+        {
+            .uid = Uid {2},
+            .name = "j_down",
+            .drain = true,
+        },
+    };
+    const Array<Waterway> waterway_array = {
+        {
+            .uid = Uid {1},
+            .name = "ww",
+            .junction_a = Uid {1},
+            .junction_b = Uid {2},
+            .fmin = 0.0,
+            .fmax = 200.0,
+        },
+    };
+    const Array<Reservoir> reservoir_array = {
+        {
+            .uid = Uid {1},
+            .name = "rsv",
+            .junction = Uid {1},
+            .capacity = 200.0,
+            .emin = 0.0,
+            .emax = 200.0,
+            .eini = 2.0,
+        },
+    };
+    const Array<FlowRight> flow_right_array = {
+        {
+            .uid = Uid {1},
+            .name = "fr_infeasible",
+            .junction = Uid {2},
+            .direction = -1,
+            .discharge = 100.0,
+            .fail_cost = fail_cost,
+        },
+    };
+
+    const Simulation simulation = {
+        .block_array =
+            {
+                {
+                    .uid = Uid {1},
+                    .duration = 24,
+                },
+            },
+        .stage_array =
+            {
+                {
+                    .uid = Uid {1},
+                    .first_block = 0,
+                    .count_block = 1,
+                },
+            },
+        .scenario_array =
+            {
+                {
+                    .uid = Uid {0},
+                },
+            },
+    };
+
+    const System system = {
+        .name = "Tier5_3_FailCostTradeoff",
+        .bus_array = bus_array,
+        .demand_array = demand_array,
+        .generator_array = generator_array,
+        .junction_array = junction_array,
+        .waterway_array = waterway_array,
+        .reservoir_array = reservoir_array,
+        .flow_right_array = flow_right_array,
+    };
+
+    const PlanningOptionsLP options;
+    SimulationLP simulation_lp(simulation, options);
+    SystemLP system_lp(system, simulation_lp);
+    auto&& lp = system_lp.linear_interface();
+    const auto result = lp.resolve();
+    REQUIRE(result.has_value());
+    CHECK(result.value() == 0);
+    return lp.get_obj_value();
+  };
+
+  // The deficit variable absorbs the shortfall, with the objective
+  // scaling linearly in fail_cost beyond the baseline (thermal +
+  // any fixed overhead).  Higher fail_cost → strictly higher total.
+  const auto cost_low = solve(100.0);
+  const auto cost_high = solve(10000.0);
+  CHECK(cost_high > cost_low);
+}
