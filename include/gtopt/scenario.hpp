@@ -49,7 +49,7 @@ struct Scenario
   }
 };
 
-using ScenarioUid = StrongUidType<struct Scenario>;
+using ScenarioUid = StrongUidType<Scenario>;
 using ScenarioIndex = StrongPositionIndexType<struct Scenario>;
 
 /// @brief First scenario index.

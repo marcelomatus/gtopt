@@ -45,7 +45,7 @@ struct Block
   static constexpr std::string_view class_name = "block";
 };
 
-using BlockUid = StrongUidType<struct Block>;
+using BlockUid = StrongUidType<Block>;
 using BlockIndex = StrongPositionIndexType<Block>;
 
 /// @brief First block index.
