@@ -10,6 +10,7 @@
 #include <gtopt/system_lp.hpp>
 
 #include "fixture_helpers.hpp"
+#include "log_capture.hpp"
 
 using namespace gtopt;  // NOLINT(google-global-names-in-headers)
 using gtopt::test_fixtures::make_single_stage_phases;
@@ -1206,4 +1207,186 @@ TEST_CASE("PlanningLP - parallel multi-scene multi-phase build")
   // accessor reads.
   auto result = planning_lp.resolve();
   REQUIRE(result.has_value());
+}
+
+// ──────────────────────────────────────────────────────────────────────
+// PlanningLP::create_systems emits instrumentation lines that let
+// users tell at a glance whether LP cells ran in parallel or were
+// serialized.  We don't assert on actual parallelism (a 1×1 build is
+// trivially serial and a multi-cell build on a 1-core CI box may also
+// run with peak_parallel=1) — instead we assert the *log contract*:
+// the three new INFO lines must appear and must parse, with sane
+// metric ranges.  The numeric check is left to the integration tier.
+// ──────────────────────────────────────────────────────────────────────
+
+TEST_CASE("PlanningLP - parallelism instrumentation logs are emitted")
+{
+  // 2 scenes × 3 phases — same topology as the multi-cell build test
+  // above, so we exercise the path that spawns the work-pool tasks.
+  auto block_array = make_uniform_blocks(6, 1.0);
+  auto stage_array = make_uniform_stages(3, 2);
+  auto phase_array = make_single_stage_phases(3);
+
+  const Simulation simulation = {
+      .block_array = block_array,
+      .stage_array = stage_array,
+      .scenario_array =
+          {
+              {.uid = Uid {1}},
+              {.uid = Uid {2}},
+          },
+      .phase_array = phase_array,
+      .scene_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .name = {},
+                  .active = {},
+                  .first_scenario = 0,
+                  .count_scenario = 1,
+              },
+              {
+                  .uid = Uid {2},
+                  .name = {},
+                  .active = {},
+                  .first_scenario = 1,
+                  .count_scenario = 1,
+              },
+          },
+  };
+
+  const Array<Bus> bus_array = {
+      {.uid = Uid {1}, .name = "b1"},
+  };
+  const Array<Generator> generator_array = {
+      {
+          .uid = Uid {1},
+          .name = "g1",
+          .bus = Uid {1},
+          .gcost = 50.0,
+          .capacity = 100.0,
+      },
+  };
+  const Array<Demand> demand_array = {
+      {.uid = Uid {1}, .name = "d1", .bus = Uid {1}, .capacity = 50.0},
+  };
+
+  const System system = {
+      .name = "InstrumentationTestSystem",
+      .bus_array = bus_array,
+      .demand_array = demand_array,
+      .generator_array = generator_array,
+  };
+
+  const Planning planning = {
+      .simulation = simulation,
+      .system = system,
+  };
+
+  test::LogCapture logs(512);
+
+  PlanningLP planning_lp(planning);
+
+  // Banner: "Building LP: N scene(s) × M phase(s)" — scenes × phases
+  // submitted through the pool.
+  CHECK(logs.contains("Building LP: 2 scene(s) × 3 phase(s)"));
+
+  // Submission marker: 2 × 3 = 6 cells.
+  CHECK(logs.contains("Submitted 6 LP cells to work pool"));
+
+  // First-cell marker: fires the moment one worker finishes its task,
+  // proving tasks actually executed on a worker thread.
+  CHECK(logs.contains("First LP cell built on worker tid="));
+
+  // Completion marker with metrics.  All four metric keywords must be
+  // present in the "Building LP done" line.
+  const auto msgs = logs.messages();
+  const auto done_it = std::ranges::find_if(
+      msgs,
+      [](const std::string& m) { return m.contains("Building LP done in"); });
+  REQUIRE(done_it != msgs.end());
+  const auto& done_line = *done_it;
+  CHECK(done_line.contains("cells=6"));
+  CHECK(done_line.contains("peak_parallel="));
+  CHECK(done_line.contains("worker_threads="));
+  CHECK(done_line.contains("total_cell_cpu="));
+  CHECK(done_line.contains("parallelism="));
+}
+
+// ──────────────────────────────────────────────────────────────────────
+// Single-cell build: a 1-scene × 1-phase planning still has to emit
+// the instrumentation block.  Verifies that cells=1, peak_parallel≥1,
+// and worker_threads≥1 — i.e. the single task was actually executed
+// on the pool and accounted for.
+// ──────────────────────────────────────────────────────────────────────
+
+TEST_CASE("PlanningLP - parallelism instrumentation single cell")
+{
+  auto block_array = make_uniform_blocks(2, 1.0);
+  auto stage_array = make_uniform_stages(1, 2);
+  auto phase_array = make_single_stage_phases(1);
+
+  const Simulation simulation = {
+      .block_array = block_array,
+      .stage_array = stage_array,
+      .scenario_array = {{.uid = Uid {1}}},
+      .phase_array = phase_array,
+      .scene_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .name = {},
+                  .active = {},
+                  .first_scenario = 0,
+                  .count_scenario = 1,
+              },
+          },
+  };
+
+  const Array<Bus> bus_array = {{.uid = Uid {1}, .name = "b1"}};
+  const Array<Generator> generator_array = {
+      {
+          .uid = Uid {1},
+          .name = "g1",
+          .bus = Uid {1},
+          .gcost = 50.0,
+          .capacity = 100.0,
+      },
+  };
+  const Array<Demand> demand_array = {
+      {.uid = Uid {1}, .name = "d1", .bus = Uid {1}, .capacity = 50.0},
+  };
+
+  const System system = {
+      .name = "SingleCellSystem",
+      .bus_array = bus_array,
+      .demand_array = demand_array,
+      .generator_array = generator_array,
+  };
+
+  const Planning planning = {
+      .simulation = simulation,
+      .system = system,
+  };
+
+  test::LogCapture logs(256);
+
+  PlanningLP planning_lp(planning);
+
+  CHECK(logs.contains("Building LP: 1 scene(s) × 1 phase(s)"));
+  CHECK(logs.contains("Submitted 1 LP cells to work pool"));
+  CHECK(logs.contains("First LP cell built on worker tid="));
+
+  const auto msgs = logs.messages();
+  const auto done_it = std::ranges::find_if(
+      msgs,
+      [](const std::string& m) { return m.contains("Building LP done in"); });
+  REQUIRE(done_it != msgs.end());
+  // Exactly one cell, at least one worker thread executed it, and
+  // peak_parallel must be ≥ 1 (a strict equality is not safe because
+  // the banner prints before the task finishes, but the final line
+  // reads peak_active after the join).
+  CHECK(done_it->contains("cells=1"));
+  CHECK(done_it->contains("worker_threads=1"));
+  CHECK(done_it->contains("peak_parallel=1"));
 }

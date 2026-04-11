@@ -7,6 +7,7 @@
  *
  */
 
+#include <atomic>
 #include <chrono>
 #include <cmath>
 #include <filesystem>
@@ -14,7 +15,10 @@
 #include <fstream>
 #include <future>
 #include <limits>
+#include <mutex>
 #include <ranges>
+#include <thread>
+#include <unordered_set>
 
 #include <gtopt/planning_lp.hpp>
 #include <gtopt/planning_method.hpp>
@@ -440,6 +444,20 @@ auto PlanningLP::create_systems(System& system,
   std::vector<std::future<void>> futures;
   futures.reserve(scenes.size() * phases.size());
 
+  // Parallelism instrumentation: track peak concurrent cell-builders,
+  // total per-cell CPU time, and the set of worker thread IDs that
+  // actually ran cells.  After the join, we log
+  //   parallelism = total_cell_cpu / wall_time
+  // so the user can see at a glance whether the pool is truly running
+  // tasks concurrently or whether some hidden serialization (global
+  // mutex, plugin loader, etc.) is forcing cells through one at a time.
+  std::atomic<int> active_cells {0};
+  std::atomic<int> peak_active {0};
+  std::atomic<std::int64_t> total_cell_us {0};
+  std::atomic<std::size_t> cells_done {0};
+  std::mutex tid_mutex;
+  std::unordered_set<std::size_t> worker_tids;
+
   for (auto&& [scene_index, scene] : enumerate<SceneIndex>(scenes)) {
     for (auto&& [phase_index, phase] : enumerate<PhaseIndex>(phases)) {
       // Capture phase/scene by explicit pointer into the stable
@@ -453,11 +471,45 @@ auto PlanningLP::create_systems(System& system,
       auto result = pool->submit(
           [&, scene_index, phase_index, phase_ptr, scene_ptr]
           {
-            SPDLOG_TRACE("    Building LP scene_uid={} phase_uid={}",
+            const auto cell_start = std::chrono::steady_clock::now();
+            const auto cur =
+                active_cells.fetch_add(1, std::memory_order_relaxed) + 1;
+            // Monotonically raise peak_active to max(peak_active, cur).
+            int prev_peak = peak_active.load(std::memory_order_relaxed);
+            while (cur > prev_peak
+                   && !peak_active.compare_exchange_weak(
+                       prev_peak, cur, std::memory_order_relaxed))
+            {}
+
+            const auto tid =
+                std::hash<std::thread::id> {}(std::this_thread::get_id());
+            {
+              const std::scoped_lock lock(tid_mutex);
+              worker_tids.insert(tid);
+            }
+
+            SPDLOG_TRACE("    Building LP scene_uid={} phase_uid={} tid={}",
                          scene_ptr->uid(),
-                         phase_ptr->uid());
+                         phase_ptr->uid(),
+                         tid);
             build_buf[scene_index][phase_index].emplace(
                 system, simulation, *phase_ptr, *scene_ptr, resolved_opts);
+
+            const auto cell_elapsed =
+                std::chrono::duration_cast<std::chrono::microseconds>(
+                    std::chrono::steady_clock::now() - cell_start)
+                    .count();
+            total_cell_us.fetch_add(cell_elapsed, std::memory_order_relaxed);
+            active_cells.fetch_sub(1, std::memory_order_relaxed);
+            const auto done =
+                cells_done.fetch_add(1, std::memory_order_relaxed) + 1;
+            // First-cell marker: proves at least one task has started
+            // executing on a worker thread before the join loop blocks.
+            if (done == 1) {
+              SPDLOG_INFO("    First LP cell built on worker tid={} ({:.3f}s)",
+                          tid,
+                          static_cast<double>(cell_elapsed) / 1e6);
+            }
           });
       if (!result.has_value()) {
         throw std::runtime_error(
@@ -468,6 +520,9 @@ auto PlanningLP::create_systems(System& system,
       futures.push_back(std::move(*result));
     }
   }
+
+  SPDLOG_INFO("  Submitted {} LP cells to work pool, waiting for workers...",
+              futures.size());
 
   for (auto& fut : futures) {
     fut.get();
@@ -512,7 +567,31 @@ auto PlanningLP::create_systems(System& system,
   const double elapsed = std::chrono::duration<double>(
                              std::chrono::steady_clock::now() - build_start)
                              .count();
-  SPDLOG_INFO("  Building LP done in {:.3f}s", elapsed);
+
+  // Parallelism summary.  `parallelism` ≈ 1.0 means cells ran
+  // effectively serialized through the pool (contention, global lock,
+  // or max_threads≈1).  A value >> 1 means wall time was compressed by
+  // concurrent execution.  `peak_parallel` is the highest number of
+  // cells observed simultaneously in-flight, and `worker_threads` is
+  // the count of distinct OS threads that actually executed a cell.
+  const auto total_cpu_s =
+      static_cast<double>(total_cell_us.load(std::memory_order_relaxed)) / 1e6;
+  const auto n_workers = [&]
+  {
+    const std::scoped_lock lock(tid_mutex);
+    return worker_tids.size();
+  }();
+  const auto parallelism = elapsed > 0.0 ? (total_cpu_s / elapsed) : 0.0;
+  SPDLOG_INFO(
+      "  Building LP done in {:.3f}s "
+      "(cells={}, peak_parallel={}, worker_threads={}, "
+      "total_cell_cpu={:.3f}s, parallelism={:.2f}x)",
+      elapsed,
+      cells_done.load(std::memory_order_relaxed),
+      peak_active.load(std::memory_order_relaxed),
+      n_workers,
+      total_cpu_s,
+      parallelism);
 
   return all_systems;
 }
