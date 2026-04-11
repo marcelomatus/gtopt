@@ -1407,8 +1407,7 @@ double LinearInterface::get_kappa() const
 
 RowDiagnostics LinearInterface::diagnose_row(const RowIndex row) const
 {
-  const auto ncols = static_cast<int>(get_numcols());
-  const auto ri = static_cast<int>(row);
+  const auto ncols = get_numcols();
 
   RowDiagnostics diag {
       .row = row,
@@ -1422,19 +1421,18 @@ RowDiagnostics LinearInterface::diagnose_row(const RowIndex row) const
   // Row bounds (raw LP units)
   const auto row_lb = std::span(m_backend_->row_lower(), get_numrows());
   const auto row_ub = std::span(m_backend_->row_upper(), get_numrows());
-  diag.rhs_lb = row_lb[static_cast<size_t>(ri)];
-  diag.rhs_ub = row_ub[static_cast<size_t>(ri)];
+  diag.rhs_lb = row_lb[static_cast<size_t>(row)];
+  diag.rhs_ub = row_ub[static_cast<size_t>(row)];
 
   // Scan all columns for non-zero coefficients in this row
-  for (int c = 0; c < ncols; ++c) {
-    const double v = m_backend_->get_coeff(ri, c);
+  for (const auto col : iota_range<ColIndex>(0, ncols)) {
+    const double v = get_coeff_raw(row, col);
     if (v == 0.0) {
       continue;
     }
     const double abs_v = std::abs(v);
     ++diag.num_nonzeros;
 
-    const auto col = ColIndex {c};
     const auto& col_name =
         (static_cast<size_t>(col) < m_col_index_to_name_.size())
         ? m_col_index_to_name_[col]

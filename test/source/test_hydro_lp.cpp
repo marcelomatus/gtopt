@@ -10,6 +10,7 @@
 #include <gtopt/linear_interface.hpp>
 #include <gtopt/simulation_lp.hpp>
 #include <gtopt/system_lp.hpp>
+#include <gtopt/utils.hpp>
 
 using namespace gtopt;  // NOLINT(google-global-names-in-headers)
 
@@ -677,12 +678,10 @@ TEST_CASE(  // NOLINT
     REQUIRE_FALSE(col_scales.empty());
     const auto col_upp = li.get_col_upp();
     const auto col_upp_raw = li.get_col_upp_raw();
-    const auto ncols = static_cast<std::size_t>(li.get_numcols());
     double max_upp = 0.0;
     double max_upp_raw = 0.0;
     int n_scaled = 0;
-    for (std::size_t i = 0; i < ncols; ++i) {
-      const auto ci = ColIndex {static_cast<int>(i)};
+    for (const auto ci : iota_range<ColIndex>(0, li.get_numcols())) {
       if (col_scales[ci] == doctest::Approx(scale).epsilon(1e-12)) {
         ++n_scaled;
         max_upp = std::max(max_upp, col_upp[ci]);

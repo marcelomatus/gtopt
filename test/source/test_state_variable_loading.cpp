@@ -23,6 +23,7 @@
 #include <gtopt/sddp_method.hpp>
 #include <gtopt/sddp_state_io.hpp>
 #include <gtopt/system_lp.hpp>
+#include <gtopt/utils.hpp>
 
 #include "sddp_helpers.hpp"
 
@@ -164,10 +165,9 @@ TEST_CASE(  // NOLINT
       }
       const auto col_sol = li.get_col_sol();
       const auto& names = li.col_index_to_name();
-      const auto ncols = static_cast<size_t>(li.get_numcols());
+      const auto col_upper = std::min(li.get_numcols(), names.size());
 
-      for (size_t c = 0; c < ncols && c < names.size(); ++c) {
-        const auto ci = ColIndex {static_cast<int>(c)};
+      for (const auto ci : iota_range<ColIndex>(0, col_upper)) {
         if (names[ci].empty()) {
           continue;
         }
