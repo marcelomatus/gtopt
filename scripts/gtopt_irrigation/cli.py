@@ -105,8 +105,9 @@ def _build_parser() -> argparse.ArgumentParser:
             " their companion PAMPL files."
         ),
         epilog=(
-            "See docs/irrigation_pipeline.md for the full Stage-1 → Stage-3"
-            " pipeline and the canonical laja.json / maule.json schemas."
+            "See docs/irrigation-agreements.md (section 11) for the full"
+            " Stage-1 → Stage-3 pipeline and the canonical laja.json /"
+            " maule.json schemas."
         ),
     )
     parser.add_argument(
