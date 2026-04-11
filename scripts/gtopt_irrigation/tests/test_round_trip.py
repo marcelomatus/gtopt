@@ -228,6 +228,21 @@ class TestCli:
         assert entities_path.exists()
 
 
+class TestScheduleHelpersEmptyGuard:
+    """_to_stb_sched / _to_tb_sched must not crash on empty input."""
+
+    def test_laja_empty_stb_returns_scalar_zero(self):
+        # Build a degenerate agreement just to grab a bound method instance.
+        agreement = LajaAgreement(_minimal_laja_config())
+        assert agreement._to_stb_sched([]) == 0.0  # pylint: disable=protected-access
+        assert agreement._to_tb_sched([]) == 0.0  # pylint: disable=protected-access
+
+    def test_maule_empty_stb_returns_scalar_zero(self):
+        agreement = MauleAgreement(_minimal_maule_config())
+        assert agreement._to_stb_sched([]) == 0.0  # pylint: disable=protected-access
+        assert agreement._to_tb_sched([]) == 0.0  # pylint: disable=protected-access
+
+
 class TestCliErrorExitCodes:
     """CLI returns exit code 2 with a one-line ``ERROR:`` on user errors."""
 

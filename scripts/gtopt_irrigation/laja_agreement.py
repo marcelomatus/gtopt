@@ -42,9 +42,11 @@ Stages can be supplied via a ``stage_parser``-shaped object whose
 stage_parser is given the schedules stay in raw hydro-year form.
 """
 
+from __future__ import annotations
+
 import json
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import jinja2
 
@@ -59,10 +61,10 @@ _HYDRO_TO_CALENDAR = [4, 5, 6, 7, 8, 9, 10, 11, 12, 1, 2, 3]
 
 def _zones_to_bound_rule_segments(
     base: float,
-    factors: List[float],
-    widths: List[float],
+    factors: list[float],
+    widths: list[float],
     vol_muerto: float = 0.0,
-) -> List[Dict[str, float]]:
+) -> list[dict[str, float]]:
     """Convert PLP volume zone factors to bound_rule segments.
 
     PLP formula: Rights = base + Sum_i(factor_i * min(Vi, width_i))
@@ -87,7 +89,7 @@ def _zones_to_bound_rule_segments(
     Returns:
         List of bound_rule segments sorted by volume breakpoint
     """
-    segments: List[Dict[str, float]] = []
+    segments: list[dict[str, float]] = []
     cumulative_vol = vol_muerto
     cumulative_rights = base
 
@@ -134,18 +136,18 @@ class LajaAgreement:
 
     def __init__(
         self,
-        laja_config: Dict[str, Any],
+        laja_config: dict[str, Any],
         stage_parser: Any = None,
-        options: Optional[Dict[str, Any]] = None,
+        options: dict[str, Any] | None = None,
     ):
         self._cfg = laja_config
         self._stage_parser = stage_parser
         self._options = options or {}
         self._uid_counter = 2000  # Start UIDs at 2000 to avoid collisions
 
-        self.flow_rights: List[Dict[str, Any]] = []
-        self.volume_rights: List[Dict[str, Any]] = []
-        self.user_constraints: List[Dict[str, Any]] = []
+        self.flow_rights: list[dict[str, Any]] = []
+        self.volume_rights: list[dict[str, Any]] = []
+        self.user_constraints: list[dict[str, Any]] = []
 
         self._build()
 
@@ -154,8 +156,8 @@ class LajaAgreement:
         cls,
         json_path: Path | str,
         stage_parser: Any = None,
-        options: Optional[Dict[str, Any]] = None,
-    ) -> "LajaAgreement":
+        options: dict[str, Any] | None = None,
+    ) -> LajaAgreement:
         """Load a canonical ``laja.json`` and construct an agreement.
 
         Args:
@@ -173,7 +175,7 @@ class LajaAgreement:
         self._uid_counter += 1
         return uid
 
-    def _get_stages(self) -> List[Dict[str, Any]]:
+    def _get_stages(self) -> list[dict[str, Any]]:
         """Return the effective list of stages, truncated to match options."""
         if self._stage_parser is None:
             return []
@@ -187,7 +189,7 @@ class LajaAgreement:
             stages = [s for s in stages if s["number"] <= last_stage]
         return stages
 
-    def _hydro_to_stage_schedule(self, hydro_monthly: List[float]) -> List[float]:
+    def _hydro_to_stage_schedule(self, hydro_monthly: list[float]) -> list[float]:
         """Convert 12-element hydrological-year array to per-stage schedule.
 
         PLP Laja uses hydrological year (Apr=index 0 .. Mar=index 11).
@@ -197,7 +199,7 @@ class LajaAgreement:
             return hydro_monthly
 
         stages = self._get_stages()
-        schedule: List[float] = []
+        schedule: list[float] = []
         for stage in stages:
             cal_month = stage.get("month", 1)  # calendar: 1=Jan..12=Dec
             # Calendar month → hydro index: Apr=0, May=1, ..., Mar=11
@@ -207,13 +209,17 @@ class LajaAgreement:
 
     def _to_stb_sched(
         self,
-        values: List[float],
-    ) -> float | List[List[List[float]]]:
+        values: list[float],
+    ) -> float | list[list[list[float]]]:
         """Convert per-stage values to STBRealFieldSched format (3D).
 
         The 3D format is [scenario][stage][block].  Each stage value is
         replicated for every block in that stage (constant across blocks).
+        Returns scalar 0.0 on empty input, or the single value if all
+        stages match.
         """
+        if not values:
+            return 0.0
         if len(set(values)) == 1:
             return values[0]
         nblocks = self._options.get("blocks_per_stage", 1)
@@ -221,19 +227,40 @@ class LajaAgreement:
 
     def _to_tb_sched(
         self,
-        values: List[float],
-    ) -> float | List[List[float]]:
+        values: list[float],
+    ) -> float | list[list[float]]:
         """Convert per-stage values to TBRealFieldSched format (2D).
 
         The 2D format is [stage][block].  Each stage value is
         replicated across all blocks in that stage.
+        Returns scalar 0.0 on empty input, or the single value if all
+        stages match.
         """
+        if not values:
+            return 0.0
         if len(set(values)) == 1:
             return values[0]
         nblocks = self._options.get("blocks_per_stage", 1)
         return [[v] * nblocks for v in values]
 
-    def _prepare_context(self) -> Dict[str, Any]:
+    def _fmax_schedule(
+        self,
+        qmax: float,
+        usage: list[float],
+    ) -> float | list[list[float]]:
+        """Return a per-stage fmax schedule = ``qmax * usage[stage]``."""
+        return self._to_tb_sched([qmax * u for u in usage])
+
+    def _monthly_cost_schedule(
+        self,
+        base_cost: float,
+        monthly_factors: list[float],
+    ) -> float | list[list[float]]:
+        """Return a per-stage cost schedule modulated by a hydro-year factor."""
+        modulated = self._hydro_to_stage_schedule(monthly_factors)
+        return self._to_tb_sched([base_cost * f for f in modulated])
+
+    def _prepare_context(self) -> dict[str, Any]:
         """Prepare the template context with all pre-computed values.
 
         Returns a dict of parameters that the laja.tson template uses
@@ -262,46 +289,41 @@ class LajaAgreement:
         usage_antic = self._hydro_to_stage_schedule(cfg["monthly_usage_anticipated"])
 
         # fmax = qmax * monthly_usage_factor
-        def _fmax(qmax: float, usage: List[float]) -> float | List[List[float]]:
-            return self._to_tb_sched([qmax * u for u in usage])
-
-        fmax_irr = _fmax(cfg["qmax_irr"], usage_irr)
-        fmax_elec = _fmax(cfg["qmax_elec"], usage_elec)
-        fmax_mixed = _fmax(cfg["qmax_mixed"], usage_mixed)
-        fmax_antic = _fmax(cfg["qmax_anticipated"], usage_antic)
+        fmax_irr = self._fmax_schedule(cfg["qmax_irr"], usage_irr)
+        fmax_elec = self._fmax_schedule(cfg["qmax_elec"], usage_elec)
+        fmax_mixed = self._fmax_schedule(cfg["qmax_mixed"], usage_mixed)
+        fmax_antic = self._fmax_schedule(cfg["qmax_anticipated"], usage_antic)
 
         # --- Monthly cost modulation ---
-        def _monthly_cost(
-            base_cost: float, monthly_factors: List[float]
-        ) -> float | List[List[float]]:
-            modulated = self._hydro_to_stage_schedule(monthly_factors)
-            return self._to_tb_sched([base_cost * f for f in modulated])
-
         # Irrigation costs
-        fail_cost_irr = _monthly_cost(cfg["cost_irr_ns"], cfg["monthly_cost_irr_ns"])
+        fail_cost_irr = self._monthly_cost_schedule(
+            cfg["cost_irr_ns"], cfg["monthly_cost_irr_ns"]
+        )
         use_value_irr = (
-            _monthly_cost(cfg["cost_irr_uso"], cfg["monthly_cost_irr"])
+            self._monthly_cost_schedule(cfg["cost_irr_uso"], cfg["monthly_cost_irr"])
             if cfg.get("cost_irr_uso", 0) > 0
             else None
         )
 
         # Electric costs
-        fail_cost_elec = _monthly_cost(cfg["cost_elec_ns"], cfg["monthly_cost_elec"])
+        fail_cost_elec = self._monthly_cost_schedule(
+            cfg["cost_elec_ns"], cfg["monthly_cost_elec"]
+        )
         use_value_elec = (
-            _monthly_cost(cfg["cost_elec_uso"], cfg["monthly_cost_elec"])
+            self._monthly_cost_schedule(cfg["cost_elec_uso"], cfg["monthly_cost_elec"])
             if cfg["cost_elec_uso"] > 0
             else None
         )
 
         # Mixed costs
         use_value_mixed = (
-            _monthly_cost(cfg["cost_mixed"], cfg["monthly_cost_mixed"])
+            self._monthly_cost_schedule(cfg["cost_mixed"], cfg["monthly_cost_mixed"])
             if cfg["cost_mixed"] > 0
             else None
         )
 
         # Anticipated costs
-        fail_cost_antic = _monthly_cost(
+        fail_cost_antic = self._monthly_cost_schedule(
             cfg.get("cost_irr_ns", 0), cfg["monthly_cost_anticipated"]
         )
 
@@ -366,7 +388,7 @@ class LajaAgreement:
             "description_partition": description_partition,
         }
 
-    def _compute_district_flow_rights(self) -> List[Dict[str, Any]]:
+    def _compute_district_flow_rights(self) -> list[dict[str, Any]]:
         """Pre-compute district withdrawal FlowRight entities.
 
         Returns a list of dicts ready for JSON serialization.
@@ -392,7 +414,7 @@ class LajaAgreement:
             "saltos": "pct_saltos",
         }
 
-        result: List[Dict[str, Any]] = []
+        result: list[dict[str, Any]] = []
         for district in cfg["districts"]:
             for category, demand_base in demands.items():
                 pct = district[pct_keys[category]]
@@ -404,7 +426,7 @@ class LajaAgreement:
                 discharge_sched = self._to_stb_sched(discharge_values)
 
                 fr_name = f"{district['name']}_{category}"
-                fr_district: Dict[str, Any] = {
+                fr_district: dict[str, Any] = {
                     "name": fr_name,
                     "purpose": "irrigation",
                     "direction": -1,
@@ -470,8 +492,8 @@ class LajaAgreement:
 
     def to_json_dict(
         self,
-        output_dir: Optional[Path] = None,
-    ) -> Dict[str, List[Dict[str, Any]]]:
+        output_dir: Path | None = None,
+    ) -> dict[str, Any]:
         """Return all entities as a dict of arrays for system JSON.
 
         Args:
@@ -479,15 +501,14 @@ class LajaAgreement:
                 directory and sets ``user_constraint_file`` instead of
                 embedding constraints in ``user_constraint_array``.
         """
-        result: Dict[str, List[Dict[str, Any]]] = {}
+        result: dict[str, Any] = {}
         if self.flow_rights:
             result["flow_right_array"] = self.flow_rights
         if self.volume_rights:
             result["volume_right_array"] = self.volume_rights
         if self.user_constraints:
             if output_dir is not None:
-                pampl_name = self.generate_pampl(output_dir)
-                result["user_constraint_file"] = pampl_name  # type: ignore[assignment]
+                result["user_constraint_file"] = self.generate_pampl(output_dir)
             else:
                 result["user_constraint_array"] = self.user_constraints
         return result

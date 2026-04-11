@@ -19,9 +19,11 @@ callback, so {{ param }} produces valid JSON output:
   - None      → ``null``
 """
 
+from __future__ import annotations
+
 import json
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any
 
 import jinja2
 
@@ -64,9 +66,9 @@ def create_template_env(
 
 def render_tson(
     template_name: str,
-    context: Dict[str, Any],
+    context: dict[str, Any],
     template_dir: Path | str = _TEMPLATE_DIR,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Render a .tson template and parse the result as JSON.
 
     The template uses @param@ syntax for variable substitution.

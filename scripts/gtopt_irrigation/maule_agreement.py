@@ -32,31 +32,15 @@ modulation arrays (``mod_elec_reserva``, ``pct_riego_mensual``,
 ``districts`` list.  See ``MauleParser`` for the authoritative definition.
 """
 
+from __future__ import annotations
+
 import json
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import jinja2
 
 from gtopt_irrigation._template_engine import _TEMPLATE_DIR, render_tson
-
-
-# Month names for gtopt Stage (1-indexed: january=1 .. december=12)
-_MONTH_NAMES = [
-    "",
-    "january",
-    "february",
-    "march",
-    "april",
-    "may",
-    "june",
-    "july",
-    "august",
-    "september",
-    "october",
-    "november",
-    "december",
-]
 
 
 class MauleAgreement:
@@ -78,18 +62,18 @@ class MauleAgreement:
 
     def __init__(
         self,
-        maule_config: Dict[str, Any],
+        maule_config: dict[str, Any],
         stage_parser: Any = None,
-        options: Optional[Dict[str, Any]] = None,
+        options: dict[str, Any] | None = None,
     ):
         self._cfg = maule_config
         self._stage_parser = stage_parser
         self._options = options or {}
         self._uid_counter = 1000  # Start UIDs at 1000 to avoid collisions
 
-        self.flow_rights: List[Dict[str, Any]] = []
-        self.volume_rights: List[Dict[str, Any]] = []
-        self.user_constraints: List[Dict[str, Any]] = []
+        self.flow_rights: list[dict[str, Any]] = []
+        self.volume_rights: list[dict[str, Any]] = []
+        self.user_constraints: list[dict[str, Any]] = []
 
         self._build()
 
@@ -98,8 +82,8 @@ class MauleAgreement:
         cls,
         json_path: Path | str,
         stage_parser: Any = None,
-        options: Optional[Dict[str, Any]] = None,
-    ) -> "MauleAgreement":
+        options: dict[str, Any] | None = None,
+    ) -> MauleAgreement:
         """Load a canonical ``maule.json`` and construct an agreement.
 
         Args:
@@ -117,7 +101,7 @@ class MauleAgreement:
         self._uid_counter += 1
         return uid
 
-    def _get_stages(self) -> List[Dict[str, Any]]:
+    def _get_stages(self) -> list[dict[str, Any]]:
         """Return the effective list of stages, truncated to match options."""
         if self._stage_parser is None:
             return []
@@ -131,7 +115,7 @@ class MauleAgreement:
             stages = [s for s in stages if s["number"] <= last_stage]
         return stages
 
-    def _monthly_schedule(self, monthly_values: List[float]) -> List[float]:
+    def _monthly_schedule(self, monthly_values: list[float]) -> list[float]:
         """Convert 12-element monthly array to per-stage values.
 
         Maps each stage's month (from stage_parser) to the corresponding
@@ -142,7 +126,7 @@ class MauleAgreement:
             return monthly_values
 
         stages = self._get_stages()
-        schedule: List[float] = []
+        schedule: list[float] = []
         for stage in stages:
             month = stage.get("month", 1)
             # PLP months are 1-indexed, array is 0-indexed
@@ -152,15 +136,18 @@ class MauleAgreement:
 
     def _to_stb_sched(
         self,
-        values: List[float],
-    ) -> float | List[List[List[float]]]:
+        values: list[float],
+    ) -> float | list[list[list[float]]]:
         """Convert per-stage values to STBRealFieldSched format.
 
         STBRealFieldSched = FieldSched<Real, vector<vector<vector<Real>>>>
         so a per-stage schedule needs to be [[[v1]*nblocks, [v2]*nblocks, ...]]
         (3D).  Each stage value is replicated across all blocks.
-        Returns scalar if all values are the same.
+        Returns scalar 0.0 on empty input, or the single value if all
+        stages match.
         """
+        if not values:
+            return 0.0
         if len(set(values)) == 1:
             return values[0]
         nblocks = self._options.get("blocks_per_stage", 1)
@@ -168,15 +155,18 @@ class MauleAgreement:
 
     def _to_tb_sched(
         self,
-        values: List[float],
-    ) -> float | List[List[float]]:
+        values: list[float],
+    ) -> float | list[list[float]]:
         """Convert per-stage values to TBRealFieldSched format.
 
         TBRealFieldSched = FieldSched<Real, vector<vector<Real>>>
         so a per-stage schedule needs to be [[v1]*nblocks, [v2]*nblocks, ...]
         (2D).  Each stage value is replicated across all blocks.
-        Returns scalar if all values are the same.
+        Returns scalar 0.0 on empty input, or the single value if all
+        stages match.
         """
+        if not values:
+            return 0.0
         if len(set(values)) == 1:
             return values[0]
         nblocks = self._options.get("blocks_per_stage", 1)
@@ -184,9 +174,9 @@ class MauleAgreement:
 
     def _monthly_fmax_schedule(
         self,
-        monthly_pcts: List[float],
+        monthly_pcts: list[float],
         base_flow: float,
-    ) -> float | List[List[float]]:
+    ) -> float | list[list[float]]:
         """Build per-stage fmax from monthly percentage × base flow.
 
         Returns a scalar if all stages have the same value, otherwise
@@ -196,7 +186,7 @@ class MauleAgreement:
         schedule = self._monthly_schedule(monthly_flows)
         return self._to_tb_sched(schedule)
 
-    def _prepare_context(self) -> Dict[str, Any]:
+    def _prepare_context(self) -> dict[str, Any]:
         """Prepare the template context with all pre-computed values.
 
         Returns a dict of parameters that the maule.tson template uses
@@ -318,16 +308,16 @@ class MauleAgreement:
 
     def _compute_district_entities(
         self,
-        irr_fmax_schedule: float | List[List[float]],
-    ) -> tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+        irr_fmax_schedule: float | list[list[float]],
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
         """Pre-compute district FlowRight and UserConstraint entities.
 
         Returns:
             Tuple of (district_flow_rights, district_constraints).
         """
         cfg = self._cfg
-        district_flow_rights: List[Dict[str, Any]] = []
-        district_constraints: List[Dict[str, Any]] = []
+        district_flow_rights: list[dict[str, Any]] = []
+        district_constraints: list[dict[str, Any]] = []
 
         for district in cfg["districts"]:
             pct = district["percentage"]
@@ -416,8 +406,8 @@ class MauleAgreement:
 
     def to_json_dict(
         self,
-        output_dir: Optional[Path] = None,
-    ) -> Dict[str, List[Dict[str, Any]]]:
+        output_dir: Path | None = None,
+    ) -> dict[str, Any]:
         """Return all entities as a dict of arrays for system JSON.
 
         Args:
@@ -425,15 +415,14 @@ class MauleAgreement:
                 directory and sets ``user_constraint_file`` instead of
                 embedding constraints in ``user_constraint_array``.
         """
-        result: Dict[str, List[Dict[str, Any]]] = {}
+        result: dict[str, Any] = {}
         if self.flow_rights:
             result["flow_right_array"] = self.flow_rights
         if self.volume_rights:
             result["volume_right_array"] = self.volume_rights
         if self.user_constraints:
             if output_dir is not None:
-                pampl_name = self.generate_pampl(output_dir)
-                result["user_constraint_file"] = pampl_name  # type: ignore[assignment]
+                result["user_constraint_file"] = self.generate_pampl(output_dir)
             else:
                 result["user_constraint_array"] = self.user_constraints
         return result
