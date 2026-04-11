@@ -64,6 +64,19 @@ private:
   static void tighten_scene_phase_links(phase_systems_t& phase_systems,
                                         SimulationLP& simulation);
 
+  /// Validate line reactance values and clamp tiny ones to zero.
+  ///
+  /// A transmission line with `0 < |X| < kReactanceMin` is physically
+  /// implausible (most real lines have X ≥ 1e-4 p.u.) and produces an
+  /// enormous Kirchhoff coefficient `x_tau = X/V²`, degrading LP
+  /// conditioning. This pass logs a warning per offending line and
+  /// rewrites its reactance schedule to a scalar 0.0 — which the LP
+  /// assembler then treats as a DC/HVDC line (no theta constraint).
+  ///
+  /// Mirrors the battery input/output_efficiency clamping performed at
+  /// `scripts/plp2gtopt/battery_writer.py`.
+  static void validate_line_reactance(Planning& planning);
+
   /// Compute adaptive scale_theta from median line reactance when not
   /// explicitly set.  Mutates `planning.options.scale_theta` in-place so
   /// that PlanningOptionsLP picks up the computed value.
@@ -112,6 +125,7 @@ public:
             {
               if constexpr (!std::is_const_v<
                                 std::remove_reference_t<PlanningT>>) {
+                validate_line_reactance(planning);
                 auto_scale_theta(planning);
                 auto_scale_reservoirs(planning);
               }

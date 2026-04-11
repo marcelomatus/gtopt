@@ -38,37 +38,44 @@ auto BusLP::lazy_add_theta(const SystemContext& sc,
   map_reserve(tblocks, blocks.size());
 
   if (stage.is_active() && needs_kirchhoff(sc)) [[likely]] {
-    std::ranges::for_each(
-        blocks,
-        [&](const BlockLP& block)
-        {
-          const auto buid = block.uid();
-          const auto ctx =
-              make_block_context(scenario.uid(), stage.uid(), block.uid());
+    std::ranges::for_each(blocks,
+                          [&](const BlockLP& block)
+                          {
+                            const auto buid = block.uid();
+                            const auto ctx = make_block_context(
+                                scenario.uid(), stage.uid(), block.uid());
 
-          const auto& theta = reference_theta();
-          if (theta) [[unlikely]] {
-            tblocks[buid] = lp.add_col(SparseCol {
-                .lowb = *theta,
-                .uppb = *theta,
-                .class_name = ClassName.full_name(),
-                .variable_name = ThetaName,
-                .variable_uid = uid(),
-                .context = ctx,
-            });
-          } else [[likely]] {
-            constexpr double theta_bound =
-                2 * std::numbers::pi;  // Default bound for theta
-            tblocks[buid] = lp.add_col(SparseCol {
-                .lowb = -theta_bound,
-                .uppb = +theta_bound,
-                .class_name = ClassName.full_name(),
-                .variable_name = ThetaName,
-                .variable_uid = uid(),
-                .context = ctx,
-            });
-          }
-        });
+                            const auto& theta = reference_theta();
+                            if (theta) [[unlikely]] {
+                              tblocks[buid] = lp.add_col(SparseCol {
+                                  .lowb = *theta,
+                                  .uppb = *theta,
+                                  .class_name = ClassName.full_name(),
+                                  .variable_name = ThetaName,
+                                  .variable_uid = uid(),
+                                  .context = ctx,
+                              });
+                            } else [[likely]] {
+                              // Default bound ±2π accommodates test cases and
+                              // unnormalized per-unit data where effective X
+                              // is large relative to the flow magnitude.
+                              // Note: variable bounds do not enter the basis
+                              // condition number directly, so tightening this
+                              // does not meaningfully help kappa — the LP
+                              // coefficients in the Kirchhoff row are what
+                              // matter (see scale_theta / auto_scale_theta).
+                              constexpr double theta_bound =
+                                  2 * std::numbers::pi;
+                              tblocks[buid] = lp.add_col(SparseCol {
+                                  .lowb = -theta_bound,
+                                  .uppb = +theta_bound,
+                                  .class_name = ClassName.full_name(),
+                                  .variable_name = ThetaName,
+                                  .variable_uid = uid(),
+                                  .context = ctx,
+                              });
+                            }
+                          });
   }
 
   // Store the theta columns for this scenario and stage

@@ -14,6 +14,7 @@
  */
 
 #include <algorithm>
+#include <exception>
 #include <filesystem>
 #include <format>
 #include <mutex>
@@ -709,6 +710,18 @@ SystemLP& SystemLP::operator=(SystemLP&& other) noexcept
 {
   if (this == &other) {
     return *this;
+  }
+  // Move-assign invariant: both ends must already refer to the same
+  // underlying `System`.  `m_system_context_` holds a stable reference
+  // (via its base helpers) into that System's metadata; rebind_system
+  // below only re-points its back-reference to *this and rebuilds the
+  // collection-pointer table — it does NOT rewire the System reference.
+  // Cross-System move-assign would silently leave dangling state, so
+  // enforce the invariant unconditionally.  `assert` is compiled out
+  // under NDEBUG, so we use `std::terminate` to keep the check live in
+  // release builds as well (noexcept-compatible).
+  if (&m_system_.get() != &other.m_system_.get()) [[unlikely]] {
+    std::terminate();
   }
   m_system_ = other.m_system_;
   m_system_context_ = std::move(other.m_system_context_);

@@ -95,6 +95,18 @@ void log_lp_stats_summary(const std::vector<ScenePhaseLPStats>& entries,
     }
   }
 
+  // P0-4 — when nothing was accumulated (e.g. under --low-memory=compress,
+  // or any path that bypasses the flatten() stats scan), every entry has
+  // `stats_nnz == 0` and the sentinel `stats_min_abs = DBL_MAX` has never
+  // been overwritten.  Report "unavailable" instead of printing garbage.
+  if (global.stats_nnz == 0) {
+    spdlog::info(
+        std::format("  LP coefficient analysis: {} LP(s), stats unavailable "
+                    "(compute_stats disabled or low-memory path)",
+                    entries.size()));
+    return;
+  }
+
   // If the global ratio is within the threshold, emit a one-liner.
   if (global.coeff_ratio() <= ratio_threshold) {
     auto line = std::format(

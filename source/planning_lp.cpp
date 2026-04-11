@@ -13,6 +13,7 @@
 #include <format>
 #include <fstream>
 #include <future>
+#include <limits>
 #include <ranges>
 
 #include <gtopt/planning_lp.hpp>
@@ -27,6 +28,86 @@
 
 namespace gtopt
 {
+
+// ── Line reactance validation ────────────────────────────────────────────
+
+void PlanningLP::validate_line_reactance(Planning& planning)
+{
+  // Real transmission lines have reactance X ≳ 1e-4 p.u.  Anything smaller
+  // is almost always a data-entry mistake (stray "0.0001" becoming 1e-7,
+  // missing unit conversion, zero-copy from an ideal-transformer model) and
+  // produces a Kirchhoff coefficient x_tau = X/V² orders of magnitude
+  // below the rest of the network.  Rather than poison LP conditioning, we
+  // warn and rewrite the reactance schedule to scalar 0.0 — line_lp.cpp
+  // then skips the theta constraint for that line (DC/HVDC branch).
+  //
+  // Mirrors the plp2gtopt battery_writer clamping of input/output_efficiency.
+  constexpr double kReactanceMin = 1e-4;
+
+  auto& sys = planning.system;
+  size_t clamped = 0;
+
+  for (auto& line : sys.line_array) {
+    if (!line.reactance.has_value()) {
+      continue;
+    }
+    auto& sched = *line.reactance;
+
+    // Scalar schedule.
+    if (std::holds_alternative<double>(sched)) {
+      const double x = std::get<double>(sched);
+      if (x != 0.0 && std::abs(x) < kReactanceMin) {
+        spdlog::warn(
+            "(line_reactance) Line '{}' (uid={}): reactance X={:.3e} is "
+            "below {:.0e} — clamping to 0 (line will be treated as "
+            "DC/HVDC, no Kirchhoff constraint).",
+            line.name,
+            line.uid,
+            x,
+            kReactanceMin);
+        sched = 0.0;
+        ++clamped;
+      }
+      continue;
+    }
+
+    // Vector schedule: clamp any offending entry in place.
+    if (std::holds_alternative<std::vector<double>>(sched)) {
+      auto& vec = std::get<std::vector<double>>(sched);
+      bool any_small = false;
+      double min_bad = std::numeric_limits<double>::infinity();
+      for (auto& x : vec) {
+        if (x != 0.0 && std::abs(x) < kReactanceMin) {
+          any_small = true;
+          min_bad = std::min(min_bad, std::abs(x));
+          x = 0.0;
+        }
+      }
+      if (any_small) {
+        spdlog::warn(
+            "(line_reactance) Line '{}' (uid={}): reactance schedule has "
+            "entries below {:.0e} (min={:.3e}) — clamped to 0 (DC/HVDC "
+            "for those stages).",
+            line.name,
+            line.uid,
+            kReactanceMin,
+            min_bad);
+        ++clamped;
+      }
+      continue;
+    }
+
+    // FileSched — can't validate statically; leave alone.
+  }
+
+  if (clamped > 0) {
+    spdlog::info(
+        "  Line reactance validation: clamped {} line(s) with X below "
+        "{:.0e} to zero.",
+        clamped,
+        kReactanceMin);
+  }
+}
 
 // ── Adaptive scale_theta computation ──────────────────────────────────────
 
@@ -53,44 +134,114 @@ void PlanningLP::auto_scale_theta(Planning& planning)
     return;
   }
 
-  // Collect scalar reactance values from all lines.
-  std::vector<double> reactances;
+  // Collect scalar x_tau = X / V² values from all lines.
+  //
+  // The Kirchhoff row emits theta_coeff = 1/|x_tau| (see line_lp.cpp:65-88).
+  // The theta column is then multiplied by scale_theta in flatten() (see
+  // linear_problem.cpp:358), so the assembled theta coefficient is
+  // scale_theta / |x_tau|. To drive this to ~1 for the median line — which
+  // makes row-max equilibration produce a near-identity Kirchhoff row — we
+  // must pick scale_theta = median(|x_tau|) = median(X/V²).
+  //
+  // Collecting median(X) directly (the previous heuristic) is wrong because
+  // it is computed in a space orthogonal to the true susceptance spread on
+  // a mixed-voltage network: high-voltage lines (500 kV) have tiny x_tau
+  // but arbitrary raw X, and the median picks the raw-X middle, not the
+  // x_tau middle, yielding assembled coefficients ~1e7 instead of ~1.
+  const auto sched_to_scalar = [](const auto& sched) -> double
+  {
+    if (std::holds_alternative<double>(sched)) {
+      return std::get<double>(sched);
+    }
+    if (std::holds_alternative<std::vector<double>>(sched)) {
+      const auto& vec = std::get<std::vector<double>>(sched);
+      if (!vec.empty()) {
+        return vec.front();
+      }
+    }
+    return 0.0;
+  };
+
+  std::vector<double> x_taus;
   for (const auto& line : planning.system.line_array) {
     if (!line.reactance.has_value()) {
       continue;
     }
-    const auto& sched = *line.reactance;
-    double x = 0.0;
-    if (std::holds_alternative<double>(sched)) {
-      x = std::get<double>(sched);
-    } else if (std::holds_alternative<std::vector<double>>(sched)) {
-      const auto& vec = std::get<std::vector<double>>(sched);
-      if (!vec.empty()) {
-        x = vec.front();
+    const double x = sched_to_scalar(*line.reactance);
+    if (x <= 0.0) {
+      continue;
+    }
+    // Voltage defaults to 1.0 (per-unit mode) when omitted — matches the
+    // convention in line_lp.cpp:62 and include/gtopt/line.hpp:63-65.
+    double v = 1.0;
+    if (line.voltage.has_value()) {
+      const double vs = sched_to_scalar(*line.voltage);
+      if (vs > 0.0) {
+        v = vs;
       }
     }
-    if (x > 0.0) {
-      reactances.push_back(x);
+    const double x_tau = x / (v * v);
+    if (x_tau > 0.0) {
+      x_taus.push_back(x_tau);
     }
   }
 
-  if (reactances.empty()) {
+  if (x_taus.empty()) {
     return;
   }
 
-  // Compute median reactance.
-  std::ranges::sort(reactances);
-  const auto n = reactances.size();
-  const double median_x = (n % 2 == 0)
-      ? (reactances[(n / 2) - 1] + reactances[n / 2]) / 2.0
-      : reactances[n / 2];
+  // Compute median x_tau = median(X/V²).
+  std::ranges::sort(x_taus);
+  const auto n = x_taus.size();
+  const double median_x_tau = (n % 2 == 0)
+      ? (x_taus[(n / 2) - 1] + x_taus[n / 2]) / 2.0
+      : x_taus[n / 2];
 
-  // scale_theta = median_x so that x_tau = X/(V²·scale_theta) ≈ 1 for
-  // the median line (V=1 per-unit).
-  opts.model_options.scale_theta = median_x;
-  spdlog::info("  Auto scale_theta = {:.6g} (median of {} line reactances)",
-               median_x,
-               n);
+  // scale_theta = median(|x_tau|) so that the assembled theta coefficient
+  // scale_theta / |x_tau| ≈ 1 for the median line, and row-max
+  // equilibration converges to a near-identity Kirchhoff row.
+  opts.model_options.scale_theta = median_x_tau;
+  spdlog::info(
+      "  Auto scale_theta = {:.6g} (median of {} line x_tau = X/V² values)",
+      median_x_tau,
+      n);
+
+  // P0-3 — unit-consistency validation.
+  //
+  // The Kirchhoff coefficient x_tau = τ·X/V² must live in a single unit
+  // system across the whole network. When a model mixes per-unit lines
+  // (V=1) with physical lines (V in kV, X in Ω), the x_tau values span
+  // many orders of magnitude and no choice of scale_theta can rescue
+  // conditioning. Catch that here, at load time, so the user sees the
+  // problem before a spurious LP is solved.
+  const double min_x_tau = x_taus.front();
+  const double max_x_tau = x_taus.back();
+  if (min_x_tau > 0.0) {
+    const double spread = max_x_tau / min_x_tau;
+    constexpr double kSpreadWarn = 1e4;
+    constexpr double kSpreadError = 1e6;
+    if (spread > kSpreadError) {
+      spdlog::error(
+          "  Line x_tau = X/V² spread is {:.3e} (max={:.3e}, min={:.3e}) "
+          "across {} lines — this strongly suggests mixed unit systems "
+          "(per-unit vs kV/Ω). LP conditioning will be unrecoverable. "
+          "Check Line.voltage and Line.reactance fields.",
+          spread,
+          max_x_tau,
+          min_x_tau,
+          n);
+    } else if (spread > kSpreadWarn) {
+      spdlog::warn(
+          "  Line x_tau = X/V² spread is {:.3e} (max={:.3e}, min={:.3e}) "
+          "across {} lines — this may indicate inconsistent unit systems "
+          "and will cap LP conditioning quality. Check Line.voltage and "
+          "Line.reactance fields.",
+          spread,
+          max_x_tau,
+          min_x_tau,
+          n);
+    }
+  }
 }
 
 // ── Adaptive reservoir energy scaling ────────────────────────────────────
@@ -191,10 +342,10 @@ void PlanningLP::tighten_scene_phase_links(phase_systems_t& phase_systems,
             "missing for this element.",
             link.prev_key.class_name,
             link.prev_key.col_name,
-            static_cast<int>(link.prev_key.uid),
-            static_cast<int>(link.prev_key.stage_uid),
-            static_cast<int>(link.prev_key.lp_key.scene_index),
-            static_cast<int>(link.prev_key.lp_key.phase_index));
+            link.prev_key.uid,
+            link.prev_key.stage_uid,
+            link.prev_key.lp_key.scene_index,
+            link.prev_key.lp_key.phase_index);
       }
     }
     links.clear();
@@ -269,7 +420,11 @@ auto PlanningLP::create_systems(System& system,
 
   const auto build_start = std::chrono::steady_clock::now();
 
-  std::vector<std::vector<std::optional<SystemLP>>> build_buf(scenes.size());
+  // Mirrors the final `scene_phase_systems_t` shape so that worker
+  // tasks can index by strong types directly, with no static_casts on
+  // the hot path.
+  using build_row_t = StrongIndexVector<PhaseIndex, std::optional<SystemLP>>;
+  StrongIndexVector<SceneIndex, build_row_t> build_buf(scenes.size());
   for (auto& row : build_buf) {
     row.resize(phases.size());
   }
@@ -279,18 +434,22 @@ auto PlanningLP::create_systems(System& system,
 
   for (auto&& [scene_index, scene] : enumerate<SceneIndex>(scenes)) {
     for (auto&& [phase_index, phase] : enumerate<PhaseIndex>(phases)) {
+      // Capture phase/scene by explicit pointer into the stable
+      // `phases`/`scenes` containers (which outlive create_systems via
+      // `simulation`).  The structured-binding names from
+      // `enumerate<>(...)` are loop-local; capturing them by reference
+      // through the default `[&]` would leave the lambda reading bindings
+      // that have already been rebound by the next loop iteration.
+      const auto* const phase_ptr = &phase;
+      const auto* const scene_ptr = &scene;
       auto result = pool->submit(
-          [&, scene_index, phase_index]
+          [&, scene_index, phase_index, phase_ptr, scene_ptr]
           {
-            SPDLOG_TRACE("    Building LP scene {}/{} phase {}/{} (uid {})",
-                         static_cast<int>(scene_index) + 1,
-                         num_scenes,
-                         static_cast<int>(phase_index) + 1,
-                         num_phases,
-                         phase.uid());
-            build_buf[static_cast<size_t>(scene_index)][static_cast<size_t>(
-                                                            phase_index)]
-                .emplace(system, simulation, phase, scene, resolved_opts);
+            SPDLOG_TRACE("    Building LP scene_uid={} phase_uid={}",
+                         scene_ptr->uid(),
+                         phase_ptr->uid());
+            build_buf[scene_index][phase_index].emplace(
+                system, simulation, *phase_ptr, *scene_ptr, resolved_opts);
           });
       if (!result.has_value()) {
         throw std::runtime_error(
@@ -316,7 +475,7 @@ auto PlanningLP::create_systems(System& system,
   for (auto&& [scene_index, scene] : enumerate<SceneIndex>(scenes)) {
     PlanningLP::phase_systems_t phase_systems;
     phase_systems.reserve(phases.size());
-    for (auto& slot : build_buf[static_cast<size_t>(scene_index)]) {
+    for (auto& slot : build_buf[scene_index]) {
       phase_systems.emplace_back(*std::move(slot));
     }
     tighten_scene_phase_links(phase_systems, simulation);
@@ -378,7 +537,7 @@ void PlanningLP::write_out()
 
   std::vector<std::future<void>> futures;
   futures.reserve(static_cast<std::size_t>(num_scenes)
-                  * static_cast<std::size_t>(std::max(num_phases, 0)));
+                  * static_cast<std::size_t>(num_phases));
 
   for (auto&& [scene_num, phase_systems] : enumerate<SceneIndex>(m_systems_)) {
     for (auto&& [phase_num, system] : enumerate<PhaseIndex>(phase_systems)) {
@@ -387,8 +546,15 @@ void PlanningLP::write_out()
                    num_scenes,
                    phase_num + 1,
                    num_phases);
+      // Capture `system` via an explicit pointer into `m_systems_` (a
+      // stable member container) rather than `[&system]`.  The structured
+      // binding `system` is loop-local and rebound on the next iteration;
+      // capturing it by reference would leave the queued task reading a
+      // binding that has already moved on to a different (scene, phase).
+      // Mirrors the same fix in `create_systems` above.
+      auto* const sys_ptr = &system;
       auto result = pool->submit(
-          [&system] { system.write_out(); },
+          [sys_ptr] { sys_ptr->write_out(); },
           {
               .priority = TaskPriority::Low,
               .name = std::format("write_out_s{}_p{}", scene_num, phase_num),
@@ -419,8 +585,8 @@ void PlanningLP::write_out()
 
   struct SolutionRow
   {
-    Uid scene_uid;
-    Uid phase_uid;
+    SceneUid scene_uid;
+    PhaseUid phase_uid;
     int status;
     double obj_value;
     double kappa;
@@ -432,7 +598,7 @@ void PlanningLP::write_out()
 
   std::vector<SolutionRow> rows;
   rows.reserve(static_cast<std::size_t>(num_scenes)
-               * static_cast<std::size_t>(std::max(num_phases, 0)));
+               * static_cast<std::size_t>(num_phases));
 
   const auto& sddp = m_sddp_summary_;
 
@@ -440,8 +606,8 @@ void PlanningLP::write_out()
     for (const auto& system : phase_systems) {
       const auto& li = system.linear_interface();
       rows.push_back({
-          .scene_uid = static_cast<Uid>(system.scene().uid()),
-          .phase_uid = static_cast<Uid>(system.phase().uid()),
+          .scene_uid = system.scene().uid(),
+          .phase_uid = system.phase().uid(),
           .status = li.get_status(),
           .obj_value = li.get_obj_value_physical(),
           .kappa = li.get_kappa(),

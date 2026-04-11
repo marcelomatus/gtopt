@@ -569,8 +569,16 @@ public:
   static constexpr Real default_sddp_alpha_min = 0.0;
   /** @brief Default upper bound for future cost variable α */
   static constexpr Real default_sddp_alpha_max = 1e12;
-  /** @brief Default cut coefficient epsilon for filtering tiny coefficients */
-  static constexpr Real default_sddp_cut_coeff_eps = 1e-12;
+  /** @brief Default cut coefficient epsilon for filtering tiny coefficients.
+   *
+   * Raised from 1e-12 to 1e-6 (P1-2) so that Benders cuts drop
+   * near-zero coefficients that the LP solver cannot distinguish from
+   * noise anyway. Keeping micro-coefficients around inflates the basis
+   * condition number (kappa) by several orders of magnitude on large
+   * GTEP cases without changing the optimal value.  Users solving
+   * academic-scale instances can still lower this in JSON.
+   */
+  static constexpr Real default_sddp_cut_coeff_eps = 1e-6;
   /** @brief Default max coefficient threshold for cut rescaling */
   static constexpr Real default_sddp_cut_coeff_max = 1e6;
   /** @brief Default elastic filter mode */

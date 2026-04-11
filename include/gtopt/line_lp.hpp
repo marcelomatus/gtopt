@@ -151,18 +151,13 @@ private:
 
   STBIndexHolder<RowIndex> theta_rows;
 
-  /// Kirchhoff row normalization factor per (scenario, stage).
-  /// Each Kirchhoff row is divided by |x_tau| so that flow coefficients are
-  /// ±1 and theta coefficients are ±1/|x_tau|.  The dual must be multiplied
-  /// by this factor to recover physical units.
-  STIndexHolder<double> theta_row_scale;
-
   /**
    * @brief Add Kirchhoff (DC OPF) theta constraints for all blocks.
    *
-   * Creates a constraint row per block that links the voltage-angle
-   * difference to the total line flow:
-   *   θ_a − θ_b + x·fp − x·fn = 0
+   * Creates one equality row per block in the natural form:
+   *   -θ_a + θ_b + x_tau·fp − x_tau·fn = −φ_rad
+   * where x_tau = τ·X/V².  Row scaling is left to the LP layer's
+   * row-max equilibration (which auto-unscales duals on output).
    */
   void add_kirchhoff_rows(SystemContext& sc,
                           const ScenarioLP& scenario,

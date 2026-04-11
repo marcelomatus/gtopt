@@ -805,6 +805,96 @@ TEST_CASE("PlanningLP - auto_scale_theta with even number of lines")
   CHECK(planning_lp.options().scale_theta() == doctest::Approx(0.07));
 }
 
+TEST_CASE("PlanningLP - auto_scale_theta uses median X/V² on mixed voltages")
+{
+  using namespace gtopt;
+
+  // Three lines with mixed voltage classes:
+  //   l1: V=110 kV, X=12.0 Ω → x_tau = 12.0 / 12100    ≈ 9.917e-04
+  //   l2: V=220 kV, X=10.0 Ω → x_tau = 10.0 / 48400    ≈ 2.066e-04
+  //   l3: V=500 kV, X= 0.1 Ω → x_tau =  0.1 / 250000   ≈ 4.000e-07
+  //
+  // median(X/V²) = 2.066e-04  (the 220 kV line)
+  // Contrast: median(raw X) would be 10.0 — off by ~5 orders of magnitude.
+  //
+  // This regression prevents the heuristic from silently reverting to the
+  // old median(X) choice, which produced a global matrix ratio of 3.02e+07
+  // and κ > 1e11 on the CEN IPLP case.
+  const Simulation simulation = {
+      .block_array = {{.uid = Uid {1}, .duration = 1}},
+      .stage_array = {{.uid = Uid {1}, .first_block = 0, .count_block = 1}},
+      .scenario_array = {{.uid = Uid {0}}},
+  };
+
+  const Array<Bus> bus_array = {
+      {.uid = Uid {1}, .name = "b1"},
+      {.uid = Uid {2}, .name = "b2"},
+      {.uid = Uid {3}, .name = "b3"},
+      {.uid = Uid {4}, .name = "b4"},
+  };
+  const Array<Generator> gen_array = {
+      {.uid = Uid {1},
+       .name = "g1",
+       .bus = Uid {1},
+       .gcost = 50.0,
+       .capacity = 200.0},
+  };
+  const Array<Demand> dem_array = {
+      {.uid = Uid {1}, .name = "d1", .bus = Uid {4}, .capacity = 80.0},
+  };
+  const Array<Line> line_array = {
+      {.uid = Uid {1},
+       .name = "l1_110kV",
+       .bus_a = Uid {1},
+       .bus_b = Uid {2},
+       .voltage = 110.0,
+       .reactance = 12.0,
+       .tmax_ba = 200.0,
+       .tmax_ab = 200.0,
+       .capacity = 200.0},
+      {.uid = Uid {2},
+       .name = "l2_220kV",
+       .bus_a = Uid {2},
+       .bus_b = Uid {3},
+       .voltage = 220.0,
+       .reactance = 10.0,
+       .tmax_ba = 200.0,
+       .tmax_ab = 200.0,
+       .capacity = 200.0},
+      {.uid = Uid {3},
+       .name = "l3_500kV",
+       .bus_a = Uid {3},
+       .bus_b = Uid {4},
+       .voltage = 500.0,
+       .reactance = 0.1,
+       .tmax_ba = 200.0,
+       .tmax_ab = 200.0,
+       .capacity = 200.0},
+  };
+
+  const System system {
+      .name = "MixedVoltageTest",
+      .bus_array = bus_array,
+      .demand_array = dem_array,
+      .generator_array = gen_array,
+      .line_array = line_array,
+  };
+
+  Planning planning {
+      .simulation = simulation,
+      .system = system,
+  };
+
+  PlanningLP planning_lp(planning);
+
+  // median of { 9.917e-4, 2.066e-4, 4.0e-7 } = 2.066e-4
+  CHECK(planning_lp.options().scale_theta()
+        == doctest::Approx(10.0 / (220.0 * 220.0)).epsilon(1e-9));
+
+  // Sanity: should be many orders of magnitude away from median(raw X)=10.
+  CHECK(planning_lp.options().scale_theta() < 1.0);
+}
+
 TEST_CASE("PlanningLP - auto_scale_theta with const Planning")
 {
   using namespace gtopt;
