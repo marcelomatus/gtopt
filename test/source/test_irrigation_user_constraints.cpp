@@ -17,6 +17,7 @@
  */
 
 #include <doctest/doctest.h>
+#include <gtopt/flow_right_lp.hpp>
 #include <gtopt/linear_interface.hpp>
 #include <gtopt/simulation_lp.hpp>
 #include <gtopt/system_lp.hpp>
@@ -656,4 +657,112 @@ TEST_CASE(  // NOLINT
   const auto result = lp.resolve();
   REQUIRE(result.has_value());
   CHECK(result.value() == 0);
+}
+
+TEST_CASE(  // NOLINT
+    "Tier 8.6 - La Invernada FlowRight balance binds non-trivially (P0 "
+    "defender)")
+{
+  // Regression defender for the template bug fixed on 2026-04-11 in
+  // scripts/gtopt_irrigation/templates/maule.tson:418-470.  The template
+  // previously emitted the five La Invernada FlowRights with
+  // `discharge: 0` and no `fmax` field, which per the asymmetric default
+  // at flow_right_lp.cpp:53-56 pinned every flow column to [0, 0] and
+  // reduced the `invernada_balance` UserConstraint to `0 + 0 + 0 = 0 + 0`.
+  //
+  // The fix renders `qmax_invernada` into the `fmax` field so
+  // `discharge == 0 && fmax > 0` activates variable mode `[0, fmax]`.
+  // This test mirrors the fixed template shape exactly (5 FlowRights,
+  // +1/+1/+1/-1/-1 directions, `discharge = 0`, `fmax > 0`) and asserts
+  // that every flow column's upper bound is strictly positive — i.e.
+  // the constraint has room to bind.  Under the P0 bug every column's
+  // upper bound is 0, the assertion fails, and the defender fires.
+  //
+  // Note: the real template also sets `use_average = true` to expose a
+  // `qeh` stage-average variable; that's orthogonal to the bounds check
+  // and is omitted here to keep the fixture small.  The real template
+  // also leaves `junction` unset (the Invernada FlowRights are not
+  // hydraulically coupled, they exist only for the balance constraint),
+  // which we also mirror.
+  const UCFixture fx;
+  constexpr Real kQmax = 200.0;
+  const Array<FlowRight> frs = {
+      {
+          .uid = Uid {1},
+          .name = "inv_deficit",
+          .direction = 1,
+          .discharge = 0.0,
+          .fmax = kQmax,
+      },
+      {
+          .uid = Uid {2},
+          .name = "inv_sin_deficit",
+          .direction = 1,
+          .discharge = 0.0,
+          .fmax = kQmax,
+      },
+      {
+          .uid = Uid {3},
+          .name = "inv_caudal_natural",
+          .direction = 1,
+          .discharge = 0.0,
+          .fmax = kQmax,
+      },
+      {
+          .uid = Uid {4},
+          .name = "inv_embalsar",
+          .direction = -1,
+          .discharge = 0.0,
+          .fmax = kQmax,
+      },
+      {
+          .uid = Uid {5},
+          .name = "inv_no_embalsar",
+          .direction = -1,
+          .discharge = 0.0,
+          .fmax = kQmax,
+      },
+  };
+  const Array<UserConstraint> ucs = {
+      {
+          .uid = Uid {1},
+          .name = "invernada_balance",
+          .expression =
+              R"(flow_right("inv_deficit").flow + flow_right("inv_sin_deficit").flow + flow_right("inv_caudal_natural").flow = flow_right("inv_embalsar").flow + flow_right("inv_no_embalsar").flow)",
+          .constraint_type = "raw",
+      },
+  };
+
+  const auto system =
+      make_uc_system(fx, {}, frs, ucs, "Tier8_6_Invernada_P0_Defender");
+  const PlanningOptionsLP options;
+  SimulationLP simulation_lp(make_uc_simulation(), options);
+  SystemLP system_lp(system, simulation_lp);
+  auto&& lp = system_lp.linear_interface();
+  const auto result = lp.resolve();
+  REQUIRE(result.has_value());
+  CHECK(result.value() == 0);
+
+  // The P0 defender: every flow column's upper bound must equal kQmax,
+  // not 0.  Under the bug (`fmax` missing from the template) the default
+  // path at flow_right_lp.cpp:53-56 drives `block_fmax == 0 &&
+  // block_discharge == 0`, which yields `uppb = block_discharge = 0` and
+  // the column is pinned at [0, 0].  With the fix, `block_fmax > 0 &&
+  // block_discharge == 0` yields `uppb = block_fmax = kQmax`.
+  const auto col_upp = lp.get_col_upp();
+  const auto col_low = lp.get_col_low();
+  const auto& fr_elems = system_lp.elements<FlowRightLP>();
+  REQUIRE(fr_elems.size() == 5);
+  const auto& scenarios = system_lp.scene().scenarios();
+  const auto& stages = system_lp.phase().stages();
+  REQUIRE(!scenarios.empty());
+  REQUIRE(!stages.empty());
+  for (const auto& fr_lp : fr_elems) {
+    const auto& flow_cols = fr_lp.flow_cols_at(scenarios[0], stages[0]);
+    REQUIRE(!flow_cols.empty());
+    for (const auto& [buid, col] : flow_cols) {
+      CHECK(col_low[col] == doctest::Approx(0.0));
+      CHECK(col_upp[col] == doctest::Approx(kQmax));
+    }
+  }
 }

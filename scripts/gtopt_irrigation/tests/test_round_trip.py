@@ -228,6 +228,56 @@ class TestCli:
         assert entities_path.exists()
 
 
+class TestMauleInvernadaFlowRightBounds:
+    """La Invernada FlowRights must be variable (fmax>0), not pinned to [0,0].
+
+    Regression guard for a template bug where the five Invernada
+    FlowRights were emitted with ``discharge: 0`` and no ``fmax`` field.
+    Per ``source/flow_right_lp.cpp:53-56`` that combination pins the
+    column to ``[0, 0]`` and the ``invernada_balance`` UserConstraint
+    degenerates to ``0 = 0``.  The fix is to render ``qmax_invernada``
+    into the ``fmax`` field so the columns are free in
+    ``[0, qmax_invernada]``.
+    """
+
+    _INVERNADA_NAMES = (
+        "invernada_deficit",
+        "invernada_sin_deficit",
+        "invernada_caudal_natural",
+        "invernada_embalsar",
+        "invernada_no_embalsar",
+    )
+
+    def test_all_five_have_fmax_equal_to_qmax_invernada(self):
+        cfg = _minimal_maule_config()
+        cfg["qmax_invernada"] = 275  # distinct from defaults so we prove the wire-up
+        agreement = MauleAgreement(cfg)
+        fr_by_name = {fr["name"]: fr for fr in agreement.flow_rights}
+        for name in self._INVERNADA_NAMES:
+            assert name in fr_by_name, f"missing FlowRight {name}"
+            fr = fr_by_name[name]
+            assert "fmax" in fr, (
+                f"{name} has no fmax — would be pinned to [0, 0] by "
+                f"flow_right_lp.cpp and invernada_balance would degenerate"
+            )
+            assert fr["fmax"] == 275, (
+                f"{name}.fmax ({fr['fmax']}) does not match qmax_invernada (275)"
+            )
+
+    def test_default_qmax_invernada_is_used_when_omitted(self):
+        """When ``qmax_invernada`` is absent from the config, the default
+        (200) from ``maule_agreement.py`` must still produce a nonzero fmax."""
+        cfg = _minimal_maule_config()
+        cfg.pop("qmax_invernada", None)
+        agreement = MauleAgreement(cfg)
+        fr_by_name = {fr["name"]: fr for fr in agreement.flow_rights}
+        for name in self._INVERNADA_NAMES:
+            fr = fr_by_name[name]
+            assert fr.get("fmax", 0) > 0, (
+                f"{name}.fmax is falsy — default qmax_invernada not wired up"
+            )
+
+
 class TestScheduleHelpersEmptyGuard:
     """_to_stb_sched / _to_tb_sched must not crash on empty input."""
 

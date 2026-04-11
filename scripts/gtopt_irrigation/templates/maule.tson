@@ -415,11 +415,16 @@
     {#   +FCau * CostoNoEmbalsar * IQHNEIN  (bypass penalty)         #}
     {# gtopt: mapped to use_value on the respective FlowRights.     #}
     {# ============================================================= #}
+    {# fmax = qmax_invernada makes these true free variables in      #}
+    {# [0, qmax_invernada].  Without fmax, flow_right_lp.cpp pins    #}
+    {# the column to [discharge, discharge] = [0, 0] and the         #}
+    {# invernada_balance UserConstraint degenerates to 0 = 0.        #}
     {
       "name": "invernada_deficit",
       "purpose": "irrigation",
       "direction": 1,
       "discharge": 0,
+      "fmax": {{ qmax_invernada }},
       "use_average": true
     },
 
@@ -428,6 +433,7 @@
       "purpose": "irrigation",
       "direction": 1,
       "discharge": 0,
+      "fmax": {{ qmax_invernada }},
       "use_average": true
     },
 
@@ -436,6 +442,7 @@
       "purpose": "irrigation",
       "direction": 1,
       "discharge": 0,
+      "fmax": {{ qmax_invernada }},
       "use_average": true
     },
 
@@ -446,6 +453,7 @@
       "purpose": "economy",
       "direction": -1,
       "discharge": 0,
+      "fmax": {{ qmax_invernada }},
       "use_average": true
       {% if costo_embalsar > 0 %}
       ,"use_value": {{ costo_embalsar }}
@@ -459,6 +467,7 @@
       "purpose": "economy",
       "direction": -1,
       "discharge": 0,
+      "fmax": {{ qmax_invernada }},
       "use_average": true
       {% if costo_no_embalsar > 0 %}
       ,"use_value": {{ costo_no_embalsar }}
