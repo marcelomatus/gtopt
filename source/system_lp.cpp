@@ -126,12 +126,19 @@ constexpr auto add_to_lp(auto& collections,
         // caller can surface non-convex rejections, unknown parameters,
         // and similar author errors instead of silently dropping the
         // constraint.  Other element types keep the original "log and
-        // continue" behavior.
+        // continue" behavior for most failures, but `std::runtime_error`
+        // is reserved for fail-fast schema/author errors (missing
+        // `stage.month` on a `reset_month` VR, monthly parameter out of
+        // range, etc.) and always propagates so the caller cannot
+        // silently produce a wrong LP.
         if constexpr (std::is_same_v<T, UserConstraintLP>) {
           const auto mode = system_context.options().constraint_mode();
           if (mode == ConstraintMode::strict || mode == ConstraintMode::debug) {
             throw;
           }
+        }
+        if (dynamic_cast<const std::runtime_error*>(&ex) != nullptr) {
+          throw;
         }
         return false;
       }

@@ -368,11 +368,18 @@ TEST_CASE("resolve_bound_rule_axis_value - stage_month axis")
     CHECK(call_count == 0);
   }
 
-  SUBCASE("with no month falls back to 0.0")
+  SUBCASE("with no month throws std::runtime_error (fail-fast)")
   {
-    const auto value = resolve_bound_rule_axis_value(
-        rule, std::optional<MonthType> {}, []() -> Real { return 0.0; });
-    CHECK(value == doctest::Approx(0.0));
+    // Previously returned 0.0 silently; that degraded into subtly
+    // wrong LPs.  The contract now requires callers to supply a
+    // calendar month when the rule's axis is stage_month.
+    const auto call = [&]()
+    {
+      const auto v = resolve_bound_rule_axis_value(
+          rule, std::optional<MonthType> {}, []() -> Real { return 0.0; });
+      (void)v;
+    };
+    CHECK_THROWS_AS(call(), std::runtime_error);
   }
 }
 

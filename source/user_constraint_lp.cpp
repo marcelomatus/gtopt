@@ -8,7 +8,9 @@
 
 #include <algorithm>
 #include <cmath>
+#include <format>
 #include <ranges>
+#include <stdexcept>
 
 #include <gtopt/constraint_expr.hpp>
 #include <gtopt/constraint_parser.hpp>
@@ -71,15 +73,36 @@ template<typename T>
   // Monthly-indexed parameter: use stage's calendar month
   if (param.monthly.has_value()) {
     const auto& monthly = *param.monthly;
-    if (const auto month = stage.month()) {
-      // MonthType is 1-based (january=1), monthly vector is 0-based
-      const auto idx = static_cast<std::size_t>(*month) - 1;
-      if (idx < monthly.size()) {
-        return monthly[idx];
-      }
+    const auto month = stage.month();
+    if (!month.has_value()) {
+      // Fail fast: silently returning january was a hidden source of
+      // subtly wrong LPs in constraints like La Invernada that depend
+      // on calendar modulation.
+      throw std::runtime_error(std::format(
+          "UserConstraint monthly parameter '{}' requires stage.month to "
+          "be set on stage uid={} but the stage has no calendar month. "
+          "Fix: add `.month = MonthType::<jan..dec>` to the Stage in the "
+          "Simulation's stage_array, or remove the monthly override from "
+          "UserParam '{}'.",
+          name,
+          stage.uid(),
+          name));
     }
-    // No month on stage: use january (index 0) as fallback
-    return monthly.empty() ? 0.0 : monthly[0];
+    // MonthType is 1-based (january=1), monthly vector is 0-based
+    const auto idx = static_cast<std::size_t>(*month) - 1;
+    if (idx >= monthly.size()) {
+      throw std::runtime_error(std::format(
+          "UserConstraint monthly parameter '{}' has {} entries but stage "
+          "uid={} has month={} (index {}). Fix: extend the `monthly` "
+          "array to 12 entries (january..december) in UserParam '{}'.",
+          name,
+          monthly.size(),
+          stage.uid(),
+          std::to_underlying(*month),
+          idx,
+          name));
+    }
+    return monthly[idx];
   }
 
   // Scalar parameter

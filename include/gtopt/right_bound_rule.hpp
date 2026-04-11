@@ -42,8 +42,10 @@
 #include <algorithm>
 #include <array>
 #include <cstdint>
+#include <format>
 #include <optional>
 #include <span>
+#include <stdexcept>
 #include <utility>
 #include <vector>
 
@@ -213,10 +215,13 @@ struct RightBoundRule
  *                          `hm³`.  Invoked only when the axis is
  *                          `reservoir_volume`, so the caller can defer
  *                          any expensive lookup work behind it.
- * @return The numeric input to feed into `evaluate_bound_rule`.  When
- *         the active axis has no value (e.g. `stage_month` on a stage
- *         without a month assignment) returns `0.0`, mirroring the
- *         `value_or(0.0)` fallbacks already used elsewhere.
+ * @return The numeric input to feed into `evaluate_bound_rule`.
+ * @throws std::runtime_error when `rule.axis == stage_month` and the
+ *         active stage has no calendar month assigned.  The previous
+ *         silent `0.0` fallback produced a wrong but feasible LP that
+ *         was nearly impossible to diagnose from the output; we now
+ *         fail loudly and tell the caller exactly how to fix the
+ *         Simulation definition.
  */
 template<typename VolumeGetter>
 [[nodiscard]] inline auto resolve_bound_rule_axis_value(
@@ -226,9 +231,15 @@ template<typename VolumeGetter>
 {
   switch (rule.axis) {
     case BoundRuleAxis::stage_month:
-      return stage_month.has_value()
-          ? static_cast<Real>(std::to_underlying(*stage_month))
-          : Real {0.0};
+      if (!stage_month.has_value()) {
+        throw std::runtime_error(std::format(
+            "RightBoundRule with axis=stage_month requires the active "
+            "stage to carry a calendar month, but stage.month is unset. "
+            "Fix: add `.month = MonthType::<jan..dec>` to the Stage in "
+            "the Simulation's stage_array, or change the rule's axis to "
+            "`reservoir_volume`."));
+      }
+      return static_cast<Real>(std::to_underlying(*stage_month));
     case BoundRuleAxis::reservoir_volume:
       return std::forward<VolumeGetter>(volume_getter)();
   }

@@ -29,9 +29,12 @@
  *
  * Efficiency is 1.0 — rights are consumed 1:1 without loss.
  */
+#include <format>
+
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/output_context.hpp>
 #include <gtopt/reservoir_lp.hpp>
+#include <gtopt/stage_month_guard.hpp>
 #include <gtopt/system_context.hpp>
 #include <gtopt/system_lp.hpp>
 #include <gtopt/volume_right_lp.hpp>
@@ -166,7 +169,15 @@ bool VolumeRightLP::add_to_lp(SystemContext& sc,
   // linking: the sini value is independently provisioned, so backward
   // duals and forward trial values from the previous phase are meaningless.
   const auto& rm = volume_right().reset_month;
-  const bool is_reset_stage = rm.has_value() && stage.month() == rm;
+  // A VR with reset_month requires the stage to carry a calendar month:
+  // a silent `nullopt != rm` would skip the provisioning quietly and
+  // produce a wrong but feasible LP.  Fail fast instead.
+  const bool is_reset_stage = rm.has_value()
+      && require_stage_month(stage,
+                             ClassName.full_name(),
+                             std::format("uid={}", uid()),
+                             "reset_month")
+          == *rm;
   const auto [prev_stg, prev_ph] = sc.prev_stage(stage);
   const bool is_cross_phase = (prev_stg != nullptr && prev_ph != nullptr);
 
@@ -394,9 +405,14 @@ int VolumeRightLP::update_lp(SystemLP& sys,
 
   // Dynamic provisioning: at reset_month, update eini to the new
   // bound_rule value (PLP: DerRiego recomputed from reservoir volume).
-  if (const auto& rm = volume_right().reset_month;
-      rm.has_value() && stage.month() == rm)
-  {
+  const auto& rm = volume_right().reset_month;
+  const bool is_reset_stage_update = rm.has_value()
+      && require_stage_month(stage,
+                             ClassName.full_name(),
+                             std::format("uid={}", uid()),
+                             "reset_month (update_lp)")
+          == *rm;
+  if (is_reset_stage_update) {
     const auto eini_col = eini_col_at(scenario, stage);
     li.set_col_low(eini_col, new_bound);
     li.set_col_upp(eini_col, new_bound);
