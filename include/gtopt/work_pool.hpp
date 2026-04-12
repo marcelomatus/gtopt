@@ -543,6 +543,13 @@ public:
     return results;
   }
 
+  /// Thread cap configured for this pool.  Needed by tests that
+  /// verify `make_solver_work_pool(cpu_factor)` clamps its thread
+  /// count correctly (e.g. tiny `cpu_factor` must floor to 1 thread
+  /// to give a genuine serial baseline).  Safe to call from any
+  /// thread — `max_threads_` is set once in the constructor.
+  [[nodiscard]] int max_threads() const noexcept { return max_threads_; }
+
   struct Statistics
   {
     size_t tasks_submitted;

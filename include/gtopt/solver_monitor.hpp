@@ -31,6 +31,7 @@
 
 #pragma once
 
+#include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <filesystem>
@@ -74,8 +75,14 @@ namespace gtopt
 {
   WorkPoolConfig pool_config {};
   pool_config.name = "SolverWorkPool";
-  pool_config.max_threads = static_cast<int>(
-      std::lround(cpu_factor * std::thread::hardware_concurrency()));
+  // Clamp to at least 1 thread — otherwise a tiny `cpu_factor`
+  // (e.g. `--cpu-factor 0.01` on a 20-core box yields `lround(0.2)=0`)
+  // produces a dead pool whose `submit()` calls never run.  A 1-thread
+  // pool is the expected "serial baseline" behavior.
+  pool_config.max_threads = std::max(
+      1,
+      static_cast<int>(
+          std::lround(cpu_factor * std::thread::hardware_concurrency())));
   pool_config.max_cpu_threshold = static_cast<int>(
       100.0 - (50.0 / static_cast<double>(pool_config.max_threads)));
   pool_config.enable_periodic_stats = false;
