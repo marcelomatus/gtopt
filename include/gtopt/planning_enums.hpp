@@ -85,7 +85,8 @@ enum class BuildMode : uint8_t
 {
   serial = 0,  ///< No pool; build all cells in the calling thread
   scene_parallel = 1,  ///< Parallel by scene; phases sequential (default)
-  full_parallel = 2,  ///< Parallel by (scene × phase) cell
+  full_parallel = 2,  ///< Parallel by (scene × phase) cell via WorkPool
+  direct_parallel = 3,  ///< Parallel by (scene × phase) cell via jthreads
 };
 
 inline constexpr auto build_mode_entries = std::to_array<EnumEntry<BuildMode>>({
@@ -94,6 +95,8 @@ inline constexpr auto build_mode_entries = std::to_array<EnumEntry<BuildMode>>({
     {.name = "scene_parallel", .value = BuildMode::scene_parallel},
     {.name = "full-parallel", .value = BuildMode::full_parallel},
     {.name = "full_parallel", .value = BuildMode::full_parallel},
+    {.name = "direct-parallel", .value = BuildMode::direct_parallel},
+    {.name = "direct_parallel", .value = BuildMode::direct_parallel},
 });
 
 constexpr auto enum_entries(BuildMode /*tag*/) noexcept

@@ -7,7 +7,7 @@
  *
  * Covers source/gtopt_main.cpp:
  *   - error path when a planning file does not exist
- *   - fast-parsing path
+ *   - check-json path
  *   - lp_only=true (build all LPs but skip solve)
  *   - json_file output
  *   - stats=true (pre- and post-solve statistics)
@@ -89,13 +89,13 @@ TEST_CASE("gtopt_main - lp_only=true completes successfully")
   CHECK(*result == 0);
 }
 
-TEST_CASE("gtopt_main - fast_parsing path, lp_only=true")
+TEST_CASE("gtopt_main - check_json path, lp_only=true")
 {
-  const auto stem = write_tmp_json("gtopt_main_fast_parse", minimal_json);
+  const auto stem = write_tmp_json("gtopt_main_check_json", minimal_json);
   auto result = gtopt_main(MainOptions {
       .planning_files = {stem.string()},
       .lp_only = true,
-      .fast_parsing = true,
+      .check_json = true,
   });
   REQUIRE(result.has_value());
   CHECK(*result == 0);

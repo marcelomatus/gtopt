@@ -5,9 +5,10 @@
  * @author    marcelo
  * @copyright BSD-3-Clause
  *
- * Contains parse_planning_files() — the heaviest DAW JSON instantiation
- * (from_json<Planning> with multiple parse policies).  Splitting into its
- * own TU lets it compile in parallel with the other JSON I/O functions.
+ * Contains parse_planning_files() — instantiates from_json<Planning> with
+ * StrictParsePolicy only.  The ExactParsePolicy instantiation (used by
+ * --check-json) lives in gtopt_json_io_parse_check.cpp so it compiles in
+ * parallel.
  */
 
 #include <expected>
@@ -25,14 +26,14 @@
 namespace gtopt
 {
 
+// ExactParsePolicy instantiation — defined in gtopt_json_io_parse_check.cpp
+namespace detail
+{
+Planning parse_planning_exact(const std::string& json);
+}  // namespace detail
+
 namespace
 {
-
-constexpr auto FastParsePolicy = daw::json::options::parse_flags<
-    daw::json::options::PolicyCommentTypes::hash,
-    daw::json::options::CheckedParseMode::no,
-    daw::json::options::ExcludeSpecialEscapes::no,
-    daw::json::options::UseExactMappingsByDefault::no>;
 
 constexpr auto StrictParsePolicy = daw::json::options::parse_flags<
     daw::json::options::PolicyCommentTypes::hash,
@@ -40,19 +41,10 @@ constexpr auto StrictParsePolicy = daw::json::options::parse_flags<
     daw::json::options::ExcludeSpecialEscapes::yes,
     daw::json::options::UseExactMappingsByDefault::no>;
 
-/// Same as StrictParsePolicy but rejects any JSON key not listed in the
-/// schema. Used by the --check-json pass to surface typos / unknown fields.
-constexpr auto ExactParsePolicy = daw::json::options::parse_flags<
-    daw::json::options::PolicyCommentTypes::hash,
-    daw::json::options::CheckedParseMode::yes,
-    daw::json::options::ExcludeSpecialEscapes::yes,
-    daw::json::options::UseExactMappingsByDefault::yes>;
-
 }  // namespace
 
 std::expected<Planning, std::string> parse_planning_files(
     const std::vector<std::string>& planning_files,
-    bool strict_parsing,
     bool check_json,
     const std::optional<std::string>& input_directory)
 {
@@ -101,8 +93,7 @@ std::expected<Planning, std::string> parse_planning_files(
       // proceeds with the normal policy below.
       if (check_json) {
         try {
-          (void)daw::json::from_json<Planning>(json_result.value(),
-                                               ExactParsePolicy);
+          (void)detail::parse_planning_exact(json_result.value());
         } catch (const daw::json::json_exception& jex) {
           spdlog::warn("Unknown JSON field in '{}': {}",
                        fpath.string(),
@@ -111,15 +102,9 @@ std::expected<Planning, std::string> parse_planning_files(
       }
 
       try {
-        if (strict_parsing) {
-          auto plan = daw::json::from_json<Planning>(json_result.value(),
-                                                     StrictParsePolicy);
-          my_planning.merge(std::move(plan));
-        } else {
-          auto plan = daw::json::from_json<Planning>(json_result.value(),
-                                                     FastParsePolicy);
-          my_planning.merge(std::move(plan));
-        }
+        auto plan = daw::json::from_json<Planning>(json_result.value(),
+                                                   StrictParsePolicy);
+        my_planning.merge(std::move(plan));
       } catch (const daw::json::json_exception& jex) {
         return std::unexpected(
             std::format("JSON parsing error in file '{}': {}",

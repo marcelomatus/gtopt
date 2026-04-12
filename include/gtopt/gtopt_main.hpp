@@ -96,8 +96,6 @@ struct MainOptions
   std::optional<std::string> json_file {};
 
   // ---- execution control ----
-  /** @brief Use fast (non-strict) JSON parsing */
-  std::optional<bool> fast_parsing {};
   /** @brief Warn about JSON fields not recognised by the schema */
   std::optional<bool> check_json {};
   /** @brief Print pre- and post-solve system statistics */

@@ -532,8 +532,71 @@ auto PlanningLP::create_systems(System& system,
       }
       tighten_scene_phase_links(phase_systems, simulation);
     }
+  } else if (build_mode == BuildMode::direct_parallel) {
+    // ── Direct-parallel path ─────────────────────────────────────────
+    // One jthread per hardware thread; cells are distributed via an
+    // atomic counter.  No WorkPool, no scheduling mutex, no CPU/memory
+    // monitoring — pure work-stealing with minimal synchronization.
+    // Useful for benchmarking whether WorkPool overhead or malloc arena
+    // contention is the dominant cost at high thread counts.
+    using build_row_t = StrongIndexVector<PhaseIndex, std::optional<SystemLP>>;
+    StrongIndexVector<SceneIndex, build_row_t> build_buf(scenes.size());
+    for (auto& row : build_buf) {
+      row.resize(phases.size());
+    }
+
+    const auto total_cells = scenes.size() * phases.size();
+    std::atomic<std::size_t> next_cell {0};
+
+    const auto n_threads =
+        std::min(static_cast<std::size_t>(std::thread::hardware_concurrency()),
+                 total_cells);
+
+    std::vector<std::jthread> workers;
+    workers.reserve(n_threads);
+    for (std::size_t t = 0; t < n_threads; ++t) {
+      workers.emplace_back(
+          [&]
+          {
+            while (true) {
+              const auto cell_id =
+                  next_cell.fetch_add(1, std::memory_order_relaxed);
+              if (cell_id >= total_cells) {
+                break;
+              }
+              const auto si = SceneIndex {
+                  static_cast<int>(cell_id / phases.size()),
+              };
+              const auto pi = PhaseIndex {
+                  static_cast<int>(cell_id % phases.size()),
+              };
+              const auto& scene = scenes[si];
+              const auto& phase = phases[pi];
+              build_cell(scene,
+                         phase,
+                         [&]
+                         {
+                           build_buf[si][pi].emplace(
+                               system, simulation, phase, scene, resolved_opts);
+                         });
+            }
+          });
+    }
+    // jthread destructor joins automatically.
+    workers.clear();
+
+    // Sequential merge + cross-phase link resolution.
+    for (auto&& [scene_index, scene] : enumerate<SceneIndex>(scenes)) {
+      PlanningLP::phase_systems_t phase_systems;
+      phase_systems.reserve(phases.size());
+      for (auto& slot : build_buf[scene_index]) {
+        phase_systems.emplace_back(std::move(slot).value());
+      }
+      tighten_scene_phase_links(phase_systems, simulation);
+      all_systems[scene_index] = std::move(phase_systems);
+    }
   } else {
-    // Both parallel modes share the work-pool allocation.
+    // Both WorkPool modes share the pool allocation.
     auto pool = make_solver_work_pool(build_cpu_factor);
 
     if (build_mode == BuildMode::scene_parallel) {
@@ -596,13 +659,6 @@ auto PlanningLP::create_systems(System& system,
       futures.reserve(scenes.size() * phases.size());
       for (auto&& [scene_index, scene] : enumerate<SceneIndex>(scenes)) {
         for (auto&& [phase_index, phase] : enumerate<PhaseIndex>(phases)) {
-          // Capture phase/scene by explicit pointer into the stable
-          // `phases`/`scenes` containers (which outlive create_systems
-          // via `simulation`).  The structured-binding names from
-          // `enumerate<>(...)` are loop-local; capturing them by
-          // reference through the default `[&]` would leave the lambda
-          // reading bindings that have already been rebound by the
-          // next loop iteration.
           const auto* const phase_ptr = &phase;
           const auto* const scene_ptr = &scene;
           auto result = pool->submit(
@@ -637,12 +693,7 @@ auto PlanningLP::create_systems(System& system,
       }
 
       // Sequentially merge cells into per-scene phase_systems_t and
-      // resolve deferred cross-phase state-variable links.  The merge
-      // itself is cheap (a few moves per scene); running it
-      // sequentially keeps the code simple without giving up much
-      // parallelism — the dominant cost (per-cell SystemLP
-      // construction and create_lp) has already been parallelized
-      // above.
+      // resolve deferred cross-phase state-variable links.
       for (auto&& [scene_index, scene] : enumerate<SceneIndex>(scenes)) {
         PlanningLP::phase_systems_t phase_systems;
         phase_systems.reserve(phases.size());

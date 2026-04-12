@@ -10,7 +10,6 @@
  *
  * Key options handled here:
  *  - `planning_files`: list of JSON case file stems to load and merge.
- *  - `fast_parsing`: use lenient (non-strict) JSON parsing.
  *  - `lp_only`: build all scene/phase LP matrices but skip solving;
  *    validating input without running the solver.
  *  - `json_file`: write the merged Planning to a JSON file before solving.
@@ -190,15 +189,9 @@ void setup_trace_log(const MainOptions& opts)
 
   setup_trace_log(opts);
 
-  const auto strict_parsing = !opts.fast_parsing.value_or(false);
-  if (!strict_parsing) {  // NOLINT
-    spdlog::info("using fast json parsing");
-  }
-
   try {
     // Parse planning JSON files
     auto parse_result = parse_planning_files(opts.planning_files,
-                                             strict_parsing,
                                              opts.check_json.value_or(false),
                                              opts.input_directory);
     if (!parse_result) {
