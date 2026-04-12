@@ -111,6 +111,37 @@ class _RightsAgreementBase:
             stages = [s for s in stages if s["number"] <= last_stage]
         return stages
 
+    def _stage_block_counts(self, nstages: int) -> list[int]:
+        """Return a per-stage ``count_block`` list of length ``nstages``.
+
+        When the stage parser carries ``count_block`` metadata (as it does
+        when ``--stages`` points at a full plp2gtopt planning JSON), each
+        stage's own block count is used — so the emitted schedule is
+        rectangular across blocks *within* a stage and matches the LP's
+        ``(stage_idx, block_idx)`` lookup layout even when different stages
+        have different block counts.
+
+        When ``count_block`` is missing, falls back to the uniform
+        ``blocks_per_stage`` option (default ``1``).  Either way the
+        returned list has exactly ``nstages`` entries; trailing stages
+        that the stage parser does not cover reuse the last known count,
+        or the option default when the parser is empty.
+        """
+        uniform = int(self._options.get("blocks_per_stage", 1) or 1)
+        stages = self._get_stages() if self._stage_parser is not None else []
+        counts: list[int] = []
+        for idx in range(nstages):
+            if idx < len(stages):
+                raw = stages[idx].get("count_block")
+                try:
+                    cb = int(raw) if raw is not None else uniform
+                except (TypeError, ValueError):
+                    cb = uniform
+                counts.append(max(cb, 1))
+            else:
+                counts.append(uniform)
+        return counts
+
     def _to_stb_sched(
         self,
         values: list[float],
@@ -120,13 +151,17 @@ class _RightsAgreementBase:
         Returns scalar 0.0 on empty input, the single value if all stages
         match, otherwise a ``[[[v]*nblocks for v in values]]`` wrapped 3D
         list compatible with ``FieldSched<Real, vector<vector<vector<Real>>>>``.
+
+        The inner block dimension uses each stage's own ``count_block``
+        (from the stage parser) when available, so the emitted list is
+        ragged-compatible with the LP's per-stage block-count layout.
         """
         if not values:
             return 0.0
         if len(set(values)) == 1:
             return values[0]
-        nblocks = self._options.get("blocks_per_stage", 1)
-        return [[[v] * nblocks for v in values]]
+        counts = self._stage_block_counts(len(values))
+        return [[[v] * nb for v, nb in zip(values, counts)]]
 
     def _to_tb_sched(
         self,
@@ -137,13 +172,18 @@ class _RightsAgreementBase:
         Returns scalar 0.0 on empty input, the single value if all stages
         match, otherwise a ``[[v]*nblocks for v in values]`` 2D list
         compatible with ``FieldSched<Real, vector<vector<Real>>>``.
+
+        The inner block dimension uses each stage's own ``count_block``
+        (from the stage parser) when available — this ensures the LP's
+        ``(stage_idx, block_idx)`` lookup never walks off the inner
+        vector when the planning has multiple blocks per stage.
         """
         if not values:
             return 0.0
         if len(set(values)) == 1:
             return values[0]
-        nblocks = self._options.get("blocks_per_stage", 1)
-        return [[v] * nblocks for v in values]
+        counts = self._stage_block_counts(len(values))
+        return [[v] * nb for v, nb in zip(values, counts)]
 
     # ----------------------------------------------------- subclass contract
 

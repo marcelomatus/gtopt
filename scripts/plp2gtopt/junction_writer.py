@@ -27,6 +27,7 @@ from .manem_parser import ManemParser
 from .ralco_parser import RalcoParser
 from .manem_writer import ManemWriter
 from .minembh_parser import MinembhParser
+from .ror_equivalence_parser import RorSpec
 from .stage_parser import StageParser
 
 _logger = logging.getLogger(__name__)
@@ -272,8 +273,9 @@ class JunctionWriter(BaseWriter):
         self._skipped_isolated: list[str] = []
         self._referenced_junctions: set[int] = set()
         # Resolved at the start of to_json_array() from --ror-as-reservoirs*
-        # options.  Maps promoted central name -> daily-cycle vmax [hm3].
-        self._ror_reservoir_spec: dict[str, float] = {}
+        # options.  Maps promoted central name -> RorSpec (vmax_hm3 +
+        # production_factor override).
+        self._ror_reservoir_spec: dict[str, RorSpec] = {}
 
     @property
     def central_parser(self) -> CentralParser:
@@ -520,23 +522,47 @@ class JunctionWriter(BaseWriter):
         if gen_waterway:
             system["waterway_array"].append(gen_waterway)
             if central["bus"] > 0:  # Only create turbine if connected to bus
+                # When the central is listed in the RoR-as-reservoirs CSV,
+                # the authoritative turbine production factor comes from
+                # that file — PLP efficiency may be a 1.0 placeholder.
+                ror_spec = self._ror_reservoir_spec.get(central_name)
+                production_factor = (
+                    ror_spec.production_factor
+                    if ror_spec is not None
+                    else central["efficiency"]
+                )
                 turbine: Turbine = {
                     "uid": central_id,
                     "name": central_name,
                     "generator": central_name,
                     "waterway": gen_waterway["name"],
-                    "production_factor": central["efficiency"],
+                    "production_factor": production_factor,
                 }
                 system["turbine_array"].append(turbine)
 
         if ver_waterway:
             system["waterway_array"].append(ver_waterway)
 
+        # Whether this central will be promoted to a daily-cycle reservoir
+        # by the --ror-as-reservoirs feature (used below to emit the
+        # reservoir record).  Eligibility: generation waterway exists, bus
+        # is connected, and the central name is in the whitelist CSV.
+        will_promote_ror = (
+            gen_waterway is not None
+            and central["bus"] > 0
+            and central_name in self._ror_reservoir_spec
+        )
+
         # Drain logic:
         #   embalse: drain=True when ver_waterway is None (ser_ver==0), so
         #            excess water can leave the reservoir without an explicit
         #            spillway waterway (spillage flows directly to sea).
         #   others:  drain=True when any outlet waterway is absent.
+        # For a RoR-promoted central with ser_ver=0, the turbine's
+        # generation waterway is the only connection to the upper junction.
+        # Enabling drain on that junction gives the physical spill path
+        # (overflow inflow that the turbine can't pass leaves via the drain
+        # sink) without needing a synthetic bypass waterway.
         if central_type == "embalse":
             drain = ver_waterway is None
         else:
@@ -554,13 +580,12 @@ class JunctionWriter(BaseWriter):
         # efficiency>0, and the name must be in the CSV).  We only emit
         # the reservoir when a generation waterway exists so the turbine
         # can drain it; otherwise the promotion is a no-op for this
-        # central.
-        if (
-            gen_waterway is not None
-            and central["bus"] > 0
-            and central_name in self._ror_reservoir_spec
-        ):
-            vmax = self._ror_reservoir_spec[central_name]
+        # central.  The reservoir sits on ``central_name`` junction, which
+        # is ``gen_waterway.junction_a`` — i.e. the **upstream** endpoint
+        # of the turbine's generation waterway, representing the local
+        # daily pondage at the plant intake.
+        if will_promote_ror:
+            vmax = self._ror_reservoir_spec[central_name].vmax_hm3
             # Daily-cycle reservoirs omit the embalse-specific fields
             # (eini/efin/fmin/fmax/flow_conversion_rate/spillway_*) — the
             # C++ schema supplies sensible defaults for a daily-cycle
@@ -578,10 +603,12 @@ class JunctionWriter(BaseWriter):
             }
             system["reservoir_array"].append(cast(Reservoir, ror_reservoir))
             _logger.debug(
-                "Promoted %s central '%s' to daily-cycle reservoir (vmax=%g hm3)",
+                "Promoted %s central '%s' to daily-cycle reservoir "
+                "(vmax=%g hm3, prod_factor=%g MW/(m3/s))",
                 central_type,
                 central_name,
                 vmax,
+                self._ror_reservoir_spec[central_name].production_factor,
             )
 
         # Add flow if exists
@@ -613,93 +640,26 @@ class JunctionWriter(BaseWriter):
                 return "discharge"
         return central.get("afluent", 0.0)
 
-    def _load_ror_reservoir_spec(self, items: List[Dict[str, Any]]) -> Dict[str, float]:
+    def _load_ror_reservoir_spec(
+        self, items: List[Dict[str, Any]]
+    ) -> Dict[str, RorSpec]:
         """Resolve ``--ror-as-reservoirs`` selection against the CSV whitelist.
 
-        Returns a ``{name: vmax_hm3}`` dict containing only centrals that
-        are (a) named in the selection, (b) present in the whitelist CSV,
-        (c) of type ``pasada``/``serie``, (d) connected to a bus
-        (``bus > 0``), and (e) have a strictly positive efficiency so the
-        turbine can drain the reservoir.
-
-        Invalid requests are hard errors — unknown central names, a
-        selection without a CSV, or a promoted central that fails
-        eligibility all raise ``ValueError`` with an actionable message.
-        Returns an empty dict when the feature is disabled.
+        Delegates to :func:`ror_equivalence_parser.resolve_ror_reservoir_spec`.
+        When the caller has already resolved the spec (e.g. ``gtopt_writer``
+        resolves it once before running ``process_afluents`` so the
+        pasada-unscale map can be applied to the discharge parquet), it is
+        passed in via ``options["_ror_spec_resolved"]`` and re-used here
+        verbatim to avoid re-parsing the CSV.
         """
         from .ror_equivalence_parser import (  # noqa: PLC0415
-            parse_ror_equivalence_file,
-            parse_ror_selection,
+            resolve_ror_reservoir_spec,
         )
 
-        raw_selection = self.options.get("ror_as_reservoirs")
-        selection = parse_ror_selection(raw_selection)
-        csv_path = self.options.get("ror_as_reservoirs_file")
-
-        if selection is None:
-            if csv_path is not None:
-                _logger.debug(
-                    "--ror-as-reservoirs-file supplied without "
-                    "--ror-as-reservoirs; ignoring CSV '%s'",
-                    csv_path,
-                )
-            return {}
-
-        if csv_path is None:
-            raise ValueError(
-                "--ror-as-reservoirs requires --ror-as-reservoirs-file "
-                "(the CSV whitelist is the sole source of vmax values)"
-            )
-
-        whitelist = parse_ror_equivalence_file(Path(csv_path))
-
-        # "all" (empty frozenset sentinel) means: every whitelist entry
-        # that is eligible.  An explicit list must be fully resolvable.
-        if selection:
-            unknown = sorted(selection - whitelist.keys())
-            if unknown:
-                raise ValueError(
-                    f"--ror-as-reservoirs: central(s) not in whitelist "
-                    f"CSV '{csv_path}': {unknown}"
-                )
-            requested = {name: whitelist[name] for name in selection}
-        else:
-            requested = dict(whitelist)
-
-        items_by_name = {c["name"]: c for c in items}
-        eligible_types = {"pasada", "serie"}
-        resolved: Dict[str, float] = {}
-        for name, vmax in requested.items():
-            central = items_by_name.get(name)
-            if central is None:
-                raise ValueError(
-                    f"--ror-as-reservoirs: central '{name}' listed in the "
-                    f"whitelist is not present in the current PLP case"
-                )
-            ctype = central.get("type", "")
-            if ctype not in eligible_types:
-                raise ValueError(
-                    f"--ror-as-reservoirs: central '{name}' has type "
-                    f"'{ctype}', expected one of {sorted(eligible_types)}"
-                )
-            if central.get("bus", 0) <= 0:
-                raise ValueError(
-                    f"--ror-as-reservoirs: central '{name}' has bus<=0 "
-                    f"so no turbine would drain the reservoir"
-                )
-            if float(central.get("efficiency", 0.0) or 0.0) <= 0.0:
-                raise ValueError(
-                    f"--ror-as-reservoirs: central '{name}' has "
-                    f"efficiency<=0; cannot drain a daily-cycle reservoir"
-                )
-            resolved[name] = vmax
-
-        _logger.info(
-            "RoR-as-reservoirs: promoting %d central(s) to daily-cycle reservoirs: %s",
-            len(resolved),
-            sorted(resolved),
-        )
-        return resolved
+        pre_resolved = self.options.get("_ror_spec_resolved")
+        if pre_resolved is not None:
+            return dict(pre_resolved)
+        return resolve_ror_reservoir_spec(self.options, items)
 
     def _process_extractions(
         self,

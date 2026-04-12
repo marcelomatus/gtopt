@@ -24,6 +24,21 @@ if TYPE_CHECKING:
 
 
 # ---------------------------------------------------------------------------
+# Packaged data templates
+# ---------------------------------------------------------------------------
+
+# Default RoR-equivalence whitelist shipped inside the plp2gtopt package.
+# Resolved relative to _parsers.py so it works for both editable installs
+# (where __file__ points back into the source tree) and wheel installs
+# (where __file__ points into site-packages/plp2gtopt/).  The file is
+# declared in pyproject.toml under [tool.setuptools.package-data] so it is
+# included in the built wheel.
+DEFAULT_ROR_RESERVOIRS_FILE: Path = (
+    Path(__file__).resolve().parent / "templates" / "ror_equivalence.csv"
+)
+
+
+# ---------------------------------------------------------------------------
 # Utility type used by several argument groups
 # ---------------------------------------------------------------------------
 
@@ -696,14 +711,16 @@ def add_ror_arguments(parser: argparse.ArgumentParser, _conf: dict[str, str]) ->
         dest="ror_as_reservoirs_file",
         type=Path,
         metavar="FILE",
-        default=None,
+        default=DEFAULT_ROR_RESERVOIRS_FILE,
         help=(
             "CSV file mapping central names to daily-cycle vmax [hm3]. "
             "Required columns: name, vmax_hm3.  Optional columns: "
             "enabled (true/false), comment.  Only centrals whose vmax "
             "is known should be listed here — this file is the sole "
             "source of truth for --ror-as-reservoirs.  See "
-            "docs/templates/ror_equivalence.example.csv for the schema."
+            "docs/templates/ror_equivalence.example.csv for the schema. "
+            "(default: packaged template at plp2gtopt/templates/"
+            "ror_equivalence.csv)"
         ),
     )
 
@@ -868,22 +885,6 @@ def add_general_arguments(
             "entities and the companion PAMPL file) is now handled "
             "exclusively by `gtopt_irrigation` — run it on the dumped "
             "JSON to get the rights entities. (default: %(default)s)"
-        ),
-    )
-    parser.add_argument(
-        "--machicura-model",
-        dest="machicura_model",
-        choices=("pasada", "embalse", "run-of-river", "reservoir"),
-        default="pasada",
-        help=(
-            "Machicura topology variant recorded in the canonical "
-            "maule.json.  'pasada' (default; English synonym 'run-of-river') "
-            "mirrors the historical PLP simplification (retiros implicit at "
-            "Colbun, Machicura as a pass-through junction).  'embalse' "
-            "(English synonym 'reservoir') re-anchors riego + Res 105 "
-            "retiros at the downstream junction and instructs Stage 2 to "
-            "model Machicura as a daily-cycle reservoir.  Only takes effect "
-            "when --emit-water-rights is set. (default: %(default)s)"
         ),
     )
     parser.add_argument(

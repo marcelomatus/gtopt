@@ -317,7 +317,6 @@ def build_options(args: argparse.Namespace) -> dict:
     opts["soft_emin_cost"] = args.soft_emin_cost
     opts["embed_reservoir_constraints"] = args.embed_reservoir_constraints
     opts["emit_water_rights"] = args.emit_water_rights
-    opts["machicura_model"] = args.machicura_model
     if args.ror_as_reservoirs is not None:
         opts["ror_as_reservoirs"] = args.ror_as_reservoirs
     if args.ror_as_reservoirs_file is not None:

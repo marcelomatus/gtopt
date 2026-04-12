@@ -70,9 +70,20 @@ dev = [
     "xlsxwriter>=3.1",
 ]
 
+[tool.setuptools]
+include-package-data = true
+
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["gtopt_compare*", "cvs2parquet*", "gtopt_diagram*", "gtopt_field_extractor*", "gtopt_check_lp*", "gtopt_check_output*", "gtopt_check_pampl*", "gtopt_compress_lp*", "gtopt_check_json*", "gtopt_check_solvers*", "gtopt_config*", "gtopt_check_fingerprint*", "gtopt_irrigation*", "igtopt*", "plp2gtopt*", "plp_compress_case*", "pp2gtopt*", "gtopt2pp*", "run_gtopt*", "gtopt_monitor*", "ts2gtopt*"]
+
+[tool.setuptools.package-data]
+# Non-Python assets that must ship in wheels (pip install ./scripts).
+# plp2gtopt bundles the RoR equivalence whitelist used by
+# --ror-as-reservoirs; gtopt_irrigation bundles the PAMPL/TSON templates
+# used to generate Laja/Maule irrigation agreements.
+"plp2gtopt.templates" = ["*.csv", "*.md"]
+"gtopt_irrigation.templates" = ["*.tampl", "*.tson", "*.md"]
 
 
 # ---------------------------------------------------------------------------

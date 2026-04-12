@@ -57,9 +57,29 @@ def _make_embalse(name: str, number: int) -> Dict[str, Any]:
 
 
 def _write_csv(tmp_path: Path, rows: List[str]) -> Path:
-    """Write a minimal RoR-equivalence CSV and return its path."""
+    """Write a minimal RoR-equivalence CSV and return its path.
+
+    Each row in *rows* is of the form ``"Name,vmax"`` and is expanded
+    to ``"Name,vmax,1.0"`` (production_factor defaulted to 1.0) so the
+    older fixture contract is preserved.  To exercise a non-default
+    production_factor use :func:`_write_csv_full`.
+    """
     csv = tmp_path / "ror_equiv.csv"
-    csv.write_text("name,vmax_hm3\n" + "\n".join(rows) + "\n", encoding="utf-8")
+    body_rows = [f"{r},1.0" if r.count(",") == 1 else r for r in rows]
+    csv.write_text(
+        "name,vmax_hm3,production_factor\n" + "\n".join(body_rows) + "\n",
+        encoding="utf-8",
+    )
+    return csv
+
+
+def _write_csv_full(tmp_path: Path, rows: List[str]) -> Path:
+    """Write a RoR-equivalence CSV where each row is ``Name,vmax,prod``."""
+    csv = tmp_path / "ror_equiv_full.csv"
+    csv.write_text(
+        "name,vmax_hm3,production_factor\n" + "\n".join(rows) + "\n",
+        encoding="utf-8",
+    )
     return csv
 
 
@@ -118,9 +138,16 @@ def test_file_without_selection_is_noop(tmp_path: Path, caplog):
 # ─── Error paths ─────────────────────────────────────────────────────────────
 
 
-def test_selection_without_csv_raises():
-    """``ror_as_reservoirs='all'`` without a CSV file is a hard error."""
-    with pytest.raises(ValueError, match="--ror-as-reservoirs-file"):
+def test_selection_without_csv_falls_back_to_packaged_default():
+    """Omitting ``ror_as_reservoirs_file`` falls back to the packaged CSV.
+
+    With the packaged default active, ``ror_as_reservoirs='all'`` tries to
+    promote every whitelist entry shipped in ``templates/ror_equivalence.csv``
+    (LA_HIGUERA, LA_CONFLUENCIA, ANGOSTURA, MACHICURA).  None of those are in
+    this synthetic case, so the resolver fails with a ``not present in the
+    current PLP case`` error — proving the fallback fired.
+    """
+    with pytest.raises(ValueError, match="not present in the current PLP case"):
         _run(
             [_make_serie("CentA", 1)],
             options={"ror_as_reservoirs": "all"},
@@ -267,6 +294,51 @@ def test_happy_path_all_selection(tmp_path: Path):
     assert _find_ror(system, "CentB")["emax"] == 2.0
 
 
+def test_csv_production_factor_overrides_plp_efficiency(tmp_path: Path):
+    """The CSV ``production_factor`` must override the PLP ``efficiency``.
+
+    This is the whole point of requiring the column: many pasada centrals
+    carry a placeholder ``efficiency=1.0`` in plpcnfce.dat that is not
+    physically meaningful, so the CSV value is authoritative when the
+    central is promoted to a daily-cycle reservoir.
+    """
+    csv = _write_csv_full(tmp_path, ["CentA,1.5,0.42", "CentB,2.0,1.77"])
+    # Both centrals ship with the PLP placeholder efficiency=1.0.
+    system = _run(
+        [
+            _make_serie("CentA", 1, efficiency=1.0),
+            _make_serie("CentB", 2, efficiency=1.0),
+        ],
+        options={
+            "ror_as_reservoirs": "all",
+            "ror_as_reservoirs_file": csv,
+        },
+    )
+    turbines = {t["name"]: t for t in system["turbine_array"]}
+    assert turbines["CentA"]["production_factor"] == 0.42
+    assert turbines["CentB"]["production_factor"] == 1.77
+
+
+def test_non_promoted_central_keeps_plp_efficiency(tmp_path: Path):
+    """A central NOT in the CSV selection must keep its PLP efficiency."""
+    csv = _write_csv_full(tmp_path, ["CentA,1.5,0.42"])
+    system = _run(
+        [
+            _make_serie("CentA", 1, efficiency=1.0),
+            _make_serie("CentB", 2, efficiency=0.73),
+        ],
+        options={
+            "ror_as_reservoirs": "CentA",
+            "ror_as_reservoirs_file": csv,
+        },
+    )
+    turbines = {t["name"]: t for t in system["turbine_array"]}
+    # Promoted central: overridden by CSV.
+    assert turbines["CentA"]["production_factor"] == 0.42
+    # Non-promoted central: PLP value is preserved.
+    assert turbines["CentB"]["production_factor"] == 0.73
+
+
 def test_coexists_with_embalse_reservoir(tmp_path: Path):
     """An embalse reservoir and a promoted serie coexist in reservoir_array."""
     csv = _write_csv(tmp_path, ["CentA,1.5"])
@@ -285,4 +357,145 @@ def test_coexists_with_embalse_reservoir(tmp_path: Path):
 
     ror = _find_ror(system, "CentA")
     assert ror["emax"] == 1.5
-    assert ror["capacity"] == 1.5
+
+
+# ─── Reservoir spill path via drain=True on the upper junction ──────────────
+#
+# When a pasada/serie central is promoted to a daily-cycle reservoir and the
+# PLP case has no spillway (``ser_ver == 0`` → ``ver_waterway is None``), the
+# physically correct spill path is simply ``drain=True`` on the central's
+# upper junction.  The turbine's generation waterway is the only waterway
+# attached to that junction, so the drain sink acts as the pondage's
+# overflow outlet — no synthetic bypass is needed.  These tests pin that
+# behavior against regressions.
+
+
+def test_ror_promotion_drain_on_upper_junction_when_no_spillway(tmp_path: Path):
+    """Promoted central with ser_ver=0 → ``drain=True`` on upper junction.
+
+    The reservoir sits on the central's own junction (= gen_waterway
+    upstream endpoint).  Because the PLP case has no spillway waterway,
+    excess inflow leaves via the junction drain sink — the turbine is the
+    only physical waterway connected to that upper junction.
+    """
+    csv = _write_csv(tmp_path, ["CentA,1.5"])
+    system = _run(
+        [_make_serie("CentA", 1)],  # ser_hid=0, ser_ver=0 by default
+        options={
+            "ror_as_reservoirs": "all",
+            "ror_as_reservoirs_file": csv,
+        },
+    )
+
+    # Reservoir exists on the central's own junction (= gen_waterway.junction_a).
+    ror = _find_ror(system, "CentA")
+    assert ror["junction"] == "CentA"
+
+    # No synthetic bypass waterway is emitted.
+    assert not [
+        w for w in system["waterway_array"] if w["name"].endswith("_ror_bypass")
+    ]
+
+    # Exactly one waterway (the generation waterway) is attached to the
+    # central's upper junction.  The turbine is its only physical outlet.
+    upper_outlets = [w for w in system["waterway_array"] if w["junction_a"] == "CentA"]
+    assert len(upper_outlets) == 1
+    assert upper_outlets[0]["name"].startswith("CentA_gen_")
+
+    # Drain is ON so overflow inflow can escape the reservoir without
+    # being forced through the turbine.
+    junctions = {j["name"]: j for j in system["junction_array"]}
+    assert junctions["CentA"].get("drain", False) is True
+
+
+def test_ror_promotion_no_bypass_when_plp_spillway_exists(tmp_path: Path):
+    """PLP ``ser_ver != 0`` → real spillway, no synthetic bypass.
+
+    When the PLP case already has a spillway waterway, the reservoir has
+    two outlets from its upper junction (gen + ver), so no bypass is
+    needed and no extra drain flag is added by the RoR promotion.
+    """
+    csv = _write_csv(tmp_path, ["CentA,1.5"])
+    cent = _make_serie("CentA", 1)
+    cent["ser_ver"] = 2  # points at a downstream sink
+    sink = _make_serie("Sink", 2)
+    system = _run(
+        [cent, sink],
+        options={
+            "ror_as_reservoirs": "all",
+            "ror_as_reservoirs_file": csv,
+        },
+    )
+
+    # Real PLP spillway waterway is present.
+    ver = [w for w in system["waterway_array"] if w["name"].startswith("CentA_ver_")]
+    assert len(ver) == 1
+
+    # No synthetic bypass — the PLP spillway is enough.
+    assert not [
+        w for w in system["waterway_array"] if w["name"].endswith("_ror_bypass")
+    ]
+
+    # Junction drain remains OFF because the real spillway provides the
+    # physical overflow route.
+    junctions = {j["name"]: j for j in system["junction_array"]}
+    assert junctions["CentA"].get("drain", False) is False
+
+
+def test_ror_promotion_does_not_affect_non_promoted_central(tmp_path: Path):
+    """A non-promoted central keeps the old junction behavior unchanged."""
+    csv = _write_csv(tmp_path, ["Other,1.5"])
+    system = _run(
+        [_make_serie("CentA", 1), _make_serie("Other", 2)],
+        options={
+            "ror_as_reservoirs": "Other",
+            "ror_as_reservoirs_file": csv,
+        },
+    )
+    # No synthetic bypass waterway anywhere.
+    assert not [
+        w for w in system["waterway_array"] if w["name"].endswith("_ror_bypass")
+    ]
+    # CentA was NOT promoted → its junction keeps drain=True per the
+    # original ser_ver=0 logic.
+    junctions = {j["name"]: j for j in system["junction_array"]}
+    assert junctions["CentA"].get("drain", False) is True
+
+
+def test_ror_promotion_serie_with_upstream_inflow_uses_drain(tmp_path: Path):
+    """Serie central receiving upstream inflow: drain-on-junction, no bypass.
+
+    Mirrors ANGOSTURA/LA_CONFLUENCIA topology: upstream generation waterway
+    delivers water to the central, the central's own gen waterway drains
+    downstream through the turbine, and ``drain=True`` on the central's
+    upper junction provides the overflow spill path.
+    """
+    csv = _write_csv(tmp_path, ["Mid,1.5"])
+    upstream = _make_serie("Up", 1)
+    upstream["ser_hid"] = 2  # Up → Mid
+    mid = _make_serie("Mid", 2)
+    mid["ser_hid"] = 3  # Mid → Down
+    down = _make_serie("Down", 3)
+    system = _run(
+        [upstream, mid, down],
+        options={
+            "ror_as_reservoirs": "Mid",
+            "ror_as_reservoirs_file": csv,
+        },
+    )
+
+    # No synthetic bypass waterway.
+    assert not [
+        w for w in system["waterway_array"] if w["name"].endswith("_ror_bypass")
+    ]
+
+    # The Mid → Down generation waterway is the only outlet from Mid's
+    # upper junction.
+    mid_outlets = [w for w in system["waterway_array"] if w["junction_a"] == "Mid"]
+    assert len(mid_outlets) == 1
+    assert mid_outlets[0]["name"].startswith("Mid_gen_")
+    assert mid_outlets[0]["junction_b"] == "Down"
+
+    # Drain is ON on Mid so overflow inflow has a physical escape path.
+    junctions = {j["name"]: j for j in system["junction_array"]}
+    assert junctions["Mid"].get("drain", False) is True

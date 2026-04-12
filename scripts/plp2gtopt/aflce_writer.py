@@ -32,12 +32,26 @@ class AflceWriter(BaseWriter):
         block_parser: Optional[BlockParser] = None,
         scenarios: Optional[List[Dict[str, Any]]] = None,
         options: Optional[Dict[str, Any]] = None,
+        pasada_unscale_map: Optional[Dict[str, float]] = None,
     ):
-        """Initialize with an AflceParser instance."""
+        """Initialize with an AflceParser instance.
+
+        Args:
+            pasada_unscale_map: Optional ``{central_name: factor}`` map
+                applied to the discharge inflow of promoted pasada
+                centrals (see ``--ror-as-reservoirs``).  PLP stores
+                pasada discharge as ``physical_flow × production_factor``
+                in MW-equivalent m³/s; the factor is
+                ``1.0 / real_production_factor`` so dividing recovers
+                the physical m³/s consistent with the daily-cycle
+                ``vmax_hm3``.  Keys are matched against central names
+                (not the parquet column name).
+        """
         super().__init__(aflce_parser, options)
         self.central_parser = central_parser
         self.block_parser = block_parser
         self.scenarios = scenarios or []
+        self.pasada_unscale_map: Dict[str, float] = dict(pasada_unscale_map or {})
 
     def to_json_array(self, items=None) -> List[Dict[str, Any]]:
         """Convert flow data to JSON array format."""
@@ -108,8 +122,19 @@ class AflceWriter(BaseWriter):
             if not isinstance(index, np.ndarray):
                 index = np.asarray(index, dtype=np.int32)
 
+            # Un-scale promoted-pasada inflows so the discharge parquet is
+            # in physical m³/s consistent with the RoR-as-reservoir vmax.
+            # PLP pasada flow == physical_flow * real_production_factor,
+            # so multiplying by (1 / real_production_factor) recovers it.
+            unscale = self.pasada_unscale_map.get(name)
+            if unscale is not None and unscale != 1.0:
+                flow_data = np.asarray(flow_data, dtype=np.float64) * unscale
+
             if "afluent" in unit:
-                fill_values[col_name] = unit["afluent"]
+                fill_value = unit["afluent"]
+                if unscale is not None and unscale != 1.0:
+                    fill_value = float(fill_value) * unscale
+                fill_values[col_name] = fill_value
 
             if master_index is None:
                 master_index = index

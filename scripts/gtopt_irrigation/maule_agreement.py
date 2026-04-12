@@ -16,15 +16,38 @@ of ``plp2gtopt`` or hand-authored) and produces:
 Machicura-model variants
 ------------------------
 
-The agreement supports two topology variants for Central Machicura,
-selectable via the ``machicura_model`` field in ``maule.json`` (or via
-the ``options`` dict passed to the constructor / CLI):
+The agreement supports two topology variants for Central Machicura.
+Selection follows a three-level priority order so every downstream
+consumer — tests, hand-authored JSON, and the full pipeline — gets a
+deterministic answer without a CLI flag:
 
-* ``"pasada"`` (default; English synonym ``"run-of-river"``): historical
-  PLP-compatible variant.  Machicura is a pass-through junction (pasada
-  semantics, no volumetric balance of its own) and the retiros of riego
-  and Res 105 are implicitly anchored at the Colbun reservoir.  Uses
-  ``templates/maule.tson`` and ``templates/maule.tampl``.
+1. **Explicit override** — if ``cfg["machicura_model"]`` is set (either
+   to ``"pasada"``/``"run-of-river"`` or ``"embalse"``/``"reservoir"``),
+   that value wins.  Used by hand-authored fixtures and tests that want
+   to pin the variant regardless of the surrounding gtopt case.
+
+2. **Reservoir auto-detection** — otherwise, when
+   ``options["reservoir_names"]`` contains the resolved
+   ``junction_retiro`` (by default ``"MACHICURA"``, or the
+   ``downstream`` field of the PLP COLBUN extraction entry when
+   present in ``cfg["extrac_entries"]``), the ``embalse`` variant is
+   selected.  This lets ``gtopt_irrigation`` detect a MACHICURA
+   reservoir in the actual gtopt case — e.g. the planning JSON that
+   plp2gtopt emits next to ``maule.json`` when ``--ror-as-reservoirs``
+   promoted MACHICURA to a daily-cycle reservoir.  The CLI populates
+   ``reservoir_names`` automatically from a sibling planning file.
+
+3. **Default** — otherwise ``pasada`` (PLP-compatible, no downstream
+   reservoir).  Safe fallback for cases that carry no planning JSON
+   (synthetic fixtures, constraint-only tests, documentation snippets).
+
+The two variants are:
+
+* ``"pasada"`` (English synonym ``"run-of-river"``): historical
+  PLP-compatible variant.  Machicura is a pass-through junction
+  (pasada semantics, no volumetric balance of its own) and the
+  retiros of riego and Res 105 are implicitly anchored at the Colbun
+  reservoir.  Uses ``templates/maule.tson`` and ``templates/maule.tampl``.
 
 * ``"embalse"`` (English synonym ``"reservoir"``): full physical variant.
   Machicura is modelled as a daily-cycle reservoir aguas abajo of Colbun
@@ -116,23 +139,47 @@ class MauleAgreement(_RightsAgreementBase):
     def _machicura_model(self) -> str:
         """Return the active Machicura topology variant.
 
-        Precedence: ``options["machicura_model"]`` overrides
-        ``cfg["machicura_model"]``, which defaults to ``"pasada"``.
+        Resolution order (first match wins):
 
-        Accepts both the canonical Spanish keys (``pasada``, ``embalse``)
-        and their English synonyms (``run-of-river``, ``reservoir``), all
-        normalized via ``_VARIANT_SYNONYMS``.
+        1. ``cfg["machicura_model"]`` — explicit per-case override,
+           accepted as either the canonical Spanish keys
+           (``pasada``/``embalse``) or the English synonyms
+           (``run-of-river``/``reservoir``) via ``_VARIANT_SYNONYMS``.
+           Used mainly by hand-authored fixtures and tests.
+
+        2. ``options["reservoir_names"]`` — set/iterable of reservoir
+           names coming from the companion gtopt/planning case.  When
+           the resolved ``junction_retiro`` (``_resolve_junction_retiro``)
+           appears in that set, MACHICURA is physically a daily-cycle
+           reservoir in the case, so the ``embalse`` variant is
+           selected automatically.  This is how the CLI detects the
+           MACHICURA promotion performed by
+           ``plp2gtopt --ror-as-reservoirs`` without any explicit flag.
+
+        3. Default ``pasada`` — safe fallback when no information is
+           available (synthetic fixtures, constraint-only tests).
         """
-        raw = self._options.get("machicura_model") or self._cfg.get(
-            "machicura_model", "pasada"
-        )
-        key = str(raw).strip().lower()
-        if key not in self._VARIANT_SYNONYMS:
-            raise ValueError(
-                f"unknown machicura_model {raw!r}: "
-                f"expected one of {sorted(self._VARIANT_SYNONYMS)}"
-            )
-        return self._VARIANT_SYNONYMS[key]
+        raw = self._cfg.get("machicura_model")
+        if raw is not None:
+            key = str(raw).strip().lower()
+            if key not in self._VARIANT_SYNONYMS:
+                raise ValueError(
+                    f"unknown machicura_model {raw!r}: "
+                    f"expected one of {sorted(self._VARIANT_SYNONYMS)}"
+                )
+            return self._VARIANT_SYNONYMS[key]
+
+        reservoir_names = self._options.get("reservoir_names")
+        if reservoir_names:
+            junction_retiro = self._resolve_junction_retiro()
+            # Case-insensitive membership check so callers can supply
+            # names straight from the planning JSON without worrying
+            # about the Spanish/English mixed casing used by PLP.
+            lowered = {str(n).strip().lower() for n in reservoir_names}
+            if junction_retiro.strip().lower() in lowered:
+                return "embalse"
+
+        return "pasada"
 
     def _template_name(self) -> str:  # noqa: D401
         return self._VARIANT_TEMPLATES[self._machicura_model()]
@@ -154,7 +201,7 @@ class MauleAgreement(_RightsAgreementBase):
         central_colbun = str(cfg.get("central_colbun", "")).upper()
         for entry in extrac_entries:
             name = str(entry.get("name", "")).upper()
-            if name == central_colbun or name == "COLBUN":
+            if name in (central_colbun, "COLBUN"):
                 downstream = entry.get("downstream")
                 if downstream:
                     return str(downstream)

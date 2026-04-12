@@ -536,6 +536,50 @@ class GTOptWriter:
             options,
         ).to_json_array()
 
+    def process_ror_spec(self, options):
+        """Resolve ``--ror-as-reservoirs`` once so downstream writers share it.
+
+        Runs before ``process_afluents`` and ``process_junctions`` so that
+        the discharge parquet can un-scale promoted pasada inflows and the
+        junction writer can re-use the same resolved spec without re-parsing
+        the CSV.  Stores two keys on ``options``:
+
+        * ``_ror_spec_resolved``: ``{name: RorSpec}`` from the resolver.
+        * ``_pasada_unscale_map``: ``{name: 1.0/production_factor}`` for
+          every promoted **pasada** central (serie centrals keep their
+          physical flow and are not included).
+        """
+        from .ror_equivalence_parser import (  # noqa: PLC0415
+            pasada_unscale_map,
+            resolve_ror_reservoir_spec,
+        )
+
+        centrals = self.parser.parsed_data.get("central_parser", None)
+        if not centrals:
+            return
+
+        cot = getattr(centrals, "centrals_of_type", None)
+        if not cot:
+            return
+
+        # Match JunctionWriter's item filter: eligible centrals are
+        # pasada+serie with bus>0 (and pasada must also be routed to the
+        # hydro path — not profile/solar).
+        pasada_hydro_names = options.get("_pasada_hydro_names", set())
+        items: list[dict[str, Any]] = []
+        for c in cot.get("serie", []):
+            if c.get("bus", 0) > 0:
+                items.append(c)
+        for c in cot.get("pasada", []):
+            if c.get("bus", 0) > 0 and c["name"] in pasada_hydro_names:
+                items.append(c)
+        for c in cot.get("embalse", []):
+            items.append(c)
+
+        resolved = resolve_ror_reservoir_spec(options, items)
+        options["_ror_spec_resolved"] = resolved
+        options["_pasada_unscale_map"] = pasada_unscale_map(resolved, items)
+
     def process_afluents(self, options):
         """Write affluent/discharge Parquet files for Flow elements.
 
@@ -575,6 +619,7 @@ class GTOptWriter:
             blocks,
             scenarios,
             options,
+            pasada_unscale_map=options.get("_pasada_unscale_map") or None,
         )
 
         aflce_writer.to_parquet(output_dir, items=aflces_items)
@@ -637,13 +682,9 @@ class GTOptWriter:
         Additional Maule enrichments produced here so the canonical JSON
         is self-contained for downstream ``gtopt_irrigation`` runs:
 
-        * ``machicura_model`` — set from ``options['machicura_model']``
-          (default ``"pasada"``).  Selects PLP-simplified (``pasada``) vs
-          full physical (``embalse``) Machicura variant in Stage 2.
         * ``extrac_entries`` — echo of ``plpextrac.dat`` entries so
-          Stage 2 can resolve ``junction_retiro`` from the downstream
-          field of the COLBUN extraction without re-reading the raw PLP
-          files.
+          Stage 2 has the full downstream-extraction context without
+          re-reading the raw PLP files.
         """
         if not options.get("emit_water_rights", False):
             return
@@ -665,13 +706,22 @@ class GTOptWriter:
         if laja_parser is not None:
             _dump_canonical_json("laja", laja_parser.config)
 
-        # Maule convention: enrich the config dict with the machicura
-        # model flag and the extrac entries before dumping, so that
-        # Stage 2 (gtopt_irrigation) is fully data-driven by the file.
+        # Maule convention: echo plpextrac.dat entries into the dumped
+        # config so Stage 2 (gtopt_irrigation) has the full downstream-
+        # extraction context without re-reading the raw PLP files.
+        # plp2gtopt does NOT write ``machicura_model`` — MACHICURA is
+        # just another promotable serie central in ``ror_equivalence.csv``
+        # (no special treatment here).  The Maule agreement variant is
+        # auto-detected by ``gtopt_irrigation`` itself: when the
+        # companion planning JSON (written next to ``maule.json`` in the
+        # same output dir) contains a reservoir whose name matches the
+        # resolved ``junction_retiro`` (typically ``MACHICURA``), the
+        # Stage-2 consumer picks the ``embalse`` template variant; else
+        # the ``pasada`` default.  Hand-authored fixtures can still pin
+        # the variant by setting ``cfg["machicura_model"]`` explicitly.
         maule_parser = self.parser.parsed_data.get("maule_parser")
         if maule_parser is not None:
             cfg = dict(maule_parser.config)
-            cfg["machicura_model"] = options.get("machicura_model", "pasada")
             extrac_parser = self.parser.parsed_data.get("extrac_parser")
             if extrac_parser is not None:
                 cfg["extrac_entries"] = list(extrac_parser.get_all())
@@ -1324,6 +1374,7 @@ class GTOptWriter:
         _step("demands")
         self.process_demands(options)
         _step("hydro")
+        self.process_ror_spec(options)
         self.process_afluents(options)
         self.process_generator_profiles(options)
         self.process_junctions(options)

@@ -138,6 +138,73 @@ def _extract_stage_list(data: Any) -> list[dict[str, Any]] | None:
     return None
 
 
+#: filenames we probe when auto-detecting a companion planning JSON next
+#: to the input ``maule.json``.  ``gtopt.json`` is the plp2gtopt default;
+#: ``planning.json`` and ``system.json`` are common renames in manual
+#: setups.  Order matters — the first hit wins.
+_PLANNING_CANDIDATES: tuple[str, ...] = ("gtopt.json", "planning.json", "system.json")
+
+
+def _extract_reservoir_names(planning: Any) -> set[str]:
+    """Return the set of reservoir names declared in a planning JSON.
+
+    Accepts either the raw plp2gtopt planning dict (``{"system": {
+    "reservoir_array": [...]}, ...}``) or a bare ``system`` sub-dict.
+    Unknown shapes return an empty set so the caller falls back to the
+    pasada (default) machicura variant without raising.
+    """
+    if not isinstance(planning, dict):
+        return set()
+    system = planning.get("system") if "system" in planning else planning
+    if not isinstance(system, dict):
+        return set()
+    rsv_array = system.get("reservoir_array")
+    if not isinstance(rsv_array, list):
+        return set()
+    names: set[str] = set()
+    for entry in rsv_array:
+        if isinstance(entry, dict):
+            name = entry.get("name")
+            if isinstance(name, str) and name:
+                names.add(name)
+    return names
+
+
+def _autodetect_planning_path(input_path: Path) -> Path | None:
+    """Return a sibling planning JSON next to ``input_path`` if any exists."""
+    parent = input_path.parent
+    for candidate in _PLANNING_CANDIDATES:
+        candidate_path = parent / candidate
+        if candidate_path.is_file():
+            return candidate_path
+    return None
+
+
+def _load_reservoir_names(
+    planning_path: str | None,
+    input_path: Path,
+) -> set[str]:
+    """Resolve the set of reservoir names for the Machicura auto-detection.
+
+    * An explicit ``--planning`` path is always honored (and required to
+      exist — a typo is a loud error, not a silent fallback).
+    * Otherwise, probe for a sibling file among ``_PLANNING_CANDIDATES``
+      next to the input ``maule.json``; missing neighbors silently resolve
+      to the pasada default.
+    """
+    if planning_path is not None:
+        path = Path(planning_path)
+        if not path.is_file():
+            raise FileNotFoundError(f"--planning file not found: {planning_path}")
+    else:
+        path = _autodetect_planning_path(input_path) or Path("")
+        if not path or not path.is_file():
+            return set()
+    with open(path, "r", encoding="utf-8") as fh:
+        data = json.load(fh)
+    return _extract_reservoir_names(data)
+
+
 def _load_stages(path: str | None) -> _StageList | None:
     if path is None:
         return None
@@ -152,6 +219,11 @@ def _load_stages(path: str | None) -> _StageList | None:
         )
     # Normalize to the shape _RightsAgreementBase._monthly_schedule expects:
     # each stage must have a ``number`` key and an integer ``month`` in 1..12.
+    # ``count_block`` (when present on planning-JSON stage_array entries) is
+    # preserved so _to_tb_sched / _to_stb_sched can size the inner block
+    # dimension to each stage's own block count — otherwise the emitted
+    # schedule would be ``[num_stages][1]`` and gtopt's LP assembly would
+    # walk off the inner ``std::vector<double>`` on block indices > 0.
     normalized: list[dict[str, Any]] = []
     for idx, raw in enumerate(stages, start=1):
         stage = dict(raw)
@@ -254,23 +326,30 @@ def _build_parser() -> argparse.ArgumentParser:
         )
         if name == "maule":
             sp.add_argument(
-                "--machicura-model",
-                dest="machicura_model",
-                choices=("pasada", "embalse", "run-of-river", "reservoir"),
+                "--planning",
+                dest="planning_path",
                 default=None,
                 help=(
-                    "Machicura topology variant.  'pasada' (default; English"
-                    " synonym 'run-of-river') mirrors the historical PLP"
-                    " simplification (Machicura is a pass-through junction,"
-                    " retiros implicit at Colbun).  'embalse' (English"
-                    " synonym 'reservoir') physically re-anchors riego +"
-                    " Res 105 retiros at the downstream junction and models"
-                    " Machicura as a daily-cycle reservoir.  When omitted,"
-                    " the value stored in maule.json is used (or 'pasada' if"
-                    " absent)."
+                    "path to the companion plp2gtopt planning JSON used "
+                    "to auto-detect the Machicura topology variant "
+                    "(embalse when MACHICURA appears in reservoir_array, "
+                    "pasada otherwise). When omitted, the CLI probes for "
+                    "gtopt.json / planning.json / system.json next to "
+                    "--input. Has no effect if cfg['machicura_model'] is "
+                    "already set in the input JSON."
                 ),
             )
-
+            sp.add_argument(
+                "--no-auto-detect-machicura",
+                dest="auto_detect_machicura",
+                action="store_false",
+                default=True,
+                help=(
+                    "disable the sibling-planning auto-detection for the "
+                    "Machicura variant (forces the 'pasada' default "
+                    "unless cfg['machicura_model'] is set)."
+                ),
+            )
     return parser
 
 
@@ -288,8 +367,19 @@ def _run(args: argparse.Namespace) -> Path:
         )
         artifact = "laja"
     else:
-        if getattr(args, "machicura_model", None) is not None:
-            options["machicura_model"] = args.machicura_model
+        # Machicura topology variant auto-detection: resolve the
+        # companion planning JSON (explicit --planning wins, otherwise
+        # probe for a sibling file next to --input) and extract its
+        # reservoir_array names.  MauleAgreement then picks 'embalse'
+        # when junction_retiro is a reservoir in the case, 'pasada'
+        # otherwise.  Explicit cfg['machicura_model'] still wins over
+        # both sources — see MauleAgreement._machicura_model.
+        if args.auto_detect_machicura or args.planning_path is not None:
+            reservoir_names = _load_reservoir_names(
+                args.planning_path, Path(args.input_path)
+            )
+            if reservoir_names:
+                options["reservoir_names"] = reservoir_names
         agreement = MauleAgreement.from_json(
             args.input_path, stage_parser=stages, options=options
         )
