@@ -21,6 +21,7 @@
 #include <set>
 #include <span>
 #include <thread>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -335,7 +336,7 @@ SDDPMethod::SDDPMethod(PlanningLP& planning_lp, SDDPOptions opts) noexcept
             }
             return ApertureDataCache {dir_path};
           }())
-    , m_label_maker_(planning_lp.options().names_level())
+    , m_label_maker_ {}
 {
 }
 
@@ -1529,7 +1530,7 @@ auto SDDPMethod::run_backward_pass_synchronized(
 
     // Build scene UID → SceneIndex lookup for cut sharing
     const auto& scenes = planning_lp().simulation().scenes();
-    flat_map<SceneUid, SceneIndex> scene_uid_map;
+    std::unordered_map<SceneUid, SceneIndex, std::hash<SceneUid>> scene_uid_map;
     map_reserve(scene_uid_map, scenes.size());
     for (auto&& [si, sc_lp] : enumerate<SceneIndex>(scenes)) {
       scene_uid_map[sc_lp.uid()] = si;

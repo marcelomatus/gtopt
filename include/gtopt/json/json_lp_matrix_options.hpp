@@ -20,16 +20,12 @@ using gtopt::LpMatrixOptions;
 /// optional fields are exposed in JSON; all other fields keep defaults.
 struct LpMatrixOptionsConstructor
 {
-  [[nodiscard]] LpMatrixOptions operator()(OptInt names_level_int,
-                                           OptReal lp_coeff_ratio_threshold,
+  [[nodiscard]] LpMatrixOptions operator()(OptReal lp_coeff_ratio_threshold,
                                            OptName equilibration_method_name,
                                            OptName fast_sqrt_method_name,
                                            OptBool compute_stats) const
   {
     LpMatrixOptions opts;
-    if (names_level_int) {
-      opts.names_level = static_cast<gtopt::LpNamesLevel>(*names_level_int);
-    }
     opts.lp_coeff_ratio_threshold = lp_coeff_ratio_threshold;
     if (equilibration_method_name) {
       opts.equilibration_method =
@@ -51,28 +47,21 @@ struct json_data_contract<LpMatrixOptions>
   using constructor_t = LpMatrixOptionsConstructor;
 
   using type =
-      json_member_list<json_number_null<"names_level", OptInt>,
-                       json_number_null<"lp_coeff_ratio_threshold", OptReal>,
+      json_member_list<json_number_null<"lp_coeff_ratio_threshold", OptReal>,
                        json_string_null<"equilibration_method", OptName>,
                        json_string_null<"fast_sqrt_method", OptName>,
                        json_bool_null<"compute_stats", OptBool>>;
 
   static auto to_json_data(LpMatrixOptions const& opt)
   {
-    const OptInt names_int = opt.names_level
-        ? OptInt {static_cast<int>(*opt.names_level)}
-        : OptInt {};
     const OptName eq_name = opt.equilibration_method
         ? OptName {std::string(gtopt::enum_name(*opt.equilibration_method))}
         : OptName {};
     const OptName sqrt_name = opt.fast_sqrt_method
         ? OptName {std::string(gtopt::enum_name(*opt.fast_sqrt_method))}
         : OptName {};
-    return std::make_tuple(names_int,
-                           opt.lp_coeff_ratio_threshold,
-                           eq_name,
-                           sqrt_name,
-                           opt.compute_stats);
+    return std::make_tuple(
+        opt.lp_coeff_ratio_threshold, eq_name, sqrt_name, opt.compute_stats);
   }
 };
 

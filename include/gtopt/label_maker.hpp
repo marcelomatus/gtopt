@@ -8,20 +8,17 @@
  * LabelMaker is the single place in gtopt where LP column/row name strings
  * are produced.  It consumes `SparseCol` / `SparseRow` directly (their
  * class_name / variable_name / variable_uid / context metadata fields) and
- * returns empty strings at low naming levels so callers never need to
- * wrap label calls in `if (names_level >= ...)` guards.
+ * returns empty strings when naming is disabled so callers never need to
+ * guard label calls.
  *
  * Naming semantics (`LpNamesLevel`):
- *   - none:          no labels at all (default, lowest memory)
- *   - only_cols:     all column + row labels + name-to-index maps
- *   - cols_and_rows: like `only_cols`, but duplicates throw instead of warn
- *                    (consumed by LinearInterface; not this class's concern)
+ *   - none: no labels at all (default, lowest memory)
+ *   - all:  all column + row labels + name-to-index maps; duplicates throw
  *
  * LabelMaker is a value type (1 byte).  Copy it freely; it carries no
- * mutable buffers.  It is constructed once per solve, where
- * `LpMatrixOptions::lp_names_level` is first available, and then handed
- * to `LinearProblem` and travels with `FlatLinearProblem` into
- * `LinearInterface`.
+ * mutable buffers.  It is constructed at the specific call sites that need
+ * names (lp_debug, lp_file) and handed to `LinearProblem` and travels
+ * with `FlatLinearProblem` into `LinearInterface`.
  */
 
 #pragma once
@@ -54,48 +51,37 @@ public:
   }
 
   /// True iff dense column name vectors / name-maps should be generated.
-  /// Full column naming starts at `only_cols`.  State variable I/O uses
-  /// the StateVariable map (ColIndex-based) directly and does not need
-  /// column name strings.
+  /// State variable I/O uses the StateVariable map (ColIndex-based)
+  /// directly and does not need column name strings.
   [[nodiscard]] constexpr bool col_names_enabled() const noexcept
   {
-    return m_level_ >= LpNamesLevel::only_cols;
+    return m_level_ == LpNamesLevel::all;
   }
 
-  /// True iff row labels should be generated (level >= only_cols).
+  /// True iff row labels should be generated.
   [[nodiscard]] constexpr bool row_names_enabled() const noexcept
   {
-    return m_level_ >= LpNamesLevel::only_cols;
+    return m_level_ == LpNamesLevel::all;
   }
 
   /// True iff all column labels (not just state variables) are generated.
   [[nodiscard]] constexpr bool all_col_names_enabled() const noexcept
   {
-    return m_level_ >= LpNamesLevel::only_cols;
+    return m_level_ == LpNamesLevel::all;
   }
 
   /// True iff duplicate col/row names must raise an error rather than warn.
   [[nodiscard]] constexpr bool duplicates_are_errors() const noexcept
   {
-    return m_level_ >= LpNamesLevel::cols_and_rows;
+    return m_level_ == LpNamesLevel::all;
   }
 
-  /// Generate the label for a column, honoring the current names level.
-  ///
-  /// Returns an empty string when the column should be unnamed:
-  ///   - level == none                                       → ""
-  ///   - col.class_name empty                                → ""
-  ///   - col.context is monostate                            → uses
-  ///   class+var+uid
+  /// Generate the label for a column.
+  /// Returns an empty string when naming is disabled or class_name is empty.
   [[nodiscard]] std::string make_col_label(const SparseCol& col) const;
 
-  /// Generate the label for a row, honoring the current names level.
-  ///
-  /// Returns an empty string when the row should be unnamed:
-  ///   - level < cols_and_rows                               → ""
-  ///   - row.class_name empty                                → ""
-  ///   - row.context is monostate                            → uses
-  ///   class+var+uid
+  /// Generate the label for a row.
+  /// Returns an empty string when naming is disabled or class_name is empty.
   [[nodiscard]] std::string make_row_label(const SparseRow& row) const;
 
 private:

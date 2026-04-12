@@ -26,33 +26,20 @@ namespace gtopt
 /**
  * @brief LP variable/constraint naming level for matrix assembly.
  *
- * Controls how much naming information is generated during LP construction.
- * Higher levels provide better diagnostics but consume more memory.
- * State variable I/O uses the StateVariable map (ColIndex-based) directly
- * and does not need column name strings.
+ * Controls whether naming information is generated during LP construction.
+ * When enabled (`all`), column and row names, name-to-index maps, and
+ * duplicate-name error checking are all active.  State variable I/O uses
+ * the StateVariable map (ColIndex-based) directly and does not need
+ * column name strings.
  *
- * - `none`:         No names generated (default, lowest memory).
- * - `only_cols`:    All column + row names + name-to-index maps.
- * - `cols_and_rows`: Like only_cols, but duplicate names throw errors.
+ * - `none`: No names generated (default, lowest memory).
+ * - `all`:  All column + row names + name-to-index maps; duplicates throw.
  */
 enum class LpNamesLevel : int8_t
 {
-  none = -1,  ///< No names generated (lowest memory, default)
-  only_cols = 1,  ///< All column + row names + name maps
-  cols_and_rows = 2,  ///< Column + row names + maps + error on duplicates
+  none = 0,  ///< No names generated (lowest memory, default)
+  all = 1,  ///< All column + row names + name maps; duplicates throw
 };
-
-inline constexpr auto lp_names_level_entries =
-    std::to_array<EnumEntry<LpNamesLevel>>({
-        {.name = "none", .value = LpNamesLevel::none},
-        {.name = "only_cols", .value = LpNamesLevel::only_cols},
-        {.name = "cols_and_rows", .value = LpNamesLevel::cols_and_rows},
-    });
-
-constexpr auto enum_entries(LpNamesLevel /*tag*/) noexcept
-{
-  return std::span {lp_names_level_entries};
-}
 
 // --- LpEquilibrationMethod --------------------------------------------------
 

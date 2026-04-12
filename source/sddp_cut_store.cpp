@@ -14,6 +14,7 @@
 #include <map>
 #include <ranges>
 #include <set>
+#include <unordered_map>
 #include <vector>
 
 #include <gtopt/label_maker.hpp>
@@ -45,7 +46,7 @@ void SDDPCutStore::store_cut(SceneIndex scene_index,
                              SceneUid scene_uid_val,
                              PhaseUid phase_uid_val)
 {
-  auto cut_name = LabelMaker {LpNamesLevel::cols_and_rows}.make_row_label(cut);
+  auto cut_name = LabelMaker {LpNamesLevel::all}.make_row_label(cut);
 
   StoredCut stored {
       .type = type,
@@ -428,7 +429,7 @@ void SDDPCutStore::apply_cut_sharing_for_iteration(
   };
 
   const auto& scenes = planning_lp.simulation().scenes();
-  flat_map<SceneUid, SceneIndex> scene_uid_map;
+  std::unordered_map<SceneUid, SceneIndex, std::hash<SceneUid>> scene_uid_map;
   map_reserve(scene_uid_map, scenes.size());
   for (auto&& [si, sc_lp] : enumerate<SceneIndex>(scenes)) {
     scene_uid_map[sc_lp.uid()] = si;

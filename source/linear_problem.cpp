@@ -21,6 +21,7 @@
 #include <unordered_map>
 
 #include <gtopt/linear_problem.hpp>
+#include <gtopt/map_reserve.hpp>
 #include <gtopt/utils.hpp>
 #include <spdlog/spdlog.h>
 
@@ -426,17 +427,23 @@ auto LinearProblem::flatten(const LpMatrixOptions& opts) -> FlatLinearProblem
   // continue generating labels for rows/cols added after load_flat().
   //
   // Fallback: if the caller did not explicitly install a LabelMaker via
-  // set_label_maker() (leaving it at LpNamesLevel::none), build an
-  // effective one from LpMatrixOptions::lp_names_level.
+  // set_label_maker() (leaving it at LpNamesLevel::none), derive an
+  // effective one from the naming bools in LpMatrixOptions.
   //
   // Gating: flatten() populates colnm / rownm whenever the caller asks
   // for them via `col_with_names` / `row_with_names`.  Per-entry label
   // content is decided by LabelMaker, so an entry may be an empty
   // string when the level disables it — callers never need to gate.
-  const LabelMaker effective_lm =
-      (m_label_maker_.names_level() == LpNamesLevel::none)
-      ? LabelMaker {opts.lp_names_level}
-      : m_label_maker_;
+  const LabelMaker effective_lm = [&]
+  {
+    if (m_label_maker_.names_level() != LpNamesLevel::none) {
+      return m_label_maker_;
+    }
+    const auto lvl = (opts.row_with_name_map || opts.col_with_names)
+        ? LpNamesLevel::all
+        : LpNamesLevel::none;
+    return LabelMaker {lvl};
+  }();
 
   using fp_name_vec_t = FlatLinearProblem::name_vec_t;
 
@@ -635,6 +642,7 @@ auto LinearProblem::flatten(const LpMatrixOptions& opts) -> FlatLinearProblem
       double min_abs {std::numeric_limits<double>::max()};
     };
     std::unordered_map<std::string_view, TypeAccum> type_map;
+    map_reserve(type_map, 32);
 
     for (size_t r = 0; r < nrows; ++r) {
       const auto type = extract_row_type(rownm[r]);

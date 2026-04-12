@@ -167,9 +167,6 @@ template<typename T>
        po::value<std::string>(),
        "write the assembled LP model to this file (stem; .lp extension added)")
       //
-      ("lp-names-level,n",
-       po::value<std::string>().implicit_value("only_cols"),
-       "LP naming level: 0/minimal, 1/only_cols, 2/cols_and_rows")  //
       ("matrix-eps,e",
        po::value<double>(),
        "epsilon threshold for treating LP matrix coefficients as zero")  //
@@ -254,8 +251,6 @@ template<typename T>
  * @param planning The Planning object to update
  * @param use_single_bus Optional single-bus mode flag
  * @param use_kirchhoff Optional Kirchhoff mode flag
- * @param lp_names_level Optional LP naming level
- * (minimal/only_cols/cols_and_rows)
  * @param input_directory Optional input directory path
  * @param input_format Optional input format string
  * @param output_directory Optional output directory path
@@ -277,7 +272,6 @@ inline void apply_cli_options(
     Planning& planning,  // NOLINT(misc-const-correctness)
     const std::optional<bool>& use_single_bus,
     const std::optional<bool>& use_kirchhoff,
-    const std::optional<LpNamesLevel>& lp_names_level,
     const std::optional<std::string>& input_directory,
     const std::optional<std::string>& input_format,
     const std::optional<std::string>& output_directory,
@@ -301,10 +295,6 @@ inline void apply_cli_options(
 
   if (use_kirchhoff) {
     planning.options.use_kirchhoff = use_kirchhoff;
-  }
-
-  if (lp_names_level) {
-    planning.options.lp_matrix_options.names_level = lp_names_level;
   }
 
   if (output_directory) {
@@ -488,7 +478,6 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
   apply_cli_options(planning,
                     opts.use_single_bus,
                     opts.use_kirchhoff,
-                    opts.lp_names_level,
                     opts.input_directory,
                     opts.input_format,
                     opts.output_directory,
@@ -552,36 +541,9 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
 }
 
 /**
- * @brief Parse an LP names level from a string (name or integer).
+ * @brief Build LpMatrixOptions from internal parameters
  *
- * Accepts "0"–"2" or "minimal"/"only_cols"/"cols_and_rows".
- *
- * @param s The string to parse.
- * @return The corresponding LpNamesLevel value.
- * @throws cli::parse_error on unrecognised input.
- */
-[[nodiscard]] inline LpNamesLevel parse_lp_names_level(const std::string& s)
-{
-  if (const auto lvl = enum_from_name<LpNamesLevel>(s)) {
-    return *lvl;
-  }
-  if (s.size() == 1 && std::isdigit(static_cast<unsigned char>(s.front())) != 0)
-  {
-    const int v = s.front() - '0';
-    if (v >= 0 && v <= static_cast<int>(LpNamesLevel::cols_and_rows)) {
-      return static_cast<LpNamesLevel>(v);
-    }
-  }
-  throw cli::parse_error(
-      std::format("invalid lp-names-level value: '{}' "
-                  "(expected 0-2 or minimal/only_cols/cols_and_rows)",
-                  s));
-}
-
-/**
- * @brief Build LpMatrixOptions from command-line parameters
- *
- * @param lp_names_level       Optional LP naming level
+ * @param enable_names         Whether to enable column/row name generation
  * @param matrix_eps           Optional epsilon tolerance for matrix
  *                             coefficients
  * @param compute_stats        Whether to compute LP statistics (default
@@ -591,24 +553,19 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
  * @return LpMatrixOptions configured according to the parameters
  */
 [[nodiscard]] inline LpMatrixOptions make_lp_matrix_options(
-    const std::optional<LpNamesLevel>& lp_names_level,
+    bool enable_names,
     const std::optional<double>& matrix_eps,
     bool compute_stats = false,
     const std::optional<std::string>& lp_solver = {},
     std::optional<LpEquilibrationMethod> equilibration_method = {})
 {
-  const auto eps = matrix_eps.value_or(0);
-  const auto lvl = lp_names_level.value_or(LpNamesLevel::none);
-  const LabelMaker lm {lvl};
-
   LpMatrixOptions lp_matrix_opts;
-  lp_matrix_opts.eps = eps;
-  lp_matrix_opts.col_with_names = lm.col_names_enabled();
-  lp_matrix_opts.row_with_names = lm.row_names_enabled();
-  lp_matrix_opts.col_with_name_map = lm.col_names_enabled();
-  lp_matrix_opts.row_with_name_map = lm.row_names_enabled();
+  lp_matrix_opts.eps = matrix_eps.value_or(0);
+  lp_matrix_opts.col_with_names = enable_names;
+  lp_matrix_opts.row_with_names = enable_names;
+  lp_matrix_opts.col_with_name_map = enable_names;
+  lp_matrix_opts.row_with_name_map = enable_names;
   lp_matrix_opts.compute_stats = compute_stats;
-  lp_matrix_opts.lp_names_level = lvl;
   lp_matrix_opts.solver_name = lp_solver.value_or("");
   lp_matrix_opts.equilibration_method = equilibration_method;
 
@@ -639,13 +596,6 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
       .use_single_bus = get_opt<bool>(vm, "use-single-bus"),
       .use_kirchhoff = get_opt<bool>(vm, "use-kirchhoff"),
       .lp_file = get_opt<std::string>(vm, "lp-file"),
-      .lp_names_level = [&]() -> std::optional<LpNamesLevel>
-      {
-        if (const auto raw = get_opt<std::string>(vm, "lp-names-level")) {
-          return parse_lp_names_level(*raw);
-        }
-        return std::nullopt;
-      }(),
       .matrix_eps = get_opt<double>(vm, "matrix-eps"),
       .lp_only = get_opt<bool>(vm, "lp-only"),
       .lp_debug = get_opt<bool>(vm, "lp-debug"),
@@ -778,12 +728,6 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
 
   // LP options
   opts.lp_file = get_str("lp-file");
-  if (const auto raw = get_str("lp-names-level")) {
-    try {
-      opts.lp_names_level = parse_lp_names_level(*raw);
-    } catch (...) {  // NOLINT(bugprone-empty-catch)
-    }
-  }
   opts.matrix_eps = get_dbl("matrix-eps");
   opts.lp_only = get_bool("lp-only");
   opts.lp_debug = get_bool("lp-debug");
@@ -941,7 +885,6 @@ inline void merge_config_defaults(MainOptions& opts,
   merge(opts.use_single_bus, defaults.use_single_bus);
   merge(opts.use_kirchhoff, defaults.use_kirchhoff);
   merge(opts.lp_file, defaults.lp_file);
-  merge(opts.lp_names_level, defaults.lp_names_level);
   merge(opts.matrix_eps, defaults.matrix_eps);
   merge(opts.lp_only, defaults.lp_only);
   merge(opts.lp_debug, defaults.lp_debug);

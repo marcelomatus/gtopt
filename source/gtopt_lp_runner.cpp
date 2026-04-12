@@ -196,26 +196,12 @@ void log_lp_coefficient_stats(const PlanningLP& planning_lp)
                                                      const MainOptions& opts,
                                                      bool do_stats)
 {
-  // CLI --lp-names-level overrides --set; fall back to merged planning.
-  auto eff_names_level = opts.lp_names_level
-      ? opts.lp_names_level
-      : planning.options.lp_matrix_options.names_level;
-
-  // State variable I/O uses the StateVariable map (ColIndex-based)
-  // directly — no column name strings are needed for SDDP/cascade.
-
-  // --lp-file and --lp-debug require *all* col+row names to be generated so
-  // the solver can write a readable .lp dump.  Bump the effective names
-  // level to cols_and_rows whenever LP file output is requested; this
-  // avoids silently emitting an .lp file with missing row names.
-  const bool needs_full_names = opts.lp_file.has_value() || opts.lp_debug;
-  if (needs_full_names
-      && (!eff_names_level || *eff_names_level < LpNamesLevel::cols_and_rows))
-  {
-    eff_names_level = LpNamesLevel::cols_and_rows;
-  }
+  // --lp-file and --lp-debug require all col+row names to be generated so
+  // the solver can write a readable .lp dump.
+  const bool enable_names =
+      opts.lp_file.has_value() || opts.lp_debug.value_or(false);
   auto flat_opts = make_lp_matrix_options(
-      eff_names_level,
+      enable_names,
       opts.matrix_eps,
       do_stats,
       opts.solver,

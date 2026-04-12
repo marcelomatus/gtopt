@@ -73,8 +73,6 @@ struct MainOptions
   // ---- LP options ----
   /** @brief Path stem for writing the LP model file */
   std::optional<std::string> lp_file {};
-  /** @brief LP naming level: minimal, only_cols, cols_and_rows */
-  std::optional<LpNamesLevel> lp_names_level {};
   /** @brief Epsilon tolerance for LP matrix coefficients */
   std::optional<double> matrix_eps {};
   /** @brief Build all scene/phase LP matrices but skip solving entirely */

@@ -60,7 +60,7 @@ struct SparseCol
   bool is_integer {false};  ///< is integer-constrained (default: false)
   bool is_state {false};  ///< True when the column is a state variable used
                           ///< in cascade/SDDP cut I/O.  Column names are
-                          ///< available at `LpNamesLevel::only_cols` or above;
+                          ///< available when `LpNamesLevel::all` is set;
                           ///< state variable I/O uses the StateVariable map
                           ///< (ColIndex-based) directly.  Set via
                           ///< `SystemContext::add_state_col()`.

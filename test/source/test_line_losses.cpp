@@ -507,7 +507,7 @@ TEST_CASE("line_losses engine - global model_options.line_losses_mode")
 
 /// Helper: build a 2-bus system with the given line losses mode and
 /// return (SystemLP, LinearInterface&) so callers can inspect the LP.
-/// Names level = cols_and_rows so col/row names are available.
+/// All names enabled so col/row names are available.
 struct LPFixture
 {
   System system;
@@ -588,14 +588,16 @@ private:
     opts.use_single_bus = false;
     opts.use_kirchhoff = false;
     opts.scale_objective = 1000.0;
-    opts.lp_matrix_options.names_level = LpNamesLevel::cols_and_rows;
+    opts.lp_matrix_options.col_with_names = true;
+    opts.lp_matrix_options.row_with_names = true;
+    opts.lp_matrix_options.col_with_name_map = true;
+    opts.lp_matrix_options.row_with_name_map = true;
     return PlanningOptionsLP(opts);
   }
 
   static LpMatrixOptions build_opts()
   {
     LpMatrixOptions bo;
-    bo.lp_names_level = LpNamesLevel::cols_and_rows;
     bo.col_with_names = true;
     bo.col_with_name_map = true;
     bo.row_with_names = true;

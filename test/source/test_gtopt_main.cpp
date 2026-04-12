@@ -567,7 +567,6 @@ TEST_CASE("gtopt_main - lp_debug writes LP files to log directory")  // NOLINT
   auto result = gtopt_main(MainOptions {
       .planning_files = {stem.string()},
       .use_single_bus = true,
-      .lp_names_level = LpNamesLevel::only_cols,
       .lp_debug = true,
       .lp_compression = "none",
       .log_directory = log_dir.string(),
@@ -841,14 +840,13 @@ TEST_CASE("gtopt_main - empty planning_files returns error")  // NOLINT
   (void)result;
 }
 
-TEST_CASE("gtopt_main - names_level=cols_and_rows with stats")  // NOLINT
+TEST_CASE("gtopt_main - lp_debug with stats")  // NOLINT
 {
-  // Exercise names_level=cols_and_rows (names + map) with stats to cover the
-  // make_lp_matrix_options paths for higher naming levels.
+  // Exercise lp_debug (all names + map) with stats to cover the
+  // make_lp_matrix_options paths.
   const auto stem = write_tmp_json("gtopt_main_lp_names2", minimal_json);
   auto result = gtopt_main(MainOptions {
       .planning_files = {stem.string()},
-      .lp_names_level = LpNamesLevel::cols_and_rows,
       .lp_only = true,
       .print_stats = true,
   });
@@ -869,7 +867,6 @@ TEST_CASE(
   auto result = gtopt_main(MainOptions {
       .planning_files = {stem.string()},
       .use_single_bus = true,
-      .lp_names_level = LpNamesLevel::only_cols,
       .lp_debug = true,
       .lp_compression = "gzip",
       .log_directory = log_dir.string(),

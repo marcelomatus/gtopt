@@ -91,7 +91,7 @@ auto save_state_csv(const PlanningLP& planning_lp,
           if (ci >= ncols) {
             continue;
           }
-          constexpr LabelMaker lm {LpNamesLevel::cols_and_rows};
+          constexpr LabelMaker lm {LpNamesLevel::all};
           const auto label = lm.make_col_label(SparseCol {
               .class_name = key.class_name,
               .variable_name = key.col_name,
@@ -176,7 +176,7 @@ auto load_state_csv(PlanningLP& planning_lp, const std::string& filepath)
         const auto& sv_map = sim.state_variables(si, pi);
         rmap.reserve(sv_map.size());
         for (const auto& [key, sv] : sv_map) {
-          constexpr LabelMaker lm {LpNamesLevel::cols_and_rows};
+          constexpr LabelMaker lm {LpNamesLevel::all};
           auto label = lm.make_col_label(SparseCol {
               .class_name = key.class_name,
               .variable_name = key.col_name,

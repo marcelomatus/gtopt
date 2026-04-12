@@ -707,7 +707,7 @@ public:
     if (effective_usv) {
       // Register the already-added last-block energy column as a state
       // variable (efin); sets is_state=true for SDDP cut I/O.  Column names
-      // are available at LpNamesLevel::only_cols or above, but state variable
+      // are available at LpNamesLevel::all, but state variable
       // I/O uses the StateVariable map (ColIndex-based) directly.
       sc.add_state_col(
           lp,

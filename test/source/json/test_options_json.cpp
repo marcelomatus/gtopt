@@ -99,11 +99,6 @@ TEST_CASE("json_options - Deserialization of Options from JSON")
     CHECK(*options.output_compression == CompressionCodec::gzip);
   }
 
-  REQUIRE(options.lp_matrix_options.names_level.has_value());
-  if (options.lp_matrix_options.names_level) {
-    CHECK(*options.lp_matrix_options.names_level == LpNamesLevel::only_cols);
-  }
-
   REQUIRE(options.use_uid_fname.has_value());
   if (options.use_uid_fname) {
     CHECK(*options.use_uid_fname == false);
@@ -157,7 +152,6 @@ TEST_CASE(
   CHECK_FALSE(options.scale_theta.has_value());
   CHECK_FALSE(options.output_format.has_value());
   CHECK_FALSE(options.output_compression.has_value());
-  CHECK_FALSE(options.lp_matrix_options.names_level.has_value());
   CHECK_FALSE(options.use_uid_fname.has_value());
   CHECK_FALSE(options.annual_discount_rate.has_value());
 }
@@ -173,9 +167,7 @@ TEST_CASE("json_options - Round-trip serialization and deserialization")
       .use_kirchhoff = true,
       .scale_objective = 100.0,
       .output_directory = "output_dir",
-      .lp_matrix_options {
-          .names_level = LpNamesLevel::only_cols,
-      },
+      .lp_matrix_options {},
   };
 
   // Serialize to JSON
@@ -190,8 +182,6 @@ TEST_CASE("json_options - Round-trip serialization and deserialization")
   CHECK(deserialized.use_kirchhoff == original.use_kirchhoff);
   CHECK(deserialized.scale_objective == original.scale_objective);
   CHECK(deserialized.output_directory == original.output_directory);
-  CHECK(deserialized.lp_matrix_options.names_level
-        == original.lp_matrix_options.names_level);
 
   // Check that unpopulated fields remain empty
   CHECK_FALSE(deserialized.input_format.has_value());

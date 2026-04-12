@@ -297,7 +297,7 @@ public:
   /// Atomic helper: add a new state-variable column to the LP AND register
   /// it in the state-variable map.  Sets `is_state = true` on the column so
   /// it is recognized as a state variable; column names are available at
-  /// `LpNamesLevel::only_cols` or above, but state variable I/O uses the
+  /// `LpNamesLevel::all`, but state variable I/O uses the
   /// StateVariable map (ColIndex-based) directly.  The column's `context`
   /// field is also used as the StateVariable's context, keeping the two
   /// in sync.

@@ -69,8 +69,6 @@ public:
   /** @brief Default compression codec for output files */
   static constexpr CompressionCodec default_output_compression =
       CompressionCodec::zstd;
-  /** @brief Default LP naming level (minimal = state-var col names only) */
-  static constexpr LpNamesLevel default_names_level = LpNamesLevel::none;
   /** @brief Default setting for using UIDs in filenames */
   static constexpr Bool default_use_uid_fname = true;
   /** @brief Default annual discount rate for multi-year planning */
@@ -248,16 +246,6 @@ public:
   [[nodiscard]] constexpr auto scale_theta() const
   {
     return m_options_.model_options.scale_theta.value_or(1.0);
-  }
-
-  /**
-   * @brief Gets the LP naming level, using default if not set
-   * @return LP naming level: minimal, only_cols, or cols_and_rows
-   */
-  [[nodiscard]] constexpr auto names_level() const -> LpNamesLevel
-  {
-    return m_options_.lp_matrix_options.names_level.value_or(
-        default_names_level);
   }
 
   /**

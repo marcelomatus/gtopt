@@ -222,25 +222,6 @@ TEST_CASE("HotStartMode from_name")  // NOLINT
   CHECK_FALSE(enum_from_name<HotStartMode>("bad").has_value());
 }
 
-// ─── LpNamesLevel ──────────────────────────────────────────────────────────
-
-TEST_CASE("LpNamesLevel from_name and name")  // NOLINT
-{
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
-  CHECK(enum_from_name<LpNamesLevel>("only_cols").value_or(LpNamesLevel::none)
-        == LpNamesLevel::only_cols);
-  CHECK(
-      enum_from_name<LpNamesLevel>("cols_and_rows").value_or(LpNamesLevel::none)
-      == LpNamesLevel::cols_and_rows);
-  CHECK_FALSE(enum_from_name<LpNamesLevel>("bogus").has_value());
-  CHECK_FALSE(enum_from_name<LpNamesLevel>("minimal").has_value());
-
-  CHECK(enum_name(LpNamesLevel::none) == "none");
-  CHECK(enum_name(LpNamesLevel::only_cols) == "only_cols");
-  CHECK(enum_name(LpNamesLevel::cols_and_rows) == "cols_and_rows");
-}
-
 // ─── PlanningOptionsLP enum accessors
 // ────────────────────────────────────────────────
 

@@ -1117,14 +1117,14 @@ public:
   }
 
   /// Column index → name vector (empty string for unnamed columns).
-  /// Populated alongside col_name_map when lp_names_level >= 1.
+  /// Populated alongside col_name_map when names are enabled.
   [[nodiscard]] constexpr const auto& col_index_to_name() const noexcept
   {
     return m_col_index_to_name_;
   }
 
   /// Row index → name vector (empty string for unnamed rows).
-  /// Populated alongside row_name_map when lp_names_level >= 1.
+  /// Populated alongside row_name_map when names are enabled.
   [[nodiscard]] constexpr const auto& row_index_to_name() const noexcept
   {
     return m_row_index_to_name_;
@@ -1261,7 +1261,7 @@ private:
   LabelMaker m_label_maker_ {};  ///< Label generator + level gate
 
   /// Name-to-index maps for duplicate detection and later lookup.
-  /// Populated when lp_names_level >= 1.
+  /// Populated when names are enabled.
   row_name_map_t m_row_names_;  ///< Row (constraint) name → row index
   col_name_map_t m_col_names_;  ///< Column (variable) name → col index
   StrongIndexVector<ColIndex, std::string> m_col_index_to_name_;

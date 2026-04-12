@@ -380,17 +380,16 @@ SolverTestResult test_variable_types(std::string_view solver)
 }
 
 // ---------------------------------------------------------------------------
-// 7. lp_names_level + name maps (col_name_map, row_name_map)
+// 7. LP names + name maps (col_name_map, row_name_map)
 // ---------------------------------------------------------------------------
 SolverTestResult test_name_maps(std::string_view solver)
 {
   TestContext ctx;
   try {
     LinearInterface lp(solver);
-    lp.set_label_maker(LabelMaker {LpNamesLevel::cols_and_rows});
+    lp.set_label_maker(LabelMaker {LpNamesLevel::all});
 
-    TC_CHECK(ctx,
-             lp.label_maker().names_level() == LpNamesLevel::cols_and_rows);
+    TC_CHECK(ctx, lp.label_maker().names_level() == LpNamesLevel::all);
 
     const auto x1 = lp.add_col(SparseCol {
         .uppb = 10.0,
@@ -726,7 +725,7 @@ SolverTestResult test_write_lp(std::string_view solver)
   try {
     const auto flat = make_2x2_flat();
     LinearInterface lp(solver, flat);
-    lp.set_label_maker(LabelMaker {LpNamesLevel::cols_and_rows});
+    lp.set_label_maker(LabelMaker {LpNamesLevel::all});
     const auto ri4 = lp.initial_solve(SolverOptions {
         .log_level = 0,
     });

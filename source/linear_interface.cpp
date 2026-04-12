@@ -25,7 +25,7 @@ namespace
 {
 /// Check name uniqueness via map insertion (try_emplace pattern).
 /// Returns true if the name is a duplicate.  When `errors_on_dup` is true
-/// (LabelMaker::duplicates_are_errors() at cols_and_rows level) a
+/// (LabelMaker::duplicates_are_errors() when names are enabled) a
 /// std::runtime_error is thrown; otherwise a warning is logged and the
 /// function returns true.
 ///
@@ -1135,7 +1135,7 @@ auto LinearInterface::write_lp(const std::string& filename) const
         .code = ErrorCode::InvalidInput,
         .message = std::format(
             "LP file '{}' not saved: row names are not available. "
-            "Set names_level >= cols_and_rows to enable LP file output.",
+            "Use --lp-debug to enable LP name generation for file output.",
             filename),
     });
   }

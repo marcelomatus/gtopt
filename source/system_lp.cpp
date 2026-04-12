@@ -379,12 +379,16 @@ constexpr auto create_linear_interface(auto& collections,
   // Create the solver interface first so we can query its infinity value.
   LinearInterface li(flat_opts.solver_name);
 
-  // Build the LabelMaker once from the effective lp_names_level and install
-  // it on both the LinearProblem (used during flatten() for colnm/rownm) and
-  // the LinearInterface (used for labels on any rows/cols added after
+  // Build the LabelMaker from the naming bools and install it on both the
+  // LinearProblem (used during flatten() for colnm/rownm) and the
+  // LinearInterface (used for labels on any rows/cols added after
   // load_flat()).  The LabelMaker travels by value through
   // FlatLinearProblem::label_maker during load_flat().
-  const LabelMaker label_maker {flat_opts.lp_names_level};
+  const auto eff_level =
+      (flat_opts.row_with_name_map || flat_opts.col_with_names)
+      ? LpNamesLevel::all
+      : LpNamesLevel::none;
+  const LabelMaker label_maker {eff_level};
   li.set_label_maker(label_maker);
 
   LinearProblem lp(std::format("gtopt_s{}_p{}", scene.uid(), phase.uid()));
@@ -413,6 +417,11 @@ constexpr auto create_linear_interface(auto& collections,
     const auto est_rows =
         n_elements * total_blocks * n_scenarios * rows_per_element;
     lp.reserve(est_cols, est_rows);
+
+    // Reserve AMPL variable map capacity to avoid flat_map reallocation
+    // during the add_to_lp loop.
+    system_context.simulation().reserve_ampl_variables(
+        scene.index(), phase.index(), est_cols);
   }
 
   const bool check_islands = !system_context.options().use_single_bus()
@@ -437,8 +446,11 @@ constexpr auto create_linear_interface(auto& collections,
   }
 
   // Compute LP fingerprint before flattening (structured metadata is still
-  // available in the raw cols/rows vectors).
-  auto fingerprint = compute_lp_fingerprint(lp.get_cols(), lp.get_rows());
+  // available in the raw cols/rows vectors).  Skipped unless the user
+  // requested fingerprint output (--lp-fingerprint).
+  auto fingerprint = flat_opts.compute_fingerprint
+      ? compute_lp_fingerprint(lp.get_cols(), lp.get_rows())
+      : LpFingerprint {};
 
   // Convert and store the flattened LP representation
   auto flat_lp = lp.flatten(flat_opts);
@@ -567,6 +579,16 @@ void register_element_names(SimulationLP& sim, const Array& arr)
 
 void register_all_ampl_element_names(SimulationLP& sim, const System& sys)
 {
+  const auto total_elements = sys.battery_array.size() + sys.bus_array.size()
+      + sys.converter_array.size() + sys.demand_array.size()
+      + sys.flow_array.size() + sys.flow_right_array.size()
+      + sys.generator_array.size() + sys.junction_array.size()
+      + sys.line_array.size() + sys.reserve_provision_array.size()
+      + sys.reserve_zone_array.size() + sys.reservoir_array.size()
+      + sys.turbine_array.size() + sys.volume_right_array.size()
+      + sys.waterway_array.size() + sys.reservoir_seepage_array.size();
+  sim.reserve_ampl_element_names(total_elements);
+
   register_element_names<BatteryLP>(sim, sys.battery_array);
   register_element_names<BusLP>(sim, sys.bus_array);
   register_element_names<ConverterLP>(sim, sys.converter_array);

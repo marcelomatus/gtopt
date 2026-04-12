@@ -35,7 +35,6 @@ TEST_CASE("Options - Default construction")
   CHECK_FALSE(options.output_directory.has_value());
   CHECK_FALSE(options.output_format.has_value());
   CHECK_FALSE(options.output_compression.has_value());
-  CHECK_FALSE(options.lp_matrix_options.names_level.has_value());
   CHECK_FALSE(options.use_uid_fname.has_value());
   CHECK_FALSE(options.annual_discount_rate.has_value());
   // Check solver_options defaults (sentinel values — backend fills in optimal)
@@ -65,7 +64,9 @@ TEST_CASE("Options - Construction with values")
       .output_compression = CompressionCodec::gzip,
       .use_uid_fname = false,
       .lp_matrix_options {
-          .names_level = LpNamesLevel::only_cols,
+          .col_with_names = true,
+          .row_with_names = true,
+          .col_with_name_map = true,
       },
   };
 
@@ -108,9 +109,6 @@ TEST_CASE("Options - Construction with values")
 
   REQUIRE(options.output_compression.has_value());
   CHECK(*options.output_compression == CompressionCodec::gzip);
-
-  REQUIRE(options.lp_matrix_options.names_level.has_value());
-  CHECK(*options.lp_matrix_options.names_level == LpNamesLevel::only_cols);
 
   REQUIRE(options.use_uid_fname.has_value());
   CHECK(*options.use_uid_fname == false);
@@ -291,7 +289,6 @@ TEST_CASE("PlanningOptionsLP - Default construction")
         == PlanningOptionsLP::default_output_format);
   CHECK(options_lp.output_compression_enum()
         == PlanningOptionsLP::default_output_compression);
-  CHECK(options_lp.names_level() == PlanningOptionsLP::default_names_level);
   CHECK(options_lp.use_uid_fname() == PlanningOptionsLP::default_use_uid_fname);
   CHECK(options_lp.annual_discount_rate()
         == doctest::Approx(PlanningOptionsLP::default_annual_discount_rate));
@@ -328,7 +325,6 @@ TEST_CASE("PlanningOptionsLP - Default construction 2")
         == PlanningOptionsLP::default_output_format);
   CHECK(options_lp.output_compression_enum()
         == PlanningOptionsLP::default_output_compression);
-  CHECK(options_lp.names_level() == PlanningOptionsLP::default_names_level);
   CHECK(options_lp.use_uid_fname() == PlanningOptionsLP::default_use_uid_fname);
   CHECK(options_lp.annual_discount_rate()
         == doctest::Approx(PlanningOptionsLP::default_annual_discount_rate));
@@ -364,7 +360,6 @@ TEST_CASE("PlanningOptionsLP - Default construction 3")
         == PlanningOptionsLP::default_output_format);
   CHECK(options_lp.output_compression_enum()
         == PlanningOptionsLP::default_output_compression);
-  CHECK(options_lp.names_level() == PlanningOptionsLP::default_names_level);
   CHECK(options_lp.use_uid_fname() == PlanningOptionsLP::default_use_uid_fname);
   CHECK(options_lp.annual_discount_rate()
         == doctest::Approx(PlanningOptionsLP::default_annual_discount_rate));
@@ -412,7 +407,6 @@ TEST_CASE("PlanningOptionsLP - Construction with Options")
         == PlanningOptionsLP::default_output_format);
   CHECK(options_lp.output_compression_enum()
         == PlanningOptionsLP::default_output_compression);
-  CHECK(options_lp.names_level() == PlanningOptionsLP::default_names_level);
   CHECK(options_lp.use_uid_fname() == PlanningOptionsLP::default_use_uid_fname);
   CHECK(options_lp.annual_discount_rate()
         == doctest::Approx(PlanningOptionsLP::default_annual_discount_rate));
@@ -440,7 +434,9 @@ TEST_CASE("PlanningOptionsLP - Test all accessor methods")
       .output_compression = CompressionCodec::bzip2,
       .use_uid_fname = true,
       .lp_matrix_options {
-          .names_level = LpNamesLevel::only_cols,
+          .col_with_names = true,
+          .row_with_names = true,
+          .col_with_name_map = true,
       },
   };
 
@@ -469,7 +465,6 @@ TEST_CASE("PlanningOptionsLP - Test all accessor methods")
   CHECK(options_lp.output_directory() == "test_output");
   CHECK(options_lp.output_format() == "parquet");
   CHECK(options_lp.output_compression() == "bzip2");
-  CHECK(options_lp.names_level() == LpNamesLevel::only_cols);
   CHECK(options_lp.use_uid_fname() == true);
   CHECK(options_lp.annual_discount_rate() == doctest::Approx(0.07));
 }

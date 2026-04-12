@@ -71,16 +71,6 @@ TEST_CASE("get_opt - works with bool type")
   CHECK((result && *result == true));
 }
 
-TEST_CASE("get_opt - works with string type for names-level")
-{
-  auto desc = make_options_description();
-  auto vm = parse_args({"--lp-names-level", "cols_and_rows"}, desc);
-
-  auto result = get_opt<std::string>(vm, "lp-names-level");
-  REQUIRE(result.has_value());
-  CHECK(result.value_or("") == "cols_and_rows");
-}
-
 TEST_CASE("get_opt - works with double type")
 {
   auto desc = make_options_description();
@@ -99,16 +89,6 @@ TEST_CASE("get_opt - implicit bool value")
   auto result = get_opt<bool>(vm, "use-kirchhoff");
   REQUIRE(result.has_value());
   CHECK(result.value_or(false) == true);
-}
-
-TEST_CASE("get_opt - implicit string value for names-level")
-{
-  auto desc = make_options_description();
-  auto vm = parse_args({"--lp-names-level"}, desc);
-
-  auto result = get_opt<std::string>(vm, "lp-names-level");
-  REQUIRE(result.has_value());
-  CHECK(result.value_or("") == "only_cols");
 }
 
 // ---- Tests for make_options_description ----
@@ -137,9 +117,6 @@ TEST_CASE("make_options_description - short options work")
 
   vm = parse_args({"-k"}, desc);
   CHECK(vm.contains("use-kirchhoff"));
-
-  vm = parse_args({"-n", "only_cols"}, desc);
-  CHECK(vm.contains("lp-names-level"));
 
   vm = parse_args({"-e", "0.01"}, desc);
   CHECK(vm.contains("matrix-eps"));
@@ -211,14 +188,11 @@ TEST_CASE("apply_cli_options - no options applied")
                     std::nullopt,
                     std::nullopt,
                     std::nullopt,
-                    std::nullopt,
                     std::nullopt);
 
   CHECK_FALSE(planning.options.use_single_bus.has_value());
   CHECK_FALSE(planning.options.use_kirchhoff.has_value());
-  CHECK_FALSE(planning.options.lp_matrix_options.names_level.has_value());
   CHECK_FALSE(planning.options.input_directory.has_value());
-  CHECK_FALSE(planning.options.input_format.has_value());
   CHECK_FALSE(planning.options.output_directory.has_value());
   CHECK_FALSE(planning.options.output_format.has_value());
   CHECK_FALSE(planning.options.output_compression.has_value());
@@ -230,7 +204,6 @@ TEST_CASE("apply_cli_options - all options applied")
   apply_cli_options(planning,
                     true,
                     false,
-                    std::optional<LpNamesLevel>(LpNamesLevel::only_cols),
                     std::optional<std::string>("/input"),
                     std::optional<std::string>("parquet"),
                     std::optional<std::string>("/output"),
@@ -244,11 +217,6 @@ TEST_CASE("apply_cli_options - all options applied")
   REQUIRE(planning.options.use_kirchhoff.has_value());
   CHECK((planning.options.use_kirchhoff
          && *planning.options.use_kirchhoff == false));
-
-  REQUIRE(planning.options.lp_matrix_options.names_level.has_value());
-  CHECK((planning.options.lp_matrix_options.names_level
-         && *planning.options.lp_matrix_options.names_level
-             == LpNamesLevel::only_cols));
 
   REQUIRE(planning.options.input_directory.has_value());
   CHECK((planning.options.input_directory
@@ -279,7 +247,6 @@ TEST_CASE("apply_cli_options - partial options applied")
                     std::nullopt,
                     std::nullopt,
                     std::nullopt,
-                    std::nullopt,
                     std::optional<std::string>("/output"),
                     std::nullopt,
                     std::nullopt);
@@ -289,7 +256,6 @@ TEST_CASE("apply_cli_options - partial options applied")
          && *planning.options.use_single_bus == true));
 
   CHECK_FALSE(planning.options.use_kirchhoff.has_value());
-  CHECK_FALSE(planning.options.lp_matrix_options.names_level.has_value());
 
   REQUIRE(planning.options.output_directory.has_value());
   CHECK((planning.options.output_directory
@@ -305,7 +271,6 @@ TEST_CASE("apply_cli_options - does not overwrite existing when nullopt")
   planning.options.use_kirchhoff = true;
 
   apply_cli_options(planning,
-                    std::nullopt,
                     std::nullopt,
                     std::nullopt,
                     std::nullopt,
@@ -333,7 +298,6 @@ TEST_CASE("apply_cli_options - overwrites existing when value provided")
                     std::nullopt,
                     std::nullopt,
                     std::nullopt,
-                    std::nullopt,
                     std::optional<std::string>("new_dir"),
                     std::nullopt,
                     std::nullopt);
@@ -352,7 +316,6 @@ TEST_CASE("apply_cli_options(MainOptions) - no options applied")
 
   CHECK_FALSE(planning.options.use_single_bus.has_value());
   CHECK_FALSE(planning.options.use_kirchhoff.has_value());
-  CHECK_FALSE(planning.options.lp_matrix_options.names_level.has_value());
   CHECK_FALSE(planning.options.input_directory.has_value());
   CHECK_FALSE(planning.options.output_directory.has_value());
   CHECK_FALSE(planning.options.output_format.has_value());
@@ -371,7 +334,6 @@ TEST_CASE("apply_cli_options(MainOptions) - all options applied")
                         .output_compression = "gzip",
                         .use_single_bus = true,
                         .use_kirchhoff = false,
-                        .lp_names_level = LpNamesLevel::only_cols,
                     });
 
   REQUIRE(planning.options.use_single_bus.has_value());
@@ -432,20 +394,18 @@ TEST_CASE("apply_cli_options(MainOptions) - overwrites existing when provided")
 
 TEST_CASE("make_lp_matrix_options - defaults when both nullopt")
 {
-  auto opts = make_lp_matrix_options(std::nullopt, std::nullopt);
+  auto opts = make_lp_matrix_options(false, std::nullopt);
 
   CHECK(opts.eps == doctest::Approx(0.0));
   CHECK(opts.col_with_names == false);
   CHECK(opts.row_with_names == false);
   CHECK(opts.col_with_name_map == false);
   CHECK(opts.row_with_name_map == false);
-  CHECK(opts.lp_names_level == LpNamesLevel::none);
 }
 
-TEST_CASE("make_lp_matrix_options - names_level none disables all names")
+TEST_CASE("make_lp_matrix_options - enable_names false disables all names")
 {
-  auto opts = make_lp_matrix_options(
-      std::optional<LpNamesLevel>(LpNamesLevel::none), std::nullopt);
+  auto opts = make_lp_matrix_options(false, std::nullopt);
 
   // At minimal, dense col/row name vectors are not built — state variable
   // I/O uses the state variable map (ColIndex-based) directly.
@@ -455,24 +415,9 @@ TEST_CASE("make_lp_matrix_options - names_level none disables all names")
   CHECK(opts.row_with_name_map == false);
 }
 
-TEST_CASE(
-    "make_lp_matrix_options - names_level only_cols enables col and row names")
+TEST_CASE("make_lp_matrix_options - enable_names true enables all names")
 {
-  auto opts = make_lp_matrix_options(
-      std::optional<LpNamesLevel>(LpNamesLevel::only_cols), std::nullopt);
-
-  CHECK(opts.col_with_names == true);
-  CHECK(opts.row_with_names == true);
-  CHECK(opts.col_with_name_map == true);
-  CHECK(opts.row_with_name_map == true);
-}
-
-TEST_CASE(
-    "make_lp_matrix_options - names_level cols_and_rows enables names and "
-    "errors")
-{
-  auto opts = make_lp_matrix_options(
-      std::optional<LpNamesLevel>(LpNamesLevel::cols_and_rows), std::nullopt);
+  auto opts = make_lp_matrix_options(true, std::nullopt);
 
   CHECK(opts.col_with_names == true);
   CHECK(opts.row_with_names == true);
@@ -482,17 +427,14 @@ TEST_CASE(
 
 TEST_CASE("make_lp_matrix_options - custom eps value")
 {
-  auto opts =
-      make_lp_matrix_options(std::nullopt, std::optional<double>(0.001));
+  auto opts = make_lp_matrix_options(false, std::optional<double>(0.001));
 
   CHECK(opts.eps == doctest::Approx(0.001));
 }
 
 TEST_CASE("make_lp_matrix_options - both parameters provided")
 {
-  auto opts = make_lp_matrix_options(
-      std::optional<LpNamesLevel>(LpNamesLevel::cols_and_rows),
-      std::optional<double>(1e-6));
+  auto opts = make_lp_matrix_options(true, std::optional<double>(1e-6));
 
   CHECK(opts.eps == doctest::Approx(1e-6));
   CHECK(opts.col_with_names == true);
@@ -510,8 +452,6 @@ TEST_CASE("Integration - parse and extract all option types")
       {
           "system.json",
           "--use-single-bus",
-          "--lp-names-level",
-          "cols_and_rows",
           "--matrix-eps",
           "0.01",
           "--output-directory",
@@ -524,13 +464,6 @@ TEST_CASE("Integration - parse and extract all option types")
       desc);
 
   auto use_single_bus = get_opt<bool>(vm, "use-single-bus");
-  auto names_level = [&]() -> std::optional<LpNamesLevel>
-  {
-    if (auto raw = get_opt<std::string>(vm, "lp-names-level")) {
-      return parse_lp_names_level(*raw);
-    }
-    return std::nullopt;
-  }();
   auto matrix_eps = get_opt<double>(vm, "matrix-eps");
   auto output_directory = get_opt<std::string>(vm, "output-directory");
   auto output_format = get_opt<std::string>(vm, "output-format");
@@ -538,9 +471,6 @@ TEST_CASE("Integration - parse and extract all option types")
 
   REQUIRE(use_single_bus.has_value());
   CHECK((use_single_bus && *use_single_bus == true));
-
-  REQUIRE(names_level.has_value());
-  CHECK((names_level && *names_level == LpNamesLevel::cols_and_rows));
 
   REQUIRE(matrix_eps.has_value());
   CHECK((matrix_eps && *matrix_eps == doctest::Approx(0.01)));
@@ -559,7 +489,6 @@ TEST_CASE("Integration - parse and extract all option types")
   apply_cli_options(planning,
                     use_single_bus,
                     get_opt<bool>(vm, "use-kirchhoff"),
-                    names_level,
                     get_opt<std::string>(vm, "input-directory"),
                     get_opt<std::string>(vm, "input-format"),
                     output_directory,
@@ -571,8 +500,8 @@ TEST_CASE("Integration - parse and extract all option types")
          && *planning.options.use_single_bus == true));
   CHECK_FALSE(planning.options.use_kirchhoff.has_value());
 
-  // Build flat options
-  auto flat_opts = make_lp_matrix_options(names_level, matrix_eps);
+  // Build flat options (enable_names is internal-only, set directly)
+  auto flat_opts = make_lp_matrix_options(true, matrix_eps);
   CHECK(flat_opts.eps == doctest::Approx(0.01));
   CHECK(flat_opts.col_with_names == true);
   CHECK(flat_opts.col_with_name_map == true);

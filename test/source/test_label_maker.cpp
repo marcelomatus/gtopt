@@ -60,17 +60,9 @@ TEST_CASE("LabelMaker level predicates")
     CHECK_FALSE(maker.all_col_names_enabled());
     CHECK_FALSE(maker.duplicates_are_errors());
   }
-  SUBCASE("only_cols")
+  SUBCASE("all")
   {
-    const LabelMaker maker {LpNamesLevel::only_cols};
-    CHECK(maker.col_names_enabled());
-    CHECK(maker.row_names_enabled());
-    CHECK(maker.all_col_names_enabled());
-    CHECK_FALSE(maker.duplicates_are_errors());
-  }
-  SUBCASE("cols_and_rows")
-  {
-    const LabelMaker maker {LpNamesLevel::cols_and_rows};
+    const LabelMaker maker {LpNamesLevel::all};
     CHECK(maker.col_names_enabled());
     CHECK(maker.row_names_enabled());
     CHECK(maker.all_col_names_enabled());
@@ -92,23 +84,18 @@ TEST_CASE("LabelMaker::make_col_label honors the level gate")
     CHECK(maker.make_col_label(regular).empty());
     CHECK(maker.make_col_label(state).empty());
   }
-  SUBCASE("only_cols emits every column")
+  SUBCASE("all emits every column")
   {
-    const LabelMaker maker {LpNamesLevel::only_cols};
+    const LabelMaker maker {LpNamesLevel::all};
     CHECK(maker.make_col_label(regular) == "bus_theta_3_0_1");
     CHECK(maker.make_col_label(state) == "bus_eini_5_0_1");
-  }
-  SUBCASE("cols_and_rows emits every column")
-  {
-    const LabelMaker maker {LpNamesLevel::cols_and_rows};
-    CHECK(maker.make_col_label(regular) == "bus_theta_3_0_1");
   }
 }
 
 TEST_CASE(
     "LabelMaker::make_col_label without context falls back to class+var+uid")
 {
-  const LabelMaker maker {LpNamesLevel::only_cols};
+  const LabelMaker maker {LpNamesLevel::all};
   SparseCol col;
   col.class_name = "Generator";
   col.variable_name = "gen";
@@ -116,7 +103,7 @@ TEST_CASE(
   CHECK(maker.make_col_label(col) == "generator_gen_42");
 }
 
-TEST_CASE("LabelMaker::make_row_label requires only_cols or higher")
+TEST_CASE("LabelMaker::make_row_label requires all level")
 {
   const auto ctx = make_block_context(
       make_uid<Scenario>(1), make_uid<Stage>(2), make_uid<Block>(3));
@@ -127,21 +114,16 @@ TEST_CASE("LabelMaker::make_row_label requires only_cols or higher")
     const LabelMaker maker {LpNamesLevel::none};
     CHECK(maker.make_row_label(row).empty());
   }
-  SUBCASE("only_cols emits the label")
+  SUBCASE("all emits the label")
   {
-    const LabelMaker maker {LpNamesLevel::only_cols};
-    CHECK(maker.make_row_label(row) == "bus_bal_4_1_2_3");
-  }
-  SUBCASE("cols_and_rows emits the label")
-  {
-    const LabelMaker maker {LpNamesLevel::cols_and_rows};
+    const LabelMaker maker {LpNamesLevel::all};
     CHECK(maker.make_row_label(row) == "bus_bal_4_1_2_3");
   }
 }
 
-TEST_CASE("LabelMaker cols_and_rows always emits labels")
+TEST_CASE("LabelMaker all level always emits labels")
 {
-  const LabelMaker maker {LpNamesLevel::cols_and_rows};
+  const LabelMaker maker {LpNamesLevel::all};
 
   const auto col_ctx =
       make_stage_context(make_uid<Scenario>(0), make_uid<Stage>(1));
@@ -159,7 +141,7 @@ TEST_CASE("LabelMaker cols_and_rows always emits labels")
 
 TEST_CASE("LabelMaker::make_col_label empty class and name → empty")
 {
-  const LabelMaker maker {LpNamesLevel::only_cols};
+  const LabelMaker maker {LpNamesLevel::all};
   const SparseCol col {};
   CHECK(maker.make_col_label(col).empty());
 }

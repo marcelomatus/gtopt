@@ -61,8 +61,8 @@ struct FlatLinearProblem
                                  ///< flatten().  obj_physical = obj_LP ×
                                  ///< scale_objective.
 
-  name_vec_t colnm;  ///< Variable names (dense; populated at only_cols+)
-  name_vec_t rownm;  ///< Constraint names (dense; populated at cols_and_rows)
+  name_vec_t colnm;  ///< Variable names (dense; populated when names enabled)
+  name_vec_t rownm;  ///< Constraint names (dense; populated when names enabled)
   index_map_t colmp;  ///< Map from variable names to indices
   index_map_t rowmp;  ///< Map from constraint names to indices
 

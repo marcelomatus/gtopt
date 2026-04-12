@@ -55,8 +55,6 @@ struct LpMatrixOptions
       fast_sqrt_method {};  ///< Approximate sqrt for Ruiz scaling.
                             ///< See FastSqrtMethod for options.
                             ///< Default is `ieee_halve`.
-  LpNamesLevel lp_names_level {LpNamesLevel::none};  ///< Computed naming
-                                                     ///< level (internal)
   double scale_objective {1.0};  ///< Global divisor for all objective
                                  ///< coefficients (numerical conditioning).
                                  ///< Applied uniformly during flatten().
@@ -75,15 +73,9 @@ struct LpMatrixOptions
   /// `auto_select` defers to `select_codec()` which prefers lz4.
   CompressionCodec memory_codec {CompressionCodec::auto_select};
 
-  /** @brief LP naming level (user-facing JSON/CLI option).
-   *
-   * - `minimal`:      State-variable column names only (default).
-   * - `only_cols`:    All column names + name-to-index maps.
-   * - `cols_and_rows`: Column + row names + maps + warn on duplicates.
-   *
-   * Accepts integer (0/1/2) or string name in JSON.
-   */
-  std::optional<LpNamesLevel> names_level {};
+  /// Compute LP fingerprint (structural hash) during flatten.
+  /// Default false — only enabled when `--lp-fingerprint` is set.
+  bool compute_fingerprint {false};
 
   /** @brief LP coefficient ratio threshold for numerical conditioning
    * diagnostics.  When the global max/min |coefficient| ratio exceeds this
@@ -95,7 +87,6 @@ struct LpMatrixOptions
   /// first-value-wins semantics like SolverOptions.
   void merge(const LpMatrixOptions& other)
   {
-    merge_opt(names_level, other.names_level);
     merge_opt(lp_coeff_ratio_threshold, other.lp_coeff_ratio_threshold);
     merge_opt(equilibration_method, other.equilibration_method);
     merge_opt(fast_sqrt_method, other.fast_sqrt_method);
