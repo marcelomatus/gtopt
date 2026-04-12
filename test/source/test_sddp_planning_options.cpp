@@ -153,6 +153,106 @@ TEST_CASE("PlanningOptions method from JSON top-level field")  // NOLINT
   CHECK(options_lp.method_type_enum() == MethodType::sddp);
 }
 
+// ─── BuildMode parsing and option plumbing ──────────────────────────────────
+
+TEST_CASE("BuildMode enum_from_name accepts canonical and alias spellings")
+{
+  // Canonical dashed names
+  CHECK(enum_from_name<BuildMode>("serial").value_or(BuildMode::full_parallel)
+        == BuildMode::serial);
+  CHECK(enum_from_name<BuildMode>("scene-parallel")
+            .value_or(BuildMode::full_parallel)
+        == BuildMode::scene_parallel);
+  CHECK(enum_from_name<BuildMode>("full-parallel").value_or(BuildMode::serial)
+        == BuildMode::full_parallel);
+
+  // Underscore aliases
+  CHECK(enum_from_name<BuildMode>("scene_parallel")
+            .value_or(BuildMode::full_parallel)
+        == BuildMode::scene_parallel);
+  CHECK(enum_from_name<BuildMode>("full_parallel").value_or(BuildMode::serial)
+        == BuildMode::full_parallel);
+
+  // Case-insensitive
+  CHECK(enum_from_name<BuildMode>("SERIAL").value_or(BuildMode::full_parallel)
+        == BuildMode::serial);
+  CHECK(enum_from_name<BuildMode>("Scene-Parallel").value_or(BuildMode::serial)
+        == BuildMode::scene_parallel);
+
+  // Unknown → nullopt
+  CHECK(!enum_from_name<BuildMode>("nonsense").has_value());
+}
+
+TEST_CASE("BuildMode enum_name round-trips canonical names")
+{
+  CHECK(enum_name(BuildMode::serial) == "serial");
+  CHECK(enum_name(BuildMode::scene_parallel) == "scene-parallel");
+  CHECK(enum_name(BuildMode::full_parallel) == "full-parallel");
+}
+
+TEST_CASE("PlanningOptionsLP::build_mode_enum defaults to scene_parallel")
+{
+  const PlanningOptionsLP options_lp;
+  CHECK(options_lp.build_mode_enum() == BuildMode::scene_parallel);
+}
+
+TEST_CASE("PlanningOptionsLP::build_mode_enum respects explicit value")
+{
+  PlanningOptions opts;
+  opts.build_mode = BuildMode::serial;
+  const PlanningOptionsLP options_lp(std::move(opts));
+  CHECK(options_lp.build_mode_enum() == BuildMode::serial);
+}
+
+TEST_CASE("PlanningOptions build_mode from JSON top-level field")
+{
+  // "build_mode": "full-parallel" in the top-level options block should be
+  // parsed into PlanningOptions::build_mode and surfaced via the LP accessor.
+  constexpr std::string_view json_str = R"json(
+  {
+    "options": {
+      "build_mode": "full-parallel"
+    }
+  }
+  )json";
+
+  const auto planning =
+      daw::json::from_json<Planning>(json_str);  // NOLINT(misc-include-cleaner)
+  const PlanningOptionsLP options_lp(planning.options);
+  CHECK(options_lp.build_mode_enum() == BuildMode::full_parallel);
+}
+
+TEST_CASE("PlanningOptions build_mode from JSON underscore alias")
+{
+  // The underscore alias "scene_parallel" must also parse correctly.
+  constexpr std::string_view json_str = R"json(
+  {
+    "options": {
+      "build_mode": "scene_parallel"
+    }
+  }
+  )json";
+
+  const auto planning =
+      daw::json::from_json<Planning>(json_str);  // NOLINT(misc-include-cleaner)
+  const PlanningOptionsLP options_lp(planning.options);
+  CHECK(options_lp.build_mode_enum() == BuildMode::scene_parallel);
+}
+
+TEST_CASE("PlanningOptions build_mode default when field absent")
+{
+  constexpr std::string_view json_str = R"json(
+  {
+    "options": {}
+  }
+  )json";
+
+  const auto planning =
+      daw::json::from_json<Planning>(json_str);  // NOLINT(misc-include-cleaner)
+  const PlanningOptionsLP options_lp(planning.options);
+  CHECK(options_lp.build_mode_enum() == BuildMode::scene_parallel);
+}
+
 // ─── Solver infrastructure tests ────────────────────────────────────────────
 
 TEST_CASE("SDDPMethod API - monitoring API stop-request file")  // NOLINT
@@ -219,6 +319,57 @@ TEST_CASE("make_solver_work_pool with custom cpu_factor")  // NOLINT
   auto fut = pool->submit([] { return 7; });
   REQUIRE(fut.has_value());
   CHECK(fut->get() == 7);
+}
+
+// Rounding the `cpu_factor * hardware_concurrency` product to an int
+// can land exactly on zero when the user passes a tiny factor
+// (`--cpu-factor 0.01` on a 20-core box yields `lround(0.2) = 0`).  A
+// zero-thread pool would deadlock `submit()` since nothing can ever
+// dispatch the task — so the factory clamps to ≥1.  Without this
+// clamp, the "serial baseline" contract for PlanningLP breaks.
+TEST_CASE("make_solver_work_pool clamps tiny cpu_factor to 1 thread")  // NOLINT
+{
+  auto tiny_pool = make_solver_work_pool(0.001);
+  REQUIRE(tiny_pool != nullptr);
+  CHECK(tiny_pool->max_threads() >= 1);
+
+  // Round-trip a task to prove the 1-thread pool actually runs work.
+  auto fut = tiny_pool->submit([] { return 11; });
+  REQUIRE(fut.has_value());
+  CHECK(fut->get() == 11);
+
+  // cpu_factor = 0.0 is degenerate but must still yield a usable pool
+  // rather than a silent hang.
+  auto zero_pool = make_solver_work_pool(0.0);
+  REQUIRE(zero_pool != nullptr);
+  CHECK(zero_pool->max_threads() >= 1);
+
+  auto zfut = zero_pool->submit([] { return 13; });
+  REQUIRE(zfut.has_value());
+  CHECK(zfut->get() == 13);
+}
+
+// `--cpu-factor 0.025` on a 20-logical-core box should yield
+// `lround(0.5) = 1` — verify on this machine (hardware_concurrency
+// may be even or odd, so don't assume 1; assert the count matches
+// what the formula computes, clamped to ≥1).
+TEST_CASE("make_solver_work_pool serial baseline factor")  // NOLINT
+{
+  const double factor = 0.025;
+  const auto hw = std::thread::hardware_concurrency();
+  const auto expected = std::max(
+      1, static_cast<int>(std::lround(factor * static_cast<double>(hw))));
+
+  auto pool = make_solver_work_pool(factor);
+  REQUIRE(pool != nullptr);
+  CHECK(pool->max_threads() == expected);
+
+  // A 1-thread pool is the exact contract we rely on for the
+  // PlanningLP serial diagnostic baseline.  On machines with
+  // hardware_concurrency < 40, `expected` may round to 1 as well
+  // (e.g. 20 cores × 0.025 = 0.5 → 1).  On > 60-core boxes it may
+  // round to 2, which is fine — we don't force serial here, we just
+  // verify the arithmetic.
 }
 
 TEST_CASE("SDDPIterationResult contains timing information")  // NOLINT

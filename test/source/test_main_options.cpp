@@ -814,3 +814,61 @@ TEST_CASE("--recover gates recovery_mode in apply_cli_options")  // NOLINT
         == RecoveryMode::none);
   }
 }
+
+TEST_CASE("--build-mode routes into PlanningOptions::build_mode")  // NOLINT
+{
+  SUBCASE("no --build-mode leaves build_mode unset (→ default scene_parallel)")
+  {
+    Planning planning {};
+    apply_cli_options(planning, MainOptions {});
+    CHECK_FALSE(planning.options.build_mode.has_value());
+  }
+
+  SUBCASE("--build-mode=serial sets BuildMode::serial")
+  {
+    Planning planning {};
+    apply_cli_options(planning,
+                      MainOptions {
+                          .build_mode = std::string {"serial"},
+                      });
+    REQUIRE(planning.options.build_mode.has_value());
+    CHECK(planning.options.build_mode.value_or(BuildMode::full_parallel)
+          == BuildMode::serial);
+  }
+
+  SUBCASE("--build-mode=scene-parallel sets BuildMode::scene_parallel")
+  {
+    Planning planning {};
+    apply_cli_options(planning,
+                      MainOptions {
+                          .build_mode = std::string {"scene-parallel"},
+                      });
+    REQUIRE(planning.options.build_mode.has_value());
+    CHECK(planning.options.build_mode.value_or(BuildMode::full_parallel)
+          == BuildMode::scene_parallel);
+  }
+
+  SUBCASE("--build-mode=full-parallel sets BuildMode::full_parallel")
+  {
+    Planning planning {};
+    apply_cli_options(planning,
+                      MainOptions {
+                          .build_mode = std::string {"full-parallel"},
+                      });
+    REQUIRE(planning.options.build_mode.has_value());
+    CHECK(planning.options.build_mode.value_or(BuildMode::serial)
+          == BuildMode::full_parallel);
+  }
+
+  SUBCASE("--build-mode accepts underscore alias")
+  {
+    Planning planning {};
+    apply_cli_options(planning,
+                      MainOptions {
+                          .build_mode = std::string {"scene_parallel"},
+                      });
+    REQUIRE(planning.options.build_mode.has_value());
+    CHECK(planning.options.build_mode.value_or(BuildMode::full_parallel)
+          == BuildMode::scene_parallel);
+  }
+}

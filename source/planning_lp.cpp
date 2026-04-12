@@ -405,44 +405,48 @@ auto PlanningLP::create_systems(System& system,
 
   PlanningLP::scene_phase_systems_t all_systems(scenes.size());
 
-  // Use the work pool to build (scene, phase) cells in parallel.  All
-  // cells are independent at build time: cross-phase state-variable
-  // links are queued (PendingStateLink) inside each SystemLP and
-  // resolved later by `tighten_scene_phase_links`, which runs after
-  // every cell of a given scene has been built.  Flat (scene × phase)
-  // submission gives better load balancing than nested per-scene
-  // parallelism — especially for cases with few scenes but many phases.
+  // `BuildMode` selects the granularity of LP assembly parallelism:
+  //   - `serial`:         no work pool; build every (scene, phase) cell
+  //                        in the calling thread.  Matches a genuine
+  //                        pre-parallel baseline — no pool submit, no
+  //                        build buffer, no move/merge overhead.
+  //                        Ignores `--cpu-factor`.
+  //   - `scene_parallel`: one pool task per scene; each task builds its
+  //                        scene's phases sequentially into its own
+  //                        `phase_systems_t` and runs
+  //                        `tighten_scene_phase_links` before returning.
+  //                        Coarser granularity, lower pool-submit and
+  //                        malloc-arena contention — the pre-00c605d7
+  //                        default and current default.
+  //   - `full_parallel`:  one pool task per (scene × phase) cell,
+  //                        materialised into a `build_buf` and moved
+  //                        into `all_systems` during a sequential merge
+  //                        pass.  Maximum concurrency, highest per-cell
+  //                        overhead.  The custom SystemLP move-ctor
+  //                        re-points the embedded SystemContext back-
+  //                        reference and rebuilds its
+  //                        `m_collection_ptrs_` interior-pointer table
+  //                        to the new owner, so post-move SystemLPs are
+  //                        valid even though the build buffer holds
+  //                        them at a different address.
   //
-  // Each cell is constructed in-place into a `vector<vector<optional<>>>`
-  // build buffer, then moved into the final `phase_systems_t` during a
-  // sequential merge step.  The custom SystemLP move-ctor re-points the
-  // embedded SystemContext back-reference (`m_system_`) and rebuilds its
-  // `m_collection_ptrs_` interior-pointer table to the new owner, so
-  // post-move SystemLPs are valid even though the build buffer holds
-  // them at a different address than the final vector.
+  // Cross-phase state-variable links are queued (`PendingStateLink`)
+  // inside each SystemLP and resolved by `tighten_scene_phase_links`.
+  // That routine only touches state variables for a given scene, so it
+  // is safe to run in-thread under `scene_parallel` and `serial`, and
+  // in a sequential merge pass under `full_parallel`.
   //
-  // NOTE: create the pool *before* logging "Building LP: N × N" so the
-  // output order makes it obvious that every per-cell task is scheduled
-  // through the pool.  Before this reorder, the banner appeared first
-  // and looked as if LP building happened outside the pool.
-  auto pool = make_solver_work_pool();
+  // Honors the CLI `--cpu-factor` flag (routed through
+  // `sddp_options.pool_cpu_factor`) for both parallel modes.
+  const auto build_mode = options.build_mode_enum();
+  const auto build_cpu_factor = options.build_pool_cpu_factor();
 
-  SPDLOG_INFO(
-      "  Building LP: {} scene(s) × {} phase(s)", num_scenes, num_phases);
+  SPDLOG_INFO("  Building LP: {} scene(s) × {} phase(s) [mode={}]",
+              num_scenes,
+              num_phases,
+              enum_name(build_mode));
 
   const auto build_start = std::chrono::steady_clock::now();
-
-  // Mirrors the final `scene_phase_systems_t` shape so that worker
-  // tasks can index by strong types directly, with no static_casts on
-  // the hot path.
-  using build_row_t = StrongIndexVector<PhaseIndex, std::optional<SystemLP>>;
-  StrongIndexVector<SceneIndex, build_row_t> build_buf(scenes.size());
-  for (auto& row : build_buf) {
-    row.resize(phases.size());
-  }
-
-  std::vector<std::future<void>> futures;
-  futures.reserve(scenes.size() * phases.size());
 
   // Parallelism instrumentation: track peak concurrent cell-builders,
   // total per-cell CPU time, and the set of worker thread IDs that
@@ -451,6 +455,8 @@ auto PlanningLP::create_systems(System& system,
   // so the user can see at a glance whether the pool is truly running
   // tasks concurrently or whether some hidden serialization (global
   // mutex, plugin loader, etc.) is forcing cells through one at a time.
+  // Under `serial` the peak stays at 1 and `worker_threads` reports the
+  // single calling thread — which is the whole point of that mode.
   std::atomic<int> active_cells {0};
   std::atomic<int> peak_active {0};
   std::atomic<std::int64_t> total_cell_us {0};
@@ -458,91 +464,195 @@ auto PlanningLP::create_systems(System& system,
   std::mutex tid_mutex;
   std::unordered_set<std::size_t> worker_tids;
 
-  for (auto&& [scene_index, scene] : enumerate<SceneIndex>(scenes)) {
-    for (auto&& [phase_index, phase] : enumerate<PhaseIndex>(phases)) {
-      // Capture phase/scene by explicit pointer into the stable
-      // `phases`/`scenes` containers (which outlive create_systems via
-      // `simulation`).  The structured-binding names from
-      // `enumerate<>(...)` are loop-local; capturing them by reference
-      // through the default `[&]` would leave the lambda reading bindings
-      // that have already been rebound by the next loop iteration.
-      const auto* const phase_ptr = &phase;
-      const auto* const scene_ptr = &scene;
-      auto result = pool->submit(
-          [&, scene_index, phase_index, phase_ptr, scene_ptr]
-          {
-            const auto cell_start = std::chrono::steady_clock::now();
-            const auto cur =
-                active_cells.fetch_add(1, std::memory_order_relaxed) + 1;
-            // Monotonically raise peak_active to max(peak_active, cur).
-            int prev_peak = peak_active.load(std::memory_order_relaxed);
-            while (cur > prev_peak
-                   && !peak_active.compare_exchange_weak(
-                       prev_peak, cur, std::memory_order_relaxed))
-            {}
+  // Shared per-cell timing helper used by all three build modes so the
+  // summary log stays consistent regardless of granularity.  Callers
+  // pass an `emplace_fn` that performs the actual SystemLP
+  // construction into whatever storage slot this mode uses (build_buf
+  // cell for `full_parallel`, `phase_systems_t::emplace_back` for the
+  // other two).
+  auto build_cell = [&]([[maybe_unused]] const auto& scene_ref,
+                        [[maybe_unused]] const auto& phase_ref,
+                        auto&& emplace_fn)
+  {
+    const auto cell_start = std::chrono::steady_clock::now();
+    const auto cur = active_cells.fetch_add(1, std::memory_order_relaxed) + 1;
+    // Monotonically raise peak_active to max(peak_active, cur).
+    int prev_peak = peak_active.load(std::memory_order_relaxed);
+    while (cur > prev_peak
+           && !peak_active.compare_exchange_weak(
+               prev_peak, cur, std::memory_order_relaxed))
+    {}
 
-            const auto tid =
-                std::hash<std::thread::id> {}(std::this_thread::get_id());
-            {
-              const std::scoped_lock lock(tid_mutex);
-              worker_tids.insert(tid);
-            }
+    const auto tid = std::hash<std::thread::id> {}(std::this_thread::get_id());
+    {
+      const std::scoped_lock lock(tid_mutex);
+      worker_tids.insert(tid);
+    }
 
-            SPDLOG_TRACE("    Building LP scene_uid={} phase_uid={} tid={}",
-                         scene_ptr->uid(),
-                         phase_ptr->uid(),
-                         tid);
-            build_buf[scene_index][phase_index].emplace(
-                system, simulation, *phase_ptr, *scene_ptr, resolved_opts);
+    SPDLOG_TRACE("    Building LP scene_uid={} phase_uid={} tid={}",
+                 scene_ref.uid(),
+                 phase_ref.uid(),
+                 tid);
+    emplace_fn();
 
-            const auto cell_elapsed =
-                std::chrono::duration_cast<std::chrono::microseconds>(
-                    std::chrono::steady_clock::now() - cell_start)
-                    .count();
-            total_cell_us.fetch_add(cell_elapsed, std::memory_order_relaxed);
-            active_cells.fetch_sub(1, std::memory_order_relaxed);
-            const auto done =
-                cells_done.fetch_add(1, std::memory_order_relaxed) + 1;
-            // First-cell marker: proves at least one task has started
-            // executing on a worker thread before the join loop blocks.
-            if (done == 1) {
-              SPDLOG_INFO("    First LP cell built on worker tid={} ({:.3f}s)",
-                          tid,
-                          static_cast<double>(cell_elapsed) / 1e6);
-            }
-          });
-      if (!result.has_value()) {
-        throw std::runtime_error(
-            std::format("Failed to submit scene {} phase {} to work pool",
-                        scene_index,
-                        phase_index));
+    const auto cell_elapsed =
+        std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::steady_clock::now() - cell_start)
+            .count();
+    total_cell_us.fetch_add(cell_elapsed, std::memory_order_relaxed);
+    active_cells.fetch_sub(1, std::memory_order_relaxed);
+    const auto done = cells_done.fetch_add(1, std::memory_order_relaxed) + 1;
+    // First-cell marker: proves at least one cell has been built — in
+    // the parallel modes, that at least one pool task has started
+    // executing before the join loop blocks; in serial mode, that the
+    // in-thread loop has made forward progress.
+    if (done == 1) {
+      SPDLOG_INFO("    First LP cell built on worker tid={} ({:.3f}s)",
+                  tid,
+                  static_cast<double>(cell_elapsed) / 1e6);
+    }
+  };
+
+  if (build_mode == BuildMode::serial) {
+    // ── Serial path ────────────────────────────────────────────────
+    // No pool, no build_buf, no futures.  Directly emplace every cell
+    // into its final `phase_systems_t` in the calling thread.  This is
+    // the honest serial baseline — `--cpu-factor` is ignored.
+    for (auto&& [scene_index, scene] : enumerate<SceneIndex>(scenes)) {
+      auto& phase_systems = all_systems[scene_index];
+      phase_systems.reserve(phases.size());
+      for (const auto& phase : phases) {
+        build_cell(scene,
+                   phase,
+                   [&]
+                   {
+                     phase_systems.emplace_back(
+                         system, simulation, phase, scene, resolved_opts);
+                   });
       }
-      futures.push_back(std::move(*result));
+      tighten_scene_phase_links(phase_systems, simulation);
     }
-  }
+  } else {
+    // Both parallel modes share the work-pool allocation.
+    auto pool = make_solver_work_pool(build_cpu_factor);
 
-  SPDLOG_INFO("  Submitted {} LP cells to work pool, waiting for workers...",
-              futures.size());
+    if (build_mode == BuildMode::scene_parallel) {
+      // ── Scene-parallel path (pre-00c605d7 behavior, current default) ──
+      // One pool task per scene; each task builds its phases in order
+      // into its own `phase_systems_t` and resolves cross-phase links
+      // inside the worker — no shared build buffer, no post-merge
+      // pass.  Writes go directly into `all_systems[scene_index]`,
+      // which is safe because every task owns a distinct slot of the
+      // pre-sized outer vector.
+      std::vector<std::future<void>> futures;
+      futures.reserve(scenes.size());
+      for (auto&& [scene_index, scene] : enumerate<SceneIndex>(scenes)) {
+        // `scene` rebinds on each iteration; capture by pointer so the
+        // lambda sees its own stable reference.
+        const auto* const scene_ptr = &scene;
+        auto result = pool->submit(
+            [&, scene_index, scene_ptr]
+            {
+              auto& phase_systems = all_systems[scene_index];
+              phase_systems.reserve(phases.size());
+              for (const auto& phase : phases) {
+                build_cell(
+                    *scene_ptr,
+                    phase,
+                    [&]
+                    {
+                      phase_systems.emplace_back(
+                          system, simulation, phase, *scene_ptr, resolved_opts);
+                    });
+              }
+              tighten_scene_phase_links(phase_systems, simulation);
+            });
+        if (!result.has_value()) {
+          throw std::runtime_error(std::format(
+              "Failed to submit scene {} to work pool", scene_index));
+        }
+        futures.push_back(std::move(*result));
+      }
+      SPDLOG_INFO(
+          "  Submitted {} scene tasks to work pool, waiting for workers...",
+          futures.size());
+      for (auto& fut : futures) {
+        fut.get();
+      }
+    } else {
+      // ── Full-parallel path (post-00c605d7, opt-in) ────────────────
+      // One pool task per (scene, phase) cell.  Each task builds into a
+      // pre-allocated slot in `build_buf`; a sequential merge pass then
+      // moves cells into their final `phase_systems_t` and runs
+      // `tighten_scene_phase_links` per scene.
+      using build_row_t =
+          StrongIndexVector<PhaseIndex, std::optional<SystemLP>>;
+      StrongIndexVector<SceneIndex, build_row_t> build_buf(scenes.size());
+      for (auto& row : build_buf) {
+        row.resize(phases.size());
+      }
 
-  for (auto& fut : futures) {
-    fut.get();
-  }
+      std::vector<std::future<void>> futures;
+      futures.reserve(scenes.size() * phases.size());
+      for (auto&& [scene_index, scene] : enumerate<SceneIndex>(scenes)) {
+        for (auto&& [phase_index, phase] : enumerate<PhaseIndex>(phases)) {
+          // Capture phase/scene by explicit pointer into the stable
+          // `phases`/`scenes` containers (which outlive create_systems
+          // via `simulation`).  The structured-binding names from
+          // `enumerate<>(...)` are loop-local; capturing them by
+          // reference through the default `[&]` would leave the lambda
+          // reading bindings that have already been rebound by the
+          // next loop iteration.
+          const auto* const phase_ptr = &phase;
+          const auto* const scene_ptr = &scene;
+          auto result = pool->submit(
+              [&, scene_index, phase_index, phase_ptr, scene_ptr]
+              {
+                build_cell(*scene_ptr,
+                           *phase_ptr,
+                           [&]
+                           {
+                             build_buf[scene_index][phase_index].emplace(
+                                 system,
+                                 simulation,
+                                 *phase_ptr,
+                                 *scene_ptr,
+                                 resolved_opts);
+                           });
+              });
+          if (!result.has_value()) {
+            throw std::runtime_error(
+                std::format("Failed to submit scene {} phase {} to work pool",
+                            scene_index,
+                            phase_index));
+          }
+          futures.push_back(std::move(*result));
+        }
+      }
+      SPDLOG_INFO(
+          "  Submitted {} LP cells to work pool, waiting for workers...",
+          futures.size());
+      for (auto& fut : futures) {
+        fut.get();
+      }
 
-  // Sequentially merge cells into per-scene phase_systems_t and resolve
-  // deferred cross-phase state-variable links.  The merge itself is
-  // cheap (a few moves per scene) and `tighten_scene_phase_links` only
-  // touches simulation.state_variable() lookups for this scene's links,
-  // so a sequential pass keeps the code simple without giving up much
-  // parallelism — the dominant cost (per-cell SystemLP construction and
-  // create_lp) has already been parallelized above.
-  for (auto&& [scene_index, scene] : enumerate<SceneIndex>(scenes)) {
-    PlanningLP::phase_systems_t phase_systems;
-    phase_systems.reserve(phases.size());
-    for (auto& slot : build_buf[scene_index]) {
-      phase_systems.emplace_back(std::move(slot).value());
+      // Sequentially merge cells into per-scene phase_systems_t and
+      // resolve deferred cross-phase state-variable links.  The merge
+      // itself is cheap (a few moves per scene); running it
+      // sequentially keeps the code simple without giving up much
+      // parallelism — the dominant cost (per-cell SystemLP
+      // construction and create_lp) has already been parallelized
+      // above.
+      for (auto&& [scene_index, scene] : enumerate<SceneIndex>(scenes)) {
+        PlanningLP::phase_systems_t phase_systems;
+        phase_systems.reserve(phases.size());
+        for (auto& slot : build_buf[scene_index]) {
+          phase_systems.emplace_back(std::move(slot).value());
+        }
+        tighten_scene_phase_links(phase_systems, simulation);
+        all_systems[scene_index] = std::move(phase_systems);
+      }
     }
-    tighten_scene_phase_links(phase_systems, simulation);
-    all_systems[scene_index] = std::move(phase_systems);
   }
 
   // After all add_to_lp calls, dispatch a single initial update_lp pass
@@ -584,9 +694,10 @@ auto PlanningLP::create_systems(System& system,
   const auto parallelism = elapsed > 0.0 ? (total_cpu_s / elapsed) : 0.0;
   SPDLOG_INFO(
       "  Building LP done in {:.3f}s "
-      "(cells={}, peak_parallel={}, worker_threads={}, "
+      "(mode={}, cells={}, peak_parallel={}, worker_threads={}, "
       "total_cell_cpu={:.3f}s, parallelism={:.2f}x)",
       elapsed,
+      enum_name(build_mode),
       cells_done.load(std::memory_order_relaxed),
       peak_active.load(std::memory_order_relaxed),
       n_workers,

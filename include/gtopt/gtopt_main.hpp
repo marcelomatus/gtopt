@@ -159,6 +159,12 @@ struct MainOptions
    * Default 4.0 — extra threads compensate for clone mutex blocking. */
   std::optional<double> sddp_cpu_factor {};
 
+  /** @brief LP build parallelism mode: "serial", "scene-parallel",
+   *  or "full-parallel" (default).  Routed to
+   *  `planning.options.build_mode` by `apply_cli_options`.  See
+   *  `BuildMode` in `planning_enums.hpp` for the full contract. */
+  std::optional<std::string> build_mode {};
+
   // ---- solver selection ----
   /** @brief LP solver backend name ("clp", "cbc", "cplex", "highs").
    * When empty, auto-detects from available plugins. */

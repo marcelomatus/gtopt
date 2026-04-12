@@ -213,6 +213,10 @@ template<typename T>
       ("cpu-factor",
        po::value<double>(),
        "work pool thread over-commit factor (default: 4.0)")  //
+      ("build-mode",
+       po::value<std::string>(),
+       "LP build parallelism: serial, scene-parallel, full-parallel "
+       "(default: scene-parallel)")  //
       // ---- deprecated options (hidden from help, still parsed) ----
       ("sddp-cpu-factor", po::value<double>(), "")  //
       ("input-directory,D", po::value<std::string>(), "")  //
@@ -534,6 +538,11 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
     planning.options.sddp_options.pool_cpu_factor = opts.sddp_cpu_factor;
   }
 
+  if (opts.build_mode) {
+    planning.options.build_mode =
+        require_enum<BuildMode>("build-mode", *opts.build_mode);
+  }
+
   // CLI solver shortcuts → solver_options
   if (opts.algorithm) {
     planning.options.solver_options.algorithm =
@@ -663,6 +672,7 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
       .sddp_cpu_factor =
           get_opt<double>(vm, "cpu-factor")
               .or_else([&] { return get_opt<double>(vm, "sddp-cpu-factor"); }),
+      .build_mode = get_opt<std::string>(vm, "build-mode"),
       .solver = get_opt<std::string>(vm, "solver"),
       .algorithm = [&]() -> std::optional<int>
       {
@@ -807,6 +817,7 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
   if (!opts.sddp_cpu_factor) {
     opts.sddp_cpu_factor = get_dbl("sddp-cpu-factor");
   }
+  opts.build_mode = get_str("build-mode");
 
   // Solver
   opts.solver = get_str("solver");
@@ -956,6 +967,7 @@ inline void merge_config_defaults(MainOptions& opts,
   merge(opts.low_memory_mode, defaults.low_memory_mode);
   merge(opts.memory_limit, defaults.memory_limit);
   merge(opts.sddp_cpu_factor, defaults.sddp_cpu_factor);
+  merge(opts.build_mode, defaults.build_mode);
   merge(opts.solver, defaults.solver);
   merge(opts.algorithm, defaults.algorithm);
   merge(opts.threads, defaults.threads);

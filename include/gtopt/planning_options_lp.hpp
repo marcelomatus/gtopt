@@ -948,6 +948,23 @@ public:
     return m_options_.sddp_options.pool_cpu_factor.value_or(4.0);
   }
 
+  /** @brief LP-build work-pool CPU over-commit factor (default: 2.0).
+   *
+   * Currently shares the `sddp_options.pool_cpu_factor` field with the
+   * SDDP pool so that a single `--cpu-factor` CLI flag controls both
+   * pools uniformly.  When the user does **not** set `--cpu-factor`,
+   * the LP-build pool falls back to a more conservative 2.0× factor
+   * (vs the SDDP pool's 4.0×) — reflecting that LP build is memory-
+   * heavy (constructing full SystemLP trees) while SDDP solving is
+   * CPU-bound (solver calls).  When the CLI flag is set, both pools
+   * pick it up and the user can force a 1-thread serial baseline via
+   * `--cpu-factor 0.025` on a typical 20-core box.
+   */
+  [[nodiscard]] constexpr auto build_pool_cpu_factor() const
+  {
+    return m_options_.sddp_options.pool_cpu_factor.value_or(2.0);
+  }
+
   /** @brief SDDP work pool memory limit in MB (0 = no limit). */
   [[nodiscard]] constexpr auto sddp_pool_memory_limit_mb() const
   {
@@ -1033,6 +1050,16 @@ public:
   [[nodiscard]] constexpr auto method_type_enum() const -> MethodType
   {
     return m_options_.method.value_or(default_method_type);
+  }
+
+  /// LP-build mode as an enum.  Defaults to `scene_parallel` — the
+  /// pre-00c605d7 per-scene work-pool submission (coarse granularity,
+  /// lower pool/malloc-arena contention).  Users may opt into
+  /// `full_parallel` via `--build-mode full-parallel` for maximum
+  /// concurrency, or `serial` for a genuine in-thread baseline.
+  [[nodiscard]] constexpr auto build_mode_enum() const -> BuildMode
+  {
+    return m_options_.build_mode.value_or(BuildMode::scene_parallel);
   }
 
   /// SDDP boundary cuts mode as an enum.

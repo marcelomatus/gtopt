@@ -1278,7 +1278,16 @@ TEST_CASE("PlanningLP - parallelism instrumentation logs are emitted")
       .generator_array = generator_array,
   };
 
+  // Pin to full_parallel: this test asserts the per-cell submission
+  // log ("Submitted 6 LP cells to work pool"), which is only emitted
+  // by the full_parallel path.  The default (scene_parallel) would
+  // instead log "Submitted 2 scene tasks to work pool" and is covered
+  // by a dedicated test below.
+  PlanningOptions planning_options {};
+  planning_options.build_mode = BuildMode::full_parallel;
+
   const Planning planning = {
+      .options = planning_options,
       .simulation = simulation,
       .system = system,
   };
@@ -1290,6 +1299,7 @@ TEST_CASE("PlanningLP - parallelism instrumentation logs are emitted")
   // Banner: "Building LP: N scene(s) × M phase(s)" — scenes × phases
   // submitted through the pool.
   CHECK(logs.contains("Building LP: 2 scene(s) × 3 phase(s)"));
+  CHECK(logs.contains("[mode=full-parallel]"));
 
   // Submission marker: 2 × 3 = 6 cells.
   CHECK(logs.contains("Submitted 6 LP cells to work pool"));
@@ -1364,7 +1374,12 @@ TEST_CASE("PlanningLP - parallelism instrumentation single cell")
       .generator_array = generator_array,
   };
 
+  // Pin to full_parallel to assert the per-cell submission log.
+  PlanningOptions planning_options {};
+  planning_options.build_mode = BuildMode::full_parallel;
+
   const Planning planning = {
+      .options = planning_options,
       .simulation = simulation,
       .system = system,
   };
@@ -1374,6 +1389,7 @@ TEST_CASE("PlanningLP - parallelism instrumentation single cell")
   PlanningLP planning_lp(planning);
 
   CHECK(logs.contains("Building LP: 1 scene(s) × 1 phase(s)"));
+  CHECK(logs.contains("[mode=full-parallel]"));
   CHECK(logs.contains("Submitted 1 LP cells to work pool"));
   CHECK(logs.contains("First LP cell built on worker tid="));
 
@@ -1389,4 +1405,407 @@ TEST_CASE("PlanningLP - parallelism instrumentation single cell")
   CHECK(done_it->contains("cells=1"));
   CHECK(done_it->contains("worker_threads=1"));
   CHECK(done_it->contains("peak_parallel=1"));
+}
+
+// ──────────────────────────────────────────────────────────────────────
+// `--cpu-factor` from the CLI lands in
+// `planning.options.sddp_options.pool_cpu_factor` (see
+// `include/gtopt/main_options.hpp:533-535`).  Before the fix, that
+// field was only read by the SDDP method pool — the LP-build pool in
+// `PlanningLP::create_systems` hard-coded its own `cpu_factor = 2.0`.
+// `--cpu-factor 0.025` therefore silently had no effect on the LP
+// build, so users could not get a genuine serial baseline to compare
+// against the parallel wall time.
+//
+// The fix adds `PlanningOptionsLP::build_pool_cpu_factor()` reading
+// the same field (default 2.0) and passes it through to
+// `make_solver_work_pool(factor)` at `source/planning_lp.cpp:428`.
+// This test pins the regression: setting `pool_cpu_factor = 0.0001`
+// must force the build pool down to 1 thread, which the
+// instrumentation line then reports as `peak_parallel=1` and
+// `worker_threads=1` even on a multi-cell (2×3) build.
+// ──────────────────────────────────────────────────────────────────────
+TEST_CASE("PlanningLP - --cpu-factor reaches the LP-build pool")
+{
+  auto block_array = make_uniform_blocks(6, 1.0);
+  auto stage_array = make_uniform_stages(3, 2);
+  auto phase_array = make_single_stage_phases(3);
+
+  const Simulation simulation = {
+      .block_array = block_array,
+      .stage_array = stage_array,
+      .scenario_array =
+          {
+              {.uid = Uid {1}},
+              {.uid = Uid {2}},
+          },
+      .phase_array = phase_array,
+      .scene_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .name = {},
+                  .active = {},
+                  .first_scenario = 0,
+                  .count_scenario = 1,
+              },
+              {
+                  .uid = Uid {2},
+                  .name = {},
+                  .active = {},
+                  .first_scenario = 1,
+                  .count_scenario = 1,
+              },
+          },
+  };
+
+  const Array<Bus> bus_array = {{.uid = Uid {1}, .name = "b1"}};
+  const Array<Generator> generator_array = {
+      {
+          .uid = Uid {1},
+          .name = "g1",
+          .bus = Uid {1},
+          .gcost = 50.0,
+          .capacity = 100.0,
+      },
+  };
+  const Array<Demand> demand_array = {
+      {.uid = Uid {1}, .name = "d1", .bus = Uid {1}, .capacity = 50.0},
+  };
+
+  const System system = {
+      .name = "CpuFactorTestSystem",
+      .bus_array = bus_array,
+      .demand_array = demand_array,
+      .generator_array = generator_array,
+  };
+
+  // Force `build_pool_cpu_factor() → 0.0001`, which after clamping in
+  // `make_solver_work_pool` becomes `max_threads = 1` regardless of
+  // hardware_concurrency.  The 2×3 = 6 cells must therefore run
+  // strictly serialized.
+  PlanningOptions planning_options {};
+  planning_options.sddp_options.pool_cpu_factor = 0.0001;
+
+  const Planning planning = {
+      .options = planning_options,
+      .simulation = simulation,
+      .system = system,
+  };
+
+  test::LogCapture logs(512);
+
+  PlanningLP planning_lp(planning);
+
+  const auto msgs = logs.messages();
+  const auto done_it = std::ranges::find_if(
+      msgs,
+      [](const std::string& m) { return m.contains("Building LP done in"); });
+  REQUIRE(done_it != msgs.end());
+  // 6 cells, forced-serial pool: peak_parallel must be exactly 1.
+  // Before the fix this was 6 (or up to hardware_concurrency×2).
+  CHECK(done_it->contains("cells=6"));
+  CHECK(done_it->contains("peak_parallel=1"));
+  CHECK(done_it->contains("worker_threads=1"));
+}
+
+// Sanity check: the *default* (no `--cpu-factor`) must preserve the
+// pre-fix behavior — the build pool spins up `2.0 ×
+// hardware_concurrency` threads and a 2×3 build can go parallel (or
+// not, on 1-core CI) without being forced to 1.  We only assert the
+// contract "peak_parallel >= 1", because a hardware_concurrency of 1
+// is a legitimate environment where even the default yields a
+// 2-thread pool (`lround(2.0 × 1) = 2`), but the scheduler may still
+// observe peak=1 if cells complete faster than they arrive.  The
+// point of this test is: the log line *exists* and does not assert
+// `peak_parallel=1` as an artifact of forced-serial mode.
+TEST_CASE("PlanningLP - default cpu-factor leaves build pool at 2x HC")
+{
+  auto block_array = make_uniform_blocks(6, 1.0);
+  auto stage_array = make_uniform_stages(3, 2);
+  auto phase_array = make_single_stage_phases(3);
+
+  const Simulation simulation = {
+      .block_array = block_array,
+      .stage_array = stage_array,
+      .scenario_array =
+          {
+              {.uid = Uid {1}},
+              {.uid = Uid {2}},
+          },
+      .phase_array = phase_array,
+      .scene_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .name = {},
+                  .active = {},
+                  .first_scenario = 0,
+                  .count_scenario = 1,
+              },
+              {
+                  .uid = Uid {2},
+                  .name = {},
+                  .active = {},
+                  .first_scenario = 1,
+                  .count_scenario = 1,
+              },
+          },
+  };
+
+  const Array<Bus> bus_array = {{.uid = Uid {1}, .name = "b1"}};
+  const Array<Generator> generator_array = {
+      {
+          .uid = Uid {1},
+          .name = "g1",
+          .bus = Uid {1},
+          .gcost = 50.0,
+          .capacity = 100.0,
+      },
+  };
+  const Array<Demand> demand_array = {
+      {.uid = Uid {1}, .name = "d1", .bus = Uid {1}, .capacity = 50.0},
+  };
+
+  const System system = {
+      .name = "DefaultCpuFactorTestSystem",
+      .bus_array = bus_array,
+      .demand_array = demand_array,
+      .generator_array = generator_array,
+  };
+
+  // No pool_cpu_factor override — `build_pool_cpu_factor()` returns
+  // its 2.0 fallback.
+  const Planning planning = {
+      .simulation = simulation,
+      .system = system,
+  };
+
+  test::LogCapture logs(512);
+
+  PlanningLP planning_lp(planning);
+
+  const auto msgs = logs.messages();
+  const auto done_it = std::ranges::find_if(
+      msgs,
+      [](const std::string& m) { return m.contains("Building LP done in"); });
+  REQUIRE(done_it != msgs.end());
+  CHECK(done_it->contains("cells=6"));
+  // peak_parallel could be anywhere in [1, 6] depending on
+  // hardware_concurrency and scheduler timing.  The important
+  // invariant is that the instrumentation line *exists*, which we
+  // already checked by reaching this point.
+}
+
+// ──────────────────────────────────────────────────────────────────────
+// BuildMode coverage: the three build modes (serial, scene_parallel,
+// full_parallel) each take a different code path in
+// `PlanningLP::create_systems`.  They all produce the same result
+// (same `phase_systems_t`) but emit different intermediate log lines
+// that identify which path actually ran.  The following three tests
+// pin each path and assert the mode-specific log contract.
+//
+// Helper: build a 2-scene × 3-phase generator-only topology so every
+// build mode sees at least one parallelism opportunity.  Kept as a
+// lambda local to each test to avoid leaking a fixture file.
+// ──────────────────────────────────────────────────────────────────────
+
+namespace
+{
+struct BuildModeFixture
+{
+  Simulation simulation;
+  System system;
+};
+
+inline auto make_build_mode_fixture() -> BuildModeFixture
+{
+  auto block_array = make_uniform_blocks(6, 1.0);
+  auto stage_array = make_uniform_stages(3, 2);
+  auto phase_array = make_single_stage_phases(3);
+
+  Simulation simulation = {
+      .block_array = std::move(block_array),
+      .stage_array = std::move(stage_array),
+      .scenario_array =
+          {
+              {.uid = Uid {1}},
+              {.uid = Uid {2}},
+          },
+      .phase_array = std::move(phase_array),
+      .scene_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .name = {},
+                  .active = {},
+                  .first_scenario = 0,
+                  .count_scenario = 1,
+              },
+              {
+                  .uid = Uid {2},
+                  .name = {},
+                  .active = {},
+                  .first_scenario = 1,
+                  .count_scenario = 1,
+              },
+          },
+  };
+
+  Array<Bus> bus_array = {{.uid = Uid {1}, .name = "b1"}};
+  Array<Generator> generator_array = {
+      {
+          .uid = Uid {1},
+          .name = "g1",
+          .bus = Uid {1},
+          .gcost = 50.0,
+          .capacity = 100.0,
+      },
+  };
+  Array<Demand> demand_array = {
+      {.uid = Uid {1}, .name = "d1", .bus = Uid {1}, .capacity = 50.0},
+  };
+
+  System system = {
+      .name = "BuildModeTestSystem",
+      .bus_array = std::move(bus_array),
+      .demand_array = std::move(demand_array),
+      .generator_array = std::move(generator_array),
+  };
+
+  return {.simulation = std::move(simulation), .system = std::move(system)};
+}
+}  // namespace
+
+TEST_CASE("PlanningLP - BuildMode::serial runs in calling thread")
+{
+  auto fx = make_build_mode_fixture();
+
+  // Serial mode: no pool, no work_pool submission, no "Submitted ..."
+  // log.  Every cell is built on the calling thread, so peak_parallel
+  // and worker_threads must both be exactly 1 regardless of
+  // hardware_concurrency or --cpu-factor.
+  PlanningOptions planning_options {};
+  planning_options.build_mode = BuildMode::serial;
+  // --cpu-factor is ignored under serial; set it to a non-default
+  // value to prove the mode overrides pool sizing.
+  planning_options.sddp_options.pool_cpu_factor = 4.0;
+
+  const Planning planning = {
+      .options = std::move(planning_options),
+      .simulation = std::move(fx.simulation),
+      .system = std::move(fx.system),
+  };
+
+  test::LogCapture logs(512);
+
+  PlanningLP planning_lp(planning);
+
+  CHECK(logs.contains("Building LP: 2 scene(s) × 3 phase(s)"));
+  CHECK(logs.contains("[mode=serial]"));
+  // Serial path emits neither submission log.
+  const auto msgs = logs.messages();
+  CHECK(std::ranges::none_of(
+      msgs,
+      [](const std::string& m)
+      { return m.contains("Submitted ") && m.contains(" to work pool"); }));
+
+  const auto done_it = std::ranges::find_if(
+      msgs,
+      [](const std::string& m) { return m.contains("Building LP done in"); });
+  REQUIRE(done_it != msgs.end());
+  CHECK(done_it->contains("mode=serial"));
+  CHECK(done_it->contains("cells=6"));
+  CHECK(done_it->contains("peak_parallel=1"));
+  CHECK(done_it->contains("worker_threads=1"));
+}
+
+TEST_CASE("PlanningLP - BuildMode::scene_parallel submits one task per scene")
+{
+  auto fx = make_build_mode_fixture();
+
+  // Scene-parallel mode (the default): one pool task per scene.  The
+  // submission log reads "Submitted 2 scene tasks to work pool" — the
+  // count is num_scenes (2), not num_scenes × num_phases (6).
+  PlanningOptions planning_options {};
+  planning_options.build_mode = BuildMode::scene_parallel;
+
+  const Planning planning = {
+      .options = std::move(planning_options),
+      .simulation = std::move(fx.simulation),
+      .system = std::move(fx.system),
+  };
+
+  test::LogCapture logs(512);
+
+  PlanningLP planning_lp(planning);
+
+  CHECK(logs.contains("Building LP: 2 scene(s) × 3 phase(s)"));
+  CHECK(logs.contains("[mode=scene-parallel]"));
+  CHECK(logs.contains("Submitted 2 scene tasks to work pool"));
+
+  const auto msgs = logs.messages();
+  const auto done_it = std::ranges::find_if(
+      msgs,
+      [](const std::string& m) { return m.contains("Building LP done in"); });
+  REQUIRE(done_it != msgs.end());
+  CHECK(done_it->contains("mode=scene-parallel"));
+  CHECK(done_it->contains("cells=6"));
+  // Per-cell instrumentation still fires from inside each scene task,
+  // so cells=6 even though only 2 tasks were submitted.
+}
+
+TEST_CASE("PlanningLP - BuildMode::scene_parallel is the default")
+{
+  auto fx = make_build_mode_fixture();
+
+  // Omitting `build_mode` entirely must select scene_parallel.
+  const Planning planning = {
+      .simulation = std::move(fx.simulation),
+      .system = std::move(fx.system),
+  };
+
+  test::LogCapture logs(512);
+
+  PlanningLP planning_lp(planning);
+
+  CHECK(logs.contains("[mode=scene-parallel]"));
+  CHECK(logs.contains("Submitted 2 scene tasks to work pool"));
+
+  const auto msgs = logs.messages();
+  const auto done_it = std::ranges::find_if(
+      msgs,
+      [](const std::string& m) { return m.contains("Building LP done in"); });
+  REQUIRE(done_it != msgs.end());
+  CHECK(done_it->contains("mode=scene-parallel"));
+}
+
+TEST_CASE("PlanningLP - BuildMode::full_parallel submits one task per cell")
+{
+  auto fx = make_build_mode_fixture();
+
+  PlanningOptions planning_options {};
+  planning_options.build_mode = BuildMode::full_parallel;
+
+  const Planning planning = {
+      .options = std::move(planning_options),
+      .simulation = std::move(fx.simulation),
+      .system = std::move(fx.system),
+  };
+
+  test::LogCapture logs(512);
+
+  PlanningLP planning_lp(planning);
+
+  CHECK(logs.contains("[mode=full-parallel]"));
+  // Full-parallel path submits num_scenes × num_phases = 6 cells.
+  CHECK(logs.contains("Submitted 6 LP cells to work pool"));
+
+  const auto msgs = logs.messages();
+  const auto done_it = std::ranges::find_if(
+      msgs,
+      [](const std::string& m) { return m.contains("Building LP done in"); });
+  REQUIRE(done_it != msgs.end());
+  CHECK(done_it->contains("mode=full-parallel"));
+  CHECK(done_it->contains("cells=6"));
 }

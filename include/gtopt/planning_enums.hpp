@@ -45,6 +45,62 @@ constexpr auto enum_entries(MethodType /*tag*/) noexcept
   return std::span {method_type_entries};
 }
 
+// --- BuildMode --------------------------------------------------------------
+
+/**
+ * @brief How `PlanningLP::create_systems` assembles per-cell SystemLPs.
+ *
+ * Three granularities of LP build, trading pool overhead against concurrency:
+ *
+ * - `serial`:          build every cell in the calling thread with no
+ *                        pool, no build buffer, no futures.  Honest serial
+ *                        baseline; also useful when you want deterministic
+ *                        ordering for debugging.  `--cpu-factor` is
+ *                        ignored.  CLI string: `"serial"`.
+ *
+ * - `scene_parallel` (default): submit one task per scene; each task builds
+ *                        all of that scene's phases sequentially into its
+ *                        own `phase_systems_t`, resolves cross-phase links,
+ *                        and writes the result into its slot of
+ *                        `all_systems` on completion.  Pre-00c605d7 default
+ *                        and current default — coarser granularity, lower
+ *                        pool-submit and malloc-arena contention, better
+ *                        per-worker cache locality.
+ *                        CLI string: `"scene-parallel"`.
+ *
+ * - `full_parallel`:  dispatch every (scene × phase) cell through an
+ *                        `AdaptiveWorkPool` so every cell builds
+ *                        concurrently (post-00c605d7 mode).  Maximum
+ *                        concurrency but pays a per-cell build-buffer +
+ *                        move-merge overhead; opt in with
+ *                        `--build-mode full-parallel` when the case is
+ *                        fine-grained enough to amortise that cost.
+ *                        CLI string: `"full-parallel"`.
+ *
+ * `--cpu-factor` sizes the work pool for both parallel modes and is
+ * ignored under `serial`.  Alternate names using underscores
+ * (`"full_parallel"`, `"scene_parallel"`) are accepted as aliases.
+ */
+enum class BuildMode : uint8_t
+{
+  serial = 0,  ///< No pool; build all cells in the calling thread
+  scene_parallel = 1,  ///< Parallel by scene; phases sequential (default)
+  full_parallel = 2,  ///< Parallel by (scene × phase) cell
+};
+
+inline constexpr auto build_mode_entries = std::to_array<EnumEntry<BuildMode>>({
+    {.name = "serial", .value = BuildMode::serial},
+    {.name = "scene-parallel", .value = BuildMode::scene_parallel},
+    {.name = "scene_parallel", .value = BuildMode::scene_parallel},
+    {.name = "full-parallel", .value = BuildMode::full_parallel},
+    {.name = "full_parallel", .value = BuildMode::full_parallel},
+});
+
+constexpr auto enum_entries(BuildMode /*tag*/) noexcept
+{
+  return std::span {build_mode_entries};
+}
+
 // --- DataFormat -------------------------------------------------------------
 
 /**

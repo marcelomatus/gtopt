@@ -24,6 +24,7 @@
 
 namespace daw::json
 {
+using gtopt::BuildMode;
 using gtopt::CompressionCodec;
 using gtopt::ConstraintMode;
 using gtopt::DataFormat;
@@ -56,6 +57,7 @@ struct PlanningOptionsConstructor
       OptInt use_lp_names,
       OptBool use_uid_fname,
       OptName method_str,
+      OptName build_mode_str,
       OptName log_directory,
       OptBool lp_debug,
       OptName lp_compression_str,
@@ -158,6 +160,10 @@ struct PlanningOptionsConstructor
     if (method_str) {
       opts.method = gtopt::require_enum<MethodType>("method", *method_str);
     }
+    if (build_mode_str) {
+      opts.build_mode =
+          gtopt::require_enum<BuildMode>("build_mode", *build_mode_str);
+    }
     opts.log_directory = std::move(log_directory);
     opts.lp_debug = lp_debug;
     if (lp_compression_str) {
@@ -213,6 +219,7 @@ struct json_data_contract<PlanningOptions>
                        json_bool_null<"use_uid_fname", OptBool>,
 
                        json_string_null<"method", OptName>,
+                       json_string_null<"build_mode", OptName>,
                        json_string_null<"log_directory", OptName>,
                        json_bool_null<"lp_debug", OptBool>,
                        json_string_null<"lp_compression", OptName>,
@@ -258,6 +265,7 @@ struct json_data_contract<PlanningOptions>
                            opt.use_uid_fname,
 
                            detail::enum_to_opt_name(opt.method),
+                           detail::enum_to_opt_name(opt.build_mode),
                            opt.log_directory,
                            opt.lp_debug,
                            detail::enum_to_opt_name(opt.lp_compression),
