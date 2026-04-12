@@ -45,7 +45,7 @@ void SDDPCutStore::store_cut(SceneIndex scene_index,
                              SceneUid scene_uid_val,
                              PhaseUid phase_uid_val)
 {
-  auto cut_name = LabelMaker::force_row_label(cut);
+  auto cut_name = LabelMaker {LpNamesLevel::cols_and_rows}.make_row_label(cut);
 
   StoredCut stored {
       .type = type,

@@ -201,8 +201,9 @@ TEST_CASE("SparseRow context field")
     CHECK(row.variable_uid == Uid {3});
     CHECK(std::holds_alternative<BlockContext>(row.context));
 
-    // Verify LabelMaker::force_row_label produces the expected label
+    // Verify make_row_label at cols_and_rows produces the expected label
     // from row metadata + context.
-    CHECK(LabelMaker::force_row_label(row) == "bus_bal_3_0_1_2");
+    constexpr LabelMaker lm {LpNamesLevel::cols_and_rows};
+    CHECK(lm.make_row_label(row) == "bus_bal_3_0_1_2");
   }
 }

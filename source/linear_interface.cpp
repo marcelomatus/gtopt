@@ -570,12 +570,12 @@ void LinearInterface::load_flat(const FlatLinearProblem& flat_lp)
     }
   };
 
-  if (m_label_maker_.col_names_enabled() && !flat_lp.colnm.empty()) {
+  if (!flat_lp.colnm.empty()) {
     build_name_map.template operator()<ColIndex>(
         flat_lp.colnm, m_col_names_, m_col_index_to_name_);
   }
 
-  if (m_label_maker_.row_names_enabled() && !flat_lp.rownm.empty()) {
+  if (!flat_lp.rownm.empty()) {
     build_name_map.template operator()<RowIndex>(
         flat_lp.rownm, m_row_names_, m_row_index_to_name_);
   }

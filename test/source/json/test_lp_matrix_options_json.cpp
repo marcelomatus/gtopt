@@ -29,14 +29,6 @@ TEST_CASE("LpMatrixOptions JSON - Full deserialization")
 
 TEST_CASE("LpMatrixOptions JSON - names_level values")
 {
-  SUBCASE("minimal (0)")
-  {
-    const std::string_view json_data = R"({"names_level": 0})";
-    const auto opts = daw::json::from_json<LpMatrixOptions>(json_data);
-    REQUIRE(opts.names_level.has_value());
-    CHECK(*opts.names_level == LpNamesLevel::minimal);
-  }
-
   SUBCASE("only_cols (1)")
   {
     const std::string_view json_data = R"({"names_level": 1})";

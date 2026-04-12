@@ -24,6 +24,7 @@
 #include <utility>
 
 #include <daw/json/daw_json_link.h>
+#include <gtopt/as_label.hpp>
 #include <gtopt/json/json_sddp_cut_io.hpp>
 #include <gtopt/lp_context.hpp>
 #include <gtopt/planning_lp.hpp>
@@ -146,7 +147,7 @@ void write_cut_coefficients(std::ostream& ofs,
     const auto phys_coeff = coeff * scale_obj / scale;
     if (auto it = col_keys.find(col); it != col_keys.end()) {
       const auto& [cls, var, uid] = it->second;
-      ofs << "," << cls << ":" << var << ":" << uid << "=" << phys_coeff;
+      ofs << "," << as_label<':'>(cls, var, uid) << "=" << phys_coeff;
     } else {
       // Non-state-variable column (typically alpha)
       ofs << ",@alpha=" << phys_coeff;

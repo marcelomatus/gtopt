@@ -146,13 +146,13 @@ TEST_CASE(  // NOLINT
   auto save_result = save_state_csv(planning_lp, filepath, IterationIndex {0});
   REQUIRE(save_result.has_value());
 
-  // Collect reference values from the solved LP before loading
+  // Collect reference values from the solved LP via state variable map
   const auto& sim = planning_lp.simulation();
   struct RefValue
   {
     SceneIndex scene_index;
     PhaseIndex phase_index;
-    std::string name;
+    ColIndex col;
     double value;
   };
   std::vector<RefValue> ref_values;
@@ -164,11 +164,11 @@ TEST_CASE(  // NOLINT
         continue;
       }
       const auto col_sol = li.get_col_sol();
-      const auto& names = li.col_index_to_name();
-      const auto col_upper = std::min(li.get_numcols(), names.size());
+      const auto& sv_map = sim.state_variables(si, pi);
 
-      for (const auto ci : iota_range<ColIndex>(0, col_upper)) {
-        if (names[ci].empty()) {
+      for (const auto& [key, sv] : sv_map) {
+        const auto ci = sv.col();
+        if (static_cast<size_t>(ci) >= col_sol.size()) {
           continue;
         }
         const auto phys_val = col_sol[ci];
@@ -177,7 +177,7 @@ TEST_CASE(  // NOLINT
           ref_values.push_back(RefValue {
               .scene_index = si,
               .phase_index = pi,
-              .name = names[ci],
+              .col = ci,
               .value = phys_val,
           });
         }
@@ -203,19 +203,13 @@ TEST_CASE(  // NOLINT
     if (warm.empty()) {
       continue;
     }
-    const auto& col_map = li.col_name_map();
-    auto cit = col_map.find(ref.name);
-    if (cit == col_map.end()) {
+
+    if (static_cast<size_t>(ref.col) >= warm.size()) {
       continue;
     }
 
-    const auto col = cit->second;
-    if (static_cast<size_t>(col) >= warm.size()) {
-      continue;
-    }
-
-    const auto scale = li.get_col_scale(col);
-    const double loaded_phys = warm[col] * scale;
+    const auto scale = li.get_col_scale(ref.col);
+    const double loaded_phys = warm[ref.col] * scale;
 
     // Physical values should match within tolerance
     CHECK(loaded_phys == doctest::Approx(ref.value).epsilon(1e-6));

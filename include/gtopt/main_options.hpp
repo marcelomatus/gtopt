@@ -19,6 +19,7 @@
 #include <gtopt/cli_options.hpp>
 #include <gtopt/config_file.hpp>
 #include <gtopt/gtopt_main.hpp>
+#include <gtopt/label_maker.hpp>
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/planning.hpp>
 #include <gtopt/solver_options.hpp>
@@ -601,13 +602,14 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
 {
   const auto eps = matrix_eps.value_or(0);
   const auto lvl = lp_names_level.value_or(LpNamesLevel::none);
+  const LabelMaker lm {lvl};
 
   LpMatrixOptions lp_matrix_opts;
   lp_matrix_opts.eps = eps;
-  lp_matrix_opts.col_with_names = lvl >= LpNamesLevel::minimal;
-  lp_matrix_opts.row_with_names = lvl >= LpNamesLevel::only_cols;
-  lp_matrix_opts.col_with_name_map = lvl >= LpNamesLevel::only_cols;
-  lp_matrix_opts.row_with_name_map = lvl >= LpNamesLevel::only_cols;
+  lp_matrix_opts.col_with_names = lm.col_names_enabled();
+  lp_matrix_opts.row_with_names = lm.row_names_enabled();
+  lp_matrix_opts.col_with_name_map = lm.col_names_enabled();
+  lp_matrix_opts.row_with_name_map = lm.row_names_enabled();
   lp_matrix_opts.compute_stats = compute_stats;
   lp_matrix_opts.lp_names_level = lvl;
   lp_matrix_opts.solver_name = lp_solver.value_or("");

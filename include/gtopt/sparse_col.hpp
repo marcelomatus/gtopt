@@ -58,10 +58,11 @@ struct SparseCol
   double uppb {DblMax};  ///< Physical upper bound (default: +infinity)
   double cost {0.0};  ///< Objective coefficient (default: 0.0)
   bool is_integer {false};  ///< is integer-constrained (default: false)
-  bool is_state {false};  ///< True when the column is a state variable: its
-                          ///< label must be generated at
-                          ///< `LpNamesLevel::minimal` so cascade/SDDP cut I/O
-                          ///< can identify the column by name.  Set via
+  bool is_state {false};  ///< True when the column is a state variable used
+                          ///< in cascade/SDDP cut I/O.  Column names are
+                          ///< available at `LpNamesLevel::only_cols` or above;
+                          ///< state variable I/O uses the StateVariable map
+                          ///< (ColIndex-based) directly.  Set via
                           ///< `SystemContext::add_state_col()`.
   double scale {1.0};  ///< Physical-to-LP scale: physical_value = LP_value ×
                        ///< scale (default: 1.0 = no scaling)
@@ -70,7 +71,6 @@ struct SparseCol
   /// When @c class_name is non-empty and @c scale is still 1.0,
   /// LinearProblem::add_col() looks up the scale from its VariableScaleMap.
   /// If @c class_name is empty (default), no lookup is performed.
-  std::string_view name {};  ///< Explicit name (overrides generated name)
   std::string_view class_name {};  ///< Element class (e.g. "Bus", "Reservoir")
   std::string_view
       variable_name {};  ///< Variable name (e.g. "theta", "energy")

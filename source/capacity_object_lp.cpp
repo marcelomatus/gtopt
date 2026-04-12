@@ -87,11 +87,13 @@ bool CapacityObjectBase::add_to_lp(SystemContext& sc,
             [&](const std::string_view col_name) -> ColIndex
         {
           // Dependent state column: mirrors a state variable from the
-          // previous phase.  Marked is_state so its label is emitted at
-          // LpNamesLevel::minimal (SDDP cut I/O needs it).  The
-          // producer-side link is queued via `defer_state_link` and
-          // resolved in `PlanningLP::tighten_scene_phase_links` after
-          // parallel phase construction joins.
+          // previous phase.  Marked is_state for SDDP cut I/O; column
+          // names are available at LpNamesLevel::only_cols or above, but
+          // state variable I/O uses the StateVariable map (ColIndex-based)
+          // directly.  The producer-side link is queued via
+          // `defer_state_link` and resolved in
+          // `PlanningLP::tighten_scene_phase_links` after parallel phase
+          // construction joins.
           auto col = lp.add_col({
               .is_state = true,
               .class_name = m_class_name_,

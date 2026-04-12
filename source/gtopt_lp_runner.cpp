@@ -201,17 +201,8 @@ void log_lp_coefficient_stats(const PlanningLP& planning_lp)
       ? opts.lp_names_level
       : planning.options.lp_matrix_options.names_level;
 
-  // Multi-phase / SDDP / cascade methods need at least minimal column names
-  // for state variable transfer and cut I/O.
-  const auto method = planning.options.method.value_or(MethodType::monolithic);
-  const bool needs_state_names = method == MethodType::sddp
-      || method == MethodType::cascade
-      || planning.simulation.phase_array.size() > 1;
-  if (needs_state_names) {
-    if (!eff_names_level || *eff_names_level < LpNamesLevel::minimal) {
-      eff_names_level = LpNamesLevel::minimal;
-    }
-  }
+  // State variable I/O uses the StateVariable map (ColIndex-based)
+  // directly — no column name strings are needed for SDDP/cascade.
 
   // --lp-file and --lp-debug require *all* col+row names to be generated so
   // the solver can write a readable .lp dump.  Bump the effective names

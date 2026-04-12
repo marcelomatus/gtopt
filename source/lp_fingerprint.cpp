@@ -15,6 +15,7 @@
 #include <set>
 #include <string_view>
 
+#include <gtopt/as_label.hpp>
 #include <gtopt/lp_fingerprint.hpp>
 #include <gtopt/utils.hpp>
 
@@ -277,9 +278,9 @@ void write_lp_fingerprint(const LpFingerprint& fingerprint,
   std::ofstream out(filepath);
 
   out << "{\n";
-  out << std::format("  \"version\": 1,\n");
-  out << std::format("  \"scene_uid\": {},\n", scene_uid);
-  out << std::format("  \"phase_uid\": {},\n", phase_uid);
+  out << "  \"version\": 1,\n";
+  out << "  \"scene_uid\": " << as_label(scene_uid) << ",\n";
+  out << "  \"phase_uid\": " << as_label(phase_uid) << ",\n";
 
   // -- structural section --
   out << "  \"structural\": {\n";

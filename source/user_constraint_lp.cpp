@@ -785,10 +785,11 @@ bool UserConstraintLP::add_to_lp(const SystemContext& sc,
     const auto row_nterms = row.size();
     // Compute row_name lazily only when debug logging is enabled — otherwise
     // we pay the label formatting cost for a string that is immediately
-    // dropped.  force_row_label ignores LpNamesLevel so the debug line is
+    // dropped.  Using cols_and_rows level ensures the debug line is
     // always populated even when solver row labels are disabled.
-    auto debug_row_name =
-        is_debug ? LabelMaker::force_row_label(row) : std::string {};
+    auto debug_row_name = is_debug
+        ? LabelMaker {LpNamesLevel::cols_and_rows}.make_row_label(row)
+        : std::string {};
     const auto row_idx = lp.add_row(std::move(row));
     block_rows[block.uid()] = row_idx;
     if (is_debug) {

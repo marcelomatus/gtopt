@@ -174,7 +174,7 @@ TEST_CASE("json_options - Round-trip serialization and deserialization")
       .scale_objective = 100.0,
       .output_directory = "output_dir",
       .lp_matrix_options {
-          .names_level = LpNamesLevel::minimal,
+          .names_level = LpNamesLevel::only_cols,
       },
   };
 

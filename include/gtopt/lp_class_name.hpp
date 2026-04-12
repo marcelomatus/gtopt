@@ -6,12 +6,14 @@
  * @copyright BSD-3-Clause
  *
  * This header defines the LPClassName struct used to hold the full class
- * name for LP object types.  The legacy abbreviated short name was
- * removed — `short_name()` now returns a lazy lowercase view of the
- * full name via `gtopt::lowercase()`.
+ * name for LP object types.  `short_name()` returns a `std::string_view`
+ * over the snake_case form of the full PascalCase name, materialized
+ * once into a fixed buffer at constexpr construction time
+ * (e.g. `"ReserveProvision" → "reserve_provision"`).
  */
 #pragma once
 
+#include <array>
 #include <format>
 #include <string_view>
 
@@ -22,9 +24,21 @@ namespace gtopt
 
 struct LPClassName
 {
+  /// Maximum characters in the materialized snake_case short name.
+  /// Longest current name: "ReservoirProductionFactor" → 27 chars.
+  static constexpr std::size_t max_short_len = 48;
+
   explicit constexpr LPClassName(std::string_view pfull_name) noexcept
       : m_full_name(pfull_name)
+      , m_short_len(detail::snake_case_size(pfull_name))
   {
+    std::size_t pos = 0;
+    for (std::size_t i = 0; i < pfull_name.size(); ++i) {
+      if (i > 0 && detail::snake_needs_underscore_before(pfull_name, i)) {
+        m_short_buf[pos++] = '_';
+      }
+      m_short_buf[pos++] = detail::to_lower_char(pfull_name[i]);
+    }
   }
 
   [[nodiscard]] constexpr std::string_view full_name() const noexcept
@@ -32,24 +46,20 @@ struct LPClassName
     return m_full_name;
   }
 
-  /// Lowercase view of the full class name.  Returns a lazy, zero-copy
-  /// `LowercaseView` suitable for direct use in `as_label(...)`.  Callers
-  /// that need a materialized `std::string` should wrap this in
-  /// `as_label(lowercase(...))` or build a `std::string` from the view.
-  [[nodiscard]] constexpr auto short_name() const noexcept
+  /// snake_case of the full class name, materialized once at construction.
+  /// Returns a `std::string_view` over the internal buffer — zero-cost
+  /// to call and usable anywhere a `string_view` is expected.
+  /// `"ReserveProvision" → "reserve_provision"`,
+  /// `"Generator" → "generator"`, etc.
+  [[nodiscard]] constexpr std::string_view short_name() const noexcept
   {
-    return lowercase(m_full_name);
+    return {m_short_buf.data(), m_short_len};
   }
 
-  /// snake_case view of the full class name.  Returns a lazy, zero-copy
-  /// `SnakeCaseView` suitable for direct use in `as_label(...)` and
-  /// comparable against `std::string_view`.  Used to derive the canonical
-  /// PAMPL class name from the PascalCase `ClassName` without magic
-  /// strings: `"ReserveProvision" → "reserve_provision"`,
-  /// `"Generator" → "generator"`, etc.
-  [[nodiscard]] constexpr auto snake_case() const noexcept
+  /// Alias for `short_name()`.
+  [[nodiscard]] constexpr std::string_view snake_case() const noexcept
   {
-    return gtopt::snake_case(m_full_name);
+    return short_name();
   }
 
   // NOLINTNEXTLINE(google-explicit-constructor,hicpp-explicit-conversions)
@@ -57,6 +67,8 @@ struct LPClassName
 
 private:
   std::string_view m_full_name;
+  std::array<char, max_short_len> m_short_buf {};  ///< materialized snake_case
+  std::size_t m_short_len {0};
 };
 
 }  // namespace gtopt

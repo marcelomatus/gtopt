@@ -442,13 +442,14 @@ TEST_CASE("make_lp_matrix_options - defaults when both nullopt")
   CHECK(opts.lp_names_level == LpNamesLevel::none);
 }
 
-TEST_CASE(
-    "make_lp_matrix_options - names_level minimal col names for state vars")
+TEST_CASE("make_lp_matrix_options - names_level none disables all names")
 {
   auto opts = make_lp_matrix_options(
-      std::optional<LpNamesLevel>(LpNamesLevel::minimal), std::nullopt);
+      std::optional<LpNamesLevel>(LpNamesLevel::none), std::nullopt);
 
-  CHECK(opts.col_with_names == true);
+  // At minimal, dense col/row name vectors are not built — state variable
+  // I/O uses the state variable map (ColIndex-based) directly.
+  CHECK(opts.col_with_names == false);
   CHECK(opts.row_with_names == false);
   CHECK(opts.col_with_name_map == false);
   CHECK(opts.row_with_name_map == false);

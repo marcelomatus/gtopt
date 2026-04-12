@@ -12,10 +12,8 @@
  * wrap label calls in `if (names_level >= ...)` guards.
  *
  * Naming semantics (`LpNamesLevel`):
- *   - none:          no labels at all
- *   - minimal:       column labels only for `SparseCol::is_state == true`
- *                    (state variables need names for cascade/SDDP cut I/O)
- *   - only_cols:     all column labels + all row labels
+ *   - none:          no labels at all (default, lowest memory)
+ *   - only_cols:     all column + row labels + name-to-index maps
  *   - cols_and_rows: like `only_cols`, but duplicates throw instead of warn
  *                    (consumed by LinearInterface; not this class's concern)
  *
@@ -29,7 +27,9 @@
 #pragma once
 
 #include <string>
+#include <string_view>
 
+#include <gtopt/lp_context.hpp>
 #include <gtopt/lp_matrix_enums.hpp>
 
 namespace gtopt
@@ -53,16 +53,19 @@ public:
     return m_level_;
   }
 
-  /// True iff any column labels should be generated.
+  /// True iff dense column name vectors / name-maps should be generated.
+  /// Full column naming starts at `only_cols`.  State variable I/O uses
+  /// the StateVariable map (ColIndex-based) directly and does not need
+  /// column name strings.
   [[nodiscard]] constexpr bool col_names_enabled() const noexcept
   {
-    return m_level_ >= LpNamesLevel::minimal;
+    return m_level_ >= LpNamesLevel::only_cols;
   }
 
-  /// True iff row labels should be generated (level >= cols_and_rows).
+  /// True iff row labels should be generated (level >= only_cols).
   [[nodiscard]] constexpr bool row_names_enabled() const noexcept
   {
-    return m_level_ >= LpNamesLevel::cols_and_rows;
+    return m_level_ >= LpNamesLevel::only_cols;
   }
 
   /// True iff all column labels (not just state variables) are generated.
@@ -81,13 +84,9 @@ public:
   ///
   /// Returns an empty string when the column should be unnamed:
   ///   - level == none                                       → ""
-  ///   - level == minimal && !col.is_state                   → ""
-  ///   - col.class_name empty && col.name empty              → ""
+  ///   - col.class_name empty                                → ""
   ///   - col.context is monostate                            → uses
   ///   class+var+uid
-  ///
-  /// An explicit, caller-provided `col.name` always wins whenever
-  /// `col_names_enabled()` is true.
   [[nodiscard]] std::string make_col_label(const SparseCol& col) const;
 
   /// Generate the label for a row, honoring the current names level.
@@ -98,16 +97,6 @@ public:
   ///   - row.context is monostate                            → uses
   ///   class+var+uid
   [[nodiscard]] std::string make_row_label(const SparseRow& row) const;
-
-  /// Unconditional column label (ignores the names level).  Used by
-  /// debug/diagnostic paths that need a label regardless of solver settings
-  /// (e.g. log messages, stored cut names).
-  [[nodiscard]] static std::string force_col_label(const SparseCol& col);
-
-  /// Unconditional row label (ignores the names level).  Used by
-  /// debug/diagnostic paths (e.g. `user_constraint_lp` debug logging,
-  /// `benders_cut` rescale warnings, `sddp_cut_store` cut naming).
-  [[nodiscard]] static std::string force_row_label(const SparseRow& row);
 
 private:
   LpNamesLevel m_level_ {LpNamesLevel::none};

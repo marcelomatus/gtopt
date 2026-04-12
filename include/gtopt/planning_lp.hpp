@@ -87,26 +87,14 @@ private:
   /// for reservoirs that don't already have explicit entries.
   static void auto_scale_reservoirs(Planning& planning);
 
-  /// Ensure multi-phase problems have at least minimal column names
-  /// for state variable transfer (SDDP/cascade cut I/O).
-  [[nodiscard]] static auto enforce_names_for_method(
+  /// State variable I/O uses the StateVariable map (ColIndex-based)
+  /// directly — no column name strings are needed.  This method is
+  /// kept for API compatibility but is now a pass-through.
+  [[nodiscard]] static constexpr auto enforce_names_for_method(
       const LpMatrixOptions& opts,
-      const PlanningOptionsLP& plp_opts,
-      const Planning& planning) -> LpMatrixOptions
+      const PlanningOptionsLP& /*plp_opts*/,
+      const Planning& /*planning*/) noexcept -> LpMatrixOptions
   {
-    const auto method = plp_opts.method_type_enum();
-    // SDDP cut I/O uses LP column names for CSV serialization.
-    // Cascade state transfer uses structured keys (no LP names needed),
-    // but cascade levels internally run SDDP which may serialize cuts.
-    const bool needs_state_names = method == MethodType::sddp
-        || method == MethodType::cascade
-        || planning.simulation.phase_array.size() > 1;
-    if (needs_state_names && opts.lp_names_level < LpNamesLevel::minimal) {
-      auto fixed = opts;
-      fixed.lp_names_level = LpNamesLevel::minimal;
-      fixed.col_with_names = true;
-      return fixed;
-    }
     return opts;
   }
 

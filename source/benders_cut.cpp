@@ -189,7 +189,7 @@ bool rescale_benders_cut(SparseRow& row,
   spdlog::warn(
       "rescale_benders_cut: cut '{}' max|coeff|={:.2e} exceeds "
       "threshold {:.2e}, rescaling by {:.2e}",
-      LabelMaker::force_row_label(row),
+      LabelMaker {LpNamesLevel::cols_and_rows}.make_row_label(row),
       max_coeff,
       cut_coeff_max,
       scale_factor);

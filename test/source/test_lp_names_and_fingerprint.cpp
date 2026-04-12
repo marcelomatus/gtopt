@@ -76,20 +76,21 @@ TEST_CASE("LpNamesLevel::none produces no names in flatten")  // NOLINT
   CHECK(flat.rowmp.empty());
 }
 
-TEST_CASE("LpNamesLevel::minimal produces col names only")  // NOLINT
+TEST_CASE("LpNamesLevel::none produces no col or row names")  // NOLINT
 {
   auto lp = make_simple_lp();
   auto opts = make_lp_matrix_options(
-      std::optional<LpNamesLevel>(LpNamesLevel::minimal), std::nullopt);
+      std::optional<LpNamesLevel>(LpNamesLevel::none), std::nullopt);
   const auto flat = lp.flatten(opts);
 
-  CHECK(flat.colnm.size() == 2);
+  // At none, no dense name vectors are built.
+  CHECK(flat.colnm.empty());
   CHECK(flat.rownm.empty());
   CHECK(flat.colmp.empty());
   CHECK(flat.rowmp.empty());
 }
 
-TEST_CASE("LpNamesLevel::only_cols produces col+row names and maps")  // NOLINT
+TEST_CASE("LpNamesLevel::only_cols produces col and row names")  // NOLINT
 {
   auto lp = make_simple_lp();
   auto opts = make_lp_matrix_options(
@@ -98,9 +99,7 @@ TEST_CASE("LpNamesLevel::only_cols produces col+row names and maps")  // NOLINT
 
   CHECK(flat.colnm.size() == 2);
   CHECK(flat.rownm.size() == 1);
-  // Name maps contain entries for non-empty names
   CHECK_FALSE(flat.colmp.empty());
-  // Row names may be empty if SparseRow has no explicit name
   CHECK(flat.rownm.size() >= 1);
 }
 
@@ -145,9 +144,9 @@ TEST_CASE(  // NOLINT
 TEST_CASE("write_lp returns error when row names missing")  // NOLINT
 {
   auto lp = make_simple_lp();
-  // Flatten without row names (names_level = minimal)
+  // Flatten without row names (names_level = none)
   auto opts = make_lp_matrix_options(
-      std::optional<LpNamesLevel>(LpNamesLevel::minimal), std::nullopt);
+      std::optional<LpNamesLevel>(LpNamesLevel::none), std::nullopt);
   auto flat = lp.flatten(opts);
 
   LinearInterface li;
@@ -193,15 +192,19 @@ TEST_CASE(  // NOLINT
 // ═══════════════════════════════════════════════════════════════════════════
 
 TEST_CASE(  // NOLINT
-    "PlanningLP enforces minimal names for multi-phase planning")
+    "PlanningLP multi-phase: no dense col names, state vars via map")
 {
-  // make_3phase_hydro_planning has 3 phases → should auto-upgrade to minimal
+  // Multi-phase planning — state variable transfer uses the state variable
+  // map (ColIndex-based) directly, no column name strings needed.
   auto planning = make_3phase_hydro_planning();
   PlanningLP planning_lp(std::move(planning));
 
-  // Check that col names were generated despite default none
   const auto& li = planning_lp.systems().front().front().linear_interface();
-  CHECK_FALSE(li.col_index_to_name().empty());
+  CHECK(li.col_index_to_name().empty());
+
+  // State variables should still be registered for inter-phase transfer
+  const auto& sim = planning_lp.simulation();
+  CHECK_FALSE(sim.state_variables(SceneIndex {0}, PhaseIndex {0}).empty());
 }
 
 TEST_CASE(  // NOLINT
@@ -225,7 +228,7 @@ TEST_CASE(  // NOLINT
 
   LpMatrixOptions opts;
   opts.col_with_names = true;
-  opts.lp_names_level = LpNamesLevel::minimal;
+  opts.lp_names_level = LpNamesLevel::only_cols;
 
   PlanningLP planning_lp(std::move(planning), opts);
 
@@ -503,21 +506,25 @@ TEST_CASE(  // NOLINT
                              std::nullopt,  // solver
                              std::nullopt);  // equilibration
 
-  // enforce_names_for_method should auto-upgrade to minimal because phases > 1
+  // State variable I/O uses the state variable map directly — no
+  // column name strings needed even for multi-phase.
   PlanningLP plp(std::move(planning), flat_opts);
 
   REQUIRE(plp.systems().size() == 1);  // 1 scene
   REQUIRE(plp.systems().front().size() == 3);  // 3 phases
 
-  SUBCASE("each phase LP has column names due to auto-enforce")
+  SUBCASE("no dense column names at default level")
   {
     for (size_t pi = 0; pi < 3; ++pi) {
       const auto& li = plp.systems()
                            .front()[PhaseIndex {static_cast<int>(pi)}]
                            .linear_interface();
-      // With minimal names, col_index_to_name should be populated
-      CHECK_FALSE(li.col_index_to_name().empty());
+      CHECK(li.col_index_to_name().empty());
     }
+    // State variables registered via ColIndex-based map
+    CHECK_FALSE(plp.simulation()
+                    .state_variables(SceneIndex {0}, PhaseIndex {0})
+                    .empty());
   }
 
   SUBCASE("LP fingerprint is consistent across phases")
@@ -531,13 +538,9 @@ TEST_CASE(  // NOLINT
     // Both phases should have the same number of structural columns
     CHECK(sys0.get_numcols() > 0);
     CHECK(sys1.get_numcols() > 0);
-
-    // Fingerprint from col_index_to_name — verify names exist
-    CHECK_FALSE(sys0.col_name_map().empty());
-    CHECK_FALSE(sys1.col_name_map().empty());
   }
 
-  SUBCASE("low-memory compress preserves names across cycles")
+  SUBCASE("low-memory compress preserves structure across cycles")
   {
     auto& sys = plp.systems().front()[first_phase_index()];
     auto& li = sys.linear_interface();
@@ -550,7 +553,6 @@ TEST_CASE(  // NOLINT
     const auto orig_ncols = li.get_numcols();
     const auto orig_nrows = li.get_numrows();
     const auto orig_obj = li.get_obj_value();
-    const auto names_before = li.col_name_map().size();
 
     // Enable compression — snapshot was already saved during LP build
     sys.set_low_memory(LowMemoryMode::compress, CompressionCodec::lz4);
@@ -564,10 +566,6 @@ TEST_CASE(  // NOLINT
       CHECK_FALSE(li.is_backend_released());
       CHECK(li.get_numcols() == orig_ncols);
       CHECK(li.get_numrows() == orig_nrows);
-
-      // Names survive reconstruction
-      CHECK(li.col_name_map().size() == names_before);
-      CHECK_FALSE(li.col_index_to_name().empty());
 
       auto r = li.resolve();
       REQUIRE(r.has_value());
@@ -701,7 +699,7 @@ TEST_CASE(  // NOLINT
   // compress/reconstruct cycles.
   auto lp = make_simple_lp();
   const auto flat_opts = make_lp_matrix_options(
-      LpNamesLevel::minimal, std::nullopt, false, std::nullopt, std::nullopt);
+      LpNamesLevel::none, std::nullopt, false, std::nullopt, std::nullopt);
   auto flat = lp.flatten(flat_opts);
 
   // Compute fingerprint from LP structure
@@ -743,9 +741,9 @@ TEST_CASE(  // NOLINT
   planning.options.use_single_bus = OptBool {true};
   planning.options.scale_objective = OptReal {1.0};
 
-  // Use minimal names to get fingerprint-relevant metadata
+  // Use only_cols to get dense column names for fingerprint-relevant metadata
   const auto flat_opts = make_lp_matrix_options(
-      LpNamesLevel::minimal, std::nullopt, false, std::nullopt, std::nullopt);
+      LpNamesLevel::only_cols, std::nullopt, false, std::nullopt, std::nullopt);
   PlanningLP plp(std::move(planning), flat_opts);
 
   REQUIRE(plp.systems().size() == 1);
@@ -891,8 +889,7 @@ TEST_CASE("LpMatrixOptions struct defaults match none level")  // NOLINT
 
 TEST_CASE("LpNamesLevel ordering")  // NOLINT
 {
-  CHECK(LpNamesLevel::none < LpNamesLevel::minimal);
-  CHECK(LpNamesLevel::minimal < LpNamesLevel::only_cols);
+  CHECK(LpNamesLevel::none < LpNamesLevel::only_cols);
   CHECK(LpNamesLevel::only_cols < LpNamesLevel::cols_and_rows);
 }
 

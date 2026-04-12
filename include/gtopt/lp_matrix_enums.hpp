@@ -28,24 +28,23 @@ namespace gtopt
  *
  * Controls how much naming information is generated during LP construction.
  * Higher levels provide better diagnostics but consume more memory.
+ * State variable I/O uses the StateVariable map (ColIndex-based) directly
+ * and does not need column name strings.
  *
- * - `minimal`:      State-variable column names only (for internal use,
- *                   e.g. cascade solver state transfer).  Smallest footprint.
- * - `only_cols`:    All column names + name-to-index maps.
- * - `cols_and_rows`: Column + row names + maps.  Warns on duplicate names.
+ * - `none`:         No names generated (default, lowest memory).
+ * - `only_cols`:    All column + row names + name-to-index maps.
+ * - `cols_and_rows`: Like only_cols, but duplicate names throw errors.
  */
 enum class LpNamesLevel : int8_t
 {
   none = -1,  ///< No names generated (lowest memory, default)
-  minimal = 0,  ///< State-variable column names only
-  only_cols = 1,  ///< All column names + name maps
-  cols_and_rows = 2,  ///< Column + row names + maps + warn on duplicates
+  only_cols = 1,  ///< All column + row names + name maps
+  cols_and_rows = 2,  ///< Column + row names + maps + error on duplicates
 };
 
 inline constexpr auto lp_names_level_entries =
     std::to_array<EnumEntry<LpNamesLevel>>({
         {.name = "none", .value = LpNamesLevel::none},
-        {.name = "minimal", .value = LpNamesLevel::minimal},
         {.name = "only_cols", .value = LpNamesLevel::only_cols},
         {.name = "cols_and_rows", .value = LpNamesLevel::cols_and_rows},
     });

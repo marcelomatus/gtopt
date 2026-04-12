@@ -228,18 +228,15 @@ TEST_CASE("LpNamesLevel from_name and name")  // NOLINT
 {
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
+  CHECK(enum_from_name<LpNamesLevel>("only_cols").value_or(LpNamesLevel::none)
+        == LpNamesLevel::only_cols);
   CHECK(
-      enum_from_name<LpNamesLevel>("minimal").value_or(LpNamesLevel::only_cols)
-      == LpNamesLevel::minimal);
-  CHECK(
-      enum_from_name<LpNamesLevel>("only_cols").value_or(LpNamesLevel::minimal)
-      == LpNamesLevel::only_cols);
-  CHECK(enum_from_name<LpNamesLevel>("cols_and_rows")
-            .value_or(LpNamesLevel::minimal)
-        == LpNamesLevel::cols_and_rows);
+      enum_from_name<LpNamesLevel>("cols_and_rows").value_or(LpNamesLevel::none)
+      == LpNamesLevel::cols_and_rows);
   CHECK_FALSE(enum_from_name<LpNamesLevel>("bogus").has_value());
+  CHECK_FALSE(enum_from_name<LpNamesLevel>("minimal").has_value());
 
-  CHECK(enum_name(LpNamesLevel::minimal) == "minimal");
+  CHECK(enum_name(LpNamesLevel::none) == "none");
   CHECK(enum_name(LpNamesLevel::only_cols) == "only_cols");
   CHECK(enum_name(LpNamesLevel::cols_and_rows) == "cols_and_rows");
 }
