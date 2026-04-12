@@ -289,6 +289,16 @@ public:
   {
   }
 
+  // For single char — store as a 1-character string, not as integer
+  constexpr explicit string_holder(char c) noexcept
+      : int_buf_ {
+            c,
+        }
+      , int_len_ {1}
+      , tag_(Tag::buf)
+  {
+  }
+
   // Fast path for integral and integral-convertible types.
   // Uses compile-time cache for 0–1023, stack buffer otherwise.
   template<typename T>
@@ -309,10 +319,34 @@ public:
     int_len_ = static_cast<std::uint8_t>(ptr - begin);
   }
 
-  // Fallback for non-string, non-integral types (floating point, custom
+  // Floating-point path — shortest round-trip via std::to_chars.
+  // Guarantees a decimal point: 1.0 → "1.0", not "1".
+  template<typename T>
+    requires std::floating_point<T>
+  explicit string_holder(T value) noexcept
+      : tag_(Tag::owned)
+  {
+    // Shortest round-trip for a double needs at most 24 chars
+    // (-1.7976931348623157e+308), plus 2 for potential ".0" suffix.
+    std::array<char, 26> buf {};
+    auto [ptr, ec] = std::to_chars(buf.data(), buf.data() + buf.size(), value);
+    const std::string_view sv(buf.data(), ptr);
+    // Ensure a decimal point so the value reads as floating-point.
+    // If to_chars produced no '.' and no 'e'/'E', append ".0".
+    if (!sv.contains('.') && !sv.contains('e')) {
+      // NOLINTBEGIN(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+      *ptr++ = '.';
+      *ptr++ = '0';
+      // NOLINTEND(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+    }
+    owned_.assign(buf.data(), ptr);
+  }
+
+  // Fallback for non-string, non-integral, non-float types (custom
   // formatters) — allocates via std::format.
   template<typename T>
-    requires(!string_like<T> && !integral_convertible<T> && !char_range<T>)
+    requires(!string_like<T> && !integral_convertible<T>
+             && !std::floating_point<T> && !char_range<T>)
   explicit string_holder(const T& value)
       : owned_(std::format("{}", value))
       , tag_(Tag::owned)

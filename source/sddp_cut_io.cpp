@@ -260,8 +260,12 @@ auto save_cuts_csv(std::span<const StoredCut> cuts,
       const char type_char = (cut.type == CutType::Feasibility) ? 'f' : 'o';
 
       // RHS in physical objective units
-      ofs << type_char << "," << cut.phase_uid << "," << cut.scene_uid << ","
-          << cut.name << "," << (cut.rhs * scale_obj) << ",";
+      ofs << as_label<','>(type_char,
+                           cut.phase_uid,
+                           cut.scene_uid,
+                           cut.name,
+                           cut.rhs * scale_obj)
+          << ",";
       if (cut.dual.has_value()) {
         ofs << *cut.dual;
       }
@@ -345,8 +349,12 @@ auto save_scene_cuts_csv(std::span<const StoredCut> cuts,
       const char type_char = (cut.type == CutType::Feasibility) ? 'f' : 'o';
 
       // RHS in physical objective units
-      ofs << type_char << "," << cut.phase_uid << "," << cut.scene_uid << ","
-          << cut.name << "," << (cut.rhs * scale_obj) << ",";
+      ofs << as_label<','>(type_char,
+                           cut.phase_uid,
+                           cut.scene_uid,
+                           cut.name,
+                           cut.rhs * scale_obj)
+          << ",";
       if (cut.dual.has_value()) {
         ofs << *cut.dual;
       }

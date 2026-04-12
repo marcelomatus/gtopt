@@ -36,6 +36,19 @@ TEST_CASE("gtopt types 1")  // NOLINT
 
   const std::string s2 = "s2";
   REQUIRE(gtopt::as_label("s1", s2) == "s1_s2");
+
+  // char arguments are treated as single characters, not integers
+  REQUIRE(gtopt::as_label('x') == "x");
+  REQUIRE(gtopt::as_label<','>('o', 999, 1, "name") == "o,999,1,name");
+  REQUIRE(gtopt::as_label<'_'>('f', "tag") == "f_tag");
+
+  // doubles: full precision, whole numbers get ".0" suffix
+  REQUIRE(gtopt::as_label(1.0) == "1.0");
+  REQUIRE(gtopt::as_label(0.0) == "0.0");
+  REQUIRE(gtopt::as_label(-3.0) == "-3.0");
+  REQUIRE(gtopt::as_label(1.5) == "1.5");
+  REQUIRE(gtopt::as_label(3.14159265358979) == "3.14159265358979");
+  REQUIRE(gtopt::as_label<','>('o', 999, 1.0, "name") == "o,999,1.0,name");
 }
 
 template<typename IndexType = size_t, typename Range>
@@ -125,7 +138,7 @@ TEST_CASE("as_label basic functionality")
   {
     CHECK(as_label(0) == "0");
     CHECK(as_label(-1) == "-1");
-    CHECK(as_label(0.0) == "0");
+    CHECK(as_label(0.0) == "0.0");
   }
 
   SUBCASE("case preserved")

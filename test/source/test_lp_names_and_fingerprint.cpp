@@ -200,7 +200,16 @@ TEST_CASE(  // NOLINT
   PlanningLP planning_lp(std::move(planning));
 
   const auto& li = planning_lp.systems().front().front().linear_interface();
+
+  // No name vectors or maps at default names_level=none
   CHECK(li.col_index_to_name().empty());
+  CHECK(li.row_index_to_name().empty());
+  CHECK(li.col_name_map().empty());
+  CHECK(li.row_name_map().empty());
+
+  // LP itself must have cols and rows
+  CHECK(li.get_numcols() > 0);
+  CHECK(li.get_numrows() > 0);
 
   // State variables should still be registered for inter-phase transfer
   const auto& sim = planning_lp.simulation();
@@ -217,8 +226,18 @@ TEST_CASE(  // NOLINT
   PlanningLP planning_lp(std::move(planning));
 
   const auto& li = planning_lp.systems().front().front().linear_interface();
-  // Single-phase monolithic: col names not needed, should be empty
+
+  // No dense name vectors
   CHECK(li.col_index_to_name().empty());
+  CHECK(li.row_index_to_name().empty());
+
+  // No name-to-index maps
+  CHECK(li.col_name_map().empty());
+  CHECK(li.row_name_map().empty());
+
+  // LP must still have actual cols and rows (names skipped, not the LP)
+  CHECK(li.get_numcols() > 0);
+  CHECK(li.get_numrows() > 0);
 }
 
 TEST_CASE(  // NOLINT
