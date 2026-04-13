@@ -40,7 +40,7 @@ public:
 
   using StorageBase = StorageLP<ObjectLP<LngTerminal>>;
 
-  explicit LngTerminalLP(const LngTerminal& terminal, const InputContext& ic);
+  explicit LngTerminalLP(const LngTerminal& pterminal, const InputContext& ic);
 
   [[nodiscard]] constexpr auto&& terminal(this auto&& self) noexcept
   {
