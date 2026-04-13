@@ -46,7 +46,7 @@ bool BatteryLP::add_to_lp(SystemContext& sc,
                           LinearProblem& lp)
 {
   static constexpr std::string_view cname = ClassName.full_name();
-  static const auto ampl_name = std::string {ClassName.snake_case()};
+  static constexpr auto ampl_name = ClassName.snake_case();
   static constexpr double flow_conversion_rate = 1.0;
 
   // Add capacity-related variables and constraints

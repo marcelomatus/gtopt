@@ -566,7 +566,7 @@ void create_collections(const auto& system_context,
 template<typename LP, typename Array>
 void register_element_names(SimulationLP& sim, const Array& arr)
 {
-  const auto class_name = std::string {LP::ClassName.snake_case()};
+  constexpr auto class_name = LP::ClassName.snake_case();
   for (const auto& obj : arr) {
     sim.register_ampl_element(class_name, obj.name, obj.uid);
   }
@@ -595,7 +595,7 @@ void register_all_ampl_element_names(SimulationLP& sim, const System& sys)
   // ("reservoir_seepage").  Mirrors the constraint/variable name
   // emitted by `source/reservoir_seepage_lp.cpp`.
   {
-    const auto class_name = std::string {ReservoirSeepageLP::SeepageName};
+    constexpr auto class_name = ReservoirSeepageLP::SeepageName;
     for (const auto& obj : sys.reservoir_seepage_array) {
       sim.register_ampl_element(class_name, obj.name, obj.uid);
     }
@@ -604,7 +604,7 @@ void register_all_ampl_element_names(SimulationLP& sim, const System& sys)
   // Class-level compound: `line.flow = +flowp − flown`.
   // Registered once globally; the resolver expands it per-(uid, block).
   {
-    const auto line_class = std::string {LineLP::ClassName.snake_case()};
+    constexpr auto line_class = LineLP::ClassName.snake_case();
     sim.add_ampl_compound(line_class,
                           LineLP::FlowName,
                           {
@@ -676,6 +676,13 @@ SystemLP::SystemLP(const System& system,
     , m_phase_(std::move(phase))
     , m_scene_(std::move(scene))
 {
+  // Enable the per-cell AMPL variable registry when user constraints
+  // need to resolve element columns.  Without user constraints the
+  // map stays empty, saving allocation/hashing overhead.
+  if (!system.user_constraint_array.empty()) {
+    simulation.set_need_ampl_variables(true);
+  }
+
   // Populate the SimulationLP-wide AMPL element-name and compound
   // registries exactly once, before any per-(scene, phase) build runs.
   // The std::call_once flag is owned by SimulationLP, so this works

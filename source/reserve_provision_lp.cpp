@@ -196,7 +196,7 @@ bool ReserveProvisionLP::add_to_lp(const SystemContext& sc,
                                    LinearProblem& lp)
 {
   static constexpr std::string_view cname = ClassName.full_name();
-  static const auto ampl_name = std::string {ClassName.snake_case()};
+  static constexpr auto ampl_name = ClassName.snake_case();
 
   if (!is_active(stage)) {
     return true;

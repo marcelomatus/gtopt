@@ -216,6 +216,17 @@ namespace
   options.output_format = DataFormat::csv;
   options.output_compression = CompressionCodec::uncompressed;
 
+  // Inactive dummy UC triggers AMPL variable registration so that
+  // tests can use find_ampl_col without changing the LP structure.
+  const Array<UserConstraint> uc_array = {
+      {
+          .uid = Uid {999},
+          .name = "dummy",
+          .active = false,
+          .expression = "generator('thermal_gen').generation <= 500",
+      },
+  };
+
   System system = {
       .name = "reset_cross_phase_fixture",
       .bus_array = bus_array,
@@ -225,6 +236,7 @@ namespace
       .waterway_array = waterway_array,
       .reservoir_array = reservoir_array,
       .volume_right_array = volume_right_array,
+      .user_constraint_array = uc_array,
   };
 
   return Planning {
@@ -391,6 +403,17 @@ namespace
   options.output_format = DataFormat::csv;
   options.output_compression = CompressionCodec::uncompressed;
 
+  // Inactive dummy UC triggers AMPL variable registration so that
+  // tests can use find_ampl_col without changing the LP structure.
+  const Array<UserConstraint> uc_array = {
+      {
+          .uid = Uid {999},
+          .name = "dummy",
+          .active = false,
+          .expression = "generator('thermal_gen').generation <= 500",
+      },
+  };
+
   System system = {
       .name = "reset_intra_phase_fixture",
       .bus_array = bus_array,
@@ -400,6 +423,7 @@ namespace
       .waterway_array = waterway_array,
       .reservoir_array = reservoir_array,
       .volume_right_array = volume_right_array,
+      .user_constraint_array = uc_array,
   };
 
   return Planning {

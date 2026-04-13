@@ -122,6 +122,7 @@ TEST_CASE(  // NOLINT
 
   const PlanningOptionsLP options;
   SimulationLP simulation_lp(make_single_block_simulation(), options);
+  simulation_lp.set_need_ampl_variables(true);
   SystemLP system_lp(system, simulation_lp);
 
   const auto& sc = system_lp.system_context();
@@ -198,6 +199,7 @@ TEST_CASE(  // NOLINT
 
   const PlanningOptionsLP options;
   SimulationLP simulation_lp(make_single_block_simulation(), options);
+  simulation_lp.set_need_ampl_variables(true);
   SystemLP system_lp(system, simulation_lp);
 
   const auto& sc = system_lp.system_context();
@@ -273,6 +275,7 @@ TEST_CASE(  // NOLINT
 
   const PlanningOptionsLP options;
   SimulationLP simulation_lp(make_single_block_simulation(), options);
+  simulation_lp.set_need_ampl_variables(true);
   SystemLP system_lp(system, simulation_lp);
 
   const auto& sc = system_lp.system_context();
@@ -359,6 +362,7 @@ TEST_CASE(  // NOLINT
 
   const PlanningOptionsLP options;
   SimulationLP simulation_lp(simulation, options);
+  simulation_lp.set_need_ampl_variables(true);
   SystemLP system_lp(system, simulation_lp);
 
   const auto& sc = system_lp.system_context();

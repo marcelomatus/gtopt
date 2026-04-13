@@ -361,6 +361,7 @@ TEST_CASE(  // NOLINT
   // Simulation must outlive it — bind to a named local before passing.
   const auto simulation = make_maule_simulation();
   SimulationLP simulation_lp(simulation, options);
+  simulation_lp.set_need_ampl_variables(true);
   SystemLP system_lp(system, simulation_lp);
 
   auto&& lp = system_lp.linear_interface();
@@ -524,6 +525,7 @@ TEST_CASE(  // NOLINT
     const PlanningOptionsLP options;
     const auto simulation = make_maule_simulation();
     SimulationLP simulation_lp(simulation, options);
+    simulation_lp.set_need_ampl_variables(true);
     SystemLP system_lp(system, simulation_lp);
     auto&& lp = system_lp.linear_interface();
     const auto result = lp.resolve();

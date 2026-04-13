@@ -367,6 +367,14 @@ auto PlanningLP::create_systems(System& system,
   system.expand_reservoir_constraints();
   system.setup_reference_bus(options);
 
+  // Enable per-cell AMPL variable registration when user constraints
+  // exist (or any future consumer that calls find_ampl_col).  Without
+  // user constraints, the map stays empty and add_ampl_variable is a
+  // no-op — saving allocation/hashing overhead.
+  if (!system.user_constraint_array.empty()) {
+    simulation.set_need_ampl_variables(true);
+  }
+
   // Note: AMPL element-name and compound registries are populated by
   // SystemLP's constructor under std::call_once on
   // SimulationLP::ampl_registry_flag(), so the registry is filled

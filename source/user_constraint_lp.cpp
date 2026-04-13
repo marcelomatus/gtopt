@@ -820,7 +820,7 @@ bool UserConstraintLP::add_to_lp(const SystemContext& sc,
   // user constraints / reports can reference them, and stash the per-
   // (scenario, stage) holders for `add_to_output`.
   if (is_soft && !block_slack_cols.empty()) {
-    static const auto ampl_name = std::string {ClassName.snake_case()};
+    static constexpr auto ampl_name = ClassName.snake_case();
     const auto st_key = std::tuple {scenario.uid(), stage.uid()};
     sc.add_ampl_variable(ampl_name,
                          uid(),

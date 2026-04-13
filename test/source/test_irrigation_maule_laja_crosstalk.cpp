@@ -345,6 +345,7 @@ TEST_CASE(  // NOLINT
   const PlanningOptionsLP options;
   const auto simulation = make_crosstalk_simulation();
   SimulationLP simulation_lp(simulation, options);
+  simulation_lp.set_need_ampl_variables(true);
   SystemLP system_lp(system, simulation_lp);
 
   auto&& lp = system_lp.linear_interface();
@@ -381,6 +382,7 @@ TEST_CASE(  // NOLINT
   const PlanningOptionsLP options;
   const auto simulation = make_crosstalk_simulation();
   SimulationLP simulation_lp(simulation, options);
+  simulation_lp.set_need_ampl_variables(true);
   SystemLP system_lp(system, simulation_lp);
 
   const auto& sc = system_lp.system_context();

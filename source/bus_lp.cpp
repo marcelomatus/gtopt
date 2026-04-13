@@ -88,7 +88,7 @@ bool BusLP::add_to_lp(const SystemContext& sc,
                       const StageLP& stage,
                       LinearProblem& lp)
 {
-  static const auto ampl_name = std::string {ClassName.snake_case()};
+  static constexpr auto ampl_name = ClassName.snake_case();
 
   // Theta columns are lazy-created by lines that need Kirchhoff; the
   // resolver retains a special-case fallback for `bus.theta`/`bus.angle`

@@ -384,18 +384,22 @@ public:
   using ampl_lp_registry_t =
       StrongIndexVector<SceneIndex, StrongIndexVector<PhaseIndex, AmplLpCell>>;
 
+  /// Enable or disable AMPL variable registration.  When false (the
+  /// default), `add_ampl_variable` is a no-op and the per-cell variable
+  /// maps stay empty — avoiding allocation overhead when no consumer
+  /// (user constraints, PAMPL expressions) needs them.
+  ///
+  /// The flag is set by `SystemLP` when user constraints exist or by
+  /// `PlanningLP` when PAMPL evaluation is requested.
+  void set_need_ampl_variables(bool v) noexcept { m_need_ampl_variables_ = v; }
+
+  [[nodiscard]] constexpr bool need_ampl_variables() const noexcept
+  {
+    return m_need_ampl_variables_;
+  }
+
   /// Register a per-block variable map (e.g., generator.generation).
-  /// @param scene_index / phase_index the LP cell that owns this entry
-  /// @param class_name  canonical lowercase class name ("generator", "line")
-  /// @param element_uid element's Uid
-  /// @param attribute   PAMPL attribute name ("generation", "flowp", ...)
-  /// @param scenario_uid / stage_uid the (scenario, stage) this map is for
-  /// @param block_cols  the element's BIndexHolder for this (scenario,
-  ///                    stage).  Copied by value: elements hold
-  ///                    `STBIndexHolder`s whose outer flat_map
-  ///                    reallocates on every new (scenario, stage)
-  ///                    insert, which would dangle any pointer kept
-  ///                    here across later `add_to_lp` calls.
+  /// No-op when `need_ampl_variables()` is false.
   void add_ampl_variable(SceneIndex scene_index,
                          PhaseIndex phase_index,
                          std::string_view class_name,
@@ -405,9 +409,12 @@ public:
                          StageUid stage_uid,
                          const BIndexHolder<ColIndex>& block_cols)
   {
+    if (!m_need_ampl_variables_) {
+      return;
+    }
     m_ampl_lp_cells_[scene_index][phase_index].variables.insert_or_assign(
         AmplVariableKey {
-            .class_name = std::string {class_name},
+            .class_name = class_name,
             .element_uid = element_uid,
             .attribute = attribute,
             .scenario_uid = scenario_uid,
@@ -430,9 +437,12 @@ public:
                          StageUid stage_uid,
                          ColIndex stage_col)
   {
+    if (!m_need_ampl_variables_) {
+      return;
+    }
     m_ampl_lp_cells_[scene_index][phase_index].variables.insert_or_assign(
         AmplVariableKey {
-            .class_name = std::string {class_name},
+            .class_name = class_name,
             .element_uid = element_uid,
             .attribute = attribute,
             .scenario_uid = scenario_uid,
@@ -460,7 +470,7 @@ public:
   {
     const auto& cell = m_ampl_lp_cells_[scene_index][phase_index];
     const auto it = cell.variables.find(AmplVariableKey {
-        .class_name = std::string {class_name},
+        .class_name = class_name,
         .element_uid = element_uid,
         .attribute = attribute,
         .scenario_uid = scenario_uid,
@@ -487,9 +497,7 @@ public:
                              Uid element_uid)
   {
     m_ampl_element_names_.insert_or_assign(
-        AmplElementNameKey {std::string {class_name},
-                            std::string {element_name}},
-        element_uid);
+        AmplElementNameKey {class_name, element_name}, element_uid);
   }
 
   /// Look up an element Uid by (class_name, name).  Read-only during
@@ -497,8 +505,8 @@ public:
   [[nodiscard]] std::optional<Uid> lookup_ampl_element_uid(
       std::string_view class_name, std::string_view element_name) const
   {
-    const auto it = m_ampl_element_names_.find(AmplElementNameKey {
-        std::string {class_name}, std::string {element_name}});
+    const auto it = m_ampl_element_names_.find(
+        AmplElementNameKey {class_name, element_name});
     return (it != m_ampl_element_names_.end()) ? std::optional<Uid> {it->second}
                                                : std::nullopt;
   }
@@ -519,7 +527,7 @@ public:
   {
     m_ampl_compounds_.try_emplace(
         AmplCompoundKey {
-            .class_name = std::string {class_name},
+            .class_name = class_name,
             .compound_name = compound_name,
         },
         std::move(legs));
@@ -535,7 +543,7 @@ public:
       std::string_view compound_name) const noexcept
   {
     const auto it = m_ampl_compounds_.find(AmplCompoundKey {
-        .class_name = std::string {class_name},
+        .class_name = class_name,
         .compound_name = compound_name,
     });
     return (it != m_ampl_compounds_.end()) ? &it->second : nullptr;
@@ -563,7 +571,7 @@ public:
   {
     m_ampl_scalars_.insert_or_assign(
         AmplScalarKey {
-            .class_name = std::string {class_name},
+            .class_name = class_name,
             .attribute = attribute,
         },
         value);
@@ -577,7 +585,7 @@ public:
       std::string_view class_name, std::string_view attribute) const noexcept
   {
     const auto it = m_ampl_scalars_.find(AmplScalarKey {
-        .class_name = std::string {class_name},
+        .class_name = class_name,
         .attribute = attribute,
     });
     return (it != m_ampl_scalars_.end()) ? std::optional<double> {it->second}
@@ -605,7 +613,7 @@ public:
                                       AmplElementMetadata metadata)
   {
     m_ampl_lp_cells_[scene_index][phase_index].metadata[AmplMetadataKey {
-        .class_name = std::string {class_name},
+        .class_name = class_name,
         .element_uid = element_uid,
     }] = std::move(metadata);
   }
@@ -621,7 +629,7 @@ public:
   {
     const auto& cell = m_ampl_lp_cells_[scene_index][phase_index];
     const auto it = cell.metadata.find(AmplMetadataKey {
-        .class_name = std::string {class_name},
+        .class_name = class_name,
         .element_uid = element_uid,
     });
     return (it != cell.metadata.end()) ? &it->second : nullptr;
@@ -643,6 +651,12 @@ private:
   // synchronization is needed at lookup time.
   flat_map<ScenarioUid, SceneIndex> m_scene_of_scenario_;
   flat_map<StageUid, PhaseIndex> m_phase_of_stage_;
+
+  // When true, add_ampl_variable() populates the per-cell variable
+  // maps.  When false (default), it is a no-op — the maps stay empty,
+  // saving allocation/hashing overhead for runs without user constraints
+  // or PAMPL evaluation.
+  bool m_need_ampl_variables_ {false};
 
   // PAMPL variable registry — populated by each LP element's add_to_lp
   // and queried by element_column_resolver.cpp.
