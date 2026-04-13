@@ -53,12 +53,100 @@ class GTOptWriter:
     def _normalize_solver_type(solver_type: str) -> str:
         """Normalize solver type string.
 
-        Accepts 'sddp', 'mono', or 'monolithic'; returns either 'sddp' or
-        'monolithic' (the values understood by the gtopt C++ solver).
+        Accepts 'sddp', 'mono', 'monolithic', or 'cascade'; returns
+        'sddp', 'monolithic', or 'cascade'.
         """
         if solver_type in ("mono", "monolithic"):
             return "monolithic"
+        if solver_type == "cascade":
+            return "cascade"
         return "sddp"
+
+    @staticmethod
+    def _build_default_cascade_options(
+        model_opts: dict[str, Any],
+        sddp_opts: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Build a 3-level default cascade configuration.
+
+        Iteration budget split:
+          - Level 0 (uninodal):  1/2 of max_iterations — single-bus relaxation
+          - Level 1 (transport): 1/4 of max_iterations — lines enabled, no
+            losses, no kirchhoff (pure transport model)
+          - Level 2 (full):      remaining iterations — full network with the
+            user's original model_options
+
+        Each level inherits state-variable targets from the previous level
+        via elastic constraints (``inherit_targets = -1``).
+        """
+        total_iter = sddp_opts.get("max_iterations", 100)
+        convergence_tol = sddp_opts.get("convergence_tol", 0.1)
+
+        l0_iter = max(total_iter // 2, 1)
+        l1_iter = max(total_iter // 4, 1)
+        l2_iter = max(total_iter - l0_iter - l1_iter, 1)
+
+        transition = {
+            "inherit_targets": -1,
+            "target_rtol": 0.05,
+            "target_min_atol": 1.0,
+            "target_penalty": 500.0,
+        }
+
+        level_array = [
+            {
+                "uid": 1,
+                "name": "uninodal",
+                "model_options": {
+                    "use_single_bus": True,
+                },
+                "sddp_options": {
+                    "max_iterations": l0_iter,
+                    "convergence_tol": convergence_tol,
+                },
+            },
+            {
+                "uid": 2,
+                "name": "transport",
+                "model_options": {
+                    "use_single_bus": False,
+                    "use_kirchhoff": False,
+                    "use_line_losses": False,
+                },
+                "sddp_options": {
+                    "max_iterations": l1_iter,
+                    "convergence_tol": convergence_tol,
+                },
+                "transition": transition,
+            },
+            {
+                "uid": 3,
+                "name": "full_network",
+                "model_options": {
+                    k: v
+                    for k, v in model_opts.items()
+                    if k
+                    in (
+                        "use_single_bus",
+                        "use_kirchhoff",
+                        "use_line_losses",
+                        "kirchhoff_threshold",
+                        "loss_segments",
+                    )
+                },
+                "sddp_options": {
+                    "max_iterations": l2_iter,
+                    "convergence_tol": convergence_tol,
+                },
+                "transition": transition,
+            },
+        ]
+
+        return {
+            "model_options": model_opts,
+            "sddp_options": sddp_opts,
+            "level_array": level_array,
+        }
 
     def process_options(self, options):
         """Process options data to include input and output paths.
@@ -158,7 +246,7 @@ class GTOptWriter:
         if "use_line_losses" in src_model:
             model_opts["use_line_losses"] = src_model["use_line_losses"]
 
-        planning_opts = {
+        planning_opts: dict[str, Any] = {
             "method": solver_type,
             "input_directory": input_dir_val,
             "input_format": input_format,
@@ -168,6 +256,12 @@ class GTOptWriter:
             "model_options": model_opts,
             "sddp_options": sddp_opts,
         }
+
+        if solver_type == "cascade":
+            planning_opts["cascade_options"] = self._build_default_cascade_options(
+                model_opts, sddp_opts
+            )
+
         self.planning["options"] = planning_opts
 
         # Set annual_discount_rate on the simulation section.

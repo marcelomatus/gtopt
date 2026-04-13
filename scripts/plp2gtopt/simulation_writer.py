@@ -57,6 +57,8 @@ class SimulationWriter:
     def _normalize_solver_type(solver_type: str) -> str:
         if solver_type in ("mono", "monolithic"):
             return "monolithic"
+        if solver_type == "cascade":
+            return "cascade"
         return "sddp"
 
     def _build_blocks_and_stages(self) -> None:

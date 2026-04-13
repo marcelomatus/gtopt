@@ -454,6 +454,7 @@ def test_write_creates_json(tmp_path):
         ("sddp", "sddp"),
         ("mono", "monolithic"),
         ("monolithic", "monolithic"),
+        ("cascade", "cascade"),
         ("other", "sddp"),
     ],
 )

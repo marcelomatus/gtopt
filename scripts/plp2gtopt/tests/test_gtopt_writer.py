@@ -158,6 +158,49 @@ class TestGTOptWriterProcessMethods:
         writer.process_options({"output_dir": "out", "solver_type": "mono"})
         assert writer.planning["options"]["method"] == "monolithic"
 
+    def test_process_options_cascade_solver_type(self):
+        """process_options emits cascade_options with 3-level default config."""
+        writer = GTOptWriter(MagicMock())
+        writer.process_options({"output_dir": "out", "solver_type": "cascade"})
+        opts = writer.planning["options"]
+        assert opts["method"] == "cascade"
+        assert "cascade_options" in opts
+        cascade = opts["cascade_options"]
+        assert "level_array" in cascade
+        levels = cascade["level_array"]
+        assert len(levels) == 3
+        # Level 0: uninodal
+        assert levels[0]["name"] == "uninodal"
+        assert levels[0]["model_options"]["use_single_bus"] is True
+        # Level 1: transport (no kirchhoff, no losses)
+        assert levels[1]["name"] == "transport"
+        assert levels[1]["model_options"]["use_single_bus"] is False
+        assert levels[1]["model_options"]["use_kirchhoff"] is False
+        assert levels[1]["model_options"]["use_line_losses"] is False
+        # Level 2: full network
+        assert levels[2]["name"] == "full_network"
+
+    def test_process_options_cascade_iteration_split(self):
+        """cascade splits max_iterations as 1/2, 1/4, 1/4."""
+        writer = GTOptWriter(MagicMock())
+        writer.process_options(
+            {
+                "output_dir": "out",
+                "solver_type": "cascade",
+                "max_iterations": 100,
+            }
+        )
+        levels = writer.planning["options"]["cascade_options"]["level_array"]
+        assert levels[0]["sddp_options"]["max_iterations"] == 50
+        assert levels[1]["sddp_options"]["max_iterations"] == 25
+        assert levels[2]["sddp_options"]["max_iterations"] == 25
+
+    def test_process_options_cascade_no_cascade_for_sddp(self):
+        """cascade_options is NOT emitted for plain sddp."""
+        writer = GTOptWriter(MagicMock())
+        writer.process_options({"output_dir": "out", "solver_type": "sddp"})
+        assert "cascade_options" not in writer.planning["options"]
+
     def test_process_options_no_num_apertures_in_sddp(self):
         """num_apertures is never emitted in sddp_options (C++ has no such field)."""
         writer = GTOptWriter(MagicMock())

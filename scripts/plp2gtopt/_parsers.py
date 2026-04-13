@@ -347,13 +347,15 @@ def add_solver_arguments(parser: argparse.ArgumentParser, conf: dict[str, str]) 
         dest="solver_type",
         metavar="TYPE",
         default=conf.get("solver_type", "sddp"),
-        choices=["sddp", "mono", "monolithic"],
+        choices=["sddp", "mono", "monolithic", "cascade"],
         help=(
             "solver type controlling the simulation structure: "
             "'sddp' produces one scene per scenario and one phase per stage "
             "(for Stochastic Dual Dynamic Programming); "
             "'mono'/'monolithic' produces a single scene with all scenarios and "
-            "a single phase with all stages (for the monolithic solver). "
+            "a single phase with all stages (for the monolithic solver); "
+            "'cascade' uses a 3-level cascade: L0 uninodal, L1 transport "
+            "(lines without losses/kirchhoff), L2 full network. "
             "(default: %(default)s)"
         ),
     )
