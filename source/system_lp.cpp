@@ -417,11 +417,6 @@ constexpr auto create_linear_interface(auto& collections,
     const auto est_rows =
         n_elements * total_blocks * n_scenarios * rows_per_element;
     lp.reserve(est_cols, est_rows);
-
-    // Reserve AMPL variable map capacity to avoid flat_map reallocation
-    // during the add_to_lp loop.
-    system_context.simulation().reserve_ampl_variables(
-        scene.index(), phase.index(), est_cols);
   }
 
   const bool check_islands = !system_context.options().use_single_bus()
@@ -579,16 +574,6 @@ void register_element_names(SimulationLP& sim, const Array& arr)
 
 void register_all_ampl_element_names(SimulationLP& sim, const System& sys)
 {
-  const auto total_elements = sys.battery_array.size() + sys.bus_array.size()
-      + sys.converter_array.size() + sys.demand_array.size()
-      + sys.flow_array.size() + sys.flow_right_array.size()
-      + sys.generator_array.size() + sys.junction_array.size()
-      + sys.line_array.size() + sys.reserve_provision_array.size()
-      + sys.reserve_zone_array.size() + sys.reservoir_array.size()
-      + sys.turbine_array.size() + sys.volume_right_array.size()
-      + sys.waterway_array.size() + sys.reservoir_seepage_array.size();
-  sim.reserve_ampl_element_names(total_elements);
-
   register_element_names<BatteryLP>(sim, sys.battery_array);
   register_element_names<BusLP>(sim, sys.bus_array);
   register_element_names<ConverterLP>(sim, sys.converter_array);

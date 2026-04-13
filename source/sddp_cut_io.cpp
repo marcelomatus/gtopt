@@ -20,11 +20,11 @@
 #include <ranges>
 #include <set>
 #include <sstream>
-#include <unordered_map>
 #include <utility>
 
 #include <daw/json/daw_json_link.h>
 #include <gtopt/as_label.hpp>
+#include <gtopt/fmap.hpp>
 #include <gtopt/json/json_sddp_cut_io.hpp>
 #include <gtopt/lp_context.hpp>
 #include <gtopt/planning_lp.hpp>
@@ -44,10 +44,10 @@ namespace gtopt
 // ─── UID lookup helpers ─────────────────────────────────────────────────────
 
 auto build_phase_uid_map(const PlanningLP& planning_lp)
-    -> std::unordered_map<PhaseUid, PhaseIndex, std::hash<PhaseUid>>
+    -> flat_map<PhaseUid, PhaseIndex>
 {
   const auto& phases = planning_lp.simulation().phases();
-  std::unordered_map<PhaseUid, PhaseIndex, std::hash<PhaseUid>> phase_map;
+  flat_map<PhaseUid, PhaseIndex> phase_map;
   map_reserve(phase_map, phases.size());
   for (auto&& [pi, phase] : enumerate<PhaseIndex>(phases)) {
     phase_map.emplace(phase.uid(), pi);
@@ -56,10 +56,10 @@ auto build_phase_uid_map(const PlanningLP& planning_lp)
 }
 
 auto build_scene_uid_map(const PlanningLP& planning_lp)
-    -> std::unordered_map<SceneUid, SceneIndex, std::hash<SceneUid>>
+    -> flat_map<SceneUid, SceneIndex>
 {
   const auto& scenes = planning_lp.simulation().scenes();
-  std::unordered_map<SceneUid, SceneIndex, std::hash<SceneUid>> scene_map;
+  flat_map<SceneUid, SceneIndex> scene_map;
   map_reserve(scene_map, scenes.size());
   for (auto&& [si, scene] : enumerate<SceneIndex>(scenes)) {
     scene_map.emplace(scene.uid(), si);
