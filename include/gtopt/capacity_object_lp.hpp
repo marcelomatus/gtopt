@@ -56,7 +56,8 @@ struct CapacityObjectBase
                                         OF&& capmax,
                                         OF&& expmod,
                                         OF&& annual_capcost,
-                                        OF&& annual_derating)
+                                        OF&& annual_derating,
+                                        OptBool integer_expansion)
       : m_class_name_(cname.full_name())
       , m_id_(std::move(pid))
       , m_capacity_(ic, cname.full_name(), id(), std::forward<OF>(capacity))
@@ -67,6 +68,7 @@ struct CapacityObjectBase
             ic, cname.full_name(), id(), std::forward<OF>(annual_capcost))
       , m_annual_derating_(
             ic, cname.full_name(), id(), std::forward<OF>(annual_derating))
+      , m_integer_expansion_(integer_expansion)
   {
   }
 
@@ -186,6 +188,8 @@ private:
   OptTRealSched m_annual_capcost_;
   OptTRealSched m_annual_derating_;
 
+  OptBool m_integer_expansion_;
+
   TIndexHolder<ColIndex> capainst_cols;
   TIndexHolder<ColIndex> capacost_cols;
   TIndexHolder<ColIndex> expmod_cols;
@@ -244,7 +248,8 @@ struct CapacityObjectLP
                            std::move(object().capmax),
                            std::move(object().expmod),
                            std::move(object().annual_capcost),
-                           std::move(object().annual_derating))
+                           std::move(object().annual_derating),
+                           std::move(object().integer_expansion))
   {
   }
 };

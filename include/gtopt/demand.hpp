@@ -66,6 +66,7 @@ struct DemandAttrs
       annual_capcost {};  ///< Annualized investment cost [$/MW-year]
   OptTRealFieldSched
       annual_derating {};  ///< Annual capacity derating factor [p.u./year]
+  OptBool integer_expansion {};  ///< Integer-constrain the expansion modules
 };
 
 /**
@@ -106,6 +107,7 @@ struct Demand
       annual_capcost {};  ///< Annualized investment cost [$/MW-year]
   OptTRealFieldSched
       annual_derating {};  ///< Annual capacity derating factor [p.u./year]
+  OptBool integer_expansion {};  ///< Integer-constrain the expansion modules
 
   /**
    * @brief Sets the demand attributes from a DemandAttrs object
@@ -131,6 +133,7 @@ struct Demand
     self.capmax = std::exchange(attrs.capmax, {});
     self.annual_capcost = std::exchange(attrs.annual_capcost, {});
     self.annual_derating = std::exchange(attrs.annual_derating, {});
+    self.integer_expansion = std::exchange(attrs.integer_expansion, {});
 
     return self;
   }

@@ -29,6 +29,7 @@
 #include <gtopt/converter.hpp>
 #include <gtopt/demand.hpp>
 #include <gtopt/demand_profile.hpp>
+#include <gtopt/dispatch_commitment.hpp>
 #include <gtopt/flow.hpp>
 #include <gtopt/flow_right.hpp>
 #include <gtopt/generator.hpp>
@@ -89,6 +90,8 @@ struct System
   // ── Unit commitment ────────────────────────────────────────────────────
   Array<Commitment>
       commitment_array {};  ///< Generator unit commitment parameters
+  Array<DispatchCommitment>
+      dispatch_commitment_array {};  ///< Simplified dispatch commitments
 
   // ── Hydro cascade ───────────────────────────────────────────────────────
   Array<Junction> junction_array {};  ///< Hydraulic nodes

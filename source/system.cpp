@@ -263,6 +263,8 @@ void System::merge(System&& sys)  // NOLINT
   gtopt::merge(reserve_zone_array, std::move(sys.reserve_zone_array));
   gtopt::merge(reserve_provision_array, std::move(sys.reserve_provision_array));
   gtopt::merge(commitment_array, std::move(sys.commitment_array));
+  gtopt::merge(dispatch_commitment_array,
+               std::move(sys.dispatch_commitment_array));
 
   gtopt::merge(junction_array, std::move(sys.junction_array));
   gtopt::merge(waterway_array, std::move(sys.waterway_array));

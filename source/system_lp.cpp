@@ -417,11 +417,6 @@ constexpr auto create_linear_interface(auto& collections,
     const auto est_rows =
         n_elements * total_blocks * n_scenarios * rows_per_element;
     lp.reserve(est_cols, est_rows);
-
-    // Reserve AMPL variable map capacity to avoid flat_map reallocation
-    // during the add_to_lp loop.
-    system_context.simulation().reserve_ampl_variables(
-        scene.index(), phase.index(), est_cols);
   }
 
   const bool check_islands = !system_context.options().use_single_bus()
@@ -512,6 +507,8 @@ void create_collections(const auto& system_context,
       make_collection<ReserveProvisionLP>(ic, sys.reserve_provision_array);
   std::get<Collection<CommitmentLP>>(colls) =
       make_collection<CommitmentLP>(ic, sys.commitment_array);
+  std::get<Collection<DispatchCommitmentLP>>(colls) =
+      make_collection<DispatchCommitmentLP>(ic, sys.dispatch_commitment_array);
 
   std::get<Collection<JunctionLP>>(colls) =
       make_collection<JunctionLP>(ic, sys.junction_array);
@@ -587,7 +584,7 @@ void register_all_ampl_element_names(SimulationLP& sim, const System& sys)
       + sys.reserve_zone_array.size() + sys.reservoir_array.size()
       + sys.turbine_array.size() + sys.volume_right_array.size()
       + sys.waterway_array.size() + sys.reservoir_seepage_array.size();
-  sim.reserve_ampl_element_names(total_elements);
+  (void)total_elements;
 
   register_element_names<BatteryLP>(sim, sys.battery_array);
   register_element_names<BusLP>(sim, sys.bus_array);

@@ -22,6 +22,7 @@
 #include <gtopt/converter_lp.hpp>
 #include <gtopt/demand_lp.hpp>
 #include <gtopt/demand_profile_lp.hpp>
+#include <gtopt/dispatch_commitment_lp.hpp>
 #include <gtopt/flow_lp.hpp>
 #include <gtopt/flow_right_lp.hpp>
 #include <gtopt/generator_lp.hpp>
@@ -86,6 +87,7 @@ static_assert(AddToLP<ConverterLP>);
 static_assert(AddToLP<ReserveZoneLP>);
 static_assert(AddToLP<ReserveProvisionLP>);
 static_assert(AddToLP<CommitmentLP>);
+static_assert(AddToLP<DispatchCommitmentLP>);
 
 static_assert(AddToLP<JunctionLP>);
 static_assert(AddToLP<WaterwayLP>);
@@ -193,6 +195,7 @@ public:
                                    Collection<ReserveZoneLP>,
                                    Collection<ReserveProvisionLP>,
                                    Collection<CommitmentLP>,
+                                   Collection<DispatchCommitmentLP>,
                                    Collection<JunctionLP>,
                                    Collection<WaterwayLP>,
                                    Collection<FlowLP>,

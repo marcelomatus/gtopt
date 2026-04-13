@@ -44,11 +44,11 @@ namespace gtopt
 // ─── UID lookup helpers ─────────────────────────────────────────────────────
 
 auto build_phase_uid_map(const PlanningLP& planning_lp)
-    -> std::unordered_map<PhaseUid, PhaseIndex, std::hash<PhaseUid>>
+    -> flat_map<PhaseUid, PhaseIndex>
 {
   const auto& phases = planning_lp.simulation().phases();
-  std::unordered_map<PhaseUid, PhaseIndex, std::hash<PhaseUid>> phase_map;
-  map_reserve(phase_map, phases.size());
+  flat_map<PhaseUid, PhaseIndex> phase_map;
+  phase_map.reserve(phases.size());
   for (auto&& [pi, phase] : enumerate<PhaseIndex>(phases)) {
     phase_map.emplace(phase.uid(), pi);
   }
@@ -56,11 +56,11 @@ auto build_phase_uid_map(const PlanningLP& planning_lp)
 }
 
 auto build_scene_uid_map(const PlanningLP& planning_lp)
-    -> std::unordered_map<SceneUid, SceneIndex, std::hash<SceneUid>>
+    -> flat_map<SceneUid, SceneIndex>
 {
   const auto& scenes = planning_lp.simulation().scenes();
-  std::unordered_map<SceneUid, SceneIndex, std::hash<SceneUid>> scene_map;
-  map_reserve(scene_map, scenes.size());
+  flat_map<SceneUid, SceneIndex> scene_map;
+  scene_map.reserve(scenes.size());
   for (auto&& [si, scene] : enumerate<SceneIndex>(scenes)) {
     scene_map.emplace(scene.uid(), si);
   }

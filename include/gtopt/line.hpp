@@ -140,6 +140,7 @@ struct Line
       annual_capcost {};  ///< Annualized investment cost [$/MW-year]
   OptTRealFieldSched
       annual_derating {};  ///< Annual capacity derating factor [p.u./year]
+  OptBool integer_expansion {};  ///< Integer-constrain the expansion modules
 
   /// Off-nominal tap ratio [p.u.].  For transformers only; ignored for
   /// plain lines.  When set to a value other than 1.0 the effective

@@ -40,6 +40,7 @@ struct json_data_contract<Line>
       json_variant_null<"annual_derating",
                         OptTRealFieldSched,
                         jvtl_TRealFieldSched>,
+      json_bool_null<"integer_expansion", OptBool>,
       json_variant_null<"tap_ratio", OptTRealFieldSched, jvtl_TRealFieldSched>,
       json_variant_null<"phase_shift_deg",
                         OptTRealFieldSched,
@@ -70,6 +71,7 @@ struct json_data_contract<Line>
                                  line.capmax,
                                  line.annual_capcost,
                                  line.annual_derating,
+                                 line.integer_expansion,
                                  line.tap_ratio,
                                  line.phase_shift_deg);
   }
