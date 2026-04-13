@@ -147,9 +147,9 @@ void filter_cut_coefficients(SparseRow& row, ColIndex alpha_col, double eps)
 
   // Collect columns to erase (can't modify flat_map while iterating).
   std::vector<ColIndex> to_erase;
-  for (auto it = row.cmap.begin(); it != row.cmap.end(); ++it) {
-    if (it->first != alpha_col && std::abs(it->second) < eps) {
-      to_erase.push_back(it->first);
+  for (const auto& [col, val] : row.cmap) {
+    if (col != alpha_col && std::abs(val) < eps) {
+      to_erase.push_back(col);
     }
   }
 
@@ -173,10 +173,10 @@ bool rescale_benders_cut(SparseRow& row,
   cols.reserve(row.cmap.size());
 
   double max_coeff = 0.0;
-  for (auto it = row.cmap.begin(); it != row.cmap.end(); ++it) {
-    cols.push_back(it->first);
-    if (it->first != alpha_col) {
-      max_coeff = std::max(max_coeff, std::abs(it->second));
+  for (const auto& [col, val] : row.cmap) {
+    cols.push_back(col);
+    if (col != alpha_col) {
+      max_coeff = std::max(max_coeff, std::abs(val));
     }
   }
 

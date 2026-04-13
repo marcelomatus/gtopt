@@ -84,7 +84,7 @@ std::expected<Planning, std::string> parse_planning_files(
             std::format("Failed to read input file '{}'", planning_file));
       }
 
-      spdlog::info(std::format("  Parsing input file {}", fpath.string()));
+      spdlog::info("  Parsing input file {}", fpath.string());
 
       // Optional pre-pass: parse with exact-mapping policy to surface
       // any JSON key not listed in the schema.  This parses the file a
@@ -120,8 +120,7 @@ std::expected<Planning, std::string> parse_planning_files(
     }
   }
 
-  spdlog::info(std::format("  Parse all input files time {:.3f}s",
-                           sw.elapsed().count()));
+  spdlog::info("  Parse all input files time {:.3f}s", sw.elapsed().count());
   return my_planning;
 }
 

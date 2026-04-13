@@ -179,7 +179,7 @@ bool FlowRightLP::add_to_lp(const SystemContext& sc,
         .uppb = uppb,
         .cost = -block_use_value,
         .class_name = ClassName.full_name(),
-        .variable_name = "flow",
+        .variable_name = FlowName,
         .variable_uid = uid(),
         .context = block_ctx,
     });
@@ -189,7 +189,7 @@ bool FlowRightLP::add_to_lp(const SystemContext& sc,
       const auto fail_col = lp.add_col({
           .cost = block_fail_cost,
           .class_name = ClassName.full_name(),
-          .variable_name = "fail",
+          .variable_name = FailName,
           .variable_uid = uid(),
           .context = block_ctx,
       });
@@ -202,7 +202,7 @@ bool FlowRightLP::add_to_lp(const SystemContext& sc,
         auto demand_row =
             SparseRow {
                 .class_name = ClassName.full_name(),
-                .constraint_name = "demand",
+                .constraint_name = DemandName,
                 .variable_uid = uid(),
                 .context = make_block_context(
                     scenario.uid(), stage.uid(), block.uid()),
@@ -248,7 +248,7 @@ bool FlowRightLP::add_to_lp(const SystemContext& sc,
 
     const auto qeh_col = lp.add_col(SparseCol {
         .class_name = ClassName.full_name(),
-        .variable_name = "qeh",
+        .variable_name = QehName,
         .variable_uid = uid(),
         .context = make_stage_context(scenario.uid(), stage.uid()),
     });
@@ -257,7 +257,7 @@ bool FlowRightLP::add_to_lp(const SystemContext& sc,
     auto avg_row =
         SparseRow {
             .class_name = ClassName.full_name(),
-            .constraint_name = "qavg",
+            .constraint_name = QavgName,
             .variable_uid = uid(),
             .context = make_stage_context(scenario.uid(), stage.uid()),
         }
@@ -299,17 +299,17 @@ bool FlowRightLP::add_to_output(OutputContext& out) const
 {
   static constexpr std::string_view cname = ClassName.full_name();
 
-  out.add_col_sol(cname, "flow", id(), flow_cols);
-  out.add_col_cost(cname, "flow", id(), flow_cols);
+  out.add_col_sol(cname, FlowName, id(), flow_cols);
+  out.add_col_cost(cname, FlowName, id(), flow_cols);
 
   if (!fail_cols.empty()) {
-    out.add_col_sol(cname, "fail", id(), fail_cols);
-    out.add_col_cost(cname, "fail", id(), fail_cols);
+    out.add_col_sol(cname, FailName, id(), fail_cols);
+    out.add_col_cost(cname, FailName, id(), fail_cols);
   }
 
   if (!qeh_cols.empty()) {
-    out.add_col_sol(cname, "qeh", id(), qeh_cols);
-    out.add_row_dual(cname, "qavg", id(), avg_rows);
+    out.add_col_sol(cname, QehName, id(), qeh_cols);
+    out.add_row_dual(cname, QavgName, id(), avg_rows);
   }
 
   return true;

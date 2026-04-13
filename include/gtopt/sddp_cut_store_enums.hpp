@@ -29,7 +29,7 @@ inline constexpr auto cut_type_entries = std::to_array<EnumEntry<CutType>>({
     {.name = "feasibility", .value = CutType::Feasibility},
 });
 
-constexpr auto enum_entries(CutType /*tag*/) noexcept
+[[nodiscard]] constexpr auto enum_entries(CutType /*tag*/) noexcept
 {
   return std::span {cut_type_entries};
 }

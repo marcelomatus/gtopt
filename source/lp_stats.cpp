@@ -36,26 +36,26 @@ void log_stats_line(std::string_view label, const ScenePhaseLPStats& stats)
   // Print per-column details for max/min coefficients when available.
   if (stats.stats_max_col >= 0) {
     if (!stats.stats_max_col_name.empty()) {
-      spdlog::info(std::format("    max |coeff|={:.3e}  col={}  name={}",
-                               stats.stats_max_abs,
-                               stats.stats_max_col,
-                               stats.stats_max_col_name));
+      spdlog::info("    max |coeff|={:.3e}  col={}  name={}",
+                   stats.stats_max_abs,
+                   stats.stats_max_col,
+                   stats.stats_max_col_name);
     } else {
-      spdlog::info(std::format("    max |coeff|={:.3e}  col={}",
-                               stats.stats_max_abs,
-                               stats.stats_max_col));
+      spdlog::info("    max |coeff|={:.3e}  col={}",
+                   stats.stats_max_abs,
+                   stats.stats_max_col);
     }
   }
   if (stats.stats_min_col >= 0) {
     if (!stats.stats_min_col_name.empty()) {
-      spdlog::info(std::format("    min |coeff|={:.3e}  col={}  name={}",
-                               stats.stats_min_abs,
-                               stats.stats_min_col,
-                               stats.stats_min_col_name));
+      spdlog::info("    min |coeff|={:.3e}  col={}  name={}",
+                   stats.stats_min_abs,
+                   stats.stats_min_col,
+                   stats.stats_min_col_name);
     } else {
-      spdlog::info(std::format("    min |coeff|={:.3e}  col={}",
-                               stats.stats_min_abs,
-                               stats.stats_min_col));
+      spdlog::info("    min |coeff|={:.3e}  col={}",
+                   stats.stats_min_abs,
+                   stats.stats_min_col);
     }
   }
   if (stats.stats_zeroed > 0) {

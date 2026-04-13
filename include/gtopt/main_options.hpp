@@ -67,18 +67,18 @@ template<typename T>
  * @return The corresponding integer value for the algorithm.
  * @throws cli::parse_error on unrecognised input.
  */
-[[nodiscard]] inline int parse_lp_algorithm(const std::string& s)
+[[nodiscard]] inline LPAlgo parse_lp_algorithm(const std::string& s)
 {
-  // Name-based lookup via the constexpr table in solver_options.hpp.
+  // Name-based lookup via the constexpr table in solver_enums.hpp.
   if (const auto algo = enum_from_name<LPAlgo>(s)) {
-    return static_cast<int>(*algo);
+    return *algo;
   }
   // Numeric fallback: exactly one digit, "0"–"3"
   if (s.size() == 1 && std::isdigit(static_cast<unsigned char>(s.front())) != 0)
   {
     const int v = s.front() - '0';
     if (v >= 0 && v < static_cast<int>(LPAlgo::last_algo)) {
-      return v;
+      return static_cast<LPAlgo>(v);
     }
   }
   throw cli::parse_error(
@@ -466,7 +466,7 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
     spdlog::warn(
         "--algorithm is deprecated, use: --set solver_options"
         ".algorithm={}",
-        enum_name(static_cast<LPAlgo>(*opts.algorithm)));
+        enum_name(*opts.algorithm));
   }
   warn_deprecated_cli(opts.threads, "threads", "solver_options.threads");
   warn_deprecated_cli(opts.lp_debug, "lp-debug", "lp_debug");
@@ -532,8 +532,7 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
 
   // CLI solver shortcuts → solver_options
   if (opts.algorithm) {
-    planning.options.solver_options.algorithm =
-        static_cast<LPAlgo>(*opts.algorithm);
+    planning.options.solver_options.algorithm = *opts.algorithm;
   }
   if (opts.threads) {
     planning.options.solver_options.threads = *opts.threads;
@@ -622,7 +621,7 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
               .or_else([&] { return get_opt<double>(vm, "sddp-cpu-factor"); }),
       .build_mode = get_opt<std::string>(vm, "build-mode"),
       .solver = get_opt<std::string>(vm, "solver"),
-      .algorithm = [&]() -> std::optional<int>
+      .algorithm = [&]() -> std::optional<LPAlgo>
       {
         if (const auto raw = get_opt<std::string>(vm, "algorithm")) {
           return parse_lp_algorithm(*raw);
@@ -827,7 +826,7 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
     SolverOptions sopts;
     if (const auto raw = sv_str("algorithm")) {
       try {
-        sopts.algorithm = static_cast<LPAlgo>(parse_lp_algorithm(*raw));
+        sopts.algorithm = parse_lp_algorithm(*raw);
       } catch (...) {  // NOLINT(bugprone-empty-catch)
       }
     }

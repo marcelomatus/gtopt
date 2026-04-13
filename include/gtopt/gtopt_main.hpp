@@ -167,9 +167,9 @@ struct MainOptions
   std::optional<std::string> solver {};
 
   // ---- solver algorithm (shortcuts for solver_options fields) ----
-  /** @brief LP solution algorithm override (0=default, 1=primal, 2=dual,
-   * 3=barrier).  Mapped to solver_options.algorithm by apply_cli_options. */
-  std::optional<int> algorithm {};
+  /** @brief LP solution algorithm override.
+   * Mapped to solver_options.algorithm by apply_cli_options. */
+  std::optional<LPAlgo> algorithm {};
   /** @brief Number of solver threads override (0=automatic).
    *  Mapped to solver_options.threads by apply_cli_options. */
   std::optional<int> threads {};

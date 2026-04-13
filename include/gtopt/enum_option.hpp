@@ -20,7 +20,7 @@
  *     {.name = "blue",  .value = Colour::blue},
  * });
  *
- * constexpr auto enum_entries(Colour) noexcept
+ * [[nodiscard]] constexpr auto enum_entries(Colour) noexcept
  * {
  *   return std::span {colour_entries};
  * }
@@ -149,7 +149,7 @@ template<typename E, std::size_t N>
  *
  * Each named enum provides a free function in the same namespace:
  * ```cpp
- * constexpr auto enum_entries(MyEnum) noexcept
+ * [[nodiscard]] constexpr auto enum_entries(MyEnum) noexcept
  *     { return std::span{my_enum_entries}; }
  * ```
  */

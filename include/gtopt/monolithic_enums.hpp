@@ -37,7 +37,7 @@ inline constexpr auto solve_mode_entries = std::to_array<EnumEntry<SolveMode>>({
     {.name = "sequential", .value = SolveMode::sequential},
 });
 
-constexpr auto enum_entries(SolveMode /*tag*/) noexcept
+[[nodiscard]] constexpr auto enum_entries(SolveMode /*tag*/) noexcept
 {
   return std::span {solve_mode_entries};
 }

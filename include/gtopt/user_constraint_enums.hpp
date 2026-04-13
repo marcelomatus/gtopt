@@ -59,7 +59,7 @@ inline constexpr auto constraint_scale_type_entries =
         {.name = "unitless", .value = ConstraintScaleType::Raw},
     });
 
-constexpr auto enum_entries(ConstraintScaleType /*tag*/) noexcept
+[[nodiscard]] constexpr auto enum_entries(ConstraintScaleType /*tag*/) noexcept
 {
   return std::span {constraint_scale_type_entries};
 }
@@ -105,7 +105,7 @@ inline constexpr auto penalty_class_entries =
         {.name = "hydro_flow", .value = PenaltyClass::HydroFlow},
     });
 
-constexpr auto enum_entries(PenaltyClass /*tag*/) noexcept
+[[nodiscard]] constexpr auto enum_entries(PenaltyClass /*tag*/) noexcept
 {
   return std::span {penalty_class_entries};
 }

@@ -44,7 +44,7 @@ inline constexpr auto boundary_cuts_mode_entries =
         {.name = "combined", .value = BoundaryCutsMode::combined},
     });
 
-constexpr auto enum_entries(BoundaryCutsMode /*tag*/) noexcept
+[[nodiscard]] constexpr auto enum_entries(BoundaryCutsMode /*tag*/) noexcept
 {
   return std::span {boundary_cuts_mode_entries};
 }
@@ -74,7 +74,7 @@ inline constexpr auto cut_sharing_mode_entries =
         {.name = "max", .value = CutSharingMode::max},
     });
 
-constexpr auto enum_entries(CutSharingMode /*tag*/) noexcept
+[[nodiscard]] constexpr auto enum_entries(CutSharingMode /*tag*/) noexcept
 {
   return std::span {cut_sharing_mode_entries};
 }
@@ -105,7 +105,7 @@ inline constexpr auto elastic_filter_mode_entries =
         {.name = "backpropagate", .value = ElasticFilterMode::backpropagate},
     });
 
-constexpr auto enum_entries(ElasticFilterMode /*tag*/) noexcept
+[[nodiscard]] constexpr auto enum_entries(ElasticFilterMode /*tag*/) noexcept
 {
   return std::span {elastic_filter_mode_entries};
 }
@@ -135,7 +135,7 @@ inline constexpr auto hot_start_mode_entries =
         {.name = "replace", .value = HotStartMode::replace},
     });
 
-constexpr auto enum_entries(HotStartMode /*tag*/) noexcept
+[[nodiscard]] constexpr auto enum_entries(HotStartMode /*tag*/) noexcept
 {
   return std::span {hot_start_mode_entries};
 }
@@ -163,7 +163,7 @@ inline constexpr auto recovery_mode_entries =
         {.name = "full", .value = RecoveryMode::full},
     });
 
-constexpr auto enum_entries(RecoveryMode /*tag*/) noexcept
+[[nodiscard]] constexpr auto enum_entries(RecoveryMode /*tag*/) noexcept
 {
   return std::span {recovery_mode_entries};
 }
@@ -191,7 +191,7 @@ inline constexpr auto missing_cut_var_mode_entries =
         {.name = "skip_cut", .value = MissingCutVarMode::skip_cut},
     });
 
-constexpr auto enum_entries(MissingCutVarMode /*tag*/) noexcept
+[[nodiscard]] constexpr auto enum_entries(MissingCutVarMode /*tag*/) noexcept
 {
   return std::span {missing_cut_var_mode_entries};
 }
@@ -218,7 +218,7 @@ inline constexpr auto cut_coeff_mode_entries =
         {.name = "row_dual", .value = CutCoeffMode::row_dual},
     });
 
-constexpr auto enum_entries(CutCoeffMode /*tag*/) noexcept
+[[nodiscard]] constexpr auto enum_entries(CutCoeffMode /*tag*/) noexcept
 {
   return std::span {cut_coeff_mode_entries};
 }
@@ -250,7 +250,7 @@ inline constexpr auto convergence_mode_entries =
         {.name = "statistical", .value = ConvergenceMode::statistical},
     });
 
-constexpr auto enum_entries(ConvergenceMode /*tag*/) noexcept
+[[nodiscard]] constexpr auto enum_entries(ConvergenceMode /*tag*/) noexcept
 {
   return std::span {convergence_mode_entries};
 }
@@ -278,7 +278,8 @@ inline constexpr auto state_variable_lookup_mode_entries =
         {.name = "cross_phase", .value = StateVariableLookupMode::cross_phase},
     });
 
-constexpr auto enum_entries(StateVariableLookupMode /*tag*/) noexcept
+[[nodiscard]] constexpr auto enum_entries(
+    StateVariableLookupMode /*tag*/) noexcept
 {
   return std::span {state_variable_lookup_mode_entries};
 }
@@ -311,7 +312,7 @@ inline constexpr auto low_memory_mode_entries =
         {.name = "compress", .value = LowMemoryMode::compress},
     });
 
-constexpr auto enum_entries(LowMemoryMode /*tag*/) noexcept
+[[nodiscard]] constexpr auto enum_entries(LowMemoryMode /*tag*/) noexcept
 {
   return std::span {low_memory_mode_entries};
 }
@@ -341,7 +342,7 @@ inline constexpr auto cut_io_format_entries =
         {.name = "json", .value = CutIOFormat::json},
     });
 
-constexpr auto enum_entries(CutIOFormat /*tag*/) noexcept
+[[nodiscard]] constexpr auto enum_entries(CutIOFormat /*tag*/) noexcept
 {
   return std::span {cut_io_format_entries};
 }

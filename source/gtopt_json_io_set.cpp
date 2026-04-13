@@ -128,7 +128,14 @@ bool try_set_solver_field(SolverOptions& so,
     if (const auto algo = enum_from_name<LPAlgo>(value)) {
       so.algorithm = *algo;
     } else {
-      so.algorithm = static_cast<LPAlgo>(std::stoi(value));
+      const auto v = std::stoi(value);
+      if (v < 0 || v >= static_cast<int>(LPAlgo::last_algo)) {
+        spdlog::error("algorithm value {} out of range (0–{})",
+                      v,
+                      static_cast<int>(LPAlgo::last_algo) - 1);
+        return false;
+      }
+      so.algorithm = static_cast<LPAlgo>(v);
     }
     return true;
   }
@@ -164,7 +171,9 @@ bool try_set_solver_field(SolverOptions& so,
     if (const auto mode = enum_from_name<SolverLogMode>(value)) {
       so.log_mode = mode;
     } else {
-      so.log_mode = static_cast<SolverLogMode>(std::stoi(value));
+      spdlog::error("Invalid log_mode '{}' (expected nolog or detailed)",
+                    value);
+      return false;
     }
     return true;
   }

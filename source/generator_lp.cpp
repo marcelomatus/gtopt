@@ -39,8 +39,7 @@ GeneratorLP::GeneratorLP(const Generator& generator, const InputContext& ic)
     , gcost(ic, ClassName, id(), std::move(object().gcost))
     , emission_factor(ic, ClassName, id(), std::move(object().emission_factor))
 {
-  SPDLOG_DEBUG(
-      fmt::format("GeneratorLP created for generator with uid {}", uid()));
+  SPDLOG_DEBUG("GeneratorLP created for generator with uid {}", uid());
 }
 
 /**
@@ -120,14 +119,14 @@ bool GeneratorLP::add_to_lp(SystemContext& sc,
         sc.block_maxmin_at(stage, block, pmax, pmin, stage_capacity);
 
     SPDLOG_DEBUG(
-        fmt::format("GeneratorLP::add_to_lp: gen {} stage {} block {} pmin {} "
-                    "pmax {} capacity {}",
-                    guid,
-                    stage.uid(),
-                    block.uid(),
-                    block_pmin,
-                    block_pmax,
-                    stage_capacity));
+        "GeneratorLP::add_to_lp: gen {} stage {} block {} pmin {} "
+        "pmax {} capacity {}",
+        guid,
+        stage.uid(),
+        block.uid(),
+        block_pmin,
+        block_pmax,
+        stage_capacity);
 
     // Create generation variable for this time block
     const auto gcol = lp.add_col({

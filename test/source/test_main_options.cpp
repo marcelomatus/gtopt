@@ -557,18 +557,18 @@ TEST_CASE("LPAlgo enum_name - unknown value returns 'unknown'")  // NOLINT
 
 TEST_CASE("parse_lp_algorithm - accepts algorithm names")  // NOLINT
 {
-  CHECK(parse_lp_algorithm("default") == 0);
-  CHECK(parse_lp_algorithm("primal") == 1);
-  CHECK(parse_lp_algorithm("dual") == 2);
-  CHECK(parse_lp_algorithm("barrier") == 3);
+  CHECK(parse_lp_algorithm("default") == LPAlgo::default_algo);
+  CHECK(parse_lp_algorithm("primal") == LPAlgo::primal);
+  CHECK(parse_lp_algorithm("dual") == LPAlgo::dual);
+  CHECK(parse_lp_algorithm("barrier") == LPAlgo::barrier);
 }
 
 TEST_CASE("parse_lp_algorithm - accepts numeric strings")  // NOLINT
 {
-  CHECK(parse_lp_algorithm("0") == 0);
-  CHECK(parse_lp_algorithm("1") == 1);
-  CHECK(parse_lp_algorithm("2") == 2);
-  CHECK(parse_lp_algorithm("3") == 3);
+  CHECK(parse_lp_algorithm("0") == LPAlgo::default_algo);
+  CHECK(parse_lp_algorithm("1") == LPAlgo::primal);
+  CHECK(parse_lp_algorithm("2") == LPAlgo::dual);
+  CHECK(parse_lp_algorithm("3") == LPAlgo::barrier);
 }
 
 TEST_CASE(
@@ -608,28 +608,28 @@ TEST_CASE("--algorithm - accepts name via CLI")  // NOLINT
     REQUIRE(vm.contains("algorithm"));
     const auto opts = parse_main_options(vm, {});
     REQUIRE(opts.algorithm.has_value());
-    CHECK(opts.algorithm.value_or(-1) == 3);
+    CHECK(*opts.algorithm == LPAlgo::barrier);
   }
 
   SUBCASE("primal name")
   {
     auto vm = parse_args({"--algorithm", "primal"}, desc);
     const auto opts = parse_main_options(vm, {});
-    CHECK(opts.algorithm.value_or(-1) == 1);
+    CHECK(*opts.algorithm == LPAlgo::primal);
   }
 
   SUBCASE("dual name")
   {
     auto vm = parse_args({"--algorithm", "dual"}, desc);
     const auto opts = parse_main_options(vm, {});
-    CHECK(opts.algorithm.value_or(-1) == 2);
+    CHECK(*opts.algorithm == LPAlgo::dual);
   }
 
   SUBCASE("default name")
   {
     auto vm = parse_args({"--algorithm", "default"}, desc);
     const auto opts = parse_main_options(vm, {});
-    CHECK(opts.algorithm.value_or(-1) == 0);
+    CHECK(*opts.algorithm == LPAlgo::default_algo);
   }
 }
 
@@ -639,7 +639,7 @@ TEST_CASE("--algorithm - accepts numeric value via CLI")  // NOLINT
   auto vm = parse_args({"--algorithm", "2"}, desc);
   const auto opts = parse_main_options(vm, {});
   REQUIRE(opts.algorithm.has_value());
-  CHECK(opts.algorithm.value_or(-1) == 2);
+  CHECK(*opts.algorithm == LPAlgo::dual);
 }
 
 TEST_CASE("-a short option - accepts name")  // NOLINT
@@ -648,7 +648,7 @@ TEST_CASE("-a short option - accepts name")  // NOLINT
   auto vm = parse_args({"-a", "barrier"}, desc);
   const auto opts = parse_main_options(vm, {});
   REQUIRE(opts.algorithm.has_value());
-  CHECK(opts.algorithm.value_or(-1) == 3);
+  CHECK(*opts.algorithm == LPAlgo::barrier);
 }
 
 TEST_CASE("--algorithm - invalid name throws at parse_main_options")  // NOLINT

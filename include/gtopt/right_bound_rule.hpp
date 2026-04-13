@@ -82,7 +82,7 @@ inline constexpr auto bound_rule_axis_entries =
         {.name = "stage_month", .value = BoundRuleAxis::stage_month},
     });
 
-constexpr auto enum_entries(BoundRuleAxis /*tag*/) noexcept
+[[nodiscard]] constexpr auto enum_entries(BoundRuleAxis /*tag*/) noexcept
 {
   return std::span {bound_rule_axis_entries};
 }

@@ -76,7 +76,8 @@ inline constexpr auto lp_equilibration_method_entries =
         {.name = "ruiz", .value = LpEquilibrationMethod::ruiz},
     });
 
-constexpr auto enum_entries(LpEquilibrationMethod /*tag*/) noexcept
+[[nodiscard]] constexpr auto enum_entries(
+    LpEquilibrationMethod /*tag*/) noexcept
 {
   return std::span {lp_equilibration_method_entries};
 }
@@ -108,7 +109,7 @@ inline constexpr auto fast_sqrt_method_entries =
         {.name = "std_sqrt", .value = FastSqrtMethod::std_sqrt},
     });
 
-constexpr auto enum_entries(FastSqrtMethod /*tag*/) noexcept
+[[nodiscard]] constexpr auto enum_entries(FastSqrtMethod /*tag*/) noexcept
 {
   return std::span {fast_sqrt_method_entries};
 }

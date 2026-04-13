@@ -40,7 +40,7 @@ inline constexpr auto method_type_entries =
         {.name = "cascade", .value = MethodType::cascade},
     });
 
-constexpr auto enum_entries(MethodType /*tag*/) noexcept
+[[nodiscard]] constexpr auto enum_entries(MethodType /*tag*/) noexcept
 {
   return std::span {method_type_entries};
 }
@@ -99,7 +99,7 @@ inline constexpr auto build_mode_entries = std::to_array<EnumEntry<BuildMode>>({
     {.name = "direct_parallel", .value = BuildMode::direct_parallel},
 });
 
-constexpr auto enum_entries(BuildMode /*tag*/) noexcept
+[[nodiscard]] constexpr auto enum_entries(BuildMode /*tag*/) noexcept
 {
   return std::span {build_mode_entries};
 }
@@ -121,7 +121,7 @@ inline constexpr auto data_format_entries =
         {.name = "csv", .value = DataFormat::csv},
     });
 
-constexpr auto enum_entries(DataFormat /*tag*/) noexcept
+[[nodiscard]] constexpr auto enum_entries(DataFormat /*tag*/) noexcept
 {
   return std::span {data_format_entries};
 }
@@ -164,7 +164,7 @@ inline constexpr auto compression_codec_entries =
         {.name = "auto", .value = CompressionCodec::auto_select},
     });
 
-constexpr auto enum_entries(CompressionCodec /*tag*/) noexcept
+[[nodiscard]] constexpr auto enum_entries(CompressionCodec /*tag*/) noexcept
 {
   return std::span {compression_codec_entries};
 }
@@ -204,7 +204,8 @@ inline constexpr auto boundary_cuts_valuation_entries =
         },
     });
 
-constexpr auto enum_entries(BoundaryCutsValuation /*tag*/) noexcept
+[[nodiscard]] constexpr auto enum_entries(
+    BoundaryCutsValuation /*tag*/) noexcept
 {
   return std::span {boundary_cuts_valuation_entries};
 }
@@ -245,7 +246,8 @@ inline constexpr auto probability_rescale_mode_entries =
         {.name = "runtime", .value = ProbabilityRescaleMode::runtime},
     });
 
-constexpr auto enum_entries(ProbabilityRescaleMode /*tag*/) noexcept
+[[nodiscard]] constexpr auto enum_entries(
+    ProbabilityRescaleMode /*tag*/) noexcept
 {
   return std::span {probability_rescale_mode_entries};
 }
@@ -282,7 +284,7 @@ inline constexpr auto kappa_warning_mode_entries =
         {.name = "diagnose", .value = KappaWarningMode::diagnose},
     });
 
-constexpr auto enum_entries(KappaWarningMode /*tag*/) noexcept
+[[nodiscard]] constexpr auto enum_entries(KappaWarningMode /*tag*/) noexcept
 {
   return std::span {kappa_warning_mode_entries};
 }
@@ -320,7 +322,7 @@ inline constexpr auto constraint_mode_entries =
         {.name = "debug", .value = ConstraintMode::debug},
     });
 
-constexpr auto enum_entries(ConstraintMode /*tag*/) noexcept
+[[nodiscard]] constexpr auto enum_entries(ConstraintMode /*tag*/) noexcept
 {
   return std::span {constraint_mode_entries};
 }

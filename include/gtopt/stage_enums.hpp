@@ -111,7 +111,7 @@ inline constexpr auto month_type_entries = std::to_array<EnumEntry<MonthType>>({
     {.name = "dic", .value = MonthType::december},
 });
 
-constexpr auto enum_entries(MonthType /*tag*/) noexcept
+[[nodiscard]] constexpr auto enum_entries(MonthType /*tag*/) noexcept
 {
   return std::span {month_type_entries};
 }

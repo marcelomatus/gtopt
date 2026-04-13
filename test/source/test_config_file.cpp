@@ -156,7 +156,7 @@ TEST_CASE("load_gtopt_config - Reads [gtopt] section via GTOPT_CONFIG")
   REQUIRE(opts.threads.has_value());
   CHECK(*opts.threads == 8);
   REQUIRE(opts.algorithm.has_value());
-  CHECK(*opts.algorithm == static_cast<int>(LPAlgo::dual));
+  CHECK(*opts.algorithm == LPAlgo::dual);
   REQUIRE(opts.output_format.has_value());
   CHECK(*opts.output_format == "csv");
   REQUIRE(opts.output_compression.has_value());

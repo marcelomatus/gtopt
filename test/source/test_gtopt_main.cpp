@@ -448,7 +448,7 @@ TEST_CASE("gtopt_main - lp_algorithm primal solves correctly")  // NOLINT
       .planning_files = {stem.string()},
       .output_directory = out_dir,
       .use_single_bus = true,
-      .algorithm = std::to_underlying(LPAlgo::primal),
+      .algorithm = LPAlgo::primal,
   });
   REQUIRE(result.has_value());
   CHECK(*result == 0);
@@ -466,7 +466,7 @@ TEST_CASE("gtopt_main - lp_algorithm dual solves correctly")  // NOLINT
       .planning_files = {stem.string()},
       .output_directory = out_dir,
       .use_single_bus = true,
-      .algorithm = std::to_underlying(LPAlgo::dual),
+      .algorithm = LPAlgo::dual,
   });
   REQUIRE(result.has_value());
   CHECK(*result == 0);
