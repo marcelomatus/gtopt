@@ -100,7 +100,7 @@ void LineLP::add_kirchhoff_rows(SystemContext& sc,
     auto trow =
         SparseRow {
             .class_name = ClassName.full_name(),
-            .constraint_name = "theta",
+            .constraint_name = ThetaName,
             .variable_uid = uid(),
             .context =
                 make_block_context(scenario.uid(), stage.uid(), block.uid()),

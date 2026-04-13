@@ -4,6 +4,7 @@
 #include <string>
 
 #include <gtopt/line_losses.hpp>
+#include <gtopt/line_lp.hpp>
 #include <gtopt/planning_options_lp.hpp>
 #include <gtopt/system_context.hpp>
 #include <gtopt/utils.hpp>
@@ -185,7 +186,7 @@ auto add_capacity_row(LinearProblem& lp,
 {
   auto row =
       SparseRow {
-          .class_name = "Line",
+          .class_name = LineLP::ClassName.full_name(),
           .constraint_name = label,
           .variable_uid = uid,
           .context =
@@ -224,7 +225,7 @@ void add_segments(LinearProblem& lp,
     const auto seg_col = lp.add_col({
         .lowb = 0,
         .uppb = seg_width,
-        .class_name = "Line",
+        .class_name = LineLP::ClassName.full_name(),
         .variable_name = seg_label,
         .variable_uid = uid,
         .context =
@@ -248,21 +249,21 @@ struct DirLabels
 };
 
 inline constexpr DirLabels positive_labels {
-    .flow = "flowp",
+    .flow = LineLP::FlowpName,
     .seg = "flowp_seg",
-    .loss = "lossp",
+    .loss = LineLP::LosspName,
     .link = "flowp_link",
     .loss_link = "lossp_link",
-    .cap = "capacityp",
+    .cap = LineLP::CapacitypName,
 };
 
 inline constexpr DirLabels negative_labels {
-    .flow = "flown",
+    .flow = LineLP::FlownName,
     .seg = "flown_seg",
-    .loss = "lossn",
+    .loss = LineLP::LossnName,
     .link = "flown_link",
     .loss_link = "lossn_link",
-    .cap = "capacityn",
+    .cap = LineLP::CapacitynName,
 };
 
 // ─── Per-mode implementations ───────────────────────────────────────
@@ -284,8 +285,8 @@ BlockResult add_none(const ScenarioLP& scenario,
       .lowb = -block_tmax_ba,
       .uppb = block_tmax_ab,
       .cost = block_tcost,
-      .class_name = "Line",
-      .variable_name = "flowp",
+      .class_name = LineLP::ClassName.full_name(),
+      .variable_name = LineLP::FlowpName,
       .variable_uid = uid,
       .context = make_block_context(scenario.uid(), stage.uid(), block.uid()),
   });
@@ -325,8 +326,8 @@ BlockResult add_linear(const LossConfig& config,
         .lowb = 0.0,
         .uppb = block_tmax_ab,
         .cost = block_tcost,
-        .class_name = "Line",
-        .variable_name = "flowp",
+        .class_name = LineLP::ClassName.full_name(),
+        .variable_name = LineLP::FlowpName,
         .variable_uid = uid,
         .context = make_block_context(scenario.uid(), stage.uid(), block.uid()),
     });
@@ -335,8 +336,14 @@ BlockResult add_linear(const LossConfig& config,
         brow_a, brow_b, fpc, config.lossfactor, config.allocation);
 
     if (capacity_col) {
-      result.capp_row = add_capacity_row(
-          lp, scenario, stage, block, "capacityp", uid, *capacity_col, fpc);
+      result.capp_row = add_capacity_row(lp,
+                                         scenario,
+                                         stage,
+                                         block,
+                                         LineLP::CapacitypName,
+                                         uid,
+                                         *capacity_col,
+                                         fpc);
     }
   }
 
@@ -346,8 +353,8 @@ BlockResult add_linear(const LossConfig& config,
         .lowb = 0.0,
         .uppb = block_tmax_ba,
         .cost = block_tcost,
-        .class_name = "Line",
-        .variable_name = "flown",
+        .class_name = LineLP::ClassName.full_name(),
+        .variable_name = LineLP::FlownName,
         .variable_uid = uid,
         .context = make_block_context(scenario.uid(), stage.uid(), block.uid()),
     });
@@ -356,8 +363,14 @@ BlockResult add_linear(const LossConfig& config,
         brow_b, brow_a, fnc, config.lossfactor, config.allocation);
 
     if (capacity_col) {
-      result.capn_row = add_capacity_row(
-          lp, scenario, stage, block, "capacityn", uid, *capacity_col, fnc);
+      result.capn_row = add_capacity_row(lp,
+                                         scenario,
+                                         stage,
+                                         block,
+                                         LineLP::CapacitynName,
+                                         uid,
+                                         *capacity_col,
+                                         fnc);
     }
   }
 
@@ -405,8 +418,8 @@ BlockResult add_piecewise(const LossConfig& config,
         .lowb = 0,
         .uppb = block_tmax_ab,
         .cost = block_tcost,
-        .class_name = "Line",
-        .variable_name = "flowp",
+        .class_name = LineLP::ClassName.full_name(),
+        .variable_name = LineLP::FlowpName,
         .variable_uid = uid,
         .context = block_ctx,
     });
@@ -422,8 +435,8 @@ BlockResult add_piecewise(const LossConfig& config,
         .lowb = 0,
         .uppb = block_tmax_ba,
         .cost = block_tcost,
-        .class_name = "Line",
-        .variable_name = "flown",
+        .class_name = LineLP::ClassName.full_name(),
+        .variable_name = LineLP::FlownName,
         .variable_uid = uid,
         .context = block_ctx,
     });
@@ -436,8 +449,8 @@ BlockResult add_piecewise(const LossConfig& config,
   const auto loss_col = lp.add_col({
       .lowb = 0,
       .uppb = LinearProblem::DblMax,
-      .class_name = "Line",
-      .variable_name = "lossp",
+      .class_name = LineLP::ClassName.full_name(),
+      .variable_name = LineLP::LosspName,
       .variable_uid = uid,
       .context = make_block_context(scenario.uid(), stage.uid(), block.uid()),
   });
@@ -448,7 +461,7 @@ BlockResult add_piecewise(const LossConfig& config,
   // Linking: fp + fn − Σ seg_k = 0
   auto linkrow =
       SparseRow {
-          .class_name = "Line",
+          .class_name = LineLP::ClassName.full_name(),
           .constraint_name = "flow_link",
           .variable_uid = uid,
           .context =
@@ -466,7 +479,7 @@ BlockResult add_piecewise(const LossConfig& config,
   // Loss tracking: loss − Σ loss_k · seg_k = 0
   auto lossrow =
       SparseRow {
-          .class_name = "Line",
+          .class_name = LineLP::ClassName.full_name(),
           .constraint_name = "loss_link",
           .variable_uid = uid,
           .context =
@@ -499,7 +512,7 @@ BlockResult add_piecewise(const LossConfig& config,
                                          scenario,
                                          stage,
                                          block,
-                                         "capacityp",
+                                         LineLP::CapacitypName,
                                          uid,
                                          *capacity_col,
                                          *result.fp_col);
@@ -509,7 +522,7 @@ BlockResult add_piecewise(const LossConfig& config,
                                          scenario,
                                          stage,
                                          block,
-                                         "capacityn",
+                                         LineLP::CapacitynName,
                                          uid,
                                          *capacity_col,
                                          *result.fn_col);
@@ -557,7 +570,7 @@ DirResult add_direction(const LossConfig& config,
       .lowb = 0,
       .uppb = block_tmax,
       .cost = block_tcost,
-      .class_name = "Line",
+      .class_name = LineLP::ClassName.full_name(),
       .variable_name = labels.flow,
       .variable_uid = uid,
       .context = block_ctx,
@@ -566,7 +579,7 @@ DirResult add_direction(const LossConfig& config,
   const auto loss_col = lp.add_col({
       .lowb = 0,
       .uppb = LinearProblem::DblMax,
-      .class_name = "Line",
+      .class_name = LineLP::ClassName.full_name(),
       .variable_name = labels.loss,
       .variable_uid = uid,
       .context = block_ctx,
@@ -581,7 +594,7 @@ DirResult add_direction(const LossConfig& config,
   // Linking: f_total − Σ f_seg_k = 0
   auto linkrow =
       SparseRow {
-          .class_name = "Line",
+          .class_name = LineLP::ClassName.full_name(),
           .constraint_name = labels.link,
           .variable_uid = uid,
           .context =
@@ -594,7 +607,7 @@ DirResult add_direction(const LossConfig& config,
   // Loss tracking: loss − Σ loss_k · f_seg_k = 0
   auto lossrow =
       SparseRow {
-          .class_name = "Line",
+          .class_name = LineLP::ClassName.full_name(),
           .constraint_name = labels.loss_link,
           .variable_uid = uid,
           .context =

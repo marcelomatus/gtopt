@@ -127,7 +127,7 @@ bool VolumeRightLP::add_to_lp(SystemContext& sc,
     const auto fcol = lp.add_col(SparseCol {
         .uppb = uppb,
         .class_name = ClassName.full_name(),
-        .variable_name = "flow",
+        .variable_name = FlowName,
         .variable_uid = uid(),
         .context = make_block_context(scenario.uid(), stage.uid(), block.uid()),
     });
@@ -149,7 +149,7 @@ bool VolumeRightLP::add_to_lp(SystemContext& sc,
       const auto fcol = lp.add_col(SparseCol {
           .uppb = uppb,
           .class_name = ClassName.full_name(),
-          .variable_name = "flow",
+          .variable_name = FlowName,
           .variable_uid = uid(),
           .context =
               make_block_context(scenario.uid(), stage.uid(), block.uid()),
@@ -318,7 +318,7 @@ bool VolumeRightLP::add_to_lp(SystemContext& sc,
         .cost = fail_cost,
         .scale = energy_scale,
         .class_name = ClassName.full_name(),
-        .variable_name = "fail",
+        .variable_name = FailName,
         .variable_uid = uid(),
         .context = stage_ctx,
     });
@@ -327,7 +327,7 @@ bool VolumeRightLP::add_to_lp(SystemContext& sc,
     // sum_b [fcr × duration × extraction(b)] + fail >= demand
     SparseRow drow {
         .class_name = ClassName.full_name(),
-        .constraint_name = "demand",
+        .constraint_name = DemandName,
         .variable_uid = uid(),
         .context = stage_ctx,
     };
