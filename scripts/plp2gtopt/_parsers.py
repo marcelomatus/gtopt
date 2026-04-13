@@ -27,12 +27,10 @@ if TYPE_CHECKING:
 # Packaged data templates
 # ---------------------------------------------------------------------------
 
-# Default RoR-equivalence whitelist shipped inside the plp2gtopt package.
-# Resolved relative to _parsers.py so it works for both editable installs
-# (where __file__ points back into the source tree) and wheel installs
-# (where __file__ points into site-packages/plp2gtopt/).  The file is
-# declared in pyproject.toml under [tool.setuptools.package-data] so it is
-# included in the built wheel.
+# Default RoR-equivalence whitelist shipped inside the gtopt_expand package.
+# The canonical copy now lives in gtopt_expand/templates/ (moved as part of
+# the gtopt_irrigation → gtopt_expand rename).  The plp2gtopt/templates/
+# copy is kept as a fallback for standalone plp2gtopt installs.
 DEFAULT_ROR_RESERVOIRS_FILE: Path = (
     Path(__file__).resolve().parent / "templates" / "ror_equivalence.csv"
 )

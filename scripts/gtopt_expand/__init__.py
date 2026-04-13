@@ -14,13 +14,21 @@ path via ``LajaAgreement.from_json`` / ``MauleAgreement.from_json``.
 from gtopt_expand.laja_agreement import LajaAgreement
 from gtopt_expand.lng_expand import expand_lng, expand_lng_from_file
 from gtopt_expand.maule_agreement import MauleAgreement
+from gtopt_expand.ror_expand import (
+    RorSpec,
+    parse_ror_equivalence_file,
+    parse_ror_selection,
+)
 
 __version__ = "0.1.0"
 
 __all__ = [
     "LajaAgreement",
     "MauleAgreement",
+    "RorSpec",
     "expand_lng",
     "expand_lng_from_file",
+    "parse_ror_equivalence_file",
+    "parse_ror_selection",
     "__version__",
 ]

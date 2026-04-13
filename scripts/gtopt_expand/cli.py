@@ -14,6 +14,9 @@ Usage::
     # LNG terminal expansion: lng.json → LngTerminal entities
     gtopt_expand lng --input lng.json --output outdir/ --num-stages 52
 
+    # RoR daily-cycle promotion: ror_equivalence.csv → promoted list
+    gtopt_expand ror --planning gtopt.json --output outdir/
+
 The ``--stages`` file must be a JSON document compatible with the
 ``BaseParser.get_all()`` shape: ``[{"number": 1, "month": 4}, ...]``.
 
@@ -41,6 +44,7 @@ from typing import Any
 from gtopt_expand import __version__ as _pkg_version
 from gtopt_expand.laja_agreement import LajaAgreement
 from gtopt_expand.lng_expand import expand_lng_from_file
+from gtopt_expand.ror_expand import DEFAULT_ROR_CSV, expand_ror_from_file
 from gtopt_expand.maule_agreement import MauleAgreement
 
 
@@ -387,7 +391,58 @@ def _build_parser() -> argparse.ArgumentParser:
         help="first UID to assign to LNG terminals (default: 1)",
     )
 
+    # ── RoR daily-cycle promotion subcommand ─────────────────────────────
+    ror_sp = sub.add_parser(
+        "ror",
+        help="list or expand RoR centrals eligible for daily-cycle promotion",
+    )
+    ror_sp.add_argument(
+        "--input",
+        "--in",
+        dest="input_path",
+        default=str(DEFAULT_ROR_CSV),
+        help=(
+            "path to ror_equivalence.csv whitelist"
+            f" (default: bundled {DEFAULT_ROR_CSV.name})"
+        ),
+    )
+    ror_sp.add_argument(
+        "--planning",
+        dest="planning_path",
+        required=True,
+        help="path to the gtopt planning JSON (for central discovery)",
+    )
+    ror_sp.add_argument(
+        "--output",
+        "--out",
+        dest="output_dir",
+        required=True,
+        help="output directory for RoR expansion JSON",
+    )
+    ror_sp.add_argument(
+        "--selection",
+        dest="selection",
+        default="all",
+        help=("'all' (default), 'none', or comma-separated central names to promote"),
+    )
+
     return parser
+
+
+def _run_ror(args: argparse.Namespace) -> Path:
+    """Execute the RoR expansion and return the output path."""
+    out_dir = Path(args.output_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    result = expand_ror_from_file(
+        csv_path=args.input_path,
+        planning_path=args.planning_path,
+        selection=args.selection,
+    )
+    output_path = out_dir / "ror_promoted.json"
+    with open(output_path, "w", encoding="utf-8") as fh:
+        json.dump(result, fh, indent=2, sort_keys=False)
+        fh.write("\n")
+    return output_path
 
 
 def _run_lng(args: argparse.Namespace) -> Path:
@@ -410,6 +465,8 @@ def _run(args: argparse.Namespace) -> Path:
     """Execute the requested conversion and return the entities path."""
     if args.subcommand == "lng":
         return _run_lng(args)
+    if args.subcommand == "ror":
+        return _run_ror(args)
 
     stages = _load_stages(args.stages_path)
     options: dict[str, Any] = {
@@ -464,7 +521,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"ERROR: I/O failure: {exc}", file=sys.stderr)
         return 2
 
-    if args.subcommand == "lng":
+    if args.subcommand in ("lng", "ror"):
         print(f"wrote {entities_path}", file=sys.stderr)
     else:
         pampl_path = entities_path.with_name(f"{args.subcommand}.pampl")
