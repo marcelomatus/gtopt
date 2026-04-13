@@ -157,6 +157,7 @@ bool CapacityObjectBase::add_to_lp(SystemContext& sc,
   if (stage_maxexpcap > 0) {
     const auto expmod_col = expmod_cols[stage.uid()] = lp.add_col({
         .uppb = stage_expmod,
+        .is_integer = m_integer_expmod_,
         .class_name = m_class_name_,
         .variable_name = ExpmodName,
         .variable_uid = uid(),
