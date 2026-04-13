@@ -349,16 +349,16 @@ TEST_CASE("make_solver_work_pool clamps tiny cpu_factor to 1 thread")  // NOLINT
   CHECK(zfut->get() == 13);
 }
 
-// `--cpu-factor 0.025` on a 20-logical-core box should yield
-// `lround(0.5) = 1` — verify on this machine (hardware_concurrency
+// `--cpu-factor 0.025` on a 20-physical-core box should yield
+// `lround(0.5) = 1` — verify on this machine (physical_concurrency
 // may be even or odd, so don't assume 1; assert the count matches
 // what the formula computes, clamped to ≥1).
 TEST_CASE("make_solver_work_pool serial baseline factor")  // NOLINT
 {
   const double factor = 0.025;
-  const auto hw = std::thread::hardware_concurrency();
+  const auto phys = physical_concurrency();
   const auto expected = std::max(
-      1, static_cast<int>(std::lround(factor * static_cast<double>(hw))));
+      1, static_cast<int>(std::lround(factor * static_cast<double>(phys))));
 
   auto pool = make_solver_work_pool(factor);
   REQUIRE(pool != nullptr);
@@ -366,7 +366,7 @@ TEST_CASE("make_solver_work_pool serial baseline factor")  // NOLINT
 
   // A 1-thread pool is the exact contract we rely on for the
   // PlanningLP serial diagnostic baseline.  On machines with
-  // hardware_concurrency < 40, `expected` may round to 1 as well
+  // physical_concurrency < 40, `expected` may round to 1 as well
   // (e.g. 20 cores × 0.025 = 0.5 → 1).  On > 60-core boxes it may
   // round to 2, which is fine — we don't force serial here, we just
   // verify the arithmetic.

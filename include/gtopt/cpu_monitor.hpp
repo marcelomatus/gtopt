@@ -27,6 +27,8 @@
 #include <mutex>
 #include <thread>
 
+#include <gtopt/hardware_info.hpp>
+
 namespace gtopt
 {
 
@@ -50,13 +52,29 @@ public:
   }
 
   /**
-   * @brief Gets current CPU load percentage
+   * @brief Gets current CPU load percentage (all logical cores)
    * @return Value between 0.0 and 100.0, or negative if invalid
    * @note Provides noexcept guarantee
    */
   [[nodiscard]] constexpr double get_load() const noexcept
   {
     return current_load_.load(std::memory_order_relaxed);
+  }
+
+  /**
+   * @brief Gets CPU load scaled to physical cores
+   *
+   * On HT machines, aggregate CPU load under-reports physical core
+   * saturation.  This method scales the raw load by the SMT ratio
+   * (capped at 100%) so scheduling decisions reflect physical core
+   * pressure.  E.g. 50% raw on a 2x-HT machine → 100% physical.
+   *
+   * @return Value between 0.0 and 100.0
+   */
+  [[nodiscard]] constexpr double get_physical_load() const noexcept
+  {
+    const auto raw = current_load_.load(std::memory_order_relaxed);
+    return std::min(100.0, raw * static_cast<double>(smt_ratio()));
   }
 
   [[nodiscard]] constexpr auto get_interval() const noexcept

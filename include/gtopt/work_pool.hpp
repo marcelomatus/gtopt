@@ -48,6 +48,7 @@
 #include <vector>
 
 #include <gtopt/cpu_monitor.hpp>
+#include <gtopt/hardware_info.hpp>
 #include <gtopt/memory_monitor.hpp>
 #include <spdlog/spdlog.h>
 
@@ -69,7 +70,7 @@ struct WorkPoolConfig
   bool enable_periodic_stats {true};  ///< Log periodic CPU/MEM stats
 
   explicit WorkPoolConfig(
-      int max_threads_ = static_cast<int>(std::thread::hardware_concurrency()),
+      int max_threads_ = static_cast<int>(physical_concurrency()),
       double max_cpu_threshold_ = 95.0,
       double min_free_memory_mb_ = 2048.0,
       double max_memory_percent_ = 95.0,
@@ -757,7 +758,7 @@ private:
     if (current_threads + threads_needed
         >= static_cast<int>(max_threads_ * 0.8))
     {
-      const auto cpu_load = cpu_monitor_.get_load();
+      const auto cpu_load = cpu_monitor_.get_physical_load();
       auto cpu_threshold = max_cpu_threshold_;
       switch (next_task.requirements().priority) {
         case TaskPriority::Critical:

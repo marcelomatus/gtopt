@@ -556,9 +556,13 @@ auto PlanningLP::create_systems(System& system,
     const auto total_cells = scenes.size() * phases.size();
     std::atomic<std::size_t> next_cell {0};
 
-    const auto n_threads =
-        std::min(static_cast<std::size_t>(std::thread::hardware_concurrency()),
-                 total_cells);
+    // LP assembly is pure CPU work — use physical cores as the base
+    // (cpu_factor=1).  The build_cpu_factor can still scale it down
+    // via --cpu-factor but is clamped to 1.0 max for raw threads.
+    const auto effective_factor = std::min(build_cpu_factor, 1.0);
+    const auto max_threads = static_cast<std::size_t>(
+        std::max(1L, std::lround(effective_factor * physical_concurrency())));
+    const auto n_threads = std::min(max_threads, total_cells);
 
     std::vector<std::jthread> workers;
     workers.reserve(n_threads);

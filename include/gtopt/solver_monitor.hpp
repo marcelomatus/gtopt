@@ -43,6 +43,7 @@
 #include <thread>
 #include <vector>
 
+#include <gtopt/hardware_info.hpp>
 #include <gtopt/sddp_pool.hpp>
 #include <gtopt/work_pool.hpp>
 
@@ -75,23 +76,27 @@ namespace gtopt
 {
   WorkPoolConfig pool_config {};
   pool_config.name = "SolverWorkPool";
+  // Use physical cores as the base — hyperthreads add little for
+  // compute-bound LP solves and inflate the thread count.
   // Clamp to at least 1 thread — otherwise a tiny `cpu_factor`
   // (e.g. `--cpu-factor 0.01` on a 20-core box yields `lround(0.2)=0`)
   // produces a dead pool whose `submit()` calls never run.  A 1-thread
   // pool is the expected "serial baseline" behavior.
   pool_config.max_threads = std::max(
-      1,
-      static_cast<int>(
-          std::lround(cpu_factor * std::thread::hardware_concurrency())));
+      1, static_cast<int>(std::lround(cpu_factor * physical_concurrency())));
   pool_config.max_cpu_threshold = static_cast<int>(
       100.0 - (50.0 / static_cast<double>(pool_config.max_threads)));
   pool_config.enable_periodic_stats = false;
 
   auto pool = std::make_unique<AdaptiveWorkPool>(pool_config);
   pool->start();
-  SPDLOG_TRACE("Solver work pool started: max_threads={} cpu_threshold={:.0f}%",
-               pool_config.max_threads,
-               pool_config.max_cpu_threshold);
+  SPDLOG_TRACE(
+      "Solver work pool started: max_threads={} cpu_threshold={:.0f}% "
+      "(physical_cores={} logical_cores={})",
+      pool_config.max_threads,
+      pool_config.max_cpu_threshold,
+      physical_concurrency(),
+      std::thread::hardware_concurrency());
   return pool;
 }
 
