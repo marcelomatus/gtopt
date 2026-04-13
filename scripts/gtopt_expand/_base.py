@@ -2,8 +2,8 @@
 
 """Shared base class for the Laja and Maule agreement transforms.
 
-Both :class:`gtopt_irrigation.laja_agreement.LajaAgreement` and
-:class:`gtopt_irrigation.maule_agreement.MauleAgreement` follow the same
+Both :class:`gtopt_expand.laja_agreement.LajaAgreement` and
+:class:`gtopt_expand.maule_agreement.MauleAgreement` follow the same
 template-driven pipeline:
 
 1. Ingest a canonical JSON config dict.
@@ -33,7 +33,7 @@ from typing import Any
 
 import jinja2
 
-from gtopt_irrigation._template_engine import (
+from gtopt_expand._template_engine import (
     _TEMPLATE_DIR,
     render_tson,
 )

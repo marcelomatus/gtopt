@@ -529,7 +529,7 @@ TEST_CASE("evaluate_bound_rule negative volume picks first segment")  // NOLINT
 TEST_CASE("evaluate_bound_rule Laja 4-zone breakpoint continuity")  // NOLINT
 {
   // Realistic Laja 4-zone irrigation rule with widths derived from
-  // _zones_to_bound_rule_segments (gtopt_irrigation.laja_agreement).
+  // _zones_to_bound_rule_segments (gtopt_expand.laja_agreement).
   // Each segment is constructed so the piecewise function is continuous
   // at every breakpoint - that property is what the LP solver needs to
   // produce smooth zone-boundary behaviour.

@@ -885,7 +885,7 @@ def add_general_arguments(
             "(laja.json, maule.json) from plplajam.dat / plpmaulen.dat. "
             "The Stage-2 transform (FlowRight/VolumeRight/UserConstraint "
             "entities and the companion PAMPL file) is now handled "
-            "exclusively by `gtopt_irrigation` — run it on the dumped "
+            "exclusively by `gtopt_expand` — run it on the dumped "
             "JSON to get the rights entities. (default: %(default)s)"
         ),
     )

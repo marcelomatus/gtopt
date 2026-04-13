@@ -2,7 +2,7 @@
 
 """Tier 12 — parser/writer round-trip regression gates.
 
-These tests guard the PLP → ``laja.json`` / ``maule.json`` → gtopt_irrigation
+These tests guard the PLP → ``laja.json`` / ``maule.json`` → gtopt_expand
 pipeline against silent data loss.  They come in two flavors:
 
 1. **Mapping invariants**: ``_HYDRO_TO_CALENDAR`` is the single source of
@@ -38,18 +38,18 @@ from typing import Any, Dict
 
 import pytest
 
-from gtopt_irrigation import LajaAgreement, MauleAgreement
-from gtopt_irrigation.laja_agreement import _HYDRO_TO_CALENDAR
+from gtopt_expand import LajaAgreement, MauleAgreement
+from gtopt_expand.laja_agreement import _HYDRO_TO_CALENDAR
 
 
 # ---------------------------------------------------------------------------
-# Minimal fixtures (mirrored from gtopt_irrigation/tests/test_round_trip.py
+# Minimal fixtures (mirrored from gtopt_expand/tests/test_round_trip.py
 # so this file stays self-contained and doesn't cross-import test helpers).
 # ---------------------------------------------------------------------------
 
 
 def _minimal_laja_config() -> Dict[str, Any]:
-    """Minimal valid Laja config matching gtopt_irrigation's test fixture."""
+    """Minimal valid Laja config matching gtopt_expand's test fixture."""
     return {
         "central_laja": "TEST_CENTRAL",
         "vol_max": 1000.0,
@@ -114,7 +114,7 @@ def _minimal_laja_config() -> Dict[str, Any]:
 
 
 def _minimal_maule_config() -> Dict[str, Any]:
-    """Minimal valid Maule config matching gtopt_irrigation's test fixture."""
+    """Minimal valid Maule config matching gtopt_expand's test fixture."""
     return {
         "central_maule": "LMAULE",
         "central_invernada": "CIPRESES",

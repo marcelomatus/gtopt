@@ -664,7 +664,7 @@ TEST_CASE(  // NOLINT
     "defender)")
 {
   // Regression defender for the template bug fixed on 2026-04-11 in
-  // scripts/gtopt_irrigation/templates/maule.tson:418-470.  The template
+  // scripts/gtopt_expand/templates/maule.tson:418-470.  The template
   // previously emitted the five La Invernada FlowRights with
   // `discharge: 0` and no `fmax` field, which per the asymmetric default
   // at flow_right_lp.cpp:53-56 pinned every flow column to [0, 0] and

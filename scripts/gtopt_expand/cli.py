@@ -1,15 +1,18 @@
 # -*- coding: utf-8 -*-
 
-"""Command-line interface for the gtopt irrigation agreement transform.
+"""Command-line interface for the gtopt expansion transforms.
 
 Usage::
 
     # Stage 2: laja.json → FlowRight/VolumeRight/UserConstraint + laja.pampl
-    gtopt_irrigation laja --input laja.json --output outdir/
+    gtopt_expand laja --input laja.json --output outdir/
 
     # With explicit stage metadata (calendar months for monthly schedules)
-    gtopt_irrigation maule --input maule.json --output outdir/ \\
+    gtopt_expand maule --input maule.json --output outdir/ \\
         --stages stages.json
+
+    # LNG terminal expansion: lng.json → LngTerminal entities
+    gtopt_expand lng --input lng.json --output outdir/ --num-stages 52
 
 The ``--stages`` file must be a JSON document compatible with the
 ``BaseParser.get_all()`` shape: ``[{"number": 1, "month": 4}, ...]``.
@@ -35,9 +38,10 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from gtopt_irrigation import __version__ as _pkg_version
-from gtopt_irrigation.laja_agreement import LajaAgreement
-from gtopt_irrigation.maule_agreement import MauleAgreement
+from gtopt_expand import __version__ as _pkg_version
+from gtopt_expand.laja_agreement import LajaAgreement
+from gtopt_expand.lng_expand import expand_lng_from_file
+from gtopt_expand.maule_agreement import MauleAgreement
 
 
 class _StageList:
@@ -263,16 +267,15 @@ def _emit(
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="gtopt_irrigation",
+        prog="gtopt_expand",
         description=(
-            "Convert canonical laja.json / maule.json agreement descriptions"
-            " into gtopt FlowRight/VolumeRight/UserConstraint entities and"
-            " their companion PAMPL files."
+            "Expand canonical intermediate JSON files (laja.json,"
+            " maule.json, lng.json) into gtopt entities."
         ),
         epilog=(
-            "See docs/irrigation-agreements.md (section 11) for the full"
-            " Stage-1 → Stage-3 pipeline and the canonical laja.json /"
-            " maule.json schemas."
+            "Subcommands: laja, maule (irrigation agreements →"
+            " FlowRight/VolumeRight/UserConstraint + PAMPL), lng"
+            " (LNG terminal configuration → LngTerminal entities)."
         ),
     )
     parser.add_argument(
@@ -280,7 +283,7 @@ def _build_parser() -> argparse.ArgumentParser:
         action="version",
         version=f"%(prog)s {_pkg_version}",
     )
-    sub = parser.add_subparsers(dest="agreement", required=True)
+    sub = parser.add_subparsers(dest="subcommand", required=True)
 
     for name in ("laja", "maule"):
         sp = sub.add_parser(
@@ -350,18 +353,71 @@ def _build_parser() -> argparse.ArgumentParser:
                     "unless cfg['machicura_model'] is set)."
                 ),
             )
+    # ── LNG terminal subcommand ──────────────────────────────────────────
+    lng_sp = sub.add_parser(
+        "lng",
+        help="emit gtopt LngTerminal entities from lng.json",
+    )
+    lng_sp.add_argument(
+        "--input",
+        "--in",
+        dest="input_path",
+        required=True,
+        help="path to lng.json",
+    )
+    lng_sp.add_argument(
+        "--output",
+        "--out",
+        dest="output_dir",
+        required=True,
+        help="output directory for LNG entity JSON",
+    )
+    lng_sp.add_argument(
+        "--num-stages",
+        dest="num_stages",
+        type=int,
+        required=True,
+        help="total number of planning stages (for delivery schedule sizing)",
+    )
+    lng_sp.add_argument(
+        "--uid-start",
+        dest="uid_start",
+        type=int,
+        default=1,
+        help="first UID to assign to LNG terminals (default: 1)",
+    )
+
     return parser
+
+
+def _run_lng(args: argparse.Namespace) -> Path:
+    """Execute the LNG expansion and return the entities path."""
+    out_dir = Path(args.output_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    entities = expand_lng_from_file(
+        args.input_path,
+        num_stages=args.num_stages,
+        uid_start=args.uid_start,
+    )
+    entities_path = out_dir / "lng_entities.json"
+    with open(entities_path, "w", encoding="utf-8") as fh:
+        json.dump(entities, fh, indent=2, sort_keys=False)
+        fh.write("\n")
+    return entities_path
 
 
 def _run(args: argparse.Namespace) -> Path:
     """Execute the requested conversion and return the entities path."""
+    if args.subcommand == "lng":
+        return _run_lng(args)
+
     stages = _load_stages(args.stages_path)
     options: dict[str, Any] = {
         "last_stage": args.last_stage,
         "blocks_per_stage": args.blocks_per_stage,
     }
 
-    if args.agreement == "laja":
+    if args.subcommand == "laja":
         agreement: Any = LajaAgreement.from_json(
             args.input_path, stage_parser=stages, options=options
         )
@@ -402,18 +458,21 @@ def main(argv: list[str] | None = None) -> int:
         print(f"ERROR: invalid JSON in input: {exc}", file=sys.stderr)
         return 2
     except (KeyError, ValueError, TypeError) as exc:
-        print(f"ERROR: {args.agreement} agreement: {exc}", file=sys.stderr)
+        print(f"ERROR: {args.subcommand}: {exc}", file=sys.stderr)
         return 2
     except OSError as exc:
         print(f"ERROR: I/O failure: {exc}", file=sys.stderr)
         return 2
 
-    pampl_path = entities_path.with_name(f"{args.agreement}.pampl")
-    print(
-        f"wrote {entities_path}"
-        + (f" and {pampl_path}" if pampl_path.exists() else ""),
-        file=sys.stderr,
-    )
+    if args.subcommand == "lng":
+        print(f"wrote {entities_path}", file=sys.stderr)
+    else:
+        pampl_path = entities_path.with_name(f"{args.subcommand}.pampl")
+        print(
+            f"wrote {entities_path}"
+            + (f" and {pampl_path}" if pampl_path.exists() else ""),
+            file=sys.stderr,
+        )
     return 0
 
 

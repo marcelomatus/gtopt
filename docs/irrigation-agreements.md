@@ -955,7 +955,7 @@ Stage 1 ── PLP .dat files ─────────────▶ canonic
 Stage 2 ── canonical JSON ─────────────▶ gtopt entities + PAMPL
            (laja.json, maule.json)        (flow_right_array, volume_right_array,
                                            laja.pampl, maule.pampl)
-           tool: gtopt_irrigation
+           tool: gtopt_expand
 
 Stage 3 ── gtopt entities + system ────▶ LP/MIP solution
            (system.json + *.pampl)        (results/*.parquet)
@@ -965,8 +965,8 @@ Stage 3 ── gtopt entities + system ────▶ LP/MIP solution
 Stages 1 and 2 are decoupled so that hand-authored ``laja.json`` /
 ``maule.json`` can be fed straight into Stage 2, bypassing PLP entirely.
 The canonical JSON schema is documented in the module docstrings of
-``scripts/gtopt_irrigation/laja_agreement.py`` and
-``scripts/gtopt_irrigation/maule_agreement.py``.
+``scripts/gtopt_expand/laja_agreement.py`` and
+``scripts/gtopt_expand/maule_agreement.py``.
 
 ### 11.1 Stage 1 — PLP-to-gtopt Conversion
 
@@ -983,27 +983,27 @@ in the input directory, writes canonical `laja.json` / `maule.json`
 artifacts, and (for backward compatibility) also emits the Stage-2
 entity and PAMPL files directly.
 
-### 11.2 Stage 2 — `gtopt_irrigation` CLI
+### 11.2 Stage 2 — `gtopt_expand` CLI
 
-The `gtopt_irrigation` package (`scripts/gtopt_irrigation/`) is the
+The `gtopt_expand` package (`scripts/gtopt_expand/`) is the
 canonical Stage-2 transform.  It consumes a canonical JSON agreement
 description and emits the corresponding gtopt entity arrays plus the
 companion PAMPL file.
 
 ```bash
 # Laja: laja.json → laja_entities.json + laja.pampl
-gtopt_irrigation laja \
+gtopt_expand laja \
     --input  cases/my_case/laja.json \
     --output cases/my_case/irrigation/
 
 # Maule with explicit per-stage metadata (calendar months)
-gtopt_irrigation maule \
+gtopt_expand maule \
     --input  cases/my_case/maule.json \
     --output cases/my_case/irrigation/ \
     --stages cases/my_case/stages.json
 
 # Show the package version
-gtopt_irrigation --version
+gtopt_expand --version
 ```
 
 Flags:
@@ -1087,12 +1087,12 @@ and constraints can be inspected.
 
 ### Agreement Template Specifications
 
-- **[Laja Agreement Template](../scripts/gtopt_irrigation/templates/laja.md)** —
+- **[Laja Agreement Template](../scripts/gtopt_expand/templates/laja.md)** —
   Complete specification of the Laja irrigation agreement: basin topology
   (Mermaid diagrams), piecewise-linear volume zone model (LaTeX formulas),
   FlowRight/VolumeRight/UserConstraint entity definitions (`laja.tson`),
   and AMPL constraint parameters (`laja.tampl`)
-- **[Maule Agreement Template](../scripts/gtopt_irrigation/templates/maule.md)** —
+- **[Maule Agreement Template](../scripts/gtopt_expand/templates/maule.md)** —
   Complete specification of the Maule irrigation agreement: three-zone
   reservoir operation, Armerillo control point, La Invernada winter
   storage, Resolution 105 ecological flow, 7 irrigation districts,

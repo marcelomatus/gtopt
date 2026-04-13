@@ -46,7 +46,7 @@ class TestWaterRightsIntegration:
         ``laja.json`` / ``maule.json`` alongside the planning JSON.  No
         FlowRight/VolumeRight/UserConstraint entities are produced here.
 
-        Stage 2: ``gtopt_irrigation laja`` / ``gtopt_irrigation maule``
+        Stage 2: ``gtopt_expand laja`` / ``gtopt_expand maule``
         read the canonical JSON files and emit the rights entities plus
         the companion ``.pampl`` files.  The fixture then merges the
         Stage-2 entities back into the Stage-1 planning JSON so the
@@ -94,7 +94,7 @@ class TestWaterRightsIntegration:
         ]
         assert len(json_files) == 1, f"Expected 1 JSON file, got {json_files}"
 
-        # ---------- Stage 2: gtopt_irrigation ----------
+        # ---------- Stage 2: gtopt_expand ----------
         # Pass the planning JSON as ``--stages`` so schedules are sized to
         # the real stage_array (see TestGtoptLpBuild for the rationale).
         for agreement in ("laja", "maule"):
@@ -102,7 +102,7 @@ class TestWaterRightsIntegration:
                 [
                     sys.executable,
                     "-m",
-                    "gtopt_irrigation.cli",
+                    "gtopt_expand.cli",
                     agreement,
                     "--input",
                     str(output_dir / f"{agreement}.json"),
@@ -117,7 +117,7 @@ class TestWaterRightsIntegration:
                 check=False,
             )
             assert stage2.returncode == 0, (
-                f"gtopt_irrigation {agreement} failed:"
+                f"gtopt_expand {agreement} failed:"
                 f"\nstdout: {stage2.stdout}\nstderr: {stage2.stderr}"
             )
 
@@ -319,7 +319,7 @@ class TestGtoptLpBuild:
 
     @pytest.fixture(scope="class")
     def lp_build_result(self, tmp_path_factory, gtopt_bin):
-        """Run plp2gtopt + gtopt_irrigation + gtopt --lp-build on plp_2_years."""
+        """Run plp2gtopt + gtopt_expand + gtopt --lp-build on plp_2_years."""
         output_dir = tmp_path_factory.mktemp("plp2y_lp_build")
 
         # Step 1: Convert with plp2gtopt (Stage 1 dumps laja.json + maule.json)
@@ -360,7 +360,7 @@ class TestGtoptLpBuild:
         ]
         assert len(json_files) == 1
 
-        # Step 1b: Stage 2 — gtopt_irrigation renders the rights entities
+        # Step 1b: Stage 2 — gtopt_expand renders the rights entities
         # from the canonical JSON files.  Pass the planning JSON itself as
         # ``--stages`` so per-stage monthly schedules (FlowRight fmax, etc.)
         # are sized to match the planning's ``simulation.stage_array``.
@@ -372,7 +372,7 @@ class TestGtoptLpBuild:
                 [
                     sys.executable,
                     "-m",
-                    "gtopt_irrigation.cli",
+                    "gtopt_expand.cli",
                     agreement,
                     "--input",
                     str(output_dir / f"{agreement}.json"),
@@ -387,7 +387,7 @@ class TestGtoptLpBuild:
                 check=False,
             )
             assert stage2.returncode == 0, (
-                f"gtopt_irrigation {agreement} failed:"
+                f"gtopt_expand {agreement} failed:"
                 f"\nstdout: {stage2.stdout}\nstderr: {stage2.stderr}"
             )
 

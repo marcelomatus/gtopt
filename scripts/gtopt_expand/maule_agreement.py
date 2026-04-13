@@ -31,7 +31,7 @@ deterministic answer without a CLI flag:
    ``junction_retiro`` (by default ``"MACHICURA"``, or the
    ``downstream`` field of the PLP COLBUN extraction entry when
    present in ``cfg["extrac_entries"]``), the ``embalse`` variant is
-   selected.  This lets ``gtopt_irrigation`` detect a MACHICURA
+   selected.  This lets ``gtopt_expand`` detect a MACHICURA
    reservoir in the actual gtopt case — e.g. the planning JSON that
    plp2gtopt emits next to ``maule.json`` when ``--ror-as-reservoirs``
    promoted MACHICURA to a daily-cycle reservoir.  The CLI populates
@@ -88,7 +88,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from gtopt_irrigation._base import _RightsAgreementBase
+from gtopt_expand._base import _RightsAgreementBase
 
 
 class MauleAgreement(_RightsAgreementBase):

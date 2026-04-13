@@ -46,7 +46,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from gtopt_irrigation._base import _RightsAgreementBase
+from gtopt_expand._base import _RightsAgreementBase
 
 
 # Hydrological year mapping: PLP uses Apr=1..Mar=12

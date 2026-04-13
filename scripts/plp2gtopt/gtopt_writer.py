@@ -757,24 +757,23 @@ class GTOptWriter:
                 self.planning["system"][key] = val
 
     def process_water_rights(self, options):
-        """Emit canonical Stage-1 irrigation agreement JSON files.
+        """Emit canonical Stage-1 intermediate JSON files.
 
-        This method is purely Stage 1 of the irrigation pipeline (see
+        This method is purely Stage 1 of the expansion pipeline (see
         ``project_irrigation_pipeline.md``): when ``emit_water_rights`` is
-        True, the parsed Laja / Maule convention dicts are dumped to
-        ``laja.json`` / ``maule.json`` in the output directory.
+        True, the parsed Laja / Maule / LNG configs are dumped to
+        ``laja.json`` / ``maule.json`` / ``lng.json`` in the output
+        directory.
 
-        The Stage-2 transform (rendering FlowRight/VolumeRight/UserConstraint
-        entities and the companion ``.pampl`` file) is explicitly *not*
-        performed here: that work now lives exclusively in
-        ``gtopt_irrigation`` and must be invoked as a separate step (via
-        ``gtopt_irrigation maule --input maule.json ...`` or by calling
-        ``MauleAgreement.from_json`` from a Python driver).  Keeping
-        Stage 1 and Stage 2 separated means the canonical JSON files are
-        always authoritative and the rendering code has exactly one home.
+        The Stage-2 transform is explicitly *not* performed here: that
+        work now lives exclusively in ``gtopt_expand`` and must be
+        invoked as a separate step (via ``gtopt_expand laja|maule|lng``
+        or by calling the corresponding Python API).  Keeping Stage 1
+        and Stage 2 separated means the canonical JSON files are always
+        authoritative and the rendering code has exactly one home.
 
         Additional Maule enrichments produced here so the canonical JSON
-        is self-contained for downstream ``gtopt_irrigation`` runs:
+        is self-contained for downstream ``gtopt_expand`` runs:
 
         * ``extrac_entries`` — echo of ``plpextrac.dat`` entries so
           Stage 2 has the full downstream-extraction context without
@@ -801,12 +800,12 @@ class GTOptWriter:
             _dump_canonical_json("laja", laja_parser.config)
 
         # Maule convention: echo plpextrac.dat entries into the dumped
-        # config so Stage 2 (gtopt_irrigation) has the full downstream-
+        # config so Stage 2 (gtopt_expand) has the full downstream-
         # extraction context without re-reading the raw PLP files.
         # plp2gtopt does NOT write ``machicura_model`` — MACHICURA is
         # just another promotable serie central in ``ror_equivalence.csv``
         # (no special treatment here).  The Maule agreement variant is
-        # auto-detected by ``gtopt_irrigation`` itself: when the
+        # auto-detected by ``gtopt_expand`` itself: when the
         # companion planning JSON (written next to ``maule.json`` in the
         # same output dir) contains a reservoir whose name matches the
         # resolved ``junction_retiro`` (typically ``MACHICURA``), the
@@ -820,6 +819,11 @@ class GTOptWriter:
             if extrac_parser is not None:
                 cfg["extrac_entries"] = list(extrac_parser.get_all())
             _dump_canonical_json("maule", cfg)
+
+        # GNL / LNG terminal (Stage 1 only — Stage 2 is gtopt_expand lng)
+        gnl_parser = self.parser.parsed_data.get("gnl_parser")
+        if gnl_parser is not None:
+            _dump_canonical_json("lng", gnl_parser.config)
 
     def process_flow_turbines(self, options):
         """Create Flow + Turbine(flow=ref) for hydro pasada centrals.

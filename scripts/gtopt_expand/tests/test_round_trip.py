@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-"""Round-trip tests for the gtopt_irrigation Stage-2 transform.
+"""Round-trip tests for the gtopt_expand Stage-2 transform.
 
 These tests verify that:
 
@@ -16,8 +16,8 @@ These tests verify that:
 
 import json
 
-from gtopt_irrigation import LajaAgreement, MauleAgreement
-from gtopt_irrigation.cli import main as cli_main
+from gtopt_expand import LajaAgreement, MauleAgreement
+from gtopt_expand.cli import main as cli_main
 
 
 def _minimal_laja_config():
@@ -400,7 +400,7 @@ class TestCliErrorExitCodes:
         )
         assert rc == 2
         err = capsys.readouterr().err
-        assert err.startswith("ERROR: laja agreement:")
+        assert err.startswith("ERROR: laja:")
 
     def test_input_output_aliases(self, tmp_path):
         """The canonical ``--input``/``--output`` names work alongside ``--in``/``--out``."""
@@ -675,6 +675,6 @@ class TestBackwardCompatibilityShims:
 
     def test_template_engine_shim(self):
         from plp2gtopt.template_engine import render_tson as shim_render_tson
-        from gtopt_irrigation._template_engine import render_tson as new_render_tson
+        from gtopt_expand._template_engine import render_tson as new_render_tson
 
         assert shim_render_tson is new_render_tson

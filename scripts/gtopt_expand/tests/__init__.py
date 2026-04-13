@@ -1,2 +1,2 @@
 # -*- coding: utf-8 -*-
-"""Tests for the gtopt_irrigation Stage-2 transform."""
+"""Tests for the gtopt_expand Stage-2 transform."""
