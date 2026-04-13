@@ -26,6 +26,8 @@
 #include <gtopt/flow_right_lp.hpp>
 #include <gtopt/generator_lp.hpp>
 #include <gtopt/generator_profile_lp.hpp>
+#include <gtopt/inertia_provision_lp.hpp>
+#include <gtopt/inertia_zone_lp.hpp>
 #include <gtopt/junction_lp.hpp>
 #include <gtopt/line_lp.hpp>
 #include <gtopt/linear_interface.hpp>
@@ -44,6 +46,7 @@
 #include <gtopt/scenario_lp.hpp>
 #include <gtopt/scene_lp.hpp>
 #include <gtopt/schedule.hpp>
+#include <gtopt/simple_commitment_lp.hpp>
 #include <gtopt/solver_options.hpp>
 #include <gtopt/system.hpp>
 #include <gtopt/system_context.hpp>
@@ -88,6 +91,9 @@ static_assert(AddToLP<ConverterLP>);
 static_assert(AddToLP<ReserveZoneLP>);
 static_assert(AddToLP<ReserveProvisionLP>);
 static_assert(AddToLP<CommitmentLP>);
+static_assert(AddToLP<SimpleCommitmentLP>);
+static_assert(AddToLP<InertiaZoneLP>);
+static_assert(AddToLP<InertiaProvisionLP>);
 
 static_assert(AddToLP<JunctionLP>);
 static_assert(AddToLP<WaterwayLP>);
@@ -197,6 +203,9 @@ public:
                                    Collection<ReserveZoneLP>,
                                    Collection<ReserveProvisionLP>,
                                    Collection<CommitmentLP>,
+                                   Collection<SimpleCommitmentLP>,
+                                   Collection<InertiaZoneLP>,
+                                   Collection<InertiaProvisionLP>,
                                    Collection<JunctionLP>,
                                    Collection<WaterwayLP>,
                                    Collection<FlowLP>,

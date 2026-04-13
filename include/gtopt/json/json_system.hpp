@@ -22,6 +22,8 @@
 #include <gtopt/json/json_flow_right.hpp>
 #include <gtopt/json/json_generator.hpp>
 #include <gtopt/json/json_generator_profile.hpp>
+#include <gtopt/json/json_inertia_provision.hpp>
+#include <gtopt/json/json_inertia_zone.hpp>
 #include <gtopt/json/json_junction.hpp>
 #include <gtopt/json/json_line.hpp>
 #include <gtopt/json/json_lng_terminal.hpp>
@@ -32,6 +34,7 @@
 #include <gtopt/json/json_reservoir_discharge_limit.hpp>
 #include <gtopt/json/json_reservoir_production_factor.hpp>
 #include <gtopt/json/json_reservoir_seepage.hpp>
+#include <gtopt/json/json_simple_commitment.hpp>
 #include <gtopt/json/json_turbine.hpp>
 #include <gtopt/json/json_user_constraint.hpp>
 #include <gtopt/json/json_user_param.hpp>
@@ -68,6 +71,13 @@ struct json_data_contract<System>
                       Array<ReserveProvision>,
                       ReserveProvision>,
       json_array_null<"commitment_array", Array<Commitment>, Commitment>,
+      json_array_null<"simple_commitment_array",
+                      Array<SimpleCommitment>,
+                      SimpleCommitment>,
+      json_array_null<"inertia_zone_array", Array<InertiaZone>, InertiaZone>,
+      json_array_null<"inertia_provision_array",
+                      Array<InertiaProvision>,
+                      InertiaProvision>,
       json_array_null<"junction_array", Array<Junction>, Junction>,
       json_array_null<"waterway_array", Array<Waterway>, Waterway>,
       json_array_null<"flow_array", Array<Flow>, Flow>,
@@ -108,6 +118,9 @@ struct json_data_contract<System>
                                  system.reserve_zone_array,
                                  system.reserve_provision_array,
                                  system.commitment_array,
+                                 system.simple_commitment_array,
+                                 system.inertia_zone_array,
+                                 system.inertia_provision_array,
                                  system.junction_array,
                                  system.waterway_array,
                                  system.flow_array,

@@ -33,6 +33,8 @@
 #include <gtopt/flow_right.hpp>
 #include <gtopt/generator.hpp>
 #include <gtopt/generator_profile.hpp>
+#include <gtopt/inertia_provision.hpp>
+#include <gtopt/inertia_zone.hpp>
 #include <gtopt/junction.hpp>
 #include <gtopt/line.hpp>
 #include <gtopt/lng_terminal.hpp>
@@ -43,6 +45,7 @@
 #include <gtopt/reservoir_discharge_limit.hpp>
 #include <gtopt/reservoir_production_factor.hpp>
 #include <gtopt/reservoir_seepage.hpp>
+#include <gtopt/simple_commitment.hpp>
 #include <gtopt/turbine.hpp>
 #include <gtopt/user_constraint.hpp>
 #include <gtopt/user_param.hpp>
@@ -94,6 +97,14 @@ struct System
   // ── Unit commitment ────────────────────────────────────────────────────
   Array<Commitment>
       commitment_array {};  ///< Generator unit commitment parameters
+  Array<SimpleCommitment>
+      simple_commitment_array {};  ///< Simplified dispatch commitments
+
+  // ── Inertia modeling ───────────────────────────────────────────────────
+  Array<InertiaZone>
+      inertia_zone_array {};  ///< System inertia requirement zones
+  Array<InertiaProvision>
+      inertia_provision_array {};  ///< Generator → inertia zone links
 
   // ── Hydro cascade ───────────────────────────────────────────────────────
   Array<Junction> junction_array {};  ///< Hydraulic nodes

@@ -507,6 +507,12 @@ void create_collections(const auto& system_context,
       make_collection<ReserveProvisionLP>(ic, sys.reserve_provision_array);
   std::get<Collection<CommitmentLP>>(colls) =
       make_collection<CommitmentLP>(ic, sys.commitment_array);
+  std::get<Collection<SimpleCommitmentLP>>(colls) =
+      make_collection<SimpleCommitmentLP>(ic, sys.simple_commitment_array);
+  std::get<Collection<InertiaZoneLP>>(colls) =
+      make_collection<InertiaZoneLP>(ic, sys.inertia_zone_array);
+  std::get<Collection<InertiaProvisionLP>>(colls) =
+      make_collection<InertiaProvisionLP>(ic, sys.inertia_provision_array);
 
   std::get<Collection<JunctionLP>>(colls) =
       make_collection<JunctionLP>(ic, sys.junction_array);
@@ -591,6 +597,9 @@ void register_all_ampl_element_names(SimulationLP& sim, const System& sys)
   register_element_names<LineLP>(sim, sys.line_array);
   register_element_names<ReserveProvisionLP>(sim, sys.reserve_provision_array);
   register_element_names<ReserveZoneLP>(sim, sys.reserve_zone_array);
+  register_element_names<SimpleCommitmentLP>(sim, sys.simple_commitment_array);
+  register_element_names<InertiaZoneLP>(sim, sys.inertia_zone_array);
+  register_element_names<InertiaProvisionLP>(sim, sys.inertia_provision_array);
   register_element_names<ReservoirLP>(sim, sys.reservoir_array);
   register_element_names<TurbineLP>(sim, sys.turbine_array);
   register_element_names<PumpLP>(sim, sys.pump_array);
