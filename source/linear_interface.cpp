@@ -10,6 +10,7 @@
 #include <expected>
 #include <memory>
 #include <ranges>
+#include <span>
 
 #include <gtopt/error.hpp>
 #include <gtopt/linear_interface.hpp>
@@ -108,15 +109,17 @@ void LinearInterface::cache_and_release()
   // The cache_warm_start flag only controls whether release_backend()
   // retains these vectors — cache_and_release() needs them for callers
   // that read solution data after resolve() returns.
-  // NOLINTBEGIN(cppcoreguidelines-pro-bounds-pointer-arithmetic)
-  m_cached_col_sol_.assign(m_backend_->col_solution(),
-                           m_backend_->col_solution() + ncols);
-  m_cached_col_cost_.assign(m_backend_->reduced_cost(),
-                            m_backend_->reduced_cost() + ncols);
+  {
+    const auto cs = std::span(m_backend_->col_solution(), ncols);
+    m_cached_col_sol_.assign(cs.begin(), cs.end());
+    const auto rc = std::span(m_backend_->reduced_cost(), ncols);
+    m_cached_col_cost_.assign(rc.begin(), rc.end());
+  }
   ensure_duals();
-  m_cached_row_dual_.assign(m_backend_->row_price(),
-                            m_backend_->row_price() + nrows);
-  // NOLINTEND(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+  {
+    const auto rp = std::span(m_backend_->row_price(), nrows);
+    m_cached_row_dual_.assign(rp.begin(), rp.end());
+  }
   m_cached_obj_value_ = m_backend_->obj_value();
   m_cached_kappa_ = m_backend_->get_kappa();
   m_cached_numrows_ = nrows;
@@ -180,10 +183,10 @@ void LinearInterface::release_backend() noexcept
         const auto rd = get_row_dual_raw();
         m_cached_col_sol_.assign(cs.begin(), cs.end());
         m_cached_row_dual_.assign(rd.begin(), rd.end());
-        // NOLINTBEGIN(cppcoreguidelines-pro-bounds-pointer-arithmetic)
-        m_cached_col_cost_.assign(m_backend_->reduced_cost(),
-                                  m_backend_->reduced_cost() + ncols);
-        // NOLINTEND(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+        {
+          const auto rc = std::span(m_backend_->reduced_cost(), ncols);
+          m_cached_col_cost_.assign(rc.begin(), rc.end());
+        }
       } else {
         m_cached_col_sol_.clear();
         m_cached_col_sol_.shrink_to_fit();

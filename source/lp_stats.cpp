@@ -23,15 +23,15 @@ namespace
 void log_stats_line(std::string_view label, const ScenePhaseLPStats& stats)
 {
   spdlog::info(
-      std::format("  {:<28s} vars={:>7} cons={:>7} "
-                  "|coeff| [{:.3e}, {:.3e}] ratio={:.2e} ({})",
-                  label,
-                  stats.num_vars,
-                  stats.num_constraints,
-                  stats.stats_min_abs,
-                  stats.stats_max_abs,
-                  stats.coeff_ratio(),
-                  stats.quality_label()));
+      "  {:<28s} vars={:>7} cons={:>7} "
+      "|coeff| [{:.3e}, {:.3e}] ratio={:.2e} ({})",
+      label,
+      stats.num_vars,
+      stats.num_constraints,
+      stats.stats_min_abs,
+      stats.stats_max_abs,
+      stats.coeff_ratio(),
+      stats.quality_label());
 
   // Print per-column details for max/min coefficients when available.
   if (stats.stats_max_col >= 0) {
@@ -59,8 +59,7 @@ void log_stats_line(std::string_view label, const ScenePhaseLPStats& stats)
     }
   }
   if (stats.stats_zeroed > 0) {
-    spdlog::info(
-        std::format("    zeroed by eps: {} entries", stats.stats_zeroed));
+    spdlog::info("    zeroed by eps: {} entries", stats.stats_zeroed);
   }
 }
 
@@ -101,9 +100,9 @@ void log_lp_stats_summary(const std::vector<ScenePhaseLPStats>& entries,
   // been overwritten.  Report "unavailable" instead of printing garbage.
   if (global.stats_nnz == 0) {
     spdlog::info(
-        std::format("  LP coefficient analysis: {} LP(s), stats unavailable "
-                    "(compute_stats disabled or low-memory path)",
-                    entries.size()));
+        "  LP coefficient analysis: {} LP(s), stats unavailable "
+        "(compute_stats disabled or low-memory path)",
+        entries.size());
     return;
   }
 
@@ -181,14 +180,14 @@ void log_lp_stats_summary(const std::vector<ScenePhaseLPStats>& entries,
     spdlog::info("  Per-row-type coefficient breakdown:");
     for (const auto& rts : sorted_types) {
       spdlog::info(
-          std::format("    {:<12s} rows={:>6} nnz={:>8} "
-                      "|coeff| [{:.3e}, {:.3e}] ratio={:.2e}",
-                      rts.type,
-                      rts.count,
-                      rts.nnz,
-                      rts.min_abs,
-                      rts.max_abs,
-                      rts.coeff_ratio()));
+          "    {:<12s} rows={:>6} nnz={:>8} "
+          "|coeff| [{:.3e}, {:.3e}] ratio={:.2e}",
+          rts.type,
+          rts.count,
+          rts.nnz,
+          rts.min_abs,
+          rts.max_abs,
+          rts.coeff_ratio());
     }
   }
 }
