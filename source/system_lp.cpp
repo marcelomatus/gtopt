@@ -535,6 +535,10 @@ void create_collections(const auto& system_context,
   std::get<Collection<VolumeRightLP>>(colls) =
       make_collection<VolumeRightLP>(ic, sys.volume_right_array);
 
+  // Fuel storage
+  std::get<Collection<LngTerminalLP>>(colls) =
+      make_collection<LngTerminalLP>(ic, sys.lng_terminal_array);
+
   // UserConstraintLP is placed LAST so that user-constraint rows are added to
   // the LP after all other elements whose columns they reference.
   std::get<Collection<UserConstraintLP>>(colls) =
@@ -592,6 +596,7 @@ void register_all_ampl_element_names(SimulationLP& sim, const System& sys)
   register_element_names<PumpLP>(sim, sys.pump_array);
   register_element_names<VolumeRightLP>(sim, sys.volume_right_array);
   register_element_names<WaterwayLP>(sim, sys.waterway_array);
+  register_element_names<LngTerminalLP>(sim, sys.lng_terminal_array);
 
   // Intentional exception: ReservoirSeepageLP is exposed at the AMPL
   // level under "seepage", not the snake-case of its class name

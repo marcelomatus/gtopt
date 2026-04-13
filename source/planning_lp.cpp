@@ -323,6 +323,69 @@ void PlanningLP::auto_scale_reservoirs(Planning& planning)
   }
 }
 
+void PlanningLP::auto_scale_lng_terminals(Planning& planning)
+{
+  auto& opts = planning.options;
+  auto& sys = planning.system;
+
+  auto has_entry = [&](Uid uid) -> bool
+  {
+    return std::ranges::any_of(opts.variable_scales,
+                               [uid](const VariableScale& vs)
+                               {
+                                 return vs.class_name == "LngTerminal"
+                                     && vs.variable == "energy"
+                                     && vs.uid == uid;
+                               });
+  };
+
+  auto scalar_of = [](const OptTRealFieldSched& fs) -> std::optional<double>
+  {
+    if (!fs.has_value()) {
+      return std::nullopt;
+    }
+    if (std::holds_alternative<double>(*fs)) {
+      return std::get<double>(*fs);
+    }
+    if (std::holds_alternative<std::vector<Real>>(*fs)) {
+      const auto& vec = std::get<std::vector<Real>>(*fs);
+      if (!vec.empty()) {
+        return *std::ranges::max_element(vec);
+      }
+    }
+    return std::nullopt;
+  };
+
+  size_t count = 0;
+  for (const auto& lng : sys.lng_terminal_array) {
+    if (has_entry(lng.uid)) {
+      continue;
+    }
+    const auto emax = scalar_of(lng.emax);
+    if (!emax.has_value() || *emax <= 1000.0) {
+      continue;
+    }
+    const double raw = *emax / 1000.0;
+    const double energy_scale = std::pow(10.0, std::ceil(std::log10(raw)));
+
+    opts.variable_scales.push_back(VariableScale {
+        .class_name = "LngTerminal",
+        .variable = "energy",
+        .uid = lng.uid,
+        .scale = energy_scale,
+        .name = lng.name,
+    });
+    ++count;
+  }
+
+  if (count > 0) {
+    spdlog::info(
+        "  Auto scale_lng_terminal: computed energy scales for {} LNG "
+        "terminals",
+        count);
+  }
+}
+
 void PlanningLP::tighten_scene_phase_links(phase_systems_t& phase_systems,
                                            SimulationLP& simulation)
 {

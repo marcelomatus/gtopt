@@ -259,6 +259,7 @@ void System::merge(System&& sys)  // NOLINT
 
   gtopt::merge(battery_array, std::move(sys.battery_array));
   gtopt::merge(converter_array, std::move(sys.converter_array));
+  gtopt::merge(lng_terminal_array, std::move(sys.lng_terminal_array));
 
   gtopt::merge(reserve_zone_array, std::move(sys.reserve_zone_array));
   gtopt::merge(reserve_provision_array, std::move(sys.reserve_provision_array));

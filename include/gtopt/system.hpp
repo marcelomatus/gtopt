@@ -35,6 +35,7 @@
 #include <gtopt/generator_profile.hpp>
 #include <gtopt/junction.hpp>
 #include <gtopt/line.hpp>
+#include <gtopt/lng_terminal.hpp>
 #include <gtopt/pump.hpp>
 #include <gtopt/reserve_provision.hpp>
 #include <gtopt/reserve_zone.hpp>
@@ -80,6 +81,9 @@ struct System
   Array<Battery> battery_array {};  ///< Battery energy storage systems
   Array<Converter>
       converter_array {};  ///< Battery ↔ generator/demand couplings
+
+  // ── Fuel storage ────────────────────────────────────────────────────────
+  Array<LngTerminal> lng_terminal_array {};  ///< LNG storage terminals
 
   // ── Reserve modeling ────────────────────────────────────────────────────
   Array<ReserveZone>

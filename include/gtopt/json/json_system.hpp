@@ -24,6 +24,7 @@
 #include <gtopt/json/json_generator_profile.hpp>
 #include <gtopt/json/json_junction.hpp>
 #include <gtopt/json/json_line.hpp>
+#include <gtopt/json/json_lng_terminal.hpp>
 #include <gtopt/json/json_pump.hpp>
 #include <gtopt/json/json_reserve_provision.hpp>
 #include <gtopt/json/json_reserve_zone.hpp>
@@ -61,6 +62,7 @@ struct json_data_contract<System>
                       DemandProfile>,
       json_array_null<"battery_array", Array<Battery>, Battery>,
       json_array_null<"converter_array", Array<Converter>, Converter>,
+      json_array_null<"lng_terminal_array", Array<LngTerminal>, LngTerminal>,
       json_array_null<"reserve_zone_array", Array<ReserveZone>, ReserveZone>,
       json_array_null<"reserve_provision_array",
                       Array<ReserveProvision>,
@@ -102,6 +104,7 @@ struct json_data_contract<System>
                                  system.demand_profile_array,
                                  system.battery_array,
                                  system.converter_array,
+                                 system.lng_terminal_array,
                                  system.reserve_zone_array,
                                  system.reserve_provision_array,
                                  system.commitment_array,

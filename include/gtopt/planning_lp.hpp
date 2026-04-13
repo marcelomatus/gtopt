@@ -87,6 +87,11 @@ private:
   /// for reservoirs that don't already have explicit entries.
   static void auto_scale_reservoirs(Planning& planning);
 
+  /// Compute adaptive energy scales for LNG terminals from emax.
+  /// Injects VariableScale entries into `planning.options.variable_scales`
+  /// for terminals that don't already have explicit entries.
+  static void auto_scale_lng_terminals(Planning& planning);
+
   /// State variable I/O uses the StateVariable map (ColIndex-based)
   /// directly — no column name strings are needed.  This method is
   /// kept for API compatibility but is now a pass-through.
@@ -116,6 +121,7 @@ public:
                 validate_line_reactance(planning);
                 auto_scale_theta(planning);
                 auto_scale_reservoirs(planning);
+                auto_scale_lng_terminals(planning);
               }
               return std::forward<PlanningT>(planning);
             }())

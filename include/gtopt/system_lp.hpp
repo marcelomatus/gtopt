@@ -29,6 +29,7 @@
 #include <gtopt/junction_lp.hpp>
 #include <gtopt/line_lp.hpp>
 #include <gtopt/linear_interface.hpp>
+#include <gtopt/lng_terminal_lp.hpp>
 #include <gtopt/lp_fingerprint.hpp>
 #include <gtopt/output_context.hpp>
 #include <gtopt/phase_lp.hpp>
@@ -99,6 +100,7 @@ static_assert(AddToLP<PumpLP>);
 static_assert(AddToLP<ReservoirProductionFactorLP>);
 static_assert(AddToLP<FlowRightLP>);
 static_assert(AddToLP<VolumeRightLP>);
+static_assert(AddToLP<LngTerminalLP>);
 static_assert(AddToLP<UserConstraintLP>);
 
 /**
@@ -206,6 +208,7 @@ public:
                                    Collection<ReservoirProductionFactorLP>,
                                    Collection<FlowRightLP>,
                                    Collection<VolumeRightLP>,
+                                   Collection<LngTerminalLP>,
                                    Collection<UserConstraintLP>>;
 
   template<typename Self>
