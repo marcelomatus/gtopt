@@ -33,6 +33,7 @@
 #include <gtopt/output_context.hpp>
 #include <gtopt/phase_lp.hpp>
 #include <gtopt/planning_options_lp.hpp>
+#include <gtopt/pump_lp.hpp>
 #include <gtopt/reserve_provision_lp.hpp>
 #include <gtopt/reserve_zone_lp.hpp>
 #include <gtopt/reservoir_discharge_limit_lp.hpp>
@@ -94,6 +95,7 @@ static_assert(AddToLP<ReservoirLP>);
 static_assert(AddToLP<ReservoirSeepageLP>);
 static_assert(AddToLP<ReservoirDischargeLimitLP>);
 static_assert(AddToLP<TurbineLP>);
+static_assert(AddToLP<PumpLP>);
 static_assert(AddToLP<ReservoirProductionFactorLP>);
 static_assert(AddToLP<FlowRightLP>);
 static_assert(AddToLP<VolumeRightLP>);
@@ -200,6 +202,7 @@ public:
                                    Collection<ReservoirSeepageLP>,
                                    Collection<ReservoirDischargeLimitLP>,
                                    Collection<TurbineLP>,
+                                   Collection<PumpLP>,
                                    Collection<ReservoirProductionFactorLP>,
                                    Collection<FlowRightLP>,
                                    Collection<VolumeRightLP>,

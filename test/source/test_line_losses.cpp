@@ -137,6 +137,7 @@ TEST_CASE("line_losses::resolve_mode fallback chain")
   {
     PlanningOptions opts_none;
     opts_none.model_options.line_losses_mode = OptName {"none"};
+    opts_none.model_options.demand_fail_cost = 1000.0;
     const PlanningOptionsLP options_none(opts_none);
 
     Line line;
@@ -358,6 +359,7 @@ static auto solve_with_mode(std::string_view mode_name, int loss_segments = 3)
   opts.use_single_bus = false;
   opts.use_kirchhoff = false;
   opts.scale_objective = 1000.0;
+  opts.model_options.demand_fail_cost = 1000.0;
 
   const System system = {
       .name = "LossEngineTest",
@@ -484,6 +486,7 @@ TEST_CASE("line_losses engine - global model_options.line_losses_mode")
     opts.use_kirchhoff = false;
     opts.scale_objective = 1000.0;
     opts.model_options.line_losses_mode = OptName {"none"};
+    opts.model_options.demand_fail_cost = 1000.0;
 
     const System system = {
         .name = "GlobalNone",
@@ -588,6 +591,7 @@ private:
     opts.use_single_bus = false;
     opts.use_kirchhoff = false;
     opts.scale_objective = 1000.0;
+    opts.model_options.demand_fail_cost = 1000.0;
     opts.lp_matrix_options.col_with_names = true;
     opts.lp_matrix_options.row_with_names = true;
     opts.lp_matrix_options.col_with_name_map = true;

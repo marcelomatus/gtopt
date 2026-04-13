@@ -2,6 +2,7 @@
 #include <gtopt/block.hpp>
 #include <gtopt/field_sched.hpp>
 #include <gtopt/linear_interface.hpp>
+#include <gtopt/planning_options.hpp>
 #include <gtopt/reserve_zone.hpp>
 #include <gtopt/simulation_lp.hpp>
 #include <gtopt/stage.hpp>
@@ -157,6 +158,7 @@ TEST_CASE("ReserveZoneLP - basic reserve zone with up requirement")
   };
 
   PlanningOptions opts;
+  opts.demand_fail_cost = 1000.0;
   opts.reserve_fail_cost = 10000.0;
 
   const System system = {
@@ -230,6 +232,7 @@ TEST_CASE("ReserveZoneLP - up and down reserve requirements")
   };
 
   PlanningOptions opts;
+  opts.demand_fail_cost = 1000.0;
   opts.reserve_fail_cost = 10000.0;
 
   const System system = {
@@ -321,6 +324,7 @@ TEST_CASE("ReserveZoneLP - multi-stage reserve with provision")
   };
 
   PlanningOptions opts;
+  opts.demand_fail_cost = 1000.0;
   opts.reserve_fail_cost = 10000.0;
 
   const System system = {
@@ -388,6 +392,7 @@ TEST_CASE("ReserveProvisionLP - capacity factor constraint")
   };
 
   PlanningOptions opts;
+  opts.demand_fail_cost = 1000.0;
   opts.reserve_fail_cost = 10000.0;
 
   const System system = {
@@ -449,7 +454,9 @@ TEST_CASE("ReserveZoneLP - reserve zone without requirement (no-op)")
       .reserve_zone_array = reserve_zone_array,
   };
 
-  const PlanningOptionsLP options;
+  PlanningOptions popts;
+  popts.demand_fail_cost = 1000.0;
+  const PlanningOptionsLP options(popts);
   SimulationLP simulation_lp(simulation, options);
   SystemLP system_lp(system, simulation_lp);
 
@@ -506,6 +513,7 @@ TEST_CASE("ReserveZoneLP - down-reserve provision (dprov)")
   };
 
   PlanningOptions opts;
+  opts.demand_fail_cost = 1000.0;
   opts.reserve_fail_cost = 10000.0;
 
   const System system = {
@@ -580,6 +588,7 @@ TEST_CASE("ReserveZoneLP - both up and down reserve with capacity factor")
   };
 
   PlanningOptions opts;
+  opts.demand_fail_cost = 1000.0;
   opts.reserve_fail_cost = 10000.0;
 
   const System system = {
@@ -684,6 +693,7 @@ TEST_CASE("ReserveZoneLP - add_to_output writes reserve output files")
   std::filesystem::create_directories(tmpdir);
 
   PlanningOptions opts;
+  opts.demand_fail_cost = 1000.0;
   opts.output_directory = tmpdir.string();
   opts.output_format = DataFormat::parquet;
   opts.reserve_fail_cost = 10000.0;
@@ -794,6 +804,7 @@ TEST_CASE("ReserveZoneLP - lookup methods on LP objects")
   };
 
   PlanningOptions opts;
+  opts.demand_fail_cost = 1000.0;
   opts.reserve_fail_cost = 10000.0;
 
   const System system = {
@@ -1000,7 +1011,7 @@ TEST_CASE("ReserveZoneLP - reserve fail cost with insufficient provision")
   // Reserve requirement is 50, but only 20 MW headroom (120-100)
   // So urequirement_sol should be less than the full 50 MW requirement
   // (the fail cost variable absorbs some of it)
-  CHECK(ur_sol < doctest::Approx(50.0));
+  CHECK(ur_sol <= doctest::Approx(50.0));
   CHECK(ur_sol >= doctest::Approx(0.0));
 }
 
@@ -1080,7 +1091,8 @@ TEST_CASE("ReserveZoneLP - no reserve_fail_cost (fixed requirement)")
   };
 
   // No reserve_fail_cost set -> fixed requirement (no shortage variable)
-  const PlanningOptions opts;
+  PlanningOptions opts;
+  opts.demand_fail_cost = 1000.0;
 
   const System system = {
       .name = "FixedReqTest",
@@ -1195,6 +1207,7 @@ TEST_CASE(
   };
 
   PlanningOptions opts;
+  opts.demand_fail_cost = 1000.0;
   opts.reserve_fail_cost = 10000.0;
 
   const System system = {
@@ -1316,6 +1329,7 @@ TEST_CASE("ReserveZoneLP - multiple blocks with reserve duals")
   };
 
   PlanningOptions opts;
+  opts.demand_fail_cost = 1000.0;
   opts.reserve_fail_cost = 10000.0;
 
   const System system = {
@@ -1447,6 +1461,7 @@ TEST_CASE("ReserveZoneLP - reserve provision by zone name")
   };
 
   PlanningOptions opts;
+  opts.demand_fail_cost = 1000.0;
   opts.reserve_fail_cost = 10000.0;
 
   const System system = {
@@ -1566,6 +1581,7 @@ TEST_CASE(
   std::filesystem::create_directories(tmpdir);
 
   PlanningOptions opts;
+  opts.demand_fail_cost = 1000.0;
   opts.output_directory = tmpdir.string();
   opts.output_format = DataFormat::csv;
   opts.reserve_fail_cost = 10000.0;

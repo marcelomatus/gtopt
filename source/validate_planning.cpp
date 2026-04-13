@@ -126,6 +126,24 @@ void check_referential_integrity(ValidationResult& result, const System& sys)
               "Generator");
   }
 
+  // Pump.waterway -> Waterway, Pump.demand -> Demand
+  for (const auto& pump : sys.pump_array) {
+    check_ref(result,
+              pump.waterway,
+              sys.waterway_array,
+              "Pump",
+              pump.name,
+              "waterway",
+              "Waterway");
+    check_ref(result,
+              pump.demand,
+              sys.demand_array,
+              "Pump",
+              pump.name,
+              "demand",
+              "Demand");
+  }
+
   // Flow.junction -> Junction (optional in flow-turbine mode)
   for (const auto& flow : sys.flow_array) {
     if (flow.junction.has_value()) {

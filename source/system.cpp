@@ -272,6 +272,7 @@ void System::merge(System&& sys)  // NOLINT
   gtopt::merge(reservoir_discharge_limit_array,
                std::move(sys.reservoir_discharge_limit_array));
   gtopt::merge(turbine_array, std::move(sys.turbine_array));
+  gtopt::merge(pump_array, std::move(sys.pump_array));
   gtopt::merge(reservoir_production_factor_array,
                std::move(sys.reservoir_production_factor_array));
 

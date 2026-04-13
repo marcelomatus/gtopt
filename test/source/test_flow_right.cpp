@@ -381,7 +381,9 @@ TEST_CASE(  // NOLINT
   const auto simulation = make_flow_right_simulation();
   const auto system = make_flow_right_system(fx, frs, "Tier2_1_Variable");
 
-  const PlanningOptionsLP options;
+  PlanningOptions popts;
+  popts.model_options.demand_fail_cost = 1000.0;
+  const PlanningOptionsLP options(popts);
   SimulationLP simulation_lp(simulation, options);
   SystemLP system_lp(system, simulation_lp);
 
@@ -422,7 +424,9 @@ TEST_CASE(  // NOLINT
   const auto simulation = make_flow_right_simulation();
   const auto system = make_flow_right_system(fx, frs, "Tier2_2_Fixed");
 
-  const PlanningOptionsLP options;
+  PlanningOptions popts;
+  popts.model_options.demand_fail_cost = 1000.0;
+  const PlanningOptionsLP options(popts);
   SimulationLP simulation_lp(simulation, options);
   SystemLP system_lp(system, simulation_lp);
 
@@ -470,7 +474,9 @@ TEST_CASE(  // NOLINT
   const auto simulation = make_flow_right_simulation();
   const auto system = make_flow_right_system(fx, frs, "Tier2_3_Zero");
 
-  const PlanningOptionsLP options;
+  PlanningOptions popts;
+  popts.model_options.demand_fail_cost = 1000.0;
+  const PlanningOptionsLP options(popts);
   SimulationLP simulation_lp(simulation, options);
   SystemLP system_lp(system, simulation_lp);
 
@@ -535,7 +541,9 @@ TEST_CASE(  // NOLINT
   const auto simulation = make_flow_right_simulation();
   const auto system = make_flow_right_system(fx, frs, "Tier2_4_RuleClamp");
 
-  const PlanningOptionsLP options;
+  PlanningOptions popts;
+  popts.model_options.demand_fail_cost = 1000.0;
+  const PlanningOptionsLP options(popts);
   SimulationLP simulation_lp(simulation, options);
   SystemLP system_lp(system, simulation_lp);
 
@@ -583,7 +591,9 @@ TEST_CASE(  // NOLINT
   const auto simulation = make_flow_right_two_block_simulation();
   const auto system = make_flow_right_system(fx, frs, "Tier2_5_Qeh");
 
-  const PlanningOptionsLP options;
+  PlanningOptions popts;
+  popts.model_options.demand_fail_cost = 1000.0;
+  const PlanningOptionsLP options(popts);
   SimulationLP simulation_lp(simulation, options);
   SystemLP system_lp(system, simulation_lp);
 
@@ -628,7 +638,9 @@ TEST_CASE(  // NOLINT
   const auto simulation = make_flow_right_simulation();
   const auto system = make_flow_right_system(fx, frs, "Tier2_6_Deficit");
 
-  const PlanningOptionsLP options;
+  PlanningOptions popts;
+  popts.model_options.demand_fail_cost = 1000.0;
+  const PlanningOptionsLP options(popts);
   SimulationLP simulation_lp(simulation, options);
   SystemLP system_lp(system, simulation_lp);
 
@@ -675,6 +687,7 @@ TEST_CASE(  // NOLINT
   const auto system = make_flow_right_system(fx, frs, "Tier2_7_NoDeficit");
 
   PlanningOptions opts;
+  opts.model_options.demand_fail_cost = 1000.0;
   // Belt-and-suspenders: zero out the global hydro_fail_cost so the
   // per-element fall-through cannot accidentally enable a deficit.
   opts.hydro_fail_cost = 0.0;

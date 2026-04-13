@@ -131,23 +131,23 @@ bool DemandLP::add_to_lp(SystemContext& sc,
   map_reserve(fcols, blocks.size());
   map_reserve(brows, blocks.size());
 
+  const bool is_forced = demand().forced.value_or(false);
+
   for (const auto& block : blocks) {
     const auto buid = block.uid();
     const auto bus_balance_row = bus_balance_rows.at(buid);
     const auto block_lmax = sc.block_max_at(stage, block, lmax, stage_capacity);
-
-    const auto load_lowb = !stage_fcost ? block_lmax : 0;
-    const auto load_uppb = !stage_fcost ? block_lmax : LinearProblem::DblMax;
+    const auto load_lowb = is_forced ? block_lmax : 0.0;
     const auto lcol = lp.add_col({
         .lowb = load_lowb,
-        .uppb = load_uppb,
+        .uppb = block_lmax,
         .class_name = ClassName.full_name(),
         .variable_name = LoadName,
         .variable_uid = uid(),
         .context = make_block_context(scenario.uid(), stage.uid(), block.uid()),
     });
 
-    if (stage_fcost) {
+    if (stage_fcost && !is_forced) {
       const auto fcol = lp.add_col({
           .cost = CostHelper::block_ecost(scenario, stage, block, *stage_fcost),
           .class_name = ClassName.full_name(),

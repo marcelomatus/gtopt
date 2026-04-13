@@ -74,6 +74,9 @@ void log_pre_solve_stats(
   spdlog::info(std::format("  ReservoirSeepages     : {}",
                            sys.reservoir_seepage_array.size()));
   spdlog::info(std::format("  Turbines        : {}", sys.turbine_array.size()));
+  if (!sys.pump_array.empty()) {
+    spdlog::info(std::format("  Pumps           : {}", sys.pump_array.size()));
+  }
   if (!sys.flow_right_array.empty()) {
     spdlog::info(
         std::format("  Flow rights     : {}", sys.flow_right_array.size()));

@@ -848,7 +848,9 @@ TEST_CASE(  // NOLINT
         .user_constraint_array = user_constraint_array,
     };
 
-    const PlanningOptionsLP options;
+    PlanningOptions popts;
+    popts.model_options.demand_fail_cost = 1000.0;
+    const PlanningOptionsLP options(std::move(popts));
     SimulationLP simulation_lp(simulation, options);
     SystemLP system_lp(system, simulation_lp);
     auto&& lp = system_lp.linear_interface();
@@ -1048,7 +1050,9 @@ TEST_CASE(  // NOLINT
         .user_constraint_array = user_constraint_array,
     };
 
-    const PlanningOptionsLP options;
+    PlanningOptions popts;
+    popts.model_options.demand_fail_cost = 1000.0;
+    const PlanningOptionsLP options(std::move(popts));
     SimulationLP simulation_lp(simulation, options);
     SystemLP system_lp(system, simulation_lp);
     auto&& lp = system_lp.linear_interface();

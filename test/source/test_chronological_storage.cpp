@@ -122,7 +122,9 @@ TEST_CASE("Battery chronological SoC tracking")  // NOLINT
   };
 
   const auto simulation = make_chrono_simulation();
-  const PlanningOptionsLP options;
+  PlanningOptions popts;
+  popts.model_options.demand_fail_cost = 1000.0;
+  const PlanningOptionsLP options(popts);
   SimulationLP simulation_lp(simulation, options);
   SystemLP system_lp(sys, simulation_lp);
 
@@ -206,7 +208,9 @@ TEST_CASE("Battery chronological charge-discharge arbitrage")  // NOLINT
   };
 
   const auto simulation = make_chrono_simulation();
-  const PlanningOptionsLP options;
+  PlanningOptions popts;
+  popts.model_options.demand_fail_cost = 1000.0;
+  const PlanningOptionsLP options(popts);
   SimulationLP simulation_lp(simulation, options);
   SystemLP system_lp(sys, simulation_lp);
 
@@ -280,7 +284,9 @@ TEST_CASE(  // NOLINT
   };
 
   const auto simulation = make_chrono_simulation();
-  const PlanningOptionsLP options;
+  PlanningOptions popts;
+  popts.model_options.demand_fail_cost = 1000.0;
+  const PlanningOptionsLP options(popts);
   SimulationLP simulation_lp(simulation, options);
   SystemLP system_lp(sys, simulation_lp);
 
@@ -369,7 +375,9 @@ TEST_CASE("Reservoir chronological volume tracking")  // NOLINT
   };
 
   const auto simulation = make_chrono_simulation();
-  const PlanningOptionsLP options;
+  PlanningOptions popts;
+  popts.model_options.demand_fail_cost = 1000.0;
+  const PlanningOptionsLP options(popts);
   SimulationLP simulation_lp(simulation, options);
   SystemLP system_lp(sys, simulation_lp);
 
@@ -467,7 +475,9 @@ TEST_CASE(  // NOLINT
   };
 
   const auto simulation = make_chrono_simulation();
-  const PlanningOptionsLP options;
+  PlanningOptions popts;
+  popts.model_options.demand_fail_cost = 1000.0;
+  const PlanningOptionsLP options(popts);
   SimulationLP simulation_lp(simulation, options);
   SystemLP system_lp(sys, simulation_lp);
 
@@ -594,7 +604,9 @@ TEST_CASE(  // NOLINT
   };
 
   const auto simulation = make_chrono_simulation();
-  const PlanningOptionsLP options;
+  PlanningOptions popts;
+  popts.model_options.demand_fail_cost = 1000.0;
+  const PlanningOptionsLP options(popts);
   SimulationLP simulation_lp(simulation, options);
   SystemLP system_lp(sys, simulation_lp);
 
@@ -704,7 +716,9 @@ TEST_CASE(  // NOLINT
   };
 
   const auto simulation = make_chrono_simulation();
-  const PlanningOptionsLP options;
+  PlanningOptions popts;
+  popts.model_options.demand_fail_cost = 1000.0;
+  const PlanningOptionsLP options(popts);
   SimulationLP simulation_lp(simulation, options);
   SystemLP system_lp(sys, simulation_lp);
 
@@ -814,7 +828,9 @@ TEST_CASE(  // NOLINT
   };
 
   const auto simulation = make_chrono_simulation();
-  const PlanningOptionsLP options;
+  PlanningOptions popts;
+  popts.model_options.demand_fail_cost = 1000.0;
+  const PlanningOptionsLP options(popts);
   SimulationLP simulation_lp(simulation, options);
   SystemLP system_lp(sys, simulation_lp);
 

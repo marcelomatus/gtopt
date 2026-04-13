@@ -42,6 +42,7 @@ class FlowRightLP;
 class VolumeRightLP;
 class JunctionLP;
 class LineLP;
+class PumpLP;
 class ReserveProvisionLP;
 class ReserveZoneLP;
 class ReservoirProductionFactorLP;
@@ -83,6 +84,7 @@ using lp_element_types_t = std::tuple<BusLP,
                                       ReservoirSeepageLP,
                                       ReservoirDischargeLimitLP,
                                       TurbineLP,
+                                      PumpLP,
                                       ReservoirProductionFactorLP,
                                       FlowRightLP,
                                       VolumeRightLP,

@@ -177,6 +177,7 @@ TEST_CASE("PlanningLP - Create simulations")
 
   // Create planning with components
   const Planning planning {
+      .options = {.demand_fail_cost = 1000.0},
       .simulation = simulation,
       .system = system,
   };
@@ -224,6 +225,7 @@ TEST_CASE("PlanningLP - Write LP file")
 
   // Create planning with components
   const Planning planning {
+      .options = {.demand_fail_cost = 1000.0},
       .simulation = simulation,
       .system = system,
   };
@@ -287,6 +289,7 @@ TEST_CASE("PlanningLP - Run LP")
 
   // Create planning with components
   const Planning planning {
+      .options = {.demand_fail_cost = 1000.0},
       .simulation = simulation,
       .system = system,
   };
@@ -336,6 +339,7 @@ TEST_CASE("PlanningLP - Run with write_only flag")
 
   // Create planning with names_level=1 so LP files include row names.
   const Planning planning {
+      .options = {.demand_fail_cost = 1000.0},
       .simulation = simulation,
       .system = system,
   };
@@ -383,7 +387,13 @@ TEST_CASE("PlanningLP - Error handling")
   // Create system with conflicting constraints
   const Array<Bus> bus_array = {{.uid = Uid {1}, .name = "b1"}};
   const Array<Demand> demand_array = {
-      {.uid = Uid {1}, .name = "d1", .bus = Uid {1}, .capacity = 200.0},
+      {
+          .uid = Uid {1},
+          .name = "d1",
+          .bus = Uid {1},
+          .forced = true,
+          .capacity = 200.0,
+      },
   };
   const Array<Generator> generator_array = {
       {
@@ -467,6 +477,7 @@ TEST_CASE("PlanningLP - Solver test")
 
   // Create planning with components
   const Planning planning {
+      .options = {.demand_fail_cost = 1000.0},
       .simulation = simulation,
       .system = system,
   };
@@ -474,7 +485,7 @@ TEST_CASE("PlanningLP - Solver test")
   // Create planning_lp
   PlanningLP planning_lp(planning);
 
-  // Run the LP - should result in an error
+  // Run the LP
   auto result = planning_lp.resolve();
 
   REQUIRE(result.has_value());
@@ -486,8 +497,9 @@ TEST_CASE("PlanningLP - Solver test")
   auto&& lp_interface = system_lp.linear_interface();
 
   const auto sol = lp_interface.get_col_sol();
-  REQUIRE(sol[0] == doctest::Approx(100));  // demand
-  REQUIRE(sol[1] == doctest::Approx(100));  // generation
+  REQUIRE(sol[0] == doctest::Approx(100));  // demand load
+  REQUIRE(sol[1] == doctest::Approx(0));  // demand fail
+  REQUIRE(sol[2] == doctest::Approx(100));  // generation
 
   const auto dual = lp_interface.get_row_dual();
   // get_row_dual() returns physical duals (already includes scale_objective).
@@ -560,6 +572,7 @@ TEST_CASE("PlanningLP - auto_scale_theta computes median reactance")
 
   // No explicit scale_theta → auto_scale_theta should set it to median
   Planning planning {
+      .options = {.demand_fail_cost = 1000.0},
       .simulation = simulation,
       .system = system,
   };
@@ -615,7 +628,7 @@ TEST_CASE("PlanningLP - auto_scale_theta skips when explicitly set")
 
   // Explicitly set scale_theta → auto_scale_theta should NOT override
   Planning planning {
-      .options = {.scale_theta = 42.0},
+      .options = {.demand_fail_cost = 1000.0, .scale_theta = 42.0},
       .simulation = simulation,
       .system = system,
   };
@@ -670,7 +683,7 @@ TEST_CASE("PlanningLP - auto_scale_theta skips when Kirchhoff disabled")
 
   // Kirchhoff disabled → auto_scale_theta should skip, use compiled default
   Planning planning {
-      .options = {.use_kirchhoff = false},
+      .options = {.demand_fail_cost = 1000.0, .use_kirchhoff = false},
       .simulation = simulation,
       .system = system,
   };
@@ -722,7 +735,7 @@ TEST_CASE("PlanningLP - auto_scale_theta skips when single_bus enabled")
 
   // Single-bus enabled → auto_scale_theta should skip
   Planning planning {
-      .options = {.use_single_bus = true},
+      .options = {.demand_fail_cost = 1000.0, .use_single_bus = true},
       .simulation = simulation,
       .system = system,
   };
@@ -804,6 +817,7 @@ TEST_CASE("PlanningLP - auto_scale_theta with even number of lines")
   };
 
   Planning planning {
+      .options = {.demand_fail_cost = 1000.0},
       .simulation = simulation,
       .system = system,
   };
@@ -889,6 +903,7 @@ TEST_CASE("PlanningLP - auto_scale_theta uses median X/V² on mixed voltages")
   };
 
   Planning planning {
+      .options = {.demand_fail_cost = 1000.0},
       .simulation = simulation,
       .system = system,
   };
@@ -934,6 +949,7 @@ TEST_CASE("PlanningLP - auto_scale_theta with const Planning")
   };
 
   const Planning planning {
+      .options = {.demand_fail_cost = 1000.0},
       .simulation = simulation,
       .system = system,
   };
@@ -1020,6 +1036,9 @@ TEST_CASE("Planning JSON parse and solve")
 }
 
 static constexpr std::string_view hydro_planning_json = R"({
+  "options": {
+    "demand_fail_cost": 1000
+  },
   "simulation": {
     "block_array": [
       {"uid": 1, "duration": 1},
@@ -1172,6 +1191,7 @@ TEST_CASE("PlanningLP - parallel multi-scene multi-phase build")
   };
 
   const Planning planning = {
+      .options = {.demand_fail_cost = 1000.0},
       .simulation = simulation,
       .system = system,
   };
@@ -1286,6 +1306,7 @@ TEST_CASE("PlanningLP - parallelism instrumentation logs are emitted")
   // instead log "Submitted 2 scene tasks to work pool" and is covered
   // by a dedicated test below.
   PlanningOptions planning_options {};
+  planning_options.demand_fail_cost = 1000.0;
   planning_options.build_mode = BuildMode::full_parallel;
 
   const Planning planning = {
@@ -1378,6 +1399,7 @@ TEST_CASE("PlanningLP - parallelism instrumentation single cell")
 
   // Pin to full_parallel to assert the per-cell submission log.
   PlanningOptions planning_options {};
+  planning_options.demand_fail_cost = 1000.0;
   planning_options.build_mode = BuildMode::full_parallel;
 
   const Planning planning = {
@@ -1487,6 +1509,7 @@ TEST_CASE("PlanningLP - --cpu-factor reaches the LP-build pool")
   // hardware_concurrency.  The 2×3 = 6 cells must therefore run
   // strictly serialized.
   PlanningOptions planning_options {};
+  planning_options.demand_fail_cost = 1000.0;
   planning_options.sddp_options.pool_cpu_factor = 0.0001;
 
   const Planning planning = {
@@ -1579,6 +1602,7 @@ TEST_CASE("PlanningLP - default cpu-factor leaves build pool at 2x HC")
   // No pool_cpu_factor override — `build_pool_cpu_factor()` returns
   // its 2.0 fallback.
   const Planning planning = {
+      .options = {.demand_fail_cost = 1000.0},
       .simulation = simulation,
       .system = system,
   };
@@ -1688,6 +1712,7 @@ TEST_CASE("PlanningLP - BuildMode::serial runs in calling thread")
   // and worker_threads must both be exactly 1 regardless of
   // hardware_concurrency or --cpu-factor.
   PlanningOptions planning_options {};
+  planning_options.demand_fail_cost = 1000.0;
   planning_options.build_mode = BuildMode::serial;
   // --cpu-factor is ignored under serial; set it to a non-default
   // value to prove the mode overrides pool sizing.
@@ -1730,6 +1755,7 @@ TEST_CASE("PlanningLP - BuildMode::scene_parallel submits one task per scene")
   // submission log reads "Submitted 2 scene tasks to work pool" — the
   // count is num_scenes (2), not num_scenes × num_phases (6).
   PlanningOptions planning_options {};
+  planning_options.demand_fail_cost = 1000.0;
   planning_options.build_mode = BuildMode::scene_parallel;
 
   const Planning planning = {
@@ -1763,6 +1789,7 @@ TEST_CASE("PlanningLP - BuildMode::scene_parallel is the default")
 
   // Omitting `build_mode` entirely must select scene_parallel.
   const Planning planning = {
+      .options = {.demand_fail_cost = 1000.0},
       .simulation = std::move(fx.simulation),
       .system = std::move(fx.system),
   };
@@ -1787,6 +1814,7 @@ TEST_CASE("PlanningLP - BuildMode::full_parallel submits one task per cell")
   auto fx = make_build_mode_fixture();
 
   PlanningOptions planning_options {};
+  planning_options.demand_fail_cost = 1000.0;
   planning_options.build_mode = BuildMode::full_parallel;
 
   const Planning planning = {

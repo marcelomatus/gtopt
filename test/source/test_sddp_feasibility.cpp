@@ -179,6 +179,7 @@ auto make_fully_infeasible_planning() -> Planning
   // bounds create an irreconcilable conflict after backpropagation
   // reaches phase 0.
   planning.system.demand_array[0].capacity = 10000.0;
+  planning.system.demand_array[0].forced = true;
   // Remove demand_fail_cost so infeasibility is genuine
   planning.options.demand_fail_cost = std::nullopt;
   return planning;

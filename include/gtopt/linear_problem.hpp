@@ -294,6 +294,26 @@ public:
   }
 
   /**
+   * Sets the lower bound of a column
+   * @param index Column index
+   * @param lowb New lower bound value
+   */
+  constexpr void set_col_lowb(ColIndex index, double lowb)
+  {
+    cols.at(index).lowb = lowb;
+  }
+
+  /**
+   * Sets the upper bound of a column
+   * @param index Column index
+   * @param uppb New upper bound value
+   */
+  constexpr void set_col_uppb(ColIndex index, double uppb)
+  {
+    cols.at(index).uppb = uppb;
+  }
+
+  /**
    * Gets the physical-to-LP scale factor of a column.
    * physical_value = LP_value × scale.
    * @param index Column index

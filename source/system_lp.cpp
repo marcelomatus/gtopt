@@ -523,6 +523,8 @@ void create_collections(const auto& system_context,
           ic, sys.reservoir_discharge_limit_array);
   std::get<Collection<TurbineLP>>(colls) =
       make_collection<TurbineLP>(ic, sys.turbine_array);
+  std::get<Collection<PumpLP>>(colls) =
+      make_collection<PumpLP>(ic, sys.pump_array);
   std::get<Collection<ReservoirProductionFactorLP>>(colls) =
       make_collection<ReservoirProductionFactorLP>(
           ic, sys.reservoir_production_factor_array);
@@ -587,6 +589,7 @@ void register_all_ampl_element_names(SimulationLP& sim, const System& sys)
   register_element_names<ReserveZoneLP>(sim, sys.reserve_zone_array);
   register_element_names<ReservoirLP>(sim, sys.reservoir_array);
   register_element_names<TurbineLP>(sim, sys.turbine_array);
+  register_element_names<PumpLP>(sim, sys.pump_array);
   register_element_names<VolumeRightLP>(sim, sys.volume_right_array);
   register_element_names<WaterwayLP>(sim, sys.waterway_array);
 

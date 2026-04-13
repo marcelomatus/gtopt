@@ -14,6 +14,7 @@
 #include <doctest/doctest.h>
 #include <gtopt/json/json_system.hpp>
 #include <gtopt/linear_interface.hpp>
+#include <gtopt/planning_options.hpp>
 #include <gtopt/simulation_lp.hpp>
 #include <gtopt/system_context.hpp>
 #include <gtopt/system_lp.hpp>
@@ -26,7 +27,11 @@ TEST_CASE("SystemLP 1")
   using Uid = Uid;
   const Array<Bus> bus_array = {{.uid = Uid {1}, .name = "b1"}};
   const Array<Demand> demand_array = {
-      {.uid = Uid {1}, .name = "b1", .bus = Uid {1}, .capacity = 100.0},
+      {.uid = Uid {1},
+       .name = "b1",
+       .bus = Uid {1},
+       .forced = true,
+       .capacity = 100.0},
   };
   const Array<Generator> generator_array = {
       {
@@ -69,7 +74,9 @@ TEST_CASE("SystemLP 1")
   REQUIRE(system.generator_array.size() == 1);
   REQUIRE(!system.line_array.empty() == false);
 
-  const PlanningOptionsLP options;
+  PlanningOptions popts;
+  popts.demand_fail_cost = 1000.0;
+  const PlanningOptionsLP options(popts);
   SimulationLP simulation_lp(simulation, options);
 
   SystemLP system_lp(system, simulation_lp);
@@ -103,6 +110,7 @@ TEST_CASE("SystemLP - Primal Infeasible Case")
           .uid = Uid {1},
           .name = "b1",
           .bus = Uid {1},
+          .forced = true,
           .capacity = 200.0,
       },
   };
@@ -177,7 +185,9 @@ TEST_CASE("SystemLP - Timeout Scenario")
       .generator_array = generator_array,
   };
 
-  const PlanningOptionsLP options;
+  PlanningOptions popts;
+  popts.demand_fail_cost = 1000.0;
+  const PlanningOptionsLP options(popts);
   SimulationLP simulation_lp(simulation, options);
 
   SystemLP system_lp(system, simulation_lp);
@@ -256,7 +266,9 @@ TEST_CASE("SystemLP - move-ctor rebinds embedded SystemContext")
       .generator_array = generator_array,
   };
 
-  const PlanningOptionsLP options;
+  PlanningOptions popts;
+  popts.demand_fail_cost = 1000.0;
+  const PlanningOptionsLP options(popts);
   SimulationLP simulation_lp(simulation, options);
 
   SUBCASE("direct move construction")
@@ -334,7 +346,9 @@ TEST_CASE("SystemLP - move-assign rebinds embedded SystemContext")
       .generator_array = generator_array,
   };
 
-  const PlanningOptionsLP options;
+  PlanningOptions popts;
+  popts.demand_fail_cost = 1000.0;
+  const PlanningOptionsLP options(popts);
   SimulationLP simulation_lp(simulation, options);
 
   // Two distinct SystemLPs; assign one over the other.

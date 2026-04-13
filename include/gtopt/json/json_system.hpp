@@ -24,6 +24,7 @@
 #include <gtopt/json/json_generator_profile.hpp>
 #include <gtopt/json/json_junction.hpp>
 #include <gtopt/json/json_line.hpp>
+#include <gtopt/json/json_pump.hpp>
 #include <gtopt/json/json_reserve_provision.hpp>
 #include <gtopt/json/json_reserve_zone.hpp>
 #include <gtopt/json/json_reservoir.hpp>
@@ -76,6 +77,7 @@ struct json_data_contract<System>
                       Array<ReservoirDischargeLimit>,
                       ReservoirDischargeLimit>,
       json_array_null<"turbine_array", Array<Turbine>, Turbine>,
+      json_array_null<"pump_array", Array<Pump>, Pump>,
       json_array_null<"reservoir_production_factor_array",
                       Array<ReservoirProductionFactor>,
                       ReservoirProductionFactor>,
@@ -110,6 +112,7 @@ struct json_data_contract<System>
                                  system.reservoir_seepage_array,
                                  system.reservoir_discharge_limit_array,
                                  system.turbine_array,
+                                 system.pump_array,
                                  system.reservoir_production_factor_array,
                                  system.flow_right_array,
                                  system.volume_right_array,

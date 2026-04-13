@@ -233,6 +233,7 @@ TEST_CASE("LineLP piecewise mode with sender loss allocation")  // NOLINT
   Planning planning = {
       .options =
           {
+              .demand_fail_cost = 1000.0,
               .use_kirchhoff = false,
               .use_single_bus = false,
           },
@@ -316,6 +317,7 @@ TEST_CASE("LineLP bidirectional mode with sender loss allocation")  // NOLINT
   Planning planning = {
       .options =
           {
+              .demand_fail_cost = 1000.0,
               .use_kirchhoff = false,
               .use_single_bus = false,
           },
@@ -475,6 +477,7 @@ TEST_CASE("Bare UID column name lookup in Parquet schedule")  // NOLINT
       .options =
           {
               .input_directory = input_dir.string(),
+              .demand_fail_cost = 1000.0,
               .use_kirchhoff = false,
               .use_single_bus = true,
           },

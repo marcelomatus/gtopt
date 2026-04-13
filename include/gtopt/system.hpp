@@ -35,6 +35,7 @@
 #include <gtopt/generator_profile.hpp>
 #include <gtopt/junction.hpp>
 #include <gtopt/line.hpp>
+#include <gtopt/pump.hpp>
 #include <gtopt/reserve_provision.hpp>
 #include <gtopt/reserve_zone.hpp>
 #include <gtopt/reservoir.hpp>
@@ -101,6 +102,7 @@ struct System
       reservoir_discharge_limit_array {};  ///< Volume-dependent discharge
                                            ///< limits
   Array<Turbine> turbine_array {};  ///< Hydro turbines (waterway → generator)
+  Array<Pump> pump_array {};  ///< Hydro pumps (demand → waterway upstream)
   Array<ReservoirProductionFactor>
       reservoir_production_factor_array {};  ///< Volume-dependent turbine
                                              ///< efficiency
