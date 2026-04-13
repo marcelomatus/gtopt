@@ -652,6 +652,51 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
         ),
     ],
     # ------------------------------------------------------------------
+    # System — LNG terminals
+    # ------------------------------------------------------------------
+    "lng_terminal_array": [
+        ("uid", _J_INT, True, "Unique LNG terminal identifier", 1),
+        ("name", _J_STR, True, "Terminal name", "gnl1"),
+        ("active", _J_INT, False, "1 = active, 0 = inactive (default: 1)", None),
+        ("emin", _J_SCHED, False, "Minimum tank level [m³]", 0),
+        ("emax", _J_SCHED, False, "Maximum tank level [m³]", 150000),
+        ("eini", _J_NUM, False, "Initial tank level [m³]", 80000),
+        ("efin", _J_NUM, False, "End-of-horizon minimum level [m³]", None),
+        ("ecost", _J_SCHED, False, "Holding cost [$/m³]", None),
+        ("annual_loss", _J_SCHED, False, "Boil-off gas rate [p.u./year]", 0.001),
+        ("sendout_max", _J_NUM, False, "Max regasification rate [m³/h]", None),
+        ("sendout_min", _J_NUM, False, "Min regasification rate [m³/h]", None),
+        ("delivery", _J_SCHED, False, "Scheduled LNG delivery [m³/stage]", None),
+        ("spillway_cost", _J_NUM, False, "Venting penalty cost [$/m³]", 100),
+        ("spillway_capacity", _J_NUM, False, "Max venting rate [m³/h]", None),
+        ("use_state_variable", _J_INT, False, "SDDP state (1=yes, 0=no)", 1),
+        (
+            "mean_production_factor",
+            _J_NUM,
+            False,
+            "Power conversion factor [MWh/m³] for scost",
+            None,
+        ),
+        ("scost", _J_SCHED, False, "State penalty cost [$/m³]", None),
+        ("soft_emin", _J_SCHED, False, "Soft minimum tank level [m³]", None),
+        ("soft_emin_cost", _J_SCHED, False, "Soft minimum penalty [$/m³]", None),
+        (
+            "flow_conversion_rate",
+            _J_NUM,
+            False,
+            "Flow conversion factor [m³/(m³/h·h)] (default: 1.0)",
+            None,
+        ),
+        (
+            "generators",
+            _J_STR,
+            False,
+            "JSON array of {generator, heat_rate} links "
+            '(e.g. [{"generator": 10, "heat_rate": 0.18}])',
+            None,
+        ),
+    ],
+    # ------------------------------------------------------------------
     # System — reserves
     # ------------------------------------------------------------------
     "reserve_zone_array": [
@@ -1763,6 +1808,7 @@ _TEMPLATE_SYSTEM_SHEETS = [
     "line_array",
     "battery_array",
     "converter_array",
+    "lng_terminal_array",
     "reserve_zone_array",
     "reserve_provision_array",
     "junction_array",
@@ -1869,6 +1915,12 @@ _INTRO_LINES = [
         "converter_array",
         "System",
         "Battery charge/discharge converter links",
+        "TABLE",
+    ),
+    (
+        "lng_terminal_array",
+        "System",
+        "LNG storage terminals with generator fuel coupling",
         "TABLE",
     ),
     ("reserve_zone_array", "System", "Spinning-reserve zones", "TABLE"),

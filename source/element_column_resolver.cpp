@@ -23,6 +23,7 @@
 #include <gtopt/generator_lp.hpp>
 #include <gtopt/junction_lp.hpp>
 #include <gtopt/line_lp.hpp>
+#include <gtopt/lng_terminal_lp.hpp>
 #include <gtopt/reserve_provision_lp.hpp>
 #include <gtopt/reserve_zone_lp.hpp>
 #include <gtopt/reservoir_lp.hpp>
@@ -588,6 +589,8 @@ void collect_sum_cols(const SystemContext& sc,
       iterate.template operator()<ReserveZoneLP>("reserve_zone");
     } else if (sum_ref.element_type == "bus") {
       iterate.template operator()<BusLP>("bus");
+    } else if (sum_ref.element_type == "lng_terminal") {
+      iterate.template operator()<LngTerminalLP>("lng_terminal");
     }
     // NOLINTEND(bugprone-branch-clone)
   } else {

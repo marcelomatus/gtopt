@@ -13,14 +13,26 @@
  * delivery schedules, and regasification capacity constraints.
  *
  * ### Unit conventions
- * - Volume fields (`emin`, `emax`, `eini`, `efin`): **m³** of LNG
- * - Flow fields (`sendout_max`, `sendout_min`, `spillway_capacity`):
- *   **m³/h**
- * - Delivery: **m³** per stage (total volume delivered in the stage)
- * - Heat rate in `LngGeneratorLink`: **m³_LNG/MWh** (fuel consumed
- *   per MWh of electrical output)
- * - The default `flow_conversion_rate = 1.0` means flow [m³/h] × hours
- *   → m³ (no unit conversion needed)
+ *
+ * | Field                    | Unit                | Description |
+ * |--------------------------|---------------------|-----------------------------------|
+ * | emin, emax, eini, efin   | m³                  | LNG volume in tank | |
+ * ecost                    | $/m³                | Holding cost per m³ stored |
+ * | annual_loss              | p.u./year           | Boil-off gas fraction per
+ * year    | | sendout_max, sendout_min | m³/h                | Regasification
+ * rate limits        | | delivery                 | m³/stage            | Total
+ * LNG delivered per stage     | | spillway_cost            | $/m³ | Penalty for
+ * venting LNG           | | spillway_capacity        | m³/h                |
+ * Max venting rate                  | | scost                    | $/m³ | SDDP
+ * state penalty (× mpf → $/MWh) | | mean_production_factor   | MWh/m³ | Energy
+ * content of LNG             | | soft_emin, soft_emin_cost| m³, $/m³ | Soft
+ * lower bound and penalty      | | flow_conversion_rate     | m³/(m³/h · h) |
+ * Default 1.0 (identity)            | | heat_rate (LngGeneratorLink) |
+ * m³_LNG/MWh      | Fuel per MWh of electrical output |
+ *
+ * The default `flow_conversion_rate = 1.0` means flow [m³/h] × hours
+ * → m³ (no unit conversion needed).  Set to a different value when using
+ * energy-based units (e.g. MMBtu) instead of volumetric (m³).
  *
  * ### JSON Example
  * ```json

@@ -10,6 +10,7 @@
 #include <gtopt/simulation.hpp>
 #include <gtopt/system.hpp>
 #include <gtopt/system_lp.hpp>
+#include <gtopt/user_constraint.hpp>
 
 using namespace gtopt;  // NOLINT(google-global-names-in-headers)
 
@@ -297,4 +298,89 @@ TEST_CASE("LngTerminal SDDP state variable registration")  // NOLINT
   const auto result = li.resolve();
   REQUIRE(result.has_value());
   CHECK(result.value() == 0);
+}
+
+TEST_CASE(  // NOLINT
+    "LngTerminal user constraint — take-or-pay minimum tank level")
+{
+  // A take-or-pay contract requires the LNG terminal to maintain a minimum
+  // ending tank level (efin >= 60000 m³).  The large delivery (20000) makes
+  // this feasible — the constraint just prevents the optimizer from
+  // over-dispatching the generator.
+  LngTestFixture f;
+
+  f.system.user_constraint_array = {
+      {
+          .uid = Uid {1},
+          .name = "takeorpay_min_efin",
+          .expression = "lng_terminal('gnl1').efin >= 60000",
+      },
+  };
+
+  PlanningOptions opts;
+  opts.demand_fail_cost = 1000.0;
+  const PlanningOptionsLP options {opts};
+  SimulationLP simulation_lp(f.simulation, options);
+  SystemLP system_lp(f.system, simulation_lp);
+
+  auto& li = system_lp.linear_interface();
+  const auto result = li.resolve();
+  REQUIRE(result.has_value());
+  CHECK(result.value() == 0);
+
+  // Verify efin respects the constraint
+  const auto& lng_lps = system_lp.elements<LngTerminalLP>();
+  REQUIRE(lng_lps.size() == 1);
+  const auto& lng_lp = lng_lps.front();
+
+  const auto& scenario_lp = simulation_lp.scenarios().front();
+  const auto& stage_lp = simulation_lp.stages().front();
+
+  const auto efin_col = lng_lp.efin_col_at(scenario_lp, stage_lp);
+  const auto efin_val = li.get_col_sol()[efin_col];
+
+  CHECK(efin_val >= 60000.0 - 1.0);
+}
+
+TEST_CASE(  // NOLINT
+    "LngTerminal user constraint — maximum tank volume per block")
+{
+  // Limit the per-block tank volume to 55000 m³.
+  // The delivery adds 20000 m³ but the constraint prevents the tank
+  // from exceeding 55000, so extra LNG must be vented (drain).
+  LngTestFixture f;
+  f.system.lng_terminal_array.front().spillway_capacity = 100'000.0;
+
+  f.system.user_constraint_array = {
+      {
+          .uid = Uid {1},
+          .name = "max_tank_volume",
+          .expression = "lng_terminal('gnl1').energy <= 55000",
+      },
+  };
+
+  PlanningOptions opts;
+  opts.demand_fail_cost = 1000.0;
+  const PlanningOptionsLP options {opts};
+  SimulationLP simulation_lp(f.simulation, options);
+  SystemLP system_lp(f.system, simulation_lp);
+
+  auto& li = system_lp.linear_interface();
+  const auto result = li.resolve();
+  REQUIRE(result.has_value());
+  CHECK(result.value() == 0);
+
+  // Verify all block energy variables respect the 55000 bound
+  const auto& lng_lps = system_lp.elements<LngTerminalLP>();
+  REQUIRE(lng_lps.size() == 1);
+  const auto& lng_lp = lng_lps.front();
+
+  const auto& scenario_lp = simulation_lp.scenarios().front();
+  const auto& stage_lp = simulation_lp.stages().front();
+
+  const auto& energy_map = lng_lp.energy_cols_at(scenario_lp, stage_lp);
+  for (const auto& [buid, ecol] : energy_map) {
+    const auto eval = li.get_col_sol()[ecol];
+    CHECK(eval <= 55000.0 + 1.0);
+  }
 }

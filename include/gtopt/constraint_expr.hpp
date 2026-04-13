@@ -38,6 +38,8 @@
  * | reserve_zone       | up (aliases: urequirement, up_requirement),         |
  * |                    | dn (aliases: drequirement, dn_requirement,          |
  * |                    |     down)                                           |
+ * | lng_terminal       | energy (tank volume), delivery,                     |
+ * |                    | spill (alias: drain), eini, efin, soft_emin         |
  *
  * ### Variable scaling
  *
@@ -116,6 +118,7 @@
  *              |  'junction'  | 'flow' | 'seepage'
  *              |  'flow_right' | 'volume_right'
  *              |  'reserve_provision' | 'reserve_zone'
+ *              |  'lng_terminal'
  *
  * attribute    := IDENT
  *
