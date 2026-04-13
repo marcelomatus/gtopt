@@ -406,6 +406,105 @@ TEST_CASE("--set auto-type detection: negative integer")
   CHECK(result.value_or(-1) == 0);
 }
 
+// ── Solver algorithm enum safety ─────────────────────────────────────
+
+TEST_CASE("--set solver_options.algorithm by name")  // NOLINT
+{
+  const auto stem = write_set_test_json("set_cli_algo_name", set_test_json);
+  auto result = gtopt_main(MainOptions {
+      .planning_files =
+          {
+              stem.string(),
+          },
+      .use_single_bus = true,
+      .lp_only = true,
+      .set_options =
+          {
+              "solver_options.algorithm=barrier",
+          },
+  });
+  REQUIRE(result.has_value());
+  CHECK(result.value_or(-1) == 0);
+}
+
+TEST_CASE("--set solver_options.algorithm by valid number")  // NOLINT
+{
+  const auto stem = write_set_test_json("set_cli_algo_num", set_test_json);
+  auto result = gtopt_main(MainOptions {
+      .planning_files =
+          {
+              stem.string(),
+          },
+      .use_single_bus = true,
+      .lp_only = true,
+      .set_options =
+          {
+              "solver_options.algorithm=2",
+          },
+  });
+  REQUIRE(result.has_value());
+  CHECK(result.value_or(-1) == 0);
+}
+
+TEST_CASE(
+    "--set solver_options.algorithm rejects out-of-range number")  // NOLINT
+{
+  const auto stem = write_set_test_json("set_cli_algo_bad", set_test_json);
+  auto result = gtopt_main(MainOptions {
+      .planning_files =
+          {
+              stem.string(),
+          },
+      .use_single_bus = true,
+      .lp_only = true,
+      .set_options =
+          {
+              "solver_options.algorithm=99",
+          },
+  });
+  // apply_set_options returns false → gtopt_main returns EXIT_FAILURE (1)
+  REQUIRE(result.has_value());
+  CHECK(*result == EXIT_FAILURE);
+}
+
+TEST_CASE("--set solver_options.log_mode rejects invalid name")  // NOLINT
+{
+  const auto stem = write_set_test_json("set_cli_logmode_bad", set_test_json);
+  auto result = gtopt_main(MainOptions {
+      .planning_files =
+          {
+              stem.string(),
+          },
+      .use_single_bus = true,
+      .lp_only = true,
+      .set_options =
+          {
+              "solver_options.log_mode=verbose",
+          },
+  });
+  REQUIRE(result.has_value());
+  CHECK(*result == EXIT_FAILURE);
+}
+
+TEST_CASE("--set solver_options.log_mode accepts valid name")  // NOLINT
+{
+  const auto stem = write_set_test_json("set_cli_logmode_ok", set_test_json);
+  auto result = gtopt_main(MainOptions {
+      .planning_files =
+          {
+              stem.string(),
+          },
+      .use_single_bus = true,
+      .lp_only = true,
+      .set_options =
+          {
+              "solver_options.log_mode=nolog",
+          },
+  });
+  REQUIRE(result.has_value());
+  CHECK(result.value_or(-1) == 0);
+}
+
 // ── Full solve with --set override ────────────────────────────────────
 
 TEST_CASE("--set demand_fail_cost override in full solve")

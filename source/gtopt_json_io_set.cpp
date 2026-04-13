@@ -11,6 +11,8 @@
  */
 
 #include <cstdlib>
+#include <format>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -80,8 +82,8 @@ constexpr auto FastParsePolicy = daw::json::options::parse_flags<
 /// `"sddp_options.forward_solver_options.threads"`.  The result is a
 /// valid JSON string like:
 /// `{"options":{"sddp_options":{"forward_solver_options":{"threads":8}}}}`
-[[nodiscard]] std::string build_set_option_json(const std::string& dotted_key,
-                                                const std::string& json_val)
+[[nodiscard]] std::string build_set_option_json(std::string_view dotted_key,
+                                                std::string_view json_val)
 {
   // Split the key on '.'
   std::vector<std::string_view> parts;
@@ -130,10 +132,10 @@ bool try_set_solver_field(SolverOptions& so,
     } else {
       const auto v = std::stoi(value);
       if (v < 0 || v >= static_cast<int>(LPAlgo::last_algo)) {
-        spdlog::error("algorithm value {} out of range (0–{})",
-                      v,
-                      static_cast<int>(LPAlgo::last_algo) - 1);
-        return false;
+        throw std::invalid_argument(
+            std::format("algorithm value {} out of range (0–{})",
+                        v,
+                        static_cast<int>(LPAlgo::last_algo) - 1));
       }
       so.algorithm = static_cast<LPAlgo>(v);
     }
@@ -171,9 +173,8 @@ bool try_set_solver_field(SolverOptions& so,
     if (const auto mode = enum_from_name<SolverLogMode>(value)) {
       so.log_mode = mode;
     } else {
-      spdlog::error("Invalid log_mode '{}' (expected nolog or detailed)",
-                    value);
-      return false;
+      throw std::invalid_argument(std::format(
+          "Invalid log_mode '{}' (expected nolog or detailed)", value));
     }
     return true;
   }
@@ -183,7 +184,7 @@ bool try_set_solver_field(SolverOptions& so,
 /// Try to handle a --set key=value as a direct SolverOptions field set.
 /// Returns true if the key matched a solver_options path and was applied.
 bool try_set_solver_options_path(Planning& planning,
-                                 const std::string& key,
+                                 std::string_view key,
                                  const std::string& value)
 {
   // solver_options.<field>

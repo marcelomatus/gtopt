@@ -10,7 +10,7 @@
  * the optional --check-json validation pass.
  */
 
-#include <string>
+#include <string_view>
 
 #include <gtopt/json/json_planning.hpp>
 
@@ -18,7 +18,7 @@ namespace gtopt::detail
 {
 
 // NOLINTNEXTLINE(misc-use-internal-linkage) — called from _parse.cpp
-Planning parse_planning_exact(const std::string& json)
+Planning parse_planning_exact(std::string_view json)
 {
   constexpr auto ExactParsePolicy = daw::json::options::parse_flags<
       daw::json::options::PolicyCommentTypes::hash,

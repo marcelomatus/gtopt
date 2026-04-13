@@ -67,7 +67,7 @@ template<typename T>
  * @return The corresponding integer value for the algorithm.
  * @throws cli::parse_error on unrecognised input.
  */
-[[nodiscard]] inline LPAlgo parse_lp_algorithm(const std::string& s)
+[[nodiscard]] inline LPAlgo parse_lp_algorithm(std::string_view s)
 {
   // Name-based lookup via the constexpr table in solver_enums.hpp.
   if (const auto algo = enum_from_name<LPAlgo>(s)) {

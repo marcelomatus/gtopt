@@ -15,6 +15,7 @@
 #include <filesystem>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include <daw/daw_read_file.h>
@@ -29,7 +30,7 @@ namespace gtopt
 // ExactParsePolicy instantiation — defined in gtopt_json_io_parse_check.cpp
 namespace detail
 {
-Planning parse_planning_exact(const std::string& json);
+Planning parse_planning_exact(std::string_view json);
 }  // namespace detail
 
 namespace
