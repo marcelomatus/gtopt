@@ -59,13 +59,20 @@ optional -- when absent, the solver applies built-in defaults (shown below).
 |------------------------|---------|-----------|---------------|-------------|
 | `demand_fail_cost`     | number  | *(none)*  | $/MWh         | Penalty cost for unserved demand (value of lost load) |
 | `reserve_fail_cost`    | number  | *(none)*  | $/MWh         | Penalty cost for unserved spinning reserve |
-| `use_line_losses`      | boolean | `true`    | --            | Enable resistive line loss modeling |
+| `hydro_fail_cost`      | number  | *(none)*  | $/m³          | Default penalty cost for unmet hydro (irrigation) rights. Per-element `fail_cost` overrides this |
+| `hydro_use_value`      | number  | *(none)*  | $/m³          | Default value (benefit) of exercising hydro rights. Per-element `use_value` overrides this |
+| `state_fail_cost`      | number  | *(none)*  | $/MWh         | Penalty cost for SDDP state-variable violations. Fallback when a reservoir/storage element lacks its own `scost`; converted via element's `mean_production_factor` |
+| `use_line_losses`      | boolean | `true`    | --            | **Deprecated** — use `line_losses_mode` instead. Enable resistive line-loss modeling |
+| `line_losses_mode`     | string  | `"adaptive"` | --         | Line-loss model: `"none"`, `"linear"`, `"piecewise"`, `"bidirectional"`, `"adaptive"`, `"dynamic"` |
 | `loss_segments`        | integer | `1`       | --            | Number of piecewise-linear segments for quadratic line losses (1 = linear) |
 | `use_kirchhoff`        | boolean | `true`    | --            | Enable DC Kirchhoff voltage-law constraints |
 | `use_single_bus`       | boolean | `false`   | --            | Collapse network to a single bus (copper-plate model) |
 | `kirchhoff_threshold`  | number  | `0`       | kV            | Minimum bus voltage below which Kirchhoff is not applied |
 | `scale_objective`      | number  | `1000`    | dimensionless | Divisor applied to all objective coefficients for numerical stability |
 | `scale_theta`          | number  | `1000`    | dimensionless | Scaling factor for voltage-angle variables |
+| `emission_cost`        | number or schedule | *(none)* | $/tCO₂ | System-wide CO₂ emission price. Generators with non-zero `emission_factor` incur an extra cost of `emission_cost × emission_factor` per MWh |
+| `emission_cap`         | number or schedule | *(none)* | tCO₂/year | Per-stage CO₂ emission cap. The dual of the cap constraint is the endogenous carbon price |
+| `continuous_phases`    | string  | `"none"`  | --            | Phase range where all integer/binary variables relax to continuous. Syntax: `"all"`, `"none"`, `"0"`, `"1,3:5,8:"`, `":3"` |
 
 > **Note**: `annual_discount_rate` has moved to the `simulation`
 > section (see [Section 2](#2-simulation)).  For backward
@@ -78,14 +85,19 @@ optional -- when absent, the solver applies built-in defaults (shown below).
 | `output_directory`   | string  | `"output"`   | Root directory for output result files |
 | `output_format`      | string  | `"parquet"`  | Output format: `"parquet"` or `"csv"` |
 | `output_compression` | string  | `"zstd"`     | Compression codec: `"uncompressed"`, `"gzip"`, `"zstd"`, `"lz4"`, `"bzip2"`, `"xz"` |
-| `lp_matrix_options.names_level` | string/int | `"minimal"` (0) | LP naming level: `"minimal"` (0) = state-variable cols only, `"only_cols"` (1) = all column + row names (required for LP file output), `"cols_and_rows"` (2) = same as 1 + warn on duplicates |
 | `use_uid_fname`      | boolean | `true`       | Use element UIDs instead of names in output filenames |
+
+> **LP variable/row names** are enabled automatically when the CLI flag
+> `--lp-file` or `--lp-debug` is set; there is no separate JSON or CLI
+> option to control the naming level.  See
+> [Planning Options → LpMatrixOptions](planning-options.md#lpmatrixoptions-fields).
 
 #### Solver selection
 
 | Field         | Type   | Default        | Description |
 |---------------|--------|----------------|-------------|
 | `method` | string | `"monolithic"` | Planning solver: `"monolithic"` (default), `"sddp"`, or `"cascade"`. See [SDDP Solver](methods/sddp.md), [Cascade Solver](methods/cascade.md), and [Monolithic Solver](methods/monolithic.md) |
+| `build_mode` | string | `"scene-parallel"` | How `PlanningLP::create_systems` assembles per-cell `SystemLP`s: `"serial"`, `"scene-parallel"` (default), `"full-parallel"`, or `"direct-parallel"`. Serial builds in the calling thread with no pool/build-buffer overhead |
 
 #### Logging and debugging
 
@@ -94,13 +106,19 @@ optional -- when absent, the solver applies built-in defaults (shown below).
 | `log_directory`             | string  | `"logs"` | Directory for log, trace, and error LP files |
 | `lp_debug`                  | boolean | `false`  | Save LP debug files to `log_directory` before solving. Monolithic: one file per `(scene, phase)` named `gtopt_lp_<scene>_<phase>.lp`. SDDP: one file per `(iteration, scene, phase)` named `gtopt_iter_<iter>_<scene>_<phase>.lp` |
 | `lp_compression`            | string  | `""`     | Compression codec for LP debug files: `""` (inherit from output), `"none"` (no compression), or a codec name (`"zstd"`, `"gzip"`, `"lz4"`, `"bzip2"`, `"xz"`) |
-| `lp_build`                  | boolean | `false`  | Build all LP matrices but skip solving entirely. Combine with `lp_debug: true` to export every scene/phase LP |
+| `lp_only`                   | boolean | `false`  | Build all LP matrices but skip solving entirely (CLI: `--lp-only` / `-c`). Combine with `lp_debug: true` to export every scene/phase LP |
 | `lp_coeff_ratio_threshold`  | number  | `1e7`    | When the global max/min coefficient ratio exceeds this value, per-scene/phase breakdown is printed |
 | `lp_debug_scene_min`        | integer | —        | Minimum scene UID (inclusive) for LP debug file saving |
 | `lp_debug_scene_max`        | integer | —        | Maximum scene UID (inclusive) for LP debug file saving |
 | `lp_debug_phase_min`        | integer | —        | Minimum phase UID (inclusive) for LP debug file saving |
 | `lp_debug_phase_max`        | integer | —        | Maximum phase UID (inclusive) for LP debug file saving |
 | `lp_fingerprint`            | boolean | `false`  | Compute LP structural fingerprint after solving. Output: `lp_fingerprint_scene_{S}_phase_{P}.json` per scene/phase. See [LP Fingerprint](lp-fingerprint.md) |
+
+#### Constraint handling
+
+| Field             | Type   | Default    | Description |
+|-------------------|--------|------------|-------------|
+| `constraint_mode` | string | `"strict"` | User-constraint runtime error policy: `"normal"` (warn + drop offending constraint), `"strict"` (default; abort with diagnostic), `"debug"` (strict + verbose per-row lowering trace). See [User Constraints → constraint_mode](user-constraints.md#constraint_mode--runtime-error-policy) |
 
 #### Deprecated LP solver fields
 
@@ -150,6 +168,12 @@ over the corresponding `solver_options` sub-fields.
 | `feasible_eps` | number  | solver default | Feasibility tolerance (omit to keep solver default) |
 | `barrier_eps`  | number  | solver default | Barrier convergence tolerance (omit to keep solver default) |
 | `log_level`    | integer | `0`         | Solver output verbosity (0 = silent) |
+| `log_mode`     | string  | `"nolog"`   | Solver log-file policy: `"nolog"` (no files) or `"detailed"` (one file per scene/phase/aperture, `<solver>_sc<N>_ph<N>[_ap<N>].log`) |
+| `time_limit`   | number  | solver default | Per-LP wall-clock time limit in seconds. Exceeding it aborts the solve; caller must check `is_optimal()` |
+| `scaling`      | string  | solver default | Internal solver scaling strategy. See `SolverScaling` enum |
+| `crossover`    | boolean | `true`      | When `algorithm == barrier`, convert the interior-point solution to a simplex basis (required for duals). SDDP forward pass sets it false for speed |
+| `max_fallbacks`| integer | `2`         | On non-optimal exit, cycle through barrier → dual → primal up to this many times. `0` disables fallback |
+| `reuse_basis`  | boolean | `false`    | Enable basis-reuse optimizations for resolve on cloned LPs (forces dual simplex, disables presolve) |
 
 **Example:**
 
@@ -1268,6 +1292,218 @@ Named scalar parameters usable in user constraint expressions.
 | `uid`   | integer | —     | Yes      | Unique identifier |
 | `name`  | string  | —     | Yes      | Parameter name (used in constraint expressions) |
 | `value` | number\|array\|string | — | Yes | Parameter value (per block/stage/scenario schedule) |
+
+### 3.23 Commitment
+
+Unit commitment parameters for a generator (three-bin status/startup/shutdown
+formulation).  Commitment constraints are only enforced on stages marked as
+chronological — on non-chronological (duration-weighted) stages the
+commitment is skipped and the generator dispatches normally.  See
+formulation §5.15 for the full LP definition.
+
+**JSON array name:** `commitment_array`
+
+| Field                   | Type                  | Units      | Required | Description |
+|-------------------------|-----------------------|------------|----------|-------------|
+| `uid`                   | integer               | —          | Yes      | Unique identifier |
+| `name`                  | string                | —          | Yes      | Human-readable name |
+| `active`                | boolean\|array\|string| —          | No       | Activation schedule (default: active) |
+| `generator`             | integer\|string       | —          | Yes      | Foreign key to a `Generator` (UID or name) |
+| `startup_cost`          | number\|array\|string | $/start    | No       | Startup cost (stage-schedulable) |
+| `shutdown_cost`         | number\|array\|string | $/stop     | No       | Shutdown cost |
+| `noload_cost`           | number                | $/hr       | No       | No-load cost while committed |
+| `min_up_time`           | number                | hours      | No       | Minimum up-time constraint |
+| `min_down_time`         | number                | hours      | No       | Minimum down-time constraint |
+| `ramp_up`               | number                | MW/hr      | No       | Ramp-up limit while online |
+| `ramp_down`             | number                | MW/hr      | No       | Ramp-down limit while online |
+| `startup_ramp`          | number                | MW         | No       | Maximum output in the startup block |
+| `shutdown_ramp`         | number                | MW         | No       | Maximum output in the shutdown block |
+| `initial_status`        | number                | 0 or 1     | No       | Initial on/off state at t=0 |
+| `initial_hours`         | number                | hours      | No       | Hours spent in the current state at t=0 |
+| `relax`                 | boolean               | —          | No       | LP relaxation: u/v/w continuous in [0,1] |
+| `must_run`              | boolean               | —          | No       | Force committed: u = 1 always |
+| `commitment_period`     | number                | hours      | No       | Coarser period for u/v/w (default: one per block) |
+| `pmax_segments`         | array<number>         | MW         | No       | Cumulative power breakpoints for piecewise heat rate |
+| `heat_rate_segments`    | array<number>         | GJ/MWh     | No       | Heat rate per segment (must match `pmax_segments` length) |
+| `fuel_cost`             | number\|array\|string | $/GJ       | No       | Fuel cost (used with heat-rate segments) |
+| `fuel_emission_factor`  | number\|array\|string | tCO2/GJ    | No       | Emission factor per GJ of fuel |
+| `hot_start_cost`        | number                | $/start    | No       | Startup cost when recently offline |
+| `warm_start_cost`       | number                | $/start    | No       | Startup cost at medium offline duration |
+| `cold_start_cost`       | number                | $/start    | No       | Startup cost when long offline |
+| `hot_start_time`        | number                | hours      | No       | Max offline hours for hot start |
+| `cold_start_time`       | number                | hours      | No       | Min offline hours for cold start |
+
+**JSON example:**
+
+```json
+{
+  "uid": 1,
+  "name": "thermal1_uc",
+  "generator": "thermal1",
+  "startup_cost": 5000,
+  "shutdown_cost": 1000,
+  "noload_cost": 50,
+  "min_up_time": 4,
+  "min_down_time": 2,
+  "initial_status": 1,
+  "initial_hours": 8
+}
+```
+
+### 3.24 Simple Commitment
+
+Simplified commitment: a single binary per block enforcing
+`p ∈ [dispatch_pmin, Pmax] when u=1` and `p = 0 when u=0`.  No
+startup/shutdown, no timing, no ramp.  When `relax = true` this provides
+the continuous relaxation used by PLP-style inertia formulations
+(see formulation §5.16).
+
+**JSON array name:** `simple_commitment_array`
+
+| Field           | Type                     | Units | Required | Description |
+|-----------------|--------------------------|-------|----------|-------------|
+| `uid`           | integer                  | —     | Yes      | Unique identifier |
+| `name`          | string                   | —     | Yes      | Human-readable name |
+| `active`        | boolean\|array\|string   | —     | No       | Activation schedule |
+| `generator`     | integer\|string          | —     | Yes      | Foreign key to a `Generator` |
+| `dispatch_pmin` | number\|array\|string    | MW    | No       | Minimum output when dispatched (defaults to generator's `pmin`) |
+| `relax`         | boolean                  | —     | No       | LP relaxation: u continuous in [0,1] |
+| `must_run`      | boolean                  | —     | No       | Force u = 1 always |
+
+### 3.25 Inertia Zone
+
+System-wide or regional minimum synchronous-inertia requirement.
+Generators couple to zones via `InertiaProvision` entries (§3.26).
+See formulation §5.17 for the LP constraint.
+
+**JSON array name:** `inertia_zone_array`
+
+| Field         | Type                     | Units  | Required | Description |
+|---------------|--------------------------|--------|----------|-------------|
+| `uid`         | integer                  | —      | Yes      | Unique identifier |
+| `name`        | string                   | —      | Yes      | Human-readable name |
+| `active`      | boolean\|array\|string   | —      | No       | Activation schedule |
+| `requirement` | number\|array\|string    | MW·s   | No       | Minimum system inertia requirement |
+| `cost`        | number\|array\|string    | $/MW·s | No       | Shortage penalty; when omitted, the requirement is a hard equality |
+
+### 3.26 Inertia Provision
+
+Links a generator to one or more inertia zones and defines its
+effectiveness factor `Φ = H·S/Pmin [MW·s/MW]`.  The user may provide
+either the factor directly via `provision_factor` or the raw machine
+data `inertia_constant` (H) and `rated_power` (S).
+
+**JSON array name:** `inertia_provision_array`
+
+| Field              | Type                     | Units   | Required | Description |
+|--------------------|--------------------------|---------|----------|-------------|
+| `uid`              | integer                  | —       | Yes      | Unique identifier |
+| `name`             | string                   | —       | Yes      | Human-readable name |
+| `active`           | boolean\|array\|string   | —       | No       | Activation schedule |
+| `generator`        | integer\|string          | —       | Yes      | FK to the providing generator |
+| `inertia_zones`    | string                   | —       | Yes      | Colon-separated list of InertiaZone UIDs or names |
+| `inertia_constant` | number                   | seconds | No       | Machine inertia constant H |
+| `rated_power`      | number                   | MVA     | No       | Rated apparent power S |
+| `provision_max`    | number\|array\|string    | MW      | No       | Upper bound on inertia provision (defaults to generator's `pmin`) |
+| `provision_factor` | number\|array\|string    | MW·s/MW | No       | Explicit effectiveness factor (overrides H·S/Pmin) |
+| `cost`             | number\|array\|string    | $/MW    | No       | Cost per MW of provision |
+
+### 3.27 Pump
+
+Hydraulic pump that consumes electrical power from a `Demand` and
+pushes water upstream through a `Waterway` (junction_a → junction_b is
+the pumping direction).  Reversible turbine-pump units (e.g. HB Maule)
+are modelled as two separate elements: a `Turbine` on the generation
+waterway and a `Pump` on the pumping waterway.  See formulation §5.10bis.
+
+**JSON array name:** `pump_array`
+
+| Field            | Type                     | Units         | Required | Description |
+|------------------|--------------------------|---------------|----------|-------------|
+| `uid`            | integer                  | —             | Yes      | Unique identifier |
+| `name`           | string                   | —             | Yes      | Human-readable name |
+| `active`         | boolean\|array\|string   | —             | No       | Activation schedule |
+| `waterway`       | integer\|string          | —             | Yes      | FK to the pumping waterway |
+| `demand`         | integer\|string          | —             | Yes      | FK to the electrical demand representing the pump load |
+| `pump_factor`    | number\|array\|string    | MW / (m³/s)   | No       | Power consumed per unit flow |
+| `efficiency`     | number\|array\|string    | p.u.          | No       | Pump efficiency (default 1.0) |
+| `capacity`       | number\|array\|string    | m³/s          | No       | Maximum pump flow |
+| `main_reservoir` | integer\|string          | —             | No       | Reservoir whose volume drives a variable pump factor (SDDP; future feature) |
+
+**JSON example:**
+
+```json
+{
+  "uid": 1,
+  "name": "HB_MAULE_PUMP",
+  "waterway": "MACHICURA_pump_33_28",
+  "demand": "HB_MAULE_DEMAND",
+  "pump_factor": 1.88,
+  "efficiency": 0.85,
+  "capacity": 40.0
+}
+```
+
+### 3.28 LNG Terminal
+
+LNG storage terminal with delivery schedule, boil-off gas, regasification,
+and fuel coupling to linked thermal generators.  The tank volume balance,
+delivery schedule, and generator heat-rate coupling are documented in
+formulation §5.14.
+
+**JSON array name:** `lng_terminal_array`
+
+| Field                    | Type                     | Units              | Required | Description |
+|--------------------------|--------------------------|--------------------|----------|-------------|
+| `uid`                    | integer                  | —                  | Yes      | Unique identifier |
+| `name`                   | string                   | —                  | Yes      | Human-readable name |
+| `active`                 | boolean\|array\|string   | —                  | No       | Activation schedule |
+| `emin`                   | number\|array\|string    | m³                 | No       | Minimum tank level |
+| `emax`                   | number\|array\|string    | m³                 | No       | Maximum tank level |
+| `ecost`                  | number\|array\|string    | $/m³               | No       | Storage holding cost |
+| `eini`                   | number                   | m³                 | No       | Initial tank level |
+| `efin`                   | number                   | m³                 | No       | End-of-horizon minimum level |
+| `annual_loss`            | number\|array\|string    | p.u./year          | No       | Boil-off rate |
+| `sendout_max`            | number                   | m³/h               | No       | Max regasification rate (default 10 000) |
+| `sendout_min`            | number                   | m³/h               | No       | Min regasification rate |
+| `delivery`               | number\|array\|string    | m³/stage           | No       | Scheduled LNG arrival per stage |
+| `spillway_cost`          | number                   | $/m³               | No       | Penalty for venting LNG |
+| `spillway_capacity`      | number                   | m³/h               | No       | Max venting rate (default 1 000) |
+| `use_state_variable`     | boolean                  | —                  | No       | Propagate tank level across SDDP stages |
+| `mean_production_factor` | number                   | MWh/m³             | No       | Energy content of LNG (default 5.0) |
+| `scost`                  | number\|array\|string    | $/m³               | No       | SDDP state penalty (multiplied by `mpf` → $/MWh) |
+| `soft_emin`              | number\|array\|string    | m³                 | No       | Soft lower bound on tank level |
+| `soft_emin_cost`         | number\|array\|string    | $/m³               | No       | Penalty for crossing `soft_emin` |
+| `flow_conversion_rate`   | number                   | m³/(m³/h·h)        | No       | Unit-conversion factor (default 1.0) |
+| `generators`             | array<object>            | —                  | No       | Linked generators with per-link `heat_rate` (see below) |
+
+**`generators` element (`LngGeneratorLink`)**
+
+| Field       | Type            | Units      | Required | Description |
+|-------------|-----------------|------------|----------|-------------|
+| `generator` | integer\|string | —          | Yes      | FK to the consuming generator |
+| `heat_rate` | number          | m³_LNG/MWh | No       | Fuel consumption per MWh (default 1.0) |
+
+**JSON example:**
+
+```json
+{
+  "uid": 1,
+  "name": "GNL_Quintero",
+  "emin": 5000,
+  "emax": 150000,
+  "eini": 80000,
+  "sendout_max": 2000,
+  "delivery": [50000, 0, 50000, 0],
+  "spillway_cost": 100,
+  "annual_loss": 0.001,
+  "use_state_variable": true,
+  "generators": [
+    {"generator": 10, "heat_rate": 0.18},
+    {"generator": 11, "heat_rate": 0.20}
+  ]
+}
+```
 
 ---
 
