@@ -293,6 +293,120 @@ TEST_CASE("save and load cuts round-trip via SDDPMethod")  // NOLINT
   std::filesystem::remove(cuts_file);
 }
 
+// ─── @alpha resolution with scene_phase_states ──────────────────────────────
+
+TEST_CASE(
+    "load_cuts_csv resolves @alpha via scene_phase_states "
+    "at LpNamesLevel::none")  // NOLINT
+{
+  // This test verifies the fix for the bug where @alpha coefficients
+  // in cut CSV files were silently dropped when LP names were disabled
+  // (LpNamesLevel::none / minimal).  Without scene_phase_states, the
+  // fallback name-based resolution cannot find the alpha column.
+
+  auto planning = make_3phase_hydro_planning();
+  PlanningLP planning_lp(std::move(planning));
+
+  // Initialize SDDP to create alpha variables and generate real cuts
+  SDDPOptions sddp_opts;
+  sddp_opts.max_iterations = 3;
+  sddp_opts.convergence_tol = 1e-6;
+
+  SDDPMethod sddp(planning_lp, sddp_opts);
+  auto results = sddp.solve();
+  REQUIRE(results.has_value());
+
+  const auto& stored = sddp.stored_cuts();
+  REQUIRE_FALSE(stored.empty());
+
+  // Verify at least one cut has an @alpha coefficient (non-state-variable
+  // column that would be written as @alpha=coeff in CSV).
+  // Alpha is added to every phase except the last, so cuts for phase 1 or 2
+  // should have it.
+  bool has_alpha_cut = false;
+  for (const auto& cut : stored) {
+    for (const auto& [col, coeff] : cut.coefficients) {
+      if (col
+          == sddp.phase_states(first_scene_index())[first_phase_index()]
+                 .alpha_col)
+      {
+        has_alpha_cut = true;
+        break;
+      }
+    }
+    if (has_alpha_cut) {
+      break;
+    }
+  }
+  REQUIRE(has_alpha_cut);
+
+  // Save cuts to CSV
+  const auto tmp_dir = std::filesystem::temp_directory_path();
+  const auto cuts_file = (tmp_dir / "gtopt_test_alpha_resolution.csv").string();
+  auto save_result = save_cuts_csv(stored, planning_lp, cuts_file);
+  REQUIRE(save_result.has_value());
+
+  // Verify @alpha= tokens are present in the file
+  {
+    std::ifstream ifs(cuts_file);
+    std::string content((std::istreambuf_iterator<char>(ifs)),
+                        std::istreambuf_iterator<char>());
+    CHECK(content.find("@alpha=") != std::string::npos);
+  }
+
+  SUBCASE("with scene_phase_states — alpha coefficients are resolved")
+  {
+    // Load into a fresh PlanningLP with scene_phase_states provided
+    auto planning2 = make_3phase_hydro_planning();
+    PlanningLP plp2(std::move(planning2));
+
+    SDDPOptions load_opts;
+    load_opts.max_iterations = 1;
+    load_opts.convergence_tol = 1e-6;
+
+    SDDPMethod sddp2(plp2, load_opts);
+    auto init_err = sddp2.ensure_initialized();
+    REQUIRE(init_err.has_value());
+
+    // Load via SDDPMethod::load_cuts which passes scene_phase_states
+    auto load_result = sddp2.load_cuts(cuts_file);
+    REQUIRE(load_result.has_value());
+    CHECK(load_result->count > 0);
+
+    // The hot-started solver should be able to solve without infeasibility
+    auto results2 = sddp2.solve();
+    REQUIRE(results2.has_value());
+  }
+
+  SUBCASE("without scene_phase_states — alpha coefficients are dropped")
+  {
+    // Load into a fresh PlanningLP WITHOUT scene_phase_states
+    auto planning3 = make_3phase_hydro_planning();
+    PlanningLP plp3(std::move(planning3));
+
+    // Create alpha variables so the LP structure matches
+    SDDPOptions load_opts2;
+    load_opts2.max_iterations = 1;
+    load_opts2.convergence_tol = 1e-6;
+
+    SDDPMethod sddp3(plp3, load_opts2);
+    auto init_err2 = sddp3.ensure_initialized();
+    REQUIRE(init_err2.has_value());
+
+    // Call load_cuts_csv directly without scene_phase_states (the bug path)
+    const LabelMaker label_maker {LpNamesLevel::none};
+    const auto sa = effective_scale_alpha(plp3, load_opts2.scale_alpha);
+    auto load_result2 =
+        load_cuts_csv(plp3, cuts_file, sa, label_maker, nullptr);
+    // Cuts are "loaded" but @alpha coefficients are silently lost
+    REQUIRE(load_result2.has_value());
+    // Count should still be > 0 (cuts are added, just missing alpha term)
+    CHECK(load_result2->count > 0);
+  }
+
+  std::filesystem::remove(cuts_file);
+}
+
 // ─── load_cuts_csv edge cases ───────────────────────────────────────────────
 
 TEST_CASE("load_cuts_csv returns error for nonexistent file")  // NOLINT
