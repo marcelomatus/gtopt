@@ -583,7 +583,7 @@ Constraint rows use generic indices (`c1`, `c2`, ...) — not named.
 | — | — | `m_vmgemf`..`m_vmdeif` (volume accumulators) |
 | — | — | `m_qr105`/`m_qa105` (Res 105), `m_qhinv`/`m_qhnein` |
 
-#### gtopt LP Names (with `--lp-names-level 2`)
+#### gtopt LP Names (with `--lp-file` or `--lp-debug`)
 
 gtopt uses structured names with entity-type prefix and UID suffix:
 
@@ -1063,9 +1063,13 @@ The full pipeline produces:
 To inspect the irrigation LP structure:
 
 ```bash
-gtopt /path/to/case --lp-names-level 2 \
+gtopt /path/to/case --lp-debug \
   -s lp_debug_options.json
 ```
+
+(`--lp-debug` automatically enables all four LP naming fields, so the
+generated `.lp` files carry full column and row names without any extra
+flag.)
 
 Where `lp_debug_options.json` contains:
 

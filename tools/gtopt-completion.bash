@@ -27,9 +27,6 @@ _gtopt()
         --check-solvers)
             COMPREPLY=( $(compgen -W "clp cbc cplex highs" -- "$cur") )
             return ;;
-        --lp-names-level|-n)
-            COMPREPLY=( $(compgen -W "0 1 2 minimal only_cols cols_and_rows" -- "$cur") )
-            return ;;
         --low-memory)
             COMPREPLY=( $(compgen -W "off snapshot compress" -- "$cur") )
             return ;;
@@ -57,7 +54,11 @@ _gtopt()
             return ;;
         --sddp-num-apertures|--matrix-eps|-e|--threads|-t|\
         --sddp-max-iterations|--sddp-min-iterations|\
-        --sddp-convergence-tol|--sddp-elastic-penalty|--lp-coeff-ratio)
+        --sddp-convergence-tol|--sddp-elastic-penalty|--lp-coeff-ratio|\
+        --memory-limit|--cpu-factor)
+            return ;;
+        --build-mode)
+            COMPREPLY=( $(compgen -W "serial scene-parallel full-parallel direct-parallel" -- "$cur") )
             return ;;
         --set)
             return ;;
@@ -69,9 +70,9 @@ _gtopt()
             --system-file -s --set
             --input-directory -D --input-format -F
             --output-directory -d --output-format -f --output-compression -C
-            --lp-file -l --lp-names-level -n --matrix-eps -e
+            --lp-file -l --matrix-eps -e
             --lp-only -c --lp-debug --lp-compression --lp-coeff-ratio
-            --json-file -j --fast-parsing -p --check-json -J
+            --json-file -j --check-json -J
             --stats -S --trace-log -T
             --algorithm -a --threads -t
             --use-single-bus -b --use-kirchhoff -k
@@ -79,7 +80,8 @@ _gtopt()
             --sddp-convergence-tol --sddp-elastic-penalty
             --sddp-elastic-mode --sddp-cut-coeff-mode
             --cut-directory --log-directory
-            --low-memory --recover"
+            --low-memory --memory-limit --cpu-factor --build-mode
+            --recover"
         COMPREPLY=( $(compgen -W "$opts" -- "$cur") )
     else
         _filedir

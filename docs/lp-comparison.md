@@ -49,7 +49,7 @@ generated LP files (April 2026), stage 1 (March), iteration 0.
 
 ### LP Variable Naming
 
-| Entity | PLP pattern | gtopt pattern (--lp-names-level 2) |
+| Entity | PLP pattern | gtopt pattern (with `--lp-file` / `--lp-debug`) |
 |--------|-------------|-------------------------------------|
 | Thermal gen | `gN_j` | `gen_generation_{uid}_{s}_{t}_{b}` |
 | Hydro turbine | `qgN_j` | `gen_generation_{uid}_{s}_{t}_{b}` + `tur_conversion` |
