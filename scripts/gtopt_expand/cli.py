@@ -42,6 +42,10 @@ from pathlib import Path
 from typing import Any
 
 from gtopt_expand import __version__ as _pkg_version
+from gtopt_expand.hb_maule_expand import (
+    expand_hb_maule,
+    expand_hb_maule_from_file,
+)
 from gtopt_expand.laja_agreement import LajaAgreement
 from gtopt_expand.lng_expand import expand_lng_from_file
 from gtopt_expand.ror_expand import DEFAULT_ROR_CSV, expand_ror_from_file
@@ -426,6 +430,56 @@ def _build_parser() -> argparse.ArgumentParser:
         help=("'all' (default), 'none', or comma-separated central names to promote"),
     )
 
+    # ── HB Maule pumped-storage subcommand ──────────────────────────────
+    hb_sp = sub.add_parser(
+        "hb_maule",
+        help=(
+            "emit gtopt entities for the HB Maule reversible pumped-storage "
+            "unit (self-contained; parameters baked from pump.pdf)"
+        ),
+    )
+    hb_sp.add_argument(
+        "--input",
+        "--in",
+        dest="input_path",
+        default=None,
+        help=(
+            "path to a canonical hb_maule_dat.json (optional — when "
+            "omitted, the expander falls back to pump.pdf defaults and "
+            "reads Colbún's emin/emax from --planning)"
+        ),
+    )
+    hb_sp.add_argument(
+        "--planning",
+        dest="planning_path",
+        required=True,
+        help=(
+            "path to the gtopt planning JSON — used to verify MACHICURA "
+            "is a reservoir and, when --input is omitted, to read the "
+            "Colbún reservoir's emin/emax"
+        ),
+    )
+    hb_sp.add_argument(
+        "--output",
+        "--out",
+        dest="output_dir",
+        required=True,
+        help="output directory for hb_maule.json",
+    )
+    hb_sp.add_argument(
+        "--bus",
+        dest="bus_name",
+        default=None,
+        help="bus for the aux generator + aux demand (default: 'colbun')",
+    )
+    hb_sp.add_argument(
+        "--uid-start",
+        dest="uid_start",
+        type=int,
+        default=900_000,
+        help="first UID to assign (default: 900000)",
+    )
+
     return parser
 
 
@@ -441,6 +495,41 @@ def _run_ror(args: argparse.Namespace) -> Path:
     output_path = out_dir / "ror_promoted.json"
     with open(output_path, "w", encoding="utf-8") as fh:
         json.dump(result, fh, indent=2, sort_keys=False)
+        fh.write("\n")
+    return output_path
+
+
+def _run_hb_maule(args: argparse.Namespace) -> Path:
+    """Execute the HB Maule expansion and return the output path."""
+    with open(args.planning_path, "r", encoding="utf-8") as fh:
+        planning = json.load(fh)
+    system = planning.get("system", planning)
+    reservoirs_list = system.get("reservoir_array", [])
+    reservoirs = reservoirs_list if isinstance(reservoirs_list, list) else []
+    reservoir_names = _extract_reservoir_names(planning)
+
+    if args.input_path is not None:
+        fragment = expand_hb_maule_from_file(
+            args.input_path,
+            reservoirs=reservoirs,
+            reservoir_names=reservoir_names,
+            bus_name=args.bus_name,
+            uid_start=args.uid_start,
+        )
+    else:
+        fragment = expand_hb_maule(
+            config=None,
+            reservoirs=reservoirs,
+            reservoir_names=reservoir_names,
+            bus_name=args.bus_name,
+            uid_start=args.uid_start,
+        )
+
+    out_dir = Path(args.output_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    output_path = out_dir / "hb_maule.json"
+    with open(output_path, "w", encoding="utf-8") as fh:
+        json.dump({"system": fragment}, fh, indent=2, sort_keys=False)
         fh.write("\n")
     return output_path
 
@@ -467,6 +556,8 @@ def _run(args: argparse.Namespace) -> Path:
         return _run_lng(args)
     if args.subcommand == "ror":
         return _run_ror(args)
+    if args.subcommand == "hb_maule":
+        return _run_hb_maule(args)
 
     stages = _load_stages(args.stages_path)
     options: dict[str, Any] = {
@@ -521,7 +612,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"ERROR: I/O failure: {exc}", file=sys.stderr)
         return 2
 
-    if args.subcommand in ("lng", "ror"):
+    if args.subcommand in ("lng", "ror", "hb_maule"):
         print(f"wrote {entities_path}", file=sys.stderr)
     else:
         pampl_path = entities_path.with_name(f"{args.subcommand}.pampl")

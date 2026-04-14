@@ -11,6 +11,11 @@ schema documented in their respective module docstrings) or a JSON file
 path via ``LajaAgreement.from_json`` / ``MauleAgreement.from_json``.
 """
 
+from gtopt_expand.hb_maule_expand import (
+    default_config as hb_maule_default_config,
+    expand_hb_maule,
+    expand_hb_maule_from_file,
+)
 from gtopt_expand.laja_agreement import LajaAgreement
 from gtopt_expand.lng_expand import expand_lng, expand_lng_from_file
 from gtopt_expand.maule_agreement import MauleAgreement
@@ -26,8 +31,11 @@ __all__ = [
     "LajaAgreement",
     "MauleAgreement",
     "RorSpec",
+    "expand_hb_maule",
+    "expand_hb_maule_from_file",
     "expand_lng",
     "expand_lng_from_file",
+    "hb_maule_default_config",
     "parse_ror_equivalence_file",
     "parse_ror_selection",
     "__version__",

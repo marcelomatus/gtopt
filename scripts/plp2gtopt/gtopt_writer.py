@@ -8,7 +8,7 @@ Handles conversion of parsed PLP data to GTOPT JSON format.
 import json
 import logging
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, Mapping
 
 from .aflce_writer import AflceWriter
 from .aperture_writer import (
@@ -674,6 +674,48 @@ class GTOptWriter:
         options["_ror_spec_resolved"] = resolved
         options["_pasada_unscale_map"] = pasada_unscale_map(resolved, items)
 
+        if resolved and options.get("expand_ror", True):
+            self._dump_ror_promoted(resolved, options)
+
+    @staticmethod
+    def _dump_ror_promoted(
+        resolved: Dict[str, Any],
+        options: Mapping[str, Any],
+    ) -> None:
+        """Emit ``ror_promoted.json`` — the ``gtopt_expand ror`` audit artifact.
+
+        Mirrors the schema produced by ``gtopt_expand.ror_expand.
+        expand_ror_from_file``: ``{"promoted": [{name, vmax_hm3,
+        production_factor, pmax_mw?}, ...]}``.  Skipped when
+        ``--no-expand-ror`` is set or no output directory is configured.
+        """
+        output_dir = options.get("output_dir")
+        if not output_dir:
+            return
+
+        promoted: list[dict[str, Any]] = []
+        for name in sorted(resolved):
+            spec = resolved[name]
+            entry: dict[str, Any] = {
+                "name": name,
+                "vmax_hm3": spec.vmax_hm3,
+                "production_factor": spec.production_factor,
+            }
+            if getattr(spec, "pmax_mw", None) is not None:
+                entry["pmax_mw"] = spec.pmax_mw
+            promoted.append(entry)
+
+        target = Path(output_dir) / "ror_promoted.json"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        with open(target, "w", encoding="utf-8") as fh:
+            json.dump({"promoted": promoted}, fh, indent=2, sort_keys=False)
+            fh.write("\n")
+        _logger.info(
+            "ror: audit artifact → %s (%d promoted central(s))",
+            target.name,
+            len(promoted),
+        )
+
     def process_afluents(self, options):
         """Write affluent/discharge Parquet files for Flow elements.
 
@@ -757,27 +799,30 @@ class GTOptWriter:
                 self.planning["system"][key] = val
 
     def process_water_rights(self, options):
-        """Emit canonical Stage-1 intermediate JSON files.
+        """Emit Laja / Maule Stage-2 artifacts.
 
-        This method is purely Stage 1 of the expansion pipeline (see
-        ``project_irrigation_pipeline.md``): when ``emit_water_rights`` is
-        True, the parsed Laja / Maule / LNG configs are dumped to
-        ``laja.json`` / ``maule.json`` / ``lng.json`` in the output
-        directory.
+        When ``expand_water_rights`` is True (the default), dispatches
+        ``gtopt_expand laja|maule`` in-process against the already-parsed
+        config (no ``*_dat.json`` intermediate is written to disk —
+        those parser dumps would never be shipped anyway).  The Stage-2
+        entities are merged into ``planning["system"]``, companion
+        ``laja.pampl`` / ``maule.pampl`` files are written, and
+        per-agreement system fragments ``laja_water_rights.json`` /
+        ``maule_water_rights.json`` are emitted (these DO go into the
+        manifest so gtopt can merge them alongside the main planning
+        JSON).
 
-        The Stage-2 transform is explicitly *not* performed here: that
-        work now lives exclusively in ``gtopt_expand`` and must be
-        invoked as a separate step (via ``gtopt_expand laja|maule|lng``
-        or by calling the corresponding Python API).  Keeping Stage 1
-        and Stage 2 separated means the canonical JSON files are always
-        authoritative and the rendering code has exactly one home.
+        LNG is deliberately NOT handled here — see ``process_lng``.
 
-        Additional Maule enrichments produced here so the canonical JSON
-        is self-contained for downstream ``gtopt_expand`` runs:
-
-        * ``extrac_entries`` — echo of ``plpextrac.dat`` entries so
-          Stage 2 has the full downstream-extraction context without
-          re-reading the raw PLP files.
+        Machicura auto-detection consults both
+        ``planning["system"]["reservoir_array"]`` (populated by
+        ``process_junctions`` and any ``--ror-as-reservoirs`` promotion)
+        AND, as a belt-and-suspenders check, the ``ror_promoted.json``
+        audit file written by ``process_ror_spec``.  When ``MACHICURA``
+        appears in either set, ``MauleAgreement`` picks the ``embalse``
+        template variant; otherwise the ``pasada`` default.  Hand-
+        authored fixtures can still pin the variant by setting
+        ``cfg["machicura_model"]`` explicitly.
         """
         if not options.get("emit_water_rights", False):
             return
@@ -786,44 +831,286 @@ class GTOptWriter:
         if output_dir is None:
             return
 
-        def _dump_canonical_json(name: str, cfg: Dict[str, Any]) -> None:
-            """Persist the parser config dict as canonical Stage-1 output."""
-            target = output_dir / f"{name}.json"
-            with open(target, "w", encoding="utf-8") as fh:
-                json.dump(cfg, fh, indent=2, sort_keys=False)
-                fh.write("\n")
-            _logger.info("%s: canonical agreement JSON → %s", name, target.name)
+        if not options.get("expand_water_rights", True):
+            return
 
-        # Laja convention (Stage 1 only — no Stage-2 rendering here)
+        stage_parser = self.parser.parsed_data.get("stage_parser")
+
         laja_parser = self.parser.parsed_data.get("laja_parser")
         if laja_parser is not None:
-            _dump_canonical_json("laja", laja_parser.config)
+            self._expand_laja(laja_parser.config, stage_parser, output_dir)
 
-        # Maule convention: echo plpextrac.dat entries into the dumped
-        # config so Stage 2 (gtopt_expand) has the full downstream-
-        # extraction context without re-reading the raw PLP files.
-        # plp2gtopt does NOT write ``machicura_model`` — MACHICURA is
-        # just another promotable serie central in ``ror_equivalence.csv``
-        # (no special treatment here).  The Maule agreement variant is
-        # auto-detected by ``gtopt_expand`` itself: when the
-        # companion planning JSON (written next to ``maule.json`` in the
-        # same output dir) contains a reservoir whose name matches the
-        # resolved ``junction_retiro`` (typically ``MACHICURA``), the
-        # Stage-2 consumer picks the ``embalse`` template variant; else
-        # the ``pasada`` default.  Hand-authored fixtures can still pin
-        # the variant by setting ``cfg["machicura_model"]`` explicitly.
         maule_parser = self.parser.parsed_data.get("maule_parser")
         if maule_parser is not None:
             cfg = dict(maule_parser.config)
             extrac_parser = self.parser.parsed_data.get("extrac_parser")
             if extrac_parser is not None:
                 cfg["extrac_entries"] = list(extrac_parser.get_all())
-            _dump_canonical_json("maule", cfg)
+            self._expand_maule(cfg, stage_parser, output_dir)
 
-        # GNL / LNG terminal (Stage 1 only — Stage 2 is gtopt_expand lng)
+    def process_lng(self, options):
+        """Emit LNG Stage-2 expansion.
+
+        Independent of ``process_water_rights``: when ``expand_lng`` is
+        True (the default), dispatches ``gtopt_expand lng`` against the
+        already-parsed config and merges the resulting
+        ``lng_terminal_array`` into ``planning["system"]``.  No
+        intermediate ``lng_dat.json`` is written — parser dumps are
+        never shipped.
+        """
+        if not options.get("emit_water_rights", False):
+            return
+        if not options.get("expand_lng", True):
+            return
+
         gnl_parser = self.parser.parsed_data.get("gnl_parser")
-        if gnl_parser is not None:
-            _dump_canonical_json("lng", gnl_parser.config)
+        if gnl_parser is None:
+            return
+
+        self._expand_lng(gnl_parser.config)
+
+    def process_hb_maule(self, options):
+        """Emit the HB Maule pumped-storage expansion.
+
+        When ``--expand-hb-maule`` is enabled (default off), runs the
+        ``gtopt_expand.hb_maule_expand`` transform using the COLBUN
+        reservoir's emin/emax straight from the parsed plpcnfce.dat
+        (authoritative source), writes the manifest artifact
+        ``hb_maule.json`` into ``output_dir`` wrapped as
+        ``{"system": {...}}``, and merges the entities into the
+        planning JSON.
+
+        Requires MACHICURA to be a reservoir — real embalse in
+        plpcnfce.dat or RoR-promoted via --ror-as-reservoirs (audited
+        in ``ror_promoted.json``).  Raises on missing prerequisites.
+        """
+        if not options.get("expand_hb_maule", False):
+            return
+
+        output_dir = Path(options["output_dir"]) if options.get("output_dir") else None
+        if output_dir is None:
+            return
+
+        from gtopt_expand.hb_maule_expand import (  # noqa: PLC0415
+            default_config,
+            expand_hb_maule,
+        )
+
+        # Resolve Colbún vmin/vmax from plpcnfce.dat (authoritative).
+        central_parser = self.parser.parsed_data.get("central_parser")
+        embalses = (
+            central_parser.centrals_of_type.get("embalse", [])
+            if central_parser is not None
+            else []
+        )
+        upper = "COLBUN"
+        plpcnfce_vmin: float | None = None
+        plpcnfce_vmax: float | None = None
+        for c in embalses:
+            if c.get("name") == upper:
+                if "emin" in c:
+                    plpcnfce_vmin = float(c["emin"])
+                if "emax" in c:
+                    plpcnfce_vmax = float(c["emax"])
+                break
+
+        # Load the user's HB Maule params file if provided.  The file
+        # may be partial — missing keys merge with pump.pdf defaults in
+        # expand_hb_maule.  ``vmin`` / ``vmax`` at ``0`` or absent fall
+        # through to the plpcnfce.dat values.
+        user_cfg: Dict[str, Any] = {}
+        params_path = options.get("hb_maule_params_file")
+        if params_path is not None:
+            with open(params_path, "r", encoding="utf-8") as fh:
+                loaded = json.load(fh)
+            if not isinstance(loaded, dict):
+                raise ValueError(
+                    f"--hb-maule-params-file {params_path}: expected a JSON "
+                    f"object, got {type(loaded).__name__}"
+                )
+            user_cfg = loaded
+
+        def _resolve(key: str, fallback: float | None) -> float | None:
+            val = user_cfg.get(key)
+            if val is None or float(val) == 0.0:
+                return fallback
+            return float(val)
+
+        vmin = _resolve("vmin", plpcnfce_vmin)
+        vmax = _resolve("vmax", plpcnfce_vmax)
+        if vmin is None or vmax is None:
+            raise ValueError(
+                f"HB Maule expansion needs Colbún ('{upper}') vmin/vmax: "
+                f"not provided in --hb-maule-params-file and no '{upper}' "
+                f"embalse found in plpcnfce.dat"
+            )
+
+        # Build the canonical hb_maule_dat config: pump.pdf defaults +
+        # Colbún vmin/vmax, then overlay the user's overrides so their
+        # values win for any explicitly specified field.  Kept in
+        # memory — the *_dat.json intermediate is never written to disk
+        # (same policy as laja/maule/lng).
+        cfg: Dict[str, Any] = default_config(vmin=vmin, vmax=vmax)
+        for key, val in user_cfg.items():
+            if key in ("vmin", "vmax"):
+                continue  # already resolved above
+            cfg[key] = val
+
+        reservoir_names = self._reservoir_names(output_dir)
+        reservoirs = self.planning["system"].get("reservoir_array", [])
+        entities = expand_hb_maule(
+            config=cfg,
+            reservoirs=list(reservoirs) if isinstance(reservoirs, list) else [],
+            reservoir_names=reservoir_names,
+        )
+
+        target = output_dir / "hb_maule.json"
+        with open(target, "w", encoding="utf-8") as fh:
+            json.dump({"system": entities}, fh, indent=2, sort_keys=False)
+            fh.write("\n")
+
+        self._merge_entities(entities)
+        _logger.info(
+            "hb_maule: emitted pumped-storage unit + hb_maule.json "
+            "(2 waterways, 1 turbine, 1 pump, 1 RPF)",
+        )
+
+    def _merge_entities(self, entities: Mapping[str, Any]) -> None:
+        """Merge gtopt_expand entity arrays into ``planning["system"]``.
+
+        ``*_array`` keys are appended (so Laja and Maule can contribute
+        to the same ``flow_right_array`` / ``volume_right_array`` /
+        ``user_constraint_array``).  Singular ``user_constraint_file``
+        strings are aggregated into the plural ``user_constraint_files``
+        list because each agreement emits its own ``.pampl`` and gtopt
+        accepts multiple files via that plural field.
+        """
+        system = self.planning["system"]
+        for key, val in entities.items():
+            if key == "user_constraint_file":
+                system.setdefault("user_constraint_files", []).append(val)
+            elif isinstance(val, list) and key.endswith("_array"):
+                system.setdefault(key, []).extend(val)
+            else:
+                system[key] = val
+
+    def _reservoir_names(self, output_dir: Path | None = None) -> set[str]:
+        """Return reservoir names currently known to the writer.
+
+        Includes:
+
+        * Names in ``planning["system"]["reservoir_array"]`` (populated
+          by ``process_junctions`` and any ``--ror-as-reservoirs``
+          promotion).
+        * When ``output_dir`` is given and ``ror_promoted.json`` exists
+          in it, the promoted names from that audit file.  This covers
+          Stage-2-only runs where ``process_junctions`` has not yet
+          mutated ``planning["system"]``.
+        """
+        names = {
+            r.get("name", "")
+            for r in self.planning["system"].get("reservoir_array", [])
+            if r.get("name")
+        }
+        if output_dir is not None:
+            audit = Path(output_dir) / "ror_promoted.json"
+            if audit.exists():
+                try:
+                    data = json.loads(audit.read_text(encoding="utf-8"))
+                except (OSError, json.JSONDecodeError):
+                    data = {}
+                for entry in data.get("promoted", []):
+                    name = entry.get("name") if isinstance(entry, dict) else None
+                    if name:
+                        names.add(name)
+        return names
+
+    @staticmethod
+    def _dump_water_rights_fragment(
+        tag: str, entities: Mapping[str, Any], output_dir: Path
+    ) -> Path | None:
+        """Write a per-agreement ``<tag>_water_rights.json`` system fragment.
+
+        The fragment mirrors the manifest-mergeable structure
+        ``{"system": {...entity arrays..., "user_constraint_files": [...]}}``
+        so gtopt can load it directly via the planning-file merge path.
+        Returns the path written, or None if ``entities`` is empty.
+        """
+        if not entities:
+            return None
+        system: Dict[str, Any] = {}
+        for key, val in entities.items():
+            if key == "user_constraint_file":
+                system.setdefault("user_constraint_files", []).append(val)
+            elif isinstance(val, list) and key.endswith("_array"):
+                system.setdefault(key, []).extend(val)
+            else:
+                system[key] = val
+        target = output_dir / f"{tag}_water_rights.json"
+        with open(target, "w", encoding="utf-8") as fh:
+            json.dump({"system": system}, fh, indent=2, sort_keys=False)
+            fh.write("\n")
+        return target
+
+    def _expand_laja(
+        self,
+        cfg: Mapping[str, Any],
+        stage_parser: Any,
+        output_dir: Path,
+    ) -> Dict[str, Any]:
+        """Run the Stage-2 Laja transform, merge entities, return them."""
+        from gtopt_expand.laja_agreement import LajaAgreement  # noqa: PLC0415
+
+        agreement = LajaAgreement(dict(cfg), stage_parser=stage_parser)
+        entities = agreement.to_json_dict(output_dir=output_dir)
+        self._merge_entities(entities)
+        self._dump_water_rights_fragment("laja", entities, output_dir)
+        _logger.info(
+            "laja: expanded to %d flow_right(s), %d volume_right(s)%s"
+            " + laja_water_rights.json",
+            len(entities.get("flow_right_array", [])),
+            len(entities.get("volume_right_array", [])),
+            " + laja.pampl" if "user_constraint_file" in entities else "",
+        )
+        return entities
+
+    def _expand_maule(
+        self,
+        cfg: Mapping[str, Any],
+        stage_parser: Any,
+        output_dir: Path,
+    ) -> Dict[str, Any]:
+        """Run the Stage-2 Maule transform, merge entities, return them."""
+        from gtopt_expand.maule_agreement import MauleAgreement  # noqa: PLC0415
+
+        agreement = MauleAgreement(
+            dict(cfg),
+            stage_parser=stage_parser,
+            options={"reservoir_names": self._reservoir_names(output_dir)},
+        )
+        entities = agreement.to_json_dict(output_dir=output_dir)
+        self._merge_entities(entities)
+        self._dump_water_rights_fragment("maule", entities, output_dir)
+        _logger.info(
+            "maule: expanded to %d flow_right(s), %d volume_right(s)%s"
+            " + maule_water_rights.json",
+            len(entities.get("flow_right_array", [])),
+            len(entities.get("volume_right_array", [])),
+            " + maule.pampl" if "user_constraint_file" in entities else "",
+        )
+        return entities
+
+    def _expand_lng(self, cfg: Mapping[str, Any]) -> None:
+        """Run the Stage-2 LNG transform and merge ``lng_terminal_array``."""
+        from gtopt_expand.lng_expand import expand_lng  # noqa: PLC0415
+
+        num_stages = len(self.planning["simulation"].get("stage_array", []))
+        entities = expand_lng(dict(cfg), num_stages=num_stages)
+        self._merge_entities(entities)
+        _logger.info(
+            "lng: expanded to %d terminal(s)",
+            len(entities.get("lng_terminal_array", [])),
+        )
 
     def process_flow_turbines(self, options):
         """Create Flow + Turbine(flow=ref) for hydro pasada centrals.
@@ -1479,6 +1766,10 @@ class GTOptWriter:
         self.process_flow_turbines(options)
         _step("water_rights")
         self.process_water_rights(options)
+        _step("lng")
+        self.process_lng(options)
+        _step("hb_maule")
+        self.process_hb_maule(options)
         _step("batteries")
         self.process_battery(options)
         _step("boundary")

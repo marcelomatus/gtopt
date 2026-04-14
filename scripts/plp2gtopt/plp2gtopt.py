@@ -787,3 +787,28 @@ def print_variable_scales_template(options: dict[str, Any]) -> int:
     except (RuntimeError, FileNotFoundError, ValueError, OSError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
+
+
+def print_hb_maule_params_template() -> int:
+    """Print the HB Maule parameters JSON template to stdout.
+
+    The template is :func:`gtopt_expand.hb_maule_default_config` with
+    ``vmin`` / ``vmax`` set to ``0.0`` — those two fields, when left at
+    zero, fall back to the COLBUN embalse's ``emin`` / ``emax`` in
+    ``plpcnfce.dat`` at expansion time.  All other fields mirror the
+    pump.pdf defaults and can be edited freely.
+
+    Returns:
+        0 on success, 1 on error.
+    """
+    import json  # noqa: PLC0415
+
+    try:
+        from gtopt_expand import hb_maule_default_config  # noqa: PLC0415
+
+        template = hb_maule_default_config(vmin=0.0, vmax=0.0)
+        print(json.dumps(template, indent=2))
+        return 0
+    except (RuntimeError, ImportError, ValueError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1

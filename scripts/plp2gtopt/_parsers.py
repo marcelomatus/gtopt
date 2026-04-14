@@ -879,12 +879,106 @@ def add_general_arguments(
         action=argparse.BooleanOptionalAction,
         default=False,
         help=(
-            "emit canonical Stage-1 irrigation agreement JSON files "
-            "(laja.json, maule.json) from plplajam.dat / plpmaulen.dat. "
-            "The Stage-2 transform (FlowRight/VolumeRight/UserConstraint "
-            "entities and the companion PAMPL file) is now handled "
-            "exclusively by `gtopt_expand` — run it on the dumped "
-            "JSON to get the rights entities. (default: %(default)s)"
+            "run the irrigation / LNG agreement expansion from "
+            "plplajam.dat / plpmaulen.dat / plpcnfgnl.dat.  When enabled, "
+            "the Stage-2 ``gtopt_expand`` transforms run in-process and "
+            "emit per-agreement system fragments (``laja_water_rights.json`` "
+            "/ ``maule_water_rights.json``) plus companion PAMPL files; "
+            "parser-side ``*_dat.json`` intermediates are NOT written to "
+            "disk (never shipped).  See --no-expand-water-rights / "
+            "--no-expand-lng to opt out individually. (default: "
+            "%(default)s)"
+        ),
+    )
+    parser.add_argument(
+        "--expand-water-rights",
+        dest="expand_water_rights",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help=(
+            "run the ``gtopt_expand laja|maule`` Stage-2 transforms: "
+            "the resulting FlowRight/VolumeRight/UserConstraint "
+            "entities are merged into planning.json, the companion "
+            "PAMPL files are written next to it, and per-agreement "
+            "system fragments (``laja_water_rights.json`` / "
+            "``maule_water_rights.json``) are emitted for the "
+            "manifest.  Has no effect when --no-emit-water-rights is "
+            "set.  LNG expansion is a separate concern controlled by "
+            "--expand-lng. (default: %(default)s)"
+        ),
+    )
+    parser.add_argument(
+        "--expand-lng",
+        dest="expand_lng",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help=(
+            "run the ``gtopt_expand lng`` Stage-2 transform: the "
+            "resulting LngTerminal entities are merged into "
+            "planning.json.  Has no effect when --no-emit-water-rights "
+            "is set or when the PLP case has no ``plpcnfgnl.dat``. "
+            "(default: %(default)s)"
+        ),
+    )
+    parser.add_argument(
+        "--expand-ror",
+        dest="expand_ror",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help=(
+            "also emit ``ror_promoted.json`` (the ``gtopt_expand ror`` "
+            "audit artifact) listing every central promoted by "
+            "--ror-as-reservoirs.  Has no effect when "
+            "--ror-as-reservoirs is disabled. (default: %(default)s)"
+        ),
+    )
+    parser.add_argument(
+        "--expand-hb-maule",
+        dest="expand_hb_maule",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help=(
+            "run the ``gtopt_expand hb_maule`` transform: emit the "
+            "reversible HB Maule pumped-storage unit between the "
+            "Colbún and Machicura reservoirs.  Technical parameters "
+            "(PF values, pump factor, nameplates) come from "
+            "``gtopt_expand.hb_maule_expand.default_config`` unless "
+            "overridden via --hb-maule-params-file.  Requires MACHICURA "
+            "to be a reservoir — either a real embalse or RoR-promoted "
+            "via --ror-as-reservoirs.  Writes ``hb_maule.json`` and "
+            "merges the entities into the planning JSON. "
+            "(default: %(default)s)"
+        ),
+    )
+    parser.add_argument(
+        "--hb-maule-params-file",
+        dest="hb_maule_params_file",
+        type=Path,
+        metavar="FILE",
+        default=None,
+        help=(
+            "JSON file with HB Maule technical parameters to override the "
+            "pump.pdf defaults.  Missing keys fall back to the defaults "
+            "in ``gtopt_expand.hb_maule_expand.default_config``; "
+            "``vmin`` / ``vmax`` (Colbún volume anchors for the "
+            "ReservoirProductionFactor curve) default to the COLBUN "
+            "embalse's ``emin`` / ``emax`` in plpcnfce.dat when absent "
+            "from the file.  Use --hb-maule-params-template to emit a "
+            "starter file. (default: not set)"
+        ),
+    )
+    parser.add_argument(
+        "--hb-maule-params-template",
+        action="store_true",
+        default=False,
+        help=(
+            "print a JSON template of HB Maule parameters to stdout, "
+            "populated with the pump.pdf defaults.  Edit the output and "
+            "pass it back via --hb-maule-params-file. Example workflow:\n"
+            "  plp2gtopt --hb-maule-params-template > hb_maule.json\n"
+            "  # edit hb_maule.json to tune specific values\n"
+            "  plp2gtopt -i plp_case --expand-hb-maule "
+            "--hb-maule-params-file hb_maule.json"
         ),
     )
     parser.add_argument(
