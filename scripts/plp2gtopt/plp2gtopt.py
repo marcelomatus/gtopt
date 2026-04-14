@@ -789,14 +789,16 @@ def print_variable_scales_template(options: dict[str, Any]) -> int:
         return 1
 
 
-def print_hb_maule_params_template() -> int:
-    """Print the HB Maule parameters JSON template to stdout.
+def print_pumped_storage_template() -> int:
+    """Print a pumped-storage parameters JSON template to stdout.
 
-    The template is :func:`gtopt_expand.hb_maule_default_config` with
+    The template is :func:`gtopt_expand.pumped_storage_default_config`
+    populated with HB Maule reference values (pump.pdf §4) and
     ``vmin`` / ``vmax`` set to ``0.0`` — those two fields, when left at
-    zero, fall back to the COLBUN embalse's ``emin`` / ``emax`` in
-    ``plpcnfce.dat`` at expansion time.  All other fields mirror the
-    pump.pdf defaults and can be edited freely.
+    zero, fall back to the upper reservoir's ``emin`` / ``emax`` in
+    ``plpcnfce.dat`` at expansion time.  The ``name`` field drives all
+    emitted element names; change it to match the plant before use
+    (or leave the default and rely on the filename stem).
 
     Returns:
         0 on success, 1 on error.
@@ -804,9 +806,11 @@ def print_hb_maule_params_template() -> int:
     import json  # noqa: PLC0415
 
     try:
-        from gtopt_expand import hb_maule_default_config  # noqa: PLC0415
+        from gtopt_expand import pumped_storage_default_config  # noqa: PLC0415
 
-        template = hb_maule_default_config(vmin=0.0, vmax=0.0)
+        template = pumped_storage_default_config(
+            name="pumped_storage", vmin=0.0, vmax=0.0
+        )
         print(json.dumps(template, indent=2))
         return 0
     except (RuntimeError, ImportError, ValueError) as exc:

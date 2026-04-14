@@ -305,9 +305,9 @@ class TestProcessLngToggle:
 
 
 # ---------------------------------------------------------------------------
-# process_hb_maule — params-file loading and plpcnfce.dat fallback
+# process_pumped_storage — config files + plpcnfce.dat vmin/vmax fallback
 # ---------------------------------------------------------------------------
-class _StubCentralParserForHb:
+class _StubCentralParserForPs:
     """Stub with a COLBUN embalse entry carrying emin/emax."""
 
     def __init__(self, emin: float, emax: float):
@@ -316,9 +316,9 @@ class _StubCentralParserForHb:
         }
 
 
-def _writer_for_hb_maule():
+def _writer_for_pumped_storage():
     writer = _make_writer()
-    writer.parser.parsed_data["central_parser"] = _StubCentralParserForHb(
+    writer.parser.parsed_data["central_parser"] = _StubCentralParserForPs(
         emin=1000.0, emax=10000.0
     )
     writer.planning["system"]["reservoir_array"] = [
@@ -328,45 +328,46 @@ def _writer_for_hb_maule():
     return writer
 
 
-class TestProcessHbMaule:
+def _write_hb_maule_config(path, **overrides):
+    from gtopt_expand import pumped_storage_default_config  # noqa: PLC0415
+
+    cfg = pumped_storage_default_config(name="hb_maule", vmin=0.0, vmax=0.0)
+    cfg.update(overrides)
+    path.write_text(json.dumps(cfg), encoding="utf-8")
+    return path
+
+
+class TestProcessPumpedStorage:
     def test_disabled_by_default(self, tmp_path):
-        writer = _writer_for_hb_maule()
-        writer.process_hb_maule({"output_dir": tmp_path})
+        writer = _writer_for_pumped_storage()
+        writer.process_pumped_storage({"output_dir": tmp_path})
         assert not (tmp_path / "hb_maule.json").exists()
         assert "waterway_array" not in writer.planning["system"]
 
-    def test_plpcnfce_vmin_vmax_used_when_no_file(self, tmp_path):
-        writer = _writer_for_hb_maule()
-        writer.process_hb_maule(
-            {"expand_hb_maule": True, "output_dir": tmp_path},
+    def test_plpcnfce_vmin_vmax_used_when_config_zero(self, tmp_path):
+        writer = _writer_for_pumped_storage()
+        cfg_path = _write_hb_maule_config(tmp_path / "hb_maule.json")
+        writer.process_pumped_storage(
+            {"pumped_storage_files": [cfg_path], "output_dir": tmp_path},
         )
         hb_path = tmp_path / "hb_maule.json"
-        assert hb_path.exists()
+        # Overwritten with the {"system": ...} artifact.
         payload = json.loads(hb_path.read_text(encoding="utf-8"))
         segs = payload["system"]["reservoir_production_factor_array"][0]["segments"]
-        # Defaults: vmin=1000, vmax=10000 from the COLBUN stub
         assert segs[0]["volume"] == 1000.0
         assert segs[1]["volume"] == 10000.0
+        assert payload["system"]["turbine_array"][0]["name"] == "tur_hb_maule"
 
-    def test_params_file_overrides_defaults(self, tmp_path):
-        writer = _writer_for_hb_maule()
-        params_path = tmp_path / "hb_params.json"
-        params_path.write_text(
-            json.dumps(
-                {
-                    "vmin": 2000.0,
-                    "vmax": 8000.0,
-                    "pump": {"pmax_mw": 75.0, "qmax_m3s": 40.0, "pump_factor": 2.0},
-                }
-            ),
-            encoding="utf-8",
+    def test_config_file_overrides_defaults(self, tmp_path):
+        writer = _writer_for_pumped_storage()
+        cfg_path = _write_hb_maule_config(
+            tmp_path / "hb_maule.json",
+            vmin=2000.0,
+            vmax=8000.0,
+            pump={"pmax_mw": 75.0, "qmax_m3s": 40.0, "pump_factor": 2.0},
         )
-        writer.process_hb_maule(
-            {
-                "expand_hb_maule": True,
-                "output_dir": tmp_path,
-                "hb_maule_params_file": params_path,
-            },
+        writer.process_pumped_storage(
+            {"pumped_storage_files": [cfg_path], "output_dir": tmp_path},
         )
         payload = json.loads((tmp_path / "hb_maule.json").read_text(encoding="utf-8"))
         segs = payload["system"]["reservoir_production_factor_array"][0]["segments"]
@@ -374,68 +375,108 @@ class TestProcessHbMaule:
         assert segs[1]["volume"] == 8000.0
         assert payload["system"]["pump_array"][0]["pump_factor"] == 2.0
 
-    def test_params_file_zero_vmin_falls_back_to_plpcnfce(self, tmp_path):
-        """vmin=0/vmax=0 in the user file → resolve from plpcnfce.dat."""
-        writer = _writer_for_hb_maule()
-        params_path = tmp_path / "hb_params.json"
-        params_path.write_text(
-            json.dumps({"vmin": 0.0, "vmax": 0.0}),
-            encoding="utf-8",
+    def test_config_zero_vmin_falls_back_to_plpcnfce(self, tmp_path):
+        writer = _writer_for_pumped_storage()
+        cfg_path = _write_hb_maule_config(
+            tmp_path / "hb_maule.json", vmin=0.0, vmax=0.0
         )
-        writer.process_hb_maule(
-            {
-                "expand_hb_maule": True,
-                "output_dir": tmp_path,
-                "hb_maule_params_file": params_path,
-            },
+        writer.process_pumped_storage(
+            {"pumped_storage_files": [cfg_path], "output_dir": tmp_path},
         )
         payload = json.loads((tmp_path / "hb_maule.json").read_text(encoding="utf-8"))
         segs = payload["system"]["reservoir_production_factor_array"][0]["segments"]
         assert segs[0]["volume"] == 1000.0
         assert segs[1]["volume"] == 10000.0
 
-    def test_no_colbun_embalse_and_no_file_raises(self, tmp_path):
+    def test_unit_name_from_filename_stem_when_missing(self, tmp_path):
+        writer = _writer_for_pumped_storage()
+        from gtopt_expand import pumped_storage_default_config  # noqa: PLC0415
+
+        cfg = pumped_storage_default_config(vmin=0.0, vmax=0.0)
+        cfg.pop("name")
+        cfg_path = tmp_path / "my_unit.json"
+        cfg_path.write_text(json.dumps(cfg), encoding="utf-8")
+        writer.process_pumped_storage(
+            {"pumped_storage_files": [cfg_path], "output_dir": tmp_path},
+        )
+        payload = json.loads((tmp_path / "my_unit.json").read_text(encoding="utf-8"))
+        assert payload["system"]["turbine_array"][0]["name"] == "tur_my_unit"
+
+    def test_no_embalse_and_zero_vmin_raises(self, tmp_path):
         writer = _make_writer()
         writer.parser.parsed_data["central_parser"] = type(
             "P", (), {"centrals_of_type": {"embalse": []}}
         )()
         writer.planning["system"]["reservoir_array"] = [{"name": "MACHICURA"}]
+        cfg_path = _write_hb_maule_config(
+            tmp_path / "hb_maule.json", vmin=0.0, vmax=0.0
+        )
         with pytest.raises(ValueError, match="COLBUN"):
-            writer.process_hb_maule(
-                {"expand_hb_maule": True, "output_dir": tmp_path},
+            writer.process_pumped_storage(
+                {"pumped_storage_files": [cfg_path], "output_dir": tmp_path},
             )
 
-    def test_invalid_params_file_raises(self, tmp_path):
-        writer = _writer_for_hb_maule()
-        params_path = tmp_path / "hb_params.json"
-        params_path.write_text(json.dumps([1, 2, 3]), encoding="utf-8")
+    def test_invalid_config_file_raises(self, tmp_path):
+        writer = _writer_for_pumped_storage()
+        cfg_path = tmp_path / "bad.json"
+        cfg_path.write_text(json.dumps([1, 2, 3]), encoding="utf-8")
         with pytest.raises(ValueError, match="expected a JSON object"):
-            writer.process_hb_maule(
-                {
-                    "expand_hb_maule": True,
-                    "output_dir": tmp_path,
-                    "hb_maule_params_file": params_path,
-                },
+            writer.process_pumped_storage(
+                {"pumped_storage_files": [cfg_path], "output_dir": tmp_path},
             )
 
+    def test_multiple_config_files_emit_separate_artifacts(self, tmp_path):
+        """Two --pumped-storage files → two {name}.json artifacts."""
+        writer = _writer_for_pumped_storage()
+        # Add a second embalse so both units resolve vmin/vmax.
+        writer.parser.parsed_data["central_parser"].centrals_of_type["embalse"].append(
+            {"name": "LAJA", "emin": 500.0, "emax": 5000.0}
+        )
+        writer.planning["system"]["reservoir_array"].append({"name": "ANTUCO"})
 
-class TestHbMauleParamsTemplate:
+        cfg1 = _write_hb_maule_config(tmp_path / "hb_maule.json")
+        from gtopt_expand import pumped_storage_default_config  # noqa: PLC0415
+
+        cfg2_data = pumped_storage_default_config(
+            name="other_unit",
+            upper_reservoir="LAJA",
+            lower_reservoir="ANTUCO",
+            vmin=0.0,
+            vmax=0.0,
+        )
+        cfg2 = tmp_path / "other_unit.json"
+        cfg2.write_text(json.dumps(cfg2_data), encoding="utf-8")
+
+        writer.process_pumped_storage(
+            {"pumped_storage_files": [cfg1, cfg2], "output_dir": tmp_path},
+        )
+        assert (tmp_path / "hb_maule.json").exists()
+        assert (tmp_path / "other_unit.json").exists()
+        # UIDs are spaced so the two 7-element blocks don't collide.
+        merged = writer.planning["system"]["turbine_array"]
+        uids = sorted(t["uid"] for t in merged)
+        assert uids[1] - uids[0] >= 7
+
+
+class TestPumpedStorageTemplate:
     def test_template_matches_default_config(self):
-        """print_hb_maule_params_template outputs the default_config dict."""
+        """print_pumped_storage_template outputs the default_config dict."""
         import io  # noqa: PLC0415
         from contextlib import redirect_stdout  # noqa: PLC0415
 
-        from gtopt_expand import hb_maule_default_config  # noqa: PLC0415
+        from gtopt_expand import pumped_storage_default_config  # noqa: PLC0415
         from plp2gtopt.plp2gtopt import (  # noqa: PLC0415
-            print_hb_maule_params_template,
+            print_pumped_storage_template,
         )
 
         buf = io.StringIO()
         with redirect_stdout(buf):
-            rc = print_hb_maule_params_template()
+            rc = print_pumped_storage_template()
         assert rc == 0
         printed = json.loads(buf.getvalue())
-        assert printed == hb_maule_default_config(vmin=0.0, vmax=0.0)
+        assert printed == pumped_storage_default_config(
+            name="pumped_storage", vmin=0.0, vmax=0.0
+        )
         # Sanity: pump.pdf defaults are present.
         assert printed["pump"]["pump_factor"] == 1.88
         assert printed["gen_nominal"]["production_factor"] == 1.44

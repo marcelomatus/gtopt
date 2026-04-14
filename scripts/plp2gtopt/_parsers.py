@@ -933,52 +933,40 @@ def add_general_arguments(
         ),
     )
     parser.add_argument(
-        "--expand-hb-maule",
-        dest="expand_hb_maule",
-        action=argparse.BooleanOptionalAction,
-        default=False,
-        help=(
-            "run the ``gtopt_expand hb_maule`` transform: emit the "
-            "reversible HB Maule pumped-storage unit between the "
-            "Colbún and Machicura reservoirs.  Technical parameters "
-            "(PF values, pump factor, nameplates) come from "
-            "``gtopt_expand.hb_maule_expand.default_config`` unless "
-            "overridden via --hb-maule-params-file.  Requires MACHICURA "
-            "to be a reservoir — either a real embalse or RoR-promoted "
-            "via --ror-as-reservoirs.  Writes ``hb_maule.json`` and "
-            "merges the entities into the planning JSON. "
-            "(default: %(default)s)"
-        ),
-    )
-    parser.add_argument(
-        "--hb-maule-params-file",
-        dest="hb_maule_params_file",
+        "--pumped-storage",
+        dest="pumped_storage_files",
         type=Path,
+        action="append",
         metavar="FILE",
         default=None,
         help=(
-            "JSON file with HB Maule technical parameters to override the "
-            "pump.pdf defaults.  Missing keys fall back to the defaults "
-            "in ``gtopt_expand.hb_maule_expand.default_config``; "
-            "``vmin`` / ``vmax`` (Colbún volume anchors for the "
-            "ReservoirProductionFactor curve) default to the COLBUN "
-            "embalse's ``emin`` / ``emax`` in plpcnfce.dat when absent "
-            "from the file.  Use --hb-maule-params-template to emit a "
-            "starter file. (default: not set)"
+            "run the ``gtopt_expand pumped_storage`` transform for each "
+            "FILE: emit a reversible pumped-storage unit (Turbine + Pump "
+            "between an upper and a lower reservoir).  May be repeated "
+            "to expand several units in one run.  Each FILE is a "
+            "canonical config JSON (name/vmin/vmax/PFs/pump_factor — "
+            "see --pumped-storage-template).  ``vmin`` / ``vmax`` at 0 "
+            "or absent fall back to the upper reservoir's ``emin`` / "
+            "``emax`` in plpcnfce.dat.  The unit name defaults to the "
+            "filename stem (e.g. ``hb_maule.json`` → ``hb_maule``).  "
+            "Writes one ``{name}.json`` per unit and merges the "
+            "entities into the planning JSON.  Requires each unit's "
+            "``lower_reservoir`` to be a reservoir — real embalse or "
+            "RoR-promoted via --ror-as-reservoirs. (default: disabled)"
         ),
     )
     parser.add_argument(
-        "--hb-maule-params-template",
+        "--pumped-storage-template",
         action="store_true",
         default=False,
         help=(
-            "print a JSON template of HB Maule parameters to stdout, "
-            "populated with the pump.pdf defaults.  Edit the output and "
-            "pass it back via --hb-maule-params-file. Example workflow:\n"
-            "  plp2gtopt --hb-maule-params-template > hb_maule.json\n"
+            "print a JSON template of pumped-storage parameters to "
+            "stdout, populated with HB Maule reference values "
+            "(pump.pdf §4).  Edit the output and pass it back via "
+            "--pumped-storage.  Example workflow:\n"
+            "  plp2gtopt --pumped-storage-template > hb_maule.json\n"
             "  # edit hb_maule.json to tune specific values\n"
-            "  plp2gtopt -i plp_case --expand-hb-maule "
-            "--hb-maule-params-file hb_maule.json"
+            "  plp2gtopt -i plp_case --pumped-storage hb_maule.json"
         ),
     )
     parser.add_argument(

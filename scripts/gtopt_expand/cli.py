@@ -42,14 +42,11 @@ from pathlib import Path
 from typing import Any
 
 from gtopt_expand import __version__ as _pkg_version
-from gtopt_expand.hb_maule_expand import (
-    expand_hb_maule,
-    expand_hb_maule_from_file,
-)
 from gtopt_expand.laja_agreement import LajaAgreement
 from gtopt_expand.lng_expand import expand_lng_from_file
-from gtopt_expand.ror_expand import DEFAULT_ROR_CSV, expand_ror_from_file
 from gtopt_expand.maule_agreement import MauleAgreement
+from gtopt_expand.pumped_storage_expand import expand_pumped_storage_from_file
+from gtopt_expand.ror_expand import DEFAULT_ROR_CSV, expand_ror_from_file
 
 
 class _StageList:
@@ -278,12 +275,16 @@ def _build_parser() -> argparse.ArgumentParser:
         prog="gtopt_expand",
         description=(
             "Expand canonical intermediate JSON files (laja.json,"
-            " maule.json, lng.json) into gtopt entities."
+            " maule.json, lng.json, pumped_storage configs) into"
+            " gtopt entities."
         ),
         epilog=(
             "Subcommands: laja, maule (irrigation agreements →"
-            " FlowRight/VolumeRight/UserConstraint + PAMPL), lng"
-            " (LNG terminal configuration → LngTerminal entities)."
+            " FlowRight/VolumeRight/UserConstraint + PAMPL); lng"
+            " (LNG terminal configuration → LngTerminal entities);"
+            " ror (RoR daily-cycle promotion);"
+            " pumped_storage (reversible pumped-storage unit →"
+            " Turbine + Pump + ReservoirProductionFactor)."
         ),
     )
     parser.add_argument(
@@ -430,54 +431,57 @@ def _build_parser() -> argparse.ArgumentParser:
         help=("'all' (default), 'none', or comma-separated central names to promote"),
     )
 
-    # ── HB Maule pumped-storage subcommand ──────────────────────────────
-    hb_sp = sub.add_parser(
-        "hb_maule",
+    # ── Pumped-storage subcommand ───────────────────────────────────────
+    ps_sp = sub.add_parser(
+        "pumped_storage",
         help=(
-            "emit gtopt entities for the HB Maule reversible pumped-storage "
-            "unit (self-contained; parameters baked from pump.pdf)"
+            "emit gtopt entities for a reversible pumped-storage unit "
+            "from a canonical config file (name/vmin/vmax/PFs/pump_factor)"
         ),
     )
-    hb_sp.add_argument(
+    ps_sp.add_argument(
         "--input",
         "--in",
-        dest="input_path",
-        default=None,
+        dest="input_paths",
+        action="append",
+        required=True,
         help=(
-            "path to a canonical hb_maule_dat.json (optional — when "
-            "omitted, the expander falls back to pump.pdf defaults and "
-            "reads Colbún's emin/emax from --planning)"
+            "path to a canonical pumped-storage config JSON; may be "
+            "repeated to expand multiple units in a single invocation"
         ),
     )
-    hb_sp.add_argument(
+    ps_sp.add_argument(
         "--planning",
         dest="planning_path",
         required=True,
         help=(
-            "path to the gtopt planning JSON — used to verify MACHICURA "
-            "is a reservoir and, when --input is omitted, to read the "
-            "Colbún reservoir's emin/emax"
+            "path to the gtopt planning JSON — used to verify the lower "
+            "reservoir exists and, when the config's vmin/vmax are 0 or "
+            "absent, to read the upper reservoir's emin/emax"
         ),
     )
-    hb_sp.add_argument(
+    ps_sp.add_argument(
         "--output",
         "--out",
         dest="output_dir",
         required=True,
-        help="output directory for hb_maule.json",
+        help="output directory for per-unit {name}.json files",
     )
-    hb_sp.add_argument(
+    ps_sp.add_argument(
         "--bus",
         dest="bus_name",
         default=None,
-        help="bus for the aux generator + aux demand (default: 'colbun')",
+        help=(
+            "bus for the aux generator + aux demand "
+            "(default: lower-cased upper-reservoir name)"
+        ),
     )
-    hb_sp.add_argument(
+    ps_sp.add_argument(
         "--uid-start",
         dest="uid_start",
         type=int,
         default=900_000,
-        help="first UID to assign (default: 900000)",
+        help="first UID to assign for the first unit (default: 900000)",
     )
 
     return parser
@@ -499,8 +503,14 @@ def _run_ror(args: argparse.Namespace) -> Path:
     return output_path
 
 
-def _run_hb_maule(args: argparse.Namespace) -> Path:
-    """Execute the HB Maule expansion and return the output path."""
+def _run_pumped_storage(args: argparse.Namespace) -> Path:
+    """Execute the pumped-storage expansion(s) and return the output dir.
+
+    Each ``--input FILE`` becomes one unit, emitted as
+    ``{output_dir}/{name}.json`` (name from config or filename stem).
+    UID ranges are spaced 16 apart per unit so the contiguous 7-element
+    block never collides.
+    """
     with open(args.planning_path, "r", encoding="utf-8") as fh:
         planning = json.load(fh)
     system = planning.get("system", planning)
@@ -508,30 +518,28 @@ def _run_hb_maule(args: argparse.Namespace) -> Path:
     reservoirs = reservoirs_list if isinstance(reservoirs_list, list) else []
     reservoir_names = _extract_reservoir_names(planning)
 
-    if args.input_path is not None:
-        fragment = expand_hb_maule_from_file(
-            args.input_path,
-            reservoirs=reservoirs,
-            reservoir_names=reservoir_names,
-            bus_name=args.bus_name,
-            uid_start=args.uid_start,
-        )
-    else:
-        fragment = expand_hb_maule(
-            config=None,
-            reservoirs=reservoirs,
-            reservoir_names=reservoir_names,
-            bus_name=args.bus_name,
-            uid_start=args.uid_start,
-        )
-
     out_dir = Path(args.output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    output_path = out_dir / "hb_maule.json"
-    with open(output_path, "w", encoding="utf-8") as fh:
-        json.dump({"system": fragment}, fh, indent=2, sort_keys=False)
-        fh.write("\n")
-    return output_path
+
+    last_output: Path | None = None
+    for idx, input_path in enumerate(args.input_paths):
+        path = Path(input_path)
+        fragment = expand_pumped_storage_from_file(
+            path,
+            reservoirs=reservoirs,
+            reservoir_names=reservoir_names,
+            bus_name=args.bus_name,
+            uid_start=args.uid_start + idx * 16,
+        )
+        unit_name = fragment["generator_array"][0]["name"].removeprefix("hydro_")
+        output_path = out_dir / f"{unit_name}.json"
+        with open(output_path, "w", encoding="utf-8") as fh:
+            json.dump({"system": fragment}, fh, indent=2, sort_keys=False)
+            fh.write("\n")
+        last_output = output_path
+
+    assert last_output is not None  # argparse required=True guarantees ≥1 input
+    return last_output
 
 
 def _run_lng(args: argparse.Namespace) -> Path:
@@ -556,8 +564,8 @@ def _run(args: argparse.Namespace) -> Path:
         return _run_lng(args)
     if args.subcommand == "ror":
         return _run_ror(args)
-    if args.subcommand == "hb_maule":
-        return _run_hb_maule(args)
+    if args.subcommand == "pumped_storage":
+        return _run_pumped_storage(args)
 
     stages = _load_stages(args.stages_path)
     options: dict[str, Any] = {
@@ -612,7 +620,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"ERROR: I/O failure: {exc}", file=sys.stderr)
         return 2
 
-    if args.subcommand in ("lng", "ror", "hb_maule"):
+    if args.subcommand in ("lng", "ror", "pumped_storage"):
         print(f"wrote {entities_path}", file=sys.stderr)
     else:
         pampl_path = entities_path.with_name(f"{args.subcommand}.pampl")
