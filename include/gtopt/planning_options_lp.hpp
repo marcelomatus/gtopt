@@ -69,8 +69,6 @@ public:
   /** @brief Default compression codec for output files */
   static constexpr CompressionCodec default_output_compression =
       CompressionCodec::zstd;
-  /** @brief Default LP naming level (minimal = state-var col names only) */
-  static constexpr LpNamesLevel default_names_level = LpNamesLevel::none;
   /** @brief Default setting for using UIDs in filenames */
   static constexpr Bool default_use_uid_fname = true;
   /** @brief Default annual discount rate for multi-year planning */
@@ -248,16 +246,6 @@ public:
   [[nodiscard]] constexpr auto scale_theta() const
   {
     return m_options_.model_options.scale_theta.value_or(1.0);
-  }
-
-  /**
-   * @brief Gets the LP naming level, using default if not set
-   * @return LP naming level: minimal, only_cols, or cols_and_rows
-   */
-  [[nodiscard]] constexpr auto names_level() const -> LpNamesLevel
-  {
-    return m_options_.lp_matrix_options.names_level.value_or(
-        default_names_level);
   }
 
   /**
@@ -569,8 +557,16 @@ public:
   static constexpr Real default_sddp_alpha_min = 0.0;
   /** @brief Default upper bound for future cost variable α */
   static constexpr Real default_sddp_alpha_max = 1e12;
-  /** @brief Default cut coefficient epsilon for filtering tiny coefficients */
-  static constexpr Real default_sddp_cut_coeff_eps = 1e-12;
+  /** @brief Default cut coefficient epsilon for filtering tiny coefficients.
+   *
+   * Raised from 1e-12 to 1e-6 (P1-2) so that Benders cuts drop
+   * near-zero coefficients that the LP solver cannot distinguish from
+   * noise anyway. Keeping micro-coefficients around inflates the basis
+   * condition number (kappa) by several orders of magnitude on large
+   * GTEP cases without changing the optimal value.  Users solving
+   * academic-scale instances can still lower this in JSON.
+   */
+  static constexpr Real default_sddp_cut_coeff_eps = 1e-6;
   /** @brief Default max coefficient threshold for cut rescaling */
   static constexpr Real default_sddp_cut_coeff_max = 1e6;
   /** @brief Default elastic filter mode */
@@ -940,6 +936,23 @@ public:
     return m_options_.sddp_options.pool_cpu_factor.value_or(4.0);
   }
 
+  /** @brief LP-build work-pool CPU over-commit factor (default: 2.0).
+   *
+   * Currently shares the `sddp_options.pool_cpu_factor` field with the
+   * SDDP pool so that a single `--cpu-factor` CLI flag controls both
+   * pools uniformly.  When the user does **not** set `--cpu-factor`,
+   * the LP-build pool falls back to a more conservative 2.0× factor
+   * (vs the SDDP pool's 4.0×) — reflecting that LP build is memory-
+   * heavy (constructing full SystemLP trees) while SDDP solving is
+   * CPU-bound (solver calls).  When the CLI flag is set, both pools
+   * pick it up and the user can force a 1-thread serial baseline via
+   * `--cpu-factor 0.025` on a typical 20-core box.
+   */
+  [[nodiscard]] constexpr auto build_pool_cpu_factor() const
+  {
+    return m_options_.sddp_options.pool_cpu_factor.value_or(2.0);
+  }
+
   /** @brief SDDP work pool memory limit in MB (0 = no limit). */
   [[nodiscard]] constexpr auto sddp_pool_memory_limit_mb() const
   {
@@ -1025,6 +1038,16 @@ public:
   [[nodiscard]] constexpr auto method_type_enum() const -> MethodType
   {
     return m_options_.method.value_or(default_method_type);
+  }
+
+  /// LP-build mode as an enum.  Defaults to `scene_parallel` — the
+  /// pre-00c605d7 per-scene work-pool submission (coarse granularity,
+  /// lower pool/malloc-arena contention).  Users may opt into
+  /// `full_parallel` via `--build-mode full-parallel` for maximum
+  /// concurrency, or `serial` for a genuine in-thread baseline.
+  [[nodiscard]] constexpr auto build_mode_enum() const -> BuildMode
+  {
+    return m_options_.build_mode.value_or(BuildMode::scene_parallel);
   }
 
   /// SDDP boundary cuts mode as an enum.

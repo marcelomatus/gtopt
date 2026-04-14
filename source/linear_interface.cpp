@@ -10,6 +10,7 @@
 #include <expected>
 #include <memory>
 #include <ranges>
+#include <span>
 
 #include <gtopt/error.hpp>
 #include <gtopt/linear_interface.hpp>
@@ -25,12 +26,16 @@ namespace
 {
 /// Check name uniqueness via map insertion (try_emplace pattern).
 /// Returns true if the name is a duplicate.  When `errors_on_dup` is true
-/// (LabelMaker::duplicates_are_errors() at cols_and_rows level) a
+/// (LabelMaker::duplicates_are_errors() when names are enabled) a
 /// std::runtime_error is thrown; otherwise a warning is logged and the
 /// function returns true.
-inline bool check_name_unique(LinearInterface::name_index_map_t& name_map,
+///
+/// The map is either `col_name_map_t` (keyed to `ColIndex`) or
+/// `row_name_map_t` (keyed to `RowIndex`); the index parameter must match.
+template<typename Map, typename IndexType>
+inline bool check_name_unique(Map& name_map,
                               const std::string& name,
-                              int32_t index,
+                              IndexType index,
                               std::string_view entity_type,
                               bool errors_on_dup)
 {
@@ -104,15 +109,17 @@ void LinearInterface::cache_and_release()
   // The cache_warm_start flag only controls whether release_backend()
   // retains these vectors — cache_and_release() needs them for callers
   // that read solution data after resolve() returns.
-  // NOLINTBEGIN(cppcoreguidelines-pro-bounds-pointer-arithmetic)
-  m_cached_col_sol_.assign(m_backend_->col_solution(),
-                           m_backend_->col_solution() + ncols);
-  m_cached_col_cost_.assign(m_backend_->reduced_cost(),
-                            m_backend_->reduced_cost() + ncols);
+  {
+    const auto cs = std::span(m_backend_->col_solution(), ncols);
+    m_cached_col_sol_.assign(cs.begin(), cs.end());
+    const auto rc = std::span(m_backend_->reduced_cost(), ncols);
+    m_cached_col_cost_.assign(rc.begin(), rc.end());
+  }
   ensure_duals();
-  m_cached_row_dual_.assign(m_backend_->row_price(),
-                            m_backend_->row_price() + nrows);
-  // NOLINTEND(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+  {
+    const auto rp = std::span(m_backend_->row_price(), nrows);
+    m_cached_row_dual_.assign(rp.begin(), rp.end());
+  }
   m_cached_obj_value_ = m_backend_->obj_value();
   m_cached_kappa_ = m_backend_->get_kappa();
   m_cached_numrows_ = nrows;
@@ -176,10 +183,10 @@ void LinearInterface::release_backend() noexcept
         const auto rd = get_row_dual_raw();
         m_cached_col_sol_.assign(cs.begin(), cs.end());
         m_cached_row_dual_.assign(rd.begin(), rd.end());
-        // NOLINTBEGIN(cppcoreguidelines-pro-bounds-pointer-arithmetic)
-        m_cached_col_cost_.assign(m_backend_->reduced_cost(),
-                                  m_backend_->reduced_cost() + ncols);
-        // NOLINTEND(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+        {
+          const auto rc = std::span(m_backend_->reduced_cost(), ncols);
+          m_cached_col_cost_.assign(rc.begin(), rc.end());
+        }
       } else {
         m_cached_col_sol_.clear();
         m_cached_col_sol_.shrink_to_fit();
@@ -231,9 +238,47 @@ void LinearInterface::save_snapshot(FlatLinearProblem flat_lp)
   m_snapshot_.flat_lp = std::move(flat_lp);
 }
 
+void LinearInterface::defer_initial_load(FlatLinearProblem flat_lp)
+{
+  // Skip the initial load_flat() entirely: stash the snapshot,
+  // compress immediately if requested, and mark the backend as
+  // released so the next ensure_backend() call performs the (sole)
+  // load_flat via reconstruct_backend.
+  //
+  // Pre-seed the cached row/col counts from the flat LP itself so
+  // that callers like `save_base_numrows()` (which read
+  // `get_numrows()` while the backend is released) get correct
+  // values without having to force a reconstruction.
+  m_cached_numrows_ = static_cast<size_t>(flat_lp.nrows);
+  m_cached_numcols_ = static_cast<size_t>(flat_lp.ncols);
+
+  m_snapshot_.flat_lp = std::move(flat_lp);
+
+  if (m_low_memory_mode_ == LowMemoryMode::compress
+      && !m_snapshot_.is_compressed())
+  {
+    enable_compression();
+  }
+
+  // No backend was ever created, so there is nothing to free.
+  // Just flip the released flag so ensure_backend() reconstructs lazily.
+  m_backend_released_ = true;
+}
+
 void LinearInterface::capture_hot_start_cuts()
 {
   if (m_low_memory_mode_ == LowMemoryMode::off) {
+    return;
+  }
+
+  // If the backend is still released (e.g., the last SDDP phase under
+  // low_memory mode never had alpha added and never received hot-start
+  // cuts), there is nothing live to capture and we must NOT flip
+  // `m_backend_released_` to false — doing so would leave the interface
+  // pointing at the empty default backend with stale cached counts,
+  // making subsequent get_numcols()/set_col_*** dereference an LP with
+  // 0 cols and segfault inside the solver.
+  if (m_backend_released_) {
     return;
   }
 
@@ -247,14 +292,14 @@ void LinearInterface::capture_hot_start_cuts()
     const auto row_lo = get_row_low_raw();
     const auto row_hi = get_row_upp_raw();
 
-    for (int r = base; r < current; ++r) {
+    for (const auto r : iota_range<RowIndex>(base, current)) {
       SparseRow row;
-      row.lowb = row_lo[r];
-      row.uppb = row_hi[r];
-      for (int c = 0; c < ncols; ++c) {
-        const auto val = get_coeff_raw(RowIndex {r}, ColIndex {c});
+      row.lowb = row_lo[static_cast<std::size_t>(r)];
+      row.uppb = row_hi[static_cast<std::size_t>(r)];
+      for (const auto c : iota_range<ColIndex>(0, ncols)) {
+        const auto val = get_coeff_raw(r, c);
         if (val != 0.0) {
-          row[ColIndex {c}] = val;
+          row[c] = val;
         }
       }
       m_active_cuts_.push_back(std::move(row));
@@ -423,6 +468,7 @@ LinearInterface LinearInterface::clone(std::span<const double> col_sol,
   cloned.m_scale_objective_ = m_scale_objective_;
   cloned.m_col_scales_ = m_col_scales_;
   cloned.m_variable_scale_map_ = m_variable_scale_map_;
+  cloned.m_log_tag_ = m_log_tag_;
 
   if (!col_sol.empty() || !row_dual.empty()) {
     cloned.set_warm_start_solution(col_sol, row_dual);
@@ -513,7 +559,7 @@ void LinearInterface::load_flat(const FlatLinearProblem& flat_lp)
   // Build name maps — clear first so reconstruction doesn't accumulate
   // duplicates from a previous load_flat() call.
   auto build_name_map = []<typename IndexType>(const auto& names_vec,
-                                               name_index_map_t& name_map,
+                                               auto& name_map,
                                                auto& index_to_name)
   {
     name_map.clear();
@@ -522,17 +568,17 @@ void LinearInterface::load_flat(const FlatLinearProblem& flat_lp)
 
     for (const auto [i, name] : enumerate<IndexType>(names_vec)) {
       if (!name.empty()) {
-        name_map.emplace(name, static_cast<int>(i));
+        name_map.emplace(name, i);
       }
     }
   };
 
-  if (m_label_maker_.col_names_enabled() && !flat_lp.colnm.empty()) {
+  if (!flat_lp.colnm.empty()) {
     build_name_map.template operator()<ColIndex>(
         flat_lp.colnm, m_col_names_, m_col_index_to_name_);
   }
 
-  if (m_label_maker_.row_names_enabled() && !flat_lp.rownm.empty()) {
+  if (!flat_lp.rownm.empty()) {
     build_name_map.template operator()<RowIndex>(
         flat_lp.rownm, m_row_names_, m_row_index_to_name_);
   }
@@ -554,15 +600,15 @@ ColIndex LinearInterface::add_col(const std::string& name,
                                   double colub)
 {
   const auto index = m_backend_->get_num_cols();
+  const auto col = ColIndex {index};
   check_name_unique(m_col_names_,
                     name,
-                    index,
+                    col,
                     "column",
                     m_label_maker_.duplicates_are_errors());
 
   m_backend_->add_col(normalize_bound(collb), normalize_bound(colub), 0.0);
 
-  const auto col = ColIndex {index};
   if (m_label_maker_.col_names_enabled() && !name.empty()) {
     if (m_col_index_to_name_.size() <= static_cast<size_t>(index)) {
       m_col_index_to_name_.resize(static_cast<size_t>(index) + 1);
@@ -595,15 +641,15 @@ ColIndex LinearInterface::add_col(const SparseCol& col)
   const auto [lowb, uppb] = normalize_bounds(col.lowb, col.uppb);
 
   const auto index = m_backend_->get_num_cols();
+  const auto col_idx = ColIndex {index};
   check_name_unique(m_col_names_,
                     name,
-                    index,
+                    col_idx,
                     "column",
                     m_label_maker_.duplicates_are_errors());
 
   m_backend_->add_col(lowb, uppb, col.cost);
 
-  const auto col_idx = ColIndex {index};
   if (!name.empty()) {
     if (m_col_index_to_name_.size() <= static_cast<size_t>(index)) {
       m_col_index_to_name_.resize(static_cast<size_t>(index) + 1);
@@ -636,8 +682,12 @@ RowIndex LinearInterface::add_row(const std::string& name,
                                   const double rowub)
 {
   const auto index = m_backend_->get_num_rows();
-  check_name_unique(
-      m_row_names_, name, index, "row", m_label_maker_.duplicates_are_errors());
+  const auto row_idx = RowIndex {index};
+  check_name_unique(m_row_names_,
+                    name,
+                    row_idx,
+                    "row",
+                    m_label_maker_.duplicates_are_errors());
 
   m_backend_->add_row(static_cast<int>(numberElements),
                       columns.data(),
@@ -645,7 +695,6 @@ RowIndex LinearInterface::add_row(const std::string& name,
                       normalize_bound(rowlb),
                       normalize_bound(rowub));
 
-  const auto row_idx = RowIndex {index};
   if (m_label_maker_.row_names_enabled() && !name.empty()) {
     if (m_row_index_to_name_.size() <= static_cast<size_t>(index)) {
       m_row_index_to_name_.resize(static_cast<size_t>(index) + 1);
@@ -732,8 +781,8 @@ void LinearInterface::add_rows(const std::span<const SparseRow> rows,
   const auto infy = m_backend_->infinity();
 
   // Second pass: fill CSR arrays with scaled coefficients and bounds.
-  for (const auto [r, row] : std::views::enumerate(rows)) {
-    rowbeg[static_cast<size_t>(r)] = static_cast<int>(rowind.size());
+  for (const auto& [r, row] : enumerate(rows)) {
+    rowbeg[r] = static_cast<int>(rowind.size());
 
     const auto rs = row.scale;
     const auto inv_rs = (rs != 1.0) ? 1.0 / rs : 1.0;
@@ -757,8 +806,8 @@ void LinearInterface::add_rows(const std::span<const SparseRow> rows,
         ub *= inv_rs;
       }
     }
-    rowlb[static_cast<size_t>(r)] = normalize_bound(lb);
-    rowub[static_cast<size_t>(r)] = normalize_bound(ub);
+    rowlb[r] = normalize_bound(lb);
+    rowub[r] = normalize_bound(ub);
   }
   rowbeg[static_cast<size_t>(num_rows)] = static_cast<int>(rowind.size());
 
@@ -771,7 +820,7 @@ void LinearInterface::add_rows(const std::span<const SparseRow> rows,
                        rowub.data());
 
   // Update row scales and name maps for all new rows
-  for (const auto [r, row] : std::views::enumerate(rows)) {
+  for (const auto& [r, row] : enumerate(rows)) {
     const auto row_idx = RowIndex {first_row_index + static_cast<int>(r)};
 
     if (row.scale != 1.0) {
@@ -783,7 +832,7 @@ void LinearInterface::add_rows(const std::span<const SparseRow> rows,
 
       check_name_unique(m_row_names_,
                         name,
-                        static_cast<int>(row_idx),
+                        row_idx,
                         "row",
                         m_label_maker_.duplicates_are_errors());
 
@@ -824,7 +873,7 @@ void LinearInterface::rebuild_row_name_maps()
     m_row_names_.reserve(m_row_index_to_name_.size());
     for (const auto [i, name] : enumerate<RowIndex>(m_row_index_to_name_)) {
       if (!name.empty()) {
-        m_row_names_.emplace(name, static_cast<int32_t>(i));
+        m_row_names_.emplace(name, i);
       }
     }
   }
@@ -1089,7 +1138,7 @@ auto LinearInterface::write_lp(const std::string& filename) const
         .code = ErrorCode::InvalidInput,
         .message = std::format(
             "LP file '{}' not saved: row names are not available. "
-            "Set names_level >= cols_and_rows to enable LP file output.",
+            "Use --lp-debug to enable LP name generation for file output.",
             filename),
     });
   }
@@ -1160,12 +1209,10 @@ std::expected<int, Error> LinearInterface::initial_solve(
            ++attempt)
       {
         const auto next_algo = next_fallback_algo(current_algo);
-        spdlog::warn(
-            "initial_solve: {} non-optimal with {}, "
-            "fallback to {}",
-            get_prob_name(),
-            current_algo,
-            next_algo);
+        spdlog::warn("{}: initial_solve non-optimal with {}, fallback to {}",
+                     m_log_tag_.empty() ? get_prob_name() : m_log_tag_,
+                     current_algo,
+                     next_algo);
 
         fallback_opts.algorithm = next_algo;
         fallback_opts.presolve = false;
@@ -1250,12 +1297,10 @@ std::expected<int, Error> LinearInterface::resolve(
            ++attempt)
       {
         const auto next_algo = next_fallback_algo(current_algo);
-        spdlog::warn(
-            "resolve: {} non-optimal with {}, "
-            "fallback to {}",
-            get_prob_name(),
-            current_algo,
-            next_algo);
+        spdlog::warn("{}: resolve non-optimal with {}, fallback to {}",
+                     m_log_tag_.empty() ? get_prob_name() : m_log_tag_,
+                     current_algo,
+                     next_algo);
 
         fallback_opts.algorithm = next_algo;
         fallback_opts.presolve = false;
@@ -1365,8 +1410,7 @@ double LinearInterface::get_kappa() const
 
 RowDiagnostics LinearInterface::diagnose_row(const RowIndex row) const
 {
-  const auto ncols = static_cast<int>(get_numcols());
-  const auto ri = static_cast<int>(row);
+  const auto ncols = get_numcols();
 
   RowDiagnostics diag {
       .row = row,
@@ -1380,19 +1424,18 @@ RowDiagnostics LinearInterface::diagnose_row(const RowIndex row) const
   // Row bounds (raw LP units)
   const auto row_lb = std::span(m_backend_->row_lower(), get_numrows());
   const auto row_ub = std::span(m_backend_->row_upper(), get_numrows());
-  diag.rhs_lb = row_lb[static_cast<size_t>(ri)];
-  diag.rhs_ub = row_ub[static_cast<size_t>(ri)];
+  diag.rhs_lb = row_lb[static_cast<size_t>(row)];
+  diag.rhs_ub = row_ub[static_cast<size_t>(row)];
 
   // Scan all columns for non-zero coefficients in this row
-  for (int c = 0; c < ncols; ++c) {
-    const double v = m_backend_->get_coeff(ri, c);
+  for (const auto col : iota_range<ColIndex>(0, ncols)) {
+    const double v = get_coeff_raw(row, col);
     if (v == 0.0) {
       continue;
     }
     const double abs_v = std::abs(v);
     ++diag.num_nonzeros;
 
-    const auto col = ColIndex {c};
     const auto& col_name =
         (static_cast<size_t>(col) < m_col_index_to_name_.size())
         ? m_col_index_to_name_[col]

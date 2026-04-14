@@ -459,7 +459,7 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
 /// Result of a single SDDP iteration (forward + backward pass)
 struct SDDPIterationResult
 {
-  IterationIndex iteration {};  ///< Iteration number (0-based)
+  IterationIndex iteration_index {};  ///< Iteration number (0-based)
   double lower_bound {};  ///< Lower bound (phase 0 obj including a)
   double upper_bound {};  ///< Upper bound (sum of actual phase costs)
   double gap {};  ///< Relative gap: (UB - LB) / max(1, |UB|)

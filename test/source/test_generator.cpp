@@ -87,7 +87,9 @@ TEST_CASE("GeneratorLP - basic generation")
       .generator_array = generator_array,
   };
 
-  const PlanningOptionsLP options;
+  PlanningOptions popts;
+  popts.model_options.demand_fail_cost = 1000.0;
+  const PlanningOptionsLP options(popts);
   SimulationLP simulation_lp(simulation, options);
   SystemLP system_lp(system, simulation_lp);
 
@@ -96,7 +98,7 @@ TEST_CASE("GeneratorLP - basic generation")
   REQUIRE(result.has_value());
 
   const auto sol = lp.get_col_sol();
-  CHECK(sol[1] == doctest::Approx(100.0));  // generation matches demand
+  CHECK(sol[2] == doctest::Approx(100.0));  // generation matches demand
 }
 
 TEST_CASE("GeneratorLP - multiple generators merit order")
@@ -137,7 +139,9 @@ TEST_CASE("GeneratorLP - multiple generators merit order")
       .generator_array = generator_array,
   };
 
-  const PlanningOptionsLP options;
+  PlanningOptions popts;
+  popts.model_options.demand_fail_cost = 1000.0;
+  const PlanningOptionsLP options(popts);
   SimulationLP simulation_lp(simulation, options);
   SystemLP system_lp(system, simulation_lp);
 
@@ -188,7 +192,9 @@ TEST_CASE("GeneratorLP - generator with expansion")
       .generator_array = generator_array,
   };
 
-  const PlanningOptionsLP options;
+  PlanningOptions popts;
+  popts.model_options.demand_fail_cost = 1000.0;
+  const PlanningOptionsLP options(popts);
   SimulationLP simulation_lp(simulation, options);
   SystemLP system_lp(system, simulation_lp);
 
@@ -230,7 +236,9 @@ TEST_CASE("GeneratorLP - generator with pmin/pmax constraints")
       .generator_array = generator_array,
   };
 
-  const PlanningOptionsLP options;
+  PlanningOptions popts;
+  popts.model_options.demand_fail_cost = 1000.0;
+  const PlanningOptionsLP options(popts);
   SimulationLP simulation_lp(simulation, options);
   SystemLP system_lp(system, simulation_lp);
 

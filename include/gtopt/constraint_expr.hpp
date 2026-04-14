@@ -38,6 +38,8 @@
  * | reserve_zone       | up (aliases: urequirement, up_requirement),         |
  * |                    | dn (aliases: drequirement, dn_requirement,          |
  * |                    |     down)                                           |
+ * | lng_terminal       | energy (tank volume), delivery,                     |
+ * |                    | spill (alias: drain), eini, efin, soft_emin         |
  *
  * ### Variable scaling
  *
@@ -94,10 +96,13 @@
  * expr         := term (('+' | '-') term)*
  *
  * term         := [number '*'] element_ref
+ *              |  [number '*'] state_ref
  *              |  [number '*'] sum_expr
  *              |  ['-'] number
  *
  * element_ref  := element_type '(' string ')' '.' attribute
+ *
+ * state_ref    := 'state' '(' element_ref ')'
  *
  * sum_expr     := 'sum' '(' element_type '(' string_list ')' '.'
  *                 attribute ')'
@@ -113,6 +118,7 @@
  *              |  'junction'  | 'flow' | 'seepage'
  *              |  'flow_right' | 'volume_right'
  *              |  'reserve_provision' | 'reserve_zone'
+ *              |  'lng_terminal'
  *
  * attribute    := IDENT
  *
@@ -170,6 +176,12 @@ struct ElementRef
   std::string element_type {};  ///< "generator", "demand", "line", etc.
   std::string element_id {};  ///< name or "uid:N" reference
   std::string attribute {};  ///< LP attribute: "generation", "load", etc.
+
+  /// True when the user wrote `state(<element_ref>)` (Phase 1e).
+  /// In Phase 1 the resolver treats wrapped and unwrapped refs
+  /// identically; Phase 2 will require this flag to be set whenever
+  /// the resolved column has `AmplVariableKind::StateBacked`.
+  bool state_wrapped {false};
 };
 
 /**

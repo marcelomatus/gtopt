@@ -55,6 +55,8 @@ gtopt_check_solvers   = "gtopt_check_solvers.gtopt_check_solvers:main"
 gtopt_check_pampl     = "gtopt_check_pampl.gtopt_check_pampl:main"
 gtopt_check_fingerprint  = "gtopt_check_fingerprint._cli:main"
 plp_compress_case     = "plp_compress_case.main:main"
+gtopt_expand          = "gtopt_expand.cli:main"
+gtopt_irrigation      = "gtopt_expand.cli:main"  # deprecated alias
 
 
 [project.optional-dependencies]
@@ -69,9 +71,20 @@ dev = [
     "xlsxwriter>=3.1",
 ]
 
+[tool.setuptools]
+include-package-data = true
+
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["gtopt_compare*", "cvs2parquet*", "gtopt_diagram*", "gtopt_field_extractor*", "gtopt_check_lp*", "gtopt_check_output*", "gtopt_check_pampl*", "gtopt_compress_lp*", "gtopt_check_json*", "gtopt_check_solvers*", "gtopt_config*", "gtopt_check_fingerprint*", "igtopt*", "plp2gtopt*", "plp_compress_case*", "pp2gtopt*", "gtopt2pp*", "run_gtopt*", "gtopt_monitor*", "ts2gtopt*"]
+include = ["gtopt_compare*", "cvs2parquet*", "gtopt_diagram*", "gtopt_field_extractor*", "gtopt_check_lp*", "gtopt_check_output*", "gtopt_check_pampl*", "gtopt_compress_lp*", "gtopt_check_json*", "gtopt_check_solvers*", "gtopt_config*", "gtopt_check_fingerprint*", "gtopt_expand*", "igtopt*", "plp2gtopt*", "plp_compress_case*", "pp2gtopt*", "gtopt2pp*", "run_gtopt*", "gtopt_monitor*", "ts2gtopt*"]
+
+[tool.setuptools.package-data]
+# Non-Python assets that must ship in wheels (pip install ./scripts).
+# plp2gtopt bundles the RoR equivalence whitelist used by
+# --ror-as-reservoirs; gtopt_expand bundles the PAMPL/TSON templates
+# used to generate Laja/Maule irrigation agreements and LNG expansions.
+"plp2gtopt.templates" = ["*.csv", "*.md"]
+"gtopt_expand.templates" = ["*.tampl", "*.tson", "*.md"]
 
 
 # ---------------------------------------------------------------------------
@@ -91,6 +104,7 @@ testpaths = [
     "gtopt_check_json/tests",
     "gtopt_check_pampl/tests",
     "gtopt_check_solvers/tests",
+    "gtopt_expand/tests",
     "gtopt2pp/tests",
     "igtopt/tests",
     "plp2gtopt/tests",
@@ -109,7 +123,7 @@ markers = [
 ]
 
 [tool.coverage.run]
-source = ["gtopt_compare", "cvs2parquet", "gtopt_diagram", "gtopt_field_extractor", "gtopt2pp", "igtopt", "plp2gtopt", "pp2gtopt", "gtopt_monitor", "ts2gtopt"]
+source = ["gtopt_compare", "cvs2parquet", "gtopt_diagram", "gtopt_field_extractor", "gtopt2pp", "gtopt_expand", "igtopt", "plp2gtopt", "pp2gtopt", "gtopt_monitor", "ts2gtopt"]
 omit = ["*/test*", "*/tests/*", "*/__pycache__/*", "*/venv/*"]
 
 [tool.coverage.report]
@@ -126,7 +140,7 @@ exclude_lines = [
 profile = "black"
 line_length = 88
 skip_gitignore = true
-known_first_party = ["cvs2parquet", "gtopt_compare", "gtopt_diagram", "gtopt_field_extractor", "gtopt2pp", "gtopt_check_json", "gtopt_check_lp", "gtopt_check_output", "gtopt_check_pampl", "gtopt_check_solvers", "gtopt_compress_lp", "gtopt_config", "gtopt_check_fingerprint", "igtopt", "plp2gtopt", "plp_compress_case", "pp2gtopt", "run_gtopt", "gtopt_monitor", "ts2gtopt"]
+known_first_party = ["cvs2parquet", "gtopt_compare", "gtopt_diagram", "gtopt_field_extractor", "gtopt2pp", "gtopt_check_json", "gtopt_check_lp", "gtopt_check_output", "gtopt_check_pampl", "gtopt_check_solvers", "gtopt_compress_lp", "gtopt_config", "gtopt_check_fingerprint", "gtopt_expand", "igtopt", "plp2gtopt", "plp_compress_case", "pp2gtopt", "run_gtopt", "gtopt_monitor", "ts2gtopt"]
 
 [tool.ruff]
 line-length = 88

@@ -165,7 +165,7 @@ def _read_lp_file(path: Path) -> tuple[list[str], list[str]]:
         with lzma.open(p, "rt") as f:
             text = f.read()
     else:
-        with open(p) as f:
+        with open(p, encoding="utf-8") as f:
             text = f.read()
 
     col_names: list[str] = []
@@ -235,7 +235,7 @@ def compute_from_lp_file(path: Path) -> LpFingerprint:
 
 def load_fingerprint_json(path: Path) -> LpFingerprint:
     """Load an LP fingerprint from a JSON file (as produced by gtopt)."""
-    with open(path) as f:
+    with open(path, encoding="utf-8") as f:
         data = json.load(f)
 
     structural = data["structural"]
@@ -309,7 +309,7 @@ def write_fingerprint_json(
             "rows_by_class": dict(sorted(fp.stats.rows_by_class.items())),
         },
     }
-    with open(path, "w") as f:
+    with open(path, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2)
         f.write("\n")
 

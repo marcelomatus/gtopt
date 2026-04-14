@@ -54,7 +54,7 @@ TEST_CASE("PhaseLP construction")
     };
     const PhaseLP phase_lp(phase, options, stages, blocks, PhaseIndex {1});
 
-    CHECK(phase_lp.uid() == PhaseUid {1});
+    CHECK(phase_lp.uid() == make_uid<Phase>(1));
     CHECK(phase_lp.index() == 1);
     CHECK(phase_lp.stages().size() == 2);  // Only active stages are included
   }

@@ -11,11 +11,15 @@
 
 #include <cmath>
 #include <format>
+#include <optional>
 #include <ranges>
 #include <string>
+#include <string_view>
 #include <variant>
 #include <vector>
 
+#include <gtopt/field_sched.hpp>
+#include <gtopt/utils.hpp>
 #include <gtopt/validate_planning.hpp>
 #include <spdlog/spdlog.h>
 
@@ -122,6 +126,24 @@ void check_referential_integrity(ValidationResult& result, const System& sys)
               "Generator");
   }
 
+  // Pump.waterway -> Waterway, Pump.demand -> Demand
+  for (const auto& pump : sys.pump_array) {
+    check_ref(result,
+              pump.waterway,
+              sys.waterway_array,
+              "Pump",
+              pump.name,
+              "waterway",
+              "Waterway");
+    check_ref(result,
+              pump.demand,
+              sys.demand_array,
+              "Pump",
+              pump.name,
+              "demand",
+              "Demand");
+  }
+
   // Flow.junction -> Junction (optional in flow-turbine mode)
   for (const auto& flow : sys.flow_array) {
     if (flow.junction.has_value()) {
@@ -187,6 +209,194 @@ void check_referential_integrity(ValidationResult& result, const System& sys)
               res.name,
               "junction",
               "Junction");
+  }
+}
+
+// ── Positivity helpers ────────────────────────────────────────────────
+//
+// Water-right, line, and waterway magnitudes must be physically
+// positive (zero allowed when explicitly called out; negative is
+// always a schema bug).  These helpers walk the FieldSched variant
+// (scalar / vector / file) and report any negative scalar value
+// found.  FileSched entries are skipped — they resolve at
+// load-time and the file loader is responsible for its own checks.
+
+enum class Positivity : std::uint8_t
+{
+  strict,  ///< value must be > 0
+  non_negative,  ///< value must be >= 0
+};
+
+[[nodiscard]] constexpr bool violates(double v, Positivity p) noexcept
+{
+  return p == Positivity::strict ? !(v > 0.0) : !(v >= 0.0);
+}
+
+[[nodiscard]] constexpr std::string_view positivity_name(Positivity p) noexcept
+{
+  return p == Positivity::strict ? "> 0" : ">= 0";
+}
+
+template<typename Vec>
+void check_vector_positive(ValidationResult& result,
+                           const Vec& values,
+                           Positivity p,
+                           std::string_view owner_kind,
+                           std::string_view owner_name,
+                           std::string_view field_name)
+{
+  if constexpr (std::is_arithmetic_v<
+                    std::remove_cvref_t<decltype(values.front())>>)
+  {
+    for (const auto& [i, v_raw] : enumerate(values)) {
+      const auto v = static_cast<double>(v_raw);
+      if (violates(v, p)) {
+        result.errors.push_back(std::format("{} '{}': {}[{}] = {} must be {}",
+                                            owner_kind,
+                                            owner_name,
+                                            field_name,
+                                            i,
+                                            v,
+                                            positivity_name(p)));
+        return;  // one error per field is enough
+      }
+    }
+  } else {
+    // Nested vector (TBReal / STBReal).  Recurse one level.
+    for (const auto& sub : values) {
+      check_vector_positive(result, sub, p, owner_kind, owner_name, field_name);
+    }
+  }
+}
+
+/// Check a FieldSched<Real, ...> variant for positivity.
+/// FileSched (string) entries are skipped — those resolve at load-time.
+template<typename FieldSched>
+void check_field_positive(ValidationResult& result,
+                          const FieldSched& fs,
+                          Positivity p,
+                          std::string_view owner_kind,
+                          std::string_view owner_name,
+                          std::string_view field_name)
+{
+  std::visit(
+      [&](const auto& val)
+      {
+        using T = std::remove_cvref_t<decltype(val)>;
+        if constexpr (std::is_same_v<T, Real>) {
+          if (violates(static_cast<double>(val), p)) {
+            result.errors.push_back(std::format("{} '{}': {} = {} must be {}",
+                                                owner_kind,
+                                                owner_name,
+                                                field_name,
+                                                val,
+                                                positivity_name(p)));
+          }
+        } else if constexpr (std::is_same_v<T, FileSched>) {
+          // Filename reference — defer validation to load-time.
+        } else {
+          check_vector_positive(
+              result, val, p, owner_kind, owner_name, field_name);
+        }
+      },
+      fs);
+}
+
+/// Check an optional FieldSched field.  Skips when unset.
+template<typename OptFieldSched>
+void check_opt_field_positive(ValidationResult& result,
+                              const OptFieldSched& opt,
+                              Positivity p,
+                              std::string_view owner_kind,
+                              std::string_view owner_name,
+                              std::string_view field_name)
+{
+  if (!opt.has_value()) {
+    return;
+  }
+  check_field_positive(result, *opt, p, owner_kind, owner_name, field_name);
+}
+
+/// Check positivity of flow-right / volume-right / line / waterway fields.
+void check_positivity(ValidationResult& result, const System& sys)
+{
+  // FlowRight: discharge and fmax must be >= 0 (consumptive flow).
+  for (const auto& fr : sys.flow_right_array) {
+    check_field_positive(result,
+                         fr.discharge,
+                         Positivity::non_negative,
+                         "FlowRight",
+                         fr.name,
+                         "discharge");
+    check_opt_field_positive(result,
+                             fr.fmax,
+                             Positivity::non_negative,
+                             "FlowRight",
+                             fr.name,
+                             "fmax");
+  }
+
+  // VolumeRight: storage and demand magnitudes must be >= 0.
+  for (const auto& vr : sys.volume_right_array) {
+    check_opt_field_positive(result,
+                             vr.emin,
+                             Positivity::non_negative,
+                             "VolumeRight",
+                             vr.name,
+                             "emin");
+    check_opt_field_positive(result,
+                             vr.emax,
+                             Positivity::non_negative,
+                             "VolumeRight",
+                             vr.name,
+                             "emax");
+    check_opt_field_positive(result,
+                             vr.demand,
+                             Positivity::non_negative,
+                             "VolumeRight",
+                             vr.name,
+                             "demand");
+    check_opt_field_positive(result,
+                             vr.fmax,
+                             Positivity::non_negative,
+                             "VolumeRight",
+                             vr.name,
+                             "fmax");
+    if (vr.eini.has_value() && *vr.eini < 0.0) {
+      result.errors.push_back(std::format(
+          "VolumeRight '{}': eini = {} must be >= 0", vr.name, *vr.eini));
+    }
+    if (vr.efin.has_value() && *vr.efin < 0.0) {
+      result.errors.push_back(std::format(
+          "VolumeRight '{}': efin = {} must be >= 0", vr.name, *vr.efin));
+    }
+  }
+
+  // Line: transfer capacities must be >= 0 (direction is encoded
+  // separately in bus_a/bus_b).
+  for (const auto& line : sys.line_array) {
+    check_opt_field_positive(result,
+                             line.tmax_ab,
+                             Positivity::non_negative,
+                             "Line",
+                             line.name,
+                             "tmax_ab");
+    check_opt_field_positive(result,
+                             line.tmax_ba,
+                             Positivity::non_negative,
+                             "Line",
+                             line.name,
+                             "tmax_ba");
+  }
+
+  // Waterway (hydro flow): fmax must be > 0, fmin must be >= 0.
+  // Negative flow would invert the direction, which should be
+  // expressed by swapping junction_a/junction_b instead.
+  for (const auto& ww : sys.waterway_array) {
+    check_opt_field_positive(
+        result, ww.fmin, Positivity::non_negative, "Waterway", ww.name, "fmin");
+    check_opt_field_positive(
+        result, ww.fmax, Positivity::strict, "Waterway", ww.name, "fmax");
   }
 }
 
@@ -386,6 +596,7 @@ void check_scenario_probabilities(ValidationResult& result, Planning& planning)
 
   check_referential_integrity(result, planning.system);
   check_ranges(result, planning);
+  check_positivity(result, planning.system);
   check_completeness(result, planning);
   check_scenario_probabilities(result, planning);
 

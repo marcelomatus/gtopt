@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <charconv>
 #include <format>
+#include <utility>
 
 #include <gtopt/as_label.hpp>
 #include <gtopt/battery_lp.hpp>
@@ -22,11 +23,13 @@
 #include <gtopt/generator_lp.hpp>
 #include <gtopt/junction_lp.hpp>
 #include <gtopt/line_lp.hpp>
+#include <gtopt/lng_terminal_lp.hpp>
 #include <gtopt/reserve_provision_lp.hpp>
 #include <gtopt/reserve_zone_lp.hpp>
 #include <gtopt/reservoir_lp.hpp>
 #include <gtopt/reservoir_seepage_lp.hpp>
 #include <gtopt/single_id.hpp>
+#include <gtopt/stage_lp.hpp>
 #include <gtopt/system_context.hpp>
 #include <gtopt/system_lp.hpp>
 #include <gtopt/turbine_lp.hpp>
@@ -101,6 +104,13 @@ namespace
     const ElementRef& ref,
     const LinearProblem& lp)
 {
+  // Singleton-class scalars (`options.*`, `system.*`) carry no element
+  // id and resolve to a constant numeric, never to an LP column — leave
+  // them to `resolve_single_param`'s scalar branch.
+  if (ref.element_id.empty()) {
+    return std::nullopt;
+  }
+
   const auto single_id = parse_element_id(ref.element_id);
   const BlockUid buid = block.uid();
 
@@ -215,6 +225,39 @@ bool resolve_col_to_row(const SystemContext& sc,
     const BlockLP& block,
     const ElementRef& ref)
 {
+  // ── singleton class scalar (options.*, system.*, stage.*) ───────────
+  // No element id, no element-level variation.  Most of these are
+  // immutable for the SimulationLP lifetime and live in the scalar
+  // registry, but `stage.*` reads metadata of the *active* stage and
+  // therefore has to be resolved against the StageLP argument.
+  if (ref.element_id.empty()) {
+    if (ref.element_type == StageLP::ClassName) {
+      if (ref.attribute == StageLP::MonthName) {
+        const auto m = stage.month();
+        if (m.has_value()) {
+          return static_cast<double>(std::to_underlying(*m));
+        }
+        return std::nullopt;
+      }
+      if (ref.attribute == StageLP::UidName) {
+        return static_cast<double>(stage.uid());
+      }
+      if (ref.attribute == StageLP::DurationName) {
+        return stage.duration();
+      }
+      SPDLOG_WARN(std::format("user_constraint: unknown stage attribute '{}'",
+                              ref.attribute));
+      return std::nullopt;
+    }
+    if (auto val = sc.find_ampl_scalar(ref.element_type, ref.attribute)) {
+      return val;
+    }
+    SPDLOG_WARN(std::format("user_constraint: unknown scalar {}.{}",
+                            ref.element_type,
+                            ref.attribute));
+    return std::nullopt;
+  }
+
   const auto single_id = parse_element_id(ref.element_id);
   const auto suid = stage.uid();
   const auto buid = block.uid();
@@ -546,6 +589,8 @@ void collect_sum_cols(const SystemContext& sc,
       iterate.template operator()<ReserveZoneLP>("reserve_zone");
     } else if (sum_ref.element_type == "bus") {
       iterate.template operator()<BusLP>("bus");
+    } else if (sum_ref.element_type == "lng_terminal") {
+      iterate.template operator()<LngTerminalLP>("lng_terminal");
     }
     // NOLINTEND(bugprone-branch-clone)
   } else {

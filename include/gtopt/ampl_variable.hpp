@@ -13,12 +13,11 @@
  *
  * Design mirrors `StateVariable` / `SimulationLP::add_state_variable`.
  *
- * Class name storage: `class_name` is kept as a `std::string` so that
- * registration sites can materialize the lowercase form of the
- * element's class (e.g. `as_label(lowercase(LineLP::ClassName.full_name()))`
- * → `"line"`) without worrying about the lifetime of the lowercased
- * view.  `attribute` stays as `std::string_view` because attribute
- * names come from `constexpr` class-level literals (e.g.
+ * Class name storage: `class_name` is `std::string_view` pointing
+ * into each `LPClassName::snake_case()` constexpr buffer — program-
+ * lifetime storage, so no allocation on map lookups.  `attribute` is
+ * likewise `std::string_view` because attribute names come from
+ * `constexpr` class-level literals (e.g.
  * `GeneratorLP::GenerationName`).
  *
  * `block_cols` is a non-owning pointer into the element's own
@@ -28,6 +27,7 @@
 
 #pragma once
 
+#include <cstdint>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -45,15 +45,35 @@
 namespace gtopt
 {
 
+/// Tag on each registered AMPL variable distinguishing ordinary LP
+/// columns from state-backed columns that bridge phases via the
+/// state-variable subsystem.  The user-constraint DSL will use this in
+/// Phase 2 to validate `state(...)` wrappers: the parser asserts
+/// authorial intent by requiring `state(elem.efin)` and the resolver
+/// checks that the referenced entry's `kind == StateBacked`.
+///
+/// Default is `Regular`: elements that want the state-backed tag call
+/// `SystemContext::add_ampl_state_variable` (same shape as
+/// `add_ampl_variable`) once the Phase 2 API lands.
+enum class AmplVariableKind : std::uint8_t
+{
+  Regular,  ///< Ordinary LP column scoped to this (scene, phase)
+  StateBacked,  ///< Also a StateVariable — cross-phase bridge
+};
+
 /// Key identifying a PAMPL-visible variable at a specific
 /// (element, attribute, scenario, stage) granularity.
+///
+/// `class_name` is a `std::string_view` into the constexpr
+/// `LPClassName::snake_case()` buffer — program-lifetime storage,
+/// so no allocation is needed for map lookups.
 struct AmplVariableKey
 {
-  std::string class_name;  ///< e.g. "generator", "line", "battery"
+  std::string_view class_name;  ///< e.g. "generator", "line", "battery"
   Uid element_uid {unknown_uid};
   std::string_view attribute;  ///< e.g. "generation", "flowp", "theta"
-  ScenarioUid scenario_uid {unknown_uid};
-  StageUid stage_uid {unknown_uid};
+  ScenarioUid scenario_uid = unknown_uid_of<Scenario>();
+  StageUid stage_uid = unknown_uid_of<Stage>();
 
   [[nodiscard]] friend auto operator<=>(
       const AmplVariableKey&, const AmplVariableKey&) noexcept = default;
@@ -80,6 +100,11 @@ struct AmplVariable
   /// Only meaningful when `block_cols` is empty.
   ColIndex stage_col {unknown_index};
 
+  /// Regular LP column or state-backed column.  Default is Regular;
+  /// state-backed entries will be set by the Phase 2
+  /// `add_ampl_state_variable` API.
+  AmplVariableKind kind {AmplVariableKind::Regular};
+
   [[nodiscard]] std::optional<ColIndex> col_at(
       BlockUid block_uid) const noexcept
   {
@@ -100,11 +125,11 @@ struct AmplVariable
 /// used so that PAMPL expressions like `generator("G1")` can resolve the
 /// string "G1" to its Uid.  Key is (class_name, name).
 ///
-/// `class_name` uses `std::string` for the same reason as `AmplVariableKey`
-/// (materialized lowercase view).  `element_name` is a `std::string`
-/// because it comes from the element's `Id::name` field, which is
-/// already owned storage.
-using AmplElementNameKey = std::pair<std::string, std::string>;
+/// Both views are non-owning: `class_name` points into constexpr
+/// `LPClassName::snake_case()` (program lifetime); `element_name`
+/// points into the element's `Id::name` (owned by the `System`,
+/// which outlives the registry).
+using AmplElementNameKey = std::pair<std::string_view, std::string_view>;
 
 /// Variable registry: (class_name, uid, attribute, scenario, stage) -> cols.
 using AmplVariableMap = flat_map<AmplVariableKey, AmplVariable>;
@@ -130,7 +155,7 @@ struct AmplCompoundLeg
 /// indexed by class + compound name only (not per-element).
 struct AmplCompoundKey
 {
-  std::string class_name;
+  std::string_view class_name;
   std::string_view compound_name;
 
   [[nodiscard]] friend auto operator<=>(
@@ -139,6 +164,30 @@ struct AmplCompoundKey
 
 /// Compound-attribute registry: (class, compound_name) -> legs.
 using AmplCompoundMap = flat_map<AmplCompoundKey, std::vector<AmplCompoundLeg>>;
+
+// ── Scalar parameter registry (Phase 1d) ────────────────────────────────────
+
+/// Key identifying a class-level scalar parameter.  "Singleton classes"
+/// like `options` and `system` expose globally-scoped read-only constants
+/// that PAMPL constraints may reference as `options.scale_objective`,
+/// `system.n_stages`, etc.  No element_uid, no (scenario, stage) tuple
+/// — the value is the same for every row.
+struct AmplScalarKey
+{
+  std::string_view class_name;  ///< "options", "system", ...
+  std::string_view attribute;  ///< "annual_discount_rate", "scale_objective"
+
+  [[nodiscard]] friend auto operator<=>(
+      const AmplScalarKey&, const AmplScalarKey&) noexcept = default;
+};
+
+/// Scalar registry: (class, attribute) -> resolved double value.
+///
+/// Values are cached at registration time (once per `SimulationLP` under
+/// `std::call_once`) so the resolver path is a pure read.  Options are
+/// immutable for the lifetime of a `SimulationLP`, which is what makes
+/// the cache-by-value approach safe.
+using AmplScalarMap = flat_map<AmplScalarKey, double>;
 
 // ── Element metadata registry (F9) ──────────────────────────────────────────
 
@@ -155,7 +204,7 @@ using AmplElementMetadata =
 /// Lookup key for the per-element metadata registry.
 struct AmplMetadataKey
 {
-  std::string class_name;
+  std::string_view class_name;
   Uid element_uid {unknown_uid};
 
   [[nodiscard]] friend auto operator<=>(

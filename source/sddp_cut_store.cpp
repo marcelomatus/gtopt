@@ -14,6 +14,7 @@
 #include <map>
 #include <ranges>
 #include <set>
+#include <unordered_map>
 #include <vector>
 
 #include <gtopt/label_maker.hpp>
@@ -45,7 +46,7 @@ void SDDPCutStore::store_cut(SceneIndex scene_index,
                              SceneUid scene_uid_val,
                              PhaseUid phase_uid_val)
 {
-  auto cut_name = LabelMaker::force_row_label(cut);
+  auto cut_name = LabelMaker {LpNamesLevel::all}.make_row_label(cut);
 
   StoredCut stored {
       .type = type,
@@ -354,8 +355,7 @@ void SDDPCutStore::cap_stored_cuts(const SDDPOptions& options,
   }
   const auto limit = static_cast<std::size_t>(max_cuts);
 
-  const auto num_scenes =
-      static_cast<Index>(planning_lp.simulation().scenes().size());
+  const auto num_scenes = planning_lp.simulation().scene_count();
   int total_dropped = 0;
 
   for (const auto scene_index : iota_range<SceneIndex>(0, num_scenes)) {
@@ -391,8 +391,7 @@ std::vector<StoredCut> SDDPCutStore::build_combined_cuts(
     const PlanningLP& planning_lp) const
 {
   std::vector<StoredCut> combined;
-  const auto num_scenes =
-      static_cast<Index>(planning_lp.simulation().scenes().size());
+  const auto num_scenes = planning_lp.simulation().scene_count();
   for (const auto scene_index : iota_range<SceneIndex>(0, num_scenes)) {
     const auto& cuts = m_scene_cuts_[scene_index];
     combined.insert(combined.end(), cuts.begin(), cuts.end());
@@ -409,10 +408,8 @@ void SDDPCutStore::apply_cut_sharing_for_iteration(
     PlanningLP& planning_lp,
     [[maybe_unused]] const LabelMaker& label_maker)
 {
-  const auto num_scenes =
-      static_cast<Index>(planning_lp.simulation().scenes().size());
-  const auto num_phases =
-      static_cast<Index>(planning_lp.simulation().phases().size());
+  const auto num_scenes = planning_lp.simulation().scene_count();
+  const auto num_phases = planning_lp.simulation().phase_count();
 
   if (options.cut_sharing == CutSharingMode::none || num_scenes <= 1) {
     return;
@@ -432,7 +429,7 @@ void SDDPCutStore::apply_cut_sharing_for_iteration(
   };
 
   const auto& scenes = planning_lp.simulation().scenes();
-  flat_map<SceneUid, SceneIndex> scene_uid_map;
+  std::unordered_map<SceneUid, SceneIndex, std::hash<SceneUid>> scene_uid_map;
   map_reserve(scene_uid_map, scenes.size());
   for (auto&& [si, sc_lp] : enumerate<SceneIndex>(scenes)) {
     scene_uid_map[sc_lp.uid()] = si;
@@ -481,7 +478,7 @@ void SDDPCutStore::apply_cut_sharing_for_iteration(
 // ── save_cuts_for_iteration ────────────────────────────────────────────────
 
 void SDDPCutStore::save_cuts_for_iteration(
-    IterationIndex iter,
+    IterationIndex iteration_index,
     std::span<const uint8_t> scene_feasible,
     const SDDPOptions& options,
     PlanningLP& planning_lp,
@@ -511,19 +508,19 @@ void SDDPCutStore::save_cuts_for_iteration(
   // Save to a versioned file: sddp_cuts_<iter>.csv
   if (!cut_dir.empty()) {
     const auto versioned_file =
-        (cut_dir / std::format(sddp_file::versioned_cuts_fmt, iter)).string();
+        (cut_dir / std::format(sddp_file::versioned_cuts_fmt, iteration_index))
+            .string();
     auto result = save_all(versioned_file);
     if (!result.has_value()) {
       SPDLOG_WARN("SDDP: could not save versioned cuts at iter {}: {}",
-                  iter,
+                  iteration_index,
                   result.error().message);
     }
   }
 
   // Save per-scene cuts
   if (!cut_dir.empty()) {
-    const auto num_scenes =
-        static_cast<Index>(planning_lp.simulation().scenes().size());
+    const auto num_scenes = planning_lp.simulation().scene_count();
     const auto& scenes = planning_lp.simulation().scenes();
     for (const auto scene_index : iota_range<SceneIndex>(0, num_scenes)) {
       auto result = save_scene_cuts_csv(m_scene_cuts_[scene_index],
@@ -533,7 +530,7 @@ void SDDPCutStore::save_cuts_for_iteration(
                                         cut_dir.string());
       if (!result.has_value()) {
         SPDLOG_WARN("SDDP: could not save per-scene cuts at iter {}: {}",
-                    iter,
+                    iteration_index,
                     result.error().message);
         break;
       }
@@ -547,23 +544,23 @@ void SDDPCutStore::save_cuts_for_iteration(
         planning_lp, state_file, IterationIndex {current_iteration});
     if (!sr.has_value()) {
       SPDLOG_WARN("SDDP: could not save state at iter {}: {}",
-                  iter,
+                  iteration_index,
                   sr.error().message);
     }
     const auto versioned_state =
-        (cut_dir / std::format(sddp_file::versioned_state_fmt, iter)).string();
+        (cut_dir / std::format(sddp_file::versioned_state_fmt, iteration_index))
+            .string();
     sr = save_state_csv(
         planning_lp, versioned_state, IterationIndex {current_iteration});
     if (!sr.has_value()) {
       SPDLOG_WARN("SDDP: could not save versioned state at iter {}: {}",
-                  iter,
+                  iteration_index,
                   sr.error().message);
     }
   }
 
   // Rename cut files for infeasible scenes
-  const auto num_scenes =
-      static_cast<Index>(planning_lp.simulation().scenes().size());
+  const auto num_scenes = planning_lp.simulation().scene_count();
   const auto& scenes = planning_lp.simulation().scenes();
   for (const auto scene_index : iota_range<SceneIndex>(0, num_scenes)) {
     if (scene_feasible[static_cast<std::size_t>(scene_index)] != 0U) {

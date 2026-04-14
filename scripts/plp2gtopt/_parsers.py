@@ -24,6 +24,19 @@ if TYPE_CHECKING:
 
 
 # ---------------------------------------------------------------------------
+# Packaged data templates
+# ---------------------------------------------------------------------------
+
+# Default RoR-equivalence whitelist shipped inside the gtopt_expand package.
+# The canonical copy now lives in gtopt_expand/templates/ (moved as part of
+# the gtopt_irrigation → gtopt_expand rename).  The plp2gtopt/templates/
+# copy is kept as a fallback for standalone plp2gtopt installs.
+DEFAULT_ROR_RESERVOIRS_FILE: Path = (
+    Path(__file__).resolve().parent / "templates" / "ror_equivalence.csv"
+)
+
+
+# ---------------------------------------------------------------------------
 # Utility type used by several argument groups
 # ---------------------------------------------------------------------------
 
@@ -332,13 +345,15 @@ def add_solver_arguments(parser: argparse.ArgumentParser, conf: dict[str, str]) 
         dest="solver_type",
         metavar="TYPE",
         default=conf.get("solver_type", "sddp"),
-        choices=["sddp", "mono", "monolithic"],
+        choices=["sddp", "mono", "monolithic", "cascade"],
         help=(
             "solver type controlling the simulation structure: "
             "'sddp' produces one scene per scenario and one phase per stage "
             "(for Stochastic Dual Dynamic Programming); "
             "'mono'/'monolithic' produces a single scene with all scenarios and "
-            "a single phase with all stages (for the monolithic solver). "
+            "a single phase with all stages (for the monolithic solver); "
+            "'cascade' uses a 3-level cascade: L0 uninodal, L1 transport "
+            "(lines without losses/kirchhoff), L2 full network. "
             "(default: %(default)s)"
         ),
     )
@@ -665,6 +680,52 @@ def add_reservoir_battery_arguments(
 
 
 # ---------------------------------------------------------------------------
+# 6b. RoR-as-reservoirs equivalence arguments
+# ---------------------------------------------------------------------------
+
+
+def add_ror_arguments(parser: argparse.ArgumentParser, _conf: dict[str, str]) -> None:
+    """Register ``--ror-as-reservoirs`` and ``--ror-as-reservoirs-file``.
+
+    These options let a user promote selected ``pasada`` / ``serie`` PLP
+    centrals to **daily-cycle reservoirs** (mirroring the ESS DCMod=2
+    regulation-tank pattern).  The feature is strictly whitelist-gated:
+    a central can only be promoted if its name appears in the CSV file
+    passed via ``--ror-as-reservoirs-file`` (so we never invent a vmax).
+    """
+    parser.add_argument(
+        "--ror-as-reservoirs",
+        dest="ror_as_reservoirs",
+        metavar="SELECTION",
+        default=None,
+        help=(
+            "promote run-of-river (pasada/serie) centrals to daily-cycle "
+            "reservoirs.  SELECTION is 'all', 'none', or a comma-separated "
+            "list of central names (e.g. 'CentralA,CentralB').  Requires "
+            "--ror-as-reservoirs-file; only centrals whose vmax is listed "
+            "in that CSV are eligible.  (default: feature disabled)"
+        ),
+    )
+    parser.add_argument(
+        "--ror-as-reservoirs-file",
+        dest="ror_as_reservoirs_file",
+        type=Path,
+        metavar="FILE",
+        default=DEFAULT_ROR_RESERVOIRS_FILE,
+        help=(
+            "CSV file mapping central names to daily-cycle vmax [hm3]. "
+            "Required columns: name, vmax_hm3.  Optional columns: "
+            "enabled (true/false), comment.  Only centrals whose vmax "
+            "is known should be listed here — this file is the sole "
+            "source of truth for --ror-as-reservoirs.  See "
+            "docs/templates/ror_equivalence.example.csv for the schema. "
+            "(default: packaged template at plp2gtopt/templates/"
+            "ror_equivalence.csv)"
+        ),
+    )
+
+
+# ---------------------------------------------------------------------------
 # 7. Technology detection arguments
 # ---------------------------------------------------------------------------
 
@@ -818,11 +879,12 @@ def add_general_arguments(
         action=argparse.BooleanOptionalAction,
         default=False,
         help=(
-            "emit irrigation agreement entities (RightJunction, FlowRight, "
-            "VolumeRight, UserConstraint) from plplajam.dat and "
-            "plpmaulen.dat when present.  Also generates PAMPL parameter "
-            "files (laja_agreement.pampl, maule_agreement.pampl). "
-            "(default: %(default)s)"
+            "emit canonical Stage-1 irrigation agreement JSON files "
+            "(laja.json, maule.json) from plplajam.dat / plpmaulen.dat. "
+            "The Stage-2 transform (FlowRight/VolumeRight/UserConstraint "
+            "entities and the companion PAMPL file) is now handled "
+            "exclusively by `gtopt_expand` — run it on the dumped "
+            "JSON to get the rights entities. (default: %(default)s)"
         ),
     )
     parser.add_argument(

@@ -175,9 +175,9 @@ TEST_CASE("Flow discharge scalar loaded into LP bounds")  // NOLINT
   REQUIRE(flow_elements.size() == 1);
   const auto& flow_lp = flow_elements[0];
 
-  const auto& scene = sim_lp.scenes()[SceneIndex {0}];
+  const auto& scene = sim_lp.scenes()[first_scene_index()];
   const auto& scenario = scene.scenarios()[0];
-  const auto& phase = sim_lp.phases()[PhaseIndex {0}];
+  const auto& phase = sim_lp.phases()[first_phase_index()];
   const auto& stage = phase.stages()[0];
 
   const auto& fcols = flow_lp.flow_cols_at(scenario, stage);
@@ -346,8 +346,8 @@ TEST_CASE("Flow discharge per-block vector loaded into LP bounds")  // NOLINT
   REQUIRE(result.has_value());
 
   const auto& flow_lp = sys_lp.elements<FlowLP>()[0];
-  const auto& scenario = sim_lp.scenes()[SceneIndex {0}].scenarios()[0];
-  const auto& stage = sim_lp.phases()[PhaseIndex {0}].stages()[0];
+  const auto& scenario = sim_lp.scenes()[first_scene_index()].scenarios()[0];
+  const auto& stage = sim_lp.phases()[first_phase_index()].stages()[0];
 
   const auto& fcols = flow_lp.flow_cols_at(scenario, stage);
   REQUIRE(fcols.size() == 2);
@@ -530,11 +530,11 @@ TEST_CASE(  // NOLINT
   CHECK(result.value() == 0);
 
   const auto& flow_lp = sys_lp.elements<FlowLP>()[0];
-  const auto& scene = sim_lp.scenes()[SceneIndex {0}];
+  const auto& scene = sim_lp.scenes()[first_scene_index()];
   const auto& scenarios = scene.scenarios();
   REQUIRE(scenarios.size() == 2);
 
-  const auto& stage = sim_lp.phases()[PhaseIndex {0}].stages()[0];
+  const auto& stage = sim_lp.phases()[first_phase_index()].stages()[0];
 
   const auto col_low = li.get_col_low();
   const auto col_upp = li.get_col_upp();
@@ -875,12 +875,12 @@ TEST_CASE(  // NOLINT
   auto result = li.resolve();
   REQUIRE(result.has_value());
 
-  const auto& scene = sim_lp.scenes()[SceneIndex {0}];
+  const auto& scene = sim_lp.scenes()[first_scene_index()];
   const auto& scenarios = scene.scenarios();
   REQUIRE(scenarios.size() == 2);
   const auto& base = scenarios[0];
   const auto& aperture = scenarios[1];
-  const auto& stage = sim_lp.phases()[PhaseIndex {0}].stages()[0];
+  const auto& stage = sim_lp.phases()[first_phase_index()].stages()[0];
   const auto& flow_lp = sys_lp.elements<FlowLP>()[0];
   const auto& fcols = flow_lp.flow_cols_at(base, stage);
   REQUIRE(fcols.size() == 2);
@@ -1128,9 +1128,9 @@ TEST_CASE(  // NOLINT
   auto result = li.resolve();
   REQUIRE(result.has_value());
 
-  const auto& scene = sim_lp.scenes()[SceneIndex {0}];
+  const auto& scene = sim_lp.scenes()[first_scene_index()];
   const auto& scenarios = scene.scenarios();
-  const auto& stage = sim_lp.phases()[PhaseIndex {0}].stages()[0];
+  const auto& stage = sim_lp.phases()[first_phase_index()].stages()[0];
   const auto& flow_lp = sys_lp.elements<FlowLP>()[0];
   const auto& fcols = flow_lp.flow_cols_at(scenarios[0], stage);
   REQUIRE(fcols.size() == 1);
@@ -1329,10 +1329,10 @@ TEST_CASE(  // NOLINT
   REQUIRE(base_result.has_value());
   const double base_obj = li.get_obj_value();
 
-  const auto& scene = sim_lp.scenes()[SceneIndex {0}];
+  const auto& scene = sim_lp.scenes()[first_scene_index()];
   const auto& base_scenario = scene.scenarios()[0];
   const auto& high_scenario = scene.scenarios()[1];
-  const auto& stage = sim_lp.phases()[PhaseIndex {0}].stages()[0];
+  const auto& stage = sim_lp.phases()[first_phase_index()].stages()[0];
   const auto& flow_lp = sys_lp.elements<FlowLP>()[0];
 
   auto clone = li.clone();

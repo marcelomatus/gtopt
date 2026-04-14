@@ -14,19 +14,23 @@
  */
 
 #include <algorithm>
+#include <exception>
 #include <filesystem>
 #include <format>
+#include <mutex>
+#include <ranges>
 #include <unordered_map>
 
 #include <gtopt/bus_island.hpp>
 #include <gtopt/linear_interface.hpp>
 #include <gtopt/lp_fingerprint.hpp>
 #include <gtopt/map_reserve.hpp>
+#include <gtopt/memory_compress.hpp>
 #include <gtopt/output_context.hpp>
 #include <gtopt/system_lp.hpp>
+#include <gtopt/utils.hpp>
 #include <spdlog/spdlog.h>
 
-#include "gtopt/options_lp.hpp"
 #include "gtopt/simulation_lp.hpp"
 #include "gtopt/system_context.hpp"
 
@@ -124,12 +128,19 @@ constexpr auto add_to_lp(auto& collections,
         // caller can surface non-convex rejections, unknown parameters,
         // and similar author errors instead of silently dropping the
         // constraint.  Other element types keep the original "log and
-        // continue" behavior.
+        // continue" behavior for most failures, but `std::runtime_error`
+        // is reserved for fail-fast schema/author errors (missing
+        // `stage.month` on a `reset_month` VR, monthly parameter out of
+        // range, etc.) and always propagates so the caller cannot
+        // silently produce a wrong LP.
         if constexpr (std::is_same_v<T, UserConstraintLP>) {
           const auto mode = system_context.options().constraint_mode();
           if (mode == ConstraintMode::strict || mode == ConstraintMode::debug) {
             throw;
           }
+        }
+        if (dynamic_cast<const std::runtime_error*>(&ex) != nullptr) {
+          throw;
         }
         return false;
       }
@@ -178,8 +189,7 @@ void fix_stage_islands(const auto& collections,
   std::vector<bool> is_reference(n_buses, false);
   std::size_t theta_count = 0;
 
-  for (auto&& [idx, bus] : std::views::enumerate(buses)) {
-    const auto i = static_cast<std::size_t>(idx);
+  for (const auto& [i, bus] : enumerate(buses)) {
     if (bus.lookup_theta_col(scenario, stage, first_buid).has_value()) {
       has_theta[i] = true;
       ++theta_count;
@@ -230,7 +240,7 @@ void fix_stage_islands(const auto& collections,
   map_reserve(root_has_ref, n_buses);
   map_reserve(root_first_theta, n_buses);
 
-  for (std::size_t i = 0; i < n_buses; ++i) {
+  for (const auto i : iota_range(std::size_t {0}, n_buses)) {
     if (!has_theta[i]) {
       continue;
     }
@@ -369,12 +379,16 @@ constexpr auto create_linear_interface(auto& collections,
   // Create the solver interface first so we can query its infinity value.
   LinearInterface li(flat_opts.solver_name);
 
-  // Build the LabelMaker once from the effective lp_names_level and install
-  // it on both the LinearProblem (used during flatten() for colnm/rownm) and
-  // the LinearInterface (used for labels on any rows/cols added after
+  // Build the LabelMaker from the naming bools and install it on both the
+  // LinearProblem (used during flatten() for colnm/rownm) and the
+  // LinearInterface (used for labels on any rows/cols added after
   // load_flat()).  The LabelMaker travels by value through
   // FlatLinearProblem::label_maker during load_flat().
-  const LabelMaker label_maker {flat_opts.lp_names_level};
+  const auto eff_level =
+      (flat_opts.row_with_name_map || flat_opts.col_with_names)
+      ? LpNamesLevel::all
+      : LpNamesLevel::none;
+  const LabelMaker label_maker {eff_level};
   li.set_label_maker(label_maker);
 
   LinearProblem lp(std::format("gtopt_s{}_p{}", scene.uid(), phase.uid()));
@@ -427,13 +441,36 @@ constexpr auto create_linear_interface(auto& collections,
   }
 
   // Compute LP fingerprint before flattening (structured metadata is still
-  // available in the raw cols/rows vectors).
-  auto fingerprint = compute_lp_fingerprint(lp.get_cols(), lp.get_rows());
+  // available in the raw cols/rows vectors).  Skipped unless the user
+  // requested fingerprint output (--lp-fingerprint).
+  auto fingerprint = flat_opts.compute_fingerprint
+      ? compute_lp_fingerprint(lp.get_cols(), lp.get_rows())
+      : LpFingerprint {};
 
   // Convert and store the flattened LP representation
   auto flat_lp = lp.flatten(flat_opts);
-  li.load_flat(flat_lp);
-  return std::tuple {std::move(li), std::move(fingerprint), std::move(flat_lp)};
+
+  // Branch on low_memory_mode:
+  //
+  //  * `off` (default): eagerly load the backend and stash the flat LP as
+  //    an inert snapshot — current behavior.
+  //
+  //  * `snapshot` / `compress`: skip the initial `load_flat()` entirely.
+  //    The snapshot is installed via `defer_initial_load`, which marks
+  //    the backend as released so the first user-driven access goes
+  //    through `ensure_backend()` → `reconstruct_backend()` → a single
+  //    `load_flat()`.  Saves one full backend population per
+  //    (scene, phase) under SDDP / cascade.
+  if (flat_opts.low_memory_mode != LowMemoryMode::off) {
+    li.set_low_memory(flat_opts.low_memory_mode,
+                      select_codec(flat_opts.memory_codec),
+                      /*cache_warm_start=*/false);
+    li.defer_initial_load(std::move(flat_lp));
+  } else {
+    li.load_flat(flat_lp);
+    li.save_snapshot(std::move(flat_lp));
+  }
+  return std::tuple {std::move(li), std::move(fingerprint)};
 }
 
 void create_collections(const auto& system_context,
@@ -470,6 +507,12 @@ void create_collections(const auto& system_context,
       make_collection<ReserveProvisionLP>(ic, sys.reserve_provision_array);
   std::get<Collection<CommitmentLP>>(colls) =
       make_collection<CommitmentLP>(ic, sys.commitment_array);
+  std::get<Collection<SimpleCommitmentLP>>(colls) =
+      make_collection<SimpleCommitmentLP>(ic, sys.simple_commitment_array);
+  std::get<Collection<InertiaZoneLP>>(colls) =
+      make_collection<InertiaZoneLP>(ic, sys.inertia_zone_array);
+  std::get<Collection<InertiaProvisionLP>>(colls) =
+      make_collection<InertiaProvisionLP>(ic, sys.inertia_provision_array);
 
   std::get<Collection<JunctionLP>>(colls) =
       make_collection<JunctionLP>(ic, sys.junction_array);
@@ -486,6 +529,8 @@ void create_collections(const auto& system_context,
           ic, sys.reservoir_discharge_limit_array);
   std::get<Collection<TurbineLP>>(colls) =
       make_collection<TurbineLP>(ic, sys.turbine_array);
+  std::get<Collection<PumpLP>>(colls) =
+      make_collection<PumpLP>(ic, sys.pump_array);
   std::get<Collection<ReservoirProductionFactorLP>>(colls) =
       make_collection<ReservoirProductionFactorLP>(
           ic, sys.reservoir_production_factor_array);
@@ -495,6 +540,10 @@ void create_collections(const auto& system_context,
       make_collection<FlowRightLP>(ic, sys.flow_right_array);
   std::get<Collection<VolumeRightLP>>(colls) =
       make_collection<VolumeRightLP>(ic, sys.volume_right_array);
+
+  // Fuel storage
+  std::get<Collection<LngTerminalLP>>(colls) =
+      make_collection<LngTerminalLP>(ic, sys.lng_terminal_array);
 
   // UserConstraintLP is placed LAST so that user-constraint rows are added to
   // the LP after all other elements whose columns they reference.
@@ -511,6 +560,108 @@ void create_collections(const auto& system_context,
 #endif
 }
 
+/// Hoisted AMPL element-name + compound registration.
+///
+/// Element names and class-level compound recipes are
+/// (scene, phase)-independent: each element has the same name in every
+/// LP, and `line.flow = +flowp − flown` is the same recipe everywhere.
+/// Populating these registries from inside the per-element `add_to_lp`
+/// would require a mutex on the parallel scene-build loop, even though
+/// every scene would write the identical entries.
+///
+/// Instead this helper runs once per `SimulationLP` via `std::call_once`
+/// from the `SystemLP` constructor (see below).  That gives the registry
+/// a single deterministic populate step regardless of whether the
+/// `SystemLP` is built through `PlanningLP::create_systems` (parallel
+/// across scenes) or directly by tests that construct one `SimulationLP`
+/// + `SystemLP` pair.
+template<typename LP, typename Array>
+void register_element_names(SimulationLP& sim, const Array& arr)
+{
+  constexpr auto class_name = LP::ClassName.snake_case();
+  for (const auto& obj : arr) {
+    sim.register_ampl_element(class_name, obj.name, obj.uid);
+  }
+}
+
+void register_all_ampl_element_names(SimulationLP& sim, const System& sys)
+{
+  register_element_names<BatteryLP>(sim, sys.battery_array);
+  register_element_names<BusLP>(sim, sys.bus_array);
+  register_element_names<ConverterLP>(sim, sys.converter_array);
+  register_element_names<DemandLP>(sim, sys.demand_array);
+  register_element_names<FlowLP>(sim, sys.flow_array);
+  register_element_names<FlowRightLP>(sim, sys.flow_right_array);
+  register_element_names<GeneratorLP>(sim, sys.generator_array);
+  register_element_names<JunctionLP>(sim, sys.junction_array);
+  register_element_names<LineLP>(sim, sys.line_array);
+  register_element_names<ReserveProvisionLP>(sim, sys.reserve_provision_array);
+  register_element_names<ReserveZoneLP>(sim, sys.reserve_zone_array);
+  register_element_names<SimpleCommitmentLP>(sim, sys.simple_commitment_array);
+  register_element_names<InertiaZoneLP>(sim, sys.inertia_zone_array);
+  register_element_names<InertiaProvisionLP>(sim, sys.inertia_provision_array);
+  register_element_names<ReservoirLP>(sim, sys.reservoir_array);
+  register_element_names<TurbineLP>(sim, sys.turbine_array);
+  register_element_names<PumpLP>(sim, sys.pump_array);
+  register_element_names<VolumeRightLP>(sim, sys.volume_right_array);
+  register_element_names<WaterwayLP>(sim, sys.waterway_array);
+  register_element_names<LngTerminalLP>(sim, sys.lng_terminal_array);
+
+  // Intentional exception: ReservoirSeepageLP is exposed at the AMPL
+  // level under "seepage", not the snake-case of its class name
+  // ("reservoir_seepage").  Mirrors the constraint/variable name
+  // emitted by `source/reservoir_seepage_lp.cpp`.
+  {
+    constexpr auto class_name = ReservoirSeepageLP::SeepageName;
+    for (const auto& obj : sys.reservoir_seepage_array) {
+      sim.register_ampl_element(class_name, obj.name, obj.uid);
+    }
+  }
+
+  // Class-level compound: `line.flow = +flowp − flown`.
+  // Registered once globally; the resolver expands it per-(uid, block).
+  {
+    constexpr auto line_class = LineLP::ClassName.snake_case();
+    sim.add_ampl_compound(line_class,
+                          LineLP::FlowName,
+                          {
+                              AmplCompoundLeg {
+                                  .coefficient = +1.0,
+                                  .source_attribute = LineLP::FlowpName,
+                              },
+                              AmplCompoundLeg {
+                                  .coefficient = -1.0,
+                                  .source_attribute = LineLP::FlownName,
+                              },
+                          });
+  }
+
+  // ── options.* scalar allow-list (Phase 1d) ────────────────────────────
+  //
+  // Explicit allow-list (not full-open): only fields that are intended
+  // to be referenceable from PAMPL user-constraints are exposed.  Bools
+  // are surfaced as 0.0 / 1.0 so the constraint DSL can use them as
+  // ordinary numeric coefficients.  Cached by value at registration —
+  // options are immutable for the SimulationLP lifetime.
+  {
+    static constexpr std::string_view options_class = "options";
+    const auto& opts = sim.options();
+    sim.add_ampl_scalar(
+        options_class, "annual_discount_rate", opts.annual_discount_rate());
+    sim.add_ampl_scalar(
+        options_class, "scale_objective", opts.scale_objective());
+    sim.add_ampl_scalar(options_class, "scale_theta", opts.scale_theta());
+    sim.add_ampl_scalar(
+        options_class, "kirchhoff_threshold", opts.kirchhoff_threshold());
+    sim.add_ampl_scalar(
+        options_class, "use_kirchhoff", opts.use_kirchhoff() ? 1.0 : 0.0);
+    sim.add_ampl_scalar(
+        options_class, "use_single_bus", opts.use_single_bus() ? 1.0 : 0.0);
+    sim.add_ampl_scalar(
+        options_class, "use_line_losses", opts.use_line_losses() ? 1.0 : 0.0);
+  }
+}
+
 }  // namespace
 
 namespace gtopt
@@ -523,14 +674,13 @@ void SystemLP::create_lp(const LpMatrixOptions& flat_opts_in)
   if (flat_opts.scale_objective == 1.0) {
     flat_opts.scale_objective = system_context().options().scale_objective();
   }
-  auto [li, fp, flat_lp] = create_linear_interface(
+  // create_linear_interface owns the snapshot installation: it either
+  // load_flats + save_snapshots eagerly (low_memory off) or installs the
+  // flat LP as a deferred snapshot via defer_initial_load (otherwise).
+  auto [li, fp] = create_linear_interface(
       collections(), system_context(), phase(), scene(), flat_opts);
   m_linear_interface_ = std::move(li);
   m_fingerprint_ = std::move(fp);
-
-  // Save the flat LP into LinearInterface for low-memory reconstruction.
-  // LinearInterface decides whether to keep it based on the configured level.
-  m_linear_interface_.save_snapshot(std::move(flat_lp));
 }
 
 SystemLP::SystemLP(const System& system,
@@ -543,6 +693,22 @@ SystemLP::SystemLP(const System& system,
     , m_phase_(std::move(phase))
     , m_scene_(std::move(scene))
 {
+  // Enable the per-cell AMPL variable registry when user constraints
+  // need to resolve element columns.  Without user constraints the
+  // map stays empty, saving allocation/hashing overhead.
+  if (!system.user_constraint_array.empty()) {
+    simulation.set_need_ampl_variables(true);
+  }
+
+  // Populate the SimulationLP-wide AMPL element-name and compound
+  // registries exactly once, before any per-(scene, phase) build runs.
+  // The std::call_once flag is owned by SimulationLP, so this works
+  // both under PlanningLP's parallel scene loop (only the first SystemLP
+  // built actually does the work; the rest pass through) and for tests
+  // that build a single SimulationLP/SystemLP pair directly.
+  std::call_once(simulation.ampl_registry_flag(),
+                 [&] { register_all_ampl_element_names(simulation, system); });
+
   // m_collections_ is default-constructed (valid, empty) before this point.
   // Populate it in-place so that each sub-collection is visible to
   // InputContext::element_index as soon as it is built, allowing later
@@ -558,6 +724,56 @@ SystemLP::SystemLP(const System& system,
   }
 
   create_lp(flat_opts);
+}
+
+SystemLP::SystemLP(SystemLP&& other) noexcept
+    : m_system_(other.m_system_)
+    , m_system_context_(std::move(other.m_system_context_))
+    , m_collections_(std::move(other.m_collections_))
+    , m_phase_(std::move(other.m_phase_))
+    , m_scene_(std::move(other.m_scene_))
+    , m_linear_interface_(std::move(other.m_linear_interface_))
+    , m_fingerprint_(std::move(other.m_fingerprint_))
+    , m_single_bus_id_(std::move(other.m_single_bus_id_))
+    , m_pending_state_links_(std::move(other.m_pending_state_links_))
+    , m_prev_phase_sys_(other.m_prev_phase_sys_)
+{
+  // After member-wise move, m_system_context_ still holds a
+  // reference_wrapper to the moved-from SystemLP and stale interior
+  // pointers into the moved-from m_collections_ tuple.  Re-point both
+  // to *this.
+  m_system_context_.rebind_system(*this);
+}
+
+SystemLP& SystemLP::operator=(SystemLP&& other) noexcept
+{
+  if (this == &other) {
+    return *this;
+  }
+  // Move-assign invariant: both ends must already refer to the same
+  // underlying `System`.  `m_system_context_` holds a stable reference
+  // (via its base helpers) into that System's metadata; rebind_system
+  // below only re-points its back-reference to *this and rebuilds the
+  // collection-pointer table — it does NOT rewire the System reference.
+  // Cross-System move-assign would silently leave dangling state, so
+  // enforce the invariant unconditionally.  `assert` is compiled out
+  // under NDEBUG, so we use `std::terminate` to keep the check live in
+  // release builds as well (noexcept-compatible).
+  if (&m_system_.get() != &other.m_system_.get()) [[unlikely]] {
+    std::terminate();
+  }
+  m_system_ = other.m_system_;
+  m_system_context_ = std::move(other.m_system_context_);
+  m_collections_ = std::move(other.m_collections_);
+  m_phase_ = std::move(other.m_phase_);
+  m_scene_ = std::move(other.m_scene_);
+  m_linear_interface_ = std::move(other.m_linear_interface_);
+  m_fingerprint_ = std::move(other.m_fingerprint_);
+  m_single_bus_id_ = std::move(other.m_single_bus_id_);
+  m_pending_state_links_ = std::move(other.m_pending_state_links_);
+  m_prev_phase_sys_ = other.m_prev_phase_sys_;
+  m_system_context_.rebind_system(*this);
+  return *this;
 }
 
 void SystemLP::write_out()

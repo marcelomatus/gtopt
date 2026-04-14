@@ -46,6 +46,18 @@ namespace detail
 class StageLP
 {
 public:
+  /// Class name used in user-constraint expressions (`stage.month`, ...).
+  /// Stage is not a registered LP element collection, but it is exposed as
+  /// a singleton class in the AMPL parameter resolver so PAMPL constraints
+  /// can read calendar metadata for the active stage.
+  static constexpr std::string_view ClassName {"stage"};
+  /// Calendar month attribute name (1=Jan..12=Dec when set).
+  static constexpr std::string_view MonthName {"month"};
+  /// Stage uid attribute name (numeric uid of the active stage).
+  static constexpr std::string_view UidName {"uid"};
+  /// Total stage duration in hours.
+  static constexpr std::string_view DurationName {"duration"};
+
   StageLP() = default;
 
   /**
@@ -126,7 +138,7 @@ public:
   /// @return Unique identifier for this stage
   [[nodiscard]] constexpr auto uid() const noexcept
   {
-    return StageUid {stage().uid};
+    return make_uid<Stage>(stage().uid);
   }
 
   /// @return Index of this stage in the parent container

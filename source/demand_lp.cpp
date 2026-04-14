@@ -33,23 +33,24 @@ bool DemandLP::add_to_lp(SystemContext& sc,
                          const StageLP& stage,
                          LinearProblem& lp)
 {
-  static const auto ampl_name = std::string {ClassName.snake_case()};
+  static constexpr auto ampl_name = ClassName.snake_case();
 
   if (!CapacityBase::add_to_lp(sc, ampl_name, scenario, stage, lp)) {
     return false;
   }
-
-  sc.register_ampl_element(ampl_name, id().second, uid());
 
   // F9: register filter metadata so sum(...) predicates work.
   {
     AmplElementMetadata metadata;
     metadata.reserve(2);
     if (const auto& t = demand().type) {
-      metadata.emplace_back("type", *t);
+      metadata.emplace_back(TypeKey, *t);
     }
-    metadata.emplace_back("bus",
-                          static_cast<double>(sc.get_bus(bus_sid()).uid()));
+    // Resolve via `sc.element<BusLP>` (handles both Uid and Name forms
+    // of the JSON-side `bus` SingleId variant — `std::get<Uid>` would
+    // throw if the JSON used a string name).
+    metadata.emplace_back(
+        BusKey, static_cast<double>(sc.element<BusLP>(bus_sid()).uid()));
     sc.register_ampl_element_metadata(ampl_name, uid(), std::move(metadata));
   }
 
@@ -130,23 +131,23 @@ bool DemandLP::add_to_lp(SystemContext& sc,
   map_reserve(fcols, blocks.size());
   map_reserve(brows, blocks.size());
 
+  const bool is_forced = demand().forced.value_or(false);
+
   for (const auto& block : blocks) {
     const auto buid = block.uid();
     const auto bus_balance_row = bus_balance_rows.at(buid);
     const auto block_lmax = sc.block_max_at(stage, block, lmax, stage_capacity);
-
-    const auto load_lowb = !stage_fcost ? block_lmax : 0;
-    const auto load_uppb = !stage_fcost ? block_lmax : LinearProblem::DblMax;
+    const auto load_lowb = is_forced ? block_lmax : 0.0;
     const auto lcol = lp.add_col({
         .lowb = load_lowb,
-        .uppb = load_uppb,
+        .uppb = block_lmax,
         .class_name = ClassName.full_name(),
         .variable_name = LoadName,
         .variable_uid = uid(),
         .context = make_block_context(scenario.uid(), stage.uid(), block.uid()),
     });
 
-    if (stage_fcost) {
+    if (stage_fcost && !is_forced) {
       const auto fcol = lp.add_col({
           .cost = CostHelper::block_ecost(scenario, stage, block, *stage_fcost),
           .class_name = ClassName.full_name(),

@@ -14,7 +14,12 @@
 #include <gtopt/planning_lp.hpp>
 #include <gtopt/planning_method.hpp>
 
+#include "fixture_helpers.hpp"
+
 using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using gtopt::test_fixtures::make_single_stage_phases;
+using gtopt::test_fixtures::make_uniform_blocks;
+using gtopt::test_fixtures::make_uniform_stages;
 
 /// Create a 3-phase 2-bus hydro system with a transmission line.
 /// Bus 1: hydro generator + reservoir.  Bus 2: demand + thermal backup.
@@ -22,13 +27,7 @@ using namespace gtopt;  // NOLINT(google-global-names-in-headers)
 inline auto make_3phase_2bus_hydro_planning() -> Planning
 {
   // ── Blocks: 6 per phase × 3 phases = 18 total ──
-  Array<Block> block_array;
-  for (int i = 0; i < 18; ++i) {
-    block_array.push_back(Block {
-        .uid = Uid {i + 1},
-        .duration = 1.0,
-    });
-  }
+  auto block_array = make_uniform_blocks(18, 1.0);
 
   Array<Stage> stage_array = {
       Stage {
@@ -223,28 +222,13 @@ inline auto make_6phase_2bus_hydro_planning() -> Planning
   constexpr Size blocks_per_phase = 4;
   constexpr Size total_blocks = num_phases * blocks_per_phase;
 
-  Array<Block> block_array;
-  for (Size i = 0; i < total_blocks; ++i) {
-    block_array.push_back(Block {
-        .uid = Uid {static_cast<int>(i) + 1},
-        .duration = 1.0,
-    });
-  }
-
-  Array<Stage> stage_array;
-  Array<Phase> phase_array;
-  for (Size p = 0; p < static_cast<Size>(num_phases); ++p) {
-    stage_array.push_back(Stage {
-        .uid = Uid {static_cast<int>(p) + 1},
-        .first_block = p * blocks_per_phase,
-        .count_block = blocks_per_phase,
-    });
-    phase_array.push_back(Phase {
-        .uid = Uid {static_cast<int>(p) + 1},
-        .first_stage = p,
-        .count_stage = 1,
-    });
-  }
+  auto block_array =
+      make_uniform_blocks(static_cast<std::size_t>(total_blocks), 1.0);
+  auto stage_array =
+      make_uniform_stages(static_cast<std::size_t>(num_phases),
+                          static_cast<std::size_t>(blocks_per_phase));
+  auto phase_array =
+      make_single_stage_phases(static_cast<std::size_t>(num_phases));
 
   const Array<Bus> bus_array = {
       {

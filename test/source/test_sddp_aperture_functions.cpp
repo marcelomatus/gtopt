@@ -220,7 +220,7 @@ TEST_CASE(
           Scenario {
               .uid = Uid {10},
           },
-          ScenarioIndex {0},
+          first_scenario_index(),
       },
       ScenarioLP {
           Scenario {
@@ -265,7 +265,7 @@ TEST_CASE("build_synthetic_apertures — caps at scenario count")  // NOLINT
           Scenario {
               .uid = Uid {1},
           },
-          ScenarioIndex {0},
+          first_scenario_index(),
       },
       ScenarioLP {
           Scenario {
@@ -291,7 +291,7 @@ TEST_CASE(
           Scenario {
               .uid = Uid {5},
           },
-          ScenarioIndex {0},
+          first_scenario_index(),
       },
       ScenarioLP {
           Scenario {
@@ -318,7 +318,7 @@ TEST_CASE("ApertureValueFn — lambda returning value")  // NOLINT
                                 BlockUid /*bl*/) -> std::optional<double>
   { return 42.0; };
 
-  const auto val = fn(StageUid {0}, BlockUid {0});
+  const auto val = fn(make_uid<Stage>(0), make_uid<Block>(0));
   REQUIRE(val.has_value());
   CHECK(val.value_or(0.0) == doctest::Approx(42.0));
 }
@@ -331,7 +331,7 @@ TEST_CASE("ApertureValueFn — lambda returning nullopt")  // NOLINT
                                 BlockUid /*bl*/) -> std::optional<double>
   { return std::nullopt; };
 
-  const auto val = fn(StageUid {0}, BlockUid {0});
+  const auto val = fn(make_uid<Stage>(0), make_uid<Block>(0));
   CHECK_FALSE(val.has_value());
 }
 
@@ -366,10 +366,13 @@ TEST_CASE("ApertureValueFn — cache-backed lambda")  // NOLINT
     return std::nullopt;
   };
 
-  CHECK(fn(StageUid {0}, BlockUid {0}).value_or(0.0) == doctest::Approx(100.0));
-  CHECK(fn(StageUid {0}, BlockUid {1}).value_or(0.0) == doctest::Approx(200.0));
-  CHECK(fn(StageUid {1}, BlockUid {0}).value_or(0.0) == doctest::Approx(300.0));
-  CHECK_FALSE(fn(StageUid {1}, BlockUid {1}).has_value());
+  CHECK(fn(make_uid<Stage>(0), make_uid<Block>(0)).value_or(0.0)
+        == doctest::Approx(100.0));
+  CHECK(fn(make_uid<Stage>(0), make_uid<Block>(1)).value_or(0.0)
+        == doctest::Approx(200.0));
+  CHECK(fn(make_uid<Stage>(1), make_uid<Block>(0)).value_or(0.0)
+        == doctest::Approx(300.0));
+  CHECK_FALSE(fn(make_uid<Stage>(1), make_uid<Block>(1)).has_value());
 }
 
 // ─── ApertureCutResult ──────────────────────────────────────────────────────

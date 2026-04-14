@@ -20,6 +20,7 @@
 #pragma once
 
 #include <gtopt/basic_types.hpp>
+#include <gtopt/uid.hpp>
 
 namespace gtopt
 {
@@ -49,7 +50,13 @@ struct Scenario
   }
 };
 
-using ScenarioUid = StrongUidType<struct Scenario>;
-using ScenarioIndex = StrongIndexType<struct Scenario>;
+using ScenarioUid = UidOf<Scenario>;
+using ScenarioIndex = StrongPositionIndexType<struct Scenario>;
+
+/// @brief First scenario index.
+[[nodiscard]] constexpr auto first_scenario_index() noexcept -> ScenarioIndex
+{
+  return ScenarioIndex {0};
+}
 
 }  // namespace gtopt

@@ -9,6 +9,7 @@
 #include <gtopt/planning_lp.hpp>
 #include <gtopt/sddp_clone_pool.hpp>
 #include <gtopt/system_lp.hpp>
+#include <gtopt/utils.hpp>
 
 #ifndef SPDLOG_ACTIVE_LEVEL
 #  define SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_TRACE
@@ -46,13 +47,11 @@ LinearInterface& SDDPClonePool::get_or_create(SceneIndex scene_index,
 
 void SDDPClonePool::batch_create(PlanningLP& planning, Index num_scenes)
 {
-  for (Index s = 0; s < num_scenes; ++s) {
-    const auto si = SceneIndex {s};
-    for (Index p = 0; p < m_num_phases_; ++p) {
-      const auto pi = PhaseIndex {p};
-      const auto idx = (static_cast<std::size_t>(s)
+  for (const auto si : iota_range<SceneIndex>(0, num_scenes)) {
+    for (const auto pi : iota_range<PhaseIndex>(0, m_num_phases_)) {
+      const auto idx = (static_cast<std::size_t>(si)
                         * static_cast<std::size_t>(m_num_phases_))
-          + static_cast<std::size_t>(p);
+          + static_cast<std::size_t>(pi);
 
       auto& slot = m_pool_[idx];
       auto& li = planning.system(si, pi).linear_interface();

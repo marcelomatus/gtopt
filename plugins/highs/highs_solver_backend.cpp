@@ -15,6 +15,7 @@
 
 #include <HConfig.h>
 #include <Highs.h>
+#include <gtopt/hardware_info.hpp>
 #include <gtopt/solver_options.hpp>
 
 namespace gtopt
@@ -481,8 +482,7 @@ void HighsSolverBackend::apply_options(const SolverOptions& opts)
     // (typically hardware_concurrency/2).
     const int effective = opts.threads > 0
         ? opts.threads
-        : std::max(
-              1, static_cast<int>(std::thread::hardware_concurrency() + 1) / 2);
+        : std::max(1, static_cast<int>(physical_concurrency()));
     static thread_local int tl_scheduler_threads {0};
     if (tl_scheduler_threads != 0 && tl_scheduler_threads != effective) {
       Highs::resetGlobalScheduler(/*blocking=*/true);

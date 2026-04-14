@@ -20,6 +20,7 @@
 #include <gtopt/line.hpp>
 #include <gtopt/map_reserve.hpp>
 #include <gtopt/planning_options_lp.hpp>
+#include <gtopt/utils.hpp>
 #include <spdlog/spdlog.h>
 
 namespace gtopt
@@ -88,8 +89,7 @@ auto detect_islands_and_fix_references(Array<Bus>& buses,
   map_reserve(uid_to_index, num_buses);
   map_reserve(name_to_index, num_buses);
 
-  for (auto&& [idx, bus] : std::views::enumerate(buses)) {
-    const auto i = static_cast<std::size_t>(idx);
+  for (const auto& [i, bus] : enumerate(buses)) {
     uid_to_index[bus.uid] = i;
     if (!bus.name.empty()) {
       name_to_index[bus.name] = i;
@@ -140,7 +140,7 @@ auto detect_islands_and_fix_references(Array<Bus>& buses,
   //   island_roots: set of unique root indices
   //   For each root, check if any bus already has reference_theta
   std::set<std::size_t> island_roots;
-  for (std::size_t i = 0; i < num_buses; ++i) {
+  for (const auto i : iota_range(std::size_t {0}, num_buses)) {
     island_roots.insert(dsu.find(i));
   }
 
@@ -169,8 +169,9 @@ auto detect_islands_and_fix_references(Array<Bus>& buses,
     return num_islands;
   }
 
-  // Multiple islands detected
-  SPDLOG_INFO("Network has {} islands", num_islands);
+  // Multiple islands detected — indent two spaces to match the surrounding
+  // "Building LP model" section hierarchy.
+  SPDLOG_INFO("  Network has {} islands", num_islands);
 
   // For each island, ensure at least one reference bus
   for (const auto root : island_roots) {
@@ -178,7 +179,7 @@ auto detect_islands_and_fix_references(Array<Bus>& buses,
     bool has_reference = false;
     std::size_t first_kirchhoff_idx = num_buses;  // sentinel
 
-    for (std::size_t i = 0; i < num_buses; ++i) {
+    for (const auto i : iota_range(std::size_t {0}, num_buses)) {
       if (dsu.find(i) != root) {
         continue;
       }

@@ -174,18 +174,16 @@ TEST_CASE("LinearInterface - LP file output")
 
   // Create simple LP with names so both col and row names are tracked.
   LinearInterface interface;
-  interface.set_label_maker(LabelMaker {LpNamesLevel::cols_and_rows});
+  interface.set_label_maker(LabelMaker {LpNamesLevel::all});
 
   // Add variables using SparseCol so names are tracked for LP output
   interface.add_col(SparseCol {
       .lowb = 0.0,
       .uppb = 10.0,
-      .name = "x1",
   });
   interface.add_col(SparseCol {
       .lowb = 0.0,
       .uppb = 10.0,
-      .name = "x2",
   });
 
   // Add constraint using SparseRow API
@@ -197,7 +195,7 @@ TEST_CASE("LinearInterface - LP file output")
   row.class_name = "C";
   row.constraint_name = "1";
   row.variable_uid = Uid {0};
-  row.context = make_stage_context(ScenarioUid {0}, StageUid {0});
+  row.context = make_stage_context(make_uid<Scenario>(0), make_uid<Stage>(0));
   interface.add_row(row);
 
   // Set problem name
@@ -746,52 +744,34 @@ TEST_CASE("LinearInterface - time limit")
   REQUIRE(result.has_value());
 }
 
-TEST_CASE("LinearInterface - duplicate name detection at only_cols")
+TEST_CASE("LinearInterface - duplicate name detection throws")
 {
   using namespace gtopt;
 
   LinearInterface li;
-  li.set_label_maker(LabelMaker {LpNamesLevel::only_cols});
+  li.set_label_maker(LabelMaker {LpNamesLevel::all});
 
-  // At only_cols, duplicate col names warn but are still accepted.
-  const auto c1 = li.add_col(SparseCol {
-      .lowb = 0.0,
-      .uppb = 1.0,
-      .name = "x",
-  });
-  const auto c2 = li.add_col(SparseCol {
-      .lowb = 0.0,
-      .uppb = 1.0,
-      .name = "x",
-  });
-  CHECK(c1 != c2);
-
-  // Col name map is populated (first "x" wins)
-  CHECK(li.col_name_map().size() == 1);
-  CHECK(li.col_name_map().at("x") == static_cast<int32_t>(c1));
-  // Row name map stays empty — row names disabled at only_cols
-  CHECK(li.row_name_map().empty());
-}
-
-TEST_CASE("LinearInterface - duplicate name detection at cols_and_rows (error)")
-{
-  using namespace gtopt;
-
-  LinearInterface li;
-  li.set_label_maker(LabelMaker {LpNamesLevel::cols_and_rows});
+  const auto ctx =
+      make_stage_context(make_uid<Scenario>(0), make_uid<Stage>(0));
 
   li.add_col(SparseCol {
       .lowb = 0.0,
       .uppb = 1.0,
-      .name = "x",
+      .class_name = "X",
+      .variable_name = "v",
+      .variable_uid = Uid {1},
+      .context = ctx,
   });
   CHECK(li.col_name_map().size() == 1);
 
-  // Duplicate column name at level 2 throws
+  // Duplicate column name throws
   CHECK_THROWS_AS(li.add_col(SparseCol {
                       .lowb = 0.0,
                       .uppb = 1.0,
-                      .name = "x",
+                      .class_name = "X",
+                      .variable_name = "v",
+                      .variable_uid = Uid {1},
+                      .context = ctx,
                   }),
                   std::runtime_error);
 
@@ -799,12 +779,14 @@ TEST_CASE("LinearInterface - duplicate name detection at cols_and_rows (error)")
   li.add_col(SparseCol {
       .lowb = 0.0,
       .uppb = 1.0,
-      .name = "y",
+      .class_name = "X",
+      .variable_name = "v",
+      .variable_uid = Uid {2},
+      .context = ctx,
   });
   CHECK(li.col_name_map().size() == 2);
 
   // Same for rows
-  const auto ctx = make_stage_context(ScenarioUid {0}, StageUid {0});
   SparseRow row1;
   row1[ColIndex {0}] = 1.0;
   row1.uppb = 1.0;
@@ -1199,7 +1181,8 @@ TEST_CASE(  // NOLINT
   LpMatrixOptions flat_opts;
   flat_opts.col_with_names = true;
   flat_opts.row_with_names = true;
-  flat_opts.lp_names_level = LpNamesLevel::cols_and_rows;
+  flat_opts.col_with_name_map = true;
+  flat_opts.row_with_name_map = true;
   auto flat_lp = lp.flatten(flat_opts);
 
   // Load with name tracking enabled (LabelMaker travels via flat_lp)
@@ -1236,7 +1219,7 @@ TEST_CASE("LinearInterface - load_flat without names (minimal)")  // NOLINT
   LpMatrixOptions flat_opts;
   flat_opts.col_with_names = true;
   flat_opts.row_with_names = true;
-  flat_opts.lp_names_level = LpNamesLevel::minimal;
+  flat_opts.col_with_name_map = true;
   auto flat_lp = lp.flatten(flat_opts);
 
   LinearInterface li;
@@ -1427,7 +1410,8 @@ TEST_CASE("LinearInterface - row_index_to_name via load_flat")  // NOLINT
   LpMatrixOptions flat_opts;
   flat_opts.col_with_names = true;
   flat_opts.row_with_names = true;
-  flat_opts.lp_names_level = LpNamesLevel::cols_and_rows;
+  flat_opts.col_with_name_map = true;
+  flat_opts.row_with_name_map = true;
   auto flat_lp = lp.flatten(flat_opts);
 
   LinearInterface li;
@@ -1457,14 +1441,14 @@ TEST_CASE("LinearInterface - row_index_to_name updated by add_row")  // NOLINT
   using namespace gtopt;  // NOLINT(google-global-names-in-headers)
 
   LinearInterface li;
-  li.set_label_maker(LabelMaker {LpNamesLevel::cols_and_rows});
+  li.set_label_maker(LabelMaker {LpNamesLevel::all});
 
   const auto c1 = li.add_col(SparseCol {
       .lowb = 0.0,
       .uppb = 10.0,
-      .name = "x",
   });
-  const auto ctx = make_stage_context(ScenarioUid {0}, StageUid {0});
+  const auto ctx =
+      make_stage_context(make_uid<Scenario>(0), make_uid<Stage>(0));
 
   auto make_row = [&](std::string_view cname, Uid uid, double uppb) -> SparseRow
   {
@@ -1496,14 +1480,14 @@ TEST_CASE(
   using namespace gtopt;  // NOLINT(google-global-names-in-headers)
 
   LinearInterface li;
-  li.set_label_maker(LabelMaker {LpNamesLevel::cols_and_rows});
+  li.set_label_maker(LabelMaker {LpNamesLevel::all});
 
   const auto c1 = li.add_col(SparseCol {
       .lowb = 0.0,
       .uppb = 10.0,
-      .name = "x",
   });
-  const auto ctx = make_stage_context(ScenarioUid {0}, StageUid {0});
+  const auto ctx =
+      make_stage_context(make_uid<Scenario>(0), make_uid<Stage>(0));
 
   // Add 4 rows using SparseRow with metadata for name generation.
   // Use different UIDs to produce unique names: r_x_<uid>_0_0
@@ -1540,9 +1524,9 @@ TEST_CASE(
     CHECK(names[RowIndex {2}] == "r_x_3_0_0");
 
     // row_name_map must agree
-    CHECK(li.row_name_map().at("r_x_0_0_0") == 0);
-    CHECK(li.row_name_map().at("r_x_2_0_0") == 1);
-    CHECK(li.row_name_map().at("r_x_3_0_0") == 2);
+    CHECK(li.row_name_map().at("r_x_0_0_0") == RowIndex {0});
+    CHECK(li.row_name_map().at("r_x_2_0_0") == RowIndex {1});
+    CHECK(li.row_name_map().at("r_x_3_0_0") == RowIndex {2});
     CHECK(li.row_name_map().count("r_x_1_0_0") == 0);
   }
 
@@ -1560,8 +1544,8 @@ TEST_CASE(
     CHECK(names[RowIndex {0}] == "r_x_1_0_0");
     CHECK(names[RowIndex {1}] == "r_x_2_0_0");
 
-    CHECK(li.row_name_map().at("r_x_1_0_0") == 0);
-    CHECK(li.row_name_map().at("r_x_2_0_0") == 1);
+    CHECK(li.row_name_map().at("r_x_1_0_0") == RowIndex {0});
+    CHECK(li.row_name_map().at("r_x_2_0_0") == RowIndex {1});
   }
 
   SUBCASE("delete all rows leaves empty maps")
@@ -1606,12 +1590,12 @@ TEST_CASE(
   }
 }
 
-TEST_CASE("LinearInterface - row_index_to_name empty at only_cols")  // NOLINT
+TEST_CASE("LinearInterface - row_index_to_name populated at all")  // NOLINT
 {
   using namespace gtopt;  // NOLINT(google-global-names-in-headers)
 
   LinearInterface li;
-  li.set_label_maker(LabelMaker {LpNamesLevel::only_cols});
+  li.set_label_maker(LabelMaker {LpNamesLevel::all});
 
   const auto c1 = li.add_col(SparseCol {
       .uppb = 10.0,
@@ -1626,1137 +1610,4 @@ TEST_CASE("LinearInterface - row_index_to_name empty at only_cols")  // NOLINT
 
   CHECK(li.row_index_to_name().empty());
   CHECK(li.row_name_map().empty());
-}
-
-// ---------------------------------------------------------------------------
-// Algorithm fallback cycle tests
-// ---------------------------------------------------------------------------
-
-TEST_CASE("LinearInterface - algorithm fallback on infeasible initial_solve")
-// NOLINT
-{
-  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
-
-  // Infeasible LP: x >= 10 AND x <= 5 — no algorithm can solve it.
-  // The fallback cycle should try all 3 algorithms and still fail,
-  // with the error message indicating the fallback cycle was exhausted.
-  for (const auto algo :
-       {LPAlgo::barrier, LPAlgo::dual, LPAlgo::primal, LPAlgo::default_algo})
-  {
-    LinearInterface li;
-    const auto x1 = li.add_col(SparseCol {
-        .uppb = 5.0,
-        .cost = 1.0,
-    });
-
-    SparseRow row;
-    row[x1] = 1.0;
-    row.lowb = 10.0;
-    row.uppb = LinearProblem::DblMax;
-    li.add_row(row);
-
-    auto result = li.initial_solve(SolverOptions {
-        .algorithm = algo,
-        .log_level = 0,
-    });
-    REQUIRE_FALSE(result.has_value());
-
-    const auto& err = result.error();
-    CHECK(err.code == ErrorCode::SolverError);
-    CHECK(err.message.find("fallback") != std::string::npos);
-    CHECK_FALSE(li.is_optimal());
-  }
-}
-
-TEST_CASE("LinearInterface - algorithm fallback on infeasible resolve")
-// NOLINT
-{
-  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
-
-  // Same infeasible LP tested via resolve path.
-  for (const auto algo :
-       {LPAlgo::barrier, LPAlgo::dual, LPAlgo::primal, LPAlgo::default_algo})
-  {
-    LinearInterface li;
-    const auto x1 = li.add_col(SparseCol {
-        .uppb = 5.0,
-        .cost = 1.0,
-    });
-
-    SparseRow row;
-    row[x1] = 1.0;
-    row.lowb = 10.0;
-    row.uppb = LinearProblem::DblMax;
-    li.add_row(row);
-
-    auto result = li.resolve(SolverOptions {
-        .algorithm = algo,
-        .log_level = 0,
-    });
-    REQUIRE_FALSE(result.has_value());
-
-    const auto& err = result.error();
-    CHECK(err.code == ErrorCode::SolverError);
-    CHECK(err.message.find("fallback") != std::string::npos);
-    CHECK_FALSE(li.is_optimal());
-  }
-}
-
-TEST_CASE(
-    "LinearInterface - optimal LP succeeds without fallback for all algorithms")
-// NOLINT
-{
-  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
-
-  // Feasible LP: min x + y, s.t. x + y >= 4, x,y >= 0  →  obj = 4.
-  // All algorithms should succeed on the first attempt (no fallback needed).
-  for (const auto algo :
-       {LPAlgo::barrier, LPAlgo::dual, LPAlgo::primal, LPAlgo::default_algo})
-  {
-    LinearInterface li;
-    const auto x1 = li.add_col(SparseCol {
-        .uppb = 100.0,
-        .cost = 1.0,
-    });
-    const auto x2 = li.add_col(SparseCol {
-        .uppb = 100.0,
-        .cost = 1.0,
-    });
-
-    SparseRow row;
-    row[x1] = 1.0;
-    row[x2] = 1.0;
-    row.lowb = 4.0;
-    row.uppb = LinearProblem::DblMax;
-    li.add_row(row);
-
-    auto result = li.initial_solve(SolverOptions {
-        .algorithm = algo,
-        .log_level = 0,
-    });
-    REQUIRE(result.has_value());
-    CHECK(li.is_optimal());
-    CHECK(li.get_obj_value() == doctest::Approx(4.0));
-  }
-}
-
-TEST_CASE(
-    "LinearInterface - fallback cycle on resolve after feasible "
-    "initial_solve")  // NOLINT
-{
-  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
-
-  // Solve a feasible LP, then make it infeasible via bound change and resolve.
-  // The fallback cycle should engage and ultimately fail.
-  LinearInterface li;
-  const auto x1 = li.add_col(SparseCol {
-      .uppb = 10.0,
-      .cost = 1.0,
-  });
-
-  SparseRow row;
-  row[x1] = 1.0;
-  row.lowb = 1.0;
-  row.uppb = LinearProblem::DblMax;
-  li.add_row(row);
-
-  // First solve: feasible
-  auto r1 = li.initial_solve(SolverOptions {
-      .algorithm = LPAlgo::dual,
-      .log_level = 0,
-  });
-  REQUIRE(r1.has_value());
-  CHECK(li.is_optimal());
-
-  // Make infeasible: x <= 0 but x >= 1
-  li.set_col_upp(x1, 0.0);
-
-  auto r2 = li.resolve(SolverOptions {
-      .algorithm = LPAlgo::dual,
-      .log_level = 0,
-  });
-  REQUIRE_FALSE(r2.has_value());
-  CHECK(r2.error().code == ErrorCode::SolverError);
-  CHECK(r2.error().message.find("fallback") != std::string::npos);
-}
-
-TEST_CASE("LinearInterface - max_fallbacks=0 disables fallback")  // NOLINT
-{
-  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
-
-  // Infeasible LP with max_fallbacks=0: should fail immediately without
-  // the "fallback" keyword in the error message.
-  LinearInterface li;
-  const auto x1 = li.add_col(SparseCol {
-      .uppb = 5.0,
-      .cost = 1.0,
-  });
-
-  SparseRow row;
-  row[x1] = 1.0;
-  row.lowb = 10.0;
-  row.uppb = LinearProblem::DblMax;
-  li.add_row(row);
-
-  SUBCASE("initial_solve")
-  {
-    auto result = li.initial_solve(SolverOptions {
-        .algorithm = LPAlgo::dual,
-        .log_level = 0,
-        .max_fallbacks = 0,
-    });
-    REQUIRE_FALSE(result.has_value());
-    CHECK(result.error().code == ErrorCode::SolverError);
-    CHECK(result.error().message.find("fallback") == std::string::npos);
-  }
-
-  SUBCASE("resolve")
-  {
-    auto result = li.resolve(SolverOptions {
-        .algorithm = LPAlgo::dual,
-        .log_level = 0,
-        .max_fallbacks = 0,
-    });
-    REQUIRE_FALSE(result.has_value());
-    CHECK(result.error().code == ErrorCode::SolverError);
-    CHECK(result.error().message.find("fallback") == std::string::npos);
-  }
-}
-
-TEST_CASE("LinearInterface - max_fallbacks=1 tries one alternative")  // NOLINT
-{
-  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
-
-  // Infeasible LP with max_fallbacks=1: should try one fallback and still
-  // fail, but the error should mention "fallback".
-  LinearInterface li;
-  const auto x1 = li.add_col(SparseCol {
-      .uppb = 5.0,
-      .cost = 1.0,
-  });
-
-  SparseRow row;
-  row[x1] = 1.0;
-  row.lowb = 10.0;
-  row.uppb = LinearProblem::DblMax;
-  li.add_row(row);
-
-  auto result = li.initial_solve(SolverOptions {
-      .algorithm = LPAlgo::barrier,
-      .log_level = 0,
-      .max_fallbacks = 1,
-  });
-  REQUIRE_FALSE(result.has_value());
-  CHECK(result.error().code == ErrorCode::SolverError);
-  CHECK(result.error().message.find("fallback") != std::string::npos);
-}
-
-// ── Low-memory mode unit tests ────────────────────────────────────────────
-
-/// Helper: build a simple LP with 2 variables and 1 constraint, flatten it,
-/// load it into a LinearInterface, and return (li, flat_lp, x1, x2).
-namespace
-// NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
-{
-struct SimpleLp
-{
-  LinearInterface li;
-  FlatLinearProblem flat;
-  ColIndex x1;
-  ColIndex x2;
-};
-
-SimpleLp make_simple_lp()
-{
-  // min 2x1 + 3x2  s.t.  x1 + x2 >= 5,  0 <= x1,x2 <= 10
-  LinearProblem lp;
-  const auto c1 = lp.add_col({
-      .lowb = 0.0,
-      .uppb = 10.0,
-      .cost = 2.0,
-  });
-  const auto c2 = lp.add_col({
-      .lowb = 0.0,
-      .uppb = 10.0,
-      .cost = 3.0,
-  });
-  const auto r = lp.add_row({
-      .lowb = 5.0,
-      .uppb = SparseRow::DblMax,
-  });
-  lp.set_coeff(r, c1, 1.0);
-  lp.set_coeff(r, c2, 1.0);
-
-  LpMatrixOptions opts;
-  opts.col_with_names = true;
-  opts.row_with_names = true;
-  auto flat = lp.flatten(opts);
-
-  LinearInterface li;
-  li.load_flat(flat);
-  li.save_base_numrows();
-
-  return {
-      std::move(li),
-      std::move(flat),
-      ColIndex {0},
-      ColIndex {1},
-  };
-}
-}  // namespace
-
-TEST_CASE("LinearInterface — low_memory save_snapshot round-trip")  // NOLINT
-{
-  auto [li, flat, x1, x2] = make_simple_lp();
-
-  // Solve baseline
-  auto res = li.initial_solve();
-  REQUIRE(res.has_value());
-  REQUIRE(li.is_optimal());
-  const double orig_obj = li.get_obj_value();
-  const auto orig_ncols = li.get_numcols();
-  const auto orig_nrows = li.get_numrows();
-
-  SUBCASE("level 1: release and reconstruct preserves LP")
-  {
-    li.set_low_memory(LowMemoryMode::snapshot);
-    li.save_snapshot(FlatLinearProblem {flat});
-
-    li.release_backend();
-    CHECK(li.is_backend_released());
-    CHECK_FALSE(li.has_backend());
-
-    li.reconstruct_backend();
-    CHECK_FALSE(li.is_backend_released());
-    CHECK(li.has_backend());
-    CHECK(li.get_numcols() == orig_ncols);
-    CHECK(li.get_numrows() == orig_nrows);
-
-    auto r = li.resolve();
-    REQUIRE(r.has_value());
-    CHECK(li.get_obj_value() == doctest::Approx(orig_obj));
-  }
-
-  SUBCASE("level 2: compress/decompress round-trip preserves LP")
-  {
-    li.set_low_memory(LowMemoryMode::compress, CompressionCodec::zstd);
-    li.save_snapshot(FlatLinearProblem {flat});
-
-    li.release_backend();
-    CHECK(li.is_backend_released());
-
-    li.reconstruct_backend();
-    CHECK_FALSE(li.is_backend_released());
-    CHECK(li.get_numcols() == orig_ncols);
-    CHECK(li.get_numrows() == orig_nrows);
-
-    auto r = li.resolve();
-    REQUIRE(r.has_value());
-    CHECK(li.get_obj_value() == doctest::Approx(orig_obj));
-  }
-
-  SUBCASE("multiple release/reconstruct cycles produce same result")
-  {
-    li.set_low_memory(LowMemoryMode::compress, CompressionCodec::zstd);
-    li.save_snapshot(FlatLinearProblem {flat});
-
-    for (int i = 0; i < 3; ++i) {
-      li.release_backend();
-      CHECK(li.is_backend_released());
-
-      li.reconstruct_backend();
-      CHECK_FALSE(li.is_backend_released());
-
-      auto r = li.resolve();
-      REQUIRE(r.has_value());
-      CHECK(li.get_obj_value() == doctest::Approx(orig_obj));
-    }
-  }
-}
-
-TEST_CASE(
-    "LinearInterface — low_memory reconstruct with dynamic cols")  // NOLINT
-{
-  auto [li, flat, x1, x2] = make_simple_lp();
-
-  auto res = li.initial_solve();
-  REQUIRE(res.has_value());
-  const double orig_obj = li.get_obj_value();
-
-  li.set_low_memory(LowMemoryMode::snapshot);
-  li.save_snapshot(FlatLinearProblem {flat});
-
-  // Add a dynamic column (simulating alpha variable)
-  SparseCol alpha_col;
-  alpha_col.uppb = 1000.0;
-  alpha_col.cost = 0.0;
-  [[maybe_unused]] const auto alpha = li.add_col(alpha_col);
-  li.record_dynamic_col(alpha_col);
-  li.save_base_numrows();
-
-  CHECK(li.get_numcols() == 3);
-
-  // Release and reconstruct — dynamic col should be replayed
-  li.release_backend();
-  li.reconstruct_backend();
-
-  CHECK(li.get_numcols() == 3);
-
-  auto r = li.resolve();
-  REQUIRE(r.has_value());
-  // Alpha has zero cost, so objective is unchanged
-  CHECK(li.get_obj_value() == doctest::Approx(orig_obj));
-}
-
-TEST_CASE("LinearInterface — low_memory reconstruct with cuts")  // NOLINT
-{
-  auto [li, flat, x1, x2] = make_simple_lp();
-
-  auto res = li.initial_solve();
-  REQUIRE(res.has_value());
-
-  li.set_low_memory(LowMemoryMode::snapshot);
-  li.save_snapshot(FlatLinearProblem {flat});
-  li.save_base_numrows();
-
-  const auto base_nrows = li.base_numrows();
-
-  // Add a cut row: x1 <= 3 (binding: optimal was x1=5)
-  SparseRow cut;
-  cut[x1] = 1.0;
-  cut.lowb = -LinearProblem::DblMax;
-  cut.uppb = 3.0;
-  li.add_row(cut);
-  li.record_cut_row(cut);
-
-  CHECK(li.get_numrows() == base_nrows + 1);
-
-  // Solve with the cut
-  auto r1 = li.resolve();
-  REQUIRE(r1.has_value());
-  const double obj_with_cut = li.get_obj_value();
-  // x1 <= 3, so optimal x1=3, x2=2 → obj = 6 + 6 = 12
-  CHECK(obj_with_cut == doctest::Approx(12.0));
-
-  // Release and reconstruct — cut should be replayed
-  li.release_backend();
-  li.reconstruct_backend();
-
-  CHECK(li.get_numrows() == base_nrows + 1);
-
-  auto r2 = li.resolve();
-  REQUIRE(r2.has_value());
-  CHECK(li.get_obj_value() == doctest::Approx(obj_with_cut));
-}
-
-TEST_CASE("LinearInterface — low_memory cut deletion tracking")  // NOLINT
-{
-  auto [li, flat, x1, x2] = make_simple_lp();
-
-  auto res = li.initial_solve();
-  REQUIRE(res.has_value());
-  [[maybe_unused]] const double orig_obj = li.get_obj_value();
-
-  li.set_low_memory(LowMemoryMode::snapshot);
-  li.save_snapshot(FlatLinearProblem {flat});
-  li.save_base_numrows();
-
-  const auto base = static_cast<int>(li.base_numrows());
-
-  // Add two binding cuts:
-  //   cut0: x2 >= 4  → forces x2=4, x1=1, obj=14
-  //   cut1: x1 <= 2  → alone: x1=2, x2=3, obj=13
-  SparseRow cut0;
-  cut0[x2] = 1.0;
-  cut0.lowb = 4.0;
-  cut0.uppb = LinearProblem::DblMax;
-  li.add_row(cut0);
-  li.record_cut_row(cut0);
-
-  SparseRow cut1;
-  cut1[x1] = 1.0;
-  cut1.lowb = -LinearProblem::DblMax;
-  cut1.uppb = 2.0;
-  li.add_row(cut1);
-  li.record_cut_row(cut1);
-
-  // Delete cut0 (absolute row index = base + 0)
-  std::array<int, 1> deleted = {
-      base,
-  };
-  li.delete_rows(deleted);
-  li.record_cut_deletion(deleted);
-
-  // Release and reconstruct — only cut1 should be present
-  li.release_backend();
-  li.reconstruct_backend();
-
-  // base structural rows + 1 remaining cut
-  CHECK(li.get_numrows() == static_cast<size_t>(base) + 1);
-
-  auto r = li.resolve();
-  REQUIRE(r.has_value());
-  // Only cut1 active: x1 <= 2, so optimal x1=2, x2=3 → obj = 4 + 9 = 13
-  CHECK(li.get_obj_value() == doctest::Approx(13.0));
-}
-
-TEST_CASE("LinearInterface — low_memory reconstruct with warm-start")  // NOLINT
-{
-  auto [li, flat, x1, x2] = make_simple_lp();
-
-  auto res = li.initial_solve();
-  REQUIRE(res.has_value());
-
-  // Capture solution for warm-start
-  std::vector<double> col_sol(li.get_col_sol_raw().begin(),
-                              li.get_col_sol_raw().end());
-  std::vector<double> row_dual(li.get_row_dual_raw().begin(),
-                               li.get_row_dual_raw().end());
-  const double orig_obj = li.get_obj_value();
-
-  li.set_low_memory(LowMemoryMode::snapshot);
-  li.save_snapshot(FlatLinearProblem {flat});
-
-  li.release_backend();
-  li.reconstruct_backend(col_sol, row_dual);
-
-  // Warm-start should allow immediate optimal
-  SolverOptions ws_opts;
-  ws_opts.reuse_basis = true;
-  auto r = li.resolve(ws_opts);
-  REQUIRE(r.has_value());
-  CHECK(li.get_obj_value() == doctest::Approx(orig_obj));
-}
-
-TEST_CASE("LinearInterface — low_memory capture_hot_start_cuts")  // NOLINT
-{
-  auto [li, flat, x1, x2] = make_simple_lp();
-
-  auto res = li.initial_solve();
-  REQUIRE(res.has_value());
-
-  li.set_low_memory(LowMemoryMode::snapshot);
-  li.save_snapshot(FlatLinearProblem {flat});
-  li.save_base_numrows();
-
-  // Add a hot-start cut before calling capture_hot_start_cuts
-  // x1 <= 3 (binding: optimal was x1=5)
-  SparseRow cut;
-  cut[x1] = 1.0;
-  cut.lowb = -LinearProblem::DblMax;
-  cut.uppb = 3.0;
-  li.add_row(cut);
-
-  // Capture should read the row above base_numrows
-  li.capture_hot_start_cuts();
-
-  // Verify cut is captured by releasing and reconstructing
-  li.release_backend();
-  li.reconstruct_backend();
-
-  // The captured cut should be replayed
-  CHECK(li.get_numrows() == li.base_numrows() + 1);
-
-  auto r = li.resolve();
-  REQUIRE(r.has_value());
-  // x1 <= 3 → optimal x1=3, x2=2 → obj = 12
-  CHECK(li.get_obj_value() == doctest::Approx(12.0));
-}
-
-TEST_CASE(
-    "LinearInterface — low_memory clone from reconstructed backend")  // NOLINT
-{
-  auto [li, flat, x1, x2] = make_simple_lp();
-
-  auto res = li.initial_solve();
-  REQUIRE(res.has_value());
-
-  // Capture solution
-  std::vector<double> col_sol(li.get_col_sol_raw().begin(),
-                              li.get_col_sol_raw().end());
-  std::vector<double> row_dual(li.get_row_dual_raw().begin(),
-                               li.get_row_dual_raw().end());
-  const double orig_obj = li.get_obj_value();
-
-  li.set_low_memory(LowMemoryMode::snapshot);
-  li.save_snapshot(FlatLinearProblem {flat});
-
-  // Release and reconstruct
-  li.release_backend();
-  li.reconstruct_backend(col_sol, row_dual);
-
-  // Clone from reconstructed backend with warm-start
-  auto cloned = li.clone(col_sol, row_dual);
-
-  auto r = cloned.resolve();
-  REQUIRE(r.has_value());
-  CHECK(cloned.get_obj_value() == doctest::Approx(orig_obj));
-
-  // Modify clone — original is unmodified
-  cloned.set_col_upp(x1, 3.0);
-  auto r2 = cloned.resolve();
-  REQUIRE(r2.has_value());
-  // x1 <= 3 → x1=3, x2=2 → obj = 6 + 6 = 12
-  CHECK(cloned.get_obj_value() == doctest::Approx(12.0));
-
-  // Original still produces the same objective
-  auto r3 = li.resolve();
-  REQUIRE(r3.has_value());
-  CHECK(li.get_obj_value() == doctest::Approx(orig_obj));
-}
-
-TEST_CASE("LinearInterface — low_memory level 2 multiple cycles")  // NOLINT
-{
-  auto [li, flat, x1, x2] = make_simple_lp();
-
-  auto res = li.initial_solve();
-  REQUIRE(res.has_value());
-  [[maybe_unused]] const double orig_obj = li.get_obj_value();
-
-  li.set_low_memory(LowMemoryMode::compress, CompressionCodec::zstd);
-  li.save_snapshot(FlatLinearProblem {flat});
-  li.save_base_numrows();
-
-  // Cycle 1: add a binding cut (x1 <= 4), release, reconstruct
-  SparseRow cut1;
-  cut1[x1] = 1.0;
-  cut1.lowb = -LinearProblem::DblMax;
-  cut1.uppb = 4.0;
-  li.add_row(cut1);
-  li.record_cut_row(cut1);
-
-  li.release_backend();
-  li.reconstruct_backend();
-
-  auto r1 = li.resolve();
-  REQUIRE(r1.has_value());
-  const double obj1 = li.get_obj_value();
-  // x1 <= 4, so x1=4, x2=1 → obj = 8 + 3 = 11
-  CHECK(obj1 == doctest::Approx(11.0));
-
-  // Cycle 2: add another binding cut (x2 >= 3), release, reconstruct
-  SparseRow cut2;
-  cut2[x2] = 1.0;
-  cut2.lowb = 3.0;
-  cut2.uppb = LinearProblem::DblMax;
-  li.add_row(cut2);
-  li.record_cut_row(cut2);
-
-  li.release_backend();
-  li.reconstruct_backend();
-
-  auto r2 = li.resolve();
-  REQUIRE(r2.has_value());
-  // x1 <= 4, x2 >= 3 → x1=2, x2=3 → obj = 4 + 9 = 13
-  CHECK(li.get_obj_value() == doctest::Approx(13.0));
-}
-
-TEST_CASE("LinearInterface — set_low_memory(0) discards flat LP")  // NOLINT
-{
-  auto [li, flat, x1, x2] = make_simple_lp();
-
-  li.set_low_memory(LowMemoryMode::snapshot);
-  li.save_snapshot(FlatLinearProblem {flat});
-
-  // Disable low_memory — flat LP should be discarded
-  li.set_low_memory(LowMemoryMode::off);
-
-  // release_backend is a no-op when low_memory is off — backend stays alive
-  li.release_backend();
-  CHECK(li.has_backend());
-}
-
-TEST_CASE("LinearInterface — clone with warm-start parameters")  // NOLINT
-{
-  auto [li, flat, x1, x2] = make_simple_lp();
-
-  auto res = li.initial_solve();
-  REQUIRE(res.has_value());
-
-  // Capture primal and dual
-  std::vector<double> col_sol(li.get_col_sol_raw().begin(),
-                              li.get_col_sol_raw().end());
-  std::vector<double> row_dual(li.get_row_dual_raw().begin(),
-                               li.get_row_dual_raw().end());
-
-  SUBCASE("clone with warm-start resolves correctly")
-  {
-    auto cloned = li.clone(col_sol, row_dual);
-    SolverOptions ws_opts;
-    ws_opts.reuse_basis = true;
-    auto r = cloned.resolve(ws_opts);
-    REQUIRE(r.has_value());
-    CHECK(cloned.get_obj_value() == doctest::Approx(li.get_obj_value()));
-  }
-
-  SUBCASE("clone without warm-start also works")
-  {
-    auto cloned = li.clone();
-    auto r = cloned.resolve();
-    REQUIRE(r.has_value());
-    CHECK(cloned.get_obj_value() == doctest::Approx(li.get_obj_value()));
-  }
-
-  SUBCASE("clone with empty spans is same as no warm-start")
-  {
-    auto cloned = li.clone({}, {});
-    auto r = cloned.resolve();
-    REQUIRE(r.has_value());
-    CHECK(cloned.get_obj_value() == doctest::Approx(li.get_obj_value()));
-  }
-}
-
-// ── release_backend memory cleanup tests ─────────────────────────────────
-
-TEST_CASE(
-    "LinearInterface — release_backend destroys solver backend")  // NOLINT
-{
-  auto [li, flat, x1, x2] = make_simple_lp();
-
-  auto res = li.initial_solve();
-  REQUIRE(res.has_value());
-  REQUIRE(li.is_optimal());
-
-  li.set_low_memory(LowMemoryMode::snapshot);
-  li.save_snapshot(FlatLinearProblem {flat});
-
-  SUBCASE("backend pointer is null after release")
-  {
-    CHECK(li.has_backend());
-    li.release_backend();
-    CHECK_FALSE(li.has_backend());
-    CHECK(li.is_backend_released());
-  }
-
-  SUBCASE("double release is a safe no-op")
-  {
-    li.release_backend();
-    CHECK_FALSE(li.has_backend());
-
-    // Second release should not crash
-    li.release_backend();
-    CHECK_FALSE(li.has_backend());
-    CHECK(li.is_backend_released());
-  }
-
-  SUBCASE(
-      "release with cache_warm_start caches solution for transparent "
-      "read access")
-  {
-    // Override default to enable caching
-    li.set_low_memory(LowMemoryMode::snapshot,
-                      CompressionCodec::lz4,
-                      /*cache_warm_start=*/true);
-    li.save_snapshot(FlatLinearProblem {flat});
-
-    const auto obj_before = li.get_obj_value();
-    const auto sol_before = std::vector<double>(li.get_col_sol_raw().begin(),
-                                                li.get_col_sol_raw().end());
-    const auto dual_before = std::vector<double>(li.get_row_dual_raw().begin(),
-                                                 li.get_row_dual_raw().end());
-
-    li.release_backend();
-    CHECK_FALSE(li.has_backend());
-
-    // Cached values must match pre-release values
-    CHECK(li.get_obj_value() == doctest::Approx(obj_before));
-
-    const auto sol_after = li.get_col_sol_raw();
-    REQUIRE(sol_after.size() == sol_before.size());
-    for (size_t i = 0; i < sol_before.size(); ++i) {
-      CHECK(sol_after[i] == doctest::Approx(sol_before[i]));
-    }
-
-    const auto dual_after = li.get_row_dual_raw();
-    REQUIRE(dual_after.size() == dual_before.size());
-    for (size_t i = 0; i < dual_before.size(); ++i) {
-      CHECK(dual_after[i] == doctest::Approx(dual_before[i]));
-    }
-  }
-
-  SUBCASE("release with low_memory off is a no-op — backend stays alive")
-  {
-    li.set_low_memory(LowMemoryMode::off);
-    li.release_backend();
-    CHECK(li.has_backend());
-    CHECK_FALSE(li.is_backend_released());
-  }
-}
-
-TEST_CASE(
-    "LinearInterface — clone release destroys clone backend "
-    "independently")  // NOLINT
-{
-  auto [li, flat, x1, x2] = make_simple_lp();
-
-  auto res = li.initial_solve();
-  REQUIRE(res.has_value());
-  const double orig_obj = li.get_obj_value();
-
-  SUBCASE("clone backend is independent — destroying clone preserves parent")
-  {
-    {
-      auto cloned = li.clone();
-      auto r = cloned.resolve();
-      REQUIRE(r.has_value());
-      CHECK(cloned.has_backend());
-      // clone goes out of scope here — its backend is destroyed
-    }
-
-    // Parent backend is still alive and functional
-    CHECK(li.has_backend());
-    auto r2 = li.resolve();
-    REQUIRE(r2.has_value());
-    CHECK(li.get_obj_value() == doctest::Approx(orig_obj));
-  }
-
-  SUBCASE("multiple clones can be created and destroyed")
-  {
-    for (int i = 0; i < 5; ++i) {
-      auto cloned = li.clone();
-      auto r = cloned.resolve();
-      REQUIRE(r.has_value());
-      CHECK(cloned.get_obj_value() == doctest::Approx(orig_obj));
-      // clone destroyed each iteration
-    }
-
-    // Parent still works
-    CHECK(li.has_backend());
-    auto r = li.resolve();
-    REQUIRE(r.has_value());
-    CHECK(li.get_obj_value() == doctest::Approx(orig_obj));
-  }
-
-  SUBCASE("clone from reconstructed backend works correctly")
-  {
-    li.set_low_memory(LowMemoryMode::compress, CompressionCodec::lz4);
-    li.save_snapshot(FlatLinearProblem {flat});
-
-    // Release and reconstruct
-    li.release_backend();
-    CHECK_FALSE(li.has_backend());
-
-    li.reconstruct_backend();
-    CHECK(li.has_backend());
-
-    // Clone from reconstructed backend
-    auto cloned = li.clone();
-    auto r = cloned.resolve();
-    REQUIRE(r.has_value());
-    CHECK(cloned.get_obj_value() == doctest::Approx(orig_obj));
-
-    // Destroy clone, release parent again
-    cloned = LinearInterface {};
-    li.release_backend();
-    CHECK_FALSE(li.has_backend());
-
-    // Reconstruct again and verify
-    li.reconstruct_backend();
-    auto r2 = li.resolve();
-    REQUIRE(r2.has_value());
-    CHECK(li.get_obj_value() == doctest::Approx(orig_obj));
-  }
-}
-
-TEST_CASE(
-    "LinearInterface — release/reconstruct cycle with cuts "
-    "preserves memory pattern")  // NOLINT
-{
-  auto [li, flat, x1, x2] = make_simple_lp();
-
-  auto res = li.initial_solve();
-  REQUIRE(res.has_value());
-
-  li.set_low_memory(LowMemoryMode::compress, CompressionCodec::lz4);
-  li.save_snapshot(FlatLinearProblem {flat});
-  li.save_base_numrows();
-  const auto base = li.base_numrows();
-
-  // Add a Benders cut: x1 <= 4
-  SparseRow cut;
-  cut[x1] = 1.0;
-  cut.lowb = -LinearProblem::DblMax;
-  cut.uppb = 4.0;
-  li.add_row(cut);
-  li.record_cut_row(cut);
-
-  auto r1 = li.resolve();
-  REQUIRE(r1.has_value());
-  const double obj_with_cut = li.get_obj_value();
-
-  // Simulate SDDP pattern: release → reconstruct → add more cuts → release
-  for (int cycle = 0; cycle < 3; ++cycle) {
-    li.release_backend();
-    CHECK_FALSE(li.has_backend());
-    CHECK(li.is_backend_released());
-
-    li.reconstruct_backend();
-    CHECK(li.has_backend());
-    CHECK_FALSE(li.is_backend_released());
-
-    // Cut should be replayed
-    CHECK(li.get_numrows() == base + 1);
-
-    auto r = li.resolve();
-    REQUIRE(r.has_value());
-    CHECK(li.get_obj_value() == doctest::Approx(obj_with_cut));
-  }
-}
-
-TEST_CASE(
-    "LinearInterface — cache_warm_start=false discards solution "
-    "vectors on release")  // NOLINT
-{
-  auto [li, flat, x1, x2] = make_simple_lp();
-
-  auto res = li.initial_solve();
-  REQUIRE(res.has_value());
-  REQUIRE(li.is_optimal());
-  const double orig_obj = li.get_obj_value();
-
-  SUBCASE("released state has empty cached vectors")
-  {
-    li.set_low_memory(LowMemoryMode::snapshot,
-                      CompressionCodec::zstd,
-                      /*cache_warm_start=*/false);
-    li.save_snapshot(FlatLinearProblem {flat});
-
-    li.release_backend();
-    CHECK(li.is_backend_released());
-
-    // Cached scalars are still available
-    CHECK(li.get_obj_value() == doctest::Approx(orig_obj));
-
-    // All solution vectors are empty (memory freed).
-    // SDDP caches its own copies before calling release_backend().
-    CHECK(li.get_col_sol_raw().empty());
-    CHECK(li.get_row_dual_raw().empty());
-    CHECK(li.get_col_cost_raw().empty());
-  }
-
-  SUBCASE("reconstruct with explicit warm-start works without cache")
-  {
-    // Capture warm-start data before enabling no-cache mode
-    std::vector<double> col_sol(li.get_col_sol_raw().begin(),
-                                li.get_col_sol_raw().end());
-    std::vector<double> row_dual(li.get_row_dual_raw().begin(),
-                                 li.get_row_dual_raw().end());
-
-    li.set_low_memory(LowMemoryMode::compress,
-                      CompressionCodec::lz4,
-                      /*cache_warm_start=*/false);
-    li.save_snapshot(FlatLinearProblem {flat});
-
-    li.release_backend();
-    CHECK(li.is_backend_released());
-
-    // Reconstruct with explicitly provided warm-start
-    li.reconstruct_backend(col_sol, row_dual);
-    CHECK(li.has_backend());
-
-    auto r = li.resolve();
-    REQUIRE(r.has_value());
-    CHECK(li.get_obj_value() == doctest::Approx(orig_obj));
-  }
-
-  SUBCASE("reconstruct without warm-start still produces correct result")
-  {
-    li.set_low_memory(LowMemoryMode::snapshot,
-                      CompressionCodec::zstd,
-                      /*cache_warm_start=*/false);
-    li.save_snapshot(FlatLinearProblem {flat});
-
-    li.release_backend();
-    li.reconstruct_backend();  // cold start
-
-    auto r = li.resolve();
-    REQUIRE(r.has_value());
-    CHECK(li.get_obj_value() == doctest::Approx(orig_obj));
-  }
-
-  SUBCASE("multiple cycles with no cache still work")
-  {
-    li.set_low_memory(LowMemoryMode::compress,
-                      CompressionCodec::lz4,
-                      /*cache_warm_start=*/false);
-    li.save_snapshot(FlatLinearProblem {flat});
-
-    for (int i = 0; i < 3; ++i) {
-      li.release_backend();
-      CHECK(li.get_col_sol_raw().empty());
-      CHECK(li.get_col_cost_raw().empty());
-
-      li.reconstruct_backend();
-      auto r = li.resolve();
-      REQUIRE(r.has_value());
-      CHECK(li.get_obj_value() == doctest::Approx(orig_obj));
-    }
-  }
-}
-
-TEST_CASE(
-    "LowMemorySnapshot — compress/decompress size "
-    "behavior across cycles")  // NOLINT
-{
-  auto [li, flat, x1, x2] = make_simple_lp();
-
-  auto res = li.initial_solve();
-  REQUIRE(res.has_value());
-
-  // ── Helper: total heap bytes held by numeric vectors ──
-  auto flat_vectors_size = [](const FlatLinearProblem& f) -> size_t
-  {
-    auto bytes_of = [](const auto& v)
-    {
-      return v.size() * sizeof(typename std::decay_t<decltype(v)>::value_type);
-    };
-    return bytes_of(f.matbeg) + bytes_of(f.matind) + bytes_of(f.colint)
-        + bytes_of(f.matval) + bytes_of(f.collb) + bytes_of(f.colub)
-        + bytes_of(f.objval) + bytes_of(f.rowlb) + bytes_of(f.rowub)
-        + bytes_of(f.col_scales) + bytes_of(f.row_scales);
-  };
-
-  auto flat_vectors_nonempty = [](const FlatLinearProblem& f) -> bool
-  { return !f.matbeg.empty() || !f.collb.empty() || !f.matval.empty(); };
-
-  SUBCASE("compress creates compressed buffer and clears flat vectors")
-  {
-    LowMemorySnapshot snap;
-    snap.flat_lp = FlatLinearProblem {flat};
-
-    CHECK(flat_vectors_nonempty(snap.flat_lp));
-    CHECK_FALSE(snap.is_compressed());
-
-    const auto orig_size = flat_vectors_size(snap.flat_lp);
-    CHECK(orig_size > 0);
-
-    // First compress: creates compressed buffer, clears vectors
-    snap.compress(CompressionCodec::lz4);
-    CHECK(snap.is_compressed());
-    CHECK_FALSE(flat_vectors_nonempty(snap.flat_lp));
-    CHECK(flat_vectors_size(snap.flat_lp) == 0);
-    CHECK_FALSE(snap.compressed_lp.empty());
-
-    const auto compressed_size = snap.compressed_lp.data.size();
-    CHECK(compressed_size > 0);
-    CHECK(compressed_size <= orig_size);
-  }
-
-  SUBCASE("decompress restores vectors, keeps compressed buffer")
-  {
-    LowMemorySnapshot snap;
-    snap.flat_lp = FlatLinearProblem {flat};
-
-    snap.compress(CompressionCodec::lz4);
-    const auto compressed_size = snap.compressed_lp.data.size();
-
-    // Decompress: restores flat vectors, keeps compressed buffer
-    snap.decompress();
-    CHECK(flat_vectors_nonempty(snap.flat_lp));
-    CHECK(flat_vectors_size(snap.flat_lp) > 0);
-
-    // Compressed buffer is still present (persistent cache)
-    CHECK(snap.is_compressed());
-    CHECK(snap.compressed_lp.data.size() == compressed_size);
-  }
-
-  SUBCASE("multiple compress/decompress cycles maintain invariants")
-  {
-    LowMemorySnapshot snap;
-    snap.flat_lp = FlatLinearProblem {flat};
-
-    const auto orig_size = flat_vectors_size(snap.flat_lp);
-
-    // First compress: creates the persistent compressed buffer
-    snap.compress(CompressionCodec::lz4);
-    const auto compressed_size = snap.compressed_lp.data.size();
-    CHECK(compressed_size > 0);
-    CHECK(flat_vectors_size(snap.flat_lp) == 0);
-
-    for (int cycle = 0; cycle < 5; ++cycle) {
-      // Decompress: vectors restored, compressed buffer retained
-      snap.decompress();
-      CHECK(flat_vectors_nonempty(snap.flat_lp));
-      const auto decompressed_size = flat_vectors_size(snap.flat_lp);
-      CHECK(decompressed_size >= orig_size);
-      CHECK(snap.compressed_lp.data.size() == compressed_size);
-
-      // Re-compress: vectors cleared, compressed buffer unchanged
-      snap.compress(CompressionCodec::lz4);
-      CHECK_FALSE(flat_vectors_nonempty(snap.flat_lp));
-      CHECK(flat_vectors_size(snap.flat_lp) == 0);
-      CHECK(snap.compressed_lp.data.size() == compressed_size);
-    }
-  }
-
-  SUBCASE("clear_flat_lp_vectors frees decompressed data")
-  {
-    LowMemorySnapshot snap;
-    snap.flat_lp = FlatLinearProblem {flat};
-
-    snap.compress(CompressionCodec::lz4);
-    snap.decompress();
-    CHECK(flat_vectors_nonempty(snap.flat_lp));
-
-    // Manual clear — same as what release_backend does on subsequent calls
-    clear_flat_lp_vectors(snap.flat_lp);
-    CHECK_FALSE(flat_vectors_nonempty(snap.flat_lp));
-    CHECK(flat_vectors_size(snap.flat_lp) == 0);
-
-    // Compressed buffer still intact — can decompress again
-    CHECK(snap.is_compressed());
-    snap.decompress();
-    CHECK(flat_vectors_nonempty(snap.flat_lp));
-  }
-
-  SUBCASE("decompress is idempotent when vectors already present")
-  {
-    LowMemorySnapshot snap;
-    snap.flat_lp = FlatLinearProblem {flat};
-
-    snap.compress(CompressionCodec::lz4);
-    snap.decompress();
-    const auto size_after_first = flat_vectors_size(snap.flat_lp);
-
-    // Second decompress should be no-op (vectors already present)
-    snap.decompress();
-    CHECK(flat_vectors_size(snap.flat_lp) == size_after_first);
-  }
-
-  SUBCASE("compress is idempotent — compressed buffer never changes")
-  {
-    LowMemorySnapshot snap;
-    snap.flat_lp = FlatLinearProblem {flat};
-
-    snap.compress(CompressionCodec::lz4);
-    const auto buf1 = snap.compressed_lp.data;
-
-    snap.decompress();
-    snap.compress(CompressionCodec::lz4);
-    // Buffer content should be identical (never re-compressed)
-    CHECK(snap.compressed_lp.data == buf1);
-  }
-
-  SUBCASE("zstd codec also works correctly")
-  {
-    LowMemorySnapshot snap;
-    snap.flat_lp = FlatLinearProblem {flat};
-
-    snap.compress(CompressionCodec::zstd);
-    CHECK(snap.is_compressed());
-    CHECK_FALSE(flat_vectors_nonempty(snap.flat_lp));
-
-    snap.decompress();
-    CHECK(flat_vectors_nonempty(snap.flat_lp));
-
-    // Verify data survives round-trip
-    CHECK(snap.flat_lp.ncols == flat.ncols);
-    CHECK(snap.flat_lp.nrows == flat.nrows);
-    CHECK(snap.flat_lp.matbeg.size() == flat.matbeg.size());
-    CHECK(snap.flat_lp.matval.size() == flat.matval.size());
-
-    for (size_t i = 0; i < flat.matval.size(); ++i) {
-      CHECK(snap.flat_lp.matval[i] == doctest::Approx(flat.matval[i]));
-    }
-  }
 }

@@ -77,6 +77,7 @@ struct Converter
       annual_capcost {};  ///< Annualized investment cost [$/MW-year]
   OptTRealFieldSched
       annual_derating {};  ///< Annual capacity derating factor [p.u./year]
+  OptBool integer_expmod {};  ///< Integer-constrain the expmod variable
 };
 
 }  // namespace gtopt

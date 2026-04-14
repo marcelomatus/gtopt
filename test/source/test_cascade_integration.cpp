@@ -216,7 +216,7 @@ TEST_CASE("SDDP baseline (6-phase, no cascade)")  // NOLINT
     CHECK(last_training.converged);
     CHECK(last_training.gap < 0.01 + 1e-9);
     // 6 phases should require several iterations
-    CHECK(last_training.iteration >= IterationIndex {3});
+    CHECK(last_training.iteration_index >= IterationIndex {3});
   }
 
   SUBCASE("optimal value matches expected")

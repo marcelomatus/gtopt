@@ -194,6 +194,7 @@ TEST_CASE("Phase-shifting transformer modifies Kirchhoff RHS")
   opts.use_kirchhoff = true;
   opts.use_line_losses = false;
   opts.scale_objective = 1000.0;
+  opts.demand_fail_cost = 1000.0;
   const PlanningOptionsLP options_lp(opts);
 
   System system = {
@@ -304,6 +305,7 @@ TEST_CASE("LineLP - quadratic losses with capacity expansion")
   opts.use_kirchhoff = false;
   opts.use_line_losses = true;
   opts.scale_objective = 1000.0;
+  opts.demand_fail_cost = 1000.0;
 
   const System system = {
       .name = "QuadLossExpansion",
@@ -412,6 +414,7 @@ TEST_CASE("LineLP - linear losses (lossfactor) with capacity expansion")
   opts.use_single_bus = false;
   opts.use_kirchhoff = false;
   opts.scale_objective = 1000.0;
+  opts.demand_fail_cost = 1000.0;
 
   const System system = {
       .name = "LinLossExpansion",

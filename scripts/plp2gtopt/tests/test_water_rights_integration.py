@@ -40,8 +40,22 @@ class TestWaterRightsIntegration:
 
     @pytest.fixture(scope="class")
     def converted_case(self, tmp_path_factory):
-        """Run plp2gtopt with --emit-water-rights on plp_2_years."""
+        """Run the two-stage irrigation pipeline on plp_2_years.
+
+        Stage 1: ``plp2gtopt --emit-water-rights`` dumps the canonical
+        ``laja.json`` / ``maule.json`` alongside the planning JSON.  No
+        FlowRight/VolumeRight/UserConstraint entities are produced here.
+
+        Stage 2: ``gtopt_expand laja`` / ``gtopt_expand maule``
+        read the canonical JSON files and emit the rights entities plus
+        the companion ``.pampl`` files.  The fixture then merges the
+        Stage-2 entities back into the Stage-1 planning JSON so the
+        existing assertions (and the downstream ``gtopt --lp-only``
+        build) continue to see a single coherent system.
+        """
         output_dir = tmp_path_factory.mktemp("plp2y_rights")
+
+        # ---------- Stage 1: plp2gtopt ----------
         result = subprocess.run(
             [
                 sys.executable,
@@ -71,18 +85,70 @@ class TestWaterRightsIntegration:
             f"plp2gtopt failed:\nstdout: {result.stdout}\nstderr: {result.stderr}"
         )
 
-        # Find the JSON file
-        json_files = list(output_dir.glob("*.json"))
+        # Find the planning JSON file (excluding laja.json / maule.json
+        # canonical agreement dumps that gtopt_writer also emits).
+        json_files = [
+            p
+            for p in output_dir.glob("*.json")
+            if p.name not in ("laja.json", "maule.json")
+        ]
         assert len(json_files) == 1, f"Expected 1 JSON file, got {json_files}"
 
+        # ---------- Stage 2: gtopt_expand ----------
+        # Pass the planning JSON as ``--stages`` so schedules are sized to
+        # the real stage_array (see TestGtoptLpBuild for the rationale).
+        for agreement in ("laja", "maule"):
+            stage2 = subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "gtopt_expand.cli",
+                    agreement,
+                    "--input",
+                    str(output_dir / f"{agreement}.json"),
+                    "--output",
+                    str(output_dir),
+                    "--stages",
+                    str(json_files[0]),
+                ],
+                capture_output=True,
+                text=True,
+                timeout=60,
+                check=False,
+            )
+            assert stage2.returncode == 0, (
+                f"gtopt_expand {agreement} failed:"
+                f"\nstdout: {stage2.stdout}\nstderr: {stage2.stderr}"
+            )
+
+        # ---------- Merge Stage-2 entities into the planning JSON ----------
         with open(json_files[0], encoding="utf-8") as f:
             planning = json.load(f)
+        system = planning.setdefault("system", {})
+        user_constraint_files: list[str] = []
+        for agreement in ("laja", "maule"):
+            entities_path = output_dir / f"{agreement}_entities.json"
+            with open(entities_path, encoding="utf-8") as f:
+                entities = json.load(f)
+            for key in ("flow_right_array", "volume_right_array"):
+                if key in entities:
+                    system.setdefault(key, []).extend(entities[key])
+            if "user_constraint_array" in entities:
+                system.setdefault("user_constraint_array", []).extend(
+                    entities["user_constraint_array"]
+                )
+            if "user_constraint_file" in entities:
+                user_constraint_files.append(entities["user_constraint_file"])
+        if user_constraint_files:
+            system["user_constraint_files"] = user_constraint_files
+        with open(json_files[0], "w", encoding="utf-8") as f:
+            json.dump(planning, f, indent=2, sort_keys=False)
 
         return {
             "output_dir": output_dir,
             "json_file": json_files[0],
             "planning": planning,
-            "system": planning.get("system", {}),
+            "system": system,
         }
 
     # -- Laja entity checks --
@@ -150,8 +216,8 @@ class TestWaterRightsIntegration:
         ucs = converted_case["system"].get("user_constraint_array", [])
         if not ucs:
             # Constraints are in PAMPL file — check file exists with content
-            pampl = converted_case["output_dir"] / "maule_agreement.pampl"
-            assert pampl.exists(), "maule_agreement.pampl not found"
+            pampl = converted_case["output_dir"] / "maule.pampl"
+            assert pampl.exists(), "maule.pampl not found"
             assert "constraint" in pampl.read_text(encoding="utf-8")
             return
         maule_ucs = [uc for uc in ucs if not uc["name"].startswith("laja_")]
@@ -206,8 +272,8 @@ class TestWaterRightsIntegration:
 
     def test_maule_pampl_generated(self, converted_case):
         """Maule PAMPL file is generated in output directory."""
-        pampl_file = converted_case["output_dir"] / "maule_agreement.pampl"
-        assert pampl_file.exists(), "maule_agreement.pampl not found"
+        pampl_file = converted_case["output_dir"] / "maule.pampl"
+        assert pampl_file.exists(), "maule.pampl not found"
         content = pampl_file.read_text(encoding="utf-8")
         assert "constraint" in content, "PAMPL file has no constraints"
         assert "param" in content, "PAMPL file has no params"
@@ -253,10 +319,10 @@ class TestGtoptLpBuild:
 
     @pytest.fixture(scope="class")
     def lp_build_result(self, tmp_path_factory, gtopt_bin):
-        """Run plp2gtopt + gtopt --lp-build on plp_2_years."""
+        """Run plp2gtopt + gtopt_expand + gtopt --lp-build on plp_2_years."""
         output_dir = tmp_path_factory.mktemp("plp2y_lp_build")
 
-        # Step 1: Convert with plp2gtopt
+        # Step 1: Convert with plp2gtopt (Stage 1 dumps laja.json + maule.json)
         conv_result = subprocess.run(
             [
                 sys.executable,
@@ -285,15 +351,66 @@ class TestGtoptLpBuild:
         )
         assert conv_result.returncode == 0, f"plp2gtopt failed: {conv_result.stderr}"
 
-        # Find the JSON file
-        json_files = list(output_dir.glob("*.json"))
+        # Find the planning JSON file (excluding laja.json / maule.json
+        # canonical agreement dumps that gtopt_writer also emits).
+        json_files = [
+            p
+            for p in output_dir.glob("*.json")
+            if p.name not in ("laja.json", "maule.json")
+        ]
         assert len(json_files) == 1
 
-        # Set constraint_mode to normal in the JSON (some constraint
-        # references may not resolve in this stripped-down test case)
+        # Step 1b: Stage 2 — gtopt_expand renders the rights entities
+        # from the canonical JSON files.  Pass the planning JSON itself as
+        # ``--stages`` so per-stage monthly schedules (FlowRight fmax, etc.)
+        # are sized to match the planning's ``simulation.stage_array``.
+        # Without this, schedules stay in raw 12-element form and gtopt's
+        # LP assembly walks off the end of the vector when the planning
+        # has more than 12 stages.
+        for agreement in ("laja", "maule"):
+            stage2 = subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "gtopt_expand.cli",
+                    agreement,
+                    "--input",
+                    str(output_dir / f"{agreement}.json"),
+                    "--output",
+                    str(output_dir),
+                    "--stages",
+                    str(json_files[0]),
+                ],
+                capture_output=True,
+                text=True,
+                timeout=60,
+                check=False,
+            )
+            assert stage2.returncode == 0, (
+                f"gtopt_expand {agreement} failed:"
+                f"\nstdout: {stage2.stdout}\nstderr: {stage2.stderr}"
+            )
+
+        # Merge Stage-2 entities into the planning JSON so gtopt sees them.
         with open(json_files[0], encoding="utf-8") as f:
             planning = json.load(f)
         planning.setdefault("options", {})["constraint_mode"] = "normal"
+        system = planning.setdefault("system", {})
+        user_constraint_files: list[str] = []
+        for agreement in ("laja", "maule"):
+            with open(output_dir / f"{agreement}_entities.json", encoding="utf-8") as f:
+                entities = json.load(f)
+            for key in ("flow_right_array", "volume_right_array"):
+                if key in entities:
+                    system.setdefault(key, []).extend(entities[key])
+            if "user_constraint_array" in entities:
+                system.setdefault("user_constraint_array", []).extend(
+                    entities["user_constraint_array"]
+                )
+            if "user_constraint_file" in entities:
+                user_constraint_files.append(entities["user_constraint_file"])
+        if user_constraint_files:
+            system["user_constraint_files"] = user_constraint_files
         with open(json_files[0], "w", encoding="utf-8") as f:
             json.dump(planning, f)
 

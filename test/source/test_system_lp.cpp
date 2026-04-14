@@ -8,10 +8,15 @@
  * This module contains unit tests for the SystemLP class.
  */
 
+#include <optional>
+#include <vector>
+
 #include <doctest/doctest.h>
 #include <gtopt/json/json_system.hpp>
 #include <gtopt/linear_interface.hpp>
+#include <gtopt/planning_options.hpp>
 #include <gtopt/simulation_lp.hpp>
+#include <gtopt/system_context.hpp>
 #include <gtopt/system_lp.hpp>
 
 using namespace gtopt;  // NOLINT(google-global-names-in-headers)
@@ -22,7 +27,11 @@ TEST_CASE("SystemLP 1")
   using Uid = Uid;
   const Array<Bus> bus_array = {{.uid = Uid {1}, .name = "b1"}};
   const Array<Demand> demand_array = {
-      {.uid = Uid {1}, .name = "b1", .bus = Uid {1}, .capacity = 100.0},
+      {.uid = Uid {1},
+       .name = "b1",
+       .bus = Uid {1},
+       .forced = true,
+       .capacity = 100.0},
   };
   const Array<Generator> generator_array = {
       {
@@ -65,7 +74,9 @@ TEST_CASE("SystemLP 1")
   REQUIRE(system.generator_array.size() == 1);
   REQUIRE(!system.line_array.empty() == false);
 
-  const PlanningOptionsLP options;
+  PlanningOptions popts;
+  popts.demand_fail_cost = 1000.0;
+  const PlanningOptionsLP options(popts);
   SimulationLP simulation_lp(simulation, options);
 
   SystemLP system_lp(system, simulation_lp);
@@ -99,6 +110,7 @@ TEST_CASE("SystemLP - Primal Infeasible Case")
           .uid = Uid {1},
           .name = "b1",
           .bus = Uid {1},
+          .forced = true,
           .capacity = 200.0,
       },
   };
@@ -173,7 +185,9 @@ TEST_CASE("SystemLP - Timeout Scenario")
       .generator_array = generator_array,
   };
 
-  const PlanningOptionsLP options;
+  PlanningOptions popts;
+  popts.demand_fail_cost = 1000.0;
+  const PlanningOptionsLP options(popts);
   SimulationLP simulation_lp(simulation, options);
 
   SystemLP system_lp(system, simulation_lp);
@@ -192,4 +206,160 @@ TEST_CASE("SystemLP - Timeout Scenario")
   } else {
     CHECK(result.value() == 0);  // 0 = optimal
   }
+}
+
+// ──────────────────────────────────────────────────────────────────────
+// SystemLP move semantics
+//
+// SystemLP holds a SystemContext which keeps a back-reference to its
+// owning SystemLP (`m_system_`) plus a `m_collection_ptrs_` table of
+// interior pointers into the owner's `m_collections_` tuple.  A
+// defaulted move would copy these references verbatim, leaving the
+// embedded context referring to the moved-from SystemLP and to a stale
+// collections tuple.  The custom move-ctor / move-assign re-point both
+// via `SystemContext::rebind_system(*this)`.
+//
+// These tests pin that contract: after a move, the SystemContext owned
+// by the destination SystemLP must yield the destination's address from
+// `system_context().system()`, and `system().elements<...>().size()`
+// (which uses the rebound `m_collection_ptrs_` table) must still match
+// the input arrays.  Without rebind, the second check segfaults or
+// returns 0.
+// ──────────────────────────────────────────────────────────────────────
+
+namespace
+{
+SystemLP make_minimal_system_lp(SimulationLP& simulation_lp,
+                                const System& system)
+{
+  return SystemLP(system, simulation_lp);
+}
+}  // namespace
+
+TEST_CASE("SystemLP - move-ctor rebinds embedded SystemContext")
+{
+  const Array<Bus> bus_array = {
+      {.uid = Uid {1}, .name = "b1"},
+      {.uid = Uid {2}, .name = "b2"},
+  };
+  const Array<Demand> demand_array = {
+      {.uid = Uid {10}, .name = "d1", .bus = Uid {1}, .capacity = 100.0},
+  };
+  const Array<Generator> generator_array = {
+      {
+          .uid = Uid {20},
+          .name = "g1",
+          .bus = Uid {1},
+          .gcost = 50.0,
+          .capacity = 1000.0,
+      },
+  };
+  const Simulation simulation = {
+      .block_array = {{.uid = Uid {3}, .duration = 1}},
+      .stage_array = {{.uid = Uid {1}, .first_block = 0, .count_block = 1}},
+      .scenario_array = {{.uid = Uid {0}}},
+  };
+  const System system = {
+      .name = "SEN",
+      .bus_array = bus_array,
+      .demand_array = demand_array,
+      .generator_array = generator_array,
+  };
+
+  PlanningOptions popts;
+  popts.demand_fail_cost = 1000.0;
+  const PlanningOptionsLP options(popts);
+  SimulationLP simulation_lp(simulation, options);
+
+  SUBCASE("direct move construction")
+  {
+    SystemLP src = make_minimal_system_lp(simulation_lp, system);
+    SystemLP dst {std::move(src)};
+
+    // Back-reference must point at the new owner, not the moved-from one.
+    CHECK(&dst.system_context().system() == &dst);
+
+    // Collection table must have been rebuilt to point at dst.m_collections_.
+    CHECK(dst.elements<BusLP>().size() == bus_array.size());
+    CHECK(dst.elements<DemandLP>().size() == demand_array.size());
+    CHECK(dst.elements<GeneratorLP>().size() == generator_array.size());
+  }
+
+  SUBCASE("move into vector reallocation")
+  {
+    // Force at least one move when push_back grows the vector.  Each
+    // surviving SystemLP must be self-consistent post-move.
+    std::vector<SystemLP> sinks;
+    sinks.reserve(1);  // first push_back grows on second insertion
+    sinks.emplace_back(make_minimal_system_lp(simulation_lp, system));
+    sinks.emplace_back(make_minimal_system_lp(simulation_lp, system));
+
+    for (const auto& s : sinks) {
+      CHECK(&s.system_context().system() == &s);
+      CHECK(s.elements<BusLP>().size() == bus_array.size());
+      CHECK(s.elements<DemandLP>().size() == demand_array.size());
+      CHECK(s.elements<GeneratorLP>().size() == generator_array.size());
+    }
+  }
+
+  SUBCASE("move via std::optional<SystemLP> emplace + std::move")
+  {
+    // Mirrors the parallel-build buffer pattern in
+    // PlanningLP::create_systems: build into optional<SystemLP> then
+    // move into the final vector slot.
+    std::optional<SystemLP> opt;
+    opt.emplace(system, simulation_lp);
+    REQUIRE(opt.has_value());
+
+    SystemLP final_sys {*std::move(opt)};
+
+    CHECK(&final_sys.system_context().system() == &final_sys);
+    CHECK(final_sys.elements<BusLP>().size() == bus_array.size());
+    CHECK(final_sys.elements<GeneratorLP>().size() == generator_array.size());
+  }
+}
+
+TEST_CASE("SystemLP - move-assign rebinds embedded SystemContext")
+{
+  const Array<Bus> bus_array = {{.uid = Uid {1}, .name = "b1"}};
+  const Array<Demand> demand_array = {
+      {.uid = Uid {10}, .name = "d1", .bus = Uid {1}, .capacity = 100.0},
+  };
+  const Array<Generator> generator_array = {
+      {
+          .uid = Uid {20},
+          .name = "g1",
+          .bus = Uid {1},
+          .gcost = 50.0,
+          .capacity = 1000.0,
+      },
+  };
+  const Simulation simulation = {
+      .block_array = {{.uid = Uid {3}, .duration = 1}},
+      .stage_array = {{.uid = Uid {1}, .first_block = 0, .count_block = 1}},
+      .scenario_array = {{.uid = Uid {0}}},
+  };
+  const System system = {
+      .name = "SEN",
+      .bus_array = bus_array,
+      .demand_array = demand_array,
+      .generator_array = generator_array,
+  };
+
+  PlanningOptions popts;
+  popts.demand_fail_cost = 1000.0;
+  const PlanningOptionsLP options(popts);
+  SimulationLP simulation_lp(simulation, options);
+
+  // Two distinct SystemLPs; assign one over the other.
+  std::optional<SystemLP> dst;
+  dst.emplace(system, simulation_lp);
+
+  SystemLP src(system, simulation_lp);
+  *dst = std::move(src);
+
+  CHECK(&dst->system_context().system() == &*dst);
+  CHECK(dst->elements<BusLP>().size() == bus_array.size());
+  CHECK(dst->elements<DemandLP>().size() == demand_array.size());
+  CHECK(dst->elements<GeneratorLP>().size() == generator_array.size());
 }

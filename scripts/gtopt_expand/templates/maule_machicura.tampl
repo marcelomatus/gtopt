@@ -1,7 +1,37 @@
 # -*- mode: ampl; -*-
 # =============================================================================
-# Maule Irrigation Agreement (Convenio del Maule)
+# Maule Irrigation Agreement — MACHICURA MODEL  (Convenio del Maule)
 # =============================================================================
+#
+# VARIANT: machicura
+# ------------------
+# Full physical variant: Machicura is an active reservoir aguas abajo of
+# Colbun and the retiros of riego + Res 105 are physically re-anchored
+# there via the FlowRight `junction` field.
+#
+# Key assumptions
+# ---------------
+#   * Machicura reservoir is modeled with `daily_cycle = true` (battery-
+#     like).  No `vini` required.  vmax ≈ 12 hm³ (useful regulation).
+#     The Reservoir entity itself is emitted by plp2gtopt into the
+#     reservoir_array — NOT by this PAMPL file, which only defines
+#     rights-domain parameters and constraints.
+#   * Zone thresholds (Extraord / Ordinary / Normal, 129 / 581 hm³)
+#     are still governed by V_Colbun, matching the Convenio 1947/1983
+#     and DGA Resolución 105/83.
+#   * Physically re-anchored rights (junction = MACHICURA):
+#       - maule_gasto_normal_riego
+#       - maule_gasto_ordinario_riego
+#       - maule_resolucion_105
+#     All other rights (normal_elec, ordinario_elec, compensacion_elec)
+#     remain at Colbun (they are generation-at-Colbun variables).
+#   * No extra UserConstraint for the Machicura balance: the gtopt
+#     Reservoir with daily_cycle=true handles it.  FlowRights with
+#     `junction = MACHICURA` have their flow subtracted from that
+#     balance automatically.
+#
+# For the historical PLP-compatible variant (Machicura as pass-through
+# junction, retiros implicit-at-Colbun), see `maule.tampl`.
 #
 # This file defines the user constraints and parameters for the Maule
 # irrigation agreement (Convenio de 1947, updated 1983) between the
@@ -241,6 +271,44 @@ param econ_inver_costo = {{ econ_inver_costo | default(0.0) }};
 param costo_canelon = {{ costo_canelon }};
 
 # ---------------------------------------------------------------------------
+# Machicura reservoir parameters (MACHICURA MODEL variant)
+# ---------------------------------------------------------------------------
+#
+# Machicura is promoted from a pass-through junction to a daily-cycle
+# reservoir aguas abajo of Colbun.  The actual Reservoir entity is emitted
+# into the system JSON by plp2gtopt (reservoir_array / generator_array);
+# these parameters are documentary for the rights-domain PAMPL file.
+#
+#   central_machicura       physical central name (default: MACHICURA)
+#   junction_retiro         junction where retiros are physically anchored
+#                           (resolved from plpextrac.dat `downstream` field,
+#                            typically MACHICURA)
+#   machicura_vmax          useful regulation volume [hm³]
+#   machicura_capacity      installed capacity [MW]
+#   machicura_qmax          turbine maximum flow [m³/s]
+#   machicura_prod_factor   production factor [MW/(m³/s)]
+#   machicura_daily_cycle   1 = battery-like, no state variable
+
+# Physical junction for re-anchored retiros / Res 105
+# (resolved from plpextrac.dat or defaulted to MACHICURA)
+param junction_retiro = "{{ junction_retiro | default('MACHICURA') }}";
+
+# Machicura useful regulation volume [hm³]
+param machicura_vmax = {{ machicura_vmax | default(12.0) }};
+
+# Machicura installed capacity [MW]
+param machicura_capacity = {{ machicura_capacity | default(95.0) }};
+
+# Machicura turbine maximum flow [m³/s]
+param machicura_qmax = {{ machicura_qmax | default(280.0) }};
+
+# Machicura production factor [MW/(m³/s)] ≈ η · g · H / 1000
+param machicura_prod_factor = {{ machicura_prod_factor | default(0.327) }};
+
+# Machicura daily-cycle flag (1 = true / battery-like, no state variable)
+param machicura_daily_cycle = 1;
+
+# ---------------------------------------------------------------------------
 # Withdrawal districts
 # ---------------------------------------------------------------------------
 {% for district in districts %}
@@ -295,6 +363,26 @@ constraint maule_pct_ordinario_riego "Irrigation capped at {{ pct_riego_reserva 
 constraint dist_{{ district.name }} "{{ district.name }}: {{ district.percentage }}% of total irrigation":
   flow_right('{{ district.name }}').flow {{ '<=' if district.has_slack else '=' }} {{ district.percentage / 100.0 }} * flow_right('maule_gasto_normal_riego').flow;
 {% endfor %}
+
+# ---------------------------------------------------------------------------
+# Storage-eligibility flags and season-end targets (PLP plpmaulen.dat)
+# ---------------------------------------------------------------------------
+#
+# These parameters are exposed verbatim from the parsed convention file
+# for downstream AMPL constraints; no agreement constraint currently
+# references them.
+
+# "Caudal Maule Minimum embalsa" eligibility flags (T/F → 1/0)
+param flag_embalsa_1 = {{ 1 if (flag_embalsa_1 | default(false)) else 0 }};
+param flag_embalsa_2 = {{ 1 if (flag_embalsa_2 | default(false)) else 0 }};
+
+# Number of initial years that use manual irrigation percentages
+# (instead of the automatic monthly schedule)
+param n_agnos_pct_manual = {{ n_agnos_pct_manual | default(0) }};
+
+# End-of-season cumulative irrigation volume targets [hm3]
+# (12 values; raw PLP order matches plpmaulen.dat)
+param vol_acum_riego_temp[month] = [{{ (vol_acum_riego_temp | default([0,0,0,0,0,0,0,0,0,0,0,0])) | join(', ') }}];
 
 # =============================================================================
 # End of Maule Agreement

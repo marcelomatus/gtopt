@@ -26,6 +26,11 @@ public:
   static constexpr LPClassName ClassName {"ReserveZone"};
   static constexpr std::string_view UrequirementName {"urequirement"};
   static constexpr std::string_view DrequirementName {"drequirement"};
+  /// PAMPL-visible aliases for the up/down requirement columns.
+  /// Exposed under canonical short names so user constraints can write
+  /// `reserve_zone("Z").up` instead of the verbose `urequirement`.
+  static constexpr std::string_view UpName {"up"};
+  static constexpr std::string_view DnName {"dn"};
 
   using Base = ObjectLP<ReserveZone>;
 

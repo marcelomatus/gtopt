@@ -237,6 +237,7 @@ TEST_CASE("SystemLP with line - single bus mode")
 
   PlanningOptions opts;
   opts.use_single_bus = true;
+  opts.model_options.demand_fail_cost = 1000.0;
 
   System system = {
       .name = "SingleBusMode",
@@ -303,7 +304,9 @@ TEST_CASE("SystemLP with loop line is skipped")
       .line_array = line_array,
   };
 
-  const PlanningOptionsLP options;
+  PlanningOptions popts;
+  popts.model_options.demand_fail_cost = 1000.0;
+  const PlanningOptionsLP options(popts);
   SimulationLP simulation_lp(simulation, options);
 
   SystemLP system_lp(system, simulation_lp);
@@ -360,6 +363,7 @@ TEST_CASE("LineLP - Kirchhoff (theta) constraints with reactance")
   PlanningOptions opts;
   opts.use_kirchhoff = true;
   opts.use_single_bus = false;
+  opts.model_options.demand_fail_cost = 1000.0;
 
   const System system = {
       .name = "KirchhoffTest",
@@ -414,6 +418,7 @@ TEST_CASE("LineLP - DC line (no reactance) skips Kirchhoff")
   PlanningOptions opts;
   opts.use_kirchhoff = true;
   opts.use_single_bus = false;
+  opts.model_options.demand_fail_cost = 1000.0;
 
   SUBCASE("no reactance field — Kirchhoff skipped")
   {
@@ -707,6 +712,7 @@ TEST_CASE("LineLP - transfer cost is applied to flow")
   opts.use_single_bus = false;
   opts.use_kirchhoff = false;
   opts.scale_objective = 1000.0;
+  opts.model_options.demand_fail_cost = 1000.0;
 
   const System system = {
       .name = "TransferCostTest",

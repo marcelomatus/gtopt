@@ -25,9 +25,7 @@ from .generator_profile_writer import GeneratorProfileWriter
 from .index_utils import parse_index_range, parse_stages_phase
 from .indhor_writer import IndhorWriter
 from .junction_writer import JunctionWriter
-from .laja_writer import LajaWriter
 from .line_writer import LineWriter
-from .maule_writer import MauleWriter
 from .planos_writer import write_boundary_cuts_csv, write_hot_start_cuts_csv
 from .plp_parser import PLPParser
 from .stage_writer import StageWriter
@@ -55,12 +53,100 @@ class GTOptWriter:
     def _normalize_solver_type(solver_type: str) -> str:
         """Normalize solver type string.
 
-        Accepts 'sddp', 'mono', or 'monolithic'; returns either 'sddp' or
-        'monolithic' (the values understood by the gtopt C++ solver).
+        Accepts 'sddp', 'mono', 'monolithic', or 'cascade'; returns
+        'sddp', 'monolithic', or 'cascade'.
         """
         if solver_type in ("mono", "monolithic"):
             return "monolithic"
+        if solver_type == "cascade":
+            return "cascade"
         return "sddp"
+
+    @staticmethod
+    def _build_default_cascade_options(
+        model_opts: dict[str, Any],
+        sddp_opts: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Build a 3-level default cascade configuration.
+
+        Iteration budget split:
+          - Level 0 (uninodal):  1/2 of max_iterations — single-bus relaxation
+          - Level 1 (transport): 1/4 of max_iterations — lines enabled, no
+            losses, no kirchhoff (pure transport model)
+          - Level 2 (full):      remaining iterations — full network with the
+            user's original model_options
+
+        Each level inherits state-variable targets from the previous level
+        via elastic constraints (``inherit_targets = -1``).
+        """
+        total_iter = sddp_opts.get("max_iterations", 100)
+        convergence_tol = sddp_opts.get("convergence_tol", 0.1)
+
+        l0_iter = max(total_iter // 2, 1)
+        l1_iter = max(total_iter // 4, 1)
+        l2_iter = max(total_iter - l0_iter - l1_iter, 1)
+
+        transition = {
+            "inherit_targets": -1,
+            "target_rtol": 0.05,
+            "target_min_atol": 1.0,
+            "target_penalty": 500.0,
+        }
+
+        level_array = [
+            {
+                "uid": 1,
+                "name": "uninodal",
+                "model_options": {
+                    "use_single_bus": True,
+                },
+                "sddp_options": {
+                    "max_iterations": l0_iter,
+                    "convergence_tol": convergence_tol,
+                },
+            },
+            {
+                "uid": 2,
+                "name": "transport",
+                "model_options": {
+                    "use_single_bus": False,
+                    "use_kirchhoff": False,
+                    "use_line_losses": False,
+                },
+                "sddp_options": {
+                    "max_iterations": l1_iter,
+                    "convergence_tol": convergence_tol,
+                },
+                "transition": transition,
+            },
+            {
+                "uid": 3,
+                "name": "full_network",
+                "model_options": {
+                    k: v
+                    for k, v in model_opts.items()
+                    if k
+                    in (
+                        "use_single_bus",
+                        "use_kirchhoff",
+                        "use_line_losses",
+                        "kirchhoff_threshold",
+                        "loss_segments",
+                    )
+                },
+                "sddp_options": {
+                    "max_iterations": l2_iter,
+                    "convergence_tol": convergence_tol,
+                },
+                "transition": transition,
+            },
+        ]
+
+        return {
+            "model_options": model_opts,
+            "sddp_options": sddp_opts,
+            "level_array": level_array,
+        }
 
     def process_options(self, options):
         """Process options data to include input and output paths.
@@ -160,7 +246,7 @@ class GTOptWriter:
         if "use_line_losses" in src_model:
             model_opts["use_line_losses"] = src_model["use_line_losses"]
 
-        planning_opts = {
+        planning_opts: dict[str, Any] = {
             "method": solver_type,
             "input_directory": input_dir_val,
             "input_format": input_format,
@@ -170,6 +256,12 @@ class GTOptWriter:
             "model_options": model_opts,
             "sddp_options": sddp_opts,
         }
+
+        if solver_type == "cascade":
+            planning_opts["cascade_options"] = self._build_default_cascade_options(
+                model_opts, sddp_opts
+            )
+
         self.planning["options"] = planning_opts
 
         # Set annual_discount_rate on the simulation section.
@@ -538,6 +630,50 @@ class GTOptWriter:
             options,
         ).to_json_array()
 
+    def process_ror_spec(self, options):
+        """Resolve ``--ror-as-reservoirs`` once so downstream writers share it.
+
+        Runs before ``process_afluents`` and ``process_junctions`` so that
+        the discharge parquet can un-scale promoted pasada inflows and the
+        junction writer can re-use the same resolved spec without re-parsing
+        the CSV.  Stores two keys on ``options``:
+
+        * ``_ror_spec_resolved``: ``{name: RorSpec}`` from the resolver.
+        * ``_pasada_unscale_map``: ``{name: 1.0/production_factor}`` for
+          every promoted **pasada** central (serie centrals keep their
+          physical flow and are not included).
+        """
+        from .ror_equivalence_parser import (  # noqa: PLC0415
+            pasada_unscale_map,
+            resolve_ror_reservoir_spec,
+        )
+
+        centrals = self.parser.parsed_data.get("central_parser", None)
+        if not centrals:
+            return
+
+        cot = getattr(centrals, "centrals_of_type", None)
+        if not cot:
+            return
+
+        # Match JunctionWriter's item filter: eligible centrals are
+        # pasada+serie with bus>0 (and pasada must also be routed to the
+        # hydro path — not profile/solar).
+        pasada_hydro_names = options.get("_pasada_hydro_names", set())
+        items: list[dict[str, Any]] = []
+        for c in cot.get("serie", []):
+            if c.get("bus", 0) > 0:
+                items.append(c)
+        for c in cot.get("pasada", []):
+            if c.get("bus", 0) > 0 and c["name"] in pasada_hydro_names:
+                items.append(c)
+        for c in cot.get("embalse", []):
+            items.append(c)
+
+        resolved = resolve_ror_reservoir_spec(options, items)
+        options["_ror_spec_resolved"] = resolved
+        options["_pasada_unscale_map"] = pasada_unscale_map(resolved, items)
+
     def process_afluents(self, options):
         """Write affluent/discharge Parquet files for Flow elements.
 
@@ -577,6 +713,7 @@ class GTOptWriter:
             blocks,
             scenarios,
             options,
+            pasada_unscale_map=options.get("_pasada_unscale_map") or None,
         )
 
         aflce_writer.to_parquet(output_dir, items=aflces_items)
@@ -620,85 +757,73 @@ class GTOptWriter:
                 self.planning["system"][key] = val
 
     def process_water_rights(self, options):
-        """Process irrigation agreement conventions into rights entities.
+        """Emit canonical Stage-1 intermediate JSON files.
 
-        Only emits entities when ``emit_water_rights`` option is set to
-        True.  The conventions create FlowRight, VolumeRight,
-        RightJunction and UserConstraint entities that reference physical
-        elements by name — these references must match the converted
-        hydro topology, so emission is opt-in until the converter is
-        validated for each PLP case.
+        This method is purely Stage 1 of the expansion pipeline (see
+        ``project_irrigation_pipeline.md``): when ``emit_water_rights`` is
+        True, the parsed Laja / Maule / LNG configs are dumped to
+        ``laja.json`` / ``maule.json`` / ``lng.json`` in the output
+        directory.
+
+        The Stage-2 transform is explicitly *not* performed here: that
+        work now lives exclusively in ``gtopt_expand`` and must be
+        invoked as a separate step (via ``gtopt_expand laja|maule|lng``
+        or by calling the corresponding Python API).  Keeping Stage 1
+        and Stage 2 separated means the canonical JSON files are always
+        authoritative and the rendering code has exactly one home.
+
+        Additional Maule enrichments produced here so the canonical JSON
+        is self-contained for downstream ``gtopt_expand`` runs:
+
+        * ``extrac_entries`` — echo of ``plpextrac.dat`` entries so
+          Stage 2 has the full downstream-extraction context without
+          re-reading the raw PLP files.
         """
         if not options.get("emit_water_rights", False):
             return
 
-        stage_parser = self.parser.parsed_data.get("stage_parser")
         output_dir = Path(options["output_dir"]) if options.get("output_dir") else None
+        if output_dir is None:
+            return
 
-        # Pass the effective number of stages (after -s/-t truncation) so
-        # that rights writers truncate their per-stage schedules to match.
-        sim = self.planning.get("simulation", {})
-        stage_array = sim.get("stage_array", [])
-        num_stages = len(stage_array)
-        # Determine blocks-per-stage so 3D schedules have correct inner dim
-        blocks_per_stage = stage_array[0].get("count_block", 1) if stage_array else 1
-        wr_options = {
-            **options,
-            "last_stage": num_stages,
-            "blocks_per_stage": blocks_per_stage,
-        }
+        def _dump_canonical_json(name: str, cfg: Dict[str, Any]) -> None:
+            """Persist the parser config dict as canonical Stage-1 output."""
+            target = output_dir / f"{name}.json"
+            with open(target, "w", encoding="utf-8") as fh:
+                json.dump(cfg, fh, indent=2, sort_keys=False)
+                fh.write("\n")
+            _logger.info("%s: canonical agreement JSON → %s", name, target.name)
 
-        pampl_files: list[str] = []
-
-        def _merge_writer(name: str, writer_dict: dict) -> None:
-            """Merge writer output into planning and log entity counts."""
-            for key, val in writer_dict.items():
-                if key == "user_constraint_file":
-                    pampl_files.append(val)
-                    _logger.info(
-                        "%s: user_constraint_file = %s",
-                        name,
-                        val,
-                    )
-                else:
-                    existing = self.planning["system"].get(key, [])
-                    self.planning["system"][key] = existing + val
-                    if val:
-                        _logger.info(
-                            "%s: %d %s",
-                            name,
-                            len(val),
-                            key,
-                        )
-
-        # Laja convention
+        # Laja convention (Stage 1 only — no Stage-2 rendering here)
         laja_parser = self.parser.parsed_data.get("laja_parser")
         if laja_parser is not None:
-            lw = LajaWriter(
-                laja_config=laja_parser.config,
-                stage_parser=stage_parser,
-                options=wr_options,
-            )
-            _merge_writer("Laja", lw.to_json_dict(output_dir=output_dir))
+            _dump_canonical_json("laja", laja_parser.config)
 
-        # Maule convention
+        # Maule convention: echo plpextrac.dat entries into the dumped
+        # config so Stage 2 (gtopt_expand) has the full downstream-
+        # extraction context without re-reading the raw PLP files.
+        # plp2gtopt does NOT write ``machicura_model`` — MACHICURA is
+        # just another promotable serie central in ``ror_equivalence.csv``
+        # (no special treatment here).  The Maule agreement variant is
+        # auto-detected by ``gtopt_expand`` itself: when the
+        # companion planning JSON (written next to ``maule.json`` in the
+        # same output dir) contains a reservoir whose name matches the
+        # resolved ``junction_retiro`` (typically ``MACHICURA``), the
+        # Stage-2 consumer picks the ``embalse`` template variant; else
+        # the ``pasada`` default.  Hand-authored fixtures can still pin
+        # the variant by setting ``cfg["machicura_model"]`` explicitly.
         maule_parser = self.parser.parsed_data.get("maule_parser")
         if maule_parser is not None:
-            mw = MauleWriter(
-                maule_config=maule_parser.config,
-                stage_parser=stage_parser,
-                options=wr_options,
-            )
-            _merge_writer("Maule", mw.to_json_dict(output_dir=output_dir))
+            cfg = dict(maule_parser.config)
+            extrac_parser = self.parser.parsed_data.get("extrac_parser")
+            if extrac_parser is not None:
+                cfg["extrac_entries"] = list(extrac_parser.get_all())
+            _dump_canonical_json("maule", cfg)
 
-        # Use user_constraint_files (plural) to keep PAMPL files separate
-        if pampl_files:
-            self.planning["system"]["user_constraint_files"] = pampl_files
-            _logger.info(
-                "Registered %d PAMPL file(s): %s",
-                len(pampl_files),
-                ", ".join(pampl_files),
-            )
+        # GNL / LNG terminal (Stage 1 only — Stage 2 is gtopt_expand lng)
+        gnl_parser = self.parser.parsed_data.get("gnl_parser")
+        if gnl_parser is not None:
+            _dump_canonical_json("lng", gnl_parser.config)
 
     def process_flow_turbines(self, options):
         """Create Flow + Turbine(flow=ref) for hydro pasada centrals.
@@ -1347,6 +1472,7 @@ class GTOptWriter:
         _step("demands")
         self.process_demands(options)
         _step("hydro")
+        self.process_ror_spec(options)
         self.process_afluents(options)
         self.process_generator_profiles(options)
         self.process_junctions(options)

@@ -68,7 +68,7 @@ TEST_CASE(  // NOLINT
   };
 
   std::vector<SceneLP> scenes;
-  scenes.emplace_back(sim.scene_array[0], sim, SceneIndex {0});
+  scenes.emplace_back(sim.scene_array[0], sim, first_scene_index());
   scenes.emplace_back(sim.scene_array[1], sim, SceneIndex {1});
 
   const std::vector<uint8_t> feasible = {1, 1};
@@ -111,7 +111,7 @@ TEST_CASE(  // NOLINT
   };
 
   std::vector<SceneLP> scenes;
-  scenes.emplace_back(sim.scene_array[0], sim, SceneIndex {0});
+  scenes.emplace_back(sim.scene_array[0], sim, first_scene_index());
   scenes.emplace_back(sim.scene_array[1], sim, SceneIndex {1});
 
   // Scene 1 is infeasible
@@ -154,7 +154,7 @@ TEST_CASE(  // NOLINT
   };
 
   std::vector<SceneLP> scenes;
-  scenes.emplace_back(sim.scene_array[0], sim, SceneIndex {0});
+  scenes.emplace_back(sim.scene_array[0], sim, first_scene_index());
   scenes.emplace_back(sim.scene_array[1], sim, SceneIndex {1});
 
   // All scenes infeasible => total = 0
@@ -196,7 +196,7 @@ TEST_CASE(  // NOLINT
   };
 
   std::vector<SceneLP> scenes;
-  scenes.emplace_back(sim.scene_array[0], sim, SceneIndex {0});
+  scenes.emplace_back(sim.scene_array[0], sim, first_scene_index());
   scenes.emplace_back(sim.scene_array[1], sim, SceneIndex {1});
 
   const std::vector<uint8_t> feasible = {1, 1};
@@ -245,7 +245,7 @@ TEST_CASE(  // NOLINT
   };
 
   std::vector<SceneLP> scenes;
-  scenes.emplace_back(sim.scene_array[0], sim, SceneIndex {0});
+  scenes.emplace_back(sim.scene_array[0], sim, first_scene_index());
 
   const std::vector<uint8_t> feasible = {1};
   const auto weights =
@@ -648,7 +648,7 @@ TEST_CASE(  // NOLINT
   }
 
   // First result should have iteration index equal to offset (0)
-  CHECK((*results)[0].iteration == IterationIndex {0});
+  CHECK((*results)[0].iteration_index == IterationIndex {0});
 }
 
 TEST_CASE(  // NOLINT

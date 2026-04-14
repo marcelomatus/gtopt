@@ -8,7 +8,9 @@
 
 #include <algorithm>
 #include <cmath>
+#include <format>
 #include <ranges>
+#include <stdexcept>
 
 #include <gtopt/constraint_expr.hpp>
 #include <gtopt/constraint_parser.hpp>
@@ -36,7 +38,8 @@ namespace
 // ── Domain check ─────────────────────────────────────────────────────────────
 
 template<typename T>
-  requires(strong::is_strong_type<T>::value)
+  requires(strong::is_strong_type<T>::value
+           || requires(const T& t) { value_of(t); })
 [[nodiscard]] bool in_range(const IndexRange& range, T value)
 {
   if (range.is_all) {
@@ -71,15 +74,36 @@ template<typename T>
   // Monthly-indexed parameter: use stage's calendar month
   if (param.monthly.has_value()) {
     const auto& monthly = *param.monthly;
-    if (const auto month = stage.month()) {
-      // MonthType is 1-based (january=1), monthly vector is 0-based
-      const auto idx = static_cast<std::size_t>(*month) - 1;
-      if (idx < monthly.size()) {
-        return monthly[idx];
-      }
+    const auto month = stage.month();
+    if (!month.has_value()) {
+      // Fail fast: silently returning january was a hidden source of
+      // subtly wrong LPs in constraints like La Invernada that depend
+      // on calendar modulation.
+      throw std::runtime_error(std::format(
+          "UserConstraint monthly parameter '{}' requires stage.month to "
+          "be set on stage uid={} but the stage has no calendar month. "
+          "Fix: add `.month = MonthType::<jan..dec>` to the Stage in the "
+          "Simulation's stage_array, or remove the monthly override from "
+          "UserParam '{}'.",
+          name,
+          stage.uid(),
+          name));
     }
-    // No month on stage: use january (index 0) as fallback
-    return monthly.empty() ? 0.0 : monthly[0];
+    // MonthType is 1-based (january=1), monthly vector is 0-based
+    const auto idx = static_cast<std::size_t>(*month) - 1;
+    if (idx >= monthly.size()) {
+      throw std::runtime_error(std::format(
+          "UserConstraint monthly parameter '{}' has {} entries but stage "
+          "uid={} has month={} (index {}). Fix: extend the `monthly` "
+          "array to 12 entries (january..december) in UserParam '{}'.",
+          name,
+          monthly.size(),
+          stage.uid(),
+          std::to_underlying(*month),
+          idx,
+          name));
+    }
+    return monthly[idx];
   }
 
   // Scalar parameter
@@ -293,6 +317,31 @@ BuildResult build_row_from_terms(LowerCtx& ctx,
               *pval,
               coef);
         }
+      } else if (ctx.is_strict) {
+        // The element ref resolved neither as an LP column (no
+        // matching variable in the AMPL registry) nor as a data
+        // parameter — most commonly a typo, an inactive element, or
+        // a missing element.  Silent skipping here is the most
+        // insidious failure mode: the constraint becomes vacuously
+        // satisfied while the LP still solves.
+        throw std::runtime_error(std::format(
+            "user_constraint '{}': cannot resolve element reference "
+            "'{}({}).{}' (block {}) — element is missing or inactive, "
+            "or attribute is not a registered LP variable or parameter",
+            ctx.uc.name,
+            term.element->element_type,
+            term.element->element_id,
+            term.element->attribute,
+            ctx.block.uid()));
+      } else {
+        SPDLOG_WARN(std::format(
+            "user_constraint '{}': cannot resolve element reference "
+            "'{}({}).{}' (block {}) — skipping term",
+            ctx.uc.name,
+            term.element->element_type,
+            term.element->element_id,
+            term.element->attribute,
+            ctx.block.uid()));
       }
       continue;
     }
@@ -504,12 +553,60 @@ BuildResult build_row_from_terms(LowerCtx& ctx,
 
 // ── UserConstraintLP implementation ─────────────────────────────────────────
 
+namespace
+{
+
+/// Resolve a soft constraint's slack cost for one block.
+///
+/// The caller supplies the base `penalty` scalar stored on the
+/// `UserConstraint` and the `PenaltyClass` parsed at construction; this
+/// helper folds in any per-block unit conversion so that the returned
+/// value can be plugged directly into the slack column's LP objective
+/// coefficient.
+///
+/// - `PenaltyClass::Raw` — identity (backwards-compatible).
+/// - `PenaltyClass::HydroFlow` — `penalty` is $/m³; multiply by
+///   `block_duration_hours × 3600` to obtain $/(m³/s), mirroring
+///   `source/flow_right_lp.cpp:74` so soft-flow `UserConstraint` rows
+///   compose uniformly with element-level `hydro_fail_cost` pricing.
+[[nodiscard]] constexpr Real resolve_block_soft_penalty(
+    Real base_penalty,
+    PenaltyClass penalty_class,
+    Real block_duration_hours) noexcept
+{
+  switch (penalty_class) {
+    case PenaltyClass::Raw:
+      return base_penalty;
+    case PenaltyClass::HydroFlow:
+      return base_penalty * block_duration_hours * 3600.0;
+  }
+  return base_penalty;  // unreachable (switch is exhaustive)
+}
+
+}  // namespace
+
 UserConstraintLP::UserConstraintLP(const UserConstraint& uc, InputContext& ic)
     : ObjectLP<UserConstraint>(uc, ic, ClassName)
     , m_scale_type_(enum_from_name<ConstraintScaleType>(
                         uc.constraint_type.value_or("power"))
                         .value_or(ConstraintScaleType::Power))
 {
+  // Parse `penalty_class` at construction so the hot per-block loop can
+  // dispatch on a plain enum.  An unrecognised value is a hard error —
+  // silently falling back to `raw` was the exact class of bug that the
+  // 2026-04 fail-fast audit was meant to eliminate.
+  if (uc.penalty_class.has_value() && !uc.penalty_class->empty()) {
+    const auto parsed = enum_from_name<PenaltyClass>(*uc.penalty_class);
+    if (!parsed.has_value()) {
+      throw std::runtime_error(
+          std::format("user_constraint '{}': unknown penalty_class '{}' — "
+                      "valid values are: raw, hydro_flow",
+                      uc.name,
+                      *uc.penalty_class));
+    }
+    m_penalty_class_ = *parsed;
+  }
+
   if (!uc.expression.empty()) {
     try {
       m_expr_ = ConstraintParser::parse(uc.name, uc.expression);
@@ -557,8 +654,32 @@ bool UserConstraintLP::add_to_lp(const SystemContext& sc,
   const bool is_debug = (mode == ConstraintMode::debug);
   const bool is_strict = (mode == ConstraintMode::strict || is_debug);
 
+  // Soft-constraint sugar: when `penalty` is set on the underlying
+  // UserConstraint, the LP row gets one or two auto-created slack
+  // columns folded in so the constraint can be relaxed at that
+  // per-unit cost.  RANGE form is not yet supported.
+  const auto penalty = uc.penalty.value_or(0.0);
+  const bool is_soft = penalty > 0.0;
+  if (is_soft && expr.constraint_type == ConstraintType::RANGE) {
+    throw std::runtime_error(
+        std::format("user_constraint '{}': `penalty` is not supported on RANGE "
+                    "(`lower <= expr <= upper`) constraints — split into two "
+                    "one-sided constraints instead",
+                    uc.name));
+  }
+  const bool soft_needs_neg =
+      is_soft && expr.constraint_type == ConstraintType::EQUAL;
+
   BIndexHolder<RowIndex> block_rows;
+  BIndexHolder<ColIndex> block_slack_cols;
+  BIndexHolder<ColIndex> block_slack_neg_cols;
   map_reserve(block_rows, stage.blocks().size());
+  if (is_soft) {
+    map_reserve(block_slack_cols, stage.blocks().size());
+    if (soft_needs_neg) {
+      map_reserve(block_slack_neg_cols, stage.blocks().size());
+    }
+  }
 
   for (const auto& block : stage.blocks()) {
     if (!in_range(domain.blocks, block.uid())) {
@@ -606,14 +727,69 @@ bool UserConstraintLP::add_to_lp(const SystemContext& sc,
     if (adjusted_expr.upper_bound) {
       *adjusted_expr.upper_bound -= param_shift;
     }
+
+    // Soft-constraint relaxation — fold one or two slack columns into
+    // the row before sealing it.  Each slack carries `cost = block_penalty`,
+    // is non-negative, and is registered through `add_ampl_variable`
+    // so other constraints / reports can reference it by the canonical
+    // names `slack`, `slack_pos`, `slack_neg`.
+    //
+    // `block_penalty` is resolved inside the block loop (not hoisted)
+    // because `PenaltyClass::HydroFlow` converts $/m³ → $/(m³/s) via
+    // `× duration[h] × 3600`, and block duration is per-block.
+    if (is_soft) {
+      const auto block_penalty = resolve_block_soft_penalty(
+          penalty, m_penalty_class_, block.duration());
+      const auto block_ctx =
+          make_block_context(scenario.uid(), stage.uid(), block.uid());
+      const auto slack_col = lp.add_col(SparseCol {
+          .cost = block_penalty,
+          .class_name = ClassName.full_name(),
+          .variable_name = soft_needs_neg ? SlackPosName : SlackName,
+          .variable_uid = uid(),
+          .context = block_ctx,
+      });
+      // LE: row gets `−1·slack` so the optimizer can absorb overage.
+      // GE: row gets `+1·slack` so the optimizer can absorb shortfall.
+      // EQ (slack_pos): row gets `+1·slack_pos`, paired with slack_neg.
+      double pos_coeff = 0.0;
+      switch (expr.constraint_type) {
+        case ConstraintType::LESS_EQUAL:
+          pos_coeff = -1.0;
+          break;
+        case ConstraintType::GREATER_EQUAL:
+        case ConstraintType::EQUAL:
+          pos_coeff = +1.0;
+          break;
+        case ConstraintType::RANGE:
+          // Already rejected at the top of add_to_lp.
+          break;
+      }
+      row.cmap[slack_col] = pos_coeff;
+      block_slack_cols[block.uid()] = slack_col;
+
+      if (soft_needs_neg) {
+        const auto slack_neg_col = lp.add_col(SparseCol {
+            .cost = block_penalty,
+            .class_name = ClassName.full_name(),
+            .variable_name = SlackNegName,
+            .variable_uid = uid(),
+            .context = block_ctx,
+        });
+        row.cmap[slack_neg_col] = -1.0;
+        block_slack_neg_cols[block.uid()] = slack_neg_col;
+      }
+    }
+
     apply_constraint_bounds(row, adjusted_expr);
     const auto row_nterms = row.size();
     // Compute row_name lazily only when debug logging is enabled — otherwise
     // we pay the label formatting cost for a string that is immediately
-    // dropped.  force_row_label ignores LpNamesLevel so the debug line is
+    // dropped.  Using LpNamesLevel::all ensures the debug line is
     // always populated even when solver row labels are disabled.
-    auto debug_row_name =
-        is_debug ? LabelMaker::force_row_label(row) : std::string {};
+    auto debug_row_name = is_debug
+        ? LabelMaker {LpNamesLevel::all}.make_row_label(row)
+        : std::string {};
     const auto row_idx = lp.add_row(std::move(row));
     block_rows[block.uid()] = row_idx;
     if (is_debug) {
@@ -640,6 +816,31 @@ bool UserConstraintLP::add_to_lp(const SystemContext& sc,
     }
   }
 
+  // Publish auto-created slack columns to the AMPL registry so other
+  // user constraints / reports can reference them, and stash the per-
+  // (scenario, stage) holders for `add_to_output`.
+  if (is_soft && !block_slack_cols.empty()) {
+    static constexpr auto ampl_name = ClassName.snake_case();
+    const auto st_key = std::tuple {scenario.uid(), stage.uid()};
+    sc.add_ampl_variable(ampl_name,
+                         uid(),
+                         soft_needs_neg ? SlackPosName : SlackName,
+                         scenario,
+                         stage,
+                         block_slack_cols);
+    m_slack_cols_[st_key] = std::move(block_slack_cols);
+
+    if (soft_needs_neg && !block_slack_neg_cols.empty()) {
+      sc.add_ampl_variable(ampl_name,
+                           uid(),
+                           SlackNegName,
+                           scenario,
+                           stage,
+                           block_slack_neg_cols);
+      m_slack_neg_cols_[st_key] = std::move(block_slack_neg_cols);
+    }
+  }
+
   return true;
 }
 
@@ -660,6 +861,21 @@ bool UserConstraintLP::add_to_output(OutputContext& out) const
     // (scale_obj / (prob × discount × Δt)).
     // "power"  → dual in $/MW;  "energy" → dual in $/MWh.
     out.add_row_dual(ClassName.full_name(), ConstraintName, pid, m_rows_);
+  }
+
+  // Auto-created slack columns from soft-constraint sugar.  The
+  // visible-slack contract requires both the primal value and the
+  // realized cost to land in the standard output stream.
+  const auto slack_name = m_slack_neg_cols_.empty() ? SlackName : SlackPosName;
+  if (!m_slack_cols_.empty()) {
+    out.add_col_sol(ClassName.full_name(), slack_name, pid, m_slack_cols_);
+    out.add_col_cost(ClassName.full_name(), slack_name, pid, m_slack_cols_);
+  }
+  if (!m_slack_neg_cols_.empty()) {
+    out.add_col_sol(
+        ClassName.full_name(), SlackNegName, pid, m_slack_neg_cols_);
+    out.add_col_cost(
+        ClassName.full_name(), SlackNegName, pid, m_slack_neg_cols_);
   }
 
   return true;

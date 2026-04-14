@@ -1,13 +1,66 @@
 {# ================================================================= #}
-{# Maule Irrigation Agreement (Convenio del Maule, 1947/1983)        #}
+{# Maule Irrigation Agreement — MACHICURA MODEL                      #}
 {# JSON Entity Template — FlowRight, VolumeRight, UserConstraint     #}
 {#                                                                   #}
-{# This template defines the gtopt JSON entity structure for the     #}
-{# Maule agreement.  Parameters marked {{ param }} are filled at render  #}
-{# time from values parsed from plpmaulen.dat and pre-computed by    #}
-{# maule_writer.py (schedules, zone thresholds, costs).              #}
+{# VARIANT: machicura                                                #}
+{# ------------------                                                #}
+{# Full physical variant of the Convenio del Maule: Machicura is    #}
+{# promoted to an active reservoir, located aguas abajo of Colbun,   #}
+{# and the retiros of riego + Res 105 are physically re-anchored     #}
+{# there via the FlowRight `junction` field.                         #}
 {#                                                                   #}
-{# PLP Fortran sources (authoritative):                              #}
+{# KEY ASSUMPTIONS                                                   #}
+{#                                                                   #}
+{# 1. Machicura reservoir:                                           #}
+{#    * `daily_cycle = true` — battery-like behavior.                #}
+{#    * NO `vini` required: the daily-cycle semantics imply the     #}
+{#      reservoir has no state variable carried across stages.      #}
+{#    * `vmax` ≈ 12 hm³ (useful regulation volume of Embalse         #}
+{#      Machicura; the full 55 hm³ figure is the physical volume). #}
+{#    * Central Machicura: 95 MW, 2×Kaplan, Qmax 280 m³/s,          #}
+{#      H ≈ 37 m  →  ρ ≈ 0.327 MW/(m³/s).                          #}
+{#    * These parameters are emitted by plp2gtopt as a Reservoir +  #}
+{#      Generator pair in the reservoir_array / generator_array —   #}
+{#      NOT by this template, which lives in the rights domain only.#}
+{#                                                                   #}
+{# 2. Zone governance STILL lives on Colbun:                        #}
+{#    * Every `bound_rule.reservoir` in this file still points to   #}
+{#      `res_colbun`.  The three-zone model (Extraord / Ordinary /  #}
+{#      Normal, thresholds 129 hm³ and 581 hm³) is governed by      #}
+{#      V_Colbun, not V_Machicura — this matches the Convenio       #}
+{#      1947/1983 and DGA Resolución 105/83.                        #}
+{#                                                                   #}
+{# 3. Physical extraction points:                                    #}
+{#    * `maule_gasto_normal_riego`    → junction = MACHICURA        #}
+{#    * `maule_gasto_ordinario_riego` → junction = MACHICURA        #}
+{#    * `maule_resolucion_105`        → junction = MACHICURA        #}
+{#    * `maule_gasto_normal_elec`, `_ordinario_elec`, and            #}
+{#      `maule_compensacion_elec` are NOT moved — these are         #}
+{#      generation-at-Colbun variables, not retiros.                #}
+{#                                                                   #}
+{# 4. The Machicura balance is NOT enforced as a UserConstraint in  #}
+{#    this template: it is delegated to the gtopt Reservoir daily-  #}
+{#    cycle balance on the MACHICURA Reservoir entity (vmin=0,       #}
+{#    vmax={{ machicura_vmax | default(12.0) }}, daily_cycle=true). #}
+{#    FlowRights with `junction: MACHICURA` have their flow         #}
+{#    subtracted from that balance automatically.                    #}
+{#                                                                   #}
+{# Template parameters specific to this variant (supplied by        #}
+{# MauleAgreement._prepare_context() in maule_agreement.py):        #}
+{#   junction_retiro       — physical junction for retiros/Res105   #}
+{#                           (typically "MACHICURA"; resolved from  #}
+{#                           plpextrac.dat downstream field)        #}
+{#   machicura_vmax        — useful volume [hm³] (default 12.0)     #}
+{#   machicura_capacity    — installed capacity [MW] (default 95)   #}
+{#   machicura_qmax        — turbine max flow [m³/s] (default 280)  #}
+{#   machicura_prod_factor — MW/(m³/s) (default 0.327)              #}
+{#                                                                   #}
+{# For the historical PLP-compatible variant (Machicura as pass-    #}
+{# through junction, retiros implicit-at-Colbun) see                 #}
+{# `maule.tson` / `maule.tampl` (the default PLP variant).           #}
+{#                                                                   #}
+{# PLP Fortran sources (authoritative for the underlying convention #}
+{# even though this variant diverges from PLP's physical topology): #}
 {#   parmaule.f    — PAR_MAULE parameter structure                   #}
 {#   plp-maule0.f  — initialization, config parsing                  #}
 {#   genpdmaule.f  — LP constraint matrix assembly, FijaMaule        #}
@@ -251,6 +304,7 @@
     {
       "name": "maule_gasto_normal_riego",
       "purpose": "irrigation",
+      "junction": {{ junction_retiro }},
       "direction": -1,
       "discharge": 0,
       "fmax": {{ irr_fmax_schedule }},
@@ -317,6 +371,7 @@
     {
       "name": "maule_gasto_ordinario_riego",
       "purpose": "irrigation",
+      "junction": {{ junction_retiro }},
       "direction": -1,
       "discharge": 0,
       "fmax": {{ irr_fmax_schedule }},
@@ -377,6 +432,7 @@
     {
       "name": "maule_resolucion_105",
       "purpose": "environmental",
+      "junction": {{ junction_retiro }},
       "direction": -1,
       "discharge": {{ res105_discharge }},
       "fail_cost": {{ costo_riego_ns_res105 }}
@@ -415,11 +471,16 @@
     {#   +FCau * CostoNoEmbalsar * IQHNEIN  (bypass penalty)         #}
     {# gtopt: mapped to use_value on the respective FlowRights.     #}
     {# ============================================================= #}
+    {# fmax = qmax_invernada makes these true free variables in      #}
+    {# [0, qmax_invernada].  Without fmax, flow_right_lp.cpp pins    #}
+    {# the column to [discharge, discharge] = [0, 0] and the         #}
+    {# invernada_balance UserConstraint degenerates to 0 = 0.        #}
     {
       "name": "invernada_deficit",
       "purpose": "irrigation",
       "direction": 1,
       "discharge": 0,
+      "fmax": {{ qmax_invernada }},
       "use_average": true
     },
 
@@ -428,6 +489,7 @@
       "purpose": "irrigation",
       "direction": 1,
       "discharge": 0,
+      "fmax": {{ qmax_invernada }},
       "use_average": true
     },
 
@@ -436,6 +498,7 @@
       "purpose": "irrigation",
       "direction": 1,
       "discharge": 0,
+      "fmax": {{ qmax_invernada }},
       "use_average": true
     },
 
@@ -446,6 +509,7 @@
       "purpose": "economy",
       "direction": -1,
       "discharge": 0,
+      "fmax": {{ qmax_invernada }},
       "use_average": true
       {% if costo_embalsar > 0 %}
       ,"use_value": {{ costo_embalsar }}
@@ -459,6 +523,7 @@
       "purpose": "economy",
       "direction": -1,
       "discharge": 0,
+      "fmax": {{ qmax_invernada }},
       "use_average": true
       {% if costo_no_embalsar > 0 %}
       ,"use_value": {{ costo_no_embalsar }}
@@ -695,10 +760,19 @@
     {# on the supply side, making both sides of the equation visible #}
     {# in the LP.                                                    #}
     {# ============================================================= #}
+    {# `penalty` + `penalty_class = "hydro_flow"` makes the balance     #}
+    {# soft: if the PLP-style conditional bound-flipping would have    #}
+    {# forced infeasibility (irr_demand > inflow with deficit pinned),  #}
+    {# the LP absorbs the gap through visible slack columns priced at  #}
+    {# `penalty_invernada` $/m³ × block_duration × 3600 (mirroring     #}
+    {# FlowRight.fail_cost).  Setting `penalty` to 0 disables the     #}
+    {# soft relaxation and restores the hard-equality behaviour.       #}
     {
       "name": "invernada_balance",
       "expression": {{ expression_invernada }},
-      "description": {{ description_invernada }}
+      "description": {{ description_invernada }},
+      "penalty": {{ penalty_invernada }},
+      "penalty_class": "hydro_flow"
     },
 
     {# ============================================================= #}

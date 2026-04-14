@@ -72,8 +72,8 @@ struct StateVarLink
 {
   ColIndex source_col {};  ///< Source column in source phase's LP
   ColIndex dependent_col {};  ///< Dependent column in target phase's LP
-  PhaseIndex source_phase {};  ///< Phase where the source column lives
-  PhaseIndex target_phase {};  ///< Phase where the dependent column lives
+  PhaseIndex source_phase_index {};  ///< Phase where the source column lives
+  PhaseIndex target_phase_index {};  ///< Phase where the dependent column lives
   double trial_value {0.0};  ///< Trial value from the last forward pass
   double source_low {0.0};  ///< Physical lower bound of source column
   double source_upp {0.0};  ///< Physical upper bound of source column

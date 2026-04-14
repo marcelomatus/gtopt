@@ -47,7 +47,7 @@ inline constexpr auto loss_allocation_mode_entries =
         {.name = "split", .value = LossAllocationMode::split},
     });
 
-constexpr auto enum_entries(LossAllocationMode /*tag*/) noexcept
+[[nodiscard]] constexpr auto enum_entries(LossAllocationMode /*tag*/) noexcept
 {
   return std::span {loss_allocation_mode_entries};
 }
@@ -126,7 +126,7 @@ inline constexpr auto line_losses_mode_entries =
         {.name = "dynamic", .value = LineLossesMode::dynamic},
     });
 
-constexpr auto enum_entries(LineLossesMode /*tag*/) noexcept
+[[nodiscard]] constexpr auto enum_entries(LineLossesMode /*tag*/) noexcept
 {
   return std::span {line_losses_mode_entries};
 }

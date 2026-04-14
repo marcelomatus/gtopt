@@ -15,6 +15,8 @@
 
 #include <functional>
 #include <mutex>
+#include <optional>
+#include <span>
 #include <utility>
 #include <vector>
 
@@ -46,11 +48,11 @@ class PlanningLP;
 class SimulationLP
 {
 public:
-  // SimulationLP holds a std::mutex (m_ampl_mutex_) to guard concurrent
-  // writes to the PAMPL variable registry during parallel scene builds
-  // in planning_lp.cpp.  The mutex makes the class neither copyable nor
-  // movable; callers (PlanningLP, tests) only ever construct it in-place,
-  // so the deletions below do not affect real usage.
+  // Non-copyable, non-movable: SimulationLP holds dense
+  // `StrongIndexVector` registries keyed by (scene, phase) which would
+  // be expensive to move and cheap to construct in-place.  All callers
+  // (PlanningLP, tests) construct it in-place, so the deletions below
+  // do not affect real usage.
   SimulationLP(SimulationLP&&) = delete;
   SimulationLP(const SimulationLP&) = delete;
   SimulationLP& operator=(SimulationLP&&) = delete;
@@ -114,6 +116,47 @@ public:
     return m_phase_array_;
   }
 
+  /**
+   * @brief Number of phases as a signed ``Index``.
+   *
+   * Convenience wrapper that avoids the repeated
+   * ``static_cast<Index>(sim.phases().size())`` idiom at SDDP call sites.
+   */
+  [[nodiscard]] constexpr auto phase_count() const noexcept -> Index
+  {
+    return static_cast<Index>(m_phase_array_.size());
+  }
+
+  /**
+   * @brief Number of scenes as a signed ``Index``.
+   *
+   * Convenience wrapper that avoids the repeated
+   * ``static_cast<Index>(sim.scenes().size())`` idiom at SDDP call sites.
+   */
+  [[nodiscard]] constexpr auto scene_count() const noexcept -> Index
+  {
+    return static_cast<Index>(m_scene_array_.size());
+  }
+
+  /**
+   * @brief Gets the index of the last phase.
+   * @pre The simulation has at least one phase.
+   * @return `previous(PhaseIndex{phases().size()})`.
+   */
+  [[nodiscard]] constexpr auto last_phase_index() const noexcept -> PhaseIndex
+  {
+    return previous(PhaseIndex {m_phase_array_.size()});
+  }
+
+  /**
+   * @brief Gets the index of the last scene.
+   * @pre The simulation has at least one scene.
+   */
+  [[nodiscard]] constexpr auto last_scene_index() const noexcept -> SceneIndex
+  {
+    return previous(SceneIndex {m_scene_array_.size()});
+  }
+
   [[nodiscard]] constexpr const auto& blocks() const noexcept
   {
     return m_block_array_;
@@ -135,27 +178,25 @@ public:
 
   [[nodiscard]] constexpr auto previous_stage(const StageLP& stage)
   {
-    if (stage.index() == StageIndex {0}) {
+    if (!stage.index()) {
       throw std::out_of_range("No previous stage for the first stage");
     }
-    return m_stage_array_[stage.index() - 1];
+    return m_stage_array_[previous(stage.index())];
   }
 
   [[nodiscard]] constexpr auto prev_stage(const StageLP& stage) const noexcept
       -> std::pair<const StageLP*, const PhaseLP*>
   {
-    if (stage.index() == StageIndex {0}) {
-      if (const auto phase_index = stage.phase_index();
-          phase_index == PhaseIndex {0})
-      {
+    if (!stage.index()) {
+      if (const auto phase_index = stage.phase_index(); !phase_index) {
         return {nullptr, nullptr};
       }
-      auto&& prev_phase = phases()[stage.phase_index() - 1];
+      auto&& prev_phase = phases()[previous(stage.phase_index())];
       auto&& prev_stage = prev_phase.stages().back();
       return {&prev_stage, &prev_phase};
     }
 
-    const auto prev_stage_index = stage.index() - StageIndex {1};
+    const auto prev_stage_index = previous(stage.index());
     return {&m_stage_array_[prev_stage_index], nullptr};
   }
 
@@ -238,39 +279,142 @@ public:
     return (it != map.end()) ? result_t {it->second} : result_t {};
   }
 
+  // ── (scenario, stage) → (scene, phase) factored lookup ──────────────────
+  //
+  // Scenes partition scenarios and phases partition stages, so the
+  // owning LP for a `(scenario_uid, stage_uid)` pair factors into two
+  // independent 1-D lookups.  Both maps are populated once in the
+  // constructor and never mutated, so reads are lock-free.
+  //
+  // In monolithic mode there is exactly one scene and one phase, and
+  // every lookup returns `(SceneIndex{0}, PhaseIndex{0})`.
+
+  /// Look up the scene that owns scenarios bearing the given uid.
+  /// Returns `nullopt` when the uid is unknown (e.g. inactive scenario).
+  [[nodiscard]] std::optional<SceneIndex> scene_of(
+      ScenarioUid scenario_uid) const noexcept
+  {
+    const auto it = m_scene_of_scenario_.find(scenario_uid);
+    return (it != m_scene_of_scenario_.end())
+        ? std::optional<SceneIndex> {it->second}
+        : std::nullopt;
+  }
+
+  /// Look up the phase that owns stages bearing the given uid.
+  /// Returns `nullopt` when the uid is unknown (e.g. inactive stage).
+  [[nodiscard]] std::optional<PhaseIndex> phase_of(
+      StageUid stage_uid) const noexcept
+  {
+    const auto it = m_phase_of_stage_.find(stage_uid);
+    return (it != m_phase_of_stage_.end())
+        ? std::optional<PhaseIndex> {it->second}
+        : std::nullopt;
+  }
+
+  /// Look up the unique LP that owns the `(scenario, stage)` tuple.
+  /// Returns `nullopt` if either uid is unknown.
+  [[nodiscard]] std::optional<std::pair<SceneIndex, PhaseIndex>> owning_lp_of(
+      ScenarioUid scenario_uid, StageUid stage_uid) const noexcept
+  {
+    const auto scene = scene_of(scenario_uid);
+    if (!scene) {
+      return std::nullopt;
+    }
+    const auto phase = phase_of(stage_uid);
+    if (!phase) {
+      return std::nullopt;
+    }
+    return std::pair {*scene, *phase};
+  }
+
+  /// Returns the unique owning LP iff every tuple in @p refs maps to
+  /// the same `(scene, phase)`.  Used by row dispatch to detect
+  /// constraints that would cross LPs.  An empty span returns
+  /// `nullopt` (no constraint to assign).
+  [[nodiscard]] std::optional<std::pair<SceneIndex, PhaseIndex>>
+  unique_owning_lp_of(
+      std::span<const std::pair<ScenarioUid, StageUid>> refs) const noexcept
+  {
+    if (refs.empty()) {
+      return std::nullopt;
+    }
+    const auto first = owning_lp_of(refs.front().first, refs.front().second);
+    if (!first) {
+      return std::nullopt;
+    }
+    for (const auto& [s_uid, t_uid] : refs.subspan(1)) {
+      const auto cur = owning_lp_of(s_uid, t_uid);
+      if (!cur || *cur != *first) {
+        return std::nullopt;
+      }
+    }
+    return first;
+  }
+
   // ── PAMPL / user-constraint variable registry ─────────────────────────────
   //
-  // Each LP element calls `add_ampl_variable` from its `add_to_lp` once per
-  // (scenario, stage) after populating its per-block column map, and once
-  // per stage-level scalar column (capainst, eini, efin, ...).  The resolver
-  // later looks them up via `find_ampl_col` without any per-element-type
-  // dispatch.
+  // Storage is partitioned per-(scene, phase), matching the topology of
+  // `state_variables`.  Each `(scene, phase)` cell holds the variable
+  // and metadata maps for the LP that owns that scene/phase pair.
   //
-  // Names (for `generator("G1")` style references) are registered once per
-  // element via `register_ampl_element`.
+  // Threading model (see `planning_lp.cpp`): scenes are constructed in
+  // parallel work-pool threads, but phases within a scene run
+  // **sequentially** because each phase consumes state variables produced
+  // by the previous one.  Therefore each `(scene, phase)` cell is written
+  // by exactly one thread, in sequence — **no per-cell mutex is needed**.
+  //
+  // Element-name and class-level compound registries are populated
+  // exactly once by the first `SystemLP` constructor that runs against
+  // this `SimulationLP` — `std::call_once` guards the population via
+  // `m_ampl_registry_flag_`.  Regardless of whether construction happens
+  // via `PlanningLP::create_systems` (parallel scenes race to be first,
+  // and the losers skip) or a unit test that creates a `SimulationLP` +
+  // `SystemLP` pair directly, the registry ends up populated before any
+  // `add_to_lp` runs and stays read-only afterwards.
+
+  /// Per-LP (scene, phase) cell: holds the variable and metadata maps
+  /// for one `LinearProblem`.  Each cell is owned by exactly one
+  /// scene-thread for the duration of all its phases, so no mutex.
+  struct AmplLpCell
+  {
+    AmplVariableMap variables;
+    AmplElementMetadataMap metadata;
+  };
+
+  using ampl_lp_registry_t =
+      StrongIndexVector<SceneIndex, StrongIndexVector<PhaseIndex, AmplLpCell>>;
+
+  /// Enable or disable AMPL variable registration.  When false (the
+  /// default), `add_ampl_variable` is a no-op and the per-cell variable
+  /// maps stay empty — avoiding allocation overhead when no consumer
+  /// (user constraints, PAMPL expressions) needs them.
+  ///
+  /// The flag is set by `SystemLP` when user constraints exist or by
+  /// `PlanningLP` when PAMPL evaluation is requested.
+  void set_need_ampl_variables(bool v) noexcept { m_need_ampl_variables_ = v; }
+
+  [[nodiscard]] constexpr bool need_ampl_variables() const noexcept
+  {
+    return m_need_ampl_variables_;
+  }
 
   /// Register a per-block variable map (e.g., generator.generation).
-  /// @param class_name  canonical lowercase class name ("generator", "line")
-  /// @param element_uid element's Uid
-  /// @param attribute   PAMPL attribute name ("generation", "flowp", ...)
-  /// @param scenario_uid / stage_uid the (scenario, stage) this map is for
-  /// @param block_cols  the element's BIndexHolder for this (scenario,
-  ///                    stage).  Copied by value: elements hold
-  ///                    `STBIndexHolder`s whose outer flat_map
-  ///                    reallocates on every new (scenario, stage)
-  ///                    insert, which would dangle any pointer kept
-  ///                    here across later `add_to_lp` calls.
-  void add_ampl_variable(std::string_view class_name,
+  /// No-op when `need_ampl_variables()` is false.
+  void add_ampl_variable(SceneIndex scene_index,
+                         PhaseIndex phase_index,
+                         std::string_view class_name,
                          Uid element_uid,
                          std::string_view attribute,
                          ScenarioUid scenario_uid,
                          StageUid stage_uid,
                          const BIndexHolder<ColIndex>& block_cols)
   {
-    const std::scoped_lock lock(m_ampl_mutex_);
-    m_ampl_variables_.insert_or_assign(
+    if (!m_need_ampl_variables_) {
+      return;
+    }
+    m_ampl_lp_cells_[scene_index][phase_index].variables.insert_or_assign(
         AmplVariableKey {
-            .class_name = std::string {class_name},
+            .class_name = class_name,
             .element_uid = element_uid,
             .attribute = attribute,
             .scenario_uid = scenario_uid,
@@ -284,17 +428,21 @@ public:
 
   /// Register a stage-level scalar column (e.g., eini, efin, capainst).
   /// Returns the same value for every block in the stage.
-  void add_ampl_variable(std::string_view class_name,
+  void add_ampl_variable(SceneIndex scene_index,
+                         PhaseIndex phase_index,
+                         std::string_view class_name,
                          Uid element_uid,
                          std::string_view attribute,
                          ScenarioUid scenario_uid,
                          StageUid stage_uid,
                          ColIndex stage_col)
   {
-    const std::scoped_lock lock(m_ampl_mutex_);
-    m_ampl_variables_.insert_or_assign(
+    if (!m_need_ampl_variables_) {
+      return;
+    }
+    m_ampl_lp_cells_[scene_index][phase_index].variables.insert_or_assign(
         AmplVariableKey {
-            .class_name = std::string {class_name},
+            .class_name = class_name,
             .element_uid = element_uid,
             .attribute = attribute,
             .scenario_uid = scenario_uid,
@@ -311,6 +459,8 @@ public:
   /// registered — e.g., when the column is conditional (soft_emin, drain)
   /// and was never created.
   [[nodiscard]] std::optional<ColIndex> find_ampl_col(
+      SceneIndex scene_index,
+      PhaseIndex phase_index,
       std::string_view class_name,
       Uid element_uid,
       std::string_view attribute,
@@ -318,40 +468,45 @@ public:
       StageUid stage_uid,
       BlockUid block_uid) const
   {
-    const std::scoped_lock lock(m_ampl_mutex_);
-    const auto it = m_ampl_variables_.find(AmplVariableKey {
-        .class_name = std::string {class_name},
+    const auto& cell = m_ampl_lp_cells_[scene_index][phase_index];
+    const auto it = cell.variables.find(AmplVariableKey {
+        .class_name = class_name,
         .element_uid = element_uid,
         .attribute = attribute,
         .scenario_uid = scenario_uid,
         .stage_uid = stage_uid,
     });
-    if (it == m_ampl_variables_.end()) {
+    if (it == cell.variables.end()) {
       return std::nullopt;
     }
     return it->second.col_at(block_uid);
   }
 
   /// Register an element's name so that user-expressions like
-  /// `generator("G1")` resolve "G1" to its Uid.
+  /// `generator("G1")` resolve to its Uid.
+  ///
+  /// Called exclusively from `system_lp.cpp` inside a `std::call_once`
+  /// keyed on `ampl_registry_flag()`.  This guarantees the registry is
+  /// populated exactly once per `SimulationLP` regardless of whether
+  /// construction goes through `PlanningLP::create_systems` (parallel
+  /// over scenes) or directly via tests that build a single `SystemLP`.
+  /// During the parallel scene-build loop the map is read-only, so no
+  /// mutex is needed.
   void register_ampl_element(std::string_view class_name,
                              std::string_view element_name,
                              Uid element_uid)
   {
-    const std::scoped_lock lock(m_ampl_mutex_);
     m_ampl_element_names_.insert_or_assign(
-        AmplElementNameKey {std::string {class_name},
-                            std::string {element_name}},
-        element_uid);
+        AmplElementNameKey {class_name, element_name}, element_uid);
   }
 
-  /// Look up an element Uid by (class_name, name).
+  /// Look up an element Uid by (class_name, name).  Read-only during
+  /// the parallel scene-build loop — safe without synchronization.
   [[nodiscard]] std::optional<Uid> lookup_ampl_element_uid(
       std::string_view class_name, std::string_view element_name) const
   {
-    const std::scoped_lock lock(m_ampl_mutex_);
-    const auto it = m_ampl_element_names_.find(AmplElementNameKey {
-        std::string {class_name}, std::string {element_name}});
+    const auto it = m_ampl_element_names_.find(
+        AmplElementNameKey {class_name, element_name});
     return (it != m_ampl_element_names_.end()) ? std::optional<Uid> {it->second}
                                                : std::nullopt;
   }
@@ -363,17 +518,16 @@ public:
   /// definition, not per element) — the compound "line.flow" is the
   /// same recipe for every `LineLP`.
   ///
-  /// Safe to call multiple times: the second call is a no-op if the
-  /// compound is already present.  This allows every `LineLP::add_to_lp`
-  /// invocation to register unconditionally without coordination.
+  /// Called exclusively from `system_lp.cpp` inside the same
+  /// `std::call_once` block that registers element names; no
+  /// synchronization needed.
   void add_ampl_compound(std::string_view class_name,
                          std::string_view compound_name,
                          std::vector<AmplCompoundLeg> legs)
   {
-    const std::scoped_lock lock(m_ampl_mutex_);
     m_ampl_compounds_.try_emplace(
         AmplCompoundKey {
-            .class_name = std::string {class_name},
+            .class_name = class_name,
             .compound_name = compound_name,
         },
         std::move(legs));
@@ -381,17 +535,61 @@ public:
 
   /// Look up a compound attribute by (class, compound_name).  Returns
   /// nullptr when the attribute is not a registered compound (most
-  /// attributes are ordinary single-column variables).
+  /// attributes are ordinary single-column variables).  Read-only
+  /// during the parallel scene-build loop — safe without
+  /// synchronization.
   [[nodiscard]] const std::vector<AmplCompoundLeg>* find_ampl_compound(
       std::string_view class_name,
       std::string_view compound_name) const noexcept
   {
-    const std::scoped_lock lock(m_ampl_mutex_);
     const auto it = m_ampl_compounds_.find(AmplCompoundKey {
-        .class_name = std::string {class_name},
+        .class_name = class_name,
         .compound_name = compound_name,
     });
     return (it != m_ampl_compounds_.end()) ? &it->second : nullptr;
+  }
+
+  // ── Scalar parameter registry (Phase 1d) ─────────────────────────────
+  //
+  // Singleton classes like `options.*` expose globally-scoped read-only
+  // constants to PAMPL expressions.  The set of exposed scalars is an
+  // explicit allow-list registered once from `system_lp.cpp` inside the
+  // same `std::call_once` block that fills the element-name registry —
+  // so we never expose an internal solver knob just because it happens
+  // to be a `double` field on `PlanningOptionsLP`.
+
+  /// Register a class-level scalar (e.g. `options.annual_discount_rate`).
+  /// `class_name` and `attribute` must point to storage that lives at
+  /// least as long as `SimulationLP` (in practice: `std::string` for
+  /// `class_name`, `constexpr` literal for `attribute`).
+  ///
+  /// Called exclusively from `system_lp.cpp` inside the AMPL globals
+  /// `std::call_once`; no synchronization needed.
+  void add_ampl_scalar(std::string_view class_name,
+                       std::string_view attribute,
+                       double value)
+  {
+    m_ampl_scalars_.insert_or_assign(
+        AmplScalarKey {
+            .class_name = class_name,
+            .attribute = attribute,
+        },
+        value);
+  }
+
+  /// Look up a class-level scalar.  Returns nullopt when the
+  /// (class, attribute) pair is not in the allow-list.  Read-only
+  /// during the parallel scene-build loop — safe without
+  /// synchronization.
+  [[nodiscard]] std::optional<double> find_ampl_scalar(
+      std::string_view class_name, std::string_view attribute) const noexcept
+  {
+    const auto it = m_ampl_scalars_.find(AmplScalarKey {
+        .class_name = class_name,
+        .attribute = attribute,
+    });
+    return (it != m_ampl_scalars_.end()) ? std::optional<double> {it->second}
+                                         : std::nullopt;
   }
 
   // ── Element metadata registry (F9) ───────────────────────────────────
@@ -400,16 +598,22 @@ public:
   // multi-predicate `sum(...)` filters (F4) can evaluate predicates at
   // row-assembly time without re-reading element-specific fields.
   //
+  // Stored per `(scene, phase)` cell — same partitioning as variables —
+  // so writes need no synchronization.  Metadata content is independent
+  // of (scene, phase), but per-cell duplication is small and avoids any
+  // contention with the parallel scene builds.
+  //
   // Keys are `string_view`s into constexpr identifiers (e.g. "type",
   // "bus", "zone", "cap") and values are either strings or numbers.
   // Safe to call multiple times per element; the second call overwrites.
-  void register_ampl_element_metadata(std::string_view class_name,
+  void register_ampl_element_metadata(SceneIndex scene_index,
+                                      PhaseIndex phase_index,
+                                      std::string_view class_name,
                                       Uid element_uid,
                                       AmplElementMetadata metadata)
   {
-    const std::scoped_lock lock(m_ampl_mutex_);
-    m_ampl_element_metadata_[AmplMetadataKey {
-        .class_name = std::string {class_name},
+    m_ampl_lp_cells_[scene_index][phase_index].metadata[AmplMetadataKey {
+        .class_name = class_name,
         .element_uid = element_uid,
     }] = std::move(metadata);
   }
@@ -418,14 +622,17 @@ public:
   /// element hasn't registered any (e.g. a type without filter-relevant
   /// fields).
   [[nodiscard]] const AmplElementMetadata* find_ampl_element_metadata(
-      std::string_view class_name, Uid element_uid) const noexcept
+      SceneIndex scene_index,
+      PhaseIndex phase_index,
+      std::string_view class_name,
+      Uid element_uid) const noexcept
   {
-    const std::scoped_lock lock(m_ampl_mutex_);
-    const auto it = m_ampl_element_metadata_.find(AmplMetadataKey {
-        .class_name = std::string {class_name},
+    const auto& cell = m_ampl_lp_cells_[scene_index][phase_index];
+    const auto it = cell.metadata.find(AmplMetadataKey {
+        .class_name = class_name,
         .element_uid = element_uid,
     });
-    return (it != m_ampl_element_metadata_.end()) ? &it->second : nullptr;
+    return (it != cell.metadata.end()) ? &it->second : nullptr;
   }
 
 private:
@@ -439,19 +646,49 @@ private:
 
   global_variable_map_t m_global_variable_map_;
 
+  // (scenario, stage) → (scene, phase) factored lookup tables.
+  // Populated once in the constructor; read-only afterwards, so no
+  // synchronization is needed at lookup time.
+  flat_map<ScenarioUid, SceneIndex> m_scene_of_scenario_;
+  flat_map<StageUid, PhaseIndex> m_phase_of_stage_;
+
+  // When true, add_ampl_variable() populates the per-cell variable
+  // maps.  When false (default), it is a no-op — the maps stay empty,
+  // saving allocation/hashing overhead for runs without user constraints
+  // or PAMPL evaluation.
+  bool m_need_ampl_variables_ {false};
+
   // PAMPL variable registry — populated by each LP element's add_to_lp
   // and queried by element_column_resolver.cpp.
   //
-  // Writes happen from multiple worker threads during parallel scene
-  // construction (see planning_lp.cpp: each scene's SystemLPs are built
-  // on a separate work-pool thread, and they all target the same
-  // SimulationLP).  A single mutex guards both maps.  Reads run after
-  // all builds complete, so they are not locked.
-  mutable std::mutex m_ampl_mutex_;
-  AmplVariableMap m_ampl_variables_;
+  // Per-(scene, phase) cells: each cell is written by exactly one
+  // scene-thread, sequentially across phases (see planning_lp.cpp), so
+  // no per-cell mutex is needed.  Allocated once in the constructor
+  // with shape `[m_scene_array_.size()][m_phase_array_.size()]`.
+  ampl_lp_registry_t m_ampl_lp_cells_;
+
+  // Globally-shared read-only registries (element-name lookup and
+  // class-level compounds).  Populated exactly once — `SystemLP`'s
+  // constructor calls into `register_all_ampl_element_names` via the
+  // `std::call_once` below — so parallel scene-builds race to be first
+  // and only one thread actually writes.  Reads are lock-free
+  // thereafter.
+  mutable std::once_flag m_ampl_registry_flag_;
   AmplElementNameMap m_ampl_element_names_;
   AmplCompoundMap m_ampl_compounds_;
-  AmplElementMetadataMap m_ampl_element_metadata_;
+  AmplScalarMap m_ampl_scalars_;
+
+public:
+  /// Exposed so that `SystemLP`'s constructor can wrap the one-shot
+  /// AMPL-registry population in `std::call_once`.  Not part of the
+  /// public user API — `friend class SystemLP` would be purer but
+  /// pulls in a circular include.  Returning the flag by reference
+  /// keeps the policy decision (what to register) in `system_lp.cpp`
+  /// where all the LP element headers are already visible.
+  [[nodiscard]] std::once_flag& ampl_registry_flag() const noexcept
+  {
+    return m_ampl_registry_flag_;
+  }
 };
 
 }  // namespace gtopt

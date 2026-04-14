@@ -17,6 +17,8 @@
 
 #include <gtopt/basic_types.hpp>
 #include <gtopt/lp_matrix_enums.hpp>
+#include <gtopt/planning_enums.hpp>  // CompressionCodec
+#include <gtopt/sddp_enums.hpp>  // LowMemoryMode
 #include <gtopt/utils.hpp>
 
 namespace gtopt
@@ -53,22 +55,27 @@ struct LpMatrixOptions
       fast_sqrt_method {};  ///< Approximate sqrt for Ruiz scaling.
                             ///< See FastSqrtMethod for options.
                             ///< Default is `ieee_halve`.
-  LpNamesLevel lp_names_level {LpNamesLevel::none};  ///< Computed naming
-                                                     ///< level (internal)
   double scale_objective {1.0};  ///< Global divisor for all objective
                                  ///< coefficients (numerical conditioning).
                                  ///< Applied uniformly during flatten().
   std::string solver_name {};  ///< Solver backend name (empty = auto-detect)
 
-  /** @brief LP naming level (user-facing JSON/CLI option).
-   *
-   * - `minimal`:      State-variable column names only (default).
-   * - `only_cols`:    All column names + name-to-index maps.
-   * - `cols_and_rows`: Column + row names + maps + warn on duplicates.
-   *
-   * Accepts integer (0/1/2) or string name in JSON.
-   */
-  std::optional<LpNamesLevel> names_level {};
+  /// Low-memory build hint.  When set to a non-`off` value, `SystemLP`'s
+  /// constructor skips the initial `LinearInterface::load_flat()` call and
+  /// installs the flat LP as a deferred snapshot instead — the solver
+  /// backend is reconstructed lazily on first use.  Used by SDDP and
+  /// cascade methods to avoid loading every (scene, phase) backend
+  /// upfront only to release it again before the first solve.
+  /// Default `off`: backend is loaded eagerly (current behavior).
+  LowMemoryMode low_memory_mode {LowMemoryMode::off};
+
+  /// Codec for the deferred snapshot when `low_memory_mode == compress`.
+  /// `auto_select` defers to `select_codec()` which prefers lz4.
+  CompressionCodec memory_codec {CompressionCodec::auto_select};
+
+  /// Compute LP fingerprint (structural hash) during flatten.
+  /// Default false — only enabled when `--lp-fingerprint` is set.
+  bool compute_fingerprint {false};
 
   /** @brief LP coefficient ratio threshold for numerical conditioning
    * diagnostics.  When the global max/min |coefficient| ratio exceeds this
@@ -80,7 +87,6 @@ struct LpMatrixOptions
   /// first-value-wins semantics like SolverOptions.
   void merge(const LpMatrixOptions& other)
   {
-    merge_opt(names_level, other.names_level);
     merge_opt(lp_coeff_ratio_threshold, other.lp_coeff_ratio_threshold);
     merge_opt(equilibration_method, other.equilibration_method);
     merge_opt(fast_sqrt_method, other.fast_sqrt_method);

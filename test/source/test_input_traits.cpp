@@ -249,9 +249,12 @@ TEST_CASE("InputTraits FileSched double - TBRealSched via Parquet")
   const TBRealFieldSched fsched {std::string("gcost")};
   const TBRealSched sched {ic, "TestGen", id, fsched};
 
-  CHECK(sched.at(StageUid {1}, BlockUid {1}) == doctest::Approx(10.0));
-  CHECK(sched.at(StageUid {2}, BlockUid {2}) == doctest::Approx(20.0));
-  CHECK(sched.at(StageUid {2}, BlockUid {3}) == doctest::Approx(30.0));
+  CHECK(sched.at(make_uid<Stage>(1), make_uid<Block>(1))
+        == doctest::Approx(10.0));
+  CHECK(sched.at(make_uid<Stage>(2), make_uid<Block>(2))
+        == doctest::Approx(20.0));
+  CHECK(sched.at(make_uid<Stage>(2), make_uid<Block>(3))
+        == doctest::Approx(30.0));
 
   std::filesystem::remove_all(tmp_root);
 }
@@ -290,11 +293,11 @@ TEST_CASE("InputTraits FileSched double - STBRealSched via Parquet")
   const STBRealFieldSched fsched {std::string("profile")};
   const STBRealSched sched {ic, "TestGen", id, fsched};
 
-  CHECK(sched.at(ScenarioUid {1}, StageUid {1}, BlockUid {1})
+  CHECK(sched.at(make_uid<Scenario>(1), make_uid<Stage>(1), make_uid<Block>(1))
         == doctest::Approx(100.0));
-  CHECK(sched.at(ScenarioUid {1}, StageUid {2}, BlockUid {2})
+  CHECK(sched.at(make_uid<Scenario>(1), make_uid<Stage>(2), make_uid<Block>(2))
         == doctest::Approx(200.0));
-  CHECK(sched.at(ScenarioUid {1}, StageUid {2}, BlockUid {3})
+  CHECK(sched.at(make_uid<Scenario>(1), make_uid<Stage>(2), make_uid<Block>(3))
         == doctest::Approx(300.0));
 
   std::filesystem::remove_all(tmp_root);
@@ -351,8 +354,8 @@ TEST_CASE("InputTraits FileSched double - TRealSched via Parquet")
   const TRealFieldSched fsched {std::string("cap")};
   const TRealSched sched {ic, "TestCap", id, fsched};
 
-  CHECK(sched.at(StageUid {1}) == doctest::Approx(42.5));
-  CHECK(sched.at(StageUid {2}) == doctest::Approx(99.9));
+  CHECK(sched.at(make_uid<Stage>(1)) == doctest::Approx(42.5));
+  CHECK(sched.at(make_uid<Stage>(2)) == doctest::Approx(99.9));
 
   std::filesystem::remove_all(tmp_root);
 }
@@ -390,8 +393,8 @@ TEST_CASE("InputTraits FileSched int32 - ActiveSched via Parquet")
   const IntBoolFieldSched fsched {std::string("active")};
   const ActiveSched sched {ic, "TestAct", id, fsched};
 
-  CHECK(sched.at(StageUid {1}) == 1);
-  CHECK(sched.at(StageUid {2}) == 0);
+  CHECK(sched.at(make_uid<Stage>(1)) == 1);
+  CHECK(sched.at(make_uid<Stage>(2)) == 0);
 
   std::filesystem::remove_all(tmp_root);
 }
@@ -433,11 +436,11 @@ TEST_CASE("InputTraits FileSched - OptSchedule via Parquet")
   const OptTBRealSched sched {ic, "TestOpt", id, fsched_opt};
 
   REQUIRE(sched.has_value());
-  CHECK(sched.at(StageUid {1}, BlockUid {1}).value_or(-1.0)
+  CHECK(sched.at(make_uid<Stage>(1), make_uid<Block>(1)).value_or(-1.0)
         == doctest::Approx(5.0));
-  CHECK(sched.at(StageUid {2}, BlockUid {2}).value_or(-1.0)
+  CHECK(sched.at(make_uid<Stage>(2), make_uid<Block>(2)).value_or(-1.0)
         == doctest::Approx(15.0));
-  CHECK(sched.at(StageUid {2}, BlockUid {3}).value_or(-1.0)
+  CHECK(sched.at(make_uid<Stage>(2), make_uid<Block>(3)).value_or(-1.0)
         == doctest::Approx(25.0));
 
   std::filesystem::remove_all(tmp_root);
@@ -454,7 +457,7 @@ TEST_CASE("InputTraits OptSchedule empty returns nullopt")
   const OptTBRealSched sched;
 
   CHECK_FALSE(sched.has_value());
-  CHECK_FALSE(sched.at(StageUid {1}, BlockUid {1}).has_value());
+  CHECK_FALSE(sched.at(make_uid<Stage>(1), make_uid<Block>(1)).has_value());
 }
 
 // ---------------------------------------------------------------------------
@@ -493,9 +496,12 @@ TEST_CASE("InputTraits FileSched - column found by name")
   const TBRealFieldSched fsched {std::string("field1")};
   const TBRealSched sched {ic, "TestName", id, fsched};
 
-  CHECK(sched.at(StageUid {1}, BlockUid {1}) == doctest::Approx(7.0));
-  CHECK(sched.at(StageUid {2}, BlockUid {2}) == doctest::Approx(8.0));
-  CHECK(sched.at(StageUid {2}, BlockUid {3}) == doctest::Approx(9.0));
+  CHECK(sched.at(make_uid<Stage>(1), make_uid<Block>(1))
+        == doctest::Approx(7.0));
+  CHECK(sched.at(make_uid<Stage>(2), make_uid<Block>(2))
+        == doctest::Approx(8.0));
+  CHECK(sched.at(make_uid<Stage>(2), make_uid<Block>(3))
+        == doctest::Approx(9.0));
 
   std::filesystem::remove_all(tmp_root);
 }
@@ -509,8 +515,10 @@ TEST_CASE("InputTraits scalar path via Schedule")
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
   const TBRealSched sched {5.5};
-  CHECK(sched.at(StageUid {1}, BlockUid {1}) == doctest::Approx(5.5));
-  CHECK(sched.at(StageUid {2}, BlockUid {3}) == doctest::Approx(5.5));
+  CHECK(sched.at(make_uid<Stage>(1), make_uid<Block>(1))
+        == doctest::Approx(5.5));
+  CHECK(sched.at(make_uid<Stage>(2), make_uid<Block>(3))
+        == doctest::Approx(5.5));
 }
 
 TEST_CASE("InputTraits vector path via Schedule with InputContext")
@@ -531,9 +539,12 @@ TEST_CASE("InputTraits vector path via Schedule with InputContext")
   const TBRealFieldSched fsched {vec};
   const TBRealSched sched {ic, "VecClass", id, fsched};
 
-  CHECK(sched.at(StageUid {1}, BlockUid {1}) == doctest::Approx(1.1));
-  CHECK(sched.at(StageUid {2}, BlockUid {2}) == doctest::Approx(2.2));
-  CHECK(sched.at(StageUid {2}, BlockUid {3}) == doctest::Approx(3.3));
+  CHECK(sched.at(make_uid<Stage>(1), make_uid<Block>(1))
+        == doctest::Approx(1.1));
+  CHECK(sched.at(make_uid<Stage>(2), make_uid<Block>(2))
+        == doctest::Approx(2.2));
+  CHECK(sched.at(make_uid<Stage>(2), make_uid<Block>(3))
+        == doctest::Approx(3.3));
 }
 
 // ---------------------------------------------------------------------------
@@ -588,8 +599,8 @@ TEST_CASE("InputTraits FileSched - float32 widened to double")
   const TRealFieldSched fsched {std::string("fval")};
   const TRealSched sched {ic, "TestF32", id, fsched};
 
-  CHECK(sched.at(StageUid {1}) == doctest::Approx(1.5));
-  CHECK(sched.at(StageUid {2}) == doctest::Approx(2.5));
+  CHECK(sched.at(make_uid<Stage>(1)) == doctest::Approx(1.5));
+  CHECK(sched.at(make_uid<Stage>(2)) == doctest::Approx(2.5));
 
   std::filesystem::remove_all(tmp_root);
 }
@@ -646,8 +657,8 @@ TEST_CASE("InputTraits FileSched - int16 widened to int32")
   const IntBoolFieldSched fsched {std::string("ival")};
   const ActiveSched sched {ic, "TestI16", id, fsched};
 
-  CHECK(sched.at(StageUid {1}) == 10);
-  CHECK(sched.at(StageUid {2}) == 20);
+  CHECK(sched.at(make_uid<Stage>(1)) == 10);
+  CHECK(sched.at(make_uid<Stage>(2)) == 20);
 
   std::filesystem::remove_all(tmp_root);
 }
@@ -694,9 +705,12 @@ TEST_CASE("InputTraits FileSched - CSV fallback")
   const TBRealFieldSched fsched {std::string("cost")};
   const TBRealSched sched {ic, "TestCSV", id, fsched};
 
-  CHECK(sched.at(StageUid {1}, BlockUid {1}) == doctest::Approx(11.0));
-  CHECK(sched.at(StageUid {2}, BlockUid {2}) == doctest::Approx(22.0));
-  CHECK(sched.at(StageUid {2}, BlockUid {3}) == doctest::Approx(33.0));
+  CHECK(sched.at(make_uid<Stage>(1), make_uid<Block>(1))
+        == doctest::Approx(11.0));
+  CHECK(sched.at(make_uid<Stage>(2), make_uid<Block>(2))
+        == doctest::Approx(22.0));
+  CHECK(sched.at(make_uid<Stage>(2), make_uid<Block>(3))
+        == doctest::Approx(33.0));
 
   std::filesystem::remove_all(tmp_root);
 }
@@ -723,9 +737,9 @@ TEST_CASE("InputTraits scalar OptTBRealSched returns constant")
   const OptReal scalar_value {42.0};
   const OptTBRealSched sched {ic, "Scalar", id, scalar_value};
 
-  CHECK(sched.at(StageUid {1}, BlockUid {1}).value_or(0.0)
+  CHECK(sched.at(make_uid<Stage>(1), make_uid<Block>(1)).value_or(0.0)
         == doctest::Approx(42.0));
-  CHECK(sched.at(StageUid {2}, BlockUid {2}).value_or(0.0)
+  CHECK(sched.at(make_uid<Stage>(2), make_uid<Block>(2)).value_or(0.0)
         == doctest::Approx(42.0));
 }
 
@@ -751,5 +765,5 @@ TEST_CASE("InputTraits nullopt OptTBRealSched returns nullopt")
   const OptReal null_value;
   const OptTBRealSched sched {ic, "Null", id, null_value};
 
-  CHECK_FALSE(sched.at(StageUid {1}, BlockUid {1}).has_value());
+  CHECK_FALSE(sched.at(make_uid<Stage>(1), make_uid<Block>(1)).has_value());
 }

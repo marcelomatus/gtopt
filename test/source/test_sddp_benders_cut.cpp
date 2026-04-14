@@ -67,12 +67,11 @@ TEST_CASE("relax_fixed_state_variable respects source bounds")  // NOLINT
   const auto col = li.add_col(SparseCol {
       .lowb = 80.0,
       .uppb = 80.0,
-      .name = "dep",
   });
 
   const StateVarLink link {
       .dependent_col = col,
-      .source_phase = PhaseIndex {0},
+      .source_phase_index = first_phase_index(),
       .trial_value = 80.0,
       .source_low = 0.0,
       .source_upp = 150.0,
@@ -93,7 +92,6 @@ TEST_CASE("relax_fixed_state_variable skips non-fixed columns")  // NOLINT
   const auto col = li.add_col(SparseCol {
       .lowb = 0.0,
       .uppb = 100.0,
-      .name = "dep",
   });
 
   const StateVarLink link {
@@ -143,12 +141,11 @@ TEST_CASE("relax_fixed_state_variable returns slack column indices")  // NOLINT
   const auto col = li.add_col(SparseCol {
       .lowb = 50.0,
       .uppb = 50.0,
-      .name = "dep",
   });
 
   const StateVarLink link {
       .dependent_col = col,
-      .source_phase = PhaseIndex {0},
+      .source_phase_index = first_phase_index(),
       .trial_value = 50.0,
       .source_low = 0.0,
       .source_upp = 100.0,
@@ -329,12 +326,10 @@ TEST_CASE(  // NOLINT
   const auto x0 = li.add_col(SparseCol {
       .lowb = 0.0,
       .uppb = 80.0,
-      .name = "x0",
   });
   const auto x1 = li.add_col(SparseCol {
       .lowb = 0.0,
       .uppb = 80.0,
-      .name = "x1",
   });
   li.set_obj_coeff(x0, 10.0);
   li.set_obj_coeff(x1, 20.0);
@@ -343,7 +338,6 @@ TEST_CASE(  // NOLINT
   const auto alpha_col = li.add_col(SparseCol {
       .lowb = 0.0,
       .uppb = 1e12,
-      .name = "alpha",
   });
   li.set_obj_coeff(alpha_col, 1.0);
 
@@ -351,7 +345,6 @@ TEST_CASE(  // NOLINT
   const auto dep = li.add_col(SparseCol {
       .lowb = 50.0,
       .uppb = 50.0,
-      .name = "dep",
   });
 
   // demand: x0 + x1 + dep >= 100
@@ -396,13 +389,11 @@ TEST_CASE(  // NOLINT
   const auto x0 = li.add_col(SparseCol {
       .lowb = 0.0,
       .uppb = 200.0,
-      .name = "x0",
   });
   li.set_obj_coeff(x0, 10.0);
   const auto dep = li.add_col(SparseCol {
       .lowb = 50.0,
       .uppb = 50.0,
-      .name = "dep",
   });
 
   auto demand = SparseRow {
@@ -421,7 +412,7 @@ TEST_CASE(  // NOLINT
       StateVarLink {
           .source_col = ColIndex {10},
           .dependent_col = dep,
-          .target_phase = PhaseIndex {1},
+          .target_phase_index = PhaseIndex {1},
           .trial_value = 50.0,
           .source_low = 0.0,
           .source_upp = 200.0,
@@ -448,13 +439,11 @@ TEST_CASE(  // NOLINT
   const auto x0 = li.add_col(SparseCol {
       .lowb = 0.0,
       .uppb = 100.0,
-      .name = "x0",
   });
   li.set_obj_coeff(x0, 10.0);
   const auto dep = li.add_col(SparseCol {
       .lowb = 0.0,
       .uppb = 100.0,
-      .name = "dep",
   });  // NOT fixed
 
   auto demand = SparseRow {
@@ -486,13 +475,11 @@ TEST_CASE(  // NOLINT
   const auto x0 = li.add_col(SparseCol {
       .lowb = 0.0,
       .uppb = 200.0,
-      .name = "x0",
   });
   li.set_obj_coeff(x0, 10.0);
   const auto dep = li.add_col(SparseCol {
       .lowb = 50.0,
       .uppb = 50.0,
-      .name = "dep",
   });
 
   auto demand = SparseRow {
@@ -511,7 +498,7 @@ TEST_CASE(  // NOLINT
       StateVarLink {
           .source_col = src,
           .dependent_col = dep,
-          .target_phase = PhaseIndex {1},
+          .target_phase_index = PhaseIndex {1},
           .trial_value = 50.0,
           .source_low = 0.0,
           .source_upp = 200.0,
@@ -537,13 +524,11 @@ TEST_CASE(  // NOLINT
   const auto x0 = li.add_col(SparseCol {
       .lowb = 0.0,
       .uppb = 100.0,
-      .name = "x0",
   });
   li.set_obj_coeff(x0, 10.0);
   const auto dep = li.add_col(SparseCol {
       .lowb = 0.0,
       .uppb = 100.0,
-      .name = "dep",
   });  // NOT fixed
 
   auto demand = SparseRow {
@@ -577,13 +562,11 @@ TEST_CASE(  // NOLINT
   const auto x0 = li.add_col(SparseCol {
       .lowb = 0.0,
       .uppb = 80.0,
-      .name = "x0",
   });
   li.set_obj_coeff(x0, 10.0);
   const auto dep = li.add_col(SparseCol {
       .lowb = 50.0,
       .uppb = 50.0,
-      .name = "dep",
   });
 
   auto demand = SparseRow {
@@ -603,7 +586,7 @@ TEST_CASE(  // NOLINT
       StateVarLink {
           .source_col = src,
           .dependent_col = dep,
-          .target_phase = PhaseIndex {1},
+          .target_phase_index = PhaseIndex {1},
           .trial_value = 50.0,
           .source_low = 0.0,
           .source_upp = 200.0,
@@ -639,13 +622,11 @@ TEST_CASE(  // NOLINT
   const auto x0 = li.add_col(SparseCol {
       .lowb = 0.0,
       .uppb = 200.0,
-      .name = "x0",
   });
   li.set_obj_coeff(x0, 10.0);
   const auto dep = li.add_col(SparseCol {
       .lowb = 50.0,
       .uppb = 50.0,
-      .name = "dep",
   });
 
   auto demand = SparseRow {
@@ -662,7 +643,7 @@ TEST_CASE(  // NOLINT
       StateVarLink {
           .source_col = ColIndex {10},
           .dependent_col = dep,
-          .target_phase = PhaseIndex {1},
+          .target_phase_index = PhaseIndex {1},
           .trial_value = 50.0,
           .source_low = 0.0,
           .source_upp = 200.0,
@@ -692,13 +673,11 @@ TEST_CASE(  // NOLINT
   const auto x0 = phase0.add_col(SparseCol {
       .lowb = 0.0,
       .uppb = 100.0,
-      .name = "x0",
   });
   phase0.set_obj_coeff(x0, 10.0);
   const auto alpha_col = phase0.add_col(SparseCol {
       .lowb = 0.0,
       .uppb = 1e12,
-      .name = "alpha",
   });
   phase0.set_obj_coeff(alpha_col, 1.0);
 
@@ -714,13 +693,11 @@ TEST_CASE(  // NOLINT
   const auto x1 = phase1.add_col(SparseCol {
       .lowb = 0.0,
       .uppb = 100.0,
-      .name = "x1",
   });
   phase1.set_obj_coeff(x1, 50.0);
   const auto dep = phase1.add_col(SparseCol {
       .lowb = 20.0,
       .uppb = 20.0,
-      .name = "dep",
   });
 
   auto constr1 = SparseRow {
@@ -790,13 +767,11 @@ TEST_CASE(
   const auto x0 = li.add_col(SparseCol {
       .lowb = 0.0,
       .uppb = 200.0,
-      .name = "x0",
   });
   li.set_obj_coeff(x0, 10.0);
   const auto dep = li.add_col(SparseCol {
       .lowb = 50.0,
       .uppb = 50.0,
-      .name = "dep",
   });
 
   auto demand = SparseRow {
@@ -812,7 +787,7 @@ TEST_CASE(
       StateVarLink {
           .source_col = ColIndex {10},
           .dependent_col = dep,
-          .target_phase = PhaseIndex {1},
+          .target_phase_index = PhaseIndex {1},
           .trial_value = 50.0,
           .source_low = 0.0,
           .source_upp = 200.0,
@@ -851,13 +826,11 @@ TEST_CASE("BendersCut - elastic_filter_solve with work pool")  // NOLINT
   const auto x0 = li.add_col(SparseCol {
       .lowb = 0.0,
       .uppb = 200.0,
-      .name = "x0",
   });
   li.set_obj_coeff(x0, 10.0);
   const auto dep = li.add_col(SparseCol {
       .lowb = 50.0,
       .uppb = 50.0,
-      .name = "dep",
   });
 
   auto demand = SparseRow {
@@ -873,7 +846,7 @@ TEST_CASE("BendersCut - elastic_filter_solve with work pool")  // NOLINT
       StateVarLink {
           .source_col = ColIndex {10},
           .dependent_col = dep,
-          .target_phase = PhaseIndex {1},
+          .target_phase_index = PhaseIndex {1},
           .trial_value = 50.0,
           .source_low = 0.0,
           .source_upp = 200.0,
@@ -898,13 +871,11 @@ TEST_CASE("BendersCut - elastic_filter_solve with work pool")  // NOLINT
   const auto x1 = li2.add_col(SparseCol {
       .lowb = 0.0,
       .uppb = 100.0,
-      .name = "x1",
   });
   li2.set_obj_coeff(x1, 5.0);
   const auto dep2 = li2.add_col(SparseCol {
       .lowb = 0.0,
       .uppb = 100.0,
-      .name = "dep2",
   });  // NOT fixed
   auto d2 = SparseRow {.lowb = 50.0, .uppb = LinearProblem::DblMax};
   d2[x1] = 1.0;
@@ -934,13 +905,11 @@ TEST_CASE("BendersCut - build_feasibility_cut increments counter")  // NOLINT
   const auto x0 = li.add_col(SparseCol {
       .lowb = 0.0,
       .uppb = 200.0,
-      .name = "x0",
   });
   li.set_obj_coeff(x0, 10.0);
   const auto dep = li.add_col(SparseCol {
       .lowb = 50.0,
       .uppb = 50.0,
-      .name = "dep",
   });
 
   auto demand = SparseRow {
@@ -959,7 +928,7 @@ TEST_CASE("BendersCut - build_feasibility_cut increments counter")  // NOLINT
       StateVarLink {
           .source_col = src,
           .dependent_col = dep,
-          .target_phase = PhaseIndex {1},
+          .target_phase_index = PhaseIndex {1},
           .trial_value = 50.0,
           .source_low = 0.0,
           .source_upp = 200.0,

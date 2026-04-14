@@ -194,6 +194,7 @@ struct Battery
       annual_capcost {};  ///< Annualized investment cost [$/MWh-year]
   OptTRealFieldSched
       annual_derating {};  ///< Annual capacity derating factor [p.u./year]
+  OptBool integer_expmod {};  ///< Integer-constrain the expmod variable
 
   /// Whether to propagate SoC state across stage/phase boundaries via
   /// StateVariables (SDDP-style coupling). When false (the default for

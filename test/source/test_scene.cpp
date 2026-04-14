@@ -100,12 +100,12 @@ TEST_CASE("SceneUid, SceneIndex and OptSceneIndex strong types")
 {
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
-  const SceneUid suid {3};
+  const SceneUid suid = make_uid<Scene>(3);
   const SceneIndex sidx {1};
   const OptSceneIndex opt_sidx {SceneIndex {5}};
   const OptSceneIndex empty_sidx {};
 
-  CHECK(suid == SceneUid {3});
+  CHECK(suid == make_uid<Scene>(3));
   CHECK(sidx == SceneIndex {1});
   REQUIRE(opt_sidx.has_value());
   CHECK(opt_sidx.value() == SceneIndex {5});

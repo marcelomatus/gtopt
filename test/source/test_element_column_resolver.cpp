@@ -146,7 +146,8 @@ static constexpr std::string_view resolver_unknown_json = R"json({
     "output_compression": "uncompressed",
     "use_single_bus": true,
     "demand_fail_cost": 1000,
-    "scale_objective": 1000
+    "scale_objective": 1000,
+    "constraint_mode": "normal"
   },
   "simulation": {
     "block_array": [{"uid": 1, "duration": 1}],
@@ -369,7 +370,8 @@ TEST_CASE(  // NOLINT
   static constexpr std::string_view bad_ref_json = R"json({
     "options": {
       "demand_fail_cost": 1000,
-      "use_single_bus": true
+      "use_single_bus": true,
+      "constraint_mode": "normal"
     },
     "simulation": {
       "block_array": [{"uid": 1, "duration": 1}],
@@ -455,6 +457,68 @@ TEST_CASE(  // NOLINT
 
   Planning base;
   base.merge(daw::json::from_json<Planning>(capainst_json));
+  PlanningLP planning_lp(std::move(base));
+  auto result = planning_lp.resolve();
+
+  REQUIRE(result.has_value());
+  CHECK(result.value() == 1);
+
+  const auto& li = planning_lp.systems().front().front().linear_interface();
+  CHECK(li.is_optimal());
+}
+
+TEST_CASE(  // NOLINT
+    "element_column_resolver - generator.capacost and generator.expmod publish")
+{
+  // B1 publication: `capacost` (annualized cost accumulator) and
+  // `expmod` (number of expansion modules added) must resolve as
+  // first-class user-constraint attributes alongside `capainst`.
+  // Constraint `g1.capacost <= 5e9` is loose enough to never bind, so
+  // resolution success (LP builds + solves) is the assertion.
+  static constexpr std::string_view capacost_json = R"json({
+    "options": {
+      "annual_discount_rate": 0.0,
+      "lp_matrix_options": {"names_level": 1},
+      "output_format": "csv",
+      "output_compression": "uncompressed",
+      "use_single_bus": true,
+      "demand_fail_cost": 1000,
+      "scale_objective": 1000
+    },
+    "simulation": {
+      "block_array": [{"uid": 1, "duration": 1}],
+      "stage_array": [{"uid": 1, "first_block": 0, "count_block": 1, "active": 1}],
+      "scenario_array": [{"uid": 1, "probability_factor": 1}]
+    },
+    "system": {
+      "name": "capacost_test",
+      "bus_array": [{"uid": 1, "name": "b1"}],
+      "generator_array": [
+        {
+          "uid": 1, "name": "g1", "bus": "b1",
+          "pmin": 0, "pmax": 300, "gcost": 20,
+          "capacity": 100, "expcap": 100, "expmod": 5,
+          "annual_capcost": 8760
+        }
+      ],
+      "demand_array": [
+        {"uid": 1, "name": "d1", "bus": "b1", "lmax": [[150]]}
+      ],
+      "user_constraint_array": [
+        {
+          "uid": 1, "name": "gen_capacost_loose",
+          "expression": "generator('g1').capacost <= 1000000"
+        },
+        {
+          "uid": 2, "name": "gen_expmod_cap",
+          "expression": "generator('g1').expmod <= 5"
+        }
+      ]
+    }
+  })json";
+
+  Planning base;
+  base.merge(daw::json::from_json<Planning>(capacost_json));
   PlanningLP planning_lp(std::move(base));
   auto result = planning_lp.resolve();
 

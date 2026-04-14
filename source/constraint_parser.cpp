@@ -493,7 +493,19 @@ bool ConstraintParser::Parser::is_element_type(const std::string& name)
       || name == "bus" || name == "waterway" || name == "turbine"
       || name == "junction" || name == "flow" || name == "seepage"
       || name == "reserve_provision" || name == "reserve_zone"
-      || name == "flow_right" || name == "volume_right";
+      || name == "flow_right" || name == "volume_right"
+      || name == "lng_terminal";
+}
+
+bool ConstraintParser::Parser::is_singleton_class(const std::string& name)
+{
+  // Singleton classes expose globally-scoped read-only scalars and are
+  // parsed as `class.attribute` (no parens, no element id).  The set of
+  // legal scalars is enforced by the resolver against the allow-list
+  // registered in `system_lp.cpp::register_all_ampl_element_names`,
+  // except for `stage.*` whose values come from the active StageLP at
+  // resolution time (calendar metadata of the stage being assembled).
+  return name == "options" || name == "system" || name == "stage";
 }
 
 ConstraintExpr ConstraintParser::Parser::parse_constraint()
@@ -824,6 +836,11 @@ std::vector<ConstraintTerm> ConstraintParser::Parser::parse_primary()
     return parse_abs_expr();
   }
 
+  // state(element_ref) — Phase 1e cross-phase state-variable wrapper
+  if (m_current_.type == TokenType::IDENT && m_current_.value == "state") {
+    return parse_state_expr();
+  }
+
   // max(arg1, arg2, ...) / min(arg1, arg2, ...) — F7 auto-linearization
   if (m_current_.type == TokenType::IDENT
       && (m_current_.value == "max" || m_current_.value == "min"))
@@ -843,6 +860,36 @@ std::vector<ConstraintTerm> ConstraintParser::Parser::parse_primary()
     if (is_element_type(m_current_.value)) {
       auto type_name = std::move(m_current_.value);
       auto ref = parse_element_ref(std::move(type_name));
+      return {
+          ConstraintTerm {
+              .coefficient = 1.0,
+              .element = std::move(ref),
+          },
+      };
+    }
+    // Singleton class scalar: `options.attribute`, `system.attribute`.
+    // No element id, no parens — encoded as an ElementRef with empty
+    // element_id and resolved at row-assembly time via the AMPL scalar
+    // registry (see element_column_resolver.cpp::resolve_single_param).
+    if (is_singleton_class(m_current_.value)) {
+      auto class_name = std::move(m_current_.value);
+      advance();
+      expect(TokenType::DOT,
+             "follow a singleton class with '.attribute' (no parens)");
+      if (m_current_.type != TokenType::IDENT) {
+        error_at_current(
+            std::format(
+                "expected scalar attribute name after '{}.', got '{}'",
+                class_name,
+                m_current_.value.empty() ? "end of input" : m_current_.value),
+            "scalar attribute is an identifier, e.g. options.scale_objective");
+      }
+      ElementRef ref {
+          .element_type = std::move(class_name),
+          .element_id = {},
+          .attribute = std::move(m_current_.value),
+      };
+      advance();
       return {
           ConstraintTerm {
               .coefficient = 1.0,
@@ -1128,6 +1175,43 @@ std::vector<ConstraintTerm> ConstraintParser::Parser::parse_abs_expr()
       std::make_shared<const AbsExpr>(AbsExpr {.inner = std::move(inner)});
   return {
       std::move(term),
+  };
+}
+
+// ── Phase 1e: state(element_ref) ───────────────────────────────────────────
+
+// NOLINTNEXTLINE(misc-no-recursion)
+std::vector<ConstraintTerm> ConstraintParser::Parser::parse_state_expr()
+{
+  // Current token is `state`
+  const auto state_col = m_current_.start_pos;
+  advance();
+  expect(TokenType::LPAREN, "use `state(<element_ref>)`");
+
+  // The argument must be a single element reference: `type("id").attr`.
+  // Reject nested `state(state(...))`, sums, numbers, parens, and any
+  // other compound construct — Phase 1e is intentionally narrow.
+  if (m_current_.type != TokenType::IDENT || !is_element_type(m_current_.value))
+  {
+    error_at(state_col,
+             std::format(
+                 "state(...) expects a single element reference, "
+                 "got '{}'",
+                 m_current_.value.empty() ? "end of input" : m_current_.value),
+             "use `state(<element>(\"id\").attr)`, e.g. "
+             "state(reservoir(\"R1\").efin)");
+  }
+  auto type_name = std::move(m_current_.value);
+  auto ref = parse_element_ref(std::move(type_name));
+  ref.state_wrapped = true;
+
+  expect(TokenType::RPAREN, "close `state(` with ')'");
+
+  return {
+      ConstraintTerm {
+          .coefficient = 1.0,
+          .element = std::move(ref),
+      },
   };
 }
 

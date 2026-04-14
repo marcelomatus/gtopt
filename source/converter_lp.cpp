@@ -32,14 +32,12 @@ bool ConverterLP::add_to_lp(SystemContext& sc,
                             const StageLP& stage,
                             LinearProblem& lp)
 {
-  static const auto ampl_name = std::string {ClassName.snake_case()};
+  static constexpr auto ampl_name = ClassName.snake_case();
 
   if (!CapacityBase::add_to_lp(sc, ampl_name, scenario, stage, lp)) [[unlikely]]
   {
     return false;
   }
-
-  sc.register_ampl_element(ampl_name, id().second, uid());
 
   if (!is_active(stage)) [[unlikely]] {
     return true;

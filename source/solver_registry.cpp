@@ -211,7 +211,9 @@ bool SolverRegistry::load_plugin(const std::filesystem::path& path)
     solver_names.emplace_back(*names);
   }
 
-  SPDLOG_INFO("Loaded solver plugin '{}' from {} (solvers: {})",
+  // Indent two spaces so the message sits under the "Building LP model"
+  // section when plugin loading is triggered as a side effect of LP build.
+  SPDLOG_INFO("  Loaded solver plugin '{}' from {} (solvers: {})",
               plugin_name,
               path.string(),
               join_strings(solver_names, ", "));
@@ -441,28 +443,55 @@ bool SolverRegistry::ensure_solver_loaded(std::string_view solver_name,
 std::unique_ptr<SolverBackend> SolverRegistry::create(
     std::string_view solver_name)
 {
-  const std::scoped_lock lock(m_mutex_);
-
-  // Ensure the requested solver is loaded (lazy).
-  ensure_solver_loaded(solver_name);
-
-  for (const auto& plugin : m_plugins_) {
-    for (const auto& name : plugin.solver_names) {
-      if (name == solver_name) {
-        auto* backend = plugin.create_fn(std::string(solver_name).c_str());
-        if (backend == nullptr) {
-          throw std::runtime_error(
-              std::format("Plugin '{}' failed to create solver '{}'",
-                          plugin.plugin_name,
-                          solver_name));
+  // We must NOT hold `m_mutex_` across `plugin.create_fn()`: for
+  // heavyweight backends (notably CPLEX → `CPXopenCPLEX()`) that call
+  // can take several milliseconds per invocation, and the
+  // `PlanningLP::create_systems` parallel build fires one
+  // `LinearInterface(...)` per (scene, phase) cell (`linear_interface.
+  // cpp:75-80`).  With 16×51 = 816 cells and CPLEX's per-create cost,
+  // the old hold-lock-across-create_fn pattern serialized 5–8 s of
+  // wall time onto a single mutex, capping pool efficiency around
+  // 78 %.
+  //
+  // Lookup runs under the lock — `m_plugins_` is a vector and would
+  // be UB to read unlocked if a concurrent `ensure_solver_loaded`
+  // could grow it — but we copy the function pointer and plugin name
+  // out of the lookup, release the lock, and *then* call `create_fn`.
+  // Each plugin is a DSO whose text segment is stable once loaded, so
+  // concurrent calls into `create_fn` are safe by construction.
+  solver_backend_factory_fn create_fn {};
+  std::string plugin_name;
+  {
+    const std::scoped_lock lock(m_mutex_);
+    ensure_solver_loaded(solver_name);
+    for (const auto& plugin : m_plugins_) {
+      for (const auto& name : plugin.solver_names) {
+        if (name == solver_name) {
+          create_fn = plugin.create_fn;
+          plugin_name = plugin.plugin_name;
+          break;
         }
-        return std::unique_ptr<SolverBackend>(backend);
+      }
+      if (create_fn != nullptr) {
+        break;
       }
     }
+  }  // ← lock released here, before the heavy create_fn call.
+
+  if (create_fn != nullptr) {
+    auto* backend = create_fn(std::string(solver_name).c_str());
+    if (backend == nullptr) {
+      throw std::runtime_error(
+          std::format("Plugin '{}' failed to create solver '{}'",
+                      plugin_name,
+                      solver_name));
+    }
+    return std::unique_ptr<SolverBackend>(backend);
   }
 
-  // Build helpful error message — load everything first to give a
-  // complete list of available solvers.
+  // Unknown solver — load everything so the error message can list
+  // every available alternative.  Re-acquires the lock inside
+  // `load_all_plugins` / `available_solvers`.
   load_all_plugins();
   const auto available = available_solvers();
   throw std::runtime_error(

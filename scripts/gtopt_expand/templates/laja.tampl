@@ -316,6 +316,48 @@ param monthly_cost_anticipated[month] = [{{ monthly_cost_anticipated | join(', '
 
 param filtracion_laja = {{ filtracion_laja }};
 
+# ---------------------------------------------------------------------------
+# Optional per-stage overrides (PLP plplajam.dat)
+# ---------------------------------------------------------------------------
+#
+# These override schedules are exposed verbatim from the parsed convention
+# file.  No agreement constraint currently references them; downstream
+# AMPL models can read them to implement custom dispatch rules.
+
+# Forced El Toro flows per stage [m3/s]
+{% set _forced_flows = forced_flows | default([]) %}
+param n_forced_flows = {{ _forced_flows | length }};
+{% if _forced_flows %}
+set FORCED_FLOW_STAGES := {% for ff in _forced_flows %}{{ ff.stage }} {% endfor %};
+param forced_flow{FORCED_FLOW_STAGES} :=
+{%- for ff in _forced_flows %}
+  {{ ff.stage }}  {{ ff.flow }}
+{%- endfor %} ;
+{% endif %}
+
+# Manual withdrawal overrides per stage [m3/s] for the four irrigation classes
+{% set _manual_withdrawals = manual_withdrawals | default([]) %}
+param n_manual_withdrawals = {{ _manual_withdrawals | length }};
+{% if _manual_withdrawals %}
+set MANUAL_WITHDRAWAL_STAGES := {% for mw in _manual_withdrawals %}{{ mw.stage }} {% endfor %};
+param manual_q_1o_reg{MANUAL_WITHDRAWAL_STAGES} :=
+{%- for mw in _manual_withdrawals %}
+  {{ mw.stage }}  {{ mw.q_1o_reg }}
+{%- endfor %} ;
+param manual_q_2o_reg{MANUAL_WITHDRAWAL_STAGES} :=
+{%- for mw in _manual_withdrawals %}
+  {{ mw.stage }}  {{ mw.q_2o_reg }}
+{%- endfor %} ;
+param manual_q_emergencia{MANUAL_WITHDRAWAL_STAGES} :=
+{%- for mw in _manual_withdrawals %}
+  {{ mw.stage }}  {{ mw.q_emergencia }}
+{%- endfor %} ;
+param manual_q_saltos{MANUAL_WITHDRAWAL_STAGES} :=
+{%- for mw in _manual_withdrawals %}
+  {{ mw.stage }}  {{ mw.q_saltos }}
+{%- endfor %} ;
+{% endif %}
+
 # =============================================================================
 # End of Laja Agreement Parameters
 # =============================================================================

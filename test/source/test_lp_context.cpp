@@ -13,14 +13,15 @@ TEST_CASE("LpContext type aliases")
 {
   SUBCASE("StageContext is a 2-tuple")
   {
-    const auto ctx = StageContext {ScenarioUid {0}, StageUid {1}};
+    const auto ctx = StageContext {make_uid<Scenario>(0), make_uid<Stage>(1)};
     CHECK(std::get<0>(ctx) == 0);
     CHECK(std::get<1>(ctx) == 1);
   }
 
   SUBCASE("BlockContext is a 3-tuple")
   {
-    const auto ctx = BlockContext {ScenarioUid {0}, StageUid {1}, BlockUid {2}};
+    const auto ctx = BlockContext {
+        make_uid<Scenario>(0), make_uid<Stage>(1), make_uid<Block>(2)};
     CHECK(std::get<0>(ctx) == 0);
     CHECK(std::get<1>(ctx) == 1);
     CHECK(std::get<2>(ctx) == 2);
@@ -31,14 +32,16 @@ TEST_CASE("make_stage_context factory")
 {
   SUBCASE("accepts strong UID types")
   {
-    const auto ctx = make_stage_context(ScenarioUid {3}, StageUid {7});
+    const auto ctx =
+        make_stage_context(make_uid<Scenario>(3), make_uid<Stage>(7));
     CHECK(std::get<0>(ctx) == 3);
     CHECK(std::get<1>(ctx) == 7);
   }
 
   SUBCASE("result is a StageContext")
   {
-    const StageContext ctx = make_stage_context(ScenarioUid {0}, StageUid {0});
+    const StageContext ctx =
+        make_stage_context(make_uid<Scenario>(0), make_uid<Stage>(0));
     CHECK(std::get<0>(ctx) == 0);
     CHECK(std::get<1>(ctx) == 0);
   }
@@ -48,8 +51,8 @@ TEST_CASE("make_block_context factory")
 {
   SUBCASE("accepts strong UID types")
   {
-    const auto ctx =
-        make_block_context(ScenarioUid {1}, StageUid {2}, BlockUid {3});
+    const auto ctx = make_block_context(
+        make_uid<Scenario>(1), make_uid<Stage>(2), make_uid<Block>(3));
     CHECK(std::get<0>(ctx) == 1);
     CHECK(std::get<1>(ctx) == 2);
     CHECK(std::get<2>(ctx) == 3);
@@ -61,9 +64,9 @@ TEST_CASE("TupleHash")
   SUBCASE("hashes StageContext")
   {
     const TupleHash hasher;
-    const auto a = StageContext {ScenarioUid {0}, StageUid {1}};
-    const auto b = StageContext {ScenarioUid {0}, StageUid {1}};
-    const auto c = StageContext {ScenarioUid {0}, StageUid {2}};
+    const auto a = StageContext {make_uid<Scenario>(0), make_uid<Stage>(1)};
+    const auto b = StageContext {make_uid<Scenario>(0), make_uid<Stage>(1)};
+    const auto c = StageContext {make_uid<Scenario>(0), make_uid<Stage>(2)};
 
     CHECK(hasher(a) == hasher(b));
     CHECK(hasher(a) != hasher(c));
@@ -72,9 +75,12 @@ TEST_CASE("TupleHash")
   SUBCASE("hashes BlockContext")
   {
     const TupleHash hasher;
-    const auto a = BlockContext {ScenarioUid {0}, StageUid {1}, BlockUid {2}};
-    const auto b = BlockContext {ScenarioUid {0}, StageUid {1}, BlockUid {2}};
-    const auto c = BlockContext {ScenarioUid {0}, StageUid {1}, BlockUid {3}};
+    const auto a = BlockContext {
+        make_uid<Scenario>(0), make_uid<Stage>(1), make_uid<Block>(2)};
+    const auto b = BlockContext {
+        make_uid<Scenario>(0), make_uid<Stage>(1), make_uid<Block>(2)};
+    const auto c = BlockContext {
+        make_uid<Scenario>(0), make_uid<Stage>(1), make_uid<Block>(3)};
 
     CHECK(hasher(a) == hasher(b));
     CHECK(hasher(a) != hasher(c));
@@ -83,12 +89,13 @@ TEST_CASE("TupleHash")
   SUBCASE("usable as key in unordered_set")
   {
     std::unordered_set<BlockContext, TupleHash> contexts;
-    contexts.insert(
-        make_block_context(ScenarioUid {0}, StageUid {0}, BlockUid {0}));
-    contexts.insert(
-        make_block_context(ScenarioUid {0}, StageUid {0}, BlockUid {1}));
     contexts.insert(make_block_context(
-        ScenarioUid {0}, StageUid {0}, BlockUid {0}));  // duplicate
+        make_uid<Scenario>(0), make_uid<Stage>(0), make_uid<Block>(0)));
+    contexts.insert(make_block_context(
+        make_uid<Scenario>(0), make_uid<Stage>(0), make_uid<Block>(1)));
+    contexts.insert(make_block_context(make_uid<Scenario>(0),
+                                       make_uid<Stage>(0),
+                                       make_uid<Block>(0)));  // duplicate
 
     CHECK(contexts.size() == 2);
   }
@@ -104,7 +111,8 @@ TEST_CASE("LpContext variant")
 
   SUBCASE("holds StageContext")
   {
-    const LpContext ctx = StageContext {ScenarioUid {0}, StageUid {1}};
+    const LpContext ctx =
+        StageContext {make_uid<Scenario>(0), make_uid<Stage>(1)};
     CHECK(std::holds_alternative<StageContext>(ctx));
     const auto& sc = std::get<StageContext>(ctx);
     CHECK(std::get<0>(sc) == 0);
@@ -113,8 +121,8 @@ TEST_CASE("LpContext variant")
 
   SUBCASE("holds BlockContext")
   {
-    const LpContext ctx =
-        BlockContext {ScenarioUid {0}, StageUid {1}, BlockUid {2}};
+    const LpContext ctx = BlockContext {
+        make_uid<Scenario>(0), make_uid<Stage>(1), make_uid<Block>(2)};
     CHECK(std::holds_alternative<BlockContext>(ctx));
   }
 }
@@ -129,8 +137,8 @@ TEST_CASE("SparseCol context field")
 
   SUBCASE("block context via designated initializer")
   {
-    const auto ctx =
-        make_block_context(ScenarioUid {0}, StageUid {1}, BlockUid {2});
+    const auto ctx = make_block_context(
+        make_uid<Scenario>(0), make_uid<Stage>(1), make_uid<Block>(2));
     const SparseCol col {
         .class_name = "Bus",
         .variable_name = "theta",
@@ -147,7 +155,8 @@ TEST_CASE("SparseCol context field")
   SUBCASE("stage context via designated initializer")
   {
     const SparseCol col {
-        .context = make_stage_context(ScenarioUid {3}, StageUid {4}),
+        .context =
+            make_stage_context(make_uid<Scenario>(3), make_uid<Stage>(4)),
     };
     CHECK(std::holds_alternative<StageContext>(col.context));
   }
@@ -163,8 +172,8 @@ TEST_CASE("SparseRow context field")
 
   SUBCASE("block context via designated initializer")
   {
-    const auto ctx =
-        make_block_context(ScenarioUid {0}, StageUid {0}, BlockUid {1});
+    const auto ctx = make_block_context(
+        make_uid<Scenario>(0), make_uid<Stage>(0), make_uid<Block>(1));
     auto row =
         SparseRow {
             .context = ctx,
@@ -177,8 +186,8 @@ TEST_CASE("SparseRow context field")
 
   SUBCASE("metadata fields for lazy name generation")
   {
-    const auto ctx =
-        make_block_context(ScenarioUid {0}, StageUid {1}, BlockUid {2});
+    const auto ctx = make_block_context(
+        make_uid<Scenario>(0), make_uid<Stage>(1), make_uid<Block>(2));
     auto row =
         SparseRow {
             .class_name = "Bus",
@@ -192,8 +201,9 @@ TEST_CASE("SparseRow context field")
     CHECK(row.variable_uid == Uid {3});
     CHECK(std::holds_alternative<BlockContext>(row.context));
 
-    // Verify LabelMaker::force_row_label produces the expected label
+    // Verify make_row_label at all produces the expected label
     // from row metadata + context.
-    CHECK(LabelMaker::force_row_label(row) == "bus_bal_3_0_1_2");
+    constexpr LabelMaker lm {LpNamesLevel::all};
+    CHECK(lm.make_row_label(row) == "bus_bal_3_0_1_2");
   }
 }

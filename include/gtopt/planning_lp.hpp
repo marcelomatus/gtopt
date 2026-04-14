@@ -47,6 +47,36 @@ private:
                              const LpMatrixOptions& flat_opts)
       -> scene_phase_systems_t;
 
+  /// Resolve the deferred state-variable links recorded by every phase
+  /// in `phase_systems` during its `add_to_lp` pass.  Each
+  /// `PendingStateLink` names a producer `StateVariable` from a previous
+  /// phase (via `prev_key`) and a dependent column added to a later
+  /// phase; this pass looks the producer up in `simulation`'s registry
+  /// and calls `add_dependent_variable` on it.
+  ///
+  /// Runs after a scene's parallel phase build joins.  Within a single
+  /// scene the producer's `StateVariable` is guaranteed to exist by the
+  /// time tightening starts (all phases are built), so the lookup is
+  /// race-free.  Different scenes touch disjoint `StateVariable`s, so
+  /// multiple scene tasks may run their tightening pass concurrently.
+  ///
+  /// Drains each system's `pending_state_links()` vector as it goes.
+  static void tighten_scene_phase_links(phase_systems_t& phase_systems,
+                                        SimulationLP& simulation);
+
+  /// Validate line reactance values and clamp tiny ones to zero.
+  ///
+  /// A transmission line with `0 < |X| < kReactanceMin` is physically
+  /// implausible (most real lines have X ≥ 1e-4 p.u.) and produces an
+  /// enormous Kirchhoff coefficient `x_tau = X/V²`, degrading LP
+  /// conditioning. This pass logs a warning per offending line and
+  /// rewrites its reactance schedule to a scalar 0.0 — which the LP
+  /// assembler then treats as a DC/HVDC line (no theta constraint).
+  ///
+  /// Mirrors the battery input/output_efficiency clamping performed at
+  /// `scripts/plp2gtopt/battery_writer.py`.
+  static void validate_line_reactance(Planning& planning);
+
   /// Compute adaptive scale_theta from median line reactance when not
   /// explicitly set.  Mutates `planning.options.scale_theta` in-place so
   /// that PlanningOptionsLP picks up the computed value.
@@ -57,26 +87,19 @@ private:
   /// for reservoirs that don't already have explicit entries.
   static void auto_scale_reservoirs(Planning& planning);
 
-  /// Ensure multi-phase problems have at least minimal column names
-  /// for state variable transfer (SDDP/cascade cut I/O).
-  [[nodiscard]] static auto enforce_names_for_method(
+  /// Compute adaptive energy scales for LNG terminals from emax.
+  /// Injects VariableScale entries into `planning.options.variable_scales`
+  /// for terminals that don't already have explicit entries.
+  static void auto_scale_lng_terminals(Planning& planning);
+
+  /// State variable I/O uses the StateVariable map (ColIndex-based)
+  /// directly — no column name strings are needed.  This method is
+  /// kept for API compatibility but is now a pass-through.
+  [[nodiscard]] static constexpr auto enforce_names_for_method(
       const LpMatrixOptions& opts,
-      const PlanningOptionsLP& plp_opts,
-      const Planning& planning) -> LpMatrixOptions
+      const PlanningOptionsLP& /*plp_opts*/,
+      const Planning& /*planning*/) noexcept -> LpMatrixOptions
   {
-    const auto method = plp_opts.method_type_enum();
-    // SDDP cut I/O uses LP column names for CSV serialization.
-    // Cascade state transfer uses structured keys (no LP names needed),
-    // but cascade levels internally run SDDP which may serialize cuts.
-    const bool needs_state_names = method == MethodType::sddp
-        || method == MethodType::cascade
-        || planning.simulation.phase_array.size() > 1;
-    if (needs_state_names && opts.lp_names_level < LpNamesLevel::minimal) {
-      auto fixed = opts;
-      fixed.lp_names_level = LpNamesLevel::minimal;
-      fixed.col_with_names = true;
-      return fixed;
-    }
     return opts;
   }
 
@@ -95,8 +118,10 @@ public:
             {
               if constexpr (!std::is_const_v<
                                 std::remove_reference_t<PlanningT>>) {
+                validate_line_reactance(planning);
                 auto_scale_theta(planning);
                 auto_scale_reservoirs(planning);
+                auto_scale_lng_terminals(planning);
               }
               return std::forward<PlanningT>(planning);
             }())

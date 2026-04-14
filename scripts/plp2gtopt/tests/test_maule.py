@@ -679,8 +679,8 @@ class TestMaulePamplGeneration:
             tmp_path = Path(tmp)
             pampl_name = writer.generate_pampl(tmp_path)
 
-            assert pampl_name == "maule_agreement.pampl"
-            pampl_file = tmp_path / "maule_agreement.pampl"
+            assert pampl_name == "maule.pampl"
+            pampl_file = tmp_path / "maule.pampl"
             assert pampl_file.exists()
 
     def test_generate_pampl_contains_params(self):
@@ -691,7 +691,7 @@ class TestMaulePamplGeneration:
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
             writer.generate_pampl(tmp_path)
-            content = (tmp_path / "maule_agreement.pampl").read_text()
+            content = (tmp_path / "maule.pampl").read_text()
 
             assert "param v_reserva_extraord = 100.0" in content
             assert "param v_reserva_ordinaria = 400.0" in content
@@ -708,7 +708,7 @@ class TestMaulePamplGeneration:
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
             writer.generate_pampl(tmp_path)
-            content = (tmp_path / "maule_agreement.pampl").read_text()
+            content = (tmp_path / "maule.pampl").read_text()
 
             # Should contain constraint headers
             assert "constraint maule_pct_ordinario_elec" in content
@@ -725,7 +725,7 @@ class TestMaulePamplGeneration:
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
             writer.generate_pampl(tmp_path)
-            content = (tmp_path / "maule_agreement.pampl").read_text()
+            content = (tmp_path / "maule.pampl").read_text()
 
             # Dist1 has_slack=False → uses =
             # Dist2 has_slack=True → uses <=
@@ -744,7 +744,7 @@ class TestMaulePamplGeneration:
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
             writer.generate_pampl(tmp_path)
-            content = (tmp_path / "maule_agreement.pampl").read_text()
+            content = (tmp_path / "maule.pampl").read_text()
 
             assert "Maule Irrigation Agreement" in content
             assert "Convenio del Maule" in content
@@ -761,9 +761,9 @@ class TestMaulePamplGeneration:
 
             # Maule has user constraints, so file should be generated
             assert "user_constraint_file" in result
-            assert result["user_constraint_file"] == "maule_agreement.pampl"
+            assert result["user_constraint_file"] == "maule.pampl"
             assert "user_constraint_array" not in result
-            assert (tmp_path / "maule_agreement.pampl").exists()
+            assert (tmp_path / "maule.pampl").exists()
 
     def test_to_json_dict_without_output_dir(self):
         cfg = _minimal_maule_config()
@@ -782,7 +782,7 @@ class TestMaulePamplGeneration:
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
             writer.generate_pampl(tmp_path)
-            content = (tmp_path / "maule_agreement.pampl").read_text()
+            content = (tmp_path / "maule.pampl").read_text()
 
             assert "param mod_elec_reserva[month]" in content
             assert "param pct_riego_mensual[month]" in content

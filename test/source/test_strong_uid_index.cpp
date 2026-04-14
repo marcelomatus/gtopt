@@ -40,7 +40,7 @@ TEST_CASE("SceneUid and SceneIndex are distinct strong types")  // NOLINT
   {
     // SceneUid{5} and SceneIndex{5} represent different concepts:
     // uid=5 is a user-assigned identifier, index=5 is an array position.
-    const SceneUid uid {5};
+    const SceneUid uid = make_uid<Scene>(5);
     const SceneIndex idx {5};
 
     // Both hold the value 5 in their underlying representation…
@@ -60,20 +60,20 @@ TEST_CASE("SceneUid and SceneIndex are distinct strong types")  // NOLINT
     //   index 1 → uid 20
     //   index 2 → uid 30
     flat_map<SceneUid, SceneIndex> scene_uid_map;
-    scene_uid_map[SceneUid {10}] = SceneIndex {0};
-    scene_uid_map[SceneUid {20}] = SceneIndex {1};
-    scene_uid_map[SceneUid {30}] = SceneIndex {2};
+    scene_uid_map[make_uid<Scene>(10)] = SceneIndex {0};
+    scene_uid_map[make_uid<Scene>(20)] = SceneIndex {1};
+    scene_uid_map[make_uid<Scene>(30)] = SceneIndex {2};
 
     // Looking up by UID yields the correct index
-    CHECK(scene_uid_map.at(SceneUid {10}) == SceneIndex {0});
-    CHECK(scene_uid_map.at(SceneUid {20}) == SceneIndex {1});
-    CHECK(scene_uid_map.at(SceneUid {30}) == SceneIndex {2});
+    CHECK(scene_uid_map.at(make_uid<Scene>(10)) == SceneIndex {0});
+    CHECK(scene_uid_map.at(make_uid<Scene>(20)) == SceneIndex {1});
+    CHECK(scene_uid_map.at(make_uid<Scene>(30)) == SceneIndex {2});
 
     // Index values used as UIDs are correctly absent — they are different
     // concepts even though they share the same underlying integer type.
-    CHECK_FALSE(scene_uid_map.contains(SceneUid {0}));
-    CHECK_FALSE(scene_uid_map.contains(SceneUid {1}));
-    CHECK_FALSE(scene_uid_map.contains(SceneUid {2}));
+    CHECK_FALSE(scene_uid_map.contains(make_uid<Scene>(0)));
+    CHECK_FALSE(scene_uid_map.contains(make_uid<Scene>(1)));
+    CHECK_FALSE(scene_uid_map.contains(make_uid<Scene>(2)));
   }
 
   SUBCASE("StoredCut.scene_uid is a SceneUid, not an index")
@@ -97,7 +97,7 @@ TEST_CASE("PhaseUid and PhaseIndex are distinct strong types")  // NOLINT
 
   SUBCASE("same underlying value does not make them interchangeable")
   {
-    const PhaseUid uid {3};
+    const PhaseUid uid = make_uid<Phase>(3);
     const PhaseIndex idx {3};
 
     CHECK(static_cast<gtopt::uid_t>(uid) == 3);
@@ -114,15 +114,15 @@ TEST_CASE("PhaseUid and PhaseIndex are distinct strong types")  // NOLINT
     //   index 0 → uid 100
     //   index 1 → uid 200
     flat_map<PhaseUid, PhaseIndex> phase_uid_map;
-    phase_uid_map[PhaseUid {100}] = PhaseIndex {0};
-    phase_uid_map[PhaseUid {200}] = PhaseIndex {1};
+    phase_uid_map[make_uid<Phase>(100)] = PhaseIndex {0};
+    phase_uid_map[make_uid<Phase>(200)] = PhaseIndex {1};
 
-    CHECK(phase_uid_map.at(PhaseUid {100}) == PhaseIndex {0});
-    CHECK(phase_uid_map.at(PhaseUid {200}) == PhaseIndex {1});
+    CHECK(phase_uid_map.at(make_uid<Phase>(100)) == PhaseIndex {0});
+    CHECK(phase_uid_map.at(make_uid<Phase>(200)) == PhaseIndex {1});
 
     // Using the index value as a UID key must not find anything
-    CHECK_FALSE(phase_uid_map.contains(PhaseUid {0}));
-    CHECK_FALSE(phase_uid_map.contains(PhaseUid {1}));
+    CHECK_FALSE(phase_uid_map.contains(make_uid<Phase>(0)));
+    CHECK_FALSE(phase_uid_map.contains(make_uid<Phase>(1)));
   }
 
   SUBCASE("StoredCut.phase_uid is a PhaseUid, not an index")
@@ -150,12 +150,12 @@ TEST_CASE("UID must not be used as array index in StrongIndexVector")  // NOLINT
 
     // Scene UIDs: 10, 20, 30 — not equal to indices 0, 1, 2
     flat_map<SceneUid, SceneIndex> uid_map;
-    uid_map[SceneUid {10}] = SceneIndex {0};
-    uid_map[SceneUid {20}] = SceneIndex {1};
-    uid_map[SceneUid {30}] = SceneIndex {2};
+    uid_map[make_uid<Scene>(10)] = SceneIndex {0};
+    uid_map[make_uid<Scene>(20)] = SceneIndex {1};
+    uid_map[make_uid<Scene>(30)] = SceneIndex {2};
 
     // Correct pattern: look up UID → get index → access vector
-    const auto it = uid_map.find(SceneUid {20});
+    const auto it = uid_map.find(make_uid<Scene>(20));
     REQUIRE(it != uid_map.end());
     CHECK(scene_values[it->second] == doctest::Approx(200.0));
 
@@ -176,10 +176,10 @@ TEST_CASE("UID must not be used as array index in StrongIndexVector")  // NOLINT
     phase_values[PhaseIndex {1}] = 2.5;
 
     flat_map<PhaseUid, PhaseIndex> uid_map;
-    uid_map[PhaseUid {100}] = PhaseIndex {0};
-    uid_map[PhaseUid {200}] = PhaseIndex {1};
+    uid_map[make_uid<Phase>(100)] = PhaseIndex {0};
+    uid_map[make_uid<Phase>(200)] = PhaseIndex {1};
 
-    const auto it = uid_map.find(PhaseUid {200});
+    const auto it = uid_map.find(make_uid<Phase>(200));
     REQUIRE(it != uid_map.end());
     CHECK(phase_values[it->second] == doctest::Approx(2.5));
 
@@ -196,8 +196,8 @@ TEST_CASE("StoredCut preserves strong-typed scene and phase UIDs")  // NOLINT
 
   const StoredCut cut {
       .type = CutType::Optimality,
-      .phase_uid = PhaseUid {42},
-      .scene_uid = SceneUid {7},
+      .phase_uid = make_uid<Phase>(42),
+      .scene_uid = make_uid<Scene>(7),
       .name = "test_cut",
       .rhs = -1.5,
       .coefficients =
@@ -207,8 +207,8 @@ TEST_CASE("StoredCut preserves strong-typed scene and phase UIDs")  // NOLINT
           },
   };
 
-  CHECK(cut.phase_uid == PhaseUid {42});
-  CHECK(cut.scene_uid == SceneUid {7});
+  CHECK(cut.phase_uid == make_uid<Phase>(42));
+  CHECK(cut.scene_uid == make_uid<Scene>(7));
   CHECK(cut.type == CutType::Optimality);
   CHECK(cut.rhs == doctest::Approx(-1.5));
   CHECK(cut.coefficients.size() == 2);

@@ -22,6 +22,7 @@
 #include <span>
 
 #include <gtopt/basic_types.hpp>
+#include <gtopt/uid.hpp>
 
 namespace gtopt
 {
@@ -69,9 +70,28 @@ struct Phase
 };
 
 /// Strongly-typed unique identifier for Phase objects
-using PhaseUid = StrongUidType<Phase>;
+using PhaseUid = UidOf<Phase>;
 
 /// Strongly-typed index for Phase objects in collections
-using PhaseIndex = StrongIndexType<Phase>;
+using PhaseIndex = StrongPositionIndexType<Phase>;
+
+/// @brief First phase index — the root of the planning horizon.
+[[nodiscard]] constexpr auto first_phase_index() noexcept -> PhaseIndex
+{
+  return PhaseIndex {0};
+}
+
+/// @brief Next phase index (phase_index + 1), preserving strong type.
+[[nodiscard]] constexpr auto next(PhaseIndex phase_index) noexcept -> PhaseIndex
+{
+  return ++phase_index;
+}
+
+/// @brief Previous phase index (phase_index - 1), preserving strong type.
+[[nodiscard]] constexpr auto previous(PhaseIndex phase_index) noexcept
+    -> PhaseIndex
+{
+  return --phase_index;
+}
 
 }  // namespace gtopt

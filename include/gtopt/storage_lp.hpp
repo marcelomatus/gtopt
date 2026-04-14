@@ -278,9 +278,7 @@ public:
                                      double default_eini,
                                      const SIdT& sid) const
   {
-    if (stage.index() == StageIndex {0}
-        && stage.phase_index() == PhaseIndex {0})
-    {
+    if (!stage.index() && !stage.phase_index()) {
       return default_eini;
     }
     const auto& li = sys.linear_interface();
@@ -317,9 +315,7 @@ public:
                                      const StageLP& stage,
                                      double default_eini) const
   {
-    if (stage.index() == StageIndex {0}
-        && stage.phase_index() == PhaseIndex {0})
-    {
+    if (!stage.index() && !stage.phase_index()) {
       return default_eini;
     }
     const auto col = eini_col_at(scenario, stage);
@@ -489,22 +485,16 @@ public:
           .context = stg_ctx,
       });
       if (effective_usv && !opts.skip_state_link) {
-        // Link as DependentVariable of the previous phase's efin StateVariable
-        // so that PlanningLP::resolve_scene_phases() and the SDDP forward pass
-        // can propagate the trial value.
-        const auto efin_key =
+        // Queue a deferred dependent-variable link to the previous
+        // phase's efin StateVariable.  Resolution happens in the
+        // per-scene tightening pass after parallel phase build joins
+        // (see PlanningLP::tighten_scene_phase_links).  Calling
+        // `prev_efin->add_dependent_variable` here directly would race
+        // with phase N's add_to_lp under parallel phase construction.
+        sc.defer_state_link(
             // NOLINTNEXTLINE(readability-suspicious-call-argument)
-            StateVariable::key(scenario, *prev_stage, cname, uid(), EfinName);
-        if (auto prev_efin = sc.get_state_variable(efin_key); prev_efin) {
-          prev_efin->get().add_dependent_variable(scenario, stage, eicol);
-        } else {
-          SPDLOG_WARN(
-              "StorageLP: no efin StateVariable found for cross-phase sini "
-              "linking (class='{}' uid={} phase boundary). "
-              "Reservoir/battery state will NOT be coupled across this phase.",
-              cname,
-              static_cast<int>(uid()));
-        }
+            StateVariable::key(scenario, *prev_stage, cname, uid(), EfinName),
+            eicol);
       } else if (effective_usv && opts.skip_state_link) {
         SPDLOG_TRACE(
             "StorageLP: skipping state link at phase boundary "
@@ -716,8 +706,9 @@ public:
     // boundaries (gtopt-phase = PLP-stage).
     if (effective_usv) {
       // Register the already-added last-block energy column as a state
-      // variable (efin); sets is_state=true so LabelMaker emits its name
-      // at LpNamesLevel::minimal for SDDP cut I/O.
+      // variable (efin); sets is_state=true for SDDP cut I/O.  Column names
+      // are available at LpNamesLevel::all, but state variable
+      // I/O uses the StateVariable map (ColIndex-based) directly.
       sc.add_state_col(
           lp,
           // NOLINTNEXTLINE(readability-suspicious-call-argument)

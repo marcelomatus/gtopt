@@ -66,6 +66,15 @@ public:
   // Core Context Management
   explicit SystemContext(SimulationLP& simulation, SystemLP& system);
 
+  /// Re-point the back-reference to a new SystemLP owner (used by
+  /// `SystemLP`'s move-ctor/assign so the embedded SystemContext stays
+  /// consistent after the SystemLP is relocated).  Also rebuilds
+  /// `m_collection_ptrs_` from the new owner's collections tuple,
+  /// because each pointer is an interior pointer into the SystemLP that
+  /// just moved.  Defined out-of-line in `system_context.cpp` because
+  /// reaching `SystemLP::collections()` requires `system_lp.hpp`.
+  void rebind_system(SystemLP& sys) noexcept;
+
   //
   //  get methods
   //
@@ -287,9 +296,11 @@ public:
 
   /// Atomic helper: add a new state-variable column to the LP AND register
   /// it in the state-variable map.  Sets `is_state = true` on the column so
-  /// LabelMaker emits its label at `LpNamesLevel::minimal` (cascade/SDDP
-  /// cut I/O needs it).  The column's `context` field is also used as the
-  /// StateVariable's context, keeping the two in sync.
+  /// it is recognized as a state variable; column names are available at
+  /// `LpNamesLevel::all`, but state variable I/O uses the
+  /// StateVariable map (ColIndex-based) directly.  The column's `context`
+  /// field is also used as the StateVariable's context, keeping the two
+  /// in sync.
   ///
   /// This is the preferred API for creating state variables — calling
   /// `lp.add_col()` and `add_state_variable()` separately risks forgetting
@@ -333,6 +344,27 @@ public:
     return simulation().state_variable(std::forward<Key>(key));
   }
 
+  /// Queue a deferred dependent-variable link to be resolved later by
+  /// the per-scene tightening pass.  Use this in element `add_to_lp`
+  /// instead of calling `get_state_variable(prev_key)->add_dependent_variable`
+  /// directly: under parallel phase construction within a scene, the
+  /// previous phase's `StateVariable` may not yet exist when phase N+1
+  /// runs, and concurrent vector growth on its dependent-variable list
+  /// would race.
+  ///
+  /// `prev_key` identifies the producing `StateVariable` in the previous
+  /// phase (its `lp_key.scene_index` / `lp_key.phase_index` are the
+  /// previous phase's identity, set by the caller via
+  /// `StateVariable::key(scenario, *prev_stage, ...)`).  `here_col` is
+  /// the dependent column just added to *this* phase's LP — its
+  /// `(scene, phase)` identity is taken from the bound `SystemLP`, so
+  /// the caller need not pass it explicitly.
+  ///
+  /// Defined out-of-line in `system_context.cpp` because reaching
+  /// `system().scene()` / `system().phase()` and `system().defer_state_link`
+  /// requires the full `system_lp.hpp` definition.
+  void defer_state_link(StateVariable::Key prev_key, ColIndex here_col) const;
+
   // ── PAMPL / user-constraint variable registry forwarders ────────────────
   //
   // Each LP element calls these from `add_to_lp` once per (scenario, stage)
@@ -343,28 +375,26 @@ public:
   // constants on each `*LP` class (e.g. `GeneratorLP::GenerationName`).
 
   /// Register a per-block column map (e.g., generator.generation).
-  /// Stores a pointer to `block_cols`; the element must keep it alive
-  /// for the rest of the solve.
+  /// Stores a copy of `block_cols`; the element need not keep it alive.
   ///
   /// Marked `const` (logical-const): the underlying `SimulationLP` is
   /// held via `reference_wrapper`, so const SystemContext methods may
   /// still mutate the simulation's ampl variable registry.  This lets
   /// elements whose `add_to_lp` takes `const SystemContext&` register
   /// their PAMPL-visible columns without signature churn.
+  ///
+  /// Routes to the per-(scene, phase) cell of the current SystemLP —
+  /// `system().scene().index()` / `system().phase().index()` — so the
+  /// write needs no synchronization (one writer per cell, sequential
+  /// across phases within a scene).  Defined out-of-line in
+  /// `system_context.cpp` because reaching the SystemLP accessors
+  /// requires the full `system_lp.hpp` definition.
   void add_ampl_variable(std::string_view class_name,
                          Uid element_uid,
                          std::string_view attribute,
                          const ScenarioLP& scenario,
                          const StageLP& stage,
-                         const BIndexHolder<ColIndex>& block_cols) const
-  {
-    m_simulation_.get().add_ampl_variable(class_name,
-                                          element_uid,
-                                          attribute,
-                                          scenario.uid(),
-                                          stage.uid(),
-                                          block_cols);
-  }
+                         const BIndexHolder<ColIndex>& block_cols) const;
 
   /// Register a stage-level scalar column (e.g., eini, efin, capainst).
   void add_ampl_variable(std::string_view class_name,
@@ -372,57 +402,26 @@ public:
                          std::string_view attribute,
                          const ScenarioLP& scenario,
                          const StageLP& stage,
-                         ColIndex stage_col) const
-  {
-    m_simulation_.get().add_ampl_variable(class_name,
-                                          element_uid,
-                                          attribute,
-                                          scenario.uid(),
-                                          stage.uid(),
-                                          stage_col);
-  }
-
-  /// Register an element's name so that `generator("G1")` resolves
-  /// "G1" to its Uid.  Call once per element (constructor or first
-  /// `add_to_lp`).
-  void register_ampl_element(std::string_view class_name,
-                             std::string_view element_name,
-                             Uid element_uid) const
-  {
-    m_simulation_.get().register_ampl_element(
-        class_name, element_name, element_uid);
-  }
+                         ColIndex stage_col) const;
 
   /// Look up a registered variable column.  Returns nullopt if the
   /// (class, uid, attribute, scenario, stage, block) combination was
-  /// never registered.
+  /// never registered.  Reads from the current SystemLP's
+  /// `(scene, phase)` cell — the resolver always queries within the
+  /// LP that owns the row being assembled.
   [[nodiscard]] std::optional<ColIndex> find_ampl_col(
       std::string_view class_name,
       Uid element_uid,
       std::string_view attribute,
       ScenarioUid scenario_uid,
       StageUid stage_uid,
-      BlockUid block_uid) const
-  {
-    return simulation().find_ampl_col(
-        class_name, element_uid, attribute, scenario_uid, stage_uid, block_uid);
-  }
+      BlockUid block_uid) const;
 
   /// Resolve an element name to its Uid within a class.
   [[nodiscard]] std::optional<Uid> lookup_ampl_element_uid(
       std::string_view class_name, std::string_view element_name) const
   {
     return simulation().lookup_ampl_element_uid(class_name, element_name);
-  }
-
-  /// Register a compound PAMPL attribute at class level.
-  /// See `SimulationLP::add_ampl_compound`.
-  void add_ampl_compound(std::string_view class_name,
-                         std::string_view compound_name,
-                         std::vector<AmplCompoundLeg> legs) const
-  {
-    m_simulation_.get().add_ampl_compound(
-        class_name, compound_name, std::move(legs));
   }
 
   /// Look up a compound PAMPL attribute by (class, compound_name).
@@ -433,23 +432,25 @@ public:
     return simulation().find_ampl_compound(class_name, compound_name);
   }
 
+  /// Look up a class-level scalar (e.g. `options.scale_objective`).
+  /// Returns nullopt when the (class, attribute) pair is not in the
+  /// allow-list registered by `system_lp.cpp::register_all_ampl_element_names`.
+  [[nodiscard]] std::optional<double> find_ampl_scalar(
+      std::string_view class_name, std::string_view attribute) const noexcept
+  {
+    return simulation().find_ampl_scalar(class_name, attribute);
+  }
+
   /// Register filter metadata for one element (F9).
   /// See `SimulationLP::register_ampl_element_metadata`.
   void register_ampl_element_metadata(std::string_view class_name,
                                       Uid element_uid,
-                                      AmplElementMetadata metadata) const
-  {
-    m_simulation_.get().register_ampl_element_metadata(
-        class_name, element_uid, std::move(metadata));
-  }
+                                      AmplElementMetadata metadata) const;
 
   /// Look up an element's metadata bundle (F9).  Returns nullptr when
   /// the element has no registered metadata.
   [[nodiscard]] const AmplElementMetadata* find_ampl_element_metadata(
-      std::string_view class_name, Uid element_uid) const noexcept
-  {
-    return simulation().find_ampl_element_metadata(class_name, element_uid);
-  }
+      std::string_view class_name, Uid element_uid) const noexcept;
 
 private:
   std::reference_wrapper<SimulationLP> m_simulation_;

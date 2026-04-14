@@ -137,6 +137,7 @@ TEST_CASE("line_losses::resolve_mode fallback chain")
   {
     PlanningOptions opts_none;
     opts_none.model_options.line_losses_mode = OptName {"none"};
+    opts_none.model_options.demand_fail_cost = 1000.0;
     const PlanningOptionsLP options_none(opts_none);
 
     Line line;
@@ -358,6 +359,7 @@ static auto solve_with_mode(std::string_view mode_name, int loss_segments = 3)
   opts.use_single_bus = false;
   opts.use_kirchhoff = false;
   opts.scale_objective = 1000.0;
+  opts.model_options.demand_fail_cost = 1000.0;
 
   const System system = {
       .name = "LossEngineTest",
@@ -484,6 +486,7 @@ TEST_CASE("line_losses engine - global model_options.line_losses_mode")
     opts.use_kirchhoff = false;
     opts.scale_objective = 1000.0;
     opts.model_options.line_losses_mode = OptName {"none"};
+    opts.model_options.demand_fail_cost = 1000.0;
 
     const System system = {
         .name = "GlobalNone",
@@ -507,7 +510,7 @@ TEST_CASE("line_losses engine - global model_options.line_losses_mode")
 
 /// Helper: build a 2-bus system with the given line losses mode and
 /// return (SystemLP, LinearInterface&) so callers can inspect the LP.
-/// Names level = cols_and_rows so col/row names are available.
+/// All names enabled so col/row names are available.
 struct LPFixture
 {
   System system;
@@ -588,14 +591,17 @@ private:
     opts.use_single_bus = false;
     opts.use_kirchhoff = false;
     opts.scale_objective = 1000.0;
-    opts.lp_matrix_options.names_level = LpNamesLevel::cols_and_rows;
+    opts.model_options.demand_fail_cost = 1000.0;
+    opts.lp_matrix_options.col_with_names = true;
+    opts.lp_matrix_options.row_with_names = true;
+    opts.lp_matrix_options.col_with_name_map = true;
+    opts.lp_matrix_options.row_with_name_map = true;
     return PlanningOptionsLP(opts);
   }
 
   static LpMatrixOptions build_opts()
   {
     LpMatrixOptions bo;
-    bo.lp_names_level = LpNamesLevel::cols_and_rows;
     bo.col_with_names = true;
     bo.col_with_name_map = true;
     bo.row_with_names = true;
@@ -638,7 +644,7 @@ static auto find_col(const LinearInterface& li, std::string_view substr)
   int count = 0;
   for (const auto& [name, idx] : li.col_name_map()) {
     if (name.find(substr) != std::string::npos) {
-      found = ColIndex {idx};
+      found = idx;
       ++count;
     }
   }
@@ -657,7 +663,7 @@ static auto find_col(const LinearInterface& li,
     if (name.find(substr) != std::string::npos
         && name.find(exclude) == std::string::npos)
     {
-      found = ColIndex {idx};
+      found = idx;
       ++count;
     }
   }
@@ -673,7 +679,7 @@ static auto find_row(const LinearInterface& li, std::string_view substr)
   int count = 0;
   for (const auto& [name, idx] : li.row_name_map()) {
     if (name.find(substr) != std::string::npos) {
-      found = RowIndex {idx};
+      found = idx;
       ++count;
     }
   }
@@ -812,7 +818,7 @@ TEST_CASE("line_losses LP structure - piecewise mode")
     int seg_count = 0;
     for (const auto& [name, idx] : li.col_name_map()) {
       if (name.contains("line_seg_")) {
-        CHECK(li.get_coeff(lnk, ColIndex {idx}) == doctest::Approx(-1.0));
+        CHECK(li.get_coeff(lnk, idx) == doctest::Approx(-1.0));
         ++seg_count;
       }
     }
@@ -837,7 +843,7 @@ TEST_CASE("line_losses LP structure - piecewise mode")
     std::vector<std::pair<std::string, double>> seg_coeffs;
     for (const auto& [name, idx] : li.col_name_map()) {
       if (name.contains("line_seg_")) {
-        seg_coeffs.emplace_back(name, li.get_coeff(lsl, ColIndex {idx}));
+        seg_coeffs.emplace_back(name, li.get_coeff(lsl, idx));
       }
     }
     std::ranges::sort(seg_coeffs);
@@ -900,7 +906,7 @@ TEST_CASE("line_losses LP structure - bidirectional mode")
     int seg_count = 0;
     for (const auto& [name, idx] : li.col_name_map()) {
       if (name.contains("line_flowp_seg_")) {
-        CHECK(li.get_coeff(lnkp, ColIndex {idx}) == doctest::Approx(-1.0));
+        CHECK(li.get_coeff(lnkp, idx) == doctest::Approx(-1.0));
         ++seg_count;
       }
     }
@@ -921,7 +927,7 @@ TEST_CASE("line_losses LP structure - bidirectional mode")
     std::vector<std::pair<std::string, double>> seg_coeffs;
     for (const auto& [name, idx] : li.col_name_map()) {
       if (name.contains("line_flown_seg_")) {
-        seg_coeffs.emplace_back(name, li.get_coeff(lsln, ColIndex {idx}));
+        seg_coeffs.emplace_back(name, li.get_coeff(lsln, idx));
       }
     }
     std::ranges::sort(seg_coeffs);

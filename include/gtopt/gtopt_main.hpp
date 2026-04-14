@@ -73,8 +73,6 @@ struct MainOptions
   // ---- LP options ----
   /** @brief Path stem for writing the LP model file */
   std::optional<std::string> lp_file {};
-  /** @brief LP naming level: minimal, only_cols, cols_and_rows */
-  std::optional<LpNamesLevel> lp_names_level {};
   /** @brief Epsilon tolerance for LP matrix coefficients */
   std::optional<double> matrix_eps {};
   /** @brief Build all scene/phase LP matrices but skip solving entirely */
@@ -96,8 +94,6 @@ struct MainOptions
   std::optional<std::string> json_file {};
 
   // ---- execution control ----
-  /** @brief Use fast (non-strict) JSON parsing */
-  std::optional<bool> fast_parsing {};
   /** @brief Warn about JSON fields not recognised by the schema */
   std::optional<bool> check_json {};
   /** @brief Print pre- and post-solve system statistics */
@@ -159,15 +155,21 @@ struct MainOptions
    * Default 4.0 — extra threads compensate for clone mutex blocking. */
   std::optional<double> sddp_cpu_factor {};
 
+  /** @brief LP build parallelism mode: "serial", "scene-parallel",
+   *  or "full-parallel" (default).  Routed to
+   *  `planning.options.build_mode` by `apply_cli_options`.  See
+   *  `BuildMode` in `planning_enums.hpp` for the full contract. */
+  std::optional<std::string> build_mode {};
+
   // ---- solver selection ----
   /** @brief LP solver backend name ("clp", "cbc", "cplex", "highs").
    * When empty, auto-detects from available plugins. */
   std::optional<std::string> solver {};
 
   // ---- solver algorithm (shortcuts for solver_options fields) ----
-  /** @brief LP solution algorithm override (0=default, 1=primal, 2=dual,
-   * 3=barrier).  Mapped to solver_options.algorithm by apply_cli_options. */
-  std::optional<int> algorithm {};
+  /** @brief LP solution algorithm override.
+   * Mapped to solver_options.algorithm by apply_cli_options. */
+  std::optional<LPAlgo> algorithm {};
   /** @brief Number of solver threads override (0=automatic).
    *  Mapped to solver_options.threads by apply_cli_options. */
   std::optional<int> threads {};

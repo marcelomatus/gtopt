@@ -47,6 +47,40 @@ namespace gtopt
  * | `"power"` (default)   | `scale_obj / (prob × discount × Δt)`         |
  * | `"energy"`            | `scale_obj / (prob × discount × Δt)`         |
  * | `"raw"` / `"unitless"`| `scale_obj / discount`                       |
+ *
+ * ### Soft constraints with visible slacks
+ *
+ * When `penalty` is set to a positive value, the constraint becomes
+ * **soft**: the LP assembly automatically creates slack column(s) and
+ * folds them into the row so the constraint can be violated at the
+ * supplied per-unit penalty cost.  All auto-created slacks are
+ * registered in the AMPL variable registry (so other constraints and
+ * reports can reference them) and emitted to output as
+ * `UserConstraint/slack(_pos|_neg).{csv,parquet}`, making any unserved
+ * water/energy demand traceable per constraint without primal-dual
+ * gap reconstruction.
+ *
+ * - `LESS_EQUAL`    (`expr <= rhs`):  one slack column `slack`,
+ *   row gets `-1.0 * slack`, cost `+penalty * slack`.
+ * - `GREATER_EQUAL` (`expr >= rhs`):  one slack column `slack`,
+ *   row gets `+1.0 * slack`, cost `+penalty * slack`.
+ * - `EQUAL`         (`expr =  rhs`):  two slack columns `slack_pos`,
+ *   `slack_neg`, row gets `+1·slack_pos − 1·slack_neg`, both with
+ *   cost `+penalty`.
+ * - `RANGE`: not yet supported with `penalty`; an explicit pair of
+ *   one-sided constraints should be used instead.
+ *
+ * ### Penalty unit conversion (`penalty_class`)
+ *
+ * By default (`penalty_class` absent or `"raw"`) the `penalty` scalar is
+ * fed directly into the slack column's LP objective coefficient.  When
+ * `penalty_class` is set to `"hydro_flow"`, the `penalty` is interpreted
+ * as $/m³ (volume) and converted to $/(m³/s) per block via
+ * `× duration[h] × 3600`, mirroring how `hydro_fail_cost` is applied to
+ * FlowRight fail columns.  This lets an irrigation balance authored with
+ * `penalty = hydro_fail_cost` degrade gracefully without hard
+ * infeasibility while still being priced in the same unit system as the
+ * surrounding hydro network.  See `PenaltyClass` for the full table.
  */
 struct UserConstraint
 {
@@ -57,6 +91,11 @@ struct UserConstraint
   OptName description {};  ///< Optional free-text description of the constraint
   OptName constraint_type {};  ///< Scaling hint: "power" (default), "energy",
                                ///< "raw", or "unitless"
+  OptReal penalty {};  ///< Per-unit slack cost.  When set and > 0, the
+                       ///< constraint is relaxed via auto-created slack
+                       ///< columns.  See "Soft constraints" above.
+  OptName penalty_class {};  ///< Penalty unit hint: "raw" (default) or
+                             ///< "hydro_flow".  See `PenaltyClass`.
 };
 
 }  // namespace gtopt

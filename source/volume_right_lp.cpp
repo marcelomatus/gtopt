@@ -29,9 +29,12 @@
  *
  * Efficiency is 1.0 — rights are consumed 1:1 without loss.
  */
+#include <format>
+
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/output_context.hpp>
 #include <gtopt/reservoir_lp.hpp>
+#include <gtopt/stage_month_guard.hpp>
 #include <gtopt/system_context.hpp>
 #include <gtopt/system_lp.hpp>
 #include <gtopt/volume_right_lp.hpp>
@@ -55,9 +58,7 @@ bool VolumeRightLP::add_to_lp(SystemContext& sc,
                               LinearProblem& lp)
 {
   static constexpr std::string_view cname = ClassName.full_name();
-  static const auto ampl_name = std::string {ClassName.snake_case()};
-
-  sc.register_ampl_element(ampl_name, id().second, uid());
+  static constexpr auto ampl_name = ClassName.snake_case();
 
   if (!is_active(stage)) {
     return true;
@@ -86,14 +87,25 @@ bool VolumeRightLP::add_to_lp(SystemContext& sc,
     return 1.0;
   }();
 
-  // Evaluate initial bound rule if present
+  // Evaluate initial bound rule if present.  Axis dispatch lives in
+  // `resolve_bound_rule_axis_value`; the reservoir lookup is wrapped in
+  // a callback so it is skipped on non-reservoir axes.
   const auto& opt_rule = volume_right().bound_rule;
-  auto initial_rule_bound = std::numeric_limits<Real>::max();
+  auto initial_rule_bound = LinearProblem::DblMax;
   if (opt_rule.has_value()) {
-    const auto rsv_sid = ReservoirLPSId(opt_rule->reservoir);
-    const auto& rsv = sc.element<ReservoirLP>(rsv_sid);
-    const auto initial_volume = rsv.reservoir().eini.value_or(0.0);
-    initial_rule_bound = evaluate_bound_rule(*opt_rule, initial_volume);
+    const auto axis_value = resolve_bound_rule_axis_value(
+        *opt_rule,
+        stage.month(),
+        [&]() -> Real
+        {
+          if (!axis_uses_reservoir(opt_rule->axis)) {
+            return 0.0;
+          }
+          const auto rsv_sid = ReservoirLPSId(opt_rule->reservoir);
+          const auto& rsv = sc.element<ReservoirLP>(rsv_sid);
+          return rsv.reservoir().eini.value_or(0.0);
+        });
+    initial_rule_bound = evaluate_bound_rule(*opt_rule, axis_value);
   }
 
   BIndexHolder<ColIndex> extraction_cols;
@@ -115,7 +127,7 @@ bool VolumeRightLP::add_to_lp(SystemContext& sc,
     const auto fcol = lp.add_col(SparseCol {
         .uppb = uppb,
         .class_name = ClassName.full_name(),
-        .variable_name = "flow",
+        .variable_name = FlowName,
         .variable_uid = uid(),
         .context = make_block_context(scenario.uid(), stage.uid(), block.uid()),
     });
@@ -137,7 +149,7 @@ bool VolumeRightLP::add_to_lp(SystemContext& sc,
       const auto fcol = lp.add_col(SparseCol {
           .uppb = uppb,
           .class_name = ClassName.full_name(),
-          .variable_name = "flow",
+          .variable_name = FlowName,
           .variable_uid = uid(),
           .context =
               make_block_context(scenario.uid(), stage.uid(), block.uid()),
@@ -157,7 +169,15 @@ bool VolumeRightLP::add_to_lp(SystemContext& sc,
   // linking: the sini value is independently provisioned, so backward
   // duals and forward trial values from the previous phase are meaningless.
   const auto& rm = volume_right().reset_month;
-  const bool is_reset_stage = rm.has_value() && stage.month() == rm;
+  // A VR with reset_month requires the stage to carry a calendar month:
+  // a silent `nullopt != rm` would skip the provisioning quietly and
+  // produce a wrong but feasible LP.  Fail fast instead.
+  const bool is_reset_stage = rm.has_value()
+      && require_stage_month(stage,
+                             ClassName.full_name(),
+                             std::format("uid={}", uid()),
+                             "reset_month")
+          == *rm;
   const auto [prev_stg, prev_ph] = sc.prev_stage(stage);
   const bool is_cross_phase = (prev_stg != nullptr && prev_ph != nullptr);
 
@@ -298,7 +318,7 @@ bool VolumeRightLP::add_to_lp(SystemContext& sc,
         .cost = fail_cost,
         .scale = energy_scale,
         .class_name = ClassName.full_name(),
-        .variable_name = "fail",
+        .variable_name = FailName,
         .variable_uid = uid(),
         .context = stage_ctx,
     });
@@ -307,7 +327,7 @@ bool VolumeRightLP::add_to_lp(SystemContext& sc,
     // sum_b [fcr × duration × extraction(b)] + fail >= demand
     SparseRow drow {
         .class_name = ClassName.full_name(),
-        .constraint_name = "demand",
+        .constraint_name = DemandName,
         .variable_uid = uid(),
         .context = stage_ctx,
     };
@@ -347,19 +367,29 @@ int VolumeRightLP::update_lp(SystemLP& sys,
   }
 
   auto& li = sys.linear_interface();
-  const auto rsv_sid = ReservoirLPSId(opt_rule->reservoir);
-  const auto& rsv = sys.element<ReservoirLP>(rsv_sid);
-  const auto default_volume = rsv.reservoir().eini.value_or(0.0);
 
   const auto st_key = std::tuple {scenario.uid(), stage.uid()};
   auto& state = m_bound_states_.at(st_key);
 
-  const auto vini =
-      rsv.physical_eini(sys, scenario, stage, default_volume, rsv_sid);
-  const auto vfin = rsv.physical_efin(sys, scenario, stage, default_volume);
-  const Real volume = (vini + vfin) / 2.0;
+  // Resolve the rule's axis input via the dispatcher.  Reservoir
+  // lookups are deferred to the lambda body so axes that don't consume
+  // reservoir state never touch SystemLP::element<ReservoirLP>().
+  const auto axis_value = resolve_bound_rule_axis_value(
+      *opt_rule,
+      stage.month(),
+      [&]() -> Real
+      {
+        const auto rsv_sid = ReservoirLPSId(opt_rule->reservoir);
+        const auto& rsv = sys.element<ReservoirLP>(rsv_sid);
+        const auto default_volume = rsv.reservoir().eini.value_or(0.0);
+        const auto vini =
+            rsv.physical_eini(sys, scenario, stage, default_volume, rsv_sid);
+        const auto vfin =
+            rsv.physical_efin(sys, scenario, stage, default_volume);
+        return (vini + vfin) / 2.0;
+      });
 
-  const auto new_bound = evaluate_bound_rule(*opt_rule, volume);
+  const auto new_bound = evaluate_bound_rule(*opt_rule, axis_value);
 
   if (new_bound == state.current_bound) {
     return 0;
@@ -375,9 +405,14 @@ int VolumeRightLP::update_lp(SystemLP& sys,
 
   // Dynamic provisioning: at reset_month, update eini to the new
   // bound_rule value (PLP: DerRiego recomputed from reservoir volume).
-  if (const auto& rm = volume_right().reset_month;
-      rm.has_value() && stage.month() == rm)
-  {
+  const auto& rm = volume_right().reset_month;
+  const bool is_reset_stage_update = rm.has_value()
+      && require_stage_month(stage,
+                             ClassName.full_name(),
+                             std::format("uid={}", uid()),
+                             "reset_month (update_lp)")
+          == *rm;
+  if (is_reset_stage_update) {
     const auto eini_col = eini_col_at(scenario, stage);
     li.set_col_low(eini_col, new_bound);
     li.set_col_upp(eini_col, new_bound);
@@ -386,9 +421,9 @@ int VolumeRightLP::update_lp(SystemLP& sys,
 
   SPDLOG_TRACE(
       "VolumeRightLP uid={}: updated bounds "
-      "(volume={:.1f}, bound={:.1f})",
+      "(axis_value={:.1f}, bound={:.1f})",
       uid(),
-      volume,
+      axis_value,
       new_bound);
 
   state.current_bound = new_bound;

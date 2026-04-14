@@ -14,6 +14,7 @@
 #include <arrow/api.h>
 #include <gtopt/aperture_data_cache.hpp>
 #include <gtopt/array_index_traits.hpp>
+#include <gtopt/utils.hpp>
 #include <spdlog/spdlog.h>
 
 namespace gtopt
@@ -94,7 +95,7 @@ auto load_one_file(const FileInfo& info) -> std::optional<FileResult>
     if (ec != std::errc {}) {
       continue;
     }
-    const ScenarioUid scen_uid {raw_uid};
+    const ScenarioUid scen_uid = make_uid<Scenario>(raw_uid);
 
     auto val_col = table->column(c);
     auto val_arr =
@@ -104,8 +105,8 @@ auto load_one_file(const FileInfo& info) -> std::optional<FileResult>
       data.try_emplace(
           ApertureDataCache::InnerKey {
               .scenario_uid = scen_uid,
-              .stage_uid = StageUid {stage_arr->Value(row)},
-              .block_uid = BlockUid {block_arr->Value(row)},
+              .stage_uid = make_uid<Stage>(stage_arr->Value(row)),
+              .block_uid = make_uid<Block>(block_arr->Value(row)),
           },
           val_arr->Value(row));
     }
@@ -167,8 +168,8 @@ ApertureDataCache::ApertureDataCache(const std::filesystem::path& aperture_dir)
 
   if (num_threads <= 1) {
     // Single-threaded fallback
-    for (size_t i = 0; i < file_list.size(); ++i) {
-      results[i] = load_one_file(file_list[i]);
+    for (const auto& [i, file] : enumerate(file_list)) {
+      results[i] = load_one_file(file);
     }
   } else {
     // Parallel loading with simple work partitioning

@@ -79,16 +79,7 @@ template<typename Tuple, size_t... Is>
 
 std::string LabelMaker::make_col_label(const SparseCol& col) const
 {
-  // Level gate: no columns at all.
-  if (m_level_ < LpNamesLevel::minimal) [[likely]] {
-    return {};
-  }
-  // Explicit override: honored whenever column labels are enabled.
-  if (!col.name.empty()) {
-    return std::string(col.name);
-  }
-  // At `minimal`, only state variables get labels.
-  if (m_level_ == LpNamesLevel::minimal && !col.is_state) {
+  if (!col_names_enabled()) [[likely]] {
     return {};
   }
   return format_label(
@@ -97,24 +88,9 @@ std::string LabelMaker::make_col_label(const SparseCol& col) const
 
 std::string LabelMaker::make_row_label(const SparseRow& row) const
 {
-  if (m_level_ < LpNamesLevel::cols_and_rows) [[likely]] {
+  if (!row_names_enabled()) [[likely]] {
     return {};
   }
-  return format_label(
-      row.class_name, row.constraint_name, row.variable_uid, row.context);
-}
-
-std::string LabelMaker::force_col_label(const SparseCol& col)
-{
-  if (!col.name.empty()) {
-    return std::string(col.name);
-  }
-  return format_label(
-      col.class_name, col.variable_name, col.variable_uid, col.context);
-}
-
-std::string LabelMaker::force_row_label(const SparseRow& row)
-{
   return format_label(
       row.class_name, row.constraint_name, row.variable_uid, row.context);
 }

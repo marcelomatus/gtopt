@@ -151,6 +151,7 @@ def make_parser() -> argparse.ArgumentParser:
         add_io_arguments,
         add_model_arguments,
         add_reservoir_battery_arguments,
+        add_ror_arguments,
         add_scenario_arguments,
         add_solver_arguments,
         add_stage_arguments,
@@ -171,6 +172,7 @@ def make_parser() -> argparse.ArgumentParser:
     add_solver_arguments(parser, conf)
     add_model_arguments(parser, conf)
     add_reservoir_battery_arguments(parser, conf)
+    add_ror_arguments(parser, conf)
     add_tech_arguments(parser, conf)
     add_general_arguments(parser, conf)
 
@@ -315,6 +317,10 @@ def build_options(args: argparse.Namespace) -> dict:
     opts["soft_emin_cost"] = args.soft_emin_cost
     opts["embed_reservoir_constraints"] = args.embed_reservoir_constraints
     opts["emit_water_rights"] = args.emit_water_rights
+    if args.ror_as_reservoirs is not None:
+        opts["ror_as_reservoirs"] = args.ror_as_reservoirs
+    if args.ror_as_reservoirs_file is not None:
+        opts["ror_as_reservoirs_file"] = args.ror_as_reservoirs_file
     opts["run_check"] = args.run_check
     # Technology detection
     opts["auto_detect_tech"] = args.auto_detect_tech

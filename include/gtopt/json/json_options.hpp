@@ -24,6 +24,7 @@
 
 namespace daw::json
 {
+using gtopt::BuildMode;
 using gtopt::CompressionCodec;
 using gtopt::ConstraintMode;
 using gtopt::DataFormat;
@@ -53,9 +54,9 @@ struct PlanningOptionsConstructor
       OptName output_directory,
       OptName output_format_str,
       OptName output_compression_str,
-      OptInt use_lp_names,
       OptBool use_uid_fname,
       OptName method_str,
+      OptName build_mode_str,
       OptName log_directory,
       OptBool lp_debug,
       OptName lp_compression_str,
@@ -143,20 +144,13 @@ struct PlanningOptionsConstructor
       opts.output_compression = gtopt::require_enum<CompressionCodec>(
           "output_compression", *output_compression_str);
     }
-    // Backward compat: deprecated "use_lp_names" maps to
-    // lp_matrix_options.names_level when the new field is not set.
-    if (use_lp_names) {
-      spdlog::warn(
-          "deprecated option 'use_lp_names': "
-          "use 'lp_matrix_options.names_level' instead");
-      if (!lp_matrix_options.names_level) {
-        lp_matrix_options.names_level =
-            static_cast<gtopt::LpNamesLevel>(*use_lp_names);
-      }
-    }
     opts.use_uid_fname = use_uid_fname;
     if (method_str) {
       opts.method = gtopt::require_enum<MethodType>("method", *method_str);
+    }
+    if (build_mode_str) {
+      opts.build_mode =
+          gtopt::require_enum<BuildMode>("build_mode", *build_mode_str);
     }
     opts.log_directory = std::move(log_directory);
     opts.lp_debug = lp_debug;
@@ -209,10 +203,10 @@ struct json_data_contract<PlanningOptions>
                        json_string_null<"output_directory", OptName>,
                        json_string_null<"output_format", OptName>,
                        json_string_null<"output_compression", OptName>,
-                       json_number_null<"use_lp_names", OptInt>,
                        json_bool_null<"use_uid_fname", OptBool>,
 
                        json_string_null<"method", OptName>,
+                       json_string_null<"build_mode", OptName>,
                        json_string_null<"log_directory", OptName>,
                        json_bool_null<"lp_debug", OptBool>,
                        json_string_null<"lp_compression", OptName>,
@@ -254,10 +248,10 @@ struct json_data_contract<PlanningOptions>
                            opt.output_directory,
                            detail::enum_to_opt_name(opt.output_format),
                            detail::enum_to_opt_name(opt.output_compression),
-                           OptInt {},
                            opt.use_uid_fname,
 
                            detail::enum_to_opt_name(opt.method),
+                           detail::enum_to_opt_name(opt.build_mode),
                            opt.log_directory,
                            opt.lp_debug,
                            detail::enum_to_opt_name(opt.lp_compression),

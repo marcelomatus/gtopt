@@ -26,13 +26,17 @@
 #include <gtopt/flow_right_lp.hpp>
 #include <gtopt/generator_lp.hpp>
 #include <gtopt/generator_profile_lp.hpp>
+#include <gtopt/inertia_provision_lp.hpp>
+#include <gtopt/inertia_zone_lp.hpp>
 #include <gtopt/junction_lp.hpp>
 #include <gtopt/line_lp.hpp>
 #include <gtopt/linear_interface.hpp>
+#include <gtopt/lng_terminal_lp.hpp>
 #include <gtopt/lp_fingerprint.hpp>
 #include <gtopt/output_context.hpp>
 #include <gtopt/phase_lp.hpp>
 #include <gtopt/planning_options_lp.hpp>
+#include <gtopt/pump_lp.hpp>
 #include <gtopt/reserve_provision_lp.hpp>
 #include <gtopt/reserve_zone_lp.hpp>
 #include <gtopt/reservoir_discharge_limit_lp.hpp>
@@ -42,6 +46,7 @@
 #include <gtopt/scenario_lp.hpp>
 #include <gtopt/scene_lp.hpp>
 #include <gtopt/schedule.hpp>
+#include <gtopt/simple_commitment_lp.hpp>
 #include <gtopt/solver_options.hpp>
 #include <gtopt/system.hpp>
 #include <gtopt/system_context.hpp>
@@ -86,6 +91,9 @@ static_assert(AddToLP<ConverterLP>);
 static_assert(AddToLP<ReserveZoneLP>);
 static_assert(AddToLP<ReserveProvisionLP>);
 static_assert(AddToLP<CommitmentLP>);
+static_assert(AddToLP<SimpleCommitmentLP>);
+static_assert(AddToLP<InertiaZoneLP>);
+static_assert(AddToLP<InertiaProvisionLP>);
 
 static_assert(AddToLP<JunctionLP>);
 static_assert(AddToLP<WaterwayLP>);
@@ -94,9 +102,11 @@ static_assert(AddToLP<ReservoirLP>);
 static_assert(AddToLP<ReservoirSeepageLP>);
 static_assert(AddToLP<ReservoirDischargeLimitLP>);
 static_assert(AddToLP<TurbineLP>);
+static_assert(AddToLP<PumpLP>);
 static_assert(AddToLP<ReservoirProductionFactorLP>);
 static_assert(AddToLP<FlowRightLP>);
 static_assert(AddToLP<VolumeRightLP>);
+static_assert(AddToLP<LngTerminalLP>);
 static_assert(AddToLP<UserConstraintLP>);
 
 /**
@@ -132,8 +142,17 @@ public:
   SystemLP(const SystemLP&) = delete;
   SystemLP& operator=(const SystemLP&) noexcept = delete;
 
-  SystemLP(SystemLP&&) noexcept = default;
-  SystemLP& operator=(SystemLP&&) noexcept = default;
+  /// Move constructor: member-wise moves, then re-points the embedded
+  /// `m_system_context_` back-reference to `*this` (and rebuilds its
+  /// `m_collection_ptrs_` table from `this->m_collections_`).  A defaulted
+  /// move would leave SystemContext referring to the moved-from SystemLP,
+  /// which only worked previously because PlanningLP::create_systems
+  /// happened to never move SystemLP after construction.  Required for
+  /// the parallel phase build path that emplaces SystemLPs into a
+  /// `vector<optional<SystemLP>>` and then moves them into the final
+  /// `vector<SystemLP>`.
+  SystemLP(SystemLP&& other) noexcept;
+  SystemLP& operator=(SystemLP&& other) noexcept;
   ~SystemLP() noexcept = default;
 
   /**
@@ -159,12 +178,12 @@ public:
                      Phase(),
                      simulation.options(),
                      simulation.simulation(),
-                     PhaseIndex {0},
+                     first_phase_index(),
                  },
                  SceneLP {
                      Scene(),
                      simulation.simulation(),
-                     SceneIndex {0},
+                     first_scene_index(),
                  },
                  flat_opts)
   {
@@ -184,6 +203,9 @@ public:
                                    Collection<ReserveZoneLP>,
                                    Collection<ReserveProvisionLP>,
                                    Collection<CommitmentLP>,
+                                   Collection<SimpleCommitmentLP>,
+                                   Collection<InertiaZoneLP>,
+                                   Collection<InertiaProvisionLP>,
                                    Collection<JunctionLP>,
                                    Collection<WaterwayLP>,
                                    Collection<FlowLP>,
@@ -191,9 +213,11 @@ public:
                                    Collection<ReservoirSeepageLP>,
                                    Collection<ReservoirDischargeLimitLP>,
                                    Collection<TurbineLP>,
+                                   Collection<PumpLP>,
                                    Collection<ReservoirProductionFactorLP>,
                                    Collection<FlowRightLP>,
                                    Collection<VolumeRightLP>,
+                                   Collection<LngTerminalLP>,
                                    Collection<UserConstraintLP>>;
 
   template<typename Self>
@@ -384,6 +408,22 @@ private:
   LpFingerprint m_fingerprint_;
   std::optional<ObjectSingleId<BusLP>> m_single_bus_id_ {};
 
+  /// Deferred dependent-variable links recorded during this phase's
+  /// `add_to_lp` pass.  Under parallel phase construction within a
+  /// scene, phase N+1 cannot safely call `add_dependent_variable` on
+  /// phase N's `StateVariable` (it may not yet exist, and concurrent
+  /// vector growth is not thread-safe).  Instead, the dependent side
+  /// records a `PendingStateLink` here, and a sequential tightening
+  /// pass over `phase_systems[scene_index]` resolves each link after
+  /// the parallel build joins.  Storage lives on `SystemLP` (not on
+  /// `SimulationLP`) because every link is intra-scene by construction
+  /// — there is no cross-scene access pattern, and partitioning a
+  /// centralized registry by scene would be needless indirection.
+  ///
+  /// Written by exactly one thread (the phase task that owns this
+  /// `SystemLP`); drained by exactly one thread during tightening.
+  std::vector<PendingStateLink> m_pending_state_links_;
+
   /// Transient pointer to the previous phase's LinearInterface, set by
   /// dispatch_update_lp() before calling update_lp().  Allows update_lp
   /// elements to look up the previous phase's efin when computing vini
@@ -401,6 +441,32 @@ public:
   [[nodiscard]] constexpr const SystemLP* prev_phase_sys() const noexcept
   {
     return m_prev_phase_sys_;
+  }
+
+  // ── Deferred state-variable linking ───────────────────────────────────
+  //
+  // See `m_pending_state_links_` for the rationale.  Called from element
+  // `add_to_lp` (via `SystemContext::defer_state_link`) when phase N+1
+  // would otherwise call `add_dependent_variable` on phase N's
+  // `StateVariable` directly.  The `here_key` carries this phase's
+  // `(scene, phase)` identity so the tightening pass can construct the
+  // dependent `LPVariable` without re-deriving it from `*this`.
+
+  void defer_state_link(StateVariable::Key prev_key,
+                        LPKey here_key,
+                        ColIndex here_col)
+  {
+    m_pending_state_links_.emplace_back(PendingStateLink {
+        .prev_key = prev_key,
+        .here_key = here_key,
+        .here_col = here_col,
+    });
+  }
+
+  template<typename Self>
+  [[nodiscard]] constexpr auto&& pending_state_links(this Self&& self) noexcept
+  {
+    return std::forward<Self>(self).m_pending_state_links_;
   }
 
   // ── Low-memory mode API (thin forwarding to LinearInterface) ──────────

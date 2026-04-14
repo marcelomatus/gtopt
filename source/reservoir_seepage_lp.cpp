@@ -42,10 +42,9 @@ bool ReservoirSeepageLP::add_to_lp(const SystemContext& sc,
   // ("seepage") rather than ClassName.snake_case() ("reservoir_seepage").
   // Matching the downstream PAMPL convention that names this element after
   // the seepage constraint — not the ObjectLP wrapper — so `seepage.flow`
-  // remains the canonical variable path.
+  // remains the canonical variable path.  Element-name registration is
+  // hoisted into `system_lp.cpp::register_all_ampl_element_names`.
   static constexpr std::string_view ampl_name = SeepageName;
-
-  sc.register_ampl_element(ampl_name, id().second, uid());
 
   if (!is_active(stage)) {
     return true;

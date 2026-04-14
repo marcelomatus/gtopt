@@ -14,6 +14,7 @@
 
 #include <doctest/doctest.h>
 #include <gtopt/linear_interface.hpp>
+#include <gtopt/planning_options.hpp>
 #include <gtopt/simulation_lp.hpp>
 #include <gtopt/system_lp.hpp>
 
@@ -130,7 +131,9 @@ TEST_CASE(  // NOLINT
       .turbine_array = turbine_array,
   };
 
-  const PlanningOptionsLP options;
+  PlanningOptions popts;
+  popts.demand_fail_cost = 1000.0;
+  const PlanningOptionsLP options(popts);
   SimulationLP simulation_lp(simulation, options);
   SystemLP system_lp(system, simulation_lp);
 
@@ -269,7 +272,9 @@ TEST_CASE(  // NOLINT
       .turbine_array = turbine_array,
   };
 
-  const PlanningOptionsLP options;
+  PlanningOptions popts;
+  popts.demand_fail_cost = 1000.0;
+  const PlanningOptionsLP options(popts);
   SimulationLP simulation_lp(simulation, options);
   SystemLP system_lp(system, simulation_lp);
 
@@ -419,7 +424,9 @@ TEST_CASE(  // NOLINT
       .turbine_array = turbine_array,
   };
 
-  const PlanningOptionsLP options;
+  PlanningOptions popts;
+  popts.demand_fail_cost = 1000.0;
+  const PlanningOptionsLP options(popts);
   SimulationLP simulation_lp(simulation, options);
   SystemLP system_lp(system, simulation_lp);
 
@@ -574,7 +581,9 @@ TEST_CASE(  // NOLINT
       .turbine_array = turbine_array,
   };
 
-  const PlanningOptionsLP options;
+  PlanningOptions popts;
+  popts.demand_fail_cost = 1000.0;
+  const PlanningOptionsLP options(popts);
   SimulationLP simulation_lp(simulation, options);
   SystemLP system_lp(system, simulation_lp);
 
@@ -699,7 +708,9 @@ TEST_CASE(  // NOLINT
       .turbine_array = turbine_array,
   };
 
-  const PlanningOptionsLP options;
+  PlanningOptions popts;
+  popts.demand_fail_cost = 1000.0;
+  const PlanningOptionsLP options(popts);
   SimulationLP simulation_lp(simulation, options);
   SystemLP system_lp(system, simulation_lp);
 

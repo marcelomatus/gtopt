@@ -118,10 +118,10 @@ TEST_CASE("PhaseUid and PhaseIndex strong types")
 {
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
-  const PhaseUid puid {5};
+  const PhaseUid puid = make_uid<Phase>(5);
   const PhaseIndex pidx {2};
 
-  CHECK(puid == PhaseUid {5});
+  CHECK(puid == make_uid<Phase>(5));
   CHECK(pidx == PhaseIndex {2});
 }
 

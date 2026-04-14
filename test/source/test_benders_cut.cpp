@@ -410,23 +410,19 @@ TEST_CASE("propagate_trial_values sets bounds")  // NOLINT
   const auto s1 = li.add_col(SparseCol {
       .lowb = 0.0,
       .uppb = 100.0,
-      .name = "s1",
   });
   const auto s2 = li.add_col(SparseCol {
       .lowb = 0.0,
       .uppb = 100.0,
-      .name = "s2",
   });
   // dependent columns
   const auto d1 = li.add_col(SparseCol {
       .lowb = 0.0,
       .uppb = 100.0,
-      .name = "d1",
   });
   const auto d2 = li.add_col(SparseCol {
       .lowb = 0.0,
       .uppb = 100.0,
-      .name = "d2",
   });
 
   std::vector<StateVarLink> links = {
@@ -471,7 +467,6 @@ TEST_CASE("relax_fixed_state_variable relaxes a fixed column")  // NOLINT
   const auto dep = li.add_col(SparseCol {
       .lowb = 0.0,
       .uppb = 100.0,
-      .name = "dep",
   });
 
   // Fix the column (simulate propagate_trial_values)
@@ -484,11 +479,11 @@ TEST_CASE("relax_fixed_state_variable relaxes a fixed column")  // NOLINT
               99,
           },
       .dependent_col = dep,
-      .source_phase =
+      .source_phase_index =
           PhaseIndex {
               0,
           },
-      .target_phase =
+      .target_phase_index =
           PhaseIndex {
               1,
           },
@@ -531,7 +526,6 @@ TEST_CASE("relax_fixed_state_variable skips unfixed column")  // NOLINT
   const auto dep = li.add_col(SparseCol {
       .lowb = 0.0,
       .uppb = 100.0,
-      .name = "dep",
   });
 
   const StateVarLink link {
@@ -627,32 +621,26 @@ TEST_CASE("build_multi_cuts with active slack generates cuts")  // NOLINT
   const auto dep0 = cloned_li.add_col(SparseCol {
       .lowb = 0.0,
       .uppb = 100.0,
-      .name = "dep0",
   });
   const auto dep1 = cloned_li.add_col(SparseCol {
       .lowb = 0.0,
       .uppb = 100.0,
-      .name = "dep1",
   });
   const auto sup0 = cloned_li.add_col(SparseCol {
       .lowb = 0.0,
       .uppb = 100.0,
-      .name = "sup0",
   });
   const auto sdn0 = cloned_li.add_col(SparseCol {
       .lowb = 0.0,
       .uppb = 100.0,
-      .name = "sdn0",
   });
   const auto sup1 = cloned_li.add_col(SparseCol {
       .lowb = 0.0,
       .uppb = 100.0,
-      .name = "sup1",
   });
   const auto sdn1 = cloned_li.add_col(SparseCol {
       .lowb = 0.0,
       .uppb = 100.0,
-      .name = "sdn1",
   });
 
   // Set objective to minimise slack penalties
@@ -765,12 +753,10 @@ TEST_CASE("elastic_filter_solve free function succeeds")  // NOLINT
   const auto x1 = li.add_col(SparseCol {
       .lowb = 0.0,
       .uppb = 100.0,
-      .name = "x1",
   });
   const auto alpha = li.add_col(SparseCol {
       .lowb = 0.0,
       .uppb = LinearProblem::DblMax,
-      .name = "alpha",
   });
   li.set_obj_coeff(x1, 1.0);
   li.set_obj_coeff(alpha, 0.0);
@@ -795,7 +781,7 @@ TEST_CASE("elastic_filter_solve free function succeeds")  // NOLINT
                   99,
               },
           .dependent_col = x1,
-          .target_phase =
+          .target_phase_index =
               PhaseIndex {
                   1,
               },
@@ -832,23 +818,19 @@ TEST_CASE("propagate_trial_values_row_dual adds coupling rows")  // NOLINT
   const auto s1 = li.add_col(SparseCol {
       .lowb = 0.0,
       .uppb = 100.0,
-      .name = "s1",
   });
   const auto s2 = li.add_col(SparseCol {
       .lowb = 0.0,
       .uppb = 100.0,
-      .name = "s2",
   });
   // dependent columns
   const auto d1 = li.add_col(SparseCol {
       .lowb = 0.0,
       .uppb = 100.0,
-      .name = "d1",
   });
   const auto d2 = li.add_col(SparseCol {
       .lowb = 0.0,
       .uppb = 100.0,
-      .name = "d2",
   });
 
   std::vector<StateVarLink> links = {
@@ -1426,12 +1408,10 @@ TEST_CASE(  // NOLINT
   const auto efin = li.add_col(SparseCol {
       .lowb = 0.0,
       .uppb = 1.0,
-      .name = "efin",
   });  // [0, 1000 hm³] in LP
   const auto alpha = li.add_col(SparseCol {
       .lowb = 0.0,
       .uppb = LinearProblem::DblMax,
-      .name = "alpha",
   });
 
   // Objective: small coefficient on efin (normal LP scale)
@@ -1460,11 +1440,11 @@ TEST_CASE(  // NOLINT
                   99,
               },
           .dependent_col = efin,
-          .source_phase =
+          .source_phase_index =
               PhaseIndex {
                   0,
               },
-          .target_phase =
+          .target_phase_index =
               PhaseIndex {
                   1,
               },

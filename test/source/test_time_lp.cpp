@@ -21,7 +21,7 @@ TEST_CASE("BlockLP default construction")
 
   SUBCASE("Default constructed BlockLP has default Block")
   {
-    CHECK(block.uid() == BlockUid {unknown_uid});
+    CHECK(block.uid() == make_uid<Block>(unknown_uid));
     CHECK(block.duration() == 0);
   }
 }
@@ -34,7 +34,7 @@ TEST_CASE("BlockLP construction with parameters")
 
   SUBCASE("Constructor properly initializes members")
   {
-    CHECK(block.uid() == BlockUid {test_block.uid});
+    CHECK(block.uid() == make_uid<Block>(test_block.uid));
     CHECK(block.duration() == test_block.duration);
     CHECK(block.index() == test_index);
   }
@@ -55,7 +55,7 @@ TEST_CASE("BlockLP move semantics")
   {
     BlockLP original(test_block, test_index);
     const BlockLP moved(std::move(original));
-    CHECK(moved.uid() == BlockUid {test_block.uid});
+    CHECK(moved.uid() == make_uid<Block>(test_block.uid));
     CHECK(moved.index() == test_index);
   }
 
@@ -64,7 +64,7 @@ TEST_CASE("BlockLP move semantics")
     BlockLP original(test_block, test_index);
     BlockLP moved;
     moved = std::move(original);
-    CHECK(moved.uid() == BlockUid {test_block.uid});
+    CHECK(moved.uid() == make_uid<Block>(test_block.uid));
     CHECK(moved.index() == test_index);
   }
 }
@@ -102,7 +102,7 @@ TEST_CASE("BlockLP constexpr usage")
 
   SUBCASE("Constexpr construction")
   {
-    static_assert(block.uid() == BlockUid {test_block.uid});
+    static_assert(block.uid() == make_uid<Block>(test_block.uid));
     static_assert(block.index() == test_index);
   }
 
@@ -110,7 +110,7 @@ TEST_CASE("BlockLP constexpr usage")
   {
     constexpr auto uid = block.uid();
     constexpr auto idx = block.index();
-    CHECK(uid == BlockUid {test_block.uid});
+    CHECK(uid == make_uid<Block>(test_block.uid));
     CHECK(idx == test_index);
   }
 }
@@ -217,7 +217,7 @@ TEST_SUITE("ScenarioLP")
 
     SUBCASE("uid")
     {
-      CHECK(scenario_lp.uid() == ScenarioUid {123});
+      CHECK(scenario_lp.uid() == make_uid<Scenario>(123));
     }
 
     SUBCASE("probability_factor")
@@ -239,7 +239,7 @@ TEST_SUITE("ScenarioLP")
     {
       CHECK_FALSE(scenario_lp.is_first());
       const ScenarioLP first_scenario(
-          Scenario(), ScenarioIndex {0}, SceneIndex {0});
+          Scenario(), first_scenario_index(), first_scene_index());
       CHECK(first_scenario.is_first());
     }
   }
@@ -252,7 +252,7 @@ TEST_SUITE("SceneLP")
     const SceneLP scene;
     CHECK(scene.index() == ElementIndex<SceneLP> {unknown_index});
     CHECK(scene.count_scenario() == -1);
-    CHECK(scene.first_scenario() == ScenarioIndex {0});
+    CHECK(scene.first_scenario() == first_scenario_index());
     CHECK(scene.is_active());
   }
 
@@ -276,7 +276,7 @@ TEST_SUITE("SceneLP")
 
     CHECK(scene_lp.index() == SceneIndex {1});
     CHECK(scene_lp.is_active());
-    CHECK(scene_lp.first_scenario() == ScenarioIndex {0});
+    CHECK(scene_lp.first_scenario() == first_scenario_index());
     CHECK(scene_lp.count_scenario() == 2);
   }
 
@@ -342,7 +342,7 @@ TEST_SUITE("SceneLP")
       const SceneLP scene_lp(scene, std::vector<Scenario> {});
 
       CHECK(scene_lp.count_scenario() == 0);
-      CHECK(scene_lp.first_scenario() == ScenarioIndex {0});
+      CHECK(scene_lp.first_scenario() == first_scenario_index());
     }
   }
 }
@@ -374,7 +374,7 @@ TEST_SUITE("StageLP")
       CHECK(stage_lp.index() == StageIndex {1});
       CHECK(stage_lp.phase_index() == PhaseIndex {2});
       CHECK(stage_lp.is_active() == true);
-      CHECK(stage_lp.uid() == StageUid {42});
+      CHECK(stage_lp.uid() == make_uid<Stage>(42));
     }
 
     SUBCASE("Duration calculations")
@@ -398,8 +398,8 @@ TEST_SUITE("StageLP")
     {
       const auto& stage_blocks = stage_lp.blocks();
       REQUIRE(stage_blocks.size() == 2);
-      CHECK(stage_blocks[0].uid() == BlockUid {2});
-      CHECK(stage_blocks[1].uid() == BlockUid {3});
+      CHECK(stage_blocks[0].uid() == make_uid<Block>(2));
+      CHECK(stage_blocks[1].uid() == make_uid<Block>(3));
     }
   }
 
@@ -455,7 +455,7 @@ TEST_SUITE("StageLP")
     StageLP original(stage, blocks);
     const StageLP moved(std::move(original));
 
-    CHECK(moved.uid() == StageUid {10});
+    CHECK(moved.uid() == make_uid<Stage>(10));
     CHECK(moved.blocks().size() == 1);
     CHECK(moved.duration() == doctest::Approx(24.0));
   }

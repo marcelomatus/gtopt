@@ -128,6 +128,15 @@ struct PlanningOptions
    */
   std::optional<MethodType> method {};
 
+  /** @brief How `PlanningLP::create_systems` assembles per-cell SystemLPs.
+   *
+   * `parallel` (default) dispatches (scene × phase) cells through an
+   * `AdaptiveWorkPool`.  `serial` builds cells in-place in the calling
+   * thread with no pool / build-buffer / move overhead and is the honest
+   * apples-to-apples comparison against the pre-parallel code path.
+   * See `BuildMode` for the full contract. */
+  std::optional<BuildMode> build_mode {};
+
   // ── Logging ────────────────────────────────────────────────────────────────
   /** @brief Directory for log and trace files (default: `"logs"`).
    * Used for error LP dumps (both monolithic and SDDP) and SDDP iteration
@@ -322,6 +331,7 @@ struct PlanningOptions
 
     // Merge solver settings
     merge_opt(method, opts.method);
+    merge_opt(build_mode, opts.build_mode);
     merge_opt(log_directory, std::move(opts.log_directory));
     merge_opt(lp_debug, opts.lp_debug);
     merge_opt(lp_compression, opts.lp_compression);

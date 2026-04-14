@@ -61,8 +61,8 @@ struct FlatLinearProblem
                                  ///< flatten().  obj_physical = obj_LP ×
                                  ///< scale_objective.
 
-  name_vec_t colnm;  ///< Variable names
-  name_vec_t rownm;  ///< Constraint names
+  name_vec_t colnm;  ///< Variable names (dense; populated when names enabled)
+  name_vec_t rownm;  ///< Constraint names (dense; populated when names enabled)
   index_map_t colmp;  ///< Map from variable names to indices
   index_map_t rowmp;  ///< Map from constraint names to indices
 
@@ -291,6 +291,26 @@ public:
   [[nodiscard]] constexpr auto get_col_uppb(ColIndex index) const
   {
     return cols.at(index).uppb;
+  }
+
+  /**
+   * Sets the lower bound of a column
+   * @param index Column index
+   * @param lowb New lower bound value
+   */
+  constexpr void set_col_lowb(ColIndex index, double lowb)
+  {
+    cols.at(index).lowb = lowb;
+  }
+
+  /**
+   * Sets the upper bound of a column
+   * @param index Column index
+   * @param uppb New upper bound value
+   */
+  constexpr void set_col_uppb(ColIndex index, double uppb)
+  {
+    cols.at(index).uppb = uppb;
   }
 
   /**

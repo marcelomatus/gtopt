@@ -94,10 +94,10 @@ TEST_CASE("ScenarioUid and ScenarioIndex strong types")
 {
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
-  const ScenarioUid suid {7};
+  const ScenarioUid suid = make_uid<Scenario>(7);
   const ScenarioIndex sidx {4};
 
-  CHECK(suid == ScenarioUid {7});
+  CHECK(suid == make_uid<Scenario>(7));
   CHECK(sidx == ScenarioIndex {4});
 }
 

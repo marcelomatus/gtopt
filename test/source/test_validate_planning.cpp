@@ -1,4 +1,8 @@
 // SPDX-License-Identifier: BSD-3-Clause
+#include <algorithm>
+#include <ranges>
+#include <string>
+
 #include <doctest/doctest.h>
 #include <gtopt/validate_planning.hpp>
 
@@ -625,6 +629,147 @@ TEST_CASE(  // NOLINT
   auto result = validate_planning(p);
   CHECK_FALSE(result.ok());
   CHECK(result.errors.size() >= 1);
+}
+
+// ── Positivity checks ────────────────────────────────────────────────
+
+TEST_CASE("validate_planning - negative FlowRight fmax is an error")  // NOLINT
+{
+  auto p = make_minimal_planning();
+  p.system.junction_array = {{.uid = Uid {1}, .name = "j1"}};
+  p.system.flow_right_array = {
+      {
+          .uid = Uid {1},
+          .name = "fr_bad",
+          .junction = Uid {1},
+          .fmax = Real {-5.0},
+      },
+  };
+  auto result = validate_planning(p);
+  CHECK_FALSE(result.ok());
+  const bool found = std::ranges::any_of(
+      result.errors,
+      [](const auto& e) { return e.find("fmax") != std::string::npos; });
+  CHECK(found);
+}
+
+TEST_CASE(
+    "validate_planning - negative VolumeRight emax is an error")  // NOLINT
+{
+  auto p = make_minimal_planning();
+  p.system.volume_right_array = {
+      {
+          .uid = Uid {1},
+          .name = "vr_bad",
+          .emax = Real {-100.0},
+      },
+  };
+  auto result = validate_planning(p);
+  CHECK_FALSE(result.ok());
+  const bool found = std::ranges::any_of(
+      result.errors,
+      [](const auto& e) { return e.find("emax") != std::string::npos; });
+  CHECK(found);
+}
+
+TEST_CASE(
+    "validate_planning - negative VolumeRight eini is an error")  // NOLINT
+{
+  auto p = make_minimal_planning();
+  p.system.volume_right_array = {
+      {
+          .uid = Uid {1},
+          .name = "vr_bad",
+          .eini = Real {-1.0},
+      },
+  };
+  auto result = validate_planning(p);
+  CHECK_FALSE(result.ok());
+  const bool found = std::ranges::any_of(
+      result.errors,
+      [](const auto& e) { return e.find("eini") != std::string::npos; });
+  CHECK(found);
+}
+
+TEST_CASE("validate_planning - negative Line tmax_ab is an error")  // NOLINT
+{
+  auto p = make_minimal_planning();
+  p.system.bus_array = {
+      {.uid = Uid {1}, .name = "b1"},
+      {.uid = Uid {2}, .name = "b2"},
+  };
+  p.system.line_array = {
+      {
+          .uid = Uid {1},
+          .name = "l_bad",
+          .bus_a = Uid {1},
+          .bus_b = Uid {2},
+          .tmax_ba = Real {100.0},
+          .tmax_ab = Real {-50.0},
+      },
+  };
+  auto result = validate_planning(p);
+  CHECK_FALSE(result.ok());
+  const bool found = std::ranges::any_of(
+      result.errors,
+      [](const auto& e) { return e.find("tmax_ab") != std::string::npos; });
+  CHECK(found);
+}
+
+TEST_CASE(
+    "validate_planning - Waterway fmax must be strictly positive")  // NOLINT
+{
+  auto p = make_minimal_planning();
+  p.system.junction_array = {
+      {.uid = Uid {1}, .name = "jA"},
+      {.uid = Uid {2}, .name = "jB", .drain = true},
+  };
+  p.system.waterway_array = {
+      {
+          .uid = Uid {1},
+          .name = "ww_zero",
+          .junction_a = Uid {1},
+          .junction_b = Uid {2},
+          .fmin = Real {0.0},
+          .fmax = Real {0.0},  // zero is rejected (strict positivity)
+      },
+  };
+  auto result = validate_planning(p);
+  CHECK_FALSE(result.ok());
+  const bool found = std::ranges::any_of(
+      result.errors,
+      [](const auto& e) { return e.find("fmax") != std::string::npos; });
+  CHECK(found);
+}
+
+TEST_CASE(
+    "validate_planning - positivity accepts valid hydro fields")  // NOLINT
+{
+  auto p = make_minimal_planning();
+  p.system.junction_array = {
+      {.uid = Uid {1}, .name = "jA"},
+      {.uid = Uid {2}, .name = "jB", .drain = true},
+  };
+  p.system.waterway_array = {
+      {
+          .uid = Uid {1},
+          .name = "ww_ok",
+          .junction_a = Uid {1},
+          .junction_b = Uid {2},
+          .fmin = Real {0.0},
+          .fmax = Real {100.0},
+      },
+  };
+  p.system.volume_right_array = {
+      {
+          .uid = Uid {1},
+          .name = "vr_ok",
+          .emax = Real {500.0},
+          .eini = Real {0.0},
+      },
+  };
+  auto result = validate_planning(p);
+  CHECK(result.ok());
 }
 
 }  // namespace

@@ -33,7 +33,10 @@
 #include <gtopt/simulation_lp.hpp>
 #include <gtopt/system_lp.hpp>
 
+#include "fixture_helpers.hpp"
+
 using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using gtopt::test_fixtures::make_uniform_blocks;
 
 // ─── 1. Aperture struct ─────────────────────────────────────────────────────
 
@@ -335,14 +338,14 @@ TEST_CASE("FlowLP update_aperture updates bounds correctly")  // NOLINT
   REQUIRE(result.has_value());
 
   // Get scenario and stage references from simulation
-  const auto& scene = sim_lp.scenes()[SceneIndex {0}];
+  const auto& scene = sim_lp.scenes()[first_scene_index()];
   const auto& scenarios = scene.scenarios();
   REQUIRE(scenarios.size() == 2);
 
   const auto& base_scenario = scenarios[0];  // scenario uid=1
   const auto& aperture_scenario = scenarios[1];  // scenario uid=2
 
-  const auto& phase = sim_lp.phases()[PhaseIndex {0}];
+  const auto& phase = sim_lp.phases()[first_phase_index()];
   const auto& stages = phase.stages();
   REQUIRE_FALSE(stages.empty());
   const auto& stage = stages[0];
@@ -700,7 +703,7 @@ TEST_CASE(
   auto result = li.resolve();
   REQUIRE(result.has_value());
 
-  const auto& scene = sim_lp.scenes()[SceneIndex {0}];
+  const auto& scene = sim_lp.scenes()[first_scene_index()];
   const auto& scenarios = scene.scenarios();
   REQUIRE(scenarios.size() == 3);
 
@@ -708,7 +711,7 @@ TEST_CASE(
   const auto& normal_scenario = scenarios[1];  // scenario 2 (normal, 20)
   const auto& wet_scenario = scenarios[2];  // scenario 3 (wet, 50)
 
-  const auto& phase = sim_lp.phases()[PhaseIndex {0}];
+  const auto& phase = sim_lp.phases()[first_phase_index()];
   const auto& stage = phase.stages()[0];
   const auto& flow_lp = sys_lp.elements<FlowLP>()[0];
   const auto& fcols = flow_lp.flow_cols_at(base_scenario, stage);
@@ -973,10 +976,10 @@ TEST_CASE("FlowLP update_aperture with inactive flow")  // NOLINT
   auto result = li.resolve();
   REQUIRE(result.has_value());
 
-  const auto& scene = sim_lp.scenes()[SceneIndex {0}];
+  const auto& scene = sim_lp.scenes()[first_scene_index()];
   const auto& scenarios = scene.scenarios();
   const auto& base_scenario = scenarios[0];
-  const auto& phase = sim_lp.phases()[PhaseIndex {0}];
+  const auto& phase = sim_lp.phases()[first_phase_index()];
   const auto& stage = phase.stages()[0];
 
   const auto& flow_lp = sys_lp.elements<FlowLP>()[0];
@@ -1111,7 +1114,7 @@ TEST_CASE("FlowLP update_aperture with non-matching scenario key")  // NOLINT
   auto result = li.resolve();
   REQUIRE(result.has_value());
 
-  const auto& phase = sim_lp.phases()[PhaseIndex {0}];
+  const auto& phase = sim_lp.phases()[first_phase_index()];
   const auto& stage = phase.stages()[0];
 
   // Create a scenario with a different UID that won't match the flow_cols key
@@ -1119,14 +1122,14 @@ TEST_CASE("FlowLP update_aperture with non-matching scenario key")  // NOLINT
       Scenario {
           .uid = Uid {999},
       },
-      ScenarioIndex {0},
-      SceneIndex {0});
+      first_scenario_index(),
+      first_scene_index());
   const ScenarioLP fake_aperture(
       Scenario {
           .uid = Uid {888},
       },
       ScenarioIndex {1},
-      SceneIndex {0});
+      first_scene_index());
 
   const auto& flow_lp = sys_lp.elements<FlowLP>()[0];
 
@@ -1326,14 +1329,14 @@ TEST_CASE("FlowLP aperture bound update affects LP objective value")  // NOLINT
   const double base_obj = li.get_obj_value();
 
   // Access scenarios and stages
-  const auto& scene = sim_lp.scenes()[SceneIndex {0}];
+  const auto& scene = sim_lp.scenes()[first_scene_index()];
   const auto& scenarios = scene.scenarios();
   REQUIRE(scenarios.size() == 2);
 
   const auto& base_scenario = scenarios[0];  // low inflow
   const auto& high_inflow_scenario = scenarios[1];  // high inflow
 
-  const auto& phase = sim_lp.phases()[PhaseIndex {0}];
+  const auto& phase = sim_lp.phases()[first_phase_index()];
   const auto& stage = phase.stages()[0];
   const auto& flow_lp = sys_lp.elements<FlowLP>()[0];
 
@@ -1367,14 +1370,8 @@ auto make_2phase_aperture_planning() -> Planning
   constexpr int blocks_per_phase = 4;
   constexpr int total_blocks = 2 * blocks_per_phase;
 
-  Array<Block> block_array;
-  block_array.reserve(total_blocks);
-  for (int i = 0; i < total_blocks; ++i) {
-    block_array.push_back(Block {
-        .uid = Uid {i + 1},
-        .duration = 1.0,
-    });
-  }
+  auto block_array =
+      make_uniform_blocks(static_cast<std::size_t>(total_blocks), 1.0);
 
   Array<Stage> stage_array = {
       Stage {
@@ -1830,7 +1827,7 @@ TEST_CASE("Aperture clone LP feasibility diagnostics")  // NOLINT
   auto result = li.resolve();
   REQUIRE(result.has_value());
 
-  const auto& scene = sim_lp.scenes()[SceneIndex {0}];
+  const auto& scene = sim_lp.scenes()[first_scene_index()];
   const auto& scenarios = scene.scenarios();
   REQUIRE(scenarios.size() == 3);
 
@@ -1838,7 +1835,7 @@ TEST_CASE("Aperture clone LP feasibility diagnostics")  // NOLINT
   const auto& normal = scenarios[1];  // normal (50)
   const auto& wet = scenarios[2];  // wet (150)
 
-  const auto& phase = sim_lp.phases()[PhaseIndex {0}];
+  const auto& phase = sim_lp.phases()[first_phase_index()];
   const auto& stage = phase.stages()[0];
   const auto& flow_lp = sys_lp.elements<FlowLP>()[0];
 

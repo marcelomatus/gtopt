@@ -13,11 +13,14 @@
 #pragma once
 
 #include <daw/json/daw_json_link.h>
+#include <gtopt/enum_option.hpp>
 #include <gtopt/json/json_single_id.hpp>
 #include <gtopt/right_bound_rule.hpp>
 
 namespace daw::json
 {
+using gtopt::BoundRuleAxis;
+using gtopt::OptName;
 using gtopt::RightBoundRule;
 using gtopt::RightBoundSegment;
 
@@ -40,13 +43,19 @@ struct RightBoundRuleConstructor
   RightBoundRule operator()(const OptSingleId& reservoir,
                             std::vector<RightBoundSegment> segments,
                             OptReal cap,
-                            OptReal floor) const
+                            OptReal floor,
+                            const OptName& axis_str) const
   {
+    auto axis = BoundRuleAxis::reservoir_volume;
+    if (axis_str.has_value() && !axis_str->empty()) {
+      axis = gtopt::require_enum<BoundRuleAxis>("axis", *axis_str);
+    }
     return RightBoundRule {
         .reservoir = reservoir.value_or(gtopt::SingleId {gtopt::unknown_uid}),
         .segments = std::move(segments),
         .cap = cap,
         .floor = floor,
+        .axis = axis,
     };
   }
 };
@@ -62,12 +71,16 @@ struct json_data_contract<RightBoundRule>
                       std::vector<RightBoundSegment>,
                       RightBoundSegment>,
       json_number_null<"cap", OptReal>,
-      json_number_null<"floor", OptReal>>;
+      json_number_null<"floor", OptReal>,
+      json_string_null<"axis", OptName>>;
 
-  static constexpr auto to_json_data(RightBoundRule const& rule)
+  static auto to_json_data(RightBoundRule const& rule)
   {
-    return std::make_tuple(
-        OptSingleId {rule.reservoir}, rule.segments, rule.cap, rule.floor);
+    return std::make_tuple(OptSingleId {rule.reservoir},
+                           rule.segments,
+                           rule.cap,
+                           rule.floor,
+                           OptName {std::string {gtopt::enum_name(rule.axis)}});
   }
 };
 

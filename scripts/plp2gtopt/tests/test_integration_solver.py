@@ -752,3 +752,108 @@ def test_min_2bus_gtopt_solve(tmp_path, gtopt_bin):
             assert total_fail == pytest.approx(0.0, abs=0.1), (
                 f"Unexpected load shedding: {col}={total_fail}"
             )
+
+
+# ---------------------------------------------------------------------------
+# Cascade: plp_hydro_4b PLP → gtopt cascade pipeline integration tests
+# ---------------------------------------------------------------------------
+
+
+def _make_opts_hydro_4b_cascade(
+    tmp_path: Path, case_name: str = "gtopt_hydro_4b_cascade"
+) -> dict:
+    """Build conversion options for cascade solve of plp_hydro_4b."""
+    out_dir = tmp_path / case_name
+    out_dir.mkdir(parents=True, exist_ok=True)
+    return {
+        "input_dir": _PLPHydro4b,
+        "output_dir": out_dir,
+        "output_file": out_dir / f"{case_name}.json",
+        "hydrologies": "1,2,3",
+        "solver_type": "cascade",
+        "num_apertures": "3",
+        "last_stage": -1,
+        "last_time": -1,
+        "compression": "zstd",
+        "probability_factors": None,
+        "discount_rate": 0.0,
+        "management_factor": 0.0,
+        "pasada_mode": "flow-turbine",
+        "pasada_hydro": True,
+        "max_iterations": 60,
+        "model_options": {"use_kirchhoff": False},
+    }
+
+
+@pytest.mark.integration
+def test_hydro_4b_cascade_conversion(tmp_path):
+    """plp_hydro_4b cascade: JSON has method=cascade and 3-level cascade_options."""
+    opts = _make_opts_hydro_4b_cascade(tmp_path)
+    convert_plp_case(opts)
+
+    data = json.loads(Path(opts["output_file"]).read_text(encoding="utf-8"))
+    options = data["options"]
+
+    # Method must be cascade
+    assert options["method"] == "cascade"
+
+    # cascade_options must be present with 3 levels
+    cascade = options["cascade_options"]
+    assert "level_array" in cascade
+    levels = cascade["level_array"]
+    assert len(levels) == 3
+
+    # Level 0: uninodal
+    assert levels[0]["name"] == "uninodal"
+    assert levels[0]["model_options"]["use_single_bus"] is True
+
+    # Level 1: transport (no kirchhoff, no losses)
+    assert levels[1]["name"] == "transport"
+    assert levels[1]["model_options"]["use_single_bus"] is False
+    assert levels[1]["model_options"]["use_kirchhoff"] is False
+    assert levels[1]["model_options"]["use_line_losses"] is False
+
+    # Level 2: full network
+    assert levels[2]["name"] == "full_network"
+
+    # Iteration budget split: 30 + 15 + 15 = 60
+    assert levels[0]["sddp_options"]["max_iterations"] == 30
+    assert levels[1]["sddp_options"]["max_iterations"] == 15
+    assert levels[2]["sddp_options"]["max_iterations"] == 15
+
+    # Transitions on levels 1 and 2 inherit targets
+    assert levels[1]["transition"]["inherit_targets"] == -1
+    assert levels[2]["transition"]["inherit_targets"] == -1
+
+    # SDDP structure: 3 scenarios → 3 scenes, 3 stages → 3 phases
+    sim = data["simulation"]
+    assert len(sim["scenario_array"]) == 3
+    assert len(sim["scene_array"]) == 3
+    assert len(sim["stage_array"]) == 3
+    assert len(sim["phase_array"]) == 3
+
+
+@pytest.mark.integration
+def test_hydro_4b_cascade_gtopt_solve(tmp_path, gtopt_bin):
+    """plp_hydro_4b: convert to cascade, run gtopt, verify it runs."""
+    opts = _make_opts_hydro_4b_cascade(tmp_path, "gtopt_hydro_4b_cascade_solve")
+    convert_plp_case(opts)
+
+    json_file = Path(opts["output_file"])
+    case_dir = json_file.parent
+
+    rc, stderr = _run_gtopt(gtopt_bin, case_dir, json_file.stem, timeout=180)
+    assert rc == 0, f"gtopt cascade failed with rc={rc}: {stderr}"
+
+    # Check solution exists and has valid status
+    results_dir = case_dir / "results"
+    sol = _read_solution_csv(results_dir)
+    # status 0=optimal, 3=iteration_limit — both acceptable for cascade
+    assert sol.get("status") in (0, 3), (
+        f"Solver status={sol.get('status')} (expected 0 or 3)"
+    )
+
+    # Output directories must be populated
+    assert (results_dir / "Generator").exists(), "No Generator output dir"
+    assert (results_dir / "Demand").exists(), "No Demand output dir"
+    assert (results_dir / "solution.csv").exists(), "No solution.csv"

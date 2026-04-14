@@ -21,6 +21,8 @@
 #include <unordered_map>
 
 #include <gtopt/linear_problem.hpp>
+#include <gtopt/map_reserve.hpp>
+#include <gtopt/utils.hpp>
 #include <spdlog/spdlog.h>
 
 namespace gtopt
@@ -336,14 +338,14 @@ auto LinearProblem::flatten(const LpMatrixOptions& opts) -> FlatLinearProblem
   // physical_value = LP_value × col_scale, so LP_coeff = phys_coeff ×
   // col_scale.
   std::vector<double> col_scales(ncols, 1.0);
-  for (const auto& [i, col] : std::views::enumerate(cols)) {
+  for (const auto& [i, col] : enumerate(cols)) {
     col_scales[i] = col.scale;
   }
 
   std::vector<double> rowlb(nrows);
   std::vector<double> rowub(nrows);
 
-  for (const auto& [i, row] : std::views::enumerate(rows)) {
+  for (const auto& [i, row] : enumerate(rows)) {
     const auto rs = row.scale;
     const auto inv_rs = (rs != 1.0) ? 1.0 / rs : 1.0;
     rowlb[i] = (rs != 1.0 && row.lowb > -m_infinity_ && row.lowb < m_infinity_)
@@ -399,7 +401,7 @@ auto LinearProblem::flatten(const LpMatrixOptions& opts) -> FlatLinearProblem
   std::vector<fp_index_t> colint;
   colint.reserve(colints);
 
-  for (const auto& [i, col] : std::views::enumerate(cols)) {
+  for (const auto& [i, col] : enumerate(cols)) {
     // SparseCol bounds are physical; convert to LP units by dividing
     // by the column scale factor.  Infinite bounds are preserved as-is
     // (IEEE 754 guarantees inf / finite = inf, but we skip the division
@@ -425,17 +427,23 @@ auto LinearProblem::flatten(const LpMatrixOptions& opts) -> FlatLinearProblem
   // continue generating labels for rows/cols added after load_flat().
   //
   // Fallback: if the caller did not explicitly install a LabelMaker via
-  // set_label_maker() (leaving it at LpNamesLevel::none), build an
-  // effective one from LpMatrixOptions::lp_names_level.
+  // set_label_maker() (leaving it at LpNamesLevel::none), derive an
+  // effective one from the naming bools in LpMatrixOptions.
   //
   // Gating: flatten() populates colnm / rownm whenever the caller asks
   // for them via `col_with_names` / `row_with_names`.  Per-entry label
   // content is decided by LabelMaker, so an entry may be an empty
   // string when the level disables it — callers never need to gate.
-  const LabelMaker effective_lm =
-      (m_label_maker_.names_level() == LpNamesLevel::none)
-      ? LabelMaker {opts.lp_names_level}
-      : m_label_maker_;
+  const LabelMaker effective_lm = [&]
+  {
+    if (m_label_maker_.names_level() != LpNamesLevel::none) {
+      return m_label_maker_;
+    }
+    const auto lvl = (opts.row_with_name_map || opts.col_with_names)
+        ? LpNamesLevel::all
+        : LpNamesLevel::none;
+    return LabelMaker {lvl};
+  }();
 
   using fp_name_vec_t = FlatLinearProblem::name_vec_t;
 
@@ -463,7 +471,7 @@ auto LinearProblem::flatten(const LpMatrixOptions& opts) -> FlatLinearProblem
     fp_index_map_t map;
     map.reserve(names.size());
 
-    for (const auto& [i, name] : std::views::enumerate(names)) {
+    for (const auto& [i, name] : enumerate(names)) {
       if (name.empty()) [[unlikely]] {
         continue;  // skip empty names to avoid false-positive duplicates
       }
@@ -551,9 +559,9 @@ auto LinearProblem::flatten(const LpMatrixOptions& opts) -> FlatLinearProblem
       if (row_scales_vec.empty()) {
         row_scales_vec.resize(nrows, 1.0);
       }
-      for (const auto& [i, row] : std::views::enumerate(rows)) {
+      for (const auto& [i, row] : enumerate(rows)) {
         if (row.scale != 1.0) {
-          row_scales_vec[static_cast<size_t>(i)] *= row.scale;
+          row_scales_vec[i] *= row.scale;
         }
       }
     }
@@ -634,6 +642,7 @@ auto LinearProblem::flatten(const LpMatrixOptions& opts) -> FlatLinearProblem
       double min_abs {std::numeric_limits<double>::max()};
     };
     std::unordered_map<std::string_view, TypeAccum> type_map;
+    map_reserve(type_map, 32);
 
     for (size_t r = 0; r < nrows; ++r) {
       const auto type = extract_row_type(rownm[r]);

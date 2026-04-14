@@ -162,7 +162,7 @@ int main(int argc, char** argv)
 
       spdlog::cfg::load_argv_levels(argc, argv);
 
-      spdlog::info(std::format("starting gtopt {}", GTOPT_VERSION));
+      spdlog::info("starting gtopt {}", GTOPT_VERSION);
     }
 
     //

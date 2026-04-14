@@ -25,6 +25,7 @@
 #include <gtopt/sddp_aperture.hpp>
 #include <gtopt/sddp_method.hpp>
 #include <gtopt/system_lp.hpp>
+#include <gtopt/utils.hpp>
 
 #ifndef SPDLOG_ACTIVE_LEVEL
 #  define SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_TRACE
@@ -95,8 +96,8 @@ auto build_synthetic_apertures(std::span<const ScenarioLP> all_scenarios,
   Array<Aperture> synthetic;
   synthetic.reserve(n);
   const double prob = 1.0 / static_cast<double>(n);
-  for (std::size_t i = 0; i < n; ++i) {
-    const auto scen_uid = Uid {all_scenarios[ScenarioIndex {i}].uid()};
+  for (const auto sidx : iota_range<ScenarioIndex>(0, n)) {
+    const auto scen_uid = Uid {all_scenarios[sidx].uid()};
     synthetic.push_back(Aperture {
         .uid = scen_uid,
         .source_scenario = scen_uid,
@@ -182,7 +183,7 @@ auto solve_apertures_for_phase(
 
   for (const auto& [ap_ref, ap_count] : effective_apertures) {
     const auto& aperture = ap_ref.get();
-    const ApertureUid ap_uid {aperture.uid};
+    const ApertureUid ap_uid = make_uid<Scenario>(aperture.uid);
     const double pf = aperture.probability_factor.value_or(1.0);
     if (pf <= 0.0) {
       SPDLOG_WARN(
@@ -261,7 +262,8 @@ auto solve_apertures_for_phase(
                                    BlockUid bl) -> std::optional<double>
                     { return e.aperture_value(ap_scen.uid(), st, bl); };
                   } else {
-                    const ScenarioUid ap_uid_val {aperture.source_scenario};
+                    const ScenarioUid ap_uid_val =
+                        make_uid<Scenario>(aperture.source_scenario);
                     value_fn = [&e, &aperture_cache, ap_uid_val](
                                    StageUid st,
                                    BlockUid bl) -> std::optional<double>

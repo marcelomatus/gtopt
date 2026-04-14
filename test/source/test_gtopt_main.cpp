@@ -7,7 +7,7 @@
  *
  * Covers source/gtopt_main.cpp:
  *   - error path when a planning file does not exist
- *   - fast-parsing path
+ *   - check-json path
  *   - lp_only=true (build all LPs but skip solve)
  *   - json_file output
  *   - stats=true (pre- and post-solve statistics)
@@ -89,13 +89,13 @@ TEST_CASE("gtopt_main - lp_only=true completes successfully")
   CHECK(*result == 0);
 }
 
-TEST_CASE("gtopt_main - fast_parsing path, lp_only=true")
+TEST_CASE("gtopt_main - check_json path, lp_only=true")
 {
-  const auto stem = write_tmp_json("gtopt_main_fast_parse", minimal_json);
+  const auto stem = write_tmp_json("gtopt_main_check_json", minimal_json);
   auto result = gtopt_main(MainOptions {
       .planning_files = {stem.string()},
       .lp_only = true,
-      .fast_parsing = true,
+      .check_json = true,
   });
   REQUIRE(result.has_value());
   CHECK(*result == 0);
@@ -448,7 +448,7 @@ TEST_CASE("gtopt_main - lp_algorithm primal solves correctly")  // NOLINT
       .planning_files = {stem.string()},
       .output_directory = out_dir,
       .use_single_bus = true,
-      .algorithm = std::to_underlying(LPAlgo::primal),
+      .algorithm = LPAlgo::primal,
   });
   REQUIRE(result.has_value());
   CHECK(*result == 0);
@@ -466,7 +466,7 @@ TEST_CASE("gtopt_main - lp_algorithm dual solves correctly")  // NOLINT
       .planning_files = {stem.string()},
       .output_directory = out_dir,
       .use_single_bus = true,
-      .algorithm = std::to_underlying(LPAlgo::dual),
+      .algorithm = LPAlgo::dual,
   });
   REQUIRE(result.has_value());
   CHECK(*result == 0);
@@ -567,7 +567,6 @@ TEST_CASE("gtopt_main - lp_debug writes LP files to log directory")  // NOLINT
   auto result = gtopt_main(MainOptions {
       .planning_files = {stem.string()},
       .use_single_bus = true,
-      .lp_names_level = LpNamesLevel::only_cols,
       .lp_debug = true,
       .lp_compression = "none",
       .log_directory = log_dir.string(),
@@ -841,14 +840,13 @@ TEST_CASE("gtopt_main - empty planning_files returns error")  // NOLINT
   (void)result;
 }
 
-TEST_CASE("gtopt_main - names_level=cols_and_rows with stats")  // NOLINT
+TEST_CASE("gtopt_main - lp_debug with stats")  // NOLINT
 {
-  // Exercise names_level=cols_and_rows (names + map) with stats to cover the
-  // make_lp_matrix_options paths for higher naming levels.
+  // Exercise lp_debug (all names + map) with stats to cover the
+  // make_lp_matrix_options paths.
   const auto stem = write_tmp_json("gtopt_main_lp_names2", minimal_json);
   auto result = gtopt_main(MainOptions {
       .planning_files = {stem.string()},
-      .lp_names_level = LpNamesLevel::cols_and_rows,
       .lp_only = true,
       .print_stats = true,
   });
@@ -869,7 +867,6 @@ TEST_CASE(
   auto result = gtopt_main(MainOptions {
       .planning_files = {stem.string()},
       .use_single_bus = true,
-      .lp_names_level = LpNamesLevel::only_cols,
       .lp_debug = true,
       .lp_compression = "gzip",
       .log_directory = log_dir.string(),
@@ -954,6 +951,79 @@ TEST_CASE(  // NOLINT
   CHECK(*result == 0);
 
   std::filesystem::remove(uc_path);
+}
+
+TEST_CASE(  // NOLINT
+    "gtopt_main - user_constraint_files (plural) loads multiple files")
+{
+  // Verifies B2: separate PAMPL files (e.g. laja.pampl + maule.pampl) load
+  // independently via the plural `user_constraint_files` field.  Each file
+  // contributes its own constraints and uids do not collide.
+  const auto uc_path_1 =
+      std::filesystem::temp_directory_path() / "gtopt_main_uc_plural_1.json";
+  const auto uc_path_2 =
+      std::filesystem::temp_directory_path() / "gtopt_main_uc_plural_2.json";
+  {
+    std::ofstream f1(uc_path_1);
+    f1 << R"([
+      {
+        "uid": 100,
+        "name": "uc_file1",
+        "expression": "generator('g1').generation <= 180"
+      }
+    ])";
+  }
+  {
+    std::ofstream f2(uc_path_2);
+    f2 << R"([
+      {
+        "uid": 200,
+        "name": "uc_file2",
+        "expression": "generator('g1').generation >= 10"
+      }
+    ])";
+  }
+
+  const auto planning_json = std::format(R"({{
+    "options": {{
+      "demand_fail_cost": 1000,
+      "output_compression": "uncompressed"
+    }},
+    "simulation": {{
+      "block_array":    [{{"uid": 1, "duration": 1}}],
+      "stage_array":    [{{"uid": 1, "first_block": 0, "count_block": 1}}],
+      "scenario_array": [{{"uid": 1}}]
+    }},
+    "system": {{
+      "name": "uc_files_test",
+      "user_constraint_files": ["{}", "{}"],
+      "bus_array": [{{"uid": 1, "name": "b1"}}],
+      "generator_array": [
+        {{"uid": 1, "name": "g1", "bus": 1, "gcost": 10.0, "capacity": 200.0}}
+      ],
+      "demand_array": [
+        {{"uid": 1, "name": "d1", "bus": 1, "capacity": 50.0}}
+      ]
+    }}
+  }})",
+                                         uc_path_1.string(),
+                                         uc_path_2.string());
+
+  const auto stem =
+      write_tmp_json("gtopt_main_uc_files", std::string_view(planning_json));
+  const auto out_dir =
+      (std::filesystem::temp_directory_path() / "gtopt_main_uc_files_out")
+          .string();
+  auto result = gtopt_main(MainOptions {
+      .planning_files = {stem.string()},
+      .output_directory = out_dir,
+      .use_single_bus = true,
+  });
+  REQUIRE(result.has_value());
+  CHECK(*result == 0);
+
+  std::filesystem::remove(uc_path_1);
+  std::filesystem::remove(uc_path_2);
 }
 
 TEST_CASE("gtopt_main - demand_fail_cost=0 triggers warning")  // NOLINT

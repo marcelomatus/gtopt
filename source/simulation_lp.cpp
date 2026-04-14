@@ -28,7 +28,7 @@ namespace
 {
 auto create_block_array(const Simulation& simulation)
 {
-  auto index = BlockIndex {0};
+  auto index = first_block_index();
 
   return std::ranges::to<std::vector>(
       simulation.stage_array | std::views::filter(&Stage::is_active)
@@ -158,7 +158,41 @@ SimulationLP::SimulationLP(const Simulation& simulation,
                 return StrongIndexVector<PhaseIndex, state_variable_map_t>(
                     m_phase_array_.size());
               })))
+    , m_ampl_lp_cells_(std::ranges::to<ampl_lp_registry_t>(
+          iota_range<Size>(0, m_scene_array_.size())
+          | std::views::transform(
+              [&](const auto&)
+              {
+                return StrongIndexVector<PhaseIndex, AmplLpCell>(
+                    m_phase_array_.size());
+              })))
 {
+  // Populate the (scenario_uid → scene_index) lookup by iterating each
+  // scene's scenario list.  Scenes partition scenarios by construction
+  // (see Simulation/Scene.first_scenario / count_scenario), so every
+  // active scenario belongs to exactly one scene.
+  map_reserve(m_scene_of_scenario_, m_scenario_array_.size());
+  for (const auto& scene : m_scene_array_) {
+    for (const auto& scenario : scene.scenarios()) {
+      if (scenario.is_active()) {
+        m_scene_of_scenario_.insert_or_assign(scenario.uid(), scene.index());
+      }
+    }
+  }
+
+  // Populate the (stage_uid → phase_index) lookup by iterating each
+  // phase's stage list.  Note that the flat `m_stage_array_` is built
+  // by `create_stage_array` *without* a phase index (it defaults to
+  // unknown), so the authoritative `phase_index()` lives on the per-
+  // phase StageLP copies inside `m_phase_array_`.
+  map_reserve(m_phase_of_stage_, m_stage_array_.size());
+  for (const auto& phase : m_phase_array_) {
+    for (const auto& stage : phase.stages()) {
+      if (stage.is_active()) {
+        m_phase_of_stage_.insert_or_assign(stage.uid(), phase.index());
+      }
+    }
+  }
 }
 
 }  // namespace gtopt

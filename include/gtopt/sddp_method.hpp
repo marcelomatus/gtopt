@@ -229,7 +229,7 @@ public:
   /// Legacy accessor for scene 0 (backward compatibility)
   [[nodiscard]] constexpr auto& phase_states() const noexcept
   {
-    return m_scene_phase_states_[SceneIndex {0}];
+    return m_scene_phase_states_[first_scene_index()];
   }
 
   /// Full scene-phase states (valid after ensure_initialized()).
@@ -474,7 +474,7 @@ private:
   /// Store a cut for sharing and persistence (thread-safe).
   /// Writes to both per-scene storage and shared storage.
   void store_cut(SceneIndex scene_index,
-                 PhaseIndex src_phase,
+                 PhaseIndex src_phase_index,
                  const SparseRow& cut,
                  CutType type = CutType::Optimality,
                  RowIndex row = RowIndex {-1});
@@ -495,11 +495,11 @@ private:
       const BasicTaskRequirements<SDDPTaskKey>& task_req = {})
       -> std::expected<int, Error>;
 
-  /// Iterative feasibility backpropagation: propagate from start_phase
+  /// Iterative feasibility backpropagation: propagate from start_phase_index
   /// backward to phase 0 using elastic filter and cuts.
   /// Returns the number of additional cuts added.
   [[nodiscard]] auto feasibility_backpropagate(SceneIndex scene_index,
-                                               PhaseIndex start_phase,
+                                               PhaseIndex start_phase_index,
                                                int total_cuts,
                                                const SolverOptions& opts,
                                                IterationIndex iteration_index)
@@ -574,7 +574,7 @@ private:
   /// Returns a ForwardPassOutcome or an error if ALL scenes failed.
   [[nodiscard]] auto run_forward_pass_all_scenes(SDDPWorkPool& pool,
                                                  const SolverOptions& opts,
-                                                 IterationIndex iter)
+                                                 IterationIndex iteration_index)
       -> std::expected<ForwardPassOutcome, Error>;
 
   /// Run the backward pass for all feasible scenes in parallel.
@@ -586,7 +586,7 @@ private:
       std::span<const uint8_t> scene_feasible,
       SDDPWorkPool& pool,
       const SolverOptions& opts,
-      IterationIndex iter) -> BackwardPassOutcome;
+      IterationIndex iteration_index) -> BackwardPassOutcome;
 
   /// Process a single backward-pass phase step (pi → pi-1) for one scene.
   /// Builds the optimality cut, stores it, adds it to the LP, re-solves,
@@ -626,7 +626,7 @@ private:
       std::span<const uint8_t> scene_feasible,
       SDDPWorkPool& pool,
       const SolverOptions& opts,
-      IterationIndex iter) -> BackwardPassOutcome;
+      IterationIndex iteration_index) -> BackwardPassOutcome;
 
   /// Asynchronous scene execution: when cut_sharing == none and
   /// max_async_spread > 0, scenes run their own forward/backward
@@ -651,7 +651,8 @@ private:
                                        IterationIndex iteration_index);
 
   /// Compute gap, update convergence flag, update live-query atomics, log.
-  void finalize_iteration_result(SDDPIterationResult& ir, IterationIndex iter);
+  void finalize_iteration_result(SDDPIterationResult& ir,
+                                 IterationIndex iteration_index);
 
   /// Write the monitoring API status file if API is enabled.
   void maybe_write_api_status(const std::string& status_file,
@@ -661,7 +662,7 @@ private:
 
   /// Save cuts (combined + per-scene) after an iteration, handling infeasible
   /// scene renaming.
-  void save_cuts_for_iteration(IterationIndex iter,
+  void save_cuts_for_iteration(IterationIndex iteration_index,
                                std::span<const uint8_t> scene_feasible);
 
   // Accessor for the wrapped PlanningLP reference (avoids raw reference member)

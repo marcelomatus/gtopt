@@ -92,7 +92,7 @@ struct SolverTestReport
  *  - set/get objective coefficients, column bounds, row bounds
  *  - get_coeff / set_coeff (skipped when !supports_set_coeff())
  *  - set_continuous / set_integer / is_continuous / is_integer
- *  - lp_names_level and name maps (row_name_map, col_name_map)
+ *  - LP names and name maps (row_name_map, col_name_map)
  *  - load_flat from FlatLinearProblem
  *  - initial_solve with all LPAlgo variants (default, primal, dual, barrier)
  *  - get_obj_value / get_col_sol / get_row_dual / get_col_cost

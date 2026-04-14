@@ -39,8 +39,7 @@ GeneratorLP::GeneratorLP(const Generator& generator, const InputContext& ic)
     , gcost(ic, ClassName, id(), std::move(object().gcost))
     , emission_factor(ic, ClassName, id(), std::move(object().emission_factor))
 {
-  SPDLOG_DEBUG(
-      fmt::format("GeneratorLP created for generator with uid {}", uid()));
+  SPDLOG_DEBUG("GeneratorLP created for generator with uid {}", uid());
 }
 
 /**
@@ -65,16 +64,12 @@ bool GeneratorLP::add_to_lp(SystemContext& sc,
                             const StageLP& stage,
                             LinearProblem& lp)
 {
-  static const auto ampl_name = std::string {ClassName.snake_case()};
+  static constexpr auto ampl_name = ClassName.snake_case();
 
   if (!CapacityBase::add_to_lp(sc, ampl_name, scenario, stage, lp)) [[unlikely]]
   {
     return false;
   }
-
-  // Register element name once per element so PAMPL `generator("G1")`
-  // expressions can resolve names to uids.
-  sc.register_ampl_element(ampl_name, id().second, uid());
 
   // Register filter metadata (F9) so `sum(generator(all : type="hydro")...)`
   // predicates can be evaluated at row-assembly time.
@@ -82,10 +77,13 @@ bool GeneratorLP::add_to_lp(SystemContext& sc,
     AmplElementMetadata metadata;
     metadata.reserve(2);
     if (const auto& t = generator().type) {
-      metadata.emplace_back("type", *t);
+      metadata.emplace_back(TypeKey, *t);
     }
-    metadata.emplace_back("bus",
-                          static_cast<double>(sc.get_bus(bus_sid()).uid()));
+    // Resolve via `sc.element<BusLP>` (handles both Uid and Name forms
+    // of the JSON-side `bus` SingleId variant — `std::get<Uid>` would
+    // throw if the JSON used a string name).
+    metadata.emplace_back(
+        BusKey, static_cast<double>(sc.element<BusLP>(bus_sid()).uid()));
     sc.register_ampl_element_metadata(ampl_name, uid(), std::move(metadata));
   }
 
@@ -121,14 +119,14 @@ bool GeneratorLP::add_to_lp(SystemContext& sc,
         sc.block_maxmin_at(stage, block, pmax, pmin, stage_capacity);
 
     SPDLOG_DEBUG(
-        fmt::format("GeneratorLP::add_to_lp: gen {} stage {} block {} pmin {} "
-                    "pmax {} capacity {}",
-                    guid,
-                    stage.uid(),
-                    block.uid(),
-                    block_pmin,
-                    block_pmax,
-                    stage_capacity));
+        "GeneratorLP::add_to_lp: gen {} stage {} block {} pmin {} "
+        "pmax {} capacity {}",
+        guid,
+        stage.uid(),
+        block.uid(),
+        block_pmin,
+        block_pmax,
+        stage_capacity);
 
     // Create generation variable for this time block
     const auto gcol = lp.add_col({

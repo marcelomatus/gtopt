@@ -251,3 +251,91 @@ def test_to_dataframe_no_scenarios(tmp_path):
         assert result == []
     else:
         assert result.empty
+
+
+def test_pasada_unscale_scales_timeseries_and_fill(tmp_path):
+    """Promoted pasada discharge is divided by real production_factor.
+
+    PLP stores pasada flow as ``physical_flow * real_production_factor``
+    with the placeholder ``efficiency=1.0``.  The ``pasada_unscale_map``
+    carries ``1.0 / real_production_factor`` — dividing the inflow by
+    the real factor recovers the physical m³/s consistent with the
+    ``vmax_hm3`` of the daily-cycle reservoir.
+
+    This test pins both (a) time-series values and (b) the ``afluent``
+    fill value so a regression would trip a clear assertion.
+    """
+    aflce_f = tmp_path / "plpaflce.dat"
+    aflce_f.write_text(
+        "# Nro. Cent. c/Caudales Estoc. (EstocNVar2) y Nro. Hidrologias (NClase)\n"
+        "  1                                         1\n"
+        "# Nombre de la central\n"
+        "'PASA'\n"
+        "2\n"
+        "   01   001   10.0\n"
+        "   01   002   20.0\n"
+    )
+    aflce_parser = AflceParser(aflce_f)
+    aflce_parser.parse()
+
+    # afluent > 0 so the fill_value path is exercised too.
+    central_parser = _make_central_parser(tmp_path, "PASA", number=7, afluent=30.0)
+    block_parser = _make_block_parser(tmp_path, 2)
+    scenarios = [{"uid": 1, "hydrology": 0}]
+
+    # real_production_factor = 0.5  →  unscale = 1 / 0.5 = 2.0
+    writer = AflceWriter(
+        aflce_parser,
+        central_parser=central_parser,
+        block_parser=block_parser,
+        scenarios=scenarios,
+        pasada_unscale_map={"PASA": 2.0},
+    )
+    df = writer.to_dataframe()
+    assert isinstance(df, pd.DataFrame)
+    assert not df.empty
+
+    # The discharge column is named via pcol_name("PASA", 7).  Grab the only
+    # non-meta column to avoid hard-coding the prefix format.
+    meta_cols = {"scenario", "stage", "block"}
+    data_cols = [c for c in df.columns if c not in meta_cols]
+    assert len(data_cols) == 1, f"expected 1 data column, got {data_cols}"
+    col = data_cols[0]
+
+    # Both time-series values are doubled (unscale=2.0).
+    values = df[col].tolist()
+    assert values == pytest.approx([20.0, 40.0])
+
+
+def test_pasada_unscale_absent_is_identity(tmp_path):
+    """Without an unscale entry the writer is a no-op (regression guard)."""
+    aflce_f = tmp_path / "plpaflce.dat"
+    aflce_f.write_text(
+        "  1                                         1\n"
+        "'SER'\n"
+        "2\n"
+        "   01   001   10.0\n"
+        "   01   002   20.0\n"
+    )
+    aflce_parser = AflceParser(aflce_f)
+    aflce_parser.parse()
+
+    central_parser = _make_central_parser(tmp_path, "SER", number=9, afluent=0.0)
+    block_parser = _make_block_parser(tmp_path, 2)
+    scenarios = [{"uid": 1, "hydrology": 0}]
+
+    writer = AflceWriter(
+        aflce_parser,
+        central_parser=central_parser,
+        block_parser=block_parser,
+        scenarios=scenarios,
+        # Empty map ≡ None.
+        pasada_unscale_map={},
+    )
+    df = writer.to_dataframe()
+
+    meta_cols = {"scenario", "stage", "block"}
+    data_cols = [c for c in df.columns if c not in meta_cols]
+    assert len(data_cols) == 1
+    values = df[data_cols[0]].tolist()
+    assert values == pytest.approx([10.0, 20.0])

@@ -10,7 +10,6 @@
  * handling elastic fallback for infeasible phases.
  */
 
-#include <chrono>
 #include <cmath>
 #include <filesystem>
 #include <format>
@@ -115,9 +114,9 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
     // Propagate state variables from previous phase.
     // Use the cached solution (not the live backend) so that the previous
     // phase's solver backend can be released for low-memory mode.
-    if (phase_index != PhaseIndex {0}) {
-      const auto prev = phase_index - PhaseIndex {1};
-      auto& prev_st = phase_states[prev];
+    if (phase_index) {
+      const auto prev_phase_index = previous(phase_index);
+      auto& prev_st = phase_states[prev_phase_index];
       const std::span<const double> prev_sol = prev_st.forward_col_sol;
 
       const auto coeff_mode = m_options_.cut_coeff_mode;
@@ -133,7 +132,7 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
                             scene_uid(scene_index),
                             phase_uid(phase_index)),
                    prev_st.outgoing_links.size(),
-                   phase_uid(prev),
+                   phase_uid(prev_phase_index),
                    enum_name(coeff_mode));
     }
 
@@ -195,6 +194,14 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
                                      phase_uid(phase_index)))
                           .string());
     }
+
+    // Tag the LP with the SDDP Forward key so fallback warnings emitted
+    // by LinearInterface::resolve() carry the same context as the
+    // surrounding SDDP info logs.
+    li.set_log_tag(sddp_log("Forward",
+                            iteration_index,
+                            scene_uid(scene_index),
+                            phase_uid(phase_index)));
 
     // Solve directly — already running in a pool thread.
     auto result = li.resolve(effective_opts);
@@ -293,7 +300,7 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
         //  - trace/debug logging is enabled (developer debugging).
         // During normal SDDP iteration, skip writing/diagnosing error LPs
         // to avoid I/O overhead.
-        const bool is_first_phase = (phase_index == PhaseIndex {0});
+        const bool is_first_phase = !phase_index;
         const bool is_trace_debug =
             (spdlog::get_level() <= spdlog::level::debug);
         if (!m_options_.log_directory.empty()

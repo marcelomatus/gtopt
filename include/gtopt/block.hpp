@@ -20,6 +20,7 @@
 #include <iterator>
 
 #include <gtopt/basic_types.hpp>
+#include <gtopt/uid.hpp>
 
 namespace gtopt
 {
@@ -45,8 +46,14 @@ struct Block
   static constexpr std::string_view class_name = "block";
 };
 
-using BlockUid = StrongUidType<struct Block>;
-using BlockIndex = StrongIndexType<Block>;
+using BlockUid = UidOf<Block>;
+using BlockIndex = StrongPositionIndexType<Block>;
+
+/// @brief First block index.
+[[nodiscard]] constexpr auto first_block_index() noexcept -> BlockIndex
+{
+  return BlockIndex {0};
+}
 
 }  // namespace gtopt
 

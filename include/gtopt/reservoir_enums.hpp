@@ -42,7 +42,7 @@ inline constexpr auto energy_scale_mode_entries =
         {.name = "auto", .value = EnergyScaleMode::auto_scale},
     });
 
-constexpr auto enum_entries(EnergyScaleMode /*tag*/) noexcept
+[[nodiscard]] constexpr auto enum_entries(EnergyScaleMode /*tag*/) noexcept
 {
   return std::span {energy_scale_mode_entries};
 }

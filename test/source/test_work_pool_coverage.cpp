@@ -403,8 +403,7 @@ TEST_CASE("WorkPoolConfig default values")  // NOLINT
 
   const WorkPoolConfig config;
 
-  CHECK(config.max_threads
-        == static_cast<int>(std::thread::hardware_concurrency()));
+  CHECK(config.max_threads == static_cast<int>(physical_concurrency()));
   CHECK(config.max_cpu_threshold == doctest::Approx(95.0));
   CHECK(config.scheduler_interval == std::chrono::milliseconds {50});
   CHECK(config.name == "WorkPool");

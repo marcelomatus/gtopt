@@ -29,8 +29,7 @@ void share_cuts_for_phase(
     PlanningLP& planning,
     LpContext context)
 {
-  const auto num_scenes =
-      static_cast<Index>(planning.simulation().scenes().size());
+  const auto num_scenes = planning.simulation().scene_count();
 
   if (num_scenes <= 1 || mode == CutSharingMode::none) {
     return;

@@ -34,6 +34,7 @@ from .minembh_parser import MinembhParser
 from .planos_parser import PlanosParser, find_planos_files
 from .plpmat_parser import PlpmatParser
 from .ralco_parser import RalcoParser
+from .gnl_parser import GnlParser
 from .laja_parser import LajaParser
 from .maule_parser import MauleParser
 from .compressed_open import find_compressed_path, resolve_compressed_path
@@ -123,6 +124,7 @@ class PLPParser:
             ("cenpmax_parser", CenpmaxParser, "plpcenpmax.dat"),
             ("maule_parser", MauleParser, "plpmaulen.dat"),
             ("laja_parser", LajaParser, "plplajam.dat"),
+            ("gnl_parser", GnlParser, "plpcnfgnl.dat"),
         ]
         for name, parser_class, filename in optional_parsers:
             filepath = _opt(filename)

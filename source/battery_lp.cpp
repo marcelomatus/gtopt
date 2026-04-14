@@ -46,7 +46,7 @@ bool BatteryLP::add_to_lp(SystemContext& sc,
                           LinearProblem& lp)
 {
   static constexpr std::string_view cname = ClassName.full_name();
-  static const auto ampl_name = std::string {ClassName.snake_case()};
+  static constexpr auto ampl_name = ClassName.snake_case();
   static constexpr double flow_conversion_rate = 1.0;
 
   // Add capacity-related variables and constraints
@@ -55,14 +55,12 @@ bool BatteryLP::add_to_lp(SystemContext& sc,
     return false;
   }
 
-  sc.register_ampl_element(ampl_name, id().second, uid());
-
   // F9: register filter metadata for sum(...) predicates.  Battery `bus`
   // is optional (standalone batteries are decomposed by
   // `System::expand_batteries()`), so we only register `type`.
   if (const auto& t = battery().type) {
     AmplElementMetadata metadata;
-    metadata.emplace_back("type", *t);
+    metadata.emplace_back(TypeKey, *t);
     sc.register_ampl_element_metadata(ampl_name, uid(), std::move(metadata));
   }
 

@@ -36,16 +36,31 @@ TEST_CASE("gtopt types 1")  // NOLINT
 
   const std::string s2 = "s2";
   REQUIRE(gtopt::as_label("s1", s2) == "s1_s2");
+
+  // char arguments are treated as single characters, not integers
+  REQUIRE(gtopt::as_label('x') == "x");
+  REQUIRE(gtopt::as_label<','>('o', 999, 1, "name") == "o,999,1,name");
+  REQUIRE(gtopt::as_label<'_'>('f', "tag") == "f_tag");
+
+  // doubles: full precision, whole numbers get ".0" suffix
+  REQUIRE(gtopt::as_label(1.0) == "1.0");
+  REQUIRE(gtopt::as_label(0.0) == "0.0");
+  REQUIRE(gtopt::as_label(-3.0) == "-3.0");
+  REQUIRE(gtopt::as_label(1.5) == "1.5");
+  REQUIRE(gtopt::as_label(3.14159265358979) == "3.14159265358979");
+  REQUIRE(gtopt::as_label<','>('o', 999, 1.0, "name") == "o,999,1.0,name");
 }
 
 template<typename IndexType = size_t, typename Range>
 inline auto my_enumerate(const Range& range)  // NOLINT
 {
-  return std::ranges::views::zip(
-      std::ranges::views::iota(0)
-          | std::ranges::views::transform(
-              [](size_t i) { return static_cast<IndexType>(i); }),
-      range);
+  return std::views::enumerate(range)
+      | std::views::transform(
+             [](auto&& pair)
+             {
+               return std::pair {static_cast<IndexType>(std::get<0>(pair)),
+                                 std::get<1>(pair)};
+             });
 }
 
 TEST_CASE("gtopt types 2")  // NOLINT
@@ -61,11 +76,7 @@ TEST_CASE("gtopt types 2")  // NOLINT
     ++i;
   }
 
-  auto rng2 = std::ranges::views::zip(
-      std::ranges::views::iota(0)
-          | std::ranges::views::transform([](size_t i) { return i; }),
-      vec1);
-  for (auto&& [i, v1] : rng2) {
+  for (auto&& [i, v1] : std::views::enumerate(vec1)) {
     REQUIRE(v1 == vec1[i]);
   }
 
@@ -127,7 +138,7 @@ TEST_CASE("as_label basic functionality")
   {
     CHECK(as_label(0) == "0");
     CHECK(as_label(-1) == "-1");
-    CHECK(as_label(0.0) == "0");
+    CHECK(as_label(0.0) == "0.0");
   }
 
   SUBCASE("case preserved")

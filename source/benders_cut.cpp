@@ -11,6 +11,7 @@
  */
 
 #include <cmath>
+#include <ranges>
 #include <span>
 
 #include <gtopt/benders_cut.hpp>
@@ -146,9 +147,9 @@ void filter_cut_coefficients(SparseRow& row, ColIndex alpha_col, double eps)
 
   // Collect columns to erase (can't modify flat_map while iterating).
   std::vector<ColIndex> to_erase;
-  for (auto it = row.cmap.begin(); it != row.cmap.end(); ++it) {
-    if (it->first != alpha_col && std::abs(it->second) < eps) {
-      to_erase.push_back(it->first);
+  for (const auto& [col, val] : row.cmap) {
+    if (col != alpha_col && std::abs(val) < eps) {
+      to_erase.push_back(col);
     }
   }
 
@@ -172,10 +173,10 @@ bool rescale_benders_cut(SparseRow& row,
   cols.reserve(row.cmap.size());
 
   double max_coeff = 0.0;
-  for (auto it = row.cmap.begin(); it != row.cmap.end(); ++it) {
-    cols.push_back(it->first);
-    if (it->first != alpha_col) {
-      max_coeff = std::max(max_coeff, std::abs(it->second));
+  for (const auto& [col, val] : row.cmap) {
+    cols.push_back(col);
+    if (col != alpha_col) {
+      max_coeff = std::max(max_coeff, std::abs(val));
     }
   }
 
@@ -188,7 +189,7 @@ bool rescale_benders_cut(SparseRow& row,
   spdlog::warn(
       "rescale_benders_cut: cut '{}' max|coeff|={:.2e} exceeds "
       "threshold {:.2e}, rescaling by {:.2e}",
-      LabelMaker::force_row_label(row),
+      LabelMaker {LpNamesLevel::all}.make_row_label(row),
       max_coeff,
       cut_coeff_max,
       scale_factor);
@@ -265,7 +266,7 @@ RelaxedVarInfo relax_fixed_state_variable(
       dep,
       link.source_low,
       link.source_upp,
-      link.source_phase);
+      link.source_phase_index);
 
   return RelaxedVarInfo {
       .relaxed = true,
@@ -290,8 +291,8 @@ auto elastic_filter_solve(const LinearInterface& li,
 
   bool modified = false;
   for (const auto& link : links) {
-    auto info =
-        relax_fixed_state_variable(cloned, link, link.target_phase, penalty);
+    auto info = relax_fixed_state_variable(
+        cloned, link, link.target_phase_index, penalty);
     modified |= info.relaxed;
     result.link_infos.push_back(info);
   }
@@ -351,15 +352,17 @@ auto build_multi_cuts(const ElasticSolveResult& elastic,
 
   const auto& dep_sol = elastic.clone.get_col_sol_raw();
   const auto& link_infos = elastic.link_infos;
-  const std::size_t nlinks = links.size();
 
-  int cut_counter = 0;
-  for (std::size_t li_idx = 0; li_idx < nlinks; ++li_idx) {
-    const auto& info = link_infos[li_idx];
+  // Note: `variable_uid` is intentionally left at its default (`unknown_uid`).
+  // These are synthetic multi-cut rows — they do not correspond to any real
+  // element, so there is no meaningful element UID to attach.  Debug labels
+  // will share the same "Sddp/mcut_ub" / "Sddp/mcut_lb" prefix; row ordering
+  // in the emitted .lp file provides the only disambiguation, which is fine
+  // for diagnostic use.  Never synthesize a Uid from a counter.
+  for (const auto& [info, link] : std::views::zip(link_infos, links)) {
     if (!info.relaxed) {
       continue;
     }
-    const auto& link = links[li_idx];
     const double dep_val = dep_sol[link.dependent_col];
 
     // sup > 0 ⟹ solution < trial_value ⟹ source ≤ dep_val
@@ -371,7 +374,6 @@ auto build_multi_cuts(const ElasticSolveResult& elastic,
             .uppb = dep_val,
             .class_name = "Sddp",
             .constraint_name = "mcut_ub",
-            .variable_uid = Uid {cut_counter++},
             .context = context,
         };
         ub_cut[link.source_col] = 1.0;
@@ -388,7 +390,6 @@ auto build_multi_cuts(const ElasticSolveResult& elastic,
             .uppb = LinearProblem::DblMax,
             .class_name = "Sddp",
             .constraint_name = "mcut_lb",
-            .variable_uid = Uid {cut_counter++},
             .context = context,
         };
         lb_cut[link.source_col] = 1.0;
@@ -475,9 +476,8 @@ auto weighted_average_benders_cut(const std::vector<SparseRow>& cuts,
   map_reserve(avg_coeffs, cuts.front().cmap.size());
   double avg_rhs = 0.0;
 
-  for (std::size_t i = 0; i < cuts.size(); ++i) {
-    const auto& cut = cuts[i];
-    const double w = weights[i] / total_weight;
+  for (const auto& [cut, weight] : std::views::zip(cuts, weights)) {
+    const double w = weight / total_weight;
     avg_rhs += w * cut.lowb;
     for (const auto& [col, coeff] : cut.cmap) {
       avg_coeffs[col] += w * coeff;
@@ -559,8 +559,8 @@ auto BendersCut::elastic_filter_solve(const LinearInterface& li,
 
   bool modified = false;
   for (const auto& link : links) {
-    auto info =
-        relax_fixed_state_variable(cloned, link, link.target_phase, penalty);
+    auto info = relax_fixed_state_variable(
+        cloned, link, link.target_phase_index, penalty);
     modified |= info.relaxed;
     result.link_infos.push_back(info);
   }

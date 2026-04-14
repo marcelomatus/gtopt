@@ -45,92 +45,76 @@ void log_pre_solve_stats(
   const auto& plan_opts = planning.options;
 
   spdlog::info("=== System statistics ===");
-  spdlog::info(std::format("  System name     : {}", sys.name));
-  spdlog::info(std::format("  System version  : {}", sys.version));
+  spdlog::info("  System name     : {}", sys.name);
+  spdlog::info("  System version  : {}", sys.version);
   spdlog::info("=== System elements  ===");
-  spdlog::info(std::format("  Buses           : {}", sys.bus_array.size()));
-  spdlog::info(
-      std::format("  Generators      : {}", sys.generator_array.size()));
-  spdlog::info(std::format("  Generator profs : {}",
-                           sys.generator_profile_array.size()));
-  spdlog::info(std::format("  Demands         : {}", sys.demand_array.size()));
-  spdlog::info(
-      std::format("  Demand profs    : {}", sys.demand_profile_array.size()));
-  spdlog::info(std::format("  Lines           : {}", sys.line_array.size()));
-  spdlog::info(std::format("  Batteries       : {}", sys.battery_array.size()));
-  spdlog::info(
-      std::format("  Converters      : {}", sys.converter_array.size()));
-  spdlog::info(
-      std::format("  Reserve zones   : {}", sys.reserve_zone_array.size()));
-  spdlog::info(std::format("  Reserve provisions   : {}",
-                           sys.reserve_provision_array.size()));
-  spdlog::info(
-      std::format("  Junctions       : {}", sys.junction_array.size()));
-  spdlog::info(
-      std::format("  Waterways       : {}", sys.waterway_array.size()));
-  spdlog::info(std::format("  Flows           : {}", sys.flow_array.size()));
-  spdlog::info(
-      std::format("  Reservoirs      : {}", sys.reservoir_array.size()));
-  spdlog::info(std::format("  ReservoirSeepages     : {}",
-                           sys.reservoir_seepage_array.size()));
-  spdlog::info(std::format("  Turbines        : {}", sys.turbine_array.size()));
+  spdlog::info("  Buses           : {}", sys.bus_array.size());
+  spdlog::info("  Generators      : {}", sys.generator_array.size());
+  spdlog::info("  Generator profs : {}", sys.generator_profile_array.size());
+  spdlog::info("  Demands         : {}", sys.demand_array.size());
+  spdlog::info("  Demand profs    : {}", sys.demand_profile_array.size());
+  spdlog::info("  Lines           : {}", sys.line_array.size());
+  spdlog::info("  Batteries       : {}", sys.battery_array.size());
+  spdlog::info("  Converters      : {}", sys.converter_array.size());
+  spdlog::info("  Reserve zones   : {}", sys.reserve_zone_array.size());
+  spdlog::info("  Reserve provisions   : {}",
+               sys.reserve_provision_array.size());
+  spdlog::info("  Junctions       : {}", sys.junction_array.size());
+  spdlog::info("  Waterways       : {}", sys.waterway_array.size());
+  spdlog::info("  Flows           : {}", sys.flow_array.size());
+  spdlog::info("  Reservoirs      : {}", sys.reservoir_array.size());
+  spdlog::info("  ReservoirSeepages     : {}",
+               sys.reservoir_seepage_array.size());
+  spdlog::info("  Turbines        : {}", sys.turbine_array.size());
+  if (!sys.pump_array.empty()) {
+    spdlog::info("  Pumps           : {}", sys.pump_array.size());
+  }
   if (!sys.flow_right_array.empty()) {
-    spdlog::info(
-        std::format("  Flow rights     : {}", sys.flow_right_array.size()));
+    spdlog::info("  Flow rights     : {}", sys.flow_right_array.size());
   }
   if (!sys.volume_right_array.empty()) {
-    spdlog::info(
-        std::format("  Volume rights   : {}", sys.volume_right_array.size()));
+    spdlog::info("  Volume rights   : {}", sys.volume_right_array.size());
   }
   if (!sys.user_constraint_array.empty()) {
-    spdlog::info(std::format("  User constraints: {}",
-                             sys.user_constraint_array.size()));
+    spdlog::info("  User constraints: {}", sys.user_constraint_array.size());
   }
   if (!sys.user_param_array.empty()) {
-    spdlog::info(
-        std::format("  User params     : {}", sys.user_param_array.size()));
+    spdlog::info("  User params     : {}", sys.user_param_array.size());
   }
   spdlog::info("=== Simulation statistics ===");
-  spdlog::info(std::format("  Blocks          : {}", sim.block_array.size()));
-  spdlog::info(std::format("  Stages          : {}", sim.stage_array.size()));
-  spdlog::info(
-      std::format("  Scenarios       : {}", sim.scenario_array.size()));
+  spdlog::info("  Blocks          : {}", sim.block_array.size());
+  spdlog::info("  Stages          : {}", sim.stage_array.size());
+  spdlog::info("  Scenarios       : {}", sim.scenario_array.size());
   spdlog::info("=== Key options ===");
   const auto& mo = plan_opts.model_options;
+  spdlog::info("  use_kirchhoff   : {}",
+               mo.use_kirchhoff.value_or(false) ? "true" : "false");
+  spdlog::info("  use_single_bus  : {}",
+               mo.use_single_bus.value_or(false) ? "true" : "false");
+  spdlog::info("  scale_objective : {}", mo.scale_objective.value_or(1'000.0));
+  spdlog::info("  scale_theta     : {}",
+               mo.scale_theta.has_value()
+                   ? std::format("{:.6g}", *mo.scale_theta)
+                   : "auto (median reactance)");
   spdlog::info(
-      std::format("  use_kirchhoff   : {}",
-                  mo.use_kirchhoff.value_or(false) ? "true" : "false"));
-  spdlog::info(
-      std::format("  use_single_bus  : {}",
-                  mo.use_single_bus.value_or(false) ? "true" : "false"));
-  spdlog::info(std::format("  scale_objective : {}",
-                           mo.scale_objective.value_or(1'000.0)));
-  spdlog::info(std::format("  scale_theta     : {}",
-                           mo.scale_theta.has_value()
-                               ? std::format("{:.6g}", *mo.scale_theta)
-                               : "auto (median reactance)"));
-  spdlog::info(std::format(
       "  equilibration   : {}",
       enum_name(plan_opts.lp_matrix_options.equilibration_method.value_or(
-          LpEquilibrationMethod::row_max))));
-  spdlog::info(
-      std::format("  demand_fail_cost: {}", mo.demand_fail_cost.value_or(0.0)));
-  spdlog::info(std::format("  input_directory : {}",
-                           plan_opts.input_directory.value_or("(default)")));
-  spdlog::info(std::format("  output_directory: {}",
-                           plan_opts.output_directory.value_or("(default)")));
-  spdlog::info(std::format("  output_format   : {}",
-                           plan_opts.output_format
-                               ? enum_name(*plan_opts.output_format)
-                               : "(default)"));
+          LpEquilibrationMethod::row_max)));
+  spdlog::info("  demand_fail_cost: {}", mo.demand_fail_cost.value_or(0.0));
+  spdlog::info("  input_directory : {}",
+               plan_opts.input_directory.value_or("(default)"));
+  spdlog::info("  output_directory: {}",
+               plan_opts.output_directory.value_or("(default)"));
+  spdlog::info("  output_format   : {}",
+               plan_opts.output_format ? enum_name(*plan_opts.output_format)
+                                       : "(default)");
 }
 
 /// Log post-solve solution statistics.
 void log_post_solve_stats(const PlanningLP& planning_lp, bool optimal)
 {
   spdlog::info("=== Solution statistics ===");
-  spdlog::info(std::format("  Status          : {}",
-                           optimal ? "optimal" : "non-optimal"));
+  spdlog::info("  Status          : {}", optimal ? "optimal" : "non-optimal");
 
   if (optimal && !planning_lp.systems().empty()
       && !planning_lp.systems().front().empty())
@@ -139,11 +123,11 @@ void log_post_solve_stats(const PlanningLP& planning_lp, bool optimal)
         planning_lp.systems().front().front().linear_interface();
     const double obj_scaled = lp_if.get_obj_value();
     const double obj_unscaled = lp_if.get_obj_value_physical();
-    spdlog::info(std::format("  LP variables    : {}", lp_if.get_numcols()));
-    spdlog::info(std::format("  LP constraints  : {}", lp_if.get_numrows()));
-    spdlog::info(std::format("  Obj (scaled)    : {:.6g}", obj_scaled));
-    spdlog::info(std::format("  Obj (unscaled)  : {:.6g}", obj_unscaled));
-    spdlog::info(std::format("  Solver kappa    : {:.6g}", lp_if.get_kappa()));
+    spdlog::info("  LP variables    : {}", lp_if.get_numcols());
+    spdlog::info("  LP constraints  : {}", lp_if.get_numrows());
+    spdlog::info("  Obj (scaled)    : {:.6g}", obj_scaled);
+    spdlog::info("  Obj (unscaled)  : {:.6g}", obj_unscaled);
+    spdlog::info("  Solver kappa    : {:.6g}", lp_if.get_kappa());
   }
 }
 
@@ -196,35 +180,12 @@ void log_lp_coefficient_stats(const PlanningLP& planning_lp)
                                                      const MainOptions& opts,
                                                      bool do_stats)
 {
-  // CLI --lp-names-level overrides --set; fall back to merged planning.
-  auto eff_names_level = opts.lp_names_level
-      ? opts.lp_names_level
-      : planning.options.lp_matrix_options.names_level;
-
-  // Multi-phase / SDDP / cascade methods need at least minimal column names
-  // for state variable transfer and cut I/O.
-  const auto method = planning.options.method.value_or(MethodType::monolithic);
-  const bool needs_state_names = method == MethodType::sddp
-      || method == MethodType::cascade
-      || planning.simulation.phase_array.size() > 1;
-  if (needs_state_names) {
-    if (!eff_names_level || *eff_names_level < LpNamesLevel::minimal) {
-      eff_names_level = LpNamesLevel::minimal;
-    }
-  }
-
-  // --lp-file and --lp-debug require *all* col+row names to be generated so
-  // the solver can write a readable .lp dump.  Bump the effective names
-  // level to cols_and_rows whenever LP file output is requested; this
-  // avoids silently emitting an .lp file with missing row names.
-  const bool needs_full_names = opts.lp_file.has_value() || opts.lp_debug;
-  if (needs_full_names
-      && (!eff_names_level || *eff_names_level < LpNamesLevel::cols_and_rows))
-  {
-    eff_names_level = LpNamesLevel::cols_and_rows;
-  }
+  // --lp-file and --lp-debug require all col+row names to be generated so
+  // the solver can write a readable .lp dump.
+  const bool enable_names =
+      opts.lp_file.has_value() || opts.lp_debug.value_or(false);
   auto flat_opts = make_lp_matrix_options(
-      eff_names_level,
+      enable_names,
       opts.matrix_eps,
       do_stats,
       opts.solver,
@@ -263,7 +224,7 @@ void log_lp_coefficient_stats(const PlanningLP& planning_lp)
   const auto result = planning_lp.resolve(solver_opts);
   const auto solve_elapsed =
       std::chrono::duration<double>(solve_sw.elapsed()).count();
-  spdlog::info(std::format("  Optimization time {:.3f}s", solve_elapsed));
+  spdlog::info("  Optimization time {:.3f}s", solve_elapsed);
 
   if (result.has_value()) {
     return true;
@@ -286,17 +247,17 @@ void log_lp_coefficient_stats(const PlanningLP& planning_lp)
   const auto eps_str = [](std::optional<double> v) -> std::string
   { return v ? std::format("{}", *v) : "(default)"; };
   spdlog::error(
-      std::format("  Solver options used:"
-                  " algorithm={}, threads={}, presolve={},"
-                  " optimal_eps={}, feasible_eps={}, barrier_eps={},"
-                  " log_level={}",
-                  solver_opts.algorithm,
-                  solver_opts.threads,
-                  solver_opts.presolve,
-                  eps_str(solver_opts.optimal_eps),
-                  eps_str(solver_opts.feasible_eps),
-                  eps_str(solver_opts.barrier_eps),
-                  solver_opts.log_level));
+      "  Solver options used:"
+      " algorithm={}, threads={}, presolve={},"
+      " optimal_eps={}, feasible_eps={}, barrier_eps={},"
+      " log_level={}",
+      solver_opts.algorithm,
+      solver_opts.threads,
+      solver_opts.presolve,
+      eps_str(solver_opts.optimal_eps),
+      eps_str(solver_opts.feasible_eps),
+      eps_str(solver_opts.barrier_eps),
+      solver_opts.log_level);
   return false;
 }
 
@@ -326,8 +287,7 @@ void log_lp_coefficient_stats(const PlanningLP& planning_lp)
     }
   }
 
-  spdlog::info(
-      std::format("  Write output time {:.3f}s", out_sw.elapsed().count()));
+  spdlog::info("  Write output time {:.3f}s", out_sw.elapsed().count());
   return {};
 }
 
@@ -347,15 +307,14 @@ std::expected<int, std::string> build_solve_and_output(Planning&& planning,
     const spdlog::stopwatch build_sw;
     PlanningLP planning_lp {std::move(planning),  // NOLINT
                             flat_opts};
-    spdlog::info(
-        std::format("  Build lp time {:.3f}s", build_sw.elapsed().count()));
+    spdlog::info("  Build lp time {:.3f}s", build_sw.elapsed().count());
 
     // Log the active solver backend so monitoring tools can display it.
     if (!planning_lp.systems().empty()
         && !planning_lp.systems().front().empty())
     {
       const auto& li = planning_lp.systems().front().front().linear_interface();
-      spdlog::info(std::format("  Solver: {}", li.solver_id()));
+      spdlog::info("  Solver: {}", li.solver_id());
     }
 
     if (opts.lp_file) {

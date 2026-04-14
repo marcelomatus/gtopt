@@ -115,18 +115,18 @@ auto SDDPMethod::backward_pass_aperture_phase_impl(
   m_phase_grid_.record(
       iteration_index, scene_uid(scene_index), phase_index, GridCell::Aperture);
 
-  const auto src_phase = phase_index - PhaseIndex {1};
-  auto& src_sys = planning_lp().system(scene_index, src_phase);
+  const auto src_phase_index = previous(phase_index);
+  auto& src_sys = planning_lp().system(scene_index, src_phase_index);
 
   // Reconstruct if released by low_memory mode
   if (src_sys.is_backend_released()) {
-    const auto& src_st = phase_states[src_phase];
+    const auto& src_st = phase_states[src_phase_index];
     src_sys.reconstruct_backend(src_st.forward_col_sol,
                                 src_st.forward_row_dual);
   }
 
   auto& src_li = src_sys.linear_interface();
-  const auto& src_state = phase_states[src_phase];
+  const auto& src_state = phase_states[src_phase_index];
   const auto& plp = planning_lp().simulation().phases()[phase_index];
 
   // Enable warm-start on aperture clone resolves when configured.
@@ -209,8 +209,11 @@ auto SDDPMethod::backward_pass_aperture_phase_impl(
 
     {
       const auto cut_row = src_li.add_row(fallback_cut);
-      store_cut(
-          scene_index, src_phase, fallback_cut, CutType::Optimality, cut_row);
+      store_cut(scene_index,
+                src_phase_index,
+                fallback_cut,
+                CutType::Optimality,
+                cut_row);
     }
     ++cuts_added;
 
@@ -219,13 +222,17 @@ auto SDDPMethod::backward_pass_aperture_phase_impl(
                           iteration_index,
                           scene_uid(scene_index),
                           phase_uid(phase_index)),
-                 src_phase,
+                 src_phase_index,
                  fallback_cut.lowb);
 
-    if (src_phase > PhaseIndex {0}) {
+    if (src_phase_index) {
+      src_li.set_log_tag(sddp_log("Backward",
+                                  iteration_index,
+                                  scene_uid(scene_index),
+                                  phase_uid(src_phase_index)));
       auto r = src_li.resolve(opts);
       if (r.has_value() && src_li.is_optimal()) {
-        update_max_kappa(scene_index, src_phase, src_li, iteration_index);
+        update_max_kappa(scene_index, src_phase_index, src_li, iteration_index);
       }
       if (!r.has_value() || !src_li.is_optimal()) {
         SPDLOG_WARN(
@@ -234,7 +241,7 @@ auto SDDPMethod::backward_pass_aperture_phase_impl(
             sddp_log("Backward",
                      iteration_index,
                      scene_uid(scene_index),
-                     phase_uid(src_phase)),
+                     phase_uid(src_phase_index)),
             src_li.get_status());
       }
     }
@@ -249,8 +256,11 @@ auto SDDPMethod::backward_pass_aperture_phase_impl(
 
   {
     const auto cut_row = src_li.add_row(*expected_cut);
-    store_cut(
-        scene_index, src_phase, *expected_cut, CutType::Optimality, cut_row);
+    store_cut(scene_index,
+              src_phase_index,
+              *expected_cut,
+              CutType::Optimality,
+              cut_row);
   }
   ++cuts_added;
 
@@ -259,15 +269,19 @@ auto SDDPMethod::backward_pass_aperture_phase_impl(
                         iteration_index,
                         scene_uid(scene_index),
                         phase_uid(phase_index)),
-               src_phase,
+               src_phase_index,
                expected_cut->lowb);
 
   // Re-solve source phase after adding the cut to propagate feasibility.
   // Feasibility cuts are never shared between scenes.
-  if (src_phase > PhaseIndex {0}) {
+  if (src_phase_index) {
+    src_li.set_log_tag(sddp_log("Backward",
+                                iteration_index,
+                                scene_uid(scene_index),
+                                phase_uid(src_phase_index)));
     auto r = src_li.resolve(opts);
     if (r.has_value() && src_li.is_optimal()) {
-      update_max_kappa(scene_index, src_phase, src_li, iteration_index);
+      update_max_kappa(scene_index, src_phase_index, src_li, iteration_index);
     }
     if (!r.has_value() || !src_li.is_optimal()) {
       SPDLOG_WARN(
@@ -276,7 +290,7 @@ auto SDDPMethod::backward_pass_aperture_phase_impl(
           sddp_log("Backward",
                    iteration_index,
                    scene_uid(scene_index),
-                   phase_uid(src_phase)),
+                   phase_uid(src_phase_index)),
           src_li.get_status());
     }
   }
@@ -456,18 +470,18 @@ auto SDDPMethod::backward_pass_with_apertures(SceneIndex scene_index,
       });
     }
 
-    const auto src_phase = phase_index - PhaseIndex {1};
-    auto& src_sys = planning_lp().system(scene_index, src_phase);
+    const auto src_phase_index = previous(phase_index);
+    auto& src_sys = planning_lp().system(scene_index, src_phase_index);
 
     // Reconstruct if released by low_memory mode
     if (src_sys.is_backend_released()) {
-      const auto& src_st = phase_states[src_phase];
+      const auto& src_st = phase_states[src_phase_index];
       src_sys.reconstruct_backend(src_st.forward_col_sol,
                                   src_st.forward_row_dual);
     }
 
     auto& src_li = src_sys.linear_interface();
-    const auto& src_state = phase_states[src_phase];
+    const auto& src_state = phase_states[src_phase_index];
     const auto& plp = phases[phase_index];
 
     // Enable warm-start on aperture clone resolves when configured.
@@ -546,8 +560,11 @@ auto SDDPMethod::backward_pass_with_apertures(SceneIndex scene_index,
 
       {
         const auto cut_row = src_li.add_row(fallback_cut);
-        store_cut(
-            scene_index, src_phase, fallback_cut, CutType::Optimality, cut_row);
+        store_cut(scene_index,
+                  src_phase_index,
+                  fallback_cut,
+                  CutType::Optimality,
+                  cut_row);
       }
       ++total_cuts;
 
@@ -556,13 +573,18 @@ auto SDDPMethod::backward_pass_with_apertures(SceneIndex scene_index,
                             iteration_index,
                             scene_uid(scene_index),
                             phase_uid(phase_index)),
-                   src_phase,
+                   src_phase_index,
                    fallback_cut.lowb);
 
-      if (src_phase > PhaseIndex {0}) {
+      if (src_phase_index) {
+        src_li.set_log_tag(sddp_log("Backward",
+                                    iteration_index,
+                                    scene_uid(scene_index),
+                                    phase_uid(src_phase_index)));
         auto r = src_li.resolve(opts);
         if (r.has_value() && src_li.is_optimal()) {
-          update_max_kappa(scene_index, src_phase, src_li, iteration_index);
+          update_max_kappa(
+              scene_index, src_phase_index, src_li, iteration_index);
         }
         if (!r.has_value() || !src_li.is_optimal()) {
           SPDLOG_WARN(
@@ -571,7 +593,7 @@ auto SDDPMethod::backward_pass_with_apertures(SceneIndex scene_index,
               sddp_log("Backward",
                        iteration_index,
                        scene_uid(scene_index),
-                       phase_uid(src_phase)),
+                       phase_uid(src_phase_index)),
               src_li.get_status());
         }
       }
@@ -586,8 +608,11 @@ auto SDDPMethod::backward_pass_with_apertures(SceneIndex scene_index,
 
     {
       const auto cut_row = src_li.add_row(*expected_cut);
-      store_cut(
-          scene_index, src_phase, *expected_cut, CutType::Optimality, cut_row);
+      store_cut(scene_index,
+                src_phase_index,
+                *expected_cut,
+                CutType::Optimality,
+                cut_row);
     }
     ++total_cuts;
 
@@ -596,15 +621,19 @@ auto SDDPMethod::backward_pass_with_apertures(SceneIndex scene_index,
                           iteration_index,
                           scene_uid(scene_index),
                           phase_uid(phase_index)),
-                 src_phase,
+                 src_phase_index,
                  expected_cut->lowb);
 
     // Re-solve source phase after adding the cut to propagate
     // feasibility.
-    if (src_phase > PhaseIndex {0}) {
+    if (src_phase_index) {
+      src_li.set_log_tag(sddp_log("Backward",
+                                  iteration_index,
+                                  scene_uid(scene_index),
+                                  phase_uid(src_phase_index)));
       auto r = src_li.resolve(opts);
       if (r.has_value() && src_li.is_optimal()) {
-        update_max_kappa(scene_index, src_phase, src_li, iteration_index);
+        update_max_kappa(scene_index, src_phase_index, src_li, iteration_index);
       }
       if (!r.has_value() || !src_li.is_optimal()) {
         SPDLOG_WARN(
@@ -613,7 +642,7 @@ auto SDDPMethod::backward_pass_with_apertures(SceneIndex scene_index,
             sddp_log("Backward",
                      iteration_index,
                      scene_uid(scene_index),
-                     phase_uid(src_phase)),
+                     phase_uid(src_phase_index)),
             src_li.get_status());
       }
     }

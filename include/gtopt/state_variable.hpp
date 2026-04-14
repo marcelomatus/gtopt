@@ -88,8 +88,8 @@ public:
 
   struct Key
   {
-    ScenarioUid scenario_uid {unknown_uid};
-    StageUid stage_uid {unknown_uid};
+    ScenarioUid scenario_uid = unknown_uid_of<Scenario>();
+    StageUid stage_uid = unknown_uid_of<Stage>();
     Uid uid {unknown_uid};
     std::string_view col_name;
     std::string_view class_name;
@@ -105,7 +105,8 @@ public:
       PhaseIndex phase_index,
       StageUid stage_uid,
       SceneIndex scene_index = SceneIndex {unknown_index},
-      ScenarioUid scenario_uid = ScenarioUid {unknown_uid}) noexcept -> Key
+      ScenarioUid scenario_uid = make_uid<Scenario>(unknown_uid)) noexcept
+      -> Key
   {
     return {
         .scenario_uid = scenario_uid,
@@ -206,6 +207,31 @@ private:
   double m_var_scale_ {1.0};
   LpContext m_context_ {};
   std::vector<DependentVariable> m_dependent_variables_;
+};
+
+/// Deferred state-variable link record.
+///
+/// Recorded by phase N+1's `add_to_lp` so that the eventual
+/// `add_dependent_variable` call on phase N's matching `StateVariable`
+/// can be performed in a sequential tightening pass *after* all phases
+/// of a scene have been built — possibly in parallel.
+///
+/// The structured `prev_key` uniquely identifies the producing
+/// `StateVariable` in the global `(scene, phase)`-partitioned registry,
+/// so the tightening pass needs no reference to phase N's `SystemLP` to
+/// resolve the link.  `(here_key, here_col)` names the dependent column
+/// to register on the resolved `StateVariable`.
+///
+/// `prev_key.col_name` and `prev_key.class_name` are `std::string_view`s
+/// — they must point to storage that outlives this record.  In practice
+/// they always point at the `static constexpr` literals declared by the
+/// element classes (e.g. `StorageLP::EfinName`, the class name constant)
+/// so the lifetime requirement is satisfied trivially.
+struct PendingStateLink
+{
+  StateVariable::Key prev_key;
+  LPKey here_key;
+  ColIndex here_col {unknown_index};
 };
 
 }  // namespace gtopt
