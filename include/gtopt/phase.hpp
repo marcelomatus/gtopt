@@ -54,6 +54,11 @@ struct Phase
    */
   Size count_stage {std::dynamic_extent};
 
+  /// When true, all integer/binary variables in this phase become
+  /// continuous (LP relaxation).  Can be set per-phase in JSON or
+  /// globally via `model_options.continuous_phases`.
+  OptBool continuous {};
+
   /// Optional aperture UIDs to use in this phase's SDDP backward pass.
   /// When empty, all apertures from the global `aperture_array` are used.
   /// When non-empty, only the listed aperture UIDs participate in the
@@ -66,6 +71,11 @@ struct Phase
   [[nodiscard]] constexpr auto is_active() const noexcept
   {
     return active.value_or(true);
+  }
+
+  [[nodiscard]] constexpr auto is_continuous() const noexcept
+  {
+    return continuous.value_or(false);
   }
 };
 

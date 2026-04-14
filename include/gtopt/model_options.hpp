@@ -73,12 +73,13 @@ struct ModelOptions
   /// The dual of this constraint is the endogenous carbon price.
   OptTRealFieldSched emission_cap {};
 
-  /// Phase range expression controlling which phases have relaxed
-  /// (continuous [0,1]) unit commitment binary variables.
+  /// Phase range expression controlling which phases use LP relaxation
+  /// (all integer/binary variables become continuous).
   /// Syntax: `"all"`, `"none"` (default), `"0"`, `"1,3:5,8:"`, `":3"`.
+  /// Sets `phase.continuous = true` on matching phases at LP setup time.
   /// Settable per cascade level or globally via
-  /// `--set model_options.relaxed_phases="all"`.
-  OptName relaxed_phases {};
+  /// `--set model_options.continuous_phases="all"`.
+  OptName continuous_phases {};
 
   void merge(const ModelOptions& opts)
   {
@@ -97,7 +98,7 @@ struct ModelOptions
     merge_opt(state_fail_cost, opts.state_fail_cost);
     merge_opt(emission_cost, opts.emission_cost);
     merge_opt(emission_cap, opts.emission_cap);
-    merge_opt(relaxed_phases, opts.relaxed_phases);
+    merge_opt(continuous_phases, opts.continuous_phases);
   }
 
   /// True if any field is set.
@@ -110,7 +111,7 @@ struct ModelOptions
         || demand_fail_cost.has_value() || reserve_fail_cost.has_value()
         || hydro_fail_cost.has_value() || hydro_use_value.has_value()
         || state_fail_cost.has_value() || emission_cost.has_value()
-        || emission_cap.has_value() || relaxed_phases.has_value();
+        || emission_cap.has_value() || continuous_phases.has_value();
   }
 };
 

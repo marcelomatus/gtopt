@@ -70,7 +70,7 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
       shutdown_cost_.optval(stage.uid()).value_or(0.0);
   const auto initial_u = commitment().initial_status.value_or(0.0);
   const auto is_relax = commitment().relax.value_or(false)
-      || sc.options().is_phase_relaxed(stage.phase_index());
+      || sc.simulation().phases()[stage.phase_index()].is_continuous();
   const auto is_must_run = commitment().must_run.value_or(false);
   const auto opt_ramp_up = commitment().ramp_up;
   const auto opt_ramp_down = commitment().ramp_down;
