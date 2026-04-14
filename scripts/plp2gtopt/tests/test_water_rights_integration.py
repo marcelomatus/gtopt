@@ -2,7 +2,7 @@
 
 Tests that plp2gtopt with --emit-water-rights produces correct
 rights entities and PAMPL files from the plp_2_years support case,
-and that gtopt --lp-build can assemble the LP matrix successfully.
+and that gtopt --lp-only can assemble the LP matrix successfully.
 """
 
 from __future__ import annotations
@@ -315,11 +315,11 @@ class TestWaterRightsIntegration:
     reason="plp_2_years support directory not available",
 )
 class TestGtoptLpBuild:
-    """Test that gtopt --lp-build succeeds on the converted case."""
+    """Test that gtopt --lp-only succeeds on the converted case."""
 
     @pytest.fixture(scope="class")
     def lp_build_result(self, tmp_path_factory, gtopt_bin):
-        """Run plp2gtopt + gtopt_expand + gtopt --lp-build on plp_2_years."""
+        """Run plp2gtopt + gtopt_expand + gtopt --lp-only on plp_2_years."""
         output_dir = tmp_path_factory.mktemp("plp2y_lp_build")
 
         # Step 1: Convert with plp2gtopt (Stage 1 dumps laja.json + maule.json)
