@@ -54,7 +54,7 @@ bool SimpleCommitmentLP::add_to_lp(SystemContext& sc,
   const auto cuid = uid();
 
   const auto is_relax = simple_commitment().relax.value_or(false)
-      || sc.options().is_phase_relaxed(stage.phase_index());
+      || sc.simulation().phases()[stage.phase_index()].is_continuous();
   const auto is_must_run = simple_commitment().must_run.value_or(false);
 
   const auto st_key = std::tuple {scenario.uid(), stage.uid()};

@@ -96,18 +96,25 @@ auto create_phase_array(const Simulation& simulation,
   const auto& phases =
       simulation.phase_array.empty() ? default_phases : simulation.phase_array;
 
-  return std::ranges::to<std::vector>(enumerate_active<PhaseIndex>(phases)
-                                      | std::ranges::views::transform(
-                                          [&](auto&& is)
-                                          {
-                                            const auto& [index, phase] = is;
-                                            return PhaseLP {
-                                                phase,
-                                                options,
-                                                simulation,
-                                                index,
-                                            };
-                                          }));
+  return std::ranges::to<std::vector>(
+      enumerate_active<PhaseIndex>(phases)
+      | std::ranges::views::transform(
+          [&](auto&& is)
+          {
+            const auto& [index, phase] = is;
+            auto p = phase;
+            if (!p.continuous.has_value()
+                && options.is_phase_continuous(static_cast<int>(index)))
+            {
+              p.continuous = true;
+            }
+            return PhaseLP {
+                std::move(p),
+                options,
+                simulation,
+                index,
+            };
+          }));
 }
 
 auto create_scene_array(const Simulation& simulation)

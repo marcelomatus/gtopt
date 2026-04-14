@@ -2599,7 +2599,7 @@ TEST_CASE("PhaseRangeSet parsing")  // NOLINT
   }
 }
 
-TEST_CASE("relaxed_phases via model_options relaxes UC binaries")  // NOLINT
+TEST_CASE("continuous_phases via model_options relaxes UC binaries")  // NOLINT
 {
   auto tc = TestCase::make_basic(true);
 
@@ -2615,10 +2615,10 @@ TEST_CASE("relaxed_phases via model_options relaxes UC binaries")  // NOLINT
       },
   };
 
-  // Set relaxed_phases = "all" → all phases relaxed
+  // Set continuous_phases = "all" → all phases relaxed
   PlanningOptions poptions;
   poptions.model_options.demand_fail_cost = 1000.0;
-  poptions.model_options.relaxed_phases = "all";
+  poptions.model_options.continuous_phases = "all";
   poptions.use_single_bus = true;
   PlanningOptionsLP options(std::move(poptions));
 
@@ -2644,7 +2644,7 @@ TEST_CASE("relaxed_phases via model_options relaxes UC binaries")  // NOLINT
   CHECK(result.value() == 0);
 }
 
-TEST_CASE("relaxed_phases=none keeps integer UC binaries")  // NOLINT
+TEST_CASE("continuous_phases=none keeps integer UC binaries")  // NOLINT
 {
   auto tc = TestCase::make_basic(true);
 
@@ -2661,7 +2661,7 @@ TEST_CASE("relaxed_phases=none keeps integer UC binaries")  // NOLINT
 
   PlanningOptions poptions;
   poptions.model_options.demand_fail_cost = 1000.0;
-  poptions.model_options.relaxed_phases = "none";
+  poptions.model_options.continuous_phases = "none";
   poptions.use_single_bus = true;
   PlanningOptionsLP options(std::move(poptions));
 

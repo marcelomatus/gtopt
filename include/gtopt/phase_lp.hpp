@@ -129,6 +129,12 @@ public:
     return m_phase_.is_active();
   }
 
+  /// @return Whether this phase uses continuous LP relaxation
+  [[nodiscard]] constexpr auto is_continuous() const noexcept
+  {
+    return m_phase_.is_continuous();
+  }
+
   /// @return Unique identifier for this phase
   [[nodiscard]] constexpr auto uid() const noexcept
   {

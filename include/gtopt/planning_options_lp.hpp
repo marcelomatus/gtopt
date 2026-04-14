@@ -169,15 +169,16 @@ public:
     return m_options_.model_options.emission_cap;
   }
 
-  /// @brief Whether a given phase should use relaxed (continuous) UC binaries.
-  /// Parses the `relaxed_phases` string from model_options using PhaseRangeSet.
-  [[nodiscard]] bool is_phase_relaxed(int phase_index) const
+  /// @brief Whether a given phase should use continuous LP relaxation.
+  /// Parses the `continuous_phases` string from model_options using
+  /// PhaseRangeSet.
+  [[nodiscard]] bool is_phase_continuous(int phase_index) const
   {
-    const auto& rp = m_options_.model_options.relaxed_phases;
-    if (!rp.has_value()) {
+    const auto& cp = m_options_.model_options.continuous_phases;
+    if (!cp.has_value()) {
       return false;
     }
-    return PhaseRangeSet(*rp).contains(phase_index);
+    return PhaseRangeSet(*cp).contains(phase_index);
   }
 
   /// @brief Gets the line losses mode, with backward-compat fallback.
@@ -430,10 +431,19 @@ public:
   }
 
   /// The matrix equilibration method to use.
+  ///
+  /// Default is `ruiz` when Kirchhoff constraints are active on a multi-bus
+  /// network (heterogeneous row/column scales from reactances and loss
+  /// segments produce high coefficient ratios), otherwise `row_max`.
+  /// A user-supplied value always takes precedence.
   [[nodiscard]] constexpr auto equilibration_method() const noexcept
   {
-    return m_options_.lp_matrix_options.equilibration_method.value_or(
-        LpEquilibrationMethod::none);
+    if (m_options_.lp_matrix_options.equilibration_method.has_value()) {
+      return *m_options_.lp_matrix_options.equilibration_method;
+    }
+    const bool kirchhoff_multi_bus = use_kirchhoff() && !use_single_bus();
+    return kirchhoff_multi_bus ? LpEquilibrationMethod::ruiz
+                               : LpEquilibrationMethod::row_max;
   }
 
   /// Controls error handling for user constraint resolution.
