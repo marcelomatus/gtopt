@@ -869,111 +869,121 @@ class GTOptWriter:
 
         self._expand_lng(gnl_parser.config)
 
-    def process_hb_maule(self, options):
-        """Emit the HB Maule pumped-storage expansion.
+    def process_pumped_storage(self, options):
+        """Emit pumped-storage expansions from ``--pumped-storage FILE[s]``.
 
-        When ``--expand-hb-maule`` is enabled (default off), runs the
-        ``gtopt_expand.hb_maule_expand`` transform using the COLBUN
-        reservoir's emin/emax straight from the parsed plpcnfce.dat
-        (authoritative source), writes the manifest artifact
-        ``hb_maule.json`` into ``output_dir`` wrapped as
-        ``{"system": {...}}``, and merges the entities into the
-        planning JSON.
+        For each config file in ``options["pumped_storage_files"]``,
+        runs the ``gtopt_expand.pumped_storage_expand`` transform and
+        merges the resulting entities into the planning JSON.  The
+        per-unit artifact ``{name}.json`` is written to ``output_dir``
+        wrapped as ``{"system": {...}}``.  The ``name`` comes from the
+        file's ``"name"`` field (or the filename stem as fallback) and
+        drives all emitted element names
+        (``hydro_{name}``, ``tur_{name}``, …).
 
-        Requires MACHICURA to be a reservoir — real embalse in
-        plpcnfce.dat or RoR-promoted via --ror-as-reservoirs (audited
-        in ``ror_promoted.json``).  Raises on missing prerequisites.
+        ``vmin`` / ``vmax`` at ``0`` (or absent) fall back to the upper
+        reservoir's ``emin`` / ``emax`` in plpcnfce.dat.  Requires each
+        unit's ``lower_reservoir`` to be a reservoir — real embalse or
+        RoR-promoted via --ror-as-reservoirs.  Raises on missing
+        prerequisites.
         """
-        if not options.get("expand_hb_maule", False):
+        ps_files = options.get("pumped_storage_files") or []
+        if not ps_files:
             return
 
         output_dir = Path(options["output_dir"]) if options.get("output_dir") else None
         if output_dir is None:
             return
 
-        from gtopt_expand.hb_maule_expand import (  # noqa: PLC0415
-            default_config,
-            expand_hb_maule,
+        from gtopt_expand.pumped_storage_expand import (  # noqa: PLC0415
+            expand_pumped_storage,
         )
 
-        # Resolve Colbún vmin/vmax from plpcnfce.dat (authoritative).
         central_parser = self.parser.parsed_data.get("central_parser")
         embalses = (
             central_parser.centrals_of_type.get("embalse", [])
             if central_parser is not None
             else []
         )
-        upper = "COLBUN"
-        plpcnfce_vmin: float | None = None
-        plpcnfce_vmax: float | None = None
-        for c in embalses:
-            if c.get("name") == upper:
-                if "emin" in c:
-                    plpcnfce_vmin = float(c["emin"])
-                if "emax" in c:
-                    plpcnfce_vmax = float(c["emax"])
-                break
 
-        # Load the user's HB Maule params file if provided.  The file
-        # may be partial — missing keys merge with pump.pdf defaults in
-        # expand_hb_maule.  ``vmin`` / ``vmax`` at ``0`` or absent fall
-        # through to the plpcnfce.dat values.
-        user_cfg: Dict[str, Any] = {}
-        params_path = options.get("hb_maule_params_file")
-        if params_path is not None:
-            with open(params_path, "r", encoding="utf-8") as fh:
-                loaded = json.load(fh)
-            if not isinstance(loaded, dict):
-                raise ValueError(
-                    f"--hb-maule-params-file {params_path}: expected a JSON "
-                    f"object, got {type(loaded).__name__}"
-                )
-            user_cfg = loaded
-
-        def _resolve(key: str, fallback: float | None) -> float | None:
-            val = user_cfg.get(key)
-            if val is None or float(val) == 0.0:
-                return fallback
-            return float(val)
-
-        vmin = _resolve("vmin", plpcnfce_vmin)
-        vmax = _resolve("vmax", plpcnfce_vmax)
-        if vmin is None or vmax is None:
-            raise ValueError(
-                f"HB Maule expansion needs Colbún ('{upper}') vmin/vmax: "
-                f"not provided in --hb-maule-params-file and no '{upper}' "
-                f"embalse found in plpcnfce.dat"
-            )
-
-        # Build the canonical hb_maule_dat config: pump.pdf defaults +
-        # Colbún vmin/vmax, then overlay the user's overrides so their
-        # values win for any explicitly specified field.  Kept in
-        # memory — the *_dat.json intermediate is never written to disk
-        # (same policy as laja/maule/lng).
-        cfg: Dict[str, Any] = default_config(vmin=vmin, vmax=vmax)
-        for key, val in user_cfg.items():
-            if key in ("vmin", "vmax"):
-                continue  # already resolved above
-            cfg[key] = val
+        def _plpcnfce_vmin_vmax(
+            upper_name: str,
+        ) -> tuple[float | None, float | None]:
+            for c in embalses:
+                if c.get("name") == upper_name:
+                    vmin = float(c["emin"]) if "emin" in c else None
+                    vmax = float(c["emax"]) if "emax" in c else None
+                    return vmin, vmax
+            return None, None
 
         reservoir_names = self._reservoir_names(output_dir)
         reservoirs = self.planning["system"].get("reservoir_array", [])
-        entities = expand_hb_maule(
-            config=cfg,
-            reservoirs=list(reservoirs) if isinstance(reservoirs, list) else [],
-            reservoir_names=reservoir_names,
-        )
+        reservoirs_list = list(reservoirs) if isinstance(reservoirs, list) else []
 
-        target = output_dir / "hb_maule.json"
-        with open(target, "w", encoding="utf-8") as fh:
-            json.dump({"system": entities}, fh, indent=2, sort_keys=False)
-            fh.write("\n")
+        for idx, params_path in enumerate(ps_files):
+            path = Path(params_path)
+            with open(path, "r", encoding="utf-8") as fh:
+                loaded = json.load(fh)
+            if not isinstance(loaded, dict):
+                raise ValueError(
+                    f"--pumped-storage {path}: expected a JSON object, "
+                    f"got {type(loaded).__name__}"
+                )
+            cfg: Dict[str, Any] = dict(loaded)
 
-        self._merge_entities(entities)
-        _logger.info(
-            "hb_maule: emitted pumped-storage unit + hb_maule.json "
-            "(2 waterways, 1 turbine, 1 pump, 1 RPF)",
-        )
+            # Unit name: config wins, then filename stem.
+            unit_name = str(cfg.get("name") or path.stem).strip()
+            if not unit_name:
+                raise ValueError(
+                    f"--pumped-storage {path}: unit 'name' cannot be empty"
+                )
+            cfg["name"] = unit_name
+
+            # Backfill vmin/vmax from plpcnfce.dat when the user left
+            # them at 0 (or absent).  The upper reservoir drives the
+            # PF curve; default to COLBUN for backwards compatibility
+            # with the HB Maule workflow.
+            upper_name = str(cfg.get("upper_reservoir") or "COLBUN")
+            plp_vmin, plp_vmax = _plpcnfce_vmin_vmax(upper_name)
+
+            def _resolve(key: str, fallback: float | None) -> float | None:
+                val = cfg.get(key)
+                if val is None or float(val) == 0.0:
+                    return fallback
+                return float(val)
+
+            resolved_vmin = _resolve("vmin", plp_vmin)
+            resolved_vmax = _resolve("vmax", plp_vmax)
+            if resolved_vmin is None or resolved_vmax is None:
+                raise ValueError(
+                    f"pumped-storage '{unit_name}' needs upper reservoir "
+                    f"'{upper_name}' vmin/vmax: not provided in "
+                    f"{path} and no '{upper_name}' embalse found in "
+                    f"plpcnfce.dat"
+                )
+            cfg["vmin"] = resolved_vmin
+            cfg["vmax"] = resolved_vmax
+
+            entities = expand_pumped_storage(
+                config=cfg,
+                name=unit_name,
+                reservoirs=reservoirs_list,
+                reservoir_names=reservoir_names,
+                uid_start=900_000 + idx * 16,
+            )
+
+            target = output_dir / f"{unit_name}.json"
+            with open(target, "w", encoding="utf-8") as fh:
+                json.dump({"system": entities}, fh, indent=2, sort_keys=False)
+                fh.write("\n")
+
+            self._merge_entities(entities)
+            _logger.info(
+                "pumped_storage: emitted '%s' + %s.json "
+                "(2 waterways, 1 turbine, 1 pump, 1 RPF)",
+                unit_name,
+                unit_name,
+            )
 
     def _merge_entities(self, entities: Mapping[str, Any]) -> None:
         """Merge gtopt_expand entity arrays into ``planning["system"]``.
@@ -1768,8 +1778,8 @@ class GTOptWriter:
         self.process_water_rights(options)
         _step("lng")
         self.process_lng(options)
-        _step("hb_maule")
-        self.process_hb_maule(options)
+        _step("pumped_storage")
+        self.process_pumped_storage(options)
         _step("batteries")
         self.process_battery(options)
         _step("boundary")
