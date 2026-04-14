@@ -1544,7 +1544,7 @@ _OPTIONS_FIELDS: list[tuple[str, str, Any]] = [
         "Compression codec for debug LP files (e.g. 'gzip')",
         None,
     ),
-    ("lp_build", "Build LP without solving (true/false)", None),
+    ("lp_only", "Build LP without solving (true/false)", None),
     (
         "lp_coeff_ratio_threshold",
         "Warn when LP coefficient ratio exceeds this value",

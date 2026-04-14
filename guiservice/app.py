@@ -146,7 +146,7 @@ OPTIONS_SCHEMA = {
         "label": "LP Compression",
         "options": ["", "zstd", "gzip", "lz4", "bzip2", "xz", "uncompressed"],
     },
-    "lp_build": {"type": "boolean", "label": "LP Build Only (no solve)"},
+    "lp_only": {"type": "boolean", "label": "LP Only (build without solving)"},
     "lp_debug_scene_min": {"type": "integer", "label": "LP Debug Scene Min"},
     "lp_debug_scene_max": {"type": "integer", "label": "LP Debug Scene Max"},
     "lp_debug_phase_min": {"type": "integer", "label": "LP Debug Phase Min"},
