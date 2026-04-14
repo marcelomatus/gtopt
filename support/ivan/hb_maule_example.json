@@ -1,0 +1,23 @@
+{
+  "name": "hb_maule",
+  "upper_reservoir": "COLBUN",
+  "lower_reservoir": "MACHICURA",
+  "vmin": 0.0,
+  "vmax": 0.0,
+  "gen_nominal": {
+    "pmax_mw": 70.0,
+    "qmax_m3s": 49.0,
+    "production_factor": 1.44
+  },
+  "gen_mintec": {
+    "pmin_mw": 34.0,
+    "qmin_m3s": 25.0,
+    "production_factor": 1.36
+  },
+  "pump": {
+    "pmax_mw": 75.0,
+    "qmax_m3s": 40.0,
+    "pump_factor": 1.88
+  },
+  "pump_efficiency": 0.85
+}
