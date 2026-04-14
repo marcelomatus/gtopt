@@ -11,6 +11,7 @@ from gtopt_config import DEFAULT_CONFIG_PATH, get_version, load_config, save_sec
 
 from .plp2gtopt import (
     convert_plp_case,
+    print_hb_maule_params_template,
     print_variable_scales_template,
     validate_plp_case,
 )
@@ -317,6 +318,13 @@ def build_options(args: argparse.Namespace) -> dict:
     opts["soft_emin_cost"] = args.soft_emin_cost
     opts["embed_reservoir_constraints"] = args.embed_reservoir_constraints
     opts["emit_water_rights"] = args.emit_water_rights
+    opts["expand_water_rights"] = args.expand_water_rights
+    opts["expand_lng"] = args.expand_lng
+    opts["expand_ror"] = args.expand_ror
+    opts["expand_hb_maule"] = getattr(args, "expand_hb_maule", False)
+    hb_params = getattr(args, "hb_maule_params_file", None)
+    if hb_params is not None:
+        opts["hb_maule_params_file"] = hb_params
     if args.ror_as_reservoirs is not None:
         opts["ror_as_reservoirs"] = args.ror_as_reservoirs
     if args.ror_as_reservoirs_file is not None:
@@ -408,6 +416,9 @@ def main(argv: list[str] | None = None) -> None:
 
     if args.variable_scales_template:
         sys.exit(print_variable_scales_template(build_options(args)))
+
+    if getattr(args, "hb_maule_params_template", False):
+        sys.exit(print_hb_maule_params_template())
 
     try:
         convert_plp_case(build_options(args))
