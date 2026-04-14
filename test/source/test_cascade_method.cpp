@@ -8,6 +8,7 @@
 #include <doctest/doctest.h>
 #include <gtopt/cascade_method.hpp>
 #include <gtopt/enum_option.hpp>
+#include <gtopt/json/json_parse_policy.hpp>
 #include <gtopt/json/json_planning.hpp>
 #include <gtopt/planning_options_lp.hpp>
 
@@ -247,8 +248,8 @@ TEST_CASE("JSON parsing of cascade method")  // NOLINT
   }
   )json";
 
-  const auto planning =
-      daw::json::from_json<Planning>(json_str);  // NOLINT(misc-include-cleaner)
+  const auto planning = daw::json::from_json<Planning>(
+      json_str, StrictParsePolicy);  // NOLINT(misc-include-cleaner)
   const PlanningOptionsLP options_lp(planning.options);
   CHECK(options_lp.method_type_enum() == MethodType::cascade);
 }
@@ -305,8 +306,8 @@ TEST_CASE("JSON parsing of cascade levels")  // NOLINT
   }
   )json";
 
-  const auto planning =
-      daw::json::from_json<Planning>(json_str);  // NOLINT(misc-include-cleaner)
+  const auto planning = daw::json::from_json<Planning>(
+      json_str, StrictParsePolicy);  // NOLINT(misc-include-cleaner)
   const PlanningOptionsLP options_lp(planning.options);
 
   REQUIRE(options_lp.has_cascade_levels());
@@ -360,8 +361,8 @@ TEST_CASE("JSON cascade options with empty levels uses defaults")  // NOLINT
   }
   )json";
 
-  const auto planning =
-      daw::json::from_json<Planning>(json_str);  // NOLINT(misc-include-cleaner)
+  const auto planning = daw::json::from_json<Planning>(
+      json_str, StrictParsePolicy);  // NOLINT(misc-include-cleaner)
   const PlanningOptionsLP options_lp(planning.options);
   CHECK(!options_lp.has_cascade_levels());
 }

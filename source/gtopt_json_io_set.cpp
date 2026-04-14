@@ -18,6 +18,7 @@
 #include <vector>
 
 #include <gtopt/gtopt_json_io.hpp>
+#include <gtopt/json/json_parse_policy.hpp>
 #include <gtopt/json/json_planning.hpp>
 #include <gtopt/solver_options.hpp>
 #include <spdlog/spdlog.h>
@@ -27,12 +28,6 @@ namespace gtopt
 
 namespace
 {
-
-constexpr auto FastParsePolicy = daw::json::options::parse_flags<
-    daw::json::options::PolicyCommentTypes::hash,
-    daw::json::options::CheckedParseMode::no,
-    daw::json::options::ExcludeSpecialEscapes::no,
-    daw::json::options::UseExactMappingsByDefault::no>;
 
 // ── --set key=value support ───────────────────────────────────────────
 
@@ -259,7 +254,7 @@ bool apply_set_options(Planning& planning,
     auto json = build_set_option_json(key, json_val);
 
     try {
-      auto overlay = daw::json::from_json<Planning>(json, FastParsePolicy);
+      auto overlay = daw::json::from_json<Planning>(json, StrictParsePolicy);
       planning.merge(std::move(overlay));
       spdlog::info("--set {}={} applied", key, value);
     } catch (const daw::json::json_exception& ex) {
@@ -269,7 +264,7 @@ bool apply_set_options(Planning& planning,
         auto str_json = build_set_option_json(key, "\"" + value + "\"");
         try {
           auto overlay =
-              daw::json::from_json<Planning>(str_json, FastParsePolicy);
+              daw::json::from_json<Planning>(str_json, StrictParsePolicy);
           planning.merge(std::move(overlay));
           spdlog::info("--set {}={} applied (as string)", key, value);
           continue;

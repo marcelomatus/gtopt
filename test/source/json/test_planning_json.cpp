@@ -2,6 +2,7 @@
 #include <vector>
 
 #include <doctest/doctest.h>
+#include <gtopt/json/json_parse_policy.hpp>
 #include <gtopt/json/json_planning.hpp>
 
 using namespace gtopt;  // NOLINT(google-global-names-in-headers)
@@ -112,7 +113,6 @@ TEST_CASE("Planning daw json test 2 - large scale")
 static constexpr std::string_view planning_json = R"({
   "options": {
     "annual_discount_rate": 0.1,
-    "lp_matrix_options": {"names_level": 1},
     "output_compression": "uncompressed",
     "demand_fail_cost": 1000,
     "scale_objective": 1000
@@ -169,14 +169,16 @@ static constexpr std::string_view planning_json = R"({
 
 TEST_CASE("Planning JSON round-trip serialization")
 {
-  auto planning = daw::json::from_json<Planning>(planning_json);
+  auto planning =
+      daw::json::from_json<Planning>(planning_json, StrictParsePolicy);
 
   // Serialize back to JSON
   auto json_output = daw::json::to_json(planning);
   CHECK(!json_output.empty());
 
   // Parse the output back
-  auto planning2 = daw::json::from_json<Planning>(json_output);
+  auto planning2 =
+      daw::json::from_json<Planning>(json_output, StrictParsePolicy);
   CHECK(planning2.system.name == planning.system.name);
   CHECK(planning2.system.bus_array.size() == planning.system.bus_array.size());
   CHECK(planning2.system.generator_array.size()

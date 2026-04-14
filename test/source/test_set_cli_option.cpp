@@ -341,9 +341,9 @@ TEST_CASE("--set invalid format: empty key (leading =)")
   CHECK(result.value_or(-1) == 1);
 }
 
-// ── Unknown dotted path: silently applied (JSON ignores unknowns) ─────
+// ── Unknown dotted path: now rejected (strict parser) ─────────────────
 
-TEST_CASE("--set unknown option path succeeds silently")
+TEST_CASE("--set unknown option path is rejected")
 {
   const auto stem = write_set_test_json("set_cli_unknown_path", set_test_json);
   auto result = gtopt_main(MainOptions {
@@ -358,10 +358,11 @@ TEST_CASE("--set unknown option path succeeds silently")
               "completely_bogus_option=123",
           },
   });
-  // Unknown paths are merged into JSON and silently ignored by
-  // the parser; gtopt_main succeeds.
+  // With strict JSON parsing (UseExactMappingsByDefault=yes), an unknown
+  // `--set` path is rejected by the overlay parser and gtopt_main returns
+  // a non-zero exit code.
   REQUIRE(result.has_value());
-  CHECK(result.value_or(-1) == 0);
+  CHECK(result.value_or(-1) == 1);
 }
 
 // ── Scientific notation as double ─────────────────────────────────────

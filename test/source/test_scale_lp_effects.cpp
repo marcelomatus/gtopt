@@ -20,6 +20,7 @@
 #include <doctest/doctest.h>
 #include <gtopt/block_lp.hpp>
 #include <gtopt/cost_helper.hpp>
+#include <gtopt/json/json_parse_policy.hpp>
 #include <gtopt/json/json_planning.hpp>
 #include <gtopt/monolithic_method.hpp>
 #include <gtopt/planning_lp.hpp>
@@ -44,7 +45,6 @@ auto make_ieee4b_json(double scale_obj,
       R"({{
   "options": {{
     "annual_discount_rate": 0.0,
-    "lp_matrix_options": {{"names_level": 2}},
     "output_format": "csv",
     "output_compression": "uncompressed",
     "use_single_bus": false,
@@ -93,7 +93,7 @@ auto solve_ieee4b(double scale_obj,
 {
   auto json = make_ieee4b_json(scale_obj, scale_theta_val, use_kirchhoff);
   Planning base;
-  base.merge(daw::json::from_json<Planning>(json));
+  base.merge(daw::json::from_json<Planning>(json, StrictParsePolicy));
 
   PlanningLP planning_lp(std::move(base));
   MonolithicMethod solver;
@@ -148,7 +148,7 @@ TEST_CASE(  // NOLINT
   for (const auto st : {0.01, 0.001, 0.0001}) {
     auto json = make_ieee4b_json(scale_obj, st);
     Planning base;
-    base.merge(daw::json::from_json<Planning>(json));
+    base.merge(daw::json::from_json<Planning>(json, StrictParsePolicy));
     PlanningLP planning_lp(std::move(base));
 
     auto result = planning_lp.resolve();

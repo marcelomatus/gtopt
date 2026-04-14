@@ -16,6 +16,7 @@
 #include <string_view>
 
 #include <doctest/doctest.h>
+#include <gtopt/json/json_parse_policy.hpp>
 #include <gtopt/json/json_planning.hpp>
 #include <gtopt/planning_lp.hpp>
 
@@ -25,7 +26,6 @@ using namespace gtopt;  // NOLINT(google-global-names-in-headers)
 static constexpr std::string_view ieee9b_ori_json = R"({
   "options": {
     "annual_discount_rate": 0.0,
-    "lp_matrix_options": {"names_level": 1},
     "output_format": "csv",
     "output_compression": "uncompressed",
     "use_single_bus": false,
@@ -73,7 +73,8 @@ static constexpr std::string_view ieee9b_ori_json = R"({
 TEST_CASE("IEEE 9-bus original - JSON parse and structure check")
 {
   using namespace gtopt;
-  auto planning = daw::json::from_json<Planning>(ieee9b_ori_json);
+  auto planning =
+      daw::json::from_json<Planning>(ieee9b_ori_json, StrictParsePolicy);
 
   CHECK(planning.system.name == "ieee_9b_ori");
   CHECK(planning.system.bus_array.size() == 9);
@@ -91,7 +92,8 @@ TEST_CASE("IEEE 9-bus original - JSON parse and structure check")
 TEST_CASE("IEEE 9-bus original - LP solve")
 {
   Planning base;
-  base.merge(daw::json::from_json<Planning>(ieee9b_ori_json));
+  base.merge(
+      daw::json::from_json<Planning>(ieee9b_ori_json, StrictParsePolicy));
 
   PlanningLP planning_lp(std::move(base));
   auto result = planning_lp.resolve();

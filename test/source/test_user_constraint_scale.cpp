@@ -22,6 +22,7 @@
 #include <string_view>
 
 #include <doctest/doctest.h>
+#include <gtopt/json/json_parse_policy.hpp>
 #include <gtopt/json/json_planning.hpp>
 #include <gtopt/planning_lp.hpp>
 #include <gtopt/planning_options_lp.hpp>
@@ -48,7 +49,6 @@ auto make_theta_uc_json(double scale_theta_val) -> std::string
       R"({{
   "options": {{
     "annual_discount_rate": 0.0,
-    "lp_matrix_options": {{"names_level": 2}},
     "output_format": "csv",
     "output_compression": "uncompressed",
     "use_single_bus": false,
@@ -105,7 +105,7 @@ TEST_CASE(  // NOLINT
   for (const auto st : {1.0, 0.01, 0.0001}) {
     auto json = make_theta_uc_json(st);
     Planning base;
-    base.merge(daw::json::from_json<Planning>(json));
+    base.merge(daw::json::from_json<Planning>(json, StrictParsePolicy));
 
     PlanningLP planning_lp(std::move(base));
     auto result = planning_lp.resolve();
@@ -131,7 +131,6 @@ TEST_CASE(  // NOLINT
       R"({{
   "options": {{
     "annual_discount_rate": 0.0,
-    "lp_matrix_options": {{"names_level": 2}},
     "output_format": "csv",
     "output_compression": "uncompressed",
     "use_single_bus": false,
@@ -177,7 +176,7 @@ TEST_CASE(  // NOLINT
 }})");
 
   Planning base;
-  base.merge(daw::json::from_json<Planning>(json_tight));
+  base.merge(daw::json::from_json<Planning>(json_tight, StrictParsePolicy));
   PlanningLP planning_lp(std::move(base));
   auto result = planning_lp.resolve();
 
@@ -200,7 +199,6 @@ auto make_reservoir_uc_json(double energy_scale_val) -> std::string
       R"({{
   "options": {{
     "annual_discount_rate": 0.0,
-    "lp_matrix_options": {{"names_level": 2}},
     "output_format": "csv",
     "output_compression": "uncompressed",
     "use_single_bus": true,
@@ -270,7 +268,7 @@ TEST_CASE(  // NOLINT
   for (const auto es : {1.0, 1000.0}) {
     auto json = make_reservoir_uc_json(es);
     Planning base;
-    base.merge(daw::json::from_json<Planning>(json));
+    base.merge(daw::json::from_json<Planning>(json, StrictParsePolicy));
 
     PlanningLP planning_lp(std::move(base));
     auto result = planning_lp.resolve();
@@ -308,7 +306,6 @@ auto make_scale_obj_uc_json(double scale_obj) -> std::string
       R"({{
   "options": {{
     "annual_discount_rate": 0.0,
-    "lp_matrix_options": {{"names_level": 1}},
     "output_format": "csv",
     "output_compression": "uncompressed",
     "use_single_bus": true,
@@ -352,7 +349,7 @@ TEST_CASE(  // NOLINT
   for (const auto so : {1.0, 1'000.0, 1'000'000.0}) {
     auto json = make_scale_obj_uc_json(so);
     Planning base;
-    base.merge(daw::json::from_json<Planning>(json));
+    base.merge(daw::json::from_json<Planning>(json, StrictParsePolicy));
 
     PlanningLP planning_lp(std::move(base));
     auto result = planning_lp.resolve();
@@ -378,7 +375,6 @@ auto make_battery_uc_json(double energy_scale_val) -> std::string
       R"({{
   "options": {{
     "annual_discount_rate": 0.0,
-    "lp_matrix_options": {{"names_level": 2}},
     "output_format": "csv",
     "output_compression": "uncompressed",
     "use_single_bus": true,
@@ -441,7 +437,7 @@ TEST_CASE(  // NOLINT
   for (const auto es : {1.0, 1000.0}) {
     auto json = make_battery_uc_json(es);
     Planning base;
-    base.merge(daw::json::from_json<Planning>(json));
+    base.merge(daw::json::from_json<Planning>(json, StrictParsePolicy));
 
     PlanningLP planning_lp(std::move(base));
     auto result = planning_lp.resolve();
@@ -476,7 +472,6 @@ auto make_mixed_scale_uc_json(double energy_scale_val) -> std::string
       R"({{
   "options": {{
     "annual_discount_rate": 0.0,
-    "lp_matrix_options": {{"names_level": 2}},
     "output_format": "csv",
     "output_compression": "uncompressed",
     "use_single_bus": true,
@@ -545,7 +540,7 @@ TEST_CASE(  // NOLINT
   for (const auto es : {1.0, 1000.0}) {
     auto json = make_mixed_scale_uc_json(es);
     Planning base;
-    base.merge(daw::json::from_json<Planning>(json));
+    base.merge(daw::json::from_json<Planning>(json, StrictParsePolicy));
 
     PlanningLP planning_lp(std::move(base));
     auto result = planning_lp.resolve();
@@ -580,7 +575,6 @@ auto make_ctype_scale_json(double scale_obj,
       R"({{
   "options": {{
     "annual_discount_rate": 0.1,
-    "lp_matrix_options": {{"names_level": 1}},
     "output_format": "csv",
     "output_compression": "uncompressed",
     "use_single_bus": true,
@@ -623,7 +617,7 @@ TEST_CASE(  // NOLINT
     for (const auto so : {1.0, 1'000.0, 100'000.0}) {
       auto json = make_ctype_scale_json(so, ctype);
       Planning base;
-      base.merge(daw::json::from_json<Planning>(json));
+      base.merge(daw::json::from_json<Planning>(json, StrictParsePolicy));
 
       PlanningLP planning_lp(std::move(base));
       auto result = planning_lp.resolve();
@@ -654,7 +648,6 @@ auto make_line_uc_json(double scale_theta_val,
       R"({{
   "options": {{
     "annual_discount_rate": 0.0,
-    "lp_matrix_options": {{"names_level": 2}},
     "output_format": "csv",
     "output_compression": "uncompressed",
     "use_single_bus": false,
@@ -714,7 +707,7 @@ TEST_CASE(  // NOLINT
     for (const auto so : {1.0, 1'000.0}) {
       auto json = make_line_uc_json(st, so);
       Planning base;
-      base.merge(daw::json::from_json<Planning>(json));
+      base.merge(daw::json::from_json<Planning>(json, StrictParsePolicy));
 
       PlanningLP planning_lp(std::move(base));
       auto result = planning_lp.resolve();
@@ -738,7 +731,6 @@ TEST_CASE(  // NOLINT
 static constexpr std::string_view multi_scale_uc_json = R"json({
   "options": {
     "annual_discount_rate": 0.0,
-    "lp_matrix_options": {"names_level": 2},
     "output_format": "csv",
     "output_compression": "uncompressed",
     "use_single_bus": false,
@@ -814,7 +806,8 @@ TEST_CASE(  // NOLINT
     "(theta + energy + objective)")
 {
   Planning base;
-  base.merge(daw::json::from_json<Planning>(multi_scale_uc_json));
+  base.merge(
+      daw::json::from_json<Planning>(multi_scale_uc_json, StrictParsePolicy));
 
   PlanningLP planning_lp(std::move(base));
   auto result = planning_lp.resolve();
