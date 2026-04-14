@@ -483,6 +483,42 @@ class TestConvertOutputFile:
         assert data["system"]["name"] == "custom"
 
 
+class TestConvertSolverType:
+    def test_default_is_cascade(self, ieee30b_json):
+        """convert() defaults to method='cascade' with cascade_options."""
+        opts = ieee30b_json["options"]
+        assert opts["method"] == "cascade"
+        assert "cascade_options" in opts
+        levels = opts["cascade_options"]["level_array"]
+        assert [lv["name"] for lv in levels] == [
+            "uninodal",
+            "transport",
+            "full_network",
+        ]
+
+    def test_cascade_levels_inherit_targets_and_cuts(self, ieee30b_json):
+        """Transitions on level 2 and 3 inherit state targets + Benders cuts."""
+        levels = ieee30b_json["options"]["cascade_options"]["level_array"]
+        for lv in levels[1:]:
+            tr = lv["transition"]
+            assert tr["inherit_targets"] == -1
+            assert tr["inherit_optimality_cuts"] == -1
+            assert tr["inherit_feasibility_cuts"] == -1
+
+    def test_sddp_omits_cascade_options(self, tmp_path):
+        out = tmp_path / "sddp.json"
+        convert(out, solver_type="sddp")
+        with open(out, encoding="utf-8") as fh:
+            data = json.load(fh)
+        assert data["options"]["method"] == "sddp"
+        assert "cascade_options" not in data["options"]
+
+    def test_unsupported_solver_raises(self, tmp_path):
+        out = tmp_path / "bad.json"
+        with pytest.raises(ValueError, match="unsupported solver_type"):
+            convert(out, solver_type="monolithic")
+
+
 # ---------------------------------------------------------------------------
 # main.py — CLI argument parsing and entry point
 # ---------------------------------------------------------------------------

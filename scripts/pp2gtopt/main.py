@@ -14,7 +14,13 @@ from gtopt_config import (
     get_version,
 )
 
-from .convert import _SUPPORTED_FORMATS, convert, load_network
+from .convert import (
+    DEFAULT_SOLVER,
+    SUPPORTED_SOLVERS,
+    _SUPPORTED_FORMATS,
+    convert,
+    load_network,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -187,6 +193,17 @@ def make_parser() -> argparse.ArgumentParser:
         help="output JSON file path (default: <stem>.json in the current directory)",
     )
     parser.add_argument(
+        "--solver",
+        dest="solver_type",
+        choices=list(SUPPORTED_SOLVERS),
+        default=DEFAULT_SOLVER,
+        help=(
+            "planning method to embed in options.method "
+            f"(choices: {list(SUPPORTED_SOLVERS)}; default: {DEFAULT_SOLVER}). "
+            "When 'cascade', a default 3-level cascade_options block is also emitted."
+        ),
+    )
+    parser.add_argument(
         "--list-networks",
         action="store_true",
         help="list all available built-in pandapower test networks and exit",
@@ -234,7 +251,7 @@ def main() -> None:
         name = network
 
     output = args.output if args.output is not None else Path(f"{name}.json")
-    planning = convert(output, net=net, name=name)
+    planning = convert(output, net=net, name=name, solver_type=args.solver_type)
 
     if args.run_check:
         run_post_check(planning)

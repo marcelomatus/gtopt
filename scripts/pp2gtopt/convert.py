@@ -307,10 +307,61 @@ def _build_lines(net: pp.pandapowerNet, base_mva: float) -> list[dict[str, Any]]
     return entries
 
 
+SUPPORTED_SOLVERS: tuple[str, ...] = ("sddp", "cascade")
+DEFAULT_SOLVER: str = "cascade"
+
+
+def _default_cascade_options() -> dict[str, Any]:
+    """Build a 3-level default cascade configuration for OPF cases.
+
+    Levels mirror the plp2gtopt defaults so behaviour is consistent:
+    uninodal (single-bus) → transport (lines, no Kirchhoff/losses) →
+    full network (Kirchhoff enabled).  Each transition inherits state
+    targets and Benders cuts from the previous level.
+    """
+    transition: dict[str, Any] = {
+        "inherit_targets": -1,
+        "inherit_optimality_cuts": -1,
+        "inherit_feasibility_cuts": -1,
+        "target_rtol": 0.05,
+        "target_min_atol": 1.0,
+        "target_penalty": 500.0,
+    }
+    return {
+        "level_array": [
+            {
+                "uid": 1,
+                "name": "uninodal",
+                "model_options": {"use_single_bus": True},
+            },
+            {
+                "uid": 2,
+                "name": "transport",
+                "model_options": {
+                    "use_single_bus": False,
+                    "use_kirchhoff": False,
+                    "use_line_losses": False,
+                },
+                "transition": transition,
+            },
+            {
+                "uid": 3,
+                "name": "full_network",
+                "model_options": {
+                    "use_single_bus": False,
+                    "use_kirchhoff": True,
+                },
+                "transition": transition,
+            },
+        ],
+    }
+
+
 def convert(
     output_path: Path | None = None,
     net: pp.pandapowerNet | None = None,
     name: str | None = None,
+    solver_type: str = DEFAULT_SOLVER,
 ) -> dict[str, Any]:
     """Load a pandapower network and write the gtopt JSON file.
 
@@ -324,26 +375,41 @@ def convert(
         is loaded automatically.
     name:
         System name to embed in the JSON.  Defaults to ``"ieee30b"``.
+    solver_type:
+        Planning method to embed in ``options.method``.  One of
+        ``SUPPORTED_SOLVERS`` (``"sddp"`` or ``"cascade"``).  When
+        ``"cascade"``, a 3-level default ``cascade_options`` block is
+        also emitted.  Defaults to ``"cascade"``.
 
     Returns
     -------
     dict[str, Any]
         The generated gtopt planning dictionary.
     """
+    if solver_type not in SUPPORTED_SOLVERS:
+        raise ValueError(
+            f"unsupported solver_type {solver_type!r}; "
+            f"expected one of {SUPPORTED_SOLVERS}"
+        )
     if net is None:
         net = pn.case_ieee30()
     if name is None:
         name = "ieee30b"
+    options: dict[str, Any] = {
+        "method": solver_type,
+        "annual_discount_rate": 0.0,
+        "output_format": "csv",
+        "output_compression": "uncompressed",
+        "use_single_bus": False,
+        "demand_fail_cost": 1000,
+        "scale_objective": 1000,
+        "use_kirchhoff": True,
+    }
+    if solver_type == "cascade":
+        options["cascade_options"] = _default_cascade_options()
+
     data: dict[str, Any] = {
-        "options": {
-            "annual_discount_rate": 0.0,
-            "output_format": "csv",
-            "output_compression": "uncompressed",
-            "use_single_bus": False,
-            "demand_fail_cost": 1000,
-            "scale_objective": 1000,
-            "use_kirchhoff": True,
-        },
+        "options": options,
         "simulation": {
             "block_array": [{"uid": 1, "duration": 1}],
             "stage_array": [
