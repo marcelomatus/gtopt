@@ -237,7 +237,7 @@ TEST_CASE("User constraint - user_constraint_file in Planning JSON")
 
 /// Single-bus case with a tight generator capacity constraint to produce a
 /// non-zero dual on the user constraint row.
-static constexpr std::string_view single_bus_uc_dual_json = R"json({
+static constexpr std::string_view planning_single_bus_uc_dual_json = R"json({
   "options": {
     "annual_discount_rate": 0.0,
     "output_format": "csv",
@@ -283,8 +283,8 @@ TEST_CASE("User constraint - dual values written to output (CSV)")
   std::filesystem::create_directories(tmpdir);
 
   // Write the JSON to a temp file and run via gtopt_main-style direct API
-  auto planning = daw::json::from_json<Planning>(single_bus_uc_dual_json,
-                                                 StrictParsePolicy);
+  auto planning = daw::json::from_json<Planning>(
+      planning_single_bus_uc_dual_json, StrictParsePolicy);
   planning.options.output_directory = tmpdir.string();
 
   // Directly construct SimulationLP + SystemLP and run solve + write_out.
@@ -325,8 +325,8 @@ TEST_CASE("User constraint - constraint_type field preserved")
 {
   using namespace gtopt;
 
-  auto planning = daw::json::from_json<Planning>(single_bus_uc_dual_json,
-                                                 StrictParsePolicy);
+  auto planning = daw::json::from_json<Planning>(
+      planning_single_bus_uc_dual_json, StrictParsePolicy);
 
   REQUIRE(planning.system.user_constraint_array.size() == 1);
   const auto& uc = planning.system.user_constraint_array[0];
