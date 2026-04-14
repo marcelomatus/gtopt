@@ -15,9 +15,9 @@
  * soft penalty is wired, closing the gap with visible slack columns
  * priced at `penalty × duration[h] × 3600`.
  *
- * The UCFixture + make_uc_simulation + make_uc_system helpers are
- * copy-pasted from test_irrigation_user_constraints.cpp.  Refactoring
- * them into a shared header is deferred — these tests are few and
+ * The BoundaryUCFixture + make_boundary_uc_simulation + make_boundary_uc_system
+ * helpers are copy-pasted from test_irrigation_user_constraints.cpp.
+ * Refactoring them into a shared header is deferred — these tests are few and
  * the duplication keeps the blast radius of future edits small.
  */
 
@@ -38,7 +38,7 @@ namespace
 // (test_irrigation_user_constraints.cpp lines 33-106).  Copy-pasted
 // rather than shared-headered to minimize refactor blast radius.
 // ─────────────────────────────────────────────────────────────────────────
-struct UCFixture
+struct BoundaryUCFixture
 {
   Array<Bus> bus_array {
       {
@@ -113,7 +113,7 @@ struct UCFixture
   };
 };
 
-[[nodiscard]] Simulation make_uc_simulation()
+[[nodiscard]] Simulation make_boundary_uc_simulation()
 {
   return {
       .block_array =
@@ -178,11 +178,11 @@ struct UCFixture
   };
 }
 
-[[nodiscard]] System make_uc_system(const UCFixture& fx,
-                                    Array<VolumeRight> vrs,
-                                    Array<FlowRight> frs,
-                                    Array<UserConstraint> ucs,
-                                    std::string name)
+[[nodiscard]] System make_boundary_uc_system(const BoundaryUCFixture& fx,
+                                             Array<VolumeRight> vrs,
+                                             Array<FlowRight> frs,
+                                             Array<UserConstraint> ucs,
+                                             std::string name)
 {
   return {
       .name = std::move(name),
@@ -289,15 +289,15 @@ TEST_CASE(  // NOLINT
   // column bounds; the distinction is intent, not LP shape.
   //
   // The balance 0+0+0 = 0+0 is trivially satisfied.
-  const UCFixture fx;
+  const BoundaryUCFixture fx;
   constexpr Real kQmax = 0.0;
   const auto frs = make_invernada_rights(kQmax, /*discharge=*/0.0);
   const Array<UserConstraint> ucs = {make_invernada_balance_uc()};
 
   const auto system =
-      make_uc_system(fx, {}, frs, ucs, "Tier8_6b_Invernada_fmax_zero");
+      make_boundary_uc_system(fx, {}, frs, ucs, "Tier8_6b_Invernada_fmax_zero");
   const PlanningOptionsLP options;
-  SimulationLP simulation_lp(make_uc_simulation(), options);
+  SimulationLP simulation_lp(make_boundary_uc_simulation(), options);
   SystemLP system_lp(system, simulation_lp);
   auto&& lp = system_lp.linear_interface();
 
@@ -351,7 +351,7 @@ TEST_CASE(  // NOLINT
   // TODO(phase-C): once priced slacks on the balance row land, this
   // test should assert that col_sol[embalsar] >= col_sol[no_embalsar]
   // when use_value[embalsar] is strictly more generous.
-  const UCFixture fx;
+  const BoundaryUCFixture fx;
   constexpr Real kQmax = 200.0;
   auto frs = make_invernada_rights(kQmax, /*discharge=*/0.0);
   // Cheaper to activate embalsar (larger benefit → larger negative
@@ -361,10 +361,10 @@ TEST_CASE(  // NOLINT
   frs[4].use_value = 1.0;  // inv_no_embalsar
   const Array<UserConstraint> ucs = {make_invernada_balance_uc()};
 
-  const auto system = make_uc_system(
+  const auto system = make_boundary_uc_system(
       fx, {}, std::move(frs), ucs, "Tier8_6b_Invernada_embalsar_preferred");
   const PlanningOptionsLP options;
-  SimulationLP simulation_lp(make_uc_simulation(), options);
+  SimulationLP simulation_lp(make_boundary_uc_simulation(), options);
   SystemLP system_lp(system, simulation_lp);
   auto&& lp = system_lp.linear_interface();
 
@@ -383,17 +383,17 @@ TEST_CASE(  // NOLINT
 {
   // Mirror of Test 2 with the use_value biases flipped.  Same
   // feasibility-only caveat applies — see the TODO in Test 2.
-  const UCFixture fx;
+  const BoundaryUCFixture fx;
   constexpr Real kQmax = 200.0;
   auto frs = make_invernada_rights(kQmax, /*discharge=*/0.0);
   frs[3].use_value = 1.0;  // inv_embalsar
   frs[4].use_value = 100.0;  // inv_no_embalsar
   const Array<UserConstraint> ucs = {make_invernada_balance_uc()};
 
-  const auto system = make_uc_system(
+  const auto system = make_boundary_uc_system(
       fx, {}, std::move(frs), ucs, "Tier8_6b_Invernada_bypass_preferred");
   const PlanningOptionsLP options;
-  SimulationLP simulation_lp(make_uc_simulation(), options);
+  SimulationLP simulation_lp(make_boundary_uc_simulation(), options);
   SystemLP system_lp(system, simulation_lp);
   auto&& lp = system_lp.linear_interface();
 
@@ -422,7 +422,7 @@ TEST_CASE(  // NOLINT
   // fmax = 200, so the max feasible LHS sum is 3·200 = 600.  A
   // second UserConstraint forces the sum ≥ 1200 = 6·kQmax, well
   // above what the column bounds can deliver — infeasible.
-  const UCFixture fx;
+  const BoundaryUCFixture fx;
   constexpr Real kQmax = 200.0;
   const auto frs = make_invernada_rights(kQmax, /*discharge=*/0.0);
   const Array<UserConstraint> ucs = {
@@ -436,10 +436,10 @@ TEST_CASE(  // NOLINT
       },
   };
 
-  const auto system =
-      make_uc_system(fx, {}, frs, ucs, "Tier8_6b_Invernada_hard_infeasible");
+  const auto system = make_boundary_uc_system(
+      fx, {}, frs, ucs, "Tier8_6b_Invernada_hard_infeasible");
   const PlanningOptionsLP options;
-  SimulationLP simulation_lp(make_uc_simulation(), options);
+  SimulationLP simulation_lp(make_boundary_uc_simulation(), options);
   SystemLP system_lp(system, simulation_lp);
   auto&& lp = system_lp.linear_interface();
 
@@ -478,10 +478,10 @@ TEST_CASE(  // NOLINT
   //     = 10 × 24 × 3600 / 1000
   //     = 864
   // Gap = 600 m³/s → total raw LP objective = 600 × 864 = 518 400.
-  // `make_uc_simulation()` uses a single 24-hour block, so the
+  // `make_boundary_uc_simulation()` uses a single 24-hour block, so the
   // duration factor is non-trivial — this is exactly what the
   // `PenaltyClass::HydroFlow` conversion is supposed to pick up.
-  const UCFixture fx;
+  const BoundaryUCFixture fx;
   constexpr Real kLhs = 200.0;  // m³/s pinned per LHS flow
   constexpr Real kPenalty = 10.0;  // $/m³
   const Array<FlowRight> frs {
@@ -525,10 +525,10 @@ TEST_CASE(  // NOLINT
       make_invernada_balance_soft_uc(kPenalty),
   };
 
-  const auto system =
-      make_uc_system(fx, {}, frs, ucs, "Tier8_6b_Invernada_soft_feasible");
+  const auto system = make_boundary_uc_system(
+      fx, {}, frs, ucs, "Tier8_6b_Invernada_soft_feasible");
   const PlanningOptionsLP options;
-  SimulationLP simulation_lp(make_uc_simulation(), options);
+  SimulationLP simulation_lp(make_boundary_uc_simulation(), options);
   SystemLP system_lp(system, simulation_lp);
   auto&& lp = system_lp.linear_interface();
 
@@ -555,15 +555,15 @@ TEST_CASE(  // NOLINT
   // This locks down the registry plumbing for the Phase C soft tests,
   // which will need registry access to introspect newly-created slack
   // columns named after the `penalty_class` tag.
-  const UCFixture fx;
+  const BoundaryUCFixture fx;
   constexpr Real kQmax = 200.0;
   const auto frs = make_invernada_rights(kQmax, /*discharge=*/0.0);
   const Array<UserConstraint> ucs = {make_invernada_balance_uc()};
 
-  const auto system =
-      make_uc_system(fx, {}, frs, ucs, "Tier8_6b_Invernada_registry_columns");
+  const auto system = make_boundary_uc_system(
+      fx, {}, frs, ucs, "Tier8_6b_Invernada_registry_columns");
   const PlanningOptionsLP options;
-  SimulationLP simulation_lp(make_uc_simulation(), options);
+  SimulationLP simulation_lp(make_boundary_uc_simulation(), options);
   SystemLP system_lp(system, simulation_lp);
   auto&& lp = system_lp.linear_interface();
   const auto result = lp.resolve();
@@ -612,7 +612,7 @@ TEST_CASE(  // NOLINT
   // TODO(p2-ecost): once the cost term is added to the template,
   // flip this test to assert a non-zero objective coefficient on
   // the eini/extraction column for the accumulator.
-  const UCFixture fx;
+  const BoundaryUCFixture fx;
   const Array<VolumeRight> vrs = {
       {
           .uid = Uid {30},
@@ -628,7 +628,7 @@ TEST_CASE(  // NOLINT
   // TODO(phase-C): this test is a documentation placeholder for the
   // missing `ecost` term on the economia-invernada accumulator.  The
   // full assembly pipeline (simulation → system → LP) under the
-  // UCFixture does not currently surface the VolumeRight column
+  // BoundaryUCFixture does not currently surface the VolumeRight column
   // through `find_ampl_col`; the P2 followup that adds the cost term
   // will also wire the registry lookup so this test can flip to a
   // non-zero objective-coefficient assertion.
