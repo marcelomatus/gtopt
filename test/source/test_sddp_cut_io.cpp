@@ -6,6 +6,8 @@
  *
  * Tests:
  *  1. build_phase_uid_map produces correct mapping from phase UIDs
+ *  1b. build_scene_uid_map produces correct mapping from scene UIDs
+ *  1c. effective_scale_alpha returns explicit or auto-computed value
  *  2. save_cuts_csv / load_cuts_csv round-trip preserves cuts
  *  3. load_cuts_csv handles empty files gracefully
  *  4. save_scene_cuts_csv creates per-scene files
@@ -108,6 +110,63 @@ TEST_CASE("build_phase_uid_map with single-phase planning")  // NOLINT
   // Verify there is exactly one entry mapping to PhaseIndex{0}
   const auto it = phase_map.begin();
   CHECK(it->second == first_phase_index());
+}
+
+// ─── build_scene_uid_map tests ──────────────────────────────────────────────
+
+TEST_CASE("build_scene_uid_map produces correct mapping")  // NOLINT
+{
+  auto planning = make_2scene_3phase_hydro_planning();
+  const PlanningLP planning_lp(std::move(planning));
+
+  const auto scene_map = build_scene_uid_map(planning_lp);
+
+  // 2-scene planning has UIDs 1, 2
+  REQUIRE(scene_map.size() == 2);
+  CHECK(scene_map.contains(make_uid<Scene>(1)));
+  CHECK(scene_map.contains(make_uid<Scene>(2)));
+
+  // Verify the indices map correctly
+  CHECK(scene_map.at(make_uid<Scene>(1)) == SceneIndex {0});
+  CHECK(scene_map.at(make_uid<Scene>(2)) == SceneIndex {1});
+}
+
+TEST_CASE("build_scene_uid_map with single-scene planning")  // NOLINT
+{
+  auto planning = make_3phase_hydro_planning();
+  const PlanningLP planning_lp(std::move(planning));
+
+  const auto scene_map = build_scene_uid_map(planning_lp);
+
+  // Default single-scene planning has 1 scene
+  REQUIRE(scene_map.size() == 1);
+
+  // Verify there is exactly one entry mapping to SceneIndex{0}
+  const auto it = scene_map.begin();
+  CHECK(it->second == SceneIndex {0});
+}
+
+// ─── effective_scale_alpha tests ────────────────────────────────────────────
+
+TEST_CASE(
+    "effective_scale_alpha returns explicit value when positive")  // NOLINT
+{
+  auto planning = make_3phase_hydro_planning();
+  const PlanningLP planning_lp(std::move(planning));
+
+  // When option > 0, it should be returned directly
+  const auto alpha = effective_scale_alpha(planning_lp, 42.0);
+  CHECK(alpha == doctest::Approx(42.0));
+}
+
+TEST_CASE("effective_scale_alpha auto-computes when zero")  // NOLINT
+{
+  auto planning = make_3phase_hydro_planning();
+  const PlanningLP planning_lp(std::move(planning));
+
+  // When option is 0.0, auto-compute from state variables
+  const auto alpha = effective_scale_alpha(planning_lp, 0.0);
+  CHECK(alpha >= 0.0);
 }
 
 // ─── save_cuts_csv tests ────────────────────────────────────────────────────

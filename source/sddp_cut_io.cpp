@@ -43,7 +43,7 @@ namespace gtopt
 
 // ─── UID lookup helpers ─────────────────────────────────────────────────────
 
-auto build_phase_uid_map(const PlanningLP& planning_lp)
+[[nodiscard]] auto build_phase_uid_map(const PlanningLP& planning_lp)
     -> flat_map<PhaseUid, PhaseIndex>
 {
   const auto& phases = planning_lp.simulation().phases();
@@ -55,7 +55,7 @@ auto build_phase_uid_map(const PlanningLP& planning_lp)
   return phase_map;
 }
 
-auto build_scene_uid_map(const PlanningLP& planning_lp)
+[[nodiscard]] auto build_scene_uid_map(const PlanningLP& planning_lp)
     -> flat_map<SceneUid, SceneIndex>
 {
   const auto& scenes = planning_lp.simulation().scenes();
@@ -71,8 +71,8 @@ auto build_scene_uid_map(const PlanningLP& planning_lp)
 
 // ─── Auto-scale alpha helper ────────────────────────────────────────────────
 
-auto effective_scale_alpha(const PlanningLP& planning_lp,
-                           double option_scale_alpha) -> double
+[[nodiscard]] auto effective_scale_alpha(const PlanningLP& planning_lp,
+                                         double option_scale_alpha) -> double
 {
   if (option_scale_alpha > 0.0) {
     return option_scale_alpha;
@@ -210,10 +210,10 @@ void write_cut_coefficients_unscaled(std::ostream& ofs,
 
 // ─── Save functions ─────────────────────────────────────────────────────────
 
-auto save_cuts_csv(std::span<const StoredCut> cuts,
-                   const PlanningLP& planning_lp,
-                   const std::string& filepath,
-                   bool append_mode) -> std::expected<void, Error>
+[[nodiscard]] auto save_cuts_csv(std::span<const StoredCut> cuts,
+                                 const PlanningLP& planning_lp,
+                                 const std::string& filepath,
+                                 bool append_mode) -> std::expected<void, Error>
 {
   try {
     // Ensure parent directory exists before writing
@@ -303,11 +303,11 @@ auto save_cuts_csv(std::span<const StoredCut> cuts,
   }
 }
 
-auto save_scene_cuts_csv(std::span<const StoredCut> cuts,
-                         SceneIndex scene_index,
-                         SceneUid scene_uid,
-                         const PlanningLP& planning_lp,
-                         const std::string& directory)
+[[nodiscard]] auto save_scene_cuts_csv(std::span<const StoredCut> cuts,
+                                       SceneIndex scene_index,
+                                       SceneUid scene_uid,
+                                       const PlanningLP& planning_lp,
+                                       const std::string& directory)
     -> std::expected<void, Error>
 {
   try {
@@ -395,7 +395,7 @@ auto save_scene_cuts_csv(std::span<const StoredCut> cuts,
 
 // ─── Load functions ─────────────────────────────────────────────────────────
 
-auto load_cuts_csv(
+[[nodiscard]] auto load_cuts_csv(
     PlanningLP& planning_lp,
     const std::string& filepath,
     double scale_alpha,
@@ -780,7 +780,7 @@ auto load_cuts_csv(
   }
 }
 
-auto load_scene_cuts_from_directory(
+[[nodiscard]] auto load_scene_cuts_from_directory(
     PlanningLP& planning_lp,
     const std::string& directory,
     double scale_alpha,
@@ -834,7 +834,7 @@ auto load_scene_cuts_from_directory(
 
 // ─── Boundary (future-cost) cuts ────────────────────────────────────────────
 
-auto load_boundary_cuts_csv(
+[[nodiscard]] auto load_boundary_cuts_csv(
     PlanningLP& planning_lp,
     const std::string& filepath,
     const SDDPOptions& options,
@@ -1221,7 +1221,7 @@ auto load_boundary_cuts_csv(
 
 // ─── Named hot-start cuts (all phases, named state variables) ───────────────
 
-auto load_named_cuts_csv(
+[[nodiscard]] auto load_named_cuts_csv(
     PlanningLP& planning_lp,
     const std::string& filepath,
     const SDDPOptions& options,
@@ -1534,9 +1534,10 @@ auto load_named_cuts_csv(
 
 // ─── JSON save functions ────────────────────────────────────────────────────
 
-auto save_cuts_json(std::span<const StoredCut> cuts,
-                    const PlanningLP& planning_lp,
-                    const std::string& filepath) -> std::expected<void, Error>
+[[nodiscard]] auto save_cuts_json(std::span<const StoredCut> cuts,
+                                  const PlanningLP& planning_lp,
+                                  const std::string& filepath)
+    -> std::expected<void, Error>
 {
   try {
     const auto parent = std::filesystem::path(filepath).parent_path();
@@ -1634,11 +1635,11 @@ auto save_cuts_json(std::span<const StoredCut> cuts,
   }
 }
 
-auto save_scene_cuts_json(std::span<const StoredCut> cuts,
-                          [[maybe_unused]] SceneIndex scene_index,
-                          SceneUid scene_uid,
-                          const PlanningLP& planning_lp,
-                          const std::string& directory)
+[[nodiscard]] auto save_scene_cuts_json(std::span<const StoredCut> cuts,
+                                        [[maybe_unused]] SceneIndex scene_index,
+                                        SceneUid scene_uid,
+                                        const PlanningLP& planning_lp,
+                                        const std::string& directory)
     -> std::expected<void, Error>
 {
   std::filesystem::create_directories(directory);
@@ -1651,7 +1652,7 @@ auto save_scene_cuts_json(std::span<const StoredCut> cuts,
 
 // ─── JSON load function ────────────────────────────────────────────────────
 
-auto load_cuts_json(
+[[nodiscard]] auto load_cuts_json(
     PlanningLP& planning_lp,
     const std::string& filepath,
     double scale_alpha,
@@ -1850,11 +1851,11 @@ auto load_cuts_json(
 
 // ─── Format-dispatching functions ──────────────────────────────────────────
 
-auto save_cuts(std::span<const StoredCut> cuts,
-               const PlanningLP& planning_lp,
-               const std::string& filepath,
-               CutIOFormat format,
-               bool append_mode) -> std::expected<void, Error>
+[[nodiscard]] auto save_cuts(std::span<const StoredCut> cuts,
+                             const PlanningLP& planning_lp,
+                             const std::string& filepath,
+                             CutIOFormat format,
+                             bool append_mode) -> std::expected<void, Error>
 {
   if (format == CutIOFormat::json) {
     // JSON does not support append mode — always overwrites
@@ -1863,7 +1864,7 @@ auto save_cuts(std::span<const StoredCut> cuts,
   return save_cuts_csv(cuts, planning_lp, filepath, append_mode);
 }
 
-auto load_cuts(
+[[nodiscard]] auto load_cuts(
     PlanningLP& planning_lp,
     const std::string& filepath,
     double scale_alpha,
