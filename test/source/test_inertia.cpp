@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: BSD-3-Clause
 #include <doctest/doctest.h>
 #include <gtopt/inertia_provision.hpp>
+#include <gtopt/inertia_provision_lp.hpp>
 #include <gtopt/inertia_zone.hpp>
 #include <gtopt/linear_interface.hpp>
 #include <gtopt/planning_options.hpp>
@@ -131,6 +132,22 @@ TEST_CASE("InertiaZoneLP - basic inertia requirement with provision")
   auto result = lp.resolve();
   REQUIRE(result.has_value());
   CHECK(result.value() == 0);
+
+  // Verify the provision variable is at its cap (50 MW = generator pmin).
+  // With Φ = H·S/pmin = 4·100/50 = 8, the provision contributes at most
+  // 8 · 50 = 400 MWs, so the 500 MWs requirement leaves a 100 MWs slack
+  // priced at 10'000 $/MWs.
+  const auto& ip_lps = system_lp.elements<InertiaProvisionLP>();
+  REQUIRE(ip_lps.size() == 1);
+  const auto& ip_lp = ip_lps.front();
+  const auto& scenario_lp = simulation_lp.scenarios().front();
+  const auto& stage_lp = simulation_lp.stages().front();
+  const auto& block_lp = simulation_lp.blocks().front();
+  const auto r_col =
+      ip_lp.lookup_provision_col(scenario_lp, stage_lp, block_lp.uid());
+  REQUIRE(r_col.has_value());
+  const auto r_val = lp.get_col_sol()[*r_col];
+  CHECK(r_val == doctest::Approx(50.0).epsilon(0.01));
 }
 
 TEST_CASE("InertiaZoneLP - explicit provision_factor")
@@ -187,6 +204,21 @@ TEST_CASE("InertiaZoneLP - explicit provision_factor")
   auto result = lp.resolve();
   REQUIRE(result.has_value());
   CHECK(result.value() == 0);
+
+  // Requirement 200 MWs with Φ=8 is feasible at r=25 MW (within
+  // provision_max = gen_pmin = 50).  With no cost on r_inertia and a
+  // large reserve_fail_cost penalty on the slack, the LP minimises r
+  // to exactly 25 MW (slack = 0).
+  const auto& ip_lps = system_lp.elements<InertiaProvisionLP>();
+  REQUIRE(ip_lps.size() == 1);
+  const auto& ip_lp = ip_lps.front();
+  const auto& scenario_lp = simulation_lp.scenarios().front();
+  const auto& stage_lp = simulation_lp.stages().front();
+  const auto& block_lp = simulation_lp.blocks().front();
+  const auto r_col =
+      ip_lp.lookup_provision_col(scenario_lp, stage_lp, block_lp.uid());
+  REQUIRE(r_col.has_value());
+  CHECK(lp.get_col_sol()[*r_col] == doctest::Approx(25.0).epsilon(0.01));
 }
 
 TEST_CASE("InertiaZoneLP - hard requirement (no cost)")

@@ -3,6 +3,7 @@
 #include <gtopt/linear_interface.hpp>
 #include <gtopt/planning_options.hpp>
 #include <gtopt/simple_commitment.hpp>
+#include <gtopt/simple_commitment_lp.hpp>
 #include <gtopt/simulation_lp.hpp>
 #include <gtopt/system_lp.hpp>
 
@@ -212,6 +213,19 @@ TEST_CASE("SimpleCommitmentLP - must run")
   auto result = lp.resolve();
   REQUIRE(result.has_value());
   CHECK(result.value() == 0);
+
+  // must_run = true clamps the status column to 1 via lower bound =
+  // upper bound = 1.  Verify the resolved value is exactly 1.
+  const auto& sc_lps = system_lp.elements<SimpleCommitmentLP>();
+  REQUIRE(sc_lps.size() == 1);
+  const auto& sc_lp = sc_lps.front();
+  const auto& scenario_lp = simulation_lp.scenarios().front();
+  const auto& stage_lp = simulation_lp.stages().front();
+  const auto& block_lp = simulation_lp.blocks().front();
+  const auto u_col =
+      sc_lp.lookup_status_col(scenario_lp, stage_lp, block_lp.uid());
+  REQUIRE(u_col.has_value());
+  CHECK(lp.get_col_sol()[*u_col] == doctest::Approx(1.0).epsilon(0.001));
 }
 
 TEST_CASE("SimpleCommitmentLP - dispatch_pmin defaults to generator pmin")
