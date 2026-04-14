@@ -2,6 +2,7 @@
 #include <string_view>
 
 #include <doctest/doctest.h>
+#include <gtopt/json/json_parse_policy.hpp>
 #include <gtopt/json/json_planning.hpp>
 #include <gtopt/planning.hpp>
 #include <gtopt/planning_lp.hpp>
@@ -89,7 +90,8 @@ TEST_CASE("Planning - JSON serialization/deserialization")
   const auto json_data = daw::json::to_json(original);
 
   // Should be able to deserialize back to an object
-  const auto deserialized = daw::json::from_json<Planning>(json_data);
+  const auto deserialized =
+      daw::json::from_json<Planning>(json_data, StrictParsePolicy);
 
   // Verify the deserialized object
   CHECK(deserialized.system.name == "JsonSystem");
@@ -337,7 +339,8 @@ TEST_CASE("PlanningLP - Run with write_only flag")
       .generator_array = generator_array,
   };
 
-  // Create planning with names_level=1 so LP files include row names.
+  // Create planning; name-bearing bool fields are set directly on
+  // flat_options below so LP files include row/column names.
   const Planning planning {
       .options = {.demand_fail_cost = 1000.0},
       .simulation = simulation,
@@ -963,7 +966,6 @@ TEST_CASE("PlanningLP - auto_scale_theta with const Planning")
 static constexpr std::string_view planning_json = R"({
   "options": {
     "annual_discount_rate": 0.1,
-    "lp_matrix_options": {"names_level": 1},
     "output_compression": "uncompressed",
     "demand_fail_cost": 1000,
     "scale_objective": 1000
@@ -1020,7 +1022,8 @@ static constexpr std::string_view planning_json = R"({
 
 TEST_CASE("Planning JSON parse and solve")
 {
-  auto planning = daw::json::from_json<Planning>(planning_json);
+  auto planning =
+      daw::json::from_json<Planning>(planning_json, StrictParsePolicy);
 
   CHECK(planning.system.name == "json_test_system");
   CHECK(planning.system.bus_array.size() == 2);
@@ -1098,7 +1101,8 @@ static constexpr std::string_view hydro_planning_json = R"({
 
 TEST_CASE("Planning JSON parse and solve - hydro system")
 {
-  auto planning = daw::json::from_json<Planning>(hydro_planning_json);
+  auto planning =
+      daw::json::from_json<Planning>(hydro_planning_json, StrictParsePolicy);
 
   CHECK(planning.system.name == "hydro_json_test");
   CHECK(planning.system.junction_array.size() == 2);

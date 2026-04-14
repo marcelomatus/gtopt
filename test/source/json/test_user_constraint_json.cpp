@@ -10,6 +10,7 @@
 #include <vector>
 
 #include <doctest/doctest.h>
+#include <gtopt/json/json_parse_policy.hpp>
 #include <gtopt/json/json_system.hpp>
 #include <gtopt/json/json_user_constraint.hpp>
 #include <gtopt/user_constraint.hpp>
@@ -166,7 +167,7 @@ TEST_CASE("System JSON with user_constraint_array")
     ]
   })json";
 
-  const auto sys = daw::json::from_json<System>(json_data);
+  const auto sys = daw::json::from_json<System>(json_data, StrictParsePolicy);
 
   CHECK(sys.name == "test_system");
   CHECK(sys.bus_array.size() == 1);
@@ -187,7 +188,7 @@ TEST_CASE("System JSON with user_constraint_file")
     "user_constraint_file": "constraints.json"
   })";
 
-  const auto sys = daw::json::from_json<System>(json_data);
+  const auto sys = daw::json::from_json<System>(json_data, StrictParsePolicy);
 
   CHECK(sys.user_constraint_array.empty());
   REQUIRE(sys.user_constraint_file.has_value());
@@ -218,7 +219,7 @@ TEST_CASE("System JSON round-trip preserves user constraints")
   sys.user_constraint_file = "external.json";
 
   auto json = daw::json::to_json(sys);
-  const auto roundtrip = daw::json::from_json<System>(json);
+  const auto roundtrip = daw::json::from_json<System>(json, StrictParsePolicy);
 
   REQUIRE(roundtrip.user_constraint_array.size() == 1);
   CHECK(roundtrip.user_constraint_array[0].uid == 1);

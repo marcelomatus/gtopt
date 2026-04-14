@@ -1,6 +1,7 @@
 #include <string>
 
 #include <doctest/doctest.h>
+#include <gtopt/json/json_parse_policy.hpp>
 #include <gtopt/json/json_planning.hpp>
 
 using namespace gtopt;  // NOLINT(google-global-names-in-headers)
@@ -46,7 +47,8 @@ TEST_CASE("JSON Planning - Round trip serialization")
   const auto json_data = daw::json::to_json(original);
 
   // Deserialize back to an object
-  const auto deserialized = daw::json::from_json<Planning>(json_data);
+  const auto deserialized =
+      daw::json::from_json<Planning>(json_data, StrictParsePolicy);
 
   // Verify the deserialized object matches the original
   CHECK(deserialized.system.name == original.system.name);
@@ -69,7 +71,8 @@ TEST_CASE("JSON Planning - Partial filled objects")
 
   // Serialize and deserialize
   const auto json_data1 = daw::json::to_json(opt1);
-  const auto deserialized1 = daw::json::from_json<Planning>(json_data1);
+  const auto deserialized1 =
+      daw::json::from_json<Planning>(json_data1, StrictParsePolicy);
 
   // Check that partial filling works correctly
   CHECK(deserialized1.system.name.empty());
@@ -81,7 +84,8 @@ TEST_CASE("JSON Planning - Partial filled objects")
 
   // Serialize and deserialize
   const auto json_data2 = daw::json::to_json(opt2);
-  const auto deserialized2 = daw::json::from_json<Planning>(json_data2);
+  const auto deserialized2 =
+      daw::json::from_json<Planning>(json_data2, StrictParsePolicy);
 
   // Check that partial filling works correctly
   CHECK(deserialized2.system.name == "TestSystem");

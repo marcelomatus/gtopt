@@ -20,6 +20,7 @@
 
 #include <daw/daw_read_file.h>
 #include <gtopt/gtopt_json_io.hpp>
+#include <gtopt/json/json_parse_policy.hpp>
 #include <gtopt/json/json_planning.hpp>
 #include <spdlog/spdlog.h>
 #include <spdlog/stopwatch.h>
@@ -32,17 +33,6 @@ namespace detail
 {
 Planning parse_planning_exact(std::string_view json);
 }  // namespace detail
-
-namespace
-{
-
-constexpr auto StrictParsePolicy = daw::json::options::parse_flags<
-    daw::json::options::PolicyCommentTypes::hash,
-    daw::json::options::CheckedParseMode::yes,
-    daw::json::options::ExcludeSpecialEscapes::yes,
-    daw::json::options::UseExactMappingsByDefault::no>;
-
-}  // namespace
 
 std::expected<Planning, std::string> parse_planning_files(
     const std::vector<std::string>& planning_files,

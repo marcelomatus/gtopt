@@ -2,6 +2,7 @@
 
 #include <doctest/doctest.h>
 #include <gtopt/json/json_options.hpp>
+#include <gtopt/json/json_parse_policy.hpp>
 
 using namespace gtopt;  // NOLINT(google-global-names-in-headers)
 
@@ -24,14 +25,12 @@ TEST_CASE("json_options - Deserialization of Options from JSON")
     "output_format": "csv",
     "output_compression": "gzip",
     "use_uid_fname": false,
-    "annual_discount_rate": 0.05,
-    "lp_matrix_options": {
-      "names_level": 1
-    }
+    "annual_discount_rate": 0.05
   })";
 
   // Deserialize from JSON
-  const auto options = daw::json::from_json<PlanningOptions>(json_string);
+  const auto options =
+      daw::json::from_json<PlanningOptions>(json_string, StrictParsePolicy);
 
   // Check all fields are correctly deserialized
   REQUIRE(options.input_directory.has_value());
@@ -123,7 +122,8 @@ TEST_CASE(
   })";
 
   // Deserialize from JSON
-  const auto options = daw::json::from_json<PlanningOptions>(json_string);
+  const auto options =
+      daw::json::from_json<PlanningOptions>(json_string, StrictParsePolicy);
 
   // Check populated fields
   REQUIRE(options.input_directory.has_value());
@@ -174,7 +174,8 @@ TEST_CASE("json_options - Round-trip serialization and deserialization")
   const auto json_data = daw::json::to_json(original);
 
   // Deserialize back to Options
-  const auto deserialized = daw::json::from_json<PlanningOptions>(json_data);
+  const auto deserialized =
+      daw::json::from_json<PlanningOptions>(json_data, StrictParsePolicy);
 
   // Check all fields match
   CHECK(deserialized.input_directory == original.input_directory);
@@ -211,7 +212,8 @@ TEST_CASE("json_options - Solver options fields JSON round-trip")  // NOLINT
   };
 
   const auto json_data = daw::json::to_json(original);
-  const auto deserialized = daw::json::from_json<PlanningOptions>(json_data);
+  const auto deserialized =
+      daw::json::from_json<PlanningOptions>(json_data, StrictParsePolicy);
 
   CHECK(deserialized.solver_options.algorithm == LPAlgo::dual);
   CHECK(deserialized.solver_options.threads == 4);
@@ -233,7 +235,8 @@ TEST_CASE(
     }
   })";
 
-  const auto options = daw::json::from_json<PlanningOptions>(json_string);
+  const auto options =
+      daw::json::from_json<PlanningOptions>(json_string, StrictParsePolicy);
 
   CHECK(options.solver_options.algorithm == LPAlgo::primal);
   CHECK(options.solver_options.threads == 2);

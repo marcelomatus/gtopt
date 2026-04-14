@@ -480,7 +480,7 @@ TEST_CASE("gtopt_main - lp_algorithm from JSON options")  // NOLINT
     "options": {
       "demand_fail_cost": 1000,
       "output_compression": "uncompressed",
-      "lp_algorithm": 1
+      "solver_options": {"algorithm": 1}
     },
     "simulation": {
       "block_array": [{"uid": 1, "duration": 1}],
@@ -521,7 +521,7 @@ TEST_CASE("gtopt_main - presolve=false solves correctly")  // NOLINT
     "options": {
       "demand_fail_cost": 1000,
       "output_compression": "uncompressed",
-      "lp_presolve": false
+      "solver_options": {"presolve": false}
     },
     "simulation": {
       "block_array": [{"uid": 1, "duration": 1}],
@@ -589,10 +589,12 @@ TEST_CASE("gtopt_main - lp_debug writes LP files to log directory")  // NOLINT
   std::filesystem::remove_all(log_dir);
 }
 
-TEST_CASE("gtopt_main - check_json=true warns on unknown fields")  // NOLINT
+TEST_CASE("gtopt_main - unknown JSON fields cause hard failure")  // NOLINT
 {
-  // JSON with an unknown field "bogus_option" to trigger the ExactParsePolicy
-  // pre-pass warning.  Covers lines 127-136 (check_json branch).
+  // With UseExactMappingsByDefault=yes on the production parser, any unknown
+  // JSON key in the planning file causes a hard parse failure.  This replaces
+  // the earlier check_json=true warning path (now redundant because the normal
+  // parser always rejects unknowns).
   constexpr auto json_with_unknown = R"({
     "options": {
       "demand_fail_cost": 1000,
@@ -622,9 +624,9 @@ TEST_CASE("gtopt_main - check_json=true warns on unknown fields")  // NOLINT
       .lp_only = true,
       .check_json = true,
   });
-  // The unknown field triggers a warning but parsing still succeeds
-  REQUIRE(result.has_value());
-  CHECK(*result == 0);
+  // Unknown field now hard-fails regardless of check_json: gtopt_main returns
+  // an error result (std::unexpected), not just a warning.
+  REQUIRE_FALSE(result.has_value());
 }
 
 TEST_CASE("gtopt_main - output_format=parquet full solve")  // NOLINT
@@ -749,8 +751,7 @@ TEST_CASE(
     "options": {
       "demand_fail_cost": 1000,
       "output_compression": "uncompressed",
-      "lp_threads": 1,
-      "lp_presolve": false
+      "solver_options": {"threads": 1, "presolve": false}
     },
     "simulation": {
       "block_array": [{"uid": 1, "duration": 1}],

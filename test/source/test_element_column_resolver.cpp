@@ -14,6 +14,7 @@
 #include <string_view>
 
 #include <doctest/doctest.h>
+#include <gtopt/json/json_parse_policy.hpp>
 #include <gtopt/json/json_planning.hpp>
 #include <gtopt/planning_lp.hpp>
 #include <gtopt/system_lp.hpp>
@@ -28,7 +29,6 @@ using namespace gtopt;  // NOLINT(google-global-names-in-headers)
 static constexpr std::string_view resolver_diverse_json = R"json({
   "options": {
     "annual_discount_rate": 0.0,
-    "lp_matrix_options": {"names_level": 1},
     "output_format": "csv",
     "output_compression": "uncompressed",
     "use_single_bus": true,
@@ -107,7 +107,6 @@ static constexpr std::string_view resolver_diverse_json = R"json({
 static constexpr std::string_view resolver_uid_ref_json = R"json({
   "options": {
     "annual_discount_rate": 0.0,
-    "lp_matrix_options": {"names_level": 1},
     "output_format": "csv",
     "output_compression": "uncompressed",
     "use_single_bus": true,
@@ -141,7 +140,6 @@ static constexpr std::string_view resolver_uid_ref_json = R"json({
 static constexpr std::string_view resolver_unknown_json = R"json({
   "options": {
     "annual_discount_rate": 0.0,
-    "lp_matrix_options": {"names_level": 1},
     "output_format": "csv",
     "output_compression": "uncompressed",
     "use_single_bus": true,
@@ -184,7 +182,8 @@ TEST_CASE(  // NOLINT
     "element_column_resolver - diverse element types solve correctly")
 {
   Planning base;
-  base.merge(daw::json::from_json<Planning>(resolver_diverse_json));
+  base.merge(
+      daw::json::from_json<Planning>(resolver_diverse_json, StrictParsePolicy));
   PlanningLP planning_lp(std::move(base));
   auto result = planning_lp.resolve();
 
@@ -200,7 +199,8 @@ TEST_CASE(  // NOLINT
   // With constraint g1+g2<=400: total gen limited.  Demand is 100+100=200
   // in two blocks so constraint shouldn't bind.  Check solve succeeds.
   Planning base;
-  base.merge(daw::json::from_json<Planning>(resolver_diverse_json));
+  base.merge(
+      daw::json::from_json<Planning>(resolver_diverse_json, StrictParsePolicy));
   PlanningLP planning_lp(std::move(base));
   auto result = planning_lp.resolve();
 
@@ -218,7 +218,8 @@ TEST_CASE(  // NOLINT
   // With 2 generators and demand of ~200, this shouldn't bind but should
   // resolve both generator columns.
   Planning base;
-  base.merge(daw::json::from_json<Planning>(resolver_diverse_json));
+  base.merge(
+      daw::json::from_json<Planning>(resolver_diverse_json, StrictParsePolicy));
   PlanningLP planning_lp(std::move(base));
   auto result = planning_lp.resolve();
 
@@ -231,7 +232,8 @@ TEST_CASE(  // NOLINT
 {
   // generator(1).generation uses uid:1 form internally
   Planning base;
-  base.merge(daw::json::from_json<Planning>(resolver_uid_ref_json));
+  base.merge(
+      daw::json::from_json<Planning>(resolver_uid_ref_json, StrictParsePolicy));
   PlanningLP planning_lp(std::move(base));
   auto result = planning_lp.resolve();
 
@@ -249,7 +251,8 @@ TEST_CASE(  // NOLINT
   // Constraints referencing nonexistent elements or unknown attributes
   // should be silently skipped (no rows added, no crash).
   Planning base;
-  base.merge(daw::json::from_json<Planning>(resolver_unknown_json));
+  base.merge(
+      daw::json::from_json<Planning>(resolver_unknown_json, StrictParsePolicy));
   PlanningLP planning_lp(std::move(base));
   auto result = planning_lp.resolve();
 
@@ -266,8 +269,7 @@ TEST_CASE(  // NOLINT
   static constexpr std::string_view bat_energy_json = R"json({
     "options": {
       "annual_discount_rate": 0.0,
-      "lp_matrix_options": {"names_level": 1},
-      "output_format": "csv",
+        "output_format": "csv",
       "output_compression": "uncompressed",
       "use_single_bus": true,
       "demand_fail_cost": 1000,
@@ -306,7 +308,8 @@ TEST_CASE(  // NOLINT
   })json";
 
   Planning base;
-  base.merge(daw::json::from_json<Planning>(bat_energy_json));
+  base.merge(
+      daw::json::from_json<Planning>(bat_energy_json, StrictParsePolicy));
   PlanningLP planning_lp(std::move(base));
   auto result = planning_lp.resolve();
 
@@ -352,7 +355,7 @@ TEST_CASE("ElementColumnResolver - uid syntax in constraint")  // NOLINT
   })json";
 
   Planning base;
-  base.merge(daw::json::from_json<Planning>(uid_ref_json));
+  base.merge(daw::json::from_json<Planning>(uid_ref_json, StrictParsePolicy));
   PlanningLP planning_lp(std::move(base));
   auto result = planning_lp.resolve();
 
@@ -400,7 +403,7 @@ TEST_CASE(  // NOLINT
   })json";
 
   Planning base;
-  base.merge(daw::json::from_json<Planning>(bad_ref_json));
+  base.merge(daw::json::from_json<Planning>(bad_ref_json, StrictParsePolicy));
   PlanningLP planning_lp(std::move(base));
   // Should still solve — the constraint with unresolved element is skipped
   auto result = planning_lp.resolve();
@@ -420,8 +423,7 @@ TEST_CASE(  // NOLINT
   static constexpr std::string_view capainst_json = R"json({
     "options": {
       "annual_discount_rate": 0.0,
-      "lp_matrix_options": {"names_level": 1},
-      "output_format": "csv",
+        "output_format": "csv",
       "output_compression": "uncompressed",
       "use_single_bus": true,
       "demand_fail_cost": 1000,
@@ -456,7 +458,7 @@ TEST_CASE(  // NOLINT
   })json";
 
   Planning base;
-  base.merge(daw::json::from_json<Planning>(capainst_json));
+  base.merge(daw::json::from_json<Planning>(capainst_json, StrictParsePolicy));
   PlanningLP planning_lp(std::move(base));
   auto result = planning_lp.resolve();
 
@@ -478,8 +480,7 @@ TEST_CASE(  // NOLINT
   static constexpr std::string_view capacost_json = R"json({
     "options": {
       "annual_discount_rate": 0.0,
-      "lp_matrix_options": {"names_level": 1},
-      "output_format": "csv",
+        "output_format": "csv",
       "output_compression": "uncompressed",
       "use_single_bus": true,
       "demand_fail_cost": 1000,
@@ -518,7 +519,7 @@ TEST_CASE(  // NOLINT
   })json";
 
   Planning base;
-  base.merge(daw::json::from_json<Planning>(capacost_json));
+  base.merge(daw::json::from_json<Planning>(capacost_json, StrictParsePolicy));
   PlanningLP planning_lp(std::move(base));
   auto result = planning_lp.resolve();
 
@@ -537,8 +538,7 @@ TEST_CASE(  // NOLINT
   static constexpr std::string_view bat_state_json = R"json({
     "options": {
       "annual_discount_rate": 0.0,
-      "lp_matrix_options": {"names_level": 1},
-      "output_format": "csv",
+        "output_format": "csv",
       "output_compression": "uncompressed",
       "use_single_bus": true,
       "demand_fail_cost": 1000,
@@ -585,7 +585,7 @@ TEST_CASE(  // NOLINT
   })json";
 
   Planning base;
-  base.merge(daw::json::from_json<Planning>(bat_state_json));
+  base.merge(daw::json::from_json<Planning>(bat_state_json, StrictParsePolicy));
   PlanningLP planning_lp(std::move(base));
   auto result = planning_lp.resolve();
 
@@ -605,8 +605,7 @@ TEST_CASE(  // NOLINT
   static constexpr std::string_view rsv_state_json = R"json({
     "options": {
       "annual_discount_rate": 0.0,
-      "lp_matrix_options": {"names_level": 1},
-      "output_format": "csv",
+        "output_format": "csv",
       "output_compression": "uncompressed",
       "use_single_bus": true,
       "demand_fail_cost": 1000,
@@ -656,7 +655,7 @@ TEST_CASE(  // NOLINT
   })json";
 
   Planning base;
-  base.merge(daw::json::from_json<Planning>(rsv_state_json));
+  base.merge(daw::json::from_json<Planning>(rsv_state_json, StrictParsePolicy));
   PlanningLP planning_lp(std::move(base));
   auto result = planning_lp.resolve();
 
@@ -675,8 +674,7 @@ TEST_CASE(  // NOLINT
   static constexpr std::string_view sum_bus_json = R"json({
     "options": {
       "annual_discount_rate": 0.0,
-      "lp_matrix_options": {"names_level": 1},
-      "output_format": "csv",
+        "output_format": "csv",
       "output_compression": "uncompressed",
       "use_single_bus": false,
       "use_kirchhoff": true,
@@ -715,7 +713,7 @@ TEST_CASE(  // NOLINT
   })json";
 
   Planning base;
-  base.merge(daw::json::from_json<Planning>(sum_bus_json));
+  base.merge(daw::json::from_json<Planning>(sum_bus_json, StrictParsePolicy));
   PlanningLP planning_lp(std::move(base));
   auto result = planning_lp.resolve();
 
@@ -737,8 +735,7 @@ TEST_CASE(  // NOLINT
   static constexpr std::string_view vrt_state_json = R"json({
     "options": {
       "annual_discount_rate": 0.0,
-      "lp_matrix_options": {"names_level": 1},
-      "output_format": "csv",
+        "output_format": "csv",
       "output_compression": "uncompressed",
       "use_single_bus": true,
       "demand_fail_cost": 1000,
@@ -789,7 +786,7 @@ TEST_CASE(  // NOLINT
   })json";
 
   Planning base;
-  base.merge(daw::json::from_json<Planning>(vrt_state_json));
+  base.merge(daw::json::from_json<Planning>(vrt_state_json, StrictParsePolicy));
   PlanningLP planning_lp(std::move(base));
   auto result = planning_lp.resolve();
 
@@ -815,7 +812,6 @@ TEST_CASE(  // NOLINT
 static constexpr std::string_view resolver_scale_aware_json = R"json({
   "options": {
     "annual_discount_rate": 0.0,
-    "lp_matrix_options": {"names_level": 2},
     "output_format": "csv",
     "output_compression": "uncompressed",
     "use_single_bus": true,
@@ -884,7 +880,8 @@ TEST_CASE(  // NOLINT
   //
   // Both constraints should be properly resolved and the LP should solve.
   Planning base;
-  base.merge(daw::json::from_json<Planning>(resolver_scale_aware_json));
+  base.merge(daw::json::from_json<Planning>(resolver_scale_aware_json,
+                                            StrictParsePolicy));
   PlanningLP planning_lp(std::move(base));
   auto result = planning_lp.resolve();
 
