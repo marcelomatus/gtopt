@@ -142,14 +142,11 @@ class SimulationWriter:
             probability_factors = [1.0 / num_scenarios] * num_scenarios
 
         scenarios: List[Dict[str, Any]] = []
-        for i, (hydro_1based, factor) in enumerate(
-            zip(hydrologies_1based, probability_factors, strict=True)
-        ):
+        for i, factor in enumerate(probability_factors):
             scenarios.append(
                 {
                     "uid": i + 1,
                     "probability_factor": factor,
-                    "hydrology": hydro_1based - 1,  # convert to 0-based index
                 }
             )
         self._simulation["scenario_array"] = scenarios
