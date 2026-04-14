@@ -101,9 +101,14 @@ public:
    * - Scenario probability weighting
    * - Stage discount factor
    * - Block duration
-   * - Objective scaling
    *
-   * Formula: cost * probability * discount * duration / scale_objective
+   * Formula: cost * probability * discount * duration
+   *
+   * Note: `scale_objective` is NOT applied here.  It is applied globally in
+   * `LinearProblem::flatten()` so that every objective coefficient is divided
+   * by the same scalar.  Callers that place the result somewhere other than
+   * the objective column (e.g. as a constraint coefficient or RHS) must not
+   * rely on `scale_objective` being present.
    *
    * @return Total energy cost coefficient for LP formulation
    */
@@ -123,9 +128,11 @@ public:
    * - Scenario probability weighting
    * - Stage discount factor
    * - Stage duration
-   * - Objective scaling
    *
-   * Formula: cost * probability * discount * duration / scale_objective
+   * Formula: cost * probability * discount * duration
+   *
+   * Note: `scale_objective` is NOT applied here; it is applied globally in
+   * `LinearProblem::flatten()`.
    *
    * @return Total energy cost coefficient for LP formulation
    */
@@ -145,9 +152,12 @@ public:
    * - Probability weighting (default 1.0)
    * - Stage discount factor
    * - Stage duration
-   * - Objective scaling
    *
-   * Formula: cost * probability * discount * duration / scale_objective
+   * Formula: cost * probability * discount * duration
+   *
+   * Note: `scale_objective` is NOT applied here; it is applied globally in
+   * `LinearProblem::flatten()`.
+   *
    * @return Total energy cost coefficient for LP formulation
    */
 

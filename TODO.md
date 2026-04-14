@@ -31,25 +31,16 @@ Tracked in [GitHub Issues](https://github.com/marcelomatus/gtopt/issues).
   `ReservoirProductionFactor` curve and potentially different `efficiency`
   values.
 
-## Numerical Conditioning
-
-- [ ] **Ruiz scaling (geometric mean iterative scaling)** ([#352](https://github.com/marcelomatus/gtopt/issues/352)) — Implement Ruiz
-  equilibration as a pre-processing pass in `lp_build()`.  Ruiz scaling
-  alternately normalizes rows and columns by their infinity-norm until
-  convergence (typically 5–10 iterations).  This produces a better-conditioned
-  matrix than single-pass row equilibration alone, especially for problems with
-  heterogeneous variable scales.  Reference: Ruiz, D. (2001) "A scaling
-  algorithm to equilibrate both rows and columns norms in matrices".
-  Implementation notes:
-  - Add as `LpBuildOptions::ruiz_scaling` (bool, default false).
-  - Iterate: for each row, compute max |a_ij|; for each col, compute max |a_ij|.
-    Scale rows and columns by 1/sqrt(max).  Repeat until max change < tolerance.
-  - Update `col_scales` and `row_scales` accordingly so dual/primal unscaling
-    remains correct.
-  - Must run *after* the existing row equilibration pass (or replace it).
-
 ## Completed
 
+- [x] **Ruiz scaling (geometric mean iterative scaling)** ([#352](https://github.com/marcelomatus/gtopt/issues/352)) —
+  Implemented as `LpEquilibrationMethod::ruiz` in `lp_matrix_enums.hpp` and
+  exposed via `lp_matrix_options.equilibration_method` (JSON `"none"`,
+  `"row_max"`, `"ruiz"`).  Ruiz scaling is auto-selected for Kirchhoff
+  multi-bus models in `planning_options_lp.hpp:445-446` (opt-out by
+  setting `equilibration_method` explicitly).  `col_scales` and
+  `row_scales` are updated in-place inside `flatten()` so dual/primal
+  unscaling stays correct.
 - [x] Revisar el pampl, como se usa lo de los meses ([#349](https://github.com/marcelomatus/gtopt/issues/349))
 - [x] Verificar que no hay ninguna escala de col manual ([#351](https://github.com/marcelomatus/gtopt/issues/351))
 - [x] Verify all scripts and docs ([#322](https://github.com/marcelomatus/gtopt/issues/322))

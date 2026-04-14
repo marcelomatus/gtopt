@@ -35,6 +35,27 @@ namespace gtopt
 namespace
 {
 
+/// Compute the effective equilibration method when none is set by the user.
+///
+/// Kirchhoff constraints on multi-bus networks produce heterogeneous row and
+/// column scales (reactances span multiple orders of magnitude, loss segments
+/// introduce tiny coefficients).  Ruiz equilibration handles this much better
+/// than single-pass row_max.  For single-bus or non-Kirchhoff models the
+/// simpler row_max default is retained.
+[[nodiscard]] constexpr auto effective_equilibration_method(
+    const Planning& planning) noexcept -> LpEquilibrationMethod
+{
+  const auto& lp_opts = planning.options.lp_matrix_options;
+  if (lp_opts.equilibration_method.has_value()) {
+    return *lp_opts.equilibration_method;
+  }
+  const auto& mo = planning.options.model_options;
+  const bool use_kirchhoff = mo.use_kirchhoff.value_or(true);
+  const bool use_single_bus = mo.use_single_bus.value_or(false);
+  return (use_kirchhoff && !use_single_bus) ? LpEquilibrationMethod::ruiz
+                                            : LpEquilibrationMethod::row_max;
+}
+
 /// Log pre-solve system statistics.
 void log_pre_solve_stats(
     [[maybe_unused]] const std::vector<std::string>& planning_files,
@@ -96,10 +117,11 @@ void log_pre_solve_stats(
                mo.scale_theta.has_value()
                    ? std::format("{:.6g}", *mo.scale_theta)
                    : "auto (median reactance)");
-  spdlog::info(
-      "  equilibration   : {}",
-      enum_name(plan_opts.lp_matrix_options.equilibration_method.value_or(
-          LpEquilibrationMethod::row_max)));
+  spdlog::info("  equilibration   : {}{}",
+               enum_name(effective_equilibration_method(planning)),
+               plan_opts.lp_matrix_options.equilibration_method.has_value()
+                   ? ""
+                   : " (default)");
   spdlog::info("  demand_fail_cost: {}", mo.demand_fail_cost.value_or(0.0));
   spdlog::info("  input_directory : {}",
                plan_opts.input_directory.value_or("(default)"));
@@ -184,12 +206,9 @@ void log_lp_coefficient_stats(const PlanningLP& planning_lp)
   // the solver can write a readable .lp dump.
   const bool enable_names =
       opts.lp_file.has_value() || opts.lp_debug.value_or(false);
+  const auto eq_method = effective_equilibration_method(planning);
   auto flat_opts = make_lp_matrix_options(
-      enable_names,
-      opts.matrix_eps,
-      do_stats,
-      opts.solver,
-      planning.options.lp_matrix_options.equilibration_method);
+      enable_names, opts.matrix_eps, do_stats, opts.solver, eq_method);
 
   if (do_stats) {
     log_pre_solve_stats(opts.planning_files, planning);
