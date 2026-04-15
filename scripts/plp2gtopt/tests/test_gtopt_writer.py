@@ -71,7 +71,7 @@ class TestGTOptWriterWithRealParser:
         writer = GTOptWriter(parser)
         opts = _make_opts(tmp_path)
         opts["hydrologies"] = "1"
-        opts["solver_type"] = "mono"
+        opts["method"] = "mono"
         result = writer.to_json(opts)
         sim = result["simulation"]
 
@@ -122,17 +122,17 @@ class TestGTOptWriterWithRealParser:
         assert "input_directory" in opts
         assert "output_directory" in opts
         assert "demand_fail_cost" in opts.get("model_options", {})
-        # Default solver type is sddp (top-level field)
-        assert opts["method"] == "sddp"
+        # Default method is cascade (top-level field)
+        assert opts["method"] == "cascade"
 
     def test_to_json_options_monolithic_solver(self, tmp_path):
-        """options block contains solver_type=monolithic when requested."""
+        """options block contains method=monolithic when requested."""
 
         parser = PLPParser({"input_dir": _PLPMin1Bus})
         parser.parse_all()
         writer = GTOptWriter(parser)
         opts = _make_opts(tmp_path)
-        opts["solver_type"] = "mono"
+        opts["method"] = "mono"
         result = writer.to_json(opts)
         assert result["options"]["method"] == "monolithic"
 
@@ -146,22 +146,22 @@ class TestGTOptWriterProcessMethods:
         writer.process_options({"output_dir": "out"})
         assert writer.planning["simulation"]["annual_discount_rate"] == 0.0
 
-    def test_process_options_default_solver_type(self):
-        """process_options defaults to method='sddp' at top level."""
+    def test_process_options_default_method(self):
+        """process_options defaults to method='cascade' at top level."""
         writer = GTOptWriter(MagicMock())
         writer.process_options({"output_dir": "out"})
-        assert writer.planning["options"]["method"] == "sddp"
+        assert writer.planning["options"]["method"] == "cascade"
 
-    def test_process_options_monolithic_solver_type(self):
+    def test_process_options_monolithic_method(self):
         """process_options normalizes 'mono' to 'monolithic' in JSON output."""
         writer = GTOptWriter(MagicMock())
-        writer.process_options({"output_dir": "out", "solver_type": "mono"})
+        writer.process_options({"output_dir": "out", "method": "mono"})
         assert writer.planning["options"]["method"] == "monolithic"
 
-    def test_process_options_cascade_solver_type(self):
+    def test_process_options_cascade_method(self):
         """process_options emits cascade_options with 3-level default config."""
         writer = GTOptWriter(MagicMock())
-        writer.process_options({"output_dir": "out", "solver_type": "cascade"})
+        writer.process_options({"output_dir": "out", "method": "cascade"})
         opts = writer.planning["options"]
         assert opts["method"] == "cascade"
         assert "cascade_options" in opts
@@ -186,7 +186,7 @@ class TestGTOptWriterProcessMethods:
         writer.process_options(
             {
                 "output_dir": "out",
-                "solver_type": "cascade",
+                "method": "cascade",
                 "max_iterations": 100,
             }
         )
@@ -198,7 +198,7 @@ class TestGTOptWriterProcessMethods:
     def test_process_options_cascade_no_cascade_for_sddp(self):
         """cascade_options is NOT emitted for plain sddp."""
         writer = GTOptWriter(MagicMock())
-        writer.process_options({"output_dir": "out", "solver_type": "sddp"})
+        writer.process_options({"output_dir": "out", "method": "sddp"})
         assert "cascade_options" not in writer.planning["options"]
 
     def test_process_options_no_num_apertures_in_sddp(self):
@@ -388,7 +388,7 @@ class TestGTOptWriterProcessMethods:
     def test_process_scenarios_monolithic_two_hydrologies(self):
         """Monolithic solver: 2 scenarios → 1 scene containing both."""
         writer = GTOptWriter(self._make_scenario_mock())
-        writer.process_scenarios({"hydrologies": "1,2", "solver_type": "monolithic"})
+        writer.process_scenarios({"hydrologies": "1,2", "method": "monolithic"})
         scenarios = writer.planning["simulation"]["scenario_array"]
         assert len(scenarios) == 2
         assert scenarios[0]["probability_factor"] == pytest.approx(0.5)
@@ -403,7 +403,7 @@ class TestGTOptWriterProcessMethods:
     def test_process_scenarios_mono_alias(self):
         """'mono' is accepted as an alias for 'monolithic'."""
         writer = GTOptWriter(self._make_scenario_mock())
-        writer.process_scenarios({"hydrologies": "1,2,3", "solver_type": "mono"})
+        writer.process_scenarios({"hydrologies": "1,2,3", "method": "mono"})
         scenes = writer.planning["simulation"]["scene_array"]
         assert len(scenes) == 1
         assert scenes[0]["count_scenario"] == 3
@@ -467,7 +467,7 @@ class TestSimulationWriter:
     def test_build_returns_required_keys(self, tmp_path):
         parser = PLPParser({"input_dir": self._CASES_DIR / "plp_min_1bus"})
         parser.parse_all()
-        opts = {"output_dir": tmp_path, "hydrologies": "1", "solver_type": "sddp"}
+        opts = {"output_dir": tmp_path, "hydrologies": "1", "method": "sddp"}
         sim = SimulationWriter(parser.parsed_data, opts).build()
         for key in (
             "block_array",
@@ -481,7 +481,7 @@ class TestSimulationWriter:
     def test_sddp_one_phase_per_stage(self, tmp_path):
         parser = PLPParser({"input_dir": self._CASES_DIR / "plp_min_1bus"})
         parser.parse_all()
-        opts = {"output_dir": tmp_path, "hydrologies": "1", "solver_type": "sddp"}
+        opts = {"output_dir": tmp_path, "hydrologies": "1", "method": "sddp"}
         sim = SimulationWriter(parser.parsed_data, opts).build()
         assert len(sim["phase_array"]) == len(sim["stage_array"])
 
@@ -491,7 +491,7 @@ class TestSimulationWriter:
         opts = {
             "output_dir": tmp_path,
             "hydrologies": "1",
-            "solver_type": "monolithic",
+            "method": "monolithic",
         }
         sim = SimulationWriter(parser.parsed_data, opts).build()
         assert len(sim["phase_array"]) == 1

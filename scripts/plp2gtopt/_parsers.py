@@ -237,7 +237,7 @@ def add_stage_arguments(parser: argparse.ArgumentParser, _conf: dict[str, str]) 
             "Example: '1:4,5,6,7,8,9,10,...' assigns stages 1-4 to phase 1, "
             "stages 5-10 each to their own phase, then one stage per phase for "
             "any remaining stages. "
-            "When omitted, the phase layout is controlled by --solver. "
+            "When omitted, the phase layout is controlled by --method. "
             "(default: not set)"
         ),
     )
@@ -340,20 +340,20 @@ def add_scenario_arguments(
 def add_solver_arguments(parser: argparse.ArgumentParser, conf: dict[str, str]) -> None:
     """Register solver type, cut-sharing, boundary cuts, convergence args."""
     parser.add_argument(
-        "-S",
-        "--solver",
-        dest="solver_type",
-        metavar="TYPE",
-        default=conf.get("solver_type", "sddp"),
+        "-M",
+        "--method",
+        dest="method",
+        metavar="METHOD",
+        default=conf.get("method", "cascade"),
         choices=["sddp", "mono", "monolithic", "cascade"],
         help=(
-            "solver type controlling the simulation structure: "
+            "planning method controlling the simulation structure: "
+            "'cascade' (default) uses a 3-level cascade: L0 uninodal, L1 "
+            "transport (lines without losses/kirchhoff), L2 full network; "
             "'sddp' produces one scene per scenario and one phase per stage "
             "(for Stochastic Dual Dynamic Programming); "
-            "'mono'/'monolithic' produces a single scene with all scenarios and "
-            "a single phase with all stages (for the monolithic solver); "
-            "'cascade' uses a 3-level cascade: L0 uninodal, L1 transport "
-            "(lines without losses/kirchhoff), L2 full network. "
+            "'mono'/'monolithic' produces a single scene with all scenarios "
+            "and a single phase with all stages (for the monolithic solver). "
             "(default: %(default)s)"
         ),
     )

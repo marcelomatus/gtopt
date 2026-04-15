@@ -34,6 +34,28 @@ from .tech_detect import detect_technology, load_centipo_csv
 _logger = logging.getLogger(__name__)
 
 
+def _strip_internal_keys(planning: Dict) -> Dict:
+    """Return a shallow copy of ``planning`` with internal-only keys removed.
+
+    The gtopt C++ parser uses ``StrictParsePolicy`` (daw::json
+    ``UseExactMappingsByDefault=yes``), so any field not declared in the
+    corresponding struct causes a parse error.  Python-side metadata
+    (pipeline annotations, Excel hints) is preserved on the writer
+    instance but excluded from the emitted JSON.
+    """
+    clean = {k: v for k, v in planning.items() if not k.startswith("_")}
+    sim = clean.get("simulation")
+    if isinstance(sim, dict) and isinstance(sim.get("scenario_array"), list):
+        clean["simulation"] = {
+            **sim,
+            "scenario_array": [
+                {k: v for k, v in s.items() if k != "hydrology"}
+                for s in sim["scenario_array"]
+            ],
+        }
+    return clean
+
+
 class GTOptWriter:
     """Handles conversion of parsed PLP data to GTOPT JSON format."""
 
@@ -50,15 +72,15 @@ class GTOptWriter:
         }
 
     @staticmethod
-    def _normalize_solver_type(solver_type: str) -> str:
+    def _normalize_method(method: str) -> str:
         """Normalize solver type string.
 
         Accepts 'sddp', 'mono', 'monolithic', or 'cascade'; returns
         'sddp', 'monolithic', or 'cascade'.
         """
-        if solver_type in ("mono", "monolithic"):
+        if method in ("mono", "monolithic"):
             return "monolithic"
-        if solver_type == "cascade":
+        if method == "cascade":
             return "cascade"
         return "sddp"
 
@@ -162,9 +184,9 @@ class GTOptWriter:
         output_format = options.get("output_format", "parquet")
         input_format = options.get("input_format", output_format)
         compression = options.get("compression", "zstd")
-        solver_type = self._normalize_solver_type(options.get("solver_type", "sddp"))
+        method = self._normalize_method(options.get("method", "cascade"))
 
-        # Build the nested sddp_options block (all sddp_* fields except solver_type).
+        # Build the nested sddp_options block (all sddp_* fields except method).
         # NOTE: num_apertures is NOT emitted here — the C++ SddpOptions JSON
         # contract has no "num_apertures" field (only "apertures", an array of
         # UIDs).  Aperture configuration is fully handled by aperture_array and
@@ -247,7 +269,7 @@ class GTOptWriter:
             model_opts["use_line_losses"] = src_model["use_line_losses"]
 
         planning_opts: dict[str, Any] = {
-            "method": solver_type,
+            "method": method,
             "input_directory": input_dir_val,
             "input_format": input_format,
             "output_directory": "results",
@@ -257,7 +279,7 @@ class GTOptWriter:
             "sddp_options": sddp_opts,
         }
 
-        if solver_type == "cascade":
+        if method == "cascade":
             planning_opts["cascade_options"] = self._build_default_cascade_options(
                 model_opts, sddp_opts
             )
@@ -275,8 +297,8 @@ class GTOptWriter:
         1. **``stages_phase``** (explicit): A parsed ``--stages-phase`` spec
            (list-of-lists of 1-based PLP stage indices) fully controls the
            mapping regardless of ``method``.
-        2. **``solver_type='monolithic'``**: A single phase spanning all stages.
-        3. **``solver_type='sddp'``** (default): One phase per PLP stage.
+        2. **``method='monolithic'``**: A single phase spanning all stages.
+        3. **``method='sddp'``** (default): One phase per PLP stage.
 
         The ``--stages-phase`` option accepts a string like
         ``"1:4,5,6,7,8,9,10,..."`` (see :func:`~.index_utils.parse_stages_phase`
@@ -329,10 +351,8 @@ class GTOptWriter:
                 )
             self.planning["simulation"]["phase_array"] = phase_array
         else:
-            solver_type = self._normalize_solver_type(
-                options.get("solver_type", "sddp")
-            )
-            if solver_type == "monolithic":
+            method = self._normalize_method(options.get("method", "cascade"))
+            if method == "monolithic":
                 # One phase covering all stages
                 self.planning["simulation"]["phase_array"] = [
                     {
@@ -455,9 +475,9 @@ class GTOptWriter:
             )
         self.planning["simulation"]["scenario_array"] = scenarios
 
-        solver_type = self._normalize_solver_type(options.get("solver_type", "sddp"))
+        method = self._normalize_method(options.get("method", "cascade"))
 
-        if solver_type == "monolithic":
+        if method == "monolithic":
             scenes = [
                 {
                     "uid": 1,
@@ -1822,4 +1842,4 @@ class GTOptWriter:
         if progress is not None:
             progress.step("write")
         with open(output_file, "w", encoding="utf-8") as f:
-            json.dump(planning, f, indent=4)
+            json.dump(_strip_internal_keys(planning), f, indent=4)

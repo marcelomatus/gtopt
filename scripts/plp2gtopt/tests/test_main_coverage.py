@@ -172,7 +172,7 @@ class TestBuildOptions:
             "excel_output": False,
             "excel_file": None,
             "sys_version": "",
-            "solver_type": "sddp",
+            "method": "cascade",
             "stages_phase": None,
             "num_apertures": None,
             "aperture_directory": None,
@@ -489,5 +489,5 @@ def test_version_fallback():
 def test_section_defaults_keys():
     """_SECTION_DEFAULTS contains expected configuration keys."""
     assert "compression" in _SECTION_DEFAULTS
-    assert "solver_type" in _SECTION_DEFAULTS
+    assert "method" in _SECTION_DEFAULTS
     assert "reservoir_scale_mode" in _SECTION_DEFAULTS
