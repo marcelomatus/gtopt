@@ -70,8 +70,10 @@ struct ScenePhaseLPStats
   double stats_max_abs {};
   double stats_min_abs {};
 
-  FlatLinearProblem::index_t stats_max_col {-1};  ///< Column index with largest |coefficient|
-  FlatLinearProblem::index_t stats_min_col {-1};  ///< Column index with smallest |coefficient|
+  FlatLinearProblem::index_t stats_max_col {
+      -1};  ///< Column index with largest |coefficient|
+  FlatLinearProblem::index_t stats_min_col {
+      -1};  ///< Column index with smallest |coefficient|
 
   std::string stats_max_col_name {};  ///< Name of column with largest |coeff|
   std::string stats_min_col_name {};  ///< Name of column with smallest |coeff|

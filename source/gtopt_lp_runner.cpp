@@ -181,15 +181,16 @@ void log_lp_coefficient_stats(const PlanningLP& planning_lp)
           {
             auto view = li.lp_row_type_stats()
                 | std::views::transform(
-                    [](const auto& e) -> RowTypeStats {
-                      return {
-                          .type = e.type,
-                          .count = e.count,
-                          .nnz = e.nnz,
-                          .max_abs = e.max_abs,
-                          .min_abs = e.min_abs,
-                      };
-                    });
+                            [](const auto& e) -> RowTypeStats
+                            {
+                              return {
+                                  .type = e.type,
+                                  .count = e.count,
+                                  .nnz = e.nnz,
+                                  .max_abs = e.max_abs,
+                                  .min_abs = e.min_abs,
+                              };
+                            });
             return std::vector<RowTypeStats>(view.begin(), view.end());
           }(),
       });
