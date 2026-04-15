@@ -1,10 +1,15 @@
 // SPDX-License-Identifier: BSD-3-Clause
 #include <doctest/doctest.h>
 #include <gtopt/battery.hpp>
+#include <gtopt/battery_lp.hpp>
 #include <gtopt/converter.hpp>
 #include <gtopt/demand.hpp>
 #include <gtopt/generator.hpp>
+#include <gtopt/linear_interface.hpp>
+#include <gtopt/planning_options.hpp>
+#include <gtopt/simulation_lp.hpp>
 #include <gtopt/system.hpp>
+#include <gtopt/system_lp.hpp>
 
 using namespace gtopt;  // NOLINT(google-global-names-in-headers)
 
@@ -419,4 +424,149 @@ TEST_CASE("expand_batteries source_generator not found logs warning")  // NOLINT
   CHECK(system.generator_array.size() == 1);
   CHECK(system.demand_array.size() == 1);
   CHECK(system.converter_array.size() == 1);
+}
+
+TEST_CASE(
+    "BatteryLP — capainst primal col_sol binds at capmin lower bound")  // NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  // Deterministic LP where the battery's own installed-capacity column
+  // (`capainst`, owned by BatteryLP via CapacityObjectBase through
+  // StorageLP) can be looked up and asserted via `capacity_col_at(stage)`.
+  //
+  // In gtopt, the `capainst` column lower bound is driven by the Battery
+  // `.capacity` field (CapacityObjectBase sets `lowb = stage_capacity`).
+  // The LP is therefore forced to *build* at least that much storage
+  // whenever an expansion column exists (`expcap > 0` and `expmod > 0`),
+  // because the equality row `-capainst + expcap*expmod_col = 0` in the
+  // single-stage case means `capainst = expcap * expmod`.  With a small
+  // `annual_capcost`, the LP minimizes `expmod_col` down to exactly the
+  // value that satisfies `capainst >= capacity`, so `capainst` binds at
+  // the lower bound.
+  //
+  // Setup:
+  //   - 1 bus, 1 stage, 1 block (duration = 1 h), 1 scenario.
+  //   - Cheap generator at bus1 with ample capacity to serve the demand,
+  //     so there is no economic pressure to charge/discharge the battery.
+  //   - Demand of 10 MW kept well below generator capacity → no stress
+  //     on the battery path.
+  //   - Battery with `capacity = 20.0` (sets capainst lowb = 20),
+  //     `expcap = 100`, `expmod = 1`, `annual_capcost = 10` → stage
+  //     maxexpcap = 100 > 0, so the capainst column is created with
+  //     `lowb = 20`, `uppb = 120`.  `emax = 100` is clamped by capmax
+  //     via `stage_maxmin_at`.  `eini = 20` keeps SoC bounds feasible.
+  //
+  // Expected:
+  //   - capainst primal ≈ 20.0 (binds at the capacity-driven lower bound;
+  //     LP minimizes expmod_col so `capainst = expcap * expmod = 100 *
+  //     0.2 = 20`).
+
+  const Array<Bus> bus_array = {
+      {
+          .uid = Uid {1},
+          .name = "b1",
+      },
+  };
+
+  const Array<Generator> generator_array = {
+      {
+          .uid = Uid {1},
+          .name = "gen_main",
+          .bus = Uid {1},
+          .gcost = 5.0,
+          .capacity = 100.0,
+      },
+  };
+
+  const Array<Demand> demand_array = {
+      {
+          .uid = Uid {1},
+          .name = "d_main",
+          .bus = Uid {1},
+          .capacity = 10.0,
+      },
+  };
+
+  const Array<Battery> battery_array = {
+      {
+          .uid = Uid {1},
+          .name = "bat1",
+          .input_efficiency = 1.0,
+          .output_efficiency = 1.0,
+          .emin = 0.0,
+          .emax = 100.0,
+          .eini = 20.0,
+          .capacity = 20.0,
+          .expcap = 100.0,
+          .expmod = 1.0,
+          .annual_capcost = 10.0,
+          .use_state_variable = true,
+          .daily_cycle = false,
+      },
+  };
+
+  const Simulation simulation = {
+      .block_array =
+          {
+              Block {
+                  .uid = Uid {1},
+                  .duration = 1,
+              },
+          },
+      .stage_array =
+          {
+              Stage {
+                  .uid = Uid {1},
+                  .first_block = 0,
+                  .count_block = 1,
+              },
+          },
+      .scenario_array =
+          {
+              Scenario {
+                  .uid = Uid {0},
+                  .probability_factor = 1,
+              },
+          },
+  };
+
+  PlanningOptions opts;
+  opts.demand_fail_cost = 1000.0;
+
+  const System system = {
+      .name = "BatteryCapainstLowerBound",
+      .bus_array = bus_array,
+      .demand_array = demand_array,
+      .generator_array = generator_array,
+      .battery_array = battery_array,
+  };
+
+  const PlanningOptionsLP options(opts);
+  SimulationLP simulation_lp(simulation, options);
+  SystemLP system_lp(system, simulation_lp);
+
+  auto&& lp = system_lp.linear_interface();
+  CHECK(lp.get_numrows() > 0);
+  CHECK(lp.get_numcols() > 0);
+
+  auto result = lp.resolve();
+  REQUIRE(result.has_value());
+  CHECK(result.value() == 0);
+
+  // Look up the battery's own capainst column via the LP-class accessor.
+  const auto& bat_lps = system_lp.elements<BatteryLP>();
+  REQUIRE(bat_lps.size() == 1);
+  const auto& bat_lp = bat_lps.front();
+  const auto& stage_lp = simulation_lp.stages().front();
+
+  const auto cap_col = bat_lp.capacity_col_at(stage_lp);
+  REQUIRE(cap_col.has_value());
+
+  // Positive annual_capcost makes the LP minimize expmod_col down to the
+  // value that just satisfies capainst >= capacity = 20, giving
+  // capainst = expcap * expmod = 100 * 0.2 = 20.  The column therefore
+  // binds at its lower bound.
+  const auto cap_val = lp.get_col_sol()[*cap_col];
+  CHECK(cap_val == doctest::Approx(20.0).epsilon(1e-6));
 }

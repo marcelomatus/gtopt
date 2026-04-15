@@ -7,6 +7,7 @@
 #include <gtopt/simple_commitment.hpp>
 #include <gtopt/simple_commitment_lp.hpp>
 #include <gtopt/simulation_lp.hpp>
+#include <gtopt/solver_registry.hpp>
 #include <gtopt/system_lp.hpp>
 
 using namespace gtopt;  // NOLINT(google-global-names-in-headers)
@@ -342,4 +343,87 @@ TEST_CASE("SimpleCommitmentLP - add_to_output via write_out")  // NOLINT
   CHECK_NOTHROW(system_lp.write_out());
 
   std::filesystem::remove_all(tmpdir);
+}
+
+TEST_CASE(  // NOLINT
+    "SimpleCommitmentLP — MIP status u binary when pmin exceeds demand")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  auto& reg = SolverRegistry::instance();
+  if (!reg.has_mip_solver()) {
+    MESSAGE("Skipping MIP test — no MIP solver available");
+    return;
+  }
+
+  // Demand = 20 MW, but generator pmin = 40 MW. When ON, must produce ≥ 40.
+  // Optimal MIP solution: turn OFF (u=0) and pay demand_fail_cost for 20 MW.
+  const Array<Demand> small_demand_array = {
+      {
+          .uid = Uid {1},
+          .name = "d1",
+          .bus = Uid {1},
+          .capacity = 20.0,
+      },
+  };
+
+  const Array<Generator> generator_array = {
+      {
+          .uid = Uid {1},
+          .name = "g1",
+          .bus = Uid {1},
+          .pmin = 40.0,
+          .gcost = 50.0,
+          .capacity = 100.0,
+      },
+  };
+
+  const Array<SimpleCommitment> simple_commitment_array = {
+      {
+          .uid = Uid {1},
+          .name = "sc1",
+          .generator = Uid {1},
+          .dispatch_pmin = 40.0,
+          .relax = false,
+      },
+  };
+
+  PlanningOptions opts;
+  opts.demand_fail_cost = 1000.0;
+
+  const System system = {
+      .name = "SimpleCommitMIPTest",
+      .bus_array = bus_array,
+      .demand_array = small_demand_array,
+      .generator_array = generator_array,
+      .simple_commitment_array = simple_commitment_array,
+  };
+
+  const PlanningOptionsLP options(opts);
+  SimulationLP simulation_lp(simulation, options);
+  SystemLP system_lp(system, simulation_lp);
+
+  auto&& lp = system_lp.linear_interface();
+
+  // The status column must be marked integer (binary) since relax=false.
+  const auto& sc_lps = system_lp.elements<SimpleCommitmentLP>();
+  REQUIRE(sc_lps.size() == 1);
+  const auto& sc_lp = sc_lps.front();
+  const auto& scenario_lp = simulation_lp.scenarios().front();
+  const auto& stage_lp = simulation_lp.stages().front();
+  const auto& block_lp = simulation_lp.blocks().front();
+  const auto u_col =
+      sc_lp.lookup_status_col(scenario_lp, stage_lp, block_lp.uid());
+  REQUIRE(u_col.has_value());
+  CHECK(lp.is_integer(*u_col));
+
+  // Solve as MIP (resolve automatically dispatches to MIP solve when any
+  // column is integer, provided the backend supports it).
+  auto result = lp.resolve();
+  REQUIRE(result.has_value());
+  CHECK(result.value() == 0);
+
+  // With demand=20 < pmin=40, dispatching is infeasible at the lower bound,
+  // so the MIP optimum is u=0 (unit OFF, pay demand_fail_cost).
+  CHECK(lp.get_col_sol()[*u_col] == doctest::Approx(0.0).epsilon(0.001));
 }

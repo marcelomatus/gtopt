@@ -1,6 +1,8 @@
 #include <doctest/doctest.h>
 #include <gtopt/converter.hpp>
+#include <gtopt/converter_lp.hpp>
 #include <gtopt/linear_interface.hpp>
+#include <gtopt/planning_options.hpp>
 #include <gtopt/simulation_lp.hpp>
 #include <gtopt/system_lp.hpp>
 
@@ -162,4 +164,144 @@ TEST_CASE("SystemLP with battery and converter")
   auto result = lp.resolve();
   REQUIRE(result.has_value());
   CHECK(result.value() == 0);
+}
+
+TEST_CASE("ConverterLP - capainst column primal at lower bound")
+{
+  // Deterministic LP where the converter's own installed-capacity column
+  // (`capainst`, owned by ConverterLP via CapacityObjectBase) can be
+  // looked up and asserted via `capacity_col_at(stage)`.
+  //
+  // Setup:
+  //   - 1 bus, 1 stage, 1 block (duration=1h), 1 scenario
+  //   - A top-level generator cheaply serves a 10 MW demand, so the
+  //     converter/battery path carries no economic incentive to expand.
+  //   - The converter has a small fixed `capacity = 10` and an expansion
+  //     module `expcap = 40, expmod = 1, annual_capcost = 1000`. This
+  //     makes `stage_maxexpcap = 40 > 0`, so CapacityObjectBase::add_to_lp
+  //     actually creates the capainst column (lowb=10, uppb=50) and the
+  //     row `-capainst + 40*expmod_col = 0`.
+  //   - In the current model `expmod_col` is forced to its module count
+  //     (1) by the expansion-module formulation, so `capainst = 40 * 1
+  //     = 40.0`.  This still demonstrates the lookup + LP-solve pattern
+  //     for ConverterLP and pins capainst to a deterministic value.
+  const Array<Bus> bus_array = {{
+      .uid = Uid {1},
+      .name = "b1",
+  }};
+
+  const Array<Generator> generator_array = {
+      {
+          .uid = Uid {1},
+          .name = "gen_main",
+          .bus = Uid {1},
+          .gcost = 5.0,
+          .capacity = 100.0,
+      },
+      {
+          .uid = Uid {2},
+          .name = "gen_discharge",
+          .bus = Uid {1},
+          .gcost = 50.0,
+          .capacity = 100.0,
+      },
+  };
+
+  const Array<Demand> demand_array = {
+      {
+          .uid = Uid {1},
+          .name = "d_main",
+          .bus = Uid {1},
+          .capacity = 10.0,
+      },
+      {
+          .uid = Uid {2},
+          .name = "d_charge",
+          .bus = Uid {1},
+          .capacity = 100.0,
+      },
+  };
+
+  const Array<Battery> battery_array = {
+      {
+          .uid = Uid {1},
+          .name = "bat1",
+          .input_efficiency = 1.0,
+          .output_efficiency = 1.0,
+          .emin = 0.0,
+          .emax = 100.0,
+          .eini = 50.0,
+          .capacity = 100.0,
+          .use_state_variable = true,
+          .daily_cycle = false,
+      },
+  };
+
+  const Array<Converter> converter_array = {
+      {
+          .uid = Uid {1},
+          .name = "conv1",
+          .battery = Uid {1},
+          .generator = Uid {2},
+          .demand = Uid {2},
+          .conversion_rate = 1.0,
+          .capacity = 10.0,
+          .expcap = 40.0,
+          .expmod = 1.0,
+          .annual_capcost = 1000.0,
+      },
+  };
+
+  const Simulation simulation = {
+      .block_array = {{
+          .uid = Uid {1},
+          .duration = 1,
+      }},
+      .stage_array = {{
+          .uid = Uid {1},
+          .first_block = 0,
+          .count_block = 1,
+      }},
+      .scenario_array = {{
+          .uid = Uid {0},
+      }},
+  };
+
+  PlanningOptions opts;
+  opts.demand_fail_cost = 1000.0;
+
+  const System system = {
+      .name = "ConverterCapainstTest",
+      .bus_array = bus_array,
+      .demand_array = demand_array,
+      .generator_array = generator_array,
+      .battery_array = battery_array,
+      .converter_array = converter_array,
+  };
+
+  const PlanningOptionsLP options(opts);
+  SimulationLP simulation_lp(simulation, options);
+  SystemLP system_lp(system, simulation_lp);
+
+  auto&& lp = system_lp.linear_interface();
+  CHECK(lp.get_numrows() > 0);
+  CHECK(lp.get_numcols() > 0);
+
+  auto result = lp.resolve();
+  REQUIRE(result.has_value());
+  CHECK(result.value() == 0);
+
+  // Look up the converter's own capainst column via the LP-class accessor.
+  const auto& conv_lps = system_lp.elements<ConverterLP>();
+  REQUIRE(conv_lps.size() == 1);
+  const auto& conv_lp = conv_lps.front();
+  const auto& stage_lp = simulation_lp.stages().front();
+
+  const auto cap_col = conv_lp.capacity_col_at(stage_lp);
+  REQUIRE(cap_col.has_value());
+
+  // The expansion-module formulation pins capainst = 40 * expmod = 40
+  // when one module is chosen.
+  const auto cap_val = lp.get_col_sol()[*cap_col];
+  CHECK(cap_val == doctest::Approx(40.0).epsilon(1e-6));
 }

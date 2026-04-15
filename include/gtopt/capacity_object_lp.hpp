@@ -89,6 +89,18 @@ struct CapacityObjectBase
   }
 
   /**
+   * @brief Get the column index for the expansion-modules variable at a stage
+   * @param stage The stage to query
+   * @return Optional column index (empty when the object has no expansion
+   *         capacity or the stage did not create an expmod column)
+   */
+  [[nodiscard]] constexpr auto expmod_col_at(
+      const StageLP& stage) const noexcept
+  {
+    return get_optvalue(expmod_cols, stage.uid());
+  }
+
+  /**
    * @brief Get the capacity at a specific stage
    * @param stage The stage to query capacity for
    * @param def_capacity Default value if capacity not specified (default:

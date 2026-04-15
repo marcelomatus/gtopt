@@ -2,6 +2,7 @@
 #include <vector>
 
 #include <doctest/doctest.h>
+#include <gtopt/generator_lp.hpp>
 #include <gtopt/generator_profile.hpp>
 #include <gtopt/linear_interface.hpp>
 #include <gtopt/simulation_lp.hpp>
@@ -265,4 +266,146 @@ TEST_CASE("GeneratorProfileLP - generator profile with spillover cost")
   // scale_objective defaults to 1000, so solver objective = 200 / 1000 = 0.2
   const auto obj = lp.get_obj_value();
   CHECK(obj == doctest::Approx(0.2).epsilon(1e-3));
+}
+
+TEST_CASE("GeneratorProfileLP - per-block profile clamps dispatch col_sol")
+{
+  // With no spillover cost (scost unset) the profile fixes both upper and
+  // lower generation bounds for each block at profile * capacity, so the
+  // LP dispatch column is forced to the exact product regardless of demand
+  // or gcost.  capacity = 100, profile = {0.5, 0.8} => dispatch = {50, 80}.
+  const Array<Bus> bus_array = {
+      {
+          .uid = Uid {1},
+          .name = "b1",
+      },
+  };
+
+  const Array<Generator> generator_array = {
+      {
+          .uid = Uid {1},
+          .name = "solar_gen",
+          .bus = Uid {1},
+          .pmin = 0.0,
+          .gcost = 0.0,
+          .capacity = 100.0,
+      },
+  };
+
+  // Demand large enough to absorb both blocks' forced dispatch and then
+  // some — backup generator covers the shortfall so the LP is feasible.
+  const Array<Generator> backup_generator = {
+      {
+          .uid = Uid {2},
+          .name = "backup_gen",
+          .bus = Uid {1},
+          .pmin = 0.0,
+          .gcost = 1000.0,
+          .capacity = 500.0,
+      },
+  };
+
+  const Array<Demand> demand_array = {
+      {
+          .uid = Uid {1},
+          .name = "d1",
+          .bus = Uid {1},
+          .capacity = 200.0,
+      },
+  };
+
+  // 3-D [scenario][stage][block] profile with a single scenario/stage and
+  // two blocks: {0.5, 0.8}.
+  const STBRealFieldSched profile_sched {
+      std::vector<std::vector<std::vector<double>>> {
+          {
+              {
+                  0.5,
+                  0.8,
+              },
+          },
+      },
+  };
+
+  const Array<GeneratorProfile> generator_profile_array = {
+      {
+          .uid = Uid {1},
+          .name = "solar_profile",
+          .generator = Uid {1},
+          .profile = profile_sched,
+      },
+  };
+
+  const Simulation simulation = {
+      .block_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .duration = 1,
+              },
+              {
+                  .uid = Uid {2},
+                  .duration = 1,
+              },
+          },
+      .stage_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .first_block = 0,
+                  .count_block = 2,
+              },
+          },
+      .scenario_array = {{
+          .uid = Uid {0},
+      }},
+  };
+
+  const System system = {
+      .name = "ProfileColSolTest",
+      .bus_array = bus_array,
+      .demand_array = demand_array,
+      .generator_array = {generator_array.front(), backup_generator.front()},
+      .generator_profile_array = generator_profile_array,
+  };
+
+  PlanningOptions opts;
+  opts.demand_fail_cost = 10000.0;
+  const PlanningOptionsLP options(opts);
+  SimulationLP simulation_lp(simulation, options);
+  SystemLP system_lp(system, simulation_lp);
+
+  auto&& lp = system_lp.linear_interface();
+  auto result = lp.resolve();
+  REQUIRE(result.has_value());
+  CHECK(result.value() == 0);
+
+  // Locate the solar generator's dispatch columns for each block.
+  const auto& gen_lps = system_lp.elements<GeneratorLP>();
+  REQUIRE(gen_lps.size() == 2);
+  const auto* solar_lp = static_cast<const GeneratorLP*>(nullptr);
+  for (const auto& g : gen_lps) {
+    if (g.generator().uid == Uid {1}) {
+      solar_lp = &g;
+      break;
+    }
+  }
+  REQUIRE(solar_lp != nullptr);
+
+  const auto& scenario_lp = simulation_lp.scenarios().front();
+  const auto& stage_lp = simulation_lp.stages().front();
+  const auto& gen_cols = solar_lp->generation_cols_at(scenario_lp, stage_lp);
+  REQUIRE(gen_cols.size() == 2);
+
+  const auto& blocks = stage_lp.blocks();
+  REQUIRE(blocks.size() == 2);
+
+  const auto it0 = gen_cols.find(blocks[0].uid());
+  const auto it1 = gen_cols.find(blocks[1].uid());
+  REQUIRE(it0 != gen_cols.end());
+  REQUIRE(it1 != gen_cols.end());
+
+  // profile * capacity = 0.5 * 100 = 50, 0.8 * 100 = 80.
+  CHECK(lp.get_col_sol()[it0->second] == doctest::Approx(50.0).epsilon(1e-6));
+  CHECK(lp.get_col_sol()[it1->second] == doctest::Approx(80.0).epsilon(1e-6));
 }

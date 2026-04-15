@@ -127,6 +127,44 @@ TEST_CASE(  // NOLINT
   CHECK_FALSE(reg.load_errors().empty());
 }
 
+TEST_CASE("SolverRegistry supports_mip per backend")  // NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  auto& reg = SolverRegistry::instance();
+  reg.load_all_plugins();
+
+  // Pure-LP backends report false; B&B-capable backends report true.
+  if (reg.has_solver("clp")) {
+    CHECK_FALSE(reg.supports_mip("clp"));
+  }
+  if (reg.has_solver("cbc")) {
+    CHECK(reg.supports_mip("cbc"));
+  }
+  if (reg.has_solver("cplex")) {
+    CHECK(reg.supports_mip("cplex"));
+  }
+  if (reg.has_solver("highs")) {
+    CHECK(reg.supports_mip("highs"));
+  }
+  if (reg.has_solver("mindopt")) {
+    CHECK(reg.supports_mip("mindopt"));
+  }
+
+  CHECK_FALSE(reg.supports_mip("nonexistent_solver_xyz"));
+}
+
+TEST_CASE("SolverRegistry has_mip_solver returns true when MIP available")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  auto& reg = SolverRegistry::instance();
+  reg.load_all_plugins();
+
+  // The test environment ships at least one MIP-capable backend.
+  CHECK(reg.has_mip_solver());
+}
+
 // ─── SolverRegistry additional coverage ────────────────────────────────────
 
 TEST_CASE(  // NOLINT

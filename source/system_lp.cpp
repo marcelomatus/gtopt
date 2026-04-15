@@ -660,6 +660,84 @@ void register_all_ampl_element_names(SimulationLP& sim, const System& sys)
     sim.add_ampl_scalar(
         options_class, "use_line_losses", opts.use_line_losses() ? 1.0 : 0.0);
   }
+
+  // ── Mode-driven AMPL suppression (Tier 1 / Tier 2) ───────────────────
+  //
+  // Translate planning-option flags into explicit class/attribute
+  // suppression entries so that user-constraint references to modes
+  // that are turned off get silently dropped rather than throwing.
+  //
+  // Rationale: a modeller writing `line('l1').flow <= 100` should not
+  // have to know whether a particular run uses `use_single_bus=true`.
+  // The constraint is vacuously inapplicable in that mode and should
+  // stay in the file without breaking the run.
+  //
+  // Typos (e.g. `lineee('l1').flow`, `line('l1').flowx`) are still
+  // caught because those class/attribute strings are not in the
+  // suppression map — the strict branch in
+  // `user_constraint_lp.cpp` will still throw.
+  {
+    const auto& opts = sim.options();
+    constexpr auto line_cls = LineLP::ClassName.snake_case();
+    constexpr auto bus_cls = BusLP::ClassName.snake_case();
+
+    // The two flags are independent:
+    //   * !use_kirchhoff suppresses `bus.theta` (theta columns are not
+    //     materialized without the Kirchhoff path).
+    //   * use_single_bus suppresses the whole `line` class AND
+    //     `bus.theta` (LineLP early-exits, Kirchhoff is moot).
+    // When both apply, `use_single_bus=true` is the more fundamental
+    // reason, so it is registered second to win insert_or_assign.
+    if (!opts.use_kirchhoff()) {
+      sim.suppress_ampl_attribute(
+          bus_cls, BusLP::ThetaName, "use_kirchhoff=false");
+    }
+    if (opts.use_single_bus()) {
+      sim.suppress_ampl_class(line_cls, "use_single_bus=true");
+      sim.suppress_ampl_attribute(
+          bus_cls, BusLP::ThetaName, "use_single_bus=true");
+    }
+  }
+
+  // ── Per-element optional attributes ─────────────────────────────────
+  //
+  // `capainst`, `capacost`, `expmod` are created by
+  // `CapacityObjectBase::add_to_lp` only for elements where the stage's
+  // `expcap * expmod > 0` (expansion is configured) OR the previous
+  // phase publishes a state-backed capainst/capacost.  In practice the
+  // vast majority of generators/demands/lines/etc. have no expansion,
+  // so these columns are **absent by design per-element**.
+  //
+  // A user writing `sum(g in generator(all), g.capainst) <= budget`
+  // should not have to pre-filter for expanding generators — missing
+  // columns should drop silently from the sum.  Declaring the
+  // attributes as suppressed (with an "inherently optional" reason)
+  // reuses the mode-driven resolver path and achieves this.
+  //
+  // Typo protection is coarser for these attributes than for fully
+  // required ones: `generator('g1').capainst` on a non-expanding g1
+  // drops silently rather than throwing.  This is the accepted
+  // trade-off — `resolve_single_col` still emits an `SPDLOG_WARN` for
+  // unknown element names, so element-name typos remain visible.
+  {
+    constexpr std::string_view reason =
+        "per-element: capacity expansion is opt-in";
+    for (const auto cls :
+         {
+             GeneratorLP::ClassName.snake_case(),
+             DemandLP::ClassName.snake_case(),
+             LineLP::ClassName.snake_case(),
+             ConverterLP::ClassName.snake_case(),
+             BatteryLP::ClassName.snake_case(),
+         })
+    {
+      sim.suppress_ampl_attribute(
+          cls, CapacityObjectBase::CapainstName, reason);
+      sim.suppress_ampl_attribute(
+          cls, CapacityObjectBase::CapacostName, reason);
+      sim.suppress_ampl_attribute(cls, CapacityObjectBase::ExpmodName, reason);
+    }
+  }
 }
 
 }  // namespace
@@ -697,7 +775,7 @@ SystemLP::SystemLP(const System& system,
   // need to resolve element columns.  Without user constraints the
   // map stays empty, saving allocation/hashing overhead.
   if (!system.user_constraint_array.empty()) {
-    simulation.set_need_ampl_variables(true);
+    simulation.set_need_ampl_variables(/*v=*/true);
   }
 
   // Populate the SimulationLP-wide AMPL element-name and compound

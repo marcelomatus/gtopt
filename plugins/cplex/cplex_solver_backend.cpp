@@ -155,6 +155,11 @@ double CplexSolverBackend::infinity() const noexcept
   return CPX_INFBOUND;
 }
 
+bool CplexSolverBackend::supports_mip() const noexcept
+{
+  return true;
+}
+
 void CplexSolverBackend::set_prob_name(const std::string& name)
 {
   CPXchgprobname(m_env_, m_lp_, name.c_str());

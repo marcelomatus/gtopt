@@ -1160,3 +1160,192 @@ TEST_CASE("DemandLP - forced demand fixes load at lmax")
     CHECK(obj == doctest::Approx(0.0));
   }
 }
+
+TEST_CASE("DemandProfileLP - load bound by profile times capacity")
+{
+  // One bus, one demand (capacity=100), one cheap generator (gcost=30).
+  // A DemandProfile pins the load to profile * capacity = 0.5 * 100 = 50.
+  // The profile constraint is:   unserved + load = capacity * profile
+  // With a cheap generator and a large demand_fail_cost, the optimiser
+  // prefers to serve rather than shed, so unserved = 0 and load = 50.
+  const Array<Bus> bus_array = {{
+      .uid = Uid {1},
+      .name = "b1",
+  }};
+
+  const Array<Generator> generator_array = {
+      {
+          .uid = Uid {1},
+          .name = "g1",
+          .bus = Uid {1},
+          .gcost = 30.0,
+          .capacity = 200.0,
+      },
+  };
+
+  const Array<Demand> demand_array = {
+      {
+          .uid = Uid {1},
+          .name = "d1",
+          .bus = Uid {1},
+          .capacity = 100.0,
+      },
+  };
+
+  const Array<DemandProfile> demand_profile_array = {
+      {
+          .uid = Uid {1},
+          .name = "dp1",
+          .demand = Uid {1},
+          .profile = 0.5,
+      },
+  };
+
+  const Simulation simulation = {
+      .block_array = {{
+          .uid = Uid {1},
+          .duration = 1,
+      }},
+      .stage_array = {{
+          .uid = Uid {1},
+          .first_block = 0,
+          .count_block = 1,
+      }},
+      .scenario_array = {{
+          .uid = Uid {0},
+      }},
+  };
+
+  const System system = {
+      .name = "DemandProfileTest",
+      .bus_array = bus_array,
+      .demand_array = demand_array,
+      .generator_array = generator_array,
+      .demand_profile_array = demand_profile_array,
+  };
+
+  PlanningOptions popts;
+  popts.model_options.demand_fail_cost = 1000.0;
+  const PlanningOptionsLP options(popts);
+  SimulationLP simulation_lp(simulation, options);
+  SystemLP system_lp(system, simulation_lp);
+
+  auto&& lp = system_lp.linear_interface();
+  CHECK(lp.get_numrows() > 0);
+  CHECK(lp.get_numcols() > 0);
+
+  auto result = lp.resolve();
+  REQUIRE(result.has_value());
+  CHECK(result.value() == 0);
+
+  // Look up the demand's load column for (scenario 0, stage 1, block 1)
+  // and check that the profile constraint pins it to 50.
+  const auto& dem_lps = system_lp.elements<DemandLP>();
+  REQUIRE(dem_lps.size() == 1);
+  const auto& dem_lp = dem_lps.front();
+  const auto& scenario_lp = simulation_lp.scenarios().front();
+  const auto& stage_lp = simulation_lp.stages().front();
+  const auto& block_lp = simulation_lp.blocks().front();
+
+  const auto& load_cols = dem_lp.load_cols_at(scenario_lp, stage_lp);
+  const auto col_it = load_cols.find(block_lp.uid());
+  REQUIRE(col_it != load_cols.end());
+  const auto load_val = lp.get_col_sol()[col_it->second];
+  CHECK(load_val == doctest::Approx(50.0).epsilon(1e-6));
+}
+
+TEST_CASE("DemandLP — capainst primal col_sol pinned by expmod module count")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  // Deterministic LP verifying that DemandLP (via CapacityObjectBase) exposes
+  // a `capainst` column through `capacity_col_at(stage)` and that the primal
+  // solution is pinned by the expansion-module formulation.
+  //
+  // Setup mirrors the ConverterLP capainst test:
+  //   - 1 bus, 1 scenario, 1 stage, 1 block (duration=1h).
+  //   - A cheap generator at bus1 with ample capacity serves any load.
+  //   - The demand has `capacity = 10`, `expcap = 40`, `expmod = 1`,
+  //     `annual_capcost = 1000`. Because `expcap * expmod > 0`,
+  //     CapacityObjectBase::add_to_lp creates the capainst column with
+  //     `capainst = expcap * expmod_col`, and the expansion-module
+  //     formulation pins `expmod_col = 1`, so `capainst = 40`.
+  //   - `demand_fail_cost = 1000` so the balance row is emitted.
+  const Array<Bus> bus_array = {{
+      .uid = Uid {1},
+      .name = "b1",
+  }};
+
+  const Array<Generator> generator_array = {
+      {
+          .uid = Uid {1},
+          .name = "gen_main",
+          .bus = Uid {1},
+          .gcost = 10.0,
+          .capacity = 500.0,
+      },
+  };
+
+  const Array<Demand> demand_array = {
+      {
+          .uid = Uid {1},
+          .name = "d_exp",
+          .bus = Uid {1},
+          .capacity = 10.0,
+          .expcap = 40.0,
+          .expmod = 1.0,
+          .annual_capcost = 1000.0,
+      },
+  };
+
+  const Simulation simulation = {
+      .block_array = {{
+          .uid = Uid {1},
+          .duration = 1,
+      }},
+      .stage_array = {{
+          .uid = Uid {1},
+          .first_block = 0,
+          .count_block = 1,
+      }},
+      .scenario_array = {{
+          .uid = Uid {0},
+      }},
+  };
+
+  PlanningOptions opts;
+  opts.demand_fail_cost = 1000.0;
+
+  const System system = {
+      .name = "DemandCapainstCapminTest",
+      .bus_array = bus_array,
+      .demand_array = demand_array,
+      .generator_array = generator_array,
+  };
+
+  const PlanningOptionsLP options(opts);
+  SimulationLP simulation_lp(simulation, options);
+  SystemLP system_lp(system, simulation_lp);
+
+  auto&& lp = system_lp.linear_interface();
+  CHECK(lp.get_numrows() > 0);
+  CHECK(lp.get_numcols() > 0);
+
+  auto result = lp.resolve();
+  REQUIRE(result.has_value());
+  CHECK(result.value() == 0);
+
+  // Look up the demand's own capainst column via the LP-class accessor.
+  const auto& dem_lps = system_lp.elements<DemandLP>();
+  REQUIRE(dem_lps.size() == 1);
+  const auto& dem_lp = dem_lps.front();
+  const auto& stage_lp = simulation_lp.stages().front();
+
+  const auto cap_col = dem_lp.capacity_col_at(stage_lp);
+  REQUIRE(cap_col.has_value());
+
+  // The expansion-module formulation pins capainst = expcap * expmod = 40
+  // when one module is chosen.
+  const auto& sol = lp.get_col_sol();
+  CHECK(sol[*cap_col] == doctest::Approx(40.0).epsilon(1e-6));
+}

@@ -592,6 +592,64 @@ public:
                                          : std::nullopt;
   }
 
+  // ── AMPL class / attribute suppression registry ──────────────────────
+  //
+  // Certain planning modes make whole classes or specific attributes
+  // unavailable in the LP — e.g. `use_single_bus` suppresses all line
+  // columns, `!use_kirchhoff` suppresses `bus.theta`.  User constraints
+  // that reference such classes/attributes should *silently* drop the
+  // term (with an INFO log) rather than throw: the reference is not a
+  // typo, it just doesn't apply in the current mode.
+  //
+  // Populated from `system_lp.cpp`'s AMPL `std::call_once` block, which
+  // knows the options and translates them into explicit suppression
+  // entries.  Each entry stores a short human-readable reason that
+  // surfaces in the drop log so users can tell *why* the term was
+  // ignored.
+  //
+  // Tier 1 (class suppressed)      — entire class unavailable.
+  // Tier 2 (attribute suppressed)  — specific attribute of a class.
+  // Typo guard                     — unknown class/attr still throws.
+
+  /// Mark a class as suppressed (e.g. `line` under `use_single_bus`).
+  /// `reason` should outlive `SimulationLP` — a constexpr literal is
+  /// fine, a caller-owned `std::string` is not.
+  void suppress_ampl_class(std::string_view class_name, std::string_view reason)
+  {
+    m_ampl_suppressed_classes_.insert_or_assign(class_name, reason);
+  }
+
+  /// Mark a specific attribute as suppressed (e.g. `bus.theta` when
+  /// Kirchhoff is disabled).  Same lifetime requirements as
+  /// `suppress_ampl_class`.
+  void suppress_ampl_attribute(std::string_view class_name,
+                               std::string_view attribute,
+                               std::string_view reason)
+  {
+    m_ampl_suppressed_attrs_.insert_or_assign(std::pair {class_name, attribute},
+                                              reason);
+  }
+
+  /// Return the suppression reason if either the class or the
+  /// (class, attribute) pair is suppressed; nullopt otherwise.
+  /// Class-level suppression takes precedence over attribute-level.
+  [[nodiscard]] std::optional<std::string_view> find_ampl_suppression(
+      std::string_view class_name, std::string_view attribute) const noexcept
+  {
+    if (const auto it = m_ampl_suppressed_classes_.find(class_name);
+        it != m_ampl_suppressed_classes_.end())
+    {
+      return it->second;
+    }
+    if (const auto it =
+            m_ampl_suppressed_attrs_.find(std::pair {class_name, attribute});
+        it != m_ampl_suppressed_attrs_.end())
+    {
+      return it->second;
+    }
+    return std::nullopt;
+  }
+
   // ── Element metadata registry (F9) ───────────────────────────────────
   //
   // Elements register a small `{key → value}` bundle so that
@@ -677,6 +735,13 @@ private:
   AmplElementNameMap m_ampl_element_names_;
   AmplCompoundMap m_ampl_compounds_;
   AmplScalarMap m_ampl_scalars_;
+
+  // Suppression registries: populated from system_lp.cpp's AMPL
+  // call_once block.  Keys use `std::string_view` into constexpr
+  // literals (class names, attribute names, reason strings).
+  flat_map<std::string_view, std::string_view> m_ampl_suppressed_classes_;
+  flat_map<std::pair<std::string_view, std::string_view>, std::string_view>
+      m_ampl_suppressed_attrs_;
 
 public:
   /// Exposed so that `SystemLP`'s constructor can wrap the one-shot

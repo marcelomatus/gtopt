@@ -20,6 +20,7 @@
 #include <gtopt/reserve_provision.hpp>
 #include <gtopt/reserve_zone.hpp>
 #include <gtopt/simulation_lp.hpp>
+#include <gtopt/solver_registry.hpp>
 #include <gtopt/system_lp.hpp>
 
 using namespace gtopt;  // NOLINT(google-global-names-in-headers)
@@ -2743,4 +2744,169 @@ TEST_CASE("CommitmentLP - add_to_output via write_out")  // NOLINT
   CHECK_NOTHROW(system_lp.write_out());
 
   std::filesystem::remove_all(tmpdir);
+}
+
+TEST_CASE(  // NOLINT
+    "CommitmentLP — MIP u/v/w binary values for startup profile")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  SolverRegistry& reg = SolverRegistry::instance();
+  if (!reg.has_mip_solver()) {
+    MESSAGE("Skipping MIP test — no MIP solver available");
+    return;
+  }
+
+  // 1 bus, 1 stage, 3 blocks (1 h each), 1 scenario.
+  // Demand profile across blocks: [0, 60, 60]  (MW).
+  // Generator: pmin=30, pmax/capacity=100, gcost=50.
+  // Commitment: startup_cost=100, shutdown_cost=50, initial_status=0.
+  // demand_fail_cost = 1000 → dispatching in blocks 1 & 2 is optimal.
+  // Expected optimum (MIP): u = [0, 1, 1], v = [0, 1, 0], w = [0, 0, 0].
+  Simulation simulation;
+  simulation.block_array = {
+      {
+          .uid = Uid {0},
+          .duration = 1.0,
+      },
+      {
+          .uid = Uid {1},
+          .duration = 1.0,
+      },
+      {
+          .uid = Uid {2},
+          .duration = 1.0,
+      },
+  };
+  simulation.stage_array = {
+      {
+          .uid = Uid {0},
+          .first_block = 0,
+          .count_block = 3,
+          .chronological = true,
+      },
+  };
+  simulation.scenario_array = {
+      {
+          .uid = Uid {0},
+      },
+  };
+
+  System system;
+  system.name = "uc_mip_startup";
+  system.bus_array = {
+      {
+          .uid = Uid {1},
+          .name = "b1",
+      },
+  };
+  // Per-block demand profile: stage × block = 1 × 3 = {{0, 60, 60,},}.
+  system.demand_array = {
+      {
+          .uid = Uid {1},
+          .name = "d1",
+          .bus = Uid {1},
+          .lmax = TBRealFieldSched {std::vector<std::vector<Real>> {
+              {
+                  0.0,
+                  60.0,
+                  60.0,
+              },
+          }},
+          .capacity = 100.0,
+      },
+  };
+  system.generator_array = {
+      {
+          .uid = Uid {1},
+          .name = "g1",
+          .bus = Uid {1},
+          .pmin = 30.0,
+          .pmax = 100.0,
+          .gcost = 50.0,
+          .capacity = 100.0,
+      },
+  };
+  system.commitment_array = {
+      {
+          .uid = Uid {1},
+          .name = "cmt1",
+          .generator = Uid {1},
+          .startup_cost = 100.0,
+          .shutdown_cost = 50.0,
+          .initial_status = 0.0,
+      },
+  };
+
+  PlanningOptions poptions;
+  poptions.model_options.demand_fail_cost = 1000.0;
+  poptions.use_single_bus = true;
+  poptions.lp_matrix_options.col_with_names = true;
+  poptions.lp_matrix_options.col_with_name_map = true;
+  PlanningOptionsLP options(std::move(poptions));
+
+  LpMatrixOptions flat_opts;
+  flat_opts.col_with_names = true;
+  flat_opts.col_with_name_map = true;
+
+  SimulationLP simulation_lp(simulation, options);
+  SystemLP system_lp(system, simulation_lp, flat_opts);
+
+  auto&& lp = system_lp.linear_interface();
+
+  // Solve as MIP (integer u/v/w → backend dispatches to MIP solve).
+  const auto result = lp.resolve();
+  REQUIRE(result.has_value());
+  CHECK(result.value() == 0);
+
+  // Locate u/v/w columns by block UID via the LP column-name map.
+  // Label format: "commitment_<variable>_<cuid>_<scen>_<stage>_<block>"
+  const auto& col_map = lp.col_name_map();
+  const auto sol = lp.get_col_sol();
+
+  auto find_col = [&](std::string_view variable,
+                      Uid block_uid) -> std::optional<ColIndex>
+  {
+    for (const auto& [name, idx] : col_map) {
+      if (name.find("commitment_") == 0
+          && name.find(std::string(variable) + "_") != std::string::npos
+          && name.size() >= 2
+          && name.substr(name.size() - 2)
+              == std::string("_") + std::to_string(block_uid))
+      {
+        return idx;
+      }
+    }
+    return std::nullopt;
+  };
+
+  const auto u0 = find_col(CommitmentLP::StatusName, Uid {0});
+  const auto u1 = find_col(CommitmentLP::StatusName, Uid {1});
+  const auto u2 = find_col(CommitmentLP::StatusName, Uid {2});
+  const auto v1 = find_col(CommitmentLP::StartupName, Uid {1});
+  const auto v2 = find_col(CommitmentLP::StartupName, Uid {2});
+  const auto w2 = find_col(CommitmentLP::ShutdownName, Uid {2});
+
+  REQUIRE(u0.has_value());
+  REQUIRE(u1.has_value());
+  REQUIRE(u2.has_value());
+  REQUIRE(v1.has_value());
+  REQUIRE(v2.has_value());
+  REQUIRE(w2.has_value());
+
+  // Binaries must be integer in the LP.
+  CHECK(lp.is_integer(*u0));
+  CHECK(lp.is_integer(*u1));
+  CHECK(lp.is_integer(*u2));
+  CHECK(lp.is_integer(*v1));
+  CHECK(lp.is_integer(*v2));
+  CHECK(lp.is_integer(*w2));
+
+  // Primal values: unit off at block 0, starts at block 1, stays on at 2.
+  CHECK(sol[*u0] == doctest::Approx(0.0).epsilon(1e-4));
+  CHECK(sol[*u1] == doctest::Approx(1.0).epsilon(1e-4));
+  CHECK(sol[*u2] == doctest::Approx(1.0).epsilon(1e-4));
+  CHECK(sol[*v1] == doctest::Approx(1.0).epsilon(1e-4));
+  CHECK(sol[*v2] == doctest::Approx(0.0).epsilon(1e-4));
+  CHECK(sol[*w2] == doctest::Approx(0.0).epsilon(1e-4));
 }

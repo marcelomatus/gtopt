@@ -110,6 +110,12 @@ double OsiSolverBackend::infinity() const noexcept
   return m_solver_->getInfinity();
 }
 
+bool OsiSolverBackend::supports_mip() const noexcept
+{
+  // CLP is a pure LP solver; CBC is the COIN-OR MIP solver.
+  return m_type_ == OsiSolverType::cbc;
+}
+
 void OsiSolverBackend::set_prob_name(const std::string& name)
 {
   m_solver_->setStrParam(OsiProbName, name);

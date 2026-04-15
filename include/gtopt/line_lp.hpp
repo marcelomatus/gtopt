@@ -106,6 +106,18 @@ public:
     return lossn_cols.at({scenario.uid(), stage.uid()});
   }
 
+  [[nodiscard]] constexpr const auto& capacityp_rows_at(
+      const ScenarioLP& scenario, const StageLP& stage) const
+  {
+    return capacityp_rows.at({scenario.uid(), stage.uid()});
+  }
+
+  [[nodiscard]] constexpr const auto& capacityn_rows_at(
+      const ScenarioLP& scenario, const StageLP& stage) const
+  {
+    return capacityn_rows.at({scenario.uid(), stage.uid()});
+  }
+
   /// Check if this line created Kirchhoff (theta) rows for a given
   /// (scenario, stage) pair.
   [[nodiscard]] constexpr bool has_theta_rows(

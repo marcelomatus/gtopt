@@ -64,6 +64,11 @@ double HighsSolverBackend::infinity() const noexcept
   return kHighsInf;
 }
 
+bool HighsSolverBackend::supports_mip() const noexcept
+{
+  return true;
+}
+
 void HighsSolverBackend::set_prob_name(const std::string& name)
 {
   m_prob_name_ = name;

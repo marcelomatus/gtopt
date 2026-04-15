@@ -581,6 +581,26 @@ bool SolverRegistry::has_solver(std::string_view name) const
   return has_solver_unlocked(name);
 }
 
+bool SolverRegistry::supports_mip(std::string_view name)
+{
+  // Use the public create() path so that lazy-load semantics match
+  // the call-site that would actually instantiate the backend.
+  try {
+    auto backend = create(name);
+    return backend && backend->supports_mip();
+  } catch (const std::exception&) {
+    return false;
+  }
+}
+
+bool SolverRegistry::has_mip_solver()
+{
+  load_all_plugins();
+  const auto solvers = available_solvers();
+  return std::ranges::any_of(
+      solvers, [this](const std::string& s) { return supports_mip(s); });
+}
+
 const std::vector<std::string>& SolverRegistry::searched_directories() const
 {
   return m_searched_dirs_;
