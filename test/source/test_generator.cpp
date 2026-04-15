@@ -4,6 +4,7 @@
 #include <gtopt/generator.hpp>
 #include <gtopt/linear_interface.hpp>
 #include <gtopt/simulation_lp.hpp>
+#include <gtopt/solver_registry.hpp>
 #include <gtopt/system_lp.hpp>
 
 using namespace gtopt;  // NOLINT(google-global-names-in-headers)
@@ -513,4 +514,109 @@ TEST_CASE("GeneratorLP — capacity row dual equals marginal cost minus gcost")
   const auto& row_dual = lp.get_row_dual();
   const auto dual_val = row_dual[cheap_crow_it->second];
   CHECK(std::abs(dual_val) == doctest::Approx(90.0).epsilon(1e-5));
+}
+
+TEST_CASE("GeneratorLP — integer_expmod MIP gives integer expansion modules")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  // Gate: this test requires a MIP-capable backend. When no MIP solver is
+  // available (e.g., CLP-only sandbox), skip silently with a message.
+  SolverRegistry& reg = SolverRegistry::instance();
+  if (!reg.has_mip_solver()) {
+    MESSAGE(
+        "Skipping integer_expmod MIP test: no MIP-capable solver plugin "
+        "loaded (need cbc, cplex, highs, or similar).");
+    return;
+  }
+
+  // Single-bus, single-stage, single-block setup.  Generator has no base
+  // capacity and may install up to 10 expansion modules of 30 MW each.
+  // With a 75 MW demand and expcap=30 modules, the smallest integer count
+  // that covers demand is 3 → capainst = 90 MW (2 modules = 60 MW is
+  // infeasible for the demand balance given demand_fail_cost=10000).
+  const Array<Bus> bus_array = {
+      {
+          .uid = Uid {1},
+          .name = "b1",
+      },
+  };
+
+  const Array<Generator> generator_array = {
+      {
+          .uid = Uid {1},
+          .name = "g_int",
+          .bus = Uid {1},
+          .gcost = 10.0,
+          .capacity = 0.0,
+          .expcap = 30.0,
+          .expmod = 10.0,
+          .annual_capcost = 1000.0,
+          .integer_expmod = true,
+      },
+  };
+
+  const Array<Demand> demand_array = {
+      {
+          .uid = Uid {1},
+          .name = "d1",
+          .bus = Uid {1},
+          .capacity = 75.0,
+      },
+  };
+
+  const Simulation simulation = {
+      .block_array = {{
+          .uid = Uid {1},
+          .duration = 1,
+      }},
+      .stage_array = {{
+          .uid = Uid {1},
+          .first_block = 0,
+          .count_block = 1,
+      }},
+      .scenario_array = {{
+          .uid = Uid {0},
+      }},
+  };
+
+  const System system = {
+      .name = "GenIntegerExpmodTest",
+      .bus_array = bus_array,
+      .demand_array = demand_array,
+      .generator_array = generator_array,
+  };
+
+  PlanningOptions popts;
+  popts.model_options.demand_fail_cost = 10000.0;
+  const PlanningOptionsLP options(popts);
+  SimulationLP simulation_lp(simulation, options);
+  SystemLP system_lp(system, simulation_lp);
+
+  auto&& lp = system_lp.linear_interface();
+
+  // Locate the generator's expmod column and verify the integer flag was
+  // propagated from the Generator down to the LP column.
+  const auto& gen_lps = system_lp.elements<GeneratorLP>();
+  REQUIRE(gen_lps.size() == 1);
+  const auto& gen_lp = gen_lps.front();
+
+  const auto& stage_lp = simulation_lp.stages().front();
+  const auto expmod_col = gen_lp.expmod_col_at(stage_lp);
+  REQUIRE(expmod_col.has_value());
+  CHECK(lp.is_integer(*expmod_col));
+
+  // Solve the MIP and check the integer optimum.
+  auto result = lp.resolve();
+  REQUIRE(result.has_value());
+  CHECK(result.value() == 0);
+
+  const auto col_sol = lp.get_col_sol();
+  const auto expmod_val = col_sol[*expmod_col];
+  CHECK(expmod_val == doctest::Approx(3.0).epsilon(1e-6));
+
+  // capainst must equal 3 * 30 = 90 MW (enough to cover the 75 MW demand).
+  const auto cap_col = gen_lp.capacity_col_at(stage_lp);
+  REQUIRE(cap_col.has_value());
+  CHECK(col_sol[*cap_col] == doctest::Approx(90.0).epsilon(1e-6));
 }
