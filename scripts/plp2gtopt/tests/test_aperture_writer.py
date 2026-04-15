@@ -86,12 +86,13 @@ def test_build_aperture_array_empty_parser(tmp_path: Path) -> None:
     assert not res.aperture_array
 
 
-def test_aperture_uids_are_sequential(idap2_parser: IdAp2Parser) -> None:
-    """Aperture UIDs must be sequential starting from 1."""
+def test_aperture_uids_match_fortran_hydrology(idap2_parser: IdAp2Parser) -> None:
+    """Aperture UIDs must match the 1-based PLP hydrology number."""
     scenario_hydro_map = {50: 1, 51: 2, 52: 3, 53: 4}
     res = build_aperture_array(idap2_parser, scenario_hydro_map, 3, max_scenario_uid=4)
     uids = [a["uid"] for a in res.aperture_array]
-    assert uids == [1, 2, 3, 4]
+    # hydros (1-based) 51,52,53,54 → aperture UIDs 51,52,53,54
+    assert uids == [51, 52, 53, 54]
 
 
 def test_aperture_probabilities_sum_to_one(idap2_parser: IdAp2Parser) -> None:
@@ -217,12 +218,13 @@ def test_phase_aperturess_multistage_duplicates(
     from collections import Counter
 
     counts_1 = Counter(ap_set_1)
-    # hydro 51 → UID 1 appears 2× (stage 1 + stage 2)
-    # hydro 52 → UID 2 appears 2× (stage 1 + stage 2)
-    # hydro 53 → UID 3 appears 1× (stage 2 only)
-    assert counts_1[1] == 2
-    assert counts_1[2] == 2
-    assert counts_1[3] == 1
+    # Aperture UID = 1-based hydrology number (PLP Fortran convention):
+    # hydro 51 → UID 51 appears 2× (stage 1 + stage 2)
+    # hydro 52 → UID 52 appears 2× (stage 1 + stage 2)
+    # hydro 53 → UID 53 appears 1× (stage 2 only)
+    assert counts_1[51] == 2
+    assert counts_1[52] == 2
+    assert counts_1[53] == 1
 
     # Phase 2 (stage 3): [1,51,52,53] → 4 unique aperture UIDs, no duplicates
     ap_set_2 = phase_array[1]["apertures"]
