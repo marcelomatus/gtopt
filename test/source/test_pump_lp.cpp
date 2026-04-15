@@ -822,3 +822,170 @@ TEST_CASE("PumpLP — add_to_output via write_out")  // NOLINT
 
   std::filesystem::remove_all(tmpdir);
 }
+
+// -----------------------------------------------------------------------
+// Forced pumping via waterway fmin: inspect primal col_sol
+// -----------------------------------------------------------------------
+
+TEST_CASE(  // NOLINT
+    "PumpLP — forced pump flow matches waterway fmin in primal solution")
+{
+  // Design: pump waterway has fmin = 10 m³/s → LP is forced to pump
+  // exactly 10 m³/s (no benefit to pumping more because each extra
+  // unit of flow adds pump_factor/efficiency MW of thermal-paid load).
+  //
+  // With pump_factor = 2.0 MW/(m³/s) and efficiency = 1.0, the pump's
+  // electrical demand must equal 2.0 × 10.0 = 20.0 MW per block.
+  //
+  // Assertions:
+  //   waterway flow col      == 10.0 m³/s
+  //   pump-load demand col   == 20.0 MW
+
+  const Array<Bus> bus_array = {
+      {
+          .uid = Uid {1},
+          .name = "b1",
+      },
+  };
+
+  const Array<Generator> generator_array = {
+      {
+          .uid = Uid {1},
+          .name = "thermal_gen",
+          .bus = Uid {1},
+          .gcost = 50.0,
+          .capacity = 500.0,
+      },
+  };
+
+  const Array<Demand> demand_array = {
+      {
+          .uid = Uid {1},
+          .name = "pump_load",
+          .bus = Uid {1},
+          .capacity = 500.0,
+      },
+  };
+
+  const Array<Junction> junction_array = {
+      {
+          .uid = Uid {1},
+          .name = "j_up",
+      },
+      {
+          .uid = Uid {2},
+          .name = "j_down",
+          .drain = true,
+      },
+  };
+
+  // Pump waterway: fmin = 10.0 → flow forced to at least 10 m³/s.
+  const Array<Waterway> waterway_array = {
+      {
+          .uid = Uid {1},
+          .name = "ww_pump_forced",
+          .junction_a = Uid {2},
+          .junction_b = Uid {1},
+          .fmin = 10.0,
+          .fmax = 100.0,
+      },
+  };
+
+  const Array<Reservoir> reservoir_array = {
+      {
+          .uid = Uid {1},
+          .name = "rsv_up",
+          .junction = Uid {1},
+          .capacity = 100000.0,
+          .emin = 0.0,
+          .emax = 100000.0,
+          .eini = 10000.0,
+      },
+      {
+          .uid = Uid {2},
+          .name = "rsv_down",
+          .junction = Uid {2},
+          .capacity = 100000.0,
+          .emin = 0.0,
+          .emax = 100000.0,
+          .eini = 90000.0,
+      },
+  };
+
+  const Array<Pump> pump_array = {
+      {
+          .uid = Uid {1},
+          .name = "pump_forced",
+          .waterway = Uid {1},
+          .demand = Uid {1},
+          .pump_factor = 2.0,
+          .efficiency = 1.0,
+      },
+  };
+
+  const Simulation simulation = {
+      .block_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .duration = 1,
+              },
+          },
+      .stage_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .first_block = 0,
+                  .count_block = 1,
+              },
+          },
+      .scenario_array =
+          {
+              {
+                  .uid = Uid {0},
+              },
+          },
+  };
+
+  const System system = {
+      .name = "PumpForcedFlowTest",
+      .bus_array = bus_array,
+      .demand_array = demand_array,
+      .generator_array = generator_array,
+      .junction_array = junction_array,
+      .waterway_array = waterway_array,
+      .reservoir_array = reservoir_array,
+      .pump_array = pump_array,
+  };
+
+  const PlanningOptionsLP options;
+  SimulationLP simulation_lp(simulation, options);
+  SystemLP system_lp(system, simulation_lp);
+
+  auto&& lp = system_lp.linear_interface();
+  auto result = lp.resolve();
+  REQUIRE(result.has_value());
+  CHECK(result.value() == 0);
+
+  const auto& scenario_lp = simulation_lp.scenarios().front();
+  const auto& stage_lp = simulation_lp.stages().front();
+  const auto& block_lp = simulation_lp.blocks().front();
+
+  // Waterway flow column: pumped flow rate [m³/s].
+  const auto& ww_lps = system_lp.elements<WaterwayLP>();
+  REQUIRE(ww_lps.size() == 1);
+  const auto& flow_cols = ww_lps.front().flow_cols_at(scenario_lp, stage_lp);
+  const auto flow_col = flow_cols.at(block_lp.uid());
+  const auto sol = lp.get_col_sol();
+  const auto flow_val = sol[flow_col];
+  CHECK(flow_val == doctest::Approx(10.0).epsilon(1e-6));
+
+  // Demand load column: pump electrical consumption [MW] =
+  //   pump_factor / efficiency × flow = 2.0 / 1.0 × 10.0 = 20.0 MW.
+  const auto& dem_lps = system_lp.elements<DemandLP>();
+  REQUIRE(dem_lps.size() == 1);
+  const auto& load_cols = dem_lps.front().load_cols_at(scenario_lp, stage_lp);
+  const auto load_col = load_cols.at(block_lp.uid());
+  const auto load_val = sol[load_col];
+  CHECK(load_val == doctest::Approx(20.0).epsilon(1e-6));
+}

@@ -443,6 +443,80 @@ TEST_CASE(  // NOLINT
   CHECK(col_upp[eini_col] == doctest::Approx(emax_val));
 }
 
+// ── 1.7 solve LP and inspect extraction col_sol ──────────────────────────
+
+TEST_CASE(  // NOLINT
+    "VolumeRightLP Tier 1.7 - solve LP and extraction saturates at fmax")
+{
+  // Force the LP's optimal extraction to saturate at fmax so the
+  // primal col_sol of the extraction column is deterministic.
+  //
+  // Setup:
+  //   - demand       = 0.72 hm³ / stage
+  //   - fmax         = 100 m³/s      (per block)
+  //   - flow_conv.   = 0.0036 hm³/(m³/s·h)
+  //   - block dur.   = 1 h           (single-block stage)
+  //   - fail_cost    = 5000 $/hm³
+  //
+  // Max extractable volume = 100 · 0.0036 · 1 = 0.36 hm³ < 0.72.
+  // Extraction has zero direct cost and water is abundant in the
+  // reservoir (eini=1500, inflow=100).  The rights ledger itself
+  // must be pre-provisioned with enough volume (emax=1000, eini=1000)
+  // so that the storage balance `efin = eini - fcr·dur·extraction`
+  // does not push efin below its 0 lower bound.  With that, the LP
+  // saturates the extraction column at fmax=100 and pays the 0.36 hm³
+  // deficit via the fail variable.
+  const HydroFixture fx;
+  constexpr double fmax_val = 100.0;
+  const Array<VolumeRight> vrs = {
+      {
+          .uid = Uid {1},
+          .name = "vsolve",
+          .reservoir = Uid {1},
+          .emax = 1000.0,
+          .eini = 1000.0,
+          .demand = 0.72,
+          .fmax = fmax_val,
+          .fail_cost = 5000.0,
+          // Leave use_state_variable defaulted (true): registers efin as a
+          // StateVariable so the rights ledger is NOT closed with an
+          // `efin == eini` equality.  Without this, a single-stage LP would
+          // force extraction = 0 to keep the ledger balanced.
+      },
+  };
+
+  const auto simulation = make_single_stage_simulation();
+  const auto system = make_system(fx, vrs, "Tier1_7_Solve");
+
+  const PlanningOptionsLP options;
+  SimulationLP simulation_lp(simulation, options);
+  SystemLP system_lp(system, simulation_lp);
+
+  const auto& vr_lp = system_lp.elements<VolumeRightLP>().front();
+  const auto& scenarios = system_lp.scene().scenarios();
+  const auto& stages = system_lp.phase().stages();
+  REQUIRE(!scenarios.empty());
+  REQUIRE(!stages.empty());
+  const auto& scenario = scenarios[0];
+  const auto& stage = stages[0];
+
+  const auto& ext = vr_lp.extraction_cols_at(scenario, stage);
+  REQUIRE(!ext.empty());
+
+  auto& lp = system_lp.linear_interface();
+  const auto result = lp.resolve();
+  REQUIRE(result.has_value());
+  CHECK(result.value() == 0);
+
+  // Primal solution of every per-block extraction column must equal
+  // fmax, since the LP is free to extract (zero direct cost on the
+  // column) and saturating fmax minimises the fail-cost penalty.
+  const auto col_sol = lp.get_col_sol();
+  for (const auto& [buid, col] : ext) {
+    CHECK(col_sol[col] == doctest::Approx(fmax_val).epsilon(1e-6));
+  }
+}
+
 // ── 1.6 update_lp cache hit / miss ────────────────────────────────────────
 
 TEST_CASE(  // NOLINT

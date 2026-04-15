@@ -724,3 +724,168 @@ TEST_CASE(  // NOLINT
   // default_scale_objective (1e7), so just verify it is positive.
   CHECK(lp.get_obj_value() > 0.0);
 }
+
+// -----------------------------------------------------------------------
+// Primal col_sol assertion: waterway turbine with equality conversion
+// forces discharge = generation / production_factor.
+// -----------------------------------------------------------------------
+
+TEST_CASE(  // NOLINT
+    "TurbineLP — col_sol enforces discharge = generation / production_factor")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  // Minimal hydro chain: reservoir → waterway → turbine → generator → bus.
+  // A 120 MW demand is served exclusively by the hydro generator (no
+  // thermal alternative).  With drain=false, the turbine conversion row
+  // is an equality: generation = production_factor × discharge.
+  // Therefore discharge is uniquely determined at 120 / 3 = 40 m3/s.
+  const Array<Bus> bus_array = {
+      {
+          .uid = Uid {1},
+          .name = "b1",
+      },
+  };
+
+  const Array<Generator> generator_array = {
+      {
+          .uid = Uid {1},
+          .name = "hydro_gen",
+          .bus = Uid {1},
+          .gcost = 5.0,
+          .capacity = 500.0,
+      },
+  };
+
+  const Array<Demand> demand_array = {
+      {
+          .uid = Uid {1},
+          .name = "d1",
+          .bus = Uid {1},
+          .capacity = 120.0,
+      },
+  };
+
+  const Array<Junction> junction_array = {
+      {
+          .uid = Uid {1},
+          .name = "j_up",
+      },
+      {
+          .uid = Uid {2},
+          .name = "j_down",
+          .drain = true,
+      },
+  };
+
+  const Array<Waterway> waterway_array = {
+      {
+          .uid = Uid {1},
+          .name = "ww1",
+          .junction_a = Uid {1},
+          .junction_b = Uid {2},
+          .fmin = 0.0,
+          .fmax = 1000.0,
+      },
+  };
+
+  // Plenty of water stored: 10'000 m3 initial; over a 1 h block only
+  // 40 m3/s × 3600 s = 144'000 m3 would be drawn, but the storage is
+  // not the binding constraint here — the equality conversion row is.
+  const Array<Reservoir> reservoir_array = {
+      {
+          .uid = Uid {1},
+          .name = "rsv1",
+          .junction = Uid {1},
+          .capacity = 1.0e9,
+          .emin = 0.0,
+          .emax = 1.0e9,
+          .eini = 1.0e9,
+      },
+  };
+
+  // drain=false (default) → equality conversion row:
+  //   gen - 3 · flow = 0     (i.e. discharge = generation / 3).
+  const Array<Turbine> turbine_array = {
+      {
+          .uid = Uid {1},
+          .name = "tur_eq",
+          .waterway = Uid {1},
+          .generator = Uid {1},
+          .production_factor = 3.0,
+      },
+  };
+
+  const Simulation simulation = {
+      .block_array = {{
+          .uid = Uid {1},
+          .duration = 1,
+      }},
+      .stage_array = {{
+          .uid = Uid {1},
+          .first_block = 0,
+          .count_block = 1,
+      }},
+      .scenario_array = {{
+          .uid = Uid {0},
+      }},
+  };
+
+  const System system = {
+      .name = "TurbineColSolTest",
+      .bus_array = bus_array,
+      .demand_array = demand_array,
+      .generator_array = generator_array,
+      .junction_array = junction_array,
+      .waterway_array = waterway_array,
+      .reservoir_array = reservoir_array,
+      .turbine_array = turbine_array,
+  };
+
+  PlanningOptions popts;
+  popts.demand_fail_cost = 1000.0;
+  const PlanningOptionsLP options(popts);
+  SimulationLP simulation_lp(simulation, options);
+  SystemLP system_lp(system, simulation_lp);
+
+  auto&& lp = system_lp.linear_interface();
+  CHECK(lp.get_numrows() > 0);
+  CHECK(lp.get_numcols() > 0);
+
+  auto result = lp.resolve();
+  REQUIRE(result.has_value());
+  CHECK(result.value() == 0);
+
+  // Pull the three LP objects we need to locate the columns.
+  const auto& scenario_lp = simulation_lp.scenarios().front();
+  const auto& stage_lp = simulation_lp.stages().front();
+  const auto& block_lp = simulation_lp.blocks().front();
+  const auto buid = block_lp.uid();
+
+  // Generation column (owned by GeneratorLP).
+  const auto& gen_lps = system_lp.elements<GeneratorLP>();
+  REQUIRE(gen_lps.size() == 1);
+  const auto& gen_lp = gen_lps.front();
+  const auto& gcols = gen_lp.generation_cols_at(scenario_lp, stage_lp);
+  REQUIRE(gcols.size() == 1);
+  const auto gcol = gcols.at(buid);
+
+  // Discharge column (owned by WaterwayLP, exposed via flow_cols_at).
+  const auto& ww_lps = system_lp.elements<WaterwayLP>();
+  REQUIRE(ww_lps.size() == 1);
+  const auto& ww_lp = ww_lps.front();
+  const auto& fcols = ww_lp.flow_cols_at(scenario_lp, stage_lp);
+  REQUIRE(fcols.size() == 1);
+  const auto fcol = fcols.at(buid);
+
+  const auto col_sol = lp.get_col_sol();
+
+  // Demand = 120 MW must be met by the only generator.
+  CHECK(col_sol[gcol] == doctest::Approx(120.0).epsilon(1e-6));
+
+  // Equality conversion row forces discharge = generation / 3 = 40 m3/s.
+  CHECK(col_sol[fcol] == doctest::Approx(40.0).epsilon(1e-6));
+
+  // Cross-check: generation / production_factor must equal discharge.
+  CHECK(col_sol[gcol] / 3.0 == doctest::Approx(col_sol[fcol]).epsilon(1e-6));
+}
