@@ -441,6 +441,17 @@ public:
     return simulation().find_ampl_scalar(class_name, attribute);
   }
 
+  /// Returns the suppression reason if the class or (class, attribute)
+  /// pair has been marked unavailable by the current planning mode
+  /// (e.g. `line` under `use_single_bus`, `bus.theta` when Kirchhoff
+  /// is disabled).  A non-empty result means the resolver should
+  /// silently drop the referencing term instead of throwing.
+  [[nodiscard]] std::optional<std::string_view> find_ampl_suppression(
+      std::string_view class_name, std::string_view attribute) const noexcept
+  {
+    return simulation().find_ampl_suppression(class_name, attribute);
+  }
+
   /// Register filter metadata for one element (F9).
   /// See `SimulationLP::register_ampl_element_metadata`.
   void register_ampl_element_metadata(std::string_view class_name,

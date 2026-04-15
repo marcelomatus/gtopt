@@ -317,6 +317,25 @@ BuildResult build_row_from_terms(LowerCtx& ctx,
               *pval,
               coef);
         }
+      } else if (const auto suppression = ctx.sc.find_ampl_suppression(
+                     term.element->element_type, term.element->attribute))
+      {
+        // The class or (class, attribute) pair was explicitly marked
+        // unavailable by the active planning mode (e.g. `line` under
+        // `use_single_bus`, `bus.theta` when Kirchhoff is disabled).
+        // Silently drop the term — the user configured the mode, the
+        // reference is not a typo, it simply does not apply.  Traced
+        // at DEBUG level so diagnostics are available when needed
+        // without noise on every run.
+        SPDLOG_DEBUG(
+            "user_constraint '{}': dropping term '{}({}).{}' (block {}) — "
+            "suppressed by mode: {}",
+            ctx.uc.name,
+            term.element->element_type,
+            term.element->element_id,
+            term.element->attribute,
+            ctx.block.uid(),
+            *suppression);
       } else if (ctx.is_strict) {
         // The element ref resolved neither as an LP column (no
         // matching variable in the AMPL registry) nor as a data
