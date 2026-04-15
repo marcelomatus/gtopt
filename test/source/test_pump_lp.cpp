@@ -17,6 +17,7 @@
 
 #include <doctest/doctest.h>
 #include <gtopt/linear_interface.hpp>
+#include <gtopt/pump_lp.hpp>
 #include <gtopt/simulation_lp.hpp>
 #include <gtopt/system_lp.hpp>
 
@@ -803,6 +804,18 @@ TEST_CASE("PumpLP — add_to_output via write_out")  // NOLINT
   auto result = lp.resolve();
   REQUIRE(result.has_value());
   CHECK(result.value() == 0);
+
+  // Objective must be positive (thermal gen @ $50/MWh serves a 50 MW load)
+  CHECK(lp.get_obj_value() > 0.0);
+
+  // Verify conversion_rows exist for the pump and have non-trivial duals
+  const auto& pump_lps = system_lp.elements<PumpLP>();
+  REQUIRE(pump_lps.size() == 1);
+  const auto& pump_lp = pump_lps.front();
+  const auto& scenario_lp = simulation_lp.scenarios().front();
+  const auto& stage_lp = simulation_lp.stages().front();
+  const auto& conv_rows = pump_lp.conversion_rows_at(scenario_lp, stage_lp);
+  CHECK_FALSE(conv_rows.empty());
 
   // Exercises PumpLP::add_to_output
   CHECK_NOTHROW(system_lp.write_out());

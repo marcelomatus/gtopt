@@ -5,6 +5,7 @@
 #include <gtopt/inertia_provision.hpp>
 #include <gtopt/inertia_provision_lp.hpp>
 #include <gtopt/inertia_zone.hpp>
+#include <gtopt/inertia_zone_lp.hpp>
 #include <gtopt/linear_interface.hpp>
 #include <gtopt/planning_options.hpp>
 #include <gtopt/simple_commitment.hpp>
@@ -473,6 +474,29 @@ TEST_CASE(
   auto result = lp.resolve();
   REQUIRE(result.has_value());
   CHECK(result.value() == 0);
+
+  // Verify the provision col solution: generator capacity=200, pmin=50,
+  // provision_factor=8 → max provision = pmin × provision_factor = 50 × 8 =
+  // 400 MWs.  Requirement = 200 MWs, so provision should be
+  // min(requirement, 400) / provision_factor = 200 / 8 = 25 MW.
+  const auto& ip_lps = system_lp.elements<InertiaProvisionLP>();
+  REQUIRE(ip_lps.size() == 1);
+  const auto& ip_lp = ip_lps.front();
+  const auto& scenario_lp = simulation_lp.scenarios().front();
+  const auto& stage_lp = simulation_lp.stages().front();
+  const auto& block_lp = simulation_lp.blocks().front();
+  const auto r_col =
+      ip_lp.lookup_provision_col(scenario_lp, stage_lp, block_lp.uid());
+  REQUIRE(r_col.has_value());
+  CHECK(lp.get_col_sol()[*r_col] == doctest::Approx(25.0).epsilon(0.01));
+
+  // Verify the inertia zone requirement col exists and the slack is ≥ 0
+  const auto& iz_lps = system_lp.elements<InertiaZoneLP>();
+  REQUIRE(iz_lps.size() == 1);
+  const auto req_col = iz_lps.front().lookup_requirement_col(
+      scenario_lp, stage_lp, block_lp.uid());
+  REQUIRE(req_col.has_value());
+  CHECK(lp.get_col_sol()[*req_col] >= 0.0);
 
   // Exercises InertiaZoneLP::add_to_output and
   // InertiaProvisionLP::add_to_output

@@ -324,6 +324,19 @@ TEST_CASE("SimpleCommitmentLP - add_to_output via write_out")  // NOLINT
   REQUIRE(result.has_value());
   CHECK(result.value() == 0);
 
+  // Verify the status col: demand=100 MW, generator capacity=100 MW, so
+  // the generator must be dispatched → status u should be 1.0 (relaxed).
+  const auto& sc_lps = system_lp.elements<SimpleCommitmentLP>();
+  REQUIRE(sc_lps.size() == 1);
+  const auto& sc_lp = sc_lps.front();
+  const auto& scenario_lp = simulation_lp.scenarios().front();
+  const auto& stage_lp = simulation_lp.stages().front();
+  const auto& block_lp = simulation_lp.blocks().front();
+  const auto u_col =
+      sc_lp.lookup_status_col(scenario_lp, stage_lp, block_lp.uid());
+  REQUIRE(u_col.has_value());
+  CHECK(lp.get_col_sol()[*u_col] == doctest::Approx(1.0).epsilon(0.001));
+
   // Exercises SimpleCommitmentLP::add_to_output (status_cols, gen_upper_rows,
   // gen_lower_rows)
   CHECK_NOTHROW(system_lp.write_out());

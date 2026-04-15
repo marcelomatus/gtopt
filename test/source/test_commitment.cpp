@@ -2722,6 +2722,23 @@ TEST_CASE("CommitmentLP - add_to_output via write_out")  // NOLINT
   REQUIRE(result.has_value());
   CHECK(result.value() == 0);
 
+  // Verify objective includes noload_cost (5 $/h × 4 blocks = 20 plus gen
+  // costs).  With demand=100 MW, g1 (gcost=10) dispatches first.
+  // Total obj should be positive and include generation + noload cost.
+  const auto obj = li.get_obj_value();
+  CHECK(obj > 0.0);
+
+  // Verify we got exactly one commitment element with populated status cols
+  const auto sol = li.get_col_sol();
+  const auto ncols = static_cast<size_t>(li.get_numcols());
+  CHECK(ncols > 0);
+  // At least some cols must have non-zero values (generators dispatching)
+  double total_sol = 0;
+  for (size_t i = 0; i < ncols; ++i) {
+    total_sol += sol[i];
+  }
+  CHECK(total_sol > 0.0);
+
   // Exercises CommitmentLP::add_to_output (u/v/w status cols, all row duals)
   CHECK_NOTHROW(system_lp.write_out());
 

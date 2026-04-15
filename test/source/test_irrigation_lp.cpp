@@ -12,9 +12,11 @@
 #include <filesystem>
 
 #include <doctest/doctest.h>
+#include <gtopt/flow_right_lp.hpp>
 #include <gtopt/linear_interface.hpp>
 #include <gtopt/simulation_lp.hpp>
 #include <gtopt/system_lp.hpp>
+#include <gtopt/volume_right_lp.hpp>
 
 using namespace gtopt;  // NOLINT(google-global-names-in-headers)
 
@@ -680,6 +682,20 @@ TEST_CASE("FlowRightLP - add_to_output via write_out")  // NOLINT
   REQUIRE(result.has_value());
   CHECK(result.value() == 0);
 
+  // Verify the flow col solution: discharge=20 m³/s is the fixed flow right
+  // amount.  The flow columns should have the discharge value.
+  const auto& fr_lps = system_lp.elements<FlowRightLP>();
+  REQUIRE(fr_lps.size() == 1);
+  const auto& fr_lp = fr_lps.front();
+  const auto& scenario_lp = simulation_lp.scenarios().front();
+  const auto& stage_lp = simulation_lp.stages().front();
+  const auto& flow_cols = fr_lp.flow_cols_at(scenario_lp, stage_lp);
+  CHECK_FALSE(flow_cols.empty());
+  const auto sol = lp.get_col_sol();
+  for (const auto& [buid, col] : flow_cols) {
+    CHECK(sol[col] == doctest::Approx(20.0).epsilon(0.01));
+  }
+
   // Exercises FlowRightLP::add_to_output
   CHECK_NOTHROW(system_lp.write_out());
 
@@ -755,6 +771,19 @@ TEST_CASE("VolumeRightLP - add_to_output via write_out")  // NOLINT
   auto result = lp.resolve();
   REQUIRE(result.has_value());
   CHECK(result.value() == 0);
+
+  // Verify VolumeRight storage state: eini=500, no extraction source, so the
+  // rights ledger stays at eini.  Check efin_col_at solution.
+  const auto& vr_lps = system_lp.elements<VolumeRightLP>();
+  REQUIRE(vr_lps.size() == 1);
+  const auto& vr_lp = vr_lps.front();
+  const auto& scenario_lp = simulation_lp.scenarios().front();
+  const auto& stage_lp = simulation_lp.stages().front();
+  const auto efin_col = vr_lp.efin_col_at(scenario_lp, stage_lp);
+  const auto efin_val = lp.get_col_sol()[efin_col];
+  // efin should be non-negative and within [emin=0, emax=1000]
+  CHECK(efin_val >= 0.0);
+  CHECK(efin_val <= 1000.0 + 1.0);
 
   // Exercises VolumeRightLP::add_to_output
   CHECK_NOTHROW(system_lp.write_out());

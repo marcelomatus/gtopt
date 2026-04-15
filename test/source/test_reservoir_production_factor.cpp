@@ -745,6 +745,26 @@ TEST_CASE(  // NOLINT
   REQUIRE(result.has_value());
   CHECK(result.value() == 0);
 
+  // Verify objective is non-negative: demand=50 MW served by hydro at gcost=5
+  CHECK(lp.get_obj_value() >= 0.0);
+
+  // Verify the production factor element has stored coeff indices for the
+  // (scenario, stage) pair — this confirms add_to_lp populated the
+  // per-block row/col data that add_to_output would serialize.
+  const auto& rpf_lps = system_lp.elements<ReservoirProductionFactorLP>();
+  REQUIRE(rpf_lps.size() == 1);
+  const auto& rpf_lp = rpf_lps.front();
+  const auto& scenario_lp = simulation_lp.scenarios().front();
+  const auto& stage_lp = simulation_lp.stages().front();
+  CHECK(rpf_lp.has_coeff_indices(scenario_lp.uid(), stage_lp.uid()));
+
+  // The production factor at eini=500 is the min across segments:
+  //   seg0: 1.0 + 0.001×(500-0)   = 1.5
+  //   seg1: 1.5 + 0.0001×(500-800) = 1.47
+  // → min(1.5, 1.47) = 1.47
+  const auto pf = rpf_lp.compute_production_factor(500.0);
+  CHECK(pf == doctest::Approx(1.47).epsilon(0.01));
+
   // Exercises ReservoirProductionFactorLP::add_to_output (no-op, always true)
   CHECK_NOTHROW(system_lp.write_out());
 

@@ -2,6 +2,7 @@
 #include <filesystem>
 
 #include <doctest/doctest.h>
+#include <gtopt/generator_lp.hpp>
 #include <gtopt/linear_interface.hpp>
 #include <gtopt/reservoir_discharge_limit.hpp>
 #include <gtopt/simulation_lp.hpp>
@@ -1238,6 +1239,26 @@ TEST_CASE("ReservoirDischargeLimitLP - add_to_output via write_out")  // NOLINT
   auto result = lp.resolve();
   REQUIRE(result.has_value());
   CHECK(result.value() == 0);
+
+  // Objective should be non-negative: demand=80 MW served by a mix of
+  // cheap hydro (gcost=5) and expensive thermal (gcost=100).
+  CHECK(lp.get_obj_value() >= 0.0);
+
+  // Verify the hydro generator's generation col has a non-negative value.
+  // With production_factor=1 and the DDL limiting discharge, the hydro
+  // gen produces some but not all the demand.
+  const auto& gen_lps = system_lp.elements<GeneratorLP>();
+  REQUIRE(gen_lps.size() == 2);
+  const auto& scenario_lp = simulation_lp.scenarios().front();
+  const auto& stage_lp = simulation_lp.stages().front();
+  const auto& hydro_gen_lp = gen_lps.front();
+  const auto& hydro_gen_cols =
+      hydro_gen_lp.generation_cols_at(scenario_lp, stage_lp);
+  CHECK_FALSE(hydro_gen_cols.empty());
+  const auto sol = lp.get_col_sol();
+  for (const auto& [buid, col] : hydro_gen_cols) {
+    CHECK(sol[col] >= 0.0);
+  }
 
   // Exercises ReservoirDischargeLimitLP::add_to_output
   CHECK_NOTHROW(system_lp.write_out());

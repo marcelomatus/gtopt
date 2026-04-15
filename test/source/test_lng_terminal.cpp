@@ -410,6 +410,19 @@ TEST_CASE("LngTerminalLP - add_to_output via write_out")  // NOLINT
   REQUIRE(result.has_value());
   CHECK(result.value() == 0);
 
+  // Verify efin col: LNG tank should have increased (large delivery minus
+  // small fuel consumption).  Fixture: tank_ini=50000, delivery=20000/h,
+  // heat_rate=0.2 m³/MWh, demand=50 MW, 2 blocks of 1h each.
+  // Consumption ≈ 0.2×50×2 = 20 m³ ; delivery ≈ 20000×2 = 40000 m³
+  // efin ≈ 50000 + 40000 - 20 = 89980 m³
+  const auto& scenario_lp = simulation_lp.scenarios().front();
+  const auto& stage_lp = simulation_lp.stages().front();
+  const auto& lng_lps = system_lp.elements<LngTerminalLP>();
+  REQUIRE(lng_lps.size() == 1);
+  const auto efin_col = lng_lps.front().efin_col_at(scenario_lp, stage_lp);
+  const auto efin_val = li.get_col_sol()[efin_col];
+  CHECK(efin_val > LngTestFixture::tank_ini);
+
   // Exercises LngTerminalLP::add_to_output (delivery_cols + StorageBase output)
   CHECK_NOTHROW(system_lp.write_out());
 
