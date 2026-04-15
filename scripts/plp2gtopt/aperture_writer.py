@@ -145,7 +145,7 @@ def build_aperture_array(
     aperture_array: List[Dict[str, Any]] = []
     extra_scenarios: List[Dict[str, Any]] = []
 
-    for ap_idx, hydro_1based in enumerate(unique_hydros):
+    for _ap_idx, hydro_1based in enumerate(unique_hydros):
         hydro_0based = hydro_1based - 1
         # Look up the gtopt scenario UID for this hydrology
         scenario_uid = scenario_hydro_map.get(hydro_0based)
