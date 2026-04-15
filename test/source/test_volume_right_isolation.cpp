@@ -266,13 +266,16 @@ TEST_CASE(  // NOLINT
     // The accessor must throw because no entry was registered for an
     // inactive stage — confirms add_to_lp early-returned without
     // populating extraction_cols_.
+    // boost::container::flat_map::at() throws boost::container::out_of_range
+    // (not std::out_of_range) unless BOOST_CONTAINER_USE_STD_EXCEPTIONS is set.
     const auto& vr_lp = system_lp.elements<VolumeRightLP>().front();
     const auto& scenarios = system_lp.scene().scenarios();
     const auto& stages = system_lp.phase().stages();
     REQUIRE(!scenarios.empty());
     REQUIRE(!stages.empty());
-    CHECK_THROWS(  // NOLINT(cppcoreguidelines-avoid-do-while)
-        (void)vr_lp.extraction_cols_at(scenarios[0], stages[0]));
+    CHECK_THROWS_AS(  //
+        (void)vr_lp.extraction_cols_at(scenarios[0], stages[0]),
+        std::exception);
   }
 }
 
