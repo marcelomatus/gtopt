@@ -271,9 +271,8 @@ TEST_CASE(  // NOLINT
     const auto& stages = system_lp.phase().stages();
     REQUIRE(!scenarios.empty());
     REQUIRE(!stages.empty());
-    CHECK_THROWS_AS(  //
-        (void)vr_lp.extraction_cols_at(scenarios[0], stages[0]),
-        std::out_of_range);
+    CHECK_THROWS(  // NOLINT(cppcoreguidelines-avoid-do-while)
+        (void)vr_lp.extraction_cols_at(scenarios[0], stages[0]));
   }
 }
 

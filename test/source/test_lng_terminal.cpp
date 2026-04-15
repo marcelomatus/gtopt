@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: BSD-3-Clause
+#include <filesystem>
+
 #include <doctest/doctest.h>
 #include <gtopt/block.hpp>
 #include <gtopt/demand.hpp>
@@ -383,4 +385,33 @@ TEST_CASE(  // NOLINT
     const auto eval = li.get_col_sol()[ecol];
     CHECK(eval <= 55000.0 + 1.0);
   }
+}
+
+TEST_CASE("LngTerminalLP - add_to_output via write_out")  // NOLINT
+{
+  // Exercises LngTerminalLP::add_to_output by calling write_out after
+  // resolving the LP.
+  LngTestFixture f;
+
+  const auto tmpdir =
+      std::filesystem::temp_directory_path() / "gtopt_test_lng_out";
+  std::filesystem::create_directories(tmpdir);
+
+  PlanningOptions opts;
+  opts.demand_fail_cost = 1000.0;
+  opts.output_directory = tmpdir.string();
+
+  const PlanningOptionsLP options {opts};
+  SimulationLP simulation_lp(f.simulation, options);
+  SystemLP system_lp(f.system, simulation_lp);
+
+  auto& li = system_lp.linear_interface();
+  const auto result = li.resolve();
+  REQUIRE(result.has_value());
+  CHECK(result.value() == 0);
+
+  // Exercises LngTerminalLP::add_to_output (delivery_cols + StorageBase output)
+  CHECK_NOTHROW(system_lp.write_out());
+
+  std::filesystem::remove_all(tmpdir);
 }

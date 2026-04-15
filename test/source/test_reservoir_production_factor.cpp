@@ -7,6 +7,7 @@
  * @copyright BSD-3-Clause
  */
 
+#include <filesystem>
 #include <vector>
 
 #include <doctest/doctest.h>
@@ -622,4 +623,130 @@ TEST_CASE(
   // always calls update_conversion_coeff when coeff indices exist.
   const auto updated = system_lp.update_lp();
   CHECK(updated > 0);
+}
+
+TEST_CASE(  // NOLINT
+    "ReservoirProductionFactorLP - add_to_output via write_out")
+{
+  // Exercises ReservoirProductionFactorLP::add_to_output (no-op) by calling
+  // write_out after the solve. Ensures the pipeline completes without error.
+
+  const Array<Bus> bus_array = {
+      {.uid = Uid {1}, .name = "b1"},
+  };
+
+  const Array<Generator> generator_array = {
+      {
+          .uid = Uid {1},
+          .name = "hydro_gen",
+          .bus = Uid {1},
+          .gcost = 5.0,
+          .capacity = 200.0,
+      },
+  };
+
+  const Array<Demand> demand_array = {
+      {.uid = Uid {1}, .name = "d1", .bus = Uid {1}, .capacity = 50.0},
+  };
+
+  const Array<Junction> junction_array = {
+      {.uid = Uid {1}, .name = "j_up"},
+      {.uid = Uid {2}, .name = "j_down", .drain = true},
+  };
+
+  const Array<Waterway> waterway_array = {
+      {
+          .uid = Uid {1},
+          .name = "ww1",
+          .junction_a = Uid {1},
+          .junction_b = Uid {2},
+          .fmin = 0.0,
+          .fmax = 100.0,
+      },
+  };
+
+  const Array<Reservoir> reservoir_array = {
+      {
+          .uid = Uid {1},
+          .name = "rsv1",
+          .junction = Uid {1},
+          .capacity = 1000.0,
+          .emin = 0.0,
+          .emax = 1000.0,
+          .eini = 500.0,
+      },
+  };
+
+  const Array<Turbine> turbine_array = {
+      {
+          .uid = Uid {1},
+          .name = "tur1",
+          .waterway = Uid {1},
+          .generator = Uid {1},
+          .production_factor = 1.0,
+          .main_reservoir = Uid {1},
+      },
+  };
+
+  const Array<ReservoirProductionFactor> reservoir_production_factor_array = {
+      {
+          .uid = Uid {1},
+          .name = "eff1",
+          .turbine = Uid {1},
+          .reservoir = Uid {1},
+          .mean_production_factor = 1.5,
+          .segments =
+              {
+                  {.volume = 0.0, .slope = 0.001, .constant = 1.0},
+                  {.volume = 800.0, .slope = 0.0001, .constant = 1.5},
+              },
+      },
+  };
+
+  const Simulation simulation = {
+      .block_array =
+          {
+              {.uid = Uid {1}, .duration = 1},
+          },
+      .stage_array =
+          {
+              {.uid = Uid {1}, .first_block = 0, .count_block = 1},
+          },
+      .scenario_array =
+          {
+              {.uid = Uid {0}},
+          },
+  };
+
+  const auto tmpdir =
+      std::filesystem::temp_directory_path() / "gtopt_test_pf_out";
+  std::filesystem::create_directories(tmpdir);
+
+  const System system = {
+      .name = "PFOutputTest",
+      .bus_array = bus_array,
+      .demand_array = demand_array,
+      .generator_array = generator_array,
+      .junction_array = junction_array,
+      .waterway_array = waterway_array,
+      .reservoir_array = reservoir_array,
+      .turbine_array = turbine_array,
+      .reservoir_production_factor_array = reservoir_production_factor_array,
+  };
+
+  PlanningOptions opts;
+  opts.output_directory = tmpdir.string();
+  const PlanningOptionsLP options(opts);
+  SimulationLP simulation_lp(simulation, options);
+  SystemLP system_lp(system, simulation_lp);
+
+  auto&& lp = system_lp.linear_interface();
+  auto result = lp.resolve();
+  REQUIRE(result.has_value());
+  CHECK(result.value() == 0);
+
+  // Exercises ReservoirProductionFactorLP::add_to_output (no-op, always true)
+  CHECK_NOTHROW(system_lp.write_out());
+
+  std::filesystem::remove_all(tmpdir);
 }

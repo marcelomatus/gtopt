@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: BSD-3-Clause
+#include <filesystem>
+
 #include <doctest/doctest.h>
 #include <gtopt/linear_interface.hpp>
 #include <gtopt/reservoir_discharge_limit.hpp>
@@ -1123,4 +1125,122 @@ TEST_CASE("ReservoirDischargeLimitLP - update_lp is a no-op without segments")
   // Single segment → update_lp is a no-op
   const auto updated = system_lp.update_lp();
   CHECK(updated == 0);
+}
+
+TEST_CASE("ReservoirDischargeLimitLP - add_to_output via write_out")  // NOLINT
+{
+  // Exercises ReservoirDischargeLimitLP::add_to_output (qeh_cols + vol_rows)
+  // by calling system_lp.write_out() after the solve.
+  const Array<Bus> bus_array = {{.uid = Uid {1}, .name = "b1"}};
+
+  const Array<Generator> generator_array = {
+      {
+          .uid = Uid {1},
+          .name = "hydro_gen",
+          .bus = Uid {1},
+          .gcost = 5.0,
+          .capacity = 500.0,
+      },
+      {
+          .uid = Uid {2},
+          .name = "thermal_gen",
+          .bus = Uid {1},
+          .gcost = 100.0,
+          .capacity = 200.0,
+      },
+  };
+
+  const Array<Demand> demand_array = {
+      {.uid = Uid {1}, .name = "d1", .bus = Uid {1}, .capacity = 80.0},
+  };
+
+  const Array<Junction> junction_array = {
+      {.uid = Uid {1}, .name = "j1"},
+      {.uid = Uid {2}, .name = "j2", .drain = true},
+  };
+
+  const Array<Waterway> waterway_array = {
+      {
+          .uid = Uid {1},
+          .name = "ww1",
+          .junction_a = Uid {1},
+          .junction_b = Uid {2},
+          .fmin = 0.0,
+          .fmax = 500.0,
+      },
+  };
+
+  const Array<Reservoir> reservoir_array = {
+      {
+          .uid = Uid {1},
+          .name = "rsv1",
+          .junction = Uid {1},
+          .capacity = 10000.0,
+          .emin = 0.0,
+          .emax = 10000.0,
+          .eini = 5000.0,
+      },
+  };
+
+  const Array<Turbine> turbine_array = {
+      {
+          .uid = Uid {1},
+          .name = "tur1",
+          .waterway = Uid {1},
+          .generator = Uid {1},
+          .production_factor = 1.0,
+      },
+  };
+
+  const Array<ReservoirDischargeLimit> reservoir_discharge_limit_array = {
+      {
+          .uid = Uid {1},
+          .name = "ddl1",
+          .waterway = Uid {1},
+          .reservoir = Uid {1},
+          .segments =
+              {
+                  {.volume = 0.0, .slope = 1e-4, .intercept = 10.0},
+                  {.volume = 5000.0, .slope = 2e-4, .intercept = 30.0},
+              },
+      },
+  };
+
+  const Simulation simulation = {
+      .block_array = {{.uid = Uid {1}, .duration = 1}},
+      .stage_array = {{.uid = Uid {1}, .first_block = 0, .count_block = 1}},
+      .scenario_array = {{.uid = Uid {0}}},
+  };
+
+  const auto tmpdir =
+      std::filesystem::temp_directory_path() / "gtopt_test_ddl_out";
+  std::filesystem::create_directories(tmpdir);
+
+  const System system = {
+      .name = "DDLOutputTest",
+      .bus_array = bus_array,
+      .demand_array = demand_array,
+      .generator_array = generator_array,
+      .junction_array = junction_array,
+      .waterway_array = waterway_array,
+      .reservoir_array = reservoir_array,
+      .reservoir_discharge_limit_array = reservoir_discharge_limit_array,
+      .turbine_array = turbine_array,
+  };
+
+  PlanningOptions opts;
+  opts.output_directory = tmpdir.string();
+  const PlanningOptionsLP options(opts);
+  SimulationLP simulation_lp(simulation, options);
+  SystemLP system_lp(system, simulation_lp);
+
+  auto&& lp = system_lp.linear_interface();
+  auto result = lp.resolve();
+  REQUIRE(result.has_value());
+  CHECK(result.value() == 0);
+
+  // Exercises ReservoirDischargeLimitLP::add_to_output
+  CHECK_NOTHROW(system_lp.write_out());
+
+  std::filesystem::remove_all(tmpdir);
 }

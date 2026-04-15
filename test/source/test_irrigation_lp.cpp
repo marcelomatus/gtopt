@@ -9,6 +9,8 @@
  * affecting the hydrological topology.
  */
 
+#include <filesystem>
+
 #include <doctest/doctest.h>
 #include <gtopt/linear_interface.hpp>
 #include <gtopt/simulation_lp.hpp>
@@ -608,4 +610,154 @@ TEST_CASE(  // NOLINT
   auto result = lp.resolve();
   REQUIRE(result.has_value());
   CHECK(result.value() == 0);
+}
+
+TEST_CASE("FlowRightLP - add_to_output via write_out")  // NOLINT
+{
+  // Exercises FlowRightLP::add_to_output by calling write_out after solving.
+  const Array<Bus> bus_array = {
+      {.uid = Uid {1}, .name = "b1"},
+  };
+
+  const Array<Generator> generator_array = {
+      {
+          .uid = Uid {1},
+          .name = "gen1",
+          .bus = Uid {1},
+          .gcost = 10.0,
+          .capacity = 200.0,
+      },
+  };
+
+  const Array<Demand> demand_array = {
+      {.uid = Uid {1}, .name = "d1", .bus = Uid {1}, .capacity = 50.0},
+  };
+
+  const Array<FlowRight> flow_right_array = {
+      {
+          .uid = Uid {1},
+          .name = "irrig_flow_1",
+          .discharge = 20.0,
+          .fail_cost = 5000.0,
+      },
+  };
+
+  const Simulation simulation = {
+      .block_array =
+          {
+              {.uid = Uid {1}, .duration = 1},
+          },
+      .stage_array =
+          {
+              {.uid = Uid {1}, .first_block = 0, .count_block = 1},
+          },
+      .scenario_array =
+          {
+              {.uid = Uid {0}},
+          },
+  };
+
+  const auto tmpdir =
+      std::filesystem::temp_directory_path() / "gtopt_test_flowright_out";
+  std::filesystem::create_directories(tmpdir);
+
+  const System system = {
+      .name = "FlowRightOutputTest",
+      .bus_array = bus_array,
+      .demand_array = demand_array,
+      .generator_array = generator_array,
+      .flow_right_array = flow_right_array,
+  };
+
+  PlanningOptions opts;
+  opts.output_directory = tmpdir.string();
+  const PlanningOptionsLP options(opts);
+  SimulationLP simulation_lp(simulation, options);
+  SystemLP system_lp(system, simulation_lp);
+
+  auto&& lp = system_lp.linear_interface();
+  auto result = lp.resolve();
+  REQUIRE(result.has_value());
+  CHECK(result.value() == 0);
+
+  // Exercises FlowRightLP::add_to_output
+  CHECK_NOTHROW(system_lp.write_out());
+
+  std::filesystem::remove_all(tmpdir);
+}
+
+TEST_CASE("VolumeRightLP - add_to_output via write_out")  // NOLINT
+{
+  // Exercises VolumeRightLP::add_to_output by calling write_out after solving.
+  const Array<Bus> bus_array = {
+      {.uid = Uid {1}, .name = "b1"},
+  };
+
+  const Array<Generator> generator_array = {
+      {
+          .uid = Uid {1},
+          .name = "gen1",
+          .bus = Uid {1},
+          .gcost = 10.0,
+          .capacity = 200.0,
+      },
+  };
+
+  const Array<Demand> demand_array = {
+      {.uid = Uid {1}, .name = "d1", .bus = Uid {1}, .capacity = 50.0},
+  };
+
+  const Array<VolumeRight> volume_right_array = {
+      {
+          .uid = Uid {1},
+          .name = "vol_right_1",
+          .emin = 0.0,
+          .emax = 1000.0,
+          .eini = 500.0,
+          .fail_cost = 5000.0,
+      },
+  };
+
+  const Simulation simulation = {
+      .block_array =
+          {
+              {.uid = Uid {1}, .duration = 1},
+          },
+      .stage_array =
+          {
+              {.uid = Uid {1}, .first_block = 0, .count_block = 1},
+          },
+      .scenario_array =
+          {
+              {.uid = Uid {0}},
+          },
+  };
+
+  const auto tmpdir =
+      std::filesystem::temp_directory_path() / "gtopt_test_volright_out";
+  std::filesystem::create_directories(tmpdir);
+
+  const System system = {
+      .name = "VolumeRightOutputTest",
+      .bus_array = bus_array,
+      .demand_array = demand_array,
+      .generator_array = generator_array,
+      .volume_right_array = volume_right_array,
+  };
+
+  PlanningOptions opts;
+  opts.output_directory = tmpdir.string();
+  const PlanningOptionsLP options(opts);
+  SimulationLP simulation_lp(simulation, options);
+  SystemLP system_lp(system, simulation_lp);
+
+  auto&& lp = system_lp.linear_interface();
+  auto result = lp.resolve();
+  REQUIRE(result.has_value());
+  CHECK(result.value() == 0);
+
+  // Exercises VolumeRightLP::add_to_output
+  CHECK_NOTHROW(system_lp.write_out());
+
+  std::filesystem::remove_all(tmpdir);
 }

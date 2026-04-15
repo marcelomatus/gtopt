@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: BSD-3-Clause
+#include <filesystem>
+
 #include <doctest/doctest.h>
 #include <gtopt/inertia_provision.hpp>
 #include <gtopt/inertia_provision_lp.hpp>
@@ -407,4 +409,74 @@ TEST_CASE("InertiaProvisionLP - multi-zone provision")
   auto result = lp.resolve();
   REQUIRE(result.has_value());
   CHECK(result.value() == 0);
+}
+
+TEST_CASE(
+    "InertiaZoneLP and InertiaProvisionLP - add_to_output via write_out")  // NOLINT
+{
+  // This test exercises both InertiaZoneLP::add_to_output and
+  // InertiaProvisionLP::add_to_output by calling system_lp.write_out()
+  // after resolving the LP.
+  const Array<Generator> generator_array = {
+      {
+          .uid = Uid {1},
+          .name = "g1",
+          .bus = Uid {1},
+          .pmin = 50.0,
+          .gcost = 30.0,
+          .capacity = 200.0,
+      },
+  };
+
+  const Array<InertiaZone> inertia_zone_array = {
+      {
+          .uid = Uid {1},
+          .name = "iz1",
+          .requirement = 200.0,
+          .cost = 5000.0,
+      },
+  };
+
+  const Array<InertiaProvision> inertia_provision_array = {
+      {
+          .uid = Uid {1},
+          .name = "ip1",
+          .generator = Uid {1},
+          .inertia_zones = "1",
+          .provision_factor = 8.0,
+      },
+  };
+
+  const auto tmpdir =
+      std::filesystem::temp_directory_path() / "gtopt_test_inertia_out";
+  std::filesystem::create_directories(tmpdir);
+
+  PlanningOptions opts;
+  opts.demand_fail_cost = 1000.0;
+  opts.reserve_fail_cost = 10000.0;
+  opts.output_directory = tmpdir.string();
+
+  const System system = {
+      .name = "InertiaOutputTest",
+      .bus_array = bus_array,
+      .demand_array = demand_array,
+      .generator_array = generator_array,
+      .inertia_zone_array = inertia_zone_array,
+      .inertia_provision_array = inertia_provision_array,
+  };
+
+  const PlanningOptionsLP options(opts);
+  SimulationLP simulation_lp(simulation, options);
+  SystemLP system_lp(system, simulation_lp);
+
+  auto&& lp = system_lp.linear_interface();
+  auto result = lp.resolve();
+  REQUIRE(result.has_value());
+  CHECK(result.value() == 0);
+
+  // Exercises InertiaZoneLP::add_to_output and
+  // InertiaProvisionLP::add_to_output
+  CHECK_NOTHROW(system_lp.write_out());
+
+  std::filesystem::remove_all(tmpdir);
 }

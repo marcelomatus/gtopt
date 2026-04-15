@@ -6,6 +6,8 @@
  * @copyright BSD-3-Clause
  */
 
+#include <filesystem>
+
 #include <doctest/doctest.h>
 #include <gtopt/commitment.hpp>
 #include <gtopt/json/json_commitment.hpp>
@@ -2681,4 +2683,47 @@ TEST_CASE("continuous_phases=none keeps integer UC binaries")  // NOLINT
     }
   }
   CHECK(num_ints == 12);
+}
+
+TEST_CASE("CommitmentLP - add_to_output via write_out")  // NOLINT
+{
+  // Exercises CommitmentLP::add_to_output by calling write_out after
+  // resolving the LP.
+  auto tc = TestCase::make_basic(/*chronological=*/true);
+  tc.system.commitment_array = {
+      {
+          .uid = Uid {1},
+          .name = "cm1",
+          .generator = Uid {1},
+          .startup_cost = 0.0,
+          .noload_cost = 5.0,
+          .initial_status = 0.0,
+      },
+  };
+
+  const auto tmpdir =
+      std::filesystem::temp_directory_path() / "gtopt_test_commitment_out";
+  std::filesystem::create_directories(tmpdir);
+
+  PlanningOptions poptions;
+  poptions.model_options.demand_fail_cost = 1000.0;
+  poptions.model_options.continuous_phases = "all";  // relax to avoid MIP
+  poptions.use_single_bus = true;
+  poptions.output_directory = tmpdir.string();
+  PlanningOptionsLP options(std::move(poptions));
+
+  Simulation simulation(tc.simulation);
+  System sys(tc.system);
+  SimulationLP simulation_lp(simulation, options);
+  SystemLP system_lp(sys, simulation_lp);
+
+  auto&& li = system_lp.linear_interface();
+  auto result = li.resolve();
+  REQUIRE(result.has_value());
+  CHECK(result.value() == 0);
+
+  // Exercises CommitmentLP::add_to_output (u/v/w status cols, all row duals)
+  CHECK_NOTHROW(system_lp.write_out());
+
+  std::filesystem::remove_all(tmpdir);
 }

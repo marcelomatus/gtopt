@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: BSD-3-Clause
+#include <filesystem>
+
 #include <doctest/doctest.h>
 #include <gtopt/linear_interface.hpp>
 #include <gtopt/planning_options.hpp>
@@ -270,4 +272,61 @@ TEST_CASE("SimpleCommitmentLP - dispatch_pmin defaults to generator pmin")
   auto result = lp.resolve();
   REQUIRE(result.has_value());
   CHECK(result.value() == 0);
+}
+
+TEST_CASE("SimpleCommitmentLP - add_to_output via write_out")  // NOLINT
+{
+  // Exercises SimpleCommitmentLP::add_to_output by calling write_out after
+  // resolving the LP.
+  const Array<Generator> generator_array = {
+      {
+          .uid = Uid {1},
+          .name = "g1",
+          .bus = Uid {1},
+          .pmin = 20.0,
+          .gcost = 30.0,
+          .capacity = 100.0,
+      },
+  };
+
+  const Array<SimpleCommitment> simple_commitment_array = {
+      {
+          .uid = Uid {1},
+          .name = "sc1",
+          .generator = Uid {1},
+          .dispatch_pmin = 20.0,
+          .relax = true,
+      },
+  };
+
+  const auto tmpdir =
+      std::filesystem::temp_directory_path() / "gtopt_test_sc_out";
+  std::filesystem::create_directories(tmpdir);
+
+  PlanningOptions opts;
+  opts.demand_fail_cost = 1000.0;
+  opts.output_directory = tmpdir.string();
+
+  const System system = {
+      .name = "SimpleCommitmentOutputTest",
+      .bus_array = bus_array,
+      .demand_array = demand_array,
+      .generator_array = generator_array,
+      .simple_commitment_array = simple_commitment_array,
+  };
+
+  const PlanningOptionsLP options(opts);
+  SimulationLP simulation_lp(simulation, options);
+  SystemLP system_lp(system, simulation_lp);
+
+  auto&& lp = system_lp.linear_interface();
+  auto result = lp.resolve();
+  REQUIRE(result.has_value());
+  CHECK(result.value() == 0);
+
+  // Exercises SimpleCommitmentLP::add_to_output (status_cols, gen_upper_rows,
+  // gen_lower_rows)
+  CHECK_NOTHROW(system_lp.write_out());
+
+  std::filesystem::remove_all(tmpdir);
 }
