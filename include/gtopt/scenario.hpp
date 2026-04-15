@@ -42,6 +42,13 @@ struct Scenario
   OptReal probability_factor {1};  ///< Probability weight of this scenario
                                    ///< [p.u.]; values are normalised to sum 1
 
+  /// @brief Optional source-hydrology index (metadata for PLP provenance).
+  ///
+  /// Populated by plp2gtopt as the 0-based index into PLP's hydrology
+  /// classes.  Not consumed by the LP solver — kept so post-processing
+  /// tools can trace each scenario back to its original PLP hydrology.
+  OptInt hydrology {};
+
   static constexpr std::string_view class_name = "scenario";
 
   [[nodiscard]] constexpr auto is_active() const noexcept

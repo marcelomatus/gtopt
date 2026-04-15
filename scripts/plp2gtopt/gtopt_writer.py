@@ -43,17 +43,7 @@ def _strip_internal_keys(planning: Dict) -> Dict:
     (pipeline annotations, Excel hints) is preserved on the writer
     instance but excluded from the emitted JSON.
     """
-    clean = {k: v for k, v in planning.items() if not k.startswith("_")}
-    sim = clean.get("simulation")
-    if isinstance(sim, dict) and isinstance(sim.get("scenario_array"), list):
-        clean["simulation"] = {
-            **sim,
-            "scenario_array": [
-                {k: v for k, v in s.items() if k != "hydrology"}
-                for s in sim["scenario_array"]
-            ],
-        }
-    return clean
+    return {k: v for k, v in planning.items() if not k.startswith("_")}
 
 
 class GTOptWriter:
