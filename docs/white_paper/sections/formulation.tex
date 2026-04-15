@@ -29,6 +29,11 @@ The GTEP problem is defined over the following sets:
   \item $\mathcal{P}$: reserve provisions, indexed by $p$
   \item $\setFR$: flow rights (flow-based water rights), indexed by $i$
   \item $\setVR$: volume rights (volume-based water rights), indexed by $o$
+  \item $\setHP$: hydraulic pumps, indexed by $h$
+  \item $\setLNG$: LNG storage terminals, indexed by $\tau$
+  \item $\setUC$: generators with unit commitment, indexed by $g$
+  \item $\setIZ$: inertia zones, indexed by $z$
+  \item $\setIP$: inertia provisions, indexed by $p$
 \end{itemize}
 
 \begin{figure}[t]
@@ -105,7 +110,17 @@ The GTEP problem is defined over the following sets:
   e_{e,s,t,b}  &\in [\underline{e}_e, \overline{e}_e]
     & \text{battery SoC [MWh]} \label{eq:soc} \\
   v_{r,s,t,b}  &\in [\underline{v}_r, \overline{v}_r]
-    & \text{reservoir volume [hm\textsuperscript{3}]} \label{eq:vol}
+    & \text{reservoir volume [hm\textsuperscript{3}]} \label{eq:vol} \\
+  e_{\tau,s,t,b}^{\text{lng}}
+               &\in [\underline{V}_\tau, \overline{V}_\tau]
+    & \text{LNG tank volume [m\textsuperscript{3}]} \label{eq:lng_vol}
+\end{align}
+
+\noindent\textbf{Unit commitment variables} (per scenario $s$, stage $t$, period $p$):
+\begin{align}
+  u_{g,s,t,p} &\in \{0,1\} & \text{unit status (1 = online)} \\
+  v_{g,s,t,p} &\in \{0,1\} & \text{startup event} \\
+  w_{g,s,t,p} &\in \{0,1\} & \text{shutdown event}
 \end{align}
 
 \noindent\textbf{Investment variables} (per stage $t$):
@@ -158,8 +173,7 @@ cost coefficient is weighted by $\omega_{s,t,b} = \pi_s \delta_t
 \Delta_b / \sigma$, so the reported objective equals $z/\sigma$.
 
 \subsection{Bus Power Balance}
-
-At every bus $n$, for each $(s,t,b)$:
+\label{sec:balance}
 \begin{multline}
 \label{eq:balance}
 \sum_{\substack{g \in \setG \\ n_g = n}} (1{-}\lambda_g) p_{g,s,t,b}
@@ -236,6 +250,7 @@ When $\tau_\ell = 1$ and $\psi_\ell = 0$,~\eqref{eq:transformer}
 reduces to~\eqref{eq:kirchhoff}.
 
 \subsection{Battery Energy Storage}
+\label{sec:battery}
 
 State-of-charge balance for battery $e$ between consecutive blocks:
 \begin{multline}
@@ -340,6 +355,7 @@ Converter capacity is expandable using the same modular framework
 as~\eqref{eq:capacity}.
 
 \subsection{Hydro Cascade}
+\label{sec:hydro}
 
 For each junction $j$ with reservoir $r$, the water balance is:
 \begin{multline}
@@ -507,6 +523,7 @@ where $\ell^\text{man}_{d,s,t,b}$ is the mandatory served load and
 $E_d^\text{min}$ [MWh] is the stage energy requirement.
 
 \subsection{Reserve Constraints}
+\label{sec:reserve}
 
 For each reserve zone $z$ and $(s,t,b)$:
 \begin{equation}
@@ -521,6 +538,170 @@ $q^\text{up}_{z,s,t,b}$ is unserved reserve, and
 $R^\text{up}_{z,s,t,b}$ is the zone requirement.  A symmetric constraint
 exists for down-reserve.  Reserve provision is bounded by the generator's
 headroom: $p_{g,s,t,b} + r^\text{up}_{p,s,t,b} \leq \bar{C}_{g,t}$.
+
+\subsection{Hydro Pump}
+\label{sec:pump}
+
+A \texttt{Pump} element $h \in \setHP$ models a hydraulic pump
+that consumes electrical power from a demand $d$ and raises water
+through a waterway $w$ from a downstream junction to an upstream
+junction---the reverse of a turbine.  The conversion constraint ties
+the electrical load to the pumped flow:
+\begin{equation}
+\label{eq:pump}
+\frac{\phi_{h,t}}{\eta_{h,t}} \, \varphi_{w,s,t,b} \leq \ell_{d,s,t,b}
+\qquad \forall\, h \in \setHP,\; s,t,b
+\end{equation}
+where $\phi_{h,t}$ [MW/(m\textsuperscript{3}/s)] is the pump factor,
+$\eta_{h,t} \in (0,1]$ is the stage efficiency, $\varphi_{w,s,t,b}$
+[m\textsuperscript{3}/s] is the waterway flow, and
+$\ell_{d,s,t,b}$ [MW] is the served electrical load.  An optional
+capacity constraint bounds the flow:
+$\varphi_{w,s,t,b} \leq \overline{Q}_{h,t}$.
+
+The pump element only adds coupling rows to the LP; the waterway
+retains its junction water balance contribution (Section~\ref{sec:hydro})
+and the demand retains its bus power balance contribution
+(Section~\ref{sec:balance}).  Reversible turbine-pump units (e.g.
+pump-storage hydro) are modeled as a pair of elements: a
+\texttt{Turbine} on the generation waterway and a \texttt{Pump} on the
+pumping waterway.  Economic optimality (round-trip efficiency
+$< 1.0$) prevents simultaneous generation and pumping without
+explicit binary exclusivity constraints.
+
+\subsection{LNG Terminal}
+\label{sec:lng}
+
+An \texttt{LngTerminal} element $\tau \in \setLNG$ models an
+LNG storage tank whose inventory is coupled to gas-fired generators
+through their heat rates.  The tank volume balance mirrors the battery
+SoC equation (Section~\ref{sec:battery}) with delivery inflow and
+boil-off:
+\begin{equation}
+\label{eq:lng_balance}
+e_{\tau,s,t,b}^{\text{lng}}
+  = e_{\tau,s,t,b-1}^{\text{lng}} \bigl(1 - \lambda_\tau^h \Delta_b\bigr)
+  + \rho_\tau \Delta_b \, d_{\tau,s,t,b}^{\text{lng}}
+  - \rho_\tau \Delta_b \, \text{vent}_{\tau,s,t,b}
+  - \rho_\tau \Delta_b
+      \sum_{g \in \mathcal{G}_\tau} \eta_g^{hr} \, p_{g,s,t,b}
+\end{equation}
+where $e_{\tau,s,t,b}^{\text{lng}}$ [m\textsuperscript{3}] is the tank
+volume, $\lambda_\tau^h = \lambda_\tau / 8760$ is the per-hour
+boil-off rate, $\rho_\tau$ is the unit-conversion factor
+(m\textsuperscript{3}/(m\textsuperscript{3}/h$\cdot$h), default~1),
+$d_{\tau,s,t,b}^{\text{lng}}$ is the delivery inflow, $\text{vent}$
+is a vented-gas variable penalized at `spillway\_cost', and
+$\eta_g^{hr}$ [m\textsuperscript{3}/MWh] is the heat rate of each
+linked generator $g \in \mathcal{G}_\tau$.
+
+The last term is implemented by injecting a coefficient
+$-\rho_\tau \eta_g^{hr} \Delta_b$ onto each generator's generation
+variable in the existing tank balance row.  Volume bounds and
+initial/final conditions follow the generic storage template.  The
+delivery schedule is fixed to a constant hourly rate
+$d_{\tau,s,t,b} = D_{\tau,t} / T_t$ across each stage.
+
+This formulation enables the optimizer to manage fuel inventory (buy
+decisions and storage costs) jointly with economic dispatch, capturing
+supply security constraints and seasonal LNG price dynamics.
+
+\subsection{Unit Commitment}
+\label{sec:uc}
+
+\gtopt{} supports thermal unit commitment through two elements.  The
+full three-binary \texttt{Commitment} element uses the classical
+three-bin (3-bin) formulation with status~$u$, startup~$v$, and
+shutdown~$w$ binary variables~\cite{morales2013}:
+\begin{align}
+u_{g,s,t,p} - u_{g,s,t,p-1} - v_{g,s,t,p} + w_{g,s,t,p}
+  &= 0
+  \label{eq:uc_logic} \\
+v_{g,s,t,p} + w_{g,s,t,p}
+  &\leq 1
+  \label{eq:uc_excl} \\
+\underline{P}_g u_{g,s,t,p(b)}
+  \leq p_{g,s,t,b}
+  &\leq \overline{P}_g u_{g,s,t,p(b)}
+  \label{eq:uc_bounds}
+\end{align}
+Minimum up/down time constraints, ramp limits, hot/warm/cold startup
+cost tiers, and piecewise heat-rate curves are all supported.  Binary
+variables live on a commitment-period grid that can be coarser than the
+dispatch blocks, enabling sub-hourly dispatch with hourly on/off
+decisions.
+
+The lighter \texttt{SimpleCommitment} attaches one binary per block
+without startup/shutdown bookkeeping:
+\begin{equation}
+\label{eq:sc_bounds}
+\underline{P}_g u_{g,s,t,b}^{\text{sc}}
+  \leq p_{g,s,t,b}
+  \leq \overline{P}_g u_{g,s,t,b}^{\text{sc}}
+\end{equation}
+This is sufficient for daily unit commitment in many hydrothermal systems
+and for inertia modeling where only the online/offline status matters.
+
+Commitment constraints apply only to stages flagged
+\texttt{chronological}~$=$ true (consecutive hourly blocks).  On
+representative-period stages (duration-weighted blocks not in calendar
+order), binary variables are silently relaxed to continuous.
+
+\subsection{CO\textsubscript{2} Emission Pricing and Caps}
+\label{sec:emission}
+
+gtopt supports two mechanisms for carbon pricing.  A system-wide emission
+price $c^{\text{em}}$ [\$/tCO\textsubscript{2}] applied to generators
+with emission intensity $f_g$ [tCO\textsubscript{2}/MWh] augments each
+generator's variable cost:
+\begin{equation}
+\label{eq:emission_cost}
+c_g^{\text{eff}} = c_g + c^{\text{em}} \cdot f_g
+\end{equation}
+A per-stage emission cap $\overline{E}^{\text{em}}_t$
+[tCO\textsubscript{2}/year] adds an aggregate cap constraint whose
+dual variable yields the endogenous carbon price:
+\begin{equation}
+\label{eq:emission_cap}
+\sum_{g,s,b} \pi_s \cdot f_g \cdot p_{g,s,t,b} \cdot \Delta_b
+  \leq \overline{E}^{\text{em}}_t
+\end{equation}
+For the piecewise heat-rate model (Section~\ref{sec:uc}), the per-segment
+emission factor \texttt{fuel\_emission\_factor} $\times$ \texttt{heat\_rate}
+replaces $f_g$.
+
+\subsection{Synchronous Inertia Requirements}
+\label{sec:inertia}
+
+As variable renewable penetration increases, maintaining sufficient
+synchronous inertia for frequency stability becomes a binding operational
+constraint.  \gtopt{} models inertia requirements through two elements
+mirroring the reserve-zone formulation (Section~\ref{sec:reserve}).
+
+An \texttt{InertiaZone} $z \in \setIZ$ specifies a minimum inertia
+requirement $\overline{R}_{z,t,b}^{H}$ [MWs]:
+\begin{equation}
+\label{eq:inertia_req}
+\sum_{p \in \mathcal{P}_z} \Phi_{p,t} \, r_{p,s,t,b}^{H}
+  \geq \overline{R}_{z,t,b}^{H}
+\end{equation}
+An \texttt{InertiaProvision} $p \in \setIP$ links a generator to
+one or more zones.  The provision variable
+$r_{p,s,t,b}^{H} \in [0, \overline{R}_{p,t,b}^{H}]$ [MW] is bounded
+by a downward coupling row:
+\begin{equation}
+\label{eq:inertia_coupling}
+p_{g,s,t,b} \geq r_{p,s,t,b}^{H}
+\end{equation}
+The conversion factor from MW dispatch to MWs of inertia is:
+\begin{equation}
+\Phi_{p,t} = \frac{H_p \cdot S_p}{\underline{P}_g}
+\end{equation}
+where $H_p$ [s] is the machine inertia constant and $S_p$ [MVA] is the
+rated apparent power.  A user-specified \texttt{provision\_factor} may
+override this formula.  Shortage is penalized at the zone's
+\texttt{cost} [\$/MWs], enabling the optimizer to trade off committed
+generation against inertia value.
 
 \subsection{Water Rights and Irrigation Agreements}
 \label{sec:rights}
@@ -767,6 +948,12 @@ C15 & Transformer / PST             & \eqref{eq:transformer}      & $\ell,s,t,b$
 C16 & Flow right averaging          & \eqref{eq:fr_avg}           & $i,s,t$ \\
 C17 & Volume right balance          & \eqref{eq:vr_balance}       & $o,s,t$ \\
 C18 & User-defined constraint       & \eqref{eq:uc_partition}     & user-defined \\
+C19 & Pump power--flow coupling     & \eqref{eq:pump}             & $h,s,t,b$ \\
+C20 & LNG tank volume balance       & \eqref{eq:lng_balance}      & $\tau,s,t,b$ \\
+C21 & Unit commitment logic (3-bin) & \eqref{eq:uc_logic}         & $g,s,t,p$ \\
+C22 & UC generation bounds          & \eqref{eq:uc_bounds}        & $g,s,t,b$ \\
+C23 & Inertia zone requirement      & \eqref{eq:inertia_req}      & $z,s,t,b$ \\
+C24 & Inertia provision coupling    & \eqref{eq:inertia_coupling} & $p,s,t,b$ \\
 \bottomrule
 \end{tabular}
 \end{table}
