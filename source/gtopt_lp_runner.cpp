@@ -14,6 +14,7 @@
 #include <expected>
 #include <format>
 #include <optional>
+#include <ranges>
 #include <string>
 #include <utility>
 #include <vector>
@@ -165,30 +166,31 @@ void log_lp_coefficient_stats(const PlanningLP& planning_lp)
       lp_entries.push_back({
           .scene_uid = system_lp.scene().uid(),
           .phase_uid = system_lp.phase().uid(),
-          .num_vars = static_cast<int>(li.get_numcols()),
-          .num_constraints = static_cast<int>(li.get_numrows()),
+          .num_vars = li.get_numcols(),
+          .num_constraints = li.get_numrows(),
           .stats_nnz = li.lp_stats_nnz(),
           .stats_zeroed = li.lp_stats_zeroed(),
           .stats_max_abs = li.lp_stats_max_abs(),
           .stats_min_abs = li.lp_stats_min_abs(),
-          .stats_max_col = static_cast<int>(li.lp_stats_max_col()),
-          .stats_min_col = static_cast<int>(li.lp_stats_min_col()),
-          .stats_max_col_name = std::string(li.lp_stats_max_col_name()),
-          .stats_min_col_name = std::string(li.lp_stats_min_col_name()),
+          .stats_max_col = li.lp_stats_max_col(),
+          .stats_min_col = li.lp_stats_min_col(),
+          .stats_max_col_name = li.lp_stats_max_col_name(),
+          .stats_min_col_name = li.lp_stats_min_col_name(),
           .row_type_stats =
               [&]
           {
-            std::vector<RowTypeStats> rts;
-            for (const auto& e : li.lp_row_type_stats()) {
-              rts.push_back({
-                  .type = e.type,
-                  .count = e.count,
-                  .nnz = e.nnz,
-                  .max_abs = e.max_abs,
-                  .min_abs = e.min_abs,
-              });
-            }
-            return rts;
+            auto view = li.lp_row_type_stats()
+                | std::views::transform(
+                    [](const auto& e) -> RowTypeStats {
+                      return {
+                          .type = e.type,
+                          .count = e.count,
+                          .nnz = e.nnz,
+                          .max_abs = e.max_abs,
+                          .min_abs = e.min_abs,
+                      };
+                    });
+            return std::vector<RowTypeStats>(view.begin(), view.end());
           }(),
       });
     }
