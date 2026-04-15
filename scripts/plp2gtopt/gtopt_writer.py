@@ -920,6 +920,14 @@ class GTOptWriter:
         reservoirs = self.planning["system"].get("reservoir_array", [])
         reservoirs_list = list(reservoirs) if isinstance(reservoirs, list) else []
 
+        def _resolve(
+            c: Dict[str, Any], key: str, fallback: float | None
+        ) -> float | None:
+            val = c.get(key)
+            if val is None or float(val) == 0.0:
+                return fallback
+            return float(val)
+
         for idx, params_path in enumerate(ps_files):
             path = Path(params_path)
             with open(path, "r", encoding="utf-8") as fh:
@@ -946,14 +954,8 @@ class GTOptWriter:
             upper_name = str(cfg.get("upper_reservoir") or "COLBUN")
             plp_vmin, plp_vmax = _plpcnfce_vmin_vmax(upper_name)
 
-            def _resolve(key: str, fallback: float | None) -> float | None:
-                val = cfg.get(key)
-                if val is None or float(val) == 0.0:
-                    return fallback
-                return float(val)
-
-            resolved_vmin = _resolve("vmin", plp_vmin)
-            resolved_vmax = _resolve("vmax", plp_vmax)
+            resolved_vmin = _resolve(cfg, "vmin", plp_vmin)
+            resolved_vmax = _resolve(cfg, "vmax", plp_vmax)
             if resolved_vmin is None or resolved_vmax is None:
                 raise ValueError(
                     f"pumped-storage '{unit_name}' needs upper reservoir "

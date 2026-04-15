@@ -803,8 +803,6 @@ def print_pumped_storage_template() -> int:
     Returns:
         0 on success, 1 on error.
     """
-    import json  # noqa: PLC0415
-
     try:
         from gtopt_expand import pumped_storage_default_config  # noqa: PLC0415
 

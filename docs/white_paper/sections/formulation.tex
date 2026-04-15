@@ -611,10 +611,11 @@ supply security constraints and seasonal LNG price dynamics.
 \subsection{Unit Commitment}
 \label{sec:uc}
 
-\gtopt{} supports thermal unit commitment through two elements.  The
-full three-binary \texttt{Commitment} element uses the classical
-three-bin (3-bin) formulation with status~$u$, startup~$v$, and
-shutdown~$w$ binary variables~\cite{morales2013}:
+The \texttt{Commitment} element provides thermal unit commitment with
+the classical three-bin (3-bin) formulation using status~$u$,
+startup~$v$, and shutdown~$w$ binary
+variables~\cite{morales2013,knueven2020}.  The fundamental status
+transition logic is:
 \begin{align}
 u_{g,s,t,p} - u_{g,s,t,p-1} - v_{g,s,t,p} + w_{g,s,t,p}
   &= 0
@@ -627,27 +628,63 @@ v_{g,s,t,p} + w_{g,s,t,p}
   &\leq \overline{P}_g u_{g,s,t,p(b)}
   \label{eq:uc_bounds}
 \end{align}
-Minimum up/down time constraints, ramp limits, hot/warm/cold startup
-cost tiers, and piecewise heat-rate curves are all supported.  Binary
-variables live on a commitment-period grid that can be coarser than the
-dispatch blocks, enabling sub-hourly dispatch with hourly on/off
+where $p$ indexes commitment periods (typically hourly) and $b$ indexes
+dispatch blocks (sub-hourly allowed).  Binary variables live on the
+commitment-period grid, enabling sub-hourly dispatch with hourly on/off
 decisions.
 
-The lighter \texttt{SimpleCommitment} attaches one binary per block
-without startup/shutdown bookkeeping:
-\begin{equation}
-\label{eq:sc_bounds}
-\underline{P}_g u_{g,s,t,b}^{\text{sc}}
-  \leq p_{g,s,t,b}
-  \leq \overline{P}_g u_{g,s,t,b}^{\text{sc}}
-\end{equation}
-This is sufficient for daily unit commitment in many hydrothermal systems
-and for inertia modeling where only the online/offline status matters.
-
+Minimum up/down time constraints, ramp limits (while online, during
+startup, and shutdown), hot/warm/cold startup cost tiers, shutdown
+costs, no-load costs, and piecewise heat-rate curves are all supported.
 Commitment constraints apply only to stages flagged
 \texttt{chronological}~$=$ true (consecutive hourly blocks).  On
 representative-period stages (duration-weighted blocks not in calendar
 order), binary variables are silently relaxed to continuous.
+
+\subsection{Simple Commitment}
+\label{sec:sc}
+
+The \texttt{SimpleCommitment} element provides a lightweight commitment
+variant for generators that require minimum-output enforcement without
+the full startup/shutdown tracking overhead.  It introduces a single
+binary status variable per block:
+\begin{equation}
+u_{g,s,t,b}^{\text{sc}} \;\in\; \{0,1\}
+\qquad \forall \; g \in \setUC,\; s,t,b
+\label{eq:sc_var}
+\end{equation}
+with generation bounds:
+\begin{align}
+p_{g,s,t,b}
+  &\leq \overline{P}_{g,t,b}\,u_{g,s,t,b}^{\text{sc}}
+  \label{eq:sc_upper} \\
+p_{g,s,t,b}
+  &\geq \underline{P}_{g,t,b}^{d}\,u_{g,s,t,b}^{\text{sc}}
+  \label{eq:sc_lower}
+\end{align}
+where $\underline{P}_{g,t,b}^{d}$ (\texttt{dispatch\_pmin}) is the
+minimum output when dispatched, defaulting to the generator's
+$\underline{P}_g$ when unset.  When the generator is offline ($u = 0$),
+generation is forced to zero; when online ($u = 1$), generation must lie
+in $[\underline{P}_{g}^{d}, \overline{P}_{g}]$.
+
+Unlike the full \texttt{Commitment} element (Section~\ref{sec:uc}),
+\texttt{SimpleCommitment}:
+\begin{itemize}
+  \item Has no startup/shutdown variables $v$, $w$ or associated costs
+  \item Has no minimum up/down time constraints
+  \item Has no ramp limits
+  \item Has no no-load cost
+  \item Has no commitment-period abstraction (binary per dispatch block)
+  \item Does \emph{not} require chronological stages
+\end{itemize}
+This lighter formulation is sufficient for daily unit commitment in many
+hydrothermal systems and for PLP-style inertia modeling where only the
+online/offline status matters.  When \texttt{must\_run}~$=$ true, the
+column is clamped to $u_{g,s,t,b}^{\text{sc}} = 1$ via lower bound
+$\underline{u}^{\text{sc}} = 1$.  When \texttt{relax}~$=$ true or in
+SDDP continuous phases, the integrality is dropped and
+$u_{g,s,t,b}^{\text{sc}} \in [0,1]$.
 
 \subsection{CO\textsubscript{2} Emission Pricing and Caps}
 \label{sec:emission}
@@ -954,8 +991,11 @@ C19 & Pump power--flow coupling     & \eqref{eq:pump}             & $h,s,t,b$ \\
 C20 & LNG tank volume balance       & \eqref{eq:lng_balance}      & $\tau,s,t,b$ \\
 C21 & Unit commitment logic (3-bin) & \eqref{eq:uc_logic}         & $g,s,t,p$ \\
 C22 & UC generation bounds          & \eqref{eq:uc_bounds}        & $g,s,t,b$ \\
-C23 & Inertia zone requirement      & \eqref{eq:inertia_req}      & $z,s,t,b$ \\
-C24 & Inertia provision coupling    & \eqref{eq:inertia_coupling} & $p,s,t,b$ \\
+C23 & Simple commitment variable    & \eqref{eq:sc_var}           & $g,s,t,b$ \\
+C24 & SC generation bounds (upper)  & \eqref{eq:sc_upper}         & $g,s,t,b$ \\
+C25 & SC generation bounds (lower)  & \eqref{eq:sc_lower}         & $g,s,t,b$ \\
+C26 & Inertia zone requirement      & \eqref{eq:inertia_req}      & $z,s,t,b$ \\
+C27 & Inertia provision coupling    & \eqref{eq:inertia_coupling} & $p,s,t,b$ \\
 \bottomrule
 \end{tabular}
 \end{table}

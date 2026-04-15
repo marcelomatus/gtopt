@@ -210,6 +210,54 @@ _ICON_SVG[
         font-weight="bold" fill="#006064">Q</text>
 </svg>"""
 
+# Pump: centrifugal pump symbol — impeller circle with inlet/outlet arrows
+_ICON_SVG["pump"] = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48">
+  <defs><linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="100%">
+    <stop offset="0%" stop-color="#E3F2FD"/><stop offset="100%" stop-color="#1565C0"/>
+  </linearGradient></defs>
+  <!-- Pump casing -->
+  <circle cx="24" cy="28" r="16" fill="url(#g)" stroke="#0D47A1" stroke-width="2.5"/>
+  <!-- Impeller blades -->
+  <path d="M24 20 Q29 22 30 28 Q25 26 24 20" fill="#1565C0" opacity="0.85"/>
+  <path d="M30 28 Q30 34 24 36 Q24 30 30 28" fill="#1565C0" opacity="0.85"/>
+  <path d="M24 36 Q18 34 18 28 Q23 30 24 36" fill="#1565C0" opacity="0.85"/>
+  <path d="M18 28 Q19 22 24 20 Q23 26 18 28" fill="#1565C0" opacity="0.85"/>
+  <circle cx="24" cy="28" r="4" fill="#0D47A1"/>
+  <!-- Inlet: water arrow from top (upstream push) -->
+  <line x1="24" y1="4" x2="24" y2="12" stroke="#0277BD" stroke-width="2.5" stroke-linecap="round"/>
+  <polygon points="24,12 20,7 28,7" fill="#0277BD"/>
+  <!-- Outlet: power bolt from left (electrical demand) -->
+  <line x1="4" y1="28" x2="12" y2="28" stroke="#E67E22" stroke-width="2.5" stroke-linecap="round" stroke-dasharray="3,2"/>
+  <polygon points="4,28 9,24 9,32" fill="#E67E22"/>
+</svg>"""
+
+# LNG Terminal: cylindrical storage tank with flame
+_ICON_SVG[
+    "lng_terminal"
+] = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48">
+  <defs><linearGradient id="g" x1="0%" y1="0%" x2="0%" y2="100%">
+    <stop offset="0%" stop-color="#E3F2FD"/><stop offset="100%" stop-color="#0D47A1"/>
+  </linearGradient>
+  <linearGradient id="flame" x1="0%" y1="0%" x2="0%" y2="100%">
+    <stop offset="0%" stop-color="#FFF176"/><stop offset="100%" stop-color="#FF6F00"/>
+  </linearGradient></defs>
+  <!-- Tank cylinder body -->
+  <rect x="8" y="16" width="32" height="26" rx="3" fill="url(#g)" stroke="#01579B" stroke-width="2.5"/>
+  <!-- Tank dome top -->
+  <ellipse cx="24" cy="16" rx="16" ry="5" fill="#1976D2" stroke="#01579B" stroke-width="2"/>
+  <!-- LNG wave inside -->
+  <path d="M10 30 Q14 26 18 30 Q22 34 26 30 Q30 26 38 30"
+        fill="none" stroke="#90CAF9" stroke-width="1.5" opacity="0.8"/>
+  <!-- Flame / gas symbol -->
+  <path d="M22 8 Q20 4 24 2 Q28 4 26 8 Q28 6 29 8 Q27 12 24 13 Q21 12 19 8 Q20 6 22 8"
+        fill="url(#flame)" stroke="#E65100" stroke-width="1"/>
+  <!-- LNG text -->
+  <text x="24" y="38" text-anchor="middle" font-family="Arial" font-size="7"
+        font-weight="bold" fill="#E3F2FD">LNG</text>
+  <!-- Outlet pipe at bottom -->
+  <line x1="24" y1="42" x2="24" y2="47" stroke="#01579B" stroke-width="2" stroke-linecap="round"/>
+</svg>"""
+
 # ---------------------------------------------------------------------------
 # Icon utilities — cache SVG → PNG via cairosvg
 # ---------------------------------------------------------------------------
@@ -481,6 +529,15 @@ _PALETTE: dict[str, str] = {
     "flow_right": "#E0F7FA",
     "flow_right_border": "#00838F",
     "right_edge": "#F57F17",
+    "right_bound_edge": "#8D6E63",
+    # Pump — dark blue (hydro element consuming electricity)
+    "pump": "#E3F2FD",
+    "pump_border": "#0D47A1",
+    "pump_edge": "#1565C0",
+    # LNG terminal — deep blue with orange gas accent
+    "lng_terminal": "#E8EAF6",
+    "lng_terminal_border": "#01579B",
+    "lng_edge": "#FF6F00",
     "line_edge": "#4CAF50",
     "power_edge": "#66BB6A",
     "waterway_edge": "#0277BD",
@@ -532,6 +589,15 @@ _PALETTE_COLORBLIND: dict[str, str] = {
     "flow_right": "#E0F7FA",
     "flow_right_border": "#006064",
     "right_edge": "#E65100",
+    "right_bound_edge": "#5D4037",
+    # Pump
+    "pump": "#E1F5FE",
+    "pump_border": "#01579B",
+    "pump_edge": "#0277BD",
+    # LNG terminal
+    "lng_terminal": "#E8EAF6",
+    "lng_terminal_border": "#1A237E",
+    "lng_edge": "#E65100",
     "line_edge": "#4CAF50",
     "power_edge": "#66BB6A",
     "waterway_edge": "#0277BD",
@@ -595,6 +661,10 @@ _LEGEND_LABELS: dict[str, str] = {
     "turbine": "Turbine",
     "flow": "Flow",
     "seepage": "ReservoirSeepage",
+    "pump": "Pump",
+    "volume_right": "VolumeRight",
+    "flow_right": "FlowRight",
+    "lng_terminal": "LNG Terminal",
     "reserve_zone": "Reserve zone",
     "gen_profile": "Generator profile",
     "dem_profile": "Demand profile",
@@ -616,6 +686,10 @@ _MM_SHAPES: dict[str, tuple[str, str]] = {
     "turbine": ("{", "}"),
     "flow": ("((", "))"),
     "seepage": ("((", "))"),
+    "pump": ("{", "}"),
+    "volume_right": ("[\\", "/]"),
+    "flow_right": ("((", "))"),
+    "lng_terminal": ("([", "])"),
     "reserve_zone": (">", "]"),
     "gen_profile": ("[", "]"),
     "dem_profile": ("[", "]"),
@@ -637,6 +711,10 @@ _MM_STYLES: dict[str, str] = {
     "turbine": "fill:#D1F2EB,stroke:#1E8449,color:#1C2833",
     "flow": "fill:#EAF2FF,stroke:#2980B9,color:#1C2833",
     "seepage": "fill:#EAECEE,stroke:#717D7E,color:#1C2833",
+    "pump": "fill:#E3F2FD,stroke:#0D47A1,color:#1C2833",
+    "volume_right": "fill:#EFEBE9,stroke:#6D4C41,color:#1C2833",
+    "flow_right": "fill:#E0F7FA,stroke:#00838F,color:#1C2833",
+    "lng_terminal": "fill:#E8EAF6,stroke:#01579B,color:#1C2833",
     "reserve_zone": "fill:#FFF8E1,stroke:#F57F17,color:#1C2833",
     "gen_profile": "fill:#F3E5F5,stroke:#7B1FA2,color:#1C2833",
     "dem_profile": "fill:#FCE4EC,stroke:#AD1457,color:#1C2833",
@@ -655,6 +733,10 @@ _MM_ICONS: dict[str, str] = {
     "turbine": "\u2699\ufe0f",
     "flow": "\U0001f30a",
     "seepage": "\U0001f53d",
+    "pump": "\U0001f4a7\u2191",  # water drop + up arrow
+    "volume_right": "\U0001f4d0",  # bookmark
+    "flow_right": "\U0001f4c9",  # chart with downwards trend
+    "lng_terminal": "\U0001f525",  # flame / gas
     # aggregated generator nodes inherit the type icon
     "gen_wind": "\U0001f32c\ufe0f",
     "gen_nuclear": "\u2622\ufe0f",
@@ -679,11 +761,13 @@ _PYVIS_COLORS: dict[str, dict] = {
     "turbine": {"background": "#BBDEFB", "border": "#1565C0"},
     "flow": {"background": "#E3F2FD", "border": "#0277BD"},
     "seepage": {"background": "#E0E0E0", "border": "#616161"},
+    "pump": {"background": "#E3F2FD", "border": "#0D47A1"},
+    "volume_right": {"background": "#EFEBE9", "border": "#6D4C41"},
+    "flow_right": {"background": "#E0F7FA", "border": "#00838F"},
+    "lng_terminal": {"background": "#E8EAF6", "border": "#01579B"},
     "reserve_zone": {"background": "#FFF8E1", "border": "#F57F17"},
     "gen_profile": {"background": "#F3E5F5", "border": "#7B1FA2"},
     "dem_profile": {"background": "#FCE4EC", "border": "#AD1457"},
-    "volume_right": {"background": "#EFEBE9", "border": "#6D4C41"},
-    "flow_right": {"background": "#E0F7FA", "border": "#00838F"},
 }
 
 _PYVIS_SHAPE_MAP: dict[str, str] = {
@@ -702,11 +786,13 @@ _PYVIS_SHAPE_MAP: dict[str, str] = {
     "turbine": "diamond",
     "flow": "dot",
     "seepage": "dot",
+    "pump": "diamond",
+    "volume_right": "box",
+    "flow_right": "dot",
+    "lng_terminal": "database",
     "reserve_zone": "star",
     "gen_profile": "dot",
     "dem_profile": "dot",
-    "volume_right": "box",
-    "flow_right": "dot",
 }
 
 _PYVIS_SIZE_MAP: dict[str, int] = {
@@ -722,8 +808,10 @@ _PYVIS_SIZE_MAP: dict[str, int] = {
     "turbine": 22,
     "flow": 16,
     "seepage": 14,
+    "pump": 22,
     "volume_right": 18,
     "flow_right": 14,
+    "lng_terminal": 26,
 }
 
 # Graphviz native shape mapping (distinct shapes for each element type)
@@ -743,6 +831,10 @@ _GV_SHAPE_MAP: dict[str, str] = {
     "turbine": "diamond",
     "flow": "circle",
     "seepage": "circle",
+    "pump": "diamond",
+    "volume_right": "folder",
+    "flow_right": "circle",
+    "lng_terminal": "cylinder",
     "reserve_zone": "star",
     "gen_profile": "note",
     "dem_profile": "note",

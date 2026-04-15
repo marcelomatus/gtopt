@@ -2541,8 +2541,11 @@ mathematical symbols used in this formulation.
 | `commitment_array[].cold_start_cost` | — | Startup cost when long offline (\$/start) |
 | `commitment_array[].hot_start_time` | — | Max offline hours for hot start (h) |
 | `commitment_array[].cold_start_time` | — | Min offline hours for cold start (h) |
+| `simple_commitment_array[].uid` | — | Unique identifier |
+| `simple_commitment_array[].name` | — | Human-readable name |
+| `simple_commitment_array[].active` | — | Activation schedule (bool\|array\|string) |
 | `simple_commitment_array[].generator` | — | FK to the committed generator |
-| `simple_commitment_array[].pmin_dispatch` | $\underline{P}_g^d$ | Dispatch minimum when committed (MW) |
+| `simple_commitment_array[].dispatch_pmin` | $\underline{P}_g^d$ | Dispatch minimum when committed (MW) |
 | `simple_commitment_array[].relax` | — | LP relaxation: binary → continuous |
 | `simple_commitment_array[].must_run` | — | Force committed: $u = 1$ always |
 | `stage_array[].chronological` | — | `true` when blocks are hourly-consecutive (enables UC) |
