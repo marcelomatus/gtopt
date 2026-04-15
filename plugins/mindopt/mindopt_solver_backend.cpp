@@ -125,6 +125,11 @@ double MindOptSolverBackend::infinity() const noexcept
   return MDO_INFINITY;
 }
 
+bool MindOptSolverBackend::supports_mip() const noexcept
+{
+  return true;
+}
+
 // ── problem name ─────────────────────────────────────────────────────────
 
 void MindOptSolverBackend::set_prob_name(const std::string& name)

@@ -31,7 +31,7 @@ namespace gtopt
  * SolverRegistry checks the plugin's reported ABI version at load time
  * and rejects incompatible plugins with a clear error instead of crashing.
  */
-inline constexpr int k_solver_abi_version = 3;
+inline constexpr int k_solver_abi_version = 4;
 
 /**
  * @brief Abstract interface for LP/MIP solver backends.
@@ -62,6 +62,18 @@ public:
 
   /** @brief Solver's representation of +infinity */
   [[nodiscard]] virtual double infinity() const noexcept = 0;
+
+  /** @brief True if this backend can solve mixed-integer problems.
+   *
+   * Returns true when the backend supports integer variables (set_integer)
+   * and a branch-and-bound / branch-and-cut solver capable of resolving
+   * them to optimality.  Pure LP backends such as CLP return false; CBC,
+   * CPLEX, HiGHS, and MindOpt return true.
+   *
+   * Tests that exercise integer variables should skip when this query
+   * returns false on every loaded plugin (see SolverRegistry::has_mip_solver).
+   */
+  [[nodiscard]] virtual bool supports_mip() const noexcept = 0;
 
   // ---- problem name ----
 
