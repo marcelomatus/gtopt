@@ -192,7 +192,7 @@ scenarios, stages, and blocks.
 | $\alpha_o$ | `flow_conversion_rate` | Flow-to-volume conversion (= $0.0036$) | hm³/((m³/s)·h) |
 | $\rho_\tau$ | `fcr` (LNG) | Flow conversion rate (tank volume) | — |
 | $\lambda_\tau$ | `annual_loss` (LNG) | Boil-off rate | 1/year |
-| $\eta_g^{hr}$ | `heat_rate` (LNG link) | Generator fuel-burn rate (m³ LNG / MWh) | m³/MWh |
+| $\eta_g^{hr}$ | `heat_rate` (LNG link) | Fuel consumption per MWh (m³\_LNG/MWh); note: symbol uses η for historical reasons but this is a consumption rate, not efficiency | m³/MWh |
 | $\text{SU}_g$ | `startup_cost` | Startup cost | \$ |
 | $\text{SD}_g$ | `shutdown_cost` | Shutdown cost | \$ |
 | $\text{NL}_g$ | `noload_cost` | No-load cost (paid while $u=1$) | \$/h |

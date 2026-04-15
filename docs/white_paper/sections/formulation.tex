@@ -111,7 +111,7 @@ The GTEP problem is defined over the following sets:
     & \text{battery SoC [MWh]} \label{eq:soc} \\
   v_{r,s,t,b}  &\in [\underline{v}_r, \overline{v}_r]
     & \text{reservoir volume [hm\textsuperscript{3}]} \label{eq:vol} \\
-  e_{\tau,s,t,b}^{\text{lng}}
+  v_{\tau,s,t,b}^{\text{lng}}
                &\in [\underline{V}_\tau, \overline{V}_\tau]
     & \text{LNG tank volume [m\textsuperscript{3}]} \label{eq:lng_vol}
 \end{align}
@@ -579,24 +579,26 @@ SoC equation (Section~\ref{sec:battery}) with delivery inflow and
 boil-off:
 \begin{equation}
 \label{eq:lng_balance}
-e_{\tau,s,t,b}^{\text{lng}}
-  = e_{\tau,s,t,b-1}^{\text{lng}} \bigl(1 - \lambda_\tau^h \Delta_b\bigr)
+v_{\tau,s,t,b}^{\text{lng}}
+  = v_{\tau,s,t,b-1}^{\text{lng}} \bigl(1 - \lambda_\tau^h \Delta_b\bigr)
   + \rho_\tau \Delta_b \, d_{\tau,s,t,b}^{\text{lng}}
   - \rho_\tau \Delta_b \, \text{vent}_{\tau,s,t,b}
   - \rho_\tau \Delta_b
-      \sum_{g \in \mathcal{G}_\tau} \eta_g^{hr} \, p_{g,s,t,b}
+      \sum_{g \in \mathcal{G}_\tau} \kappa_g^{hr} \, p_{g,s,t,b}
 \end{equation}
-where $e_{\tau,s,t,b}^{\text{lng}}$ [m\textsuperscript{3}] is the tank
+where $v_{\tau,s,t,b}^{\text{lng}}$ [m\textsuperscript{3}] is the tank
 volume, $\lambda_\tau^h = \lambda_\tau / 8760$ is the per-hour
-boil-off rate, $\rho_\tau$ is the unit-conversion factor
-(m\textsuperscript{3}/(m\textsuperscript{3}/h$\cdot$h), default~1),
+boil-off rate, $\rho_\tau$ is a dimensionless unit-conversion factor
+(default~1.0, used when delivery is in m\textsuperscript{3}/h and volume
+in m\textsuperscript{3} so that $\rho_\tau \cdot \Delta_b \cdot d$ has
+units m\textsuperscript{3}),
 $d_{\tau,s,t,b}^{\text{lng}}$ is the delivery inflow, $\text{vent}$
 is a vented-gas variable penalized at `spillway\_cost', and
-$\eta_g^{hr}$ [m\textsuperscript{3}/MWh] is the heat rate of each
+$\kappa_g^{hr}$ [m\textsuperscript{3}/MWh] is the heat rate of each
 linked generator $g \in \mathcal{G}_\tau$.
 
 The last term is implemented by injecting a coefficient
-$-\rho_\tau \eta_g^{hr} \Delta_b$ onto each generator's generation
+$-\rho_\tau \kappa_g^{hr} \Delta_b$ onto each generator's generation
 variable in the existing tank balance row.  Volume bounds and
 initial/final conditions follow the generic storage template.  The
 delivery schedule is fixed to a constant hourly rate
@@ -650,7 +652,7 @@ order), binary variables are silently relaxed to continuous.
 \subsection{CO\textsubscript{2} Emission Pricing and Caps}
 \label{sec:emission}
 
-gtopt supports two mechanisms for carbon pricing.  A system-wide emission
+\gtopt{} supports two mechanisms for carbon pricing.  A system-wide emission
 price $c^{\text{em}}$ [\$/tCO\textsubscript{2}] applied to generators
 with emission intensity $f_g$ [tCO\textsubscript{2}/MWh] augments each
 generator's variable cost:
