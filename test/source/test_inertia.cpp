@@ -1,8 +1,11 @@
 // SPDX-License-Identifier: BSD-3-Clause
+#include <filesystem>
+
 #include <doctest/doctest.h>
 #include <gtopt/inertia_provision.hpp>
 #include <gtopt/inertia_provision_lp.hpp>
 #include <gtopt/inertia_zone.hpp>
+#include <gtopt/inertia_zone_lp.hpp>
 #include <gtopt/linear_interface.hpp>
 #include <gtopt/planning_options.hpp>
 #include <gtopt/simple_commitment.hpp>
@@ -407,4 +410,97 @@ TEST_CASE("InertiaProvisionLP - multi-zone provision")
   auto result = lp.resolve();
   REQUIRE(result.has_value());
   CHECK(result.value() == 0);
+}
+
+TEST_CASE(
+    "InertiaZoneLP and InertiaProvisionLP - add_to_output via write_out")  // NOLINT
+{
+  // This test exercises both InertiaZoneLP::add_to_output and
+  // InertiaProvisionLP::add_to_output by calling system_lp.write_out()
+  // after resolving the LP.
+  const Array<Generator> generator_array = {
+      {
+          .uid = Uid {1},
+          .name = "g1",
+          .bus = Uid {1},
+          .pmin = 50.0,
+          .gcost = 30.0,
+          .capacity = 200.0,
+      },
+  };
+
+  const Array<InertiaZone> inertia_zone_array = {
+      {
+          .uid = Uid {1},
+          .name = "iz1",
+          .requirement = 200.0,
+          .cost = 5000.0,
+      },
+  };
+
+  const Array<InertiaProvision> inertia_provision_array = {
+      {
+          .uid = Uid {1},
+          .name = "ip1",
+          .generator = Uid {1},
+          .inertia_zones = "1",
+          .provision_factor = 8.0,
+      },
+  };
+
+  const auto tmpdir =
+      std::filesystem::temp_directory_path() / "gtopt_test_inertia_out";
+  std::filesystem::create_directories(tmpdir);
+
+  PlanningOptions opts;
+  opts.demand_fail_cost = 1000.0;
+  opts.reserve_fail_cost = 10000.0;
+  opts.output_directory = tmpdir.string();
+
+  const System system = {
+      .name = "InertiaOutputTest",
+      .bus_array = bus_array,
+      .demand_array = demand_array,
+      .generator_array = generator_array,
+      .inertia_zone_array = inertia_zone_array,
+      .inertia_provision_array = inertia_provision_array,
+  };
+
+  const PlanningOptionsLP options(opts);
+  SimulationLP simulation_lp(simulation, options);
+  SystemLP system_lp(system, simulation_lp);
+
+  auto&& lp = system_lp.linear_interface();
+  auto result = lp.resolve();
+  REQUIRE(result.has_value());
+  CHECK(result.value() == 0);
+
+  // Verify the provision col solution: generator capacity=200, pmin=50,
+  // provision_factor=8 → max provision = pmin × provision_factor = 50 × 8 =
+  // 400 MWs.  Requirement = 200 MWs, so provision should be
+  // min(requirement, 400) / provision_factor = 200 / 8 = 25 MW.
+  const auto& ip_lps = system_lp.elements<InertiaProvisionLP>();
+  REQUIRE(ip_lps.size() == 1);
+  const auto& ip_lp = ip_lps.front();
+  const auto& scenario_lp = simulation_lp.scenarios().front();
+  const auto& stage_lp = simulation_lp.stages().front();
+  const auto& block_lp = simulation_lp.blocks().front();
+  const auto r_col =
+      ip_lp.lookup_provision_col(scenario_lp, stage_lp, block_lp.uid());
+  REQUIRE(r_col.has_value());
+  CHECK(lp.get_col_sol()[*r_col] == doctest::Approx(25.0).epsilon(0.01));
+
+  // Verify the inertia zone requirement col exists and the slack is ≥ 0
+  const auto& iz_lps = system_lp.elements<InertiaZoneLP>();
+  REQUIRE(iz_lps.size() == 1);
+  const auto req_col = iz_lps.front().lookup_requirement_col(
+      scenario_lp, stage_lp, block_lp.uid());
+  REQUIRE(req_col.has_value());
+  CHECK(lp.get_col_sol()[*req_col] >= 0.0);
+
+  // Exercises InertiaZoneLP::add_to_output and
+  // InertiaProvisionLP::add_to_output
+  CHECK_NOTHROW(system_lp.write_out());
+
+  std::filesystem::remove_all(tmpdir);
 }

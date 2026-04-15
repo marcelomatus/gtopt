@@ -9,10 +9,14 @@
  * affecting the hydrological topology.
  */
 
+#include <filesystem>
+
 #include <doctest/doctest.h>
+#include <gtopt/flow_right_lp.hpp>
 #include <gtopt/linear_interface.hpp>
 #include <gtopt/simulation_lp.hpp>
 #include <gtopt/system_lp.hpp>
+#include <gtopt/volume_right_lp.hpp>
 
 using namespace gtopt;  // NOLINT(google-global-names-in-headers)
 
@@ -608,4 +612,181 @@ TEST_CASE(  // NOLINT
   auto result = lp.resolve();
   REQUIRE(result.has_value());
   CHECK(result.value() == 0);
+}
+
+TEST_CASE("FlowRightLP - add_to_output via write_out")  // NOLINT
+{
+  // Exercises FlowRightLP::add_to_output by calling write_out after solving.
+  const Array<Bus> bus_array = {
+      {.uid = Uid {1}, .name = "b1"},
+  };
+
+  const Array<Generator> generator_array = {
+      {
+          .uid = Uid {1},
+          .name = "gen1",
+          .bus = Uid {1},
+          .gcost = 10.0,
+          .capacity = 200.0,
+      },
+  };
+
+  const Array<Demand> demand_array = {
+      {.uid = Uid {1}, .name = "d1", .bus = Uid {1}, .capacity = 50.0},
+  };
+
+  const Array<FlowRight> flow_right_array = {
+      {
+          .uid = Uid {1},
+          .name = "irrig_flow_1",
+          .discharge = 20.0,
+          .fail_cost = 5000.0,
+      },
+  };
+
+  const Simulation simulation = {
+      .block_array =
+          {
+              {.uid = Uid {1}, .duration = 1},
+          },
+      .stage_array =
+          {
+              {.uid = Uid {1}, .first_block = 0, .count_block = 1},
+          },
+      .scenario_array =
+          {
+              {.uid = Uid {0}},
+          },
+  };
+
+  const auto tmpdir =
+      std::filesystem::temp_directory_path() / "gtopt_test_flowright_out";
+  std::filesystem::create_directories(tmpdir);
+
+  const System system = {
+      .name = "FlowRightOutputTest",
+      .bus_array = bus_array,
+      .demand_array = demand_array,
+      .generator_array = generator_array,
+      .flow_right_array = flow_right_array,
+  };
+
+  PlanningOptions opts;
+  opts.output_directory = tmpdir.string();
+  const PlanningOptionsLP options(opts);
+  SimulationLP simulation_lp(simulation, options);
+  SystemLP system_lp(system, simulation_lp);
+
+  auto&& lp = system_lp.linear_interface();
+  auto result = lp.resolve();
+  REQUIRE(result.has_value());
+  CHECK(result.value() == 0);
+
+  // Verify the flow col solution: discharge=20 m³/s is the fixed flow right
+  // amount.  The flow columns should have the discharge value.
+  const auto& fr_lps = system_lp.elements<FlowRightLP>();
+  REQUIRE(fr_lps.size() == 1);
+  const auto& fr_lp = fr_lps.front();
+  const auto& scenario_lp = simulation_lp.scenarios().front();
+  const auto& stage_lp = simulation_lp.stages().front();
+  const auto& flow_cols = fr_lp.flow_cols_at(scenario_lp, stage_lp);
+  CHECK_FALSE(flow_cols.empty());
+  const auto sol = lp.get_col_sol();
+  for (const auto& [buid, col] : flow_cols) {
+    CHECK(sol[col] == doctest::Approx(20.0).epsilon(0.01));
+  }
+
+  // Exercises FlowRightLP::add_to_output
+  CHECK_NOTHROW(system_lp.write_out());
+
+  std::filesystem::remove_all(tmpdir);
+}
+
+TEST_CASE("VolumeRightLP - add_to_output via write_out")  // NOLINT
+{
+  // Exercises VolumeRightLP::add_to_output by calling write_out after solving.
+  const Array<Bus> bus_array = {
+      {.uid = Uid {1}, .name = "b1"},
+  };
+
+  const Array<Generator> generator_array = {
+      {
+          .uid = Uid {1},
+          .name = "gen1",
+          .bus = Uid {1},
+          .gcost = 10.0,
+          .capacity = 200.0,
+      },
+  };
+
+  const Array<Demand> demand_array = {
+      {.uid = Uid {1}, .name = "d1", .bus = Uid {1}, .capacity = 50.0},
+  };
+
+  const Array<VolumeRight> volume_right_array = {
+      {
+          .uid = Uid {1},
+          .name = "vol_right_1",
+          .emin = 0.0,
+          .emax = 1000.0,
+          .eini = 500.0,
+          .fail_cost = 5000.0,
+      },
+  };
+
+  const Simulation simulation = {
+      .block_array =
+          {
+              {.uid = Uid {1}, .duration = 1},
+          },
+      .stage_array =
+          {
+              {.uid = Uid {1}, .first_block = 0, .count_block = 1},
+          },
+      .scenario_array =
+          {
+              {.uid = Uid {0}},
+          },
+  };
+
+  const auto tmpdir =
+      std::filesystem::temp_directory_path() / "gtopt_test_volright_out";
+  std::filesystem::create_directories(tmpdir);
+
+  const System system = {
+      .name = "VolumeRightOutputTest",
+      .bus_array = bus_array,
+      .demand_array = demand_array,
+      .generator_array = generator_array,
+      .volume_right_array = volume_right_array,
+  };
+
+  PlanningOptions opts;
+  opts.output_directory = tmpdir.string();
+  const PlanningOptionsLP options(opts);
+  SimulationLP simulation_lp(simulation, options);
+  SystemLP system_lp(system, simulation_lp);
+
+  auto&& lp = system_lp.linear_interface();
+  auto result = lp.resolve();
+  REQUIRE(result.has_value());
+  CHECK(result.value() == 0);
+
+  // Verify VolumeRight storage state: eini=500, no extraction source, so the
+  // rights ledger stays at eini.  Check efin_col_at solution.
+  const auto& vr_lps = system_lp.elements<VolumeRightLP>();
+  REQUIRE(vr_lps.size() == 1);
+  const auto& vr_lp = vr_lps.front();
+  const auto& scenario_lp = simulation_lp.scenarios().front();
+  const auto& stage_lp = simulation_lp.stages().front();
+  const auto efin_col = vr_lp.efin_col_at(scenario_lp, stage_lp);
+  const auto efin_val = lp.get_col_sol()[efin_col];
+  // efin should be non-negative and within [emin=0, emax=1000]
+  CHECK(efin_val >= 0.0);
+  CHECK(efin_val <= 1000.0 + 1.0);
+
+  // Exercises VolumeRightLP::add_to_output
+  CHECK_NOTHROW(system_lp.write_out());
+
+  std::filesystem::remove_all(tmpdir);
 }

@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: BSD-3-Clause
+#include <filesystem>
+
 #include <doctest/doctest.h>
 #include <gtopt/linear_interface.hpp>
 #include <gtopt/planning_options.hpp>
@@ -270,4 +272,74 @@ TEST_CASE("SimpleCommitmentLP - dispatch_pmin defaults to generator pmin")
   auto result = lp.resolve();
   REQUIRE(result.has_value());
   CHECK(result.value() == 0);
+}
+
+TEST_CASE("SimpleCommitmentLP - add_to_output via write_out")  // NOLINT
+{
+  // Exercises SimpleCommitmentLP::add_to_output by calling write_out after
+  // resolving the LP.
+  const Array<Generator> generator_array = {
+      {
+          .uid = Uid {1},
+          .name = "g1",
+          .bus = Uid {1},
+          .pmin = 20.0,
+          .gcost = 30.0,
+          .capacity = 100.0,
+      },
+  };
+
+  const Array<SimpleCommitment> simple_commitment_array = {
+      {
+          .uid = Uid {1},
+          .name = "sc1",
+          .generator = Uid {1},
+          .dispatch_pmin = 20.0,
+          .relax = true,
+      },
+  };
+
+  const auto tmpdir =
+      std::filesystem::temp_directory_path() / "gtopt_test_sc_out";
+  std::filesystem::create_directories(tmpdir);
+
+  PlanningOptions opts;
+  opts.demand_fail_cost = 1000.0;
+  opts.output_directory = tmpdir.string();
+
+  const System system = {
+      .name = "SimpleCommitmentOutputTest",
+      .bus_array = bus_array,
+      .demand_array = demand_array,
+      .generator_array = generator_array,
+      .simple_commitment_array = simple_commitment_array,
+  };
+
+  const PlanningOptionsLP options(opts);
+  SimulationLP simulation_lp(simulation, options);
+  SystemLP system_lp(system, simulation_lp);
+
+  auto&& lp = system_lp.linear_interface();
+  auto result = lp.resolve();
+  REQUIRE(result.has_value());
+  CHECK(result.value() == 0);
+
+  // Verify the status col: demand=100 MW, generator capacity=100 MW, so
+  // the generator must be dispatched → status u should be 1.0 (relaxed).
+  const auto& sc_lps = system_lp.elements<SimpleCommitmentLP>();
+  REQUIRE(sc_lps.size() == 1);
+  const auto& sc_lp = sc_lps.front();
+  const auto& scenario_lp = simulation_lp.scenarios().front();
+  const auto& stage_lp = simulation_lp.stages().front();
+  const auto& block_lp = simulation_lp.blocks().front();
+  const auto u_col =
+      sc_lp.lookup_status_col(scenario_lp, stage_lp, block_lp.uid());
+  REQUIRE(u_col.has_value());
+  CHECK(lp.get_col_sol()[*u_col] == doctest::Approx(1.0).epsilon(0.001));
+
+  // Exercises SimpleCommitmentLP::add_to_output (status_cols, gen_upper_rows,
+  // gen_lower_rows)
+  CHECK_NOTHROW(system_lp.write_out());
+
+  std::filesystem::remove_all(tmpdir);
 }
