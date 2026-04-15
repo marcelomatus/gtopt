@@ -83,6 +83,8 @@ struct Generator
   OptActive active {};  ///< Activation status (default: active)
   OptName type {};  ///< Optional generator type tag (e.g. "thermal", "hydro",
                     ///< "solar")
+  OptName description {};  ///< Free-form label for UI/post-processing; not
+                           ///< used by the LP solver.
 
   SingleId bus {unknown_uid};  ///< Bus ID where the generator is connected
 
