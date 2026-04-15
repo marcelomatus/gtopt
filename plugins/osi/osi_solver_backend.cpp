@@ -334,6 +334,15 @@ void OsiSolverBackend::initial_solve()
 
 void OsiSolverBackend::resolve()
 {
+#ifdef GTOPT_OSI_HAS_CBC
+  // When running CBC with integer variables, invoke branch-and-bound.
+  // OsiCbcSolverInterface::resolve() only does an LP re-solve; the MIP
+  // solver requires an explicit branchAndBound() call.
+  if (m_type_ == OsiSolverType::cbc && m_solver_->getNumIntegers() > 0) {
+    m_solver_->branchAndBound();
+    return;
+  }
+#endif
   m_solver_->resolve();
 }
 
