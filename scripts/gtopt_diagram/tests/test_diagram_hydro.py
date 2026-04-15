@@ -10,6 +10,9 @@ Covers:
 - Embedded reservoir features (seepage, discharge_limit, production_factor)
 - Reservoir discharge limit hydro detection
 - VolumeRight and FlowRight water rights
+- VolumeRight and FlowRight bound_rule visualization
+- Pump nodes (hydro cluster, demand→pump→waterway junctions)
+- LNG Terminal nodes (electrical cluster, terminal→generators)
 """
 
 from gtopt_diagram import gtopt_diagram as gd
@@ -1113,3 +1116,514 @@ class TestFlowRightDiagram:
         # System has: 2 junctions + 1 waterway + 1 reservoir + 2 volume rights +
         # 1 flow right = 7
         assert count >= 7
+
+
+# ---------------------------------------------------------------------------
+# bound_rule visualization for VolumeRight and FlowRight
+# ---------------------------------------------------------------------------
+
+_BOUND_RULE_PLANNING = {
+    "system": {
+        "name": "bound_rule_test",
+        "junction_array": [
+            {"uid": 1, "name": "J1"},
+            {"uid": 2, "name": "J2"},
+        ],
+        "reservoir_array": [
+            {"uid": 1, "name": "ResSource", "junction": 1, "emax": 5000},
+            {"uid": 2, "name": "ResBound", "junction": 2, "emax": 3000},
+        ],
+        "volume_right_array": [
+            {
+                "uid": 1,
+                "name": "VR_bound",
+                "reservoir": 1,
+                "emax": 200,
+                "bound_rule": {"reservoir": 2, "segments": [[0, 0], [1000, 200]]},
+            }
+        ],
+        "flow_right_array": [
+            {
+                "uid": 1,
+                "name": "FR_bound",
+                "junction": 1,
+                "discharge": 10,
+                "bound_rule": {"reservoir": 2, "segments": [[0, 0], [1000, 20]]},
+            }
+        ],
+    }
+}
+
+
+class TestBoundRuleVisualization:
+    """Verify bound_rule edges are drawn for VolumeRight and FlowRight."""
+
+    def _build(self, planning=None, compact=False):
+        fo = gd.FilterOptions(aggregate="none", compact=compact)
+        builder = gd.TopologyBuilder(
+            planning or _BOUND_RULE_PLANNING, subsystem="hydro", opts=fo
+        )
+        return builder.build()
+
+    def _edge_pairs(self, model):
+        return {(e.src, e.dst) for e in model.edges}
+
+    def test_volume_right_bound_rule_edge_created(self):
+        """VolumeRight with bound_rule must have a dashed edge from bound reservoir."""
+        model = self._build()
+        edges = [
+            e
+            for e in model.edges
+            if e.dst == "vright_VR_bound_1" and e.style == "dashed"
+        ]
+        assert edges, "Expected a dashed edge from bound reservoir to VolumeRight"
+
+    def test_volume_right_bound_rule_edge_uses_right_bound_color(self):
+        """VolumeRight bound_rule edge must use right_bound_edge palette color."""
+        model = self._build()
+        edges = [
+            e
+            for e in model.edges
+            if e.dst == "vright_VR_bound_1" and e.style == "dashed"
+        ]
+        assert edges
+        assert edges[0].color == gd._PALETTE["right_bound_edge"]  # noqa: SLF001
+
+    def test_volume_right_bound_rule_edge_label_bound(self):
+        """Non-compact: bound_rule edge label must be 'bound'."""
+        model = self._build()
+        edges = [
+            e
+            for e in model.edges
+            if e.dst == "vright_VR_bound_1" and e.style == "dashed"
+        ]
+        assert edges
+        assert edges[0].label == "bound"
+
+    def test_volume_right_bound_rule_edge_compact_no_label(self):
+        """Compact mode: bound_rule edge label must be empty."""
+        model = self._build(compact=True)
+        edges = [
+            e
+            for e in model.edges
+            if e.dst == "vright_VR_bound_1" and e.style == "dashed"
+        ]
+        assert edges
+        assert edges[0].label == ""
+
+    def test_volume_right_same_reservoir_no_duplicate_bound_edge(self):
+        """When bound_rule.reservoir == source reservoir, no extra edge is added."""
+        planning = {
+            "system": {
+                "name": "same_res_bound",
+                "reservoir_array": [
+                    {"uid": 1, "name": "Res1", "junction": 1, "emax": 1000}
+                ],
+                "junction_array": [{"uid": 1, "name": "J1"}],
+                "volume_right_array": [
+                    {
+                        "uid": 1,
+                        "name": "VR_same",
+                        "reservoir": 1,
+                        "bound_rule": {"reservoir": 1},
+                    }
+                ],
+            }
+        }
+        model = self._build(planning)
+        dashed_edges = [
+            e
+            for e in model.edges
+            if e.dst == "vright_VR_same_1" and e.style == "dashed"
+        ]
+        # Same reservoir — no bound edge should be added
+        assert not dashed_edges
+
+    def test_flow_right_bound_rule_edge_created(self):
+        """FlowRight with bound_rule must have a dashed edge from bound reservoir."""
+        model = self._build()
+        edges = [
+            e
+            for e in model.edges
+            if e.dst == "fright_FR_bound_1" and e.style == "dashed"
+        ]
+        assert edges, "Expected a dashed edge from bound reservoir to FlowRight"
+
+    def test_flow_right_bound_rule_edge_uses_right_bound_color(self):
+        """FlowRight bound_rule edge must use right_bound_edge palette color."""
+        model = self._build()
+        edges = [
+            e
+            for e in model.edges
+            if e.dst == "fright_FR_bound_1" and e.style == "dashed"
+        ]
+        assert edges
+        assert edges[0].color == gd._PALETTE["right_bound_edge"]  # noqa: SLF001
+
+    def test_flow_right_bound_rule_edge_label_bound(self):
+        """Non-compact: FlowRight bound_rule edge label must be 'bound'."""
+        model = self._build()
+        edges = [
+            e
+            for e in model.edges
+            if e.dst == "fright_FR_bound_1" and e.style == "dashed"
+        ]
+        assert edges
+        assert edges[0].label == "bound"
+
+    def test_no_bound_rule_no_extra_edge(self):
+        """VolumeRight without bound_rule must not produce any dashed bound edge."""
+        planning = {
+            "system": {
+                "name": "no_bound",
+                "reservoir_array": [
+                    {"uid": 1, "name": "Res1", "junction": 1, "emax": 1000}
+                ],
+                "junction_array": [{"uid": 1, "name": "J1"}],
+                "volume_right_array": [
+                    {"uid": 1, "name": "VR_nobound", "reservoir": 1, "emax": 50}
+                ],
+            }
+        }
+        model = self._build(planning)
+        dashed_edges = [
+            e
+            for e in model.edges
+            if e.dst == "vright_VR_nobound_1" and e.style == "dashed"
+        ]
+        assert not dashed_edges
+
+    def test_no_dangling_edges(self):
+        """All edges in the bound_rule diagram must reference existing nodes."""
+        model = self._build()
+        _assert_no_dangling_edges(model)
+
+
+# ---------------------------------------------------------------------------
+# Pump nodes (hydro cluster, demand → pump → waterway junctions)
+# ---------------------------------------------------------------------------
+
+_PUMP_PLANNING = {
+    "system": {
+        "name": "pump_test",
+        "bus_array": [{"uid": 1, "name": "B1"}],
+        "demand_array": [{"uid": 1, "name": "Dem_pump", "bus": 1, "lmax": 50}],
+        "junction_array": [
+            {"uid": 1, "name": "J_low"},
+            {"uid": 2, "name": "J_high"},
+        ],
+        "waterway_array": [
+            {"uid": 1, "name": "WPump", "junction_a": 1, "junction_b": 2}
+        ],
+        "pump_array": [
+            {
+                "uid": 1,
+                "name": "Pump1",
+                "demand": 1,
+                "waterway": 1,
+                "capacity": 30,
+            }
+        ],
+    }
+}
+
+
+class TestPumpDiagram:
+    """Verify Pump nodes and edges are rendered correctly."""
+
+    def _build(self, planning=None, subsystem="full", compact=False):
+        fo = gd.FilterOptions(aggregate="none", compact=compact)
+        builder = gd.TopologyBuilder(
+            planning or _PUMP_PLANNING, subsystem=subsystem, opts=fo
+        )
+        return builder.build()
+
+    def _edge_pairs(self, model):
+        return {(e.src, e.dst) for e in model.edges}
+
+    def test_pump_node_created(self):
+        """pump_array entries must produce nodes of kind 'pump'."""
+        model = self._build()
+        pump_nodes = [n for n in model.nodes if n.kind == "pump"]
+        assert len(pump_nodes) == 1
+
+    def test_pump_node_id(self):
+        """Pump nodes must use the 'pump_' prefix."""
+        model = self._build()
+        node_ids = {n.node_id for n in model.nodes}
+        assert "pump_Pump1_1" in node_ids
+
+    def test_pump_demand_edge(self):
+        """There must be a directed edge from demand to pump (power in)."""
+        model = self._build()
+        pairs = self._edge_pairs(model)
+        assert ("dem_Dem_pump_1", "pump_Pump1_1") in pairs
+
+    def test_pump_demand_edge_is_dashed(self):
+        """demand → pump edge must be dashed (electrical coupling)."""
+        model = self._build()
+        edges = [
+            e
+            for e in model.edges
+            if e.src == "dem_Dem_pump_1" and e.dst == "pump_Pump1_1"
+        ]
+        assert edges
+        assert edges[0].style == "dashed"
+
+    def test_pump_junction_a_edge(self):
+        """junction_a → pump edge must exist (water inlet)."""
+        model = self._build()
+        pairs = self._edge_pairs(model)
+        assert ("junc_J_low_1", "pump_Pump1_1") in pairs
+
+    def test_pump_junction_b_edge(self):
+        """pump → junction_b edge must exist (water pushed upstream)."""
+        model = self._build()
+        pairs = self._edge_pairs(model)
+        assert ("pump_Pump1_1", "junc_J_high_2") in pairs
+
+    def test_pump_label_contains_capacity(self):
+        """Non-compact pump label must include capacity in MW."""
+        model = self._build()
+        pump = next(n for n in model.nodes if n.node_id == "pump_Pump1_1")
+        assert "30" in pump.label or "MW" in pump.label
+
+    def test_pump_compact_label(self):
+        """Compact mode: pump label must be just the name."""
+        model = self._build(compact=True)
+        pump = next(n for n in model.nodes if n.node_id == "pump_Pump1_1")
+        assert "[Pump]" not in pump.label
+
+    def test_pump_cluster_is_hydro(self):
+        """Pump nodes must belong to the hydro cluster."""
+        model = self._build()
+        pump = next(n for n in model.nodes if n.node_id == "pump_Pump1_1")
+        assert pump.cluster == "hydro"
+
+    def test_pump_triggers_has_hydro(self):
+        """A system with only pump_array must activate the hydro path in full mode."""
+        planning = {
+            "system": {
+                "name": "pump_only",
+                "pump_array": [{"uid": 1, "name": "P1", "demand": 1, "capacity": 10}],
+            }
+        }
+        fo = gd.FilterOptions(aggregate="none")
+        builder = gd.TopologyBuilder(planning, subsystem="full", opts=fo)
+        builder.build()
+        assert builder.subsystem in ("full", "hydro")
+
+    def test_pump_no_demand_no_demand_edge(self):
+        """Pump without demand reference must still create a pump node."""
+        planning = {
+            "system": {
+                "name": "pump_no_dem",
+                "junction_array": [
+                    {"uid": 1, "name": "J1"},
+                    {"uid": 2, "name": "J2"},
+                ],
+                "waterway_array": [
+                    {"uid": 1, "name": "W1", "junction_a": 1, "junction_b": 2}
+                ],
+                "pump_array": [{"uid": 1, "name": "P_nodem", "waterway": 1}],
+            }
+        }
+        fo = gd.FilterOptions(aggregate="none")
+        builder = gd.TopologyBuilder(planning, subsystem="hydro", opts=fo)
+        model = builder.build()
+        pump_nodes = [n for n in model.nodes if n.kind == "pump"]
+        assert len(pump_nodes) == 1
+
+    def test_pump_no_waterway_no_waterway_edges(self):
+        """Pump without waterway reference must still create a pump node."""
+        planning = {
+            "system": {
+                "name": "pump_no_way",
+                "bus_array": [{"uid": 1, "name": "B1"}],
+                "demand_array": [{"uid": 1, "name": "D1", "bus": 1}],
+                "pump_array": [{"uid": 1, "name": "P_noway", "demand": 1}],
+            }
+        }
+        fo = gd.FilterOptions(aggregate="none")
+        builder = gd.TopologyBuilder(planning, subsystem="full", opts=fo)
+        model = builder.build()
+        pump_nodes = [n for n in model.nodes if n.kind == "pump"]
+        assert len(pump_nodes) == 1
+
+    def test_count_elements_includes_pumps(self):
+        """_count_elements must count pump_array entries."""
+        fo = gd.FilterOptions(aggregate="none")
+        builder = gd.TopologyBuilder(_PUMP_PLANNING, opts=fo)
+        count = builder._count_elements()  # noqa: SLF001
+        # At least: 1 bus + 1 demand + 2 junctions + 1 waterway + 1 pump = 6
+        assert count >= 6
+
+    def test_no_dangling_edges(self):
+        """All edges in the pump diagram must reference existing nodes."""
+        model = self._build()
+        _assert_no_dangling_edges(model)
+
+    def test_no_duplicate_node_ids(self):
+        """All node IDs in the pump diagram must be unique."""
+        model = self._build()
+        _assert_no_duplicate_node_ids(model)
+
+
+# ---------------------------------------------------------------------------
+# LNG Terminal nodes (electrical cluster, terminal → generators)
+# ---------------------------------------------------------------------------
+
+_LNG_PLANNING = {
+    "system": {
+        "name": "lng_test",
+        "bus_array": [{"uid": 1, "name": "B1"}],
+        "generator_array": [
+            {"uid": 1, "name": "Gen_gas1", "bus": 1, "pmax": 200, "type": "gas"},
+            {"uid": 2, "name": "Gen_gas2", "bus": 1, "pmax": 100, "type": "gas"},
+        ],
+        "lng_terminal_array": [
+            {
+                "uid": 1,
+                "name": "LNG_A",
+                "emax": 50000,
+                "sendout_max": 5000,
+                "generators": [
+                    {"generator": 1, "heat_rate": 0.25},
+                    {"generator": 2, "heat_rate": 0.30},
+                ],
+            }
+        ],
+    }
+}
+
+
+class TestLngTerminalDiagram:
+    """Verify LNG Terminal nodes and edges are rendered correctly."""
+
+    def _build(self, planning=None, subsystem="full", compact=False):
+        fo = gd.FilterOptions(aggregate="none", compact=compact)
+        builder = gd.TopologyBuilder(
+            planning or _LNG_PLANNING, subsystem=subsystem, opts=fo
+        )
+        return builder.build()
+
+    def _edge_pairs(self, model):
+        return {(e.src, e.dst) for e in model.edges}
+
+    def test_lng_terminal_node_created(self):
+        """lng_terminal_array entries must produce nodes of kind 'lng_terminal'."""
+        model = self._build()
+        lng_nodes = [n for n in model.nodes if n.kind == "lng_terminal"]
+        assert len(lng_nodes) == 1
+
+    def test_lng_terminal_node_id(self):
+        """LNG terminal nodes must use the 'lng_' prefix."""
+        model = self._build()
+        node_ids = {n.node_id for n in model.nodes}
+        assert "lng_LNG_A_1" in node_ids
+
+    def test_lng_terminal_generator_edges(self):
+        """LNG terminal must have edges to each linked generator."""
+        model = self._build()
+        pairs = self._edge_pairs(model)
+        assert ("lng_LNG_A_1", "gen_Gen_gas1_1") in pairs
+        assert ("lng_LNG_A_1", "gen_Gen_gas2_2") in pairs
+
+    def test_lng_terminal_edges_are_dotted(self):
+        """LNG terminal → generator edges must be dotted."""
+        model = self._build()
+        lng_edges = [e for e in model.edges if e.src == "lng_LNG_A_1"]
+        assert lng_edges
+        assert all(e.style == "dotted" for e in lng_edges)
+
+    def test_lng_terminal_edge_label_contains_fuel(self):
+        """Non-compact: edge label must contain 'fuel'."""
+        model = self._build()
+        lng_edges = [e for e in model.edges if e.src == "lng_LNG_A_1"]
+        assert lng_edges
+        assert all("fuel" in e.label for e in lng_edges)
+
+    def test_lng_terminal_edge_label_contains_heat_rate(self):
+        """Non-compact: edge label must contain the heat rate value."""
+        model = self._build()
+        lng_edges = [e for e in model.edges if e.src == "lng_LNG_A_1"]
+        assert lng_edges
+        labels = " ".join(e.label for e in lng_edges)
+        assert "0.25" in labels or "0.30" in labels
+
+    def test_lng_terminal_compact_label(self):
+        """Compact mode: LNG terminal label must be just the name."""
+        model = self._build(compact=True)
+        lng = next(n for n in model.nodes if n.node_id == "lng_LNG_A_1")
+        assert "[LNG]" not in lng.label
+
+    def test_lng_terminal_compact_edge_empty_label(self):
+        """Compact mode: LNG terminal → generator edge label must be empty."""
+        model = self._build(compact=True)
+        lng_edges = [e for e in model.edges if e.src == "lng_LNG_A_1"]
+        assert lng_edges
+        assert all(e.label == "" for e in lng_edges)
+
+    def test_lng_terminal_label_contains_emax(self):
+        """Non-compact: LNG terminal label must include the emax volume."""
+        model = self._build()
+        lng = next(n for n in model.nodes if n.node_id == "lng_LNG_A_1")
+        assert "50000" in lng.label or "m³" in lng.label
+
+    def test_lng_terminal_label_contains_sendout(self):
+        """Non-compact: LNG terminal label must include sendout_max."""
+        model = self._build()
+        lng = next(n for n in model.nodes if n.node_id == "lng_LNG_A_1")
+        assert "5000" in lng.label
+
+    def test_lng_terminal_cluster_is_electrical(self):
+        """LNG terminal nodes must belong to the electrical cluster."""
+        model = self._build()
+        lng = next(n for n in model.nodes if n.node_id == "lng_LNG_A_1")
+        assert lng.cluster == "electrical"
+
+    def test_lng_terminal_in_electrical_subsystem(self):
+        """LNG terminals must appear when subsystem='electrical'."""
+        model = self._build(subsystem="electrical")
+        lng_nodes = [n for n in model.nodes if n.kind == "lng_terminal"]
+        assert len(lng_nodes) == 1
+
+    def test_lng_terminal_not_in_hydro_only(self):
+        """LNG terminals must NOT appear when subsystem='hydro'."""
+        model = self._build(subsystem="hydro")
+        lng_nodes = [n for n in model.nodes if n.kind == "lng_terminal"]
+        assert not lng_nodes
+
+    def test_lng_terminal_no_generators_no_edges(self):
+        """LNG terminal with no generators list must produce a node with no edges."""
+        planning = {
+            "system": {
+                "name": "lng_empty",
+                "lng_terminal_array": [{"uid": 1, "name": "LNG_empty", "emax": 1000}],
+            }
+        }
+        fo = gd.FilterOptions(aggregate="none")
+        builder = gd.TopologyBuilder(planning, subsystem="electrical", opts=fo)
+        model = builder.build()
+        lng_nodes = [n for n in model.nodes if n.kind == "lng_terminal"]
+        assert len(lng_nodes) == 1
+        lng_edges = [e for e in model.edges if "lng_LNG_empty_1" in (e.src, e.dst)]
+        assert not lng_edges
+
+    def test_count_elements_includes_lng_terminals(self):
+        """_count_elements must count lng_terminal_array entries."""
+        fo = gd.FilterOptions(aggregate="none")
+        builder = gd.TopologyBuilder(_LNG_PLANNING, opts=fo)
+        count = builder._count_elements()  # noqa: SLF001
+        # At least: 1 bus + 2 generators + 1 LNG terminal = 4
+        assert count >= 4
+
+    def test_no_dangling_edges(self):
+        """All edges in the LNG terminal diagram must reference existing nodes."""
+        model = self._build()
+        _assert_no_dangling_edges(model)
+
+    def test_no_duplicate_node_ids(self):
+        """All node IDs in the LNG terminal diagram must be unique."""
+        model = self._build()
+        _assert_no_duplicate_node_ids(model)

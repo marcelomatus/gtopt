@@ -13,8 +13,10 @@ Diagram types (--diagram-type)
 
 Subsystems for topology diagrams (--subsystem)
 -----------------------------------------------
-``electrical`` — Buses, generators, demands, lines, batteries, converters.
-``hydro``      — Junctions, waterways, reservoirs, turbines, flows, seepages.
+``electrical`` — Buses, generators, demands, lines, batteries, converters,
+                 LNG terminals.
+``hydro``      — Junctions, waterways, reservoirs, turbines, flows, seepages,
+                 pumps, volume rights, flow rights.
 ``full``       — Both subsystems together (default).
 
 Output formats (--format)
@@ -349,6 +351,14 @@ class TopologyBuilder:
     def _frid(fr):
         return TopologyBuilder._make_id("fright", fr)
 
+    @staticmethod
+    def _pid(p):
+        return TopologyBuilder._make_id("pump", p)
+
+    @staticmethod
+    def _lngid(lt):
+        return TopologyBuilder._make_id("lng", lt)
+
     def _resolve_field(
         self, class_name: str, elem: dict, field: str, fallback: str = "—"
     ) -> str:
@@ -414,6 +424,8 @@ class TopologyBuilder:
                 "reservoir_production_factor_array",
                 "volume_right_array",
                 "flow_right_array",
+                "pump_array",
+                "lng_terminal_array",
             )
         )
 
@@ -486,6 +498,7 @@ class TopologyBuilder:
                     "reservoir_discharge_limit_array",
                     "volume_right_array",
                     "flow_right_array",
+                    "pump_array",
                 )
             )
             if not has_hydro:
@@ -505,6 +518,7 @@ class TopologyBuilder:
             self._converters()
             self._generator_profiles()
             self._demand_profiles()
+            self._lng_terminals()
         if s in ("full", "hydro"):
             self._junctions()
             self._waterways()
@@ -512,6 +526,7 @@ class TopologyBuilder:
             self._turbines()
             self._flows()
             self._seepages()
+            self._pumps()
             self._volume_rights()
             self._flow_rights()
             self._reservoir_efficiencies()
@@ -1265,6 +1280,8 @@ class TopologyBuilder:
         accounting entity tracking water volume entitlements.  Displayed as a
         separate node with a dotted edge to the referenced reservoir, and an
         optional dotted edge to a parent VolumeRight (right_reservoir).
+        When a ``bound_rule`` is present, an additional dashed edge from the
+        bound reservoir to this right node shows the volume-dependent bound.
         """
         for vr in self.sys.get("volume_right_array", []):
             name = _elem_name(vr)
@@ -1327,6 +1344,29 @@ class TopologyBuilder:
                         weight=0.3,
                     )
                 )
+            # Edge from bound_rule reservoir (volume-dependent bound)
+            bound_rule = vr.get("bound_rule")
+            if isinstance(bound_rule, dict):
+                br_res_ref = bound_rule.get("reservoir")
+                if br_res_ref is not None:
+                    br_res_id = self._find_node_id(
+                        "reservoir_array", br_res_ref, self._rid
+                    )
+                    # Only draw the bound edge when the bound reservoir is
+                    # different from the primary source reservoir to avoid a
+                    # self-loop.
+                    if br_res_id and br_res_id != res_id:
+                        self.model.add_edge(
+                            Edge(
+                                br_res_id,
+                                vrid,
+                                label="" if self.opts.compact else "bound",
+                                style="dashed",
+                                color=_PALETTE["right_bound_edge"],
+                                directed=True,
+                                weight=0.3,
+                            )
+                        )
 
     def _flow_rights(self):
         """Draw FlowRight nodes attached to their reference junction.
@@ -1334,7 +1374,9 @@ class TopologyBuilder:
         Each FlowRight is NOT part of the hydrological topology; it is an
         accounting entity tracking flow (m³/s) entitlements at a junction.
         Displayed as a separate node with a dotted edge to the referenced
-        junction.
+        junction.  When a ``bound_rule`` is present, an additional dashed
+        edge from the bound reservoir to this right node shows the
+        volume-dependent flow bound.
         """
         for fr in self.sys.get("flow_right_array", []):
             name = _elem_name(fr)
@@ -1379,6 +1421,29 @@ class TopologyBuilder:
                         weight=0.3,
                     )
                 )
+            # Edge from bound_rule reservoir (volume-dependent flow bound)
+            # Note: FlowRight has a junction reference, not a reservoir, so
+            # there is no "same resource" check needed here.  Any bound_rule
+            # reservoir is always a distinct relationship.
+            bound_rule = fr.get("bound_rule")
+            if isinstance(bound_rule, dict):
+                br_res_ref = bound_rule.get("reservoir")
+                if br_res_ref is not None:
+                    br_res_id = self._find_node_id(
+                        "reservoir_array", br_res_ref, self._rid
+                    )
+                    if br_res_id:
+                        self.model.add_edge(
+                            Edge(
+                                br_res_id,
+                                frid,
+                                label="" if self.opts.compact else "bound",
+                                style="dashed",
+                                color=_PALETTE["right_bound_edge"],
+                                directed=True,
+                                weight=0.3,
+                            )
+                        )
 
     def _reservoir_efficiencies(self):
         """Draw turbine-reservoir efficiency relationships.
@@ -1404,6 +1469,155 @@ class TopologyBuilder:
                         color=_PALETTE["efficiency_edge"],
                     )
                 )
+
+    def _pumps(self):
+        """Draw Pump nodes in the hydro cluster.
+
+        A Pump draws electrical power from a Demand and pushes water through
+        a Waterway (from junction_a upstream to junction_b).  Edges:
+
+        * ``demand → pump`` (dashed, labeled "power in" — electrical coupling)
+        * ``junction_a → pump`` (waterway inlet, labeled with waterway name)
+        * ``pump → junction_b`` (waterway outlet)
+
+        When the pump's waterway is not in ``turbine_waterway_refs`` (i.e.
+        no turbine already drew the arc), the direct junctions are connected
+        through the pump node.
+        """
+        for p in self.sys.get("pump_array", []):
+            name = _elem_name(p)
+            pid = self._pid(p)
+            cap = self._resolve_field("Pump", p, "capacity", fallback=None)
+            if cap is None:
+                cap = self._resolve_field("Pump", p, "pmax", fallback="—")
+            lbl = str(name) if self.opts.compact else f"[Pump] {name}\n{cap} MW"
+            self.model.add_node(
+                Node(
+                    node_id=pid,
+                    label=lbl,
+                    kind="pump",
+                    cluster="hydro",
+                    tooltip=f"Pump uid={p.get('uid')} capacity={cap}",
+                    size=22.0,
+                )
+            )
+            # Electrical demand → pump (power consumption)
+            dem_id = self._find_node_id("demand_array", p.get("demand"), self._did)
+            if dem_id:
+                self.model.add_edge(
+                    Edge(
+                        dem_id,
+                        pid,
+                        label="" if self.opts.compact else "power in",
+                        style="dashed",
+                        color=_PALETTE["pump_edge"],
+                        directed=True,
+                        weight=0.5,
+                    )
+                )
+            # Waterway junctions: junction_a → pump → junction_b
+            way_ref = p.get("waterway")
+            if way_ref is not None:
+                way = _resolve(self.sys.get("waterway_array", []), way_ref)
+                if way:
+                    way_name = _elem_name(way)
+                    ja = self._find_node_id(
+                        "junction_array", way.get("junction_a"), self._jid
+                    )
+                    jb = self._find_node_id(
+                        "junction_array", way.get("junction_b"), self._jid
+                    )
+                    if ja:
+                        self.model.add_edge(
+                            Edge(
+                                ja,
+                                pid,
+                                label="" if self.opts.compact else str(way_name),
+                                color=_PALETTE["waterway_edge"],
+                                directed=True,
+                                weight=1.0,
+                            )
+                        )
+                    if jb:
+                        self.model.add_edge(
+                            Edge(
+                                pid,
+                                jb,
+                                color=_PALETTE["waterway_edge"],
+                                directed=True,
+                                weight=1.0,
+                            )
+                        )
+
+    def _lng_terminals(self):
+        """Draw LNG Terminal nodes in the electrical cluster.
+
+        An LNG terminal stores Liquefied Natural Gas and feeds thermal
+        generators via heat-rate coupling.  Edges:
+
+        * ``lng_terminal → generator``  (dotted, labeled "fuel" — per linked generator)
+
+        Tank capacity (``emax``) is shown in the label.
+        """
+        for lt in self.sys.get("lng_terminal_array", []):
+            name = _elem_name(lt)
+            ltid = self._lngid(lt)
+            emax = self._resolve_field("LngTerminal", lt, "emax", fallback=None)
+            if emax is None:
+                emax = "—"
+            sendout = self._resolve_field(
+                "LngTerminal", lt, "sendout_max", fallback=None
+            )
+            if self.opts.compact:
+                lbl = str(name)
+            else:
+                parts = [f"[LNG] {name}"]
+                if emax != "—":
+                    parts.append(f"{emax} m\u00b3")
+                if sendout is not None:
+                    parts.append(f"Q_max={sendout} m\u00b3/h")
+                lbl = "\n".join(parts)
+            self.model.add_node(
+                Node(
+                    node_id=ltid,
+                    label=lbl,
+                    kind="lng_terminal",
+                    cluster="electrical",
+                    tooltip=(
+                        f"LngTerminal uid={lt.get('uid')} name={lt.get('name')}"
+                        f" emax={emax}"
+                    ),
+                    size=26.0,
+                )
+            )
+            # Edges to linked generators (heat-rate coupling)
+            for link in lt.get("generators", []):
+                gen_ref = link.get("generator")
+                heat_rate = link.get("heat_rate")
+                if gen_ref is None:
+                    continue
+                gen_id = self._find_node_id("generator_array", gen_ref, self._gid)
+                if gen_id:
+                    hr_lbl = (
+                        ""
+                        if self.opts.compact
+                        else (
+                            f"fuel\n{heat_rate} m\u00b3/MWh"
+                            if heat_rate is not None
+                            else "fuel"
+                        )
+                    )
+                    self.model.add_edge(
+                        Edge(
+                            ltid,
+                            gen_id,
+                            label=hr_lbl,
+                            style="dotted",
+                            color=_PALETTE["lng_edge"],
+                            directed=True,
+                            weight=0.5,
+                        )
+                    )
 
     def _reserve_zones(self):
         """Draw reserve zone nodes as dotted-outline clusters."""
