@@ -192,7 +192,7 @@ scenarios, stages, and blocks.
 | $\alpha_o$ | `flow_conversion_rate` | Flow-to-volume conversion (= $0.0036$) | hm³/((m³/s)·h) |
 | $\rho_\tau$ | `fcr` (LNG) | Flow conversion rate (tank volume) | — |
 | $\lambda_\tau$ | `annual_loss` (LNG) | Boil-off rate | 1/year |
-| $\eta_g^{hr}$ | `heat_rate` (LNG link) | Generator fuel-burn rate (m³ LNG / MWh) | m³/MWh |
+| $\eta_g^{hr}$ | `heat_rate` (LNG link) | Fuel consumption per MWh (m³\_LNG/MWh); note: symbol uses η for historical reasons but this is a consumption rate, not efficiency | m³/MWh |
 | $\text{SU}_g$ | `startup_cost` | Startup cost | \$ |
 | $\text{SD}_g$ | `shutdown_cost` | Shutdown cost | \$ |
 | $\text{NL}_g$ | `noload_cost` | No-load cost (paid while $u=1$) | \$/h |
@@ -2368,6 +2368,8 @@ mathematical symbols used in this formulation.
 | `options.use_line_losses` | — | Enable line losses |
 | `options.demand_fail_cost` | $c^{\text{fail}}_d$ | Curtailment penalty |
 | `options.reserve_fail_cost` | $c^{\text{rfail}}$ | Reserve penalty |
+| `options.model_options.emission_cost` | $c^{\text{em}}$ | CO₂ emission price (\$/tCO₂); adds $c^{\text{em}} \times f_g$ to each generator's cost |
+| `options.model_options.emission_cap` | — | Per-stage CO₂ emission cap (tCO₂/year); dual = endogenous carbon price |
 | `options.method` | — | Solver: `"monolithic"` or `"sddp"` |
 | `options.variable_scales` | $\sigma_x$ | Per-variable scale factors (Section 6.3) |
 | `simulation.boundary_cuts_file` | — | CSV with boundary cuts for last phase (Section 6.9) |
@@ -2398,6 +2400,7 @@ mathematical symbols used in this formulation.
 | `generator_array[].pmax` | $\overline{P}_g$ | Max output (MW) |
 | `generator_array[].capacity` | $\bar{C}_g^0$ | Installed capacity (MW) |
 | `generator_array[].lossfactor` | $\lambda_g$ | Injection loss |
+| `generator_array[].emission_factor` | $f_g$ | CO₂ emission intensity (tCO₂/MWh) |
 | `generator_array[].expcap` | $M_g$ | MW per module |
 | `generator_array[].expmod` | $\overline{m}_g$ | Max modules |
 | `generator_array[].annual_capcost` | $K_g^{\text{cap}}$ | \$/year per module |
@@ -2476,6 +2479,90 @@ mathematical symbols used in this formulation.
 | `reservoir_seepage_array[].segments[].volume` | $V_k$ | Volume breakpoint (hm³) |
 | `reservoir_seepage_array[].segments[].slope` | $b_k$ | Seepage slope at breakpoint |
 | `reservoir_seepage_array[].segments[].constant` | $c_k$ | Seepage rate at breakpoint |
+
+### Hydro Pump
+
+| JSON Path | Symbol | Description |
+|-----------|--------|-------------|
+| `pump_array[].waterway` | — | FK to the pumping waterway |
+| `pump_array[].demand` | — | FK to the electrical demand (pump motor load) |
+| `pump_array[].pump_factor` | $\phi_h$ | Power consumed per unit flow (MW/(m³/s)) |
+| `pump_array[].efficiency` | $\eta_h$ | Pump efficiency (p.u., default 1.0) |
+| `pump_array[].capacity` | $\overline{Q}_h$ | Maximum pump flow (m³/s) |
+| `pump_array[].main_reservoir` | — | Reservoir whose volume drives variable pump factor (SDDP) |
+
+### LNG Terminal
+
+| JSON Path | Symbol | Description |
+|-----------|--------|-------------|
+| `lng_terminal_array[].emin` | $\underline{V}_\tau$ | Minimum tank volume (m³) |
+| `lng_terminal_array[].emax` | $\overline{V}_\tau$ | Maximum tank volume (m³) |
+| `lng_terminal_array[].eini` | $e_\tau^0$ | Initial tank volume (m³) |
+| `lng_terminal_array[].efin` | $e_\tau^{\text{fin}}$ | Target final tank volume (m³) |
+| `lng_terminal_array[].ecost` | — | Holding cost per m³ stored (\$/m³) |
+| `lng_terminal_array[].annual_loss` | $\lambda_\tau$ | Annual boil-off rate (p.u./year) |
+| `lng_terminal_array[].delivery` | $D_{\tau,t}$ | Scheduled LNG arrival volume per stage (m³) |
+| `lng_terminal_array[].sendout_max` | — | Max regasification rate (m³/h) |
+| `lng_terminal_array[].sendout_min` | — | Min regasification rate (m³/h) |
+| `lng_terminal_array[].spillway_cost` | — | Penalty for venting LNG (\$/m³) |
+| `lng_terminal_array[].spillway_capacity` | — | Maximum venting rate (m³/h) |
+| `lng_terminal_array[].flow_conversion_rate` | $\rho_\tau$ | Unit-conversion factor m³/(m³/h·h) (default 1.0) |
+| `lng_terminal_array[].mean_production_factor` | — | Energy content of LNG (MWh/m³, for SDDP state valuation) |
+| `lng_terminal_array[].soft_emin` | — | Soft minimum tank volume (m³, penalised) |
+| `lng_terminal_array[].soft_emin_cost` | — | Penalty for crossing `soft_emin` (\$/m³) |
+| `lng_terminal_array[].generators[].generator` | — | FK to the consuming generator |
+| `lng_terminal_array[].generators[].heat_rate` | $\eta_g^{hr}$ | Fuel consumption per MWh (m³\_LNG/MWh, default 1.0) |
+
+### Unit Commitment
+
+| JSON Path | Symbol | Description |
+|-----------|--------|-------------|
+| `commitment_array[].generator` | — | FK to the committed generator |
+| `commitment_array[].startup_cost` | $\text{SU}_g$ | Startup cost (\$/start) |
+| `commitment_array[].shutdown_cost` | $\text{SD}_g$ | Shutdown cost (\$/stop) |
+| `commitment_array[].noload_cost` | $\text{NL}_g$ | No-load cost while committed (\$/hr) |
+| `commitment_array[].min_up_time` | $T_g^{\text{up}}$ | Minimum up time (hours) |
+| `commitment_array[].min_down_time` | $T_g^{\text{dn}}$ | Minimum down time (hours) |
+| `commitment_array[].ramp_up` | — | Ramp-up limit while online (MW/hr) |
+| `commitment_array[].ramp_down` | — | Ramp-down limit while online (MW/hr) |
+| `commitment_array[].startup_ramp` | — | Max output in startup block (MW) |
+| `commitment_array[].shutdown_ramp` | — | Max output in shutdown block (MW) |
+| `commitment_array[].initial_status` | $u_g^{\text{init}}$ | Initial on/off state (1 = online) |
+| `commitment_array[].initial_hours` | — | Hours in current state at t=0 |
+| `commitment_array[].relax` | — | LP relaxation: binary → continuous in [0,1] |
+| `commitment_array[].must_run` | — | Force committed: $u = 1$ always |
+| `commitment_array[].commitment_period` | — | Binary variable resolution (hours) |
+| `commitment_array[].pmax_segments` | $\overline{P}_{g,k}$ | Piecewise heat-rate power breakpoints (MW) |
+| `commitment_array[].heat_rate_segments` | $h_{g,k}$ | Heat rate per segment (GJ/MWh) |
+| `commitment_array[].fuel_cost` | — | Fuel cost (\$/GJ) |
+| `commitment_array[].fuel_emission_factor` | — | Emission factor for piecewise fuel (tCO₂/GJ) |
+| `commitment_array[].hot_start_cost` | — | Startup cost when recently offline (\$/start) |
+| `commitment_array[].warm_start_cost` | — | Startup cost at medium offline (\$/start) |
+| `commitment_array[].cold_start_cost` | — | Startup cost when long offline (\$/start) |
+| `commitment_array[].hot_start_time` | — | Max offline hours for hot start (h) |
+| `commitment_array[].cold_start_time` | — | Min offline hours for cold start (h) |
+| `simple_commitment_array[].uid` | — | Unique identifier |
+| `simple_commitment_array[].name` | — | Human-readable name |
+| `simple_commitment_array[].active` | — | Activation schedule (bool\|array\|string) |
+| `simple_commitment_array[].generator` | — | FK to the committed generator |
+| `simple_commitment_array[].dispatch_pmin` | $\underline{P}_g^d$ | Dispatch minimum when committed (MW) |
+| `simple_commitment_array[].relax` | — | LP relaxation: binary → continuous |
+| `simple_commitment_array[].must_run` | — | Force committed: $u = 1$ always |
+| `stage_array[].chronological` | — | `true` when blocks are hourly-consecutive (enables UC) |
+
+### Inertia Zone and Provision
+
+| JSON Path | Symbol | Description |
+|-----------|--------|-------------|
+| `inertia_zone_array[].requirement` | $\overline{R}_{z,t,b}^{H}$ | Min inertia requirement (MWs) |
+| `inertia_zone_array[].cost` | — | Shortage penalty (\$/MWs) |
+| `inertia_provision_array[].generator` | — | FK to the providing generator |
+| `inertia_provision_array[].inertia_zones` | — | Colon-separated list of InertiaZone IDs/names |
+| `inertia_provision_array[].inertia_constant` | $H_p$ | Machine inertia constant (seconds) |
+| `inertia_provision_array[].rated_power` | $S_p$ | Rated apparent power (MVA) |
+| `inertia_provision_array[].provision_max` | $\overline{R}_{p,t,b}^{H}$ | Max inertia provision (MW) |
+| `inertia_provision_array[].provision_factor` | $\Phi_{p,t}$ | Effectiveness factor (MWs/MW) |
+| `inertia_provision_array[].cost` | — | Provision cost (\$/MW) |
 
 ---
 
@@ -2709,20 +2796,30 @@ DOI: [10.1109/JSYST.2018.2871793](https://doi.org/10.1109/JSYST.2018.2871793).
 ## Appendix A: LP Problem Size Estimates
 
 For a system with $N$ buses, $G$ generators, $D$ demands, $L$ lines,
-$E$ batteries, and $B$ blocks per stage over $T$ stages and $S$ scenarios:
+$E$ batteries, $P$ pumps, $\tau$ LNG terminals, $Z^R$ reserve zones,
+$Z^H$ inertia zones, and $B$ blocks per stage over $T$ stages and $S$ scenarios:
 
 | Quantity | Approximate count |
 |----------|------------------|
 | **Operational variables** | $(G + 2D + 2L + 3E + N) \times S \times T \times B$ |
+| **Pump variables** | $P \times S \times T \times B$ (pump flow) |
+| **LNG terminal variables** | $3\tau \times S \times T \times B$ (volume, delivery, vent) |
+| **Reserve variables** | $Z^R \times S \times T \times B$ (shortage slack) |
+| **Inertia variables** | $Z^H \times S \times T \times B$ (shortage slack) |
+| **UC variables** | $3 \times \lvert\mathcal{UC}\rvert \times S \times T \times B$ (u/v/w) |
 | **Investment variables** | $(G + D + L + E) \times T$ |
 | **Bus balance constraints** | $N \times S \times T \times B$ |
 | **Kirchhoff constraints** | $L \times S \times T \times B$ (if DC OPF) |
 | **SoC balance constraints** | $E \times S \times T \times B$ |
+| **LNG tank balance constraints** | $\tau \times S \times T \times B$ |
+| **Pump coupling constraints** | $P \times S \times T \times B$ |
+| **Reserve constraints** | $Z^R \times S \times T \times B$ |
+| **Inertia constraints** | $Z^H \times S \times T \times B$ |
 | **Capacity constraints** | $(G + D + L + E) \times T$ |
 
 The LP is assembled in compressed sparse column (CSC) format via the
-`FlatLinearProblem` class and passed to the COIN-OR solver (CBC/CLP)
-[[15]](#ref15).
+`FlatLinearProblem` class and passed to the configured solver backend
+(CBC/CLP/HiGHS/CPLEX) [[15]](#ref15).
 
 ---
 

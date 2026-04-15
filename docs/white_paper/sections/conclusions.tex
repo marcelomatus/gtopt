@@ -14,11 +14,15 @@ are as follows:
     as a sparse LP/MIP covering DC optimal power flow with Kirchhoff
     constraints, battery energy storage with state-of-charge tracking
     and self-discharge losses, hydro cascade systems with reservoirs,
-    turbines, filtration, and volume-dependent efficiency, a generic
-    water rights layer for irrigation agreement modeling with
-    volume-dependent dynamic bounds, spinning reserve requirements,
-    and multi-stage capacity expansion with annualized investment
-    costs.
+    turbines, hydraulic pumps, filtration, and volume-dependent
+    efficiency, LNG storage terminals with boil-off and generator
+    heat-rate coupling, unit commitment (3-bin formulation) with
+    piecewise heat rates and startup cost tiers,
+    CO\textsubscript{2} emission pricing and caps, synchronous
+    inertia requirements, a generic water rights layer for
+    irrigation agreement modeling with volume-dependent dynamic
+    bounds, spinning reserve requirements, and multi-stage capacity
+    expansion with annualized investment costs.
 
   \item \textbf{Three solution methods}: The monolithic LP provides
     exact solutions for moderate-size problems.  SDDP with
@@ -55,11 +59,14 @@ Planned enhancements include:
   \item \textbf{AC OPF support}: Extension of the formulation to include
     reactive power and voltage magnitude constraints via second-order
     cone programming (SOCP) relaxations.
-  \item \textbf{Unit commitment}: Addition of binary start-up/shut-down
-    decisions and minimum up/down time constraints for thermal generators.
-  \item \textbf{Multi-sector coupling}: Extension of the model to include
-    gas networks, district heating, and hydrogen production/storage for
-    integrated energy system planning.
+  \item \textbf{Multi-sector coupling}: Extension of the model to
+    co-optimize gas network routing, district heating, and hydrogen
+    production/storage for integrated multi-energy system planning.
+    The LNG terminal model provides a foundation for gas-sector coupling.
+  \item \textbf{Variable-head pump efficiency}: Piecewise-linear pump
+    factor curves that update with reservoir volume (analogous to the
+    existing turbine efficiency model) for more accurate pump-storage
+    modeling.
   \item \textbf{GPU-accelerated LP assembly}: Exploitation of GPU
     parallelism for sparse-matrix construction in very large-scale
     problems.
@@ -68,7 +75,7 @@ Planned enhancements include:
     reduction for stochastic programming.
   \item \textbf{Real-world case studies}: Application of \gtopt{} to
     national-scale expansion planning problems with detailed hydro
-    cascade modeling.
+    cascade modeling, unit commitment, and LNG supply chains.
 \end{itemize}
 
 The \gtopt{} tool is designed to support reproducible research in power
