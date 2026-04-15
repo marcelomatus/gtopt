@@ -246,3 +246,130 @@ TEST_CASE("GeneratorLP - generator with pmin/pmax constraints")
   auto result = lp.resolve();
   REQUIRE(result.has_value());
 }
+
+TEST_CASE("GeneratorLP — capainst primal col_sol expands to meet demand")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  // Deterministic LP where a cheap expandable generator must build capacity
+  // (capainst) to cover a 50 MW demand. The base `capacity = 5` of the cheap
+  // generator is insufficient; the alternative (`expensive_base`) has
+  // `gcost = 500`, so the LP prefers expanding the cheap unit paying a small
+  // `annual_capcost = 10`. Expected solution:
+  //   - capainst(cheap_expandable) = 45  (5 base + 45 expansion = 50)
+  //   - generation(cheap_expandable) = 50
+  //   - generation(expensive_base)   = 0
+  const Array<Bus> bus_array = {
+      {
+          .uid = Uid {1},
+          .name = "b1",
+      },
+  };
+
+  const Array<Generator> generator_array = {
+      {
+          .uid = Uid {1},
+          .name = "cheap_expandable",
+          .bus = Uid {1},
+          .gcost = 10.0,
+          .capacity = 5.0,
+          .expcap = 100.0,
+          .expmod = 1.0,
+          .annual_capcost = 10.0,
+      },
+      {
+          .uid = Uid {2},
+          .name = "expensive_base",
+          .bus = Uid {1},
+          .gcost = 500.0,
+          .capacity = 200.0,
+      },
+  };
+
+  const Array<Demand> demand_array = {
+      {
+          .uid = Uid {1},
+          .name = "d1",
+          .bus = Uid {1},
+          .capacity = 50.0,
+      },
+  };
+
+  const Simulation simulation = {
+      .block_array = {{
+          .uid = Uid {1},
+          .duration = 1,
+      }},
+      .stage_array = {{
+          .uid = Uid {1},
+          .first_block = 0,
+          .count_block = 1,
+      }},
+      .scenario_array = {{
+          .uid = Uid {0},
+      }},
+  };
+
+  const System system = {
+      .name = "GenCapainstExpansionTest",
+      .bus_array = bus_array,
+      .demand_array = demand_array,
+      .generator_array = generator_array,
+  };
+
+  PlanningOptions popts;
+  popts.model_options.demand_fail_cost = 1000.0;
+  const PlanningOptionsLP options(popts);
+  SimulationLP simulation_lp(simulation, options);
+  SystemLP system_lp(system, simulation_lp);
+
+  auto&& lp = system_lp.linear_interface();
+  CHECK(lp.get_numrows() > 0);
+  CHECK(lp.get_numcols() > 0);
+
+  auto result = lp.resolve();
+  REQUIRE(result.has_value());
+  CHECK(result.value() == 0);
+
+  const auto& gen_lps = system_lp.elements<GeneratorLP>();
+  REQUIRE(gen_lps.size() == 2);
+
+  const auto cheap_it = std::ranges::find_if(
+      gen_lps, [](const auto& g) { return g.uid() == Uid {1}; });
+  REQUIRE(cheap_it != gen_lps.end());
+  const auto& cheap_gen_lp = *cheap_it;
+
+  const auto exp_it = std::ranges::find_if(
+      gen_lps, [](const auto& g) { return g.uid() == Uid {2}; });
+  REQUIRE(exp_it != gen_lps.end());
+  const auto& exp_gen_lp = *exp_it;
+
+  const auto& scenario_lp = simulation_lp.scenarios().front();
+  const auto& stage_lp = simulation_lp.stages().front();
+  const auto& block_lp = simulation_lp.blocks().front();
+
+  const auto col_sol = lp.get_col_sol();
+
+  // capainst column for the cheap expandable generator.
+  // Row: -capainst + expcap*expmod = dcap (= 0 on first stage with
+  // prev=current capacity). With expcap=100, capainst = 100*expmod.
+  // LP picks the minimum expmod that satisfies generation ≤ capainst
+  // for the 50 MW dispatch: expmod = 0.5 → capainst = 50.
+  const auto cap_col = cheap_gen_lp.capacity_col_at(stage_lp);
+  REQUIRE(cap_col.has_value());
+  const auto cap_val = col_sol[*cap_col];
+  CHECK(cap_val == doctest::Approx(50.0).epsilon(1e-6));
+
+  // Cheap generator produces all 50 MW.
+  const auto& cheap_gcols =
+      cheap_gen_lp.generation_cols_at(scenario_lp, stage_lp);
+  const auto cheap_it_c = cheap_gcols.find(block_lp.uid());
+  REQUIRE(cheap_it_c != cheap_gcols.end());
+  CHECK(col_sol[cheap_it_c->second] == doctest::Approx(50.0).epsilon(1e-6));
+
+  // Expensive generator produces nothing.
+  const auto& exp_gcols = exp_gen_lp.generation_cols_at(scenario_lp, stage_lp);
+  const auto exp_it_c = exp_gcols.find(block_lp.uid());
+  REQUIRE(exp_it_c != exp_gcols.end());
+  CHECK(col_sol[exp_it_c->second] == doctest::Approx(0.0).epsilon(1e-6));
+}
