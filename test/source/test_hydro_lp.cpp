@@ -1354,3 +1354,185 @@ TEST_CASE("JunctionLP drain col primal absorbs flow surplus")  // NOLINT
   const auto drain_val = lp.get_col_sol()[drain_col];
   CHECK(drain_val == doctest::Approx(5.0).epsilon(1e-6));
 }
+
+/// Verify that the ReservoirLP storage-balance row dual reflects the
+/// marginal value of water when the reservoir is water-scarce.
+///
+/// Topology (hydro + thermal backup on a single bus):
+///   reservoir(eini small, no inflow) ─► ww1 ─► j_down(drain)
+///                 │
+///                 └── turbine(pf=1) ─► hydro_gen
+///   thermal_gen (gcost=50, capacity=1000) also feeds the bus.
+///   demand = 10 MW for a single 1-hour block.
+///
+/// The reservoir has so little water (eini = 0.01 hm³, no inflow) that
+/// only a fraction of the 10 MWh demand can be served by hydro; the
+/// thermal generator supplies the rest at the marginal cost of 50
+/// $/MWh.  At optimum, the last available unit of water saves one
+/// thermal MWh, so the storage-balance row dual is non-zero (the
+/// reservoir constraint is binding).  The exact value depends on the
+/// solver's sign convention and internal scaling; we only assert that
+/// the dual is numerically non-zero.
+TEST_CASE(  // NOLINT
+    "ReservoirLP — storage-balance row dual reflects water scarcity")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  const Array<Bus> bus_array = {
+      {
+          .uid = Uid {1},
+          .name = "b1",
+      },
+  };
+
+  // Two generators on the same bus: cheap hydro (gcost=0) fed by the
+  // turbine, and an expensive thermal backup that sets the marginal
+  // cost of energy at the bus.
+  const Array<Generator> generator_array = {
+      {
+          .uid = Uid {1},
+          .name = "hydro_gen",
+          .bus = Uid {1},
+          .gcost = 0.0,
+          .capacity = 1000.0,
+      },
+      {
+          .uid = Uid {2},
+          .name = "thermal_gen",
+          .bus = Uid {1},
+          .gcost = 50.0,
+          .capacity = 1000.0,
+      },
+  };
+
+  const Array<Demand> demand_array = {
+      {
+          .uid = Uid {1},
+          .name = "d1",
+          .bus = Uid {1},
+          .capacity = 10.0,
+      },
+  };
+
+  const Array<Junction> junction_array = {
+      {
+          .uid = Uid {1},
+          .name = "j_up",
+      },
+      {
+          .uid = Uid {2},
+          .name = "j_down",
+          .drain = true,
+      },
+  };
+
+  const Array<Waterway> waterway_array = {
+      {
+          .uid = Uid {1},
+          .name = "ww1",
+          .junction_a = Uid {1},
+          .junction_b = Uid {2},
+          .fmin = 0.0,
+          .fmax = 10000.0,
+      },
+  };
+
+  // Water-scarce reservoir: tiny initial volume, no natural inflow.
+  // eini = 0.01 hm³ ≈ 2.78 m³/s·h ≈ 2.78 MWh at production_factor = 1.
+  const Array<Reservoir> reservoir_array = {
+      {
+          .uid = Uid {1},
+          .name = "rsv1",
+          .junction = Uid {1},
+          .capacity = 100000.0,
+          .emin = 0.0,
+          .emax = 100000.0,
+          .eini = 0.01,
+      },
+  };
+
+  const Array<Turbine> turbine_array = {
+      {
+          .uid = Uid {1},
+          .name = "tur1",
+          .waterway = Uid {1},
+          .generator = Uid {1},
+          .production_factor = 1.0,
+      },
+  };
+
+  const Simulation simulation = {
+      .block_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .duration = 1,
+              },
+          },
+      .stage_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .first_block = 0,
+                  .count_block = 1,
+              },
+          },
+      .scenario_array =
+          {
+              {
+                  .uid = Uid {0},
+              },
+          },
+  };
+
+  const System system = {
+      .name = "ReservoirWaterValueTest",
+      .bus_array = bus_array,
+      .demand_array = demand_array,
+      .generator_array = generator_array,
+      .junction_array = junction_array,
+      .waterway_array = waterway_array,
+      .reservoir_array = reservoir_array,
+      .turbine_array = turbine_array,
+  };
+
+  PlanningOptions opts;
+  opts.demand_fail_cost = 1000.0;
+  const PlanningOptionsLP options {opts};
+  SimulationLP simulation_lp(simulation, options);
+  SystemLP system_lp(system, simulation_lp);
+
+  auto& lp = system_lp.linear_interface();
+  const auto result = lp.resolve();
+  REQUIRE(result.has_value());
+  CHECK(result.value() == 0);
+
+  // Locate the single ReservoirLP and look up the energy-balance row
+  // for (scenario, stage, first block).  This is the storage-balance
+  // row whose dual is the marginal value of stored water.
+  const auto& reservoir_lps = system_lp.elements<ReservoirLP>();
+  REQUIRE(reservoir_lps.size() == 1);
+  const auto& rsv_lp = reservoir_lps.front();
+
+  const auto& scenario_lp = simulation_lp.scenarios().front();
+  const auto& stage_lp = simulation_lp.stages().front();
+  const auto& block_lp = simulation_lp.blocks().front();
+
+  const auto& erows = rsv_lp.energy_rows_at(scenario_lp, stage_lp);
+  const auto it_r = erows.find(block_lp.uid());
+  REQUIRE(it_r != erows.end());
+  const auto energy_row = it_r->second;
+
+  lp.ensure_duals();
+  const auto row_duals = lp.get_row_dual_raw();
+  REQUIRE(row_duals.size() == static_cast<std::size_t>(lp.get_numrows()));
+
+  const auto water_dual = row_duals[energy_row];
+
+  // Water is scarce and the reservoir balance row is binding at optimum,
+  // so its dual (the "water value") must be numerically non-zero.  The
+  // sign and exact magnitude depend on solver conventions and internal
+  // row equilibration / objective scaling, so we only assert that the
+  // dual is clearly non-zero.
+  CHECK(std::abs(water_dual) > 1e-3);
+}

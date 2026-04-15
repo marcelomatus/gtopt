@@ -1,3 +1,5 @@
+#include <cmath>
+
 #include <doctest/doctest.h>
 #include <gtopt/generator.hpp>
 #include <gtopt/linear_interface.hpp>
@@ -372,4 +374,143 @@ TEST_CASE("GeneratorLP — capainst primal col_sol expands to meet demand")
   const auto exp_it_c = exp_gcols.find(block_lp.uid());
   REQUIRE(exp_it_c != exp_gcols.end());
   CHECK(col_sol[exp_it_c->second] == doctest::Approx(0.0).epsilon(1e-6));
+}
+
+TEST_CASE("GeneratorLP — capacity row dual equals marginal cost minus gcost")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  // Deterministic LP where a cheap generator at its capacity limit sets the
+  // marginal rent on its capacity constraint. With demand > cheap capacity,
+  // the expensive generator is marginal, so the bus marginal price is 100
+  // $/MWh. The cheap generator's capacity row (generation ≤ capacity)
+  // binds, and its dual equals the marginal price minus the cheap gcost:
+  //   dual(cheap.capacity) = 100 − 10 = 90.
+  //
+  // Dispatch: cheap = 30 (at cap), expensive = 20 → total = 50 MW.
+  const Array<Bus> bus_array = {
+      {
+          .uid = Uid {1},
+          .name = "b1",
+      },
+  };
+
+  // The capacity row (generation ≤ capainst) is only created when the
+  // generator has an expansion column. Enable expansion on cheap_gen with a
+  // prohibitively expensive `annual_capcost` so the LP leaves capainst at
+  // its base value of 30 MW — the capacity row then binds and carries the
+  // rent (100 − 10 = 90). The expensive generator keeps a large static
+  // capacity so the LP is feasible without its own capacity row.
+  const Array<Generator> generator_array = {
+      {
+          .uid = Uid {1},
+          .name = "cheap_gen",
+          .bus = Uid {1},
+          .gcost = 10.0,
+          .capacity = 30.0,
+          .expcap = 100.0,
+          .expmod = 1.0,
+          .capmax = 1000.0,
+          .annual_capcost = 1.0e7,
+      },
+      {
+          .uid = Uid {2},
+          .name = "expensive_gen",
+          .bus = Uid {1},
+          .gcost = 100.0,
+          .capacity = 1000.0,
+      },
+  };
+
+  const Array<Demand> demand_array = {
+      {
+          .uid = Uid {1},
+          .name = "d1",
+          .bus = Uid {1},
+          .capacity = 50.0,
+      },
+  };
+
+  const Simulation simulation = {
+      .block_array = {{
+          .uid = Uid {1},
+          .duration = 1,
+      }},
+      .stage_array = {{
+          .uid = Uid {1},
+          .first_block = 0,
+          .count_block = 1,
+      }},
+      .scenario_array = {{
+          .uid = Uid {0},
+      }},
+  };
+
+  const System system = {
+      .name = "GenCapacityRowDualTest",
+      .bus_array = bus_array,
+      .demand_array = demand_array,
+      .generator_array = generator_array,
+  };
+
+  PlanningOptions popts;
+  popts.model_options.demand_fail_cost = 1000.0;
+  const PlanningOptionsLP options(popts);
+  SimulationLP simulation_lp(simulation, options);
+  SystemLP system_lp(system, simulation_lp);
+
+  auto&& lp = system_lp.linear_interface();
+  auto result = lp.resolve();
+  REQUIRE(result.has_value());
+  CHECK(result.value() == 0);
+
+  // Trigger lazy crossover if barrier was used without crossover — a no-op
+  // for the default simplex solve.
+  lp.ensure_duals();
+
+  const auto& gen_lps = system_lp.elements<GeneratorLP>();
+  REQUIRE(gen_lps.size() == 2);
+
+  const auto cheap_it = std::ranges::find_if(
+      gen_lps, [](const auto& g) { return g.uid() == Uid {1}; });
+  REQUIRE(cheap_it != gen_lps.end());
+  const auto& cheap_gen_lp = *cheap_it;
+
+  const auto exp_it = std::ranges::find_if(
+      gen_lps, [](const auto& g) { return g.uid() == Uid {2}; });
+  REQUIRE(exp_it != gen_lps.end());
+  const auto& exp_gen_lp = *exp_it;
+
+  const auto& scenario_lp = simulation_lp.scenarios().front();
+  const auto& stage_lp = simulation_lp.stages().front();
+  const auto& block_lp = simulation_lp.blocks().front();
+
+  // Primal sanity checks: cheap hits its 30 MW cap, expensive covers the
+  // remaining 20 MW.
+  const auto col_sol = lp.get_col_sol();
+  const auto& cheap_gcols =
+      cheap_gen_lp.generation_cols_at(scenario_lp, stage_lp);
+  const auto cheap_gcol_it = cheap_gcols.find(block_lp.uid());
+  REQUIRE(cheap_gcol_it != cheap_gcols.end());
+  CHECK(col_sol[cheap_gcol_it->second] == doctest::Approx(30.0).epsilon(1e-5));
+
+  const auto& exp_gcols = exp_gen_lp.generation_cols_at(scenario_lp, stage_lp);
+  const auto exp_gcol_it = exp_gcols.find(block_lp.uid());
+  REQUIRE(exp_gcol_it != exp_gcols.end());
+  CHECK(col_sol[exp_gcol_it->second] == doctest::Approx(20.0).epsilon(1e-5));
+
+  // Capacity row for the cheap generator at this (scenario, stage, block).
+  // Row: capacity_col − generation_col ≥ 0 (i.e., generation ≤ capacity).
+  // Since cheap is binding and expensive is marginal at gcost=100, the
+  // shadow price (row dual) on the cheap capacity row equals the rent on
+  // capacity: 100 − 10 = 90. Sign convention of `get_row_dual()` for a
+  // `≥` constraint yields a non-negative value here.
+  const auto& cheap_crows =
+      cheap_gen_lp.capacity_rows_at(scenario_lp, stage_lp);
+  const auto cheap_crow_it = cheap_crows.find(block_lp.uid());
+  REQUIRE(cheap_crow_it != cheap_crows.end());
+
+  const auto& row_dual = lp.get_row_dual();
+  const auto dual_val = row_dual[cheap_crow_it->second];
+  CHECK(std::abs(dual_val) == doctest::Approx(90.0).epsilon(1e-5));
 }
