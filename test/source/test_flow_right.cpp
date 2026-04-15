@@ -448,9 +448,11 @@ TEST_CASE(  // NOLINT
   }
 
   // No fail_cost set - no deficit variable.
+  // boost::container::flat_map::at() throws boost::container::out_of_range
+  // (not std::out_of_range) unless BOOST_CONTAINER_USE_STD_EXCEPTIONS is set.
   CHECK_THROWS_AS(  //
       (void)fr_lp.fail_cols_at(scenarios[0], stages[0]),
-      std::out_of_range);
+      std::exception);
 }
 
 // ── 2.3 Both unset → [0, 0] (asymmetric default vs VolumeRight) ──────────
@@ -704,9 +706,11 @@ TEST_CASE(  // NOLINT
   const auto& scenarios = system_lp.scene().scenarios();
   const auto& stages = system_lp.phase().stages();
 
+  // boost::container::flat_map::at() throws boost::container::out_of_range
+  // (not std::out_of_range) unless BOOST_CONTAINER_USE_STD_EXCEPTIONS is set.
   CHECK_THROWS_AS(  //
       (void)fr_lp.fail_cols_at(scenarios[0], stages[0]),
-      std::out_of_range);
+      std::exception);
 
   // Without a deficit, the flow column stays at fixed-mode bounds.
   const auto& flow_cols = fr_lp.flow_cols_at(scenarios[0], stages[0]);

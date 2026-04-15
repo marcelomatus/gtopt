@@ -353,10 +353,10 @@ def df_to_opts(df, options):
         opts = dict(zip(df.option, df.value))
         for key, value in options.items():
             opts[key] = value
-        # use_lp_names changed from bool to int (0–2 naming level).
-        # Convert legacy boolean values for backward compatibility.
-        if "use_lp_names" in opts and isinstance(opts["use_lp_names"], bool):
-            opts["use_lp_names"] = 1 if opts["use_lp_names"] else 0
+        # use_lp_names was removed from the C++ PlanningOptions struct
+        # (replaced by lp_matrix_options.col_with_names / row_with_names).
+        # Strip it so the JSON parser does not reject the unknown field.
+        opts.pop("use_lp_names", None)
         return opts
 
     logging.error(
