@@ -595,6 +595,8 @@ def convert_plp_case(options: dict[str, Any]) -> None:
             # Fix temp dir paths in the planning dict and re-write the
             # JSON.
             if not json_inside:
+                from .gtopt_writer import _strip_internal_keys  # noqa: PLC0415
+
                 tmp_str = str(tmp_options["output_dir"])
                 final_str = str(output_dir)
                 plan_json = json.dumps(writer.planning)
@@ -602,7 +604,7 @@ def convert_plp_case(options: dict[str, Any]) -> None:
                     plan_json = plan_json.replace(tmp_str, final_str)
                     writer.planning = json.loads(plan_json)
                 with open(output_file, "w", encoding="utf-8") as f:
-                    json.dump(writer.planning, f, indent=4)
+                    json.dump(_strip_internal_keys(writer.planning), f, indent=4)
 
             # Mark last build step done before printing tables
             progress.step("validate")

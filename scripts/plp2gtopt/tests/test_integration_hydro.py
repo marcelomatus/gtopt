@@ -569,10 +569,10 @@ def test_min_hydro_ms_afluent_parquet(tmp_path):
 
 @pytest.mark.integration
 def test_min_hydro_ms_monolithic_structure(tmp_path):
-    """plp_min_hydro_ms + --solver mono: one scene (all scenarios), one phase (all stages)."""
+    """plp_min_hydro_ms + --method mono: one scene (all scenarios), one phase (all stages)."""
     opts = _make_opts(_PLPMinHydroMs, tmp_path, "plp_min_hydro_ms_mono")
     opts["hydrologies"] = "1,2"
-    opts["solver_type"] = "mono"
+    opts["method"] = "mono"
     convert_plp_case(opts)
 
     data = json.loads(Path(opts["output_file"]).read_text(encoding="utf-8"))
@@ -608,10 +608,10 @@ def test_min_hydro_ms_monolithic_structure(tmp_path):
 
 @pytest.mark.integration
 def test_min_hydro_ms_sddp_options_key(tmp_path):
-    """plp_min_hydro_ms + --solver sddp: options must have solver_type='sddp'."""
+    """plp_min_hydro_ms + --method sddp: options must have method='sddp'."""
     opts = _make_opts(_PLPMinHydroMs, tmp_path, "plp_min_hydro_ms_sddp")
     opts["hydrologies"] = "1,2"
-    opts["solver_type"] = "sddp"
+    opts["method"] = "sddp"
     convert_plp_case(opts)
 
     data = json.loads(Path(opts["output_file"]).read_text(encoding="utf-8"))
@@ -629,7 +629,7 @@ def test_min_hydro_ms_num_apertures(tmp_path):
     """plp_min_hydro_ms + --num-apertures: num_apertures NOT in sddp_options (C++ ignores it)."""
     opts = _make_opts(_PLPMinHydroMs, tmp_path, "plp_min_hydro_ms_apertures")
     opts["hydrologies"] = "1,2"
-    opts["solver_type"] = "sddp"
+    opts["method"] = "sddp"
     opts["num_apertures"] = "2"
     convert_plp_case(opts)
 
@@ -645,7 +645,7 @@ def test_min_hydro_ms_num_apertures_all(tmp_path):
     """plp_min_hydro_ms + --num-apertures all/-1: no num_apertures in sddp_options."""
     opts = _make_opts(_PLPMinHydroMs, tmp_path, "plp_min_hydro_ms_apertures_all")
     opts["hydrologies"] = "1,2"
-    opts["solver_type"] = "sddp"
+    opts["method"] = "sddp"
     opts["num_apertures"] = "-1"
     convert_plp_case(opts)
 
@@ -659,7 +659,7 @@ def test_min_hydro_ms_no_apertures_by_default(tmp_path):
     """plp_min_hydro_ms without --num-apertures: num_apertures absent in output."""
     opts = _make_opts(_PLPMinHydroMs, tmp_path, "plp_min_hydro_ms_no_apertures")
     opts["hydrologies"] = "1,2"
-    opts["solver_type"] = "sddp"
+    opts["method"] = "sddp"
     convert_plp_case(opts)
 
     data = json.loads(Path(opts["output_file"]).read_text(encoding="utf-8"))

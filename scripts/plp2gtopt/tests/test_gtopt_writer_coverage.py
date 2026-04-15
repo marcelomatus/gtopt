@@ -444,7 +444,7 @@ def test_write_creates_json(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# _normalize_solver_type
+# _normalize_method
 # ---------------------------------------------------------------------------
 
 
@@ -458,9 +458,9 @@ def test_write_creates_json(tmp_path):
         ("other", "sddp"),
     ],
 )
-def test_normalize_solver_type(input_val, expected):
-    """_normalize_solver_type maps aliases correctly."""
-    assert GTOptWriter._normalize_solver_type(input_val) == expected
+def test_normalize_method(input_val, expected):
+    """_normalize_method maps aliases correctly."""
+    assert GTOptWriter._normalize_method(input_val) == expected
 
 
 # ---------------------------------------------------------------------------
@@ -540,7 +540,7 @@ class TestProcessStageBlocksPhase:
         parser.parse_all()
         writer = GTOptWriter(parser)
         opts = _make_opts(tmp_path, "mono")
-        opts["solver_type"] = "monolithic"
+        opts["method"] = "monolithic"
         writer.process_options(opts)
         writer.process_stage_blocks(opts)
         phases = writer.planning["simulation"]["phase_array"]

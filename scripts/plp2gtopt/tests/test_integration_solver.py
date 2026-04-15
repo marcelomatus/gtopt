@@ -47,7 +47,7 @@ def _make_opts_hydro_4b(tmp_path: Path, case_name: str = "gtopt_hydro_4b") -> di
         "output_dir": out_dir,
         "output_file": out_dir / f"{case_name}.json",
         "hydrologies": "1,2,3",
-        "solver_type": "sddp",
+        "method": "sddp",
         "num_apertures": "3",
         "last_stage": -1,
         "last_time": -1,
@@ -323,7 +323,7 @@ def test_hydro_4b_sddp_conversion(tmp_path):
 def test_hydro_4b_mono_conversion(tmp_path):
     """plp_hydro_4b monolithic: 1 scene covering all scenarios, 1 phase."""
     opts = _make_opts_hydro_4b(tmp_path, "gtopt_hydro_4b_mono")
-    opts["solver_type"] = "mono"
+    opts["method"] = "mono"
     convert_plp_case(opts)
 
     data = json.loads(Path(opts["output_file"]).read_text(encoding="utf-8"))
@@ -431,7 +431,7 @@ def test_hydro_4b_gtopt_mono_solve(tmp_path, gtopt_bin):
     """plp_hydro_4b: convert to monolithic gtopt and solve if binary is found."""
     # Convert PLP → gtopt (monolithic for deterministic solve)
     opts = _make_opts_hydro_4b(tmp_path, "gtopt_hydro_4b_solve")
-    opts["solver_type"] = "mono"
+    opts["method"] = "mono"
     convert_plp_case(opts)
 
     json_file = Path(opts["output_file"])
@@ -483,7 +483,7 @@ def test_hydro_4b_gtopt_mono_solve(tmp_path, gtopt_bin):
 def test_hydro_4b_gtopt_reservoir_trajectory(tmp_path, gtopt_bin):
     """plp_hydro_4b: verify reservoir vini/vfin trajectory across stages."""
     opts = _make_opts_hydro_4b(tmp_path, "gtopt_hydro_4b_traj")
-    opts["solver_type"] = "mono"
+    opts["method"] = "mono"
     convert_plp_case(opts)
 
     json_file = Path(opts["output_file"])
@@ -525,7 +525,7 @@ def test_hydro_4b_gtopt_reservoir_trajectory(tmp_path, gtopt_bin):
 def test_hydro_4b_gtopt_marginal_costs(tmp_path, gtopt_bin):
     """plp_hydro_4b: marginal costs should be non-negative and bounded."""
     opts = _make_opts_hydro_4b(tmp_path, "gtopt_hydro_4b_cmg")
-    opts["solver_type"] = "mono"
+    opts["method"] = "mono"
     convert_plp_case(opts)
 
     json_file = Path(opts["output_file"])
@@ -565,7 +565,7 @@ def test_hydro_4b_plp_vs_gtopt(tmp_path, gtopt_bin):
 
     # --- Run gtopt ---
     opts = _make_opts_hydro_4b(tmp_path, "gtopt_hydro_4b_compare")
-    opts["solver_type"] = "mono"
+    opts["method"] = "mono"
     convert_plp_case(opts)
 
     json_file = Path(opts["output_file"])
@@ -651,7 +651,7 @@ _MIN_1BUS_GEN_COST = 50.0  # $/MWh
 def test_min_1bus_gtopt_solve(tmp_path, gtopt_bin):
     """plp_min_1bus: convert PLP → gtopt and verify optimal solution."""
     opts = _make_opts(_PLPMin1Bus, tmp_path, "gtopt_min_1bus")
-    opts["solver_type"] = "mono"
+    opts["method"] = "mono"
     convert_plp_case(opts)
 
     json_file = Path(opts["output_file"])
@@ -689,7 +689,7 @@ def test_min_1bus_gtopt_solve(tmp_path, gtopt_bin):
 def test_min_1bus_gtopt_generation_cost(tmp_path, gtopt_bin):
     """plp_min_1bus: objective value matches expected generation cost."""
     opts = _make_opts(_PLPMin1Bus, tmp_path, "gtopt_min_1bus_cost")
-    opts["solver_type"] = "mono"
+    opts["method"] = "mono"
     convert_plp_case(opts)
 
     json_file = Path(opts["output_file"])
@@ -725,7 +725,7 @@ def test_min_2bus_gtopt_solve(tmp_path, gtopt_bin):
         pytest.skip(f"plp_min_2bus case not found at {_PLPMin2Bus}")
 
     opts = _make_opts(_PLPMin2Bus, tmp_path, "gtopt_min_2bus")
-    opts["solver_type"] = "mono"
+    opts["method"] = "mono"
     convert_plp_case(opts)
 
     json_file = Path(opts["output_file"])
@@ -770,7 +770,7 @@ def _make_opts_hydro_4b_cascade(
         "output_dir": out_dir,
         "output_file": out_dir / f"{case_name}.json",
         "hydrologies": "1,2,3",
-        "solver_type": "cascade",
+        "method": "cascade",
         "num_apertures": "3",
         "last_stage": -1,
         "last_time": -1,

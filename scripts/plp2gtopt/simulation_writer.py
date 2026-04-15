@@ -54,10 +54,10 @@ class SimulationWriter:
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _normalize_solver_type(solver_type: str) -> str:
-        if solver_type in ("mono", "monolithic"):
+    def _normalize_method(method: str) -> str:
+        if method in ("mono", "monolithic"):
             return "monolithic"
-        if solver_type == "cascade":
+        if method == "cascade":
             return "cascade"
         return "sddp"
 
@@ -107,10 +107,8 @@ class SimulationWriter:
                 for uid, group in enumerate(phase_groups, start=1)
             ]
 
-        solver_type = self._normalize_solver_type(
-            self._options.get("solver_type", "sddp")
-        )
-        if solver_type == "monolithic":
+        method = self._normalize_method(self._options.get("method", "cascade"))
+        if method == "monolithic":
             return [{"uid": 1, "first_stage": 0, "count_stage": num_stages}]
         return [
             {"uid": i + 1, "first_stage": i, "count_stage": 1}
@@ -151,10 +149,8 @@ class SimulationWriter:
             )
         self._simulation["scenario_array"] = scenarios
 
-        solver_type = self._normalize_solver_type(
-            self._options.get("solver_type", "sddp")
-        )
-        if solver_type == "monolithic":
+        method = self._normalize_method(self._options.get("method", "cascade"))
+        if method == "monolithic":
             self._simulation["scene_array"] = [
                 {"uid": 1, "first_scenario": 0, "count_scenario": num_scenarios}
             ]
