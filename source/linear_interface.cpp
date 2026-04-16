@@ -7,6 +7,7 @@
  */
 
 #include <algorithm>
+#include <cassert>
 #include <chrono>
 #include <expected>
 #include <memory>
@@ -130,6 +131,7 @@ void LinearInterface::cache_and_release()
   // Compress mode: first call compresses the flat LP (one-time).
   // Subsequent calls: just free the decompressed vectors.
   // Snapshot mode: flat LP stays in memory (no compression).
+  // Rebuild mode: snapshot is empty by construction; nothing to do.
   if (m_low_memory_mode_ == LowMemoryMode::compress) {
     if (!m_snapshot_.is_compressed()) {
       m_snapshot_.compress(m_memory_codec_);
@@ -146,6 +148,15 @@ void LinearInterface::cache_and_release()
 void LinearInterface::ensure_backend()
 {
   if (!m_backend_released_) {
+    return;
+  }
+  // Rebuild mode: SystemLP::ensure_lp_built() owns the rebuild dispatch
+  // because it has access to the source collections.  Reaching here in
+  // rebuild mode means a caller forgot to invoke ensure_lp_built()
+  // before mutating the (released) LinearInterface.  Refuse silently
+  // so debug builds can catch the missing precondition via the assert
+  // in reconstruct_backend(); release builds still avoid an empty-load.
+  if (m_low_memory_mode_ == LowMemoryMode::rebuild) {
     return;
   }
   // Reconstruct using cached solution for warm-start
@@ -202,12 +213,15 @@ void LinearInterface::release_backend() noexcept
       m_cached_numcols_ = ncols;
       m_cached_is_optimal_ = true;
     }
-    // First call: compress the flat LP (one-time, creates persistent buffer).
-    // Subsequent calls: just free the decompressed vectors.
-    if (!m_snapshot_.is_compressed()) {
-      enable_compression();
-    } else {
-      clear_flat_lp_vectors(m_snapshot_.flat_lp);
+    // Snapshot/compress: first call compresses the flat LP (one-time,
+    // creates a persistent buffer); subsequent calls free the decompressed
+    // vectors.  Rebuild mode keeps no snapshot — nothing to compress.
+    if (m_low_memory_mode_ != LowMemoryMode::rebuild) {
+      if (!m_snapshot_.is_compressed()) {
+        enable_compression();
+      } else {
+        clear_flat_lp_vectors(m_snapshot_.flat_lp);
+      }
     }
   } catch (...) {  // NOLINT(bugprone-empty-catch)
     // Best-effort: proceed with release even if caching fails. The
@@ -315,6 +329,12 @@ void LinearInterface::capture_hot_start_cuts()
 void LinearInterface::reconstruct_backend(std::span<const double> col_sol,
                                           std::span<const double> row_dual)
 {
+  // Rebuild mode never installs a snapshot, so reconstructing from one
+  // would be a logic error.  Catch it loudly in debug builds; in
+  // release the !has_data() guard below still short-circuits cleanly.
+  assert(m_low_memory_mode_ != LowMemoryMode::rebuild
+         && "rebuild mode must use SystemLP::ensure_lp_built(), not "
+            "reconstruct_backend()");
   if (!m_backend_released_ || !m_snapshot_.has_data()) {
     return;
   }

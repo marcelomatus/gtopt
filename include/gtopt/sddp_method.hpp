@@ -66,7 +66,6 @@
 #include <gtopt/planning_lp.hpp>
 #include <gtopt/planning_method.hpp>
 #include <gtopt/sddp_aperture.hpp>
-#include <gtopt/sddp_clone_pool.hpp>
 #include <gtopt/sddp_cut_sharing.hpp>
 #include <gtopt/sddp_cut_store.hpp>
 #include <gtopt/sddp_pool.hpp>
@@ -544,20 +543,6 @@ private:
   /// Build combined stored cuts from per-scene vectors (for persistence).
   [[nodiscard]] std::vector<StoredCut> build_combined_cuts() const;
 
-  /// Get a pooled clone pointer for aperture solves (nullptr if pool disabled).
-  LinearInterface* get_pooled_clone_ptr(SceneIndex scene_index,
-                                        PhaseIndex phase_index)
-  {
-    if (!m_options_.use_clone_pool || !m_clone_pool_.is_allocated()) {
-      return nullptr;
-    }
-    return m_clone_pool_.get_ptr(
-        scene_index,
-        phase_index,
-        planning_lp(),
-        m_scene_phase_states_[scene_index][phase_index].base_nrows);
-  }
-
   /// Check whether the sentinel file exists (user-requested stop)
   [[nodiscard]] bool check_sentinel_stop() const;
 
@@ -707,10 +692,6 @@ private:
   LabelMaker m_label_maker_;
   scene_phase_states_t m_scene_phase_states_;
   SDDPCutStore m_cut_store_;
-
-  /// Clone pool: one cached LinearInterface per (scene, phase) for aperture
-  /// reuse.  Empty when use_clone_pool is false.
-  SDDPClonePool m_clone_pool_ {};
 
   /// Per-(scene, phase) count of consecutive forward-pass infeasibilities.
   /// Incremented when the elastic filter is used in forward_pass at (scene,

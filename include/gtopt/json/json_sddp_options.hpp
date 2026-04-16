@@ -66,7 +66,6 @@ struct SddpOptionsConstructor
       OptReal prune_dual_threshold,
       OptBool single_cut_storage,
       OptInt max_stored_cuts,
-      OptBool use_clone_pool,
       OptBool simulation_mode,
       OptName low_memory_str,
       OptName memory_codec_str,
@@ -135,7 +134,6 @@ struct SddpOptionsConstructor
     opts.prune_dual_threshold = prune_dual_threshold;
     opts.single_cut_storage = single_cut_storage;
     opts.max_stored_cuts = max_stored_cuts;
-    opts.use_clone_pool = use_clone_pool;
     opts.simulation_mode = simulation_mode;
     if (low_memory_str) {
       opts.low_memory_mode = gtopt::require_enum<LowMemoryMode>(
@@ -209,7 +207,6 @@ struct json_data_contract<SddpOptions>
       json_number_null<"prune_dual_threshold", OptReal>,
       json_bool_null<"single_cut_storage", OptBool>,
       json_number_null<"max_stored_cuts", OptInt>,
-      json_bool_null<"use_clone_pool", OptBool>,
       json_bool_null<"simulation_mode", OptBool>,
       json_string_null<"low_memory_mode", OptName>,
       json_string_null<"memory_codec", OptName>,
@@ -262,7 +259,6 @@ struct json_data_contract<SddpOptions>
         opt.prune_dual_threshold,
         opt.single_cut_storage,
         opt.max_stored_cuts,
-        opt.use_clone_pool,
         opt.simulation_mode,
         detail::enum_to_opt_name(opt.low_memory_mode),
         detail::enum_to_opt_name(opt.memory_codec),

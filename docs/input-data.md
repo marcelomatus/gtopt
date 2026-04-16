@@ -315,7 +315,8 @@ For full algorithmic details, see [SDDP Solver](methods/sddp.md).
 | `prune_dual_threshold` | number  | `1e-8`   | Dual threshold for inactive cut detection |
 | `single_cut_storage`   | boolean | `false`  | Store cuts in per-scene vectors only |
 | `max_stored_cuts`      | integer | `0`      | Maximum total stored cuts per scene (0 = unlimited) |
-| `use_clone_pool`       | boolean | `true`   | Reuse cached LP clones for aperture solves |
+| `low_memory_mode`      | string  | `"off"`  | `off`, `snapshot`, `compress`, or `rebuild` (see SDDP method docs) |
+| `memory_codec`         | string  | `"auto"` | Compression codec for `compress` mode |
 
 #### Simulation mode
 

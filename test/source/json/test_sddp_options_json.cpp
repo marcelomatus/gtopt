@@ -46,7 +46,6 @@ TEST_CASE("SddpOptions JSON - Full deserialization")
     "prune_dual_threshold": 1e-6,
     "single_cut_storage": true,
     "max_stored_cuts": 500,
-    "use_clone_pool": false,
     "simulation_mode": true,
     "stationary_tol": 0.01,
     "stationary_window": 15,
@@ -133,8 +132,6 @@ TEST_CASE("SddpOptions JSON - Full deserialization")
   CHECK(*opts.single_cut_storage == true);
   REQUIRE(opts.max_stored_cuts.has_value());
   CHECK(*opts.max_stored_cuts == 500);
-  REQUIRE(opts.use_clone_pool.has_value());
-  CHECK(*opts.use_clone_pool == false);
   REQUIRE(opts.simulation_mode.has_value());
   CHECK(*opts.simulation_mode == true);
   REQUIRE(opts.stationary_tol.has_value());

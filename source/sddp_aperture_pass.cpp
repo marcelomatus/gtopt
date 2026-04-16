@@ -117,11 +117,11 @@ auto SDDPMethod::backward_pass_aperture_phase_impl(
   const auto src_phase_index = previous(phase_index);
   auto& src_sys = planning_lp().system(scene_index, src_phase_index);
 
-  // Reconstruct if released by low_memory mode
+  // Ensure the source-phase LP is built (rebuild mode re-flattens; the
+  // snapshot/compress modes reload from snapshot).
   if (src_sys.is_backend_released()) {
     const auto& src_st = phase_states[src_phase_index];
-    src_sys.reconstruct_backend(src_st.forward_col_sol,
-                                src_st.forward_row_dual);
+    src_sys.ensure_lp_built(src_st.forward_col_sol, src_st.forward_row_dual);
   }
 
   auto& src_li = src_sys.linear_interface();
@@ -135,11 +135,12 @@ auto SDDPMethod::backward_pass_aperture_phase_impl(
   // Forward-pass solution for the target phase — used as warm-start hint
   const auto& target_state = phase_states[phase_index];
 
-  // Reconstruct target system if released by low_memory mode
+  // Ensure the target-phase LP is built (rebuild mode re-flattens; the
+  // snapshot/compress modes reload from snapshot).
   auto& target_sys = planning_lp().system(scene_index, phase_index);
   if (target_sys.is_backend_released()) {
-    target_sys.reconstruct_backend(target_state.forward_col_sol,
-                                   target_state.forward_row_dual);
+    target_sys.ensure_lp_built(target_state.forward_col_sol,
+                               target_state.forward_row_dual);
   }
 
   // Keep the flat LP decompressed while aperture tasks create clones.
@@ -462,11 +463,11 @@ auto SDDPMethod::backward_pass_with_apertures(SceneIndex scene_index,
     const auto src_phase_index = previous(phase_index);
     auto& src_sys = planning_lp().system(scene_index, src_phase_index);
 
-    // Reconstruct if released by low_memory mode
+    // Ensure the source-phase LP is built (rebuild mode re-flattens; the
+    // snapshot/compress modes reload from snapshot).
     if (src_sys.is_backend_released()) {
       const auto& src_st = phase_states[src_phase_index];
-      src_sys.reconstruct_backend(src_st.forward_col_sol,
-                                  src_st.forward_row_dual);
+      src_sys.ensure_lp_built(src_st.forward_col_sol, src_st.forward_row_dual);
     }
 
     auto& src_li = src_sys.linear_interface();
@@ -480,11 +481,12 @@ auto SDDPMethod::backward_pass_with_apertures(SceneIndex scene_index,
     // Forward-pass solution for the target phase — warm-start hint
     const auto& target_state = phase_states[phase_index];
 
-    // Reconstruct target system if released by low_memory mode
+    // Ensure the target-phase LP is built (rebuild mode re-flattens; the
+    // snapshot/compress modes reload from snapshot).
     auto& target_sys = planning_lp().system(scene_index, phase_index);
     if (target_sys.is_backend_released()) {
-      target_sys.reconstruct_backend(target_state.forward_col_sol,
-                                     target_state.forward_row_dual);
+      target_sys.ensure_lp_built(target_state.forward_col_sol,
+                                 target_state.forward_row_dual);
     }
 
     // Keep the flat LP decompressed while aperture tasks create clones.

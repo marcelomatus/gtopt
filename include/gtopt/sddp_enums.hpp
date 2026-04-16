@@ -270,12 +270,20 @@ inline constexpr auto state_variable_lookup_mode_entries =
  *               cuts.
  * - `compress`: Same as `snapshot`, but compress the saved FlatLinearProblem
  *               for additional memory savings (~2-4x compression ratio).
+ * - `rebuild`:  Re-flatten the LP from element collections on every solve.
+ *               No FlatLinearProblem snapshot is held; only the small
+ *               persistent SDDP state (dynamic α columns and accumulated
+ *               Benders cuts) survives across solves.  Lowest steady-state
+ *               memory; highest CPU cost.  Skips the initial up-front
+ *               build loop entirely — each (scene, phase) LP is built
+ *               lazily inside the same task that solves or clones it.
  */
 enum class LowMemoryMode : uint8_t
 {
   off = 0,  ///< Disabled — keep solver backend loaded (default)
   snapshot = 1,  ///< Release solver, keep flat LP for reconstruction
   compress = 2,  ///< Release solver, compress flat LP
+  rebuild = 3,  ///< Re-flatten LP from collections on every solve, no snapshot
 };
 
 inline constexpr auto low_memory_mode_entries =
@@ -283,6 +291,7 @@ inline constexpr auto low_memory_mode_entries =
         {.name = "off", .value = LowMemoryMode::off},
         {.name = "snapshot", .value = LowMemoryMode::snapshot},
         {.name = "compress", .value = LowMemoryMode::compress},
+        {.name = "rebuild", .value = LowMemoryMode::rebuild},
     });
 
 [[nodiscard]] constexpr auto enum_entries(LowMemoryMode /*tag*/) noexcept

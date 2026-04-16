@@ -46,7 +46,6 @@ TEST_CASE("SddpOptions - Default construction")
   CHECK_FALSE(opts.prune_dual_threshold.has_value());
   CHECK_FALSE(opts.single_cut_storage.has_value());
   CHECK_FALSE(opts.max_stored_cuts.has_value());
-  CHECK_FALSE(opts.use_clone_pool.has_value());
   CHECK_FALSE(opts.simulation_mode.has_value());
   CHECK_FALSE(opts.stationary_tol.has_value());
   CHECK_FALSE(opts.stationary_window.has_value());
@@ -177,7 +176,6 @@ TEST_CASE("SddpOptions - Construction with advanced tuning fields")
       .alpha_min = -1e6,
       .alpha_max = 1e10,
       .warm_start = false,
-      .use_clone_pool = false,
       .simulation_mode = true,
       .stationary_tol = 0.01,
       .stationary_window = 20,
@@ -191,8 +189,6 @@ TEST_CASE("SddpOptions - Construction with advanced tuning fields")
   CHECK(*opts.alpha_max == doctest::Approx(1e10));
   REQUIRE(opts.warm_start.has_value());
   CHECK(*opts.warm_start == false);
-  REQUIRE(opts.use_clone_pool.has_value());
-  CHECK(*opts.use_clone_pool == false);
   REQUIRE(opts.simulation_mode.has_value());
   CHECK(*opts.simulation_mode == true);
   REQUIRE(opts.stationary_tol.has_value());

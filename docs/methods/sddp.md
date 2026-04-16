@@ -771,7 +771,6 @@ hs_2_1_4,2,1,4,-4800.0,0.30,0.60,...
 | `prune_dual_threshold` | double | 1e-8 | Dual threshold for inactive cut detection |
 | `single_cut_storage` | bool | false | Store cuts per-scene only (halves memory) |
 | `max_stored_cuts` | int | 0 | Max stored cuts per scene (0 = unlimited) |
-| `use_clone_pool` | bool | true | Reuse cached LP clones for aperture solves |
 | `simulation_mode` | bool | false | Skip training (force `max_iterations=0`), run simulation pass only, disable cut saving |
 | `stationary_tol` | double | 0.0 | Secondary convergence: relative gap-change tolerance (0 = disabled; e.g. 0.01 = 1%) |
 | `stationary_window` | int | 10 | Look-back window for stationary gap check (only used when `stationary_tol > 0`) |
@@ -1167,7 +1166,6 @@ enough that convergence is achieved quickly.
 |-------|------|------|
 | `SDDPMethod` | `sddp_method.hpp/cpp` | Core SDDP algorithm |
 | `SDDPPlanningMethod` | `sddp_method.hpp/cpp` | `PlanningMethod` interface adapter |
-| `SDDPClonePool` | `sddp_clone_pool.hpp/cpp` | Cached LP clone pool for aperture reuse |
 | `MonolithicMethod` | `planning_method.hpp/cpp` | Default full-LP solver |
 | `SolverMonitor` | `solver_monitor.hpp` | Background CPU/worker monitoring (SDDP + Monolithic) |
 | `PlanningLP` | `planning_lp.hpp/cpp` | LP assembly and phase management |
@@ -1233,12 +1231,12 @@ auto rc = cloned.get_col_cost();     // Extract dual information
 // Original LP `li` is untouched.
 ```
 
-For aperture backward-pass solves, the `SDDPClonePool` class (in
-`sddp_clone_pool.hpp/cpp`) caches one clone per `(scene, phase)` slot.
-On first access, `get_or_create()` clones the source LP; on subsequent
-accesses, it resets column bounds and deletes cut rows rather than
-allocating a fresh copy.  This avoids repeated heap allocation for the
-CLP internal matrix during long SDDP runs.
+For aperture backward-pass solves, each aperture task creates its own
+clone of the source LP inline via `LinearInterface::clone()` (see
+`source/sddp_aperture.cpp`).  Clones live only inside the parallel
+worker task that consumes them and are destroyed when the task scope
+exits, so concurrent aperture solves never share LP state and there is
+no need for a cross-task clone cache.
 
 ### 7.5 Thread Safety
 
@@ -1280,12 +1278,33 @@ mitigate this:
 3. **Single cut storage** (`single_cut_storage`): avoids duplicating cut
    metadata across per-scene and shared storage.
 
-4. **Clone pool** (`use_clone_pool`): caches one LP clone per
-   (scene, phase) for aperture backward-pass solves.  Instead of calling
-   `OsiSolverInterface::clone(true)` per aperture (which allocates a
-   full copy of the CLP solver), the cached clone is reset by copying
-   column/row bounds from the source LP and deleting any added rows.
-   This avoids repeated heap allocation for the CLP internal matrix.
+4. **Low-memory mode** (`low_memory_mode`): controls how aggressively the
+   per-(scene, phase) LP backend is released between solves.
+
+   - `off` (default): backend stays loaded; no FlatLinearProblem held.
+     Maximum throughput, maximum memory.
+   - `snapshot`: backend released after every solve; the
+     FlatLinearProblem is kept in memory and replayed on the next
+     access via `LinearInterface::reconstruct_backend()`.  Cuts the
+     solver-resident memory but still pays one snapshot per cell.
+   - `compress`: same as `snapshot`, but the snapshot is compressed
+     (lz4 / zstd, ~2–4× ratio) when the backend is released and
+     decompressed on demand.
+   - `rebuild`: no FlatLinearProblem snapshot is kept.  The initial
+     up-front "Build LP" loop is **skipped entirely** — each
+     `(scene, phase)` LP is built lazily inside the same task that
+     solves or clones it (forward pass, backward source LP for
+     apertures, elastic-filter base LP, `--lp-only` validation).
+     Aperture clones still come from a single rebuild per phase per
+     iteration: the source LP is rebuilt once, every aperture task
+     clones it inline, and the source is discarded once the apertures
+     finish.  Persistent SDDP state — the alpha column added by the
+     solver and the accumulated Benders cuts — is preserved across
+     rebuilds via `m_dynamic_cols_` / `m_active_cuts_` on
+     `LinearInterface` and replayed on every rebuild, so SDDP
+     convergence is unchanged.  Lowest steady-state memory; highest
+     CPU cost — pick `rebuild` only when memory is the binding
+     constraint.
 
 5. **Warm-start pre-padding**: forward-pass solution vectors are padded
    with zeros at save time so that `set_warm_start_solution()` can use a

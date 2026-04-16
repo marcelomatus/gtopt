@@ -319,17 +319,12 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   /// each iteration.  Default: 0 (no cap).
   int max_stored_cuts {0};
 
-  /// Reuse a cached LP clone for aperture solves instead of cloning
-  /// anew each time.  The clone's column bounds are reset from the
-  /// source LP before each solve; rows beyond the base count are
-  /// deleted.  Avoids repeated heap allocations for the CLP solver
-  /// internal matrix.  Default: true.
-  bool use_clone_pool {true};
-
-  /// Low memory mode: off (default), snapshot, or compress.
-  /// Trades CPU time (reconstruction + optional decompression) for
-  /// significant memory savings on large problems.
-  /// Disables clone pool when not off.
+  /// Low memory mode: off (default), snapshot, compress, or rebuild.
+  /// Trades CPU time (reconstruction + optional decompression, or full
+  /// re-flatten under `rebuild`) for significant memory savings on
+  /// large problems.  Under `rebuild` the initial up-front build loop
+  /// is skipped and each per-(scene, phase) LP is built lazily inside
+  /// the same task that solves or clones it.
   LowMemoryMode low_memory_mode {LowMemoryMode::off};
 
   /// In-memory compression codec for low_memory compress mode.

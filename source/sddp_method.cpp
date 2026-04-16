@@ -30,7 +30,6 @@
 #include <gtopt/memory_compress.hpp>
 #include <gtopt/planning_lp.hpp>
 #include <gtopt/sddp_aperture.hpp>
-#include <gtopt/sddp_clone_pool.hpp>
 #include <gtopt/sddp_cut_io.hpp>
 #include <gtopt/sddp_cut_sharing.hpp>
 #include <gtopt/sddp_method.hpp>
@@ -793,11 +792,12 @@ auto SDDPMethod::backward_pass_single_phase(SceneIndex scene_index,
   const auto prev_phase_index = previous(phase_index);
   auto& src_sys = planning_lp().system(scene_index, prev_phase_index);
 
-  // Reconstruct if released by low_memory mode
+  // Ensure the previous-phase LP is built (rebuild mode re-flattens; the
+  // snapshot/compress modes reload from snapshot).
   if (src_sys.is_backend_released()) {
     const auto& src_state_pre = phase_states[prev_phase_index];
-    src_sys.reconstruct_backend(src_state_pre.forward_col_sol,
-                                src_state_pre.forward_row_dual);
+    src_sys.ensure_lp_built(src_state_pre.forward_col_sol,
+                            src_state_pre.forward_row_dual);
   }
 
   auto& src_li = src_sys.linear_interface();
@@ -950,8 +950,6 @@ std::vector<StoredCut> SDDPMethod::build_combined_cuts() const
 {
   return m_cut_store_.build_combined_cuts(planning_lp());
 }
-
-// ── Clone pool (now in sddp_clone_pool.hpp/cpp) ─────────────────────────────
 
 // ── Cut persistence (delegated to sddp_cut_io.hpp free functions) ───────────
 
@@ -1112,10 +1110,6 @@ auto SDDPMethod::initialize_solver() -> std::expected<void, Error>
                             /*cache_warm_start=*/false);
       }
     }
-    // Clone pool is not used with low_memory — each aperture task creates
-    // its own clone from the reconstructed backend and releases it on
-    // completion (owned_clone path, no pooled sharing).
-    m_options_.use_clone_pool = false;
   }
 
   // Auto-scale alpha: when scale_alpha == 0, compute as the maximum
@@ -1152,22 +1146,28 @@ auto SDDPMethod::initialize_solver() -> std::expected<void, Error>
   // Save per-(scene, phase) base row counts before any cuts are loaded.
   // Rows below this threshold are structural constraints and are never
   // pruned; rows above it are Benders cuts (including hot-start cuts).
+  //
+  // Under LowMemoryMode::rebuild the per-cell LP is not assembled yet at
+  // this point, so we trigger a one-shot build to read the structural
+  // row count, then release the backend immediately.  This loop runs on
+  // the main thread (no concurrent rebuilds), so no extra synchronisation
+  // is needed.
+  const bool rebuild_mode =
+      m_options_.low_memory_mode == LowMemoryMode::rebuild;
   for (const auto scene_index : iota_range<SceneIndex>(0, num_scenes)) {
     for (const auto phase_index : iota_range<PhaseIndex>(0, num_phases)) {
-      auto& li =
-          planning_lp().system(scene_index, phase_index).linear_interface();
+      auto& sys = planning_lp().system(scene_index, phase_index);
+      if (rebuild_mode) {
+        sys.ensure_lp_built();
+      }
+      auto& li = sys.linear_interface();
       li.save_base_numrows();
       m_scene_phase_states_[scene_index][phase_index].base_nrows =
           li.base_numrows();
+      if (rebuild_mode) {
+        sys.release_backend();
+      }
     }
-  }
-
-  // ── Initialize clone pool (skipped in simulation mode) ───────────────────
-  if (m_options_.use_clone_pool && m_options_.max_iterations > 0) {
-    m_clone_pool_.allocate(num_scenes, num_phases);
-    SPDLOG_DEBUG("SDDP: clone pool allocated for {} scene×phase slots",
-                 static_cast<std::size_t>(num_scenes)
-                     * static_cast<std::size_t>(num_phases));
   }
 
   // ── Load hot-start cuts and track max iteration for offset ────────────────

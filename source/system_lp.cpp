@@ -461,7 +461,20 @@ constexpr auto create_linear_interface(auto& collections,
   //    through `ensure_backend()` → `reconstruct_backend()` → a single
   //    `load_flat()`.  Saves one full backend population per
   //    (scene, phase) under SDDP / cascade.
-  if (flat_opts.low_memory_mode != LowMemoryMode::off) {
+  //
+  //  * `rebuild`: load the freshly flattened LP eagerly (same task will
+  //    solve or clone it next), but do NOT save_snapshot — the
+  //    FlatLinearProblem is intentionally discarded at scope exit so
+  //    the cell holds zero persistent flat data.  The next access after
+  //    release_backend() will re-enter `SystemLP::ensure_lp_built()`,
+  //    which re-runs the full assembly + load_flat from collections.
+  if (flat_opts.low_memory_mode == LowMemoryMode::rebuild) {
+    li.set_low_memory(LowMemoryMode::rebuild,
+                      select_codec(flat_opts.memory_codec),
+                      /*cache_warm_start=*/false);
+    li.load_flat(flat_lp);
+    // flat_lp dies at scope exit — no snapshot retained.
+  } else if (flat_opts.low_memory_mode != LowMemoryMode::off) {
     li.set_low_memory(flat_opts.low_memory_mode,
                       select_codec(flat_opts.memory_codec),
                       /*cache_warm_start=*/false);
@@ -752,24 +765,111 @@ void SystemLP::create_lp(const LpMatrixOptions& flat_opts_in)
   if (flat_opts.scale_objective == 1.0) {
     flat_opts.scale_objective = system_context().options().scale_objective();
   }
+  // Under rebuild mode the LP is re-flattened on every solve.  The
+  // fingerprint is structurally deterministic, so recompute it only on
+  // the first build and silence it thereafter — avoids repeated hashing
+  // of an unchanged model on every iteration.
+  if (m_fingerprint_was_set_) {
+    flat_opts.compute_fingerprint = false;
+  }
   // create_linear_interface owns the snapshot installation: it either
   // load_flats + save_snapshots eagerly (low_memory off) or installs the
   // flat LP as a deferred snapshot via defer_initial_load (otherwise).
   auto [li, fp] = create_linear_interface(
       collections(), system_context(), phase(), scene(), flat_opts);
   m_linear_interface_ = std::move(li);
-  m_fingerprint_ = std::move(fp);
+  if (!m_fingerprint_was_set_) {
+    m_fingerprint_ = std::move(fp);
+    m_fingerprint_was_set_ = true;
+  }
+}
+
+void SystemLP::ensure_lp_built(std::span<const double> col_sol,
+                               std::span<const double> row_dual)
+{
+  auto& li = m_linear_interface_;
+  const auto mode = li.low_memory_mode();
+
+  // off: backend is always live by construction; nothing to do.
+  if (mode == LowMemoryMode::off) {
+    return;
+  }
+  // Backend already live (e.g. previous task in this phase already
+  // rebuilt it); nothing to do.
+  if (!li.is_backend_released()) {
+    return;
+  }
+
+  if (mode == LowMemoryMode::snapshot || mode == LowMemoryMode::compress) {
+    // Existing path: snapshot is non-empty (defer_initial_load installed
+    // it); reconstruct_backend will load_flat + replay dynamic cols +
+    // active cuts + warm-start.
+    li.reconstruct_backend(col_sol, row_dual);
+    return;
+  }
+
+  // ── rebuild ──────────────────────────────────────────────────────────
+  //
+  // Re-flatten the LP from the (still-live) collections.  create_lp()
+  // destroys and replaces m_linear_interface_ with a fresh instance, so
+  // snapshot the persistent SDDP state (alpha cols, accumulated cuts,
+  // base_numrows boundary) on the old interface and replay it on the
+  // new one after the rebuild succeeds.  Cumulative solver counters
+  // (`solver_stats()`) are likewise transferred so end-of-run reporting
+  // sees the total work, not just the last iteration's.
+
+  auto saved_dyn_cols = li.take_dynamic_cols();
+  auto saved_active_cuts = li.take_active_cuts();
+  const auto saved_base = li.base_numrows();
+  const auto saved_stats = li.solver_stats();
+
+  try {
+    create_lp(m_flat_opts_);
+  } catch (...) {
+    // Rollback: stash the persistent state back so a subsequent retry
+    // (or final cleanup) sees a coherent LinearInterface.
+    m_linear_interface_.restore_dynamic_cols(std::move(saved_dyn_cols));
+    m_linear_interface_.restore_active_cuts(std::move(saved_active_cuts));
+    m_linear_interface_.set_base_numrows(saved_base);
+    m_linear_interface_.merge_solver_stats(saved_stats);
+    throw;
+  }
+
+  auto& nli = m_linear_interface_;
+  nli.merge_solver_stats(saved_stats);
+
+  // 1. Replay dynamic columns (alpha) onto the freshly built backend.
+  for (const auto& col : saved_dyn_cols) {
+    nli.add_col(col);
+  }
+  nli.restore_dynamic_cols(std::move(saved_dyn_cols));
+
+  // 2. Restore the structural-vs-cuts boundary so the cut store keeps
+  // a consistent view of "rows below this index are structural".
+  nli.set_base_numrows(saved_base);
+
+  // 3. Bulk-replay accumulated Benders cuts.
+  if (!saved_active_cuts.empty()) {
+    nli.add_rows(saved_active_cuts);
+  }
+  nli.restore_active_cuts(std::move(saved_active_cuts));
+
+  // 4. Warm-start from the cached primal/dual when available.
+  if (!col_sol.empty() || !row_dual.empty()) {
+    nli.set_warm_start_solution(col_sol, row_dual);
+  }
 }
 
 SystemLP::SystemLP(const System& system,
                    SimulationLP& simulation,
                    PhaseLP phase,
                    SceneLP scene,
-                   const LpMatrixOptions& flat_opts)
+                   LpMatrixOptions flat_opts)
     : m_system_(system)
     , m_system_context_(simulation, *this)
     , m_phase_(std::move(phase))
     , m_scene_(std::move(scene))
+    , m_flat_opts_(std::move(flat_opts))
 {
   // Enable the per-cell AMPL variable registry when user constraints
   // need to resolve element columns.  Without user constraints the
@@ -801,7 +901,26 @@ SystemLP::SystemLP(const System& system,
     }
   }
 
-  create_lp(flat_opts);
+  // Rebuild mode defers the entire LP assembly until the first solve
+  // task that needs it (via SystemLP::ensure_lp_built).  The shell
+  // stays live (collections + AMPL registries), but neither flatten()
+  // nor load_flat() runs here — that is the whole point of the mode.
+  //
+  // Pre-seed the low_memory configuration on the (default-constructed)
+  // LinearInterface so that subsequent record_dynamic_col / record_cut_row
+  // calls accumulate the persistent SDDP state on this cell before the
+  // first build.
+  if (m_flat_opts_.low_memory_mode == LowMemoryMode::rebuild) {
+    m_linear_interface_.set_low_memory(LowMemoryMode::rebuild,
+                                       select_codec(m_flat_opts_.memory_codec),
+                                       /*cache_warm_start=*/false);
+    // Drop the default-constructed backend so the first ensure_lp_built()
+    // call performs the full create_lp() instead of short-circuiting
+    // because the (empty) backend looks "alive".
+    m_linear_interface_.mark_released();
+  } else {
+    create_lp(m_flat_opts_);
+  }
 }
 
 SystemLP::SystemLP(SystemLP&& other) noexcept
@@ -813,6 +932,8 @@ SystemLP::SystemLP(SystemLP&& other) noexcept
     , m_linear_interface_(std::move(other.m_linear_interface_))
     , m_fingerprint_(std::move(other.m_fingerprint_))
     , m_single_bus_id_(std::move(other.m_single_bus_id_))
+    , m_flat_opts_(std::move(other.m_flat_opts_))
+    , m_fingerprint_was_set_(other.m_fingerprint_was_set_)
     , m_pending_state_links_(std::move(other.m_pending_state_links_))
     , m_prev_phase_sys_(other.m_prev_phase_sys_)
 {
@@ -848,6 +969,8 @@ SystemLP& SystemLP::operator=(SystemLP&& other) noexcept
   m_linear_interface_ = std::move(other.m_linear_interface_);
   m_fingerprint_ = std::move(other.m_fingerprint_);
   m_single_bus_id_ = std::move(other.m_single_bus_id_);
+  m_flat_opts_ = std::move(other.m_flat_opts_);
+  m_fingerprint_was_set_ = other.m_fingerprint_was_set_;
   m_pending_state_links_ = std::move(other.m_pending_state_links_);
   m_prev_phase_sys_ = other.m_prev_phase_sys_;
   m_system_context_.rebind_system(*this);

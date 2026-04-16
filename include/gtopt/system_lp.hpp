@@ -33,6 +33,7 @@
 #include <gtopt/linear_interface.hpp>
 #include <gtopt/lng_terminal_lp.hpp>
 #include <gtopt/lp_fingerprint.hpp>
+#include <gtopt/lp_matrix_options.hpp>
 #include <gtopt/output_context.hpp>
 #include <gtopt/phase_lp.hpp>
 #include <gtopt/planning_options_lp.hpp>
@@ -167,7 +168,7 @@ public:
                     SimulationLP& simulation,
                     PhaseLP phase,
                     SceneLP scene,
-                    const LpMatrixOptions& flat_opts = {});
+                    LpMatrixOptions flat_opts = {});
 
   explicit SystemLP(const System& system,
                     SimulationLP& simulation,
@@ -408,6 +409,16 @@ private:
   LpFingerprint m_fingerprint_;
   std::optional<ObjectSingleId<BusLP>> m_single_bus_id_ {};
 
+  /// Flat-assembly options captured at construction.  Kept alive so that
+  /// `LowMemoryMode::rebuild` can re-invoke `create_lp(m_flat_opts_)`
+  /// inside every `ensure_lp_built()` call.
+  LpMatrixOptions m_flat_opts_ {};
+
+  /// True once the LP fingerprint has been computed.  In rebuild mode
+  /// subsequent rebuilds skip recomputation (the model is deterministic
+  /// and re-hashing would be wasted work).
+  bool m_fingerprint_was_set_ {false};
+
   /// Deferred dependent-variable links recorded during this phase's
   /// `add_to_lp` pass.  Under parallel phase construction within a
   /// scene, phase N+1 cannot safely call `add_dependent_variable` on
@@ -485,6 +496,20 @@ public:
   {
     m_linear_interface_.reconstruct_backend(col_sol, row_dual);
   }
+
+  /// Ensure the LP is built and ready to solve.  Dispatches by
+  /// `low_memory_mode()`:
+  ///  - `off`: no-op (backend stays live).
+  ///  - `snapshot` / `compress`: if the backend has been released,
+  ///    reconstruct it from the saved snapshot with an optional
+  ///    warm-start solution.
+  ///  - `rebuild`: if the backend has been released (or never built),
+  ///    snapshot the persistent SDDP state (dynamic cols + active cuts
+  ///    + base_numrows), re-run `create_lp(m_flat_opts_)` to assemble
+  ///    a fresh LP, replay the state onto it, and warm-start from
+  ///    @p col_sol / @p row_dual.
+  void ensure_lp_built(std::span<const double> col_sol = {},
+                       std::span<const double> row_dual = {});
 
   /// Forward accessor to the LP's cumulative solver counters.
   [[nodiscard]] constexpr const SolverStats& solver_stats() const noexcept

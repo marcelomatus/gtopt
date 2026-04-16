@@ -67,7 +67,6 @@ std::unique_ptr<PlanningMethod> make_planning_method(
       sddp_opts.prune_dual_threshold = options.sddp_prune_dual_threshold();
       sddp_opts.single_cut_storage = options.sddp_single_cut_storage();
       sddp_opts.max_stored_cuts = options.sddp_max_stored_cuts();
-      sddp_opts.use_clone_pool = options.sddp_use_clone_pool();
       sddp_opts.low_memory_mode = options.sddp_low_memory();
       sddp_opts.memory_codec = options.sddp_memory_codec();
       sddp_opts.alpha_min = options.sddp_alpha_min();
@@ -237,7 +236,6 @@ std::unique_ptr<PlanningMethod> make_planning_method(
       sddp_opts.prune_dual_threshold = options.sddp_prune_dual_threshold();
       sddp_opts.single_cut_storage = options.sddp_single_cut_storage();
       sddp_opts.max_stored_cuts = options.sddp_max_stored_cuts();
-      sddp_opts.use_clone_pool = options.sddp_use_clone_pool();
       sddp_opts.low_memory_mode = options.sddp_low_memory();
       sddp_opts.memory_codec = options.sddp_memory_codec();
       sddp_opts.alpha_min = options.sddp_alpha_min();

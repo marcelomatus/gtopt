@@ -97,16 +97,16 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
     auto& system = planning_lp().system(scene_index, phase_index);
     auto& state = phase_states[phase_index];
 
-    // Reconstruct LP backend if released by low_memory mode.
-    // dispatch_update_lp() runs after this point, so coefficient updates
-    // are replayed naturally.
+    // Reconstruct (or, under rebuild mode, re-flatten) the LP backend if
+    // released by low_memory mode.  dispatch_update_lp() runs after this
+    // point, so coefficient updates are replayed naturally.
     if (system.is_backend_released()) {
-      SPDLOG_DEBUG("{}: reconstructing backend for low_memory",
+      SPDLOG_DEBUG("{}: ensuring LP built for low_memory",
                    sddp_log("Forward",
                             iteration_index,
                             scene_uid(scene_index),
                             phase_uid(phase_index)));
-      system.reconstruct_backend(state.forward_col_sol, state.forward_row_dual);
+      system.ensure_lp_built(state.forward_col_sol, state.forward_row_dual);
     }
 
     auto& li = system.linear_interface();

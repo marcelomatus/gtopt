@@ -899,12 +899,6 @@ public:
     return m_options_.sddp_options.max_stored_cuts.value_or(0);
   }
 
-  /// Reuse cached LP clones for aperture solves.  Default: true.
-  [[nodiscard]] constexpr auto sddp_use_clone_pool() const
-  {
-    return m_options_.sddp_options.use_clone_pool.value_or(true);
-  }
-
   /// Low memory mode: off, snapshot, or compress.
   [[nodiscard]] constexpr auto sddp_low_memory() const
   {

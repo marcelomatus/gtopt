@@ -1365,7 +1365,6 @@ SDDP_OPTION_KEYS: frozenset[str] = frozenset(
         "prune_dual_threshold",
         "single_cut_storage",
         "max_stored_cuts",
-        "use_clone_pool",
         "simulation_mode",
         "state_variable_lookup_mode",
         "warm_start",
@@ -1742,11 +1741,6 @@ _OPTIONS_FIELDS: list[tuple[str, str, Any]] = [
         "max_stored_cuts",
         "[sddp] Max stored cuts per scene (0=unlimited; oldest dropped first)",
         0,
-    ),
-    (
-        "use_clone_pool",
-        "[sddp] Reuse cached LP clones for aperture solves (avoids repeated allocation)",
-        True,
     ),
     (
         "simulation_mode",

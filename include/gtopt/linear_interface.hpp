@@ -21,6 +21,8 @@
 #include <span>
 #include <string_view>
 #include <unordered_map>
+#include <utility>
+#include <vector>
 
 #include <gtopt/error.hpp>
 #include <gtopt/fmap.hpp>
@@ -302,6 +304,60 @@ public:
 
   /// Record cut row deletions (pruning/forgetting).
   void record_cut_deletion(std::span<const int> deleted_indices);
+
+  /// True when a `FlatLinearProblem` snapshot is currently held.
+  /// Always false in `LowMemoryMode::rebuild` after release_backend.
+  [[nodiscard]] bool has_snapshot_data() const noexcept
+  {
+    return m_snapshot_.has_data();
+  }
+
+  /// Move out the recorded dynamic columns (alpha) so the caller can
+  /// preserve them across a destructive rebuild.  Used by
+  /// `SystemLP::ensure_lp_built()` under `LowMemoryMode::rebuild`.
+  [[nodiscard]] std::vector<SparseCol> take_dynamic_cols() noexcept
+  {
+    return std::exchange(m_dynamic_cols_, {});
+  }
+
+  /// Move out the active Benders cuts so the caller can preserve them
+  /// across a destructive rebuild.
+  [[nodiscard]] std::vector<SparseRow> take_active_cuts() noexcept
+  {
+    return std::exchange(m_active_cuts_, {});
+  }
+
+  /// Restore previously-taken dynamic columns (rollback path on rebuild
+  /// failure).  Replaces any current m_dynamic_cols_.
+  void restore_dynamic_cols(std::vector<SparseCol> cols) noexcept
+  {
+    m_dynamic_cols_ = std::move(cols);
+  }
+
+  /// Restore previously-taken active cuts (rollback path on rebuild
+  /// failure).  Replaces any current m_active_cuts_.
+  void restore_active_cuts(std::vector<SparseRow> cuts) noexcept
+  {
+    m_active_cuts_ = std::move(cuts);
+  }
+
+  /// Set the base row count explicitly (used after a rebuild restores
+  /// state without re-querying the live backend).
+  void set_base_numrows(size_t n) noexcept { m_base_numrows_ = n; }
+
+  /// Mark this interface as "no LP loaded": drops the (default-constructed)
+  /// backend handle and flips `m_backend_released_` to true.  Intended for
+  /// `LowMemoryMode::rebuild`, where `SystemLP`'s constructor wants to
+  /// install the low-memory configuration without paying for an initial
+  /// `load_flat()` — the next `SystemLP::ensure_lp_built()` call will run
+  /// the full `create_lp()` from element collections.  Unlike
+  /// `release_backend()`, this skips solution caching and snapshot
+  /// compression: there is nothing meaningful to cache yet.
+  void mark_released() noexcept
+  {
+    m_backend_.reset();
+    m_backend_released_ = true;
+  }
 
   /// Decompress the saved flat LP (level 2) and keep it uncompressed
   /// until enable_compression() is called.  No-op if level < 2 or

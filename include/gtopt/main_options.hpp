@@ -197,7 +197,8 @@ template<typename T>
       ("low-memory",
        po::value<std::string>().implicit_value("snapshot"),
        "SDDP low-memory mode: off, snapshot (release solver + keep flat LP), "
-       "compress (release solver + compress flat LP)")  //
+       "compress (release solver + compress flat LP), "
+       "rebuild (re-flatten LP every solve, no snapshot)")  //
       ("memory-limit",
        po::value<std::string>(),
        "process memory limit for work pool throttling "
