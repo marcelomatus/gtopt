@@ -121,7 +121,8 @@ TEST_CASE(  // NOLINT
   };
 
   const PlanningOptionsLP options;
-  SimulationLP simulation_lp(make_single_block_simulation(), options);
+  const auto sim = make_single_block_simulation();
+  SimulationLP simulation_lp(sim, options);
   simulation_lp.set_need_ampl_variables(true);
   SystemLP system_lp(system, simulation_lp);
 
@@ -198,7 +199,8 @@ TEST_CASE(  // NOLINT
   };
 
   const PlanningOptionsLP options;
-  SimulationLP simulation_lp(make_single_block_simulation(), options);
+  const auto sim = make_single_block_simulation();
+  SimulationLP simulation_lp(sim, options);
   simulation_lp.set_need_ampl_variables(true);
   SystemLP system_lp(system, simulation_lp);
 
@@ -274,7 +276,8 @@ TEST_CASE(  // NOLINT
   };
 
   const PlanningOptionsLP options;
-  SimulationLP simulation_lp(make_single_block_simulation(), options);
+  const auto sim = make_single_block_simulation();
+  SimulationLP simulation_lp(sim, options);
   simulation_lp.set_need_ampl_variables(true);
   SystemLP system_lp(system, simulation_lp);
 

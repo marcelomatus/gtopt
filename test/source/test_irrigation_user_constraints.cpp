@@ -191,7 +191,8 @@ TEST_CASE(  // NOLINT
   const auto system =
       make_uc_system(fx, vrs, {}, ucs, "Tier7_1_VolumeRight_extraction");
   const PlanningOptionsLP options;
-  SimulationLP simulation_lp(make_uc_simulation(), options);
+  const auto sim = make_uc_simulation();
+  SimulationLP simulation_lp(sim, options);
   SystemLP system_lp(system, simulation_lp);
   auto&& lp = system_lp.linear_interface();
   const auto result = lp.resolve();
@@ -227,7 +228,8 @@ TEST_CASE(  // NOLINT
   const auto system =
       make_uc_system(fx, {}, frs, ucs, "Tier7_2_FlowRight_flow");
   const PlanningOptionsLP options;
-  SimulationLP simulation_lp(make_uc_simulation(), options);
+  const auto sim = make_uc_simulation();
+  SimulationLP simulation_lp(sim, options);
   SystemLP system_lp(system, simulation_lp);
   auto&& lp = system_lp.linear_interface();
   const auto result = lp.resolve();
@@ -268,7 +270,8 @@ TEST_CASE(  // NOLINT
   const auto system =
       make_uc_system(fx, vrs, {}, ucs, "Tier7_3_VolumeRight_eini");
   const PlanningOptionsLP options;
-  SimulationLP simulation_lp(make_uc_simulation(), options);
+  const auto sim = make_uc_simulation();
+  SimulationLP simulation_lp(sim, options);
   SystemLP system_lp(system, simulation_lp);
   auto&& lp = system_lp.linear_interface();
   const auto result = lp.resolve();
@@ -312,7 +315,8 @@ TEST_CASE(  // NOLINT
   const auto system =
       make_uc_system(fx, vrs, {}, ucs, "Tier7_4_StrictMissingRef");
   const PlanningOptionsLP options;
-  SimulationLP simulation_lp(make_uc_simulation(), options);
+  const auto sim = make_uc_simulation();
+  SimulationLP simulation_lp(sim, options);
   // Constructing/solving the SystemLP must throw because the strict
   // resolver cannot bind the missing element reference.
   CHECK_THROWS((
@@ -355,7 +359,8 @@ TEST_CASE(  // NOLINT
   const auto system =
       make_uc_system(fx, {}, frs, ucs, "Tier7_5_FlowRight_fail");
   const PlanningOptionsLP options;
-  SimulationLP simulation_lp(make_uc_simulation(), options);
+  const auto sim = make_uc_simulation();
+  SimulationLP simulation_lp(sim, options);
   SystemLP system_lp(system, simulation_lp);
   auto&& lp = system_lp.linear_interface();
   const auto result = lp.resolve();
@@ -435,7 +440,8 @@ TEST_CASE(  // NOLINT
 
   const auto system = make_uc_system(fx, vrs, {}, ucs, "Tier8_1_LaInvernada");
   const PlanningOptionsLP options;
-  SimulationLP simulation_lp(make_uc_simulation(), options);
+  const auto sim = make_uc_simulation();
+  SimulationLP simulation_lp(sim, options);
   SystemLP system_lp(system, simulation_lp);
   auto&& lp = system_lp.linear_interface();
   const auto result = lp.resolve();
@@ -480,7 +486,8 @@ TEST_CASE(  // NOLINT
 
   const auto system = make_uc_system(fx, vrs, {}, ucs, "Tier8_2_Maule_20_80");
   const PlanningOptionsLP options;
-  SimulationLP simulation_lp(make_uc_simulation(), options);
+  const auto sim = make_uc_simulation();
+  SimulationLP simulation_lp(sim, options);
   SystemLP system_lp(system, simulation_lp);
   auto&& lp = system_lp.linear_interface();
   const auto result = lp.resolve();
@@ -534,7 +541,8 @@ TEST_CASE(  // NOLINT
 
   const auto system = make_uc_system(fx, vrs, {}, ucs, "Tier8_3_DistrictSplit");
   const PlanningOptionsLP options;
-  SimulationLP simulation_lp(make_uc_simulation(), options);
+  const auto sim = make_uc_simulation();
+  SimulationLP simulation_lp(sim, options);
   SystemLP system_lp(system, simulation_lp);
   auto&& lp = system_lp.linear_interface();
   const auto result = lp.resolve();
@@ -582,7 +590,8 @@ TEST_CASE(  // NOLINT
 
   const auto system = make_uc_system(fx, vrs, frs, ucs, "Tier8_4_Mixed");
   const PlanningOptionsLP options;
-  SimulationLP simulation_lp(make_uc_simulation(), options);
+  const auto sim = make_uc_simulation();
+  SimulationLP simulation_lp(sim, options);
   SystemLP system_lp(system, simulation_lp);
   auto&& lp = system_lp.linear_interface();
   const auto result = lp.resolve();
@@ -651,7 +660,8 @@ TEST_CASE(  // NOLINT
 
   const auto system = make_uc_system(fx, {}, frs, ucs, "Tier8_5_LajaPartition");
   const PlanningOptionsLP options;
-  SimulationLP simulation_lp(make_uc_simulation(), options);
+  const auto sim = make_uc_simulation();
+  SimulationLP simulation_lp(sim, options);
   SystemLP system_lp(system, simulation_lp);
   auto&& lp = system_lp.linear_interface();
   const auto result = lp.resolve();
@@ -736,7 +746,8 @@ TEST_CASE(  // NOLINT
   const auto system =
       make_uc_system(fx, {}, frs, ucs, "Tier8_6_Invernada_P0_Defender");
   const PlanningOptionsLP options;
-  SimulationLP simulation_lp(make_uc_simulation(), options);
+  const auto sim = make_uc_simulation();
+  SimulationLP simulation_lp(sim, options);
   SystemLP system_lp(system, simulation_lp);
   auto&& lp = system_lp.linear_interface();
   const auto result = lp.resolve();

@@ -297,7 +297,8 @@ TEST_CASE(  // NOLINT
   const auto system =
       make_boundary_uc_system(fx, {}, frs, ucs, "Tier8_6b_Invernada_fmax_zero");
   const PlanningOptionsLP options;
-  SimulationLP simulation_lp(make_boundary_uc_simulation(), options);
+  const auto sim = make_boundary_uc_simulation();
+  SimulationLP simulation_lp(sim, options);
   SystemLP system_lp(system, simulation_lp);
   auto&& lp = system_lp.linear_interface();
 
@@ -364,7 +365,8 @@ TEST_CASE(  // NOLINT
   const auto system = make_boundary_uc_system(
       fx, {}, std::move(frs), ucs, "Tier8_6b_Invernada_embalsar_preferred");
   const PlanningOptionsLP options;
-  SimulationLP simulation_lp(make_boundary_uc_simulation(), options);
+  const auto sim = make_boundary_uc_simulation();
+  SimulationLP simulation_lp(sim, options);
   SystemLP system_lp(system, simulation_lp);
   auto&& lp = system_lp.linear_interface();
 
@@ -393,7 +395,8 @@ TEST_CASE(  // NOLINT
   const auto system = make_boundary_uc_system(
       fx, {}, std::move(frs), ucs, "Tier8_6b_Invernada_bypass_preferred");
   const PlanningOptionsLP options;
-  SimulationLP simulation_lp(make_boundary_uc_simulation(), options);
+  const auto sim = make_boundary_uc_simulation();
+  SimulationLP simulation_lp(sim, options);
   SystemLP system_lp(system, simulation_lp);
   auto&& lp = system_lp.linear_interface();
 
@@ -439,7 +442,8 @@ TEST_CASE(  // NOLINT
   const auto system = make_boundary_uc_system(
       fx, {}, frs, ucs, "Tier8_6b_Invernada_hard_infeasible");
   const PlanningOptionsLP options;
-  SimulationLP simulation_lp(make_boundary_uc_simulation(), options);
+  const auto sim = make_boundary_uc_simulation();
+  SimulationLP simulation_lp(sim, options);
   SystemLP system_lp(system, simulation_lp);
   auto&& lp = system_lp.linear_interface();
 
@@ -528,7 +532,8 @@ TEST_CASE(  // NOLINT
   const auto system = make_boundary_uc_system(
       fx, {}, frs, ucs, "Tier8_6b_Invernada_soft_feasible");
   const PlanningOptionsLP options;
-  SimulationLP simulation_lp(make_boundary_uc_simulation(), options);
+  const auto sim = make_boundary_uc_simulation();
+  SimulationLP simulation_lp(sim, options);
   SystemLP system_lp(system, simulation_lp);
   auto&& lp = system_lp.linear_interface();
 
@@ -563,7 +568,8 @@ TEST_CASE(  // NOLINT
   const auto system = make_boundary_uc_system(
       fx, {}, frs, ucs, "Tier8_6b_Invernada_registry_columns");
   const PlanningOptionsLP options;
-  SimulationLP simulation_lp(make_boundary_uc_simulation(), options);
+  const auto sim = make_boundary_uc_simulation();
+  SimulationLP simulation_lp(sim, options);
   SystemLP system_lp(system, simulation_lp);
   auto&& lp = system_lp.linear_interface();
   const auto result = lp.resolve();

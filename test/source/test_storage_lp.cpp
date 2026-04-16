@@ -712,7 +712,8 @@ TEST_CASE(  // NOLINT
   popts.lp_matrix_options.row_with_name_map = true;
 
   auto options = PlanningOptionsLP {popts};
-  SimulationLP sim_lp(make_simple_simulation(), options);
+  const auto sim = make_simple_simulation();
+  SimulationLP sim_lp(sim, options);
 
   const Array<Bus> bus_array = {
       {
