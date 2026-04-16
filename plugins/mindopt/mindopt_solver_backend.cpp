@@ -22,6 +22,88 @@
 namespace gtopt
 {
 
+namespace
+{
+
+/// Apply every SolverOptions field onto a *fresh* MindOpt env.
+///
+/// Pure helper: mutates `env` only, touches no backend members.  Shared
+/// between the live `apply_options()` path and the clone path, so any
+/// option the caller ever set is replayed onto the new env on clone().
+///
+/// NOTE: SolverOptions::low_memory has no documented MindOpt C API
+/// equivalent.  We deliberately leave it as a no-op here rather than
+/// forcing a proxy (e.g. single-threaded or simplex-only) that would
+/// slow down all solves.
+void apply_options_to_env(MDOenv* env, const SolverOptions& opts)
+{
+  if (env == nullptr) {
+    return;
+  }
+
+  if (opts.threads > 0) {
+    MDOsetintparam(env, MDO_INT_PAR_NUM_THREADS, opts.threads);
+  }
+
+  MDOsetintparam(env, MDO_INT_PAR_PRESOLVE, opts.presolve ? 1 : 0);
+
+  if (const auto oeps = opts.optimal_eps; oeps && *oeps > 0) {
+    MDOsetdblparam(env, MDO_DBL_PAR_SPX_DUAL_TOLERANCE, *oeps);
+  }
+  if (const auto feps = opts.feasible_eps; feps && *feps > 0) {
+    MDOsetdblparam(env, MDO_DBL_PAR_SPX_PRIMAL_TOLERANCE, *feps);
+  }
+  if (const auto beps = opts.barrier_eps; beps && *beps > 0) {
+    MDOsetdblparam(env, MDO_DBL_PAR_IPM_GAP_TOLERANCE, *beps);
+  }
+  if (const auto tl = opts.time_limit; tl && *tl > 0.0) {
+    MDOsetdblparam(env, MDO_DBL_PAR_MAX_TIME, *tl);
+  }
+
+  // Method: -1=auto, 0=primal simplex, 1=dual simplex, 2=barrier, 3=concurrent
+  if (opts.reuse_basis && opts.algorithm != LPAlgo::barrier) {
+    MDOsetintparam(env, MDO_INT_PAR_METHOD, 1);  // dual simplex
+    MDOsetintparam(env, MDO_INT_PAR_PRESOLVE, 0);
+    return;
+  }
+
+  switch (opts.algorithm) {
+    case LPAlgo::default_algo:
+      MDOsetintparam(env, MDO_INT_PAR_METHOD, -1);  // auto
+      break;
+    case LPAlgo::primal:
+      MDOsetintparam(env, MDO_INT_PAR_METHOD, 0);  // primal simplex
+      break;
+    case LPAlgo::dual:
+      MDOsetintparam(env, MDO_INT_PAR_METHOD, 1);  // dual simplex
+      break;
+    case LPAlgo::barrier:
+      MDOsetintparam(env, MDO_INT_PAR_METHOD, 2);  // barrier/IPM
+      MDOsetintparam(env, MDO_INT_PAR_SOLUTION_TARGET, opts.crossover ? 0 : 2);
+      break;
+    case LPAlgo::last_algo:
+      break;
+  }
+
+  MDOsetintparam(env, MDO_INT_PAR_OUTPUT_FLAG, opts.log_level > 0 ? 1 : 0);
+}
+
+/// Apply cached log-filename settings to a fresh env.  level<=0 or empty
+/// filename leaves the env in its silent default.
+void apply_log_filename_to_env(MDOenv* env,
+                               const std::string& filename,
+                               int level)
+{
+  if (env == nullptr || level <= 0 || filename.empty()) {
+    return;
+  }
+  const auto log_path = std::format("{}.log", filename);
+  MDOsetstrparam(env, MDO_STR_PAR_LOG_FILE, log_path.c_str());
+  MDOsetintparam(env, MDO_INT_PAR_OUTPUT_FLAG, 1);
+}
+
+}  // namespace
+
 // ── helpers ──────────────────────────────────────────────────────────────
 
 void MindOptSolverBackend::check_error(int rc, const char* func) const
@@ -31,6 +113,28 @@ void MindOptSolverBackend::check_error(int rc, const char* func) const
     throw std::runtime_error(std::format(
         "MindOpt: {} failed (rc={}: {})", func, rc, msg ? msg : ""));
   }
+}
+
+void MindOptSolverBackend::reset_model_()
+{
+  if (m_model_ != nullptr) {
+    MDOfreemodel(m_model_);
+    m_model_ = nullptr;
+  }
+  int rc = MDOnewmodel(
+      m_env_,
+      &m_model_,
+      m_prep_.prob_name.empty() ? "gtopt" : m_prep_.prob_name.c_str(),
+      0,
+      nullptr,
+      nullptr,
+      nullptr,
+      nullptr,
+      nullptr);
+  check_error(rc, "MDOnewmodel");
+  MDOsetintattr(m_model_, MDO_INT_ATTR_MODEL_SENSE, MDO_MINIMIZE);
+  m_prob_cached_ = false;
+  m_sol_cached_ = false;
 }
 
 // ── ctor / dtor ──────────────────────────────────────────────────────────
@@ -134,6 +238,7 @@ bool MindOptSolverBackend::supports_mip() const noexcept
 
 void MindOptSolverBackend::set_prob_name(const std::string& name)
 {
+  m_prep_.prob_name = name;
   MDOsetstrattr(m_model_, MDO_STR_ATTR_MODEL_NAME, name.c_str());
 }
 
@@ -161,44 +266,33 @@ void MindOptSolverBackend::load_problem(int ncols,
                                         const double* rowlb,
                                         const double* rowub)
 {
-  m_prob_cached_ = false;
-  m_sol_cached_ = false;
-
-  // Free old model and create fresh one
-  if (m_model_ != nullptr) {
-    MDOfreemodel(m_model_);
-    m_model_ = nullptr;
-  }
+  // Drop the previous model and create a fresh one replaying cached prob_name.
+  reset_model_();
 
   if (ncols == 0 && nrows == 0) {
-    int rc = MDOnewmodel(m_env_,
-                         &m_model_,
-                         "gtopt",
-                         0,
-                         nullptr,
-                         nullptr,
-                         nullptr,
-                         nullptr,
-                         nullptr);
-    check_error(rc, "MDOnewmodel");
-    MDOsetintattr(m_model_, MDO_INT_ATTR_MODEL_SENSE, MDO_MINIMIZE);
     return;
   }
 
   // MindOpt MDOloadmodel wants sense/rhs per row.  We need to convert
   // from ranged bounds (rowlb, rowub) to sense + rhs.
-  // Strategy: create model with variables only, then add range constraints.
+  // Strategy: drop the empty model and recreate it with columns preloaded.
+
+  if (m_model_ != nullptr) {
+    MDOfreemodel(m_model_);
+    m_model_ = nullptr;
+  }
 
   // Step 1: create model with columns only (no constraints)
-  int rc = MDOnewmodel(m_env_,
-                       &m_model_,
-                       "gtopt",
-                       ncols,
-                       const_cast<double*>(obj),  // NOLINT
-                       const_cast<double*>(collb),  // NOLINT
-                       const_cast<double*>(colub),  // NOLINT
-                       nullptr,  // vtype: all continuous
-                       nullptr);  // varnames
+  int rc = MDOnewmodel(
+      m_env_,
+      &m_model_,
+      m_prep_.prob_name.empty() ? "gtopt" : m_prep_.prob_name.c_str(),
+      ncols,
+      const_cast<double*>(obj),  // NOLINT
+      const_cast<double*>(collb),  // NOLINT
+      const_cast<double*>(colub),  // NOLINT
+      nullptr,  // vtype: all continuous
+      nullptr);  // varnames
   check_error(rc, "MDOnewmodel");
 
   MDOsetintattr(m_model_, MDO_INT_ATTR_MODEL_SENSE, MDO_MINIMIZE);
@@ -647,64 +741,19 @@ bool MindOptSolverBackend::is_proven_dual_infeasible() const
 
 void MindOptSolverBackend::apply_options(const SolverOptions& opts)
 {
+  m_prep_.options = opts;
   m_algorithm_ = opts.algorithm;
   m_threads_ = opts.threads;
   m_presolve_ = opts.presolve;
   m_log_level_ = opts.log_level;
 
-  if (opts.threads > 0) {
-    MDOsetintparam(m_env_, MDO_INT_PAR_NUM_THREADS, opts.threads);
-  }
-
-  MDOsetintparam(m_env_, MDO_INT_PAR_PRESOLVE, opts.presolve ? 1 : 0);
-
-  if (const auto oeps = opts.optimal_eps; oeps && *oeps > 0) {
-    MDOsetdblparam(m_env_, MDO_DBL_PAR_SPX_DUAL_TOLERANCE, *oeps);
-  }
-
-  if (const auto feps = opts.feasible_eps; feps && *feps > 0) {
-    MDOsetdblparam(m_env_, MDO_DBL_PAR_SPX_PRIMAL_TOLERANCE, *feps);
-  }
-
-  if (const auto beps = opts.barrier_eps; beps && *beps > 0) {
-    MDOsetdblparam(m_env_, MDO_DBL_PAR_IPM_GAP_TOLERANCE, *beps);
-  }
-
-  if (const auto tl = opts.time_limit; tl && *tl > 0.0) {
-    MDOsetdblparam(m_env_, MDO_DBL_PAR_MAX_TIME, *tl);
-  }
-
-  // Method: -1=auto, 0=primal simplex, 1=dual simplex, 2=barrier, 3=concurrent
+  // Warm-start override mirrors the helper's dual+no-presolve tweak.
   if (opts.reuse_basis && opts.algorithm != LPAlgo::barrier) {
     m_algorithm_ = LPAlgo::dual;
     m_presolve_ = false;
-
-    MDOsetintparam(m_env_, MDO_INT_PAR_METHOD, 1);  // dual simplex
-    MDOsetintparam(m_env_, MDO_INT_PAR_PRESOLVE, 0);
-    return;
   }
 
-  switch (opts.algorithm) {
-    case LPAlgo::default_algo:
-      MDOsetintparam(m_env_, MDO_INT_PAR_METHOD, -1);  // auto
-      break;
-    case LPAlgo::primal:
-      MDOsetintparam(m_env_, MDO_INT_PAR_METHOD, 0);  // primal simplex
-      break;
-    case LPAlgo::dual:
-      MDOsetintparam(m_env_, MDO_INT_PAR_METHOD, 1);  // dual simplex
-      break;
-    case LPAlgo::barrier:
-      MDOsetintparam(m_env_, MDO_INT_PAR_METHOD, 2);  // barrier/IPM
-      // SolutionTarget: 0 = basic (with crossover), 2 = interior-point only
-      MDOsetintparam(
-          m_env_, MDO_INT_PAR_SOLUTION_TARGET, opts.crossover ? 0 : 2);
-      break;
-    case LPAlgo::last_algo:
-      break;
-  }
-
-  MDOsetintparam(m_env_, MDO_INT_PAR_OUTPUT_FLAG, opts.log_level > 0 ? 1 : 0);
+  apply_options_to_env(m_env_, opts);
 }
 
 SolverOptions MindOptSolverBackend::optimal_options() const
@@ -762,6 +811,8 @@ void MindOptSolverBackend::close_log()
 void MindOptSolverBackend::set_log_filename(const std::string& filename,
                                             int level)
 {
+  m_prep_.log_filename = filename;
+  m_prep_.log_level = level;
   if (level > 0 && !filename.empty()) {
     const auto log_path = std::format("{}.log", filename);
     MDOsetstrparam(m_env_, MDO_STR_PAR_LOG_FILE, log_path.c_str());
@@ -771,6 +822,8 @@ void MindOptSolverBackend::set_log_filename(const std::string& filename,
 
 void MindOptSolverBackend::clear_log_filename()
 {
+  m_prep_.log_filename.clear();
+  m_prep_.log_level = 0;
   MDOsetstrparam(m_env_, MDO_STR_PAR_LOG_FILE, "");
   MDOsetintparam(m_env_, MDO_INT_PAR_OUTPUT_FLAG, 0);
 }
@@ -819,6 +872,27 @@ std::unique_ptr<SolverBackend> MindOptSolverBackend::clone() const
   cloned->m_model_ = MDOcopymodel(m_model_);
   if (cloned->m_model_ == nullptr) {
     throw std::runtime_error("MindOpt: MDOcopymodel failed");
+  }
+
+  // Replay every cached piece of backend state so the clone owns an env
+  // indistinguishable from this one after a load_problem() cycle.  MindOpt
+  // env parameters do NOT survive MDOcopymodel (clone owns a fresh env),
+  // so this is essential.
+  cloned->m_prep_ = m_prep_;
+  cloned->m_algorithm_ = m_algorithm_;
+  cloned->m_threads_ = m_threads_;
+  cloned->m_presolve_ = m_presolve_;
+  cloned->m_log_level_ = m_log_level_;
+
+  if (cloned->m_prep_.options.has_value()) {
+    apply_options_to_env(cloned->m_env_, *cloned->m_prep_.options);
+  }
+  apply_log_filename_to_env(
+      cloned->m_env_, cloned->m_prep_.log_filename, cloned->m_prep_.log_level);
+  if (!cloned->m_prep_.prob_name.empty()) {
+    MDOsetstrattr(cloned->m_model_,
+                  MDO_STR_ATTR_MODEL_NAME,
+                  cloned->m_prep_.prob_name.c_str());
   }
 
   return cloned;
