@@ -27,12 +27,12 @@ concurrency:
 # ---- Compiler selection ----
 # Change ACTIVE_COMPILER (and the four companion vars) to switch compilers.
 #
-#   GCC 14:
+#   GCC 14 (default — faster compile than Clang):
 #     ACTIVE_COMPILER: gcc
 #     CC: gcc-14  CXX: g++-14
 #     GCOV_TOOL: gcov-14
 #
-#   Clang 21 (default):
+#   Clang 21:
 #     ACTIVE_COMPILER: clang
 #     CC: clang  CXX: clang++
 #     GCOV_TOOL: /tmp/llvm-gcov.sh
@@ -51,10 +51,10 @@ concurrency:
 env:
   CTEST_OUTPUT_ON_FAILURE: 1
   CPM_SOURCE_CACHE: ${{ github.workspace }}/cpm_modules
-  ACTIVE_COMPILER: clang
-  CC: clang
-  CXX: clang++
-  GCOV_TOOL: /tmp/llvm-gcov.sh
+  ACTIVE_COMPILER: gcc
+  CC: gcc-14
+  CXX: g++-14
+  GCOV_TOOL: gcov-14
   # Set to 'true' to enable code coverage instrumentation and collection.
   # Leave 'false' for faster builds without coverage overhead.
   # Can also be enabled via workflow_dispatch input `run_coverage: true`.
@@ -143,7 +143,7 @@ jobs:
             COVERAGE_FLAG="-DENABLE_TEST_COVERAGE=1"
             BUILD_TYPE="Debug"
           fi
-          cmake -S all -B build ${COVERAGE_FLAG} -DCMAKE_BUILD_TYPE=${BUILD_TYPE} -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+          cmake -S all -B build ${COVERAGE_FLAG} -DCMAKE_BUILD_TYPE=${BUILD_TYPE} -DGTOPT_BUILD_INTEGRATION_TESTS=ON -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
         env:
           CC: ${{ env.CC }}
           CXX: ${{ env.CXX }}
