@@ -1131,6 +1131,27 @@ auto SDDPMethod::initialize_solver() -> std::expected<void, Error>
                 m_options_.scale_alpha);
   }
 
+  // Under LowMemoryMode::rebuild the SystemLP constructor deferred
+  // load_flat entirely, so every per-cell backend is still released at
+  // this point.  The next steps — initialize_alpha_variables (add_col),
+  // collect_state_variable_links (get_col_{low,upp}_raw),
+  // save_base_numrows (get_numrows), cut loading (add_row) and
+  // capture_hot_start_cuts (row introspection) — all require a live
+  // backend.  Build every cell on the main thread now so those
+  // operations see a real LP; we release again below once all one-time
+  // setup has been captured in the persistent SDDP state
+  // (m_dynamic_cols_ / m_active_cuts_ / m_base_numrows_), which is what
+  // the rebuild path replays.
+  const bool rebuild_mode =
+      m_options_.low_memory_mode == LowMemoryMode::rebuild;
+  if (rebuild_mode) {
+    for (const auto scene_index : iota_range<SceneIndex>(0, num_scenes)) {
+      for (const auto phase_index : iota_range<PhaseIndex>(0, num_phases)) {
+        planning_lp().system(scene_index, phase_index).ensure_lp_built();
+      }
+    }
+  }
+
   SPDLOG_INFO("SDDP: adding alpha variables and collecting state links");
   for (const auto scene_index : iota_range<SceneIndex>(0, num_scenes)) {
     initialize_alpha_variables(scene_index);
@@ -1146,27 +1167,13 @@ auto SDDPMethod::initialize_solver() -> std::expected<void, Error>
   // Save per-(scene, phase) base row counts before any cuts are loaded.
   // Rows below this threshold are structural constraints and are never
   // pruned; rows above it are Benders cuts (including hot-start cuts).
-  //
-  // Under LowMemoryMode::rebuild the per-cell LP is not assembled yet at
-  // this point, so we trigger a one-shot build to read the structural
-  // row count, then release the backend immediately.  This loop runs on
-  // the main thread (no concurrent rebuilds), so no extra synchronisation
-  // is needed.
-  const bool rebuild_mode =
-      m_options_.low_memory_mode == LowMemoryMode::rebuild;
   for (const auto scene_index : iota_range<SceneIndex>(0, num_scenes)) {
     for (const auto phase_index : iota_range<PhaseIndex>(0, num_phases)) {
-      auto& sys = planning_lp().system(scene_index, phase_index);
-      if (rebuild_mode) {
-        sys.ensure_lp_built();
-      }
-      auto& li = sys.linear_interface();
+      auto& li =
+          planning_lp().system(scene_index, phase_index).linear_interface();
       li.save_base_numrows();
       m_scene_phase_states_[scene_index][phase_index].base_nrows =
           li.base_numrows();
-      if (rebuild_mode) {
-        sys.release_backend();
-      }
     }
   }
 
@@ -1268,13 +1275,21 @@ auto SDDPMethod::initialize_solver() -> std::expected<void, Error>
   // ── Low-memory: snapshot LP state after all initialization ──────────────
   // Must happen after hot-start/boundary/named cuts are loaded so that
   // the snapshot captures those rows for correct reconstruction.
+  //
+  // Under LowMemoryMode::rebuild we also release every per-cell backend
+  // here — the live LPs were only kept alive for this one-time setup
+  // (alpha column, state-link bounds, hot-start cuts).  All persistent
+  // state needed to rebuild each cell is now in m_dynamic_cols_ /
+  // m_active_cuts_ / m_base_numrows_, and the main solve loop will call
+  // ensure_lp_built() lazily from the task that needs it.
   if (m_options_.low_memory_mode != LowMemoryMode::off) {
     for (const auto scene_index : iota_range<SceneIndex>(0, num_scenes)) {
       for (const auto phase_index : iota_range<PhaseIndex>(0, num_phases)) {
-        planning_lp()
-            .system(scene_index, phase_index)
-            .linear_interface()
-            .capture_hot_start_cuts();
+        auto& sys = planning_lp().system(scene_index, phase_index);
+        sys.linear_interface().capture_hot_start_cuts();
+        if (rebuild_mode) {
+          sys.release_backend();
+        }
       }
     }
   }

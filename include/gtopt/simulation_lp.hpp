@@ -228,12 +228,18 @@ public:
                                                 std::move(context));
 
     if (!inserted) {
-      const auto msg =
-          std::format("duplicated variable {}:{} in simulation map",
-                      key.class_name,
-                      key.col_name);
-      SPDLOG_CRITICAL(msg);
-      throw std::runtime_error(msg);
+      // Idempotent re-registration is allowed: LowMemoryMode::rebuild
+      // re-runs create_lp() for the same (scene, phase), which replays
+      // every add_state_variable call.  Same col index = benign rebuild;
+      // different col = a real bug we still want to catch.
+      if (it->second.col() != col) {
+        const auto msg =
+            std::format("duplicated variable {}:{} in simulation map",
+                        key.class_name,
+                        key.col_name);
+        SPDLOG_CRITICAL(msg);
+        throw std::runtime_error(msg);
+      }
     }
 
     return it->second;

@@ -1620,3 +1620,41 @@ TEST_CASE(  // NOLINT
   // May not converge with aggressive pruning, but should not crash
   CHECK(results->back().upper_bound > 0.0);
 }
+
+TEST_CASE(  // NOLINT
+    "SDDPMethod — rebuild mode: initialize_solver does not segfault")
+{
+  // Regression for a crash where initialize_solver() invoked
+  // add_col(alpha) and get_col_{low,upp}_raw() on released backends
+  // under LowMemoryMode::rebuild.  The SystemLP constructor defers
+  // load_flat in rebuild mode, so every per-cell backend is null until
+  // ensure_lp_built() runs.  The earlier ordering called
+  // initialize_alpha_variables + collect_state_variable_links BEFORE
+  // ensure_lp_built, dereferencing the null backend.
+  //
+  // Fix: build every cell before the alpha/state-link setup pass, keep
+  // them live through cut loading / capture_hot_start_cuts, then release
+  // only once all persistent state (m_dynamic_cols_, m_active_cuts_,
+  // m_base_numrows_) has been captured.
+  auto planning = make_3phase_hydro_planning();
+  // Configure PlanningLP to construct SystemLPs in rebuild mode (skips
+  // the eager load_flat; this is what sets up the null-backend state
+  // that the bug required).
+  planning.options.sddp_options = SddpOptions {
+      .low_memory_mode = LowMemoryMode::rebuild,
+  };
+  PlanningLP planning_lp(std::move(planning));
+
+  SDDPOptions sddp_opts;
+  sddp_opts.max_iterations = 2;
+  sddp_opts.convergence_tol = 1.0;  // loose: we only care about init+solve
+  sddp_opts.low_memory_mode = LowMemoryMode::rebuild;
+  sddp_opts.enable_api = false;
+
+  SDDPMethod sddp(planning_lp, sddp_opts);
+  auto results = sddp.solve();
+  REQUIRE(results.has_value());  // pre-fix: segfault during initialize_solver
+  CHECK_FALSE(results->empty());
+  CHECK(results->back().upper_bound > 0.0);
+  CHECK(results->back().lower_bound > 0.0);
+}
