@@ -161,7 +161,7 @@ public:
 private:
   void cache_problem_data() const;
   void cache_solution() const;
-  void check_error(int rc, const char* func) const;
+  static void check_error(int rc, const char* func);
 
   /// Recreate m_model_ from m_prep_ (env-level params were already applied
   /// onto m_env_ by apply_options_to_env).  Used by load_problem() so every

@@ -300,6 +300,7 @@ void HighsSolverBackend::add_rows(int num_rows,
                                   const double* rowub)
 {
   m_solution_valid_ = false;
+  // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
   const int nnz = rowbeg[num_rows];
   m_highs_->addRows(num_rows, rowlb, rowub, nnz, rowbeg, rowind, rowval);
 }

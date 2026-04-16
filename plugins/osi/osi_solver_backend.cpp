@@ -18,6 +18,7 @@
 #include <coin/OsiClpSolverInterface.hpp>
 #include <coin/OsiSolverInterface.hpp>
 #include <gtopt/solver_options.hpp>
+#include <gtopt/utils.hpp>
 
 #ifdef GTOPT_OSI_HAS_CBC
 #  include <coin/OsiCbcSolverInterface.hpp>
@@ -338,12 +339,14 @@ void OsiSolverBackend::add_rows(int num_rows,
                                 const double* rowub)
 {
   // OSI does not have a CSR bulk addRows, so dispatch per row.
-  for (int r = 0; r < num_rows; ++r) {
+  // NOLINTBEGIN(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+  for (const int r : iota_range(0, num_rows)) {
     const int start = rowbeg[r];
     const int count = rowbeg[r + 1] - start;
     m_solver_->addRow(
         count, rowind + start, rowval + start, rowlb[r], rowub[r]);
   }
+  // NOLINTEND(cppcoreguidelines-pro-bounds-pointer-arithmetic)
 }
 
 void OsiSolverBackend::set_row_lower(int index, double value)

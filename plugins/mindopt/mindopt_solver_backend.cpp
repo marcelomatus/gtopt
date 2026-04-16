@@ -17,6 +17,7 @@
 #include <Mindopt.h>
 #include <fcntl.h>
 #include <gtopt/solver_options.hpp>
+#include <gtopt/utils.hpp>
 #include <unistd.h>
 
 namespace gtopt
@@ -106,12 +107,12 @@ void apply_log_filename_to_env(MDOenv* env,
 
 // ── helpers ──────────────────────────────────────────────────────────────
 
-void MindOptSolverBackend::check_error(int rc, const char* func) const
+void MindOptSolverBackend::check_error(int rc, const char* func)
 {
   if (rc != MDO_OKAY) {
     const char* msg = MDOexplainerror(rc);
     throw std::runtime_error(std::format(
-        "MindOpt: {} failed (rc={}: {})", func, rc, msg ? msg : ""));
+        "MindOpt: {} failed (rc={}: {})", func, rc, msg != nullptr ? msg : ""));
   }
 }
 
@@ -121,7 +122,7 @@ void MindOptSolverBackend::reset_model_()
     MDOfreemodel(m_model_);
     m_model_ = nullptr;
   }
-  int rc = MDOnewmodel(
+  const int rc = MDOnewmodel(
       m_env_,
       &m_model_,
       m_prep_.prob_name.empty() ? "gtopt" : m_prep_.prob_name.c_str(),
@@ -143,7 +144,7 @@ MindOptSolverBackend::MindOptSolverBackend()
 {
   // Redirect stdout to /dev/null before any MindOpt calls.
   // MindOpt prints a banner to stdout that cannot be suppressed via API.
-  const int saved_stdout = ::dup(STDOUT_FILENO);
+  const int saved_stdout = ::dup(STDOUT_FILENO);  // NOLINT(android-cloexec-dup)
   const int devnull = ::open("/dev/null", O_WRONLY);  // NOLINT
   if (devnull >= 0) {
     ::dup2(devnull, STDOUT_FILENO);
@@ -180,7 +181,7 @@ MindOptSolverBackend::MindOptSolverBackend()
                     "Set MINDOPT_HOME to your MindOpt installation directory "
                     "and ensure a valid license file (mindopt.lic) is present.",
                     rc,
-                    msg ? msg : "unknown error"));
+                    msg != nullptr ? msg : "unknown error"));
   }
 
   rc = MDOnewmodel(m_env_,
@@ -299,8 +300,9 @@ void MindOptSolverBackend::load_problem(int ncols,
 
   // Step 2: convert CSC to CSR and add range constraints in batch
   // Build CSR from CSC
+  const bool have_nnz = (ncols > 0 && matbeg != nullptr);
   // NOLINTBEGIN(cppcoreguidelines-pro-bounds-pointer-arithmetic)
-  const auto nnz = (ncols > 0 && matbeg != nullptr) ? matbeg[ncols] : 0;
+  const auto nnz = have_nnz ? matbeg[ncols] : 0;
 
   // Count entries per row
   std::vector<int> row_count(static_cast<size_t>(nrows), 0);
@@ -320,16 +322,18 @@ void MindOptSolverBackend::load_problem(int ncols,
   std::vector<double> cval(static_cast<size_t>(nnz));
   std::vector<int> pos(static_cast<size_t>(nrows), 0);  // current fill position
 
-  for (int col = 0; col < ncols; ++col) {
-    const int col_start = matbeg[col];
-    const int col_end = matbeg[col + 1];
-    for (int k = col_start; k < col_end; ++k) {
-      const int row = matind[k];
-      const auto row_idx = static_cast<size_t>(row);
-      const int dest = cbeg[row_idx] + pos[row_idx];
-      cind[static_cast<size_t>(dest)] = col;
-      cval[static_cast<size_t>(dest)] = matval[k];
-      ++pos[row_idx];
+  if (have_nnz) {
+    for (int col = 0; col < ncols; ++col) {
+      const int col_start = matbeg[col];
+      const int col_end = matbeg[col + 1];
+      for (int k = col_start; k < col_end; ++k) {
+        const int row = matind[k];
+        const auto row_idx = static_cast<size_t>(row);
+        const int dest = cbeg[row_idx] + pos[row_idx];
+        cind[static_cast<size_t>(dest)] = col;
+        cval[static_cast<size_t>(dest)] = matval[k];
+        ++pos[row_idx];
+      }
     }
   }
   // NOLINTEND(cppcoreguidelines-pro-bounds-pointer-arithmetic)
@@ -379,7 +383,7 @@ void MindOptSolverBackend::add_col(double lb, double ub, double obj)
 {
   m_prob_cached_ = false;
   m_sol_cached_ = false;
-  int rc = MDOaddvar(
+  const int rc = MDOaddvar(
       m_model_, 0, nullptr, nullptr, obj, lb, ub, MDO_CONTINUOUS, nullptr);
   check_error(rc, "MDOaddvar");
 }
@@ -415,13 +419,13 @@ void MindOptSolverBackend::add_row(int num_elements,
   m_prob_cached_ = false;
   m_sol_cached_ = false;
 
-  int rc = MDOaddrangeconstr(m_model_,
-                             num_elements,
-                             const_cast<int*>(columns),  // NOLINT
-                             const_cast<double*>(elements),  // NOLINT
-                             rowlb,
-                             rowub,
-                             nullptr);
+  const int rc = MDOaddrangeconstr(m_model_,
+                                   num_elements,
+                                   const_cast<int*>(columns),  // NOLINT
+                                   const_cast<double*>(elements),  // NOLINT
+                                   rowlb,
+                                   rowub,
+                                   nullptr);
   check_error(rc, "MDOaddrangeconstr");
 }
 
@@ -436,18 +440,21 @@ void MindOptSolverBackend::add_rows(int num_rows,
   m_sol_cached_ = false;
 
   // MindOpt does not expose a CSR bulk addRows, dispatch per row.
-  for (int r = 0; r < num_rows; ++r) {
+  // NOLINTBEGIN(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+  for (const int r : iota_range(0, num_rows)) {
     const int start = rowbeg[r];
     const int count = rowbeg[r + 1] - start;
-    int rc = MDOaddrangeconstr(m_model_,
-                               count,
-                               const_cast<int*>(rowind + start),  // NOLINT
-                               const_cast<double*>(rowval + start),  // NOLINT
-                               rowlb[r],
-                               rowub[r],
-                               nullptr);
+    const int rc =
+        MDOaddrangeconstr(m_model_,
+                          count,
+                          const_cast<int*>(rowind + start),  // NOLINT
+                          const_cast<double*>(rowval + start),  // NOLINT
+                          rowlb[r],
+                          rowub[r],
+                          nullptr);
     check_error(rc, "MDOaddrangeconstr");
   }
+  // NOLINTEND(cppcoreguidelines-pro-bounds-pointer-arithmetic)
 }
 
 void MindOptSolverBackend::set_row_lower(int index, double value)
@@ -480,7 +487,7 @@ void MindOptSolverBackend::delete_rows(int num, const int* indices)
   // MDOdelconstrs takes a mutable int* and may modify the array in-place
   // (e.g. sorting).  Copy to protect the caller's data.
   std::vector<int> buf(indices, indices + num);  // NOLINT
-  int rc = MDOdelconstrs(m_model_, num, buf.data());
+  const int rc = MDOdelconstrs(m_model_, num, buf.data());
   check_error(rc, "MDOdelconstrs");
 }
 
@@ -686,7 +693,7 @@ void MindOptSolverBackend::set_row_price(const double* price)
 void MindOptSolverBackend::initial_solve()
 {
   m_sol_cached_ = false;
-  int rc = MDOoptimize(m_model_);
+  const int rc = MDOoptimize(m_model_);
   if (rc != MDO_OKAY && rc != MDO_NO_SOLN) {
     check_error(rc, "MDOoptimize");
   }
@@ -695,7 +702,7 @@ void MindOptSolverBackend::initial_solve()
 void MindOptSolverBackend::resolve()
 {
   m_sol_cached_ = false;
-  int rc = MDOoptimize(m_model_);
+  const int rc = MDOoptimize(m_model_);
   if (rc != MDO_OKAY && rc != MDO_NO_SOLN) {
     check_error(rc, "MDOoptimize");
   }
