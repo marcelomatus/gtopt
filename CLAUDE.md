@@ -32,6 +32,15 @@ conda for Arrow/Parquet, and saves `tools/compile_commands.json` for clang-tidy.
 > `-DCMAKE_BUILD_TYPE=Debug` (or `setup_sandbox.sh --debug`) when you
 > actually need to step through code in gdb.
 
+> **Scratch builds**: when building outside the canonical `./build` dir
+> (e.g. comparing flags, testing a sanitizer variant, or when another agent
+> is already using `./build`), allocate a fresh dir via
+> `BUILD_DIR=$(bash tools/mk_scratch_build.sh)`. The helper wraps
+> `mktemp -d -p /tmp gtopt-build-XXXX` so concurrent agent sessions never
+> corrupt each other's Ninja state. Pass `"$BUILD_DIR"` to every
+> `cmake -S ... -B`, `cmake --build`, and `ctest` call, then `rm -rf` it
+> when done.
+
 ### Local development (no conda needed)
 
 ```bash
