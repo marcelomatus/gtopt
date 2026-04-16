@@ -166,7 +166,6 @@ using ApertureSubmitFunc = std::function<std::future<ApertureCutResult>(
 /// @param forward_row_dual Forward-pass dual solution (warm-start hint for
 ///                         aperture clones).  Applied after update_aperture.
 /// @param iteration        Current SDDP iteration index
-/// @param cut_coeff_mode   Mode for computing cut coefficients
 /// @param scale_alpha      Scaling factor applied to the cut alpha (RHS)
 /// @param cut_coeff_eps    Epsilon below which cut coefficients are zeroed
 /// @param cut_coeff_max    Maximum absolute cut coefficient (0 = no limit)
@@ -193,7 +192,6 @@ using ApertureSubmitFunc = std::function<std::future<ApertureCutResult>(
     std::span<const double> forward_col_sol = {},
     std::span<const double> forward_row_dual = {},
     IterationIndex iteration_index = {},
-    CutCoeffMode cut_coeff_mode = CutCoeffMode::reduced_cost,
     double scale_alpha = 1.0,
     double cut_coeff_eps = 0.0,
     double cut_coeff_max = 0.0) -> std::optional<SparseRow>;

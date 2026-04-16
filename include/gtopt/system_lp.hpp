@@ -486,6 +486,20 @@ public:
     m_linear_interface_.reconstruct_backend(col_sol, row_dual);
   }
 
+  /// Forward accessor to the LP's cumulative solver counters.
+  [[nodiscard]] constexpr const SolverStats& solver_stats() const noexcept
+  {
+    return m_linear_interface_.solver_stats();
+  }
+
+  /// Forward the clone-merge helper so callers that spin up a cloned
+  /// LP for elastic filtering can fold its counters back in before it
+  /// is destroyed.
+  constexpr void merge_solver_stats(const SolverStats& other) noexcept
+  {
+    m_linear_interface_.merge_solver_stats(other);
+  }
+
   void record_dynamic_col(SparseCol col)
   {
     m_linear_interface_.record_dynamic_col(std::move(col));

@@ -7,6 +7,7 @@
  */
 
 #include <algorithm>
+#include <chrono>
 #include <expected>
 #include <memory>
 #include <ranges>
@@ -513,6 +514,10 @@ void LinearInterface::load_flat(const FlatLinearProblem& flat_lp)
   }
 
   m_backend_->set_prob_name(flat_lp.name);
+
+  // Count every backend load_problem call so the end-of-run report can
+  // distinguish normal-mode (1×) from low-memory reconstruction (N×).
+  ++m_solver_stats_.load_problem_calls;
 
   m_backend_->load_problem(flat_lp.ncols,
                            flat_lp.nrows,
@@ -1179,6 +1184,12 @@ constexpr LPAlgo next_fallback_algo(LPAlgo current) noexcept
 std::expected<int, Error> LinearInterface::initial_solve(
     const SolverOptions& solver_options)
 {
+  using Clock = std::chrono::steady_clock;
+
+  ++m_solver_stats_.initial_solve_calls;
+  m_solver_stats_.total_ncols += static_cast<std::size_t>(get_numcols());
+  m_solver_stats_.total_nrows += static_cast<std::size_t>(get_numrows());
+
   try {
     // Start from backend-optimal defaults, overlay user settings on top.
     auto effective = m_backend_->optimal_options();
@@ -1192,13 +1203,21 @@ std::expected<int, Error> LinearInterface::initial_solve(
         ? std::max(effective.log_level, 1)
         : effective.log_level;
 
-    if (log_mode != SolverLogMode::nolog && !m_log_file_.empty()) {
-      const LogFileGuard log_guard(*this, m_log_file_, log_level);
-      m_backend_->initial_solve();
-    } else {
-      const HandlerGuard guard(*this, log_level);
-      m_backend_->initial_solve();
-    }
+    auto timed_solve = [&]
+    {
+      const auto t0 = Clock::now();
+      if (log_mode != SolverLogMode::nolog && !m_log_file_.empty()) {
+        const LogFileGuard log_guard(*this, m_log_file_, log_level);
+        m_backend_->initial_solve();
+      } else {
+        const HandlerGuard guard(*this, log_level);
+        m_backend_->initial_solve();
+      }
+      m_solver_stats_.total_solve_time_s +=
+          std::chrono::duration<double>(Clock::now() - t0).count();
+    };
+
+    timed_solve();
 
     if (!is_optimal() && effective.max_fallbacks > 0) {
       // Algorithm fallback cycle: try alternative algorithms
@@ -1225,19 +1244,23 @@ std::expected<int, Error> LinearInterface::initial_solve(
         }
         m_backend_->apply_options(fallback_opts);
 
-        if (log_mode != SolverLogMode::nolog && !m_log_file_.empty()) {
-          const LogFileGuard log_guard(*this, m_log_file_, log_level);
-          m_backend_->initial_solve();
-        } else {
-          const HandlerGuard guard(*this, log_level);
-          m_backend_->initial_solve();
-        }
+        ++m_solver_stats_.fallback_solves;
+        timed_solve();
 
         current_algo = next_algo;
       }
     }
 
     if (!is_optimal()) {
+      // Classify infeasibility for the end-of-run stats report.  Query
+      // the backend directly (not get_status()) so primal/dual are
+      // distinguishable — get_status() collapses them into status 2.
+      ++m_solver_stats_.infeasible_count;
+      if (m_backend_->is_proven_primal_infeasible()) {
+        ++m_solver_stats_.primal_infeasible;
+      } else if (m_backend_->is_proven_dual_infeasible()) {
+        ++m_solver_stats_.dual_infeasible;
+      }
       return std::unexpected(Error {
           .code = ErrorCode::SolverError,
           .message = std::format(
@@ -1248,6 +1271,10 @@ std::expected<int, Error> LinearInterface::initial_solve(
                                           : ""),
           .status = get_status(),
       });
+    }
+
+    if (const auto k = m_backend_->get_kappa(); k > 0.0) {
+      m_solver_stats_.max_kappa = std::max(m_solver_stats_.max_kappa, k);
     }
 
     const auto status = get_status();
@@ -1266,7 +1293,14 @@ std::expected<int, Error> LinearInterface::initial_solve(
 std::expected<int, Error> LinearInterface::resolve(
     const SolverOptions& solver_options)
 {
+  using Clock = std::chrono::steady_clock;
+
   ensure_backend();
+
+  ++m_solver_stats_.resolve_calls;
+  m_solver_stats_.total_ncols += static_cast<std::size_t>(get_numcols());
+  m_solver_stats_.total_nrows += static_cast<std::size_t>(get_numrows());
+
   try {
     // Start from backend-optimal defaults, overlay user settings on top.
     auto effective = m_backend_->optimal_options();
@@ -1280,13 +1314,21 @@ std::expected<int, Error> LinearInterface::resolve(
         ? std::max(effective.log_level, 1)
         : effective.log_level;
 
-    if (log_mode != SolverLogMode::nolog && !m_log_file_.empty()) {
-      const LogFileGuard log_guard(*this, m_log_file_, log_level);
-      m_backend_->resolve();
-    } else {
-      const HandlerGuard guard(*this, log_level);
-      m_backend_->resolve();
-    }
+    auto timed_solve = [&]
+    {
+      const auto t0 = Clock::now();
+      if (log_mode != SolverLogMode::nolog && !m_log_file_.empty()) {
+        const LogFileGuard log_guard(*this, m_log_file_, log_level);
+        m_backend_->resolve();
+      } else {
+        const HandlerGuard guard(*this, log_level);
+        m_backend_->resolve();
+      }
+      m_solver_stats_.total_solve_time_s +=
+          std::chrono::duration<double>(Clock::now() - t0).count();
+    };
+
+    timed_solve();
 
     if (!is_optimal() && effective.max_fallbacks > 0) {
       // Algorithm fallback cycle: try alternative algorithms
@@ -1313,19 +1355,21 @@ std::expected<int, Error> LinearInterface::resolve(
         }
         m_backend_->apply_options(fallback_opts);
 
-        if (log_mode != SolverLogMode::nolog && !m_log_file_.empty()) {
-          const LogFileGuard log_guard(*this, m_log_file_, log_level);
-          m_backend_->resolve();
-        } else {
-          const HandlerGuard guard(*this, log_level);
-          m_backend_->resolve();
-        }
+        ++m_solver_stats_.fallback_solves;
+        timed_solve();
 
         current_algo = next_algo;
       }
     }
 
     if (!is_optimal()) {
+      // Classify infeasibility for the end-of-run stats report.
+      ++m_solver_stats_.infeasible_count;
+      if (m_backend_->is_proven_primal_infeasible()) {
+        ++m_solver_stats_.primal_infeasible;
+      } else if (m_backend_->is_proven_dual_infeasible()) {
+        ++m_solver_stats_.dual_infeasible;
+      }
       return std::unexpected(Error {
           .code = ErrorCode::SolverError,
           .message = std::format(
@@ -1336,6 +1380,10 @@ std::expected<int, Error> LinearInterface::resolve(
                                           : ""),
           .status = get_status(),
       });
+    }
+
+    if (const auto k = m_backend_->get_kappa(); k > 0.0) {
+      m_solver_stats_.max_kappa = std::max(m_solver_stats_.max_kappa, k);
     }
 
     const auto status = get_status();
@@ -1367,7 +1415,13 @@ void LinearInterface::ensure_duals()
   auto opts = m_last_solver_options_;
   opts.crossover = true;
   m_backend_->apply_options(opts);
+
+  ++m_solver_stats_.crossover_solves;
+  const auto t0 = std::chrono::steady_clock::now();
   m_backend_->resolve();
+  m_solver_stats_.total_solve_time_s +=
+      std::chrono::duration<double>(std::chrono::steady_clock::now() - t0)
+          .count();
 
   // Update cached options so subsequent dual accesses don't re-solve.
   m_last_solver_options_.crossover = true;

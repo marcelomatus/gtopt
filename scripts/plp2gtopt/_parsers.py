@@ -423,6 +423,21 @@ def add_solver_arguments(parser: argparse.ArgumentParser, conf: dict[str, str]) 
         ),
     )
     parser.add_argument(
+        "--alias-file",
+        dest="alias_file",
+        metavar="JSON",
+        type=Path,
+        default=None,
+        help=(
+            "Path to a JSON file containing a flat {old_name: new_name} map "
+            "of state-variable renames applied when writing boundary_cuts.csv "
+            "and hot_start_cuts.csv headers.  Use this to reconcile PLP "
+            "reservoir/junction names with gtopt names without editing data "
+            "files.  Unknown keys are ignored; missing keys pass through "
+            'unchanged.  Example: {"CANUTILLAR": "CHAPO"}.'
+        ),
+    )
+    parser.add_argument(
         "--stationary-tol",
         dest="stationary_tol",
         metavar="TOL",

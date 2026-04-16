@@ -129,6 +129,21 @@ struct SolverOptions
    */
   bool reuse_basis {false};
 
+  /** @brief Request a solver-native memory-saving mode.
+   *
+   *  Complements gtopt's own low_memory_mode (backend release + flat-LP
+   *  snapshot).  When true, the backend applies its memory-emphasis
+   *  parameter so internal data structures are compacted at the cost of
+   *  solve time.  Unsupported backends silently ignore this hint.
+   *
+   *  Backend mapping:
+   *  - CPLEX:   CPX_PARAM_MEMORYEMPHASIS = 1 (compress internal arrays).
+   *  - HiGHS:   no direct equivalent (ignored).
+   *  - MindOpt: no direct equivalent (ignored).
+   *  - OSI/CLP: no direct equivalent (ignored).
+   */
+  bool low_memory {false};
+
   /**
    * @brief Merge another SolverOptions into this one (first-value-wins for
    * optional fields).
@@ -171,6 +186,9 @@ struct SolverOptions
     }
     if (user.reuse_basis) {
       reuse_basis = user.reuse_basis;
+    }
+    if (user.low_memory) {
+      low_memory = user.low_memory;
     }
     if (user.log_level != 0) {
       log_level = user.log_level;

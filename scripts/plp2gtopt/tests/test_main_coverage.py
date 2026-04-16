@@ -189,6 +189,7 @@ class TestBuildOptions:
             "boundary_max_iterations": None,
             "no_boundary_cuts": False,
             "hot_start_cuts": False,
+            "alias_file": None,
             "stationary_tol": None,
             "stationary_window": None,
             "reservoir_scale_mode": "auto",
@@ -278,6 +279,17 @@ class TestBuildOptions:
         args = self._make_args(variable_scales_file="scales.json")
         opts = build_options(args)
         assert opts["variable_scales_file"] == "scales.json"
+
+    def test_alias_file_argument(self):
+        args = self._make_args(alias_file=Path("alias.json"))
+        opts = build_options(args)
+        assert opts["alias_file"] == Path("alias.json")
+
+    def test_alias_file_default_absent(self):
+        """alias_file key is absent from opts when CLI flag not provided."""
+        args = self._make_args()
+        opts = build_options(args)
+        assert "alias_file" not in opts
 
     def test_pasada_mode_hydro(self):
         args = self._make_args(pasada_mode="hydro")

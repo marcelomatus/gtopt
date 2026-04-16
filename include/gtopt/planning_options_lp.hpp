@@ -792,16 +792,6 @@ public:
   }
 
   /**
-   * @brief Gets the cut coefficient extraction mode as a typed enum
-   * @return The CutCoeffMode enum value (default: reduced_cost)
-   */
-  [[nodiscard]] constexpr auto sddp_cut_coeff_mode_enum() const -> CutCoeffMode
-  {
-    return m_options_.sddp_options.cut_coeff_mode.value_or(
-        CutCoeffMode::reduced_cost);
-  }
-
-  /**
    * @brief Gets the cut coefficient tolerance for filtering tiny coefficients
    * @return Absolute tolerance (default: 0.0 = no filtering)
    */

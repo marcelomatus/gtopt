@@ -12,7 +12,6 @@
 
 #include <cmath>
 #include <ranges>
-#include <span>
 
 #include <gtopt/benders_cut.hpp>
 #include <gtopt/fmap.hpp>
@@ -41,42 +40,14 @@ void propagate_trial_values(std::span<StateVarLink> links,
   }
 }
 
-void propagate_trial_values_row_dual(std::span<StateVarLink> links,
-                                     std::span<const double> source_solution,
-                                     LinearInterface& target_li) noexcept
+void propagate_trial_values(std::span<StateVarLink> links,
+                            LinearInterface& target_li) noexcept
 {
   for (auto& link : links) {
-    link.trial_value = source_solution[link.source_col];
-
-    // Keep the column at its raw LP bounds (not fixed).
-    target_li.set_col_low_raw(link.dependent_col, link.source_low);
-    target_li.set_col_upp_raw(link.dependent_col, link.source_upp);
-
-    if (link.coupling_row != RowIndex {unknown_index}) {
-      // Reuse existing coupling row — just update the RHS.
-      target_li.set_row_low_raw(link.coupling_row, link.trial_value);
-      target_li.set_row_upp_raw(link.coupling_row, link.trial_value);
-
-      SPDLOG_TRACE("row_dual propagation: col {} = {:.4f} (updated row {})",
-                   link.dependent_col,
-                   link.trial_value,
-                   link.coupling_row);
-    } else {
-      // First call: add explicit coupling constraint x_dep = trial_value.
-      auto coupling = SparseRow {
-          .lowb = link.trial_value,
-          .uppb = link.trial_value,
-      };
-      coupling[link.dependent_col] = 1.0;
-
-      link.coupling_row = target_li.add_row(coupling);
-
-      SPDLOG_TRACE(
-          "row_dual propagation: col {} = {:.4f} via new coupling row {}",
-          link.dependent_col,
-          link.trial_value,
-          link.coupling_row);
-    }
+    link.trial_value =
+        (link.state_var != nullptr) ? link.state_var->col_sol() : 0.0;
+    target_li.set_col_low_raw(link.dependent_col, link.trial_value);
+    target_li.set_col_upp_raw(link.dependent_col, link.trial_value);
   }
 }
 
@@ -109,15 +80,12 @@ auto build_benders_cut(ColIndex alpha_col,
   return row;
 }
 
-auto build_benders_cut_from_row_duals(ColIndex alpha_col,
-                                      std::span<const StateVarLink> links,
-                                      std::span<const double> row_duals,
-                                      double objective_value,
-                                      double scale_alpha,
-                                      double cut_coeff_eps) -> SparseRow
+auto build_benders_cut(ColIndex alpha_col,
+                       std::span<const StateVarLink> links,
+                       double objective_value,
+                       double scale_alpha,
+                       double cut_coeff_eps) -> SparseRow
 {
-  // Row scale = scale_alpha: physical values stored as-is, divided by
-  // row.scale when added to the LP (giving raw alpha coefficient = 1.0).
   auto row = SparseRow {
       .lowb = objective_value,
       .uppb = LinearProblem::DblMax,
@@ -126,12 +94,16 @@ auto build_benders_cut_from_row_duals(ColIndex alpha_col,
   row[alpha_col] = scale_alpha;
 
   for (const auto& link : links) {
-    const auto pi = row_duals[link.coupling_row];
-    if (std::abs(pi) < cut_coeff_eps) {
+    // reduced_cost is mutable runtime state on the StateVariable,
+    // written by the forward pass after solving the target phase's LP.
+    // Links without a back-pointer contribute nothing (test fixtures).
+    const auto rc =
+        (link.state_var != nullptr) ? link.state_var->reduced_cost() : 0.0;
+    if (std::abs(rc) < cut_coeff_eps) {
       continue;
     }
-    row[link.source_col] = -pi;
-    row.lowb -= pi * link.trial_value;
+    row[link.source_col] = -rc;
+    row.lowb -= rc * link.trial_value;
   }
 
   return row;

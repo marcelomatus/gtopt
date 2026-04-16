@@ -389,3 +389,81 @@ class TestHotStartCutsWriter:
             row = next(reader)
 
         assert row["phase"] == "7"  # identity: stage 7 → phase 7
+
+
+class TestNameAlias:
+    """Tests for the ``name_alias`` header-rename option."""
+
+    def test_boundary_cuts_alias_renames_header(self, planos_files, tmp_path):
+        """Alias map renames columns; coefficient lookup uses original keys."""
+        plaem1, plaem2 = planos_files
+        parser = PlanosParser(plaem1, plaem2)
+        parser.parse()
+
+        csv_path = write_boundary_cuts_csv(
+            parser.cuts,
+            parser.reservoir_names,
+            tmp_path / "bc_alias.csv",
+            name_alias={"Rapel": "RAPEL_GT", "Unknown": "ignored"},
+        )
+
+        with open(csv_path, newline="", encoding="utf-8") as f:
+            reader = csv.reader(f)
+            header = next(reader)
+            first = next(reader)
+
+        assert header == [
+            "name",
+            "iteration",
+            "scene",
+            "rhs",
+            "RAPEL_GT",
+            "Colbun",
+        ]
+        # Renamed column still carries the original Rapel coefficient.
+        assert float(first[4]) == pytest.approx(0.25)
+        assert float(first[5]) == pytest.approx(0.75)
+
+    def test_boundary_cuts_alias_none_is_identity(self, tmp_path):
+        """Passing ``name_alias=None`` leaves headers unchanged."""
+        csv_path = write_boundary_cuts_csv(
+            [], ["R1", "R2"], tmp_path / "nb.csv", name_alias=None
+        )
+        with open(csv_path, newline="", encoding="utf-8") as f:
+            header = next(csv.reader(f))
+        assert header[-2:] == ["R1", "R2"]
+
+    def test_hot_start_alias_renames_header(self, tmp_path):
+        """Alias applies to hot-start-cut headers too."""
+        cuts = [
+            {
+                "name": "hs_1",
+                "iteration": 1,
+                "stage": 2,
+                "scene": 1,
+                "rhs": -10.0,
+                "coefficients": {"CANUTILLAR": 0.5, "R2": 0.25},
+            }
+        ]
+        csv_path = write_hot_start_cuts_csv(
+            cuts,
+            ["CANUTILLAR", "R2"],
+            tmp_path / "hs_alias.csv",
+            name_alias={"CANUTILLAR": "CHAPO"},
+        )
+        with open(csv_path, newline="", encoding="utf-8") as f:
+            reader = csv.reader(f)
+            header = next(reader)
+            first = next(reader)
+
+        assert header == [
+            "name",
+            "iteration",
+            "scene",
+            "phase",
+            "rhs",
+            "CHAPO",
+            "R2",
+        ]
+        assert float(first[5]) == pytest.approx(0.5)
+        assert float(first[6]) == pytest.approx(0.25)

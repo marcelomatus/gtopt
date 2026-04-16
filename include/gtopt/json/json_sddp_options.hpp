@@ -19,7 +19,6 @@ namespace daw::json
 using gtopt::BoundaryCutsMode;
 using gtopt::CompressionCodec;
 using gtopt::ConvergenceMode;
-using gtopt::CutCoeffMode;
 using gtopt::CutSharingMode;
 using gtopt::ElasticFilterMode;
 using gtopt::HotStartMode;
@@ -71,7 +70,6 @@ struct SddpOptionsConstructor
       OptBool simulation_mode,
       OptName low_memory_str,
       OptName memory_codec_str,
-      OptName cut_coeff_mode_str,
       OptReal cut_coeff_eps,
       OptReal cut_coeff_max,
       OptName convergence_mode_str,
@@ -147,10 +145,6 @@ struct SddpOptionsConstructor
       opts.memory_codec = gtopt::require_enum<CompressionCodec>(
           "memory_codec", *memory_codec_str);
     }
-    if (cut_coeff_mode_str) {
-      opts.cut_coeff_mode = gtopt::require_enum<CutCoeffMode>(
-          "cut_coeff_mode", *cut_coeff_mode_str);
-    }
     opts.cut_coeff_eps = cut_coeff_eps;
     opts.cut_coeff_max = cut_coeff_max;
     if (convergence_mode_str) {
@@ -219,7 +213,6 @@ struct json_data_contract<SddpOptions>
       json_bool_null<"simulation_mode", OptBool>,
       json_string_null<"low_memory_mode", OptName>,
       json_string_null<"memory_codec", OptName>,
-      json_string_null<"cut_coeff_mode", OptName>,
       json_number_null<"cut_coeff_eps", OptReal>,
       json_number_null<"cut_coeff_max", OptReal>,
       json_string_null<"convergence_mode", OptName>,
@@ -273,7 +266,6 @@ struct json_data_contract<SddpOptions>
         opt.simulation_mode,
         detail::enum_to_opt_name(opt.low_memory_mode),
         detail::enum_to_opt_name(opt.memory_codec),
-        detail::enum_to_opt_name(opt.cut_coeff_mode),
         opt.cut_coeff_eps,
         opt.cut_coeff_max,
         detail::enum_to_opt_name(opt.convergence_mode),

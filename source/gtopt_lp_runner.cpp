@@ -26,6 +26,7 @@
 #include <gtopt/main_options.hpp>
 #include <gtopt/output_context.hpp>
 #include <gtopt/planning_lp.hpp>
+#include <gtopt/solver_stats.hpp>
 #include <gtopt/utils.hpp>
 #include <spdlog/spdlog.h>
 #include <spdlog/stopwatch.h>
@@ -133,6 +134,126 @@ void log_pre_solve_stats(
                                        : "(default)");
 }
 
+/// Aggregate solver activity counters across every (scene, phase) LP.
+///
+/// Walks the whole grid so the summary covers monolithic runs
+/// (one solve per cell) and SDDP/cascade runs (many solves per cell
+/// plus elastic-clone retries folded back via `merge_solver_stats`).
+[[nodiscard]] SolverStats aggregate_solver_stats(const PlanningLP& planning_lp)
+{
+  SolverStats agg;
+  for (const auto& phase_systems : planning_lp.systems()) {
+    for (const auto& sys : phase_systems) {
+      agg += sys.solver_stats();
+    }
+  }
+  return agg;
+}
+
+/// Emit a per-cell breakdown at DEBUG level.  Kept behind spdlog's
+/// level gate so normal info-level runs stay concise — the aggregate
+/// summary at INFO level is the expected end-user view.
+void log_per_cell_solver_stats(const PlanningLP& planning_lp)
+{
+  if (!spdlog::should_log(spdlog::level::debug)) {
+    return;
+  }
+  SPDLOG_DEBUG("  per-cell solver stats:");
+  for (const auto& phase_systems : planning_lp.systems()) {
+    for (const auto& sys : phase_systems) {
+      [[maybe_unused]] const auto& s = sys.solver_stats();
+      SPDLOG_DEBUG(
+          "    scene={} phase={}: load_problem={} solves={} (init={}, "
+          "resolve={}, fallback={}, crossover={}) infeas={} time={:.3f}s "
+          "kappa={:.3g}",
+          sys.scene().uid(),
+          sys.phase().uid(),
+          s.load_problem_calls,
+          s.total_solve_calls(),
+          s.initial_solve_calls,
+          s.resolve_calls,
+          s.fallback_solves,
+          s.crossover_solves,
+          s.infeasible_count,
+          s.total_solve_time_s,
+          s.max_kappa);
+    }
+  }
+}
+
+/// Post-validation: flag a mismatch between the configured low_memory
+/// mode and the actual load_problem / solve counts captured by
+/// SolverStats.
+///
+/// Heuristic (per-cell reasoning, summed across scene × phase):
+///
+///   * `low_memory == off`      → exactly one `load_problem` call per
+///     cell; `total_backend_solves > num_cells` (each solve reuses the
+///     resident backend).  If `load_problem_calls > num_cells`, some
+///     backend was reconstructed unexpectedly.
+///
+///   * `low_memory != off`      → the backend is released between
+///     solves, so every backend solve requires a matching
+///     reconstruction.  Expect
+///     `load_problem_calls ≈ total_backend_solves ≥ num_cells`.  If
+///     `load_problem_calls ≤ num_cells`, the low-memory option was
+///     configured but never exercised (no release / rebuild happened).
+void validate_low_memory_usage(const PlanningLP& planning_lp,
+                               const SolverStats& agg)
+{
+  const auto mode = planning_lp.options().sddp_low_memory();
+  std::size_t num_cells = 0;
+  for (const auto& phase_systems : planning_lp.systems()) {
+    num_cells += phase_systems.size();
+  }
+  if (num_cells == 0) {
+    return;
+  }
+  const auto load_calls = agg.load_problem_calls;
+  const auto backend_solves = agg.total_backend_solves();
+
+  if (mode == LowMemoryMode::off) {
+    spdlog::info(
+        "  low_memory      : off ({} load_problem for {} cells, {} solves)",
+        load_calls,
+        num_cells,
+        backend_solves);
+    if (load_calls > num_cells) {
+      spdlog::warn(
+          "low_memory=off but load_problem={} exceeds num_cells={}: "
+          "backend was reconstructed {} extra time(s) — unexpected rebuild",
+          load_calls,
+          num_cells,
+          load_calls - num_cells);
+    }
+  } else {
+    spdlog::info(
+        "  low_memory      : {} ({} load_problem for {} cells, {} solves)",
+        enum_name(mode),
+        load_calls,
+        num_cells,
+        backend_solves);
+    if (load_calls <= num_cells) {
+      spdlog::warn(
+          "low_memory={} was requested but not effective: "
+          "load_problem={} ≤ num_cells={} — the backend was never "
+          "reconstructed between solves (expected load_problem ≈ "
+          "backend_solves={})",
+          enum_name(mode),
+          load_calls,
+          num_cells,
+          backend_solves);
+    } else if (backend_solves > load_calls + num_cells) {
+      spdlog::warn(
+          "low_memory={} ratio unexpected: {} load_problem for {} "
+          "backend solves — some solves reused a live backend",
+          enum_name(mode),
+          load_calls,
+          backend_solves);
+    }
+  }
+}
+
 /// Log post-solve solution statistics.
 void log_post_solve_stats(const PlanningLP& planning_lp, bool optimal)
 {
@@ -150,8 +271,42 @@ void log_post_solve_stats(const PlanningLP& planning_lp, bool optimal)
     spdlog::info("  LP constraints  : {}", lp_if.get_numrows());
     spdlog::info("  Obj (scaled)    : {:.6g}", obj_scaled);
     spdlog::info("  Obj (unscaled)  : {:.6g}", obj_unscaled);
-    spdlog::info("  Solver kappa    : {:.6g}", lp_if.get_kappa());
   }
+
+  // Aggregated solver-activity counters.  Printed for every run (not
+  // just optimal ones) so failures still expose where the backend spent
+  // its time — infeasible counts, load_problem rebuilds under
+  // low-memory mode, fallback retries, etc.
+  const auto agg = aggregate_solver_stats(planning_lp);
+  spdlog::info("  load_problem    : {}", agg.load_problem_calls);
+  spdlog::info("  solves          : {} (initial={}, resolve={})",
+               agg.total_solve_calls(),
+               agg.initial_solve_calls,
+               agg.resolve_calls);
+  if (agg.fallback_solves != 0 || agg.crossover_solves != 0) {
+    spdlog::info("  solve retries   : fallback={} crossover={}",
+                 agg.fallback_solves,
+                 agg.crossover_solves);
+  }
+  if (agg.infeasible_count != 0) {
+    spdlog::info("  infeasible      : {} (primal={}, dual={})",
+                 agg.infeasible_count,
+                 agg.primal_infeasible,
+                 agg.dual_infeasible);
+  }
+  if (agg.total_solve_calls() != 0) {
+    spdlog::info("  avg LP size     : {:.0f} vars, {:.0f} rows",
+                 agg.avg_ncols(),
+                 agg.avg_nrows());
+  }
+  spdlog::info("  solve wall time : {:.3f}s", agg.total_solve_time_s);
+  if (agg.max_kappa > 0.0) {
+    spdlog::info("  Solver kappa    : {:.6g} (max across grid)", agg.max_kappa);
+  }
+
+  validate_low_memory_usage(planning_lp, agg);
+
+  log_per_cell_solver_stats(planning_lp);
 }
 
 /// Log LP coefficient statistics for all scene x phase LPs.

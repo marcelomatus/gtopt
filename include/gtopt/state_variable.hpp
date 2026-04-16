@@ -202,11 +202,46 @@ public:
         col);
   }
 
+  // ── Runtime SDDP values (mutable — written during solve passes) ────────
+  //
+  // These replace the former per-PhaseState full-vector caches
+  // (`forward_col_sol`, `forward_col_cost`).
+  //
+  //   - col_sol       : always set after a forward solve (free — just a
+  //                     primal read).  Used to propagate trial values to
+  //                     the next phase's dependent column.
+  //   - reduced_cost  : always set after a forward solve (free — just a
+  //                     reduced-cost read on the dependent column).
+  //
+  // Cut construction uses reduced costs only.  See docs/methods/sddp.md
+  // for why the row-dual (PLP-style) formulation was removed.
+  //
+  // `mutable` allows mutation via `const StateVariable*` pointers stored
+  // on `StateVarLink`, keeping the const-correctness of the registry map
+  // iteration at link-build time.
+
+  /// Forward-pass primal solution of this state variable's source column.
+  [[nodiscard]] constexpr auto col_sol() const noexcept { return m_col_sol_; }
+  constexpr void set_col_sol(double v) const noexcept { m_col_sol_ = v; }
+
+  /// Reduced cost of the dependent column in the target phase's last solve.
+  [[nodiscard]] constexpr auto reduced_cost() const noexcept
+  {
+    return m_reduced_cost_;
+  }
+  constexpr void set_reduced_cost(double v) const noexcept
+  {
+    m_reduced_cost_ = v;
+  }
+
 private:
   double m_scost_ {0.0};
   double m_var_scale_ {1.0};
   LpContext m_context_ {};
   std::vector<DependentVariable> m_dependent_variables_;
+
+  mutable double m_col_sol_ {0.0};
+  mutable double m_reduced_cost_ {0.0};
 };
 
 /// Deferred state-variable link record.

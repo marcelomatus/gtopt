@@ -112,28 +112,23 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
     auto& li = system.linear_interface();
 
     // Propagate state variables from previous phase.
-    // Use the cached solution (not the live backend) so that the previous
-    // phase's solver backend can be released for low-memory mode.
+    // Trial values are read from each link's source StateVariable
+    // (col_sol() mirror, populated by the previous phase's solve below)
+    // — no reliance on `prev_st.forward_col_sol`, so low_memory mode with
+    // warm_start off works identically.
     if (phase_index) {
       const auto prev_phase_index = previous(phase_index);
       auto& prev_st = phase_states[prev_phase_index];
-      const std::span<const double> prev_sol = prev_st.forward_col_sol;
 
-      const auto coeff_mode = m_options_.cut_coeff_mode;
-      if (coeff_mode == CutCoeffMode::row_dual) {
-        propagate_trial_values_row_dual(prev_st.outgoing_links, prev_sol, li);
-      } else {
-        propagate_trial_values(prev_st.outgoing_links, prev_sol, li);
-      }
+      propagate_trial_values(prev_st.outgoing_links, li);
 
-      SPDLOG_TRACE("{}: propagated {} state vars from phase {} ({})",
+      SPDLOG_TRACE("{}: propagated {} state vars from phase {}",
                    sddp_log("Forward",
                             iteration_index,
                             scene_uid(scene_index),
                             phase_uid(phase_index)),
                    prev_st.outgoing_links.size(),
-                   phase_uid(prev_phase_index),
-                   enum_name(coeff_mode));
+                   phase_uid(prev_phase_index));
     }
 
     // Update volume-dependent LP coefficients (discharge limits, turbine
@@ -261,24 +256,31 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
         const auto obj = solved_li.get_obj_value();
         state.forward_full_obj = obj;
 
+        const auto sol = solved_li.get_col_sol_raw();
         const auto rc = solved_li.get_col_cost_raw();
-        state.forward_col_cost.assign(rc.begin(), rc.end());
 
-        // Save primal solution for aperture warm-start (pre-padded
-        // so set_warm_start_solution can use a subspan without allocation).
-        // Duals are NOT cached from the elastic clone — the clone's LP is
-        // modified (relaxed bounds + slack variables), so its duals don't
-        // represent the original problem's shadow prices.  The backward
-        // pass detects empty forward_row_dual and falls back to reduced-
-        // cost-based cuts.
-        const auto n_links = state.outgoing_links.size();
-        assign_padded(
-            state.forward_col_sol, solved_li.get_col_sol_raw(), n_links);
+        // Mirror per-state-variable values needed by cut construction
+        // and next-phase propagation onto the StateVariable objects.
+        //
+        // Duals of the elastic clone are NOT written — the clone's LP is
+        // modified (relaxed bounds + slack variables) so its duals don't
+        // represent the original problem's shadow prices.  Downstream
+        // code falls back to reduced-cost cuts (see backward_pass_*).
+        capture_state_variable_values(scene_index, phase_index, sol, rc);
+
+        // Warm-start / reconstruction hints — retained only when
+        // warm_start is enabled.  Empty under low_memory.
+        if (m_options_.warm_start) {
+          const auto n_links = state.outgoing_links.size();
+          assign_padded(state.forward_col_sol, sol, n_links);
+        } else {
+          state.forward_col_sol.clear();
+        }
         state.forward_row_dual.clear();
 
         const auto sa = m_options_.scale_alpha;
         const auto alpha_val = (state.alpha_col != ColIndex {unknown_index})
-            ? solved_li.get_col_sol_raw()[state.alpha_col] * sa
+            ? sol[state.alpha_col] * sa
             : 0.0;
         state.forward_objective = obj - alpha_val;
         total_opex += state.forward_objective;
@@ -338,18 +340,36 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
       const auto obj = li.get_obj_value();
       state.forward_full_obj = obj;
 
+      const auto sol = li.get_col_sol_raw();
       const auto rc = li.get_col_cost_raw();
-      state.forward_col_cost.assign(rc.begin(), rc.end());
 
-      // Save primal/dual solution for aperture warm-start (pre-padded
-      // so set_warm_start_solution can use a subspan without allocation).
-      const auto n_links = state.outgoing_links.size();
-      assign_padded(state.forward_col_sol, li.get_col_sol_raw(), n_links);
-      assign_padded(state.forward_row_dual, li.get_row_dual_raw(), 2 * n_links);
+      // Mirror per-state-variable runtime values onto the persistent
+      // StateVariable objects.  These replace the former per-PhaseState
+      // full-vector caches (`forward_col_cost`, and — when warm_start
+      // is off — `forward_col_sol` / `forward_row_dual`) for both
+      // next-phase trial-value propagation and backward-pass cut
+      // construction.  Cuts always use reduced costs, so row duals are
+      // never needed here.
+      capture_state_variable_values(scene_index, phase_index, sol, rc);
+
+      // Warm-start / reconstruction hints — retained only when
+      // warm_start is enabled.  Empty under low_memory (warm_start
+      // forced off); downstream consumers either skip the warm-start
+      // (reconstruct_backend, set_warm_start_solution, elastic clone)
+      // or use the StateVariable mirrors (cut builders).
+      if (m_options_.warm_start) {
+        const auto n_links = state.outgoing_links.size();
+        assign_padded(state.forward_col_sol, sol, n_links);
+        const auto row_duals = li.get_row_dual_raw();
+        assign_padded(state.forward_row_dual, row_duals, 2 * n_links);
+      } else {
+        state.forward_col_sol.clear();
+        state.forward_row_dual.clear();
+      }
 
       const auto sa = m_options_.scale_alpha;
       const auto alpha_val = (state.alpha_col != ColIndex {unknown_index})
-          ? li.get_col_sol_raw()[state.alpha_col] * sa
+          ? sol[state.alpha_col] * sa
           : 0.0;
       state.forward_objective = obj - alpha_val;
 

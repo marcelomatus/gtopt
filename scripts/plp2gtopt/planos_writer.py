@@ -28,10 +28,18 @@ from typing import Any, Dict, List, Optional
 logger = logging.getLogger(__name__)
 
 
+def _apply_alias(name: str, alias: Optional[Dict[str, str]]) -> str:
+    """Return ``alias[name]`` if ``alias`` is set and contains ``name``."""
+    if alias is None:
+        return name
+    return alias.get(name, name)
+
+
 def write_boundary_cuts_csv(
     cuts: List[Dict[str, Any]],
     reservoir_names: List[str],
     output_path: Path | str,
+    name_alias: Optional[Dict[str, str]] = None,
 ) -> Path:
     """Write boundary cuts to a CSV file in gtopt format.
 
@@ -45,6 +53,11 @@ def write_boundary_cuts_csv(
         Ordered list of reservoir/junction names for column headers.
     output_path
         Path for the output CSV file.
+    name_alias
+        Optional ``{plp_name: gtopt_name}`` map applied to the header row so
+        the solver can resolve state variables by the gtopt-side name.
+        Cut coefficients remain keyed by the original PLP names; missing
+        keys pass through unchanged.
 
     Returns
     -------
@@ -54,7 +67,9 @@ def write_boundary_cuts_csv(
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    header = ["name", "iteration", "scene", "rhs"] + list(reservoir_names)
+    header = ["name", "iteration", "scene", "rhs"] + [
+        _apply_alias(r, name_alias) for r in reservoir_names
+    ]
 
     with open(output_path, "w", newline="", encoding="utf-8") as csvfile:
         writer = csv.writer(csvfile)
@@ -86,6 +101,7 @@ def write_hot_start_cuts_csv(
     reservoir_names: List[str],
     output_path: Path | str,
     stage_to_phase: Optional[Dict[int, int]] = None,
+    name_alias: Optional[Dict[str, str]] = None,
 ) -> Path:
     """Write hot-start cuts (all stages) to a CSV with named state variables.
 
@@ -104,6 +120,9 @@ def write_hot_start_cuts_csv(
     stage_to_phase
         Mapping from PLP stage number (1-based) to gtopt phase UID.
         If *None*, a default mapping ``stage → stage`` is used.
+    name_alias
+        Optional ``{plp_name: gtopt_name}`` map applied to the header row;
+        see :func:`write_boundary_cuts_csv`.
 
     Returns
     -------
@@ -113,7 +132,9 @@ def write_hot_start_cuts_csv(
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    header = ["name", "iteration", "scene", "phase", "rhs"] + list(reservoir_names)
+    header = ["name", "iteration", "scene", "phase", "rhs"] + [
+        _apply_alias(r, name_alias) for r in reservoir_names
+    ]
 
     with open(output_path, "w", newline="", encoding="utf-8") as csvfile:
         writer = csv.writer(csvfile)

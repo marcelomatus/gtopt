@@ -11,7 +11,6 @@
  */
 
 #include <algorithm>
-#include <chrono>
 #include <format>
 #include <future>
 #include <ranges>
@@ -170,7 +169,6 @@ auto SDDPMethod::backward_pass_aperture_phase_impl(
       target_state.forward_col_sol,
       target_state.forward_row_dual,
       iteration_index,
-      m_options_.cut_coeff_mode,
       m_options_.scale_alpha,
       m_options_.cut_coeff_eps,
       m_options_.cut_coeff_max);
@@ -179,25 +177,16 @@ auto SDDPMethod::backward_pass_aperture_phase_impl(
     // Fallback: build a regular Benders cut from the cached
     // forward-pass data (same as backward_pass).
     const auto& target_state = phase_states[phase_index];
-    const auto coeff_mode = m_options_.cut_coeff_mode;
     const auto sa = m_options_.scale_alpha;
     const auto ceps = m_options_.cut_coeff_eps;
     const auto cmax = m_options_.cut_coeff_max;
-    const bool use_row_duals = coeff_mode == CutCoeffMode::row_dual
-        && !target_state.forward_row_dual.empty();
-    auto fallback_cut = use_row_duals
-        ? build_benders_cut_from_row_duals(src_state.alpha_col,
-                                           src_state.outgoing_links,
-                                           target_state.forward_row_dual,
-                                           target_state.forward_full_obj,
-                                           sa,
-                                           ceps)
-        : build_benders_cut(src_state.alpha_col,
-                            src_state.outgoing_links,
-                            target_state.forward_col_cost,
-                            target_state.forward_full_obj,
-                            sa,
-                            ceps);
+    // Reduced costs are read from each link's back-pointer to the
+    // source StateVariable (no per-phase full-vector caches).
+    auto fallback_cut = build_benders_cut(src_state.alpha_col,
+                                          src_state.outgoing_links,
+                                          target_state.forward_full_obj,
+                                          sa,
+                                          ceps);
     fallback_cut.class_name = "Sddp";
     fallback_cut.constraint_name = "fcut";
     fallback_cut.context = make_iteration_context(scene_uid(scene_index),
@@ -524,31 +513,20 @@ auto SDDPMethod::backward_pass_with_apertures(SceneIndex scene_index,
         target_state.forward_col_sol,
         target_state.forward_row_dual,
         iteration_index,
-        m_options_.cut_coeff_mode,
         m_options_.scale_alpha,
-        m_options_.cut_coeff_eps);
+        m_options_.cut_coeff_eps,
+        m_options_.cut_coeff_max);
 
     if (!expected_cut.has_value()) {
       infeasible_phases.push_back(phase_uid(phase_index));
-      const auto coeff_mode2 = m_options_.cut_coeff_mode;
       const auto sa = m_options_.scale_alpha;
       const auto ceps = m_options_.cut_coeff_eps;
       const auto cmax2 = m_options_.cut_coeff_max;
-      const bool use_row_duals2 = coeff_mode2 == CutCoeffMode::row_dual
-          && !target_state.forward_row_dual.empty();
-      auto fallback_cut = use_row_duals2
-          ? build_benders_cut_from_row_duals(src_state.alpha_col,
-                                             src_state.outgoing_links,
-                                             target_state.forward_row_dual,
-                                             target_state.forward_full_obj,
-                                             sa,
-                                             ceps)
-          : build_benders_cut(src_state.alpha_col,
-                              src_state.outgoing_links,
-                              target_state.forward_col_cost,
-                              target_state.forward_full_obj,
-                              sa,
-                              ceps);
+      auto fallback_cut = build_benders_cut(src_state.alpha_col,
+                                            src_state.outgoing_links,
+                                            target_state.forward_full_obj,
+                                            sa,
+                                            ceps);
       fallback_cut.class_name = "Sddp";
       fallback_cut.constraint_name = "fcut";
       fallback_cut.context = make_iteration_context(scene_uid(scene_index),

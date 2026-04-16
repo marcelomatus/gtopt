@@ -878,6 +878,11 @@ void CplexSolverBackend::apply_options(const SolverOptions& opts)
     CPXsetdblparam(m_env_, CPX_PARAM_TILIM, *tl);
   }
 
+  // Memory emphasis: trade solve time for lower resident memory.
+  // CPX_ON (1) = compress internal arrays; CPX_OFF (0) = default.
+  CPXsetintparam(
+      m_env_, CPX_PARAM_MEMORYEMPHASIS, opts.low_memory ? CPX_ON : CPX_OFF);
+
   if (opts.reuse_basis && opts.algorithm != LPAlgo::barrier) {
     m_algorithm_ = LPAlgo::dual;
     m_presolve_ = false;

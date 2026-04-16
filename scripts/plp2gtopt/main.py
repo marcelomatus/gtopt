@@ -298,6 +298,8 @@ def build_options(args: argparse.Namespace) -> dict:
         opts["no_boundary_cuts"] = True
     if args.hot_start_cuts:
         opts["hot_start_cuts"] = True
+    if args.alias_file is not None:
+        opts["alias_file"] = args.alias_file
     if args.stationary_tol is not None:
         opts["stationary_tol"] = args.stationary_tol
     if args.stationary_window is not None:

@@ -114,7 +114,7 @@ Multiple system files can be provided and will be merged.
 > (`--output-compression`), `--algorithm`, `--threads`,
 > `--sddp-max-iterations`, `--sddp-min-iterations`,
 > `--sddp-convergence-tol`, `--sddp-elastic-penalty`,
-> `--sddp-elastic-mode`, `--sddp-cut-coeff-mode`,
+> `--sddp-elastic-mode`,
 > `--log-directory`, `--cut-directory`, `--lp-debug`,
 > `--lp-compression`, `--lp-coeff-ratio`.
 

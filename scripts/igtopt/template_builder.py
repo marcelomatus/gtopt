@@ -1373,7 +1373,6 @@ SDDP_OPTION_KEYS: frozenset[str] = frozenset(
         "stationary_window",
         "convergence_mode",
         "convergence_confidence",
-        "cut_coeff_mode",
         "cut_coeff_eps",
         "cut_coeff_max",
         "scale_alpha",

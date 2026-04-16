@@ -132,7 +132,6 @@ auto solve_apertures_for_phase(
     std::span<const double> forward_col_sol,
     std::span<const double> forward_row_dual,
     IterationIndex iteration_index,
-    CutCoeffMode cut_coeff_mode,
     double scale_alpha,
     double cut_coeff_eps,
     double cut_coeff_max) -> std::optional<SparseRow>
@@ -336,20 +335,15 @@ auto solve_apertures_for_phase(
             };
           }
 
-          // Build Benders cut from the clone's solution
-          auto cut = (cut_coeff_mode == CutCoeffMode::row_dual)
-              ? build_benders_cut_from_row_duals(src_state.alpha_col,
-                                                 src_state.outgoing_links,
-                                                 clone.get_row_dual_raw(),
-                                                 clone.get_obj_value(),
-                                                 scale_alpha,
-                                                 cut_coeff_eps)
-              : build_benders_cut(src_state.alpha_col,
-                                  src_state.outgoing_links,
-                                  clone.get_col_cost_raw(),
-                                  clone.get_obj_value(),
-                                  scale_alpha,
-                                  cut_coeff_eps);
+          // Build Benders cut from the clone's solution (reduced-cost
+          // formulation; see docs/methods/sddp.md for why the PLP-style
+          // row-dual path was removed).
+          auto cut = build_benders_cut(src_state.alpha_col,
+                                       src_state.outgoing_links,
+                                       clone.get_col_cost_raw(),
+                                       clone.get_obj_value(),
+                                       scale_alpha,
+                                       cut_coeff_eps);
           cut.class_name = "Sddp";
           cut.constraint_name = "aper_cut";
           cut.context = make_aperture_context(

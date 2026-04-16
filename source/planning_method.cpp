@@ -56,7 +56,6 @@ std::unique_ptr<PlanningMethod> make_planning_method(
       // Advanced tuning
       sddp_opts.elastic_penalty = options.sddp_elastic_penalty();
       sddp_opts.elastic_filter_mode = options.sddp_elastic_mode_enum();
-      sddp_opts.cut_coeff_mode = options.sddp_cut_coeff_mode_enum();
       sddp_opts.cut_coeff_eps = options.sddp_cut_coeff_eps();
       sddp_opts.cut_coeff_max = options.sddp_cut_coeff_max();
       sddp_opts.multi_cut_threshold = options.sddp_multi_cut_threshold();
@@ -147,6 +146,21 @@ std::unique_ptr<PlanningMethod> make_planning_method(
       // Wire warm_start from SddpOptions config (default: true)
       sddp_opts.warm_start = options.sddp_warm_start();
 
+      // Under low_memory, disable warm_start: the backend is released
+      // between solves so no simplex basis persists across resolves.
+      // SDDP continues to propagate state variables via
+      // state.forward_col_sol / forward_row_dual (first n_links entries)
+      // independent of the solver-level warm-start machinery.
+      if (sddp_opts.low_memory_mode != LowMemoryMode::off
+          && sddp_opts.warm_start)
+      {
+        SPDLOG_INFO(
+            "low_memory_mode={}: disabling warm_start "
+            "(no persistent basis across solves)",
+            enum_name(sddp_opts.low_memory_mode));
+        sddp_opts.warm_start = false;
+      }
+
       // Wire async scene spread (0 = synchronous, default)
       sddp_opts.max_async_spread = options.sddp_max_async_spread();
 
@@ -166,6 +180,21 @@ std::unique_ptr<PlanningMethod> make_planning_method(
       sddp_opts.forward_solver_options = options.sddp_forward_solver_options();
       sddp_opts.backward_solver_options =
           options.sddp_backward_solver_options();
+
+      // Propagate gtopt low_memory_mode into the backend-native memory
+      // hint.  Backends that support it (CPLEX: CPX_PARAM_MEMORYEMPHASIS)
+      // will also compact their internal data; unsupported backends
+      // silently ignore the hint.
+      if (sddp_opts.low_memory_mode != LowMemoryMode::off) {
+        if (!sddp_opts.forward_solver_options) {
+          sddp_opts.forward_solver_options.emplace();
+        }
+        sddp_opts.forward_solver_options->low_memory = true;
+        if (!sddp_opts.backward_solver_options) {
+          sddp_opts.backward_solver_options.emplace();
+        }
+        sddp_opts.backward_solver_options->low_memory = true;
+      }
 
       return std::make_unique<SDDPPlanningMethod>(std::move(sddp_opts));
     }  // else (num_phases >= 2)
@@ -197,7 +226,6 @@ std::unique_ptr<PlanningMethod> make_planning_method(
 
       sddp_opts.elastic_penalty = options.sddp_elastic_penalty();
       sddp_opts.elastic_filter_mode = options.sddp_elastic_mode_enum();
-      sddp_opts.cut_coeff_mode = options.sddp_cut_coeff_mode_enum();
       sddp_opts.cut_coeff_eps = options.sddp_cut_coeff_eps();
       sddp_opts.cut_coeff_max = options.sddp_cut_coeff_max();
       sddp_opts.multi_cut_threshold = options.sddp_multi_cut_threshold();
@@ -278,6 +306,19 @@ std::unique_ptr<PlanningMethod> make_planning_method(
       // Wire warm_start from SddpOptions config (default: true)
       sddp_opts.warm_start = options.sddp_warm_start();
 
+      // Under low_memory, disable warm_start (see SDDP block above for
+      // rationale).  SDDP state propagation uses state.forward_col_sol
+      // independent of solver-level warm-start.
+      if (sddp_opts.low_memory_mode != LowMemoryMode::off
+          && sddp_opts.warm_start)
+      {
+        SPDLOG_INFO(
+            "low_memory_mode={}: disabling warm_start "
+            "(no persistent basis across solves)",
+            enum_name(sddp_opts.low_memory_mode));
+        sddp_opts.warm_start = false;
+      }
+
       // Wire work pool resource limits
       sddp_opts.pool_cpu_factor = options.sddp_pool_cpu_factor();
       sddp_opts.pool_memory_limit_mb = options.sddp_pool_memory_limit_mb();
@@ -294,6 +335,21 @@ std::unique_ptr<PlanningMethod> make_planning_method(
       sddp_opts.forward_solver_options = options.sddp_forward_solver_options();
       sddp_opts.backward_solver_options =
           options.sddp_backward_solver_options();
+
+      // Propagate gtopt low_memory_mode into the backend-native memory
+      // hint.  Backends that support it (CPLEX: CPX_PARAM_MEMORYEMPHASIS)
+      // will also compact their internal data; unsupported backends
+      // silently ignore the hint.
+      if (sddp_opts.low_memory_mode != LowMemoryMode::off) {
+        if (!sddp_opts.forward_solver_options) {
+          sddp_opts.forward_solver_options.emplace();
+        }
+        sddp_opts.forward_solver_options->low_memory = true;
+        if (!sddp_opts.backward_solver_options) {
+          sddp_opts.backward_solver_options.emplace();
+        }
+        sddp_opts.backward_solver_options->low_memory = true;
+      }
 
       // Get cascade options (user-configured or defaults)
       CascadeOptions cascade_opts;

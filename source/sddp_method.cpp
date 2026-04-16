@@ -450,6 +450,10 @@ void SDDPMethod::collect_state_variable_links(SceneIndex scene_index)
             .source_upp = col_hi[svar.col()],
             .var_scale = svar.var_scale(),
             .scost = link_scost,
+            // Raw pointer into the simulation's state-variable registry
+            // (flat_map, stable for the full solver lifetime — same
+            // lifetime that already couples source and dependent LP cols).
+            .state_var = &svar,
         });
       }
     }
@@ -458,6 +462,44 @@ void SDDPMethod::collect_state_variable_links(SceneIndex scene_index)
                  scene_index,
                  phase_index,
                  state.outgoing_links.size());
+  }
+}
+
+void SDDPMethod::capture_state_variable_values(
+    SceneIndex scene_index,
+    PhaseIndex phase_index,
+    std::span<const double> col_sol,
+    std::span<const double> reduced_costs) const noexcept
+{
+  const auto& sim = planning_lp().simulation();
+
+  // 1. Always write col_sol for every state variable in THIS phase.
+  //    Consumed by the next phase's propagate_trial_values().
+  for (const auto& [key, svar] : sim.state_variables(scene_index, phase_index))
+  {
+    const auto col = svar.col();
+    if (col < ColIndex {static_cast<Index>(col_sol.size())}) {
+      svar.set_col_sol(col_sol[col]);
+    }
+  }
+
+  // 2. Write per-link reduced_cost onto the *source* state variables
+  //    in the previous phase (whose outgoing_links have dependent_col
+  //    in THIS phase's LP).  No previous phase on phase 0.
+  if (!phase_index) {
+    return;
+  }
+  const auto prev_phase_index = previous(phase_index);
+  const auto& prev_state = m_scene_phase_states_[scene_index][prev_phase_index];
+
+  for (const auto& link : prev_state.outgoing_links) {
+    if (link.state_var == nullptr) {
+      continue;
+    }
+    const auto dep = link.dependent_col;
+    if (dep < ColIndex {static_cast<Index>(reduced_costs.size())}) {
+      link.state_var->set_reduced_cost(reduced_costs[dep]);
+    }
   }
 }
 
@@ -498,6 +540,14 @@ std::optional<SDDPMethod::ElasticResult> SDDPMethod::elastic_solve(
                                                     cur_state.forward_row_dual);
 
   if (result.has_value()) {
+    // The clone's solve activity (resolve, fallbacks, kappa, wall
+    // time) lives on the clone's own SolverStats.  Fold it back into
+    // the owning system so the end-of-run aggregate reflects the true
+    // backend workload, including elastic retries.
+    planning_lp()
+        .system(scene_index, phase_index)
+        .merge_solver_stats(result->clone.solver_stats());
+
     SPDLOG_TRACE(
         "SDDP elastic: scene {} phase {} solved via clone "
         "(obj={:.4f})",
@@ -756,28 +806,18 @@ auto SDDPMethod::backward_pass_single_phase(SceneIndex scene_index,
   // Use cached forward-pass solution for cut generation.
   const auto& target_state = phase_states[phase_index];
 
-  const auto coeff_mode = m_options_.cut_coeff_mode;
-
   const auto sa = m_options_.scale_alpha;
   const auto ceps = m_options_.cut_coeff_eps;
   const auto cmax = m_options_.cut_coeff_max;
-  // Use row duals when available; fall back to reduced costs when
-  // forward_row_dual is empty (e.g. elastic solve cleared it).
-  const bool use_row_duals = coeff_mode == CutCoeffMode::row_dual
-      && !target_state.forward_row_dual.empty();
-  auto cut = use_row_duals
-      ? build_benders_cut_from_row_duals(src_state.alpha_col,
-                                         src_state.outgoing_links,
-                                         target_state.forward_row_dual,
-                                         target_state.forward_full_obj,
-                                         sa,
-                                         ceps)
-      : build_benders_cut(src_state.alpha_col,
-                          src_state.outgoing_links,
-                          target_state.forward_col_cost,
-                          target_state.forward_full_obj,
-                          sa,
-                          ceps);
+  // No-span cut builder: reduced costs are read directly from each
+  // link's back-pointer to the source StateVariable, avoiding the
+  // per-phase full-vector cache that used to live on PhaseStateInfo
+  // (`forward_col_cost`).
+  auto cut = build_benders_cut(src_state.alpha_col,
+                               src_state.outgoing_links,
+                               target_state.forward_full_obj,
+                               sa,
+                               ceps);
   cut.class_name = "Sddp";
   cut.constraint_name = "scut";
   cut.context = make_iteration_context(scene_uid(scene_index),

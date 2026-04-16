@@ -46,6 +46,7 @@
 #include <gtopt/phase.hpp>
 #include <gtopt/solver_options.hpp>
 #include <gtopt/sparse_row.hpp>
+#include <gtopt/state_variable.hpp>
 
 // Forward declaration to avoid including the heavy work_pool.hpp header.
 // Consumers that need the full AdaptiveWorkPool definition (e.g. to call
@@ -77,9 +78,6 @@ struct StateVarLink
   double trial_value {0.0};  ///< Trial value from the last forward pass
   double source_low {0.0};  ///< Physical lower bound of source column
   double source_upp {0.0};  ///< Physical upper bound of source column
-  /// Row index of the explicit coupling constraint (row_dual mode only).
-  /// Set by propagate_trial_values_row_dual(); unknown_index otherwise.
-  RowIndex coupling_row {unknown_index};
   /// Variable scale factor: physical = LP × var_scale.
   /// Used by the elastic filter to scale the penalty per LP unit.
   double var_scale {1.0};
@@ -88,6 +86,18 @@ struct StateVarLink
   /// Pre-divided by scale_objective during link construction for consistency
   /// with the global penalty (which is also pre-divided by scale_objective).
   double scost {0.0};
+  /// Back-pointer to the StateVariable this link represents.
+  ///
+  /// The StateVariable lives in `SimulationLP::m_global_variable_map_`
+  /// (a `flat_map` populated once at LP build time, never reshuffled),
+  /// so its address is stable for the lifetime of the solver run — the
+  /// same lifetime that already couples source and dependent LP columns.
+  ///
+  /// Used by the SDDP solve passes to read/write runtime values
+  /// (col_sol, reduced_cost) directly on the state variable, avoiding
+  /// full per-LP `std::vector<double>` snapshots.  Nullable for test
+  /// fixtures that exercise cut builders in isolation.
+  const StateVariable* state_var {nullptr};
 };
 
 // ─── Elastic relaxation result ──────────────────────────────────────────────
@@ -111,24 +121,19 @@ struct RelaxedVarInfo
 // ─── Optimality cut ─────────────────────────────────────────────────────────
 
 /// Propagate trial values: fix dependent columns to source-column solution
-/// via column bounds (lo == hi).  Used in reduced_cost mode.
+/// via column bounds (lo == hi).  This is the standard SDDP bound-fixing
+/// formulation: the reduced cost of the fixed column at optimum is the
+/// shadow price of the implicit bound, which becomes the cut coefficient.
 void propagate_trial_values(std::span<StateVarLink> links,
                             std::span<const double> source_solution,
                             LinearInterface& target_li) noexcept;
 
-/// Propagate trial values using explicit coupling constraint rows (PLP-style).
-///
-/// Instead of fixing dependent columns via bounds, this function:
-/// 1. Keeps the dependent column at its physical bounds
-/// (source_low..source_upp)
-/// 2. Adds an explicit equality constraint: x_dep = trial_value
-/// 3. Stores the constraint's row index in link.coupling_row
-///
-/// The row duals of these coupling constraints are then used by
-/// build_benders_cut_from_row_duals() to construct the Benders cut.
-void propagate_trial_values_row_dual(std::span<StateVarLink> links,
-                                     std::span<const double> source_solution,
-                                     LinearInterface& target_li) noexcept;
+/// Propagate trial values using the source StateVariable's cached col_sol()
+/// instead of a full-LP solution span.  Prefer this overload in production
+/// SDDP code so that the forward-pass `forward_col_sol` array can be elided
+/// under `low_memory` (no warm-start caching).
+void propagate_trial_values(std::span<StateVarLink> links,
+                            LinearInterface& target_li) noexcept;
 
 /// Build a Benders optimality cut from reduced costs of dependent columns.
 ///
@@ -151,30 +156,17 @@ void propagate_trial_values_row_dual(std::span<StateVarLink> links,
                                      double scale_alpha = 1.0,
                                      double cut_coeff_eps = 0.0) -> SparseRow;
 
-/// Build a Benders optimality cut from row duals of coupling constraints
-/// (PLP-style).
-///
-///   scale_alpha · α_lp ≥ z_t + Σ_i π_i · (x_{t-1,i} − v̂_i)
-///
-/// where π_i = row_duals[link.coupling_row] is the dual of the explicit
-/// equality constraint that fixes the dependent column.
-///
-/// @param alpha_col       Column index of the α (future-cost) variable.
-/// @param links           State-variable linkage descriptors.
-/// @param row_duals       Row duals from the LP solve (indexed by RowIndex).
-/// @param objective_value Optimal objective value of the sub-problem.
-/// @param scale_alpha     Scale divisor for α (PLP varphi scale; default 1.0).
-/// @param cut_coeff_eps   Threshold below which state-var coefficients are
-///                        dropped (default 0.0 = keep all).
-/// Requires that propagate_trial_values_row_dual() was called first so that
-/// each link has a valid coupling_row index.
-[[nodiscard]] auto build_benders_cut_from_row_duals(
-    ColIndex alpha_col,
-    std::span<const StateVarLink> links,
-    std::span<const double> row_duals,
-    double objective_value,
-    double scale_alpha = 1.0,
-    double cut_coeff_eps = 0.0) -> SparseRow;
+/// Overload that reads reduced costs directly from each link's
+/// `state_var->reduced_cost()` instead of indexing into a full
+/// `std::span<const double>`.  Prefer this overload in SDDP production
+/// code: it lets the forward pass elide the per-phase `forward_col_cost`
+/// snapshot (now removed entirely — see docs/methods/sddp.md for the
+/// rationale behind dropping the row-dual formulation).
+[[nodiscard]] auto build_benders_cut(ColIndex alpha_col,
+                                     std::span<const StateVarLink> links,
+                                     double objective_value,
+                                     double scale_alpha = 1.0,
+                                     double cut_coeff_eps = 0.0) -> SparseRow;
 
 /// Remove state-variable coefficients whose absolute value is below @p eps.
 ///

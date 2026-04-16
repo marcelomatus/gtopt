@@ -235,8 +235,7 @@ template<typename T>
       ("sddp-min-iterations", po::value<int>(), "")  //
       ("sddp-convergence-tol", po::value<double>(), "")  //
       ("sddp-elastic-penalty", po::value<double>(), "")  //
-      ("sddp-elastic-mode", po::value<std::string>(), "")  //
-      ("sddp-cut-coeff-mode", po::value<std::string>(), "");
+      ("sddp-elastic-mode", po::value<std::string>(), "");
   return desc;
 }
 
@@ -259,7 +258,6 @@ template<typename T>
  * @param sddp_convergence_tol Optional SDDP convergence tolerance
  * @param sddp_elastic_penalty Optional elastic penalty coefficient
  * @param sddp_elastic_mode Optional elastic filter mode string
- * @param sddp_cut_coeff_mode Optional SDDP cut coefficient mode string
  * @param sddp_num_apertures Optional number of SDDP apertures
  * @param lp_debug Optional flag to enable LP debug output
  * @param lp_compression Optional LP output compression codec string
@@ -280,7 +278,6 @@ inline void apply_cli_options(
     const std::optional<double>& sddp_convergence_tol = {},
     const std::optional<double>& sddp_elastic_penalty = {},
     const std::optional<std::string>& sddp_elastic_mode = {},
-    const std::optional<std::string>& sddp_cut_coeff_mode = {},
     const std::optional<int>& sddp_num_apertures = {},
     const std::optional<bool>& lp_debug = {},
     const std::optional<std::string>& lp_compression = {},
@@ -341,11 +338,6 @@ inline void apply_cli_options(
     planning.options.sddp_options.elastic_mode =
         require_enum<ElasticFilterMode>("sddp-elastic-mode",
                                         sddp_elastic_mode.value());
-  }
-
-  if (sddp_cut_coeff_mode) {
-    planning.options.sddp_options.cut_coeff_mode = require_enum<CutCoeffMode>(
-        "sddp-cut-coeff-mode", sddp_cut_coeff_mode.value());
   }
 
   if (sddp_num_apertures) {
@@ -456,9 +448,6 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
                       "sddp_options.elastic_penalty");
   warn_deprecated_cli(
       opts.sddp_elastic_mode, "sddp-elastic-mode", "sddp_options.elastic_mode");
-  warn_deprecated_cli(opts.sddp_cut_coeff_mode,
-                      "sddp-cut-coeff-mode",
-                      "sddp_options.cut_coeff_mode");
   if (opts.algorithm.has_value()) {
     spdlog::warn(
         "--algorithm is deprecated, use: --set solver_options"
@@ -486,7 +475,6 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
                     opts.sddp_convergence_tol,
                     opts.sddp_elastic_penalty,
                     opts.sddp_elastic_mode,
-                    opts.sddp_cut_coeff_mode,
                     opts.sddp_num_apertures,
                     opts.lp_debug,
                     opts.lp_compression,
@@ -607,7 +595,6 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
       .sddp_convergence_tol = get_opt<double>(vm, "sddp-convergence-tol"),
       .sddp_elastic_penalty = get_opt<double>(vm, "sddp-elastic-penalty"),
       .sddp_elastic_mode = get_opt<std::string>(vm, "sddp-elastic-mode"),
-      .sddp_cut_coeff_mode = get_opt<std::string>(vm, "sddp-cut-coeff-mode"),
       .sddp_num_apertures = get_opt<int>(vm, "sddp-num-apertures"),
       .recover = get_opt<bool>(vm, "recover"),
       .low_memory_mode = get_opt<std::string>(vm, "low-memory"),
@@ -744,7 +731,6 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
   opts.sddp_convergence_tol = get_dbl("sddp-convergence-tol");
   opts.sddp_elastic_penalty = get_dbl("sddp-elastic-penalty");
   opts.sddp_elastic_mode = get_str("sddp-elastic-mode");
-  opts.sddp_cut_coeff_mode = get_str("sddp-cut-coeff-mode");
   opts.sddp_num_apertures = get_int("sddp-num-apertures");
   opts.low_memory_mode = get_str("low-memory");
   opts.memory_limit = get_str("memory-limit");
@@ -894,7 +880,6 @@ inline void merge_config_defaults(MainOptions& opts,
   merge(opts.sddp_convergence_tol, defaults.sddp_convergence_tol);
   merge(opts.sddp_elastic_penalty, defaults.sddp_elastic_penalty);
   merge(opts.sddp_elastic_mode, defaults.sddp_elastic_mode);
-  merge(opts.sddp_cut_coeff_mode, defaults.sddp_cut_coeff_mode);
   merge(opts.sddp_num_apertures, defaults.sddp_num_apertures);
   merge(opts.low_memory_mode, defaults.low_memory_mode);
   merge(opts.memory_limit, defaults.memory_limit);

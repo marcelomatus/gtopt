@@ -1454,6 +1454,31 @@ class GTOptWriter:
             existing_rsv = self.planning["system"].get("reservoir_array", [])
             self.planning["system"]["reservoir_array"] = existing_rsv + reg_reservoirs
 
+    @staticmethod
+    def _load_alias_file(alias_file: Path | str | None) -> dict[str, str] | None:
+        """Load a flat ``{old_name: new_name}`` alias map from JSON.
+
+        Returns ``None`` when ``alias_file`` is ``None``.  Raises
+        ``RuntimeError`` if the file is missing, unreadable, or does not
+        contain a flat string→string mapping.
+        """
+        if alias_file is None:
+            return None
+        path = Path(alias_file)
+        try:
+            with open(path, "r", encoding="utf-8") as fh:
+                data = json.load(fh)
+        except (OSError, json.JSONDecodeError) as exc:
+            raise RuntimeError(f"Cannot read alias file '{path}': {exc}") from exc
+        if not isinstance(data, dict) or not all(
+            isinstance(k, str) and isinstance(v, str) for k, v in data.items()
+        ):
+            raise RuntimeError(
+                f"Alias file '{path}' must be a flat JSON object of "
+                "{string: string} pairs."
+            )
+        return data
+
     def process_boundary_cuts(self, options):
         """Write boundary-cut and hot-start-cut CSVs from parsed PLP planos data.
 
@@ -1473,11 +1498,17 @@ class GTOptWriter:
 
         output_dir = Path(options.get("output_dir", ""))
         sddp_opts = self.planning["options"].setdefault("sddp_options", {})
+        name_alias = self._load_alias_file(options.get("alias_file"))
 
         # ── Boundary cuts (last stage) ─────────────────────────────────────
         if planos.cuts:
             csv_path = output_dir / "boundary_cuts.csv"
-            write_boundary_cuts_csv(planos.cuts, planos.reservoir_names, csv_path)
+            write_boundary_cuts_csv(
+                planos.cuts,
+                planos.reservoir_names,
+                csv_path,
+                name_alias=name_alias,
+            )
             self.planning["_boundary_cuts_count"] = len(planos.cuts)
             self.planning["_boundary_state_variables"] = len(planos.reservoir_names)
             # Path relative to where gtopt runs (same dir as the JSON).
@@ -1518,6 +1549,7 @@ class GTOptWriter:
                 planos.reservoir_names,
                 hs_path,
                 stage_to_phase=stage_to_phase,
+                name_alias=name_alias,
             )
             # Only wire the file into the JSON options if explicitly requested
             if options.get("hot_start_cuts", False):

@@ -121,9 +121,6 @@ struct MainOptions
   std::optional<double> sddp_elastic_penalty {};
   /** @brief SDDP elastic filter mode: "cut" (default) or "backpropagate" */
   std::optional<std::string> sddp_elastic_mode {};
-  /** @brief SDDP cut coefficient source: "reduced_cost" (default) or
-   * "row_dual" (PLP-style explicit coupling constraint rows) */
-  std::optional<std::string> sddp_cut_coeff_mode {};
   /** @brief Number of SDDP backward-pass apertures (0=disabled, -1=all) */
   std::optional<int> sddp_num_apertures {};
   /** @brief Enable SDDP hot-start from previously saved cuts */

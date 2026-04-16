@@ -378,6 +378,20 @@ private:
   void initialize_alpha_variables(SceneIndex scene_index);
   void collect_state_variable_links(SceneIndex scene_index);
 
+  /// Mirror per-state-variable runtime values onto the persistent
+  /// `StateVariable` objects after a forward (or elastic-clone) solve.
+  ///
+  /// Always writes `col_sol` for every state variable of the solved
+  /// phase, and `reduced_cost` on each source state variable reached
+  /// via an incoming link from the previous phase.  Cut construction
+  /// reads both fields directly from the persistent `StateVariable`
+  /// objects, avoiding per-phase full-vector caches.
+  void capture_state_variable_values(
+      SceneIndex scene_index,
+      PhaseIndex phase_index,
+      std::span<const double> col_sol,
+      std::span<const double> reduced_costs) const noexcept;
+
   [[nodiscard]] auto forward_pass(SceneIndex scene_index,
                                   const SolverOptions& opts,
                                   IterationIndex iteration_index)

@@ -11,12 +11,11 @@
  *  2. compute_convergence_gap() — edge cases (zero UB, equal bounds,
  *     negative bounds, large gap)
  *  3. SDDP with warm_start disabled
- *  4. SDDP with cut_coeff_mode = row_dual
- *  5. SDDP with cut_coeff_eps and cut_coeff_max
- *  6. SDDP with apertures explicitly empty (forces plain backward pass)
- *  7. SDDP with min_iterations > convergence point
- *  8. SDDP convergence gap shrinks monotonically after initial iters
- *  9. SDDP with very low max_iterations (hit max without converging)
+ *  4. SDDP with cut_coeff_eps and cut_coeff_max
+ *  5. SDDP with apertures explicitly empty (forces plain backward pass)
+ *  6. SDDP with min_iterations > convergence point
+ *  7. SDDP convergence gap shrinks monotonically after initial iters
+ *  8. SDDP with very low max_iterations (hit max without converging)
  */
 
 #include <cmath>
@@ -343,27 +342,6 @@ TEST_CASE(  // NOLINT
   auto results = sddp.solve();
   REQUIRE(results.has_value());
   CHECK_FALSE(results->empty());
-  CHECK(results->back().converged);
-}
-
-TEST_CASE(  // NOLINT
-    "SDDPMethod — cut_coeff_mode row_dual converges (3-phase hydro)")
-{
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
-  auto planning = make_3phase_hydro_planning();
-  PlanningLP planning_lp(std::move(planning));
-
-  SDDPOptions sddp_opts;
-  sddp_opts.max_iterations = 20;
-  sddp_opts.convergence_tol = 1e-3;
-  sddp_opts.cut_coeff_mode = CutCoeffMode::row_dual;
-
-  SDDPMethod sddp(planning_lp, sddp_opts);
-  auto results = sddp.solve();
-  REQUIRE(results.has_value());
-  CHECK_FALSE(results->empty());
-  // row_dual mode should also converge on this problem
   CHECK(results->back().converged);
 }
 

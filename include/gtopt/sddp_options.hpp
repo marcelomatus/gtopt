@@ -236,18 +236,6 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   /// Accepted values: "auto", "none", "lz4", "snappy", "zstd", "gzip".
   std::optional<CompressionCodec> memory_codec {};
 
-  /** @brief How Benders cut coefficients are extracted from solved subproblems.
-   *
-   * - `reduced_cost` (default): uses reduced costs of fixed dependent columns.
-   * - `row_dual`: adds explicit coupling constraint rows and reads their duals
-   *   (PLP-style).
-   *
-   * Both are mathematically equivalent; row_dual may be preferred for
-   * cross-validation with PLP or when LP solver presolve affects reduced-cost
-   * reporting for fixed variables.
-   */
-  std::optional<CutCoeffMode> cut_coeff_mode {};
-
   /** @brief Absolute tolerance for filtering numerically tiny Benders cut
    * coefficients.
    *
@@ -450,7 +438,6 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
     merge_opt(simulation_mode, opts.simulation_mode);
     merge_opt(low_memory_mode, opts.low_memory_mode);
     merge_opt(memory_codec, opts.memory_codec);
-    merge_opt(cut_coeff_mode, opts.cut_coeff_mode);
     merge_opt(cut_coeff_eps, opts.cut_coeff_eps);
     merge_opt(cut_coeff_max, opts.cut_coeff_max);
     merge_opt(state_variable_lookup_mode, opts.state_variable_lookup_mode);

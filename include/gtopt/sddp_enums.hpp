@@ -196,33 +196,6 @@ inline constexpr auto missing_cut_var_mode_entries =
   return std::span {missing_cut_var_mode_entries};
 }
 
-// ─── CutCoeffMode ──────────────────────────────────────────────────────────
-
-/**
- * @brief How Benders cut coefficients are extracted from solved subproblems.
- *
- * - `reduced_cost` (default): Uses reduced costs of the dependent (fixed)
- *   columns.
- * - `row_dual`: Adds explicit equality constraint rows to fix each
- *   dependent column and reads the row duals of those coupling constraints.
- */
-enum class CutCoeffMode : uint8_t
-{
-  reduced_cost = 0,  ///< Reduced costs of fixed dependent columns (default)
-  row_dual = 1,  ///< Row duals of explicit coupling constraint rows (PLP)
-};
-
-inline constexpr auto cut_coeff_mode_entries =
-    std::to_array<EnumEntry<CutCoeffMode>>({
-        {.name = "reduced_cost", .value = CutCoeffMode::reduced_cost},
-        {.name = "row_dual", .value = CutCoeffMode::row_dual},
-    });
-
-[[nodiscard]] constexpr auto enum_entries(CutCoeffMode /*tag*/) noexcept
-{
-  return std::span {cut_coeff_mode_entries};
-}
-
 // ─── ConvergenceMode ───────────────────────────────────────────────────────
 
 /**

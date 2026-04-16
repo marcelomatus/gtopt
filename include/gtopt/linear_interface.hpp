@@ -29,6 +29,7 @@
 #include <gtopt/sddp_enums.hpp>
 #include <gtopt/solver_backend.hpp>
 #include <gtopt/solver_options.hpp>
+#include <gtopt/solver_stats.hpp>
 #include <gtopt/strong_index_vector.hpp>
 
 namespace gtopt
@@ -617,6 +618,31 @@ public:
    * @return Condition number kappa, or -1.0 if not supported by backend
    */
   [[nodiscard]] double get_kappa() const;
+
+  /**
+   * @brief Read-only access to this LP's cumulative solver counters.
+   *
+   * Counters are incremented by `load_flat`, `initial_solve`, `resolve`,
+   * and `ensure_duals`.  Aggregation across LPs (e.g. for end-of-run
+   * reporting) is done by the caller via `SolverStats::operator+=`.
+   */
+  [[nodiscard]] constexpr const SolverStats& solver_stats() const noexcept
+  {
+    return m_solver_stats_;
+  }
+
+  /**
+   * @brief Fold another LP's counters into this one.
+   *
+   * Used by elastic-filter paths that resolve a `clone()`d LP and
+   * discard it: call this on the original with `clone.solver_stats()`
+   * before the clone is destroyed so the solve attempts it made still
+   * show up in the final report.
+   */
+  constexpr void merge_solver_stats(const SolverStats& other) noexcept
+  {
+    m_solver_stats_ += other;
+  }
 
   /**
    * @brief Analyze coefficient range for a single row.
@@ -1340,6 +1366,11 @@ private:
   size_t m_cached_numcols_ {};
   /// Whether the cached state represents an optimal solution.
   bool m_cached_is_optimal_ {false};
+
+  /// Cumulative solver-activity counters (see `solver_stats.hpp`).
+  /// Written only by the thread that owns this LP; aggregated across
+  /// interfaces on the main thread at end of run.
+  SolverStats m_solver_stats_ {};
 };
 
 /// RAII guard that decompresses a LinearInterface's flat LP on construction

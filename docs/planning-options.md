@@ -232,7 +232,6 @@ See [SDDP Method](methods/sddp.md) for full documentation with examples.
 |-------|------|---------|-------------|
 | `cut_directory` | string | `"cuts"` | Directory for Benders cut files |
 | `cut_sharing_mode` | string | `"none"` | Cut sharing: `"none"`, `"expected"`, `"accumulate"`, `"max"` |
-| `cut_coeff_mode` | string | `"reduced_cost"` | Cut coefficient extraction: `"reduced_cost"` or `"row_dual"` |
 | `max_cuts_per_phase` | int | `0` | Maximum stored cuts per (scene, phase) (0 = unlimited) |
 | `cut_prune_interval` | int | `10` | Iterations between cut pruning passes |
 | `prune_dual_threshold` | float | `1e-8` | Dual threshold for inactive cut detection |

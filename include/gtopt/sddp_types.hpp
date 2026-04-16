@@ -134,12 +134,6 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   /// elastic-clone solution (PLP mechanism).
   ElasticFilterMode elastic_filter_mode {ElasticFilterMode::single_cut};
 
-  /// How Benders cut coefficients are extracted from solved subproblems.
-  /// `reduced_cost` (default): reduced costs of fixed dependent columns.
-  /// `row_dual`: row duals of explicit coupling constraint rows
-  /// (PLP-style).
-  CutCoeffMode cut_coeff_mode {CutCoeffMode::reduced_cost};
-
   /// Absolute tolerance for filtering tiny Benders cut coefficients.
   /// Coefficients with |value| < cut_coeff_eps are dropped from the cut.
   /// 0.0 = no filtering (default).
@@ -544,11 +538,17 @@ struct PhaseStateInfo
   /// Cached for the backward pass so the original LP need not be
   /// re-queried.
   double forward_full_obj {0.0};
-  /// Reduced costs from last forward solve (cached for backward pass).
-  std::vector<double> forward_col_cost {};
-  /// Primal solution from last forward solve (warm-start for apertures).
+  /// Primal solution from last forward solve — retained ONLY when
+  /// `SDDPOptions::warm_start` is true.  Consumed by
+  /// `set_warm_start_solution`, `reconstruct_backend`, and aperture /
+  /// elastic clone warm-start hints.  Empty under low_memory (warm_start
+  /// forced off) — per-state-variable trial values then come from
+  /// `StateVariable::col_sol()`.
   std::vector<double> forward_col_sol {};
-  /// Dual solution from last forward solve (warm-start for apertures).
+  /// Dual solution from last forward solve — same gating as
+  /// `forward_col_sol`.  Retained solely as a warm-start hint for the
+  /// backward-pass solver; cuts are built from reduced costs (see
+  /// docs/methods/sddp.md).
   std::vector<double> forward_row_dual {};
 };
 

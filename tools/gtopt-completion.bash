@@ -39,9 +39,6 @@ _gtopt()
         --sddp-elastic-mode)
             COMPREPLY=( $(compgen -W "none forward backward both" -- "$cur") )
             return ;;
-        --sddp-cut-coeff-mode)
-            COMPREPLY=( $(compgen -W "reduced_cost row_dual" -- "$cur") )
-            return ;;
         --algorithm|-a)
             COMPREPLY=( $(compgen -W "default primal dual barrier" -- "$cur") )
             return ;;
@@ -78,7 +75,7 @@ _gtopt()
             --use-single-bus -b --use-kirchhoff -k
             --sddp-num-apertures --sddp-max-iterations --sddp-min-iterations
             --sddp-convergence-tol --sddp-elastic-penalty
-            --sddp-elastic-mode --sddp-cut-coeff-mode
+            --sddp-elastic-mode
             --cut-directory --log-directory
             --low-memory --memory-limit --cpu-factor --build-mode
             --recover"
