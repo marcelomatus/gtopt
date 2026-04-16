@@ -16,6 +16,8 @@
 
 #pragma once
 
+#include <concepts>
+#include <cstdio>
 #include <expected>
 #include <memory>
 #include <span>
@@ -74,7 +76,10 @@ public:
   {
   }
 
-  [[nodiscard]] constexpr double operator[](auto idx) const noexcept
+  /// Accepts any integer-like type (int, size_t, ColIndex, RowIndex, …).
+  template<typename T>
+    requires std::is_convertible_v<T, size_t>
+  [[nodiscard]] constexpr double operator[](T idx) const noexcept
   {
     const auto i = static_cast<size_t>(idx);
     if (i >= scales_.size()) {
@@ -1374,7 +1379,7 @@ private:
 
   struct FILEcloser
   {
-    auto operator()(auto f) const { return fclose(f); }
+    void operator()(FILE* f) const noexcept { std::fclose(f); }
   };
   using log_file_ptr_t = std::unique_ptr<FILE, FILEcloser>;
   log_file_ptr_t m_log_file_ptr_;

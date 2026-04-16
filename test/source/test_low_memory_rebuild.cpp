@@ -339,8 +339,8 @@ TEST_CASE(  // NOLINT
 
   SystemLP system_lp(world.system, simulation_lp, flat_opts);
 
-  constexpr int n_cycles = 3;
-  for (int i = 0; i < n_cycles; ++i) {
+  constexpr std::size_t n_cycles = 3;
+  for (std::size_t i = 0; i < n_cycles; ++i) {
     system_lp.ensure_lp_built();
     auto solve = system_lp.linear_interface().resolve();
     REQUIRE(solve.has_value());
@@ -351,8 +351,7 @@ TEST_CASE(  // NOLINT
   // Every rebuild calls load_flat once.  Expect at least n_cycles calls;
   // the implementation is free to do more (e.g. one extra during the
   // initial set_warm_start_solution path), but never fewer.
-  CHECK(system_lp.solver_stats().load_problem_calls
-        >= static_cast<std::uint64_t>(n_cycles));
+  CHECK(system_lp.solver_stats().load_problem_calls >= n_cycles);
 }
 
 TEST_CASE(  // NOLINT
