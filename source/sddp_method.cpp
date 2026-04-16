@@ -963,8 +963,11 @@ auto SDDPMethod::load_cuts(const std::string& filepath)
 auto SDDPMethod::load_scene_cuts_from_directory(const std::string& directory)
     -> std::expected<CutLoadResult, Error>
 {
-  return gtopt::load_scene_cuts_from_directory(
-      planning_lp(), directory, m_options_.scale_alpha, m_label_maker_);
+  return gtopt::load_scene_cuts_from_directory(planning_lp(),
+                                               directory,
+                                               m_options_.scale_alpha,
+                                               m_label_maker_,
+                                               &m_scene_phase_states_);
 }
 
 auto SDDPMethod::load_boundary_cuts(const std::string& filepath)

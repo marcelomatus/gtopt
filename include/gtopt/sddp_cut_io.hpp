@@ -128,16 +128,23 @@ class PlanningLP;
 /// Files with the `error_` prefix (from infeasible scenes in a
 /// previous run) are skipped to prevent loading invalid cuts.
 ///
-/// @param planning_lp   The PlanningLP to add cuts to
-/// @param directory     Directory containing cut CSV files
-/// @param scale_alpha   Actual scale_alpha (computed from state var scales)
-/// @param label_maker   Label maker for LP row names
+/// @param planning_lp        The PlanningLP to add cuts to
+/// @param directory          Directory containing cut CSV files
+/// @param scale_alpha        Actual scale_alpha (computed from state var
+/// scales)
+/// @param label_maker        Label maker for LP row names
+/// @param scene_phase_states Optional per-(scene,phase) state for alpha
+///                           resolution.  When null, @alpha coefficients
+///                           are resolved by LP name fallback.
 /// @return CutLoadResult with total count and max iteration, or an error
-[[nodiscard]] auto load_scene_cuts_from_directory(PlanningLP& planning_lp,
-                                                  const std::string& directory,
-                                                  double scale_alpha,
-                                                  const LabelMaker& label_maker)
-    -> std::expected<CutLoadResult, Error>;
+[[nodiscard]] auto load_scene_cuts_from_directory(
+    PlanningLP& planning_lp,
+    const std::string& directory,
+    double scale_alpha,
+    const LabelMaker& label_maker,
+    const StrongIndexVector<SceneIndex,
+                            StrongIndexVector<PhaseIndex, PhaseStateInfo>>*
+        scene_phase_states = nullptr) -> std::expected<CutLoadResult, Error>;
 
 /// Load boundary (future-cost) cuts from a named-variable CSV file.
 ///
