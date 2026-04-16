@@ -1096,7 +1096,7 @@ gtopt/
 
 | Workflow | Trigger | What it does |
 |----------|---------|--------------|
-| `ubuntu.yml` | push/PR to main | Build (Clang 21), unit + e2e tests, optional coverage; uploads **`gtopt-binary-debug`** artifact (7-day retention) |
+| `ubuntu.yml` | push/PR to main | Build (Clang 21, `CMAKE_BUILD_TYPE=CIFast`: `-O0 -g1`, fast compile + backtrace-only debug info — switches to `Debug` only when `ENABLE_COVERAGE=true`), unit + e2e tests, optional coverage; uploads **`gtopt-binary-debug`** artifact (7-day retention; name kept for compatibility, binary is CIFast unless coverage was enabled) |
 | `ubuntu.yml` (clang-tidy job) | `workflow_dispatch` with `run_clang_tidy=true` | Full clang-tidy static analysis |
 | `style.yml` | every push/PR | clang-format + ruff format checks (non-blocking, warning only) |
 | `autoformat.yml` | push to non-main branches | Auto-applies clang-format + ruff format, commits fixup |

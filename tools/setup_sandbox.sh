@@ -8,9 +8,17 @@
 #   --no-python      Skip pre-installing Python scripts dependencies
 #   --configure      Also run cmake configure after deps are installed
 #   --build          Also run cmake --build after configure (implies --configure)
-#   --build-type T   CMake build type: Debug (default) | Release | RelWithDebInfo
+#   --build-type T   CMake build type: CIFast (default) | Debug | Release | RelWithDebInfo
+#   --debug          Shortcut for --build-type Debug (full symbols, asserts)
 #   --no-save-ccjson Skip saving compile_commands.json to tools/ after build
 #   --help           Show this help and exit
+#
+# Build-type rationale:
+#   CIFast is -O0 -g1 with gc-sections — no optimisation (fast compile) and
+#   only minimal line-number debug info (backtraces still work on test
+#   failures).  This is what CI and agent-driven iteration want: a pass/fail
+#   signal plus a readable stack trace.  Reconfigure with --debug when you
+#   actually need to step through code in gdb.
 #
 # What this script does (in the same order as .github/workflows/ubuntu.yml):
 #   1. Install ccache + base APT packages (COIN-OR, Boost, spdlog, LAPACK, etc.)
@@ -55,7 +63,7 @@ cd "$REPO_ROOT"
 INSTALL_PYTHON=true
 DO_CONFIGURE=false
 DO_BUILD=false
-BUILD_TYPE=Debug
+BUILD_TYPE=CIFast
 CLANG_VERSION=21
 SAVE_CCJSON=true
 
@@ -66,6 +74,7 @@ while [[ $# -gt 0 ]]; do
     --configure)    DO_CONFIGURE=true ;;
     --build)        DO_CONFIGURE=true; DO_BUILD=true ;;
     --build-type)   shift; BUILD_TYPE="$1" ;;
+    --debug)        BUILD_TYPE=Debug ;;
     --no-save-ccjson) SAVE_CCJSON=false ;;
     --help|-h)
       sed -n '2,/^# Notes:/p' "$0" | sed 's/^# \?//'
@@ -342,7 +351,7 @@ if ! $DO_CONFIGURE; then
     PREFIX_HINT=""
   fi
   echo "  cmake -S all -B build \\"
-  echo "    -DCMAKE_BUILD_TYPE=Debug \\"
+  echo "    -DCMAKE_BUILD_TYPE=CIFast \\"
   echo "    -DCMAKE_C_COMPILER=${CC} \\"
   echo "    -DCMAKE_CXX_COMPILER=${CXX} \\"
   if [[ -n "$PREFIX_HINT" ]]; then

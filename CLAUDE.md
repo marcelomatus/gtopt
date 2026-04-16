@@ -18,10 +18,19 @@ and Python utility scripts.
 ```bash
 bash tools/setup_sandbox.sh          # install deps only
 bash tools/setup_sandbox.sh --build  # install deps + build + test (PREFERRED)
+bash tools/setup_sandbox.sh --build --debug  # full symbols when actually debugging
 ```
 
 The script is idempotent, tries Clang 21 first (falls back to GCC 14), uses
 conda for Arrow/Parquet, and saves `tools/compile_commands.json` for clang-tidy.
+
+> **Default build type: `CIFast`** — `-O0 -g1` with `-fno-standalone-debug`
+> (Clang) and `--gc-sections`. No optimisation, minimal line-only debug info
+> (backtraces on test failures still point at a source line). This is the
+> right default for both CI and agent-driven iteration: the only signals
+> we need are "did it compile" and "did the tests pass". Reconfigure with
+> `-DCMAKE_BUILD_TYPE=Debug` (or `setup_sandbox.sh --debug`) when you
+> actually need to step through code in gdb.
 
 ### Local development (no conda needed)
 
@@ -31,12 +40,14 @@ sudo apt-get update && sudo apt-get install -y --no-install-recommends \
   libboost-container-dev libspdlog-dev liblapack-dev libblas-dev \
   zlib1g-dev libzstd-dev zstd liblz4-dev lcov
 
-cmake -S all -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug \
+cmake -S all -B build -G Ninja -DCMAKE_BUILD_TYPE=CIFast \
   -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ \
   -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
 cmake --build build -j$(nproc)
 cd build && ctest --output-on-failure
 ```
+
+Use `-DCMAKE_BUILD_TYPE=Debug` instead when you need full symbols for gdb.
 
 > **Ninja recommended**: `-G Ninja` enables file-level dependency tracking,
 > allowing test sources to compile in parallel with library sources. Install
@@ -68,7 +79,7 @@ binary (`build/standalone/gtopt`), and tests (run via `ctest`).
 ./build/test/gtoptTests -tc="test name pattern"
 
 # Unit + integration tests
-cmake -S all -B build -G Ninja -DGTOPT_BUILD_INTEGRATION_TESTS=ON -DCMAKE_BUILD_TYPE=Debug \
+cmake -S all -B build -G Ninja -DGTOPT_BUILD_INTEGRATION_TESTS=ON -DCMAKE_BUILD_TYPE=CIFast \
   -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ \
   -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
 cmake --build build -j$(nproc) && cd build && ctest --output-on-failure

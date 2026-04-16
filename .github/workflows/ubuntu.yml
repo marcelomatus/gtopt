@@ -133,11 +133,17 @@ jobs:
 
       - name: configure
         run: |
+          # CIFast is the default: -O0 -g1 with gc-sections — no optimisation
+          # (fast compile), minimal line-only debug info (backtraces still work
+          # on test failures).  Coverage runs need full debug info for lcov
+          # line mapping, so switch back to Debug when coverage is enabled.
           COVERAGE_FLAG=""
+          BUILD_TYPE="CIFast"
           if [ "${{ env.ENABLE_COVERAGE }}" = "true" ]; then
             COVERAGE_FLAG="-DENABLE_TEST_COVERAGE=1"
+            BUILD_TYPE="Debug"
           fi
-          cmake -S all -B build ${COVERAGE_FLAG} -DCMAKE_BUILD_TYPE=Debug -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+          cmake -S all -B build ${COVERAGE_FLAG} -DCMAKE_BUILD_TYPE=${BUILD_TYPE} -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
         env:
           CC: ${{ env.CC }}
           CXX: ${{ env.CXX }}
@@ -164,7 +170,11 @@ jobs:
         run: |
           set -o pipefail
           cd build
-          ctest --build-config Debug --output-on-failure  -j$(nproc) 2>&1 | tee ctest_output.log
+          # --build-config is only meaningful for multi-config generators
+          # (Ninja Multi-Config, Visual Studio); ignored by single-config
+          # Ninja/Make runs, which is what this workflow uses.  Left here
+          # for compatibility.
+          ctest --output-on-failure -j$(nproc) 2>&1 | tee ctest_output.log
           echo ""
           echo "=== Test Summary ==="
           TOTAL=$(grep -c "Test #" ctest_output.log || echo 0)
