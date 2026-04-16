@@ -183,7 +183,8 @@ TEST_CASE(  // NOLINT
     REQUIRE(method.has_value());
 
     const auto out_dir = tmp_base / mode_name;
-    const auto res = solve_ieee9b_eq(*method, out_dir);
+    const auto res =
+        solve_ieee9b_eq(method.value_or(LpEquilibrationMethod::none), out_dir);
 
     CHECK(res.solve_status == 1);  // 1 scene successfully processed
     CHECK(res.obj_value > 0.0);
@@ -293,11 +294,9 @@ TEST_CASE(  // NOLINT
 
   SUBCASE("output CSV files exist")
   {
-    for (const auto* dir : {(tmp_base / "none").c_str(),
-                            (tmp_base / "row_max").c_str(),
-                            (tmp_base / "ruiz").c_str()})
-    {
-      const std::filesystem::path d(dir);
+    for (const auto* mode : {"none", "row_max", "ruiz"}) {
+      CAPTURE(mode);
+      const auto d = tmp_base / mode;
       CHECK(std::filesystem::exists(d / "Generator" / "generation_sol.csv"));
       CHECK(std::filesystem::exists(d / "Line" / "flowp_sol.csv"));
       CHECK(std::filesystem::exists(d / "Demand" / "load_sol.csv"));
