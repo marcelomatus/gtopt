@@ -9,15 +9,29 @@
 #pragma once
 
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
 #include <gtopt/solver_backend.hpp>
+#include <gtopt/solver_options.hpp>
 
 class Highs;
 
 namespace gtopt
 {
+
+/// Cached state used to replay options + logging + prob name onto a HiGHS
+/// instance.  Mirrors the CPLEX plugin's CplexPrep: clone() and any future
+/// recreate-on-load path copy this cache and apply its fields to the new
+/// Highs instance, keeping backend state consistent with the source.
+struct HighsPrep
+{
+  std::optional<SolverOptions> options {};
+  std::string log_filename {};
+  int log_level {0};
+  std::string prob_name {};
+};
 
 /**
  * @brief Solver backend using the HiGHS native C++ API.
@@ -143,7 +157,7 @@ public:
 
 private:
   std::unique_ptr<Highs> m_highs_;
-  std::string m_prob_name_;
+  HighsPrep m_prep_;
 
   // Cached option values (updated by apply_options)
   LPAlgo m_algorithm_ {LPAlgo::default_algo};

@@ -37,6 +37,101 @@ auto make_quiet_highs() -> std::unique_ptr<Highs>
   return highs;
 }
 
+/// Apply a SolverOptions bundle onto a Highs instance.  Pure Highs-level
+/// mutation — never touches backend member fields.  Factored out so both
+/// apply_options() (live path) and clone() (replay onto fresh instance)
+/// can reuse the exact same parameter wiring.
+///
+/// Note on SolverOptions::low_memory: HiGHS has no direct equivalent to
+/// CPLEX CPX_PARAM_MEMORYEMPHASIS or any documented memory-compression
+/// setting, so the flag is accepted but intentionally ignored here.  See
+/// solver_options.hpp: "HiGHS: no direct equivalent (ignored)".
+void apply_options_to_highs(Highs& highs, const SolverOptions& opts)
+{
+  if (const auto oeps = opts.optimal_eps; oeps && *oeps > 0) {
+    highs.setOptionValue("dual_feasibility_tolerance", *oeps);
+  }
+  if (const auto feps = opts.feasible_eps; feps && *feps > 0) {
+    highs.setOptionValue("primal_feasibility_tolerance", *feps);
+  }
+  if (const auto tl = opts.time_limit; tl && *tl > 0.0) {
+    highs.setOptionValue("time_limit", *tl);
+  }
+  if (opts.threads > 0) {
+    highs.setOptionValue("threads", opts.threads);
+  }
+
+  highs.setOptionValue("presolve", opts.presolve ? "on" : "off");
+
+  // HiGHS simplex_scale_strategy: 0=off, 1=forced, 4=default.
+  if (opts.scaling.has_value()) {
+    int strategy = 4;  // default
+    switch (*opts.scaling) {
+      case SolverScaling::none:
+        strategy = 0;
+        break;
+      case SolverScaling::automatic:
+        strategy = 4;
+        break;
+      case SolverScaling::aggressive:
+        strategy = 1;
+        break;
+    }
+    highs.setOptionValue("simplex_scale_strategy", strategy);
+  }
+
+  if (opts.reuse_basis && opts.algorithm != LPAlgo::barrier) {
+    // Warm start: simplex + no presolve overrides any algorithm choice.
+    highs.setOptionValue("solver", "simplex");
+    highs.setOptionValue("presolve", "off");
+  } else {
+    switch (opts.algorithm) {
+      case LPAlgo::default_algo:
+        highs.setOptionValue("solver", "choose");
+        break;
+      case LPAlgo::primal:
+        highs.setOptionValue("solver", "simplex");
+        highs.setOptionValue("simplex_strategy", 4);  // primal
+        break;
+      case LPAlgo::dual:
+        highs.setOptionValue("solver", "simplex");
+        highs.setOptionValue("simplex_strategy", 1);  // dual
+        break;
+      case LPAlgo::barrier:
+        highs.setOptionValue("solver", "ipm");
+        if (const auto beps = opts.barrier_eps; beps && *beps > 0) {
+          highs.setOptionValue("ipm_optimality_tolerance", *beps);
+        }
+        if (!opts.crossover) {
+          highs.setOptionValue("run_crossover", "off");
+        }
+        break;
+      case LPAlgo::last_algo:
+        break;
+    }
+  }
+
+  // Never enable console output here — logging is managed by the
+  // LogFileGuard / HandlerGuard RAII wrappers in LinearInterface, which
+  // direct output to a log file when log_mode is enabled.
+  highs.setOptionValue("output_flag", false);
+  highs.setOptionValue("log_to_console", false);
+}
+
+/// Enable HiGHS file logging with the provided basename + level.  When
+/// level==0 or filename is empty the Highs instance stays silent.
+void apply_log_filename_to_highs(Highs& highs,
+                                 const std::string& filename,
+                                 int level)
+{
+  if (level > 0 && !filename.empty()) {
+    const auto log_path = std::format("{}.log", filename);
+    highs.setOptionValue("log_file", log_path);
+    highs.setOptionValue("output_flag", true);
+    highs.setOptionValue("log_to_console", false);
+  }
+}
+
 }  // namespace
 
 HighsSolverBackend::HighsSolverBackend()
@@ -71,12 +166,12 @@ bool HighsSolverBackend::supports_mip() const noexcept
 
 void HighsSolverBackend::set_prob_name(const std::string& name)
 {
-  m_prob_name_ = name;
+  m_prep_.prob_name = name;
 }
 
 std::string HighsSolverBackend::get_prob_name() const
 {
-  return m_prob_name_;
+  return m_prep_.prob_name;
 }
 
 void HighsSolverBackend::load_problem(int ncols,
@@ -459,107 +554,39 @@ SolverOptions HighsSolverBackend::optimal_options() const
 
 void HighsSolverBackend::apply_options(const SolverOptions& opts)
 {
+  m_prep_.options = opts;
   m_algorithm_ = opts.algorithm;
   m_threads_ = opts.threads;
   m_presolve_ = opts.presolve;
   m_log_level_ = opts.log_level;
-  if (const auto oeps = opts.optimal_eps; oeps && *oeps > 0) {
-    m_highs_->setOptionValue("dual_feasibility_tolerance", *oeps);
-  }
-
-  if (const auto feps = opts.feasible_eps; feps && *feps > 0) {
-    m_highs_->setOptionValue("primal_feasibility_tolerance", *feps);
-  }
-
-  if (const auto tl = opts.time_limit; tl && *tl > 0.0) {
-    m_highs_->setOptionValue("time_limit", *tl);
-  }
-
-  {
-    // HiGHS uses a *thread-local* task executor (despite the name
-    // "resetGlobalScheduler").  Each OS thread that calls run() gets its
-    // own executor with (threads-1) worker threads, auto-initialized on
-    // first run().  Once initialized, changing the thread count requires
-    // resetting the executor first — otherwise run() returns kError.
-    //
-    // We track the effective thread count per OS thread to reset only
-    // when it actually changes.  threads==0 means "let HiGHS choose"
-    // (typically hardware_concurrency/2).
-    const int effective = opts.threads > 0
-        ? opts.threads
-        : std::max(1, static_cast<int>(physical_concurrency()));
-    static thread_local int tl_scheduler_threads {0};
-    if (tl_scheduler_threads != 0 && tl_scheduler_threads != effective) {
-      Highs::resetGlobalScheduler(/*blocking=*/true);
-      tl_scheduler_threads = 0;
-    }
-    if (tl_scheduler_threads == 0) {
-      tl_scheduler_threads = effective;
-    }
-    if (opts.threads > 0) {
-      m_highs_->setOptionValue("threads", opts.threads);
-    }
-  }
-
-  m_highs_->setOptionValue("presolve", opts.presolve ? "on" : "off");
-
-  // HiGHS simplex_scale_strategy: 0=off, 1=forced, 4=default.
-  if (opts.scaling.has_value()) {
-    int strategy = 4;  // default
-    switch (*opts.scaling) {
-      case SolverScaling::none:
-        strategy = 0;
-        break;
-      case SolverScaling::automatic:
-        strategy = 4;
-        break;
-      case SolverScaling::aggressive:
-        strategy = 1;
-        break;
-    }
-    m_highs_->setOptionValue("simplex_scale_strategy", strategy);
-  }
-
   if (opts.reuse_basis && opts.algorithm != LPAlgo::barrier) {
     m_algorithm_ = LPAlgo::dual;
     m_presolve_ = false;
-
-    // For warm start: use simplex (not IPM) and disable presolve
-    m_highs_->setOptionValue("solver", "simplex");
-    m_highs_->setOptionValue("presolve", "off");
-    return;
   }
 
-  switch (opts.algorithm) {
-    case LPAlgo::default_algo:
-      m_highs_->setOptionValue("solver", "choose");
-      break;
-    case LPAlgo::primal:
-      m_highs_->setOptionValue("solver", "simplex");
-      m_highs_->setOptionValue("simplex_strategy", 4);  // primal
-      break;
-    case LPAlgo::dual:
-      m_highs_->setOptionValue("solver", "simplex");
-      m_highs_->setOptionValue("simplex_strategy", 1);  // dual
-      break;
-    case LPAlgo::barrier:
-      m_highs_->setOptionValue("solver", "ipm");
-      if (const auto beps = opts.barrier_eps; beps && *beps > 0) {
-        m_highs_->setOptionValue("ipm_optimality_tolerance", *beps);
-      }
-      if (!opts.crossover) {
-        m_highs_->setOptionValue("run_crossover", "off");
-      }
-      break;
-    case LPAlgo::last_algo:
-      break;
+  // HiGHS uses a *thread-local* task executor (despite the name
+  // "resetGlobalScheduler").  Each OS thread that calls run() gets its
+  // own executor with (threads-1) worker threads, auto-initialized on
+  // first run().  Once initialized, changing the thread count requires
+  // resetting the executor first — otherwise run() returns kError.
+  //
+  // This lives outside apply_options_to_highs() because it mutates
+  // thread_local state tied to the *caller's* OS thread, not the Highs
+  // instance.  The helper is side-effect-free w.r.t. thread_local state
+  // so clone() on a different thread does not disturb the scheduler.
+  const int effective = opts.threads > 0
+      ? opts.threads
+      : std::max(1, static_cast<int>(physical_concurrency()));
+  static thread_local int tl_scheduler_threads {0};
+  if (tl_scheduler_threads != 0 && tl_scheduler_threads != effective) {
+    Highs::resetGlobalScheduler(/*blocking=*/true);
+    tl_scheduler_threads = 0;
+  }
+  if (tl_scheduler_threads == 0) {
+    tl_scheduler_threads = effective;
   }
 
-  // Never enable console output here — logging is managed by the
-  // LogFileGuard / HandlerGuard RAII wrappers in LinearInterface,
-  // which direct output to a log file when log_mode is enabled.
-  m_highs_->setOptionValue("output_flag", false);
-  m_highs_->setOptionValue("log_to_console", false);
+  apply_options_to_highs(*m_highs_, opts);
 }
 
 double HighsSolverBackend::get_kappa() const
@@ -590,15 +617,16 @@ void HighsSolverBackend::set_log_filename(const std::string& filename,
                                           int level)
 {
   if (level > 0 && !filename.empty()) {
-    const auto log_path = std::format("{}.log", filename);
-    m_highs_->setOptionValue("log_file", log_path);
-    m_highs_->setOptionValue("output_flag", true);
-    m_highs_->setOptionValue("log_to_console", false);
+    m_prep_.log_filename = filename;
+    m_prep_.log_level = level;
+    apply_log_filename_to_highs(*m_highs_, filename, level);
   }
 }
 
 void HighsSolverBackend::clear_log_filename()
 {
+  m_prep_.log_filename.clear();
+  m_prep_.log_level = 0;
   m_highs_->setOptionValue("log_file", std::string {});
   m_highs_->setOptionValue("output_flag", false);
 }
@@ -627,12 +655,33 @@ void HighsSolverBackend::write_lp(const char* filename)
 std::unique_ptr<SolverBackend> HighsSolverBackend::clone() const
 {
   auto cloned = std::make_unique<HighsSolverBackend>();
-  cloned->m_prob_name_ = m_prob_name_;
+
+  // Propagate the full preparation state (options, log filename, log level,
+  // prob name) and the per-getter cached scalars.  The previous version
+  // only copied m_prob_name_ and silently dropped applied SolverOptions,
+  // so a clone could fall back to HiGHS defaults (e.g. algorithm=choose)
+  // while get_algorithm() still returned the source's value — diverging
+  // backend state from solver state.
+  cloned->m_prep_ = m_prep_;
+  cloned->m_algorithm_ = m_algorithm_;
+  cloned->m_threads_ = m_threads_;
+  cloned->m_presolve_ = m_presolve_;
+  cloned->m_log_level_ = m_log_level_;
 
   // Suppress banner before passModel() (constructor's settings were
   // already applied by make_quiet_highs, but be explicit).
   cloned->m_highs_->setOptionValue("output_flag", false);
   cloned->m_highs_->setOptionValue("log_to_console", false);
+
+  // Replay options + logging from the prep cache onto the fresh Highs
+  // instance so the clone actually solves with the same settings as the
+  // source.
+  if (cloned->m_prep_.options.has_value()) {
+    apply_options_to_highs(*cloned->m_highs_, *cloned->m_prep_.options);
+  }
+  apply_log_filename_to_highs(*cloned->m_highs_,
+                              cloned->m_prep_.log_filename,
+                              cloned->m_prep_.log_level);
 
   // Re-create the model in the clone
   const auto& lp = m_highs_->getLp();
