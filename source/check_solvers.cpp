@@ -391,30 +391,52 @@ SolverTestResult test_name_maps(std::string_view solver)
 
     TC_CHECK(ctx, lp.label_maker().names_level() == LpNamesLevel::all);
 
+    // LabelMaker builds a label of the form
+    //   as_label(lowercase(class_name), variable_name, variable_uid)
+    // → e.g. "col_x_1".  Leaving any of these empty/unknown produces an
+    // empty label, which LinearInterface then declines to register in its
+    // name maps — so the SparseCol/SparseRow below must carry the full
+    // (class_name, variable_name, variable_uid) triple for this test to
+    // exercise the name-map machinery at all.
     const auto x1 = lp.add_col(SparseCol {
         .uppb = 10.0,
+        .class_name = "col",
+        .variable_name = "x",
+        .variable_uid = Uid {1},
     });
     const auto x2 = lp.add_col(SparseCol {
         .uppb = 5.0,
+        .class_name = "col",
+        .variable_name = "x",
+        .variable_uid = Uid {2},
     });
 
-    SparseRow row;
+    SparseRow row {
+        .lowb = 0.0,
+        .uppb = 10.0,
+        .class_name = "row",
+        .constraint_name = "my",
+        .variable_uid = Uid {1},
+    };
     row[x1] = 1.0;
-    row.lowb = 0.0;
-    row.uppb = 10.0;
     lp.add_row(row);
 
     const auto& col_map = lp.col_name_map();
-    TC_CHECK(ctx, col_map.contains("x1"));
-    TC_CHECK(ctx, col_map.contains("x2"));
+    TC_CHECK(ctx, col_map.contains("col_x_1"));
+    TC_CHECK(ctx, col_map.contains("col_x_2"));
 
     const auto& row_map = lp.row_name_map();
-    TC_CHECK(ctx, row_map.contains("my_row"));
+    TC_CHECK(ctx, row_map.contains("row_my_1"));
 
+    // TC_REQUIRE: if the backend-or-interface failed to populate the
+    // index→name vector we must stop here, otherwise the operator[] below
+    // would dereference an empty StrongIndexVector and crash the process
+    // (the previous version silently checked the size and then crashed
+    // when the check fired).
     const auto& col_idx_to_name = lp.col_index_to_name();
-    TC_CHECK(ctx, col_idx_to_name.size() == 2);
-    TC_CHECK(ctx, col_idx_to_name[x1] == "x1");
-    TC_CHECK(ctx, col_idx_to_name[x2] == "x2");
+    TC_REQUIRE(ctx, col_idx_to_name.size() == 2);
+    TC_CHECK(ctx, col_idx_to_name[x1] == "col_x_1");
+    TC_CHECK(ctx, col_idx_to_name[x2] == "col_x_2");
 
   } catch (const std::exception& ex) {
     return make_result("name_maps", /*test_passed=*/false, ex.what());
