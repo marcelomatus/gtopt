@@ -20,8 +20,7 @@
 #include <string_view>
 
 #include <doctest/doctest.h>
-#include <gtopt/json/json_parse_policy.hpp>
-#include <gtopt/json/json_planning.hpp>
+#include <gtopt/gtopt_json_io.hpp>
 #include <gtopt/planning_lp.hpp>
 
 using namespace gtopt;  // NOLINT(google-global-names-in-headers)
@@ -70,8 +69,7 @@ static constexpr std::string_view ieee4b_ori_json = R"({
 TEST_CASE("IEEE 4-bus original - JSON parse and structure check")
 {
   using namespace gtopt;
-  auto planning =
-      daw::json::from_json<Planning>(ieee4b_ori_json, StrictParsePolicy);
+  auto planning = parse_planning_json(ieee4b_ori_json);
 
   CHECK(planning.system.name == "ieee_4b_ori");
   CHECK(planning.system.bus_array.size() == 4);
@@ -91,8 +89,7 @@ TEST_CASE("IEEE 4-bus original - LP solve")
   // Use Planning::merge so arrays accumulate across multiple JSON files –
   // the same pattern gtopt_main uses when reading JSON files.
   Planning base;
-  base.merge(
-      daw::json::from_json<Planning>(ieee4b_ori_json, StrictParsePolicy));
+  base.merge(parse_planning_json(ieee4b_ori_json));
 
   PlanningLP planning_lp(std::move(base));
   auto result = planning_lp.resolve();
@@ -109,8 +106,7 @@ TEST_CASE("IEEE 4-bus original - solution correctness")
   //   No load shedding.
   //   Objective = 250 × 20 / scale_objective(1000) = 5.0.
   Planning base;
-  base.merge(
-      daw::json::from_json<Planning>(ieee4b_ori_json, StrictParsePolicy));
+  base.merge(parse_planning_json(ieee4b_ori_json));
 
   PlanningLP planning_lp(std::move(base));
   auto result = planning_lp.resolve();

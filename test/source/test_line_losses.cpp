@@ -4,8 +4,7 @@
 /// @brief Unit tests for the modular line losses engine.
 
 #include <doctest/doctest.h>
-#include <gtopt/json/json_parse_policy.hpp>
-#include <gtopt/json/json_planning.hpp>
+#include <gtopt/gtopt_json_io.hpp>
 #include <gtopt/line.hpp>
 #include <gtopt/line_losses.hpp>
 #include <gtopt/linear_interface.hpp>
@@ -1067,8 +1066,7 @@ auto solve_ieee9b_with_mode(std::string_view mode_name)
 {
   // Parse base planning
   Planning base;
-  base.merge(
-      daw::json::from_json<Planning>(ieee9b_losses_json, StrictParsePolicy));
+  base.merge(parse_planning_json(ieee9b_losses_json));
 
   // Override line_losses_mode on every line
   for (auto& line : base.system.line_array) {
@@ -1155,8 +1153,7 @@ TEST_CASE("IEEE 9-bus losses modes - dynamic falls back to piecewise")
 
 TEST_CASE("IEEE 9-bus losses modes - lines have resistance defined")
 {
-  auto planning =
-      daw::json::from_json<Planning>(ieee9b_losses_json, StrictParsePolicy);
+  auto planning = parse_planning_json(ieee9b_losses_json);
   for (const auto& line : planning.system.line_array) {
     CAPTURE(line.name);
     // Resistance should be set (non-null, positive)

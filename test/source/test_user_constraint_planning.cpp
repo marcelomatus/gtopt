@@ -18,8 +18,7 @@
 
 #include <doctest/doctest.h>
 #include <gtopt/constraint_parser.hpp>
-#include <gtopt/json/json_parse_policy.hpp>
-#include <gtopt/json/json_planning.hpp>
+#include <gtopt/gtopt_json_io.hpp>
 #include <gtopt/planning_lp.hpp>
 #include <gtopt/simulation_lp.hpp>
 #include <gtopt/system_lp.hpp>
@@ -93,8 +92,7 @@ static constexpr std::string_view ieee4b_with_constraints_json = R"json({
 TEST_CASE("User constraint - JSON parse in Planning context")
 {
   using namespace gtopt;
-  auto planning = daw::json::from_json<Planning>(ieee4b_with_constraints_json,
-                                                 StrictParsePolicy);
+  auto planning = parse_planning_json(ieee4b_with_constraints_json);
 
   CHECK(planning.system.name == "ieee_4b_constraints");
   REQUIRE(planning.system.user_constraint_array.size() == 3);
@@ -110,8 +108,7 @@ TEST_CASE("User constraint - JSON parse in Planning context")
 TEST_CASE("User constraint - parse expressions from Planning JSON")
 {
   using namespace gtopt;
-  auto planning = daw::json::from_json<Planning>(ieee4b_with_constraints_json,
-                                                 StrictParsePolicy);
+  auto planning = parse_planning_json(ieee4b_with_constraints_json);
 
   REQUIRE(planning.system.user_constraint_array.size() == 3);
 
@@ -154,8 +151,7 @@ TEST_CASE("User constraint - merge preserves constraints")
   using namespace gtopt;
 
   Planning base;
-  base.merge(daw::json::from_json<Planning>(ieee4b_with_constraints_json,
-                                            StrictParsePolicy));
+  base.merge(parse_planning_json(ieee4b_with_constraints_json));
 
   CHECK(base.system.user_constraint_array.size() == 3);
 
@@ -172,8 +168,7 @@ TEST_CASE("User constraint - merge preserves constraints")
     }
   })";
 
-  base.merge(
-      daw::json::from_json<Planning>(additional_json, StrictParsePolicy));
+  base.merge(parse_planning_json(additional_json));
 
   CHECK(base.system.user_constraint_array.size() == 4);
   CHECK(base.system.user_constraint_array[3].name == "extra_limit");
@@ -187,8 +182,7 @@ TEST_CASE("User constraint - LP solve with constraints in JSON")
   using namespace gtopt;
 
   Planning base;
-  base.merge(daw::json::from_json<Planning>(ieee4b_with_constraints_json,
-                                            StrictParsePolicy));
+  base.merge(parse_planning_json(ieee4b_with_constraints_json));
 
   PlanningLP planning_lp(std::move(base));
   auto result = planning_lp.resolve();
@@ -224,8 +218,7 @@ TEST_CASE("User constraint - user_constraint_file in Planning JSON")
     }
   })";
 
-  auto planning =
-      daw::json::from_json<Planning>(json_with_file, StrictParsePolicy);
+  auto planning = parse_planning_json(json_with_file);
 
   REQUIRE(planning.system.user_constraint_file.has_value());
   CHECK(planning.system.user_constraint_file.value_or("")
@@ -283,8 +276,7 @@ TEST_CASE("User constraint - dual values written to output (CSV)")
   std::filesystem::create_directories(tmpdir);
 
   // Write the JSON to a temp file and run via gtopt_main-style direct API
-  auto planning = daw::json::from_json<Planning>(
-      planning_single_bus_uc_dual_json, StrictParsePolicy);
+  auto planning = parse_planning_json(planning_single_bus_uc_dual_json);
   planning.options.output_directory = tmpdir.string();
 
   // Directly construct SimulationLP + SystemLP and run solve + write_out.
@@ -325,8 +317,7 @@ TEST_CASE("User constraint - constraint_type field preserved")
 {
   using namespace gtopt;
 
-  auto planning = daw::json::from_json<Planning>(
-      planning_single_bus_uc_dual_json, StrictParsePolicy);
+  auto planning = parse_planning_json(planning_single_bus_uc_dual_json);
 
   REQUIRE(planning.system.user_constraint_array.size() == 1);
   const auto& uc = planning.system.user_constraint_array[0];
@@ -380,8 +371,7 @@ TEST_CASE("User constraint - singleton scalar (options.*) parses and solves")
 {
   using namespace gtopt;
 
-  auto planning = daw::json::from_json<Planning>(singleton_scalar_uc_json,
-                                                 StrictParsePolicy);
+  auto planning = parse_planning_json(singleton_scalar_uc_json);
 
   REQUIRE(planning.system.user_constraint_array.size() == 1);
   const auto& uc = planning.system.user_constraint_array[0];
@@ -455,8 +445,7 @@ TEST_CASE("User constraint - stage.month metadata parses and solves")
 {
   using namespace gtopt;
 
-  auto planning =
-      daw::json::from_json<Planning>(stage_month_uc_json, StrictParsePolicy);
+  auto planning = parse_planning_json(stage_month_uc_json);
 
   REQUIRE(planning.system.user_constraint_array.size() == 1);
   REQUIRE(planning.simulation.stage_array.size() == 1);
@@ -549,8 +538,7 @@ TEST_CASE("User constraint - raw/unitless type produces output CSV")
   std::filesystem::remove_all(tmpdir);
   std::filesystem::create_directories(tmpdir);
 
-  auto planning =
-      daw::json::from_json<Planning>(single_bus_uc_raw_json, StrictParsePolicy);
+  auto planning = parse_planning_json(single_bus_uc_raw_json);
   planning.options.output_directory = tmpdir.string();
 
   const PlanningOptionsLP options(planning.options);
@@ -703,8 +691,7 @@ TEST_CASE("User constraint - resolve_single_col multi-component")
 {
   using namespace gtopt;
 
-  auto planning = daw::json::from_json<Planning>(uc_multi_component_json,
-                                                 StrictParsePolicy);
+  auto planning = parse_planning_json(uc_multi_component_json);
   PlanningLP planning_lp(std::move(planning));
   auto result = planning_lp.resolve();
 
@@ -769,8 +756,7 @@ TEST_CASE("User constraint - line loss attributes (lossp/lossn)")
 {
   using namespace gtopt;
 
-  auto planning =
-      daw::json::from_json<Planning>(uc_line_loss_json, StrictParsePolicy);
+  auto planning = parse_planning_json(uc_line_loss_json);
   PlanningLP planning_lp(std::move(planning));
   auto result = planning_lp.resolve();
 
@@ -841,8 +827,7 @@ TEST_CASE("User constraint - sum references (all and explicit list)")
 {
   using namespace gtopt;
 
-  auto planning =
-      daw::json::from_json<Planning>(uc_sum_ref_json, StrictParsePolicy);
+  auto planning = parse_planning_json(uc_sum_ref_json);
   PlanningLP planning_lp(std::move(planning));
   auto result = planning_lp.resolve();
 
@@ -917,8 +902,7 @@ TEST_CASE("User constraint - domain filtering (stage/block/scenario)")
 {
   using namespace gtopt;
 
-  auto planning =
-      daw::json::from_json<Planning>(uc_domain_filter_json, StrictParsePolicy);
+  auto planning = parse_planning_json(uc_domain_filter_json);
   PlanningLP planning_lp(std::move(planning));
   auto result = planning_lp.resolve();
 
@@ -1029,8 +1013,7 @@ TEST_CASE(
 {
   using namespace gtopt;
 
-  auto planning =
-      daw::json::from_json<Planning>(uc_hydro_json, StrictParsePolicy);
+  auto planning = parse_planning_json(uc_hydro_json);
   PlanningLP planning_lp(std::move(planning));
   auto result = planning_lp.resolve();
 
@@ -1126,8 +1109,7 @@ TEST_CASE("User constraint - sum references over hydro elements")
 {
   using namespace gtopt;
 
-  auto planning =
-      daw::json::from_json<Planning>(uc_hydro_sum_json, StrictParsePolicy);
+  auto planning = parse_planning_json(uc_hydro_sum_json);
   PlanningLP planning_lp(std::move(planning));
   auto result = planning_lp.resolve();
 
@@ -1193,8 +1175,7 @@ TEST_CASE("User constraint - reservoir extraction attribute")
 {
   using namespace gtopt;
 
-  auto planning = daw::json::from_json<Planning>(uc_reservoir_extraction_json,
-                                                 StrictParsePolicy);
+  auto planning = parse_planning_json(uc_reservoir_extraction_json);
   PlanningLP planning_lp(std::move(planning));
   auto result = planning_lp.resolve();
 
@@ -1254,8 +1235,7 @@ TEST_CASE(
 {
   using namespace gtopt;
 
-  auto planning =
-      daw::json::from_json<Planning>(uc_unknown_ref_json, StrictParsePolicy);
+  auto planning = parse_planning_json(uc_unknown_ref_json);
   PlanningLP planning_lp(std::move(planning));
 
   // Should solve successfully — unknown constraints are silently skipped
@@ -1308,8 +1288,7 @@ TEST_CASE("User constraint - empty and invalid expressions (graceful skip)")
 {
   using namespace gtopt;
 
-  auto planning =
-      daw::json::from_json<Planning>(uc_empty_expr_json, StrictParsePolicy);
+  auto planning = parse_planning_json(uc_empty_expr_json);
   PlanningLP planning_lp(std::move(planning));
 
   // Should solve — empty/invalid expressions are silently skipped
@@ -1362,8 +1341,7 @@ TEST_CASE("User constraint - UID-based element references")
 {
   using namespace gtopt;
 
-  auto planning =
-      daw::json::from_json<Planning>(uc_uid_ref_json, StrictParsePolicy);
+  auto planning = parse_planning_json(uc_uid_ref_json);
   PlanningLP planning_lp(std::move(planning));
   auto result = planning_lp.resolve();
 
@@ -1426,8 +1404,7 @@ TEST_CASE("User constraint - energy constraint_type dual output")
   std::filesystem::remove_all(tmpdir);
   std::filesystem::create_directories(tmpdir);
 
-  auto planning =
-      daw::json::from_json<Planning>(uc_energy_type_json, StrictParsePolicy);
+  auto planning = parse_planning_json(uc_energy_type_json);
   planning.options.output_directory = tmpdir.string();
 
   const PlanningOptionsLP options(planning.options);
@@ -1495,8 +1472,7 @@ TEST_CASE("User constraint - greater-equal and equality constraints")
 {
   using namespace gtopt;
 
-  auto planning =
-      daw::json::from_json<Planning>(uc_ge_eq_json, StrictParsePolicy);
+  auto planning = parse_planning_json(uc_ge_eq_json);
   PlanningLP planning_lp(std::move(planning));
   auto result = planning_lp.resolve();
 
@@ -1549,8 +1525,7 @@ TEST_CASE("User constraint - non-unit coefficients and subtraction")
 {
   using namespace gtopt;
 
-  auto planning =
-      daw::json::from_json<Planning>(uc_coefficients_json, StrictParsePolicy);
+  auto planning = parse_planning_json(uc_coefficients_json);
   PlanningLP planning_lp(std::move(planning));
   auto result = planning_lp.resolve();
 

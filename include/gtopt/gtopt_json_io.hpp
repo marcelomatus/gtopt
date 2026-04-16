@@ -21,6 +21,12 @@
 namespace gtopt
 {
 
+/// Parse a single JSON string into a Planning object.
+///
+/// Single instantiation point for from_json<Planning> — call sites avoid
+/// pulling in the heavy daw::json template machinery.
+[[nodiscard]] Planning parse_planning_json(std::string_view json_content);
+
 /// Parse planning JSON files into a Planning object.
 ///
 /// Iterates over each path in @p planning_files, reads the JSON, and merges

@@ -2,7 +2,7 @@
 #include <string_view>
 
 #include <doctest/doctest.h>
-#include <gtopt/json/json_parse_policy.hpp>
+#include <gtopt/gtopt_json_io.hpp>
 #include <gtopt/json/json_planning.hpp>
 #include <gtopt/planning.hpp>
 #include <gtopt/planning_lp.hpp>
@@ -90,8 +90,7 @@ TEST_CASE("Planning - JSON serialization/deserialization")
   const auto json_data = daw::json::to_json(original);
 
   // Should be able to deserialize back to an object
-  const auto deserialized =
-      daw::json::from_json<Planning>(json_data, StrictParsePolicy);
+  const auto deserialized = parse_planning_json(json_data);
 
   // Verify the deserialized object
   CHECK(deserialized.system.name == "JsonSystem");
@@ -1022,8 +1021,7 @@ static constexpr std::string_view planning_json = R"({
 
 TEST_CASE("Planning JSON parse and solve")
 {
-  auto planning =
-      daw::json::from_json<Planning>(planning_json, StrictParsePolicy);
+  auto planning = parse_planning_json(planning_json);
 
   CHECK(planning.system.name == "json_test_system");
   CHECK(planning.system.bus_array.size() == 2);
@@ -1101,8 +1099,7 @@ static constexpr std::string_view hydro_planning_json = R"({
 
 TEST_CASE("Planning JSON parse and solve - hydro system")
 {
-  auto planning =
-      daw::json::from_json<Planning>(hydro_planning_json, StrictParsePolicy);
+  auto planning = parse_planning_json(hydro_planning_json);
 
   CHECK(planning.system.name == "hydro_json_test");
   CHECK(planning.system.junction_array.size() == 2);

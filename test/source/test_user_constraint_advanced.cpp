@@ -14,8 +14,7 @@
 
 #include <doctest/doctest.h>
 #include <gtopt/constraint_parser.hpp>
-#include <gtopt/json/json_parse_policy.hpp>
-#include <gtopt/json/json_planning.hpp>
+#include <gtopt/gtopt_json_io.hpp>
 #include <gtopt/planning_lp.hpp>
 #include <gtopt/simulation_lp.hpp>
 #include <gtopt/system_lp.hpp>
@@ -112,8 +111,7 @@ TEST_CASE("User constraint - sum with type filter")
 {
   using namespace gtopt;
 
-  auto planning =
-      daw::json::from_json<Planning>(uc_type_filter_json, StrictParsePolicy);
+  auto planning = parse_planning_json(uc_type_filter_json);
   PlanningLP planning_lp(std::move(planning));
   auto result = planning_lp.resolve();
 
@@ -165,8 +163,7 @@ TEST_CASE("User constraint - F4 multi-predicate sum filter (new syntax)")
 {
   using namespace gtopt;
 
-  auto planning =
-      daw::json::from_json<Planning>(uc_f4_multi_pred_json, StrictParsePolicy);
+  auto planning = parse_planning_json(uc_f4_multi_pred_json);
   PlanningLP planning_lp(std::move(planning));
   auto result = planning_lp.resolve();
 
@@ -261,8 +258,7 @@ TEST_CASE("User constraint - converter discharge and charge attributes")
 {
   using namespace gtopt;
 
-  auto planning =
-      daw::json::from_json<Planning>(uc_converter_json, StrictParsePolicy);
+  auto planning = parse_planning_json(uc_converter_json);
   PlanningLP planning_lp(std::move(planning));
   auto result = planning_lp.resolve();
 
@@ -346,8 +342,7 @@ TEST_CASE("User constraint - seepage flow attribute")
 {
   using namespace gtopt;
 
-  auto planning =
-      daw::json::from_json<Planning>(uc_seepage_json, StrictParsePolicy);
+  auto planning = parse_planning_json(uc_seepage_json);
   PlanningLP planning_lp(std::move(planning));
   auto result = planning_lp.resolve();
 
@@ -451,8 +446,7 @@ TEST_CASE(
 {
   using namespace gtopt;
 
-  auto planning =
-      daw::json::from_json<Planning>(uc_reserve_json, StrictParsePolicy);
+  auto planning = parse_planning_json(uc_reserve_json);
   PlanningLP planning_lp(std::move(planning));
   auto result = planning_lp.resolve();
 
@@ -503,8 +497,7 @@ TEST_CASE("User constraint - RANGE constraint type (double-sided bound)")
 {
   using namespace gtopt;
 
-  auto planning =
-      daw::json::from_json<Planning>(uc_range_json, StrictParsePolicy);
+  auto planning = parse_planning_json(uc_range_json);
   PlanningLP planning_lp(std::move(planning));
   auto result = planning_lp.resolve();
 
@@ -606,8 +599,7 @@ TEST_CASE(
 {
   using namespace gtopt;
 
-  auto planning = daw::json::from_json<Planning>(uc_demand_unknown_attr_json,
-                                                 StrictParsePolicy);
+  auto planning = parse_planning_json(uc_demand_unknown_attr_json);
   PlanningLP planning_lp(std::move(planning));
 
   // Should solve — all constraints with unknown/nonexistent refs are skipped
@@ -666,8 +658,7 @@ TEST_CASE("User constraint - named parameter resolution (scalar + monthly)")
 {
   using namespace gtopt;
 
-  auto planning =
-      daw::json::from_json<Planning>(uc_named_param_json, StrictParsePolicy);
+  auto planning = parse_planning_json(uc_named_param_json);
   PlanningLP planning_lp(std::move(planning));
 
   // Both constraints resolve their param references via UserParamMap;
@@ -720,8 +711,7 @@ TEST_CASE(
 {
   using namespace gtopt;
 
-  auto planning = daw::json::from_json<Planning>(uc_normal_unknown_param_json,
-                                                 StrictParsePolicy);
+  auto planning = parse_planning_json(uc_normal_unknown_param_json);
   PlanningLP planning_lp(std::move(planning));
 
   // Should solve: the unresolved parameter term is simply skipped.
@@ -768,8 +758,7 @@ TEST_CASE("User constraint - F5 abs(x) lowering (convex <=) solves")
 {
   using namespace gtopt;
 
-  auto planning =
-      daw::json::from_json<Planning>(uc_abs_ok_json, StrictParsePolicy);
+  auto planning = parse_planning_json(uc_abs_ok_json);
   PlanningLP planning_lp(std::move(planning));
 
   auto result = planning_lp.resolve();
@@ -818,8 +807,7 @@ TEST_CASE("User constraint - F5 non-convex abs(x) >= k is rejected")
   // `abs(x) >= k` (c > 0) must surface as an exception during LP
   // build so the author sees the problem instead of silently
   // dropping a constraint that influences dispatch.
-  auto planning =
-      daw::json::from_json<Planning>(uc_abs_nonconvex_json, StrictParsePolicy);
+  auto planning = parse_planning_json(uc_abs_nonconvex_json);
   CHECK_THROWS_AS(PlanningLP(std::move(planning)),  // NOLINT
                   std::runtime_error);
 }
@@ -864,8 +852,7 @@ TEST_CASE("User constraint - F7 max(a,b) <= k lowers and solves")
 {
   using namespace gtopt;
 
-  auto planning =
-      daw::json::from_json<Planning>(uc_max_ok_json, StrictParsePolicy);
+  auto planning = parse_planning_json(uc_max_ok_json);
   PlanningLP planning_lp(std::move(planning));
 
   auto result = planning_lp.resolve();
@@ -911,8 +898,7 @@ TEST_CASE("User constraint - F7 min(a,b) >= k lowers and solves")
 {
   using namespace gtopt;
 
-  auto planning =
-      daw::json::from_json<Planning>(uc_min_ok_json, StrictParsePolicy);
+  auto planning = parse_planning_json(uc_min_ok_json);
   PlanningLP planning_lp(std::move(planning));
 
   auto result = planning_lp.resolve();
@@ -963,8 +949,7 @@ TEST_CASE(
 {
   using namespace gtopt;
 
-  auto planning =
-      daw::json::from_json<Planning>(uc_if_stage_json, StrictParsePolicy);
+  auto planning = parse_planning_json(uc_if_stage_json);
   PlanningLP planning_lp(std::move(planning));
 
   auto result = planning_lp.resolve();
@@ -986,8 +971,7 @@ TEST_CASE(
   // way out.
   gtopt::test::LogCapture logs;
 
-  auto planning =
-      daw::json::from_json<Planning>(uc_abs_nonconvex_json, StrictParsePolicy);
+  auto planning = parse_planning_json(uc_abs_nonconvex_json);
   CHECK_THROWS_AS(PlanningLP(std::move(planning)),  // NOLINT
                   std::runtime_error);
 
@@ -1049,8 +1033,7 @@ TEST_CASE("User constraint - F5 abs(line.flow) lowers via flowp - flown")
   // correctly and produce a feasible LP.  This test locks that path
   // so a future regression doesn't silently turn abs(line.flow) into
   // a no-op.
-  auto planning =
-      daw::json::from_json<Planning>(uc_abs_line_flow_json, StrictParsePolicy);
+  auto planning = parse_planning_json(uc_abs_line_flow_json);
   PlanningLP planning_lp(std::move(planning));
 
   auto result = planning_lp.resolve();
@@ -1147,8 +1130,7 @@ TEST_CASE("User constraint - penalty field round-trips through JSON")
 {
   using namespace gtopt;
 
-  auto planning =
-      daw::json::from_json<Planning>(soft_le_uc_json, StrictParsePolicy);
+  auto planning = parse_planning_json(soft_le_uc_json);
   REQUIRE(planning.system.user_constraint_array.size() == 1);
   const auto& uc = planning.system.user_constraint_array[0];
 
@@ -1164,8 +1146,7 @@ TEST_CASE("User constraint - missing penalty field defaults to nullopt")
   // the optional stays empty rather than defaulting to 0 (a future
   // refactor might be tempted to coerce missing → 0 and accidentally
   // turn every constraint into a soft one).
-  auto planning = daw::json::from_json<Planning>(single_bus_uc_dual_json,
-                                                 StrictParsePolicy);
+  auto planning = parse_planning_json(single_bus_uc_dual_json);
   REQUIRE(planning.system.user_constraint_array.size() == 1);
   CHECK_FALSE(planning.system.user_constraint_array[0].penalty.has_value());
 }
@@ -1179,8 +1160,7 @@ TEST_CASE("User constraint - soft `<=` builds and solves")
   // LP must add a slack column with cost 5 and let the constraint be
   // violated.  Without the soft sugar this would force the optimizer
   // to leave 40 MW of demand unserved at fail_cost=1000.
-  auto planning =
-      daw::json::from_json<Planning>(soft_le_uc_json, StrictParsePolicy);
+  auto planning = parse_planning_json(soft_le_uc_json);
   PlanningLP planning_lp(std::move(planning));
 
   auto result = planning_lp.resolve();
@@ -1192,8 +1172,7 @@ TEST_CASE("User constraint - soft `=` builds and solves with two slacks")
 {
   using namespace gtopt;
 
-  auto planning =
-      daw::json::from_json<Planning>(soft_eq_uc_json, StrictParsePolicy);
+  auto planning = parse_planning_json(soft_eq_uc_json);
   PlanningLP planning_lp(std::move(planning));
 
   auto result = planning_lp.resolve();
@@ -1210,8 +1189,7 @@ TEST_CASE("User constraint - soft slack columns appear in CSV output")
   std::filesystem::remove_all(tmpdir);
   std::filesystem::create_directories(tmpdir);
 
-  auto planning =
-      daw::json::from_json<Planning>(soft_le_uc_json, StrictParsePolicy);
+  auto planning = parse_planning_json(soft_le_uc_json);
   planning.options.output_directory = tmpdir.string();
 
   const PlanningOptionsLP options(planning.options);
@@ -1333,8 +1311,7 @@ TEST_CASE("User constraint - penalty_class field round-trips through JSON")
 {
   using namespace gtopt;
 
-  auto planning = daw::json::from_json<Planning>(soft_le_hydro_flow_json,
-                                                 StrictParsePolicy);
+  auto planning = parse_planning_json(soft_le_hydro_flow_json);
   REQUIRE(planning.system.user_constraint_array.size() == 1);
   const auto& uc = planning.system.user_constraint_array[0];
 
@@ -1353,8 +1330,7 @@ TEST_CASE(
   // Legacy soft-LE fixture has no `penalty_class` field — the LP must
   // behave as if `penalty_class = "raw"` so pre-2026-04 inputs continue
   // to produce identical objectives.
-  auto planning =
-      daw::json::from_json<Planning>(soft_le_uc_json, StrictParsePolicy);
+  auto planning = parse_planning_json(soft_le_uc_json);
   REQUIRE(planning.system.user_constraint_array.size() == 1);
   CHECK_FALSE(
       planning.system.user_constraint_array[0].penalty_class.has_value());
@@ -1367,8 +1343,7 @@ TEST_CASE(
 
   // Raw penalty_class: penalty=5 is used verbatim → slack cheap, LP
   // relaxes the 50 MW cap to serve all 90 MW demand via slack.
-  auto planning_raw =
-      daw::json::from_json<Planning>(soft_le_uc_json, StrictParsePolicy);
+  auto planning_raw = parse_planning_json(soft_le_uc_json);
   PlanningLP raw_lp(std::move(planning_raw));
   auto raw_res = raw_lp.resolve();
   REQUIRE(raw_res.has_value());
@@ -1378,8 +1353,7 @@ TEST_CASE(
   // hydro_flow penalty_class: penalty=5 × duration(1h) × 3600 = 18 000
   // per unit, which is >> demand_fail_cost=1000.  The LP must now keep
   // the cap tight (slack≈0) and pay demand failure instead.
-  auto planning_hf = daw::json::from_json<Planning>(soft_le_hydro_flow_json,
-                                                    StrictParsePolicy);
+  auto planning_hf = parse_planning_json(soft_le_hydro_flow_json);
   PlanningLP hf_lp(std::move(planning_hf));
   auto hf_res = hf_lp.resolve();
   REQUIRE(hf_res.has_value());
@@ -1406,8 +1380,7 @@ TEST_CASE("User constraint - unknown penalty_class string throws runtime_error")
   // that must be eliminated.
   const auto build = [&]()
   {
-    auto planning = daw::json::from_json<Planning>(soft_le_bad_class_json,
-                                                   StrictParsePolicy);
+    auto planning = parse_planning_json(soft_le_bad_class_json);
     PlanningLP planning_lp(std::move(planning));
     auto r = planning_lp.resolve();
     (void)r;

@@ -11,8 +11,7 @@
 #include <string_view>
 
 #include <doctest/doctest.h>
-#include <gtopt/json/json_parse_policy.hpp>
-#include <gtopt/json/json_planning.hpp>
+#include <gtopt/gtopt_json_io.hpp>
 #include <gtopt/planning_lp.hpp>
 
 using namespace gtopt;  // NOLINT(google-global-names-in-headers)
@@ -61,8 +60,7 @@ TEST_CASE("Demand emin - minimum energy constraint exercised")
 {
   using namespace gtopt;
 
-  auto planning =
-      daw::json::from_json<Planning>(demand_emin_json, StrictParsePolicy);
+  auto planning = parse_planning_json(demand_emin_json);
 
   PlanningLP planning_lp(std::move(planning));
   auto result = planning_lp.resolve();
@@ -115,8 +113,7 @@ TEST_CASE("Demand lossfactor - loss factor applied in bus balance")
 {
   using namespace gtopt;
 
-  auto planning =
-      daw::json::from_json<Planning>(demand_lossfactor_json, StrictParsePolicy);
+  auto planning = parse_planning_json(demand_lossfactor_json);
 
   PlanningLP planning_lp(std::move(planning));
   auto result = planning_lp.resolve();
@@ -181,8 +178,7 @@ TEST_CASE("Line losses - resistive losses exercised in LP")
 {
   using namespace gtopt;
 
-  auto planning =
-      daw::json::from_json<Planning>(line_losses_json, StrictParsePolicy);
+  auto planning = parse_planning_json(line_losses_json);
 
   PlanningLP planning_lp(std::move(planning));
   auto result = planning_lp.resolve();
@@ -239,8 +235,7 @@ TEST_CASE("Capacity expansion - generator expansion modules exercised")
 {
   using namespace gtopt;
 
-  auto planning = daw::json::from_json<Planning>(demand_capacity_expansion_json,
-                                                 StrictParsePolicy);
+  auto planning = parse_planning_json(demand_capacity_expansion_json);
 
   PlanningLP planning_lp(std::move(planning));
   auto result = planning_lp.resolve();
@@ -332,8 +327,7 @@ TEST_CASE("Reserve provision - up and down reserves exercised in LP")
 {
   using namespace gtopt;
 
-  auto planning =
-      daw::json::from_json<Planning>(reserve_provision_json, StrictParsePolicy);
+  auto planning = parse_planning_json(reserve_provision_json);
 
   PlanningLP planning_lp(std::move(planning));
   auto result = planning_lp.resolve();
@@ -351,8 +345,7 @@ TEST_CASE("Inactive demand - inactive demand skipped in LP")
 {
   using namespace gtopt;
 
-  auto planning =
-      daw::json::from_json<Planning>(inactive_demand_json, StrictParsePolicy);
+  auto planning = parse_planning_json(inactive_demand_json);
 
   PlanningLP planning_lp(std::move(planning));
   auto result = planning_lp.resolve();
@@ -417,8 +410,7 @@ TEST_CASE("Generator profile - solar profile applied to capacity")
 {
   using namespace gtopt;
 
-  auto planning =
-      daw::json::from_json<Planning>(generator_profile_json, StrictParsePolicy);
+  auto planning = parse_planning_json(generator_profile_json);
 
   PlanningLP planning_lp(std::move(planning));
   auto result = planning_lp.resolve();
@@ -477,8 +469,7 @@ TEST_CASE("Multi-scenario planning")
 {
   using namespace gtopt;
 
-  auto planning =
-      daw::json::from_json<Planning>(multi_scenario_json, StrictParsePolicy);
+  auto planning = parse_planning_json(multi_scenario_json);
 
   PlanningLP planning_lp(std::move(planning));
   auto result = planning_lp.resolve();
@@ -526,8 +517,7 @@ TEST_CASE("Inactive generator - skipped in LP")
 {
   using namespace gtopt;
 
-  auto planning =
-      daw::json::from_json<Planning>(inactive_gen_json, StrictParsePolicy);
+  auto planning = parse_planning_json(inactive_gen_json);
 
   PlanningLP planning_lp(std::move(planning));
   auto result = planning_lp.resolve();
@@ -591,8 +581,7 @@ TEST_CASE("Line quadratic loss model - piecewise-linear loss approximation")
 {
   using namespace gtopt;
 
-  auto planning =
-      daw::json::from_json<Planning>(quadratic_loss_json, StrictParsePolicy);
+  auto planning = parse_planning_json(quadratic_loss_json);
 
   PlanningLP planning_lp(std::move(planning));
   auto result = planning_lp.resolve();
@@ -658,8 +647,7 @@ TEST_CASE("Line capacity expansion - expansion modules exercised")
 {
   using namespace gtopt;
 
-  auto planning =
-      daw::json::from_json<Planning>(line_expansion_json, StrictParsePolicy);
+  auto planning = parse_planning_json(line_expansion_json);
 
   PlanningLP planning_lp(std::move(planning));
   auto result = planning_lp.resolve();
@@ -720,8 +708,7 @@ TEST_CASE("Line linear loss + capacity expansion - capacity constraint paths")
 {
   using namespace gtopt;
 
-  auto planning = daw::json::from_json<Planning>(line_loss_expansion_json,
-                                                 StrictParsePolicy);
+  auto planning = parse_planning_json(line_loss_expansion_json);
 
   PlanningLP planning_lp(std::move(planning));
   auto result = planning_lp.resolve();
@@ -782,8 +769,7 @@ TEST_CASE("Battery - charge/discharge storage exercised")
 {
   using namespace gtopt;
 
-  auto planning =
-      daw::json::from_json<Planning>(battery_planning_json, StrictParsePolicy);
+  auto planning = parse_planning_json(battery_planning_json);
 
   PlanningLP planning_lp(std::move(planning));
   auto result = planning_lp.resolve();

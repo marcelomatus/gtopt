@@ -22,8 +22,7 @@
 #include <string_view>
 
 #include <doctest/doctest.h>
-#include <gtopt/json/json_parse_policy.hpp>
-#include <gtopt/json/json_planning.hpp>
+#include <gtopt/gtopt_json_io.hpp>
 #include <gtopt/planning_lp.hpp>
 #include <gtopt/planning_options_lp.hpp>
 #include <gtopt/system_lp.hpp>
@@ -105,7 +104,7 @@ TEST_CASE(  // NOLINT
   for (const auto st : {1.0, 0.01, 0.0001}) {
     auto json = make_theta_uc_json(st);
     Planning base;
-    base.merge(daw::json::from_json<Planning>(json, StrictParsePolicy));
+    base.merge(parse_planning_json(json));
 
     PlanningLP planning_lp(std::move(base));
     auto result = planning_lp.resolve();
@@ -176,7 +175,7 @@ TEST_CASE(  // NOLINT
 }})");
 
   Planning base;
-  base.merge(daw::json::from_json<Planning>(json_tight, StrictParsePolicy));
+  base.merge(parse_planning_json(json_tight));
   PlanningLP planning_lp(std::move(base));
   auto result = planning_lp.resolve();
 
@@ -268,7 +267,7 @@ TEST_CASE(  // NOLINT
   for (const auto es : {1.0, 1000.0}) {
     auto json = make_reservoir_uc_json(es);
     Planning base;
-    base.merge(daw::json::from_json<Planning>(json, StrictParsePolicy));
+    base.merge(parse_planning_json(json));
 
     PlanningLP planning_lp(std::move(base));
     auto result = planning_lp.resolve();
@@ -349,7 +348,7 @@ TEST_CASE(  // NOLINT
   for (const auto so : {1.0, 1'000.0, 1'000'000.0}) {
     auto json = make_scale_obj_uc_json(so);
     Planning base;
-    base.merge(daw::json::from_json<Planning>(json, StrictParsePolicy));
+    base.merge(parse_planning_json(json));
 
     PlanningLP planning_lp(std::move(base));
     auto result = planning_lp.resolve();
@@ -437,7 +436,7 @@ TEST_CASE(  // NOLINT
   for (const auto es : {1.0, 1000.0}) {
     auto json = make_battery_uc_json(es);
     Planning base;
-    base.merge(daw::json::from_json<Planning>(json, StrictParsePolicy));
+    base.merge(parse_planning_json(json));
 
     PlanningLP planning_lp(std::move(base));
     auto result = planning_lp.resolve();
@@ -540,7 +539,7 @@ TEST_CASE(  // NOLINT
   for (const auto es : {1.0, 1000.0}) {
     auto json = make_mixed_scale_uc_json(es);
     Planning base;
-    base.merge(daw::json::from_json<Planning>(json, StrictParsePolicy));
+    base.merge(parse_planning_json(json));
 
     PlanningLP planning_lp(std::move(base));
     auto result = planning_lp.resolve();
@@ -617,7 +616,7 @@ TEST_CASE(  // NOLINT
     for (const auto so : {1.0, 1'000.0, 100'000.0}) {
       auto json = make_ctype_scale_json(so, ctype);
       Planning base;
-      base.merge(daw::json::from_json<Planning>(json, StrictParsePolicy));
+      base.merge(parse_planning_json(json));
 
       PlanningLP planning_lp(std::move(base));
       auto result = planning_lp.resolve();
@@ -707,7 +706,7 @@ TEST_CASE(  // NOLINT
     for (const auto so : {1.0, 1'000.0}) {
       auto json = make_line_uc_json(st, so);
       Planning base;
-      base.merge(daw::json::from_json<Planning>(json, StrictParsePolicy));
+      base.merge(parse_planning_json(json));
 
       PlanningLP planning_lp(std::move(base));
       auto result = planning_lp.resolve();
@@ -806,8 +805,7 @@ TEST_CASE(  // NOLINT
     "(theta + energy + objective)")
 {
   Planning base;
-  base.merge(
-      daw::json::from_json<Planning>(multi_scale_uc_json, StrictParsePolicy));
+  base.merge(parse_planning_json(multi_scale_uc_json));
 
   PlanningLP planning_lp(std::move(base));
   auto result = planning_lp.resolve();

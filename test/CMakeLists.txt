@@ -92,26 +92,6 @@ target_link_libraries(
   gtopt::gtopt
 )
 
-# ---- Unity build ----
-# Exclude main.cpp from unity batching — it defines
-# DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN which emits doctest's implementation
-# and must be compiled as a standalone translation unit.
-set_source_files_properties(
-  "${CMAKE_CURRENT_SOURCE_DIR}/source/main.cpp"
-  PROPERTIES SKIP_UNITY_BUILD_INCLUSION ON
-)
-# Force unity ON for the test target only. CPMAddPackage(gtopt) above
-# already ran target_enable_unity_build on the library with the cached
-# default (OFF), so the gtopt library is unaffected by this override.
-set(GTOPT_UNITY_BUILD ON)
-include(UnityBuild)
-# BATCH_SIZE 11 targets 19 unity batches + main.cpp standalone = 20 compile
-# jobs, matching the 20-core machine. Distribution per UNITY_GROUP:
-#   source/      (163 files) → ceil(163/11) = 15 batches
-#   source/json/ ( 39 files) → ceil( 39/11) =  4 batches
-#   total = 19 + 1 standalone (main.cpp) = 20
-target_enable_unity_build(${PROJECT_NAME} BATCH_SIZE 11)
-
 # ---- Precompiled headers ----
 include(PrecompiledHeaders)
 target_gtopt_pch(${PROJECT_NAME})

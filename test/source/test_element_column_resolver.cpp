@@ -14,8 +14,7 @@
 #include <string_view>
 
 #include <doctest/doctest.h>
-#include <gtopt/json/json_parse_policy.hpp>
-#include <gtopt/json/json_planning.hpp>
+#include <gtopt/gtopt_json_io.hpp>
 #include <gtopt/planning_lp.hpp>
 #include <gtopt/system_lp.hpp>
 
@@ -182,8 +181,7 @@ TEST_CASE(  // NOLINT
     "element_column_resolver - diverse element types solve correctly")
 {
   Planning base;
-  base.merge(
-      daw::json::from_json<Planning>(resolver_diverse_json, StrictParsePolicy));
+  base.merge(parse_planning_json(resolver_diverse_json));
   PlanningLP planning_lp(std::move(base));
   auto result = planning_lp.resolve();
 
@@ -199,8 +197,7 @@ TEST_CASE(  // NOLINT
   // With constraint g1+g2<=400: total gen limited.  Demand is 100+100=200
   // in two blocks so constraint shouldn't bind.  Check solve succeeds.
   Planning base;
-  base.merge(
-      daw::json::from_json<Planning>(resolver_diverse_json, StrictParsePolicy));
+  base.merge(parse_planning_json(resolver_diverse_json));
   PlanningLP planning_lp(std::move(base));
   auto result = planning_lp.resolve();
 
@@ -218,8 +215,7 @@ TEST_CASE(  // NOLINT
   // With 2 generators and demand of ~200, this shouldn't bind but should
   // resolve both generator columns.
   Planning base;
-  base.merge(
-      daw::json::from_json<Planning>(resolver_diverse_json, StrictParsePolicy));
+  base.merge(parse_planning_json(resolver_diverse_json));
   PlanningLP planning_lp(std::move(base));
   auto result = planning_lp.resolve();
 
@@ -232,8 +228,7 @@ TEST_CASE(  // NOLINT
 {
   // generator(1).generation uses uid:1 form internally
   Planning base;
-  base.merge(
-      daw::json::from_json<Planning>(resolver_uid_ref_json, StrictParsePolicy));
+  base.merge(parse_planning_json(resolver_uid_ref_json));
   PlanningLP planning_lp(std::move(base));
   auto result = planning_lp.resolve();
 
@@ -251,8 +246,7 @@ TEST_CASE(  // NOLINT
   // Constraints referencing nonexistent elements or unknown attributes
   // should be silently skipped (no rows added, no crash).
   Planning base;
-  base.merge(
-      daw::json::from_json<Planning>(resolver_unknown_json, StrictParsePolicy));
+  base.merge(parse_planning_json(resolver_unknown_json));
   PlanningLP planning_lp(std::move(base));
   auto result = planning_lp.resolve();
 
@@ -308,8 +302,7 @@ TEST_CASE(  // NOLINT
   })json";
 
   Planning base;
-  base.merge(
-      daw::json::from_json<Planning>(bat_energy_json, StrictParsePolicy));
+  base.merge(parse_planning_json(bat_energy_json));
   PlanningLP planning_lp(std::move(base));
   auto result = planning_lp.resolve();
 
@@ -355,7 +348,7 @@ TEST_CASE("ElementColumnResolver - uid syntax in constraint")  // NOLINT
   })json";
 
   Planning base;
-  base.merge(daw::json::from_json<Planning>(uid_ref_json, StrictParsePolicy));
+  base.merge(parse_planning_json(uid_ref_json));
   PlanningLP planning_lp(std::move(base));
   auto result = planning_lp.resolve();
 
@@ -403,7 +396,7 @@ TEST_CASE(  // NOLINT
   })json";
 
   Planning base;
-  base.merge(daw::json::from_json<Planning>(bad_ref_json, StrictParsePolicy));
+  base.merge(parse_planning_json(bad_ref_json));
   PlanningLP planning_lp(std::move(base));
   // Should still solve — the constraint with unresolved element is skipped
   auto result = planning_lp.resolve();
@@ -458,7 +451,7 @@ TEST_CASE(  // NOLINT
   })json";
 
   Planning base;
-  base.merge(daw::json::from_json<Planning>(capainst_json, StrictParsePolicy));
+  base.merge(parse_planning_json(capainst_json));
   PlanningLP planning_lp(std::move(base));
   auto result = planning_lp.resolve();
 
@@ -519,7 +512,7 @@ TEST_CASE(  // NOLINT
   })json";
 
   Planning base;
-  base.merge(daw::json::from_json<Planning>(capacost_json, StrictParsePolicy));
+  base.merge(parse_planning_json(capacost_json));
   PlanningLP planning_lp(std::move(base));
   auto result = planning_lp.resolve();
 
@@ -585,7 +578,7 @@ TEST_CASE(  // NOLINT
   })json";
 
   Planning base;
-  base.merge(daw::json::from_json<Planning>(bat_state_json, StrictParsePolicy));
+  base.merge(parse_planning_json(bat_state_json));
   PlanningLP planning_lp(std::move(base));
   auto result = planning_lp.resolve();
 
@@ -655,7 +648,7 @@ TEST_CASE(  // NOLINT
   })json";
 
   Planning base;
-  base.merge(daw::json::from_json<Planning>(rsv_state_json, StrictParsePolicy));
+  base.merge(parse_planning_json(rsv_state_json));
   PlanningLP planning_lp(std::move(base));
   auto result = planning_lp.resolve();
 
@@ -713,7 +706,7 @@ TEST_CASE(  // NOLINT
   })json";
 
   Planning base;
-  base.merge(daw::json::from_json<Planning>(sum_bus_json, StrictParsePolicy));
+  base.merge(parse_planning_json(sum_bus_json));
   PlanningLP planning_lp(std::move(base));
   auto result = planning_lp.resolve();
 
@@ -786,7 +779,7 @@ TEST_CASE(  // NOLINT
   })json";
 
   Planning base;
-  base.merge(daw::json::from_json<Planning>(vrt_state_json, StrictParsePolicy));
+  base.merge(parse_planning_json(vrt_state_json));
   PlanningLP planning_lp(std::move(base));
   auto result = planning_lp.resolve();
 
@@ -880,8 +873,7 @@ TEST_CASE(  // NOLINT
   //
   // Both constraints should be properly resolved and the LP should solve.
   Planning base;
-  base.merge(daw::json::from_json<Planning>(resolver_scale_aware_json,
-                                            StrictParsePolicy));
+  base.merge(parse_planning_json(resolver_scale_aware_json));
   PlanningLP planning_lp(std::move(base));
   auto result = planning_lp.resolve();
 

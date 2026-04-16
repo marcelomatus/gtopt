@@ -12,10 +12,9 @@
 
 #include <doctest/doctest.h>
 #include <gtopt/cascade_method.hpp>
+#include <gtopt/gtopt_json_io.hpp>
 #include <gtopt/gtopt_main.hpp>
 #include <gtopt/json/json_monolithic_options.hpp>
-#include <gtopt/json/json_parse_policy.hpp>
-#include <gtopt/json/json_planning.hpp>
 #include <gtopt/monolithic_method.hpp>
 #include <gtopt/planning_lp.hpp>
 #include <gtopt/planning_method.hpp>
@@ -148,8 +147,7 @@ TEST_CASE("PlanningOptions method from JSON top-level field")  // NOLINT
   }
   )json";
 
-  const auto planning = daw::json::from_json<Planning>(
-      json_str, StrictParsePolicy);  // NOLINT(misc-include-cleaner)
+  const auto planning = parse_planning_json(json_str);
   const PlanningOptionsLP options_lp(planning.options);
   CHECK(options_lp.method_type_enum() == MethodType::sddp);
 }
@@ -217,8 +215,7 @@ TEST_CASE("PlanningOptions build_mode from JSON top-level field")
   }
   )json";
 
-  const auto planning = daw::json::from_json<Planning>(
-      json_str, StrictParsePolicy);  // NOLINT(misc-include-cleaner)
+  const auto planning = parse_planning_json(json_str);
   const PlanningOptionsLP options_lp(planning.options);
   CHECK(options_lp.build_mode_enum() == BuildMode::full_parallel);
 }
@@ -234,8 +231,7 @@ TEST_CASE("PlanningOptions build_mode from JSON underscore alias")
   }
   )json";
 
-  const auto planning = daw::json::from_json<Planning>(
-      json_str, StrictParsePolicy);  // NOLINT(misc-include-cleaner)
+  const auto planning = parse_planning_json(json_str);
   const PlanningOptionsLP options_lp(planning.options);
   CHECK(options_lp.build_mode_enum() == BuildMode::scene_parallel);
 }
@@ -248,8 +244,7 @@ TEST_CASE("PlanningOptions build_mode default when field absent")
   }
   )json";
 
-  const auto planning = daw::json::from_json<Planning>(
-      json_str, StrictParsePolicy);  // NOLINT(misc-include-cleaner)
+  const auto planning = parse_planning_json(json_str);
   const PlanningOptionsLP options_lp(planning.options);
   CHECK(options_lp.build_mode_enum() == BuildMode::scene_parallel);
 }

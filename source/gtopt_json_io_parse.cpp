@@ -25,6 +25,11 @@
 namespace gtopt
 {
 
+Planning parse_planning_json(std::string_view json_content)
+{
+  return daw::json::from_json<Planning>(json_content, StrictParsePolicy);
+}
+
 std::expected<Planning, std::string> parse_planning_files(
     const std::vector<std::string>& planning_files,
     const std::optional<std::string>& input_directory)

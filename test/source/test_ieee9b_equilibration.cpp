@@ -23,8 +23,7 @@
 
 #include <doctest/doctest.h>
 #include <gtopt/array_index_traits.hpp>
-#include <gtopt/json/json_parse_policy.hpp>
-#include <gtopt/json/json_planning.hpp>
+#include <gtopt/gtopt_json_io.hpp>
 #include <gtopt/lp_matrix_enums.hpp>
 #include <gtopt/planning_lp.hpp>
 
@@ -110,7 +109,7 @@ auto solve_ieee9b_eq(gtopt::LpEquilibrationMethod method,
 
   // Parse base planning and override equilibration_method + output_directory.
   Planning base;
-  base.merge(daw::json::from_json<Planning>(ieee9b_eq_json, StrictParsePolicy));
+  base.merge(parse_planning_json(ieee9b_eq_json));
   base.options.output_directory = out_dir.string();
   base.options.lp_matrix_options.equilibration_method = method;
 

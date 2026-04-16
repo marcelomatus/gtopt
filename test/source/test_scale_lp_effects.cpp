@@ -20,8 +20,7 @@
 #include <doctest/doctest.h>
 #include <gtopt/block_lp.hpp>
 #include <gtopt/cost_helper.hpp>
-#include <gtopt/json/json_parse_policy.hpp>
-#include <gtopt/json/json_planning.hpp>
+#include <gtopt/gtopt_json_io.hpp>
 #include <gtopt/monolithic_method.hpp>
 #include <gtopt/planning_lp.hpp>
 #include <gtopt/planning_options_lp.hpp>
@@ -93,7 +92,7 @@ auto solve_ieee4b(double scale_obj,
 {
   auto json = make_ieee4b_json(scale_obj, scale_theta_val, use_kirchhoff);
   Planning base;
-  base.merge(daw::json::from_json<Planning>(json, StrictParsePolicy));
+  base.merge(parse_planning_json(json));
 
   PlanningLP planning_lp(std::move(base));
   MonolithicMethod solver;
@@ -148,7 +147,7 @@ TEST_CASE(  // NOLINT
   for (const auto st : {0.01, 0.001, 0.0001}) {
     auto json = make_ieee4b_json(scale_obj, st);
     Planning base;
-    base.merge(daw::json::from_json<Planning>(json, StrictParsePolicy));
+    base.merge(parse_planning_json(json));
     PlanningLP planning_lp(std::move(base));
 
     auto result = planning_lp.resolve();
