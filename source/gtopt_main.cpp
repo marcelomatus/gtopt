@@ -191,9 +191,8 @@ void setup_trace_log(const MainOptions& opts)
 
   try {
     // Parse planning JSON files
-    auto parse_result = parse_planning_files(opts.planning_files,
-                                             opts.check_json.value_or(false),
-                                             opts.input_directory);
+    auto parse_result =
+        parse_planning_files(opts.planning_files, opts.input_directory);
     if (!parse_result) {
       return std::unexpected(std::move(parse_result.error()));
     }

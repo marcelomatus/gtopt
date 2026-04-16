@@ -7,7 +7,6 @@
  *
  * Covers source/gtopt_main.cpp:
  *   - error path when a planning file does not exist
- *   - check-json path
  *   - lp_only=true (build all LPs but skip solve)
  *   - json_file output
  *   - stats=true (pre- and post-solve statistics)
@@ -84,18 +83,6 @@ TEST_CASE("gtopt_main - lp_only=true completes successfully")
   auto result = gtopt_main(MainOptions {
       .planning_files = {stem.string()},
       .lp_only = true,
-  });
-  REQUIRE(result.has_value());
-  CHECK(*result == 0);
-}
-
-TEST_CASE("gtopt_main - check_json path, lp_only=true")
-{
-  const auto stem = write_tmp_json("gtopt_main_check_json", minimal_json);
-  auto result = gtopt_main(MainOptions {
-      .planning_files = {stem.string()},
-      .lp_only = true,
-      .check_json = true,
   });
   REQUIRE(result.has_value());
   CHECK(*result == 0);
@@ -591,10 +578,8 @@ TEST_CASE("gtopt_main - lp_debug writes LP files to log directory")  // NOLINT
 
 TEST_CASE("gtopt_main - unknown JSON fields cause hard failure")  // NOLINT
 {
-  // With UseExactMappingsByDefault=yes on the production parser, any unknown
-  // JSON key in the planning file causes a hard parse failure.  This replaces
-  // the earlier check_json=true warning path (now redundant because the normal
-  // parser always rejects unknowns).
+  // With UseExactMappingsByDefault=yes on StrictParsePolicy, any unknown JSON
+  // key in the planning file causes a hard parse failure.
   constexpr auto json_with_unknown = R"({
     "options": {
       "demand_fail_cost": 1000,
@@ -622,10 +607,8 @@ TEST_CASE("gtopt_main - unknown JSON fields cause hard failure")  // NOLINT
   auto result = gtopt_main(MainOptions {
       .planning_files = {stem.string()},
       .lp_only = true,
-      .check_json = true,
   });
-  // Unknown field now hard-fails regardless of check_json: gtopt_main returns
-  // an error result (std::unexpected), not just a warning.
+  // Unknown field hard-fails: gtopt_main returns std::unexpected.
   REQUIRE_FALSE(result.has_value());
 }
 

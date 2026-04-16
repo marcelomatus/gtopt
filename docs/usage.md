@@ -66,7 +66,6 @@ Multiple system files can be provided and will be merged.
 | `-j` | `--json-file` | `arg` | Save the merged system configuration to a JSON file |
 | `-e` | `--matrix-eps` | `arg` | Epsilon for matrix sparsity (coefficients below this are zero) |
 | `-c` | `--lp-only` | `[=arg]` | Build the LP model and exit without solving |
-| `-J` | `--check-json` | `[=arg]` | Warn about JSON fields not recognized by the schema |
 | `-T` | `--trace-log` | `arg` | Write trace-level log messages to this file |
 | | `--solver` | `arg` | LP solver backend: `clp`, `cbc`, `cplex`, `highs` (auto-detected by default) |
 | | `--solvers` | | List available LP solver backends and exit |

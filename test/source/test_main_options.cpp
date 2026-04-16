@@ -105,7 +105,6 @@ TEST_CASE("make_options_description - contains expected options")
   CHECK_NOTHROW(parse_args({"--use-single-bus"}, desc));
   CHECK_NOTHROW(parse_args({"--use-kirchhoff"}, desc));
   CHECK_NOTHROW(parse_args({"--lp-only"}, desc));
-  CHECK_NOTHROW(parse_args({"--check-json"}, desc));
 }
 
 TEST_CASE("make_options_description - short options work")

@@ -6,16 +6,13 @@
  * @copyright BSD-3-Clause
  *
  * Contains parse_planning_files() — instantiates from_json<Planning> with
- * StrictParsePolicy only.  The ExactParsePolicy instantiation (used by
- * --check-json) lives in gtopt_json_io_parse_check.cpp so it compiles in
- * parallel.
+ * StrictParsePolicy, which rejects unknown JSON fields (exact mapping).
  */
 
 #include <expected>
 #include <filesystem>
 #include <optional>
 #include <string>
-#include <string_view>
 #include <vector>
 
 #include <daw/daw_read_file.h>
@@ -28,15 +25,8 @@
 namespace gtopt
 {
 
-// ExactParsePolicy instantiation — defined in gtopt_json_io_parse_check.cpp
-namespace detail
-{
-Planning parse_planning_exact(std::string_view json);
-}  // namespace detail
-
 std::expected<Planning, std::string> parse_planning_files(
     const std::vector<std::string>& planning_files,
-    bool check_json,
     const std::optional<std::string>& input_directory)
 {
   const spdlog::stopwatch sw;
@@ -76,21 +66,6 @@ std::expected<Planning, std::string> parse_planning_files(
       }
 
       spdlog::info("  Parsing input file {}", fpath.string());
-
-      // Optional pre-pass: parse with exact-mapping policy to surface
-      // any JSON key not listed in the schema.  This parses the file a
-      // second time (performance trade-off), but only when --check-json
-      // is explicitly requested.  Warnings only — parsing always
-      // proceeds with the normal policy below.
-      if (check_json) {
-        try {
-          (void)detail::parse_planning_exact(json_result.value());
-        } catch (const daw::json::json_exception& jex) {
-          spdlog::warn("Unknown JSON field in '{}': {}",
-                       fpath.string(),
-                       to_formatted_string(jex, json_result.value().c_str()));
-        }
-      }
 
       try {
         auto plan = daw::json::from_json<Planning>(json_result.value(),

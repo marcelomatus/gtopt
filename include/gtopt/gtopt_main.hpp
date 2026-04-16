@@ -94,8 +94,6 @@ struct MainOptions
   std::optional<std::string> json_file {};
 
   // ---- execution control ----
-  /** @brief Warn about JSON fields not recognised by the schema */
-  std::optional<bool> check_json {};
   /** @brief Print pre- and post-solve system statistics */
   std::optional<bool> print_stats {};
 

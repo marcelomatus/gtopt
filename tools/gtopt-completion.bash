@@ -72,7 +72,7 @@ _gtopt()
             --output-directory -d --output-format -f --output-compression -C
             --lp-file -l --matrix-eps -e
             --lp-only -c --lp-debug --lp-compression --lp-coeff-ratio
-            --json-file -j --check-json -J
+            --json-file -j
             --stats -S --trace-log -T
             --algorithm -a --threads -t
             --use-single-bus -b --use-kirchhoff -k

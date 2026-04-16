@@ -27,7 +27,6 @@ namespace gtopt
 /// it into a single Planning.  Returns an error string on the first failure.
 [[nodiscard]] std::expected<Planning, std::string> parse_planning_files(
     const std::vector<std::string>& planning_files,
-    bool check_json,
     const std::optional<std::string>& input_directory = {});
 
 /// Write the merged Planning to a JSON file.

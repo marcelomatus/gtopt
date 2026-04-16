@@ -178,9 +178,6 @@ template<typename T>
       ("json-file,j",
        po::value<std::string>(),
        "write the merged planning JSON to this file")  //
-      ("check-json,J",
-       po::value<bool>().implicit_value(/*v=*/true),
-       "warn about JSON fields not recognised by the schema")  //
       ("stats,S",
        po::value<bool>().implicit_value(/*v=*/true),
        "print LP coefficient statistics and system stats before/after solving")
@@ -601,7 +598,6 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
       .lp_compression = get_opt<std::string>(vm, "lp-compression"),
       .lp_coeff_ratio_threshold = get_opt<double>(vm, "lp-coeff-ratio"),
       .json_file = get_opt<std::string>(vm, "json-file"),
-      .check_json = get_opt<bool>(vm, "check-json"),
       .print_stats = get_opt<bool>(vm, "stats"),
       .trace_log = get_opt<std::string>(vm, "trace-log"),
       .cut_directory = get_opt<std::string>(vm, "cut-directory"),
@@ -735,7 +731,6 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
 
   // Debug / output
   opts.json_file = get_str("json-file");
-  opts.check_json = get_bool("check-json");
   opts.print_stats = get_bool("stats");
   opts.trace_log = get_str("trace-log");
 
@@ -890,7 +885,6 @@ inline void merge_config_defaults(MainOptions& opts,
   merge(opts.lp_compression, defaults.lp_compression);
   merge(opts.lp_coeff_ratio_threshold, defaults.lp_coeff_ratio_threshold);
   merge(opts.json_file, defaults.json_file);
-  merge(opts.check_json, defaults.check_json);
   merge(opts.print_stats, defaults.print_stats);
   merge(opts.trace_log, defaults.trace_log);
   merge(opts.cut_directory, defaults.cut_directory);
