@@ -428,15 +428,19 @@ cmake --build build --target format       # apply
 cmake --build build --target check-format # check only
 
 # clang-tidy (slow; triggered manually in CI via workflow_dispatch)
+# Configure once, then drive clang-tidy in parallel via run-clang-tidy.
+# CMAKE_DISABLE_PRECOMPILE_HEADERS=ON avoids PCH references that would only
+# exist after a full cmake --build.
 cmake -S all -B build \
-  -DCMAKE_CXX_CLANG_TIDY="clang-tidy;--warnings-as-errors=*" \
   -DCMAKE_BUILD_TYPE=Debug \
   -DCMAKE_C_COMPILER=clang \
   -DCMAKE_CXX_COMPILER=clang++ \
   -DCMAKE_C_COMPILER_LAUNCHER=ccache \
-  -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+  -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+  -DCMAKE_DISABLE_PRECOMPILE_HEADERS=ON
 # Add -DCMAKE_PREFIX_PATH="$(conda info --base)" only if using conda Arrow (sandbox)
-cmake --build build -j$(nproc)
+run-clang-tidy -p build -j "$(nproc)" -quiet \
+  -header-filter='' -warnings-as-errors='*'
 ```
 
 > **⚠️ Before committing ANY code**, always format and lint the changed files:
@@ -459,9 +463,16 @@ cmake --build build -j$(nproc)
 > # macros, hicpp-member-init for aggregate structs) that are false positives
 > # in this project's conventions. The .cpp translation units already pull in
 > # the headers and are the correct analysis targets.
-> git diff --name-only --diff-filter=d HEAD \
->   | grep -E '\.cpp$' \
->   | xargs -r clang-tidy -p tools/compile_commands.json --warnings-as-errors='*'
+> #
+> # Drive clang-tidy via run-clang-tidy for parallel execution (-j $(nproc)).
+> # run-clang-tidy accepts positional file-path regexes, so we join the changed
+> # .cpp paths with '|' to restrict analysis to just those files.
+> CHANGED_CPP=$(git diff --name-only --diff-filter=d HEAD | grep -E '\.cpp$' || true)
+> if [ -n "$CHANGED_CPP" ]; then
+>   FILE_REGEX=$(printf '%s\n' $CHANGED_CPP | paste -sd'|' -)
+>   run-clang-tidy -p tools/compile_commands.json -j "$(nproc)" -quiet \
+>     -header-filter='' -warnings-as-errors='*' "$FILE_REGEX"
+> fi
 > ```
 >
 > **Python files** — run from the repo root before every Python commit:

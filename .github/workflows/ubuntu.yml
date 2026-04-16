@@ -343,6 +343,13 @@ jobs:
 
       - name: configure (clang-tidy mode)
         run: |
+          # Configure only to generate compile_commands.json.  PCH is disabled
+          # because run-clang-tidy does not drive cmake's compile step and
+          # would otherwise reference PCH files that were never built.
+          # No CMAKE_CXX_CLANG_TIDY hook here — run-clang-tidy drives the
+          # analysis in parallel in the next step (strictly faster than
+          # `cmake --build` + CMAKE_CXX_CLANG_TIDY because no object files
+          # are emitted and no linking happens).
           cmake -S all -Bbuild \
             -DGTOPT_BUILD_INTEGRATION_TESTS=OFF \
             -DGTOPT_BUILD_WEBSERVICE=OFF \
@@ -353,10 +360,19 @@ jobs:
             -DCMAKE_CXX_COMPILER=clang++ \
             -DCMAKE_C_COMPILER_LAUNCHER=ccache \
             -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
-            -DCMAKE_CXX_CLANG_TIDY="clang-tidy-cache;clang-tidy;--warnings-as-errors=*;--header-filter=''"
+            -DCMAKE_DISABLE_PRECOMPILE_HEADERS=ON
 
-      - name: build with clang-tidy
-        run: cmake --build build -j$(nproc)
+      - name: run-clang-tidy (parallel, via clang-tidy-cache)
+        run: |
+          # Drive clang-tidy in parallel over every TU in compile_commands.json.
+          # Equivalent to -j $(nproc).  clang-tidy-cache wraps clang-tidy so
+          # repeated runs hit the cache.  -header-filter='' keeps warnings
+          # limited to the main TU (never .hpp) — matches the project rule
+          # that clang-tidy only analyses .cpp files.
+          run-clang-tidy -p build -j "$(nproc)" -quiet \
+            -clang-tidy-binary clang-tidy-cache \
+            -header-filter='' \
+            -warnings-as-errors='*'
 
   webservice:
     runs-on: ubuntu-latest

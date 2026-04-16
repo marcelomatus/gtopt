@@ -105,10 +105,15 @@ git diff --name-only --diff-filter=d HEAD \
   | grep -E '\.(cpp|hpp|h|cc|cxx|hxx)$' \
   | xargs -r clang-format -i
 
-# Step 2 — clang-tidy (ONLY on *.cpp files, NEVER on *.hpp)
-git diff --name-only --diff-filter=d HEAD \
-  | grep -E '\.cpp$' \
-  | xargs -r clang-tidy -p tools/compile_commands.json --warnings-as-errors='*'
+# Step 2 — clang-tidy (ONLY on *.cpp files, NEVER on *.hpp).
+# Uses run-clang-tidy for parallel execution (-j $(nproc)).  Pass the
+# changed files as a pipe-joined regex to restrict analysis.
+CHANGED_CPP=$(git diff --name-only --diff-filter=d HEAD | grep -E '\.cpp$' || true)
+if [ -n "$CHANGED_CPP" ]; then
+  FILE_REGEX=$(printf '%s\n' $CHANGED_CPP | paste -sd'|' -)
+  run-clang-tidy -p tools/compile_commands.json -j "$(nproc)" -quiet \
+    -header-filter='' -warnings-as-errors='*' "$FILE_REGEX"
+fi
 ```
 
 ### Python files
