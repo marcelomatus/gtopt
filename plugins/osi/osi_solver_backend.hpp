@@ -10,15 +10,29 @@
 
 #include <cstdio>
 #include <memory>
+#include <optional>
 #include <string>
 
 #include <gtopt/solver_backend.hpp>
+#include <gtopt/solver_options.hpp>
 
 class CoinMessageHandler;
 class OsiSolverInterface;
 
 namespace gtopt
 {
+
+/// Cached state used to replay options + logging + prob name onto a fresh
+/// OsiSolverInterface.  Mirrors the CPLEX plugin's CplexPrep: reset_solver_()
+/// and clone() read this cache and apply its fields to the new solver so
+/// backend state survives a load_problem() cycle or a deep-copy clone.
+struct OsiPrep
+{
+  std::optional<SolverOptions> options {};
+  std::string log_filename {};
+  int log_level {0};
+  std::string prob_name {};
+};
 
 /**
  * @brief Solver backend using COIN-OR Open Solver Interface.
@@ -154,9 +168,18 @@ public:
   [[nodiscard]] std::unique_ptr<SolverBackend> clone() const override;
 
 private:
+  /// Recreate m_solver_ + m_handler_ from m_prep_.  Used by load_problem()
+  /// so every bulk load starts with a clean solver instance, guaranteeing
+  /// no leftover per-LP state (basis, factorization, work arrays).
+  void reset_solver_();
+
   OsiSolverType m_type_;
   std::shared_ptr<OsiSolverInterface> m_solver_;
   std::unique_ptr<CoinMessageHandler> m_handler_;
+
+  /// Cache of everything needed to replay backend state onto a fresh
+  /// OsiSolverInterface (see CplexPrep for the pattern).
+  OsiPrep m_prep_;
 
   // Cached option values (updated by apply_options)
   LPAlgo m_algorithm_ {LPAlgo::default_algo};
