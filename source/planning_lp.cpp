@@ -20,6 +20,7 @@
 #include <thread>
 #include <unordered_set>
 
+#include <gtopt/as_label.hpp>
 #include <gtopt/planning_lp.hpp>
 #include <gtopt/planning_method.hpp>
 #include <gtopt/solver_monitor.hpp>
@@ -1104,10 +1105,9 @@ std::expected<void, Error> PlanningLP::resolve_scene_phases(
       // debugging
       const auto log_dir = m_options_.log_directory();
       std::filesystem::create_directories(log_dir);
-      const auto filename =
-          (std::filesystem::path(log_dir)
-           / std::format("error_{}_{}", scene_index, phase_index))
-              .string();
+      const auto filename = (std::filesystem::path(log_dir)
+                             / as_label("error", scene_index, phase_index))
+                                .string();
       if (auto lp_result = system_sp.write_lp(filename)) {
         spdlog::error("  Infeasible LP written to: {}", *lp_result);
       } else {

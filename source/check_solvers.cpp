@@ -40,16 +40,16 @@ bool SolverTestReport::passed() const noexcept
       results, [](const SolverTestResult& r) { return !r.passed; });
 }
 
-int SolverTestReport::n_passed() const noexcept
+std::ptrdiff_t SolverTestReport::n_passed() const noexcept
 {
-  return static_cast<int>(std::ranges::count_if(
-      results, [](const SolverTestResult& r) { return r.passed; }));
+  return std::ranges::count_if(
+      results, [](const SolverTestResult& r) { return r.passed; });
 }
 
-int SolverTestReport::n_failed() const noexcept
+std::ptrdiff_t SolverTestReport::n_failed() const noexcept
 {
-  return static_cast<int>(std::ranges::count_if(
-      results, [](const SolverTestResult& r) { return !r.passed; }));
+  return std::ranges::count_if(
+      results, [](const SolverTestResult& r) { return !r.passed; });
 }
 
 // ---------------------------------------------------------------------------

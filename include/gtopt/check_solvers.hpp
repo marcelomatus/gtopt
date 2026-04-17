@@ -25,6 +25,7 @@
 
 #pragma once
 
+#include <cstddef>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -72,10 +73,10 @@ struct SolverTestReport
   [[nodiscard]] bool passed() const noexcept;
 
   /// Number of passing tests.
-  [[nodiscard]] int n_passed() const noexcept;
+  [[nodiscard]] std::ptrdiff_t n_passed() const noexcept;
 
   /// Number of failing tests.
-  [[nodiscard]] int n_failed() const noexcept;
+  [[nodiscard]] std::ptrdiff_t n_failed() const noexcept;
 };
 
 // ---------------------------------------------------------------------------

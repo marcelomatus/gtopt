@@ -15,6 +15,7 @@
 #include <ranges>
 #include <vector>
 
+#include <gtopt/as_label.hpp>
 #include <gtopt/cascade_method.hpp>
 #include <gtopt/label_maker.hpp>
 #include <gtopt/planning_lp.hpp>
@@ -305,8 +306,7 @@ auto CascadePlanningMethod::solve(PlanningLP& planning_lp,
        ++level_idx)
   {
     const auto& level = m_cascade_opts_.level_array[level_idx];
-    const auto level_name =
-        level.name.value_or(std::format("level_{}", level_idx));
+    const auto level_name = level.name.value_or(as_label("level", level_idx));
 
     // ── 1. Build LP for each level ──
     // Always build a fresh LP to ensure clean state (no leftover
