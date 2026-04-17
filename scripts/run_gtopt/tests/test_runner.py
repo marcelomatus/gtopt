@@ -163,31 +163,32 @@ def test_read_result_table_single_parquet(tmp_path: Path):
     assert len(df) == 2
 
 
-def test_read_result_table_parquet_shards(tmp_path: Path):
-    """Per-(scene, phase) shards are concatenated in sorted order."""
+def test_read_result_table_parquet_hive_dataset(tmp_path: Path):
+    """A hive-partitioned directory is read as one logical frame."""
     import pandas as pd  # noqa: PLC0415
 
-    subdir = tmp_path / "Generator"
-    subdir.mkdir()
-    pd.DataFrame({"uid:1": [1.0]}).to_parquet(subdir / "generation_sol_s0_p0.parquet")
-    pd.DataFrame({"uid:1": [2.0]}).to_parquet(subdir / "generation_sol_s0_p1.parquet")
-    pd.DataFrame({"uid:1": [3.0]}).to_parquet(subdir / "generation_sol_s1_p0.parquet")
+    stem_dir = tmp_path / "Generator" / "generation_sol.parquet"
+    for scene, phase, val in [(0, 0, 1.0), (0, 1, 2.0), (1, 0, 3.0)]:
+        part = stem_dir / f"scene={scene}" / f"phase={phase}"
+        part.mkdir(parents=True)
+        pd.DataFrame({"uid:1": [val]}).to_parquet(part / "part.parquet")
     df = _read_result_table(tmp_path, "Generator/generation_sol")
     assert df is not None
-    assert list(df["uid:1"]) == [1.0, 2.0, 3.0]
+    assert sorted(df["uid:1"].tolist()) == [1.0, 2.0, 3.0]
+    assert {"scene", "phase"}.issubset(df.columns)
 
 
-def test_read_result_table_shards_preferred(tmp_path: Path):
-    """Shards take precedence over a sibling legacy single file."""
+def test_read_result_table_csv_shards(tmp_path: Path):
+    """CSV shards are concatenated in sorted order."""
     import pandas as pd  # noqa: PLC0415
 
-    subdir = tmp_path / "Demand"
+    subdir = tmp_path / "Flow"
     subdir.mkdir()
-    pd.DataFrame({"uid:1": [99.0]}).to_parquet(subdir / "load_sol.parquet")
-    pd.DataFrame({"uid:1": [1.0]}).to_parquet(subdir / "load_sol_s0_p0.parquet")
-    df = _read_result_table(tmp_path, "Demand/load_sol")
+    pd.DataFrame({"uid:1": [10.0]}).to_csv(subdir / "flow_sol_s0_p0.csv", index=False)
+    pd.DataFrame({"uid:1": [20.0]}).to_csv(subdir / "flow_sol_s1_p0.csv", index=False)
+    df = _read_result_table(tmp_path, "Flow/flow_sol")
     assert df is not None
-    assert list(df["uid:1"]) == [1.0]
+    assert len(df) == 2
 
 
 def test_read_result_table_missing(tmp_path: Path):

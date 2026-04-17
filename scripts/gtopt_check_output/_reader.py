@@ -13,37 +13,43 @@ log = logging.getLogger(__name__)
 
 
 def read_table(directory: Path, stem: str) -> pd.DataFrame | None:
-    """Read a parquet or CSV file from *directory*/*stem*.{ext}.
+    """Read a parquet or CSV table from *directory*/*stem*.{ext}.
 
-    Handles two layouts transparently:
+    Handles three layouts transparently:
 
-    * Single-file: ``{stem}.{ext}`` — the legacy layout.
-    * Per-(scene, phase) shards: ``{stem}_s*_p*.{ext}`` — concatenated
-      into one frame in scene-then-phase order.
+    * Legacy single file: ``{stem}.{ext}``.
+    * Hive-partitioned parquet directory: ``{stem}.parquet/`` containing
+      ``scene=<N>/phase=<M>/part.parquet`` — ``pd.read_parquet`` reads
+      the whole dataset as one frame and surfaces ``scene`` and
+      ``phase`` as partition columns.
+    * CSV shards: ``{stem}_s*_p*.{csv,csv.zst,csv.gz}`` concatenated in
+      sorted order (CSV has no dataset equivalent).
 
-    Shards are preferred when present.  Tries parquet first, then csv
-    variants.  Returns ``None`` if nothing matches.
+    Parquet is preferred.  Returns ``None`` if nothing matches.
     """
+    pq_path = directory / (stem + ".parquet")
+    if pq_path.is_dir() or pq_path.is_file():
+        try:
+            return pd.read_parquet(pq_path)
+        except Exception as exc:  # noqa: BLE001  # pylint: disable=broad-exception-caught
+            log.warning("failed to read %s: %s", pq_path, exc)
+            return None
+
     parent = directory / Path(stem).parent
     name = Path(stem).name
-    for ext in (".parquet", ".csv", ".csv.zst", ".csv.gz"):
+    for ext in (".csv", ".csv.zst", ".csv.gz"):
         shards = sorted(parent.glob(f"{name}_s*_p*{ext}"))
         if shards:
             try:
-                frames = [
-                    pd.read_parquet(f) if ext == ".parquet" else pd.read_csv(f)
-                    for f in shards
-                ]
+                frames = [pd.read_csv(f) for f in shards]
                 return pd.concat(frames, ignore_index=True) if frames else None
             except Exception as exc:  # noqa: BLE001  # pylint: disable=broad-exception-caught
-                log.warning("failed to read shards for %s: %s", stem, exc)
+                log.warning("failed to read CSV shards for %s: %s", stem, exc)
                 return None
 
         fpath = directory / (stem + ext)
         if fpath.is_file():
             try:
-                if ext == ".parquet":
-                    return pd.read_parquet(fpath)
                 return pd.read_csv(fpath)
             except Exception as exc:  # noqa: BLE001  # pylint: disable=broad-exception-caught
                 log.warning("failed to read %s: %s", fpath, exc)
