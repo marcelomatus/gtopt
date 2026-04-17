@@ -637,7 +637,8 @@ TEST_CASE("OutputContext - CSV gzip output is readable through csv_read_table")
   REQUIRE(lp.resolve().has_value());
   system_lp.write_out();
 
-  const auto table = csv_read_table(tmpdir / "Generator" / "generation_sol");
+  const auto table =
+      csv_read_table(tmpdir / "Generator" / "generation_sol_s0_p0");
   REQUIRE(table.has_value());
   CHECK((table && (*table)->num_rows() > 0));
 

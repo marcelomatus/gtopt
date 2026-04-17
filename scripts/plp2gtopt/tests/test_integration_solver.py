@@ -163,12 +163,25 @@ def _read_solution_csv(results_dir: Path) -> dict[str, int | float | str]:
 
 
 def _read_output(results_dir: Path, component: str, name: str) -> pd.DataFrame | None:
-    """Read a parquet or csv output from results_dir/component/name.{parquet,csv}."""
-    parquet_path = results_dir / component / f"{name}.parquet"
-    csv_path = results_dir / component / f"{name}.csv"
-    if parquet_path.exists():
+    """Read a parquet or csv output from results_dir/component/name.{parquet,csv}.
+
+    Handles the hive-partitioned parquet layout
+    ``{name}.parquet/scene=<N>/phase=<M>/part.parquet`` and CSV shards
+    ``{name}_s*_p*.csv`` alongside the legacy single-file layout.
+    """
+    comp_dir = results_dir / component
+    parquet_path = comp_dir / f"{name}.parquet"
+    # pd.read_parquet accepts both a single file and a hive-partitioned
+    # directory; the dataset reader surfaces ``scene`` and ``phase`` as
+    # partition columns automatically.
+    if parquet_path.is_dir() or parquet_path.is_file():
         return pd.read_parquet(parquet_path)
-    if csv_path.exists():
+
+    csv_shards = sorted(comp_dir.glob(f"{name}_s*_p*.csv"))
+    if csv_shards:
+        return pd.concat([pd.read_csv(f) for f in csv_shards], ignore_index=True)
+    csv_path = comp_dir / f"{name}.csv"
+    if csv_path.is_file():
         return pd.read_csv(csv_path)
     return None
 

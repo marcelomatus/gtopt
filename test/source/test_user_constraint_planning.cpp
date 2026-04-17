@@ -295,7 +295,8 @@ TEST_CASE("User constraint - dual values written to output (CSV)")
   // The user constraint "gen_upper" limits generation to 80 MW.
   // With demand at 90 MW and fail_cost = 1000, the constraint is binding,
   // so the dual should be non-zero.
-  const auto dual_file = tmpdir / "UserConstraint" / "constraint_dual.csv";
+  const auto dual_file =
+      tmpdir / "UserConstraint" / "constraint_dual_s0_p0.csv";
   CHECK(std::filesystem::exists(dual_file));
 
   if (std::filesystem::exists(dual_file)) {
@@ -551,7 +552,8 @@ TEST_CASE("User constraint - raw/unitless type produces output CSV")
   sys_lp.write_out();
 
   // Both "raw" and "unitless" constraints should produce the dual output file.
-  const auto dual_file = tmpdir / "UserConstraint" / "constraint_dual.csv";
+  const auto dual_file =
+      tmpdir / "UserConstraint" / "constraint_dual_s0_p0.csv";
   CHECK(std::filesystem::exists(dual_file));
 
   if (std::filesystem::exists(dual_file)) {
@@ -1416,7 +1418,8 @@ TEST_CASE("User constraint - energy constraint_type dual output")
 
   sys_lp.write_out();
 
-  const auto dual_file = tmpdir / "UserConstraint" / "constraint_dual.csv";
+  const auto dual_file =
+      tmpdir / "UserConstraint" / "constraint_dual_s0_p0.csv";
   CHECK(std::filesystem::exists(dual_file));
 
   std::filesystem::remove_all(tmpdir);

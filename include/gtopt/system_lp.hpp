@@ -176,13 +176,21 @@ public:
       : SystemLP(system,
                  simulation,
                  PhaseLP {
-                     Phase(),
+                     Phase {
+                         .uid = 0,
+                         .name = {},
+                         .active = {},
+                     },
                      simulation.options(),
                      simulation.simulation(),
                      first_phase_index(),
                  },
                  SceneLP {
-                     Scene(),
+                     Scene {
+                         .uid = 0,
+                         .name = {},
+                         .active = {},
+                     },
                      simulation.simulation(),
                      first_scene_index(),
                  },

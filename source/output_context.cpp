@@ -304,7 +304,11 @@ auto write_table(std::string_view fmt,
 }
 
 template<typename Type = double>
-auto create_tables(auto&& output_directory, auto&& field_vector_map)
+auto create_tables(std::string_view fmt,
+                   SceneUid scene_uid,
+                   PhaseUid phase_uid,
+                   auto&& output_directory,
+                   auto&& field_vector_map)
 {
   using PathTable =
       std::pair<std::filesystem::path, std::shared_ptr<arrow::Table>>;
@@ -312,17 +316,37 @@ auto create_tables(auto&& output_directory, auto&& field_vector_map)
   std::vector<PathTable> path_tables;
 
   const auto dirpath = std::filesystem::path(output_directory);
+  const auto scene_part = std::format("scene={}", static_cast<Uid>(scene_uid));
+  const auto phase_part = std::format("phase={}", static_cast<Uid>(phase_uid));
+  const auto csv_shard_suffix = std::format(
+      "_s{}_p{}", static_cast<Uid>(scene_uid), static_cast<Uid>(phase_uid));
+
   for (auto&& [class_fname, vfields] : field_vector_map) {
     auto&& [cname, fname] = class_fname;
     const auto mtable = make_table<Type>(vfields);
 
-    const auto dpath = dirpath / cname;
+    const auto cname_dir = dirpath / cname;
+
+    // Parquet: hive-partitioned directory
+    //   {cname}/{fname}.parquet/scene=<N>/phase=<M>/part{.parquet}
+    // CSV: per-(scene, phase) shard in the class directory
+    //   {cname}/{fname}_s<N>_p<M>{.csv,.csv.zst,.csv.gz}
+    std::filesystem::path dir_to_create;
+    std::filesystem::path fpath;
+    if (fmt == "parquet") {
+      dir_to_create =
+          cname_dir / (fname + ".parquet") / scene_part / phase_part;
+      fpath = dir_to_create / "part";
+    } else {
+      dir_to_create = cname_dir;
+      fpath = cname_dir / (fname + csv_shard_suffix);
+    }
 
     std::error_code ec;
-    std::filesystem::create_directories(dpath, ec);
+    std::filesystem::create_directories(dir_to_create, ec);
     if (ec) {
       SPDLOG_CRITICAL("Cannot create output directory '{}': {}",
-                      dpath.string(),
+                      dir_to_create.string(),
                       ec.message());
       continue;
     }
@@ -334,7 +358,7 @@ auto create_tables(auto&& output_directory, auto&& field_vector_map)
                       mtable.status().ToString());
       continue;
     }
-    path_tables.emplace_back(dpath / fname, *mtable);
+    path_tables.emplace_back(std::move(fpath), *mtable);
   }
 
   return path_tables;
@@ -404,8 +428,11 @@ void OutputContext::write() const
 {
   const auto fmt = options().output_format();
   const auto zfmt = options().output_compression();
-  auto path_tables =
-      create_tables(options().output_directory(), field_vector_map);
+  auto path_tables = create_tables(fmt,
+                                   m_scene_uid_,
+                                   m_phase_uid_,
+                                   options().output_directory(),
+                                   field_vector_map);
 
   SPDLOG_DEBUG(
       "  Writing {} output tables to '{}' "

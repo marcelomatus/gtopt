@@ -1203,8 +1203,8 @@ TEST_CASE("User constraint - soft slack columns appear in CSV output")
 
   // The visible-slack contract requires the slack primal value AND
   // its realized cost to land in the standard output stream.
-  const auto sol_file = tmpdir / "UserConstraint" / "slack_sol.csv";
-  const auto cost_file = tmpdir / "UserConstraint" / "slack_cost.csv";
+  const auto sol_file = tmpdir / "UserConstraint" / "slack_sol_s0_p0.csv";
+  const auto cost_file = tmpdir / "UserConstraint" / "slack_cost_s0_p0.csv";
   CHECK(std::filesystem::exists(sol_file));
   CHECK(std::filesystem::exists(cost_file));
 

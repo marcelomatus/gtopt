@@ -157,10 +157,14 @@ auto solve_ieee9b_eq(gtopt::LpEquilibrationMethod method,
   };
 
   // Read back all output CSV files.
-  res.generation = read_uid_values(out_dir / "Generator" / "generation_sol", 3);
-  res.flowp = read_uid_values(out_dir / "Line" / "flowp_sol", 9);
-  res.load = read_uid_values(out_dir / "Demand" / "load_sol", 3);
-  res.balance_dual = read_uid_values(out_dir / "Bus" / "balance_dual", 9);
+  // CSV output is now sharded per (scene, phase); with no explicit
+  // scene/phase arrays both uids default to 0, so files are suffixed
+  // "_s0_p0".
+  res.generation =
+      read_uid_values(out_dir / "Generator" / "generation_sol_s0_p0", 3);
+  res.flowp = read_uid_values(out_dir / "Line" / "flowp_sol_s0_p0", 9);
+  res.load = read_uid_values(out_dir / "Demand" / "load_sol_s0_p0", 3);
+  res.balance_dual = read_uid_values(out_dir / "Bus" / "balance_dual_s0_p0", 9);
 
   return res;
 }
@@ -297,9 +301,10 @@ TEST_CASE(  // NOLINT
     for (const auto* mode : {"none", "row_max", "ruiz"}) {
       CAPTURE(mode);
       const auto d = tmp_base / mode;
-      CHECK(std::filesystem::exists(d / "Generator" / "generation_sol.csv"));
-      CHECK(std::filesystem::exists(d / "Line" / "flowp_sol.csv"));
-      CHECK(std::filesystem::exists(d / "Demand" / "load_sol.csv"));
+      CHECK(std::filesystem::exists(d / "Generator"
+                                    / "generation_sol_s0_p0.csv"));
+      CHECK(std::filesystem::exists(d / "Line" / "flowp_sol_s0_p0.csv"));
+      CHECK(std::filesystem::exists(d / "Demand" / "load_sol_s0_p0.csv"));
       CHECK(std::filesystem::exists(d / "solution.csv"));
     }
   }
