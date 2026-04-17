@@ -20,62 +20,18 @@
  */
 
 #include <filesystem>
-#include <format>
-#include <memory>
 #include <numeric>
 #include <string_view>
 #include <vector>
 
-#include <arrow/array.h>
 #include <doctest/doctest.h>
-#include <gtopt/array_index_traits.hpp>
 #include <gtopt/gtopt_json_io.hpp>
 #include <gtopt/planning_lp.hpp>
 
+#include "test_csv_helpers.hpp"
+
 using namespace gtopt;  // NOLINT(google-global-names-in-headers)
-
-namespace ieee14b_detail  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
-{
-
-/// Extract the first value from an Arrow chunk as double (handles
-/// int64/double).
-auto chunk_first_value(const std::shared_ptr<arrow::Array>& chunk) -> double
-{
-  if (!chunk || chunk->length() == 0) {
-    return 0.0;
-  }
-  if (chunk->type_id() == arrow::Type::DOUBLE) {
-    return std::static_pointer_cast<arrow::DoubleArray>(chunk)->Value(0);
-  }
-  if (chunk->type_id() == arrow::Type::INT64) {
-    return static_cast<double>(
-        std::static_pointer_cast<arrow::Int64Array>(chunk)->Value(0));
-  }
-  return 0.0;
-}
-
-/// Read single-row uid:1..uid:count values from a CSV output table.
-auto read_uid_values(const std::filesystem::path& path, int count)
-    -> std::vector<double>
-{
-  std::vector<double> out;
-  auto tbl = csv_read_table(path);
-  if (!tbl.has_value()) {
-    return out;
-  }
-  for (int uid = 1; uid <= count; ++uid) {
-    const auto col_name = std::format("uid:{}", uid);
-    auto col = (*tbl)->GetColumnByName(col_name);
-    if (!col || col->num_chunks() == 0) {
-      out.push_back(0.0);
-      continue;
-    }
-    out.push_back(chunk_first_value(col->chunk(0)));
-  }
-  return out;
-}
-
-}  // namespace ieee14b_detail
+using gtopt::test_helpers::read_uid_values;
 
 // clang-format off
 static constexpr std::string_view ieee14b_ori_json = R"({
@@ -218,8 +174,7 @@ TEST_CASE("IEEE 14-bus original - solution correctness")
 
   SUBCASE("no load shedding")
   {
-    const auto fail = ieee14b_detail::read_uid_values(
-        out_dir / "Demand" / "fail_sol", num_dem);
+    const auto fail = read_uid_values(out_dir / "Demand" / "fail_sol", num_dem);
     REQUIRE(fail.size() == num_dem);
 
     for (size_t d = 0; d < num_dem; ++d) {
@@ -230,10 +185,9 @@ TEST_CASE("IEEE 14-bus original - solution correctness")
 
   SUBCASE("generation balance equals total demand")
   {
-    const auto gen = ieee14b_detail::read_uid_values(
-        out_dir / "Generator" / "generation_sol", num_gen);
-    const auto load = ieee14b_detail::read_uid_values(
-        out_dir / "Demand" / "load_sol", num_dem);
+    const auto gen =
+        read_uid_values(out_dir / "Generator" / "generation_sol", num_gen);
+    const auto load = read_uid_values(out_dir / "Demand" / "load_sol", num_dem);
     REQUIRE(gen.size() == num_gen);
     REQUIRE(load.size() == num_dem);
 
@@ -246,8 +200,8 @@ TEST_CASE("IEEE 14-bus original - solution correctness")
 
   SUBCASE("generator dispatch within bounds")
   {
-    const auto gen = ieee14b_detail::read_uid_values(
-        out_dir / "Generator" / "generation_sol", num_gen);
+    const auto gen =
+        read_uid_values(out_dir / "Generator" / "generation_sol", num_gen);
     REQUIRE(gen.size() == num_gen);
 
     // pmin=0, pmax: g1=260, g2=130, g3=130, g6=100, g8=80
@@ -270,8 +224,7 @@ TEST_CASE("IEEE 14-bus original - solution correctness")
 
   SUBCASE("bus LMPs are positive and vary by location")
   {
-    const auto lmp = ieee14b_detail::read_uid_values(
-        out_dir / "Bus" / "balance_dual", num_bus);
+    const auto lmp = read_uid_values(out_dir / "Bus" / "balance_dual", num_bus);
     REQUIRE(lmp.size() == num_bus);
 
     // b1 LMP = g1 marginal cost ($20) — cheapest generator bus

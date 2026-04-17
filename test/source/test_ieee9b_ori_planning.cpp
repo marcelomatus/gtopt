@@ -21,61 +21,17 @@
  */
 
 #include <filesystem>
-#include <format>
-#include <memory>
 #include <string_view>
 #include <vector>
 
-#include <arrow/array.h>
 #include <doctest/doctest.h>
-#include <gtopt/array_index_traits.hpp>
 #include <gtopt/gtopt_json_io.hpp>
 #include <gtopt/planning_lp.hpp>
 
+#include "test_csv_helpers.hpp"
+
 using namespace gtopt;  // NOLINT(google-global-names-in-headers)
-
-namespace ieee9b_detail  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
-{
-
-/// Extract the first value from an Arrow chunk as double (handles
-/// int64/double).
-auto chunk_first_value(const std::shared_ptr<arrow::Array>& chunk) -> double
-{
-  if (!chunk || chunk->length() == 0) {
-    return 0.0;
-  }
-  if (chunk->type_id() == arrow::Type::DOUBLE) {
-    return std::static_pointer_cast<arrow::DoubleArray>(chunk)->Value(0);
-  }
-  if (chunk->type_id() == arrow::Type::INT64) {
-    return static_cast<double>(
-        std::static_pointer_cast<arrow::Int64Array>(chunk)->Value(0));
-  }
-  return 0.0;
-}
-
-/// Read single-row uid:1..uid:count values from a CSV output table.
-auto read_uid_values(const std::filesystem::path& path, int count)
-    -> std::vector<double>
-{
-  std::vector<double> out;
-  auto tbl = csv_read_table(path);
-  if (!tbl.has_value()) {
-    return out;
-  }
-  for (int uid = 1; uid <= count; ++uid) {
-    const auto col_name = std::format("uid:{}", uid);
-    auto col = (*tbl)->GetColumnByName(col_name);
-    if (!col || col->num_chunks() == 0) {
-      out.push_back(0.0);
-      continue;
-    }
-    out.push_back(chunk_first_value(col->chunk(0)));
-  }
-  return out;
-}
-
-}  // namespace ieee9b_detail
+using gtopt::test_helpers::read_uid_values;
 
 // clang-format off
 static constexpr std::string_view ieee9b_ori_json = R"({
@@ -189,10 +145,9 @@ TEST_CASE("IEEE 9-bus original - solution correctness")
 
   SUBCASE("generation balance equals served demand")
   {
-    const auto gen = ieee9b_detail::read_uid_values(
-        out_dir / "Generator" / "generation_sol", 3);
-    const auto load =
-        ieee9b_detail::read_uid_values(out_dir / "Demand" / "load_sol", 3);
+    const auto gen =
+        read_uid_values(out_dir / "Generator" / "generation_sol", 3);
+    const auto load = read_uid_values(out_dir / "Demand" / "load_sol", 3);
     REQUIRE(gen.size() == 3);
     REQUIRE(load.size() == 3);
 
@@ -208,8 +163,7 @@ TEST_CASE("IEEE 9-bus original - solution correctness")
 
   SUBCASE("load shedding at congested bus b5")
   {
-    const auto fail =
-        ieee9b_detail::read_uid_values(out_dir / "Demand" / "fail_sol", 3);
+    const auto fail = read_uid_values(out_dir / "Demand" / "fail_sol", 3);
     REQUIRE(fail.size() == 3);
 
     // d1 at b5 has load shedding (line congestion limits delivery)
@@ -221,8 +175,7 @@ TEST_CASE("IEEE 9-bus original - solution correctness")
 
   SUBCASE("demand d2 and d3 fully served")
   {
-    const auto load =
-        ieee9b_detail::read_uid_values(out_dir / "Demand" / "load_sol", 3);
+    const auto load = read_uid_values(out_dir / "Demand" / "load_sol", 3);
     REQUIRE(load.size() == 3);
     CHECK(load[1] == doctest::Approx(100.0).epsilon(1e-4));  // d2 at b7
     CHECK(load[2] == doctest::Approx(90.0).epsilon(1e-4));  // d3 at b9
@@ -230,8 +183,7 @@ TEST_CASE("IEEE 9-bus original - solution correctness")
 
   SUBCASE("bus LMPs reflect congestion")
   {
-    const auto lmp =
-        ieee9b_detail::read_uid_values(out_dir / "Bus" / "balance_dual", 9);
+    const auto lmp = read_uid_values(out_dir / "Bus" / "balance_dual", 9);
     REQUIRE(lmp.size() == 9);
 
     // b1 (generator bus): LMP = marginal gen cost of g1
@@ -249,8 +201,8 @@ TEST_CASE("IEEE 9-bus original - solution correctness")
 
   SUBCASE("all generators within bounds")
   {
-    const auto gen = ieee9b_detail::read_uid_values(
-        out_dir / "Generator" / "generation_sol", 3);
+    const auto gen =
+        read_uid_values(out_dir / "Generator" / "generation_sol", 3);
     REQUIRE(gen.size() == 3);
 
     // g1: pmin=10, pmax=250
