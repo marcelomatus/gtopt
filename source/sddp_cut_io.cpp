@@ -889,7 +889,7 @@ void write_cut_coefficients_unscaled(std::ostream& ofs,
         (headers.size() >= 2 && headers[1] == "iteration");
     const int state_var_start = has_iteration_col ? 4 : 3;
 
-    if (static_cast<int>(headers.size()) < state_var_start + 1) {
+    if (std::cmp_less(headers.size(), state_var_start + 1)) {
       return std::unexpected(Error {
           .code = ErrorCode::InvalidInput,
           .message =
@@ -931,8 +931,7 @@ void write_cut_coefficients_unscaled(std::ostream& ofs,
     // corresponding LP column in the last phase.
     const auto& svar_map = sim.state_variables(first_scene_index(), last_phase);
 
-    const auto num_state_cols =
-        static_cast<int>(headers.size()) - state_var_start;
+    const auto num_state_cols = std::ssize(headers) - state_var_start;
     std::vector<std::optional<ColIndex>> header_col_map;
     header_col_map.reserve(num_state_cols);
     std::vector<std::string> header_names;
@@ -1311,7 +1310,7 @@ void write_cut_coefficients_unscaled(std::ostream& ofs,
     const auto phase_uid_to_index = build_phase_uid_map(planning_lp);
 
     // ── Build per-phase state-variable column maps ──────────────
-    const auto num_state_cols = static_cast<int>(headers.size()) - kFixedCols;
+    const auto num_state_cols = std::ssize(headers) - kFixedCols;
 
     // Cache per-phase column maps (lazy: built on first use)
     std::unordered_map<PhaseIndex, std::vector<std::optional<ColIndex>>>

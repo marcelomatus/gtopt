@@ -13,6 +13,7 @@
 
 #include <algorithm>
 #include <bit>
+#include <cassert>
 #include <cmath>
 #include <cstdint>
 #include <format>
@@ -288,6 +289,7 @@ auto LinearProblem::flatten(const LpMatrixOptions& opts) -> FlatLinearProblem
   const auto eps = opts.eps;
   for (const auto& row : rows) {
     for (const auto& [j, v] : row.cmap) {
+      assert(j >= 0 && "column index in row.cmap must be non-negative");
       if (eps < 0 || std::abs(v) > eps) [[likely]] {
         ++matbeg[static_cast<size_t>(j)];
       }
@@ -357,6 +359,7 @@ auto LinearProblem::flatten(const LpMatrixOptions& opts) -> FlatLinearProblem
         : row.uppb;
 
     for (const auto& [j, v_raw] : row.cmap) {
+      assert(j >= 0 && "column index in row.cmap must be non-negative");
       const auto cs = col_scales[static_cast<size_t>(j)];
       const auto v = v_raw * cs * inv_rs;
       if (eps < 0 || std::abs(v) > eps) [[likely]] {

@@ -132,8 +132,9 @@ void SDDPCutStore::forget_first_cuts(int count, PlanningLP& planning_lp)
     std::ranges::sort(rows);
     li.delete_rows(rows);
     sys.record_cut_deletion(rows);
-    deleted_count[key] = static_cast<int>(rows.size());
-    total_deleted += static_cast<int>(rows.size());
+    const auto n = static_cast<int>(std::ssize(rows));
+    deleted_count[key] = n;
+    total_deleted += n;
   }
 
   auto shift_row = [&](StoredCut& cut)
