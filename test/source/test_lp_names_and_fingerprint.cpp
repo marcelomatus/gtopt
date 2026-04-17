@@ -256,8 +256,8 @@ TEST_CASE("WorkPoolConfig memory defaults")  // NOLINT
 
   const WorkPoolConfig config;
 
-  CHECK(config.min_free_memory_mb == doctest::Approx(2048.0));
-  CHECK(config.max_memory_percent == doctest::Approx(95.0));
+  CHECK(config.min_free_memory_mb == doctest::Approx(4096.0));
+  CHECK(config.max_memory_percent == doctest::Approx(90.0));
   CHECK(config.max_process_rss_mb == doctest::Approx(0.0));
 }
 

@@ -70,8 +70,9 @@ struct WorkPoolConfig
   bool enable_periodic_stats {true};  ///< Log periodic CPU/MEM stats
   /// Hard cap on process bytes paged to swap (MB).  When VmSwap exceeds
   /// this, dispatch is blocked to let active tasks drain and release
-  /// memory instead of pushing more pages out.  0 = disabled.
-  double max_process_swap_mb {0.0};
+  /// memory instead of pushing more pages out.  Default 2048 MB — kicks
+  /// in before the kernel starts thrashing; set to 0 to disable.
+  double max_process_swap_mb {2048.0};
   /// Soft cap on system swap I/O rate (pages/sec, sum of pswpin+pswpout).
   /// When the kernel is thrashing above this rate, dispatch is blocked.
   /// Only evaluated near thread saturation so quiescent paging (e.g.
@@ -81,14 +82,14 @@ struct WorkPoolConfig
   explicit WorkPoolConfig(
       int max_threads_ = static_cast<int>(physical_concurrency()),
       double max_cpu_threshold_ = 95.0,
-      double min_free_memory_mb_ = 2048.0,
-      double max_memory_percent_ = 95.0,
+      double min_free_memory_mb_ = 4096.0,
+      double max_memory_percent_ = 90.0,
       double max_process_rss_mb_ = 0.0,
       std::chrono::milliseconds scheduler_interval_ =
           std::chrono::milliseconds(50),
       std::string name_ = "WorkPool",
       bool enable_periodic_stats_ = true,
-      double max_process_swap_mb_ = 0.0,
+      double max_process_swap_mb_ = 2048.0,
       double max_swap_io_per_sec_ = 0.0) noexcept
       : max_threads(max_threads_)
       , max_cpu_threshold(max_cpu_threshold_)

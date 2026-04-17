@@ -684,10 +684,13 @@ TEST_CASE("CPUMonitor double stop is safe")
 
 // ─── WorkPoolConfig swap-gate knobs ──────────────────────────────────────────
 
-TEST_CASE("WorkPoolConfig swap knobs default to disabled")  // NOLINT
+TEST_CASE("WorkPoolConfig swap knobs default")  // NOLINT
 {
+  // max_process_swap_mb defaults to 2048 MB (enabled) to catch process
+  // paging before thrash; max_swap_io_per_sec remains disabled by default
+  // since benign init-time paging can briefly exceed any fixed threshold.
   const WorkPoolConfig cfg;
-  CHECK(cfg.max_process_swap_mb == doctest::Approx(0.0));
+  CHECK(cfg.max_process_swap_mb == doctest::Approx(2048.0));
   CHECK(cfg.max_swap_io_per_sec == doctest::Approx(0.0));
 }
 
