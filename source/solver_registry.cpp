@@ -249,45 +249,60 @@ bool SolverRegistry::validate_solver_subprocess(const PluginHandle& plugin,
     // Any crash here (SIGSEGV, SIGABRT, etc.) terminates only the child.
     // This catches both vtable ABI mismatches AND solvers that crash during
     // actual LP solving (e.g. COIN-OR compiled with GCC in a Clang binary).
-    // NOLINTNEXTLINE(concurrency-mt-unsafe) - single-threaded child
-    auto* backend = plugin.create_fn(solver_name.c_str());
-    if (backend == nullptr) {
+    //
+    // Reset signal handlers so doctest's crash-recovery logic (inherited
+    // from the parent via fork) does not fire inside the child — without
+    // this, an uncaught exception → abort → doctest's SIGABRT handler
+    // → spurious crash output that confuses doctest's test-rerun loop.
+    // NOLINTBEGIN(cppcoreguidelines-pro-type-cstyle-cast,cert-err33-c)
+    ::signal(SIGABRT, SIG_DFL);
+    ::signal(SIGSEGV, SIG_DFL);
+    ::signal(SIGFPE, SIG_DFL);
+    // NOLINTEND(cppcoreguidelines-pro-type-cstyle-cast,cert-err33-c)
+
+    try {
+      // NOLINTNEXTLINE(concurrency-mt-unsafe) - single-threaded child
+      auto* backend = plugin.create_fn(solver_name.c_str());
+      if (backend == nullptr) {
+        ::_exit(1);  // NOLINT(concurrency-mt-unsafe)
+      }
+      // Step 1: exercise basic vtable accessors.
+      const auto bname = backend->solver_name();
+      const auto inf = backend->infinity();
+      (void)bname;
+
+      // Step 2: solve a minimal LP to confirm the solver works end-to-end.
+      // LP: min x  s.t.  x >= 1,  0 <= x <= 10
+      // This catches solvers that can be created but SEGFAULT during solving.
+      const int nc = 1;
+      const int nr = 1;
+      const std::array<int, 2> matbeg {0, 1};
+      const std::array<int, 1> matind {0};
+      const std::array<double, 1> matval {1.0};
+      const std::array<double, 1> collb {0.0};
+      const std::array<double, 1> colub {10.0};
+      const std::array<double, 1> objv {1.0};
+      const std::array<double, 1> rowlb {1.0};
+      const std::array<double, 1> rowub {inf};
+      backend->load_problem(nc,
+                            nr,
+                            matbeg.data(),
+                            matind.data(),
+                            matval.data(),
+                            collb.data(),
+                            colub.data(),
+                            objv.data(),
+                            rowlb.data(),
+                            rowub.data());
+      backend->initial_solve();
+      if (!backend->is_proven_optimal()) {
+        ::_exit(2);  // NOLINT(concurrency-mt-unsafe)
+      }
+      delete backend;  // NOLINT(cppcoreguidelines-owning-memory)
+      ::_exit(0);  // NOLINT(concurrency-mt-unsafe)
+    } catch (...) {
       ::_exit(1);  // NOLINT(concurrency-mt-unsafe)
     }
-    // Step 1: exercise basic vtable accessors.
-    const auto bname = backend->solver_name();
-    const auto inf = backend->infinity();
-    (void)bname;
-
-    // Step 2: solve a minimal LP to confirm the solver works end-to-end.
-    // LP: min x  s.t.  x >= 1,  0 <= x <= 10
-    // This catches solvers that can be created but SEGFAULT during solving.
-    const int nc = 1;
-    const int nr = 1;
-    const std::array<int, 2> matbeg {0, 1};
-    const std::array<int, 1> matind {0};
-    const std::array<double, 1> matval {1.0};
-    const std::array<double, 1> collb {0.0};
-    const std::array<double, 1> colub {10.0};
-    const std::array<double, 1> objv {1.0};
-    const std::array<double, 1> rowlb {1.0};
-    const std::array<double, 1> rowub {inf};
-    backend->load_problem(nc,
-                          nr,
-                          matbeg.data(),
-                          matind.data(),
-                          matval.data(),
-                          collb.data(),
-                          colub.data(),
-                          objv.data(),
-                          rowlb.data(),
-                          rowub.data());
-    backend->initial_solve();
-    if (!backend->is_proven_optimal()) {
-      ::_exit(2);  // NOLINT(concurrency-mt-unsafe)
-    }
-    delete backend;  // NOLINT(cppcoreguidelines-owning-memory)
-    ::_exit(0);  // NOLINT(concurrency-mt-unsafe)
   }
 
   // Parent: wait for the child to finish.
