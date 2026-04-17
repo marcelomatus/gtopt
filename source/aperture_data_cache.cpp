@@ -88,10 +88,10 @@ auto load_one_file(const FileInfo& info) -> std::optional<FileResult>
 
     const auto uid_str = col_name.substr(4);
     uid_t raw_uid {0};
-    auto [ptr, ec] = std::from_chars(
-        uid_str.data(),
-        std::next(uid_str.data(), static_cast<std::ptrdiff_t>(uid_str.size())),
-        raw_uid);
+    auto [ptr, ec] =
+        std::from_chars(uid_str.data(),
+                        std::next(uid_str.data(), std::ssize(uid_str)),
+                        raw_uid);
     if (ec != std::errc {}) {
       continue;
     }

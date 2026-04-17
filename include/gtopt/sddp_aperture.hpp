@@ -21,6 +21,7 @@
 #pragma once
 
 #include <concepts>
+#include <cstddef>
 #include <functional>
 #include <future>
 #include <optional>
@@ -105,7 +106,7 @@ struct ApertureEntry
 ///                        all_scenarios.size())
 /// @return Array of synthetic Aperture objects
 [[nodiscard]] auto build_synthetic_apertures(
-    std::span<const ScenarioLP> all_scenarios, int n_apertures)
+    std::span<const ScenarioLP> all_scenarios, std::ptrdiff_t n_apertures)
     -> Array<Aperture>;
 
 // ─── Aperture task submission ────────────────────────────────────────────────

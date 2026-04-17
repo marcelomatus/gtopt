@@ -90,7 +90,7 @@ Real resolve_block_fail_cost(Real sched_fail_cost,
 FlowRightLP::FlowRightLP(const FlowRight& pflow, const InputContext& ic)
     : ObjectLP<FlowRight>(pflow, ic, ClassName)
     , discharge(ic, ClassName, id(), std::move(flow_right().discharge))
-    , direction(static_cast<int>(flow_right().direction.value_or(-1)))
+    , direction(flow_right().direction.value_or(-1))
     , fail_cost_sched(ic, ClassName, id(), std::move(flow_right().fail_cost))
     , use_value_sched(ic, ClassName, id(), std::move(flow_right().use_value))
     , fmax_sched(ic, ClassName, id(), std::move(flow_right().fmax))

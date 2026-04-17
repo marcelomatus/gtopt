@@ -331,8 +331,8 @@ auto SDDPMethod::backward_pass_with_apertures_single_phase(
       }
     } else {
       // No aperture_array: build synthetic from scenarios matching UIDs
-      filtered = build_synthetic_apertures(all_scenarios,
-                                           static_cast<int>(requested.size()));
+      filtered =
+          build_synthetic_apertures(all_scenarios, std::ssize(requested));
     }
 
     if (filtered.empty()) {
@@ -399,9 +399,9 @@ auto SDDPMethod::backward_pass_with_apertures(SceneIndex scene_index,
       }
     } else {
       // No aperture_array: build synthetic from scenarios
-      const auto num_all = static_cast<int>(all_scenarios.size());
+      const auto num_all = std::ssize(all_scenarios);
       filtered = build_synthetic_apertures(
-          all_scenarios, std::min(static_cast<int>(requested.size()), num_all));
+          all_scenarios, std::min(std::ssize(requested), num_all));
     }
 
     if (filtered.empty()) {

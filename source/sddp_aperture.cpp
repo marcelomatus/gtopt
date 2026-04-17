@@ -89,7 +89,7 @@ auto build_effective_apertures(std::span<const Aperture> aperture_defs,
 // ─── build_synthetic_apertures ──────────────────────────────────────────────
 
 auto build_synthetic_apertures(std::span<const ScenarioLP> all_scenarios,
-                               int n_apertures) -> Array<Aperture>
+                               std::ptrdiff_t n_apertures) -> Array<Aperture>
 {
   const auto n =
       std::min(static_cast<std::size_t>(n_apertures), all_scenarios.size());

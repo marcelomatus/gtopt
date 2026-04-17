@@ -104,8 +104,7 @@ auto create_phase_array(const Simulation& simulation,
             const auto& [index, phase] = is;
             auto p = phase;
             if (!p.continuous.has_value()
-                && options.is_phase_continuous(static_cast<int>(index)))
-            {
+                && options.is_phase_continuous(index)) {
               p.continuous = true;
             }
             return PhaseLP {

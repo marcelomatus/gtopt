@@ -193,7 +193,7 @@ auto load_state_csv(PlanningLP& planning_lp, const std::string& filepath)
       }
     }
 
-    const auto nphases = static_cast<size_t>(sim.phases().size());
+    const auto nphases = sim.phases().size();
 
     auto find_entry_index = [&](SceneIndex si,
                                 PhaseIndex pi) -> std::optional<size_t>
