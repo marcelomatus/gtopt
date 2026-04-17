@@ -67,7 +67,7 @@ using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
 // Trivial 2-variable LP:   min x + y   s.t.   x + y >= 2,  x,y >= 0.
 // Optimum:                 x + y = 2  ->  obj = 2.
-struct TrivialLP2
+struct OsiTrivialLP2
 {
   static constexpr int ncols = 2;
   static constexpr int nrows = 1;
@@ -99,7 +99,7 @@ struct TrivialLP2
   };
   std::array<double, 1> rowub {};
 
-  explicit TrivialLP2(double inf)
+  explicit OsiTrivialLP2(double inf)
   {
     colub.fill(inf);
     rowub.fill(inf);
@@ -122,7 +122,7 @@ struct TrivialLP2
 
 // Trivial 3-variable LP:   min x + y + z   s.t.   x + y + z >= 3,  all >= 0.
 // Optimum:                 sum = 3  ->  obj = 3.
-struct TrivialLP3
+struct OsiTrivialLP3
 {
   static constexpr int ncols = 3;
   static constexpr int nrows = 1;
@@ -158,7 +158,7 @@ struct TrivialLP3
   };
   std::array<double, 1> rowub {};
 
-  explicit TrivialLP3(double inf)
+  explicit OsiTrivialLP3(double inf)
   {
     colub.fill(inf);
     rowub.fill(inf);
@@ -181,7 +181,7 @@ struct TrivialLP3
 
 /// Return a path to a non-existing file inside a scratch directory.
 /// Used by the log-silence tests so we never touch the repo root.
-[[nodiscard]] std::filesystem::path scratch_log_base(std::string_view tag)
+[[nodiscard]] std::filesystem::path osi_scratch_log_base(std::string_view tag)
 {
   namespace fs = std::filesystem;
   auto dir = fs::temp_directory_path() / "gtopt_osi_log_test";
@@ -212,7 +212,7 @@ TEST_CASE("OsiSolverBackend default ctor is silent (no stray log)")  // NOLINT
   backend->set_prob_name("silent");
   CHECK(backend->get_prob_name() == "silent");
 
-  TrivialLP2 lp {backend->infinity()};
+  OsiTrivialLP2 lp {backend->infinity()};
   lp.load_into(*backend);
   backend->initial_solve();
   REQUIRE(backend->is_proven_optimal());
@@ -232,18 +232,18 @@ TEST_CASE(
   namespace fs = std::filesystem;
 
   // level == 0 with a real base: must not create a log file.
-  const auto base_zero = scratch_log_base("osi_lvl0");
+  const auto base_zero = osi_scratch_log_base("osi_lvl0");
   const auto file_zero = fs::path {base_zero.string() + ".log"};
   fs::remove(file_zero);
   backend->set_log_filename(base_zero.string(), 0);
 
   // Empty filename with a real base path: must not open a file either.
-  const auto base_empty = scratch_log_base("osi_empty");
+  const auto base_empty = osi_scratch_log_base("osi_empty");
   const auto file_empty = fs::path {base_empty.string() + ".log"};
   fs::remove(file_empty);
   backend->set_log_filename("", 1);
 
-  TrivialLP2 lp {backend->infinity()};
+  OsiTrivialLP2 lp {backend->infinity()};
   lp.load_into(*backend);
   backend->initial_solve();
   REQUIRE(backend->is_proven_optimal());
@@ -260,13 +260,13 @@ TEST_CASE("set_log_filename(level>0) writes a log; clear stops it")  // NOLINT
   }
 
   namespace fs = std::filesystem;
-  const auto base = scratch_log_base("osi_written");
+  const auto base = osi_scratch_log_base("osi_written");
   const auto file = fs::path {base.string() + ".log"};
   fs::remove(file);
 
   backend->set_log_filename(base.string(), 1);
 
-  TrivialLP2 lp {backend->infinity()};
+  OsiTrivialLP2 lp {backend->infinity()};
   lp.load_into(*backend);
   backend->initial_solve();
   REQUIRE(backend->is_proven_optimal());
@@ -297,7 +297,7 @@ TEST_CASE("load_problem destroys previous LP state")  // NOLINT
 
   const double inf = backend->infinity();
 
-  TrivialLP2 lp2 {inf};
+  OsiTrivialLP2 lp2 {inf};
   lp2.load_into(*backend);
   CHECK(backend->get_num_cols() == 2);
   CHECK(backend->get_num_rows() == 1);
@@ -307,7 +307,7 @@ TEST_CASE("load_problem destroys previous LP state")  // NOLINT
 
   // Second load_problem must yield a *fresh* OsiClpSolverInterface with
   // different dimensions.  A stale solver would still report ncols=2.
-  TrivialLP3 lp3 {inf};
+  OsiTrivialLP3 lp3 {inf};
   lp3.load_into(*backend);
   CHECK(backend->get_num_cols() == 3);
   CHECK(backend->get_num_rows() == 1);
@@ -330,7 +330,7 @@ TEST_CASE("apply_options survives load_problem cycle")  // NOLINT
   opts.log_level = 0;
   backend->apply_options(opts);
 
-  TrivialLP2 lp {backend->infinity()};
+  OsiTrivialLP2 lp {backend->infinity()};
   lp.load_into(*backend);
 
   CHECK(backend->get_algorithm() == LPAlgo::dual);
@@ -364,7 +364,7 @@ TEST_CASE("set_prob_name survives load_problem cycle")  // NOLINT
   backend->set_prob_name("my_lp");
   CHECK(backend->get_prob_name() == "my_lp");
 
-  TrivialLP2 lp {backend->infinity()};
+  OsiTrivialLP2 lp {backend->infinity()};
   lp.load_into(*backend);
 
   // After reset_solver_() rebuilt the solver, OsiPrep::prob_name must be
@@ -383,7 +383,7 @@ TEST_CASE("clone owns its own solver: source may be destroyed")  // NOLINT
     return;
   }
 
-  TrivialLP2 lp {backend->infinity()};
+  OsiTrivialLP2 lp {backend->infinity()};
   lp.load_into(*backend);
   backend->initial_solve();
   REQUIRE(backend->is_proven_optimal());
@@ -417,7 +417,7 @@ TEST_CASE("clone preserves options and prob_name")  // NOLINT
   backend->apply_options(opts);
   backend->set_prob_name("p");
 
-  TrivialLP2 lp {backend->infinity()};
+  OsiTrivialLP2 lp {backend->infinity()};
   lp.load_into(*backend);
 
   auto cloned = backend->clone();
@@ -471,7 +471,7 @@ TEST_CASE("OSI/CLP backend: parallel create+load+clone is race-free")  // NOLINT
             opts.threads = 1;
             backend->apply_options(opts);
 
-            TrivialLP2 lp {backend->infinity()};
+            OsiTrivialLP2 lp {backend->infinity()};
             lp.load_into(*backend);
             backend->initial_solve();
             if (!backend->is_proven_optimal()) {

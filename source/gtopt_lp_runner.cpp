@@ -494,6 +494,18 @@ std::expected<int, std::string> build_solve_and_output(Planning&& planning,
       spdlog::info("  Solver: {}", li.solver_id());
     }
 
+    const bool want_lp_only =
+        opts.lp_only.value_or(false) || planning_lp.options().lp_only();
+
+    // lp_only is now SDDP-independent: under rebuild / compress modes
+    // the PlanningLP ctor no longer eagerly flattens every cell, so
+    // for the dump-and-exit path we explicitly drive a parallel
+    // "build all LPs" pass here before writing / exiting.  SDDPMethod
+    // is never instantiated under lp_only.
+    if (want_lp_only) {
+      planning_lp.build_all_lps_eagerly();
+    }
+
     if (opts.lp_file) {
       planning_lp.write_lp(opts.lp_file.value());
     }
@@ -502,8 +514,7 @@ std::expected<int, std::string> build_solve_and_output(Planning&& planning,
       log_lp_coefficient_stats(planning_lp);
     }
 
-    // lp_only: skip solving if only LP assembly was requested
-    if (opts.lp_only.value_or(false) || planning_lp.options().lp_only()) {
+    if (want_lp_only) {
       spdlog::info("lp_only: all LP matrices built, skipping solve");
       return 0;
     }

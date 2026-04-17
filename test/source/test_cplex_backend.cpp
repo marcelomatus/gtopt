@@ -59,7 +59,7 @@ using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
 // Trivial 2-variable LP:   min x + y   s.t.   x + y >= 2,  x,y >= 0.
 // Optimum:                 x + y = 2  →  obj = 2.
-struct TrivialLP2
+struct CplexTrivialLP2
 {
   static constexpr int ncols = 2;
   static constexpr int nrows = 1;
@@ -91,7 +91,7 @@ struct TrivialLP2
   };
   std::array<double, 1> rowub {};
 
-  explicit TrivialLP2(double inf)
+  explicit CplexTrivialLP2(double inf)
   {
     colub.fill(inf);
     rowub.fill(inf);
@@ -114,7 +114,7 @@ struct TrivialLP2
 
 // Trivial 3-variable LP:   min x + y + z   s.t.   x + y + z >= 3,  all >= 0.
 // Optimum:                 sum = 3  →  obj = 3.
-struct TrivialLP3
+struct CplexTrivialLP3
 {
   static constexpr int ncols = 3;
   static constexpr int nrows = 1;
@@ -150,7 +150,7 @@ struct TrivialLP3
   };
   std::array<double, 1> rowub {};
 
-  explicit TrivialLP3(double inf)
+  explicit CplexTrivialLP3(double inf)
   {
     colub.fill(inf);
     rowub.fill(inf);
@@ -173,7 +173,7 @@ struct TrivialLP3
 
 /// Return a path to a non-existing file inside a scratch directory.
 /// Used by the log-silence tests so we never touch the repo root.
-[[nodiscard]] std::filesystem::path scratch_log_base(std::string_view tag)
+[[nodiscard]] std::filesystem::path cplex_scratch_log_base(std::string_view tag)
 {
   namespace fs = std::filesystem;
   auto dir = fs::temp_directory_path() / "gtopt_cplex_log_test";
@@ -219,7 +219,7 @@ TEST_CASE(
   }
 
   namespace fs = std::filesystem;
-  const auto base = scratch_log_base("should_not_exist");
+  const auto base = cplex_scratch_log_base("should_not_exist");
   const auto file = fs::path {base.string() + ".log"};
   fs::remove(file);
 
@@ -228,7 +228,7 @@ TEST_CASE(
   // empty filename: must be ignored even if level > 0.
   backend->set_log_filename("", 1);
 
-  TrivialLP2 lp {backend->infinity()};
+  CplexTrivialLP2 lp {backend->infinity()};
   lp.load_into(*backend);
   backend->initial_solve();
 
@@ -243,13 +243,13 @@ TEST_CASE("set_log_filename(level>0) writes a log; clear stops it")  // NOLINT
   }
 
   namespace fs = std::filesystem;
-  const auto base = scratch_log_base("written");
+  const auto base = cplex_scratch_log_base("written");
   const auto file = fs::path {base.string() + ".log"};
   fs::remove(file);
 
   backend->set_log_filename(base.string(), 1);
 
-  TrivialLP2 lp {backend->infinity()};
+  CplexTrivialLP2 lp {backend->infinity()};
   lp.load_into(*backend);
   backend->initial_solve();
 
@@ -280,7 +280,7 @@ TEST_CASE("load_problem destroys previous LP state")  // NOLINT
 
   const double inf = backend->infinity();
 
-  TrivialLP2 lp2 {inf};
+  CplexTrivialLP2 lp2 {inf};
   lp2.load_into(*backend);
   CHECK(backend->get_num_cols() == 2);
   CHECK(backend->get_num_rows() == 1);
@@ -290,7 +290,7 @@ TEST_CASE("load_problem destroys previous LP state")  // NOLINT
 
   // Second load_problem must yield a *fresh* env+lp with different
   // dimensions.  A stale env would still report ncols=2.
-  TrivialLP3 lp3 {inf};
+  CplexTrivialLP3 lp3 {inf};
   lp3.load_into(*backend);
   CHECK(backend->get_num_cols() == 3);
   CHECK(backend->get_num_rows() == 1);
@@ -313,7 +313,7 @@ TEST_CASE("apply_options survives load_problem cycle")  // NOLINT
   opts.log_level = 0;
   backend->apply_options(opts);
 
-  TrivialLP2 lp {backend->infinity()};
+  CplexTrivialLP2 lp {backend->infinity()};
   lp.load_into(*backend);
 
   CHECK(backend->get_algorithm() == LPAlgo::dual);
@@ -345,7 +345,7 @@ TEST_CASE("set_prob_name survives load_problem cycle")  // NOLINT
   backend->set_prob_name("my_lp");
   CHECK(backend->get_prob_name() == "my_lp");
 
-  TrivialLP2 lp {backend->infinity()};
+  CplexTrivialLP2 lp {backend->infinity()};
   lp.load_into(*backend);
 
   // After the env+lp was rebuilt, CplexPrep::prob_name must be replayed
@@ -369,7 +369,7 @@ TEST_CASE("low_memory=true solves correctly and survives clone")  // NOLINT
   opts.low_memory = true;
   backend->apply_options(opts);
 
-  TrivialLP2 lp {backend->infinity()};
+  CplexTrivialLP2 lp {backend->infinity()};
   lp.load_into(*backend);
   backend->initial_solve();
   REQUIRE(backend->is_proven_optimal());
@@ -395,7 +395,7 @@ TEST_CASE("low_memory propagates through load_problem cycles")  // NOLINT
   opts.low_memory = true;
   backend->apply_options(opts);
 
-  TrivialLP2 lp {backend->infinity()};
+  CplexTrivialLP2 lp {backend->infinity()};
   lp.load_into(*backend);
   backend->initial_solve();
   REQUIRE(backend->is_proven_optimal());
@@ -421,7 +421,7 @@ TEST_CASE("clone owns its own env+lp: source may be destroyed")  // NOLINT
     return;
   }
 
-  TrivialLP2 lp {backend->infinity()};
+  CplexTrivialLP2 lp {backend->infinity()};
   lp.load_into(*backend);
   backend->initial_solve();
   REQUIRE(backend->is_proven_optimal());
@@ -454,7 +454,7 @@ TEST_CASE("clone preserves options and prob_name")  // NOLINT
   backend->apply_options(opts);
   backend->set_prob_name("p");
 
-  TrivialLP2 lp {backend->infinity()};
+  CplexTrivialLP2 lp {backend->infinity()};
   lp.load_into(*backend);
 
   auto cloned = backend->clone();
@@ -503,7 +503,7 @@ TEST_CASE("CPLEX backend: parallel create+load+clone is race-free")  // NOLINT
             opts.threads = 1;
             backend->apply_options(opts);
 
-            TrivialLP2 lp {backend->infinity()};
+            CplexTrivialLP2 lp {backend->infinity()};
             lp.load_into(*backend);
             backend->initial_solve();
             if (!backend->is_proven_optimal()) {

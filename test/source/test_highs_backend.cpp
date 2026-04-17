@@ -69,7 +69,7 @@ using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
 // Trivial 2-variable LP:   min x + y   s.t.   x + y >= 2,  x,y >= 0.
 // Optimum:                 x + y = 2  →  obj = 2.
-struct TrivialLP2
+struct HighsTrivialLP2
 {
   static constexpr int ncols = 2;
   static constexpr int nrows = 1;
@@ -101,7 +101,7 @@ struct TrivialLP2
   };
   std::array<double, 1> rowub {};
 
-  explicit TrivialLP2(double inf)
+  explicit HighsTrivialLP2(double inf)
   {
     colub.fill(inf);
     rowub.fill(inf);
@@ -124,7 +124,7 @@ struct TrivialLP2
 
 // Trivial 3-variable LP:   min x + y + z   s.t.   x + y + z >= 3,  all >= 0.
 // Optimum:                 sum = 3  →  obj = 3.
-struct TrivialLP3
+struct HighsTrivialLP3
 {
   static constexpr int ncols = 3;
   static constexpr int nrows = 1;
@@ -160,7 +160,7 @@ struct TrivialLP3
   };
   std::array<double, 1> rowub {};
 
-  explicit TrivialLP3(double inf)
+  explicit HighsTrivialLP3(double inf)
   {
     colub.fill(inf);
     rowub.fill(inf);
@@ -183,7 +183,7 @@ struct TrivialLP3
 
 /// Return a path to a non-existing file inside a scratch directory.
 /// Used by the log-silence tests so we never touch the repo root.
-[[nodiscard]] std::filesystem::path scratch_log_base(std::string_view tag)
+[[nodiscard]] std::filesystem::path highs_scratch_log_base(std::string_view tag)
 {
   namespace fs = std::filesystem;
   auto dir = fs::temp_directory_path() / "gtopt_highs_log_test";
@@ -221,7 +221,7 @@ TEST_CASE("HighsSolverBackend default ctor is silent (no highs.log)")  // NOLINT
   // Solve a trivial problem to exercise run(); still no log file should
   // appear anywhere the default-constructed backend could plausibly
   // create one.
-  TrivialLP2 lp {backend->infinity()};
+  HighsTrivialLP2 lp {backend->infinity()};
   lp.load_into(*backend);
   backend->initial_solve();
   REQUIRE(backend->is_proven_optimal());
@@ -238,7 +238,7 @@ TEST_CASE(
   }
 
   namespace fs = std::filesystem;
-  const auto base = scratch_log_base("should_not_exist");
+  const auto base = highs_scratch_log_base("should_not_exist");
   const auto file = fs::path {base.string() + ".log"};
   fs::remove(file);
 
@@ -249,7 +249,7 @@ TEST_CASE(
   // empty filename with level>0: must be ignored.
   backend->set_log_filename("", 1);
 
-  TrivialLP2 lp {backend->infinity()};
+  HighsTrivialLP2 lp {backend->infinity()};
   lp.load_into(*backend);
   backend->initial_solve();
 
@@ -264,13 +264,13 @@ TEST_CASE("set_log_filename(level>0) writes a log; clear stops it")  // NOLINT
   }
 
   namespace fs = std::filesystem;
-  const auto base = scratch_log_base("written");
+  const auto base = highs_scratch_log_base("written");
   const auto file = fs::path {base.string() + ".log"};
   fs::remove(file);
 
   backend->set_log_filename(base.string(), 1);
 
-  TrivialLP2 lp {backend->infinity()};
+  HighsTrivialLP2 lp {backend->infinity()};
   lp.load_into(*backend);
   backend->initial_solve();
 
@@ -302,7 +302,7 @@ TEST_CASE("load_problem replaces the previous model")  // NOLINT
 
   const double inf = backend->infinity();
 
-  TrivialLP2 lp2 {inf};
+  HighsTrivialLP2 lp2 {inf};
   lp2.load_into(*backend);
   CHECK(backend->get_num_cols() == 2);
   CHECK(backend->get_num_rows() == 1);
@@ -312,7 +312,7 @@ TEST_CASE("load_problem replaces the previous model")  // NOLINT
 
   // passModel() fully replaces the previous model — no stale columns
   // should be left behind from the 2-var LP.
-  TrivialLP3 lp3 {inf};
+  HighsTrivialLP3 lp3 {inf};
   lp3.load_into(*backend);
   CHECK(backend->get_num_cols() == 3);
   CHECK(backend->get_num_rows() == 1);
@@ -335,7 +335,7 @@ TEST_CASE("apply_options survives a load_problem call")  // NOLINT
   opts.log_level = 0;
   backend->apply_options(opts);
 
-  TrivialLP2 lp {backend->infinity()};
+  HighsTrivialLP2 lp {backend->infinity()};
   lp.load_into(*backend);
 
   // HiGHS does not recreate the Highs instance inside load_problem();
@@ -371,7 +371,7 @@ TEST_CASE(
     return;
   }
 
-  TrivialLP2 lp {backend->infinity()};
+  HighsTrivialLP2 lp {backend->infinity()};
   lp.load_into(*backend);
   backend->initial_solve();
   REQUIRE(backend->is_proven_optimal());
@@ -404,7 +404,7 @@ TEST_CASE("clone preserves options and prob_name")  // NOLINT
   backend->apply_options(opts);
   backend->set_prob_name("p");
 
-  TrivialLP2 lp {backend->infinity()};
+  HighsTrivialLP2 lp {backend->infinity()};
   lp.load_into(*backend);
 
   auto cloned = backend->clone();
@@ -480,7 +480,7 @@ TEST_CASE("HiGHS backend: parallel create+load+clone is race-free")  // NOLINT
             opts.algorithm = LPAlgo::dual;
             opts.presolve = false;
 
-            TrivialLP2 lp {backend->infinity()};
+            HighsTrivialLP2 lp {backend->infinity()};
             lp.load_into(*backend);
 
             {

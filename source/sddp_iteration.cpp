@@ -39,13 +39,6 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
     return std::unexpected(std::move(*err));
   }
 
-  // lp_only: the LP matrix is already built (PlanningLP constructor).
-  // Return an empty results vector immediately — no solving, no initialization.
-  if (m_options_.lp_only) {
-    SPDLOG_INFO("SDDP: lp_only mode — LP built, skipping all solving");
-    return std::vector<SDDPIterationResult> {};
-  }
-
   // Bootstrap LP + initialize α vars, state links, hot-start cuts
   if (auto err = initialize_solver(); !err.has_value()) {
     return std::unexpected(std::move(err.error()));
