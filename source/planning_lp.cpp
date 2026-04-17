@@ -856,6 +856,20 @@ void PlanningLP::write_lp(const std::string& filename) const
   }
 }
 
+void PlanningLP::release_cells() noexcept
+{
+  // Drop every SystemLP (and its LinearInterface/solver backend).
+  // The inner StrongIndexVectors are destroyed first, then the outer
+  // vector itself is cleared and shrunk so the capacity is returned
+  // to the allocator.
+  for (auto& phase_systems : m_systems_) {
+    phase_systems.clear();
+    phase_systems.shrink_to_fit();
+  }
+  m_systems_.clear();
+  m_systems_.shrink_to_fit();
+}
+
 void PlanningLP::build_all_lps_eagerly()
 {
   const auto num_scenes = m_systems_.size();
@@ -928,12 +942,12 @@ void PlanningLP::write_out()
       // binding that has already moved on to a different (scene, phase).
       // Mirrors the same fix in `create_systems` above.
       auto* const sys_ptr = &system;
-      auto result = pool->submit(
-          [sys_ptr] { sys_ptr->write_out(); },
-          {
-              .priority = TaskPriority::Low,
-              .name = std::format("write_out_s{}_p{}", scene_num, phase_num),
-          });
+      auto result =
+          pool->submit([sys_ptr] { sys_ptr->write_out(); },
+                       {
+                           .priority = TaskPriority::Low,
+                           .name = as_label("write_out", scene_num, phase_num),
+                       });
       if (result.has_value()) {
         futures.push_back(std::move(*result));
       } else {

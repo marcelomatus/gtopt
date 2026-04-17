@@ -689,18 +689,25 @@ auto CascadePlanningMethod::solve(PlanningLP& planning_lp,
 
       // ── EXPLICIT CLEANUP before next level allocates its LP ──
       // Drop the solver (frees aperture subproblems + scene_phase_states_)
-      // and the owned LP (frees the per-cell LP matrices).  The caller's
-      // PlanningLP, if reused at level 0, remains alive outside cascade;
-      // clearing our raw pointers just drops our references to it.
+      // and the owned LP (frees the per-cell LP matrices).  When the
+      // caller's PlanningLP was reused at this level, also release its
+      // per-(scene, phase) cells so the shell stays alive but the heavy
+      // solver backends are returned to the allocator — otherwise the
+      // caller's LP sits resident while the next level doubles memory.
       const auto owned_before = m_owned_lps_.size();
+      const bool released_caller = (current_lp == &planning_lp);
       current_solver.reset();
       current_lp = nullptr;
       m_owned_lps_.clear();
       m_owned_lps_.shrink_to_fit();
+      if (released_caller) {
+        planning_lp.release_cells();
+      }
       SPDLOG_INFO(
-          "Cascade [{}]: released solver and {} owned LP(s) before level [{}]",
+          "Cascade [{}]: released solver, {} owned LP(s){} before level [{}]",
           level_name,
           owned_before,
+          released_caller ? " and caller LP cells" : "",
           m_cascade_opts_.level_array[level_idx + 1].name.value_or(
               as_label("level", level_idx + 1)));
     }

@@ -1036,6 +1036,27 @@ TEST_CASE(
   REQUIRE(result.has_value());
   // Level 0 reused caller's PlanningLP → only level 1 owned.
   CHECK(solver.owned_lps_count() == 1);
+  // Caller's LP cells were released at the level-0 → level-1 boundary
+  // so the two levels never hold solver backends simultaneously.
+  CHECK(planning_lp.systems().empty());
+}
+
+TEST_CASE(
+    "PlanningLP::release_cells drops systems and allows rebuild")  // NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  auto planning = make_3phase_hydro_planning();
+  PlanningLP planning_lp(std::move(planning));
+
+  REQUIRE(!planning_lp.systems().empty());
+  planning_lp.release_cells();
+  CHECK(planning_lp.systems().empty());
+
+  // Planning shell is still intact — so we can rebuild a fresh LP
+  // from the same source data without losing configuration.
+  PlanningLP rebuilt(planning_lp.planning());
+  CHECK(!rebuilt.systems().empty());
 }
 
 TEST_CASE("Cascade rebuilds level 0 PlanningLP when model overrides are set")

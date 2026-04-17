@@ -208,6 +208,23 @@ public:
    */
   void write_out();
 
+  /**
+   * @brief Release the per-(scene, phase) LP cells and their solver
+   *        backends, freeing the bulk of this object's memory.
+   *
+   * After this call `systems()` returns an empty container: `write_out()`,
+   * `resolve()`, and `aggregate_solver_stats()` become no-ops on this
+   * instance.  The `Planning`, `PlanningOptionsLP`, and `SimulationLP`
+   * members remain intact so the shell can still be queried for
+   * configuration or used as input to a fresh `PlanningLP` built from
+   * `planning()`.
+   *
+   * Intended for multi-level cascade solvers that reused the caller's
+   * LP at an early level and want to drop its memory before the next
+   * level allocates its own grid of LP matrices.
+   */
+  void release_cells() noexcept;
+
   // ── SDDP solve summary ──────────────────────────────────────────────────
 
   /**
