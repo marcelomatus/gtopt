@@ -797,6 +797,17 @@ void SystemLP::rebuild_in_place()
   // backend is repopulated.  Safe to invoke from inside a
   // LinearInterface method (e.g. add_col → ensure_backend) because no
   // storage is freed or moved.
+  //
+  // Lazy-initialise the LP-element collections on first call.  Under
+  // rebuild mode the SystemLP ctor skips `create_collections`; the
+  // upfront "Building LP" phase only constructs SystemLP shells.
+  // Collections are built in-place on first rebuild and kept alive
+  // for subsequent rebuilds (amortised across SDDP iterations).
+  if (!m_collections_built_) {
+    create_collections(m_system_context_, system(), m_collections_);
+    m_collections_built_ = true;
+  }
+
   auto flat_opts = m_flat_opts_;
   if (flat_opts.scale_objective == 1.0) {
     flat_opts.scale_objective = system_context().options().scale_objective();
@@ -896,13 +907,6 @@ SystemLP::SystemLP(const System& system,
   std::call_once(simulation.ampl_registry_flag(),
                  [&] { register_all_ampl_element_names(simulation, system); });
 
-  // m_collections_ is default-constructed (valid, empty) before this point.
-  // Populate it in-place so that each sub-collection is visible to
-  // InputContext::element_index as soon as it is built, allowing later
-  // collections (e.g. ReserveProvisionLP) to look up earlier ones
-  // (e.g. GeneratorLP) without accessing uninitialized memory.
-  create_collections(m_system_context_, system, m_collections_);
-
   if (options().use_single_bus()) {
     const auto& buses = system.bus_array;
     if (!buses.empty()) {
@@ -910,23 +914,30 @@ SystemLP::SystemLP(const System& system,
     }
   }
 
-  // Rebuild mode defers the entire LP assembly until the first access
-  // to the backend — see rebuild_in_place() and install_rebuild_callback().
-  // The shell stays live (collections + AMPL registries), but neither
-  // flatten() nor load_flat() runs here — that is the whole point of the
-  // mode.  The default-constructed backend is kept alive so that
-  // infinity()/normalize_bound() stay queryable while the rebuild
-  // callback is building the flat LP.
+  // Rebuild mode defers the entire LP assembly — including
+  // `create_collections` — until the first access to the backend.
+  // `m_collections_` stays default-constructed (empty) here; the
+  // rebuild callback populates it on first use and keeps it alive
+  // across subsequent rebuilds of the same cell.  Upfront memory for
+  // rebuild mode drops to just the SystemLP shell + SystemContext
+  // with empty collection pointers.
+  //
+  // Non-rebuild modes: populate collections eagerly.  m_collections_
+  // must be assigned in-place so each sub-collection is visible to
+  // `InputContext::element_index` as soon as it is built, allowing
+  // later collections (e.g. ReserveProvisionLP) to look up earlier
+  // ones (e.g. GeneratorLP) without accessing uninitialized memory.
   if (m_flat_opts_.low_memory_mode == LowMemoryMode::rebuild) {
     m_linear_interface_.set_low_memory(LowMemoryMode::rebuild,
                                        select_codec(m_flat_opts_.memory_codec));
     // Install the rebuild callback before flipping the released flag so
     // that no transient state exists where `ensure_backend` would fire
-    // without a callback (the assert in LinearInterface catches that
-    // ordering bug in debug builds).
+    // without a callback.
     install_rebuild_callback();
     m_linear_interface_.mark_released();
   } else {
+    create_collections(m_system_context_, system, m_collections_);
+    m_collections_built_ = true;
     create_lp(m_flat_opts_);
   }
 }
@@ -942,6 +953,7 @@ SystemLP::SystemLP(SystemLP&& other) noexcept
     , m_single_bus_id_(std::move(other.m_single_bus_id_))
     , m_flat_opts_(std::move(other.m_flat_opts_))
     , m_fingerprint_was_set_(other.m_fingerprint_was_set_)
+    , m_collections_built_(other.m_collections_built_)
     , m_last_flat_ncols_(other.m_last_flat_ncols_)
     , m_last_flat_nrows_(other.m_last_flat_nrows_)
     , m_pending_state_links_(std::move(other.m_pending_state_links_))
@@ -985,6 +997,7 @@ SystemLP& SystemLP::operator=(SystemLP&& other) noexcept
   m_single_bus_id_ = std::move(other.m_single_bus_id_);
   m_flat_opts_ = std::move(other.m_flat_opts_);
   m_fingerprint_was_set_ = other.m_fingerprint_was_set_;
+  m_collections_built_ = other.m_collections_built_;
   m_last_flat_ncols_ = other.m_last_flat_ncols_;
   m_last_flat_nrows_ = other.m_last_flat_nrows_;
   m_pending_state_links_ = std::move(other.m_pending_state_links_);

@@ -419,6 +419,15 @@ private:
   /// and re-hashing would be wasted work).
   bool m_fingerprint_was_set_ {false};
 
+  /// True once `create_collections` has been called.  Non-rebuild modes
+  /// set this in the ctor (eager build).  Rebuild mode flips it on the
+  /// first `rebuild_in_place` call, amortising the ~0.4s per-cell
+  /// collection construction cost across the SDDP iterations that
+  /// actually touch the cell.  Before the flag is set, `m_collections_`
+  /// is default-constructed (empty) and no LP element wrapper has been
+  /// allocated for this cell.
+  bool m_collections_built_ {false};
+
   /// Exact (ncols, nrows) from the first successful flatten.  Used as
   /// the reserve hint on subsequent `LowMemoryMode::rebuild` flatten
   /// passes — matches the actual sizes and avoids the vector-growth

@@ -1127,27 +1127,48 @@ auto SDDPMethod::initialize_solver() -> std::expected<void, Error>
   // is needed here regardless of low_memory mode.
 
   SPDLOG_INFO("SDDP: adding alpha variables and collecting state links");
-  for (const auto scene_index : iota_range<SceneIndex>(0, num_scenes)) {
-    initialize_alpha_variables(scene_index);
-    collect_state_variable_links(scene_index);
-    SPDLOG_DEBUG("SDDP: scene {} initialized ({} state links)",
-                 scene_uid(scene_index),
-                 m_scene_phase_states_[scene_index].empty()
-                     ? 0
-                     : m_scene_phase_states_[scene_index][first_phase_index()]
-                           .outgoing_links.size());
-  }
-
-  // Save per-(scene, phase) base row counts before any cuts are loaded.
-  // Rows below this threshold are structural constraints and are never
-  // pruned; rows above it are Benders cuts (including hot-start cuts).
-  for (const auto scene_index : iota_range<SceneIndex>(0, num_scenes)) {
-    for (const auto phase_index : iota_range<PhaseIndex>(0, num_phases)) {
-      auto& li =
-          planning_lp().system(scene_index, phase_index).linear_interface();
-      li.save_base_numrows();
-      m_scene_phase_states_[scene_index][phase_index].base_nrows =
-          li.base_numrows();
+  // Per-scene setup is independent across scenes: each writes to its
+  // own slot of m_scene_phase_states_.  Under rebuild mode every
+  // add_col(alpha) / bound-read triggers a full flatten+load_flat per
+  // cell via ensure_backend, so a serial loop over 16 scenes × 51
+  // phases = ~100s wall on large problems.  Dispatch per-scene to the
+  // solver work pool for ~16× speedup on that critical path.
+  {
+    auto pool = make_solver_work_pool(m_options_.pool_cpu_factor);
+    std::vector<std::future<void>> futures;
+    futures.reserve(num_scenes);
+    for (const auto scene_index : iota_range<SceneIndex>(0, num_scenes)) {
+      auto result = pool->submit(
+          [this, scene_index, num_phases]
+          {
+            initialize_alpha_variables(scene_index);
+            collect_state_variable_links(scene_index);
+            // Save per-(scene, phase) base row counts in the same
+            // scope so we amortize the ensure_backend rebuilds across
+            // all per-cell setup work.
+            for (const auto phase_index :
+                 iota_range<PhaseIndex>(0, num_phases)) {
+              auto& li = planning_lp()
+                             .system(scene_index, phase_index)
+                             .linear_interface();
+              li.save_base_numrows();
+              m_scene_phase_states_[scene_index][phase_index].base_nrows =
+                  li.base_numrows();
+            }
+            SPDLOG_DEBUG(
+                "SDDP: scene {} initialized ({} state links)",
+                scene_uid(scene_index),
+                m_scene_phase_states_[scene_index].empty()
+                    ? 0
+                    : m_scene_phase_states_[scene_index][first_phase_index()]
+                          .outgoing_links.size());
+          });
+      if (result.has_value()) {
+        futures.push_back(std::move(*result));
+      }
+    }
+    for (auto& fut : futures) {
+      fut.get();
     }
   }
 
