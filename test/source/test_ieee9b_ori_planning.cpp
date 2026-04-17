@@ -1,5 +1,5 @@
 /**
- * @file      test_ieee9b_ori_planning.hpp
+ * @file      test_ieee9b_ori_planning.cpp
  * @brief     Integration test for IEEE 9-bus original base case
  * @date      2026-02-22
  * @copyright BSD-3-Clause
@@ -11,15 +11,71 @@
  *   - Original IEEE 9-bus loads: 125 MW at b5, 100 MW at b7, 90 MW at b9.
  *   - All generators are thermal with costs 20, 35, 30 $/MWh respectively.
  *   - No generator_profile_array (no solar/renewable profiles).
+ *
+ * Numerical solution (DC OPF with Kirchhoff constraints, scale_objective=1000):
+ *   - Line congestion at b4→b5 forces load shedding at d1 (bus b5).
+ *   - Objective (scaled) ≈ 55.184, corresponding to ≈ 55184 $/h unscaled.
+ *   - Total generation ≈ 268.1 MW (less than 315 MW requested).
+ *   - fail_sol[d1] ≈ 46.9 MW (unserved at bus b5).
+ *   - LMP at b5 = demand_fail_cost (1000 $/MWh) — congested bus.
  */
 
+#include <filesystem>
+#include <format>
+#include <memory>
 #include <string_view>
+#include <vector>
 
+#include <arrow/array.h>
 #include <doctest/doctest.h>
+#include <gtopt/array_index_traits.hpp>
 #include <gtopt/gtopt_json_io.hpp>
 #include <gtopt/planning_lp.hpp>
 
 using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+
+namespace ieee9b_detail  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
+{
+
+/// Extract the first value from an Arrow chunk as double (handles
+/// int64/double).
+auto chunk_first_value(const std::shared_ptr<arrow::Array>& chunk) -> double
+{
+  if (!chunk || chunk->length() == 0) {
+    return 0.0;
+  }
+  if (chunk->type_id() == arrow::Type::DOUBLE) {
+    return std::static_pointer_cast<arrow::DoubleArray>(chunk)->Value(0);
+  }
+  if (chunk->type_id() == arrow::Type::INT64) {
+    return static_cast<double>(
+        std::static_pointer_cast<arrow::Int64Array>(chunk)->Value(0));
+  }
+  return 0.0;
+}
+
+/// Read single-row uid:1..uid:count values from a CSV output table.
+auto read_uid_values(const std::filesystem::path& path, int count)
+    -> std::vector<double>
+{
+  std::vector<double> out;
+  auto tbl = csv_read_table(path);
+  if (!tbl.has_value()) {
+    return out;
+  }
+  for (int uid = 1; uid <= count; ++uid) {
+    const auto col_name = std::format("uid:{}", uid);
+    auto col = (*tbl)->GetColumnByName(col_name);
+    if (!col || col->num_chunks() == 0) {
+      out.push_back(0.0);
+      continue;
+    }
+    out.push_back(chunk_first_value(col->chunk(0)));
+  }
+  return out;
+}
+
+}  // namespace ieee9b_detail
 
 // clang-format off
 static constexpr std::string_view ieee9b_ori_json = R"({
@@ -97,4 +153,116 @@ TEST_CASE("IEEE 9-bus original - LP solve")
 
   REQUIRE(result.has_value());
   CHECK(result.value() == 1);  // 1 scene successfully processed
+}
+
+TEST_CASE("IEEE 9-bus original - solution correctness")
+{
+  // DC OPF with Kirchhoff constraints creates line congestion at b4→b5.
+  // Load shedding occurs at d1 (bus b5): ≈ 46.9 MW unserved.
+  // Verified by running gtopt standalone binary.
+  const auto out_dir =
+      std::filesystem::temp_directory_path() / "gtopt_ieee9b_correctness";
+  std::filesystem::create_directories(out_dir);
+
+  Planning base;
+  base.merge(parse_planning_json(ieee9b_ori_json));
+  base.options.output_directory = out_dir.string();
+
+  PlanningLP planning_lp(std::move(base));
+  auto result = planning_lp.resolve();
+  REQUIRE(result.has_value());
+  REQUIRE(result.value() == 1);
+
+  auto&& systems = planning_lp.systems();
+  REQUIRE(!systems.empty());
+  REQUIRE(!systems.front().empty());
+  const auto& lp_interface = systems.front().front().linear_interface();
+
+  planning_lp.write_out();
+
+  SUBCASE("objective value")
+  {
+    // Obj (scaled) ≈ 55.184 (includes generation cost + fail cost)
+    CHECK(lp_interface.get_obj_value()
+          == doctest::Approx(55.184).epsilon(1e-2));
+  }
+
+  SUBCASE("generation balance equals served demand")
+  {
+    const auto gen = ieee9b_detail::read_uid_values(
+        out_dir / "Generator" / "generation_sol", 3);
+    const auto load =
+        ieee9b_detail::read_uid_values(out_dir / "Demand" / "load_sol", 3);
+    REQUIRE(gen.size() == 3);
+    REQUIRE(load.size() == 3);
+
+    const double total_gen = gen[0] + gen[1] + gen[2];
+    const double total_load = load[0] + load[1] + load[2];
+
+    // Energy balance: total generation = total served load
+    CHECK(total_gen == doctest::Approx(total_load).epsilon(1e-4));
+    // Total served demand < total requested demand (315 MW)
+    CHECK(total_load < 315.0);
+    CHECK(total_load > 200.0);  // must serve a meaningful share
+  }
+
+  SUBCASE("load shedding at congested bus b5")
+  {
+    const auto fail =
+        ieee9b_detail::read_uid_values(out_dir / "Demand" / "fail_sol", 3);
+    REQUIRE(fail.size() == 3);
+
+    // d1 at b5 has load shedding (line congestion limits delivery)
+    CHECK(fail[0] > 1.0);  // d1: significant unserved load
+    // d2, d3 are fully served (no load shedding)
+    CHECK(fail[1] == doctest::Approx(0.0).epsilon(1e-4));
+    CHECK(fail[2] == doctest::Approx(0.0).epsilon(1e-4));
+  }
+
+  SUBCASE("demand d2 and d3 fully served")
+  {
+    const auto load =
+        ieee9b_detail::read_uid_values(out_dir / "Demand" / "load_sol", 3);
+    REQUIRE(load.size() == 3);
+    CHECK(load[1] == doctest::Approx(100.0).epsilon(1e-4));  // d2 at b7
+    CHECK(load[2] == doctest::Approx(90.0).epsilon(1e-4));  // d3 at b9
+  }
+
+  SUBCASE("bus LMPs reflect congestion")
+  {
+    const auto lmp =
+        ieee9b_detail::read_uid_values(out_dir / "Bus" / "balance_dual", 9);
+    REQUIRE(lmp.size() == 9);
+
+    // b1 (generator bus): LMP = marginal gen cost of g1
+    CHECK(lmp[0] == doctest::Approx(20.0).epsilon(1e-4));
+
+    // b5 (congested demand bus): LMP = demand_fail_cost
+    CHECK(lmp[4] == doctest::Approx(1000.0).epsilon(1e-2));
+
+    // All LMPs must be positive (power has value everywhere)
+    for (size_t b = 0; b < 9; ++b) {
+      CAPTURE(b);
+      CHECK(lmp[b] > 0.0);
+    }
+  }
+
+  SUBCASE("all generators within bounds")
+  {
+    const auto gen = ieee9b_detail::read_uid_values(
+        out_dir / "Generator" / "generation_sol", 3);
+    REQUIRE(gen.size() == 3);
+
+    // g1: pmin=10, pmax=250
+    CHECK(gen[0] >= 10.0 - 1e-4);
+    CHECK(gen[0] <= 250.0 + 1e-4);
+    // g2: pmin=10, pmax=300
+    CHECK(gen[1] >= 10.0 - 1e-4);
+    CHECK(gen[1] <= 300.0 + 1e-4);
+    // g3: pmin=0, pmax=270
+    CHECK(gen[2] >= 0.0 - 1e-4);
+    CHECK(gen[2] <= 270.0 + 1e-4);
+  }
+
+  std::filesystem::remove_all(out_dir);
 }

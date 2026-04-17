@@ -1,5 +1,5 @@
 /**
- * @file      test_ieee14b_ori_planning.hpp
+ * @file      test_ieee14b_ori_planning.cpp
  * @brief     Integration test for IEEE 14-bus original base case
  * @date      2026-02-22
  * @copyright BSD-3-Clause
@@ -11,15 +11,71 @@
  *   - Original IEEE 14-bus loads at buses 2-6, 9-14.
  *   - All generators are thermal with costs 20, 35, 30, 40, 45 $/MWh.
  *   - No generator_profile_array (no solar/renewable profiles).
+ *
+ * Numerical solution (DC OPF with Kirchhoff constraints):
+ *   - Total demand ≈ 259.0 MW, fully served (no load shedding).
+ *   - Obj (scaled) ≈ 8.334 (unscaled ≈ 8333.8 $/h).
+ *   - G2 is idle (0 MW), merit-order uses g1, g3, g6, g8.
+ *   - LMPs vary by bus due to Kirchhoff constraints.
  */
 
+#include <filesystem>
+#include <format>
+#include <memory>
+#include <numeric>
 #include <string_view>
+#include <vector>
 
+#include <arrow/array.h>
 #include <doctest/doctest.h>
+#include <gtopt/array_index_traits.hpp>
 #include <gtopt/gtopt_json_io.hpp>
 #include <gtopt/planning_lp.hpp>
 
 using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+
+namespace ieee14b_detail  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
+{
+
+/// Extract the first value from an Arrow chunk as double (handles
+/// int64/double).
+auto chunk_first_value(const std::shared_ptr<arrow::Array>& chunk) -> double
+{
+  if (!chunk || chunk->length() == 0) {
+    return 0.0;
+  }
+  if (chunk->type_id() == arrow::Type::DOUBLE) {
+    return std::static_pointer_cast<arrow::DoubleArray>(chunk)->Value(0);
+  }
+  if (chunk->type_id() == arrow::Type::INT64) {
+    return static_cast<double>(
+        std::static_pointer_cast<arrow::Int64Array>(chunk)->Value(0));
+  }
+  return 0.0;
+}
+
+/// Read single-row uid:1..uid:count values from a CSV output table.
+auto read_uid_values(const std::filesystem::path& path, int count)
+    -> std::vector<double>
+{
+  std::vector<double> out;
+  auto tbl = csv_read_table(path);
+  if (!tbl.has_value()) {
+    return out;
+  }
+  for (int uid = 1; uid <= count; ++uid) {
+    const auto col_name = std::format("uid:{}", uid);
+    auto col = (*tbl)->GetColumnByName(col_name);
+    if (!col || col->num_chunks() == 0) {
+      out.push_back(0.0);
+      continue;
+    }
+    out.push_back(chunk_first_value(col->chunk(0)));
+  }
+  return out;
+}
+
+}  // namespace ieee14b_detail
 
 // clang-format off
 static constexpr std::string_view ieee14b_ori_json = R"({
@@ -122,4 +178,114 @@ TEST_CASE("IEEE 14-bus original - LP solve")
 
   REQUIRE(result.has_value());
   CHECK(result.value() == 1);  // 1 scene successfully processed
+}
+
+TEST_CASE("IEEE 14-bus original - solution correctness")
+{
+  // DC OPF solution verified by running gtopt standalone binary.
+  // All demand fully served, no load shedding.
+  // g2 is idle (cheaper generators + network can serve all demand).
+  constexpr int num_gen = 5;
+  constexpr int num_dem = 11;
+  constexpr int num_bus = 14;
+  constexpr double total_demand = 259.0;  // sum of all lmax values
+
+  const auto out_dir =
+      std::filesystem::temp_directory_path() / "gtopt_ieee14b_correctness";
+  std::filesystem::create_directories(out_dir);
+
+  Planning base;
+  base.merge(parse_planning_json(ieee14b_ori_json));
+  base.options.output_directory = out_dir.string();
+
+  PlanningLP planning_lp(std::move(base));
+  auto result = planning_lp.resolve();
+  REQUIRE(result.has_value());
+  REQUIRE(result.value() == 1);
+
+  auto&& systems = planning_lp.systems();
+  REQUIRE(!systems.empty());
+  REQUIRE(!systems.front().empty());
+  const auto& lp_interface = systems.front().front().linear_interface();
+
+  planning_lp.write_out();
+
+  SUBCASE("objective value")
+  {
+    // Obj (scaled) ≈ 8.334
+    CHECK(lp_interface.get_obj_value() == doctest::Approx(8.334).epsilon(1e-2));
+  }
+
+  SUBCASE("no load shedding")
+  {
+    const auto fail = ieee14b_detail::read_uid_values(
+        out_dir / "Demand" / "fail_sol", num_dem);
+    REQUIRE(fail.size() == num_dem);
+
+    for (size_t d = 0; d < num_dem; ++d) {
+      CAPTURE(d);
+      CHECK(fail[d] == doctest::Approx(0.0).epsilon(1e-4));
+    }
+  }
+
+  SUBCASE("generation balance equals total demand")
+  {
+    const auto gen = ieee14b_detail::read_uid_values(
+        out_dir / "Generator" / "generation_sol", num_gen);
+    const auto load = ieee14b_detail::read_uid_values(
+        out_dir / "Demand" / "load_sol", num_dem);
+    REQUIRE(gen.size() == num_gen);
+    REQUIRE(load.size() == num_dem);
+
+    const double total_gen = std::accumulate(gen.begin(), gen.end(), 0.0);
+    const double total_load = std::accumulate(load.begin(), load.end(), 0.0);
+
+    CHECK(total_gen == doctest::Approx(total_load).epsilon(1e-4));
+    CHECK(total_load == doctest::Approx(total_demand).epsilon(1e-4));
+  }
+
+  SUBCASE("generator dispatch within bounds")
+  {
+    const auto gen = ieee14b_detail::read_uid_values(
+        out_dir / "Generator" / "generation_sol", num_gen);
+    REQUIRE(gen.size() == num_gen);
+
+    // pmin=0, pmax: g1=260, g2=130, g3=130, g6=100, g8=80
+    constexpr double pmax[] = {
+        260.0,
+        130.0,
+        130.0,
+        100.0,
+        80.0,
+    };
+    for (size_t g = 0; g < num_gen; ++g) {
+      CAPTURE(g);
+      CHECK(gen[g] >= -1e-4);
+      CHECK(gen[g] <= pmax[g] + 1e-4);
+    }
+
+    // g2 is idle — cheaper alternatives serve all demand via network
+    CHECK(gen[1] == doctest::Approx(0.0).epsilon(1e-4));
+  }
+
+  SUBCASE("bus LMPs are positive and vary by location")
+  {
+    const auto lmp = ieee14b_detail::read_uid_values(
+        out_dir / "Bus" / "balance_dual", num_bus);
+    REQUIRE(lmp.size() == num_bus);
+
+    // b1 LMP = g1 marginal cost ($20) — cheapest generator bus
+    CHECK(lmp[0] == doctest::Approx(20.0).epsilon(1e-4));
+
+    // All LMPs must be positive
+    for (size_t b = 0; b < num_bus; ++b) {
+      CAPTURE(b);
+      CHECK(lmp[b] > 0.0);
+    }
+
+    // LMP at g8 bus (b8, uid=8) = $45 (g8 is at capacity, marginal there)
+    CHECK(lmp[7] == doctest::Approx(45.0).epsilon(1e-4));
+  }
+
+  std::filesystem::remove_all(out_dir);
 }
