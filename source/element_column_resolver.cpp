@@ -130,9 +130,9 @@ namespace
   }();
 
   if (!uid_opt) {
-    SPDLOG_WARN(std::format("user_constraint: unknown {} name '{}'",
-                            ref.element_type,
-                            ref.element_id));
+    SPDLOG_WARN("user_constraint: unknown {} name '{}'",
+                ref.element_type,
+                ref.element_id);
     return std::nullopt;
   }
 
@@ -167,11 +167,11 @@ namespace
         };
       }
     } catch (const std::exception& ex) {
-      SPDLOG_WARN(std::format("user_constraint: cannot resolve {}.{}('{}'): {}",
-                              ref.element_type,
-                              ref.attribute,
-                              ref.element_id,
-                              ex.what()));
+      SPDLOG_WARN("user_constraint: cannot resolve {}.{}('{}'): {}",
+                  ref.element_type,
+                  ref.attribute,
+                  ref.element_id,
+                  ex.what());
     }
     return std::nullopt;
   }
@@ -245,16 +245,16 @@ bool resolve_col_to_row(const SystemContext& sc,
       if (ref.attribute == StageLP::DurationName) {
         return stage.duration();
       }
-      SPDLOG_WARN(std::format("user_constraint: unknown stage attribute '{}'",
-                              ref.attribute));
+      SPDLOG_WARN("user_constraint: unknown stage attribute '{}'",
+                  ref.attribute);
       return std::nullopt;
     }
     if (auto val = sc.find_ampl_scalar(ref.element_type, ref.attribute)) {
       return val;
     }
-    SPDLOG_WARN(std::format("user_constraint: unknown scalar {}.{}",
-                            ref.element_type,
-                            ref.attribute));
+    SPDLOG_WARN("user_constraint: unknown scalar {}.{}",
+                ref.element_type,
+                ref.attribute);
     return std::nullopt;
   }
 

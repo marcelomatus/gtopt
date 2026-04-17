@@ -60,11 +60,11 @@ std::expected<void, std::string> load_user_constraints(Planning& planning)
         auto pampl_result =
             PamplParser::parse_file(filepath.string(), next_uid);
         spdlog::info(
-            std::format("Loaded {} constraint(s) and {} param(s) from PAMPL"
-                        " file '{}'",
-                        pampl_result.constraints.size(),
-                        pampl_result.params.size(),
-                        filepath.string()));
+            "Loaded {} constraint(s) and {} param(s) from PAMPL"
+            " file '{}'",
+            pampl_result.constraints.size(),
+            pampl_result.params.size(),
+            filepath.string());
 
         auto& arr = planning.system.user_constraint_array;
         arr.insert(arr.end(),
@@ -84,10 +84,9 @@ std::expected<void, std::string> load_user_constraints(Planning& planning)
         }
         auto loaded =
             daw::json::from_json<std::vector<UserConstraint>>(*file_content);
-        spdlog::info(
-            std::format("Loaded {} user constraint(s) from JSON file '{}'",
-                        loaded.size(),
-                        filepath.string()));
+        spdlog::info("Loaded {} user constraint(s) from JSON file '{}'",
+                     loaded.size(),
+                     filepath.string());
 
         auto& arr = planning.system.user_constraint_array;
         arr.insert(arr.end(),

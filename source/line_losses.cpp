@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: BSD-3-Clause
 
 #include <algorithm>
+#include <cassert>
 #include <string>
 
 #include <gtopt/line_losses.hpp>
@@ -407,6 +408,7 @@ BlockResult add_piecewise(const LossConfig& config,
   }
 
   const int nseg = config.nseg;
+  assert(nseg > 0 && "line_losses: nseg must be positive");
   const auto reserve_sz = static_cast<size_t>(nseg) + 2;
   const double seg_width = fmax / nseg;
 
@@ -561,6 +563,7 @@ DirResult add_direction(const LossConfig& config,
   }
 
   const int nseg = config.nseg;
+  assert(nseg > 0 && "line_losses: nseg must be positive");
   const auto reserve_sz = static_cast<size_t>(nseg) + 1;
   const double seg_width = block_tmax / nseg;
 

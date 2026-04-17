@@ -193,6 +193,9 @@ std::vector<char> decompress_gzip(std::span<const char> compressed,
 
 std::vector<char> compress_lz4(std::span<const char> data)
 {
+  if (data.size() > static_cast<size_t>(LZ4_MAX_INPUT_SIZE)) {
+    throw std::runtime_error("lz4 compress: input exceeds LZ4_MAX_INPUT_SIZE");
+  }
   const auto bound = LZ4_compressBound(static_cast<int>(data.size()));
   std::vector<char> out(static_cast<size_t>(bound));
   const auto rc = LZ4_compress_default(

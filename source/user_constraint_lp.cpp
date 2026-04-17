@@ -353,14 +353,14 @@ BuildResult build_row_from_terms(LowerCtx& ctx,
             term.element->attribute,
             ctx.block.uid()));
       } else {
-        SPDLOG_WARN(std::format(
+        SPDLOG_WARN(
             "user_constraint '{}': cannot resolve element reference "
             "'{}({}).{}' (block {}) — skipping term",
             ctx.uc.name,
             term.element->element_type,
             term.element->element_id,
             term.element->attribute,
-            ctx.block.uid()));
+            ctx.block.uid());
       }
       continue;
     }
@@ -409,10 +409,10 @@ BuildResult build_row_from_terms(LowerCtx& ctx,
                         ctx.uc.name,
                         *term.param_name));
       } else {
-        SPDLOG_WARN(std::format(
+        SPDLOG_WARN(
             "user_constraint '{}': unknown parameter '{}' — skipping term",
             ctx.uc.name,
-            *term.param_name));
+            *term.param_name);
       }
       continue;
     }
