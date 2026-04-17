@@ -143,7 +143,9 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add reports/coverage/
+          # reports/ is in .gitignore, so force-add the coverage subtree
+          # (the commit-back is an intentional deliverable of this workflow).
+          git add -f reports/coverage/
           git commit --allow-empty \
             -m "chore: update coverage report (${{ inputs.compiler || 'clang' }}) [skip ci]" \
             || echo "Nothing to commit"
