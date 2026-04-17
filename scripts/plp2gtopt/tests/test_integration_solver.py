@@ -816,8 +816,8 @@ def test_hydro_4b_cascade_conversion(tmp_path):
     # Level 2: full network
     assert levels[2]["name"] == "full_network"
 
-    # Iteration budget split: 30 + 15 + 15 = 60
-    assert levels[0]["sddp_options"]["max_iterations"] == 30
+    # Iteration budget: level 0 gets full PLP budget (60); 1/4 for levels 1 & 2.
+    assert levels[0]["sddp_options"]["max_iterations"] == 60
     assert levels[1]["sddp_options"]["max_iterations"] == 15
     assert levels[2]["sddp_options"]["max_iterations"] == 15
 

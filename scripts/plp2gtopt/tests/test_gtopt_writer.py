@@ -181,7 +181,7 @@ class TestGTOptWriterProcessMethods:
         assert levels[2]["name"] == "full_network"
 
     def test_process_options_cascade_iteration_split(self):
-        """cascade splits max_iterations as 1/2, 1/4, 1/4."""
+        """cascade uses full max_iterations for level 0; 1/4 for levels 1 and 2."""
         writer = GTOptWriter(MagicMock())
         writer.process_options(
             {
@@ -191,7 +191,7 @@ class TestGTOptWriterProcessMethods:
             }
         )
         levels = writer.planning["options"]["cascade_options"]["level_array"]
-        assert levels[0]["sddp_options"]["max_iterations"] == 50
+        assert levels[0]["sddp_options"]["max_iterations"] == 100
         assert levels[1]["sddp_options"]["max_iterations"] == 25
         assert levels[2]["sddp_options"]["max_iterations"] == 25
 
@@ -269,12 +269,12 @@ class TestGTOptWriterProcessMethods:
         assert "max_iterations" not in sddp
 
     def test_process_options_convergence_tol_from_plpmat(self):
-        """convergence_tol is PDError/10 from plpmat.dat (PLP gap is loose)."""
-        mock_parser = self._make_plpmat_parser(pd_error=0.01)
+        """convergence_tol is PDError/100 from plpmat.dat (PDError is a percentage)."""
+        mock_parser = self._make_plpmat_parser(pd_error=1.0)
         writer = GTOptWriter(mock_parser)
         writer.process_options({"output_dir": "out"})
         sddp = writer.planning["options"]["sddp_options"]
-        assert sddp["convergence_tol"] == pytest.approx(0.001)
+        assert sddp["convergence_tol"] == pytest.approx(0.01)
 
     def test_process_options_convergence_tol_default(self):
         """convergence_tol defaults to 0.01 when plpmat has no PDError."""

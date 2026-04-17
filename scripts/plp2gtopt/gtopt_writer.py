@@ -82,10 +82,11 @@ class GTOptWriter:
         """Build a 3-level default cascade configuration.
 
         Iteration budget split:
-          - Level 0 (uninodal):  1/2 of max_iterations — single-bus relaxation
+          - Level 0 (uninodal):  full max_iterations — single-bus relaxation
+            runs against the PLP-provided iteration budget unmodified
           - Level 1 (transport): 1/4 of max_iterations — lines enabled, no
             losses, no kirchhoff (pure transport model)
-          - Level 2 (full):      remaining iterations — full network with the
+          - Level 2 (full):      1/4 of max_iterations — full network with the
             user's original model_options
 
         Each level inherits state-variable targets from the previous level
@@ -94,9 +95,9 @@ class GTOptWriter:
         total_iter = sddp_opts.get("max_iterations", 100)
         convergence_tol = sddp_opts.get("convergence_tol", 0.01)
 
-        l0_iter = max(total_iter // 2, 1)
+        l0_iter = max(total_iter, 1)
         l1_iter = max(total_iter // 4, 1)
-        l2_iter = max(total_iter - l0_iter - l1_iter, 1)
+        l2_iter = max(total_iter // 4, 1)
 
         transition = {
             "inherit_targets": -1,
@@ -203,16 +204,15 @@ class GTOptWriter:
 
         convergence_tol = options.get("convergence_tol")
         if convergence_tol is None:
-            # Fall back to PDError/10 from plpmat.dat; use 0.01 if absent.
-            # PLP's PDError is loosely enforced — nobody reads the gap out
-            # of PLP, so it's typically set very permissively (e.g. 0.1 =
-            # 10%).  Tighten by 10x to get a tolerance that matches what
-            # gtopt/SDDP users actually expect.
+            # Fall back to PDError/100 from plpmat.dat; use 0.01 if absent.
+            # PLP's PDError is stored as a percentage (e.g. 1.0 = 1%), so
+            # divide by 100 to convert to the fractional tolerance that
+            # gtopt/SDDP expects.
             parsed = getattr(self.parser, "parsed_data", None)
             if isinstance(parsed, dict):
                 plpmat = parsed.get("plpmat_parser")
                 if plpmat is not None and getattr(plpmat, "pd_error", 0.0) > 0.0:
-                    convergence_tol = plpmat.pd_error / 10.0
+                    convergence_tol = plpmat.pd_error / 100.0
             if convergence_tol is None:
                 convergence_tol = 0.01
         sddp_opts["convergence_tol"] = convergence_tol
