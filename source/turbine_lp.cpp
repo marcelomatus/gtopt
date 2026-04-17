@@ -89,7 +89,7 @@ bool TurbineLP::add_to_lp(const SystemContext& sc,
           .context =
               make_block_context(scenario.uid(), stage.uid(), block.uid()),
       };
-      rrow[gcol] = 1;
+      rrow[gcol] = 1.0;
       rrow[dcol] = -stage_conversion_rate;
 
       rrows[buid] = lp.add_row(std::move(rrow.less_equal(0)));
@@ -113,7 +113,7 @@ bool TurbineLP::add_to_lp(const SystemContext& sc,
               make_block_context(scenario.uid(), stage.uid(), block.uid()),
       };
       rrow[fcol] = -stage_conversion_rate;
-      rrow[gcol] = 1;
+      rrow[gcol] = 1.0;
 
       rrows[buid] =
           lp.add_row(std::move(use_drain ? rrow.less_equal(0) : rrow.equal(0)));

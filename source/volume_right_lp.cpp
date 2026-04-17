@@ -280,7 +280,7 @@ bool VolumeRightLP::add_to_lp(SystemContext& sc,
     const VolumeRightLPSId vr_sid(*rr_ref);
     const auto& vr_lp = sc.element(vr_sid);
     const auto& vr_erows = vr_lp.energy_rows_at(scenario, stage);
-    const auto dir = static_cast<double>(volume_right().direction.value_or(-1));
+    const double dir = volume_right().direction.value_or(-1);
 
     for (auto&& block : blocks) {
       const auto buid = block.uid();

@@ -84,8 +84,8 @@ bool WaterwayLP::add_to_lp(const SystemContext& sc,
     fcols[buid] = fc;
 
     // adding flow to the junction balances, including the losses
-    brow_a[fc] = -1;
-    brow_b[fc] = +1 - stage_lossfactor;
+    brow_a[fc] = -1.0;
+    brow_b[fc] = 1.0 - stage_lossfactor;
   }
 
   // storing the indices for this scenario and stage

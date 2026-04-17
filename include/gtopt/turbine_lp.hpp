@@ -63,7 +63,7 @@ public:
     return turbine().flow.has_value();
   }
 
-  [[nodiscard]] auto waterway_sid() const -> WaterwayLPSId
+  [[nodiscard]] auto waterway_sid() const noexcept -> WaterwayLPSId
   {
     const auto& opt = turbine().waterway;
     assert(opt.has_value()
@@ -71,7 +71,7 @@ public:
     return WaterwayLPSId {*opt};
   }
 
-  [[nodiscard]] auto flow_sid() const -> FlowLPSId
+  [[nodiscard]] auto flow_sid() const noexcept -> FlowLPSId
   {
     const auto& opt = turbine().flow;
     assert(opt.has_value() && "flow_sid() called on a Turbine without a flow");
