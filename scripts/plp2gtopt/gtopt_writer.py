@@ -92,7 +92,7 @@ class GTOptWriter:
         via elastic constraints (``inherit_targets = -1``).
         """
         total_iter = sddp_opts.get("max_iterations", 100)
-        convergence_tol = sddp_opts.get("convergence_tol", 0.1)
+        convergence_tol = sddp_opts.get("convergence_tol", 0.01)
 
         l0_iter = max(total_iter // 2, 1)
         l1_iter = max(total_iter // 4, 1)
@@ -203,14 +203,18 @@ class GTOptWriter:
 
         convergence_tol = options.get("convergence_tol")
         if convergence_tol is None:
-            # Fall back to PDError from plpmat.dat; use 0.1 if absent or zero.
+            # Fall back to PDError/10 from plpmat.dat; use 0.01 if absent.
+            # PLP's PDError is loosely enforced — nobody reads the gap out
+            # of PLP, so it's typically set very permissively (e.g. 0.1 =
+            # 10%).  Tighten by 10x to get a tolerance that matches what
+            # gtopt/SDDP users actually expect.
             parsed = getattr(self.parser, "parsed_data", None)
             if isinstance(parsed, dict):
                 plpmat = parsed.get("plpmat_parser")
                 if plpmat is not None and getattr(plpmat, "pd_error", 0.0) > 0.0:
-                    convergence_tol = plpmat.pd_error
+                    convergence_tol = plpmat.pd_error / 10.0
             if convergence_tol is None:
-                convergence_tol = 0.1
+                convergence_tol = 0.01
         sddp_opts["convergence_tol"] = convergence_tol
 
         # Secondary (stationary gap) convergence criterion:

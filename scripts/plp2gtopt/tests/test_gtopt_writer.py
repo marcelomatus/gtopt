@@ -269,29 +269,29 @@ class TestGTOptWriterProcessMethods:
         assert "max_iterations" not in sddp
 
     def test_process_options_convergence_tol_from_plpmat(self):
-        """convergence_tol defaults to PDError from plpmat.dat when > 0."""
-        mock_parser = self._make_plpmat_parser(pd_error=0.001)
+        """convergence_tol is PDError/10 from plpmat.dat (PLP gap is loose)."""
+        mock_parser = self._make_plpmat_parser(pd_error=0.01)
         writer = GTOptWriter(mock_parser)
         writer.process_options({"output_dir": "out"})
         sddp = writer.planning["options"]["sddp_options"]
         assert sddp["convergence_tol"] == pytest.approx(0.001)
 
     def test_process_options_convergence_tol_default(self):
-        """convergence_tol defaults to 0.1 when plpmat has no PDError."""
+        """convergence_tol defaults to 0.01 when plpmat has no PDError."""
         mock_parser = self._make_plpmat_parser(pd_error=0.0)
         writer = GTOptWriter(mock_parser)
         writer.process_options({"output_dir": "out"})
         sddp = writer.planning["options"]["sddp_options"]
-        assert sddp["convergence_tol"] == pytest.approx(0.1)
+        assert sddp["convergence_tol"] == pytest.approx(0.01)
 
     def test_process_options_convergence_tol_no_plpmat(self):
-        """convergence_tol defaults to 0.1 when no plpmat.dat is present."""
+        """convergence_tol defaults to 0.01 when no plpmat.dat is present."""
         mock_parser = MagicMock()
         mock_parser.parsed_data = {}
         writer = GTOptWriter(mock_parser)
         writer.process_options({"output_dir": "out"})
         sddp = writer.planning["options"]["sddp_options"]
-        assert sddp["convergence_tol"] == pytest.approx(0.1)
+        assert sddp["convergence_tol"] == pytest.approx(0.01)
 
     def test_process_options_convergence_tol_explicit_overrides(self):
         """Explicit convergence_tol overrides plpmat.dat value."""
