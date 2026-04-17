@@ -480,6 +480,21 @@ std::expected<int, std::string> build_solve_and_output(Planning&& planning,
         || planning.options.lp_matrix_options.compute_stats.value_or(false);
     const auto flat_opts = prepare_matrix_options(planning, opts, do_stats);
 
+    // When running cascade, pre-apply the effective level-0 model overrides
+    // to planning.options.model_options so the initial PlanningLP matches
+    // what level 0 will solve — avoids a wasted first build that cascade
+    // would throw away and rebuild.
+    if (planning.options.method.value_or(MethodType::monolithic)
+        == MethodType::cascade)
+    {
+      const auto& co = planning.options.cascade_options;
+      planning.options.model_options.merge(co.model_options);
+      if (!co.level_array.empty() && co.level_array.front().model_options) {
+        planning.options.model_options.merge(
+            *co.level_array.front().model_options);
+      }
+    }
+
     spdlog::info("=== Building LP model ===");
     const spdlog::stopwatch build_sw;
     PlanningLP planning_lp {std::move(planning),  // NOLINT

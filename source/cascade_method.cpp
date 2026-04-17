@@ -311,17 +311,19 @@ auto CascadePlanningMethod::solve(PlanningLP& planning_lp,
     // ── 1. Build LP for each level ──
     // Intermediate/final levels always build a fresh LP to ensure clean
     // state (no leftover target constraints or alpha variables from
-    // previous levels).  The first level can reuse the caller-supplied
-    // PlanningLP when no cascade-global and no level-0 model-option
-    // overrides are set — the caller already built an LP from the same
-    // Planning in build_solve_and_output().
+    // previous levels).  The first level reuses the caller-supplied
+    // PlanningLP when the caller's options already cover the level-0
+    // effective model — the caller pre-merges cascade level-0 overrides in
+    // build_solve_and_output(), so the initial LP is normally compatible.
     auto effective_model = prev_effective_model;
     if (level.model_options.has_value()) {
       effective_model.merge(*level.model_options);
     }
     prev_effective_model = effective_model;
 
-    if (level_idx == 0 && !effective_model.has_any()) {
+    if (level_idx == 0
+        && planning_lp.planning().options.model_options.covers(effective_model))
+    {
       current_lp = &planning_lp;
       current_solver.reset();
       SPDLOG_INFO("Cascade [{}]: reusing caller PlanningLP", level_name);

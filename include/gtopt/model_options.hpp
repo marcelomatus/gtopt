@@ -113,6 +113,31 @@ struct ModelOptions
         || state_fail_cost.has_value() || emission_cost.has_value()
         || emission_cap.has_value() || continuous_phases.has_value();
   }
+
+  /// True iff every field set in `other` has an equal value in `*this`.
+  /// Fields that `other` leaves unset are ignored.  Semantically: "applying
+  /// `other` as an override on top of `*this` would not change anything".
+  [[nodiscard]] bool covers(const ModelOptions& other) const noexcept
+  {
+    const auto covers_opt = [](const auto& self, const auto& override_val)
+    { return !override_val.has_value() || self == override_val; };
+    return covers_opt(use_single_bus, other.use_single_bus)
+        && covers_opt(use_kirchhoff, other.use_kirchhoff)
+        && covers_opt(use_line_losses, other.use_line_losses)
+        && covers_opt(line_losses_mode, other.line_losses_mode)
+        && covers_opt(kirchhoff_threshold, other.kirchhoff_threshold)
+        && covers_opt(loss_segments, other.loss_segments)
+        && covers_opt(scale_objective, other.scale_objective)
+        && covers_opt(scale_theta, other.scale_theta)
+        && covers_opt(demand_fail_cost, other.demand_fail_cost)
+        && covers_opt(reserve_fail_cost, other.reserve_fail_cost)
+        && covers_opt(hydro_fail_cost, other.hydro_fail_cost)
+        && covers_opt(hydro_use_value, other.hydro_use_value)
+        && covers_opt(state_fail_cost, other.state_fail_cost)
+        && covers_opt(emission_cost, other.emission_cost)
+        && covers_opt(emission_cap, other.emission_cap)
+        && covers_opt(continuous_phases, other.continuous_phases);
+  }
 };
 
 }  // namespace gtopt
