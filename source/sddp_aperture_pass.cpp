@@ -116,32 +116,18 @@ auto SDDPMethod::backward_pass_aperture_phase_impl(
 
   const auto src_phase_index = previous(phase_index);
   auto& src_sys = planning_lp().system(scene_index, src_phase_index);
+  const auto& src_state = phase_states[src_phase_index];
 
-  // Ensure the source-phase LP is built (rebuild mode re-flattens; the
-  // snapshot/compress modes reload from snapshot).
-  if (src_sys.is_backend_released()) {
-    const auto& src_st = phase_states[src_phase_index];
-    src_sys.ensure_lp_built(src_st.forward_col_sol, src_st.forward_row_dual);
-  }
+  // Ensure the source-phase LP backend is live.  No-op when already
+  // live; otherwise reloads from snapshot (snapshot/compress) or
+  // re-flattens from collections (rebuild).
+  src_sys.ensure_lp_built();
 
   auto& src_li = src_sys.linear_interface();
-  const auto& src_state = phase_states[src_phase_index];
   const auto& plp = planning_lp().simulation().phases()[phase_index];
 
-  // Enable warm-start on aperture clone resolves when configured.
-  auto aperture_solve_opts = opts;
-  aperture_solve_opts.reuse_basis = m_options_.warm_start;
-
-  // Forward-pass solution for the target phase — used as warm-start hint
-  const auto& target_state = phase_states[phase_index];
-
-  // Ensure the target-phase LP is built (rebuild mode re-flattens; the
-  // snapshot/compress modes reload from snapshot).
   auto& target_sys = planning_lp().system(scene_index, phase_index);
-  if (target_sys.is_backend_released()) {
-    target_sys.ensure_lp_built(target_state.forward_col_sol,
-                               target_state.forward_row_dual);
-  }
+  target_sys.ensure_lp_built();
 
   // Keep the flat LP decompressed while aperture tasks create clones.
   // The guard re-compresses on scope exit (level 2 only).
@@ -158,7 +144,7 @@ auto SDDPMethod::backward_pass_aperture_phase_impl(
       cut_offset,
       target_sys,
       plp,
-      aperture_solve_opts,
+      opts,
       m_label_maker_,
       m_options_.log_directory,
       scene_uid(scene_index),
@@ -167,8 +153,6 @@ auto SDDPMethod::backward_pass_aperture_phase_impl(
       m_options_.aperture_timeout,
       m_options_.save_aperture_lp,
       m_aperture_cache_,
-      target_state.forward_col_sol,
-      target_state.forward_row_dual,
       iteration_index,
       m_options_.scale_alpha,
       m_options_.cut_coeff_eps,
@@ -463,31 +447,21 @@ auto SDDPMethod::backward_pass_with_apertures(SceneIndex scene_index,
     const auto src_phase_index = previous(phase_index);
     auto& src_sys = planning_lp().system(scene_index, src_phase_index);
 
-    // Ensure the source-phase LP is built (rebuild mode re-flattens; the
-    // snapshot/compress modes reload from snapshot).
-    if (src_sys.is_backend_released()) {
-      const auto& src_st = phase_states[src_phase_index];
-      src_sys.ensure_lp_built(src_st.forward_col_sol, src_st.forward_row_dual);
-    }
+    const auto& src_state = phase_states[src_phase_index];
+
+    // Ensure the source-phase LP backend is live; no-op when already
+    // loaded, otherwise reload (snapshot/compress) or re-flatten
+    // (rebuild).
+    src_sys.ensure_lp_built();
 
     auto& src_li = src_sys.linear_interface();
-    const auto& src_state = phase_states[src_phase_index];
     const auto& plp = phases[phase_index];
 
-    // Enable warm-start on aperture clone resolves when configured.
-    auto ws_opts = opts;
-    ws_opts.reuse_basis = m_options_.warm_start;
-
-    // Forward-pass solution for the target phase — warm-start hint
+    // Forward-pass summary for the target phase.
     const auto& target_state = phase_states[phase_index];
 
-    // Ensure the target-phase LP is built (rebuild mode re-flattens; the
-    // snapshot/compress modes reload from snapshot).
     auto& target_sys = planning_lp().system(scene_index, phase_index);
-    if (target_sys.is_backend_released()) {
-      target_sys.ensure_lp_built(target_state.forward_col_sol,
-                                 target_state.forward_row_dual);
-    }
+    target_sys.ensure_lp_built();
 
     // Keep the flat LP decompressed while aperture tasks create clones.
     const DecompressionGuard dcomp_guard(target_sys.linear_interface());
@@ -503,7 +477,7 @@ auto SDDPMethod::backward_pass_with_apertures(SceneIndex scene_index,
         total_cuts,
         target_sys,
         plp,
-        ws_opts,
+        opts,
         m_label_maker_,
         m_options_.log_directory,
         scene_uid(scene_index),
@@ -512,8 +486,6 @@ auto SDDPMethod::backward_pass_with_apertures(SceneIndex scene_index,
         0.0,
         m_options_.save_aperture_lp,
         m_aperture_cache_,
-        target_state.forward_col_sol,
-        target_state.forward_row_dual,
         iteration_index,
         m_options_.scale_alpha,
         m_options_.cut_coeff_eps,

@@ -419,6 +419,14 @@ private:
   /// and re-hashing would be wasted work).
   bool m_fingerprint_was_set_ {false};
 
+  /// Exact (ncols, nrows) from the first successful flatten.  Used as
+  /// the reserve hint on subsequent `LowMemoryMode::rebuild` flatten
+  /// passes — matches the actual sizes and avoids the vector-growth
+  /// reallocations that the shape heuristic tends to trigger.  Zero
+  /// until the first flatten completes.
+  size_t m_last_flat_ncols_ {0};
+  size_t m_last_flat_nrows_ {0};
+
   /// Deferred dependent-variable links recorded during this phase's
   /// `add_to_lp` pass.  Under parallel phase construction within a
   /// scene, phase N+1 cannot safely call `add_dependent_variable` on
@@ -483,10 +491,17 @@ public:
   // ── Low-memory mode API (thin forwarding to LinearInterface) ──────────
 
   void set_low_memory(LowMemoryMode mode,
-                      CompressionCodec codec = CompressionCodec::lz4,
-                      bool cache_warm_start = false) noexcept
+                      CompressionCodec codec = CompressionCodec::lz4)
   {
-    m_linear_interface_.set_low_memory(mode, codec, cache_warm_start);
+    m_linear_interface_.set_low_memory(mode, codec);
+    // Keep m_flat_opts_ in sync so rebuild_in_place() re-flattens with the
+    // correct mode + codec.  Also install the rebuild callback: callers
+    // may flip from `off` → `rebuild` mid-run (SDDPMethod::initialize_solver
+    // does exactly that on already-constructed SystemLPs), and
+    // ensure_backend needs the callback for the lazy rebuild to fire.
+    m_flat_opts_.low_memory_mode = mode;
+    m_flat_opts_.memory_codec = codec;
+    install_rebuild_callback();
   }
 
   void release_backend() noexcept { m_linear_interface_.release_backend(); }
@@ -497,20 +512,39 @@ public:
     m_linear_interface_.reconstruct_backend(col_sol, row_dual);
   }
 
-  /// Ensure the LP is built and ready to solve.  Dispatches by
-  /// `low_memory_mode()`:
-  ///  - `off`: no-op (backend stays live).
-  ///  - `snapshot` / `compress`: if the backend has been released,
-  ///    reconstruct it from the saved snapshot with an optional
-  ///    warm-start solution.
-  ///  - `rebuild`: if the backend has been released (or never built),
-  ///    snapshot the persistent SDDP state (dynamic cols + active cuts
-  ///    + base_numrows), re-run `create_lp(m_flat_opts_)` to assemble
-  ///    a fresh LP, replay the state onto it, and warm-start from
-  ///    @p col_sol / @p row_dual.
-  void ensure_lp_built(std::span<const double> col_sol = {},
-                       std::span<const double> row_dual = {});
+  /// Ensure the LP is built and ready to solve.  Thin wrapper around
+  /// `LinearInterface::ensure_backend()`, which handles all three
+  /// `low_memory_mode` paths uniformly:
+  ///  - `off`: no-op (backend is always live).
+  ///  - `snapshot` / `compress`: reconstruct from snapshot if released.
+  ///  - `rebuild`: invoke the SystemLP-owned rebuild callback if released.
+  ///
+  /// Callers that subsequently mutate the LP (add_col, add_row, set_*)
+  /// can skip the explicit call — those mutations invoke ensure_backend
+  /// themselves.  Keep this entry point for pure-read code paths that
+  /// would otherwise read stale cached row/col counts.
+  void ensure_lp_built() { m_linear_interface_.ensure_backend(); }
 
+  /// Regenerate the flat LP from the live element collections and load
+  /// it into the existing `m_linear_interface_` in place.  Public only
+  /// so that `LinearInterface::ensure_backend()` can reach it via its
+  /// `m_rebuild_owner_` back-pointer; the intended caller is always
+  /// that one path.  Does NOT replace `m_linear_interface_` — it
+  /// mutates its backend via `install_flat_as_rebuild`, which is safe
+  /// even when invoked from inside a LinearInterface method
+  /// (e.g. `add_col` → `ensure_backend`).
+  void rebuild_in_place();
+
+private:
+  /// Install the rebuild callback on `m_linear_interface_` so that any
+  /// access to a released backend lazily regenerates the LP from
+  /// collections.  Called from the constructor (when the LP is first
+  /// configured) and from every move ctor / move assignment, since the
+  /// captured `this` pointer is invalidated by a move.  No-op outside
+  /// `LowMemoryMode::rebuild`.
+  void install_rebuild_callback();
+
+public:
   /// Forward accessor to the LP's cumulative solver counters.
   [[nodiscard]] constexpr const SolverStats& solver_stats() const noexcept
   {

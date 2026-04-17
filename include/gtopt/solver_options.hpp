@@ -115,20 +115,6 @@ struct SolverOptions
    */
   int max_fallbacks {2};
 
-  /** @brief Enable basis-reuse optimizations for resolve on cloned LPs.
-   *
-   *  When true, set_solver_opts() overrides the algorithm to dual simplex
-   *  and disables presolve — both critical for basis-reuse resolves.
-   *  This is especially important when the original LP was solved with
-   *  barrier: barrier solutions carry no simplex basis, so resolving
-   *  a clone with barrier would restart from scratch, whereas dual simplex
-   *  can pivot from the crossover basis in a few iterations.
-   *
-   *  On CLP, additional specialOptions bits are set to retain the
-   *  factorization and work arrays from the cloned LP.
-   */
-  bool reuse_basis {false};
-
   /** @brief Request a solver-native memory-saving mode.
    *
    *  Complements gtopt's own low_memory_mode (backend release + flat-LP
@@ -170,7 +156,7 @@ struct SolverOptions
    * always win over backend defaults.
    *
    * Sentinels: algorithm=default_algo, threads=0, log_level=0,
-   * max_fallbacks=2, presolve=true, reuse_basis=false.
+   * max_fallbacks=2, presolve=true.
    * Optional fields: has_value() means user specified.
    */
   void overlay(const SolverOptions& user)
@@ -183,9 +169,6 @@ struct SolverOptions
     }
     if (!user.presolve) {
       presolve = user.presolve;
-    }
-    if (user.reuse_basis) {
-      reuse_basis = user.reuse_basis;
     }
     if (user.low_memory) {
       low_memory = user.low_memory;

@@ -36,7 +36,6 @@ TEST_CASE("SddpOptions - Default construction")
   CHECK_FALSE(opts.aperture_directory.has_value());
   CHECK_FALSE(opts.aperture_timeout.has_value());
   CHECK_FALSE(opts.save_aperture_lp.has_value());
-  CHECK_FALSE(opts.warm_start.has_value());
   CHECK_FALSE(opts.boundary_cuts_file.has_value());
   CHECK_FALSE(opts.boundary_cuts_mode.has_value());
   CHECK_FALSE(opts.boundary_max_iterations.has_value());
@@ -175,7 +174,6 @@ TEST_CASE("SddpOptions - Construction with advanced tuning fields")
       .elastic_penalty = 1e5,
       .alpha_min = -1e6,
       .alpha_max = 1e10,
-      .warm_start = false,
       .simulation_mode = true,
       .stationary_tol = 0.01,
       .stationary_window = 20,
@@ -187,8 +185,6 @@ TEST_CASE("SddpOptions - Construction with advanced tuning fields")
   CHECK(*opts.alpha_min == doctest::Approx(-1e6));
   REQUIRE(opts.alpha_max.has_value());
   CHECK(*opts.alpha_max == doctest::Approx(1e10));
-  REQUIRE(opts.warm_start.has_value());
-  CHECK(*opts.warm_start == false);
   REQUIRE(opts.simulation_mode.has_value());
   CHECK(*opts.simulation_mode == true);
   REQUIRE(opts.stationary_tol.has_value());
@@ -209,7 +205,6 @@ TEST_CASE("SddpOptions - Merge fills missing fields")
       .cut_sharing_mode = CutSharingMode::expected,
       .min_iterations = 5,
       .elastic_penalty = 1e6,
-      .warm_start = true,
   };
 
   base.merge(std::move(overlay));
@@ -229,8 +224,6 @@ TEST_CASE("SddpOptions - Merge fills missing fields")
   CHECK(*base.min_iterations == 5);
   REQUIRE(base.elastic_penalty.has_value());
   CHECK(*base.elastic_penalty == doctest::Approx(1e6));
-  REQUIRE(base.warm_start.has_value());
-  CHECK(*base.warm_start == true);
 }
 
 TEST_CASE("SddpOptions - Merge overwrites existing (overlay wins)")
@@ -320,7 +313,6 @@ TEST_CASE("SddpOptions - Construction with forward/backward solver options")
           SolverOptions {
               .algorithm = LPAlgo::dual,
               .threads = 1,
-              .reuse_basis = true,
           },
   };
 
@@ -331,7 +323,6 @@ TEST_CASE("SddpOptions - Construction with forward/backward solver options")
   REQUIRE(opts.backward_solver_options.has_value());
   CHECK(opts.backward_solver_options->algorithm == LPAlgo::dual);
   CHECK(opts.backward_solver_options->threads == 1);
-  CHECK(opts.backward_solver_options->reuse_basis == true);
 }
 
 TEST_CASE("SddpOptions - Merge forward/backward solver_options")
@@ -374,7 +365,6 @@ TEST_CASE("SddpOptions - Merge forward/backward solver_options")
         .backward_solver_options =
             SolverOptions {
                 .algorithm = LPAlgo::dual,
-                .reuse_basis = true,
             },
     };
 
@@ -382,7 +372,6 @@ TEST_CASE("SddpOptions - Merge forward/backward solver_options")
 
     REQUIRE(base.backward_solver_options.has_value());
     CHECK(base.backward_solver_options->algorithm == LPAlgo::dual);
-    CHECK(base.backward_solver_options->reuse_basis == true);
   }
 
   SUBCASE("overlay has no forward_solver_options: base unchanged")

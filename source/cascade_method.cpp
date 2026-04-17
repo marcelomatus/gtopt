@@ -129,12 +129,12 @@ auto CascadePlanningMethod::collect_state_targets(const SDDPMethod& solver,
       const auto& sv_map =
           planning_lp.simulation().state_variables(scene, phase);
 
-      // Build a col → StateVariable::Key+value reverse lookup from the
-      // state variable map.  Each outgoing link carries a source_col;
-      // we match it to the registered state variable.
+      // Each outgoing link carries a source_col; we match it to the
+      // registered state variable.  The per-solve col value is read from
+      // `StateVariable::col_sol()` — which `capture_state_variable_values`
+      // populates in SDDPMethod after every forward solve.
       for (const auto& [key, svar] : sv_map) {
         const auto col = svar.col();
-        const auto col_sz = static_cast<size_t>(col);
 
         // Only collect variables that are outgoing links (state transfer)
         const bool is_outgoing = std::ranges::any_of(
@@ -144,10 +144,6 @@ auto CascadePlanningMethod::collect_state_targets(const SDDPMethod& solver,
           continue;
         }
 
-        const double val = (col_sz < state.forward_col_sol.size())
-            ? state.forward_col_sol[col_sz]
-            : 0.0;
-
         targets.push_back({
             .class_name = std::string(key.class_name),
             .col_name = std::string(key.col_name),
@@ -155,7 +151,7 @@ auto CascadePlanningMethod::collect_state_targets(const SDDPMethod& solver,
             .context = svar.context(),
             .scene_index = scene,
             .phase_index = phase,
-            .target_value = val,
+            .target_value = svar.col_sol(),
             .var_scale = svar.var_scale(),
         });
       }

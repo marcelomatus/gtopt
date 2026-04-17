@@ -147,25 +147,34 @@ TEST_CASE(  // NOLINT
 }
 
 TEST_CASE(  // NOLINT
-    "LinearInterface — rebuild mode: ensure_backend is a no-op")
+    "LinearInterface — rebuild mode: ensure_backend without callback is a "
+    "silent no-op")
 {
-  // ensure_backend() is the path snapshot/compress modes use to lazily
-  // reconstruct from m_snapshot_.  Under rebuild there is no snapshot to
-  // reconstruct from, so ensure_backend() must short-circuit silently —
-  // only SystemLP::ensure_lp_built() owns the rebuild dispatch.
+  // Bare LinearInterface with rebuild mode but no rebuild callback
+  // installed (the SystemLP-owned callback is what drives rebuild in
+  // production).  ensure_backend() must short-circuit silently so this
+  // isolated-unit scenario keeps working for low-level LinearInterface
+  // tests that don't go through SystemLP.
   LinearInterface li;
   li.set_low_memory(LowMemoryMode::rebuild);
-  // Mimic SystemLP::ctor under rebuild: drop the default-constructed
-  // backend so we are in the canonical "released, no LP loaded" state.
+  // Mimic SystemLP::ctor under rebuild: flip released flag but keep the
+  // default-constructed backend alive so infinity() stays queryable.
   li.mark_released();
   REQUIRE(li.is_backend_released());
+  CHECK_FALSE(li.has_rebuild_callback());
 
-  // Must not crash and must not flip the released flag — there is no
-  // snapshot to reconstruct from, so the call short-circuits.
+  // Must not crash and must not flip the released flag — no callback
+  // means no rebuild happens; snapshot/compress path is not taken either.
   li.set_warm_start_solution({}, {});  // routes through ensure_backend
   CHECK(li.is_backend_released());
   CHECK_FALSE(li.has_snapshot_data());
 }
+
+// The rebuild trigger (ensure_backend → SystemLP->rebuild_in_place) is
+// covered by the "SystemLP — rebuild mode" test below, which drives the
+// full stack end-to-end.  A standalone LinearInterface has no rebuild
+// owner, so the trigger is silently a no-op — exactly what the
+// "ensure_backend without callback" test above asserts.
 
 TEST_CASE(  // NOLINT
     "LinearInterface — take/restore dynamic cols and active cuts")
@@ -234,13 +243,16 @@ TEST_CASE(  // NOLINT
 
   SystemLP system_lp(world.system, simulation_lp, flat_opts);
 
-  // After construction: shell is live, backend is not.
+  // After construction: shell is live, backend flag says "released" but
+  // the default-constructed backend handle is retained so infinity()
+  // stays queryable for the rebuild callback's flatten pass.
   CHECK(system_lp.low_memory_mode() == LowMemoryMode::rebuild);
   CHECK(system_lp.is_backend_released());
-  CHECK_FALSE(system_lp.linear_interface().has_backend());
+  CHECK(system_lp.linear_interface().has_rebuild_callback());
   CHECK_FALSE(system_lp.linear_interface().has_snapshot_data());
 
-  // First ensure_lp_built() runs the full assembly + load_flat.
+  // First ensure_lp_built() triggers the rebuild callback → flatten +
+  // load_flat on the existing interface.
   system_lp.ensure_lp_built();
   CHECK_FALSE(system_lp.is_backend_released());
   CHECK(system_lp.linear_interface().has_backend());
@@ -355,6 +367,42 @@ TEST_CASE(  // NOLINT
 }
 
 TEST_CASE(  // NOLINT
+    "SystemLP — rebuild-pass flag toggles around rebuild_in_place")
+{
+  // SystemContext::rebuild_pass() must be true WHILE the rebuild callback
+  // runs (so registry side-effects are skipped) and false every time
+  // control returns from rebuild_in_place (so the outer / initial pass
+  // sees the default behaviour).  Checked indirectly: state-variable
+  // / AMPL registry calls during the second rebuild would double-up the
+  // corresponding bookkeeping if the flag weren't flipped.  Here we
+  // just verify the flag scoping via a direct ensure_backend trip.
+  auto world = make_mini_world();
+  PlanningOptions popts;
+  popts.demand_fail_cost = 1000.0;
+  const PlanningOptionsLP options(popts);
+  SimulationLP simulation_lp(world.simulation, options);
+
+  LpMatrixOptions flat_opts;
+  flat_opts.low_memory_mode = LowMemoryMode::rebuild;
+  SystemLP system_lp(world.system, simulation_lp, flat_opts);
+
+  // Before any rebuild: flag stays at initial (false).
+  CHECK_FALSE(system_lp.system_context().rebuild_pass());
+
+  // Trigger a rebuild; the callback flips the flag on entry and the
+  // RAII guard flips it back on exit.  Observable from outside: the
+  // flag is false before AND after ensure_lp_built.
+  system_lp.ensure_lp_built();
+  CHECK_FALSE(system_lp.system_context().rebuild_pass());
+
+  // And after a release/rebuild cycle — still false when observed from
+  // outside the callback.
+  system_lp.release_backend();
+  system_lp.ensure_lp_built();
+  CHECK_FALSE(system_lp.system_context().rebuild_pass());
+}
+
+TEST_CASE(  // NOLINT
     "SystemLP — rebuild parity: same objective as snapshot mode")
 {
   // Sanity: rebuild and snapshot must produce the exact same optimal
@@ -372,7 +420,7 @@ TEST_CASE(  // NOLINT
 
   {
     LpMatrixOptions opts;
-    opts.low_memory_mode = LowMemoryMode::snapshot;
+    opts.low_memory_mode = LowMemoryMode::compress;
     SystemLP sys(world.system, simulation_lp, opts);
     sys.ensure_lp_built();
     auto r = sys.linear_interface().resolve();

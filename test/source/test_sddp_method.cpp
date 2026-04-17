@@ -1500,7 +1500,7 @@ TEST_CASE("SDDPMethod — low_memory level 1 converges")  // NOLINT
   SDDPOptions sddp_opts;
   sddp_opts.max_iterations = 10;
   sddp_opts.convergence_tol = 1e-3;
-  sddp_opts.low_memory_mode = LowMemoryMode::snapshot;
+  sddp_opts.low_memory_mode = LowMemoryMode::compress;
   sddp_opts.enable_api = false;
 
   SDDPMethod sddp(planning_lp, sddp_opts);
@@ -1564,7 +1564,7 @@ TEST_CASE(  // NOLINT
     SDDPOptions sddp_opts;
     sddp_opts.max_iterations = 10;
     sddp_opts.convergence_tol = 1e-3;
-    sddp_opts.low_memory_mode = LowMemoryMode::snapshot;
+    sddp_opts.low_memory_mode = LowMemoryMode::compress;
     sddp_opts.enable_api = false;
 
     SDDPMethod sddp(planning_lp, sddp_opts);
@@ -1589,7 +1589,7 @@ TEST_CASE(  // NOLINT
   SDDPOptions sddp_opts;
   sddp_opts.max_iterations = 20;
   sddp_opts.convergence_tol = 1e-3;
-  sddp_opts.low_memory_mode = LowMemoryMode::snapshot;
+  sddp_opts.low_memory_mode = LowMemoryMode::compress;
   sddp_opts.enable_api = false;
 
   SDDPMethod sddp(planning_lp, sddp_opts);
@@ -1608,7 +1608,7 @@ TEST_CASE(  // NOLINT
   SDDPOptions sddp_opts;
   sddp_opts.max_iterations = 10;
   sddp_opts.convergence_tol = 1e-3;
-  sddp_opts.low_memory_mode = LowMemoryMode::snapshot;
+  sddp_opts.low_memory_mode = LowMemoryMode::compress;
   sddp_opts.max_cuts_per_phase = 5;
   sddp_opts.cut_prune_interval = 2;
   sddp_opts.enable_api = false;
@@ -1632,10 +1632,10 @@ TEST_CASE(  // NOLINT
   // initialize_alpha_variables + collect_state_variable_links BEFORE
   // ensure_lp_built, dereferencing the null backend.
   //
-  // Fix: build every cell before the alpha/state-link setup pass, keep
-  // them live through cut loading / capture_hot_start_cuts, then release
-  // only once all persistent state (m_dynamic_cols_, m_active_cuts_,
-  // m_base_numrows_) has been captured.
+  // Fix: rebuild callback + ensure_backend make the setup steps
+  // mode-agnostic; cut loaders call record_cut_row alongside add_row so
+  // persistent state (m_dynamic_cols_, m_active_cuts_, m_base_numrows_)
+  // is populated live without any retrofit pass.
   auto planning = make_3phase_hydro_planning();
   // Configure PlanningLP to construct SystemLPs in rebuild mode (skips
   // the eager load_flat; this is what sets up the null-backend state
@@ -1657,4 +1657,81 @@ TEST_CASE(  // NOLINT
   CHECK_FALSE(results->empty());
   CHECK(results->back().upper_bound > 0.0);
   CHECK(results->back().lower_bound > 0.0);
+}
+
+// ─── LowMemoryMode parity: off vs compress (lz4, uncompressed) vs rebuild ────
+
+TEST_CASE(  // NOLINT
+    "SDDPMethod — low_memory parity across all modes")
+{
+  // Every supported low_memory configuration must converge to the same
+  // SDDP objective on the same deterministic problem.  This is the
+  // end-to-end guarantee that release/reconstruct (compress with lz4 or
+  // uncompressed codec) and re-flatten (rebuild) preserve every piece
+  // of LP state needed by SDDP convergence (alpha cols, accumulated
+  // cuts, base_numrows, state-variable links).
+  //
+  // Anything that silently drops state would show as a bound divergence.
+  constexpr int kIters = 10;
+  constexpr double kConvTol = 1e-3;
+  constexpr double kParityTol = 1e-4;
+
+  auto run_with_mode = [&](std::optional<LowMemoryMode> mode,
+                           std::optional<CompressionCodec> codec =
+                               std::nullopt) -> std::pair<double, double>
+  {
+    auto planning = make_3phase_hydro_planning();
+    PlanningLP planning_lp(std::move(planning));
+
+    SDDPOptions sddp_opts;
+    sddp_opts.max_iterations = kIters;
+    sddp_opts.convergence_tol = kConvTol;
+    sddp_opts.enable_api = false;
+    if (mode) {
+      sddp_opts.low_memory_mode = *mode;
+    }
+    if (codec) {
+      sddp_opts.memory_codec = *codec;
+    }
+
+    SDDPMethod sddp(planning_lp, sddp_opts);
+    auto results = sddp.solve();
+    REQUIRE(results.has_value());
+    REQUIRE_FALSE(results->empty());
+    return {results->back().upper_bound, results->back().lower_bound};
+  };
+
+  // Reference: low_memory disabled.
+  const auto [off_ub, off_lb] = run_with_mode(std::nullopt);
+
+  SUBCASE("compress with lz4 (default codec)")
+  {
+    const auto [ub, lb] =
+        run_with_mode(LowMemoryMode::compress, CompressionCodec::lz4);
+    CHECK(ub == doctest::Approx(off_ub).epsilon(kParityTol));
+    CHECK(lb == doctest::Approx(off_lb).epsilon(kParityTol));
+  }
+
+  SUBCASE("compress with zstd codec")
+  {
+    const auto [ub, lb] =
+        run_with_mode(LowMemoryMode::compress, CompressionCodec::zstd);
+    CHECK(ub == doctest::Approx(off_ub).epsilon(kParityTol));
+    CHECK(lb == doctest::Approx(off_lb).epsilon(kParityTol));
+  }
+
+  SUBCASE("compress with uncompressed codec (ex-snapshot semantics)")
+  {
+    const auto [ub, lb] =
+        run_with_mode(LowMemoryMode::compress, CompressionCodec::uncompressed);
+    CHECK(ub == doctest::Approx(off_ub).epsilon(kParityTol));
+    CHECK(lb == doctest::Approx(off_lb).epsilon(kParityTol));
+  }
+
+  SUBCASE("rebuild")
+  {
+    const auto [ub, lb] = run_with_mode(LowMemoryMode::rebuild);
+    CHECK(ub == doctest::Approx(off_ub).epsilon(kParityTol));
+    CHECK(lb == doctest::Approx(off_lb).epsilon(kParityTol));
+  }
 }

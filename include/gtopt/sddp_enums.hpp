@@ -265,11 +265,11 @@ inline constexpr auto state_variable_lookup_mode_entries =
  * Controls whether and how the solver releases backend memory between solves.
  *
  * - `off`:      Disabled — keep solver backend loaded (default).
- * - `snapshot`: Release solver backend after each solve, reconstruct on demand
- *               from saved FlatLinearProblem + dynamic columns + accumulated
- *               cuts.
- * - `compress`: Same as `snapshot`, but compress the saved FlatLinearProblem
- *               for additional memory savings (~2-4x compression ratio).
+ * - `compress`: Release solver backend after each solve; keep a (optionally
+ *               compressed) FlatLinearProblem snapshot + dynamic columns +
+ *               accumulated cuts.  Reconstructed on demand.  Set
+ *               `memory_codec = uncompressed` to retain the flat LP raw
+ *               (previously the dedicated `snapshot` mode).
  * - `rebuild`:  Re-flatten the LP from element collections on every solve.
  *               No FlatLinearProblem snapshot is held; only the small
  *               persistent SDDP state (dynamic α columns and accumulated
@@ -281,17 +281,19 @@ inline constexpr auto state_variable_lookup_mode_entries =
 enum class LowMemoryMode : uint8_t
 {
   off = 0,  ///< Disabled — keep solver backend loaded (default)
-  snapshot = 1,  ///< Release solver, keep flat LP for reconstruction
-  compress = 2,  ///< Release solver, compress flat LP
+  compress = 2,  ///< Release solver, keep (optionally compressed) flat LP
   rebuild = 3,  ///< Re-flatten LP from collections on every solve, no snapshot
 };
 
 inline constexpr auto low_memory_mode_entries =
     std::to_array<EnumEntry<LowMemoryMode>>({
         {.name = "off", .value = LowMemoryMode::off},
-        {.name = "snapshot", .value = LowMemoryMode::snapshot},
         {.name = "compress", .value = LowMemoryMode::compress},
         {.name = "rebuild", .value = LowMemoryMode::rebuild},
+        // Back-compat alias: "snapshot" parses to `compress`.  Callers
+        // that want the old snapshot semantics (uncompressed flat LP)
+        // set `memory_codec = uncompressed` explicitly.
+        {.name = "snapshot", .value = LowMemoryMode::compress},
     });
 
 [[nodiscard]] constexpr auto enum_entries(LowMemoryMode /*tag*/) noexcept

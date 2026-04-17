@@ -55,7 +55,6 @@ struct SddpOptionsConstructor
       OptName aperture_directory,
       OptReal aperture_timeout,
       OptBool save_aperture_lp,
-      OptBool warm_start,
       OptName boundary_cuts_file,
       OptName boundary_cuts_mode_str,
       OptInt boundary_max_iterations,
@@ -117,7 +116,6 @@ struct SddpOptionsConstructor
     opts.aperture_directory = std::move(aperture_directory);
     opts.aperture_timeout = aperture_timeout;
     opts.save_aperture_lp = save_aperture_lp;
-    opts.warm_start = warm_start;
     opts.boundary_cuts_file = std::move(boundary_cuts_file);
     if (boundary_cuts_mode_str) {
       opts.boundary_cuts_mode = gtopt::require_enum<BoundaryCutsMode>(
@@ -196,7 +194,6 @@ struct json_data_contract<SddpOptions>
       json_string_null<"aperture_directory", OptName>,
       json_number_null<"aperture_timeout", OptReal>,
       json_bool_null<"save_aperture_lp", OptBool>,
-      json_bool_null<"warm_start", OptBool>,
       json_string_null<"boundary_cuts_file", OptName>,
       json_string_null<"boundary_cuts_mode", OptName>,
       json_number_null<"boundary_max_iterations", OptInt>,
@@ -248,7 +245,6 @@ struct json_data_contract<SddpOptions>
         opt.aperture_directory,
         opt.aperture_timeout,
         opt.save_aperture_lp,
-        opt.warm_start,
         opt.boundary_cuts_file,
         detail::enum_to_opt_name(opt.boundary_cuts_mode),
         opt.boundary_max_iterations,

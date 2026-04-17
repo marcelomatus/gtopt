@@ -62,12 +62,6 @@ void apply_options_to_env(MDOenv* env, const SolverOptions& opts)
   }
 
   // Method: -1=auto, 0=primal simplex, 1=dual simplex, 2=barrier, 3=concurrent
-  if (opts.reuse_basis && opts.algorithm != LPAlgo::barrier) {
-    MDOsetintparam(env, MDO_INT_PAR_METHOD, 1);  // dual simplex
-    MDOsetintparam(env, MDO_INT_PAR_PRESOLVE, 0);
-    return;
-  }
-
   switch (opts.algorithm) {
     case LPAlgo::default_algo:
       MDOsetintparam(env, MDO_INT_PAR_METHOD, -1);  // auto
@@ -753,12 +747,6 @@ void MindOptSolverBackend::apply_options(const SolverOptions& opts)
   m_threads_ = opts.threads;
   m_presolve_ = opts.presolve;
   m_log_level_ = opts.log_level;
-
-  // Warm-start override mirrors the helper's dual+no-presolve tweak.
-  if (opts.reuse_basis && opts.algorithm != LPAlgo::barrier) {
-    m_algorithm_ = LPAlgo::dual;
-    m_presolve_ = false;
-  }
 
   apply_options_to_env(m_env_, opts);
 }

@@ -1028,7 +1028,6 @@ SolverTestResult test_barrier_resolve(std::string_view solver)
 
     const auto r_resolve = li.resolve(SolverOptions {
         .algorithm = LPAlgo::dual,
-        .reuse_basis = true,
     });
     TC_CHECK(ctx, r_resolve.has_value());
     TC_CHECK(ctx, li.is_optimal());

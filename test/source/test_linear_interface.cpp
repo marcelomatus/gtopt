@@ -879,7 +879,6 @@ TEST_CASE("LinearInterface - warm-start clone resolves after bound change")
   cloned.set_col_low(x1, 6.0);
 
   SolverOptions ws_opts;
-  ws_opts.reuse_basis = true;
   auto r = cloned.resolve(ws_opts);
   REQUIRE(r.has_value());
   REQUIRE(cloned.is_optimal());
@@ -933,7 +932,6 @@ TEST_CASE(
   cloned.set_col_low(x1, 3.0);
 
   SolverOptions ws_opts;
-  ws_opts.reuse_basis = true;
   auto r = cloned.resolve(ws_opts);
   REQUIRE(r.has_value());
   REQUIRE(cloned.is_optimal());
@@ -982,7 +980,6 @@ TEST_CASE("LinearInterface - set_warm_start_solution exact dimensions")
   cloned.set_warm_start_solution(saved_sol, saved_dual);
 
   SolverOptions ws_opts;
-  ws_opts.reuse_basis = true;
   auto r = cloned.resolve(ws_opts);
   REQUIRE(r.has_value());
   REQUIRE(cloned.is_optimal());
@@ -1038,7 +1035,6 @@ TEST_CASE("LinearInterface - set_warm_start_solution pads extra rows")
   li.set_warm_start_solution(saved_sol, saved_dual);
 
   SolverOptions ws_opts;
-  ws_opts.reuse_basis = true;
   auto r = li.resolve(ws_opts);
   REQUIRE(r.has_value());
   REQUIRE(li.is_optimal());
@@ -1089,7 +1085,6 @@ TEST_CASE("LinearInterface - set_warm_start_solution pads extra columns")
   li.set_warm_start_solution(saved_sol, {});
 
   SolverOptions ws_opts;
-  ws_opts.reuse_basis = true;
   auto r = li.resolve(ws_opts);
   REQUIRE(r.has_value());
   REQUIRE(li.is_optimal());

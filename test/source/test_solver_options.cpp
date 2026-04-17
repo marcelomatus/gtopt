@@ -734,7 +734,7 @@ TEST_CASE(
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
   // Test the SDDP workflow: initial solve with barrier, then resolve with
-  // dual simplex (reuse_basis).  Validates the CPLEX resolve() fix.
+  // dual simplex.  Validates the CPLEX resolve() fix.
   auto& reg = SolverRegistry::instance();
   reg.load_all_plugins();
   const auto solvers = reg.available_solvers();
@@ -761,7 +761,6 @@ TEST_CASE(
 
       const SolverOptions resolve_opts {
           .algorithm = LPAlgo::dual,
-          .reuse_basis = true,
       };
       auto r2 = lp.resolve(resolve_opts);
       CHECK(r2.has_value());
@@ -925,71 +924,6 @@ TEST_CASE("SolverOptions - query methods reflect applied options")  // NOLINT
         CHECK(lp.get_threads() == 1);
         CHECK(lp.get_presolve() == true);
         CHECK(lp.get_log_level() == 0);
-      }
-
-      SUBCASE("reuse_basis with dual overrides to dual, no presolve")
-      {
-        auto lp = make_barrier_test_lp(solver_name);
-
-        // Initial solve with barrier
-        const SolverOptions barrier_opts {
-            .algorithm = LPAlgo::barrier,
-            .threads = 2,
-        };
-        auto r1 = lp.initial_solve(barrier_opts);
-        REQUIRE(r1.has_value());
-        CHECK(lp.get_algorithm() == LPAlgo::barrier);
-
-        // Resolve with reuse_basis + dual — should override to dual
-        lp.set_row_low(RowIndex {0}, 6.0);
-
-        const SolverOptions reuse_opts {
-            .algorithm = LPAlgo::dual,
-            .threads = 2,
-            .presolve = true,
-            .reuse_basis = true,
-        };
-
-        const auto result = lp.resolve(reuse_opts);
-        CHECK(result.has_value());
-        CHECK(lp.is_optimal());
-        CHECK(lp.get_obj_value() == doctest::Approx(18.0));
-
-        CHECK(lp.get_algorithm() == LPAlgo::dual);
-        CHECK(lp.get_presolve() == false);
-        CHECK(lp.get_threads() == 2);
-      }
-
-      SUBCASE("reuse_basis with barrier keeps barrier algorithm")
-      {
-        auto lp = make_barrier_test_lp(solver_name);
-
-        // Initial solve with barrier
-        const SolverOptions barrier_opts {
-            .algorithm = LPAlgo::barrier,
-            .threads = 2,
-        };
-        auto r1 = lp.initial_solve(barrier_opts);
-        REQUIRE(r1.has_value());
-
-        // Resolve with reuse_basis + barrier — should keep barrier
-        lp.set_row_low(RowIndex {0}, 6.0);
-
-        const SolverOptions reuse_opts {
-            .algorithm = LPAlgo::barrier,
-            .threads = 2,
-            .presolve = true,
-            .reuse_basis = true,
-        };
-
-        const auto result = lp.resolve(reuse_opts);
-        CHECK(result.has_value());
-        CHECK(lp.is_optimal());
-        CHECK(lp.get_obj_value() == doctest::Approx(18.0));
-
-        CHECK(lp.get_algorithm() == LPAlgo::barrier);
-        CHECK(lp.get_presolve() == true);
-        CHECK(lp.get_threads() == 2);
       }
 
       SUBCASE("options update on successive apply_options calls")

@@ -403,12 +403,13 @@ void SDDPMethod::collect_state_variable_links(SceneIndex scene_index)
   auto& phase_states = m_scene_phase_states_[scene_index];
 
   for (auto&& [phase_index, _ph] : enumerate<PhaseIndex>(phases)) {
-    // The last phase produces no outgoing links to a next phase, so we
-    // can skip it entirely.  This is also necessary under deferred
-    // initial-load (low_memory_mode != off): only non-last phases have
-    // their backend reconstructed by `initialize_alpha_variables` (via
-    // `add_col(alpha)`), so reading raw column bounds from the last
-    // phase would dereference a null backend.
+    // The last phase produces no outgoing state-variable links to a
+    // next phase (there is no next phase), so there is nothing to
+    // collect and we break.  Incidentally this also avoids touching
+    // the last phase's backend — which, under low_memory modes, is
+    // still released at this point because `initialize_alpha_variables`
+    // only added alpha (and thus only reconstructed) for non-last
+    // phases — but the real reason is structural.
     if (phase_index == last_phase_index) {
       break;
     }
@@ -517,12 +518,8 @@ std::optional<SDDPMethod::ElasticResult> SDDPMethod::elastic_solve(
   const auto& prev_state = m_scene_phase_states_[scene_index][prev_phase_index];
 
   // Delegate to BendersCut member (uses work pool when set).
-  // Enable warm-start on the clone resolve when configured.
-  // Use the previous iteration's forward-pass solution (if any) as hint.
   auto elastic_opts = opts;
-  elastic_opts.reuse_basis = m_options_.warm_start;
   elastic_opts.crossover = false;
-  const auto& cur_state = m_scene_phase_states_[scene_index][phase_index];
 
   // Scale the elastic penalty by cost_factor so it is consistent with all
   // other LP objective coefficients that go through stage_ecost / cost_factor.
@@ -531,12 +528,8 @@ std::optional<SDDPMethod::ElasticResult> SDDPMethod::elastic_solve(
   const auto scale_obj = li.scale_objective();
   const auto scaled_penalty = m_options_.elastic_penalty / scale_obj;
 
-  auto result = m_benders_cut_.elastic_filter_solve(li,
-                                                    prev_state.outgoing_links,
-                                                    scaled_penalty,
-                                                    elastic_opts,
-                                                    cur_state.forward_col_sol,
-                                                    cur_state.forward_row_dual);
+  auto result = m_benders_cut_.elastic_filter_solve(
+      li, prev_state.outgoing_links, scaled_penalty, elastic_opts);
 
   if (result.has_value()) {
     // The clone's solve activity (resolve, fallbacks, kappa, wall
@@ -791,17 +784,15 @@ auto SDDPMethod::backward_pass_single_phase(SceneIndex scene_index,
 
   const auto prev_phase_index = previous(phase_index);
   auto& src_sys = planning_lp().system(scene_index, prev_phase_index);
+  const auto& src_state = phase_states[prev_phase_index];
 
-  // Ensure the previous-phase LP is built (rebuild mode re-flattens; the
-  // snapshot/compress modes reload from snapshot).
-  if (src_sys.is_backend_released()) {
-    const auto& src_state_pre = phase_states[prev_phase_index];
-    src_sys.ensure_lp_built(src_state_pre.forward_col_sol,
-                            src_state_pre.forward_row_dual);
-  }
+  // Ensure the previous-phase LP is built.  No-op when backend is live
+  // (mode=off, or a prior task already rebuilt it); otherwise reloads
+  // from snapshot (snapshot/compress) or re-flattens from collections
+  // (rebuild).
+  src_sys.ensure_lp_built();
 
   auto& src_li = src_sys.linear_interface();
-  const auto& src_state = phase_states[prev_phase_index];
 
   // Use cached forward-pass solution for cut generation.
   const auto& target_state = phase_states[phase_index];
@@ -1028,7 +1019,7 @@ auto SDDPMethod::load_named_cuts(const std::string& filepath)
                              m_scene_phase_states_);
 }
 
-auto SDDPMethod::save_state(const std::string& filepath) const
+auto SDDPMethod::save_state(const std::string& filepath)
     -> std::expected<void, Error>
 {
   return save_state_csv(
@@ -1105,9 +1096,7 @@ auto SDDPMethod::initialize_solver() -> std::expected<void, Error>
       for (const auto phase_index : iota_range<PhaseIndex>(0, num_phases)) {
         planning_lp()
             .system(scene_index, phase_index)
-            .set_low_memory(m_options_.low_memory_mode,
-                            codec,
-                            /*cache_warm_start=*/false);
+            .set_low_memory(m_options_.low_memory_mode, codec);
       }
     }
   }
@@ -1131,26 +1120,11 @@ auto SDDPMethod::initialize_solver() -> std::expected<void, Error>
                 m_options_.scale_alpha);
   }
 
-  // Under LowMemoryMode::rebuild the SystemLP constructor deferred
-  // load_flat entirely, so every per-cell backend is still released at
-  // this point.  The next steps — initialize_alpha_variables (add_col),
-  // collect_state_variable_links (get_col_{low,upp}_raw),
-  // save_base_numrows (get_numrows), cut loading (add_row) and
-  // capture_hot_start_cuts (row introspection) — all require a live
-  // backend.  Build every cell on the main thread now so those
-  // operations see a real LP; we release again below once all one-time
-  // setup has been captured in the persistent SDDP state
-  // (m_dynamic_cols_ / m_active_cuts_ / m_base_numrows_), which is what
-  // the rebuild path replays.
-  const bool rebuild_mode =
-      m_options_.low_memory_mode == LowMemoryMode::rebuild;
-  if (rebuild_mode) {
-    for (const auto scene_index : iota_range<SceneIndex>(0, num_scenes)) {
-      for (const auto phase_index : iota_range<PhaseIndex>(0, num_phases)) {
-        planning_lp().system(scene_index, phase_index).ensure_lp_built();
-      }
-    }
-  }
+  // The setup steps below (add_col for alpha, get_col bounds for
+  // state links, save_base_numrows, cut loading) trigger the
+  // rebuild-callback or reconstruct-from-snapshot transparently
+  // per-cell when the backend is released — so no eager build pass
+  // is needed here regardless of low_memory mode.
 
   SPDLOG_INFO("SDDP: adding alpha variables and collecting state links");
   for (const auto scene_index : iota_range<SceneIndex>(0, num_scenes)) {
@@ -1272,24 +1246,44 @@ auto SDDPMethod::initialize_solver() -> std::expected<void, Error>
     }
   }
 
-  // ── Low-memory: snapshot LP state after all initialization ──────────────
-  // Must happen after hot-start/boundary/named cuts are loaded so that
-  // the snapshot captures those rows for correct reconstruction.
+  // ── Low-memory: release every per-cell backend after initialization ─────
   //
-  // Under LowMemoryMode::rebuild we also release every per-cell backend
-  // here — the live LPs were only kept alive for this one-time setup
-  // (alpha column, state-link bounds, hot-start cuts).  All persistent
-  // state needed to rebuild each cell is now in m_dynamic_cols_ /
-  // m_active_cuts_ / m_base_numrows_, and the main solve loop will call
-  // ensure_lp_built() lazily from the task that needs it.
-  if (m_options_.low_memory_mode != LowMemoryMode::off) {
+  // `release_backend` is a no-op under `LowMemoryMode::off`, so the loop
+  // runs unconditionally.  Cut loaders already populated `m_active_cuts_`
+  // via `record_cut_row`, so the persistent state needed to reconstruct
+  // each cell is intact.  Eager release here keeps the memory profile
+  // uniform across compress/rebuild: the forward pass's per-phase
+  // `ensure_lp_built` will reload each cell on first touch.
+  //
+  // Under `compress` each release does real work (zstd/lz4 compression
+  // of a multi-MB flat LP).  For 800+ cells that's seconds of CPU.
+  // Dispatch across the solver work pool when more than one cell is
+  // in the grid; otherwise fall through to a direct call.
+  if (m_options_.low_memory_mode != LowMemoryMode::off
+      && num_scenes * num_phases > 1)
+  {
+    auto pool = make_solver_work_pool(m_options_.pool_cpu_factor);
+    std::vector<std::future<void>> futures;
+    futures.reserve(num_scenes * num_phases);
     for (const auto scene_index : iota_range<SceneIndex>(0, num_scenes)) {
       for (const auto phase_index : iota_range<PhaseIndex>(0, num_phases)) {
-        auto& sys = planning_lp().system(scene_index, phase_index);
-        sys.linear_interface().capture_hot_start_cuts();
-        if (rebuild_mode) {
-          sys.release_backend();
+        auto result = pool->submit(
+            [this, scene_index, phase_index]
+            {
+              planning_lp().system(scene_index, phase_index).release_backend();
+            });
+        if (result.has_value()) {
+          futures.push_back(std::move(*result));
         }
+      }
+    }
+    for (auto& fut : futures) {
+      fut.get();
+    }
+  } else {
+    for (const auto scene_index : iota_range<SceneIndex>(0, num_scenes)) {
+      for (const auto phase_index : iota_range<PhaseIndex>(0, num_phases)) {
+        planning_lp().system(scene_index, phase_index).release_backend();
       }
     }
   }
@@ -1415,14 +1409,7 @@ auto SDDPMethod::run_backward_pass_all_scenes(
     const SolverOptions& opts,
     IterationIndex iteration_index) -> BackwardPassOutcome
 {
-  // Enable warm-start for backward pass LP re-solves.  After adding a single
-  // cut row, the previous basis is still near-optimal — dual simplex handles
-  // this in very few pivots.  This is especially important when barrier is the
-  // default algorithm, since barrier would ignore the basis entirely.
-  auto bwd_opts = opts;
-  if (m_options_.warm_start) {
-    bwd_opts.reuse_basis = true;
-  }
+  const auto& bwd_opts = opts;
 
   m_current_pass_.store(2);
   m_scenes_done_.store(0);

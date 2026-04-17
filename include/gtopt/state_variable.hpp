@@ -204,8 +204,8 @@ public:
 
   // ── Runtime SDDP values (mutable — written during solve passes) ────────
   //
-  // These replace the former per-PhaseState full-vector caches
-  // (`forward_col_sol`, `forward_col_cost`).
+  // These carry the per-state-variable post-solve values consumed by
+  // next-phase trial propagation and backward-pass cut construction.
   //
   //   - col_sol       : always set after a forward solve (free — just a
   //                     primal read).  Used to propagate trial values to

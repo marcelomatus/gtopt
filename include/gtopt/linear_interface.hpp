@@ -155,6 +155,8 @@ struct RowDiagnostics
   std::string max_col_name {};
 };
 
+class SystemLP;  // owner for the rebuild-mode back-pointer
+
 class LinearInterface
 {
 public:
@@ -204,13 +206,9 @@ public:
    * the original — use this for tentative solves such as the SDDP elastic
    * filter, where the original LP must remain unmodified.
    *
-   * @param col_sol  Optional primal solution for warm-start (empty = skip)
-   * @param row_dual Optional dual solution for warm-start (empty = skip)
    * @return A new LinearInterface wrapping the cloned solver.
    */
-  [[nodiscard]] LinearInterface clone(
-      std::span<const double> col_sol = {},
-      std::span<const double> row_dual = {}) const;
+  [[nodiscard]] LinearInterface clone() const;
 
   /**
    * @brief Apply a saved solution as warm-start hint for the next resolve.
@@ -249,15 +247,9 @@ public:
 
   // ── Low-memory mode API ─────────────────────────────────────────────────
 
-  /// Configure low-memory mode (off, snapshot, compress).
-  /// @param cache_warm_start  When true (default), release_backend() caches
-  ///   the full primal/dual solution so that ensure_backend() can warm-start
-  ///   the reconstructed LP.  When false, the solution vectors are discarded
-  ///   on release to save memory — callers must supply their own warm-start
-  ///   data via reconstruct_backend(col_sol, row_dual).
+  /// Configure low-memory mode (off, snapshot, compress, rebuild).
   void set_low_memory(LowMemoryMode mode,
-                      CompressionCodec codec = CompressionCodec::lz4,
-                      bool cache_warm_start = false) noexcept;
+                      CompressionCodec codec = CompressionCodec::lz4) noexcept;
 
   /// Save a flat LP snapshot for future reconstruction.
   /// Call from create_lp() — the LinearInterface decides whether to keep
@@ -278,10 +270,6 @@ public:
   /// non-`off` mode — otherwise this would defeat the lazy reconstruction
   /// path because `release_backend()` becomes a no-op.
   void defer_initial_load(FlatLinearProblem flat_lp);
-
-  /// Capture hot-start cuts (rows above base_numrows) into active_cuts.
-  /// Call after all initialization (alpha vars, hot-start cuts) is done.
-  void capture_hot_start_cuts();
 
   /// Reconstruct backend from saved flat LP + dynamic cols + active cuts.
   /// @param col_sol  Previous primal solution for warm-start (empty = cold)
@@ -306,6 +294,11 @@ public:
 
   /// Record a Benders cut row addition.
   void record_cut_row(SparseRow row);
+
+  /// Pre-reserve capacity for active cuts.  Cut loaders that know the
+  /// expected row count ahead of time can call this before their
+  /// `add_row` + `record_cut_row` loop to avoid log-N reallocations.
+  void reserve_active_cuts(std::size_t n) { m_active_cuts_.reserve(n); }
 
   /// Record cut row deletions (pruning/forgetting).
   void record_cut_deletion(std::span<const int> deleted_indices);
@@ -350,19 +343,72 @@ public:
   /// state without re-querying the live backend).
   void set_base_numrows(size_t n) noexcept { m_base_numrows_ = n; }
 
-  /// Mark this interface as "no LP loaded": drops the (default-constructed)
-  /// backend handle and flips `m_backend_released_` to true.  Intended for
-  /// `LowMemoryMode::rebuild`, where `SystemLP`'s constructor wants to
-  /// install the low-memory configuration without paying for an initial
-  /// `load_flat()` — the next `SystemLP::ensure_lp_built()` call will run
-  /// the full `create_lp()` from element collections.  Unlike
-  /// `release_backend()`, this skips solution caching and snapshot
-  /// compression: there is nothing meaningful to cache yet.
+  /// Mark this interface as "no LP loaded": flips `m_backend_released_` to
+  /// true and, for non-rebuild modes, drops the default-constructed
+  /// backend handle.  Intended for `LowMemoryMode::rebuild`, where
+  /// `SystemLP`'s constructor wants to install the low-memory configuration
+  /// without paying for an initial `load_flat()` — the next backend access
+  /// (via `ensure_backend()`) will invoke the rebuild callback to assemble
+  /// the flat LP lazily.  In rebuild mode the default backend handle is
+  /// retained so that `infinity()` stays queryable for the LinearProblem
+  /// builder used inside the rebuild callback.  Unlike `release_backend()`,
+  /// this skips solution caching and snapshot compression: there is nothing
+  /// meaningful to cache yet.
   void mark_released() noexcept
   {
-    m_backend_.reset();
+    if (m_low_memory_mode_ != LowMemoryMode::rebuild) {
+      m_backend_.reset();
+    }
     m_backend_released_ = true;
   }
+
+  /// Install the owning SystemLP as the rebuild-source for
+  /// `LowMemoryMode::rebuild`.  When the backend is released, the next
+  /// `ensure_backend()` call invokes `SystemLP::rebuild_in_place()` on
+  /// this pointer.  Must be re-set after every SystemLP move so it
+  /// tracks the new object's address.
+  ///
+  /// Pass `nullptr` to clear — typical under other low_memory modes.
+  void set_rebuild_owner(SystemLP* owner) noexcept { m_rebuild_owner_ = owner; }
+
+  /// True iff a rebuild owner has been installed.  Used by SystemLP to
+  /// decide whether an accidental pre-owner access would be a logic bug.
+  [[nodiscard]] bool has_rebuild_callback() const noexcept
+  {
+    return m_rebuild_owner_ != nullptr;
+  }
+
+  /// Replay the persistent SDDP state (dynamic cols + active cuts +
+  /// warm-start) onto the live backend after a fresh `load_flat()`.  Used
+  /// by both the compress/snapshot reconstruction path and the rebuild
+  /// callback, which share the same post-load protocol: structural rows
+  /// are in the backend, and the caller-tracked state must be replayed on
+  /// top so subsequent add_col/add_row calls append cleanly.
+  ///
+  /// Pre-condition: the backend is live (post `load_flat`) and
+  /// `m_backend_released_` has been cleared.
+  void apply_post_load_replay(std::span<const double> col_sol = {},
+                              std::span<const double> row_dual = {});
+
+  /// Finalize a rebuild in place: clear the released flag, run
+  /// `load_flat(flat_lp)` on the existing backend, and replay persistent
+  /// state (dynamic cols + base_numrows + active cuts).  Used exclusively
+  /// by the `LowMemoryMode::rebuild` callback — mirrors
+  /// `reconstruct_backend` but takes a caller-provided flat LP instead of
+  /// sourcing one from `m_snapshot_`.
+  void install_flat_as_rebuild(const FlatLinearProblem& flat_lp);
+
+  /// Ensure the backend is live.  For `LowMemoryMode::off` this is a
+  /// no-op (backend is always live).  For `snapshot` / `compress` it
+  /// reconstructs from the saved snapshot.  For `rebuild` it invokes
+  /// the installed rebuild callback (which flattens the LP from source
+  /// collections and installs it via `install_flat_as_rebuild`).
+  ///
+  /// Any mutation method (add_col, add_row, set_*, solve) calls this
+  /// internally, so most callers don't need to invoke it directly.
+  /// Useful as an explicit trigger for pure-read code paths that would
+  /// otherwise read stale cached row/col counts from a released cell.
+  void ensure_backend();
 
   /// Decompress the saved flat LP (level 2) and keep it uncompressed
   /// until enable_compression() is called.  No-op if level < 2 or
@@ -433,8 +479,22 @@ public:
    * All rows added after this point are considered cuts and are eligible
    * for pruning.  Must be called once after the structural LP is built,
    * before any Benders cuts are added.
+   *
+   * Under `LowMemoryMode::rebuild`, transparently triggers the rebuild
+   * callback when the backend is still released so callers never read a
+   * stale cached row count from an un-built cell.  `snapshot`/`compress`
+   * modes pre-seed `m_cached_numrows_` via `defer_initial_load`, so
+   * `get_numrows()` returns the correct value without a reconstruct —
+   * preserving the invariant that save_base_numrows does not flip the
+   * released flag for those modes.
    */
-  void save_base_numrows() noexcept { m_base_numrows_ = get_numrows(); }
+  void save_base_numrows()
+  {
+    if (m_low_memory_mode_ == LowMemoryMode::rebuild) {
+      ensure_backend();
+    }
+    m_base_numrows_ = get_numrows();
+  }
 
   /**
    * @brief Get the saved base row count.
@@ -511,9 +571,14 @@ public:
   }
 
   /// Solver's representation of +infinity for variable bounds.
+  ///
+  /// Safe to call even when the backend has been released (low-memory
+  /// modes): the value is cached at ctor time and on every successful
+  /// `load_flat`.  Used by the rebuild callback's `flatten_from_collections`
+  /// pass, which needs infinity before the backend is repopulated.
   [[nodiscard]] double infinity() const noexcept
   {
-    return m_backend_->infinity();
+    return m_backend_ ? m_backend_->infinity() : m_cached_infinity_;
   }
 
   /// Normalize a bound value: map gtopt::DblMax to the solver's infinity.
@@ -524,7 +589,7 @@ public:
   /// LinearInterface boundary so that formulation code and solver agree.
   [[nodiscard]] double normalize_bound(double value) const noexcept
   {
-    const auto inf = m_backend_->infinity();
+    const auto inf = infinity();
     if (value >= DblMax) {
       return inf;
     }
@@ -909,9 +974,6 @@ public:
    */
   [[nodiscard]] auto get_col_sol_raw() const -> std::span<const double>
   {
-    if (m_backend_released_) {
-      return m_cached_col_sol_;
-    }
     return {m_backend_->col_solution(), get_numcols()};
   }
 
@@ -921,17 +983,14 @@ public:
    * Returns a zero-copy lazy view: each access computes
    * `LP_value × col_scale` on the fly.  When col_scales are empty,
    * returns raw values unchanged.
+   *
+   * Precondition: backend must be live.  Callers under low-memory
+   * modes should invoke `ensure_backend()` first if reading after a
+   * release.
    * @return ScaledView over solver solution memory
    */
   [[nodiscard]] ScaledView get_col_sol() const noexcept
   {
-    if (m_backend_released_) {
-      return {m_cached_col_sol_.data(),
-              m_cached_col_sol_.size(),
-              m_col_scales_.data(),
-              m_col_scales_.size(),
-              ScaledView::Op::multiply};
-    }
     const auto n = get_numcols();
     return {m_backend_->col_solution(),
             n,
@@ -946,9 +1005,6 @@ public:
    */
   [[nodiscard]] auto get_col_cost_raw() const -> std::span<const double>
   {
-    if (m_backend_released_) {
-      return m_cached_col_cost_;
-    }
     return {m_backend_->reduced_cost(), get_numcols()};
   }
 
@@ -958,18 +1014,12 @@ public:
    * Returns a zero-copy lazy view: each access computes
    * `LP_rc × scale_objective / col_scale` on the fly, recovering the
    * physical reduced cost in $/physical_unit.
+   *
+   * Precondition: backend must be live.
    * @return ScaledView over solver reduced-cost memory
    */
   [[nodiscard]] ScaledView get_col_cost() const noexcept
   {
-    if (m_backend_released_) {
-      return {m_cached_col_cost_.data(),
-              m_cached_col_cost_.size(),
-              m_col_scales_.data(),
-              m_col_scales_.size(),
-              ScaledView::Op::divide,
-              m_scale_objective_};
-    }
     const auto n = get_numcols();
     return {m_backend_->reduced_cost(),
             n,
@@ -1103,9 +1153,6 @@ public:
    */
   [[nodiscard]] auto get_row_dual_raw() -> std::span<const double>
   {
-    if (m_backend_released_) {
-      return m_cached_row_dual_;
-    }
     ensure_duals();
     return {m_backend_->row_price(), get_numrows()};
   }
@@ -1119,18 +1166,12 @@ public:
    * is π_LP = s × π_phys, hence π_phys = π_LP / s.
    * The global scale_objective factor is also applied:
    *   dual_physical = dual_LP × scale_objective / row_scale.
+   *
+   * Precondition: backend must be live.
    * @return Zero-copy lazy view per element.
    */
   [[nodiscard]] ScaledView get_row_dual()
   {
-    if (m_backend_released_) {
-      return {m_cached_row_dual_.data(),
-              m_cached_row_dual_.size(),
-              m_row_scales_.data(),
-              m_row_scales_.size(),
-              ScaledView::Op::divide,
-              m_scale_objective_};
-    }
     ensure_duals();
     const auto n = get_numrows();
     return {m_backend_->row_price(),
@@ -1342,6 +1383,13 @@ private:
   std::unique_ptr<SolverBackend> m_backend_;
   std::string m_solver_name_ {};  ///< Solver name for backend reconstruction
   std::string m_solver_version_ {};  ///< Cached version for released backends
+
+  /// Cached +infinity value queried from the backend whenever it is
+  /// live (ctor and `load_flat`).  Used by `infinity()` /
+  /// `normalize_bound()` when the backend is released — in particular
+  /// by the rebuild callback's flatten pass, which must normalise
+  /// DblMax bounds *before* the backend is repopulated.
+  double m_cached_infinity_ {DblMax};
   SolverOptions m_last_solver_options_ {};  ///< Options from last solve
   std::string m_log_file_ {};
   std::string m_log_tag_ {};  ///< Context tag prefixed to fallback warnings
@@ -1384,20 +1432,21 @@ private:
   using log_file_ptr_t = std::unique_ptr<FILE, FILEcloser>;
   log_file_ptr_t m_log_file_ptr_;
 
-  /// Ensure the backend is live; reconstruct from snapshot if released.
-  /// Call before any mutation or solve.
-  void ensure_backend();
-
   /// Cache post-solve state and auto-release backend if low_memory is on.
   void cache_and_release();
+
+  /// Call `m_rebuild_owner_->rebuild_in_place()`.  Defined in
+  /// linear_interface.cpp where `SystemLP` is a complete type.
+  void invoke_rebuild_owner();
 
   // ── Low-memory state ──────────────────────────────────────────────────
 
   LowMemoryMode m_low_memory_mode_ {LowMemoryMode::off};
   CompressionCodec m_memory_codec_ {CompressionCodec::lz4};
-  bool m_cache_warm_start_ {true};
 
-  /// Snapshot: flat LP + cached solution, with compress/decompress support.
+  /// Snapshot: flat LP (uncompressed or compressed), used by the
+  /// `snapshot` / `compress` reconstruct path.  Always empty under
+  /// `rebuild` — the flat LP is regenerated from collections instead.
   LowMemorySnapshot m_snapshot_ {};
 
   /// Columns added after initial load_flat() (typically just alpha).
@@ -1409,14 +1458,22 @@ private:
   /// Whether the backend is currently released.
   bool m_backend_released_ {false};
 
-  // ── Cached post-solve state (valid when backend is released) ────────
+  /// Re-entry guard for rebuild.  `ensure_backend()` sets this true
+  /// before calling `m_rebuild_owner_->rebuild_in_place()`, which
+  /// internally calls `load_flat` / `add_col` / `add_rows` that recurse
+  /// through `ensure_backend`.  With the guard set those recursive calls
+  /// early-return, avoiding an infinite loop.
+  bool m_rebuilding_ {false};
 
-  /// Cached primal solution from last successful solve.
-  std::vector<double> m_cached_col_sol_ {};
-  /// Cached dual values from last successful solve.
-  std::vector<double> m_cached_row_dual_ {};
-  /// Cached reduced costs from last successful solve.
-  std::vector<double> m_cached_col_cost_ {};
+  /// Back-pointer to the owning `SystemLP` under `LowMemoryMode::rebuild`.
+  /// When non-null, `ensure_backend()` calls
+  /// `m_rebuild_owner_->rebuild_in_place()` instead of the snapshot
+  /// reconstruct path.  Set by `SystemLP::install_rebuild_callback` and
+  /// re-set after every SystemLP move.  Never owns the pointee.
+  SystemLP* m_rebuild_owner_ {};
+
+  // ── Cached post-solve scalars (valid when backend is released) ─────
+
   /// Cached objective value from last successful solve.
   double m_cached_obj_value_ {};
   /// Cached kappa (condition number) from last successful solve.
@@ -1443,8 +1500,8 @@ private:
 ///   {
 ///     DecompressionGuard guard(li);
 ///     // All clones created here avoid per-clone decompress overhead
-///     auto c1 = li.clone(col_sol, row_dual);
-///     auto c2 = li.clone(col_sol, row_dual);
+///     auto c1 = li.clone();
+///     auto c2 = li.clone();
 ///   }  // flat LP re-compressed here
 /// @endcode
 class DecompressionGuard

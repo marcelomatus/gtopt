@@ -195,10 +195,12 @@ template<typename T>
        "enable recovery from a previous SDDP run (loads cuts and state "
        "variables according to JSON recovery_mode; default: off)")  //
       ("low-memory",
-       po::value<std::string>().implicit_value("snapshot"),
-       "SDDP low-memory mode: off, snapshot (release solver + keep flat LP), "
-       "compress (release solver + compress flat LP), "
-       "rebuild (re-flatten LP every solve, no snapshot)")  //
+       po::value<std::string>().implicit_value("compress"),
+       "SDDP low-memory mode: off, "
+       "compress (release solver + compressed flat LP; set "
+       "memory_codec=uncompressed for raw), "
+       "rebuild (re-flatten LP every solve, no snapshot); "
+       "'snapshot' is a back-compat alias of 'compress'")  //
       ("memory-limit",
        po::value<std::string>(),
        "process memory limit for work pool throttling "

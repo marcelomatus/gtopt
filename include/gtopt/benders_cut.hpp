@@ -128,10 +128,10 @@ void propagate_trial_values(std::span<StateVarLink> links,
                             std::span<const double> source_solution,
                             LinearInterface& target_li) noexcept;
 
-/// Propagate trial values using the source StateVariable's cached col_sol()
-/// instead of a full-LP solution span.  Prefer this overload in production
-/// SDDP code so that the forward-pass `forward_col_sol` array can be elided
-/// under `low_memory` (no warm-start caching).
+/// Propagate trial values using the source StateVariable's cached
+/// col_sol() instead of a full-LP solution span.  This is the only
+/// overload used by production SDDP code — the older span-based overload
+/// above is kept for tests that drive propagation directly.
 void propagate_trial_values(std::span<StateVarLink> links,
                             LinearInterface& target_li) noexcept;
 
@@ -226,17 +226,12 @@ struct ElasticSolveResult
 /// phase
 /// @param penalty           Elastic penalty coefficient for slack variables
 /// @param opts              Solver options for the clone solve
-/// @param forward_col_sol   Optional warm-start column solution for the clone.
-/// @param forward_row_dual  Optional warm-start row duals for the clone.
 /// @return Solved elastic clone and per-link slack info, or nullopt if
 ///         no columns were fixed or the clone solve failed.
-[[nodiscard]] auto elastic_filter_solve(
-    const LinearInterface& li,
-    std::span<const StateVarLink> links,
-    double penalty,
-    const SolverOptions& opts,
-    std::span<const double> forward_col_sol = {},
-    std::span<const double> forward_row_dual = {})
+[[nodiscard]] auto elastic_filter_solve(const LinearInterface& li,
+                                        std::span<const StateVarLink> links,
+                                        double penalty,
+                                        const SolverOptions& opts)
     -> std::optional<ElasticSolveResult>;
 
 /// @brief Result structure for feasibility cut building
@@ -401,13 +396,10 @@ public:
   ///
   /// @return Solved elastic clone and per-link slack info, or nullopt if no
   ///         columns were fixed or the clone solve failed.
-  [[nodiscard]] auto elastic_filter_solve(
-      const LinearInterface& li,
-      std::span<const StateVarLink> links,
-      double penalty,
-      const SolverOptions& opts,
-      std::span<const double> forward_col_sol = {},
-      std::span<const double> forward_row_dual = {})
+  [[nodiscard]] auto elastic_filter_solve(const LinearInterface& li,
+                                          std::span<const StateVarLink> links,
+                                          double penalty,
+                                          const SolverOptions& opts)
       -> std::optional<ElasticSolveResult>;
 
   /// Build a Benders feasibility cut using this object's elastic_filter_solve.

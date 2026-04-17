@@ -80,11 +80,7 @@ void apply_options_to_highs(Highs& highs, const SolverOptions& opts)
     highs.setOptionValue("simplex_scale_strategy", strategy);
   }
 
-  if (opts.reuse_basis && opts.algorithm != LPAlgo::barrier) {
-    // Warm start: simplex + no presolve overrides any algorithm choice.
-    highs.setOptionValue("solver", "simplex");
-    highs.setOptionValue("presolve", "off");
-  } else {
+  {
     switch (opts.algorithm) {
       case LPAlgo::default_algo:
         highs.setOptionValue("solver", "choose");
@@ -560,10 +556,6 @@ void HighsSolverBackend::apply_options(const SolverOptions& opts)
   m_threads_ = opts.threads;
   m_presolve_ = opts.presolve;
   m_log_level_ = opts.log_level;
-  if (opts.reuse_basis && opts.algorithm != LPAlgo::barrier) {
-    m_algorithm_ = LPAlgo::dual;
-    m_presolve_ = false;
-  }
 
   // HiGHS uses a *thread-local* task executor (despite the name
   // "resetGlobalScheduler").  Each OS thread that calls run() gets its

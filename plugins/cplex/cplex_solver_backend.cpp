@@ -147,11 +147,7 @@ void apply_options_to_env(cpxenv* env, const SolverOptions& opts)
   CPXsetintparam(
       env, CPX_PARAM_MEMORYEMPHASIS, opts.low_memory ? CPX_ON : CPX_OFF);
 
-  if (opts.reuse_basis && opts.algorithm != LPAlgo::barrier) {
-    CPXsetintparam(env, CPX_PARAM_LPMETHOD, CPX_ALG_DUAL);
-    CPXsetintparam(env, CPX_PARAM_PREIND, CPX_OFF);
-    CPXsetintparam(env, CPX_PARAM_ADVIND, 1);
-  } else {
+  {
     switch (opts.algorithm) {
       case LPAlgo::default_algo:
         CPXsetintparam(env, CPX_PARAM_LPMETHOD, CPX_ALG_AUTOMATIC);
@@ -940,9 +936,6 @@ void CplexSolverBackend::resolve()
     m_solve_status_ = CPXmipopt(m_env_lp_.env(), m_env_lp_.lp());
   } else {
     // CPXlpopt respects CPX_PARAM_LPMETHOD set by apply_options().
-    // When reuse_basis is true, apply_options() sets LPMETHOD to dual simplex
-    // and enables advanced start — so warm-start still works correctly.
-    // When barrier is requested, CPXlpopt uses barrier as configured.
     m_solve_status_ = CPXlpopt(m_env_lp_.env(), m_env_lp_.lp());
   }
 }
@@ -1012,10 +1005,6 @@ void CplexSolverBackend::apply_options(const SolverOptions& opts)
   m_threads_ = opts.threads;
   m_presolve_ = opts.presolve;
   m_log_level_ = opts.log_level;
-  if (opts.reuse_basis && opts.algorithm != LPAlgo::barrier) {
-    m_algorithm_ = LPAlgo::dual;
-    m_presolve_ = false;
-  }
   apply_options_to_env(m_env_lp_.env(), opts);
 }
 

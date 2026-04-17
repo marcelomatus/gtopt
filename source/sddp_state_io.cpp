@@ -34,7 +34,7 @@
 namespace gtopt
 {
 
-auto save_state_csv(const PlanningLP& planning_lp,
+auto save_state_csv(PlanningLP& planning_lp,
                     const std::string& filepath,
                     IterationIndex iteration_index)
     -> std::expected<void, Error>
@@ -65,16 +65,17 @@ auto save_state_csv(const PlanningLP& planning_lp,
     // scale, and enough metadata to reconstruct its label.
     for (auto&& [si, scene] : enumerate<SceneIndex>(sim.scenes())) {
       for (auto&& [pi, phase] : enumerate<PhaseIndex>(sim.phases())) {
-        const auto& li = planning_lp.system(si, pi).linear_interface();
+        auto& sys = planning_lp.system(si, pi);
+        // Under low-memory modes the backend may be released at this
+        // point; force a reload so the solution vectors are readable.
+        sys.ensure_lp_built();
+        const auto& li = sys.linear_interface();
 
         if (!li.is_optimal()) {
           continue;
         }
 
         const auto col_sol = li.get_col_sol();
-        if (col_sol.empty()) {
-          continue;  // solution vectors released (low-memory mode)
-        }
         const auto col_rc = li.get_col_cost();
         const auto ncols = ColIndex {
             static_cast<Index>(li.get_numcols()),

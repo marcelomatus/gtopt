@@ -658,13 +658,10 @@ TEST_CASE(  // NOLINT
   sys.release_backend();
   sys.reconstruct_backend();
 
-  // Re-solve after reconstruction — cache_and_release() auto-releases backend
+  // Re-solve after reconstruction — backend stays live (no auto-release).
   auto r = li.resolve();
   REQUIRE(r.has_value());
-
-  // Backend was released by cache_and_release(); reconstruct for write_lp
-  CHECK(li.is_backend_released());
-  sys.reconstruct_backend();
+  CHECK_FALSE(li.is_backend_released());
 
   // write_lp should still work — names survived across compress cycles
   CHECK_FALSE(li.row_index_to_name().empty());
@@ -786,11 +783,11 @@ TEST_CASE(  // NOLINT
     }
   }
 
-  SUBCASE("LowMemoryMode::snapshot — names survive release/reconstruct")
+  SUBCASE("LowMemoryMode::compress — names survive release/reconstruct")
   {
     for (int pi = 0; pi < 3; ++pi) {
       auto& sys = plp.systems().front()[PhaseIndex {pi}];
-      sys.set_low_memory(LowMemoryMode::snapshot);
+      sys.set_low_memory(LowMemoryMode::compress);
       sys.release_backend();
       CHECK(sys.linear_interface().is_backend_released());
 
@@ -860,7 +857,7 @@ TEST_CASE(  // NOLINT
     auto& sys = plp.systems().front()[first_phase_index()];
 
     // snapshot mode
-    sys.set_low_memory(LowMemoryMode::snapshot);
+    sys.set_low_memory(LowMemoryMode::compress);
     sys.release_backend();
     CHECK(li.solver_id() == id);
     sys.reconstruct_backend();

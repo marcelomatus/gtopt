@@ -570,12 +570,6 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
     monitor.start(pool, solve_start, "SDDPAsyncMonitor");
   }
 
-  // Backward-pass options: enable warm-start for dual simplex
-  auto bwd_ws_opts = bwd_opts;
-  if (m_options_.warm_start) {
-    bwd_ws_opts.reuse_basis = true;
-  }
-
   // ── Per-scene state machine ──
   //
   // Each scene progresses independently through:
@@ -786,21 +780,20 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
                 ? pool.submit(
                       [this,
                        scene,
-                       &bwd_ws_opts,
+                       &bwd_opts,
                        iteration_index = sp.current_iteration_index]
                       {
                         return backward_pass_with_apertures(
-                            scene, bwd_ws_opts, iteration_index);
+                            scene, bwd_opts, iteration_index);
                       },
                       bwd_req)
                 : pool.submit(
                       [this,
                        scene,
-                       &bwd_ws_opts,
+                       &bwd_opts,
                        iteration_index = sp.current_iteration_index]
                       {
-                        return backward_pass(
-                            scene, bwd_ws_opts, iteration_index);
+                        return backward_pass(scene, bwd_opts, iteration_index);
                       },
                       bwd_req);
             sp.bwd_future = std::move(fut.value());

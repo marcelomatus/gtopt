@@ -18,6 +18,7 @@
 #include <gtopt/linear_interface.hpp>
 #include <gtopt/memory_compress.hpp>
 #include <gtopt/solver_registry.hpp>
+#include <gtopt/system_lp.hpp>  // complete type for m_rebuild_owner_->rebuild_in_place()
 #include <gtopt/utils.hpp>
 #include <spdlog/spdlog.h>
 
@@ -71,6 +72,9 @@ LinearInterface::LinearInterface(std::unique_ptr<SolverBackend> backend,
                                    : std::string {})
     , m_log_file_(std::move(plog_file))
 {
+  if (m_backend_) {
+    m_cached_infinity_ = m_backend_->infinity();
+  }
 }
 
 LinearInterface::LinearInterface(std::string_view solver_name,
@@ -93,8 +97,19 @@ LinearInterface::LinearInterface(std::string_view solver_name,
 
 // ── Backend lifecycle ──
 
+// NOLINTNEXTLINE(misc-no-recursion)
+void LinearInterface::invoke_rebuild_owner()
+{
+  m_rebuild_owner_->rebuild_in_place();
+}
+
 void LinearInterface::cache_and_release()
 {
+  // Misnomer retained for back-compat: after the primal/dual cache
+  // removal this is a pure "cache scalars post-solve" — the backend is
+  // dropped only by an explicit `release_backend()`, never automatically
+  // inside resolve/initial_solve.  Callers that need sol/rc must read
+  // them after resolve and before release_backend.
   if (m_low_memory_mode_ == LowMemoryMode::off || m_backend_released_) {
     return;
   }
@@ -103,45 +118,14 @@ void LinearInterface::cache_and_release()
     return;
   }
 
-  // Cache post-solve state for transparent access without backend
-  const auto ncols = get_numcols();
-  const auto nrows = get_numrows();
-
-  // Always cache solution for transparent read access after resolve().
-  // The cache_warm_start flag only controls whether release_backend()
-  // retains these vectors — cache_and_release() needs them for callers
-  // that read solution data after resolve() returns.
-  {
-    const auto cs = std::span(m_backend_->col_solution(), ncols);
-    m_cached_col_sol_.assign(cs.begin(), cs.end());
-    const auto rc = std::span(m_backend_->reduced_cost(), ncols);
-    m_cached_col_cost_.assign(rc.begin(), rc.end());
-  }
-  ensure_duals();
-  {
-    const auto rp = std::span(m_backend_->row_price(), nrows);
-    m_cached_row_dual_.assign(rp.begin(), rp.end());
-  }
+  // Cache post-solve scalars so that get_status() / get_obj_value() /
+  // get_kappa() / get_numrows() / get_numcols() still return sensible
+  // values after a later release_backend().
   m_cached_obj_value_ = m_backend_->obj_value();
   m_cached_kappa_ = m_backend_->get_kappa();
-  m_cached_numrows_ = nrows;
-  m_cached_numcols_ = ncols;
+  m_cached_numrows_ = get_numrows();
+  m_cached_numcols_ = get_numcols();
   m_cached_is_optimal_ = true;
-
-  // Compress mode: first call compresses the flat LP (one-time).
-  // Subsequent calls: just free the decompressed vectors.
-  // Snapshot mode: flat LP stays in memory (no compression).
-  // Rebuild mode: snapshot is empty by construction; nothing to do.
-  if (m_low_memory_mode_ == LowMemoryMode::compress) {
-    if (!m_snapshot_.is_compressed()) {
-      m_snapshot_.compress(m_memory_codec_);
-    } else {
-      clear_flat_lp_vectors(m_snapshot_.flat_lp);
-    }
-  }
-
-  m_backend_.reset();
-  m_backend_released_ = true;
 }
 
 // NOLINTNEXTLINE(misc-no-recursion)
@@ -150,17 +134,33 @@ void LinearInterface::ensure_backend()
   if (!m_backend_released_) {
     return;
   }
-  // Rebuild mode: SystemLP::ensure_lp_built() owns the rebuild dispatch
-  // because it has access to the source collections.  Reaching here in
-  // rebuild mode means a caller forgot to invoke ensure_lp_built()
-  // before mutating the (released) LinearInterface.  Refuse silently
-  // so debug builds can catch the missing precondition via the assert
-  // in reconstruct_backend(); release builds still avoid an empty-load.
+  // Rebuild mode: the owning SystemLP regenerates the flat LP from
+  // source collections, loads it onto this interface, and replays
+  // persistent state (dynamic cols + active cuts).  Mirrors compress
+  // mode's transparent reconstruct, but sources the flat LP from the
+  // element collections rather than a snapshot.
+  //
+  // Invariant: if no owner is installed, this is a bare
+  // `LinearInterface` without a parent SystemLP (unit tests).  Silent
+  // short-circuit keeps those tests working.
   if (m_low_memory_mode_ == LowMemoryMode::rebuild) {
+    if (m_rebuilding_ || m_rebuild_owner_ == nullptr) {
+      return;
+    }
+    m_rebuilding_ = true;
+    try {
+      invoke_rebuild_owner();  // flatten → load_flat → apply_post_load_replay
+    } catch (...) {
+      m_rebuilding_ = false;
+      throw;
+    }
+    m_rebuilding_ = false;
     return;
   }
-  // Reconstruct using cached solution for warm-start
-  reconstruct_backend(m_cached_col_sol_, m_cached_row_dual_);
+  // Snapshot/compress: reconstruct from the saved flat LP snapshot.
+  // No warm-start — callers that want primal/dual continuity must
+  // pass their own vectors via `reconstruct_backend(col_sol, row_dual)`.
+  reconstruct_backend();
 }
 
 void LinearInterface::release_backend() noexcept
@@ -171,46 +171,19 @@ void LinearInterface::release_backend() noexcept
 
   if (m_backend_released_) {
     // Backend already released (e.g. by cache_and_release after resolve).
-    // Discard cached solution vectors if warm-start caching is off.
-    // SDDP forward pass caches its own copies of solution/reduced-cost
-    // into state vectors before calling release_backend(), so these
-    // LinearInterface caches are no longer needed.
-    if (!m_cache_warm_start_) {
-      m_cached_col_sol_.clear();
-      m_cached_col_sol_.shrink_to_fit();
-      m_cached_col_cost_.clear();
-      m_cached_col_cost_.shrink_to_fit();
-      m_cached_row_dual_.clear();
-      m_cached_row_dual_.shrink_to_fit();
-    }
+    // Nothing to do — cached scalars stay, snapshot stays.
     return;
   }
 
-  // Cache the current solution for transparent read access
+  // Cache post-solve scalars for transparent read access.  Full
+  // primal/dual vectors are not cached; callers that need them must
+  // read before release or trigger ensure_backend() to reload.
   try {
     if (m_backend_ && is_optimal()) {
-      const auto ncols = get_numcols();
-      if (m_cache_warm_start_) {
-        const auto cs = get_col_sol_raw();
-        const auto rd = get_row_dual_raw();
-        m_cached_col_sol_.assign(cs.begin(), cs.end());
-        m_cached_row_dual_.assign(rd.begin(), rd.end());
-        {
-          const auto rc = std::span(m_backend_->reduced_cost(), ncols);
-          m_cached_col_cost_.assign(rc.begin(), rc.end());
-        }
-      } else {
-        m_cached_col_sol_.clear();
-        m_cached_col_sol_.shrink_to_fit();
-        m_cached_col_cost_.clear();
-        m_cached_col_cost_.shrink_to_fit();
-        m_cached_row_dual_.clear();
-        m_cached_row_dual_.shrink_to_fit();
-      }
       m_cached_obj_value_ = m_backend_->obj_value();
       m_cached_kappa_ = m_backend_->get_kappa();
       m_cached_numrows_ = get_numrows();
-      m_cached_numcols_ = ncols;
+      m_cached_numcols_ = get_numcols();
       m_cached_is_optimal_ = true;
     }
     // Snapshot/compress: first call compresses the flat LP (one-time,
@@ -236,12 +209,10 @@ void LinearInterface::release_backend() noexcept
 // ── Low-memory mode ──
 
 void LinearInterface::set_low_memory(LowMemoryMode mode,
-                                     CompressionCodec codec,
-                                     bool cache_warm_start) noexcept
+                                     CompressionCodec codec) noexcept
 {
   m_low_memory_mode_ = mode;
   m_memory_codec_ = codec;
-  m_cache_warm_start_ = cache_warm_start;
 
   if (mode == LowMemoryMode::off) {
     m_snapshot_ = {};
@@ -280,51 +251,6 @@ void LinearInterface::defer_initial_load(FlatLinearProblem flat_lp)
   m_backend_released_ = true;
 }
 
-void LinearInterface::capture_hot_start_cuts()
-{
-  if (m_low_memory_mode_ == LowMemoryMode::off) {
-    return;
-  }
-
-  // If the backend is still released (e.g., the last SDDP phase under
-  // low_memory mode never had alpha added and never received hot-start
-  // cuts), there is nothing live to capture and we must NOT flip
-  // `m_backend_released_` to false — doing so would leave the interface
-  // pointing at the empty default backend with stale cached counts,
-  // making subsequent get_numcols()/set_col_*** dereference an LP with
-  // 0 cols and segfault inside the solver.
-  if (m_backend_released_) {
-    return;
-  }
-
-  const auto base = static_cast<int>(m_base_numrows_);
-  const auto current = static_cast<int>(get_numrows());
-  const auto ncols = static_cast<int>(get_numcols());
-
-  m_active_cuts_.clear();
-
-  if (current > base) {
-    const auto row_lo = get_row_low_raw();
-    const auto row_hi = get_row_upp_raw();
-
-    for (const auto r : iota_range<RowIndex>(base, current)) {
-      SparseRow row;
-      row.lowb = row_lo[static_cast<std::size_t>(r)];
-      row.uppb = row_hi[static_cast<std::size_t>(r)];
-      for (const auto c : iota_range<ColIndex>(0, ncols)) {
-        const auto val = get_coeff_raw(r, c);
-        if (val != 0.0) {
-          row[c] = val;
-        }
-      }
-      m_active_cuts_.push_back(std::move(row));
-    }
-    SPDLOG_DEBUG("low_memory: captured {} hot-start cut rows", current - base);
-  }
-
-  m_backend_released_ = false;
-}
-
 // NOLINTNEXTLINE(misc-no-recursion)
 void LinearInterface::reconstruct_backend(std::span<const double> col_sol,
                                           std::span<const double> row_dual)
@@ -333,8 +259,7 @@ void LinearInterface::reconstruct_backend(std::span<const double> col_sol,
   // would be a logic error.  Catch it loudly in debug builds; in
   // release the !has_data() guard below still short-circuits cleanly.
   assert(m_low_memory_mode_ != LowMemoryMode::rebuild
-         && "rebuild mode must use SystemLP::ensure_lp_built(), not "
-            "reconstruct_backend()");
+         && "rebuild mode uses the rebuild callback, not reconstruct_backend");
   if (!m_backend_released_ || !m_snapshot_.has_data()) {
     return;
   }
@@ -348,29 +273,56 @@ void LinearInterface::reconstruct_backend(std::span<const double> col_sol,
   // 1. Reload the base structural LP
   load_flat(m_snapshot_.flat_lp);
 
-  // 2. Replay dynamic columns (typically just alpha — very few)
-  for (const auto& col : m_dynamic_cols_) {
-    add_col(col);
-  }
+  // 2. Replay persistent SDDP state onto the live backend.
+  apply_post_load_replay(col_sol, row_dual);
 
-  // 3. Mark structural boundary
-  save_base_numrows();
-
-  // 4. Bulk-add active cuts (single efficient call)
-  if (!m_active_cuts_.empty()) {
-    add_rows(m_active_cuts_);
-  }
-
-  // 5. Load previous solution/duals for warm-start.
-  if (!col_sol.empty() || !row_dual.empty()) {
-    set_warm_start_solution(col_sol, row_dual);
-  }
-
-  // 6. Free decompressed flat LP vectors — the data is now in the backend.
+  // 3. Free decompressed flat LP vectors — the data is now in the backend.
   //    The compressed buffer stays valid as persistent cache for next
   //    reconstruction.  No re-compression needed.
   if (m_snapshot_.is_compressed()) {
     clear_flat_lp_vectors(m_snapshot_.flat_lp);
+  }
+}
+
+// NOLINTNEXTLINE(misc-no-recursion)
+void LinearInterface::install_flat_as_rebuild(const FlatLinearProblem& flat_lp)
+{
+  // Clear the released flag BEFORE load_flat so the replay's add_col /
+  // add_rows calls bypass the rebuild re-entry in ensure_backend().  The
+  // rebuilding guard in ensure_backend also short-circuits, but clearing
+  // the flag lets this method work outside the rebuild callback too
+  // (e.g. future explicit callers).
+  m_backend_released_ = false;
+  load_flat(flat_lp);
+  apply_post_load_replay();
+}
+
+// NOLINTNEXTLINE(misc-no-recursion)
+void LinearInterface::apply_post_load_replay(std::span<const double> col_sol,
+                                             std::span<const double> row_dual)
+{
+  // Pre-condition: caller has already run `load_flat` and cleared
+  // `m_backend_released_` so the add_col/add_rows below don't re-enter
+  // `ensure_backend`.
+  assert(!m_backend_released_
+         && "apply_post_load_replay requires a live backend");
+
+  // 1. Replay dynamic columns (typically just alpha — very few).
+  for (const auto& col : m_dynamic_cols_) {
+    add_col(col);
+  }
+
+  // 2. Mark the structural-vs-cuts boundary.
+  save_base_numrows();
+
+  // 3. Bulk-add active cuts (single efficient call).
+  if (!m_active_cuts_.empty()) {
+    add_rows(m_active_cuts_);
+  }
+
+  // 4. Warm-start from the caller-supplied primal/dual when available.
+  if (!col_sol.empty() || !row_dual.empty()) {
+    set_warm_start_solution(col_sol, row_dual);
   }
 }
 
@@ -482,19 +434,13 @@ void LinearInterface::open_log_handler(const int log_level)
 
 // ── Clone & warm start ──
 
-LinearInterface LinearInterface::clone(std::span<const double> col_sol,
-                                       std::span<const double> row_dual) const
+LinearInterface LinearInterface::clone() const
 {
   auto cloned = LinearInterface {m_backend_->clone(), m_log_file_};
   cloned.m_scale_objective_ = m_scale_objective_;
   cloned.m_col_scales_ = m_col_scales_;
   cloned.m_variable_scale_map_ = m_variable_scale_map_;
   cloned.m_log_tag_ = m_log_tag_;
-
-  if (!col_sol.empty() || !row_dual.empty()) {
-    cloned.set_warm_start_solution(col_sol, row_dual);
-  }
-
   return cloned;
 }
 
@@ -532,6 +478,9 @@ void LinearInterface::load_flat(const FlatLinearProblem& flat_lp)
   if (!m_backend_) {
     m_backend_ = SolverRegistry::instance().create(m_solver_name_);
   }
+
+  // Keep the cached infinity in sync with whatever backend is live now.
+  m_cached_infinity_ = m_backend_->infinity();
 
   m_backend_->set_prob_name(flat_lp.name);
 

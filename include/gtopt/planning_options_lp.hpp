@@ -912,12 +912,6 @@ public:
         CompressionCodec::auto_select);
   }
 
-  /** @brief Whether SDDP resolves use warm-start (default: true). */
-  [[nodiscard]] constexpr auto sddp_warm_start() const
-  {
-    return m_options_.sddp_options.warm_start.value_or(true);
-  }
-
   /** @brief Maximum async iteration spread (0 = synchronous, default). */
   [[nodiscard]] constexpr auto sddp_max_async_spread() const
   {

@@ -142,24 +142,6 @@ std::unique_ptr<PlanningMethod> make_planning_method(
         sddp_opts.cuts_output_file.clear();
       }
 
-      // Wire warm_start from SddpOptions config (default: true)
-      sddp_opts.warm_start = options.sddp_warm_start();
-
-      // Under low_memory, disable warm_start: the backend is released
-      // between solves so no simplex basis persists across resolves.
-      // SDDP continues to propagate state variables via
-      // state.forward_col_sol / forward_row_dual (first n_links entries)
-      // independent of the solver-level warm-start machinery.
-      if (sddp_opts.low_memory_mode != LowMemoryMode::off
-          && sddp_opts.warm_start)
-      {
-        SPDLOG_INFO(
-            "low_memory_mode={}: disabling warm_start "
-            "(no persistent basis across solves)",
-            enum_name(sddp_opts.low_memory_mode));
-        sddp_opts.warm_start = false;
-      }
-
       // Wire async scene spread (0 = synchronous, default)
       sddp_opts.max_async_spread = options.sddp_max_async_spread();
 
@@ -299,22 +281,6 @@ std::unique_ptr<PlanningMethod> make_planning_method(
         sddp_opts.api_stop_request_file =
             (std::filesystem::path(output_dir) / sddp_file::stop_request)
                 .string();
-      }
-
-      // Wire warm_start from SddpOptions config (default: true)
-      sddp_opts.warm_start = options.sddp_warm_start();
-
-      // Under low_memory, disable warm_start (see SDDP block above for
-      // rationale).  SDDP state propagation uses state.forward_col_sol
-      // independent of solver-level warm-start.
-      if (sddp_opts.low_memory_mode != LowMemoryMode::off
-          && sddp_opts.warm_start)
-      {
-        SPDLOG_INFO(
-            "low_memory_mode={}: disabling warm_start "
-            "(no persistent basis across solves)",
-            enum_name(sddp_opts.low_memory_mode));
-        sddp_opts.warm_start = false;
       }
 
       // Wire work pool resource limits

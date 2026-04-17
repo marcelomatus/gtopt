@@ -59,15 +59,12 @@ auto SDDPMethod::feasibility_backpropagate(SceneIndex scene_index,
         // Build a feasibility-like cut for the previous phase
         const auto prev_bp_index = previous(back_phase_index);
         auto& prev_sys = planning_lp().system(scene_index, prev_bp_index);
-        // Ensure the previous-phase LP is built (rebuild mode re-flattens;
-        // snapshot/compress modes reload from snapshot).
-        if (prev_sys.is_backend_released()) {
-          const auto& prev_st = phase_states[prev_bp_index];
-          prev_sys.ensure_lp_built(prev_st.forward_col_sol,
-                                   prev_st.forward_row_dual);
-        }
-        auto& prev_li = prev_sys.linear_interface();
         const auto& prev_state = phase_states[prev_bp_index];
+
+        // Ensure the previous-phase LP backend is live; no-op when
+        // already loaded.
+        prev_sys.ensure_lp_built();
+        auto& prev_li = prev_sys.linear_interface();
 
         if (m_options_.elastic_filter_mode == ElasticFilterMode::backpropagate)
         {

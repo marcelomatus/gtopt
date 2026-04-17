@@ -63,12 +63,6 @@ void apply_options_to_env(GRBenv* env, const SolverOptions& opts)
   }
 
   // Method: -1=auto, 0=primal simplex, 1=dual simplex, 2=barrier, 3=concurrent
-  if (opts.reuse_basis && opts.algorithm != LPAlgo::barrier) {
-    GRBsetintparam(env, GRB_INT_PAR_METHOD, GRB_METHOD_DUAL);
-    GRBsetintparam(env, GRB_INT_PAR_PRESOLVE, GRB_PRESOLVE_OFF);
-    return;
-  }
-
   switch (opts.algorithm) {
     case LPAlgo::default_algo:
       GRBsetintparam(env, GRB_INT_PAR_METHOD, GRB_METHOD_AUTO);
@@ -862,12 +856,6 @@ void GurobiSolverBackend::apply_options(const SolverOptions& opts)
   m_threads_ = opts.threads;
   m_presolve_ = opts.presolve;
   m_log_level_ = opts.log_level;
-
-  // Warm-start override mirrors the helper's dual+no-presolve tweak.
-  if (opts.reuse_basis && opts.algorithm != LPAlgo::barrier) {
-    m_algorithm_ = LPAlgo::dual;
-    m_presolve_ = false;
-  }
 
   apply_options_to_env(m_env_, opts);
 }

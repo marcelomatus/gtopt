@@ -341,7 +341,7 @@ public:
   /// Save state variable column solutions and reduced costs to a CSV file.
   /// Writes one row per column with its name, phase, scene, value, and
   /// reduced cost.  Saved alongside cuts for hot-start state restoration.
-  [[nodiscard]] auto save_state(const std::string& filepath) const
+  [[nodiscard]] auto save_state(const std::string& filepath)
       -> std::expected<void, Error>;
 
   /// Load state variable column solutions from a CSV file.

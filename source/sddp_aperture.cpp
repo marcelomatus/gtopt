@@ -129,8 +129,6 @@ auto solve_apertures_for_phase(
     double aperture_timeout,
     [[maybe_unused]] bool save_aperture_lp,
     const ApertureDataCache& aperture_cache,
-    std::span<const double> forward_col_sol,
-    std::span<const double> forward_row_dual,
     IterationIndex iteration_index,
     double scale_alpha,
     double cut_coeff_eps,
@@ -232,7 +230,7 @@ auto solve_apertures_for_phase(
           LinearInterface clone = [&]
           {
             const std::scoped_lock lock(*clone_mutex);
-            return phase_li.clone(forward_col_sol, forward_row_dual);
+            return phase_li.clone();
           }();
 
           // Update scenario-dependent bounds via a unified visitor.
@@ -290,11 +288,6 @@ auto solve_apertures_for_phase(
                          scene_uid_val,
                          phase_uid_val,
                          ap_uid));
-          }
-
-          // Apply warm-start hint
-          if (aperture_opts.reuse_basis) {
-            clone.set_warm_start_solution(forward_col_sol, forward_row_dual);
           }
 
           // Configure solver log file for aperture clone

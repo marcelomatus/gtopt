@@ -35,7 +35,7 @@ class PlanningLP;
 /// @param planning_lp  The PlanningLP (for LP access and scaling)
 /// @param filepath     Output CSV file path
 /// @param iteration    Current iteration index (written as comment)
-[[nodiscard]] auto save_state_csv(const PlanningLP& planning_lp,
+[[nodiscard]] auto save_state_csv(PlanningLP& planning_lp,
                                   const std::string& filepath,
                                   IterationIndex iteration_index)
     -> std::expected<void, Error>;

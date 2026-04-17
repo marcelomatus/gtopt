@@ -36,7 +36,6 @@ TEST_CASE("SddpOptions JSON - Full deserialization")
     "aperture_directory": "ap_data",
     "aperture_timeout": 30.0,
     "save_aperture_lp": true,
-    "warm_start": false,
     "boundary_cuts_file": "boundary.csv",
     "boundary_cuts_mode": "combined",
     "boundary_max_iterations": 50,
@@ -53,15 +52,13 @@ TEST_CASE("SddpOptions JSON - Full deserialization")
       "algorithm": 3,
       "threads": 4,
       "presolve": true,
-      "log_level": 0,
-      "reuse_basis": false
+      "log_level": 0
     },
     "backward_solver_options": {
       "algorithm": 2,
       "threads": 1,
       "presolve": false,
-      "log_level": 0,
-      "reuse_basis": true
+      "log_level": 0
     }
   })";
 
@@ -112,8 +109,6 @@ TEST_CASE("SddpOptions JSON - Full deserialization")
   CHECK(*opts.aperture_timeout == doctest::Approx(30.0));
   REQUIRE(opts.save_aperture_lp.has_value());
   CHECK(*opts.save_aperture_lp == true);
-  REQUIRE(opts.warm_start.has_value());
-  CHECK(*opts.warm_start == false);
   REQUIRE(opts.boundary_cuts_file.has_value());
   CHECK(*opts.boundary_cuts_file == "boundary.csv");
   REQUIRE(opts.boundary_cuts_mode.has_value());
@@ -142,12 +137,10 @@ TEST_CASE("SddpOptions JSON - Full deserialization")
   CHECK(opts.forward_solver_options->algorithm == LPAlgo::barrier);
   CHECK(opts.forward_solver_options->threads == 4);
   CHECK(opts.forward_solver_options->presolve == true);
-  CHECK(opts.forward_solver_options->reuse_basis == false);
   REQUIRE(opts.backward_solver_options.has_value());
   CHECK(opts.backward_solver_options->algorithm == LPAlgo::dual);
   CHECK(opts.backward_solver_options->threads == 1);
   CHECK(opts.backward_solver_options->presolve == false);
-  CHECK(opts.backward_solver_options->reuse_basis == true);
 }
 
 TEST_CASE("SddpOptions JSON - Missing fields stay nullopt")
@@ -196,7 +189,6 @@ TEST_CASE("SddpOptions JSON - Round-trip serialization")
               10,
               20,
           },
-      .warm_start = true,
       .stationary_tol = 0.02,
       .stationary_window = 25,
   };
@@ -214,7 +206,6 @@ TEST_CASE("SddpOptions JSON - Round-trip serialization")
   REQUIRE(rt.apertures->size() == 2);
   CHECK((*rt.apertures)[0] == 10);
   CHECK((*rt.apertures)[1] == 20);
-  CHECK(rt.warm_start == original.warm_start);
   CHECK(rt.stationary_tol == original.stationary_tol);
   CHECK(rt.stationary_window == original.stationary_window);
 
@@ -246,7 +237,6 @@ TEST_CASE("SddpOptions JSON - Forward/backward solver options round-trip")
           SolverOptions {
               .algorithm = LPAlgo::dual,
               .threads = 1,
-              .reuse_basis = true,
           },
   };
 
@@ -264,7 +254,6 @@ TEST_CASE("SddpOptions JSON - Forward/backward solver options round-trip")
   REQUIRE(rt.backward_solver_options.has_value());
   CHECK(rt.backward_solver_options->algorithm == LPAlgo::dual);
   CHECK(rt.backward_solver_options->threads == 1);
-  CHECK(rt.backward_solver_options->reuse_basis == true);
 }
 
 TEST_CASE("SddpOptions JSON - cut_coeff_max parsing and round-trip")

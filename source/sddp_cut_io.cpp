@@ -764,6 +764,7 @@ void write_cut_coefficients_unscaled(std::ostream& ofs,
           scene_row[col] = coeff * scale / scale_obj;
         }
         li.add_row(scene_row);
+        li.record_cut_row(scene_row);
       }
       ++result.count;
     }
@@ -1191,6 +1192,7 @@ void write_cut_coefficients_unscaled(std::ostream& ofs,
         }
 
         li.add_row(row);
+        li.record_cut_row(row);
       }
       max_iteration = std::max(max_iteration, rc.iteration_index);
       ++cuts_loaded;
@@ -1519,6 +1521,7 @@ void write_cut_coefficients_unscaled(std::ostream& ofs,
         }
 
         li.add_row(row);
+        li.record_cut_row(row);
       }
       result.max_iteration = std::max(result.max_iteration, iteration_index);
       ++result.count;
@@ -1832,6 +1835,7 @@ void write_cut_coefficients_unscaled(std::ostream& ofs,
           scene_row[col] = coeff * scale / scale_obj;
         }
         li.add_row(scene_row);
+        li.record_cut_row(scene_row);
       }
       ++result.count;
     }

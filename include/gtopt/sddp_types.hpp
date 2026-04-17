@@ -522,7 +522,11 @@ struct SDDPIterationResult
 
 // ─── Per-phase tracking ─────────────────────────────────────────────────────
 
-/// Per-phase SDDP state: a variable, outgoing links, forward-pass cost
+/// Per-phase SDDP state: a variable, outgoing links, forward-pass cost.
+///
+/// Per-state-variable trial values (consumed by cut building and
+/// next-phase propagation) live on `StateVariable::col_sol()`, populated
+/// by `capture_state_variable_values` after every forward solve.
 struct PhaseStateInfo
 {
   ColIndex alpha_col {unknown_index};  ///< a column (unknown for last)
@@ -533,18 +537,6 @@ struct PhaseStateInfo
   /// Cached for the backward pass so the original LP need not be
   /// re-queried.
   double forward_full_obj {0.0};
-  /// Primal solution from last forward solve — retained ONLY when
-  /// `SDDPOptions::warm_start` is true.  Consumed by
-  /// `set_warm_start_solution`, `reconstruct_backend`, and aperture /
-  /// elastic clone warm-start hints.  Empty under low_memory (warm_start
-  /// forced off) — per-state-variable trial values then come from
-  /// `StateVariable::col_sol()`.
-  std::vector<double> forward_col_sol {};
-  /// Dual solution from last forward solve — same gating as
-  /// `forward_col_sol`.  Retained solely as a warm-start hint for the
-  /// backward-pass solver; cuts are built from reduced costs (see
-  /// docs/methods/sddp.md).
-  std::vector<double> forward_row_dual {};
 };
 
 // ─── Callback / observer API ────────────────────────────────────────────────

@@ -310,7 +310,7 @@ TEST_CASE(
   // Baseline: 1 load_flat at construction.
   CHECK(li.solver_stats().load_problem_calls == 1);
 
-  li.set_low_memory(LowMemoryMode::snapshot);
+  li.set_low_memory(LowMemoryMode::compress);
   li.save_snapshot(FlatLinearProblem {flat});
 
   // Release/reconstruct cycle → reconstruct_backend re-invokes load_flat.

@@ -160,10 +160,6 @@ namespace
     so.time_limit = std::stod(value);
     return true;
   }
-  if (field == "reuse_basis") {
-    so.reuse_basis = (value == "true" || value == "1");
-    return true;
-  }
   if (field == "log_mode") {
     if (const auto mode = enum_from_name<SolverLogMode>(value)) {
       so.log_mode = mode;

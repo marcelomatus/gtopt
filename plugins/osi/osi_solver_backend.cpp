@@ -99,28 +99,6 @@ void apply_options_to_solver(OsiSolverInterface* solver,
     }
   }
 
-  // ── Warm-start override (skip when barrier is requested) ──
-  if (opts.reuse_basis && opts.algorithm != LPAlgo::barrier) {
-    solver->setHintParam(OsiDoPresolveInInitial, false, OsiHintDo);
-    solver->setHintParam(OsiDoPresolveInResolve, false, OsiHintDo);
-    solver->setHintParam(OsiDoDualInInitial, true, OsiHintDo);
-    solver->setHintParam(OsiDoDualInResolve, true, OsiHintDo);
-
-    auto* clp = as_clp(solver, type);
-    if (clp != nullptr) {
-      auto* clp_model = clp->getModelPtr();
-      if (clp_model != nullptr) {
-        clp_model->setAlgorithm(1);  // 1 = dual simplex
-        constexpr unsigned keep_factorization = 1U;
-        constexpr unsigned keep_work_areas = 8U;
-        clp_model->setSpecialOptions(
-            static_cast<int>(clp_model->specialOptions() | keep_factorization
-                             | keep_work_areas));
-      }
-    }
-    return;
-  }
-
   // CLP scaling: 0=off, 2=geometric, 3=auto(default).
   if (opts.scaling.has_value()) {
     auto* clp = as_clp(solver, type);
@@ -555,12 +533,6 @@ void OsiSolverBackend::apply_options(const SolverOptions& opts)
   m_threads_ = opts.threads;
   m_presolve_ = opts.presolve;
   m_log_level_ = opts.log_level;
-
-  // Warm-start override mirrors the scalar-cache tweak the helper used to do.
-  if (opts.reuse_basis && opts.algorithm != LPAlgo::barrier) {
-    m_algorithm_ = LPAlgo::dual;
-    m_presolve_ = false;
-  }
 
   apply_options_to_solver(m_solver_.get(), m_type_, opts);
 }

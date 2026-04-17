@@ -329,7 +329,7 @@ TEST_CASE(
   SUBCASE("snapshot mode: deferred load with cached row/col counts")
   {
     LinearInterface li;
-    li.set_low_memory(LowMemoryMode::snapshot);
+    li.set_low_memory(LowMemoryMode::compress);
     li.defer_initial_load(FlatLinearProblem {flat});
 
     // Backend must be marked released and never have been instantiated.
@@ -390,7 +390,7 @@ TEST_CASE("LinearInterface — low_memory save_snapshot round-trip")  // NOLINT
 
   SUBCASE("level 1: release and reconstruct preserves LP")
   {
-    li.set_low_memory(LowMemoryMode::snapshot);
+    li.set_low_memory(LowMemoryMode::compress);
     li.save_snapshot(FlatLinearProblem {flat});
 
     li.release_backend();
@@ -454,7 +454,7 @@ TEST_CASE(
   REQUIRE(res.has_value());
   const double orig_obj = li.get_obj_value();
 
-  li.set_low_memory(LowMemoryMode::snapshot);
+  li.set_low_memory(LowMemoryMode::compress);
   li.save_snapshot(FlatLinearProblem {flat});
 
   // Add a dynamic column (simulating alpha variable)
@@ -486,7 +486,7 @@ TEST_CASE("LinearInterface — low_memory reconstruct with cuts")  // NOLINT
   auto res = li.initial_solve();
   REQUIRE(res.has_value());
 
-  li.set_low_memory(LowMemoryMode::snapshot);
+  li.set_low_memory(LowMemoryMode::compress);
   li.save_snapshot(FlatLinearProblem {flat});
   li.save_base_numrows();
 
@@ -528,7 +528,7 @@ TEST_CASE("LinearInterface — low_memory cut deletion tracking")  // NOLINT
   REQUIRE(res.has_value());
   [[maybe_unused]] const double orig_obj = li.get_obj_value();
 
-  li.set_low_memory(LowMemoryMode::snapshot);
+  li.set_low_memory(LowMemoryMode::compress);
   li.save_snapshot(FlatLinearProblem {flat});
   li.save_base_numrows();
 
@@ -585,7 +585,7 @@ TEST_CASE("LinearInterface — low_memory reconstruct with warm-start")  // NOLI
                                li.get_row_dual_raw().end());
   const double orig_obj = li.get_obj_value();
 
-  li.set_low_memory(LowMemoryMode::snapshot);
+  li.set_low_memory(LowMemoryMode::compress);
   li.save_snapshot(FlatLinearProblem {flat});
 
   li.release_backend();
@@ -593,130 +593,44 @@ TEST_CASE("LinearInterface — low_memory reconstruct with warm-start")  // NOLI
 
   // Warm-start should allow immediate optimal
   SolverOptions ws_opts;
-  ws_opts.reuse_basis = true;
   auto r = li.resolve(ws_opts);
   REQUIRE(r.has_value());
   CHECK(li.get_obj_value() == doctest::Approx(orig_obj));
 }
 
-TEST_CASE("LinearInterface — low_memory capture_hot_start_cuts")  // NOLINT
+TEST_CASE("LinearInterface — low_memory hot-start cut replay")  // NOLINT
 {
+  // Cuts added via add_row + record_cut_row are replayed on reconstruct.
+  // This replaces the old capture_hot_start_cuts flow, which retrofitted
+  // m_active_cuts_ from the backend; cut loaders now call record_cut_row
+  // directly alongside add_row.
   auto [li, flat, x1, x2] = make_simple_lp();
 
   auto res = li.initial_solve();
   REQUIRE(res.has_value());
 
-  li.set_low_memory(LowMemoryMode::snapshot);
+  li.set_low_memory(LowMemoryMode::compress);
   li.save_snapshot(FlatLinearProblem {flat});
   li.save_base_numrows();
 
-  // Add a hot-start cut before calling capture_hot_start_cuts
-  // x1 <= 3 (binding: optimal was x1=5)
+  // Hot-start cut: x1 <= 3 (optimal was x1=5, so this is binding).
   SparseRow cut;
   cut[x1] = 1.0;
   cut.lowb = -LinearProblem::DblMax;
   cut.uppb = 3.0;
   li.add_row(cut);
+  li.record_cut_row(cut);
 
-  // Capture should read the row above base_numrows
-  li.capture_hot_start_cuts();
-
-  // Verify cut is captured by releasing and reconstructing
+  // Release and reconstruct — the recorded cut must be replayed.
   li.release_backend();
   li.reconstruct_backend();
 
-  // The captured cut should be replayed
   CHECK(li.get_numrows() == li.base_numrows() + 1);
 
   auto r = li.resolve();
   REQUIRE(r.has_value());
   // x1 <= 3 → optimal x1=3, x2=2 → obj = 12
   CHECK(li.get_obj_value() == doctest::Approx(12.0));
-}
-
-TEST_CASE(
-    "LinearInterface — capture_hot_start_cuts is no-op on deferred backend")  // NOLINT
-{
-  // Regression: under low_memory mode, the SDDP forward pass installs an
-  // LP via defer_initial_load() and may never reconstruct the last phase's
-  // backend (it has no alpha column and no hot-start cuts).  In that state
-  // capture_hot_start_cuts() must early-return — flipping
-  // m_backend_released_ to false would leave the interface pointing at the
-  // empty default backend with stale cached counts, causing
-  // get_numcols()/set_col_***() to dereference an LP with 0 cols and
-  // segfault inside the solver on the next forward pass.
-  LinearProblem lp;
-  const auto c1 = lp.add_col({
-      .lowb = 0.0,
-      .uppb = 10.0,
-      .cost = 2.0,
-  });
-  const auto c2 = lp.add_col({
-      .lowb = 0.0,
-      .uppb = 10.0,
-      .cost = 3.0,
-  });
-  const auto r = lp.add_row({
-      .lowb = 5.0,
-      .uppb = SparseRow::DblMax,
-  });
-  lp.set_coeff(r, c1, 1.0);
-  lp.set_coeff(r, c2, 1.0);
-
-  auto flat = lp.flatten({});
-  const auto expected_ncols = static_cast<size_t>(flat.ncols);
-  const auto expected_nrows = static_cast<size_t>(flat.nrows);
-
-  SUBCASE("snapshot mode")
-  {
-    LinearInterface li;
-    li.set_low_memory(LowMemoryMode::snapshot);
-    li.defer_initial_load(FlatLinearProblem {flat});
-    li.save_base_numrows();
-
-    REQUIRE(li.is_backend_released());
-    REQUIRE(li.get_numcols() == expected_ncols);
-    REQUIRE(li.get_numrows() == expected_nrows);
-
-    // No live backend, no cuts to capture: must remain released.
-    li.capture_hot_start_cuts();
-
-    CHECK(li.is_backend_released());
-    CHECK(li.get_numcols() == expected_ncols);
-    CHECK(li.get_numrows() == expected_nrows);
-
-    // Subsequent reconstruct + solve still works correctly.
-    li.reconstruct_backend();
-    CHECK_FALSE(li.is_backend_released());
-    CHECK(li.get_numcols() == expected_ncols);
-    auto solve = li.resolve();
-    REQUIRE(solve.has_value());
-    CHECK(li.get_obj_value() == doctest::Approx(10.0));
-  }
-
-  SUBCASE("compress mode")
-  {
-    LinearInterface li;
-    li.set_low_memory(LowMemoryMode::compress, CompressionCodec::lz4);
-    li.defer_initial_load(FlatLinearProblem {flat});
-    li.save_base_numrows();
-
-    REQUIRE(li.is_backend_released());
-    REQUIRE(li.get_numcols() == expected_ncols);
-
-    li.capture_hot_start_cuts();
-
-    CHECK(li.is_backend_released());
-    CHECK(li.get_numcols() == expected_ncols);
-    CHECK(li.get_numrows() == expected_nrows);
-
-    li.reconstruct_backend();
-    CHECK_FALSE(li.is_backend_released());
-    CHECK(li.get_numcols() == expected_ncols);
-    auto solve = li.resolve();
-    REQUIRE(solve.has_value());
-    CHECK(li.get_obj_value() == doctest::Approx(10.0));
-  }
 }
 
 TEST_CASE(
@@ -734,7 +648,7 @@ TEST_CASE(
                                li.get_row_dual_raw().end());
   const double orig_obj = li.get_obj_value();
 
-  li.set_low_memory(LowMemoryMode::snapshot);
+  li.set_low_memory(LowMemoryMode::compress);
   li.save_snapshot(FlatLinearProblem {flat});
 
   // Release and reconstruct
@@ -742,7 +656,7 @@ TEST_CASE(
   li.reconstruct_backend(col_sol, row_dual);
 
   // Clone from reconstructed backend with warm-start
-  auto cloned = li.clone(col_sol, row_dual);
+  auto cloned = li.clone();
 
   auto r = cloned.resolve();
   REQUIRE(r.has_value());
@@ -811,7 +725,7 @@ TEST_CASE("LinearInterface — set_low_memory(0) discards flat LP")  // NOLINT
 {
   auto [li, flat, x1, x2] = make_simple_lp();
 
-  li.set_low_memory(LowMemoryMode::snapshot);
+  li.set_low_memory(LowMemoryMode::compress);
   li.save_snapshot(FlatLinearProblem {flat});
 
   // Disable low_memory — flat LP should be discarded
@@ -837,9 +751,8 @@ TEST_CASE("LinearInterface — clone with warm-start parameters")  // NOLINT
 
   SUBCASE("clone with warm-start resolves correctly")
   {
-    auto cloned = li.clone(col_sol, row_dual);
+    auto cloned = li.clone();
     SolverOptions ws_opts;
-    ws_opts.reuse_basis = true;
     auto r = cloned.resolve(ws_opts);
     REQUIRE(r.has_value());
     CHECK(cloned.get_obj_value() == doctest::Approx(li.get_obj_value()));
@@ -848,14 +761,6 @@ TEST_CASE("LinearInterface — clone with warm-start parameters")  // NOLINT
   SUBCASE("clone without warm-start also works")
   {
     auto cloned = li.clone();
-    auto r = cloned.resolve();
-    REQUIRE(r.has_value());
-    CHECK(cloned.get_obj_value() == doctest::Approx(li.get_obj_value()));
-  }
-
-  SUBCASE("clone with empty spans is same as no warm-start")
-  {
-    auto cloned = li.clone({}, {});
     auto r = cloned.resolve();
     REQUIRE(r.has_value());
     CHECK(cloned.get_obj_value() == doctest::Approx(li.get_obj_value()));
@@ -873,7 +778,7 @@ TEST_CASE(
   REQUIRE(res.has_value());
   REQUIRE(li.is_optimal());
 
-  li.set_low_memory(LowMemoryMode::snapshot);
+  li.set_low_memory(LowMemoryMode::compress);
   li.save_snapshot(FlatLinearProblem {flat});
 
   SUBCASE("backend pointer is null after release")
@@ -893,41 +798,6 @@ TEST_CASE(
     li.release_backend();
     CHECK_FALSE(li.has_backend());
     CHECK(li.is_backend_released());
-  }
-
-  SUBCASE(
-      "release with cache_warm_start caches solution for transparent "
-      "read access")
-  {
-    // Override default to enable caching
-    li.set_low_memory(LowMemoryMode::snapshot,
-                      CompressionCodec::lz4,
-                      /*cache_warm_start=*/true);
-    li.save_snapshot(FlatLinearProblem {flat});
-
-    const auto obj_before = li.get_obj_value();
-    const auto sol_before = std::vector<double>(li.get_col_sol_raw().begin(),
-                                                li.get_col_sol_raw().end());
-    const auto dual_before = std::vector<double>(li.get_row_dual_raw().begin(),
-                                                 li.get_row_dual_raw().end());
-
-    li.release_backend();
-    CHECK_FALSE(li.has_backend());
-
-    // Cached values must match pre-release values
-    CHECK(li.get_obj_value() == doctest::Approx(obj_before));
-
-    const auto sol_after = li.get_col_sol_raw();
-    REQUIRE(sol_after.size() == sol_before.size());
-    for (size_t i = 0; i < sol_before.size(); ++i) {
-      CHECK(sol_after[i] == doctest::Approx(sol_before[i]));
-    }
-
-    const auto dual_after = li.get_row_dual_raw();
-    REQUIRE(dual_after.size() == dual_before.size());
-    for (size_t i = 0; i < dual_before.size(); ++i) {
-      CHECK(dual_after[i] == doctest::Approx(dual_before[i]));
-    }
   }
 
   SUBCASE("release with low_memory off is a no-op — backend stays alive")
@@ -1060,9 +930,12 @@ TEST_CASE(
 }
 
 TEST_CASE(
-    "LinearInterface — cache_warm_start=false discards solution "
-    "vectors on release")  // NOLINT
+    "LinearInterface — release/reconstruct cycle preserves obj_value")  // NOLINT
 {
+  // Post-solve primal/dual vectors are NOT cached across releases —
+  // callers must read them before release or trigger ensure_backend
+  // to reload.  Obj_value, kappa, numrows, numcols, is_optimal stay
+  // cached as scalars.
   auto [li, flat, x1, x2] = make_simple_lp();
 
   auto res = li.initial_solve();
@@ -1070,11 +943,9 @@ TEST_CASE(
   REQUIRE(li.is_optimal());
   const double orig_obj = li.get_obj_value();
 
-  SUBCASE("released state has empty cached vectors")
+  SUBCASE("released cached scalars")
   {
-    li.set_low_memory(LowMemoryMode::snapshot,
-                      CompressionCodec::zstd,
-                      /*cache_warm_start=*/false);
+    li.set_low_memory(LowMemoryMode::compress, CompressionCodec::zstd);
     li.save_snapshot(FlatLinearProblem {flat});
 
     li.release_backend();
@@ -1082,44 +953,11 @@ TEST_CASE(
 
     // Cached scalars are still available
     CHECK(li.get_obj_value() == doctest::Approx(orig_obj));
-
-    // All solution vectors are empty (memory freed).
-    // SDDP caches its own copies before calling release_backend().
-    CHECK(li.get_col_sol_raw().empty());
-    CHECK(li.get_row_dual_raw().empty());
-    CHECK(li.get_col_cost_raw().empty());
   }
 
-  SUBCASE("reconstruct with explicit warm-start works without cache")
+  SUBCASE("reconstruct then resolve produces correct result")
   {
-    // Capture warm-start data before enabling no-cache mode
-    std::vector<double> col_sol(li.get_col_sol_raw().begin(),
-                                li.get_col_sol_raw().end());
-    std::vector<double> row_dual(li.get_row_dual_raw().begin(),
-                                 li.get_row_dual_raw().end());
-
-    li.set_low_memory(LowMemoryMode::compress,
-                      CompressionCodec::lz4,
-                      /*cache_warm_start=*/false);
-    li.save_snapshot(FlatLinearProblem {flat});
-
-    li.release_backend();
-    CHECK(li.is_backend_released());
-
-    // Reconstruct with explicitly provided warm-start
-    li.reconstruct_backend(col_sol, row_dual);
-    CHECK(li.has_backend());
-
-    auto r = li.resolve();
-    REQUIRE(r.has_value());
-    CHECK(li.get_obj_value() == doctest::Approx(orig_obj));
-  }
-
-  SUBCASE("reconstruct without warm-start still produces correct result")
-  {
-    li.set_low_memory(LowMemoryMode::snapshot,
-                      CompressionCodec::zstd,
-                      /*cache_warm_start=*/false);
+    li.set_low_memory(LowMemoryMode::compress, CompressionCodec::zstd);
     li.save_snapshot(FlatLinearProblem {flat});
 
     li.release_backend();
@@ -1130,18 +968,13 @@ TEST_CASE(
     CHECK(li.get_obj_value() == doctest::Approx(orig_obj));
   }
 
-  SUBCASE("multiple cycles with no cache still work")
+  SUBCASE("multiple release/reconstruct cycles still work")
   {
-    li.set_low_memory(LowMemoryMode::compress,
-                      CompressionCodec::lz4,
-                      /*cache_warm_start=*/false);
+    li.set_low_memory(LowMemoryMode::compress, CompressionCodec::lz4);
     li.save_snapshot(FlatLinearProblem {flat});
 
     for (int i = 0; i < 3; ++i) {
       li.release_backend();
-      CHECK(li.get_col_sol_raw().empty());
-      CHECK(li.get_col_cost_raw().empty());
-
       li.reconstruct_backend();
       auto r = li.resolve();
       REQUIRE(r.has_value());

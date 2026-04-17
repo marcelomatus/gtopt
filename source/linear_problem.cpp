@@ -76,7 +76,7 @@ namespace
 // Returns the per-row scale factors (max |coeff| per row, or 1.0 for
 // empty rows).
 
-auto apply_row_max_equilibration(
+[[nodiscard]] auto apply_row_max_equilibration(
     std::span<const FlatLinearProblem::index_t> matind,
     std::span<double> matval,
     std::span<double> rowlb,
@@ -141,19 +141,20 @@ struct RuizScalingResult
   // col_scales are updated in-place (passed by reference)
 };
 
-auto apply_ruiz_scaling(std::span<const FlatLinearProblem::index_t> matbeg,
-                        std::span<const FlatLinearProblem::index_t> matind,
-                        std::span<double> matval,
-                        std::span<double> rowlb,
-                        std::span<double> rowub,
-                        std::span<double> collb,
-                        std::span<double> colub,
-                        std::span<double> objval,
-                        std::span<double> col_scales,
-                        double infinity,
-                        FastSqrtMethod sqrt_method = FastSqrtMethod::ieee_halve,
-                        int max_iterations = 10,
-                        double tolerance = 1e-3) -> std::vector<double>
+[[nodiscard]] auto apply_ruiz_scaling(
+    std::span<const FlatLinearProblem::index_t> matbeg,
+    std::span<const FlatLinearProblem::index_t> matind,
+    std::span<double> matval,
+    std::span<double> rowlb,
+    std::span<double> rowub,
+    std::span<double> collb,
+    std::span<double> colub,
+    std::span<double> objval,
+    std::span<double> col_scales,
+    double infinity,
+    FastSqrtMethod sqrt_method = FastSqrtMethod::ieee_halve,
+    int max_iterations = 10,
+    double tolerance = 1e-3) -> std::vector<double>
 {
   const auto nrows = rowlb.size();
   const auto ncols = collb.size();

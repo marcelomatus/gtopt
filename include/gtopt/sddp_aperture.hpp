@@ -161,10 +161,6 @@ using ApertureSubmitFunc = std::function<std::future<ApertureCutResult>(
 ///                         treated as infeasible and skipped.
 /// @param save_aperture_lp If true, save each aperture LP to the log directory
 /// @param aperture_cache   Cache of pre-built aperture LP data
-/// @param forward_col_sol  Forward-pass primal solution (warm-start hint for
-///                         aperture clones).  Applied after update_aperture.
-/// @param forward_row_dual Forward-pass dual solution (warm-start hint for
-///                         aperture clones).  Applied after update_aperture.
 /// @param iteration        Current SDDP iteration index
 /// @param scale_alpha      Scaling factor applied to the cut alpha (RHS)
 /// @param cut_coeff_eps    Epsilon below which cut coefficients are zeroed
@@ -189,8 +185,6 @@ using ApertureSubmitFunc = std::function<std::future<ApertureCutResult>(
     double aperture_timeout = 0.0,
     bool save_aperture_lp = false,
     const ApertureDataCache& aperture_cache = {},
-    std::span<const double> forward_col_sol = {},
-    std::span<const double> forward_row_dual = {},
     IterationIndex iteration_index = {},
     double scale_alpha = 1.0,
     double cut_coeff_eps = 0.0,

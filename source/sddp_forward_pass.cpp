@@ -32,21 +32,6 @@ namespace gtopt
 
 namespace
 {
-/// Round *n* up to the next multiple of *alignment*.
-constexpr std::size_t align_up(std::size_t n, std::size_t alignment) noexcept
-{
-  return (n + alignment - 1) / alignment * alignment;
-}
-
-/// Assign *src* into *dst* and pad with zeros to at least *src.size() + extra*,
-/// rounded up to a 16-element boundary.
-void assign_padded(std::vector<double>& dst,
-                   std::span<const double> src,
-                   std::size_t extra)
-{
-  dst.assign(src.begin(), src.end());
-  dst.resize(align_up(src.size() + extra, 16), 0.0);
-}
 }  // namespace
 
 auto SDDPMethod::forward_pass(SceneIndex scene_index,
@@ -62,14 +47,6 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
   auto effective_opts = opts;
   if (m_options_.solve_timeout > 0.0) {
     effective_opts.time_limit = m_options_.solve_timeout;
-  }
-  // After the first iteration the LP already carries a valid basis from the
-  // previous solve.  Enable warm-start (dual simplex + no presolve) so the
-  // solver pivots from that basis instead of re-solving from scratch with
-  // barrier.  With hot start (offset > 0), reuse_basis is enabled from the
-  // first iteration since the LP already has a basis.
-  if (iteration_index > m_iteration_offset_ && m_options_.warm_start) {
-    effective_opts.reuse_basis = true;
   }
 
   [[maybe_unused]] const auto fwd_tid = std::this_thread::get_id();
@@ -97,25 +74,20 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
     auto& system = planning_lp().system(scene_index, phase_index);
     auto& state = phase_states[phase_index];
 
-    // Reconstruct (or, under rebuild mode, re-flatten) the LP backend if
-    // released by low_memory mode.  dispatch_update_lp() runs after this
-    // point, so coefficient updates are replayed naturally.
-    if (system.is_backend_released()) {
-      SPDLOG_DEBUG("{}: ensuring LP built for low_memory",
-                   sddp_log("Forward",
-                            iteration_index,
-                            scene_uid(scene_index),
-                            phase_uid(phase_index)));
-      system.ensure_lp_built(state.forward_col_sol, state.forward_row_dual);
-    }
+    // Ensure the LP backend is live.  No-op when mode=off or when a
+    // prior task already reloaded this cell; otherwise reconstructs
+    // from snapshot (snapshot/compress) or re-flattens from collections
+    // (rebuild).  dispatch_update_lp() runs after this point, so
+    // coefficient updates are replayed naturally.
+    system.ensure_lp_built();
 
     auto& li = system.linear_interface();
 
     // Propagate state variables from previous phase.
     // Trial values are read from each link's source StateVariable
-    // (col_sol() mirror, populated by the previous phase's solve below)
-    // — no reliance on `prev_st.forward_col_sol`, so low_memory mode with
-    // warm_start off works identically.
+    // (col_sol() mirror, populated by the previous phase's solve via
+    // `capture_state_variable_values`).  Mode-agnostic: works identically
+    // across LowMemoryMode off / snapshot / compress / rebuild.
     if (phase_index) {
       const auto prev_phase_index = previous(phase_index);
       auto& prev_st = phase_states[prev_phase_index];
@@ -166,13 +138,6 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
                                   .string();
         m_lp_debug_writer_.write(li, dbg_stem);
       }
-    }
-
-    // Apply saved forward-pass solution from the previous iteration as
-    // warm-start hint.  Dimension mismatches (new cut rows) are handled
-    // by set_warm_start_solution() via zero-padding.
-    if (effective_opts.reuse_basis) {
-      li.set_warm_start_solution(state.forward_col_sol, state.forward_row_dual);
     }
 
     // Configure solver log file based on log_mode.
@@ -268,16 +233,6 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
         // code falls back to reduced-cost cuts (see backward_pass_*).
         capture_state_variable_values(scene_index, phase_index, sol, rc);
 
-        // Warm-start / reconstruction hints — retained only when
-        // warm_start is enabled.  Empty under low_memory.
-        if (m_options_.warm_start) {
-          const auto n_links = state.outgoing_links.size();
-          assign_padded(state.forward_col_sol, sol, n_links);
-        } else {
-          state.forward_col_sol.clear();
-        }
-        state.forward_row_dual.clear();
-
         const auto sa = m_options_.scale_alpha;
         const auto alpha_val = (state.alpha_col != ColIndex {unknown_index})
             ? sol[state.alpha_col] * sa
@@ -345,27 +300,10 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
 
       // Mirror per-state-variable runtime values onto the persistent
       // StateVariable objects.  These replace the former per-PhaseState
-      // full-vector caches (`forward_col_cost`, and — when warm_start
-      // is off — `forward_col_sol` / `forward_row_dual`) for both
-      // next-phase trial-value propagation and backward-pass cut
-      // construction.  Cuts always use reduced costs, so row duals are
-      // never needed here.
+      // full-vector caches for both next-phase trial-value propagation
+      // and backward-pass cut construction.  Cuts always use reduced
+      // costs, so row duals are never needed here.
       capture_state_variable_values(scene_index, phase_index, sol, rc);
-
-      // Warm-start / reconstruction hints — retained only when
-      // warm_start is enabled.  Empty under low_memory (warm_start
-      // forced off); downstream consumers either skip the warm-start
-      // (reconstruct_backend, set_warm_start_solution, elastic clone)
-      // or use the StateVariable mirrors (cut builders).
-      if (m_options_.warm_start) {
-        const auto n_links = state.outgoing_links.size();
-        assign_padded(state.forward_col_sol, sol, n_links);
-        const auto row_duals = li.get_row_dual_raw();
-        assign_padded(state.forward_row_dual, row_duals, 2 * n_links);
-      } else {
-        state.forward_col_sol.clear();
-        state.forward_row_dual.clear();
-      }
 
       const auto sa = m_options_.scale_alpha;
       const auto alpha_val = (state.alpha_col != ColIndex {unknown_index})

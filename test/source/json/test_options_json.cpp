@@ -230,8 +230,7 @@ TEST_CASE(
       "algorithm": 1,
       "threads": 2,
       "presolve": true,
-      "log_level": 0,
-      "reuse_basis": false
+      "log_level": 0
     }
   })";
 

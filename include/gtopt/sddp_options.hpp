@@ -127,13 +127,6 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
    */
   OptBool save_aperture_lp {};
 
-  /** @brief Enable warm-start for SDDP resolves.
-   *  When true, previous forward-pass primal/dual solutions are loaded
-   *  into clone LPs before resolving (backward pass, elastic filter,
-   *  apertures).  Combined with solver_options.reuse_basis, this enables
-   *  efficient incremental re-solves.  Default when unset: true. */
-  OptBool warm_start {};
-
   /** @brief CSV file with boundary (future-cost) cuts for the last phase.
    *
    * These are analogous to PLP's "planos de embalse" — external optimality
@@ -394,8 +387,7 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
    * `PlanningOptions::solver_options`.  Backward-pass-specific options
    * take precedence over the global ones.
    *
-   * Typical use: use dual simplex with reuse_basis for the backward pass
-   * (warm-started resolves after adding cuts).
+   * Typical use: use dual simplex for the backward pass.
    */
   std::optional<SolverOptions> backward_solver_options {};
 
@@ -440,7 +432,6 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
     merge_opt(cut_coeff_eps, opts.cut_coeff_eps);
     merge_opt(cut_coeff_max, opts.cut_coeff_max);
     merge_opt(state_variable_lookup_mode, opts.state_variable_lookup_mode);
-    merge_opt(warm_start, opts.warm_start);
     merge_opt(convergence_mode, opts.convergence_mode);
     merge_opt(stationary_tol, opts.stationary_tol);
     merge_opt(stationary_window, opts.stationary_window);

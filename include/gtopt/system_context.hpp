@@ -282,15 +282,43 @@ public:
         ->element(id);
   }
 
+  /// Rebuild-pass flag.  Set to `true` by `SystemLP::rebuild_in_place`
+  /// while the LP is being re-flattened from collections under
+  /// `LowMemoryMode::rebuild`.  Gated registry side-effects
+  /// (`add_state_variable`, `add_ampl_variable`, `defer_state_link`,
+  /// `register_ampl_element_metadata`) become no-ops when this flag is
+  /// set — the initial pass already populated the registries with
+  /// matching col indices, and re-registering on every rebuild would
+  /// burn CPU for zero gain while risking false-positive mismatches in
+  /// the idempotency guards.
+  [[nodiscard]] constexpr bool rebuild_pass() const noexcept
+  {
+    return m_rebuild_pass_;
+  }
+
+  constexpr void set_rebuild_pass(bool v) noexcept { m_rebuild_pass_ = v; }
+
   // Methods to handle the state_variables
+  //
+  // Return-type note: this wrapper is `void` (the underlying
+  // `SimulationLP::add_state_variable` returns the registered
+  // `StateVariable&`, but no caller uses the return value — and making
+  // the rebuild-pass early-return return a reference would require
+  // looking the entry up again, defeating the purpose of gating).
   template<typename Key>
-  constexpr auto add_state_variable(Key&& key,
+  constexpr void add_state_variable(Key&& key,
                                     ColIndex col,
                                     double scost,
                                     double var_scale,
                                     LpContext context)
   {
-    return simulation().add_state_variable(
+    if (m_rebuild_pass_) {
+      // Rebuild pass: registry already holds an entry with the same col
+      // (fresh flatten is deterministic).  Skip the SimulationLP call
+      // entirely — no lock, no map lookup, no idempotency branch.
+      return;
+    }
+    std::ignore = simulation().add_state_variable(
         std::forward<Key>(key), col, scost, var_scale, std::move(context));
   }
 
@@ -472,6 +500,13 @@ private:
   // Populated once in the constructor (system_context.cpp includes
   // system_lp.hpp).
   lp_collection_ptrs_t m_collection_ptrs_ {};
+
+  /// When true, element `add_to_lp` calls skip registry side-effects
+  /// (state-variable registration, AMPL registration, cross-phase link
+  /// deferral, metadata registration).  Set by
+  /// `SystemLP::rebuild_in_place()` during the rebuild pass only.  See
+  /// `set_rebuild_pass`.
+  bool m_rebuild_pass_ {false};
 };
 
 }  // namespace gtopt
