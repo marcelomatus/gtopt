@@ -142,6 +142,11 @@ private:
   /// Populated after each non-final level solves; consumed by the next level
   /// via name-based load_state_csv to seed warm column solutions.
   std::string m_prev_state_file_ {};
+  /// Temp file path holding previous level's cuts, pre-filtered according
+  /// to the NEXT level's transition.inherit_* settings.  Populated at end
+  /// of level N so the owned LP and solver can be released before level
+  /// N+1 allocates its own LP.  Consumed by the next level.
+  std::string m_prev_cuts_file_ {};
 };
 
 }  // namespace gtopt

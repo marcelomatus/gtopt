@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <cstdint>
 #include <filesystem>
 #include <format>
 #include <numeric>
@@ -23,6 +24,7 @@
 #include <gtopt/sparse_row.hpp>
 #include <gtopt/utils.hpp>
 #include <spdlog/spdlog.h>
+#include <unistd.h>
 
 namespace gtopt
 {
@@ -286,10 +288,8 @@ auto CascadePlanningMethod::solve(PlanningLP& planning_lp,
     -> std::expected<int, Error>
 {
   PlanningLP* current_lp = nullptr;
-  const PlanningLP* prev_lp = nullptr;
   std::unique_ptr<SDDPMethod> current_solver;
   std::vector<StateTarget> prev_targets;
-  std::vector<StoredCut> prev_cuts;
   ModelOptions prev_effective_model = m_cascade_opts_.model_options;
 
   // Global iteration budget: cascade sddp_options.max_iterations applies
@@ -390,89 +390,39 @@ auto CascadePlanningMethod::solve(PlanningLP& planning_lp,
         level_opts.convergence_tol);
 
     // ── 4. Load inherited cuts (after solver init, so alpha cols exist) ──
+    // Cuts were pre-filtered and serialized at the end of the previous
+    // level (step 5) so that the previous level's LP/solver could be
+    // released before this level built its own LP.  Here we just load
+    // the resulting file into the new solver.
     int inherited_cut_count = 0;
-    if (level.transition && level_idx > 0) {
+    if (level.transition && level_idx > 0 && !m_prev_cuts_file_.empty()
+        && std::filesystem::exists(m_prev_cuts_file_))
+    {
       // Ensure alpha variables are added before resolving cut column names
       if (auto init_err = current_solver->ensure_initialized();
           !init_err.has_value())
       {
         return std::unexpected(init_err.error());
       }
-      const auto& trans = *level.transition;
-      // Non-zero inherit value means inherit cuts (-1 = keep forever,
-      // N > 0 = forget after N iterations).
-      const int opt_cut_mode = trans.inherit_optimality_cuts.value_or(0);
-      const int feas_cut_mode = trans.inherit_feasibility_cuts.value_or(0);
-      const bool want_opt_cuts = opt_cut_mode != 0;
-      const bool want_feas_cuts = feas_cut_mode != 0;
-
-      if ((want_opt_cuts || want_feas_cuts) && !prev_cuts.empty()
-          && prev_lp != nullptr)
-      {
-        // Filter cuts by type and optionally by dual activity
-        const double dual_threshold =
-            trans.optimality_dual_threshold.value_or(0.0);
-        std::vector<StoredCut> filtered;
-        int skipped_by_dual = 0;
-        for (const auto& cut : prev_cuts) {
-          if ((want_opt_cuts && cut.type == CutType::Optimality)
-              || (want_feas_cuts && cut.type == CutType::Feasibility))
-          {
-            if (dual_threshold > 0.0 && cut.dual.has_value()
-                && std::abs(*cut.dual) < dual_threshold)
-            {
-              ++skipped_by_dual;
-              continue;
-            }
-            filtered.push_back(cut);
-          }
-        }
-        if (skipped_by_dual > 0) {
-          SPDLOG_INFO(
-              "Cascade [{}]: skipped {} inactive cuts "
-              "(|dual| < {})",
-              level_name,
-              skipped_by_dual,
-              dual_threshold);
-        }
-
-        if (!filtered.empty()) {
-          const auto tmp_path = std::filesystem::temp_directory_path()
-              / std::format("cascade_cuts_{}.csv", level_idx);
-          auto save_result =
-              save_cuts_csv(filtered, *prev_lp, tmp_path.string());
-
-          if (save_result.has_value()) {
-            // Route through the new solver so that the alpha column lookup
-            // table (m_scene_phase_states_) is passed to load_cuts_csv —
-            // otherwise @alpha resolution falls back to LP-name lookup,
-            // which fails when LP names are disabled.
-            auto load_result = current_solver->load_cuts(tmp_path.string());
-
-            if (load_result.has_value()) {
-              inherited_cut_count = load_result->count;
-              SPDLOG_INFO(
-                  "Cascade [{}]: transferred {} cuts "
-                  "(optimality={}, feasibility={})",
-                  level_name,
-                  load_result->count,
-                  want_opt_cuts,
-                  want_feas_cuts);
-            } else {
-              SPDLOG_WARN("Cascade [{}]: cut load failed: {}",
-                          level_name,
-                          load_result.error().message);
-            }
-
-            std::error_code ec;
-            std::filesystem::remove(tmp_path, ec);
-          } else {
-            SPDLOG_WARN("Cascade [{}]: cut save failed: {}",
-                        level_name,
-                        save_result.error().message);
-          }
-        }
+      // Route through the new solver so that the alpha column lookup
+      // table (m_scene_phase_states_) is passed to load_cuts_csv —
+      // otherwise @alpha resolution falls back to LP-name lookup,
+      // which fails when LP names are disabled.
+      auto load_result = current_solver->load_cuts(m_prev_cuts_file_);
+      if (load_result.has_value()) {
+        inherited_cut_count = load_result->count;
+        SPDLOG_INFO("Cascade [{}]: transferred {} cuts from {}",
+                    level_name,
+                    load_result->count,
+                    m_prev_cuts_file_);
+      } else {
+        SPDLOG_WARN("Cascade [{}]: cut load failed: {}",
+                    level_name,
+                    load_result.error().message);
       }
+      std::error_code ec;
+      std::filesystem::remove(m_prev_cuts_file_, ec);
+      m_prev_cuts_file_.clear();
     }
 
     // ── Load previous level's state variable solutions ──
@@ -649,7 +599,7 @@ auto CascadePlanningMethod::solve(PlanningLP& planning_lp,
       break;
     }
 
-    // ── 5. Extract state for next level ──
+    // ── 5. Extract state for next level + explicit cleanup ──
     if (level_idx + 1 < m_cascade_opts_.level_array.size()) {
       prev_targets = collect_state_targets(*current_solver, *current_lp);
 
@@ -657,7 +607,9 @@ auto CascadePlanningMethod::solve(PlanningLP& planning_lp,
       // transfer.  The next level loads these via name-based resolution,
       // which handles different LP column layouts between levels.
       const auto state_tmp = std::filesystem::temp_directory_path()
-          / std::format("cascade_state_{}.csv", level_idx);
+          / std::format("cascade_state_{}_{}.csv",
+                        static_cast<std::int64_t>(::getpid()),
+                        level_idx);
       auto state_save =
           save_state_csv(*current_lp, state_tmp.string(), IterationIndex {0});
       if (state_save.has_value()) {
@@ -672,10 +624,85 @@ auto CascadePlanningMethod::solve(PlanningLP& planning_lp,
                     state_save.error().message);
       }
 
-      // Update stored cut duals from the last LP solution
-      current_solver->update_stored_cut_duals();
-      prev_cuts = current_solver->stored_cuts();
-      prev_lp = current_lp;
+      // Pre-filter and serialize cuts to disk while the current LP is
+      // still alive.  Doing this here (not at next-level start) lets us
+      // drop the solver + owned LP before level N+1 allocates a new LP,
+      // halving peak memory on the level boundary.
+      m_prev_cuts_file_.clear();
+      const auto& next_level = m_cascade_opts_.level_array[level_idx + 1];
+      if (next_level.transition) {
+        current_solver->update_stored_cut_duals();
+        auto stored_cuts = current_solver->stored_cuts();
+        const auto& trans = *next_level.transition;
+        const int opt_cut_mode = trans.inherit_optimality_cuts.value_or(0);
+        const int feas_cut_mode = trans.inherit_feasibility_cuts.value_or(0);
+        const bool want_opt_cuts = opt_cut_mode != 0;
+        const bool want_feas_cuts = feas_cut_mode != 0;
+
+        if ((want_opt_cuts || want_feas_cuts) && !stored_cuts.empty()) {
+          const double dual_threshold =
+              trans.optimality_dual_threshold.value_or(0.0);
+          std::vector<StoredCut> filtered;
+          filtered.reserve(stored_cuts.size());
+          int skipped_by_dual = 0;
+          for (const auto& cut : stored_cuts) {
+            if ((want_opt_cuts && cut.type == CutType::Optimality)
+                || (want_feas_cuts && cut.type == CutType::Feasibility))
+            {
+              if (dual_threshold > 0.0 && cut.dual.has_value()
+                  && std::abs(*cut.dual) < dual_threshold)
+              {
+                ++skipped_by_dual;
+                continue;
+              }
+              filtered.push_back(cut);
+            }
+          }
+          if (skipped_by_dual > 0) {
+            SPDLOG_INFO(
+                "Cascade [{}]: skipped {} inactive cuts "
+                "(|dual| < {})",
+                level_name,
+                skipped_by_dual,
+                dual_threshold);
+          }
+          if (!filtered.empty()) {
+            const auto cuts_tmp = std::filesystem::temp_directory_path()
+                / std::format("cascade_cuts_{}_{}.csv",
+                              static_cast<std::int64_t>(::getpid()),
+                              level_idx + 1);
+            auto save_result =
+                save_cuts_csv(filtered, *current_lp, cuts_tmp.string());
+            if (save_result.has_value()) {
+              m_prev_cuts_file_ = cuts_tmp.string();
+              SPDLOG_INFO("Cascade [{}]: serialized {} cuts for next level",
+                          level_name,
+                          filtered.size());
+            } else {
+              SPDLOG_WARN("Cascade [{}]: cut save failed: {}",
+                          level_name,
+                          save_result.error().message);
+            }
+          }
+        }
+      }
+
+      // ── EXPLICIT CLEANUP before next level allocates its LP ──
+      // Drop the solver (frees aperture subproblems + scene_phase_states_)
+      // and the owned LP (frees the per-cell LP matrices).  The caller's
+      // PlanningLP, if reused at level 0, remains alive outside cascade;
+      // clearing our raw pointers just drops our references to it.
+      const auto owned_before = m_owned_lps_.size();
+      current_solver.reset();
+      current_lp = nullptr;
+      m_owned_lps_.clear();
+      m_owned_lps_.shrink_to_fit();
+      SPDLOG_INFO(
+          "Cascade [{}]: released solver and {} owned LP(s) before level [{}]",
+          level_name,
+          owned_before,
+          m_cascade_opts_.level_array[level_idx + 1].name.value_or(
+              as_label("level", level_idx + 1)));
     }
   }
 
