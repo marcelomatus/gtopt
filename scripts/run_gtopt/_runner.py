@@ -418,11 +418,26 @@ def _total_dir_size(path: Path) -> int:
 
 
 def _read_result_table(results_dir: Path, stem: str):
-    """Try to read a result file as a pandas DataFrame."""
+    """Try to read a result file as a pandas DataFrame.
+
+    Handles both the legacy single-file layout (``{stem}.{ext}``) and the
+    per-(scene, phase) shard layout (``{stem}_s*_p*.{ext}``), concatenating
+    shards in scene-then-phase order.
+    """
     try:
         import pandas as pd  # noqa: PLC0415
 
+        parent = results_dir / Path(stem).parent
+        name = Path(stem).name
         for ext in (".parquet", ".csv", ".csv.zst", ".csv.gz"):
+            shards = sorted(parent.glob(f"{name}_s*_p*{ext}"))
+            if shards:
+                frames = [
+                    pd.read_parquet(f) if ext == ".parquet" else pd.read_csv(f)
+                    for f in shards
+                ]
+                return pd.concat(frames, ignore_index=True) if frames else None
+
             fpath = results_dir / (stem + ext)
             if fpath.is_file():
                 if ext == ".parquet":

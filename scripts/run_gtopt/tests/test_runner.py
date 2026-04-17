@@ -5,6 +5,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from run_gtopt._runner import (
+    _read_result_table,
     check_solution,
     find_error_lp_files,
     report_solution,
@@ -148,3 +149,47 @@ def test_run_check_lp_prints_instructions(tmp_path: Path, capsys):
     assert "Error LP Diagnostics" in captured.out
     assert "gtopt_check_lp" in captured.out
     assert str(logs) in captured.out
+
+
+def test_read_result_table_single_parquet(tmp_path: Path):
+    """Legacy single-file parquet layout is read as one frame."""
+    import pandas as pd  # noqa: PLC0415
+
+    subdir = tmp_path / "Generator"
+    subdir.mkdir()
+    pd.DataFrame({"uid:1": [1.0, 2.0]}).to_parquet(subdir / "generation_sol.parquet")
+    df = _read_result_table(tmp_path, "Generator/generation_sol")
+    assert df is not None
+    assert len(df) == 2
+
+
+def test_read_result_table_parquet_shards(tmp_path: Path):
+    """Per-(scene, phase) shards are concatenated in sorted order."""
+    import pandas as pd  # noqa: PLC0415
+
+    subdir = tmp_path / "Generator"
+    subdir.mkdir()
+    pd.DataFrame({"uid:1": [1.0]}).to_parquet(subdir / "generation_sol_s0_p0.parquet")
+    pd.DataFrame({"uid:1": [2.0]}).to_parquet(subdir / "generation_sol_s0_p1.parquet")
+    pd.DataFrame({"uid:1": [3.0]}).to_parquet(subdir / "generation_sol_s1_p0.parquet")
+    df = _read_result_table(tmp_path, "Generator/generation_sol")
+    assert df is not None
+    assert list(df["uid:1"]) == [1.0, 2.0, 3.0]
+
+
+def test_read_result_table_shards_preferred(tmp_path: Path):
+    """Shards take precedence over a sibling legacy single file."""
+    import pandas as pd  # noqa: PLC0415
+
+    subdir = tmp_path / "Demand"
+    subdir.mkdir()
+    pd.DataFrame({"uid:1": [99.0]}).to_parquet(subdir / "load_sol.parquet")
+    pd.DataFrame({"uid:1": [1.0]}).to_parquet(subdir / "load_sol_s0_p0.parquet")
+    df = _read_result_table(tmp_path, "Demand/load_sol")
+    assert df is not None
+    assert list(df["uid:1"]) == [1.0]
+
+
+def test_read_result_table_missing(tmp_path: Path):
+    """Missing stem returns None."""
+    assert _read_result_table(tmp_path, "Nope/missing") is None

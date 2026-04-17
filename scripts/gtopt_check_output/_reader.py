@@ -15,9 +15,30 @@ log = logging.getLogger(__name__)
 def read_table(directory: Path, stem: str) -> pd.DataFrame | None:
     """Read a parquet or CSV file from *directory*/*stem*.{ext}.
 
-    Tries parquet first, then csv variants.  Returns None if not found.
+    Handles two layouts transparently:
+
+    * Single-file: ``{stem}.{ext}`` — the legacy layout.
+    * Per-(scene, phase) shards: ``{stem}_s*_p*.{ext}`` — concatenated
+      into one frame in scene-then-phase order.
+
+    Shards are preferred when present.  Tries parquet first, then csv
+    variants.  Returns ``None`` if nothing matches.
     """
+    parent = directory / Path(stem).parent
+    name = Path(stem).name
     for ext in (".parquet", ".csv", ".csv.zst", ".csv.gz"):
+        shards = sorted(parent.glob(f"{name}_s*_p*{ext}"))
+        if shards:
+            try:
+                frames = [
+                    pd.read_parquet(f) if ext == ".parquet" else pd.read_csv(f)
+                    for f in shards
+                ]
+                return pd.concat(frames, ignore_index=True) if frames else None
+            except Exception as exc:  # noqa: BLE001  # pylint: disable=broad-exception-caught
+                log.warning("failed to read shards for %s: %s", stem, exc)
+                return None
+
         fpath = directory / (stem + ext)
         if fpath.is_file():
             try:
