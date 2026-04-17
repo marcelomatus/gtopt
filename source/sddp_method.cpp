@@ -344,7 +344,7 @@ void SDDPMethod::clear_stored_cuts() noexcept
   m_cut_store_.clear();
 }
 
-void SDDPMethod::forget_first_cuts(int count)
+void SDDPMethod::forget_first_cuts(std::ptrdiff_t count)
 {
   m_cut_store_.forget_first_cuts(count, planning_lp());
 }

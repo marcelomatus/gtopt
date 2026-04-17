@@ -449,7 +449,7 @@ void LinearInterface::set_warm_start_solution(
     const std::span<const double> row_dual)
 {
   if (!col_sol.empty()) {
-    const auto ncols = static_cast<std::size_t>(get_numcols());
+    const auto ncols = get_numcols();
     if (col_sol.size() >= ncols) {
       set_col_sol(col_sol.first(ncols));
     } else {
@@ -459,7 +459,7 @@ void LinearInterface::set_warm_start_solution(
     }
   }
   if (!row_dual.empty()) {
-    const auto nrows = static_cast<std::size_t>(get_numrows());
+    const auto nrows = get_numrows();
     if (row_dual.size() >= nrows) {
       set_row_dual(row_dual.first(nrows));
     } else {
@@ -1156,8 +1156,8 @@ std::expected<int, Error> LinearInterface::initial_solve(
   using Clock = std::chrono::steady_clock;
 
   ++m_solver_stats_.initial_solve_calls;
-  m_solver_stats_.total_ncols += static_cast<std::size_t>(get_numcols());
-  m_solver_stats_.total_nrows += static_cast<std::size_t>(get_numrows());
+  m_solver_stats_.total_ncols += get_numcols();
+  m_solver_stats_.total_nrows += get_numrows();
 
   try {
     // Start from backend-optimal defaults, overlay user settings on top.
@@ -1267,8 +1267,8 @@ std::expected<int, Error> LinearInterface::resolve(
   ensure_backend();
 
   ++m_solver_stats_.resolve_calls;
-  m_solver_stats_.total_ncols += static_cast<std::size_t>(get_numcols());
-  m_solver_stats_.total_nrows += static_cast<std::size_t>(get_numrows());
+  m_solver_stats_.total_ncols += get_numcols();
+  m_solver_stats_.total_nrows += get_numrows();
 
   try {
     // Start from backend-optimal defaults, overlay user settings on top.

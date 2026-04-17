@@ -111,17 +111,18 @@ public:
 
   /// Number of stored cuts (thread-safe).
   /// In single_cut_storage mode, counts across all per-scene vectors.
-  [[nodiscard]] int num_stored_cuts(bool single_cut_storage) const noexcept
+  [[nodiscard]] std::ptrdiff_t num_stored_cuts(
+      bool single_cut_storage) const noexcept
   {
     if (single_cut_storage) {
-      int total = 0;
+      std::ptrdiff_t total = 0;
       for (const auto& sc : m_scene_cuts_) {
-        total += static_cast<int>(sc.size());
+        total += std::ssize(sc);
       }
       return total;
     }
     const std::scoped_lock lock(m_cuts_mutex_);
-    return static_cast<int>(m_stored_cuts_.size());
+    return std::ssize(m_stored_cuts_);
   }
 
   // ── Core operations ──────────────────────────────────────────────────
@@ -140,7 +141,7 @@ public:
   void clear() noexcept;
 
   /// Remove the first @p count cuts from stored cuts and from the LP.
-  void forget_first_cuts(int count, PlanningLP& planning_lp);
+  void forget_first_cuts(std::ptrdiff_t count, PlanningLP& planning_lp);
 
   /// Update dual values of stored cuts from the current LP solution.
   void update_stored_cut_duals(PlanningLP& planning_lp);

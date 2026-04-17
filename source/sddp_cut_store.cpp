@@ -85,7 +85,8 @@ void SDDPCutStore::clear() noexcept
 
 // ── forget_first_cuts ──────────────────────────────────────────────────────
 
-void SDDPCutStore::forget_first_cuts(int count, PlanningLP& planning_lp)
+void SDDPCutStore::forget_first_cuts(std::ptrdiff_t count,
+                                     PlanningLP& planning_lp)
 {
   if (count <= 0) {
     return;
@@ -109,10 +110,10 @@ void SDDPCutStore::forget_first_cuts(int count, PlanningLP& planning_lp)
   std::map<ScenePhaseKey, std::vector<int>> rows_to_delete;
   std::set<std::string> names_to_forget;
 
-  int n = 0;
+  std::ptrdiff_t n = 0;
   {
     const std::scoped_lock lk(m_cuts_mutex_);
-    n = std::min(count, static_cast<int>(std::ssize(m_stored_cuts_)));
+    n = std::min(count, std::ssize(m_stored_cuts_));
     for (const auto& cut : m_stored_cuts_ | std::views::take(n)) {
       if (!cut.name.empty()) {
         names_to_forget.insert(cut.name);

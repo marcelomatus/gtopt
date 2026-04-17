@@ -259,7 +259,7 @@ public:
   /// with only self-generated cuts.
   ///
   /// @param count  Number of leading cuts to remove (clamped to size).
-  void forget_first_cuts(int count);
+  void forget_first_cuts(std::ptrdiff_t count);
 
   /// Update dual values of stored cuts from the current LP solution.
   /// Call after the solver finishes to populate the dual field in each
@@ -274,7 +274,7 @@ public:
 
   /// Number of stored cuts (thread-safe).
   /// In single_cut_storage mode, counts across all per-scene vectors.
-  [[nodiscard]] int num_stored_cuts() const noexcept
+  [[nodiscard]] std::ptrdiff_t num_stored_cuts() const noexcept
   {
     return m_cut_store_.num_stored_cuts(m_options_.single_cut_storage);
   }
