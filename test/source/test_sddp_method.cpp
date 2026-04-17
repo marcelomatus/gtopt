@@ -422,39 +422,10 @@ TEST_CASE("compute_convergence_gap - large absolute upper bound")  // NOLINT
 }
 
 // ─── lp_only tests ─────────────────────────────────────────────────────
-
-TEST_CASE("SDDPMethod - lp_only=true builds LP only, no solving")  // NOLINT
-{
-  auto planning = make_3phase_hydro_planning();
-
-  // Use the 3-phase hydro planning that the other SDDP tests use.
-  SDDPOptions sddp_opts;
-  sddp_opts.max_iterations = 100;  // would run many iterations normally
-  sddp_opts.lp_only = true;  // build LP only — no solving whatsoever
-
-  PlanningLP planning_lp(std::move(planning));
-  SDDPMethod sddp(planning_lp, sddp_opts);
-  auto results = sddp.solve();
-
-  REQUIRE(results.has_value());
-  // lp_only returns immediately before initialize_solver()
-  // → empty results vector (no forward pass, no iterations)
-  CHECK(results->empty());
-}
-
-TEST_CASE("SDDPPlanningMethod - lp_only=true returns 0")  // NOLINT
-{
-  auto planning = make_3phase_hydro_planning();
-  planning.options.method = MethodType::sddp;
-  planning.options.lp_only = OptBool {true};
-
-  PlanningLP planning_lp(std::move(planning));
-  auto result = planning_lp.resolve();
-
-  // lp_only succeeds with return value 0 (no solving performed)
-  REQUIRE(result.has_value());
-  CHECK(*result == 0);
-}
+//
+// lp_only is handled exclusively in gtopt_lp_runner (see
+// build_all_lps_eagerly): it is SDDP-independent and never instantiates
+// SDDPMethod.  The test below exercises the full gtopt_main path.
 
 TEST_CASE(
     "gtopt_main - lp_only=true with SDDP solver builds LP only")  // NOLINT
@@ -991,7 +962,7 @@ TEST_CASE("SDDPMethod - forget_first_cuts removes inherited cuts")  // NOLINT
   const auto num_scenes = static_cast<Index>(sim.scenes().size());
   const auto num_phases = static_cast<Index>(sim.phases().size());
 
-  std::vector<int> rows_before;
+  std::vector<size_t> rows_before;
   for (Index si = 0; si < num_scenes; ++si) {
     for (Index pi = 0; pi < num_phases; ++pi) {
       const auto& li = planning_lp.system(SceneIndex {si}, PhaseIndex {pi})
@@ -1014,20 +985,21 @@ TEST_CASE("SDDPMethod - forget_first_cuts removes inherited cuts")  // NOLINT
     CHECK(sddp.num_stored_cuts() == total_cuts_before - to_forget);
 
     // Total LP rows should have decreased
-    int total_rows_before = 0;
-    int total_rows_after = 0;
-    int idx = 0;
+    size_t total_rows_before = 0;
+    size_t total_rows_after = 0;
+    size_t idx = 0;
     for (Index si = 0; si < num_scenes; ++si) {
       for (Index pi = 0; pi < num_phases; ++pi) {
         const auto& li = planning_lp.system(SceneIndex {si}, PhaseIndex {pi})
                              .linear_interface();
-        total_rows_before += rows_before[static_cast<size_t>(idx)];
+        total_rows_before += rows_before[idx];
         total_rows_after += li.get_numrows();
         ++idx;
       }
     }
     CHECK(total_rows_after < total_rows_before);
-    CHECK(total_rows_before - total_rows_after == to_forget);
+    CHECK(total_rows_before - total_rows_after
+          == static_cast<size_t>(to_forget));
   }
 
   SUBCASE("forget all cuts empties the stored cuts")
@@ -1264,7 +1236,7 @@ TEST_CASE(  // NOLINT
       .gap_change = last.gap_change,
       .lower_bound = last.lower_bound,
       .upper_bound = last.upper_bound,
-      .iterations = static_cast<int>(results->size()),
+      .iterations = std::ssize(*results),
       .converged = last.converged,
       .stationary_converged = last.stationary_converged,
   });

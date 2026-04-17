@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <cstddef>
 #include <string>
 #include <utility>
 
@@ -187,6 +188,22 @@ public:
   void write_lp(const std::string& filename) const;
 
   /**
+   * @brief Eagerly build every (scene, phase) LP matrix in parallel.
+   *
+   * Under `LowMemoryMode::rebuild` this triggers the rebuild callback
+   * for each cell (collections + flatten + load_flat) in parallel via
+   * the solver work pool.  Under `compress` it reconstructs each cell
+   * from its snapshot.  Under `off` it is a no-op (every backend is
+   * already live from construction).
+   *
+   * Intended use: the `--lp-only` CLI path validates that the whole
+   * planning horizon can be built, and optionally dumps every cell via
+   * `--lp-file`, without ever running the SDDP iterations.  Completely
+   * independent of any `SDDPMethod` instance.
+   */
+  void build_all_lps_eagerly();
+
+  /**
    * @brief Writes solution output (implementation-defined destination)
    */
   void write_out();
@@ -207,7 +224,7 @@ public:
     double lower_bound {0.0};  ///< Final lower bound
     double upper_bound {0.0};  ///< Final upper bound
     double max_kappa {-1.0};  ///< Global max condition number (-1 = unknown)
-    int iterations {0};  ///< Number of training iterations completed
+    std::ptrdiff_t iterations {0};  ///< Number of training iterations completed
     bool converged {false};  ///< True if any convergence criterion was met
     bool stationary_converged {
         false,

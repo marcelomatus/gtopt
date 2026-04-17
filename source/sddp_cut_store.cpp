@@ -112,7 +112,7 @@ void SDDPCutStore::forget_first_cuts(int count, PlanningLP& planning_lp)
   int n = 0;
   {
     const std::scoped_lock lk(m_cuts_mutex_);
-    n = std::min(count, static_cast<int>(m_stored_cuts_.size()));
+    n = std::min(count, static_cast<int>(std::ssize(m_stored_cuts_)));
     for (const auto& cut : m_stored_cuts_ | std::views::take(n)) {
       if (!cut.name.empty()) {
         names_to_forget.insert(cut.name);
@@ -277,7 +277,7 @@ void SDDPCutStore::prune_inactive_cuts(
 
       li.delete_rows(rows_to_delete);
       sys.record_cut_deletion(rows_to_delete);
-      total_pruned += static_cast<int>(rows_to_delete.size());
+      total_pruned += static_cast<int>(std::ssize(rows_to_delete));
       all_deleted[{scene_index, phase_index}] = std::move(rows_to_delete);
     }
   }

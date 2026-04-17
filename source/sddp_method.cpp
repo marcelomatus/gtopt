@@ -1792,13 +1792,6 @@ auto SDDPPlanningMethod::solve(PlanningLP& planning_lp,
   SPDLOG_INFO(
       "SDDPMethod: starting {} scene(s) × {} phase(s)", num_scenes, num_phases);
 
-  // lp_only: LP already built in PlanningLP constructor — skip all
-  // solving.
-  if (m_sddp_opts_.lp_only) {
-    SPDLOG_INFO("SDDP: lp_only mode — LP built, skipping solve");
-    return 0;
-  }
-
   SDDPMethod sddp(planning_lp, m_sddp_opts_);
   auto results = sddp.solve(opts);
 
@@ -1812,9 +1805,8 @@ auto SDDPPlanningMethod::solve(PlanningLP& planning_lp,
   if (!m_last_results_.empty()) {
     const auto& last = m_last_results_.back();
     // Count only training iterations (all but the final simulation pass).
-    const int training_iters = static_cast<int>(m_last_results_.size()) > 1
-        ? static_cast<int>(m_last_results_.size()) - 1
-        : static_cast<int>(m_last_results_.size());
+    const auto n = std::ssize(m_last_results_);
+    const auto training_iters = n > 1 ? n - 1 : n;
     planning_lp.set_sddp_summary({
         .gap = last.gap,
         .gap_change = last.gap_change,

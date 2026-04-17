@@ -447,8 +447,8 @@ auto PlanningLP::create_systems(System& system,
   auto&& scenes = simulation.scenes();
   auto&& phases = simulation.phases();
 
-  const auto num_scenes = static_cast<int>(scenes.size());
-  const auto num_phases = static_cast<int>(phases.size());
+  const auto num_scenes = std::ssize(scenes);
+  const auto num_phases = std::ssize(phases);
 
   // Pre-resolve the solver name on the main thread so worker threads
   // don't race through the plugin registry in parallel.  This triggers
@@ -855,11 +855,52 @@ void PlanningLP::write_lp(const std::string& filename) const
   }
 }
 
+void PlanningLP::build_all_lps_eagerly()
+{
+  const auto num_scenes = m_systems_.size();
+  if (num_scenes == 0) {
+    return;
+  }
+  const auto num_phases = m_systems_.front().size();
+  if (num_phases == 0) {
+    return;
+  }
+
+  // Parallel dispatch: one task per (scene, phase) cell.  Each task
+  // drives `ensure_lp_built()`, which is mode-agnostic — rebuild
+  // invokes the callback (flatten + load_flat), compress reloads from
+  // snapshot, off is a no-op.  Independent across cells (no shared
+  // state) so we can fan out to the full thread budget.
+  const auto build_start = std::chrono::steady_clock::now();
+  SPDLOG_INFO(
+      "  Eager LP build: {} scene(s) × {} phase(s)", num_scenes, num_phases);
+
+  auto pool = make_solver_work_pool(1.0);
+  std::vector<std::future<void>> futures;
+  futures.reserve(num_scenes * num_phases);
+  for (auto& phase_systems : m_systems_) {
+    for (auto& sys : phase_systems) {
+      auto* const sys_ptr = &sys;
+      auto result = pool->submit([sys_ptr] { sys_ptr->ensure_lp_built(); });
+      if (result.has_value()) {
+        futures.push_back(std::move(*result));
+      }
+    }
+  }
+  for (auto& fut : futures) {
+    fut.get();
+  }
+  const double elapsed = std::chrono::duration<double>(
+                             std::chrono::steady_clock::now() - build_start)
+                             .count();
+  SPDLOG_INFO("  Eager LP build done in {:.3f}s", elapsed);
+}
+
 void PlanningLP::write_out()
 {
-  const auto num_scenes = static_cast<int>(m_systems_.size());
+  const auto num_scenes = std::ssize(m_systems_);
   const auto num_phases =
-      num_scenes > 0 ? static_cast<int>(m_systems_.front().size()) : 0;
+      num_scenes > 0 ? std::ssize(m_systems_.front()) : std::ptrdiff_t {0};
   SPDLOG_INFO(
       "  Writing output: {} scene(s) × {} phase(s)", num_scenes, num_phases);
 
@@ -1023,8 +1064,7 @@ std::expected<void, Error> PlanningLP::resolve_scene_phases(
     phase_systems_t& phase_systems,
     const SolverOptions& lp_opts)
 {
-  [[maybe_unused]] const auto num_phases =
-      static_cast<int>(phase_systems.size());
+  [[maybe_unused]] const auto num_phases = std::ssize(phase_systems);
   SPDLOG_DEBUG("  Solving scene {} ({} phase(s))", scene_index, num_phases);
 
   // Configure per-scene/phase solver log files when detailed mode is active
