@@ -98,6 +98,15 @@ public:
     return m_level_stats_;
   }
 
+  /// Number of PlanningLPs owned by the cascade solver.  One entry is
+  /// added per level that required a fresh LP build; level 0 is skipped
+  /// when the caller-supplied PlanningLP is reused (no model-option
+  /// overrides from cascade globals or level 0).
+  [[nodiscard]] std::size_t owned_lps_count() const noexcept
+  {
+    return m_owned_lps_.size();
+  }
+
 private:
   /// Build SDDPOptions for a level, overriding base with level solver opts.
   /// @param level_solver      Per-level solver configuration (may be absent).

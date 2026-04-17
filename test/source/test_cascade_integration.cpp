@@ -986,4 +986,95 @@ TEST_CASE(  // NOLINT
         <= solver.level_stats()[0].iterations + 1);
 }
 
+// ─── Level-0 PlanningLP reuse ───────────────────────────────────────────────
+
+TEST_CASE(
+    "Cascade reuses caller PlanningLP when level 0 has no model overrides")
+// NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  auto planning = make_3phase_hydro_planning();
+  PlanningLP planning_lp(std::move(planning));
+
+  SDDPOptions sddp_opts;
+  sddp_opts.max_iterations = 4;
+  sddp_opts.convergence_tol = 0.01;
+  sddp_opts.apertures = std::vector<Uid> {};
+
+  // Two levels, neither sets model_options, and cascade globals are empty.
+  CascadeOptions cascade_opts;
+  cascade_opts.level_array = {
+      CascadeLevel {
+          .name = OptName {"lvl0"},
+          .sddp_options =
+              CascadeLevelMethod {
+                  .max_iterations = OptInt {3},
+                  .apertures = Array<Uid> {},
+                  .convergence_tol = OptReal {0.01},
+              },
+      },
+      CascadeLevel {
+          .name = OptName {"lvl1"},
+          .sddp_options =
+              CascadeLevelMethod {
+                  .max_iterations = OptInt {3},
+                  .apertures = Array<Uid> {},
+                  .convergence_tol = OptReal {0.01},
+              },
+          .transition =
+              CascadeTransition {
+                  .inherit_optimality_cuts = OptInt {-1},
+              },
+      },
+  };
+
+  CascadePlanningMethod solver(std::move(sddp_opts), std::move(cascade_opts));
+  const SolverOptions lp_opts;
+  auto result = solver.solve(planning_lp, lp_opts);
+
+  REQUIRE(result.has_value());
+  // Level 0 reused caller's PlanningLP → only level 1 owned.
+  CHECK(solver.owned_lps_count() == 1);
+}
+
+TEST_CASE("Cascade rebuilds level 0 PlanningLP when model overrides are set")
+// NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  auto planning = make_3phase_hydro_planning();
+  PlanningLP planning_lp(std::move(planning));
+
+  SDDPOptions sddp_opts;
+  sddp_opts.max_iterations = 3;
+  sddp_opts.convergence_tol = 0.01;
+  sddp_opts.apertures = std::vector<Uid> {};
+
+  CascadeOptions cascade_opts;
+  cascade_opts.level_array = {
+      CascadeLevel {
+          .name = OptName {"lvl0"},
+          .model_options =
+              ModelOptions {
+                  .use_single_bus = OptBool {true},
+              },
+          .sddp_options =
+              CascadeLevelMethod {
+                  .max_iterations = OptInt {3},
+                  .apertures = Array<Uid> {},
+                  .convergence_tol = OptReal {0.01},
+              },
+      },
+  };
+
+  CascadePlanningMethod solver(std::move(sddp_opts), std::move(cascade_opts));
+  const SolverOptions lp_opts;
+  auto result = solver.solve(planning_lp, lp_opts);
+
+  REQUIRE(result.has_value());
+  // Level 0 had model overrides → a fresh LP was built and owned.
+  CHECK(solver.owned_lps_count() == 1);
+}
+
 }  // anonymous namespace
