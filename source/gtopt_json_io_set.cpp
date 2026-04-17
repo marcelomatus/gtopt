@@ -113,9 +113,9 @@ namespace
 
 /// Set a single field on a SolverOptions struct.
 /// @return true if the field was recognised and set.
-bool try_set_solver_field(SolverOptions& so,
-                          std::string_view field,
-                          const std::string& value)
+[[nodiscard]] bool try_set_solver_field(SolverOptions& so,
+                                        std::string_view field,
+                                        const std::string& value)
 {
   if (field == "threads") {
     so.threads = std::stoi(value);
@@ -178,9 +178,9 @@ bool try_set_solver_field(SolverOptions& so,
 
 /// Try to handle a --set key=value as a direct SolverOptions field set.
 /// Returns true if the key matched a solver_options path and was applied.
-bool try_set_solver_options_path(Planning& planning,
-                                 std::string_view key,
-                                 const std::string& value)
+[[nodiscard]] bool try_set_solver_options_path(Planning& planning,
+                                               std::string_view key,
+                                               const std::string& value)
 {
   // solver_options.<field>
   constexpr std::string_view pfx_so = "solver_options.";
