@@ -513,7 +513,19 @@ public:
     install_rebuild_callback();
   }
 
-  void release_backend() noexcept { m_linear_interface_.release_backend(); }
+  /// Release the solver backend + (under rebuild mode) drop the
+  /// per-cell collection wrappers.  Rebuild mode's memory ceiling is
+  /// the active-workers × per-cell-collections footprint, not
+  /// 816 cells × collections — dropping here is what enforces that.
+  /// The next `rebuild_in_place` lazily re-builds them.
+  void release_backend() noexcept
+  {
+    m_linear_interface_.release_backend();
+    if (m_flat_opts_.low_memory_mode == LowMemoryMode::rebuild) {
+      m_collections_ = collections_t {};
+      m_collections_built_ = false;
+    }
+  }
 
   void reconstruct_backend(std::span<const double> col_sol = {},
                            std::span<const double> row_dual = {})
