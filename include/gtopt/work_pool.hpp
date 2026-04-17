@@ -68,6 +68,15 @@ struct WorkPoolConfig
   std::chrono::milliseconds scheduler_interval;
   std::string name;
   bool enable_periodic_stats {true};  ///< Log periodic CPU/MEM stats
+  /// Hard cap on process bytes paged to swap (MB).  When VmSwap exceeds
+  /// this, dispatch is blocked to let active tasks drain and release
+  /// memory instead of pushing more pages out.  0 = disabled.
+  double max_process_swap_mb {0.0};
+  /// Soft cap on system swap I/O rate (pages/sec, sum of pswpin+pswpout).
+  /// When the kernel is thrashing above this rate, dispatch is blocked.
+  /// Only evaluated near thread saturation so quiescent paging (e.g.
+  /// init-time swap readahead) does not stall the pool.  0 = disabled.
+  double max_swap_io_per_sec {0.0};
 
   explicit WorkPoolConfig(
       int max_threads_ = static_cast<int>(physical_concurrency()),
@@ -78,7 +87,9 @@ struct WorkPoolConfig
       std::chrono::milliseconds scheduler_interval_ =
           std::chrono::milliseconds(50),
       std::string name_ = "WorkPool",
-      bool enable_periodic_stats_ = true) noexcept
+      bool enable_periodic_stats_ = true,
+      double max_process_swap_mb_ = 0.0,
+      double max_swap_io_per_sec_ = 0.0) noexcept
       : max_threads(max_threads_)
       , max_cpu_threshold(max_cpu_threshold_)
       , min_free_memory_mb(min_free_memory_mb_)
@@ -87,6 +98,8 @@ struct WorkPoolConfig
       , scheduler_interval(scheduler_interval_)
       , name(std::move(name_))
       , enable_periodic_stats(enable_periodic_stats_)
+      , max_process_swap_mb(max_process_swap_mb_)
+      , max_swap_io_per_sec(max_swap_io_per_sec_)
   {
   }
 };
@@ -285,6 +298,8 @@ private:
   double min_free_memory_mb_;
   double max_memory_percent_;
   double max_process_rss_mb_;
+  double max_process_swap_mb_;
+  double max_swap_io_per_sec_;
   std::chrono::milliseconds scheduler_interval_;
   std::string name_;
   bool enable_periodic_stats_;
@@ -300,6 +315,11 @@ private:
   double total_task_rss_delta_mb_ {0.0};
   std::chrono::steady_clock::time_point pool_start_time_ {};
 
+  // Stall detection: tracked across `log_periodic_stats()` calls to detect
+  // when `tasks_completed` stops advancing while work is still queued.
+  mutable size_t last_logged_completed_ {0};
+  mutable int stall_intervals_ {0};
+
 public:
   BasicWorkPool(BasicWorkPool&&) = delete;
   BasicWorkPool(const BasicWorkPool&) = delete;
@@ -313,13 +333,15 @@ public:
       , min_free_memory_mb_(config.min_free_memory_mb)
       , max_memory_percent_(config.max_memory_percent)
       , max_process_rss_mb_(config.max_process_rss_mb)
+      , max_process_swap_mb_(config.max_process_swap_mb)
+      , max_swap_io_per_sec_(config.max_swap_io_per_sec)
       , scheduler_interval_(config.scheduler_interval)
       , name_(std::move(config.name))
       , enable_periodic_stats_(config.enable_periodic_stats)
   {
     spdlog::info(
         "  {} initialized: {} max threads, {:.0f}% CPU threshold, "
-        "{:.0f} MB min free mem, {:.0f}% max mem{}",
+        "{:.0f} MB min free mem, {:.0f}% max mem{}{}{}",
         name_,
         max_threads_,
         max_cpu_threshold_,
@@ -327,6 +349,12 @@ public:
         max_memory_percent_,
         max_process_rss_mb_ > 0
             ? std::format(", {:.0f} MB max RSS", max_process_rss_mb_)
+            : "",
+        max_process_swap_mb_ > 0
+            ? std::format(", {:.0f} MB max VmSwap", max_process_swap_mb_)
+            : "",
+        max_swap_io_per_sec_ > 0
+            ? std::format(", {:.0f} pg/s max swap I/O", max_swap_io_per_sec_)
             : "");
   }
 
@@ -562,6 +590,9 @@ public:
     double current_memory_percent;  ///< System memory usage %
     double available_memory_mb;  ///< System available memory MB
     double process_rss_mb;  ///< Process RSS in MB
+    double process_swap_mb;  ///< Process VmSwap in MB
+    double swap_used_mb;  ///< System swap used in MB
+    double swap_io_rate;  ///< Pages/sec (pswpin + pswpout)
     size_t lp_tasks_dispatched;  ///< Total LP tasks dispatched
     double avg_task_cpu_pct;  ///< Average CPU % per LP task
     double avg_task_rss_delta_mb;  ///< Average RSS delta per LP task
@@ -590,6 +621,9 @@ public:
         .current_memory_percent = memory_monitor_.get_memory_percent(),
         .available_memory_mb = memory_monitor_.get_available_mb(),
         .process_rss_mb = memory_monitor_.get_process_rss_mb(),
+        .process_swap_mb = memory_monitor_.get_process_swap_mb(),
+        .swap_used_mb = memory_monitor_.get_swap_used_mb(),
+        .swap_io_rate = memory_monitor_.get_swap_io_rate(),
         .lp_tasks_dispatched = dispatched,
         .avg_task_cpu_pct = avg_cpu,
         .avg_task_rss_delta_mb = avg_mem,
@@ -607,6 +641,7 @@ public:
           "  Threads: {:>6} active / {:>6} max\n"
           "  CPU Load: {:>6.1f}%\n"
           "  Memory: {:.1f}% used, {:.0f} MB free, RSS {:.0f} MB\n"
+          "  Swap: VmSwap {:.0f} MB, system used {:.0f} MB, I/O {:.0f} pg/s\n"
           "  LP tasks: {} dispatched, avg CPU {:.1f}%, avg mem delta "
           "{:.1f} MB\n",
           stats.tasks_submitted,
@@ -619,6 +654,9 @@ public:
           stats.current_memory_percent,
           stats.available_memory_mb,
           stats.process_rss_mb,
+          stats.process_swap_mb,
+          stats.swap_used_mb,
+          stats.swap_io_rate,
           stats.lp_tasks_dispatched,
           stats.avg_task_cpu_pct,
           stats.avg_task_rss_delta_mb);
@@ -810,6 +848,41 @@ private:
       }
     }
 
+    // Swap-pressure gates: once pages are going to/from swap, adding work
+    // tends to deepen the thrash.  Critical tasks get 10% headroom to
+    // avoid deadlocking progress when the pool is already paging.
+    if (max_process_swap_mb_ > 0.0) {
+      const auto vmswap = memory_monitor_.get_process_swap_mb();
+      const auto swap_threshold =
+          is_critical ? max_process_swap_mb_ * 1.1 : max_process_swap_mb_;
+      if (vmswap >= swap_threshold) {
+        SPDLOG_DEBUG("{}: blocked by VmSwap {:.0f} MB >= {:.0f} MB",
+                     name_,
+                     vmswap,
+                     swap_threshold);
+        return false;
+      }
+    }
+
+    // Only enforce the swap I/O rate gate once threads are near saturation —
+    // low-concurrency activity can benignly trigger a few pages/sec of
+    // swap-in as fresh code is faulted in.
+    if (max_swap_io_per_sec_ > 0.0
+        && current_threads + threads_needed
+            >= static_cast<int>(max_threads_ * 0.8))
+    {
+      const auto rate = memory_monitor_.get_swap_io_rate();
+      const auto rate_threshold =
+          is_critical ? max_swap_io_per_sec_ * 2.0 : max_swap_io_per_sec_;
+      if (rate >= rate_threshold) {
+        SPDLOG_DEBUG("{}: blocked by swap I/O rate {:.0f} pg/s >= {:.0f} pg/s",
+                     name_,
+                     rate,
+                     rate_threshold);
+        return false;
+      }
+    }
+
     return true;
   }
 
@@ -875,18 +948,96 @@ private:
   {
     try {
       const auto stats = get_statistics();
+      // Only include swap fields in the line when they have signal — keeps
+      // the common case compact while making thrash visible when it starts.
+      const auto swap_tail =
+          (stats.process_swap_mb > 0.0 || stats.swap_io_rate > 0.0)
+          ? std::format("  Swap: {:.0f} MB ({:.0f} pg/s)",
+                        stats.process_swap_mb,
+                        stats.swap_io_rate)
+          : std::string {};
       spdlog::info(
           "[{}] CPU: {:.1f}%  MEM: {:.0f} MB free ({:.1f}%)  "
-          "RSS: {:.0f} MB  Active: {}/{}  Pending: {}  Done: {}",
+          "RSS: {:.0f} MB{}  Active: {}/{}  Pending: {}  Done: {}",
           name_,
           stats.current_cpu_load,
           stats.available_memory_mb,
           stats.current_memory_percent,
           stats.process_rss_mb,
+          swap_tail,
           stats.active_threads,
           max_threads_,
           stats.tasks_pending,
           stats.tasks_completed);
+
+      // Stall detection: when `tasks_completed` has not advanced since the
+      // previous periodic log yet work is still queued or running, surface
+      // the dispatch gate that is blocking progress.  Mirrors the checks in
+      // `can_dispatch_next()` so the user sees the same condition the
+      // scheduler sees.
+      const bool has_work = stats.tasks_pending > 0 || stats.tasks_active > 0;
+      const bool no_progress = stats.tasks_completed == last_logged_completed_;
+      if (has_work && no_progress) {
+        ++stall_intervals_;
+      } else {
+        stall_intervals_ = 0;
+      }
+      last_logged_completed_ = stats.tasks_completed;
+
+      if (stall_intervals_ >= 2) {
+        std::string reason;
+        if (stats.current_memory_percent >= max_memory_percent_) {
+          reason = std::format("memory usage {:.1f}% >= {:.1f}%",
+                               stats.current_memory_percent,
+                               max_memory_percent_);
+        } else if (stats.available_memory_mb < min_free_memory_mb_
+                   && stats.available_memory_mb > 0.0)
+        {
+          reason = std::format("free memory {:.0f} MB < {:.0f} MB",
+                               stats.available_memory_mb,
+                               min_free_memory_mb_);
+        } else if (max_process_rss_mb_ > 0.0
+                   && stats.process_rss_mb >= max_process_rss_mb_)
+        {
+          reason = std::format("process RSS {:.0f} MB >= {:.0f} MB",
+                               stats.process_rss_mb,
+                               max_process_rss_mb_);
+        } else if (max_process_swap_mb_ > 0.0
+                   && stats.process_swap_mb >= max_process_swap_mb_)
+        {
+          reason = std::format("process VmSwap {:.0f} MB >= {:.0f} MB",
+                               stats.process_swap_mb,
+                               max_process_swap_mb_);
+        } else if (max_swap_io_per_sec_ > 0.0
+                   && stats.swap_io_rate >= max_swap_io_per_sec_)
+        {
+          reason = std::format("swap thrashing {:.0f} pg/s >= {:.0f} pg/s",
+                               stats.swap_io_rate,
+                               max_swap_io_per_sec_);
+        } else if (stats.active_threads + 1
+                       >= static_cast<int>(max_threads_ * 0.8)
+                   && stats.current_cpu_load >= max_cpu_threshold_)
+        {
+          reason = std::format("CPU load {:.1f}% >= {:.1f}%",
+                               stats.current_cpu_load,
+                               max_cpu_threshold_);
+        } else if (stats.swap_io_rate > 0.0) {
+          reason = std::format(
+              "active task(s) not completing (kernel paging "
+              "{:.0f} pg/s — likely thrash)",
+              stats.swap_io_rate);
+        } else {
+          reason =
+              "active task(s) not completing (external block or blocked I/O)";
+        }
+        SPDLOG_WARN(
+            "[{}] no progress for {} intervals ({} pending, {} active): {}",
+            name_,
+            stall_intervals_,
+            stats.tasks_pending,
+            stats.tasks_active,
+            reason);
+      }
     } catch (const std::exception& e) {
       SPDLOG_WARN("log_periodic_stats failed: {}", e.what());
     }

@@ -28,6 +28,14 @@ struct MemorySnapshot
   double total_mb {};  ///< Total system memory in MB
   double available_mb {};  ///< Available system memory in MB
   double process_rss_mb {};  ///< Process resident set size in MB
+  double process_swap_mb {};  ///< Process VmSwap in MB (pages on swap)
+  double swap_total_mb {};  ///< System SwapTotal in MB
+  double swap_used_mb {};  ///< System swap in use (SwapTotal-SwapFree) in MB
+  /// Cumulative counts of swap-in/out pages since boot.  Use the delta
+  /// between two snapshots divided by the elapsed time to estimate the
+  /// per-second swap I/O rate (thrash indicator).
+  double vmstat_pswpin {};
+  double vmstat_pswpout {};
 };
 
 class MemoryMonitor
@@ -75,6 +83,27 @@ public:
     return process_rss_mb_.load(std::memory_order_relaxed);
   }
 
+  /// Process bytes paged out to swap (VmSwap from /proc/self/status) in MB.
+  [[nodiscard]] constexpr double get_process_swap_mb() const noexcept
+  {
+    return process_swap_mb_.load(std::memory_order_relaxed);
+  }
+
+  /// System-wide swap usage in MB (SwapTotal - SwapFree).
+  [[nodiscard]] constexpr double get_swap_used_mb() const noexcept
+  {
+    return swap_used_mb_.load(std::memory_order_relaxed);
+  }
+
+  /// Observed swap I/O rate (pages in + pages out per second), averaged
+  /// over the previous monitor interval.  Near zero under normal
+  /// operation; rises sharply when the kernel is thrashing pages to or
+  /// from swap.
+  [[nodiscard]] constexpr double get_swap_io_rate() const noexcept
+  {
+    return swap_io_rate_.load(std::memory_order_relaxed);
+  }
+
   [[nodiscard]] constexpr auto get_interval() const noexcept
   {
     return monitor_interval_;
@@ -88,6 +117,9 @@ private:
   std::atomic<double> total_mb_ {0.0};
   std::atomic<double> available_mb_ {0.0};
   std::atomic<double> process_rss_mb_ {0.0};
+  std::atomic<double> process_swap_mb_ {0.0};
+  std::atomic<double> swap_used_mb_ {0.0};
+  std::atomic<double> swap_io_rate_ {0.0};
   std::atomic<bool> running_ {false};
   std::chrono::milliseconds monitor_interval_ {500};
   std::mutex stop_mutex_;
