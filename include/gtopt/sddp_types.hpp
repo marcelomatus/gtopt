@@ -30,9 +30,11 @@
 #pragma once
 
 #include <chrono>
+#include <format>
 #include <functional>
 #include <optional>
 #include <span>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -42,6 +44,7 @@
 #include <gtopt/planning_enums.hpp>
 #include <gtopt/sddp_enums.hpp>
 #include <gtopt/solver_options.hpp>
+#include <gtopt/state_variable.hpp>
 
 namespace gtopt
 {
@@ -102,6 +105,21 @@ constexpr auto versioned_state_json_fmt = "sddp_state_{}.json";
 /// file exists.
 constexpr auto stop_request = "sddp_stop_request.json";
 }  // namespace sddp_file
+
+// ─── Alpha (future-cost) variable naming ────────────────────────────────────
+//
+// Alpha is the method-owned cost-to-go variable added to every phase
+// except the last.  It is registered in `sim.state_variables()` like any
+// other state variable so that state/cut CSV I/O and cross-level
+// resolution treat it uniformly.  These constants centralise the
+// class/column name so every call site uses the same identifiers.
+constexpr std::string_view sddp_alpha_class_name = "Sddp";
+constexpr std::string_view sddp_alpha_col_name = "alpha";
+/// Fixed uid used in the alpha `StateVariable::Key`.  The state-variable
+/// map is partitioned by `(scene_index, phase_index)` and there is at
+/// most one alpha per cell, so any constant uid disambiguates the key.
+/// `Uid{0}` keeps the structured cut-key label as `Sddp:alpha:0`.
+constexpr Uid sddp_alpha_uid {0};
 
 // ─── Elastic filter mode ────────────────────────────────────────────────────
 // ElasticFilterMode is now defined in <gtopt/sddp_enums.hpp>.
@@ -512,6 +530,42 @@ struct SDDPIterationResult
 /// Always returns a non-negative value.
 [[nodiscard]] double compute_convergence_gap(double upper_bound,
                                              double lower_bound) noexcept;
+
+/// Return `sol[alpha_col] * scale` when `alpha_col` refers to a real,
+/// in-bounds column of the current LP solution; return `0.0` only for
+/// the legitimate "no alpha column" case (`alpha_col == unknown_index`,
+/// i.e. the last phase).
+///
+/// Throws `std::out_of_range` with a detailed diagnostic when
+/// `alpha_col` is set but falls outside `sol`.  This situation is
+/// **never normal**: it means that the column layout stamped into
+/// `state.alpha_col` no longer matches the LP that produced `sol`
+/// (e.g. a reconstruction path that forgot to replay alpha — see
+/// `record_dynamic_col` call sites in `sddp_cut_io.cpp`).  Silently
+/// substituting `0.0` here would mask such bugs and yield a bogus
+/// forward-objective; failing loudly instead keeps the root cause
+/// visible the first time it occurs.
+[[nodiscard]] inline double safe_alpha_value(ColIndex alpha_col,
+                                             std::span<const double> sol,
+                                             double scale)
+{
+  if (alpha_col == ColIndex {unknown_index}) {
+    return 0.0;
+  }
+  const auto idx = static_cast<Index>(alpha_col);
+  const auto sz = static_cast<Index>(sol.size());
+  if (idx < 0 || idx >= sz) {
+    throw std::out_of_range(std::format(
+        "safe_alpha_value: alpha_col={} out of range for sol.size()={} "
+        "(scale={:.6g}) — the LP column layout no longer matches the "
+        "stamped alpha index; a dynamic-col replay was likely missed "
+        "on a low_memory reconstruct/clone path",
+        idx,
+        sz,
+        scale));
+  }
+  return sol[idx] * scale;
+}
 
 // ─── Per-phase tracking ─────────────────────────────────────────────────────
 

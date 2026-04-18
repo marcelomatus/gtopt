@@ -165,12 +165,13 @@ public:
   }
 
   /**
-   * @brief Gets the simulation LP model
-   * @return Const reference to SimulationLP
+   * @brief Gets the simulation LP model (const or non-const via deducing this).
+   * @return Reference to SimulationLP
    */
-  [[nodiscard]] constexpr const SimulationLP& simulation() const noexcept
+  template<typename Self>
+  [[nodiscard]] constexpr auto&& simulation(this Self&& self) noexcept
   {
-    return m_simulation_;
+    return std::forward<Self>(self).m_simulation_;
   }
 
   /**

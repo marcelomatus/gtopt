@@ -352,21 +352,21 @@ TEST_CASE("save and load cuts round-trip via SDDPMethod")  // NOLINT
   std::filesystem::remove(cuts_file);
 }
 
-// ─── @alpha resolution with scene_phase_states ──────────────────────────────
+// ─── alpha resolution as a state variable ──────────────────────────────────
 
 TEST_CASE(
-    "load_cuts_csv resolves @alpha via scene_phase_states "
+    "cuts save/load round-trip resolves alpha via the state-variable map "
     "at LpNamesLevel::none")  // NOLINT
 {
-  // This test verifies the fix for the bug where @alpha coefficients
-  // in cut CSV files were silently dropped when LP names were disabled
-  // (LpNamesLevel::none / minimal).  Without scene_phase_states, the
-  // fallback name-based resolution cannot find the alpha column.
+  // Alpha is registered in simulation.state_variables() by
+  // initialize_alpha_variables, so cuts save it under its structured
+  // state-var key (Sddp:alpha:0=coeff) and load_cuts_csv can resolve
+  // it without scene_phase_states — even at LpNamesLevel::none/minimal,
+  // where column names are unavailable.
 
   auto planning = make_3phase_hydro_planning();
   PlanningLP planning_lp(std::move(planning));
 
-  // Initialize SDDP to create alpha variables and generate real cuts
   SDDPOptions sddp_opts;
   sddp_opts.max_iterations = 3;
   sddp_opts.convergence_tol = 1e-6;
@@ -378,10 +378,7 @@ TEST_CASE(
   const auto& stored = sddp.stored_cuts();
   REQUIRE_FALSE(stored.empty());
 
-  // Verify at least one cut has an @alpha coefficient (non-state-variable
-  // column that would be written as @alpha=coeff in CSV).
-  // Alpha is added to every phase except the last, so cuts for phase 1 or 2
-  // should have it.
+  // Verify at least one cut has an alpha coefficient.
   bool has_alpha_cut = false;
   for (const auto& cut : stored) {
     for (const auto& [col, coeff] : cut.coefficients) {
@@ -399,23 +396,21 @@ TEST_CASE(
   }
   REQUIRE(has_alpha_cut);
 
-  // Save cuts to CSV
   const auto tmp_dir = std::filesystem::temp_directory_path();
   const auto cuts_file = (tmp_dir / "gtopt_test_alpha_resolution.csv").string();
   auto save_result = save_cuts_csv(stored, planning_lp, cuts_file);
   REQUIRE(save_result.has_value());
 
-  // Verify @alpha= tokens are present in the file
+  // Alpha is now written under its structured state-variable key.
   {
     std::ifstream ifs(cuts_file);
     std::string content((std::istreambuf_iterator<char>(ifs)),
                         std::istreambuf_iterator<char>());
-    CHECK(content.find("@alpha=") != std::string::npos);
+    CHECK(content.find("Sddp:alpha:0=") != std::string::npos);
   }
 
-  SUBCASE("with scene_phase_states — alpha coefficients are resolved")
+  SUBCASE("load via SDDPMethod::load_cuts resolves alpha")
   {
-    // Load into a fresh PlanningLP with scene_phase_states provided
     auto planning2 = make_3phase_hydro_planning();
     PlanningLP plp2(std::move(planning2));
 
@@ -427,23 +422,21 @@ TEST_CASE(
     auto init_err = sddp2.ensure_initialized();
     REQUIRE(init_err.has_value());
 
-    // Load via SDDPMethod::load_cuts which passes scene_phase_states
     auto load_result = sddp2.load_cuts(cuts_file);
     REQUIRE(load_result.has_value());
     CHECK(load_result->count > 0);
 
-    // The hot-started solver should be able to solve without infeasibility
     auto results2 = sddp2.solve();
     REQUIRE(results2.has_value());
   }
 
-  SUBCASE("without scene_phase_states — alpha coefficients are dropped")
+  SUBCASE("load_cuts_csv without scene_phase_states still resolves alpha")
   {
-    // Load into a fresh PlanningLP WITHOUT scene_phase_states
+    // Since alpha is registered as a state variable, resolution no longer
+    // depends on the caller passing scene_phase_states.
     auto planning3 = make_3phase_hydro_planning();
     PlanningLP plp3(std::move(planning3));
 
-    // Create alpha variables so the LP structure matches
     SDDPOptions load_opts2;
     load_opts2.max_iterations = 1;
     load_opts2.convergence_tol = 1e-6;
@@ -452,14 +445,11 @@ TEST_CASE(
     auto init_err2 = sddp3.ensure_initialized();
     REQUIRE(init_err2.has_value());
 
-    // Call load_cuts_csv directly without scene_phase_states (the bug path)
     const LabelMaker label_maker {LpNamesLevel::none};
     const auto sa = effective_scale_alpha(plp3, load_opts2.scale_alpha);
     auto load_result2 =
         load_cuts_csv(plp3, cuts_file, sa, label_maker, nullptr);
-    // Cuts are "loaded" but @alpha coefficients are silently lost
     REQUIRE(load_result2.has_value());
-    // Count should still be > 0 (cuts are added, just missing alpha term)
     CHECK(load_result2->count > 0);
   }
 

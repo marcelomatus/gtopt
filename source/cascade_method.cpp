@@ -404,10 +404,10 @@ auto CascadePlanningMethod::solve(PlanningLP& planning_lp,
       {
         return std::unexpected(init_err.error());
       }
-      // Route through the new solver so that the alpha column lookup
-      // table (m_scene_phase_states_) is passed to load_cuts_csv —
-      // otherwise @alpha resolution falls back to LP-name lookup,
-      // which fails when LP names are disabled.
+      // Route through the new solver so that state-variable resolution
+      // (including the alpha column, which is registered as a state
+      // variable by initialize_alpha_variables) runs against the new
+      // level's sv_map.
       auto load_result = current_solver->load_cuts(m_prev_cuts_file_);
       if (load_result.has_value()) {
         inherited_cut_count = load_result->count;

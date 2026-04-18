@@ -109,9 +109,7 @@ class PlanningLP;
 /// @param filepath           Input CSV file path
 /// @param scale_alpha        Scale for alpha variable
 /// @param label_maker        Label maker for LP row names
-/// @param scene_phase_states Optional per-(scene,phase) state for alpha
-///                           resolution.  When null, @alpha coefficients
-///                           are resolved by LP name fallback.
+/// @param scene_phase_states Unused (kept for API compatibility).
 /// @return CutLoadResult with count and max iteration, or an error
 [[nodiscard]] auto load_cuts_csv(
     PlanningLP& planning_lp,
@@ -133,9 +131,7 @@ class PlanningLP;
 /// @param scale_alpha        Actual scale_alpha (computed from state var
 /// scales)
 /// @param label_maker        Label maker for LP row names
-/// @param scene_phase_states Optional per-(scene,phase) state for alpha
-///                           resolution.  When null, @alpha coefficients
-///                           are resolved by LP name fallback.
+/// @param scene_phase_states Unused (kept for API compatibility).
 /// @return CutLoadResult with total count and max iteration, or an error
 [[nodiscard]] auto load_scene_cuts_from_directory(
     PlanningLP& planning_lp,
@@ -195,7 +191,7 @@ class PlanningLP;
 
 /// Save accumulated cuts to a JSON file using compact daw::json.
 ///
-/// Coefficients use structured keys (class:var:uid or @alpha).
+/// Coefficients use structured keys (class:var:uid).
 /// Fully portable — no LP column names required.
 ///
 /// @param cuts         All stored cuts to save
@@ -219,7 +215,7 @@ class PlanningLP;
 /// @param planning_lp        The PlanningLP to add cuts to
 /// @param filepath           Input JSON file path
 /// @param scale_alpha        Scale for alpha variable
-/// @param scene_phase_states Optional per-(scene,phase) state for alpha
+/// @param scene_phase_states Unused (kept for API compatibility).
 /// @return CutLoadResult with count and max iteration, or an error
 [[nodiscard]] auto load_cuts_json(
     PlanningLP& planning_lp,

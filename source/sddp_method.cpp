@@ -362,7 +362,7 @@ void SDDPMethod::update_stored_cut_duals()
 
 void SDDPMethod::initialize_alpha_variables(SceneIndex scene_index)
 {
-  const auto& sim = planning_lp().simulation();
+  auto& sim = planning_lp().simulation();
   const auto& phases = sim.phases();
   const auto last_phase_index = sim.last_phase_index();
 
@@ -382,16 +382,35 @@ void SDDPMethod::initialize_alpha_variables(SceneIndex scene_index)
         .lowb = m_options_.alpha_min / sa,
         .uppb = m_options_.alpha_max / sa,
         .cost = sa,
+        .is_state = true,
         .scale = sa,
-        .class_name = "Sddp",
-        .variable_name = "alpha",
+        .class_name = sddp_alpha_class_name,
+        .variable_name = sddp_alpha_col_name,
         .context =
             make_scene_phase_context(scene_uid(scene_index), _phase.uid()),
     };
-    state.alpha_col = li.add_col(alpha_sparse);
+    const auto alpha_col = li.add_col(alpha_sparse);
+    state.alpha_col = alpha_col;
 
     // Track dynamic column for low_memory reconstruction
     planning_lp().system(scene_index, pi).record_dynamic_col(alpha_sparse);
+
+    // Register alpha as a regular state variable so all label-based
+    // machinery (state CSV I/O, cut CSV I/O, cross-level resolution)
+    // treats it uniformly with reservoir/storage state vars.  Without
+    // this, cascade level transitions would need a separate resolve path
+    // for alpha, inviting stale-col-index bugs.
+    std::ignore = sim.add_state_variable(
+        StateVariable::Key {
+            .uid = sddp_alpha_uid,
+            .col_name = sddp_alpha_col_name,
+            .class_name = sddp_alpha_class_name,
+            .lp_key = {.scene_index = scene_index, .phase_index = pi},
+        },
+        alpha_col,
+        0.0,  // scost: no elastic penalty on alpha
+        sa,  // var_scale: same as SparseCol.scale
+        alpha_sparse.context);
   }
 
   // Last phase: no future cost

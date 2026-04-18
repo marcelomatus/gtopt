@@ -134,7 +134,9 @@ using ColKeyMap = std::unordered_map<ColIndex, ColKeyInfo>;
 /// Write a single cut's coefficients to an output stream.
 ///
 /// Format: class:var:uid=coeff (structured key, portable without LP names).
-/// Non-state-variable columns (alpha) are written as @alpha=coeff.
+/// Every column referenced in a cut must be a registered state variable
+/// — including alpha, which is registered by
+/// `SDDPMethod::initialize_alpha_variables`.
 /// Coefficients are in fully physical space:
 ///   coeff_csv = LP_coeff * scale_obj / col_scale
 void write_cut_coefficients(std::ostream& ofs,
@@ -146,13 +148,16 @@ void write_cut_coefficients(std::ostream& ofs,
   for (const auto& [col, coeff] : cut.coefficients) {
     const auto scale = li.get_col_scale(col);
     const auto phys_coeff = coeff * scale_obj / scale;
-    if (auto it = col_keys.find(col); it != col_keys.end()) {
-      const auto& [cls, var, uid] = it->second;
-      ofs << "," << as_label<':'>(cls, var, uid) << "=" << phys_coeff;
-    } else {
-      // Non-state-variable column (typically alpha)
-      ofs << ",@alpha=" << phys_coeff;
+    const auto it = col_keys.find(col);
+    if (it == col_keys.end()) {
+      throw std::runtime_error(std::format(
+          "SDDP write_cut_coefficients: cut '{}' references col {} that "
+          "is not a registered state variable",
+          cut.name,
+          static_cast<Index>(col)));
     }
+    const auto& [cls, var, uid] = it->second;
+    ofs << "," << as_label<':'>(cls, var, uid) << "=" << phys_coeff;
   }
 }
 
@@ -400,9 +405,10 @@ void write_cut_coefficients_unscaled(std::ostream& ofs,
     const std::string& filepath,
     double scale_alpha,
     [[maybe_unused]] const LabelMaker& label_maker,
-    const StrongIndexVector<SceneIndex,
-                            StrongIndexVector<PhaseIndex, PhaseStateInfo>>*
-        scene_phase_states) -> std::expected<CutLoadResult, Error>
+    [[maybe_unused]] const StrongIndexVector<
+        SceneIndex,
+        StrongIndexVector<PhaseIndex, PhaseStateInfo>>* scene_phase_states)
+    -> std::expected<CutLoadResult, Error>
 {
   const auto sa = scale_alpha;  // row scale for loaded cuts
   try {
@@ -602,11 +608,9 @@ void write_cut_coefficients_unscaled(std::ostream& ofs,
       const auto& sv_map = planning_lp.simulation().state_variables(
           first_scene_index(), phase_index);
 
-      // Collect coefficients from CSV.  Three formats are supported:
+      // Collect coefficients from CSV.  Two formats are supported:
       //   class:var:uid=coeff  (structured key — preferred, no LP names)
-      //   @alpha=coeff         (alpha column marker)
       //   name=coeff           (legacy name-based — resolve by column name)
-      //   index:coeff          (legacy — validate index against current LP)
       struct ResolvedCoeff
       {
         ColIndex col;
@@ -620,33 +624,7 @@ void write_cut_coefficients_unscaled(std::ostream& ofs,
           const auto key_part = token.substr(0, eq);
           const auto coeff = std::stod(token.substr(eq + 1));
 
-          if (key_part == "@alpha") {
-            // Alpha column — resolve via scene_phase_states if available
-            if (scene_phase_states != nullptr) {
-              const auto& states = (*scene_phase_states)[first_scene_index()];
-              if (phase_index < PhaseIndex {states.size()}) {
-                const auto alpha_col = states[phase_index].alpha_col;
-                if (alpha_col != ColIndex {unknown_index}) {
-                  resolved_coeffs.push_back({
-                      .col = alpha_col,
-                      .coeff = coeff,
-                  });
-                }
-              }
-            } else {
-              // No alpha info — try legacy name-based resolution
-              const auto& name_map = li_ref.col_name_map();
-              for (const auto& [nm, idx] : name_map) {
-                if (nm.starts_with("sddp_alpha_")) {
-                  resolved_coeffs.push_back({
-                      .col = idx,
-                      .coeff = coeff,
-                  });
-                  break;
-                }
-              }
-            }
-          } else if (std::ranges::count(key_part, ':') == 2) {
+          if (std::ranges::count(key_part, ':') == 2) {
             // Structured key format: class:var:uid
             const auto c1 = key_part.find(':');
             const auto c2 = key_part.find(':', c1 + 1);
@@ -1067,18 +1045,40 @@ void write_cut_coefficients_unscaled(std::ostream& ofs,
     for (const auto scene_index : iota_range<SceneIndex>(0, num_scenes)) {
       auto& state = scene_phase_states[scene_index][last_phase];
       if (state.alpha_col == ColIndex {unknown_index}) {
-        auto& li =
-            planning_lp.system(scene_index, last_phase).linear_interface();
-        state.alpha_col = li.add_col(SparseCol {
+        auto& sys = planning_lp.system(scene_index, last_phase);
+        auto& li = sys.linear_interface();
+        const auto alpha_sparse = SparseCol {
             .lowb = options.alpha_min / sa,
             .uppb = options.alpha_max / sa,
             .cost = sa,
+            .is_state = true,
             .scale = sa,
-            .class_name = "Sddp",
-            .variable_name = "alpha",
+            .class_name = sddp_alpha_class_name,
+            .variable_name = sddp_alpha_col_name,
             .context = ScenePhaseContext {sim.scenes()[scene_index].uid(),
                                           sim.phases()[last_phase].uid()},
-        });
+        };
+        const auto alpha_col = li.add_col(alpha_sparse);
+        state.alpha_col = alpha_col;
+        // Track dynamic column for low_memory reconstruction — without
+        // this, the snapshot reload path would rebuild the LP missing
+        // alpha, and a later `sol[alpha_col]` would trip a span-bounds
+        // assertion in the forward pass.
+        sys.record_dynamic_col(alpha_sparse);
+        // Register as a regular state variable — see the matching call
+        // in SDDPMethod::initialize_alpha_variables for rationale.
+        std::ignore = planning_lp.simulation().add_state_variable(
+            StateVariable::Key {
+                .uid = sddp_alpha_uid,
+                .col_name = sddp_alpha_col_name,
+                .class_name = sddp_alpha_class_name,
+                .lp_key = {.scene_index = scene_index,
+                           .phase_index = last_phase},
+            },
+            alpha_col,
+            0.0,
+            sa,
+            alpha_sparse.context);
       }
     }
 
@@ -1427,22 +1427,43 @@ void write_cut_coefficients_unscaled(std::ostream& ofs,
       const auto phase_index = pit->second;
 
       // Ensure alpha variable exists for this phase in all
-      // scenes
+      // scenes.  Register it as a dynamic column so low_memory
+      // reconstruction replays it (otherwise sol.size() would drop
+      // below state.alpha_col after a release/reconstruct cycle).
       for (const auto scene_index : iota_range<SceneIndex>(0, num_scenes)) {
         auto& state = scene_phase_states[scene_index][phase_index];
         if (state.alpha_col == ColIndex {unknown_index}) {
-          auto& li =
-              planning_lp.system(scene_index, phase_index).linear_interface();
-          state.alpha_col = li.add_col(SparseCol {
+          auto& sys = planning_lp.system(scene_index, phase_index);
+          auto& li = sys.linear_interface();
+          const auto alpha_sparse = SparseCol {
               .lowb = options.alpha_min / sa,
               .uppb = options.alpha_max / sa,
               .cost = sa,
+              .is_state = true,
               .scale = sa,
-              .class_name = "Sddp",
-              .variable_name = "alpha",
+              .class_name = sddp_alpha_class_name,
+              .variable_name = sddp_alpha_col_name,
               .context = ScenePhaseContext {sim.scenes()[scene_index].uid(),
                                             sim.phases()[phase_index].uid()},
-          });
+          };
+          const auto alpha_col = li.add_col(alpha_sparse);
+          state.alpha_col = alpha_col;
+          sys.record_dynamic_col(alpha_sparse);
+          // Register alpha as a regular state variable so cross-level
+          // (cascade) resolution and state/cut CSV I/O treat it uniformly
+          // with reservoir/storage state vars.
+          std::ignore = planning_lp.simulation().add_state_variable(
+              StateVariable::Key {
+                  .uid = sddp_alpha_uid,
+                  .col_name = sddp_alpha_col_name,
+                  .class_name = sddp_alpha_class_name,
+                  .lp_key = {.scene_index = scene_index,
+                             .phase_index = phase_index},
+              },
+              alpha_col,
+              0.0,
+              sa,
+              alpha_sparse.context);
         }
       }
 
@@ -1594,18 +1615,19 @@ void write_cut_coefficients_unscaled(std::ostream& ofs,
         for (const auto& [col, coeff] : cut.coefficients) {
           const auto scale = li.get_col_scale(col);
           const auto phys_coeff = coeff * scale_obj / scale;
-          if (auto it = col_keys.find(col); it != col_keys.end()) {
-            const auto& [cls, var, uid] = it->second;
-            entry.coefficients.push_back(CutCoeffEntry {
-                .key = as_label<':'>(cls, var, uid),
-                .coeff = phys_coeff,
-            });
-          } else {
-            entry.coefficients.push_back(CutCoeffEntry {
-                .key = "@alpha",
-                .coeff = phys_coeff,
-            });
+          const auto it = col_keys.find(col);
+          if (it == col_keys.end()) {
+            throw std::runtime_error(std::format(
+                "SDDP save_cuts_json: cut '{}' references col {} that "
+                "is not a registered state variable",
+                cut.name,
+                static_cast<Index>(col)));
           }
+          const auto& [cls, var, uid] = it->second;
+          entry.coefficients.push_back(CutCoeffEntry {
+              .key = as_label<':'>(cls, var, uid),
+              .coeff = phys_coeff,
+          });
         }
       } else {
         // Unknown phase — write raw index-based coefficients
@@ -1663,9 +1685,10 @@ void write_cut_coefficients_unscaled(std::ostream& ofs,
     PlanningLP& planning_lp,
     const std::string& filepath,
     double scale_alpha,
-    const StrongIndexVector<SceneIndex,
-                            StrongIndexVector<PhaseIndex, PhaseStateInfo>>*
-        scene_phase_states) -> std::expected<CutLoadResult, Error>
+    [[maybe_unused]] const StrongIndexVector<
+        SceneIndex,
+        StrongIndexVector<PhaseIndex, PhaseStateInfo>>* scene_phase_states)
+    -> std::expected<CutLoadResult, Error>
 {
   try {
     std::ifstream ifs(filepath);
@@ -1741,35 +1764,7 @@ void write_cut_coefficients_unscaled(std::ostream& ofs,
       std::vector<ResolvedCoeff> resolved_coeffs;
 
       for (const auto& [key, coeff] : entry.coefficients) {
-        if (key == "@alpha") {
-          // Alpha column
-          if (scene_phase_states != nullptr) {
-            const auto& states = (*scene_phase_states)[first_scene_index()];
-            if (phase_index < PhaseIndex {states.size()}) {
-              const auto alpha_col = states[phase_index].alpha_col;
-              if (alpha_col != ColIndex {unknown_index}) {
-                resolved_coeffs.push_back({
-                    .col = alpha_col,
-                    .coeff = coeff,
-                });
-              }
-            }
-          } else {
-            // Fallback: find alpha column by LP name
-            auto& li_ref = planning_lp.system(first_scene_index(), phase_index)
-                               .linear_interface();
-            const auto& name_map = li_ref.col_name_map();
-            for (const auto& [nm, idx] : name_map) {
-              if (nm.starts_with("sddp_alpha_")) {
-                resolved_coeffs.push_back({
-                    .col = idx,
-                    .coeff = coeff,
-                });
-                break;
-              }
-            }
-          }
-        } else if (std::ranges::count(key, ':') == 2) {
+        if (std::ranges::count(key, ':') == 2) {
           // Structured key: class:var:uid
           const auto c1 = key.find(':');
           const auto c2 = key.find(':', c1 + 1);
