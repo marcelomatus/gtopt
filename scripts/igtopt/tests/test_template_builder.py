@@ -420,7 +420,6 @@ class TestCascadeOptionKeys:
         cpp_fields = set(re.findall(r'json_\w+<"(\w+)"', block))
         expected = {
             "inherit_optimality_cuts",
-            "inherit_feasibility_cuts",
             "inherit_targets",
             "target_rtol",
             "target_min_atol",

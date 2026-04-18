@@ -322,7 +322,6 @@ def _default_cascade_options() -> dict[str, Any]:
     transition: dict[str, Any] = {
         "inherit_targets": -1,
         "inherit_optimality_cuts": -1,
-        "inherit_feasibility_cuts": -1,
         "target_rtol": 0.05,
         "target_min_atol": 1.0,
         "target_penalty": 500.0,

@@ -113,6 +113,7 @@ auto solve_apertures_for_phase(
     [[maybe_unused]] SceneIndex scene_index,
     [[maybe_unused]] PhaseIndex phase_index,
     const PhaseStateInfo& src_state,
+    ColIndex src_alpha_col,
     const ScenarioLP& base_scenario,
     std::span<const ScenarioLP> all_scenarios,
     std::span<const Aperture> aperture_defs,
@@ -334,7 +335,7 @@ auto solve_apertures_for_phase(
           // Build Benders cut from the clone's solution (reduced-cost
           // formulation; see docs/methods/sddp.md for why the PLP-style
           // row-dual path was removed).
-          auto cut = build_benders_cut(src_state.alpha_col,
+          auto cut = build_benders_cut(src_alpha_col,
                                        src_state.outgoing_links,
                                        clone.get_col_cost_raw(),
                                        clone.get_obj_value(),
@@ -344,8 +345,8 @@ auto solve_apertures_for_phase(
           cut.constraint_name = "aper_cut";
           cut.context = make_aperture_context(
               scene_uid_val, phase_uid_val, ap_uid, total_cuts);
-          rescale_benders_cut(cut, src_state.alpha_col, cut_coeff_max);
-          filter_cut_coefficients(cut, src_state.alpha_col, cut_coeff_eps);
+          rescale_benders_cut(cut, src_alpha_col, cut_coeff_max);
+          filter_cut_coefficients(cut, src_alpha_col, cut_coeff_eps);
 
           const auto ap_s = std::chrono::duration<double>(
                                 std::chrono::steady_clock::now() - ap_start)

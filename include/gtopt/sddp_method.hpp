@@ -507,16 +507,6 @@ private:
       const BasicTaskRequirements<SDDPTaskKey>& task_req = {})
       -> std::expected<int, Error>;
 
-  /// Iterative feasibility backpropagation: propagate from start_phase_index
-  /// backward to phase 0 using elastic filter and cuts.
-  /// Returns the number of additional cuts added.
-  [[nodiscard]] auto feasibility_backpropagate(SceneIndex scene_index,
-                                               PhaseIndex start_phase_index,
-                                               int total_cuts,
-                                               const SolverOptions& opts,
-                                               IterationIndex iteration_index)
-      -> std::expected<int, Error>;
-
   /// Create a submit function that submits complete aperture tasks to
   /// the work pool for parallel execution.
   ///

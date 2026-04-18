@@ -395,7 +395,6 @@ forgetting semantics and the two-phase solve behavior.
 | Field                        | Type    | Default | Description |
 |------------------------------|---------|---------|-------------|
 | `inherit_optimality_cuts`    | integer | `0`     | `0` = do not inherit; `-1` = inherit and keep forever; `N > 0` = inherit, then forget after N training iterations |
-| `inherit_feasibility_cuts`   | integer | `0`     | Same semantics as `inherit_optimality_cuts` |
 | `inherit_targets`            | integer | `0`     | `0` = no targets; `-1` = inherit forever; `N > 0` = inherit with forgetting |
 | `target_rtol`                | number  | `0.05`  | Relative tolerance for target band (fraction of abs(v)) |
 | `target_min_atol`            | number  | `1.0`   | Minimum absolute tolerance for target band |
@@ -479,7 +478,6 @@ forgetting semantics and the two-phase solve behavior.
           },
           "transition": {
             "inherit_optimality_cuts": true,
-            "inherit_feasibility_cuts": true,
             "optimality_dual_threshold": 1e-6
           }
         }

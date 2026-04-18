@@ -35,6 +35,7 @@
 #include <gtopt/sddp_cut_sharing.hpp>
 #include <gtopt/sddp_method.hpp>
 #include <gtopt/sddp_pool.hpp>
+#include <gtopt/simulation_lp.hpp>
 #include <gtopt/solver_status.hpp>
 #include <gtopt/system_lp.hpp>
 #include <gtopt/utils.hpp>
@@ -51,6 +52,19 @@ namespace gtopt
 // ─── Utilities ──────────────────────────────────────────────────────────────
 
 // assign_padded / align_up moved to sddp_forward_pass.cpp
+
+const StateVariable* find_alpha_state_var(const SimulationLP& sim,
+                                          SceneIndex scene_index,
+                                          PhaseIndex phase_index) noexcept
+{
+  auto svar = sim.state_variable(StateVariable::Key {
+      .uid = sddp_alpha_uid,
+      .col_name = sddp_alpha_col_name,
+      .class_name = sddp_alpha_class_name,
+      .lp_key = {.scene_index = scene_index, .phase_index = phase_index},
+  });
+  return svar ? &svar->get() : nullptr;
+}
 
 CutSharingMode parse_cut_sharing_mode(std::string_view name)
 {
@@ -373,7 +387,6 @@ void SDDPMethod::initialize_alpha_variables(SceneIndex scene_index)
     if (pi == last_phase_index) {
       break;
     }
-    auto& state = phase_states[pi];
     auto& li = planning_lp().system(scene_index, pi).linear_interface();
 
     const auto sa = m_options_.scale_alpha;
@@ -389,7 +402,6 @@ void SDDPMethod::initialize_alpha_variables(SceneIndex scene_index)
             make_scene_phase_context(scene_uid(scene_index), _phase.uid()),
     };
     const auto alpha_col = li.add_col(alpha_sparse);
-    state.alpha_col = alpha_col;
 
     // Track dynamic column for low_memory reconstruction
     planning_lp().system(scene_index, pi).record_dynamic_col(alpha_sparse);
@@ -411,9 +423,6 @@ void SDDPMethod::initialize_alpha_variables(SceneIndex scene_index)
         sa,  // var_scale: same as SparseCol.scale
         alpha_sparse.context);
   }
-
-  // Last phase: no future cost
-  phase_states[last_phase_index].alpha_col = ColIndex {unknown_index};
 }
 
 void SDDPMethod::collect_state_variable_links(SceneIndex scene_index)
@@ -789,7 +798,7 @@ auto SDDPMethod::resolve_clone_via_pool(
   return clone.resolve(opts);
 }
 
-// ── feasibility_backpropagate() — now in sddp_feasibility.cpp ───────────────
+// ── feasibility_backpropagate() removed — forward pass installs fcuts ──────
 
 // ── Per-phase backward-pass step (optimality cut only; no feasibility sharing)
 
@@ -825,7 +834,16 @@ auto SDDPMethod::backward_pass_single_phase(SceneIndex scene_index,
   // link's back-pointer to the source StateVariable, avoiding the
   // per-phase full-vector cache that used to live on PhaseStateInfo
   // (`forward_col_cost`).
-  auto cut = build_benders_cut(src_state.alpha_col,
+  //
+  // Resolve the α column freshly from the state-variable registry so
+  // low_memory reconstruct paths never see a stale cached index.
+  const auto* src_alpha_svar = find_alpha_state_var(
+      planning_lp().simulation(), scene_index, prev_phase_index);
+  const auto src_alpha_col = (src_alpha_svar != nullptr)
+      ? src_alpha_svar->col()
+      : ColIndex {unknown_index};
+
+  auto cut = build_benders_cut(src_alpha_col,
                                src_state.outgoing_links,
                                target_state.forward_full_obj,
                                sa,
@@ -836,8 +854,8 @@ auto SDDPMethod::backward_pass_single_phase(SceneIndex scene_index,
                                        phase_uid(phase_index),
                                        iteration_index,
                                        cut_offset);
-  rescale_benders_cut(cut, src_state.alpha_col, cmax);
-  filter_cut_coefficients(cut, src_state.alpha_col, ceps);
+  rescale_benders_cut(cut, src_alpha_col, cmax);
+  filter_cut_coefficients(cut, src_alpha_col, ceps);
 
   const auto cut_row = src_li.add_row(cut);
   store_cut(scene_index, prev_phase_index, cut, CutType::Optimality, cut_row);
@@ -852,8 +870,11 @@ auto SDDPMethod::backward_pass_single_phase(SceneIndex scene_index,
                phase_uid(prev_phase_index),
                cut.lowb);
 
-  // Re-solve source and handle iterative feasibility backpropagation.
-  // Feasibility cuts are never shared between scenes — they stay local.
+  // Re-solve source with the new optimality cut.  Feasibility issues are
+  // now resolved entirely in the forward pass (PLP-style fcuts installed
+  // on phase p-1 whenever an elastic solve succeeds at phase p).  If the
+  // backward re-solve still becomes non-optimal the scene is declared
+  // infeasible for this iteration — no backward-pass elastic fallback.
   if (phase_index) {
     src_li.set_log_tag(sddp_log("Backward",
                                 iteration_index,
@@ -865,22 +886,16 @@ auto SDDPMethod::backward_pass_single_phase(SceneIndex scene_index,
       update_max_kappa(scene_index, prev_phase_index, src_li, iteration_index);
     }
     if (!r.has_value() || !src_li.is_optimal()) {
-      SPDLOG_WARN(
-          "SDDP Backward [i{} s{} p{}]: non-optimal after cut (status {}),"
-          " starting feasibility backpropagation",
-          iteration_index,
-          scene_uid(scene_index),
-          phase_uid(prev_phase_index),
-          src_li.get_status());
-      auto bp_result = feasibility_backpropagate(scene_index,
-                                                 prev_phase_index,
-                                                 cut_offset + cuts_added,
-                                                 opts,
-                                                 iteration_index);
-      if (!bp_result.has_value()) {
-        return std::unexpected(std::move(bp_result.error()));
-      }
-      cuts_added += *bp_result;
+      return std::unexpected(Error {
+          .code = ErrorCode::SolverError,
+          .message = std::format("{}: non-optimal after cut (status {})",
+                                 sddp_log("Backward",
+                                          iteration_index,
+                                          scene_uid(scene_index),
+                                          phase_uid(prev_phase_index)),
+                                 src_li.get_status()),
+          .status = src_li.get_status(),
+      });
     }
   }
 

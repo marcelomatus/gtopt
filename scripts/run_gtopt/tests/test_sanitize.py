@@ -587,7 +587,6 @@ def test_cascade_new_structure_full_level(tmp_path: Path):
         },
         "transition": {
             "inherit_optimality_cuts": True,
-            "inherit_feasibility_cuts": False,
             "inherit_targets": False,
             "target_penalty": 500.0,
             "optimality_dual_threshold": 0.0,

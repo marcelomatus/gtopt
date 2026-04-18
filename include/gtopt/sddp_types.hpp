@@ -30,11 +30,9 @@
 #pragma once
 
 #include <chrono>
-#include <format>
 #include <functional>
 #include <optional>
 #include <span>
-#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -51,6 +49,7 @@ namespace gtopt
 
 // Forward declaration for compute_scene_weights()
 class SceneLP;
+class SimulationLP;
 
 // ─── Cut sharing mode ───────────────────────────────────────────────────────
 // CutSharingMode is now defined in <gtopt/sddp_enums.hpp>.
@@ -541,41 +540,20 @@ struct SDDPIterationResult
 [[nodiscard]] double compute_convergence_gap(double upper_bound,
                                              double lower_bound) noexcept;
 
-/// Return `sol[alpha_col] * scale` when `alpha_col` refers to a real,
-/// in-bounds column of the current LP solution; return `0.0` only for
-/// the legitimate "no alpha column" case (`alpha_col == unknown_index`,
-/// i.e. the last phase).
+/// Look up the alpha (future-cost) state variable registered by
+/// `SDDPMethod::initialize_alpha_variables` for the given (scene, phase).
+/// Returns `nullptr` for the last phase (which has no alpha) and for any
+/// phase that has not yet been initialised.
 ///
-/// Throws `std::out_of_range` with a detailed diagnostic when
-/// `alpha_col` is set but falls outside `sol`.  This situation is
-/// **never normal**: it means that the column layout stamped into
-/// `state.alpha_col` no longer matches the LP that produced `sol`
-/// (e.g. a reconstruction path that forgot to replay alpha — see
-/// `record_dynamic_col` call sites in `sddp_cut_io.cpp`).  Silently
-/// substituting `0.0` here would mask such bugs and yield a bogus
-/// forward-objective; failing loudly instead keeps the root cause
-/// visible the first time it occurs.
-[[nodiscard]] inline double safe_alpha_value(ColIndex alpha_col,
-                                             std::span<const double> sol,
-                                             double scale)
-{
-  if (alpha_col == ColIndex {unknown_index}) {
-    return 0.0;
-  }
-  const auto idx = static_cast<Index>(alpha_col);
-  const auto sz = static_cast<Index>(sol.size());
-  if (idx < 0 || idx >= sz) {
-    throw std::out_of_range(std::format(
-        "safe_alpha_value: alpha_col={} out of range for sol.size()={} "
-        "(scale={:.6g}) — the LP column layout no longer matches the "
-        "stamped alpha index; a dynamic-col replay was likely missed "
-        "on a low_memory reconstruct/clone path",
-        idx,
-        sz,
-        scale));
-  }
-  return sol[idx] * scale;
-}
+/// Callers should read the alpha column index freshly via
+/// `svar->col()` and the forward-pass trial value via `svar->col_sol()`,
+/// which is populated by `capture_state_variable_values` after every
+/// successful solve.  This replaces the former `PhaseStateInfo::alpha_col`
+/// cache, which could become stale on low_memory reconstruct/clone paths.
+[[nodiscard]] const StateVariable* find_alpha_state_var(
+    const SimulationLP& sim,
+    SceneIndex scene_index,
+    PhaseIndex phase_index) noexcept;
 
 // ─── Per-phase tracking ─────────────────────────────────────────────────────
 
@@ -586,7 +564,6 @@ struct SDDPIterationResult
 /// by `capture_state_variable_values` after every forward solve.
 struct PhaseStateInfo
 {
-  ColIndex alpha_col {unknown_index};  ///< a column (unknown for last)
   std::vector<StateVarLink> outgoing_links {};  ///< Links TO next phase
   size_t base_nrows {0};  ///< Row count before any Benders cuts
   double forward_objective {0.0};  ///< Opex from last forward pass

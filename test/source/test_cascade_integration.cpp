@@ -279,7 +279,6 @@ TEST_CASE("Cascade 2-level with cut inheritance only (6-phase)")
           .transition =
               CascadeTransition {
                   .inherit_optimality_cuts = OptInt {-1},
-                  .inherit_feasibility_cuts = OptInt {-1},
               },
       },
   };
@@ -514,7 +513,6 @@ TEST_CASE("Cascade 3-level with targets then cuts (6-phase)")  // NOLINT
           .transition =
               CascadeTransition {
                   .inherit_optimality_cuts = OptInt {-1},
-                  .inherit_feasibility_cuts = OptInt {-1},
               },
       },
   };
@@ -618,7 +616,6 @@ TEST_CASE("Cascade 2-level inherit_optimality_cuts=3 (forget after 3 iters)")
               CascadeTransition {
                   // Inherit optimality cuts but forget after 3 iters
                   .inherit_optimality_cuts = OptInt {3},
-                  .inherit_feasibility_cuts = OptInt {-1},
               },
       },
   };
@@ -739,7 +736,6 @@ TEST_CASE(  // NOLINT
               CascadeTransition {
                   // Keep inherited cuts forever
                   .inherit_optimality_cuts = OptInt {-1},
-                  .inherit_feasibility_cuts = OptInt {-1},
               },
       },
   };

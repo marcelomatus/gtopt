@@ -18,7 +18,6 @@ TEST_CASE("CascadeTransition - Default construction")
   const CascadeTransition tr {};
 
   CHECK_FALSE(tr.inherit_optimality_cuts.has_value());
-  CHECK_FALSE(tr.inherit_feasibility_cuts.has_value());
   CHECK_FALSE(tr.inherit_targets.has_value());
   CHECK_FALSE(tr.target_rtol.has_value());
   CHECK_FALSE(tr.target_min_atol.has_value());
@@ -30,7 +29,6 @@ TEST_CASE("CascadeTransition - Construction with all fields")
 {
   const CascadeTransition tr {
       .inherit_optimality_cuts = -1,
-      .inherit_feasibility_cuts = 5,
       .inherit_targets = 10,
       .target_rtol = 0.05,
       .target_min_atol = 1.0,
@@ -40,8 +38,6 @@ TEST_CASE("CascadeTransition - Construction with all fields")
 
   REQUIRE(tr.inherit_optimality_cuts.has_value());
   CHECK(*tr.inherit_optimality_cuts == -1);
-  REQUIRE(tr.inherit_feasibility_cuts.has_value());
-  CHECK(*tr.inherit_feasibility_cuts == 5);
   REQUIRE(tr.inherit_targets.has_value());
   CHECK(*tr.inherit_targets == 10);
   REQUIRE(tr.target_rtol.has_value());
@@ -63,7 +59,6 @@ TEST_CASE("CascadeTransition - Merge (overlay wins)")
 
   const CascadeTransition overlay {
       .inherit_optimality_cuts = 10,
-      .inherit_feasibility_cuts = 5,
       .target_penalty = 1000.0,
   };
 
@@ -76,8 +71,6 @@ TEST_CASE("CascadeTransition - Merge (overlay wins)")
   CHECK(*base.target_rtol == doctest::Approx(0.05));
 
   // New from overlay
-  REQUIRE(base.inherit_feasibility_cuts.has_value());
-  CHECK(*base.inherit_feasibility_cuts == 5);
   REQUIRE(base.target_penalty.has_value());
   CHECK(*base.target_penalty == doctest::Approx(1000.0));
 

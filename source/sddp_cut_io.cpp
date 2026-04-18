@@ -823,9 +823,10 @@ void write_cut_coefficients_unscaled(std::ostream& ofs,
     const std::string& filepath,
     const SDDPOptions& options,
     [[maybe_unused]] const LabelMaker& label_maker,
-    StrongIndexVector<SceneIndex,
-                      StrongIndexVector<PhaseIndex, PhaseStateInfo>>&
-        scene_phase_states) -> std::expected<CutLoadResult, Error>
+    [[maybe_unused]] StrongIndexVector<
+        SceneIndex,
+        StrongIndexVector<PhaseIndex, PhaseStateInfo>>& scene_phase_states)
+    -> std::expected<CutLoadResult, Error>
 {
   // ── Mode check ────────────────────────────────────────────────
   const auto mode = options.boundary_cuts_mode;
@@ -1043,43 +1044,45 @@ void write_cut_coefficients_unscaled(std::ostream& ofs,
     // ── Ensure the last phase has an alpha column ───────────────
     const auto sa = effective_scale_alpha(planning_lp, options.scale_alpha);
     for (const auto scene_index : iota_range<SceneIndex>(0, num_scenes)) {
-      auto& state = scene_phase_states[scene_index][last_phase];
-      if (state.alpha_col == ColIndex {unknown_index}) {
-        auto& sys = planning_lp.system(scene_index, last_phase);
-        auto& li = sys.linear_interface();
-        const auto alpha_sparse = SparseCol {
-            .lowb = options.alpha_min / sa,
-            .uppb = options.alpha_max / sa,
-            .cost = sa,
-            .is_state = true,
-            .scale = sa,
-            .class_name = sddp_alpha_class_name,
-            .variable_name = sddp_alpha_col_name,
-            .context = ScenePhaseContext {sim.scenes()[scene_index].uid(),
-                                          sim.phases()[last_phase].uid()},
-        };
-        const auto alpha_col = li.add_col(alpha_sparse);
-        state.alpha_col = alpha_col;
-        // Track dynamic column for low_memory reconstruction — without
-        // this, the snapshot reload path would rebuild the LP missing
-        // alpha, and a later `sol[alpha_col]` would trip a span-bounds
-        // assertion in the forward pass.
-        sys.record_dynamic_col(alpha_sparse);
-        // Register as a regular state variable — see the matching call
-        // in SDDPMethod::initialize_alpha_variables for rationale.
-        std::ignore = planning_lp.simulation().add_state_variable(
-            StateVariable::Key {
-                .uid = sddp_alpha_uid,
-                .col_name = sddp_alpha_col_name,
-                .class_name = sddp_alpha_class_name,
-                .lp_key = {.scene_index = scene_index,
-                           .phase_index = last_phase},
-            },
-            alpha_col,
-            0.0,
-            sa,
-            alpha_sparse.context);
+      // sv_map presence is the ground truth for "alpha exists on this
+      // (scene, phase)" — no cached ColIndex to check.
+      if (find_alpha_state_var(
+              planning_lp.simulation(), scene_index, last_phase)
+          != nullptr)
+      {
+        continue;
       }
+      auto& sys = planning_lp.system(scene_index, last_phase);
+      auto& li = sys.linear_interface();
+      const auto alpha_sparse = SparseCol {
+          .lowb = options.alpha_min / sa,
+          .uppb = options.alpha_max / sa,
+          .cost = sa,
+          .is_state = true,
+          .scale = sa,
+          .class_name = sddp_alpha_class_name,
+          .variable_name = sddp_alpha_col_name,
+          .context = ScenePhaseContext {sim.scenes()[scene_index].uid(),
+                                        sim.phases()[last_phase].uid()},
+      };
+      const auto alpha_col = li.add_col(alpha_sparse);
+      // Track dynamic column for low_memory reconstruction — without
+      // this, the snapshot reload path would rebuild the LP missing
+      // alpha, and boundary cuts would reference a non-existent column.
+      sys.record_dynamic_col(alpha_sparse);
+      // Register as a regular state variable — see the matching call
+      // in SDDPMethod::initialize_alpha_variables for rationale.
+      std::ignore = planning_lp.simulation().add_state_variable(
+          StateVariable::Key {
+              .uid = sddp_alpha_uid,
+              .col_name = sddp_alpha_col_name,
+              .class_name = sddp_alpha_class_name,
+              .lp_key = {.scene_index = scene_index, .phase_index = last_phase},
+          },
+          alpha_col,
+          0.0,
+          sa,
+          alpha_sparse.context);
     }
 
     // ── Add cuts to the LP ──────────────────────────────────────
@@ -1159,7 +1162,11 @@ void write_cut_coefficients_unscaled(std::ostream& ofs,
       }
 
       for (const auto scene_index : iota_range(scene_start, scene_end)) {
-        const auto& state = scene_phase_states[scene_index][last_phase];
+        const auto* alpha_svar = find_alpha_state_var(
+            planning_lp.simulation(), scene_index, last_phase);
+        if (alpha_svar == nullptr) {
+          continue;  // No α on this (scene, phase) — nothing to add
+        }
 
         auto row = SparseRow {
             .lowb = rc.rhs * bc_discount / scale_obj,
@@ -1170,7 +1177,7 @@ void write_cut_coefficients_unscaled(std::ostream& ofs,
             .context = ScenePhaseContext {sim.scenes()[scene_index].uid(),
                                           sim.phases()[last_phase].uid()},
         };
-        row[state.alpha_col] = sa;
+        row[alpha_svar->col()] = sa;
 
         auto& li =
             planning_lp.system(scene_index, last_phase).linear_interface();
@@ -1232,9 +1239,10 @@ void write_cut_coefficients_unscaled(std::ostream& ofs,
     const std::string& filepath,
     const SDDPOptions& options,
     [[maybe_unused]] const LabelMaker& label_maker,
-    StrongIndexVector<SceneIndex,
-                      StrongIndexVector<PhaseIndex, PhaseStateInfo>>&
-        scene_phase_states) -> std::expected<CutLoadResult, Error>
+    [[maybe_unused]] StrongIndexVector<
+        SceneIndex,
+        StrongIndexVector<PhaseIndex, PhaseStateInfo>>& scene_phase_states)
+    -> std::expected<CutLoadResult, Error>
 {
   try {
     std::ifstream ifs(filepath);
@@ -1426,45 +1434,47 @@ void write_cut_coefficients_unscaled(std::ostream& ofs,
       }
       const auto phase_index = pit->second;
 
-      // Ensure alpha variable exists for this phase in all
-      // scenes.  Register it as a dynamic column so low_memory
-      // reconstruction replays it (otherwise sol.size() would drop
-      // below state.alpha_col after a release/reconstruct cycle).
+      // Ensure alpha variable exists for this phase in all scenes.
+      // Register as a dynamic column so low_memory reconstruction
+      // replays it.  sv_map presence is the ground truth — no cached
+      // ColIndex to check.
       for (const auto scene_index : iota_range<SceneIndex>(0, num_scenes)) {
-        auto& state = scene_phase_states[scene_index][phase_index];
-        if (state.alpha_col == ColIndex {unknown_index}) {
-          auto& sys = planning_lp.system(scene_index, phase_index);
-          auto& li = sys.linear_interface();
-          const auto alpha_sparse = SparseCol {
-              .lowb = options.alpha_min / sa,
-              .uppb = options.alpha_max / sa,
-              .cost = sa,
-              .is_state = true,
-              .scale = sa,
-              .class_name = sddp_alpha_class_name,
-              .variable_name = sddp_alpha_col_name,
-              .context = ScenePhaseContext {sim.scenes()[scene_index].uid(),
-                                            sim.phases()[phase_index].uid()},
-          };
-          const auto alpha_col = li.add_col(alpha_sparse);
-          state.alpha_col = alpha_col;
-          sys.record_dynamic_col(alpha_sparse);
-          // Register alpha as a regular state variable so cross-level
-          // (cascade) resolution and state/cut CSV I/O treat it uniformly
-          // with reservoir/storage state vars.
-          std::ignore = planning_lp.simulation().add_state_variable(
-              StateVariable::Key {
-                  .uid = sddp_alpha_uid,
-                  .col_name = sddp_alpha_col_name,
-                  .class_name = sddp_alpha_class_name,
-                  .lp_key = {.scene_index = scene_index,
-                             .phase_index = phase_index},
-              },
-              alpha_col,
-              0.0,
-              sa,
-              alpha_sparse.context);
+        if (find_alpha_state_var(
+                planning_lp.simulation(), scene_index, phase_index)
+            != nullptr)
+        {
+          continue;
         }
+        auto& sys = planning_lp.system(scene_index, phase_index);
+        auto& li = sys.linear_interface();
+        const auto alpha_sparse = SparseCol {
+            .lowb = options.alpha_min / sa,
+            .uppb = options.alpha_max / sa,
+            .cost = sa,
+            .is_state = true,
+            .scale = sa,
+            .class_name = sddp_alpha_class_name,
+            .variable_name = sddp_alpha_col_name,
+            .context = ScenePhaseContext {sim.scenes()[scene_index].uid(),
+                                          sim.phases()[phase_index].uid()},
+        };
+        const auto alpha_col = li.add_col(alpha_sparse);
+        sys.record_dynamic_col(alpha_sparse);
+        // Register alpha as a regular state variable so cross-level
+        // (cascade) resolution and state/cut CSV I/O treat it uniformly
+        // with reservoir/storage state vars.
+        std::ignore = planning_lp.simulation().add_state_variable(
+            StateVariable::Key {
+                .uid = sddp_alpha_uid,
+                .col_name = sddp_alpha_col_name,
+                .class_name = sddp_alpha_class_name,
+                .lp_key = {.scene_index = scene_index,
+                           .phase_index = phase_index},
+            },
+            alpha_col,
+            0.0,
+            sa,
+            alpha_sparse.context);
       }
 
       // Get the column map for this phase
@@ -1507,7 +1517,11 @@ void write_cut_coefficients_unscaled(std::ostream& ofs,
       }
 
       for (const auto scene_index : iota_range<SceneIndex>(0, num_scenes)) {
-        const auto& state = scene_phase_states[scene_index][phase_index];
+        const auto* alpha_svar = find_alpha_state_var(
+            planning_lp.simulation(), scene_index, phase_index);
+        if (alpha_svar == nullptr) {
+          continue;  // No α on this (scene, phase) — nothing to add
+        }
 
         auto row = SparseRow {
             .lowb = rhs / scale_obj,
@@ -1518,7 +1532,7 @@ void write_cut_coefficients_unscaled(std::ostream& ofs,
             .context = ScenePhaseContext {sim.scenes()[scene_index].uid(),
                                           sim.phases()[phase_index].uid()},
         };
-        row[state.alpha_col] = sa;
+        row[alpha_svar->col()] = sa;
 
         auto& li =
             planning_lp.system(scene_index, phase_index).linear_interface();

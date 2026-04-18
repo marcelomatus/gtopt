@@ -27,9 +27,6 @@ struct CascadeTransition
   ///   - N > 0:       inherit but forget after N training iterations,
   ///                  then re-solve with only self-generated cuts
   OptInt inherit_optimality_cuts {};
-  /// Carry forward feasibility cuts from previous level.
-  /// Same semantics as inherit_optimality_cuts.
-  OptInt inherit_feasibility_cuts {};
   /// Add elastic state variable target constraints from previous
   /// solution.  Same semantics as inherit_optimality_cuts:
   ///   - absent or 0: do not inherit
@@ -51,7 +48,6 @@ struct CascadeTransition
   void merge(const CascadeTransition& opts)
   {
     merge_opt(inherit_optimality_cuts, opts.inherit_optimality_cuts);
-    merge_opt(inherit_feasibility_cuts, opts.inherit_feasibility_cuts);
     merge_opt(inherit_targets, opts.inherit_targets);
     merge_opt(target_rtol, opts.target_rtol);
     merge_opt(target_min_atol, opts.target_min_atol);

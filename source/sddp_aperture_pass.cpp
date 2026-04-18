@@ -133,10 +133,19 @@ auto SDDPMethod::backward_pass_aperture_phase_impl(
   // The guard re-compresses on scope exit (level 2 only).
   const DecompressionGuard dcomp_guard(target_sys.linear_interface());
 
+  // Resolve the α column for the source phase once; it is passed into
+  // aperture cut building and reused below for any fallback.
+  const auto* src_alpha_svar = find_alpha_state_var(
+      planning_lp().simulation(), scene_index, src_phase_index);
+  const auto src_alpha_col = (src_alpha_svar != nullptr)
+      ? src_alpha_svar->col()
+      : ColIndex {unknown_index};
+
   auto expected_cut = solve_apertures_for_phase(
       scene_index,
       phase_index,
       src_state,
+      src_alpha_col,
       base_scenario,
       all_scenarios,
       aperture_defs,
@@ -167,7 +176,7 @@ auto SDDPMethod::backward_pass_aperture_phase_impl(
     const auto cmax = m_options_.cut_coeff_max;
     // Reduced costs are read from each link's back-pointer to the
     // source StateVariable (no per-phase full-vector caches).
-    auto fallback_cut = build_benders_cut(src_state.alpha_col,
+    auto fallback_cut = build_benders_cut(src_alpha_col,
                                           src_state.outgoing_links,
                                           target_state.forward_full_obj,
                                           sa,
@@ -178,8 +187,8 @@ auto SDDPMethod::backward_pass_aperture_phase_impl(
                                                   phase_uid(phase_index),
                                                   iteration_index,
                                                   cut_offset);
-    rescale_benders_cut(fallback_cut, src_state.alpha_col, cmax);
-    filter_cut_coefficients(fallback_cut, src_state.alpha_col, ceps);
+    rescale_benders_cut(fallback_cut, src_alpha_col, cmax);
+    filter_cut_coefficients(fallback_cut, src_alpha_col, ceps);
 
     {
       const auto cut_row = src_li.add_row(fallback_cut);
@@ -223,10 +232,9 @@ auto SDDPMethod::backward_pass_aperture_phase_impl(
     return cuts_added;
   }
 
-  rescale_benders_cut(
-      *expected_cut, src_state.alpha_col, m_options_.cut_coeff_max);
+  rescale_benders_cut(*expected_cut, src_alpha_col, m_options_.cut_coeff_max);
   filter_cut_coefficients(
-      *expected_cut, src_state.alpha_col, m_options_.cut_coeff_eps);
+      *expected_cut, src_alpha_col, m_options_.cut_coeff_eps);
 
   {
     const auto cut_row = src_li.add_row(*expected_cut);
@@ -466,10 +474,18 @@ auto SDDPMethod::backward_pass_with_apertures(SceneIndex scene_index,
     // Keep the flat LP decompressed while aperture tasks create clones.
     const DecompressionGuard dcomp_guard(target_sys.linear_interface());
 
+    // Resolve α column for the source phase once per iteration.
+    const auto* src_alpha_svar = find_alpha_state_var(
+        planning_lp().simulation(), scene_index, src_phase_index);
+    const auto src_alpha_col = (src_alpha_svar != nullptr)
+        ? src_alpha_svar->col()
+        : ColIndex {unknown_index};
+
     auto expected_cut = solve_apertures_for_phase(
         scene_index,
         phase_index,
         src_state,
+        src_alpha_col,
         base_scenario,
         all_scenarios,
         effective_defs,
@@ -496,7 +512,7 @@ auto SDDPMethod::backward_pass_with_apertures(SceneIndex scene_index,
       const auto sa = m_options_.scale_alpha;
       const auto ceps = m_options_.cut_coeff_eps;
       const auto cmax2 = m_options_.cut_coeff_max;
-      auto fallback_cut = build_benders_cut(src_state.alpha_col,
+      auto fallback_cut = build_benders_cut(src_alpha_col,
                                             src_state.outgoing_links,
                                             target_state.forward_full_obj,
                                             sa,
@@ -507,8 +523,8 @@ auto SDDPMethod::backward_pass_with_apertures(SceneIndex scene_index,
                                                     phase_uid(phase_index),
                                                     iteration_index,
                                                     total_cuts);
-      rescale_benders_cut(fallback_cut, src_state.alpha_col, cmax2);
-      filter_cut_coefficients(fallback_cut, src_state.alpha_col, ceps);
+      rescale_benders_cut(fallback_cut, src_alpha_col, cmax2);
+      filter_cut_coefficients(fallback_cut, src_alpha_col, ceps);
 
       {
         const auto cut_row = src_li.add_row(fallback_cut);
@@ -553,10 +569,9 @@ auto SDDPMethod::backward_pass_with_apertures(SceneIndex scene_index,
       continue;
     }
 
-    rescale_benders_cut(
-        *expected_cut, src_state.alpha_col, m_options_.cut_coeff_max);
+    rescale_benders_cut(*expected_cut, src_alpha_col, m_options_.cut_coeff_max);
     filter_cut_coefficients(
-        *expected_cut, src_state.alpha_col, m_options_.cut_coeff_eps);
+        *expected_cut, src_alpha_col, m_options_.cut_coeff_eps);
 
     {
       const auto cut_row = src_li.add_row(*expected_cut);

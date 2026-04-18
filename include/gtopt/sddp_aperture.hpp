@@ -170,6 +170,7 @@ using ApertureSubmitFunc = std::function<std::future<ApertureCutResult>(
     SceneIndex scene_index,
     PhaseIndex phase_index,
     const PhaseStateInfo& src_state,
+    ColIndex src_alpha_col,
     const ScenarioLP& base_scenario,
     std::span<const ScenarioLP> all_scenarios,
     std::span<const Aperture> aperture_defs,

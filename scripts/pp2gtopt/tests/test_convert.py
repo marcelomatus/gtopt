@@ -503,7 +503,6 @@ class TestConvertSolverType:
             tr = lv["transition"]
             assert tr["inherit_targets"] == -1
             assert tr["inherit_optimality_cuts"] == -1
-            assert tr["inherit_feasibility_cuts"] == -1
 
     def test_sddp_omits_cascade_options(self, tmp_path):
         out = tmp_path / "sddp.json"

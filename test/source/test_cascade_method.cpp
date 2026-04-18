@@ -235,7 +235,6 @@ TEST_CASE("JSON parsing of cascade levels")  // NOLINT
             },
             "transition": {
               "inherit_optimality_cuts": -1,
-              "inherit_feasibility_cuts": 0,
               "inherit_targets": -1,
               "target_rtol": 0.08,
               "target_min_atol": 2.0,
@@ -281,7 +280,6 @@ TEST_CASE("JSON parsing of cascade levels")  // NOLINT
     CHECK(levels[1].transition.has_value());
     const auto trans = levels[1].transition.value_or(CascadeTransition {});
     CHECK(trans.inherit_optimality_cuts.value_or(0) == -1);
-    CHECK(trans.inherit_feasibility_cuts.value_or(-1) == 0);
     CHECK(trans.inherit_targets.value_or(0) == -1);
     CHECK(trans.target_rtol.value_or(0.0) == doctest::Approx(0.08));
     CHECK(trans.target_min_atol.value_or(0.0) == doctest::Approx(2.0));

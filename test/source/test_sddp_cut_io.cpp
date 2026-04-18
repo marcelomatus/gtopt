@@ -379,13 +379,14 @@ TEST_CASE(
   REQUIRE_FALSE(stored.empty());
 
   // Verify at least one cut has an alpha coefficient.
+  const auto* alpha_svar = find_alpha_state_var(
+      planning_lp.simulation(), first_scene_index(), first_phase_index());
+  REQUIRE(alpha_svar != nullptr);
+  const auto alpha_col = alpha_svar->col();
   bool has_alpha_cut = false;
   for (const auto& cut : stored) {
     for (const auto& [col, coeff] : cut.coefficients) {
-      if (col
-          == sddp.phase_states(first_scene_index())[first_phase_index()]
-                 .alpha_col)
-      {
+      if (col == alpha_col) {
         has_alpha_cut = true;
         break;
       }
@@ -1215,20 +1216,22 @@ TEST_CASE(
   const LabelMaker label_maker {LpNamesLevel::none};
   auto states = make_scene_phase_states(planning_lp);
 
-  // Before loading, alpha_col should be unknown
+  // Before loading, alpha should not be registered for the last phase
   const auto last_phase =
       PhaseIndex {planning_lp.simulation().phases().size() - 1};
-  CHECK(states[first_scene_index()][last_phase].alpha_col
-        == ColIndex {unknown_index});
+  CHECK(find_alpha_state_var(
+            planning_lp.simulation(), first_scene_index(), last_phase)
+        == nullptr);
 
   auto result =
       load_boundary_cuts_csv(planning_lp, tmp_file, opts, label_maker, states);
   REQUIRE(result.has_value());
   CHECK(result->count == 1);
 
-  // After loading, alpha_col should be set
-  CHECK(states[first_scene_index()][last_phase].alpha_col
-        != ColIndex {unknown_index});
+  // After loading, alpha should be registered as a state variable
+  CHECK(find_alpha_state_var(
+            planning_lp.simulation(), first_scene_index(), last_phase)
+        != nullptr);
 
   std::filesystem::remove(tmp_file);
 }
@@ -1375,10 +1378,11 @@ TEST_CASE(
   REQUIRE(result.has_value());
   CHECK(result->count == 3);
 
-  // Verify alpha columns were created for all phases
+  // Verify alpha was registered as a state variable for all phases
   for (Index pi = 0; pi < 3; ++pi) {
-    CHECK(states[first_scene_index()][PhaseIndex {pi}].alpha_col
-          != ColIndex {unknown_index});
+    CHECK(find_alpha_state_var(
+              planning_lp.simulation(), first_scene_index(), PhaseIndex {pi})
+          != nullptr);
   }
 
   std::filesystem::remove(tmp_file);

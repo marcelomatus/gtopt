@@ -18,6 +18,7 @@
 
 #include <gtopt/as_label.hpp>
 #include <gtopt/benders_cut.hpp>
+#include <gtopt/lp_context.hpp>
 #include <gtopt/planning_lp.hpp>
 #include <gtopt/sddp_method.hpp>
 #include <gtopt/system_lp.hpp>
@@ -240,7 +241,12 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
         capture_state_variable_values(scene_index, phase_index, sol, rc);
 
         const auto sa = m_options_.scale_alpha;
-        const auto alpha_val = safe_alpha_value(state.alpha_col, sol, sa);
+        // Alpha is registered as a state variable; its freshly-captured
+        // col_sol() is the LP solution value (already in scaled LP units).
+        const auto* alpha_svar = find_alpha_state_var(
+            planning_lp().simulation(), scene_index, phase_index);
+        const auto alpha_val =
+            (alpha_svar != nullptr) ? alpha_svar->col_sol() * sa : 0.0;
         state.forward_objective = obj - alpha_val;
         total_opex += state.forward_objective;
 
@@ -254,6 +260,96 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
             alpha_val,
             state.forward_objective,
             m_infeasibility_counter_[scene_index][phase_index]);
+
+        // PLP-style: install a Benders feasibility cut on phase p-1
+        // right from the forward pass, so the next forward iteration
+        // avoids regenerating the same infeasible trial point.  Uses
+        // reduced costs on the dependent state-var columns from the
+        // elastic clone (cost_raw at optimum of the relaxed LP).  When
+        // the per-(scene, phase) infeasibility counter exceeds
+        // multi_cut_threshold, additionally install one bound cut per
+        // activated slack (`build_multi_cuts`).
+        if (phase_index) {
+          const auto prev_phase_index = previous(phase_index);
+          auto& prev_sys = planning_lp().system(scene_index, prev_phase_index);
+          const auto& prev_state = phase_states[prev_phase_index];
+          prev_sys.ensure_lp_built();
+          auto& prev_li = prev_sys.linear_interface();
+
+          const auto infeas_count =
+              m_infeasibility_counter_[scene_index][phase_index];
+
+          // Resolve α column freshly from the registry so we never read
+          // a stale cached index (low_memory reconstruct paths).
+          const auto* prev_alpha_svar = find_alpha_state_var(
+              planning_lp().simulation(), scene_index, prev_phase_index);
+          const auto prev_alpha_col = (prev_alpha_svar != nullptr)
+              ? prev_alpha_svar->col()
+              : ColIndex {unknown_index};
+
+          auto feas_cut = build_benders_cut(prev_alpha_col,
+                                            prev_state.outgoing_links,
+                                            solved_li.get_col_cost_raw(),
+                                            solved_li.get_obj_value(),
+                                            m_options_.scale_alpha,
+                                            m_options_.cut_coeff_eps);
+          feas_cut.class_name = "Sddp";
+          feas_cut.constraint_name = "fcut";
+          feas_cut.context = make_iteration_context(scene_uid(scene_index),
+                                                    phase_uid(phase_index),
+                                                    iteration_index,
+                                                    infeas_count);
+          rescale_benders_cut(
+              feas_cut, prev_alpha_col, m_options_.cut_coeff_max);
+          filter_cut_coefficients(
+              feas_cut, prev_alpha_col, m_options_.cut_coeff_eps);
+          {
+            const auto cut_row = prev_li.add_row(feas_cut);
+            store_cut(scene_index,
+                      prev_phase_index,
+                      feas_cut,
+                      CutType::Feasibility,
+                      cut_row);
+          }
+
+          const bool use_multi_cut =
+              (m_options_.elastic_filter_mode == ElasticFilterMode::multi_cut)
+              || (m_options_.multi_cut_threshold == 0)
+              || (m_options_.multi_cut_threshold > 0
+                  && infeas_count > m_options_.multi_cut_threshold);
+
+          int mc_added = 0;
+          if (use_multi_cut) {
+            auto mc_cuts =
+                build_multi_cuts(*elastic_result,
+                                 prev_state.outgoing_links,
+                                 make_iteration_context(scene_uid(scene_index),
+                                                        phase_uid(phase_index),
+                                                        iteration_index,
+                                                        infeas_count));
+            for (auto& mc : mc_cuts) {
+              const auto cut_row = prev_li.add_row(mc);
+              store_cut(scene_index,
+                        prev_phase_index,
+                        mc,
+                        CutType::Feasibility,
+                        cut_row);
+              ++mc_added;
+            }
+          }
+
+          SPDLOG_INFO(
+              "SDDP Forward [i{} s{} p{}]: installed fcut on prev phase {}"
+              " (+{} multi-cut bounds) [infeas_count={}]",
+              iteration_index,
+              scene_uid(scene_index),
+              phase_uid(phase_index),
+              phase_uid(prev_phase_index),
+              mc_added,
+              infeas_count);
+          // Do not release prev_sys backend here — the backward pass
+          // will visit phase p-1 shortly and re-ensure_lp_built() itself.
+        }
       } else {
         // Save the infeasible LP and run diagnostics only when:
         //  - it's the first phase (the scene will be declared infeasible), or
@@ -308,7 +404,10 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
       capture_state_variable_values(scene_index, phase_index, sol, rc);
 
       const auto sa = m_options_.scale_alpha;
-      const auto alpha_val = safe_alpha_value(state.alpha_col, sol, sa);
+      const auto* alpha_svar = find_alpha_state_var(
+          planning_lp().simulation(), scene_index, phase_index);
+      const auto alpha_val =
+          (alpha_svar != nullptr) ? alpha_svar->col_sol() * sa : 0.0;
       state.forward_objective = obj - alpha_val;
 
       // Release solver backend — no-op when low_memory is off.

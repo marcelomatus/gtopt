@@ -1645,7 +1645,6 @@ Level 0 has no transition (it is the starting point).
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `inherit_optimality_cuts` | bool | `false` | Carry forward Benders optimality cuts |
-| `inherit_feasibility_cuts` | bool | `false` | Carry forward feasibility cuts |
 | `inherit_targets` | bool | `false` | Add elastic target constraints from previous solution |
 | `target_rtol` | real | 0.05 | Relative tolerance for target band (5% of \|v\|) |
 | `target_min_atol` | real | 1.0 | Minimum absolute tolerance for target band |
@@ -1712,7 +1711,6 @@ JSON configuration (not inside `sddp_options`).  The global
           },
           "transition": {
             "inherit_optimality_cuts": true,
-            "inherit_feasibility_cuts": true,
             "inherit_targets": true,
             "target_rtol": 0.05,
             "target_min_atol": 1.0,

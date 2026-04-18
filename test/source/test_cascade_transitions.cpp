@@ -197,7 +197,6 @@ TEST_CASE("Cascade 2-level with optimality cut inheritance")  // NOLINT
           .transition =
               CascadeTransition {
                   .inherit_optimality_cuts = OptInt {-1},
-                  .inherit_feasibility_cuts = OptInt {0},
               },
       },
   };
