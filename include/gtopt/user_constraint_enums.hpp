@@ -56,7 +56,9 @@ inline constexpr auto constraint_scale_type_entries =
         {.name = "power", .value = ConstraintScaleType::Power},
         {.name = "energy", .value = ConstraintScaleType::Energy},
         {.name = "raw", .value = ConstraintScaleType::Raw},
-        {.name = "unitless", .value = ConstraintScaleType::Raw},
+        {.name = "unitless",
+         .value = ConstraintScaleType::Raw,
+         .is_alias = true},
     });
 
 [[nodiscard]] constexpr auto enum_entries(ConstraintScaleType /*tag*/) noexcept

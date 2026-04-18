@@ -53,12 +53,18 @@ namespace gtopt
  * With C++26 static reflection (P2996 `std::meta::enumerators_of`) this
  * table could be generated automatically.  Until then it is maintained
  * manually next to each enum definition.
+ *
+ * @note  Set @c is_alias to @c true for back-compat spellings that should
+ * still parse but be hidden from the "(expected: …)" list produced by
+ * @ref require_enum on error.  Aliases are still accepted by
+ * @ref enum_from_name so existing configs keep working.
  */
 template<typename E>
 struct EnumEntry
 {
   std::string_view name;
   E value;
+  bool is_alias = false;
 };
 
 namespace detail
@@ -217,6 +223,9 @@ template<NamedEnum E>
       E {});  // NOLINT(bugprone-invalid-enum-default-initialization)
   std::string valid;
   for (const auto& e : entries) {
+    if (e.is_alias) {
+      continue;
+    }
     if (!valid.empty()) {
       valid += ", ";
     }

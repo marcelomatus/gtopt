@@ -507,3 +507,86 @@ TEST_CASE("MonthType rejects unknown names")  // NOLINT
   CHECK_FALSE(enum_from_name<MonthType>("januarys").has_value());
   CHECK_FALSE(enum_from_name<MonthType>("ja").has_value());
 }
+
+// ─── is_alias flag on EnumEntry ─────────────────────────────────────────────
+
+TEST_CASE("LowMemoryMode alias 'snapshot' still parses to compress")  // NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  // Parsing must continue to accept the legacy alias.
+  CHECK(enum_from_name<LowMemoryMode>("snapshot").value_or(LowMemoryMode::off)
+        == LowMemoryMode::compress);
+  CHECK(require_enum<LowMemoryMode>("low-memory", "snapshot")
+        == LowMemoryMode::compress);
+  // Canonical names still parse.
+  CHECK(require_enum<LowMemoryMode>("low-memory", "off") == LowMemoryMode::off);
+  CHECK(require_enum<LowMemoryMode>("low-memory", "compress")
+        == LowMemoryMode::compress);
+  CHECK(require_enum<LowMemoryMode>("low-memory", "rebuild")
+        == LowMemoryMode::rebuild);
+}
+
+TEST_CASE("require_enum<LowMemoryMode> error message hides alias 'snapshot'")
+// NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  try {
+    (void)require_enum<LowMemoryMode>("low-memory", "xx");
+    FAIL("require_enum should have thrown");
+  } catch (const std::invalid_argument& e) {
+    const std::string msg {e.what()};
+    CHECK(msg.find("off, compress, rebuild") != std::string::npos);
+    CHECK(msg.find("snapshot") == std::string::npos);
+    CHECK(msg.find("low-memory") != std::string::npos);
+    CHECK(msg.find("xx") != std::string::npos);
+  }
+}
+
+TEST_CASE("require_enum<ElasticFilterMode> error message hides alias 'cut'")
+// NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  // "cut" is a back-compat alias for "single_cut" — still parses.
+  CHECK(require_enum<ElasticFilterMode>("elastic-mode", "cut")
+        == ElasticFilterMode::single_cut);
+
+  try {
+    (void)require_enum<ElasticFilterMode>("elastic-mode", "bogus");
+    FAIL("require_enum should have thrown");
+  } catch (const std::invalid_argument& e) {
+    const std::string msg {e.what()};
+    CHECK(msg.find("single_cut") != std::string::npos);
+    CHECK(msg.find("multi_cut") != std::string::npos);
+    CHECK(msg.find("backpropagate") != std::string::npos);
+    // The bare "cut" alias must not appear as a standalone token.
+    // "single_cut" and "multi_cut" contain the substring "cut", so we
+    // verify by looking for the delimited forms produced by the joiner.
+    CHECK(msg.find(" cut,") == std::string::npos);
+    CHECK(msg.find(" cut)") == std::string::npos);
+  }
+}
+
+TEST_CASE("require_enum<CompressionCodec> error message hides alias 'none'")
+// NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  // "none" is an alias for "uncompressed" — still parses.
+  CHECK(require_enum<CompressionCodec>("output-compression", "none")
+        == CompressionCodec::uncompressed);
+
+  try {
+    (void)require_enum<CompressionCodec>("output-compression", "bogus");
+    FAIL("require_enum should have thrown");
+  } catch (const std::invalid_argument& e) {
+    const std::string msg {e.what()};
+    CHECK(msg.find("uncompressed") != std::string::npos);
+    CHECK(msg.find("zstd") != std::string::npos);
+    // The bare "none" alias must not appear in the expected list.
+    CHECK(msg.find(" none,") == std::string::npos);
+    CHECK(msg.find(" none)") == std::string::npos);
+  }
+}

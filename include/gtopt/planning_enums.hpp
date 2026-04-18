@@ -92,11 +92,17 @@ enum class BuildMode : uint8_t
 inline constexpr auto build_mode_entries = std::to_array<EnumEntry<BuildMode>>({
     {.name = "serial", .value = BuildMode::serial},
     {.name = "scene-parallel", .value = BuildMode::scene_parallel},
-    {.name = "scene_parallel", .value = BuildMode::scene_parallel},
+    {.name = "scene_parallel",
+     .value = BuildMode::scene_parallel,
+     .is_alias = true},
     {.name = "full-parallel", .value = BuildMode::full_parallel},
-    {.name = "full_parallel", .value = BuildMode::full_parallel},
+    {.name = "full_parallel",
+     .value = BuildMode::full_parallel,
+     .is_alias = true},
     {.name = "direct-parallel", .value = BuildMode::direct_parallel},
-    {.name = "direct_parallel", .value = BuildMode::direct_parallel},
+    {.name = "direct_parallel",
+     .value = BuildMode::direct_parallel,
+     .is_alias = true},
 });
 
 [[nodiscard]] constexpr auto enum_entries(BuildMode /*tag*/) noexcept
@@ -152,7 +158,9 @@ enum class CompressionCodec : uint8_t
 inline constexpr auto compression_codec_entries =
     std::to_array<EnumEntry<CompressionCodec>>({
         {.name = "uncompressed", .value = CompressionCodec::uncompressed},
-        {.name = "none", .value = CompressionCodec::uncompressed},
+        {.name = "none",
+         .value = CompressionCodec::uncompressed,
+         .is_alias = true},
         {.name = "gzip", .value = CompressionCodec::gzip},
         {.name = "zstd", .value = CompressionCodec::zstd},
         {.name = "lz4", .value = CompressionCodec::lz4},
