@@ -59,6 +59,12 @@ struct CompressedBuffer
   size_t original_size {0};
   CompressionCodec codec {CompressionCodec::uncompressed};
 
+  /// FLP-specific layout metadata, populated by `compress_flat_lp` so that
+  /// `decompress_flat_lp` can pre-reserve all 11 numeric vectors upfront
+  /// without byte-arithmetic inference.  Zero for non-FLP buffers.
+  size_t flp_nnz {0};  ///< matbeg[ncols] — total non-zeros
+  size_t flp_colint_count {0};  ///< colint.size() — integer variable count
+
   [[nodiscard]] bool empty() const noexcept { return data.empty(); }
 
   /// Decompress and return the original data.

@@ -357,6 +357,11 @@ CompressedBuffer compress_flat_lp(FlatLinearProblem& flp,
     return {};
   }
 
+  // Capture per-vector sizes now so decompress can pre-reserve upfront
+  // without byte-arithmetic inference.  matval.size() == matbeg[ncols].
+  const size_t nnz = flp.matval.size();
+  const size_t colint_count = flp.colint.size();
+
   std::vector<char> buf(total_bytes);
   auto* dst = buf.data();
 
@@ -381,6 +386,8 @@ CompressedBuffer compress_flat_lp(FlatLinearProblem& flp,
   append(flp.row_scales);
 
   auto result = compress_buffer(buf, effective);
+  result.flp_nnz = nnz;
+  result.flp_colint_count = colint_count;
 
   // Free the large numeric vectors (metadata is preserved)
   flp.matbeg = {};
@@ -409,42 +416,48 @@ void decompress_flat_lp(FlatLinearProblem& flp, const CompressedBuffer& buf)
     return;
   }
 
+  const auto ncols = static_cast<size_t>(flp.ncols);
+  const auto nrows = static_cast<size_t>(flp.nrows);
+  const auto nnz = buf.flp_nnz;
+  const auto colint_count = buf.flp_colint_count;
+
+  // Pre-reserve all 11 numeric vectors to their exact sizes before the
+  // decompress/memcpy loop runs.  Sizes come from `buf.flp_nnz` and
+  // `buf.flp_colint_count` (captured at compress time) plus the static
+  // metadata fields `ncols`/`nrows` — no byte-arithmetic inference.
+  flp.matbeg.resize(ncols + 1);
+  flp.matind.resize(nnz);
+  flp.colint.resize(colint_count);
+  flp.matval.resize(nnz);
+  flp.collb.resize(ncols);
+  flp.colub.resize(ncols);
+  flp.objval.resize(ncols);
+  flp.rowlb.resize(nrows);
+  flp.rowub.resize(nrows);
+  flp.col_scales.resize(ncols);
+  flp.row_scales.resize(nrows);
+
   auto raw = buf.decompress_data();
   const auto* src = raw.data();
 
-  auto restore = [&src]<typename T>(std::vector<T>& vec, size_t count)
+  auto restore = [&src]<typename T>(std::vector<T>& vec)
   {
-    vec.resize(count);
-    const auto sz = count * sizeof(T);
+    const auto sz = vec.size() * sizeof(T);
     std::memcpy(vec.data(), src, sz);
     src += sz;  // NOLINT(cppcoreguidelines-pro-bounds-pointer-arithmetic)
   };
 
-  const auto ncols = static_cast<size_t>(flp.ncols);
-  const auto nrows = static_cast<size_t>(flp.nrows);
-
-  restore(flp.matbeg, ncols + 1);
-  const auto actual_nnz =
-      static_cast<size_t>(flp.matbeg[static_cast<int32_t>(ncols)]);
-
-  // Derive colint count from byte layout
-  const auto total_double_count = actual_nnz + (4 * ncols) + (3 * nrows);
-  const auto total_double_bytes = total_double_count * sizeof(double);
-  const auto int_bytes_used = (ncols + 1 + actual_nnz) * sizeof(int32_t);
-  const auto remaining_int_bytes =
-      buf.original_size - int_bytes_used - total_double_bytes;
-  const auto colint_count = remaining_int_bytes / sizeof(int32_t);
-
-  restore(flp.matind, actual_nnz);
-  restore(flp.colint, colint_count);
-  restore(flp.matval, actual_nnz);
-  restore(flp.collb, ncols);
-  restore(flp.colub, ncols);
-  restore(flp.objval, ncols);
-  restore(flp.rowlb, nrows);
-  restore(flp.rowub, nrows);
-  restore(flp.col_scales, ncols);
-  restore(flp.row_scales, nrows);
+  restore(flp.matbeg);
+  restore(flp.matind);
+  restore(flp.colint);
+  restore(flp.matval);
+  restore(flp.collb);
+  restore(flp.colub);
+  restore(flp.objval);
+  restore(flp.rowlb);
+  restore(flp.rowub);
+  restore(flp.col_scales);
+  restore(flp.row_scales);
 }
 
 // ── Clear flat LP numeric vectors ─────────────────────────────────────────
