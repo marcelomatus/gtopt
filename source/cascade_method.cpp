@@ -14,6 +14,7 @@
 #include <format>
 #include <numeric>
 #include <ranges>
+#include <span>
 #include <vector>
 
 #include <gtopt/as_label.hpp>
@@ -315,6 +316,17 @@ auto CascadePlanningMethod::solve(PlanningLP& planning_lp,
     const auto& level = m_cascade_opts_.level_array[level_idx];
     const auto level_name = level.name.value_or(as_label("level", level_idx));
 
+    // ── 0. Skip inactive level ──
+    // `active = false` disables the level entirely: no LP build, no solve,
+    // no state/cut production.  State and cut files left over from prior
+    // active levels are preserved untouched so a later active level still
+    // sees the latest upstream data.
+    if (!level.active.value_or(true)) {
+      SPDLOG_INFO("Cascade [{}]: inactive (active=false), skipping",
+                  level_name);
+      continue;
+    }
+
     // ── 1. Build LP for each level ──
     // Intermediate/final levels always build a fresh LP to ensure clean
     // state (no leftover target constraints or alpha variables from
@@ -613,7 +625,19 @@ auto CascadePlanningMethod::solve(PlanningLP& planning_lp,
     }
 
     // ── 5. Extract state for next level + explicit cleanup ──
-    if (level_idx + 1 < m_cascade_opts_.level_array.size()) {
+    // Only prepare state/cut transfer and release LP cells when an
+    // ACTIVE subsequent level exists.  If every remaining level is
+    // inactive, skip this block entirely so the caller's PlanningLP
+    // retains its systems for write_out() to emit solution parquets.
+    // Without this guard, level 0 would release its cells in
+    // anticipation of level 1, only to find levels 1..N all inactive —
+    // leaving write_out with an empty system grid.
+    const bool has_active_successor = std::ranges::any_of(
+        std::span(m_cascade_opts_.level_array).subspan(level_idx + 1),
+        [](const CascadeLevel& l) { return l.active.value_or(true); });
+    if (level_idx + 1 < m_cascade_opts_.level_array.size()
+        && has_active_successor)
+    {
       prev_targets = collect_state_targets(*current_solver, *current_lp);
 
       // Save state variable solutions to a temp file for inter-level

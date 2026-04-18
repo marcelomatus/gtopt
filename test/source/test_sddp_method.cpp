@@ -1707,3 +1707,119 @@ TEST_CASE(  // NOLINT
     CHECK(lb == doctest::Approx(off_lb).epsilon(kParityTol));
   }
 }
+
+// ─── Pure simulation-run invariance ─────────────────────────────────────────
+//
+// A "pure" simulation run is `max_iterations=0` with an optional hot-start
+// cut file — no training happens, only the final forward (simulation) pass
+// runs.  The output must be byte-for-byte identical regardless of the
+// `low_memory_mode`.  Protects the whole pipeline:
+//
+//   1. Loaded cuts flow into `m_active_cuts_` via `record_cut_row` →
+//      replay on `ensure_lp_built()` under compress/rebuild.
+//   2. Sim-pass forward writes each cell with the live backend
+//      (`sddp_forward_pass.cpp`) before `release_backend()`.
+//   3. `SystemLP::m_output_written_` guards against a second write from
+//      `PlanningLP::write_out()` that would see a rehydrated-but-unsolved
+//      backend under compress.
+//   4. `PlanningLP::write_out` normalises status/obj/kappa for unsolved
+//      cells so `solution.csv` matches across modes.
+//
+// The test runs a 3-phase hydro case twice — `low_memory=off` vs
+// `low_memory=compress` — with `max_iterations=0`, then compares
+// `solution.csv` byte-for-byte.
+
+TEST_CASE(  // NOLINT
+    "SDDPMethod — pure sim pass (max_iter=0) output invariance "
+    "across low_memory modes")
+{
+  namespace fs = std::filesystem;
+
+  auto run_once = [&](std::optional<LowMemoryMode> mode,
+                      const fs::path& out_dir) -> void
+  {
+    fs::remove_all(out_dir);
+    fs::create_directories(out_dir);
+
+    auto planning = make_3phase_hydro_planning();
+    planning.options.output_directory = out_dir.string();
+
+    PlanningLP planning_lp(std::move(planning));
+
+    SDDPOptions sddp_opts;
+    sddp_opts.max_iterations = 0;  // pure sim pass
+    sddp_opts.enable_api = false;
+    if (mode) {
+      sddp_opts.low_memory_mode = *mode;
+    }
+
+    SDDPMethod sddp(planning_lp, sddp_opts);
+    auto results = sddp.solve();
+    REQUIRE(results.has_value());
+    REQUIRE_FALSE(results->empty());
+
+    // Mimic SDDPPlanningMethod's summary population so solution.csv is
+    // written with identical gap/max_kappa/converged columns in both
+    // runs (otherwise minor summary differences would diverge the file).
+    const auto& last = results->back();
+    planning_lp.set_sddp_summary({
+        .gap = last.gap,
+        .gap_change = last.gap_change,
+        .lower_bound = last.lower_bound,
+        .upper_bound = last.upper_bound,
+        .max_kappa = sddp.global_max_kappa(),
+        .iterations = 0,
+        .converged = last.converged,
+        .stationary_converged = last.stationary_converged,
+        .statistical_converged = last.statistical_converged,
+    });
+    planning_lp.write_out();
+  };
+
+  const auto base_dir = fs::temp_directory_path() / "gtopt_pure_sim_invariance";
+  const auto off_dir = base_dir / "off";
+  const auto cmp_dir = base_dir / "compress";
+
+  run_once(std::nullopt, off_dir);
+  run_once(LowMemoryMode::compress, cmp_dir);
+
+  // solution.csv must match byte-for-byte.
+  const auto off_sol = off_dir / "solution.csv";
+  const auto cmp_sol = cmp_dir / "solution.csv";
+  REQUIRE(fs::exists(off_sol));
+  REQUIRE(fs::exists(cmp_sol));
+
+  const auto read_file = [](const fs::path& p) -> std::string
+  {
+    std::ifstream f(p.string(), std::ios::binary);
+    return {std::istreambuf_iterator<char>(f),
+            std::istreambuf_iterator<char>()};
+  };
+
+  const auto off_txt = read_file(off_sol);
+  const auto cmp_txt = read_file(cmp_sol);
+  CHECK(off_txt == cmp_txt);
+
+  // Parity on file-set: the two runs must emit the same set of output
+  // files (the sim-pass writes every (scene, phase) cell whose solve
+  // was optimal; `SystemLP::write_out` short-circuits others — so both
+  // modes produce exactly the same universe of parquet/csv shards).
+  const auto collect = [&](const fs::path& root)
+  {
+    std::vector<std::string> rel;
+    for (const auto& e : fs::recursive_directory_iterator(root)) {
+      if (e.is_regular_file()) {
+        rel.push_back(fs::relative(e.path(), root).string());
+      }
+    }
+    std::ranges::sort(rel);
+    return rel;
+  };
+
+  const auto off_files = collect(off_dir);
+  const auto cmp_files = collect(cmp_dir);
+  CHECK(off_files == cmp_files);
+
+  // Cleanup
+  fs::remove_all(base_dir);
+}

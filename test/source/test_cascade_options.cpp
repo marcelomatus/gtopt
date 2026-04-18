@@ -8,6 +8,7 @@
 
 #include <doctest/doctest.h>
 #include <gtopt/cascade_options.hpp>
+#include <gtopt/json/json_cascade_options.hpp>
 
 using namespace gtopt;  // NOLINT(google-global-names-in-headers)
 
@@ -170,9 +171,63 @@ TEST_CASE("CascadeLevel - Default construction")
 
   CHECK_FALSE(lv.uid.has_value());
   CHECK_FALSE(lv.name.has_value());
+  CHECK_FALSE(lv.active.has_value());
   CHECK_FALSE(lv.model_options.has_value());
   CHECK_FALSE(lv.sddp_options.has_value());
   CHECK_FALSE(lv.transition.has_value());
+}
+
+TEST_CASE("CascadeLevel - active defaults to true when unset")
+{
+  // Skip semantics in cascade_method.cpp:
+  //   if (!level.active.value_or(true)) continue;
+  // So an absent `active` field must behave as an active level.
+  const CascadeLevel lv {};
+  CHECK(lv.active.value_or(true) == true);
+}
+
+TEST_CASE("CascadeLevel - active=false disables the level")
+{
+  const CascadeLevel lv {
+      .active = false,
+  };
+  REQUIRE(lv.active.has_value());
+  CHECK(*lv.active == false);
+  CHECK(lv.active.value_or(true) == false);
+}
+
+TEST_CASE("CascadeLevel - active JSON round-trip")
+{
+  // active = false
+  {
+    const CascadeLevel lv {
+        .name = "skip",
+        .active = false,
+    };
+    const auto json = daw::json::to_json(lv);
+    const auto parsed = daw::json::from_json<CascadeLevel>(json);
+    REQUIRE(parsed.active.has_value());
+    CHECK(*parsed.active == false);
+    REQUIRE(parsed.name.has_value());
+    CHECK(*parsed.name == "skip");
+  }
+  // active = true explicit
+  {
+    const CascadeLevel lv {
+        .active = true,
+    };
+    const auto json = daw::json::to_json(lv);
+    const auto parsed = daw::json::from_json<CascadeLevel>(json);
+    REQUIRE(parsed.active.has_value());
+    CHECK(*parsed.active == true);
+  }
+  // active absent from JSON
+  {
+    constexpr std::string_view js = R"({"uid":42,"name":"lv"})";
+    const auto parsed = daw::json::from_json<CascadeLevel>(js);
+    CHECK_FALSE(parsed.active.has_value());
+    CHECK(parsed.active.value_or(true) == true);
+  }
 }
 
 TEST_CASE("CascadeLevel - Construction with all fields")

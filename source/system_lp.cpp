@@ -939,16 +939,15 @@ SystemLP::SystemLP(const System& system,
     create_collections(m_system_context_, system, m_collections_);
     m_collections_built_ = true;
     create_lp(m_flat_opts_);
-    // Under compress, the snapshot is now installed and the backend
-    // is released.  Collections were only needed for the initial flatten
-    // pass; drop them so the per-cell resident footprint is the
-    // compressed snapshot alone (not ~30 MB of XLP wrappers × 816
-    // cells).  `write_out` rebuilds them on demand at the end of the
-    // run; `release_backend` already drops them under SDDP release.
-    if (m_flat_opts_.low_memory_mode == LowMemoryMode::compress) {
-      m_collections_ = collections_t {};
-      m_collections_built_ = false;
-    }
+    // Under compress, collections MUST survive the initial build: the
+    // per-element state they hold (GeneratorLP::generation_cols,
+    // CapacityBase::capacity_rows, …) is populated by `add_to_lp`
+    // during the flatten pass inside `create_lp` and cannot be
+    // regenerated from the snapshot alone — `reconstruct_backend` only
+    // reloads the flat LP matrix.  Dropping them here would leave the
+    // sim-pass `write_out` reading empty holders and emitting zero
+    // per-element files, which broke output invariance between `off`
+    // and `compress`.
   }
 }
 
@@ -1020,6 +1019,34 @@ SystemLP& SystemLP::operator=(SystemLP&& other) noexcept
 
 void SystemLP::write_out()
 {
+  // Idempotence guard: the SDDP simulation pass writes every cell right
+  // after its final solve (backend still live, col_sol / row_dual carry
+  // the true solved values).  `PlanningLP::write_out` later iterates
+  // all cells too — without this guard the later pass would overwrite
+  // the sim-pass output with values read from a freshly rehydrated
+  // (and possibly un-solved) backend under compress/rebuild, breaking
+  // solution invariance across low_memory modes.
+  if (m_output_written_) {
+    return;
+  }
+
+  // Optimality guard: there is nothing meaningful to emit for a cell
+  // whose LP was never solved to optimum.  Under `low_memory=off` the
+  // backend is still live and `col_sol` points to an uninitialised
+  // vector of zeros; under `compress` the backend was reconstructed
+  // from the build-time snapshot and has no primal values either.
+  // Writing in either case produced different numbers of zero-filled
+  // parquets across modes (the build-time col_scales and per-field
+  // holder filters diverge subtly), breaking solution invariance.
+  // Short-circuit here so both modes produce the same "no output"
+  // result for unsolved cells.  Cells that were actually solved reach
+  // this point in the normal path (SDDP sim pass emits while the
+  // backend is live and optimal; monolithic leaves the backend live
+  // and optimal).
+  if (!linear_interface().is_optimal()) {
+    return;
+  }
+
   // Collections may have been dropped under LowMemoryMode::compress
   // (end of ctor) or LowMemoryMode::rebuild (release_backend).  Rebuild
   // lazily so `visit_elements` below has live XLP wrappers to walk.
@@ -1053,6 +1080,8 @@ void SystemLP::write_out()
                               .string();
     write_lp_fingerprint(fingerprint(), filepath, scene().uid(), phase().uid());
   }
+
+  m_output_written_ = true;
 }
 
 auto SystemLP::write_lp(const std::string& filename) const

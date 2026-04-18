@@ -91,6 +91,12 @@ struct CascadeLevel
   OptUid uid {};
   /// Human-readable level name (for logging).
   OptName name {};
+  /// When `false`, the level is skipped entirely by the cascade solver:
+  /// no LP is built, no solver runs, and no state/cuts are produced for
+  /// downstream levels.  Intended for quickly disabling a level in
+  /// configuration without removing it (useful for boundary tests and
+  /// partial runs).  Default: `true` (active).
+  OptBool active {};
   /// Model overrides for this level (absent → reuse previous LP).
   std::optional<ModelOptions> model_options {};
   /// SDDP solver options for this level.

@@ -69,14 +69,19 @@ struct json_data_contract<CascadeLevel>
   using type =
       json_member_list<json_number_null<"uid", OptUid>,
                        json_string_null<"name", OptName>,
+                       json_bool_null<"active", OptBool>,
                        json_class_null<"model_options", ModelOptions>,
                        json_class_null<"sddp_options", CascadeLevelMethod>,
                        json_class_null<"transition", CascadeTransition>>;
 
   constexpr static auto to_json_data(CascadeLevel const& opt)
   {
-    return std::forward_as_tuple(
-        opt.uid, opt.name, opt.model_options, opt.sddp_options, opt.transition);
+    return std::forward_as_tuple(opt.uid,
+                                 opt.name,
+                                 opt.active,
+                                 opt.model_options,
+                                 opt.sddp_options,
+                                 opt.transition);
   }
 };
 

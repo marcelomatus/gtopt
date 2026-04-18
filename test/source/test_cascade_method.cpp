@@ -289,6 +289,64 @@ TEST_CASE("JSON parsing of cascade levels")  // NOLINT
   }
 }
 
+TEST_CASE("JSON parsing of cascade level active field")  // NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  // Exercises the CascadeLevel `active` OptBool wired through
+  // json_cascade_options.hpp and consumed by cascade_method.cpp:
+  //   `if (!level.active.value_or(true)) continue;`
+  //
+  // Verifies three modes: active=false (skip), active=true (explicit
+  // run), and omitted (defaults to run).  This test guards the JSON
+  // binding from silently dropping the field.
+  constexpr std::string_view json_str = R"json(
+  {
+    "options": {
+      "method": "cascade",
+      "cascade_options": {
+        "level_array": [
+          {"name": "disabled", "active": false},
+          {"name": "enabled", "active": true},
+          {"name": "default"}
+        ]
+      }
+    }
+  }
+  )json";
+
+  const auto planning = parse_planning_json(json_str);
+  const PlanningOptionsLP options_lp(planning.options);
+
+  REQUIRE(options_lp.has_cascade_levels());
+  const auto& levels = options_lp.cascade_levels();
+  REQUIRE(levels.size() == 3);
+
+  SUBCASE("active=false parsed")
+  {
+    CHECK(levels[0].name.value_or("") == "disabled");
+    REQUIRE(levels[0].active.has_value());
+    CHECK(*levels[0].active == false);
+    CHECK(levels[0].active.value_or(true) == false);
+  }
+
+  SUBCASE("active=true parsed")
+  {
+    CHECK(levels[1].name.value_or("") == "enabled");
+    REQUIRE(levels[1].active.has_value());
+    CHECK(*levels[1].active == true);
+    CHECK(levels[1].active.value_or(true) == true);
+  }
+
+  SUBCASE("active omitted defaults to active")
+  {
+    CHECK(levels[2].name.value_or("") == "default");
+    CHECK_FALSE(levels[2].active.has_value());
+    // cascade_method.cpp uses `value_or(true)` so absent → active.
+    CHECK(levels[2].active.value_or(true) == true);
+  }
+}
+
 TEST_CASE("JSON cascade options with empty levels uses defaults")  // NOLINT
 {
   using namespace gtopt;  // NOLINT(google-build-using-namespace)

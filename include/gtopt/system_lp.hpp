@@ -375,6 +375,27 @@ public:
    */
   void write_out();
 
+  /// True when `write_out()` has already emitted this cell's element
+  /// tables (set by the SDDP simulation pass right after its final
+  /// per-cell solve).  Callers that iterate every cell to write output
+  /// should skip cells that return true to avoid overwriting the
+  /// sim-pass output with values read from a rehydrated (possibly
+  /// un-solved) backend under `compress` / `rebuild`.
+  [[nodiscard]] constexpr bool output_written() const noexcept
+  {
+    return m_output_written_;
+  }
+
+  /// Reset the `output_written()` flag so the next `write_out()` call
+  /// re-emits this cell.  Intended for the SDDP simulation-pass
+  /// feasibility-recovery loop: when a later phase fails its solve and
+  /// installs a feasibility cut on this phase's LP, this phase must be
+  /// re-solved (yielding new state-variable values) and its output
+  /// re-written to reflect the new trajectory.  File writes overwrite
+  /// in place (parquet: hive partition + "part"; csv: per-(scene,phase)
+  /// shard), so clearing the flag is all that is needed.
+  constexpr void clear_output_written() noexcept { m_output_written_ = false; }
+
   /// Access the LP fingerprint computed during create_lp().
   [[nodiscard]] constexpr const LpFingerprint& fingerprint() const noexcept
   {
@@ -435,6 +456,16 @@ private:
   /// is default-constructed (empty) and no LP element wrapper has been
   /// allocated for this cell.
   bool m_collections_built_ {false};
+
+  /// True once `write_out()` has emitted this cell's element tables.
+  /// Set by the SDDP simulation pass, which calls `write_out()` right
+  /// after the final per-cell solve while the backend (and hence
+  /// `col_sol` / `row_dual`) is still live — this is the one guaranteed
+  /// point where the output reflects the same LP the SDDP iteration
+  /// actually solved, regardless of `low_memory_mode`.  Subsequent
+  /// invocations (from `PlanningLP::write_out`) skip the cell so that
+  /// output is solution-invariant between `off` and `compress`.
+  bool m_output_written_ {false};
 
   /// Exact (ncols, nrows) from the first successful flatten.  Used as
   /// the reserve hint on subsequent `LowMemoryMode::rebuild` flatten
@@ -521,16 +552,23 @@ public:
     install_rebuild_callback();
   }
 
-  /// Release the solver backend + (under any non-`off` low-memory mode)
-  /// drop the per-cell collection wrappers.  The memory ceiling under
-  /// compress/rebuild becomes the active-workers × per-cell-collections
-  /// footprint (plus the compressed snapshot), not 816 cells × collections.
-  /// The next access lazily re-builds them: `rebuild_in_place` for
-  /// rebuild mode, `write_out` for compress mode.
+  /// Release the solver backend.  Under `LowMemoryMode::rebuild` the
+  /// per-cell collection wrappers are also dropped — they will be
+  /// regenerated from scratch (including re-running every element's
+  /// `add_to_lp`) on the next `rebuild_in_place()` call, so keeping
+  /// them alive would be wasted memory.
+  ///
+  /// Under `LowMemoryMode::compress` collections MUST be preserved:
+  /// `reconstruct_backend()` only reloads the flat LP matrix, it does
+  /// NOT re-run `add_to_lp`, so each XLP wrapper's per-element state
+  /// (`generation_cols`, `capacity_rows`, …) cannot be rebuilt once
+  /// dropped.  Without this state `write_out()` would emit empty
+  /// per-element tables after the sim-pass release, breaking output
+  /// invariance between `off` and `compress`.
   void release_backend() noexcept
   {
     m_linear_interface_.release_backend();
-    if (m_flat_opts_.low_memory_mode != LowMemoryMode::off) {
+    if (m_flat_opts_.low_memory_mode == LowMemoryMode::rebuild) {
       m_collections_ = collections_t {};
       m_collections_built_ = false;
     }

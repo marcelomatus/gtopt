@@ -8,6 +8,7 @@
  * This module contains unit tests for the SystemLP class.
  */
 
+#include <filesystem>
 #include <optional>
 #include <vector>
 
@@ -362,4 +363,105 @@ TEST_CASE("SystemLP - move-assign rebinds embedded SystemContext")
   CHECK(dst->elements<BusLP>().size() == bus_array.size());
   CHECK(dst->elements<DemandLP>().size() == demand_array.size());
   CHECK(dst->elements<GeneratorLP>().size() == generator_array.size());
+}
+
+// ── Output invariance guard ─────────────────────────────────────────────────
+//
+// `SystemLP::m_output_written_` is the keystone for solution invariance
+// across `low_memory=off` / `compress`: the SDDP simulation pass calls
+// `write_out()` while the backend is still live, then any later call
+// from `PlanningLP::write_out` must become a no-op so it cannot
+// overwrite the sim-pass output with values read from a rehydrated
+// (possibly un-solved) backend.
+
+TEST_CASE(
+    "SystemLP - output_written() starts false and write_out is idempotent")
+{
+  const Array<Bus> bus_array = {
+      {
+          .uid = Uid {1},
+          .name = "b1",
+      },
+  };
+  const Array<Demand> demand_array = {
+      {
+          .uid = Uid {1},
+          .name = "b1",
+          .bus = Uid {1},
+          .forced = true,
+          .capacity = 100.0,
+      },
+  };
+  const Array<Generator> generator_array = {
+      {
+          .uid = Uid {1},
+          .name = "g1",
+          .bus = Uid {1},
+          .gcost = 50.0,
+          .capacity = 1000.0,
+      },
+  };
+  const Simulation simulation = {
+      .block_array =
+          {
+              {
+                  .uid = Uid {3},
+                  .duration = 1,
+              },
+          },
+      .stage_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .first_block = 0,
+                  .count_block = 1,
+              },
+          },
+      .scenario_array =
+          {
+              {
+                  .uid = Uid {0},
+              },
+          },
+  };
+  const System system = {
+      .name = "SEN",
+      .bus_array = bus_array,
+      .demand_array = demand_array,
+      .generator_array = generator_array,
+  };
+
+  // Route output into a disposable temp directory so the test doesn't
+  // pollute the repo or collide with other parallel tests.
+  const auto tmp_dir = std::filesystem::temp_directory_path()
+      / std::format("gtopt_write_out_idempotence_{}",
+                    static_cast<std::int64_t>(::getpid()));
+  std::filesystem::create_directories(tmp_dir);
+
+  PlanningOptions popts;
+  popts.demand_fail_cost = 1000.0;
+  popts.output_directory = tmp_dir.string();
+  const PlanningOptionsLP options(popts);
+  SimulationLP simulation_lp(simulation, options);
+  SystemLP system_lp(system, simulation_lp);
+
+  REQUIRE(system_lp.linear_interface().resolve({}).has_value());
+
+  CHECK_FALSE(system_lp.output_written());
+
+  // First write: emits tables and flips the flag.
+  system_lp.write_out();
+  CHECK(system_lp.output_written());
+
+  // Remove the tmp dir to catch any subsequent stray writes: after the
+  // idempotence guard kicks in the directory must NOT be recreated.
+  std::error_code ec;
+  std::filesystem::remove_all(tmp_dir, ec);
+  REQUIRE(!std::filesystem::exists(tmp_dir));
+
+  // Second write: must be a no-op.  The flag stays true and no files
+  // are emitted (otherwise the tmp_dir would reappear).
+  system_lp.write_out();
+  CHECK(system_lp.output_written());
+  CHECK_FALSE(std::filesystem::exists(tmp_dir));
 }

@@ -927,45 +927,72 @@ void PlanningLP::write_out()
   SPDLOG_INFO(
       "  Writing output: {} scene(s) × {} phase(s)", num_scenes, num_phases);
 
-  // Submit one task per (scene, phase) pair to the work pool so that
-  // output files are written in parallel.  Tasks use Low priority
-  // (non-LP I/O work) to avoid competing with solver tasks.
+  // Parallelism strategy:
+  //   – one task per scene (not per cell)
+  //   – phases are processed sequentially within a scene task
+  //   – each phase: ensure_lp_built → write_out → release_backend
+  //
+  // Memory rationale: a per-cell fan-out would hydrate every released
+  // backend concurrently, costing tens of GB for 816 cells under
+  // low-memory modes and blowing the process out of RAM.  Scene-parallel
+  // matches the scene-parallel build-mode footprint that already fits.
+  //
+  // Solution invariance across low-memory modes: the SDDP simulation
+  // forward pass calls `system.write_out()` itself, right before
+  // `release_backend()`, so every cell it solves is emitted while the
+  // backend still holds the real primal/dual vectors.  `SystemLP`
+  // guards against double-emit via `m_output_written_`, so the per-cell
+  // call below is a fast no-op for sim-pass cells.  The only cells it
+  // actually processes are the ones not written by the simulation pass
+  // — monolithic cells, cascade levels that skipped sim emission, or
+  // SDDP cells whose simulation solve fell into the elastic branch.
   auto pool = make_solver_work_pool();
 
   std::vector<std::future<void>> futures;
-  futures.reserve(static_cast<std::size_t>(num_scenes)
-                  * static_cast<std::size_t>(num_phases));
+  futures.reserve(static_cast<std::size_t>(num_scenes));
 
   for (auto&& [scene_num, phase_systems] : enumerate<SceneIndex>(m_systems_)) {
-    for (auto&& [phase_num, system] : enumerate<PhaseIndex>(phase_systems)) {
-      SPDLOG_DEBUG("  Submitting write_out scene {}/{} phase {}/{}",
-                   scene_num + 1,
-                   num_scenes,
-                   phase_num + 1,
-                   num_phases);
-      // Capture `system` via an explicit pointer into `m_systems_` (a
-      // stable member container) rather than `[&system]`.  The structured
-      // binding `system` is loop-local and rebound on the next iteration;
-      // capturing it by reference would leave the queued task reading a
-      // binding that has already moved on to a different (scene, phase).
-      // Mirrors the same fix in `create_systems` above.
-      auto* const sys_ptr = &system;
-      auto result =
-          pool->submit([sys_ptr] { sys_ptr->write_out(); },
-                       {
-                           .priority = TaskPriority::Low,
-                           .name = as_label("write_out", scene_num, phase_num),
-                       });
-      if (result.has_value()) {
-        futures.push_back(std::move(*result));
-      } else {
-        // Fall back to synchronous if the pool rejects the task.
-        SPDLOG_WARN(
-            "Failed to submit write_out task for scene {} phase {},"
-            " running synchronously",
-            scene_num,
-            phase_num);
+    // Capture `phase_systems` via an explicit pointer (it's a member
+    // container, stable across the loop); the structured binding itself
+    // is loop-local.  Mirrors the pattern in `create_systems`.
+    auto* const systems_ptr = &phase_systems;
+    auto result = pool->submit(
+        [systems_ptr]
+        {
+          for (auto& system : *systems_ptr) {
+            // Fast path: sim-pass cells already wrote output — skip
+            // ensure_lp_built entirely so we don't needlessly rehydrate
+            // the backend just to find m_output_written_ == true.
+            if (system.output_written()) {
+              continue;
+            }
+            system.ensure_lp_built();
+            system.write_out();
+            // Free the backend immediately so the next phase's
+            // ensure_lp_built has room to reconstruct under compress /
+            // rebuild; a no-op when low_memory is off.
+            system.release_backend();
+          }
+        },
+        {
+            .priority = TaskPriority::Low,
+            .name = as_label("write_out_scene", scene_num),
+        });
+    if (result.has_value()) {
+      futures.push_back(std::move(*result));
+    } else {
+      // Fall back to synchronous if the pool rejects the task.
+      SPDLOG_WARN(
+          "Failed to submit write_out task for scene {},"
+          " running synchronously",
+          scene_num);
+      for (auto& system : phase_systems) {
+        if (system.output_written()) {
+          continue;
+        }
+        system.ensure_lp_built();
         system.write_out();
+        system.release_backend();
       }
     }
   }
@@ -1002,10 +1029,19 @@ void PlanningLP::write_out()
   for (const auto& phase_systems : m_systems_) {
     for (const auto& system : phase_systems) {
       const auto& li = system.linear_interface();
+      // Normalise status for unsolved cells: report -1 / "unknown"
+      // regardless of low_memory_mode.  Otherwise `low_memory=off`
+      // would leave a live CPLEX/HiGHS backend that returns status 3
+      // ("iteration_limit" / not-yet-solved) while `compress` would
+      // report -1 (cached !is_optimal after release_backend).  Both
+      // mean the same thing semantically — the cell was never solved
+      // — and differing values break solution.csv invariance across
+      // the two modes.
+      const auto status = li.is_optimal() ? li.get_status() : -1;
       rows.push_back({
           .scene_uid = system.scene().uid(),
           .phase_uid = system.phase().uid(),
-          .status = li.get_status(),
+          .status = status,
           .obj_value = li.get_obj_value_physical(),
           // Backend returns std::nullopt when kappa is unavailable; we
           // store -1 in the CSV to mirror the "unset" convention used

@@ -23,6 +23,124 @@ namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-
 
 // ─── Single-level cascade = equivalent to direct SDDP ─────────────────────
 
+// ─── Inactive level skip: `active=false` must bypass the level ────────────
+//
+// Guards the `active` OptBool wired into cascade_method.cpp (step 0 of the
+// level loop).  Complements the JSON binding tests in
+// test_cascade_options.cpp / test_cascade_method.cpp with an end-to-end
+// check that the cascade solver actually skips the level at runtime.
+
+TEST_CASE("Cascade skips level with active=false")  // NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  auto planning = make_3phase_hydro_planning();
+  PlanningLP planning_lp(std::move(planning));
+
+  SDDPOptions base_opts;
+  base_opts.max_iterations = 4;
+  base_opts.convergence_tol = 0.01;
+  base_opts.apertures = std::vector<Uid> {};
+
+  // Two levels: first disabled, second active.  The inactive level
+  // must produce no level_stats entry and no iteration results; the
+  // active level must still run normally.
+  CascadeOptions cascade;
+  cascade.level_array = {
+      CascadeLevel {
+          .name = OptName {"disabled"},
+          .active = OptBool {false},
+          .sddp_options =
+              CascadeLevelMethod {
+                  .max_iterations = OptInt {4},
+                  .apertures = Array<Uid> {},
+              },
+      },
+      CascadeLevel {
+          .name = OptName {"active"},
+          .active = OptBool {true},
+          .sddp_options =
+              CascadeLevelMethod {
+                  .max_iterations = OptInt {4},
+                  .apertures = Array<Uid> {},
+              },
+      },
+  };
+
+  CascadePlanningMethod solver(std::move(base_opts), std::move(cascade));
+  const SolverOptions lp_opts;
+  auto res = solver.solve(planning_lp, lp_opts);
+  REQUIRE(res.has_value());
+
+  // Only one level produced stats — the active one.
+  REQUIRE(solver.level_stats().size() == 1);
+  CHECK(solver.level_stats()[0].name == "active");
+}
+
+// ─── Caller LP preservation when all remaining levels are inactive ────────
+//
+// Guards the `has_active_successor` check in cascade_method.cpp:
+// without it, level 0 releases the caller's cells anticipating a
+// fresh LP build in level 1 — but if levels 1..N are all inactive,
+// the caller's cells are the only place the solved systems live, so
+// `PlanningLP::write_out` afterwards would see an empty system grid
+// ("Writing output: 0 scene(s) × 0 phase(s)") and produce no element
+// parquets.  This test exercises that corner directly.
+
+TEST_CASE("Cascade preserves caller cells when remaining levels are inactive")
+// NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  auto planning = make_3phase_hydro_planning();
+  PlanningLP planning_lp(std::move(planning));
+
+  SDDPOptions base_opts;
+  base_opts.max_iterations = 4;
+  base_opts.convergence_tol = 0.01;
+  base_opts.apertures = std::vector<Uid> {};
+
+  // Level 0 active, levels 1 and 2 inactive.  After the solve,
+  // `planning_lp.systems()` must still be non-empty (level 0 reused
+  // the caller LP, and the inter-level cleanup must not have fired
+  // because no active successor exists).
+  CascadeOptions cascade;
+  cascade.level_array = {
+      CascadeLevel {
+          .name = OptName {"lvl0"},
+          .sddp_options =
+              CascadeLevelMethod {
+                  .max_iterations = OptInt {2},
+                  .apertures = Array<Uid> {},
+              },
+      },
+      CascadeLevel {
+          .name = OptName {"lvl1_off"},
+          .active = OptBool {false},
+      },
+      CascadeLevel {
+          .name = OptName {"lvl2_off"},
+          .active = OptBool {false},
+      },
+  };
+
+  const auto num_scenes_before = planning_lp.systems().size();
+  REQUIRE(num_scenes_before > 0);
+
+  CascadePlanningMethod solver(std::move(base_opts), std::move(cascade));
+  const SolverOptions lp_opts;
+  auto res = solver.solve(planning_lp, lp_opts);
+  REQUIRE(res.has_value());
+
+  // Caller's systems survived — they would be released by the
+  // inter-level cleanup if the guard were missing.
+  CHECK(planning_lp.systems().size() == num_scenes_before);
+  CHECK_FALSE(planning_lp.systems().empty());
+  CHECK_FALSE(planning_lp.systems().front().empty());
+  REQUIRE(solver.level_stats().size() == 1);
+  CHECK(solver.level_stats()[0].name == "lvl0");
+}
+
 TEST_CASE("Single-level cascade produces same result as direct SDDP")
 // NOLINT
 {
