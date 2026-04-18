@@ -14,6 +14,7 @@
 
 #include <cstdio>
 #include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -31,7 +32,7 @@ namespace gtopt
  * SolverRegistry checks the plugin's reported ABI version at load time
  * and rejects incompatible plugins with a clear error instead of crashing.
  */
-inline constexpr int k_solver_abi_version = 4;
+inline constexpr int k_solver_abi_version = 5;
 
 /**
  * @brief Abstract interface for LP/MIP solver backends.
@@ -204,8 +205,16 @@ public:
 
   // ---- diagnostics ----
 
-  /** @brief Condition number of the current basis (1.0 if unavailable) */
-  [[nodiscard]] virtual double get_kappa() const = 0;
+  /** @brief Condition number of the current basis.
+   *
+   *  Returns `std::nullopt` when the backend cannot compute it
+   *  (e.g. no basis after a barrier solve without crossover, the
+   *  underlying query failed, or the backend does not expose a
+   *  basis-conditioning query at all).  Callers MUST NOT interpret
+   *  a missing value as `1.0` — doing so silently poisons any
+   *  `std::max`-based aggregation across a (scene, phase) grid.
+   */
+  [[nodiscard]] virtual std::optional<double> get_kappa() const = 0;
 
   // ---- logging ----
 

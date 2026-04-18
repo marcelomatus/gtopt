@@ -527,8 +527,14 @@ SolverTestResult test_initial_solve_optimal(std::string_view solver)
       const auto rc = lp.get_col_cost_raw();
       TC_CHECK(ctx, rc.size() == 2);
 
-      // Kappa: >= 0 when supported, -1 when not (e.g. MindOpt).
-      TC_CHECK(ctx, lp.get_kappa() >= -1.0);
+      // Kappa: has_value when backend supports it; nullopt when the
+      // query fails or the backend does not expose one (e.g. MindOpt).
+      // If a value is returned it must never be the pre-fix 1.0 sentinel
+      // silently faked by a failed query — backends now return nullopt
+      // in that case.  We only assert "non-negative when present".
+      if (const auto kappa = lp.get_kappa(); kappa.has_value()) {
+        TC_CHECK(ctx, *kappa >= 0.0);
+      }
 
     } catch (const std::exception& ex) {
       ctx.check(

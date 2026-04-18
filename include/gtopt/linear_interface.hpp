@@ -740,10 +740,18 @@ public:
       const SolverOptions& solver_options = {});
 
   /**
-   * @brief Gets the condition number of the basis matrix (if available)
-   * @return Condition number kappa, or -1.0 if not supported by backend
+   * @brief Gets the condition number of the basis matrix (if available).
+   * @return Condition number kappa, or `std::nullopt` if the backend
+   *         cannot compute one (e.g. no basis after barrier without
+   *         crossover, backend does not expose the query, or the
+   *         native API reported failure).
+   *
+   * Callers must NOT treat a missing value as 1.0 — that silently
+   * poisons any `std::max`-based aggregation across a (scene, phase)
+   * grid.  Use `std::optional::value_or`, the bool-convert, or explicit
+   * `has_value()` checks instead.
    */
-  [[nodiscard]] double get_kappa() const;
+  [[nodiscard]] std::optional<double> get_kappa() const;
 
   /**
    * @brief Read-only access to this LP's cumulative solver counters.
@@ -1477,7 +1485,9 @@ private:
   /// Cached objective value from last successful solve.
   double m_cached_obj_value_ {};
   /// Cached kappa (condition number) from last successful solve.
-  double m_cached_kappa_ {-1.0};
+  /// `std::nullopt` means "backend reported unavailable" — never silently
+  /// reinterpret as 1.0.
+  std::optional<double> m_cached_kappa_ {};
   /// Cached number of rows at time of release.
   size_t m_cached_numrows_ {};
   /// Cached number of columns at time of release.

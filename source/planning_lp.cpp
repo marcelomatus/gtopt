@@ -999,7 +999,11 @@ void PlanningLP::write_out()
           .phase_uid = system.phase().uid(),
           .status = li.get_status(),
           .obj_value = li.get_obj_value_physical(),
-          .kappa = li.get_kappa(),
+          // Backend returns std::nullopt when kappa is unavailable; we
+          // store -1 in the CSV to mirror the "unset" convention used
+          // elsewhere in the stats pipeline.  Downstream readers treat
+          // negative kappa as "unknown" and must not fold it into max.
+          .kappa = li.get_kappa().value_or(-1.0),
           .max_kappa = sddp.max_kappa,
           .gap = sddp.gap,
           .gap_change = sddp.gap_change,

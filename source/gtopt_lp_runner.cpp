@@ -299,7 +299,14 @@ void log_post_solve_stats(const PlanningLP& planning_lp, bool optimal)
                  agg.avg_ncols(),
                  agg.avg_nrows());
   }
-  spdlog::info("  solve wall time : {:.3f}s", agg.total_solve_time_s);
+  if (const auto n = agg.total_solve_calls(); n != 0) {
+    spdlog::info("  solve wall time : {:.3f}s (avg {:.3f}s / {} solves)",
+                 agg.total_solve_time_s,
+                 agg.total_solve_time_s / static_cast<double>(n),
+                 n);
+  } else {
+    spdlog::info("  solve wall time : {:.3f}s", agg.total_solve_time_s);
+  }
   if (agg.max_kappa > 0.0) {
     spdlog::info("  Solver kappa    : {:.6g} (max across grid)", agg.max_kappa);
   }

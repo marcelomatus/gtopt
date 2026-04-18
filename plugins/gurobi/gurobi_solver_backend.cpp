@@ -893,11 +893,11 @@ int GurobiSolverBackend::get_log_level() const
 
 // ── diagnostics ──────────────────────────────────────────────────────────
 
-double GurobiSolverBackend::get_kappa() const
+std::optional<double> GurobiSolverBackend::get_kappa() const
 {
-  double kappa = -1.0;
+  double kappa = 0.0;
   if (GRBgetdblattr(m_model_, GRB_DBL_ATTR_KAPPA, &kappa) != 0) {
-    return -1.0;
+    return std::nullopt;
   }
   return kappa;
 }

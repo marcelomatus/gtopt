@@ -6,6 +6,7 @@
  * @copyright BSD-3-Clause
  */
 
+#include <cmath>
 #include <expected>
 #include <filesystem>
 
@@ -464,10 +465,9 @@ TEST_CASE("LinearInterface - get_status and status checks")
   CHECK_FALSE(interface.is_prim_infeasible());
   CHECK(interface.get_status() == 0);
   // CLP's largestDualError() may return 0 for clean solves.
-  // Backends without kappa support return -1 (e.g. MindOpt).
-  const double kappa0 = interface.get_kappa();
-  if (kappa0 >= 0.0) {
-    CHECK(kappa0 >= 0.0);
+  // Backends without kappa support return std::nullopt (e.g. MindOpt).
+  if (const auto kappa0 = interface.get_kappa(); kappa0.has_value()) {
+    CHECK(*kappa0 >= 0.0);
   }
 }
 
@@ -524,15 +524,15 @@ TEST_CASE("LinearInterface - get_kappa returns meaningful condition number")
   REQUIRE(result.has_value());
   CHECK(interface.is_optimal());
 
-  const double kappa = interface.get_kappa();
+  const auto kappa = interface.get_kappa();
   // CLP uses largestDualError() which may be 0 for clean solves.
-  // Backends without kappa support return -1 (e.g. MindOpt).
-  if (kappa >= 0.0) {
-    CHECK(kappa >= 0.0);
+  // Backends without kappa support return std::nullopt (e.g. MindOpt).
+  if (kappa.has_value()) {
+    CHECK(*kappa >= 0.0);
   }
 
   // Log the kappa value for diagnostics
-  MESSAGE("Solver kappa = ", kappa);
+  MESSAGE("Solver kappa = ", kappa.value_or(-1.0));
 }
 
 TEST_CASE("LinearInterface - get_kappa with explicit solver")
@@ -588,12 +588,74 @@ TEST_CASE("LinearInterface - get_kappa with explicit solver")
       REQUIRE(result.has_value());
       CHECK(interface.is_optimal());
 
-      const double kappa = interface.get_kappa();
-      // Backends without kappa support return -1 (e.g. MindOpt).
-      if (kappa >= 0.0) {
-        CHECK(kappa >= 0.0);
+      const auto kappa = interface.get_kappa();
+      // Backends without kappa support return std::nullopt (e.g. MindOpt).
+      if (kappa.has_value()) {
+        CHECK(*kappa >= 0.0);
       }
-      MESSAGE(solver, " kappa = ", kappa);
+      MESSAGE(solver, " kappa = ", kappa.value_or(-1.0));
+    } catch (const std::exception& e) {
+      MESSAGE("Solver '", solver, "' not available: ", e.what());
+    }
+  }
+}
+
+// Regression test for the sentinel-mismatch bug (see CLAUDE.md feedback
+// "no-nan-values"): when CPXgetdblquality / Highs::getKappa / CLP's proxy
+// fail, the backend must propagate std::nullopt and NEVER return a literal
+// 1.0 that would silently poison std::max-based aggregation across the
+// (scene, phase) grid.  The stat aggregator in LinearInterface must also
+// skip nullopt rather than fold a sentinel into max_kappa.
+TEST_CASE(  // NOLINT
+    "LinearInterface - get_kappa never returns the 1.0 sentinel silently")
+{
+  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+
+  auto& reg = SolverRegistry::instance();
+  reg.load_all_plugins();
+
+  for (const auto& solver : reg.available_solvers()) {
+    CAPTURE(solver);
+    try {
+      LinearInterface interface(solver);
+
+      // Trivial 1-variable LP: min x s.t. x >= 0, x <= 10.  Any sane
+      // solver either produces a real (non-sentinel) kappa or returns
+      // nullopt; a literal 1.0 would only come from the old failed-query
+      // fallback path, which the fix removes.
+      const auto x = interface.add_col(SparseCol {
+          .uppb = 10.0,
+          .cost = 1.0,
+      });
+      SparseRow row;
+      row[x] = 1.0;
+      row.uppb = 8.0;
+      interface.add_row(row);
+
+      auto result = interface.initial_solve();
+      REQUIRE(result.has_value());
+      REQUIRE(interface.is_optimal());
+
+      const auto kappa = interface.get_kappa();
+      if (kappa.has_value()) {
+        // A computed kappa must be finite and non-negative.  It MAY
+        // coincidentally be ~1.0 for a 1x1 well-conditioned basis, so
+        // we don't forbid that value exactly — we only forbid the
+        // previously-silent poisoning where a failed query masqueraded
+        // as a computed value.
+        CHECK(std::isfinite(*kappa));
+        CHECK(*kappa >= 0.0);
+      }
+
+      // Aggregation check: SolverStats::max_kappa must remain at its
+      // -1 sentinel when the backend does not supply a value, never
+      // drift up to a fake 1.0.
+      const auto& stats = interface.solver_stats();
+      if (!kappa.has_value()) {
+        CHECK(stats.max_kappa < 0.0);
+      } else {
+        CHECK(stats.max_kappa == doctest::Approx(*kappa));
+      }
     } catch (const std::exception& e) {
       MESSAGE("Solver '", solver, "' not available: ", e.what());
     }

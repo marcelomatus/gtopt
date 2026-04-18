@@ -151,7 +151,7 @@ public:
   [[nodiscard]] int get_log_level() const override;
 
   // ---- diagnostics ----
-  [[nodiscard]] double get_kappa() const override;
+  [[nodiscard]] std::optional<double> get_kappa() const override;
 
   // ---- logging ----
   void open_log(FILE* file, int level) override;

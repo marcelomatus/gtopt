@@ -1242,8 +1242,8 @@ std::expected<int, Error> LinearInterface::initial_solve(
       });
     }
 
-    if (const auto k = m_backend_->get_kappa(); k > 0.0) {
-      m_solver_stats_.max_kappa = std::max(m_solver_stats_.max_kappa, k);
+    if (const auto k = m_backend_->get_kappa(); k.has_value()) {
+      m_solver_stats_.max_kappa = std::max(m_solver_stats_.max_kappa, *k);
     }
 
     const auto status = get_status();
@@ -1351,8 +1351,8 @@ std::expected<int, Error> LinearInterface::resolve(
       });
     }
 
-    if (const auto k = m_backend_->get_kappa(); k > 0.0) {
-      m_solver_stats_.max_kappa = std::max(m_solver_stats_.max_kappa, k);
+    if (const auto k = m_backend_->get_kappa(); k.has_value()) {
+      m_solver_stats_.max_kappa = std::max(m_solver_stats_.max_kappa, *k);
     }
 
     const auto status = get_status();
@@ -1423,7 +1423,7 @@ int LinearInterface::get_status() const
   }
 }
 
-double LinearInterface::get_kappa() const
+std::optional<double> LinearInterface::get_kappa() const
 {
   if (m_backend_released_) {
     return m_cached_kappa_;

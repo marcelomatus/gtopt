@@ -86,6 +86,7 @@ auto make_ieee4b_json(double scale_obj,
 }
 
 /// Solve the IEEE 4-bus case and return (scaled_obj, kappa).
+/// Kappa is -1.0 when the backend reported std::nullopt (unavailable).
 auto solve_ieee4b(double scale_obj,
                   double scale_theta_val,
                   bool use_kirchhoff = true) -> std::pair<double, double>
@@ -104,7 +105,7 @@ auto solve_ieee4b(double scale_obj,
   REQUIRE(!systems.front().empty());
   const auto& li = systems.front().front().linear_interface();
 
-  return {li.get_obj_value(), li.get_kappa()};
+  return {li.get_obj_value(), li.get_kappa().value_or(-1.0)};
 }
 
 // ---------------------------------------------------------------

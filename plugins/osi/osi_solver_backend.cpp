@@ -537,12 +537,14 @@ void OsiSolverBackend::apply_options(const SolverOptions& opts)
   apply_options_to_solver(m_solver_.get(), m_type_, opts);
 }
 
-double OsiSolverBackend::get_kappa() const
+std::optional<double> OsiSolverBackend::get_kappa() const
 {
   // Return the largest dual error as a rough proxy for the condition
   // number.  ClpFactorization::conditionNumber() is only available when
   // CLP is built without CLP_MULTIPLE_FACTORIZATIONS; in multi-factorization
-  // builds (the default on Ubuntu) the method is absent.
+  // builds (the default on Ubuntu) the method is absent — hence the
+  // dual-error proxy.  Any failure path returns std::nullopt so callers
+  // do not fold a bogus sentinel into aggregate statistics.
   auto* clp =
       as_clp(const_cast<OsiSolverInterface*>(m_solver_.get()),  // NOLINT
              m_type_);
@@ -553,10 +555,10 @@ double OsiSolverBackend::get_kappa() const
         return model->largestDualError();
       }
     } catch (...) {  // NOLINT(bugprone-empty-catch)
-      // CLP may throw on degenerate or empty models; return default kappa.
+      // CLP may throw on degenerate or empty models; treat as unavailable.
     }
   }
-  return 1.0;
+  return std::nullopt;
 }
 
 void OsiSolverBackend::open_log(FILE* file, int level)

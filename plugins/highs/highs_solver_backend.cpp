@@ -582,13 +582,16 @@ void HighsSolverBackend::apply_options(const SolverOptions& opts)
   apply_options_to_highs(*m_highs_, opts);
 }
 
-double HighsSolverBackend::get_kappa() const
+std::optional<double> HighsSolverBackend::get_kappa() const
 {
-  double kappa = 1.0;
+  double kappa = 0.0;
   // Highs::getKappa(exact=true) computes the exact condition number of
-  // the basis matrix via forward/backward solve.
+  // the basis matrix via forward/backward solve.  When HiGHS has no
+  // basis (e.g. IPM without crossover) it returns kWarning/kError; we
+  // propagate that as nullopt so callers never confuse "unavailable"
+  // with a legitimate kappa of 1.0.
   if (m_highs_->getKappa(kappa, /*exact=*/true) != HighsStatus::kOk) {
-    kappa = 1.0;
+    return std::nullopt;
   }
   return kappa;
 }

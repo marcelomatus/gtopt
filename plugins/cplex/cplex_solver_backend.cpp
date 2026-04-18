@@ -1008,12 +1008,17 @@ void CplexSolverBackend::apply_options(const SolverOptions& opts)
   apply_options_to_env(m_env_lp_.env(), opts);
 }
 
-double CplexSolverBackend::get_kappa() const
+std::optional<double> CplexSolverBackend::get_kappa() const
 {
-  double kappa = 1.0;
+  // CPX_KAPPA requires a valid basis.  After a barrier solve without
+  // crossover CPLEX has no basis and CPXgetdblquality returns a non-zero
+  // status; we propagate that as nullopt.  We do NOT try to sniff the
+  // solution method here — the CPXgetdblquality return code is the
+  // authoritative signal.
+  double kappa = 0.0;
   if (CPXgetdblquality(m_env_lp_.env(), m_env_lp_.lp(), &kappa, CPX_KAPPA) != 0)
   {
-    kappa = 1.0;
+    return std::nullopt;
   }
   return kappa;
 }

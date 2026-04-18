@@ -784,11 +784,11 @@ int MindOptSolverBackend::get_log_level() const
 
 // ── diagnostics ──────────────────────────────────────────────────────────
 
-double MindOptSolverBackend::get_kappa() const
+std::optional<double> MindOptSolverBackend::get_kappa() const
 {
-  // MindOpt does not expose a condition number (kappa) query.
-  // Return -1 to signal "not supported".
-  return -1.0;
+  // MindOpt does not expose a condition number (kappa) query — return
+  // nullopt so callers skip this backend in max-kappa aggregation.
+  return std::nullopt;
 }
 
 // ── logging ──────────────────────────────────────────────────────────────
