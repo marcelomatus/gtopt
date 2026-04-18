@@ -408,6 +408,24 @@ TEST_CASE("CascadePlanningMethod basic 3-phase hydro")  // NOLINT
     // 2 levels: (5 iters + 1 final fwd) + (10 iters + 1 final fwd) = 17
     CHECK(solver.all_results().size() <= 17);
   }
+
+  SUBCASE("iteration indices are strictly monotonic across levels")
+  {
+    // Regression test for the cascade iteration_offset_hint wiring:
+    // each level's SDDPMethod must receive a global iteration offset so
+    // its training indices start past the previous level's range.
+    // Without the wiring, every level's first iteration_index is 0 and
+    // save_cuts_for_iteration stacks cuts from different levels under
+    // the same index in m_cut_store_.
+    REQUIRE(result.has_value());
+    const auto& all = solver.all_results();
+    REQUIRE(!all.empty());
+    for (std::size_t i = 1; i < all.size(); ++i) {
+      const auto prev = static_cast<Index>(all[i - 1].iteration_index);
+      const auto curr = static_cast<Index>(all[i].iteration_index);
+      CHECK(curr > prev);
+    }
+  }
 }
 
 TEST_CASE("CascadePlanningMethod with empty options = single level")  // NOLINT

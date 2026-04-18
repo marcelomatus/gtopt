@@ -211,6 +211,16 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   /// - `full`:  recover cuts + state variable solutions (default)
   RecoveryMode recovery_mode {RecoveryMode::full};
 
+  /// Caller-supplied lower bound for the iteration index at which this
+  /// solver should start counting.  Composed with the hot-start offset
+  /// via `std::max`, so hot-start cuts always win when they demand a
+  /// higher offset.  Used by CascadePlanningMethod to place each level's
+  /// iteration indices in a disjoint global range (avoids in-memory cut
+  /// store collisions and gives log lines a globally monotonic index).
+  /// Absent = solver starts at iteration 0 (or at the hot-start offset,
+  /// whichever is higher).
+  std::optional<IterationIndex> iteration_offset_hint {};
+
   /// Path to a sentinel file: if the file exists, the solver stops
   /// gracefully after the current iteration (analogous to PLP's userstop).
   /// All accumulated cuts are saved before stopping.

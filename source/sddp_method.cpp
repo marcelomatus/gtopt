@@ -1254,6 +1254,15 @@ auto SDDPMethod::initialize_solver() -> std::expected<void, Error>
     }
   }
 
+  // ── Apply caller-supplied offset hint (e.g. cascade level base) ───────
+  // Composed with the hot-start offset via std::max, so hot-start cuts
+  // always win when they demand a higher offset.  This is what gives
+  // each cascade level a disjoint iteration-index range in m_cut_store_
+  // without relying on inherited cuts to carry the offset forward.
+  if (const auto hint = m_options_.iteration_offset_hint; hint.has_value()) {
+    m_iteration_offset_ = std::max(m_iteration_offset_, *hint);
+  }
+
   // ── Load boundary cuts (future-cost function for last phase) ──────────
   // Boundary cuts are part of the problem specification (analogous to
   // PLP's "planos de embalse"), NOT recovery state.  They do NOT

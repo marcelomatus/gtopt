@@ -297,6 +297,13 @@ auto CascadePlanningMethod::solve(PlanningLP& planning_lp,
   const auto& cascade_max_iter = m_cascade_opts_.sddp_options.max_iterations;
   int remaining_budget = cascade_max_iter.has_value() ? *cascade_max_iter : -1;
 
+  // Running iteration index at which the NEXT level should start.
+  // Fed into each level's SDDPOptions::iteration_offset_hint so that level
+  // N's iteration indices start strictly past level N-1's — giving every
+  // level a disjoint range in m_cut_store_ (no collisions on
+  // save_cuts_for_iteration) and a globally monotonic `[i{}]` in logs.
+  IterationIndex global_iter_index {};
+
   SPDLOG_INFO("Cascade: starting with {} levels (global budget={})",
               m_cascade_opts_.level_array.size(),
               remaining_budget);
@@ -375,6 +382,11 @@ auto CascadePlanningMethod::solve(PlanningLP& planning_lp,
     // the base option.
     level_opts.save_per_iteration =
         is_last_level ? m_base_opts_.save_per_iteration : true;
+
+    // Seed the level's iteration counter past all iterations that prior
+    // levels consumed.  Hot-start cuts loaded below (via load_cuts) may
+    // raise this further through std::max in initialize_solver.
+    level_opts.iteration_offset_hint = global_iter_index;
 
     // Always create a fresh solver for each level, ensuring clean state.
     current_solver = std::make_unique<SDDPMethod>(*current_lp, level_opts);
@@ -583,6 +595,12 @@ auto CascadePlanningMethod::solve(PlanningLP& planning_lp,
       remaining_budget = std::max(0, remaining_budget - level_iterations);
       SPDLOG_INFO("Cascade: remaining global budget = {}", remaining_budget);
     }
+
+    // Advance the global iteration index past every index this level
+    // produced — `last.iteration_index` is the simulation-pass slot at
+    // `next(last training iteration)`, so `next()` of that is strictly
+    // past even the discarded sim index.
+    global_iter_index = next(last.iteration_index);
 
     // ── 4. Check convergence ──
     if (last.converged) {
