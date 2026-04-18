@@ -649,9 +649,15 @@ private:
   void apply_cut_sharing_for_iteration(std::size_t cuts_before,
                                        IterationIndex iteration_index);
 
-  /// Compute gap, update convergence flag, update live-query atomics, log.
-  void finalize_iteration_result(SDDPIterationResult& ir,
-                                 IterationIndex iteration_index);
+  /// Compute gap + gap_change, update convergence flag, update live-query
+  /// atomics, log.  @p results carries the previous iterations so that
+  /// gap_change can be evaluated against the look-back window before the
+  /// log line is emitted — otherwise the mid-iteration log would show a
+  /// stale 1.0 sentinel while the later "done" log shows the real value.
+  void finalize_iteration_result(
+      SDDPIterationResult& ir,
+      IterationIndex iteration_index,
+      const std::vector<SDDPIterationResult>& results);
 
   /// Write the monitoring API status file if API is enabled.
   void maybe_write_api_status(const std::string& status_file,

@@ -25,6 +25,7 @@
 #include <utility>
 #include <vector>
 
+#include <gtopt/as_label.hpp>
 #include <gtopt/lp_context.hpp>
 #include <gtopt/lp_debug_writer.hpp>
 #include <gtopt/memory_compress.hpp>
@@ -130,21 +131,24 @@ void SDDPMethod::update_max_kappa(SceneIndex scene_index,
                                   const LinearInterface& li,
                                   IterationIndex iteration_index)
 {
-  const double kappa = li.get_kappa();
+  const auto kappa_opt = li.get_kappa();
 
-  // Negative kappa means the backend doesn't support the query (e.g.
-  // MindOpt returns -1).  Propagate -1 only when no real value was
-  // recorded yet; otherwise skip so that real values are preserved.
-  if (kappa >= 0.0) {
-    m_max_kappa_[scene_index][phase_index] =
-        std::max(m_max_kappa_[scene_index][phase_index], kappa);
-  } else if (m_max_kappa_[scene_index][phase_index] < 0.0) {
-    m_max_kappa_[scene_index][phase_index] = kappa;
+  // No value means the backend doesn't support the query (e.g. MindOpt)
+  // or the native query failed (e.g. no basis after barrier w/o
+  // crossover).  In that case leave the grid cell untouched: the
+  // internal -1.0 "unset" storage sentinel is fine, and no downstream
+  // consumer sees it because gtopt_lp_runner guards with `> 0.0`.
+  if (!kappa_opt.has_value()) {
+    return;
   }
+  const double kappa = *kappa_opt;
+
+  m_max_kappa_[scene_index][phase_index] =
+      std::max(m_max_kappa_[scene_index][phase_index], kappa);
 
   const auto& sim = planning_lp().planning().simulation;
   const auto mode = sim.kappa_warning.value_or(KappaWarningMode::warn);
-  if (mode == KappaWarningMode::none || kappa < 0.0) {
+  if (mode == KappaWarningMode::none) {
     return;
   }
 
@@ -168,10 +172,10 @@ void SDDPMethod::update_max_kappa(SceneIndex scene_index,
   if (should_save_lp && !m_options_.log_directory.empty()) {
     std::filesystem::create_directories(m_options_.log_directory);
     const auto stem = (std::filesystem::path(m_options_.log_directory)
-                       / std::format("kappa_sc{}_ph{}_it{}",
-                                     scene_uid(scene_index),
-                                     phase_uid(phase_index),
-                                     iteration_index))
+                       / as_label("kappa",
+                                  scene_uid(scene_index),
+                                  phase_uid(phase_index),
+                                  iteration_index))
                           .string();
     if (auto r = li.write_lp(stem)) {
       spdlog::warn("Saved high-kappa LP to {}.lp", stem);
@@ -1683,15 +1687,40 @@ void SDDPMethod::apply_cut_sharing_for_iteration(std::size_t cuts_before,
       cuts_before, iteration_index, m_options_, planning_lp(), m_label_maker_);
 }
 
-void SDDPMethod::finalize_iteration_result(SDDPIterationResult& ir,
-                                           IterationIndex iteration_index)
+void SDDPMethod::finalize_iteration_result(
+    SDDPIterationResult& ir,
+    IterationIndex iteration_index,
+    const std::vector<SDDPIterationResult>& results)
 {
   ir.gap = compute_convergence_gap(ir.upper_bound, ir.lower_bound);
-  // Only declare convergence if both the gap tolerance is met AND
-  // we have completed at least min_iterations (default 2).
-  ir.converged = (ir.gap < m_options_.convergence_tol)
-      && (iteration_index >= m_iteration_offset_
-              + IterationIndex {m_options_.min_iterations - 1});
+
+  // Compute gap_change against the stationary look-back window so the
+  // mid-iteration log below reports the same value carried forward to
+  // the downstream "Iter [iN]: done" and stationary-convergence logs.
+  // Keep the 1.0 sentinel when stationarity tracking is disabled or no
+  // prior results exist — the same default used when constructing ir.
+  if (m_options_.stationary_window > 0 && m_options_.stationary_tol > 0.0
+      && !results.empty())
+  {
+    const auto window = static_cast<std::size_t>(m_options_.stationary_window);
+    const auto lookback = std::min(window, results.size());
+    const double old_gap = results[results.size() - lookback].gap;
+    ir.gap_change =
+        std::abs(ir.gap - old_gap) / std::max(1e-10, std::abs(old_gap));
+  }
+
+  // Primary convergence: either gap indicator beats convergence_tol is
+  // enough — gap (|UB-LB|/|LB|) OR gap_change (relative LB drift over
+  // the look-back window).  We only need ONE gap signal to converge.
+  // The min_iterations guard prevents declaring convergence before the
+  // solver has accumulated enough cuts (default 2).
+  const bool gap_ok = ir.gap < m_options_.convergence_tol;
+  const bool gap_change_ok = ir.gap_change < m_options_.convergence_tol
+      && ir.gap_change < 1.0;  // 1.0 = sentinel / first iteration
+  const bool past_min_iter =
+      (iteration_index
+       >= m_iteration_offset_ + IterationIndex {m_options_.min_iterations - 1});
+  ir.converged = (gap_ok || gap_change_ok) && past_min_iter;
 
   m_current_iteration_.store(iteration_index);
   m_current_gap_.store(ir.gap);

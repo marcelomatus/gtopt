@@ -216,7 +216,11 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
       cap_stored_cuts();
 
       // ── Convergence + live-query update ──
-      finalize_iteration_result(ir, iteration_index);
+      // finalize_iteration_result() computes ir.gap AND ir.gap_change
+      // (from the look-back window over `results`) before logging, so the
+      // mid-iteration "SDDP iter N: ..." log shows the same gap_change
+      // the final "Iter [iN]: done ..." log carries downstream.
+      finalize_iteration_result(ir, iteration_index, results);
 
       // ── Extended convergence criteria (governed by convergence_mode) ──
       //
@@ -233,23 +237,16 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
           (iteration_index >= m_iteration_offset_
                + IterationIndex {m_options_.min_iterations - 1});
 
-      // Stationary gap tracking: compute gap_change over the look-back
-      // window.  Active for gap_stationary and statistical modes.
-      // Always compute gap_change when at least 1 prior result exists,
-      // using min(window, available) as the look-back distance.
-      // The stationary convergence test requires the full window.
+      // The stationary convergence test requires the full window.  The
+      // gap_change value itself is populated by finalize_iteration_result()
+      // above; here we only decide whether the window is stationary enough
+      // to trigger convergence.
       bool gap_is_stationary = false;
       if (mode != ConvergenceMode::gap_only && m_options_.stationary_tol > 0.0
           && m_options_.stationary_window > 0)
       {
         const auto window =
             static_cast<std::size_t>(m_options_.stationary_window);
-        if (!results.empty()) {
-          const auto lookback = std::min(window, results.size());
-          const double old_gap = results[results.size() - lookback].gap;
-          ir.gap_change =
-              std::abs(ir.gap - old_gap) / std::max(1e-10, std::abs(old_gap));
-        }
         gap_is_stationary =
             (results.size() >= window
              && ir.gap_change < m_options_.stationary_tol
@@ -455,7 +452,7 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
                          std::chrono::steady_clock::now() - final_start)
                          .count();
 
-    finalize_iteration_result(ir, final_iteration_index);
+    finalize_iteration_result(ir, final_iteration_index, results);
 
     // The simulation pass does not determine convergence on its own.
     // It inherits the convergence status from the last training iteration.
