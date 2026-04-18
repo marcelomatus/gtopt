@@ -195,6 +195,50 @@ class TestGTOptWriterProcessMethods:
         assert levels[1]["sddp_options"]["max_iterations"] == 25
         assert levels[2]["sddp_options"]["max_iterations"] == 25
 
+    def test_process_options_cascade_global_budget_is_sum_of_levels(self):
+        """Cascade-level max_iterations = sum of per-level budgets, not total_iter.
+
+        Regression: previously the cascade-global budget equalled total_iter,
+        so level 0 (which gets full max_iterations) alone exhausted it and
+        levels 1-2 never ran.  The global budget must be >= the sum of
+        per-level budgets for all levels to execute.
+        """
+        writer = GTOptWriter(MagicMock())
+        writer.process_options(
+            {
+                "output_dir": "out",
+                "method": "cascade",
+                "max_iterations": 100,
+            }
+        )
+        cascade = writer.planning["options"]["cascade_options"]
+        levels = cascade["level_array"]
+        per_level_sum = sum(level["sddp_options"]["max_iterations"] for level in levels)
+        assert cascade["sddp_options"]["max_iterations"] == per_level_sum
+        assert cascade["sddp_options"]["max_iterations"] == 150  # 100 + 25 + 25
+
+    def test_process_options_cascade_small_budget_still_runs_all_levels(self):
+        """With max_iterations=5 (small), cascade global budget must be 5+1+1=7.
+
+        Regression: previously with PDMaxIte=5 from plpmat.dat, level 0
+        consumed all 5 iters and levels 1-2 never ran.  The cascade global
+        budget must now leave room for all three levels.
+        """
+        writer = GTOptWriter(MagicMock())
+        writer.process_options(
+            {
+                "output_dir": "out",
+                "method": "cascade",
+                "max_iterations": 5,
+            }
+        )
+        cascade = writer.planning["options"]["cascade_options"]
+        levels = cascade["level_array"]
+        assert levels[0]["sddp_options"]["max_iterations"] == 5
+        assert levels[1]["sddp_options"]["max_iterations"] == 1  # max(5//4, 1)
+        assert levels[2]["sddp_options"]["max_iterations"] == 1
+        assert cascade["sddp_options"]["max_iterations"] == 7  # 5 + 1 + 1
+
     def test_process_options_cascade_no_cascade_for_sddp(self):
         """cascade_options is NOT emitted for plain sddp."""
         writer = GTOptWriter(MagicMock())
@@ -269,12 +313,20 @@ class TestGTOptWriterProcessMethods:
         assert "max_iterations" not in sddp
 
     def test_process_options_convergence_tol_from_plpmat(self):
-        """convergence_tol is PDError/100 from plpmat.dat (PDError is a percentage)."""
+        """convergence_tol takes the raw PDError value from plpmat.dat."""
+        mock_parser = self._make_plpmat_parser(pd_error=0.001)
+        writer = GTOptWriter(mock_parser)
+        writer.process_options({"output_dir": "out"})
+        sddp = writer.planning["options"]["sddp_options"]
+        assert sddp["convergence_tol"] == pytest.approx(0.001)
+
+    def test_process_options_convergence_tol_no_unit_conversion(self):
+        """PDError=1.0 is emitted verbatim (no implicit percentage→fraction)."""
         mock_parser = self._make_plpmat_parser(pd_error=1.0)
         writer = GTOptWriter(mock_parser)
         writer.process_options({"output_dir": "out"})
         sddp = writer.planning["options"]["sddp_options"]
-        assert sddp["convergence_tol"] == pytest.approx(0.01)
+        assert sddp["convergence_tol"] == pytest.approx(1.0)
 
     def test_process_options_convergence_tol_default(self):
         """convergence_tol defaults to 0.01 when plpmat has no PDError."""
@@ -303,12 +355,12 @@ class TestGTOptWriterProcessMethods:
 
     def test_process_options_stationary_tol_default_matches_convergence_tol(self):
         """stationary_tol defaults to convergence_tol (not convergence_tol/10)."""
-        mock_parser = self._make_plpmat_parser(pd_error=1.0)
+        mock_parser = self._make_plpmat_parser(pd_error=0.001)
         writer = GTOptWriter(mock_parser)
         writer.process_options({"output_dir": "out"})
         sddp = writer.planning["options"]["sddp_options"]
         assert sddp["stationary_tol"] == pytest.approx(sddp["convergence_tol"])
-        assert sddp["stationary_tol"] == pytest.approx(0.01)
+        assert sddp["stationary_tol"] == pytest.approx(0.001)
         assert sddp["stationary_window"] == 4
 
     def test_process_options_stationary_tol_explicit_overrides(self):

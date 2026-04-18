@@ -99,6 +99,16 @@ class GTOptWriter:
         l1_iter = max(total_iter // 4, 1)
         l2_iter = max(total_iter // 4, 1)
 
+        # The cascade-level max_iterations is interpreted by
+        # CascadePlanningMethod as a GLOBAL budget applied to the sum of
+        # every level's training iterations.  Leaving it equal to
+        # total_iter lets level 0 alone consume the whole budget (since
+        # l0_iter == total_iter) and skip levels 1–2 — see
+        # cascade_method.cpp: "global iteration budget exhausted".  Use
+        # the sum of per-level budgets so each level still runs, while
+        # keeping a conservative upper bound on total work.
+        cascade_sddp_opts = {**sddp_opts, "max_iterations": l0_iter + l1_iter + l2_iter}
+
         transition = {
             "inherit_targets": -1,
             "target_rtol": 0.05,
@@ -157,7 +167,7 @@ class GTOptWriter:
 
         return {
             "model_options": model_opts,
-            "sddp_options": sddp_opts,
+            "sddp_options": cascade_sddp_opts,
             "level_array": level_array,
         }
 
@@ -204,15 +214,15 @@ class GTOptWriter:
 
         convergence_tol = options.get("convergence_tol")
         if convergence_tol is None:
-            # Fall back to PDError/100 from plpmat.dat; use 0.01 if absent.
-            # PLP's PDError is stored as a percentage (e.g. 1.0 = 1%), so
-            # divide by 100 to convert to the fractional tolerance that
-            # gtopt/SDDP expects.
+            # Fall back to PDError from plpmat.dat verbatim; use 0.01 if absent.
+            # Emit the same numeric value PLP stores — no unit conversion —
+            # so users can reason about a single "PDError / convergence_tol"
+            # number rather than tracking a /100 translation.
             parsed = getattr(self.parser, "parsed_data", None)
             if isinstance(parsed, dict):
                 plpmat = parsed.get("plpmat_parser")
                 if plpmat is not None and getattr(plpmat, "pd_error", 0.0) > 0.0:
-                    convergence_tol = plpmat.pd_error / 100.0
+                    convergence_tol = plpmat.pd_error
             if convergence_tol is None:
                 convergence_tol = 0.01
         sddp_opts["convergence_tol"] = convergence_tol
