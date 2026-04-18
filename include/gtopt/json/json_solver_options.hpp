@@ -46,7 +46,8 @@ struct SolverOptionsConstructor
                            OptSolverLogMode log_mode,
                            OptReal time_limit,
                            OptSolverScaling scaling,
-                           OptInt max_fallbacks) const
+                           OptInt max_fallbacks,
+                           OptBool memory_emphasis) const
   {
     return SolverOptions {
         .algorithm = algorithm.value_or(LPAlgo::barrier),
@@ -62,6 +63,7 @@ struct SolverOptionsConstructor
             ? scaling
             : OptSolverScaling {SolverScaling::automatic},
         .max_fallbacks = max_fallbacks.value_or(2),
+        .memory_emphasis = memory_emphasis,
     };
   }
 };
@@ -81,7 +83,8 @@ struct json_data_contract<SolverOptions>
                                 json_number_null<"log_mode", OptSolverLogMode>,
                                 json_number_null<"time_limit", OptReal>,
                                 json_number_null<"scaling", OptSolverScaling>,
-                                json_number_null<"max_fallbacks", OptInt>>;
+                                json_number_null<"max_fallbacks", OptInt>,
+                                json_bool_null<"memory_emphasis", OptBool>>;
 
   static constexpr auto to_json_data(SolverOptions const& opt)
   {
@@ -95,7 +98,8 @@ struct json_data_contract<SolverOptions>
                            opt.log_mode,
                            opt.time_limit,
                            opt.scaling,
-                           OptInt {opt.max_fallbacks});
+                           OptInt {opt.max_fallbacks},
+                           opt.memory_emphasis);
   }
 };
 

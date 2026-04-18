@@ -144,8 +144,11 @@ void apply_options_to_env(cpxenv* env, const SolverOptions& opts)
     CPXsetdblparam(env, CPX_PARAM_TILIM, *tl);
   }
 
-  CPXsetintparam(
-      env, CPX_PARAM_MEMORYEMPHASIS, opts.low_memory ? CPX_ON : CPX_OFF);
+  // Only touch CPX_PARAM_MEMORYEMPHASIS when the user explicitly set
+  // SolverOptions::memory_emphasis — otherwise leave CPLEX's own default.
+  if (const auto me = opts.memory_emphasis; me.has_value()) {
+    CPXsetintparam(env, CPX_PARAM_MEMORYEMPHASIS, *me ? CPX_ON : CPX_OFF);
+  }
 
   {
     switch (opts.algorithm) {

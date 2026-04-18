@@ -34,7 +34,7 @@ namespace
 /// between the live `apply_options()` path and the clone path, so any
 /// option the caller ever set is replayed onto the new env on clone().
 ///
-/// NOTE: SolverOptions::low_memory has no direct Gurobi parameter; the
+/// NOTE: SolverOptions::memory_emphasis has no direct Gurobi parameter; the
 /// closest analogue is NodefileStart / Threads.  We leave it as a no-op
 /// rather than guess — the MindOpt plugin does the same.
 void apply_options_to_env(GRBenv* env, const SolverOptions& opts)

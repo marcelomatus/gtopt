@@ -156,25 +156,13 @@ std::unique_ptr<PlanningMethod> make_planning_method(
         }
       }
 
-      // Wire forward/backward solver options (pre-merged with global)
+      // Wire forward/backward solver options (pre-merged with global).
+      // NOTE: SolverOptions::memory_emphasis is independent of
+      // sddp_options.low_memory_mode — callers must set it explicitly per
+      // pass if they want the backend's native memory-emphasis mode.
       sddp_opts.forward_solver_options = options.sddp_forward_solver_options();
       sddp_opts.backward_solver_options =
           options.sddp_backward_solver_options();
-
-      // Propagate gtopt low_memory_mode into the backend-native memory
-      // hint.  Backends that support it (CPLEX: CPX_PARAM_MEMORYEMPHASIS)
-      // will also compact their internal data; unsupported backends
-      // silently ignore the hint.
-      if (sddp_opts.low_memory_mode != LowMemoryMode::off) {
-        if (!sddp_opts.forward_solver_options) {
-          sddp_opts.forward_solver_options.emplace();
-        }
-        sddp_opts.forward_solver_options->low_memory = true;
-        if (!sddp_opts.backward_solver_options) {
-          sddp_opts.backward_solver_options.emplace();
-        }
-        sddp_opts.backward_solver_options->low_memory = true;
-      }
 
       return std::make_unique<SDDPPlanningMethod>(std::move(sddp_opts));
     }  // else (num_phases >= 2)
@@ -293,25 +281,13 @@ std::unique_ptr<PlanningMethod> make_planning_method(
         }
       }
 
-      // Wire forward/backward solver options (pre-merged with global)
+      // Wire forward/backward solver options (pre-merged with global).
+      // NOTE: SolverOptions::memory_emphasis is independent of
+      // sddp_options.low_memory_mode — callers must set it explicitly per
+      // pass if they want the backend's native memory-emphasis mode.
       sddp_opts.forward_solver_options = options.sddp_forward_solver_options();
       sddp_opts.backward_solver_options =
           options.sddp_backward_solver_options();
-
-      // Propagate gtopt low_memory_mode into the backend-native memory
-      // hint.  Backends that support it (CPLEX: CPX_PARAM_MEMORYEMPHASIS)
-      // will also compact their internal data; unsupported backends
-      // silently ignore the hint.
-      if (sddp_opts.low_memory_mode != LowMemoryMode::off) {
-        if (!sddp_opts.forward_solver_options) {
-          sddp_opts.forward_solver_options.emplace();
-        }
-        sddp_opts.forward_solver_options->low_memory = true;
-        if (!sddp_opts.backward_solver_options) {
-          sddp_opts.backward_solver_options.emplace();
-        }
-        sddp_opts.backward_solver_options->low_memory = true;
-      }
 
       // Get cascade options (user-configured or defaults)
       CascadeOptions cascade_opts;

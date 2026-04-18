@@ -73,9 +73,10 @@ OsiClpSolverInterface* as_clp(OsiSolverInterface* solver,
 /// option the caller ever set is replayed onto the new solver on every
 /// load_problem() cycle and on clone().
 ///
-/// NOTE: SolverOptions::low_memory has no documented COIN/CLP equivalent.
-/// We deliberately leave it as a no-op here rather than forcing CLP's
-/// "maximizePivots(0)" or similar tweaks that would slow down all solves.
+/// NOTE: SolverOptions::memory_emphasis has no documented COIN/CLP
+/// equivalent.  We deliberately leave it as a no-op here rather than
+/// forcing CLP's "maximizePivots(0)" or similar tweaks that would slow
+/// down all solves.
 void apply_options_to_solver(OsiSolverInterface* solver,
                              OsiSolverBackend::OsiSolverType type,
                              const SolverOptions& opts)

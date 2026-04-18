@@ -42,9 +42,9 @@ auto make_quiet_highs() -> std::unique_ptr<Highs>
 /// apply_options() (live path) and clone() (replay onto fresh instance)
 /// can reuse the exact same parameter wiring.
 ///
-/// Note on SolverOptions::low_memory: HiGHS has no direct equivalent to
-/// CPLEX CPX_PARAM_MEMORYEMPHASIS or any documented memory-compression
-/// setting, so the flag is accepted but intentionally ignored here.  See
+/// Note on SolverOptions::memory_emphasis: HiGHS has no direct equivalent
+/// to CPLEX `CPX_PARAM_MEMORYEMPHASIS` or any documented memory-compression
+/// setting, so the option is accepted but intentionally ignored here.  See
 /// solver_options.hpp: "HiGHS: no direct equivalent (ignored)".
 void apply_options_to_highs(Highs& highs, const SolverOptions& opts)
 {

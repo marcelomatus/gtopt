@@ -16,7 +16,7 @@
  *   - state survives the env/lp cycle triggered by load_problem,
  *   - clone() yields a backend that owns its own env+lp and survives
  *     destruction of the source,
- *   - SolverOptions::low_memory → CPX_PARAM_MEMORYEMPHASIS still works
+ *   - SolverOptions::memory_emphasis → CPX_PARAM_MEMORYEMPHASIS still works
  *     after env cycling and cloning,
  *   - concurrent backend creation and cloning is race-free (mirrors
  *     PLP's by-design one-env-per-LP ownership pattern).
@@ -354,11 +354,11 @@ TEST_CASE("set_prob_name survives load_problem cycle")  // NOLINT
 }
 
 // ---------------------------------------------------------------------------
-// C. low_memory end-to-end (SolverOptions::low_memory →
+// C. memory_emphasis end-to-end (SolverOptions::memory_emphasis →
 // CPX_PARAM_MEMORYEMPHASIS)
 // ---------------------------------------------------------------------------
 
-TEST_CASE("low_memory=true solves correctly and survives clone")  // NOLINT
+TEST_CASE("memory_emphasis=true solves correctly and survives clone")  // NOLINT
 {
   auto backend = make_cplex_or_skip();
   if (!backend) {
@@ -366,7 +366,7 @@ TEST_CASE("low_memory=true solves correctly and survives clone")  // NOLINT
   }
 
   SolverOptions opts;
-  opts.low_memory = true;
+  opts.memory_emphasis = true;
   backend->apply_options(opts);
 
   CplexTrivialLP2 lp {backend->infinity()};
@@ -384,7 +384,7 @@ TEST_CASE("low_memory=true solves correctly and survives clone")  // NOLINT
   CHECK(cloned->obj_value() == doctest::Approx(2.0));
 }
 
-TEST_CASE("low_memory propagates through load_problem cycles")  // NOLINT
+TEST_CASE("memory_emphasis propagates through load_problem cycles")  // NOLINT
 {
   auto backend = make_cplex_or_skip();
   if (!backend) {
@@ -392,7 +392,7 @@ TEST_CASE("low_memory propagates through load_problem cycles")  // NOLINT
   }
 
   SolverOptions opts;
-  opts.low_memory = true;
+  opts.memory_emphasis = true;
   backend->apply_options(opts);
 
   CplexTrivialLP2 lp {backend->infinity()};
@@ -401,7 +401,7 @@ TEST_CASE("low_memory propagates through load_problem cycles")  // NOLINT
   REQUIRE(backend->is_proven_optimal());
   const double first_obj = backend->obj_value();
 
-  // Second load_problem must re-apply low_memory on the fresh env.
+  // Second load_problem must re-apply memory_emphasis on the fresh env.
   // If the replay were broken, the solve might still succeed but under
   // different memory policy; at minimum we check the result is the same.
   lp.load_into(*backend);

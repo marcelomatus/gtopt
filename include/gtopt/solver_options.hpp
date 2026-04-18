@@ -117,18 +117,26 @@ struct SolverOptions
 
   /** @brief Request a solver-native memory-saving mode.
    *
-   *  Complements gtopt's own low_memory_mode (backend release + flat-LP
-   *  snapshot).  When true, the backend applies its memory-emphasis
-   *  parameter so internal data structures are compacted at the cost of
-   *  solve time.  Unsupported backends silently ignore this hint.
+   *  Named after CPLEX's `CPX_PARAM_MEMORYEMPHASIS`.  Independent of gtopt's
+   *  own `sddp_options.low_memory_mode` (which controls backend release +
+   *  flat-LP snapshot between phases).
+   *
+   *  - `nullopt` (default): do not touch the backend's memory parameter —
+   *    each solver keeps its built-in default.
+   *  - `true`: ask the backend to compact internal data structures at the
+   *    cost of solve time.
+   *  - `false`: explicitly disable the backend's memory-emphasis mode.
+   *
+   *  Unsupported backends silently ignore this hint regardless of value.
    *
    *  Backend mapping:
-   *  - CPLEX:   CPX_PARAM_MEMORYEMPHASIS = 1 (compress internal arrays).
+   *  - CPLEX:   CPX_PARAM_MEMORYEMPHASIS = 1 / 0 (only set when specified).
    *  - HiGHS:   no direct equivalent (ignored).
    *  - MindOpt: no direct equivalent (ignored).
    *  - OSI/CLP: no direct equivalent (ignored).
+   *  - Gurobi:  no direct equivalent (ignored).
    */
-  bool low_memory {false};
+  std::optional<bool> memory_emphasis {};
 
   /**
    * @brief Merge another SolverOptions into this one (first-value-wins for
@@ -146,6 +154,7 @@ struct SolverOptions
     merge_opt(time_limit, other.time_limit);
     merge_opt(log_mode, other.log_mode);
     merge_opt(scaling, other.scaling);
+    merge_opt(memory_emphasis, other.memory_emphasis);
   }
 
   /**
@@ -170,9 +179,6 @@ struct SolverOptions
     if (!user.presolve) {
       presolve = user.presolve;
     }
-    if (user.low_memory) {
-      low_memory = user.low_memory;
-    }
     if (user.log_level != 0) {
       log_level = user.log_level;
     }
@@ -186,6 +192,7 @@ struct SolverOptions
     merge_opt(time_limit, user.time_limit);
     merge_opt(log_mode, user.log_mode);
     merge_opt(scaling, user.scaling);
+    merge_opt(memory_emphasis, user.memory_emphasis);
   }
 };
 

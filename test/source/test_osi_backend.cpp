@@ -26,8 +26,8 @@
  *   - concurrent backend creation, loading, solving, and cloning is
  *     race-free (mirrors the CPLEX test's by-design pattern).
  *
- * Note: SolverOptions::low_memory is documented as a no-op for the OSI
- * backend, so there is no corresponding test case here.
+ * Note: SolverOptions::memory_emphasis is documented as a no-op for the
+ * OSI backend, so there is no corresponding test case here.
  */
 
 // SPDX-License-Identifier: BSD-3-Clause

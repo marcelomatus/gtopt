@@ -18,8 +18,8 @@
  * Unlike CPLEX, load_problem() does NOT recreate the Highs instance;
  * HiGHS's passModel() already fully replaces the previous model.  The
  * "load_problem cycles the instance" angle is therefore absent.
- * SolverOptions::low_memory is documented as a no-op for HiGHS, so no
- * low_memory test case is included here.
+ * SolverOptions::memory_emphasis is documented as a no-op for HiGHS, so
+ * no memory_emphasis test case is included here.
  *
  * These tests pin the invariants of that refactor:
  *   - silent by default (no highs.log unless explicitly requested),

@@ -25,8 +25,8 @@
  *     with options and prob_name replayed onto the fresh env,
  *   - concurrent backend creation and cloning is race-free.
  *
- * NOTE: SolverOptions::low_memory is a documented no-op for Gurobi
- * (mirrors MindOpt), so no low_memory test case is included.
+ * NOTE: SolverOptions::memory_emphasis is a documented no-op for Gurobi
+ * (mirrors MindOpt), so no memory_emphasis test case is included.
  */
 
 // SPDX-License-Identifier: BSD-3-Clause
