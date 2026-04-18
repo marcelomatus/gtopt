@@ -395,7 +395,7 @@ constexpr auto flatten_from_collections(auto& collections,
       : LpNamesLevel::none;
   const LabelMaker label_maker {eff_level};
 
-  LinearProblem lp(std::format("gtopt_s{}_p{}", scene.uid(), phase.uid()));
+  LinearProblem lp(as_label("gtopt", scene.uid(), phase.uid()));
   lp.set_label_maker(label_maker);
   lp.set_infinity(solver_infinity);
   lp.set_variable_scale_map(system_context.options().variable_scale_map());

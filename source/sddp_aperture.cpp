@@ -12,12 +12,12 @@
 #include <algorithm>
 #include <chrono>
 #include <filesystem>
-#include <format>
 #include <mutex>
 #include <ranges>
 #include <thread>
 #include <utility>
 
+#include <gtopt/as_label.hpp>
 #include <gtopt/collection.hpp>
 #include <gtopt/lp_context.hpp>
 #include <gtopt/phase_lp.hpp>
@@ -294,13 +294,11 @@ auto solve_apertures_for_phase(
           const auto log_mode =
               aperture_opts.log_mode.value_or(SolverLogMode::nolog);
           if (log_mode == SolverLogMode::detailed && !log_directory.empty()) {
-            clone.set_log_file((std::filesystem::path(log_directory)
-                                / std::format("{}_sc{}_ph{}_ap{}",
-                                              clone.solver_name(),
-                                              scene_uid_val,
-                                              phase_uid_val,
-                                              ap_uid))
-                                   .string());
+            clone.set_log_file(
+                (std::filesystem::path(log_directory)
+                 / as_label(
+                     clone.solver_name(), scene_uid_val, phase_uid_val, ap_uid))
+                    .string());
           }
 
           // Solve

@@ -14,6 +14,7 @@
 #include <mutex>
 #include <vector>
 
+#include <gtopt/as_label.hpp>
 #include <gtopt/label_maker.hpp>
 #include <gtopt/lp_debug_writer.hpp>
 #include <gtopt/monolithic_method.hpp>
@@ -202,11 +203,11 @@ auto MonolithicMethod::solve(PlanningLP& planning_lp, const SolverOptions& opts)
                   && !lp_debug_directory.empty())
               {
                 std::filesystem::create_directories(lp_debug_directory);
-                const auto stem = (std::filesystem::path(lp_debug_directory)
-                                   / std::format("kappa_sc{}_ph{}",
-                                                 system.scene().uid(),
-                                                 system.phase().uid()))
-                                      .string();
+                const auto stem =
+                    (std::filesystem::path(lp_debug_directory)
+                     / as_label(
+                         "kappa", system.scene().uid(), system.phase().uid()))
+                        .string();
                 if (auto r = li.write_lp(stem)) {
                   spdlog::warn("Saved high-kappa LP to {}.lp", stem);
                 }

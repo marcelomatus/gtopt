@@ -1597,7 +1597,7 @@ void write_cut_coefficients_unscaled(std::ostream& ofs,
           if (auto it = col_keys.find(col); it != col_keys.end()) {
             const auto& [cls, var, uid] = it->second;
             entry.coefficients.push_back(CutCoeffEntry {
-                .key = std::format("{}:{}:{}", cls, var, uid),
+                .key = as_label<':'>(cls, var, uid),
                 .coeff = phys_coeff,
             });
           } else {
@@ -1611,7 +1611,7 @@ void write_cut_coefficients_unscaled(std::ostream& ofs,
         // Unknown phase — write raw index-based coefficients
         for (const auto& [col, coeff] : cut.coefficients) {
           entry.coefficients.push_back(CutCoeffEntry {
-              .key = std::format("@col:{}", static_cast<int>(col)),
+              .key = as_label<':'>("@col", col),
               .coeff = coeff * scale_obj,
           });
         }

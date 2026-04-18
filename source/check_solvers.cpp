@@ -20,6 +20,7 @@
 #include <string>
 #include <vector>
 
+#include <gtopt/as_label.hpp>
 #include <gtopt/check_solvers.hpp>
 #include <gtopt/linear_interface.hpp>
 #include <gtopt/linear_problem.hpp>
@@ -759,10 +760,9 @@ SolverTestResult test_write_lp(std::string_view solver)
     });
     TC_REQUIRE(ctx, ri4.has_value());
 
-    const auto tmp_stem =
-        (std::filesystem::temp_directory_path()
-         / std::format("gtopt_check_solvers_{}", std::string(solver)))
-            .string();
+    const auto tmp_stem = (std::filesystem::temp_directory_path()
+                           / as_label("gtopt_check_solvers", solver))
+                              .string();
     const auto result = lp.write_lp(tmp_stem);
 
     if (result.has_value()) {

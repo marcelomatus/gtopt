@@ -16,6 +16,7 @@
 #include <span>
 #include <thread>
 
+#include <gtopt/as_label.hpp>
 #include <gtopt/benders_cut.hpp>
 #include <gtopt/planning_lp.hpp>
 #include <gtopt/sddp_method.hpp>
@@ -148,10 +149,9 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
     {
       std::filesystem::create_directories(m_options_.log_directory);
       li.set_log_file((std::filesystem::path(m_options_.log_directory)
-                       / std::format("{}_sc{}_ph{}",
-                                     li.solver_name(),
-                                     scene_uid(scene_index),
-                                     phase_uid(phase_index)))
+                       / as_label(li.solver_name(),
+                                  scene_uid(scene_index),
+                                  phase_uid(phase_index)))
                           .string());
     }
 
@@ -234,7 +234,9 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
         capture_state_variable_values(scene_index, phase_index, sol, rc);
 
         const auto sa = m_options_.scale_alpha;
-        const auto alpha_val = (state.alpha_col != ColIndex {unknown_index})
+        const auto alpha_val =
+            (state.alpha_col != ColIndex {unknown_index}
+             && state.alpha_col < ColIndex {static_cast<Index>(sol.size())})
             ? sol[state.alpha_col] * sa
             : 0.0;
         state.forward_objective = obj - alpha_val;
@@ -306,7 +308,9 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
       capture_state_variable_values(scene_index, phase_index, sol, rc);
 
       const auto sa = m_options_.scale_alpha;
-      const auto alpha_val = (state.alpha_col != ColIndex {unknown_index})
+      const auto alpha_val =
+          (state.alpha_col != ColIndex {unknown_index}
+           && state.alpha_col < ColIndex {static_cast<Index>(sol.size())})
           ? sol[state.alpha_col] * sa
           : 0.0;
       state.forward_objective = obj - alpha_val;

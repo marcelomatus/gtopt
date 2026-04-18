@@ -24,6 +24,7 @@
 #include <vector>
 
 #include <doctest/doctest.h>
+#include <gtopt/as_label.hpp>
 #include <gtopt/gtopt_main.hpp>
 #include <gtopt/solver_options.hpp>
 #include <gtopt/solver_registry.hpp>
@@ -1117,9 +1118,9 @@ TEST_CASE(  // NOLINT
     SUBCASE(std::string(solver_name).c_str())
     {
       const auto stem = write_tmp_json(
-          std::format("gtopt_main_solver_log_{}", solver_name), minimal_json);
+          as_label("gtopt_main_solver_log", solver_name), minimal_json);
       const auto log_dir = std::filesystem::temp_directory_path()
-          / std::format("gtopt_main_solver_log_{}_logs", solver_name);
+          / as_label("gtopt_main_solver_log", solver_name, "logs");
       std::filesystem::remove_all(log_dir);
 
       auto result = gtopt_main(MainOptions {

@@ -14,6 +14,7 @@
 #include <string>
 
 #include <doctest/doctest.h>
+#include <gtopt/as_label.hpp>
 #include <gtopt/json/json_solver_options.hpp>
 #include <gtopt/linear_interface.hpp>
 #include <gtopt/planning_options.hpp>
@@ -786,7 +787,7 @@ TEST_CASE("SolverOptions - log_mode detailed writes log file")  // NOLINT
     SUBCASE(std::string(solver_name).c_str())
     {
       const auto log_dir = std::filesystem::temp_directory_path()
-          / std::format("gtopt_test_solver_logs_{}", solver_name);
+          / as_label("gtopt_test_solver_logs", solver_name);
       std::filesystem::remove_all(log_dir);
       std::filesystem::create_directories(log_dir);
 
