@@ -67,71 +67,75 @@ void log_pre_solve_stats(
   const auto& sim = planning.simulation;
   const auto& plan_opts = planning.options;
 
+  // Single normalized element list:
+  //  - snake_case keys, plural, fixed 18-char column → all colons align
+  //  - zero-count rows are suppressed when the element type is optional
+  //    (rights, user constraints/params, pumps); core element types are
+  //    always shown so the absence (e.g. lines=0) is still visible.
   spdlog::info("=== System statistics ===");
-  spdlog::info("  System name     : {}", sys.name);
-  spdlog::info("  System version  : {}", sys.version);
-  spdlog::info("=== System elements  ===");
-  spdlog::info("  Buses           : {}", sys.bus_array.size());
-  spdlog::info("  Generators      : {}", sys.generator_array.size());
-  spdlog::info("  Generator profs : {}", sys.generator_profile_array.size());
-  spdlog::info("  Demands         : {}", sys.demand_array.size());
-  spdlog::info("  Demand profs    : {}", sys.demand_profile_array.size());
-  spdlog::info("  Lines           : {}", sys.line_array.size());
-  spdlog::info("  Batteries       : {}", sys.battery_array.size());
-  spdlog::info("  Converters      : {}", sys.converter_array.size());
-  spdlog::info("  Reserve zones   : {}", sys.reserve_zone_array.size());
-  spdlog::info("  Reserve provisions   : {}",
-               sys.reserve_provision_array.size());
-  spdlog::info("  Junctions       : {}", sys.junction_array.size());
-  spdlog::info("  Waterways       : {}", sys.waterway_array.size());
-  spdlog::info("  Flows           : {}", sys.flow_array.size());
-  spdlog::info("  Reservoirs      : {}", sys.reservoir_array.size());
-  spdlog::info("  ReservoirSeepages     : {}",
-               sys.reservoir_seepage_array.size());
-  spdlog::info("  Turbines        : {}", sys.turbine_array.size());
-  if (!sys.pump_array.empty()) {
-    spdlog::info("  Pumps           : {}", sys.pump_array.size());
-  }
-  if (!sys.flow_right_array.empty()) {
-    spdlog::info("  Flow rights     : {}", sys.flow_right_array.size());
-  }
-  if (!sys.volume_right_array.empty()) {
-    spdlog::info("  Volume rights   : {}", sys.volume_right_array.size());
-  }
-  if (!sys.user_constraint_array.empty()) {
-    spdlog::info("  User constraints: {}", sys.user_constraint_array.size());
-  }
-  if (!sys.user_param_array.empty()) {
-    spdlog::info("  User params     : {}", sys.user_param_array.size());
-  }
-  spdlog::info("=== Simulation statistics ===");
-  spdlog::info("  Blocks          : {}", sim.block_array.size());
-  spdlog::info("  Stages          : {}", sim.stage_array.size());
-  spdlog::info("  Scenarios       : {}", sim.scenario_array.size());
+  spdlog::info("  system             : {}", sys.name);
+  spdlog::info("  version            : {}", sys.version);
+  spdlog::info("=== System elements ===");
+  const auto log_count = [](std::string_view label, std::size_t n)
+  { spdlog::info("  {:<18} : {}", label, n); };
+  const auto log_count_if = [&](std::string_view label, std::size_t n)
+  {
+    if (n != 0) {
+      log_count(label, n);
+    }
+  };
+  log_count("buses", sys.bus_array.size());
+  log_count("generators", sys.generator_array.size());
+  log_count_if("generator_profiles", sys.generator_profile_array.size());
+  log_count("demands", sys.demand_array.size());
+  log_count_if("demand_profiles", sys.demand_profile_array.size());
+  log_count("lines", sys.line_array.size());
+  log_count_if("batteries", sys.battery_array.size());
+  log_count_if("converters", sys.converter_array.size());
+  log_count_if("reserve_zones", sys.reserve_zone_array.size());
+  log_count_if("reserve_provisions", sys.reserve_provision_array.size());
+  log_count_if("junctions", sys.junction_array.size());
+  log_count_if("waterways", sys.waterway_array.size());
+  log_count_if("flows", sys.flow_array.size());
+  log_count_if("reservoirs", sys.reservoir_array.size());
+  log_count_if("reservoir_seepages", sys.reservoir_seepage_array.size());
+  log_count_if("turbines", sys.turbine_array.size());
+  log_count_if("pumps", sys.pump_array.size());
+  log_count_if("flow_rights", sys.flow_right_array.size());
+  log_count_if("volume_rights", sys.volume_right_array.size());
+  log_count_if("user_constraints", sys.user_constraint_array.size());
+  log_count_if("user_params", sys.user_param_array.size());
+  spdlog::info("=== Simulation ===");
+  log_count("blocks", sim.block_array.size());
+  log_count("stages", sim.stage_array.size());
+  log_count("scenarios", sim.scenario_array.size());
   spdlog::info("=== Key options ===");
   const auto& mo = plan_opts.model_options;
-  spdlog::info("  use_kirchhoff   : {}",
-               mo.use_kirchhoff.value_or(false) ? "true" : "false");
-  spdlog::info("  use_single_bus  : {}",
-               mo.use_single_bus.value_or(false) ? "true" : "false");
-  spdlog::info("  scale_objective : {}", mo.scale_objective.value_or(1'000.0));
-  spdlog::info("  scale_theta     : {}",
-               mo.scale_theta.has_value()
-                   ? std::format("{:.6g}", *mo.scale_theta)
-                   : "auto (median reactance)");
-  spdlog::info("  equilibration   : {}{}",
-               enum_name(effective_equilibration_method(planning)),
-               plan_opts.lp_matrix_options.equilibration_method.has_value()
-                   ? ""
-                   : " (default)");
-  spdlog::info("  demand_fail_cost: {}", mo.demand_fail_cost.value_or(0.0));
-  spdlog::info("  input_directory : {}",
-               plan_opts.input_directory.value_or("(default)"));
-  spdlog::info("  output_directory: {}",
-               plan_opts.output_directory.value_or("(default)"));
-  spdlog::info("  output_format   : {}",
-               plan_opts.output_format ? enum_name(*plan_opts.output_format)
-                                       : "(default)");
+  const auto log_kv = [](std::string_view label, std::string_view value)
+  { spdlog::info("  {:<18} : {}", label, value); };
+  log_kv("use_kirchhoff", mo.use_kirchhoff.value_or(false) ? "true" : "false");
+  log_kv("use_single_bus",
+         mo.use_single_bus.value_or(false) ? "true" : "false");
+  log_kv("scale_objective",
+         std::format("{}", mo.scale_objective.value_or(1'000.0)));
+  log_kv("scale_theta",
+         mo.scale_theta.has_value() ? std::format("{:.6g}", *mo.scale_theta)
+                                    : "auto (median reactance)");
+  log_kv(
+      "equilibration",
+      std::format("{}{}",
+                  enum_name(effective_equilibration_method(planning)),
+                  plan_opts.lp_matrix_options.equilibration_method.has_value()
+                      ? ""
+                      : " (default)"));
+  log_kv("demand_fail_cost",
+         std::format("{}", mo.demand_fail_cost.value_or(0.0)));
+  log_kv("input_directory", plan_opts.input_directory.value_or("(default)"));
+  log_kv("output_directory", plan_opts.output_directory.value_or("(default)"));
+  log_kv("output_format",
+         plan_opts.output_format
+             ? std::string {enum_name(*plan_opts.output_format)}
+             : std::string {"(default)"});
 }
 
 /// Aggregate solver activity counters across every (scene, phase) LP.
@@ -506,14 +510,20 @@ std::expected<int, std::string> build_solve_and_output(Planning&& planning,
     const spdlog::stopwatch build_sw;
     PlanningLP planning_lp {std::move(planning),  // NOLINT
                             flat_opts};
-    spdlog::info("  Build lp time {:.3f}s", build_sw.elapsed().count());
 
-    // Log the active solver backend so monitoring tools can display it.
+    // Log the active solver backend (with version) once.  The
+    // "Building LP done in ..." line from planning_lp already covers
+    // the build wall time, so a redundant "Build lp time ..." line is
+    // intentionally not emitted here.
     if (!planning_lp.systems().empty()
         && !planning_lp.systems().front().empty())
     {
       const auto& li = planning_lp.systems().front().front().linear_interface();
-      spdlog::info("  Solver: {}", li.solver_id());
+      spdlog::info("  Build lp time {:.3f}s — solver={}",
+                   build_sw.elapsed().count(),
+                   li.solver_id());
+    } else {
+      spdlog::info("  Build lp time {:.3f}s", build_sw.elapsed().count());
     }
 
     const bool want_lp_only =

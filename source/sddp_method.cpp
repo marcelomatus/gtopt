@@ -1003,11 +1003,20 @@ auto SDDPMethod::save_all_scene_cuts(const std::string& directory) const
 auto SDDPMethod::load_cuts(const std::string& filepath)
     -> std::expected<CutLoadResult, Error>
 {
-  return load_cuts_csv(planning_lp(),
-                       filepath,
-                       m_options_.scale_alpha,
-                       m_label_maker_,
-                       &m_scene_phase_states_);
+  auto result = load_cuts_csv(planning_lp(),
+                              filepath,
+                              m_options_.scale_alpha,
+                              m_label_maker_,
+                              &m_scene_phase_states_);
+  // Keep m_iteration_offset_ coherent with whatever was just loaded: the
+  // first newly-generated cut must have an iteration_index strictly
+  // greater than every loaded one, otherwise save_cuts_for_iteration
+  // would stack two cuts under the same index in m_cut_store_.
+  if (result.has_value() && result->count > 0) {
+    m_iteration_offset_ =
+        std::max(m_iteration_offset_, next(result->max_iteration));
+  }
+  return result;
 }
 
 auto SDDPMethod::load_scene_cuts_from_directory(const std::string& directory)
@@ -1196,17 +1205,27 @@ auto SDDPMethod::initialize_solver() -> std::expected<void, Error>
   // ── Load hot-start cuts and track max iteration for offset ────────────────
   // Recovery cuts (explicit input, scene recovery) require
   // recovery_mode >= cuts.  Without --recover, the solver starts cold.
+  // All individual load events are logged at DEBUG; one summary INFO line
+  // is emitted at the end so a user can tell cold-vs-warm at a glance.
   m_iteration_offset_ = IterationIndex {};
+
+  std::size_t cuts_count = 0;
+  std::string cuts_source;  // "" → cold; otherwise file or dir path
+  std::size_t boundary_count = 0;
+  std::size_t named_count = 0;
+  bool state_loaded = false;
 
   if (m_options_.recovery_mode >= RecoveryMode::cuts) {
     if (!m_options_.cuts_input_file.empty()) {
       auto result = load_cuts(m_options_.cuts_input_file);
       if (result.has_value()) {
-        m_iteration_offset_ =
-            std::max(m_iteration_offset_, result->max_iteration);
-        SPDLOG_INFO("SDDP hot-start: loaded {} cuts (max_iter={})",
-                    result->count,
-                    result->max_iteration);
+        // load_cuts() already updated m_iteration_offset_ via next() so
+        // the first new iteration is strictly past result->max_iteration.
+        cuts_count = result->count;
+        cuts_source = m_options_.cuts_input_file;
+        SPDLOG_DEBUG("SDDP hot-start: loaded {} cuts (max_iter={})",
+                     result->count,
+                     result->max_iteration);
       } else {
         SPDLOG_WARN("SDDP hot-start: could not load cuts: {}",
                     result.error().message);
@@ -1219,12 +1238,17 @@ auto SDDPMethod::initialize_solver() -> std::expected<void, Error>
       if (!cut_dir.empty() && std::filesystem::exists(cut_dir)) {
         auto result = load_scene_cuts_from_directory(cut_dir.string());
         if (result.has_value() && result->count > 0) {
-          m_iteration_offset_ = std::max(
-              m_iteration_offset_, IterationIndex {result->max_iteration});
-          SPDLOG_INFO("SDDP hot-start: loaded {} cuts from {} (max_iter={})",
-                      result->count,
-                      cut_dir.string(),
-                      result->max_iteration);
+          // Start strictly past the highest loaded iteration; otherwise
+          // the first new save_cuts_for_iteration would collide with a
+          // loaded cut at the same index in m_cut_store_.
+          m_iteration_offset_ =
+              std::max(m_iteration_offset_, next(result->max_iteration));
+          cuts_count = result->count;
+          cuts_source = cut_dir.string();
+          SPDLOG_DEBUG("SDDP hot-start: loaded {} cuts from {} (max_iter={})",
+                       result->count,
+                       cut_dir.string(),
+                       result->max_iteration);
         }
       }
     }
@@ -1235,12 +1259,16 @@ auto SDDPMethod::initialize_solver() -> std::expected<void, Error>
   // PLP's "planos de embalse"), NOT recovery state.  They do NOT
   // affect the iteration offset — the solver always starts from
   // iteration 0 (or from the recovery offset if recovery cuts exist).
-  if (!m_options_.boundary_cuts_file.empty()) {
+  // Missing file = cold-start (silent); parse error = WARN.
+  if (!m_options_.boundary_cuts_file.empty()
+      && std::filesystem::exists(m_options_.boundary_cuts_file))
+  {
     auto result = load_boundary_cuts(m_options_.boundary_cuts_file);
     if (result.has_value()) {
-      SPDLOG_INFO("SDDP: loaded {} boundary cuts from {}",
-                  result->count,
-                  m_options_.boundary_cuts_file);
+      boundary_count = result->count;
+      SPDLOG_DEBUG("SDDP: loaded {} boundary cuts from {}",
+                   result->count,
+                   m_options_.boundary_cuts_file);
     } else {
       SPDLOG_WARN("SDDP: could not load boundary cuts: {}",
                   result.error().message);
@@ -1250,21 +1278,19 @@ auto SDDPMethod::initialize_solver() -> std::expected<void, Error>
   // ── Load named cuts (all phases, named state variables) ────────────────
   // Named cuts are also part of the problem specification — always load,
   // but do NOT affect the iteration offset.
-  if (!m_options_.named_cuts_file.empty()) {
+  if (!m_options_.named_cuts_file.empty()
+      && std::filesystem::exists(m_options_.named_cuts_file))
+  {
     auto result = load_named_cuts(m_options_.named_cuts_file);
     if (result.has_value()) {
-      SPDLOG_INFO("SDDP: loaded {} named cuts from {}",
-                  result->count,
-                  m_options_.named_cuts_file);
+      named_count = result->count;
+      SPDLOG_DEBUG("SDDP: loaded {} named cuts from {}",
+                   result->count,
+                   m_options_.named_cuts_file);
     } else {
       SPDLOG_WARN("SDDP: could not load named cuts: {}",
                   result.error().message);
     }
-  }
-
-  if (m_iteration_offset_ > 0) {
-    SPDLOG_INFO("SDDP: iteration offset set to {} from hot-start cuts",
-                m_iteration_offset_);
   }
 
   // ── Load state variable column solutions ──────────────────────────────────
@@ -1280,12 +1306,26 @@ auto SDDPMethod::initialize_solver() -> std::expected<void, Error>
     if (std::filesystem::exists(state_file)) {
       auto result = load_state(state_file);
       if (result.has_value()) {
-        SPDLOG_INFO("SDDP: loaded state variables from {}", state_file);
+        state_loaded = true;
+        SPDLOG_DEBUG("SDDP: loaded state variables from {}", state_file);
       } else {
         SPDLOG_WARN("SDDP: could not load state variables: {}",
                     result.error().message);
       }
     }
+  }
+
+  // ── One-line hot-start summary so cold-vs-warm is visible at a glance ──
+  {
+    const auto fmt_count = [](std::size_t n) -> std::string
+    { return n == 0 ? std::string {"none"} : std::to_string(n); };
+    SPDLOG_INFO(
+        "SDDP HotStart: cuts={} boundary={} named={} state={} iter_offset={}",
+        cuts_source.empty() ? std::string {"cold"} : fmt_count(cuts_count),
+        fmt_count(boundary_count),
+        fmt_count(named_count),
+        state_loaded ? "loaded" : "none",
+        m_iteration_offset_);
   }
 
   // ── Low-memory: release every per-cell backend after initialization ─────
@@ -1746,6 +1786,10 @@ void SDDPMethod::finalize_iteration_result(
   m_current_ub_.store(ir.upper_bound);
   m_converged_.store(ir.converged);
 
+  // Per-iteration end-of-iteration summary is emitted from
+  // sddp_iteration.cpp (`SDDP Iter [i{}]: done in ...`).  Keep only the
+  // TRACE breakdown here for very-verbose post-mortem analysis; the
+  // INFO-level subset duplicated the iteration-summary line.
   SPDLOG_TRACE(
       "SDDP iter {}: LB={:.4f} UB={:.4f} gap={:.6f} gap_change={:.6f} "
       "cuts={} infeas_cuts={} fwd={:.3f}s bwd={:.3f}s total={:.3f}s{}",
@@ -1760,13 +1804,6 @@ void SDDPMethod::finalize_iteration_result(
       ir.backward_pass_s,
       ir.iteration_s,
       ir.converged ? " [CONVERGED]" : "");
-
-  SPDLOG_INFO("SDDP iter {}: gap={:.6f} gap_change={:.6f} ({:.3f}s){}",
-              iteration_index,
-              ir.gap,
-              ir.gap_change,
-              ir.iteration_s,
-              ir.converged ? " [CONVERGED]" : "");
 }
 
 void SDDPMethod::maybe_write_api_status(

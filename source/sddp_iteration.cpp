@@ -125,10 +125,12 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
         break;
       }
 
-      SPDLOG_INFO("SDDP Iter [i{}]: === {}/{} ===",
+      // 1-based "N of M" reads naturally; the raw indices were
+      // confusing (e.g. "=== 0/0 ===" for max_iterations=1).
+      SPDLOG_INFO("SDDP Iter [i{}]: === starting ({} of {}) ===",
                   iteration_index,
-                  iteration_index,
-                  last_iteration_index);
+                  (iteration_index - m_iteration_offset_) + 1,
+                  m_options_.max_iterations);
 
       SDDPIterationResult ir {
           .iteration_index = iteration_index,

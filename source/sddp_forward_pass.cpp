@@ -50,12 +50,17 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
     effective_opts.time_limit = m_options_.solve_timeout;
   }
 
+  // Per-scene "starting" trace dropped to DEBUG: the aggregate
+  // "SDDP Forward [iN]: dispatching M scene(s) ..." line in
+  // sddp_method.cpp already covers the user-facing fan-out, and
+  // emitting one INFO line per scene per iteration was just noise
+  // (16 lines at the same millisecond on this run).
   [[maybe_unused]] const auto fwd_tid = std::this_thread::get_id();
-  SPDLOG_INFO("SDDP Forward [i{} s{}]: starting ({} phases) [thread {}]",
-              iteration_index,
-              scene_uid(scene_index),
-              phases.size(),
-              std::hash<std::thread::id> {}(fwd_tid) % 10000);
+  SPDLOG_DEBUG("SDDP Forward [i{} s{}]: starting ({} phases) [thread {}]",
+               iteration_index,
+               scene_uid(scene_index),
+               phases.size(),
+               std::hash<std::thread::id> {}(fwd_tid) % 10000);
 
   // Check once whether update_lp should run for this iteration
   // (respects explicit skip/force flags and global skip count).

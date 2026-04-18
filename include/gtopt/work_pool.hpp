@@ -422,7 +422,6 @@ public:
             }
           },
       };
-      spdlog::info("  {} started", name_);
     } catch (const std::exception& e) {
       running_ = false;
       auto msg = std::format("Failed to start BasicWorkPool: {}", e.what());
@@ -1048,6 +1047,13 @@ private:
   {
     try {
       const auto stats = get_statistics();
+      // Skip the noisy "Final: 0 tasks dispatched, 0 completed ..." that
+      // otherwise emits whenever a pool is constructed for a code path
+      // (hot-start cut load, monitoring init, ...) that ends up not
+      // dispatching any work.
+      if (stats.lp_tasks_dispatched == 0 && stats.tasks_completed == 0) {
+        return;
+      }
       const auto elapsed =
           std::chrono::duration<double>(std::chrono::steady_clock::now()
                                         - pool_start_time_)
