@@ -117,14 +117,16 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
       const auto iteration_start_time = std::chrono::steady_clock::now();
 
       if (should_stop()) {
-        SPDLOG_INFO("{}: stop requested, halting after {} iterations",
-                    sddp_log("Iter", iteration_index),
-                    iteration_index - m_iteration_offset_);
+        SPDLOG_INFO(
+            "SDDP Iter [i{}]: stop requested, halting after {}"
+            " iterations",
+            iteration_index,
+            iteration_index - m_iteration_offset_);
         break;
       }
 
-      SPDLOG_INFO("{}: === {}/{} ===",
-                  sddp_log("Iter", iteration_index),
+      SPDLOG_INFO("SDDP Iter [i{}]: === {}/{} ===",
+                  iteration_index,
                   iteration_index,
                   last_iteration_index);
 
@@ -134,8 +136,8 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
       m_benders_cut_.reset_infeasible_cut_count();
 
       // ── Forward pass ──
-      SPDLOG_DEBUG("{}: starting forward pass",
-                   sddp_log("Forward", iteration_index));
+      SPDLOG_DEBUG("SDDP Forward [i{}]: starting forward pass",
+                   iteration_index);
       auto fwd =
           run_forward_pass_all_scenes(*sddp_pool, fwd_opts, iteration_index);
       if (!fwd.has_value()) {
@@ -146,11 +148,11 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
       ir.forward_pass_s = fwd->elapsed_s;
       if (fwd->has_feasibility_issue) {
         ir.feasibility_issue = true;
-        SPDLOG_INFO("{}: forward pass has feasibility issues",
-                    sddp_log("Forward", iteration_index));
+        SPDLOG_INFO("SDDP Forward [i{}]: forward pass has feasibility issues",
+                    iteration_index);
       }
-      SPDLOG_DEBUG("{}: done in {:.3f}s",
-                   sddp_log("Forward", iteration_index),
+      SPDLOG_DEBUG("SDDP Forward [i{}]: done in {:.3f}s",
+                   iteration_index,
                    fwd->elapsed_s);
 
       // ── Scene weights and bounds ──
@@ -163,8 +165,8 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
       compute_iteration_bounds(ir, fwd->scene_feasible, weights);
 
       // ── Backward pass ──
-      SPDLOG_DEBUG("{}: starting backward pass",
-                   sddp_log("Backward", iteration_index));
+      SPDLOG_DEBUG("SDDP Backward [i{}]: starting backward pass",
+                   iteration_index);
       // Save per-scene cut counts for cut sharing offset tracking
       const auto cuts_before = m_cut_store_.stored_cuts().size();
       const auto num_scenes_bwd = planning_lp().simulation().scene_count();
@@ -182,15 +184,15 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
       ir.backward_pass_s = bwd.elapsed_s;
       if (bwd.has_feasibility_issue) {
         ir.feasibility_issue = true;
-        SPDLOG_INFO("{}: backward pass has feasibility issues",
-                    sddp_log("Backward", iteration_index));
+        SPDLOG_INFO("SDDP Backward [i{}]: backward pass has feasibility issues",
+                    iteration_index);
       }
       ir.iteration_s =
           std::chrono::duration<double>(std::chrono::steady_clock::now()
                                         - iteration_start_time)
               .count();
-      SPDLOG_DEBUG("{}: done in {:.3f}s, {} cuts added",
-                   sddp_log("Backward", iteration_index),
+      SPDLOG_DEBUG("SDDP Backward [i{}]: done in {:.3f}s, {} cuts added",
+                   iteration_index,
                    bwd.elapsed_s,
                    bwd.total_cuts);
 
@@ -265,9 +267,9 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
         ir.stationary_converged = true;
         m_converged_.store(true);
         SPDLOG_INFO(
-            "{}: stationary gap convergence "
+            "SDDP Iter [i{}]: stationary gap convergence "
             "(gap_change={:.6f} < stationary_tol={:.6f}) [CONVERGED]",
-            sddp_log("Iter", iteration_index),
+            iteration_index,
             ir.gap_change,
             m_options_.stationary_tol);
       }
@@ -326,10 +328,10 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
           ir.statistical_converged = true;
           m_converged_.store(true);
           SPDLOG_INFO(
-              "{}: statistical CI convergence "
+              "SDDP Iter [i{}]: statistical CI convergence "
               "(UB-LB={:.4f} <= z*σ={:.4f}, z={:.3f}, "
               "σ={:.4f}, N={}) [CONVERGED]",
-              sddp_log("Iter", iteration_index),
+              iteration_index,
               gap_abs,
               ci_threshold,
               z_score,
@@ -344,10 +346,10 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
           ir.stationary_converged = true;
           m_converged_.store(true);
           SPDLOG_INFO(
-              "{}: statistical + stationary convergence "
+              "SDDP Iter [i{}]: statistical + stationary convergence "
               "(UB-LB={:.4f} > z*σ={:.4f} but gap_change={:.6f} "
               "< stationary_tol={:.6f}) [CONVERGED]",
-              sddp_log("Iter", iteration_index),
+              iteration_index,
               gap_abs,
               ci_threshold,
               ir.gap_change,
@@ -358,10 +360,10 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
       results.push_back(ir);
 
       SPDLOG_INFO(
-          "{}: done in {:.3f}s (fwd {:.2f}s + bwd {:.2f}s) — "
+          "SDDP Iter [i{}]: done in {:.3f}s (fwd {:.2f}s + bwd {:.2f}s) — "
           "UB={:.4f} LB={:.4f} gap={:.6f} gap_change={:.6f} "
           "cuts={} infeas_cuts={} {}",
-          sddp_log("Iter", iteration_index),
+          iteration_index,
           ir.iteration_s,
           ir.forward_pass_s,
           ir.backward_pass_s,
@@ -394,8 +396,8 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
 
       // ── Iteration callback ──
       if (m_iteration_callback_ && m_iteration_callback_(ir)) {
-        SPDLOG_INFO("{}: callback requested stop",
-                    sddp_log("Iter", iteration_index));
+        SPDLOG_INFO("SDDP Iter [i{}]: callback requested stop",
+                    iteration_index);
         break;
       }
 
@@ -420,8 +422,8 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
         : next(results.back().iteration_index);
     const auto final_start = std::chrono::steady_clock::now();
 
-    SPDLOG_INFO("{}: === simulation pass ===",
-                sddp_log("Sim", final_iteration_index));
+    SPDLOG_INFO("SDDP Sim [i{}]: === simulation pass ===",
+                final_iteration_index);
 
     // Suppress stop checks so the simulation pass always completes.
     // The stop was already honoured by exiting the iteration loop.
@@ -432,8 +434,14 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
     };
     m_benders_cut_.reset_infeasible_cut_count();
 
+    // Enable crossover for the simulation pass: output writing reads
+    // row duals (bus marginal prices, etc.) via output_context, so
+    // vertex duals are required.  Training passes keep crossover off
+    // because cuts use reduced costs.
+    auto sim_opts = fwd_opts;
+    sim_opts.crossover = true;
     auto fwd = run_forward_pass_all_scenes(
-        *sddp_pool, fwd_opts, final_iteration_index);
+        *sddp_pool, sim_opts, final_iteration_index);
     if (!fwd.has_value()) {
       monitor.stop();
       return std::unexpected(std::move(fwd.error()));
@@ -462,9 +470,9 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
     results.push_back(ir);
 
     SPDLOG_INFO(
-        "{}: done in {:.3f}s — "
+        "SDDP Sim [i{}]: done in {:.3f}s — "
         "UB={:.4f} LB={:.4f} gap={:.6f} gap_change={:.6f} {}",
-        sddp_log("Sim", final_iteration_index),
+        final_iteration_index,
         ir.iteration_s,
         ir.upper_bound,
         ir.lower_bound,
@@ -622,11 +630,13 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
                + IterationIndex {m_options_.min_iterations - 1});
       if (scene_gap < m_options_.convergence_tol && past_min) {
         tracker.mark_converged(scene_index, iteration_index);
-        SPDLOG_INFO("{}: scene {} converged at iter {} (gap={:.6f})",
-                    sddp_log("Async", iteration_index, scene_uid(scene_index)),
-                    scene_uid(scene_index),
-                    iteration_index,
-                    scene_gap);
+        SPDLOG_INFO(
+            "SDDP Async [i{} s{}]: scene {} converged at iter {} (gap={:.6f})",
+            iteration_index,
+            scene_uid(scene_index),
+            scene_uid(scene_index),
+            iteration_index,
+            scene_gap);
         return true;
       }
     }
@@ -635,14 +645,20 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
 
   // ── Per-scene simulation + output writing ──
   // Runs a simulation forward pass for a single scene, then writes output.
+  // Enable crossover: output writing reads row duals (bus marginal
+  // prices, etc.), which require vertex duals.  Training forward passes
+  // keep crossover off because cuts use reduced costs only.
+  auto sim_opts = fwd_opts;
+  sim_opts.crossover = true;
   const auto run_scene_simulation =
       [&](SceneIndex scene_index,
           IterationIndex sim_iteration_index) -> std::expected<double, Error>
   {
-    SPDLOG_INFO("{}: simulation pass for scene {}",
-                sddp_log("Sim", sim_iteration_index, scene_uid(scene_index)),
+    SPDLOG_INFO("SDDP Sim [i{} s{}]: simulation pass for scene {}",
+                sim_iteration_index,
+                scene_uid(scene_index),
                 scene_uid(scene_index));
-    auto result = forward_pass(scene_index, fwd_opts, sim_iteration_index);
+    auto result = forward_pass(scene_index, sim_opts, sim_iteration_index);
     if (!result.has_value()) {
       return result;
     }
@@ -652,8 +668,9 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
       planning_lp().system(scene_index, phase_index).write_out();
     }
 
-    SPDLOG_INFO("{}: scene {} outputs written",
-                sddp_log("Sim", sim_iteration_index, scene_uid(scene_index)),
+    SPDLOG_INFO("SDDP Sim [i{} s{}]: scene {} outputs written",
+                sim_iteration_index,
+                scene_uid(scene_index),
                 scene_uid(scene_index));
     return result;
   };
@@ -744,11 +761,10 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
           }
           auto fwd = sp.fwd_future.get();
           if (!fwd.has_value()) {
-            SPDLOG_WARN(
-                "{}: async forward failed: {}",
-                sddp_log(
-                    "Forward", sp.current_iteration_index, scene_uid(scene)),
-                fwd.error().message);
+            SPDLOG_WARN("SDDP Forward [i{} s{}]: async forward failed: {}",
+                        sp.current_iteration_index,
+                        scene_uid(scene),
+                        fwd.error().message);
             sp.feasible = false;
             sp.upper_bound = 0.0;
           } else {
@@ -807,11 +823,10 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
           }
           auto bwd = sp.bwd_future.get();
           if (!bwd.has_value()) {
-            SPDLOG_WARN(
-                "{}: async backward failed: {}",
-                sddp_log(
-                    "Backward", sp.current_iteration_index, scene_uid(scene)),
-                bwd.error().message);
+            SPDLOG_WARN("SDDP Backward [i{} s{}]: async backward failed: {}",
+                        sp.current_iteration_index,
+                        scene_uid(scene),
+                        bwd.error().message);
           }
 
           // Get lower bound from phase-0 objective
@@ -830,8 +845,10 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
             const double scene_gap =
                 compute_convergence_gap(sp.upper_bound, sp.lower_bound);
             SPDLOG_INFO(
-                "{}: completed (ub={:.4f} lb={:.4f} gap={:.6f})",
-                sddp_log("Async", sp.current_iteration_index, scene_uid(scene)),
+                "SDDP Async [i{} s{}]: completed (ub={:.4f} lb={:.4f}"
+                " gap={:.6f})",
+                sp.current_iteration_index,
+                scene_uid(scene),
                 sp.upper_bound,
                 sp.lower_bound,
                 scene_gap);
@@ -862,10 +879,10 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
           }
           auto sim = sp.fwd_future.get();
           if (!sim.has_value()) {
-            SPDLOG_WARN(
-                "{}: simulation failed: {}",
-                sddp_log("Sim", sp.current_iteration_index, scene_uid(scene)),
-                sim.error().message);
+            SPDLOG_WARN("SDDP Sim [i{} s{}]: simulation failed: {}",
+                        sp.current_iteration_index,
+                        scene_uid(scene),
+                        sim.error().message);
           } else {
             sp.upper_bound = *sim;
           }
@@ -879,9 +896,10 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
               }
             }
             SPDLOG_INFO(
-                "{}: scene done — converged={} iters={} sim_ub={:.4f} "
-                "active={}/{}",
-                sddp_log("Async", sp.current_iteration_index, scene_uid(scene)),
+                "SDDP Async [i{} s{}]: scene done — converged={} iters={}"
+                " sim_ub={:.4f} active={}/{}",
+                sp.current_iteration_index,
+                scene_uid(scene),
                 sp.scene_converged,
                 sp.current_iteration_index - m_iteration_offset_,
                 sp.upper_bound,
@@ -978,11 +996,11 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
       {
         const auto pool_stats = pool.get_statistics();
         SPDLOG_INFO(
-            "{}: async aggregate — "
+            "SDDP Iter [i{}]: async aggregate — "
             "UB={:.4f} LB={:.4f} gap={:.6f} gap_change={:.6f} "
             "spread=[{},{}] converged_scenes={}/{} "
             "pool(active={} pending={} cpu={:.0f}%) {}",
-            sddp_log("Iter", next_converge_iteration_index),
+            next_converge_iteration_index,
             ir.upper_bound,
             ir.lower_bound,
             ir.gap,
@@ -1072,8 +1090,8 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
       results.push_back(std::move(ir));
 
       if (m_iteration_callback_ && m_iteration_callback_(results.back())) {
-        SPDLOG_INFO("{}: callback requested stop",
-                    sddp_log("Iter", next_converge_iteration_index));
+        SPDLOG_INFO("SDDP Iter [i{}]: callback requested stop",
+                    next_converge_iteration_index);
         m_stop_requested_.store(true);
       }
 

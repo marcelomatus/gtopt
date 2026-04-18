@@ -555,20 +555,17 @@ public:
   /// Currently configured LP algorithm.
   [[nodiscard]] LPAlgo get_algorithm() const
   {
-    return m_backend_->get_algorithm();
+    return backend().get_algorithm();
   }
 
   /// Currently configured thread count (0 = solver default).
-  [[nodiscard]] int get_threads() const { return m_backend_->get_threads(); }
+  [[nodiscard]] int get_threads() const { return backend().get_threads(); }
 
   /// Whether presolve is currently enabled.
-  [[nodiscard]] bool get_presolve() const { return m_backend_->get_presolve(); }
+  [[nodiscard]] bool get_presolve() const { return backend().get_presolve(); }
 
   /// Current solver log verbosity level (0 = off).
-  [[nodiscard]] int get_log_level() const
-  {
-    return m_backend_->get_log_level();
-  }
+  [[nodiscard]] int get_log_level() const { return backend().get_log_level(); }
 
   /// Solver's representation of +infinity for variable bounds.
   ///
@@ -609,13 +606,13 @@ public:
   /// True if @p value represents positive infinity for the active solver.
   [[nodiscard]] bool is_pos_inf(double value) const noexcept
   {
-    return value >= m_backend_->infinity();
+    return value >= infinity();
   }
 
   /// True if @p value represents negative infinity for the active solver.
   [[nodiscard]] bool is_neg_inf(double value) const noexcept
   {
-    return value <= -m_backend_->infinity();
+    return value <= -infinity();
   }
 
   // ── Row bound setters (raw: LP/solver units) ──
@@ -688,7 +685,7 @@ public:
 
   [[nodiscard]] auto get_obj_coeff() const
   {
-    return std::span(m_backend_->obj_coefficients(), get_numcols());
+    return std::span(backend().obj_coefficients(), get_numcols());
   }
 
   // ── Column bound setters (raw: LP/solver units) ──
@@ -864,7 +861,7 @@ public:
    */
   [[nodiscard]] auto get_row_low_raw() const
   {
-    return std::span(m_backend_->row_lower(), get_numrows());
+    return std::span(backend().row_lower(), get_numrows());
   }
 
   /**
@@ -873,7 +870,7 @@ public:
    */
   [[nodiscard]] auto get_row_upp_raw() const
   {
-    return std::span(m_backend_->row_upper(), get_numrows());
+    return std::span(backend().row_upper(), get_numrows());
   }
 
   // ── Row bound getters (physical: descaled) ──
@@ -890,7 +887,7 @@ public:
   [[nodiscard]] ScaledView get_row_low() const noexcept
   {
     const auto n = get_numrows();
-    return {m_backend_->row_lower(),
+    return {backend().row_lower(),
             n,
             m_row_scales_.data(),
             m_row_scales_.size(),
@@ -904,7 +901,7 @@ public:
   [[nodiscard]] ScaledView get_row_upp() const noexcept
   {
     const auto n = get_numrows();
-    return {m_backend_->row_upper(),
+    return {backend().row_upper(),
             n,
             m_row_scales_.data(),
             m_row_scales_.size(),
@@ -923,7 +920,7 @@ public:
    */
   [[nodiscard]] auto get_col_low_raw() const
   {
-    return std::span(m_backend_->col_lower(), get_numcols());
+    return std::span(backend().col_lower(), get_numcols());
   }
 
   /**
@@ -932,7 +929,7 @@ public:
    */
   [[nodiscard]] auto get_col_upp_raw() const
   {
-    return std::span(m_backend_->col_upper(), get_numcols());
+    return std::span(backend().col_upper(), get_numcols());
   }
 
   // ── Column bound getters (physical: descaled) ──
@@ -948,7 +945,7 @@ public:
   [[nodiscard]] ScaledView get_col_low() const noexcept
   {
     const auto n = get_numcols();
-    return {m_backend_->col_lower(),
+    return {backend().col_lower(),
             n,
             m_col_scales_.data(),
             m_col_scales_.size(),
@@ -965,7 +962,7 @@ public:
   [[nodiscard]] ScaledView get_col_upp() const noexcept
   {
     const auto n = get_numcols();
-    return {m_backend_->col_upper(),
+    return {backend().col_upper(),
             n,
             m_col_scales_.data(),
             m_col_scales_.size(),
@@ -982,7 +979,7 @@ public:
    */
   [[nodiscard]] auto get_col_sol_raw() const -> std::span<const double>
   {
-    return {m_backend_->col_solution(), get_numcols()};
+    return {backend().col_solution(), get_numcols()};
   }
 
   /**
@@ -1000,7 +997,7 @@ public:
   [[nodiscard]] ScaledView get_col_sol() const noexcept
   {
     const auto n = get_numcols();
-    return {m_backend_->col_solution(),
+    return {backend().col_solution(),
             n,
             m_col_scales_.data(),
             m_col_scales_.size(),
@@ -1013,7 +1010,7 @@ public:
    */
   [[nodiscard]] auto get_col_cost_raw() const -> std::span<const double>
   {
-    return {m_backend_->reduced_cost(), get_numcols()};
+    return {backend().reduced_cost(), get_numcols()};
   }
 
   /**
@@ -1029,7 +1026,7 @@ public:
   [[nodiscard]] ScaledView get_col_cost() const noexcept
   {
     const auto n = get_numcols();
-    return {m_backend_->reduced_cost(),
+    return {backend().reduced_cost(),
             n,
             m_col_scales_.data(),
             m_col_scales_.size(),
@@ -1162,7 +1159,7 @@ public:
   [[nodiscard]] auto get_row_dual_raw() -> std::span<const double>
   {
     ensure_duals();
-    return {m_backend_->row_price(), get_numrows()};
+    return {backend().row_price(), get_numrows()};
   }
 
   /**
@@ -1182,7 +1179,7 @@ public:
   {
     ensure_duals();
     const auto n = get_numrows();
-    return {m_backend_->row_price(),
+    return {backend().row_price(),
             n,
             m_row_scales_.data(),
             m_row_scales_.size(),
@@ -1379,14 +1376,39 @@ private:
                           int level)
         : interface(&li)
     {
-      interface->m_backend_->set_log_filename(filename, level);
+      interface->backend().set_log_filename(filename, level);
     }
 
-    ~LogFileGuard() { interface->m_backend_->clear_log_filename(); }
+    ~LogFileGuard() { interface->backend().clear_log_filename(); }
   };
 
   void open_log_handler(int log_level);
   void close_log_handler();
+
+  /// Centralized, auto-resurrecting access to the solver backend.
+  ///
+  /// Every read path that dereferences the backend should funnel through
+  /// here so callers don't have to remember `ensure_backend()` /
+  /// `SystemLP::ensure_lp_built()` before each access.  Under
+  /// `low_memory_mode != off` the backend may be released between
+  /// operations (e.g. by the SDDP forward pass after capturing the
+  /// solution); this accessor reconstructs it on first access and
+  /// returns a live reference.
+  ///
+  /// The `const` overload uses `const_cast` to invoke the non-const
+  /// `ensure_backend()` — standard lazy-init idiom, since rebuilding
+  /// cached backend state is a logically-const cache-refill.
+  [[nodiscard]] SolverBackend& backend()
+  {
+    ensure_backend();
+    return *m_backend_;
+  }
+  [[nodiscard]] const SolverBackend& backend() const
+  {
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast)
+    const_cast<LinearInterface*>(this)->ensure_backend();
+    return *m_backend_;
+  }
 
   std::unique_ptr<SolverBackend> m_backend_;
   std::string m_solver_name_ {};  ///< Solver name for backend reconstruction

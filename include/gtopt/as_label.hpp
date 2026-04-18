@@ -781,6 +781,64 @@ template<char sep = '_', typename... Args>
 }
 
 /**
+ * @brief No-separator variant of as_label().
+ *
+ * Selected by passing `void` as the template argument: arguments are
+ * concatenated back-to-back with no separator inserted.  Useful when you
+ * want the inline punctuation to come from the call site itself — e.g.
+ * reconstructing a key like `"i0 s1 p4"` from individual fields:
+ *
+ * @code{.cpp}
+ * auto k = as_label<void>('i', iter,
+ *                         ' ', 's', scene_uid,
+ *                         ' ', 'p', phase_uid); // "i0 s1 p4"
+ * @endcode
+ *
+ * Each `char` argument becomes a single-character string (via the existing
+ * `string_holder(char)` constructor), so spaces, brackets, and other
+ * punctuation pass through verbatim.  Integral arguments still hit the
+ * compile-time 0–1023 cache; floating-point and custom types still flow
+ * through `string_holder`.
+ *
+ * Empty arguments are skipped (nothing is added — there is no separator
+ * to suppress).  Calling with no arguments returns the empty string.
+ *
+ * @tparam Sep MUST be `void` — selects this overload via the
+ *             `std::is_void_v<Sep>` constraint.  Any other type is
+ *             rejected, and any char NTTP routes to the regular overload.
+ * @tparam Args Argument types (deduced).
+ * @param  args Values to concatenate, in order.
+ * @return std::string The concatenated, separator-free result.
+ */
+template<typename Sep, typename... Args>
+  requires std::is_void_v<Sep>
+[[nodiscard]] std::string as_label(Args&&... args) noexcept(
+    (std::is_nothrow_constructible_v<detail::string_holder, Args> && ...))
+{
+  if constexpr (sizeof...(Args) == 0) {
+    return {};
+  } else {
+    const std::array<detail::string_holder, sizeof...(Args)> holders {
+        detail::string_holder(std::forward<Args>(args))...};
+
+    std::size_t total = 0;
+    for (const auto& holder : holders) {
+      total += holder.view().size();
+    }
+    if (total == 0) [[unlikely]] {
+      return {};
+    }
+
+    std::string result;
+    result.reserve(total);
+    for (const auto& holder : holders) {
+      result.append(holder.view());
+    }
+    return result;
+  }
+}
+
+/**
  * @brief Clears and writes a label into an existing string buffer
  *
  * @tparam sep Separator character (default '_')
@@ -839,6 +897,40 @@ void as_label_into(std::string& result, Args&&... args) noexcept(
     }
     result.append(view);
     needs_sep = true;
+  }
+}
+
+/**
+ * @brief No-separator variant of as_label_into().
+ *
+ * Counterpart of `as_label<void>(...)` that writes into an existing buffer
+ * (cleared, capacity preserved).  Selected by passing `void` as the
+ * template argument.  See `as_label<void>` for argument semantics.
+ */
+template<typename Sep, typename... Args>
+  requires std::is_void_v<Sep>
+void as_label_into(std::string& result, Args&&... args) noexcept(
+    (std::is_nothrow_constructible_v<detail::string_holder, Args> && ...))
+{
+  result.clear();
+  if constexpr (sizeof...(Args) == 0) {
+    return;
+  } else {
+    const std::array<detail::string_holder, sizeof...(Args)> holders {
+        detail::string_holder(std::forward<Args>(args))...};
+
+    std::size_t total = 0;
+    for (const auto& holder : holders) {
+      total += holder.view().size();
+    }
+    if (total == 0) [[unlikely]] {
+      return;
+    }
+
+    result.reserve(total);
+    for (const auto& holder : holders) {
+      result.append(holder.view());
+    }
   }
 }
 

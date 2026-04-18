@@ -463,7 +463,12 @@ void LinearInterface::open_log_handler(const int log_level)
 
 LinearInterface LinearInterface::clone() const
 {
-  auto cloned = LinearInterface {m_backend_->clone(), m_log_file_};
+  // Route through the centralized `backend()` accessor so the source
+  // auto-resurrects if released (low_memory_mode != off).  Prior to
+  // this, direct `m_backend_->clone()` null-deref segfaulted when the
+  // SDDP forward pass had released the phase backend before the
+  // backward/aperture pass cloned it.
+  auto cloned = LinearInterface {backend().clone(), m_log_file_};
   cloned.m_scale_objective_ = m_scale_objective_;
   cloned.m_col_scales_ = m_col_scales_;
   cloned.m_variable_scale_map_ = m_variable_scale_map_;

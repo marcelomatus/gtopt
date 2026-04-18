@@ -136,8 +136,13 @@ auto solve_apertures_for_phase(
 {
   const auto& phase_li = sys.linear_interface();
 
-  // Apply aperture timeout to solver options if configured
+  // Apply aperture timeout to solver options if configured.
+  // Disable crossover: the aperture cut is built from reduced costs
+  // (get_col_cost_raw below), not row duals, so vertex duals are not
+  // needed.  Barrier-without-crossover RC noise is at solver tolerance
+  // and already filtered by cut_coeff_eps.
   auto aperture_opts = opts;
+  aperture_opts.crossover = false;
   if (aperture_timeout > 0.0) {
     aperture_opts.time_limit = aperture_timeout;
   }
@@ -160,8 +165,10 @@ auto solve_apertures_for_phase(
   const auto caller_tid = std::this_thread::get_id();
 
   SPDLOG_TRACE(
-      "{}: starting {} aperture(s) [thread {}]",
-      sddp_log("Aperture", iteration_index, scene_uid_val, phase_uid_val),
+      "SDDP Aperture [i{} s{} p{}]: starting {} aperture(s) [thread {}]",
+      iteration_index,
+      scene_uid_val,
+      phase_uid_val,
       effective_apertures.size(),
       std::hash<std::thread::id> {}(caller_tid) % 10000);
 
@@ -184,13 +191,12 @@ auto solve_apertures_for_phase(
     const double pf = aperture.probability_factor.value_or(1.0);
     if (pf <= 0.0) {
       SPDLOG_WARN(
-          "{}: non-positive probability_factor {:.6f}, "
-          "using 1.0 as fallback",
-          sddp_log("Aperture",
-                   iteration_index,
-                   scene_uid_val,
-                   phase_uid_val,
-                   ap_uid),
+          "SDDP Aperture [i{} s{} p{} a{}]: non-positive probability_factor "
+          "{:.6f}, using 1.0 as fallback",
+          iteration_index,
+          scene_uid_val,
+          phase_uid_val,
+          ap_uid,
           pf);
     }
     const double effective_pf = pf > 0.0 ? pf : 1.0;
@@ -204,13 +210,12 @@ auto solve_apertures_for_phase(
 
     if (scen_it == all_scenarios.end() && aperture_cache.empty()) {
       spdlog::info(
-          "{}: source_scenario {} not found and no aperture cache, "
-          "skipping",
-          sddp_log("Aperture",
-                   iteration_index,
-                   scene_uid_val,
-                   phase_uid_val,
-                   ap_uid),
+          "SDDP Aperture [i{} s{} p{} a{}]: source_scenario {} not found and "
+          "no aperture cache, skipping",
+          iteration_index,
+          scene_uid_val,
+          phase_uid_val,
+          ap_uid,
           aperture.source_scenario);
       ++n_skipped;
       continue;
@@ -281,13 +286,12 @@ auto solve_apertures_for_phase(
             visit_elements(sys.collections(), visitor);
           } else {
             SPDLOG_DEBUG(
-                "{}: source matches base scenario, "
-                "skipping bound update",
-                sddp_log("Aperture",
-                         iteration_index,
-                         scene_uid_val,
-                         phase_uid_val,
-                         ap_uid));
+                "SDDP Aperture [i{} s{} p{} a{}]: source matches base "
+                "scenario, skipping bound update",
+                iteration_index,
+                scene_uid_val,
+                phase_uid_val,
+                ap_uid);
           }
 
           // Configure solver log file for aperture clone
@@ -310,14 +314,15 @@ auto solve_apertures_for_phase(
             const auto ap_s = std::chrono::duration<double>(
                                   std::chrono::steady_clock::now() - ap_start)
                                   .count();
-            spdlog::trace("{}: infeasible ({:.3f}s) [thread {}]",
-                          sddp_log("Aperture",
-                                   iteration_index,
-                                   scene_uid_val,
-                                   phase_uid_val,
-                                   ap_uid),
-                          ap_s,
-                          std::hash<std::thread::id> {}(task_tid) % 10000);
+            spdlog::trace(
+                "SDDP Aperture [i{} s{} p{} a{}]: infeasible ({:.3f}s) "
+                "[thread {}]",
+                iteration_index,
+                scene_uid_val,
+                phase_uid_val,
+                ap_uid,
+                ap_s,
+                std::hash<std::thread::id> {}(task_tid) % 10000);
             return ApertureCutResult {
                 .ap_uid = ap_uid,
                 .weight = weight,
@@ -345,14 +350,14 @@ auto solve_apertures_for_phase(
           const auto ap_s = std::chrono::duration<double>(
                                 std::chrono::steady_clock::now() - ap_start)
                                 .count();
-          spdlog::trace("{}: solved ({:.3f}s) [thread {}]",
-                        sddp_log("Aperture",
-                                 iteration_index,
-                                 scene_uid_val,
-                                 phase_uid_val,
-                                 ap_uid),
-                        ap_s,
-                        std::hash<std::thread::id> {}(task_tid) % 10000);
+          spdlog::trace(
+              "SDDP Aperture [i{} s{} p{} a{}]: solved ({:.3f}s) [thread {}]",
+              iteration_index,
+              scene_uid_val,
+              phase_uid_val,
+              ap_uid,
+              ap_s,
+              std::hash<std::thread::id> {}(task_tid) % 10000);
 
           return ApertureCutResult {
               .ap_uid = ap_uid,
@@ -379,22 +384,22 @@ auto solve_apertures_for_phase(
       if (aperture_timeout > 0.0 && (result.status == 1 || result.status == 3))
       {
         spdlog::warn(
-            "{}: timed out ({:.1f}s, status {}), treating as infeasible",
-            sddp_log("Aperture",
-                     iteration_index,
-                     scene_uid_val,
-                     phase_uid_val,
-                     result.ap_uid),
+            "SDDP Aperture [i{} s{} p{} a{}]: timed out ({:.1f}s, status {}),"
+            " treating as infeasible",
+            iteration_index,
+            scene_uid_val,
+            phase_uid_val,
+            result.ap_uid,
             aperture_timeout,
             result.status);
       } else {
-        spdlog::trace("{}: infeasible (status {}), skipping",
-                      sddp_log("Aperture",
-                               iteration_index,
-                               scene_uid_val,
-                               phase_uid_val,
-                               result.ap_uid),
-                      result.status);
+        spdlog::trace(
+            "SDDP Aperture [i{} s{} p{} a{}]: infeasible (status {}), skipping",
+            iteration_index,
+            scene_uid_val,
+            phase_uid_val,
+            result.ap_uid,
+            result.status);
       }
       continue;
     }

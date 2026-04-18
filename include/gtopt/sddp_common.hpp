@@ -18,6 +18,7 @@
 #include <mutex>
 #include <string>
 
+#include <gtopt/as_label.hpp>
 #include <gtopt/basic_types.hpp>
 #include <gtopt/iteration.hpp>
 #include <gtopt/phase.hpp>
@@ -52,8 +53,17 @@ template<typename S, typename P>
                                           S scene,
                                           P phase)
 {
-  return std::format(
-      "SDDP {} [i{} s{} p{}]", tag, iteration_index, scene, phase);
+  return as_label<void>("SDDP ",
+                        tag,
+                        " [i",
+                        iteration_index,
+                        ' ',
+                        's',
+                        scene,
+                        ' ',
+                        'p',
+                        phase,
+                        ']');
 }
 
 /// "SDDP Aperture [i0 s1 p2 a5]" — with aperture uid appended.
@@ -64,12 +74,20 @@ template<typename S, typename P, typename A>
                                           P phase,
                                           A aperture)
 {
-  return std::format("SDDP {} [i{} s{} p{} a{}]",
-                     tag,
-                     iteration_index,
-                     scene,
-                     phase,
-                     aperture);
+  return as_label<void>("SDDP ",
+                        tag,
+                        " [i",
+                        iteration_index,
+                        ' ',
+                        's',
+                        scene,
+                        ' ',
+                        'p',
+                        phase,
+                        ' ',
+                        'a',
+                        aperture,
+                        ']');
 }
 
 /// "SDDP Forward [i0 s1]" — scene-level (no phase).
@@ -78,14 +96,15 @@ template<typename S>
                                           IterationIndex iteration_index,
                                           S scene)
 {
-  return std::format("SDDP {} [i{} s{}]", tag, iteration_index, scene);
+  return as_label<void>(
+      "SDDP ", tag, " [i", iteration_index, ' ', 's', scene, ']');
 }
 
 /// "SDDP Init [i0]" — iteration-level only.
 [[nodiscard]] inline std::string sddp_log(std::string_view tag,
                                           IterationIndex iteration_index)
 {
-  return std::format("SDDP {} [i{}]", tag, iteration_index);
+  return as_label<void>("SDDP ", tag, " [i", iteration_index, ']');
 }
 
 // ─── Phase grid recorder ────────────────────────────────────────────────────

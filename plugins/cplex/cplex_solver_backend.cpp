@@ -163,12 +163,18 @@ void apply_options_to_env(cpxenv* env, const SolverOptions& opts)
         if (const auto beps = opts.barrier_eps; beps && *beps > 0) {
           CPXsetdblparam(env, CPX_PARAM_BAREPCOMP, *beps);
         }
-        CPXsetintparam(
-            env, CPX_PARAM_BARCROSSALG, opts.crossover ? 1 : CPX_ALG_NONE);
         break;
       case LPAlgo::last_algo:
         break;
     }
+
+    // Apply crossover regardless of algorithm: CPLEX may auto-pick
+    // barrier under LPAlgo::default_algo (CPX_ALG_AUTOMATIC), and
+    // CPX_PARAM_BARCROSSALG defaults to 0 (automatic crossover).  Force
+    // the flag explicitly so opts.crossover==false truly disables it.
+    CPXsetintparam(env,
+                   CPX_PARAM_BARCROSSALG,
+                   opts.crossover ? CPX_ALG_PRIMAL : CPX_ALG_NONE);
   }
 
   CPXsetintparam(env, CPX_PARAM_SCRIND, opts.log_level > 0 ? CPX_ON : CPX_OFF);

@@ -147,7 +147,8 @@ template<typename T>
        "solver if a name is given (e.g. --check-solvers clp), then exit")  //
       ("solver",
        po::value<std::string>(),
-       "LP solver backend: clp (default), cbc, cplex, highs")  //
+       "LP solver backend: cplex, highs, cbc, clp "
+       "(default: auto-detect by priority cplex > highs > cbc > clp)")  //
       ("verbose,v", "enable maximum log verbosity (trace level)")  //
       ("quiet,q",
        po::value<bool>().implicit_value(/*v=*/true),
@@ -197,10 +198,8 @@ template<typename T>
       ("low-memory",
        po::value<std::string>().implicit_value("compress"),
        "SDDP low-memory mode: off, "
-       "compress (release solver + compressed flat LP; set "
-       "memory_codec=uncompressed for raw), "
-       "rebuild (re-flatten LP every solve, no snapshot); "
-       "'snapshot' is a back-compat alias of 'compress'")  //
+       "compress (release solver, keep compressed flat LP), "
+       "rebuild (re-build base LP every solve)")  //
       ("memory-limit",
        po::value<std::string>(),
        "process memory limit for work pool throttling "

@@ -51,8 +51,9 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
   }
 
   [[maybe_unused]] const auto fwd_tid = std::this_thread::get_id();
-  SPDLOG_INFO("{}: starting ({} phases) [thread {}]",
-              sddp_log("Forward", iteration_index, scene_uid(scene_index)),
+  SPDLOG_INFO("SDDP Forward [i{} s{}]: starting ({} phases) [thread {}]",
+              iteration_index,
+              scene_uid(scene_index),
               phases.size(),
               std::hash<std::thread::id> {}(fwd_tid) % 10000);
 
@@ -95,13 +96,13 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
 
       propagate_trial_values(prev_st.outgoing_links, li);
 
-      SPDLOG_TRACE("{}: propagated {} state vars from phase {}",
-                   sddp_log("Forward",
-                            iteration_index,
-                            scene_uid(scene_index),
-                            phase_uid(phase_index)),
-                   prev_st.outgoing_links.size(),
-                   phase_uid(prev_phase_index));
+      SPDLOG_TRACE(
+          "SDDP Forward [i{} s{} p{}]: propagated {} state vars from phase {}",
+          iteration_index,
+          scene_uid(scene_index),
+          phase_uid(phase_index),
+          prev_st.outgoing_links.size(),
+          phase_uid(prev_phase_index));
     }
 
     // Update volume-dependent LP coefficients (discharge limits, turbine
@@ -111,11 +112,10 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
     if (do_update) {
       const auto updated = update_lp_for_phase(scene_index, phase_index);
       if (updated > 0) {
-        SPDLOG_TRACE("{}: updated {} LP elements",
-                     sddp_log("Forward",
-                              iteration_index,
-                              scene_uid(scene_index),
-                              phase_uid(phase_index)),
+        SPDLOG_TRACE("SDDP Forward [i{} s{} p{}]: updated {} LP elements",
+                     iteration_index,
+                     scene_uid(scene_index),
+                     phase_uid(phase_index),
                      updated);
       }
     }
@@ -173,13 +173,13 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
       if (m_options_.solve_timeout > 0.0
           && (solve_status == 1 || solve_status == 3))
       {
-        spdlog::critical("{}: solve timeout ({:.1f}s) (status {})",
-                         sddp_log("Forward",
-                                  iteration_index,
-                                  scene_uid(scene_index),
-                                  phase_uid(phase_index)),
-                         m_options_.solve_timeout,
-                         solve_status);
+        spdlog::critical(
+            "SDDP Forward [i{} s{} p{}]: solve timeout ({:.1f}s) (status {})",
+            iteration_index,
+            scene_uid(scene_index),
+            phase_uid(phase_index),
+            m_options_.solve_timeout,
+            solve_status);
         return std::unexpected(Error {
             .code = ErrorCode::SolverError,
             .message = std::format("{}: solve timeout ({:.1f}s) (status {})",
@@ -193,12 +193,13 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
         });
       }
 
-      SPDLOG_WARN("{}: non-optimal (status {}), trying elastic solve",
-                  sddp_log("Forward",
-                           iteration_index,
-                           scene_uid(scene_index),
-                           phase_uid(phase_index)),
-                  solve_status);
+      SPDLOG_WARN(
+          "SDDP Forward [i{} s{} p{}]: non-optimal (status {}), trying elastic"
+          " solve",
+          iteration_index,
+          scene_uid(scene_index),
+          phase_uid(phase_index),
+          solve_status);
       // Clone the LP, apply elastic filter, and solve the clone.
       // The original LP remains unmodified (PLP clone pattern).
       auto elastic_result = elastic_solve(scene_index, phase_index, opts);
@@ -234,21 +235,16 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
         capture_state_variable_values(scene_index, phase_index, sol, rc);
 
         const auto sa = m_options_.scale_alpha;
-        const auto alpha_val =
-            (state.alpha_col != ColIndex {unknown_index}
-             && state.alpha_col < ColIndex {static_cast<Index>(sol.size())})
-            ? sol[state.alpha_col] * sa
-            : 0.0;
+        const auto alpha_val = safe_alpha_value(state.alpha_col, sol, sa);
         state.forward_objective = obj - alpha_val;
         total_opex += state.forward_objective;
 
         SPDLOG_INFO(
-            "{}: elastic ok, obj={:.4f} alpha={:.4f} opex={:.4f} "
-            "[infeas_count={}]",
-            sddp_log("Forward",
-                     iteration_index,
-                     scene_uid(scene_index),
-                     phase_uid(phase_index)),
+            "SDDP Forward [i{} s{} p{}]: elastic ok, obj={:.4f} alpha={:.4f}"
+            " opex={:.4f} [infeas_count={}]",
+            iteration_index,
+            scene_uid(scene_index),
+            phase_uid(phase_index),
             obj,
             alpha_val,
             state.forward_objective,
@@ -265,11 +261,10 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
         if (!m_options_.log_directory.empty()
             && (is_first_phase || is_trace_debug))
         {
-          spdlog::warn("{}: infeasible LP (status {})",
-                       sddp_log("Forward",
-                                iteration_index,
-                                scene_uid(scene_index),
-                                phase_uid(phase_index)),
+          spdlog::warn("SDDP Forward [i{} s{} p{}]: infeasible LP (status {})",
+                       iteration_index,
+                       scene_uid(scene_index),
+                       phase_uid(phase_index),
                        solve_status);
         }
         return std::unexpected(Error {
@@ -308,11 +303,7 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
       capture_state_variable_values(scene_index, phase_index, sol, rc);
 
       const auto sa = m_options_.scale_alpha;
-      const auto alpha_val =
-          (state.alpha_col != ColIndex {unknown_index}
-           && state.alpha_col < ColIndex {static_cast<Index>(sol.size())})
-          ? sol[state.alpha_col] * sa
-          : 0.0;
+      const auto alpha_val = safe_alpha_value(state.alpha_col, sol, sa);
       state.forward_objective = obj - alpha_val;
 
       // Release solver backend — no-op when low_memory is off.
@@ -322,12 +313,11 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
       // (can happen when inherited cuts cause ill-conditioning).
       if (std::isnan(state.forward_objective)) {
         SPDLOG_WARN(
-            "{}: solve returned optimal but forward_objective is NaN "
-            "(obj={}, alpha={})",
-            sddp_log("Forward",
-                     iteration_index,
-                     scene_uid(scene_index),
-                     phase_uid(phase_index)),
+            "SDDP Forward [i{} s{} p{}]: solve returned optimal but"
+            " forward_objective is NaN (obj={}, alpha={})",
+            iteration_index,
+            scene_uid(scene_index),
+            phase_uid(phase_index),
             obj,
             alpha_val);
         return std::unexpected(Error {
@@ -342,14 +332,15 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
 
       total_opex += state.forward_objective;
 
-      SPDLOG_TRACE("{}: obj={:.4f} alpha={:.4f} opex={:.4f}",
-                   sddp_log("Forward",
-                            iteration_index,
-                            scene_uid(scene_index),
-                            phase_uid(phase_index)),
-                   obj,
-                   alpha_val,
-                   state.forward_objective);
+      SPDLOG_TRACE(
+          "SDDP Forward [i{} s{} p{}]: obj={:.4f} alpha={:.4f}"
+          " opex={:.4f}",
+          iteration_index,
+          scene_uid(scene_index),
+          phase_uid(phase_index),
+          obj,
+          alpha_val,
+          state.forward_objective);
     }
   }
 
@@ -357,8 +348,11 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
   // inherited cuts cause solver ill-conditioning (barrier failure with
   // subsequent dual fallback producing NaN values).
   if (std::isnan(total_opex)) {
-    SPDLOG_WARN("{}: total_opex is NaN — solver ill-conditioning",
-                sddp_log("Forward", iteration_index, scene_uid(scene_index)));
+    SPDLOG_WARN(
+        "SDDP Forward [i{} s{}]: total_opex is NaN —"
+        " solver ill-conditioning",
+        iteration_index,
+        scene_uid(scene_index));
     return std::unexpected(Error {
         .code = ErrorCode::SolverError,
         .message = std::format(
@@ -367,8 +361,9 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
     });
   }
 
-  SPDLOG_INFO("{}: done, total_opex={:.4f} [thread {}]",
-              sddp_log("Forward", iteration_index, scene_uid(scene_index)),
+  SPDLOG_INFO("SDDP Forward [i{} s{}]: done, total_opex={:.4f} [thread {}]",
+              iteration_index,
+              scene_uid(scene_index),
               total_opex,
               std::hash<std::thread::id> {}(fwd_tid) % 10000);
   return total_opex;

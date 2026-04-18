@@ -227,6 +227,33 @@ TEST_CASE("as_label basic functionality")
   {
     CHECK(as_label("a", "b", "c", "d", "e") == "a_b_c_d_e");
   }
+
+  SUBCASE("no separator (as_label<void>)")
+  {
+    // Char arguments are emitted as 1-char strings; integers via cache.
+    // Goal: reconstruct an SDDP key like "i0 s1 p4" inline.
+    CHECK(as_label<void>('i', 0, ' ', 's', 1, ' ', 'p', 4) == "i0 s1 p4");
+
+    // Empty / single-arg edge cases.
+    CHECK(as_label<void>() == "");
+    CHECK(as_label<void>("only") == "only");
+    CHECK(as_label<void>(42) == "42");
+
+    // Empty string args are skipped silently.
+    CHECK(as_label<void>("a", "", "b") == "ab");
+    CHECK(as_label<void>("", "", "") == "");
+
+    // Mixed types pass through verbatim with no inserted separator.
+    CHECK(as_label<void>("SDDP ", "Forward", " [i", 0, ']')
+          == "SDDP Forward [i0]");
+
+    // as_label_into<void> mirrors the eager overload.
+    std::string buf;
+    as_label_into<void>(buf, 'i', 0, ' ', 's', 1);
+    CHECK(buf == "i0 s1");
+    as_label_into<void>(buf);  // clears
+    CHECK(buf.empty());
+  }
 }
 
 TEST_SUITE("Error")
