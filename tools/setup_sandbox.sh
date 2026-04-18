@@ -110,6 +110,7 @@ sudo apt-get install -y --no-install-recommends \
   libboost-container-dev \
   libspdlog-dev \
   liblapack-dev libblas-dev \
+  libjemalloc-dev \
   zlib1g-dev \
   libzstd-dev zstd \
   liblz4-dev \

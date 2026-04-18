@@ -47,6 +47,7 @@ conda for Arrow/Parquet, and saves `tools/compile_commands.json` for clang-tidy.
 sudo apt-get update && sudo apt-get install -y --no-install-recommends \
   ccache coinor-libcbc-dev libarrow-dev libparquet-dev \
   libboost-container-dev libspdlog-dev liblapack-dev libblas-dev \
+  libjemalloc-dev \
   zlib1g-dev libzstd-dev zstd liblz4-dev lcov
 
 cmake -S all -B build -G Ninja -DCMAKE_BUILD_TYPE=CIFast \
