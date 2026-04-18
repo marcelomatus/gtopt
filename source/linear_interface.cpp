@@ -11,6 +11,7 @@
 #include <chrono>
 #include <expected>
 #include <memory>
+#include <mutex>
 #include <ranges>
 #include <span>
 
@@ -378,7 +379,33 @@ void LinearInterface::enable_compression()
   if (m_low_memory_mode_ != LowMemoryMode::compress) {
     return;
   }
+  const bool was_first_compress = !m_snapshot_.is_compressed();
   m_snapshot_.compress(m_memory_codec_);
+
+  if (was_first_compress && m_snapshot_.is_compressed()) {
+    const auto orig = m_snapshot_.compressed_lp.original_size;
+    const auto comp = m_snapshot_.compressed_lp.data.size();
+    const auto ratio =
+        comp > 0 ? static_cast<double>(orig) / static_cast<double>(comp) : 0.0;
+    SPDLOG_DEBUG(
+        "  snapshot compressed: {} -> {} bytes (ratio {:.2f}x, codec {})",
+        orig,
+        comp,
+        ratio,
+        codec_name(m_snapshot_.compressed_lp.codec));
+    static std::once_flag first_log_flag;
+    std::call_once(first_log_flag,
+                   [&]
+                   {
+                     SPDLOG_INFO(
+                         "  first snapshot compressed: {} -> {} bytes "
+                         "(ratio {:.2f}x, codec {})",
+                         orig,
+                         comp,
+                         ratio,
+                         codec_name(m_snapshot_.compressed_lp.codec));
+                   });
+  }
 }
 
 // ── Problem name ──

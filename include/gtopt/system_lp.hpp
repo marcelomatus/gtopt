@@ -521,15 +521,16 @@ public:
     install_rebuild_callback();
   }
 
-  /// Release the solver backend + (under rebuild mode) drop the
-  /// per-cell collection wrappers.  Rebuild mode's memory ceiling is
-  /// the active-workers × per-cell-collections footprint, not
-  /// 816 cells × collections — dropping here is what enforces that.
-  /// The next `rebuild_in_place` lazily re-builds them.
+  /// Release the solver backend + (under any non-`off` low-memory mode)
+  /// drop the per-cell collection wrappers.  The memory ceiling under
+  /// compress/rebuild becomes the active-workers × per-cell-collections
+  /// footprint (plus the compressed snapshot), not 816 cells × collections.
+  /// The next access lazily re-builds them: `rebuild_in_place` for
+  /// rebuild mode, `write_out` for compress mode.
   void release_backend() noexcept
   {
     m_linear_interface_.release_backend();
-    if (m_flat_opts_.low_memory_mode == LowMemoryMode::rebuild) {
+    if (m_flat_opts_.low_memory_mode != LowMemoryMode::off) {
       m_collections_ = collections_t {};
       m_collections_built_ = false;
     }

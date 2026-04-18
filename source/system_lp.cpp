@@ -939,6 +939,16 @@ SystemLP::SystemLP(const System& system,
     create_collections(m_system_context_, system, m_collections_);
     m_collections_built_ = true;
     create_lp(m_flat_opts_);
+    // Under compress, the snapshot is now installed and the backend
+    // is released.  Collections were only needed for the initial flatten
+    // pass; drop them so the per-cell resident footprint is the
+    // compressed snapshot alone (not ~30 MB of XLP wrappers × 816
+    // cells).  `write_out` rebuilds them on demand at the end of the
+    // run; `release_backend` already drops them under SDDP release.
+    if (m_flat_opts_.low_memory_mode == LowMemoryMode::compress) {
+      m_collections_ = collections_t {};
+      m_collections_built_ = false;
+    }
   }
 }
 
@@ -1010,6 +1020,17 @@ SystemLP& SystemLP::operator=(SystemLP&& other) noexcept
 
 void SystemLP::write_out()
 {
+  // Collections may have been dropped under LowMemoryMode::compress
+  // (end of ctor) or LowMemoryMode::rebuild (release_backend).  Rebuild
+  // lazily so `visit_elements` below has live XLP wrappers to walk.
+  // Collections are (scene, phase)-local state, so this rebuild is
+  // per-cell and safe under the write_out parallel pool.
+  if (!m_collections_built_) {
+    create_collections(m_system_context_, system(), m_collections_);
+    m_collections_built_ = true;
+    m_system_context_.rebind_system(*this);
+  }
+
   OutputContext oc(
       system_context(), linear_interface(), scene().uid(), phase().uid());
 

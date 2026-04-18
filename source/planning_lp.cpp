@@ -21,6 +21,7 @@
 #include <unordered_set>
 
 #include <gtopt/as_label.hpp>
+#include <gtopt/memory_compress.hpp>
 #include <gtopt/planning_lp.hpp>
 #include <gtopt/planning_method.hpp>
 #include <gtopt/solver_monitor.hpp>
@@ -517,6 +518,13 @@ auto PlanningLP::create_systems(System& system,
               num_scenes,
               num_phases,
               enum_name(build_mode));
+
+  if (resolved_opts.low_memory_mode != LowMemoryMode::off) {
+    const auto effective_codec = select_codec(resolved_opts.memory_codec);
+    SPDLOG_INFO("  low_memory={} (memory codec: {})",
+                enum_name(resolved_opts.low_memory_mode),
+                codec_name(effective_codec));
+  }
 
   if (resolved_opts.low_memory_mode == LowMemoryMode::rebuild) {
     SPDLOG_INFO(
