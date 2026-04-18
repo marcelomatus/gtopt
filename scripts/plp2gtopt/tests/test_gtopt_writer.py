@@ -301,6 +301,23 @@ class TestGTOptWriterProcessMethods:
         sddp = writer.planning["options"]["sddp_options"]
         assert sddp["convergence_tol"] == pytest.approx(0.05)
 
+    def test_process_options_stationary_tol_default_matches_convergence_tol(self):
+        """stationary_tol defaults to convergence_tol (not convergence_tol/10)."""
+        mock_parser = self._make_plpmat_parser(pd_error=1.0)
+        writer = GTOptWriter(mock_parser)
+        writer.process_options({"output_dir": "out"})
+        sddp = writer.planning["options"]["sddp_options"]
+        assert sddp["stationary_tol"] == pytest.approx(sddp["convergence_tol"])
+        assert sddp["stationary_tol"] == pytest.approx(0.01)
+        assert sddp["stationary_window"] == 4
+
+    def test_process_options_stationary_tol_explicit_overrides(self):
+        """Explicit stationary_tol overrides the convergence_tol default."""
+        writer = GTOptWriter(MagicMock())
+        writer.process_options({"output_dir": "out", "stationary_tol": 0.005})
+        sddp = writer.planning["options"]["sddp_options"]
+        assert sddp["stationary_tol"] == pytest.approx(0.005)
+
     def test_process_options_demand_fail_cost_default(self):
         """demand_fail_cost defaults to 1000 when not specified."""
         writer = GTOptWriter(MagicMock())

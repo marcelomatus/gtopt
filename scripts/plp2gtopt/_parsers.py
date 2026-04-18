@@ -452,7 +452,7 @@ def add_solver_arguments(parser: argparse.ArgumentParser, conf: dict[str, str]) 
             "stationary value rather than to 0. "
             "Example: 0.01 declares convergence when the gap improves by "
             "less than 1%% over the look-back window. "
-            "Default: not set (secondary criterion disabled)."
+            "Default: same as --convergence-tol."
         ),
     )
     parser.add_argument(
@@ -464,8 +464,7 @@ def add_solver_arguments(parser: argparse.ArgumentParser, conf: dict[str, str]) 
         help=(
             "Number of iterations to look back when checking gap stationarity "
             "(secondary convergence criterion). "
-            "Only used when --stationary-tol is set. "
-            "Default: 10."
+            "Default: 4."
         ),
     )
 
