@@ -442,16 +442,59 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
     // because cuts use reduced costs.
     auto sim_opts = fwd_opts;
     sim_opts.crossover = true;
-    auto fwd = run_forward_pass_all_scenes(
-        *sddp_pool, sim_opts, final_iteration_index);
-    if (!fwd.has_value()) {
-      monitor.stop();
-      return std::unexpected(std::move(fwd.error()));
+
+    // Sim-pass backward-recovery loop (Proposal 1, off-mode only).
+    //
+    // When a phase hits the elastic branch, `sddp_forward_pass.cpp`
+    // installs a Benders feasibility cut on phase p-1 and records it
+    // via `record_cut_row` so every subsequent rebuild replays it.
+    // Under low_memory=off, the LPs stay alive, which lets us retry
+    // the entire forward pass until no scene reports a feasibility
+    // issue — each retry benefits from the fcuts accumulated in the
+    // previous attempt.  The per-phase inline `system.write_out()` in
+    // the forward pass is suppressed under off, so retries never need
+    // to roll back prematurely-written files; deferred
+    // `PlanningLP::write_out` later emits from the final live-backend
+    // state.
+    //
+    // Under low_memory=compress/rebuild the inline write is load-
+    // bearing (the backend is released per cell), so the backward
+    // walk cannot be done by a retry loop here — that is the subject
+    // of Proposal 2 in sddp_forward_pass.cpp itself.
+    constexpr int kMaxSimRetries = 3;
+    const bool can_retry = m_options_.low_memory_mode == LowMemoryMode::off;
+    std::expected<ForwardPassOutcome, Error> fwd;
+    for (int attempt = 0; attempt <= (can_retry ? kMaxSimRetries : 0);
+         ++attempt)
+    {
+      if (attempt > 0) {
+        SPDLOG_INFO(
+            "SDDP Sim [i{}]: feasibility issue — retry {}/{} with "
+            "accumulated fcuts",
+            final_iteration_index,
+            attempt,
+            kMaxSimRetries);
+      }
+      fwd = run_forward_pass_all_scenes(
+          *sddp_pool, sim_opts, final_iteration_index);
+      if (!fwd.has_value()) {
+        monitor.stop();
+        return std::unexpected(std::move(fwd.error()));
+      }
+      if (!fwd->has_feasibility_issue) {
+        break;
+      }
     }
+
     ir.scene_upper_bounds = std::move(fwd->scene_upper_bounds);
     ir.forward_pass_s = fwd->elapsed_s;
     if (fwd->has_feasibility_issue) {
       ir.feasibility_issue = true;
+      SPDLOG_WARN(
+          "SDDP Sim [i{}]: feasibility issue persists after {}"
+          " retry(ies) — output may reflect elastic-relaxed solutions",
+          final_iteration_index,
+          kMaxSimRetries);
     }
 
     const auto& scenes = planning_lp().simulation().scenes();

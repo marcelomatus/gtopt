@@ -410,14 +410,23 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
           (alpha_svar != nullptr) ? alpha_svar->col_sol() * sa : 0.0;
       state.forward_objective = obj - alpha_val;
 
-      // During the simulation pass the backend is about to be released.
-      // Emit this cell's per-element output now, while col_sol and
-      // row_dual still carry the real solved values — this is the one
-      // point where the output is guaranteed to match the LP that was
-      // actually solved, irrespective of `low_memory_mode`.  Later
-      // writes from `PlanningLP::write_out` are no-ops for this cell
-      // (see `SystemLP::m_output_written_`).
-      if (m_in_simulation_) {
+      // Simulation-pass per-cell emit.
+      //
+      // Under low_memory != off the backend is about to be released and
+      // its primal/dual vectors lost, so we MUST write here, while
+      // `col_sol` and `row_dual` still carry the real solved values.
+      //
+      // Under low_memory == off the backend survives past the scene
+      // (release_backend is a no-op).  `PlanningLP::write_out` will
+      // later walk every cell and emit from the still-live backend —
+      // which lets the sim-pass retry loop in `sddp_iteration.cpp`
+      // re-solve any phase whose trial values were invalidated by an
+      // fcut installed downstream, without needing to first undo a
+      // premature write.  Skipping the inline emit here is therefore
+      // the hook that enables backward-recovery semantics for the
+      // off-mode sim pass (Proposal 1).
+      if (m_in_simulation_ && m_options_.low_memory_mode != LowMemoryMode::off)
+      {
         system.write_out();
       }
 
