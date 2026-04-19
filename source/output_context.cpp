@@ -316,10 +316,9 @@ auto create_tables(std::string_view fmt,
   std::vector<PathTable> path_tables;
 
   const auto dirpath = std::filesystem::path(output_directory);
-  const auto scene_part = std::format("scene={}", static_cast<Uid>(scene_uid));
-  const auto phase_part = std::format("phase={}", static_cast<Uid>(phase_uid));
-  const auto csv_shard_suffix = std::format(
-      "_s{}_p{}", static_cast<Uid>(scene_uid), static_cast<Uid>(phase_uid));
+  const auto scene_part = std::format("scene={}", scene_uid);
+  const auto phase_part = std::format("phase={}", phase_uid);
+  const auto csv_shard_suffix = std::format("_s{}_p{}", scene_uid, phase_uid);
 
   for (auto&& [class_fname, vfields] : field_vector_map) {
     // Key is std::array<std::string_view, 3> = (cname, fname, sname).
@@ -445,8 +444,8 @@ void OutputContext::write() const
       "(scene={}, phase={}, format={}, compression={})",
       path_tables.size(),
       options().output_directory(),
-      static_cast<Uid>(m_scene_uid_),
-      static_cast<Uid>(m_phase_uid_),
+      m_scene_uid_,
+      m_phase_uid_,
       fmt,
       zfmt);
 
