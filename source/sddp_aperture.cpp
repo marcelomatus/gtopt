@@ -284,6 +284,13 @@ auto solve_apertures_for_phase(
               }
               return true;
             };
+            // Under LowMemoryMode::compress collections are dropped on
+            // release_backend; `ensure_lp_built` no longer rebuilds
+            // them proactively (the shadow flatten was ~hundreds of
+            // MB × every phase solve, blowing RSS).  Rebuild them here
+            // on demand — this is the only other site besides
+            // `SystemLP::write_out` that reads `sys.collections()`.
+            sys.rebuild_collections_if_needed();
             visit_elements(sys.collections(), visitor);
           } else {
             SPDLOG_DEBUG(
