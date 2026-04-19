@@ -1752,18 +1752,12 @@ void SDDPMethod::compute_iteration_bounds(
     if (scene_feasible[si_sz] == 0U) {
       continue;
     }
-    const auto& li =
-        planning_lp().system(scene, first_phase_index()).linear_interface();
-    const double lb_si = li.get_obj_value();
+    const double lb_si = planning_lp()
+                             .system(scene, first_phase_index())
+                             .linear_interface()
+                             .get_obj_value();
     ir.scene_lower_bounds[si_sz] = lb_si;
     weighted_lower += weights[si_sz] * lb_si;
-    SPDLOG_INFO(
-        "SDDP LB [s{} p0]: obj={:.6g} weight={:.6g} released={} optimal={}",
-        scene_uid(scene),
-        lb_si,
-        weights[si_sz],
-        li.is_backend_released(),
-        li.is_optimal());
   }
   ir.lower_bound = weighted_lower;
 }

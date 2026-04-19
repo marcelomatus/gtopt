@@ -633,22 +633,6 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
               scene_uid(scene_index),
               total_opex,
               std::hash<std::thread::id> {}(fwd_tid) % 10000);
-  // Diagnostic: phase 0's backend state at end-of-scene forward.
-  // compute_iteration_bounds reads phase-0 obj_value for the LB,
-  // so if any scene leaves phase 0 unreleased/non-optimal here the
-  // LB will read a stale or zeroed cached value.
-  {
-    auto& p0_sys = planning_lp().system(scene_index, first_phase_index());
-    auto& p0_li = p0_sys.linear_interface();
-    SPDLOG_INFO(
-        "SDDP Forward [i{} s{}]: phase-0 end-of-scene state: released={}"
-        " optimal={} obj_value={:.4g}",
-        iteration_index,
-        scene_uid(scene_index),
-        p0_li.is_backend_released(),
-        p0_li.is_optimal(),
-        p0_li.get_obj_value());
-  }
   return total_opex;
 }
 
