@@ -1025,15 +1025,16 @@ void PlanningLP::write_out()
     if (system.output_written()) {
       return;
     }
-    // Fast path B (Phase 2b): under `compress`, Phase 2a cached the
-    // solution vectors at release time and `SystemLP::write_out`
-    // rebuilds XLP col indices via a guarded flatten.  That combo
-    // lets us emit without the expensive `reconstruct_backend` →
-    // re-solve round-trip.  Rebuild mode is excluded: its per-element
-    // col indices are repopulated only via `rebuild_in_place`, which
-    // runs inside `ensure_lp_built`, not `create_collections`.
+    // Fast path B: under any non-`off` low_memory mode, Phase 2a
+    // cached the solution vectors at release time and
+    // `SystemLP::write_out` repopulates XLP col indices via a
+    // throw-away flatten (`rebuild_collections_if_needed()`).  That
+    // combo lets us emit without the expensive
+    // `reconstruct_backend` → re-solve round-trip.  Both compress and
+    // rebuild hit this path now — `rebuild_collections_if_needed`
+    // handles both modes uniformly.
     const auto& li = system.linear_interface();
-    if (system.low_memory_mode() == LowMemoryMode::compress
+    if (system.low_memory_mode() != LowMemoryMode::off
         && li.is_backend_released() && li.is_optimal())
     {
       system.write_out();

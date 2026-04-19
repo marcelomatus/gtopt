@@ -891,10 +891,15 @@ void SystemLP::rebuild_in_place()
 
 void SystemLP::rebuild_collections_if_needed()
 {
-  // Only compress needs lazy XLP rebuild.  Under `off` collections are
-  // never dropped; under `rebuild` they are refreshed by the rebuild
-  // callback (`rebuild_in_place`) before the backend is usable.
-  if (m_flat_opts_.low_memory_mode != LowMemoryMode::compress) {
+  // Skips for `off`: collections are never dropped under off mode.
+  // Fires for both `compress` AND `rebuild`: both drop collections at
+  // `release_backend()` and both need the XLP per-element col indices
+  // repopulated before `visit_elements(collections())` can emit
+  // meaningful output.  The flatten here is throw-away — it leaves
+  // the solver backend untouched so the Phase-2a cached primal/dual
+  // still serves `OutputContext`'s value reads, without losing
+  // `is_optimal()` to a freshly-loaded-but-unsolved backend.
+  if (m_flat_opts_.low_memory_mode == LowMemoryMode::off) {
     return;
   }
   if (m_collections_built_) {
@@ -1179,7 +1184,11 @@ void SystemLP::write_out()
   using clock = std::chrono::steady_clock;
   const auto t_start = clock::now();
 
-  if (m_flat_opts_.low_memory_mode == LowMemoryMode::compress) {
+  if (m_flat_opts_.low_memory_mode != LowMemoryMode::off) {
+    // Both compress and rebuild drop collections at release_backend()
+    // time, so on the write pass we need to re-populate the XLP
+    // per-element col/row indices via a throw-away flatten.  Under
+    // `off`, collections were never dropped and this is a no-op.
     rebuild_collections_if_needed();
   } else if (!m_collections_built_) {
     create_collections(m_system_context_, system(), m_collections_);

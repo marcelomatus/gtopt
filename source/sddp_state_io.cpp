@@ -66,10 +66,18 @@ auto save_state_csv(PlanningLP& planning_lp,
     for (auto&& [si, scene] : enumerate<SceneIndex>(sim.scenes())) {
       for (auto&& [pi, phase] : enumerate<PhaseIndex>(sim.phases())) {
         auto& sys = planning_lp.system(si, pi);
-        // Under low-memory modes the backend may be released at this
-        // point; force a reload so the solution vectors are readable.
-        sys.ensure_lp_built();
         const auto& li = sys.linear_interface();
+        // No ensure_lp_built() here: under low-memory modes the cell
+        // was released with Phase-2a cached col_sol / col_cost via
+        // `LinearInterface::release_backend()`, and the getters route
+        // to those cached vectors when `m_backend_released_ == true`.
+        // Forcing a reload would fire `rebuild_in_place()` under
+        // rebuild mode, which flattens fresh — leaving the backend
+        // LIVE but UNSOLVED, clobbering `is_optimal()` for the
+        // subsequent `PlanningLP::write_out` pass (write_out would
+        // then short-circuit and emit no per-element parquet).  Under
+        // `off` the backend stays alive throughout and is already
+        // readable; this call is a no-op there too.
 
         if (!li.is_optimal()) {
           continue;

@@ -380,6 +380,82 @@ def validate_against_golden(output_dir: Path, golden_path: Path) -> list[str]:
                         f"expected {expected!r}"
                     )
 
+    # ── element_samples: pin specific sol/dual values in the parquet ──
+    expected_samples = golden.get("element_samples", [])
+    for i, sample in enumerate(expected_samples):
+        cls = sample.get("class")
+        stem = sample.get("stem")
+        filt = sample.get("filter", {})
+        value_col = sample.get("value_column")
+        expected = sample.get("expected")
+        if not (cls and stem and value_col is not None and expected is not None):
+            errors.append(
+                f"golden element_samples[{i}]: missing required field "
+                f"(need class, stem, value_column, expected)"
+            )
+            continue
+
+        class_dir = output_dir / cls
+        if not class_dir.is_dir():
+            # Missing class directory is already surfaced by the range-only
+            # validator as a warning; for golden samples it's a hard error
+            # because the caller explicitly asked to pin this value.
+            errors.append(
+                f"golden element_samples[{i}]: no {cls}/ directory "
+                f"in {output_dir} — cannot read {stem}"
+            )
+            continue
+
+        df = read_table(class_dir, stem)
+        if df is None:
+            errors.append(f"golden element_samples[{i}]: {cls}/{stem} not found")
+            continue
+
+        if value_col not in df.columns:
+            errors.append(
+                f"golden element_samples[{i}]: value_column {value_col!r} "
+                f"not in {cls}/{stem} "
+                f"(available: {list(df.columns)})"
+            )
+            continue
+
+        # Narrow by the filter dict.  Every filter key must exist in the
+        # DataFrame columns; any key missing is a hard error (the golden
+        # file is out of sync with the output schema).
+        sub = df
+        for k, v in filt.items():
+            if k not in sub.columns:
+                errors.append(
+                    f"golden element_samples[{i}]: filter column {k!r} "
+                    f"not in {cls}/{stem}"
+                )
+                sub = None
+                break
+            sub = sub[sub[k] == v]
+        if sub is None:
+            continue
+        if sub.empty:
+            errors.append(
+                f"golden element_samples[{i}]: no row matching {filt} in {cls}/{stem}"
+            )
+            continue
+
+        actual_series = sub[value_col].dropna()
+        if actual_series.empty:
+            errors.append(
+                f"golden element_samples[{i}] [{cls}/{stem} {filt} {value_col}]: "
+                f"all matching rows are NaN; expected {expected}"
+            )
+            continue
+
+        actual = float(actual_series.iloc[0])
+        if not _close(actual, float(expected), abs_tol=abs_tol, rel_tol=rel_tol):
+            errors.append(
+                f"golden element_samples[{i}] [{cls}/{stem} {filt} {value_col}]: "
+                f"got {actual:.6g}, expected {float(expected):.6g} "
+                f"(abs_tol={abs_tol}, rel_tol={rel_tol})"
+            )
+
     # ── solution.csv rows ──
     expected_rows = golden.get("solution_csv_rows")
     if expected_rows:
