@@ -396,7 +396,14 @@ class TestCascadeOptionKeys:
 
         block = match.group()
         cpp_fields = set(re.findall(r'json_\w+<"(\w+)"', block))
-        expected = {"uid", "name", "model_options", "sddp_options", "transition"}
+        expected = {
+            "uid",
+            "name",
+            "active",
+            "model_options",
+            "sddp_options",
+            "transition",
+        }
         assert expected == cpp_fields, (
             f"CascadeLevel fields mismatch: expected {expected}, got {cpp_fields}"
         )

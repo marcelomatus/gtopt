@@ -111,7 +111,7 @@ void LinearInterface::cache_and_release()
   // dropped only by an explicit `release_backend()`, never automatically
   // inside resolve/initial_solve.  Callers that need sol/rc must read
   // them after resolve and before release_backend.
-  if (m_low_memory_mode_ == LowMemoryMode::off || m_backend_released_) {
+  if (m_backend_released_) {
     return;
   }
 
@@ -120,8 +120,12 @@ void LinearInterface::cache_and_release()
   }
 
   // Cache post-solve scalars so that get_status() / get_obj_value() /
-  // get_kappa() / get_numrows() / get_numcols() still return sensible
-  // values after a later release_backend().
+  // get_kappa() / get_numrows() / get_numcols() return the same
+  // solve-time values regardless of `low_memory_mode` — the live
+  // backend is free to recompute (or silently drop) kappa on every
+  // query, which breaks `solution.csv` invariance between `off` and
+  // `compress` modes (observed on CLP via OSI: `backend->get_kappa()`
+  // returned 5e-18 at solve-time but 0 on a later re-query).
   m_cached_obj_value_ = m_backend_->obj_value();
   m_cached_kappa_ = m_backend_->get_kappa();
   m_cached_numrows_ = get_numrows();
@@ -1513,8 +1517,16 @@ int LinearInterface::get_status() const
 
 std::optional<double> LinearInterface::get_kappa() const
 {
-  if (m_backend_released_) {
+  // Prefer the solve-time cache when available so a later backend
+  // re-query (which some backends answer with a recomputed / stale
+  // value) cannot perturb downstream readers.  Falls through to the
+  // live backend only when the cache hasn't been populated yet
+  // (pre-solve reads, LP under construction).
+  if (m_cached_kappa_.has_value()) {
     return m_cached_kappa_;
+  }
+  if (m_backend_released_) {
+    return std::nullopt;
   }
   return m_backend_->get_kappa();
 }
