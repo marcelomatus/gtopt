@@ -293,19 +293,12 @@ void PlanningLP::auto_scale_reservoirs(Planning& planning)
       continue;
     }
     const auto emax = scalar_of(rsv.emax);
-    // Skip reservoirs small enough that the rounded scale would be 1.0
-    // anyway (ceil(log10(emax)) ≤ 0 for emax ≤ 1).
-    if (!emax.has_value() || *emax <= 1.0) {
+    if (!emax.has_value() || *emax <= 1000.0) {
       continue;
     }
-    // Round emax up to the next power of 10 so the LP variable
-    // `LP = physical / energy_scale` lands in (0.1, 1.0].  LMAULE
-    // (emax = 1453 hm³): log10(1453) = 3.16 → ceil = 4 → scale = 10 000,
-    // so LP ≈ 0.145 — good simplex conditioning.
-    const double energy_scale = std::pow(10.0, std::ceil(std::log10(*emax)));
-    // Flow scale remains derived — `flow` units are physical/hour so
-    // flow_scale = energy_scale / 1000 ≈ emax_energy_units / hours in a
-    // typical stage keeps both LP columns on the same [0.1, 1.0] band.
+    // 10^ceil(log10(emax / 1000)) — round up to next power of 10.
+    const double raw = *emax / 1000.0;
+    const double energy_scale = std::pow(10.0, std::ceil(std::log10(raw)));
     const double flow_scale = energy_scale / 1000.0;
 
     opts.variable_scales.push_back(VariableScale {
@@ -883,15 +876,6 @@ void PlanningLP::release_cells()
   }
   m_systems_.clear();
   m_systems_.shrink_to_fit();
-}
-
-void PlanningLP::drop_sim_snapshots() noexcept
-{
-  for (auto& phase_systems : m_systems_) {
-    for (auto& system : phase_systems) {
-      system.linear_interface().clear_snapshot();
-    }
-  }
 }
 
 void PlanningLP::build_all_lps_eagerly()
