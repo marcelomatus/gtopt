@@ -552,23 +552,21 @@ public:
     install_rebuild_callback();
   }
 
-  /// Release the solver backend.  Under `LowMemoryMode::rebuild` the
-  /// per-cell collection wrappers are also dropped — they will be
-  /// regenerated from scratch (including re-running every element's
-  /// `add_to_lp`) on the next `rebuild_in_place()` call, so keeping
-  /// them alive would be wasted memory.
-  ///
-  /// Under `LowMemoryMode::compress` collections MUST be preserved:
-  /// `reconstruct_backend()` only reloads the flat LP matrix, it does
-  /// NOT re-run `add_to_lp`, so each XLP wrapper's per-element state
-  /// (`generation_cols`, `capacity_rows`, …) cannot be rebuilt once
-  /// dropped.  Without this state `write_out()` would emit empty
-  /// per-element tables after the sim-pass release, breaking output
-  /// invariance between `off` and `compress`.
+  /// Release the solver backend and (under any non-`off` low-memory
+  /// mode) drop the per-cell collection wrappers.  Dropping them under
+  /// `compress` would break `write_out()` if the XLP per-element state
+  /// (`generation_cols`, `capacity_rows`, …) were not rebuildable —
+  /// but `SystemLP::rebuild_collections_for_output()` rebuilds it on
+  /// demand by re-running the flatten pass (same add_to_lp side
+  /// effects that populated the state during the original build), so
+  /// the memory saving is safe.  The ceiling under compress becomes
+  /// `active_workers × per-cell-collections` (transient during
+  /// `write_out`) rather than `num_cells × per-cell-collections`
+  /// resident forever.
   void release_backend() noexcept
   {
     m_linear_interface_.release_backend();
-    if (m_flat_opts_.low_memory_mode == LowMemoryMode::rebuild) {
+    if (m_flat_opts_.low_memory_mode != LowMemoryMode::off) {
       m_collections_ = collections_t {};
       m_collections_built_ = false;
     }
@@ -602,6 +600,21 @@ public:
   /// even when invoked from inside a LinearInterface method
   /// (e.g. `add_col` → `ensure_backend`).
   void rebuild_in_place();
+
+  /// Rebuild per-element XLP state (generation_cols, capacity_rows, …)
+  /// for `write_out()` to read from, without touching the solver
+  /// backend.  Runs `create_collections()` followed by a throw-away
+  /// flatten pass whose sole purpose is the `add_to_lp()` side effects
+  /// on the XLP wrappers — the produced `FlatLinearProblem` is
+  /// discarded.
+  ///
+  /// Needed under `LowMemoryMode::compress` where `release_backend()`
+  /// drops the collections, `reconstruct_backend()` reloads only the
+  /// flat LP matrix, and `write_out()` would otherwise emit empty
+  /// per-element tables.  Under `rebuild` the collections are
+  /// refreshed by `rebuild_in_place()` already.  Under `off` this is a
+  /// no-op because collections are never dropped.
+  void rebuild_collections_for_output();
 
 private:
   /// Install the rebuild callback on `m_linear_interface_` so that any

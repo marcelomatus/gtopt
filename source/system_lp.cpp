@@ -871,6 +871,70 @@ void SystemLP::rebuild_in_place()
   // flat data.  The guard flips rebuild_pass back to false on exit.
 }
 
+void SystemLP::rebuild_collections_for_output()
+{
+  // Under `off` collections are never dropped, so there is nothing to
+  // rebuild.  Under `rebuild` they are refreshed by `rebuild_in_place`
+  // on every ensure_backend, so again nothing to do here.  Only under
+  // `compress` (where `release_backend` drops them and
+  // `reconstruct_backend` only reloads the flat LP matrix) is this
+  // helper load-bearing.
+  if (m_collections_built_) {
+    return;
+  }
+  if (m_flat_opts_.low_memory_mode != LowMemoryMode::compress) {
+    return;
+  }
+
+  create_collections(m_system_context_, system(), m_collections_);
+  m_collections_built_ = true;
+  m_system_context_.rebind_system(*this);
+
+  auto flat_opts = m_flat_opts_;
+  if (flat_opts.scale_objective == 1.0) {
+    flat_opts.scale_objective = system_context().options().scale_objective();
+  }
+  // Do NOT recompute the fingerprint — it is deterministic and the
+  // original was captured during the initial flatten inside
+  // `create_lp`.  Also skip LP-name maps: `write_out` does not read
+  // them and producing them during this shadow flatten would waste
+  // allocations.
+  flat_opts.compute_fingerprint = false;
+
+  // Mirror `rebuild_in_place`'s guard: silence SystemContext
+  // registrations (state variables, AMPL variable registry,
+  // deferred cross-phase links) on this pass.  They were already
+  // populated during the original flatten and every col/row index is
+  // deterministic, so re-running them would be wasted work (and for
+  // `defer_state_link` would silently duplicate cross-phase links).
+  struct RebuildPassGuard
+  {
+    SystemContext& ctx;
+    RebuildPassGuard(const RebuildPassGuard&) = delete;
+    RebuildPassGuard& operator=(const RebuildPassGuard&) = delete;
+    RebuildPassGuard(RebuildPassGuard&&) = delete;
+    RebuildPassGuard& operator=(RebuildPassGuard&&) = delete;
+    explicit RebuildPassGuard(SystemContext& c)
+        : ctx(c)
+    {
+      ctx.set_rebuild_pass(true);
+    }
+    ~RebuildPassGuard() { ctx.set_rebuild_pass(false); }
+  } guard {system_context()};
+
+  // Discard the produced FlatLinearProblem; we only care about the
+  // `add_to_lp` side effects on the XLP wrappers inside
+  // `m_collections_`.  The solver backend is untouched.
+  (void)flatten_from_collections(collections(),
+                                 system_context(),
+                                 phase(),
+                                 scene(),
+                                 flat_opts,
+                                 m_linear_interface_.infinity(),
+                                 m_last_flat_ncols_,
+                                 m_last_flat_nrows_);
+}
+
 void SystemLP::install_rebuild_callback()
 {
   if (m_flat_opts_.low_memory_mode != LowMemoryMode::rebuild) {
@@ -939,15 +1003,18 @@ SystemLP::SystemLP(const System& system,
     create_collections(m_system_context_, system, m_collections_);
     m_collections_built_ = true;
     create_lp(m_flat_opts_);
-    // Under compress, collections MUST survive the initial build: the
-    // per-element state they hold (GeneratorLP::generation_cols,
-    // CapacityBase::capacity_rows, …) is populated by `add_to_lp`
-    // during the flatten pass inside `create_lp` and cannot be
-    // regenerated from the snapshot alone — `reconstruct_backend` only
-    // reloads the flat LP matrix.  Dropping them here would leave the
-    // sim-pass `write_out` reading empty holders and emitting zero
-    // per-element files, which broke output invariance between `off`
-    // and `compress`.
+    // Under compress, drop collections after the initial flatten is
+    // complete.  Keeping ~30 MB of XLP wrappers × num_cells resident
+    // for the duration of the run would defeat the compress mode's
+    // memory target.  `write_out()` rebuilds them lazily via
+    // `rebuild_collections_for_output()` — a flatten whose LP output
+    // is discarded but whose `add_to_lp` side effects repopulate the
+    // per-element state (generation_cols, capacity_rows, …) the
+    // output path reads through.
+    if (m_flat_opts_.low_memory_mode == LowMemoryMode::compress) {
+      m_collections_ = collections_t {};
+      m_collections_built_ = false;
+    }
   }
 }
 
@@ -1048,11 +1115,27 @@ void SystemLP::write_out()
   }
 
   // Collections may have been dropped under LowMemoryMode::compress
-  // (end of ctor) or LowMemoryMode::rebuild (release_backend).  Rebuild
-  // lazily so `visit_elements` below has live XLP wrappers to walk.
-  // Collections are (scene, phase)-local state, so this rebuild is
-  // per-cell and safe under the write_out parallel pool.
-  if (!m_collections_built_) {
+  // (end of ctor / release_backend) or LowMemoryMode::rebuild
+  // (release_backend).  Rebuild lazily so `visit_elements` below has
+  // live XLP wrappers to walk AND those wrappers carry the per-element
+  // state (generation_cols, capacity_rows, …) that OutputContext
+  // reads through.
+  //
+  // Under compress, a bare `create_collections` is not enough: the
+  // XLP wrappers start empty and `reconstruct_backend` only reloads
+  // the flat LP matrix, not the add_to_lp side effects that populated
+  // their per-element holders.  `rebuild_collections_for_output`
+  // re-runs the flatten pass for its add_to_lp side effects only
+  // (the produced flat LP is discarded, backend untouched).
+  //
+  // Under off / rebuild, a plain create_collections is sufficient
+  // (off never drops; rebuild restores XLP state via rebuild_in_place
+  // before the solve that precedes write_out).  Collections are
+  // (scene, phase)-local state, so this rebuild is per-cell and safe
+  // under the write_out parallel pool.
+  if (m_flat_opts_.low_memory_mode == LowMemoryMode::compress) {
+    rebuild_collections_for_output();
+  } else if (!m_collections_built_) {
     create_collections(m_system_context_, system(), m_collections_);
     m_collections_built_ = true;
     m_system_context_.rebind_system(*this);
