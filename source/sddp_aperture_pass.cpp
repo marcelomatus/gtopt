@@ -49,6 +49,69 @@ template<typename Range>
   return result;
 }
 
+/// Resolve the effective aperture definitions for this iteration.
+///
+/// Returns one of:
+///   - empty optional → caller should fall back to the non-aperture
+///     backward-pass path (apertures disabled, no aperture_array, or
+///     no requested UIDs matched),
+///   - filled optional → use the contained span as the effective
+///     aperture definitions.  The span references either the original
+///     `aperture_defs` (no filtering needed) or the `owned` storage
+///     appended to for synthetic/filtered apertures.
+///
+/// Shared by `backward_pass_with_apertures` (loop) and
+/// `backward_pass_with_apertures_single_phase` (single-phase
+/// dispatcher).  Previously this was duplicated ~30 LOC across both
+/// call sites; the filter semantics diverging silently was a
+/// regression magnet.
+[[nodiscard]] auto resolve_effective_apertures(
+    std::span<const gtopt::Aperture> aperture_defs,
+    std::span<const gtopt::ScenarioLP> all_scenarios,
+    const std::optional<gtopt::Array<gtopt::Uid>>& requested_uids,
+    gtopt::Array<gtopt::Aperture>& owned,  // NOLINT(runtime/references)
+    std::string_view log_tag) -> std::optional<std::span<const gtopt::Aperture>>
+{
+  using namespace gtopt;
+  if (!requested_uids.has_value()) {
+    if (aperture_defs.empty()) {
+      return std::nullopt;  // fallback
+    }
+    return std::span<const Aperture> {aperture_defs};
+  }
+
+  const auto& requested = *requested_uids;
+  if (requested.empty()) {
+    return std::nullopt;  // fallback
+  }
+
+  if (!aperture_defs.empty()) {
+    // Filter existing apertures by requested UIDs.
+    for (const auto& ap : aperture_defs) {
+      if (std::ranges::find(requested, ap.uid) != requested.end()) {
+        owned.push_back(ap);
+      }
+    }
+    for (const auto uid : requested) {
+      const bool found = std::ranges::any_of(
+          owned, [uid](const auto& a) { return a.uid == uid; });
+      if (!found) {
+        SPDLOG_WARN("{}: requested UID {} not found, skipping", log_tag, uid);
+      }
+    }
+  } else {
+    // No aperture_array: build synthetic from scenarios matching UIDs.
+    const auto num_all = std::ssize(all_scenarios);
+    owned = build_synthetic_apertures(all_scenarios,
+                                      std::min(std::ssize(requested), num_all));
+  }
+
+  if (owned.empty()) {
+    return std::nullopt;  // fallback
+  }
+  return std::span<const Aperture> {owned};
+}
+
 }  // namespace
 
 namespace gtopt
@@ -311,54 +374,16 @@ auto SDDPMethod::backward_pass_with_apertures_single_phase(
         scene_index, phase_index, cut_offset, opts, iteration_index);
   }
 
-  // Determine effective apertures based on options
-  Array<Aperture> filtered;
-  std::span<const Aperture> effective_defs;
-
-  if (!m_options_.apertures.has_value()) {
-    // nullopt: use simulation aperture_array as-is (per-phase filtering
-    // happens inside build_effective_apertures via Phase::apertures)
-    if (aperture_defs.empty()) {
-      return backward_pass_single_phase(
-          scene_index, phase_index, cut_offset, opts, iteration_index);
-    }
-    effective_defs = aperture_defs;
-  } else {
-    // Non-empty UID list: filter aperture_defs to only matching UIDs
-    const auto& requested = *m_options_.apertures;
-    if (requested.empty()) {
-      return backward_pass_single_phase(
-          scene_index, phase_index, cut_offset, opts, iteration_index);
-    }
-
-    if (!aperture_defs.empty()) {
-      // Filter existing apertures by requested UIDs
-      for (const auto& ap : aperture_defs) {
-        if (std::ranges::find(requested, ap.uid) != requested.end()) {
-          filtered.push_back(ap);
-        }
-      }
-      for (const auto uid : requested) {
-        const bool found = std::ranges::any_of(
-            filtered, [uid](const auto& a) { return a.uid == uid; });
-        if (!found) {
-          SPDLOG_WARN(
-              "{}: requested UID {} not found, skipping",
-              sddp_log("Aperture", iteration_index, scene_uid(scene_index)),
-              uid);
-        }
-      }
-    } else {
-      // No aperture_array: build synthetic from scenarios matching UIDs
-      filtered =
-          build_synthetic_apertures(all_scenarios, std::ssize(requested));
-    }
-
-    if (filtered.empty()) {
-      return backward_pass_single_phase(
-          scene_index, phase_index, cut_offset, opts, iteration_index);
-    }
-    effective_defs = filtered;
+  Array<Aperture> owned;
+  const auto effective = resolve_effective_apertures(
+      aperture_defs,
+      all_scenarios,
+      m_options_.apertures,
+      owned,
+      sddp_log("Aperture", iteration_index, scene_uid(scene_index)));
+  if (!effective.has_value()) {
+    return backward_pass_single_phase(
+        scene_index, phase_index, cut_offset, opts, iteration_index);
   }
 
   return backward_pass_aperture_phase_impl(scene_index,
@@ -366,7 +391,7 @@ auto SDDPMethod::backward_pass_with_apertures_single_phase(
                                            cut_offset,
                                            scene_scenarios.front(),
                                            all_scenarios,
-                                           effective_defs,
+                                           *effective,
                                            opts,
                                            iteration_index);
 }
@@ -382,52 +407,17 @@ auto SDDPMethod::backward_pass_with_apertures(SceneIndex scene_index,
   const auto& all_scenarios = simulation.scenarios();
   const auto& aperture_defs = simulation.apertures();
 
-  // Determine the effective aperture definitions to use
-  Array<Aperture> filtered;
-  std::span<const Aperture> effective_defs;
-
-  if (!m_options_.apertures.has_value()) {
-    // nullopt: use simulation aperture_array (per-phase filtering via
-    // Phase::apertures happens downstream in build_effective_apertures)
-    if (aperture_defs.empty()) {
-      return backward_pass(scene_index, opts, iteration_index);
-    }
-    effective_defs = aperture_defs;
-  } else {
-    const auto& requested = *m_options_.apertures;
-    if (requested.empty()) {
-      return backward_pass(scene_index, opts, iteration_index);
-    }
-
-    if (!aperture_defs.empty()) {
-      // Filter existing apertures by requested UIDs
-      for (const auto& ap : aperture_defs) {
-        if (std::ranges::find(requested, ap.uid) != requested.end()) {
-          filtered.push_back(ap);
-        }
-      }
-      for (const auto uid : requested) {
-        const bool found = std::ranges::any_of(
-            filtered, [uid](const auto& a) { return a.uid == uid; });
-        if (!found) {
-          SPDLOG_WARN(
-              "{}: requested UID {} not found, skipping",
-              sddp_log("Aperture", iteration_index, scene_uid(scene_index)),
-              uid);
-        }
-      }
-    } else {
-      // No aperture_array: build synthetic from scenarios
-      const auto num_all = std::ssize(all_scenarios);
-      filtered = build_synthetic_apertures(
-          all_scenarios, std::min(std::ssize(requested), num_all));
-    }
-
-    if (filtered.empty()) {
-      return backward_pass(scene_index, opts, iteration_index);
-    }
-    effective_defs = filtered;
+  Array<Aperture> owned;
+  const auto effective = resolve_effective_apertures(
+      aperture_defs,
+      all_scenarios,
+      m_options_.apertures,
+      owned,
+      sddp_log("Aperture", iteration_index, scene_uid(scene_index)));
+  if (!effective.has_value()) {
+    return backward_pass(scene_index, opts, iteration_index);
   }
+  const auto effective_defs = *effective;
 
   // ── Common aperture backward loop ─────────────────────────────────────
   const auto& phases = simulation.phases();
