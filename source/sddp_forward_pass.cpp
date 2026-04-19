@@ -199,7 +199,11 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
         });
       }
 
-      SPDLOG_WARN(
+      // Pre-elastic notice demoted to DEBUG: the final outcome line
+      // ("elastic ok" + "installed fcut") at INFO level is the one-line
+      // summary callers expect per infeasible LP.  Keep the status code
+      // accessible under `-v` / trace log for deep post-mortems.
+      SPDLOG_DEBUG(
           "SDDP Forward [i{} s{} p{}]: non-optimal (status {}), trying elastic"
           " solve",
           iteration_index,
@@ -250,16 +254,8 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
         state.forward_objective = obj - alpha_val;
         total_opex += state.forward_objective;
 
-        SPDLOG_INFO(
-            "SDDP Forward [i{} s{} p{}]: elastic ok, obj={:.4f} alpha={:.4f}"
-            " opex={:.4f} [infeas_count={}]",
-            iteration_index,
-            scene_uid(scene_index),
-            phase_uid(phase_index),
-            obj,
-            alpha_val,
-            state.forward_objective,
-            m_infeasibility_counter_[scene_index][phase_index]);
+        // "elastic ok" summary moved below and merged with the fcut-install
+        // line so each infeasible LP produces exactly one INFO line.
 
         // PLP-style: install a Benders feasibility cut on phase p-1
         // right from the forward pass, so the next forward iteration
@@ -338,15 +334,20 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
             }
           }
 
+          // One-line per infeasible LP: elastic outcome + fcut install
+          // merged into a single INFO line (previously two lines).
           SPDLOG_INFO(
-              "SDDP Forward [i{} s{} p{}]: installed fcut on prev phase {}"
-              " (+{} multi-cut bounds) [infeas_count={}]",
+              "SDDP Forward [i{} s{} p{}]: elastic → fcut on p{} "
+              "(obj={:.4g} alpha={:.4g} opex={:.4g} infeas_count={}{})",
               iteration_index,
               scene_uid(scene_index),
               phase_uid(phase_index),
               phase_uid(prev_phase_index),
-              mc_added,
-              infeas_count);
+              obj,
+              alpha_val,
+              state.forward_objective,
+              infeas_count,
+              mc_added > 0 ? std::format(" +{}mc", mc_added) : "");
           // Do not release prev_sys backend here — the backward pass
           // will visit phase p-1 shortly and re-ensure_lp_built() itself.
 

@@ -1340,7 +1340,13 @@ std::expected<int, Error> LinearInterface::resolve(
            ++attempt)
       {
         const auto next_algo = next_fallback_algo(current_algo);
-        spdlog::warn("{}: resolve non-optimal with {}, fallback to {}",
+        // Demoted to DEBUG: these fallback-cycle lines were printing 2–3
+        // consecutive warn lines per infeasible LP (barrier→dual→primal).
+        // Final outcome is covered by the single "elastic ok" / "installed
+        // fcut" INFO line in sddp_forward_pass.cpp, so the fallback-step
+        // chatter is noise in the main log.  Still available at debug
+        // level for a deep post-mortem.
+        SPDLOG_DEBUG("{}: resolve non-optimal with {}, fallback to {}",
                      m_log_tag_.empty() ? get_prob_name() : m_log_tag_,
                      current_algo,
                      next_algo);
