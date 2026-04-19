@@ -471,20 +471,38 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
     auto sim_opts_p2 = fwd_opts;
     sim_opts_p2.crossover = true;
 
-    SPDLOG_INFO("SDDP Sim [i{}]: Pass 1 — fcut collection",
-                final_iteration_index);
+    // Pass 1 runs until no new fcuts are needed (bounded retry loop) so
+    // Pass 2 sees every phase feasible under the accumulated fcuts.
+    // Bound at kMaxSimP1Retries so deeper infeasibility chains don't
+    // loop forever; anything still infeasible in Pass 2 shows as
+    // status=-1 in solution.csv with no parquet shard.
+    constexpr int kMaxSimP1Retries = 3;
     m_sim_write_enabled_ = false;
-    auto fwd_p1 = run_forward_pass_all_scenes(
-        *sddp_pool, sim_opts_p1, final_iteration_index);
-    if (!fwd_p1.has_value()) {
-      monitor.stop();
-      return std::unexpected(std::move(fwd_p1.error()));
+    double p1_total_elapsed = 0.0;
+    std::expected<ForwardPassOutcome, Error> fwd_p1;
+    int p1_attempts = 0;
+    for (; p1_attempts <= kMaxSimP1Retries; ++p1_attempts) {
+      SPDLOG_INFO("SDDP Sim [i{}]: Pass 1 attempt {}/{} — fcut collection",
+                  final_iteration_index,
+                  p1_attempts + 1,
+                  kMaxSimP1Retries + 1);
+      fwd_p1 = run_forward_pass_all_scenes(
+          *sddp_pool, sim_opts_p1, final_iteration_index);
+      if (!fwd_p1.has_value()) {
+        monitor.stop();
+        return std::unexpected(std::move(fwd_p1.error()));
+      }
+      p1_total_elapsed += fwd_p1->elapsed_s;
+      if (!fwd_p1->has_feasibility_issue) {
+        break;
+      }
     }
 
     SPDLOG_INFO(
         "SDDP Sim [i{}]: Pass 2 — final forward + write_out "
-        "(feasibility_issue_in_p1={})",
+        "(p1_attempts={} residual_feasibility_issue={})",
         final_iteration_index,
+        p1_attempts + 1,
         fwd_p1->has_feasibility_issue);
     m_sim_write_enabled_ = true;
     auto fwd = run_forward_pass_all_scenes(
@@ -495,7 +513,7 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
     }
 
     ir.scene_upper_bounds = std::move(fwd->scene_upper_bounds);
-    ir.forward_pass_s = fwd->elapsed_s + fwd_p1->elapsed_s;
+    ir.forward_pass_s = fwd->elapsed_s + p1_total_elapsed;
     if (fwd->has_feasibility_issue) {
       ir.feasibility_issue = true;
       SPDLOG_WARN(
