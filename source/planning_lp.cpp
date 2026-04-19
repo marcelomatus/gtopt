@@ -287,41 +287,76 @@ void PlanningLP::auto_scale_reservoirs(Planning& planning)
     return std::nullopt;  // FileSched — can't resolve statically
   };
 
-  size_t count = 0;
-  for (const auto& rsv : sys.reservoir_array) {
-    if (has_entry(rsv.uid)) {
-      continue;
-    }
-    const auto emax = scalar_of(rsv.emax);
-    if (!emax.has_value() || *emax <= 1000.0) {
-      continue;
-    }
-    // 10^ceil(log10(emax / 1000)) — round up to next power of 10.
-    const double raw = *emax / 1000.0;
-    const double energy_scale = std::pow(10.0, std::ceil(std::log10(raw)));
-    const double flow_scale = energy_scale / 1000.0;
+  auto has_flow_entry = [&](Uid uid) -> bool
+  {
+    return std::ranges::any_of(opts.variable_scales,
+                               [uid](const VariableScale& vs)
+                               {
+                                 return vs.class_name == "Reservoir"
+                                     && vs.variable == "flow" && vs.uid == uid;
+                               });
+  };
 
-    opts.variable_scales.push_back(VariableScale {
-        .class_name = "Reservoir",
-        .variable = "energy",
-        .uid = rsv.uid,
-        .scale = energy_scale,
-        .name = rsv.name,
-    });
-    opts.variable_scales.push_back(VariableScale {
-        .class_name = "Reservoir",
-        .variable = "flow",
-        .uid = rsv.uid,
-        .scale = flow_scale,
-        .name = rsv.name,
-    });
-    ++count;
+  // Round v UP to the next power of 10 (clamped so v ≤ 1 yields 1.0).
+  // `physical = LP × scale` means LP = physical / scale; rounding up to
+  // the next decade puts LP in (0.1, 1.0] for well-conditioned simplex.
+  auto scale_for = [](double v) -> double
+  {
+    if (!std::isfinite(v) || v <= 1.0) {
+      return 1.0;
+    }
+    return std::pow(10.0, std::ceil(std::log10(v)));
+  };
+
+  // Energy and flow are INDEPENDENT physical dimensions — don't couple
+  // them via a fixed ratio (the prior heuristic `flow_scale =
+  // energy_scale / 1000` silently tied a reservoir's flow LP var to
+  // its energy scale, with no physical basis, and broke SDDP cut
+  // numerics when the energy scale was raised).  Derive each scale
+  // from its own physical quantity: emax for energy, fmax for flow.
+  size_t energy_count = 0;
+  size_t flow_count = 0;
+  for (const auto& rsv : sys.reservoir_array) {
+    if (!has_entry(rsv.uid)) {
+      const auto emax = scalar_of(rsv.emax);
+      if (emax.has_value()) {
+        const double energy_scale = scale_for(*emax);
+        if (energy_scale > 1.0) {
+          opts.variable_scales.push_back(VariableScale {
+              .class_name = "Reservoir",
+              .variable = "energy",
+              .uid = rsv.uid,
+              .scale = energy_scale,
+              .name = rsv.name,
+          });
+          ++energy_count;
+        }
+      }
+    }
+    if (!has_flow_entry(rsv.uid)) {
+      const auto fmax = scalar_of(rsv.fmax);
+      if (fmax.has_value()) {
+        const double flow_scale = scale_for(*fmax);
+        if (flow_scale > 1.0) {
+          opts.variable_scales.push_back(VariableScale {
+              .class_name = "Reservoir",
+              .variable = "flow",
+              .uid = rsv.uid,
+              .scale = flow_scale,
+              .name = rsv.name,
+          });
+          ++flow_count;
+        }
+      }
+    }
   }
 
-  if (count > 0) {
+  if (energy_count > 0 || flow_count > 0) {
     spdlog::info(
-        "  Auto scale_reservoir: computed energy/flow scales for {} reservoirs",
-        count);
+        "  Auto scale_reservoir: {} energy + {} flow per-element scale(s) "
+        "computed",
+        energy_count,
+        flow_count);
   }
 }
 

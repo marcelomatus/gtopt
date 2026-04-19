@@ -102,6 +102,115 @@ TEST_CASE("SDDPMethod - scale invariance across variable_scales")  // NOLINT
     CHECK(ub == doctest::Approx(ub0).epsilon(kParityTol));
     CHECK(lb == doctest::Approx(lb0).epsilon(kParityTol));
   }
+
+  SUBCASE("juan-scale magnitudes: energy=10000 + flow=10000 (per-class)")
+  {
+    // Matches what `auto_scale_reservoirs` would produce on LMAULE
+    // (juan/iplp emax≈1453 hm³ → scale=10 000, fmax=10 000 m³/s →
+    // scale=10 000).  The previous transient `e848067a` revert broke
+    // here: obj drifted by ~400× on a larger fixture, but the
+    // scale=10 / 100 sub-cases above didn't trigger it.  This SUBCASE
+    // locks in the juan-magnitude behaviour too.
+    const auto [ub, lb] = run_with_scales({
+        VariableScale {
+            .class_name = "Reservoir",
+            .variable = "energy",
+            .scale = 10000.0,
+        },
+        VariableScale {
+            .class_name = "Reservoir",
+            .variable = "flow",
+            .scale = 10000.0,
+        },
+    });
+    CHECK(ub == doctest::Approx(ub0).epsilon(kParityTol));
+    CHECK(lb == doctest::Approx(lb0).epsilon(kParityTol));
+  }
+}
+
+// ─── auto_scale_reservoirs invariance ─────────────────────────────────────
+//
+// The auto-scale path is a SEPARATE code path from manual
+// `variable_scales` injection: it's invoked by `PlanningLP::ctor`
+// from `auto_scale_reservoirs(planning)` when no `variable_scales`
+// entries are supplied.  The lockstep test below builds a fixture with
+// juan-style reservoir magnitudes (emax ≫ 1, fmax ≫ 1) and compares
+// three runs:
+//
+//   1. auto-scale OFF (explicit empty `variable_scales` is kept empty
+//      by skipping the helper — via a scale=1 per-class entry that
+//      suppresses `has_entry` from firing further rounding)
+//   2. auto-scale ON (reservoir emax/fmax drive the scale formula)
+//
+// Both must converge to the same PHYSICAL objective.  Regressions that
+// break SDDP cut numerics at juan scale (obj jumping 400×) would be
+// caught by this test where the previous 150-capacity fixture couldn't
+// reproduce them.
+TEST_CASE(  // NOLINT
+    "SDDPMethod - auto_scale_reservoirs invariance at juan-scale magnitudes")
+{
+  constexpr int kIters = 15;
+  constexpr double kConvTol = 1e-5;
+  constexpr double kParityTol = 1e-3;
+
+  // Mutate the 3-phase fixture to a juan-style reservoir: emax/fmax
+  // both ≫ 1000 so `auto_scale_reservoirs` actually fires.  The
+  // physical problem stays solvable (dispatch costs change, but the
+  // solver sees a bigger admissible volume range).
+  auto build = [](bool disable_auto_scale) -> std::pair<double, double>
+  {
+    auto planning = make_3phase_hydro_planning();
+    REQUIRE(!planning.system.reservoir_array.empty());
+    auto& rsv = planning.system.reservoir_array.front();
+    rsv.emax = 10000.0;
+    rsv.capacity = 10000.0;
+    rsv.eini = 5000.0;
+    rsv.fmin = -10000.0;
+    rsv.fmax = +10000.0;
+
+    if (disable_auto_scale) {
+      // Inject scale=1.0 so `auto_scale_reservoirs::has_entry(rsv.uid)`
+      // short-circuits and never rounds anything up.
+      planning.options.variable_scales = {
+          VariableScale {
+              .class_name = "Reservoir",
+              .variable = "energy",
+              .uid = rsv.uid,
+              .scale = 1.0,
+          },
+          VariableScale {
+              .class_name = "Reservoir",
+              .variable = "flow",
+              .uid = rsv.uid,
+              .scale = 1.0,
+          },
+      };
+    }
+
+    PlanningLP planning_lp(std::move(planning));
+
+    SDDPOptions sddp_opts;
+    sddp_opts.max_iterations = kIters;
+    sddp_opts.convergence_tol = kConvTol;
+    sddp_opts.enable_api = false;
+
+    SDDPMethod sddp(planning_lp, sddp_opts);
+    auto results = sddp.solve();
+    REQUIRE(results.has_value());
+    REQUIRE_FALSE(results->empty());
+    const auto& last = results->back();
+    return {last.upper_bound, last.lower_bound};
+  };
+
+  const auto [ub_raw, lb_raw] = build(/*disable_auto_scale=*/true);
+  const auto [ub_auto, lb_auto] = build(/*disable_auto_scale=*/false);
+
+  // Both paths must converge to the same physical UB / LB.  A
+  // regression in the auto-scale formula (e.g. an unintended scale
+  // ratio between energy and flow) would shift the converged bound
+  // even though the physical problem is unchanged.
+  CHECK(ub_auto == doctest::Approx(ub_raw).epsilon(kParityTol));
+  CHECK(lb_auto == doctest::Approx(lb_raw).epsilon(kParityTol));
 }
 
 TEST_CASE("SDDPMethod - 3-phase hydro+thermal converges")  // NOLINT
