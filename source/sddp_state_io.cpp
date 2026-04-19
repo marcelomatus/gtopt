@@ -77,12 +77,8 @@ auto save_state_csv(PlanningLP& planning_lp,
 
         const auto col_sol = li.get_col_sol();
         const auto col_rc = li.get_col_cost();
-        const auto ncols = ColIndex {
-            static_cast<Index>(li.get_numcols()),
-        };
-        const auto rc_upper = ColIndex {
-            static_cast<Index>(std::min(li.get_numcols(), col_rc.size())),
-        };
+        const auto ncols = li.numcols_as_index();
+        const auto rc_upper = std::min(ncols, col_index_size(col_rc));
         const auto phase_uid = phase.uid();
         const auto scene_uid = scene.uid();
 
