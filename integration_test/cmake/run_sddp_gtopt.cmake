@@ -38,6 +38,13 @@ if(DEFINED EXTRA_SET AND NOT "${EXTRA_SET}" STREQUAL "")
   endforeach()
 endif()
 
+# --low-memory CLI flag (pass-through from add_sddp_case(LOW_MEMORY ...))
+set(_low_memory_args "")
+if(DEFINED LOW_MEMORY AND NOT "${LOW_MEMORY}" STREQUAL ""
+   AND NOT "${LOW_MEMORY}" STREQUAL "off")
+  list(APPEND _low_memory_args "--low-memory" "${LOW_MEMORY}")
+endif()
+
 # Create a clean output directory
 if(EXISTS "${OUTPUT_DIR}")
   file(REMOVE_RECURSE "${OUTPUT_DIR}")
@@ -55,6 +62,7 @@ execute_process(
     "${INPUT_FILE}"
     --set output_directory=${OUTPUT_DIR}
     --set sddp_options.max_iterations=${SDDP_MAX_ITERATIONS}
+    ${_low_memory_args}
     ${_extra_set_args}
   WORKING_DIRECTORY "${WORKING_DIR}"
   RESULT_VARIABLE exit_code

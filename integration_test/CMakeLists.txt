@@ -184,11 +184,51 @@ add_e2e_case(exp_bat_4b_24 exp_bat_4b_24.json)
 # ---- SDDP test cases ----
 # To add a new SDDP case, place it under cases/<name>/ with a system JSON file
 # that has method="sddp", then add a line:
-#   add_sddp_case(<name> <system_json> [MAX_ITERATIONS <n>])
-add_sddp_case(sddp_hydro_3phase sddp_hydro_3phase.json MAX_ITERATIONS 3)
-add_sddp_case(sddp_hydro_3phase_lowmem sddp_hydro_3phase.json MAX_ITERATIONS 3
-  CASE_DIR sddp_hydro_3phase
-  EXTRA_SET "sddp_options.low_memory_mode=compress")
+#   add_sddp_case(<name> <system_json>
+#                 [MAX_ITERATIONS <n>]
+#                 [LOW_MEMORY <off|compress|rebuild>])
+#
+# The small sddp_hydro_3phase fixture (1 reservoir, 2 generators, 3 phases)
+# is the regression harness for SDDP — every listed case solves with the
+# external gtopt binary in parquet output mode and is then validated by
+# `tools/validate_sddp_output.py`, which reads the hive-partitioned
+# parquet shards and asserts tolerance-bounded physical invariants
+# (reservoir efin bounds, generation ≥ 0, demand shortage ≥ 0, optimal
+# cells have finite obj_value).
+#
+# Grid: {MAX_ITERATIONS ∈ {0, 3, 50}} × {LOW_MEMORY ∈ {off, compress, rebuild}}
+# — 0 exercises pure sim-pass from loaded cuts, 3 is a quick training
+# sanity check, 50 lets SDDP converge so the final UB ≈ LB.  Each
+# low_memory variant exercises a different backend-lifecycle path
+# (off keeps backends live, compress release + replay from snapshot,
+# rebuild re-flattens from collections).
+
+# max_iter=0 (pure sim pass) across all three low-memory modes.
+add_sddp_case(sddp_hydro_3phase_iter0_off sddp_hydro_3phase.json
+  CASE_DIR sddp_hydro_3phase MAX_ITERATIONS 0 LOW_MEMORY off
+  ALLOWED_EXIT_CODES "0;1")
+add_sddp_case(sddp_hydro_3phase_iter0_compress sddp_hydro_3phase.json
+  CASE_DIR sddp_hydro_3phase MAX_ITERATIONS 0 LOW_MEMORY compress
+  ALLOWED_EXIT_CODES "0;1")
+add_sddp_case(sddp_hydro_3phase_iter0_rebuild sddp_hydro_3phase.json
+  CASE_DIR sddp_hydro_3phase MAX_ITERATIONS 0 LOW_MEMORY rebuild
+  ALLOWED_EXIT_CODES "0;1")
+
+# Quick training sanity check (iter=3) — only on off-mode; the lowmem
+# variants of iter=3 are covered by iter=50 for deeper convergence.
+add_sddp_case(sddp_hydro_3phase_iter3 sddp_hydro_3phase.json
+  CASE_DIR sddp_hydro_3phase MAX_ITERATIONS 3)
+
+# Converged runs (iter=50) across all three low-memory modes — these
+# are the numerical regression guards: validate_sddp_output.py asserts
+# reservoir/generation/demand invariants on the final parquet output.
+add_sddp_case(sddp_hydro_3phase_iter50_off sddp_hydro_3phase.json
+  CASE_DIR sddp_hydro_3phase MAX_ITERATIONS 50 LOW_MEMORY off)
+add_sddp_case(sddp_hydro_3phase_iter50_compress sddp_hydro_3phase.json
+  CASE_DIR sddp_hydro_3phase MAX_ITERATIONS 50 LOW_MEMORY compress)
+add_sddp_case(sddp_hydro_3phase_iter50_rebuild sddp_hydro_3phase.json
+  CASE_DIR sddp_hydro_3phase MAX_ITERATIONS 50 LOW_MEMORY rebuild)
+
 if(GTOPT_SLOW_TESTS)
   add_sddp_case(gtopt_case_2y gtopt_case_2y.json
     MAX_ITERATIONS 1 TIMEOUT 600 LABELS slow)
