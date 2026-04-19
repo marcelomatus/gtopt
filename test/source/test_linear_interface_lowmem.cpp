@@ -770,6 +770,96 @@ TEST_CASE("LinearInterface — clone with warm-start parameters")  // NOLINT
 // ── release_backend memory cleanup tests ─────────────────────────────────
 
 TEST_CASE(
+    "LinearInterface — release_backend caches primal/dual/cost "
+    "snapshot")  // NOLINT
+{
+  // Phase-2 solved-snapshot: after `release_backend()` under compress,
+  // get_col_sol_raw / get_col_cost_raw / get_row_dual_raw must return
+  // the values the backend had at release time, not a fresh zero
+  // vector from a reconstructed backend.  This is the contract that
+  // lets `OutputContext` read solution values while the backend stays
+  // released (avoiding an expensive reconstruct + re-solve).
+  auto [li, flat, x1, x2] = make_simple_lp();
+
+  auto res = li.initial_solve();
+  REQUIRE(res.has_value());
+  REQUIRE(li.is_optimal());
+
+  // Capture live-backend values as ground truth.
+  const std::vector<double> live_col_sol(li.get_col_sol_raw().begin(),
+                                         li.get_col_sol_raw().end());
+  const std::vector<double> live_col_cost(li.get_col_cost_raw().begin(),
+                                          li.get_col_cost_raw().end());
+  const std::vector<double> live_row_dual(li.get_row_dual_raw().begin(),
+                                          li.get_row_dual_raw().end());
+  REQUIRE_FALSE(live_col_sol.empty());
+  REQUIRE_FALSE(live_col_cost.empty());
+  REQUIRE_FALSE(live_row_dual.empty());
+
+  li.set_low_memory(LowMemoryMode::compress);
+  li.save_snapshot(FlatLinearProblem {flat});
+  li.release_backend();
+
+  REQUIRE(li.is_backend_released());
+  REQUIRE_FALSE(li.has_backend());
+
+  SUBCASE("get_col_sol_raw returns cached values after release")
+  {
+    const auto sol = li.get_col_sol_raw();
+    REQUIRE(sol.size() == live_col_sol.size());
+    for (size_t i = 0; i < sol.size(); ++i) {
+      CHECK(sol[i] == doctest::Approx(live_col_sol[i]));
+    }
+    // Reading through the span must not have reactivated the backend.
+    CHECK(li.is_backend_released());
+    CHECK_FALSE(li.has_backend());
+  }
+
+  SUBCASE("get_col_cost_raw returns cached values after release")
+  {
+    const auto rc = li.get_col_cost_raw();
+    REQUIRE(rc.size() == live_col_cost.size());
+    for (size_t i = 0; i < rc.size(); ++i) {
+      CHECK(rc[i] == doctest::Approx(live_col_cost[i]));
+    }
+    CHECK(li.is_backend_released());
+    CHECK_FALSE(li.has_backend());
+  }
+
+  SUBCASE("get_row_dual_raw returns cached values after release")
+  {
+    const auto pi = li.get_row_dual_raw();
+    REQUIRE(pi.size() == live_row_dual.size());
+    for (size_t i = 0; i < pi.size(); ++i) {
+      CHECK(pi[i] == doctest::Approx(live_row_dual[i]));
+    }
+    CHECK(li.is_backend_released());
+    CHECK_FALSE(li.has_backend());
+  }
+
+  SUBCASE("reconstruct clears route-through-cache; live values returned")
+  {
+    li.reconstruct_backend();
+    CHECK_FALSE(li.is_backend_released());
+
+    // After reconstruct (no warm-start), backend col_solution is either
+    // uninitialised or zero.  The important invariant is that we no
+    // longer return the cached vectors — the getter routes to the live
+    // backend.  To test unambiguously, re-solve and compare against a
+    // post-solve cached snapshot.
+    auto r = li.resolve();
+    REQUIRE(r.has_value());
+
+    const std::vector<double> resolved_sol(li.get_col_sol_raw().begin(),
+                                           li.get_col_sol_raw().end());
+    REQUIRE(resolved_sol.size() == live_col_sol.size());
+    for (size_t i = 0; i < resolved_sol.size(); ++i) {
+      CHECK(resolved_sol[i] == doctest::Approx(live_col_sol[i]));
+    }
+  }
+}
+
+TEST_CASE(
     "LinearInterface — release_backend destroys solver backend")  // NOLINT
 {
   auto [li, flat, x1, x2] = make_simple_lp();

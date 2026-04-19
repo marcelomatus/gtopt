@@ -186,6 +186,39 @@ void LinearInterface::release_backend() noexcept
       m_cached_numrows_ = get_numrows();
       m_cached_numcols_ = get_numcols();
       m_cached_is_optimal_ = true;
+
+      // Snapshot primal + dual + reduced-cost vectors so that read-only
+      // consumers (OutputContext, Benders cut assembly, SDDP state
+      // propagation) can access the solution without forcing a backend
+      // reconstruct + re-solve.  The uncompressed cost is ~8 bytes per
+      // col/row per cell — negligible against the flat-LP snapshot.
+      const auto* col_sol_ptr = m_backend_->col_solution();
+      const auto* col_cost_ptr = m_backend_->reduced_cost();
+      const auto* row_dual_ptr = m_backend_->row_price();
+      if (col_sol_ptr != nullptr) {
+        const std::span col_sol {col_sol_ptr, m_cached_numcols_};
+        m_cached_col_sol_.assign(col_sol.begin(), col_sol.end());
+      }
+      if (col_cost_ptr != nullptr) {
+        const std::span col_cost {col_cost_ptr, m_cached_numcols_};
+        m_cached_col_cost_.assign(col_cost.begin(), col_cost.end());
+      }
+      if (row_dual_ptr != nullptr) {
+        const std::span row_dual {row_dual_ptr, m_cached_numrows_};
+        m_cached_row_dual_.assign(row_dual.begin(), row_dual.end());
+      }
+    } else {
+      // Non-optimal release: drop any stale primal/dual snapshot so
+      // future `get_col_sol()` reads don't return values that belong
+      // to a previous LP state (e.g. before `add_row` mutated the
+      // system).  Keeps the getter invariant simple: cached vectors
+      // are valid iff populated.
+      m_cached_col_sol_.clear();
+      m_cached_col_sol_.shrink_to_fit();
+      m_cached_col_cost_.clear();
+      m_cached_col_cost_.shrink_to_fit();
+      m_cached_row_dual_.clear();
+      m_cached_row_dual_.shrink_to_fit();
     }
     // Snapshot/compress: first call compresses the flat LP (one-time,
     // creates a persistent buffer); subsequent calls free the decompressed
