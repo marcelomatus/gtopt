@@ -203,42 +203,51 @@ add_e2e_case(exp_bat_4b_24 exp_bat_4b_24.json)
 # (off keeps backends live, compress release + replay from snapshot,
 # rebuild re-flattens from collections).
 
+# Per-iteration goldens live next to the case:
+#
+#   cases/sddp_hydro_3phase/golden_iter0.json   — pure sim pass, no training;
+#     hydro runs flat out, reservoir drained; objective_value = 104 700.
+#   cases/sddp_hydro_3phase/golden_iter3.json   — this small fixture is
+#     easy enough that SDDP converges within 3 iterations, so iter=3
+#     goldens match the iter=50 converged state (323 100).
+#   cases/sddp_hydro_3phase/golden_iter50.json  — fully converged
+#     reference, UB=LB=323 100.
+#
+# Every case (iter=0 / iter=3 / iter=50, off / compress / rebuild) pins
+# its objective_value, per-phase obj_values, and 5 element samples
+# (Reservoir/efin_sol, Generator/generation_sol, Bus/balance_dual) so
+# a numerical drift in any low_memory mode surfaces immediately.
+
 # max_iter=0 (pure sim pass) across all three low-memory modes.
 add_sddp_case(sddp_hydro_3phase_iter0_off sddp_hydro_3phase.json
   CASE_DIR sddp_hydro_3phase MAX_ITERATIONS 0 LOW_MEMORY off
-  ALLOWED_EXIT_CODES "0;1")
+  ALLOWED_EXIT_CODES "0;1"
+  GOLDEN golden_iter0.json)
 add_sddp_case(sddp_hydro_3phase_iter0_compress sddp_hydro_3phase.json
   CASE_DIR sddp_hydro_3phase MAX_ITERATIONS 0 LOW_MEMORY compress
-  ALLOWED_EXIT_CODES "0;1")
+  ALLOWED_EXIT_CODES "0;1"
+  GOLDEN golden_iter0.json)
 add_sddp_case(sddp_hydro_3phase_iter0_rebuild sddp_hydro_3phase.json
   CASE_DIR sddp_hydro_3phase MAX_ITERATIONS 0 LOW_MEMORY rebuild
-  ALLOWED_EXIT_CODES "0;1")
+  ALLOWED_EXIT_CODES "0;1"
+  GOLDEN golden_iter0.json)
 
-# Quick training sanity check (iter=3) — only on off-mode; the lowmem
-# variants of iter=3 are covered by iter=50 for deeper convergence.
+# Quick training sanity check (iter=3) — off-mode only; iter=50 covers
+# compress + rebuild below.
 add_sddp_case(sddp_hydro_3phase_iter3 sddp_hydro_3phase.json
-  CASE_DIR sddp_hydro_3phase MAX_ITERATIONS 3)
+  CASE_DIR sddp_hydro_3phase MAX_ITERATIONS 3
+  GOLDEN golden_iter3.json)
 
-# Converged runs (iter=50) across all three low-memory modes — these
-# are the numerical regression guards: validate_sddp_output.py asserts
-# reservoir/generation/demand invariants AND compares against the
-# committed `golden.json` reference (captured from a converged off-mode
-# run: UB=LB=323 100, per-phase obj {323 100, 212 325, 103 125}).
-# All three modes now match the golden — rebuild mode previously
-# converged to 309 600 on this fixture due to a bug in rebuild_in_place
-# that silenced every add_state_variable / defer_state_link call on
-# the FIRST flatten (gated by rebuild_pass=true before the registry
-# was populated); the integration golden is what surfaced that
-# divergence.  See commit history.
+# Converged runs (iter=50) across all three low-memory modes.
 add_sddp_case(sddp_hydro_3phase_iter50_off sddp_hydro_3phase.json
   CASE_DIR sddp_hydro_3phase MAX_ITERATIONS 50 LOW_MEMORY off
-  GOLDEN golden.json)
+  GOLDEN golden_iter50.json)
 add_sddp_case(sddp_hydro_3phase_iter50_compress sddp_hydro_3phase.json
   CASE_DIR sddp_hydro_3phase MAX_ITERATIONS 50 LOW_MEMORY compress
-  GOLDEN golden.json)
+  GOLDEN golden_iter50.json)
 add_sddp_case(sddp_hydro_3phase_iter50_rebuild sddp_hydro_3phase.json
   CASE_DIR sddp_hydro_3phase MAX_ITERATIONS 50 LOW_MEMORY rebuild
-  GOLDEN golden.json)
+  GOLDEN golden_iter50.json)
 
 if(GTOPT_SLOW_TESTS)
   add_sddp_case(gtopt_case_2y gtopt_case_2y.json

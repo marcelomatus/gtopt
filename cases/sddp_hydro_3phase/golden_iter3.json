@@ -1,14 +1,14 @@
 {
   "// description": [
-    "Golden reference for the sddp_hydro_3phase integration case.",
-    "Captured from a converged iter=50 low_memory=off run.",
-    "`tools/validate_sddp_output.py --golden-json` asserts the current",
-    "run matches these values to `tolerance`."
+    "Golden reference for sddp_hydro_3phase at MAX_ITERATIONS=3 —",
+    "the small fixture converges in under 3 iterations, so the",
+    "converged physical state matches golden_iter50.json."
   ],
   "tolerance": {
     "abs": 1.0,
     "rel": 1.0e-4
   },
+  "objective_value": 323100.0,
   "solver_status": {
     "converged": true,
     "lower_bound": 323100.0,
@@ -20,15 +20,8 @@
     {"scene": 0, "phase": 2, "status": 0, "obj_value": 212325.0},
     {"scene": 0, "phase": 3, "status": 0, "obj_value": 103125.0}
   ],
-  "// element_samples": [
-    "Pins concrete primal/dual values at specific (class, stem, filter,",
-    "column) points in the hive-partitioned parquet.",
-    "`filter` is a {col: value} map applied to the loaded DataFrame;",
-    "`value_column` names the column to read; `expected` is the target."
-  ],
   "element_samples": [
     {
-      "// Reservoir final energy — end of phase 1, stage 1:": "",
       "class": "Reservoir",
       "stem": "efin_sol",
       "filter": {"scene": 0, "phase": 1, "stage": 1},
@@ -36,7 +29,6 @@
       "expected": 135.0
     },
     {
-      "// Reservoir final energy — end of phase 3, stage 3 (drained):": "",
       "class": "Reservoir",
       "stem": "efin_sol",
       "filter": {"scene": 0, "phase": 3, "stage": 3},
@@ -44,7 +36,6 @@
       "expected": 0.0
     },
     {
-      "// Hydro generation — phase 1, stage 1, block 1:": "",
       "class": "Generator",
       "stem": "generation_sol",
       "filter": {"scene": 0, "phase": 1, "stage": 1, "block": 1},
@@ -52,7 +43,6 @@
       "expected": 10.0
     },
     {
-      "// Thermal generation (back-fill) — phase 1, stage 1, block 1:": "",
       "class": "Generator",
       "stem": "generation_sol",
       "filter": {"scene": 0, "phase": 1, "stage": 1, "block": 1},
@@ -60,7 +50,6 @@
       "expected": 90.0
     },
     {
-      "// Bus balance dual = marginal cost — thermal gcost dominates:": "",
       "class": "Bus",
       "stem": "balance_dual",
       "filter": {"scene": 0, "phase": 1, "stage": 1, "block": 1},

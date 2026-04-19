@@ -341,6 +341,44 @@ def validate_against_golden(output_dir: Path, golden_path: Path) -> list[str]:
     errors: list[str] = []
 
     # ── solver_status.json ──
+    # ── top-level objective_value ──
+    # Single scalar pinning the "total run objective".  Checked against
+    # `solver_status.upper_bound` when the status file is present
+    # (training-iteration runs), or against `solution.csv`'s phase-1
+    # obj_value (which holds the total future-cost-inclusive objective
+    # at phase 1 — the cumulative forecast for the whole horizon).
+    if "objective_value" in golden:
+        expected_obj = float(golden["objective_value"])
+        actual_obj: float | None = None
+        source = ""
+        status_path = output_dir / "solver_status.json"
+        if status_path.is_file():
+            with status_path.open() as fh:
+                s = json.load(fh)
+            if isinstance(s.get("upper_bound"), (int, float)):
+                actual_obj = float(s["upper_bound"])
+                source = "solver_status.upper_bound"
+        if actual_obj is None:
+            sol_path = output_dir / "solution.csv"
+            if sol_path.is_file():
+                sdf = pd.read_csv(sol_path)
+                if not sdf.empty and "obj_value" in sdf.columns:
+                    # Phase-1 row is the cumulative horizon objective.
+                    phase1 = sdf[sdf["phase"] == 1] if "phase" in sdf.columns else sdf
+                    if not phase1.empty:
+                        actual_obj = float(phase1.iloc[0]["obj_value"])
+                        source = "solution.csv phase=1 obj_value"
+        if actual_obj is None:
+            errors.append(
+                "golden objective_value: no solver_status.json nor "
+                "solution.csv phase=1 row found"
+            )
+        elif not _close(actual_obj, expected_obj, abs_tol=abs_tol, rel_tol=rel_tol):
+            errors.append(
+                f"golden objective_value [{source}]: got {actual_obj:.6g}, "
+                f"expected {expected_obj:.6g} (abs_tol={abs_tol}, rel_tol={rel_tol})"
+            )
+
     expected_status = golden.get("solver_status")
     if expected_status:
         status_path = output_dir / "solver_status.json"
