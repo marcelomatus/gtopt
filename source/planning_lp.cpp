@@ -946,83 +946,75 @@ void PlanningLP::write_out()
   // actually processes are the ones not written by the simulation pass
   // — monolithic cells, cascade levels that skipped sim emission, or
   // SDDP cells whose simulation solve fell into the elastic branch.
+  //
+  // Parallelism strategy: one pool task per (scene, phase) CELL.  Parquet
+  // writes dominate the wall time (hundreds of element shards per cell on
+  // realistic grids), and each cell writes to its own scene=/phase=
+  // partition under each element directory — no cross-cell contention on
+  // disk.  Scene-level batching bounded the speedup to `phases` per
+  // worker; cell-level lets the full thread pool grind through the
+  // matrix.  Memory: each concurrent cell peaks at one flat-LP worth of
+  // XLP wrappers under compress (fast-path does a single flatten) or
+  // zero extra under off (backend was never released).  The solver work
+  // pool's memory-based throttling bounds the peak so concurrency
+  // adapts automatically to available RAM.
   auto pool = make_solver_work_pool();
 
   std::vector<std::future<void>> futures;
-  futures.reserve(static_cast<std::size_t>(num_scenes));
+  futures.reserve(static_cast<std::size_t>(num_scenes)
+                  * static_cast<std::size_t>(num_phases));
+
+  const auto emit_cell = [](SystemLP& system)
+  {
+    // Fast path A: sim-pass cells already wrote output — skip
+    // ensure_lp_built entirely so we don't needlessly rehydrate the
+    // backend just to find m_output_written_ == true.
+    if (system.output_written()) {
+      return;
+    }
+    // Fast path B (Phase 2b): under `compress`, Phase 2a cached the
+    // solution vectors at release time and `SystemLP::write_out`
+    // rebuilds XLP col indices via a guarded flatten.  That combo
+    // lets us emit without the expensive `reconstruct_backend` →
+    // re-solve round-trip.  Rebuild mode is excluded: its per-element
+    // col indices are repopulated only via `rebuild_in_place`, which
+    // runs inside `ensure_lp_built`, not `create_collections`.
+    const auto& li = system.linear_interface();
+    if (system.low_memory_mode() == LowMemoryMode::compress
+        && li.is_backend_released() && li.is_optimal())
+    {
+      system.write_out();
+      // Drop XLP collections rebuilt inside — the LinearInterface is
+      // already released so this is a no-op on the backend side.
+      system.release_backend();
+      return;
+    }
+    system.ensure_lp_built();
+    system.write_out();
+    system.release_backend();
+  };
 
   for (auto&& [scene_num, phase_systems] : enumerate<SceneIndex>(m_systems_)) {
-    // Capture `phase_systems` via an explicit pointer (it's a member
-    // container, stable across the loop); the structured binding itself
-    // is loop-local.  Mirrors the pattern in `create_systems`.
-    auto* const systems_ptr = &phase_systems;
-    auto result = pool->submit(
-        [systems_ptr]
-        {
-          for (auto& system : *systems_ptr) {
-            // Fast path A: sim-pass cells already wrote output — skip
-            // ensure_lp_built entirely so we don't needlessly rehydrate
-            // the backend just to find m_output_written_ == true.
-            if (system.output_written()) {
-              continue;
-            }
-            // Fast path B (Phase 2b): under `compress`, Phase 2a cached
-            // the solution vectors at release time and
-            // `SystemLP::write_out` rebuilds XLP col indices via a guarded
-            // flatten.  That combination lets us emit without the
-            // expensive `reconstruct_backend` → re-solve round-trip.
-            // Rebuild mode is excluded: it repopulates per-element col
-            // indices only via `rebuild_in_place`, which runs inside
-            // `ensure_lp_built`, not inside `create_collections`.
-            const auto& li = system.linear_interface();
-            if (system.low_memory_mode() == LowMemoryMode::compress
-                && li.is_backend_released() && li.is_optimal())
-            {
-              system.write_out();
-              // `write_out` rebuilt the XLP collections via
-              // `rebuild_collections_if_needed()`.  Drop them now —
-              // carrying them across phases would restore the
-              // pre-release memory peak for every phase in the scene.
-              // The underlying LinearInterface is already released so
-              // this call is a no-op on the backend side.
-              system.release_backend();
-              continue;
-            }
-            system.ensure_lp_built();
-            system.write_out();
-            // Free the backend immediately so the next phase's
-            // ensure_lp_built has room to reconstruct under compress /
-            // rebuild; a no-op when low_memory is off.
-            system.release_backend();
-          }
-        },
-        {
-            .priority = TaskPriority::Low,
-            .name = as_label("write_out_scene", scene_num),
-        });
-    if (result.has_value()) {
-      futures.push_back(std::move(*result));
-    } else {
-      // Fall back to synchronous if the pool rejects the task.
-      SPDLOG_WARN(
-          "Failed to submit write_out task for scene {},"
-          " running synchronously",
-          scene_num);
-      for (auto& system : phase_systems) {
-        if (system.output_written()) {
-          continue;
-        }
-        const auto& li = system.linear_interface();
-        if (system.low_memory_mode() == LowMemoryMode::compress
-            && li.is_backend_released() && li.is_optimal())
-        {
-          system.write_out();
-          system.release_backend();  // drop collections rebuilt inside
-          continue;
-        }
-        system.ensure_lp_built();
-        system.write_out();
-        system.release_backend();
+    for (auto&& [phase_num, system] : enumerate<PhaseIndex>(phase_systems)) {
+      auto* const sys_ptr = &system;
+      auto result = pool->submit(
+          [sys_ptr, &emit_cell] { emit_cell(*sys_ptr); },
+          {
+              .priority = TaskPriority::Low,
+              .name = as_label(
+                  "write_out_cell", "scene", scene_num, "phase", phase_num),
+          });
+      if (result.has_value()) {
+        futures.push_back(std::move(*result));
+      } else {
+        // Synchronous fallback preserves parity if the pool refuses the
+        // task (e.g. memory-limit throttling raised mid-run).
+        SPDLOG_WARN(
+            "Failed to submit write_out task for (scene {}, phase {}),"
+            " running synchronously",
+            scene_num,
+            phase_num);
+        emit_cell(system);
       }
     }
   }
