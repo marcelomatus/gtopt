@@ -13,16 +13,6 @@
  * extracting results.
  */
 
-// Enable compile-level SPDLOG_TRACE emission for per-stage timers in
-// `SystemLP::write_out`.  MUST precede every other include — many gtopt
-// headers transitively include `<spdlog/spdlog.h>`, which captures the
-// active level at first include.  Without this guard the TRACE calls
-// compile out and `-T <file>` captures nothing from this translation
-// unit.
-#ifndef SPDLOG_ACTIVE_LEVEL
-#  define SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_TRACE
-#endif
-
 #include <algorithm>
 #include <exception>
 #include <filesystem>
@@ -1146,13 +1136,14 @@ void SystemLP::write_out()
   // (not from `ensure_lp_built`) so the expensive flatten only runs
   // at output time, not on every forward/backward phase solve.
   // Under off / rebuild, a plain `create_collections` is sufficient.
-  // Per-stage TRACE timers so `--trace-log` captures exactly where
-  // `write_out` spends its wall time on a large grid.  Marked
-  // `[[maybe_unused]]` so builds with trace level disabled at compile
-  // time (SPDLOG_ACTIVE_LEVEL > TRACE) don't warn on unused locals —
-  // the trace call itself compiles out.
+  // Per-stage timers for `--trace-log`.  Uses the RUNTIME
+  // `spdlog::trace(...)` call (not the compile-level macro) because
+  // the CMake PCH pre-includes `<spdlog/spdlog.h>` with
+  // `SPDLOG_ACTIVE_LEVEL=INFO` baked in — any `#define
+  // SPDLOG_ACTIVE_LEVEL=TRACE` in this TU would come too late.  The
+  // runtime check is a cheap atomic load when trace is off.
   using clock = std::chrono::steady_clock;
-  [[maybe_unused]] const auto t_start = clock::now();
+  const auto t_start = clock::now();
 
   if (m_flat_opts_.low_memory_mode == LowMemoryMode::compress) {
     rebuild_collections_if_needed();
@@ -1161,15 +1152,15 @@ void SystemLP::write_out()
     m_collections_built_ = true;
     m_system_context_.rebind_system(*this);
   }
-  [[maybe_unused]] const auto t_rebuild = clock::now();
+  const auto t_rebuild = clock::now();
 
   OutputContext oc(
       system_context(), linear_interface(), scene().uid(), phase().uid());
-  [[maybe_unused]] const auto t_oc = clock::now();
+  const auto t_oc = clock::now();
 
   auto count = visit_elements(
       collections(), [&oc](const auto& e) { return e.add_to_output(oc); });
-  [[maybe_unused]] const auto t_visit = clock::now();
+  const auto t_visit = clock::now();
 
   if (count <= 0) {
     SPDLOG_WARN("No elements added to output");
@@ -1177,9 +1168,9 @@ void SystemLP::write_out()
   }
 
   oc.write();
-  [[maybe_unused]] const auto t_write = clock::now();
+  const auto t_write = clock::now();
 
-  SPDLOG_TRACE(
+  spdlog::trace(
       "SystemLP::write_out [scene={} phase={}]: "
       "rebuild_coll={:.1f}ms, OutputContext={:.1f}ms, "
       "visit_elements={:.1f}ms, oc.write={:.1f}ms, total={:.1f}ms",
