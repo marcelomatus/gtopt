@@ -1,3 +1,6 @@
+#include <array>
+#include <vector>
+
 #include <doctest/doctest.h>
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/sparse_col.hpp>
@@ -138,5 +141,27 @@ TEST_SUITE("SparseCol")
     CHECK(col2.lowb == 3.0);
     CHECK(col2.uppb == 3.0);
     CHECK(col2.is_integer == true);
+  }
+
+  TEST_CASE("col_index_size — sized-range factory")
+  {
+    // Avoids the `ColIndex{static_cast<Index>(r.size())}` boilerplate
+    // at every call site; narrowing happens in one place.
+    SUBCASE("empty container")
+    {
+      const std::vector<double> v;
+      CHECK(col_index_size(v) == ColIndex {0});
+    }
+    SUBCASE("non-empty container")
+    {
+      const std::vector<double> v(42, 0.0);
+      CHECK(col_index_size(v) == ColIndex {42});
+    }
+    SUBCASE("constexpr-friendly")
+    {
+      constexpr std::array<int, 7> arr {};
+      constexpr auto idx = col_index_size(arr);
+      static_assert(idx == ColIndex {7});
+    }
   }
 }

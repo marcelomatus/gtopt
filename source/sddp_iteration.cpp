@@ -121,7 +121,7 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
             "SDDP Iter [i{}]: stop requested, halting after {}"
             " iterations",
             iteration_index,
-            iteration_index - m_iteration_offset_);
+            iteration_relative(iteration_index, m_iteration_offset_));
         break;
       }
 
@@ -129,7 +129,7 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
       // confusing (e.g. "=== 0/0 ===" for max_iterations=1).
       SPDLOG_INFO("SDDP Iter [i{}]: === starting ({} of {}) ===",
                   iteration_index,
-                  (iteration_index - m_iteration_offset_) + 1,
+                  iteration_relative(iteration_index, m_iteration_offset_) + 1,
                   m_options_.max_iterations);
 
       SDDPIterationResult ir {
@@ -207,7 +207,7 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
           && m_options_.cut_prune_interval > 0)
       {
         const auto iteration_offset_diff =
-            iteration_index - m_iteration_offset_;
+            iteration_relative(iteration_index, m_iteration_offset_);
         if (iteration_offset_diff > 0
             && iteration_offset_diff % m_options_.cut_prune_interval == 0)
         {
@@ -451,10 +451,10 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
     //     duals, reduced costs, and primal values via the Phase 2a
     //     getter cache on `LinearInterface`.
     //   - Under low_memory != off, each cell releases aggressively
-    //     after solve via `release_for_sim_cache_only()` — drops the
-    //     backend, XLP collections, and the flat-LP snapshot, keeping
-    //     ONLY the cached primal/dual/cost vectors.  Per-cell RAM
-    //     footprint collapses to ~400 KB of cache.
+    //     after solve; collections + backend dropped; snapshot kept
+    //     through retry loop and dropped via `drop_sim_snapshots()`
+    //     once Pass 1 converges.  Per-cell RAM footprint collapses
+    //     to ~400 KB of cache.
     //   - On infeasibility the existing elastic branch installs an
     //     fcut on the previous phase; the retry loop re-runs Pass 1
     //     until no further fcuts are needed or `kMaxSimP1Retries` is
@@ -555,6 +555,7 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
         ir.gap_change,
         ir.converged ? "[CONVERGED]" : "");
 
+    m_sim_write_enabled_ = false;
     m_in_simulation_ = false;
   }
 
@@ -996,7 +997,8 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
                 sp.current_iteration_index,
                 scene_uid(scene),
                 sp.scene_converged,
-                sp.current_iteration_index - m_iteration_offset_,
+                iteration_relative(sp.current_iteration_index,
+                                   m_iteration_offset_),
                 sp.upper_bound,
                 scenes_still_active,
                 num_scenes);

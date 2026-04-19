@@ -154,7 +154,7 @@ void write_cut_coefficients(std::ostream& ofs,
           "SDDP write_cut_coefficients: cut '{}' references col {} that "
           "is not a registered state variable",
           cut.name,
-          static_cast<Index>(col)));
+          col));
     }
     const auto& [cls, var, uid] = it->second;
     ofs << "," << as_label<':'>(cls, var, uid) << "=" << phys_coeff;
@@ -1635,7 +1635,7 @@ void write_cut_coefficients_unscaled(std::ostream& ofs,
                 "SDDP save_cuts_json: cut '{}' references col {} that "
                 "is not a registered state variable",
                 cut.name,
-                static_cast<Index>(col)));
+                col));
           }
           const auto& [cls, var, uid] = it->second;
           entry.coefficients.push_back(CutCoeffEntry {
