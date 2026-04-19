@@ -29,6 +29,13 @@
 #include <gtopt/output_context.hpp>
 #include <gtopt/system_lp.hpp>
 #include <gtopt/utils.hpp>
+
+// Enable SPDLOG_TRACE compile-level emission so the per-stage
+// `SystemLP::write_out` timers are captured when the user passes
+// `--trace-log`.  Must precede `<spdlog/spdlog.h>` inclusion.
+#ifndef SPDLOG_ACTIVE_LEVEL
+#  define SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_TRACE
+#endif
 #include <spdlog/spdlog.h>
 
 #include "gtopt/simulation_lp.hpp"
