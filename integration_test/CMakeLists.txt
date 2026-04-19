@@ -224,11 +224,12 @@ add_sddp_case(sddp_hydro_3phase_iter3 sddp_hydro_3phase.json
 # reservoir/generation/demand invariants AND compares against the
 # committed `golden.json` reference (captured from a converged off-mode
 # run: UB=LB=323 100, per-phase obj {323 100, 212 325, 103 125}).
-# Golden is enforced on off and compress (which match bit-for-bit at
-# convergence); rebuild currently converges to 309 600 on this fixture
-# and is tracked as a separate numerical divergence — no golden check
-# until that's resolved, but the run still exercises the rebuild code
-# path for the range-only invariants.
+# All three modes now match the golden — rebuild mode previously
+# converged to 309 600 on this fixture due to a bug in rebuild_in_place
+# that silenced every add_state_variable / defer_state_link call on
+# the FIRST flatten (gated by rebuild_pass=true before the registry
+# was populated); the integration golden is what surfaced that
+# divergence.  See commit history.
 add_sddp_case(sddp_hydro_3phase_iter50_off sddp_hydro_3phase.json
   CASE_DIR sddp_hydro_3phase MAX_ITERATIONS 50 LOW_MEMORY off
   GOLDEN golden.json)
@@ -236,7 +237,8 @@ add_sddp_case(sddp_hydro_3phase_iter50_compress sddp_hydro_3phase.json
   CASE_DIR sddp_hydro_3phase MAX_ITERATIONS 50 LOW_MEMORY compress
   GOLDEN golden.json)
 add_sddp_case(sddp_hydro_3phase_iter50_rebuild sddp_hydro_3phase.json
-  CASE_DIR sddp_hydro_3phase MAX_ITERATIONS 50 LOW_MEMORY rebuild)
+  CASE_DIR sddp_hydro_3phase MAX_ITERATIONS 50 LOW_MEMORY rebuild
+  GOLDEN golden.json)
 
 if(GTOPT_SLOW_TESTS)
   add_sddp_case(gtopt_case_2y gtopt_case_2y.json

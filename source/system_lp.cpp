@@ -822,28 +822,46 @@ void SystemLP::rebuild_in_place()
 
   // Flip the rebuild-pass flag so the registry entry points on
   // SystemContext (add_state_variable, add_ampl_variable,
-  // defer_state_link, register_ampl_element_metadata) short-circuit.
-  // Registry entries were populated in the initial pass and every
-  // col/row index is deterministic across rebuilds, so re-running the
-  // registrations would be wasted work (and, for defer_state_link,
-  // would silently duplicate cross-phase links).  The flag is scoped
-  // to this function: outside rebuild_in_place, SystemContext is in
-  // "initial pass" mode.  The scoped restore protects against
-  // exception unwinding mid-rebuild.
+  // defer_state_link, register_ampl_element_metadata) short-circuit —
+  // but ONLY from the SECOND flatten onward.  Under
+  // LowMemoryMode::rebuild the SystemLP ctor never runs an eager
+  // `create_lp`, so the very first call to `rebuild_in_place()` IS
+  // the initial pass that must populate the registry; gating it with
+  // `rebuild_pass=true` here would silently drop every
+  // `add_state_variable` / `defer_state_link` call and produce SDDP
+  // cuts with no state-variable coefficients (→ convergence to the
+  // wrong optimum — observed on sddp_hydro_3phase: 309 600 vs the
+  // correct 323 100 on off/compress).  Col/row indices are
+  // deterministic across rebuilds so re-running the registrations on
+  // subsequent flattens would be wasted work (and for
+  // defer_state_link would silently duplicate cross-phase links).
+  //
+  // `m_fingerprint_was_set_` is the signal "initial flatten has
+  // already run" — it is flipped to true a few lines below when the
+  // first `rebuild_in_place` finishes.
   struct RebuildPassGuard
   {
     SystemContext& ctx;
+    const bool active;
     RebuildPassGuard(const RebuildPassGuard&) = delete;
     RebuildPassGuard& operator=(const RebuildPassGuard&) = delete;
     RebuildPassGuard(RebuildPassGuard&&) = delete;
     RebuildPassGuard& operator=(RebuildPassGuard&&) = delete;
-    explicit RebuildPassGuard(SystemContext& c)
+    RebuildPassGuard(SystemContext& c, bool activate)
         : ctx(c)
+        , active(activate)
     {
-      ctx.set_rebuild_pass(true);
+      if (active) {
+        ctx.set_rebuild_pass(true);
+      }
     }
-    ~RebuildPassGuard() { ctx.set_rebuild_pass(false); }
-  } guard {system_context()};
+    ~RebuildPassGuard()
+    {
+      if (active) {
+        ctx.set_rebuild_pass(false);
+      }
+    }
+  } guard {system_context(), m_fingerprint_was_set_};
 
   auto [flat_lp, fingerprint, label_maker] =
       flatten_from_collections(collections(),
@@ -1013,6 +1031,22 @@ SystemLP::SystemLP(const System& system,
     // without a callback.
     install_rebuild_callback();
     m_linear_interface_.mark_released();
+
+    // Eagerly run the first flatten now so the SimulationLP
+    // state-variable registry is populated before downstream code
+    // reads it (e.g. `SDDPMethod::auto_scale_alpha` iterates
+    // `sim.state_variables(...)` BEFORE calling `ensure_lp_built`).
+    // The first call sets `rebuild_pass=false` so every
+    // `add_state_variable` / `defer_state_link` fires (deterministic
+    // col indices are captured); subsequent `rebuild_in_place` calls
+    // set `rebuild_pass=true` as before and skip re-registration.
+    // After the flatten we release the backend to restore rebuild
+    // mode's memory-light baseline — `release_backend()` under non-
+    // off drops the solver backend + the XLP collections, while the
+    // state-variable registry and `m_fingerprint_was_set_` persist
+    // on this SystemLP.
+    rebuild_in_place();
+    release_backend();
   } else {
     create_collections(m_system_context_, system, m_collections_);
     m_collections_built_ = true;
