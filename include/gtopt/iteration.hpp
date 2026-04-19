@@ -64,12 +64,45 @@ using IterationIndex = StrongIndexType<IterationTag>;
   return ++iteration_index;
 }
 
+/// @brief Advance an iteration index by `n` steps, returning a new
+///        `IterationIndex`.  Replaces the
+///        `IterationIndex{static_cast<Index>(offset) + n}` pattern used
+///        to compute an iteration budget horizon.
+///
+/// Example: `next(m_iteration_offset_, m_options_.max_iterations)`
+/// returns the exclusive upper bound of a training run that starts
+/// at `m_iteration_offset_` and takes `max_iterations` iterations.
+[[nodiscard]] constexpr auto next(IterationIndex iteration_index,
+                                  Index n) noexcept -> IterationIndex
+{
+  // Underlying strong::arithmetic supports `+ Index`, preserving the
+  // strong type without any static_cast at the call site.
+  return iteration_index + IterationIndex {n};
+}
+
 /// @brief Previous iteration index (iteration_index - 1), preserving strong
 /// type.
 [[nodiscard]] constexpr auto previous(IterationIndex iteration_index) noexcept
     -> IterationIndex
 {
   return --iteration_index;
+}
+
+/// @brief Signed distance of `cur` from a base `offset`, as a plain
+///        `Index` offset (not wrapped in `IterationIndex` — because the
+///        difference of two positional indices is not itself a
+///        positional index, it's a count).
+///
+/// Replaces the `iteration_index - m_iteration_offset_` idiom sprinkled
+/// across SDDP iteration management (relative-iteration logging,
+/// `min_iter` clamping, `max_async_spread` checks).  Having a single
+/// helper means future tweaks (e.g. bounds-checking on negative
+/// differences) land in one place.
+[[nodiscard]] constexpr auto iteration_relative(IterationIndex cur,
+                                                IterationIndex offset) noexcept
+    -> Index
+{
+  return static_cast<Index>(cur) - static_cast<Index>(offset);
 }
 
 }  // namespace gtopt
