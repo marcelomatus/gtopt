@@ -444,81 +444,75 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
     };
     m_benders_cut_.reset_infeasible_cut_count();
 
-    // ── Two-pass simulation stage ─────────────────────────────────────
+    // ── Simulation stage: cache-backed single-pass ────────────────────
     //
-    // Pass 1 (fcut collection):
-    //   - crossover=false (feasibility check only; no dual cleanup)
-    //   - m_sim_write_enabled_=false (no parquet emit; no elastic
-    //     backward-recovery — the forward body just installs fcuts on
-    //     the previous phase via the existing infeasibility path and
-    //     releases the backend).
+    // Pass 1 (solve + populate cache):
+    //   - crossover=true so `release_backend()` caches clean vertex
+    //     duals, reduced costs, and primal values via the Phase 2a
+    //     getter cache on `LinearInterface`.
+    //   - Under low_memory != off, each cell releases aggressively
+    //     after solve via `release_for_sim_cache_only()` — drops the
+    //     backend, XLP collections, and the flat-LP snapshot, keeping
+    //     ONLY the cached primal/dual/cost vectors.  Per-cell RAM
+    //     footprint collapses to ~400 KB of cache.
+    //   - On infeasibility the existing elastic branch installs an
+    //     fcut on the previous phase; the retry loop re-runs Pass 1
+    //     until no further fcuts are needed or `kMaxSimP1Retries` is
+    //     hit.
     //
-    // Pass 2 (final forward + write):
-    //   - crossover=true (vertex duals needed for row_dual in write_out)
-    //   - m_sim_write_enabled_=true (parquet shard emitted in the same
-    //     solve task, right before release_backend — so every cell is
-    //     written exactly once, under every low_memory mode).
+    // Pass 2 = `PlanningLP::write_out()`: the caller already invokes it
+    // right after `SDDPMethod::solve()` returns, and its cell-parallel
+    // pool dispatches one write task per (scene, phase).  Under
+    // compress the fast-path reads straight from the cache populated
+    // in Pass 1 — no re-solve, no backend reconstruct, no snapshot.
+    // Under off the cells' live backends supply the values.  Either
+    // way the write is clean and happens exactly once per cell.
     //
-    // With the Pass-1 fcuts persistent on each cell's m_active_cuts_,
-    // Pass 2 normally finds every phase optimal.  Any residual
-    // infeasibility in Pass 2 is left unsolved: status=-1 in
-    // solution.csv, no parquet shard emitted (SystemLP::write_out
-    // short-circuits on !is_optimal).  This replaces the earlier
-    // Proposal-1 retry loop (off mode) and Proposal-2 in-forward-pass
-    // q/p backward recovery (compress/rebuild) with one uniform path.
-    auto sim_opts_p1 = fwd_opts;
-    sim_opts_p1.crossover = false;
-    auto sim_opts_p2 = fwd_opts;
-    sim_opts_p2.crossover = true;
+    // This supersedes the earlier two-pass design where Pass 2 ran a
+    // full forward traverse with `run_forward_pass_all_scenes`
+    // (needlessly re-solving 619/816 cells on juan/iplp just to refresh
+    // their duals).
+    auto sim_opts = fwd_opts;
+    sim_opts.crossover = true;
 
-    // Pass 1 runs until no new fcuts are needed (bounded retry loop) so
-    // Pass 2 sees every phase feasible under the accumulated fcuts.
-    // Bound at kMaxSimP1Retries so deeper infeasibility chains don't
-    // loop forever; anything still infeasible in Pass 2 shows as
-    // status=-1 in solution.csv with no parquet shard.
+    // Bounded retry loop around Pass 1 so deeper infeasibility chains
+    // don't loop forever; anything still infeasible after the last
+    // attempt shows as status=-1 in solution.csv with no parquet shard.
     constexpr int kMaxSimP1Retries = 3;
-    m_sim_write_enabled_ = false;
     double p1_total_elapsed = 0.0;
-    std::expected<ForwardPassOutcome, Error> fwd_p1;
+    std::expected<ForwardPassOutcome, Error> fwd;
     int p1_attempts = 0;
     for (; p1_attempts <= kMaxSimP1Retries; ++p1_attempts) {
-      SPDLOG_INFO("SDDP Sim [i{}]: Pass 1 attempt {}/{} — fcut collection",
-                  final_iteration_index,
-                  p1_attempts + 1,
-                  kMaxSimP1Retries + 1);
-      fwd_p1 = run_forward_pass_all_scenes(
-          *sddp_pool, sim_opts_p1, final_iteration_index);
-      if (!fwd_p1.has_value()) {
+      SPDLOG_INFO(
+          "SDDP Sim [i{}]: Pass 1 attempt {}/{} — solve + populate cache",
+          final_iteration_index,
+          p1_attempts + 1,
+          kMaxSimP1Retries + 1);
+      fwd = run_forward_pass_all_scenes(
+          *sddp_pool, sim_opts, final_iteration_index);
+      if (!fwd.has_value()) {
         monitor.stop();
-        return std::unexpected(std::move(fwd_p1.error()));
+        return std::unexpected(std::move(fwd.error()));
       }
-      p1_total_elapsed += fwd_p1->elapsed_s;
-      if (!fwd_p1->has_feasibility_issue) {
+      p1_total_elapsed += fwd->elapsed_s;
+      if (!fwd->has_feasibility_issue) {
         break;
       }
     }
 
     SPDLOG_INFO(
-        "SDDP Sim [i{}]: Pass 2 — final forward + write_out "
-        "(p1_attempts={} residual_feasibility_issue={})",
+        "SDDP Sim [i{}]: Pass 1 done ({} attempt(s)); Pass 2 (write_out) "
+        "dispatched by caller",
         final_iteration_index,
-        p1_attempts + 1,
-        fwd_p1->has_feasibility_issue);
-    m_sim_write_enabled_ = true;
-    auto fwd = run_forward_pass_all_scenes(
-        *sddp_pool, sim_opts_p2, final_iteration_index);
-    if (!fwd.has_value()) {
-      monitor.stop();
-      return std::unexpected(std::move(fwd.error()));
-    }
+        p1_attempts + 1);
 
     ir.scene_upper_bounds = std::move(fwd->scene_upper_bounds);
-    ir.forward_pass_s = fwd->elapsed_s + p1_total_elapsed;
+    ir.forward_pass_s = p1_total_elapsed;
     if (fwd->has_feasibility_issue) {
       ir.feasibility_issue = true;
       SPDLOG_WARN(
-          "SDDP Sim [i{}]: residual feasibility issue after Pass 1 "
-          "fcut collection — affected cells left unsolved in output",
+          "SDDP Sim [i{}]: residual feasibility issue — affected cells "
+          "left unsolved in output",
           final_iteration_index);
     }
 
@@ -550,7 +544,6 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
         ir.gap_change,
         ir.converged ? "[CONVERGED]" : "");
 
-    m_sim_write_enabled_ = false;
     m_in_simulation_ = false;
   }
 

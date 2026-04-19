@@ -722,13 +722,6 @@ private:
   std::atomic<bool> m_stop_requested_ {false};
   /// When true, should_stop() returns false (simulation pass ignores stops).
   bool m_in_simulation_ {false};
-  /// Two-phase simulation flag: false during Pass 1 (fcut collection, no
-  /// crossover, no write_out), true during Pass 2 (crossover on, inline
-  /// write_out fused into each cell's solve task).  Always false outside
-  /// the simulation pass; the forward-pass body branches on this flag to
-  /// decide whether to emit parquet shards and to gate the per-cell elastic-
-  /// recovery logic.
-  bool m_sim_write_enabled_ {false};
 
   // ── Atomic live-query state ──
   std::atomic<int> m_current_iteration_ {0};

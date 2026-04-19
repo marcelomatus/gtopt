@@ -570,6 +570,23 @@ public:
     }
   }
 
+  /// Aggressive release for SDDP simulation Pass 1 under low_memory mode:
+  /// calls `release_backend()` (drops backend + collections + caches the
+  /// primal/dual/cost vectors via Phase 2a) and additionally discards the
+  /// flat-LP snapshot.  After this call the only per-cell state that
+  /// remains resident is the small scalar + vector cache on
+  /// `LinearInterface`, which is exactly what `PlanningLP::write_out`
+  /// needs.  No-op under `off` mode (backend stays alive by mode
+  /// contract).
+  void release_for_sim_cache_only() noexcept
+  {
+    if (m_flat_opts_.low_memory_mode == LowMemoryMode::off) {
+      return;
+    }
+    release_backend();
+    m_linear_interface_.clear_snapshot();
+  }
+
   void reconstruct_backend(std::span<const double> col_sol = {},
                            std::span<const double> row_dual = {})
   {

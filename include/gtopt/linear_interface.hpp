@@ -256,6 +256,21 @@ public:
   /// based on the configured level.
   void save_snapshot(FlatLinearProblem flat_lp);
 
+  /// Drop the compressed/uncompressed flat-LP snapshot held by this
+  /// interface.  Used by the SDDP simulation Pass 1 in low-memory mode
+  /// to free the per-cell LP matrix right after the solve caches its
+  /// primal/dual/cost vectors via `release_backend()` — subsequent
+  /// `PlanningLP::write_out` reads solution values straight from the
+  /// cached vectors (see Phase 2a getters) and `rebuild_collections_if_
+  /// needed` re-flattens from the live `System` element arrays, so the
+  /// flat-LP snapshot is no longer needed for any downstream step.
+  ///
+  /// Calling this after `release_backend()` is safe; the cached scalars
+  /// and vectors stay intact.  After this, a subsequent
+  /// `reconstruct_backend()` would have nothing to reload from — only
+  /// call when the LP is truly done.
+  void clear_snapshot() noexcept { m_snapshot_ = LowMemorySnapshot {}; }
+
   /// Install a flat LP snapshot **without** loading the backend.
   ///
   /// Used by `SystemLP::create_lp` when low-memory mode is enabled at

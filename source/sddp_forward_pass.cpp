@@ -418,23 +418,27 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
           (alpha_svar != nullptr) ? alpha_svar->col_sol() * sa : 0.0;
       state.forward_objective = obj - alpha_val;
 
-      // Simulation Pass 2 per-cell emit.
+      // Release after solve.  During the SDDP simulation Pass 1 under
+      // low_memory mode, go aggressive: drop the backend + collections
+      // + flat-LP snapshot, keeping ONLY the cached col_sol / col_cost
+      // / row_dual vectors (populated by `release_backend()` itself via
+      // Phase 2a).  `PlanningLP::write_out` later reads those cached
+      // vectors through the LinearInterface getters, and
+      // `rebuild_collections_if_needed` re-flattens from the live
+      // `System` element arrays — so the snapshot is not needed for
+      // any downstream step and releasing it frees a big chunk of RAM
+      // per cell.
       //
-      // `m_sim_write_enabled_` is true only during the second
-      // simulation forward pass (set by SDDPMethod::simulation_pass in
-      // sddp_iteration.cpp).  Pass 1 collects fcuts without writing;
-      // Pass 2 has all fcuts installed, runs with crossover on, and
-      // fuses the parquet emit into the solve task so each (scene,
-      // phase) cell is written at most once under every low_memory
-      // mode.  `SystemLP::write_out` has an idempotence guard
-      // (m_output_written_) that protects against double-emit if the
-      // later `PlanningLP::write_out` also iterates this cell.
-      if (m_sim_write_enabled_) {
-        system.write_out();
+      // Under `off` the aggressive release is a no-op (mode contract:
+      // backends stay alive); under training iterations it is also a
+      // no-op (we need the snapshot for the next iteration's
+      // reconstruct).
+      if (m_in_simulation_ && m_options_.low_memory_mode != LowMemoryMode::off)
+      {
+        system.release_for_sim_cache_only();
+      } else {
+        system.release_backend();
       }
-
-      // Release solver backend — no-op when low_memory is off.
-      system.release_backend();
 
       // Guard against solver returning "optimal" with NaN values
       // (can happen when inherited cuts cause ill-conditioning).
