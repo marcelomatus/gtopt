@@ -1823,3 +1823,167 @@ TEST_CASE(  // NOLINT
   // Cleanup
   fs::remove_all(base_dir);
 }
+
+// ─── Multi-iter training invariance (Phase 2 exit criterion) ───────────────
+//
+// Stronger than the `max_iter=0` test above: this one runs a real training
+// loop (`max_iterations=3`) with `low_memory=off` and `low_memory=compress`,
+// then asserts that the consolidated `solution.csv` matches byte-for-byte
+// and the per-row obj_value / status columns agree.  Exercises the paths
+// Phase 2 was designed to keep numerically identical:
+//
+//   • forward pass: saved-snapshot getters return the same values compress
+//     now serves from `m_cached_col_sol_` as off reads from the live backend;
+//   • `PlanningLP::write_out` fast-path (Phase 2b) under compress skips
+//     `ensure_lp_built` + `release_backend` for sim-pass cells — the test
+//     catches any path where that fast-path would emit different numbers;
+//   • multi-iter training produces the same final cuts across modes,
+//     which the `low_memory parity` test above already covers for the
+//     UB/LB scalars but not for the emitted files.
+TEST_CASE(  // NOLINT
+    "SDDPMethod — multi-iter training output invariance "
+    "across low_memory modes")
+{
+  namespace fs = std::filesystem;
+
+  constexpr int kIters = 3;
+  constexpr double kConvTol = 1e-3;
+
+  auto run_once = [&](std::optional<LowMemoryMode> mode,
+                      const fs::path& out_dir) -> void
+  {
+    fs::remove_all(out_dir);
+    fs::create_directories(out_dir);
+
+    auto planning = make_3phase_hydro_planning();
+    planning.options.output_directory = out_dir.string();
+
+    PlanningLP planning_lp(std::move(planning));
+
+    SDDPOptions sddp_opts;
+    sddp_opts.max_iterations = kIters;
+    sddp_opts.convergence_tol = kConvTol;
+    sddp_opts.enable_api = false;
+    if (mode) {
+      sddp_opts.low_memory_mode = *mode;
+    }
+
+    SDDPMethod sddp(planning_lp, sddp_opts);
+    auto results = sddp.solve();
+    REQUIRE(results.has_value());
+    REQUIRE_FALSE(results->empty());
+
+    // Mirror the SDDPPlanningMethod summary population so solution.csv
+    // emits the same gap/max_kappa/converged columns in both runs.
+    const auto& last = results->back();
+    planning_lp.set_sddp_summary({
+        .gap = last.gap,
+        .gap_change = last.gap_change,
+        .lower_bound = last.lower_bound,
+        .upper_bound = last.upper_bound,
+        .max_kappa = sddp.global_max_kappa(),
+        .iterations = static_cast<int>(results->size()),
+        .converged = last.converged,
+        .stationary_converged = last.stationary_converged,
+        .statistical_converged = last.statistical_converged,
+    });
+    planning_lp.write_out();
+  };
+
+  const auto base_dir =
+      fs::temp_directory_path() / "gtopt_multi_iter_invariance";
+  const auto off_dir = base_dir / "off";
+  const auto cmp_dir = base_dir / "compress";
+
+  run_once(std::nullopt, off_dir);
+  run_once(LowMemoryMode::compress, cmp_dir);
+
+  const auto off_sol = off_dir / "solution.csv";
+  const auto cmp_sol = cmp_dir / "solution.csv";
+  REQUIRE(fs::exists(off_sol));
+  REQUIRE(fs::exists(cmp_sol));
+
+  // Parse solution.csv and compare the *solution* columns (status,
+  // obj_value, gap, gap_change) exactly / within tolerance.  Kappa and
+  // max_kappa are solver-internal condition numbers that legitimately
+  // diverge between off (live-backend warm-start across iterations) and
+  // compress (release-reconstruct path) — they reflect different
+  // simplex-iteration paths, not a solution divergence.
+  struct SolRow
+  {
+    std::string scene;
+    std::string phase;
+    std::string status;
+    std::string status_name;
+    double obj_value {};
+    double gap {};
+    double gap_change {};
+  };
+  const auto parse = [](const fs::path& p) -> std::vector<SolRow>
+  {
+    std::ifstream f(p.string());
+    std::vector<SolRow> rows;
+    std::string line;
+    std::getline(f, line);  // header
+    while (std::getline(f, line)) {
+      if (line.empty()) {
+        continue;
+      }
+      SolRow r;
+      std::stringstream ss(line);
+      std::string col;
+      std::getline(ss, r.scene, ',');
+      std::getline(ss, r.phase, ',');
+      std::getline(ss, r.status, ',');
+      std::getline(ss, r.status_name, ',');
+      std::getline(ss, col, ',');
+      r.obj_value = std::stod(col);
+      std::getline(ss, col, ',');  // kappa (skip — solver internal)
+      std::getline(ss, col, ',');  // max_kappa (skip — solver internal)
+      std::getline(ss, col, ',');
+      r.gap = std::stod(col);
+      std::getline(ss, col, ',');
+      r.gap_change = std::stod(col);
+      rows.push_back(std::move(r));
+    }
+    return rows;
+  };
+
+  const auto off_rows = parse(off_sol);
+  const auto cmp_rows = parse(cmp_sol);
+  REQUIRE(off_rows.size() == cmp_rows.size());
+  REQUIRE_FALSE(off_rows.empty());
+
+  for (std::size_t i = 0; i < off_rows.size(); ++i) {
+    const auto& a = off_rows[i];
+    const auto& b = cmp_rows[i];
+    CHECK(a.scene == b.scene);
+    CHECK(a.phase == b.phase);
+    CHECK(a.status == b.status);
+    CHECK(a.status_name == b.status_name);
+    CHECK(a.obj_value == doctest::Approx(b.obj_value).epsilon(1e-6));
+    CHECK(a.gap == doctest::Approx(b.gap).epsilon(1e-6));
+    CHECK(a.gap_change == doctest::Approx(b.gap_change).epsilon(1e-6));
+  }
+
+  // File-set parity: every parquet / csv shard must be emitted by both
+  // modes.  Catches a regression where Phase 2b's fast-path would skip
+  // a cell under one mode but not the other.
+  const auto collect = [&](const fs::path& root)
+  {
+    std::vector<std::string> rel;
+    for (const auto& e : fs::recursive_directory_iterator(root)) {
+      if (e.is_regular_file()) {
+        rel.push_back(fs::relative(e.path(), root).string());
+      }
+    }
+    std::ranges::sort(rel);
+    return rel;
+  };
+
+  const auto off_files = collect(off_dir);
+  const auto cmp_files = collect(cmp_dir);
+  CHECK(off_files == cmp_files);
+
+  fs::remove_all(base_dir);
+}

@@ -444,65 +444,82 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
     };
     m_benders_cut_.reset_infeasible_cut_count();
 
-    // Enable crossover for the simulation pass: output writing reads
-    // row duals (bus marginal prices, etc.) via output_context, so
-    // vertex duals are required.  Training passes keep crossover off
-    // because cuts use reduced costs.
-    auto sim_opts = fwd_opts;
-    sim_opts.crossover = true;
+    // ── Two-pass simulation stage ─────────────────────────────────────
+    //
+    // Pass 1 (fcut collection):
+    //   - crossover=false (feasibility check only; no dual cleanup)
+    //   - m_sim_write_enabled_=false (no parquet emit; no elastic
+    //     backward-recovery — the forward body just installs fcuts on
+    //     the previous phase via the existing infeasibility path and
+    //     releases the backend).
+    //
+    // Pass 2 (final forward + write):
+    //   - crossover=true (vertex duals needed for row_dual in write_out)
+    //   - m_sim_write_enabled_=true (parquet shard emitted in the same
+    //     solve task, right before release_backend — so every cell is
+    //     written exactly once, under every low_memory mode).
+    //
+    // With the Pass-1 fcuts persistent on each cell's m_active_cuts_,
+    // Pass 2 normally finds every phase optimal.  Any residual
+    // infeasibility in Pass 2 is left unsolved: status=-1 in
+    // solution.csv, no parquet shard emitted (SystemLP::write_out
+    // short-circuits on !is_optimal).  This replaces the earlier
+    // Proposal-1 retry loop (off mode) and Proposal-2 in-forward-pass
+    // q/p backward recovery (compress/rebuild) with one uniform path.
+    auto sim_opts_p1 = fwd_opts;
+    sim_opts_p1.crossover = false;
+    auto sim_opts_p2 = fwd_opts;
+    sim_opts_p2.crossover = true;
 
-    // Sim-pass backward-recovery loop (Proposal 1, off-mode only).
-    //
-    // When a phase hits the elastic branch, `sddp_forward_pass.cpp`
-    // installs a Benders feasibility cut on phase p-1 and records it
-    // via `record_cut_row` so every subsequent rebuild replays it.
-    // Under low_memory=off, the LPs stay alive, which lets us retry
-    // the entire forward pass until no scene reports a feasibility
-    // issue — each retry benefits from the fcuts accumulated in the
-    // previous attempt.  The per-phase inline `system.write_out()` in
-    // the forward pass is suppressed under off, so retries never need
-    // to roll back prematurely-written files; deferred
-    // `PlanningLP::write_out` later emits from the final live-backend
-    // state.
-    //
-    // Under low_memory=compress/rebuild the inline write is load-
-    // bearing (the backend is released per cell), so the backward
-    // walk cannot be done by a retry loop here — that is the subject
-    // of Proposal 2 in sddp_forward_pass.cpp itself.
-    constexpr int kMaxSimRetries = 3;
-    const bool can_retry = m_options_.low_memory_mode == LowMemoryMode::off;
-    std::expected<ForwardPassOutcome, Error> fwd;
-    for (int attempt = 0; attempt <= (can_retry ? kMaxSimRetries : 0);
-         ++attempt)
-    {
-      if (attempt > 0) {
-        SPDLOG_INFO(
-            "SDDP Sim [i{}]: feasibility issue — retry {}/{} with "
-            "accumulated fcuts",
-            final_iteration_index,
-            attempt,
-            kMaxSimRetries);
-      }
-      fwd = run_forward_pass_all_scenes(
-          *sddp_pool, sim_opts, final_iteration_index);
-      if (!fwd.has_value()) {
+    // Pass 1 runs until no new fcuts are needed (bounded retry loop) so
+    // Pass 2 sees every phase feasible under the accumulated fcuts.
+    // Bound at kMaxSimP1Retries so deeper infeasibility chains don't
+    // loop forever; anything still infeasible in Pass 2 shows as
+    // status=-1 in solution.csv with no parquet shard.
+    constexpr int kMaxSimP1Retries = 3;
+    m_sim_write_enabled_ = false;
+    double p1_total_elapsed = 0.0;
+    std::expected<ForwardPassOutcome, Error> fwd_p1;
+    int p1_attempts = 0;
+    for (; p1_attempts <= kMaxSimP1Retries; ++p1_attempts) {
+      SPDLOG_INFO("SDDP Sim [i{}]: Pass 1 attempt {}/{} — fcut collection",
+                  final_iteration_index,
+                  p1_attempts + 1,
+                  kMaxSimP1Retries + 1);
+      fwd_p1 = run_forward_pass_all_scenes(
+          *sddp_pool, sim_opts_p1, final_iteration_index);
+      if (!fwd_p1.has_value()) {
         monitor.stop();
-        return std::unexpected(std::move(fwd.error()));
+        return std::unexpected(std::move(fwd_p1.error()));
       }
-      if (!fwd->has_feasibility_issue) {
+      p1_total_elapsed += fwd_p1->elapsed_s;
+      if (!fwd_p1->has_feasibility_issue) {
         break;
       }
     }
 
+    SPDLOG_INFO(
+        "SDDP Sim [i{}]: Pass 2 — final forward + write_out "
+        "(p1_attempts={} residual_feasibility_issue={})",
+        final_iteration_index,
+        p1_attempts + 1,
+        fwd_p1->has_feasibility_issue);
+    m_sim_write_enabled_ = true;
+    auto fwd = run_forward_pass_all_scenes(
+        *sddp_pool, sim_opts_p2, final_iteration_index);
+    if (!fwd.has_value()) {
+      monitor.stop();
+      return std::unexpected(std::move(fwd.error()));
+    }
+
     ir.scene_upper_bounds = std::move(fwd->scene_upper_bounds);
-    ir.forward_pass_s = fwd->elapsed_s;
+    ir.forward_pass_s = fwd->elapsed_s + p1_total_elapsed;
     if (fwd->has_feasibility_issue) {
       ir.feasibility_issue = true;
       SPDLOG_WARN(
-          "SDDP Sim [i{}]: feasibility issue persists after {}"
-          " retry(ies) — output may reflect elastic-relaxed solutions",
-          final_iteration_index,
-          kMaxSimRetries);
+          "SDDP Sim [i{}]: residual feasibility issue after Pass 1 "
+          "fcut collection — affected cells left unsolved in output",
+          final_iteration_index);
     }
 
     const auto& scenes = planning_lp().simulation().scenes();
@@ -533,6 +550,7 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
         ir.gap_change,
         ir.converged ? "[CONVERGED]" : "");
 
+    m_sim_write_enabled_ = false;
     m_in_simulation_ = false;
   }
 

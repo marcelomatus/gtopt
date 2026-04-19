@@ -979,6 +979,9 @@ public:
    */
   [[nodiscard]] auto get_col_sol_raw() const -> std::span<const double>
   {
+    if (m_backend_released_ && !m_cached_col_sol_.empty()) {
+      return {m_cached_col_sol_.data(), m_cached_col_sol_.size()};
+    }
     return {backend().col_solution(), get_numcols()};
   }
 
@@ -997,6 +1000,13 @@ public:
   [[nodiscard]] ScaledView get_col_sol() const noexcept
   {
     const auto n = get_numcols();
+    if (m_backend_released_ && !m_cached_col_sol_.empty()) {
+      return {m_cached_col_sol_.data(),
+              n,
+              m_col_scales_.data(),
+              m_col_scales_.size(),
+              ScaledView::Op::multiply};
+    }
     return {backend().col_solution(),
             n,
             m_col_scales_.data(),
@@ -1010,6 +1020,9 @@ public:
    */
   [[nodiscard]] auto get_col_cost_raw() const -> std::span<const double>
   {
+    if (m_backend_released_ && !m_cached_col_cost_.empty()) {
+      return {m_cached_col_cost_.data(), m_cached_col_cost_.size()};
+    }
     return {backend().reduced_cost(), get_numcols()};
   }
 
@@ -1026,6 +1039,14 @@ public:
   [[nodiscard]] ScaledView get_col_cost() const noexcept
   {
     const auto n = get_numcols();
+    if (m_backend_released_ && !m_cached_col_cost_.empty()) {
+      return {m_cached_col_cost_.data(),
+              n,
+              m_col_scales_.data(),
+              m_col_scales_.size(),
+              ScaledView::Op::divide,
+              m_scale_objective_};
+    }
     return {backend().reduced_cost(),
             n,
             m_col_scales_.data(),
@@ -1158,6 +1179,9 @@ public:
    */
   [[nodiscard]] auto get_row_dual_raw() -> std::span<const double>
   {
+    if (m_backend_released_ && !m_cached_row_dual_.empty()) {
+      return {m_cached_row_dual_.data(), m_cached_row_dual_.size()};
+    }
     ensure_duals();
     return {backend().row_price(), get_numrows()};
   }
@@ -1177,8 +1201,16 @@ public:
    */
   [[nodiscard]] ScaledView get_row_dual()
   {
-    ensure_duals();
     const auto n = get_numrows();
+    if (m_backend_released_ && !m_cached_row_dual_.empty()) {
+      return {m_cached_row_dual_.data(),
+              n,
+              m_row_scales_.data(),
+              m_row_scales_.size(),
+              ScaledView::Op::divide,
+              m_scale_objective_};
+    }
+    ensure_duals();
     return {backend().row_price(),
             n,
             m_row_scales_.data(),
@@ -1516,6 +1548,17 @@ private:
   size_t m_cached_numcols_ {};
   /// Whether the cached state represents an optimal solution.
   bool m_cached_is_optimal_ {false};
+
+  /// Cached post-solve primal/dual vectors (valid when `m_backend_released_`
+  /// is true AND `m_cached_is_optimal_` is true).  Populated by
+  /// `release_backend()` so downstream readers — `OutputContext`, Benders
+  /// cut assembly, SDDP state propagation — can continue to access the
+  /// solution after the solver backend has been dropped, without paying
+  /// for a re-solve.  Empty when the backend was never released, never
+  /// solved to optimum, or `m_low_memory_mode_ == LowMemoryMode::off`.
+  std::vector<double> m_cached_col_sol_ {};
+  std::vector<double> m_cached_col_cost_ {};
+  std::vector<double> m_cached_row_dual_ {};
 
   /// Cumulative solver-activity counters (see `solver_stats.hpp`).
   /// Written only by the thread that owns this LP; aggregated across

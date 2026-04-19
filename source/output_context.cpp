@@ -316,30 +316,35 @@ auto create_tables(std::string_view fmt,
   std::vector<PathTable> path_tables;
 
   const auto dirpath = std::filesystem::path(output_directory);
-  const auto scene_part = std::format("scene={}", static_cast<Uid>(scene_uid));
-  const auto phase_part = std::format("phase={}", static_cast<Uid>(phase_uid));
-  const auto csv_shard_suffix = std::format(
-      "_s{}_p{}", static_cast<Uid>(scene_uid), static_cast<Uid>(phase_uid));
+  const auto scene_part = std::format("scene={}", scene_uid);
+  const auto phase_part = std::format("phase={}", phase_uid);
+  const auto csv_shard_suffix = std::format("_s{}_p{}", scene_uid, phase_uid);
 
   for (auto&& [class_fname, vfields] : field_vector_map) {
-    auto&& [cname, fname] = class_fname;
+    // Key is std::array<std::string_view, 3> = (cname, fname, sname).
+    // The file-name stem is `fname_sname` — composed once here instead
+    // of at every `add_field` call (previously `as_label(fname, sname)`
+    // allocated per element).
+    const auto& cname = class_fname[0];
+    const auto fname_stem =
+        std::format("{}_{}", class_fname[1], class_fname[2]);
     const auto mtable = make_table<Type>(vfields);
 
     const auto cname_dir = dirpath / cname;
 
     // Parquet: hive-partitioned directory
-    //   {cname}/{fname}.parquet/scene=<N>/phase=<M>/part{.parquet}
+    //   {cname}/{fname_stem}.parquet/scene=<N>/phase=<M>/part{.parquet}
     // CSV: per-(scene, phase) shard in the class directory
-    //   {cname}/{fname}_s<N>_p<M>{.csv,.csv.zst,.csv.gz}
+    //   {cname}/{fname_stem}_s<N>_p<M>{.csv,.csv.zst,.csv.gz}
     std::filesystem::path dir_to_create;
     std::filesystem::path fpath;
     if (fmt == "parquet") {
       dir_to_create =
-          cname_dir / (fname + ".parquet") / scene_part / phase_part;
+          cname_dir / (fname_stem + ".parquet") / scene_part / phase_part;
       fpath = dir_to_create / "part";
     } else {
       dir_to_create = cname_dir;
-      fpath = cname_dir / (fname + csv_shard_suffix);
+      fpath = cname_dir / (fname_stem + csv_shard_suffix);
     }
 
     std::error_code ec;
@@ -354,7 +359,7 @@ auto create_tables(std::string_view fmt,
     if (!mtable.ok()) {
       SPDLOG_CRITICAL("Cannot create table '{}/{}': {}",
                       cname,
-                      fname,
+                      fname_stem,
                       mtable.status().ToString());
       continue;
     }
@@ -439,8 +444,8 @@ void OutputContext::write() const
       "(scene={}, phase={}, format={}, compression={})",
       path_tables.size(),
       options().output_directory(),
-      static_cast<Uid>(m_scene_uid_),
-      static_cast<Uid>(m_phase_uid_),
+      m_scene_uid_,
+      m_phase_uid_,
       fmt,
       zfmt);
 

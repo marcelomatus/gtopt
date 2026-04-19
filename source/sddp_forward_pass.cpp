@@ -350,148 +350,13 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
               mc_added > 0 ? std::format(" +{}mc", mc_added) : "");
           // Do not release prev_sys backend here — the backward pass
           // will visit phase p-1 shortly and re-ensure_lp_built() itself.
-
-          // ── Sim-pass compress-mode backward recovery (Proposal 2) ──
           //
-          // Under low_memory != off, the inline per-cell `write_out()`
-          // has already emitted the previous phase (q = p-1) with its
-          // pre-fcut solution — now stale because the fcut we just
-          // installed changes q's LP.  Additionally the elastic
-          // contribution we just added to total_opex belongs to a
-          // relaxed LP, not the real one.
-          //
-          // This is a single-step sync recovery: re-solve q with the
-          // new fcut, then re-solve p with q's new trial values.  If
-          // both succeed, replace the stale output and the elastic
-          // total_opex contribution with the real values.  If either
-          // step fails, abandon the recovery (keep the elastic result
-          // on disk) — deeper multi-step recursion is tracked as a
-          // future enhancement.
-          const bool sim_low_mem = m_in_simulation_
-              && m_options_.low_memory_mode != LowMemoryMode::off;
-          if (sim_low_mem) {
-            auto& q_sys = planning_lp().system(scene_index, prev_phase_index);
-            auto& q_li = q_sys.linear_interface();
-
-            // Clear stale output marker before re-solve.  On compress
-            // the LP matrix is replayed from the snapshot with the
-            // just-added fcut in `m_active_cuts_`; trial-value bounds
-            // are reset to defaults and must be re-propagated when
-            // q > 0.
-            q_sys.clear_output_written();
-            q_sys.ensure_lp_built();
-            if (prev_phase_index > first_phase_index()) {
-              const auto q_prev = previous(prev_phase_index);
-              propagate_trial_values(phase_states[q_prev].outgoing_links, q_li);
-            }
-            q_li.set_log_tag(sddp_log("ForwardRecover-q",
-                                      iteration_index,
-                                      scene_uid(scene_index),
-                                      phase_uid(prev_phase_index)));
-            auto q_res = q_li.resolve(effective_opts);
-
-            if (q_res.has_value() && q_li.is_optimal()) {
-              // q is now feasible under the new fcut.  Capture fresh
-              // state, replace the elastic total_opex contribution
-              // for q with the real one, re-emit q.
-              const auto q_obj = q_li.get_obj_value();
-              const auto q_sol = q_li.get_col_sol_raw();
-              const auto q_rc = q_li.get_col_cost_raw();
-              capture_state_variable_values(
-                  scene_index, prev_phase_index, q_sol, q_rc);
-              const auto* q_alpha = find_alpha_state_var(
-                  planning_lp().simulation(), scene_index, prev_phase_index);
-              const auto q_alpha_val =
-                  (q_alpha != nullptr) ? q_alpha->col_sol() * sa : 0.0;
-              auto& q_state = phase_states[prev_phase_index];
-              const auto q_old_fwd_obj = q_state.forward_objective;
-              q_state.forward_objective = q_obj - q_alpha_val;
-              q_state.forward_full_obj = q_obj;
-              total_opex += (q_state.forward_objective - q_old_fwd_obj);
-
-              q_sys.write_out();
-              q_sys.release_backend();
-
-              // Now re-solve p with q's new trial values.  The LP for
-              // p already holds the relaxed solution in its backend
-              // (we never released between the elastic solve and this
-              // recovery attempt inside this iteration) — release it
-              // first so ensure_lp_built replays the unmodified p
-              // snapshot, then propagate fresh trial values.
-              auto& p_sys = planning_lp().system(scene_index, phase_index);
-              auto& p_li = p_sys.linear_interface();
-              p_sys.clear_output_written();
-              p_sys.release_backend();
-              p_sys.ensure_lp_built();
-              propagate_trial_values(
-                  phase_states[prev_phase_index].outgoing_links, p_li);
-              p_li.set_log_tag(sddp_log("ForwardRecover-p",
-                                        iteration_index,
-                                        scene_uid(scene_index),
-                                        phase_uid(phase_index)));
-              auto p_res = p_li.resolve(effective_opts);
-
-              if (p_res.has_value() && p_li.is_optimal()) {
-                // Full recovery: p is optimal on the real LP.  Replace
-                // the elastic contribution in total_opex with the
-                // real one, refresh state, re-emit p, reset infeas.
-                const auto p_obj = p_li.get_obj_value();
-                const auto p_sol = p_li.get_col_sol_raw();
-                const auto p_rc = p_li.get_col_cost_raw();
-                capture_state_variable_values(
-                    scene_index, phase_index, p_sol, p_rc);
-                const auto* p_alpha = find_alpha_state_var(
-                    planning_lp().simulation(), scene_index, phase_index);
-                const auto p_alpha_val =
-                    (p_alpha != nullptr) ? p_alpha->col_sol() * sa : 0.0;
-                const auto p_old_fwd_obj = state.forward_objective;
-                state.forward_objective = p_obj - p_alpha_val;
-                state.forward_full_obj = p_obj;
-                total_opex += (state.forward_objective - p_old_fwd_obj);
-
-                // Elastic trial is no longer in effect — reset counter.
-                m_infeasibility_counter_[scene_index][phase_index] = 0;
-                m_phase_grid_.record(iteration_index,
-                                     scene_uid(scene_index),
-                                     phase_index,
-                                     GridCell::Forward);
-                update_max_kappa(
-                    scene_index, phase_index, p_li, iteration_index);
-
-                p_sys.write_out();
-                p_sys.release_backend();
-
-                SPDLOG_INFO(
-                    "SDDP ForwardRecover [i{} s{} p{}]: recovered "
-                    "(q-obj {:.4f}, p-obj {:.4f})",
-                    iteration_index,
-                    scene_uid(scene_index),
-                    phase_uid(phase_index),
-                    q_obj,
-                    p_obj);
-              } else {
-                SPDLOG_WARN(
-                    "SDDP ForwardRecover [i{} s{} p{}]: p-resolve "
-                    "non-optimal after q recovery (status {}); "
-                    "keeping elastic result",
-                    iteration_index,
-                    scene_uid(scene_index),
-                    phase_uid(phase_index),
-                    p_li.get_status());
-                p_sys.release_backend();
-              }
-            } else {
-              SPDLOG_WARN(
-                  "SDDP ForwardRecover [i{} s{} p{}]: q-resolve "
-                  "non-optimal with new fcut (status {}); keeping "
-                  "elastic result",
-                  iteration_index,
-                  scene_uid(scene_index),
-                  phase_uid(phase_index),
-                  q_li.get_status());
-              q_sys.release_backend();
-            }
-          }
+          // Two-pass simulation (Pass 1 only): the fcut just installed
+          // lives persistently on prev_li's m_active_cuts_, so Pass 2
+          // sees it on every cell whether backends stayed alive (off)
+          // or were reconstructed from snapshot (compress/rebuild).
+          // No in-forward-pass backward recovery needed — Pass 2 is the
+          // single recovery step.
         }
       } else {
         // Save the infeasible LP and run diagnostics only when:
@@ -553,23 +418,18 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
           (alpha_svar != nullptr) ? alpha_svar->col_sol() * sa : 0.0;
       state.forward_objective = obj - alpha_val;
 
-      // Simulation-pass per-cell emit.
+      // Simulation Pass 2 per-cell emit.
       //
-      // Under low_memory != off the backend is about to be released and
-      // its primal/dual vectors lost, so we MUST write here, while
-      // `col_sol` and `row_dual` still carry the real solved values.
-      //
-      // Under low_memory == off the backend survives past the scene
-      // (release_backend is a no-op).  `PlanningLP::write_out` will
-      // later walk every cell and emit from the still-live backend —
-      // which lets the sim-pass retry loop in `sddp_iteration.cpp`
-      // re-solve any phase whose trial values were invalidated by an
-      // fcut installed downstream, without needing to first undo a
-      // premature write.  Skipping the inline emit here is therefore
-      // the hook that enables backward-recovery semantics for the
-      // off-mode sim pass (Proposal 1).
-      if (m_in_simulation_ && m_options_.low_memory_mode != LowMemoryMode::off)
-      {
+      // `m_sim_write_enabled_` is true only during the second
+      // simulation forward pass (set by SDDPMethod::simulation_pass in
+      // sddp_iteration.cpp).  Pass 1 collects fcuts without writing;
+      // Pass 2 has all fcuts installed, runs with crossover on, and
+      // fuses the parquet emit into the solve task so each (scene,
+      // phase) cell is written at most once under every low_memory
+      // mode.  `SystemLP::write_out` has an idempotence guard
+      // (m_output_written_) that protects against double-emit if the
+      // later `PlanningLP::write_out` also iterates this cell.
+      if (m_sim_write_enabled_) {
         system.write_out();
       }
 
