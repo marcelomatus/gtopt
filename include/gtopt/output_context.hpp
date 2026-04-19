@@ -11,8 +11,10 @@
 
 #pragma once
 
+#include <array>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 
 #include <gtopt/arrow_types.hpp>
 #include <gtopt/basic_types.hpp>
@@ -55,9 +57,32 @@ public:
   template<typename Type = double>
   using FieldVector = std::vector<FieldType<Type>>;
 
-  using ClassFieldName = std::pair<std::string_view, Name>;
+  /// Map key for `field_vector_map`: (cname, fname, sname).
+  /// All three are static `string_view` literals (class_name / field-name
+  /// constants / fixed suffix tag), so this is a zero-allocation key —
+  /// replaces the former `pair<string_view, Name>` whose `Name` (std::string)
+  /// was freshly heap-allocated via `as_label(fname, sname)` on every call.
+  using ClassFieldName = std::array<std::string_view, 3>;
+  struct ClassFieldNameHash
+  {
+    [[nodiscard]] std::size_t operator()(const ClassFieldName& k) const noexcept
+    {
+      // Mix three string_view hashes with golden-ratio constants.  Keys
+      // are short (≤ 2 dozen chars each) and the population is tiny
+      // (a few dozen per OutputContext) so a plain combine is fine.
+      constexpr std::uint64_t kMix = 0x9e3779b97f4a7c15ULL;
+      const std::uint64_t h0 = std::hash<std::string_view> {}(k[0]);
+      const std::uint64_t h1 = std::hash<std::string_view> {}(k[1]);
+      const std::uint64_t h2 = std::hash<std::string_view> {}(k[2]);
+      std::uint64_t h = h0;
+      h ^= h1 + kMix + (h << 6U) + (h >> 2U);
+      h ^= h2 + kMix + (h << 6U) + (h >> 2U);
+      return static_cast<std::size_t>(h);
+    }
+  };
   template<typename Type = double>
-  using FieldVectorMap = std::map<ClassFieldName, FieldVector<Type>>;
+  using FieldVectorMap =
+      std::unordered_map<ClassFieldName, FieldVector<Type>, ClassFieldNameHash>;
 
   explicit OutputContext(const SystemContext& psc,
                          LinearInterface& linear_interface,
@@ -330,9 +355,8 @@ private:
       return;
     }
 
-    field_vector_map[ClassFieldName {cname, as_label(fname, sname)}]
-        .emplace_back(
-            field_name(id), std::move(values), std::move(valid), prelude);
+    field_vector_map[ClassFieldName {cname, fname, sname}].emplace_back(
+        field_name(id), std::move(values), std::move(valid), prelude);
   }
 
   /// add_field variant with additional per-(scenario,stage) back-scale.
@@ -359,9 +383,8 @@ private:
       return;
     }
 
-    field_vector_map[ClassFieldName {cname, as_label(fname, sname)}]
-        .emplace_back(
-            field_name(id), std::move(values), std::move(valid), &stb_prelude);
+    field_vector_map[ClassFieldName {cname, fname, sname}].emplace_back(
+        field_name(id), std::move(values), std::move(valid), &stb_prelude);
   }
 };
 
