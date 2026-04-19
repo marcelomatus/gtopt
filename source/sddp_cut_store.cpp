@@ -85,7 +85,7 @@ void SDDPCutStore::store_cut(SceneIndex scene_index,
 
 // ── clear ──────────────────────────────────────────────────────────────────
 
-void SDDPCutStore::clear() noexcept
+void SDDPCutStore::clear()
 {
   {
     const std::scoped_lock lk(m_cuts_mutex_);

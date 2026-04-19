@@ -561,7 +561,7 @@ public:
   ///    `rebuild_collections_if_needed()` so any subsequent
   ///    `sys.collections()` read (backward-pass aperture updates,
   ///    `write_out`, etc.) sees the fully-populated XLP state.
-  void release_backend() noexcept
+  void release_backend()
   {
     m_linear_interface_.release_backend();
     if (m_flat_opts_.low_memory_mode != LowMemoryMode::off) {

@@ -138,7 +138,7 @@ public:
                  PhaseUid phase_uid_val);
 
   /// Clear all stored cut metadata (combined + per-scene).
-  void clear() noexcept;
+  void clear();
 
   /// Remove the first @p count cuts from stored cuts and from the LP.
   void forget_first_cuts(std::ptrdiff_t count, PlanningLP& planning_lp);

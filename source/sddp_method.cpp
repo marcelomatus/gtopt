@@ -82,7 +82,7 @@ ElasticFilterMode parse_elastic_filter_mode(std::string_view name)
 std::vector<double> compute_scene_weights(
     std::span<const SceneLP> scenes,
     std::span<const uint8_t> scene_feasible,
-    ProbabilityRescaleMode rescale_mode) noexcept
+    ProbabilityRescaleMode rescale_mode)
 {
   const auto num_scenes = scene_feasible.size();
   std::vector<double> weights(num_scenes, 0.0);

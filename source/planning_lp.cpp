@@ -864,7 +864,7 @@ void PlanningLP::write_lp(const std::string& filename) const
   }
 }
 
-void PlanningLP::release_cells() noexcept
+void PlanningLP::release_cells()
 {
   // Drop every SystemLP (and its LinearInterface/solver backend).
   // The inner StrongIndexVectors are destroyed first, then the outer

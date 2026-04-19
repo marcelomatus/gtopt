@@ -532,8 +532,7 @@ struct SDDPIterationResult
 [[nodiscard]] std::vector<double> compute_scene_weights(
     std::span<const SceneLP> scenes,
     std::span<const uint8_t> scene_feasible,
-    ProbabilityRescaleMode rescale_mode =
-        ProbabilityRescaleMode::runtime) noexcept;
+    ProbabilityRescaleMode rescale_mode = ProbabilityRescaleMode::runtime);
 
 /// Compute relative convergence gap: (UB - LB) / max(1.0, |UB|).
 /// Always returns a non-negative value.

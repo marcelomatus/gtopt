@@ -224,7 +224,7 @@ public:
    * LP at an early level and want to drop its memory before the next
    * level allocates its own grid of LP matrices.
    */
-  void release_cells() noexcept;
+  void release_cells();
 
   // ── SDDP solve summary ──────────────────────────────────────────────────
 
