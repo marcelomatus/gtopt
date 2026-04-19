@@ -34,7 +34,7 @@ public:
 
   using Base = ObjectLP<InertiaProvision>;
 
-  explicit InertiaProvisionLP(const InertiaProvision& inertia_provision,
+  explicit InertiaProvisionLP(const InertiaProvision& ip,
                               const InputContext& ic);
 
   [[nodiscard]] constexpr auto&& inertia_provision(this auto&& self) noexcept

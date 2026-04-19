@@ -638,6 +638,14 @@ ColIndex LinearInterface::add_col(const std::string& name,
                                   double collb,
                                   double colub)
 {
+  // Ensure the backend is live before we touch it.  Under
+  // `LowMemoryMode::compress` / `rebuild`, `m_backend_` may have been
+  // released; `ensure_backend()` lazily reconstructs it.  The assert
+  // doubles as a hint to clang-static-analyzer, which otherwise can't
+  // see through the rebuild callback and flags every subsequent
+  // `m_backend_->…` as a potential null dereference.
+  ensure_backend();
+  assert(m_backend_ != nullptr);
   const auto index = m_backend_->get_num_cols();
   const auto col = ColIndex {index};
   check_name_unique(m_col_names_,
@@ -1016,12 +1024,14 @@ void LinearInterface::set_obj_coeff(const ColIndex index, const double value)
 void LinearInterface::set_col_low_raw(const ColIndex index, const double value)
 {
   ensure_backend();
+  assert(m_backend_ != nullptr);
   m_backend_->set_col_lower(static_cast<int>(index), normalize_bound(value));
 }
 
 void LinearInterface::set_col_upp_raw(const ColIndex index, const double value)
 {
   ensure_backend();
+  assert(m_backend_ != nullptr);
   m_backend_->set_col_upper(static_cast<int>(index), normalize_bound(value));
 }
 
@@ -1058,17 +1068,24 @@ void LinearInterface::set_col(const ColIndex index, const double physical_value)
 void LinearInterface::set_row_low_raw(const RowIndex index, const double value)
 {
   ensure_backend();
+  assert(m_backend_ != nullptr);
   m_backend_->set_row_lower(static_cast<int>(index), normalize_bound(value));
 }
 
 void LinearInterface::set_row_upp_raw(const RowIndex index, const double value)
 {
   ensure_backend();
+  assert(m_backend_ != nullptr);
   m_backend_->set_row_upper(static_cast<int>(index), normalize_bound(value));
 }
 
 void LinearInterface::set_rhs_raw(const RowIndex row, const double rhs)
 {
+  // Match the rest of the raw-mutation setters above: ensure the
+  // backend is live before delegating.  Without this, a mutation
+  // issued after `release_backend()` would null-deref `m_backend_`
+  // (flagged by clang-analyzer-core.CallAndMessage).
+  ensure_backend();
   m_backend_->set_row_bounds(static_cast<int>(row), rhs, rhs);
 }
 

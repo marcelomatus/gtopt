@@ -56,6 +56,9 @@ namespace gtopt
           return -1;
         }
         int val = -1;
+        // `std::from_chars` requires raw pointer bounds; pointer
+        // arithmetic is inherent to its contract.
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
         std::from_chars(buf.data(), buf.data() + buf.size(), val);
         return val;
       };
@@ -77,8 +80,12 @@ namespace gtopt
           std::thread::hardware_concurrency() / count);
       return count;
     }
-  } catch (...) {
-    // Fall through to default
+  } catch (const std::exception& ex) {
+    // Any sysfs read / parse failure falls back to
+    // `std::thread::hardware_concurrency()` below.  Trace the reason so
+    // operators investigating unexpected core counts can spot the cause
+    // without needing to reproduce the probe failure.
+    SPDLOG_TRACE("Physical-core probe failed: {}", ex.what());
   }
 #endif
 

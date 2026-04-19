@@ -823,7 +823,7 @@ void write_cut_coefficients_unscaled(std::ostream& ofs,
     const std::string& filepath,
     const SDDPOptions& options,
     [[maybe_unused]] const LabelMaker& label_maker,
-    [[maybe_unused]] StrongIndexVector<
+    [[maybe_unused]] const StrongIndexVector<
         SceneIndex,
         StrongIndexVector<PhaseIndex, PhaseStateInfo>>& scene_phase_states)
     -> std::expected<CutLoadResult, Error>
@@ -1183,17 +1183,17 @@ void write_cut_coefficients_unscaled(std::ostream& ofs,
             planning_lp.system(scene_index, last_phase).linear_interface();
         std::istringstream coeff_ss(rc.coeff_line);
         std::string token;
-        for (std::size_t ci = 0; ci < header_col_map.size(); ++ci) {
+        for (const auto& col_opt : header_col_map) {
           if (!std::getline(coeff_ss, token, ',')) {
             break;
           }
-          if (!header_col_map[ci].has_value()) {
+          if (!col_opt.has_value()) {
             continue;  // skip_coeff: drop missing coefficient
           }
           const auto coeff = std::stod(token);
           if (coeff != 0.0) {
-            const auto scale = li.get_col_scale(*header_col_map[ci]);
-            row[*header_col_map[ci]] = -coeff * scale * bc_discount / scale_obj;
+            const auto scale = li.get_col_scale(*col_opt);
+            row[*col_opt] = -coeff * scale * bc_discount / scale_obj;
           }
         }
 
@@ -1239,7 +1239,7 @@ void write_cut_coefficients_unscaled(std::ostream& ofs,
     const std::string& filepath,
     const SDDPOptions& options,
     [[maybe_unused]] const LabelMaker& label_maker,
-    [[maybe_unused]] StrongIndexVector<
+    [[maybe_unused]] const StrongIndexVector<
         SceneIndex,
         StrongIndexVector<PhaseIndex, PhaseStateInfo>>& scene_phase_states)
     -> std::expected<CutLoadResult, Error>
@@ -1468,8 +1468,11 @@ void write_cut_coefficients_unscaled(std::ostream& ofs,
                 .uid = sddp_alpha_uid,
                 .col_name = sddp_alpha_col_name,
                 .class_name = sddp_alpha_class_name,
-                .lp_key = {.scene_index = scene_index,
-                           .phase_index = phase_index},
+                .lp_key =
+                    {
+                        .scene_index = scene_index,
+                        .phase_index = phase_index,
+                    },
             },
             alpha_col,
             0.0,
@@ -1538,11 +1541,10 @@ void write_cut_coefficients_unscaled(std::ostream& ofs,
             planning_lp.system(scene_index, phase_index).linear_interface();
         std::istringstream coeff_ss(remainder);
         std::string ctok;
-        for (std::size_t ci = 0; ci < col_map.size(); ++ci) {
+        for (const auto& col_opt : col_map) {
           if (!std::getline(coeff_ss, ctok, ',')) {
             break;
           }
-          const auto& col_opt = col_map[ci];
           if (!col_opt.has_value()) {
             continue;
           }

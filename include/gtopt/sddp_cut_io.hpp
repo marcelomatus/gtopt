@@ -161,8 +161,8 @@ class PlanningLP;
     const std::string& filepath,
     const SDDPOptions& options,
     const LabelMaker& label_maker,
-    StrongIndexVector<SceneIndex,
-                      StrongIndexVector<PhaseIndex, PhaseStateInfo>>&
+    const StrongIndexVector<SceneIndex,
+                            StrongIndexVector<PhaseIndex, PhaseStateInfo>>&
         scene_phase_states) -> std::expected<CutLoadResult, Error>;
 
 /// Load named-variable cuts from a CSV file with a `phase` column.
@@ -183,8 +183,8 @@ class PlanningLP;
     const std::string& filepath,
     const SDDPOptions& options,
     const LabelMaker& label_maker,
-    StrongIndexVector<SceneIndex,
-                      StrongIndexVector<PhaseIndex, PhaseStateInfo>>&
+    const StrongIndexVector<SceneIndex,
+                            StrongIndexVector<PhaseIndex, PhaseStateInfo>>&
         scene_phase_states) -> std::expected<CutLoadResult, Error>;
 
 // ─── JSON save/load functions ───────────────────────────────────────────────
