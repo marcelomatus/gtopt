@@ -960,10 +960,25 @@ void PlanningLP::write_out()
         [systems_ptr]
         {
           for (auto& system : *systems_ptr) {
-            // Fast path: sim-pass cells already wrote output — skip
+            // Fast path A: sim-pass cells already wrote output — skip
             // ensure_lp_built entirely so we don't needlessly rehydrate
             // the backend just to find m_output_written_ == true.
             if (system.output_written()) {
+              continue;
+            }
+            // Fast path B (Phase 2b): under `compress`, Phase 2a cached
+            // the solution vectors at release time and
+            // `SystemLP::write_out` rebuilds XLP col indices via a guarded
+            // flatten.  That combination lets us emit without the
+            // expensive `reconstruct_backend` → re-solve round-trip.
+            // Rebuild mode is excluded: it repopulates per-element col
+            // indices only via `rebuild_in_place`, which runs inside
+            // `ensure_lp_built`, not inside `create_collections`.
+            const auto& li = system.linear_interface();
+            if (system.low_memory_mode() == LowMemoryMode::compress
+                && li.is_backend_released() && li.is_optimal())
+            {
+              system.write_out();
               continue;
             }
             system.ensure_lp_built();
@@ -988,6 +1003,13 @@ void PlanningLP::write_out()
           scene_num);
       for (auto& system : phase_systems) {
         if (system.output_written()) {
+          continue;
+        }
+        const auto& li = system.linear_interface();
+        if (system.low_memory_mode() == LowMemoryMode::compress
+            && li.is_backend_released() && li.is_optimal())
+        {
+          system.write_out();
           continue;
         }
         system.ensure_lp_built();
