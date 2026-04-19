@@ -878,6 +878,24 @@ void PlanningLP::release_cells()
   m_systems_.shrink_to_fit();
 }
 
+void PlanningLP::drop_sim_snapshots() noexcept
+{
+  // Discard each cell's compressed flat-LP snapshot after SDDP
+  // simulation Pass 1 converged.  Called by
+  // `SDDPMethod::simulation_pass` under low_memory != off.
+  //
+  // The Phase-2a cache on each LinearInterface (col_sol / col_cost /
+  // row_dual + scalars) carries everything `PlanningLP::write_out`
+  // needs, and `rebuild_collections_if_needed()` re-flattens from the
+  // live `System` element arrays — so the snapshot is no longer
+  // required for any downstream step.
+  for (auto& phase_systems : m_systems_) {
+    for (auto& system : phase_systems) {
+      system.linear_interface().clear_snapshot();
+    }
+  }
+}
+
 void PlanningLP::build_all_lps_eagerly()
 {
   const auto num_scenes = m_systems_.size();
