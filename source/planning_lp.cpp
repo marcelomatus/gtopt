@@ -980,6 +980,14 @@ void PlanningLP::set_output_delegate(
   m_output_delegate_ = std::move(delegate);
 }
 
+// `write_out` calls its delegate's `write_out` (see below); clang-tidy
+// flags that as a recursive call chain.  `set_output_delegate` is
+// only called by cascade with an owned LP that itself has no delegate
+// installed, so the recursion depth is at most 1 — but the invariant
+// is not expressible in the type system.  Suppress at the function
+// level since the warning is attached to the whole function, not the
+// specific call.
+// NOLINTNEXTLINE(misc-no-recursion)
 void PlanningLP::write_out()
 {
   // Cascade hand-off: when a non-level-0 cascade pass transferred
