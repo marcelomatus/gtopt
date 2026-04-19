@@ -871,6 +871,79 @@ void SystemLP::rebuild_in_place()
   // flat data.  The guard flips rebuild_pass back to false on exit.
 }
 
+void SystemLP::rebuild_collections_if_needed()
+{
+  // Only compress needs lazy XLP rebuild.  Under `off` collections are
+  // never dropped; under `rebuild` they are refreshed by the rebuild
+  // callback (`rebuild_in_place`) before the backend is usable.
+  if (m_flat_opts_.low_memory_mode != LowMemoryMode::compress) {
+    return;
+  }
+  if (m_collections_built_) {
+    return;
+  }
+
+  create_collections(m_system_context_, system(), m_collections_);
+  m_collections_built_ = true;
+  m_system_context_.rebind_system(*this);
+
+  auto flat_opts = m_flat_opts_;
+  if (flat_opts.scale_objective == 1.0) {
+    flat_opts.scale_objective = system_context().options().scale_objective();
+  }
+  // The fingerprint was captured during the initial flatten inside
+  // `create_lp`; recomputing it would be wasted work.  Also skip
+  // LP-name maps — no caller of this rebuild needs them and producing
+  // them would waste allocations.
+  flat_opts.compute_fingerprint = false;
+
+  // Mirror `rebuild_in_place`'s guard: silence SystemContext
+  // registrations (state variables, AMPL variable registry, deferred
+  // cross-phase links) on this pass.  They were populated during the
+  // original flatten and every col/row index is deterministic, so
+  // re-running them would be wasted work (and for `defer_state_link`
+  // would silently duplicate cross-phase links).
+  struct RebuildPassGuard
+  {
+    SystemContext& ctx;
+    RebuildPassGuard(const RebuildPassGuard&) = delete;
+    RebuildPassGuard& operator=(const RebuildPassGuard&) = delete;
+    RebuildPassGuard(RebuildPassGuard&&) = delete;
+    RebuildPassGuard& operator=(RebuildPassGuard&&) = delete;
+    explicit RebuildPassGuard(SystemContext& c)
+        : ctx(c)
+    {
+      ctx.set_rebuild_pass(true);
+    }
+    ~RebuildPassGuard() { ctx.set_rebuild_pass(false); }
+  } guard {system_context()};
+
+  // Discard the produced FlatLinearProblem; we only care about the
+  // `add_to_lp` side effects on the XLP wrappers inside
+  // `m_collections_`.  The solver backend is untouched.
+  (void)flatten_from_collections(collections(),
+                                 system_context(),
+                                 phase(),
+                                 scene(),
+                                 flat_opts,
+                                 m_linear_interface_.infinity(),
+                                 m_last_flat_ncols_,
+                                 m_last_flat_nrows_);
+}
+
+void SystemLP::ensure_lp_built()
+{
+  m_linear_interface_.ensure_backend();
+  // Under compress, `reconstruct_backend()` only reloads the flat LP
+  // matrix — it does NOT re-run `add_to_lp` on the XLP wrappers, so
+  // collections dropped by `release_backend()` stay empty.  Rebuild
+  // them now so any caller that reads `sys.collections()` after this
+  // call (backward-pass aperture update at sddp_aperture.cpp:287,
+  // sim-pass `write_out`, etc.) sees populated XLP state.  Under
+  // `off` / `rebuild` this is a no-op.
+  rebuild_collections_if_needed();
+}
+
 void SystemLP::install_rebuild_callback()
 {
   if (m_flat_opts_.low_memory_mode != LowMemoryMode::rebuild) {
@@ -939,15 +1012,16 @@ SystemLP::SystemLP(const System& system,
     create_collections(m_system_context_, system, m_collections_);
     m_collections_built_ = true;
     create_lp(m_flat_opts_);
-    // Under compress, collections MUST survive the initial build: the
-    // per-element state they hold (GeneratorLP::generation_cols,
-    // CapacityBase::capacity_rows, …) is populated by `add_to_lp`
-    // during the flatten pass inside `create_lp` and cannot be
-    // regenerated from the snapshot alone — `reconstruct_backend` only
-    // reloads the flat LP matrix.  Dropping them here would leave the
-    // sim-pass `write_out` reading empty holders and emitting zero
-    // per-element files, which broke output invariance between `off`
-    // and `compress`.
+    // Under compress drop collections after the initial flatten — the
+    // ~30 MB of XLP wrappers per cell × num_cells would otherwise
+    // dominate memory under compress.  `ensure_lp_built()` rebuilds
+    // them lazily via `rebuild_collections_if_needed()` so any caller
+    // (sim-pass `write_out`, backward-pass aperture bound updates, …)
+    // sees populated XLP state transparently.
+    if (m_flat_opts_.low_memory_mode == LowMemoryMode::compress) {
+      m_collections_ = collections_t {};
+      m_collections_built_ = false;
+    }
   }
 }
 
