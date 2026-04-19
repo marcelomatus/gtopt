@@ -44,12 +44,22 @@ inline auto chunk_first_value(const std::shared_ptr<arrow::Array>& chunk)
 }
 
 /// Read single-row uid:1..uid:count values from a CSV output table.
-/// The @p path should omit the `.csv` extension (csv_read_table appends it).
+///
+/// The @p path should omit the `.csv` extension (csv_read_table appends
+/// it).  `PlanningLP::write_out` shards CSV tables per (scene, phase)
+/// with a `_s<N>_p<M>` suffix — since the IEEE original cases are
+/// single-scene / single-phase, try the plain `{path}.csv` first and
+/// fall back to `{path}_s0_p0.csv` when the plain name is absent.
 inline auto read_uid_values(const std::filesystem::path& path, int count)
     -> std::vector<double>
 {
   std::vector<double> out;
   auto tbl = csv_read_table(path);
+  if (!tbl.has_value()) {
+    auto sharded = path;
+    sharded += "_s0_p0";
+    tbl = csv_read_table(sharded);
+  }
   if (!tbl.has_value()) {
     return out;
   }
