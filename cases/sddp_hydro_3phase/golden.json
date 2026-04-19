@@ -1,0 +1,23 @@
+{
+  "// description": [
+    "Golden reference for the sddp_hydro_3phase integration case.",
+    "Captured from a converged iter=50 low_memory=off run.",
+    "`tools/validate_sddp_output.py --golden-json` asserts the current",
+    "run matches these values to `tolerance`."
+  ],
+  "tolerance": {
+    "abs": 1.0,
+    "rel": 1.0e-4
+  },
+  "solver_status": {
+    "converged": true,
+    "lower_bound": 323100.0,
+    "upper_bound": 323100.0,
+    "gap": 0.0
+  },
+  "solution_csv_rows": [
+    {"scene": 0, "phase": 1, "status": 0, "obj_value": 323100.0},
+    {"scene": 0, "phase": 2, "status": 0, "obj_value": 212325.0},
+    {"scene": 0, "phase": 3, "status": 0, "obj_value": 103125.0}
+  ]
+}

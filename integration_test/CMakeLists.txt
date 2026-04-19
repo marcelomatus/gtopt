@@ -221,11 +221,20 @@ add_sddp_case(sddp_hydro_3phase_iter3 sddp_hydro_3phase.json
 
 # Converged runs (iter=50) across all three low-memory modes — these
 # are the numerical regression guards: validate_sddp_output.py asserts
-# reservoir/generation/demand invariants on the final parquet output.
+# reservoir/generation/demand invariants AND compares against the
+# committed `golden.json` reference (captured from a converged off-mode
+# run: UB=LB=323 100, per-phase obj {323 100, 212 325, 103 125}).
+# Golden is enforced on off and compress (which match bit-for-bit at
+# convergence); rebuild currently converges to 309 600 on this fixture
+# and is tracked as a separate numerical divergence — no golden check
+# until that's resolved, but the run still exercises the rebuild code
+# path for the range-only invariants.
 add_sddp_case(sddp_hydro_3phase_iter50_off sddp_hydro_3phase.json
-  CASE_DIR sddp_hydro_3phase MAX_ITERATIONS 50 LOW_MEMORY off)
+  CASE_DIR sddp_hydro_3phase MAX_ITERATIONS 50 LOW_MEMORY off
+  GOLDEN golden.json)
 add_sddp_case(sddp_hydro_3phase_iter50_compress sddp_hydro_3phase.json
-  CASE_DIR sddp_hydro_3phase MAX_ITERATIONS 50 LOW_MEMORY compress)
+  CASE_DIR sddp_hydro_3phase MAX_ITERATIONS 50 LOW_MEMORY compress
+  GOLDEN golden.json)
 add_sddp_case(sddp_hydro_3phase_iter50_rebuild sddp_hydro_3phase.json
   CASE_DIR sddp_hydro_3phase MAX_ITERATIONS 50 LOW_MEMORY rebuild)
 

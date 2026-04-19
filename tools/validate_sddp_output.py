@@ -295,6 +295,132 @@ def validate_demand_fail(output_dir: Path) -> list[str]:
     return errors
 
 
+# ── Golden benchmark comparison ────────────────────────────────────────────
+
+
+def _close(a: float, b: float, *, abs_tol: float, rel_tol: float) -> bool:
+    """Robust close-enough check: accept if EITHER abs OR rel tolerance holds."""
+    diff = abs(a - b)
+    if diff <= abs_tol:
+        return True
+    denom = max(abs(a), abs(b), 1.0)
+    return diff <= rel_tol * denom
+
+
+def validate_against_golden(output_dir: Path, golden_path: Path) -> list[str]:
+    """Compare the current run's solver_status + solution.csv against a
+    committed golden reference.
+
+    The golden JSON carries:
+
+        {
+          "tolerance": {"abs": <float>, "rel": <float>},
+          "solver_status": {<fields>: <expected>},
+          "solution_csv_rows": [
+            {"scene": …, "phase": …, "status": …, "obj_value": …},
+            …
+          ]
+        }
+
+    Every numerical field listed in `solver_status` must match the
+    corresponding field in the current ``solver_status.json`` within
+    the tolerance.  Every row in `solution_csv_rows` must find a
+    matching (scene, phase) row in the current ``solution.csv`` with
+    equal status and obj_value within tolerance.
+    """
+    if not golden_path.is_file():
+        return [f"golden reference not found: {golden_path}"]
+
+    with golden_path.open() as fh:
+        golden = json.load(fh)
+
+    tol = golden.get("tolerance", {})
+    abs_tol = float(tol.get("abs", 1.0))
+    rel_tol = float(tol.get("rel", 1.0e-4))
+
+    errors: list[str] = []
+
+    # ── solver_status.json ──
+    expected_status = golden.get("solver_status")
+    if expected_status:
+        status_path = output_dir / "solver_status.json"
+        if not status_path.is_file():
+            errors.append(f"golden check: solver_status.json not found in {output_dir}")
+        else:
+            with status_path.open() as fh:
+                status = json.load(fh)
+            for field, expected in expected_status.items():
+                actual = status.get(field)
+                if isinstance(expected, bool) or isinstance(actual, bool):
+                    if bool(actual) != bool(expected):
+                        errors.append(
+                            f"golden solver_status.{field}: got {actual!r}, "
+                            f"expected {expected!r}"
+                        )
+                elif isinstance(expected, (int, float)):
+                    if actual is None or not isinstance(actual, (int, float)):
+                        errors.append(
+                            f"golden solver_status.{field}: got {actual!r}, "
+                            f"expected ≈ {expected!r}"
+                        )
+                    elif not _close(
+                        float(actual),
+                        float(expected),
+                        abs_tol=abs_tol,
+                        rel_tol=rel_tol,
+                    ):
+                        errors.append(
+                            f"golden solver_status.{field}: got {actual:.6g}, "
+                            f"expected {expected:.6g} (abs_tol={abs_tol}, "
+                            f"rel_tol={rel_tol})"
+                        )
+                elif actual != expected:
+                    errors.append(
+                        f"golden solver_status.{field}: got {actual!r}, "
+                        f"expected {expected!r}"
+                    )
+
+    # ── solution.csv rows ──
+    expected_rows = golden.get("solution_csv_rows")
+    if expected_rows:
+        sol_path = output_dir / "solution.csv"
+        if not sol_path.is_file():
+            errors.append(f"golden check: solution.csv not found in {output_dir}")
+        else:
+            df = pd.read_csv(sol_path)
+            for erow in expected_rows:
+                sc = erow["scene"]
+                ph = erow["phase"]
+                match = df[(df["scene"] == sc) & (df["phase"] == ph)]
+                if match.empty:
+                    errors.append(
+                        f"golden solution_csv_rows[scene={sc}, phase={ph}]: "
+                        f"no matching row found"
+                    )
+                    continue
+                row = match.iloc[0]
+                if "status" in erow:
+                    if int(row["status"]) != int(erow["status"]):
+                        errors.append(
+                            f"golden solution.csv[scene={sc}, phase={ph}].status: "
+                            f"got {int(row['status'])}, expected {int(erow['status'])}"
+                        )
+                if "obj_value" in erow:
+                    if not _close(
+                        float(row["obj_value"]),
+                        float(erow["obj_value"]),
+                        abs_tol=abs_tol,
+                        rel_tol=rel_tol,
+                    ):
+                        errors.append(
+                            f"golden solution.csv[scene={sc}, phase={ph}].obj_value: "
+                            f"got {float(row['obj_value']):.6g}, "
+                            f"expected {float(erow['obj_value']):.6g} "
+                            f"(abs_tol={abs_tol}, rel_tol={rel_tol})"
+                        )
+    return errors
+
+
 # ── Column-name matching ───────────────────────────────────────────────────
 
 
@@ -352,6 +478,17 @@ def main() -> int:
         action="store_true",
         help="Accept solution.csv with no optimal rows (relaxed smoke check).",
     )
+    parser.add_argument(
+        "--golden-json",
+        type=Path,
+        default=None,
+        help=(
+            "Optional path to a golden-reference JSON.  When given, the "
+            "validator additionally checks that the current run's "
+            "solver_status + solution.csv rows match the committed "
+            "expected values within tolerance.  See the top-of-file docstring."
+        ),
+    )
     args = parser.parse_args()
 
     if not args.output_dir.is_dir():
@@ -394,6 +531,8 @@ def main() -> int:
     errors += validate_reservoir_efin(args.output_dir, reservoirs)
     errors += validate_generator_generation(args.output_dir, generators)
     errors += validate_demand_fail(args.output_dir)
+    if args.golden_json is not None:
+        errors += validate_against_golden(args.output_dir, args.golden_json)
 
     if errors:
         print(

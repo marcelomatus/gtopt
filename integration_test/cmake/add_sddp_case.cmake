@@ -6,7 +6,8 @@
 #     [LOW_MEMORY <off|compress|rebuild>]  # default off
 #     [TIMEOUT <seconds>]
 #     [ALLOWED_EXIT_CODES <list>] [LABELS <list>]
-#     [EXTRA_SET <list>])
+#     [EXTRA_SET <list>]
+#     [GOLDEN <file_relative_to_case_dir>])  # optional golden ref
 #
 # Registers two CTest tests:
 #   e2e_<case_name>_sddp_solve     - run gtopt in SDDP mode (parquet output
@@ -21,7 +22,7 @@
 function(add_sddp_case case_name system_json)
   cmake_parse_arguments(
     ARG ""
-    "MAX_ITERATIONS;LOW_MEMORY;TIMEOUT;CASE_DIR"
+    "MAX_ITERATIONS;LOW_MEMORY;TIMEOUT;CASE_DIR;GOLDEN"
     "ALLOWED_EXIT_CODES;LABELS;EXTRA_SET"
     ${ARGN})
 
@@ -121,12 +122,18 @@ function(add_sddp_case case_name system_json)
     set(_validator "${CMAKE_SOURCE_DIR}/../tools/validate_sddp_output.py")
   endif()
 
+  set(_validator_args
+      --output-dir "${test_output}"
+      --input-json "${input_file}"
+      --max-iterations "${ARG_MAX_ITERATIONS}")
+  if(ARG_GOLDEN)
+    set(_golden_path "${case_dir}/${ARG_GOLDEN}")
+    list(APPEND _validator_args --golden-json "${_golden_path}")
+  endif()
+
   add_test(
     NAME e2e_${case_name}_sddp_validate
-    COMMAND "${_python}" "${_validator}"
-            --output-dir "${test_output}"
-            --input-json "${input_file}"
-            --max-iterations "${ARG_MAX_ITERATIONS}"
+    COMMAND "${_python}" "${_validator}" ${_validator_args}
   )
   set_tests_properties(e2e_${case_name}_sddp_validate PROPERTIES
     DEPENDS e2e_${case_name}_sddp_solve
