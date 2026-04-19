@@ -226,6 +226,26 @@ public:
    */
   void release_cells();
 
+  /**
+   * @brief Discard every cell's compressed flat-LP snapshot, keeping
+   *        only the Phase-2a cache (col_sol / col_cost / row_dual +
+   *        cached scalars) on each `LinearInterface`.
+   *
+   * Called at the end of `SDDPMethod::simulation_pass`, after Pass 1's
+   * retry loop has converged and no further backend reconstruct is
+   * possible.  `PlanningLP::write_out` reads solution values from the
+   * cache and rebuilds XLP col indices via a flatten of the live
+   * `System` element arrays — it does NOT need the snapshot.  Dropping
+   * the snapshot here frees tens of MB of compressed LP matrix per
+   * cell (hundreds of MB per scene × N scenes), which on juan-scale
+   * runs is a meaningful chunk of RAM headroom for the parallel
+   * write_out pool.
+   *
+   * No-op under `low_memory = off` (no snapshot is installed in that
+   * mode).  Safe to call multiple times (idempotent).
+   */
+  void drop_sim_snapshots() noexcept;
+
   // ── SDDP solve summary ──────────────────────────────────────────────────
 
   /**

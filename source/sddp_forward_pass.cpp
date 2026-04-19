@@ -418,27 +418,21 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
           (alpha_svar != nullptr) ? alpha_svar->col_sol() * sa : 0.0;
       state.forward_objective = obj - alpha_val;
 
-      // Release after solve.  During the SDDP simulation Pass 1 under
-      // low_memory mode, go aggressive: drop the backend + collections
-      // + flat-LP snapshot, keeping ONLY the cached col_sol / col_cost
-      // / row_dual vectors (populated by `release_backend()` itself via
-      // Phase 2a).  `PlanningLP::write_out` later reads those cached
-      // vectors through the LinearInterface getters, and
-      // `rebuild_collections_if_needed` re-flattens from the live
-      // `System` element arrays — so the snapshot is not needed for
-      // any downstream step and releasing it frees a big chunk of RAM
-      // per cell.
+      // Release solver backend — no-op when low_memory is off.
       //
-      // Under `off` the aggressive release is a no-op (mode contract:
-      // backends stay alive); under training iterations it is also a
-      // no-op (we need the snapshot for the next iteration's
-      // reconstruct).
-      if (m_in_simulation_ && m_options_.low_memory_mode != LowMemoryMode::off)
-      {
-        system.release_for_sim_cache_only();
-      } else {
-        system.release_backend();
-      }
+      // The flat-LP snapshot IS retained here even during simulation
+      // Pass 1, because a later phase's solve may hit the elastic
+      // branch and need to `ensure_lp_built()` an earlier phase to
+      // install an fcut on it (see the elastic → fcut path above).
+      // That reconstruct needs the earlier phase's snapshot intact.
+      //
+      // Aggressive snapshot drop runs AFTER Pass 1's retry loop has
+      // converged — at that point no further in-pass reconstruct is
+      // possible and only `PlanningLP::write_out` remains, which reads
+      // from the Phase-2a cache and re-flattens `System` element
+      // arrays (no snapshot needed).  See `drop_sim_snapshots()` on
+      // PlanningLP called by `SDDPMethod::simulation_pass`.
+      system.release_backend();
 
       // Guard against solver returning "optimal" with NaN values
       // (can happen when inherited cuts cause ill-conditioning).

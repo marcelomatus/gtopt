@@ -506,6 +506,17 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
         final_iteration_index,
         p1_attempts + 1);
 
+    // Aggressive post-Pass-1 memory release under low_memory: the
+    // Phase-2a cache on each LinearInterface holds everything
+    // `PlanningLP::write_out` needs (col_sol / col_cost / row_dual),
+    // and `rebuild_collections_if_needed` re-flattens from the live
+    // `System` element arrays — so the compressed flat-LP snapshot
+    // can be dropped per cell here.  Frees a meaningful chunk of RAM
+    // before the parallel write pass starts.
+    if (m_options_.low_memory_mode != LowMemoryMode::off) {
+      planning_lp().drop_sim_snapshots();
+    }
+
     ir.scene_upper_bounds = std::move(fwd->scene_upper_bounds);
     ir.forward_pass_s = p1_total_elapsed;
     if (fwd->has_feasibility_issue) {
