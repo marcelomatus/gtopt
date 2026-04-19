@@ -13,6 +13,7 @@
 #pragma once
 
 #include <limits>
+#include <ranges>
 
 #include <gtopt/basic_types.hpp>
 #include <gtopt/lp_context.hpp>
@@ -112,6 +113,27 @@ struct SparseCol
 };
 
 using ColIndex = StrongIndexType<SparseCol>;  ///< Type alias for column index
+
+/**
+ * @brief Build a `ColIndex` from the size of any sized range.
+ *
+ * Centralises the `ColIndex{static_cast<Index>(r.size())}` pattern so
+ * that callers stay in strong-index space.  Typical call sites:
+ *
+ * @code
+ *   if (col < col_index_size(col_sol)) { ... }
+ *   for (auto idx : iota_range<ColIndex>(ColIndex{0}, col_index_size(cols)))
+ * @endcode
+ *
+ * @tparam R  Any `std::ranges::sized_range`.
+ * @param  r  The range whose size should be interpreted as a column count.
+ * @return    `ColIndex{static_cast<Index>(std::ranges::size(r))}`.
+ */
+template<std::ranges::sized_range R>
+[[nodiscard]] constexpr auto col_index_size(const R& r) noexcept -> ColIndex
+{
+  return ColIndex {static_cast<Index>(std::ranges::size(r))};
+}
 
 // ── Scale-aware output helpers ───────────────────────────────────────────────
 
