@@ -1136,6 +1136,14 @@ void SystemLP::write_out()
   // (not from `ensure_lp_built`) so the expensive flatten only runs
   // at output time, not on every forward/backward phase solve.
   // Under off / rebuild, a plain `create_collections` is sufficient.
+  // Per-stage TRACE timers so `--trace-log` captures exactly where
+  // `write_out` spends its wall time on a large grid.  Marked
+  // `[[maybe_unused]]` so builds with trace level disabled at compile
+  // time (SPDLOG_ACTIVE_LEVEL > TRACE) don't warn on unused locals —
+  // the trace call itself compiles out.
+  using clock = std::chrono::steady_clock;
+  [[maybe_unused]] const auto t_start = clock::now();
+
   if (m_flat_opts_.low_memory_mode == LowMemoryMode::compress) {
     rebuild_collections_if_needed();
   } else if (!m_collections_built_) {
@@ -1143,12 +1151,15 @@ void SystemLP::write_out()
     m_collections_built_ = true;
     m_system_context_.rebind_system(*this);
   }
+  [[maybe_unused]] const auto t_rebuild = clock::now();
 
   OutputContext oc(
       system_context(), linear_interface(), scene().uid(), phase().uid());
+  [[maybe_unused]] const auto t_oc = clock::now();
 
   auto count = visit_elements(
       collections(), [&oc](const auto& e) { return e.add_to_output(oc); });
+  [[maybe_unused]] const auto t_visit = clock::now();
 
   if (count <= 0) {
     SPDLOG_WARN("No elements added to output");
@@ -1156,6 +1167,19 @@ void SystemLP::write_out()
   }
 
   oc.write();
+  [[maybe_unused]] const auto t_write = clock::now();
+
+  SPDLOG_TRACE(
+      "SystemLP::write_out [scene={} phase={}]: "
+      "rebuild_coll={:.1f}ms, OutputContext={:.1f}ms, "
+      "visit_elements={:.1f}ms, oc.write={:.1f}ms, total={:.1f}ms",
+      static_cast<Uid>(scene().uid()),
+      static_cast<Uid>(phase().uid()),
+      std::chrono::duration<double, std::milli>(t_rebuild - t_start).count(),
+      std::chrono::duration<double, std::milli>(t_oc - t_rebuild).count(),
+      std::chrono::duration<double, std::milli>(t_visit - t_oc).count(),
+      std::chrono::duration<double, std::milli>(t_write - t_visit).count(),
+      std::chrono::duration<double, std::milli>(t_write - t_start).count());
 
   // Write LP fingerprint if requested
   if (options().lp_fingerprint()) {
