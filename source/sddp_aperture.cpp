@@ -177,10 +177,23 @@ auto solve_apertures_for_phase(
   //
   // Each aperture task creates its own clone inside the task, avoiding
   // the need to batch-create all clones upfront (which holds N clones
-  // in memory simultaneously).  A mutex serializes clone() calls since
-  // solver backends are not thread-safe for concurrent reads.
-  // This works identically in normal and low-memory modes.
-  auto clone_mutex = std::make_shared<std::mutex>();
+  // in memory simultaneously).  Clone() must be globally serialised —
+  // not just per-scene — because the underlying solver (e.g. CPLEX)
+  // has process-wide internal state (environment, allocator mutex,
+  // license manager) that is not reentrant across threads during
+  // cloneprob.  On the juan/gtopt_iplp compress run we observed 3
+  // threads GPF'ing at the same IP inside the solver's shared lib,
+  // which is the fingerprint of concurrent cloneprob without a
+  // process-global lock.
+  //
+  // `run_backward_pass_synchronized` dispatches up to 16 scenes'
+  // aperture phases concurrently.  A per-scene mutex (the previous
+  // design) serialises one scene's aperture clones but still allows
+  // 16 concurrent cross-scene clones.  The static mutex below fixes
+  // that.  Clone itself is short (a handful of ms); the serialisation
+  // cost is negligible against the per-aperture solve time.
+  static std::mutex s_global_clone_mutex;
+  auto* clone_mutex = &s_global_clone_mutex;
 
   std::vector<std::future<ApertureCutResult>> futures;
   futures.reserve(effective_apertures.size());
