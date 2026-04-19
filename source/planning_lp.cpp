@@ -979,6 +979,13 @@ void PlanningLP::write_out()
                 && li.is_backend_released() && li.is_optimal())
             {
               system.write_out();
+              // `write_out` rebuilt the XLP collections via
+              // `rebuild_collections_if_needed()`.  Drop them now —
+              // carrying them across phases would restore the
+              // pre-release memory peak for every phase in the scene.
+              // The underlying LinearInterface is already released so
+              // this call is a no-op on the backend side.
+              system.release_backend();
               continue;
             }
             system.ensure_lp_built();
@@ -1010,6 +1017,7 @@ void PlanningLP::write_out()
             && li.is_backend_released() && li.is_optimal())
         {
           system.write_out();
+          system.release_backend();  // drop collections rebuilt inside
           continue;
         }
         system.ensure_lp_built();
