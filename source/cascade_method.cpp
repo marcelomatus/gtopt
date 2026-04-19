@@ -748,6 +748,33 @@ auto CascadePlanningMethod::solve(PlanningLP& planning_lp,
     }
   }
 
+  // ── Transfer the final level's LP to the caller for write_out ──
+  // If the final active level built its own PlanningLP (i.e. the
+  // caller's cells were released at a prior level→level cleanup, so
+  // `planning_lp.systems()` is now empty), that LP lives in
+  // `m_owned_lps_` and would be destroyed together with this
+  // CascadePlanningMethod instance.  Without this transfer,
+  // `gtopt_lp_runner` would call `planning_lp.write_out()` on an
+  // empty system grid and emit only `planning.json` — solution.csv
+  // stays header-only and element parquets are never written.
+  //
+  // Hand the owned LP over to the caller via the new output-delegate
+  // channel so `write_out()` forwards to it, producing the full
+  // per-(scene, phase) output.
+  if (current_lp != nullptr && current_lp != &planning_lp) {
+    auto it = std::ranges::find_if(m_owned_lps_,
+                                   [current_lp](const auto& p)
+                                   { return p.get() == current_lp; });
+    if (it != m_owned_lps_.end()) {
+      auto owned = std::move(*it);
+      m_owned_lps_.erase(it);
+      planning_lp.set_output_delegate(std::move(owned));
+      SPDLOG_INFO(
+          "Cascade: transferred final-level LP to caller as write_out "
+          "delegate");
+    }
+  }
+
   const bool converged =
       !m_all_results_.empty() && m_all_results_.back().converged;
 

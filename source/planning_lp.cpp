@@ -981,8 +981,35 @@ void PlanningLP::build_all_lps_eagerly()
   SPDLOG_INFO("  Eager LP build done in {:.3f}s", elapsed);
 }
 
+PlanningLP::~PlanningLP() noexcept = default;
+
+void PlanningLP::set_output_delegate(
+    std::unique_ptr<PlanningLP> delegate) noexcept
+{
+  m_output_delegate_ = std::move(delegate);
+}
+
+// `write_out` calls its delegate's `write_out` (see below); clang-tidy
+// flags that as a recursive call chain.  `set_output_delegate` is
+// only called by cascade with an owned LP that itself has no delegate
+// installed, so the recursion depth is at most 1 — but the invariant
+// is not expressible in the type system.  Suppress at the function
+// level since the warning is attached to the whole function, not the
+// specific call.
+// NOLINTNEXTLINE(misc-no-recursion)
 void PlanningLP::write_out()
 {
+  // Cascade hand-off: when a non-level-0 cascade pass transferred
+  // ownership of the final-level LP here (see
+  // `CascadePlanningMethod::solve`), our own `m_systems_` is empty
+  // (released at the level 0→1 cleanup) and the delegate holds the
+  // populated grid.  Forward the call so `solution.csv` + element
+  // parquets come from the level that actually solved.
+  if (m_output_delegate_) {
+    m_output_delegate_->write_out();
+    return;
+  }
+
   const auto num_scenes = std::ssize(m_systems_);
   const auto num_phases =
       num_scenes > 0 ? std::ssize(m_systems_.front()) : std::ptrdiff_t {0};

@@ -213,7 +213,7 @@ public:
   [[nodiscard]]
   constexpr ColIndex add_col(SparseCol&& col)
   {
-    const auto index = ColIndex {static_cast<Index>(cols.size())};
+    const auto index = col_index_size(cols);
 
     if (col.is_integer) {
       ++colints;
@@ -249,7 +249,7 @@ public:
   [[nodiscard]]
   constexpr RowIndex add_row(SparseRow&& row)
   {
-    const auto index = RowIndex {static_cast<Index>(rows.size())};
+    const auto index = row_index_size(rows);
 
     // Normalize DblMax bounds to the configured infinity.
     normalize_bound(row.lowb);

@@ -27,11 +27,22 @@ SEARCH_PATHS=(source include/gtopt)
 # Portable recursive regex search: scan every file under each path, emit
 # `path:line:match` for hits.  `grep -rEn` is universal across GNU and BSD
 # greps; we pass `--include='*.cpp' --include='*.hpp'` to keep it C++-only.
+#
+# Comment filter: grep's output is `path:line:content`.  Drop hits whose
+# `content` is either
+#   * a C++ single-line comment (`//…`) — filter `content` starting with `//`,
+#   * a Doxygen / block comment continuation (`* …`), OR
+#   * any occurrence where the match is preceded by `//` on the same line.
+# This prevents the patterns below from firing on doc-block examples that
+# literally mention the anti-pattern being flagged (e.g. sparse_col.hpp's
+# `col_index_size` docstring referencing `ColIndex{static_cast<Index>(r.size())}`).
 run_grep() {
   local pattern="$1"
   shift
   grep --include='*.cpp' --include='*.hpp' --recursive --line-number \
-    --extended-regexp "$pattern" "$@" 2>/dev/null || true
+    --extended-regexp "$pattern" "$@" 2>/dev/null \
+    | grep -v -E '^[^:]+:[0-9]+:[[:space:]]*(//|\*([[:space:]]|$|/))' \
+    || true
 }
 
 fail=0

@@ -12,6 +12,7 @@
 #pragma once
 
 #include <cstddef>
+#include <memory>
 #include <string>
 #include <utility>
 
@@ -205,9 +206,33 @@ public:
   void build_all_lps_eagerly();
 
   /**
-   * @brief Writes solution output (implementation-defined destination)
+   * @brief Writes solution output (implementation-defined destination).
+   *
+   * When a write-out delegate has been installed via
+   * `set_output_delegate()` (used by the cascade solver to hand back
+   * the final level's LP), this call is forwarded to the delegate and
+   * writes the delegate's systems, not this instance's.  Without the
+   * delegate, the cascade's mid-loop `release_cells()` would leave
+   * the caller PlanningLP with an empty system grid and the final
+   * level's LP would die unused.
    */
   void write_out();
+
+  /**
+   * @brief Install a surrogate PlanningLP whose systems provide the
+   *        solution data for `write_out()`.
+   *
+   * Intended for the cascade solver: the final-level LP lives in the
+   * `CascadePlanningMethod` owned-LPs vector, which is destroyed when
+   * `PlanningLP::resolve()` returns.  Before returning, the cascade
+   * transfers ownership of the final level's LP here so that its
+   * populated systems remain reachable for output writing.
+   *
+   * The delegate is destroyed when this PlanningLP is destroyed (the
+   * destructor is defined out-of-line so the incomplete-type
+   * `unique_ptr<PlanningLP>` member compiles cleanly).
+   */
+  void set_output_delegate(std::unique_ptr<PlanningLP> delegate) noexcept;
 
   /**
    * @brief Release the per-(scene, phase) LP cells and their solver
@@ -306,6 +331,19 @@ private:
 
   scene_phase_systems_t m_systems_;
   SddpSummary m_sddp_summary_ {};
+
+  /// Surrogate PlanningLP whose systems provide `write_out()` data
+  /// when set (see `set_output_delegate`).  nullptr in the common
+  /// path; populated by cascade at end of `resolve()` when the final
+  /// level built its own LP.  Declared last so it is destroyed first,
+  /// before this instance's simulation/options it may reference.
+  std::unique_ptr<PlanningLP> m_output_delegate_ {};
+
+public:
+  /// Out-of-line to allow `std::unique_ptr<PlanningLP>` as a member
+  /// of `PlanningLP` itself — requires the type to be complete at the
+  /// destructor's definition point, which is the `.cpp`.
+  ~PlanningLP() noexcept;
 };
 
 }  // namespace gtopt

@@ -1217,8 +1217,8 @@ void SystemLP::write_out()
       "SystemLP::write_out [scene={} phase={}]: "
       "rebuild_coll={:.1f}ms, OutputContext={:.1f}ms, "
       "visit_elements={:.1f}ms, oc.write={:.1f}ms, total={:.1f}ms",
-      static_cast<Uid>(scene().uid()),
-      static_cast<Uid>(phase().uid()),
+      scene().uid(),
+      phase().uid(),
       std::chrono::duration<double, std::milli>(t_rebuild - t_start).count(),
       std::chrono::duration<double, std::milli>(t_oc - t_rebuild).count(),
       std::chrono::duration<double, std::milli>(t_visit - t_oc).count(),
