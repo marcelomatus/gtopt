@@ -57,6 +57,7 @@ gtopt_check_fingerprint  = "gtopt_check_fingerprint._cli:main"
 plp_compress_case     = "plp_compress_case.main:main"
 gtopt_expand          = "gtopt_expand.cli:main"
 gtopt_irrigation      = "gtopt_expand.cli:main"  # deprecated alias
+cen_demanda           = "cen_demanda.main:main"
 
 
 [project.optional-dependencies]
@@ -76,7 +77,7 @@ include-package-data = true
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["gtopt_compare*", "cvs2parquet*", "gtopt_diagram*", "gtopt_field_extractor*", "gtopt_check_lp*", "gtopt_check_output*", "gtopt_check_pampl*", "gtopt_compress_lp*", "gtopt_check_json*", "gtopt_check_solvers*", "gtopt_config*", "gtopt_check_fingerprint*", "gtopt_expand*", "igtopt*", "plp2gtopt*", "plp_compress_case*", "pp2gtopt*", "gtopt2pp*", "run_gtopt*", "gtopt_monitor*", "ts2gtopt*"]
+include = ["gtopt_compare*", "cvs2parquet*", "gtopt_diagram*", "gtopt_field_extractor*", "gtopt_check_lp*", "gtopt_check_output*", "gtopt_check_pampl*", "gtopt_compress_lp*", "gtopt_check_json*", "gtopt_check_solvers*", "gtopt_config*", "gtopt_check_fingerprint*", "gtopt_expand*", "igtopt*", "plp2gtopt*", "plp_compress_case*", "pp2gtopt*", "gtopt2pp*", "run_gtopt*", "gtopt_monitor*", "ts2gtopt*", "cen_demanda*"]
 
 [tool.setuptools.package-data]
 # Non-Python assets that must ship in wheels (pip install ./scripts).
