@@ -972,8 +972,27 @@ void PlanningLP::build_all_lps_eagerly()
   SPDLOG_INFO("  Eager LP build done in {:.3f}s", elapsed);
 }
 
+PlanningLP::~PlanningLP() noexcept = default;
+
+void PlanningLP::set_output_delegate(
+    std::unique_ptr<PlanningLP> delegate) noexcept
+{
+  m_output_delegate_ = std::move(delegate);
+}
+
 void PlanningLP::write_out()
 {
+  // Cascade hand-off: when a non-level-0 cascade pass transferred
+  // ownership of the final-level LP here (see
+  // `CascadePlanningMethod::solve`), our own `m_systems_` is empty
+  // (released at the level 0→1 cleanup) and the delegate holds the
+  // populated grid.  Forward the call so `solution.csv` + element
+  // parquets come from the level that actually solved.
+  if (m_output_delegate_) {
+    m_output_delegate_->write_out();
+    return;
+  }
+
   const auto num_scenes = std::ssize(m_systems_);
   const auto num_phases =
       num_scenes > 0 ? std::ssize(m_systems_.front()) : std::ptrdiff_t {0};

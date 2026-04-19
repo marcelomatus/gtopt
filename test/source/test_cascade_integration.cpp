@@ -1148,10 +1148,15 @@ TEST_CASE(
   auto result = solver.solve(planning_lp, lp_opts);
 
   REQUIRE(result.has_value());
-  // Level 0 reused caller's PlanningLP → only level 1 owned.
-  CHECK(solver.owned_lps_count() == 1);
-  // Caller's LP cells were released at the level-0 → level-1 boundary
-  // so the two levels never hold solver backends simultaneously.
+  // Level 0 reused caller's PlanningLP.  Level 1 built its own LP;
+  // `solve()` then transferred it to `planning_lp` as the write_out
+  // delegate so `write_out()` finds populated systems when this
+  // solver is destroyed.  The owned-LPs vector is therefore empty
+  // after a successful solve (see
+  // `CascadePlanningMethod::solve` → `planning_lp.set_output_delegate`).
+  CHECK(solver.owned_lps_count() == 0);
+  // Caller's own LP cells were released at the level-0 → level-1
+  // boundary; the delegate now carries the final-level systems.
   CHECK(planning_lp.systems().empty());
 }
 
@@ -1209,7 +1214,10 @@ TEST_CASE("Cascade rebuilds level 0 PlanningLP when model overrides are set")
 
   REQUIRE(result.has_value());
   // Level 0 had model overrides → a fresh LP was built and owned.
-  CHECK(solver.owned_lps_count() == 1);
+  // After solve(), the final-level LP is transferred to the caller
+  // as the write_out delegate (see `CascadePlanningMethod::solve`),
+  // so the owned-LPs vector ends up empty.
+  CHECK(solver.owned_lps_count() == 0);
 }
 
 }  // anonymous namespace
