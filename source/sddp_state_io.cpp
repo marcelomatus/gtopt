@@ -190,7 +190,10 @@ auto load_state_csv(PlanningLP& planning_lp, const std::string& filepath)
           });
           if (!label.empty()) {
             rmap.emplace(std::move(label),
-                         ColResolveEntry {sv.col(), sv.var_scale()});
+                         ColResolveEntry {
+                             .col = sv.col(),
+                             .scale = sv.var_scale(),
+                         });
           }
         }
         resolve_maps.push_back(std::move(rmap));
@@ -203,7 +206,7 @@ auto load_state_csv(PlanningLP& planning_lp, const std::string& filepath)
                                 PhaseIndex pi) -> std::optional<size_t>
     {
       const auto idx =
-          static_cast<size_t>(si) * nphases + static_cast<size_t>(pi);
+          (static_cast<size_t>(si) * nphases) + static_cast<size_t>(pi);
       if (idx < entries.size() && entries[idx].scene_index == si
           && entries[idx].phase_index == pi)
       {

@@ -472,7 +472,7 @@ auto PlanningLP::create_systems(System& system,
   // user constraints, the map stays empty and add_ampl_variable is a
   // no-op — saving allocation/hashing overhead.
   if (!system.user_constraint_array.empty()) {
-    simulation.set_need_ampl_variables(true);
+    simulation.set_need_ampl_variables(/*v=*/true);
   }
 
   // Note: AMPL element-name and compound registries are populated by
@@ -718,6 +718,12 @@ auto PlanningLP::create_systems(System& system,
       PlanningLP::phase_systems_t phase_systems;
       phase_systems.reserve(phases.size());
       for (auto& slot : build_buf[scene_index]) {
+        // `build_buf` is guaranteed populated by the build pool before
+        // we reach this merge step — every slot must hold a value.  A
+        // missing slot indicates a silent pool-task failure and is a
+        // crash-worthy programmer bug, so let `.value()`'s exception
+        // propagate.
+        // NOLINTNEXTLINE(bugprone-unchecked-optional-access)
         phase_systems.emplace_back(std::move(slot).value());
       }
       tighten_scene_phase_links(phase_systems, simulation);
@@ -826,6 +832,9 @@ auto PlanningLP::create_systems(System& system,
         PlanningLP::phase_systems_t phase_systems;
         phase_systems.reserve(phases.size());
         for (auto& slot : build_buf[scene_index]) {
+          // See full-parallel merge above — same invariant, same reason
+          // for accepting `.value()` to throw on a pool-task bug.
+          // NOLINTNEXTLINE(bugprone-unchecked-optional-access)
           phase_systems.emplace_back(std::move(slot).value());
         }
         tighten_scene_phase_links(phase_systems, simulation);

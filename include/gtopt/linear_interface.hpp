@@ -920,6 +920,12 @@ public:
    * When row scales are empty, returns raw values unchanged.
    * @return ScaledView over solver row lower bounds
    */
+  // `backend()` may call `ensure_backend()`, which can throw on a
+  // rebuild failure — a programmer-bug path we intentionally allow to
+  // terminate instead of unwinding partial LP state.  Keep `noexcept`
+  // on the API surface and suppress tidy; NOLINT lines are narrower
+  // than dropping the guarantee from every caller.
+  // NOLINTNEXTLINE(bugprone-exception-escape)
   [[nodiscard]] ScaledView get_row_low() const noexcept
   {
     const auto n = get_numrows();
@@ -934,6 +940,7 @@ public:
    * @brief Gets physical upper bounds for all constraint rows.
    * @return ScaledView over solver row upper bounds
    */
+  // NOLINTNEXTLINE(bugprone-exception-escape)
   [[nodiscard]] ScaledView get_row_upp() const noexcept
   {
     const auto n = get_numrows();
@@ -978,6 +985,7 @@ public:
    * returns raw values unchanged.
    * @return ScaledView over solver column lower bounds
    */
+  // NOLINTNEXTLINE(bugprone-exception-escape)
   [[nodiscard]] ScaledView get_col_low() const noexcept
   {
     const auto n = get_numcols();
@@ -995,6 +1003,7 @@ public:
    * `LP_bound × col_scale` on the fly.
    * @return ScaledView over solver column upper bounds
    */
+  // NOLINTNEXTLINE(bugprone-exception-escape)
   [[nodiscard]] ScaledView get_col_upp() const noexcept
   {
     const auto n = get_numcols();
@@ -1033,6 +1042,7 @@ public:
    * release.
    * @return ScaledView over solver solution memory
    */
+  // NOLINTNEXTLINE(bugprone-exception-escape)
   [[nodiscard]] ScaledView get_col_sol() const noexcept
   {
     const auto n = get_numcols();
@@ -1072,6 +1082,7 @@ public:
    * Precondition: backend must be live.
    * @return ScaledView over solver reduced-cost memory
    */
+  // NOLINTNEXTLINE(bugprone-exception-escape)
   [[nodiscard]] ScaledView get_col_cost() const noexcept
   {
     const auto n = get_numcols();
@@ -1447,6 +1458,12 @@ private:
       interface->backend().set_log_filename(filename, level);
     }
 
+    // `backend().clear_log_filename()` delegates to `ensure_backend()`
+    // + `SolverBackend::clear_log_filename`; both can theoretically
+    // throw on a rebuild/solver-specific failure.  We intentionally
+    // keep the implicit-noexcept destructor — a failure here is a
+    // programmer bug that should terminate rather than unwind.
+    // NOLINTNEXTLINE(bugprone-exception-escape)
     ~LogFileGuard() { interface->backend().clear_log_filename(); }
   };
 

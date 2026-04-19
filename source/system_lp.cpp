@@ -852,16 +852,16 @@ void SystemLP::rebuild_in_place()
         , active(activate)
     {
       if (active) {
-        ctx.set_rebuild_pass(true);
+        ctx.set_rebuild_pass(/*v=*/true);
       }
     }
     ~RebuildPassGuard()
     {
       if (active) {
-        ctx.set_rebuild_pass(false);
+        ctx.set_rebuild_pass(/*v=*/false);
       }
     }
-  } guard {system_context(), m_fingerprint_was_set_};
+  } const guard {system_context(), m_fingerprint_was_set_};
 
   auto [flat_lp, fingerprint, label_maker] =
       flatten_from_collections(collections(),
@@ -936,10 +936,10 @@ void SystemLP::rebuild_collections_if_needed()
     explicit RebuildPassGuard(SystemContext& c)
         : ctx(c)
     {
-      ctx.set_rebuild_pass(true);
+      ctx.set_rebuild_pass(/*v=*/true);
     }
-    ~RebuildPassGuard() { ctx.set_rebuild_pass(false); }
-  } guard {system_context()};
+    ~RebuildPassGuard() { ctx.set_rebuild_pass(/*v=*/false); }
+  } const guard {system_context()};
 
   // Discard the produced FlatLinearProblem; we only care about the
   // `add_to_lp` side effects on the XLP wrappers inside
