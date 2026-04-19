@@ -21,6 +21,7 @@
 
 #include <cmath>  // for std::abs
 #include <limits>
+#include <ranges>
 #include <utility>  // for std::pair
 #include <vector>
 
@@ -209,5 +210,15 @@ struct SparseRow
 };
 
 using RowIndex = StrongIndexType<SparseRow>;  ///< Type alias for row index
+
+/**
+ * @brief Build a `RowIndex` from the size of any sized range.  Mirror
+ *        of `col_index_size()` — see that helper for rationale.
+ */
+template<std::ranges::sized_range R>
+[[nodiscard]] constexpr auto row_index_size(const R& r) noexcept -> RowIndex
+{
+  return RowIndex {static_cast<Index>(std::ranges::size(r))};
+}
 
 }  // namespace gtopt

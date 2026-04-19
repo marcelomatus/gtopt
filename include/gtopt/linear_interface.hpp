@@ -529,6 +529,27 @@ public:
    */
   [[nodiscard]] size_t get_numcols() const;
 
+  /**
+   * @brief Typed row count — use instead of `RowIndex{static_cast<Index>(
+   *        li.get_numrows())}` at every call site.
+   *
+   * Narrows `size_t → Index` in exactly one place (here) so that we can
+   * later replace the conversion with a bounds-checked one without
+   * touching every caller.  Matches the typed API used across the rest
+   * of the LP layer (`add_row` → `RowIndex`, `delete_row` → `RowIndex`,
+   * …) so idiomatic call sites stay inside strong-index space.
+   */
+  [[nodiscard]] RowIndex numrows_as_index() const
+  {
+    return RowIndex {static_cast<Index>(get_numrows())};
+  }
+
+  /// See `numrows_as_index`.
+  [[nodiscard]] ColIndex numcols_as_index() const
+  {
+    return ColIndex {static_cast<Index>(get_numcols())};
+  }
+
   /// Solver backend name (e.g. "clp", "cplex", "highs").
   [[nodiscard]] std::string_view solver_name() const noexcept
   {
