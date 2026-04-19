@@ -284,13 +284,14 @@ auto solve_apertures_for_phase(
               }
               return true;
             };
-            // Under LowMemoryMode::compress collections are dropped on
-            // release_backend; `ensure_lp_built` no longer rebuilds
-            // them proactively (the shadow flatten was ~hundreds of
-            // MB × every phase solve, blowing RSS).  Rebuild them here
-            // on demand — this is the only other site besides
-            // `SystemLP::write_out` that reads `sys.collections()`.
-            sys.rebuild_collections_if_needed();
+            // `sys.collections()` was populated on the main thread
+            // BEFORE aperture tasks were dispatched (see
+            // `backward_pass_aperture_phase_impl`).  Calling
+            // `rebuild_collections_if_needed` here would be a data
+            // race — multiple aperture tasks run concurrently on the
+            // SAME `sys` (target_sys) and all of them would mutate
+            // `m_collections_` simultaneously.  Read-only access from
+            // many threads is safe.
             visit_elements(sys.collections(), visitor);
           } else {
             SPDLOG_DEBUG(

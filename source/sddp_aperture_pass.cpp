@@ -129,6 +129,17 @@ auto SDDPMethod::backward_pass_aperture_phase_impl(
   auto& target_sys = planning_lp().system(scene_index, phase_index);
   target_sys.ensure_lp_built();
 
+  // Populate the per-element XLP state (generation_cols, …) on the
+  // main thread BEFORE dispatching aperture tasks.  Under compress
+  // the backward-pass aperture update loop in sddp_aperture.cpp
+  // reads `sys.collections()` from every task concurrently — without
+  // a pre-populated state, each task would race on `m_collections_`
+  // via `rebuild_collections_if_needed()` and segfault.
+  // Single-threaded call here is safe; the subsequent aperture tasks
+  // only read collections.  No-op under `off` (collections always
+  // alive) and under `rebuild` (refreshed by rebuild_in_place).
+  target_sys.rebuild_collections_if_needed();
+
   // Keep the flat LP decompressed while aperture tasks create clones.
   // The guard re-compresses on scope exit (level 2 only).
   const DecompressionGuard dcomp_guard(target_sys.linear_interface());
@@ -470,6 +481,10 @@ auto SDDPMethod::backward_pass_with_apertures(SceneIndex scene_index,
 
     auto& target_sys = planning_lp().system(scene_index, phase_index);
     target_sys.ensure_lp_built();
+    // Single-threaded XLP-state rebuild before aperture tasks are
+    // dispatched (same rationale as in
+    // `backward_pass_aperture_phase_impl`).
+    target_sys.rebuild_collections_if_needed();
 
     // Keep the flat LP decompressed while aperture tasks create clones.
     const DecompressionGuard dcomp_guard(target_sys.linear_interface());
