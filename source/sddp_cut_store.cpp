@@ -63,6 +63,19 @@ void SDDPCutStore::store_cut(SceneIndex scene_index,
   }
   if (single_cut_storage) {
     m_scene_cuts_[scene_index].push_back(std::move(stored));
+  } else if (type == CutType::Feasibility) {
+    // Feasibility cuts are scene-local: they tighten the state-var
+    // bounds of one (scene, phase) cell based on that cell's own
+    // elastic solve.  They are never shared across scenes — the
+    // cross-scene sharing path in `apply_cut_sharing_for_iteration`
+    // explicitly filters `type != Optimality` — and phase access
+    // within a scene is serial in the forward pass, so the per-cell
+    // linear-interface and per-scene cut vector are single-writer.
+    // Keep them in per-scene storage only, skipping the combined
+    // `m_stored_cuts_` push + its global mutex.  `build_combined_cuts`
+    // still reconstructs a union view from per-scene storage for save
+    // paths.
+    m_scene_cuts_[scene_index].push_back(std::move(stored));
   } else {
     m_scene_cuts_[scene_index].push_back(stored);
     const std::scoped_lock lock(m_cuts_mutex_);
@@ -500,11 +513,15 @@ void SDDPCutStore::save_cuts_for_iteration(
   // Helper: save all cuts to a file
   auto save_all = [&](const std::string& filepath) -> std::expected<void, Error>
   {
-    if (options.single_cut_storage) {
-      const auto combined = build_combined_cuts(planning_lp);
-      return save_cuts_csv(combined, planning_lp, filepath);
-    }
-    return save_cuts_csv(m_stored_cuts_, planning_lp, filepath);
+    // Always serialise from the per-scene union so feasibility cuts
+    // (which live exclusively in `m_scene_cuts_` to avoid the
+    // combined-vector mutex) are included regardless of the
+    // `single_cut_storage` flag.  Under `single_cut_storage=false`
+    // optimality cuts also live in `m_scene_cuts_` alongside the
+    // combined vector, so the union view via `build_combined_cuts`
+    // contains both types without duplication.
+    const auto combined = build_combined_cuts(planning_lp);
+    return save_cuts_csv(combined, planning_lp, filepath);
   };
 
   // Save to a versioned file: sddp_cuts_<iter>.csv

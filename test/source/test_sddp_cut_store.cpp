@@ -172,17 +172,22 @@ TEST_CASE(
                   make_uid<Scene>(3),
                   make_uid<Phase>(1));
 
-  CHECK(store.stored_cuts().size() == 3);
+  // Only the two optimality cuts land in the combined vector — the
+  // feasibility cut is scene-local and skips `m_stored_cuts_` (+ its
+  // global mutex) because fcuts are never shared across scenes.
+  CHECK(store.stored_cuts().size() == 2);
   CHECK(store.scene_cuts()[first_scene_index()].size() == 2);
   CHECK(store.scene_cuts()[SceneIndex {1}].empty());
-  CHECK(store.scene_cuts()[SceneIndex {2}].size() == 1);
-  CHECK(store.num_stored_cuts(false) == 3);
-  CHECK(store.num_stored_cuts(true) == 3);  // 2 + 0 + 1
+  CHECK(store.scene_cuts()[SceneIndex {2}].size() == 1);  // fcut here
+  CHECK(store.num_stored_cuts(false) == 2);
+  CHECK(store.num_stored_cuts(true) == 3);  // 2 + 0 + 1 per-scene
 
-  // Verify the combined storage preserves insertion order.
+  // Verify the combined storage preserves insertion order (opt cuts).
   CHECK(store.stored_cuts()[0].rhs == doctest::Approx(1.0));
   CHECK(store.stored_cuts()[1].rhs == doctest::Approx(2.0));
-  CHECK(store.stored_cuts()[2].rhs == doctest::Approx(3.0));
+  // The scene-local fcut survives in per-scene storage.
+  CHECK(store.scene_cuts()[SceneIndex {2}][0].rhs == doctest::Approx(3.0));
+  CHECK(store.scene_cuts()[SceneIndex {2}][0].type == CutType::Feasibility);
 }
 
 TEST_CASE(
