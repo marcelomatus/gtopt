@@ -265,17 +265,18 @@ public:
   /// StoredCut with the row dual from the last forward-pass solve.
   void update_stored_cut_duals();
 
-  /// All stored cuts (for persistence / inspection)
-  [[nodiscard]] const auto& stored_cuts() const noexcept
+  /// Union view over every stored cut across scenes, rebuilt on call.
+  /// Equivalent to the former flat-vector accessor — kept for places
+  /// (cascade transitions, save helpers) that need a combined list.
+  [[nodiscard]] auto stored_cuts() const
   {
-    return m_cut_store_.stored_cuts();
+    return m_cut_store_.build_combined_cuts(planning_lp());
   }
 
-  /// Number of stored cuts (thread-safe).
-  /// In single_cut_storage mode, counts across all per-scene vectors.
+  /// Total number of stored cuts across all scenes.
   [[nodiscard]] std::ptrdiff_t num_stored_cuts() const noexcept
   {
-    return m_cut_store_.num_stored_cuts(m_options_.single_cut_storage);
+    return m_cut_store_.num_stored_cuts();
   }
 
   /// Access the cut store (for cascade orchestration, etc.).
@@ -632,11 +633,12 @@ private:
 
   /// Apply cut-sharing across scenes for all phases generated in this
   /// iteration.
-  /// @param cuts_before  Value of m_stored_cuts_.size() BEFORE this
-  ///                     iteration's backward pass.
   /// @param iteration    Current SDDP iteration index.
-  void apply_cut_sharing_for_iteration(std::size_t cuts_before,
-                                       IterationIndex iteration_index);
+  ///
+  /// New cuts are identified by comparing each scene's current
+  /// `m_scene_cuts_` vector size against `m_scene_cuts_before_` —
+  /// the caller must populate the latter before the backward pass.
+  void apply_cut_sharing_for_iteration(IterationIndex iteration_index);
 
   /// Compute gap + gap_change, update convergence flag, update live-query
   /// atomics, log.  @p results carries the previous iterations so that

@@ -170,7 +170,6 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
       SPDLOG_DEBUG("SDDP Backward [i{}]: starting backward pass",
                    iteration_index);
       // Save per-scene cut counts for cut sharing offset tracking
-      const auto cuts_before = m_cut_store_.stored_cuts().size();
       const auto num_scenes_bwd = planning_lp().simulation().scene_count();
       m_cut_store_.scene_cuts_before().resize(
           static_cast<std::size_t>(num_scenes_bwd));
@@ -200,7 +199,7 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
 
       // ── Cut sharing ──
       if (m_options_.cut_sharing == CutSharingMode::none) {
-        apply_cut_sharing_for_iteration(cuts_before, iteration_index);
+        apply_cut_sharing_for_iteration(iteration_index);
       }
 
       // ── Cut pruning ──
@@ -417,7 +416,16 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
   // Feasibility cuts (from the elastic filter) may still be produced.
   // By default (save_simulation_cuts=false) they are discarded to ensure
   // hot-start reproducibility.
-  const auto cuts_before_simulation = m_cut_store_.stored_cuts().size();
+  // Snapshot per-scene cut counts so sim-pass-added feasibility cuts
+  // can be discarded below (unless `save_simulation_cuts` is set).
+  std::vector<std::size_t> sim_before_scene_sizes;
+  {
+    const auto& sc = m_cut_store_.scene_cuts();
+    sim_before_scene_sizes.reserve(sc.size());
+    for (const auto& scene_vec : sc) {
+      sim_before_scene_sizes.push_back(scene_vec.size());
+    }
+  }
   {
     const auto final_iteration_index = results.empty()
         ? m_iteration_offset_
@@ -528,15 +536,28 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
     m_in_simulation_ = false;
   }
 
-  // Discard feasibility cuts produced during simulation unless explicitly
-  // requested.  This ensures hot-start determinism: reloading cuts from
-  // training iterations alone reproduces the same policy.
-  if (!m_options_.save_simulation_cuts
-      && m_cut_store_.stored_cuts().size() > cuts_before_simulation)
-  {
-    SPDLOG_INFO("SDDP: discarding {} simulation feasibility cut(s)",
-                m_cut_store_.stored_cuts().size() - cuts_before_simulation);
-    m_cut_store_.stored_cuts().resize(cuts_before_simulation);
+  // Discard feasibility cuts produced during simulation unless
+  // explicitly requested.  Per-scene resize: sim-pass fcuts land in
+  // each scene's own vector (no scuts generated — sim pass has no
+  // backward), so we can rewind each scene's vector to its pre-sim
+  // size and log how many entries were dropped.
+  if (!m_options_.save_simulation_cuts) {
+    std::size_t dropped = 0;
+    auto& scene_cuts = m_cut_store_.scene_cuts();
+    for (std::size_t si_sz = 0;
+         si_sz < scene_cuts.size() && si_sz < sim_before_scene_sizes.size();
+         ++si_sz)
+    {
+      const auto si = SceneIndex {static_cast<Index>(si_sz)};
+      const auto pre = sim_before_scene_sizes[si_sz];
+      if (scene_cuts[si].size() > pre) {
+        dropped += scene_cuts[si].size() - pre;
+        scene_cuts[si].resize(pre);
+      }
+    }
+    if (dropped > 0) {
+      SPDLOG_INFO("SDDP: discarding {} simulation feasibility cut(s)", dropped);
+    }
   }
 
   // ── Cut persistence ──
@@ -553,9 +574,7 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
     const auto mode = m_options_.cut_recovery_mode;
     if (mode == HotStartMode::append) {
       // Append mode: add newly generated cuts to the existing file.
-      const auto& cuts_to_append = m_options_.single_cut_storage
-          ? build_combined_cuts()
-          : m_cut_store_.stored_cuts();
+      const auto cuts_to_append = build_combined_cuts();
       auto result = save_cuts_csv(cuts_to_append,
                                   planning_lp(),
                                   m_options_.cuts_output_file,
@@ -729,7 +748,16 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
   };
 
   bool all_done = false;
-  const auto cuts_before_simulation = m_cut_store_.stored_cuts().size();
+  // Per-scene cut-count snapshot so sim-pass-added feasibility cuts can
+  // be rewound below without affecting training cuts.
+  std::vector<std::size_t> sim_before_scene_sizes;
+  {
+    const auto& sc = m_cut_store_.scene_cuts();
+    sim_before_scene_sizes.reserve(sc.size());
+    for (const auto& scene_vec : sc) {
+      sim_before_scene_sizes.push_back(scene_vec.size());
+    }
+  }
 
   while (!all_done) {
     for (const auto scene : iota_range<SceneIndex>(0, num_scenes)) {
@@ -1170,12 +1198,23 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
       tracker.max_completed_iteration());
 
   // Discard simulation feasibility cuts (same as synchronous path)
-  if (!m_options_.save_simulation_cuts
-      && m_cut_store_.stored_cuts().size() > cuts_before_simulation)
-  {
-    SPDLOG_INFO("SDDP: discarding {} simulation feasibility cut(s)",
-                m_cut_store_.stored_cuts().size() - cuts_before_simulation);
-    m_cut_store_.stored_cuts().resize(cuts_before_simulation);
+  if (!m_options_.save_simulation_cuts) {
+    std::size_t dropped = 0;
+    auto& scene_cuts = m_cut_store_.scene_cuts();
+    for (std::size_t si_sz = 0;
+         si_sz < scene_cuts.size() && si_sz < sim_before_scene_sizes.size();
+         ++si_sz)
+    {
+      const auto si = SceneIndex {static_cast<Index>(si_sz)};
+      const auto pre = sim_before_scene_sizes[si_sz];
+      if (scene_cuts[si].size() > pre) {
+        dropped += scene_cuts[si].size() - pre;
+        scene_cuts[si].resize(pre);
+      }
+    }
+    if (dropped > 0) {
+      SPDLOG_INFO("SDDP: discarding {} simulation feasibility cut(s)", dropped);
+    }
   }
 
   // ── Cut persistence ──
@@ -1187,9 +1226,7 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
 
     const auto mode = m_options_.cut_recovery_mode;
     if (mode == HotStartMode::append) {
-      const auto& cuts_to_append = m_options_.single_cut_storage
-          ? build_combined_cuts()
-          : m_cut_store_.stored_cuts();
+      const auto cuts_to_append = build_combined_cuts();
       auto result = save_cuts_csv(cuts_to_append,
                                   planning_lp(),
                                   m_options_.cuts_output_file,

@@ -223,14 +223,20 @@ void SDDPMethod::diagnose_kappa(SceneIndex scene_index,
     }
   }
 
-  // Also check combined storage
+  // Also check other scenes' cuts for the same (phase) — under
+  // CutSharingMode::max / expected / accumulate, cuts from other
+  // scenes are also present on this scene's LP row span.  Walk every
+  // scene's vector, dedup by row index.
+  for (auto&& [other_si, other_cuts] :
+       enumerate<SceneIndex>(m_cut_store_.scene_cuts()))
   {
-    const std::scoped_lock lock(m_cut_store_.cuts_mutex());
-    for (const auto& cut : m_cut_store_.stored_cuts()) {
+    if (other_si == scene_index) {
+      continue;  // already covered above
+    }
+    for (const auto& cut : other_cuts) {
       if (cut.phase_uid != phase_uid_val) {
         continue;
       }
-      // Avoid duplicates: skip if this row was already diagnosed
       const bool already = std::ranges::any_of(
           cut_diags, [&](const auto& d) { return d.row == cut.row; });
       if (!already) {
@@ -744,7 +750,6 @@ void SDDPMethod::store_cut(SceneIndex scene_index,
                          cut,
                          type,
                          row,
-                         m_options_.single_cut_storage,
                          scene_uid(scene_index),
                          phase_uid(src_phase_index));
 }
@@ -982,11 +987,12 @@ std::vector<StoredCut> SDDPMethod::build_combined_cuts() const
 auto SDDPMethod::save_cuts(const std::string& filepath) const
     -> std::expected<void, Error>
 {
-  if (m_options_.single_cut_storage) {
-    const auto combined = m_cut_store_.build_combined_cuts(planning_lp());
-    return save_cuts_csv(combined, planning_lp(), filepath);
-  }
-  return save_cuts_csv(m_cut_store_.stored_cuts(), planning_lp(), filepath);
+  // Single source of truth: build the combined view from per-scene
+  // vectors.  The `single_cut_storage` option is no longer load-
+  // bearing for storage (only per-scene vectors exist); kept in the
+  // options struct for backward compatibility.
+  const auto combined = m_cut_store_.build_combined_cuts(planning_lp());
+  return save_cuts_csv(combined, planning_lp(), filepath);
 }
 
 auto SDDPMethod::save_scene_cuts(SceneIndex scene_index,
@@ -1620,7 +1626,14 @@ auto SDDPMethod::run_backward_pass_synchronized(
   for (const auto phase_index :
        iota_range<PhaseIndex>(1, num_phases) | std::views::reverse)
   {
-    const auto cuts_before_step = m_cut_store_.stored_cuts().size();
+    // Snapshot each scene's cut-count before this phase step so we
+    // can identify newly-added cuts below for cross-scene sharing.
+    std::vector<std::size_t> per_scene_before(
+        static_cast<std::size_t>(num_scenes), 0);
+    for (const auto si : iota_range<SceneIndex>(0, num_scenes)) {
+      per_scene_before[static_cast<std::size_t>(si)] =
+          m_cut_store_.scene_cuts()[si].size();
+    }
 
     // Submit all feasible scenes for this phase step in parallel
     std::vector<std::pair<SceneIndex, std::future<std::expected<int, Error>>>>
@@ -1680,22 +1693,15 @@ auto SDDPMethod::run_backward_pass_synchronized(
     StrongIndexVector<SceneIndex, std::vector<SparseRow>> scene_cuts;
     scene_cuts.resize(num_scenes);
 
-    // Build scene UID → SceneIndex lookup for cut sharing
-    const auto& scenes = planning_lp().simulation().scenes();
-    std::unordered_map<SceneUid, SceneIndex, std::hash<SceneUid>> scene_uid_map;
-    map_reserve(scene_uid_map, scenes.size());
-    for (auto&& [si, sc_lp] : enumerate<SceneIndex>(scenes)) {
-      scene_uid_map[sc_lp.uid()] = si;
-    }
-
-    {
-      const std::scoped_lock lock(m_cut_store_.cuts_mutex());
-      for (std::size_t ci = cuts_before_step;
-           ci < m_cut_store_.stored_cuts().size();
-           ++ci)
-      {
-        const auto& sc = m_cut_store_.stored_cuts()[ci];
-        // Only share optimality cuts; feasibility cuts stay local
+    // Collect newly-added optimality cuts on src_phase_index from
+    // each scene's vector using the per-scene-before offsets
+    // snapshotted above.  No lock needed — the scene-step barrier
+    // (fut.get() loop above) already synchronises.
+    for (const auto si : iota_range<SceneIndex>(0, num_scenes)) {
+      const auto si_sz = static_cast<std::size_t>(si);
+      const auto& cuts = m_cut_store_.scene_cuts()[si];
+      for (std::size_t ci = per_scene_before[si_sz]; ci < cuts.size(); ++ci) {
+        const auto& sc = cuts[ci];
         if (sc.type != CutType::Optimality) {
           continue;
         }
@@ -1710,10 +1716,7 @@ auto SDDPMethod::run_backward_pass_synchronized(
         for (const auto& [col, coeff] : sc.coefficients) {
           row[col] = coeff;
         }
-        auto sit = scene_uid_map.find(sc.scene_uid);
-        if (sit != scene_uid_map.end()) {
-          scene_cuts[sit->second].push_back(std::move(row));
-        }
+        scene_cuts[si].push_back(std::move(row));
       }
     }
 
@@ -1762,11 +1765,10 @@ void SDDPMethod::compute_iteration_bounds(
   ir.lower_bound = weighted_lower;
 }
 
-void SDDPMethod::apply_cut_sharing_for_iteration(std::size_t cuts_before,
-                                                 IterationIndex iteration_index)
+void SDDPMethod::apply_cut_sharing_for_iteration(IterationIndex iteration_index)
 {
   m_cut_store_.apply_cut_sharing_for_iteration(
-      cuts_before, iteration_index, m_options_, planning_lp(), m_label_maker_);
+      iteration_index, m_options_, planning_lp(), m_label_maker_);
 }
 
 void SDDPMethod::finalize_iteration_result(

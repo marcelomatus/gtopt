@@ -42,7 +42,6 @@ void SDDPCutStore::store_cut(SceneIndex scene_index,
                              const SparseRow& cut,
                              CutType type,
                              RowIndex row,
-                             bool single_cut_storage,
                              SceneUid scene_uid_val,
                              PhaseUid phase_uid_val)
 {
@@ -61,36 +60,18 @@ void SDDPCutStore::store_cut(SceneIndex scene_index,
   for (const auto& [col, coeff] : cut.cmap) {
     stored.coefficients.emplace_back(col, coeff);
   }
-  if (single_cut_storage) {
-    m_scene_cuts_[scene_index].push_back(std::move(stored));
-  } else if (type == CutType::Feasibility) {
-    // Feasibility cuts are scene-local: they tighten the state-var
-    // bounds of one (scene, phase) cell based on that cell's own
-    // elastic solve.  They are never shared across scenes — the
-    // cross-scene sharing path in `apply_cut_sharing_for_iteration`
-    // explicitly filters `type != Optimality` — and phase access
-    // within a scene is serial in the forward pass, so the per-cell
-    // linear-interface and per-scene cut vector are single-writer.
-    // Keep them in per-scene storage only, skipping the combined
-    // `m_stored_cuts_` push + its global mutex.  `build_combined_cuts`
-    // still reconstructs a union view from per-scene storage for save
-    // paths.
-    m_scene_cuts_[scene_index].push_back(std::move(stored));
-  } else {
-    m_scene_cuts_[scene_index].push_back(stored);
-    const std::scoped_lock lock(m_cuts_mutex_);
-    m_stored_cuts_.push_back(std::move(stored));
-  }
+  // Single source of truth: per-scene vector.  Phase access within a
+  // scene is serial in the forward/backward pass, so this is a
+  // single-writer operation — no lock needed even though multiple
+  // scene workers may call store_cut concurrently (each touches its
+  // own scene's vector).
+  m_scene_cuts_[scene_index].push_back(std::move(stored));
 }
 
 // ── clear ──────────────────────────────────────────────────────────────────
 
 void SDDPCutStore::clear()
 {
-  {
-    const std::scoped_lock lk(m_cuts_mutex_);
-    m_stored_cuts_.clear();
-  }
   for (auto& sc : m_scene_cuts_) {
     sc.clear();
   }
@@ -123,11 +104,13 @@ void SDDPCutStore::forget_first_cuts(std::ptrdiff_t count,
   std::map<ScenePhaseKey, std::vector<int>> rows_to_delete;
   std::set<std::string> names_to_forget;
 
+  // `count` is a per-scene cap: forget the first `count` cuts of each
+  // scene (covering inherited cuts transferred across cascade levels,
+  // which are prepended to each per-scene vector in the same order).
   std::ptrdiff_t n = 0;
-  {
-    const std::scoped_lock lk(m_cuts_mutex_);
-    n = std::min(count, std::ssize(m_stored_cuts_));
-    for (const auto& cut : m_stored_cuts_ | std::views::take(n)) {
+  for (auto& cuts : m_scene_cuts_) {
+    const auto take = std::min(count, std::ssize(cuts));
+    for (const auto& cut : cuts | std::views::take(take)) {
       if (!cut.name.empty()) {
         names_to_forget.insert(cut.name);
       }
@@ -135,7 +118,8 @@ void SDDPCutStore::forget_first_cuts(std::ptrdiff_t count,
         rows_to_delete[*key].push_back(static_cast<int>(cut.row));
       }
     }
-    m_stored_cuts_.erase(m_stored_cuts_.begin(), m_stored_cuts_.begin() + n);
+    cuts.erase(cuts.begin(), cuts.begin() + take);
+    n = std::max(n, take);
   }
 
   std::map<ScenePhaseKey, int> deleted_count;
@@ -159,11 +143,6 @@ void SDDPCutStore::forget_first_cuts(std::ptrdiff_t count,
       }
     }
   };
-
-  {
-    const std::scoped_lock lk(m_cuts_mutex_);
-    std::ranges::for_each(m_stored_cuts_, shift_row);
-  }
 
   for (auto&& [si, cuts] : enumerate<SceneIndex>(m_scene_cuts_)) {
     std::erase_if(
@@ -199,10 +178,6 @@ void SDDPCutStore::update_stored_cut_duals(PlanningLP& planning_lp)
     }
   };
 
-  {
-    const std::scoped_lock lk(m_cuts_mutex_);
-    std::ranges::for_each(m_stored_cuts_, update_dual);
-  }
   for (auto& sc : m_scene_cuts_) {
     std::ranges::for_each(sc, update_dual);
   }
@@ -348,10 +323,6 @@ void SDDPCutStore::prune_inactive_cuts(
     }
   };
 
-  {
-    const std::scoped_lock lk(m_cuts_mutex_);
-    update_cuts(m_stored_cuts_);
-  }
   for (auto& sc : m_scene_cuts_) {
     update_cuts(sc);
   }
@@ -383,17 +354,6 @@ void SDDPCutStore::cap_stored_cuts(const SDDPOptions& options,
     }
   }
 
-  if (!options.single_cut_storage) {
-    const std::scoped_lock lock(m_cuts_mutex_);
-    const auto total_limit = limit * static_cast<std::size_t>(num_scenes);
-    if (m_stored_cuts_.size() > total_limit) {
-      const auto excess = m_stored_cuts_.size() - total_limit;
-      m_stored_cuts_.erase(
-          m_stored_cuts_.begin(),
-          m_stored_cuts_.begin() + static_cast<std::ptrdiff_t>(excess));
-    }
-  }
-
   if (total_dropped > 0) {
     SPDLOG_INFO("SDDP: capped stored cuts, dropped {} oldest entries",
                 total_dropped);
@@ -417,7 +377,6 @@ std::vector<StoredCut> SDDPCutStore::build_combined_cuts(
 // ── apply_cut_sharing_for_iteration ────────────────────────────────────────
 
 void SDDPCutStore::apply_cut_sharing_for_iteration(
-    std::size_t cuts_before,
     [[maybe_unused]] IterationIndex iteration_index,
     const SDDPOptions& options,
     PlanningLP& planning_lp,
@@ -443,45 +402,32 @@ void SDDPCutStore::apply_cut_sharing_for_iteration(
     return row;
   };
 
-  const auto& scenes = planning_lp.simulation().scenes();
-  std::unordered_map<SceneUid, SceneIndex, std::hash<SceneUid>> scene_uid_map;
-  map_reserve(scene_uid_map, scenes.size());
-  for (auto&& [si, sc_lp] : enumerate<SceneIndex>(scenes)) {
-    scene_uid_map[sc_lp.uid()] = si;
-  }
-
   const auto& phases = planning_lp.simulation().phases();
   auto phase_uid_fn = [&](PhaseIndex pi) -> PhaseUid
   { return phases[pi].uid(); };
 
+  // Iterate each phase step; for each scene, use its per-scene offset
+  // (captured by the caller in `m_scene_cuts_before_` before the
+  // backward pass) to find cuts newly added this iteration.  Only
+  // optimality cuts are shared across scenes (feasibility cuts are
+  // scene-local by construction).
   for (const auto pi : iota_range<PhaseIndex>(0, num_phases - 1)) {
     StrongIndexVector<SceneIndex, std::vector<SparseRow>> per_scene_cuts;
     per_scene_cuts.resize(num_scenes);
 
     const auto pi_uid = phase_uid_fn(pi);
 
-    if (options.single_cut_storage) {
-      for (const auto si : iota_range<SceneIndex>(0, num_scenes)) {
-        const auto& cuts = m_scene_cuts_[si];
-        const auto offset = m_scene_cuts_before_[static_cast<std::size_t>(si)];
-        for (std::size_t ci = offset; ci < cuts.size(); ++ci) {
-          const auto& sc = cuts[ci];
-          if (sc.type != CutType::Optimality || sc.phase_uid != pi_uid) {
-            continue;
-          }
-          per_scene_cuts[si].push_back(to_sparse_row(sc));
-        }
-      }
-    } else {
-      for (std::size_t ci = cuts_before; ci < m_stored_cuts_.size(); ++ci) {
-        const auto& sc = m_stored_cuts_[ci];
+    for (const auto si : iota_range<SceneIndex>(0, num_scenes)) {
+      const auto& cuts = m_scene_cuts_[si];
+      const auto si_sz = static_cast<std::size_t>(si);
+      const auto offset =
+          si_sz < m_scene_cuts_before_.size() ? m_scene_cuts_before_[si_sz] : 0;
+      for (std::size_t ci = offset; ci < cuts.size(); ++ci) {
+        const auto& sc = cuts[ci];
         if (sc.type != CutType::Optimality || sc.phase_uid != pi_uid) {
           continue;
         }
-        auto sit = scene_uid_map.find(sc.scene_uid);
-        if (sit != scene_uid_map.end()) {
-          per_scene_cuts[sit->second].push_back(to_sparse_row(sc));
-        }
+        per_scene_cuts[si].push_back(to_sparse_row(sc));
       }
     }
 
