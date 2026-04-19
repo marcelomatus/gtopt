@@ -571,6 +571,67 @@ TEST_CASE("LinearInterface — low_memory cut deletion tracking")  // NOLINT
   CHECK(li.get_obj_value() == doctest::Approx(13.0));
 }
 
+TEST_CASE(
+    "LinearInterface — clear_snapshot drops flat LP but keeps cache")  // NOLINT
+{
+  // After SDDP simulation Pass 1 has solved every cell and cached the
+  // Phase-2a primal/dual/cost vectors, `SDDPMethod::simulation_pass`
+  // calls `clear_snapshot()` on each `LinearInterface` (via
+  // `PlanningLP::drop_sim_snapshots`) to free the compressed flat-LP
+  // snapshot — the cache is sufficient for `PlanningLP::write_out`.
+  // This test verifies the exact invariant: after clear_snapshot the
+  // cached scalars + vectors remain intact and still serve reads, but
+  // the snapshot is gone and `reconstruct_backend()` early-returns.
+  auto [li, flat, x1, x2] = make_simple_lp();
+
+  auto res = li.initial_solve();
+  REQUIRE(res.has_value());
+  REQUIRE(li.is_optimal());
+  const double orig_obj = li.get_obj_value();
+
+  li.set_low_memory(LowMemoryMode::compress);
+  li.save_snapshot(FlatLinearProblem {flat});
+  li.release_backend();
+
+  REQUIRE(li.is_backend_released());
+  REQUIRE(li.is_optimal());  // cached true after optimal release
+
+  // Capture cached values BEFORE clearing the snapshot to confirm
+  // they survive clear_snapshot untouched.
+  const std::vector<double> before_col_sol(li.get_col_sol_raw().begin(),
+                                           li.get_col_sol_raw().end());
+  const std::vector<double> before_row_dual(li.get_row_dual_raw().begin(),
+                                            li.get_row_dual_raw().end());
+
+  li.clear_snapshot();
+
+  SUBCASE("cached scalars + vectors still serve reads")
+  {
+    CHECK(li.is_optimal());
+    CHECK(li.get_obj_value() == doctest::Approx(orig_obj));
+    const auto after_col_sol = li.get_col_sol_raw();
+    REQUIRE(after_col_sol.size() == before_col_sol.size());
+    for (size_t i = 0; i < after_col_sol.size(); ++i) {
+      CHECK(after_col_sol[i] == doctest::Approx(before_col_sol[i]));
+    }
+    const auto after_row_dual = li.get_row_dual_raw();
+    REQUIRE(after_row_dual.size() == before_row_dual.size());
+    for (size_t i = 0; i < after_row_dual.size(); ++i) {
+      CHECK(after_row_dual[i] == doctest::Approx(before_row_dual[i]));
+    }
+  }
+
+  SUBCASE("reconstruct_backend is a no-op when snapshot is gone")
+  {
+    // With an empty snapshot the reconstruct path early-returns; the
+    // backend stays released.  Precondition for dropping the snapshot
+    // after Pass 1 converges: no caller will need a live backend.
+    li.reconstruct_backend();
+    CHECK(li.is_backend_released());
+    CHECK_FALSE(li.has_backend());
+  }
+}
+
 TEST_CASE("LinearInterface — low_memory reconstruct with warm-start")  // NOLINT
 {
   auto [li, flat, x1, x2] = make_simple_lp();

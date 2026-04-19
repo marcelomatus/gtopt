@@ -257,6 +257,95 @@ TEST_CASE("PlanningLP - Write LP file")
   CHECK(file_exists);
 }
 
+TEST_CASE(  // NOLINT
+    "PlanningLP - drop_sim_snapshots under compress keeps cache "
+    "intact")
+{
+  // Mirrors the behaviour the SDDP simulation_pass relies on: after
+  // Pass 1 each cell's flat-LP snapshot can be dropped, but the
+  // Phase-2a primal/dual/cost cache must survive so
+  // `PlanningLP::write_out` reads optimal values from the cache.
+  const Simulation simulation = {
+      .block_array = {{.uid = Uid {1}, .duration = 1}},
+      .stage_array = {{.uid = Uid {1}, .first_block = 0, .count_block = 1}},
+      .scenario_array = {{.uid = Uid {0}}},
+  };
+  const Array<Bus> bus_array = {{.uid = Uid {1}, .name = "b1"}};
+  const Array<Generator> generator_array = {
+      {
+          .uid = Uid {1},
+          .name = "g1",
+          .bus = Uid {1},
+          .gcost = 50.0,
+          .capacity = 100.0,
+      },
+  };
+  const Array<Demand> demand_array = {
+      {.uid = Uid {1}, .name = "d1", .bus = Uid {1}, .capacity = 80.0},
+  };
+  const System system {
+      .name = "TestSystem",
+      .bus_array = bus_array,
+      .demand_array = demand_array,
+      .generator_array = generator_array,
+  };
+  const Planning planning {
+      .options = {.demand_fail_cost = 1000.0},
+      .simulation = simulation,
+      .system = system,
+  };
+
+  LpMatrixOptions flat_options;
+  flat_options.low_memory_mode = LowMemoryMode::compress;
+  flat_options.memory_codec = CompressionCodec::lz4;
+
+  PlanningLP planning_lp(planning, flat_options);
+  REQUIRE(!planning_lp.systems().empty());
+
+  // Resolve so each cell solves to optimum and caches values at
+  // release_backend time.  The solve call is the only way the Phase-2a
+  // cache gets populated in a real run.
+  auto res = planning_lp.resolve();
+  REQUIRE(res.has_value());
+
+  // Record obj + cache state before dropping snapshots, so we can
+  // compare against the post-drop reads.
+  double total_obj_before = 0.0;
+  std::size_t optimal_cells = 0;
+  for (const auto& phase_systems : planning_lp.systems()) {
+    for (const auto& sys : phase_systems) {
+      const auto& li = sys.linear_interface();
+      if (li.is_optimal()) {
+        total_obj_before += li.get_obj_value_physical();
+        ++optimal_cells;
+      }
+    }
+  }
+  REQUIRE(optimal_cells > 0);
+
+  planning_lp.drop_sim_snapshots();
+
+  // Same obj, same cell count — the cache still serves reads.
+  double total_obj_after = 0.0;
+  std::size_t optimal_after = 0;
+  for (const auto& phase_systems : planning_lp.systems()) {
+    for (const auto& sys : phase_systems) {
+      const auto& li = sys.linear_interface();
+      if (li.is_optimal()) {
+        total_obj_after += li.get_obj_value_physical();
+        ++optimal_after;
+      }
+    }
+  }
+  CHECK(optimal_after == optimal_cells);
+  CHECK(total_obj_after == doctest::Approx(total_obj_before));
+
+  // write_out should still succeed — it reads from the Phase-2a cache
+  // and re-flattens from System element arrays.  No fresh snapshot
+  // needed.
+  CHECK_NOTHROW(planning_lp.write_out());
+}
+
 TEST_CASE("PlanningLP - Run LP")
 {
   // Create a simulation with blocks, stages, and scenarios
