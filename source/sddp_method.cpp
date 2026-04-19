@@ -514,7 +514,7 @@ void SDDPMethod::capture_state_variable_values(
   for (const auto& [key, svar] : sim.state_variables(scene_index, phase_index))
   {
     const auto col = svar.col();
-    if (col < ColIndex {static_cast<Index>(col_sol.size())}) {
+    if (col < col_index_size(col_sol)) {
       svar.set_col_sol(col_sol[col]);
     }
   }
@@ -533,7 +533,7 @@ void SDDPMethod::capture_state_variable_values(
       continue;
     }
     const auto dep = link.dependent_col;
-    if (dep < ColIndex {static_cast<Index>(reduced_costs.size())}) {
+    if (dep < col_index_size(reduced_costs)) {
       link.state_var->set_reduced_cost(reduced_costs[dep]);
     }
   }
@@ -628,7 +628,7 @@ bool SDDPMethod::should_dispatch_update_lp(IterationIndex iteration_index) const
     }
     // Default: apply global skip count using relative iteration
     const auto skip = planning_lp().options().sddp_update_lp_skip();
-    const auto rel = iteration_index - m_iteration_offset_;
+    const auto rel = iteration_relative(iteration_index, m_iteration_offset_);
     if (skip > 0 && rel > 0 && (rel % (skip + 1)) != 0) {
       return false;
     }
@@ -1402,13 +1402,20 @@ auto SDDPMethod::initialize_solver() -> std::expected<void, Error>
 
   // ── Build preallocated iteration vector ───────────────────────────────────
   {
+    // `next(offset, n)` returns the exclusive upper bound of a training
+    // run starting at `m_iteration_offset_` and taking `max_iterations`
+    // steps — the strong-index analogue of `offset + n` kept strongly
+    // typed so the iota_range and array subscripts below don't need
+    // any cast back from `Index`.
     const auto total_iterations =
-        static_cast<Index>(m_iteration_offset_) + m_options_.max_iterations;
+        next(m_iteration_offset_, m_options_.max_iterations);
     m_iterations_.resize(total_iterations);
-    for (const auto iidx : iota_range<IterationIndex>(0, total_iterations)) {
+    for (const auto iidx :
+         iota_range<IterationIndex>(IterationIndex {0}, total_iterations))
+    {
       m_iterations_[iidx] = IterationLP {
           Iteration {
-              .index = static_cast<Index>(iidx),
+              .index = value_of(iidx),
           },
           iidx,
       };
