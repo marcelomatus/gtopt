@@ -28,6 +28,82 @@ using namespace gtopt;  // NOLINT(google-global-names-in-headers)
 
 // ─── Integration tests ─────────────────────────────────────────────────────
 
+// ─── Scale-invariance regression guard ─────────────────────────────────────
+//
+// SDDP convergence is a function of the problem's PHYSICAL units, not of
+// the LP variable scaling chosen internally.  `VariableScale` entries on
+// `PlanningOptions::variable_scales` adjust only how physical values are
+// represented inside the LP (`physical = LP × scale`); the primal
+// solution and the objective value must come out the same regardless.
+//
+// This test pins that invariance: the same 3-phase hydro+thermal
+// problem is solved twice under two different reservoir `energy` /
+// `flow` scale choices, and the converged UB/LB must match to 1e-4.
+// Without this guard, a change in `auto_scale_reservoirs` can silently
+// shift the reported obj by orders of magnitude (as happened during
+// the transient `e848067a` revert this session).
+TEST_CASE("SDDPMethod - scale invariance across variable_scales")  // NOLINT
+{
+  constexpr int kIters = 15;
+  constexpr double kConvTol = 1e-5;
+  constexpr double kParityTol = 1e-4;
+
+  auto run_with_scales =
+      [&](std::vector<VariableScale> scales) -> std::pair<double, double>
+  {
+    auto planning = make_3phase_hydro_planning();
+    planning.options.variable_scales = std::move(scales);
+    PlanningLP planning_lp(std::move(planning));
+
+    SDDPOptions sddp_opts;
+    sddp_opts.max_iterations = kIters;
+    sddp_opts.convergence_tol = kConvTol;
+    sddp_opts.enable_api = false;
+
+    SDDPMethod sddp(planning_lp, sddp_opts);
+    auto results = sddp.solve();
+    REQUIRE(results.has_value());
+    REQUIRE_FALSE(results->empty());
+    const auto& last = results->back();
+    return {last.upper_bound, last.lower_bound};
+  };
+
+  // Reference: no explicit variable_scales → auto-scale picks defaults
+  // (mostly 1.0 on this small fixture whose reservoir capacity is 150).
+  const auto [ub0, lb0] = run_with_scales({});
+
+  SUBCASE("reservoir energy scale = 10 (per-class)")
+  {
+    const auto [ub, lb] = run_with_scales({
+        VariableScale {
+            .class_name = "Reservoir",
+            .variable = "energy",
+            .scale = 10.0,
+        },
+    });
+    CHECK(ub == doctest::Approx(ub0).epsilon(kParityTol));
+    CHECK(lb == doctest::Approx(lb0).epsilon(kParityTol));
+  }
+
+  SUBCASE("reservoir energy scale = 100 + flow scale = 10 (per-class)")
+  {
+    const auto [ub, lb] = run_with_scales({
+        VariableScale {
+            .class_name = "Reservoir",
+            .variable = "energy",
+            .scale = 100.0,
+        },
+        VariableScale {
+            .class_name = "Reservoir",
+            .variable = "flow",
+            .scale = 10.0,
+        },
+    });
+    CHECK(ub == doctest::Approx(ub0).epsilon(kParityTol));
+    CHECK(lb == doctest::Approx(lb0).epsilon(kParityTol));
+  }
+}
+
 TEST_CASE("SDDPMethod - 3-phase hydro+thermal converges")  // NOLINT
 {
   auto planning = make_3phase_hydro_planning();
