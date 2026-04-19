@@ -20,7 +20,6 @@
 #include <ranges>
 #include <set>
 #include <span>
-#include <thread>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -1370,7 +1369,8 @@ auto SDDPMethod::initialize_solver() -> std::expected<void, Error>
   {
     auto pool = make_solver_work_pool(m_options_.pool_cpu_factor);
     std::vector<std::future<void>> futures;
-    futures.reserve(num_scenes * num_phases);
+    futures.reserve(static_cast<std::size_t>(num_scenes)
+                    * static_cast<std::size_t>(num_phases));
     for (const auto scene_index : iota_range<SceneIndex>(0, num_scenes)) {
       for (const auto phase_index : iota_range<PhaseIndex>(0, num_phases)) {
         auto result = pool->submit(
