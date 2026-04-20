@@ -195,11 +195,20 @@ template<typename T>
        po::value<bool>().implicit_value(/*v=*/true),
        "enable recovery from a previous SDDP run (loads cuts and state "
        "variables according to JSON recovery_mode; default: off)")  //
+      ("memory-saving",
+       po::value<std::string>().implicit_value("compress"),
+       "coordinated memory-saving: sets both the SDDP flat-LP release "
+       "policy (sddp_options.low_memory_mode) AND the solver-native "
+       "memory hint (solver_options.memory_emphasis, e.g. CPLEX "
+       "CPX_PARAM_MEMORYEMPHASIS).  Values: off, "
+       "compress (release solver, keep compressed flat LP — best "
+       "balance, default when flag is given without value), "
+       "rebuild (re-build base LP every solve — lowest RAM, highest "
+       "CPU).  Overridden by direct JSON settings for either option.")  //
+      // Deprecated alias for `--memory-saving` — hidden from help.
       ("low-memory",
        po::value<std::string>().implicit_value("compress"),
-       "SDDP low-memory mode: off, "
-       "compress (release solver, keep compressed flat LP), "
-       "rebuild (re-build base LP every solve)")  //
+       "")  //
       ("memory-limit",
        po::value<std::string>(),
        "process memory limit for work pool throttling "
@@ -498,9 +507,21 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
     planning.options.sddp_options.recovery_mode = RecoveryMode::none;
   }
 
-  if (opts.low_memory_mode) {
+  if (opts.memory_saving) {
+    // Map the string to the LowMemoryMode enum and apply to the SDDP
+    // side of the equation.
     planning.options.sddp_options.low_memory_mode =
-        require_enum<LowMemoryMode>("low-memory", *opts.low_memory_mode);
+        require_enum<LowMemoryMode>("memory-saving", *opts.memory_saving);
+    // Coordinated effect #2: hint the solver backends to compact
+    // internal data structures (CPLEX CPX_PARAM_MEMORYEMPHASIS=1; other
+    // backends silently ignore when they have no equivalent).  Only
+    // write the default when the user hasn't already set memory_emphasis
+    // explicitly in the planning JSON — JSON takes precedence.
+    if (*opts.memory_saving != "off"
+        && !planning.options.solver_options.memory_emphasis.has_value())
+    {
+      planning.options.solver_options.memory_emphasis = true;
+    }
   }
 
   if (opts.memory_limit) {
@@ -599,7 +620,11 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
       .sddp_elastic_mode = get_opt<std::string>(vm, "sddp-elastic-mode"),
       .sddp_num_apertures = get_opt<int>(vm, "sddp-num-apertures"),
       .recover = get_opt<bool>(vm, "recover"),
-      .low_memory_mode = get_opt<std::string>(vm, "low-memory"),
+      // Prefer the new `--memory-saving` name; fall back to the
+      // deprecated `--low-memory` alias for backward compatibility.
+      .memory_saving =
+          get_opt<std::string>(vm, "memory-saving")
+              .or_else([&] { return get_opt<std::string>(vm, "low-memory"); }),
       .memory_limit = get_opt<std::string>(vm, "memory-limit"),
       .sddp_cpu_factor =
           get_opt<double>(vm, "cpu-factor")
@@ -734,7 +759,11 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
   opts.sddp_elastic_penalty = get_dbl("sddp-elastic-penalty");
   opts.sddp_elastic_mode = get_str("sddp-elastic-mode");
   opts.sddp_num_apertures = get_int("sddp-num-apertures");
-  opts.low_memory_mode = get_str("low-memory");
+  // Prefer the new key; fall back to the deprecated `low-memory` alias.
+  opts.memory_saving = get_str("memory-saving");
+  if (!opts.memory_saving) {
+    opts.memory_saving = get_str("low-memory");
+  }
   opts.memory_limit = get_str("memory-limit");
   opts.sddp_cpu_factor = get_dbl("cpu-factor");
   if (!opts.sddp_cpu_factor) {
@@ -883,7 +912,7 @@ inline void merge_config_defaults(MainOptions& opts,
   merge(opts.sddp_elastic_penalty, defaults.sddp_elastic_penalty);
   merge(opts.sddp_elastic_mode, defaults.sddp_elastic_mode);
   merge(opts.sddp_num_apertures, defaults.sddp_num_apertures);
-  merge(opts.low_memory_mode, defaults.low_memory_mode);
+  merge(opts.memory_saving, defaults.memory_saving);
   merge(opts.memory_limit, defaults.memory_limit);
   merge(opts.sddp_cpu_factor, defaults.sddp_cpu_factor);
   merge(opts.build_mode, defaults.build_mode);
