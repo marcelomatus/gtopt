@@ -170,6 +170,17 @@ jobs:
         run: |
           set -o pipefail
           cd build
+          # Pin the active LP solver to CLP so that:
+          #   - the SDDP validator's per-solver golden lookup picks
+          #     `golden_iter*_clp.json` (see tools/validate_sddp_output.py),
+          #   - gtopt's auto-priority resolver deterministically uses CLP
+          #     regardless of which other COIN-OR plugins got built on the
+          #     runner (CBC occasionally loads first and hits different
+          #     degenerate optima).
+          # Removing the export here would require the validator to
+          # auto-detect the solver from solver_status.json — only
+          # produced for iter>0 runs, so not a drop-in replacement.
+          export GTOPT_SOLVER=clp
           # --build-config is only meaningful for multi-config generators
           # (Ninja Multi-Config, Visual Studio); ignored by single-config
           # Ninja/Make runs, which is what this workflow uses.  Left here
