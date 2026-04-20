@@ -78,11 +78,18 @@ namespace gtopt
     return option_scale_alpha;
   }
   // Mirror the auto-scale heuristic in SDDPMethod::initialize_solver():
-  //   scale_alpha = scale_objective
-  // The cut equation is in $; scale_objective puts the alpha column on
-  // the same numerical footing as the (already scale_objective-divided)
-  // objective.
-  return planning_lp.options().scale_objective();
+  //   scale_alpha = max(state.var_scale)
+  // across every (scene, phase) state-variable cell.
+  const auto& sim = planning_lp.simulation();
+  double max_vs = 1.0;
+  for (auto&& [si, scene] : enumerate<SceneIndex>(sim.scenes())) {
+    for (auto&& [pi, phase] : enumerate<PhaseIndex>(sim.phases())) {
+      for (const auto& [key, svar] : sim.state_variables(si, pi)) {
+        max_vs = std::max(max_vs, svar.var_scale());
+      }
+    }
+  }
+  return max_vs;
 }
 
 namespace

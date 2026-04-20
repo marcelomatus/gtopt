@@ -98,6 +98,13 @@ struct StateVarLink
   /// full per-LP `std::vector<double>` snapshots.  Nullable for test
   /// fixtures that exercise cut builders in isolation.
   const StateVariable* state_var {nullptr};
+  /// Identity of the state-variable element, for diagnostic logs.
+  /// Captured once at link collection time from the simulation registry
+  /// Key.  The string_views reference the same stable storage as the
+  /// map keys, so they outlive the link for the whole solver lifetime.
+  std::string_view class_name {};  ///< e.g. "Reservoir", "Battery"
+  std::string_view col_name {};  ///< e.g. "efin", "sini"
+  Uid uid {unknown_uid};  ///< Element UID
 };
 
 // ─── Elastic relaxation result ──────────────────────────────────────────────

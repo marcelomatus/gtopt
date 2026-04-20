@@ -490,14 +490,26 @@ void SDDPMethod::collect_state_variable_links(SceneIndex scene_index)
             // (flat_map, stable for the full solver lifetime — same
             // lifetime that already couples source and dependent LP cols).
             .state_var = &svar,
+            // Identity for diagnostic logs (e.g. "Reservoir:8:efin").
+            .class_name = key.class_name,
+            .col_name = key.col_name,
+            .uid = key.uid,
         });
       }
     }
 
-    SPDLOG_TRACE("SDDP: scene {} phase {} has {} outgoing state-variable links",
-                 scene_index,
-                 phase_index,
-                 state.outgoing_links.size());
+    // Coverage audit: one TRACE line per (scene, phase) with both
+    // counts shown side-by-side.  Readers grep for `(N/M)` where N !=
+    // M to spot skip-ahead couplings or — more importantly — state
+    // variables that were registered but have no dependent link in
+    // the next phase, which would silently defeat the elastic filter.
+    SPDLOG_TRACE(
+        "SDDP: scene {} phase {} outgoing state-variable links: {}/{} "
+        "(links/registered state vars)",
+        scene_index,
+        phase_index,
+        state.outgoing_links.size(),
+        sim.state_variables(scene_index, phase_index).size());
   }
 }
 
@@ -1165,15 +1177,23 @@ auto SDDPMethod::initialize_solver() -> std::expected<void, Error>
     }
   }
 
-  // Auto-scale alpha: when scale_alpha == 0, set it to scale_objective.
-  // The cut equation is in $; the LP objective is also in $ but
-  // pre-divided by scale_objective, so taking scale_alpha = scale_objective
-  // keeps the alpha column's LP coefficient O(1) and lines up cut RHS
-  // with the objective's numerical scale.
+  // Auto-scale alpha: when scale_alpha == 0, compute as the maximum
+  // state variable var_scale across all (scene, phase) cells.  This
+  // keeps the alpha column's LP coefficient O(1) relative to the
+  // largest state variable it is paired with in Benders cut rows.
   if (m_options_.scale_alpha <= 0.0) {
-    const auto scale_obj = planning_lp().options().scale_objective();
-    m_options_.scale_alpha = scale_obj;
-    SPDLOG_INFO("SDDP: auto scale_alpha = {:.2e} (= scale_objective)",
+    double max_var_scale = 1.0;
+    for (const auto scene_index : iota_range<SceneIndex>(0, num_scenes)) {
+      for (const auto phase_index : iota_range<PhaseIndex>(0, num_phases)) {
+        for (const auto& [key, svar] :
+             sim.state_variables(scene_index, phase_index))
+        {
+          max_var_scale = std::max(max_var_scale, svar.var_scale());
+        }
+      }
+    }
+    m_options_.scale_alpha = max_var_scale;
+    SPDLOG_INFO("SDDP: auto scale_alpha = {:.2e} (max state var_scale)",
                 m_options_.scale_alpha);
   }
 
@@ -1477,6 +1497,13 @@ auto SDDPMethod::run_forward_pass_all_scenes(SDDPWorkPool& pool,
               num_scenes);
 
   const auto fwd_start = std::chrono::steady_clock::now();
+  // Snapshot total stored cuts before the pass.  Forward passes only
+  // install feasibility cuts (`store_cut(..., CutType::Feasibility, ...)`
+  // at sddp_forward_pass.cpp), so the post-pass delta is exactly the
+  // count of fcuts installed across all scenes this attempt.  Used by
+  // the simulation retry loop to detect "no progress" attempts.
+  const auto cuts_before_pass = m_cut_store_.num_stored_cuts();
+
   std::vector<std::future<std::expected<double, Error>>> futures;
   futures.reserve(num_scenes);
 
@@ -1517,6 +1544,13 @@ auto SDDPMethod::run_forward_pass_all_scenes(SDDPWorkPool& pool,
   out.elapsed_s = std::chrono::duration<double>(std::chrono::steady_clock::now()
                                                 - fwd_start)
                       .count();
+
+  // Post-pass cut count - pre-pass snapshot = fcuts installed this pass.
+  // Non-negative because cuts are only added (never removed) during a
+  // forward pass.
+  const auto cuts_after_pass = m_cut_store_.num_stored_cuts();
+  out.n_fcuts_installed = static_cast<std::size_t>(
+      std::max<std::ptrdiff_t>(0, cuts_after_pass - cuts_before_pass));
 
   m_current_pass_.store(0);
 

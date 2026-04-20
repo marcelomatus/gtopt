@@ -347,11 +347,30 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
             }
           }
 
-          // One-line per infeasible LP: elastic outcome + fcut install
-          // merged into a single INFO line (previously two lines).
+          // List the state-variable elements actually present in the
+          // installed cut (survivors of cut_coeff_eps filtering), so
+          // the diagnostic points at the elements driving the fcut.
+          // Format: "Class:uid:col_name, ..." (e.g. "Reservoir:8:efin").
+          std::string state_elems;
+          for (const auto& link : prev_state.outgoing_links) {
+            if (!feas_cut.cmap.contains(link.source_col)) {
+              continue;
+            }
+            if (!state_elems.empty()) {
+              state_elems += ", ";
+            }
+            state_elems += std::format(
+                "{}:{}:{}", link.class_name, Index {link.uid}, link.col_name);
+          }
+
+          // One-line per infeasible LP, emitted *after* the fcut (and any
+          // multi-cuts) have been installed on prev_li.  Timing is
+          // deliberate — the log signals a completed cut install, not
+          // merely the detection of infeasibility.
           SPDLOG_INFO(
               "SDDP Forward [i{} s{} p{}]: elastic → fcut on p{} "
-              "(obj={:.4g} alpha={:.4g} opex={:.4g} infeas_count={}{})",
+              "(obj={:.4g} alpha={:.4g} opex={:.4g} infeas_count={}{}) "
+              "state=[{}]",
               iteration_index,
               scene_uid(scene_index),
               phase_uid(phase_index),
@@ -360,7 +379,8 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
               alpha_val,
               state.forward_objective,
               infeas_count,
-              mc_added > 0 ? std::format(" +{}mc", mc_added) : "");
+              mc_added > 0 ? std::format(" +{}mc", mc_added) : "",
+              state_elems);
           // Do not release prev_sys backend here — the backward pass
           // will visit phase p-1 shortly and re-ensure_lp_built() itself.
           //
@@ -372,26 +392,36 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
           // single recovery step.
         }
       } else {
-        // Save the infeasible LP and run diagnostics only when:
-        //  - it's the first phase (the scene will be declared infeasible), or
-        //  - trace/debug logging is enabled (developer debugging).
-        // During normal SDDP iteration, skip writing/diagnosing error LPs
-        // to avoid I/O overhead.
-        const bool is_first_phase = !phase_index;
-        const bool is_trace_debug =
-            (spdlog::get_level() <= spdlog::level::debug);
-        if (!m_options_.log_directory.empty()
-            && (is_first_phase || is_trace_debug))
-        {
-          spdlog::warn("SDDP Forward [i{} s{} p{}]: infeasible LP (status {})",
-                       iteration_index,
-                       scene_uid(scene_index),
-                       phase_uid(phase_index),
-                       solve_status);
-        }
+        // Elastic filter could not produce a feasibility cut.  Two
+        // mutually exclusive reasons:
+        //   A. phase_index == 0 (no predecessor phase to cut on)
+        //   B. the state-variable-relaxed clone was itself infeasible
+        //      (infeasibility rooted outside state-variable bounds —
+        //       e.g. demand balance, flow limits, or a pre-installed
+        //       cut row — which the elastic filter cannot relax)
+        // Per SDDP theory, no recovery is possible from either — the
+        // scene is declared infeasible for this iteration.  The caller
+        // (run_forward_pass_all_scenes) sets scene_feasible[s] = 0 when
+        // it sees the returned Error; compute_iteration_bounds then
+        // excludes this scene from UB/LB.  Retries on the same state
+        // cannot change this outcome.
+        spdlog::warn(
+            "SDDP Forward [i{} s{} p{}]: elastic filter produced no "
+            "feasibility cut — declaring phase p{} and scene s{} "
+            "infeasible for iter i{} (solver status {}, reason: {})",
+            iteration_index,
+            scene_uid(scene_index),
+            phase_uid(phase_index),
+            phase_uid(phase_index),
+            scene_uid(scene_index),
+            iteration_index,
+            solve_status,
+            !phase_index ? "no predecessor phase to cut on"
+                         : "relaxed clone infeasible");
         return std::unexpected(Error {
             .code = ErrorCode::SolverError,
-            .message = std::format("{}: failed (status {})",
+            .message = std::format("{}: elastic filter produced no "
+                                   "feasibility cut (status {})",
                                    sddp_log("Forward",
                                             iteration_index,
                                             scene_uid(scene_index),

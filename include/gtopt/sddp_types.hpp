@@ -588,6 +588,11 @@ struct ForwardPassOutcome
   std::vector<uint8_t> scene_feasible {};
   int scenes_solved {0};
   bool has_feasibility_issue {false};
+  /// Total feasibility cuts (including multi-cut bound rows) installed
+  /// across all scenes in this pass.  When zero and
+  /// has_feasibility_issue is true, retrying will produce the same
+  /// result — the caller's retry loop should break.
+  std::size_t n_fcuts_installed {0};
   double elapsed_s {0.0};
 };
 

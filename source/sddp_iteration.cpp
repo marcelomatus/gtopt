@@ -498,6 +498,19 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
       if (!fwd->has_feasibility_issue) {
         break;
       }
+      // If no feasibility cuts were installed this attempt, the LP
+      // state is unchanged — retrying will produce the same result.
+      // The remaining infeasible cells are terminally infeasible;
+      // leave them to be reported as status=-1 in the parquet output.
+      if (fwd->n_fcuts_installed == 0) {
+        SPDLOG_INFO(
+            "SDDP Sim [i{}]: attempt {}/{} installed 0 feasibility cuts — "
+            "remaining infeasibilities are terminal, stopping retry loop",
+            final_iteration_index,
+            p1_attempts + 1,
+            kMaxSimP1Retries + 1);
+        break;
+      }
     }
 
     SPDLOG_INFO(
@@ -525,6 +538,39 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
           "SDDP Sim [i{}]: residual feasibility issue — affected cells "
           "left unsolved in output",
           final_iteration_index);
+
+      // Mark every (scene, phase) cell of an infeasible scene as
+      // output_skipped so PlanningLP::write_out bypasses the
+      // rehydrate + re-solve round-trip (which would just hit the
+      // same infeasibility and produce meaningless output).  This
+      // also covers the max_iterations=0 path: no training runs, the
+      // sim pass alone drives which scenes are bad, and write_out
+      // respects that single verdict.
+      const auto num_scenes_sim = planning_lp().simulation().scene_count();
+      const auto num_phases_sim = planning_lp().simulation().phase_count();
+      std::size_t n_cells_skipped = 0;
+      for (const auto scene_index : iota_range<SceneIndex>(0, num_scenes_sim)) {
+        const auto si_sz = static_cast<std::size_t>(scene_index);
+        if (si_sz >= fwd->scene_feasible.size()
+            || fwd->scene_feasible[si_sz] != 0U)
+        {
+          continue;  // scene stayed feasible — leave its cells alone
+        }
+        for (const auto phase_index : iota_range<PhaseIndex>(0, num_phases_sim))
+        {
+          planning_lp()
+              .system(scene_index, phase_index)
+              .set_output_skipped(true);
+          ++n_cells_skipped;
+        }
+      }
+      if (n_cells_skipped > 0) {
+        SPDLOG_INFO(
+            "SDDP Sim [i{}]: {} cell(s) marked output_skipped "
+            "(infeasible scenes will not be written out)",
+            final_iteration_index,
+            n_cells_skipped);
+      }
     }
 
     const auto& scenes = planning_lp().simulation().scenes();
