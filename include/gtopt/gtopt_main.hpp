@@ -136,9 +136,30 @@ struct MainOptions
    */
   std::optional<bool> recover {};
 
-  /** @brief SDDP low-memory mode: off, snapshot, or compress.
-   * Trades CPU time for significant memory savings. */
-  std::optional<std::string> low_memory_mode {};
+  /** @brief Global memory-saving mode: `off` / `compress` / `rebuild`.
+   *
+   * Generalises the older `--low-memory` flag: when set, the CLI applies
+   * a coordinated set of memory-saving defaults across the whole run:
+   *
+   *   - `sddp_options.low_memory_mode` = <value>  (same semantics as
+   *     before: off / compress / rebuild of the flat-LP snapshot)
+   *   - `solver_options.memory_emphasis` = true    (solver-native hint;
+   *     CPLEX's `CPX_PARAM_MEMORYEMPHASIS=1`, ignored by backends that
+   *     have no equivalent).
+   *
+   * Users who want finer control can still set `low_memory_mode` or
+   * `memory_emphasis` directly in the planning JSON — the CLI is just
+   * the shortcut "turn everything on sensibly".
+   *
+   * Implicit value (flag with no argument) is `compress`, which is the
+   * best balance: releases the solver backend between phases (big RAM
+   * win) while keeping the compressed flat LP so the next solve
+   * reconstructs in ~50 ms instead of a full re-flatten.  `rebuild`
+   * gives the lowest steady-state RAM at higher CPU cost.
+   *
+   * Bound to `--memory-saving`; `--low-memory` remains as a hidden
+   * deprecated alias for one release. */
+  std::optional<std::string> memory_saving {};
 
   // ---- resource limits ----
   /** @brief Process memory limit for work pool throttling.
