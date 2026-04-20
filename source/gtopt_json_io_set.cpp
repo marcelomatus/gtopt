@@ -10,8 +10,11 @@
  * from_json<Planning> for JSON overlay merging.
  */
 
+#include <algorithm>
+#include <charconv>
 #include <cstdlib>
 #include <format>
+#include <ranges>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -21,6 +24,7 @@
 #include <gtopt/json/json_parse_policy.hpp>
 #include <gtopt/json/json_planning.hpp>
 #include <gtopt/solver_options.hpp>
+#include <gtopt/utils.hpp>
 #include <spdlog/spdlog.h>
 
 namespace gtopt
@@ -72,41 +76,103 @@ namespace
   return escaped;
 }
 
+/// A path component consisting entirely of ASCII digits is interpreted
+/// as an array index during overlay synthesis.  Used by
+/// `build_set_option_json` to distinguish object keys from positional
+/// array indices in dotted `--set` paths.
+[[nodiscard]] constexpr bool is_array_index(std::string_view s) noexcept
+{
+  return !s.empty()
+      && std::ranges::all_of(
+          s, [](char c) noexcept { return c >= '0' && c <= '9'; });
+}
+
+/// Parse a decimal non-negative integer from @p s.  Callers must guard
+/// the input with `is_array_index` first; behaviour on non-digit input
+/// is left as the partial prefix parse from `std::from_chars`.
+[[nodiscard]] std::size_t parse_array_index(std::string_view s) noexcept
+{
+  std::size_t idx = 0;
+  // NOLINTBEGIN(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+  std::from_chars(s.data(), s.data() + s.size(), idx);
+  // NOLINTEND(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+  return idx;
+}
+
 /// Build a minimal Planning JSON overlay from a dotted key and a JSON
-/// value. The key is a dotted path relative to `planning.options`, e.g.
+/// value.  The key is a dotted path relative to `planning.options`, e.g.
 /// `"sddp_options.forward_solver_options.threads"`.  The result is a
 /// valid JSON string like:
 /// `{"options":{"sddp_options":{"forward_solver_options":{"threads":8}}}}`
+///
+/// Path components consisting entirely of digits are treated as array
+/// indices.  `cascade_options.level_array.0.sddp_options.max_iterations`
+/// produces
+/// `{"options":{"cascade_options":{"level_array":[{"sddp_options":{"max_iterations":…}}]}}}`.
+/// Indices > 0 emit leading empty-object placeholders so the target
+/// lands at the requested position; the merge side leaves untouched
+/// elements alone (see `CascadeOptions::merge`).
 [[nodiscard]] std::string build_set_option_json(std::string_view dotted_key,
                                                 std::string_view json_val)
 {
-  // Split the key on '.'
-  std::vector<std::string_view> parts;
-  std::string_view key_sv {dotted_key};
-  while (true) {
-    const auto dot = key_sv.find('.');
-    if (dot == std::string_view::npos) {
-      parts.push_back(key_sv);
-      break;
+  // Split the key on '.' — preserves views into dotted_key so lifetime
+  // of `parts` is bounded by that of @p dotted_key.
+  const auto parts = dotted_key | std::views::split('.')
+      | std::views::transform([](auto r)
+                              { return std::string_view {r.data(), r.size()}; })
+      | std::ranges::to<std::vector>();
+
+  // Build the nested path body and track the closing brackets we owe.
+  // `closers` is appended in order; we emit it reversed at the end.
+  std::string body;
+  std::string closers;
+
+  for (const auto i : iota_range<std::size_t>(0, parts.size())) {
+    const auto part = parts[i];
+    const bool is_last = (i + 1 == parts.size());
+
+    // Numeric parts are consumed by the preceding key when it opens an
+    // array.  A stand-alone numeric trailing part (e.g. `foo.0`) produces
+    // an empty-object element, which the merge side leaves untouched.
+    if (is_array_index(part)) {
+      continue;
     }
-    parts.push_back(key_sv.substr(0, dot));
-    key_sv.remove_prefix(dot + 1);
+
+    std::format_to(std::back_inserter(body), R"("{}":)", part);
+
+    if (is_last) {
+      body += json_val;
+      continue;
+    }
+
+    const auto next = parts[i + 1];
+    if (!is_array_index(next)) {
+      // Non-numeric next → nest another object.
+      body += '{';
+      closers += '}';
+      continue;
+    }
+
+    // Numeric next → open an array with `idx` empty-object placeholders
+    // preceding the target element.  Merging an array of empty overlays
+    // against the base is a no-op per element.
+    const auto idx = parse_array_index(next);
+    body += '[';
+    for ([[maybe_unused]] const auto _ : iota_range<std::size_t>(0, idx)) {
+      body += "{},";
+    }
+    body += '{';
+    // `closers` is emitted reversed — push the outer bracket first so it
+    // ends up LAST (outermost) when reversed.  Array closer `]` precedes
+    // the element-object closer `}` in pushing order.
+    closers += "]}";
   }
 
-  // Build nested JSON under "options"
-  std::string json = "{\"options\":{";
-  for (std::size_t i = 0; i + 1 < parts.size(); ++i) {
-    json += '"';
-    json += parts[i];
-    json += "\":{";
-  }
-  json += '"';
-  json += parts.back();
-  json += "\":";
-  json += json_val;
-  for (std::size_t i = 0; i + 1 < parts.size(); ++i) {
-    json += '}';
-  }
+  std::string json;
+  json.reserve(body.size() + closers.size() + 14);
+  json += R"({"options":{)";
+  json += body;
+  json.append_range(closers | std::views::reverse);
   json += "}}";
   return json;
 }

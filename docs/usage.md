@@ -105,7 +105,15 @@ Multiple system files can be provided and will be merged.
 > gtopt case.json --set sddp_options.convergence_tol=1e-5
 > gtopt case.json --set input_directory=data/ --set input_format=parquet
 > gtopt case.json --set lp_debug=true --set log_directory=logs
+> # Array-index paths: target one element of a JSON array
+> gtopt case.json --set cascade_options.level_array.0.sddp_options.max_iterations=20
 > ```
+>
+> **Array indices** — numeric path components address array elements by
+> position (0-based).  For cascade `level_array` entries specifically, a
+> per-index overlay merges element-wise with the base array when sizes
+> match; a different-size overlay still replaces the array wholesale,
+> preserving the pre-existing multi-file merge behaviour.
 >
 > **Deprecated aliases** (still work, emit a warning): `-b`
 > (`--use-single-bus`), `-k` (`--use-kirchhoff`), `-D`
