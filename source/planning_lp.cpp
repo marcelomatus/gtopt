@@ -1059,11 +1059,16 @@ void PlanningLP::write_out()
   // XLP wrappers under compress (fast-path does a single flatten) or
   // zero extra under off (backend was never released).
   //
-  // Forward the `--memory-limit` (stored as sddp_options.pool_memory
-  // _limit_mb) to the write_out pool so process-RSS throttling kicks
-  // in here too — previously only SDDPWorkPool honoured it.
+  // cpu_factor=1.0 (NOT the SDDP pool's 4.0) is deliberate.  Arrow's
+  // default memory pool and parquet encoders are not lock-free; more
+  // threads in flight cause pathological contention (observed on
+  // juan/iplp: 80 threads → oc.write 60 s per cell; 40 threads was
+  // better, but 20 threads should reduce contention further while
+  // still using every physical core).
+  // Forward `--memory-limit` through the same path as every other
+  // pool so the 60 GB RSS cap is honoured during write_out.
   auto pool = make_solver_work_pool(
-      /*cpu_factor=*/2.0,
+      /*cpu_factor=*/1.0,
       /*cpu_threshold_override=*/0.0,
       /*scheduler_interval=*/std::chrono::milliseconds(50),
       /*memory_limit_mb=*/m_options_.sddp_pool_memory_limit_mb());
