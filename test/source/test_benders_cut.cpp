@@ -9,6 +9,7 @@
 
 #include <doctest/doctest.h>
 #include <gtopt/benders_cut.hpp>
+#include <gtopt/sddp_types.hpp>
 #include <gtopt/sparse_col.hpp>
 
 using namespace gtopt;  // NOLINT(google-global-names-in-headers)
@@ -1250,5 +1251,250 @@ TEST_CASE(  // NOLINT
 
     // The properly scaled penalty is O(1)
     CHECK(scaled_penalty == doctest::Approx(0.5));
+  }
+}
+
+// ---------------------------------------------------------------------------
+// chinneck_filter_solve — Chinneck IIS filter
+// ---------------------------------------------------------------------------
+//
+// Helper: build a small LP with two columns x1, x2 — both fixable as
+// state-variable links — and two upper-bound constraints x1 ≤ ub1,
+// x2 ≤ ub2.  The trial values then drive which links are essential
+// after elastic relaxation.
+namespace
+{
+
+struct ChinneckFixture
+{
+  LinearInterface li {};
+  ColIndex x1 {};
+  ColIndex x2 {};
+  std::vector<StateVarLink> links {};
+
+  ChinneckFixture(double trial1,
+                  double trial2,
+                  double ub1 = 10.0,
+                  double ub2 = 50.0)
+  {
+    x1 = li.add_col(SparseCol {.lowb = 0.0, .uppb = ub1 + 1000.0});
+    x2 = li.add_col(SparseCol {.lowb = 0.0, .uppb = ub2 + 1000.0});
+    li.set_obj_coeff(x1, 1.0);
+    li.set_obj_coeff(x2, 1.0);
+
+    SparseRow r1;
+    r1[x1] = 1.0;
+    r1.uppb = ub1;
+    r1.lowb = -LinearProblem::DblMax;
+    li.add_row(r1);
+
+    SparseRow r2;
+    r2[x2] = 1.0;
+    r2.uppb = ub2;
+    r2.lowb = -LinearProblem::DblMax;
+    li.add_row(r2);
+
+    auto res = li.initial_solve();
+    REQUIRE(res.has_value());
+    REQUIRE(li.is_optimal());
+
+    // Pin both columns at the trial values (state-variable convention).
+    li.set_col(x1, trial1);
+    li.set_col(x2, trial2);
+
+    links = {
+        {
+            .source_col = ColIndex {99},
+            .dependent_col = x1,
+            .target_phase_index = PhaseIndex {1},
+            .trial_value = trial1,
+            .source_low = 0.0,
+            .source_upp = ub1 + 1000.0,
+        },
+        {
+            .source_col = ColIndex {100},
+            .dependent_col = x2,
+            .target_phase_index = PhaseIndex {1},
+            .trial_value = trial2,
+            .source_low = 0.0,
+            .source_upp = ub2 + 1000.0,
+        },
+    };
+  }
+};
+
+}  // namespace
+
+TEST_CASE(  // NOLINT
+    "chinneck_filter_solve filters non-essential link")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  // trial1 = 5  (≤ ub1 = 10 — feasible, link non-essential)
+  // trial2 = 100 (> ub2 = 50  — infeasible, link essential)
+  ChinneckFixture fx {5.0, 100.0};
+  SolverOptions opts;
+
+  auto result = chinneck_filter_solve(fx.li, fx.links, 1e3, opts);
+
+  REQUIRE(result.has_value());
+  REQUIRE(result->link_infos.size() == 2);
+
+  // Link 1 (trial=5, ub=10): non-essential — slack cols cleared.
+  CHECK(result->link_infos[0].sup_col == ColIndex {unknown_index});
+  CHECK(result->link_infos[0].sdn_col == ColIndex {unknown_index});
+
+  // Link 2 (trial=100, ub=50): essential — slack cols preserved.
+  CHECK(result->link_infos[1].sup_col != ColIndex {unknown_index});
+  CHECK(result->link_infos[1].sdn_col != ColIndex {unknown_index});
+
+  // Clone is still optimal after the IIS-filter re-fix solve.
+  CHECK(result->clone.is_optimal());
+}
+
+TEST_CASE(  // NOLINT
+    "chinneck_filter_solve preserves all when full IIS")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  // Both trial values infeasible — every relaxed bound is essential.
+  ChinneckFixture fx {500.0, 500.0};
+  SolverOptions opts;
+
+  auto result = chinneck_filter_solve(fx.li, fx.links, 1e3, opts);
+
+  REQUIRE(result.has_value());
+  REQUIRE(result->link_infos.size() == 2);
+
+  // Both links remain active — no filtering possible.
+  CHECK(result->link_infos[0].sup_col != ColIndex {unknown_index});
+  CHECK(result->link_infos[0].sdn_col != ColIndex {unknown_index});
+  CHECK(result->link_infos[1].sup_col != ColIndex {unknown_index});
+  CHECK(result->link_infos[1].sdn_col != ColIndex {unknown_index});
+}
+
+TEST_CASE(  // NOLINT
+    "chinneck_filter_solve all-feasible trials yield zero-active result")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  // Both trial values within bounds — no slack should activate.
+  ChinneckFixture fx {3.0, 20.0};
+  SolverOptions opts;
+
+  auto result = chinneck_filter_solve(fx.li, fx.links, 1e3, opts);
+
+  // When all relaxed bounds are inactive the function returns the full
+  // elastic result unchanged (no filtering needed).
+  REQUIRE(result.has_value());
+  REQUIRE(result->link_infos.size() == 2);
+  CHECK(result->clone.is_optimal());
+
+  // The full-elastic-pass result preserves slack columns even when slacks
+  // are zero — it's the chinneck IIS pass that would clear them, but here
+  // there is nothing to filter (n_active == 0 short-circuit).
+  CHECK(result->link_infos[0].relaxed);
+  CHECK(result->link_infos[1].relaxed);
+}
+
+TEST_CASE(  // NOLINT
+    "chinneck IIS-filtered build_multi_cuts emits cuts only on IIS subset")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  // Mixed: link 1 non-essential, link 2 essential.
+  ChinneckFixture fx {5.0, 100.0};
+  SolverOptions opts;
+
+  auto result = chinneck_filter_solve(fx.li, fx.links, 1e3, opts);
+  REQUIRE(result.has_value());
+
+  auto cuts = build_multi_cuts(*result, fx.links);
+
+  // build_multi_cuts skips links whose sup_col/sdn_col are unknown_index,
+  // so only the essential link 2 contributes — at most 2 cuts (ub + lb).
+  CHECK(cuts.size() <= 2);
+  for (const auto& cut : cuts) {
+    // Cuts on link 2's source_col only.
+    CHECK(cut.cmap.contains(ColIndex {100}));
+    CHECK_FALSE(cut.cmap.contains(ColIndex {99}));
+  }
+}
+
+// ---------------------------------------------------------------------------
+// ElasticFilterMode — exercise all four values via parser + dispatch
+// ---------------------------------------------------------------------------
+
+TEST_CASE(  // NOLINT
+    "ElasticFilterMode parses all four named modes plus aliases")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  CHECK(parse_elastic_filter_mode("single_cut")
+        == ElasticFilterMode::single_cut);
+  CHECK(parse_elastic_filter_mode("cut")  // alias
+        == ElasticFilterMode::single_cut);
+  CHECK(parse_elastic_filter_mode("multi_cut") == ElasticFilterMode::multi_cut);
+  CHECK(parse_elastic_filter_mode("chinneck") == ElasticFilterMode::chinneck);
+  CHECK(parse_elastic_filter_mode("iis")  // alias for chinneck
+        == ElasticFilterMode::chinneck);
+
+  // Unknown name (including the retired "backpropagate" mode) falls back
+  // to the default mode (chinneck — IIS-based).
+  CHECK(parse_elastic_filter_mode("backpropagate")
+        == ElasticFilterMode::chinneck);
+  CHECK(parse_elastic_filter_mode("nonsense") == ElasticFilterMode::chinneck);
+}
+
+TEST_CASE(  // NOLINT
+    "ElasticFilterMode every value yields a usable dispatch on a single LP")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  // Same LP, sweep all three modes.  We don't run a full SDDP solve
+  // here — that's covered by integration tests — but we verify the
+  // elastic pass + cut-construction pipeline runs end-to-end without
+  // crashing for every mode and produces a non-empty cut row when
+  // relevant.
+  for (const auto mode : {ElasticFilterMode::single_cut,
+                          ElasticFilterMode::multi_cut,
+                          ElasticFilterMode::chinneck})
+  {
+    CAPTURE(static_cast<int>(mode));
+
+    ChinneckFixture fx {5.0, 100.0};
+    SolverOptions opts;
+
+    // The elastic-pass entry point used by all modes is the free
+    // elastic_filter_solve / chinneck_filter_solve pair.  Mode dispatch
+    // happens at the call site (SDDPMethod::elastic_solve), so here we
+    // simulate that branch.
+    auto result = (mode == ElasticFilterMode::chinneck)
+        ? chinneck_filter_solve(fx.li, fx.links, 1e3, opts)
+        : elastic_filter_solve(fx.li, fx.links, 1e3, opts);
+
+    REQUIRE(result.has_value());
+    REQUIRE(result->link_infos.size() == 2);
+    CHECK(result->clone.is_optimal());
+
+    // single_cut consumes the elastic result via build_benders_cut;
+    // multi_cut / chinneck additionally call build_multi_cuts.  Both
+    // should run without throwing.
+    auto bc = build_benders_cut(ColIndex {99},  // any source_col
+                                fx.links,
+                                result->clone.get_col_cost_raw(),
+                                result->clone.get_obj_value());
+    CHECK(bc.cmap.size() >= 1);
+
+    if (mode == ElasticFilterMode::multi_cut
+        || mode == ElasticFilterMode::chinneck)
+    {
+      auto mc = build_multi_cuts(*result, fx.links);
+      // For chinneck, only the essential link contributes (cuts.size() ≤ 2).
+      // For multi_cut, both links may contribute (cuts.size() ≤ 4).
+      const std::size_t expected_max =
+          (mode == ElasticFilterMode::chinneck) ? 2 : 4;
+      CHECK(mc.size() <= expected_max);
+    }
   }
 }

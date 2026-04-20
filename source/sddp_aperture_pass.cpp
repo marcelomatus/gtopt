@@ -239,7 +239,8 @@ auto SDDPMethod::backward_pass_aperture_phase_impl(
       iteration_index,
       m_options_.scale_alpha,
       m_options_.cut_coeff_eps,
-      m_options_.cut_coeff_max);
+      m_options_.cut_coeff_max,
+      planning_lp().options().scale_objective());
 
   if (!expected_cut.has_value()) {
     // Fallback: build a regular Benders cut from the cached
@@ -248,15 +249,24 @@ auto SDDPMethod::backward_pass_aperture_phase_impl(
     const auto sa = m_options_.scale_alpha;
     const auto ceps = m_options_.cut_coeff_eps;
     const auto cmax = m_options_.cut_coeff_max;
+    const auto scale_obj = planning_lp().options().scale_objective();
     // Reduced costs are read from each link's back-pointer to the
     // source StateVariable (no per-phase full-vector caches).
+    // Fallback Benders optimality cut, labelled `bcut` (backward-fallback)
+    // to distinguish it from the forward-pass elastic feasibility cut
+    // `fcut` (which is a real feasibility cut, stored as
+    // CutType::Feasibility).  This bcut is built from the cached
+    // forward-pass state-variable reduced costs and stored as
+    // CutType::Optimality — it tightens the future-cost approximation
+    // but does not represent a feasibility violation.
     auto fallback_cut = build_benders_cut(src_alpha_col,
                                           src_state.outgoing_links,
                                           target_state.forward_full_obj,
                                           sa,
-                                          ceps);
+                                          ceps,
+                                          scale_obj);
     fallback_cut.class_name = "Sddp";
-    fallback_cut.constraint_name = "fcut";
+    fallback_cut.constraint_name = "bcut";
     fallback_cut.context = make_iteration_context(scene_uid(scene_index),
                                                   phase_uid(phase_index),
                                                   iteration_index,
@@ -282,26 +292,15 @@ auto SDDPMethod::backward_pass_aperture_phase_impl(
                  src_phase_index,
                  fallback_cut.lowb);
 
-    if (src_phase_index) {
-      src_li.set_log_tag(sddp_log("Backward",
-                                  iteration_index,
-                                  scene_uid(scene_index),
-                                  phase_uid(src_phase_index)));
-      auto r = src_li.resolve(opts);
-      if (r.has_value() && src_li.is_optimal()) {
-        update_max_kappa(scene_index, src_phase_index, src_li, iteration_index);
-      }
-      if (!r.has_value() || !src_li.is_optimal()) {
-        SPDLOG_WARN(
-            "{}: non-optimal after fallback cut (status {}), "
-            "skipping further backpropagation",
-            sddp_log("Backward",
-                     iteration_index,
-                     scene_uid(scene_index),
-                     phase_uid(src_phase_index)),
-            src_li.get_status());
-      }
-    }
+    // No re-solve after add_row(): src_li was already optimal when this
+    // backward step was entered (precondition of the surrounding
+    // backpropagation), and the fallback cut is a valid Benders
+    // optimality cut built from the cached forward-pass state-variable
+    // reduced costs (no-span overload of build_benders_cut reads them
+    // from each link's state_var->reduced_cost()).  Adding such a cut to
+    // an optimal LP cannot produce infeasibility — only worsen the
+    // objective.  The next forward pass at this (scene, phase) will
+    // re-solve and update kappa naturally.
 
     return cuts_added;
   }
@@ -510,20 +509,26 @@ auto SDDPMethod::backward_pass_with_apertures(SceneIndex scene_index,
         iteration_index,
         m_options_.scale_alpha,
         m_options_.cut_coeff_eps,
-        m_options_.cut_coeff_max);
+        m_options_.cut_coeff_max,
+        planning_lp().options().scale_objective());
 
     if (!expected_cut.has_value()) {
       infeasible_phases.push_back(phase_uid(phase_index));
       const auto sa = m_options_.scale_alpha;
       const auto ceps = m_options_.cut_coeff_eps;
       const auto cmax2 = m_options_.cut_coeff_max;
+      const auto scale_obj = planning_lp().options().scale_objective();
+      // Backward-fallback optimality cut — see the parallel site earlier
+      // in this file for the `bcut` naming rationale (distinguishes from
+      // the forward-pass elastic `fcut` which is a true feasibility cut).
       auto fallback_cut = build_benders_cut(src_alpha_col,
                                             src_state.outgoing_links,
                                             target_state.forward_full_obj,
                                             sa,
-                                            ceps);
+                                            ceps,
+                                            scale_obj);
       fallback_cut.class_name = "Sddp";
-      fallback_cut.constraint_name = "fcut";
+      fallback_cut.constraint_name = "bcut";
       fallback_cut.context = make_iteration_context(scene_uid(scene_index),
                                                     phase_uid(phase_index),
                                                     iteration_index,
@@ -549,27 +554,10 @@ auto SDDPMethod::backward_pass_with_apertures(SceneIndex scene_index,
                    src_phase_index,
                    fallback_cut.lowb);
 
-      if (src_phase_index) {
-        src_li.set_log_tag(sddp_log("Backward",
-                                    iteration_index,
-                                    scene_uid(scene_index),
-                                    phase_uid(src_phase_index)));
-        auto r = src_li.resolve(opts);
-        if (r.has_value() && src_li.is_optimal()) {
-          update_max_kappa(
-              scene_index, src_phase_index, src_li, iteration_index);
-        }
-        if (!r.has_value() || !src_li.is_optimal()) {
-          SPDLOG_WARN(
-              "{}: non-optimal after fallback cut (status {}), "
-              "skipping further backpropagation",
-              sddp_log("Backward",
-                       iteration_index,
-                       scene_uid(scene_index),
-                       phase_uid(src_phase_index)),
-              src_li.get_status());
-        }
-      }
+      // No re-solve after add_row(): see the parallel fallback path
+      // earlier in this file for the rationale.  Cut is built from
+      // cached state-variable reduced costs; src_li was already optimal
+      // and adding a valid Benders optimality cut cannot break that.
 
       continue;
     }

@@ -279,7 +279,7 @@ gtopt's elastic filter is more sophisticated than PLP's:
 |---------|-------|-----|
 | Clone LP before relaxation | Yes (preserves original) | No (modifies LP) |
 | Penalized slack variables | Yes (sup/sdn per link) | Artificial variables |
-| Three modes | `single_cut`, `multi_cut`, `backpropagate` | Single mode |
+| Three modes | `single_cut`, `multi_cut`, `chinneck` (IIS) | Single mode |
 | Iterative backpropagation | Yes (backward through phases) | Partial |
 | Auto-escalation | Infeasibility counter → multi_cut | No |
 | Infeasibility tracking | Per-scene per-phase counter | None |

@@ -146,6 +146,13 @@ void propagate_trial_values(std::span<StateVarLink> links,
 /// @param scale_alpha     Scale divisor for α (PLP varphi scale; default 1.0).
 /// @param cut_coeff_eps   Threshold below which state-var coefficients are
 ///                        dropped (default 0.0 = keep all).
+/// @param scale_objective Objective scaling factor (default 1.0).  The cut
+///                        equation is in $; the RHS and state-variable
+///                        coefficients are divided by `scale_objective` to
+///                        match the LP objective's $/scale_objective scaling
+///                        and keep cut row coefficients well-conditioned.
+///                        The α column (which is dimensionless within the
+///                        cut) is left untouched.
 /// Returns the cut as a SparseRow ready to add to the source phase.
 /// Callers set structured metadata (.class_name, .constraint_name, .context)
 /// on the returned row.
@@ -154,7 +161,8 @@ void propagate_trial_values(std::span<StateVarLink> links,
                                      std::span<const double> reduced_costs,
                                      double objective_value,
                                      double scale_alpha = 1.0,
-                                     double cut_coeff_eps = 0.0) -> SparseRow;
+                                     double cut_coeff_eps = 0.0,
+                                     double scale_objective = 1.0) -> SparseRow;
 
 /// Overload that reads reduced costs directly from each link's
 /// `state_var->reduced_cost()` instead of indexing into a full
@@ -166,7 +174,8 @@ void propagate_trial_values(std::span<StateVarLink> links,
                                      std::span<const StateVarLink> links,
                                      double objective_value,
                                      double scale_alpha = 1.0,
-                                     double cut_coeff_eps = 0.0) -> SparseRow;
+                                     double cut_coeff_eps = 0.0,
+                                     double scale_objective = 1.0) -> SparseRow;
 
 /// Remove state-variable coefficients whose absolute value is below @p eps.
 ///
@@ -234,6 +243,49 @@ struct ElasticSolveResult
                                         const SolverOptions& opts)
     -> std::optional<ElasticSolveResult>;
 
+/// Chinneck-style elastic IIS filter.
+///
+/// Single-pass deletion-filter approximation of Chinneck's elastic algorithm
+/// (2008, *Feasibility and Infeasibility in Optimization*, §3.5).
+///
+/// Procedure:
+/// 1. Clone the LP and relax every fixed state-variable bound with two
+///    penalised slack variables (same as `elastic_filter_solve()`).
+/// 2. Solve the relaxed clone with @p penalty.  If it is itself infeasible
+///    or some other solver error occurs, return nullopt.
+/// 3. Inspect the slack values:
+///      - links whose `sup` and `sdn` are both ≤ @p slack_tol are NOT
+///        contributing to the infeasibility ("non-essential")
+///      - links with at least one slack > @p slack_tol form the IIS
+///        candidate set
+/// 4. Re-fix the non-essential links to their original `trial_value`
+///    (drop their slack columns out of consideration by zeroing the
+///    upper bound on `sup`/`sdn`) and re-solve.  If the re-solve stays
+///    feasible at the same penalty cost, the IIS is confirmed.  If it
+///    becomes infeasible (one of the supposedly non-essential links was
+///    actually essential due to penalty competition), undo the re-fix
+///    and fall back to the conservative full-elastic IIS.
+///
+/// The returned `ElasticSolveResult` carries `link_infos` whose `sup_col`
+/// / `sdn_col` are reset to `unknown_index` for non-essential links, so
+/// downstream `build_multi_cuts()` skips them and emits cuts only on the
+/// IIS subset.
+///
+/// @param li        The LP to clone (not modified)
+/// @param links     Outgoing state-variable links from the previous phase
+/// @param penalty   Elastic penalty coefficient (smaller than for
+///                  `elastic_filter_solve` is fine — IIS uses *which*
+///                  slack is non-zero, not by how much it dominates cost)
+/// @param opts      Solver options
+/// @param slack_tol Tolerance for considering a slack "active" (default 1e-6)
+/// @return Solved IIS-filtered clone and link-infos, or nullopt on failure.
+[[nodiscard]] auto chinneck_filter_solve(const LinearInterface& li,
+                                         std::span<const StateVarLink> links,
+                                         double penalty,
+                                         const SolverOptions& opts,
+                                         double slack_tol = 1e-6)
+    -> std::optional<ElasticSolveResult>;
+
 /// @brief Result structure for feasibility cut building
 struct FeasibilityCutResult
 {
@@ -258,7 +310,8 @@ struct FeasibilityCutResult
                                          std::span<const StateVarLink> links,
                                          double penalty,
                                          const SolverOptions& opts,
-                                         double scale_alpha = 1.0)
+                                         double scale_alpha = 1.0,
+                                         double scale_objective = 1.0)
     -> std::optional<FeasibilityCutResult>;
 
 /// Build per-slack bound-constraint cuts from a solved elastic clone.
@@ -413,7 +466,8 @@ public:
                                            std::span<const StateVarLink> links,
                                            double penalty,
                                            const SolverOptions& opts,
-                                           double scale_alpha = 1.0)
+                                           double scale_alpha = 1.0,
+                                           double scale_objective = 1.0)
       -> std::optional<FeasibilityCutResult>;
 
 private:

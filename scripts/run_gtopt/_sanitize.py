@@ -26,7 +26,7 @@ _VALID_LP_ALGORITHMS = {0, 1, 2, 3}
 _VALID_CUT_RECOVERY_MODES = {"none", "keep", "append", "replace"}
 _VALID_RECOVERY_MODES = {"none", "cuts", "full"}
 _VALID_CUT_SHARING_MODES = {"none", "expected", "accumulate", "max"}
-_VALID_ELASTIC_MODES = {"single_cut", "multi_cut", "backpropagate", "cut"}
+_VALID_ELASTIC_MODES = {"single_cut", "multi_cut", "chinneck", "cut", "iis"}
 _VALID_BOUNDARY_MODES = {"noload", "separated", "combined"}
 
 

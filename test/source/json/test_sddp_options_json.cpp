@@ -183,7 +183,7 @@ TEST_CASE("SddpOptions JSON - Round-trip serialization")
       .cut_sharing_mode = CutSharingMode::accumulate,
       .max_iterations = 150,
       .convergence_tol = 1e-5,
-      .elastic_mode = ElasticFilterMode::backpropagate,
+      .elastic_mode = ElasticFilterMode::multi_cut,
       .apertures =
           Array<Uid> {
               10,

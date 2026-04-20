@@ -10,6 +10,7 @@
  * handling elastic fallback for infeasible phases.
  */
 
+#include <chrono>
 #include <cmath>
 #include <filesystem>
 #include <format>
@@ -44,6 +45,7 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
   const auto& phases = planning_lp().simulation().phases();
   auto& phase_states = m_scene_phase_states_[scene_index];
   double total_opex = 0.0;
+  const auto fwd_scene_start = std::chrono::steady_clock::now();
 
   // Apply solve_timeout to the solver options if configured
   auto effective_opts = opts;
@@ -283,12 +285,14 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
               ? prev_alpha_svar->col()
               : ColIndex {unknown_index};
 
-          auto feas_cut = build_benders_cut(prev_alpha_col,
-                                            prev_state.outgoing_links,
-                                            solved_li.get_col_cost_raw(),
-                                            solved_li.get_obj_value(),
-                                            m_options_.scale_alpha,
-                                            m_options_.cut_coeff_eps);
+          auto feas_cut =
+              build_benders_cut(prev_alpha_col,
+                                prev_state.outgoing_links,
+                                solved_li.get_col_cost_raw(),
+                                solved_li.get_obj_value(),
+                                m_options_.scale_alpha,
+                                m_options_.cut_coeff_eps,
+                                planning_lp().options().scale_objective());
           feas_cut.class_name = "Sddp";
           feas_cut.constraint_name = "fcut";
           feas_cut.context = make_iteration_context(scene_uid(scene_index),
@@ -308,11 +312,20 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
                       cut_row);
           }
 
+          // Chinneck mode also emits per-bound cuts, but only on the IIS
+          // subset (chinneck_filter_solve cleared sup_col/sdn_col on the
+          // non-essential links so build_multi_cuts skips them naturally).
+          //
+          // Comparison is `>=`: a multi_cut_threshold of N means "switch
+          // on the Nth fcut event at this (scene, phase)".  The counter
+          // is persistent (does not reset on successful solves) so this
+          // counts *cumulative* events, not consecutive ones.
           const bool use_multi_cut =
               (m_options_.elastic_filter_mode == ElasticFilterMode::multi_cut)
+              || (m_options_.elastic_filter_mode == ElasticFilterMode::chinneck)
               || (m_options_.multi_cut_threshold == 0)
               || (m_options_.multi_cut_threshold > 0
-                  && infeas_count > m_options_.multi_cut_threshold);
+                  && infeas_count >= m_options_.multi_cut_threshold);
 
           int mc_added = 0;
           if (use_multi_cut) {
@@ -387,8 +400,12 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
         });
       }
     } else {
-      // Phase solved normally – reset infeasibility counter
-      m_infeasibility_counter_[scene_index][phase_index] = 0;
+      // Phase solved normally — counter is intentionally NOT reset.
+      // Persistent counter (PLP convention): a (scene, phase) that flaps
+      // between feasible and infeasible across iterations should still
+      // accumulate towards the multi_cut auto-switch threshold; the
+      // intermittent successes don't mean the elastic cut history is
+      // adequate.  See docs/methods/sddp.md §S5.4.
       m_phase_grid_.record(iteration_index,
                            scene_uid(scene_index),
                            phase_index,
@@ -486,11 +503,17 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
     });
   }
 
-  SPDLOG_INFO("SDDP Forward [i{} s{}]: done, total_opex={:.4f} [thread {}]",
-              iteration_index,
-              scene_uid(scene_index),
-              total_opex,
-              std::hash<std::thread::id> {}(fwd_tid) % 10000);
+  const auto fwd_scene_s =
+      std::chrono::duration<double>(std::chrono::steady_clock::now()
+                                    - fwd_scene_start)
+          .count();
+  SPDLOG_INFO(
+      "SDDP Forward [i{} s{}]: done, total_opex={:.4f} ({:.3f}s) [thread {}]",
+      iteration_index,
+      scene_uid(scene_index),
+      total_opex,
+      fwd_scene_s,
+      std::hash<std::thread::id> {}(fwd_tid) % 10000);
   return total_opex;
 }
 

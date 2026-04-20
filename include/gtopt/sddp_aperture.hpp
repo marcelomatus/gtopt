@@ -190,6 +190,7 @@ using ApertureSubmitFunc = std::function<std::future<ApertureCutResult>(
     IterationIndex iteration_index = {},
     double scale_alpha = 1.0,
     double cut_coeff_eps = 0.0,
-    double cut_coeff_max = 0.0) -> std::optional<SparseRow>;
+    double cut_coeff_max = 0.0,
+    double scale_objective = 1.0) -> std::optional<SparseRow>;
 
 }  // namespace gtopt

@@ -127,7 +127,8 @@ constexpr Uid sddp_alpha_uid {0};
 
 /// Parse an elastic filter mode from a string (backward-compatible
 /// wrapper).  Accepts "single_cut" / "cut" (= single_cut), "multi_cut",
-/// "backpropagate".
+/// "chinneck" / "iis" (= chinneck).  Unknown strings — including the
+/// retired "backpropagate" — fall back to the default mode (chinneck).
 [[nodiscard]] ElasticFilterMode parse_elastic_filter_mode(
     std::string_view name);
 
@@ -144,12 +145,13 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   CutSharingMode cut_sharing {CutSharingMode::none};  ///< Cut sharing mode
 
   /// Elastic filter mode: how to handle backward-pass infeasibility.
-  /// `single_cut` (default) adds a single Benders feasibility cut to the
+  /// `single_cut` adds a single Benders feasibility cut to the
   /// previous phase.  `multi_cut` adds the same cut plus one
   /// bound-constraint cut per activated slack variable.
-  /// `backpropagate` updates the source column bounds to match the
-  /// elastic-clone solution (PLP mechanism).
-  ElasticFilterMode elastic_filter_mode {ElasticFilterMode::single_cut};
+  /// `chinneck` (default) emits per-IIS-bound multi-cuts after a
+  /// Chinneck-style elastic IIS filter pass (see ElasticFilterMode
+  /// in sddp_enums.hpp for the algorithm).
+  ElasticFilterMode elastic_filter_mode {ElasticFilterMode::chinneck};
 
   /// Absolute tolerance for filtering tiny Benders cut coefficients.
   /// Coefficients with |value| < cut_coeff_eps are dropped from the cut.

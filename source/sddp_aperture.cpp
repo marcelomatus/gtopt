@@ -133,7 +133,8 @@ auto solve_apertures_for_phase(
     IterationIndex iteration_index,
     double scale_alpha,
     double cut_coeff_eps,
-    double cut_coeff_max) -> std::optional<SparseRow>
+    double cut_coeff_max,
+    double scale_objective) -> std::optional<SparseRow>
 {
   const auto& phase_li = sys.linear_interface();
 
@@ -361,7 +362,8 @@ auto solve_apertures_for_phase(
                                        clone.get_col_cost_raw(),
                                        clone.get_obj_value(),
                                        scale_alpha,
-                                       cut_coeff_eps);
+                                       cut_coeff_eps,
+                                       scale_objective);
           cut.class_name = "Sddp";
           cut.constraint_name = "aper_cut";
           cut.context = make_aperture_context(

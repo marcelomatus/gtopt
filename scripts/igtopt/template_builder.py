@@ -1669,7 +1669,7 @@ _OPTIONS_FIELDS: list[tuple[str, str, Any]] = [
     ),
     (
         "elastic_mode",
-        "[sddp] Elastic filter mode: 'single_cut', 'multi_cut', or 'backpropagate'",
+        "[sddp] Elastic filter mode: 'chinneck' (default), 'single_cut', or 'multi_cut'",
         None,
     ),
     (

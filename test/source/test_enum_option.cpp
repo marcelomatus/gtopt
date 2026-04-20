@@ -199,9 +199,12 @@ TEST_CASE("ElasticFilterMode from_name")  // NOLINT
   CHECK(enum_from_name<ElasticFilterMode>("multi_cut")
             .value_or(ElasticFilterMode::single_cut)
         == ElasticFilterMode::multi_cut);
-  CHECK(enum_from_name<ElasticFilterMode>("backpropagate")
+  CHECK(enum_from_name<ElasticFilterMode>("chinneck")
             .value_or(ElasticFilterMode::single_cut)
-        == ElasticFilterMode::backpropagate);
+        == ElasticFilterMode::chinneck);
+  // The legacy "backpropagate" mode was removed; it now resolves to
+  // nullopt (callers fall back to default via value_or).
+  CHECK_FALSE(enum_from_name<ElasticFilterMode>("backpropagate").has_value());
   CHECK_FALSE(enum_from_name<ElasticFilterMode>("unknown").has_value());
 }
 
@@ -560,7 +563,7 @@ TEST_CASE("require_enum<ElasticFilterMode> error message hides alias 'cut'")
     const std::string msg {e.what()};
     CHECK(msg.find("single_cut") != std::string::npos);
     CHECK(msg.find("multi_cut") != std::string::npos);
-    CHECK(msg.find("backpropagate") != std::string::npos);
+    CHECK(msg.find("chinneck") != std::string::npos);
     // The bare "cut" alias must not appear as a standalone token.
     // "single_cut" and "multi_cut" contain the substring "cut", so we
     // verify by looking for the delimited forms produced by the joiner.

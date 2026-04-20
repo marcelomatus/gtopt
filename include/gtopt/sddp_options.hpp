@@ -86,11 +86,19 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   /** @brief Path to a sentinel file; if it exists, the solver stops gracefully
    * after the current iteration (analogous to PLP's userstop) */
   OptName sentinel_file {};
-  /** @brief Elastic filter mode: single_cut (default, alias "cut") or
-   *         multi_cut or backpropagate */
+  /** @brief Elastic filter mode: chinneck (default, alias "iis"),
+   *         single_cut (alias "cut"), or multi_cut.
+   *         See ElasticFilterMode in sddp_enums.hpp for semantics.
+   *         The legacy "backpropagate" mode is no longer supported;
+   *         it falls through to the default. */
   std::optional<ElasticFilterMode> elastic_mode {};
   /** @brief Forward-pass infeasibility count threshold for switching from
-   *         single_cut to multi_cut (default: 10; 0 = never auto-switch) */
+   *         single_cut to multi_cut (default: 3; 0 = always multi_cut;
+   *         <0 = disabled).
+   *
+   *         The counter is **persistent**: it accumulates across
+   *         iterations and is not reset when a (scene, phase) solves
+   *         feasibly.  Switch fires when `infeas_count >= threshold`. */
   OptInt multi_cut_threshold {};
   /** @brief Aperture UIDs for the backward pass.
    *

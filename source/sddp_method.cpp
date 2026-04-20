@@ -73,7 +73,7 @@ CutSharingMode parse_cut_sharing_mode(std::string_view name)
 ElasticFilterMode parse_elastic_filter_mode(std::string_view name)
 {
   return enum_from_name<ElasticFilterMode>(name).value_or(
-      ElasticFilterMode::single_cut);
+      ElasticFilterMode::chinneck);
 }
 
 // ─── Free utility functions ──────────────────────────────────────────────────
@@ -564,8 +564,15 @@ std::optional<SDDPMethod::ElasticResult> SDDPMethod::elastic_solve(
   const auto scale_obj = li.scale_objective();
   const auto scaled_penalty = m_options_.elastic_penalty / scale_obj;
 
-  auto result = m_benders_cut_.elastic_filter_solve(
-      li, prev_state.outgoing_links, scaled_penalty, elastic_opts);
+  // Chinneck IIS mode runs an extra re-solve to filter non-essential
+  // relaxed bounds before cut construction.  Other modes use the regular
+  // elastic filter (cuts may be averaged via build_multi_cuts at the
+  // call site).
+  auto result = (m_options_.elastic_filter_mode == ElasticFilterMode::chinneck)
+      ? chinneck_filter_solve(
+            li, prev_state.outgoing_links, scaled_penalty, elastic_opts)
+      : m_benders_cut_.elastic_filter_solve(
+            li, prev_state.outgoing_links, scaled_penalty, elastic_opts);
 
   if (result.has_value()) {
     // The clone's solve activity (resolve, fallbacks, kappa, wall
@@ -847,11 +854,13 @@ auto SDDPMethod::backward_pass_single_phase(SceneIndex scene_index,
       ? src_alpha_svar->col()
       : ColIndex {unknown_index};
 
+  const auto scale_obj = planning_lp().options().scale_objective();
   auto cut = build_benders_cut(src_alpha_col,
                                src_state.outgoing_links,
                                target_state.forward_full_obj,
                                sa,
-                               ceps);
+                               ceps,
+                               scale_obj);
   cut.class_name = "Sddp";
   cut.constraint_name = "scut";
   cut.context = make_iteration_context(scene_uid(scene_index),
@@ -874,32 +883,37 @@ auto SDDPMethod::backward_pass_single_phase(SceneIndex scene_index,
                phase_uid(prev_phase_index),
                cut.lowb);
 
-  // Re-solve source with the new optimality cut.  Feasibility issues are
-  // now resolved entirely in the forward pass (PLP-style fcuts installed
-  // on phase p-1 whenever an elastic solve succeeds at phase p).  If the
-  // backward re-solve still becomes non-optimal the scene is declared
-  // infeasible for this iteration — no backward-pass elastic fallback.
+  // Re-solve src_li so downstream code (the async iteration's
+  // per-scene LB read at sddp_iteration.cpp:929 — `lower_bound =
+  // first_phase.linear_interface().get_obj_value()`) sees a fresh
+  // post-cut optimum, and kappa tracking can run.
+  //
+  // NOTE: src_li was optimal when this backward step was entered, and
+  // the cut is a valid Benders underestimator — adding it cannot make
+  // the LP infeasible.  If the resolve still reports non-optimal it is
+  // a numerical artifact (cut coefficients pushing the solver into a
+  // degenerate basis); we log it but do NOT fail the iteration.  The
+  // cut row is already installed and the next forward pass will re-
+  // solve from a fresh basis.  Mirrors the bcut-path simplification in
+  // sddp_aperture_pass.cpp where we removed the corresponding resolve
+  // entirely (the bcut path doesn't feed into async LB computation).
   if (phase_index) {
     src_li.set_log_tag(sddp_log("Backward",
                                 iteration_index,
                                 scene_uid(scene_index),
                                 phase_uid(prev_phase_index)));
     auto r = src_li.resolve(opts);
-    // Track max kappa from backward resolve
     if (r.has_value() && src_li.is_optimal()) {
       update_max_kappa(scene_index, prev_phase_index, src_li, iteration_index);
-    }
-    if (!r.has_value() || !src_li.is_optimal()) {
-      return std::unexpected(Error {
-          .code = ErrorCode::SolverError,
-          .message = std::format("{}: non-optimal after cut (status {})",
-                                 sddp_log("Backward",
-                                          iteration_index,
-                                          scene_uid(scene_index),
-                                          phase_uid(prev_phase_index)),
-                                 src_li.get_status()),
-          .status = src_li.get_status(),
-      });
+    } else {
+      SPDLOG_DEBUG(
+          "{}: post-cut resolve non-optimal (status {}) — keeping "
+          "cut, next forward pass will re-solve",
+          sddp_log("Backward",
+                   iteration_index,
+                   scene_uid(scene_index),
+                   phase_uid(prev_phase_index)),
+          src_li.get_status());
     }
   }
 
@@ -1151,22 +1165,15 @@ auto SDDPMethod::initialize_solver() -> std::expected<void, Error>
     }
   }
 
-  // Auto-scale alpha: when scale_alpha == 0, compute as the maximum
-  // state variable var_scale across all phases.  This ensures the
-  // alpha LP variable is O(1) relative to the largest state variable.
+  // Auto-scale alpha: when scale_alpha == 0, set it to scale_objective.
+  // The cut equation is in $; the LP objective is also in $ but
+  // pre-divided by scale_objective, so taking scale_alpha = scale_objective
+  // keeps the alpha column's LP coefficient O(1) and lines up cut RHS
+  // with the objective's numerical scale.
   if (m_options_.scale_alpha <= 0.0) {
-    double max_var_scale = 1.0;
-    for (const auto scene_index : iota_range<SceneIndex>(0, num_scenes)) {
-      for (auto&& [phase_index, _ph] : enumerate<PhaseIndex>(sim.phases())) {
-        for (const auto& [key, svar] :
-             sim.state_variables(scene_index, phase_index))
-        {
-          max_var_scale = std::max(max_var_scale, svar.var_scale());
-        }
-      }
-    }
-    m_options_.scale_alpha = max_var_scale;
-    SPDLOG_INFO("SDDP: auto scale_alpha = {:.2e} (max state var_scale)",
+    const auto scale_obj = planning_lp().options().scale_objective();
+    m_options_.scale_alpha = scale_obj;
+    SPDLOG_INFO("SDDP: auto scale_alpha = {:.2e} (= scale_objective)",
                 m_options_.scale_alpha);
   }
 

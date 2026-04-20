@@ -77,16 +77,12 @@ namespace gtopt
   if (option_scale_alpha > 0.0) {
     return option_scale_alpha;
   }
-  const auto& sim = planning_lp.simulation();
-  double max_vs = 1.0;
-  for (auto&& [si, scene] : enumerate<SceneIndex>(sim.scenes())) {
-    for (auto&& [pi, phase] : enumerate<PhaseIndex>(sim.phases())) {
-      for (const auto& [key, svar] : sim.state_variables(si, pi)) {
-        max_vs = std::max(max_vs, svar.var_scale());
-      }
-    }
-  }
-  return max_vs;
+  // Mirror the auto-scale heuristic in SDDPMethod::initialize_solver():
+  //   scale_alpha = scale_objective
+  // The cut equation is in $; scale_objective puts the alpha column on
+  // the same numerical footing as the (already scale_objective-divided)
+  // objective.
+  return planning_lp.options().scale_objective();
 }
 
 namespace
@@ -177,14 +173,17 @@ void write_cut_coefficients_unscaled(std::ostream& ofs,
 /// Cut name formats:
 ///   sddp_scut_{scene}_{phase}_{iteration}_{offset}  → field [4]
 ///   sddp_fcut_{scene}_{phase}_{iteration}_{offset}  → field [4]
+///   sddp_bcut_{scene}_{phase}_{iteration}_{offset}  → field [4]
 ///   sddp_ecut_{scene}_{phase}_{total_cuts}           → no iteration
 ///
 /// Returns 0 if the iteration cannot be determined.
 [[nodiscard]] auto extract_iteration_from_name(std::string_view name)
     -> IterationIndex
 {
-  // Only scut and fcut encode the iteration
-  if (!name.starts_with("sddp_scut_") && !name.starts_with("sddp_fcut_")) {
+  // scut, fcut, and bcut encode the iteration; ecut does not.
+  if (!name.starts_with("sddp_scut_") && !name.starts_with("sddp_fcut_")
+      && !name.starts_with("sddp_bcut_"))
+  {
     return IterationIndex {0};
   }
   // Split by '_' and take the 5th field (index 4)
