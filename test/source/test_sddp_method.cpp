@@ -2176,14 +2176,14 @@ TEST_CASE(  // NOLINT
 // ─── ElasticFilterMode end-to-end comparison ────────────────────────────────
 //
 // End-to-end smoke test: drive the SDDP solver through every
-// ElasticFilterMode value (single_cut, multi_cut, backpropagate, chinneck)
-// on the same small fixture, and verify each mode dispatches correctly,
+// ElasticFilterMode value (single_cut, multi_cut, chinneck) on the
+// same small fixture, and verify each mode dispatches correctly,
 // converges, and stores at least one optimality cut.
 //
 // What this test demonstrates:
 //   - Mode dispatch in SDDPMethod::elastic_solve() routes to the right
 //     filter (regular elastic vs chinneck IIS) without crashing
-//   - All four modes produce a converged solution on a small hydro
+//   - All three modes produce a converged solution on a small hydro
 //     problem
 //
 // What this test does NOT demonstrate (by itself):
@@ -2198,10 +2198,9 @@ TEST_CASE(  // NOLINT
 //     designed to have one essential and one non-essential bound.
 //
 // Reference structural property (only meaningful when feas_cuts > 0):
-//   single_cut    : 1 fcut per infeasibility, full coeff fan-out
-//   multi_cut     : 1 fcut + per-active-slack mcuts
-//   chinneck      : 1 fcut + per-IIS-bound mcuts (≤ multi_cut)
-//   backpropagate : updates bounds instead of adding fcuts
+//   single_cut : 1 fcut per infeasibility, full coeff fan-out
+//   multi_cut  : 1 fcut + per-active-slack mcuts
+//   chinneck   : 1 fcut + per-IIS-bound mcuts (≤ multi_cut)
 //
 // Conditional assertions below check those properties only when the
 // fixture actually generates feasibility cuts.
@@ -2275,7 +2274,6 @@ TEST_CASE(  // NOLINT
   const auto single = run_mode(ElasticFilterMode::single_cut);
   const auto multi = run_mode(ElasticFilterMode::multi_cut);
   const auto chinneck = run_mode(ElasticFilterMode::chinneck);
-  const auto backprop = run_mode(ElasticFilterMode::backpropagate);
 
   // Surface the comparison so a developer running this test with -v sees
   // exactly what each mode produced.  CAPTURE() keeps the values in the
@@ -2292,14 +2290,10 @@ TEST_CASE(  // NOLINT
   CAPTURE(chinneck.feas_cuts);
   CAPTURE(chinneck.opt_cuts);
   CAPTURE(chinneck.avg_feas_coeffs);
-  CAPTURE(backprop.total_cuts);
-  CAPTURE(backprop.feas_cuts);
-  CAPTURE(backprop.opt_cuts);
 
-  // ── Fcuts must fire in modes that emit them: single_cut, multi_cut,
-  //    and chinneck all install fcuts in the forward pass when the
-  //    elastic filter activates.  Backpropagate updates bounds instead
-  //    of installing cuts, so it is exempt from this check.
+  // ── Fcuts must fire in every mode that emits them: single_cut,
+  //    multi_cut, and chinneck all install fcuts in the forward pass
+  //    when the elastic filter activates.
   CHECK(single.feas_cuts >= 1);
   CHECK(multi.feas_cuts >= 1);
   CHECK(chinneck.feas_cuts >= 1);
@@ -2309,9 +2303,6 @@ TEST_CASE(  // NOLINT
   //    Chinneck filters those cuts to the IIS subset, so it emits at
   //    most as many feasibility-class cuts as full multi_cut.
   CHECK(chinneck.feas_cuts <= multi.feas_cuts);
-
-  // ── Sanity: backpropagate prefers bound updates over cuts.
-  CHECK(backprop.feas_cuts <= single.feas_cuts);
 }
 
 // ── Two-reservoir variant: drives all three cut-emitting modes

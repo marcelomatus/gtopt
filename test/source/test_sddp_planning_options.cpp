@@ -42,12 +42,15 @@ TEST_CASE("parse_elastic_filter_mode")  // NOLINT
   CHECK(parse_elastic_filter_mode("single_cut")
         == ElasticFilterMode::single_cut);
   CHECK(parse_elastic_filter_mode("multi_cut") == ElasticFilterMode::multi_cut);
-  CHECK(parse_elastic_filter_mode("backpropagate")
-        == ElasticFilterMode::backpropagate);
-  // Backward-compat alias ("cut" falls through to single_cut default)
+  CHECK(parse_elastic_filter_mode("chinneck") == ElasticFilterMode::chinneck);
+  // Backward-compat aliases
   CHECK(parse_elastic_filter_mode("cut") == ElasticFilterMode::single_cut);
-  // Unknown string also falls through to single_cut
-  CHECK(parse_elastic_filter_mode("unknown") == ElasticFilterMode::single_cut);
+  CHECK(parse_elastic_filter_mode("iis") == ElasticFilterMode::chinneck);
+  // Unknown string (including the retired "backpropagate" mode) falls
+  // through to the default mode (chinneck).
+  CHECK(parse_elastic_filter_mode("backpropagate")
+        == ElasticFilterMode::chinneck);
+  CHECK(parse_elastic_filter_mode("unknown") == ElasticFilterMode::chinneck);
 }
 
 // ─── Solver interface tests ─────────────────────────────────────────────────

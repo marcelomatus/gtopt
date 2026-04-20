@@ -792,7 +792,7 @@ the JSON planning file.
       "max_iterations": 200,
       "convergence_tol": 1e-5,
       "elastic_penalty": 1e7,
-      "elastic_mode": "backpropagate",
+      "elastic_mode": "chinneck",
       "hot_start": true,
       "solve_timeout": 300,
       "aperture_timeout": 30,
@@ -824,8 +824,8 @@ prefix, since the section name already provides the namespace).
 | `min_iterations` | int | 2 | Minimum iterations before declaring convergence |
 | `convergence_tol` | double | 1e-4 | Relative gap convergence tolerance |
 | `elastic_penalty` | double | 1e6 | Penalty for elastic slack variables |
-| `elastic_mode` | string | `"single_cut"` | Elastic filter mode: `"single_cut"` (alias `"cut"`), `"multi_cut"`, or `"backpropagate"` |
-| `multi_cut_threshold` | int | 10 | Auto-switch to multi_cut after N consecutive infeasibilities |
+| `elastic_mode` | string | `"chinneck"` | Elastic filter mode: `"chinneck"` (alias `"iis"`), `"single_cut"` (alias `"cut"`), or `"multi_cut"` |
+| `multi_cut_threshold` | int | 3 | Auto-switch to multi_cut after N cumulative infeasibilities at a (scene, phase) (counter is persistent) |
 | `alpha_min` | double | 0.0 | Lower bound for future cost variable α |
 | `alpha_max` | double | 1e12 | Upper bound for future cost variable α |
 | `hot_start` | bool | false | Load previously saved cuts on startup (from `cut_directory`) |
@@ -858,7 +858,7 @@ gtopt my_case.json \
   --set log_directory=logs \
   --set sddp_options.max_iterations=300 \
   --set sddp_options.convergence_tol=1e-5 \
-  --set sddp_options.elastic_mode=backpropagate \
+  --set sddp_options.elastic_mode=chinneck \
   --trace-log sddp_trace.log
 ```
 
@@ -869,8 +869,8 @@ gtopt my_case.json \
 | `--set log_directory=<dir>` | Directory for log and trace files (default: `logs`) |
 | `--set sddp_options.max_iterations=<n>` | Maximum SDDP iterations (default: 100) |
 | `--set sddp_options.convergence_tol=<tol>` | Relative gap convergence tolerance (default: 1e-4) |
-| `--set sddp_options.elastic_penalty=<p>` | Elastic slack penalty coefficient (default: 1e6) |
-| `--set sddp_options.elastic_mode=<mode>` | Elastic filter mode: `cut` or `backpropagate` (default: `cut`) |
+| `--set sddp_options.elastic_penalty=<p>` | Elastic slack penalty coefficient (default: 1e2) |
+| `--set sddp_options.elastic_mode=<mode>` | Elastic filter mode: `chinneck` (default), `single_cut`, `multi_cut` |
 
 The `--trace-log` option captures all `SPDLOG_TRACE` messages to a file,
 providing detailed iteration-by-iteration data including:
@@ -912,32 +912,50 @@ specific (scene, phase) pair has been infeasible for more than
 threshold to `0` to always use `multi_cut` for any infeasibility, or to
 a negative value to disable auto-switching entirely.
 
-#### Mode 3: `"backpropagate"` (BackpropagateBounds --- PLP mechanism)
+#### Mode 3: `"chinneck"` (Chinneck IIS --- default)
 
-This is based on the PLP hydrothermal scheduler mechanism in
-`osicallsc.cpp`.  Instead of adding a cut, the solver propagates the
-**elastic-clone solution values** back as tightened bounds on the source
-state columns in the previous phase.  Specifically, for each state variable
-link, the source column's upper and lower bounds in the previous phase are
-set to the value found by the elastic clone.  This forces the previous
-phase to produce a trial point that is known to be feasible for the current
-phase.
+Runs a Chinneck-style elastic IIS filter pass on top of the elastic
+clone.  After the standard elastic relaxation solves, the algorithm
+inspects the slack variables to identify which relaxed state-variable
+bounds are *truly* essential to the infeasibility (slack > tolerance) vs
+which were activated only due to penalty competition (slack ≈ 0).  Non-
+essential bounds are re-pinned to their trial values and the LP is
+re-solved.  If the re-fix maintains feasibility, those bounds are
+classified as non-essential and dropped from the cut set; if not, the
+algorithm falls back to the full elastic result.
 
-**When to use:** when infeasibility is caused by physically unreachable
-trial points (e.g., reservoir levels outside capacity bounds) and you want
-to quickly correct the trial trajectory without adding cut rows.  This can
-converge faster in practice for hydrothermal problems with tight physical
-bounds, but may produce a different (non-cut-based) convergence path.
+The result feeds `build_multi_cuts()` with only the IIS subset, so the
+emitted per-bound cuts forbid only the genuine infeasibility-causing
+region rather than the convex hull of all relaxed bounds.
+
+**When to use:** the default for SDDP runs.  In the worst case (when
+the LP has degenerate primal optimum and chinneck cannot identify a
+smaller IIS) it falls through to behaviour identical to `multi_cut`,
+so it is never strictly worse.  When the IIS is genuinely smaller it
+produces fewer per-bound cuts → smaller LP basis growth, fewer
+`rescale_benders_cut` warnings, lower per-iteration kappa.
+
+**Cost:** one extra LP solve per fcut event (the IIS re-fix solve).
+
+**Reference:** Chinneck, *Feasibility and Infeasibility in
+Optimization*, 2008, §3.5; PLP `osi_lp_get_feasible_cut`.
+
+**Note on the retired `"backpropagate"` mode:** an earlier version of
+this file documented a fourth mode that updated source state-variable
+bounds directly instead of installing cuts (PLP-style).  The
+implementation was deleted during the forward-pass-installs-fcuts
+refactor and the enum value removed.  Legacy `elastic_mode:
+"backpropagate"` JSON / CLI strings now silently fall back to the
+default mode (chinneck).
 
 **Comparison:**
 
-| Aspect | `single_cut` | `multi_cut` | `backpropagate` |
-|--------|-------------|-------------|-----------------|
-| Adds cut rows | 1 | 1 + per-slack | No |
-| Modifies previous phase bounds | No | No | Yes |
-| Convergence guarantee | Standard NBD | Standard NBD | Heuristic |
-| Best for | General SDDP | Persistent infeasibility | Hydrothermal with tight bounds |
-| PLP origin | No | No | Yes (`osicallsc.cpp`) |
+| Aspect | `single_cut` | `multi_cut` | `chinneck` |
+|--------|-------------|-------------|-----------|
+| Adds cut rows | 1 | 1 + per-slack | 1 + per-IIS-slack (≤ multi_cut) |
+| Extra LP solves per fcut | 0 | 0 | 1 (IIS re-fix) |
+| Convergence guarantee | Standard NBD | Standard NBD | Standard NBD (cut-based) |
+| Best for | Small problems | Persistent infeasibility | General use (default) |
 
 ### 5.5 Cut CSV Format
 
@@ -1212,7 +1230,7 @@ allow external tools to read it without seeing a partial write.
 | `accumulate_benders_cuts()` | Sum multiple cuts (for `accumulate` sharing) |
 | `share_cuts_for_phase()` | Share cuts across scenes for a phase (`sddp_cut_sharing.hpp`) |
 | `cut_sharing_mode_from_name()` | Parse string to `CutSharingMode` enum |
-| `parse_elastic_filter_mode()` | Parse `"cut"` / `"backpropagate"` to `ElasticFilterMode` |
+| `parse_elastic_filter_mode()` | Parse `"single_cut"` / `"multi_cut"` / `"chinneck"` (and aliases) to `ElasticFilterMode` |
 | `weighted_average_benders_cut()` | Probability-weighted average of aperture cuts |
 
 ### 7.4 LP Clone Pattern
@@ -1330,7 +1348,7 @@ maintained in the `marcelomatus/plp_storage` repository:
 | `userstop` file | `sentinel_file` option in `SDDPOptions` |
 | Cut file persistence | `save_cuts()` / `load_cuts()` in CSV format |
 | `scloning` mode | Always-clone approach for elastic filter |
-| Bound backpropagation from elastic filter | `ElasticFilterMode::BackpropagateBounds` |
+| Bound backpropagation from elastic filter | (REMOVED — see note below) |
 
 The PLP code (`CEN65/src/osicallsc.cpp`) uses `OsiSolverInterface::clone()`
 in `osi_lp_get_feasible_cut` to create a temporary LP copy, zero the
@@ -1338,11 +1356,13 @@ original objective, add elastic slack variables, solve for feasibility,
 extract the dual ray, and discard the clone.  gtopt's `elastic_solve()`
 follows the same pattern.
 
-The `BackpropagateBounds` elastic filter mode
-(`--set sddp_options.elastic_mode=backpropagate`) is a direct translation of the PLP bound-update mechanism:
-instead of building a feasibility cut, the elastic-clone solution values are
-propagated back as tightened bounds on the source columns in the previous
-phase, forcing the trial trajectory to remain within the feasible region.
+The `BackpropagateBounds` elastic filter mode (PLP-style direct bound
+update from the elastic-clone solution values) was supported in early
+versions of gtopt but the implementation was deleted during the
+forward-pass-installs-fcuts refactor.  The enum value was subsequently
+removed; legacy `--set sddp_options.elastic_mode=backpropagate` calls
+now silently fall back to the default mode (`chinneck`).  See §5.4
+for the currently-supported modes.
 
 ### 8.1 Cut-coefficient extraction: why we removed the `row_dual` mode
 

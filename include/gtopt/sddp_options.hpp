@@ -87,8 +87,10 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
    * after the current iteration (analogous to PLP's userstop) */
   OptName sentinel_file {};
   /** @brief Elastic filter mode: chinneck (default, alias "iis"),
-   *         single_cut (alias "cut"), multi_cut, or backpropagate.
-   *         See ElasticFilterMode in sddp_enums.hpp for semantics. */
+   *         single_cut (alias "cut"), or multi_cut.
+   *         See ElasticFilterMode in sddp_enums.hpp for semantics.
+   *         The legacy "backpropagate" mode is no longer supported;
+   *         it falls through to the default. */
   std::optional<ElasticFilterMode> elastic_mode {};
   /** @brief Forward-pass infeasibility count threshold for switching from
    *         single_cut to multi_cut (default: 3; 0 = always multi_cut;

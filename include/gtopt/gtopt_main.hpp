@@ -119,7 +119,8 @@ struct MainOptions
   /** @brief Penalty coefficient for SDDP elastic slack variables (default:
    * 1000) */
   std::optional<double> sddp_elastic_penalty {};
-  /** @brief SDDP elastic filter mode: "cut" (default) or "backpropagate" */
+  /** @brief SDDP elastic filter mode: "chinneck" (default), "single_cut",
+   *  "multi_cut".  Aliases: "iis" → chinneck, "cut" → single_cut. */
   std::optional<std::string> sddp_elastic_mode {};
   /** @brief Number of SDDP backward-pass apertures (0=disabled, -1=all) */
   std::optional<int> sddp_num_apertures {};

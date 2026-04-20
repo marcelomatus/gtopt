@@ -87,7 +87,6 @@ inline constexpr auto cut_sharing_mode_entries =
  *
  * - `single_cut`: Build a single Benders feasibility cut.
  * - `multi_cut`: Build a Benders cut + per-slack bound cuts.
- * - `backpropagate`: Update source bounds to elastic trial values (PLP).
  * - `chinneck` (default): Run a Chinneck-style elastic IIS filter —
  *   identify the irreducible infeasible subset of fixed state-variable
  *   bounds, then emit per-IIS-bound multi-cuts plus a tightened
@@ -99,11 +98,16 @@ inline constexpr auto cut_sharing_mode_entries =
  *   result when the IIS re-fix step cannot confirm a smaller subset,
  *   so behaviour is no worse than `multi_cut` in the worst case.
  */
+// NOTE: `backpropagate` (numeric value 2) was a historical fourth
+// mode for PLP-style source-bound updates; it was deleted from the
+// production code in the forward-pass-installs-fcuts refactor and
+// the enum value removed when the parser stopped recognising it.
+// Legacy JSON/CLI strings of "backpropagate" now fall through to
+// the default (chinneck) via parse_elastic_filter_mode's value_or.
 enum class ElasticFilterMode : uint8_t
 {
   single_cut = 0,  ///< Build a single Benders feasibility cut
   multi_cut = 1,  ///< Build a Benders cut + per-slack bound cuts
-  backpropagate = 2,  ///< Update source bounds to elastic trial values (PLP)
   chinneck = 3,  ///< Build cuts only on the Chinneck IIS (default)
 };
 
@@ -116,7 +120,6 @@ inline constexpr auto elastic_filter_mode_entries =
          .value = ElasticFilterMode::single_cut,
          .is_alias = true},
         {.name = "multi_cut", .value = ElasticFilterMode::multi_cut},
-        {.name = "backpropagate", .value = ElasticFilterMode::backpropagate},
         {.name = "chinneck", .value = ElasticFilterMode::chinneck},
         {.name = "iis", .value = ElasticFilterMode::chinneck, .is_alias = true},
     });

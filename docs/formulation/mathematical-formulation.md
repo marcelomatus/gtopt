@@ -2219,13 +2219,18 @@ information:
 
 | Mode | JSON value | Behavior |
 |------|-----------|----------|
-| Feasibility cut | `"cut"` | Add a Benders feasibility cut to phase $t{-}1$ |
-| Backpropagate bounds | `"backpropagate"` | Tighten source column bounds in phase $t{-}1$ to the elastic-clone solution values |
+| Single feasibility cut | `"single_cut"` (alias `"cut"`) | One Benders feasibility cut per infeasibility on phase $t{-}1$ |
+| Multi-cut | `"multi_cut"` | One Benders cut + one bound cut per activated slack variable |
+| Chinneck IIS (default) | `"chinneck"` (alias `"iis"`) | Per-bound cuts on the irreducible infeasible subset only |
 
-The `"cut"` mode is the standard Nested Benders Decomposition approach
-with theoretical convergence guarantees. The `"backpropagate"` mode is
-a heuristic from the PLP hydrothermal scheduler that can converge faster
-in practice for problems with tight physical bounds.
+All three modes are standard Nested Benders Decomposition variants
+with cut-based convergence guarantees. The `"chinneck"` default runs an
+extra IIS-detection LP solve per fcut event to drop non-essential
+relaxed bounds before emitting per-bound cuts; in the worst case
+(degenerate primal optimum) it falls back to behaviour identical to
+`"multi_cut"`. A historical fourth mode (`"backpropagate"`, PLP-style
+direct bound updates) was removed; legacy JSON values silently fall
+back to the default.
 
 > **See also**: [`docs/SDDP_SOLVER.md`](../methods/sddp.md) Section 5.4
 > for a detailed comparison of elastic filter modes.

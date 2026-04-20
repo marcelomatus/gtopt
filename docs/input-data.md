@@ -253,9 +253,9 @@ For full algorithmic details, see [SDDP Solver](methods/sddp.md).
 
 | Field                | Type    | Default        | Description |
 |----------------------|---------|----------------|-------------|
-| `elastic_penalty`    | number  | `1e6`          | Penalty for elastic slack variables in feasibility |
-| `elastic_mode`       | string  | `"single_cut"` | Elastic filter mode: `"single_cut"` (alias `"cut"`), `"multi_cut"`, or `"backpropagate"` |
-| `multi_cut_threshold`| integer | `10`           | Forward-pass infeasibility count before auto-switching from single_cut to multi_cut (0 = never) |
+| `elastic_penalty`    | number  | `1e2`          | Penalty for elastic slack variables in feasibility |
+| `elastic_mode`       | string  | `"chinneck"`   | Elastic filter mode: `"chinneck"` (alias `"iis"`), `"single_cut"` (alias `"cut"`), or `"multi_cut"` |
+| `multi_cut_threshold`| integer | `3`            | Cumulative forward-pass infeasibility count at a (scene, phase) before auto-switching to multi_cut (counter is persistent; 0 = always; <0 = disabled) |
 | `alpha_min`          | number  | `0.0`          | Lower bound for future cost variable alpha |
 | `alpha_max`          | number  | `1e12`         | Upper bound for future cost variable alpha |
 | `cut_sharing_mode`   | string  | `"none"`       | Cut sharing across scenes: `"none"`, `"expected"`, `"accumulate"`, or `"max"` |

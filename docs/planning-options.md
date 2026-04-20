@@ -250,9 +250,9 @@ See [SDDP Method](methods/sddp.md) for full documentation with examples.
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `elastic_penalty` | float | `1e6` | Penalty for elastic slack variables in feasibility |
-| `elastic_mode` | string | `"single_cut"` | Elastic filter mode: `"single_cut"` (alias `"cut"`), `"multi_cut"`, `"backpropagate"` |
-| `multi_cut_threshold` | int | `10` | Infeasibility count threshold for switching to multi_cut (0 = never) |
+| `elastic_penalty` | float | `1e2` | Penalty for elastic slack variables in feasibility |
+| `elastic_mode` | string | `"chinneck"` | Elastic filter mode: `"chinneck"` (alias `"iis"`), `"single_cut"` (alias `"cut"`), `"multi_cut"` |
+| `multi_cut_threshold` | int | `3` | Persistent cumulative infeasibility count at a (scene, phase) before switching to multi_cut (0 = always; <0 = disabled) |
 
 ### Apertures (Backward-Pass Sampling)
 

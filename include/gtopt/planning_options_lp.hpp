@@ -799,7 +799,7 @@ public:
 
   /**
    * @brief Gets the elastic filter mode as a string name
-   * @return "single_cut" (default), "multi_cut", or "backpropagate"
+   * @return "chinneck" (default), "single_cut", or "multi_cut"
    */
   [[nodiscard]] auto sddp_elastic_mode() const -> std::string_view
   {

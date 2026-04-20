@@ -1435,13 +1435,14 @@ TEST_CASE(  // NOLINT
   CHECK(parse_elastic_filter_mode("cut")  // alias
         == ElasticFilterMode::single_cut);
   CHECK(parse_elastic_filter_mode("multi_cut") == ElasticFilterMode::multi_cut);
-  CHECK(parse_elastic_filter_mode("backpropagate")
-        == ElasticFilterMode::backpropagate);
   CHECK(parse_elastic_filter_mode("chinneck") == ElasticFilterMode::chinneck);
   CHECK(parse_elastic_filter_mode("iis")  // alias for chinneck
         == ElasticFilterMode::chinneck);
 
-  // Unknown name falls back to default (chinneck — IIS-based).
+  // Unknown name (including the retired "backpropagate" mode) falls back
+  // to the default mode (chinneck — IIS-based).
+  CHECK(parse_elastic_filter_mode("backpropagate")
+        == ElasticFilterMode::chinneck);
   CHECK(parse_elastic_filter_mode("nonsense") == ElasticFilterMode::chinneck);
 }
 
@@ -1450,13 +1451,13 @@ TEST_CASE(  // NOLINT
 {
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
-  // Same LP, sweep all four modes.  We don't run a full SDDP solve here
-  // — that's covered by integration tests — but we verify the elastic
-  // pass + cut-construction pipeline runs end-to-end without crashing
-  // for every mode and produces a non-empty cut row when relevant.
+  // Same LP, sweep all three modes.  We don't run a full SDDP solve
+  // here — that's covered by integration tests — but we verify the
+  // elastic pass + cut-construction pipeline runs end-to-end without
+  // crashing for every mode and produces a non-empty cut row when
+  // relevant.
   for (const auto mode : {ElasticFilterMode::single_cut,
                           ElasticFilterMode::multi_cut,
-                          ElasticFilterMode::backpropagate,
                           ElasticFilterMode::chinneck})
   {
     CAPTURE(static_cast<int>(mode));
@@ -1476,9 +1477,9 @@ TEST_CASE(  // NOLINT
     REQUIRE(result->link_infos.size() == 2);
     CHECK(result->clone.is_optimal());
 
-    // single_cut / backpropagate consume the elastic result via
-    // build_benders_cut; multi_cut / chinneck additionally call
-    // build_multi_cuts.  Both should run without throwing.
+    // single_cut consumes the elastic result via build_benders_cut;
+    // multi_cut / chinneck additionally call build_multi_cuts.  Both
+    // should run without throwing.
     auto bc = build_benders_cut(ColIndex {99},  // any source_col
                                 fx.links,
                                 result->clone.get_col_cost_raw(),
