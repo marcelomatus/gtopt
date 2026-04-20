@@ -396,6 +396,17 @@ public:
   /// shard), so clearing the flag is all that is needed.
   constexpr void clear_output_written() noexcept { m_output_written_ = false; }
 
+  /// Skip this cell in `PlanningLP::write_out`.  Set when the owning
+  /// SDDP method has permanently excluded the scene (elastic filter
+  /// produced no feasibility cut, so no valid solution exists for
+  /// this cell).  Avoids the wasted rebuild + re-solve that the
+  /// write path would otherwise do to "rehydrate" the cell.
+  [[nodiscard]] constexpr bool output_skipped() const noexcept
+  {
+    return m_output_skipped_;
+  }
+  constexpr void set_output_skipped(bool v) noexcept { m_output_skipped_ = v; }
+
   /// Access the LP fingerprint computed during create_lp().
   [[nodiscard]] constexpr const LpFingerprint& fingerprint() const noexcept
   {
@@ -466,6 +477,14 @@ private:
   /// invocations (from `PlanningLP::write_out`) skip the cell so that
   /// output is solution-invariant between `off` and `compress`.
   bool m_output_written_ {false};
+
+  /// True when this cell belongs to a scene the simulation pass
+  /// declared infeasible (no valid primal/dual vectors exist).  Set
+  /// by the sim pass's post-failure cleanup; consumed by
+  /// `PlanningLP::write_out` to skip the cell without triggering a
+  /// rehydrate + re-solve round-trip that would produce meaningless
+  /// output.
+  bool m_output_skipped_ {false};
 
   /// Exact (ncols, nrows) from the first successful flatten.  Used as
   /// the reserve hint on subsequent `LowMemoryMode::rebuild` flatten

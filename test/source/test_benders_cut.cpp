@@ -700,6 +700,10 @@ TEST_CASE("build_multi_cuts with active slack generates cuts")  // NOLINT
       },
   };
 
+  // build_multi_cuts uses `link.class_name` + `link.uid` as the row's
+  // identity for LabelMaker (so labels stay globally unique across
+  // state-var classes that share a UID).  Populate those fields on
+  // each link so the cuts come out with realistic metadata.
   const std::vector<StateVarLink> links = {
       {
           .source_col =
@@ -708,6 +712,9 @@ TEST_CASE("build_multi_cuts with active slack generates cuts")  // NOLINT
               },
           .dependent_col = dep0,
           .trial_value = 30.0,
+          .class_name = "Reservoir",
+          .col_name = "efin",
+          .uid = Uid {7},
       },
       {
           .source_col =
@@ -716,6 +723,9 @@ TEST_CASE("build_multi_cuts with active slack generates cuts")  // NOLINT
               },
           .dependent_col = dep1,
           .trial_value = 50.0,
+          .class_name = "Battery",
+          .col_name = "sini",
+          .uid = Uid {3},
       },
   };
 
@@ -726,8 +736,9 @@ TEST_CASE("build_multi_cuts with active slack generates cuts")  // NOLINT
   CHECK(cuts.size() == 2);
 
   // First cut: ub_cut for link 0 (sup0 active)
-  CHECK(cuts[0].class_name == "Sddp");
+  CHECK(cuts[0].class_name == "Reservoir");
   CHECK(cuts[0].constraint_name == "mcut_ub");
+  CHECK(cuts[0].variable_uid == Uid {7});
   CHECK(cuts[0].uppb == doctest::Approx(25.0));
   CHECK(cuts[0].cmap.at(ColIndex {
             100,
@@ -735,8 +746,9 @@ TEST_CASE("build_multi_cuts with active slack generates cuts")  // NOLINT
         == doctest::Approx(1.0));
 
   // Second cut: lb_cut for link 1 (sdn1 active)
-  CHECK(cuts[1].class_name == "Sddp");
+  CHECK(cuts[1].class_name == "Battery");
   CHECK(cuts[1].constraint_name == "mcut_lb");
+  CHECK(cuts[1].variable_uid == Uid {3});
   CHECK(cuts[1].lowb == doctest::Approx(60.0));
   CHECK(cuts[1].cmap.at(ColIndex {
             101,

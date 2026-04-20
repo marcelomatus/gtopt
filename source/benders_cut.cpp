@@ -448,12 +448,16 @@ auto build_multi_cuts(const ElasticSolveResult& elastic,
   const auto& dep_sol = elastic.clone.get_col_sol_raw();
   const auto& link_infos = elastic.link_infos;
 
-  // Note: `variable_uid` is intentionally left at its default (`unknown_uid`).
-  // These are synthetic multi-cut rows — they do not correspond to any real
-  // element, so there is no meaningful element UID to attach.  Debug labels
-  // will share the same "Sddp/mcut_ub" / "Sddp/mcut_lb" prefix; row ordering
-  // in the emitted .lp file provides the only disambiguation, which is fine
-  // for diagnostic use.  Never synthesize a Uid from a counter.
+  // Each multi-cut row bounds a specific state-variable column, so
+  // the per-element identity (class_name + uid) disambiguates row
+  // labels across iterations and across element classes.  Uids are
+  // unique only within a class, so using `link.uid` alone would let
+  // e.g. Reservoir uid=1 and LngTerminal uid=1 collide.  We pair uid
+  // with `link.class_name` (captured at link collection time from
+  // the state-variable registry Key) so the composed label is
+  // globally unique.  Both `class_name` and `uid` are stable for the
+  // full solver lifetime — the class_name string_view references the
+  // registry Key's storage, which outlives every cut produced here.
   for (const auto& [info, link] : std::views::zip(link_infos, links)) {
     if (!info.relaxed) {
       continue;
@@ -467,8 +471,9 @@ auto build_multi_cuts(const ElasticSolveResult& elastic,
         auto ub_cut = SparseRow {
             .lowb = -LinearProblem::DblMax,
             .uppb = dep_val,
-            .class_name = "Sddp",
+            .class_name = link.class_name,
             .constraint_name = "mcut_ub",
+            .variable_uid = link.uid,
             .context = context,
         };
         ub_cut[link.source_col] = 1.0;
@@ -483,8 +488,9 @@ auto build_multi_cuts(const ElasticSolveResult& elastic,
         auto lb_cut = SparseRow {
             .lowb = dep_val,
             .uppb = LinearProblem::DblMax,
-            .class_name = "Sddp",
+            .class_name = link.class_name,
             .constraint_name = "mcut_lb",
+            .variable_uid = link.uid,
             .context = context,
         };
         lb_cut[link.source_col] = 1.0;
