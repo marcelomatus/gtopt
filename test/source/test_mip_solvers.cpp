@@ -349,9 +349,11 @@ TEST_CASE(  // NOLINT
           .simple_commitment_array = simple_commitment_array,
       };
 
+      LpMatrixOptions flat_opts;
+      flat_opts.solver_name = solver_name;
       const PlanningOptionsLP options(opts);
       SimulationLP simulation_lp(single_block_simulation, options);
-      SystemLP system_lp(system, simulation_lp);
+      SystemLP system_lp(system, simulation_lp, flat_opts);
 
       auto&& lp = system_lp.linear_interface();
 
