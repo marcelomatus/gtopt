@@ -56,13 +56,21 @@ auto build_benders_cut(ColIndex alpha_col,
                        std::span<const double> reduced_costs,
                        double objective_value,
                        double scale_alpha,
-                       double cut_coeff_eps) -> SparseRow
+                       double cut_coeff_eps,
+                       double scale_objective) -> SparseRow
 {
   // Row scale = scale_alpha: all physical values are stored as-is.
   // When the row is added to the LP (via add_row), bounds and coefficients
   // are divided by row.scale, giving a raw alpha coefficient of 1.0.
+  //
+  // The cut equation is in $.  Divide RHS and state-variable coefficients
+  // by scale_objective so the row sits on the same numerical footing as
+  // the LP objective (which is already divided by scale_objective).  The
+  // alpha column is left unscaled because it is dimensionless within the
+  // cut (coefficient 1 in the physical equation).
+  const auto inv_scale_obj = 1.0 / scale_objective;
   auto row = SparseRow {
-      .lowb = objective_value,
+      .lowb = objective_value * inv_scale_obj,
       .uppb = LinearProblem::DblMax,
       .scale = scale_alpha,
   };
@@ -73,8 +81,9 @@ auto build_benders_cut(ColIndex alpha_col,
     if (std::abs(rc) < cut_coeff_eps) {
       continue;
     }
-    row[link.source_col] = -rc;
-    row.lowb -= rc * link.trial_value;
+    const auto rc_scaled = rc * inv_scale_obj;
+    row[link.source_col] = -rc_scaled;
+    row.lowb -= rc_scaled * link.trial_value;
   }
 
   return row;
@@ -84,10 +93,13 @@ auto build_benders_cut(ColIndex alpha_col,
                        std::span<const StateVarLink> links,
                        double objective_value,
                        double scale_alpha,
-                       double cut_coeff_eps) -> SparseRow
+                       double cut_coeff_eps,
+                       double scale_objective) -> SparseRow
 {
+  // See the reduced-cost overload above for the scaling rationale.
+  const auto inv_scale_obj = 1.0 / scale_objective;
   auto row = SparseRow {
-      .lowb = objective_value,
+      .lowb = objective_value * inv_scale_obj,
       .uppb = LinearProblem::DblMax,
       .scale = scale_alpha,
   };
@@ -102,8 +114,9 @@ auto build_benders_cut(ColIndex alpha_col,
     if (std::abs(rc) < cut_coeff_eps) {
       continue;
     }
-    row[link.source_col] = -rc;
-    row.lowb -= rc * link.trial_value;
+    const auto rc_scaled = rc * inv_scale_obj;
+    row[link.source_col] = -rc_scaled;
+    row.lowb -= rc_scaled * link.trial_value;
   }
 
   return row;
@@ -282,12 +295,128 @@ auto elastic_filter_solve(const LinearInterface& li,
   return std::nullopt;
 }
 
+auto chinneck_filter_solve(const LinearInterface& li,
+                           std::span<const StateVarLink> links,
+                           double penalty,
+                           const SolverOptions& opts,
+                           double slack_tol)
+    -> std::optional<ElasticSolveResult>
+{
+  // Phase 1 — full elastic relaxation, identical to elastic_filter_solve()
+  auto initial = elastic_filter_solve(li, links, penalty, opts);
+  if (!initial.has_value()) {
+    return std::nullopt;
+  }
+
+  auto& clone = initial->clone;
+  auto& infos = initial->link_infos;
+  const auto sol = clone.get_col_sol_raw();
+
+  // Phase 2 — classify links by slack activity
+  std::vector<std::size_t> non_essential;
+  non_essential.reserve(infos.size());
+  std::size_t n_active = 0;
+  for (std::size_t i = 0; i < infos.size(); ++i) {
+    const auto& info = infos[i];
+    if (!info.relaxed) {
+      continue;
+    }
+    const double sup_val =
+        (info.sup_col != ColIndex {unknown_index}) ? sol[info.sup_col] : 0.0;
+    const double sdn_val =
+        (info.sdn_col != ColIndex {unknown_index}) ? sol[info.sdn_col] : 0.0;
+    if (sup_val <= slack_tol && sdn_val <= slack_tol) {
+      non_essential.push_back(i);
+    } else {
+      ++n_active;
+    }
+  }
+
+  // No essential links → nothing to filter; return the full elastic result.
+  if (n_active == 0) {
+    SPDLOG_TRACE(
+        "chinneck_filter_solve: all {} relaxed bounds inactive — returning "
+        "full elastic result unchanged",
+        infos.size());
+    return initial;
+  }
+  if (non_essential.empty()) {
+    SPDLOG_TRACE(
+        "chinneck_filter_solve: all {} relaxed bounds essential — IIS == "
+        "full set, no filtering needed",
+        n_active);
+    return initial;
+  }
+
+  // Phase 3 — re-fix non-essential links by zeroing their slack uppers,
+  // forcing the elastic equation `dep + sup − sdn = trial_value` to
+  // hold strictly (sup = sdn = 0 ⇒ dep = trial_value).
+  for (const auto i : non_essential) {
+    auto& info = infos[i];
+    if (info.sup_col != ColIndex {unknown_index}) {
+      clone.set_col_upp_raw(info.sup_col, 0.0);
+    }
+    if (info.sdn_col != ColIndex {unknown_index}) {
+      clone.set_col_upp_raw(info.sdn_col, 0.0);
+    }
+  }
+
+  // Phase 4 — re-solve to confirm the IIS.
+  auto r = clone.resolve(opts);
+  const bool refixed_ok = r.has_value() && clone.is_optimal();
+
+  if (!refixed_ok) {
+    // The supposedly non-essential links were essential after all (penalty
+    // competition obscured the true IIS).  Undo the re-fix and fall back
+    // to the conservative full-elastic result.
+    SPDLOG_DEBUG(
+        "chinneck_filter_solve: re-solve infeasible after re-fixing {} "
+        "non-essential link(s) — falling back to full elastic IIS "
+        "(status {})",
+        non_essential.size(),
+        clone.get_status());
+    for (const auto i : non_essential) {
+      auto& info = infos[i];
+      if (info.sup_col != ColIndex {unknown_index}) {
+        clone.set_col_upp_raw(info.sup_col, LinearProblem::DblMax);
+      }
+      if (info.sdn_col != ColIndex {unknown_index}) {
+        clone.set_col_upp_raw(info.sdn_col, LinearProblem::DblMax);
+      }
+    }
+    // Re-solve once more to restore a consistent optimal basis for cut
+    // construction.  If even this fails we propagate the failure.
+    auto r2 = clone.resolve(opts);
+    if (!r2.has_value() || !clone.is_optimal()) {
+      return std::nullopt;
+    }
+    return initial;
+  }
+
+  // Phase 5 — IIS confirmed.  Mark non-essential links so downstream
+  // `build_multi_cuts()` and any cut consumers treat them as inactive.
+  for (const auto i : non_essential) {
+    infos[i].sup_col = ColIndex {unknown_index};
+    infos[i].sdn_col = ColIndex {unknown_index};
+  }
+
+  SPDLOG_INFO(
+      "chinneck_filter_solve: IIS = {} essential / {} relaxed bounds "
+      "(filtered {} non-essential, obj={:.4f})",
+      n_active,
+      n_active + non_essential.size(),
+      non_essential.size(),
+      clone.get_obj_value());
+  return initial;
+}
+
 auto build_feasibility_cut(const LinearInterface& li,
                            ColIndex alpha_col,
                            std::span<const StateVarLink> links,
                            double penalty,
                            const SolverOptions& opts,
-                           double scale_alpha)
+                           double scale_alpha,
+                           double scale_objective)
     -> std::optional<FeasibilityCutResult>
 {
   auto elastic = elastic_filter_solve(li, links, penalty, opts);
@@ -299,7 +428,9 @@ auto build_feasibility_cut(const LinearInterface& li,
                                links,
                                elastic->clone.get_col_cost_raw(),
                                elastic->clone.get_obj_value(),
-                               scale_alpha);
+                               scale_alpha,
+                               /*cut_coeff_eps=*/0.0,
+                               scale_objective);
 
   return FeasibilityCutResult {
       .cut = std::move(cut),
@@ -573,7 +704,8 @@ auto BendersCut::build_feasibility_cut(const LinearInterface& li,
                                        std::span<const StateVarLink> links,
                                        double penalty,
                                        const SolverOptions& opts,
-                                       double scale_alpha)
+                                       double scale_alpha,
+                                       double scale_objective)
     -> std::optional<FeasibilityCutResult>
 {
   auto elastic = this->elastic_filter_solve(li, links, penalty, opts);
@@ -585,7 +717,9 @@ auto BendersCut::build_feasibility_cut(const LinearInterface& li,
                                links,
                                elastic->clone.get_col_cost_raw(),
                                elastic->clone.get_obj_value(),
-                               scale_alpha);
+                               scale_alpha,
+                               /*cut_coeff_eps=*/0.0,
+                               scale_objective);
 
   return FeasibilityCutResult {
       .cut = std::move(cut),

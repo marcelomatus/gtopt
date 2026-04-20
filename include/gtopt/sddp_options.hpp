@@ -90,7 +90,12 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
    *         multi_cut or backpropagate */
   std::optional<ElasticFilterMode> elastic_mode {};
   /** @brief Forward-pass infeasibility count threshold for switching from
-   *         single_cut to multi_cut (default: 10; 0 = never auto-switch) */
+   *         single_cut to multi_cut (default: 3; 0 = always multi_cut;
+   *         <0 = disabled).
+   *
+   *         The counter is **persistent**: it accumulates across
+   *         iterations and is not reset when a (scene, phase) solves
+   *         feasibly.  Switch fires when `infeas_count >= threshold`. */
   OptInt multi_cut_threshold {};
   /** @brief Aperture UIDs for the backward pass.
    *

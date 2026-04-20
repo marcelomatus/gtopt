@@ -561,8 +561,17 @@ public:
   static constexpr Int default_sddp_min_iterations = 2;
   /** @brief Default relative convergence tolerance */
   static constexpr Real default_sddp_convergence_tol = 1e-4;
-  /** @brief Default elastic slack penalty */
-  static constexpr Real default_sddp_elastic_penalty = 1e3;
+  /** @brief Default elastic slack penalty (per physical unit, scaled
+   *         by `var_scale` per link inside `relax_fixed_state_variable`).
+   *
+   *         Reduced from 1e3 → 1e2: with the Chinneck IIS filter the
+   *         penalty no longer needs to dominate natural generation costs
+   *         (~50 $/MWh).  Smaller penalties keep the LP matrix
+   *         well-conditioned and reduce `rescale_benders_cut` warnings.
+   *         Override via `--set sddp_options.elastic_penalty=<p>` or
+   *         the `sddp_options.elastic_penalty` JSON field if a particular
+   *         case needs a stronger forcing term. */
+  static constexpr Real default_sddp_elastic_penalty = 1e2;
   /** @brief Default lower bound for future cost variable α */
   static constexpr Real default_sddp_alpha_min = 0.0;
   /** @brief Default upper bound for future cost variable α */
@@ -583,8 +592,16 @@ public:
   static constexpr ElasticFilterMode default_sddp_elastic_mode =
       ElasticFilterMode::single_cut;
   /** @brief Default multi_cut threshold (auto-switch after this many
-   *         consecutive forward-pass infeasibilities at a phase) */
-  static constexpr int default_sddp_multi_cut_threshold = 10;
+   *         cumulative forward-pass infeasibilities at a phase).
+   *
+   *         Counter is persistent across iterations (no reset on
+   *         successful solves), so the threshold counts *total* fcut
+   *         events at a (scene, phase), not consecutive ones.  Reduced
+   *         from 10 → 3: with the persistent counter and the chinneck
+   *         IIS option available, switching to per-bound multi-cuts on
+   *         the 3rd hit is the right balance between cut tightness and
+   *         LP size growth (PLP CEN-65 convention). */
+  static constexpr int default_sddp_multi_cut_threshold = 3;
   /** @brief Default stationary-gap tolerance.
    * When the relative gap change over the look-back window is below this
    * value, the gap is considered stationary.  Used by the stationary and

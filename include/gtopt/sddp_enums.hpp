@@ -88,15 +88,25 @@ inline constexpr auto cut_sharing_mode_entries =
  * - `single_cut` (default): Build a single Benders feasibility cut.
  * - `multi_cut`: Build a Benders cut + per-slack bound cuts.
  * - `backpropagate`: Update source bounds to elastic trial values (PLP).
+ * - `chinneck`: Run a Chinneck-style elastic IIS filter — identify the
+ *   irreducible infeasible subset of fixed state-variable bounds, then
+ *   emit per-IIS-bound multi-cuts plus a tightened Benders cut whose
+ *   reduced costs come from the IIS-restricted clone.  More LP solves
+ *   per fcut event than `multi_cut`, but the cuts forbid only the true
+ *   infeasibility-causing region (Chinneck, *Feasibility and
+ *   Infeasibility in Optimization*, 2008, §3.5; PLP
+ *   `osi_lp_get_feasible_cut`).
  */
 enum class ElasticFilterMode : uint8_t
 {
   single_cut = 0,  ///< Build a single Benders feasibility cut (default)
   multi_cut = 1,  ///< Build a Benders cut + per-slack bound cuts
   backpropagate = 2,  ///< Update source bounds to elastic trial values (PLP)
+  chinneck = 3,  ///< Build cuts only on the Chinneck IIS of fixed bounds
 };
 
-/// Includes "cut" as a backward-compatible alias for "single_cut".
+/// Includes "cut" as a backward-compatible alias for "single_cut",
+/// and "iis" as an alias for "chinneck".
 inline constexpr auto elastic_filter_mode_entries =
     std::to_array<EnumEntry<ElasticFilterMode>>({
         {.name = "single_cut", .value = ElasticFilterMode::single_cut},
@@ -105,6 +115,8 @@ inline constexpr auto elastic_filter_mode_entries =
          .is_alias = true},
         {.name = "multi_cut", .value = ElasticFilterMode::multi_cut},
         {.name = "backpropagate", .value = ElasticFilterMode::backpropagate},
+        {.name = "chinneck", .value = ElasticFilterMode::chinneck},
+        {.name = "iis", .value = ElasticFilterMode::chinneck, .is_alias = true},
     });
 
 [[nodiscard]] constexpr auto enum_entries(ElasticFilterMode /*tag*/) noexcept
