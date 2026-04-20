@@ -320,7 +320,12 @@ void PlanningLP::auto_scale_reservoirs(Planning& planning)
     if (!has_entry(rsv.uid)) {
       const auto emax = scalar_of(rsv.emax);
       if (emax.has_value()) {
-        const double energy_scale = scale_for(*emax);
+        // /1000 divisor keeps energy_scale in the band where Benders
+        // cut state-var coefficients `rc * energy_scale / scale_obj`
+        // stay O(1e-2)..O(1) for water values rc ~ O(1-100) $/hm³.
+        // Without it, energy_scale = 10^ceil(log10(1453)) = 10^4 drives
+        // cut rows to κ ~ 10^10 once the cut pool accumulates.
+        const double energy_scale = scale_for(*emax / 1000.0);
         if (energy_scale > 1.0) {
           opts.variable_scales.push_back(VariableScale {
               .class_name = "Reservoir",
@@ -1055,6 +1060,13 @@ void PlanningLP::write_out()
 
   const auto emit_cell = [](SystemLP& system)
   {
+    // Fast path 0: the sim pass flagged this cell as belonging to a
+    // scene it declared infeasible (no valid primal/dual).  Skip —
+    // rehydrate + re-solve would just reproduce the same failure and
+    // write garbage.
+    if (system.output_skipped()) {
+      return;
+    }
     // Fast path A: sim-pass cells already wrote output — skip
     // ensure_lp_built entirely so we don't needlessly rehydrate the
     // backend just to find m_output_written_ == true.
