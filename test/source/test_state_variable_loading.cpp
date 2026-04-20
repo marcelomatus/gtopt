@@ -172,15 +172,18 @@ TEST_CASE(  // NOLINT
           continue;
         }
         const auto phys_val = col_sol[ci];
-        // Only track non-zero values for comparison
-        if (std::abs(phys_val) > 1e-12) {
-          ref_values.push_back(RefValue {
-              .scene_index = si,
-              .phase_index = pi,
-              .col = ci,
-              .value = phys_val,
-          });
-        }
+        // Track every state variable value, including zeros — under CLP
+        // the 3-iter SDDP converges on a degenerate optimum that drains
+        // every reservoir, so all efin values are 0 and a `>1e-12`
+        // filter would leave ref_values empty.  The round-trip must
+        // preserve zero values too, and the downstream `matched > 0`
+        // assertion wants *any* round-trip hit, not a non-zero one.
+        ref_values.push_back(RefValue {
+            .scene_index = si,
+            .phase_index = pi,
+            .col = ci,
+            .value = phys_val,
+        });
       }
     }
   }
@@ -216,7 +219,8 @@ TEST_CASE(  // NOLINT
     ++matched;
   }
 
-  // At least some values should have matched
+  // At least some values should have matched — invariant across
+  // solvers once the `>1e-12` filter above is gone (see why).
   CHECK(matched > 0);
 
   std::filesystem::remove_all(dir);

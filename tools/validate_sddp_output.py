@@ -36,9 +36,38 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 from typing import Any
+
+
+def _resolve_golden(explicit: Path | None, solver: str | None) -> Path | None:
+    """Pick the right golden variant for the active solver.
+
+    Naming convention:
+      * ``golden_iter50.json``        — shared / default golden
+      * ``golden_iter50_clp.json``    — CLP-specific variant
+      * ``golden_iter50_cplex.json``  — CPLEX-specific variant
+      * ``golden_iter50_cbc.json``    — CBC-specific variant
+      * ``golden_iter50_highs.json``  — HiGHS-specific variant
+
+    Given ``explicit=<stem>.json``, try ``<stem>_<solver>.json`` first and
+    fall back to the caller-provided file.  The degenerate-optimum solution
+    space of the underlying LP means identical objective but different
+    per-element dispatch across solvers — the shared golden pins invariant
+    quantities (objective_value, feasibility) and the per-solver variants
+    pin solver-specific element samples.
+    """
+    if explicit is None:
+        return None
+    if not solver:
+        return explicit
+    candidate = explicit.with_name(f"{explicit.stem}_{solver}{explicit.suffix}")
+    if candidate.is_file():
+        return candidate
+    return explicit
+
 
 try:
     import pandas as pd
@@ -600,7 +629,22 @@ def main() -> int:
             "Optional path to a golden-reference JSON.  When given, the "
             "validator additionally checks that the current run's "
             "solver_status + solution.csv rows match the committed "
-            "expected values within tolerance.  See the top-of-file docstring."
+            "expected values within tolerance.  See the top-of-file docstring.  "
+            "If a sibling file named ``<stem>_<solver>.json`` exists (e.g. "
+            "``golden_iter50_clp.json``) it is preferred over the given path "
+            "— lets us pin solver-sensitive element samples (per-block "
+            "dispatch, intermediate efin) without false positives on "
+            "alternate-optimum solvers."
+        ),
+    )
+    parser.add_argument(
+        "--solver",
+        default=os.environ.get("GTOPT_SOLVER", ""),
+        help=(
+            "Active LP solver identifier (e.g. 'clp', 'cplex', 'cbc', "
+            "'highs').  Used to pick a solver-specific golden variant "
+            "when one is present.  Defaults to the $GTOPT_SOLVER "
+            "environment variable."
         ),
     )
     args = parser.parse_args()
@@ -646,7 +690,13 @@ def main() -> int:
     errors += validate_generator_generation(args.output_dir, generators)
     errors += validate_demand_fail(args.output_dir)
     if args.golden_json is not None:
-        errors += validate_against_golden(args.output_dir, args.golden_json)
+        golden_path = _resolve_golden(args.golden_json, args.solver or None)
+        if golden_path != args.golden_json:
+            print(
+                f"validate_sddp_output: using solver-specific golden "
+                f"{golden_path.name} (solver={args.solver!r})"
+            )
+        errors += validate_against_golden(args.output_dir, golden_path)
 
     if errors:
         print(
