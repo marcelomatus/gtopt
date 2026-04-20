@@ -125,6 +125,87 @@ TEST_CASE(
   CHECK(a.max_kappa == doctest::Approx(-1.0));
 }
 
+// ── Backward-step timers: sum and diff ────────────────────────────────
+
+TEST_CASE("SolverStats operator+= sums backward-step timers")  // NOLINT
+{
+  SolverStats a;
+  a.bwd_step_count = 3;
+  a.bwd_lp_rebuild_s = 0.1;
+  a.bwd_cut_build_s = 0.2;
+  a.bwd_add_row_s = 0.3;
+  a.bwd_store_cut_s = 0.4;
+  a.bwd_resolve_s = 0.5;
+  a.bwd_kappa_s = 0.6;
+
+  SolverStats b;
+  b.bwd_step_count = 5;
+  b.bwd_lp_rebuild_s = 1.0;
+  b.bwd_cut_build_s = 2.0;
+  b.bwd_add_row_s = 3.0;
+  b.bwd_store_cut_s = 4.0;
+  b.bwd_resolve_s = 5.0;
+  b.bwd_kappa_s = 6.0;
+
+  a += b;
+
+  CHECK(a.bwd_step_count == 8);
+  CHECK(a.bwd_lp_rebuild_s == doctest::Approx(1.1));
+  CHECK(a.bwd_cut_build_s == doctest::Approx(2.2));
+  CHECK(a.bwd_add_row_s == doctest::Approx(3.3));
+  CHECK(a.bwd_store_cut_s == doctest::Approx(4.4));
+  CHECK(a.bwd_resolve_s == doctest::Approx(5.5));
+  CHECK(a.bwd_kappa_s == doctest::Approx(6.6));
+}
+
+TEST_CASE("SolverStats operator-= diffs backward-step timers")  // NOLINT
+{
+  // Scenario: aggregate at end of iter_N minus aggregate at start of
+  // iter_N should yield the per-iteration delta for the bwd_* fields.
+  SolverStats after;
+  after.bwd_step_count = 10;
+  after.bwd_lp_rebuild_s = 0.8;
+  after.bwd_cut_build_s = 1.6;
+  after.bwd_add_row_s = 2.4;
+  after.bwd_store_cut_s = 3.2;
+  after.bwd_resolve_s = 4.0;
+  after.bwd_kappa_s = 4.8;
+
+  SolverStats before;
+  before.bwd_step_count = 3;
+  before.bwd_lp_rebuild_s = 0.1;
+  before.bwd_cut_build_s = 0.2;
+  before.bwd_add_row_s = 0.3;
+  before.bwd_store_cut_s = 0.4;
+  before.bwd_resolve_s = 0.5;
+  before.bwd_kappa_s = 0.6;
+
+  after -= before;
+
+  CHECK(after.bwd_step_count == 7);
+  CHECK(after.bwd_lp_rebuild_s == doctest::Approx(0.7));
+  CHECK(after.bwd_cut_build_s == doctest::Approx(1.4));
+  CHECK(after.bwd_add_row_s == doctest::Approx(2.1));
+  CHECK(after.bwd_store_cut_s == doctest::Approx(2.8));
+  CHECK(after.bwd_resolve_s == doctest::Approx(3.5));
+  CHECK(after.bwd_kappa_s == doctest::Approx(4.2));
+}
+
+TEST_CASE("SolverStats operator-= does not subtract max_kappa")  // NOLINT
+{
+  // max_kappa is monotonic across iterations; subtraction would
+  // corrupt it, so operator-= leaves it alone.  The `after` snapshot
+  // carries the post-iteration max, which is the right value to log.
+  SolverStats after;
+  after.max_kappa = 1.0e8;
+  SolverStats before;
+  before.max_kappa = 1.0e5;
+
+  after -= before;
+
+  CHECK(after.max_kappa == doctest::Approx(1.0e8));
+}
+
 TEST_CASE("SolverStats operator+ is non-mutating")  // NOLINT
 {
   SolverStats a;
