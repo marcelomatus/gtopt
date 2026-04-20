@@ -73,7 +73,7 @@ CutSharingMode parse_cut_sharing_mode(std::string_view name)
 ElasticFilterMode parse_elastic_filter_mode(std::string_view name)
 {
   return enum_from_name<ElasticFilterMode>(name).value_or(
-      ElasticFilterMode::single_cut);
+      ElasticFilterMode::chinneck);
 }
 
 // ─── Free utility functions ──────────────────────────────────────────────────

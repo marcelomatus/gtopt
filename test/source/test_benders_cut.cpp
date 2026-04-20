@@ -1441,8 +1441,8 @@ TEST_CASE(  // NOLINT
   CHECK(parse_elastic_filter_mode("iis")  // alias for chinneck
         == ElasticFilterMode::chinneck);
 
-  // Unknown name falls back to default (single_cut).
-  CHECK(parse_elastic_filter_mode("nonsense") == ElasticFilterMode::single_cut);
+  // Unknown name falls back to default (chinneck — IIS-based).
+  CHECK(parse_elastic_filter_mode("nonsense") == ElasticFilterMode::chinneck);
 }
 
 TEST_CASE(  // NOLINT

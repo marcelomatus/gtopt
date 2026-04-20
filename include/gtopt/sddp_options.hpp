@@ -86,8 +86,9 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   /** @brief Path to a sentinel file; if it exists, the solver stops gracefully
    * after the current iteration (analogous to PLP's userstop) */
   OptName sentinel_file {};
-  /** @brief Elastic filter mode: single_cut (default, alias "cut") or
-   *         multi_cut or backpropagate */
+  /** @brief Elastic filter mode: chinneck (default, alias "iis"),
+   *         single_cut (alias "cut"), multi_cut, or backpropagate.
+   *         See ElasticFilterMode in sddp_enums.hpp for semantics. */
   std::optional<ElasticFilterMode> elastic_mode {};
   /** @brief Forward-pass infeasibility count threshold for switching from
    *         single_cut to multi_cut (default: 3; 0 = always multi_cut;

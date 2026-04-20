@@ -588,9 +588,18 @@ public:
   static constexpr Real default_sddp_cut_coeff_eps = 1e-6;
   /** @brief Default max coefficient threshold for cut rescaling */
   static constexpr Real default_sddp_cut_coeff_max = 1e6;
-  /** @brief Default elastic filter mode */
+  /** @brief Default elastic filter mode.
+   *
+   *  Set to `chinneck` (IIS-based) so feasibility cuts are emitted only
+   *  on the irreducible infeasible subset of relaxed state-variable
+   *  bounds.  Falls back to the full elastic result when the IIS
+   *  re-fix step cannot confirm a smaller subset (penalty competition
+   *  / degenerate LP), so behaviour matches `multi_cut` in the worst
+   *  case and is strictly better otherwise.  See
+   *  `ElasticFilterMode::chinneck` documentation in
+   *  `gtopt/sddp_enums.hpp` for the algorithm. */
   static constexpr ElasticFilterMode default_sddp_elastic_mode =
-      ElasticFilterMode::single_cut;
+      ElasticFilterMode::chinneck;
   /** @brief Default multi_cut threshold (auto-switch after this many
    *         cumulative forward-pass infeasibilities at a phase).
    *

@@ -85,24 +85,26 @@ inline constexpr auto cut_sharing_mode_entries =
  * @brief How the elastic filter handles feasibility issues in the backward
  * pass.
  *
- * - `single_cut` (default): Build a single Benders feasibility cut.
+ * - `single_cut`: Build a single Benders feasibility cut.
  * - `multi_cut`: Build a Benders cut + per-slack bound cuts.
  * - `backpropagate`: Update source bounds to elastic trial values (PLP).
- * - `chinneck`: Run a Chinneck-style elastic IIS filter — identify the
- *   irreducible infeasible subset of fixed state-variable bounds, then
- *   emit per-IIS-bound multi-cuts plus a tightened Benders cut whose
- *   reduced costs come from the IIS-restricted clone.  More LP solves
- *   per fcut event than `multi_cut`, but the cuts forbid only the true
- *   infeasibility-causing region (Chinneck, *Feasibility and
- *   Infeasibility in Optimization*, 2008, §3.5; PLP
- *   `osi_lp_get_feasible_cut`).
+ * - `chinneck` (default): Run a Chinneck-style elastic IIS filter —
+ *   identify the irreducible infeasible subset of fixed state-variable
+ *   bounds, then emit per-IIS-bound multi-cuts plus a tightened
+ *   Benders cut whose reduced costs come from the IIS-restricted
+ *   clone.  More LP solves per fcut event than `multi_cut`, but the
+ *   cuts forbid only the true infeasibility-causing region (Chinneck,
+ *   *Feasibility and Infeasibility in Optimization*, 2008, §3.5; PLP
+ *   `osi_lp_get_feasible_cut`).  Falls back to the full elastic
+ *   result when the IIS re-fix step cannot confirm a smaller subset,
+ *   so behaviour is no worse than `multi_cut` in the worst case.
  */
 enum class ElasticFilterMode : uint8_t
 {
-  single_cut = 0,  ///< Build a single Benders feasibility cut (default)
+  single_cut = 0,  ///< Build a single Benders feasibility cut
   multi_cut = 1,  ///< Build a Benders cut + per-slack bound cuts
   backpropagate = 2,  ///< Update source bounds to elastic trial values (PLP)
-  chinneck = 3,  ///< Build cuts only on the Chinneck IIS of fixed bounds
+  chinneck = 3,  ///< Build cuts only on the Chinneck IIS (default)
 };
 
 /// Includes "cut" as a backward-compatible alias for "single_cut",
