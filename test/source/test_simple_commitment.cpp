@@ -401,7 +401,26 @@ TEST_CASE(  // NOLINT
 
   const PlanningOptionsLP options(opts);
   SimulationLP simulation_lp(simulation, options);
-  SystemLP system_lp(system, simulation_lp);
+
+  // Pick the first MIP-capable solver explicitly so we don't fall
+  // through to the GTOPT_SOLVER env override (CI pins to "clp" —
+  // LP-only).  Defensive: skip if no MIP solver was found, even
+  // though has_mip_solver() returned true above (guards against an
+  // inconsistency between has_mip_solver() and supports_mip()).
+  LpMatrixOptions flat_opts;
+  for (const auto& name : reg.available_solvers()) {
+    if (reg.supports_mip(name)) {
+      flat_opts.solver_name = name;
+      break;
+    }
+  }
+  if (flat_opts.solver_name.empty()) {
+    MESSAGE(
+        "Skipping MIP test — supports_mip() returned false for "
+        "every loaded solver despite has_mip_solver()=true");
+    return;
+  }
+  SystemLP system_lp(system, simulation_lp, flat_opts);
 
   auto&& lp = system_lp.linear_interface();
 
