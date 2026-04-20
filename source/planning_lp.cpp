@@ -736,7 +736,11 @@ auto PlanningLP::create_systems(System& system,
     }
   } else {
     // Both WorkPool modes share the pool allocation.
-    auto pool = make_solver_work_pool(build_cpu_factor);
+    auto pool = make_solver_work_pool(
+        build_cpu_factor,
+        /*cpu_threshold_override=*/0.0,
+        /*scheduler_interval=*/std::chrono::milliseconds(50),
+        /*memory_limit_mb=*/options.sddp_pool_memory_limit_mb());
 
     if (build_mode == BuildMode::scene_parallel) {
       // ── Scene-parallel path (pre-00c605d7 behavior, current default) ──
@@ -965,7 +969,11 @@ void PlanningLP::build_all_lps_eagerly()
   SPDLOG_INFO(
       "  Eager LP build: {} scene(s) × {} phase(s)", num_scenes, num_phases);
 
-  auto pool = make_solver_work_pool(1.0);
+  auto pool = make_solver_work_pool(
+      /*cpu_factor=*/1.0,
+      /*cpu_threshold_override=*/0.0,
+      /*scheduler_interval=*/std::chrono::milliseconds(50),
+      /*memory_limit_mb=*/m_options_.sddp_pool_memory_limit_mb());
   std::vector<std::future<void>> futures;
   futures.reserve(num_scenes * num_phases);
   for (auto& phase_systems : m_systems_) {
@@ -1049,10 +1057,21 @@ void PlanningLP::write_out()
   // worker; cell-level lets the full thread pool grind through the
   // matrix.  Memory: each concurrent cell peaks at one flat-LP worth of
   // XLP wrappers under compress (fast-path does a single flatten) or
-  // zero extra under off (backend was never released).  The solver work
-  // pool's memory-based throttling bounds the peak so concurrency
-  // adapts automatically to available RAM.
-  auto pool = make_solver_work_pool();
+  // zero extra under off (backend was never released).
+  //
+  // cpu_factor=1.0 (NOT the SDDP pool's 4.0) is deliberate.  Arrow's
+  // default memory pool and parquet encoders are not lock-free; more
+  // threads in flight cause pathological contention (observed on
+  // juan/iplp: 80 threads → oc.write 60 s per cell; 40 threads was
+  // better, but 20 threads should reduce contention further while
+  // still using every physical core).
+  // Forward `--memory-limit` through the same path as every other
+  // pool so the 60 GB RSS cap is honoured during write_out.
+  auto pool = make_solver_work_pool(
+      /*cpu_factor=*/1.0,
+      /*cpu_threshold_override=*/0.0,
+      /*scheduler_interval=*/std::chrono::milliseconds(50),
+      /*memory_limit_mb=*/m_options_.sddp_pool_memory_limit_mb());
 
   std::vector<std::future<void>> futures;
   futures.reserve(static_cast<std::size_t>(num_scenes)

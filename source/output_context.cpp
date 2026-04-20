@@ -23,6 +23,7 @@
 #include <arrow/io/api.h>
 #include <arrow/io/compressed.h>
 #include <arrow/util/compression.h>
+#include <gtopt/map_reserve.hpp>
 #include <gtopt/output_context.hpp>
 #include <parquet/arrow/writer.h>
 #include <parquet/types.h>
@@ -482,6 +483,14 @@ OutputContext::OutputContext(const SystemContext& psc,
     , st_prelude(make_st_prelude(psc.st_uids()))
     , t_prelude(make_t_prelude(psc.t_uids()))
 {
+  // Pre-reserve buckets for field_vector_map: a typical cell emits
+  // ~150 unique (class, fname, sname) keys on juan/iplp (20+ element
+  // classes × ~7 fields/class).  Reserving up-front avoids ~4-5
+  // incremental rehashes on the per-cell insertions.  Kept as
+  // `unordered_map` (not flat_map) because downstream write_out
+  // iterates keys in any order.
+  constexpr std::size_t map_reserve_size = 256;
+  map_reserve(field_vector_map, map_reserve_size);
 }
 
 }  // namespace gtopt

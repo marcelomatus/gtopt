@@ -1211,7 +1211,11 @@ auto SDDPMethod::initialize_solver() -> std::expected<void, Error>
   // phases = ~100s wall on large problems.  Dispatch per-scene to the
   // solver work pool for ~16× speedup on that critical path.
   {
-    auto pool = make_solver_work_pool(m_options_.pool_cpu_factor);
+    auto pool = make_solver_work_pool(
+        m_options_.pool_cpu_factor,
+        /*cpu_threshold_override=*/0.0,
+        /*scheduler_interval=*/std::chrono::milliseconds(50),
+        /*memory_limit_mb=*/m_options_.pool_memory_limit_mb);
     std::vector<std::future<void>> futures;
     futures.reserve(num_scenes);
     for (const auto scene_index : iota_range<SceneIndex>(0, num_scenes)) {
@@ -1400,7 +1404,11 @@ auto SDDPMethod::initialize_solver() -> std::expected<void, Error>
   if (m_options_.low_memory_mode != LowMemoryMode::off
       && num_scenes * num_phases > 1)
   {
-    auto pool = make_solver_work_pool(m_options_.pool_cpu_factor);
+    auto pool = make_solver_work_pool(
+        m_options_.pool_cpu_factor,
+        /*cpu_threshold_override=*/0.0,
+        /*scheduler_interval=*/std::chrono::milliseconds(50),
+        /*memory_limit_mb=*/m_options_.pool_memory_limit_mb);
     std::vector<std::future<void>> futures;
     futures.reserve(static_cast<std::size_t>(num_scenes)
                     * static_cast<std::size_t>(num_phases));
