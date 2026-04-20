@@ -609,6 +609,37 @@ private:
       const SolverOptions& opts,
       IterationIndex iteration_index) -> std::expected<int, Error>;
 
+  /// Install a Benders cut on the source-phase LP during the aperture
+  /// backward pass.  Shared by both aperture entry points.
+  ///
+  /// When `expected_cut` has a value (aperture produced the richer
+  /// multi-scenario cut): adds it to `src_li`, resolves when
+  /// `src_phase_index > 0`, records kappa on success.  On the rare
+  /// non-optimal resolve, deletes the freshly-added row and falls back to
+  /// a `bcut` built from cached forward-pass state-variable reduced costs
+  /// — a valid Benders underestimator that cannot make src_li infeasible.
+  ///
+  /// When `expected_cut` is empty (aperture itself produced no cut):
+  /// installs the bcut directly without resolving.
+  ///
+  /// The bcut is constructed from `StateVariable::reduced_cost()` values
+  /// captured by the forward pass via `capture_state_variable_values()`.
+  /// Those cached values are refreshed each forward solve and never
+  /// overwritten by the backward pass, so the bcut always reflects the
+  /// most recent forward-pass optimum.
+  [[nodiscard]] auto install_aperture_backward_cut(
+      SceneIndex scene_index,
+      PhaseIndex src_phase_index,
+      PhaseIndex phase_index,
+      int cut_offset,
+      IterationIndex iteration_index,
+      ColIndex src_alpha_col,
+      const PhaseStateInfo& src_state,
+      const PhaseStateInfo& target_state,
+      std::optional<SparseRow> expected_cut,
+      LinearInterface& src_li,
+      const SolverOptions& opts) -> int;
+
   /// Phase-synchronized backward pass: processes phases one at a time,
   /// sharing optimality cuts between scenes after each phase completes.
   [[nodiscard]] auto run_backward_pass_synchronized(
