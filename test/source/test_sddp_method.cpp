@@ -2313,3 +2313,98 @@ TEST_CASE(  // NOLINT
   // ── Sanity: backpropagate prefers bound updates over cuts.
   CHECK(backprop.feas_cuts <= single.feas_cuts);
 }
+
+// ── Two-reservoir variant: drives all three cut-emitting modes
+//    through an SDDP solve on a fixture where one reservoir has a
+//    mandatory waterway minimum discharge (essential) and the other
+//    does not (potentially non-essential).
+//
+//    Honest observation — on this fixture the elastic LP picks both
+//    reservoirs' state-variable slacks at sdn = 1.0 in LP units (LP
+//    fills both reservoirs to capacity even at very high
+//    elastic_penalty).  Investigation shows the dep-column cost
+//    structure and degenerate primal optimum tie both reservoirs
+//    together, so chinneck cannot classify reservoir 2 as
+//    non-essential and falls through its `non_essential.empty()`
+//    early-exit.  Result: chinneck.feas_cuts == multi.feas_cuts here.
+//
+//    The IIS algorithm IS demonstrably correct on a synthetic LP
+//    fixture (see test_benders_cut.cpp's "chinneck_filter_solve
+//    filters non-essential link" test, which constructs a 2-link
+//    case where the slacks are clearly asymmetric).  Reproducing
+//    that asymmetry in a full SDDP fixture requires a more
+//    decoupled hydro problem than this two-reservoir-shared-bus
+//    setup — a follow-up task.
+//
+//    The assertions here are therefore the conservative
+//    `chinneck ≤ multi` form: chinneck must NOT produce more cuts
+//    than multi_cut, regardless of whether IIS filtering kicks in.
+TEST_CASE(  // NOLINT
+    "SDDPMethod - ElasticFilterMode comparison on 2-reservoir fixture")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  struct ModeOutcome
+  {
+    int total_cuts {0};
+    int feas_cuts {0};
+    int opt_cuts {0};
+    bool converged {false};
+  };
+
+  auto run_mode = [](ElasticFilterMode mode) -> ModeOutcome
+  {
+    auto planning = make_two_reservoir_forced_infeasibility_planning();
+    PlanningLP planning_lp(std::move(planning));
+
+    SDDPOptions sddp_opts;
+    sddp_opts.max_iterations = 30;
+    sddp_opts.convergence_tol = 1e-4;
+    sddp_opts.elastic_filter_mode = mode;
+    sddp_opts.multi_cut_threshold = 0;  // force per-bound mcuts
+
+    SDDPMethod sddp(planning_lp, sddp_opts);
+    [[maybe_unused]] auto results = sddp.solve();
+
+    ModeOutcome out;
+    out.converged =
+        results.has_value() && !results->empty() && results->back().converged;
+    const auto cuts = sddp.stored_cuts();
+    out.total_cuts = static_cast<int>(cuts.size());
+    for (const auto& c : cuts) {
+      if (c.type == CutType::Feasibility) {
+        ++out.feas_cuts;
+      } else {
+        ++out.opt_cuts;
+      }
+    }
+    return out;
+  };
+
+  const auto single = run_mode(ElasticFilterMode::single_cut);
+  const auto multi = run_mode(ElasticFilterMode::multi_cut);
+  const auto chinneck = run_mode(ElasticFilterMode::chinneck);
+
+  CAPTURE(single.feas_cuts);
+  CAPTURE(single.total_cuts);
+  CAPTURE(multi.feas_cuts);
+  CAPTURE(multi.total_cuts);
+  CAPTURE(chinneck.feas_cuts);
+  CAPTURE(chinneck.total_cuts);
+
+  // ── Fcuts must fire in every cut-emitting mode.
+  CHECK(single.feas_cuts >= 1);
+  CHECK(multi.feas_cuts >= 1);
+  CHECK(chinneck.feas_cuts >= 1);
+
+  // ── Conservative IIS bound: chinneck never emits MORE feasibility
+  //    cuts than full multi_cut.  When the LP has slack asymmetry
+  //    chinneck can be strictly less; here it ties due to the
+  //    degenerate primal optimum (see test docstring).
+  CHECK(chinneck.feas_cuts <= multi.feas_cuts);
+
+  // ── single_cut emits one fcut per infeasibility event regardless
+  //    of how many slacks are active, so it should never exceed
+  //    multi_cut's total feasibility-class cut count.
+  CHECK(single.feas_cuts <= multi.feas_cuts);
+}
