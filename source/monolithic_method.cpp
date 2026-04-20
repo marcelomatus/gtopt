@@ -32,7 +32,11 @@ namespace gtopt
 auto MonolithicMethod::solve(PlanningLP& planning_lp, const SolverOptions& opts)
     -> std::expected<int, Error>
 {
-  auto pool = make_solver_work_pool();
+  auto pool = make_solver_work_pool(
+      /*cpu_factor=*/2.0,
+      /*cpu_threshold_override=*/0.0,
+      /*scheduler_interval=*/std::chrono::milliseconds(50),
+      /*memory_limit_mb=*/planning_lp.options().sddp_pool_memory_limit_mb());
 
   // ── Monitoring setup ──
   const auto solve_start = std::chrono::steady_clock::now();

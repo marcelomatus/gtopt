@@ -316,6 +316,19 @@ private:
   double total_task_rss_delta_mb_ {0.0};
   std::chrono::steady_clock::time_point pool_start_time_ {};
 
+  // Throttle event counters.  Atomic so `can_dispatch_next()` can bump
+  // them without taking the active mutex.  `mutable` because they are
+  // incremented from `should_schedule_new_task() const` — they form
+  // pure diagnostic state (like a mutex), not logical pool state.
+  // Reported in the pool's Final log line so operators see at a glance
+  // which gate (if any) held work back.
+  mutable std::atomic<size_t> throttled_cpu_ {0};
+  mutable std::atomic<size_t> throttled_memory_pct_ {0};
+  mutable std::atomic<size_t> throttled_free_memory_ {0};
+  mutable std::atomic<size_t> throttled_process_rss_ {0};
+  mutable std::atomic<size_t> throttled_process_swap_ {0};
+  mutable std::atomic<size_t> throttled_swap_io_ {0};
+
   // Stall detection: tracked across `log_periodic_stats()` calls to detect
   // when `tasks_completed` stops advancing while work is still queued.
   mutable size_t last_logged_completed_ {0};
@@ -596,6 +609,21 @@ public:
     size_t lp_tasks_dispatched;  ///< Total LP tasks dispatched
     double avg_task_cpu_pct;  ///< Average CPU % per LP task
     double avg_task_rss_delta_mb;  ///< Average RSS delta per LP task
+    /// @name Throttle event counters
+    /// Count of `can_dispatch_next()` returning false for each reason.
+    /// The same scheduling tick may exercise multiple gates; each
+    /// failing gate bumps its own counter.  Zero on a well-fed pool;
+    /// non-zero indicates the pool was holding back work for that
+    /// reason.  Useful for diagnosing "why is my pool only at 50 %
+    /// CPU?" without turning on DEBUG logs.
+    /// @{
+    size_t throttled_cpu;
+    size_t throttled_memory_pct;
+    size_t throttled_free_memory;
+    size_t throttled_process_rss;
+    size_t throttled_process_swap;
+    size_t throttled_swap_io;
+    /// @}
   };
 
   Statistics get_statistics() const noexcept
@@ -627,6 +655,16 @@ public:
         .lp_tasks_dispatched = dispatched,
         .avg_task_cpu_pct = avg_cpu,
         .avg_task_rss_delta_mb = avg_mem,
+        .throttled_cpu = throttled_cpu_.load(std::memory_order_relaxed),
+        .throttled_memory_pct =
+            throttled_memory_pct_.load(std::memory_order_relaxed),
+        .throttled_free_memory =
+            throttled_free_memory_.load(std::memory_order_relaxed),
+        .throttled_process_rss =
+            throttled_process_rss_.load(std::memory_order_relaxed),
+        .throttled_process_swap =
+            throttled_process_swap_.load(std::memory_order_relaxed),
+        .throttled_swap_io = throttled_swap_io_.load(std::memory_order_relaxed),
     };
   }
 
@@ -809,6 +847,7 @@ private:
           break;
       }
       if (cpu_load >= cpu_threshold) {
+        throttled_cpu_.fetch_add(1, std::memory_order_relaxed);
         return false;
       }
     }
@@ -817,6 +856,7 @@ private:
     const auto mem_pct = memory_monitor_.get_memory_percent();
     const auto mem_threshold = is_critical ? 98.0 : max_memory_percent_;
     if (mem_pct >= mem_threshold) {
+      throttled_memory_pct_.fetch_add(1, std::memory_order_relaxed);
       SPDLOG_DEBUG("{}: blocked by memory usage {:.1f}% >= {:.1f}%",
                    name_,
                    mem_pct,
@@ -828,6 +868,7 @@ private:
     const auto free_threshold =
         is_critical ? min_free_memory_mb_ * 0.5 : min_free_memory_mb_;
     if (free_mb < free_threshold && free_mb > 0.0) {
+      throttled_free_memory_.fetch_add(1, std::memory_order_relaxed);
       SPDLOG_DEBUG("{}: blocked by low free memory {:.0f} MB < {:.0f} MB",
                    name_,
                    free_mb,
@@ -840,6 +881,7 @@ private:
       const auto rss_threshold =
           is_critical ? max_process_rss_mb_ * 1.1 : max_process_rss_mb_;
       if (rss >= rss_threshold) {
+        throttled_process_rss_.fetch_add(1, std::memory_order_relaxed);
         SPDLOG_DEBUG("{}: blocked by process RSS {:.0f} MB >= {:.0f} MB",
                      name_,
                      rss,
@@ -856,6 +898,7 @@ private:
       const auto swap_threshold =
           is_critical ? max_process_swap_mb_ * 1.1 : max_process_swap_mb_;
       if (vmswap >= swap_threshold) {
+        throttled_process_swap_.fetch_add(1, std::memory_order_relaxed);
         SPDLOG_DEBUG("{}: blocked by VmSwap {:.0f} MB >= {:.0f} MB",
                      name_,
                      vmswap,
@@ -875,6 +918,7 @@ private:
       const auto rate_threshold =
           is_critical ? max_swap_io_per_sec_ * 2.0 : max_swap_io_per_sec_;
       if (rate >= rate_threshold) {
+        throttled_swap_io_.fetch_add(1, std::memory_order_relaxed);
         SPDLOG_DEBUG("{}: blocked by swap I/O rate {:.0f} pg/s >= {:.0f} pg/s",
                      name_,
                      rate,
@@ -1067,6 +1111,29 @@ private:
           stats.avg_task_cpu_pct,
           stats.avg_task_rss_delta_mb,
           elapsed);
+
+      // Throttle summary — only emit when at least one gate fired so a
+      // healthy pool stays silent.  Operators use this to diagnose
+      // "why is my pool only at 50% CPU?" without re-running with
+      // DEBUG logs.  Each counter is the number of schedule ticks on
+      // which that gate blocked dispatch.
+      const auto total_throttle = stats.throttled_cpu
+          + stats.throttled_memory_pct + stats.throttled_free_memory
+          + stats.throttled_process_rss + stats.throttled_process_swap
+          + stats.throttled_swap_io;
+      if (total_throttle > 0) {
+        spdlog::info(
+            "[{}]   throttle events: cpu={} mem%={} free_mem={} rss={} "
+            "swap={} swap_io={} (total={})",
+            name_,
+            stats.throttled_cpu,
+            stats.throttled_memory_pct,
+            stats.throttled_free_memory,
+            stats.throttled_process_rss,
+            stats.throttled_process_swap,
+            stats.throttled_swap_io,
+            total_throttle);
+      }
     } catch (const std::exception& e) {
       SPDLOG_WARN("log_final_stats failed: {}", e.what());
     }

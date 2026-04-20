@@ -69,10 +69,20 @@ namespace gtopt
  * @param cpu_factor  Over-commit factor applied to hardware_concurrency.
  *                    Default 2.0 — extra threads compensate for mutex
  *                    contention during LP clone operations.
+ * @param cpu_threshold_override  If provided and > 0, use this value as
+ *                    the pool's CPU-load dispatch gate instead of the
+ *                    default `100 - 50/max_threads` formula.  Useful
+ *                    for I/O-bound workloads (e.g. parquet encode) where
+ *                    the formula's thread-count-driven cap is too
+ *                    conservative.
  * @return A started AdaptiveWorkPool (heap-allocated, non-movable).
  */
 [[nodiscard]] inline std::unique_ptr<AdaptiveWorkPool> make_solver_work_pool(
-    double cpu_factor = 2.0)
+    double cpu_factor = 2.0,
+    double cpu_threshold_override = 0.0,
+    std::chrono::milliseconds scheduler_interval =
+        std::chrono::milliseconds(50),
+    double memory_limit_mb = 0.0)
 {
   WorkPoolConfig pool_config {};
   pool_config.name = "SolverWorkPool";
@@ -84,8 +94,12 @@ namespace gtopt
   // pool is the expected "serial baseline" behavior.
   pool_config.max_threads = std::max(
       1, static_cast<int>(std::lround(cpu_factor * physical_concurrency())));
-  pool_config.max_cpu_threshold = static_cast<int>(
-      100.0 - (50.0 / static_cast<double>(pool_config.max_threads)));
+  pool_config.max_cpu_threshold = (cpu_threshold_override > 0.0)
+      ? cpu_threshold_override
+      : static_cast<int>(
+            100.0 - (50.0 / static_cast<double>(pool_config.max_threads)));
+  pool_config.max_process_rss_mb = memory_limit_mb;
+  pool_config.scheduler_interval = scheduler_interval;
   pool_config.enable_periodic_stats = false;
 
   auto pool = std::make_unique<AdaptiveWorkPool>(pool_config);

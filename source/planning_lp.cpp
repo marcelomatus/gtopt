@@ -736,7 +736,11 @@ auto PlanningLP::create_systems(System& system,
     }
   } else {
     // Both WorkPool modes share the pool allocation.
-    auto pool = make_solver_work_pool(build_cpu_factor);
+    auto pool = make_solver_work_pool(
+        build_cpu_factor,
+        /*cpu_threshold_override=*/0.0,
+        /*scheduler_interval=*/std::chrono::milliseconds(50),
+        /*memory_limit_mb=*/options.sddp_pool_memory_limit_mb());
 
     if (build_mode == BuildMode::scene_parallel) {
       // ── Scene-parallel path (pre-00c605d7 behavior, current default) ──
@@ -965,7 +969,11 @@ void PlanningLP::build_all_lps_eagerly()
   SPDLOG_INFO(
       "  Eager LP build: {} scene(s) × {} phase(s)", num_scenes, num_phases);
 
-  auto pool = make_solver_work_pool(1.0);
+  auto pool = make_solver_work_pool(
+      /*cpu_factor=*/1.0,
+      /*cpu_threshold_override=*/0.0,
+      /*scheduler_interval=*/std::chrono::milliseconds(50),
+      /*memory_limit_mb=*/m_options_.sddp_pool_memory_limit_mb());
   std::vector<std::future<void>> futures;
   futures.reserve(num_scenes * num_phases);
   for (auto& phase_systems : m_systems_) {
@@ -1049,10 +1057,16 @@ void PlanningLP::write_out()
   // worker; cell-level lets the full thread pool grind through the
   // matrix.  Memory: each concurrent cell peaks at one flat-LP worth of
   // XLP wrappers under compress (fast-path does a single flatten) or
-  // zero extra under off (backend was never released).  The solver work
-  // pool's memory-based throttling bounds the peak so concurrency
-  // adapts automatically to available RAM.
-  auto pool = make_solver_work_pool();
+  // zero extra under off (backend was never released).
+  //
+  // Forward the `--memory-limit` (stored as sddp_options.pool_memory
+  // _limit_mb) to the write_out pool so process-RSS throttling kicks
+  // in here too — previously only SDDPWorkPool honoured it.
+  auto pool = make_solver_work_pool(
+      /*cpu_factor=*/2.0,
+      /*cpu_threshold_override=*/0.0,
+      /*scheduler_interval=*/std::chrono::milliseconds(50),
+      /*memory_limit_mb=*/m_options_.sddp_pool_memory_limit_mb());
 
   std::vector<std::future<void>> futures;
   futures.reserve(static_cast<std::size_t>(num_scenes)

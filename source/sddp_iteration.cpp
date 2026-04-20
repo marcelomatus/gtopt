@@ -56,8 +56,13 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
   const bool need_aux_pool =
       (!m_options_.apertures || !m_options_.apertures->empty())
       || !m_options_.log_directory.empty();
-  auto aux_pool = need_aux_pool ? make_solver_work_pool()
-                                : std::unique_ptr<AdaptiveWorkPool> {};
+  auto aux_pool = need_aux_pool
+      ? make_solver_work_pool(
+            /*cpu_factor=*/2.0,
+            /*cpu_threshold_override=*/0.0,
+            /*scheduler_interval=*/std::chrono::milliseconds(50),
+            /*memory_limit_mb=*/m_options_.pool_memory_limit_mb)
+      : std::unique_ptr<AdaptiveWorkPool> {};
   m_pool_ = sddp_pool.get();
   m_aux_pool_ = aux_pool.get();  // nullptr when not needed
   m_benders_cut_.set_pool(m_aux_pool_);
