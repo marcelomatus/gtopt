@@ -53,6 +53,40 @@ bash tools/setup_sandbox.sh --help
 
 ---
 
+### `clang-tidy`
+
+Transparent wrapper that forwards every invocation to `run-clang-tidy`
+(the parallel driver), injecting `-j $(nproc)` when the caller did not
+specify a jobs flag.  Shadows the system `clang-tidy` when placed first
+on `PATH`, so developers and LLM agents who type `clang-tidy <file>`
+out of habit automatically get the same parallel execution that CI and
+the pre-commit hook use.
+
+**Quick start (from repo root):**
+
+```bash
+# One-off symlink (auto-updates on git pull):
+ln -s "$(pwd)/tools/clang-tidy" ~/.local/bin/clang-tidy
+
+# Or prepend tools/ to PATH:
+export PATH="$(pwd)/tools:$PATH"
+
+# Verify the wrapper wins over /usr/bin/clang-tidy:
+command -v clang-tidy     # must print the wrapper path
+```
+
+**Behaviour:**
+
+| Caller invocation | Forwarded invocation |
+|---|---|
+| `clang-tidy foo.cpp` | `run-clang-tidy -j $(nproc) foo.cpp` |
+| `clang-tidy -j 4 foo.cpp` | `run-clang-tidy -j 4 foo.cpp` (preserved) |
+| `clang-tidy --jobs=8 foo.cpp` | `run-clang-tidy --jobs=8 foo.cpp` (preserved) |
+
+**Bypass:** call the real binary by absolute path, e.g. `/usr/bin/clang-tidy`.
+
+---
+
 ### `get_gtopt_binary.py`
 
 Standalone helper for Copilot / Claude agents that need the compiled `gtopt`
