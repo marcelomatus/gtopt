@@ -734,9 +734,18 @@ void write_cut_coefficients_unscaled(std::ostream& ofs,
       }
 
       // Add the resolved cut to all scenes for this phase.
-      // Coefficients in the CSV are in fully physical space;
-      // convert to LP space:
+      // Coefficients in the CSV are in fully physical space; we
+      // convert them to LP space here (the matching inverse of
+      // `write_cut_coefficients` on the save side):
       //   LP_coeff = phys_coeff * col_scale / scale_objective
+      //
+      // The resulting `scene_row` is therefore already in LP space and
+      // is flagged accordingly so `LinearInterface::add_row` does not
+      // re-apply col_scale / per-row equilibration on top.  Once the
+      // save side is migrated to write post-equilibration physical
+      // values (planned follow-up PR), both the manual conversion
+      // above and this flag can go away — the loader will just hand
+      // physical coefficients directly to `add_row`.
       for (const auto scene_index : iota_range<SceneIndex>(0, num_scenes)) {
         auto& li =
             planning_lp.system(scene_index, phase_index).linear_interface();
@@ -747,6 +756,7 @@ void write_cut_coefficients_unscaled(std::ostream& ofs,
           const auto scale = li.get_col_scale(col);
           scene_row[col] = coeff * scale / scale_obj;
         }
+        scene_row.already_lp_space = true;
         li.add_row(scene_row);
         li.record_cut_row(scene_row);
       }

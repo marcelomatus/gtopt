@@ -62,6 +62,19 @@ struct SparseRow
   Uid variable_uid {unknown_uid};  ///< Element UID
   LpContext context {};  ///< LP hierarchy context (scenario, stage, block, ...)
 
+  /// @deprecated Temporary opt-out for callers that still produce
+  /// coefficients in LP-space (post-equilibration units) instead of
+  /// physical.  When `true`, `LinearInterface::add_row` bypasses the
+  /// col_scale composition and per-row row-max equilibration it
+  /// would otherwise apply for post-build cut rows.
+  ///
+  /// Every live use of this flag is a migration target for the Benders
+  /// cut → physical conversion (planned follow-up PR).  Once
+  /// `build_benders_cut` and its callers emit physical SparseRows, the
+  /// flag should be deleted along with every
+  /// `.already_lp_space = true` assignment.
+  bool already_lp_space {false};
+
   /**
    * Sets both lower and upper bounds for the constraint
    * @param lb Lower bound value

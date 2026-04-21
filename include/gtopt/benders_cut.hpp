@@ -213,6 +213,56 @@ bool rescale_benders_cut(SparseRow& row,
                          ColIndex alpha_col,
                          double cut_coeff_max);
 
+/// Physical-space Benders optimality cut builder.
+///
+///   α_phys ≥ z_t_phys + Σ_i rc_phys_i · (x_{t-1,i}_phys − v̂_i_phys)
+///
+/// Intended for use with `LinearInterface::add_equilibrated_row`, which
+/// folds `col_scales` and the per-row equilibration internally.  All
+/// inputs are in physical space:
+///
+/// @param alpha_col              α column index in the source phase's LP.
+/// @param links                  State-variable linkage descriptors (same
+///                               struct the LP-space overload consumes).
+///                               `link.dependent_col` selects the target
+///                               entry in @p reduced_costs_physical;
+///                               `link.source_col` selects the matching
+///                               entry in @p trial_values_physical.
+/// @param reduced_costs_physical Physical reduced costs of the target
+///                               LP's dependent columns — read from
+///                               `target_li.get_col_cost()` (which
+///                               applies `LP × scale_objective /
+///                               col_scale`).
+/// @param trial_values_physical  Physical trial values for each link's
+///                               source column — read from
+///                               `source_li.get_col_sol()[link.source_col]`
+///                               (= `LP × col_scale_source`).  Indexed
+///                               in parallel with `links`, so entry `i`
+///                               corresponds to `links[i]`.
+/// @param objective_value_physical Target subproblem optimum in $,
+///                               i.e. `target_li.get_obj_value_physical()`.
+/// @param cut_coeff_eps          Drop state-var coefficients below this
+///                               absolute threshold (default 0 =
+///                               keep all).
+///
+/// Returns a SparseRow with:
+///   * row[alpha_col] = 1.0
+///   * row[source_col] = -rc_phys
+///   * row.lowb = obj_phys − Σ rc_phys · v̂_phys
+///   * row.uppb = DblMax, row.scale = 1.0
+///
+/// The caller is expected to pass this row to
+/// `LinearInterface::add_equilibrated_row`, which applies the LP's
+/// column scales and per-row row-max equilibration to produce the
+/// final LP-space row.
+[[nodiscard]] auto build_benders_cut_physical(
+    ColIndex alpha_col,
+    std::span<const StateVarLink> links,
+    std::span<const double> reduced_costs_physical,
+    std::span<const double> trial_values_physical,
+    double objective_value_physical,
+    double cut_coeff_eps = 0.0) -> SparseRow;
+
 // ─── Elastic filter ─────────────────────────────────────────────────────────
 
 /// Relax a single fixed state-variable column to its physical source bounds,

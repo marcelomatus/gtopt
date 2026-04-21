@@ -94,6 +94,206 @@ TEST_CASE("build_benders_cut with empty links")  // NOLINT
 }
 
 // ---------------------------------------------------------------------------
+// build_benders_cut_physical — physical-space cut builder intended for
+// `LinearInterface::add_row` on an equilibrated LP.  Unlike the LP-space
+// overloads above, this variant:
+//   - takes `reduced_costs_physical` and `objective_value_physical`
+//     (caller uses `target_li.get_col_cost()` / `get_obj_value_physical()`);
+//   - takes `trial_values_physical` as a span indexed parallel to
+//     `links` (caller builds it from `source_li.get_col_sol()[...]`);
+//   - emits coefficient 1.0 on the α column and row.scale 1.0 — the LP
+//     interface folds col_scales + row-max internally on insertion;
+//   - leaves `already_lp_space == false` so `add_row` applies the
+//     physical → LP conversion pipeline.
+// ---------------------------------------------------------------------------
+
+TEST_CASE("build_benders_cut_physical basic cut")  // NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  const ColIndex alpha {
+      0,
+  };
+  const std::vector<StateVarLink> links = {
+      {
+          .source_col =
+              ColIndex {
+                  1,
+              },
+          .dependent_col =
+              ColIndex {
+                  10,
+              },
+      },
+      {
+          .source_col =
+              ColIndex {
+                  2,
+              },
+          .dependent_col =
+              ColIndex {
+                  11,
+              },
+      },
+  };
+
+  // Physical reduced costs at dependent columns.
+  std::vector<double> rc_phys(12, 0.0);
+  rc_phys[10] = 2.0;
+  rc_phys[11] = -1.0;
+
+  // Physical trial values, one per link (positional, not per dep_col).
+  const std::vector<double> trial_phys {5.0, 3.0};
+
+  const double obj_phys = 100.0;
+  const auto cut =
+      build_benders_cut_physical(alpha, links, rc_phys, trial_phys, obj_phys);
+
+  // α coefficient = 1.0 (no scale_alpha — that's a col_scale of alpha,
+  // applied by add_row on insertion).
+  CHECK(cut.cmap.at(alpha) == doctest::Approx(1.0));
+
+  // source_col[0] coefficient = -rc_phys[10] = -2.0
+  CHECK(cut.cmap.at(ColIndex {
+            1,
+        })
+        == doctest::Approx(-2.0));
+  // source_col[1] coefficient = -rc_phys[11] = 1.0
+  CHECK(cut.cmap.at(ColIndex {
+            2,
+        })
+        == doctest::Approx(1.0));
+
+  // lowb = obj_phys - rc1*v1 - rc2*v2 = 100 - 2*5 - (-1)*3 = 93
+  CHECK(cut.lowb == doctest::Approx(93.0));
+  CHECK(cut.uppb == LinearProblem::DblMax);
+
+  // Row starts in physical space; add_row will apply col_scales +
+  // row-max and set a composite row_scale.
+  CHECK(cut.scale == doctest::Approx(1.0));
+  CHECK_FALSE(cut.already_lp_space);
+}
+
+TEST_CASE("build_benders_cut_physical with empty links")  // NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  const ColIndex alpha {
+      0,
+  };
+  const std::vector<StateVarLink> empty_links;
+  const std::vector<double> rc_phys;
+  const std::vector<double> trial_phys;
+
+  const auto cut =
+      build_benders_cut_physical(alpha, empty_links, rc_phys, trial_phys, 42.0);
+  CHECK(cut.lowb == doctest::Approx(42.0));
+  CHECK(cut.cmap.at(alpha) == doctest::Approx(1.0));
+  CHECK(cut.cmap.size() == 1);
+  CHECK_FALSE(cut.already_lp_space);
+}
+
+TEST_CASE(
+    "build_benders_cut_physical eps filter drops tiny rc terms")  // NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  const ColIndex alpha {
+      0,
+  };
+  const std::vector<StateVarLink> links = {
+      {
+          .source_col =
+              ColIndex {
+                  1,
+              },
+          .dependent_col =
+              ColIndex {
+                  10,
+              },
+      },
+      {
+          .source_col =
+              ColIndex {
+                  2,
+              },
+          .dependent_col =
+              ColIndex {
+                  11,
+              },
+      },
+  };
+
+  std::vector<double> rc_phys(12, 0.0);
+  rc_phys[10] = 1e-12;  // below eps
+  rc_phys[11] = 4.0;
+
+  const std::vector<double> trial_phys {5.0, 3.0};
+
+  const auto cut =
+      build_benders_cut_physical(alpha,
+                                 links,
+                                 rc_phys,
+                                 trial_phys,
+                                 /*objective_value_physical=*/100.0,
+                                 /*cut_coeff_eps=*/1e-8);
+
+  // Link 0 filtered out: no coefficient for source_col 1, and its
+  // contribution (rc1*v1 ≈ 5e-12) does not affect lowb.
+  CHECK_FALSE(cut.cmap.contains(ColIndex {
+      1,
+  }));
+  // Link 1 kept: source_col 2 gets -rc=-4.
+  CHECK(cut.cmap.at(ColIndex {
+            2,
+        })
+        == doctest::Approx(-4.0));
+  // lowb = obj - rc2*v2 = 100 - 4*3 = 88.
+  CHECK(cut.lowb == doctest::Approx(88.0));
+}
+
+TEST_CASE("build_benders_cut_physical preserves physical-space contract")
+{
+  // Regression guard: the physical builder must NOT apply any
+  // scale_alpha / scale_objective arithmetic.  Coefficients and RHS
+  // are taken verbatim from the physical inputs so that add_row on an
+  // equilibrated LP can safely fold col_scales and row-max.
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  const ColIndex alpha {
+      0,
+  };
+  const std::vector<StateVarLink> links = {
+      {
+          .source_col =
+              ColIndex {
+                  1,
+              },
+          .dependent_col =
+              ColIndex {
+                  10,
+              },
+      },
+  };
+  std::vector<double> rc_phys(11, 0.0);
+  rc_phys[10] = 3.14;
+  const std::vector<double> trial_phys {2.0};
+
+  const auto cut = build_benders_cut_physical(
+      alpha, links, rc_phys, trial_phys, /*objective_value_physical=*/7.5);
+
+  CHECK(cut.cmap.at(alpha) == doctest::Approx(1.0));
+  CHECK(cut.cmap.at(ColIndex {
+            1,
+        })
+        == doctest::Approx(-3.14));
+  // lowb = 7.5 - 3.14*2.0 = 7.5 - 6.28 = 1.22
+  CHECK(cut.lowb == doctest::Approx(1.22));
+  // No row.scale → scale stays 1.0; add_row handles col_scales[alpha].
+  CHECK(cut.scale == doctest::Approx(1.0));
+}
+
+// ---------------------------------------------------------------------------
 // average_benders_cut
 // ---------------------------------------------------------------------------
 

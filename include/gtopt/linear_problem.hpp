@@ -19,6 +19,7 @@
 #include <vector>
 
 #include <gtopt/label_maker.hpp>
+#include <gtopt/lp_matrix_enums.hpp>
 #include <gtopt/lp_matrix_options.hpp>
 #include <gtopt/sparse_row.hpp>
 #include <gtopt/strong_index_vector.hpp>
@@ -57,6 +58,10 @@ struct FlatLinearProblem
                                    ///< (max |coeff| per row).
                                    ///< dual_physical = dual_LP / row_scale.
                                    ///< Empty when row equilibration is off.
+  /// Equilibration method selected at flatten() time.  Persisted so the
+  /// `LinearInterface::add_row` path can apply the same per-row
+  /// equilibration to post-build cut rows.
+  LpEquilibrationMethod equilibration_method {LpEquilibrationMethod::none};
   double scale_objective {1.0};  ///< Global objective divisor applied during
                                  ///< flatten().  obj_physical = obj_LP ×
                                  ///< scale_objective.

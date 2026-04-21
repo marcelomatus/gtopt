@@ -86,6 +86,14 @@ auto build_benders_cut(ColIndex alpha_col,
     row.lowb -= rc_scaled * link.trial_value;
   }
 
+  // Coefficients here are already in LP space (target LP reduced cost
+  // × 1/scale_obj).  Flag the row so `LinearInterface::add_row` does
+  // not apply col_scale composition or per-row row-max equilibration
+  // when this cut is inserted — the legacy
+  // `rescale_benders_cut(…cut_coeff_max)` threshold path is still
+  // responsible for taming magnitudes.  The planned physical-space
+  // migration (see build_benders_cut_physical) will drop this flag.
+  row.already_lp_space = true;
   return row;
 }
 
@@ -119,6 +127,44 @@ auto build_benders_cut(ColIndex alpha_col,
     row.lowb -= rc_scaled * link.trial_value;
   }
 
+  // See the span-based overload above for rationale.
+  row.already_lp_space = true;
+  return row;
+}
+
+auto build_benders_cut_physical(ColIndex alpha_col,
+                                std::span<const StateVarLink> links,
+                                std::span<const double> reduced_costs_physical,
+                                std::span<const double> trial_values_physical,
+                                double objective_value_physical,
+                                double cut_coeff_eps) -> SparseRow
+{
+  // Physical-space Benders optimality cut:
+  //   α_phys ≥ z_t_phys + Σ_i rc_phys_i · (x_{t-1,i}_phys − v̂_i_phys)
+  //
+  // α coefficient is 1.0; `LinearInterface::add_row` on an
+  // equilibrated LP folds `col_scales[alpha]` automatically.  No
+  // `scale_alpha` or `inv_scale_obj` arithmetic here — every input is
+  // already in $ / physical-units, matching what `target_li.get_col_cost()`
+  // and `target_li.get_obj_value_physical()` return at the call site.
+  auto row = SparseRow {
+      .lowb = objective_value_physical,
+      .uppb = LinearProblem::DblMax,
+  };
+  row[alpha_col] = 1.0;
+
+  for (const auto& [i, link] : std::views::enumerate(links)) {
+    const auto rc_phys = reduced_costs_physical[link.dependent_col];
+    if (std::abs(rc_phys) < cut_coeff_eps) {
+      continue;
+    }
+    const auto v_hat_phys = trial_values_physical[static_cast<std::size_t>(i)];
+    row[link.source_col] = -rc_phys;
+    row.lowb -= rc_phys * v_hat_phys;
+  }
+
+  // No `already_lp_space` flag: this row IS physical.  `add_row` on an
+  // equilibrated LP will apply col_scales + row-max composition.
   return row;
 }
 
@@ -477,6 +523,10 @@ auto build_multi_cuts(const ElasticSolveResult& elastic,
             .context = context,
         };
         ub_cut[link.source_col] = 1.0;
+        // Multi-cut rows work in LP space (source_col bound-cut based
+        // on LP-space dep_val from the elastic clone) — flag for the
+        // add_row legacy path, see build_benders_cut for details.
+        ub_cut.already_lp_space = true;
         cuts.push_back(std::move(ub_cut));
       }
     }
@@ -494,6 +544,7 @@ auto build_multi_cuts(const ElasticSolveResult& elastic,
             .context = context,
         };
         lb_cut[link.source_col] = 1.0;
+        lb_cut.already_lp_space = true;
         cuts.push_back(std::move(lb_cut));
       }
     }
