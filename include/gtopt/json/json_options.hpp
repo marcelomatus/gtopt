@@ -73,7 +73,8 @@ struct PlanningOptionsConstructor
       SolverOptions solver_options,
       LpMatrixOptions lp_matrix_options,
       gtopt::Array<VariableScale> variable_scales,
-      OptName constraint_mode_str) const
+      OptName constraint_mode_str,
+      OptName write_out_str) const
   {
     PlanningOptions opts;
     opts.input_directory = std::move(input_directory);
@@ -175,6 +176,9 @@ struct PlanningOptionsConstructor
       opts.constraint_mode = gtopt::require_enum<ConstraintMode>(
           "constraint_mode", *constraint_mode_str);
     }
+    if (write_out_str) {
+      opts.write_out = gtopt::parse_output_flags(*write_out_str);
+    }
     return opts;
   }
 };
@@ -226,50 +230,56 @@ struct json_data_contract<PlanningOptions>
                        json_array_null<"variable_scales",
                                        gtopt::Array<VariableScale>,
                                        VariableScale>,
-                       json_string_null<"constraint_mode", OptName>>;
+                       json_string_null<"constraint_mode", OptName>,
+                       json_string_null<"write_out", OptName>>;
 
   static auto to_json_data(PlanningOptions const& opt)
   {
-    return std::make_tuple(opt.input_directory,
-                           detail::enum_to_opt_name(opt.input_format),
-                           opt.demand_fail_cost,
-                           opt.reserve_fail_cost,
-                           opt.hydro_fail_cost,
-                           opt.hydro_use_value,
-                           opt.use_line_losses,
-                           opt.loss_segments,
-                           opt.use_kirchhoff,
-                           opt.use_single_bus,
-                           opt.kirchhoff_threshold,
-                           opt.scale_objective,
-                           opt.scale_theta,
-                           opt.annual_discount_rate,
+    return std::make_tuple(
+        opt.input_directory,
+        detail::enum_to_opt_name(opt.input_format),
+        opt.demand_fail_cost,
+        opt.reserve_fail_cost,
+        opt.hydro_fail_cost,
+        opt.hydro_use_value,
+        opt.use_line_losses,
+        opt.loss_segments,
+        opt.use_kirchhoff,
+        opt.use_single_bus,
+        opt.kirchhoff_threshold,
+        opt.scale_objective,
+        opt.scale_theta,
+        opt.annual_discount_rate,
 
-                           opt.output_directory,
-                           detail::enum_to_opt_name(opt.output_format),
-                           detail::enum_to_opt_name(opt.output_compression),
-                           opt.use_uid_fname,
+        opt.output_directory,
+        detail::enum_to_opt_name(opt.output_format),
+        detail::enum_to_opt_name(opt.output_compression),
+        opt.use_uid_fname,
 
-                           detail::enum_to_opt_name(opt.method),
-                           detail::enum_to_opt_name(opt.build_mode),
-                           opt.log_directory,
-                           opt.lp_debug,
-                           detail::enum_to_opt_name(opt.lp_compression),
-                           opt.lp_only,
-                           opt.lp_fingerprint,
-                           opt.lp_debug_scene_min,
-                           opt.lp_debug_scene_max,
-                           opt.lp_debug_phase_min,
-                           opt.lp_debug_phase_max,
+        detail::enum_to_opt_name(opt.method),
+        detail::enum_to_opt_name(opt.build_mode),
+        opt.log_directory,
+        opt.lp_debug,
+        detail::enum_to_opt_name(opt.lp_compression),
+        opt.lp_only,
+        opt.lp_fingerprint,
+        opt.lp_debug_scene_min,
+        opt.lp_debug_scene_max,
+        opt.lp_debug_phase_min,
+        opt.lp_debug_phase_max,
 
-                           opt.model_options,
-                           opt.monolithic_options,
-                           opt.sddp_options,
-                           opt.cascade_options,
-                           opt.solver_options,
-                           opt.lp_matrix_options,
-                           opt.variable_scales,
-                           detail::enum_to_opt_name(opt.constraint_mode));
+        opt.model_options,
+        opt.monolithic_options,
+        opt.sddp_options,
+        opt.cascade_options,
+        opt.solver_options,
+        opt.lp_matrix_options,
+        opt.variable_scales,
+        detail::enum_to_opt_name(opt.constraint_mode),
+        opt.write_out.has_value()
+            ? std::optional<std::string> {gtopt::output_flags_to_string(
+                  *opt.write_out)}
+            : std::optional<std::string> {});
   }
 };
 

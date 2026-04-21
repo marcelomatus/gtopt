@@ -216,6 +216,12 @@ template<typename T>
       ("cpu-factor",
        po::value<double>(),
        "work pool thread over-commit factor (default: 4.0)")  //
+      ("write-out",
+       po::value<std::string>(),
+       "comma-separated list of output fields the solver should emit "
+       "(default: all).  Atoms: solution (alias: sol), dual, "
+       "reduced_cost (aliases: cost, rcost, rc), all, none.  "
+       "Example: --write-out sol,dual  or  --write-out all")  //
       ("build-mode",
        po::value<std::string>(),
        "LP build parallelism: serial, scene-parallel, full-parallel, "
@@ -538,6 +544,10 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
         require_enum<BuildMode>("build-mode", *opts.build_mode);
   }
 
+  if (opts.write_out) {
+    planning.options.write_out = parse_output_flags(*opts.write_out);
+  }
+
   // CLI solver shortcuts → solver_options
   if (opts.algorithm) {
     planning.options.solver_options.algorithm = *opts.algorithm;
@@ -630,6 +640,7 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
           get_opt<double>(vm, "cpu-factor")
               .or_else([&] { return get_opt<double>(vm, "sddp-cpu-factor"); }),
       .build_mode = get_opt<std::string>(vm, "build-mode"),
+      .write_out = get_opt<std::string>(vm, "write-out"),
       .solver = get_opt<std::string>(vm, "solver"),
       .algorithm = [&]() -> std::optional<LPAlgo>
       {
@@ -770,6 +781,7 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
     opts.sddp_cpu_factor = get_dbl("sddp-cpu-factor");
   }
   opts.build_mode = get_str("build-mode");
+  opts.write_out = get_str("write-out");
 
   // Solver
   opts.solver = get_str("solver");
@@ -916,6 +928,7 @@ inline void merge_config_defaults(MainOptions& opts,
   merge(opts.memory_limit, defaults.memory_limit);
   merge(opts.sddp_cpu_factor, defaults.sddp_cpu_factor);
   merge(opts.build_mode, defaults.build_mode);
+  merge(opts.write_out, defaults.write_out);
   merge(opts.solver, defaults.solver);
   merge(opts.algorithm, defaults.algorithm);
   merge(opts.threads, defaults.threads);

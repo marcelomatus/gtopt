@@ -476,6 +476,7 @@ OutputContext::OutputContext(const SystemContext& psc,
     : sc(psc)
     , m_scene_uid_(scene_uid)
     , m_phase_uid_(phase_uid)
+    , m_output_flags_(psc.options().write_out())
     , col_sol_span(linear_interface.get_col_sol())
     , col_cost_span(linear_interface.get_col_cost())
     , row_dual_span(linear_interface.get_row_dual())

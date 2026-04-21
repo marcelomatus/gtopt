@@ -20,6 +20,7 @@
 #include <gtopt/basic_types.hpp>
 #include <gtopt/linear_interface.hpp>
 #include <gtopt/phase.hpp>
+#include <gtopt/planning_enums.hpp>
 #include <gtopt/scene.hpp>
 #include <gtopt/single_id.hpp>
 #include <gtopt/system_context.hpp>
@@ -98,6 +99,9 @@ public:
                              const Id& id,
                              const GSTBIndexHolder<ColIndex>& holder)
   {
+    if (!emit_solution()) {
+      return;
+    }
     add_field(cname,
               col_name,
               "sol",
@@ -113,6 +117,9 @@ public:
                              const Id& id,
                              const STBIndexHolder<ColIndex>& holder)
   {
+    if (!emit_solution()) {
+      return;
+    }
     add_field(cname,
               col_name,
               "sol",
@@ -128,6 +135,9 @@ public:
                               const Id& id,
                               const GSTBIndexHolder<ColIndex>& holder)
   {
+    if (!emit_reduced_cost()) {
+      return;
+    }
     add_field(cname,
               col_name,
               "cost",
@@ -143,6 +153,9 @@ public:
                               const Id& id,
                               const STBIndexHolder<ColIndex>& holder)
   {
+    if (!emit_reduced_cost()) {
+      return;
+    }
     add_field(cname,
               col_name,
               "cost",
@@ -158,6 +171,9 @@ public:
                               const Id& id,
                               const GSTBIndexHolder<RowIndex>& holder)
   {
+    if (!emit_dual()) {
+      return;
+    }
     add_field(cname,
               row_name,
               "dual",
@@ -173,6 +189,9 @@ public:
                               const Id& id,
                               const STBIndexHolder<RowIndex>& holder)
   {
+    if (!emit_dual()) {
+      return;
+    }
     add_field(cname,
               row_name,
               "dual",
@@ -191,6 +210,9 @@ public:
                               const STBIndexHolder<RowIndex>& holder,
                               const STIndexHolder<double>& st_scale)
   {
+    if (!emit_dual()) {
+      return;
+    }
     add_field_st_scaled(
         cname, row_name, "dual", id, holder, row_dual_span, st_scale);
   }
@@ -201,6 +223,9 @@ public:
                                   const Id& id,
                                   const STBIndexHolder<RowIndex>& holder)
   {
+    if (!emit_dual()) {
+      return;
+    }
     add_field(cname,
               row_name,
               "dual",
@@ -218,6 +243,9 @@ public:
                              const Id& id,
                              const STIndexHolder<ColIndex>& holder)
   {
+    if (!emit_solution()) {
+      return;
+    }
     add_field(cname,
               col_name,
               "sol",
@@ -233,6 +261,9 @@ public:
                               const Id& id,
                               const STIndexHolder<ColIndex>& holder)
   {
+    if (!emit_reduced_cost()) {
+      return;
+    }
     add_field(cname,
               col_name,
               "cost",
@@ -248,6 +279,9 @@ public:
                               const Id& id,
                               const STIndexHolder<RowIndex>& holder)
   {
+    if (!emit_dual()) {
+      return;
+    }
     add_field(cname,
               row_name,
               "dual",
@@ -265,6 +299,9 @@ public:
                              const Id& id,
                              const TIndexHolder<ColIndex>& holder)
   {
+    if (!emit_solution()) {
+      return;
+    }
     add_field(cname,
               col_name,
               "sol",
@@ -280,6 +317,9 @@ public:
                               const Id& id,
                               const TIndexHolder<ColIndex>& holder)
   {
+    if (!emit_reduced_cost()) {
+      return;
+    }
     add_field(cname,
               col_name,
               "cost",
@@ -295,6 +335,9 @@ public:
                               const Id& id,
                               const TIndexHolder<RowIndex>& holder)
   {
+    if (!emit_dual()) {
+      return;
+    }
     add_field(cname,
               row_name,
               "dual",
@@ -305,6 +348,25 @@ public:
               sc.get().stage_icost_factors());
   }
 
+  /// Which output fields were requested for this context.
+  [[nodiscard]] constexpr auto output_flags() const noexcept -> OutputFlags
+  {
+    return m_output_flags_;
+  }
+
+  [[nodiscard]] constexpr bool emit_solution() const noexcept
+  {
+    return has_flag(m_output_flags_, OutputFlags::solution);
+  }
+  [[nodiscard]] constexpr bool emit_dual() const noexcept
+  {
+    return has_flag(m_output_flags_, OutputFlags::dual);
+  }
+  [[nodiscard]] constexpr bool emit_reduced_cost() const noexcept
+  {
+    return has_flag(m_output_flags_, OutputFlags::reduced_cost);
+  }
+
   void write() const;
 
 private:
@@ -312,6 +374,8 @@ private:
 
   SceneUid m_scene_uid_;
   PhaseUid m_phase_uid_;
+
+  OutputFlags m_output_flags_ {OutputFlags::all};
 
   ScaledView col_sol_span;
   ScaledView col_cost_span;

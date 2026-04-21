@@ -453,6 +453,14 @@ public:
     return m_options_.constraint_mode.value_or(ConstraintMode::strict);
   }
 
+  /// Which output fields `OutputContext` should emit.  Default is
+  /// `OutputFlags::all` — every field (solution, dual, reduced_cost).
+  /// Bound to CLI `--write-out` and JSON `write_out`.
+  [[nodiscard]] constexpr auto write_out() const noexcept -> OutputFlags
+  {
+    return m_options_.write_out.value_or(OutputFlags::all);
+  }
+
   /**
    * @brief Gets the effective SDDP forward-pass solver options.
    *

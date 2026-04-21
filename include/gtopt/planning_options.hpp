@@ -276,6 +276,14 @@ struct PlanningOptions
   /// - `strict` (default): fail on any unresolved reference
   std::optional<ConstraintMode> constraint_mode {};
 
+  /** @brief Which output fields `OutputContext` should emit.
+   *
+   * Bitmask over `OutputFlags` (solution / dual / reduced_cost).  When
+   * unset, the solver emits everything (historical behaviour).  CLI form:
+   * `--write-out solution,dual`.  JSON form: `"write_out": "solution,dual"`
+   * (parsed via `parse_output_flags()`). */
+  std::optional<OutputFlags> write_out {};
+
   /// Migrate deprecated flat model fields into model_options.
   /// Called by PlanningOptionsLP constructor to ensure model_options
   /// is populated regardless of how PlanningOptions was constructed
@@ -364,6 +372,9 @@ struct PlanningOptions
 
     // Merge constraint mode
     merge_opt(constraint_mode, opts.constraint_mode);
+
+    // Merge write_out
+    merge_opt(write_out, opts.write_out);
 
     // Merge variable scales (append incoming entries)
     if (!opts.variable_scales.empty()) {

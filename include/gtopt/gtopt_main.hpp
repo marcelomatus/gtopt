@@ -178,6 +178,13 @@ struct MainOptions
    *  `BuildMode` in `planning_enums.hpp` for the full contract. */
   std::optional<std::string> build_mode {};
 
+  /** @brief Comma-separated list of output fields to emit
+   * (`solution`, `dual`, `reduced_cost`, or aliases `sol`, `cost`,
+   * `rcost`, `rc`; also `all` and `none`).  Default (unset) emits
+   * every field.  Routed to `planning.options.write_out` by
+   * `apply_cli_options`. */
+  std::optional<std::string> write_out {};
+
   // ---- solver selection ----
   /** @brief LP solver backend name ("clp", "cbc", "cplex", "highs").
    * When empty, auto-detects from available plugins. */

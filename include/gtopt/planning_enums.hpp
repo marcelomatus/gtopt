@@ -15,6 +15,8 @@
 #include <array>
 #include <cstdint>
 #include <span>
+#include <string>
+#include <string_view>
 
 #include <gtopt/enum_option.hpp>
 
@@ -333,6 +335,155 @@ inline constexpr auto constraint_mode_entries =
 [[nodiscard]] constexpr auto enum_entries(ConstraintMode /*tag*/) noexcept
 {
   return std::span {constraint_mode_entries};
+}
+
+// --- OutputFlags ------------------------------------------------------------
+
+/**
+ * @brief Bitmask controlling which fields the output writer emits.
+ *
+ * Each `OutputContext` add-field call is gated by one of these bits:
+ * - `solution`    → primal column values (suffix `sol`)
+ * - `dual`        → row dual values / marginals (suffix `dual`)
+ * - `reduced_cost`→ column reduced costs (suffix `cost`)
+ *
+ * The default when the option is unset is `all` — today's behaviour.
+ * `none` disables output-field emission entirely (still creates the
+ * output directory and writes the merged planning JSON).
+ *
+ * Combinations are expressed as comma-separated names on the CLI/JSON,
+ * e.g. `--write-out solution,dual` or `"output_flags": "sol,dual"`.
+ * Parsing is case-insensitive and accepts the abbreviations declared in
+ * @ref output_flags_entries (`sol`, `rcost`, `rc`, `cost`).
+ */
+enum class OutputFlags : uint8_t
+{
+  none = 0U,
+  solution = 1U,
+  dual = 2U,
+  reduced_cost = 4U,
+  all = 7U,  // solution | dual | reduced_cost
+};
+
+[[nodiscard]] constexpr auto operator|(OutputFlags a, OutputFlags b) noexcept
+    -> OutputFlags
+{
+  return static_cast<OutputFlags>(static_cast<uint8_t>(a)
+                                  | static_cast<uint8_t>(b));
+}
+
+[[nodiscard]] constexpr auto operator&(OutputFlags a, OutputFlags b) noexcept
+    -> OutputFlags
+{
+  return static_cast<OutputFlags>(static_cast<uint8_t>(a)
+                                  & static_cast<uint8_t>(b));
+}
+
+constexpr auto operator|=(OutputFlags& a, OutputFlags b) noexcept
+    -> OutputFlags&
+{
+  a = a | b;
+  return a;
+}
+
+[[nodiscard]] constexpr auto has_flag(OutputFlags set, OutputFlags bit) noexcept
+    -> bool
+{
+  return (set & bit) != OutputFlags::none;
+}
+
+/// Named-enum table for the *atomic* flag values plus common abbreviations.
+/// `all` and `none` are shortcuts also accepted by the parser.
+inline constexpr auto output_flags_entries =
+    std::to_array<EnumEntry<OutputFlags>>({
+        {.name = "none", .value = OutputFlags::none},
+        {.name = "solution", .value = OutputFlags::solution},
+        {.name = "sol", .value = OutputFlags::solution, .is_alias = true},
+        {.name = "dual", .value = OutputFlags::dual},
+        {.name = "reduced_cost", .value = OutputFlags::reduced_cost},
+        {.name = "reduced-cost",
+         .value = OutputFlags::reduced_cost,
+         .is_alias = true},
+        {.name = "rcost", .value = OutputFlags::reduced_cost, .is_alias = true},
+        {.name = "rc", .value = OutputFlags::reduced_cost, .is_alias = true},
+        {.name = "cost", .value = OutputFlags::reduced_cost, .is_alias = true},
+        {.name = "all", .value = OutputFlags::all},
+    });
+
+[[nodiscard]] constexpr auto enum_entries(OutputFlags /*tag*/) noexcept
+{
+  return std::span {output_flags_entries};
+}
+
+/// Parse a comma/whitespace-separated specification into an `OutputFlags`
+/// bitmask.  Empty input yields `OutputFlags::none`; unknown tokens throw
+/// `std::invalid_argument` with the list of accepted names.
+///
+/// Accepted atoms (case-insensitive): `none`, `solution` (`sol`),
+/// `dual`, `reduced_cost` (`reduced-cost`, `rcost`, `rc`, `cost`), `all`.
+///
+/// Examples:
+///   - `"all"`           → solution | dual | reduced_cost
+///   - `"sol,dual"`      → solution | dual
+///   - `"none"`          → no bits set
+[[nodiscard]] inline auto parse_output_flags(std::string_view spec)
+    -> OutputFlags
+{
+  OutputFlags out {OutputFlags::none};
+  std::size_t pos = 0;
+  while (pos < spec.size()) {
+    // Skip separators (comma, pipe, whitespace).
+    while (pos < spec.size()
+           && (spec[pos] == ',' || spec[pos] == '|' || spec[pos] == ' '
+               || spec[pos] == '\t'))
+    {
+      ++pos;
+    }
+    const auto start = pos;
+    while (pos < spec.size() && spec[pos] != ',' && spec[pos] != '|'
+           && spec[pos] != ' ' && spec[pos] != '\t')
+    {
+      ++pos;
+    }
+    if (start == pos) {
+      break;
+    }
+    const auto tok = spec.substr(start, pos - start);
+    out |= require_enum<OutputFlags>("output_flags", tok);
+  }
+  return out;
+}
+
+/// Render an `OutputFlags` bitmask back into its canonical comma-separated
+/// form (for logging / JSON round-trip).  `all` and `none` are emitted as
+/// themselves; any other combination lists the atomic bits in enum order.
+[[nodiscard]] inline auto output_flags_to_string(OutputFlags flags)
+    -> std::string
+{
+  if (flags == OutputFlags::none) {
+    return "none";
+  }
+  if (flags == OutputFlags::all) {
+    return "all";
+  }
+  std::string out;
+  const auto append = [&](std::string_view name)
+  {
+    if (!out.empty()) {
+      out += ',';
+    }
+    out += name;
+  };
+  if (has_flag(flags, OutputFlags::solution)) {
+    append("solution");
+  }
+  if (has_flag(flags, OutputFlags::dual)) {
+    append("dual");
+  }
+  if (has_flag(flags, OutputFlags::reduced_cost)) {
+    append("reduced_cost");
+  }
+  return out;
 }
 
 }  // namespace gtopt
