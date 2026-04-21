@@ -103,6 +103,45 @@ struct CascadeLevel
   std::optional<CascadeLevelMethod> sddp_options {};
   /// Transition from the previous level.
   std::optional<CascadeTransition> transition {};
+
+  /// Merge another CascadeLevel on top of this one.  Used by
+  /// `CascadeOptions::merge` for element-wise level-array merges (e.g.
+  /// from --set array-index overlays like
+  /// `cascade_options.level_array.0.sddp_options.max_iterations=20`).
+  /// Only fields set in @p opts overwrite the corresponding fields here;
+  /// unset optionals in @p opts leave the existing values intact.  Nested
+  /// optional structs (`model_options`, `sddp_options`, `transition`) are
+  /// themselves recursively merged when both sides have a value.
+  void merge(CascadeLevel&& opts)
+  {
+    merge_opt(uid, opts.uid);
+    merge_opt(name, std::move(opts.name));
+    merge_opt(active, opts.active);
+
+    if (opts.model_options.has_value()) {
+      if (model_options.has_value()) {
+        model_options->merge(*opts.model_options);
+      } else {
+        model_options = std::move(opts.model_options);
+      }
+    }
+
+    if (opts.sddp_options.has_value()) {
+      if (sddp_options.has_value()) {
+        sddp_options->merge(*opts.sddp_options);
+      } else {
+        sddp_options = std::move(opts.sddp_options);
+      }
+    }
+
+    if (opts.transition.has_value()) {
+      if (transition.has_value()) {
+        transition->merge(*opts.transition);
+      } else {
+        transition = std::move(opts.transition);
+      }
+    }
+  }
 };
 
 /**
@@ -137,8 +176,27 @@ struct CascadeOptions
   {
     model_options.merge(opts.model_options);
     sddp_options.merge(std::move(opts.sddp_options));
-    if (!opts.level_array.empty()) {
+
+    // level_array merge rules:
+    //  - overlay empty                 → keep base (no change)
+    //  - base empty                    → adopt overlay (initial load)
+    //  - sizes match, non-empty        → element-wise merge (enables
+    //    `--set cascade_options.level_array.N.foo=bar` overlays, where
+    //    the overlay array is constructed with (N - 1) empty placeholder
+    //    objects and only index N filled — see
+    //    build_set_option_json in gtopt_json_io_set.cpp)
+    //  - sizes differ                  → replace wholesale (preserves
+    //    existing "two JSON files with different level_array sizes
+    //    → last-wins" semantics for full-file merges)
+    if (opts.level_array.empty()) {
+      return;
+    }
+    if (level_array.empty() || level_array.size() != opts.level_array.size()) {
       level_array = std::move(opts.level_array);
+      return;
+    }
+    for (std::size_t i = 0; i < level_array.size(); ++i) {
+      level_array[i].merge(std::move(opts.level_array[i]));
     }
   }
 };
