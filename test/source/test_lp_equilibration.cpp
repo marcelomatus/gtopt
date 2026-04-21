@@ -326,3 +326,40 @@ TEST_CASE("add_row — col_scales compose before row_max")
   CHECK(li.get_row_low_raw()[idx] == doctest::Approx(100.0 / 30.0));
   CHECK(li.get_row_scale(idx) == doctest::Approx(30.0));
 }
+
+TEST_CASE("add_row — already_lp_space=true bypasses composition")
+{
+  // Regression guard for the legacy LP-space path.  A row flagged as
+  // already in LP space must land at the solver-backend matrix
+  // unchanged — no col_scale composition, no per-row row-max pass,
+  // even on a fully-equilibrated LP.  This is the invariant every
+  // current build_benders_cut caller depends on.
+  LinearInterface li;
+  const auto c0 = li.add_col(SparseCol {
+      .uppb = 1e6,
+  });
+  const auto c1 = li.add_col(SparseCol {
+      .uppb = 1e6,
+  });
+  li.save_base_numrows();
+  li.set_col_scale(c0, 2.0);
+  li.set_col_scale(c1, 10.0);
+  li.set_equilibration_method(LpEquilibrationMethod::row_max);
+
+  SparseRow row;
+  row[c0] = 4.0;
+  row[c1] = -3.0;
+  row.lowb = 100.0;
+  row.uppb = kInfinity;
+  row.already_lp_space = true;  // opt out of equilibration composition.
+
+  const auto idx = li.add_row(row);
+
+  // Coefficients land verbatim — col_scale is NOT applied.
+  CHECK(li.get_coeff_raw(idx, c0) == doctest::Approx(4.0));
+  CHECK(li.get_coeff_raw(idx, c1) == doctest::Approx(-3.0));
+  CHECK(li.get_row_low_raw()[idx] == doctest::Approx(100.0));
+  // No row-max pass → row_scale stays 1.0 (composite of unset
+  // SparseRow::scale and no equilibration divisor).
+  CHECK(li.get_row_scale(idx) == doctest::Approx(1.0));
+}

@@ -956,6 +956,203 @@ TEST_CASE("build_multi_cuts with active slack generates cuts")  // NOLINT
         == doctest::Approx(1.0));
 }
 
+// ---------------------------------------------------------------------------
+// already_lp_space flag regression guards.  Every cut produced by the
+// legacy (LP-space) builders MUST set SparseRow::already_lp_space = true
+// so `LinearInterface::add_row` bypasses col_scale + row-max composition
+// on those rows.  If any of these regresses silently, every live Benders
+// cut in an equilibrated LP gets double-scaled and the solve diverges —
+// hence the unit-level guard here.
+// ---------------------------------------------------------------------------
+
+TEST_CASE("SparseRow default already_lp_space is false")  // NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  const SparseRow row {};
+  CHECK_FALSE(row.already_lp_space);
+  // Defensive: the default must propagate through aggregate construction
+  // from literal fields too, not only zero-init.
+  const SparseRow explicit_row {
+      .lowb = 1.0,
+      .uppb = 2.0,
+  };
+  CHECK_FALSE(explicit_row.already_lp_space);
+}
+
+TEST_CASE(
+    "build_benders_cut (span overload) marks output as LP-space")  // NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  const ColIndex alpha {
+      0,
+  };
+  const std::vector<StateVarLink> links = {
+      {
+          .source_col =
+              ColIndex {
+                  1,
+              },
+          .dependent_col =
+              ColIndex {
+                  5,
+              },
+          .trial_value = 2.0,
+      },
+  };
+  std::vector<double> rc(6, 0.0);
+  rc[5] = 3.0;
+
+  const auto cut =
+      build_benders_cut(alpha, links, rc, /*objective_value=*/10.0);
+  CHECK(cut.already_lp_space);
+}
+
+TEST_CASE(
+    "build_benders_cut (link overload) marks output as LP-space")  // NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  const ColIndex alpha {
+      0,
+  };
+  // The link-based overload reads rc from link.state_var->reduced_cost();
+  // leave state_var null so rc=0 and no term is added — the builder still
+  // runs to completion and must flag its output.
+  const std::vector<StateVarLink> links = {
+      {
+          .source_col =
+              ColIndex {
+                  1,
+              },
+          .dependent_col =
+              ColIndex {
+                  5,
+              },
+          .trial_value = 2.0,
+      },
+  };
+
+  const auto cut = build_benders_cut(alpha, links, /*objective_value=*/10.0);
+  CHECK(cut.already_lp_space);
+}
+
+TEST_CASE("build_multi_cuts marks every emitted cut as LP-space")  // NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  // Reuse the scaffold from "build_multi_cuts with active slack
+  // generates cuts" — identical LP setup, identical slack activation.
+  // The CHECK here targets only the already_lp_space flag so the test
+  // is focused and a future add_row regression in the multi-cut path
+  // surfaces immediately.
+  LinearInterface cloned_li;
+  const auto dep0 = cloned_li.add_col(SparseCol {
+      .lowb = 0.0,
+      .uppb = 100.0,
+  });
+  const auto dep1 = cloned_li.add_col(SparseCol {
+      .lowb = 0.0,
+      .uppb = 100.0,
+  });
+  const auto sup0 = cloned_li.add_col(SparseCol {
+      .lowb = 0.0,
+      .uppb = 100.0,
+  });
+  const auto sdn0 = cloned_li.add_col(SparseCol {
+      .lowb = 0.0,
+      .uppb = 100.0,
+  });
+  const auto sup1 = cloned_li.add_col(SparseCol {
+      .lowb = 0.0,
+      .uppb = 100.0,
+  });
+  const auto sdn1 = cloned_li.add_col(SparseCol {
+      .lowb = 0.0,
+      .uppb = 100.0,
+  });
+  cloned_li.set_obj_coeff(sup0, 1.0);
+  cloned_li.set_obj_coeff(sdn0, 1.0);
+  cloned_li.set_obj_coeff(sup1, 1.0);
+  cloned_li.set_obj_coeff(sdn1, 1.0);
+
+  // Trivial balance rows so the LP is structurally valid.
+  SparseRow r0;
+  r0[dep0] = 1.0;
+  r0[sup0] = -1.0;
+  r0[sdn0] = 1.0;
+  r0.lowb = 30.0;
+  r0.uppb = 30.0;
+  cloned_li.add_row(r0);
+  SparseRow r1;
+  r1[dep1] = 1.0;
+  r1[sup1] = -1.0;
+  r1[sdn1] = 1.0;
+  r1.lowb = 50.0;
+  r1.uppb = 50.0;
+  cloned_li.add_row(r1);
+
+  auto res = cloned_li.initial_solve();
+  REQUIRE(res.has_value());
+
+  // Spoof slack > 0 on both links so build_multi_cuts emits two cuts.
+  const std::vector<double> sol = {
+      25.0,
+      60.0,
+      5.0,
+      0.0,
+      0.0,
+      10.0,
+  };
+  cloned_li.set_col_sol(sol);
+
+  ElasticSolveResult elastic;
+  elastic.clone = std::move(cloned_li);
+  elastic.link_infos = {
+      {
+          .relaxed = true,
+          .sup_col = sup0,
+          .sdn_col = sdn0,
+      },
+      {
+          .relaxed = true,
+          .sup_col = sup1,
+          .sdn_col = sdn1,
+      },
+  };
+  const std::vector<StateVarLink> links = {
+      {
+          .source_col =
+              ColIndex {
+                  100,
+              },
+          .dependent_col = dep0,
+          .trial_value = 30.0,
+          .class_name = "Reservoir",
+          .col_name = "efin",
+          .uid = Uid {7},
+      },
+      {
+          .source_col =
+              ColIndex {
+                  101,
+              },
+          .dependent_col = dep1,
+          .trial_value = 50.0,
+          .class_name = "Battery",
+          .col_name = "sini",
+          .uid = Uid {3},
+      },
+  };
+
+  const auto cuts = build_multi_cuts(elastic, links);
+  REQUIRE(cuts.size() == 2);
+  for (const auto& cut : cuts) {
+    CHECK(cut.already_lp_space);
+  }
+}
+
 TEST_CASE("elastic_filter_solve free function succeeds")  // NOLINT
 {
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
