@@ -294,6 +294,146 @@ TEST_CASE("build_benders_cut_physical preserves physical-space contract")
 }
 
 // ---------------------------------------------------------------------------
+// build_benders_cut_physical — state_var-based overload (SDDP backward-pass)
+//
+// The state_var overload reads rc and trial from `link.state_var` instead
+// of parallel spans.  It descales the stored raw-LP reduced cost via
+// `reduced_cost_physical(scale_obj) = rc_LP * scale_obj / var_scale` so
+// the cut is in $ / physical_unit regardless of scale_objective.
+// ---------------------------------------------------------------------------
+
+TEST_CASE("build_benders_cut_physical state_var overload matches span overload")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  // Hand-rolled StateVariable objects.  ColIndex in the state_var is the
+  // source column (what the cut will coefficient on); the `var_scale` and
+  // the raw-LP rc/col_sol determine physical values.
+  constexpr auto mkctx = [] { return LpContext {}; };
+
+  const StateVariable::LPKey key0 {
+      .scene_index = first_scene_index(),
+      .phase_index = PhaseIndex {0},
+  };
+  StateVariable svar0 {
+      key0,
+      ColIndex {1},
+      /*scost=*/0.0,
+      /*var_scale=*/2.0,
+      mkctx(),
+  };
+  svar0.set_col_sol(5.0);  // phys = 5 * 2 = 10
+  svar0.set_reduced_cost(0.4);  // rc_phys = 0.4 * scale_obj / 2
+
+  StateVariable svar1 {
+      key0,
+      ColIndex {2},
+      /*scost=*/0.0,
+      /*var_scale=*/1.0,
+      mkctx(),
+  };
+  svar1.set_col_sol(3.0);  // phys = 3
+  svar1.set_reduced_cost(-2.0);  // rc_phys = -2 * scale_obj
+
+  constexpr double scale_obj = 10.0;
+
+  const std::vector<StateVarLink> links = {
+      {
+          .source_col = ColIndex {1},
+          .dependent_col = ColIndex {10},
+          .state_var = &svar0,
+      },
+      {
+          .source_col = ColIndex {2},
+          .dependent_col = ColIndex {11},
+          .state_var = &svar1,
+      },
+  };
+
+  // rc_phys[0] = 0.4 * 10 / 2 = 2.0
+  // rc_phys[1] = -2.0 * 10 / 1 = -20.0
+  // v̂_phys[0] = 10.0, v̂_phys[1] = 3.0
+  // lowb = 100 - 2*10 - (-20)*3 = 100 - 20 + 60 = 140
+  const double obj_phys = 100.0;
+  const auto cut =
+      build_benders_cut_physical(ColIndex {0}, links, obj_phys, scale_obj);
+
+  CHECK(cut.cmap.at(ColIndex {0}) == doctest::Approx(1.0));
+  CHECK(cut.cmap.at(ColIndex {1}) == doctest::Approx(-2.0));
+  CHECK(cut.cmap.at(ColIndex {2}) == doctest::Approx(20.0));
+  CHECK(cut.lowb == doctest::Approx(140.0));
+  CHECK_FALSE(cut.already_lp_space);
+  CHECK(cut.scale == doctest::Approx(1.0));
+}
+
+TEST_CASE("build_benders_cut_physical state_var overload eps filters small rc")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  const StateVariable::LPKey key0 {
+      .scene_index = first_scene_index(),
+      .phase_index = PhaseIndex {0},
+  };
+  StateVariable svar_tiny {
+      key0,
+      ColIndex {1},
+      0.0,
+      1.0,
+      LpContext {},
+  };
+  svar_tiny.set_col_sol(5.0);
+  svar_tiny.set_reduced_cost(1e-13);  // rc_phys = 1e-13 * 1 / 1 = 1e-13
+
+  StateVariable svar_big {
+      key0,
+      ColIndex {2},
+      0.0,
+      1.0,
+      LpContext {},
+  };
+  svar_big.set_col_sol(3.0);
+  svar_big.set_reduced_cost(4.0);
+
+  const std::vector<StateVarLink> links = {
+      {.source_col = ColIndex {1}, .state_var = &svar_tiny},
+      {.source_col = ColIndex {2}, .state_var = &svar_big},
+  };
+
+  const auto cut =
+      build_benders_cut_physical(ColIndex {0},
+                                 links,
+                                 /*objective_value_physical=*/100.0,
+                                 /*scale_objective=*/1.0,
+                                 /*cut_coeff_eps=*/1e-8);
+
+  CHECK_FALSE(cut.cmap.contains(ColIndex {1}));
+  CHECK(cut.cmap.at(ColIndex {2}) == doctest::Approx(-4.0));
+  // lowb = 100 - 4*3 = 88.  Tiny rc contribution (1e-13 * 5) is also
+  // dropped since the whole link is skipped.
+  CHECK(cut.lowb == doctest::Approx(88.0));
+}
+
+TEST_CASE(
+    "build_benders_cut_physical state_var overload handles null state_var")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  // Test-fixture convention: a link with state_var==nullptr contributes
+  // nothing to the cut (no coefficient, no RHS adjustment).
+  const std::vector<StateVarLink> links = {
+      {.source_col = ColIndex {1}, .state_var = nullptr},
+  };
+  const auto cut = build_benders_cut_physical(ColIndex {0},
+                                              links,
+                                              /*objective_value_physical=*/42.0,
+                                              /*scale_objective=*/1.0);
+
+  CHECK(cut.cmap.at(ColIndex {0}) == doctest::Approx(1.0));
+  CHECK_FALSE(cut.cmap.contains(ColIndex {1}));
+  CHECK(cut.lowb == doctest::Approx(42.0));
+}
+
+// ---------------------------------------------------------------------------
 // average_benders_cut
 // ---------------------------------------------------------------------------
 

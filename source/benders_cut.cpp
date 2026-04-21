@@ -168,6 +168,39 @@ auto build_benders_cut_physical(ColIndex alpha_col,
   return row;
 }
 
+auto build_benders_cut_physical(ColIndex alpha_col,
+                                std::span<const StateVarLink> links,
+                                double objective_value_physical,
+                                double scale_objective,
+                                double cut_coeff_eps) -> SparseRow
+{
+  // Physical-space Benders optimality cut, reading rc and trial from
+  // each link's back-pointer StateVariable.  The forward pass mirrors
+  // the target LP's solution onto every StateVariable via
+  // `capture_state_variable_values`, so the live values are fresh at
+  // backward-pass time without needing per-LP snapshots.
+  auto row = SparseRow {
+      .lowb = objective_value_physical,
+      .uppb = LinearProblem::DblMax,
+  };
+  row[alpha_col] = 1.0;
+
+  for (const auto& link : links) {
+    if (link.state_var == nullptr) {
+      continue;
+    }
+    const auto rc_phys = link.state_var->reduced_cost_physical(scale_objective);
+    if (std::abs(rc_phys) < cut_coeff_eps) {
+      continue;
+    }
+    const auto v_hat_phys = link.state_var->col_sol_physical();
+    row[link.source_col] = -rc_phys;
+    row.lowb -= rc_phys * v_hat_phys;
+  }
+
+  return row;
+}
+
 // ─── Cut coefficient filtering and rescaling ────────────────────────────────
 
 void filter_cut_coefficients(SparseRow& row, ColIndex alpha_col, double eps)
