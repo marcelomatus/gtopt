@@ -112,6 +112,25 @@ struct SparseCol
   }
 };
 
+/// Lightweight label metadata for a column.
+///
+/// Stored in `FlatLinearProblem` / `LinearInterface` so LP column
+/// names can be formatted on demand at `write_lp` time instead of
+/// eagerly at flatten.  This is the only column data that
+/// `LabelMaker` needs; bounds / cost / scale live in the flat LP.
+///
+/// Carries the same `(class_name, variable_name, variable_uid,
+/// context)` 4-tuple that `SparseCol` uses — a `LocalLabelMaker` at
+/// `LpNamesLevel::all` can synthesise the human-readable label
+/// (e.g. `bus.theta.1.s0.p0.b0`) from this struct alone.
+struct SparseColLabel
+{
+  std::string_view class_name {};
+  std::string_view variable_name {};
+  Uid variable_uid {unknown_uid};
+  LpContext context {};
+};
+
 using ColIndex = StrongIndexType<SparseCol>;  ///< Type alias for column index
 
 /**

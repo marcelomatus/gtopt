@@ -279,6 +279,8 @@ TEST_CASE("Linear problem advanced operations")
         .rownm = {"", ""},
         .colmp = {},
         .rowmp = {},
+        .col_labels_meta = {},
+        .row_labels_meta = {},
         .name = "SEN",
     };
 
@@ -326,6 +328,8 @@ TEST_CASE("Linear problem advanced operations")
         .rownm = {},
         .colmp = {},
         .rowmp = {},
+        .col_labels_meta = {},
+        .row_labels_meta = {},
         .name = "SEN",
     };
 

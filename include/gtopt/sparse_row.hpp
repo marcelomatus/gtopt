@@ -209,6 +209,17 @@ struct SparseRow
   }
 };
 
+/// Lightweight label metadata for a constraint row.  See
+/// `SparseColLabel` for rationale — this is the row equivalent,
+/// with the coefficient map stripped out.
+struct SparseRowLabel
+{
+  std::string_view class_name {};
+  std::string_view constraint_name {};
+  Uid variable_uid {unknown_uid};
+  LpContext context {};
+};
+
 using RowIndex = StrongIndexType<SparseRow>;  ///< Type alias for row index
 
 /**

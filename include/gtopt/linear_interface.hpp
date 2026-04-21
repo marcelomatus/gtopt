@@ -800,6 +800,49 @@ public:
       const std::string& filename) const;
 
   /**
+   * @brief Produce `(col_names, row_names)` for the current LP by
+   *        synthesising real gtopt labels on demand.
+   *
+   * Sources, in priority order:
+   *   1. Pre-formatted strings in `m_col_index_to_name_` /
+   *      `m_row_index_to_name_` (populated at flatten when
+   *      `LpMatrixOptions::{col,row}_with_names` was set — i.e.
+   *      `--lp-debug`).  Zero work if already present.
+   *   2. Structural metadata: `m_col_labels_meta_` /
+   *      `m_row_labels_meta_` (populated unconditionally at flatten).
+   *      Formatted via a local `LabelMaker{LpNamesLevel::all}` so
+   *      the result matches what `--lp-debug` would have produced
+   *      at flatten time.
+   *   3. Dynamic cols (post-flatten additions, e.g. α): synthesised
+   *      from `m_dynamic_cols_[k]` via the same forced-all
+   *      `LabelMaker`.
+   *   4. Active cuts (post-flatten row additions): same, from
+   *      `m_active_cuts_[k]`.
+   *
+   * No fallback — if a col/row has neither pre-formatted name nor
+   * metadata, that indicates a `LinearInterface` invariant
+   * violation (e.g. a col was added without metadata, or load_flat
+   * was called with a FlatLinearProblem that pre-dates this
+   * contract).  The method throws `std::logic_error` in that case.
+   *
+   * Caller pays zero memory cost at flatten; synthesis happens only
+   * when this method (and therefore `write_lp`) actually fires.
+   *
+   * @param col_names  Output vector, resized to `get_num_cols()`.
+   * @param row_names  Output vector, resized to `get_num_rows()`.
+   */
+  void generate_labels_from_maps(std::vector<std::string>& col_names,
+                                 std::vector<std::string>& row_names) const;
+
+private:
+  /// Append/update the row-label metadata for a freshly-added row.
+  /// Called by the `add_row(SparseRow)` entry points after the row
+  /// index is known.  Resizes `m_row_labels_meta_` so `m[row_idx]`
+  /// carries the 4-tuple LabelMaker needs.
+  void track_row_label_meta(RowIndex row_idx, const SparseRow& row);
+
+public:
+  /**
    * @brief Performs initial solve of the problem from scratch
    * @param solver_options Options controlling the solve process
    * @return Expected with solver status code (0 = optimal) or error
@@ -1668,6 +1711,16 @@ private:
 
   /// Net active Benders cuts (additions minus deletions).
   std::vector<SparseRow> m_active_cuts_ {};
+
+  /// Label-only metadata for every structural column populated at
+  /// flatten time, regardless of `LpMatrixOptions::col_with_names`.
+  /// Used by `generate_labels_from_maps` to synthesise real gtopt
+  /// labels on demand (e.g. at `write_lp` time for the SDDP error-LP
+  /// dump path).  Dynamic cols added after load_flat are not tracked
+  /// here — their label metadata lives in `m_dynamic_cols_` and is
+  /// synthesised from there.
+  std::vector<SparseColLabel> m_col_labels_meta_ {};
+  std::vector<SparseRowLabel> m_row_labels_meta_ {};
 
   /// Whether the backend is currently released.
   bool m_backend_released_ {false};

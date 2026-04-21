@@ -71,6 +71,16 @@ struct FlatLinearProblem
   index_map_t colmp;  ///< Map from variable names to indices
   index_map_t rowmp;  ///< Map from constraint names to indices
 
+  /// Lightweight label metadata, populated unconditionally at flatten.
+  /// Carries just the `(class_name, variable_name / constraint_name,
+  /// uid, context)` fields that `LabelMaker` needs to synthesise a
+  /// human-readable label on demand.  `LinearInterface` copies these
+  /// at `load_flat` time so `write_lp` can produce real gtopt names
+  /// even when `colnm` / `rownm` are empty (flatten ran without
+  /// `col_with_names` / `row_with_names`).
+  std::vector<SparseColLabel> col_labels_meta;
+  std::vector<SparseRowLabel> row_labels_meta;
+
   std::string name;  ///< Problem name
 
   /// @name Coefficient statistics (populated when

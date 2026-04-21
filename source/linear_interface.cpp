@@ -604,6 +604,15 @@ void LinearInterface::load_flat(const FlatLinearProblem& flat_lp)
   // use the same LpNamesLevel as the original flatten() call.
   m_label_maker_ = flat_lp.label_maker;
 
+  // Preserve label-only metadata for every structural col/row so
+  // `generate_labels_from_maps` can synthesise real gtopt labels on
+  // demand (e.g. at `write_lp` time) without requiring names to have
+  // been enabled at flatten.  The overhead is comparable to
+  // `colnm`/`rownm` but carries structured fields rather than already-
+  // formatted strings.
+  m_col_labels_meta_ = flat_lp.col_labels_meta;
+  m_row_labels_meta_ = flat_lp.row_labels_meta;
+
   // Preserve coefficient statistics computed during flatten().
   m_stats_nnz_ = flat_lp.stats_nnz;
   m_stats_zeroed_ = flat_lp.stats_zeroed;
@@ -733,6 +742,19 @@ ColIndex LinearInterface::add_col(const SparseCol& col)
     set_col_scale(col_idx, col.scale);
   }
 
+  // Track label-only metadata so `generate_labels_from_maps` can
+  // synthesise the label on demand at `write_lp` time without the
+  // caller having had to set `--lp-debug` at build time.
+  if (m_col_labels_meta_.size() <= static_cast<size_t>(index)) {
+    m_col_labels_meta_.resize(static_cast<size_t>(index) + 1);
+  }
+  m_col_labels_meta_[static_cast<size_t>(index)] = SparseColLabel {
+      .class_name = col.class_name,
+      .variable_name = col.variable_name,
+      .variable_uid = col.variable_uid,
+      .context = col.context,
+  };
+
   return col_idx;
 }
 
@@ -774,6 +796,21 @@ RowIndex LinearInterface::add_row(const std::string& name,
   }
 
   return row_idx;
+}
+
+void LinearInterface::track_row_label_meta(RowIndex row_idx,
+                                           const SparseRow& row)
+{
+  const auto i = static_cast<size_t>(row_idx);
+  if (m_row_labels_meta_.size() <= i) {
+    m_row_labels_meta_.resize(i + 1);
+  }
+  m_row_labels_meta_[i] = SparseRowLabel {
+      .class_name = row.class_name,
+      .constraint_name = row.constraint_name,
+      .variable_uid = row.variable_uid,
+      .context = row.context,
+  };
 }
 
 RowIndex LinearInterface::add_row(const SparseRow& row, const double eps)
@@ -876,6 +913,7 @@ RowIndex LinearInterface::add_row(const SparseRow& row, const double eps)
   if (composite_scale != 1.0) {
     set_row_scale(row_idx, composite_scale);
   }
+  track_row_label_meta(row_idx, row);
   return row_idx;
 }
 
@@ -914,11 +952,15 @@ RowIndex LinearInterface::add_row_lp_space(const SparseRow& row,
     const auto row_idx =
         add_row(name, columns.size(), columns, elements, lb, ub);
     set_row_scale(row_idx, rs);
+    track_row_label_meta(row_idx, row);
     return row_idx;
   }
 
   const auto [columns, elements] = row.to_flat<int>(eps);
-  return add_row(name, columns.size(), columns, elements, row.lowb, row.uppb);
+  const auto row_idx =
+      add_row(name, columns.size(), columns, elements, row.lowb, row.uppb);
+  track_row_label_meta(row_idx, row);
+  return row_idx;
 }
 
 // NOLINTNEXTLINE(misc-no-recursion)
@@ -1285,39 +1327,136 @@ bool LinearInterface::is_integer(const ColIndex index) const
 
 // ── Names & LP file output ──
 
-void LinearInterface::push_names_to_solver() const
+void LinearInterface::generate_labels_from_maps(
+    std::vector<std::string>& col_names,
+    std::vector<std::string>& row_names) const
 {
-  const auto ncols = static_cast<size_t>(m_backend_->get_num_cols());
+  // Forced-all LabelMaker: the interface's own `m_label_maker_` is
+  // whatever flatten captured (usually `none` unless --lp-debug).
+  // Here we want real labels regardless, synthesised on the fly from
+  // the structural + dynamic metadata.  LabelMaker has no mutable
+  // state; a local instance is fine.
+  const LabelMaker writer_labels {LpNamesLevel::all};
 
-  // When flatten ran without `LpMatrixOptions::col_with_names`, the
-  // tracked name vector is empty.  `write_lp` still wants every
-  // column to carry *some* label so the file is readable; fall back
-  // to a generic `c<index>` identifier for any unnamed column.  The
-  // fallback is pay-per-call: generated here instead of at flatten
-  // time so runs that never call `write_lp` pay no memory cost.
-  std::vector<std::string> col_names(ncols);
+  // Minimum structural sizes recorded at flatten — used to separate
+  // structural from dynamic additions.
+  const auto num_structural_cols = m_col_labels_meta_.size();
+  const auto num_structural_rows = m_row_labels_meta_.size();
+
+  const auto ncols = static_cast<size_t>(m_backend_->get_num_cols());
+  col_names.assign(ncols, std::string {});
+
   for (size_t i = 0; i < ncols; ++i) {
+    // 1. Pre-formatted strings (populated at flatten when --lp-debug).
     if (i < m_col_index_to_name_.size()
         && !m_col_index_to_name_[ColIndex {i}].empty())
     {
       col_names[i] = m_col_index_to_name_[ColIndex {i}];
-    } else {
-      col_names[i] = std::format("c{}", i);
+      continue;
+    }
+    // 2. Structural metadata (populated unconditionally at flatten).
+    if (i < num_structural_cols) {
+      const auto& meta = m_col_labels_meta_[i];
+      // `LabelMaker::make_col_label` takes a SparseCol; synthesise
+      // a minimal one from the label metadata fields.
+      SparseCol view {};
+      view.class_name = meta.class_name;
+      view.variable_name = meta.variable_name;
+      view.variable_uid = meta.variable_uid;
+      view.context = meta.context;
+      col_names[i] = writer_labels.make_col_label(view);
+      if (col_names[i].empty()) {
+        throw std::logic_error(std::format(
+            "LinearInterface::generate_labels_from_maps: structural col "
+            "{} has no class_name in m_col_labels_meta_ (unlabelable).",
+            i));
+      }
+      continue;
+    }
+    // 3. Dynamic cols (appended after load_flat).  The k-th dynamic
+    //    col lives at index `num_structural_cols + k`.
+    const auto k = i - num_structural_cols;
+    if (k >= m_dynamic_cols_.size()) {
+      throw std::logic_error(std::format(
+          "LinearInterface::generate_labels_from_maps: col {} is past "
+          "structural end ({}) but m_dynamic_cols_ has only {} entries "
+          "— col was added without metadata tracking.",
+          i,
+          num_structural_cols,
+          m_dynamic_cols_.size()));
+    }
+    col_names[i] = writer_labels.make_col_label(m_dynamic_cols_[k]);
+    if (col_names[i].empty()) {
+      throw std::logic_error(std::format(
+          "LinearInterface::generate_labels_from_maps: dynamic col {} "
+          "(m_dynamic_cols_[{}]) has no class_name (unlabelable).",
+          i,
+          k));
     }
   }
 
   const auto nrows = static_cast<size_t>(m_backend_->get_num_rows());
-  std::vector<std::string> row_names(nrows);
+  row_names.assign(nrows, std::string {});
+
   for (size_t i = 0; i < nrows; ++i) {
+    // 1. Pre-formatted.
     if (i < m_row_index_to_name_.size()
         && !m_row_index_to_name_[RowIndex {i}].empty())
     {
       row_names[i] = m_row_index_to_name_[RowIndex {i}];
-    } else {
-      row_names[i] = std::format("r{}", i);
+      continue;
+    }
+    // 2. Structural metadata.
+    if (i < num_structural_rows) {
+      const auto& meta = m_row_labels_meta_[i];
+      SparseRow view {};
+      view.class_name = meta.class_name;
+      view.constraint_name = meta.constraint_name;
+      view.variable_uid = meta.variable_uid;
+      view.context = meta.context;
+      row_names[i] = writer_labels.make_row_label(view);
+      if (row_names[i].empty()) {
+        throw std::logic_error(std::format(
+            "LinearInterface::generate_labels_from_maps: structural row "
+            "{} has no class_name in m_row_labels_meta_ (unlabelable).",
+            i));
+      }
+      continue;
+    }
+    // 3. Active cuts (post-flatten row additions).  Cuts land at
+    //    indices `[base_numrows, base_numrows + num_cuts)`.
+    const auto k = i - num_structural_rows;
+    if (k >= m_active_cuts_.size()) {
+      // Under LowMemoryMode::off m_active_cuts_ stays empty even
+      // though cuts live in the backend — fall back to the legacy
+      // `m_label_maker_.make_row_label` path applied at add_row
+      // time.  If THAT produced an empty string and we're here, the
+      // cut was added without metadata — a real bug.
+      throw std::logic_error(std::format(
+          "LinearInterface::generate_labels_from_maps: row {} is past "
+          "structural end ({}) but m_active_cuts_ has only {} entries "
+          "— cut was added without metadata (check low_memory_mode and "
+          "record_cut_row wiring).",
+          i,
+          num_structural_rows,
+          m_active_cuts_.size()));
+    }
+    row_names[i] = writer_labels.make_row_label(m_active_cuts_[k]);
+    if (row_names[i].empty()) {
+      throw std::logic_error(std::format(
+          "LinearInterface::generate_labels_from_maps: active cut {} "
+          "(m_active_cuts_[{}]) has no class_name (unlabelable).",
+          i,
+          k));
     }
   }
+}
 
+void LinearInterface::push_names_to_solver() const
+{
+  std::vector<std::string> col_names;
+  std::vector<std::string> row_names;
+  generate_labels_from_maps(col_names, row_names);
   m_backend_->push_names(col_names, row_names);
 }
 

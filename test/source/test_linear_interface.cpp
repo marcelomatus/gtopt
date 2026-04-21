@@ -177,14 +177,24 @@ TEST_CASE("LinearInterface - LP file output")
   LinearInterface interface;
   interface.set_label_maker(LabelMaker {LpNamesLevel::all});
 
-  // Add variables using SparseCol so names are tracked for LP output
+  // Add variables using SparseCol with class_name/variable_name so
+  // `LinearInterface::generate_labels_from_maps` can synthesise
+  // real labels at write_lp time.  SparseCols added without a
+  // `class_name` deliberately throw under the on-demand labelling
+  // contract (no generic `c<i>`/`r<i>` fallback).
   interface.add_col(SparseCol {
       .lowb = 0.0,
       .uppb = 10.0,
+      .class_name = "V",
+      .variable_name = "x",
+      .variable_uid = Uid {0},
   });
   interface.add_col(SparseCol {
       .lowb = 0.0,
       .uppb = 10.0,
+      .class_name = "V",
+      .variable_name = "x",
+      .variable_uid = Uid {1},
   });
 
   // Add constraint using SparseRow API

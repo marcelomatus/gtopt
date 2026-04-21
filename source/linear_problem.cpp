@@ -472,6 +472,32 @@ auto LinearProblem::flatten(const LpMatrixOptions& opts) -> FlatLinearProblem
     }
   }
 
+  // Lightweight label metadata — always populated regardless of
+  // `col_with_names` / `row_with_names`.  Lets `LinearInterface::
+  // generate_labels_from_maps` synthesise real gtopt labels on demand
+  // at `write_lp` time (e.g. the SDDP error-LP dump path) without
+  // requiring the user to pre-enable `--lp-debug` at build time.
+  std::vector<SparseColLabel> col_labels_meta;
+  col_labels_meta.reserve(cols.size());
+  for (const auto& col : cols) {
+    col_labels_meta.push_back(SparseColLabel {
+        .class_name = col.class_name,
+        .variable_name = col.variable_name,
+        .variable_uid = col.variable_uid,
+        .context = col.context,
+    });
+  }
+  std::vector<SparseRowLabel> row_labels_meta;
+  row_labels_meta.reserve(rows.size());
+  for (const auto& row : rows) {
+    row_labels_meta.push_back(SparseRowLabel {
+        .class_name = row.class_name,
+        .constraint_name = row.constraint_name,
+        .variable_uid = row.variable_uid,
+        .context = row.context,
+    });
+  }
+
   // Index name maps
   using fp_index_map_t = FlatLinearProblem::index_map_t;
   auto build_name_map = [](const auto& names,
@@ -723,6 +749,8 @@ auto LinearProblem::flatten(const LpMatrixOptions& opts) -> FlatLinearProblem
       .rownm = std::move(rownm),
       .colmp = std::move(colmp),
       .rowmp = std::move(rowmp),
+      .col_labels_meta = std::move(col_labels_meta),
+      .row_labels_meta = std::move(row_labels_meta),
       .name = pname,  // always copy (trivially small, enables multiple flatten)
       .stats_nnz = stats_nnz,
       .stats_zeroed = stats_zeroed,
