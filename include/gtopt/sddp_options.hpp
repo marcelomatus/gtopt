@@ -253,22 +253,6 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
    */
   OptReal cut_coeff_eps {};
 
-  /** @brief Maximum allowed absolute coefficient in a Benders cut row.
-   *
-   * When the largest state-variable coefficient in a newly built cut
-   * exceeds this threshold, the entire row (all coefficients, the α
-   * weight, and the RHS) is uniformly divided by
-   * `max_coeff / cut_coeff_max`.  This preserves the constraint's feasible set
-   * while
-   * improving numerical conditioning.
-   *
-   * A warning is logged each time a cut is rescaled.
-   *
-   * Default: 0.0 (disabled — no rescaling).
-   * Typical useful values: 1e6 to 1e8.
-   */
-  OptReal cut_coeff_max {};
-
   /** @brief How update_lp elements obtain reservoir/battery volume between
    * phases.
    *
@@ -438,7 +422,6 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
     merge_opt(low_memory_mode, opts.low_memory_mode);
     merge_opt(memory_codec, opts.memory_codec);
     merge_opt(cut_coeff_eps, opts.cut_coeff_eps);
-    merge_opt(cut_coeff_max, opts.cut_coeff_max);
     merge_opt(state_variable_lookup_mode, opts.state_variable_lookup_mode);
     merge_opt(convergence_mode, opts.convergence_mode);
     merge_opt(stationary_tol, opts.stationary_tol);

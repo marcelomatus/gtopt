@@ -890,11 +890,10 @@ auto SDDPMethod::backward_pass_single_phase(SceneIndex scene_index,
                                        phase_uid(phase_index),
                                        iteration_index,
                                        cut_offset);
-  filter_cut_coefficients(cut, src_alpha_col, ceps);
   const auto dt_build = elapsed_s(t_build);
 
   const auto t_add_row = Clock::now();
-  const auto cut_row = src_li.add_row(cut);
+  const auto cut_row = src_li.add_row(cut, ceps);
   const auto dt_add_row = elapsed_s(t_add_row);
 
   const auto t_store = Clock::now();

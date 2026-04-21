@@ -493,19 +493,7 @@ public:
    * to the structural-build phase), `add_row` is a pass-through — the
    * physical space and LP space coincide, so no conversion happens.
    *
-   * ### Legacy LP-space callers (temporary)
-   *
-   * Some pre-migration cut builders (notably `build_benders_cut`)
-   * emit coefficients that have already factored in `col_scale` and
-   * `scale_objective`.  Those callers set `row.already_lp_space =
-   * true` on the SparseRow they produce; `add_row` then skips the
-   * conversion above and inserts the row with only `SparseRow::scale`
-   * composed, preserving the pre-migration behaviour.  This flag is
-   * deprecated — it will be removed once every cut producer is
-   * migrated to physical coefficients.
-   *
-   * @param row The constraint with physical-space coefficients
-   *            (unless `row.already_lp_space` is set).
+   * @param row The constraint with physical-space coefficients.
    * @param eps Epsilon value for coefficient filtering (values below
    *            are ignored).
    * @return The index of the newly added row.
@@ -1500,9 +1488,8 @@ private:
                    double rowub);
 
   /// Internal raw-insertion path for SparseRow input.  Called by
-  /// `add_row(SparseRow)` after it has (optionally) folded col_scales
-  /// and per-row row-max equilibration, or directly when the caller
-  /// flagged the row via `SparseRow::already_lp_space`.  Only
+  /// `add_row(SparseRow)` in the pass-through branch (structural-build
+  /// phase, or no col_scales / equilibration active).  Only
   /// `SparseRow::scale` is composed here; no col_scale, no row-max.
   RowIndex add_row_lp_space(const SparseRow& row, double eps);
   /// @}

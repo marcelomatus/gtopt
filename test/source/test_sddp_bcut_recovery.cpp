@@ -95,6 +95,8 @@ TEST_CASE(  // NOLINT
   };
   const StateVariable svar {lp_key, ColIndex {1}, 0.0, 1.0, LpContext {}};
   svar.set_reduced_cost(3.0);
+  // Physical trial value = col_sol * var_scale = 10 * 1 = 10.
+  svar.set_col_sol(10.0);
 
   const std::vector<StateVarLink> links = {
       {
@@ -114,9 +116,10 @@ TEST_CASE(  // NOLINT
       0,
   };
 
-  // First call: rc = 3.0 → coefficient on source_col == -3.0,
-  // lowb == obj - rc*trial == 100 - 3*10 == 70.
-  const auto cut1 = build_benders_cut(alpha, links, 100.0);
+  // Use scale_objective = 1 so rc_phys == rc (var_scale defaults to 1).
+  // First call: rc = 3.0 → rc_phys = 3.0, v̂_phys = col_sol_physical() = 10
+  // → coefficient on source_col = -3.0, lowb = 100 - 3*10 = 70.
+  const auto cut1 = build_benders_cut_physical(alpha, links, 100.0, 1.0);
   CHECK(cut1.cmap.at(links.front().source_col) == doctest::Approx(-3.0));
   CHECK(cut1.lowb == doctest::Approx(70.0));
 
@@ -124,7 +127,7 @@ TEST_CASE(  // NOLINT
   svar.set_reduced_cost(-2.0);
 
   // Second call: rc = -2.0 → coefficient +2.0, lowb == 100 - (-2)*10 == 120.
-  const auto cut2 = build_benders_cut(alpha, links, 100.0);
+  const auto cut2 = build_benders_cut_physical(alpha, links, 100.0, 1.0);
   CHECK(cut2.cmap.at(links.front().source_col) == doctest::Approx(2.0));
   CHECK(cut2.lowb == doctest::Approx(120.0));
 }

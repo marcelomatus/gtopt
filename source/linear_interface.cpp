@@ -771,8 +771,7 @@ RowIndex LinearInterface::add_row(const SparseRow& row, const double eps)
   // row row-max equilibration) or as LP-space (pass through unchanged
   // apart from SparseRow::scale composition).
   //
-  //  - row.already_lp_space == true  → LP-space (legacy opt-out).
-  //  - m_base_numrows_ == 0          → structural-build phase, i.e.
+  //  - m_base_numrows_set_ == false  → structural-build phase, i.e.
   //                                     add_row called from load_flat
   //                                     or from a caller building the
   //                                     initial matrix.  The bulk
@@ -788,8 +787,8 @@ RowIndex LinearInterface::add_row(const SparseRow& row, const double eps)
   const bool have_col_scales = !m_col_scales_.empty();
   const bool have_equilibration =
       m_equilibration_method_ != LpEquilibrationMethod::none;
-  const bool compose_physical = !row.already_lp_space && is_cut_phase
-      && (have_col_scales || have_equilibration);
+  const bool compose_physical =
+      is_cut_phase && (have_col_scales || have_equilibration);
 
   if (!compose_physical) {
     return add_row_lp_space(row, eps);

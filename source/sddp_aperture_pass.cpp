@@ -155,12 +155,8 @@ auto SDDPMethod::install_aperture_backward_cut(
   // resolve leaves src_li non-optimal, back it out and fall through to
   // the bcut path.  `expected_cut` is consumed on the success path.
   if (expected_cut.has_value()) {
-    const auto t_build = Clock::now();
-    filter_cut_coefficients(*expected_cut, src_alpha_col, ceps);
-    dt_cut_build += elapsed_s(t_build);
-
     const auto t_add_row = Clock::now();
-    const auto cut_row = src_li.add_row(*expected_cut);
+    const auto cut_row = src_li.add_row(*expected_cut, ceps);
     dt_add_row += elapsed_s(t_add_row);
 
     // Re-solve src_li only when there is a further backward step that
@@ -248,11 +244,10 @@ auto SDDPMethod::install_aperture_backward_cut(
                                                 phase_uid(phase_index),
                                                 iteration_index,
                                                 cut_offset);
-  filter_cut_coefficients(fallback_cut, src_alpha_col, ceps);
   dt_cut_build += elapsed_s(t_build);
 
   const auto t_add_row = Clock::now();
-  const auto cut_row = src_li.add_row(fallback_cut);
+  const auto cut_row = src_li.add_row(fallback_cut, ceps);
   dt_add_row += elapsed_s(t_add_row);
 
   const auto t_store = Clock::now();
@@ -398,10 +393,7 @@ auto SDDPMethod::backward_pass_aperture_phase_impl(
       m_options_.save_aperture_lp,
       m_aperture_cache_,
       iteration_index,
-      m_options_.scale_alpha,
-      m_options_.cut_coeff_eps,
-      m_options_.cut_coeff_max,
-      planning_lp().options().scale_objective());
+      m_options_.cut_coeff_eps);
 
   const auto& target_state = phase_states[phase_index];
   cuts_added += install_aperture_backward_cut(scene_index,
@@ -573,10 +565,7 @@ auto SDDPMethod::backward_pass_with_apertures(SceneIndex scene_index,
         m_options_.save_aperture_lp,
         m_aperture_cache_,
         iteration_index,
-        m_options_.scale_alpha,
-        m_options_.cut_coeff_eps,
-        m_options_.cut_coeff_max,
-        planning_lp().options().scale_objective());
+        m_options_.cut_coeff_eps);
 
     if (!expected_cut.has_value()) {
       infeasible_phases.push_back(phase_uid(phase_index));

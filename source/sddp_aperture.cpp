@@ -131,10 +131,7 @@ auto solve_apertures_for_phase(
     [[maybe_unused]] bool save_aperture_lp,
     const ApertureDataCache& aperture_cache,
     IterationIndex iteration_index,
-    [[maybe_unused]] double scale_alpha,
-    double cut_coeff_eps,
-    [[maybe_unused]] double cut_coeff_max,
-    [[maybe_unused]] double scale_objective) -> std::optional<SparseRow>
+    double cut_coeff_eps) -> std::optional<SparseRow>
 {
   const auto& phase_li = sys.linear_interface();
 
@@ -368,7 +365,6 @@ auto solve_apertures_for_phase(
           cut.constraint_name = "aper_cut";
           cut.context = make_aperture_context(
               scene_uid_val, phase_uid_val, ap_uid, total_cuts);
-          filter_cut_coefficients(cut, src_alpha_col, cut_coeff_eps);
 
           const auto ap_s = std::chrono::duration<double>(
                                 std::chrono::steady_clock::now() - ap_start)

@@ -163,9 +163,7 @@ using ApertureSubmitFunc = std::function<std::future<ApertureCutResult>(
 /// @param save_aperture_lp If true, save each aperture LP to the log directory
 /// @param aperture_cache   Cache of pre-built aperture LP data
 /// @param iteration        Current SDDP iteration index
-/// @param scale_alpha      Scaling factor applied to the cut alpha (RHS)
 /// @param cut_coeff_eps    Epsilon below which cut coefficients are zeroed
-/// @param cut_coeff_max    Maximum absolute cut coefficient (0 = no limit)
 [[nodiscard]] auto solve_apertures_for_phase(
     SceneIndex scene_index,
     PhaseIndex phase_index,
@@ -188,9 +186,6 @@ using ApertureSubmitFunc = std::function<std::future<ApertureCutResult>(
     bool save_aperture_lp = false,
     const ApertureDataCache& aperture_cache = {},
     IterationIndex iteration_index = {},
-    double scale_alpha = 1.0,
-    double cut_coeff_eps = 0.0,
-    double cut_coeff_max = 0.0,
-    double scale_objective = 1.0) -> std::optional<SparseRow>;
+    double cut_coeff_eps = 0.0) -> std::optional<SparseRow>;
 
 }  // namespace gtopt
