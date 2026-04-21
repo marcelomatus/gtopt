@@ -713,29 +713,12 @@ ColIndex LinearInterface::add_free_col(const std::string& name)
 ColIndex LinearInterface::add_col(const SparseCol& col)
 {
   ensure_backend();
-  // Label generation delegated to LabelMaker.  Returns an empty string
-  // when LP column names are disabled (LpNamesLevel::none) or when the
-  // column lacks the metadata needed to produce a label.
-  const auto name = m_label_maker_.make_col_label(col);
 
   const auto [lowb, uppb] = normalize_bounds(col.lowb, col.uppb);
-
   const auto index = m_backend_->get_num_cols();
   const auto col_idx = ColIndex {index};
-  check_name_unique(m_col_names_,
-                    name,
-                    col_idx,
-                    "column",
-                    m_label_maker_.duplicates_are_errors());
 
   m_backend_->add_col(lowb, uppb, col.cost);
-
-  if (!name.empty()) {
-    if (m_col_index_to_name_.size() <= static_cast<size_t>(index)) {
-      m_col_index_to_name_.resize(static_cast<size_t>(index) + 1);
-    }
-    m_col_index_to_name_[col_idx] = name;
-  }
 
   // Register scale if non-unity.
   if (col.scale != 1.0) {
@@ -743,8 +726,11 @@ ColIndex LinearInterface::add_col(const SparseCol& col)
   }
 
   // Track label-only metadata so `generate_labels_from_maps` can
-  // synthesise the label on demand at `write_lp` time without the
-  // caller having had to set `--lp-debug` at build time.
+  // synthesise the label on demand at `write_lp` time.  No eager
+  // `LabelMaker::make_col_label` call — the formatted string is
+  // produced exclusively in `generate_labels_from_maps`, cached
+  // there, and reused on subsequent `write_lp` invocations
+  // (Option B: always lazy + cache on first compute).
   if (m_col_labels_meta_.size() <= static_cast<size_t>(index)) {
     m_col_labels_meta_.resize(static_cast<size_t>(index) + 1);
   }
@@ -908,8 +894,11 @@ RowIndex LinearInterface::add_row(const SparseRow& row, const double eps)
     }
   }
 
-  const auto name = m_label_maker_.make_row_label(row);
-  const auto row_idx = add_row(name, columns.size(), columns, elements, lb, ub);
+  // Lazy label: pass an empty name to the base `add_row`; the real
+  // label is synthesised on demand by `generate_labels_from_maps`
+  // and cached in `m_row_index_to_name_` at `write_lp` time.
+  const auto row_idx =
+      add_row(std::string {}, columns.size(), columns, elements, lb, ub);
   if (composite_scale != 1.0) {
     set_row_scale(row_idx, composite_scale);
   }
@@ -928,10 +917,10 @@ RowIndex LinearInterface::add_row_lp_space(const SparseRow& row,
   // (the caller-specified row scaler, mirroring how `flatten()` handles
   // static rows).
   //
-  // Label generation delegated to LabelMaker.  Returns an empty string
-  // when LP row names are disabled or the row lacks the metadata needed
-  // to produce a label.
-  const auto name = m_label_maker_.make_row_label(row);
+  // Lazy label: pass an empty name to the base `add_row` — the real
+  // label is synthesised on demand by `generate_labels_from_maps`
+  // from `track_row_label_meta`'s recorded metadata.
+  const std::string name;
 
   const auto rs = row.scale;
 
@@ -1071,15 +1060,22 @@ void LinearInterface::delete_rows(const std::span<const int> indices)
 
   m_backend_->delete_rows(static_cast<int>(indices.size()), indices.data());
 
-  if (m_label_maker_.row_names_enabled()) {
-    for (const auto idx : indices | std::views::reverse) {
-      const auto pos = static_cast<ptrdiff_t>(idx);
-      if (pos < std::ssize(m_row_index_to_name_)) {
-        m_row_index_to_name_.erase(m_row_index_to_name_.begin() + pos);
-      }
+  // Erase the deleted rows from both the formatted-name cache and
+  // the label-metadata vector.  Iterate in reverse so positional
+  // indices stay valid as we shrink each container.  Touching these
+  // here (instead of letting `generate_labels_from_maps` rebuild)
+  // keeps `row_name_map()` callers in sync even when they skip the
+  // full materialise path.
+  for (const auto idx : indices | std::views::reverse) {
+    const auto pos = static_cast<ptrdiff_t>(idx);
+    if (pos < std::ssize(m_row_index_to_name_)) {
+      m_row_index_to_name_.erase(m_row_index_to_name_.begin() + pos);
     }
-    rebuild_row_name_maps();
+    if (pos < std::ssize(m_row_labels_meta_)) {
+      m_row_labels_meta_.erase(m_row_labels_meta_.begin() + pos);
+    }
   }
+  rebuild_row_name_maps();
 }
 
 void LinearInterface::rebuild_row_name_maps()
@@ -1380,7 +1376,16 @@ void LinearInterface::generate_labels_from_maps(
                       "metadata without a class_name (unlabelable).",
                       i));
     }
-    m_col_index_to_name_[ci] = label;  // cache
+    m_col_index_to_name_[ci] = label;  // cache in index→name
+    if (auto [it, inserted] = m_col_names_.try_emplace(label, ci); !inserted) {
+      throw std::runtime_error(std::format(
+          "LinearInterface: duplicate col metadata — label '{}' synthesised "
+          "by col {} was already emitted by col {}.  Two cols share "
+          "(class_name, variable_name, uid, context).",
+          label,
+          i,
+          static_cast<Index>(it->second)));
+    }
     col_names[i] = std::move(label);
   }
 
@@ -1417,9 +1422,30 @@ void LinearInterface::generate_labels_from_maps(
                       "metadata without a class_name (unlabelable).",
                       i));
     }
-    m_row_index_to_name_[ri] = label;  // cache
+    m_row_index_to_name_[ri] = label;  // cache in index→name
+    if (auto [it, inserted] = m_row_names_.try_emplace(label, ri); !inserted) {
+      throw std::runtime_error(std::format(
+          "LinearInterface: duplicate row metadata — label '{}' synthesised "
+          "by row {} was already emitted by row {}.  Two rows share "
+          "(class_name, constraint_name, uid, context).",
+          label,
+          i,
+          static_cast<Index>(it->second)));
+    }
     row_names[i] = std::move(label);
   }
+}
+
+void LinearInterface::materialize_labels() const
+{
+  // Trigger `generate_labels_from_maps` so caches
+  // (`m_col_index_to_name_` / `m_row_index_to_name_`) and name→index
+  // maps (`m_col_names_` / `m_row_names_`) are populated.  Discards
+  // the returned vectors — callers that need them directly should
+  // call `generate_labels_from_maps` themselves.
+  std::vector<std::string> col_names;
+  std::vector<std::string> row_names;
+  generate_labels_from_maps(col_names, row_names);
 }
 
 void LinearInterface::push_names_to_solver() const

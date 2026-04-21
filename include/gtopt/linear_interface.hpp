@@ -838,6 +838,13 @@ public:
   void generate_labels_from_maps(std::vector<std::string>& col_names,
                                  std::vector<std::string>& row_names) const;
 
+  /// Force label synthesis into the internal caches + name→index maps
+  /// without producing output vectors.  Useful for callers that
+  /// subsequently read `row_name_map()` / `col_name_map()` or
+  /// `row_index_to_name()` / `col_index_to_name()` and need them
+  /// populated under the lazy add_col / add_row path.
+  void materialize_labels() const;
+
 private:
   /// Append/update the row-label metadata for a freshly-added row.
   /// Called by the `add_row(SparseRow)` entry points after the row
@@ -1645,8 +1652,10 @@ private:
 
   /// Name-to-index maps for duplicate detection and later lookup.
   /// Populated when names are enabled.
-  row_name_map_t m_row_names_;  ///< Row (constraint) name → row index
-  col_name_map_t m_col_names_;  ///< Column (variable) name → col index
+  // Mutable for the lazy-materialisation path: caches populated by
+  // `generate_labels_from_maps` (logically const) live here too.
+  mutable row_name_map_t m_row_names_;  ///< Row (constraint) name → row index
+  mutable col_name_map_t m_col_names_;  ///< Column (variable) name → col index
   // Mutable so `generate_labels_from_maps` (logically const — it
   // returns new vectors; the state update is a caching detail) can
   // persist freshly-formatted labels for reuse on subsequent calls.

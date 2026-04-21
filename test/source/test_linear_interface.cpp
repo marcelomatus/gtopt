@@ -816,7 +816,44 @@ TEST_CASE("LinearInterface - time limit")
   REQUIRE(result.has_value());
 }
 
-TEST_CASE("LinearInterface - duplicate name detection throws")
+TEST_CASE(
+    "LinearInterface - duplicate metadata detection throws on materialise")
+{
+  using namespace gtopt;
+
+  LinearInterface li;
+  li.set_label_maker(LabelMaker {LpNamesLevel::all});
+
+  const auto ctx =
+      make_stage_context(make_uid<Scenario>(0), make_uid<Stage>(0));
+
+  // Under Option B (always-lazy label synthesis), duplicate detection
+  // happens when labels are materialised (e.g. via
+  // `materialize_labels()`, `write_lp`, or the name→index maps),
+  // NOT at add_col time.  This test asserts that contract.
+  li.add_col(SparseCol {
+      .lowb = 0.0,
+      .uppb = 1.0,
+      .class_name = "X",
+      .variable_name = "v",
+      .variable_uid = Uid {1},
+      .context = ctx,
+  });
+  // Adding the second col with identical metadata succeeds at the
+  // backend level — the label collision only surfaces on synthesis.
+  li.add_col(SparseCol {
+      .lowb = 0.0,
+      .uppb = 1.0,
+      .class_name = "X",
+      .variable_name = "v",
+      .variable_uid = Uid {1},
+      .context = ctx,
+  });
+
+  CHECK_THROWS_AS(li.materialize_labels(), std::runtime_error);
+}
+
+TEST_CASE("LinearInterface - unique metadata passes label synthesis")
 {
   using namespace gtopt;
 
@@ -834,20 +871,6 @@ TEST_CASE("LinearInterface - duplicate name detection throws")
       .variable_uid = Uid {1},
       .context = ctx,
   });
-  CHECK(li.col_name_map().size() == 1);
-
-  // Duplicate column name throws
-  CHECK_THROWS_AS(li.add_col(SparseCol {
-                      .lowb = 0.0,
-                      .uppb = 1.0,
-                      .class_name = "X",
-                      .variable_name = "v",
-                      .variable_uid = Uid {1},
-                      .context = ctx,
-                  }),
-                  std::runtime_error);
-
-  // Different name is fine
   li.add_col(SparseCol {
       .lowb = 0.0,
       .uppb = 1.0,
@@ -856,9 +879,9 @@ TEST_CASE("LinearInterface - duplicate name detection throws")
       .variable_uid = Uid {2},
       .context = ctx,
   });
+  li.materialize_labels();
   CHECK(li.col_name_map().size() == 2);
 
-  // Same for rows
   SparseRow row1;
   row1[ColIndex {0}] = 1.0;
   row1.uppb = 1.0;
@@ -867,17 +890,42 @@ TEST_CASE("LinearInterface - duplicate name detection throws")
   row1.variable_uid = Uid {0};
   row1.context = ctx;
   li.add_row(row1);
+  li.materialize_labels();
   CHECK(li.row_name_map().size() == 1);
+}
 
-  // Duplicate row name at level 2 throws
-  SparseRow row1_dup;
-  row1_dup[ColIndex {0}] = 1.0;
-  row1_dup.uppb = 1.0;
-  row1_dup.class_name = "R";
-  row1_dup.constraint_name = "1";
-  row1_dup.variable_uid = Uid {0};
-  row1_dup.context = ctx;
-  CHECK_THROWS_AS(li.add_row(row1_dup), std::runtime_error);
+TEST_CASE("LinearInterface - duplicate row metadata throws on materialise")
+{
+  using namespace gtopt;
+
+  LinearInterface li;
+  li.set_label_maker(LabelMaker {LpNamesLevel::all});
+  const auto ctx =
+      make_stage_context(make_uid<Scenario>(0), make_uid<Stage>(0));
+
+  // First, add a column so the SparseRow cmap references a valid col.
+  li.add_col(SparseCol {
+      .lowb = 0.0,
+      .uppb = 1.0,
+      .class_name = "X",
+      .variable_name = "v",
+      .variable_uid = Uid {1},
+      .context = ctx,
+  });
+
+  SparseRow row;
+  row[ColIndex {0}] = 1.0;
+  row.uppb = 1.0;
+  row.class_name = "R";
+  row.constraint_name = "1";
+  row.variable_uid = Uid {0};
+  row.context = ctx;
+  li.add_row(row);
+  // Adding a second row with identical metadata does not throw at
+  // insertion — the collision surfaces at label synthesis.
+  li.add_row(row);
+
+  CHECK_THROWS_AS(li.materialize_labels(), std::runtime_error);
 }
 
 // ─── Warm-start clone tests ────────────────────────────────────────────────
@@ -1510,12 +1558,16 @@ TEST_CASE("LinearInterface - row_index_to_name updated by add_row")  // NOLINT
   LinearInterface li;
   li.set_label_maker(LabelMaker {LpNamesLevel::all});
 
+  const auto ctx =
+      make_stage_context(make_uid<Scenario>(0), make_uid<Stage>(0));
   const auto c1 = li.add_col(SparseCol {
       .lowb = 0.0,
       .uppb = 10.0,
+      .class_name = "V",
+      .variable_name = "x",
+      .variable_uid = Uid {0},
+      .context = ctx,
   });
-  const auto ctx =
-      make_stage_context(make_uid<Scenario>(0), make_uid<Stage>(0));
 
   auto make_row = [&](std::string_view cname, Uid uid, double uppb) -> SparseRow
   {
@@ -1533,6 +1585,10 @@ TEST_CASE("LinearInterface - row_index_to_name updated by add_row")  // NOLINT
   li.add_row(make_row("b", Uid {1}, 3.0));
   li.add_row(make_row("c", Uid {2}, 7.0));
 
+  // Under Option B (lazy label synthesis), `row_index_to_name` is not
+  // populated at `add_row` time — force materialisation first.
+  li.materialize_labels();
+
   REQUIRE(li.get_numrows() == 3);
   const auto& names = li.row_index_to_name();
   REQUIRE(names.size() == 3);
@@ -1549,12 +1605,16 @@ TEST_CASE(
   LinearInterface li;
   li.set_label_maker(LabelMaker {LpNamesLevel::all});
 
+  const auto ctx =
+      make_stage_context(make_uid<Scenario>(0), make_uid<Stage>(0));
   const auto c1 = li.add_col(SparseCol {
       .lowb = 0.0,
       .uppb = 10.0,
+      .class_name = "V",
+      .variable_name = "x",
+      .variable_uid = Uid {0},
+      .context = ctx,
   });
-  const auto ctx =
-      make_stage_context(make_uid<Scenario>(0), make_uid<Stage>(0));
 
   // Add 4 rows using SparseRow with metadata for name generation.
   // Use different UIDs to produce unique names: r_x_<uid>_0_0
@@ -1574,6 +1634,11 @@ TEST_CASE(
     li.add_row(make_row(Uid {i}));
   }
   REQUIRE(li.get_numrows() == 4);
+  // Under Option B, force label materialisation before any
+  // `row_index_to_name()` / `row_name_map()` inspection — including
+  // after `delete_rows` which rebuilds the maps from whatever cached
+  // names exist.
+  li.materialize_labels();
 
   SUBCASE("delete middle row shifts indices")
   {
@@ -1647,6 +1712,7 @@ TEST_CASE(
     r_new.variable_uid = Uid {4};
     r_new.context = ctx;
     li.add_row(r_new);
+    li.materialize_labels();
 
     REQUIRE(li.get_numrows() == 3);
     const auto& names = li.row_index_to_name();

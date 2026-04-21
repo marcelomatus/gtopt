@@ -376,6 +376,9 @@ TEST_CASE(  // NOLINT
     }
     auto& sys = planning_lp.system(first_scene_index(), phase_index);
     auto& li = sys.linear_interface();
+    // Lazy label path: force label synthesis so `row_name_map()` is
+    // populated with the fcut names installed during the solve.
+    li.materialize_labels();
     for (const auto& [name, row] : li.row_name_map()) {
       if (name.contains("fcut")) {
         ++n_fcut_rows_total;
