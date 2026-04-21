@@ -179,8 +179,7 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
       m_cut_store_.scene_cuts_before().resize(
           static_cast<std::size_t>(num_scenes_bwd));
       for (const auto scene_index : iota_range<SceneIndex>(0, num_scenes_bwd)) {
-        m_cut_store_
-            .scene_cuts_before()[static_cast<std::size_t>(scene_index)] =
+        m_cut_store_.scene_cuts_before()[scene_index] =
             m_cut_store_.scene_cuts()[scene_index].size();
       }
       auto bwd = run_backward_pass_all_scenes(
@@ -555,9 +554,8 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
       const auto num_phases_sim = planning_lp().simulation().phase_count();
       std::size_t n_cells_skipped = 0;
       for (const auto scene_index : iota_range<SceneIndex>(0, num_scenes_sim)) {
-        const auto si_sz = static_cast<std::size_t>(scene_index);
-        if (si_sz >= fwd->scene_feasible.size()
-            || fwd->scene_feasible[si_sz] != 0U)
+        if (scene_index >= std::ssize(fwd->scene_feasible)
+            || fwd->scene_feasible[scene_index] != 0U)
         {
           continue;  // scene stayed feasible — leave its cells alone
         }

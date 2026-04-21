@@ -5,6 +5,7 @@
 #include <filesystem>
 #include <stdexcept>
 #include <string>
+#include <utility>
 
 #include <doctest/doctest.h>
 #include <gtopt/output_context.hpp>
@@ -18,11 +19,11 @@ using namespace gtopt;  // NOLINT(google-global-names-in-headers)
 
 TEST_CASE("OutputFlags - enum values and bitwise ops")  // NOLINT
 {
-  CHECK(static_cast<uint8_t>(OutputFlags::none) == 0);
-  CHECK(static_cast<uint8_t>(OutputFlags::solution) == 1);
-  CHECK(static_cast<uint8_t>(OutputFlags::dual) == 2);
-  CHECK(static_cast<uint8_t>(OutputFlags::reduced_cost) == 4);
-  CHECK(static_cast<uint8_t>(OutputFlags::all) == 7);
+  CHECK(std::to_underlying(OutputFlags::none) == 0);
+  CHECK(std::to_underlying(OutputFlags::solution) == 1);
+  CHECK(std::to_underlying(OutputFlags::dual) == 2);
+  CHECK(std::to_underlying(OutputFlags::reduced_cost) == 4);
+  CHECK(std::to_underlying(OutputFlags::all) == 7);
 
   const auto both = OutputFlags::solution | OutputFlags::dual;
   CHECK(has_flag(both, OutputFlags::solution));

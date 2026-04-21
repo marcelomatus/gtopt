@@ -154,7 +154,7 @@ auto MonolithicMethod::solve(PlanningLP& planning_lp, const SolverOptions& opts)
                     .count();
             {
               const std::scoped_lock lk(times_mutex);
-              scene_times[static_cast<std::size_t>(scene_index)] = elapsed;
+              scene_times[scene_index] = elapsed;
             }
             ++scenes_done;
             SPDLOG_INFO("MonolithicMethod: scene {} done in {:.3f}s ({}/{})",

@@ -214,7 +214,7 @@ void SDDPMethod::diagnose_kappa(SceneIndex scene_index,
   std::vector<RowDiagnostics> cut_diags;
 
   // Check per-scene cuts
-  if (static_cast<size_t>(scene_index) < scene_cuts.size()) {
+  if (scene_index < std::ssize(scene_cuts)) {
     for (const auto& cut : scene_cuts[scene_index]) {
       if (cut.phase_uid != phase_uid_val) {
         continue;
@@ -1532,19 +1532,18 @@ auto SDDPMethod::run_forward_pass_all_scenes(SDDPWorkPool& pool,
   out.scene_feasible.resize(num_scenes, 1);
 
   for (const auto scene_index : iota_range<SceneIndex>(0, num_scenes)) {
-    const auto si_sz = static_cast<std::size_t>(scene_index);
-    auto fwd = futures[si_sz].get();
+    auto fwd = futures[scene_index].get();
     if (!fwd.has_value()) {
       SPDLOG_WARN("SDDP Forward [i{} s{}]: failed: {}",
                   iteration_index,
                   scene_uid(scene_index),
                   fwd.error().message);
       out.has_feasibility_issue = true;
-      out.scene_feasible[si_sz] = 0;
+      out.scene_feasible[scene_index] = 0;
       m_scenes_done_.fetch_add(1);
       continue;
     }
-    out.scene_upper_bounds[si_sz] = *fwd;
+    out.scene_upper_bounds[scene_index] = *fwd;
     ++out.scenes_solved;
     m_scenes_done_.fetch_add(1);
   }
@@ -1614,7 +1613,7 @@ auto SDDPMethod::run_backward_pass_all_scenes(
       make_backward_lp_task_req(iteration_index, first_phase_index());
 
   for (const auto scene_index : iota_range<SceneIndex>(0, num_scenes)) {
-    if (scene_feasible[static_cast<std::size_t>(scene_index)] == 0U) {
+    if (scene_feasible[scene_index] == 0U) {
       continue;
     }
     const bool use_ap = !m_options_.apertures || !m_options_.apertures->empty();
@@ -1700,11 +1699,10 @@ auto SDDPMethod::run_backward_pass_synchronized(
         make_backward_lp_task_req(iteration_index, phase_index);
 
     for (const auto scene_index : iota_range<SceneIndex>(0, num_scenes)) {
-      if (scene_feasible[static_cast<std::size_t>(scene_index)] == 0U) {
+      if (scene_feasible[scene_index] == 0U) {
         continue;
       }
-      const int offset =
-          per_scene_cut_count[static_cast<std::size_t>(scene_index)];
+      const int offset = per_scene_cut_count[scene_index];
 
       auto fut = use_apertures
           ? pool.submit(
@@ -1737,8 +1735,7 @@ auto SDDPMethod::run_backward_pass_synchronized(
         continue;
       }
       out.total_cuts += *step_result;
-      per_scene_cut_count[static_cast<std::size_t>(scene_index)] +=
-          *step_result;
+      per_scene_cut_count[scene_index] += *step_result;
       m_scenes_done_.fetch_add(1);
     }
 
@@ -1754,9 +1751,8 @@ auto SDDPMethod::run_backward_pass_synchronized(
     // snapshotted above.  No lock needed — the scene-step barrier
     // (fut.get() loop above) already synchronises.
     for (const auto si : iota_range<SceneIndex>(0, num_scenes)) {
-      const auto si_sz = static_cast<std::size_t>(si);
       const auto& cuts = m_cut_store_.scene_cuts()[si];
-      for (std::size_t ci = per_scene_before[si_sz]; ci < cuts.size(); ++ci) {
+      for (std::size_t ci = per_scene_before[si]; ci < cuts.size(); ++ci) {
         const auto& sc = cuts[ci];
         if (sc.type != CutType::Optimality) {
           continue;
@@ -1799,24 +1795,22 @@ void SDDPMethod::compute_iteration_bounds(
 
   double weighted_upper = 0.0;
   for (const auto scene : iota_range<SceneIndex>(0, num_scenes)) {
-    const auto si_sz = static_cast<std::size_t>(scene);
-    weighted_upper += weights[si_sz] * ir.scene_upper_bounds[si_sz];
+    weighted_upper += weights[scene] * ir.scene_upper_bounds[scene];
   }
   ir.upper_bound = weighted_upper;
 
   ir.scene_lower_bounds.resize(num_scenes, 0.0);
   double weighted_lower = 0.0;
   for (const auto scene : iota_range<SceneIndex>(0, num_scenes)) {
-    const auto si_sz = static_cast<std::size_t>(scene);
-    if (scene_feasible[si_sz] == 0U) {
+    if (scene_feasible[scene] == 0U) {
       continue;
     }
     const double lb_si = planning_lp()
                              .system(scene, first_phase_index())
                              .linear_interface()
                              .get_obj_value();
-    ir.scene_lower_bounds[si_sz] = lb_si;
-    weighted_lower += weights[si_sz] * lb_si;
+    ir.scene_lower_bounds[scene] = lb_si;
+    weighted_lower += weights[scene] * lb_si;
   }
   ir.lower_bound = weighted_lower;
 }

@@ -142,14 +142,13 @@ public:
         .iteration_index = iteration_index,
         .scene_uid = scene_uid,
     };
-    const auto phase_col = static_cast<std::size_t>(phase_index);
     const std::scoped_lock lock(m_mutex_);
     auto& row = m_rows_[key];
-    if (phase_col >= row.size()) {
-      row.resize(phase_col + 1, '.');
+    if (phase_index >= std::ssize(row)) {
+      row.resize(next(phase_index), '.');
     }
     const char ch = static_cast<char>(state);
-    auto& cell = row[phase_col];
+    auto& cell = row[phase_index];
     cell = std::max(cell, ch);
   }
 

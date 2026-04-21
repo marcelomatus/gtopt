@@ -528,7 +528,7 @@ void SDDPCutStore::save_cuts_for_iteration(
   const auto num_scenes = planning_lp.simulation().scene_count();
   const auto& scenes = planning_lp.simulation().scenes();
   for (const auto scene_index : iota_range<SceneIndex>(0, num_scenes)) {
-    if (scene_feasible[static_cast<std::size_t>(scene_index)] != 0U) {
+    if (scene_feasible[scene_index] != 0U) {
       continue;
     }
     if (cut_dir.empty()) {

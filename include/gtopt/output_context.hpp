@@ -90,7 +90,7 @@ public:
                          SceneUid scene_uid = make_uid<Scene>(0),
                          PhaseUid phase_uid = make_uid<Phase>(0));
 
-  [[nodiscard]] auto&& options() const { return sc.get().options(); }
+  [[nodiscard]] auto&& options() const noexcept { return sc.get().options(); }
 
   // ── STB/GSTB block-indexed overloads ─────────────────────────────
 

@@ -352,7 +352,7 @@ inline constexpr auto constraint_mode_entries =
  * output directory and writes the merged planning JSON).
  *
  * Combinations are expressed as comma-separated names on the CLI/JSON,
- * e.g. `--write-out solution,dual` or `"output_flags": "sol,dual"`.
+ * e.g. `--write-out solution,dual` or `"write_out": "sol,dual"`.
  * Parsing is case-insensitive and accepts the abbreviations declared in
  * @ref output_flags_entries (`sol`, `rcost`, `rc`, `cost`).
  */

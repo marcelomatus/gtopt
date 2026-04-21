@@ -294,9 +294,8 @@ double resolve_stage_field(const OptTRealFieldSched& field,
   }
   if (std::holds_alternative<std::vector<Real>>(val)) {
     const auto& vec = std::get<std::vector<Real>>(val);
-    const auto sidx = static_cast<size_t>(stage_index);
-    if (sidx < vec.size()) {
-      return vec[sidx];
+    if (stage_index < std::ssize(vec)) {
+      return vec[stage_index];
     }
   }
   return 0.0;
