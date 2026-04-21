@@ -319,7 +319,6 @@ def build_options(args: argparse.Namespace) -> dict:
         opts["variable_scales_file"] = args.variable_scales_file
     opts["soft_emin_cost"] = args.soft_emin_cost
     opts["embed_reservoir_constraints"] = args.embed_reservoir_constraints
-    opts["emit_water_rights"] = args.emit_water_rights
     opts["expand_water_rights"] = args.expand_water_rights
     opts["expand_lng"] = args.expand_lng
     opts["expand_ror"] = args.expand_ror

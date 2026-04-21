@@ -828,18 +828,23 @@ class GTOptWriter:
     def process_water_rights(self, options):
         """Emit Laja / Maule Stage-2 artifacts.
 
-        When ``expand_water_rights`` is True (the default), dispatches
-        ``gtopt_expand laja|maule`` in-process against the already-parsed
-        config (no ``*_dat.json`` intermediate is written to disk —
-        those parser dumps would never be shipped anyway).  The Stage-2
-        entities are merged into ``planning["system"]``, companion
-        ``laja.pampl`` / ``maule.pampl`` files are written, and
-        per-agreement system fragments ``laja_water_rights.json`` /
-        ``maule_water_rights.json`` are emitted (these DO go into the
-        manifest so gtopt can merge them alongside the main planning
-        JSON).
+        Controls Laja/Maule irrigation-agreement expansion only.  LNG
+        is fully independent and handled by ``process_lng``; RoR
+        promotion is orthogonal (see ``process_ror_spec``) but
+        complementary — when ``--ror-as-reservoirs`` promotes
+        MACHICURA, the Maule agreement gains its ``embalse`` template
+        variant (see auto-detection note below).
 
-        LNG is deliberately NOT handled here — see ``process_lng``.
+        Gated by ``expand_water_rights`` (opt-in, default False).  When
+        set, dispatches ``gtopt_expand laja|maule`` in-process against
+        the already-parsed config (no ``*_dat.json`` intermediate is
+        written to disk — those parser dumps would never be shipped
+        anyway).  The Stage-2 entities are merged into
+        ``planning["system"]``, companion ``laja.pampl`` /
+        ``maule.pampl`` files are written, and per-agreement system
+        fragments ``laja_water_rights.json`` / ``maule_water_rights.json``
+        are emitted (these DO go into the manifest so gtopt can merge
+        them alongside the main planning JSON).
 
         Machicura auto-detection consults both
         ``planning["system"]["reservoir_array"]`` (populated by
@@ -851,14 +856,11 @@ class GTOptWriter:
         authored fixtures can still pin the variant by setting
         ``cfg["machicura_model"]`` explicitly.
         """
-        if not options.get("emit_water_rights", False):
+        if not options.get("expand_water_rights", False):
             return
 
         output_dir = Path(options["output_dir"]) if options.get("output_dir") else None
         if output_dir is None:
-            return
-
-        if not options.get("expand_water_rights", True):
             return
 
         stage_parser = self.parser.parsed_data.get("stage_parser")
@@ -878,15 +880,15 @@ class GTOptWriter:
     def process_lng(self, options):
         """Emit LNG Stage-2 expansion.
 
-        Independent of ``process_water_rights``: when ``expand_lng`` is
-        True (the default), dispatches ``gtopt_expand lng`` against the
-        already-parsed config and merges the resulting
-        ``lng_terminal_array`` into ``planning["system"]``.  No
-        intermediate ``lng_dat.json`` is written — parser dumps are
+        Fully independent of ``process_water_rights``.  When
+        ``expand_lng`` is True (the default), dispatches
+        ``gtopt_expand lng`` against the already-parsed
+        ``plpcnfgnl.dat`` config and merges the resulting
+        ``lng_terminal_array`` into ``planning["system"]``.  A no-op
+        when the PLP case has no ``plpcnfgnl.dat`` (no ``gnl_parser``).
+        No intermediate ``lng_dat.json`` is written — parser dumps are
         never shipped.
         """
-        if not options.get("emit_water_rights", False):
-            return
         if not options.get("expand_lng", True):
             return
 

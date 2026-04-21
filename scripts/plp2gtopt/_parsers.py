@@ -888,37 +888,25 @@ def add_general_arguments(
         ),
     )
     parser.add_argument(
-        "--emit-water-rights",
-        dest="emit_water_rights",
-        action=argparse.BooleanOptionalAction,
-        default=False,
-        help=(
-            "run the irrigation / LNG agreement expansion from "
-            "plplajam.dat / plpmaulen.dat / plpcnfgnl.dat.  When enabled, "
-            "the Stage-2 ``gtopt_expand`` transforms run in-process and "
-            "emit per-agreement system fragments (``laja_water_rights.json`` "
-            "/ ``maule_water_rights.json``) plus companion PAMPL files; "
-            "parser-side ``*_dat.json`` intermediates are NOT written to "
-            "disk (never shipped).  See --no-expand-water-rights / "
-            "--no-expand-lng to opt out individually. (default: "
-            "%(default)s)"
-        ),
-    )
-    parser.add_argument(
         "--expand-water-rights",
         dest="expand_water_rights",
         action=argparse.BooleanOptionalAction,
-        default=True,
+        default=False,
         help=(
-            "run the ``gtopt_expand laja|maule`` Stage-2 transforms: "
-            "the resulting FlowRight/VolumeRight/UserConstraint "
-            "entities are merged into planning.json, the companion "
-            "PAMPL files are written next to it, and per-agreement "
-            "system fragments (``laja_water_rights.json`` / "
-            "``maule_water_rights.json``) are emitted for the "
-            "manifest.  Has no effect when --no-emit-water-rights is "
-            "set.  LNG expansion is a separate concern controlled by "
-            "--expand-lng. (default: %(default)s)"
+            "run the gtopt_expand laja|maule Stage-2 transforms from "
+            "plplajam.dat / plpmaulen.dat (opt-in).  When set, the "
+            "resulting FlowRight / VolumeRight / UserConstraint entities "
+            "are merged into planning.json, companion laja.pampl / "
+            "maule.pampl files are written next to it, and per-agreement "
+            "system fragments (laja_water_rights.json / "
+            "maule_water_rights.json) are emitted for the manifest.  "
+            "Parser-side *_dat.json intermediates are NOT written to "
+            "disk (never shipped).  Fully independent of --expand-lng "
+            "and --ror-as-reservoirs; the latter is complementary "
+            "because promoting MACHICURA lets the Maule agreement pick "
+            "its richer embalse template variant.  A no-op when the PLP "
+            "case has no plplajam.dat / plpmaulen.dat. (default: "
+            "%(default)s)"
         ),
     )
     parser.add_argument(
@@ -927,11 +915,12 @@ def add_general_arguments(
         action=argparse.BooleanOptionalAction,
         default=True,
         help=(
-            "run the ``gtopt_expand lng`` Stage-2 transform: the "
-            "resulting LngTerminal entities are merged into "
-            "planning.json.  Has no effect when --no-emit-water-rights "
-            "is set or when the PLP case has no ``plpcnfgnl.dat``. "
-            "(default: %(default)s)"
+            "run the gtopt_expand lng Stage-2 transform from "
+            "plpcnfgnl.dat: the resulting LngTerminal entities are "
+            "merged into planning.json.  Fully independent of "
+            "--expand-water-rights and --ror-as-reservoirs.  A no-op "
+            "when the PLP case has no plpcnfgnl.dat. (default: "
+            "%(default)s)"
         ),
     )
     parser.add_argument(
@@ -940,10 +929,14 @@ def add_general_arguments(
         action=argparse.BooleanOptionalAction,
         default=True,
         help=(
-            "also emit ``ror_promoted.json`` (the ``gtopt_expand ror`` "
-            "audit artifact) listing every central promoted by "
-            "--ror-as-reservoirs.  Has no effect when "
-            "--ror-as-reservoirs is disabled. (default: %(default)s)"
+            "also emit ror_promoted.json (the gtopt_expand ror audit "
+            "artifact) listing every central promoted by "
+            "--ror-as-reservoirs.  Independent of --expand-water-rights "
+            "and --expand-lng, but complementary to the former: when "
+            "MACHICURA is among the promoted RoRs, the Maule agreement "
+            "picks its richer embalse template variant instead of the "
+            "default pasada.  Has no effect when --ror-as-reservoirs "
+            "is disabled. (default: %(default)s)"
         ),
     )
     parser.add_argument(

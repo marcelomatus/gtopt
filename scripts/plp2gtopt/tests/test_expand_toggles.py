@@ -236,10 +236,14 @@ def writer_with_dummy_parsers(monkeypatch):
 
 
 class TestProcessWaterRightsToggles:
-    def test_default_expands_laja_and_maule(self, writer_with_dummy_parsers, tmp_path):
+    def test_expands_laja_and_maule_when_enabled(
+        self,
+        writer_with_dummy_parsers,
+        tmp_path,
+    ):
         writer, calls = writer_with_dummy_parsers
         writer.process_water_rights(
-            {"emit_water_rights": True, "output_dir": tmp_path},
+            {"expand_water_rights": True, "output_dir": tmp_path},
         )
         # process_water_rights is no longer responsible for LNG.
         assert calls == {"laja": 1, "maule": 1, "lng": 0}
@@ -247,6 +251,17 @@ class TestProcessWaterRightsToggles:
         assert not (tmp_path / "laja_dat.json").exists()
         assert not (tmp_path / "maule_dat.json").exists()
         assert not (tmp_path / "lng_dat.json").exists()
+
+    def test_disabled_by_default(
+        self,
+        writer_with_dummy_parsers,
+        tmp_path,
+    ):
+        """Without --expand-water-rights the transforms are skipped."""
+        writer, calls = writer_with_dummy_parsers
+        writer.process_water_rights({"output_dir": tmp_path})
+        assert calls == {"laja": 0, "maule": 0, "lng": 0}
+        assert not any(tmp_path.iterdir())
 
     def test_no_expand_water_rights_skips_everything(
         self,
@@ -256,7 +271,6 @@ class TestProcessWaterRightsToggles:
         writer, calls = writer_with_dummy_parsers
         writer.process_water_rights(
             {
-                "emit_water_rights": True,
                 "output_dir": tmp_path,
                 "expand_water_rights": False,
             },
@@ -264,23 +278,11 @@ class TestProcessWaterRightsToggles:
         assert calls == {"laja": 0, "maule": 0, "lng": 0}
         assert not any(tmp_path.iterdir())
 
-    def test_emit_disabled_skips_everything(
-        self,
-        writer_with_dummy_parsers,
-        tmp_path,
-    ):
-        writer, calls = writer_with_dummy_parsers
-        writer.process_water_rights({"output_dir": tmp_path})
-        assert calls == {"laja": 0, "maule": 0, "lng": 0}
-        assert not any(tmp_path.iterdir())
-
 
 class TestProcessLngToggle:
     def test_default_expands_lng(self, writer_with_dummy_parsers, tmp_path):
         writer, calls = writer_with_dummy_parsers
-        writer.process_lng(
-            {"emit_water_rights": True, "output_dir": tmp_path},
-        )
+        writer.process_lng({"output_dir": tmp_path})
         assert calls == {"laja": 0, "maule": 0, "lng": 1}
         # No intermediate lng_dat.json written.
         assert not (tmp_path / "lng_dat.json").exists()
@@ -289,7 +291,6 @@ class TestProcessLngToggle:
         writer, calls = writer_with_dummy_parsers
         writer.process_lng(
             {
-                "emit_water_rights": True,
                 "output_dir": tmp_path,
                 "expand_lng": False,
             },
@@ -297,11 +298,17 @@ class TestProcessLngToggle:
         assert calls == {"laja": 0, "maule": 0, "lng": 0}
         assert not any(tmp_path.iterdir())
 
-    def test_emit_disabled_skips_everything(self, writer_with_dummy_parsers, tmp_path):
+    def test_independent_of_water_rights(
+        self,
+        writer_with_dummy_parsers,
+        tmp_path,
+    ):
+        """LNG expansion is independent of --expand-water-rights."""
         writer, calls = writer_with_dummy_parsers
-        writer.process_lng({"output_dir": tmp_path})
-        assert calls == {"laja": 0, "maule": 0, "lng": 0}
-        assert not any(tmp_path.iterdir())
+        writer.process_lng(
+            {"output_dir": tmp_path, "expand_water_rights": False},
+        )
+        assert calls == {"laja": 0, "maule": 0, "lng": 1}
 
 
 # ---------------------------------------------------------------------------

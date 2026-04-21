@@ -1,6 +1,6 @@
 """Integration tests for Laja/Maule water rights emission.
 
-Tests that plp2gtopt with --emit-water-rights produces correct
+Tests that plp2gtopt with --expand-water-rights produces correct
 rights entities and PAMPL files from the plp_2_years support case,
 and that gtopt --lp-only can assemble the LP matrix successfully.
 """
@@ -42,14 +42,14 @@ class TestWaterRightsIntegration:
     def converted_case(self, tmp_path_factory):
         """Exercise the auto-expanded irrigation pipeline on plp_2_years.
 
-        Runs ``plp2gtopt --emit-water-rights`` with the default
-        ``--expand-water-rights`` toggle, so ``gtopt_expand`` is
-        invoked in-process.  The resulting planning JSON contains all
-        merged entities, the companion ``laja.pampl`` / ``maule.pampl``
-        files land in the output directory, and per-agreement system
-        fragments (``laja_water_rights.json`` / ``maule_water_rights.json``)
-        are emitted for the manifest path.  No ``*_dat.json`` parser
-        intermediates are written — those are not shipped.
+        Runs ``plp2gtopt --expand-water-rights`` so ``gtopt_expand``
+        is invoked in-process.  The resulting planning JSON contains
+        all merged entities, the companion ``laja.pampl`` /
+        ``maule.pampl`` files land in the output directory, and
+        per-agreement system fragments (``laja_water_rights.json`` /
+        ``maule_water_rights.json``) are emitted for the manifest
+        path.  No ``*_dat.json`` parser intermediates are written —
+        those are not shipped.
         """
         output_dir = tmp_path_factory.mktemp("plp2y_rights")
 
@@ -66,7 +66,7 @@ class TestWaterRightsIntegration:
                 "1y",
                 "-F",
                 "csv",
-                "--emit-water-rights",
+                "--expand-water-rights",
                 "--use-kirchhoff",
                 "--demand-fail-cost",
                 "1000",
@@ -295,7 +295,7 @@ class TestGtoptLpBuild:
                 "1y",
                 "-F",
                 "csv",
-                "--emit-water-rights",
+                "--expand-water-rights",
                 "--use-kirchhoff",
                 "--demand-fail-cost",
                 "1000",

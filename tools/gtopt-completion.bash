@@ -523,7 +523,9 @@ _plp2gtopt()
             --pasada-mode
             --tech-detect --no-tech-detect --tech-overrides --tech-list
             --stages-phase -g
-            --emit-water-rights --no-emit-water-rights
+            --expand-water-rights --no-expand-water-rights
+            --expand-lng --no-expand-lng
+            --expand-ror --no-expand-ror
             --check --no-check --init-config
             --log --log-level -l --no-color --version -V --help -h" -- "$cur") )
     else

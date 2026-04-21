@@ -556,7 +556,7 @@ class TestProcessWaterRights:
     """Tests for process_water_rights."""
 
     def test_disabled_by_default(self, tmp_path):
-        """process_water_rights does nothing when emit_water_rights is False."""
+        """process_water_rights does nothing when expand_water_rights is False."""
         parser = PLPParser({"input_dir": _PLPMin1Bus})
         parser.parse_all()
         writer = GTOptWriter(parser)
@@ -573,7 +573,7 @@ class TestProcessWaterRights:
         parser.parse_all()
         writer = GTOptWriter(parser)
         opts = _make_opts(tmp_path, "wr_on")
-        opts["emit_water_rights"] = True
+        opts["expand_water_rights"] = True
         # plp_min_1bus has no laja/maule data, so this should be a no-op
         writer.to_json(opts)
         # Should still complete without error
