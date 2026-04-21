@@ -158,11 +158,6 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   /// 0.0 = no filtering (default).
   double cut_coeff_eps {0.0};
 
-  /// Maximum allowed absolute coefficient in a Benders cut row.
-  /// When max|coeff| exceeds this, the entire row is rescaled uniformly.
-  /// 0.0 = disabled (default).
-  double cut_coeff_max {0.0};
-
   /// Forward-pass infeasibility counter threshold for automatic switching
   /// from single_cut to multi_cut.  When the forward pass has encountered
   /// infeasibility at (scene, phase) more than this many times without

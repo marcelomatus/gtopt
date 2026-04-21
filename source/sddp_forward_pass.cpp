@@ -301,10 +301,9 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
                                                     phase_uid(phase_index),
                                                     iteration_index,
                                                     infeas_count);
-          filter_cut_coefficients(
-              feas_cut, prev_alpha_col, m_options_.cut_coeff_eps);
           {
-            const auto cut_row = prev_li.add_row(feas_cut);
+            const auto cut_row =
+                prev_li.add_row(feas_cut, m_options_.cut_coeff_eps);
             store_cut(scene_index,
                       prev_phase_index,
                       feas_cut,

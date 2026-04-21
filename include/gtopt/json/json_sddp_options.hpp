@@ -69,7 +69,6 @@ struct SddpOptionsConstructor
       OptName low_memory_str,
       OptName memory_codec_str,
       OptReal cut_coeff_eps,
-      OptReal cut_coeff_max,
       OptName convergence_mode_str,
       OptName state_variable_lookup_mode_str,
       OptReal stationary_tol,
@@ -142,7 +141,6 @@ struct SddpOptionsConstructor
           "memory_codec", *memory_codec_str);
     }
     opts.cut_coeff_eps = cut_coeff_eps;
-    opts.cut_coeff_max = cut_coeff_max;
     if (convergence_mode_str) {
       opts.convergence_mode = gtopt::require_enum<ConvergenceMode>(
           "convergence_mode", *convergence_mode_str);
@@ -208,7 +206,6 @@ struct json_data_contract<SddpOptions>
       json_string_null<"low_memory_mode", OptName>,
       json_string_null<"memory_codec", OptName>,
       json_number_null<"cut_coeff_eps", OptReal>,
-      json_number_null<"cut_coeff_max", OptReal>,
       json_string_null<"convergence_mode", OptName>,
       json_string_null<"state_variable_lookup_mode", OptName>,
       json_number_null<"stationary_tol", OptReal>,
@@ -259,7 +256,6 @@ struct json_data_contract<SddpOptions>
         detail::enum_to_opt_name(opt.low_memory_mode),
         detail::enum_to_opt_name(opt.memory_codec),
         opt.cut_coeff_eps,
-        opt.cut_coeff_max,
         detail::enum_to_opt_name(opt.convergence_mode),
         detail::enum_to_opt_name(opt.state_variable_lookup_mode),
         opt.stationary_tol,

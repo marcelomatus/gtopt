@@ -366,26 +366,6 @@ TEST_CASE(  // NOLINT
 }
 
 TEST_CASE(  // NOLINT
-    "SDDPMethod — cut_coeff_max rescales large coefficients")
-{
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
-  auto planning = make_3phase_hydro_planning();
-  PlanningLP planning_lp(std::move(planning));
-
-  SDDPOptions sddp_opts;
-  sddp_opts.max_iterations = 20;
-  sddp_opts.convergence_tol = 1e-3;
-  sddp_opts.cut_coeff_max = 1e6;
-
-  SDDPMethod sddp(planning_lp, sddp_opts);
-  auto results = sddp.solve();
-  REQUIRE(results.has_value());
-  CHECK_FALSE(results->empty());
-  CHECK(results->back().converged);
-}
-
-TEST_CASE(  // NOLINT
     "SDDPMethod — apertures=empty forces plain backward pass")
 {
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
