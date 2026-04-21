@@ -172,7 +172,9 @@ namespace
   json.reserve(body.size() + closers.size() + 14);
   json += R"({"options":{)";
   json += body;
-  json.append_range(closers | std::views::reverse);
+  // std::string::append_range is C++26 and missing from GCC 14 (CI).
+  // std::ranges::reverse_copy is C++20 and equivalent.
+  std::ranges::reverse_copy(closers, std::back_inserter(json));
   json += "}}";
   return json;
 }
