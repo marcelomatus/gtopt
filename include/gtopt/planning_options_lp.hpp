@@ -580,10 +580,10 @@ public:
    *         the `sddp_options.elastic_penalty` JSON field if a particular
    *         case needs a stronger forcing term. */
   static constexpr Real default_sddp_elastic_penalty = 1e2;
-  /** @brief Default lower bound for future cost variable α */
-  static constexpr Real default_sddp_alpha_min = 0.0;
-  /** @brief Default upper bound for future cost variable α */
-  static constexpr Real default_sddp_alpha_max = 1e12;
+  // α is a free LP variable (no explicit bounds) — see
+  // `sddp_method.cpp::initialize_alpha_variables`.  The
+  // `default_sddp_alpha_min` / `default_sddp_alpha_max` constants were
+  // removed when the bounds were dropped.
   /** @brief Default cut coefficient epsilon for filtering tiny coefficients.
    *
    * Raised from 1e-12 to 1e-6 (P1-2) so that Benders cuts drop
@@ -737,24 +737,6 @@ public:
   {
     return m_options_.sddp_options.elastic_penalty.value_or(
         default_sddp_elastic_penalty);
-  }
-
-  /**
-   * @brief Gets the lower bound for future cost variable α
-   * @return α lower bound in $ (default: 0.0)
-   */
-  [[nodiscard]] constexpr auto sddp_alpha_min() const
-  {
-    return m_options_.sddp_options.alpha_min.value_or(default_sddp_alpha_min);
-  }
-
-  /**
-   * @brief Gets the upper bound for future cost variable α
-   * @return α upper bound in $ (default: 1e12)
-   */
-  [[nodiscard]] constexpr auto sddp_alpha_max() const
-  {
-    return m_options_.sddp_options.alpha_max.value_or(default_sddp_alpha_max);
   }
 
   /**

@@ -482,13 +482,14 @@ TEST_CASE(  // NOLINT
   [[maybe_unused]] auto results = sddp.solve();
 
   // Enumerate dumped LP files.  The writer uses the format
-  // "gtopt_iter_{iter}_scene_{scene_uid}_phase_{phase_uid}.lp".  We
-  // group files by (scene, phase) and for each group check the fcut
-  // row count is monotonically non-decreasing with iteration.
+  // "gtopt_s{scene_uid}_p{phase_uid}_i{iter}.lp" (short form, matching
+  // error_lp_fmt for filename-layout uniformity).  We group files by
+  // (scene, phase) and for each group check the fcut row count is
+  // monotonically non-decreasing with iteration.
   struct Dump
   {
     int iteration {0};
-    std::string phase_tag;  // "scene_X_phase_Y"
+    std::string phase_tag;  // "s<scene>_p<phase>"
     std::filesystem::path path;
   };
   std::vector<Dump> dumps;
@@ -497,18 +498,16 @@ TEST_CASE(  // NOLINT
       continue;
     }
     const auto filename = ent.path().filename().string();
-    if (!filename.starts_with("gtopt_iter_")) {
+    if (!filename.starts_with("gtopt_s") || !filename.ends_with(".lp")) {
       continue;
     }
-    if (!filename.ends_with(".lp")) {
-      continue;
-    }
-    // Parse the iteration index from the filename prefix.
-    const auto after_prefix = std::string_view {filename}.substr(
-        std::string_view {"gtopt_iter_"}.size());
-    const auto us = after_prefix.find('_');
-    REQUIRE(us != std::string_view::npos);
-    const auto iter_str = after_prefix.substr(0, us);
+    // Strip ".lp", then split at the "_i" boundary: iteration is the
+    // trailing numeric token, phase_tag is "s<scene>_p<phase>".
+    const auto stem_sv =
+        std::string_view {filename}.substr(0, filename.size() - 3);
+    const auto i_pos = stem_sv.rfind("_i");
+    REQUIRE(i_pos != std::string_view::npos);
+    const auto iter_str = stem_sv.substr(i_pos + 2);
     int iter_val = 0;
     {
       const auto* first = iter_str.data();
@@ -516,12 +515,9 @@ TEST_CASE(  // NOLINT
       const auto [p, err] = std::from_chars(first, last, iter_val);
       REQUIRE(err == std::errc {});
     }
-    // "phase_tag" is everything after the iter token, minus the .lp
-    // extension.  This groups dumps of the same (scene, phase).
-    auto phase_tag = std::string {after_prefix.substr(us + 1)};
-    if (phase_tag.ends_with(".lp")) {
-      phase_tag.resize(phase_tag.size() - 3);
-    }
+    auto phase_tag = std::string {
+        stem_sv.substr(std::string_view {"gtopt_"}.size(),
+                       i_pos - std::string_view {"gtopt_"}.size())};
     dumps.push_back(Dump {
         .iteration = iter_val,
         .phase_tag = std::move(phase_tag),
@@ -667,26 +663,26 @@ TEST_CASE(  // NOLINT
       continue;
     }
     const auto filename = ent.path().filename().string();
-    if (!filename.starts_with("gtopt_iter_") || !filename.ends_with(".lp")) {
+    if (!filename.starts_with("gtopt_s") || !filename.ends_with(".lp")) {
       continue;
     }
 
-    const auto after_prefix = std::string_view {filename}.substr(
-        std::string_view {"gtopt_iter_"}.size());
-    const auto us = after_prefix.find('_');
-    REQUIRE(us != std::string_view::npos);
+    // Short form: "gtopt_s<scene>_p<phase>_i<iter>.lp".
+    const auto stem_sv =
+        std::string_view {filename}.substr(0, filename.size() - 3);
+    const auto i_pos = stem_sv.rfind("_i");
+    REQUIRE(i_pos != std::string_view::npos);
     int iter_val = 0;
     {
-      const auto iter_str = after_prefix.substr(0, us);
+      const auto iter_str = stem_sv.substr(i_pos + 2);
       const auto* first = iter_str.data();
       const auto* last = first + iter_str.size();  // NOLINT
       const auto [p, err] = std::from_chars(first, last, iter_val);
       REQUIRE(err == std::errc {});
     }
-    auto phase_tag = std::string {after_prefix.substr(us + 1)};
-    if (phase_tag.ends_with(".lp")) {
-      phase_tag.resize(phase_tag.size() - 3);
-    }
+    auto phase_tag = std::string {
+        stem_sv.substr(std::string_view {"gtopt_"}.size(),
+                       i_pos - std::string_view {"gtopt_"}.size())};
 
     // Extract every row-label containing "fcut" from the LP file.
     // LP format puts row names at column 1 of ROWS-section lines

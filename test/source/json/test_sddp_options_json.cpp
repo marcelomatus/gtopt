@@ -23,8 +23,6 @@ TEST_CASE("SddpOptions JSON - Full deserialization")
     "min_iterations": 5,
     "convergence_tol": 1e-3,
     "elastic_penalty": 1e5,
-    "alpha_min": 0.0,
-    "alpha_max": 1e10,
     "cut_recovery_mode": "append",
     "recovery_mode": "cuts",
     "save_per_iteration": false,
@@ -80,10 +78,6 @@ TEST_CASE("SddpOptions JSON - Full deserialization")
   CHECK(*opts.convergence_tol == doctest::Approx(1e-3));
   REQUIRE(opts.elastic_penalty.has_value());
   CHECK(*opts.elastic_penalty == doctest::Approx(1e5));
-  REQUIRE(opts.alpha_min.has_value());
-  CHECK(*opts.alpha_min == doctest::Approx(0.0));
-  REQUIRE(opts.alpha_max.has_value());
-  CHECK(*opts.alpha_max == doctest::Approx(1e10));
   REQUIRE(opts.cut_recovery_mode.has_value());
   CHECK(*opts.cut_recovery_mode == HotStartMode::append);
   REQUIRE(opts.recovery_mode.has_value());

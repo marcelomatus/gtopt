@@ -79,10 +79,16 @@ constexpr auto versioned_cuts_json_fmt = "sddp_cuts_{}.json";
 constexpr auto scene_cuts_json_fmt = "scene_{}.json";
 /// Error-prefixed cut file pattern for infeasible scenes (scene UID)
 constexpr auto error_scene_cuts_fmt = "error_scene_{}.csv";
-/// Error LP file pattern for infeasible scene/phase (scene UID, phase UID)
-constexpr auto error_lp_fmt = "error_scene_{}_phase_{}";
-/// Debug LP file pattern: format with iteration, scene UID, phase UID
-constexpr auto debug_lp_fmt = "gtopt_iter_{}_scene_{}_phase_{}";
+/// Error LP file pattern for unrecoverable-infeasibility dumps.
+/// Arguments, in order: scene UID, phase UID, iteration index.  Written
+/// under `SDDPOptions::log_directory` when the forward pass can produce
+/// no feasibility cut (phase 0, or relaxed clone still infeasible).
+/// `LinearInterface::write_lp` appends the `.lp` extension.
+constexpr auto error_lp_fmt = "error_s{}_p{}_i{}";
+/// Debug LP file pattern: scene UID, phase UID, iteration index.
+/// Uses the same `s{}_p{}_i{}` short form as `error_lp_fmt` for
+/// filename-layout uniformity.
+constexpr auto debug_lp_fmt = "gtopt_s{}_p{}_i{}";
 /// Sentinel file name: if this file exists in the output directory, the
 /// SDDP solver stops gracefully after the current iteration and saves
 /// cuts.  Created externally (e.g. by the webservice stop endpoint).
@@ -120,6 +126,26 @@ constexpr std::string_view sddp_alpha_col_name = "alpha";
 /// `Uid{0}` keeps the structured cut-key label as `Sddp:alpha:0`.
 constexpr Uid sddp_alpha_uid {0};
 
+/// Bootstrap lower bound on α at iter-0 cold start, in **physical ($)**
+/// units.  Divided by `scale_alpha` at the call site.
+///
+/// Value 0.0 matches the project's pre-existing default (proven across
+/// all integration tests).  α has a positive objective coefficient, so
+/// without a lower bound the cold-start iter-0 LP would be unbounded;
+/// a loose bound (e.g. −1e10) admits negative-cost futures but
+/// produces very weak LB estimates that trigger premature stationary
+/// convergence in tight-tolerance tests.  α ≥ 0 is a mild bias for
+/// problems where future cost is positive (almost all dispatch), and
+/// users with net-revenue phases can override via a custom cut.
+///
+/// A cleaner "lazy α" (create α only at first cut install) was tried
+/// and abandoned: it interacted badly with the low-memory cached
+/// col_sol/col_cost/col_scales vectors, producing out-of-bounds
+/// access in the aperture path and a convergence slowdown on the
+/// 3-phase hydro test.  Revisit only with proper cached-vector
+/// invalidation work.
+constexpr double sddp_alpha_bootstrap_min = 0.0;
+
 // ─── Elastic filter mode ────────────────────────────────────────────────────
 // ElasticFilterMode is now defined in <gtopt/sddp_enums.hpp>.
 // The generic enum_from_name<ElasticFilterMode>() replaces the old
@@ -139,9 +165,12 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   int min_iterations {2};  ///< Minimum iterations before convergence
   double convergence_tol {1e-4};  ///< Relative gap tolerance for convergence
   double elastic_penalty {1e3};  ///< Penalty for elastic slack variables
-  double alpha_min {0.0};  ///< Lower bound for future cost variable a ($)
-  double alpha_max {1e15};  ///< Upper bound for future cost variable a ($)
-  double scale_alpha {0};  ///< Scale for α (0 = auto: max state var_scale)
+  /// Scale for α (0 = auto: max state var_scale).  α itself is a free
+  /// variable (no explicit bounds): per-row row-max equilibration on
+  /// every Benders cut already controls LP conditioning, and α can
+  /// legitimately go negative (net-revenue phases, mid-convergence
+  /// cuts that haven't yet tightened LB above zero).
+  double scale_alpha {0};
   CutSharingMode cut_sharing {CutSharingMode::none};  ///< Cut sharing mode
 
   /// Elastic filter mode: how to handle backward-pass infeasibility.

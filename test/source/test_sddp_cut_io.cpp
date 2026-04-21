@@ -1210,8 +1210,6 @@ TEST_CASE(
 
   SDDPOptions opts;
   opts.boundary_cuts_mode = BoundaryCutsMode::combined;
-  opts.alpha_min = -1e9;
-  opts.alpha_max = 1e9;
 
   const LabelMaker label_maker {LpNamesLevel::none};
   auto states = make_scene_phase_states(planning_lp);

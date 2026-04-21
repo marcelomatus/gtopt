@@ -275,9 +275,13 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
       }
 
       // ── Cut sharing ──
-      if (m_options_.cut_sharing == CutSharingMode::none) {
-        apply_cut_sharing_for_iteration(iteration_index);
-      }
+      // Cut sharing across scenes happens inside the synchronized
+      // backward pass at `sddp_method.cpp::share_cuts_for_phase`
+      // (per-phase barrier, `sddp_method.cpp:1775`).  The previous
+      // post-pass aggregation call `apply_cut_sharing_for_iteration`
+      // had an inverted guard that made it a no-op in every mode
+      // (none → inner early-return; !none → outer guard skipped it),
+      // so it carried no behaviour and was removed.
 
       // ── Cut pruning ──
       if (m_options_.max_cuts_per_phase > 0

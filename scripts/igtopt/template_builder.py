@@ -1341,8 +1341,6 @@ SDDP_OPTION_KEYS: frozenset[str] = frozenset(
         "min_iterations",
         "convergence_tol",
         "elastic_penalty",
-        "alpha_min",
-        "alpha_max",
         "cut_recovery_mode",
         "recovery_mode",
         "save_per_iteration",
@@ -1635,8 +1633,6 @@ _OPTIONS_FIELDS: list[tuple[str, str, Any]] = [
         "[sddp] Penalty for elastic constraint relaxation",
         None,
     ),
-    ("alpha_min", "[sddp] Minimum alpha (future cost) lower bound", None),
-    ("alpha_max", "[sddp] Maximum alpha (future cost) upper bound", None),
     (
         "cut_recovery_mode",
         "[sddp] Cut persistence mode: 'none' (default), 'keep', 'append', or 'replace'",

@@ -58,41 +58,26 @@ auto CascadePlanningMethod::build_level_sddp_opts(
 
   // Apply cascade-global SDDP options as per-level defaults.
   // max_iterations is special: it's a global budget applied via
-  // remaining_budget, not a per-level default.
+  // remaining_budget, not a per-level default.  `value_or(current)` is
+  // the `double ← optional<double>` equivalent of `merge_opt`
+  // (which only handles optional → optional).
   const auto& cs = m_cascade_opts_.sddp_options;
-  if (cs.convergence_tol.has_value()) {
-    opts.convergence_tol = *cs.convergence_tol;
-  }
-  if (cs.min_iterations.has_value()) {
-    opts.min_iterations = *cs.min_iterations;
-  }
-  if (cs.elastic_penalty.has_value()) {
-    opts.elastic_penalty = *cs.elastic_penalty;
-  }
-  if (cs.alpha_min.has_value()) {
-    opts.alpha_min = *cs.alpha_min;
-  }
-  if (cs.alpha_max.has_value()) {
-    opts.alpha_max = *cs.alpha_max;
-  }
-  if (cs.scale_alpha.has_value()) {
-    opts.scale_alpha = *cs.scale_alpha;
-  }
+  opts.convergence_tol = cs.convergence_tol.value_or(opts.convergence_tol);
+  opts.min_iterations = cs.min_iterations.value_or(opts.min_iterations);
+  opts.elastic_penalty = cs.elastic_penalty.value_or(opts.elastic_penalty);
+  opts.scale_alpha = cs.scale_alpha.value_or(opts.scale_alpha);
 
   // Apply per-level overrides
   if (level_solver) {
-    if (level_solver->max_iterations) {
-      opts.max_iterations = *level_solver->max_iterations;
-    }
+    opts.max_iterations =
+        level_solver->max_iterations.value_or(opts.max_iterations);
     if (level_solver->apertures.has_value()) {
       opts.apertures = level_solver->apertures;
     }
-    if (level_solver->min_iterations) {
-      opts.min_iterations = *level_solver->min_iterations;
-    }
-    if (level_solver->convergence_tol) {
-      opts.convergence_tol = *level_solver->convergence_tol;
-    }
+    opts.min_iterations =
+        level_solver->min_iterations.value_or(opts.min_iterations);
+    opts.convergence_tol =
+        level_solver->convergence_tol.value_or(opts.convergence_tol);
   }
 
   // Cap max_iterations to the remaining global budget

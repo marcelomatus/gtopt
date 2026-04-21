@@ -68,8 +68,6 @@ std::unique_ptr<PlanningMethod> make_planning_method(
       sddp_opts.max_stored_cuts = options.sddp_max_stored_cuts();
       sddp_opts.low_memory_mode = options.sddp_low_memory();
       sddp_opts.memory_codec = options.sddp_memory_codec();
-      sddp_opts.alpha_min = options.sddp_alpha_min();
-      sddp_opts.alpha_max = options.sddp_alpha_max();
       sddp_opts.scale_alpha = options.sddp_scale_alpha();
 
       // Cut sharing and files
@@ -205,8 +203,6 @@ std::unique_ptr<PlanningMethod> make_planning_method(
       sddp_opts.max_stored_cuts = options.sddp_max_stored_cuts();
       sddp_opts.low_memory_mode = options.sddp_low_memory();
       sddp_opts.memory_codec = options.sddp_memory_codec();
-      sddp_opts.alpha_min = options.sddp_alpha_min();
-      sddp_opts.alpha_max = options.sddp_alpha_max();
       sddp_opts.scale_alpha = options.sddp_scale_alpha();
 
       sddp_opts.cut_sharing = options.sddp_cut_sharing_mode_enum();

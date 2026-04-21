@@ -141,9 +141,9 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
       if (in_range) {
         const auto dbg_stem = (std::filesystem::path(m_options_.log_directory)
                                / std::format(sddp_file::debug_lp_fmt,
-                                             iteration_index,
                                              scene_uid(scene_index),
-                                             phase_uid(phase_index)))
+                                             phase_uid(phase_index),
+                                             iteration_index))
                                   .string();
         m_lp_debug_writer_.write(li, dbg_stem);
       }
@@ -404,10 +404,49 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
         // it sees the returned Error; compute_iteration_bounds then
         // excludes this scene from UB/LB.  Retries on the same state
         // cannot change this outcome.
+        //
+        // Dump the original (pre-elastic) LP to <log_directory>/
+        // error_s<scene_uid>_p<phase_uid>_i<iteration_index>.lp so the
+        // user can diagnose offline.  `elastic_solve` never touches the
+        // original LP (PLP clone pattern), so `system.linear_interface()`
+        // still holds the state that failed.  `release_backend()` above
+        // may have dropped the solver object under low_memory; rebuild
+        // it before writing.  Failure to write is non-fatal — we log a
+        // warning and continue returning the original error.
+        std::string saved_error_lp;
+        {
+          std::error_code mkdir_ec;
+          std::filesystem::create_directories(m_options_.log_directory,
+                                              mkdir_ec);
+          system.ensure_lp_built();
+          const auto stem = (std::filesystem::path(m_options_.log_directory)
+                             / std::format(sddp_file::error_lp_fmt,
+                                           scene_uid(scene_index),
+                                           phase_uid(phase_index),
+                                           iteration_index))
+                                .string();
+          // `linear_interface().write_lp` appends ".lp" but keeps the
+          // stem verbatim.  `SystemLP::write_lp` would additionally
+          // tack on `_scene_X_phase_Y`, duplicating the UIDs already
+          // baked into our stem — so we bypass it.
+          if (auto wr = system.linear_interface().write_lp(stem); wr) {
+            saved_error_lp = stem + ".lp";
+          } else {
+            spdlog::warn(
+                "SDDP Forward [i{} s{} p{}]: failed to save error LP "
+                "to {}: {}",
+                iteration_index,
+                scene_uid(scene_index),
+                phase_uid(phase_index),
+                stem,
+                wr.error().message);
+          }
+        }
+
         spdlog::warn(
             "SDDP Forward [i{} s{} p{}]: elastic filter produced no "
             "feasibility cut — declaring phase p{} and scene s{} "
-            "infeasible for iter i{} (solver status {}, reason: {})",
+            "infeasible for iter i{} (solver status {}, reason: {}){}",
             iteration_index,
             scene_uid(scene_index),
             phase_uid(phase_index),
@@ -416,7 +455,10 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
             iteration_index,
             solve_status,
             !phase_index ? "no predecessor phase to cut on"
-                         : "relaxed clone infeasible");
+                         : "relaxed clone infeasible",
+            saved_error_lp.empty()
+                ? std::string {}
+                : std::format(" [LP saved to {}]", saved_error_lp));
         return std::unexpected(Error {
             .code = ErrorCode::SolverError,
             .message = std::format("{}: elastic filter produced no "

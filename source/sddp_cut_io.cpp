@@ -1055,8 +1055,8 @@ void write_cut_coefficients_unscaled(std::ostream& ofs,
       auto& sys = planning_lp.system(scene_index, last_phase);
       auto& li = sys.linear_interface();
       const auto alpha_sparse = SparseCol {
-          .lowb = options.alpha_min / sa,
-          .uppb = options.alpha_max / sa,
+          .lowb = sddp_alpha_bootstrap_min / sa,
+          .uppb = LinearProblem::DblMax,
           .cost = sa,
           .is_state = true,
           .scale = sa,
@@ -1448,8 +1448,8 @@ void write_cut_coefficients_unscaled(std::ostream& ofs,
         auto& sys = planning_lp.system(scene_index, phase_index);
         auto& li = sys.linear_interface();
         const auto alpha_sparse = SparseCol {
-            .lowb = options.alpha_min / sa,
-            .uppb = options.alpha_max / sa,
+            .lowb = sddp_alpha_bootstrap_min / sa,
+            .uppb = LinearProblem::DblMax,
             .cost = sa,
             .is_state = true,
             .scale = sa,

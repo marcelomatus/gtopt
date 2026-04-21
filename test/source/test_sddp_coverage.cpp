@@ -525,8 +525,6 @@ TEST_CASE(  // NOLINT
   SDDPOptions sddp_opts;
   sddp_opts.max_iterations = 20;
   sddp_opts.convergence_tol = 1e-3;
-  sddp_opts.alpha_min = -1e10;
-  sddp_opts.alpha_max = 1e10;
 
   SDDPMethod sddp(planning_lp, sddp_opts);
   auto results = sddp.solve();

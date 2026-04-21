@@ -48,13 +48,10 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   OptReal convergence_tol {};
 
   // ── Advanced tuning ────────────────────────────────────────────────────────
-  /** @brief Penalty for elastic slack variables in feasibility (default: 1e6)
-   */
+  /** @brief Penalty for elastic slack variables in feasibility.
+   *  Default: `PlanningOptionsLP::default_sddp_elastic_penalty`
+   *  (see `planning_options_lp.hpp`). */
   OptReal elastic_penalty {};
-  /** @brief Lower bound for future cost variable α (default: 0.0) */
-  OptReal alpha_min {};
-  /** @brief Upper bound for future cost variable α (default: 1e12) */
-  OptReal alpha_max {};
   /** @brief Scale divisor for future cost variable α (default: 0 = auto).
    *
    * The LP alpha variable is α_lp = α / scale_alpha, with an objective
@@ -92,9 +89,11 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
    *         The legacy "backpropagate" mode is no longer supported;
    *         it falls through to the default. */
   std::optional<ElasticFilterMode> elastic_mode {};
-  /** @brief Forward-pass infeasibility count threshold for switching from
-   *         single_cut to multi_cut (default: 3; 0 = always multi_cut;
-   *         <0 = disabled).
+  /** @brief Forward-pass infeasibility count threshold for switching
+   *         from single_cut to multi_cut.  Default:
+   *         `PlanningOptionsLP::default_sddp_multi_cut_threshold`
+   *         (see `planning_options_lp.hpp`).  `0 = always multi_cut`;
+   *         `< 0 = disabled`.
    *
    *         The counter is **persistent**: it accumulates across
    *         iterations and is not reset when a (scene, phase) solves
@@ -393,8 +392,6 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
     merge_opt(min_iterations, opts.min_iterations);
     merge_opt(convergence_tol, opts.convergence_tol);
     merge_opt(elastic_penalty, opts.elastic_penalty);
-    merge_opt(alpha_min, opts.alpha_min);
-    merge_opt(alpha_max, opts.alpha_max);
     merge_opt(scale_alpha, opts.scale_alpha);
     merge_opt(cut_recovery_mode, opts.cut_recovery_mode);
     merge_opt(recovery_mode, opts.recovery_mode);

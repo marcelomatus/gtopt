@@ -387,7 +387,11 @@ void SDDPMethod::initialize_alpha_variables(SceneIndex scene_index)
   auto& phase_states = m_scene_phase_states_[scene_index];
   phase_states.resize(phases.size());
 
-  // Add α (future-cost) variable to every phase except the last
+  // Add α (future-cost) variable to every phase except the last.
+  // Bootstrap lower bound: α carries a positive objective coefficient,
+  // so without an initial lower-bound cut the cold-start iter-0 LP
+  // would be unbounded.  Once Benders cuts arrive they dominate this
+  // bound and it becomes inert.
   for (auto&& [pi, _phase] : enumerate<PhaseIndex>(phases)) {
     if (pi == last_phase_index) {
       break;
@@ -396,8 +400,8 @@ void SDDPMethod::initialize_alpha_variables(SceneIndex scene_index)
 
     const auto sa = m_options_.scale_alpha;
     const auto alpha_sparse = SparseCol {
-        .lowb = m_options_.alpha_min / sa,
-        .uppb = m_options_.alpha_max / sa,
+        .lowb = sddp_alpha_bootstrap_min / sa,
+        .uppb = LinearProblem::DblMax,
         .cost = sa,
         .is_state = true,
         .scale = sa,
