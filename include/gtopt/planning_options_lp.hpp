@@ -594,8 +594,6 @@ public:
    * academic-scale instances can still lower this in JSON.
    */
   static constexpr Real default_sddp_cut_coeff_eps = 1e-6;
-  /** @brief Default max coefficient threshold for cut rescaling */
-  static constexpr Real default_sddp_cut_coeff_max = 1e6;
   /** @brief Default elastic filter mode.
    *
    *  Set to `chinneck` (IIS-based) so feasibility cuts are emitted only
@@ -833,16 +831,6 @@ public:
   {
     return m_options_.sddp_options.cut_coeff_eps.value_or(
         default_sddp_cut_coeff_eps);
-  }
-
-  /**
-   * @brief Gets the max coefficient threshold for cut rescaling
-   * @return Max threshold (default: 1e6)
-   */
-  [[nodiscard]] constexpr auto sddp_cut_coeff_max() const -> double
-  {
-    return m_options_.sddp_options.cut_coeff_max.value_or(
-        default_sddp_cut_coeff_max);
   }
 
   /**

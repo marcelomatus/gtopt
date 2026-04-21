@@ -28,7 +28,7 @@ using namespace gtopt;  // NOLINT(google-global-names-in-headers)
 
 // ─── Free-function unit tests ───────────────────────────────────────────────
 
-TEST_CASE("build_benders_cut produces valid cut row")  // NOLINT
+TEST_CASE("build_benders_cut_physical produces valid cut row")  // NOLINT
 {
   const auto alpha = ColIndex {0};
   const auto src = ColIndex {1};
@@ -44,15 +44,18 @@ TEST_CASE("build_benders_cut produces valid cut row")  // NOLINT
       },
   };
 
-  // reduced costs: dep column has rc = -10.0
-  const std::vector<double> rc = {0.0, 0.0, -10.0};
-  const double obj = 5000.0;
+  // Physical reduced costs: dep column has rc_phys = -10.0.
+  // Physical trial values, positional by link index.
+  const std::vector<double> rc_phys = {0.0, 0.0, -10.0};
+  const std::vector<double> trial_phys = {50.0};
+  constexpr double obj_phys = 5000.0;
 
-  auto row = build_benders_cut(alpha, links, rc, obj);
+  auto row =
+      build_benders_cut_physical(alpha, links, rc_phys, trial_phys, obj_phys);
 
   // α coefficient = 1.0
   CHECK(row.get_coeff(alpha) == doctest::Approx(1.0));
-  // source coefficient = -rc = -(-10) = 10
+  // source coefficient = -rc_phys = -(-10) = 10
   CHECK(row.get_coeff(src) == doctest::Approx(10.0));
   // rhs = obj - Σ rc_i * trial_i = 5000 - (-10)*50 = 5500
   CHECK(row.lowb == doctest::Approx(5500.0));
@@ -373,8 +376,8 @@ TEST_CASE(  // NOLINT
       },
   };
 
-  auto cut = build_benders_cut(
-      alpha_col, links, li.get_col_cost_raw(), li.get_obj_value());
+  auto cut = build_benders_cut_physical(
+      alpha_col, links, li, li.get_obj_value_physical());
   CHECK(cut.get_coeff(alpha_col) == doctest::Approx(1.0));
   CHECK(cut.lowb > -1e20);
   CHECK(cut.uppb > 1e20);
@@ -733,9 +736,9 @@ TEST_CASE(  // NOLINT
   REQUIRE(phase1.is_optimal());
   CHECK(phase1.get_obj_value() == doctest::Approx(3000.0));  // 60*50
 
-  // Backward: build optimality cut and add to phase 0
-  auto cut = build_benders_cut(
-      alpha_col, links, phase1.get_col_cost_raw(), phase1.get_obj_value());
+  // Backward: build optimality cut and add to phase 0 (physical space).
+  auto cut = build_benders_cut_physical(
+      alpha_col, links, phase1, phase1.get_obj_value_physical());
   phase0.add_row(cut);
 
   // Re-solve phase 0 with cut

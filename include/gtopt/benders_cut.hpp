@@ -142,76 +142,113 @@ void propagate_trial_values(std::span<StateVarLink> links,
 void propagate_trial_values(std::span<StateVarLink> links,
                             LinearInterface& target_li) noexcept;
 
-/// Build a Benders optimality cut from reduced costs of dependent columns.
+/// Physical-space Benders optimality cut builder.
 ///
-///   scale_alpha · α_lp ≥ z_t + Σ_i rc_i · (x_{t-1,i} − v̂_i)
+///   α_phys ≥ z_t_phys + Σ_i rc_phys_i · (x_{t-1,i}_phys − v̂_i_phys)
 ///
-/// @param alpha_col       Column index of the α (future-cost) variable.
-/// @param links           State-variable linkage descriptors.
-/// @param reduced_costs   Reduced costs of dependent columns from the LP solve.
-/// @param objective_value Optimal objective value of the sub-problem.
-/// @param scale_alpha     Scale divisor for α (PLP varphi scale; default 1.0).
-/// @param cut_coeff_eps   Threshold below which state-var coefficients are
-///                        dropped (default 0.0 = keep all).
-/// @param scale_objective Objective scaling factor (default 1.0).  The cut
-///                        equation is in $; the RHS and state-variable
-///                        coefficients are divided by `scale_objective` to
-///                        match the LP objective's $/scale_objective scaling
-///                        and keep cut row coefficients well-conditioned.
-///                        The α column (which is dimensionless within the
-///                        cut) is left untouched.
-/// Returns the cut as a SparseRow ready to add to the source phase.
-/// Callers set structured metadata (.class_name, .constraint_name, .context)
-/// on the returned row.
-[[nodiscard]] auto build_benders_cut(ColIndex alpha_col,
-                                     std::span<const StateVarLink> links,
-                                     std::span<const double> reduced_costs,
-                                     double objective_value,
-                                     double scale_alpha = 1.0,
-                                     double cut_coeff_eps = 0.0,
-                                     double scale_objective = 1.0) -> SparseRow;
+/// Intended for use with `LinearInterface::add_equilibrated_row`, which
+/// folds `col_scales` and the per-row equilibration internally.  All
+/// inputs are in physical space:
+///
+/// @param alpha_col              α column index in the source phase's LP.
+/// @param links                  State-variable linkage descriptors (same
+///                               struct the LP-space overload consumes).
+///                               `link.dependent_col` selects the target
+///                               entry in @p reduced_costs_physical;
+///                               `link.source_col` selects the matching
+///                               entry in @p trial_values_physical.
+/// @param reduced_costs_physical Physical reduced costs of the target
+///                               LP's dependent columns — read from
+///                               `target_li.get_col_cost()` (which
+///                               applies `LP × scale_objective /
+///                               col_scale`).
+/// @param trial_values_physical  Physical trial values for each link's
+///                               source column — read from
+///                               `source_li.get_col_sol()[link.source_col]`
+///                               (= `LP × col_scale_source`).  Indexed
+///                               in parallel with `links`, so entry `i`
+///                               corresponds to `links[i]`.
+/// @param objective_value_physical Target subproblem optimum in $,
+///                               i.e. `target_li.get_obj_value_physical()`.
+/// @param cut_coeff_eps          Drop state-var coefficients below this
+///                               absolute threshold (default 0 =
+///                               keep all).
+///
+/// Returns a SparseRow with:
+///   * row[alpha_col] = 1.0
+///   * row[source_col] = -rc_phys
+///   * row.lowb = obj_phys − Σ rc_phys · v̂_phys
+///   * row.uppb = DblMax, row.scale = 1.0
+///
+/// The caller is expected to pass this row to
+/// `LinearInterface::add_equilibrated_row`, which applies the LP's
+/// column scales and per-row row-max equilibration to produce the
+/// final LP-space row.
+[[nodiscard]] auto build_benders_cut_physical(
+    ColIndex alpha_col,
+    std::span<const StateVarLink> links,
+    std::span<const double> reduced_costs_physical,
+    std::span<const double> trial_values_physical,
+    double objective_value_physical,
+    double cut_coeff_eps = 0.0) -> SparseRow;
 
-/// Overload that reads reduced costs directly from each link's
-/// `state_var->reduced_cost()` instead of indexing into a full
-/// `std::span<const double>`.  Prefer this overload in SDDP production
-/// code: it lets the forward pass elide the per-phase `forward_col_cost`
-/// snapshot (now removed entirely — see docs/methods/sddp.md for the
-/// rationale behind dropping the row-dual formulation).
-[[nodiscard]] auto build_benders_cut(ColIndex alpha_col,
-                                     std::span<const StateVarLink> links,
-                                     double objective_value,
-                                     double scale_alpha = 1.0,
-                                     double cut_coeff_eps = 0.0,
-                                     double scale_objective = 1.0) -> SparseRow;
+/// Physical-space Benders cut builder that reads reduced cost and trial
+/// value from each link's back-pointer state variable instead of taking
+/// flat spans.  The SDDP backward pass uses this overload: the forward
+/// pass already mirrors the target LP's `col_sol` / `reduced_cost` onto
+/// every `StateVariable` via `capture_state_variable_values`, so the
+/// builder can read the live values directly without re-taking the full
+/// per-LP snapshots.
+///
+///   rc_phys  = state_var->reduced_cost_physical(scale_objective)
+///   v̂_phys  = state_var->col_sol_physical()
+///   lowb    = objective_value_physical − Σ rc_phys · v̂_phys
+///   row[src_col] = −rc_phys,  row[alpha_col] = 1.0
+///
+/// The returned row carries no `already_lp_space` flag: `add_row` on an
+/// equilibrated LP will fold `col_scales` and run per-row row-max
+/// equilibration, so the resulting row is well-conditioned without any
+/// post-hoc `rescale_benders_cut` pass.
+///
+/// @param alpha_col               α column in the source phase's LP.
+/// @param links                   State-variable linkage descriptors.
+///                                Links with a null `state_var` contribute
+///                                zero (rc_phys = v̂_phys = 0), matching
+///                                the test-fixture convention.
+/// @param objective_value_physical Target subproblem optimum in $,
+///                                i.e. `target_li.get_obj_value_physical()`.
+/// @param scale_objective         Global objective scale (required so
+///                                `reduced_cost_physical()` can descale
+///                                the LP reduced cost to $/phys_unit).
+/// @param cut_coeff_eps           Drop state-var coefficients below this
+///                                absolute threshold (default 0 = keep all).
+[[nodiscard]] auto build_benders_cut_physical(
+    ColIndex alpha_col,
+    std::span<const StateVarLink> links,
+    double objective_value_physical,
+    double scale_objective,
+    double cut_coeff_eps = 0.0) -> SparseRow;
 
-/// Remove state-variable coefficients whose absolute value is below @p eps.
+/// Physical-space Benders cut builder that reads reduced cost from an
+/// arbitrary `LinearInterface` (typically an elastic clone) and trial
+/// value from each link's back-pointer `StateVariable`.  Intended for
+/// cut paths whose rc comes from a local LP solve rather than the base
+/// forward pass — the forward-pass feasibility cut and the aperture
+/// per-aperture cut both fit this shape.
 ///
-/// Unlike the eps filtering in build_benders_cut() (which skips tiny
-/// reduced costs before the RHS adjustment), this function filters
-/// the final cut coefficients and adjusts the RHS accordingly.
-/// Intended for post-rescale cleanup where previously significant
-/// coefficients may have become negligible.
+///   rc_phys  = rc_source.get_col_cost()[link.dependent_col]
+///              (`ScaledView`: `LP × scale_objective / col_scale`)
+///   v̂_phys  = link.state_var->col_sol_physical()
 ///
-/// @param row           The cut row to filter in-place
-/// @param alpha_col     α column index (never filtered)
-/// @param eps           Absolute tolerance (coefficients with |value| < eps
-///                      are removed)
-void filter_cut_coefficients(SparseRow& row, ColIndex alpha_col, double eps);
-
-/// Rescale a Benders cut row when the largest state-variable coefficient
-/// exceeds @p cut_coeff_max.
-///
-/// All terms (coefficients, α weight, and RHS) are divided uniformly by
-/// `max_coeff / cut_coeff_max`, preserving the constraint's feasible set.
-/// The α column at @p alpha_col is included in the scaling.
-///
-/// @param row           The cut row to rescale in-place
-/// @param alpha_col     α column index (to identify it for logging)
-/// @param cut_coeff_max Maximum allowed absolute coefficient value (> 0)
-/// @return true if the row was rescaled, false if no rescaling was needed
-bool rescale_benders_cut(SparseRow& row,
-                         ColIndex alpha_col,
-                         double cut_coeff_max);
+/// `scale_objective` is not a parameter: it is embedded in the
+/// `get_col_cost()` view.  The clone must have been solved (rc and col
+/// solution available) before this call.
+[[nodiscard]] auto build_benders_cut_physical(
+    ColIndex alpha_col,
+    std::span<const StateVarLink> links,
+    const LinearInterface& rc_source,
+    double objective_value_physical,
+    double cut_coeff_eps = 0.0) -> SparseRow;
 
 // ─── Elastic filter ─────────────────────────────────────────────────────────
 

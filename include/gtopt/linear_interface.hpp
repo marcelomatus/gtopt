@@ -356,7 +356,11 @@ public:
 
   /// Set the base row count explicitly (used after a rebuild restores
   /// state without re-querying the live backend).
-  void set_base_numrows(size_t n) noexcept { m_base_numrows_ = n; }
+  void set_base_numrows(size_t n) noexcept
+  {
+    m_base_numrows_ = n;
+    m_base_numrows_set_ = true;
+  }
 
   /// Mark this interface as "no LP loaded": flips `m_backend_released_` to
   /// true and, for non-rebuild modes, drops the default-constructed
@@ -467,6 +471,33 @@ public:
    * ignored)
    * @return The index of the newly added row
    */
+  /**
+   * @brief Adds a new constraint row to the problem.
+   *
+   * Coefficients are interpreted as **physical-space** by default.
+   * When the LP was built with equilibration (row_max or ruiz) and
+   * `save_base_numrows()` has fired (i.e. this row is a post-build
+   * cut), `add_row` applies, in order:
+   *
+   *  1. Physical → LP column scaling: `coeff_j ← coeff_j ×
+   *     col_scales[j]`.  Bounds are not touched here.
+   *  2. Per-row row-max normalisation: divide coefficients and bounds
+   *     by `max|coeff_j|`, so the new row lands at `max|coeff| = 1`,
+   *     matching the structural rows processed by
+   *     `apply_row_max_equilibration` / `apply_ruiz_scaling` at build
+   *     time.
+   *  3. Composite row scale storage: `row_scale = row.scale ×
+   *     max|coeff|`, preserving `dual_phys = dual_LP × row_scale`.
+   *
+   * Otherwise (no equilibration on the LP, or this row still belongs
+   * to the structural-build phase), `add_row` is a pass-through — the
+   * physical space and LP space coincide, so no conversion happens.
+   *
+   * @param row The constraint with physical-space coefficients.
+   * @param eps Epsilon value for coefficient filtering (values below
+   *            are ignored).
+   * @return The index of the newly added row.
+   */
   RowIndex add_row(const SparseRow& row, double eps = 0.0);
 
   /**
@@ -509,6 +540,7 @@ public:
       ensure_backend();
     }
     m_base_numrows_ = get_numrows();
+    m_base_numrows_set_ = true;
   }
 
   /**
@@ -1207,6 +1239,28 @@ public:
     return m_row_scales_;
   }
 
+  /// Equilibration method in effect for this LP (selected by
+  /// `opts.equilibration_method` at `flatten()` time, persisted across
+  /// `load_flat`).  Used by `add_row` / `add_rows` to keep applying
+  /// per-row scaling to post-build cuts.  `none` when equilibration
+  /// was disabled at build time — in that case `add_row` leaves new
+  /// rows alone, preserving the historical behaviour.
+  [[nodiscard]] constexpr LpEquilibrationMethod equilibration_method()
+      const noexcept
+  {
+    return m_equilibration_method_;
+  }
+
+  /// Override the equilibration method recorded for this LP.  Normally
+  /// set by `load_flat` from `FlatLinearProblem::equilibration_method`;
+  /// this setter exists for unit tests that build an LP directly via
+  /// `add_col` / `add_row` (no flatten pass) and still want to exercise
+  /// the `add_equilibrated_row` path.
+  void set_equilibration_method(LpEquilibrationMethod method) noexcept
+  {
+    m_equilibration_method_ = method;
+  }
+
   /**
    * @brief Gets the global objective scaling factor.
    *
@@ -1432,6 +1486,12 @@ private:
                    const std::span<const double>& elements,
                    double rowlb,
                    double rowub);
+
+  /// Internal raw-insertion path for SparseRow input.  Called by
+  /// `add_row(SparseRow)` in the pass-through branch (structural-build
+  /// phase, or no col_scales / equilibration active).  Only
+  /// `SparseRow::scale` is composed here; no col_scale, no row-max.
+  RowIndex add_row_lp_space(const SparseRow& row, double eps);
   /// @}
 
   void rebuild_row_name_maps();
@@ -1533,10 +1593,23 @@ private:
   StrongIndexVector<RowIndex, std::string> m_row_index_to_name_;
 
   size_t m_base_numrows_ {};  ///< Row count before any cuts were added
+  /// True once `save_base_numrows()` has fired.  Distinct from
+  /// `m_base_numrows_ > 0` because the structural build may legitimately
+  /// end at zero rows (e.g. pure column LPs, or tests that call
+  /// save_base_numrows before any rows exist).  `add_row` uses this to
+  /// decide whether incoming rows are cut-phase (physical + equilibration)
+  /// or structural-build-phase (LP-space pass-through).
+  bool m_base_numrows_set_ {false};
 
   double m_scale_objective_ {1.0};  ///< Global objective divisor (from flatten)
   StrongIndexVector<ColIndex, double> m_col_scales_;
   StrongIndexVector<RowIndex, double> m_row_scales_;
+  /// Equilibration method used at load_flat() time.  Persisted so that
+  /// `add_row` / `add_rows` (the post-build cut path) apply the same
+  /// per-row scaling the bulk build did, keeping kappa stable as cuts
+  /// accumulate.  `none` means the caller opted out of equilibration
+  /// at build time and we leave new rows alone.
+  LpEquilibrationMethod m_equilibration_method_ {LpEquilibrationMethod::none};
   VariableScaleMap m_variable_scale_map_ {};  ///< Moved from flatten
 
   /// Warm column solution loaded from a previous run's state file.

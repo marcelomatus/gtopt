@@ -230,9 +230,9 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
         // Increment infeasibility counter for this (scene, phase)
         ++m_infeasibility_counter_[scene_index][phase_index];
 
-        // Cache solution data for the backward pass
+        // Cache solution data for the backward pass (physical space).
         const auto obj = solved_li.get_obj_value();
-        state.forward_full_obj = obj;
+        state.forward_full_obj_physical = solved_li.get_obj_value_physical();
 
         const auto sol = solved_li.get_col_sol_raw();
         const auto rc = solved_li.get_col_cost_raw();
@@ -285,26 +285,25 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
               ? prev_alpha_svar->col()
               : ColIndex {unknown_index};
 
+          // Physical-space fcut: rc from the elastic clone, trial from
+          // each link's source StateVariable.  `add_row` on the
+          // equilibrated prev LP folds col_scales + row-max, so the
+          // prior `rescale_benders_cut` pass is no longer needed.
           auto feas_cut =
-              build_benders_cut(prev_alpha_col,
-                                prev_state.outgoing_links,
-                                solved_li.get_col_cost_raw(),
-                                solved_li.get_obj_value(),
-                                m_options_.scale_alpha,
-                                m_options_.cut_coeff_eps,
-                                planning_lp().options().scale_objective());
+              build_benders_cut_physical(prev_alpha_col,
+                                         prev_state.outgoing_links,
+                                         solved_li,
+                                         solved_li.get_obj_value_physical(),
+                                         m_options_.cut_coeff_eps);
           feas_cut.class_name = "Sddp";
           feas_cut.constraint_name = "fcut";
           feas_cut.context = make_iteration_context(scene_uid(scene_index),
                                                     phase_uid(phase_index),
                                                     iteration_index,
                                                     infeas_count);
-          rescale_benders_cut(
-              feas_cut, prev_alpha_col, m_options_.cut_coeff_max);
-          filter_cut_coefficients(
-              feas_cut, prev_alpha_col, m_options_.cut_coeff_eps);
           {
-            const auto cut_row = prev_li.add_row(feas_cut);
+            const auto cut_row =
+                prev_li.add_row(feas_cut, m_options_.cut_coeff_eps);
             store_cut(scene_index,
                       prev_phase_index,
                       feas_cut,
@@ -445,8 +444,11 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
 
       // Cache solution data for the backward pass — must happen before
       // release_backend() which may discard cached solution vectors.
+      // Store the objective in physical ($) space so the backward pass
+      // can call `build_benders_cut_physical` without re-applying
+      // `scale_objective`.
       const auto obj = li.get_obj_value();
-      state.forward_full_obj = obj;
+      state.forward_full_obj_physical = li.get_obj_value_physical();
 
       const auto sol = li.get_col_sol_raw();
       const auto rc = li.get_col_cost_raw();

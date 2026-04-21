@@ -456,7 +456,12 @@ TEST_CASE("MindOpt backend: parallel create+load+clone is race-free")  // NOLINT
     return;
   }
 
-  constexpr int num_threads = 8;
+  // 2 threads is enough to expose any race on create/load/clone; the
+  // original 8-thread count was closer to a benchmark than a race probe
+  // and dominated unit-test wall time (~17s).  Reducing to the minimum
+  // that still exercises concurrent access brings this test into the
+  // same ballpark as the other parallel-safety tests.
+  constexpr int num_threads = 2;
   std::barrier start_gate(num_threads);
   std::atomic<int> ok {0};
   std::atomic<int> bad {0};

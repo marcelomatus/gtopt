@@ -158,11 +158,6 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   /// 0.0 = no filtering (default).
   double cut_coeff_eps {0.0};
 
-  /// Maximum allowed absolute coefficient in a Benders cut row.
-  /// When max|coeff| exceeds this, the entire row is rescaled uniformly.
-  /// 0.0 = disabled (default).
-  double cut_coeff_max {0.0};
-
   /// Forward-pass infeasibility counter threshold for automatic switching
   /// from single_cut to multi_cut.  When the forward pass has encountered
   /// infeasibility at (scene, phase) more than this many times without
@@ -568,10 +563,12 @@ struct PhaseStateInfo
   std::vector<StateVarLink> outgoing_links {};  ///< Links TO next phase
   size_t base_nrows {0};  ///< Row count before any Benders cuts
   double forward_objective {0.0};  ///< Opex from last forward pass
-  /// Full LP objective from last forward solve (including a).
-  /// Cached for the backward pass so the original LP need not be
-  /// re-queried.
-  double forward_full_obj {0.0};
+  /// Full objective from last forward solve (including α), in physical
+  /// ($) space — i.e. `LinearInterface::get_obj_value_physical()`, not
+  /// the scaled LP raw value.  Cached here so the backward pass can
+  /// call `build_benders_cut_physical` without re-querying the
+  /// original LP.
+  double forward_full_obj_physical {0.0};
 };
 
 // ─── Callback / observer API ────────────────────────────────────────────────

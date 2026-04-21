@@ -17,6 +17,8 @@
 
 #include <gtopt/error.hpp>
 #include <gtopt/linear_interface.hpp>
+#include <gtopt/lp_equilibration.hpp>
+#include <gtopt/map_reserve.hpp>
 #include <gtopt/memory_compress.hpp>
 #include <gtopt/solver_registry.hpp>
 #include <gtopt/system_lp.hpp>  // complete type for m_rebuild_owner_->rebuild_in_place()
@@ -577,6 +579,11 @@ void LinearInterface::load_flat(const FlatLinearProblem& flat_lp)
   // Preserve per-row equilibration scale factors (empty when disabled).
   m_row_scales_.assign(flat_lp.row_scales.begin(), flat_lp.row_scales.end());
 
+  // Persist the equilibration method so the follow-up PR that migrates
+  // Benders cut construction to physical accessors can apply the same
+  // per-row scaling to post-build cut rows as the structural build did.
+  m_equilibration_method_ = flat_lp.equilibration_method;
+
   // Preserve VariableScaleMap for dynamic column auto-scaling.
   m_variable_scale_map_ = flat_lp.variable_scale_map;
 
@@ -759,6 +766,117 @@ RowIndex LinearInterface::add_row(const std::string& name,
 RowIndex LinearInterface::add_row(const SparseRow& row, const double eps)
 {
   ensure_backend();
+
+  // Decide whether to treat `row` as physical (apply col_scale + per-
+  // row row-max equilibration) or as LP-space (pass through unchanged
+  // apart from SparseRow::scale composition).
+  //
+  //  - m_base_numrows_set_ == false  → structural-build phase, i.e.
+  //                                     add_row called from load_flat
+  //                                     or from a caller building the
+  //                                     initial matrix.  The bulk
+  //                                     equilibration pass already
+  //                                     normalised those rows, so a
+  //                                     second pass would double-scale.
+  //  - m_equilibration_method_ == none && m_col_scales_ empty
+  //                                  → nothing to compose; physical ==
+  //                                     LP in that case.
+  //  - Otherwise                     → cut-phase physical row; apply
+  //                                     col_scale + row-max.
+  const bool is_cut_phase = m_base_numrows_set_;
+  const bool have_col_scales = !m_col_scales_.empty();
+  const bool have_equilibration =
+      m_equilibration_method_ != LpEquilibrationMethod::none;
+  const bool compose_physical =
+      is_cut_phase && (have_col_scales || have_equilibration);
+
+  if (!compose_physical) {
+    return add_row_lp_space(row, eps);
+  }
+
+  // Physical-space cut insertion — operates directly on the flat
+  // (columns, elements) representation to avoid building an
+  // intermediate `SparseRow` and to keep the scale composition in one
+  // place instead of bouncing through `add_row_lp_space` (which would
+  // otherwise re-apply `SparseRow::scale` on top of our already-
+  // composed divisor).
+  auto [columns, elements] = row.to_flat<int>(eps);
+  double lb = row.lowb;
+  double ub = row.uppb;
+  const auto infy = m_backend_->infinity();
+
+  // 1. Physical → LP column scaling.  Columns beyond the stored
+  //    `m_col_scales_` extent default to scale 1.0 (matching
+  //    `get_col_scale`).
+  const auto n_col_scales = std::ssize(m_col_scales_);
+  for (std::size_t k = 0; k < elements.size(); ++k) {
+    const auto col = ColIndex {columns[k]};
+    if (col < n_col_scales) {
+      elements[k] *= m_col_scales_[col];
+    }
+  }
+
+  // 2. SparseRow::scale composition (divides row contents by row.scale,
+  //    same contract as `flatten()` applies to structural rows before
+  //    the bulk equilibration pass).
+  double composite_scale = row.scale;
+  if (row.scale != 1.0) {
+    const auto inv_rs = 1.0 / row.scale;
+    for (auto& v : elements) {
+      v *= inv_rs;
+    }
+    if (lb > -infy && lb < infy) {
+      lb *= inv_rs;
+    }
+    if (ub > -infy && ub < infy) {
+      ub *= inv_rs;
+    }
+  }
+
+  // 3. Per-row row-max equilibration, only when the LP was built with
+  //    equilibration on.  When the build chose `none` but col_scales
+  //    are non-trivial (semantic scales set in flatten()), column
+  //    scaling still runs at step 1; the row-max pass is skipped to
+  //    match the historical invariant for non-equilibrated LPs.
+  if (have_equilibration) {
+    double max_abs = 0.0;
+    for (const auto v : elements) {
+      max_abs = std::max(max_abs, std::abs(v));
+    }
+    if (max_abs > 0.0 && max_abs != 1.0) {
+      const double inv = 1.0 / max_abs;
+      for (auto& v : elements) {
+        v *= inv;
+      }
+      if (lb > -infy && lb < infy) {
+        lb *= inv;
+      }
+      if (ub > -infy && ub < infy) {
+        ub *= inv;
+      }
+      composite_scale *= max_abs;
+    }
+  }
+
+  const auto name = m_label_maker_.make_row_label(row);
+  const auto row_idx = add_row(name, columns.size(), columns, elements, lb, ub);
+  if (composite_scale != 1.0) {
+    set_row_scale(row_idx, composite_scale);
+  }
+  return row_idx;
+}
+
+RowIndex LinearInterface::add_row_lp_space(const SparseRow& row,
+                                           const double eps)
+{
+  // Internal raw-insertion path — called by the public `add_row` after
+  // it has (optionally) composed col_scales and row-max equilibration
+  // for physical-space cuts, or directly when the caller flagged the
+  // row as already being in LP space.  No further per-column or per-
+  // row equilibration happens here; we only compose `SparseRow::scale`
+  // (the caller-specified row scaler, mirroring how `flatten()` handles
+  // static rows).
+  //
   // Label generation delegated to LabelMaker.  Returns an empty string
   // when LP row names are disabled or the row lacks the metadata needed
   // to produce a label.
@@ -767,19 +885,14 @@ RowIndex LinearInterface::add_row(const SparseRow& row, const double eps)
   const auto rs = row.scale;
 
   if (rs != 1.0) {
-    // Scale row: divide bounds and coefficients by row.scale.
-    // This mirrors how flatten() handles SparseRow::scale for static rows.
     const auto inv_rs = 1.0 / rs;
     const auto infy = m_backend_->infinity();
 
-    // Scale coefficients: build a new flat representation directly
-    // from the original row, applying the scale factor.
     auto [columns, elements] = row.to_flat<int>(eps);
     for (auto& v : elements) {
       v *= inv_rs;
     }
 
-    // Scale bounds (preserve infinity)
     const double lb =
         (row.lowb > -infy && row.lowb < infy) ? row.lowb * inv_rs : row.lowb;
     const double ub =
@@ -787,10 +900,7 @@ RowIndex LinearInterface::add_row(const SparseRow& row, const double eps)
 
     const auto row_idx =
         add_row(name, columns.size(), columns, elements, lb, ub);
-
-    // Register the row scale so physical getters/setters account for it.
     set_row_scale(row_idx, rs);
-
     return row_idx;
   }
 

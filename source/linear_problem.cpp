@@ -22,6 +22,7 @@
 #include <unordered_map>
 
 #include <gtopt/linear_problem.hpp>
+#include <gtopt/lp_equilibration.hpp>
 #include <gtopt/map_reserve.hpp>
 #include <gtopt/utils.hpp>
 #include <spdlog/spdlog.h>
@@ -84,6 +85,10 @@ namespace
     std::span<double> rowub,
     double infinity) -> std::vector<double>
 {
+  // Bulk row-max equilibration used at build time.  The per-row scaling
+  // math is shared with the single-row `equilibrate_row_in_place`
+  // primitive in `lp_equilibration.cpp`; this variant just stays
+  // CSC-oriented because it already holds the whole matrix in hand.
   const auto nrows = rowlb.size();
 
   // 1. Compute row max |coefficient| from the CSC matrix.
@@ -712,6 +717,7 @@ auto LinearProblem::flatten(const LpMatrixOptions& opts) -> FlatLinearProblem
       .colint = std::move(colint),
       .col_scales = std::move(col_scales),
       .row_scales = std::move(row_scales_vec),
+      .equilibration_method = eq_method,
       .scale_objective = scale_obj,
       .colnm = std::move(colnm),
       .rownm = std::move(rownm),

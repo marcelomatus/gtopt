@@ -131,10 +131,7 @@ auto solve_apertures_for_phase(
     [[maybe_unused]] bool save_aperture_lp,
     const ApertureDataCache& aperture_cache,
     IterationIndex iteration_index,
-    double scale_alpha,
-    double cut_coeff_eps,
-    double cut_coeff_max,
-    double scale_objective) -> std::optional<SparseRow>
+    double cut_coeff_eps) -> std::optional<SparseRow>
 {
   const auto& phase_li = sys.linear_interface();
 
@@ -354,22 +351,20 @@ auto solve_apertures_for_phase(
             };
           }
 
-          // Build Benders cut from the clone's solution (reduced-cost
-          // formulation; see docs/methods/sddp.md for why the PLP-style
-          // row-dual path was removed).
-          auto cut = build_benders_cut(src_alpha_col,
-                                       src_state.outgoing_links,
-                                       clone.get_col_cost_raw(),
-                                       clone.get_obj_value(),
-                                       scale_alpha,
-                                       cut_coeff_eps,
-                                       scale_objective);
+          // Physical-space per-aperture cut: rc from this aperture's
+          // clone (ScaledView: LP × scale_objective / col_scale),
+          // trial from each link's source StateVariable.  `add_row` on
+          // src_li folds col_scales + row-max on insertion, so the
+          // legacy `rescale_benders_cut` pass is no longer needed.
+          auto cut = build_benders_cut_physical(src_alpha_col,
+                                                src_state.outgoing_links,
+                                                clone,
+                                                clone.get_obj_value_physical(),
+                                                cut_coeff_eps);
           cut.class_name = "Sddp";
           cut.constraint_name = "aper_cut";
           cut.context = make_aperture_context(
               scene_uid_val, phase_uid_val, ap_uid, total_cuts);
-          rescale_benders_cut(cut, src_alpha_col, cut_coeff_max);
-          filter_cut_coefficients(cut, src_alpha_col, cut_coeff_eps);
 
           const auto ap_s = std::chrono::duration<double>(
                                 std::chrono::steady_clock::now() - ap_start)

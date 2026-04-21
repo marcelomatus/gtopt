@@ -71,6 +71,48 @@ TEST_CASE("StateVariable core functionality")
   }
 }
 
+TEST_CASE("StateVariable physical accessors")
+{
+  // `col_sol_physical()` returns `LP × var_scale`; `reduced_cost_physical`
+  // returns `LP × scale_obj / var_scale`, mirroring the LinearInterface
+  // `get_col_cost()` physical convention.  These are the accessors the
+  // phase-B physical Benders cut migration will use to replace the
+  // today's raw LP idioms at the cut-builder call sites.
+  const StateVariable::LPKey lp_key {
+      .scene_index = SceneIndex {0},
+      .phase_index = PhaseIndex {0},
+  };
+  StateVariable var {lp_key,
+                     ColIndex {0},
+                     /*scost=*/0.0,
+                     /*var_scale=*/8.0,
+                     LpContext {}};
+
+  SUBCASE("col_sol_physical scales by var_scale")
+  {
+    var.set_col_sol(5.0);
+    CHECK(var.col_sol() == doctest::Approx(5.0));  // raw LP unchanged
+    CHECK(var.col_sol_physical() == doctest::Approx(40.0));  // 5 × 8
+  }
+
+  SUBCASE("reduced_cost_physical = LP × scale_obj / var_scale")
+  {
+    var.set_reduced_cost(2.0);
+    CHECK(var.reduced_cost() == doctest::Approx(2.0));  // raw LP unchanged
+    // physical = 2 × 1000 / 8 = 250
+    CHECK(var.reduced_cost_physical(1000.0) == doctest::Approx(250.0));
+  }
+
+  SUBCASE("var_scale = 1 means physical equals LP")
+  {
+    StateVariable unit_var {lp_key, ColIndex {1}, 0.0, 1.0, LpContext {}};
+    unit_var.set_col_sol(3.14);
+    unit_var.set_reduced_cost(-1.5);
+    CHECK(unit_var.col_sol_physical() == doctest::Approx(3.14));
+    CHECK(unit_var.reduced_cost_physical(1.0) == doctest::Approx(-1.5));
+  }
+}
+
 TEST_CASE("StateVariable dependent variable templates")
 {
   StateVariable var {

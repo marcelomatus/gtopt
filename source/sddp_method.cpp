@@ -862,13 +862,12 @@ auto SDDPMethod::backward_pass_single_phase(SceneIndex scene_index,
   // Use cached forward-pass solution for cut generation.
   const auto& target_state = phase_states[phase_index];
 
-  const auto sa = m_options_.scale_alpha;
   const auto ceps = m_options_.cut_coeff_eps;
-  const auto cmax = m_options_.cut_coeff_max;
-  // No-span cut builder: reduced costs are read directly from each
-  // link's back-pointer to the source StateVariable, avoiding the
-  // per-phase full-vector cache that used to live on PhaseStateInfo
-  // (`forward_col_cost`).
+  // Physical-space builder: reduced costs and trial values come from
+  // each link's back-pointer StateVariable (mirrored by the last
+  // forward pass via `capture_state_variable_values`).  `add_row` on
+  // the source LP folds `col_scales` and runs per-row row-max
+  // equilibration, so no post-hoc `rescale_benders_cut` pass is needed.
   //
   // Resolve the α column freshly from the state-variable registry so
   // low_memory reconstruct paths never see a stale cached index.
@@ -880,24 +879,21 @@ auto SDDPMethod::backward_pass_single_phase(SceneIndex scene_index,
 
   const auto scale_obj = planning_lp().options().scale_objective();
   const auto t_build = Clock::now();
-  auto cut = build_benders_cut(src_alpha_col,
-                               src_state.outgoing_links,
-                               target_state.forward_full_obj,
-                               sa,
-                               ceps,
-                               scale_obj);
+  auto cut = build_benders_cut_physical(src_alpha_col,
+                                        src_state.outgoing_links,
+                                        target_state.forward_full_obj_physical,
+                                        scale_obj,
+                                        ceps);
   cut.class_name = "Sddp";
   cut.constraint_name = "scut";
   cut.context = make_iteration_context(scene_uid(scene_index),
                                        phase_uid(phase_index),
                                        iteration_index,
                                        cut_offset);
-  rescale_benders_cut(cut, src_alpha_col, cmax);
-  filter_cut_coefficients(cut, src_alpha_col, ceps);
   const auto dt_build = elapsed_s(t_build);
 
   const auto t_add_row = Clock::now();
-  const auto cut_row = src_li.add_row(cut);
+  const auto cut_row = src_li.add_row(cut, ceps);
   const auto dt_add_row = elapsed_s(t_add_row);
 
   const auto t_store = Clock::now();
