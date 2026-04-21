@@ -371,10 +371,22 @@ void log_lp_coefficient_stats(const PlanningLP& planning_lp)
                                                      const MainOptions& opts,
                                                      bool do_stats)
 {
-  // --lp-file and --lp-debug require all col+row names to be generated so
-  // the solver can write a readable .lp dump.
-  const bool enable_names =
-      opts.lp_file.has_value() || opts.lp_debug.value_or(false);
+  // --lp-file and --lp-debug require all col+row names to be generated
+  // so the solver can write a readable .lp dump.
+  //
+  // SDDP and cascade also need names unconditionally: the forward-pass
+  // "unrecoverable infeasibility" path (`sddp_forward_pass.cpp`) dumps
+  // an `error_s*_p*_i*.lp` file on diagnosis-critical failures, and
+  // `LinearInterface::write_lp` refuses to emit when row names are
+  // empty.  Forcing names here trades ~10–20 MB of RAM for the ability
+  // to diagnose any infeasibility from the dumped LP — a fair price
+  // given these paths are rare and the alternative is losing the only
+  // artefact that reveals what went wrong.
+  const auto method = planning.options.method.value_or(MethodType::monolithic);
+  const bool wants_error_lp =
+      method == MethodType::sddp || method == MethodType::cascade;
+  const bool enable_names = opts.lp_file.has_value()
+      || opts.lp_debug.value_or(false) || wants_error_lp;
   const auto eq_method = effective_equilibration_method(planning);
   auto flat_opts = make_lp_matrix_options(
       enable_names, opts.matrix_eps, do_stats, opts.solver, eq_method);
