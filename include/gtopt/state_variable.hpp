@@ -220,11 +220,27 @@ public:
   // on `StateVarLink`, keeping the const-correctness of the registry map
   // iteration at link-build time.
 
-  /// Forward-pass primal solution of this state variable's source column.
+  /// Forward-pass primal solution of this state variable's source column,
+  /// in **raw LP** space.  Multiply by `var_scale()` to obtain the
+  /// physical value, or use `col_sol_physical()` below.
   [[nodiscard]] constexpr auto col_sol() const noexcept { return m_col_sol_; }
   constexpr void set_col_sol(double v) const noexcept { m_col_sol_ = v; }
 
-  /// Reduced cost of the dependent column in the target phase's last solve.
+  /// Physical-space primal solution:  `LP × var_scale`.
+  ///
+  /// For the alpha future-cost column this equals `LP × scale_alpha`,
+  /// matching the `alpha_svar->col_sol() * sa` idiom at the forward-
+  /// pass call sites.  For state variables with `var_scale = 1.0`
+  /// (bare primal columns without a flatten-time semantic scale) this
+  /// returns the same value as `col_sol()`.
+  [[nodiscard]] constexpr double col_sol_physical() const noexcept
+  {
+    return m_col_sol_ * m_var_scale_;
+  }
+
+  /// Reduced cost of the dependent column in the target phase's last
+  /// solve, in **raw LP** space.  Use `reduced_cost_physical()` below
+  /// when building physical-space Benders cuts.
   [[nodiscard]] constexpr auto reduced_cost() const noexcept
   {
     return m_reduced_cost_;
@@ -232,6 +248,21 @@ public:
   constexpr void set_reduced_cost(double v) const noexcept
   {
     m_reduced_cost_ = v;
+  }
+
+  /// Physical-space reduced cost (`$/physical_unit`):
+  ///   `rc_LP × scale_objective / var_scale`.
+  ///
+  /// This matches the `LinearInterface::get_col_cost()` convention
+  /// (`LP × scale_objective / col_scale`), so the physical-space
+  /// Benders cut builder (`build_benders_cut_physical`) can take
+  /// either source with identical semantics.  `scale_objective` is
+  /// passed as an argument because it's a global option, not a
+  /// per-state-variable property.
+  [[nodiscard]] constexpr double reduced_cost_physical(
+      double scale_objective) const noexcept
+  {
+    return m_reduced_cost_ * scale_objective / m_var_scale_;
   }
 
 private:
