@@ -565,7 +565,7 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
         {
           planning_lp()
               .system(scene_index, phase_index)
-              .set_output_skipped(true);
+              .set_output_skipped(/*v=*/true);
           ++n_cells_skipped;
         }
       }
