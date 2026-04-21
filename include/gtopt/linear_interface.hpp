@@ -831,6 +831,10 @@ public:
    * @param col_names  Output vector, resized to `get_num_cols()`.
    * @param row_names  Output vector, resized to `get_num_rows()`.
    */
+  /// Caches formatted labels back into `m_col_index_to_name_` /
+  /// `m_row_index_to_name_` so subsequent calls (repeat `write_lp`)
+  /// skip the `LabelMaker` pass.  The caches are declared `mutable`
+  /// so this method remains logically const.
   void generate_labels_from_maps(std::vector<std::string>& col_names,
                                  std::vector<std::string>& row_names) const;
 
@@ -1643,8 +1647,11 @@ private:
   /// Populated when names are enabled.
   row_name_map_t m_row_names_;  ///< Row (constraint) name → row index
   col_name_map_t m_col_names_;  ///< Column (variable) name → col index
-  StrongIndexVector<ColIndex, std::string> m_col_index_to_name_;
-  StrongIndexVector<RowIndex, std::string> m_row_index_to_name_;
+  // Mutable so `generate_labels_from_maps` (logically const — it
+  // returns new vectors; the state update is a caching detail) can
+  // persist freshly-formatted labels for reuse on subsequent calls.
+  mutable StrongIndexVector<ColIndex, std::string> m_col_index_to_name_;
+  mutable StrongIndexVector<RowIndex, std::string> m_row_index_to_name_;
 
   size_t m_base_numrows_ {};  ///< Row count before any cuts were added
   /// True once `save_base_numrows()` has fired.  Distinct from
