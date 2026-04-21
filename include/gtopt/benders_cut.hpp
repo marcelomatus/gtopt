@@ -263,6 +263,43 @@ bool rescale_benders_cut(SparseRow& row,
     double objective_value_physical,
     double cut_coeff_eps = 0.0) -> SparseRow;
 
+/// Physical-space Benders cut builder that reads reduced cost and trial
+/// value from each link's back-pointer state variable instead of taking
+/// flat spans.  The SDDP backward pass uses this overload: the forward
+/// pass already mirrors the target LP's `col_sol` / `reduced_cost` onto
+/// every `StateVariable` via `capture_state_variable_values`, so the
+/// builder can read the live values directly without re-taking the full
+/// per-LP snapshots.
+///
+///   rc_phys  = state_var->reduced_cost_physical(scale_objective)
+///   v̂_phys  = state_var->col_sol_physical()
+///   lowb    = objective_value_physical − Σ rc_phys · v̂_phys
+///   row[src_col] = −rc_phys,  row[alpha_col] = 1.0
+///
+/// The returned row carries no `already_lp_space` flag: `add_row` on an
+/// equilibrated LP will fold `col_scales` and run per-row row-max
+/// equilibration, so the resulting row is well-conditioned without any
+/// post-hoc `rescale_benders_cut` pass.
+///
+/// @param alpha_col               α column in the source phase's LP.
+/// @param links                   State-variable linkage descriptors.
+///                                Links with a null `state_var` contribute
+///                                zero (rc_phys = v̂_phys = 0), matching
+///                                the test-fixture convention.
+/// @param objective_value_physical Target subproblem optimum in $,
+///                                i.e. `target_li.get_obj_value_physical()`.
+/// @param scale_objective         Global objective scale (required so
+///                                `reduced_cost_physical()` can descale
+///                                the LP reduced cost to $/phys_unit).
+/// @param cut_coeff_eps           Drop state-var coefficients below this
+///                                absolute threshold (default 0 = keep all).
+[[nodiscard]] auto build_benders_cut_physical(
+    ColIndex alpha_col,
+    std::span<const StateVarLink> links,
+    double objective_value_physical,
+    double scale_objective,
+    double cut_coeff_eps = 0.0) -> SparseRow;
+
 // ─── Elastic filter ─────────────────────────────────────────────────────────
 
 /// Relax a single fixed state-variable column to its physical source bounds,

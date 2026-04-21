@@ -148,7 +148,6 @@ auto SDDPMethod::install_aperture_backward_cut(
   double dt_kappa = 0.0;
   double dt_store = 0.0;
 
-  const auto sa = m_options_.scale_alpha;
   const auto ceps = m_options_.cut_coeff_eps;
   const auto cmax = m_options_.cut_coeff_max;
   const auto scale_obj = planning_lp().options().scale_objective();
@@ -231,25 +230,26 @@ auto SDDPMethod::install_aperture_backward_cut(
 
   // Bcut path: aperture failed, or the expected cut broke optimality.
   // Built from cached state-variable reduced costs
-  // (`StateVariable::reduced_cost()`), which are refreshed by each
-  // forward pass via `capture_state_variable_values()` and never
+  // (`StateVariable::reduced_cost_physical()`), which are refreshed by
+  // each forward pass via `capture_state_variable_values()` and never
   // touched by the backward pass.  A valid Benders underestimator of
   // the future-cost function — adding it to an optimal src_li cannot
-  // produce infeasibility.
+  // produce infeasibility.  Physical-space builder: `add_row` folds
+  // `col_scales` + per-row row-max equilibration internally, so no
+  // post-hoc `rescale_benders_cut` pass is needed.
   const auto t_build = Clock::now();
-  auto fallback_cut = build_benders_cut(src_alpha_col,
-                                        src_state.outgoing_links,
-                                        target_state.forward_full_obj,
-                                        sa,
-                                        ceps,
-                                        scale_obj);
+  auto fallback_cut =
+      build_benders_cut_physical(src_alpha_col,
+                                 src_state.outgoing_links,
+                                 target_state.forward_full_obj_physical,
+                                 scale_obj,
+                                 ceps);
   fallback_cut.class_name = "Sddp";
   fallback_cut.constraint_name = "bcut";
   fallback_cut.context = make_iteration_context(scene_uid(scene_index),
                                                 phase_uid(phase_index),
                                                 iteration_index,
                                                 cut_offset);
-  rescale_benders_cut(fallback_cut, src_alpha_col, cmax);
   filter_cut_coefficients(fallback_cut, src_alpha_col, ceps);
   dt_cut_build += elapsed_s(t_build);
 

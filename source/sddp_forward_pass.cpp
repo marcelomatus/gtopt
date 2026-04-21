@@ -230,9 +230,9 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
         // Increment infeasibility counter for this (scene, phase)
         ++m_infeasibility_counter_[scene_index][phase_index];
 
-        // Cache solution data for the backward pass
+        // Cache solution data for the backward pass (physical space).
         const auto obj = solved_li.get_obj_value();
-        state.forward_full_obj = obj;
+        state.forward_full_obj_physical = solved_li.get_obj_value_physical();
 
         const auto sol = solved_li.get_col_sol_raw();
         const auto rc = solved_li.get_col_cost_raw();
@@ -445,8 +445,11 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
 
       // Cache solution data for the backward pass — must happen before
       // release_backend() which may discard cached solution vectors.
+      // Store the objective in physical ($) space so the backward pass
+      // can call `build_benders_cut_physical` without re-applying
+      // `scale_objective`.
       const auto obj = li.get_obj_value();
-      state.forward_full_obj = obj;
+      state.forward_full_obj_physical = li.get_obj_value_physical();
 
       const auto sol = li.get_col_sol_raw();
       const auto rc = li.get_col_cost_raw();
