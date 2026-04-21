@@ -7,9 +7,12 @@
  */
 
 #include <algorithm>
+#include <array>
 #include <cassert>
 #include <chrono>
+#include <cstring>
 #include <expected>
+#include <limits>
 #include <memory>
 #include <mutex>
 #include <ranges>
@@ -60,6 +63,116 @@ inline bool check_name_unique(Map& name_map,
     return true;
   }
   return false;
+}
+
+// ── Label-metadata serialization (Step 3 / Option B) ─────────────────
+
+/// Byte-level serializer for a vector of `SparseColLabel` /
+/// `SparseRowLabel`.  Layout, per entry:
+///
+///   u16  class_name_len
+///   N    class_name bytes
+///   u16  second_string_len   (variable_name or constraint_name)
+///   M    second_string bytes
+///   8    variable_uid (memcpy of Uid)
+///   sizeof(LpContext)  context bytes (memcpy)
+///
+/// `LpContext` is a `std::variant` of tuples of strong-int-typed uids —
+/// trivially copyable, so a direct memcpy round-trips correctly.  The
+/// string_view content is copied inline so the compressed form is
+/// self-contained (no dangling pointers into the original string
+/// storage).  Decompression re-materialises each string into a
+/// per-LinearInterface `string_pool` whose stable addresses back the
+/// revived string_views — the pool is pre-sized via `reserve` so
+/// push_back never reallocates.
+template<typename LabelT>
+[[nodiscard]] std::vector<char> serialize_labels_meta(
+    const std::vector<LabelT>& labels)
+{
+  std::vector<char> out;
+  // Pre-reserve a conservative estimate (2 strings × 16 + uid +
+  // context).  Realloc paths are fine but this avoids most.
+  out.reserve(labels.size() * 80);
+
+  const auto write_u16 = [&](uint16_t v)
+  {
+    const std::array<char, 2> bytes {static_cast<char>(v & 0xFFU),
+                                     static_cast<char>((v >> 8U) & 0xFFU)};
+    out.insert(out.end(), bytes.begin(), bytes.end());
+  };
+  const auto write_sv = [&](std::string_view s)
+  {
+    assert(s.size() <= std::numeric_limits<uint16_t>::max()
+           && "LP class/variable/constraint name too long for u16 length");
+    write_u16(static_cast<uint16_t>(s.size()));
+    out.insert(out.end(), s.begin(), s.end());
+  };
+  const auto write_bytes = [&](const void* ptr, std::size_t n)
+  {
+    const auto* p = static_cast<const char*>(ptr);
+    out.insert(out.end(), p, p + n);
+  };
+
+  for (const auto& lbl : labels) {
+    write_sv(lbl.class_name);
+    if constexpr (requires { lbl.variable_name; }) {
+      write_sv(lbl.variable_name);
+    } else {
+      write_sv(lbl.constraint_name);
+    }
+    write_bytes(&lbl.variable_uid, sizeof(lbl.variable_uid));
+    write_bytes(&lbl.context, sizeof(lbl.context));
+  }
+  return out;
+}
+
+/// Inverse of `serialize_labels_meta`.  Re-materialises strings into
+/// `string_pool` (which MUST be reserved to at least `2 * num_entries`
+/// before calling, so string_views into pool entries stay valid —
+/// push_back must not reallocate).
+template<typename LabelT>
+[[nodiscard]] std::vector<LabelT> deserialize_labels_meta(
+    std::span<const char> data,
+    std::size_t num_entries,
+    std::vector<std::string>& string_pool)
+{
+  std::vector<LabelT> out;
+  out.reserve(num_entries);
+
+  std::size_t pos = 0;
+  const auto read_u16 = [&]() -> uint16_t
+  {
+    const uint16_t lo = static_cast<uint8_t>(data[pos]);
+    const uint16_t hi = static_cast<uint8_t>(data[pos + 1]);
+    pos += 2;
+    return static_cast<uint16_t>(lo | (hi << 8U));
+  };
+  const auto read_sv = [&]() -> std::string_view
+  {
+    const auto n = read_u16();
+    string_pool.emplace_back(data.data() + pos, n);
+    pos += n;
+    return string_pool.back();
+  };
+  const auto read_bytes = [&](void* ptr, std::size_t n)
+  {
+    std::memcpy(ptr, data.data() + pos, n);
+    pos += n;
+  };
+
+  for (std::size_t k = 0; k < num_entries; ++k) {
+    LabelT lbl {};
+    lbl.class_name = read_sv();
+    if constexpr (requires { lbl.variable_name; }) {
+      lbl.variable_name = read_sv();
+    } else {
+      lbl.constraint_name = read_sv();
+    }
+    read_bytes(&lbl.variable_uid, sizeof(lbl.variable_uid));
+    read_bytes(&lbl.context, sizeof(lbl.context));
+    out.push_back(std::move(lbl));
+  }
+  return out;
 }
 
 }  // namespace
@@ -234,6 +347,17 @@ void LinearInterface::release_backend() noexcept
         enable_compression();
       } else {
         clear_flat_lp_vectors(m_snapshot_.flat_lp);
+      }
+      // Also compress the label-metadata vectors.  `noexcept` contract
+      // on `release_backend` means we swallow any compression error
+      // here; next `generate_labels_from_maps` would fall back to
+      // whatever is still live (nothing, by design) — acceptable
+      // worst-case is `write_lp` throwing on missing metadata, which
+      // the caller is already defensive against.
+      try {
+        compress_labels_meta_if_needed();
+      } catch (...) {  // NOLINT(bugprone-empty-catch)
+        // Best-effort — proceed with release.
       }
     }
   } catch (...) {  // NOLINT(bugprone-empty-catch)
@@ -713,6 +837,9 @@ ColIndex LinearInterface::add_free_col(const std::string& name)
 ColIndex LinearInterface::add_col(const SparseCol& col)
 {
   ensure_backend();
+  // Rehydrate compressed metadata before mutating the live vector
+  // (compress mode).  No-op otherwise.
+  ensure_labels_meta_decompressed();
 
   const auto [lowb, uppb] = normalize_bounds(col.lowb, col.uppb);
   const auto index = m_backend_->get_num_cols();
@@ -787,6 +914,8 @@ RowIndex LinearInterface::add_row(const std::string& name,
 void LinearInterface::track_row_label_meta(RowIndex row_idx,
                                            const SparseRow& row)
 {
+  // Rehydrate compressed metadata before mutating (compress mode).
+  ensure_labels_meta_decompressed();
   const auto i = static_cast<size_t>(row_idx);
   if (m_row_labels_meta_.size() <= i) {
     m_row_labels_meta_.resize(i + 1);
@@ -1327,6 +1456,11 @@ void LinearInterface::generate_labels_from_maps(
     std::vector<std::string>& col_names,
     std::vector<std::string>& row_names) const
 {
+  // Lazy-lazy decompression: if `release_backend` stashed the
+  // metadata into compressed buffers, rehydrate it now on first
+  // read.  No-op in modes that never compressed.
+  ensure_labels_meta_decompressed();
+
   // Forced-all LabelMaker: `m_label_maker_` is whatever flatten
   // captured (typically `none`).  Here we want real labels always,
   // synthesised on demand from metadata.
@@ -1446,6 +1580,77 @@ void LinearInterface::materialize_labels() const
   std::vector<std::string> col_names;
   std::vector<std::string> row_names;
   generate_labels_from_maps(col_names, row_names);
+}
+
+void LinearInterface::compress_labels_meta_if_needed()
+{
+  if (m_low_memory_mode_ == LowMemoryMode::off) {
+    return;
+  }
+  // Always re-compress whenever live data is present.  A stale
+  // compressed buffer may already exist from a previous release
+  // cycle; the recompressed buffer supersedes it so growth between
+  // release cycles (cuts appended on iter N, α re-appended on
+  // reload, etc.) is captured.  When live is empty (already
+  // compressed and no post-reload mutations) this is a no-op.
+  if (!m_col_labels_meta_.empty()) {
+    m_col_labels_meta_count_ = m_col_labels_meta_.size();
+    const auto bytes = serialize_labels_meta(m_col_labels_meta_);
+    const auto codec = select_codec(m_memory_codec_);
+    m_col_labels_meta_compressed_ =
+        compress_buffer({bytes.data(), bytes.size()}, codec);
+    // Drop the live vector; `string_view`s in `m_col_labels_meta_`
+    // are now invalidated.  The string pool stays alive until the
+    // next decompression cycle reseeds it with fresh strings.
+    m_col_labels_meta_.clear();
+    m_col_labels_meta_.shrink_to_fit();
+  }
+  if (!m_row_labels_meta_.empty()) {
+    m_row_labels_meta_count_ = m_row_labels_meta_.size();
+    const auto bytes = serialize_labels_meta(m_row_labels_meta_);
+    const auto codec = select_codec(m_memory_codec_);
+    m_row_labels_meta_compressed_ =
+        compress_buffer({bytes.data(), bytes.size()}, codec);
+    m_row_labels_meta_.clear();
+    m_row_labels_meta_.shrink_to_fit();
+  }
+}
+
+void LinearInterface::ensure_labels_meta_decompressed() const
+{
+  // Decompress on first read / write after `compress_labels_meta_if_
+  // needed` fired.  Idempotent: non-empty live vectors mean we've
+  // already decompressed (or never compressed in the first place).
+  if (!m_col_labels_meta_compressed_.empty() && m_col_labels_meta_.empty()) {
+    const auto bytes = m_col_labels_meta_compressed_.decompress_data();
+    // Reserve the pool to hold 2 string_views per entry (class_name
+    // + variable_name) so `push_back` never reallocates and the
+    // revived `string_view`s stay valid.
+    m_label_string_pool_.clear();
+    m_label_string_pool_.reserve(m_col_labels_meta_count_ * 2
+                                 + m_row_labels_meta_count_ * 2);
+    m_col_labels_meta_ =
+        deserialize_labels_meta<SparseColLabel>({bytes.data(), bytes.size()},
+                                                m_col_labels_meta_count_,
+                                                m_label_string_pool_);
+    m_col_labels_meta_compressed_ = {};
+    m_col_labels_meta_count_ = 0;
+  }
+  if (!m_row_labels_meta_compressed_.empty() && m_row_labels_meta_.empty()) {
+    const auto bytes = m_row_labels_meta_compressed_.decompress_data();
+    // Keep existing col-pool entries — if col was decompressed first
+    // the string_views still point into their original pool slots.
+    // The row pass just appends.
+    if (m_label_string_pool_.capacity() == 0) {
+      m_label_string_pool_.reserve(m_row_labels_meta_count_ * 2);
+    }
+    m_row_labels_meta_ =
+        deserialize_labels_meta<SparseRowLabel>({bytes.data(), bytes.size()},
+                                                m_row_labels_meta_count_,
+                                                m_label_string_pool_);
+    m_row_labels_meta_compressed_ = {};
+    m_row_labels_meta_count_ = 0;
+  }
 }
 
 void LinearInterface::push_names_to_solver() const

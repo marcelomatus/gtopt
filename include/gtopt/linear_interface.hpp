@@ -30,6 +30,7 @@
 #include <gtopt/fmap.hpp>
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/low_memory_snapshot.hpp>
+#include <gtopt/memory_compress.hpp>
 #include <gtopt/sddp_enums.hpp>
 #include <gtopt/solver_backend.hpp>
 #include <gtopt/solver_options.hpp>
@@ -851,6 +852,18 @@ private:
   /// index is known.  Resizes `m_row_labels_meta_` so `m[row_idx]`
   /// carries the 4-tuple LabelMaker needs.
   void track_row_label_meta(RowIndex row_idx, const SparseRow& row);
+
+  /// Compress the live `m_col_labels_meta_` / `m_row_labels_meta_`
+  /// vectors into their `_compressed_` backups and clear the live
+  /// copies.  Called from `release_backend` under
+  /// `LowMemoryMode::compress`.  No-op in other modes.
+  void compress_labels_meta_if_needed();
+
+  /// Lazy-lazy decompression: if the live metadata is empty but a
+  /// compressed buffer is non-empty, decompress it back into the
+  /// live vector (and the string pool).  No-op otherwise.  Safe to
+  /// call repeatedly and from const contexts (members are mutable).
+  void ensure_labels_meta_decompressed() const;
 
 public:
   /**
@@ -1728,15 +1741,35 @@ private:
   /// Net active Benders cuts (additions minus deletions).
   std::vector<SparseRow> m_active_cuts_ {};
 
-  /// Label-only metadata for every structural column populated at
-  /// flatten time, regardless of `LpMatrixOptions::col_with_names`.
-  /// Used by `generate_labels_from_maps` to synthesise real gtopt
-  /// labels on demand (e.g. at `write_lp` time for the SDDP error-LP
-  /// dump path).  Dynamic cols added after load_flat are not tracked
-  /// here — their label metadata lives in `m_dynamic_cols_` and is
-  /// synthesised from there.
-  std::vector<SparseColLabel> m_col_labels_meta_ {};
-  std::vector<SparseRowLabel> m_row_labels_meta_ {};
+  /// Label-only metadata for every column and row populated at
+  /// flatten time (via `load_flat`) and extended at `add_col` /
+  /// `add_row` time.  Used by `generate_labels_from_maps` to
+  /// synthesise real gtopt labels on demand.
+  ///
+  /// Under `LowMemoryMode::compress`, `release_backend` compresses
+  /// these vectors into `m_col_labels_meta_compressed_` /
+  /// `m_row_labels_meta_compressed_` and clears the live copies.
+  /// Decompression is lazy-lazy: it fires only when a code path
+  /// actually reads the metadata (e.g. `generate_labels_from_maps`,
+  /// `add_col` / `add_row` extensions).  The decompressed strings
+  /// live in `m_label_string_pool_` — the pool is never cleared
+  /// while `m_col_labels_meta_` references it.  `mutable` because
+  /// the lazy decompression flow is triggered from const methods.
+  mutable std::vector<SparseColLabel> m_col_labels_meta_ {};
+  mutable std::vector<SparseRowLabel> m_row_labels_meta_ {};
+
+  /// Compressed backups of the metadata vectors — populated on
+  /// `release_backend` under `compress` mode, drained on the first
+  /// label-metadata read after reload.
+  mutable CompressedBuffer m_col_labels_meta_compressed_ {};
+  mutable CompressedBuffer m_row_labels_meta_compressed_ {};
+  mutable std::size_t m_col_labels_meta_count_ {0};
+  mutable std::size_t m_row_labels_meta_count_ {0};
+
+  /// Stable string storage backing decompressed `string_view`s in
+  /// `m_col_labels_meta_` / `m_row_labels_meta_`.  Reserved ahead of
+  /// decompression so `push_back` doesn't invalidate the views.
+  mutable std::vector<std::string> m_label_string_pool_ {};
 
   /// Whether the backend is currently released.
   bool m_backend_released_ {false};
