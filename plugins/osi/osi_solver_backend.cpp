@@ -612,27 +612,88 @@ void OsiSolverBackend::clear_log_filename()
   }
 }
 
+namespace
+{
+
+/// CoinLpIO's name validator rejects:
+///   - empty names (gaps in the name vector);
+///   - names with characters outside `[A-Za-z0-9_.]` — notably `-`,
+///     which appears in gtopt's unknown-uid placeholder `_-1_...`.
+/// When *any* name fails validation CoinLpIO discards the *entire*
+/// set and falls back to `R1, R2, ...`, breaking LP-file auditing
+/// and every downstream tool that relies on the generated labels.
+///
+/// `sanitise_lp_name` replaces invalid characters with `_` and
+/// substitutes a positional placeholder (`prefix_<idx>`) for empty
+/// names.  The sanitised form only affects the OSI backend's name
+/// storage; authoritative names on `LinearInterface` are preserved.
+[[nodiscard]] std::string sanitise_lp_name(std::string_view raw,
+                                           std::string_view prefix,
+                                           std::size_t idx)
+{
+  if (raw.empty()) {
+    // Synthesise a deterministic placeholder so CoinLpIO accepts the
+    // full name vector.  Index-based so two gaps can't collide.
+    return std::format("{}{}", prefix, idx);
+  }
+  std::string out;
+  out.reserve(raw.size());
+  for (const char c : raw) {
+    const bool ok = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
+        || (c >= '0' && c <= '9') || c == '_' || c == '.';
+    out.push_back(ok ? c : '_');
+  }
+  return out;
+}
+
+}  // namespace
+
 void OsiSolverBackend::push_names(const std::vector<std::string>& col_names,
                                   const std::vector<std::string>& row_names)
 {
-  // Fast path for CLP: bulk set via ClpModel::copyNames()
-  auto* clp = as_clp(m_solver_.get(), m_type_);
-  if (clp != nullptr) {
-    clp->getModelPtr()->copyNames(row_names, col_names);
-    return;
+  // Two name stores are in play on OsiClpSolverInterface:
+  //   1. ClpModel's own `m_rowNames_` / `m_columnNames_` (CLP-internal
+  //      solver consumers).
+  //   2. OSI's base-class name vectors, gated by `OsiNameDiscipline`
+  //      (what `OsiSolverInterface::writeLp` actually reads from).
+  //
+  // A previous `copyNames`-only fast path populated only (1), so cut
+  // rows added after `load_flat` had their names ignored by the LP
+  // file writer — the generated .lp file carried `R1, R2, ...`
+  // defaults instead of `sddp_fcut_...` / `sddp_bcut_...`.  Always
+  // populate BOTH stores: the CLP bulk copy for solver-internal
+  // consumers, and the OSI per-element path so writeLp() emits real
+  // labels.  Both passes are O(ncols + nrows) and negligible next to
+  // the solve they precede.
+  //
+  // We also sanitise names for the OSI store: CoinLpIO's writeLp
+  // rejects the whole set if any name contains characters it deems
+  // "illegal" (notably `-` in gtopt's `-1_` unknown-uid placeholder),
+  // silently falling back to `R1, R2, ...`.  The sanitised form only
+  // affects what OSI writes to `.lp` files; `LinearInterface`'s own
+  // `m_row_index_to_name_` / `m_col_index_to_name_` maps keep the
+  // original names verbatim.
+  m_safe_col_names_.clear();
+  m_safe_row_names_.clear();
+  m_safe_col_names_.reserve(col_names.size());
+  m_safe_row_names_.reserve(row_names.size());
+  for (std::size_t i = 0; i < col_names.size(); ++i) {
+    m_safe_col_names_.push_back(sanitise_lp_name(col_names[i], "c", i));
+  }
+  for (std::size_t i = 0; i < row_names.size(); ++i) {
+    m_safe_row_names_.push_back(sanitise_lp_name(row_names[i], "r", i));
   }
 
-  // Generic fallback: per-element via OSI
-  m_solver_->setIntParam(OsiNameDiscipline, 2);
-  for (size_t i = 0; i < col_names.size(); ++i) {
-    if (!col_names[i].empty()) {
-      m_solver_->setColName(static_cast<int>(i), col_names[i]);
-    }
+  if (auto* clp = as_clp(m_solver_.get(), m_type_); clp != nullptr) {
+    clp->getModelPtr()->copyNames(m_safe_row_names_, m_safe_col_names_);
   }
-  for (size_t i = 0; i < row_names.size(); ++i) {
-    if (!row_names[i].empty()) {
-      m_solver_->setRowName(static_cast<int>(i), row_names[i]);
-    }
+
+  m_solver_->setIntParam(OsiNameDiscipline, 2);
+  for (std::size_t i = 0; i < m_safe_col_names_.size(); ++i) {
+    m_solver_->setColName(static_cast<int>(i), m_safe_col_names_[i]);
+  }
+  for (std::size_t i = 0; i < m_safe_row_names_.size(); ++i) {
+    m_solver_->setRowName(static_cast<int>(i), m_safe_row_names_[i]);
   }
 }
 

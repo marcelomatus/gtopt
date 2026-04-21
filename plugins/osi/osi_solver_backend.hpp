@@ -187,6 +187,18 @@ private:
   bool m_presolve_ {true};
   int m_log_level_ {0};
 
+  /// Sanitised names cached from the most recent `push_names` call.
+  /// `push_names` populates both the CLP-internal name store
+  /// (`ClpModel::copyNames`) and the OSI base-class name vectors
+  /// (`setColName`/`setRowName` under `OsiNameDiscipline=2`) so that
+  /// `OsiSolverInterface::writeLp` emits real labels — the prior
+  /// CLP-only fast path left the OSI side empty and the writer fell
+  /// back to `R1, R2, ...`.  Sanitisation replaces characters that
+  /// CoinLpIO's validator rejects (notably `-`) and fills empty slots
+  /// with positional placeholders.
+  std::vector<std::string> m_safe_col_names_;
+  std::vector<std::string> m_safe_row_names_;
+
   /// Owned FILE* for set_log_filename; closed in clear_log_filename.
   struct FileCloser
   {
