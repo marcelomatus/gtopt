@@ -11,6 +11,7 @@
  */
 
 #include <algorithm>
+#include <chrono>
 #include <format>
 #include <future>
 #include <ranges>
@@ -132,6 +133,21 @@ auto SDDPMethod::install_aperture_backward_cut(
     LinearInterface& src_li,
     const SolverOptions& opts) -> int
 {
+  // Fine-grained stage timers — same semantics as the Benders-only
+  // path in `backward_pass_single_phase`.  `cut_build_s` only fires
+  // when we fall through to the bcut path (the aperture-built cut
+  // arrived already built in @p expected_cut, so its build cost is
+  // captured by `total_solve_time_s` on the aperture clones — not
+  // attributable to a single per-step bwd_cut_build bucket).
+  using Clock = std::chrono::steady_clock;
+  const auto elapsed_s = [](Clock::time_point start) noexcept
+  { return std::chrono::duration<double>(Clock::now() - start).count(); };
+  double dt_cut_build = 0.0;
+  double dt_add_row = 0.0;
+  double dt_resolve = 0.0;
+  double dt_kappa = 0.0;
+  double dt_store = 0.0;
+
   const auto sa = m_options_.scale_alpha;
   const auto ceps = m_options_.cut_coeff_eps;
   const auto cmax = m_options_.cut_coeff_max;
@@ -141,10 +157,14 @@ auto SDDPMethod::install_aperture_backward_cut(
   // resolve leaves src_li non-optimal, back it out and fall through to
   // the bcut path.  `expected_cut` is consumed on the success path.
   if (expected_cut.has_value()) {
+    const auto t_build = Clock::now();
     rescale_benders_cut(*expected_cut, src_alpha_col, cmax);
     filter_cut_coefficients(*expected_cut, src_alpha_col, ceps);
+    dt_cut_build += elapsed_s(t_build);
 
+    const auto t_add_row = Clock::now();
     const auto cut_row = src_li.add_row(*expected_cut);
+    dt_add_row += elapsed_s(t_add_row);
 
     // Re-solve src_li only when there is a further backward step that
     // will consume its state.  At src_phase_index == 0 there is no
@@ -156,9 +176,13 @@ auto SDDPMethod::install_aperture_backward_cut(
                                   iteration_index,
                                   scene_uid(scene_index),
                                   phase_uid(src_phase_index)));
+      const auto t_resolve = Clock::now();
       auto r = src_li.resolve(opts);
+      dt_resolve += elapsed_s(t_resolve);
       if (r.has_value() && src_li.is_optimal()) {
+        const auto t_kappa = Clock::now();
         update_max_kappa(scene_index, src_phase_index, src_li, iteration_index);
+        dt_kappa += elapsed_s(t_kappa);
       } else {
         keep_expected_cut = false;
         SPDLOG_WARN(
@@ -173,11 +197,13 @@ auto SDDPMethod::install_aperture_backward_cut(
     }
 
     if (keep_expected_cut) {
+      const auto t_store = Clock::now();
       store_cut(scene_index,
                 src_phase_index,
                 *expected_cut,
                 CutType::Optimality,
                 cut_row);
+      dt_store += elapsed_s(t_store);
       SPDLOG_TRACE("{}: cut for phase {} rhs={:.4f}",
                    sddp_log("Aperture",
                             iteration_index,
@@ -185,6 +211,14 @@ auto SDDPMethod::install_aperture_backward_cut(
                             phase_uid(phase_index)),
                    src_phase_index,
                    expected_cut->lowb);
+
+      auto& sstats = src_li.mutable_solver_stats();
+      ++sstats.bwd_step_count;
+      sstats.bwd_cut_build_s += dt_cut_build;
+      sstats.bwd_add_row_s += dt_add_row;
+      sstats.bwd_resolve_s += dt_resolve;
+      sstats.bwd_kappa_s += dt_kappa;
+      sstats.bwd_store_cut_s += dt_store;
       return 1;
     }
 
@@ -202,6 +236,7 @@ auto SDDPMethod::install_aperture_backward_cut(
   // touched by the backward pass.  A valid Benders underestimator of
   // the future-cost function — adding it to an optimal src_li cannot
   // produce infeasibility.
+  const auto t_build = Clock::now();
   auto fallback_cut = build_benders_cut(src_alpha_col,
                                         src_state.outgoing_links,
                                         target_state.forward_full_obj,
@@ -216,10 +251,16 @@ auto SDDPMethod::install_aperture_backward_cut(
                                                 cut_offset);
   rescale_benders_cut(fallback_cut, src_alpha_col, cmax);
   filter_cut_coefficients(fallback_cut, src_alpha_col, ceps);
+  dt_cut_build += elapsed_s(t_build);
 
+  const auto t_add_row = Clock::now();
   const auto cut_row = src_li.add_row(fallback_cut);
+  dt_add_row += elapsed_s(t_add_row);
+
+  const auto t_store = Clock::now();
   store_cut(
       scene_index, src_phase_index, fallback_cut, CutType::Optimality, cut_row);
+  dt_store += elapsed_s(t_store);
 
   SPDLOG_TRACE("{}: bcut for phase {} rhs={:.4f}",
                sddp_log("Aperture",
@@ -229,6 +270,13 @@ auto SDDPMethod::install_aperture_backward_cut(
                src_phase_index,
                fallback_cut.lowb);
 
+  auto& sstats = src_li.mutable_solver_stats();
+  ++sstats.bwd_step_count;
+  sstats.bwd_cut_build_s += dt_cut_build;
+  sstats.bwd_add_row_s += dt_add_row;
+  sstats.bwd_resolve_s += dt_resolve;
+  sstats.bwd_kappa_s += dt_kappa;
+  sstats.bwd_store_cut_s += dt_store;
   return 1;
 }
 

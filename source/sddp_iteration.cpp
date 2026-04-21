@@ -19,6 +19,7 @@
 #include <gtopt/sddp_cut_io.hpp>
 #include <gtopt/sddp_method.hpp>
 #include <gtopt/sddp_pool.hpp>
+#include <gtopt/solver_stats.hpp>
 #include <gtopt/solver_status.hpp>
 #include <gtopt/utils.hpp>
 
@@ -30,6 +31,60 @@
 
 namespace gtopt
 {
+
+namespace
+{
+
+/// Sum `SolverStats` across every `(scene, phase)` LP in the planning
+/// grid.  Used to take a pre/post snapshot around the backward pass so
+/// the per-iteration delta of the `bwd_*_s` timers can be logged.
+[[nodiscard]] SolverStats aggregate_backward_stats(const PlanningLP& planning)
+{
+  SolverStats total {};
+  const auto num_scenes = planning.simulation().scene_count();
+  const auto num_phases = planning.simulation().phase_count();
+  for (const auto si : iota_range<SceneIndex>(0, num_scenes)) {
+    for (const auto pi : iota_range<PhaseIndex>(0, num_phases)) {
+      total += planning.system(si, pi).linear_interface().solver_stats();
+    }
+  }
+  return total;
+}
+
+/// Emit a single INFO line summarising the six backward-step timers for
+/// an iteration.  Shown next to the standard "SDDP Iter [iN]: done ..."
+/// so the per-iteration growth of each stage stays visible alongside the
+/// total backward-pass wall time.
+void log_backward_timing_breakdown(IterationIndex iteration_index,
+                                   const SolverStats& delta)
+{
+  if (delta.bwd_step_count == 0) {
+    return;
+  }
+  const auto n = static_cast<double>(delta.bwd_step_count);
+  const auto to_ms = [n](double s_sum) noexcept { return 1000.0 * s_sum / n; };
+  SPDLOG_INFO(
+      "SDDP Backward [i{}]: step-avg(ms) rebuild={:.2f} build={:.2f} "
+      "add_row={:.2f} store={:.2f} resolve={:.2f} kappa={:.2f} — "
+      "{} step(s), total(s) rebuild={:.2f} build={:.2f} add_row={:.2f} "
+      "store={:.2f} resolve={:.2f} kappa={:.2f}",
+      iteration_index,
+      to_ms(delta.bwd_lp_rebuild_s),
+      to_ms(delta.bwd_cut_build_s),
+      to_ms(delta.bwd_add_row_s),
+      to_ms(delta.bwd_store_cut_s),
+      to_ms(delta.bwd_resolve_s),
+      to_ms(delta.bwd_kappa_s),
+      delta.bwd_step_count,
+      delta.bwd_lp_rebuild_s,
+      delta.bwd_cut_build_s,
+      delta.bwd_add_row_s,
+      delta.bwd_store_cut_s,
+      delta.bwd_resolve_s,
+      delta.bwd_kappa_s);
+}
+
+}  // namespace
 
 auto SDDPMethod::solve(const SolverOptions& lp_opts)
     -> std::expected<std::vector<SDDPIterationResult>, Error>
@@ -182,6 +237,13 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
         m_cut_store_.scene_cuts_before()[scene_index] =
             m_cut_store_.scene_cuts()[scene_index].size();
       }
+      // Snapshot aggregate solver stats so the post-pass diff reveals
+      // the six per-step backward-cut timers (rebuild/build/add_row/
+      // store/resolve/kappa).  The cost of the aggregation is a loop
+      // over (scene × phase) LPs — trivial compared to the backward
+      // pass itself.
+      const auto bwd_stats_before = aggregate_backward_stats(planning_lp());
+
       auto bwd = run_backward_pass_all_scenes(
           fwd->scene_feasible, *sddp_pool, bwd_opts, iteration_index);
       ir.cuts_added = bwd.total_cuts;
@@ -200,6 +262,17 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
                    iteration_index,
                    bwd.elapsed_s,
                    bwd.total_cuts);
+
+      // Diff the post-pass aggregate against the snapshot so each log
+      // line shows just this iteration's breakdown.  Useful for
+      // tracking how stages scale with the number of cuts installed so
+      // far — the suspected cause of the "later iterations are 10x
+      // slower than early ones" pattern.
+      {
+        auto bwd_delta = aggregate_backward_stats(planning_lp());
+        bwd_delta -= bwd_stats_before;
+        log_backward_timing_breakdown(iteration_index, bwd_delta);
+      }
 
       // ── Cut sharing ──
       if (m_options_.cut_sharing == CutSharingMode::none) {

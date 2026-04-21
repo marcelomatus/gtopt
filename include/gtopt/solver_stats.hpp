@@ -64,6 +64,46 @@ struct SolverStats
   /// Sum of row counts observed at each top-level solve.
   std::size_t total_nrows {0};
 
+  // ── SDDP backward-step timers ─────────────────────────────────────────
+  //
+  // Populated by `SDDPMethod::backward_pass_single_phase` (one sample per
+  // cut it installs on this LP).  All six `bwd_*_s` fields are wall-clock
+  // seconds accumulated across every step that landed on this LP; sum
+  // them across all `(scene, phase)` LPs to break down the global
+  // backward-pass wall time into its stages, or diff snapshots between
+  // iterations to see whether individual stages grow as cuts accumulate.
+  //
+  // The instrumentation is always on — each step contributes six
+  // `chrono::steady_clock::now()` pairs, which is negligible next to the
+  // LP resolve it wraps (O(µs) vs O(s)).
+
+  /// Number of backward-pass cut-installation steps that landed on this LP.
+  std::size_t bwd_step_count {0};
+  /// Time spent in `SystemLP::ensure_lp_built()` before the cut is added
+  /// (snapshot/compress reload; 0 under `low_memory_mode=off`).
+  double bwd_lp_rebuild_s {0.0};
+  /// Time spent constructing the cut row (`build_benders_cut`,
+  /// `rescale_benders_cut`, `filter_cut_coefficients`).  Pure CPU on the
+  /// calling thread.
+  double bwd_cut_build_s {0.0};
+  /// Time spent in `LinearInterface::add_row(cut)` — this is the single-row
+  /// CPLEX `addRow` (or equivalent) and the row-name bookkeeping that
+  /// accompanies it.
+  double bwd_add_row_s {0.0};
+  /// Time spent pushing the new `StoredCut` onto the per-scene vector
+  /// (`SDDPCutStore::store_cut`).
+  double bwd_store_cut_s {0.0};
+  /// Time spent in the post-cut `LinearInterface::resolve()` (simplex
+  /// warm-start after adding the new row).  Distinct from the existing
+  /// `total_solve_time_s`, which covers every `initial_solve`/`resolve`
+  /// invocation on the LP, so the two overlap intentionally; diffing
+  /// this in isolation shows the per-iteration backward-resolve cost.
+  double bwd_resolve_s {0.0};
+  /// Time spent in `SDDPMethod::update_max_kappa` — dominated by the
+  /// backend `get_kappa()` call (CPLEX `CPXgetdblquality(CPX_KAPPA)`,
+  /// HiGHS basis-condition query).
+  double bwd_kappa_s {0.0};
+
   [[nodiscard]] constexpr std::size_t total_solve_calls() const noexcept
   {
     return initial_solve_calls + resolve_calls;
@@ -88,6 +128,42 @@ struct SolverStats
     max_kappa = std::max(max_kappa, rhs.max_kappa);
     total_ncols += rhs.total_ncols;
     total_nrows += rhs.total_nrows;
+    bwd_step_count += rhs.bwd_step_count;
+    bwd_lp_rebuild_s += rhs.bwd_lp_rebuild_s;
+    bwd_cut_build_s += rhs.bwd_cut_build_s;
+    bwd_add_row_s += rhs.bwd_add_row_s;
+    bwd_store_cut_s += rhs.bwd_store_cut_s;
+    bwd_resolve_s += rhs.bwd_resolve_s;
+    bwd_kappa_s += rhs.bwd_kappa_s;
+    return *this;
+  }
+
+  /// Subtract a snapshot of counters — used to obtain per-iteration
+  /// deltas from two consecutive snapshots of the same aggregated
+  /// `SolverStats`.  `max_kappa` is copied from @p rhs (not differenced)
+  /// because "max seen so far" has no meaningful subtraction; the delta
+  /// snapshot holds the *post-iteration* max, which monotonically grows.
+  constexpr SolverStats& operator-=(const SolverStats& rhs) noexcept
+  {
+    load_problem_calls -= rhs.load_problem_calls;
+    initial_solve_calls -= rhs.initial_solve_calls;
+    resolve_calls -= rhs.resolve_calls;
+    fallback_solves -= rhs.fallback_solves;
+    crossover_solves -= rhs.crossover_solves;
+    infeasible_count -= rhs.infeasible_count;
+    primal_infeasible -= rhs.primal_infeasible;
+    dual_infeasible -= rhs.dual_infeasible;
+    total_solve_time_s -= rhs.total_solve_time_s;
+    // max_kappa deliberately not subtracted (see above).
+    total_ncols -= rhs.total_ncols;
+    total_nrows -= rhs.total_nrows;
+    bwd_step_count -= rhs.bwd_step_count;
+    bwd_lp_rebuild_s -= rhs.bwd_lp_rebuild_s;
+    bwd_cut_build_s -= rhs.bwd_cut_build_s;
+    bwd_add_row_s -= rhs.bwd_add_row_s;
+    bwd_store_cut_s -= rhs.bwd_store_cut_s;
+    bwd_resolve_s -= rhs.bwd_resolve_s;
+    bwd_kappa_s -= rhs.bwd_kappa_s;
     return *this;
   }
 

@@ -799,6 +799,21 @@ public:
   }
 
   /**
+   * @brief Mutable accessor to the solver-counter block.
+   *
+   * Exposed for out-of-class instrumentation — specifically
+   * `SDDPMethod::backward_pass_single_phase`, which bumps the six
+   * `bwd_*_s` timers plus `bwd_step_count` on the previous-phase LP as
+   * it installs each optimality cut.  Callers are expected to be
+   * single-writer threads for the underlying LP (same contract as every
+   * other mutating method on `LinearInterface`).
+   */
+  [[nodiscard]] constexpr SolverStats& mutable_solver_stats() noexcept
+  {
+    return m_solver_stats_;
+  }
+
+  /**
    * @brief Fold another LP's counters into this one.
    *
    * Used by elastic-filter paths that resolve a `clone()`d LP and

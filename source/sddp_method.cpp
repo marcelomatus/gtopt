@@ -832,6 +832,16 @@ auto SDDPMethod::backward_pass_single_phase(SceneIndex scene_index,
                                             IterationIndex iteration_index)
     -> std::expected<int, Error>
 {
+  // Fine-grained stage timing for the backward-cut step.  Each pair of
+  // chrono::steady_clock::now() calls is O(100ns); the stages they
+  // bracket dominate by 3-5 orders of magnitude (LP resolve, kappa
+  // query) so the overhead is irrelevant.  The counters land on the
+  // previous-phase LP's SolverStats so end-of-run aggregation and
+  // per-iteration diffing both fall out of the existing infrastructure.
+  using Clock = std::chrono::steady_clock;
+  const auto elapsed_s = [](Clock::time_point start) noexcept
+  { return std::chrono::duration<double>(Clock::now() - start).count(); };
+
   auto& phase_states = m_scene_phase_states_[scene_index];
   int cuts_added = 0;
 
@@ -843,7 +853,9 @@ auto SDDPMethod::backward_pass_single_phase(SceneIndex scene_index,
   // (mode=off, or a prior task already rebuilt it); otherwise reloads
   // from snapshot (snapshot/compress) or re-flattens from collections
   // (rebuild).
+  const auto t_rebuild = Clock::now();
   src_sys.ensure_lp_built();
+  const auto dt_rebuild = elapsed_s(t_rebuild);
 
   auto& src_li = src_sys.linear_interface();
 
@@ -867,6 +879,7 @@ auto SDDPMethod::backward_pass_single_phase(SceneIndex scene_index,
       : ColIndex {unknown_index};
 
   const auto scale_obj = planning_lp().options().scale_objective();
+  const auto t_build = Clock::now();
   auto cut = build_benders_cut(src_alpha_col,
                                src_state.outgoing_links,
                                target_state.forward_full_obj,
@@ -881,9 +894,16 @@ auto SDDPMethod::backward_pass_single_phase(SceneIndex scene_index,
                                        cut_offset);
   rescale_benders_cut(cut, src_alpha_col, cmax);
   filter_cut_coefficients(cut, src_alpha_col, ceps);
+  const auto dt_build = elapsed_s(t_build);
 
+  const auto t_add_row = Clock::now();
   const auto cut_row = src_li.add_row(cut);
+  const auto dt_add_row = elapsed_s(t_add_row);
+
+  const auto t_store = Clock::now();
   store_cut(scene_index, prev_phase_index, cut, CutType::Optimality, cut_row);
+  const auto dt_store = elapsed_s(t_store);
+
   ++cuts_added;
   m_phase_grid_.record(
       iteration_index, scene_uid(scene_index), phase_index, GridCell::Backward);
@@ -909,14 +929,20 @@ auto SDDPMethod::backward_pass_single_phase(SceneIndex scene_index,
   // solve from a fresh basis.  Mirrors the bcut-path simplification in
   // sddp_aperture_pass.cpp where we removed the corresponding resolve
   // entirely (the bcut path doesn't feed into async LB computation).
+  double dt_resolve = 0.0;
+  double dt_kappa = 0.0;
   if (phase_index) {
     src_li.set_log_tag(sddp_log("Backward",
                                 iteration_index,
                                 scene_uid(scene_index),
                                 phase_uid(prev_phase_index)));
+    const auto t_resolve = Clock::now();
     auto r = src_li.resolve(opts);
+    dt_resolve = elapsed_s(t_resolve);
     if (r.has_value() && src_li.is_optimal()) {
+      const auto t_kappa = Clock::now();
       update_max_kappa(scene_index, prev_phase_index, src_li, iteration_index);
+      dt_kappa = elapsed_s(t_kappa);
     } else {
       SPDLOG_DEBUG(
           "{}: post-cut resolve non-optimal (status {}) — keeping "
@@ -928,6 +954,19 @@ auto SDDPMethod::backward_pass_single_phase(SceneIndex scene_index,
           src_li.get_status());
     }
   }
+
+  // Fold this step's timings into the previous-phase LP's SolverStats.
+  // Single-writer per-LP invariant holds: phase access within a scene
+  // is serial during the backward pass (both the async and
+  // phase-synchronised variants obey this), so no atomics are needed.
+  auto& sstats = src_li.mutable_solver_stats();
+  ++sstats.bwd_step_count;
+  sstats.bwd_lp_rebuild_s += dt_rebuild;
+  sstats.bwd_cut_build_s += dt_build;
+  sstats.bwd_add_row_s += dt_add_row;
+  sstats.bwd_store_cut_s += dt_store;
+  sstats.bwd_resolve_s += dt_resolve;
+  sstats.bwd_kappa_s += dt_kappa;
 
   return cuts_added;
 }
