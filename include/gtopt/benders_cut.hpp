@@ -300,6 +300,27 @@ bool rescale_benders_cut(SparseRow& row,
     double scale_objective,
     double cut_coeff_eps = 0.0) -> SparseRow;
 
+/// Physical-space Benders cut builder that reads reduced cost from an
+/// arbitrary `LinearInterface` (typically an elastic clone) and trial
+/// value from each link's back-pointer `StateVariable`.  Intended for
+/// cut paths whose rc comes from a local LP solve rather than the base
+/// forward pass — the forward-pass feasibility cut and the aperture
+/// per-aperture cut both fit this shape.
+///
+///   rc_phys  = rc_source.get_col_cost()[link.dependent_col]
+///              (`ScaledView`: `LP × scale_objective / col_scale`)
+///   v̂_phys  = link.state_var->col_sol_physical()
+///
+/// `scale_objective` is not a parameter: it is embedded in the
+/// `get_col_cost()` view.  The clone must have been solved (rc and col
+/// solution available) before this call.
+[[nodiscard]] auto build_benders_cut_physical(
+    ColIndex alpha_col,
+    std::span<const StateVarLink> links,
+    const LinearInterface& rc_source,
+    double objective_value_physical,
+    double cut_coeff_eps = 0.0) -> SparseRow;
+
 // ─── Elastic filter ─────────────────────────────────────────────────────────
 
 /// Relax a single fixed state-variable column to its physical source bounds,
