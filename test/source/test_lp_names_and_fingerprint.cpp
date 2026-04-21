@@ -134,24 +134,32 @@ TEST_CASE(  // NOLINT
 // 2. write_lp boundary cases
 // ═══════════════════════════════════════════════════════════════════════════
 
-TEST_CASE("write_lp returns error when row names missing")  // NOLINT
+TEST_CASE(  // NOLINT
+    "write_lp with missing row names falls back to generic c/r labels")
 {
+  // Previously `write_lp` refused to emit when flatten ran without
+  // `LpMatrixOptions::{col,row}_with_names`; the SDDP error-LP dump
+  // path (`sddp_forward_pass.cpp`) consequently produced no file on
+  // unrecoverable infeasibility unless the user also set
+  // `--lp-debug`.  The lazy fallback generates `c<index>` /
+  // `r<index>` labels inside `push_names_to_solver` so the emit
+  // always succeeds.  Real gtopt names still require names enabled
+  // at flatten time.
   auto lp = make_simple_lp();
-  // Flatten without row names (names disabled)
   auto opts = make_lp_matrix_options(false, std::nullopt);
   auto flat = lp.flatten(opts);
 
   LinearInterface li;
   li.load_flat(flat);
 
-  auto result = li.write_lp("test_should_not_write.lp");
-  CHECK_FALSE(result.has_value());
-  CHECK(result.error().code == ErrorCode::InvalidInput);
-  CHECK(result.error().message.find("row names are not available")
-        != std::string::npos);
+  const std::string stem = "test_fallback_names";
+  auto result = li.write_lp(stem);
+  CHECK(result.has_value());
 
-  // Cleanup just in case
-  std::filesystem::remove("test_should_not_write.lp");
+  // The backend appends ".lp" to the stem.
+  const std::filesystem::path emitted {stem + ".lp"};
+  CHECK(std::filesystem::exists(emitted));
+  std::filesystem::remove(emitted);
 }
 
 TEST_CASE("write_lp with empty filename is a no-op success")  // NOLINT
@@ -675,8 +683,14 @@ TEST_CASE(  // NOLINT
   }
 }
 
-TEST_CASE("write_lp fails with names disabled")  // NOLINT
+TEST_CASE(  // NOLINT
+    "write_lp with names disabled falls back to generic c/r labels")
 {
+  // `write_lp` no longer refuses when flatten ran without names.
+  // The SDDP error-LP dump path relies on an always-succeeds write,
+  // so `push_names_to_solver` fills gaps with generic `c<index>` /
+  // `r<index>` labels.  Real gtopt names still require names
+  // enabled at flatten time.
   auto planning = make_single_phase_planning();
   planning.options.use_single_bus = OptBool {true};
   planning.options.scale_objective = OptReal {1.0};
@@ -688,9 +702,12 @@ TEST_CASE("write_lp fails with names disabled")  // NOLINT
   auto res = li.initial_solve();
   REQUIRE(res.has_value());
 
-  auto wr = li.write_lp("should_not_exist.lp");
-  CHECK_FALSE(wr.has_value());
-  CHECK_FALSE(std::filesystem::exists("should_not_exist.lp"));
+  const std::string stem = "test_fallback_planning_lp";
+  auto wr = li.write_lp(stem);
+  CHECK(wr.has_value());
+  const std::filesystem::path emitted {stem + ".lp"};
+  CHECK(std::filesystem::exists(emitted));
+  std::filesystem::remove(emitted);
 }
 
 TEST_CASE(  // NOLINT

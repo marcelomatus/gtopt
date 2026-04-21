@@ -1289,20 +1289,32 @@ void LinearInterface::push_names_to_solver() const
 {
   const auto ncols = static_cast<size_t>(m_backend_->get_num_cols());
 
+  // When flatten ran without `LpMatrixOptions::col_with_names`, the
+  // tracked name vector is empty.  `write_lp` still wants every
+  // column to carry *some* label so the file is readable; fall back
+  // to a generic `c<index>` identifier for any unnamed column.  The
+  // fallback is pay-per-call: generated here instead of at flatten
+  // time so runs that never call `write_lp` pay no memory cost.
   std::vector<std::string> col_names(ncols);
-  for (const auto [i, name] :
-       enumerate<ColIndex>(m_col_index_to_name_ | std::views::take(ncols)))
-  {
-    col_names[i] = name;
+  for (size_t i = 0; i < ncols; ++i) {
+    if (i < m_col_index_to_name_.size()
+        && !m_col_index_to_name_[ColIndex {i}].empty())
+    {
+      col_names[i] = m_col_index_to_name_[ColIndex {i}];
+    } else {
+      col_names[i] = std::format("c{}", i);
+    }
   }
 
   const auto nrows = static_cast<size_t>(m_backend_->get_num_rows());
   std::vector<std::string> row_names(nrows);
-  if (m_label_maker_.row_names_enabled()) {
-    for (const auto [i, name] :
-         enumerate<RowIndex>(m_row_index_to_name_ | std::views::take(nrows)))
+  for (size_t i = 0; i < nrows; ++i) {
+    if (i < m_row_index_to_name_.size()
+        && !m_row_index_to_name_[RowIndex {i}].empty())
     {
-      row_names[i] = name;
+      row_names[i] = m_row_index_to_name_[RowIndex {i}];
+    } else {
+      row_names[i] = std::format("r{}", i);
     }
   }
 
@@ -1316,16 +1328,17 @@ auto LinearInterface::write_lp(const std::string& filename) const
     return {};
   }
 
-  if (m_row_index_to_name_.empty()) {
-    return std::unexpected(Error {
-        .code = ErrorCode::InvalidInput,
-        .message = std::format(
-            "LP file '{}' not saved: row names are not available. "
-            "Use --lp-debug to enable LP name generation for file output.",
-            filename),
-    });
-  }
-
+  // Names may be missing entirely (flatten ran without
+  // `LpMatrixOptions::{col,row}_with_names`) or populated only for a
+  // prefix of cols/rows.  `push_names_to_solver` fills the gaps with
+  // generic `c<index>` / `r<index>` labels so the backend always
+  // receives a fully-named LP.  Real gtopt names (e.g.
+  // `Bus.theta.s0.p0.b0`) still require names enabled at flatten
+  // time — run with `--lp-debug` or the equivalent
+  // `LpMatrixOptions{col_with_names, row_with_names} = true` for
+  // those.  The generic fallback guarantees `write_lp` never fails
+  // on a well-formed backend, which is a hard requirement for the
+  // SDDP error-LP dump path.
   push_names_to_solver();
   m_backend_->write_lp(filename.c_str());
   return {};
