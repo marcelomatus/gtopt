@@ -140,17 +140,20 @@ using ColKeyMap = std::unordered_map<ColIndex, ColKeyInfo>;
 /// Every column referenced in a cut must be a registered state variable
 /// — including alpha, which is registered by
 /// `SDDPMethod::initialize_alpha_variables`.
-/// Coefficients are in fully physical space:
-///   coeff_csv = LP_coeff * scale_obj / col_scale
+///
+/// StoredCut already holds physical-space values (post-migration cuts
+/// are built by `build_benders_cut_physical` which emits physical
+/// coefficients and a physical RHS; the SparseRow is captured in
+/// `SDDPCutStore::store_cut` *before* `add_row` applies per-row
+/// equilibration, so `cut.coefficients` is what we need to serialise
+/// verbatim).  No `* scale_obj / col_scale` conversion is applied
+/// here — the file value IS the physical value.
 void write_cut_coefficients(std::ostream& ofs,
                             const StoredCut& cut,
-                            const LinearInterface& li,
+                            const LinearInterface& /*li*/,
                             const ColKeyMap& col_keys)
 {
-  const auto scale_obj = li.scale_objective();
   for (const auto& [col, coeff] : cut.coefficients) {
-    const auto scale = li.get_col_scale(col);
-    const auto phys_coeff = coeff * scale_obj / scale;
     const auto it = col_keys.find(col);
     if (it == col_keys.end()) {
       throw std::runtime_error(std::format(
@@ -160,18 +163,18 @@ void write_cut_coefficients(std::ostream& ofs,
           col));
     }
     const auto& [cls, var, uid] = it->second;
-    ofs << "," << as_label<':'>(cls, var, uid) << "=" << phys_coeff;
+    ofs << "," << as_label<':'>(cls, var, uid) << "=" << coeff;
   }
 }
 
 /// Write cut coefficients without variable scaling (fallback when
-/// phase UID is not found).
+/// phase UID is not found).  Values are physical.
 void write_cut_coefficients_unscaled(std::ostream& ofs,
                                      const StoredCut& cut,
-                                     double scale_obj)
+                                     double /*scale_obj*/)
 {
   for (const auto& [col, coeff] : cut.coefficients) {
-    ofs << "," << col << ":" << (coeff * scale_obj);
+    ofs << "," << col << ":" << coeff;
   }
 }
 
@@ -271,12 +274,11 @@ void write_cut_coefficients_unscaled(std::ostream& ofs,
       // Type column: 'o' = optimality, 'f' = feasibility
       const char type_char = (cut.type == CutType::Feasibility) ? 'f' : 'o';
 
-      // RHS in physical objective units
-      ofs << as_label<','>(type_char,
-                           cut.phase_uid,
-                           cut.scene_uid,
-                           cut.name,
-                           cut.rhs * scale_obj)
+      // RHS in physical objective units (stored verbatim — the cut was
+      // built by `build_benders_cut_physical` and captured in
+      // StoredCut pre-equilibration).
+      ofs << as_label<','>(
+          type_char, cut.phase_uid, cut.scene_uid, cut.name, cut.rhs)
           << ",";
       if (cut.dual.has_value()) {
         ofs << *cut.dual;
@@ -360,12 +362,10 @@ void write_cut_coefficients_unscaled(std::ostream& ofs,
       // Type column: 'o' = optimality, 'f' = feasibility
       const char type_char = (cut.type == CutType::Feasibility) ? 'f' : 'o';
 
-      // RHS in physical objective units
-      ofs << as_label<','>(type_char,
-                           cut.phase_uid,
-                           cut.scene_uid,
-                           cut.name,
-                           cut.rhs * scale_obj)
+      // RHS in physical objective units (stored verbatim — see
+      // save_cuts_csv above for rationale).
+      ofs << as_label<','>(
+          type_char, cut.phase_uid, cut.scene_uid, cut.name, cut.rhs)
           << ",";
       if (cut.dual.has_value()) {
         ofs << *cut.dual;
@@ -409,14 +409,13 @@ void write_cut_coefficients_unscaled(std::ostream& ofs,
 [[nodiscard]] auto load_cuts_csv(
     PlanningLP& planning_lp,
     const std::string& filepath,
-    double scale_alpha,
+    [[maybe_unused]] double scale_alpha,
     [[maybe_unused]] const LabelMaker& label_maker,
     [[maybe_unused]] const StrongIndexVector<
         SceneIndex,
         StrongIndexVector<PhaseIndex, PhaseStateInfo>>* scene_phase_states)
     -> std::expected<CutLoadResult, Error>
 {
-  const auto sa = scale_alpha;  // row scale for loaded cuts
   try {
     std::ifstream ifs(filepath);
     if (!ifs.is_open()) {
@@ -448,10 +447,6 @@ void write_cut_coefficients_unscaled(std::ostream& ofs,
     CutLoadResult result {};
     const auto& sim = planning_lp.simulation();
     const auto num_scenes = sim.scene_count();
-    const auto& rep_li =
-        planning_lp.system(first_scene_index(), first_phase_index())
-            .linear_interface();
-    const auto scale_obj = rep_li.scale_objective();
 
     // Build phase UID -> PhaseIndex lookup
     const auto phase_uid_to_index = build_phase_uid_map(planning_lp);
@@ -581,13 +576,13 @@ void write_cut_coefficients_unscaled(std::ostream& ofs,
         std::getline(iss, token, ',');  // consume dual field
       }
 
-      // RHS in CSV is in physical objective units; convert to LP
-      // space.  Row scale = scale_alpha so the cut is consistent with
-      // optimality/feasibility cuts built by build_benders_cut().
+      // CSV values are physical.  Build the row in physical space and
+      // let `add_row` fold col_scales + per-row row-max equilibration
+      // internally — same path as freshly-built
+      // `build_benders_cut_physical` cuts.
       auto row = SparseRow {
-          .lowb = rhs / scale_obj,
+          .lowb = rhs,
           .uppb = LinearProblem::DblMax,
-          .scale = sa,
           .class_name = "Loaded",
           .constraint_name = "cut",
       };
@@ -734,18 +729,9 @@ void write_cut_coefficients_unscaled(std::ostream& ofs,
       }
 
       // Add the resolved cut to all scenes for this phase.
-      // Coefficients in the CSV are in fully physical space; we
-      // convert them to LP space here (the matching inverse of
-      // `write_cut_coefficients` on the save side):
-      //   LP_coeff = phys_coeff * col_scale / scale_objective
-      //
-      // The resulting `scene_row` is therefore already in LP space and
-      // is flagged accordingly so `LinearInterface::add_row` does not
-      // re-apply col_scale / per-row equilibration on top.  Once the
-      // save side is migrated to write post-equilibration physical
-      // values (planned follow-up PR), both the manual conversion
-      // above and this flag can go away — the loader will just hand
-      // physical coefficients directly to `add_row`.
+      // Coefficients are physical; `add_row` applies col_scales +
+      // per-row row-max on an equilibrated LP, matching the
+      // treatment of freshly-built cuts (`build_benders_cut_physical`).
       for (const auto scene_index : iota_range<SceneIndex>(0, num_scenes)) {
         auto& li =
             planning_lp.system(scene_index, phase_index).linear_interface();
@@ -753,10 +739,8 @@ void write_cut_coefficients_unscaled(std::ostream& ofs,
         scene_row.context = ScenePhaseContext {sim.scenes()[scene_index].uid(),
                                                sim.phases()[phase_index].uid()};
         for (const auto& [col, coeff] : resolved_coeffs) {
-          const auto scale = li.get_col_scale(col);
-          scene_row[col] = coeff * scale / scale_obj;
+          scene_row[col] = coeff;
         }
-        scene_row.already_lp_space = true;
         li.add_row(scene_row);
         li.record_cut_row(scene_row);
       }
@@ -1634,19 +1618,15 @@ void write_cut_coefficients_unscaled(std::ostream& ofs,
           .phase_uid = static_cast<int>(cut.phase_uid),
           .scene_uid = static_cast<int>(cut.scene_uid),
           .name = cut.name,
-          .rhs = cut.rhs * scale_obj,
+          .rhs = cut.rhs,
           .dual = cut.dual,
       };
 
       auto pit = phase_map.find(cut.phase_uid);
       if (pit != phase_map.end()) {
-        const auto& li = planning_lp.system(first_scene_index(), pit->second)
-                             .linear_interface();
         const auto& col_keys = phase_col_keys[pit->second];
 
         for (const auto& [col, coeff] : cut.coefficients) {
-          const auto scale = li.get_col_scale(col);
-          const auto phys_coeff = coeff * scale_obj / scale;
           const auto it = col_keys.find(col);
           if (it == col_keys.end()) {
             throw std::runtime_error(std::format(
@@ -1658,15 +1638,16 @@ void write_cut_coefficients_unscaled(std::ostream& ofs,
           const auto& [cls, var, uid] = it->second;
           entry.coefficients.push_back(CutCoeffEntry {
               .key = as_label<':'>(cls, var, uid),
-              .coeff = phys_coeff,
+              .coeff = coeff,
           });
         }
       } else {
-        // Unknown phase — write raw index-based coefficients
+        // Unknown phase — write raw index-based coefficients (still
+        // physical; no scale applied).
         for (const auto& [col, coeff] : cut.coefficients) {
           entry.coefficients.push_back(CutCoeffEntry {
               .key = as_label<':'>("@col", col),
-              .coeff = coeff * scale_obj,
+              .coeff = coeff,
           });
         }
       }
@@ -1716,7 +1697,7 @@ void write_cut_coefficients_unscaled(std::ostream& ofs,
 [[nodiscard]] auto load_cuts_json(
     PlanningLP& planning_lp,
     const std::string& filepath,
-    double scale_alpha,
+    [[maybe_unused]] double scale_alpha,
     [[maybe_unused]] const StrongIndexVector<
         SceneIndex,
         StrongIndexVector<PhaseIndex, PhaseStateInfo>>* scene_phase_states)
@@ -1742,10 +1723,6 @@ void write_cut_coefficients_unscaled(std::ostream& ofs,
 
     const auto& sim = planning_lp.simulation();
     const auto num_scenes = sim.scene_count();
-    const auto& rep_li =
-        planning_lp.system(first_scene_index(), first_phase_index())
-            .linear_interface();
-    const auto scale_obj = rep_li.scale_objective();
 
     const auto phase_uid_to_index = build_phase_uid_map(planning_lp);
 
@@ -1773,11 +1750,12 @@ void write_cut_coefficients_unscaled(std::ostream& ofs,
       }
       const auto phase_index = pit->second;
 
-      // Build the LP row from physical RHS
+      // Build the row in physical space — same contract as
+      // `build_benders_cut_physical`.  `add_row` applies col_scales
+      // + per-row row-max equilibration on insertion.
       auto row = SparseRow {
-          .lowb = entry.rhs / scale_obj,
+          .lowb = entry.rhs,
           .uppb = LinearProblem::DblMax,
-          .scale = scale_alpha,
           .class_name = "Loaded",
           .constraint_name = "cut",
       };
@@ -1849,7 +1827,8 @@ void write_cut_coefficients_unscaled(std::ostream& ofs,
         continue;
       }
 
-      // Add resolved cut to all scenes
+      // Add resolved cut (physical) to all scenes — add_row handles
+      // col_scales + row-max.
       for (const auto scene_index : iota_range<SceneIndex>(0, num_scenes)) {
         auto& li =
             planning_lp.system(scene_index, phase_index).linear_interface();
@@ -1857,8 +1836,7 @@ void write_cut_coefficients_unscaled(std::ostream& ofs,
         scene_row.context = ScenePhaseContext {sim.scenes()[scene_index].uid(),
                                                sim.phases()[phase_index].uid()};
         for (const auto& [col, coeff] : resolved_coeffs) {
-          const auto scale = li.get_col_scale(col);
-          scene_row[col] = coeff * scale / scale_obj;
+          scene_row[col] = coeff;
         }
         li.add_row(scene_row);
         li.record_cut_row(scene_row);

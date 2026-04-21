@@ -149,7 +149,6 @@ auto SDDPMethod::install_aperture_backward_cut(
   double dt_store = 0.0;
 
   const auto ceps = m_options_.cut_coeff_eps;
-  const auto cmax = m_options_.cut_coeff_max;
   const auto scale_obj = planning_lp().options().scale_objective();
 
   // Try the aperture-built cut first when available.  If the post-cut
@@ -157,7 +156,6 @@ auto SDDPMethod::install_aperture_backward_cut(
   // the bcut path.  `expected_cut` is consumed on the success path.
   if (expected_cut.has_value()) {
     const auto t_build = Clock::now();
-    rescale_benders_cut(*expected_cut, src_alpha_col, cmax);
     filter_cut_coefficients(*expected_cut, src_alpha_col, ceps);
     dt_cut_build += elapsed_s(t_build);
 

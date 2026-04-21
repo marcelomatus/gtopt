@@ -1178,15 +1178,17 @@ TEST_CASE(
   CHECK(cut.already_lp_space);
 }
 
-TEST_CASE("build_multi_cuts marks every emitted cut as LP-space")  // NOLINT
+TEST_CASE(
+    "build_multi_cuts emits physical-space cuts (no already_lp_space flag)")
 {
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
   // Reuse the scaffold from "build_multi_cuts with active slack
   // generates cuts" — identical LP setup, identical slack activation.
-  // The CHECK here targets only the already_lp_space flag so the test
-  // is focused and a future add_row regression in the multi-cut path
-  // surfaces immediately.
+  // Post-migration, multi-cut rows carry physical-space dep_val
+  // bounds (via `get_col_sol()`) so `add_row` on the source LP folds
+  // col_scales + per-row row-max like freshly-built Benders cuts;
+  // this test guards against regressing back to LP-space bounds.
   LinearInterface cloned_li;
   const auto dep0 = cloned_li.add_col(SparseCol {
       .lowb = 0.0,
@@ -1289,7 +1291,8 @@ TEST_CASE("build_multi_cuts marks every emitted cut as LP-space")  // NOLINT
   const auto cuts = build_multi_cuts(elastic, links);
   REQUIRE(cuts.size() == 2);
   for (const auto& cut : cuts) {
-    CHECK(cut.already_lp_space);
+    CHECK_FALSE(cut.already_lp_space);
+    CHECK(cut.scale == doctest::Approx(1.0));
   }
 }
 
