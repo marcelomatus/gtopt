@@ -665,6 +665,14 @@ public:
     m_linear_interface_.record_dynamic_col(std::move(col));
   }
 
+  bool update_dynamic_col_lowb(std::string_view class_name,
+                               std::string_view variable_name,
+                               double new_lowb) noexcept
+  {
+    return m_linear_interface_.update_dynamic_col_lowb(
+        class_name, variable_name, new_lowb);
+  }
+
   void record_cut_row(SparseRow row)
   {
     m_linear_interface_.record_cut_row(std::move(row));

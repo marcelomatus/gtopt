@@ -301,6 +301,10 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
                                                     phase_uid(phase_index),
                                                     iteration_index,
                                                     infeas_count);
+          // Release α's bootstrap `lowb = 0` on the previous phase so
+          // the fcut's rhs can represent negative future-cost values
+          // without being artificially clipped.
+          relax_alpha_lower_bound(scene_index, prev_phase_index);
           {
             const auto cut_row =
                 prev_li.add_row(feas_cut, m_options_.cut_coeff_eps);

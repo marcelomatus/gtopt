@@ -307,6 +307,17 @@ public:
   /// Record a dynamically-added column (e.g. alpha variable).
   void record_dynamic_col(SparseCol col);
 
+  /// Update the `lowb` on the first `m_dynamic_cols_` entry matching
+  /// `(class_name, variable_name)` so that a subsequent snapshot reload
+  /// (`apply_post_load_replay`) restores the column with the new lower
+  /// bound rather than the original one.  Returns `true` iff a matching
+  /// entry was found and updated.  No-op under `LowMemoryMode::off`
+  /// (where `m_dynamic_cols_` stays empty) — the live backend is the
+  /// sole authority and needs no dynamic-col mirror.
+  bool update_dynamic_col_lowb(std::string_view class_name,
+                               std::string_view variable_name,
+                               double new_lowb) noexcept;
+
   /// Record a Benders cut row addition.
   void record_cut_row(SparseRow row);
 

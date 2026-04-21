@@ -155,6 +155,9 @@ auto SDDPMethod::install_aperture_backward_cut(
   // resolve leaves src_li non-optimal, back it out and fall through to
   // the bcut path.  `expected_cut` is consumed on the success path.
   if (expected_cut.has_value()) {
+    // Release α's bootstrap `lowb = 0` on the source phase so the
+    // aperture expected-cut can represent negative future-cost values.
+    relax_alpha_lower_bound(scene_index, src_phase_index);
     const auto t_add_row = Clock::now();
     const auto cut_row = src_li.add_row(*expected_cut, ceps);
     dt_add_row += elapsed_s(t_add_row);
@@ -245,6 +248,10 @@ auto SDDPMethod::install_aperture_backward_cut(
                                                 iteration_index,
                                                 cut_offset);
   dt_cut_build += elapsed_s(t_build);
+
+  // Release α's bootstrap `lowb = 0` (idempotent if the expected_cut
+  // path above already did so).
+  relax_alpha_lower_bound(scene_index, src_phase_index);
 
   const auto t_add_row = Clock::now();
   const auto cut_row = src_li.add_row(fallback_cut, ceps);

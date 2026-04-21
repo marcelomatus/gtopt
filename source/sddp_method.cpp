@@ -434,6 +434,31 @@ void SDDPMethod::initialize_alpha_variables(SceneIndex scene_index)
   }
 }
 
+void SDDPMethod::relax_alpha_lower_bound(SceneIndex scene_index,
+                                         PhaseIndex phase_index)
+{
+  // The last phase has no α (SDDP terminal condition); skip silently.
+  // Every other phase should have α at this point (eager-init added
+  // it in `initialize_alpha_variables`), but we guard for safety so
+  // callers can invoke us unconditionally before every `add_row`.
+  const auto* svar = find_alpha_state_var(
+      planning_lp().simulation(), scene_index, phase_index);
+  if (svar == nullptr) {
+    return;
+  }
+  auto& sys = planning_lp().system(scene_index, phase_index);
+  sys.ensure_lp_built();
+  sys.linear_interface().set_col_low_raw(svar->col(), -LinearProblem::DblMax);
+  // M2: update the persistent `m_dynamic_cols_` mirror so that a
+  // subsequent `release_backend` + `ensure_backend` (compress /
+  // rebuild) replays α with `lowb = -DblMax` via
+  // `apply_post_load_replay`.  Without this the release+reload cycle
+  // would restore the bootstrap `lowb = 0`, re-clipping α until the
+  // active cuts' row-level bound dominates on the next solve.
+  sys.update_dynamic_col_lowb(
+      sddp_alpha_class_name, sddp_alpha_col_name, -LinearProblem::DblMax);
+}
+
 void SDDPMethod::collect_state_variable_links(SceneIndex scene_index)
 {
   const auto& sim = planning_lp().simulation();
@@ -895,6 +920,11 @@ auto SDDPMethod::backward_pass_single_phase(SceneIndex scene_index,
                                        iteration_index,
                                        cut_offset);
   const auto dt_build = elapsed_s(t_build);
+
+  // Release α's bootstrap `lowb = 0` on the source phase before the
+  // cut lands — the cut itself bounds α from below, and keeping the
+  // 0 floor would clip any legitimately-negative future-cost value.
+  relax_alpha_lower_bound(scene_index, prev_phase_index);
 
   const auto t_add_row = Clock::now();
   const auto cut_row = src_li.add_row(cut, ceps);

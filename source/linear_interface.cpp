@@ -373,6 +373,19 @@ void LinearInterface::record_dynamic_col(SparseCol col)
   }
 }
 
+bool LinearInterface::update_dynamic_col_lowb(std::string_view class_name,
+                                              std::string_view variable_name,
+                                              double new_lowb) noexcept
+{
+  for (auto& col : m_dynamic_cols_) {
+    if (col.class_name == class_name && col.variable_name == variable_name) {
+      col.lowb = new_lowb;
+      return true;
+    }
+  }
+  return false;
+}
+
 void LinearInterface::record_cut_row(SparseRow row)
 {
   if (m_low_memory_mode_ != LowMemoryMode::off) {
