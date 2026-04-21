@@ -201,6 +201,39 @@ auto build_benders_cut_physical(ColIndex alpha_col,
   return row;
 }
 
+auto build_benders_cut_physical(ColIndex alpha_col,
+                                std::span<const StateVarLink> links,
+                                const LinearInterface& rc_source,
+                                double objective_value_physical,
+                                double cut_coeff_eps) -> SparseRow
+{
+  // Physical-space Benders cut that takes rc from an arbitrary solved
+  // LinearInterface (elastic clone / aperture clone) and trial from
+  // each link's source StateVariable.  Used by the forward-pass
+  // feasibility cut, the aperture per-aperture cut, and the aperture
+  // fallback bcut — all paths where the reduced cost comes from a
+  // local solve rather than the base forward pass mirror.
+  auto row = SparseRow {
+      .lowb = objective_value_physical,
+      .uppb = LinearProblem::DblMax,
+  };
+  row[alpha_col] = 1.0;
+
+  const auto rc_view = rc_source.get_col_cost();
+  for (const auto& link : links) {
+    const auto rc_phys = rc_view[link.dependent_col];
+    if (std::abs(rc_phys) < cut_coeff_eps) {
+      continue;
+    }
+    const auto v_hat_phys =
+        (link.state_var != nullptr) ? link.state_var->col_sol_physical() : 0.0;
+    row[link.source_col] = -rc_phys;
+    row.lowb -= rc_phys * v_hat_phys;
+  }
+
+  return row;
+}
+
 // ─── Cut coefficient filtering and rescaling ────────────────────────────────
 
 void filter_cut_coefficients(SparseRow& row, ColIndex alpha_col, double eps)
@@ -494,8 +527,8 @@ auto build_feasibility_cut(const LinearInterface& li,
                            std::span<const StateVarLink> links,
                            double penalty,
                            const SolverOptions& opts,
-                           double scale_alpha,
-                           double scale_objective)
+                           double /*scale_alpha*/,
+                           double /*scale_objective*/)
     -> std::optional<FeasibilityCutResult>
 {
   auto elastic = elastic_filter_solve(li, links, penalty, opts);
@@ -503,13 +536,16 @@ auto build_feasibility_cut(const LinearInterface& li,
     return std::nullopt;
   }
 
-  auto cut = build_benders_cut(alpha_col,
-                               links,
-                               elastic->clone.get_col_cost_raw(),
-                               elastic->clone.get_obj_value(),
-                               scale_alpha,
-                               /*cut_coeff_eps=*/0.0,
-                               scale_objective);
+  // Physical-space cut: rc from elastic clone, trial from state_var.
+  // The `scale_alpha` / `scale_objective` parameters are retained in
+  // the signature for source compatibility but are now unused — the
+  // physical builder lets `add_row` fold col_scales + row-max on the
+  // caller's LP.
+  auto cut =
+      build_benders_cut_physical(alpha_col,
+                                 links,
+                                 elastic->clone,
+                                 elastic->clone.get_obj_value_physical());
 
   return FeasibilityCutResult {
       .cut = std::move(cut),
@@ -524,7 +560,19 @@ auto build_multi_cuts(const ElasticSolveResult& elastic,
 {
   std::vector<SparseRow> cuts;
 
-  const auto& dep_sol = elastic.clone.get_col_sol_raw();
+  // Physical-space bound cuts.  `dep_sol_phys = LP × col_scale` puts
+  // dependent-column values in physical units on the elastic clone's
+  // LP; the resulting cut `source_col ≤ dep_val_phys` is in the same
+  // units and `add_row` on the src LP folds the source column's
+  // col_scale + row-max equilibration automatically.
+  //
+  // Slack column values (`sup`/`sdn`) are read in *raw LP* via
+  // `get_col_sol_raw` because the slack tolerance threshold
+  // `slack_tol` is defined against the LP units the elastic solve
+  // emits; they are only used to decide whether to emit the cut, not
+  // for its coefficients.
+  const auto dep_sol_phys = elastic.clone.get_col_sol();  // ScaledView
+  const auto& dep_sol_raw = elastic.clone.get_col_sol_raw();
   const auto& link_infos = elastic.link_infos;
 
   // Each multi-cut row bounds a specific state-variable column, so
@@ -541,35 +589,31 @@ auto build_multi_cuts(const ElasticSolveResult& elastic,
     if (!info.relaxed) {
       continue;
     }
-    const double dep_val = dep_sol[link.dependent_col];
+    const double dep_val_phys = dep_sol_phys[link.dependent_col];
 
     // sup > 0 ⟹ solution < trial_value ⟹ source ≤ dep_val
     if (info.sup_col != ColIndex {unknown_index}) {
-      const double sup_val = dep_sol[info.sup_col];
+      const double sup_val = dep_sol_raw[info.sup_col];
       if (sup_val > slack_tol) {
         auto ub_cut = SparseRow {
             .lowb = -LinearProblem::DblMax,
-            .uppb = dep_val,
+            .uppb = dep_val_phys,
             .class_name = link.class_name,
             .constraint_name = "mcut_ub",
             .variable_uid = link.uid,
             .context = context,
         };
         ub_cut[link.source_col] = 1.0;
-        // Multi-cut rows work in LP space (source_col bound-cut based
-        // on LP-space dep_val from the elastic clone) — flag for the
-        // add_row legacy path, see build_benders_cut for details.
-        ub_cut.already_lp_space = true;
         cuts.push_back(std::move(ub_cut));
       }
     }
 
     // sdn > 0 ⟹ solution > trial_value ⟹ source ≥ dep_val
     if (info.sdn_col != ColIndex {unknown_index}) {
-      const double sdn_val = dep_sol[info.sdn_col];
+      const double sdn_val = dep_sol_raw[info.sdn_col];
       if (sdn_val > slack_tol) {
         auto lb_cut = SparseRow {
-            .lowb = dep_val,
+            .lowb = dep_val_phys,
             .uppb = LinearProblem::DblMax,
             .class_name = link.class_name,
             .constraint_name = "mcut_lb",
@@ -577,7 +621,6 @@ auto build_multi_cuts(const ElasticSolveResult& elastic,
             .context = context,
         };
         lb_cut[link.source_col] = 1.0;
-        lb_cut.already_lp_space = true;
         cuts.push_back(std::move(lb_cut));
       }
     }
@@ -794,8 +837,8 @@ auto BendersCut::build_feasibility_cut(const LinearInterface& li,
                                        std::span<const StateVarLink> links,
                                        double penalty,
                                        const SolverOptions& opts,
-                                       double scale_alpha,
-                                       double scale_objective)
+                                       double /*scale_alpha*/,
+                                       double /*scale_objective*/)
     -> std::optional<FeasibilityCutResult>
 {
   auto elastic = this->elastic_filter_solve(li, links, penalty, opts);
@@ -803,13 +846,12 @@ auto BendersCut::build_feasibility_cut(const LinearInterface& li,
     return std::nullopt;
   }
 
-  auto cut = build_benders_cut(alpha_col,
-                               links,
-                               elastic->clone.get_col_cost_raw(),
-                               elastic->clone.get_obj_value(),
-                               scale_alpha,
-                               /*cut_coeff_eps=*/0.0,
-                               scale_objective);
+  // See the free-function `build_feasibility_cut` above for rationale.
+  auto cut =
+      build_benders_cut_physical(alpha_col,
+                                 links,
+                                 elastic->clone,
+                                 elastic->clone.get_obj_value_physical());
 
   return FeasibilityCutResult {
       .cut = std::move(cut),

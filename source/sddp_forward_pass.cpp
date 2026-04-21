@@ -285,22 +285,22 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
               ? prev_alpha_svar->col()
               : ColIndex {unknown_index};
 
+          // Physical-space fcut: rc from the elastic clone, trial from
+          // each link's source StateVariable.  `add_row` on the
+          // equilibrated prev LP folds col_scales + row-max, so the
+          // prior `rescale_benders_cut` pass is no longer needed.
           auto feas_cut =
-              build_benders_cut(prev_alpha_col,
-                                prev_state.outgoing_links,
-                                solved_li.get_col_cost_raw(),
-                                solved_li.get_obj_value(),
-                                m_options_.scale_alpha,
-                                m_options_.cut_coeff_eps,
-                                planning_lp().options().scale_objective());
+              build_benders_cut_physical(prev_alpha_col,
+                                         prev_state.outgoing_links,
+                                         solved_li,
+                                         solved_li.get_obj_value_physical(),
+                                         m_options_.cut_coeff_eps);
           feas_cut.class_name = "Sddp";
           feas_cut.constraint_name = "fcut";
           feas_cut.context = make_iteration_context(scene_uid(scene_index),
                                                     phase_uid(phase_index),
                                                     iteration_index,
                                                     infeas_count);
-          rescale_benders_cut(
-              feas_cut, prev_alpha_col, m_options_.cut_coeff_max);
           filter_cut_coefficients(
               feas_cut, prev_alpha_col, m_options_.cut_coeff_eps);
           {
