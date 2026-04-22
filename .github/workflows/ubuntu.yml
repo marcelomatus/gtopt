@@ -43,11 +43,15 @@ concurrency:
 # ccache notes:
 #   CCACHE_BASEDIR  – normalise absolute paths so cache entries are portable
 #                     across runs on the same workspace path.
-#   CCACHE_SLOPPINESS=gcno_file_location – ccache 4.5+: don't hash the
-#                     location of .gcno files so coverage-instrumented TUs
-#                     are cached even when the build-dir path changes.
-#                     This is the key setting that makes ccache effective
-#                     with -fprofile-arcs / -ftest-coverage (GCC or Clang).
+#   CCACHE_SLOPPINESS – merged set:
+#     • gcno_file_location (ccache 4.5+): don't hash the .gcno path so
+#       coverage-instrumented TUs are cached when the build-dir path changes.
+#       Required with -fprofile-arcs / -ftest-coverage (GCC or Clang).
+#     • pch_defines, time_macros: required for gtopt's PCH-using TUs
+#       (cmake_local/PrecompiledHeaders.cmake). Without these, ccache marks
+#       every TU that uses the PCH as uncacheable (was 107/116 = 92%).
+#       CCACHE_SLOPPINESS env var overrides ccache.conf, so both must be
+#       listed here even though cmake_local/Ccache.cmake writes them to conf.
 env:
   CTEST_OUTPUT_ON_FAILURE: 1
   CPM_SOURCE_CACHE: ${{ github.workspace }}/cpm_modules
@@ -64,7 +68,7 @@ env:
   ENABLE_CLANG_TIDY: ${{ github.event.inputs.run_clang_tidy == 'true' && 'true' || 'false' }}
   # ccache configuration (applied globally to every step)
   CCACHE_BASEDIR: ${{ github.workspace }}
-  CCACHE_SLOPPINESS: gcno_file_location
+  CCACHE_SLOPPINESS: gcno_file_location,pch_defines,time_macros
 
 permissions:
   contents: read
@@ -89,7 +93,7 @@ jobs:
           key: ${{ github.workflow }}-${{ env.ACTIVE_COMPILER }}
           restore-keys: |
             ${{ github.workflow }}-${{ env.ACTIVE_COMPILER }}-
-          max-size: 4G
+          max-size: 2G
 
       # CPM cache key hashes only the files that drive dependency resolution
       # (CPM.cmake and the top-level CMakeLists with CPMAddPackage calls).
@@ -337,7 +341,7 @@ jobs:
           restore-keys: |
             ${{ github.workflow }}-clang-tidy-
             ${{ github.workflow }}-clang-
-          max-size: 4G
+          max-size: 2G
 
       - uses: actions/cache@v5
         with:
