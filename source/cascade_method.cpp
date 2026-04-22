@@ -200,24 +200,36 @@ void CascadePlanningMethod::add_elastic_targets(
     auto& li =
         planning_lp.system(t.scene_index, t.phase_index).linear_interface();
 
-    // Add slack columns for elastic penalty
+    // Add slack columns for elastic penalty.  The metadata-based
+    // duplicate detector (`f21641f9`) uses `(class, variable, uid,
+    // context)` as the dedup key; without an explicit `variable_uid`
+    // and `context` here every `tgt_sup` / `tgt_sdn` column across
+    // all targets would collapse to the same key and trigger
+    // "Duplicate LP column metadata" at the second addition.  Carry
+    // the state variable's UID + original context to disambiguate.
     const auto sup_col = li.add_col(SparseCol {
         .uppb = DblMax,
         .cost = penalty,
         .class_name = "Cascade",
         .variable_name = "tgt_sup",
+        .variable_uid = t.uid,
+        .context = t.context,
     });
     const auto sdn_col = li.add_col(SparseCol {
         .uppb = DblMax,
         .cost = penalty,
         .class_name = "Cascade",
         .variable_name = "tgt_sdn",
+        .variable_uid = t.uid,
+        .context = t.context,
     });
 
     // Add constraint: x - s⁺ + s⁻ ∈ [target - atol, target + atol]
     SparseRow row;
     row.class_name = "Cascade";
     row.constraint_name = "target";
+    row.variable_uid = t.uid;
+    row.context = t.context;
     row.lowb = t.target_value - atol;
     row.uppb = t.target_value + atol;
     row[resolved_col] = 1.0;
