@@ -1838,6 +1838,36 @@ TEST_CASE("ScaledView - clamps to physical bounds when provided")  // NOLINT
   }
 }
 
+// Regression: set_col equality-pin snap-and-clamp must not collapse
+// values to ±DblMax when the column is effectively unbounded.  A naive
+// `rel_tol * max(|lb|, |ub|)` with lb = -DblMax makes the tolerance
+// ~1e296, so every value snaps to the infinity closest to it —
+// previously observed as `UB = 2.57e+25` on the Juan gtopt_iplp uninodal
+// run after converting a free column's pin value to -DblMax.
+TEST_CASE(
+    "LinearInterface::set_col does not snap on unbounded columns")  // NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+
+  LinearInterface interface;
+  // Default SparseCol has lowb = -DblMax, uppb = +DblMax — the exact
+  // shape of the α bootstrap column before cuts pin it.
+  const auto alpha_like = interface.add_col(SparseCol {
+      .cost = 1.0,
+  });
+
+  const double value = 42.5;
+  interface.set_col(alpha_like, value);
+
+  // After `set_col`, both low and upp should be `value` exactly;
+  // pre-fix the tolerance computation would have snapped `value`
+  // to ±DblMax.
+  const auto lb = interface.get_col_low();
+  const auto ub = interface.get_col_upp();
+  CHECK(lb[alpha_like] == doctest::Approx(value));
+  CHECK(ub[alpha_like] == doctest::Approx(value));
+}
+
 TEST_CASE(  // NOLINT
     "LinearInterface::get_col_sol respects clamp only at optimal")
 {

@@ -1395,27 +1395,52 @@ void LinearInterface::set_col_raw(const ColIndex index, const double value)
 namespace
 {
 /// Snap `physical_value` to `lb_phys` or `ub_phys` when it lands within
-/// `near_bound_tol` of either, then clamp to the `[lb, ub]` box.  Keeps
+/// a small tolerance of either, then clamp to the `[lb, ub]` box.  Keeps
 /// equality pins from landing *just* outside a bound due to prior
 /// solver tolerance — which would make the LP trivially infeasible.
-/// The snap threshold is both absolute (`1e-9`) and relative (`1e-12 *
-/// max(|lb|, |ub|)`) so we catch noise at any scale.  Applied only in
-/// the physical setters; raw setters write verbatim.
+///
+/// Tolerance composition:
+///  - absolute floor `1e-9`,
+///  - relative `1e-12 * max(|lb|, |ub|, |value|)` but ONLY when the bound
+///    is *finite and not effectively infinite* (`< kFiniteBoundThresh`).
+///    Without this guard, a column bounded by `±DblMax` (e.g. free α
+///    before cuts land) would yield `tol ≈ 1e296`, so every value
+///    would snap to one of the infinities — catastrophic.
+///
+/// Applied only in the equality-pin physical setter (`set_col`); raw
+/// setters and the individual `set_col_low` / `set_col_upp` write
+/// verbatim (the latter legitimately widen the envelope).
 [[nodiscard]] constexpr double snap_and_clamp(double physical_value,
                                               double lb_phys,
                                               double ub_phys) noexcept
 {
-  if (!(lb_phys <= ub_phys)) {  // degenerate / unbounded
+  // Degenerate / inverted box — pass through.  `std::clamp` with lb > ub
+  // is UB, so we defensively skip the entire transform.
+  if (!(lb_phys <= ub_phys)) {
     return physical_value;
   }
+  // Any bound past this magnitude is "effectively unbounded" — snap
+  // would be dominated by the bound's own scale, not the noise we're
+  // trying to kill.  Well below DblMax but well above any real model
+  // quantity we expect (energy, flow, capacity in their native units).
+  constexpr double kFiniteBoundThresh = 1e18;
   constexpr double abs_tol = 1e-9;
   constexpr double rel_tol = 1e-12;
-  const double scale = std::max(std::abs(lb_phys), std::abs(ub_phys));
-  const double tol = std::max(abs_tol, rel_tol * scale);
-  if (std::abs(physical_value - lb_phys) <= tol) {
+
+  const bool lb_finite =
+      std::isfinite(lb_phys) && std::abs(lb_phys) < kFiniteBoundThresh;
+  const bool ub_finite =
+      std::isfinite(ub_phys) && std::abs(ub_phys) < kFiniteBoundThresh;
+
+  const double rel_anchor = std::max({lb_finite ? std::abs(lb_phys) : 0.0,
+                                      ub_finite ? std::abs(ub_phys) : 0.0,
+                                      std::abs(physical_value)});
+  const double tol = std::max(abs_tol, rel_tol * rel_anchor);
+
+  if (lb_finite && std::abs(physical_value - lb_phys) <= tol) {
     return lb_phys;
   }
-  if (std::abs(physical_value - ub_phys) <= tol) {
+  if (ub_finite && std::abs(physical_value - ub_phys) <= tol) {
     return ub_phys;
   }
   return std::clamp(physical_value, lb_phys, ub_phys);
