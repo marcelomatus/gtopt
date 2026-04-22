@@ -1203,21 +1203,25 @@ TEST_CASE("elastic_filter_solve free function succeeds")  // NOLINT
 // ---------------------------------------------------------------------------
 
 TEST_CASE(  // NOLINT
-    "elastic filter penalty scales correctly with large energy_scale")
+    "elastic filter slack costs are unit under Chinneck Phase-1")
 {
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
-  // Scenario: a reservoir with physical volume ~1000 hm³
-  //   energy_scale = 1000  → LP efin variable ≈ 1.0
-  //   state_fail_cost = 1000 $/MWh, mean_production_factor = 5 MWh/hm³
-  //   → scost = 5000 $/hm³
-  //   scale_objective = 1e7
-  //   → link.scost = 5000 / 1e7 = 5e-4  (pre-divided)
-  //   → link.var_scale = 1000
-  //   → penalty on slack = 5e-4 × 1000 = 0.5  (LP units)
+  // Chinneck Phase-1 convention for SDDP feasibility cuts (see
+  // `elastic_filter_solve` in source/benders_cut.cpp, PLP `plp-bc.f`,
+  // and Chinneck (2008) "Feasibility and Infeasibility in
+  // Optimization" § 4):
+  //   - Every original objective coefficient is zeroed on the clone.
+  //   - Slack variables added by `relax_fixed_state_variable` get
+  //     cost = 1.0 regardless of link.scost or global penalty.
+  //   - The relaxed LP's optimum = Σ(s⁺ + s⁻) = pure feasibility
+  //     gap — independent of dispatch cost structure.
   //
-  // This test verifies that the elastic penalty coefficient is O(1) and
-  // does not produce ill-conditioned cut coefficients.
+  // Keeping original obj or scost-scaled slack cost would leak
+  // state-dependent opex into the Benders feasibility-cut RHS and
+  // drive α to diverge under SDDP iteration (observed on
+  // juan/gtopt_iplp).  `link.scost` and the global `penalty`
+  // argument are retained only for signature stability.
 
   constexpr double energy_scale = 1000.0;
   constexpr double scale_obj = 1e7;
@@ -1283,7 +1287,7 @@ TEST_CASE(  // NOLINT
       },
   };
 
-  SUBCASE("relax_fixed_state_variable uses scost × var_scale as penalty")
+  SUBCASE("relax_fixed_state_variable adds unit-cost slacks")
   {
     auto clone = li.clone();
     auto info = relax_fixed_state_variable(clone,
@@ -1295,16 +1299,12 @@ TEST_CASE(  // NOLINT
 
     REQUIRE(info.relaxed);
 
-    // The penalty should be scost × var_scale = 5e-4 × 1000 = 0.5
-    const auto expected_penalty = link_scost * energy_scale;
-    CHECK(expected_penalty == doctest::Approx(0.5));
-
-    // Verify slack objective coefficients match
+    // Chinneck Phase-1: unit slack cost regardless of link.scost.
     const auto obj = clone.get_obj_coeff();
-    CHECK(obj[info.sup_col] == doctest::Approx(expected_penalty));
-    CHECK(obj[info.sdn_col] == doctest::Approx(expected_penalty));
+    CHECK(obj[info.sup_col] == doctest::Approx(1.0));
+    CHECK(obj[info.sdn_col] == doctest::Approx(1.0));
 
-    // Penalty is O(1), not O(1e6) — well-conditioned
+    // Sanity: well-conditioned coefficients.
     CHECK(obj[info.sup_col] < 10.0);
     CHECK(obj[info.sup_col] > 1e-6);
   }
@@ -1340,9 +1340,11 @@ TEST_CASE(  // NOLINT
     }
   }
 
-  SUBCASE("global penalty fallback when scost is zero")
+  SUBCASE("slack cost remains unit when scost is zero")
   {
-    // When scost=0, the global penalty is used instead
+    // Under Chinneck Phase-1, neither scost nor the global penalty
+    // parameter is consulted — slack cost is always 1.0.  Verify
+    // with scost = 0 and a non-zero global penalty argument.
     auto link_no_scost = links[0];
     link_no_scost.scost = 0.0;
 
@@ -1358,13 +1360,9 @@ TEST_CASE(  // NOLINT
 
     REQUIRE(info.relaxed);
 
-    // Penalty = global_penalty × var_scale = 1e-4 × 1000 = 0.1
-    const auto expected_penalty = global_penalty * energy_scale;
-    CHECK(expected_penalty == doctest::Approx(0.1));
-
     const auto obj = clone.get_obj_coeff();
-    CHECK(obj[info.sup_col] == doctest::Approx(expected_penalty));
-    CHECK(obj[info.sdn_col] == doctest::Approx(expected_penalty));
+    CHECK(obj[info.sup_col] == doctest::Approx(1.0));
+    CHECK(obj[info.sdn_col] == doctest::Approx(1.0));
   }
 
   SUBCASE("penalty without scaling would be ill-conditioned")

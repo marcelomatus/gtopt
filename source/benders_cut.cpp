@@ -16,6 +16,7 @@
 #include <gtopt/benders_cut.hpp>
 #include <gtopt/fmap.hpp>
 #include <gtopt/label_maker.hpp>
+#include <gtopt/utils.hpp>
 #include <gtopt/work_pool.hpp>
 
 #ifndef SPDLOG_ACTIVE_LEVEL
@@ -159,7 +160,7 @@ RelaxedVarInfo relax_fixed_state_variable(
     LinearInterface& li,
     const StateVarLink& link,
     [[maybe_unused]] PhaseIndex phase_index,
-    double penalty)
+    [[maybe_unused]] double penalty)
 {
   const auto dep = link.dependent_col;
   const auto lo = li.get_col_low_raw()[dep];
@@ -173,26 +174,21 @@ RelaxedVarInfo relax_fixed_state_variable(
   li.set_col_low_raw(dep, link.source_low);
   li.set_col_upp_raw(dep, link.source_upp);
 
-  // Penalised slack variables: up (overshoot) and dn (undershoot)
-  //
-  // When the link carries a per-variable state cost (scost > 0, e.g. from
-  // Reservoir::scost in $/hm³), use it instead of the global penalty.
-  // The scost is already in $/physical_unit, so we only need to divide
-  // by scale_objective (the caller pre-divides `penalty` by scale_obj,
-  // so we reconstruct the per-variable penalty the same way).
-  //
-  // Scale by var_scale: 1 LP unit of slack = var_scale physical units,
-  // so the cost per LP unit is base_penalty × var_scale.
-  const auto base_penalty = (link.scost > 0.0) ? link.scost : penalty;
-  const auto scaled_penalty = base_penalty * link.var_scale;
+  // Chinneck Phase-1 feasibility LP: unit-cost slack variables.  The
+  // caller (`elastic_filter_solve`) has zeroed every original
+  // objective coefficient on the clone, so the relaxed LP's optimum
+  // equals Σ(s⁺ + s⁻) — the pure feasibility gap.  Matches PLP
+  // `plp-bc.f` and Chinneck (2008) § 4.  `penalty` retained for
+  // signature stability; no longer consulted here.
+  constexpr double slack_cost = 1.0;
   const auto sup = li.add_col(SparseCol {
       .uppb = DblMax,
-      .cost = scaled_penalty,
+      .cost = slack_cost,
   });
 
   const auto sdn = li.add_col(SparseCol {
       .uppb = DblMax,
-      .cost = scaled_penalty,
+      .cost = slack_cost,
   });
 
   // dep + sup − sdn = trial_value
@@ -230,6 +226,18 @@ auto elastic_filter_solve(const LinearInterface& li,
 {
   // Clone the LP; modifications don't touch the original.
   auto cloned = li.clone();
+
+  // Chinneck Phase-1 feasibility LP: zero every original objective
+  // coefficient so the relaxed LP becomes a pure feasibility problem.
+  // Its optimum equals Σ(s⁺ + s⁻) = minimum total slack activation to
+  // restore feasibility — independent of dispatch cost structure.
+  // Matches PLP `plp-bc.f`, Chinneck (2008) § 4, Ruszczyński (1997).
+  // Keeping the original obj would leak state-dependent opex into
+  // the Benders feasibility-cut RHS and drive α to diverge under
+  // SDDP iteration (observed on juan/gtopt_iplp).
+  for (const auto c : iota_range<ColIndex>(0, cloned.numcols_as_index())) {
+    cloned.set_obj_coeff(c, 0.0);
+  }
 
   ElasticSolveResult result;
   result.link_infos.reserve(links.size());
