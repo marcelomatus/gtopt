@@ -380,46 +380,52 @@ void SDDPMethod::update_stored_cut_duals()
 
 void SDDPMethod::initialize_alpha_variables(SceneIndex scene_index)
 {
-  auto& sim = planning_lp().simulation();
-  const auto& phases = sim.phases();
-  const auto last_phase_index = sim.last_phase_index();
-
   auto& phase_states = m_scene_phase_states_[scene_index];
-  phase_states.resize(phases.size());
+  phase_states.resize(planning_lp().simulation().phases().size());
 
-  // Add α (future-cost) variable to every phase except the last.
-  // Bootstrap lower bound: α carries a positive objective coefficient,
-  // so without an initial lower-bound cut the cold-start iter-0 LP
-  // would be unbounded.  Once Benders cuts arrive they dominate this
-  // bound and it becomes inert.
-  for (auto&& [pi, _phase] : enumerate<PhaseIndex>(phases)) {
-    if (pi == last_phase_index) {
-      break;
+  gtopt::register_alpha_variables(
+      planning_lp(), scene_index, m_options_.scale_alpha);
+}
+
+// Free-function implementation declared in <gtopt/sddp_types.hpp>.
+// Adds α (future-cost) to every phase — including the last — with
+// bootstrap `lowb = uppb = 0`.  α is pinned at zero until a cut
+// arrives: backward-pass cuts free it on non-last phases and
+// boundary / named hot-start cut loaders free it on the last
+// phase.  Keeps the iter-0 LP bounded without a positive lower
+// bound and keeps the last phase symmetric with the others — the
+// only difference is *when* α gets freed.
+void register_alpha_variables(PlanningLP& planning_lp,
+                              SceneIndex scene_index,
+                              double scale_alpha)
+{
+  auto& sim = planning_lp.simulation();
+  const auto& phases = sim.phases();
+
+  for (auto&& [pi, phase] : enumerate<PhaseIndex>(phases)) {
+    if (find_alpha_state_var(sim, scene_index, pi) != nullptr) {
+      continue;  // already registered — idempotent
     }
-    auto& li = planning_lp().system(scene_index, pi).linear_interface();
-
-    const auto sa = m_options_.scale_alpha;
+    auto& li = planning_lp.system(scene_index, pi).linear_interface();
     const auto alpha_sparse = SparseCol {
-        .lowb = sddp_alpha_bootstrap_min / sa,
-        .uppb = LinearProblem::DblMax,
-        .cost = sa,
+        .lowb = sddp_alpha_bootstrap_min / scale_alpha,
+        .uppb = sddp_alpha_bootstrap_min / scale_alpha,
+        .cost = scale_alpha,
         .is_state = true,
-        .scale = sa,
+        .scale = scale_alpha,
         .class_name = sddp_alpha_class_name,
         .variable_name = sddp_alpha_col_name,
         .context =
-            make_scene_phase_context(scene_uid(scene_index), _phase.uid()),
+            make_scene_phase_context(sim.scene_uid(scene_index), phase.uid()),
     };
     const auto alpha_col = li.add_col(alpha_sparse);
 
-    // Track dynamic column for low_memory reconstruction
-    planning_lp().system(scene_index, pi).record_dynamic_col(alpha_sparse);
+    // Track dynamic column for low_memory reconstruction.
+    planning_lp.system(scene_index, pi).record_dynamic_col(alpha_sparse);
 
-    // Register alpha as a regular state variable so all label-based
+    // Register α as a regular state variable so all label-based
     // machinery (state CSV I/O, cut CSV I/O, cross-level resolution)
-    // treats it uniformly with reservoir/storage state vars.  Without
-    // this, cascade level transitions would need a separate resolve path
-    // for alpha, inviting stale-col-index bugs.
+    // treats it uniformly with reservoir/storage state vars.
     std::ignore = sim.add_state_variable(
         StateVariable::Key {
             .uid = sddp_alpha_uid,
@@ -429,34 +435,43 @@ void SDDPMethod::initialize_alpha_variables(SceneIndex scene_index)
         },
         alpha_col,
         0.0,  // scost: no elastic penalty on alpha
-        sa,  // var_scale: same as SparseCol.scale
+        scale_alpha,  // var_scale: same as SparseCol.scale
         alpha_sparse.context);
   }
 }
 
-void SDDPMethod::relax_alpha_lower_bound(SceneIndex scene_index,
-                                         PhaseIndex phase_index)
+void SDDPMethod::free_alpha(SceneIndex scene_index, PhaseIndex phase_index)
 {
-  // The last phase has no α (SDDP terminal condition); skip silently.
-  // Every other phase should have α at this point (eager-init added
-  // it in `initialize_alpha_variables`), but we guard for safety so
-  // callers can invoke us unconditionally before every `add_row`.
-  const auto* svar = find_alpha_state_var(
-      planning_lp().simulation(), scene_index, phase_index);
+  gtopt::free_alpha(planning_lp(), scene_index, phase_index);
+}
+
+// Free-function implementation declared in <gtopt/sddp_types.hpp>.
+// Provides the shared free-α primitive used by both `SDDPMethod`
+// (backward / feasibility / aperture cut paths) and
+// `load_boundary_cuts_csv` (last-phase boundary-cut install).
+void free_alpha(PlanningLP& planning_lp,
+                SceneIndex scene_index,
+                PhaseIndex phase_index)
+{
+  const auto* svar =
+      find_alpha_state_var(planning_lp.simulation(), scene_index, phase_index);
   if (svar == nullptr) {
-    return;
+    return;  // alpha not registered on this (scene, phase) — nothing to free.
   }
-  auto& sys = planning_lp().system(scene_index, phase_index);
+  auto& sys = planning_lp.system(scene_index, phase_index);
   sys.ensure_lp_built();
   sys.linear_interface().set_col_low_raw(svar->col(), -LinearProblem::DblMax);
-  // M2: update the persistent `m_dynamic_cols_` mirror so that a
-  // subsequent `release_backend` + `ensure_backend` (compress /
-  // rebuild) replays α with `lowb = -DblMax` via
+  sys.linear_interface().set_col_upp_raw(svar->col(), LinearProblem::DblMax);
+  // Mirror the release into the persistent `m_dynamic_cols_` entry so
+  // a subsequent `release_backend` + `ensure_backend` (compress /
+  // rebuild) replays α with the freed bounds via
   // `apply_post_load_replay`.  Without this the release+reload cycle
-  // would restore the bootstrap `lowb = 0`, re-clipping α until the
-  // active cuts' row-level bound dominates on the next solve.
-  sys.update_dynamic_col_lowb(
-      sddp_alpha_class_name, sddp_alpha_col_name, -LinearProblem::DblMax);
+  // would restore the bootstrap `lowb = uppb = 0`, re-pinning α
+  // until the next cut install dominates on the next solve.
+  sys.update_dynamic_col_bounds(sddp_alpha_class_name,
+                                sddp_alpha_col_name,
+                                -LinearProblem::DblMax,
+                                LinearProblem::DblMax);
 }
 
 void SDDPMethod::collect_state_variable_links(SceneIndex scene_index)
@@ -921,10 +936,11 @@ auto SDDPMethod::backward_pass_single_phase(SceneIndex scene_index,
                                        cut_offset);
   const auto dt_build = elapsed_s(t_build);
 
-  // Release α's bootstrap `lowb = 0` on the source phase before the
-  // cut lands — the cut itself bounds α from below, and keeping the
-  // 0 floor would clip any legitimately-negative future-cost value.
-  relax_alpha_lower_bound(scene_index, prev_phase_index);
+  // Release α's bootstrap pin on the source phase before the cut
+  // lands — the cut itself bounds α, and keeping the `lowb = uppb
+  // = 0` equality would clip any legitimately-nonzero future-cost
+  // value.
+  free_alpha(scene_index, prev_phase_index);
 
   const auto t_add_row = Clock::now();
   const auto cut_row = src_li.add_row(cut, ceps);

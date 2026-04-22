@@ -96,6 +96,78 @@ if [[ -n "$pos_arith" ]]; then
   fail=1
 fi
 
+# ── Rule 4: no redundant `static_cast<Index>(strong_index)` ─────────────────
+# `StrongIndexType<Tag>` and `StrongPositionIndexType<Tag>` ship with
+# `strong::implicitly_convertible_to<Index>` AND `strong::formattable`, so
+# the cast is noise in every context that accepts `Index` (comparisons,
+# arithmetic, `std::format`, subscripts on raw int arrays, etc.).
+#
+# Heuristic: flag any `static_cast<Index>(expr)` where `expr` looks like
+# a strong-index variable or subscript (`idx`, `idx->second`, `scene_index`,
+# etc.) rather than a raw `size_t`.  We exclude the sanctioned
+# `static_cast<Index>(container.size())` pattern (Rule 2 already covers
+# that) and a handful of legitimate narrowing-from-size_t call sites
+# enumerated in the allow-list below.
+redundant_index_cast=$(run_grep \
+  'static_cast<Index>\(([a-zA-Z_][a-zA-Z0-9_]*(\.[a-zA-Z_][a-zA-Z0-9_]*|->[a-zA-Z_][a-zA-Z0-9_]*)*|.*Index\{[^}]+\})\)' \
+  "${SEARCH_PATHS[@]}" \
+  | grep -vE '\.size\(\)' \
+  | grep -vE 'size_t|std::ssize|static_cast<Index>\(m_' \
+  | grep -vE '^source/sddp_iteration\.cpp:(700|1373):.*SceneIndex[[:space:]]*\{[[:space:]]*static_cast<Index>\([a-z_]+_sz\)' \
+  | grep -vE '^source/sddp_cut_store\.cpp:214:.*static_cast<Index>\(psi\.base_nrows\)' \
+  | grep -vE '^include/gtopt/iteration\.hpp:[0-9]+:.*static_cast<Index>\((cur|offset)\)' \
+  || true)
+if [[ -n "$redundant_index_cast" ]]; then
+  echo "❌ redundant static_cast<Index>(strong_index) found:" >&2
+  echo "$redundant_index_cast" >&2
+  echo "   fix: drop the cast — StrongIndexType / StrongPositionIndexType are" >&2
+  echo "        implicitly_convertible_to<Index> AND formattable." >&2
+  echo "" >&2
+  fail=1
+fi
+
+# ── Rule 5: no `static_cast<size_t>(int_expr + int_lit)` ────────────────────
+# Misplaced widening cast (clang-tidy `bugprone-misplaced-widening-cast`):
+# the arithmetic happens in the narrow type first, then widens — so the
+# cast does nothing to prevent overflow.  Cast first, then add:
+#
+#     static_cast<size_t>(i + 1)       // ❌ add-then-widen, cast is noise
+#     static_cast<size_t>(i) + 1       // ✓ widen-then-add
+misplaced_widening=$(run_grep \
+  'static_cast<size_t>\([^)]*[+-][[:space:]]*[0-9]+\)' \
+  "${SEARCH_PATHS[@]}" \
+  | grep -vE '//\s*NOLINT' \
+  || true)
+if [[ -n "$misplaced_widening" ]]; then
+  echo "❌ misplaced widening cast static_cast<size_t>(int_expr ± int_lit):" >&2
+  echo "$misplaced_widening" >&2
+  echo "   fix: cast first, arithmetic second — static_cast<size_t>(i) + 1." >&2
+  echo "" >&2
+  fail=1
+fi
+
+# ── Rule 6: no `sim.scenes()[…].uid()` / `sim.phases()[…].uid()` ────────────
+# `SimulationLP::scene_uid(SceneIndex)` / `phase_uid(PhaseIndex)` accessors
+# exist (see include/gtopt/simulation_lp.hpp).  Use them instead of the
+# bracket-access + .uid() idiom — it's shorter, avoids an un-bounds-checked
+# subscript, and centralises the uid-extraction convention.  Allow-list:
+#   - include/gtopt/sddp_method.hpp   (scene_uid / phase_uid delegate)
+#   - include/gtopt/simulation_lp.hpp (accessor implementation)
+sim_uid_chain=$(run_grep \
+  '(simulation\(\)|^[[:space:]]*sim)\.(scenes|phases)\(\)\[[^]]+\]\.uid\(\)' \
+  "${SEARCH_PATHS[@]}" \
+  | grep -vE '//\s*NOLINT' \
+  | grep -vE '^include/gtopt/(sddp_method|simulation_lp)\.hpp:' \
+  || true)
+if [[ -n "$sim_uid_chain" ]]; then
+  echo "❌ sim.scenes()[idx].uid() / sim.phases()[idx].uid() chain:" >&2
+  echo "$sim_uid_chain" >&2
+  echo "   fix: use sim.scene_uid(idx) / sim.phase_uid(idx) from" >&2
+  echo "        <gtopt/simulation_lp.hpp>." >&2
+  echo "" >&2
+  fail=1
+fi
+
 if [[ $fail -ne 0 ]]; then
   echo "lint_strong_types.sh: strong-type hygiene violations above ↑" >&2
   exit 1

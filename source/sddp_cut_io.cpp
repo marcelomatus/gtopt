@@ -753,6 +753,10 @@ void write_cut_coefficients_unscaled(std::ostream& ofs,
         for (const auto& [col, coeff] : resolved_coeffs) {
           scene_row[col] = coeff;
         }
+        // Release α's bootstrap pin before the loaded cut lands —
+        // the cut itself bounds α and the `lowb = uppb = 0`
+        // equality would clip nonzero future-cost values.
+        free_alpha(planning_lp, scene_index, phase_index);
         li.add_row(scene_row);
         li.record_cut_row(scene_row);
       }
@@ -1053,49 +1057,13 @@ void write_cut_coefficients_unscaled(std::ostream& ofs,
       }
     }
 
-    // ── Ensure the last phase has an alpha column ───────────────
+    // ── α is already registered on every phase (including the
+    //    last) by `SDDPMethod::initialize_alpha_variables`, pinned
+    //    at `lowb = uppb = 0`.  Each successful boundary-cut
+    //    install below calls `free_alpha(…, last_phase)` to
+    //    release that pin — same contract as the backward-pass
+    //    cut sites.  No separate add-α pass is needed here.
     const auto sa = effective_scale_alpha(planning_lp, options.scale_alpha);
-    for (const auto scene_index : iota_range<SceneIndex>(0, num_scenes)) {
-      // sv_map presence is the ground truth for "alpha exists on this
-      // (scene, phase)" — no cached ColIndex to check.
-      if (find_alpha_state_var(
-              planning_lp.simulation(), scene_index, last_phase)
-          != nullptr)
-      {
-        continue;
-      }
-      auto& sys = planning_lp.system(scene_index, last_phase);
-      auto& li = sys.linear_interface();
-      const auto alpha_sparse = SparseCol {
-          .lowb = sddp_alpha_bootstrap_min / sa,
-          .uppb = LinearProblem::DblMax,
-          .cost = sa,
-          .is_state = true,
-          .scale = sa,
-          .class_name = sddp_alpha_class_name,
-          .variable_name = sddp_alpha_col_name,
-          .context = ScenePhaseContext {sim.scene_uid(scene_index),
-                                        sim.phase_uid(last_phase)},
-      };
-      const auto alpha_col = li.add_col(alpha_sparse);
-      // Track dynamic column for low_memory reconstruction — without
-      // this, the snapshot reload path would rebuild the LP missing
-      // alpha, and boundary cuts would reference a non-existent column.
-      sys.record_dynamic_col(alpha_sparse);
-      // Register as a regular state variable — see the matching call
-      // in SDDPMethod::initialize_alpha_variables for rationale.
-      std::ignore = planning_lp.simulation().add_state_variable(
-          StateVariable::Key {
-              .uid = sddp_alpha_uid,
-              .col_name = sddp_alpha_col_name,
-              .class_name = sddp_alpha_class_name,
-              .lp_key = {.scene_index = scene_index, .phase_index = last_phase},
-          },
-          alpha_col,
-          0.0,
-          sa,
-          alpha_sparse.context);
-    }
 
     // ── Add cuts to the LP ──────────────────────────────────────
     const auto& bdr_li =
@@ -1218,6 +1186,13 @@ void write_cut_coefficients_unscaled(std::ostream& ofs,
           }
         }
 
+        // Release α's bootstrap pin on the last phase before the
+        // cut lands — the boundary cut itself provides α's lower
+        // bound, and the `lowb = uppb = 0` equality would clip
+        // any legitimately-nonzero future-cost value.  Idempotent
+        // across multiple cuts on the same (scene, last_phase)
+        // cell.
+        free_alpha(planning_lp, scene_index, last_phase);
         li.add_row(row);
         li.record_cut_row(row);
       }
@@ -1455,51 +1430,11 @@ void write_cut_coefficients_unscaled(std::ostream& ofs,
       }
       const auto phase_index = pit->second;
 
-      // Ensure alpha variable exists for this phase in all scenes.
-      // Register as a dynamic column so low_memory reconstruction
-      // replays it.  sv_map presence is the ground truth — no cached
-      // ColIndex to check.
-      for (const auto scene_index : iota_range<SceneIndex>(0, num_scenes)) {
-        if (find_alpha_state_var(
-                planning_lp.simulation(), scene_index, phase_index)
-            != nullptr)
-        {
-          continue;
-        }
-        auto& sys = planning_lp.system(scene_index, phase_index);
-        auto& li = sys.linear_interface();
-        const auto alpha_sparse = SparseCol {
-            .lowb = sddp_alpha_bootstrap_min / sa,
-            .uppb = LinearProblem::DblMax,
-            .cost = sa,
-            .is_state = true,
-            .scale = sa,
-            .class_name = sddp_alpha_class_name,
-            .variable_name = sddp_alpha_col_name,
-            .context = ScenePhaseContext {sim.scene_uid(scene_index),
-                                          sim.phase_uid(phase_index)},
-        };
-        const auto alpha_col = li.add_col(alpha_sparse);
-        sys.record_dynamic_col(alpha_sparse);
-        // Register alpha as a regular state variable so cross-level
-        // (cascade) resolution and state/cut CSV I/O treat it uniformly
-        // with reservoir/storage state vars.
-        std::ignore = planning_lp.simulation().add_state_variable(
-            StateVariable::Key {
-                .uid = sddp_alpha_uid,
-                .col_name = sddp_alpha_col_name,
-                .class_name = sddp_alpha_class_name,
-                .lp_key =
-                    {
-                        .scene_index = scene_index,
-                        .phase_index = phase_index,
-                    },
-            },
-            alpha_col,
-            0.0,
-            sa,
-            alpha_sparse.context);
-      }
+      // α is already registered on every phase by
+      // `SDDPMethod::initialize_alpha_variables`; the install loop
+      // below calls `free_alpha(…)` per cell before `add_row` to
+      // release the bootstrap pin, mirroring the backward-pass
+      // contract.
 
       // Get the column map for this phase
       const auto& col_map = get_col_map(phase_index);
@@ -1583,6 +1518,9 @@ void write_cut_coefficients_unscaled(std::ostream& ofs,
           }
         }
 
+        // Release α's bootstrap pin before the named hot-start
+        // cut lands — see the boundary-cut loader for rationale.
+        free_alpha(planning_lp, scene_index, phase_index);
         li.add_row(row);
         li.record_cut_row(row);
       }
@@ -1870,6 +1808,9 @@ void write_cut_coefficients_unscaled(std::ostream& ofs,
         for (const auto& [col, coeff] : resolved_coeffs) {
           scene_row[col] = coeff;
         }
+        // Release α's bootstrap pin before the loaded JSON cut
+        // lands — see the CSV loader for rationale.
+        free_alpha(planning_lp, scene_index, phase_index);
         li.add_row(scene_row);
         li.record_cut_row(scene_row);
       }

@@ -174,20 +174,23 @@ public:
 
   // ── α (future-cost) bookkeeping ──
 
-  /// Release α's bootstrap lower bound at (scene, phase) so a
-  /// subsequently-installed Benders cut can represent negative
-  /// future-cost values without being artificially clipped by
-  /// `sddp_alpha_bootstrap_min`.  Idempotent.  Called automatically
-  /// before every `add_row(alpha_cut)` on the source phase; exposed
-  /// publicly for characterisation tests and for external callers
-  /// that install cuts on α directly.
+  /// Release α's bootstrap pin at (scene, phase) so a subsequently-
+  /// installed Benders (or boundary) cut can represent arbitrary
+  /// future-cost values without being artificially clipped by the
+  /// initial `lowb = uppb = 0` equality.  Idempotent.  Called
+  /// automatically before every `add_row(alpha_cut)` on the source
+  /// phase (backward pass, feasibility pass, aperture pass) and on
+  /// the last phase when the first boundary cut is installed.
+  /// Exposed publicly for characterisation tests and for external
+  /// callers that install cuts on α directly.
   ///
+  /// Both bounds are released: `lowb ← -DblMax`, `uppb ← +DblMax`.
   /// Under `low_memory = compress` / `rebuild` the update is mirrored
-  /// into the `m_dynamic_cols_` entry so `apply_post_load_replay`
-  /// preserves the freed bound across a release+reload cycle.  Under
-  /// `LowMemoryMode::off` only the live backend is modified — there is
-  /// no snapshot to re-sync.
-  void relax_alpha_lower_bound(SceneIndex scene_index, PhaseIndex phase_index);
+  /// into the `m_dynamic_cols_` entry via `update_dynamic_col_bounds`
+  /// so `apply_post_load_replay` preserves the freed bounds across a
+  /// release+reload cycle.  Under `LowMemoryMode::off` only the live
+  /// backend is modified — there is no snapshot to re-sync.
+  void free_alpha(SceneIndex scene_index, PhaseIndex phase_index);
 
   // ── Live query (thread-safe, atomic reads) ──
 
@@ -219,6 +222,17 @@ public:
   [[nodiscard]] bool has_converged() const noexcept
   {
     return m_converged_.load();
+  }
+
+  /// Current iteration-index offset.  Starts at 0 and advances past
+  /// the last iteration executed at the end of each `solve()` call
+  /// so re-entering `solve()` on the same instance keeps each cut's
+  /// `IterationContext` disjoint from those already installed.  Also
+  /// bumped by hot-start cut loaders to start past the max iteration
+  /// found in the loaded file (see `initialize_solver`).
+  [[nodiscard]] IterationIndex iteration_offset() const noexcept
+  {
+    return m_iteration_offset_;
   }
 
   /// Current pass: 0=idle, 1=forward, 2=backward

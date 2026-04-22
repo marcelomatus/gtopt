@@ -1192,8 +1192,8 @@ TEST_CASE(
 }
 
 TEST_CASE(
-    "load_boundary_cuts_csv creates alpha column on "
-    "demand")  // NOLINT
+    "load_boundary_cuts_csv consumes pre-registered α on the last "
+    "phase")  // NOLINT
 {
   auto planning = make_3phase_hydro_planning();
   PlanningLP planning_lp(std::move(planning));
@@ -1214,22 +1214,30 @@ TEST_CASE(
   const LabelMaker label_maker {LpNamesLevel::none};
   auto states = make_scene_phase_states(planning_lp);
 
-  // Before loading, alpha should not be registered for the last phase
+  // α is now registered by `register_alpha_variables` during
+  // SDDP init (unified across all phases); the cut loader no
+  // longer creates it.  Set up the same precondition here for
+  // the isolated-loader call.  After install, the loader calls
+  // `free_alpha` per cut — the freed-bounds assertion lives in
+  // `test_sddp_alpha_relax.cpp`, which goes through the full
+  // SDDPMethod::ensure_initialized path (`get_col_low_raw` needs
+  // a fully-loaded backend to return non-NaN values).
+  const auto num_scenes =
+      static_cast<Index>(planning_lp.simulation().scenes().size());
+  for (const auto scene_index : iota_range<SceneIndex>(0, num_scenes)) {
+    register_alpha_variables(planning_lp, scene_index, opts.scale_alpha);
+  }
+
   const auto last_phase =
       PhaseIndex {planning_lp.simulation().phases().size() - 1};
-  CHECK(find_alpha_state_var(
-            planning_lp.simulation(), first_scene_index(), last_phase)
-        == nullptr);
+  REQUIRE(find_alpha_state_var(
+              planning_lp.simulation(), first_scene_index(), last_phase)
+          != nullptr);
 
   auto result =
       load_boundary_cuts_csv(planning_lp, tmp_file, opts, label_maker, states);
   REQUIRE(result.has_value());
   CHECK(result->count == 1);
-
-  // After loading, alpha should be registered as a state variable
-  CHECK(find_alpha_state_var(
-            planning_lp.simulation(), first_scene_index(), last_phase)
-        != nullptr);
 
   std::filesystem::remove(tmp_file);
 }
@@ -1371,12 +1379,23 @@ TEST_CASE(
   const LabelMaker label_maker {LpNamesLevel::none};
   auto states = make_scene_phase_states(planning_lp);
 
+  // α is now registered by `register_alpha_variables` during
+  // SDDP init (unified across all phases); the cut loaders
+  // require it as a precondition.  Set up the same state here
+  // for an isolated-loader test call.
+  const auto num_scenes =
+      static_cast<Index>(planning_lp.simulation().scenes().size());
+  for (const auto scene_index : iota_range<SceneIndex>(0, num_scenes)) {
+    register_alpha_variables(planning_lp, scene_index, opts.scale_alpha);
+  }
+
   auto result =
       load_named_cuts_csv(planning_lp, tmp_file, opts, label_maker, states);
   REQUIRE(result.has_value());
   CHECK(result->count == 3);
 
-  // Verify alpha was registered as a state variable for all phases
+  // Verify alpha is registered as a state variable for all phases
+  // (precondition set up above; the loader consumes it).
   for (Index pi = 0; pi < 3; ++pi) {
     CHECK(find_alpha_state_var(
               planning_lp.simulation(), first_scene_index(), PhaseIndex {pi})

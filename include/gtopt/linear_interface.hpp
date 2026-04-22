@@ -319,6 +319,17 @@ public:
                                std::string_view variable_name,
                                double new_lowb) noexcept;
 
+  /// Two-sided bound update for a dynamic column — used by the SDDP
+  /// `free_alpha` path which relaxes both the pinned `lowb = 0` and
+  /// `uppb = 0` bootstrap in a single call.  Semantics mirror
+  /// `update_dynamic_col_lowb`: no-op under `LowMemoryMode::off`,
+  /// returns `true` iff a matching `(class_name, variable_name)`
+  /// entry was found in `m_dynamic_cols_` and both bounds overwritten.
+  bool update_dynamic_col_bounds(std::string_view class_name,
+                                 std::string_view variable_name,
+                                 double new_lowb,
+                                 double new_uppb) noexcept;
+
   /// Record a Benders cut row addition.
   void record_cut_row(SparseRow row);
 

@@ -50,6 +50,7 @@ namespace gtopt
 // Forward declaration for compute_scene_weights()
 class SceneLP;
 class SimulationLP;
+class PlanningLP;
 
 // ─── Cut sharing mode ───────────────────────────────────────────────────────
 // CutSharingMode is now defined in <gtopt/sddp_enums.hpp>.
@@ -594,8 +595,7 @@ struct SDDPIterationResult
 
 /// Look up the alpha (future-cost) state variable registered by
 /// `SDDPMethod::initialize_alpha_variables` for the given (scene, phase).
-/// Returns `nullptr` for the last phase (which has no alpha) and for any
-/// phase that has not yet been initialised.
+/// Returns `nullptr` for any phase that has not yet been initialised.
 ///
 /// Callers should read the alpha column index freshly via
 /// `svar->col()` and the forward-pass trial value via `svar->col_sol()`,
@@ -606,6 +606,35 @@ struct SDDPIterationResult
     const SimulationLP& sim,
     SceneIndex scene_index,
     PhaseIndex phase_index) noexcept;
+
+/// Release α's bootstrap pin (`lowb = uppb = 0`) at the given
+/// `(scene, phase)` cell.  Sets `lowb = -DblMax`, `uppb = +DblMax`
+/// on the live LP backend and mirrors the change into the
+/// `m_dynamic_cols_` entry so release+reload replay preserves the
+/// freed bounds.  Idempotent and safe to call on a cell whose α
+/// has not been registered (no-op).  Shared by the SDDPMethod
+/// backward/feasibility paths and the boundary-cut loader in
+/// `source/sddp_cut_io.cpp` so every cut-install site uses the
+/// same free-α semantics.
+void free_alpha(PlanningLP& planning_lp,
+                SceneIndex scene_index,
+                PhaseIndex phase_index);
+
+/// Register the α (future-cost) column on every (scene, phase)
+/// cell of @p planning_lp that does not already have it.  Each α
+/// is added as a `SparseCol` pinned at `lowb = uppb = 0` (bootstrap)
+/// with `cost = scale_alpha`, mirrored into `m_dynamic_cols_` for
+/// low-memory replay, and registered in the simulation-level
+/// `StateVariable` map so cross-level / cut I/O machinery treats α
+/// uniformly.  Cut-install sites (backward pass, boundary/named
+/// cut loaders) subsequently call `free_alpha(...)` to release the
+/// pin.  Called once per scene during `SDDPMethod::initialize_solver`;
+/// exposed here so isolated callers (tests, direct cut-loader
+/// harnesses) can establish the same precondition without standing
+/// up a full `SDDPMethod`.
+void register_alpha_variables(PlanningLP& planning_lp,
+                              SceneIndex scene_index,
+                              double scale_alpha);
 
 // ─── Per-phase tracking ─────────────────────────────────────────────────────
 

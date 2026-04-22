@@ -500,6 +500,21 @@ bool LinearInterface::update_dynamic_col_lowb(std::string_view class_name,
   return false;
 }
 
+bool LinearInterface::update_dynamic_col_bounds(std::string_view class_name,
+                                                std::string_view variable_name,
+                                                double new_lowb,
+                                                double new_uppb) noexcept
+{
+  for (auto& col : m_dynamic_cols_) {
+    if (col.class_name == class_name && col.variable_name == variable_name) {
+      col.lowb = new_lowb;
+      col.uppb = new_uppb;
+      return true;
+    }
+  }
+  return false;
+}
+
 void LinearInterface::record_cut_row(SparseRow row)
 {
   if (m_low_memory_mode_ != LowMemoryMode::off) {
@@ -809,7 +824,7 @@ ColIndex LinearInterface::add_col(const std::string& name,
   // the metadata layer.
   if (m_label_maker_.col_names_enabled() && !name.empty()) {
     if (std::ssize(m_col_index_to_name_) <= index) {
-      m_col_index_to_name_.resize(static_cast<size_t>(index + 1));
+      m_col_index_to_name_.resize(static_cast<size_t>(index) + 1);
     }
     m_col_index_to_name_[col] = name;
   }
@@ -852,10 +867,11 @@ ColIndex LinearInterface::add_col(const SparseCol& col)
   // produced exclusively in `generate_labels_from_maps`, cached
   // there, and reused on subsequent `write_lp` invocations
   // (Option B: always lazy + cache on first compute).
-  if (std::ssize(m_col_labels_meta_) <= index) {
-    m_col_labels_meta_.resize(static_cast<size_t>(index + 1));
+  const auto i = static_cast<size_t>(index);
+  if (m_col_labels_meta_.size() <= i) {
+    m_col_labels_meta_.resize(i + 1);
   }
-  m_col_labels_meta_[static_cast<size_t>(index)] = SparseColLabel {
+  m_col_labels_meta_[i] = SparseColLabel {
       .class_name = col.class_name,
       .variable_name = col.variable_name,
       .variable_uid = col.variable_uid,
@@ -867,7 +883,7 @@ ColIndex LinearInterface::add_col(const SparseCol& col)
   // is constructed.  Unlabelled cols (no class_name / no
   // variable_name / unknown uid / monostate context) are skipped so
   // structural tests that build unnamed cells don't collide.
-  const auto& meta = m_col_labels_meta_[static_cast<size_t>(index)];
+  const auto& meta = m_col_labels_meta_[i];
   if (!is_empty_col_label(meta)) {
     auto [it, inserted] = m_col_meta_index_.try_emplace(meta, col_idx);
     if (!inserted) {
@@ -877,8 +893,8 @@ ColIndex LinearInterface::add_col(const SparseCol& col)
                       meta.class_name,
                       meta.variable_name,
                       meta.variable_uid,
-                      static_cast<Index>(it->second),
-                      static_cast<Index>(col_idx)));
+                      it->second,
+                      col_idx));
     }
   }
 
@@ -915,7 +931,7 @@ RowIndex LinearInterface::add_row(const std::string& name,
   // pre-formatted name when one is provided.
   if (m_label_maker_.row_names_enabled() && !name.empty()) {
     if (std::ssize(m_row_index_to_name_) <= index) {
-      m_row_index_to_name_.resize(static_cast<size_t>(index + 1));
+      m_row_index_to_name_.resize(static_cast<size_t>(index) + 1);
     }
     m_row_index_to_name_[row_idx] = name;
   }
@@ -928,10 +944,10 @@ void LinearInterface::track_row_label_meta(RowIndex row_idx,
 {
   // Rehydrate compressed metadata before mutating (compress mode).
   ensure_labels_meta_decompressed();
-  if (std::ssize(m_row_labels_meta_) <= row_idx) {
-    m_row_labels_meta_.resize(static_cast<size_t>(row_idx + RowIndex {1}));
-  }
   const auto i = static_cast<size_t>(row_idx);
+  if (m_row_labels_meta_.size() <= i) {
+    m_row_labels_meta_.resize(i + 1);
+  }
   m_row_labels_meta_[i] = SparseRowLabel {
       .class_name = row.class_name,
       .constraint_name = row.constraint_name,
@@ -951,8 +967,8 @@ void LinearInterface::track_row_label_meta(RowIndex row_idx,
                       meta.class_name,
                       meta.constraint_name,
                       meta.variable_uid,
-                      static_cast<Index>(it->second),
-                      static_cast<Index>(row_idx)));
+                      it->second,
+                      row_idx));
     }
   }
 }
@@ -1193,9 +1209,9 @@ void LinearInterface::add_rows(const std::span<const SparseRow> rows,
     if (m_label_maker_.row_names_enabled()) {
       const auto name = m_label_maker_.make_row_label(row);
       if (!name.empty()) {
-        if (std::ssize(m_row_index_to_name_) <= row_idx) {
-          m_row_index_to_name_.resize(
-              static_cast<size_t>(row_idx + RowIndex {1}));
+        const auto i = static_cast<size_t>(row_idx);
+        if (m_row_index_to_name_.size() <= i) {
+          m_row_index_to_name_.resize(i + 1);
         }
         m_row_index_to_name_[row_idx] = name;
       }
@@ -1557,7 +1573,7 @@ void LinearInterface::generate_labels_from_maps(
           "(class_name, variable_name, uid, context).",
           label,
           i,
-          static_cast<Index>(it->second)));
+          it->second));
     }
     col_names[i] = std::move(label);
   }
@@ -1603,7 +1619,7 @@ void LinearInterface::generate_labels_from_maps(
           "(class_name, constraint_name, uid, context).",
           label,
           i,
-          static_cast<Index>(it->second)));
+          it->second));
     }
     row_names[i] = std::move(label);
   }

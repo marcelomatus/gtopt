@@ -282,8 +282,8 @@ public:
                         col.class_name,
                         col.variable_name,
                         col.variable_uid,
-                        static_cast<Index>(it->second),
-                        static_cast<Index>(index)));
+                        it->second,
+                        index));
       }
     }
 
@@ -326,8 +326,8 @@ public:
                         row.class_name,
                         row.constraint_name,
                         row.variable_uid,
-                        static_cast<Index>(it->second),
-                        static_cast<Index>(index)));
+                        it->second,
+                        index));
       }
     }
 
