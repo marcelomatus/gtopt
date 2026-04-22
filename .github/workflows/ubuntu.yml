@@ -43,15 +43,10 @@ concurrency:
 # ccache notes:
 #   CCACHE_BASEDIR  – normalise absolute paths so cache entries are portable
 #                     across runs on the same workspace path.
-#   CCACHE_SLOPPINESS – merged set:
-#     • gcno_file_location (ccache 4.5+): don't hash the .gcno path so
-#       coverage-instrumented TUs are cached when the build-dir path changes.
-#       Required with -fprofile-arcs / -ftest-coverage (GCC or Clang).
-#     • pch_defines, time_macros: required for gtopt's PCH-using TUs
-#       (cmake_local/PrecompiledHeaders.cmake). Without these, ccache marks
-#       every TU that uses the PCH as uncacheable (was 107/116 = 92%).
-#       CCACHE_SLOPPINESS env var overrides ccache.conf, so both must be
-#       listed here even though cmake_local/Ccache.cmake writes them to conf.
+#   Sloppiness (gcno_file_location, pch_defines, time_macros) is written to
+#   ~/.config/ccache/ccache.conf by cmake_local/Ccache.cmake at configure
+#   time.  Do NOT set CCACHE_SLOPPINESS here — the env var overrides the
+#   conf file and would drop whichever values are not listed in the env.
 env:
   CTEST_OUTPUT_ON_FAILURE: 1
   CPM_SOURCE_CACHE: ${{ github.workspace }}/cpm_modules
@@ -66,9 +61,10 @@ env:
   # Set to 'true' to enable the clang-tidy static analysis job.
   # Leave 'false' to skip it (saves ~10 min of analysis time).
   ENABLE_CLANG_TIDY: ${{ github.event.inputs.run_clang_tidy == 'true' && 'true' || 'false' }}
-  # ccache configuration (applied globally to every step)
+  # ccache configuration (applied globally to every step).
+  # Sloppiness is managed in ccache.conf by cmake_local/Ccache.cmake —
+  # do not set CCACHE_SLOPPINESS here (see ccache notes above).
   CCACHE_BASEDIR: ${{ github.workspace }}
-  CCACHE_SLOPPINESS: gcno_file_location,pch_defines,time_macros
 
 permissions:
   contents: read

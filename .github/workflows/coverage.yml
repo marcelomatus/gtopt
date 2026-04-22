@@ -35,9 +35,8 @@ env:
   CTEST_OUTPUT_ON_FAILURE: 1
   CPM_SOURCE_CACHE: ${{ github.workspace }}/cpm_modules
   CCACHE_BASEDIR: ${{ github.workspace }}
-  # Must include pch_defines,time_macros — gtopt PCH-using TUs are
-  # otherwise marked uncacheable (CCACHE_SLOPPINESS env overrides ccache.conf).
-  CCACHE_SLOPPINESS: gcno_file_location,pch_defines,time_macros
+  # Sloppiness is managed in ccache.conf by cmake_local/Ccache.cmake —
+  # do NOT set CCACHE_SLOPPINESS here (env var would override the conf).
 
 permissions:
   contents: write
