@@ -339,10 +339,16 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
 
       // ── Stationary gap convergence ──
       // Active for gap_stationary and statistical modes.
-      // Declare convergence when the gap stops improving (non-zero gap
-      // accepted).  In pure Benders (single scene / no apertures), this
-      // is the main fallback since the CI test requires N > 1.
+      // Declare convergence when the gap stops improving.  Guarded by
+      // an absolute-gap ceiling so a pathological case where LB is
+      // frozen (e.g. Juan/gtopt_iplp: LB=0, UB>0, gap=1 flat) cannot
+      // masquerade as "converged" just because gap_change = 0.
+      // In pure Benders (single scene / no apertures), this is the
+      // main fallback since the CI test requires N > 1.
+      constexpr double kStationaryGapCeiling =
+          0.5;  // no convergence above 50% gap
       if (!ir.converged && past_min_iterations && gap_is_stationary
+          && ir.gap < kStationaryGapCeiling
           && mode != ConvergenceMode::gap_only)
       {
         ir.converged = true;
@@ -354,6 +360,21 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
             iteration_index,
             ir.gap_change,
             m_options_.stationary_tol);
+      } else if (!ir.converged && past_min_iterations && gap_is_stationary
+                 && mode != ConvergenceMode::gap_only)
+      {
+        // Tripped stationary but gap is still large — emit a loud
+        // diagnostic so this pathology is visible rather than silently
+        // swallowed.  The solver continues until max_iterations.
+        SPDLOG_WARN(
+            "SDDP Iter [i{}]: stationary gap_change={:.6f} < tol={:.6f} "
+            "but gap={:.4f} >= ceiling={:.2f} — NOT converging "
+            "(LB likely frozen; continuing)",
+            iteration_index,
+            ir.gap_change,
+            m_options_.stationary_tol,
+            ir.gap,
+            kStationaryGapCeiling);
       }
 
       // ── Statistical CI convergence ──
@@ -421,7 +442,10 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
               ir.scene_upper_bounds.size());
         }
         // (b) Gap exceeds CI but is no longer improving.
-        else if (gap_is_stationary)
+        // Same absolute-gap ceiling as the pure-stationary block above:
+        // refuse to convert a frozen-LB pathology into a convergence
+        // signal just because gap_change is zero.
+        else if (gap_is_stationary && ir.gap < kStationaryGapCeiling)
         {
           ir.converged = true;
           ir.statistical_converged = true;

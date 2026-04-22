@@ -407,9 +407,26 @@ void register_alpha_variables(PlanningLP& planning_lp,
       continue;  // already registered — idempotent
     }
     auto& li = planning_lp.system(scene_index, pi).linear_interface();
+    // α bootstrap: `lowb = sddp_alpha_bootstrap_min (=0)` floors the
+    // future-cost approximation at 0 in iter-0 when no cuts are yet
+    // installed — keeps the LP bounded without a positive lower
+    // bound.  `uppb = +∞` (LinearProblem::DblMax) lets α take any
+    // non-negative value once cuts land.
+    //
+    // Rationale for NOT pinning uppb=0 here (reverting f20f3e57's
+    // `lowb=uppb=0` bootstrap): the aperture/Benders backward pass
+    // only iterates phases T-1 .. 1 (no cut ever lands on phase 0),
+    // so `free_alpha(phase=0)` is never invoked and a bidirectional
+    // pin would leave phase 0's α permanently at 0 — pinning the
+    // master LP's objective to the non-α opex.  With `uppb=+∞` the
+    // master retains a valid future-cost slot that iter-0 simply
+    // ignores until the first p1→p0 backward cut releases the lower
+    // bound via `free_alpha`.  Observed on juan/gtopt_iplp: the
+    // bidirectional pin drove LB=0 every iteration because phase 0's
+    // opex is structurally 0 in that case.
     const auto alpha_sparse = SparseCol {
         .lowb = sddp_alpha_bootstrap_min / scale_alpha,
-        .uppb = sddp_alpha_bootstrap_min / scale_alpha,
+        .uppb = LinearProblem::DblMax,
         .cost = scale_alpha,
         .is_state = true,
         .scale = scale_alpha,
@@ -1934,18 +1951,19 @@ void SDDPMethod::finalize_iteration_result(
         std::abs(ir.gap - old_gap) / std::max(1e-10, std::abs(old_gap));
   }
 
-  // Primary convergence: either gap indicator beats convergence_tol is
-  // enough — gap (|UB-LB|/|LB|) OR gap_change (relative LB drift over
-  // the look-back window).  We only need ONE gap signal to converge.
-  // The min_iterations guard prevents declaring convergence before the
-  // solver has accumulated enough cuts (default 2).
+  // Primary convergence: the absolute gap (|UB-LB|/max(1,|UB|)) must
+  // drop below convergence_tol.  Earlier we also accepted gap_change
+  // (LB-drift stationary) as a secondary signal, but that masks
+  // pathological cases where the LB stays frozen (e.g. Juan/gtopt_iplp
+  // where α-bootstrap + loaded boundary cuts pin LB≈0 while UB floats
+  // freely) by declaring "[CONVERGED]" at 99%+ absolute gap.  The
+  // extended stationary-window / statistical convergence modes below
+  // still consult gap_change, but only after min_iterations.
   const bool gap_ok = ir.gap < m_options_.convergence_tol;
-  const bool gap_change_ok = ir.gap_change < m_options_.convergence_tol
-      && ir.gap_change < 1.0;  // 1.0 = sentinel / first iteration
   const bool past_min_iter =
       (iteration_index
        >= m_iteration_offset_ + IterationIndex {m_options_.min_iterations - 1});
-  ir.converged = (gap_ok || gap_change_ok) && past_min_iter;
+  ir.converged = gap_ok && past_min_iter;
 
   m_current_iteration_.store(iteration_index);
   m_current_gap_.store(ir.gap);

@@ -81,7 +81,7 @@ auto alpha_bounds_raw(const PlanningLP& plp,
 // M1 — basic: free_alpha on the live backend releases both bounds
 // ═══════════════════════════════════════════════════════════════════════════
 
-TEST_CASE("SDDPMethod::free_alpha — live backend: 0/0 → -DblMax/+DblMax")
+TEST_CASE("SDDPMethod::free_alpha — live backend: 0/+∞ → -DblMax/+DblMax")
 {
   auto planning = make_nphase_simple_hydro_planning(3);
   PlanningLP plp(std::move(planning));
@@ -91,19 +91,25 @@ TEST_CASE("SDDPMethod::free_alpha — live backend: 0/0 → -DblMax/+DblMax")
   sddp_opts.enable_api = false;
 
   SDDPMethod sddp(plp, sddp_opts);
-  // `ensure_initialized()` creates α on every phase with the new
-  // `lowb = uppb = sddp_alpha_bootstrap_min` pin.
+  // `ensure_initialized()` creates α on every phase with the
+  // bootstrap pin `lowb = sddp_alpha_bootstrap_min (=0)` and
+  // `uppb = +∞`.  Phase 0 in particular is never reached by the
+  // backward pass's `free_alpha` (cuts land on phase k-1 ≥ 0 only
+  // when the backward pass processes phase k ≥ 1), so the upper
+  // bound must not be `0` at bootstrap — otherwise α stays pinned
+  // at 0 on the master forever and LB is frozen at the non-α
+  // phase-0 opex.  See the juan/gtopt_iplp regression diagnosis.
   REQUIRE(sddp.ensure_initialized().has_value());
 
   const auto scene = first_scene_index();
   constexpr PhaseIndex phase {0};
 
-  SUBCASE("pre-free baseline: α is pinned at 0 (both bounds)")
+  SUBCASE("pre-free baseline: α floor at 0, uppb unbounded")
   {
     const auto bounds = alpha_bounds_raw(plp, scene, phase);
     REQUIRE(bounds.has_value());
     CHECK(bounds->lowb == doctest::Approx(sddp_alpha_bootstrap_min));
-    CHECK(bounds->uppb == doctest::Approx(sddp_alpha_bootstrap_min));
+    CHECK(bounds->uppb > kEffectivelyPlusInf);
   }
 
   SUBCASE("after free_alpha, both bounds are released")
@@ -148,12 +154,12 @@ TEST_CASE("SDDPMethod::free_alpha — last phase has α and can be freed")
   const auto scene = first_scene_index();
   const auto last = plp.simulation().last_phase_index();
 
-  SUBCASE("α IS registered on the last phase and pinned at 0")
+  SUBCASE("α IS registered on the last phase at floor 0 / uppb +∞")
   {
     const auto bounds = alpha_bounds_raw(plp, scene, last);
     REQUIRE(bounds.has_value());
     CHECK(bounds->lowb == doctest::Approx(sddp_alpha_bootstrap_min));
-    CHECK(bounds->uppb == doctest::Approx(sddp_alpha_bootstrap_min));
+    CHECK(bounds->uppb > kEffectivelyPlusInf);
   }
 
   SUBCASE("free_alpha on the last phase releases the pin")
