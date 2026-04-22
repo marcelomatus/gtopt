@@ -67,7 +67,7 @@ jobs:
       - uses: actions/cache@v5
         with:
           path: "**/cpm_modules"
-          key: ${{ github.workflow }}-cpm-modules-${{ hashFiles('**/CMakeLists.txt', '**/*.cmake') }}
+          key: ${{ github.workflow }}-cpm-modules-${{ hashFiles('cmake/CPM.cmake', 'cmake/tools.cmake', 'CMakeLists.txt') }}
           restore-keys: |
             ${{ github.workflow }}-cpm-modules-
 
@@ -148,6 +148,17 @@ jobs:
         with:
           path: ~/.local/bin/tectonic
           key: tectonic-${{ runner.os }}
+
+      # Tectonic downloads LaTeX packages from CTAN on first build of a given
+      # document; cache them across runs so the white-paper build reuses the
+      # package tree after the first successful run.
+      - name: Cache tectonic LaTeX package cache
+        uses: actions/cache@v5
+        with:
+          path: ~/.cache/Tectonic
+          key: tectonic-packages-${{ hashFiles('docs/white_paper/main.tex') }}
+          restore-keys: |
+            tectonic-packages-
 
       - name: Install tectonic
         if: steps.cache-tectonic.outputs.cache-hit != 'true'
