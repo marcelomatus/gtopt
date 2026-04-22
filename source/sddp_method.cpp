@@ -560,18 +560,26 @@ void SDDPMethod::collect_state_variable_links(SceneIndex scene_index)
 void SDDPMethod::capture_state_variable_values(
     SceneIndex scene_index,
     PhaseIndex phase_index,
-    std::span<const double> col_sol,
+    const ScaledView& col_sol_phys,
     std::span<const double> reduced_costs) const noexcept
 {
   const auto& sim = planning_lp().simulation();
 
   // 1. Always write col_sol for every state variable in THIS phase.
   //    Consumed by the next phase's propagate_trial_values().
+  //    col_sol_phys is physical (and clamped to physical bounds when
+  //    the last solve was optimal).  Recover the clean raw value via
+  //    `phys / var_scale` — one division on an already-clean number,
+  //    so it can't re-introduce the bound violation that clamping at
+  //    physical removed.
+  const auto ncols = col_sol_phys.size();
   for (const auto& [key, svar] : sim.state_variables(scene_index, phase_index))
   {
     const auto col = svar.col();
-    if (col < col_index_size(col_sol)) {
-      svar.set_col_sol(col_sol[col]);
+    if (static_cast<size_t>(col) < ncols) {
+      const double phys = col_sol_phys[col];
+      const double vs = svar.var_scale();
+      svar.set_col_sol((vs != 0.0) ? phys / vs : phys);
     }
   }
 

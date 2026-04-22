@@ -284,7 +284,10 @@ public:
     const auto& li = sys.linear_interface();
     const auto col = eini_col_at(scenario, stage);
     if (li.is_optimal()) {
-      return physical_col_value(li.get_col_sol_raw(), col);
+      // Physical + optimal-only bound-clamped view: scrubs solver-
+      // tolerance noise at column bounds so a propagated eini never
+      // lands outside [emin, emax].
+      return li.get_col_sol()[col];
     }
     const auto& warm = li.warm_col_sol();
     if (!warm.empty() && static_cast<size_t>(col) < warm.size()) {
@@ -320,7 +323,9 @@ public:
     }
     const auto col = eini_col_at(scenario, stage);
     if (li.is_optimal()) {
-      return physical_col_value(li.get_col_sol_raw(), col);
+      // Physical + optimal-only bound-clamped view (see sister
+      // overload above).
+      return li.get_col_sol()[col];
     }
     const auto& warm = li.warm_col_sol();
     if (!warm.empty() && static_cast<size_t>(col) < warm.size()) {
@@ -341,7 +346,10 @@ public:
   {
     const auto col = efin_col_at(scenario, stage);
     if (li.is_optimal()) {
-      return physical_col_value(li.get_col_sol_raw(), col);
+      // Physical + optimal-only bound-clamped view: scrubs solver-
+      // tolerance noise so a propagated efin never lands outside
+      // the reservoir's physical envelope.
+      return li.get_col_sol()[col];
     }
     const auto& warm = li.warm_col_sol();
     if (!warm.empty() && static_cast<size_t>(col) < warm.size()) {

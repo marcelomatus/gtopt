@@ -232,7 +232,13 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
         const auto obj = solved_li.get_obj_value();
         state.forward_full_obj_physical = solved_li.get_obj_value_physical();
 
-        const auto sol = solved_li.get_col_sol_raw();
+        // Read col_sol in physical space so `LinearInterface`'s
+        // optimal-only clamp scrubs any at-bound solver noise before
+        // it gets written onto the StateVariable and pinned into the
+        // next phase's dependent column (would otherwise make the
+        // next-phase LP trivially infeasible via
+        // `lowb = uppb = uppb + eps`).
+        const auto sol_phys = solved_li.get_col_sol();
         const auto rc = solved_li.get_col_cost_raw();
 
         // Mirror per-state-variable values needed by cut construction
@@ -242,7 +248,7 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
         // modified (relaxed bounds + slack variables) so its duals don't
         // represent the original problem's shadow prices.  Downstream
         // code falls back to reduced-cost cuts (see backward_pass_*).
-        capture_state_variable_values(scene_index, phase_index, sol, rc);
+        capture_state_variable_values(scene_index, phase_index, sol_phys, rc);
 
         const auto sa = m_options_.scale_alpha;
         // Alpha is registered as a state variable; its freshly-captured
@@ -491,7 +497,11 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
       const auto obj = li.get_obj_value();
       state.forward_full_obj_physical = li.get_obj_value_physical();
 
-      const auto sol = li.get_col_sol_raw();
+      // Physical-space, optimal-only bound-clamped view (see
+      // `LinearInterface::get_col_sol`) — scrubs at-bound solver noise
+      // so the next phase's `propagate_trial_values` pin stays inside
+      // the target column's physical bound box.
+      const auto sol_phys = li.get_col_sol();
       const auto rc = li.get_col_cost_raw();
 
       // Mirror per-state-variable runtime values onto the persistent
@@ -499,7 +509,7 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
       // full-vector caches for both next-phase trial-value propagation
       // and backward-pass cut construction.  Cuts always use reduced
       // costs, so row duals are never needed here.
-      capture_state_variable_values(scene_index, phase_index, sol, rc);
+      capture_state_variable_values(scene_index, phase_index, sol_phys, rc);
 
       const auto sa = m_options_.scale_alpha;
       const auto* alpha_svar = find_alpha_state_var(

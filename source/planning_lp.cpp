@@ -1332,21 +1332,27 @@ std::expected<void, Error> PlanningLP::resolve_scene_phases(
 
     SPDLOG_DEBUG("    Scene {} phase {} solved ok", scene_index, phase_index);
 
-    // update state variable dependents with the last solution
-    const auto& solution_vector =
-        system_sp.linear_interface().get_col_sol_raw();
+    // Update state-variable dependents with the last solution.  Read
+    // in physical space (`get_col_sol`) so `LinearInterface`'s optimal-
+    // only bound-clamp scrubs solver-tolerance noise before the pin —
+    // otherwise a `col_sol = uppb + eps` would propagate into a
+    // target column's equality pin and make the dependent LP trivially
+    // infeasible.  The physical value is descaled once inside each
+    // target `set_col` call (target's col_scale), so no extra raw-
+    // space arithmetic re-introduces noise.
+    const auto solution_vector = system_sp.linear_interface().get_col_sol();
 
     for (auto&& state_var :
          simulation().state_variables(scene_index, phase_index)
              | std::views::values)
     {
-      const double solution_value = solution_vector[state_var.col()];
+      const double solution_value_phys = solution_vector[state_var.col()];
 
       for (auto&& dep_var : state_var.dependent_variables()) {
         auto& target_system =
             system(dep_var.scene_index(), dep_var.phase_index());
-        target_system.linear_interface().set_col_raw(dep_var.col(),
-                                                     solution_value);
+        target_system.linear_interface().set_col(dep_var.col(),
+                                                 solution_value_phys);
       }
     }
   }

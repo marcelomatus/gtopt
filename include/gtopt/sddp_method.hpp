@@ -416,10 +416,18 @@ private:
   /// via an incoming link from the previous phase.  Cut construction
   /// reads both fields directly from the persistent `StateVariable`
   /// objects, avoiding per-phase full-vector caches.
+  ///
+  /// `col_sol_phys` is a **physical-space** view (from
+  /// `LinearInterface::get_col_sol()`) so solver-tolerance noise has
+  /// already been clamped to each column's physical bound box.  The
+  /// captured raw value is recovered by dividing by the state
+  /// variable's `var_scale()`, yielding a clean raw LP value for
+  /// `StateVariable::col_sol()` consumers (cut builders, next-phase
+  /// `propagate_trial_values`).
   void capture_state_variable_values(
       SceneIndex scene_index,
       PhaseIndex phase_index,
-      std::span<const double> col_sol,
+      const ScaledView& col_sol_phys,
       std::span<const double> reduced_costs) const noexcept;
 
   [[nodiscard]] auto forward_pass(SceneIndex scene_index,

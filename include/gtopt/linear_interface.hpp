@@ -46,6 +46,15 @@ namespace gtopt
 /// (or `data[i] / scales[i]` when constructed with `divides`).
 /// When scales are empty, returns raw data unchanged.
 ///
+/// Optional physical-space clamp: when `lower_` and `upper_` spans are
+/// both non-empty, `operator[](i)` additionally clamps the result to
+/// `[lower_[i] * scales_[i], upper_[i] * scales_[i]]` — i.e., the clamp
+/// is applied *after* descaling, in the same physical space the caller
+/// sees.  Used by `LinearInterface::get_col_sol()` to scrub solver
+/// noise (value returned slightly outside its bound-box on an optimal
+/// solve) so downstream SDDP state propagation can pin clean values
+/// without causing next-phase infeasibility.
+///
 /// Accepts any integer-like index type (int, size_t, ColIndex, RowIndex).
 class ScaledView
 {
@@ -71,6 +80,28 @@ public:
   {
   }
 
+  /// Construct with physical-space clamp bounds (lower/upper in the
+  /// same raw-LP space as `data`; each element is descaled by `scales`
+  /// before clamping).  When either span is empty, clamping is skipped.
+  constexpr ScaledView(const double* data,
+                       size_t n,
+                       const double* scales,
+                       size_t ns,
+                       const double* lower,
+                       size_t nlo,
+                       const double* upper,
+                       size_t nup,
+                       Op op = Op::multiply,
+                       double global_factor = 1.0) noexcept
+      : data_(data, n)
+      , scales_(scales, ns)
+      , lower_(lower, nlo)
+      , upper_(upper, nup)
+      , op_(op)
+      , global_(global_factor)
+  {
+  }
+
   /// Construct from a raw span (no scaling).
   constexpr explicit ScaledView(std::span<const double> raw) noexcept
       : data_(raw)
@@ -83,12 +114,21 @@ public:
   [[nodiscard]] constexpr double operator[](T idx) const noexcept
   {
     const auto i = static_cast<size_t>(idx);
-    if (i >= scales_.size()) {
-      return data_[i] * global_;
+    const double scale = (i < scales_.size()) ? scales_[i] : 1.0;
+    const double v = (i < scales_.size() && op_ == Op::divide)
+        ? data_[i] / scale
+        : data_[i] * scale;
+    double result = v * global_;
+    // Physical-space clamp: applied AFTER descaling so no further
+    // multiplication can re-violate the bound box.
+    if (i < lower_.size() && i < upper_.size()) {
+      const double lb_phys = lower_[i] * scale;
+      const double ub_phys = upper_[i] * scale;
+      if (lb_phys <= ub_phys) {  // guard against degenerate/inverted bounds
+        result = std::clamp(result, lb_phys, ub_phys);
+      }
     }
-    const auto v =
-        (op_ == Op::multiply) ? data_[i] * scales_[i] : data_[i] / scales_[i];
-    return v * global_;
+    return result;
   }
 
   [[nodiscard]] constexpr size_t size() const noexcept { return data_.size(); }
@@ -136,6 +176,10 @@ public:
 private:
   std::span<const double> data_ {};
   std::span<const double> scales_ {};
+  std::span<const double>
+      lower_ {};  ///< Optional raw-LP lower bounds for clamp
+  std::span<const double>
+      upper_ {};  ///< Optional raw-LP upper bounds for clamp
   Op op_ {Op::multiply};
   double global_ {1.0};  ///< Uniform factor applied to every element
 };
@@ -1180,6 +1224,18 @@ public:
    * `LP_value × col_scale` on the fly.  When col_scales are empty,
    * returns raw values unchanged.
    *
+   * When the last solve converged to optimality (`is_optimal()` true),
+   * the returned view additionally clamps each element to the column's
+   * physical bound box `[col_low[i], col_upp[i]]`.  The clamp is
+   * applied *after* descaling so no further scale multiplication can
+   * re-introduce the bound violation.  This scrubs solver-tolerance
+   * noise that would otherwise propagate into subsequent phases as
+   * `set_col_low_raw(dep, sol+eps) = set_col_upp_raw(dep, sol+eps)`
+   * and make the next-phase LP trivially infeasible.  Callers that
+   * need the *exact* solver output (e.g. Chinneck IIS on an elastic
+   * clone where relaxed bounds would falsely "fix" the value) use
+   * `get_col_sol_raw()`.
+   *
    * Precondition: backend must be live.  Callers under low-memory
    * modes should invoke `ensure_backend()` first if reading after a
    * release.
@@ -1189,17 +1245,28 @@ public:
   [[nodiscard]] ScaledView get_col_sol() const noexcept
   {
     const auto n = get_numcols();
-    if (m_backend_released_ && !m_cached_col_sol_.empty()) {
-      return {m_cached_col_sol_.data(),
+    const double* data = (m_backend_released_ && !m_cached_col_sol_.empty())
+        ? m_cached_col_sol_.data()
+        : backend().col_solution();
+    // Clamp path requires a live backend: col bounds are not cached on
+    // `release_backend`, so we'd dereference a null `m_backend_` to
+    // read them.  Also skip when the last solve wasn't optimal —
+    // solver values may then be arbitrary and clamping is misleading.
+    if (m_backend_released_ || !m_cached_is_optimal_) {
+      return {data,
               n,
               m_col_scales_.data(),
               m_col_scales_.size(),
               ScaledView::Op::multiply};
     }
-    return {backend().col_solution(),
+    return {data,
             n,
             m_col_scales_.data(),
             m_col_scales_.size(),
+            backend().col_lower(),
+            n,
+            backend().col_upper(),
+            n,
             ScaledView::Op::multiply};
   }
 

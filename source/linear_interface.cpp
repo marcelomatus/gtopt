@@ -1392,24 +1392,66 @@ void LinearInterface::set_col_raw(const ColIndex index, const double value)
 
 // ── Physical column bound setters (physical_value / col_scale → LP) ──
 
+namespace
+{
+/// Snap `physical_value` to `lb_phys` or `ub_phys` when it lands within
+/// `near_bound_tol` of either, then clamp to the `[lb, ub]` box.  Keeps
+/// equality pins from landing *just* outside a bound due to prior
+/// solver tolerance — which would make the LP trivially infeasible.
+/// The snap threshold is both absolute (`1e-9`) and relative (`1e-12 *
+/// max(|lb|, |ub|)`) so we catch noise at any scale.  Applied only in
+/// the physical setters; raw setters write verbatim.
+[[nodiscard]] constexpr double snap_and_clamp(double physical_value,
+                                              double lb_phys,
+                                              double ub_phys) noexcept
+{
+  if (!(lb_phys <= ub_phys)) {  // degenerate / unbounded
+    return physical_value;
+  }
+  constexpr double abs_tol = 1e-9;
+  constexpr double rel_tol = 1e-12;
+  const double scale = std::max(std::abs(lb_phys), std::abs(ub_phys));
+  const double tol = std::max(abs_tol, rel_tol * scale);
+  if (std::abs(physical_value - lb_phys) <= tol) {
+    return lb_phys;
+  }
+  if (std::abs(physical_value - ub_phys) <= tol) {
+    return ub_phys;
+  }
+  return std::clamp(physical_value, lb_phys, ub_phys);
+}
+}  // namespace
+
+// Individual bound setters do NOT snap/clamp: callers legitimately
+// widen a column's bound box (e.g. aperture / capacity updates), so
+// the new bound can be outside the old one on purpose.  Only the
+// equality-pin setter `set_col` applies snap-and-clamp, because its
+// semantics are "fix the column to a value that should already lie
+// inside the pre-set physical envelope" — exactly the context in
+// which a solver-noise violation (value = uppb + ε) would propagate
+// as an infeasibility.
 void LinearInterface::set_col_low(const ColIndex index,
                                   const double physical_value)
 {
-  const double scale = get_col_scale(index);
-  set_col_low_raw(index, physical_value / scale);
+  set_col_low_raw(index, physical_value / get_col_scale(index));
 }
 
 void LinearInterface::set_col_upp(const ColIndex index,
                                   const double physical_value)
 {
-  const double scale = get_col_scale(index);
-  set_col_upp_raw(index, physical_value / scale);
+  set_col_upp_raw(index, physical_value / get_col_scale(index));
 }
 
 void LinearInterface::set_col(const ColIndex index, const double physical_value)
 {
-  set_col_low(index, physical_value);
-  set_col_upp(index, physical_value);
+  // Snap to bound when within `snap_and_clamp`'s tolerance, then
+  // clamp into the pre-set physical envelope.  Raw setters stay
+  // verbatim — callers who want the exact value use `set_col_raw`.
+  const double snapped = snap_and_clamp(
+      physical_value, get_col_low()[index], get_col_upp()[index]);
+  const double raw = snapped / get_col_scale(index);
+  set_col_low_raw(index, raw);
+  set_col_upp_raw(index, raw);
 }
 
 // ── Raw row bound setters (LP/solver units) ──

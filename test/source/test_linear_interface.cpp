@@ -1764,3 +1764,122 @@ TEST_CASE("LinearInterface - row_index_to_name populated at all")  // NOLINT
   CHECK(li.row_index_to_name().empty());
   CHECK(li.row_name_map().empty());
 }
+
+// ── ScaledView / get_col_sol() physical-space clamp ────────────────────────
+//
+// Regression: SDDP state propagation pins `lowb = uppb = prev_col_sol`
+// on the next phase's dependent column.  When the solver returns
+// `col_sol = uppb + eps` due to primal tolerance, the pin lands
+// outside the target column's envelope and makes the next phase
+// trivially infeasible.  Clamp at `get_col_sol()` (physical, after
+// descaling) scrubs the noise; raw methods are left untouched.
+
+TEST_CASE("ScaledView - clamps to physical bounds when provided")  // NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+
+  // Raw data slightly outside [0, 10] in raw space.  With scale=2.0
+  // the physical values would be [-0.2, 8.0, 20.02], so the clamp
+  // window in physical is [0*2, 10*2] = [0, 20].
+  const std::array<double, 3> raw_sol {-0.1, 4.0, 10.01};
+  const std::array<double, 3> raw_lo {0.0, 0.0, 0.0};
+  const std::array<double, 3> raw_hi {10.0, 10.0, 10.0};
+  const std::array<double, 3> scales {2.0, 2.0, 2.0};
+
+  SUBCASE("with clamp bounds — values pulled into physical box")
+  {
+    const ScaledView view {raw_sol.data(),
+                           raw_sol.size(),
+                           scales.data(),
+                           scales.size(),
+                           raw_lo.data(),
+                           raw_lo.size(),
+                           raw_hi.data(),
+                           raw_hi.size(),
+                           ScaledView::Op::multiply};
+    // -0.1 * 2 = -0.2  → clamps up to 0.0
+    CHECK(view[0] == doctest::Approx(0.0));
+    // 4.0 * 2 = 8.0   → inside [0, 20], unchanged
+    CHECK(view[1] == doctest::Approx(8.0));
+    // 10.01 * 2 = 20.02 → clamps down to 20.0
+    CHECK(view[2] == doctest::Approx(20.0));
+  }
+
+  SUBCASE("without clamp bounds — returns raw * scale unchanged")
+  {
+    const ScaledView view {raw_sol.data(),
+                           raw_sol.size(),
+                           scales.data(),
+                           scales.size(),
+                           ScaledView::Op::multiply};
+    CHECK(view[0] == doctest::Approx(-0.2));
+    CHECK(view[1] == doctest::Approx(8.0));
+    CHECK(view[2] == doctest::Approx(20.02));
+  }
+
+  SUBCASE("degenerate lb > ub — clamp skipped defensively")
+  {
+    const std::array<double, 1> s_raw {5.0};
+    const std::array<double, 1> s_sc {1.0};
+    const std::array<double, 1> s_lo {10.0};  // lb > ub (invalid)
+    const std::array<double, 1> s_hi {0.0};
+    const ScaledView view {s_raw.data(),
+                           1,
+                           s_sc.data(),
+                           1,
+                           s_lo.data(),
+                           1,
+                           s_hi.data(),
+                           1,
+                           ScaledView::Op::multiply};
+    // std::clamp with lb > ub is UB; guard prevents that — value
+    // passes through.
+    CHECK(view[0] == doctest::Approx(5.0));
+  }
+}
+
+TEST_CASE(  // NOLINT
+    "LinearInterface::get_col_sol respects clamp only at optimal")
+{
+  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+
+  // Minimize -x s.t. 0 <= x <= 10.  Optimal at x = 10 (upper bound).
+  LinearInterface interface;
+  const auto x = interface.add_col(SparseCol {
+      .uppb = 10.0,
+      .cost = -1.0,
+  });
+
+  SUBCASE("after optimal solve — physical view respects bound box")
+  {
+    const SolverOptions options;
+    auto result = interface.initial_solve(options);
+    REQUIRE(result.has_value());
+    REQUIRE(interface.is_optimal());
+
+    const auto sol_phys = interface.get_col_sol();
+    const auto sol_raw = interface.get_col_sol_raw();
+    // Both within the column's physical envelope.
+    CHECK(sol_phys[x] == doctest::Approx(10.0));
+    CHECK(sol_phys[x] >= 0.0);
+    CHECK(sol_phys[x] <= 10.0);
+    // Raw path untouched by clamp logic — identical here because
+    // col_scale defaults to 1.0, but the key invariant is that
+    // `get_col_sol_raw()` returns a span<const double> whereas
+    // `get_col_sol()` returns a ScaledView (different types).
+    CHECK(sol_raw[x] == doctest::Approx(10.0));
+    static_assert(!std::is_same_v<decltype(sol_phys), decltype(sol_raw)>);
+  }
+
+  SUBCASE("before any solve — non-optimal, view stays unclamped")
+  {
+    // No solve called yet: `is_optimal()` is false, so the clamp
+    // branch of get_col_sol() is NOT taken.  The view passes
+    // through raw * scale with no bound enforcement.  We don't
+    // check specific values (backend may expose garbage), only
+    // that the call is safe and the optimality check holds.
+    CHECK_FALSE(interface.is_optimal());
+    [[maybe_unused]] const auto sol = interface.get_col_sol();
+    CHECK(sol.size() == 1);
+  }
+}
