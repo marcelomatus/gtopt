@@ -305,9 +305,20 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
                                                     uid_of(phase_index),
                                                     iteration_index,
                                                     infeas_count);
-          // Release α's bootstrap pin on the previous phase so the
-          // fcut's rhs can represent arbitrary future-cost values.
-          free_alpha(scene_index, prev_phase_index);
+          // Do NOT release α's bootstrap pin on a feasibility cut.
+          // Feasibility cuts only assert "these master states cause
+          // downstream infeasibility" — they convey no lower bound on
+          // the true future cost.  α must stay floored at
+          // `lowb = sddp_alpha_bootstrap_min (=0)` until an
+          // *optimality* cut arrives to certify a tighter lower
+          // bound.  Previously this `free_alpha` call released α to
+          // `[-DblMax, +DblMax]`, letting subsequent solves drive α
+          // arbitrarily negative when only feasibility cuts bound it
+          // from below — producing negative UBs on juan/gtopt_iplp
+          // under the attempted Chinneck Phase-1 formulation.
+          // Aperture/Benders backward-pass paths (which install
+          // `CutType::Optimality`) still call `free_alpha` at their
+          // own cut-install sites.
           {
             const auto cut_row =
                 prev_li.add_row(feas_cut, m_options_.cut_coeff_eps);
