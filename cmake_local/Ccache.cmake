@@ -72,19 +72,24 @@ if(CCACHE_PROGRAM)
   #   pch_defines, time_macros: ignore __DATE__/__TIME__ differences in
   #     PCH and source files — required for TUs using the project PCH
   #     (cmake_local/PrecompiledHeaders.cmake).
-  #   gcno_file_location: don't hash the .gcno path — required for
-  #     -fprofile-arcs / -ftest-coverage (coverage-instrumented TUs).
+  #   gcno_cwd: don't hash the build cwd captured in the .gcno file —
+  #     required for -ftest-coverage so coverage TUs cache across
+  #     different build dirs.  NOTE: the legacy name gcno_file_location
+  #     that lived in our CI env was silently ignored by ccache (unknown
+  #     token); the correct modern token is gcno_cwd.
   # Written to ccache.conf so settings persist at build time.  The
   # CCACHE_SLOPPINESS env var would override this file if set, so CI
   # workflows must NOT export CCACHE_SLOPPINESS — this conf is the single
   # source of truth (see ubuntu/coverage/profile workflows).
   set(_ccache_conf_dir "$ENV{HOME}/.config/ccache")
   set(_ccache_conf "${_ccache_conf_dir}/ccache.conf")
-  set(_ccache_marker "${_ccache_conf}.gtopt_marker_v2")
+  set(_ccache_marker "${_ccache_conf}.gtopt_marker_v3")
   if(NOT EXISTS "${_ccache_marker}")
     file(MAKE_DIRECTORY "${_ccache_conf_dir}")
     # Strip any stanza previously written by an earlier gtopt CMake so we
-    # can bump sloppiness cleanly (v1 wrote only pch_defines,time_macros).
+    # can bump sloppiness cleanly.  History of prior stanzas:
+    #   v1: sloppiness = pch_defines,time_macros
+    #   v2: sloppiness = gcno_file_location,pch_defines,time_macros  (wrong token)
     if(EXISTS "${_ccache_conf}")
       file(READ "${_ccache_conf}" _existing_conf)
       string(REGEX REPLACE
@@ -95,12 +100,14 @@ if(CCACHE_PROGRAM)
     endif()
     file(APPEND "${_ccache_conf}"
       "# Added by gtopt CMake for PCH + coverage cacheability\n"
-      "sloppiness = gcno_file_location,pch_defines,time_macros\n"
+      "sloppiness = gcno_cwd,pch_defines,time_macros\n"
       "pch_external_checksum = true\n"
     )
-    if(EXISTS "${_ccache_conf}.gtopt_marker")
-      file(REMOVE "${_ccache_conf}.gtopt_marker")
-    endif()
+    foreach(_old_marker gtopt_marker gtopt_marker_v2)
+      if(EXISTS "${_ccache_conf}.${_old_marker}")
+        file(REMOVE "${_ccache_conf}.${_old_marker}")
+      endif()
+    endforeach()
     file(TOUCH "${_ccache_marker}")
     message(STATUS "ccache: wrote PCH + coverage sloppiness to ${_ccache_conf}")
   endif()

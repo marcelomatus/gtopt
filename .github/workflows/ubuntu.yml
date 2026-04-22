@@ -43,10 +43,13 @@ concurrency:
 # ccache notes:
 #   CCACHE_BASEDIR  – normalise absolute paths so cache entries are portable
 #                     across runs on the same workspace path.
-#   Sloppiness (gcno_file_location, pch_defines, time_macros) is written to
+#   Sloppiness (gcno_cwd, pch_defines, time_macros) is written to
 #   ~/.config/ccache/ccache.conf by cmake_local/Ccache.cmake at configure
 #   time.  Do NOT set CCACHE_SLOPPINESS here — the env var overrides the
 #   conf file and would drop whichever values are not listed in the env.
+#   NOTE: an earlier version of this workflow set gcno_file_location as
+#   a sloppiness token; that token was silently ignored by ccache (unknown
+#   identifier).  The correct modern token is gcno_cwd.
 env:
   CTEST_OUTPUT_ON_FAILURE: 1
   CPM_SOURCE_CACHE: ${{ github.workspace }}/cpm_modules
