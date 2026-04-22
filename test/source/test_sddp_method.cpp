@@ -2416,3 +2416,43 @@ TEST_CASE(  // NOLINT
   //    multi_cut's total feasibility-class cut count.
   CHECK(single.feas_cuts <= multi.feas_cuts);
 }
+
+// ─── Stationary-gap ceiling guard (commit f466936f) ───────────────────────
+//
+// Invariant under test (commit f466936f / sddp_iteration.cpp):
+// `ir.stationary_converged = true` is only allowed to coexist with
+// `ir.gap < kStationaryGapCeiling (=0.5)`.  The guard prevents a
+// frozen-LB pathology (gap ~1 flat, gap_change ~0) from silently
+// declaring convergence.  It's a one-way invariant — the solver may
+// converge normally via the `gap_ok` path regardless; we only assert
+// that if stationary_converged DID fire, the absolute gap was small.
+TEST_CASE(  // NOLINT
+    "SDDPMethod - stationary_converged implies gap < 0.5")
+{
+  auto planning = make_3phase_hydro_planning();
+  PlanningLP plp(std::move(planning));
+
+  SDDPOptions sddp_opts;
+  sddp_opts.max_iterations = 10;
+  sddp_opts.min_iterations = 2;
+  sddp_opts.convergence_tol = 1e-5;
+  sddp_opts.stationary_tol = 0.1;
+  sddp_opts.stationary_window = 3;
+  sddp_opts.convergence_mode = ConvergenceMode::gap_stationary;
+  sddp_opts.enable_api = false;
+  sddp_opts.apertures = std::vector<Uid> {};
+
+  SDDPMethod sddp(plp, sddp_opts);
+  auto results = sddp.solve();
+  REQUIRE(results.has_value());
+  REQUIRE(!results->empty());
+
+  for (const auto& ir : *results) {
+    if (ir.stationary_converged) {
+      INFO("stationary_converged at iter "
+           << static_cast<int>(ir.iteration_index) << " gap=" << ir.gap
+           << " gap_change=" << ir.gap_change);
+      CHECK(ir.gap < 0.5);
+    }
+  }
+}

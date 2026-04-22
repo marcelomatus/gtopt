@@ -151,6 +151,83 @@ TEST_CASE(  // NOLINT
   CHECK_FALSE(found);
 }
 
+// Regression for 6b5ccdc4 (fix(cascade): disambiguate tgt_sup/tgt_sdn slack
+// columns by target uid+context).  Before the fix, every target's sup/sdn
+// SparseCols were added with `variable_uid = unknown_uid (-1)` and default
+// `context`, so two targets in the same LP would hash to the same
+// `(class, variable, uid, context)` metadata tuple and the eager dup
+// detector (`f21641f9`) would throw on the second `add_col` call and the
+// whole cascade transition would abort with
+// "Duplicate LP column metadata: class='Cascade' var='tgt_sup' uid=-1".
+// Observed on juan/gtopt_iplp 3-level cascade at the uninodal→transport
+// transition (6400 targets = 16 scenes × 50 phases × 8 state vars).
+//
+// We drive the fix end-to-end via a 2-level cascade run on the 3-phase
+// hydro fixture — the transport level's `add_elastic_targets` call is
+// where the dup detector trips.  If the fix is in place, the solve
+// completes; if reverted, `solve()` returns an unexpected error with
+// the "Duplicate LP column metadata" message.
+TEST_CASE(  // NOLINT
+    "CascadePlanningMethod: multi-target transition does not trip "
+    "metadata dup detector")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  auto planning = make_3phase_hydro_planning();
+  PlanningLP planning_lp(std::move(planning));
+
+  SDDPOptions sddp_opts;
+  sddp_opts.max_iterations = 3;
+  sddp_opts.convergence_tol = 0.05;
+  sddp_opts.apertures = std::vector<Uid> {};  // no apertures
+
+  // Two-level cascade.  The transition between level 1 and level 2 is
+  // where `add_elastic_targets` installs `Cascade/tgt_sup` and
+  // `Cascade/tgt_sdn` slack columns — one pair per state target.  The
+  // 3-phase hydro fixture has ≥ 2 state-variable targets (1 reservoir
+  // × at-least-2 outgoing phases), enough to exercise the dup check.
+  CascadeOptions cascade_opts;
+  cascade_opts.level_array = {
+      CascadeLevel {
+          .name = OptName {"benders"},
+          .sddp_options =
+              CascadeLevelMethod {
+                  .max_iterations = OptInt {2},
+                  .apertures = Array<Uid> {},
+                  .convergence_tol = OptReal {0.05},
+              },
+      },
+      CascadeLevel {
+          .name = OptName {"with_targets"},
+          .sddp_options =
+              CascadeLevelMethod {
+                  .max_iterations = OptInt {1},
+                  .apertures = Array<Uid> {},
+                  .convergence_tol = OptReal {0.05},
+              },
+          .transition =
+              CascadeTransition {
+                  .inherit_targets = OptInt {-1},
+                  .target_rtol = OptReal {0.05},
+                  .target_min_atol = OptReal {1.0},
+                  .target_penalty = OptReal {500.0},
+              },
+      },
+  };
+
+  CascadePlanningMethod solver(std::move(sddp_opts), std::move(cascade_opts));
+  const SolverOptions lp_opts;
+
+  auto result = solver.solve(planning_lp, lp_opts);
+
+  // The key invariant: solve() does NOT return an unexpected with a
+  // "Duplicate LP column metadata" error.  Pre-fix, transition from
+  // level 1 to level 2 would fail on the second target's sup_col.
+  REQUIRE(result.has_value());
+  // Sanity: both levels ran and produced results.
+  CHECK(!solver.all_results().empty());
+}
+
 TEST_CASE("MethodType::cascade enum")  // NOLINT
 {
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
