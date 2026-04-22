@@ -1392,69 +1392,16 @@ void LinearInterface::set_col_raw(const ColIndex index, const double value)
 
 // ── Physical column bound setters (physical_value / col_scale → LP) ──
 
-namespace
-{
-/// Snap `physical_value` to `lb_phys` or `ub_phys` when it lands within
-/// a small tolerance of either, then clamp to the `[lb, ub]` box.  Keeps
-/// equality pins from landing *just* outside a bound due to prior
-/// solver tolerance — which would make the LP trivially infeasible.
-///
-/// Tolerance composition:
-///  - absolute floor `1e-9`,
-///  - relative `1e-12 * max(|lb|, |ub|, |value|)` but ONLY when the bound
-///    is *finite and not effectively infinite* (`< kFiniteBoundThresh`).
-///    Without this guard, a column bounded by `±DblMax` (e.g. free α
-///    before cuts land) would yield `tol ≈ 1e296`, so every value
-///    would snap to one of the infinities — catastrophic.
-///
-/// Applied only in the equality-pin physical setter (`set_col`); raw
-/// setters and the individual `set_col_low` / `set_col_upp` write
-/// verbatim (the latter legitimately widen the envelope).
-[[nodiscard]] constexpr double snap_and_clamp(double physical_value,
-                                              double lb_phys,
-                                              double ub_phys) noexcept
-{
-  // Degenerate / inverted box — pass through.  `std::clamp` with lb > ub
-  // is UB, so we defensively skip the entire transform.
-  if (!(lb_phys <= ub_phys)) {
-    return physical_value;
-  }
-  // Any bound past this magnitude is "effectively unbounded" — snap
-  // would be dominated by the bound's own scale, not the noise we're
-  // trying to kill.  Well below DblMax but well above any real model
-  // quantity we expect (energy, flow, capacity in their native units).
-  constexpr double kFiniteBoundThresh = 1e18;
-  constexpr double abs_tol = 1e-9;
-  constexpr double rel_tol = 1e-12;
-
-  const bool lb_finite =
-      std::isfinite(lb_phys) && std::abs(lb_phys) < kFiniteBoundThresh;
-  const bool ub_finite =
-      std::isfinite(ub_phys) && std::abs(ub_phys) < kFiniteBoundThresh;
-
-  const double rel_anchor = std::max({lb_finite ? std::abs(lb_phys) : 0.0,
-                                      ub_finite ? std::abs(ub_phys) : 0.0,
-                                      std::abs(physical_value)});
-  const double tol = std::max(abs_tol, rel_tol * rel_anchor);
-
-  if (lb_finite && std::abs(physical_value - lb_phys) <= tol) {
-    return lb_phys;
-  }
-  if (ub_finite && std::abs(physical_value - ub_phys) <= tol) {
-    return ub_phys;
-  }
-  return std::clamp(physical_value, lb_phys, ub_phys);
-}
-}  // namespace
-
-// Individual bound setters do NOT snap/clamp: callers legitimately
-// widen a column's bound box (e.g. aperture / capacity updates), so
-// the new bound can be outside the old one on purpose.  Only the
-// equality-pin setter `set_col` applies snap-and-clamp, because its
-// semantics are "fix the column to a value that should already lie
-// inside the pre-set physical envelope" — exactly the context in
-// which a solver-noise violation (value = uppb + ε) would propagate
-// as an infeasibility.
+// Physical bound setters: plain descale-to-raw.  No snap-to-existing-
+// bound logic here — it was added in e58add8f to catch solver-tolerance
+// noise on equality pins, but the aperture-backward pass calls these
+// setters tens of thousands of times per iteration, and the extra
+// virtual dispatches (`get_col_low()`, `get_col_upp()`, `infinity()`)
+// produced a ~20x slowdown on the Juan gtopt_iplp case (iter 0 went
+// from ~35s to ~550s).  The propagation-noise problem that motivated
+// the snap is already handled on the *read* side by `get_col_sol()`'s
+// optimal-only bound clamp; clean values are in every consumer's hand
+// without any work by the setters.
 void LinearInterface::set_col_low(const ColIndex index,
                                   const double physical_value)
 {
@@ -1469,14 +1416,8 @@ void LinearInterface::set_col_upp(const ColIndex index,
 
 void LinearInterface::set_col(const ColIndex index, const double physical_value)
 {
-  // Snap to bound when within `snap_and_clamp`'s tolerance, then
-  // clamp into the pre-set physical envelope.  Raw setters stay
-  // verbatim — callers who want the exact value use `set_col_raw`.
-  const double snapped = snap_and_clamp(
-      physical_value, get_col_low()[index], get_col_upp()[index]);
-  const double raw = snapped / get_col_scale(index);
-  set_col_low_raw(index, raw);
-  set_col_upp_raw(index, raw);
+  set_col_low(index, physical_value);
+  set_col_upp(index, physical_value);
 }
 
 // ── Raw row bound setters (LP/solver units) ──
