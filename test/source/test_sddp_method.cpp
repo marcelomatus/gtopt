@@ -2428,6 +2428,68 @@ TEST_CASE(  // NOLINT
   // per-event bound, not a whole-run bound.
 }
 
+// ─── Regression guard for bc257d1d (elastic branch no-capture) ────────────
+//
+// Invariant under test:
+//   In the Chinneck elastic branch of `sddp_forward_pass.cpp`, the
+//   clone's solution values MUST NOT leak into `StateVariable`
+//   reduced_cost / col_sol.  Pre-bc257d1d the branch unconditionally
+//   wrote `capture_state_variable_values(scene, phase, sol_phys, rc)`
+//   from the elastic clone; that clone carries a Chinneck Phase-1
+//   objective (all original coefficients zeroed + unit slack costs),
+//   so its duals are a feasibility gap — not economic dispatch —
+//   and contaminated downstream consumers.
+//
+// In the `make_two_reservoir_forced_infeasibility_planning` fixture
+// phase 1 is forced infeasible on every iteration, so no optimal
+// forward solve of phase 1 is ever performed.  After a single
+// iteration in `chinneck` mode, the physical state variables at
+// `(first_scene, phase=0)` must therefore retain their default
+// `reduced_cost == 0`.  Pre-bc257d1d code would have stamped them
+// with Chinneck Phase-1 shadow prices.  α itself (class_name =
+// `sddp_alpha_class_name`) is excluded — it has its own pin /
+// free_alpha lifecycle covered in test_sddp_alpha_relax.cpp.
+TEST_CASE(  // NOLINT
+    "SDDP elastic branch leaves prev-phase state_var rc untouched")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  auto planning = make_two_reservoir_forced_infeasibility_planning();
+  PlanningLP plp(std::move(planning));
+
+  SDDPOptions sddp_opts;
+  sddp_opts.max_iterations = 1;
+  sddp_opts.elastic_filter_mode = ElasticFilterMode::chinneck;
+  sddp_opts.multi_cut_threshold = 0;
+  sddp_opts.enable_api = false;
+
+  SDDPMethod sddp(plp, sddp_opts);
+  auto results = sddp.solve();
+  REQUIRE(results.has_value());
+
+  const auto scene = first_scene_index();
+  constexpr PhaseIndex phase {0};
+  const auto& sim = plp.simulation();
+
+  // Every non-α StateVariable at phase 0 must still have rc == 0
+  // (the default).  Under pre-fix code, the elastic-branch
+  // `capture_state_variable_values` call would have stamped phase 0's
+  // state variables with the Chinneck Phase-1 LP's reduced costs.
+  std::size_t checked = 0;
+  for (const auto& [key, svar] : sim.state_variables(scene, phase)) {
+    if (key.class_name == sddp_alpha_class_name) {
+      continue;
+    }
+    CAPTURE(key.class_name);
+    CAPTURE(Index {key.uid});
+    CAPTURE(svar.reduced_cost());
+    CHECK(svar.reduced_cost() == doctest::Approx(0.0));
+    ++checked;
+  }
+  // Sanity: the fixture registers physical state variables on phase 0.
+  CHECK(checked >= 1);
+}
+
 // ─── Stationary-gap ceiling guard (commit f466936f) ───────────────────────
 //
 // Invariant under test (commit f466936f / sddp_iteration.cpp):

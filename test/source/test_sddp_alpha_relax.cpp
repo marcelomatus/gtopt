@@ -222,6 +222,65 @@ TEST_CASE(
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+// M2b — regression guard for bc257d1d's α bidirectional bootstrap pin:
+//       the pin survives release+reload even when `free_alpha` was
+//       never called.
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// Invariant under test (bc257d1d):
+//   `register_alpha_variables` builds α's `SparseCol` with
+//   `lowb = uppb = sddp_alpha_bootstrap_min (= 0)`.  Pre-bc257d1d the
+//   column was built with `uppb = LinearProblem::DblMax`, which left α
+//   as a free-above variable inside Chinneck's Phase-1 elastic clone
+//   (where all objective coefficients — including α's scale_alpha —
+//   are zeroed).  Without the bidirectional pin, simplex picks an
+//   arbitrary basic value for α on the clone, and that value used to
+//   leak into `StateVariable.col_sol()`.
+//
+// This test is symmetric to "survives low_memory compress
+// release+reload" above, but deliberately WITHOUT calling free_alpha
+// first.  The pin must survive a release+reload cycle on its own —
+// both bounds still pinned at `sddp_alpha_bootstrap_min` after
+// `release_backend` + `ensure_lp_built`.
+TEST_CASE(
+    "SDDPMethod::free_alpha — bootstrap pin survives low_memory compress "
+    "release+reload")
+{
+  auto planning = make_nphase_simple_hydro_planning(3);
+  PlanningLP plp(std::move(planning));
+
+  SDDPOptions sddp_opts;
+  sddp_opts.max_iterations = 0;
+  sddp_opts.low_memory_mode = LowMemoryMode::compress;
+  sddp_opts.memory_codec = CompressionCodec::uncompressed;
+  sddp_opts.enable_api = false;
+
+  SDDPMethod sddp(plp, sddp_opts);
+  // `ensure_initialized` registers α on every phase (with the
+  // bidirectional bootstrap pin lowb = uppb = sddp_alpha_bootstrap_min)
+  // and, under low_memory mode, eagerly releases every per-cell
+  // backend at the end.
+  REQUIRE(sddp.ensure_initialized().has_value());
+
+  const auto scene = first_scene_index();
+  constexpr PhaseIndex phase {0};
+
+  // Release+reload: no `free_alpha` in between.  The pin must be
+  // preserved by the snapshot/replay path — neither the flat snapshot
+  // nor `apply_post_load_replay`'s `m_dynamic_cols_` mirror may widen
+  // uppb back to +∞ (the pre-bc257d1d default, which left α as a
+  // free-above variable inside Chinneck's Phase-1 clone).
+  auto& sys = plp.system(scene, phase);
+  sys.release_backend();
+  sys.ensure_lp_built();
+
+  const auto bounds = alpha_bounds_raw(plp, scene, phase);
+  REQUIRE(bounds.has_value());
+  CHECK(bounds->lowb == doctest::Approx(sddp_alpha_bootstrap_min));
+  CHECK(bounds->uppb == doctest::Approx(sddp_alpha_bootstrap_min));
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // LinearInterface::update_dynamic_col_bounds — unit-level
 // ═══════════════════════════════════════════════════════════════════════════
 
