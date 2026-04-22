@@ -164,7 +164,7 @@ sim_uid_chain=$(run_grep \
 if [[ -n "$sim_uid_chain" ]]; then
   echo "❌ sim.scenes()[idx].uid() / sim.phases()[idx].uid() chain:" >&2
   echo "$sim_uid_chain" >&2
-  echo "   fix: use sim.scene_uid(idx) / sim.phase_uid(idx) from" >&2
+  echo "   fix: use sim.uid_of(idx) (SceneIndex or PhaseIndex overload) from" >&2
   echo "        <gtopt/simulation_lp.hpp>." >&2
   echo "" >&2
   fail=1
