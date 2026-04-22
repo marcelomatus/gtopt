@@ -89,7 +89,7 @@ struct SolverTestReport
  * The test suite covers:
  *  - construction (default, by-name, from FlatLinearProblem)
  *  - problem-name get/set
- *  - add_col / add_free_col / add_row / delete_rows
+ *  - add_col / add_row / delete_rows
  *  - set/get objective coefficients, column bounds, row bounds
  *  - get_coeff / set_coeff (skipped when !supports_set_coeff())
  *  - set_continuous / set_integer / is_continuous / is_integer

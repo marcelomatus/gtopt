@@ -801,48 +801,6 @@ void LinearInterface::set_time_limit(double /*time_limit*/)
 
 // ── Column operations ──
 
-ColIndex LinearInterface::add_col(const std::string& name,
-                                  double collb,
-                                  double colub)
-{
-  // Ensure the backend is live before we touch it.  Under
-  // `LowMemoryMode::compress` / `rebuild`, `m_backend_` may have been
-  // released; `ensure_backend()` lazily reconstructs it.  The assert
-  // doubles as a hint to clang-static-analyzer, which otherwise can't
-  // see through the rebuild callback and flags every subsequent
-  // `m_backend_->…` as a potential null dereference.
-  ensure_backend();
-  assert(m_backend_ != nullptr);
-  const auto index = m_backend_->get_num_cols();
-  const auto col = ColIndex {index};
-
-  m_backend_->add_col(normalize_bound(collb), normalize_bound(colub), 0.0);
-
-  // Uniqueness is enforced on metadata (via m_col_meta_index_) in
-  // add_col(SparseCol).  The string path here just records the
-  // pre-formatted name when one is provided; duplicates surface at
-  // the metadata layer.
-  if (m_label_maker_.col_names_enabled() && !name.empty()) {
-    if (std::ssize(m_col_index_to_name_) <= index) {
-      m_col_index_to_name_.resize(static_cast<size_t>(index) + 1);
-    }
-    m_col_index_to_name_[col] = name;
-  }
-
-  return col;
-}
-
-ColIndex LinearInterface::add_col(const std::string& name)
-{
-  return add_col(name, 0.0, m_backend_->infinity());
-}
-
-ColIndex LinearInterface::add_free_col(const std::string& name)
-{
-  return add_col(name, -m_backend_->infinity(), m_backend_->infinity());
-}
-
-// NOLINTNEXTLINE(misc-no-recursion)
 ColIndex LinearInterface::add_col(const SparseCol& col)
 {
   ensure_backend();

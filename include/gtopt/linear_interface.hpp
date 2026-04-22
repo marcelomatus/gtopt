@@ -673,22 +673,9 @@ public:
    */
   [[nodiscard]] size_t get_numcols() const;
 
-  /**
-   * @brief Typed row count — use instead of `RowIndex{static_cast<Index>(
-   *        li.get_numrows())}` at every call site.
-   *
-   * Narrows `size_t → Index` in exactly one place (here) so that we can
-   * later replace the conversion with a bounds-checked one without
-   * touching every caller.  Matches the typed API used across the rest
-   * of the LP layer (`add_row` → `RowIndex`, `delete_row` → `RowIndex`,
-   * …) so idiomatic call sites stay inside strong-index space.
-   */
-  [[nodiscard]] RowIndex numrows_as_index() const
-  {
-    return RowIndex {static_cast<Index>(get_numrows())};
-  }
-
-  /// See `numrows_as_index`.
+  /// Typed col count — narrows `size_t → Index` in one place so
+  /// idiomatic call sites stay inside strong-index space.  Matches
+  /// the typed API (`add_col → ColIndex`, `delete_row → RowIndex`).
   [[nodiscard]] ColIndex numcols_as_index() const
   {
     return ColIndex {static_cast<Index>(get_numcols())};
@@ -1668,11 +1655,7 @@ public:
   /// @}
 
 private:
-  /// @name Legacy column/row helpers (used internally and by tests)
-  /// @{
-  ColIndex add_col(const std::string& name);
-  ColIndex add_col(const std::string& name, double collb, double colub);
-  ColIndex add_free_col(const std::string& name);
+  /// Internal named-row helper used by `add_rows(SparseRow)`.
   RowIndex add_row(const std::string& name,
                    size_t numberElements,
                    const std::span<const int>& columns,
@@ -1685,7 +1668,6 @@ private:
   /// phase, or no col_scales / equilibration active).  Only
   /// `SparseRow::scale` is composed here; no col_scale, no row-max.
   RowIndex add_row_lp_space(const SparseRow& row, double eps);
-  /// @}
 
   void rebuild_row_name_maps();
   void push_names_to_solver() const;
