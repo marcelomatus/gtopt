@@ -11,7 +11,7 @@
  *  2. compute_convergence_gap() — edge cases (zero UB, equal bounds,
  *     negative bounds, large gap)
  *  3. SDDP with warm_start disabled
- *  4. SDDP with cut_coeff_eps and cut_coeff_max
+ *  4. SDDP with cut_coeff_eps
  *  5. SDDP with apertures explicitly empty (forces plain backward pass)
  *  6. SDDP with min_iterations > convergence point
  *  7. SDDP convergence gap shrinks monotonically after initial iters

@@ -240,11 +240,9 @@ class GTOptWriter:
         stationary_window = options.get("stationary_window", 4)
         sddp_opts["stationary_window"] = stationary_window
 
-        # Cut coefficient tolerances (PLP OptiEPS equivalent).
+        # Cut coefficient tolerance (PLP OptiEPS equivalent).
         # cut_coeff_eps: drop coefficients with |value| < eps (default 1e-8).
-        # cut_coeff_max: rescale entire cut when max|coeff| > threshold.
         sddp_opts["cut_coeff_eps"] = options.get("cut_coeff_eps", 1e-8)
-        sddp_opts["cut_coeff_max"] = options.get("cut_coeff_max", 1e6)
 
         # When the JSON file lives inside the output directory (the default),
         # input_directory is "." so paths are relative to the JSON location.
