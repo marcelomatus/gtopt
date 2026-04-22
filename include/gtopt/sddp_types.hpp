@@ -87,10 +87,17 @@ constexpr auto error_scene_cuts_fmt = "error_scene_{}.csv";
 /// no feasibility cut (phase 0, or relaxed clone still infeasible).
 /// `LinearInterface::write_lp` appends the `.lp` extension.
 constexpr auto error_lp_fmt = "error_s{}_p{}_i{}";
-/// Debug LP file pattern: scene UID, phase UID, iteration index.
-/// Uses the same `s{}_p{}_i{}` short form as `error_lp_fmt` for
-/// filename-layout uniformity.
-constexpr auto debug_lp_fmt = "gtopt_s{}_p{}_i{}";
+/// Debug LP file pattern: scene UID, phase UID, iteration index,
+/// attempt counter.  The attempt counter distinguishes successive
+/// writes of the same `(scene, phase, iter)` cell under the PLP-style
+/// backtracking forward pass — every time the loop re-enters a phase
+/// (after a backtrack from p → p-1), the LP snapshot carries the
+/// accumulated fcuts installed since the last visit, so a separate
+/// file is needed to preserve the chronology.  `attempt=1` is the
+/// first visit of that phase in this iteration; subsequent values
+/// reflect backtrack re-entries.  Uses `s{}_p{}_i{}_a{}` short form
+/// matching `error_lp_fmt`.
+constexpr auto debug_lp_fmt = "gtopt_s{}_p{}_i{}_a{}";
 /// Debug LP file pattern for aperture clones: scene UID, target phase
 /// UID, aperture UID, iteration index.  Used by the aperture backward
 /// pass when `lp_debug` is enabled and the current (scene, phase)
@@ -212,13 +219,18 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   /// cuts when a phase LP is infeasible at the trial state.  Only
   /// the forward pass has an elastic branch; the backward pass
   /// produces optimality cuts exclusively.
-  ///   `single_cut`: one Benders feasibility cut on the previous phase.
-  ///   `multi_cut` : the single_cut plus one bound-constraint cut
-  ///                 per activated slack variable.
-  ///   `chinneck` (default): per-IIS-bound multi-cuts after a
-  ///                 Chinneck-style elastic IIS filter pass; see
-  ///                 ElasticFilterMode in sddp_enums.hpp.
-  ElasticFilterMode elastic_filter_mode {ElasticFilterMode::chinneck};
+  ///   `single_cut` (default): one classical PLP/Birge-Louveaux
+  ///                 Benders feasibility cut from row duals of the
+  ///                 state-fixing equations at the elastic clone's
+  ///                 Phase-1 optimum.  Matches `plp-agrespd.f`.
+  ///   `multi_cut` : `single_cut` plus one bound-constraint cut per
+  ///                 activated slack variable.
+  ///   `chinneck`  : IIS-filtered multi-cut — runs an extra re-fix
+  ///                 pass to narrow the cut set to the irreducible
+  ///                 infeasible subset of relaxed bounds.  Not
+  ///                 re-validated against the row-dual fcut builder
+  ///                 introduced in commit 0307c58e.
+  ElasticFilterMode elastic_filter_mode {ElasticFilterMode::single_cut};
 
   /// Absolute tolerance for filtering tiny Benders cut coefficients.
   /// Coefficients with |value| < cut_coeff_eps are dropped from the cut.

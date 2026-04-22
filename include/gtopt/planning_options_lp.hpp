@@ -596,16 +596,21 @@ public:
   static constexpr Real default_sddp_cut_coeff_eps = 1e-6;
   /** @brief Default elastic filter mode.
    *
-   *  Set to `chinneck` (IIS-based) so feasibility cuts are emitted only
-   *  on the irreducible infeasible subset of relaxed state-variable
-   *  bounds.  Falls back to the full elastic result when the IIS
-   *  re-fix step cannot confirm a smaller subset (penalty competition
-   *  / degenerate LP), so behaviour matches `multi_cut` in the worst
-   *  case and is strictly better otherwise.  See
-   *  `ElasticFilterMode::chinneck` documentation in
-   *  `gtopt/sddp_enums.hpp` for the algorithm. */
+   *  Set to `single_cut` — the classical PLP/Birge-Louveaux Benders
+   *  feasibility cut.  A single cut is built from the row duals of
+   *  the state-fixing equations at the elastic clone's Phase-1
+   *  optimum (see `build_feasibility_cut_physical` in
+   *  `benders_cut.cpp` and the matching `plp-agrespd.f::AgrElastici`
+   *  reference implementation).  Validated end-to-end by the
+   *  PLP-style backtracking unit tests in `test_sddp_method.cpp`
+   *  — `single_cut` is the mode that makes the cascade converge.
+   *
+   *  `chinneck` (IIS-based) and `multi_cut` remain available as
+   *  explicit modes when per-bound cuts or IIS filtering are wanted;
+   *  neither has been re-validated against the row-dual fcut builder
+   *  and they retain their prior semantics. */
   static constexpr ElasticFilterMode default_sddp_elastic_mode =
-      ElasticFilterMode::chinneck;
+      ElasticFilterMode::single_cut;
   /** @brief Default multi_cut threshold (auto-switch after this many
    *         cumulative forward-pass infeasibilities at a phase).
    *

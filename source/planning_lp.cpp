@@ -121,6 +121,11 @@ void PlanningLP::auto_scale_theta(Planning& planning)
 {
   // Only compute when scale_theta is not explicitly set at any level.
   auto& opts = planning.options;
+  // Global `auto_scale = false` kill switch (`--no-scale`): skip every
+  // auto-scale heuristic so LP coefficients stay in raw physical units.
+  if (!opts.model_options.auto_scale.value_or(true)) {
+    return;
+  }
   if (opts.scale_theta.has_value()
       || opts.model_options.scale_theta.has_value())
   {
@@ -257,6 +262,12 @@ void PlanningLP::auto_scale_reservoirs(Planning& planning)
   auto& opts = planning.options;
   auto& sys = planning.system;
 
+  // Global `auto_scale = false` kill switch (`--no-scale`): skip every
+  // auto-scale heuristic so LP coefficients stay in raw physical units.
+  if (!opts.model_options.auto_scale.value_or(true)) {
+    return;
+  }
+
   // Build a set of UIDs already covered by explicit variable_scales entries.
   auto has_entry = [&](Uid uid) -> bool
   {
@@ -369,6 +380,12 @@ void PlanningLP::auto_scale_lng_terminals(Planning& planning)
 {
   auto& opts = planning.options;
   auto& sys = planning.system;
+
+  // Global `auto_scale = false` kill switch (`--no-scale`): skip every
+  // auto-scale heuristic so LP coefficients stay in raw physical units.
+  if (!opts.model_options.auto_scale.value_or(true)) {
+    return;
+  }
 
   auto has_entry = [&](Uid uid) -> bool
   {

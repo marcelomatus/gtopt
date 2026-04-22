@@ -2544,48 +2544,169 @@ TEST_CASE(  // NOLINT
 {
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
-  auto planning = make_backtracking_recovery_planning();
-  PlanningLP plp(std::move(planning));
+  // Exercise the recovery fixture under all three elastic-filter
+  // modes so we know the backtracking cascade works end-to-end with
+  // every fcut-generation path.  The mode only affects WHICH cut(s)
+  // are installed at each backtrack step (a single aggregate row
+  // under `single_cut`, one bound row per active slack under
+  // `multi_cut`, or the IIS-filtered variant under `chinneck`); the
+  // control-flow invariant — that the cascade reaches a
+  // re-solvable phase and then resumes forward to completion — must
+  // hold for all of them.
+  struct ModeCase
+  {
+    ElasticFilterMode mode;
+    int multi_cut_threshold;  // 0 = force mcut, -1 = never, >0 = after N
+    const char* label;
+  };
+  const std::array cases = {
+      ModeCase {
+          ElasticFilterMode::single_cut, -1, "single_cut (PLP aggregate)"},
+      ModeCase {ElasticFilterMode::multi_cut, 0, "multi_cut (PLP per-bound)"},
+      ModeCase {ElasticFilterMode::chinneck, 0, "chinneck (IIS-filtered)"},
+  };
 
-  SDDPOptions sddp_opts;
-  sddp_opts.max_iterations = 1;  // a single iteration is enough — the
-                                 // backtracking happens WITHIN the
-                                 // forward pass, not across iterations
-  sddp_opts.elastic_filter_mode = ElasticFilterMode::single_cut;
-  sddp_opts.multi_cut_threshold = -1;  // never emit mcuts, keep the
-                                       // test focused on fcuts
-  sddp_opts.forward_max_attempts = 100;
-  sddp_opts.enable_api = false;
+  for (const auto& tc : cases) {
+    CAPTURE(tc.label);
+    SUBCASE(tc.label)
+    {
+      auto planning = make_backtracking_recovery_planning();
+      PlanningLP plp(std::move(planning));
 
-  SDDPMethod sddp(plp, sddp_opts);
-  auto results = sddp.solve();
+      SDDPOptions sddp_opts;
+      sddp_opts.max_iterations = 1;  // a single iteration is enough — the
+                                     // backtracking happens WITHIN the
+                                     // forward pass, not across iterations
+      sddp_opts.elastic_filter_mode = tc.mode;
+      sddp_opts.multi_cut_threshold = tc.multi_cut_threshold;
+      sddp_opts.forward_max_attempts = 100;
+      sddp_opts.enable_api = false;
 
-  // The central invariant of this test: backtracking SUCCEEDS.  The
-  // scene must be feasible in iteration 0 (i.e. forward_pass returned
-  // a value, scene_upper_bounds[0] is non-zero, UB is finite).  If
-  // backtracking is missing or capped too low, solve() would either
-  // return Error or set scene_feasible = false here.
-  REQUIRE(results.has_value());
-  REQUIRE_FALSE(results->empty());
-  const auto& first_iter = results->front();
-  CAPTURE(first_iter.upper_bound);
-  CAPTURE(first_iter.lower_bound);
-  CHECK(std::isfinite(first_iter.upper_bound));
-  CHECK(first_iter.upper_bound > 0.0);
+      SDDPMethod sddp(plp, sddp_opts);
+      auto results = sddp.solve();
 
-  // At least one feasibility cut must have been installed during the
-  // cascade.  Multiple is expected (the cascade installs one fcut
-  // per backtrack step), but the minimum invariant is ≥ 1.
-  const auto cuts = sddp.stored_cuts();
-  int fcut_count = 0;
-  for (const auto& c : cuts) {
-    if (c.type == CutType::Feasibility) {
-      ++fcut_count;
+      // Central invariant: backtracking SUCCEEDS under this mode.
+      // Scene feasible in iteration 0, UB finite and positive.
+      REQUIRE(results.has_value());
+      REQUIRE_FALSE(results->empty());
+      const auto& first_iter = results->front();
+      CAPTURE(first_iter.upper_bound);
+      CAPTURE(first_iter.lower_bound);
+      CHECK(std::isfinite(first_iter.upper_bound));
+      CHECK(first_iter.upper_bound > 0.0);
+
+      // At least one feasibility cut must have been installed during
+      // the cascade.  Multi_cut / chinneck may emit several per
+      // backtrack step; single_cut emits exactly one.  All modes
+      // must produce ≥ 1 total.
+      const auto cuts = sddp.stored_cuts();
+      int fcut_count = 0;
+      for (const auto& c : cuts) {
+        if (c.type == CutType::Feasibility) {
+          ++fcut_count;
+        }
+      }
+      CAPTURE(fcut_count);
+      CAPTURE(cuts.size());
+      CHECK(fcut_count >= 1);
     }
   }
-  CAPTURE(fcut_count);
-  CAPTURE(cuts.size());
-  CHECK(fcut_count >= 1);
+}
+
+TEST_CASE(  // NOLINT
+    "SDDPMethod forward backtracking — recovery 10-phase two-reservoir")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  // Two-reservoir variant: each elastic event produces TWO state-var
+  // links in the cut, exercising:
+  //   * single_cut → ONE aggregate cut with both reservoir source_cols.
+  //   * multi_cut  → TWO bound cuts per (active-sup, active-sdn) link,
+  //                  so up to 4 cuts per event.
+  //   * chinneck   → IIS-filtered multi_cut (may drop non-essential
+  //                  reservoir bounds on symmetric problems).
+  // The central invariant — backtracking converges — must hold in all
+  // three modes.
+  struct ModeCase
+  {
+    ElasticFilterMode mode;
+    int multi_cut_threshold;
+    const char* label;
+  };
+  const std::array cases = {
+      ModeCase {.mode = ElasticFilterMode::single_cut,
+                .multi_cut_threshold = -1,
+                .label = "single_cut (2 reservoirs, aggregate)"},
+      ModeCase {.mode = ElasticFilterMode::multi_cut,
+                .multi_cut_threshold = 0,
+                .label = "multi_cut (2 reservoirs, per-bound)"},
+      ModeCase {.mode = ElasticFilterMode::chinneck,
+                .multi_cut_threshold = 0,
+                .label = "chinneck (2 reservoirs, IIS-filtered)"},
+  };
+
+  for (const auto& tc : cases) {
+    CAPTURE(tc.label);
+    SUBCASE(tc.label)
+    {
+      auto planning = make_backtracking_recovery_two_reservoir_planning();
+      PlanningLP plp(std::move(planning));
+
+      SDDPOptions sddp_opts;
+      sddp_opts.max_iterations = 1;
+      sddp_opts.elastic_filter_mode = tc.mode;
+      sddp_opts.multi_cut_threshold = tc.multi_cut_threshold;
+      sddp_opts.forward_max_attempts = 200;  // two-reservoir cascade
+                                             // may need more attempts
+                                             // than the 1-rsv variant
+      sddp_opts.enable_api = false;
+
+      SDDPMethod sddp(plp, sddp_opts);
+      auto results = sddp.solve();
+
+      REQUIRE(results.has_value());
+      REQUIRE_FALSE(results->empty());
+      const auto& first_iter = results->front();
+      CAPTURE(first_iter.upper_bound);
+      CAPTURE(first_iter.lower_bound);
+      CHECK(std::isfinite(first_iter.upper_bound));
+      CHECK(first_iter.upper_bound > 0.0);
+
+      const auto cuts = sddp.stored_cuts();
+      int fcut_count = 0;
+      for (const auto& c : cuts) {
+        if (c.type == CutType::Feasibility) {
+          ++fcut_count;
+        }
+      }
+      CAPTURE(fcut_count);
+      CAPTURE(cuts.size());
+      CHECK(fcut_count >= 1);
+
+      // With two state variables, we expect the cascade to exercise
+      // both in at least one cut.  Under single_cut there should be
+      // at least one cut whose coefficient map has ≥ 2 entries.
+      // Under multi_cut / chinneck the count of fcuts should be at
+      // least 2 (one per reservoir bound in the first event), but
+      // pruning / symmetry can reduce that — keep the invariant
+      // loose at ≥ 1 and CAPTURE the distribution for diagnosis.
+      std::size_t max_fcut_state_vars = 0;
+      for (const auto& c : cuts) {
+        if (c.type != CutType::Feasibility) {
+          continue;
+        }
+        // coefficients entries include the state-var source_col
+        // terms; under single_cut both reservoir source_cols appear
+        // together; under multi_cut each cut has exactly one entry.
+        max_fcut_state_vars =
+            std::max(max_fcut_state_vars, c.coefficients.size());
+      }
+      CAPTURE(max_fcut_state_vars);
+      if (tc.mode == ElasticFilterMode::single_cut) {
+        CHECK(max_fcut_state_vars >= 2);
+      }
+    }
+  }
 }
 
 TEST_CASE(  // NOLINT

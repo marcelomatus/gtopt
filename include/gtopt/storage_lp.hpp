@@ -100,6 +100,16 @@ public:
   static constexpr std::string_view EiniName {"eini"};
   static constexpr std::string_view SiniName {"sini"};
   static constexpr std::string_view EnergyName {"energy"};
+  /// Constraint name for the per-block energy-balance row.  Distinct
+  /// from `EnergyName` (the variable) so the LP row and column do not
+  /// share a base label — without this split, writers like
+  /// `CPXwriteprob` emit `#<col_index>` disambiguators on every
+  /// column when they detect the row/col name clash, making LP files
+  /// much harder to diff.  Keeping `EnergyName` for the variable
+  /// preserves the `<class>.energy.*` column convention that
+  /// downstream tooling (ScaledView lookup, cut I/O, Pampl readers)
+  /// already depends on.
+  static constexpr std::string_view EnergyBalanceName {"energy_balance"};
   static constexpr std::string_view SoftEminName {"soft_emin"};
   static constexpr std::string_view DrainName {"drain"};
   static constexpr std::string_view EfinName {"efin"};
@@ -538,7 +548,7 @@ public:
       auto erow =
           SparseRow {
               .class_name = cname,
-              .constraint_name = EnergyName,
+              .constraint_name = EnergyBalanceName,
               .variable_uid = opts.variable_uid,
               .context =
                   make_block_context(scenario.uid(), stage.uid(), block.uid()),

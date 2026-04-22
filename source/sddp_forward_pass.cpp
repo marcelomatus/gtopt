@@ -174,11 +174,16 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
                                               m_options_.lp_debug_phase_min,
                                               m_options_.lp_debug_phase_max);
       if (in_range) {
+        // Include `attempts` in the filename so backtrack re-entries
+        // of the same (scene, phase, iter) cell produce distinct
+        // snapshots.  Lets the post-mortem reconstruct the fcut
+        // accumulation chronology across the cascade.
         const auto dbg_stem = (std::filesystem::path(m_options_.log_directory)
                                / std::format(sddp_file::debug_lp_fmt,
                                              uid_of(scene_index),
                                              uid_of(phase_index),
-                                             iteration_index))
+                                             iteration_index,
+                                             attempts))
                                   .string();
         m_lp_debug_writer_.write(li, dbg_stem);
       }

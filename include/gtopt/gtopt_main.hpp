@@ -208,6 +208,21 @@ struct MainOptions
    */
   std::map<std::string, SolverOptions> solver_configs {};
 
+  /** @brief Disable every automatic scaling / equilibration mechanism.
+   *
+   * When true, the CLI forces:
+   *   - `model_options.scale_objective = 1.0`   (no obj divisor)
+   *   - `model_options.scale_theta     = 1.0`   (no Kirchhoff angle scale)
+   *   - `lp_matrix_options.equilibration_method = none`
+   *
+   * Intended for debug / physical-unit validation runs where you want
+   * the LP coefficients in their raw data-layer units, at the cost of
+   * potentially much higher solver kappa.  Bound to the CLI flag
+   * `--no-scale`.  A user-explicit JSON setting of any of the three
+   * fields takes precedence (the override only fills in what the JSON
+   * leaves unset). */
+  std::optional<bool> no_scale {};
+
   // ---- generic option overrides ----
   /** @brief Repeatable ``--set key=value`` overrides.
    *

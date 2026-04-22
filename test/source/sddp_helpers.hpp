@@ -2100,3 +2100,212 @@ inline auto make_backtracking_no_recovery_planning() -> Planning
   planning.system.name = "sddp_backtrack_10phase_infeasible";
   return planning;
 }
+
+/// Two-reservoir recovery fixture for the PLP-style backtracking
+/// forward pass.  Mirrors `make_backtracking_recovery_planning` but
+/// with a second independent reservoir so multi-cut / IIS modes have
+/// ≥ 2 distinct state variables to emit per-bound cuts on.
+///
+/// Both reservoirs:
+///   * eini = 120, emax = 200, emin = 0 per stage EXCEPT phase 7
+///     where emin = 180 (same shock on both).
+///   * Dedicated hydro generator (uid 1 / uid 3) draining via its
+///     own waterway.  Thermal backup (uid 2) covers demand when
+///     either reservoir is throttled.
+///   * Phase-1 inflow boost (80 vs 10 everywhere else) providing the
+///     slack the backtrack cascade needs to recover.
+///
+/// Under `single_cut`, the cascade emits ONE aggregate fcut per event
+/// combining both reservoirs' state columns.  Under `multi_cut`, it
+/// emits up to 4 cuts per event (ub + lb on each reservoir's
+/// source_col).  Under `chinneck`, IIS filtering may prune the
+/// non-essential subset — on this symmetric 2-reservoir design
+/// typically both reservoirs stay in the IIS.
+inline auto make_backtracking_recovery_two_reservoir_planning() -> Planning
+{
+  constexpr int num_phases = 10;
+  constexpr int blocks_per_phase = 1;
+  constexpr int total_blocks = num_phases * blocks_per_phase;
+  constexpr int phase_seven_stage_idx = 6;
+
+  auto block_array =
+      make_uniform_blocks(static_cast<std::size_t>(total_blocks), 1.0);
+  auto stage_array =
+      make_uniform_stages(static_cast<std::size_t>(num_phases),
+                          static_cast<std::size_t>(blocks_per_phase));
+  auto phase_array =
+      make_single_stage_phases(static_cast<std::size_t>(num_phases));
+
+  // Per-stage emin (shared between both reservoirs): zero except
+  // phase 7 = 180.
+  std::vector<double> emin_per_stage(num_phases, 0.0);
+  emin_per_stage[phase_seven_stage_idx] = 180.0;
+
+  // Per-stage inflow schedule (scenario × stage × block), phase-1
+  // boost identical on both reservoirs.
+  auto make_inflow_schedule = []
+  {
+    std::vector<std::vector<double>> inflow_2d;
+    inflow_2d.reserve(num_phases);
+    for (int st = 0; st < num_phases; ++st) {
+      inflow_2d.push_back(std::vector<double> {st == 0 ? 80.0 : 10.0});
+    }
+    std::vector<std::vector<std::vector<double>>> inflow_3d;
+    inflow_3d.push_back(std::move(inflow_2d));
+    return inflow_3d;
+  };
+  auto inflow_schedule_3d_1 = make_inflow_schedule();
+  auto inflow_schedule_3d_2 = make_inflow_schedule();
+
+  const Array<Bus> bus_array = {{
+      .uid = Uid {1},
+      .name = "b1",
+  }};
+  const Array<Generator> generator_array = {
+      {
+          .uid = Uid {1},
+          .name = "hydro_gen_1",
+          .bus = Uid {1},
+          .gcost = 1.0,
+          .capacity = 30.0,
+      },
+      {
+          .uid = Uid {2},
+          .name = "thermal_gen",
+          .bus = Uid {1},
+          .gcost = 100.0,
+          .capacity = 60.0,  // bigger cap so thermal can cover both
+                             // hydros being throttled simultaneously
+      },
+      {
+          .uid = Uid {3},
+          .name = "hydro_gen_2",
+          .bus = Uid {1},
+          .gcost = 1.0,
+          .capacity = 30.0,
+      },
+  };
+  // Bigger demand (40 MW per block) so both hydro generators get
+  // exercised — otherwise one alone would cover demand and the
+  // second reservoir wouldn't participate in the cascade.
+  const Array<Demand> demand_array = {{
+      .uid = Uid {1},
+      .name = "load1",
+      .bus = Uid {1},
+      .capacity = 40.0,
+  }};
+  const Array<Junction> junction_array = {
+      {.uid = Uid {1}, .name = "j_up1"},
+      {.uid = Uid {2}, .name = "j_up2"},
+      {.uid = Uid {3}, .name = "j_down", .drain = true},
+  };
+  const Array<Waterway> waterway_array = {
+      {
+          .uid = Uid {1},
+          .name = "ww1",
+          .junction_a = Uid {1},
+          .junction_b = Uid {3},
+          .fmin = 0.0,
+          .fmax = 100.0,
+      },
+      {
+          .uid = Uid {2},
+          .name = "ww2",
+          .junction_a = Uid {2},
+          .junction_b = Uid {3},
+          .fmin = 0.0,
+          .fmax = 100.0,
+      },
+  };
+  const Array<Reservoir> reservoir_array = {
+      {
+          .uid = Uid {1},
+          .name = "rsv1",
+          .junction = Uid {1},
+          .capacity = 200.0,
+          .emin = emin_per_stage,
+          .emax = 200.0,
+          .eini = 120.0,
+          .fmin = -1000.0,
+          .fmax = +1000.0,
+          .flow_conversion_rate = 1.0,
+      },
+      {
+          .uid = Uid {2},
+          .name = "rsv2",
+          .junction = Uid {2},
+          .capacity = 200.0,
+          .emin = emin_per_stage,
+          .emax = 200.0,
+          .eini = 120.0,
+          .fmin = -1000.0,
+          .fmax = +1000.0,
+          .flow_conversion_rate = 1.0,
+      },
+  };
+  Array<Flow> flow_array;
+  {
+    Flow flow1;
+    flow1.uid = Uid {1};
+    flow1.name = "inflow_1";
+    flow1.direction = 1;
+    flow1.junction = Uid {1};
+    flow1.discharge = STBRealFieldSched {inflow_schedule_3d_1};
+    flow_array.push_back(std::move(flow1));
+
+    Flow flow2;
+    flow2.uid = Uid {2};
+    flow2.name = "inflow_2";
+    flow2.direction = 1;
+    flow2.junction = Uid {2};
+    flow2.discharge = STBRealFieldSched {inflow_schedule_3d_2};
+    flow_array.push_back(std::move(flow2));
+  }
+  const Array<Turbine> turbine_array = {
+      {
+          .uid = Uid {1},
+          .name = "tur1",
+          .waterway = Uid {1},
+          .generator = Uid {1},
+          .production_factor = 1.0,
+      },
+      {
+          .uid = Uid {2},
+          .name = "tur2",
+          .waterway = Uid {2},
+          .generator = Uid {3},
+          .production_factor = 1.0,
+      },
+  };
+
+  Simulation simulation = {
+      .block_array = std::move(block_array),
+      .stage_array = std::move(stage_array),
+      .scenario_array = {{.uid = Uid {1}}},
+      .phase_array = std::move(phase_array),
+  };
+
+  PlanningOptions options;
+  options.demand_fail_cost = 10'000.0;
+  options.use_single_bus = OptBool {true};
+  options.scale_objective = OptReal {1.0};
+  options.output_format = DataFormat::csv;
+  options.output_compression = CompressionCodec::uncompressed;
+
+  return Planning {
+      .options = std::move(options),
+      .simulation = std::move(simulation),
+      .system =
+          {
+              .name = "sddp_backtrack_10phase_2rsv",
+              .bus_array = bus_array,
+              .demand_array = demand_array,
+              .generator_array = generator_array,
+              .junction_array = junction_array,
+              .waterway_array = waterway_array,
+              .flow_array = flow_array,
+              .reservoir_array = reservoir_array,
+              .turbine_array = turbine_array,
+          },
+  };
+}

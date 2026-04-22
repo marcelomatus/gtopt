@@ -46,6 +46,16 @@ struct ModelOptions
   OptReal scale_objective {};
   /// Scaling factor for voltage-angle variables.
   OptReal scale_theta {};
+  /// Enable per-element automatic scaling (reservoir energy/flow, LNG
+  /// terminal energy, bus theta) that `PlanningLP` computes at
+  /// construction time.  When unset or true, the default heuristics
+  /// (adaptive emax/fmax → power-of-10 scale, median x_τ for
+  /// scale_theta) run.  When set to false (typically via the
+  /// `--no-scale` CLI flag), all three auto-scale passes are
+  /// skipped so LP coefficients stay in raw physical units —
+  /// useful for debug / coefficient validation, at the cost of
+  /// much higher solver kappa.
+  OptBool auto_scale {};
   /// Penalty cost for unserved demand [$/MWh].
   OptReal demand_fail_cost {};
   /// Penalty cost for unserved spinning-reserve [$/MWh].
@@ -91,6 +101,7 @@ struct ModelOptions
     merge_opt(loss_segments, opts.loss_segments);
     merge_opt(scale_objective, opts.scale_objective);
     merge_opt(scale_theta, opts.scale_theta);
+    merge_opt(auto_scale, opts.auto_scale);
     merge_opt(demand_fail_cost, opts.demand_fail_cost);
     merge_opt(reserve_fail_cost, opts.reserve_fail_cost);
     merge_opt(hydro_fail_cost, opts.hydro_fail_cost);

@@ -199,7 +199,7 @@ TEST_CASE("make_planning_method SDDP wiring snapshot")  // NOLINT
 
     // ── Advanced tuning ──
     CHECK(so.elastic_penalty == doctest::Approx(1e2));
-    CHECK(so.elastic_filter_mode == ElasticFilterMode::chinneck);
+    CHECK(so.elastic_filter_mode == ElasticFilterMode::single_cut);
     CHECK(so.cut_coeff_eps == doctest::Approx(1e-6));
     CHECK(so.multi_cut_threshold == 100);
     CHECK(!so.apertures.has_value());
