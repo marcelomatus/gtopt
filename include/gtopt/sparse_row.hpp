@@ -218,6 +218,35 @@ struct SparseRowLabel
   std::string_view constraint_name {};
   Uid variable_uid {unknown_uid};
   LpContext context {};
+
+  friend constexpr bool operator==(const SparseRowLabel&,
+                                   const SparseRowLabel&) noexcept = default;
+};
+
+/// Hash functor for `SparseRowLabel`.  Mirrors `SparseColLabelHash` — see
+/// that struct for rationale.
+struct SparseRowLabelHash
+{
+  [[nodiscard]] size_t operator()(const SparseRowLabel& l) const noexcept
+  {
+    size_t h = std::hash<std::string_view> {}(l.class_name);
+    h = detail::hash_combine(h,
+                             std::hash<std::string_view> {}(l.constraint_name));
+    h = detail::hash_combine(h, std::hash<Uid> {}(l.variable_uid));
+    h = detail::hash_combine(
+        h,
+        std::visit(
+            []<typename T>(const T& t) noexcept -> size_t
+            {
+              if constexpr (std::is_same_v<T, std::monostate>) {
+                return 0;
+              } else {
+                return TupleHash {}(t);
+              }
+            },
+            l.context));
+    return h;
+  }
 };
 
 using RowIndex = StrongIndexType<SparseRow>;  ///< Type alias for row index

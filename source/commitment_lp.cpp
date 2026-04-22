@@ -463,10 +463,10 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
       link_row[ucol] = -gen_pmin;
 
       double prev_breakpoint = gen_pmin;
-      for (size_t k = 0; k < pmax_segs.size(); ++k) {
-        const auto seg_width = pmax_segs[k] - prev_breakpoint;
+      for (const auto& [k, pmax_k] : enumerate<int>(pmax_segs)) {
+        const auto seg_width = pmax_k - prev_breakpoint;
         if (seg_width <= 0.0) {
-          prev_breakpoint = pmax_segs[k];
+          prev_breakpoint = pmax_k;
           continue;
         }
 
@@ -477,7 +477,7 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
             CostHelper::block_ecost(scenario, stage, block, seg_marginal);
 
         const auto seg_ctx =
-            make_block_context(scenario.uid(), stage.uid(), buid);
+            make_block_context(scenario.uid(), stage.uid(), buid, k);
 
         auto seg_col = lp.add_col({
             .lowb = 0.0,
@@ -506,7 +506,7 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
 
         link_row[seg_col] = -1.0;
         segment_cols_[k][st_key][buid] = seg_col;
-        prev_breakpoint = pmax_segs[k];
+        prev_breakpoint = pmax_k;
       }
 
       segment_link_rows_[st_key][buid] = lp.add_row(std::move(link_row));

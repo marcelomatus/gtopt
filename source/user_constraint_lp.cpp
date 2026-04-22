@@ -153,6 +153,15 @@ struct LowerCtx
   bool is_debug {false};
   bool is_strict {false};
   LinearProblem& lp;
+  /// Monotonic counter for auxiliary rows / cols emitted while lowering
+  /// the current user constraint row.  Threaded through the
+  /// `(context, extra)` field of each aux row so abs(x) / min(a,b) /
+  /// max(a,b) lowerings produce unique `(class, constraint, uid,
+  /// context)` metadata — the eager duplicate detector in
+  /// `LinearProblem::add_row` would otherwise fire on the second
+  /// aux row, which shares everything but the row contents with the
+  /// first.
+  int aux_counter {0};
 };
 // NOLINTEND(cppcoreguidelines-avoid-const-or-ref-data-members)
 
@@ -191,14 +200,47 @@ struct BuildResult
   return detail::eval_if_atom(atom, coord_val);
 }
 
-// Fresh SparseRow that inherits identity/context from `row`.
-[[nodiscard]] SparseRow make_aux_row(const SparseRow& row)
+// Convert the user-constraint row's BlockContext into a
+// BlockExContext with a unique `extra` index so multiple aux rows
+// don't collide on the metadata-based duplicate detector.  For
+// already-extended contexts, the aux counter is folded into the
+// existing extra slot; for other variants (StageContext etc.) we
+// return the context unchanged — lowering paths that use them
+// create at most one aux row per user constraint row, so there's
+// nothing to disambiguate.
+[[nodiscard]] LpContext make_aux_context(const LpContext& base, int extra)
+{
+  return std::visit(
+      [extra]<typename T>(const T& c) -> LpContext
+      {
+        if constexpr (std::is_same_v<T, BlockContext>) {
+          return BlockExContext {
+              std::get<0>(c), std::get<1>(c), std::get<2>(c), extra};
+        } else if constexpr (std::is_same_v<T, BlockExContext>) {
+          // Multiple user-constraint block rows may share the same
+          // source (scenario, stage, block, outer_extra); we fold
+          // the aux counter into the low bits to keep uniqueness.
+          return BlockExContext {std::get<0>(c),
+                                 std::get<1>(c),
+                                 std::get<2>(c),
+                                 (std::get<3>(c) * 1000) + extra};
+        }
+        return T {c};
+      },
+      base);
+}
+
+// Fresh SparseRow that inherits identity from `row` but receives a
+// unique `(context, extra)` slot from `ctx.aux_counter` so repeated
+// aux-row emissions during a single lowering do not collide on the
+// metadata-based duplicate detector in `LinearProblem::add_row`.
+[[nodiscard]] SparseRow make_aux_row(LowerCtx& ctx, const SparseRow& row)
 {
   SparseRow aux;
   aux.class_name = row.class_name;
   aux.constraint_name = row.constraint_name;
   aux.variable_uid = row.variable_uid;
-  aux.context = row.context;
+  aux.context = make_aux_context(row.context, ++ctx.aux_counter);
   return aux;
 }
 
@@ -431,8 +473,15 @@ BuildResult build_row_from_terms(LowerCtx& ctx,
       }
       reject_nested_wrappers(ctx, term.abs_expr->inner, "abs");
 
-      // Resolve inner linear expression into a local row.
-      SparseRow inner_row = make_aux_row(row);
+      // Resolve inner linear expression into a local row.  This
+      // local row is never added to the LP, so it does not need a
+      // unique aux context — copy without bumping the counter to
+      // avoid wasting indices.
+      SparseRow inner_row;
+      inner_row.class_name = row.class_name;
+      inner_row.constraint_name = row.constraint_name;
+      inner_row.variable_uid = row.variable_uid;
+      inner_row.context = row.context;
       auto inner_res =
           build_row_from_terms(ctx, term.abs_expr->inner, 1.0, inner_row);
 
@@ -446,14 +495,14 @@ BuildResult build_row_from_terms(LowerCtx& ctx,
       const auto t_idx = add_aux_col(ctx, row, "abs_aux", AuxSign::NonNegative);
 
       // Row 1: inner_vars − t ≤ −inner_shift
-      SparseRow r1 = make_aux_row(row);
+      SparseRow r1 = make_aux_row(ctx, row);
       r1.cmap = inner_row.cmap;
       r1.cmap[t_idx] = -1.0;
       r1.less_equal(-inner_res.param_shift);
       (void)ctx.lp.add_row(std::move(r1));
 
       // Row 2: −inner_vars − t ≤ inner_shift
-      SparseRow r2 = make_aux_row(row);
+      SparseRow r2 = make_aux_row(ctx, row);
       r2.cmap = inner_row.cmap;
       negate_cmap(r2.cmap);
       r2.cmap[t_idx] = -1.0;
@@ -502,7 +551,7 @@ BuildResult build_row_from_terms(LowerCtx& ctx,
       for (const auto& arg : term.minmax_expr->args) {
         reject_nested_wrappers(ctx, arg, is_max ? "max" : "min");
 
-        SparseRow ar = make_aux_row(row);
+        SparseRow ar = make_aux_row(ctx, row);
         auto arg_res = build_row_from_terms(ctx, arg, 1.0, ar);
 
         if (is_max) {

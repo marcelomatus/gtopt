@@ -139,6 +139,30 @@ public:
   }
 
   /**
+   * @brief Look up the scene UID at a given scene index.
+   *
+   * Convenience wrapper that replaces the repeated
+   * ``sim.scenes()[scene_index].uid()`` idiom at SDDP call sites
+   * (notably the cut-loader paths in ``source/sddp_cut_io.cpp``,
+   * where the uid is fed straight into ``make_iteration_context``).
+   */
+  [[nodiscard]] constexpr auto scene_uid(SceneIndex scene_index) const noexcept
+      -> SceneUid
+  {
+    return m_scene_array_[scene_index].uid();
+  }
+
+  /**
+   * @brief Look up the phase UID at a given phase index.  Mirror of
+   *        ``scene_uid`` — see that helper for rationale.
+   */
+  [[nodiscard]] constexpr auto phase_uid(PhaseIndex phase_index) const noexcept
+      -> PhaseUid
+  {
+    return m_phase_array_[phase_index].uid();
+  }
+
+  /**
    * @brief Gets the index of the last phase.
    * @pre The simulation has at least one phase.
    * @return `previous(PhaseIndex{phases().size()})`.

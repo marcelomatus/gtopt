@@ -865,6 +865,13 @@ private:
   /// call repeatedly and from const contexts (members are mutable).
   void ensure_labels_meta_decompressed() const;
 
+  /// Rebuild `m_col_meta_index_` / `m_row_meta_index_` from the live
+  /// metadata vectors.  Called after `load_flat` and after
+  /// `ensure_labels_meta_decompressed` so the eager duplicate check
+  /// in `add_col` / `track_row_label_meta` can run against the full
+  /// history, not just post-reload additions.
+  void rebuild_meta_indexes() const;
+
 public:
   /**
    * @brief Performs initial solve of the problem from scratch
@@ -1770,6 +1777,29 @@ private:
   /// `m_col_labels_meta_` / `m_row_labels_meta_`.  Reserved ahead of
   /// decompression so `push_back` doesn't invalidate the views.
   mutable std::vector<std::string> m_label_string_pool_ {};
+
+  /// Eager duplicate-detection maps, keyed on the (class_name,
+  /// variable_name/constraint_name, variable_uid, context) metadata.
+  /// Populated from `m_col_labels_meta_` / `m_row_labels_meta_` at
+  /// `load_flat` time and on every `add_col` / `track_row_label_meta`
+  /// call.  Cleared on `compress_labels_meta_if_needed` alongside the
+  /// vectors and rebuilt on `ensure_labels_meta_decompressed`.
+  ///
+  /// These maps are the single source of truth for col/row uniqueness
+  /// after the switch to metadata-driven label formatting — the
+  /// name-based check in `LinearProblem::flatten` only runs when
+  /// `col_with_name_map` / `row_with_name_map` is enabled (i.e.
+  /// `--lp-debug`), which is off in production runs.  Keeping the
+  /// check at `LinearInterface` level also catches dynamic
+  /// post-flatten insertions (α column, Benders cut rows) that
+  /// `LinearProblem` never sees.
+  ///
+  /// `mutable` because `rebuild_meta_indexes` fires from the const
+  /// `ensure_labels_meta_decompressed` path.
+  mutable std::unordered_map<SparseColLabel, ColIndex, SparseColLabelHash>
+      m_col_meta_index_ {};
+  mutable std::unordered_map<SparseRowLabel, RowIndex, SparseRowLabelHash>
+      m_row_meta_index_ {};
 
   /// Whether the backend is currently released.
   bool m_backend_released_ {false};

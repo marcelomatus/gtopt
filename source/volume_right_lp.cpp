@@ -127,7 +127,7 @@ bool VolumeRightLP::add_to_lp(SystemContext& sc,
     const auto fcol = lp.add_col(SparseCol {
         .uppb = uppb,
         .class_name = ClassName.full_name(),
-        .variable_name = FlowName,
+        .variable_name = ExtractionName,
         .variable_uid = uid(),
         .context = make_block_context(scenario.uid(), stage.uid(), block.uid()),
     });
@@ -149,7 +149,7 @@ bool VolumeRightLP::add_to_lp(SystemContext& sc,
       const auto fcol = lp.add_col(SparseCol {
           .uppb = uppb,
           .class_name = ClassName.full_name(),
-          .variable_name = FlowName,
+          .variable_name = SavingName,
           .variable_uid = uid(),
           .context =
               make_block_context(scenario.uid(), stage.uid(), block.uid()),

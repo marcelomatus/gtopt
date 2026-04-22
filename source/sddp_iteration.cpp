@@ -751,6 +751,21 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
   m_aux_pool_ = nullptr;
   m_lp_debug_writer_ = {};
 
+  // Advance `m_iteration_offset_` past the last iteration executed
+  // (including the trailing simulation pass) so a subsequent call
+  // to `solve()` on the same SDDPMethod instance keeps its
+  // `(scene, phase, iter, offset)` tuple on each emitted cut
+  // disjoint from cuts already in the LP.  Without this, the
+  // eager metadata duplicate detector in
+  // `LinearInterface::add_row` fires on the first backward-pass
+  // cut of the re-entry (same `iter=0, offset=0` as the first
+  // run).  Placed here, after the simulation pass, so the
+  // convergence-compute inside `record_iteration_result` still
+  // sees the old offset for its `past_min_iter` check.
+  if (!results.empty()) {
+    m_iteration_offset_ = next(results.back().iteration_index);
+  }
+
   return results;
 }
 

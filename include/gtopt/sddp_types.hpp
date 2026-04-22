@@ -120,6 +120,33 @@ constexpr auto stop_request = "sddp_stop_request.json";
 // class/column name so every call site uses the same identifiers.
 constexpr std::string_view sddp_alpha_class_name = "Sddp";
 constexpr std::string_view sddp_alpha_col_name = "alpha";
+
+/// Constraint-name tags carried on LP row metadata for each kind
+/// of Benders cut emitted by SDDP.  Paired with
+/// `sddp_alpha_class_name` so the eager duplicate detector in
+/// `LinearInterface::add_row` keys SDDP cuts on
+/// `("Sddp", <tag>, uid, IterationContext)` — the tag distinguishes
+/// the pass that produced the cut.
+constexpr std::string_view sddp_scut_constraint_name = "scut";
+constexpr std::string_view sddp_aperture_cut_constraint_name = "aper_cut";
+constexpr std::string_view sddp_ecut_constraint_name = "ecut";
+constexpr std::string_view sddp_share_cut_constraint_name = "share";
+constexpr std::string_view sddp_bcut_constraint_name = "bcut";
+constexpr std::string_view sddp_fcut_constraint_name = "fcut";
+
+/// Class tags for cuts brought in by the CSV / JSON loaders.  Each
+/// loader path sets a distinct class_name so mixing loader sources
+/// never produces identical metadata:
+///   * `sddp_loaded_cut_class_name`  – generic `load_cuts` (CSV/JSON)
+///   * `sddp_boundary_cut_class_name` – `load_boundary_cuts_csv`
+///   * `sddp_named_cut_class_name`    – `load_named_cuts_csv`
+/// All three share a single constraint-name constant
+/// (`sddp_loaded_cut_constraint_name`) since they describe the
+/// same kind of Benders optimality row.
+constexpr std::string_view sddp_loaded_cut_class_name = "Loaded";
+constexpr std::string_view sddp_boundary_cut_class_name = "Bdr";
+constexpr std::string_view sddp_named_cut_class_name = "NamedHs";
+constexpr std::string_view sddp_loaded_cut_constraint_name = "cut";
 /// Fixed uid used in the alpha `StateVariable::Key`.  The state-variable
 /// map is partitioned by `(scene_index, phase_index)` and there is at
 /// most one alpha per cell, so any constant uid disambiguates the key.

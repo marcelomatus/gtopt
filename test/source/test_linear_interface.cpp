@@ -817,30 +817,16 @@ TEST_CASE("LinearInterface - time limit")
 }
 
 TEST_CASE(
-    "LinearInterface - duplicate metadata detection throws on materialise")
+    "LinearInterface - duplicate column metadata throws eagerly at add_col")
 {
   using namespace gtopt;
 
   LinearInterface li;
-  li.set_label_maker(LabelMaker {LpNamesLevel::all});
 
   const auto ctx =
       make_stage_context(make_uid<Scenario>(0), make_uid<Stage>(0));
 
-  // Under Option B (always-lazy label synthesis), duplicate detection
-  // happens when labels are materialised (e.g. via
-  // `materialize_labels()`, `write_lp`, or the name→index maps),
-  // NOT at add_col time.  This test asserts that contract.
-  li.add_col(SparseCol {
-      .lowb = 0.0,
-      .uppb = 1.0,
-      .class_name = "X",
-      .variable_name = "v",
-      .variable_uid = Uid {1},
-      .context = ctx,
-  });
-  // Adding the second col with identical metadata succeeds at the
-  // backend level — the label collision only surfaces on synthesis.
+  // First column with labelled metadata is accepted.
   li.add_col(SparseCol {
       .lowb = 0.0,
       .uppb = 1.0,
@@ -850,7 +836,18 @@ TEST_CASE(
       .context = ctx,
   });
 
-  CHECK_THROWS_AS(li.materialize_labels(), std::runtime_error);
+  // Second column with identical `(class_name, variable_name,
+  // variable_uid, context)` metadata is rejected at add_col time
+  // — no need to wait for `materialize_labels` or `write_lp`.
+  CHECK_THROWS_AS(li.add_col(SparseCol {
+                      .lowb = 0.0,
+                      .uppb = 1.0,
+                      .class_name = "X",
+                      .variable_name = "v",
+                      .variable_uid = Uid {1},
+                      .context = ctx,
+                  }),
+                  std::runtime_error);
 }
 
 TEST_CASE("LinearInterface - unique metadata passes label synthesis")
@@ -894,16 +891,41 @@ TEST_CASE("LinearInterface - unique metadata passes label synthesis")
   CHECK(li.row_name_map().size() == 1);
 }
 
-TEST_CASE("LinearInterface - duplicate row metadata throws on materialise")
+TEST_CASE(
+    "LinearInterface - empty metadata cols/rows are not tracked for uniqueness")
 {
   using namespace gtopt;
 
   LinearInterface li;
-  li.set_label_maker(LabelMaker {LpNamesLevel::all});
+
+  // Two unlabelled cols (no class_name / no variable_name / unknown
+  // uid / monostate context) must both succeed — the dup detector
+  // intentionally skips empty labels so structural tests that build
+  // anonymous cells don't trip it.
+  li.add_col(SparseCol {.lowb = 0.0, .uppb = 1.0});
+  li.add_col(SparseCol {.lowb = 0.0, .uppb = 2.0});
+  CHECK(li.get_numcols() == 2);
+
+  SparseRow r1;
+  r1[ColIndex {0}] = 1.0;
+  r1.uppb = 5.0;
+  SparseRow r2;
+  r2[ColIndex {0}] = 1.0;
+  r2.uppb = 10.0;
+  li.add_row(r1);
+  li.add_row(r2);
+  CHECK(li.get_numrows() == 2);
+}
+
+TEST_CASE("LinearInterface - duplicate row metadata throws eagerly at add_row")
+{
+  using namespace gtopt;
+
+  LinearInterface li;
   const auto ctx =
       make_stage_context(make_uid<Scenario>(0), make_uid<Stage>(0));
 
-  // First, add a column so the SparseRow cmap references a valid col.
+  // Column provides a live ColIndex for the SparseRow cmap.
   li.add_col(SparseCol {
       .lowb = 0.0,
       .uppb = 1.0,
@@ -921,11 +943,9 @@ TEST_CASE("LinearInterface - duplicate row metadata throws on materialise")
   row.variable_uid = Uid {0};
   row.context = ctx;
   li.add_row(row);
-  // Adding a second row with identical metadata does not throw at
-  // insertion — the collision surfaces at label synthesis.
-  li.add_row(row);
 
-  CHECK_THROWS_AS(li.materialize_labels(), std::runtime_error);
+  // Second row with identical metadata is rejected at add_row time.
+  CHECK_THROWS_AS(li.add_row(row), std::runtime_error);
 }
 
 // ─── Warm-start clone tests ────────────────────────────────────────────────

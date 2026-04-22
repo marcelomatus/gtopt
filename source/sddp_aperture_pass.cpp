@@ -241,8 +241,8 @@ auto SDDPMethod::install_aperture_backward_cut(
                                  target_state.forward_full_obj_physical,
                                  scale_obj,
                                  ceps);
-  fallback_cut.class_name = "Sddp";
-  fallback_cut.constraint_name = "bcut";
+  fallback_cut.class_name = sddp_alpha_class_name;
+  fallback_cut.constraint_name = sddp_bcut_constraint_name;
   fallback_cut.context = make_iteration_context(scene_uid(scene_index),
                                                 phase_uid(phase_index),
                                                 iteration_index,

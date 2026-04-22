@@ -129,6 +129,36 @@ struct SparseColLabel
   std::string_view variable_name {};
   Uid variable_uid {unknown_uid};
   LpContext context {};
+
+  friend constexpr bool operator==(const SparseColLabel&,
+                                   const SparseColLabel&) noexcept = default;
+};
+
+/// Hash functor for `SparseColLabel`, used by the eager duplicate-detection
+/// map in `LinearInterface`.  Combines each field via `detail::hash_combine`
+/// and dispatches on the `LpContext` variant through `std::visit`.
+struct SparseColLabelHash
+{
+  [[nodiscard]] size_t operator()(const SparseColLabel& l) const noexcept
+  {
+    size_t h = std::hash<std::string_view> {}(l.class_name);
+    h = detail::hash_combine(h,
+                             std::hash<std::string_view> {}(l.variable_name));
+    h = detail::hash_combine(h, std::hash<Uid> {}(l.variable_uid));
+    h = detail::hash_combine(
+        h,
+        std::visit(
+            []<typename T>(const T& t) noexcept -> size_t
+            {
+              if constexpr (std::is_same_v<T, std::monostate>) {
+                return 0;
+              } else {
+                return TupleHash {}(t);
+              }
+            },
+            l.context));
+    return h;
+  }
 };
 
 using ColIndex = StrongIndexType<SparseCol>;  ///< Type alias for column index

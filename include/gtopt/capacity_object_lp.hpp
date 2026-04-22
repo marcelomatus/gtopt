@@ -45,6 +45,18 @@ struct CapacityObjectBase
   static constexpr std::string_view CapacostName {"capacost"};
   static constexpr std::string_view ExpmodName {"expmod"};
 
+  /// LP metadata variable_names for the dependent capainst/capacost
+  /// columns that mirror a publisher in the previous phase at a
+  /// cross-phase boundary.  Named with a distinct suffix so the
+  /// eager duplicate detector in `LinearInterface::add_col` can
+  /// tell the dependent mirror apart from the current stage's own
+  /// capainst/capacost (which share everything else in the 4-tuple
+  /// metadata: class_name, variable_uid, stage context).  The
+  /// `StateVariable` lookup key still uses the un-suffixed names
+  /// to match the publisher side in the previous phase.
+  static constexpr std::string_view CapainstPrevName {"capainst_prev"};
+  static constexpr std::string_view CapacostPrevName {"capacost_prev"};
+
   [[nodiscard]] constexpr const Id& id() const noexcept { return m_id_; }
 
   template<typename OF>

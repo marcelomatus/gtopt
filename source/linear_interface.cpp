@@ -33,36 +33,26 @@ namespace gtopt
 
 namespace
 {
-/// Check name uniqueness via map insertion (try_emplace pattern).
-/// Returns true if the name is a duplicate.  When `errors_on_dup` is true
-/// (LabelMaker::duplicates_are_errors() when names are enabled) a
-/// std::runtime_error is thrown; otherwise a warning is logged and the
-/// function returns true.
-///
-/// The map is either `col_name_map_t` (keyed to `ColIndex`) or
-/// `row_name_map_t` (keyed to `RowIndex`); the index parameter must match.
-template<typename Map, typename IndexType>
-inline bool check_name_unique(Map& name_map,
-                              const std::string& name,
-                              IndexType index,
-                              std::string_view entity_type,
-                              bool errors_on_dup)
+/// True for a metadata entry that carries no identifying fields.
+/// Entries with no class_name / variable_name / unknown uid /
+/// monostate context are skipped by the duplicate-detection maps —
+/// several internal paths (structural tests, unnamed bootstrap
+/// bookkeeping) legitimately create unlabelled cols/rows and they
+/// must not trip the detector.
+[[nodiscard]] constexpr bool is_empty_col_label(
+    const SparseColLabel& l) noexcept
 {
-  if (name.empty()) {
-    return false;
-  }
+  return l.class_name.empty() && l.variable_name.empty()
+      && l.variable_uid == unknown_uid
+      && std::holds_alternative<std::monostate>(l.context);
+}
 
-  auto [it, inserted] = name_map.try_emplace(name, index);
-  if (!inserted) {
-    if (errors_on_dup) {
-      SPDLOG_ERROR("Duplicate LP {} name: {}", entity_type, name);
-      throw std::runtime_error(
-          std::format("Duplicate LP {} name: {}", entity_type, name));
-    }
-    SPDLOG_WARN("Duplicate LP {} name: {}", entity_type, name);
-    return true;
-  }
-  return false;
+[[nodiscard]] constexpr bool is_empty_row_label(
+    const SparseRowLabel& l) noexcept
+{
+  return l.class_name.empty() && l.constraint_name.empty()
+      && l.variable_uid == unknown_uid
+      && std::holds_alternative<std::monostate>(l.context);
 }
 
 // ── Label-metadata serialization (Step 3 / Option B) ─────────────────
@@ -737,6 +727,11 @@ void LinearInterface::load_flat(const FlatLinearProblem& flat_lp)
   m_col_labels_meta_ = flat_lp.col_labels_meta;
   m_row_labels_meta_ = flat_lp.row_labels_meta;
 
+  // Seed the eager duplicate-detection maps from the structural
+  // metadata so post-flatten add_col / add_row calls (α column,
+  // Benders cut rows, etc.) can be checked against the full history.
+  rebuild_meta_indexes();
+
   // Preserve coefficient statistics computed during flatten().
   m_stats_nnz_ = flat_lp.stats_nnz;
   m_stats_zeroed_ = flat_lp.stats_zeroed;
@@ -805,17 +800,16 @@ ColIndex LinearInterface::add_col(const std::string& name,
   assert(m_backend_ != nullptr);
   const auto index = m_backend_->get_num_cols();
   const auto col = ColIndex {index};
-  check_name_unique(m_col_names_,
-                    name,
-                    col,
-                    "column",
-                    m_label_maker_.duplicates_are_errors());
 
   m_backend_->add_col(normalize_bound(collb), normalize_bound(colub), 0.0);
 
+  // Uniqueness is enforced on metadata (via m_col_meta_index_) in
+  // add_col(SparseCol).  The string path here just records the
+  // pre-formatted name when one is provided; duplicates surface at
+  // the metadata layer.
   if (m_label_maker_.col_names_enabled() && !name.empty()) {
-    if (m_col_index_to_name_.size() <= static_cast<size_t>(index)) {
-      m_col_index_to_name_.resize(static_cast<size_t>(index) + 1);
+    if (std::ssize(m_col_index_to_name_) <= index) {
+      m_col_index_to_name_.resize(static_cast<size_t>(index + 1));
     }
     m_col_index_to_name_[col] = name;
   }
@@ -858,8 +852,8 @@ ColIndex LinearInterface::add_col(const SparseCol& col)
   // produced exclusively in `generate_labels_from_maps`, cached
   // there, and reused on subsequent `write_lp` invocations
   // (Option B: always lazy + cache on first compute).
-  if (m_col_labels_meta_.size() <= static_cast<size_t>(index)) {
-    m_col_labels_meta_.resize(static_cast<size_t>(index) + 1);
+  if (std::ssize(m_col_labels_meta_) <= index) {
+    m_col_labels_meta_.resize(static_cast<size_t>(index + 1));
   }
   m_col_labels_meta_[static_cast<size_t>(index)] = SparseColLabel {
       .class_name = col.class_name,
@@ -867,6 +861,26 @@ ColIndex LinearInterface::add_col(const SparseCol& col)
       .variable_uid = col.variable_uid,
       .context = col.context,
   };
+
+  // Eager metadata-based duplicate detection.  Key is the metadata
+  // slot just written into `m_col_labels_meta_`; no separate label
+  // is constructed.  Unlabelled cols (no class_name / no
+  // variable_name / unknown uid / monostate context) are skipped so
+  // structural tests that build unnamed cells don't collide.
+  const auto& meta = m_col_labels_meta_[static_cast<size_t>(index)];
+  if (!is_empty_col_label(meta)) {
+    auto [it, inserted] = m_col_meta_index_.try_emplace(meta, col_idx);
+    if (!inserted) {
+      throw std::runtime_error(
+          std::format("Duplicate LP column metadata: class='{}' var='{}' "
+                      "uid={} (first at col {}, duplicate at col {})",
+                      meta.class_name,
+                      meta.variable_name,
+                      meta.variable_uid,
+                      static_cast<Index>(it->second),
+                      static_cast<Index>(col_idx)));
+    }
+  }
 
   return col_idx;
 }
@@ -889,11 +903,6 @@ RowIndex LinearInterface::add_row(const std::string& name,
 {
   const auto index = m_backend_->get_num_rows();
   const auto row_idx = RowIndex {index};
-  check_name_unique(m_row_names_,
-                    name,
-                    row_idx,
-                    "row",
-                    m_label_maker_.duplicates_are_errors());
 
   m_backend_->add_row(static_cast<int>(numberElements),
                       columns.data(),
@@ -901,9 +910,12 @@ RowIndex LinearInterface::add_row(const std::string& name,
                       normalize_bound(rowlb),
                       normalize_bound(rowub));
 
+  // Uniqueness is enforced on metadata (via m_row_meta_index_) in
+  // track_row_label_meta.  The string path here just records the
+  // pre-formatted name when one is provided.
   if (m_label_maker_.row_names_enabled() && !name.empty()) {
-    if (m_row_index_to_name_.size() <= static_cast<size_t>(index)) {
-      m_row_index_to_name_.resize(static_cast<size_t>(index) + 1);
+    if (std::ssize(m_row_index_to_name_) <= index) {
+      m_row_index_to_name_.resize(static_cast<size_t>(index + 1));
     }
     m_row_index_to_name_[row_idx] = name;
   }
@@ -916,16 +928,33 @@ void LinearInterface::track_row_label_meta(RowIndex row_idx,
 {
   // Rehydrate compressed metadata before mutating (compress mode).
   ensure_labels_meta_decompressed();
-  const auto i = static_cast<size_t>(row_idx);
-  if (m_row_labels_meta_.size() <= i) {
-    m_row_labels_meta_.resize(i + 1);
+  if (std::ssize(m_row_labels_meta_) <= row_idx) {
+    m_row_labels_meta_.resize(static_cast<size_t>(row_idx + RowIndex {1}));
   }
+  const auto i = static_cast<size_t>(row_idx);
   m_row_labels_meta_[i] = SparseRowLabel {
       .class_name = row.class_name,
       .constraint_name = row.constraint_name,
       .variable_uid = row.variable_uid,
       .context = row.context,
   };
+
+  // Eager metadata-based duplicate detection — see the `add_col`
+  // companion for rationale.
+  const auto& meta = m_row_labels_meta_[i];
+  if (!is_empty_row_label(meta)) {
+    auto [it, inserted] = m_row_meta_index_.try_emplace(meta, row_idx);
+    if (!inserted) {
+      throw std::runtime_error(
+          std::format("Duplicate LP row metadata: class='{}' cons='{}' "
+                      "uid={} (first at row {}, duplicate at row {})",
+                      meta.class_name,
+                      meta.constraint_name,
+                      meta.variable_uid,
+                      static_cast<Index>(it->second),
+                      static_cast<Index>(row_idx)));
+    }
+  }
 }
 
 RowIndex LinearInterface::add_row(const SparseRow& row, const double eps)
@@ -1163,16 +1192,10 @@ void LinearInterface::add_rows(const std::span<const SparseRow> rows,
 
     if (m_label_maker_.row_names_enabled()) {
       const auto name = m_label_maker_.make_row_label(row);
-
-      check_name_unique(m_row_names_,
-                        name,
-                        row_idx,
-                        "row",
-                        m_label_maker_.duplicates_are_errors());
-
       if (!name.empty()) {
-        if (m_row_index_to_name_.size() <= static_cast<size_t>(row_idx)) {
-          m_row_index_to_name_.resize(static_cast<size_t>(row_idx) + 1);
+        if (std::ssize(m_row_index_to_name_) <= row_idx) {
+          m_row_index_to_name_.resize(
+              static_cast<size_t>(row_idx + RowIndex {1}));
         }
         m_row_index_to_name_[row_idx] = name;
       }
@@ -1205,6 +1228,22 @@ void LinearInterface::delete_rows(const std::span<const int> indices)
     }
   }
   rebuild_row_name_maps();
+
+  // Row indices shifted on deletion, so every previously-registered
+  // `(metadata → RowIndex)` pair is now potentially stale.  Rebuild
+  // the map from the current `m_row_labels_meta_` (column indices
+  // are untouched by `delete_rows`, so `m_col_meta_index_` is
+  // preserved — we only regenerate the row side).
+  m_row_meta_index_.clear();
+  m_row_meta_index_.reserve(m_row_labels_meta_.size());
+  for (const auto [i, label] : enumerate<RowIndex>(m_row_labels_meta_)) {
+    if (!label.class_name.empty() || !label.constraint_name.empty()
+        || label.variable_uid != unknown_uid
+        || !std::holds_alternative<std::monostate>(label.context))
+    {
+      m_row_meta_index_.emplace(label, i);
+    }
+  }
 }
 
 void LinearInterface::rebuild_row_name_maps()
@@ -1614,10 +1653,17 @@ void LinearInterface::compress_labels_meta_if_needed()
     m_row_labels_meta_.clear();
     m_row_labels_meta_.shrink_to_fit();
   }
+
+  // Duplicate-detection maps hold string_views into the live vectors
+  // we just emptied; they'd dangle if left populated.  Rebuilt in
+  // `ensure_labels_meta_decompressed` on the next read.
+  m_col_meta_index_.clear();
+  m_row_meta_index_.clear();
 }
 
 void LinearInterface::ensure_labels_meta_decompressed() const
 {
+  bool decompressed_any = false;
   // Decompress on first read / write after `compress_labels_meta_if_
   // needed` fired.  Idempotent: non-empty live vectors mean we've
   // already decompressed (or never compressed in the first place).
@@ -1635,6 +1681,7 @@ void LinearInterface::ensure_labels_meta_decompressed() const
                                                 m_label_string_pool_);
     m_col_labels_meta_compressed_ = {};
     m_col_labels_meta_count_ = 0;
+    decompressed_any = true;
   }
   if (!m_row_labels_meta_compressed_.empty() && m_row_labels_meta_.empty()) {
     const auto bytes = m_row_labels_meta_compressed_.decompress_data();
@@ -1650,6 +1697,31 @@ void LinearInterface::ensure_labels_meta_decompressed() const
                                                 m_label_string_pool_);
     m_row_labels_meta_compressed_ = {};
     m_row_labels_meta_count_ = 0;
+    decompressed_any = true;
+  }
+  // Rehydrate the duplicate-detection maps so add_col / add_row
+  // after a reload keep enforcing uniqueness against the whole
+  // history, not just post-reload additions.
+  if (decompressed_any) {
+    rebuild_meta_indexes();
+  }
+}
+
+void LinearInterface::rebuild_meta_indexes() const
+{
+  m_col_meta_index_.clear();
+  m_col_meta_index_.reserve(m_col_labels_meta_.size());
+  for (const auto [i, label] : enumerate<ColIndex>(m_col_labels_meta_)) {
+    if (!is_empty_col_label(label)) {
+      m_col_meta_index_.emplace(label, i);
+    }
+  }
+  m_row_meta_index_.clear();
+  m_row_meta_index_.reserve(m_row_labels_meta_.size());
+  for (const auto [i, label] : enumerate<RowIndex>(m_row_labels_meta_)) {
+    if (!is_empty_row_label(label)) {
+      m_row_meta_index_.emplace(label, i);
+    }
   }
 }
 

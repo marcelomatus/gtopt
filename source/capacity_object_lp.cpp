@@ -84,7 +84,8 @@ bool CapacityObjectBase::add_to_lp(SystemContext& sc,
       if (prev_phase_publishes) {
         const auto stg_ctx = make_stage_context(scenario.uid(), stage.uid());
         auto make_dependent_col =
-            [&](const std::string_view col_name) -> ColIndex
+            [&](const std::string_view state_name,
+                const std::string_view dep_name) -> ColIndex
         {
           // Dependent state column: mirrors a state variable from the
           // previous phase.  Marked is_state for SDDP cut I/O; column
@@ -94,19 +95,25 @@ bool CapacityObjectBase::add_to_lp(SystemContext& sc,
           // `defer_state_link` and resolved in
           // `PlanningLP::tighten_scene_phase_links` after parallel phase
           // construction joins.
+          //
+          // `dep_name` carries a "_prev" suffix so the LP metadata
+          // differs from the stage's own capainst/capacost (added
+          // below); `state_name` is the un-suffixed name used to
+          // look up the publisher state variable in the previous
+          // phase.
           auto col = lp.add_col({
               .is_state = true,
               .class_name = m_class_name_,
-              .variable_name = col_name,
+              .variable_name = dep_name,
               .variable_uid = uid(),
               .context = stg_ctx,
           });
-          sc.defer_state_link(sv_key_p(scenario, *prev_stage, col_name), col);
+          sc.defer_state_link(sv_key_p(scenario, *prev_stage, state_name), col);
           return col;
         };
 
-        prev_capainst_col = make_dependent_col(CapainstName);
-        prev_capacost_col = make_dependent_col(CapacostName);
+        prev_capainst_col = make_dependent_col(CapainstName, CapainstPrevName);
+        prev_capacost_col = make_dependent_col(CapacostName, CapacostPrevName);
       }
     }
   }

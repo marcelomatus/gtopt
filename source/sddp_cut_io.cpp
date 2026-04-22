@@ -583,8 +583,8 @@ void write_cut_coefficients_unscaled(std::ostream& ofs,
       auto row = SparseRow {
           .lowb = rhs,
           .uppb = LinearProblem::DblMax,
-          .class_name = "Loaded",
-          .constraint_name = "cut",
+          .class_name = sddp_loaded_cut_class_name,
+          .constraint_name = sddp_loaded_cut_constraint_name,
       };
 
       // Resolve the phase UID to a PhaseIndex
@@ -732,12 +732,24 @@ void write_cut_coefficients_unscaled(std::ostream& ofs,
       // Coefficients are physical; `add_row` applies col_scales +
       // per-row row-max on an equilibrated LP, matching the
       // treatment of freshly-built cuts (`build_benders_cut_physical`).
+      //
+      // Use IterationContext rather than ScenePhaseContext so each
+      // loaded cut carries a unique `(scene, phase, iter, offset)`
+      // signature — otherwise the metadata-based duplicate detector
+      // in `LinearInterface::add_row` would reject the second cut
+      // for the same (scene, phase) pair.  `extract_iteration_from_
+      // name` pulls the SDDP iteration index encoded in the CSV
+      // cut name; `result.count` breaks ties when the same iteration
+      // emits multiple cuts.
+      const auto cut_iter = extract_iteration_from_name(cut_name);
+      const auto cut_offset = result.count;
+      const auto phase_uid_ctx = sim.phase_uid(phase_index);
       for (const auto scene_index : iota_range<SceneIndex>(0, num_scenes)) {
         auto& li =
             planning_lp.system(scene_index, phase_index).linear_interface();
         auto scene_row = row;
-        scene_row.context = ScenePhaseContext {sim.scenes()[scene_index].uid(),
-                                               sim.phases()[phase_index].uid()};
+        scene_row.context = make_iteration_context(
+            sim.scene_uid(scene_index), phase_uid_ctx, cut_iter, cut_offset);
         for (const auto& [col, coeff] : resolved_coeffs) {
           scene_row[col] = coeff;
         }
@@ -889,7 +901,7 @@ void write_cut_coefficients_unscaled(std::ostream& ofs,
         scene_uid_to_index;
     map_reserve(scene_uid_to_index, static_cast<std::size_t>(num_scenes));
     for (const auto si : iota_range<SceneIndex>(0, num_scenes)) {
-      scene_uid_to_index[sim.scenes()[si].uid()] = si;
+      scene_uid_to_index[sim.scene_uid(si)] = si;
     }
 
     // Build element-name -> uid lookup from the System.
@@ -1062,8 +1074,8 @@ void write_cut_coefficients_unscaled(std::ostream& ofs,
           .scale = sa,
           .class_name = sddp_alpha_class_name,
           .variable_name = sddp_alpha_col_name,
-          .context = ScenePhaseContext {sim.scenes()[scene_index].uid(),
-                                        sim.phases()[last_phase].uid()},
+          .context = ScenePhaseContext {sim.scene_uid(scene_index),
+                                        sim.phase_uid(last_phase)},
       };
       const auto alpha_col = li.add_col(alpha_sparse);
       // Track dynamic column for low_memory reconstruction — without
@@ -1168,14 +1180,23 @@ void write_cut_coefficients_unscaled(std::ostream& ofs,
           continue;  // No α on this (scene, phase) — nothing to add
         }
 
+        // IterationContext carries a per-cut (iter, offset) pair
+        // so multiple boundary cuts for the same (scene, phase)
+        // don't collide on the metadata-based duplicate detector
+        // in `LinearInterface::add_row`.  The iteration is pulled
+        // from the cut name; `cuts_loaded` breaks ties when the
+        // same iteration emits multiple cuts.
         auto row = SparseRow {
             .lowb = rc.rhs * bc_discount / scale_obj,
             .uppb = LinearProblem::DblMax,
             .scale = sa,
-            .class_name = "Bdr",
-            .constraint_name = "cut",
-            .context = ScenePhaseContext {sim.scenes()[scene_index].uid(),
-                                          sim.phases()[last_phase].uid()},
+            .class_name = sddp_boundary_cut_class_name,
+            .constraint_name = sddp_loaded_cut_constraint_name,
+            .context =
+                make_iteration_context(sim.scene_uid(scene_index),
+                                       sim.phase_uid(last_phase),
+                                       extract_iteration_from_name(rc.name),
+                                       cuts_loaded),
         };
         row[alpha_svar->col()] = sa;
 
@@ -1455,8 +1476,8 @@ void write_cut_coefficients_unscaled(std::ostream& ofs,
             .scale = sa,
             .class_name = sddp_alpha_class_name,
             .variable_name = sddp_alpha_col_name,
-            .context = ScenePhaseContext {sim.scenes()[scene_index].uid(),
-                                          sim.phases()[phase_index].uid()},
+            .context = ScenePhaseContext {sim.scene_uid(scene_index),
+                                          sim.phase_uid(phase_index)},
         };
         const auto alpha_col = li.add_col(alpha_sparse);
         sys.record_dynamic_col(alpha_sparse);
@@ -1526,14 +1547,20 @@ void write_cut_coefficients_unscaled(std::ostream& ofs,
           continue;  // No α on this (scene, phase) — nothing to add
         }
 
+        // IterationContext with `(iter, cut_offset)` so each loaded
+        // named hot-start cut has a unique metadata signature —
+        // see the CSV loader comment above for rationale.
         auto row = SparseRow {
             .lowb = rhs / scale_obj,
             .uppb = LinearProblem::DblMax,
             .scale = sa,
-            .class_name = "NamedHs",
-            .constraint_name = "cut",
-            .context = ScenePhaseContext {sim.scenes()[scene_index].uid(),
-                                          sim.phases()[phase_index].uid()},
+            .class_name = sddp_named_cut_class_name,
+            .constraint_name = sddp_loaded_cut_constraint_name,
+            .context =
+                make_iteration_context(sim.scene_uid(scene_index),
+                                       sim.phase_uid(phase_index),
+                                       extract_iteration_from_name(cut_name),
+                                       result.count),
         };
         row[alpha_svar->col()] = sa;
 
@@ -1756,8 +1783,8 @@ void write_cut_coefficients_unscaled(std::ostream& ofs,
       auto row = SparseRow {
           .lowb = entry.rhs,
           .uppb = LinearProblem::DblMax,
-          .class_name = "Loaded",
-          .constraint_name = "cut",
+          .class_name = sddp_loaded_cut_class_name,
+          .constraint_name = sddp_loaded_cut_constraint_name,
       };
 
       // State variable map for structured key resolution
@@ -1828,13 +1855,18 @@ void write_cut_coefficients_unscaled(std::ostream& ofs,
       }
 
       // Add resolved cut (physical) to all scenes — add_row handles
-      // col_scales + row-max.
+      // col_scales + row-max.  Use IterationContext so each loaded
+      // cut has a unique metadata signature (see CSV loader for
+      // rationale).
+      const auto cut_iter = extract_iteration_from_name(entry.name);
+      const auto cut_offset = result.count;
+      const auto phase_uid_ctx = sim.phase_uid(phase_index);
       for (const auto scene_index : iota_range<SceneIndex>(0, num_scenes)) {
         auto& li =
             planning_lp.system(scene_index, phase_index).linear_interface();
         auto scene_row = row;
-        scene_row.context = ScenePhaseContext {sim.scenes()[scene_index].uid(),
-                                               sim.phases()[phase_index].uid()};
+        scene_row.context = make_iteration_context(
+            sim.scene_uid(scene_index), phase_uid_ctx, cut_iter, cut_offset);
         for (const auto& [col, coeff] : resolved_coeffs) {
           scene_row[col] = coeff;
         }
