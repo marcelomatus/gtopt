@@ -715,6 +715,205 @@ TEST_CASE("propagate_trial_values sets bounds")  // NOLINT
 }
 
 // ---------------------------------------------------------------------------
+// Regression test for the phase-N eini double-scale-divide bug diagnosed
+// on plp_2_years / juan_iplp (2026-04-22).
+//
+// Bug symptom: RALCO phase-2 `reservoir_sini_65_51_2 = 73.82` LP when the
+// correct raw bound was 233.44 LP (= 73.82 × 3.162).  The 3.162 factor is
+// RALCO's energy col_scale (√10).
+//
+// Root cause was in the StateVariable overload of `propagate_trial_values`:
+// it read `link.state_var->col_sol()` (which is stored as `phys /
+// var_scale` by `capture_state_variable_values` in sddp_method.cpp) and
+// wrote the result straight through `set_col_low_raw` onto the dependent
+// column, which embeds a hidden `var_scale(source) == col_scale(dependent)`
+// invariant.  When the two scales disagree, the dependent column gets
+// pinned off by a factor of `col_scale_dep / var_scale_src`.
+//
+// Fix: read `col_sol_physical()` and apply via the physical setter
+// `set_col_low` / `set_col_upp`, which internally divides by the
+// dependent column's own `col_scale` — scale-agnostic across phases.
+// ---------------------------------------------------------------------------
+TEST_CASE(  // NOLINT
+    "propagate_trial_values state-variable overload: matching col_scales")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  // Simulate phase 0 (source) and phase 1 (dependent) as a single
+  // LinearInterface with two columns, each carrying col_scale = √10.
+  // (In production the two columns live in separate LPs but the
+  // propagate_trial_values contract is per-column.)
+  constexpr double kScale = 3.162;  // RALCO energy scale.
+
+  LinearProblem lp("matching_scales");
+  const auto src_col = lp.add_col(SparseCol {
+      .lowb = 0.0,
+      .uppb = 500.0,
+      .scale = kScale,
+  });
+  const auto dep_col = lp.add_col(SparseCol {
+      .lowb = 0.0,
+      .uppb = 500.0,
+      .scale = kScale,
+  });
+  // flatten requires at least one row.
+  auto r = SparseRow {};
+  r[src_col] = 1.0;
+  r[dep_col] = 1.0;
+  r.uppb = 1000.0;
+  std::ignore = lp.add_row(std::move(r));
+
+  LinearInterface li("", lp.flatten({}));
+  REQUIRE(li.get_col_scale(src_col) == doctest::Approx(kScale));
+  REQUIRE(li.get_col_scale(dep_col) == doctest::Approx(kScale));
+
+  // Simulate a StateVariable on the source column with var_scale
+  // matching the source col_scale, and a trial value equivalent to
+  // phase-1's optimum (233.44 LP = 738.14 Hm³ physical on RALCO).
+  const StateVariable::LPKey key {
+      .scene_index = SceneIndex {0},
+      .phase_index = PhaseIndex {0},
+  };
+  StateVariable svar(key, src_col, /*scost=*/0.0, kScale, LpContext {});
+  constexpr double kTrialLP = 233.44;
+  svar.set_col_sol(kTrialLP);
+  REQUIRE(svar.col_sol_physical()
+          == doctest::Approx(kTrialLP * kScale).epsilon(1e-6));
+
+  std::vector<StateVarLink> links = {
+      {
+          .source_col = src_col,
+          .dependent_col = dep_col,
+          .trial_value = 0.0,
+          .var_scale = kScale,
+          .state_var = &svar,
+      },
+  };
+
+  propagate_trial_values(links, li);
+
+  // With matching scales the dependent raw bound must equal the
+  // source's LP value — anything else signals the double-divide bug.
+  CHECK(li.get_col_low_raw()[dep_col] == doctest::Approx(kTrialLP));
+  CHECK(li.get_col_upp_raw()[dep_col] == doctest::Approx(kTrialLP));
+  // Physical bound on the dependent col: raw × col_scale_dep.
+  CHECK(li.get_col_low()[dep_col]
+        == doctest::Approx(kTrialLP * kScale).epsilon(1e-6));
+  CHECK(li.get_col_upp()[dep_col]
+        == doctest::Approx(kTrialLP * kScale).epsilon(1e-6));
+  // `trial_value` contract: dependent-column raw LP.
+  CHECK(links[0].trial_value == doctest::Approx(kTrialLP));
+}
+
+TEST_CASE(  // NOLINT
+    "propagate_trial_values state-variable overload: mismatched col_scales")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  // Cross-phase scale drift — the scenario where the OLD code's
+  // hidden `var_scale(src) == col_scale(dep)` invariant breaks.
+  // Source var_scale = 3.162 (RALCO); dependent col_scale = 1.5
+  // (deliberately different, simulating cross-phase scale drift
+  // or different variable-scale-map resolution).
+  constexpr double kSrcScale = 3.162;
+  constexpr double kDepScale = 1.5;
+
+  LinearProblem lp("mismatched_scales");
+  const auto src_col = lp.add_col(SparseCol {
+      .lowb = 0.0,
+      .uppb = 500.0,
+      .scale = kSrcScale,
+  });
+  const auto dep_col = lp.add_col(SparseCol {
+      .lowb = 0.0,
+      .uppb = 500.0,
+      .scale = kDepScale,
+  });
+  auto r = SparseRow {};
+  r[src_col] = 1.0;
+  r[dep_col] = 1.0;
+  r.uppb = 1000.0;
+  std::ignore = lp.add_row(std::move(r));
+
+  LinearInterface li("", lp.flatten({}));
+  REQUIRE(li.get_col_scale(src_col) == doctest::Approx(kSrcScale));
+  REQUIRE(li.get_col_scale(dep_col) == doctest::Approx(kDepScale));
+
+  const StateVariable::LPKey key {
+      .scene_index = SceneIndex {0},
+      .phase_index = PhaseIndex {0},
+  };
+  StateVariable svar(key, src_col, /*scost=*/0.0, kSrcScale, LpContext {});
+  constexpr double kSrcTrialLP = 100.0;  // raw LP on the source col.
+  svar.set_col_sol(kSrcTrialLP);
+
+  const double kTrialPhys = kSrcTrialLP * kSrcScale;  // physical.
+  REQUIRE(svar.col_sol_physical() == doctest::Approx(kTrialPhys).epsilon(1e-6));
+
+  std::vector<StateVarLink> links = {
+      {
+          .source_col = src_col,
+          .dependent_col = dep_col,
+          .trial_value = 0.0,
+          .var_scale = kSrcScale,
+          .state_var = &svar,
+      },
+  };
+
+  propagate_trial_values(links, li);
+
+  // The physical trial is what must be preserved across the scale
+  // boundary, not the raw LP value.  Dependent raw bound must be
+  // `phys / col_scale_dep`, NOT `phys / var_scale_src` (which would
+  // mis-pin it at exactly the raw LP value on the source phase and
+  // off by a factor of `col_scale_dep / var_scale_src`).
+  const double kExpectedDepRaw = kTrialPhys / kDepScale;
+  CHECK(li.get_col_low_raw()[dep_col]
+        == doctest::Approx(kExpectedDepRaw).epsilon(1e-6));
+  CHECK(li.get_col_upp_raw()[dep_col]
+        == doctest::Approx(kExpectedDepRaw).epsilon(1e-6));
+  // Physical bound must equal the physical trial exactly — the
+  // whole point of routing through physical space is that the
+  // dependent pin preserves the physical value regardless of the
+  // scale-map drift between source and dependent columns.
+  CHECK(li.get_col_low()[dep_col] == doctest::Approx(kTrialPhys).epsilon(1e-6));
+  CHECK(li.get_col_upp()[dep_col] == doctest::Approx(kTrialPhys).epsilon(1e-6));
+
+  // Sanity: the old buggy code would have written `kSrcTrialLP` raw
+  // onto the dependent column (= 100.0 LP, physical = 150.0), which
+  // would fail the CHECK above (expected phys = 316.2).  This test
+  // catches that regression.
+  CHECK(li.get_col_low_raw()[dep_col] != doctest::Approx(kSrcTrialLP));
+}
+
+TEST_CASE(
+    "propagate_trial_values state-variable overload: null state_var")  // NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  // When `state_var == nullptr`, the trial defaults to 0.0 physical
+  // and the dependent column is pinned at 0.
+  LinearInterface li;
+  const auto dep = li.add_col(SparseCol {.lowb = -10.0, .uppb = 10.0});
+  li.set_col_scale(dep, 2.0);
+
+  std::vector<StateVarLink> links = {
+      {
+          .source_col = ColIndex {0},
+          .dependent_col = dep,
+          .trial_value = 999.0,
+          .state_var = nullptr,
+      },
+  };
+
+  propagate_trial_values(links, li);
+
+  CHECK(links[0].trial_value == doctest::Approx(0.0));
+  CHECK(li.get_col_low_raw()[dep] == doctest::Approx(0.0));
+  CHECK(li.get_col_upp_raw()[dep] == doctest::Approx(0.0));
+}
+
+// ---------------------------------------------------------------------------
 // relax_fixed_state_variable
 // ---------------------------------------------------------------------------
 
