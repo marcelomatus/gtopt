@@ -407,26 +407,33 @@ void register_alpha_variables(PlanningLP& planning_lp,
       continue;  // already registered — idempotent
     }
     auto& li = planning_lp.system(scene_index, pi).linear_interface();
-    // α bootstrap: `lowb = sddp_alpha_bootstrap_min (=0)` floors the
-    // future-cost approximation at 0 in iter-0 when no cuts are yet
-    // installed — keeps the LP bounded without a positive lower
-    // bound.  `uppb = +∞` (LinearProblem::DblMax) lets α take any
-    // non-negative value once cuts land.
+    // α bootstrap: bidirectional pin `lowb = uppb =
+    // sddp_alpha_bootstrap_min (=0)` freezes α at 0 until an
+    // installed cut releases it via `free_alpha`.
     //
-    // Rationale for NOT pinning uppb=0 here (reverting f20f3e57's
-    // `lowb=uppb=0` bootstrap): the aperture/Benders backward pass
-    // only iterates phases T-1 .. 1 (no cut ever lands on phase 0),
-    // so `free_alpha(phase=0)` is never invoked and a bidirectional
-    // pin would leave phase 0's α permanently at 0 — pinning the
-    // master LP's objective to the non-α opex.  With `uppb=+∞` the
-    // master retains a valid future-cost slot that iter-0 simply
-    // ignores until the first p1→p0 backward cut releases the lower
-    // bound via `free_alpha`.  Observed on juan/gtopt_iplp: the
-    // bidirectional pin drove LB=0 every iteration because phase 0's
-    // opex is structurally 0 in that case.
+    // Rationale (supersedes the earlier `uppb=+∞` bootstrap): in
+    // iter-0 the forward LP has no cuts and α has cost
+    // `scale_alpha > 0`, so with `uppb=+∞` the minimiser drives α
+    // to its floor of 0 anyway — but *without* pinning, the Chinneck
+    // Phase-1 elastic filter (which zeros every objective coefficient
+    // including α's) has no cost signal on α, so simplex returns
+    // whatever basic value it picks.  That value gets captured into
+    // `state_var.col_sol`, contaminates downstream trial propagation
+    // and the bcut fallback's Z.  Pinning α bidirectionally removes
+    // the α column as a free variable from the Phase-1 LP and keeps
+    // the elastic clone's α = 0 regardless of objective zeroing.
+    //
+    // Phase 0's α IS released: the aperture backward pass iterates
+    // `phase_index` ∈ [T-1 .. 1] with `src_phase_index =
+    // previous(phase_index)` ∈ [T-2 .. 0], and
+    // `install_aperture_backward_cut` calls
+    // `free_alpha(scene_index, src_phase_index)` on both the
+    // expected-cut path (`sddp_aperture_pass.cpp:160`) and the bcut
+    // fallback path (`sddp_aperture_pass.cpp:270`).  So phase 0 is
+    // freed in the final step of every backward pass.
     const auto alpha_sparse = SparseCol {
         .lowb = sddp_alpha_bootstrap_min / scale_alpha,
-        .uppb = LinearProblem::DblMax,
+        .uppb = sddp_alpha_bootstrap_min / scale_alpha,
         .cost = scale_alpha,
         .is_state = true,
         .scale = scale_alpha,

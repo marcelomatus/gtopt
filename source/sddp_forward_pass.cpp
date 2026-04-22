@@ -218,50 +218,29 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
       system.release_backend();
 
       if (elastic_result.has_value()) {
-        auto& solved_li = elastic_result->clone;
         m_phase_grid_.record(iteration_index,
                              uid_of(scene_index),
                              phase_index,
                              GridCell::Elastic);
-        // Track max kappa from elastic solve
-        update_max_kappa(scene_index, phase_index, solved_li, iteration_index);
+        // Track max kappa from elastic solve (single use of clone).
+        update_max_kappa(
+            scene_index, phase_index, elastic_result->clone, iteration_index);
         // Increment infeasibility counter for this (scene, phase)
         ++m_infeasibility_counter_[scene_index][phase_index];
 
-        // Cache solution data for the backward pass (physical space).
-        const auto obj = solved_li.get_obj_value();
-        state.forward_full_obj_physical = solved_li.get_obj_value_physical();
-
-        // Read col_sol in physical space so `LinearInterface`'s
-        // optimal-only clamp scrubs any at-bound solver noise before
-        // it gets written onto the StateVariable and pinned into the
-        // next phase's dependent column (would otherwise make the
-        // next-phase LP trivially infeasible via
-        // `lowb = uppb = uppb + eps`).
-        const auto sol_phys = solved_li.get_col_sol();
-        const auto rc = solved_li.get_col_cost_raw();
-
-        // Mirror per-state-variable values needed by cut construction
-        // and next-phase propagation onto the StateVariable objects.
-        //
-        // Duals of the elastic clone are NOT written — the clone's LP is
-        // modified (relaxed bounds + slack variables) so its duals don't
-        // represent the original problem's shadow prices.  Downstream
-        // code falls back to reduced-cost cuts (see backward_pass_*).
-        capture_state_variable_values(scene_index, phase_index, sol_phys, rc);
-
-        const auto sa = m_options_.scale_alpha;
-        // Alpha is registered as a state variable; its freshly-captured
-        // col_sol() is the LP solution value (already in scaled LP units).
-        const auto* alpha_svar = find_alpha_state_var(
-            planning_lp().simulation(), scene_index, phase_index);
-        const auto alpha_val =
-            (alpha_svar != nullptr) ? alpha_svar->col_sol() * sa : 0.0;
-        state.forward_objective = obj - alpha_val;
-        total_opex += state.forward_objective;
-
-        // "elastic ok" summary moved below and merged with the fcut-install
-        // line so each infeasible LP produces exactly one INFO line.
+        // INVARIANT: state_var sol/rcost AND `state.forward_*` fields
+        // are updated ONLY from an optimal solve of the ORIGINAL forward
+        // LP (see feasible branch below).  The elastic clone carries a
+        // Chinneck Phase-1 objective (all original coefficients zeroed
+        // + unit slack costs), so its primal/dual values represent the
+        // minimum feasibility gap, not the economic dispatch.  Writing
+        // them onto StateVariable or `state.forward_full_obj_physical`
+        // would contaminate downstream consumers — next phase's trial
+        // propagation and the backward-pass bcut fallback that reads
+        // `state_var.reduced_cost_physical()` and
+        // `target_state.forward_full_obj_physical`.  The clone is used
+        // only to build the fcut below, then destroyed when
+        // `elastic_result` goes out of scope at the end of the branch.
 
         // PLP-style: install a Benders feasibility cut on phase p-1
         // right from the forward pass, so the next forward iteration
@@ -271,6 +250,8 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
         // the per-(scene, phase) infeasibility counter exceeds
         // multi_cut_threshold, additionally install one bound cut per
         // activated slack (`build_multi_cuts`).
+        int mc_added = 0;
+        std::string state_elems;
         if (phase_index) {
           const auto prev_phase_index = previous(phase_index);
           auto& prev_sys = planning_lp().system(scene_index, prev_phase_index);
@@ -290,15 +271,16 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
               : ColIndex {unknown_index};
 
           // Physical-space fcut: rc from the elastic clone, trial from
-          // each link's source StateVariable.  `add_row` on the
-          // equilibrated prev LP folds col_scales + row-max, so the
-          // prior `rescale_benders_cut` pass is no longer needed.
-          auto feas_cut =
-              build_benders_cut_physical(prev_alpha_col,
-                                         prev_state.outgoing_links,
-                                         solved_li,
-                                         solved_li.get_obj_value_physical(),
-                                         m_options_.cut_coeff_eps);
+          // each link's source StateVariable (populated by the LAST
+          // optimal forward solve of phase p-1, one phase earlier this
+          // same forward pass).  Single read of clone values — the
+          // clone is never consulted after this block.
+          auto feas_cut = build_benders_cut_physical(
+              prev_alpha_col,
+              prev_state.outgoing_links,
+              elastic_result->clone,
+              elastic_result->clone.get_obj_value_physical(),
+              m_options_.cut_coeff_eps);
           feas_cut.class_name = sddp_alpha_class_name;
           feas_cut.constraint_name = sddp_fcut_constraint_name;
           feas_cut.context = make_iteration_context(uid_of(scene_index),
@@ -308,15 +290,10 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
           // Do NOT release α's bootstrap pin on a feasibility cut.
           // Feasibility cuts only assert "these master states cause
           // downstream infeasibility" — they convey no lower bound on
-          // the true future cost.  α must stay floored at
-          // `lowb = sddp_alpha_bootstrap_min (=0)` until an
+          // the true future cost.  α stays pinned at
+          // `lowb = uppb = sddp_alpha_bootstrap_min (=0)` until an
           // *optimality* cut arrives to certify a tighter lower
-          // bound.  Previously this `free_alpha` call released α to
-          // `[-DblMax, +DblMax]`, letting subsequent solves drive α
-          // arbitrarily negative when only feasibility cuts bound it
-          // from below — producing negative UBs on juan/gtopt_iplp
-          // under the attempted Chinneck Phase-1 formulation.
-          // Aperture/Benders backward-pass paths (which install
+          // bound.  Aperture/Benders backward-pass paths (which install
           // `CutType::Optimality`) still call `free_alpha` at their
           // own cut-install sites.
           {
@@ -344,7 +321,6 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
               || (m_options_.multi_cut_threshold > 0
                   && infeas_count >= m_options_.multi_cut_threshold);
 
-          int mc_added = 0;
           if (use_multi_cut) {
             auto mc_cuts =
                 build_multi_cuts(*elastic_result,
@@ -368,7 +344,6 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
           // installed cut (survivors of cut_coeff_eps filtering), so
           // the diagnostic points at the elements driving the fcut.
           // Format: "Class:uid:col_name, ..." (e.g. "Reservoir:8:efin").
-          std::string state_elems;
           for (const auto& link : prev_state.outgoing_links) {
             if (!feas_cut.cmap.contains(link.source_col)) {
               continue;
@@ -383,18 +358,17 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
           // One-line per infeasible LP, emitted *after* the fcut (and any
           // multi-cuts) have been installed on prev_li.  Timing is
           // deliberate — the log signals a completed cut install, not
-          // merely the detection of infeasibility.
+          // merely the detection of infeasibility.  obj / opex values are
+          // deliberately absent: the clone's objective is a feasibility
+          // gap, not a cost, and mixing it into the forward-pass log
+          // would invite misinterpretation.
           SPDLOG_INFO(
               "SDDP Forward [i{} s{} p{}]: elastic → fcut on p{} "
-              "(obj={:.4g} alpha={:.4g} opex={:.4g} infeas_count={}{}) "
-              "state=[{}]",
+              "(infeas_count={}{}) state=[{}]",
               iteration_index,
               uid_of(scene_index),
               uid_of(phase_index),
               uid_of(prev_phase_index),
-              obj,
-              alpha_val,
-              state.forward_objective,
               infeas_count,
               mc_added > 0 ? std::format(" +{}mc", mc_added) : "",
               state_elems);
@@ -408,6 +382,8 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
           // No in-forward-pass backward recovery needed — Pass 2 is the
           // single recovery step.
         }
+        // `elastic_result` (and its clone) is destroyed here.  No value
+        // from the Chinneck Phase-1 LP survives this block.
       } else {
         // Elastic filter could not produce a feasibility cut.  Two
         // mutually exclusive reasons:

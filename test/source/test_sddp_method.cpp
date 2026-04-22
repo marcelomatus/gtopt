@@ -2411,16 +2411,21 @@ TEST_CASE(  // NOLINT
   CHECK(multi.feas_cuts >= 1);
   CHECK(chinneck.feas_cuts >= 1);
 
-  // ── Conservative IIS bound: chinneck never emits MORE feasibility
-  //    cuts than full multi_cut.  When the LP has slack asymmetry
-  //    chinneck can be strictly less; here it ties due to the
-  //    degenerate primal optimum (see test docstring).
-  CHECK(chinneck.feas_cuts <= multi.feas_cuts);
-
   // ── single_cut emits one fcut per infeasibility event regardless
   //    of how many slacks are active, so it should never exceed
   //    multi_cut's total feasibility-class cut count.
   CHECK(single.feas_cuts <= multi.feas_cuts);
+
+  // Historical assertion `chinneck.feas_cuts <= multi.feas_cuts`
+  // removed: with the bidirectional α bootstrap pin
+  // (lowb = uppb = 0, see `source/sddp_method.cpp`) and the
+  // removal of clone-value capture into StateVariables
+  // (`source/sddp_forward_pass.cpp` elastic branch), chinneck's
+  // IIS-filtered per-event cut count is smaller, but the
+  // mode's convergence trajectory may differ from multi_cut and
+  // take more iterations.  Total feas_cuts across all iterations
+  // can therefore exceed multi_cut's — the invariant was a
+  // per-event bound, not a whole-run bound.
 }
 
 // ─── Stationary-gap ceiling guard (commit f466936f) ───────────────────────
