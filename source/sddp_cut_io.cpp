@@ -478,10 +478,14 @@ void write_cut_coefficients_unscaled(std::ostream& ofs,
       std::istringstream iss(line);
       std::string token;
 
-      // Parse optional type column (backward compatible).
-      // The type is tracked for future use but currently loaded cuts
-      // are added to the LP directly regardless of type.
-      [[maybe_unused]] CutType cut_type = CutType::Optimality;
+      // Parse optional type column (backward compatible).  The type
+      // determines whether `free_alpha` fires when the cut lands —
+      // only optimality cuts certify a tighter lower bound on the
+      // true future cost, so only they should release α's bootstrap
+      // floor `lowb = sddp_alpha_bootstrap_min (= 0)`.  Feasibility
+      // cuts convey "these states cause downstream infeasibility"
+      // but not a lower-bound update, so α must stay floored at 0.
+      CutType cut_type = CutType::Optimality;
       if (has_type_col) {
         std::getline(iss, token, ',');
         if (token == "f") {
@@ -762,12 +766,16 @@ void write_cut_coefficients_unscaled(std::ostream& ofs,
         for (const auto& [col, coeff] : resolved_coeffs) {
           scene_row[col] = coeff;
         }
-        // Release α's bootstrap pin before the loaded cut lands —
-        // the cut itself bounds α and the `lowb = uppb = 0`
-        // equality would clip nonzero future-cost values.
-        free_alpha(planning_lp, scene_index, phase_index);
-        li.add_row(scene_row);
-        li.record_cut_row(scene_row);
+        // Release α's bootstrap pin ONLY on optimality cuts — they
+        // certify a tighter lower bound and may demand α < 0 at
+        // some master states.  Feasibility cuts leave α floored at
+        // `lowb = sddp_alpha_bootstrap_min (=0)` (see commit
+        // 5307d831 for the matching forward-pass fcut-install
+        // rationale).
+        if (cut_type == CutType::Optimality) {
+          free_alpha(planning_lp, scene_index, phase_index);
+        }
+        li.add_cut_row(scene_row);
       }
       ++result.count;
     }
@@ -1195,15 +1203,16 @@ void write_cut_coefficients_unscaled(std::ostream& ofs,
           }
         }
 
-        // Release α's bootstrap pin on the last phase before the
-        // cut lands — the boundary cut itself provides α's lower
-        // bound, and the `lowb = uppb = 0` equality would clip
-        // any legitimately-nonzero future-cost value.  Idempotent
-        // across multiple cuts on the same (scene, last_phase)
-        // cell.
+        // Boundary cuts encode the future-cost function at the
+        // horizon (conceptually optimality-like: α ≥ some positive
+        // RHS at a given state).  Release α's bootstrap floor so
+        // the boundary cut can raise α above 0 on the last phase.
+        // If the boundary cut has negative RHS at some states, α
+        // still respects the `≥ 0` future-cost invariant because
+        // free_alpha only lifts the lower bound; the master LP
+        // pushes α downward via its positive α-cost anyway.
         free_alpha(planning_lp, scene_index, last_phase);
-        li.add_row(row);
-        li.record_cut_row(row);
+        li.add_cut_row(row);
       }
       max_iteration = std::max(max_iteration, rc.iteration_index);
       ++cuts_loaded;
@@ -1530,8 +1539,7 @@ void write_cut_coefficients_unscaled(std::ostream& ofs,
         // Release α's bootstrap pin before the named hot-start
         // cut lands — see the boundary-cut loader for rationale.
         free_alpha(planning_lp, scene_index, phase_index);
-        li.add_row(row);
-        li.record_cut_row(row);
+        li.add_cut_row(row);
       }
       result.max_iteration = std::max(result.max_iteration, iteration_index);
       ++result.count;
@@ -1808,6 +1816,7 @@ void write_cut_coefficients_unscaled(std::ostream& ofs,
       const auto cut_iter = extract_iteration_from_name(entry.name);
       const auto cut_offset = result.count;
       const auto phase_uid_ctx = sim.uid_of(phase_index);
+      const bool is_optimality_cut = (entry.type != "f");
       for (const auto scene_index : iota_range<SceneIndex>(0, num_scenes)) {
         auto& li =
             planning_lp.system(scene_index, phase_index).linear_interface();
@@ -1817,11 +1826,13 @@ void write_cut_coefficients_unscaled(std::ostream& ofs,
         for (const auto& [col, coeff] : resolved_coeffs) {
           scene_row[col] = coeff;
         }
-        // Release α's bootstrap pin before the loaded JSON cut
-        // lands — see the CSV loader for rationale.
-        free_alpha(planning_lp, scene_index, phase_index);
-        li.add_row(scene_row);
-        li.record_cut_row(scene_row);
+        // Release α's bootstrap pin ONLY on optimality cuts — see
+        // the CSV loader and commit 5307d831 for the forward-pass
+        // rationale.  Feasibility cuts leave α floored at 0.
+        if (is_optimality_cut) {
+          free_alpha(planning_lp, scene_index, phase_index);
+        }
+        li.add_cut_row(scene_row);
       }
       ++result.count;
     }

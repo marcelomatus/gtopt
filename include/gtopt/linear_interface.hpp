@@ -568,6 +568,36 @@ public:
   RowIndex add_row(const SparseRow& row, double eps = 0.0);
 
   /**
+   * @brief Add a cut row AND record it for low-memory replay.
+   *
+   * Equivalent to `add_row(row, eps)` followed by `record_cut_row(row)`
+   * — every cut install site needs both so the row survives a
+   * `release_backend` / `ensure_backend` cycle by being replayed
+   * through `apply_post_load_replay`.  Prefer this over the bare
+   * `add_row` + `record_cut_row` pair for new code.  Generated-cut
+   * paths that also push into `SDDPMethod::m_cut_store_` continue to
+   * use `add_row` + `store_cut` (which wraps `record_cut_row`
+   * internally) to avoid double-recording.
+   *
+   * @param row Cut row, physical-space coefficients.
+   * @param eps Coefficient filtering threshold.  Callers should pass
+   *            the active `SDDPOptions::cut_coeff_eps` so loaded and
+   *            generated cuts see the same filtering.  Defaults to 0
+   *            (no filtering) for compatibility with existing
+   *            loaders whose signatures don't plumb `cut_coeff_eps`
+   *            yet — follow-up refactor should thread that option
+   *            through each loader's parameter list.
+   * @return Row index assigned by the solver backend.
+   */
+  RowIndex add_cut_row(const SparseRow& row, double eps = 0.0)
+  {
+    const auto idx = add_row(row, eps);
+    // `record_cut_row` no-ops when `m_low_memory_mode_ == off`.
+    record_cut_row(row);
+    return idx;
+  }
+
+  /**
    * @brief Bulk-add constraint rows (much faster than repeated add_row calls).
    *
    * Converts SparseRows to CSR format, applies scaling and bound
