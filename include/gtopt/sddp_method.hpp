@@ -733,16 +733,19 @@ private:
     return m_planning_lp_.get();
   }
 
-  /// Get the scene UID for a given SceneIndex.
-  [[nodiscard]] SceneUid scene_uid(SceneIndex si) const noexcept
+  /// Convert a `SceneIndex` to the matching `SceneUid`.  Mirror
+  /// of `SimulationLP::uid_of(SceneIndex)` for callers that already
+  /// hold an SDDPMethod reference — avoids going through
+  /// `planning_lp().simulation().uid_of(...)` at every call site.
+  [[nodiscard]] SceneUid uid_of(SceneIndex si) const noexcept
   {
-    return planning_lp().simulation().scenes()[si].uid();
+    return planning_lp().simulation().uid_of(si);
   }
 
-  /// Get the phase UID for a given PhaseIndex.
-  [[nodiscard]] PhaseUid phase_uid(PhaseIndex pi) const noexcept
+  /// Convert a `PhaseIndex` to the matching `PhaseUid`.
+  [[nodiscard]] PhaseUid uid_of(PhaseIndex pi) const noexcept
   {
-    return planning_lp().simulation().phases()[pi].uid();
+    return planning_lp().simulation().uid_of(pi);
   }
 
   std::reference_wrapper<PlanningLP> m_planning_lp_;

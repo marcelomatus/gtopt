@@ -147,11 +147,13 @@ if [[ -n "$misplaced_widening" ]]; then
 fi
 
 # ── Rule 6: no `sim.scenes()[…].uid()` / `sim.phases()[…].uid()` ────────────
-# `SimulationLP::scene_uid(SceneIndex)` / `phase_uid(PhaseIndex)` accessors
-# exist (see include/gtopt/simulation_lp.hpp).  Use them instead of the
-# bracket-access + .uid() idiom — it's shorter, avoids an un-bounds-checked
+# `SimulationLP::uid_of(SceneIndex)` / `uid_of(PhaseIndex)` accessors
+# exist (see include/gtopt/simulation_lp.hpp) and mirror the free-function
+# `gtopt::uid_of(IterationIndex)` idiom from <gtopt/iteration.hpp> — one
+# name (`uid_of`) for every Index→Uid conversion.  Use them instead of
+# the bracket-access + .uid() idiom: shorter, avoids an unbounded
 # subscript, and centralises the uid-extraction convention.  Allow-list:
-#   - include/gtopt/sddp_method.hpp   (scene_uid / phase_uid delegate)
+#   - include/gtopt/sddp_method.hpp   (uid_of(SceneIndex) delegate)
 #   - include/gtopt/simulation_lp.hpp (accessor implementation)
 sim_uid_chain=$(run_grep \
   '(simulation\(\)|^[[:space:]]*sim)\.(scenes|phases)\(\)\[[^]]+\]\.uid\(\)' \

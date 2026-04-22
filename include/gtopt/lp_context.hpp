@@ -68,9 +68,12 @@ using BlockExContext = std::tuple<ScenarioUid, StageUid, BlockUid, int>;
 /// Tuple: (scene_uid, phase_uid)
 using ScenePhaseContext = std::tuple<SceneUid, PhaseUid>;
 
-/// SDDP cut context with iteration and extra index (cut offset).
-/// Tuple: (scene_uid, phase_uid, iteration_index, extra)
-using IterationContext = std::tuple<SceneUid, PhaseUid, IterationIndex, int>;
+/// SDDP cut context with iteration UID and extra index (cut offset).
+/// Tuple: (scene_uid, phase_uid, iteration_uid, extra).
+/// All three positional identifiers are UIDs (1-based, matching the
+/// `PhaseUid` / `SceneUid` convention).  Convert to/from the 0-based
+/// runtime `IterationIndex` via `uid_of(idx)` / `index_of(uid)`.
+using IterationContext = std::tuple<SceneUid, PhaseUid, IterationUid, int>;
 
 /// SDDP aperture cut context.
 /// Tuple: (scene_uid, phase_uid, aperture_uid, extra)
@@ -125,14 +128,30 @@ using LpContext = std::variant<std::monostate,
   return ScenePhaseContext {scene_uid, phase_uid};
 }
 
-/// Build an SDDP scene/phase context with iteration and extra index.
+/// Build an SDDP scene/phase context from an already-converted
+/// `IterationUid`.  The primary overload — keeps call sites
+/// visually homogeneous (three UIDs + one extra).
+[[nodiscard]] constexpr auto make_iteration_context(SceneUid scene_uid,
+                                                    PhaseUid phase_uid,
+                                                    IterationUid iteration_uid,
+                                                    int extra)
+    -> IterationContext
+{
+  return IterationContext {scene_uid, phase_uid, iteration_uid, extra};
+}
+
+/// Convenience overload that accepts a 0-based `IterationIndex`
+/// (the runtime counter) and converts it internally via
+/// `uid_of(...)`.  Useful at SDDP call sites where the loop
+/// variable is naturally an Index.
 [[nodiscard]] constexpr auto make_iteration_context(
     SceneUid scene_uid,
     PhaseUid phase_uid,
     IterationIndex iteration_index,
     int extra) -> IterationContext
 {
-  return IterationContext {scene_uid, phase_uid, iteration_index, extra};
+  return IterationContext {
+      scene_uid, phase_uid, uid_of(iteration_index), extra};
 }
 
 /// Build an SDDP aperture cut context.

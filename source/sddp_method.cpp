@@ -174,8 +174,8 @@ void SDDPMethod::update_max_kappa(SceneIndex scene_index,
 
   spdlog::warn("SDDP Kappa [i{} s{} p{}]: high kappa {:.2e} (threshold {:.2e})",
                iteration_index,
-               scene_uid(scene_index),
-               phase_uid(phase_index),
+               uid_of(scene_index),
+               uid_of(phase_index),
                kappa,
                threshold);
 
@@ -185,8 +185,8 @@ void SDDPMethod::update_max_kappa(SceneIndex scene_index,
     std::filesystem::create_directories(m_options_.log_directory);
     const auto stem = (std::filesystem::path(m_options_.log_directory)
                        / as_label("kappa",
-                                  scene_uid(scene_index),
-                                  phase_uid(phase_index),
+                                  uid_of(scene_index),
+                                  uid_of(phase_index),
                                   iteration_index))
                           .string();
     if (auto r = li.write_lp(stem)) {
@@ -205,11 +205,11 @@ void SDDPMethod::diagnose_kappa(SceneIndex scene_index,
                                 IterationIndex iteration_index)
 {
   const auto prefix = sddp_log(
-      "Kappa", iteration_index, scene_uid(scene_index), phase_uid(phase_index));
+      "Kappa", iteration_index, uid_of(scene_index), uid_of(phase_index));
 
   // Collect cut rows for this (scene, phase) from the cut store
   const auto& scene_cuts = m_cut_store_.scene_cuts();
-  const auto phase_uid_val = phase_uid(phase_index);
+  const auto phase_uid_val = uid_of(phase_index);
 
   std::vector<RowDiagnostics> cut_diags;
 
@@ -416,7 +416,7 @@ void register_alpha_variables(PlanningLP& planning_lp,
         .class_name = sddp_alpha_class_name,
         .variable_name = sddp_alpha_col_name,
         .context =
-            make_scene_phase_context(sim.scene_uid(scene_index), phase.uid()),
+            make_scene_phase_context(sim.uid_of(scene_index), phase.uid()),
     };
     const auto alpha_col = li.add_col(alpha_sparse);
 
@@ -736,8 +736,8 @@ void SDDPMethod::dispatch_update_lp(SceneIndex scene_index,
     if (updated > 0) {
       SPDLOG_TRACE("SDDP Update [i{} s{} p{}]: updated {} LP elements",
                    iteration_index,
-                   scene_uid(scene_index),
-                   phase_uid(phase_index),
+                   uid_of(scene_index),
+                   uid_of(phase_index),
                    updated);
     }
   }
@@ -813,8 +813,8 @@ void SDDPMethod::store_cut(SceneIndex scene_index,
                          cut,
                          type,
                          row,
-                         scene_uid(scene_index),
-                         phase_uid(src_phase_index));
+                         uid_of(scene_index),
+                         uid_of(src_phase_index));
 }
 
 // ── Helper: resolve an LP via the work pool (avoids naked direct calls) ─────
@@ -930,10 +930,8 @@ auto SDDPMethod::backward_pass_single_phase(SceneIndex scene_index,
                                         ceps);
   cut.class_name = sddp_alpha_class_name;
   cut.constraint_name = sddp_scut_constraint_name;
-  cut.context = make_iteration_context(scene_uid(scene_index),
-                                       phase_uid(phase_index),
-                                       iteration_index,
-                                       cut_offset);
+  cut.context = make_iteration_context(
+      uid_of(scene_index), uid_of(phase_index), iteration_index, cut_offset);
   const auto dt_build = elapsed_s(t_build);
 
   // Release α's bootstrap pin on the source phase before the cut
@@ -952,13 +950,13 @@ auto SDDPMethod::backward_pass_single_phase(SceneIndex scene_index,
 
   ++cuts_added;
   m_phase_grid_.record(
-      iteration_index, scene_uid(scene_index), phase_index, GridCell::Backward);
+      iteration_index, uid_of(scene_index), phase_index, GridCell::Backward);
 
   SPDLOG_TRACE("SDDP Backward [i{} s{} p{}]: cut for phase {} rhs={:.4f}",
                iteration_index,
-               scene_uid(scene_index),
-               phase_uid(phase_index),
-               phase_uid(prev_phase_index),
+               uid_of(scene_index),
+               uid_of(phase_index),
+               uid_of(prev_phase_index),
                cut.lowb);
 
   // Re-solve src_li so downstream code (the async iteration's
@@ -980,8 +978,8 @@ auto SDDPMethod::backward_pass_single_phase(SceneIndex scene_index,
   if (phase_index) {
     src_li.set_log_tag(sddp_log("Backward",
                                 iteration_index,
-                                scene_uid(scene_index),
-                                phase_uid(prev_phase_index)));
+                                uid_of(scene_index),
+                                uid_of(prev_phase_index)));
     const auto t_resolve = Clock::now();
     auto r = src_li.resolve(opts);
     dt_resolve = elapsed_s(t_resolve);
@@ -995,8 +993,8 @@ auto SDDPMethod::backward_pass_single_phase(SceneIndex scene_index,
           "cut, next forward pass will re-solve",
           sddp_log("Backward",
                    iteration_index,
-                   scene_uid(scene_index),
-                   phase_uid(prev_phase_index)),
+                   uid_of(scene_index),
+                   uid_of(prev_phase_index)),
           src_li.get_status());
     }
   }
@@ -1029,7 +1027,7 @@ auto SDDPMethod::backward_pass(SceneIndex scene_index,
 
   SPDLOG_DEBUG("SDDP Backward [i{} s{}]: starting ({} phases)",
                iteration_index,
-               scene_uid(scene_index),
+               uid_of(scene_index),
                num_phases);
 
   // Iterate backward from last phase to phase 1
@@ -1042,8 +1040,8 @@ auto SDDPMethod::backward_pass(SceneIndex scene_index,
           .message = std::format("{}: cancelled",
                                  sddp_log("Backward",
                                           iteration_index,
-                                          scene_uid(scene_index),
-                                          phase_uid(phase_index))),
+                                          uid_of(scene_index),
+                                          uid_of(phase_index))),
       });
     }
 
@@ -1057,7 +1055,7 @@ auto SDDPMethod::backward_pass(SceneIndex scene_index,
 
   SPDLOG_DEBUG("SDDP Backward [i{} s{}]: done, {} cuts added",
                iteration_index,
-               scene_uid(scene_index),
+               uid_of(scene_index),
                total_cuts);
   return total_cuts;
 }
@@ -1112,7 +1110,7 @@ auto SDDPMethod::save_scene_cuts(SceneIndex scene_index,
 {
   return save_scene_cuts_csv(m_cut_store_.scene_cuts()[scene_index],
                              scene_index,
-                             scene_uid(scene_index),
+                             uid_of(scene_index),
                              planning_lp(),
                              directory);
 }
@@ -1323,7 +1321,7 @@ auto SDDPMethod::initialize_solver() -> std::expected<void, Error>
             }
             SPDLOG_DEBUG(
                 "SDDP: scene {} initialized ({} state links)",
-                scene_uid(scene_index),
+                uid_of(scene_index),
                 m_scene_phase_states_[scene_index].empty()
                     ? 0
                     : m_scene_phase_states_[scene_index][first_phase_index()]
@@ -1621,7 +1619,7 @@ auto SDDPMethod::run_forward_pass_all_scenes(SDDPWorkPool& pool,
     if (!fwd.has_value()) {
       SPDLOG_WARN("SDDP Forward [i{} s{}]: failed: {}",
                   iteration_index,
-                  scene_uid(scene_index),
+                  uid_of(scene_index),
                   fwd.error().message);
       out.has_feasibility_issue = true;
       out.scene_feasible[scene_index] = 0;
@@ -1842,7 +1840,7 @@ auto SDDPMethod::run_backward_pass_synchronized(
         if (sc.type != CutType::Optimality) {
           continue;
         }
-        if (sc.phase_uid != phase_uid(src_phase_index)) {
+        if (sc.phase_uid != uid_of(src_phase_index)) {
           continue;
         }
         auto row = SparseRow {

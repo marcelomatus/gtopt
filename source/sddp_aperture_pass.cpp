@@ -170,8 +170,8 @@ auto SDDPMethod::install_aperture_backward_cut(
     if (src_phase_index) {
       src_li.set_log_tag(sddp_log("Backward",
                                   iteration_index,
-                                  scene_uid(scene_index),
-                                  phase_uid(src_phase_index)));
+                                  uid_of(scene_index),
+                                  uid_of(src_phase_index)));
       const auto t_resolve = Clock::now();
       auto r = src_li.resolve(opts);
       dt_resolve += elapsed_s(t_resolve);
@@ -186,8 +186,8 @@ auto SDDPMethod::install_aperture_backward_cut(
             "reverting row and installing bcut fallback",
             sddp_log("Backward",
                      iteration_index,
-                     scene_uid(scene_index),
-                     phase_uid(src_phase_index)),
+                     uid_of(scene_index),
+                     uid_of(src_phase_index)),
             src_li.get_status());
       }
     }
@@ -203,8 +203,8 @@ auto SDDPMethod::install_aperture_backward_cut(
       SPDLOG_TRACE("{}: cut for phase {} rhs={:.4f}",
                    sddp_log("Aperture",
                             iteration_index,
-                            scene_uid(scene_index),
-                            phase_uid(phase_index)),
+                            uid_of(scene_index),
+                            uid_of(phase_index)),
                    src_phase_index,
                    expected_cut->lowb);
 
@@ -243,10 +243,8 @@ auto SDDPMethod::install_aperture_backward_cut(
                                  ceps);
   fallback_cut.class_name = sddp_alpha_class_name;
   fallback_cut.constraint_name = sddp_bcut_constraint_name;
-  fallback_cut.context = make_iteration_context(scene_uid(scene_index),
-                                                phase_uid(phase_index),
-                                                iteration_index,
-                                                cut_offset);
+  fallback_cut.context = make_iteration_context(
+      uid_of(scene_index), uid_of(phase_index), iteration_index, cut_offset);
   dt_cut_build += elapsed_s(t_build);
 
   // Release α's bootstrap pin (idempotent if the expected_cut path
@@ -265,8 +263,8 @@ auto SDDPMethod::install_aperture_backward_cut(
   SPDLOG_TRACE("{}: bcut for phase {} rhs={:.4f}",
                sddp_log("Aperture",
                         iteration_index,
-                        scene_uid(scene_index),
-                        phase_uid(phase_index)),
+                        uid_of(scene_index),
+                        uid_of(phase_index)),
                src_phase_index,
                fallback_cut.lowb);
 
@@ -338,7 +336,7 @@ auto SDDPMethod::backward_pass_aperture_phase_impl(
   auto& phase_states = m_scene_phase_states_[scene_index];
   int cuts_added = 0;
   m_phase_grid_.record(
-      iteration_index, scene_uid(scene_index), phase_index, GridCell::Aperture);
+      iteration_index, uid_of(scene_index), phase_index, GridCell::Aperture);
 
   const auto src_phase_index = previous(phase_index);
   auto& src_sys = planning_lp().system(scene_index, src_phase_index);
@@ -393,8 +391,8 @@ auto SDDPMethod::backward_pass_aperture_phase_impl(
       opts,
       m_label_maker_,
       m_options_.log_directory,
-      scene_uid(scene_index),
-      phase_uid(phase_index),
+      uid_of(scene_index),
+      uid_of(phase_index),
       make_aperture_submit_fn(phase_index, iteration_index),
       m_options_.aperture_timeout,
       m_options_.save_aperture_lp,
@@ -444,7 +442,7 @@ auto SDDPMethod::backward_pass_with_apertures_single_phase(
       all_scenarios,
       m_options_.apertures,
       owned,
-      sddp_log("Aperture", iteration_index, scene_uid(scene_index)));
+      sddp_log("Aperture", iteration_index, uid_of(scene_index)));
   if (!effective.has_value()) {
     return backward_pass_single_phase(
         scene_index, phase_index, cut_offset, opts, iteration_index);
@@ -477,7 +475,7 @@ auto SDDPMethod::backward_pass_with_apertures(SceneIndex scene_index,
       all_scenarios,
       m_options_.apertures,
       owned,
-      sddp_log("Aperture", iteration_index, scene_uid(scene_index)));
+      sddp_log("Aperture", iteration_index, uid_of(scene_index)));
   if (!effective.has_value()) {
     return backward_pass(scene_index, opts, iteration_index);
   }
@@ -491,7 +489,7 @@ auto SDDPMethod::backward_pass_with_apertures(SceneIndex scene_index,
   [[maybe_unused]] const auto bwd_tid = std::this_thread::get_id();
 
   SPDLOG_INFO("{}: backward starting ({} phases) [thread {}]",
-              sddp_log("Aperture", iteration_index, scene_uid(scene_index)),
+              sddp_log("Aperture", iteration_index, uid_of(scene_index)),
               num_phases - 1,
               std::hash<std::thread::id> {}(bwd_tid) % 10000);
 
@@ -512,8 +510,8 @@ auto SDDPMethod::backward_pass_with_apertures(SceneIndex scene_index,
           .code = ErrorCode::SolverError,
           .message = std::format(
               "{}: cancelled at phase {}",
-              sddp_log("Aperture", iteration_index, scene_uid(scene_index)),
-              phase_uid(phase_index)),
+              sddp_log("Aperture", iteration_index, uid_of(scene_index)),
+              uid_of(phase_index)),
       });
     }
 
@@ -565,8 +563,8 @@ auto SDDPMethod::backward_pass_with_apertures(SceneIndex scene_index,
         opts,
         m_label_maker_,
         m_options_.log_directory,
-        scene_uid(scene_index),
-        phase_uid(phase_index),
+        uid_of(scene_index),
+        uid_of(phase_index),
         make_aperture_submit_fn(phase_index, iteration_index),
         0.0,
         m_options_.save_aperture_lp,
@@ -575,7 +573,7 @@ auto SDDPMethod::backward_pass_with_apertures(SceneIndex scene_index,
         m_options_.cut_coeff_eps);
 
     if (!expected_cut.has_value()) {
-      infeasible_phases.push_back(phase_uid(phase_index));
+      infeasible_phases.push_back(uid_of(phase_index));
     }
 
     total_cuts += install_aperture_backward_cut(scene_index,
@@ -596,7 +594,7 @@ auto SDDPMethod::backward_pass_with_apertures(SceneIndex scene_index,
     SPDLOG_WARN(
         "{}: all apertures infeasible at {} phase(s) [{}], "
         "used Benders fallback cuts",
-        sddp_log("Aperture", iteration_index, scene_uid(scene_index)),
+        sddp_log("Aperture", iteration_index, uid_of(scene_index)),
         infeasible_phases.size(),
         join_values(infeasible_phases));
   }

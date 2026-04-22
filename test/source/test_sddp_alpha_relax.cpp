@@ -317,8 +317,7 @@ TEST_CASE("SimulationLP::scene_uid / phase_uid match scenes/phases subscript")
   {
     const auto num_scenes = sim.scene_count();
     for (const auto si : iota_range<SceneIndex>(0, num_scenes)) {
-      CHECK(sim.scene_uid(si)
-            == sim.scenes()[static_cast<std::size_t>(si)].uid());
+      CHECK(sim.uid_of(si) == sim.scenes()[static_cast<std::size_t>(si)].uid());
     }
   }
 
@@ -326,8 +325,7 @@ TEST_CASE("SimulationLP::scene_uid / phase_uid match scenes/phases subscript")
   {
     const auto num_phases = sim.phase_count();
     for (const auto pi : iota_range<PhaseIndex>(0, num_phases)) {
-      CHECK(sim.phase_uid(pi)
-            == sim.phases()[static_cast<std::size_t>(pi)].uid());
+      CHECK(sim.uid_of(pi) == sim.phases()[static_cast<std::size_t>(pi)].uid());
     }
   }
 }

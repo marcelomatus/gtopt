@@ -861,8 +861,8 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
         SPDLOG_INFO(
             "SDDP Async [i{} s{}]: scene {} converged at iter {} (gap={:.6f})",
             iteration_index,
-            scene_uid(scene_index),
-            scene_uid(scene_index),
+            uid_of(scene_index),
+            uid_of(scene_index),
             iteration_index,
             scene_gap);
         return true;
@@ -884,8 +884,8 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
   {
     SPDLOG_INFO("SDDP Sim [i{} s{}]: simulation pass for scene {}",
                 sim_iteration_index,
-                scene_uid(scene_index),
-                scene_uid(scene_index));
+                uid_of(scene_index),
+                uid_of(scene_index));
     auto result = forward_pass(scene_index, sim_opts, sim_iteration_index);
     if (!result.has_value()) {
       return result;
@@ -898,8 +898,8 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
 
     SPDLOG_INFO("SDDP Sim [i{} s{}]: scene {} outputs written",
                 sim_iteration_index,
-                scene_uid(scene_index),
-                scene_uid(scene_index));
+                uid_of(scene_index),
+                uid_of(scene_index));
     return result;
   };
 
@@ -1000,7 +1000,7 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
           if (!fwd.has_value()) {
             SPDLOG_WARN("SDDP Forward [i{} s{}]: async forward failed: {}",
                         sp.current_iteration_index,
-                        scene_uid(scene),
+                        uid_of(scene),
                         fwd.error().message);
             sp.feasible = false;
             sp.upper_bound = 0.0;
@@ -1062,7 +1062,7 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
           if (!bwd.has_value()) {
             SPDLOG_WARN("SDDP Backward [i{} s{}]: async backward failed: {}",
                         sp.current_iteration_index,
-                        scene_uid(scene),
+                        uid_of(scene),
                         bwd.error().message);
           }
 
@@ -1085,7 +1085,7 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
                 "SDDP Async [i{} s{}]: completed (ub={:.4f} lb={:.4f}"
                 " gap={:.6f})",
                 sp.current_iteration_index,
-                scene_uid(scene),
+                uid_of(scene),
                 sp.upper_bound,
                 sp.lower_bound,
                 scene_gap);
@@ -1118,7 +1118,7 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
           if (!sim.has_value()) {
             SPDLOG_WARN("SDDP Sim [i{} s{}]: simulation failed: {}",
                         sp.current_iteration_index,
-                        scene_uid(scene),
+                        uid_of(scene),
                         sim.error().message);
           } else {
             sp.upper_bound = *sim;
@@ -1136,7 +1136,7 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
                 "SDDP Async [i{} s{}]: scene done — converged={} iters={}"
                 " sim_ub={:.4f} active={}/{}",
                 sp.current_iteration_index,
-                scene_uid(scene),
+                uid_of(scene),
                 sp.scene_converged,
                 iteration_relative(sp.current_iteration_index,
                                    m_iteration_offset_),

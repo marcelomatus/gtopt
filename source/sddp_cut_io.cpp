@@ -186,6 +186,15 @@ void write_cut_coefficients_unscaled(std::ostream& ofs,
 ///   sddp_bcut_{scene}_{phase}_{iteration}_{offset}  → field [4]
 ///   sddp_ecut_{scene}_{phase}_{total_cuts}           → no iteration
 ///
+/// The on-disk `{iteration}` field is a 0-based **IterationIndex**
+/// (matching the runtime loop counter) — NOT the 1-based
+/// `IterationUid` that LP-label contexts carry.  Callers that need
+/// a UID for `make_iteration_context(...)` convert at the boundary
+/// via `uid_of(extract_iteration_from_name(...))`; the
+/// `make_iteration_context(SceneUid, PhaseUid, IterationIndex, int)`
+/// overload does this transparently.  Keeping the disk format
+/// 0-based preserves backward compat with existing golden files.
+///
 /// Returns 0 if the iteration cannot be determined.
 [[nodiscard]] auto extract_iteration_from_name(std::string_view name)
     -> IterationIndex
@@ -743,13 +752,13 @@ void write_cut_coefficients_unscaled(std::ostream& ofs,
       // emits multiple cuts.
       const auto cut_iter = extract_iteration_from_name(cut_name);
       const auto cut_offset = result.count;
-      const auto phase_uid_ctx = sim.phase_uid(phase_index);
+      const auto phase_uid_ctx = sim.uid_of(phase_index);
       for (const auto scene_index : iota_range<SceneIndex>(0, num_scenes)) {
         auto& li =
             planning_lp.system(scene_index, phase_index).linear_interface();
         auto scene_row = row;
         scene_row.context = make_iteration_context(
-            sim.scene_uid(scene_index), phase_uid_ctx, cut_iter, cut_offset);
+            sim.uid_of(scene_index), phase_uid_ctx, cut_iter, cut_offset);
         for (const auto& [col, coeff] : resolved_coeffs) {
           scene_row[col] = coeff;
         }
@@ -905,7 +914,7 @@ void write_cut_coefficients_unscaled(std::ostream& ofs,
         scene_uid_to_index;
     map_reserve(scene_uid_to_index, static_cast<std::size_t>(num_scenes));
     for (const auto si : iota_range<SceneIndex>(0, num_scenes)) {
-      scene_uid_to_index[sim.scene_uid(si)] = si;
+      scene_uid_to_index[sim.uid_of(si)] = si;
     }
 
     // Build element-name -> uid lookup from the System.
@@ -1161,8 +1170,8 @@ void write_cut_coefficients_unscaled(std::ostream& ofs,
             .class_name = sddp_boundary_cut_class_name,
             .constraint_name = sddp_loaded_cut_constraint_name,
             .context =
-                make_iteration_context(sim.scene_uid(scene_index),
-                                       sim.phase_uid(last_phase),
+                make_iteration_context(sim.uid_of(scene_index),
+                                       sim.uid_of(last_phase),
                                        extract_iteration_from_name(rc.name),
                                        cuts_loaded),
         };
@@ -1492,8 +1501,8 @@ void write_cut_coefficients_unscaled(std::ostream& ofs,
             .class_name = sddp_named_cut_class_name,
             .constraint_name = sddp_loaded_cut_constraint_name,
             .context =
-                make_iteration_context(sim.scene_uid(scene_index),
-                                       sim.phase_uid(phase_index),
+                make_iteration_context(sim.uid_of(scene_index),
+                                       sim.uid_of(phase_index),
                                        extract_iteration_from_name(cut_name),
                                        result.count),
         };
@@ -1798,13 +1807,13 @@ void write_cut_coefficients_unscaled(std::ostream& ofs,
       // rationale).
       const auto cut_iter = extract_iteration_from_name(entry.name);
       const auto cut_offset = result.count;
-      const auto phase_uid_ctx = sim.phase_uid(phase_index);
+      const auto phase_uid_ctx = sim.uid_of(phase_index);
       for (const auto scene_index : iota_range<SceneIndex>(0, num_scenes)) {
         auto& li =
             planning_lp.system(scene_index, phase_index).linear_interface();
         auto scene_row = row;
         scene_row.context = make_iteration_context(
-            sim.scene_uid(scene_index), phase_uid_ctx, cut_iter, cut_offset);
+            sim.uid_of(scene_index), phase_uid_ctx, cut_iter, cut_offset);
         for (const auto& [col, coeff] : resolved_coeffs) {
           scene_row[col] = coeff;
         }

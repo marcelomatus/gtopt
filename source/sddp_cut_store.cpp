@@ -259,8 +259,8 @@ void SDDPCutStore::prune_inactive_cuts(
           "SDDP: pruning {} inactive cuts from scene {} phase {} "
           "({} cut rows, max {})",
           rows_to_delete.size(),
-          planning_lp.simulation().scene_uid(scene_index),
-          planning_lp.simulation().phase_uid(phase_index),
+          planning_lp.simulation().uid_of(scene_index),
+          planning_lp.simulation().uid_of(phase_index),
           num_cut_rows,
           max_cuts);
 

@@ -139,24 +139,33 @@ public:
   }
 
   /**
-   * @brief Look up the scene UID at a given scene index.
+   * @brief Convert a `SceneIndex` (0-based array position) to the
+   *        matching `SceneUid` (1-based identity from JSON input).
    *
    * Convenience wrapper that replaces the repeated
    * ``sim.scenes()[scene_index].uid()`` idiom at SDDP call sites
    * (notably the cut-loader paths in ``source/sddp_cut_io.cpp``,
    * where the uid is fed straight into ``make_iteration_context``).
+   *
+   * The name mirrors the free-function
+   * ``gtopt::uid_of(IterationIndex)`` in
+   * ``<gtopt/iteration.hpp>`` — one idiom (``uid_of``) for every
+   * dimension's Index-to-Uid conversion.  Method overload resolves
+   * on the index type: ``sim.uid_of(SceneIndex{k})`` → ``SceneUid``,
+   * ``sim.uid_of(PhaseIndex{k})`` → ``PhaseUid``.
    */
-  [[nodiscard]] constexpr auto scene_uid(SceneIndex scene_index) const noexcept
+  [[nodiscard]] constexpr auto uid_of(SceneIndex scene_index) const noexcept
       -> SceneUid
   {
     return m_scene_array_[scene_index].uid();
   }
 
   /**
-   * @brief Look up the phase UID at a given phase index.  Mirror of
-   *        ``scene_uid`` — see that helper for rationale.
+   * @brief Convert a `PhaseIndex` (0-based) to the matching
+   *        `PhaseUid` (1-based).  Mirror of ``uid_of(SceneIndex)``
+   *        — see that helper for rationale.
    */
-  [[nodiscard]] constexpr auto phase_uid(PhaseIndex phase_index) const noexcept
+  [[nodiscard]] constexpr auto uid_of(PhaseIndex phase_index) const noexcept
       -> PhaseUid
   {
     return m_phase_array_[phase_index].uid();
