@@ -243,6 +243,19 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   /// mcut mode can install before the master has found a good trial.
   int multi_cut_threshold {100};
 
+  /// Forward-pass backtracking cap: maximum cumulative LP solves per
+  /// scene per iteration.  When an elastic branch fires at phase p,
+  /// gtopt (PLP-style) installs the feasibility cut on phase p-1 and
+  /// BACKTRACKS to phase p-1, re-solving it under the new cut.  If
+  /// p-1 is also infeasible, an fcut is installed on p-2 and the
+  /// backtrack continues until a feasible phase is reached, after
+  /// which the pass resumes forward.  `forward_max_attempts` caps
+  /// the total number of solves to prevent an infinite
+  /// backtrack/retry loop — when exceeded, the scene is declared
+  /// infeasible for this iteration and excluded from UB aggregation.
+  /// Matches PLP's `FactMXC` knob in `plp-faseprim.f`.  Default 100.
+  int forward_max_attempts {100};
+
   /// File format for cut and state variable I/O (csv or json).
   /// CSV uses structured keys (class:var:uid=coeff) and is backward
   /// compatible with legacy name-based CSV files on the load side.

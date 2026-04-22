@@ -577,6 +577,20 @@ void SDDPMethod::collect_state_variable_links(SceneIndex scene_index)
     for (const auto& [key, svar] :
          sim.state_variables(scene_index, phase_index))
     {
+      // Defensive skip: α is registered as a state variable for CSV/JSON
+      // I/O uniformity, but it is a BACKWARD-propagating variable (the
+      // future-cost estimator populated by backward-pass cuts), not a
+      // forward state like reservoir energy.  It must never enter
+      // `outgoing_links`, because the elastic filter relaxes each link's
+      // dependent column with slack variables — and we explicitly don't
+      // want slacks on α.  In practice α has no `dependent_variables()`
+      // entry (`register_alpha_variables` doesn't set one), so this
+      // skip is also a no-op by construction — kept explicit to protect
+      // against a future change that might add cross-phase α linking.
+      if (key.class_name == sddp_alpha_class_name) {
+        continue;
+      }
+
       // Per-variable state cost from StateVariable (set at registration time
       // by ReservoirLP, BatteryLP, etc.).  Pre-divide by scale_objective so
       // it is consistent with the global penalty.
@@ -688,7 +702,15 @@ std::optional<SDDPMethod::ElasticResult> SDDPMethod::elastic_solve(
 
   // Delegate to BendersCut member (uses work pool when set).
   auto elastic_opts = opts;
-  elastic_opts.crossover = false;
+  // Crossover MUST stay enabled: the feasibility-cut builder reads
+  // row duals (`get_row_price()`) off the fixing equations to
+  // compute Farkas-ray coefficients for the classical Benders fcut
+  // (PLP / Birge-Louveaux convention).  Barrier solutions without
+  // crossover produce interior-point multipliers that are noisy and
+  // non-vertex — they cannot be used as a Farkas ray.  The crossover
+  // step converts to a vertex optimum where row duals are well-
+  // defined and α-free fcuts have non-trivial state coefficients.
+  elastic_opts.crossover = true;
 
   // Scale the elastic penalty by cost_factor so it is consistent with all
   // other LP objective coefficients that go through stage_ecost / cost_factor.

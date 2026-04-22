@@ -69,7 +69,42 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
   // (respects explicit skip/force flags and global skip count).
   const bool do_update = should_dispatch_update_lp(iteration_index);
 
-  for (auto&& [phase_index, _ph] : enumerate<PhaseIndex>(phases)) {
+  // PLP-style backtracking Benders forward pass.
+  // `phase_idx` is an Index (signed), not a PhaseIndex, so we can
+  // decrement on elastic (backtrack to p-1) without signed-underflow
+  // concerns at phase 0.  Each loop iteration is one solve attempt;
+  // the total is capped by `forward_max_attempts` so a pathological
+  // backtrack cycle cannot run forever.  Matches the control flow of
+  // `plp-faseprim.f::faseprim` (CALL AgrFact → IEta = IEta - 1 → CYCLE).
+  const auto num_phases = static_cast<Index>(phases.size());
+  const auto max_attempts =
+      (m_options_.forward_max_attempts > 0 ? m_options_.forward_max_attempts
+                                           : 100);
+  Index phase_idx = 0;
+  int attempts = 0;
+  while (phase_idx < num_phases) {
+    ++attempts;
+    if (attempts > max_attempts) {
+      const auto cur_phase = PhaseIndex {phase_idx};
+      SPDLOG_WARN(
+          "SDDP Forward [i{} s{}]: exceeded forward_max_attempts={} "
+          "(last phase p{}); declaring scene infeasible for this iteration",
+          iteration_index,
+          uid_of(scene_index),
+          max_attempts,
+          uid_of(cur_phase));
+      return std::unexpected(Error {
+          .code = ErrorCode::SolverError,
+          .message = std::format(
+              "{}: forward pass exceeded forward_max_attempts={} "
+              "(last phase p{})",
+              sddp_log("Forward", iteration_index, uid_of(scene_index)),
+              max_attempts,
+              uid_of(cur_phase)),
+      });
+    }
+
+    const auto phase_index = PhaseIndex {phase_idx};
     if (should_stop()) {
       return std::unexpected(Error {
           .code = ErrorCode::SolverError,
@@ -263,25 +298,17 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
           const auto infeas_count =
               m_infeasibility_counter_[scene_index][phase_index];
 
-          // Resolve α column freshly from the registry so we never read
-          // a stale cached index (low_memory reconstruct paths).
-          const auto* prev_alpha_svar = find_alpha_state_var(
-              planning_lp().simulation(), scene_index, prev_phase_index);
-          const auto prev_alpha_col = (prev_alpha_svar != nullptr)
-              ? prev_alpha_svar->col()
-              : ColIndex {unknown_index};
-
-          // Physical-space fcut: rc from the elastic clone, trial from
-          // each link's source StateVariable (populated by the LAST
-          // optimal forward solve of phase p-1, one phase earlier this
-          // same forward pass).  Single read of clone values — the
-          // clone is never consulted after this block.
-          auto feas_cut = build_benders_cut_physical(
-              prev_alpha_col,
-              prev_state.outgoing_links,
-              elastic_result->clone,
-              elastic_result->clone.get_obj_value_physical(),
-              m_options_.cut_coeff_eps);
+          // Physical-space α-free feasibility cut (classical Benders /
+          // PLP convention).  Reads ROW DUALS of the state-fixing
+          // equations installed by `relax_fixed_state_variable`, using
+          // the `fixing_row` indices carried in each `RelaxedVarInfo`.
+          // Crossover is enabled on the elastic solve (see
+          // `SDDPMethod::elastic_solve`) so duals are vertex-quality.
+          auto feas_cut =
+              build_feasibility_cut_physical(prev_state.outgoing_links,
+                                             elastic_result->link_infos,
+                                             elastic_result->clone,
+                                             m_options_.cut_coeff_eps);
           feas_cut.class_name = sddp_alpha_class_name;
           feas_cut.constraint_name = sddp_fcut_constraint_name;
           feas_cut.context = make_iteration_context(uid_of(scene_index),
@@ -298,10 +325,12 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
           // `CutType::Optimality`) still call `free_alpha` at their
           // own cut-install sites.
           {
-            // Feasibility cut: `add_cut_row` skips α release because
-            // cut_type is Feasibility (leaves α pinned at
-            // `sddp_alpha_bootstrap_min`).  The row is added and
-            // recorded for low-memory replay in one call.
+            // α is left untouched on a feasibility cut — whatever
+            // bound state the previous phase's LP has (bootstrap
+            // `[0, 0]`, or freed `[-DblMax, +DblMax]` from a prior
+            // optimality cut) is preserved.  The row-dual fcut
+            // builder produces coefficients purely on state
+            // (source_col) terms, independent of α's state.
             const auto cut_row = add_cut_row(planning_lp(),
                                              scene_index,
                                              prev_phase_index,
@@ -381,26 +410,27 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
           // merely the detection of infeasibility.  obj / opex values are
           // deliberately absent: the clone's objective is a feasibility
           // gap, not a cost, and mixing it into the forward-pass log
-          // would invite misinterpretation.
+          // would invite misinterpretation.  `backtrack→p{}` marks the
+          // phase index we are about to re-solve (p-1) — matches PLP's
+          // "retrocedemos a la etapa anterior" log line in faseprim.
           SPDLOG_INFO(
               "SDDP Forward [i{} s{} p{}]: elastic → fcut on p{} "
-              "(infeas_count={}{}) state=[{}]",
+              "(infeas_count={}{}) state=[{}] backtrack→p{}",
               iteration_index,
               uid_of(scene_index),
               uid_of(phase_index),
               uid_of(prev_phase_index),
               infeas_count,
               mc_added > 0 ? std::format(" +{}mc", mc_added) : "",
-              state_elems);
-          // Do not release prev_sys backend here — the backward pass
-          // will visit phase p-1 shortly and re-ensure_lp_built() itself.
-          //
-          // Two-pass simulation (Pass 1 only): the fcut just installed
-          // lives persistently on prev_li's m_active_cuts_, so Pass 2
-          // sees it on every cell whether backends stayed alive (off)
-          // or were reconstructed from snapshot (compress/rebuild).
-          // No in-forward-pass backward recovery needed — Pass 2 is the
-          // single recovery step.
+              state_elems,
+              uid_of(prev_phase_index));
+
+          // PLP-style backtrack: step phase_idx back to p-1 and re-solve
+          // it with the new fcut.  If p-1 is now infeasible too, the
+          // next iteration of the while loop will install another fcut
+          // on p-2 and recurse — bounded by `forward_max_attempts`.
+          --phase_idx;
+          continue;
         }
         // `elastic_result` (and its clone) is destroyed here.  No value
         // from the Chinneck Phase-1 LP survives this block.
@@ -562,8 +592,6 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
         });
       }
 
-      total_opex += state.forward_objective;
-
       SPDLOG_TRACE(
           "SDDP Forward [i{} s{} p{}]: obj={:.4f} alpha={:.4f}"
           " opex={:.4f}",
@@ -573,7 +601,22 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
           obj,
           alpha_val,
           state.forward_objective);
+
+      // Advance: phase_idx moves forward to p+1.  Backtracking paths
+      // decrement phase_idx instead (see elastic branch above).
+      ++phase_idx;
     }
+  }
+
+  // Sum per-phase opex AFTER the backtracking loop exits successfully
+  // (phase_idx == num_phases).  Under PLP-style backtracking a phase
+  // may be solved multiple times before moving forward, so
+  // accumulating total_opex inside the loop would double-count.  Each
+  // `state.forward_objective` holds the value from that phase's FINAL
+  // (forward-moving) optimal solve — the sum here is the scene's UB
+  // contribution.
+  for (const auto& st : phase_states) {
+    total_opex += st.forward_objective;
   }
 
   // Guard against NaN in total forward-pass cost.  Can happen when

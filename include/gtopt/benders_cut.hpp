@@ -119,6 +119,13 @@ struct RelaxedVarInfo
   ColIndex sup_col {unknown_index};
   /// Undershoot slack col (sdn > 0 → solution > trial)
   ColIndex sdn_col {unknown_index};
+  /// Row index of the elastic fixing equation
+  /// `dep_col + sup_col − sdn_col = trial_value` added to the clone
+  /// by `relax_fixed_state_variable`.  The dual of this row at the
+  /// clone's Phase-1 optimum is the Farkas ray component that becomes
+  /// the feasibility-cut coefficient on `source_col` — matches
+  /// `plp-agrespd.f::AgrElastici` which reads `lp->getRowPrice()[row]`.
+  RowIndex fixing_row {unknown_index};
 
   /// Implicit bool conversion: true iff the column was relaxed.
   // NOLINTNEXTLINE(google-explicit-constructor,hicpp-explicit-conversions)
@@ -250,6 +257,42 @@ void propagate_trial_values(std::span<StateVarLink> links,
     double objective_value_physical,
     double cut_coeff_eps = 0.0) -> SparseRow;
 
+/// Physical-space *feasibility* cut builder — PLP / classical-Benders
+/// convention (no α term).  Produces a pure state-coupling constraint
+///   Σ πᵢ · sᵢ ≥ Σ πᵢ · v̂ᵢ + Σ slack_iᵢ
+/// where πᵢ is the dual of the fixing equation
+/// `dep_col + sup − sdn = v̂` at the elastic clone's Phase-1 optimum,
+/// and `slack_i = x[sup_i] - x[sdn_i]` is the net slack activation
+/// (the amount the trial had to move to become feasible).  Matches
+/// `plp-agrespd.f::AgrElastici` line-for-line (`lp->getRowPrice()[row]`
+/// for the coefficient, `(b[row] + dx) * ray[i]` for the RHS term).
+///
+/// Why no α: a feasibility cut certifies "this trial point leads to
+/// downstream infeasibility" — it carries no lower-bound information
+/// on the expected future cost.  Mixing α into the cut would let the
+/// master drive α negative to "satisfy" the cut trivially (the
+/// LB-frozen-at-0 pathology).
+///
+/// @param links                   State-variable linkage descriptors.
+///                                Each link contributes its
+///                                `source_col` coefficient derived
+///                                from its paired `link_info.fixing_row`.
+/// @param link_infos              RelaxedVarInfo per link (same order
+///                                and size as @p links).  Provides
+///                                `fixing_row` for the row-dual read
+///                                and `sup_col`/`sdn_col` for the
+///                                slack-activation term in the RHS.
+/// @param rc_source               Solved elastic clone — must have
+///                                `crossover = true` so `get_row_price()`
+///                                returns a valid vertex dual.
+/// @param cut_coeff_eps           Drop state-var coefficients below
+///                                this absolute threshold (default 0).
+[[nodiscard]] auto build_feasibility_cut_physical(
+    std::span<const StateVarLink> links,
+    std::span<const RelaxedVarInfo> link_infos,
+    LinearInterface& rc_source,
+    double cut_coeff_eps = 0.0) -> SparseRow;
+
 // ─── Elastic filter ─────────────────────────────────────────────────────────
 
 /// Relax a single fixed state-variable column to its physical source bounds,
@@ -274,9 +317,20 @@ struct ElasticSolveResult
 /// Clone the LP, apply elastic relaxation on fixed state-variable columns,
 /// and solve the clone.  The original LP is never modified.
 ///
+/// α is intentionally outside the state-variable pool this filter
+/// operates on: callers (via `collect_state_variable_links`) already
+/// exclude α from @p links, so α never receives slack variables and
+/// its bounds are left untouched in the clone.  The Chinneck Phase-1
+/// objective zeroing applies to every column including α, but with α
+/// kept at whatever bounds the source LP has (pinned at 0 by
+/// bootstrap or freed by a prior optimality cut), the clone's solve
+/// measures the true feasibility gap on the forward state variables
+/// without α absorbing it.
+///
 /// @param li                The LP to clone (not modified)
 /// @param links             Outgoing state-variable links from the previous
-/// phase
+/// phase.  Must not contain the α column — `collect_state_variable_links`
+/// skips α by class name.
 /// @param penalty           Elastic penalty coefficient for slack variables
 /// @param opts              Solver options for the clone solve
 /// @return Solved elastic clone and per-link slack info, or nullopt if

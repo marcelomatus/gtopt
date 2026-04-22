@@ -154,6 +154,75 @@ auto build_benders_cut_physical(ColIndex alpha_col,
   return row;
 }
 
+auto build_feasibility_cut_physical(std::span<const StateVarLink> links,
+                                    std::span<const RelaxedVarInfo> link_infos,
+                                    LinearInterface& rc_source,
+                                    double cut_coeff_eps) -> SparseRow
+{
+  // Classical Benders feasibility cut (PLP convention): no α column,
+  // pure state-coupling built from **row duals** of the fixing
+  // equations `dep + sup − sdn = v̂` in the elastic clone.  The
+  // dual value π_i at the clone's Phase-1 optimum is the Farkas
+  // ray component for state variable i — matches
+  // `plp-agrespd.f::AgrElastici` which reads
+  // `lp->getRowPrice()[row]`.  Column reduced costs (the old
+  // implementation) are zero for basic state columns and produced
+  // an empty `0 ≥ Z` row when the slack absorbed the gap.
+  //
+  // The RHS term per link is π_i · (v̂_i + slack_i) where
+  // slack_i = x[sup_col] - x[sdn_col] is the net slack activation.
+  // Matches PLP's `rhs[i] = (b[row] + dx) * ray[i]`.
+  //
+  // Crossover must be enabled on the elastic solve (see
+  // `SDDPMethod::elastic_solve`) so `get_row_price()` returns vertex
+  // duals rather than interior-point multipliers.
+  auto row = SparseRow {
+      .lowb = 0.0,
+      .uppb = LinearProblem::DblMax,
+  };
+
+  auto duals = rc_source.get_row_dual();
+  const auto sol_raw = rc_source.get_col_sol_raw();
+
+  const auto n = std::min(links.size(), link_infos.size());
+  for (std::size_t i = 0; i < n; ++i) {
+    const auto& link = links[i];
+    const auto& info = link_infos[i];
+    if (!info.relaxed || info.fixing_row == RowIndex {unknown_index}) {
+      continue;
+    }
+    // Farkas-ray sign convention: PLP's `osi_lp_get_feasible_cut`
+    // stores `ray[i] = -dual[row]`.  Our fixing equation is
+    // `dep + sup − sdn = v̂` (gtopt's convention) vs PLP's
+    // `dep − sp + sn = v̂`, so PLP's sp = our sdn, sn = our sup.
+    // With `pi = -dual`, `dx = sdn − sup` (= PLP's `sp − sn`), the
+    // resulting cut `pi·source ≥ pi·(v̂ + dx)` simplifies to
+    // `source ≥ dep_clone` when sdn is active (clone chose
+    // `dep_clone = v̂ + sdn` to meet downstream feasibility).  That
+    // is the classical "master state must be at least the
+    // clone-feasible dep value" Benders fcut.
+    const double pi = -duals[info.fixing_row];
+    if (std::abs(pi) < cut_coeff_eps) {
+      continue;
+    }
+
+    const double sup_val = (info.sup_col != ColIndex {unknown_index})
+        ? sol_raw[info.sup_col]
+        : 0.0;
+    const double sdn_val = (info.sdn_col != ColIndex {unknown_index})
+        ? sol_raw[info.sdn_col]
+        : 0.0;
+    const double dx = sdn_val - sup_val;
+
+    const double v_hat_phys =
+        (link.state_var != nullptr) ? link.state_var->col_sol_physical() : 0.0;
+    row[link.source_col] = pi;
+    row.lowb += pi * (v_hat_phys + dx);
+  }
+
+  return row;
+}
+
 // ─── Elastic filter ─────────────────────────────────────────────────────────
 
 RelaxedVarInfo relax_fixed_state_variable(
@@ -200,7 +269,7 @@ RelaxedVarInfo relax_fixed_state_variable(
   elastic[sup] = 1.0;
   elastic[sdn] = -1.0;
 
-  li.add_row(elastic);
+  const auto fixing_row = li.add_row(elastic);
 
   SPDLOG_TRACE(
       "SDDP elastic: phase {} col {} relaxed to [{:.2f}, {:.2f}] "
@@ -215,6 +284,7 @@ RelaxedVarInfo relax_fixed_state_variable(
       .relaxed = true,
       .sup_col = sup,
       .sdn_col = sdn,
+      .fixing_row = fixing_row,
   };
 }
 
@@ -238,6 +308,18 @@ auto elastic_filter_solve(const LinearInterface& li,
   for (const auto c : iota_range<ColIndex>(0, cloned.numcols_as_index())) {
     cloned.set_obj_coeff(c, 0.0);
   }
+
+  // α is intentionally NOT pinned / modified in the clone: leave it in
+  // whatever bound state the original LP has (bootstrap `lowb=uppb=0`
+  // on first iter, or `[-DblMax, +DblMax]` after `free_alpha` has fired
+  // from a prior optimality cut).  Pinning α at 0 here would make the
+  // clone infeasible whenever the target phase has an installed
+  // optimality cut `α + Σ rc·s ≥ Z` with positive Z at the current
+  // state, hiding the true feasibility gap on the forward state
+  // variables.  α is never added to `outgoing_links` (see
+  // `collect_state_variable_links`), so no slack variables are ever
+  // created for α — the filter treats α purely as a passive column
+  // that keeps whatever value satisfies the installed cuts.
 
   ElasticSolveResult result;
   result.link_infos.reserve(links.size());

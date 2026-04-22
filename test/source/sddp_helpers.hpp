@@ -1859,3 +1859,244 @@ inline auto make_two_reservoir_forced_infeasibility_planning() -> Planning
           },
   };
 }
+
+/// 10-phase fixture designed to exercise the PLP-style forward-pass
+/// backtracking: phase 7 is infeasible on the greedy forward trial
+/// (single linear sweep), but the feasibility cascade reaches a
+/// phase (phase 1 or 2) where re-solving under the fcut ladder
+/// yields a feasible solution, after which the pass moves forward
+/// again.  If backtracking is absent, the forward pass declares the
+/// scene infeasible at phase 7 and no recovery is possible.
+///
+/// Mechanism:
+///   * 10 phases, 1 block per phase (1 h).
+///   * One reservoir.  `eini = 120`, `emax = 200`, per-stage
+///     `emin = 0` EXCEPT `emin[phase 7-uid-index] = 180` — phase 7
+///     must end with at least 180 hm³ of stored volume.
+///   * Constant demand = 20 MW / block met by a cheap hydro
+///     generator (`gcost = 1`, cap 30) and an expensive thermal
+///     backup (`gcost = 100`, cap 30).  Without further constraints
+///     the hydro gen drains the reservoir greedily at rate 20
+///     hm³/phase.  Natural inflow of 10 hm³/phase partially offsets
+///     (net -10 per phase).
+///
+/// Greedy forward trajectory (no backtracking):
+///   R_0 = 120, R_1 = 110, R_2 = 100, R_3 = 90, R_4 = 80,
+///   R_5 = 70, R_6 = 60, R_7 = 50 (drain 20, inflow 10 each).
+/// Phase 7's `emin = 180` demand is far above R_7 = 50 →
+/// infeasibility.  Without backtracking the only recovery is
+/// demand-fail penalty (disabled for this fixture), so the pass
+/// fails.
+///
+/// Backtrack cascade — each fcut lifts the required prev-phase
+/// end-of-phase state by the forced net drain (= 10 hm³):
+///   fcut on p6: R_6 >= 170.  Greedy 60.  Re-solve infeasible.
+///   fcut on p5: R_5 >= 160.  Greedy 70.  Infeasible.
+///   fcut on p4: R_4 >= 150.  Greedy 80.  Infeasible.
+///   fcut on p3: R_3 >= 140.  Greedy 90.  Infeasible.
+///   fcut on p2: R_2 >= 130.  Greedy 100. Infeasible.
+///   fcut on p1: R_1 >= 120.  Greedy 110. Infeasible.
+///   fcut on p0: **no predecessor**.  If the backtrack bottoms out
+///               at phase 0 with no earlier phase to cut on, the
+///               scene is declared infeasible — same as the
+///               pre-backtracking behaviour at phase 0.
+///
+/// The trajectory above cascades all the way to phase 0 — which
+/// means the design is too tight to demonstrate backtracking
+/// recovery.  To make it converge at phase 1 (the user-requested
+/// target), the fixture gives phase 1 additional slack via a
+/// one-shot boost inflow: `inflow[stage 0] = 80` (vs 10 elsewhere).
+/// That lifts R_1's upper bound to 190 (120 − drain_1 + 80 =
+/// 180 when drain_1 = 20), giving phase 1 enough slack to satisfy
+/// any fcut R_1 >= X for X ≤ 190.
+inline auto make_backtracking_recovery_planning() -> Planning
+{
+  constexpr int num_phases = 10;
+  constexpr int blocks_per_phase = 1;
+  constexpr int total_blocks = num_phases * blocks_per_phase;
+  constexpr int phase_seven_stage_idx = 6;  // 0-based: phase 7 = stage 6
+
+  auto block_array =
+      make_uniform_blocks(static_cast<std::size_t>(total_blocks), 1.0);
+  auto stage_array =
+      make_uniform_stages(static_cast<std::size_t>(num_phases),
+                          static_cast<std::size_t>(blocks_per_phase));
+  auto phase_array =
+      make_single_stage_phases(static_cast<std::size_t>(num_phases));
+
+  // Per-stage emin: zero everywhere except phase 7 requiring ≥ 180.
+  std::vector<double> emin_per_stage(num_phases, 0.0);
+  emin_per_stage[phase_seven_stage_idx] = 180.0;
+
+  // Per-stage inflow: 10 everywhere except phase 1 which gets a
+  // one-shot boost of 80 to give p1 enough slack to satisfy the
+  // cascading fcut that eventually lands on R_1 >= 120.
+  // Shape is scenario × stage × block (3D) because Flow::discharge
+  // is `STBRealFieldSched`.  One scenario, `num_phases` stages,
+  // 1 block per stage.
+  std::vector<std::vector<double>> inflow_schedule_2d;
+  inflow_schedule_2d.reserve(num_phases);
+  for (int st = 0; st < num_phases; ++st) {
+    inflow_schedule_2d.push_back(std::vector<double> {st == 0 ? 80.0 : 10.0});
+  }
+  std::vector<std::vector<std::vector<double>>> inflow_schedule_3d;
+  inflow_schedule_3d.push_back(std::move(inflow_schedule_2d));
+
+  const Array<Bus> bus_array = {{
+      .uid = Uid {1},
+      .name = "b1",
+  }};
+  const Array<Generator> generator_array = {
+      {
+          .uid = Uid {1},
+          .name = "hydro_gen",
+          .bus = Uid {1},
+          .gcost = 1.0,
+          .capacity = 30.0,
+      },
+      {
+          .uid = Uid {2},
+          .name = "thermal_gen",
+          .bus = Uid {1},
+          .gcost = 100.0,
+          .capacity = 30.0,
+      },
+  };
+  const Array<Demand> demand_array = {{
+      .uid = Uid {1},
+      .name = "load1",
+      .bus = Uid {1},
+      .capacity = 20.0,
+  }};
+  const Array<Junction> junction_array = {
+      {.uid = Uid {1}, .name = "j_up"},
+      {.uid = Uid {2}, .name = "j_down", .drain = true},
+  };
+  const Array<Waterway> waterway_array = {{
+      .uid = Uid {1},
+      .name = "ww1",
+      .junction_a = Uid {1},
+      .junction_b = Uid {2},
+      .fmin = 0.0,
+      .fmax = 100.0,
+  }};
+  const Array<Reservoir> reservoir_array = {{
+      .uid = Uid {1},
+      .name = "rsv1",
+      .junction = Uid {1},
+      .capacity = 200.0,
+      .emin = emin_per_stage,
+      .emax = 200.0,
+      .eini = 120.0,
+      .fmin = -1000.0,
+      .fmax = +1000.0,
+      .flow_conversion_rate = 1.0,
+  }};
+  Array<Flow> flow_array;
+  {
+    Flow flow_obj;
+    flow_obj.uid = Uid {1};
+    flow_obj.name = "inflow";
+    flow_obj.direction = 1;
+    flow_obj.junction = Uid {1};
+    flow_obj.discharge = STBRealFieldSched {inflow_schedule_3d};
+    flow_array.push_back(std::move(flow_obj));
+  }
+  const Array<Turbine> turbine_array = {{
+      .uid = Uid {1},
+      .name = "tur1",
+      .waterway = Uid {1},
+      .generator = Uid {1},
+      .production_factor = 1.0,
+  }};
+
+  Simulation simulation = {
+      .block_array = std::move(block_array),
+      .stage_array = std::move(stage_array),
+      .scenario_array = {{.uid = Uid {1}}},
+      .phase_array = std::move(phase_array),
+  };
+
+  PlanningOptions options;
+  // demand_fail_cost intentionally LARGE so demand slack is expensive
+  // enough that the solver prefers hydro dispatch (and therefore
+  // triggers the reservoir-emin infeasibility at phase 7 on the greedy
+  // forward sweep).  Still finite so the problem is well-posed.
+  options.demand_fail_cost = 10'000.0;
+  options.use_single_bus = OptBool {true};
+  options.scale_objective = OptReal {1.0};
+  options.output_format = DataFormat::csv;
+  options.output_compression = CompressionCodec::uncompressed;
+
+  return Planning {
+      .options = std::move(options),
+      .simulation = std::move(simulation),
+      .system =
+          {
+              .name = "sddp_backtrack_10phase",
+              .bus_array = bus_array,
+              .demand_array = demand_array,
+              .generator_array = generator_array,
+              .junction_array = junction_array,
+              .waterway_array = waterway_array,
+              .flow_array = flow_array,
+              .reservoir_array = reservoir_array,
+              .turbine_array = turbine_array,
+          },
+  };
+}
+
+/// Infeasible-by-construction twin of `make_backtracking_recovery_planning`.
+///
+/// Identical geometry and constraints EXCEPT the phase-1 inflow boost
+/// is removed — inflow is a constant 10 hm³/phase everywhere.  The
+/// cascading fcut chain from phase 7 now bottoms out at phase 1
+/// requiring `R_1 >= 120`, but phase 1's LP can only deliver
+/// `R_1 = eini - drain_1 + inflow_1 = 120 - drain_1 + 10`, i.e.,
+/// `R_1_max = 130 iff drain_1 = 0` — just enough to satisfy the
+/// fcut.  To push the fixture firmly INfeasible we tighten phase 7's
+/// `emin` from 180 to 220 (above emax = 200), guaranteeing that no
+/// amount of backtracking can satisfy the target: even pinning
+/// R_1 at the tightest feasible value and propagating forward with
+/// drain = 0 everywhere leaves R_7 = 130 + 6·10 = 190 < 220.
+///
+/// Expected forward-pass behaviour under backtracking:
+///   phase 7 infeasible → fcut cascade → eventually reaches phase 0
+///   with no predecessor → scene declared infeasible (returns
+///   Error).  The `forward_max_attempts` cap is an orthogonal
+///   safety net — this case exits the cascade "legitimately" at
+///   phase 0 before running out of attempts.
+inline auto make_backtracking_no_recovery_planning() -> Planning
+{
+  auto planning = make_backtracking_recovery_planning();
+
+  // Remove the phase-1 inflow boost: every stage gets the normal
+  // 10 hm³/phase, so phase 1's LP cannot accumulate enough water to
+  // satisfy the cascading fcut that lands on it (R_1 >= 120 vs a
+  // max-achievable R_1 = 120 - drain_1 + 10 ≤ 130).  Even a feasible
+  // re-solve at phase 1 produces a trial that is still too low for
+  // phase 7's tightened target.
+  //
+  // Keep the single-reservoir, single-waterway, single-flow layout.
+  // Shape matches `STBRealFieldSched`: scenario × stage × block.
+  std::vector<std::vector<double>> uniform_inflow_2d;
+  uniform_inflow_2d.reserve(10);
+  for (int st = 0; st < 10; ++st) {
+    uniform_inflow_2d.push_back(std::vector<double> {10.0});
+  }
+  std::vector<std::vector<std::vector<double>>> uniform_inflow_3d;
+  uniform_inflow_3d.push_back(std::move(uniform_inflow_2d));
+  planning.system.flow_array[0].discharge =
+      STBRealFieldSched {uniform_inflow_3d};
+
+  // Tighten phase 7's `emin` above the reservoir's `emax` so the
+  // target is physically unreachable regardless of upstream state.
+  // The `emin` schedule is a plain per-stage vector; index 6 is
+  // phase 7.
+  auto& emin_var = planning.system.reservoir_array[0].emin.value();
+  auto& emin_vec = std::get<std::vector<double>>(emin_var);
+  emin_vec[6] = 220.0;  // > emax = 200 ⇒ strictly unreachable
+
+  planning.system.name = "sddp_backtrack_10phase_infeasible";
+  return planning;
+}
