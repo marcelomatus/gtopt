@@ -604,14 +604,22 @@ void SDDPMethod::collect_state_variable_links(SceneIndex scene_index)
           continue;
         }
 
+        // `source_low` / `source_upp` are documented as *physical*
+        // bounds (see `StateVarLink` in benders_cut.hpp), so scale by
+        // `var_scale` at capture time.  The `relax_fixed_state_variable`
+        // consumer then applies them via the physical setter
+        // `set_col_low` / `set_col_upp`, which divides by the dependent
+        // column's own `col_scale` — scale-agnostic across phases even
+        // when `var_scale(source) != col_scale(dependent)`.
+        const double svar_scale = svar.var_scale();
         state.outgoing_links.push_back(StateVarLink {
             .source_col = svar.col(),
             .dependent_col = dep.col(),
             .source_phase_index = phase_index,
             .target_phase_index = dep.phase_index(),
-            .source_low = col_lo[svar.col()],
-            .source_upp = col_hi[svar.col()],
-            .var_scale = svar.var_scale(),
+            .source_low = col_lo[svar.col()] * svar_scale,
+            .source_upp = col_hi[svar.col()] * svar_scale,
+            .var_scale = svar_scale,
             .scost = link_scost,
             // Raw pointer into the simulation's state-variable registry
             // (flat_map, stable for the full solver lifetime — same

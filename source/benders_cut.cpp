@@ -44,11 +44,30 @@ void propagate_trial_values(std::span<StateVarLink> links,
 void propagate_trial_values(std::span<StateVarLink> links,
                             LinearInterface& target_li) noexcept
 {
+  // Cross-phase propagation must go through **physical space** because
+  // the source phase's `var_scale` and the target phase's
+  // `col_scale(dependent_col)` are not guaranteed to match.  Writing
+  // `state_var->col_sol()` (which is `phys / var_scale_source`)
+  // straight to `set_col_low_raw(dep)` silently pins the dependent
+  // column at `phys / var_scale_source × col_scale_dep` — off by a
+  // factor of `col_scale_dep / var_scale_source` whenever those two
+  // scales disagree.  Diagnosed on plp_2_years/juan_iplp: RALCO
+  // phase-2 sini ended up at 73.82 LP (= 233 phys / 3.162²) when the
+  // correct raw bound was 73.82 LP = 233 phys / 3.162.
+  //
+  // The fix: read the physical trial value via `col_sol_physical()`
+  // and pin the dependent bound via the physical setter, which
+  // internally divides by the dependent column's own `col_scale`.
   for (auto& link : links) {
-    link.trial_value =
-        (link.state_var != nullptr) ? link.state_var->col_sol() : 0.0;
-    target_li.set_col_low_raw(link.dependent_col, link.trial_value);
-    target_li.set_col_upp_raw(link.dependent_col, link.trial_value);
+    const double v_phys =
+        (link.state_var != nullptr) ? link.state_var->col_sol_physical() : 0.0;
+    target_li.set_col_low(link.dependent_col, v_phys);
+    target_li.set_col_upp(link.dependent_col, v_phys);
+    // Keep `trial_value` in dependent-column raw LP units so
+    // downstream cut-builders (which compare against the bound
+    // snapshot in `StateVarLink::source_{low,upp}` also captured in
+    // raw) see a self-consistent value.
+    link.trial_value = v_phys / target_li.get_col_scale(link.dependent_col);
   }
 }
 
@@ -239,9 +258,15 @@ RelaxedVarInfo relax_fixed_state_variable(
     return {};
   }
 
-  // Relax to the raw LP bounds captured from the source column
-  li.set_col_low_raw(dep, link.source_low);
-  li.set_col_upp_raw(dep, link.source_upp);
+  // Relax to the physical source-column bounds captured into
+  // `StateVarLink` at SDDPMethod link-collection time.  Using the
+  // physical setter `set_col_low` / `set_col_upp` makes this path
+  // scale-agnostic: if `col_scale(source)` disagrees with
+  // `col_scale(dependent)`, the physical setter divides by the
+  // dependent column's own scale, pinning the correct raw LP
+  // bound regardless of cross-phase scale drift.
+  li.set_col_low(dep, link.source_low);
+  li.set_col_upp(dep, link.source_upp);
 
   // Chinneck Phase-1 feasibility LP: unit-cost slack variables.  The
   // caller (`elastic_filter_solve`) has zeroed every original
