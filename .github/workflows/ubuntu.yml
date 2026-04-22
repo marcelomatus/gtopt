@@ -89,12 +89,16 @@ jobs:
           key: ${{ github.workflow }}-${{ env.ACTIVE_COMPILER }}
           restore-keys: |
             ${{ github.workflow }}-${{ env.ACTIVE_COMPILER }}-
-          max-size: 2G
+          max-size: 4G
 
+      # CPM cache key hashes only the files that drive dependency resolution
+      # (CPM.cmake and the top-level CMakeLists with CPMAddPackage calls).
+      # Previously used **/CMakeLists.txt / **/*.cmake which invalidated on
+      # every unrelated CMake edit (63 files in the repo).
       - uses: actions/cache@v5
         with:
           path: "**/cpm_modules"
-          key: ${{ github.workflow }}-${{ env.ACTIVE_COMPILER }}-cpm-modules-${{ hashFiles('**/CMakeLists.txt', '**/*.cmake') }}
+          key: ${{ github.workflow }}-${{ env.ACTIVE_COMPILER }}-cpm-modules-${{ hashFiles('cmake/CPM.cmake', 'cmake/tools.cmake', 'CMakeLists.txt') }}
           restore-keys: |
             ${{ github.workflow }}-${{ env.ACTIVE_COMPILER }}-cpm-modules-
 
@@ -328,18 +332,20 @@ jobs:
         uses: hendrikmuhs/ccache-action@v1.2.22
         with:
           key: ${{ github.workflow }}-clang-tidy
+          # Fall back to the clang build cache (not the workflow-default gcc
+          # one) — clang-tidy only uses clang-compatible object hashes.
           restore-keys: |
             ${{ github.workflow }}-clang-tidy-
-            ${{ github.workflow }}-${{ env.ACTIVE_COMPILER }}-
-          max-size: 2G
+            ${{ github.workflow }}-clang-
+          max-size: 4G
 
       - uses: actions/cache@v5
         with:
           path: "**/cpm_modules"
-          key: ${{ github.workflow }}-clang-tidy-cpm-modules-${{ hashFiles('**/CMakeLists.txt', '**/*.cmake') }}
+          key: ${{ github.workflow }}-clang-tidy-cpm-modules-${{ hashFiles('cmake/CPM.cmake', 'cmake/tools.cmake', 'CMakeLists.txt') }}
           restore-keys: |
             ${{ github.workflow }}-clang-tidy-cpm-modules-
-            ${{ github.workflow }}-${{ env.ACTIVE_COMPILER }}-cpm-modules-
+            ${{ github.workflow }}-clang-cpm-modules-
 
       - name: install clang (full — clang-tidy required)
         uses: ./.github/actions/install-clang

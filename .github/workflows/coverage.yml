@@ -56,14 +56,18 @@ jobs:
         uses: hendrikmuhs/ccache-action@v1.2.22
         with:
           key: coverage-${{ inputs.compiler || 'clang' }}
+          # Fall back to the latest Ubuntu-workflow cache: object-flag
+          # mismatch means no exact hits, but header parse-state partial
+          # hits still shave time off the weekly cold start.
           restore-keys: |
             coverage-${{ inputs.compiler || 'clang' }}-
-          max-size: 2G
+            Ubuntu-${{ inputs.compiler || 'clang' }}-
+          max-size: 4G
 
       - uses: actions/cache@v5
         with:
           path: "**/cpm_modules"
-          key: coverage-${{ inputs.compiler || 'clang' }}-cpm-modules-${{ hashFiles('**/CMakeLists.txt', '**/*.cmake') }}
+          key: coverage-${{ inputs.compiler || 'clang' }}-cpm-modules-${{ hashFiles('cmake/CPM.cmake', 'cmake/tools.cmake', 'CMakeLists.txt') }}
           restore-keys: |
             coverage-${{ inputs.compiler || 'clang' }}-cpm-modules-
             Ubuntu-${{ inputs.compiler || 'clang' }}-cpm-modules-
