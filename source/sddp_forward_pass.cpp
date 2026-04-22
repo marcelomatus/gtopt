@@ -257,7 +257,8 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
           auto& prev_sys = planning_lp().system(scene_index, prev_phase_index);
           const auto& prev_state = phase_states[prev_phase_index];
           prev_sys.ensure_lp_built();
-          auto& prev_li = prev_sys.linear_interface();
+          // prev_sys.linear_interface() no longer accessed directly here —
+          // `add_cut_row` routes through the prev-phase system internally.
 
           const auto infeas_count =
               m_infeasibility_counter_[scene_index][phase_index];
@@ -297,8 +298,16 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
           // `CutType::Optimality`) still call `free_alpha` at their
           // own cut-install sites.
           {
-            const auto cut_row =
-                prev_li.add_row(feas_cut, m_options_.cut_coeff_eps);
+            // Feasibility cut: `add_cut_row` skips α release because
+            // cut_type is Feasibility (leaves α pinned at
+            // `sddp_alpha_bootstrap_min`).  The row is added and
+            // recorded for low-memory replay in one call.
+            const auto cut_row = add_cut_row(planning_lp(),
+                                             scene_index,
+                                             prev_phase_index,
+                                             CutType::Feasibility,
+                                             feas_cut,
+                                             m_options_.cut_coeff_eps);
             store_cut(scene_index,
                       prev_phase_index,
                       feas_cut,
@@ -306,9 +315,17 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
                       cut_row);
           }
 
-          // Chinneck mode also emits per-bound cuts, but only on the IIS
-          // subset (chinneck_filter_solve cleared sup_col/sdn_col on the
-          // non-essential links so build_multi_cuts skips them naturally).
+          // Chinneck mode emits per-bound cuts on the IIS subset (the
+          // essential links identified by `chinneck_filter_solve`),
+          // but only after `multi_cut_threshold` cumulative
+          // infeasibility events at this (scene, phase) — keeping the
+          // IIS-filtered fcut alone for longer before falling back to
+          // the more aggressive (and physically riskier) bound cuts.
+          // Those bound cuts set `source_col {<=,>=} dep_val_phys`
+          // where `dep_val_phys` comes from the Chinneck-relaxed LP
+          // and may exceed the source phase's physically reachable
+          // set — observed on juan/gtopt_iplp as phase-0 infeasibility
+          // after ~3 iterations of mcut accumulation on reservoir 1.
           //
           // Comparison is `>=`: a multi_cut_threshold of N means "switch
           // on the Nth fcut event at this (scene, phase)".  The counter
@@ -316,7 +333,6 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
           // counts *cumulative* events, not consecutive ones.
           const bool use_multi_cut =
               (m_options_.elastic_filter_mode == ElasticFilterMode::multi_cut)
-              || (m_options_.elastic_filter_mode == ElasticFilterMode::chinneck)
               || (m_options_.multi_cut_threshold == 0)
               || (m_options_.multi_cut_threshold > 0
                   && infeas_count >= m_options_.multi_cut_threshold);
@@ -330,7 +346,11 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
                                                         iteration_index,
                                                         infeas_count));
             for (auto& mc : mc_cuts) {
-              const auto cut_row = prev_li.add_row(mc);
+              const auto cut_row = add_cut_row(planning_lp(),
+                                               scene_index,
+                                               prev_phase_index,
+                                               CutType::Feasibility,
+                                               mc);
               store_cut(scene_index,
                         prev_phase_index,
                         mc,

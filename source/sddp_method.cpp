@@ -498,6 +498,51 @@ void free_alpha(PlanningLP& planning_lp,
                                 LinearProblem::DblMax);
 }
 
+// Free-function implementation declared in <gtopt/sddp_types.hpp>.
+// Consolidates the "only release α for cuts that actually reference α"
+// gate used by every optimality-cut install site.  Prevents an
+// optimality cut whose α coefficient was filtered at save time (e.g.
+// by `cut_coeff_eps`) or a pure state-coupling cut from releasing
+// the bootstrap pin, which would let α drift negative under the
+// bidirectional α bootstrap (observed on juan/gtopt_iplp as LB=0).
+void free_alpha_for_cut(PlanningLP& planning_lp,
+                        SceneIndex scene_index,
+                        PhaseIndex phase_index,
+                        const SparseRow& cut)
+{
+  const auto* alpha_svar =
+      find_alpha_state_var(planning_lp.simulation(), scene_index, phase_index);
+  if (alpha_svar == nullptr) {
+    return;  // α not registered on this cell — nothing to free.
+  }
+  if (!cut.cmap.contains(alpha_svar->col())) {
+    return;  // cut does not reference α — leave the bootstrap pin.
+  }
+  free_alpha(planning_lp, scene_index, phase_index);
+}
+
+// Free-function implementation declared in <gtopt/sddp_types.hpp>.
+// One unified cut-install entry point: releases α iff optimality +
+// cut references α, then adds the row via LinearInterface::add_cut_row
+// (which also records the cut for low-memory replay).  Callers that
+// also persist into SDDPCutStore invoke `SDDPMethod::store_cut`
+// separately with the returned RowIndex — `store_cut` no longer
+// re-records for replay to avoid double-registering.
+RowIndex add_cut_row(PlanningLP& planning_lp,
+                     SceneIndex scene_index,
+                     PhaseIndex phase_index,
+                     CutType cut_type,
+                     const SparseRow& cut,
+                     double eps)
+{
+  if (cut_type == CutType::Optimality) {
+    free_alpha_for_cut(planning_lp, scene_index, phase_index, cut);
+  }
+  return planning_lp.system(scene_index, phase_index)
+      .linear_interface()
+      .add_cut_row(cut, eps);
+}
+
 void SDDPMethod::collect_state_variable_links(SceneIndex scene_index)
 {
   const auto& sim = planning_lp().simulation();
@@ -837,9 +882,14 @@ void SDDPMethod::store_cut(SceneIndex scene_index,
                            CutType type,
                            RowIndex row)
 {
-  // Track cut for low_memory reconstruction
-  planning_lp().system(scene_index, src_phase_index).record_cut_row(cut);
-
+  // No `record_cut_row` call here — the unified free function
+  // `add_cut_row` (declared in <gtopt/sddp_types.hpp>) is the single
+  // owner of low-memory replay registration, and every cut-install
+  // site now routes through it.  `store_cut` is pure SDDP-level
+  // persistence (pushes into `m_cut_store_` for later CSV/JSON save,
+  // rolling-window prune, and cut-file replay).  Recording twice
+  // would silently register the same row on `m_active_cuts_`,
+  // inflating replay cost without changing LP semantics.
   m_cut_store_.store_cut(scene_index,
                          src_phase_index,
                          cut,
@@ -966,14 +1016,16 @@ auto SDDPMethod::backward_pass_single_phase(SceneIndex scene_index,
       uid_of(scene_index), uid_of(phase_index), iteration_index, cut_offset);
   const auto dt_build = elapsed_s(t_build);
 
-  // Release α's bootstrap pin on the source phase before the cut
-  // lands — the cut itself bounds α, and keeping the `lowb = uppb
-  // = 0` equality would clip any legitimately-nonzero future-cost
-  // value.
-  free_alpha(scene_index, prev_phase_index);
-
+  // Unified `add_cut_row`: releases α on `prev_phase_index` iff the
+  // cut references α, then adds + records the row for low-memory
+  // replay in one call.
   const auto t_add_row = Clock::now();
-  const auto cut_row = src_li.add_row(cut, ceps);
+  const auto cut_row = gtopt::add_cut_row(planning_lp(),
+                                          scene_index,
+                                          prev_phase_index,
+                                          CutType::Optimality,
+                                          cut,
+                                          ceps);
   const auto dt_add_row = elapsed_s(t_add_row);
 
   const auto t_store = Clock::now();

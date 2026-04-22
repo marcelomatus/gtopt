@@ -201,7 +201,7 @@ TEST_CASE("make_planning_method SDDP wiring snapshot")  // NOLINT
     CHECK(so.elastic_penalty == doctest::Approx(1e2));
     CHECK(so.elastic_filter_mode == ElasticFilterMode::chinneck);
     CHECK(so.cut_coeff_eps == doctest::Approx(1e-6));
-    CHECK(so.multi_cut_threshold == 3);
+    CHECK(so.multi_cut_threshold == 100);
     CHECK(!so.apertures.has_value());
     CHECK(so.aperture_timeout == doctest::Approx(15.0));
     CHECK(so.save_aperture_lp == false);

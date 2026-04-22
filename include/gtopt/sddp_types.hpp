@@ -40,6 +40,7 @@
 #include <gtopt/benders_cut.hpp>
 #include <gtopt/iteration.hpp>
 #include <gtopt/planning_enums.hpp>
+#include <gtopt/sddp_cut_store_enums.hpp>
 #include <gtopt/sddp_enums.hpp>
 #include <gtopt/solver_options.hpp>
 #include <gtopt/state_variable.hpp>
@@ -90,6 +91,12 @@ constexpr auto error_lp_fmt = "error_s{}_p{}_i{}";
 /// Uses the same `s{}_p{}_i{}` short form as `error_lp_fmt` for
 /// filename-layout uniformity.
 constexpr auto debug_lp_fmt = "gtopt_s{}_p{}_i{}";
+/// Debug LP file pattern for aperture clones: scene UID, target phase
+/// UID, aperture UID, iteration index.  Used by the aperture backward
+/// pass when `lp_debug` is enabled and the current (scene, phase)
+/// falls inside the `lp_debug_*_min/max` filter window.  The aperture
+/// UID disambiguates the N clones built from the same target phase.
+constexpr auto debug_aperture_lp_fmt = "gtopt_aperture_s{}_p{}_a{}_i{}";
 /// Sentinel file name: if this file exists in the output directory, the
 /// SDDP solver stops gracefully after the current iteration and saves
 /// cuts.  Created externally (e.g. by the webservice stop endpoint).
@@ -219,15 +226,22 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   double cut_coeff_eps {0.0};
 
   /// Forward-pass infeasibility counter threshold for automatic switching
-  /// from single_cut to multi_cut.  When the forward pass has encountered
-  /// infeasibility at (scene, phase) more than this many times without
-  /// recovery, the backward-pass infeasibility handler switches to
-  /// multi_cut mode for that (scene, phase).
+  /// from single_cut / chinneck-fcut-only to multi_cut.  When the forward
+  /// pass has encountered infeasibility at (scene, phase) this many times
+  /// without recovery, the elastic branch additionally installs
+  /// `build_multi_cuts` bound cuts alongside the Benders fcut.
   ///  = 0  always use multi_cut for any infeasibility (force multi_cut).
-  ///  > 0  switch to multi_cut after the counter exceeds this threshold.
+  ///  > 0  switch to multi_cut after the counter reaches this threshold.
   ///  < 0  never auto-switch (disabled; use explicit mode only).
-  /// Default: 10.
-  int multi_cut_threshold {10};
+  /// Default: 100.  Raised from 10 because `build_multi_cuts` emits
+  /// `source_col {<=,>=} dep_val_phys` bound cuts from the Chinneck
+  /// Phase-1 LP, whose `dep_val_phys` may exceed the source phase's
+  /// physically reachable set (observed on juan/gtopt_iplp after ~3
+  /// iterations: phase 0 gets `reservoir_energy_1 >= 330.33` while its
+  /// physical cap is ~207.78 + small inflow).  Keeping the IIS-filtered
+  /// fcut alone for longer avoids the structurally-infeasible cuts that
+  /// mcut mode can install before the master has found a good trial.
+  int multi_cut_threshold {100};
 
   /// File format for cut and state variable I/O (csv or json).
   /// CSV uses structured keys (class:var:uid=coeff) and is backward
@@ -622,6 +636,41 @@ struct SDDPIterationResult
 void free_alpha(PlanningLP& planning_lp,
                 SceneIndex scene_index,
                 PhaseIndex phase_index);
+
+/// Release α's bootstrap pin at `(scene, phase)` ONLY when @p cut
+/// actually references α — i.e., α is registered on the cell AND
+/// the cut's sparse coefficient map contains the α column.  No-op
+/// otherwise.  Meant to be called at every optimality-cut install
+/// site (backward-pass aperture expected-cut, aperture bcut fallback,
+/// and cut-file loaders for CSV/JSON optimality cuts) so a cut that
+/// does not constrain α — e.g. α coefficient filtered by
+/// `cut_coeff_eps` at save time, or a pure state-coupling cut —
+/// does not prematurely release the bootstrap pin.  Feasibility cuts
+/// should never call this (they carry no lower-bound information on
+/// the future-cost variable); callers must gate on cut type upstream.
+void free_alpha_for_cut(PlanningLP& planning_lp,
+                        SceneIndex scene_index,
+                        PhaseIndex phase_index,
+                        const SparseRow& cut);
+
+/// Install an SDDP cut (feasibility or optimality) on the LP backend
+/// at `(scene, phase)`.  Single unified entry point for every cut
+/// install site:
+///   1. For optimality cuts that reference α, release α's bootstrap
+///      pin via `free_alpha_for_cut`.  Feasibility cuts, and
+///      optimality cuts with no α term, leave the pin intact.
+///   2. Add the row to the live LP backend and record it for
+///      low-memory replay via `LinearInterface::add_cut_row`.
+/// Callers that also persist the cut into `SDDPCutStore` should call
+/// `SDDPMethod::store_cut(...)` afterwards using the returned
+/// `RowIndex` — `store_cut` no longer re-records the cut for replay
+/// (that now happens once inside this function).
+[[nodiscard]] RowIndex add_cut_row(PlanningLP& planning_lp,
+                                   SceneIndex scene_index,
+                                   PhaseIndex phase_index,
+                                   CutType cut_type,
+                                   const SparseRow& cut,
+                                   double eps = 0.0);
 
 /// Register the α (future-cost) column on every (scene, phase)
 /// cell of @p planning_lp that does not already have it.  Each α

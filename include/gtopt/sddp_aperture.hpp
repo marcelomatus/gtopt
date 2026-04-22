@@ -35,6 +35,7 @@
 #include <gtopt/enum_option.hpp>
 #include <gtopt/label_maker.hpp>
 #include <gtopt/linear_interface.hpp>
+#include <gtopt/lp_debug_writer.hpp>
 #include <gtopt/phase.hpp>
 #include <gtopt/scene.hpp>
 #include <gtopt/sddp_common.hpp>
@@ -164,6 +165,15 @@ using ApertureSubmitFunc = std::function<std::future<ApertureCutResult>(
 /// @param aperture_cache   Cache of pre-built aperture LP data
 /// @param iteration        Current SDDP iteration index
 /// @param cut_coeff_eps    Epsilon below which cut coefficients are zeroed
+/// @param lp_debug_writer  Optional writer.  When non-null, each aperture
+///                         clone's LP is dumped to disk (pre-solve) under
+///                         the writer's configured directory using
+///                         `sddp_file::debug_aperture_lp_fmt`.  Lets the
+///                         `lp_debug` option extend to aperture backward-
+///                         pass clones — callers are responsible for
+///                         applying the `lp_debug_scene/phase_min/max`
+///                         filter window and passing nullptr when the
+///                         current (scene, phase) is outside it.
 [[nodiscard]] auto solve_apertures_for_phase(
     SceneIndex scene_index,
     PhaseIndex phase_index,
@@ -186,6 +196,7 @@ using ApertureSubmitFunc = std::function<std::future<ApertureCutResult>(
     bool save_aperture_lp = false,
     const ApertureDataCache& aperture_cache = {},
     IterationIndex iteration_index = {},
-    double cut_coeff_eps = 0.0) -> std::optional<SparseRow>;
+    double cut_coeff_eps = 0.0,
+    LpDebugWriter* lp_debug_writer = nullptr) -> std::optional<SparseRow>;
 
 }  // namespace gtopt

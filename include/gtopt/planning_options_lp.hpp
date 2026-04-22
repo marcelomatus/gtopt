@@ -612,11 +612,20 @@ public:
    *         Counter is persistent across iterations (no reset on
    *         successful solves), so the threshold counts *total* fcut
    *         events at a (scene, phase), not consecutive ones.  Reduced
-   *         from 10 → 3: with the persistent counter and the chinneck
-   *         IIS option available, switching to per-bound multi-cuts on
-   *         the 3rd hit is the right balance between cut tightness and
-   *         LP size growth (PLP CEN-65 convention). */
-  static constexpr int default_sddp_multi_cut_threshold = 3;
+   *         Default: 100.  Under `ElasticFilterMode::chinneck` (the
+   *         gtopt default), the IIS-filtered fcut alone is usually
+   *         enough to cut off the bad trial over subsequent
+   *         iterations.  `build_multi_cuts` can install
+   *         `source_col {<=,>=} dep_val_phys` bound cuts whose RHS
+   *         (`dep_val_phys` from the Chinneck Phase-1 LP) may exceed
+   *         the source phase's physically reachable set, making the
+   *         master LP infeasible (observed on juan/gtopt_iplp:
+   *         reservoir mcut required end-of-phase energy ≥ 330.33 with
+   *         a physical cap of ~207.78 + limited inflow).  Raising the
+   *         threshold defers the risky bound cuts until many
+   *         infeasibility events have accumulated at the same (scene,
+   *         phase), signalling that the fcut alone is not sufficient. */
+  static constexpr int default_sddp_multi_cut_threshold = 100;
   /** @brief Default stationary-gap tolerance.
    * When the relative gap change over the look-back window is below this
    * value, the gap is considered stationary.  Used by the stationary and

@@ -155,11 +155,18 @@ auto SDDPMethod::install_aperture_backward_cut(
   // resolve leaves src_li non-optimal, back it out and fall through to
   // the bcut path.  `expected_cut` is consumed on the success path.
   if (expected_cut.has_value()) {
-    // Release α's bootstrap pin on the source phase so the aperture
-    // expected-cut can represent arbitrary future-cost values.
-    free_alpha(scene_index, src_phase_index);
+    // Unified SDDP-level `add_cut_row`: releases α on `src_phase_index`
+    // (the phase where the cut lives — not the target phase) iff the
+    // cut references α, then adds the row via
+    // `LinearInterface::add_cut_row` which also records for low-memory
+    // replay.  No separate `record_cut_row` call needed.
     const auto t_add_row = Clock::now();
-    const auto cut_row = src_li.add_row(*expected_cut, ceps);
+    const auto cut_row = add_cut_row(planning_lp(),
+                                     scene_index,
+                                     src_phase_index,
+                                     CutType::Optimality,
+                                     *expected_cut,
+                                     ceps);
     dt_add_row += elapsed_s(t_add_row);
 
     // Re-solve src_li only when there is a further backward step that
@@ -263,14 +270,17 @@ auto SDDPMethod::install_aperture_backward_cut(
       uid_of(scene_index), uid_of(phase_index), iteration_index, cut_offset);
   dt_cut_build += elapsed_s(t_build);
 
-  // Release α's bootstrap pin.  Idempotent if the expected_cut
-  // path above already did so.  This is an optimality cut; it
-  // certifies a tighter lower bound on the true future cost and
-  // α must be freed to take the implied value.
-  free_alpha(scene_index, src_phase_index);
-
+  // Unified `add_cut_row`: releases α on `src_phase_index` iff the
+  // cut references α, then adds + records the row for low-memory
+  // replay.  Idempotent α release if the expected_cut path already
+  // fired.
   const auto t_add_row = Clock::now();
-  const auto cut_row = src_li.add_row(fallback_cut, ceps);
+  const auto cut_row = add_cut_row(planning_lp(),
+                                   scene_index,
+                                   src_phase_index,
+                                   CutType::Optimality,
+                                   fallback_cut,
+                                   ceps);
   dt_add_row += elapsed_s(t_add_row);
 
   const auto t_store = Clock::now();
@@ -394,6 +404,21 @@ auto SDDPMethod::backward_pass_aperture_phase_impl(
       ? src_alpha_svar->col()
       : ColIndex {unknown_index};
 
+  // Extend `lp_debug` to aperture clones: pass the debug writer only
+  // when the current (scene, phase) falls inside the configured
+  // filter window.  Aperture clones are then dumped via
+  // `sddp_file::debug_aperture_lp_fmt` under `log_directory`.
+  auto* const aperture_lp_debug =
+      (m_options_.lp_debug
+       && in_lp_debug_range(uid_of(scene_index),
+                            uid_of(phase_index),
+                            m_options_.lp_debug_scene_min,
+                            m_options_.lp_debug_scene_max,
+                            m_options_.lp_debug_phase_min,
+                            m_options_.lp_debug_phase_max))
+      ? &m_lp_debug_writer_
+      : nullptr;
+
   auto expected_cut = solve_apertures_for_phase(
       scene_index,
       phase_index,
@@ -416,7 +441,8 @@ auto SDDPMethod::backward_pass_aperture_phase_impl(
       m_options_.save_aperture_lp,
       m_aperture_cache_,
       iteration_index,
-      m_options_.cut_coeff_eps);
+      m_options_.cut_coeff_eps,
+      aperture_lp_debug);
 
   const auto& target_state = phase_states[phase_index];
   cuts_added += install_aperture_backward_cut(scene_index,
@@ -566,6 +592,18 @@ auto SDDPMethod::backward_pass_with_apertures(SceneIndex scene_index,
         ? src_alpha_svar->col()
         : ColIndex {unknown_index};
 
+    // Extend `lp_debug` to aperture clones (see the loop-variant above).
+    auto* const aperture_lp_debug =
+        (m_options_.lp_debug
+         && in_lp_debug_range(uid_of(scene_index),
+                              uid_of(phase_index),
+                              m_options_.lp_debug_scene_min,
+                              m_options_.lp_debug_scene_max,
+                              m_options_.lp_debug_phase_min,
+                              m_options_.lp_debug_phase_max))
+        ? &m_lp_debug_writer_
+        : nullptr;
+
     auto expected_cut = solve_apertures_for_phase(
         scene_index,
         phase_index,
@@ -588,7 +626,8 @@ auto SDDPMethod::backward_pass_with_apertures(SceneIndex scene_index,
         m_options_.save_aperture_lp,
         m_aperture_cache_,
         iteration_index,
-        m_options_.cut_coeff_eps);
+        m_options_.cut_coeff_eps,
+        aperture_lp_debug);
 
     if (!expected_cut.has_value()) {
       infeasible_phases.push_back(uid_of(phase_index));
