@@ -249,6 +249,53 @@ add_sddp_case(sddp_hydro_3phase_iter50_rebuild sddp_hydro_3phase.json
   CASE_DIR sddp_hydro_3phase MAX_ITERATIONS 50 LOW_MEMORY rebuild
   GOLDEN golden_iter50.json)
 
+# ---- Cut hot-start round-trip ----
+# End-to-end guard for the cut-I/O + α-free pipeline:
+#
+#   save:  run SDDP iter=50 to convergence.  The default SDDP options
+#          populate `cuts_output_file = <output_dir>/cuts/sddp_cuts.csv`
+#          and save the converged cut set there at run end (see
+#          `source/planning_method.cpp` + `source/sddp_iteration.cpp`).
+#          No extra `--set` needed on the save side.
+#   load:  run SDDP iter=0 (pure sim pass, no training) on the same
+#          system, with `sddp_options.cuts_input_file=<save-side csv>`
+#          and `sddp_options.recovery_mode=cuts`.  The loader must
+#            (a) consume α pre-registered by
+#                `register_alpha_variables` on every phase,
+#            (b) call `free_alpha(…)` per installed cut to release the
+#                `lowb = uppb = 0` bootstrap pin, and
+#            (c) install cuts with a unique `IterationContext` per row
+#                so the metadata-based dup detector in
+#                `LinearInterface::add_row` doesn't fire.
+#   validate: the sim pass must reproduce the converged objective
+#             (UB = 323 100) — golden_iter50.json is shared with the
+#             direct iter=50 run above.
+#
+# The load test CTest-DEPENDS on the save test so the shared CSV
+# exists before the load step runs.
+set(_hotstart_cuts
+    "${CMAKE_CURRENT_BINARY_DIR}/test_output/sddp_hydro_3phase_hotstart_save_sddp/cuts/sddp_cuts.csv")
+
+add_sddp_case(sddp_hydro_3phase_hotstart_save sddp_hydro_3phase.json
+  CASE_DIR sddp_hydro_3phase MAX_ITERATIONS 50
+  GOLDEN golden_iter50.json)
+
+add_sddp_case(sddp_hydro_3phase_hotstart_load sddp_hydro_3phase.json
+  CASE_DIR sddp_hydro_3phase MAX_ITERATIONS 0
+  RECOVER
+  EXTRA_SET
+    "sddp_options.cuts_input_file=${_hotstart_cuts}"
+    "sddp_options.recovery_mode=cuts"
+  GOLDEN golden_iter50_hotstart.json)
+
+# The load run reads the CSV produced by the save run — enforce
+# ordering via CTest dependency on the save-side validate step
+# (which in turn depends on save-side solve).  Without this, a
+# parallel ctest run could launch both tests concurrently and the
+# load step would see an empty/missing cuts file.
+set_tests_properties(e2e_sddp_hydro_3phase_hotstart_load_sddp_solve
+  PROPERTIES DEPENDS e2e_sddp_hydro_3phase_hotstart_save_sddp_validate)
+
 if(GTOPT_SLOW_TESTS)
   add_sddp_case(gtopt_case_2y gtopt_case_2y.json
     MAX_ITERATIONS 1 TIMEOUT 600 LABELS slow)

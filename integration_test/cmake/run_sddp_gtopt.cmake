@@ -45,6 +45,15 @@ if(DEFINED LOW_MEMORY AND NOT "${LOW_MEMORY}" STREQUAL ""
   list(APPEND _low_memory_args "--low-memory" "${LOW_MEMORY}")
 endif()
 
+# --recover CLI flag (pass-through from add_sddp_case(RECOVER ON)).
+# Without this flag `recovery_mode` is force-pinned to `none` in
+# main_options.hpp, so setting `sddp_options.recovery_mode=...`
+# via `--set` is not enough to actually load cuts on hot-start.
+set(_recover_args "")
+if(DEFINED RECOVER AND RECOVER)
+  list(APPEND _recover_args "--recover")
+endif()
+
 # Create a clean output directory
 if(EXISTS "${OUTPUT_DIR}")
   file(REMOVE_RECURSE "${OUTPUT_DIR}")
@@ -63,6 +72,7 @@ execute_process(
     --set output_directory=${OUTPUT_DIR}
     --set sddp_options.max_iterations=${SDDP_MAX_ITERATIONS}
     ${_low_memory_args}
+    ${_recover_args}
     ${_extra_set_args}
   WORKING_DIRECTORY "${WORKING_DIR}"
   RESULT_VARIABLE exit_code

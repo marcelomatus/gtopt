@@ -21,7 +21,7 @@
 
 function(add_sddp_case case_name system_json)
   cmake_parse_arguments(
-    ARG ""
+    ARG "RECOVER"
     "MAX_ITERATIONS;LOW_MEMORY;TIMEOUT;CASE_DIR;GOLDEN"
     "ALLOWED_EXIT_CODES;LABELS;EXTRA_SET"
     ${ARGN})
@@ -82,6 +82,10 @@ function(add_sddp_case case_name system_json)
   string(REPLACE ";" "\\;" _escaped_extra_set "${_extra_set}")
 
   # ── Solve step ──────────────────────────────────────────────────────────
+  set(_recover_arg "")
+  if(ARG_RECOVER)
+    set(_recover_arg "-DRECOVER=ON")
+  endif()
   add_test(
     NAME e2e_${case_name}_sddp_solve
     COMMAND ${CMAKE_COMMAND}
@@ -93,6 +97,7 @@ function(add_sddp_case case_name system_json)
       -DLOW_MEMORY=${ARG_LOW_MEMORY}
       -DALLOWED_EXIT_CODES=${_escaped_exit_codes}
       -DEXTRA_SET=${_escaped_extra_set}
+      ${_recover_arg}
       -P ${CMAKE_SCRIPTS_DIR}/run_sddp_gtopt.cmake
     WORKING_DIRECTORY "${case_dir}"
   )
