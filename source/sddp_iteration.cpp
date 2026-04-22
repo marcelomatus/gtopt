@@ -251,8 +251,16 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
       ir.backward_pass_s = bwd.elapsed_s;
       if (bwd.has_feasibility_issue) {
         ir.feasibility_issue = true;
-        SPDLOG_INFO("SDDP Backward [i{}]: backward pass has feasibility issues",
-                    iteration_index);
+        // "LP-level infeasibility" — aperture solves failed at
+        // some (scene, phase) cells and the fallback bcut was
+        // used.  NOT to be confused with feasibility cuts: the
+        // backward pass never installs any (all cuts it produces
+        // are optimality cuts).  Feasibility cuts are emitted
+        // only by the forward pass's elastic branch.
+        SPDLOG_INFO(
+            "SDDP Backward [i{}]: backward pass had LP-level "
+            "infeasibility (aperture fallbacks used)",
+            iteration_index);
       }
       ir.iteration_s =
           std::chrono::duration<double>(std::chrono::steady_clock::now()

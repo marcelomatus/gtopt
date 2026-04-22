@@ -201,13 +201,16 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   double scale_alpha {0};
   CutSharingMode cut_sharing {CutSharingMode::none};  ///< Cut sharing mode
 
-  /// Elastic filter mode: how to handle backward-pass infeasibility.
-  /// `single_cut` adds a single Benders feasibility cut to the
-  /// previous phase.  `multi_cut` adds the same cut plus one
-  /// bound-constraint cut per activated slack variable.
-  /// `chinneck` (default) emits per-IIS-bound multi-cuts after a
-  /// Chinneck-style elastic IIS filter pass (see ElasticFilterMode
-  /// in sddp_enums.hpp for the algorithm).
+  /// Elastic filter mode: how the FORWARD pass emits feasibility
+  /// cuts when a phase LP is infeasible at the trial state.  Only
+  /// the forward pass has an elastic branch; the backward pass
+  /// produces optimality cuts exclusively.
+  ///   `single_cut`: one Benders feasibility cut on the previous phase.
+  ///   `multi_cut` : the single_cut plus one bound-constraint cut
+  ///                 per activated slack variable.
+  ///   `chinneck` (default): per-IIS-bound multi-cuts after a
+  ///                 Chinneck-style elastic IIS filter pass; see
+  ///                 ElasticFilterMode in sddp_enums.hpp.
   ElasticFilterMode elastic_filter_mode {ElasticFilterMode::chinneck};
 
   /// Absolute tolerance for filtering tiny Benders cut coefficients.

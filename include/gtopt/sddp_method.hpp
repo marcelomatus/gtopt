@@ -23,14 +23,21 @@
  *   propagate from source columns in phase t to dependent columns in
  *   phase t+1.
  *
- * **Backward pass** – starting from the last phase, optimality (Benders)
- *   cuts are generated from the reduced costs of the dependent state
- *   variables and added to the previous phase's LP.  An elastic filter
- *   ensures feasibility when the trial point from the forward pass would
- *   otherwise make the downstream LP infeasible.  Feasibility issues
- *   propagate backward iteratively: if adding a cut makes phase k
- *   infeasible, the solver builds a feasibility cut for phase k-1, and
- *   continues all the way to phase 0 if necessary.
+ * **Backward pass** – starting from the last phase and walking back to
+ *   phase 1, the solver generates a Benders optimality cut at each
+ *   step from the reduced costs of the dependent state variables and
+ *   adds it to the previous phase's LP.  Every non-last phase
+ *   receives exactly one optimality cut per backward iteration (cuts
+ *   land on phases 0..T-2; phase T-1 produces no outgoing cut).
+ *
+ *   The backward pass contains **no elastic branch and installs no
+ *   feasibility cuts**.  Forward-pass infeasibility is handled at
+ *   forward-pass time (`sddp_forward_pass.cpp`): when the original
+ *   LP at phase k is infeasible at the trial state, the elastic
+ *   filter (Chinneck Phase-1) runs on a clone, emits a feasibility
+ *   cut on phase k-1, and returns the clone's solution.  The
+ *   backward pass then treats phase k's cached solution as trial
+ *   data and builds a standard optimality cut on phase k-1.
  *
  * **Multi-scene support** – each scene is an independent trajectory (like
  *   a PLP scenario).  Scenes are solved in parallel via the work pool.

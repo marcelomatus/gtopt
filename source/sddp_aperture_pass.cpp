@@ -226,14 +226,30 @@ auto SDDPMethod::install_aperture_backward_cut(
   }
 
   // Bcut path: aperture failed, or the expected cut broke optimality.
-  // Built from cached state-variable reduced costs
-  // (`StateVariable::reduced_cost_physical()`), which are refreshed by
-  // each forward pass via `capture_state_variable_values()` and never
-  // touched by the backward pass.  A valid Benders underestimator of
-  // the future-cost function — adding it to an optimal src_li cannot
-  // produce infeasibility.  Physical-space builder: `add_row` folds
-  // `col_scales` + per-row row-max equilibration internally, so no
-  // post-hoc `rescale_benders_cut` pass is needed.
+  //
+  // INVARIANT — the BACKWARD pass only produces optimality cuts.
+  //   There is NO elastic branch in the backward pass.
+  //   There are NO feasibility cuts in the backward pass.
+  //   The bcut fallback is ALWAYS a `CutType::Optimality` cut.
+  //
+  // The cut is a standard Benders underestimator
+  //   α_{k-1} ≥ Z + Σ rc_i · (s_{k-1} - v̂_i)
+  // valid for the true future-cost function at phase k-1.  The rc
+  // values are read off the state-variable registry (populated by
+  // `capture_state_variable_values` during the forward solve of
+  // phase k) and Z is `target_state.forward_full_obj_physical`.
+  //
+  // `free_alpha` fires as usual — that is exactly the point of an
+  // optimality cut: it certifies a tighter lower bound on α and
+  // releases the bootstrap floor.  Feasibility cuts (if any) are
+  // installed from the FORWARD pass when its elastic branch fires
+  // (`sddp_forward_pass.cpp`), never from here.
+  //
+  // DO NOT reclassify this cut as `Feasibility` based on what the
+  // forward pass did at phase k.  Doing so masks real Benders
+  // optimality cuts and breaks the SDDP invariant that every
+  // non-last phase receives an optimality cut per backward
+  // iteration.
   const auto t_build = Clock::now();
   auto fallback_cut =
       build_benders_cut_physical(src_alpha_col,
@@ -247,8 +263,10 @@ auto SDDPMethod::install_aperture_backward_cut(
       uid_of(scene_index), uid_of(phase_index), iteration_index, cut_offset);
   dt_cut_build += elapsed_s(t_build);
 
-  // Release α's bootstrap pin (idempotent if the expected_cut path
-  // above already did so).
+  // Release α's bootstrap pin.  Idempotent if the expected_cut
+  // path above already did so.  This is an optimality cut; it
+  // certifies a tighter lower bound on the true future cost and
+  // α must be freed to take the implied value.
   free_alpha(scene_index, src_phase_index);
 
   const auto t_add_row = Clock::now();
