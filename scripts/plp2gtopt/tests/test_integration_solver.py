@@ -47,7 +47,7 @@ def _make_opts_hydro_4b(tmp_path: Path, case_name: str = "gtopt_hydro_4b") -> di
         "output_dir": out_dir,
         "output_file": out_dir / f"{case_name}.json",
         "hydrologies": "1,2,3",
-        "solver_type": "sddp",
+        "method": "sddp",
         "num_apertures": "3",
         "last_stage": -1,
         "last_time": -1,
@@ -163,12 +163,25 @@ def _read_solution_csv(results_dir: Path) -> dict[str, int | float | str]:
 
 
 def _read_output(results_dir: Path, component: str, name: str) -> pd.DataFrame | None:
-    """Read a parquet or csv output from results_dir/component/name.{parquet,csv}."""
-    parquet_path = results_dir / component / f"{name}.parquet"
-    csv_path = results_dir / component / f"{name}.csv"
-    if parquet_path.exists():
+    """Read a parquet or csv output from results_dir/component/name.{parquet,csv}.
+
+    Handles the hive-partitioned parquet layout
+    ``{name}.parquet/scene=<N>/phase=<M>/part.parquet`` and CSV shards
+    ``{name}_s*_p*.csv`` alongside the legacy single-file layout.
+    """
+    comp_dir = results_dir / component
+    parquet_path = comp_dir / f"{name}.parquet"
+    # pd.read_parquet accepts both a single file and a hive-partitioned
+    # directory; the dataset reader surfaces ``scene`` and ``phase`` as
+    # partition columns automatically.
+    if parquet_path.is_dir() or parquet_path.is_file():
         return pd.read_parquet(parquet_path)
-    if csv_path.exists():
+
+    csv_shards = sorted(comp_dir.glob(f"{name}_s*_p*.csv"))
+    if csv_shards:
+        return pd.concat([pd.read_csv(f) for f in csv_shards], ignore_index=True)
+    csv_path = comp_dir / f"{name}.csv"
+    if csv_path.is_file():
         return pd.read_csv(csv_path)
     return None
 
@@ -323,7 +336,7 @@ def test_hydro_4b_sddp_conversion(tmp_path):
 def test_hydro_4b_mono_conversion(tmp_path):
     """plp_hydro_4b monolithic: 1 scene covering all scenarios, 1 phase."""
     opts = _make_opts_hydro_4b(tmp_path, "gtopt_hydro_4b_mono")
-    opts["solver_type"] = "mono"
+    opts["method"] = "mono"
     convert_plp_case(opts)
 
     data = json.loads(Path(opts["output_file"]).read_text(encoding="utf-8"))
@@ -431,7 +444,7 @@ def test_hydro_4b_gtopt_mono_solve(tmp_path, gtopt_bin):
     """plp_hydro_4b: convert to monolithic gtopt and solve if binary is found."""
     # Convert PLP → gtopt (monolithic for deterministic solve)
     opts = _make_opts_hydro_4b(tmp_path, "gtopt_hydro_4b_solve")
-    opts["solver_type"] = "mono"
+    opts["method"] = "mono"
     convert_plp_case(opts)
 
     json_file = Path(opts["output_file"])
@@ -483,7 +496,7 @@ def test_hydro_4b_gtopt_mono_solve(tmp_path, gtopt_bin):
 def test_hydro_4b_gtopt_reservoir_trajectory(tmp_path, gtopt_bin):
     """plp_hydro_4b: verify reservoir vini/vfin trajectory across stages."""
     opts = _make_opts_hydro_4b(tmp_path, "gtopt_hydro_4b_traj")
-    opts["solver_type"] = "mono"
+    opts["method"] = "mono"
     convert_plp_case(opts)
 
     json_file = Path(opts["output_file"])
@@ -525,7 +538,7 @@ def test_hydro_4b_gtopt_reservoir_trajectory(tmp_path, gtopt_bin):
 def test_hydro_4b_gtopt_marginal_costs(tmp_path, gtopt_bin):
     """plp_hydro_4b: marginal costs should be non-negative and bounded."""
     opts = _make_opts_hydro_4b(tmp_path, "gtopt_hydro_4b_cmg")
-    opts["solver_type"] = "mono"
+    opts["method"] = "mono"
     convert_plp_case(opts)
 
     json_file = Path(opts["output_file"])
@@ -565,7 +578,7 @@ def test_hydro_4b_plp_vs_gtopt(tmp_path, gtopt_bin):
 
     # --- Run gtopt ---
     opts = _make_opts_hydro_4b(tmp_path, "gtopt_hydro_4b_compare")
-    opts["solver_type"] = "mono"
+    opts["method"] = "mono"
     convert_plp_case(opts)
 
     json_file = Path(opts["output_file"])
@@ -651,7 +664,7 @@ _MIN_1BUS_GEN_COST = 50.0  # $/MWh
 def test_min_1bus_gtopt_solve(tmp_path, gtopt_bin):
     """plp_min_1bus: convert PLP → gtopt and verify optimal solution."""
     opts = _make_opts(_PLPMin1Bus, tmp_path, "gtopt_min_1bus")
-    opts["solver_type"] = "mono"
+    opts["method"] = "mono"
     convert_plp_case(opts)
 
     json_file = Path(opts["output_file"])
@@ -689,7 +702,7 @@ def test_min_1bus_gtopt_solve(tmp_path, gtopt_bin):
 def test_min_1bus_gtopt_generation_cost(tmp_path, gtopt_bin):
     """plp_min_1bus: objective value matches expected generation cost."""
     opts = _make_opts(_PLPMin1Bus, tmp_path, "gtopt_min_1bus_cost")
-    opts["solver_type"] = "mono"
+    opts["method"] = "mono"
     convert_plp_case(opts)
 
     json_file = Path(opts["output_file"])
@@ -725,7 +738,7 @@ def test_min_2bus_gtopt_solve(tmp_path, gtopt_bin):
         pytest.skip(f"plp_min_2bus case not found at {_PLPMin2Bus}")
 
     opts = _make_opts(_PLPMin2Bus, tmp_path, "gtopt_min_2bus")
-    opts["solver_type"] = "mono"
+    opts["method"] = "mono"
     convert_plp_case(opts)
 
     json_file = Path(opts["output_file"])
@@ -752,3 +765,108 @@ def test_min_2bus_gtopt_solve(tmp_path, gtopt_bin):
             assert total_fail == pytest.approx(0.0, abs=0.1), (
                 f"Unexpected load shedding: {col}={total_fail}"
             )
+
+
+# ---------------------------------------------------------------------------
+# Cascade: plp_hydro_4b PLP → gtopt cascade pipeline integration tests
+# ---------------------------------------------------------------------------
+
+
+def _make_opts_hydro_4b_cascade(
+    tmp_path: Path, case_name: str = "gtopt_hydro_4b_cascade"
+) -> dict:
+    """Build conversion options for cascade solve of plp_hydro_4b."""
+    out_dir = tmp_path / case_name
+    out_dir.mkdir(parents=True, exist_ok=True)
+    return {
+        "input_dir": _PLPHydro4b,
+        "output_dir": out_dir,
+        "output_file": out_dir / f"{case_name}.json",
+        "hydrologies": "1,2,3",
+        "method": "cascade",
+        "num_apertures": "3",
+        "last_stage": -1,
+        "last_time": -1,
+        "compression": "zstd",
+        "probability_factors": None,
+        "discount_rate": 0.0,
+        "management_factor": 0.0,
+        "pasada_mode": "flow-turbine",
+        "pasada_hydro": True,
+        "max_iterations": 60,
+        "model_options": {"use_kirchhoff": False},
+    }
+
+
+@pytest.mark.integration
+def test_hydro_4b_cascade_conversion(tmp_path):
+    """plp_hydro_4b cascade: JSON has method=cascade and 3-level cascade_options."""
+    opts = _make_opts_hydro_4b_cascade(tmp_path)
+    convert_plp_case(opts)
+
+    data = json.loads(Path(opts["output_file"]).read_text(encoding="utf-8"))
+    options = data["options"]
+
+    # Method must be cascade
+    assert options["method"] == "cascade"
+
+    # cascade_options must be present with 3 levels
+    cascade = options["cascade_options"]
+    assert "level_array" in cascade
+    levels = cascade["level_array"]
+    assert len(levels) == 3
+
+    # Level 0: uninodal
+    assert levels[0]["name"] == "uninodal"
+    assert levels[0]["model_options"]["use_single_bus"] is True
+
+    # Level 1: transport (no kirchhoff, no losses)
+    assert levels[1]["name"] == "transport"
+    assert levels[1]["model_options"]["use_single_bus"] is False
+    assert levels[1]["model_options"]["use_kirchhoff"] is False
+    assert levels[1]["model_options"]["use_line_losses"] is False
+
+    # Level 2: full network
+    assert levels[2]["name"] == "full_network"
+
+    # Iteration budget: level 0 gets full PLP budget (60); 1/4 for levels 1 & 2.
+    assert levels[0]["sddp_options"]["max_iterations"] == 60
+    assert levels[1]["sddp_options"]["max_iterations"] == 15
+    assert levels[2]["sddp_options"]["max_iterations"] == 15
+
+    # Transitions on levels 1 and 2 inherit targets
+    assert levels[1]["transition"]["inherit_targets"] == -1
+    assert levels[2]["transition"]["inherit_targets"] == -1
+
+    # SDDP structure: 3 scenarios → 3 scenes, 3 stages → 3 phases
+    sim = data["simulation"]
+    assert len(sim["scenario_array"]) == 3
+    assert len(sim["scene_array"]) == 3
+    assert len(sim["stage_array"]) == 3
+    assert len(sim["phase_array"]) == 3
+
+
+@pytest.mark.integration
+def test_hydro_4b_cascade_gtopt_solve(tmp_path, gtopt_bin):
+    """plp_hydro_4b: convert to cascade, run gtopt, verify it runs."""
+    opts = _make_opts_hydro_4b_cascade(tmp_path, "gtopt_hydro_4b_cascade_solve")
+    convert_plp_case(opts)
+
+    json_file = Path(opts["output_file"])
+    case_dir = json_file.parent
+
+    rc, stderr = _run_gtopt(gtopt_bin, case_dir, json_file.stem, timeout=180)
+    assert rc == 0, f"gtopt cascade failed with rc={rc}: {stderr}"
+
+    # Check solution exists and has valid status
+    results_dir = case_dir / "results"
+    sol = _read_solution_csv(results_dir)
+    # status 0=optimal, 3=iteration_limit — both acceptable for cascade
+    assert sol.get("status") in (0, 3), (
+        f"Solver status={sol.get('status')} (expected 0 or 3)"
+    )
+
+    # Output directories must be populated
+    assert (results_dir / "Generator").exists(), "No Generator output dir"
+    assert (results_dir / "Demand").exists(), "No Demand output dir"
+    assert (results_dir / "solution.csv").exists(), "No solution.csv"

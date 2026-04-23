@@ -240,17 +240,26 @@ def _records_to_df(records: list[dict], sheet_name: str) -> pd.DataFrame:
 def _flatten_options(planning_options: dict) -> list[tuple[str, Any]]:
     """Flatten the planning options dict to (key, value) pairs for the options sheet.
 
-    Nested dicts (like sddp_options) are flattened with their sub-keys.
+    Nested dicts (like ``sddp_options``) are flattened with their sub-keys.
+    Deeply nested dicts (e.g. ``cascade_options.levels[i].model_options``)
+    are JSON-stringified so Excel can render them in one cell.
     """
+    import json as _json  # noqa: PLC0415
+
     pairs: list[tuple[str, Any]] = []
     for key, val in planning_options.items():
         if isinstance(val, dict):
             for sub_key, sub_val in val.items():
-                if sub_val is not None:
+                if sub_val is None:
+                    continue
+                if isinstance(sub_val, (dict, list)):
+                    pairs.append((sub_key, _json.dumps(sub_val)))
+                else:
                     pairs.append((sub_key, sub_val))
-        else:
-            if val is not None:
-                pairs.append((key, val))
+        elif isinstance(val, list):
+            pairs.append((key, _json.dumps(val)))
+        elif val is not None:
+            pairs.append((key, val))
     return pairs
 
 
@@ -368,7 +377,7 @@ def _add_plpinfo_sheet(ws: Any, planning: dict, options: dict, styles: dict) -> 
         ("Key Options", "HEADING"),
         ("option", "value", "", "TABLE_HEADER"),
         ("input_dir", input_dir, "", "TABLE"),
-        ("solver_type", str(options.get("solver_type", "sddp")), "", "TABLE"),
+        ("method", str(options.get("method", "cascade")), "", "TABLE"),
         ("hydrologies", str(options.get("hydrologies", "1")), "", "TABLE"),
         ("discount_rate", str(options.get("discount_rate", 0.0)), "", "TABLE"),
         ("use_single_bus", str(mo.get("use_single_bus", False)), "", "TABLE"),

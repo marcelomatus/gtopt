@@ -31,15 +31,16 @@ public:
   BlockLP() = default;
 
   explicit constexpr BlockLP(
-      Block pblock, BlockIndex index = BlockIndex {unknown_index}) noexcept
+      Block pblock,
+      BlockIndex block_index = BlockIndex {unknown_index}) noexcept
       : m_block_ {std::move(pblock)}
-      , m_index_ {index}
+      , m_index_ {block_index}
   {
   }
 
   [[nodiscard]] constexpr auto uid() const noexcept -> BlockUid
   {
-    return BlockUid {m_block_.uid};
+    return make_uid<Block>(m_block_.uid);
   }
 
   [[nodiscard]] constexpr auto duration() const noexcept -> double

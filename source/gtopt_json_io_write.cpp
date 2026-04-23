@@ -52,8 +52,7 @@ std::expected<void, std::string> write_json_output(const Planning& planning,
                     ex.what()));
   }
 
-  spdlog::info(std::format("  Write system json file time {:.3f}s",
-                           sw.elapsed().count()));
+  spdlog::info("  Write system json file time {:.3f}s", sw.elapsed().count());
   return {};
 }
 

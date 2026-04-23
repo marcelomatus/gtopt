@@ -9,7 +9,9 @@
  * builds LP variables and constraints for energy conversion rate coupling.
  */
 
+#include <gtopt/battery_lp.hpp>
 #include <gtopt/converter_lp.hpp>
+#include <gtopt/demand_lp.hpp>
 #include <gtopt/generator_lp.hpp>
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/output_context.hpp>
@@ -30,7 +32,10 @@ bool ConverterLP::add_to_lp(SystemContext& sc,
                             const StageLP& stage,
                             LinearProblem& lp)
 {
-  if (!CapacityBase::add_to_lp(sc, scenario, stage, lp)) [[unlikely]] {
+  static constexpr auto ampl_name = ClassName.snake_case();
+
+  if (!CapacityBase::add_to_lp(sc, ampl_name, scenario, stage, lp)) [[unlikely]]
+  {
     return false;
   }
 
@@ -124,6 +129,20 @@ bool ConverterLP::add_to_lp(SystemContext& sc,
   capacity_rows[st_key] = std::move(crows);
   generation_rows[st_key] = std::move(grows);
   demand_rows[st_key] = std::move(drows);
+
+  // Register converter attributes as aliases onto the associated
+  // generator / demand per-block column maps (lifetime: generator &
+  // demand outlive this call and the SimulationLP registry).
+  //   discharge -> generator.generation
+  //   charge    -> demand.load
+  if (!gen_cols.empty()) {
+    sc.add_ampl_variable(
+        ampl_name, uid(), BatteryLP::DischargeName, scenario, stage, gen_cols);
+  }
+  if (!demand_cols.empty()) {
+    sc.add_ampl_variable(
+        ampl_name, uid(), BatteryLP::ChargeName, scenario, stage, demand_cols);
+  }
 
   return true;
 }

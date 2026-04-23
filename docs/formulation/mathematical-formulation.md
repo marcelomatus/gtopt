@@ -21,14 +21,22 @@
    - [5.2 Generator Constraints](#52-generator-constraints)
    - [5.3 Generator Profile Constraints](#53-generator-profile-constraints)
    - [5.4 Demand Constraints](#54-demand-constraints)
+   - [5.4 bis Demand Profile Constraints](#54-bis-demand-profile-constraints)
    - [5.5 Transmission Line Constraints](#55-transmission-line-constraints)
    - [5.6 Kirchhoff Voltage Law (DC OPF)](#56-kirchhoff-voltage-law-dc-opf)
    - [5.7 Battery / Energy Storage Constraints](#57-battery--energy-storage-constraints)
    - [5.8 Converter Constraints](#58-converter-constraints)
    - [5.9 Reserve Constraints](#59-reserve-constraints)
    - [5.10 Hydro Cascade Constraints](#510-hydro-cascade-constraints)
+   - [5.10 bis Hydro Pump](#510-bis-hydro-pump)
+   - [5.10 ter Reservoir Discharge Limit](#510-ter-reservoir-discharge-limit)
    - [5.11 Capacity Expansion Constraints](#511-capacity-expansion-constraints)
    - [5.12 User Constraints](#512-user-constraints)
+   - [5.13 Water Rights (FlowRight and VolumeRight)](#513-water-rights-flowright-and-volumeright)
+   - [5.14 LNG Terminal](#514-lng-terminal)
+   - [5.15 Unit Commitment (3-bin)](#515-unit-commitment-3-bin)
+   - [5.16 Simple Commitment](#516-simple-commitment)
+   - [5.17 Inertia Zone and Provision](#517-inertia-zone-and-provision)
 6. [Scaling and Solver Options](#6-scaling-and-solver-options)
    - [6.1 Objective Scaling](#61-objective-scaling)
    - [6.2 Voltage Angle Scaling](#62-voltage-angle-scaling)
@@ -112,6 +120,15 @@ scenarios, stages, and blocks.
 | $\mathcal{U}$ | Set of turbines, indexed by $u$ |
 | $\mathcal{F}$ | Set of fixed flows (inflows/releases), indexed by $f$ |
 | $\mathcal{I}$ | Set of filtrations (seepage), indexed by $i$ |
+| $\mathcal{H}$ | Set of hydro pumps, indexed by $h$ |
+| $\mathcal{DL}$ | Set of reservoir discharge-limit elements, indexed by $\ell$ |
+| $\mathcal{FR}$ | Set of flow rights (flow-based water rights), indexed by $i$ |
+| $\mathcal{VR}$ | Set of volume rights (volume-based water rights), indexed by $o$ |
+| $\mathcal{LNG}$ | Set of LNG terminals, indexed by $\tau$ |
+| $\mathcal{UC}$ | Set of generators with 3-bin unit commitment, indexed by $g$ |
+| $\mathcal{SC}$ | Set of generators with simple commitment, indexed by $g$ |
+| $\mathcal{IZ}$ | Set of inertia zones, indexed by $z$ |
+| $\mathcal{IP}$ | Set of inertia provisions, indexed by $p$ |
 | $\mathcal{G}_n$ | Generators connected to bus $n$ |
 | $\mathcal{D}_n$ | Demands connected to bus $n$ |
 | $\mathcal{L}_n^+$ | Lines where bus $n$ is the receiving end |
@@ -161,6 +178,35 @@ scenarios, stages, and blocks.
 | $M_g$ | `expcap` | Capacity per expansion module | MW |
 | $\overline{m}_g$ | `expmod` | Maximum expansion modules | — |
 | $\bar{C}_g^0$ | `capacity` | Initial installed capacity | MW |
+| $\phi_h$ | `pump_factor` | Pump MW consumed per m³/s lifted | MW/(m³/s) |
+| $\eta_h$ | `efficiency` | Pump efficiency | — |
+| $\overline{Q}_h$ | `capacity` (pump) | Pump waterway capacity | m³/s |
+| $(V_k^\ell, m_k^\ell, c_k^\ell)$ | `segments` (discharge limit) | Piecewise breakpoint $k$ of reservoir discharge limit | (hm³, m³/s/hm³, m³/s) |
+| $\bar{\xi}_{i,s,t,b}$ | `discharge` (flow right) | Scheduled flow-right discharge | m³/s |
+| $\overline{F}_i$ | `fmax` (flow right) | Flow-right maximum flow (variable mode) | m³/s |
+| $c_i^f$ | `fail_cost` (flow right) | Flow-right deficit penalty | \$/(m³/s) |
+| $c^{hf}$ | `hydro_fail_cost` | Global hydro fail cost | \$/m³ |
+| $\overline{F}_o$ | `fmax` (volume right) | Volume-right per-block extraction cap | m³/s |
+| $D_o$ | `demand` (volume right) | Stage demand target | m³ |
+| $c_o^f$ | `fail_cost` (volume right) | Volume-right deficit penalty | \$/m³ |
+| $\alpha_o$ | `flow_conversion_rate` | Flow-to-volume conversion (= $0.0036$) | hm³/((m³/s)·h) |
+| $\rho_\tau$ | `fcr` (LNG) | Flow conversion rate (tank volume) | — |
+| $\lambda_\tau$ | `annual_loss` (LNG) | Boil-off rate | 1/year |
+| $\eta_g^{hr}$ | `heat_rate` (LNG link) | Fuel consumption per MWh (m³\_LNG/MWh); note: symbol uses η for historical reasons but this is a consumption rate, not efficiency | m³/MWh |
+| $\text{SU}_g$ | `startup_cost` | Startup cost | \$ |
+| $\text{SD}_g$ | `shutdown_cost` | Shutdown cost | \$ |
+| $\text{NL}_g$ | `noload_cost` | No-load cost (paid while $u=1$) | \$/h |
+| $R_g^{\text{up}}$ | `ramp_up` | Hourly ramp-up rate | MW/h |
+| $R_g^{\text{dn}}$ | `ramp_down` | Hourly ramp-down rate | MW/h |
+| $\text{SU}_g^{\text{ramp}}$ | `startup_ramp` | Ramp allowance at startup | MW |
+| $\text{SD}_g^{\text{ramp}}$ | `shutdown_ramp` | Ramp allowance at shutdown | MW |
+| $T_g^{\text{up}}$ | `min_up_time` | Minimum up time | h |
+| $T_g^{\text{dn}}$ | `min_down_time` | Minimum down time | h |
+| $\underline{P}_g^d$ | `dispatch_pmin` | Simple-commitment dispatch floor | MW |
+| $H_g$ | `inertia_constant` | Synchronous-machine inertia constant | s |
+| $S_g$ | `rated_power` | Rated apparent power | MVA |
+| $\Phi_p$ | `provision_factor` | Inertia conversion factor (MWs delivered per MW provided) | s |
+| $\overline{R}_{z,t,b}^{H}$ | `requirement` (inertia) | Zone inertia requirement | MWs |
 
 ### Decision Variables
 
@@ -186,6 +232,23 @@ scenarios, stages, and blocks.
 | $\text{spill}_{r,s,t,b}$ | Reservoir $r$ spillway discharge | $\geq 0$ |
 | $\ell_{d,s,t,b}^{\text{man}}$ | Mandatory served load at demand $d$ (min-energy) | $[0,\; E_d^{\min}/\Delta_b]$ |
 | $\text{spill}_{g,s,t,b}$ | Generator $g$ profile curtailment | $\geq 0$ |
+| $q_{d,s,t,b}^{\text{prof}}$ | Demand-profile unserved (spillover) slack | $\geq 0$ |
+| $q^{\ell}_{s,t}$ | Reservoir-discharge-limit stage-average flow (`qeh`) | free |
+| $\xi_{i,s,t,b}$ | FlowRight extraction flow | $[\underline{\xi}_i,\; \overline{\xi}_i]$ |
+| $\delta_{i,s,t,b}$ | FlowRight per-block deficit | $\geq 0$ |
+| $\bar{\xi}_{i,s,t}^{h}$ | FlowRight stage-average hourly flow (`qeh`) | free |
+| $\xi_{o,s,t,b}^{\text{in}}$ | VolumeRight extraction rate | $[0,\; \overline{F}_o]$ |
+| $\xi_{o,s,t,b}^{\text{sav}}$ | VolumeRight saving (deposit) rate | $\geq 0$ |
+| $\nu_{o,s,t,b}$ | VolumeRight remaining rights volume (state) | $[0,\; \overline{V}_o]$ |
+| $q_{o,s,t}^{\text{fail}}$ | VolumeRight demand deficit | $\geq 0$ |
+| $e_{\tau,s,t,b}^{\text{lng}}$ | LNG tank volume | $[\underline{V}_\tau,\; \overline{V}_\tau]$ |
+| $d_{\tau,s,t,b}^{\text{lng}}$ | LNG delivery (inflow to tank) | $\geq 0$ |
+| $u_{g,s,t,p}$ | UC binary status of generator $g$ over period $p$ | $\{0,1\}$ |
+| $v_{g,s,t,p}$ | UC binary startup of generator $g$ | $\{0,1\}$ |
+| $w_{g,s,t,p}$ | UC binary shutdown of generator $g$ | $\{0,1\}$ |
+| $u_{g,s,t,b}^{\text{sc}}$ | Simple-commitment binary status | $\{0,1\}$ |
+| $r_{p,s,t,b}^{H}$ | Inertia provision (MW dedicated for inertia) | $[0,\; \overline{R}_p^{H}]$ |
+| $q_{z,s,t,b}^{H}$ | Inertia-zone requirement slack | $[0,\; \overline{R}_{z,t,b}^{H}]$ |
 
 > **Note on line flows**: When `use_line_losses` is enabled and
 > $\lambda_l > 0$, the solver creates separate forward ($f^+$) and reverse
@@ -454,6 +517,57 @@ $$
 \sum_{b \in \mathcal{B}_t} \ell_{d,s,t,b}^{\text{man}} \cdot \Delta_b \;\geq\; E_d^{\min}
 \qquad \forall \; d, s, t
 $$
+
+### 5.4 bis Demand Profile Constraints
+
+When a `DemandProfile` element is attached to a demand $d$, the served load
+is tied to a time-varying profile factor $\phi_d(s,t,b) \in [0,1]$ with an
+auxiliary spillover (unserved) variable $q_{d,s,t,b}^{\text{prof}} \geq 0$.
+
+This mirrors §5.3 GeneratorProfile: one LP column per block and one
+equality row per block.
+
+#### Profile Row — With Capacity Column
+
+When the parent `Demand` carries an explicit capacity column $\bar{C}_{d,t}$
+(either a constant capacity or an expansion variable), the profile ties
+served load plus spillover to the scaled capacity:
+
+$$
+\begin{aligned}
+\ell_{d,s,t,b} \;+\; q_{d,s,t,b}^{\text{prof}} \;-\; \phi_d(s,t,b)\,\bar{C}_{d,t} \;=\; 0
+\qquad \forall \; s,t,b
+\end{aligned}
+$$
+<!-- source: include/gtopt/profile_object_lp.hpp:118-123 -->
+
+#### Profile Row — Without Capacity Column
+
+When no capacity column exists, the profile row uses the stage capacity
+$\overline{L}_{d,t}$ on the RHS:
+
+$$
+\begin{aligned}
+\ell_{d,s,t,b} \;+\; q_{d,s,t,b}^{\text{prof}} \;=\; \phi_d(s,t,b) \cdot \overline{L}_{d,t}
+\qquad \forall \; s,t,b
+\end{aligned}
+$$
+<!-- source: include/gtopt/profile_object_lp.hpp:125-126 -->
+
+#### Spillover Cost
+
+The spillover column carries the `scost` coefficient, weighted by the usual
+block cost factor:
+
+$$
+\text{cost}(q_{d,s,t,b}^{\text{prof}}) = c_{d,t}^{\text{spill}} \cdot \omega_{s,t,b}
+$$
+<!-- source: include/gtopt/profile_object_lp.hpp:97-108 -->
+
+> **Activation.** The `DemandProfile` element requires the parent `Demand`
+> to define either a `capacity` value or a capacity expansion; otherwise
+> the profile is rejected during LP assembly.
+> <!-- source: source/demand_profile_lp.cpp:40-47 -->
 
 ### 5.5 Transmission Line Constraints
 
@@ -898,6 +1012,94 @@ The primary PLP source for this model is `plpfilemb.dat` (Fortran subroutine
 conversion).  The legacy `plpcenfi.dat` file is also supported via
 `CenfiParser`; `plpfilemb.dat` takes precedence when both are present.
 
+### 5.10 bis Hydro Pump
+
+A `Pump` element $h \in \mathcal{H}$ couples a waterway flow variable
+$\varphi_{w,s,t,b}$ [m³/s] to the served load of a demand
+$\ell_{d,s,t,b}$ [MW] representing the pump motor. Physically, the pump
+must consume at least $\phi_h / \eta_h$ MW of electrical energy per m³/s
+of water raised, where $\phi_h$ is the nominal pump factor and
+$\eta_h \in (0,1]$ is the stage efficiency.
+
+#### Conversion Constraint
+
+$$
+\begin{aligned}
+\frac{\phi_{h,t}}{\eta_{h,t}} \; \varphi_{w,s,t,b} \;-\; \ell_{d,s,t,b} \;\leq\; 0
+\qquad \forall \; h \in \mathcal{H},\; s,t,b
+\end{aligned}
+$$
+<!-- source: source/pump_lp.cpp:86-97 -->
+
+Equivalently, $\ell_{d,s,t,b} \geq (\phi_{h,t}/\eta_{h,t})\,\varphi_{w,s,t,b}$:
+the optimizer must supply enough electrical power through demand $d$ to
+sustain the water flow pumped through waterway $w$.
+
+#### Waterway Capacity (Optional)
+
+When a pump capacity $\overline{Q}_{h,t}$ is specified for the stage, an
+additional per-block cap is added on the waterway flow:
+
+$$
+\begin{aligned}
+\varphi_{w,s,t,b} \;\leq\; \overline{Q}_{h,t}
+\qquad \forall \; h \in \mathcal{H},\; s,t,b
+\end{aligned}
+$$
+<!-- source: source/pump_lp.cpp:99-112 -->
+
+The waterway and demand referenced by the pump retain their native
+contributions to the junction water balance (§5.10) and the bus power
+balance (§5.1) respectively; the pump element adds only the coupling row
+(and the optional capacity row).
+
+### 5.10 ter Reservoir Discharge Limit
+
+A `ReservoirDischargeLimit` element $\ell \in \mathcal{DL}$ imposes a
+**volume-dependent cap** on the stage-average hourly turbine discharge of
+a waterway $w$, selected from a piecewise-linear concave envelope indexed
+by reservoir volume.
+
+#### Stage-Average Flow Variable
+
+A free auxiliary variable $q^{\ell}_{s,t}$ represents the stage-average
+hourly flow through $w$:
+
+$$
+\begin{aligned}
+q^{\ell}_{s,t} \;-\; \sum_{b \in \mathcal{B}_t} \frac{\Delta_b}{T_t} \, \varphi_{w,s,t,b} \;=\; 0
+\qquad \forall \; \ell,\; s,t
+\end{aligned}
+$$
+<!-- source: source/reservoir_discharge_limit_lp.cpp:76-92 -->
+
+where $T_t = \sum_{b \in \mathcal{B}_t} \Delta_b$ is the stage duration.
+
+#### Volume-Dependent Cap
+
+Given piecewise segments $\{(V_k^\ell, m_k^\ell, c_k^\ell)\}_{k=1}^{K}$
+selected by the current reservoir volume $V$ (average of initial and
+final stage volumes), the active segment $k^*$ yields slope
+$m_{k^*}^\ell$ and intercept $c_{k^*}^\ell$. The discharge cap then
+reads:
+
+$$
+\begin{aligned}
+q^{\ell}_{s,t} \;-\; \tfrac{1}{2} m_{k^*}^\ell\, v_{r,s,t,b_0} \;-\; \tfrac{1}{2} m_{k^*}^\ell\, v_{r,s,t,b_{\text{last}}} \;\leq\; c_{k^*}^\ell
+\qquad \forall \; \ell,\; s,t
+\end{aligned}
+$$
+<!-- source: source/reservoir_discharge_limit_lp.cpp:94-109 -->
+
+where $v_{r,s,t,b_0}$ / $v_{r,s,t,b_{\text{last}}}$ are the initial/final
+reservoir volume columns (`eini`, `efin`) of the associated reservoir $r$.
+
+Between SDDP iterations the solver re-selects $k^*$ from the updated
+forward-pass volume and patches both storage coefficients
+(`-m_{k^*}/2` on `eini` and `efin`) and the RHS ($c_{k^*}^\ell$)
+in place.
+<!-- source: source/reservoir_discharge_limit_lp.cpp:133-188 -->
+
 ### 5.11 Capacity Expansion Constraints
 
 Capacity expansion applies uniformly to generators, demands, lines,
@@ -977,6 +1179,464 @@ etc.).
 
 > **See also**: [`INPUT_DATA.md`](../input-data.md) for the JSON
 > format specification of user constraints.
+
+### 5.13 Water Rights (FlowRight and VolumeRight)
+
+Hydro-dominated systems often operate under legally-binding irrigation
+agreements that partition turbine discharge into distinct rights
+categories with volume-dependent allocations. gtopt implements this via
+two generic LP elements that live **in parallel** to the physical hydro
+topology: `FlowRight` ($i \in \mathcal{FR}$) and `VolumeRight`
+($o \in \mathcal{VR}$). They are optionally *consumptive* (coupled to
+the physical junction/reservoir balances) or purely virtual (a separate
+ledger).
+
+See the companion white paper §5 (`sec:rights`) for the full domain
+narrative; the equations below port the formal statements and tie each
+to the LP assembly code.
+
+#### 5.13.1 Flow Rights
+
+A `FlowRight` creates one extraction flow column $\xi_{i,s,t,b}$
+[m³/s] per block. Two operating modes are supported:
+
+$$
+\begin{aligned}
+\underline{\xi}_{i,s,t,b} = \begin{cases}
+\bar{\xi}_{i,s,t,b} & \text{fixed mode (default)} \\
+0 & \text{variable mode: } \overline{F}_i > 0 \text{ and } \bar{\xi}_{i,s,t,b} = 0
+\end{cases}
+\end{aligned}
+$$
+
+$$
+\begin{aligned}
+\overline{\xi}_{i,s,t,b} = \begin{cases}
+\bar{\xi}_{i,s,t,b} & \text{fixed mode} \\
+\overline{F}_{i,t,b} & \text{variable mode}
+\end{cases}
+\end{aligned}
+$$
+
+Optionally capped further by a `bound_rule` (e.g. a volume-zone lookup):
+
+$$
+\begin{aligned}
+\overline{\xi}_{i,s,t,b} \;\leftarrow\; \min\!\bigl(\overline{\xi}_{i,s,t,b},\; B_i(x)\bigr)
+\end{aligned}
+$$
+
+where $B_i(x)$ is the piecewise-linear rule evaluated on an axis $x$
+(reservoir volume, calendar month, etc.).
+<!-- source: source/flow_right_lp.cpp:46-69 -->
+
+**Deficit / soft discharge.** When the per-block fail cost
+$c_{i,s,t,b}^f > 0$ (either direct schedule or derived from the global
+$c^{hf}$ via $c^{hf} \cdot \Delta_b \cdot 3600$) and a nonzero
+discharge is scheduled, a deficit variable $\delta_{i,s,t,b} \geq 0$ is
+created with lower bound on $\xi$ relaxed to $0$, and the **demand
+coupling** row is added:
+
+$$
+\begin{aligned}
+\xi_{i,s,t,b} \;+\; \delta_{i,s,t,b} \;\geq\; \bar{\xi}_{i,s,t,b}
+\qquad \forall \; i \in \mathcal{FR},\; s,t,b
+\end{aligned}
+$$
+<!-- source: source/flow_right_lp.cpp:198-214 -->
+
+**Use-value benefit.** A per-block `use_value`
+$u_{i,s,t,b}$ ($\$/(m^3/s)$, inherited from $c^{hu}$ when unset)
+contributes a *negative* coefficient $-u_{i,s,t,b}$ on the flow column —
+a benefit that incentivizes non-zero flow in variable mode.
+<!-- source: source/flow_right_lp.cpp:163-185 -->
+
+**Stage-average auxiliary.** When `use_average = true`, a stage-level
+variable $\bar{\xi}_{i,s,t}^{h}$ plus an equality row:
+
+$$
+\begin{aligned}
+\bar{\xi}_{i,s,t}^{h} \;-\; \sum_{b \in \mathcal{B}_t} \frac{\Delta_b}{T_t} \, \xi_{i,s,t,b} \;=\; 0
+\qquad \forall \; i,\; s,t
+\end{aligned}
+$$
+<!-- source: source/flow_right_lp.cpp:246-274 -->
+
+**Consumptive coupling.** When a `junction` reference is set, each
+block's flow column is injected with coefficient $-1$ into the junction
+balance row of §5.10, subtracting the extraction from the physical
+water balance.
+<!-- source: source/flow_right_lp.cpp:278-293 -->
+
+#### 5.13.2 Volume Rights
+
+A `VolumeRight` is a virtual storage (built on the `StorageLP` base)
+that tracks the remaining rights volume $\nu_{o,s,t,b}$ [hm³]. The
+conversion factor $\alpha_o = \text{fcr}_o$ has default value
+$0.0036$ hm³/((m³/s)·h) so that an extraction rate in m³/s integrated
+over one hour produces a volume decrement in hm³.
+
+**Balance (StorageLP template specialised for rights).**
+
+$$
+\begin{aligned}
+\nu_{o,s,t,b} \;=\; \nu_{o,s,t,b-1} \cdot (1 - \mu_o^h \Delta_b) \;+\; \alpha_o\,\Delta_b\,\xi_{o,s,t,b}^{\text{sav}} \;-\; \alpha_o\,\Delta_b\,\xi_{o,s,t,b}^{\text{in}}
+\qquad \forall \; o \in \mathcal{VR},\; s,t,b
+\end{aligned}
+$$
+<!-- source: source/volume_right_lp.cpp:161-214 (StorageBase::add_to_lp) -->
+
+where $\xi_{o,s,t,b}^{\text{sav}}$ is an optional *saving* (deposit)
+column created when a `saving_rate` schedule is present
+(economy/reserved rights).
+
+**Extraction bounds.**
+
+$$
+\begin{aligned}
+0 \;\leq\; \xi_{o,s,t,b}^{\text{in}} \;\leq\; \min\!\bigl(\overline{F}_{o,t,b},\; B_o(x)\bigr)
+\qquad \forall \; o,\; s,t,b
+\end{aligned}
+$$
+<!-- source: source/volume_right_lp.cpp:117-137 -->
+
+**Optional stage demand.** When $D_o > 0$, a deficit
+$q_{o,s,t}^{\text{fail}} \geq 0$ with cost $c_o^f$ is added with the
+stage-integrated satisfaction row:
+
+$$
+\begin{aligned}
+\sum_{b \in \mathcal{B}_t} \alpha_o\,\Delta_b\,\xi_{o,s,t,b}^{\text{in}} \;+\; q_{o,s,t}^{\text{fail}} \;\geq\; D_{o,t}
+\qquad \forall \; o,\; s,t
+\end{aligned}
+$$
+<!-- source: source/volume_right_lp.cpp:313-346 -->
+
+**Seasonal reset.** When a `reset_month` is configured and the current
+stage's calendar month matches, the initial-volume column is clamped to
+the provisioned value for the new hydrological period:
+
+$$
+\begin{aligned}
+\nu_{o,s,t,b_0} \;=\; \begin{cases}
+B_o(x) & \text{if } \texttt{bound\_rule} \text{ is set} \\
+\overline{V}_{o,t} & \text{otherwise}
+\end{cases}
+\end{aligned}
+$$
+<!-- source: source/volume_right_lp.cpp:230-237 -->
+
+**Consumptive coupling.** When a `reservoir` reference is set, the
+extraction column is injected with coefficient $+\alpha_o\,\Delta_b$
+into the energy balance row of the linked reservoir (§5.10), debiting
+the physical water storage. A `right_reservoir` link analogously
+couples a child right to a parent rights ledger.
+<!-- source: source/volume_right_lp.cpp:278-307 -->
+
+### 5.14 LNG Terminal
+
+An `LngTerminal` element $\tau \in \mathcal{LNG}$ models an LNG storage
+tank whose inventory is coupled to gas-fired generators through their
+heat rates. The formulation reuses the `StorageLP` balance template
+(§5.7) with the following specialisations:
+
+- `finp` = delivery inflow column $d_{\tau,s,t,b}^{\text{lng}}$
+  (fixed-rate across the stage: bounds set to $D_\tau/T_t$);
+- `fout` = 0 (no direct outflow — generator consumption is injected
+  into the balance row below);
+- `drain` = venting column with penalty `spillway_cost`;
+- `annual_loss` = boil-off rate $\lambda_\tau$.
+
+<!-- source: source/lng_terminal_lp.cpp:62-132 -->
+
+#### Tank Volume Balance
+
+$$
+\begin{aligned}
+e_{\tau,s,t,b}^{\text{lng}} \;=\;& e_{\tau,s,t,b-1}^{\text{lng}} \cdot (1 - \lambda_\tau^h\,\Delta_b) \\
+& \;+\; \rho_\tau\,\Delta_b\,d_{\tau,s,t,b}^{\text{lng}} \\
+& \;-\; \rho_\tau\,\Delta_b\,\text{vent}_{\tau,s,t,b} \\
+& \;-\; \rho_\tau\,\Delta_b\,\sum_{g \in \mathcal{G}_\tau} \eta_g^{hr}\, p_{g,s,t,b}
+\qquad \forall \; \tau,\; s,t,b
+\end{aligned}
+$$
+<!-- source: source/lng_terminal_lp.cpp:134-164 -->
+
+where $\mathcal{G}_\tau$ is the set of generators linked to terminal
+$\tau$, $\eta_g^{hr}$ is the generator's heat rate in m³/MWh, and
+$\lambda_\tau^h = \lambda_\tau / 8760$.
+
+The last term is added directly to the existing energy balance row by
+setting
+
+$$
+\text{coeff}(\text{balance}_b, \; p_{g,s,t,b}) \;=\; \rho_\tau \cdot \eta_g^{hr} \cdot \Delta_b
+$$
+
+for each linked generator and each block.
+
+#### Delivery Schedule
+
+$$
+\begin{aligned}
+d_{\tau,s,t,b}^{\text{lng}} \;=\; \frac{D_{\tau,t}}{T_t}
+\qquad \forall \; \tau,\; s,t,b
+\end{aligned}
+$$
+<!-- source: source/lng_terminal_lp.cpp:71-88 -->
+
+Volume bounds $\underline{V}_\tau \leq e_{\tau,s,t,b}^{\text{lng}} \leq \overline{V}_\tau$
+and initial/final conditions follow the generic storage template (§5.7).
+
+### 5.15 Unit Commitment (3-bin)
+
+A `Commitment` element attaches to a generator $g \in \mathcal{UC}$ and
+introduces the classical three-binary (status / startup / shutdown)
+unit-commitment formulation. Status, startup and shutdown variables
+live on the **commitment period** grid $p \in \mathcal{P}_t^g$ (a
+coarsening of the block grid so that startup decisions align with
+enforcement periods); each block within the period references the same
+status column $u_{g,s,t,p(b)}$.
+
+#### Variables
+
+$$
+\begin{aligned}
+u_{g,s,t,p}, \; v_{g,s,t,p}, \; w_{g,s,t,p} \;\in\; \{0,1\}
+\qquad \forall \; g \in \mathcal{UC},\; s,t,p
+\end{aligned}
+$$
+<!-- source: source/commitment_lp.cpp:219-268 -->
+
+(Binary is relaxed to $[0,1]$ continuous when `relax = true` or in SDDP
+continuous phases.)
+
+#### C1 — Status Transition Logic
+
+$$
+\begin{aligned}
+u_{g,s,t,p} \;-\; u_{g,s,t,p-1} \;-\; v_{g,s,t,p} \;+\; w_{g,s,t,p} \;=\; 0
+\qquad \forall \; g,\; s,t,p > 0
+\end{aligned}
+$$
+
+For the first period the RHS becomes the initial status:
+
+$$
+\begin{aligned}
+u_{g,s,t,0} \;-\; v_{g,s,t,0} \;+\; w_{g,s,t,0} \;=\; u_g^{\text{init}}
+\qquad \forall \; g,\; s,t
+\end{aligned}
+$$
+<!-- source: source/commitment_lp.cpp:272-289 -->
+
+#### C2 — Startup/Shutdown Exclusion
+
+$$
+\begin{aligned}
+v_{g,s,t,p} \;+\; w_{g,s,t,p} \;\leq\; 1
+\qquad \forall \; g,\; s,t,p
+\end{aligned}
+$$
+<!-- source: source/commitment_lp.cpp:291-304 -->
+
+#### C3 — Generation Bounds Coupled to Status
+
+$$
+\begin{aligned}
+p_{g,s,t,b} \;-\; \overline{P}_{g,t,b}\,u_{g,s,t,p(b)} \;\leq\; 0
+\qquad \forall \; g,\; s,t,b
+\end{aligned}
+$$
+<!-- source: source/commitment_lp.cpp:346-362 -->
+
+$$
+\begin{aligned}
+p_{g,s,t,b} \;-\; \underline{P}_{g,t,b}\,u_{g,s,t,p(b)} \;\geq\; 0
+\qquad \forall \; g,\; s,t,b
+\end{aligned}
+$$
+<!-- source: source/commitment_lp.cpp:364-377 -->
+
+#### C4 — Ramp-Up
+
+$$
+\begin{aligned}
+p_{g,s,t,b} \;-\; p_{g,s,t,b-1} \;-\; R_g^{\text{up}}\Delta_b\,u_{g,s,t,p(b-1)} \;-\; \text{SU}_g^{\text{ramp}}\,v_{g,s,t,p(b)} \;\leq\; 0
+\qquad \forall \; g,\; s,t,b > 0
+\end{aligned}
+$$
+<!-- source: source/commitment_lp.cpp:379-404 -->
+
+#### C5 — Ramp-Down
+
+$$
+\begin{aligned}
+p_{g,s,t,b-1} \;-\; p_{g,s,t,b} \;-\; R_g^{\text{dn}}\Delta_b\,u_{g,s,t,p(b)} \;-\; \text{SD}_g^{\text{ramp}}\,w_{g,s,t,p(b)} \;\leq\; 0
+\qquad \forall \; g,\; s,t,b > 0
+\end{aligned}
+$$
+<!-- source: source/commitment_lp.cpp:406-430 -->
+
+#### C6 — Minimum Up/Down Time (Optional)
+
+When $T_g^{\text{up}} > 0$, for each period $p$ let $\mathcal{Q}(p)$
+be the set of periods covering the next $T_g^{\text{up}}$ hours:
+
+$$
+\begin{aligned}
+\sum_{q \in \mathcal{Q}(p)} v_{g,s,t,q} \;-\; u_{g,s,t,p} \;\leq\; 0
+\qquad \forall \; g,\; s,t,p
+\end{aligned}
+$$
+<!-- source: source/commitment_lp.cpp:562-618 -->
+
+Symmetrically for minimum down time with $w$ and $1-u$.
+<!-- source: source/commitment_lp.cpp:626-681 -->
+
+#### Costs
+
+The objective contribution of a committed unit is:
+
+$$
+\omega_{s,t,b}\,\Bigl[
+  \text{NL}_g \cdot T_p \cdot u_{g,s,t,p}
+  \;+\; \text{SU}_g \cdot v_{g,s,t,p}
+  \;+\; \text{SD}_g \cdot w_{g,s,t,p}
+\Bigr]
+$$
+
+(no-load cost scales with period duration $T_p$; startup/shutdown are
+per-event).
+<!-- source: source/commitment_lp.cpp:216-267 -->
+
+### 5.16 Simple Commitment
+
+A `SimpleCommitment` element attaches to a generator $g \in \mathcal{SC}$
+and provides a **stripped-down** commitment variant: one binary status
+variable per block, no startup/shutdown bookkeeping, no ramp
+constraints, no min up/down time.
+
+#### Variable
+
+$$
+\begin{aligned}
+u_{g,s,t,b}^{\text{sc}} \;\in\; \{0,1\}
+\qquad \forall \; g \in \mathcal{SC},\; s,t,b
+\end{aligned}
+$$
+<!-- source: source/simple_commitment_lp.cpp:86-96 -->
+
+When `must_run = true`, the column is clamped to $1$ via
+$\underline{u}^{\text{sc}} = 1$ (i.e. $u_{g,s,t,b}^{\text{sc}} = 1$).
+When `relax = true` or in SDDP continuous phases the integrality is
+dropped.
+
+#### Generation Bounds
+
+$$
+\begin{aligned}
+p_{g,s,t,b} \;-\; \overline{P}_{g,t,b}\,u_{g,s,t,b}^{\text{sc}} \;\leq\; 0
+\qquad \forall \; g,\; s,t,b
+\end{aligned}
+$$
+<!-- source: source/simple_commitment_lp.cpp:102-115 -->
+
+$$
+\begin{aligned}
+p_{g,s,t,b} \;-\; \underline{P}_{g,t,b}^{d}\,u_{g,s,t,b}^{\text{sc}} \;\geq\; 0
+\qquad \forall \; g,\; s,t,b
+\end{aligned}
+$$
+<!-- source: source/simple_commitment_lp.cpp:117-130 -->
+
+where $\underline{P}_{g,t,b}^{d}$ (`dispatch_pmin`) defaults to the
+generator's own $\underline{P}_g$ when unset.
+
+### 5.17 Inertia Zone and Provision
+
+Mirroring the reserve-zone formulation (§5.9), gtopt models
+**synchronous inertia** as two coupled elements: `InertiaZone`
+($z \in \mathcal{IZ}$) defines a per-block inertia requirement
+$\overline{R}_{z,t,b}^{H}$ in MWs, and `InertiaProvision`
+($p \in \mathcal{IP}$) links a generator's MW production to a fraction
+of this MWs requirement.
+
+#### Zone Requirement (InertiaZone)
+
+For each block a slack column $q_{z,s,t,b}^{H}$ is created, and the
+requirement row is written as a `>= 0` row with the slack contributing
+with coefficient $-1$ on the LHS. InertiaProvisions add their
+contributions through the zone requirement row.
+
+When the reserve-fail cost is finite, the slack has bounds
+$[0,\overline{R}_{z,t,b}^{H}]$ and a negative objective coefficient
+(penalty); when it is infinite, the slack is clamped
+($\overline{R}^{H} \leq q^{H} \leq \overline{R}^{H}$) forcing
+feasibility via provisions only.
+
+$$
+\begin{aligned}
+\sum_{p \in \mathcal{P}_z} \Phi_{p,t}\,r_{p,s,t,b}^{H} \;-\; q_{z,s,t,b}^{H} \;\geq\; 0
+\qquad \forall \; z \in \mathcal{IZ},\; s,t,b
+\end{aligned}
+$$
+<!-- source: source/inertia_zone_lp.cpp:56-86 -->
+<!-- source: source/inertia_provision_lp.cpp:175-191 (factor injection) -->
+
+Because the slack enforces $q_{z,s,t,b}^{H} \geq \overline{R}_{z,t,b}^{H}$
+(via its lower bound when penalised, or equality otherwise) and enters
+the row with $-1$, the net effect is
+$\sum_p \Phi_{p,t} r_{p,s,t,b}^{H} \geq \overline{R}_{z,t,b}^{H}$ —
+unserved inertia is absorbed by the priced slack.
+
+#### Provision Coupling (InertiaProvision)
+
+Each provision creates a column $r_{p,s,t,b}^{H}$ with upper bound
+`provision_max` (falling back to the generator's own $\underline{P}_g$
+when unset) and an explicit cost:
+
+$$
+\begin{aligned}
+0 \;\leq\; r_{p,s,t,b}^{H} \;\leq\; \overline{R}_{p,t,b}^{H}
+\qquad \forall \; p \in \mathcal{IP},\; s,t,b
+\end{aligned}
+$$
+<!-- source: source/inertia_provision_lp.cpp:143-159 -->
+
+A **downward coupling** row ties the generator output to the reserved
+MW:
+
+$$
+\begin{aligned}
+p_{g,s,t,b} \;-\; r_{p,s,t,b}^{H} \;\geq\; 0
+\qquad \forall \; p \in \mathcal{IP},\; s,t,b
+\end{aligned}
+$$
+<!-- source: source/inertia_provision_lp.cpp:161-173 -->
+
+#### Provision Factor
+
+$r_{p,s,t,b}^{H}$ is in MW; the zone requirement in MWs. The
+conversion factor
+
+$$
+\Phi_{p,t} \;=\; \begin{cases}
+\text{provision\_factor}_{p,t} & \text{(explicit schedule)} \\[2pt]
+H_p \cdot S_p / \underline{P}_g & \text{if } H_p,\,S_p \text{ set and } \underline{P}_g > 0 \\[2pt]
+1 & \text{otherwise}
+\end{cases}
+$$
+
+is injected as the coefficient on $r_{p,s,t,b}^{H}$ in every linked
+zone's requirement row.
+<!-- source: source/inertia_provision_lp.cpp:127-138,175-191 -->
+
+> **Note on renumbering.** Capacity Expansion (§5.11) and User
+> Constraints (§5.12) retain their numbering even though §5.13–§5.17
+> add new content: §5.12 continues to reference *all* of the above
+> element-specific variables and rows, so it remains the natural final
+> subsection of §5.
 
 ---
 
@@ -1559,13 +2219,18 @@ information:
 
 | Mode | JSON value | Behavior |
 |------|-----------|----------|
-| Feasibility cut | `"cut"` | Add a Benders feasibility cut to phase $t{-}1$ |
-| Backpropagate bounds | `"backpropagate"` | Tighten source column bounds in phase $t{-}1$ to the elastic-clone solution values |
+| Single feasibility cut | `"single_cut"` (alias `"cut"`) | One Benders feasibility cut per infeasibility on phase $t{-}1$ |
+| Multi-cut | `"multi_cut"` | One Benders cut + one bound cut per activated slack variable |
+| Chinneck IIS (default) | `"chinneck"` (alias `"iis"`) | Per-bound cuts on the irreducible infeasible subset only |
 
-The `"cut"` mode is the standard Nested Benders Decomposition approach
-with theoretical convergence guarantees. The `"backpropagate"` mode is
-a heuristic from the PLP hydrothermal scheduler that can converge faster
-in practice for problems with tight physical bounds.
+All three modes are standard Nested Benders Decomposition variants
+with cut-based convergence guarantees. The `"chinneck"` default runs an
+extra IIS-detection LP solve per fcut event to drop non-essential
+relaxed bounds before emitting per-bound cuts; in the worst case
+(degenerate primal optimum) it falls back to behaviour identical to
+`"multi_cut"`. A historical fourth mode (`"backpropagate"`, PLP-style
+direct bound updates) was removed; legacy JSON values silently fall
+back to the default.
 
 > **See also**: [`docs/SDDP_SOLVER.md`](../methods/sddp.md) Section 5.4
 > for a detailed comparison of elastic filter modes.
@@ -1708,6 +2373,8 @@ mathematical symbols used in this formulation.
 | `options.use_line_losses` | — | Enable line losses |
 | `options.demand_fail_cost` | $c^{\text{fail}}_d$ | Curtailment penalty |
 | `options.reserve_fail_cost` | $c^{\text{rfail}}$ | Reserve penalty |
+| `options.model_options.emission_cost` | $c^{\text{em}}$ | CO₂ emission price (\$/tCO₂); adds $c^{\text{em}} \times f_g$ to each generator's cost |
+| `options.model_options.emission_cap` | — | Per-stage CO₂ emission cap (tCO₂/year); dual = endogenous carbon price |
 | `options.method` | — | Solver: `"monolithic"` or `"sddp"` |
 | `options.variable_scales` | $\sigma_x$ | Per-variable scale factors (Section 6.3) |
 | `simulation.boundary_cuts_file` | — | CSV with boundary cuts for last phase (Section 6.9) |
@@ -1738,6 +2405,7 @@ mathematical symbols used in this formulation.
 | `generator_array[].pmax` | $\overline{P}_g$ | Max output (MW) |
 | `generator_array[].capacity` | $\bar{C}_g^0$ | Installed capacity (MW) |
 | `generator_array[].lossfactor` | $\lambda_g$ | Injection loss |
+| `generator_array[].emission_factor` | $f_g$ | CO₂ emission intensity (tCO₂/MWh) |
 | `generator_array[].expcap` | $M_g$ | MW per module |
 | `generator_array[].expmod` | $\overline{m}_g$ | Max modules |
 | `generator_array[].annual_capcost` | $K_g^{\text{cap}}$ | \$/year per module |
@@ -1816,6 +2484,90 @@ mathematical symbols used in this formulation.
 | `reservoir_seepage_array[].segments[].volume` | $V_k$ | Volume breakpoint (hm³) |
 | `reservoir_seepage_array[].segments[].slope` | $b_k$ | Seepage slope at breakpoint |
 | `reservoir_seepage_array[].segments[].constant` | $c_k$ | Seepage rate at breakpoint |
+
+### Hydro Pump
+
+| JSON Path | Symbol | Description |
+|-----------|--------|-------------|
+| `pump_array[].waterway` | — | FK to the pumping waterway |
+| `pump_array[].demand` | — | FK to the electrical demand (pump motor load) |
+| `pump_array[].pump_factor` | $\phi_h$ | Power consumed per unit flow (MW/(m³/s)) |
+| `pump_array[].efficiency` | $\eta_h$ | Pump efficiency (p.u., default 1.0) |
+| `pump_array[].capacity` | $\overline{Q}_h$ | Maximum pump flow (m³/s) |
+| `pump_array[].main_reservoir` | — | Reservoir whose volume drives variable pump factor (SDDP) |
+
+### LNG Terminal
+
+| JSON Path | Symbol | Description |
+|-----------|--------|-------------|
+| `lng_terminal_array[].emin` | $\underline{V}_\tau$ | Minimum tank volume (m³) |
+| `lng_terminal_array[].emax` | $\overline{V}_\tau$ | Maximum tank volume (m³) |
+| `lng_terminal_array[].eini` | $e_\tau^0$ | Initial tank volume (m³) |
+| `lng_terminal_array[].efin` | $e_\tau^{\text{fin}}$ | Target final tank volume (m³) |
+| `lng_terminal_array[].ecost` | — | Holding cost per m³ stored (\$/m³) |
+| `lng_terminal_array[].annual_loss` | $\lambda_\tau$ | Annual boil-off rate (p.u./year) |
+| `lng_terminal_array[].delivery` | $D_{\tau,t}$ | Scheduled LNG arrival volume per stage (m³) |
+| `lng_terminal_array[].sendout_max` | — | Max regasification rate (m³/h) |
+| `lng_terminal_array[].sendout_min` | — | Min regasification rate (m³/h) |
+| `lng_terminal_array[].spillway_cost` | — | Penalty for venting LNG (\$/m³) |
+| `lng_terminal_array[].spillway_capacity` | — | Maximum venting rate (m³/h) |
+| `lng_terminal_array[].flow_conversion_rate` | $\rho_\tau$ | Unit-conversion factor m³/(m³/h·h) (default 1.0) |
+| `lng_terminal_array[].mean_production_factor` | — | Energy content of LNG (MWh/m³, for SDDP state valuation) |
+| `lng_terminal_array[].soft_emin` | — | Soft minimum tank volume (m³, penalised) |
+| `lng_terminal_array[].soft_emin_cost` | — | Penalty for crossing `soft_emin` (\$/m³) |
+| `lng_terminal_array[].generators[].generator` | — | FK to the consuming generator |
+| `lng_terminal_array[].generators[].heat_rate` | $\eta_g^{hr}$ | Fuel consumption per MWh (m³\_LNG/MWh, default 1.0) |
+
+### Unit Commitment
+
+| JSON Path | Symbol | Description |
+|-----------|--------|-------------|
+| `commitment_array[].generator` | — | FK to the committed generator |
+| `commitment_array[].startup_cost` | $\text{SU}_g$ | Startup cost (\$/start) |
+| `commitment_array[].shutdown_cost` | $\text{SD}_g$ | Shutdown cost (\$/stop) |
+| `commitment_array[].noload_cost` | $\text{NL}_g$ | No-load cost while committed (\$/hr) |
+| `commitment_array[].min_up_time` | $T_g^{\text{up}}$ | Minimum up time (hours) |
+| `commitment_array[].min_down_time` | $T_g^{\text{dn}}$ | Minimum down time (hours) |
+| `commitment_array[].ramp_up` | — | Ramp-up limit while online (MW/hr) |
+| `commitment_array[].ramp_down` | — | Ramp-down limit while online (MW/hr) |
+| `commitment_array[].startup_ramp` | — | Max output in startup block (MW) |
+| `commitment_array[].shutdown_ramp` | — | Max output in shutdown block (MW) |
+| `commitment_array[].initial_status` | $u_g^{\text{init}}$ | Initial on/off state (1 = online) |
+| `commitment_array[].initial_hours` | — | Hours in current state at t=0 |
+| `commitment_array[].relax` | — | LP relaxation: binary → continuous in [0,1] |
+| `commitment_array[].must_run` | — | Force committed: $u = 1$ always |
+| `commitment_array[].commitment_period` | — | Binary variable resolution (hours) |
+| `commitment_array[].pmax_segments` | $\overline{P}_{g,k}$ | Piecewise heat-rate power breakpoints (MW) |
+| `commitment_array[].heat_rate_segments` | $h_{g,k}$ | Heat rate per segment (GJ/MWh) |
+| `commitment_array[].fuel_cost` | — | Fuel cost (\$/GJ) |
+| `commitment_array[].fuel_emission_factor` | — | Emission factor for piecewise fuel (tCO₂/GJ) |
+| `commitment_array[].hot_start_cost` | — | Startup cost when recently offline (\$/start) |
+| `commitment_array[].warm_start_cost` | — | Startup cost at medium offline (\$/start) |
+| `commitment_array[].cold_start_cost` | — | Startup cost when long offline (\$/start) |
+| `commitment_array[].hot_start_time` | — | Max offline hours for hot start (h) |
+| `commitment_array[].cold_start_time` | — | Min offline hours for cold start (h) |
+| `simple_commitment_array[].uid` | — | Unique identifier |
+| `simple_commitment_array[].name` | — | Human-readable name |
+| `simple_commitment_array[].active` | — | Activation schedule (bool\|array\|string) |
+| `simple_commitment_array[].generator` | — | FK to the committed generator |
+| `simple_commitment_array[].dispatch_pmin` | $\underline{P}_g^d$ | Dispatch minimum when committed (MW) |
+| `simple_commitment_array[].relax` | — | LP relaxation: binary → continuous |
+| `simple_commitment_array[].must_run` | — | Force committed: $u = 1$ always |
+| `stage_array[].chronological` | — | `true` when blocks are hourly-consecutive (enables UC) |
+
+### Inertia Zone and Provision
+
+| JSON Path | Symbol | Description |
+|-----------|--------|-------------|
+| `inertia_zone_array[].requirement` | $\overline{R}_{z,t,b}^{H}$ | Min inertia requirement (MWs) |
+| `inertia_zone_array[].cost` | — | Shortage penalty (\$/MWs) |
+| `inertia_provision_array[].generator` | — | FK to the providing generator |
+| `inertia_provision_array[].inertia_zones` | — | Colon-separated list of InertiaZone IDs/names |
+| `inertia_provision_array[].inertia_constant` | $H_p$ | Machine inertia constant (seconds) |
+| `inertia_provision_array[].rated_power` | $S_p$ | Rated apparent power (MVA) |
+| `inertia_provision_array[].provision_max` | $\overline{R}_{p,t,b}^{H}$ | Max inertia provision (MW) |
+| `inertia_provision_array[].provision_factor` | $\Phi_{p,t}$ | Effectiveness factor (MWs/MW) |
+| `inertia_provision_array[].cost` | — | Provision cost (\$/MW) |
 
 ---
 
@@ -2049,20 +2801,30 @@ DOI: [10.1109/JSYST.2018.2871793](https://doi.org/10.1109/JSYST.2018.2871793).
 ## Appendix A: LP Problem Size Estimates
 
 For a system with $N$ buses, $G$ generators, $D$ demands, $L$ lines,
-$E$ batteries, and $B$ blocks per stage over $T$ stages and $S$ scenarios:
+$E$ batteries, $P$ pumps, $\tau$ LNG terminals, $Z^R$ reserve zones,
+$Z^H$ inertia zones, and $B$ blocks per stage over $T$ stages and $S$ scenarios:
 
 | Quantity | Approximate count |
 |----------|------------------|
 | **Operational variables** | $(G + 2D + 2L + 3E + N) \times S \times T \times B$ |
+| **Pump variables** | $P \times S \times T \times B$ (pump flow) |
+| **LNG terminal variables** | $3\tau \times S \times T \times B$ (volume, delivery, vent) |
+| **Reserve variables** | $Z^R \times S \times T \times B$ (shortage slack) |
+| **Inertia variables** | $Z^H \times S \times T \times B$ (shortage slack) |
+| **UC variables** | $3 \times \lvert\mathcal{UC}\rvert \times S \times T \times B$ (u/v/w) |
 | **Investment variables** | $(G + D + L + E) \times T$ |
 | **Bus balance constraints** | $N \times S \times T \times B$ |
 | **Kirchhoff constraints** | $L \times S \times T \times B$ (if DC OPF) |
 | **SoC balance constraints** | $E \times S \times T \times B$ |
+| **LNG tank balance constraints** | $\tau \times S \times T \times B$ |
+| **Pump coupling constraints** | $P \times S \times T \times B$ |
+| **Reserve constraints** | $Z^R \times S \times T \times B$ |
+| **Inertia constraints** | $Z^H \times S \times T \times B$ |
 | **Capacity constraints** | $(G + D + L + E) \times T$ |
 
 The LP is assembled in compressed sparse column (CSC) format via the
-`FlatLinearProblem` class and passed to the COIN-OR solver (CBC/CLP)
-[[15]](#ref15).
+`FlatLinearProblem` class and passed to the configured solver backend
+(CBC/CLP/HiGHS/CPLEX) [[15]](#ref15).
 
 ---
 

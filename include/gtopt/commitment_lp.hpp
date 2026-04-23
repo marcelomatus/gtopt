@@ -27,7 +27,7 @@ namespace gtopt
 class CommitmentLP : public ObjectLP<Commitment>
 {
 public:
-  static constexpr LPClassName ClassName {"Commitment", "cmt"};
+  static constexpr LPClassName ClassName {"Commitment"};
   static constexpr std::string_view StatusName {"status"};
   static constexpr std::string_view StartupName {"startup"};
   static constexpr std::string_view ShutdownName {"shutdown"};

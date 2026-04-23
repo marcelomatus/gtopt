@@ -186,12 +186,44 @@ TEST_CASE("WorkPool basic functionality")
 
   SUBCASE("Task priority ordering")
   {
+    // Use a single-threaded pool so tasks actually queue up and
+    // priority ordering is observable (with many threads all tasks
+    // get fast-dispatched concurrently, bypassing the priority queue).
+    AdaptiveWorkPool prio_pool(WorkPoolConfig {
+        1,  // max_threads
+        95.0,  // max_cpu_threshold
+        4096.0,  // min_free_memory_mb
+        95.0,  // max_memory_percent
+        0.0,  // max_process_rss_mb
+        std::chrono::milliseconds(50),  // scheduler_interval
+        "PrioPool",  // name
+        false,  // enable_periodic_stats
+    });
+    prio_pool.start();
+
     std::vector<int> execution_order;
     std::mutex order_mutex;
     std::atomic<int> counter {0};
 
-    // Submit tasks with different priorities
-    auto high_task = pool.submit(
+    // Block the single thread so subsequent submits queue up
+    std::promise<void> gate;
+    auto gate_future = gate.get_future().share();
+
+    auto blocker = prio_pool.submit(
+        [&gate_future] { gate_future.wait(); },
+        {.priority = TaskPriority::High, .name = "blocker_task"});
+
+    // Submit tasks with different priorities — they will queue
+    auto low_task = prio_pool.submit(
+        [&]
+        {
+          const std::scoped_lock<std::mutex> lock(order_mutex);
+          execution_order.push_back(3);
+          counter++;
+        },
+        {.priority = TaskPriority::Low, .name = "low_priority_task"});
+
+    auto high_task = prio_pool.submit(
         [&]
         {
           const std::scoped_lock<std::mutex> lock(order_mutex);
@@ -200,7 +232,7 @@ TEST_CASE("WorkPool basic functionality")
         },
         {.priority = TaskPriority::High, .name = "high_priority_task"});
 
-    auto medium_task = pool.submit(
+    auto medium_task = prio_pool.submit(
         [&]
         {
           const std::scoped_lock<std::mutex> lock(order_mutex);
@@ -210,16 +242,10 @@ TEST_CASE("WorkPool basic functionality")
         {.priority = TaskPriority::Medium, .name = "medium_priority_task"});
     REQUIRE(medium_task.has_value());
 
-    auto low_task = pool.submit(
-        [&]
-        {
-          const std::scoped_lock<std::mutex> lock(order_mutex);
-          execution_order.push_back(3);
-          counter++;
-        },
-        {.priority = TaskPriority::Low, .name = "low_priority_task"});
+    // Release the blocker — queued tasks now dispatch in priority order
+    gate.set_value();
 
-    // Wait for all tasks to complete
+    blocker.value().wait();
     high_task.value().wait();
     medium_task.value().wait();
     low_task.value().wait();
@@ -654,4 +680,100 @@ TEST_CASE("CPUMonitor double stop is safe")
   // stop() twice — second call should be a no-op (thread not joinable)
   monitor.stop();
   CHECK_NOTHROW(monitor.stop());
+}
+
+// ─── WorkPoolConfig swap-gate knobs ──────────────────────────────────────────
+
+TEST_CASE("WorkPoolConfig swap knobs default")  // NOLINT
+{
+  // max_process_swap_mb defaults to 2048 MB (enabled) to catch process
+  // paging before thrash; max_swap_io_per_sec remains disabled by default
+  // since benign init-time paging can briefly exceed any fixed threshold.
+  const WorkPoolConfig cfg;
+  CHECK(cfg.max_process_swap_mb == doctest::Approx(2048.0));
+  CHECK(cfg.max_swap_io_per_sec == doctest::Approx(0.0));
+}
+
+TEST_CASE("WorkPoolConfig swap knobs are assignable via constructor")  // NOLINT
+{
+  const WorkPoolConfig cfg {
+      2,  // max_threads
+      95.0,  // max_cpu_threshold
+      4096.0,  // min_free_memory_mb
+      95.0,  // max_memory_percent
+      0.0,  // max_process_rss_mb
+      std::chrono::milliseconds(50),  // scheduler_interval
+      "SwapCfgPool",  // name
+      false,  // enable_periodic_stats
+      512.0,  // max_process_swap_mb
+      10000.0,  // max_swap_io_per_sec
+  };
+  CHECK(cfg.max_process_swap_mb == doctest::Approx(512.0));
+  CHECK(cfg.max_swap_io_per_sec == doctest::Approx(10000.0));
+}
+
+TEST_CASE(
+    "AdaptiveWorkPool: swap-aware Statistics carries swap fields")  // NOLINT
+{
+  AdaptiveWorkPool pool(WorkPoolConfig {
+      2,  // max_threads
+      95.0,  // max_cpu_threshold
+      4096.0,  // min_free_memory_mb
+      95.0,  // max_memory_percent
+      0.0,  // max_process_rss_mb
+      std::chrono::milliseconds(50),  // scheduler_interval
+      "SwapStatsPool",  // name
+      false,  // enable_periodic_stats
+      0.0,  // max_process_swap_mb (disabled)
+      0.0,  // max_swap_io_per_sec (disabled)
+  });
+  pool.start();
+
+  auto f = pool.submit([] { return 7; });
+  REQUIRE(f.has_value());
+  CHECK(f.value().get() == 7);
+
+  // Let the monitor collect at least one reading.
+  std::this_thread::sleep_for(std::chrono::milliseconds(200));
+  const auto stats = pool.get_statistics();
+
+  // Swap readings should be present and finite, regardless of actual
+  // swap pressure on the host.
+  CHECK(stats.process_swap_mb >= 0.0);
+  CHECK(stats.swap_used_mb >= 0.0);
+  CHECK(stats.swap_io_rate >= 0.0);
+
+  // format_statistics() now includes a Swap: line.
+  const auto text = pool.format_statistics();
+  CHECK(text.find("Swap:") != std::string::npos);
+}
+
+TEST_CASE(
+    "AdaptiveWorkPool: swap gates disabled by default admit work")  // NOLINT
+{
+  // With both swap gates set to 0 (disabled), a normal submit must run
+  // to completion — this is the "no behavior change" contract.
+  AdaptiveWorkPool pool(WorkPoolConfig {
+      2,  // max_threads
+      95.0,  // max_cpu_threshold
+      4096.0,  // min_free_memory_mb
+      95.0,  // max_memory_percent
+      0.0,  // max_process_rss_mb
+      std::chrono::milliseconds(10),  // scheduler_interval
+      "SwapDisabledPool",  // name
+      false,  // enable_periodic_stats
+      0.0,  // max_process_swap_mb
+      0.0,  // max_swap_io_per_sec
+  });
+  pool.start();
+
+  auto f1 = pool.submit([] { return 1; });
+  auto f2 = pool.submit([] { return 2; });
+  auto f3 = pool.submit([] { return 3; });
+  REQUIRE(f1.has_value());
+  REQUIRE(f2.has_value());
+  REQUIRE(f3.has_value());
+  CHECK(f1.value().get() == 1);
+  CHECK(f2.value().get() == 2);
+  CHECK(f3.value().get() == 3);
 }

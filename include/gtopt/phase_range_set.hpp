@@ -126,8 +126,8 @@ private:
       trim(left);
       trim(right);
 
-      int lo = left.empty() ? 0 : parse_int(left);
-      int hi = right.empty() ? max_phase : parse_int(right);
+      const int lo = left.empty() ? 0 : parse_int(left);
+      const int hi = right.empty() ? max_phase : parse_int(right);
 
       if (lo >= 0 && hi >= 0) {
         m_ranges_.push_back({
@@ -151,6 +151,9 @@ private:
   [[nodiscard]] static int parse_int(std::string_view sv) noexcept
   {
     int value = -1;
+    // std::from_chars requires raw begin/end pointers; the "end" pointer is
+    // one-past-the-last element and is only compared, never dereferenced.
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
     std::from_chars(sv.data(), sv.data() + sv.size(), value);
     return value;
   }

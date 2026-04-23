@@ -28,19 +28,16 @@ double CPUMonitor::get_system_cpu_usage(double fallback_value) noexcept
   try {
     // Fast existence check
     if (!std::filesystem::exists(proc_stat_path)) [[unlikely]] {
-      const auto msg =
-          std::format("{} does not exist, using fallback CPU value: {:.2f}",
-                      proc_stat_path,
-                      fallback_value);
-      SPDLOG_WARN(msg);
+      SPDLOG_WARN("{} does not exist, using fallback CPU value: {:.2f}",
+                  proc_stat_path,
+                  fallback_value);
       return fallback_value;
     }
 
     // Open /proc/stat in text mode (default)
     std::ifstream proc_stat {std::string(proc_stat_path)};
     if (!proc_stat.is_open()) [[unlikely]] {
-      const auto msg = std::format("Failed to open {}", proc_stat_path);
-      SPDLOG_WARN(msg);
+      SPDLOG_WARN("Failed to open {}", proc_stat_path);
       return fallback_value;
     }
 

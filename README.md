@@ -64,13 +64,9 @@ Install all dependencies, build, and install `gtopt` system-wide:
 ```bash
 # 1. Install dependencies
 sudo apt-get update
-sudo apt-get install -y gcc-14 g++-14 libboost-container-dev coinor-libcbc-dev \
-  ca-certificates lsb-release wget
-wget https://packages.apache.org/artifactory/arrow/$(lsb_release --id --short \
-  | tr 'A-Z' 'a-z')/apache-arrow-apt-source-latest-$(lsb_release \
-  --codename --short).deb
-sudo apt-get install -y -V ./apache-arrow-apt-source-latest-$(lsb_release \
-  --codename --short).deb
+sudo apt-get install -y gcc-14 g++-14 libboost-container-dev coinor-libcbc-dev ca-certificates lsb-release wget
+wget https://packages.apache.org/artifactory/arrow/$(lsb_release --id --short | tr 'A-Z' 'a-z')/apache-arrow-apt-source-latest-$(lsb_release  --codename --short).deb
+sudo apt-get install -y -V ./apache-arrow-apt-source-latest-$(lsb_release  --codename --short).deb
 sudo apt-get update
 sudo apt-get install -y -V libarrow-dev libparquet-dev
 

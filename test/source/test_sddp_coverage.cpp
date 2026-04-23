@@ -11,12 +11,11 @@
  *  2. compute_convergence_gap() — edge cases (zero UB, equal bounds,
  *     negative bounds, large gap)
  *  3. SDDP with warm_start disabled
- *  4. SDDP with cut_coeff_mode = row_dual
- *  5. SDDP with cut_coeff_eps and cut_coeff_max
- *  6. SDDP with apertures explicitly empty (forces plain backward pass)
- *  7. SDDP with min_iterations > convergence point
- *  8. SDDP convergence gap shrinks monotonically after initial iters
- *  9. SDDP with very low max_iterations (hit max without converging)
+ *  4. SDDP with cut_coeff_eps
+ *  5. SDDP with apertures explicitly empty (forces plain backward pass)
+ *  6. SDDP with min_iterations > convergence point
+ *  7. SDDP convergence gap shrinks monotonically after initial iters
+ *  8. SDDP with very low max_iterations (hit max without converging)
  */
 
 #include <cmath>
@@ -68,7 +67,7 @@ TEST_CASE(  // NOLINT
   };
 
   std::vector<SceneLP> scenes;
-  scenes.emplace_back(sim.scene_array[0], sim, SceneIndex {0});
+  scenes.emplace_back(sim.scene_array[0], sim, first_scene_index());
   scenes.emplace_back(sim.scene_array[1], sim, SceneIndex {1});
 
   const std::vector<uint8_t> feasible = {1, 1};
@@ -111,7 +110,7 @@ TEST_CASE(  // NOLINT
   };
 
   std::vector<SceneLP> scenes;
-  scenes.emplace_back(sim.scene_array[0], sim, SceneIndex {0});
+  scenes.emplace_back(sim.scene_array[0], sim, first_scene_index());
   scenes.emplace_back(sim.scene_array[1], sim, SceneIndex {1});
 
   // Scene 1 is infeasible
@@ -154,7 +153,7 @@ TEST_CASE(  // NOLINT
   };
 
   std::vector<SceneLP> scenes;
-  scenes.emplace_back(sim.scene_array[0], sim, SceneIndex {0});
+  scenes.emplace_back(sim.scene_array[0], sim, first_scene_index());
   scenes.emplace_back(sim.scene_array[1], sim, SceneIndex {1});
 
   // All scenes infeasible => total = 0
@@ -196,7 +195,7 @@ TEST_CASE(  // NOLINT
   };
 
   std::vector<SceneLP> scenes;
-  scenes.emplace_back(sim.scene_array[0], sim, SceneIndex {0});
+  scenes.emplace_back(sim.scene_array[0], sim, first_scene_index());
   scenes.emplace_back(sim.scene_array[1], sim, SceneIndex {1});
 
   const std::vector<uint8_t> feasible = {1, 1};
@@ -245,7 +244,7 @@ TEST_CASE(  // NOLINT
   };
 
   std::vector<SceneLP> scenes;
-  scenes.emplace_back(sim.scene_array[0], sim, SceneIndex {0});
+  scenes.emplace_back(sim.scene_array[0], sim, first_scene_index());
 
   const std::vector<uint8_t> feasible = {1};
   const auto weights =
@@ -347,27 +346,6 @@ TEST_CASE(  // NOLINT
 }
 
 TEST_CASE(  // NOLINT
-    "SDDPMethod — cut_coeff_mode row_dual converges (3-phase hydro)")
-{
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
-  auto planning = make_3phase_hydro_planning();
-  PlanningLP planning_lp(std::move(planning));
-
-  SDDPOptions sddp_opts;
-  sddp_opts.max_iterations = 20;
-  sddp_opts.convergence_tol = 1e-3;
-  sddp_opts.cut_coeff_mode = CutCoeffMode::row_dual;
-
-  SDDPMethod sddp(planning_lp, sddp_opts);
-  auto results = sddp.solve();
-  REQUIRE(results.has_value());
-  CHECK_FALSE(results->empty());
-  // row_dual mode should also converge on this problem
-  CHECK(results->back().converged);
-}
-
-TEST_CASE(  // NOLINT
     "SDDPMethod — cut_coeff_eps filters tiny coefficients")
 {
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
@@ -379,26 +357,6 @@ TEST_CASE(  // NOLINT
   sddp_opts.max_iterations = 20;
   sddp_opts.convergence_tol = 1e-3;
   sddp_opts.cut_coeff_eps = 1e-8;
-
-  SDDPMethod sddp(planning_lp, sddp_opts);
-  auto results = sddp.solve();
-  REQUIRE(results.has_value());
-  CHECK_FALSE(results->empty());
-  CHECK(results->back().converged);
-}
-
-TEST_CASE(  // NOLINT
-    "SDDPMethod — cut_coeff_max rescales large coefficients")
-{
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
-  auto planning = make_3phase_hydro_planning();
-  PlanningLP planning_lp(std::move(planning));
-
-  SDDPOptions sddp_opts;
-  sddp_opts.max_iterations = 20;
-  sddp_opts.convergence_tol = 1e-3;
-  sddp_opts.cut_coeff_max = 1e6;
 
   SDDPMethod sddp(planning_lp, sddp_opts);
   auto results = sddp.solve();
@@ -567,8 +525,6 @@ TEST_CASE(  // NOLINT
   SDDPOptions sddp_opts;
   sddp_opts.max_iterations = 20;
   sddp_opts.convergence_tol = 1e-3;
-  sddp_opts.alpha_min = -1e10;
-  sddp_opts.alpha_max = 1e10;
 
   SDDPMethod sddp(planning_lp, sddp_opts);
   auto results = sddp.solve();
@@ -648,7 +604,7 @@ TEST_CASE(  // NOLINT
   }
 
   // First result should have iteration index equal to offset (0)
-  CHECK((*results)[0].iteration == IterationIndex {0});
+  CHECK((*results)[0].iteration_index == IterationIndex {0});
 }
 
 TEST_CASE(  // NOLINT

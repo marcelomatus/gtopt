@@ -11,6 +11,8 @@
 
 #pragma once
 
+#include <cstddef>
+#include <memory>
 #include <string>
 #include <utility>
 
@@ -47,6 +49,36 @@ private:
                              const LpMatrixOptions& flat_opts)
       -> scene_phase_systems_t;
 
+  /// Resolve the deferred state-variable links recorded by every phase
+  /// in `phase_systems` during its `add_to_lp` pass.  Each
+  /// `PendingStateLink` names a producer `StateVariable` from a previous
+  /// phase (via `prev_key`) and a dependent column added to a later
+  /// phase; this pass looks the producer up in `simulation`'s registry
+  /// and calls `add_dependent_variable` on it.
+  ///
+  /// Runs after a scene's parallel phase build joins.  Within a single
+  /// scene the producer's `StateVariable` is guaranteed to exist by the
+  /// time tightening starts (all phases are built), so the lookup is
+  /// race-free.  Different scenes touch disjoint `StateVariable`s, so
+  /// multiple scene tasks may run their tightening pass concurrently.
+  ///
+  /// Drains each system's `pending_state_links()` vector as it goes.
+  static void tighten_scene_phase_links(phase_systems_t& phase_systems,
+                                        SimulationLP& simulation);
+
+  /// Validate line reactance values and clamp tiny ones to zero.
+  ///
+  /// A transmission line with `0 < |X| < kReactanceMin` is physically
+  /// implausible (most real lines have X ≥ 1e-4 p.u.) and produces an
+  /// enormous Kirchhoff coefficient `x_tau = X/V²`, degrading LP
+  /// conditioning. This pass logs a warning per offending line and
+  /// rewrites its reactance schedule to a scalar 0.0 — which the LP
+  /// assembler then treats as a DC/HVDC line (no theta constraint).
+  ///
+  /// Mirrors the battery input/output_efficiency clamping performed at
+  /// `scripts/plp2gtopt/battery_writer.py`.
+  static void validate_line_reactance(Planning& planning);
+
   /// Compute adaptive scale_theta from median line reactance when not
   /// explicitly set.  Mutates `planning.options.scale_theta` in-place so
   /// that PlanningOptionsLP picks up the computed value.
@@ -57,26 +89,19 @@ private:
   /// for reservoirs that don't already have explicit entries.
   static void auto_scale_reservoirs(Planning& planning);
 
-  /// Ensure multi-phase problems have at least minimal column names
-  /// for state variable transfer (SDDP/cascade cut I/O).
-  [[nodiscard]] static auto enforce_names_for_method(
+  /// Compute adaptive energy scales for LNG terminals from emax.
+  /// Injects VariableScale entries into `planning.options.variable_scales`
+  /// for terminals that don't already have explicit entries.
+  static void auto_scale_lng_terminals(Planning& planning);
+
+  /// State variable I/O uses the StateVariable map (ColIndex-based)
+  /// directly — no column name strings are needed.  This method is
+  /// kept for API compatibility but is now a pass-through.
+  [[nodiscard]] static constexpr auto enforce_names_for_method(
       const LpMatrixOptions& opts,
-      const PlanningOptionsLP& plp_opts,
-      const Planning& planning) -> LpMatrixOptions
+      const PlanningOptionsLP& /*plp_opts*/,
+      const Planning& /*planning*/) noexcept -> LpMatrixOptions
   {
-    const auto method = plp_opts.method_type_enum();
-    // SDDP cut I/O uses LP column names for CSV serialization.
-    // Cascade state transfer uses structured keys (no LP names needed),
-    // but cascade levels internally run SDDP which may serialize cuts.
-    const bool needs_state_names = method == MethodType::sddp
-        || method == MethodType::cascade
-        || planning.simulation.phase_array.size() > 1;
-    if (needs_state_names && opts.lp_names_level < LpNamesLevel::minimal) {
-      auto fixed = opts;
-      fixed.lp_names_level = LpNamesLevel::minimal;
-      fixed.col_with_names = true;
-      return fixed;
-    }
     return opts;
   }
 
@@ -95,8 +120,10 @@ public:
             {
               if constexpr (!std::is_const_v<
                                 std::remove_reference_t<PlanningT>>) {
+                validate_line_reactance(planning);
                 auto_scale_theta(planning);
                 auto_scale_reservoirs(planning);
+                auto_scale_lng_terminals(planning);
               }
               return std::forward<PlanningT>(planning);
             }())
@@ -139,12 +166,13 @@ public:
   }
 
   /**
-   * @brief Gets the simulation LP model
-   * @return Const reference to SimulationLP
+   * @brief Gets the simulation LP model (const or non-const via deducing this).
+   * @return Reference to SimulationLP
    */
-  [[nodiscard]] constexpr const SimulationLP& simulation() const noexcept
+  template<typename Self>
+  [[nodiscard]] constexpr auto&& simulation(this Self&& self) noexcept
   {
-    return m_simulation_;
+    return std::forward<Self>(self).m_simulation_;
   }
 
   /**
@@ -162,9 +190,86 @@ public:
   void write_lp(const std::string& filename) const;
 
   /**
-   * @brief Writes solution output (implementation-defined destination)
+   * @brief Eagerly build every (scene, phase) LP matrix in parallel.
+   *
+   * Under `LowMemoryMode::rebuild` this triggers the rebuild callback
+   * for each cell (collections + flatten + load_flat) in parallel via
+   * the solver work pool.  Under `compress` it reconstructs each cell
+   * from its snapshot.  Under `off` it is a no-op (every backend is
+   * already live from construction).
+   *
+   * Intended use: the `--lp-only` CLI path validates that the whole
+   * planning horizon can be built, and optionally dumps every cell via
+   * `--lp-file`, without ever running the SDDP iterations.  Completely
+   * independent of any `SDDPMethod` instance.
+   */
+  void build_all_lps_eagerly();
+
+  /**
+   * @brief Writes solution output (implementation-defined destination).
+   *
+   * When a write-out delegate has been installed via
+   * `set_output_delegate()` (used by the cascade solver to hand back
+   * the final level's LP), this call is forwarded to the delegate and
+   * writes the delegate's systems, not this instance's.  Without the
+   * delegate, the cascade's mid-loop `release_cells()` would leave
+   * the caller PlanningLP with an empty system grid and the final
+   * level's LP would die unused.
    */
   void write_out();
+
+  /**
+   * @brief Install a surrogate PlanningLP whose systems provide the
+   *        solution data for `write_out()`.
+   *
+   * Intended for the cascade solver: the final-level LP lives in the
+   * `CascadePlanningMethod` owned-LPs vector, which is destroyed when
+   * `PlanningLP::resolve()` returns.  Before returning, the cascade
+   * transfers ownership of the final level's LP here so that its
+   * populated systems remain reachable for output writing.
+   *
+   * The delegate is destroyed when this PlanningLP is destroyed (the
+   * destructor is defined out-of-line so the incomplete-type
+   * `unique_ptr<PlanningLP>` member compiles cleanly).
+   */
+  void set_output_delegate(std::unique_ptr<PlanningLP> delegate) noexcept;
+
+  /**
+   * @brief Release the per-(scene, phase) LP cells and their solver
+   *        backends, freeing the bulk of this object's memory.
+   *
+   * After this call `systems()` returns an empty container: `write_out()`,
+   * `resolve()`, and `aggregate_solver_stats()` become no-ops on this
+   * instance.  The `Planning`, `PlanningOptionsLP`, and `SimulationLP`
+   * members remain intact so the shell can still be queried for
+   * configuration or used as input to a fresh `PlanningLP` built from
+   * `planning()`.
+   *
+   * Intended for multi-level cascade solvers that reused the caller's
+   * LP at an early level and want to drop its memory before the next
+   * level allocates its own grid of LP matrices.
+   */
+  void release_cells();
+
+  /**
+   * @brief Discard every cell's compressed flat-LP snapshot, keeping
+   *        only the Phase-2a cache (col_sol / col_cost / row_dual +
+   *        cached scalars) on each `LinearInterface`.
+   *
+   * Called at the end of `SDDPMethod::simulation_pass`, after Pass 1's
+   * retry loop has converged and no further backend reconstruct is
+   * possible.  `PlanningLP::write_out` reads solution values from the
+   * cache and rebuilds XLP col indices via a flatten of the live
+   * `System` element arrays — it does NOT need the snapshot.  Dropping
+   * the snapshot here frees tens of MB of compressed LP matrix per
+   * cell (hundreds of MB per scene × N scenes), which on juan-scale
+   * runs is a meaningful chunk of RAM headroom for the parallel
+   * write_out pool.
+   *
+   * No-op under `low_memory = off` (no snapshot is installed in that
+   * mode).  Safe to call multiple times (idempotent).
+   */
+  void drop_sim_snapshots() noexcept;
 
   // ── SDDP solve summary ──────────────────────────────────────────────────
 
@@ -182,7 +287,7 @@ public:
     double lower_bound {0.0};  ///< Final lower bound
     double upper_bound {0.0};  ///< Final upper bound
     double max_kappa {-1.0};  ///< Global max condition number (-1 = unknown)
-    int iterations {0};  ///< Number of training iterations completed
+    std::ptrdiff_t iterations {0};  ///< Number of training iterations completed
     bool converged {false};  ///< True if any convergence criterion was met
     bool stationary_converged {
         false,
@@ -226,6 +331,19 @@ private:
 
   scene_phase_systems_t m_systems_;
   SddpSummary m_sddp_summary_ {};
+
+  /// Surrogate PlanningLP whose systems provide `write_out()` data
+  /// when set (see `set_output_delegate`).  nullptr in the common
+  /// path; populated by cascade at end of `resolve()` when the final
+  /// level built its own LP.  Declared last so it is destroyed first,
+  /// before this instance's simulation/options it may reference.
+  std::unique_ptr<PlanningLP> m_output_delegate_ {};
+
+public:
+  /// Out-of-line to allow `std::unique_ptr<PlanningLP>` as a member
+  /// of `PlanningLP` itself — requires the type to be complete at the
+  /// destructor's definition point, which is the `.cpp`.
+  ~PlanningLP() noexcept;
 };
 
 }  // namespace gtopt

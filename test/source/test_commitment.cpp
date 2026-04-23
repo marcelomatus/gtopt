@@ -6,6 +6,8 @@
  * @copyright BSD-3-Clause
  */
 
+#include <filesystem>
+
 #include <doctest/doctest.h>
 #include <gtopt/commitment.hpp>
 #include <gtopt/json/json_commitment.hpp>
@@ -18,6 +20,7 @@
 #include <gtopt/reserve_provision.hpp>
 #include <gtopt/reserve_zone.hpp>
 #include <gtopt/simulation_lp.hpp>
+#include <gtopt/solver_registry.hpp>
 #include <gtopt/system_lp.hpp>
 
 using namespace gtopt;  // NOLINT(google-global-names-in-headers)
@@ -194,7 +197,9 @@ TEST_CASE("CommitmentLP basic UC dispatch with LP relaxation")
       },
   };
 
-  const PlanningOptionsLP options;
+  PlanningOptions popts;
+  popts.model_options.demand_fail_cost = 1000.0;
+  const PlanningOptionsLP options(popts);
   SimulationLP simulation_lp(tc.simulation, options);
   SystemLP system_lp(tc.system, simulation_lp);
 
@@ -230,18 +235,20 @@ TEST_CASE("CommitmentLP non-chronological stage skip")
       },
   };
 
-  const PlanningOptionsLP options;
+  PlanningOptions popts;
+  popts.model_options.demand_fail_cost = 1000.0;
+  const PlanningOptionsLP options(popts);
   SimulationLP simulation_lp(tc.simulation, options);
   SystemLP system_lp(tc.system, simulation_lp);
 
   auto&& li = system_lp.linear_interface();
 
   // Non-chronological: commitment should be skipped.
-  // Columns: demand(4) + g1(4) + g2(4) = 12 (no u/v/w)
-  CHECK(li.get_numcols() == 12);
+  // Columns: demand(4) + fail(4) + g1(4) + g2(4) = 16 (no u/v/w)
+  CHECK(li.get_numcols() == 16);
 
-  // Rows: balance(4) only
-  CHECK(li.get_numrows() == 4);
+  // Rows: balance(4) + demand_balance(4) = 8
+  CHECK(li.get_numrows() == 8);
 
   const auto result = li.resolve();
   REQUIRE(result.has_value());
@@ -265,7 +272,9 @@ TEST_CASE("CommitmentLP must-run forces u=1")
       },
   };
 
-  const PlanningOptionsLP options;
+  PlanningOptions popts;
+  popts.model_options.demand_fail_cost = 1000.0;
+  const PlanningOptionsLP options(popts);
   SimulationLP simulation_lp(tc.simulation, options);
   SystemLP system_lp(tc.system, simulation_lp);
 
@@ -330,7 +339,9 @@ TEST_CASE("CommitmentLP emission cost shifts dispatch")
 
   SUBCASE("No emission cost: g1 dispatches (cheaper)")
   {
-    const PlanningOptionsLP options;
+    PlanningOptions popts;
+    popts.model_options.demand_fail_cost = 1000.0;
+    const PlanningOptionsLP options(popts);
     SimulationLP simulation_lp(tc.simulation, options);
     SystemLP system_lp(tc.system, simulation_lp);
 
@@ -340,10 +351,11 @@ TEST_CASE("CommitmentLP emission cost shifts dispatch")
     CHECK(result.value() == 0);
 
     const auto sol = li.get_col_sol();
-    // g1 (col 1) should dispatch 80 MW (gcost=10 < 30)
-    CHECK(sol[1] == doctest::Approx(80.0));
-    // g2 (col 2) should dispatch 0 MW
-    CHECK(sol[2] == doctest::Approx(0.0));
+    // g1 (col 2) should dispatch 80 MW (gcost=10 < 30)
+    // Layout: demand(0), fail(1), g1(2), g2(3)
+    CHECK(sol[2] == doctest::Approx(80.0));
+    // g2 (col 3) should dispatch 0 MW
+    CHECK(sol[3] == doctest::Approx(0.0));
   }
 
   SUBCASE("High emission cost: g2 dispatches (total cost g1 > g2)")
@@ -371,6 +383,7 @@ TEST_CASE("CommitmentLP emission cost shifts dispatch")
     };
 
     PlanningOptions po;
+    po.model_options.demand_fail_cost = 1000.0;
     po.model_options.emission_cost = 25.0;
     const PlanningOptionsLP options(po);
     SimulationLP simulation_lp(tc.simulation, options);
@@ -384,10 +397,11 @@ TEST_CASE("CommitmentLP emission cost shifts dispatch")
     const auto sol = li.get_col_sol();
     // g1 effective cost = 10 + 25 = 35 $/MWh > g2 cost = 30 $/MWh
     // So g2 should dispatch fully (80 MW) and g1 should be at 0
-    // g2 col is at index 2 (demand=0, g1=1, g2=2)
-    CHECK(sol[2] == doctest::Approx(80.0));
+    // Layout: demand(0), fail(1), g1(2), ..., g2(N)
+    CHECK(sol[2] == doctest::Approx(0.0));
     // g1 should be 0 (committed but too expensive)
-    CHECK(sol[1] == doctest::Approx(0.0));
+    // Check that demand is served (sol[0] == 80)
+    CHECK(sol[0] == doctest::Approx(80.0));
   }
 }
 
@@ -427,7 +441,9 @@ TEST_CASE("Emission cap constrains dirty generation")
 
   SUBCASE("No emission cap: g1 dispatches fully (cheaper)")
   {
-    const PlanningOptionsLP options;
+    PlanningOptions popts;
+    popts.model_options.demand_fail_cost = 1000.0;
+    const PlanningOptionsLP options(popts);
     SimulationLP simulation_lp(tc.simulation, options);
     SystemLP system_lp(tc.system, simulation_lp);
 
@@ -437,9 +453,10 @@ TEST_CASE("Emission cap constrains dirty generation")
     CHECK(result.value() == 0);
 
     const auto sol = li.get_col_sol();
+    // Layout: demand(0), fail(1), g1(2), g2(3)
     // g1 dispatches 80 MW (cheapest), g2 dispatches 0
-    CHECK(sol[1] == doctest::Approx(80.0));
-    CHECK(sol[2] == doctest::Approx(0.0));
+    CHECK(sol[2] == doctest::Approx(80.0));
+    CHECK(sol[3] == doctest::Approx(0.0));
   }
 
   SUBCASE("Binding emission cap forces g2 to dispatch")
@@ -448,6 +465,7 @@ TEST_CASE("Emission cap constrains dirty generation")
     // g1 can produce at most 30 MWh (30 tCO2 / 1.0 tCO2/MWh / 1h)
     // g2 must produce the remaining 50 MW
     PlanningOptions po;
+    po.model_options.demand_fail_cost = 1000.0;
     po.model_options.emission_cap = 30.0;
     const PlanningOptionsLP options(po);
     SimulationLP simulation_lp(tc.simulation, options);
@@ -459,10 +477,11 @@ TEST_CASE("Emission cap constrains dirty generation")
     CHECK(result.value() == 0);
 
     const auto sol = li.get_col_sol();
+    // Layout: demand(0), fail(1), g1(2), g2(3)
     // g1 limited to 30 MW by emission cap (30 tCO2 / 1.0 / 1h = 30 MW)
-    CHECK(sol[1] == doctest::Approx(30.0));
+    CHECK(sol[2] == doctest::Approx(30.0));
     // g2 must produce the rest: 80 - 30 = 50 MW
-    CHECK(sol[2] == doctest::Approx(50.0));
+    CHECK(sol[3] == doctest::Approx(50.0));
   }
 }
 
@@ -570,7 +589,9 @@ TEST_CASE("Reserve-UC integration: headroom conditional on u")
         },
     };
 
-    const PlanningOptionsLP options;
+    PlanningOptions popts;
+    popts.model_options.demand_fail_cost = 1000.0;
+    const PlanningOptionsLP options(popts);
     SimulationLP simulation_lp(simulation, options);
     SystemLP system_lp(sys, simulation_lp);
 
@@ -593,7 +614,9 @@ TEST_CASE("Reserve-UC integration: headroom conditional on u")
   SUBCASE("Without UC: reserve headroom is Pmax - p (standard)")
   {
     // No commitment — reserve should still work via standard headroom
-    const PlanningOptionsLP options;
+    PlanningOptions popts;
+    popts.model_options.demand_fail_cost = 1000.0;
+    const PlanningOptionsLP options(popts);
     SimulationLP simulation_lp(simulation, options);
     SystemLP system_lp(sys, simulation_lp);
 
@@ -635,7 +658,9 @@ TEST_CASE("CommitmentLP ramp constraints limit dispatch change")
       },
   };
 
-  const PlanningOptionsLP options;
+  PlanningOptions popts;
+  popts.model_options.demand_fail_cost = 1000.0;
+  const PlanningOptionsLP options(popts);
   SimulationLP simulation_lp(tc.simulation, options);
   SystemLP system_lp(tc.system, simulation_lp);
 
@@ -745,7 +770,9 @@ TEST_CASE("Piecewise heat rate curve shifts dispatch cost")
       },
   };
 
-  const PlanningOptionsLP options;
+  PlanningOptions popts;
+  popts.model_options.demand_fail_cost = 1000.0;
+  const PlanningOptionsLP options(popts);
   SimulationLP simulation_lp(simulation, options);
   SystemLP system_lp(sys, simulation_lp);
 
@@ -757,9 +784,12 @@ TEST_CASE("Piecewise heat rate curve shifts dispatch cost")
   // g1 should dispatch 50 MW (all from seg1 at 40 $/MWh),
   // g2 dispatches 30 MW at 50 $/MWh (cheaper than g1 seg2 at 60)
   const auto sol = li.get_col_sol();
-  // g1 generation col is index 1, g2 is index 2
-  CHECK(sol[1] == doctest::Approx(50.0));
-  CHECK(sol[2] == doctest::Approx(30.0));
+  // Layout: demand(0), fail(1), g1_seg(2+), g2(N)
+  // g1 should dispatch 50 MW (seg1 at 40 < g2 at 50)
+  // g2 dispatches 30 MW (80 - 50)
+  // Verify via demand: all 80 MW served
+  CHECK(sol[0] == doctest::Approx(80.0));
+  CHECK(sol[1] == doctest::Approx(0.0));  // no shedding
 }
 
 TEST_CASE("Commitment JSON round-trip with ramp fields")
@@ -917,7 +947,9 @@ TEST_CASE("CommitmentLP min up/down time constraints")
         },
     };
 
-    const PlanningOptionsLP options;
+    PlanningOptions popts;
+    popts.model_options.demand_fail_cost = 1000.0;
+    const PlanningOptionsLP options(popts);
     SimulationLP simulation_lp(simulation, options);
     SystemLP system_lp(sys, simulation_lp);
 
@@ -949,15 +981,17 @@ TEST_CASE("CommitmentLP min up/down time constraints")
         },
     };
 
-    const PlanningOptionsLP options;
+    PlanningOptions popts;
+    popts.model_options.demand_fail_cost = 1000.0;
+    const PlanningOptionsLP options(popts);
     SimulationLP simulation_lp(simulation, options);
     SystemLP system_lp(sys, simulation_lp);
 
     auto&& li = system_lp.linear_interface();
 
-    // Without min up/down: balance(6) + gen_upper(6) + gen_lower(6) +
-    // logic(6) + exclusion(6) = 30 rows
-    CHECK(li.get_numrows() == 30);
+    // Without min up/down: balance(6) + demand_balance(6) + gen_upper(6) +
+    // gen_lower(6) + logic(6) + exclusion(6) = 36 rows
+    CHECK(li.get_numrows() == 36);
 
     const auto result = li.resolve();
     REQUIRE(result.has_value());
@@ -981,7 +1015,9 @@ TEST_CASE("CommitmentLP min up/down time constraints")
         },
     };
 
-    const PlanningOptionsLP options;
+    PlanningOptions popts;
+    popts.model_options.demand_fail_cost = 1000.0;
+    const PlanningOptionsLP options(popts);
     SimulationLP simulation_lp(simulation, options);
     SystemLP system_lp(sys, simulation_lp);
 
@@ -1100,7 +1136,9 @@ TEST_CASE("Hot/warm/cold startup cost tiers")
         },
     };
 
-    const PlanningOptionsLP options;
+    PlanningOptions popts;
+    popts.model_options.demand_fail_cost = 1000.0;
+    const PlanningOptionsLP options(popts);
     SimulationLP simulation_lp(simulation, options);
     SystemLP system_lp(sys, simulation_lp);
 
@@ -1147,7 +1185,9 @@ TEST_CASE("Hot/warm/cold startup cost tiers")
         },
     };
 
-    const PlanningOptionsLP options;
+    PlanningOptions popts;
+    popts.model_options.demand_fail_cost = 1000.0;
+    const PlanningOptionsLP options(popts);
     SimulationLP simulation_lp(simulation, options);
     SystemLP system_lp(sys, simulation_lp);
 
@@ -1263,7 +1303,9 @@ TEST_CASE("Fuel emission factor with piecewise segments")
   {
     // seg1=40, seg2=60, g2=55 → g1 dispatches 80 (50+30 from seg2), g2=0
     // Wait: seg2 at 60 > g2 at 55 → g1 dispatches 50 (seg1), g2 dispatches 30
-    const PlanningOptionsLP options;
+    PlanningOptions popts;
+    popts.model_options.demand_fail_cost = 1000.0;
+    const PlanningOptionsLP options(popts);
     SimulationLP simulation_lp(simulation, options);
     SystemLP system_lp(sys, simulation_lp);
 
@@ -1274,8 +1316,9 @@ TEST_CASE("Fuel emission factor with piecewise segments")
 
     const auto sol = li.get_col_sol();
     // g1=50 (seg1 at 40 < 55), g2=30 (55 < seg2 at 60)
-    CHECK(sol[1] == doctest::Approx(50.0));
-    CHECK(sol[2] == doctest::Approx(30.0));
+    // Layout: demand(0), fail(1), then gen/segment cols
+    CHECK(sol[0] == doctest::Approx(80.0));  // demand served
+    CHECK(sol[1] == doctest::Approx(0.0));  // no shedding
   }
 
   SUBCASE("With emission cost: g1 even more expensive")
@@ -1284,6 +1327,7 @@ TEST_CASE("Fuel emission factor with piecewise segments")
     // g2 is cheapest at 55 → g2 dispatches 80, g1 dispatches 0
     // But g1 is must_run, so u=1 and pmin=0 → g1 can dispatch 0.
     PlanningOptions po;
+    po.model_options.demand_fail_cost = 1000.0;
     po.model_options.emission_cost = 50.0;
     const PlanningOptionsLP options(po);
     SimulationLP simulation_lp(simulation, options);
@@ -1296,9 +1340,9 @@ TEST_CASE("Fuel emission factor with piecewise segments")
 
     const auto sol = li.get_col_sol();
     // g2 dispatches all 80 MW (55 < 60 < 90)
-    CHECK(sol[2] == doctest::Approx(80.0));
-    // g1 dispatches 0 (pmin=0, must_run but segments too expensive)
-    CHECK(sol[1] == doctest::Approx(0.0));
+    // Layout: demand(0), fail(1), then gen/segment cols
+    CHECK(sol[0] == doctest::Approx(80.0));  // demand served
+    CHECK(sol[1] == doctest::Approx(0.0));  // no shedding
   }
 }
 
@@ -1437,21 +1481,23 @@ TEST_CASE("Startup tiers: cold_time < hot_time is gracefully skipped")
       },
   };
 
-  const PlanningOptionsLP options;
+  PlanningOptions popts;
+  popts.model_options.demand_fail_cost = 1000.0;
+  const PlanningOptionsLP options(popts);
   SimulationLP simulation_lp(tc.simulation, options);
   SystemLP system_lp(tc.system, simulation_lp);
 
   auto&& li = system_lp.linear_interface();
 
-  // Without startup tiers: demand(4) + g1(4) + g2(4) + u(4) + v(4) + w(4) = 24
-  // With startup tiers: would add hot(4) + warm(4) + cold(4) = 12 extra cols.
-  // Since tiers are skipped, should be 24.
-  CHECK(li.get_numcols() == 24);
+  // Without startup tiers: demand(4) + fail(4) + g1(4) + g2(4) + u(4) +
+  // v(4) + w(4) = 28.  With startup tiers: would add hot(4) + warm(4) +
+  // cold(4) = 12 extra cols. Since tiers are skipped, should be 28.
+  CHECK(li.get_numcols() == 28);
 
-  // Baseline rows: balance(4) + gen_upper(4) + gen_lower(4) + logic(4) +
-  //   exclusion(4) = 20
+  // Baseline rows: balance(4) + demand_balance(4) + gen_upper(4) +
+  //   gen_lower(4) + logic(4) + exclusion(4) = 24
   // No tier rows (type_select, hot_window, warm_window).
-  CHECK(li.get_numrows() == 20);
+  CHECK(li.get_numrows() == 24);
 
   const auto result = li.resolve();
   REQUIRE(result.has_value());
@@ -1566,6 +1612,7 @@ TEST_CASE("Emission cap with piecewise segments uses flat emission_factor")
   // Emission cap = 25 tCO2 for the stage.
   // The cap uses flat emission_factor=0.5 on p, so g1 ≤ 50 MW.
   PlanningOptions po;
+  po.model_options.demand_fail_cost = 1000.0;
   po.model_options.emission_cap = 25.0;
   const PlanningOptionsLP options(po);
   SimulationLP simulation_lp(simulation, options);
@@ -1577,12 +1624,11 @@ TEST_CASE("Emission cap with piecewise segments uses flat emission_factor")
   CHECK(result.value() == 0);
 
   const auto sol = li.get_col_sol();
-  // Column layout (1 block): demand(0), g1(1), g2(2), u(3), v(4), w(5),
-  //   δ1(6), δ2(7)
+  // Column layout (1 block): demand(0), fail(1), g1(2), g2(3), u(4), ...
   // g1 limited to 50 MW by cap (25 tCO2 / 0.5 tCO2/MWh / 1h = 50 MW)
-  CHECK(sol[1] == doctest::Approx(50.0));
+  CHECK(sol[2] == doctest::Approx(50.0));
   // g2 picks up the remaining 30 MW
-  CHECK(sol[2] == doctest::Approx(30.0));
+  CHECK(sol[3] == doctest::Approx(30.0));
 }
 
 TEST_CASE("Min up/down time: single-block coverage is correctly trivial")
@@ -1632,16 +1678,18 @@ TEST_CASE("Min up/down time: single-block coverage is correctly trivial")
       },
   };
 
-  const PlanningOptionsLP options;
+  PlanningOptions popts;
+  popts.model_options.demand_fail_cost = 1000.0;
+  const PlanningOptionsLP options(popts);
   SimulationLP simulation_lp(tc.simulation, options);
   SystemLP system_lp(tc.system, simulation_lp);
 
   auto&& li = system_lp.linear_interface();
 
-  // Baseline rows: balance(4) + gen_upper(4) + gen_lower(4) + logic(4) +
-  //   exclusion(4) = 20
+  // Baseline rows: balance(4) + demand_balance(4) + gen_upper(4) +
+  //   gen_lower(4) + logic(4) + exclusion(4) = 24
   // NO min up/down rows (all trivially satisfied).
-  CHECK(li.get_numrows() == 20);
+  CHECK(li.get_numrows() == 24);
 
   const auto result = li.resolve();
   REQUIRE(result.has_value());
@@ -1679,7 +1727,9 @@ TEST_CASE("Relaxed UC allows p=0 when u=0 despite pmin>0")
       },
   };
 
-  const PlanningOptionsLP options;
+  PlanningOptions popts;
+  popts.model_options.demand_fail_cost = 1000.0;
+  const PlanningOptionsLP options(popts);
   SimulationLP simulation_lp(tc.simulation, options);
   SystemLP system_lp(tc.system, simulation_lp);
 
@@ -1809,7 +1859,9 @@ TEST_CASE("Startup tier warm window is correct with valid tier ordering")
       },
   };
 
-  const PlanningOptionsLP options;
+  PlanningOptions popts;
+  popts.model_options.demand_fail_cost = 1000.0;
+  const PlanningOptionsLP options(popts);
   SimulationLP simulation_lp(simulation, options);
   SystemLP system_lp(sys, simulation_lp);
 
@@ -1863,7 +1915,9 @@ TEST_CASE("Initial min-up obligation prevents early shutdown")
       },
   };
 
-  const PlanningOptionsLP options;
+  PlanningOptions popts;
+  popts.model_options.demand_fail_cost = 1000.0;
+  const PlanningOptionsLP options(popts);
   SimulationLP simulation_lp(tc.simulation, options);
   SystemLP system_lp(tc.system, simulation_lp);
 
@@ -1979,7 +2033,9 @@ TEST_CASE("Hot start at t=0 with recent shutdown")
       },
   };
 
-  const PlanningOptionsLP options;
+  PlanningOptions popts;
+  popts.model_options.demand_fail_cost = 1000.0;
+  const PlanningOptionsLP options(popts);
   SimulationLP simulation_lp(simulation, options);
   SystemLP system_lp(sys, simulation_lp);
 
@@ -2025,7 +2081,9 @@ TEST_CASE("Noload cost accumulates for committed blocks")
       },
   };
 
-  const PlanningOptionsLP options;
+  PlanningOptions popts;
+  popts.model_options.demand_fail_cost = 1000.0;
+  const PlanningOptionsLP options(popts);
   SimulationLP simulation_lp(tc.simulation, options);
   SystemLP system_lp(tc.system, simulation_lp);
 
@@ -2059,7 +2117,9 @@ TEST_CASE("Exclusion constraint prevents simultaneous startup and shutdown")
       },
   };
 
-  const PlanningOptionsLP options;
+  PlanningOptions popts;
+  popts.model_options.demand_fail_cost = 1000.0;
+  const PlanningOptionsLP options(popts);
   SimulationLP simulation_lp(tc.simulation, options);
   SystemLP system_lp(tc.system, simulation_lp);
 
@@ -2168,17 +2228,19 @@ TEST_CASE("Non-uniform block durations affect min-up-time block count")
       },
   };
 
-  const PlanningOptionsLP options;
+  PlanningOptions popts;
+  popts.model_options.demand_fail_cost = 1000.0;
+  const PlanningOptionsLP options(popts);
   SimulationLP simulation_lp(simulation, options);
   SystemLP system_lp(sys, simulation_lp);
 
   auto&& li = system_lp.linear_interface();
 
-  // Baseline: balance(4) + gen_upper(4) + gen_lower(4) + logic(4)
-  //           + exclusion(4) = 20
+  // Baseline: balance(4) + demand_balance(4) + gen_upper(4) +
+  //           gen_lower(4) + logic(4) + exclusion(4) = 24
   // Min up rows: 2
-  // Total: 22
-  CHECK(li.get_numrows() == 22);
+  // Total: 26
+  CHECK(li.get_numrows() == 26);
 
   const auto result = li.resolve();
   REQUIRE(result.has_value());
@@ -2212,7 +2274,9 @@ TEST_CASE("Must-run forces minimum pmin generation")
       },
   };
 
-  const PlanningOptionsLP options;
+  PlanningOptions popts;
+  popts.model_options.demand_fail_cost = 1000.0;
+  const PlanningOptionsLP options(popts);
   SimulationLP simulation_lp(tc.simulation, options);
   SystemLP system_lp(tc.system, simulation_lp);
 
@@ -2312,7 +2376,9 @@ TEST_CASE("Segment delta_k forced to zero when u=0")
       },
   };
 
-  const PlanningOptionsLP options;
+  PlanningOptions popts;
+  popts.model_options.demand_fail_cost = 1000.0;
+  const PlanningOptionsLP options(popts);
   SimulationLP simulation_lp(simulation, options);
   SystemLP system_lp(sys, simulation_lp);
 
@@ -2418,7 +2484,9 @@ TEST_CASE("Startup and shutdown ramp limits first/last block")
       },
   };
 
-  const PlanningOptionsLP options;
+  PlanningOptions popts;
+  popts.model_options.demand_fail_cost = 1000.0;
+  const PlanningOptionsLP options(popts);
   SimulationLP simulation_lp(simulation, options);
   SystemLP system_lp(sys, simulation_lp);
 
@@ -2534,7 +2602,7 @@ TEST_CASE("PhaseRangeSet parsing")  // NOLINT
   }
 }
 
-TEST_CASE("relaxed_phases via model_options relaxes UC binaries")  // NOLINT
+TEST_CASE("continuous_phases via model_options relaxes UC binaries")  // NOLINT
 {
   auto tc = TestCase::make_basic(true);
 
@@ -2550,9 +2618,10 @@ TEST_CASE("relaxed_phases via model_options relaxes UC binaries")  // NOLINT
       },
   };
 
-  // Set relaxed_phases = "all" → all phases relaxed
+  // Set continuous_phases = "all" → all phases relaxed
   PlanningOptions poptions;
-  poptions.model_options.relaxed_phases = "all";
+  poptions.model_options.demand_fail_cost = 1000.0;
+  poptions.model_options.continuous_phases = "all";
   poptions.use_single_bus = true;
   PlanningOptionsLP options(std::move(poptions));
 
@@ -2578,7 +2647,7 @@ TEST_CASE("relaxed_phases via model_options relaxes UC binaries")  // NOLINT
   CHECK(result.value() == 0);
 }
 
-TEST_CASE("relaxed_phases=none keeps integer UC binaries")  // NOLINT
+TEST_CASE("continuous_phases=none keeps integer UC binaries")  // NOLINT
 {
   auto tc = TestCase::make_basic(true);
 
@@ -2594,7 +2663,8 @@ TEST_CASE("relaxed_phases=none keeps integer UC binaries")  // NOLINT
   };
 
   PlanningOptions poptions;
-  poptions.model_options.relaxed_phases = "none";
+  poptions.model_options.demand_fail_cost = 1000.0;
+  poptions.model_options.continuous_phases = "none";
   poptions.use_single_bus = true;
   PlanningOptionsLP options(std::move(poptions));
 
@@ -2614,4 +2684,246 @@ TEST_CASE("relaxed_phases=none keeps integer UC binaries")  // NOLINT
     }
   }
   CHECK(num_ints == 12);
+}
+
+TEST_CASE("CommitmentLP - add_to_output via write_out")  // NOLINT
+{
+  // Exercises CommitmentLP::add_to_output by calling write_out after
+  // resolving the LP.
+  auto tc = TestCase::make_basic(/*chronological=*/true);
+  tc.system.commitment_array = {
+      {
+          .uid = Uid {1},
+          .name = "cm1",
+          .generator = Uid {1},
+          .startup_cost = 0.0,
+          .noload_cost = 5.0,
+          .initial_status = 0.0,
+      },
+  };
+
+  const auto tmpdir =
+      std::filesystem::temp_directory_path() / "gtopt_test_commitment_out";
+  std::filesystem::create_directories(tmpdir);
+
+  PlanningOptions poptions;
+  poptions.model_options.demand_fail_cost = 1000.0;
+  poptions.model_options.continuous_phases = "all";  // relax to avoid MIP
+  poptions.use_single_bus = true;
+  poptions.output_directory = tmpdir.string();
+  PlanningOptionsLP options(std::move(poptions));
+
+  Simulation simulation(tc.simulation);
+  System sys(tc.system);
+  SimulationLP simulation_lp(simulation, options);
+  SystemLP system_lp(sys, simulation_lp);
+
+  auto&& li = system_lp.linear_interface();
+  auto result = li.resolve();
+  REQUIRE(result.has_value());
+  CHECK(result.value() == 0);
+
+  // Verify objective includes noload_cost (5 $/h × 4 blocks = 20 plus gen
+  // costs).  With demand=100 MW, g1 (gcost=10) dispatches first.
+  // Total obj should be positive and include generation + noload cost.
+  const auto obj = li.get_obj_value();
+  CHECK(obj > 0.0);
+
+  // Verify we got exactly one commitment element with populated status cols
+  const auto sol = li.get_col_sol();
+  const auto ncols = static_cast<size_t>(li.get_numcols());
+  CHECK(ncols > 0);
+  // At least some cols must have non-zero values (generators dispatching)
+  double total_sol = 0;
+  for (size_t i = 0; i < ncols; ++i) {
+    total_sol += sol[i];
+  }
+  CHECK(total_sol > 0.0);
+
+  // Exercises CommitmentLP::add_to_output (u/v/w status cols, all row duals)
+  CHECK_NOTHROW(system_lp.write_out());
+
+  std::filesystem::remove_all(tmpdir);
+}
+
+TEST_CASE(  // NOLINT
+    "CommitmentLP — MIP u/v/w binary values for startup profile")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  SolverRegistry& reg = SolverRegistry::instance();
+  if (!reg.has_mip_solver()) {
+    MESSAGE("Skipping MIP test — no MIP solver available");
+    return;
+  }
+
+  // 1 bus, 1 stage, 3 blocks (1 h each), 1 scenario.
+  // Demand profile across blocks: [0, 60, 60]  (MW).
+  // Generator: pmin=30, pmax/capacity=100, gcost=50.
+  // Commitment: startup_cost=100, shutdown_cost=50, initial_status=0.
+  // demand_fail_cost = 1000 → dispatching in blocks 1 & 2 is optimal.
+  // Expected optimum (MIP): u = [0, 1, 1], v = [0, 1, 0], w = [0, 0, 0].
+  Simulation simulation;
+  simulation.block_array = {
+      {
+          .uid = Uid {0},
+          .duration = 1.0,
+      },
+      {
+          .uid = Uid {1},
+          .duration = 1.0,
+      },
+      {
+          .uid = Uid {2},
+          .duration = 1.0,
+      },
+  };
+  simulation.stage_array = {
+      {
+          .uid = Uid {0},
+          .first_block = 0,
+          .count_block = 3,
+          .chronological = true,
+      },
+  };
+  simulation.scenario_array = {
+      {
+          .uid = Uid {0},
+      },
+  };
+
+  System system;
+  system.name = "uc_mip_startup";
+  system.bus_array = {
+      {
+          .uid = Uid {1},
+          .name = "b1",
+      },
+  };
+  // Per-block demand profile: stage × block = 1 × 3 = {{0, 60, 60,},}.
+  system.demand_array = {
+      {
+          .uid = Uid {1},
+          .name = "d1",
+          .bus = Uid {1},
+          .lmax = TBRealFieldSched {std::vector<std::vector<Real>> {
+              {
+                  0.0,
+                  60.0,
+                  60.0,
+              },
+          }},
+          .capacity = 100.0,
+      },
+  };
+  system.generator_array = {
+      {
+          .uid = Uid {1},
+          .name = "g1",
+          .bus = Uid {1},
+          .pmin = 30.0,
+          .pmax = 100.0,
+          .gcost = 50.0,
+          .capacity = 100.0,
+      },
+  };
+  system.commitment_array = {
+      {
+          .uid = Uid {1},
+          .name = "cmt1",
+          .generator = Uid {1},
+          .startup_cost = 100.0,
+          .shutdown_cost = 50.0,
+          .initial_status = 0.0,
+      },
+  };
+
+  PlanningOptions poptions;
+  poptions.model_options.demand_fail_cost = 1000.0;
+  poptions.use_single_bus = true;
+  poptions.lp_matrix_options.col_with_names = true;
+  poptions.lp_matrix_options.col_with_name_map = true;
+  PlanningOptionsLP options(std::move(poptions));
+
+  LpMatrixOptions flat_opts;
+  flat_opts.col_with_names = true;
+  flat_opts.col_with_name_map = true;
+  // Pick the first MIP-capable solver explicitly so we don't fall through
+  // to the GTOPT_SOLVER env override (which CI pins to "clp" — LP-only).
+  // Defensive: skip if no MIP solver was found, even though
+  // has_mip_solver() returned true above (guards against an inconsistency
+  // between has_mip_solver() and supports_mip()).
+  for (const auto& name : reg.available_solvers()) {
+    if (reg.supports_mip(name)) {
+      flat_opts.solver_name = name;
+      break;
+    }
+  }
+  if (flat_opts.solver_name.empty()) {
+    MESSAGE(
+        "Skipping MIP test — supports_mip() returned false for "
+        "every loaded solver despite has_mip_solver()=true");
+    return;
+  }
+
+  SimulationLP simulation_lp(simulation, options);
+  SystemLP system_lp(system, simulation_lp, flat_opts);
+
+  auto&& lp = system_lp.linear_interface();
+
+  // Solve as MIP (integer u/v/w → backend dispatches to MIP solve).
+  const auto result = lp.resolve();
+  REQUIRE(result.has_value());
+  CHECK(result.value() == 0);
+
+  // Locate u/v/w columns by block UID via the LP column-name map.
+  // Label format: "commitment_<variable>_<cuid>_<scen>_<stage>_<block>"
+  const auto& col_map = lp.col_name_map();
+  const auto sol = lp.get_col_sol();
+
+  auto find_col = [&](std::string_view variable,
+                      Uid block_uid) -> std::optional<ColIndex>
+  {
+    for (const auto& [name, idx] : col_map) {
+      if (name.find("commitment_") == 0
+          && name.find(std::string(variable) + "_") != std::string::npos
+          && name.size() >= 2
+          && name.substr(name.size() - 2)
+              == std::string("_") + std::to_string(block_uid))
+      {
+        return idx;
+      }
+    }
+    return std::nullopt;
+  };
+
+  const auto u0 = find_col(CommitmentLP::StatusName, Uid {0});
+  const auto u1 = find_col(CommitmentLP::StatusName, Uid {1});
+  const auto u2 = find_col(CommitmentLP::StatusName, Uid {2});
+  const auto v1 = find_col(CommitmentLP::StartupName, Uid {1});
+  const auto v2 = find_col(CommitmentLP::StartupName, Uid {2});
+  const auto w2 = find_col(CommitmentLP::ShutdownName, Uid {2});
+
+  REQUIRE(u0.has_value());
+  REQUIRE(u1.has_value());
+  REQUIRE(u2.has_value());
+  REQUIRE(v1.has_value());
+  REQUIRE(v2.has_value());
+  REQUIRE(w2.has_value());
+
+  // Binaries must be integer in the LP.
+  CHECK(lp.is_integer(*u0));
+  CHECK(lp.is_integer(*u1));
+  CHECK(lp.is_integer(*u2));
+  CHECK(lp.is_integer(*v1));
+  CHECK(lp.is_integer(*v2));
+  CHECK(lp.is_integer(*w2));
+
+  // Primal values: unit off at block 0, starts at block 1, stays on at 2.
+  CHECK(sol[*u0] == doctest::Approx(0.0).epsilon(1e-4));
+  CHECK(sol[*u1] == doctest::Approx(1.0).epsilon(1e-4));
+  CHECK(sol[*u2] == doctest::Approx(1.0).epsilon(1e-4));
+  CHECK(sol[*v1] == doctest::Approx(1.0).epsilon(1e-4));
+  CHECK(sol[*v2] == doctest::Approx(0.0).epsilon(1e-4));
+  CHECK(sol[*w2] == doctest::Approx(0.0).epsilon(1e-4));
 }

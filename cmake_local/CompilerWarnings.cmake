@@ -12,6 +12,10 @@ function(target_set_warnings target)
 
   # Keep GCC-specific warnings here (do not add Clang-only flags to GCC).
   set(GCC_WARNINGS
+    # Catch copies in range-based for loops (e.g. `for (const auto [a,b] : ...)`
+    # where a reference would avoid a copy).  Not enabled by -Wall/-Wextra on
+    # GCC; unknown availability on Clang, so keep it GCC-only for now.
+    -Wrange-loop-construct
   )
 
   set(MSVC_WARNINGS /W4 /WX)

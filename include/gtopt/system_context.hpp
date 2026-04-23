@@ -24,7 +24,6 @@
  * - Manages active element filtering
  *
  * Inherits from:
- * - LabelMaker: For variable labeling/naming
  * - FlatHelper: For data flattening operations
  *
  * @note Thread safety: Not thread-safe - assumes single-threaded optimization
@@ -43,7 +42,6 @@
 #include <gtopt/element_traits.hpp>
 #include <gtopt/flat_helper.hpp>
 #include <gtopt/index_holder.hpp>
-#include <gtopt/label_maker.hpp>
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/lp_element_types.hpp>
 #include <gtopt/overload.hpp>
@@ -61,13 +59,21 @@ class SystemLP;
 class SimulationLP;
 
 class SystemContext
-    : public LabelMaker
-    , public FlatHelper
+    : public FlatHelper
     , public CostHelper
 {
 public:
   // Core Context Management
   explicit SystemContext(SimulationLP& simulation, SystemLP& system);
+
+  /// Re-point the back-reference to a new SystemLP owner (used by
+  /// `SystemLP`'s move-ctor/assign so the embedded SystemContext stays
+  /// consistent after the SystemLP is relocated).  Also rebuilds
+  /// `m_collection_ptrs_` from the new owner's collections tuple,
+  /// because each pointer is an interior pointer into the SystemLP that
+  /// just moved.  Defined out-of-line in `system_context.cpp` because
+  /// reaching `SystemLP::collections()` requires `system_lp.hpp`.
+  void rebind_system(SystemLP& sys) noexcept;
 
   //
   //  get methods
@@ -276,16 +282,88 @@ public:
         ->element(id);
   }
 
+  /// Rebuild-pass flag.  Set to `true` by `SystemLP::rebuild_in_place`
+  /// while the LP is being re-flattened from collections under
+  /// `LowMemoryMode::rebuild`.  Gated registry side-effects
+  /// (`add_state_variable`, `add_ampl_variable`, `defer_state_link`,
+  /// `register_ampl_element_metadata`) become no-ops when this flag is
+  /// set — the initial pass already populated the registries with
+  /// matching col indices, and re-registering on every rebuild would
+  /// burn CPU for zero gain while risking false-positive mismatches in
+  /// the idempotency guards.
+  [[nodiscard]] constexpr bool rebuild_pass() const noexcept
+  {
+    return m_rebuild_pass_;
+  }
+
+  constexpr void set_rebuild_pass(bool v) noexcept { m_rebuild_pass_ = v; }
+
   // Methods to handle the state_variables
+  //
+  // Return-type note: this wrapper is `void` (the underlying
+  // `SimulationLP::add_state_variable` returns the registered
+  // `StateVariable&`, but no caller uses the return value — and making
+  // the rebuild-pass early-return return a reference would require
+  // looking the entry up again, defeating the purpose of gating).
   template<typename Key>
-  constexpr auto add_state_variable(Key&& key,
+  constexpr void add_state_variable(Key&& key,
                                     ColIndex col,
                                     double scost,
                                     double var_scale,
                                     LpContext context)
   {
-    return simulation().add_state_variable(
+    if (m_rebuild_pass_) {
+      // Rebuild pass: registry already holds an entry with the same col
+      // (fresh flatten is deterministic).  Skip the SimulationLP call
+      // entirely — no lock, no map lookup, no idempotency branch.
+      return;
+    }
+    std::ignore = simulation().add_state_variable(
         std::forward<Key>(key), col, scost, var_scale, std::move(context));
+  }
+
+  /// Atomic helper: add a new state-variable column to the LP AND register
+  /// it in the state-variable map.  Sets `is_state = true` on the column so
+  /// it is recognized as a state variable; column names are available at
+  /// `LpNamesLevel::all`, but state variable I/O uses the
+  /// StateVariable map (ColIndex-based) directly.  The column's `context`
+  /// field is also used as the StateVariable's context, keeping the two
+  /// in sync.
+  ///
+  /// This is the preferred API for creating state variables — calling
+  /// `lp.add_col()` and `add_state_variable()` separately risks forgetting
+  /// one step and silently breaking cut I/O.
+  template<typename Key, typename Col>
+  auto add_state_col(LinearProblem& lp,
+                     Key&& key,
+                     Col&& col,
+                     double scost = 0.0,
+                     double var_scale = 1.0) -> ColIndex
+  {
+    col.is_state = true;
+    auto context = col.context;
+    const auto idx = lp.add_col(std::forward<Col>(col));
+    add_state_variable(
+        std::forward<Key>(key), idx, scost, var_scale, std::move(context));
+    return idx;
+  }
+
+  /// Atomic helper: mark an already-added column as a state variable AND
+  /// register it in the state-variable map.  Used when the state-variable
+  /// role is decided after the column was first added (e.g. storage_lp
+  /// registers the last block's energy column as efin after the whole
+  /// block loop is done).
+  template<typename Key>
+  void add_state_col(LinearProblem& lp,
+                     Key&& key,
+                     ColIndex col_idx,
+                     double scost,
+                     double var_scale,
+                     LpContext context)
+  {
+    lp.col_at(col_idx).is_state = true;
+    add_state_variable(
+        std::forward<Key>(key), col_idx, scost, var_scale, std::move(context));
   }
 
   template<typename Key>
@@ -293,6 +371,125 @@ public:
   {
     return simulation().state_variable(std::forward<Key>(key));
   }
+
+  /// Queue a deferred dependent-variable link to be resolved later by
+  /// the per-scene tightening pass.  Use this in element `add_to_lp`
+  /// instead of calling `get_state_variable(prev_key)->add_dependent_variable`
+  /// directly: under parallel phase construction within a scene, the
+  /// previous phase's `StateVariable` may not yet exist when phase N+1
+  /// runs, and concurrent vector growth on its dependent-variable list
+  /// would race.
+  ///
+  /// `prev_key` identifies the producing `StateVariable` in the previous
+  /// phase (its `lp_key.scene_index` / `lp_key.phase_index` are the
+  /// previous phase's identity, set by the caller via
+  /// `StateVariable::key(scenario, *prev_stage, ...)`).  `here_col` is
+  /// the dependent column just added to *this* phase's LP — its
+  /// `(scene, phase)` identity is taken from the bound `SystemLP`, so
+  /// the caller need not pass it explicitly.
+  ///
+  /// Defined out-of-line in `system_context.cpp` because reaching
+  /// `system().scene()` / `system().phase()` and `system().defer_state_link`
+  /// requires the full `system_lp.hpp` definition.
+  void defer_state_link(StateVariable::Key prev_key, ColIndex here_col) const;
+
+  // ── PAMPL / user-constraint variable registry forwarders ────────────────
+  //
+  // Each LP element calls these from `add_to_lp` once per (scenario, stage)
+  // to register its PAMPL-visible columns.  Mirrors `add_state_variable`.
+  //
+  // `class_name` and `attribute` must refer to storage with static (or at
+  // least solve-long) lifetime — in practice the `constexpr string_view`
+  // constants on each `*LP` class (e.g. `GeneratorLP::GenerationName`).
+
+  /// Register a per-block column map (e.g., generator.generation).
+  /// Stores a copy of `block_cols`; the element need not keep it alive.
+  ///
+  /// Marked `const` (logical-const): the underlying `SimulationLP` is
+  /// held via `reference_wrapper`, so const SystemContext methods may
+  /// still mutate the simulation's ampl variable registry.  This lets
+  /// elements whose `add_to_lp` takes `const SystemContext&` register
+  /// their PAMPL-visible columns without signature churn.
+  ///
+  /// Routes to the per-(scene, phase) cell of the current SystemLP —
+  /// `system().scene().index()` / `system().phase().index()` — so the
+  /// write needs no synchronization (one writer per cell, sequential
+  /// across phases within a scene).  Defined out-of-line in
+  /// `system_context.cpp` because reaching the SystemLP accessors
+  /// requires the full `system_lp.hpp` definition.
+  void add_ampl_variable(std::string_view class_name,
+                         Uid element_uid,
+                         std::string_view attribute,
+                         const ScenarioLP& scenario,
+                         const StageLP& stage,
+                         const BIndexHolder<ColIndex>& block_cols) const;
+
+  /// Register a stage-level scalar column (e.g., eini, efin, capainst).
+  void add_ampl_variable(std::string_view class_name,
+                         Uid element_uid,
+                         std::string_view attribute,
+                         const ScenarioLP& scenario,
+                         const StageLP& stage,
+                         ColIndex stage_col) const;
+
+  /// Look up a registered variable column.  Returns nullopt if the
+  /// (class, uid, attribute, scenario, stage, block) combination was
+  /// never registered.  Reads from the current SystemLP's
+  /// `(scene, phase)` cell — the resolver always queries within the
+  /// LP that owns the row being assembled.
+  [[nodiscard]] std::optional<ColIndex> find_ampl_col(
+      std::string_view class_name,
+      Uid element_uid,
+      std::string_view attribute,
+      ScenarioUid scenario_uid,
+      StageUid stage_uid,
+      BlockUid block_uid) const;
+
+  /// Resolve an element name to its Uid within a class.
+  [[nodiscard]] std::optional<Uid> lookup_ampl_element_uid(
+      std::string_view class_name, std::string_view element_name) const
+  {
+    return simulation().lookup_ampl_element_uid(class_name, element_name);
+  }
+
+  /// Look up a compound PAMPL attribute by (class, compound_name).
+  [[nodiscard]] const std::vector<AmplCompoundLeg>* find_ampl_compound(
+      std::string_view class_name,
+      std::string_view compound_name) const noexcept
+  {
+    return simulation().find_ampl_compound(class_name, compound_name);
+  }
+
+  /// Look up a class-level scalar (e.g. `options.scale_objective`).
+  /// Returns nullopt when the (class, attribute) pair is not in the
+  /// allow-list registered by `system_lp.cpp::register_all_ampl_element_names`.
+  [[nodiscard]] std::optional<double> find_ampl_scalar(
+      std::string_view class_name, std::string_view attribute) const noexcept
+  {
+    return simulation().find_ampl_scalar(class_name, attribute);
+  }
+
+  /// Returns the suppression reason if the class or (class, attribute)
+  /// pair has been marked unavailable by the current planning mode
+  /// (e.g. `line` under `use_single_bus`, `bus.theta` when Kirchhoff
+  /// is disabled).  A non-empty result means the resolver should
+  /// silently drop the referencing term instead of throwing.
+  [[nodiscard]] std::optional<std::string_view> find_ampl_suppression(
+      std::string_view class_name, std::string_view attribute) const noexcept
+  {
+    return simulation().find_ampl_suppression(class_name, attribute);
+  }
+
+  /// Register filter metadata for one element (F9).
+  /// See `SimulationLP::register_ampl_element_metadata`.
+  void register_ampl_element_metadata(std::string_view class_name,
+                                      Uid element_uid,
+                                      AmplElementMetadata metadata) const;
+
+  /// Look up an element's metadata bundle (F9).  Returns nullptr when
+  /// the element has no registered metadata.
+  [[nodiscard]] const AmplElementMetadata* find_ampl_element_metadata(
+      std::string_view class_name, Uid element_uid) const noexcept;
 
 private:
   std::reference_wrapper<SimulationLP> m_simulation_;
@@ -303,12 +500,16 @@ private:
   // Populated once in the constructor (system_context.cpp includes
   // system_lp.hpp).
   lp_collection_ptrs_t m_collection_ptrs_ {};
+
+  /// When true, element `add_to_lp` calls skip registry side-effects
+  /// (state-variable registration, AMPL registration, cross-phase link
+  /// deferral, metadata registration).  Set by
+  /// `SystemLP::rebuild_in_place()` during the rebuild pass only.  See
+  /// `set_rebuild_pass`.
+  bool m_rebuild_pass_ {false};
 };
 
 }  // namespace gtopt
-
-static_assert(std::is_base_of_v<gtopt::LabelMaker, gtopt::SystemContext>,
-              "SystemContext must inherit from LabelMaker");
 
 static_assert(std::is_base_of_v<gtopt::FlatHelper, gtopt::SystemContext>,
               "SystemContext must inherit from FlatHelper");

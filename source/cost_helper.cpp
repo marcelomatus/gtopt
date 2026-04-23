@@ -18,8 +18,7 @@ namespace
 
 using namespace gtopt;
 
-auto compute_block_icost_factors(const CostHelper& helper,
-                                 const std::vector<ScenarioLP>& scenarios,
+auto compute_block_icost_factors(const std::vector<ScenarioLP>& scenarios,
                                  const std::vector<StageLP>& stages)
     -> block_factor_matrix_t
 {
@@ -35,7 +34,7 @@ auto compute_block_icost_factors(const CostHelper& helper,
       factors[si][ti] = to_vector(
           stage.blocks(),
           [&](const auto& block)
-          { return 1.0 / helper.cost_factor(scenario, stage, block); });
+          { return 1.0 / CostHelper::cost_factor(scenario, stage, block); });
     }
   }
 
@@ -64,8 +63,7 @@ auto compute_block_discount_icost_factors(
   return factors;
 }
 
-auto compute_stage_icost_factors(const CostHelper& helper,
-                                 const std::vector<StageLP>& stages)
+auto compute_stage_icost_factors(const std::vector<StageLP>& stages)
     -> stage_factor_matrix_t
 {
   auto&& active_stages = enumerate_active<Index>(stages);
@@ -74,12 +72,12 @@ auto compute_stage_icost_factors(const CostHelper& helper,
                                           [&](const auto& is)
                                           {
                                             const auto& [i, s] = is;
-                                            return 1.0 / helper.cost_factor(s);
+                                            return 1.0
+                                                / CostHelper::cost_factor(s);
                                           }));
 }
 
 auto compute_scenario_stage_icost_factors(
-    const CostHelper& helper,
     const std::vector<ScenarioLP>& scenarios,
     const std::vector<StageLP>& stages) -> scenario_stage_factor_matrix_t
 {
@@ -93,7 +91,7 @@ auto compute_scenario_stage_icost_factors(
 
   for (auto&& [si, scenario] : active_scenarios) {
     for (auto&& [ti, stage] : active_stages) {
-      factors[si][ti] = 1.0 / helper.cost_factor(scenario, stage);
+      factors[si][ti] = 1.0 / CostHelper::cost_factor(scenario, stage);
     }
   }
 
@@ -109,7 +107,7 @@ auto CostHelper::block_icost_factors() const -> const block_factor_matrix_t&
 {
   if (!m_block_icost_cache_) {
     m_block_icost_cache_ =
-        compute_block_icost_factors(*this, m_scenarios_.get(), m_stages_.get());
+        compute_block_icost_factors(m_scenarios_.get(), m_stages_.get());
   }
   return *m_block_icost_cache_;
 }
@@ -127,7 +125,7 @@ auto CostHelper::block_discount_icost_factors() const
 auto CostHelper::stage_icost_factors() const -> const stage_factor_matrix_t&
 {
   if (!m_stage_icost_cache_) {
-    m_stage_icost_cache_ = compute_stage_icost_factors(*this, m_stages_.get());
+    m_stage_icost_cache_ = compute_stage_icost_factors(m_stages_.get());
   }
   return *m_stage_icost_cache_;
 }
@@ -136,8 +134,8 @@ auto CostHelper::scenario_stage_icost_factors() const
     -> const scenario_stage_factor_matrix_t&
 {
   if (!m_ss_icost_cache_) {
-    m_ss_icost_cache_ = compute_scenario_stage_icost_factors(
-        *this, m_scenarios_.get(), m_stages_.get());
+    m_ss_icost_cache_ = compute_scenario_stage_icost_factors(m_scenarios_.get(),
+                                                             m_stages_.get());
   }
   return *m_ss_icost_cache_;
 }

@@ -17,9 +17,12 @@
 #include <sstream>
 #include <vector>
 
+#include <gtopt/as_label.hpp>
+#include <gtopt/label_maker.hpp>
 #include <gtopt/planning_lp.hpp>
 #include <gtopt/sddp_cut_io.hpp>
 #include <gtopt/sddp_state_io.hpp>
+#include <gtopt/sparse_col.hpp>
 #include <gtopt/system_lp.hpp>
 
 #ifndef SPDLOG_ACTIVE_LEVEL
@@ -31,7 +34,7 @@
 namespace gtopt
 {
 
-auto save_state_csv(const PlanningLP& planning_lp,
+auto save_state_csv(PlanningLP& planning_lp,
                     const std::string& filepath,
                     IterationIndex iteration_index)
     -> std::expected<void, Error>
@@ -51,15 +54,30 @@ auto save_state_csv(const PlanningLP& planning_lp,
       });
     }
 
-    ofs << "# iteration=" << iteration_index << "\n";
+    ofs << as_label<'='>("# iteration", iteration_index) << "\n";
     ofs << "name,phase,scene,value,rcost\n";
 
     const auto& sim = planning_lp.simulation();
     [[maybe_unused]] int count = 0;
 
+    // Iterate the state variable map directly — no column name
+    // infrastructure needed.  Each StateVariable carries its ColIndex,
+    // scale, and enough metadata to reconstruct its label.
     for (auto&& [si, scene] : enumerate<SceneIndex>(sim.scenes())) {
       for (auto&& [pi, phase] : enumerate<PhaseIndex>(sim.phases())) {
-        const auto& li = planning_lp.system(si, pi).linear_interface();
+        auto& sys = planning_lp.system(si, pi);
+        const auto& li = sys.linear_interface();
+        // No ensure_lp_built() here: under low-memory modes the cell
+        // was released with Phase-2a cached col_sol / col_cost via
+        // `LinearInterface::release_backend()`, and the getters route
+        // to those cached vectors when `m_backend_released_ == true`.
+        // Forcing a reload would fire `rebuild_in_place()` under
+        // rebuild mode, which flattens fresh — leaving the backend
+        // LIVE but UNSOLVED, clobbering `is_optimal()` for the
+        // subsequent `PlanningLP::write_out` pass (write_out would
+        // then short-circuit and emit no per-element parquet).  Under
+        // `off` the backend stays alive throughout and is already
+        // readable; this call is a no-op there too.
 
         if (!li.is_optimal()) {
           continue;
@@ -67,23 +85,32 @@ auto save_state_csv(const PlanningLP& planning_lp,
 
         const auto col_sol = li.get_col_sol();
         const auto col_rc = li.get_col_cost();
-        const auto& names = li.col_index_to_name();
-        const auto ncols = li.get_numcols();
+        const auto ncols = li.numcols_as_index();
+        const auto rc_upper = std::min(ncols, col_index_size(col_rc));
         const auto phase_uid = phase.uid();
         const auto scene_uid = scene.uid();
 
-        for (size_t c = 0; c < ncols && c < names.size(); ++c) {
-          const auto ci = ColIndex {static_cast<int>(c)};
-          if (names[ci].empty()) {
+        const auto& sv_map = sim.state_variables(si, pi);
+        for (const auto& [key, sv] : sv_map) {
+          const auto ci = sv.col();
+          if (ci >= ncols) {
+            continue;
+          }
+          constexpr LabelMaker lm {LpNamesLevel::all};
+          const auto label = lm.make_col_label(SparseCol {
+              .class_name = key.class_name,
+              .variable_name = key.col_name,
+              .variable_uid = key.uid,
+              .context = sv.context(),
+          });
+          if (label.empty()) {
             continue;
           }
           const auto phys_val = col_sol[ci];
-          const auto rc = c < static_cast<size_t>(col_rc.size())
-              ? static_cast<double>(col_rc[ci])
-              : 0.0;
+          const auto rc = ci < rc_upper ? col_rc[ci] : 0.0;
 
-          ofs << names[ci] << "," << phase_uid << "," << scene_uid << ","
-              << phys_val << "," << rc << "\n";
+          ofs << as_label<','>(label, phase_uid, scene_uid, phys_val, rc)
+              << "\n";
           ++count;
         }
       }
@@ -128,27 +155,64 @@ auto load_state_csv(PlanningLP& planning_lp, const std::string& filepath)
     };
     std::vector<WarmEntry> entries;
 
+    // Build per-(scene, phase) name→(ColIndex, scale) maps from state
+    // variables — no dependency on LinearInterface column name vectors.
+    struct ColResolveEntry
+    {
+      ColIndex col;
+      double scale;
+    };
+    using col_resolve_map_t = std::unordered_map<std::string, ColResolveEntry>;
+    std::vector<col_resolve_map_t> resolve_maps;
+
     const auto& sim = planning_lp.simulation();
     for (auto&& [si, _sc] : enumerate<SceneIndex>(sim.scenes())) {
       for (auto&& [pi, _ph] : enumerate<PhaseIndex>(sim.phases())) {
-        const auto ncols =
-            planning_lp.system(si, pi).linear_interface().get_numcols();
+        const auto& li = planning_lp.system(si, pi).linear_interface();
+        const auto ncols = li.get_numcols();
         entries.push_back(WarmEntry {
             .scene_index = si,
             .phase_index = pi,
             .col_sol = std::vector<double>(ncols, 0.0),
         });
+
+        // Populate resolve map from state variables
+        col_resolve_map_t rmap;
+        const auto& sv_map = sim.state_variables(si, pi);
+        rmap.reserve(sv_map.size());
+        for (const auto& [key, sv] : sv_map) {
+          constexpr LabelMaker lm {LpNamesLevel::all};
+          auto label = lm.make_col_label(SparseCol {
+              .class_name = key.class_name,
+              .variable_name = key.col_name,
+              .variable_uid = key.uid,
+              .context = sv.context(),
+          });
+          if (!label.empty()) {
+            rmap.emplace(std::move(label),
+                         ColResolveEntry {
+                             .col = sv.col(),
+                             .scale = sv.var_scale(),
+                         });
+          }
+        }
+        resolve_maps.push_back(std::move(rmap));
       }
     }
 
-    auto find_entry = [&](SceneIndex si, PhaseIndex pi) -> WarmEntry*
+    const auto nphases = sim.phases().size();
+
+    auto find_entry_index = [&](SceneIndex si,
+                                PhaseIndex pi) -> std::optional<size_t>
     {
-      for (auto& e : entries) {
-        if (e.scene_index == si && e.phase_index == pi) {
-          return &e;
-        }
+      const auto idx =
+          (static_cast<size_t>(si) * nphases) + static_cast<size_t>(pi);
+      if (idx < entries.size() && entries[idx].scene_index == si
+          && entries[idx].phase_index == pi)
+      {
+        return idx;
       }
-      return nullptr;
+      return std::nullopt;
     };
 
     std::string line;
@@ -194,8 +258,8 @@ auto load_state_csv(PlanningLP& planning_lp, const std::string& filepath)
         continue;
       }
 
-      const PhaseUid phase_uid {pu};
-      const SceneUid scene_uid {su};
+      const PhaseUid phase_uid = make_uid<Phase>(pu);
+      const SceneUid scene_uid = make_uid<Scene>(su);
 
       // Resolve phase and scene indices
       auto pit = phase_map.find(phase_uid);
@@ -204,30 +268,29 @@ auto load_state_csv(PlanningLP& planning_lp, const std::string& filepath)
         continue;
       }
 
-      auto* entry = find_entry(sit->second, pit->second);
-      if (entry == nullptr) {
+      auto entry_idx = find_entry_index(sit->second, pit->second);
+      if (!entry_idx) {
         continue;
       }
 
-      // Resolve column name to index
-      const auto& li =
-          planning_lp.system(entry->scene_index, entry->phase_index)
-              .linear_interface();
-      const auto& col_map = li.col_name_map();
-      auto cit = col_map.find(name);
-      if (cit == col_map.end()) {
+      auto& entry = entries[*entry_idx];
+      const auto& rmap = resolve_maps[*entry_idx];
+
+      // Resolve column name via state variable map
+      auto cit = rmap.find(name);
+      if (cit == rmap.end()) {
         continue;
       }
 
-      const auto col_idx = static_cast<size_t>(cit->second);
-      if (col_idx >= entry->col_sol.size()) {
+      const auto& [col, scale] = cit->second;
+      const auto col_idx = static_cast<size_t>(col);
+      if (col_idx >= entry.col_sol.size()) {
         continue;
       }
 
       // Convert physical value back to LP units
-      const auto scale = li.get_col_scale(ColIndex {static_cast<int>(col_idx)});
-      entry->col_sol[col_idx] = (scale != 0.0) ? value / scale : value;
-      entry->has_data = true;
+      entry.col_sol[col_idx] = (scale != 0.0) ? value / scale : value;
+      entry.has_data = true;
       ++loaded;
     }
 

@@ -22,11 +22,16 @@ namespace gtopt
 class ReserveProvisionLP : public ObjectLP<ReserveProvision>
 {
 public:
-  static constexpr LPClassName ClassName {"ReserveProvision", "rpr"};
+  static constexpr LPClassName ClassName {"ReserveProvision"};
   static constexpr std::string_view UprovisionName {"uprovision"};
   static constexpr std::string_view DprovisionName {"dprovision"};
   static constexpr std::string_view UcapacityName {"ucapacity"};
   static constexpr std::string_view DcapacityName {"dcapacity"};
+  /// PAMPL-visible aliases for the up/down provision columns.
+  /// Exposed under canonical short names so user constraints can write
+  /// `reserve_provision("P").up` instead of the verbose `uprovision`.
+  static constexpr std::string_view UpName {"up"};
+  static constexpr std::string_view DnName {"dn"};
 
   using Base = ObjectLP<ReserveProvision>;
 

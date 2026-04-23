@@ -11,13 +11,16 @@
 
 #pragma once
 
+#include <array>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 
 #include <gtopt/arrow_types.hpp>
 #include <gtopt/basic_types.hpp>
 #include <gtopt/linear_interface.hpp>
 #include <gtopt/phase.hpp>
+#include <gtopt/planning_enums.hpp>
 #include <gtopt/scene.hpp>
 #include <gtopt/single_id.hpp>
 #include <gtopt/system_context.hpp>
@@ -55,16 +58,39 @@ public:
   template<typename Type = double>
   using FieldVector = std::vector<FieldType<Type>>;
 
-  using ClassFieldName = std::pair<std::string_view, Name>;
+  /// Map key for `field_vector_map`: (cname, fname, sname).
+  /// All three are static `string_view` literals (class_name / field-name
+  /// constants / fixed suffix tag), so this is a zero-allocation key —
+  /// replaces the former `pair<string_view, Name>` whose `Name` (std::string)
+  /// was freshly heap-allocated via `as_label(fname, sname)` on every call.
+  using ClassFieldName = std::array<std::string_view, 3>;
+  struct ClassFieldNameHash
+  {
+    [[nodiscard]] std::size_t operator()(const ClassFieldName& k) const noexcept
+    {
+      // Mix three string_view hashes with golden-ratio constants.  Keys
+      // are short (≤ 2 dozen chars each) and the population is tiny
+      // (a few dozen per OutputContext) so a plain combine is fine.
+      constexpr std::uint64_t kMix = 0x9e3779b97f4a7c15ULL;
+      const std::uint64_t h0 = std::hash<std::string_view> {}(k[0]);
+      const std::uint64_t h1 = std::hash<std::string_view> {}(k[1]);
+      const std::uint64_t h2 = std::hash<std::string_view> {}(k[2]);
+      std::uint64_t h = h0;
+      h ^= h1 + kMix + (h << 6U) + (h >> 2U);
+      h ^= h2 + kMix + (h << 6U) + (h >> 2U);
+      return static_cast<std::size_t>(h);
+    }
+  };
   template<typename Type = double>
-  using FieldVectorMap = std::map<ClassFieldName, FieldVector<Type>>;
+  using FieldVectorMap =
+      std::unordered_map<ClassFieldName, FieldVector<Type>, ClassFieldNameHash>;
 
   explicit OutputContext(const SystemContext& psc,
                          LinearInterface& linear_interface,
-                         SceneUid scene_uid = SceneUid {0},
-                         PhaseUid phase_uid = PhaseUid {0});
+                         SceneUid scene_uid = make_uid<Scene>(0),
+                         PhaseUid phase_uid = make_uid<Phase>(0));
 
-  [[nodiscard]] auto&& options() const { return sc.get().options(); }
+  [[nodiscard]] auto&& options() const noexcept { return sc.get().options(); }
 
   // ── STB/GSTB block-indexed overloads ─────────────────────────────
 
@@ -73,6 +99,9 @@ public:
                              const Id& id,
                              const GSTBIndexHolder<ColIndex>& holder)
   {
+    if (!emit_solution()) {
+      return;
+    }
     add_field(cname,
               col_name,
               "sol",
@@ -88,6 +117,9 @@ public:
                              const Id& id,
                              const STBIndexHolder<ColIndex>& holder)
   {
+    if (!emit_solution()) {
+      return;
+    }
     add_field(cname,
               col_name,
               "sol",
@@ -103,6 +135,9 @@ public:
                               const Id& id,
                               const GSTBIndexHolder<ColIndex>& holder)
   {
+    if (!emit_reduced_cost()) {
+      return;
+    }
     add_field(cname,
               col_name,
               "cost",
@@ -118,6 +153,9 @@ public:
                               const Id& id,
                               const STBIndexHolder<ColIndex>& holder)
   {
+    if (!emit_reduced_cost()) {
+      return;
+    }
     add_field(cname,
               col_name,
               "cost",
@@ -133,6 +171,9 @@ public:
                               const Id& id,
                               const GSTBIndexHolder<RowIndex>& holder)
   {
+    if (!emit_dual()) {
+      return;
+    }
     add_field(cname,
               row_name,
               "dual",
@@ -148,6 +189,9 @@ public:
                               const Id& id,
                               const STBIndexHolder<RowIndex>& holder)
   {
+    if (!emit_dual()) {
+      return;
+    }
     add_field(cname,
               row_name,
               "dual",
@@ -166,6 +210,9 @@ public:
                               const STBIndexHolder<RowIndex>& holder,
                               const STIndexHolder<double>& st_scale)
   {
+    if (!emit_dual()) {
+      return;
+    }
     add_field_st_scaled(
         cname, row_name, "dual", id, holder, row_dual_span, st_scale);
   }
@@ -176,6 +223,9 @@ public:
                                   const Id& id,
                                   const STBIndexHolder<RowIndex>& holder)
   {
+    if (!emit_dual()) {
+      return;
+    }
     add_field(cname,
               row_name,
               "dual",
@@ -193,6 +243,9 @@ public:
                              const Id& id,
                              const STIndexHolder<ColIndex>& holder)
   {
+    if (!emit_solution()) {
+      return;
+    }
     add_field(cname,
               col_name,
               "sol",
@@ -208,6 +261,9 @@ public:
                               const Id& id,
                               const STIndexHolder<ColIndex>& holder)
   {
+    if (!emit_reduced_cost()) {
+      return;
+    }
     add_field(cname,
               col_name,
               "cost",
@@ -223,6 +279,9 @@ public:
                               const Id& id,
                               const STIndexHolder<RowIndex>& holder)
   {
+    if (!emit_dual()) {
+      return;
+    }
     add_field(cname,
               row_name,
               "dual",
@@ -240,6 +299,9 @@ public:
                              const Id& id,
                              const TIndexHolder<ColIndex>& holder)
   {
+    if (!emit_solution()) {
+      return;
+    }
     add_field(cname,
               col_name,
               "sol",
@@ -255,6 +317,9 @@ public:
                               const Id& id,
                               const TIndexHolder<ColIndex>& holder)
   {
+    if (!emit_reduced_cost()) {
+      return;
+    }
     add_field(cname,
               col_name,
               "cost",
@@ -270,6 +335,9 @@ public:
                               const Id& id,
                               const TIndexHolder<RowIndex>& holder)
   {
+    if (!emit_dual()) {
+      return;
+    }
     add_field(cname,
               row_name,
               "dual",
@@ -280,6 +348,25 @@ public:
               sc.get().stage_icost_factors());
   }
 
+  /// Which output fields were requested for this context.
+  [[nodiscard]] constexpr auto output_flags() const noexcept -> OutputFlags
+  {
+    return m_output_flags_;
+  }
+
+  [[nodiscard]] constexpr bool emit_solution() const noexcept
+  {
+    return has_flag(m_output_flags_, OutputFlags::solution);
+  }
+  [[nodiscard]] constexpr bool emit_dual() const noexcept
+  {
+    return has_flag(m_output_flags_, OutputFlags::dual);
+  }
+  [[nodiscard]] constexpr bool emit_reduced_cost() const noexcept
+  {
+    return has_flag(m_output_flags_, OutputFlags::reduced_cost);
+  }
+
   void write() const;
 
 private:
@@ -287,6 +374,8 @@ private:
 
   SceneUid m_scene_uid_;
   PhaseUid m_phase_uid_;
+
+  OutputFlags m_output_flags_ {OutputFlags::all};
 
   ScaledView col_sol_span;
   ScaledView col_cost_span;
@@ -330,9 +419,8 @@ private:
       return;
     }
 
-    field_vector_map[ClassFieldName {cname, as_label(fname, sname)}]
-        .emplace_back(
-            field_name(id), std::move(values), std::move(valid), prelude);
+    field_vector_map[ClassFieldName {cname, fname, sname}].emplace_back(
+        field_name(id), std::move(values), std::move(valid), prelude);
   }
 
   /// add_field variant with additional per-(scenario,stage) back-scale.
@@ -359,9 +447,8 @@ private:
       return;
     }
 
-    field_vector_map[ClassFieldName {cname, as_label(fname, sname)}]
-        .emplace_back(
-            field_name(id), std::move(values), std::move(valid), &stb_prelude);
+    field_vector_map[ClassFieldName {cname, fname, sname}].emplace_back(
+        field_name(id), std::move(values), std::move(valid), &stb_prelude);
   }
 };
 

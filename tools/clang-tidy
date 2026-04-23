@@ -1,0 +1,74 @@
+#!/usr/bin/env bash
+#
+# tools/clang-tidy — transparent wrapper that forwards to run-clang-tidy.
+#
+# ### Why this exists
+#
+# The project's pre-commit hook and CI both call `run-clang-tidy` (the
+# parallel driver), never bare `clang-tidy`.  Developers (and LLM agents)
+# who type `clang-tidy <file>` out of habit end up serialising work
+# across a single file and diverging from what CI actually verifies.
+#
+# This wrapper shadows the system `clang-tidy` when placed first on
+# PATH, transparently forwarding every invocation to `run-clang-tidy`
+# with `-j $(nproc)` injected if the caller did not specify a jobs
+# flag (`-j`, `-jN`, `--jobs`, or `--jobs=N`).
+#
+# ### Install
+#
+# Symlink (preferred — auto-updates when the repo is pulled):
+#
+#     ln -s "$(pwd)/tools/clang-tidy" ~/.local/bin/clang-tidy
+#
+# Or prepend `tools/` to PATH:
+#
+#     export PATH="$(pwd)/tools:$PATH"
+#
+# Verify the wrapper wins over the system binary:
+#
+#     command -v clang-tidy   # must print .../tools/clang-tidy (or the symlink)
+#
+# ### Bypass
+#
+# To invoke the real `clang-tidy` (rare — usually an agent-specific
+# diagnostic), call it by absolute path:
+#
+#     /usr/bin/clang-tidy <args>
+#
+# ### Related files
+#
+# - CLAUDE.md § "Pre-Commit Checks" — documents the parallel
+#   `run-clang-tidy` invocation this wrapper encourages.
+# - `.github/workflows/ubuntu.yml` — CI uses the same `run-clang-tidy`
+#   invocation.
+#
+set -u
+
+# Detect whether the caller already specified a jobs flag.  Handles the
+# four common forms: `-j`, `-jN` (no space), `--jobs`, `--jobs=N`.
+has_jobs=0
+for arg in "$@"; do
+  case "$arg" in
+    -j | -j[0-9]* | --jobs | --jobs=*)
+      has_jobs=1
+      break
+      ;;
+  esac
+done
+
+args=("$@")
+if [ "$has_jobs" -eq 0 ]; then
+  args=(-j "$(nproc)" "${args[@]}")
+fi
+
+# Resolve run-clang-tidy once so the error message is clear when it's
+# missing.  We deliberately use `command -v` (a shell builtin) instead
+# of `which` (external, not always installed).
+runner=$(command -v run-clang-tidy || true)
+if [ -z "$runner" ]; then
+  printf '%s: run-clang-tidy not found on PATH.\n' "$0" >&2
+  printf '  Install clang-tools (apt: clang-tidy clang-tools) or point PATH at a directory containing run-clang-tidy.\n' >&2
+  exit 127
+fi
+
+exec "$runner" "${args[@]}"

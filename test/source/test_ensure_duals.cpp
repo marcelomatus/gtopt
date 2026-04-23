@@ -91,10 +91,9 @@ TEST_CASE(
   li.add_row(row2);
   CHECK(li.get_numrows() == 2);
 
-  // Resolve with warm-start
+  // Resolve
   auto res2 = li.resolve(SolverOptions {
       .log_level = 0,
-      .reuse_basis = true,
   });
   REQUIRE(res2.has_value());
 

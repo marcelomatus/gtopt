@@ -38,6 +38,8 @@
  * | reserve_zone       | up (aliases: urequirement, up_requirement),         |
  * |                    | dn (aliases: drequirement, dn_requirement,          |
  * |                    |     down)                                           |
+ * | lng_terminal       | energy (tank volume), delivery,                     |
+ * |                    | spill (alias: drain), eini, efin, soft_emin         |
  *
  * ### Variable scaling
  *
@@ -94,10 +96,13 @@
  * expr         := term (('+' | '-') term)*
  *
  * term         := [number '*'] element_ref
+ *              |  [number '*'] state_ref
  *              |  [number '*'] sum_expr
  *              |  ['-'] number
  *
  * element_ref  := element_type '(' string ')' '.' attribute
+ *
+ * state_ref    := 'state' '(' element_ref ')'
  *
  * sum_expr     := 'sum' '(' element_type '(' string_list ')' '.'
  *                 attribute ')'
@@ -113,6 +118,7 @@
  *              |  'junction'  | 'flow' | 'seepage'
  *              |  'flow_right' | 'volume_right'
  *              |  'reserve_provision' | 'reserve_zone'
+ *              |  'lng_terminal'
  *
  * attribute    := IDENT
  *
@@ -141,11 +147,14 @@
 
 #pragma once
 
+#include <algorithm>
 #include <cstdint>
+#include <memory>
 #include <optional>
 #include <string>
 #include <vector>
 
+#include <gtopt/basic_types.hpp>
 #include <gtopt/linear_parser.hpp>
 
 namespace gtopt
@@ -167,6 +176,44 @@ struct ElementRef
   std::string element_type {};  ///< "generator", "demand", "line", etc.
   std::string element_id {};  ///< name or "uid:N" reference
   std::string attribute {};  ///< LP attribute: "generation", "load", etc.
+
+  /// True when the user wrote `state(<element_ref>)` (Phase 1e).
+  /// In Phase 1 the resolver treats wrapped and unwrapped refs
+  /// identically; Phase 2 will require this flag to be set whenever
+  /// the resolved column has `AmplVariableKind::StateBacked`.
+  bool state_wrapped {false};
+};
+
+/**
+ * @brief A predicate that filters a `sum(...)` aggregation (F4).
+ *
+ * Evaluated against the metadata registry populated by each element's
+ * `add_to_lp` via `SystemContext::register_ampl_element_metadata`.
+ * Strings and numbers are both supported; `In` holds a set-of-literals
+ * `in {a, b, c}` form (values stored as strings for now).
+ *
+ * Predicates are conjoined (AND) — disjunctions are deferred to v2.
+ */
+struct SumPredicate
+{
+  enum class Op : std::uint8_t
+  {
+    Eq,  ///< `=` or `==`
+    Ne,  ///< `!=` or `<>`
+    Lt,  ///< `<`
+    Le,  ///< `<=`
+    Gt,  ///< `>`
+    Ge,  ///< `>=`
+    In,  ///< `in {...}`
+  };
+
+  std::string attr {};  ///< metadata key, e.g. "type", "bus", "cap"
+  Op op {Op::Eq};
+  /// For scalar comparisons either `string` or `number` is set; for
+  /// `In` the `set` holds the allowed string literals.
+  std::optional<std::string> string_value {};
+  std::optional<double> number_value {};
+  std::vector<std::string> set_values {};
 };
 
 /**
@@ -174,8 +221,11 @@ struct ElementRef
  *
  * Represents `sum(element_type("id1","id2",...).attribute)` or
  * `sum(element_type(all).attribute)` — the AMPL-style `sum{g in SET}`.
- * An optional `type_filter` restricts the sum to elements whose `type` field
- * matches the given string (case-sensitive).
+ *
+ * An optional list of `filters` (F4) restricts the sum to elements whose
+ * metadata matches every predicate (AND).  For backward compatibility,
+ * the legacy `sum(type(all, type="hydro").attr)` syntax is accepted and
+ * lowered to a single `type == "hydro"` predicate in `filters`.
  *
  * Examples:
  *   - sum(generator("G1","G2").generation)
@@ -184,17 +234,16 @@ struct ElementRef
  *   - sum(generator(all).generation)
  *       → {element_type="generator", element_ids={},
  *          all_elements=true, attribute="generation"}
- *   - sum(generator(all, type="hydro").generation)
- *       → {element_type="generator", element_ids={},
- *          all_elements=true, type_filter="hydro", attribute="generation"}
+ *   - sum(generator(all: type="hydro" and cap>=50).generation)
+ *       → {all_elements=true,
+ *          filters=[{"type", Eq, "hydro"}, {"cap", Ge, 50}]}
  */
 struct SumElementRef
 {
   std::string element_type {};  ///< "generator", "demand", "line", etc.
   std::vector<std::string> element_ids {};  ///< Element names/UIDs to sum
   bool all_elements {false};  ///< true = sum over all elements of the type
-  std::optional<std::string>
-      type_filter {};  ///< Optional type tag filter (matches element.type)
+  std::vector<SumPredicate> filters {};  ///< F4 filter predicates (AND)
   std::string attribute {};  ///< LP attribute to aggregate
 };
 
@@ -224,6 +273,122 @@ struct ConstraintDomain
   IndexRange blocks {};  ///< Block indices (default: all)
 };
 
+// Forward declarations for nonlinear wrapper nodes that contain nested
+// linear expressions (`std::vector<ConstraintTerm>`).  The wrapper
+// bodies are defined *after* `ConstraintTerm` to avoid instantiating
+// `std::vector<ConstraintTerm>` with an incomplete element type.
+// `ConstraintTerm` therefore holds `std::shared_ptr<const AbsExpr>`
+// etc. (opaque pointer to forward-declared type, copy-safe).
+struct AbsExpr;
+struct MinMaxExpr;
+struct IfExpr;
+
+/// Kind of `min`/`max` expression (F7).
+enum class MinMaxKind : std::uint8_t
+{
+  Max,  ///< `max(a, b, c)` — convex upper envelope
+  Min,  ///< `min(a, b, c)` — concave lower envelope
+};
+
+/// A single atomic comparison for `if`-condition evaluation (F8).
+///
+/// The left-hand side is a loop coordinate (`scenario`, `stage`, or
+/// `block`), the right-hand side a literal integer or a set of
+/// integers.  Evaluated at LP-construction time per domain instance.
+struct IfCondAtom
+{
+  enum class Coord : std::uint8_t
+  {
+    Scenario,
+    Stage,
+    Block,
+  };
+  enum class Op : std::uint8_t
+  {
+    Eq,
+    Ne,
+    Lt,
+    Le,
+    Gt,
+    Ge,
+    In,
+  };
+  Coord coord {Coord::Stage};
+  Op op {Op::Eq};
+  std::optional<uid_t> number {};  ///< RHS for scalar comparisons
+  std::vector<uid_t> set_values {};  ///< RHS for `in { … }`
+};
+
+/// Shape of a nonlinear wrapper term for convexity checking.
+///
+/// - `UpperEnvelope` applies to `abs(x)` and `max(x_i)` — both are
+///   convex functions.  A term `c · f(x)` inside a constraint is
+///   lowerable iff `c > 0` with `<=` (or `c < 0` with `>=`, the
+///   algebraically equivalent form).
+/// - `LowerEnvelope` applies to `min(x_i)` — concave.  A term
+///   `c · f(x)` is lowerable iff `c > 0` with `>=` (or `c < 0` with
+///   `<=`).
+enum class ConvexKind : std::uint8_t
+{
+  UpperEnvelope,  ///< abs(x), max(x_i)
+  LowerEnvelope,  ///< min(x_i)
+};
+
+namespace detail
+{
+
+/// Pure convexity check for a single nonlinear wrapper term.
+///
+/// Returns `true` iff `coef · f(x)` can be safely lowered under the
+/// given `ctype` without flipping the feasible set (i.e. the resulting
+/// LP is a valid outer approximation, not an inner one).  See
+/// `ConvexKind` for the per-shape rules.
+///
+/// Pure / `noexcept` / `constexpr` so it is trivially unit-testable
+/// without instantiating a `LinearProblem`.
+[[nodiscard]] constexpr bool check_convexity(ConvexKind kind,
+                                             ConstraintType ctype,
+                                             double coef) noexcept
+{
+  if (kind == ConvexKind::UpperEnvelope) {
+    return (ctype == ConstraintType::LESS_EQUAL && coef > 0.0)
+        || (ctype == ConstraintType::GREATER_EQUAL && coef < 0.0);
+  }
+  // LowerEnvelope (min)
+  return (ctype == ConstraintType::GREATER_EQUAL && coef > 0.0)
+      || (ctype == ConstraintType::LESS_EQUAL && coef < 0.0);
+}
+
+/// Pure evaluator for a single `IfCondAtom` against a coordinate value.
+///
+/// The caller is responsible for extracting the integer value of the
+/// coord that `atom.coord` names (scenario/stage/block uid) and passing
+/// it here.  This split keeps the evaluator free of any LP context,
+/// making it trivial to unit-test and `constexpr`/`noexcept`.
+[[nodiscard]] constexpr bool eval_if_atom(const IfCondAtom& atom,
+                                          uid_t value) noexcept
+{
+  switch (atom.op) {
+    case IfCondAtom::Op::Eq:
+      return atom.number.has_value() && value == *atom.number;
+    case IfCondAtom::Op::Ne:
+      return atom.number.has_value() && value != *atom.number;
+    case IfCondAtom::Op::Lt:
+      return atom.number.has_value() && value < *atom.number;
+    case IfCondAtom::Op::Le:
+      return atom.number.has_value() && value <= *atom.number;
+    case IfCondAtom::Op::Gt:
+      return atom.number.has_value() && value > *atom.number;
+    case IfCondAtom::Op::Ge:
+      return atom.number.has_value() && value >= *atom.number;
+    case IfCondAtom::Op::In:
+      return std::ranges::contains(atom.set_values, value);
+  }
+  return false;
+}
+
+}  // namespace detail
+
 /**
  * @brief A single term in a constraint expression
  *
@@ -231,7 +396,16 @@ struct ConstraintDomain
  *   - coefficient × element reference (single variable term)
  *   - coefficient × sum reference (aggregation term)
  *   - coefficient × named parameter (resolved at LP time)
+ *   - coefficient × abs(linear) wrapper (F5)
+ *   - coefficient × min/max(args…) wrapper (F7)
+ *   - coefficient × if-then-else wrapper (F8)
  *   - standalone coefficient (constant term, all nullopt)
+ *
+ * The wrapper payloads (`AbsExpr`, `MinMaxExpr`, `IfExpr`) are stored
+ * by `std::shared_ptr<const …>` so that `ConstraintTerm` remains
+ * default-copyable even though those types recursively contain
+ * `std::vector<ConstraintTerm>`.  Sharing is fine because the AST is
+ * immutable after parsing.
  */
 struct ConstraintTerm
 {
@@ -241,6 +415,68 @@ struct ConstraintTerm
       sum_ref {};  ///< Sum aggregation (nullopt = none)
   std::optional<std::string>
       param_name {};  ///< Named user parameter (nullopt = none)
+  std::shared_ptr<const AbsExpr> abs_expr {};  ///< `abs(...)` wrapper (F5)
+  std::shared_ptr<const MinMaxExpr>
+      minmax_expr {};  ///< `min`/`max` wrapper (F7)
+  std::shared_ptr<const IfExpr>
+      if_expr {};  ///< `if ... then ... else ...` (F8)
+};
+
+/**
+ * @brief `abs(linear_expression)` term (F5).
+ *
+ * The inner expression is an arbitrary linear combination stored as a
+ * vector of `ConstraintTerm`s.  Lowering allocates one auxiliary
+ * non-negative variable `t` per occurrence and emits two rows enforcing
+ * `t >= |inner|`; the outer row substitutes `coefficient * t` for
+ * `coefficient * abs(inner)`.
+ *
+ * Nested `abs(abs(...))` is rejected at parse time.  Convexity of the
+ * outer constraint is enforced at lowering time: only `<=` with
+ * positive coefficient (or `>=` with negative coefficient) is accepted.
+ */
+struct AbsExpr
+{
+  std::vector<ConstraintTerm> inner {};  ///< Linear expression inside abs(...)
+};
+
+/**
+ * @brief `max(arg1, arg2, ...)` / `min(arg1, arg2, ...)` term (F7).
+ *
+ * Each `arg` is itself a linear combination.  Lowering allocates one
+ * auxiliary variable `t` per occurrence and emits one row per argument
+ * (`arg_i − t ≤ 0` for max, `t − arg_i ≤ 0` for min).  The outer row
+ * substitutes `coefficient * t` for `coefficient * max/min(args)`.
+ *
+ * Convexity:
+ *   - `max(...) ≤ k` or `c·max(...) + ... ≤ k` with `c > 0`.
+ *   - `min(...) ≥ k` or `c·min(...) + ... ≥ k` with `c > 0`.
+ *   - Opposite-direction uses with negative coefficients are equivalent
+ *     and also accepted.  All other combinations are rejected.
+ */
+struct MinMaxExpr
+{
+  MinMaxKind kind {MinMaxKind::Max};
+  std::vector<std::vector<ConstraintTerm>> args {};
+};
+
+/**
+ * @brief Data-only conditional expression (F8).
+ *
+ * `if <cond> then (<then_branch>) [ else (<else_branch>) ]`
+ *
+ * The condition is a conjunction (AND) of atomic coordinate comparisons
+ * evaluated per (scenario, stage, block) domain instance at LP
+ * construction time.  The selected branch's terms are substituted into
+ * the surrounding row; the unselected branch is dropped for that
+ * instance.  If no `else` branch is provided, the condition selects
+ * between the `then` branch and an empty expression.
+ */
+struct IfExpr
+{
+  std::vector<IfCondAtom> cond {};  ///< Conjunction (AND) of atoms
+  std::vector<ConstraintTerm> then_branch {};
+  std::vector<ConstraintTerm> else_branch {};
 };
 
 /**

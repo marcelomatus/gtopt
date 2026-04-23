@@ -8,7 +8,7 @@ Handles conversion of parsed PLP data to GTOPT JSON format.
 import json
 import logging
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, Mapping
 
 from .aflce_writer import AflceWriter
 from .aperture_writer import (
@@ -25,15 +25,25 @@ from .generator_profile_writer import GeneratorProfileWriter
 from .index_utils import parse_index_range, parse_stages_phase
 from .indhor_writer import IndhorWriter
 from .junction_writer import JunctionWriter
-from .laja_writer import LajaWriter
 from .line_writer import LineWriter
-from .maule_writer import MauleWriter
 from .planos_writer import write_boundary_cuts_csv, write_hot_start_cuts_csv
 from .plp_parser import PLPParser
 from .stage_writer import StageWriter
 from .tech_detect import detect_technology, load_centipo_csv
 
 _logger = logging.getLogger(__name__)
+
+
+def _strip_internal_keys(planning: Dict) -> Dict:
+    """Return a shallow copy of ``planning`` with internal-only keys removed.
+
+    The gtopt C++ parser uses ``StrictParsePolicy`` (daw::json
+    ``UseExactMappingsByDefault=yes``), so any field not declared in the
+    corresponding struct causes a parse error.  Python-side metadata
+    (pipeline annotations, Excel hints) is preserved on the writer
+    instance but excluded from the emitted JSON.
+    """
+    return {k: v for k, v in planning.items() if not k.startswith("_")}
 
 
 class GTOptWriter:
@@ -52,15 +62,114 @@ class GTOptWriter:
         }
 
     @staticmethod
-    def _normalize_solver_type(solver_type: str) -> str:
+    def _normalize_method(method: str) -> str:
         """Normalize solver type string.
 
-        Accepts 'sddp', 'mono', or 'monolithic'; returns either 'sddp' or
-        'monolithic' (the values understood by the gtopt C++ solver).
+        Accepts 'sddp', 'mono', 'monolithic', or 'cascade'; returns
+        'sddp', 'monolithic', or 'cascade'.
         """
-        if solver_type in ("mono", "monolithic"):
+        if method in ("mono", "monolithic"):
             return "monolithic"
+        if method == "cascade":
+            return "cascade"
         return "sddp"
+
+    @staticmethod
+    def _build_default_cascade_options(
+        model_opts: dict[str, Any],
+        sddp_opts: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Build a 3-level default cascade configuration.
+
+        Iteration budget split:
+          - Level 0 (uninodal):  full max_iterations — single-bus relaxation
+            runs against the PLP-provided iteration budget unmodified
+          - Level 1 (transport): 1/4 of max_iterations — lines enabled, no
+            losses, no kirchhoff (pure transport model)
+          - Level 2 (full):      1/4 of max_iterations — full network with the
+            user's original model_options
+
+        Each level inherits state-variable targets from the previous level
+        via elastic constraints (``inherit_targets = -1``).
+        """
+        total_iter = sddp_opts.get("max_iterations", 100)
+        convergence_tol = sddp_opts.get("convergence_tol", 0.01)
+
+        l0_iter = max(total_iter, 1)
+        l1_iter = max(total_iter // 4, 1)
+        l2_iter = max(total_iter // 4, 1)
+
+        # The cascade-level max_iterations is interpreted by
+        # CascadePlanningMethod as a GLOBAL budget applied to the sum of
+        # every level's training iterations.  Leaving it equal to
+        # total_iter lets level 0 alone consume the whole budget (since
+        # l0_iter == total_iter) and skip levels 1–2 — see
+        # cascade_method.cpp: "global iteration budget exhausted".  Use
+        # the sum of per-level budgets so each level still runs, while
+        # keeping a conservative upper bound on total work.
+        cascade_sddp_opts = {**sddp_opts, "max_iterations": l0_iter + l1_iter + l2_iter}
+
+        transition = {
+            "inherit_targets": -1,
+            "target_rtol": 0.05,
+            "target_min_atol": 1.0,
+            "target_penalty": 500.0,
+        }
+
+        level_array = [
+            {
+                "uid": 1,
+                "name": "uninodal",
+                "model_options": {
+                    "use_single_bus": True,
+                },
+                "sddp_options": {
+                    "max_iterations": l0_iter,
+                    "convergence_tol": convergence_tol,
+                },
+            },
+            {
+                "uid": 2,
+                "name": "transport",
+                "model_options": {
+                    "use_single_bus": False,
+                    "use_kirchhoff": False,
+                    "use_line_losses": False,
+                },
+                "sddp_options": {
+                    "max_iterations": l1_iter,
+                    "convergence_tol": convergence_tol,
+                },
+                "transition": transition,
+            },
+            {
+                "uid": 3,
+                "name": "full_network",
+                "model_options": {
+                    k: v
+                    for k, v in model_opts.items()
+                    if k
+                    in (
+                        "use_single_bus",
+                        "use_kirchhoff",
+                        "use_line_losses",
+                        "kirchhoff_threshold",
+                        "loss_segments",
+                    )
+                },
+                "sddp_options": {
+                    "max_iterations": l2_iter,
+                    "convergence_tol": convergence_tol,
+                },
+                "transition": transition,
+            },
+        ]
+
+        return {
+            "model_options": model_opts,
+            "sddp_options": cascade_sddp_opts,
+            "level_array": level_array,
+        }
 
     def process_options(self, options):
         """Process options data to include input and output paths.
@@ -76,9 +185,9 @@ class GTOptWriter:
         output_format = options.get("output_format", "parquet")
         input_format = options.get("input_format", output_format)
         compression = options.get("compression", "zstd")
-        solver_type = self._normalize_solver_type(options.get("solver_type", "sddp"))
+        method = self._normalize_method(options.get("method", "cascade"))
 
-        # Build the nested sddp_options block (all sddp_* fields except solver_type).
+        # Build the nested sddp_options block (all sddp_* fields except method).
         # NOTE: num_apertures is NOT emitted here — the C++ SddpOptions JSON
         # contract has no "num_apertures" field (only "apertures", an array of
         # UIDs).  Aperture configuration is fully handled by aperture_array and
@@ -105,31 +214,35 @@ class GTOptWriter:
 
         convergence_tol = options.get("convergence_tol")
         if convergence_tol is None:
-            # Fall back to PDError from plpmat.dat; use 0.1 if absent or zero.
+            # Fall back to PDError from plpmat.dat verbatim; use 0.01 if absent.
+            # Emit the same numeric value PLP stores — no unit conversion —
+            # so users can reason about a single "PDError / convergence_tol"
+            # number rather than tracking a /100 translation.
             parsed = getattr(self.parser, "parsed_data", None)
             if isinstance(parsed, dict):
                 plpmat = parsed.get("plpmat_parser")
                 if plpmat is not None and getattr(plpmat, "pd_error", 0.0) > 0.0:
                     convergence_tol = plpmat.pd_error
             if convergence_tol is None:
-                convergence_tol = 0.1
+                convergence_tol = 0.01
         sddp_opts["convergence_tol"] = convergence_tol
 
         # Secondary (stationary gap) convergence criterion:
         # When the gap stops improving over a window of iterations, declare
-        # convergence even if gap > convergence_tol.
-        # Default: stationary_tol = convergence_tol / 10, stationary_window = 4.
-        stationary_tol = options.get("stationary_tol", convergence_tol / 10.0)
+        # convergence even if gap > convergence_tol.  Defaulting stationary_tol
+        # to convergence_tol (instead of convergence_tol / 10) lets SDDP stop
+        # as soon as LB is no longer moving by more than the primary tolerance
+        # — on the support/juan/gtopt_iplp case this cuts ~2 stagnating iters
+        # (~350 s of backward-pass time) without changing solution quality.
+        stationary_tol = options.get("stationary_tol", convergence_tol)
         sddp_opts["stationary_tol"] = stationary_tol
 
         stationary_window = options.get("stationary_window", 4)
         sddp_opts["stationary_window"] = stationary_window
 
-        # Cut coefficient tolerances (PLP OptiEPS equivalent).
+        # Cut coefficient tolerance (PLP OptiEPS equivalent).
         # cut_coeff_eps: drop coefficients with |value| < eps (default 1e-8).
-        # cut_coeff_max: rescale entire cut when max|coeff| > threshold.
         sddp_opts["cut_coeff_eps"] = options.get("cut_coeff_eps", 1e-8)
-        sddp_opts["cut_coeff_max"] = options.get("cut_coeff_max", 1e6)
 
         # When the JSON file lives inside the output directory (the default),
         # input_directory is "." so paths are relative to the JSON location.
@@ -160,17 +273,22 @@ class GTOptWriter:
         if "use_line_losses" in src_model:
             model_opts["use_line_losses"] = src_model["use_line_losses"]
 
-        planning_opts = {
-            "method": solver_type,
+        planning_opts: dict[str, Any] = {
+            "method": method,
             "input_directory": input_dir_val,
             "input_format": input_format,
             "output_directory": "results",
             "output_format": output_format,
             "output_compression": compression,
-            "use_lp_names": 1,
             "model_options": model_opts,
             "sddp_options": sddp_opts,
         }
+
+        if method == "cascade":
+            planning_opts["cascade_options"] = self._build_default_cascade_options(
+                model_opts, sddp_opts
+            )
+
         self.planning["options"] = planning_opts
 
         # Set annual_discount_rate on the simulation section.
@@ -184,8 +302,8 @@ class GTOptWriter:
         1. **``stages_phase``** (explicit): A parsed ``--stages-phase`` spec
            (list-of-lists of 1-based PLP stage indices) fully controls the
            mapping regardless of ``method``.
-        2. **``solver_type='monolithic'``**: A single phase spanning all stages.
-        3. **``solver_type='sddp'``** (default): One phase per PLP stage.
+        2. **``method='monolithic'``**: A single phase spanning all stages.
+        3. **``method='sddp'``** (default): One phase per PLP stage.
 
         The ``--stages-phase`` option accepts a string like
         ``"1:4,5,6,7,8,9,10,..."`` (see :func:`~.index_utils.parse_stages_phase`
@@ -238,10 +356,8 @@ class GTOptWriter:
                 )
             self.planning["simulation"]["phase_array"] = phase_array
         else:
-            solver_type = self._normalize_solver_type(
-                options.get("solver_type", "sddp")
-            )
-            if solver_type == "monolithic":
+            method = self._normalize_method(options.get("method", "cascade"))
+            if method == "monolithic":
                 # One phase covering all stages
                 self.planning["simulation"]["phase_array"] = [
                     {
@@ -364,9 +480,9 @@ class GTOptWriter:
             )
         self.planning["simulation"]["scenario_array"] = scenarios
 
-        solver_type = self._normalize_solver_type(options.get("solver_type", "sddp"))
+        method = self._normalize_method(options.get("method", "cascade"))
 
-        if solver_type == "monolithic":
+        if method == "monolithic":
             scenes = [
                 {
                     "uid": 1,
@@ -539,6 +655,92 @@ class GTOptWriter:
             options,
         ).to_json_array()
 
+    def process_ror_spec(self, options):
+        """Resolve ``--ror-as-reservoirs`` once so downstream writers share it.
+
+        Runs before ``process_afluents`` and ``process_junctions`` so that
+        the discharge parquet can un-scale promoted pasada inflows and the
+        junction writer can re-use the same resolved spec without re-parsing
+        the CSV.  Stores two keys on ``options``:
+
+        * ``_ror_spec_resolved``: ``{name: RorSpec}`` from the resolver.
+        * ``_pasada_unscale_map``: ``{name: 1.0/production_factor}`` for
+          every promoted **pasada** central (serie centrals keep their
+          physical flow and are not included).
+        """
+        from .ror_equivalence_parser import (  # noqa: PLC0415
+            pasada_unscale_map,
+            resolve_ror_reservoir_spec,
+        )
+
+        centrals = self.parser.parsed_data.get("central_parser", None)
+        if not centrals:
+            return
+
+        cot = getattr(centrals, "centrals_of_type", None)
+        if not cot:
+            return
+
+        # Match JunctionWriter's item filter: eligible centrals are
+        # pasada+serie with bus>0 (and pasada must also be routed to the
+        # hydro path — not profile/solar).
+        pasada_hydro_names = options.get("_pasada_hydro_names", set())
+        items: list[dict[str, Any]] = []
+        for c in cot.get("serie", []):
+            if c.get("bus", 0) > 0:
+                items.append(c)
+        for c in cot.get("pasada", []):
+            if c.get("bus", 0) > 0 and c["name"] in pasada_hydro_names:
+                items.append(c)
+        for c in cot.get("embalse", []):
+            items.append(c)
+
+        resolved = resolve_ror_reservoir_spec(options, items)
+        options["_ror_spec_resolved"] = resolved
+        options["_pasada_unscale_map"] = pasada_unscale_map(resolved, items)
+
+        if resolved and options.get("expand_ror", True):
+            self._dump_ror_promoted(resolved, options)
+
+    @staticmethod
+    def _dump_ror_promoted(
+        resolved: Dict[str, Any],
+        options: Mapping[str, Any],
+    ) -> None:
+        """Emit ``ror_promoted.json`` — the ``gtopt_expand ror`` audit artifact.
+
+        Mirrors the schema produced by ``gtopt_expand.ror_expand.
+        expand_ror_from_file``: ``{"promoted": [{name, vmax_hm3,
+        production_factor, pmax_mw?}, ...]}``.  Skipped when
+        ``--no-expand-ror`` is set or no output directory is configured.
+        """
+        output_dir = options.get("output_dir")
+        if not output_dir:
+            return
+
+        promoted: list[dict[str, Any]] = []
+        for name in sorted(resolved):
+            spec = resolved[name]
+            entry: dict[str, Any] = {
+                "name": name,
+                "vmax_hm3": spec.vmax_hm3,
+                "production_factor": spec.production_factor,
+            }
+            if getattr(spec, "pmax_mw", None) is not None:
+                entry["pmax_mw"] = spec.pmax_mw
+            promoted.append(entry)
+
+        target = Path(output_dir) / "ror_promoted.json"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        with open(target, "w", encoding="utf-8") as fh:
+            json.dump({"promoted": promoted}, fh, indent=2, sort_keys=False)
+            fh.write("\n")
+        _logger.info(
+            "ror: audit artifact → %s (%d promoted central(s))",
+            target.name,
+            len(promoted),
+        )
+
     def process_afluents(self, options):
         """Write affluent/discharge Parquet files for Flow elements.
 
@@ -578,6 +780,7 @@ class GTOptWriter:
             blocks,
             scenarios,
             options,
+            pasada_unscale_map=options.get("_pasada_unscale_map") or None,
         )
 
         aflce_writer.to_parquet(output_dir, items=aflces_items)
@@ -621,85 +824,332 @@ class GTOptWriter:
                 self.planning["system"][key] = val
 
     def process_water_rights(self, options):
-        """Process irrigation agreement conventions into rights entities.
+        """Emit Laja / Maule Stage-2 artifacts.
 
-        Only emits entities when ``emit_water_rights`` option is set to
-        True.  The conventions create FlowRight, VolumeRight,
-        RightJunction and UserConstraint entities that reference physical
-        elements by name — these references must match the converted
-        hydro topology, so emission is opt-in until the converter is
-        validated for each PLP case.
+        Controls Laja/Maule irrigation-agreement expansion only.  LNG
+        is fully independent and handled by ``process_lng``; RoR
+        promotion is orthogonal (see ``process_ror_spec``) but
+        complementary — when ``--ror-as-reservoirs`` promotes
+        MACHICURA, the Maule agreement gains its ``embalse`` template
+        variant (see auto-detection note below).
+
+        Gated by ``expand_water_rights`` (opt-in, default False).  When
+        set, dispatches ``gtopt_expand laja|maule`` in-process against
+        the already-parsed config (no ``*_dat.json`` intermediate is
+        written to disk — those parser dumps would never be shipped
+        anyway).  The Stage-2 entities are merged into
+        ``planning["system"]``, companion ``laja.pampl`` /
+        ``maule.pampl`` files are written, and per-agreement system
+        fragments ``laja_water_rights.json`` / ``maule_water_rights.json``
+        are emitted (these DO go into the manifest so gtopt can merge
+        them alongside the main planning JSON).
+
+        Machicura auto-detection consults both
+        ``planning["system"]["reservoir_array"]`` (populated by
+        ``process_junctions`` and any ``--ror-as-reservoirs`` promotion)
+        AND, as a belt-and-suspenders check, the ``ror_promoted.json``
+        audit file written by ``process_ror_spec``.  When ``MACHICURA``
+        appears in either set, ``MauleAgreement`` picks the ``embalse``
+        template variant; otherwise the ``pasada`` default.  Hand-
+        authored fixtures can still pin the variant by setting
+        ``cfg["machicura_model"]`` explicitly.
         """
-        if not options.get("emit_water_rights", False):
+        if not options.get("expand_water_rights", False):
+            return
+
+        output_dir = Path(options["output_dir"]) if options.get("output_dir") else None
+        if output_dir is None:
             return
 
         stage_parser = self.parser.parsed_data.get("stage_parser")
-        output_dir = Path(options["output_dir"]) if options.get("output_dir") else None
 
-        # Pass the effective number of stages (after -s/-t truncation) so
-        # that rights writers truncate their per-stage schedules to match.
-        sim = self.planning.get("simulation", {})
-        stage_array = sim.get("stage_array", [])
-        num_stages = len(stage_array)
-        # Determine blocks-per-stage so 3D schedules have correct inner dim
-        blocks_per_stage = stage_array[0].get("count_block", 1) if stage_array else 1
-        wr_options = {
-            **options,
-            "last_stage": num_stages,
-            "blocks_per_stage": blocks_per_stage,
-        }
-
-        pampl_files: list[str] = []
-
-        def _merge_writer(name: str, writer_dict: dict) -> None:
-            """Merge writer output into planning and log entity counts."""
-            for key, val in writer_dict.items():
-                if key == "user_constraint_file":
-                    pampl_files.append(val)
-                    _logger.info(
-                        "%s: user_constraint_file = %s",
-                        name,
-                        val,
-                    )
-                else:
-                    existing = self.planning["system"].get(key, [])
-                    self.planning["system"][key] = existing + val
-                    if val:
-                        _logger.info(
-                            "%s: %d %s",
-                            name,
-                            len(val),
-                            key,
-                        )
-
-        # Laja convention
         laja_parser = self.parser.parsed_data.get("laja_parser")
         if laja_parser is not None:
-            lw = LajaWriter(
-                laja_config=laja_parser.config,
-                stage_parser=stage_parser,
-                options=wr_options,
-            )
-            _merge_writer("Laja", lw.to_json_dict(output_dir=output_dir))
+            self._expand_laja(laja_parser.config, stage_parser, output_dir)
 
-        # Maule convention
         maule_parser = self.parser.parsed_data.get("maule_parser")
         if maule_parser is not None:
-            mw = MauleWriter(
-                maule_config=maule_parser.config,
-                stage_parser=stage_parser,
-                options=wr_options,
-            )
-            _merge_writer("Maule", mw.to_json_dict(output_dir=output_dir))
+            cfg = dict(maule_parser.config)
+            extrac_parser = self.parser.parsed_data.get("extrac_parser")
+            if extrac_parser is not None:
+                cfg["extrac_entries"] = list(extrac_parser.get_all())
+            self._expand_maule(cfg, stage_parser, output_dir)
 
-        # Use user_constraint_files (plural) to keep PAMPL files separate
-        if pampl_files:
-            self.planning["system"]["user_constraint_files"] = pampl_files
-            _logger.info(
-                "Registered %d PAMPL file(s): %s",
-                len(pampl_files),
-                ", ".join(pampl_files),
+    def process_lng(self, options):
+        """Emit LNG Stage-2 expansion.
+
+        Fully independent of ``process_water_rights``.  When
+        ``expand_lng`` is True (the default), dispatches
+        ``gtopt_expand lng`` against the already-parsed
+        ``plpcnfgnl.dat`` config and merges the resulting
+        ``lng_terminal_array`` into ``planning["system"]``.  A no-op
+        when the PLP case has no ``plpcnfgnl.dat`` (no ``gnl_parser``).
+        No intermediate ``lng_dat.json`` is written — parser dumps are
+        never shipped.
+        """
+        if not options.get("expand_lng", True):
+            return
+
+        gnl_parser = self.parser.parsed_data.get("gnl_parser")
+        if gnl_parser is None:
+            return
+
+        self._expand_lng(gnl_parser.config)
+
+    def process_pumped_storage(self, options):
+        """Emit pumped-storage expansions from ``--pumped-storage FILE[s]``.
+
+        For each config file in ``options["pumped_storage_files"]``,
+        runs the ``gtopt_expand.pumped_storage_expand`` transform and
+        merges the resulting entities into the planning JSON.  The
+        per-unit artifact ``{name}.json`` is written to ``output_dir``
+        wrapped as ``{"system": {...}}``.  The ``name`` comes from the
+        file's ``"name"`` field (or the filename stem as fallback) and
+        drives all emitted element names
+        (``hydro_{name}``, ``tur_{name}``, …).
+
+        ``vmin`` / ``vmax`` at ``0`` (or absent) fall back to the upper
+        reservoir's ``emin`` / ``emax`` in plpcnfce.dat.  Requires each
+        unit's ``lower_reservoir`` to be a reservoir — real embalse or
+        RoR-promoted via --ror-as-reservoirs.  Raises on missing
+        prerequisites.
+        """
+        ps_files = options.get("pumped_storage_files") or []
+        if not ps_files:
+            return
+
+        output_dir = Path(options["output_dir"]) if options.get("output_dir") else None
+        if output_dir is None:
+            return
+
+        from gtopt_expand.pumped_storage_expand import (  # noqa: PLC0415
+            expand_pumped_storage,
+        )
+
+        central_parser = self.parser.parsed_data.get("central_parser")
+        embalses = (
+            central_parser.centrals_of_type.get("embalse", [])
+            if central_parser is not None
+            else []
+        )
+
+        def _plpcnfce_vmin_vmax(
+            upper_name: str,
+        ) -> tuple[float | None, float | None]:
+            for c in embalses:
+                if c.get("name") == upper_name:
+                    vmin = float(c["emin"]) if "emin" in c else None
+                    vmax = float(c["emax"]) if "emax" in c else None
+                    return vmin, vmax
+            return None, None
+
+        reservoir_names = self._reservoir_names(output_dir)
+        reservoirs = self.planning["system"].get("reservoir_array", [])
+        reservoirs_list = list(reservoirs) if isinstance(reservoirs, list) else []
+
+        def _resolve(
+            c: Dict[str, Any], key: str, fallback: float | None
+        ) -> float | None:
+            val = c.get(key)
+            if val is None or float(val) == 0.0:
+                return fallback
+            return float(val)
+
+        for idx, params_path in enumerate(ps_files):
+            path = Path(params_path)
+            with open(path, "r", encoding="utf-8") as fh:
+                loaded = json.load(fh)
+            if not isinstance(loaded, dict):
+                raise ValueError(
+                    f"--pumped-storage {path}: expected a JSON object, "
+                    f"got {type(loaded).__name__}"
+                )
+            cfg: Dict[str, Any] = dict(loaded)
+
+            # Unit name: config wins, then filename stem.
+            unit_name = str(cfg.get("name") or path.stem).strip()
+            if not unit_name:
+                raise ValueError(
+                    f"--pumped-storage {path}: unit 'name' cannot be empty"
+                )
+            cfg["name"] = unit_name
+
+            # Backfill vmin/vmax from plpcnfce.dat when the user left
+            # them at 0 (or absent).  The upper reservoir drives the
+            # PF curve; default to COLBUN for backwards compatibility
+            # with the HB Maule workflow.
+            upper_name = str(cfg.get("upper_reservoir") or "COLBUN")
+            plp_vmin, plp_vmax = _plpcnfce_vmin_vmax(upper_name)
+
+            resolved_vmin = _resolve(cfg, "vmin", plp_vmin)
+            resolved_vmax = _resolve(cfg, "vmax", plp_vmax)
+            if resolved_vmin is None or resolved_vmax is None:
+                raise ValueError(
+                    f"pumped-storage '{unit_name}' needs upper reservoir "
+                    f"'{upper_name}' vmin/vmax: not provided in "
+                    f"{path} and no '{upper_name}' embalse found in "
+                    f"plpcnfce.dat"
+                )
+            cfg["vmin"] = resolved_vmin
+            cfg["vmax"] = resolved_vmax
+
+            entities = expand_pumped_storage(
+                config=cfg,
+                name=unit_name,
+                reservoirs=reservoirs_list,
+                reservoir_names=reservoir_names,
+                uid_start=900_000 + idx * 16,
             )
+
+            target = output_dir / f"{unit_name}.json"
+            with open(target, "w", encoding="utf-8") as fh:
+                json.dump({"system": entities}, fh, indent=2, sort_keys=False)
+                fh.write("\n")
+
+            self._merge_entities(entities)
+            _logger.info(
+                "pumped_storage: emitted '%s' + %s.json "
+                "(2 waterways, 1 turbine, 1 pump, 1 RPF)",
+                unit_name,
+                unit_name,
+            )
+
+    def _merge_entities(self, entities: Mapping[str, Any]) -> None:
+        """Merge gtopt_expand entity arrays into ``planning["system"]``.
+
+        ``*_array`` keys are appended (so Laja and Maule can contribute
+        to the same ``flow_right_array`` / ``volume_right_array`` /
+        ``user_constraint_array``).  Singular ``user_constraint_file``
+        strings are aggregated into the plural ``user_constraint_files``
+        list because each agreement emits its own ``.pampl`` and gtopt
+        accepts multiple files via that plural field.
+        """
+        system = self.planning["system"]
+        for key, val in entities.items():
+            if key == "user_constraint_file":
+                system.setdefault("user_constraint_files", []).append(val)
+            elif isinstance(val, list) and key.endswith("_array"):
+                system.setdefault(key, []).extend(val)
+            else:
+                system[key] = val
+
+    def _reservoir_names(self, output_dir: Path | None = None) -> set[str]:
+        """Return reservoir names currently known to the writer.
+
+        Includes:
+
+        * Names in ``planning["system"]["reservoir_array"]`` (populated
+          by ``process_junctions`` and any ``--ror-as-reservoirs``
+          promotion).
+        * When ``output_dir`` is given and ``ror_promoted.json`` exists
+          in it, the promoted names from that audit file.  This covers
+          Stage-2-only runs where ``process_junctions`` has not yet
+          mutated ``planning["system"]``.
+        """
+        names = {
+            r.get("name", "")
+            for r in self.planning["system"].get("reservoir_array", [])
+            if r.get("name")
+        }
+        if output_dir is not None:
+            audit = Path(output_dir) / "ror_promoted.json"
+            if audit.exists():
+                try:
+                    data = json.loads(audit.read_text(encoding="utf-8"))
+                except (OSError, json.JSONDecodeError):
+                    data = {}
+                for entry in data.get("promoted", []):
+                    name = entry.get("name") if isinstance(entry, dict) else None
+                    if name:
+                        names.add(name)
+        return names
+
+    @staticmethod
+    def _dump_water_rights_fragment(
+        tag: str, entities: Mapping[str, Any], output_dir: Path
+    ) -> Path | None:
+        """Write a per-agreement ``<tag>_water_rights.json`` system fragment.
+
+        The fragment mirrors the manifest-mergeable structure
+        ``{"system": {...entity arrays..., "user_constraint_files": [...]}}``
+        so gtopt can load it directly via the planning-file merge path.
+        Returns the path written, or None if ``entities`` is empty.
+        """
+        if not entities:
+            return None
+        system: Dict[str, Any] = {}
+        for key, val in entities.items():
+            if key == "user_constraint_file":
+                system.setdefault("user_constraint_files", []).append(val)
+            elif isinstance(val, list) and key.endswith("_array"):
+                system.setdefault(key, []).extend(val)
+            else:
+                system[key] = val
+        target = output_dir / f"{tag}_water_rights.json"
+        with open(target, "w", encoding="utf-8") as fh:
+            json.dump({"system": system}, fh, indent=2, sort_keys=False)
+            fh.write("\n")
+        return target
+
+    def _expand_laja(
+        self,
+        cfg: Mapping[str, Any],
+        stage_parser: Any,
+        output_dir: Path,
+    ) -> Dict[str, Any]:
+        """Run the Stage-2 Laja transform, merge entities, return them."""
+        from gtopt_expand.laja_agreement import LajaAgreement  # noqa: PLC0415
+
+        agreement = LajaAgreement(dict(cfg), stage_parser=stage_parser)
+        entities = agreement.to_json_dict(output_dir=output_dir)
+        self._merge_entities(entities)
+        self._dump_water_rights_fragment("laja", entities, output_dir)
+        _logger.info(
+            "laja: expanded to %d flow_right(s), %d volume_right(s)%s"
+            " + laja_water_rights.json",
+            len(entities.get("flow_right_array", [])),
+            len(entities.get("volume_right_array", [])),
+            " + laja.pampl" if "user_constraint_file" in entities else "",
+        )
+        return entities
+
+    def _expand_maule(
+        self,
+        cfg: Mapping[str, Any],
+        stage_parser: Any,
+        output_dir: Path,
+    ) -> Dict[str, Any]:
+        """Run the Stage-2 Maule transform, merge entities, return them."""
+        from gtopt_expand.maule_agreement import MauleAgreement  # noqa: PLC0415
+
+        agreement = MauleAgreement(
+            dict(cfg),
+            stage_parser=stage_parser,
+            options={"reservoir_names": self._reservoir_names(output_dir)},
+        )
+        entities = agreement.to_json_dict(output_dir=output_dir)
+        self._merge_entities(entities)
+        self._dump_water_rights_fragment("maule", entities, output_dir)
+        _logger.info(
+            "maule: expanded to %d flow_right(s), %d volume_right(s)%s"
+            " + maule_water_rights.json",
+            len(entities.get("flow_right_array", [])),
+            len(entities.get("volume_right_array", [])),
+            " + maule.pampl" if "user_constraint_file" in entities else "",
+        )
+        return entities
+
+    def _expand_lng(self, cfg: Mapping[str, Any]) -> None:
+        """Run the Stage-2 LNG transform and merge ``lng_terminal_array``."""
+        from gtopt_expand.lng_expand import expand_lng  # noqa: PLC0415
+
+        num_stages = len(self.planning["simulation"].get("stage_array", []))
+        entities = expand_lng(dict(cfg), num_stages=num_stages)
+        self._merge_entities(entities)
+        _logger.info(
+            "lng: expanded to %d terminal(s)",
+            len(entities.get("lng_terminal_array", [])),
+        )
 
     def process_flow_turbines(self, options):
         """Create Flow + Turbine(flow=ref) for hydro pasada centrals.
@@ -1021,6 +1471,31 @@ class GTOptWriter:
             existing_rsv = self.planning["system"].get("reservoir_array", [])
             self.planning["system"]["reservoir_array"] = existing_rsv + reg_reservoirs
 
+    @staticmethod
+    def _load_alias_file(alias_file: Path | str | None) -> dict[str, str] | None:
+        """Load a flat ``{old_name: new_name}`` alias map from JSON.
+
+        Returns ``None`` when ``alias_file`` is ``None``.  Raises
+        ``RuntimeError`` if the file is missing, unreadable, or does not
+        contain a flat string→string mapping.
+        """
+        if alias_file is None:
+            return None
+        path = Path(alias_file)
+        try:
+            with open(path, "r", encoding="utf-8") as fh:
+                data = json.load(fh)
+        except (OSError, json.JSONDecodeError) as exc:
+            raise RuntimeError(f"Cannot read alias file '{path}': {exc}") from exc
+        if not isinstance(data, dict) or not all(
+            isinstance(k, str) and isinstance(v, str) for k, v in data.items()
+        ):
+            raise RuntimeError(
+                f"Alias file '{path}' must be a flat JSON object of "
+                "{string: string} pairs."
+            )
+        return data
+
     def process_boundary_cuts(self, options):
         """Write boundary-cut and hot-start-cut CSVs from parsed PLP planos data.
 
@@ -1040,11 +1515,17 @@ class GTOptWriter:
 
         output_dir = Path(options.get("output_dir", ""))
         sddp_opts = self.planning["options"].setdefault("sddp_options", {})
+        name_alias = self._load_alias_file(options.get("alias_file"))
 
         # ── Boundary cuts (last stage) ─────────────────────────────────────
         if planos.cuts:
             csv_path = output_dir / "boundary_cuts.csv"
-            write_boundary_cuts_csv(planos.cuts, planos.reservoir_names, csv_path)
+            write_boundary_cuts_csv(
+                planos.cuts,
+                planos.reservoir_names,
+                csv_path,
+                name_alias=name_alias,
+            )
             self.planning["_boundary_cuts_count"] = len(planos.cuts)
             self.planning["_boundary_state_variables"] = len(planos.reservoir_names)
             # Path relative to where gtopt runs (same dir as the JSON).
@@ -1085,6 +1566,7 @@ class GTOptWriter:
                 planos.reservoir_names,
                 hs_path,
                 stage_to_phase=stage_to_phase,
+                name_alias=name_alias,
             )
             # Only wire the file into the JSON options if explicitly requested
             if options.get("hot_start_cuts", False):
@@ -1348,12 +1830,17 @@ class GTOptWriter:
         _step("demands")
         self.process_demands(options)
         _step("hydro")
+        self.process_ror_spec(options)
         self.process_afluents(options)
         self.process_generator_profiles(options)
         self.process_junctions(options)
         self.process_flow_turbines(options)
         _step("water_rights")
         self.process_water_rights(options)
+        _step("lng")
+        self.process_lng(options)
+        _step("pumped_storage")
+        self.process_pumped_storage(options)
         _step("batteries")
         self.process_battery(options)
         _step("boundary")
@@ -1394,4 +1881,4 @@ class GTOptWriter:
         if progress is not None:
             progress.step("write")
         with open(output_file, "w", encoding="utf-8") as f:
-            json.dump(planning, f, indent=4)
+            json.dump(_strip_internal_keys(planning), f, indent=4)

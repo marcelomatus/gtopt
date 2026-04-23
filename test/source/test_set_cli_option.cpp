@@ -341,9 +341,9 @@ TEST_CASE("--set invalid format: empty key (leading =)")
   CHECK(result.value_or(-1) == 1);
 }
 
-// ── Unknown dotted path: silently applied (JSON ignores unknowns) ─────
+// ── Unknown dotted path: now rejected (strict parser) ─────────────────
 
-TEST_CASE("--set unknown option path succeeds silently")
+TEST_CASE("--set unknown option path is rejected")
 {
   const auto stem = write_set_test_json("set_cli_unknown_path", set_test_json);
   auto result = gtopt_main(MainOptions {
@@ -358,10 +358,11 @@ TEST_CASE("--set unknown option path succeeds silently")
               "completely_bogus_option=123",
           },
   });
-  // Unknown paths are merged into JSON and silently ignored by
-  // the parser; gtopt_main succeeds.
+  // With strict JSON parsing (UseExactMappingsByDefault=yes), an unknown
+  // `--set` path is rejected by the overlay parser and gtopt_main returns
+  // a non-zero exit code.
   REQUIRE(result.has_value());
-  CHECK(result.value_or(-1) == 0);
+  CHECK(result.value_or(-1) == 1);
 }
 
 // ── Scientific notation as double ─────────────────────────────────────
@@ -400,6 +401,223 @@ TEST_CASE("--set auto-type detection: negative integer")
       .set_options =
           {
               "demand_fail_cost=-1",
+          },
+  });
+  REQUIRE(result.has_value());
+  CHECK(result.value_or(-1) == 0);
+}
+
+// ── Solver algorithm enum safety ─────────────────────────────────────
+
+TEST_CASE("--set solver_options.algorithm by name")  // NOLINT
+{
+  const auto stem = write_set_test_json("set_cli_algo_name", set_test_json);
+  auto result = gtopt_main(MainOptions {
+      .planning_files =
+          {
+              stem.string(),
+          },
+      .use_single_bus = true,
+      .lp_only = true,
+      .set_options =
+          {
+              "solver_options.algorithm=barrier",
+          },
+  });
+  REQUIRE(result.has_value());
+  CHECK(result.value_or(-1) == 0);
+}
+
+TEST_CASE("--set solver_options.algorithm by valid number")  // NOLINT
+{
+  const auto stem = write_set_test_json("set_cli_algo_num", set_test_json);
+  auto result = gtopt_main(MainOptions {
+      .planning_files =
+          {
+              stem.string(),
+          },
+      .use_single_bus = true,
+      .lp_only = true,
+      .set_options =
+          {
+              "solver_options.algorithm=2",
+          },
+  });
+  REQUIRE(result.has_value());
+  CHECK(result.value_or(-1) == 0);
+}
+
+TEST_CASE(
+    "--set solver_options.algorithm rejects out-of-range number")  // NOLINT
+{
+  const auto stem = write_set_test_json("set_cli_algo_bad", set_test_json);
+  auto result = gtopt_main(MainOptions {
+      .planning_files =
+          {
+              stem.string(),
+          },
+      .use_single_bus = true,
+      .lp_only = true,
+      .set_options =
+          {
+              "solver_options.algorithm=99",
+          },
+  });
+  // apply_set_options returns false → gtopt_main returns EXIT_FAILURE (1)
+  REQUIRE(result.has_value());
+  CHECK(*result == EXIT_FAILURE);
+}
+
+TEST_CASE("--set solver_options.log_mode rejects invalid name")  // NOLINT
+{
+  const auto stem = write_set_test_json("set_cli_logmode_bad", set_test_json);
+  auto result = gtopt_main(MainOptions {
+      .planning_files =
+          {
+              stem.string(),
+          },
+      .use_single_bus = true,
+      .lp_only = true,
+      .set_options =
+          {
+              "solver_options.log_mode=verbose",
+          },
+  });
+  REQUIRE(result.has_value());
+  CHECK(*result == EXIT_FAILURE);
+}
+
+TEST_CASE("--set solver_options.log_mode accepts valid name")  // NOLINT
+{
+  const auto stem = write_set_test_json("set_cli_logmode_ok", set_test_json);
+  auto result = gtopt_main(MainOptions {
+      .planning_files =
+          {
+              stem.string(),
+          },
+      .use_single_bus = true,
+      .lp_only = true,
+      .set_options =
+          {
+              "solver_options.log_mode=nolog",
+          },
+  });
+  REQUIRE(result.has_value());
+  CHECK(result.value_or(-1) == 0);
+}
+
+// ── Array-index dotted path ───────────────────────────────────────────
+
+// Minimal cascade case with three levels, one per model formulation.
+// Uses lp_only to avoid solver invocation; we only verify that the
+// overlay is parsed, merged, and applied without error.
+constexpr auto cascade_test_json = R"({
+  "options": {
+    "method": "cascade",
+    "demand_fail_cost": 1000,
+    "output_compression": "uncompressed",
+    "cascade_options": {
+      "sddp_options": {
+        "max_iterations": 1
+      },
+      "level_array": [
+        {
+          "uid": 1,
+          "name": "uninodal",
+          "model_options": {"use_single_bus": true},
+          "sddp_options": {"max_iterations": 1}
+        },
+        {
+          "uid": 2,
+          "name": "transport",
+          "model_options": {"use_single_bus": false, "use_kirchhoff": false},
+          "sddp_options": {"max_iterations": 1}
+        },
+        {
+          "uid": 3,
+          "name": "full_network",
+          "model_options": {"use_single_bus": false, "use_kirchhoff": true},
+          "sddp_options": {"max_iterations": 1}
+        }
+      ]
+    }
+  },
+  "simulation": {
+    "block_array": [{"uid": 1, "duration": 1}],
+    "stage_array":  [{"uid": 1, "first_block": 0, "count_block": 1}],
+    "scenario_array": [{"uid": 1}]
+  },
+  "system": {
+    "name": "set_cli_cascade_test",
+    "bus_array": [{"uid": 1, "name": "b1"}],
+    "generator_array": [
+      {"uid": 1, "name": "g1", "bus": 1, "gcost": 10.0, "capacity": 200.0}
+    ],
+    "demand_array": [
+      {"uid": 1, "name": "d1", "bus": 1, "capacity": 50.0}
+    ]
+  }
+})";
+
+TEST_CASE("--set array-index: cascade_options.level_array.0.sddp_options")
+{
+  const auto stem =
+      write_set_test_json("set_cli_cascade_l0", cascade_test_json);
+  auto result = gtopt_main(MainOptions {
+      .planning_files =
+          {
+              stem.string(),
+          },
+      .use_single_bus = true,
+      .lp_only = true,
+      .set_options =
+          {
+              "cascade_options.level_array.0.sddp_options.max_iterations=20",
+          },
+  });
+  REQUIRE(result.has_value());
+  CHECK(result.value_or(-1) == 0);
+}
+
+TEST_CASE("--set array-index: non-zero index lands at the right slot")
+{
+  // level_array.2 targets the third element.  The overlay builder emits
+  // two empty-object placeholders ahead of the target so the merge side
+  // sees a same-size array (3 == 3) and merges element-wise.
+  const auto stem =
+      write_set_test_json("set_cli_cascade_l2", cascade_test_json);
+  auto result = gtopt_main(MainOptions {
+      .planning_files =
+          {
+              stem.string(),
+          },
+      .use_single_bus = true,
+      .lp_only = true,
+      .set_options =
+          {
+              "cascade_options.level_array.2.sddp_options.max_iterations=15",
+          },
+  });
+  REQUIRE(result.has_value());
+  CHECK(result.value_or(-1) == 0);
+}
+
+TEST_CASE("--set array-index: multiple --set across different indices")
+{
+  const auto stem =
+      write_set_test_json("set_cli_cascade_multi", cascade_test_json);
+  auto result = gtopt_main(MainOptions {
+      .planning_files =
+          {
+              stem.string(),
+          },
+      .use_single_bus = true,
+      .lp_only = true,
+      .set_options =
+          {
+              "sddp_options.max_iterations=20",
+              "cascade_options.sddp_options.max_iterations=20",
+              "cascade_options.level_array.0.sddp_options.max_iterations=20",
           },
   });
   REQUIRE(result.has_value());

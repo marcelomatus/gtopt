@@ -22,6 +22,7 @@
 #include <span>
 
 #include <gtopt/basic_types.hpp>
+#include <gtopt/uid.hpp>
 
 namespace gtopt
 {
@@ -53,6 +54,11 @@ struct Phase
    */
   Size count_stage {std::dynamic_extent};
 
+  /// When true, all integer/binary variables in this phase become
+  /// continuous (LP relaxation).  Can be set per-phase in JSON or
+  /// globally via `model_options.continuous_phases`.
+  OptBool continuous {};
+
   /// Optional aperture UIDs to use in this phase's SDDP backward pass.
   /// When empty, all apertures from the global `aperture_array` are used.
   /// When non-empty, only the listed aperture UIDs participate in the
@@ -66,12 +72,36 @@ struct Phase
   {
     return active.value_or(true);
   }
+
+  [[nodiscard]] constexpr auto is_continuous() const noexcept
+  {
+    return continuous.value_or(false);
+  }
 };
 
 /// Strongly-typed unique identifier for Phase objects
-using PhaseUid = StrongUidType<Phase>;
+using PhaseUid = UidOf<Phase>;
 
 /// Strongly-typed index for Phase objects in collections
-using PhaseIndex = StrongIndexType<Phase>;
+using PhaseIndex = StrongPositionIndexType<Phase>;
+
+/// @brief First phase index — the root of the planning horizon.
+[[nodiscard]] constexpr auto first_phase_index() noexcept -> PhaseIndex
+{
+  return PhaseIndex {0};
+}
+
+/// @brief Next phase index (phase_index + 1), preserving strong type.
+[[nodiscard]] constexpr auto next(PhaseIndex phase_index) noexcept -> PhaseIndex
+{
+  return ++phase_index;
+}
+
+/// @brief Previous phase index (phase_index - 1), preserving strong type.
+[[nodiscard]] constexpr auto previous(PhaseIndex phase_index) noexcept
+    -> PhaseIndex
+{
+  return --phase_index;
+}
 
 }  // namespace gtopt

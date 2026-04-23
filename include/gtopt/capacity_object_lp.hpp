@@ -45,6 +45,18 @@ struct CapacityObjectBase
   static constexpr std::string_view CapacostName {"capacost"};
   static constexpr std::string_view ExpmodName {"expmod"};
 
+  /// LP metadata variable_names for the dependent capainst/capacost
+  /// columns that mirror a publisher in the previous phase at a
+  /// cross-phase boundary.  Named with a distinct suffix so the
+  /// eager duplicate detector in `LinearInterface::add_col` can
+  /// tell the dependent mirror apart from the current stage's own
+  /// capainst/capacost (which share everything else in the 4-tuple
+  /// metadata: class_name, variable_uid, stage context).  The
+  /// `StateVariable` lookup key still uses the un-suffixed names
+  /// to match the publisher side in the previous phase.
+  static constexpr std::string_view CapainstPrevName {"capainst_prev"};
+  static constexpr std::string_view CapacostPrevName {"capacost_prev"};
+
   [[nodiscard]] constexpr const Id& id() const noexcept { return m_id_; }
 
   template<typename OF>
@@ -56,9 +68,9 @@ struct CapacityObjectBase
                                         OF&& capmax,
                                         OF&& expmod,
                                         OF&& annual_capcost,
-                                        OF&& annual_derating)
+                                        OF&& annual_derating,
+                                        OptBool integer_expmod = {})
       : m_class_name_(cname.full_name())
-      , m_short_name_(cname.short_name())
       , m_id_(std::move(pid))
       , m_capacity_(ic, cname.full_name(), id(), std::forward<OF>(capacity))
       , m_expcap_(ic, cname.full_name(), id(), std::forward<OF>(expcap))
@@ -68,6 +80,7 @@ struct CapacityObjectBase
             ic, cname.full_name(), id(), std::forward<OF>(annual_capcost))
       , m_annual_derating_(
             ic, cname.full_name(), id(), std::forward<OF>(annual_derating))
+      , m_integer_expmod_(integer_expmod.value_or(false))
   {
   }
 
@@ -85,6 +98,18 @@ struct CapacityObjectBase
       const StageLP& stage) const noexcept
   {
     return get_optvalue(capainst_cols, stage.uid());
+  }
+
+  /**
+   * @brief Get the column index for the expansion-modules variable at a stage
+   * @param stage The stage to query
+   * @return Optional column index (empty when the object has no expansion
+   *         capacity or the stage did not create an expmod column)
+   */
+  [[nodiscard]] constexpr auto expmod_col_at(
+      const StageLP& stage) const noexcept
+  {
+    return get_optvalue(expmod_cols, stage.uid());
   }
 
   /**
@@ -131,6 +156,10 @@ struct CapacityObjectBase
   /**
    * @brief Add capacity constraints to the linear problem
    * @param sc System context providing stage/scenario info
+   * @param ampl_class Canonical lowercase PAMPL class name ("generator",
+   *                   "demand", "line", "battery", "converter") — used to
+   *                   register the stage-level `capainst` column into the
+   *                   AMPL variable registry for user-constraint lookups.
    * @param scenario Current scenario
    * @param stage Current stage
    * @param lp Linear problem to modify
@@ -144,6 +173,7 @@ struct CapacityObjectBase
    * - Cost tracking equations
    */
   bool add_to_lp(SystemContext& sc,
+                 std::string_view ampl_class,
                  const ScenarioLP& scenario,
                  const StageLP& stage,
                  LinearProblem& lp);
@@ -169,21 +199,10 @@ private:
                           std::string_view col_name) noexcept
   {
     return StateVariable::key(
-        scenario, stage, self.m_short_name_, self.uid(), col_name);
-  }
-
-  template<typename Self, typename SystemContext, typename... Args>
-  [[nodiscard]] constexpr auto state_col_label_p(this const Self& self,
-                                                 SystemContext& sc,
-                                                 const StageLP& stage,
-                                                 Args&&... args)
-  {
-    return sc.state_col_label(
-        stage, self.m_short_name_, std::forward<Args>(args)..., self.uid());
+        scenario, stage, self.m_class_name_, self.uid(), col_name);
   }
 
   std::string_view m_class_name_ = "CapacityObject";
-  std::string_view m_short_name_ = "cob";
 
   Id m_id_;
   OptTRealSched m_capacity_;
@@ -192,6 +211,7 @@ private:
   OptTRealSched m_expmod_;
   OptTRealSched m_annual_capcost_;
   OptTRealSched m_annual_derating_;
+  bool m_integer_expmod_ {false};
 
   TIndexHolder<ColIndex> capainst_cols;
   TIndexHolder<ColIndex> capacost_cols;
@@ -251,7 +271,8 @@ struct CapacityObjectLP
                            std::move(object().capmax),
                            std::move(object().expmod),
                            std::move(object().annual_capcost),
-                           std::move(object().annual_derating))
+                           std::move(object().annual_derating),
+                           object().integer_expmod)
   {
   }
 };

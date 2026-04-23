@@ -21,7 +21,7 @@
 #include <string_view>
 
 #include <doctest/doctest.h>
-#include <gtopt/json/json_planning.hpp>
+#include <gtopt/gtopt_json_io.hpp>
 #include <gtopt/planning_lp.hpp>
 
 using namespace gtopt;  // NOLINT(google-global-names-in-headers)
@@ -30,7 +30,6 @@ using namespace gtopt;  // NOLINT(google-global-names-in-headers)
 static constexpr std::string_view unified_battery_json = R"({
   "options": {
     "annual_discount_rate": 0.0,
-    "lp_matrix_options": {"names_level": 1},
     "output_compression": "uncompressed",
     "use_single_bus": true,
     "demand_fail_cost": 1000,
@@ -81,7 +80,7 @@ static constexpr std::string_view unified_battery_json = R"({
 TEST_CASE("Unified battery JSON parse")  // NOLINT
 {
   using namespace gtopt;
-  auto planning = daw::json::from_json<Planning>(unified_battery_json);
+  auto planning = parse_planning_json(unified_battery_json);
 
   CHECK(planning.system.name == "unified_battery_test");
 
@@ -102,7 +101,7 @@ TEST_CASE("Unified battery JSON parse")  // NOLINT
 TEST_CASE("Unified battery LP solve")  // NOLINT
 {
   Planning base;
-  base.merge(daw::json::from_json<Planning>(unified_battery_json));
+  base.merge(parse_planning_json(unified_battery_json));
 
   PlanningLP planning_lp(std::move(base));
   auto result = planning_lp.resolve();
@@ -119,7 +118,7 @@ TEST_CASE("Unified battery solution correctness")  // NOLINT
   //   than charging + round-trip loss + discharging).
   //   Objective = 100 MW × $10/MWh × 1 h × 2 blocks / 1000 = 2.0
   Planning base;
-  base.merge(daw::json::from_json<Planning>(unified_battery_json));
+  base.merge(parse_planning_json(unified_battery_json));
 
   PlanningLP planning_lp(std::move(base));
   auto result = planning_lp.resolve();
@@ -145,7 +144,6 @@ TEST_CASE("Unified battery solution correctness")  // NOLINT
 static constexpr std::string_view traditional_battery_json = R"({
   "options": {
     "annual_discount_rate": 0.0,
-    "lp_matrix_options": {"names_level": 1},
     "output_compression": "uncompressed",
     "use_single_bus": true,
     "demand_fail_cost": 1000,
@@ -205,7 +203,7 @@ TEST_CASE(
 {
   // Parse and solve the traditional definition
   Planning trad_base;
-  trad_base.merge(daw::json::from_json<Planning>(traditional_battery_json));
+  trad_base.merge(parse_planning_json(traditional_battery_json));
   PlanningLP trad_lp(std::move(trad_base));
   auto trad_result = trad_lp.resolve();
   REQUIRE(trad_result.has_value());
@@ -213,7 +211,7 @@ TEST_CASE(
 
   // Parse and solve the unified definition (reuse unified_battery_json)
   Planning uni_base;
-  uni_base.merge(daw::json::from_json<Planning>(unified_battery_json));
+  uni_base.merge(parse_planning_json(unified_battery_json));
   PlanningLP uni_lp(std::move(uni_base));
   auto uni_result = uni_lp.resolve();
   REQUIRE(uni_result.has_value());
@@ -224,7 +222,7 @@ TEST_CASE("Battery definitions equivalence – same objective value")  // NOLINT
 {
   // Traditional
   Planning trad_base;
-  trad_base.merge(daw::json::from_json<Planning>(traditional_battery_json));
+  trad_base.merge(parse_planning_json(traditional_battery_json));
   PlanningLP trad_lp(std::move(trad_base));
   auto trad_result = trad_lp.resolve();
   REQUIRE(trad_result.has_value());
@@ -236,7 +234,7 @@ TEST_CASE("Battery definitions equivalence – same objective value")  // NOLINT
 
   // Unified
   Planning uni_base;
-  uni_base.merge(daw::json::from_json<Planning>(unified_battery_json));
+  uni_base.merge(parse_planning_json(unified_battery_json));
   PlanningLP uni_lp(std::move(uni_base));
   auto uni_result = uni_lp.resolve();
   REQUIRE(uni_result.has_value());

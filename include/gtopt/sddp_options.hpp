@@ -8,6 +8,7 @@
 
 #pragma once
 
+#include <gtopt/planning_enums.hpp>
 #include <gtopt/sddp_enums.hpp>
 #include <gtopt/solver_options.hpp>
 #include <gtopt/utils.hpp>
@@ -47,13 +48,10 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   OptReal convergence_tol {};
 
   // ── Advanced tuning ────────────────────────────────────────────────────────
-  /** @brief Penalty for elastic slack variables in feasibility (default: 1e6)
-   */
+  /** @brief Penalty for elastic slack variables in feasibility.
+   *  Default: `PlanningOptionsLP::default_sddp_elastic_penalty`
+   *  (see `planning_options_lp.hpp`). */
   OptReal elastic_penalty {};
-  /** @brief Lower bound for future cost variable α (default: 0.0) */
-  OptReal alpha_min {};
-  /** @brief Upper bound for future cost variable α (default: 1e12) */
-  OptReal alpha_max {};
   /** @brief Scale divisor for future cost variable α (default: 0 = auto).
    *
    * The LP alpha variable is α_lp = α / scale_alpha, with an objective
@@ -85,11 +83,21 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   /** @brief Path to a sentinel file; if it exists, the solver stops gracefully
    * after the current iteration (analogous to PLP's userstop) */
   OptName sentinel_file {};
-  /** @brief Elastic filter mode: single_cut (default, alias "cut") or
-   *         multi_cut or backpropagate */
+  /** @brief Elastic filter mode: chinneck (default, alias "iis"),
+   *         single_cut (alias "cut"), or multi_cut.
+   *         See ElasticFilterMode in sddp_enums.hpp for semantics.
+   *         The legacy "backpropagate" mode is no longer supported;
+   *         it falls through to the default. */
   std::optional<ElasticFilterMode> elastic_mode {};
-  /** @brief Forward-pass infeasibility count threshold for switching from
-   *         single_cut to multi_cut (default: 10; 0 = never auto-switch) */
+  /** @brief Forward-pass infeasibility count threshold for switching
+   *         from single_cut to multi_cut.  Default:
+   *         `PlanningOptionsLP::default_sddp_multi_cut_threshold`
+   *         (see `planning_options_lp.hpp`).  `0 = always multi_cut`;
+   *         `< 0 = disabled`.
+   *
+   *         The counter is **persistent**: it accumulates across
+   *         iterations and is not reset when a (scene, phase) solves
+   *         feasibly.  Switch fires when `infeas_count >= threshold`. */
   OptInt multi_cut_threshold {};
   /** @brief Aperture UIDs for the backward pass.
    *
@@ -125,13 +133,6 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
    * Default: false (disabled).
    */
   OptBool save_aperture_lp {};
-
-  /** @brief Enable warm-start for SDDP resolves.
-   *  When true, previous forward-pass primal/dual solutions are loaded
-   *  into clone LPs before resolving (backward pass, elastic filter,
-   *  apertures).  Combined with solver_options.reuse_basis, this enables
-   *  efficient incremental re-solves.  Default when unset: true. */
-  OptBool warm_start {};
 
   /** @brief CSV file with boundary (future-cost) cuts for the last phase.
    *
@@ -215,37 +216,25 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   OptBool single_cut_storage {};
   /// Maximum total stored cuts per scene (0 = unlimited).  Default: 0.
   OptInt max_stored_cuts {};
-  /// Reuse cached LP clones for aperture solves.  Default: true.
-  OptBool use_clone_pool {};
 
   /// Run in simulation mode: no training iterations (max_iterations=0),
   /// forward-only evaluation of the policy from loaded cuts.
   /// No cuts are saved.  Default: false.
   OptBool simulation_mode {};
 
-  /// Low memory mode: off (default), snapshot, or compress.
-  /// Trades CPU time (reconstruction + optional decompression) for
-  /// significant memory savings on large problems.
-  /// Disables clone pool when not off.
+  /// Low memory mode: off (default), snapshot, compress, or rebuild.
+  /// Trades CPU time (reconstruction + optional decompression, or full
+  /// re-flatten under `rebuild`) for significant memory savings on large
+  /// problems.  Under `rebuild`, the initial up-front build loop is
+  /// skipped entirely and each per-(scene, phase) LP is built lazily
+  /// inside the same task that solves or clones it.
   std::optional<LowMemoryMode> low_memory_mode {};
 
   /// In-memory compression codec for low_memory level 2.
   /// Selects the algorithm used to compress the saved FlatLinearProblem.
   /// Default: auto (picks best available: lz4 > snappy > zstd > gzip).
   /// Accepted values: "auto", "none", "lz4", "snappy", "zstd", "gzip".
-  std::optional<MemoryCodec> memory_codec {};
-
-  /** @brief How Benders cut coefficients are extracted from solved subproblems.
-   *
-   * - `reduced_cost` (default): uses reduced costs of fixed dependent columns.
-   * - `row_dual`: adds explicit coupling constraint rows and reads their duals
-   *   (PLP-style).
-   *
-   * Both are mathematically equivalent; row_dual may be preferred for
-   * cross-validation with PLP or when LP solver presolve affects reduced-cost
-   * reporting for fixed variables.
-   */
-  std::optional<CutCoeffMode> cut_coeff_mode {};
+  std::optional<CompressionCodec> memory_codec {};
 
   /** @brief Absolute tolerance for filtering numerically tiny Benders cut
    * coefficients.
@@ -262,22 +251,6 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
    * Typical useful values: 1e-12 to 1e-8.
    */
   OptReal cut_coeff_eps {};
-
-  /** @brief Maximum allowed absolute coefficient in a Benders cut row.
-   *
-   * When the largest state-variable coefficient in a newly built cut
-   * exceeds this threshold, the entire row (all coefficients, the α
-   * weight, and the RHS) is uniformly divided by
-   * `max_coeff / cut_coeff_max`.  This preserves the constraint's feasible set
-   * while
-   * improving numerical conditioning.
-   *
-   * A warning is logged each time a cut is rescaled.
-   *
-   * Default: 0.0 (disabled — no rescaling).
-   * Typical useful values: 1e6 to 1e8.
-   */
-  OptReal cut_coeff_max {};
 
   /** @brief How update_lp elements obtain reservoir/battery volume between
    * phases.
@@ -364,6 +337,18 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
    */
   OptInt backward_max_fallbacks {};
 
+  /** @brief SDDP work pool CPU over-commit factor.
+   *  Multiplied by hardware_concurrency to set max pool threads.
+   *  Default 4.0 — extra threads keep CPUs busy while others block on
+   *  the clone mutex. */
+  OptReal pool_cpu_factor {};
+
+  /** @brief Process memory limit in MB for the SDDP work pool.
+   *  When non-zero, the pool blocks task dispatch if process RSS exceeds
+   *  this value.  Accepts values parsed by parse_memory_size (e.g. 5G).
+   *  0 = no limit (default). */
+  OptReal pool_memory_limit_mb {};
+
   /** @brief Maximum iteration spread between fastest and slowest scene
    *  when cut_sharing is none and multiple scenes exist.
    *
@@ -393,8 +378,7 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
    * `PlanningOptions::solver_options`.  Backward-pass-specific options
    * take precedence over the global ones.
    *
-   * Typical use: use dual simplex with reuse_basis for the backward pass
-   * (warm-started resolves after adding cuts).
+   * Typical use: use dual simplex for the backward pass.
    */
   std::optional<SolverOptions> backward_solver_options {};
 
@@ -408,8 +392,6 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
     merge_opt(min_iterations, opts.min_iterations);
     merge_opt(convergence_tol, opts.convergence_tol);
     merge_opt(elastic_penalty, opts.elastic_penalty);
-    merge_opt(alpha_min, opts.alpha_min);
-    merge_opt(alpha_max, opts.alpha_max);
     merge_opt(scale_alpha, opts.scale_alpha);
     merge_opt(cut_recovery_mode, opts.cut_recovery_mode);
     merge_opt(recovery_mode, opts.recovery_mode);
@@ -433,15 +415,11 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
     merge_opt(prune_dual_threshold, opts.prune_dual_threshold);
     merge_opt(single_cut_storage, opts.single_cut_storage);
     merge_opt(max_stored_cuts, opts.max_stored_cuts);
-    merge_opt(use_clone_pool, opts.use_clone_pool);
     merge_opt(simulation_mode, opts.simulation_mode);
     merge_opt(low_memory_mode, opts.low_memory_mode);
     merge_opt(memory_codec, opts.memory_codec);
-    merge_opt(cut_coeff_mode, opts.cut_coeff_mode);
     merge_opt(cut_coeff_eps, opts.cut_coeff_eps);
-    merge_opt(cut_coeff_max, opts.cut_coeff_max);
     merge_opt(state_variable_lookup_mode, opts.state_variable_lookup_mode);
-    merge_opt(warm_start, opts.warm_start);
     merge_opt(convergence_mode, opts.convergence_mode);
     merge_opt(stationary_tol, opts.stationary_tol);
     merge_opt(stationary_window, opts.stationary_window);
@@ -449,6 +427,8 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
     merge_opt(forward_max_fallbacks, opts.forward_max_fallbacks);
     merge_opt(backward_max_fallbacks, opts.backward_max_fallbacks);
     merge_opt(max_async_spread, opts.max_async_spread);
+    merge_opt(pool_cpu_factor, opts.pool_cpu_factor);
+    merge_opt(pool_memory_limit_mb, opts.pool_memory_limit_mb);
     if (opts.forward_solver_options.has_value()) {
       if (forward_solver_options.has_value()) {
         forward_solver_options->merge(*opts.forward_solver_options);

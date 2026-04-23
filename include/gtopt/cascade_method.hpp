@@ -98,6 +98,15 @@ public:
     return m_level_stats_;
   }
 
+  /// Number of PlanningLPs owned by the cascade solver.  One entry is
+  /// added per level that required a fresh LP build; level 0 is skipped
+  /// when the caller-supplied PlanningLP is reused (no model-option
+  /// overrides from cascade globals or level 0).
+  [[nodiscard]] std::size_t owned_lps_count() const noexcept
+  {
+    return m_owned_lps_.size();
+  }
+
 private:
   /// Build SDDPOptions for a level, overriding base with level solver opts.
   /// @param level_solver      Per-level solver configuration (may be absent).
@@ -133,6 +142,11 @@ private:
   /// Populated after each non-final level solves; consumed by the next level
   /// via name-based load_state_csv to seed warm column solutions.
   std::string m_prev_state_file_ {};
+  /// Temp file path holding previous level's cuts, pre-filtered according
+  /// to the NEXT level's transition.inherit_* settings.  Populated at end
+  /// of level N so the owned LP and solver can be released before level
+  /// N+1 allocates its own LP.  Consumed by the next level.
+  std::string m_prev_cuts_file_ {};
 };
 
 }  // namespace gtopt

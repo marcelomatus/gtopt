@@ -15,6 +15,7 @@
 #include <vector>
 
 #include <doctest/doctest.h>
+#include <gtopt/as_label.hpp>
 #include <gtopt/linear_interface.hpp>
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/solver_options.hpp>
@@ -200,7 +201,7 @@ auto build_dispatch_lp(int n_bus = 20, int n_gen_per_bus = 5, int n_blocks = 4)
 
   // ── A few Benders optimality cuts on alpha ──
   for (int k = 0; k < 10; ++k) {
-    auto rname = std::format("cut_{}", k);
+    auto rname = as_label("cut", k);
     const double rhs = 5000.0 + 500.0 * k;
     auto ri = lp.add_row({
         .lowb = rhs,

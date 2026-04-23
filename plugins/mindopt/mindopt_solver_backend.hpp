@@ -9,10 +9,12 @@
 #pragma once
 
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
 #include <gtopt/solver_backend.hpp>
+#include <gtopt/solver_options.hpp>
 
 // MindOpt opaque types (typedef void)
 using MDOenv = void;
@@ -20,6 +22,19 @@ using MDOmodel = void;
 
 namespace gtopt
 {
+
+/// Cached state used to replay options + logging + prob name onto a
+/// freshly recreated MindOpt model.  Mirrors the CPLEX plugin's CplexPrep:
+/// clone() and load_problem() paths read this cache and apply its fields
+/// to the new (env,model) pair so backend state survives a deep-copy
+/// clone or a load_problem() cycle.
+struct MindOptPrep
+{
+  std::optional<SolverOptions> options {};
+  std::string log_filename {};
+  int log_level {0};
+  std::string prob_name {};
+};
 
 /**
  * @brief Solver backend using the MindOpt C API (Alibaba DAMO Academy).
@@ -38,6 +53,7 @@ public:
   [[nodiscard]] std::string_view solver_name() const noexcept override;
   [[nodiscard]] std::string solver_version() const override;
   [[nodiscard]] double infinity() const noexcept override;
+  [[nodiscard]] bool supports_mip() const noexcept override;
 
   // ---- problem name ----
   void set_prob_name(const std::string& name) override;
@@ -126,7 +142,7 @@ public:
   [[nodiscard]] int get_log_level() const override;
 
   // ---- diagnostics ----
-  [[nodiscard]] double get_kappa() const override;
+  [[nodiscard]] std::optional<double> get_kappa() const override;
 
   // ---- logging ----
   void open_log(FILE* file, int level) override;
@@ -145,10 +161,20 @@ public:
 private:
   void cache_problem_data() const;
   void cache_solution() const;
-  void check_error(int rc, const char* func) const;
+  static void check_error(int rc, const char* func);
+
+  /// Recreate m_model_ from m_prep_ (env-level params were already applied
+  /// onto m_env_ by apply_options_to_env).  Used by load_problem() so every
+  /// bulk load starts with a pristine model — mirrors the CPLEX plugin's
+  /// reset_env_lp() pattern.
+  void reset_model_();
 
   MDOenv* m_env_ {};
   MDOmodel* m_model_ {};
+
+  /// Cache of everything needed to replay backend state onto a fresh
+  /// (env,model) pair (see CplexPrep for the pattern).
+  MindOptPrep m_prep_;
 
   mutable bool m_prob_cached_ {false};
   mutable std::vector<double> m_collb_;

@@ -59,13 +59,20 @@ optional -- when absent, the solver applies built-in defaults (shown below).
 |------------------------|---------|-----------|---------------|-------------|
 | `demand_fail_cost`     | number  | *(none)*  | $/MWh         | Penalty cost for unserved demand (value of lost load) |
 | `reserve_fail_cost`    | number  | *(none)*  | $/MWh         | Penalty cost for unserved spinning reserve |
-| `use_line_losses`      | boolean | `true`    | --            | Enable resistive line loss modeling |
+| `hydro_fail_cost`      | number  | *(none)*  | $/m³          | Default penalty cost for unmet hydro (irrigation) rights. Per-element `fail_cost` overrides this |
+| `hydro_use_value`      | number  | *(none)*  | $/m³          | Default value (benefit) of exercising hydro rights. Per-element `use_value` overrides this |
+| `state_fail_cost`      | number  | *(none)*  | $/MWh         | Penalty cost for SDDP state-variable violations. Fallback when a reservoir/storage element lacks its own `scost`; converted via element's `mean_production_factor` |
+| `use_line_losses`      | boolean | `true`    | --            | **Deprecated** — use `line_losses_mode` instead. Enable resistive line-loss modeling |
+| `line_losses_mode`     | string  | `"adaptive"` | --         | Line-loss model: `"none"`, `"linear"`, `"piecewise"`, `"bidirectional"`, `"adaptive"`, `"dynamic"` |
 | `loss_segments`        | integer | `1`       | --            | Number of piecewise-linear segments for quadratic line losses (1 = linear) |
 | `use_kirchhoff`        | boolean | `true`    | --            | Enable DC Kirchhoff voltage-law constraints |
 | `use_single_bus`       | boolean | `false`   | --            | Collapse network to a single bus (copper-plate model) |
 | `kirchhoff_threshold`  | number  | `0`       | kV            | Minimum bus voltage below which Kirchhoff is not applied |
 | `scale_objective`      | number  | `1000`    | dimensionless | Divisor applied to all objective coefficients for numerical stability |
 | `scale_theta`          | number  | `1000`    | dimensionless | Scaling factor for voltage-angle variables |
+| `emission_cost`        | number or schedule | *(none)* | $/tCO₂ | System-wide CO₂ emission price. Generators with non-zero `emission_factor` incur an extra cost of `emission_cost × emission_factor` per MWh |
+| `emission_cap`         | number or schedule | *(none)* | tCO₂/year | Per-stage CO₂ emission cap. The dual of the cap constraint is the endogenous carbon price |
+| `continuous_phases`    | string  | `"none"`  | --            | Phase range where all integer/binary variables relax to continuous. Syntax: `"all"`, `"none"`, `"0"`, `"1,3:5,8:"`, `":3"` |
 
 > **Note**: `annual_discount_rate` has moved to the `simulation`
 > section (see [Section 2](#2-simulation)).  For backward
@@ -78,14 +85,19 @@ optional -- when absent, the solver applies built-in defaults (shown below).
 | `output_directory`   | string  | `"output"`   | Root directory for output result files |
 | `output_format`      | string  | `"parquet"`  | Output format: `"parquet"` or `"csv"` |
 | `output_compression` | string  | `"zstd"`     | Compression codec: `"uncompressed"`, `"gzip"`, `"zstd"`, `"lz4"`, `"bzip2"`, `"xz"` |
-| `lp_matrix_options.names_level` | string/int | `"minimal"` (0) | LP naming level: `"minimal"` (0) = state-variable cols only, `"only_cols"` (1) = all column + row names (required for LP file output), `"cols_and_rows"` (2) = same as 1 + warn on duplicates |
 | `use_uid_fname`      | boolean | `true`       | Use element UIDs instead of names in output filenames |
+
+> **LP variable/row names** are enabled automatically when the CLI flag
+> `--lp-file` or `--lp-debug` is set; there is no separate JSON or CLI
+> option to control the naming level.  See
+> [Planning Options → LpMatrixOptions](planning-options.md#lpmatrixoptions-fields).
 
 #### Solver selection
 
 | Field         | Type   | Default        | Description |
 |---------------|--------|----------------|-------------|
 | `method` | string | `"monolithic"` | Planning solver: `"monolithic"` (default), `"sddp"`, or `"cascade"`. See [SDDP Solver](methods/sddp.md), [Cascade Solver](methods/cascade.md), and [Monolithic Solver](methods/monolithic.md) |
+| `build_mode` | string | `"scene-parallel"` | How `PlanningLP::create_systems` assembles per-cell `SystemLP`s: `"serial"`, `"scene-parallel"` (default), `"full-parallel"`, or `"direct-parallel"`. Serial builds in the calling thread with no pool/build-buffer overhead |
 
 #### Logging and debugging
 
@@ -94,13 +106,19 @@ optional -- when absent, the solver applies built-in defaults (shown below).
 | `log_directory`             | string  | `"logs"` | Directory for log, trace, and error LP files |
 | `lp_debug`                  | boolean | `false`  | Save LP debug files to `log_directory` before solving. Monolithic: one file per `(scene, phase)` named `gtopt_lp_<scene>_<phase>.lp`. SDDP: one file per `(iteration, scene, phase)` named `gtopt_iter_<iter>_<scene>_<phase>.lp` |
 | `lp_compression`            | string  | `""`     | Compression codec for LP debug files: `""` (inherit from output), `"none"` (no compression), or a codec name (`"zstd"`, `"gzip"`, `"lz4"`, `"bzip2"`, `"xz"`) |
-| `lp_build`                  | boolean | `false`  | Build all LP matrices but skip solving entirely. Combine with `lp_debug: true` to export every scene/phase LP |
+| `lp_only`                   | boolean | `false`  | Build all LP matrices but skip solving entirely (CLI: `--lp-only` / `-c`). Combine with `lp_debug: true` to export every scene/phase LP |
 | `lp_coeff_ratio_threshold`  | number  | `1e7`    | When the global max/min coefficient ratio exceeds this value, per-scene/phase breakdown is printed |
 | `lp_debug_scene_min`        | integer | —        | Minimum scene UID (inclusive) for LP debug file saving |
 | `lp_debug_scene_max`        | integer | —        | Maximum scene UID (inclusive) for LP debug file saving |
 | `lp_debug_phase_min`        | integer | —        | Minimum phase UID (inclusive) for LP debug file saving |
 | `lp_debug_phase_max`        | integer | —        | Maximum phase UID (inclusive) for LP debug file saving |
 | `lp_fingerprint`            | boolean | `false`  | Compute LP structural fingerprint after solving. Output: `lp_fingerprint_scene_{S}_phase_{P}.json` per scene/phase. See [LP Fingerprint](lp-fingerprint.md) |
+
+#### Constraint handling
+
+| Field             | Type   | Default    | Description |
+|-------------------|--------|------------|-------------|
+| `constraint_mode` | string | `"strict"` | User-constraint runtime error policy: `"normal"` (warn + drop offending constraint), `"strict"` (default; abort with diagnostic), `"debug"` (strict + verbose per-row lowering trace). See [User Constraints → constraint_mode](user-constraints.md#constraint_mode--runtime-error-policy) |
 
 #### Deprecated LP solver fields
 
@@ -150,6 +168,12 @@ over the corresponding `solver_options` sub-fields.
 | `feasible_eps` | number  | solver default | Feasibility tolerance (omit to keep solver default) |
 | `barrier_eps`  | number  | solver default | Barrier convergence tolerance (omit to keep solver default) |
 | `log_level`    | integer | `0`         | Solver output verbosity (0 = silent) |
+| `log_mode`     | string  | `"nolog"`   | Solver log-file policy: `"nolog"` (no files) or `"detailed"` (one file per scene/phase/aperture, `<solver>_sc<N>_ph<N>[_ap<N>].log`) |
+| `time_limit`   | number  | solver default | Per-LP wall-clock time limit in seconds. Exceeding it aborts the solve; caller must check `is_optimal()` |
+| `scaling`      | string  | solver default | Internal solver scaling strategy. See `SolverScaling` enum |
+| `crossover`    | boolean | `true`      | When `algorithm == barrier`, convert the interior-point solution to a simplex basis (required for duals). SDDP forward pass sets it false for speed |
+| `max_fallbacks`| integer | `2`         | On non-optimal exit, cycle through barrier → dual → primal up to this many times. `0` disables fallback |
+| `reuse_basis`  | boolean | `false`    | Enable basis-reuse optimizations for resolve on cloned LPs (forces dual simplex, disables presolve) |
 
 **Example:**
 
@@ -229,9 +253,9 @@ For full algorithmic details, see [SDDP Solver](methods/sddp.md).
 
 | Field                | Type    | Default        | Description |
 |----------------------|---------|----------------|-------------|
-| `elastic_penalty`    | number  | `1e6`          | Penalty for elastic slack variables in feasibility |
-| `elastic_mode`       | string  | `"single_cut"` | Elastic filter mode: `"single_cut"` (alias `"cut"`), `"multi_cut"`, or `"backpropagate"` |
-| `multi_cut_threshold`| integer | `10`           | Forward-pass infeasibility count before auto-switching from single_cut to multi_cut (0 = never) |
+| `elastic_penalty`    | number  | `1e2`          | Penalty for elastic slack variables in feasibility |
+| `elastic_mode`       | string  | `"chinneck"`   | Elastic filter mode: `"chinneck"` (alias `"iis"`), `"single_cut"` (alias `"cut"`), or `"multi_cut"` |
+| `multi_cut_threshold`| integer | `3`            | Cumulative forward-pass infeasibility count at a (scene, phase) before auto-switching to multi_cut (counter is persistent; 0 = always; <0 = disabled) |
 | `alpha_min`          | number  | `0.0`          | Lower bound for future cost variable alpha |
 | `alpha_max`          | number  | `1e12`         | Upper bound for future cost variable alpha |
 | `cut_sharing_mode`   | string  | `"none"`       | Cut sharing across scenes: `"none"`, `"expected"`, `"accumulate"`, or `"max"` |
@@ -291,7 +315,8 @@ For full algorithmic details, see [SDDP Solver](methods/sddp.md).
 | `prune_dual_threshold` | number  | `1e-8`   | Dual threshold for inactive cut detection |
 | `single_cut_storage`   | boolean | `false`  | Store cuts in per-scene vectors only |
 | `max_stored_cuts`      | integer | `0`      | Maximum total stored cuts per scene (0 = unlimited) |
-| `use_clone_pool`       | boolean | `true`   | Reuse cached LP clones for aperture solves |
+| `low_memory_mode`      | string  | `"off"`  | `off`, `snapshot`, `compress`, or `rebuild` (see SDDP method docs) |
+| `memory_codec`         | string  | `"auto"` | Compression codec for `compress` mode |
 
 #### Simulation mode
 
@@ -370,7 +395,6 @@ forgetting semantics and the two-phase solve behavior.
 | Field                        | Type    | Default | Description |
 |------------------------------|---------|---------|-------------|
 | `inherit_optimality_cuts`    | integer | `0`     | `0` = do not inherit; `-1` = inherit and keep forever; `N > 0` = inherit, then forget after N training iterations |
-| `inherit_feasibility_cuts`   | integer | `0`     | Same semantics as `inherit_optimality_cuts` |
 | `inherit_targets`            | integer | `0`     | `0` = no targets; `-1` = inherit forever; `N > 0` = inherit with forgetting |
 | `target_rtol`                | number  | `0.05`  | Relative tolerance for target band (fraction of abs(v)) |
 | `target_min_atol`            | number  | `1.0`   | Minimum absolute tolerance for target band |
@@ -454,7 +478,6 @@ forgetting semantics and the two-phase solve behavior.
           },
           "transition": {
             "inherit_optimality_cuts": true,
-            "inherit_feasibility_cuts": true,
             "optimality_dual_threshold": 1e-6
           }
         }

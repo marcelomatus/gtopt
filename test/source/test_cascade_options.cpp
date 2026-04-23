@@ -8,6 +8,7 @@
 
 #include <doctest/doctest.h>
 #include <gtopt/cascade_options.hpp>
+#include <gtopt/json/json_cascade_options.hpp>
 
 using namespace gtopt;  // NOLINT(google-global-names-in-headers)
 
@@ -18,7 +19,6 @@ TEST_CASE("CascadeTransition - Default construction")
   const CascadeTransition tr {};
 
   CHECK_FALSE(tr.inherit_optimality_cuts.has_value());
-  CHECK_FALSE(tr.inherit_feasibility_cuts.has_value());
   CHECK_FALSE(tr.inherit_targets.has_value());
   CHECK_FALSE(tr.target_rtol.has_value());
   CHECK_FALSE(tr.target_min_atol.has_value());
@@ -30,7 +30,6 @@ TEST_CASE("CascadeTransition - Construction with all fields")
 {
   const CascadeTransition tr {
       .inherit_optimality_cuts = -1,
-      .inherit_feasibility_cuts = 5,
       .inherit_targets = 10,
       .target_rtol = 0.05,
       .target_min_atol = 1.0,
@@ -40,8 +39,6 @@ TEST_CASE("CascadeTransition - Construction with all fields")
 
   REQUIRE(tr.inherit_optimality_cuts.has_value());
   CHECK(*tr.inherit_optimality_cuts == -1);
-  REQUIRE(tr.inherit_feasibility_cuts.has_value());
-  CHECK(*tr.inherit_feasibility_cuts == 5);
   REQUIRE(tr.inherit_targets.has_value());
   CHECK(*tr.inherit_targets == 10);
   REQUIRE(tr.target_rtol.has_value());
@@ -63,7 +60,6 @@ TEST_CASE("CascadeTransition - Merge (overlay wins)")
 
   const CascadeTransition overlay {
       .inherit_optimality_cuts = 10,
-      .inherit_feasibility_cuts = 5,
       .target_penalty = 1000.0,
   };
 
@@ -76,8 +72,6 @@ TEST_CASE("CascadeTransition - Merge (overlay wins)")
   CHECK(*base.target_rtol == doctest::Approx(0.05));
 
   // New from overlay
-  REQUIRE(base.inherit_feasibility_cuts.has_value());
-  CHECK(*base.inherit_feasibility_cuts == 5);
   REQUIRE(base.target_penalty.has_value());
   CHECK(*base.target_penalty == doctest::Approx(1000.0));
 
@@ -177,9 +171,63 @@ TEST_CASE("CascadeLevel - Default construction")
 
   CHECK_FALSE(lv.uid.has_value());
   CHECK_FALSE(lv.name.has_value());
+  CHECK_FALSE(lv.active.has_value());
   CHECK_FALSE(lv.model_options.has_value());
   CHECK_FALSE(lv.sddp_options.has_value());
   CHECK_FALSE(lv.transition.has_value());
+}
+
+TEST_CASE("CascadeLevel - active defaults to true when unset")
+{
+  // Skip semantics in cascade_method.cpp:
+  //   if (!level.active.value_or(true)) continue;
+  // So an absent `active` field must behave as an active level.
+  const CascadeLevel lv {};
+  CHECK(lv.active.value_or(true) == true);
+}
+
+TEST_CASE("CascadeLevel - active=false disables the level")
+{
+  const CascadeLevel lv {
+      .active = false,
+  };
+  REQUIRE(lv.active.has_value());
+  CHECK(*lv.active == false);
+  CHECK(lv.active.value_or(true) == false);
+}
+
+TEST_CASE("CascadeLevel - active JSON round-trip")
+{
+  // active = false
+  {
+    const CascadeLevel lv {
+        .name = "skip",
+        .active = false,
+    };
+    const auto json = daw::json::to_json(lv);
+    const auto parsed = daw::json::from_json<CascadeLevel>(json);
+    REQUIRE(parsed.active.has_value());
+    CHECK(*parsed.active == false);
+    REQUIRE(parsed.name.has_value());
+    CHECK(*parsed.name == "skip");
+  }
+  // active = true explicit
+  {
+    const CascadeLevel lv {
+        .active = true,
+    };
+    const auto json = daw::json::to_json(lv);
+    const auto parsed = daw::json::from_json<CascadeLevel>(json);
+    REQUIRE(parsed.active.has_value());
+    CHECK(*parsed.active == true);
+  }
+  // active absent from JSON
+  {
+    constexpr std::string_view js = R"({"uid":42,"name":"lv"})";
+    const auto parsed = daw::json::from_json<CascadeLevel>(js);
+    CHECK_FALSE(parsed.active.has_value());
+    CHECK(parsed.active.value_or(true) == true);
+  }
 }
 
 TEST_CASE("CascadeLevel - Construction with all fields")
@@ -384,4 +432,186 @@ TEST_CASE("CascadeOptions - Merge empty level_array keeps base")
 
   REQUIRE(base.level_array.size() == 1);
   CHECK(*base.level_array[0].name == "keep");
+}
+
+// ── Element-wise level_array merge (enables --set array-index overlays) ─────
+
+TEST_CASE("CascadeLevel - merge empty overlay leaves base untouched")
+{
+  CascadeLevel base {
+      .uid = Uid {1},
+      .name = "base_name",
+      .active = true,
+      .sddp_options =
+          CascadeLevelMethod {
+              .max_iterations = 7,
+          },
+  };
+
+  CascadeLevel overlay {};
+  base.merge(std::move(overlay));
+
+  CHECK(*base.uid == Uid {1});
+  CHECK(*base.name == "base_name");
+  CHECK(*base.active == true);
+  REQUIRE(base.sddp_options.has_value());
+  REQUIRE(base.sddp_options->max_iterations.has_value());
+  CHECK(*base.sddp_options->max_iterations == 7);
+}
+
+TEST_CASE("CascadeLevel - merge overwrites only the fields set in overlay")
+{
+  CascadeLevel base {
+      .uid = Uid {1},
+      .name = "old_name",
+      .active = true,
+      .sddp_options =
+          CascadeLevelMethod {
+              .max_iterations = 3,
+              .convergence_tol = 1e-4,
+          },
+  };
+
+  CascadeLevel overlay {
+      .sddp_options =
+          CascadeLevelMethod {
+              .max_iterations = 20,
+          },
+  };
+  base.merge(std::move(overlay));
+
+  // Unset overlay fields leave the base intact
+  CHECK(*base.uid == Uid {1});
+  CHECK(*base.name == "old_name");
+  CHECK(*base.active == true);
+
+  // Nested struct is recursively merged: max_iterations updated,
+  // convergence_tol preserved
+  REQUIRE(base.sddp_options.has_value());
+  REQUIRE(base.sddp_options->max_iterations.has_value());
+  CHECK(*base.sddp_options->max_iterations == 20);
+  REQUIRE(base.sddp_options->convergence_tol.has_value());
+  CHECK(*base.sddp_options->convergence_tol == doctest::Approx(1e-4));
+}
+
+TEST_CASE("CascadeLevel - merge adopts nested struct when base lacks one")
+{
+  CascadeLevel base {
+      .uid = Uid {1},
+      .name = "l1",
+  };
+
+  CascadeLevel overlay {
+      .transition =
+          CascadeTransition {
+              .target_rtol = 0.05,
+          },
+  };
+  base.merge(std::move(overlay));
+
+  REQUIRE(base.transition.has_value());
+  REQUIRE(base.transition->target_rtol.has_value());
+  CHECK(*base.transition->target_rtol == doctest::Approx(0.05));
+}
+
+TEST_CASE("CascadeOptions - same-size level_array is merged element-wise")
+{
+  CascadeOptions base {
+      .level_array =
+          {
+              CascadeLevel {
+                  .uid = Uid {1},
+                  .name = "uninodal",
+                  .sddp_options =
+                      CascadeLevelMethod {
+                          .max_iterations = 1,
+                      },
+              },
+              CascadeLevel {
+                  .uid = Uid {2},
+                  .name = "transport",
+                  .sddp_options =
+                      CascadeLevelMethod {
+                          .max_iterations = 1,
+                      },
+              },
+              CascadeLevel {
+                  .uid = Uid {3},
+                  .name = "full_network",
+                  .sddp_options =
+                      CascadeLevelMethod {
+                          .max_iterations = 1,
+                      },
+              },
+          },
+  };
+
+  // Overlay that only touches level 0 — mirrors what --set
+  // `cascade_options.level_array.0.sddp_options.max_iterations=20`
+  // produces (empty placeholder objects for indices >= 1 are not needed
+  // here because build_set_option_json places empties only at indices
+  // 0..N-1 when the target is index N; for N=0 no placeholders).
+  CascadeOptions overlay {
+      .level_array =
+          {
+              CascadeLevel {
+                  .sddp_options =
+                      CascadeLevelMethod {
+                          .max_iterations = 20,
+                      },
+              },
+              CascadeLevel {},
+              CascadeLevel {},
+          },
+  };
+  base.merge(std::move(overlay));
+
+  REQUIRE(base.level_array.size() == 3);
+
+  // Level 0: max_iterations updated, identity preserved
+  CHECK(*base.level_array[0].uid == Uid {1});
+  CHECK(*base.level_array[0].name == "uninodal");
+  REQUIRE(base.level_array[0].sddp_options.has_value());
+  REQUIRE(base.level_array[0].sddp_options->max_iterations.has_value());
+  CHECK(*base.level_array[0].sddp_options->max_iterations == 20);
+
+  // Levels 1, 2: untouched
+  CHECK(*base.level_array[1].name == "transport");
+  CHECK(*base.level_array[1].sddp_options->max_iterations == 1);
+  CHECK(*base.level_array[2].name == "full_network");
+  CHECK(*base.level_array[2].sddp_options->max_iterations == 1);
+}
+
+TEST_CASE("CascadeOptions - different-size level_array still replaces")
+{
+  // Backward compatibility: two full files whose arrays have different
+  // sizes still fall back to wholesale replace.
+  CascadeOptions base {
+      .level_array =
+          {
+              CascadeLevel {
+                  .uid = Uid {1},
+                  .name = "a",
+              },
+              CascadeLevel {
+                  .uid = Uid {2},
+                  .name = "b",
+              },
+          },
+  };
+
+  CascadeOptions overlay {
+      .level_array =
+          {
+              CascadeLevel {
+                  .uid = Uid {99},
+                  .name = "only",
+              },
+          },
+  };
+  base.merge(std::move(overlay));
+
+  REQUIRE(base.level_array.size() == 1);
+  CHECK(*base.level_array[0].uid == Uid {99});
+  CHECK(*base.level_array[0].name == "only");
 }

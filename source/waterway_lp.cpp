@@ -31,6 +31,8 @@ bool WaterwayLP::add_to_lp(const SystemContext& sc,
                            const StageLP& stage,
                            LinearProblem& lp)
 {
+  static constexpr auto ampl_name = ClassName.snake_case();
+
   if (!is_active(stage)) {
     return true;
   }
@@ -82,13 +84,19 @@ bool WaterwayLP::add_to_lp(const SystemContext& sc,
     fcols[buid] = fc;
 
     // adding flow to the junction balances, including the losses
-    brow_a[fc] = -1;
-    brow_b[fc] = +1 - stage_lossfactor;
+    brow_a[fc] = -1.0;
+    brow_b[fc] = 1.0 - stage_lossfactor;
   }
 
   // storing the indices for this scenario and stage
   const auto st_key = std::tuple {scenario.uid(), stage.uid()};
   flow_cols[st_key] = std::move(fcols);
+
+  // Register PAMPL-visible columns.
+  if (!flow_cols.at(st_key).empty()) {
+    sc.add_ampl_variable(
+        ampl_name, uid(), FlowName, scenario, stage, flow_cols.at(st_key));
+  }
 
   return true;
 }

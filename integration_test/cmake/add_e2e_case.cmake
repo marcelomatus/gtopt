@@ -52,9 +52,15 @@ include_guard(GLOBAL)
 function(add_e2e_case case_name system_json)
   cmake_parse_arguments(ARG "" "" "LABELS" ${ARGN})
 
-  # Allow callers to override the target; default to ${PROJECT_NAME}
-  if(NOT DEFINED GTOPT_EXECUTABLE_TARGET)
-    set(GTOPT_EXECUTABLE_TARGET "${PROJECT_NAME}")
+  # Resolve the gtopt binary reference.  Prefer GTOPT_EXECUTABLE_FILE (may
+  # be a genex like $<TARGET_FILE:gtoptStandalone> or a literal path);
+  # fall back to GTOPT_EXECUTABLE_TARGET or ${PROJECT_NAME} for callers
+  # that still rely on the old contract.
+  if(NOT DEFINED GTOPT_EXECUTABLE_FILE)
+    if(NOT DEFINED GTOPT_EXECUTABLE_TARGET)
+      set(GTOPT_EXECUTABLE_TARGET "${PROJECT_NAME}")
+    endif()
+    set(GTOPT_EXECUTABLE_FILE "$<TARGET_FILE:${GTOPT_EXECUTABLE_TARGET}>")
   endif()
   set(case_dir "${CASES_DIR}/${case_name}")
   set(input_file "${case_dir}/${system_json}")
@@ -75,7 +81,7 @@ function(add_e2e_case case_name system_json)
   add_test(
     NAME e2e_${case_name}_solve
     COMMAND ${CMAKE_COMMAND}
-      -DGTOPT_BINARY=$<TARGET_FILE:${GTOPT_EXECUTABLE_TARGET}>
+      -DGTOPT_BINARY=${GTOPT_EXECUTABLE_FILE}
       -DINPUT_FILE=${input_file}
       -DOUTPUT_DIR=${test_output}
       -DWORKING_DIR=${case_dir}

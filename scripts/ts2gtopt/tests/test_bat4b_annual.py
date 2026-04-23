@@ -988,9 +988,19 @@ class TestGtoptEndToEnd:
         assert rc == 0, f"gtopt crashed: {stderr}"
         out = tmp_path / "case" / "output"
         assert (out / "solution.csv").exists(), "solution.csv not found"
-        assert (out / "Demand" / "fail_sol.csv").exists(), "fail_sol.csv not found"
-        assert (out / "Generator" / "generation_sol.csv").exists(), (
-            "generation_sol.csv not found"
+        # CSV shards are suffixed `_s<scene>_p<phase>` in the current
+        # output format; accept any sharded file whose stem starts
+        # with the variable name.
+        demand_csvs = list((out / "Demand").glob("fail_sol*.csv"))
+        assert demand_csvs, (
+            "Demand/fail_sol[*].csv not found; "
+            f"Demand dir contents: {[p.name for p in (out / 'Demand').iterdir()]}"
+        )
+        gen_csvs = list((out / "Generator").glob("generation_sol*.csv"))
+        assert gen_csvs, (
+            "Generator/generation_sol[*].csv not found; "
+            f"Generator dir contents: "
+            f"{[p.name for p in (out / 'Generator').iterdir()]}"
         )
 
     @pytest.mark.integration

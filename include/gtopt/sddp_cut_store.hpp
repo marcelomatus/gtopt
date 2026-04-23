@@ -59,28 +59,21 @@ struct StoredCut
   std::vector<std::pair<ColIndex, double>> coefficients {};
 };
 
-/// Thread-safe storage for SDDP Benders cuts (combined + per-scene).
+/// Storage for SDDP Benders cuts.
 ///
-/// This class owns the cut vectors that were previously data members
-/// of SDDPMethod: m_stored_cuts_, m_cuts_mutex_, m_scene_cuts_, and
-/// m_scene_cuts_before_.  All mutating operations are provided as
-/// methods that receive external dependencies (PlanningLP, SDDPOptions,
-/// etc.) as parameters.
+/// Single source of truth: per-scene vectors in `m_scene_cuts_`.
+/// The combined view is rebuilt on demand via `build_combined_cuts`.
+/// No global mutex: per-scene vectors are single-writer during the
+/// forward/backward pass (phase access within a scene is serial).
+/// Cross-scene cut sharing reads from these vectors after the
+/// phase-step barrier in `run_backward_pass_synchronized`, so no lock
+/// is needed there either.
 class SDDPCutStore
 {
 public:
   SDDPCutStore() = default;
 
   // ── Accessors ────────────────────────────────────────────────────────
-
-  /// All stored cuts (combined storage).
-  [[nodiscard]] const auto& stored_cuts() const noexcept
-  {
-    return m_stored_cuts_;
-  }
-
-  /// Mutable reference to combined storage (for resize in iteration).
-  [[nodiscard]] auto& stored_cuts() noexcept { return m_stored_cuts_; }
 
   /// Per-scene cut storage.
   [[nodiscard]] const auto& scene_cuts() const noexcept
@@ -101,46 +94,39 @@ public:
   /// Mutable per-scene cuts (for direct iteration access).
   [[nodiscard]] auto& scene_cuts() noexcept { return m_scene_cuts_; }
 
-  /// Mutex protecting m_stored_cuts_.
-  [[nodiscard]] auto& cuts_mutex() const noexcept { return m_cuts_mutex_; }
-
   /// Resize per-scene storage to the given number of scenes.
   void resize_scenes(Index num_scenes) { m_scene_cuts_.resize(num_scenes); }
 
   // ── Cut count ────────────────────────────────────────────────────────
 
-  /// Number of stored cuts (thread-safe).
-  /// In single_cut_storage mode, counts across all per-scene vectors.
-  [[nodiscard]] int num_stored_cuts(bool single_cut_storage) const noexcept
+  /// Total number of stored cuts across all scenes.
+  [[nodiscard]] std::ptrdiff_t num_stored_cuts() const noexcept
   {
-    if (single_cut_storage) {
-      int total = 0;
-      for (const auto& sc : m_scene_cuts_) {
-        total += static_cast<int>(sc.size());
-      }
-      return total;
+    std::ptrdiff_t total = 0;
+    for (const auto& sc : m_scene_cuts_) {
+      total += std::ssize(sc);
     }
-    const std::scoped_lock lock(m_cuts_mutex_);
-    return static_cast<int>(m_stored_cuts_.size());
+    return total;
   }
 
   // ── Core operations ──────────────────────────────────────────────────
 
-  /// Store a cut for sharing and persistence (thread-safe).
+  /// Store a cut in the per-scene vector.  Safe to call from scene
+  /// workers concurrently since each scene has its own vector and
+  /// phase access within a scene is serial.
   void store_cut(SceneIndex scene_index,
                  PhaseIndex src_phase_index,
                  const SparseRow& cut,
                  CutType type,
                  RowIndex row,
-                 bool single_cut_storage,
                  SceneUid scene_uid_val,
                  PhaseUid phase_uid_val);
 
   /// Clear all stored cut metadata (combined + per-scene).
-  void clear() noexcept;
+  void clear();
 
   /// Remove the first @p count cuts from stored cuts and from the LP.
-  void forget_first_cuts(int count, PlanningLP& planning_lp);
+  void forget_first_cuts(std::ptrdiff_t count, PlanningLP& planning_lp);
 
   /// Update dual values of stored cuts from the current LP solution.
   void update_stored_cut_duals(PlanningLP& planning_lp);
@@ -162,15 +148,17 @@ public:
       const PlanningLP& planning_lp) const;
 
   /// Apply cut-sharing across scenes for all phases in this iteration.
-  void apply_cut_sharing_for_iteration(std::size_t cuts_before,
-                                       IterationIndex iteration_index,
+  /// New cuts are identified by comparing the current per-scene vector
+  /// size against `m_scene_cuts_before_` (populated by the caller
+  /// before the backward pass).
+  void apply_cut_sharing_for_iteration(IterationIndex iteration_index,
                                        const SDDPOptions& options,
                                        PlanningLP& planning_lp,
                                        const LabelMaker& label_maker);
 
   /// Save cuts (combined + per-scene) after an iteration.
   void save_cuts_for_iteration(
-      IterationIndex iter,
+      IterationIndex iteration_index,
       std::span<const uint8_t> scene_feasible,
       const SDDPOptions& options,
       PlanningLP& planning_lp,
@@ -181,13 +169,18 @@ public:
       int current_iteration);
 
 private:
-  std::vector<StoredCut> m_stored_cuts_ {};
-  mutable std::mutex m_cuts_mutex_;
-
-  /// Per-scene cut storage.
+  /// Per-scene cut storage — the single source of truth for every
+  /// cut the SDDP method has stored.  Optimality and feasibility cuts
+  /// both live here; `build_combined_cuts` exposes a union view for
+  /// save paths.  Phase access within a scene is serial in the SDDP
+  /// forward/backward passes, so per-scene vectors are single-writer
+  /// and need no mutex.
   StrongIndexVector<SceneIndex, std::vector<StoredCut>> m_scene_cuts_ {};
 
   /// Per-scene cut count snapshot before each backward pass.
+  /// Populated by the caller right before dispatching the backward
+  /// step so `apply_cut_sharing_for_iteration` can identify newly
+  /// added cuts by offset.
   std::vector<std::size_t> m_scene_cuts_before_ {};
 };
 

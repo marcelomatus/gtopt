@@ -42,7 +42,10 @@ class SystemLP;
 class ReservoirDischargeLimitLP : public ObjectLP<ReservoirDischargeLimit>
 {
 public:
-  static constexpr LPClassName ClassName {"ReservoirDischargeLimit", "rdl"};
+  static constexpr LPClassName ClassName {"ReservoirDischargeLimit"};
+  static constexpr std::string_view QehName {"qeh"};
+  static constexpr std::string_view QavgName {"qavg"};
+  static constexpr std::string_view DvolName {"dvol"};
 
   explicit ReservoirDischargeLimitLP(const ReservoirDischargeLimit& ddl,
                                      InputContext& ic);

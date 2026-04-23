@@ -24,12 +24,11 @@ namespace gtopt
 // ─── Cut coefficient entry ──────────────────────────────────────────────────
 
 /// A single coefficient in a serialized Benders cut.
-/// The key encodes the variable identity:
-///   - "class:var:uid"  for state variables (e.g. "Reservoir:efin:1")
-///   - "@alpha"         for the future cost variable
+/// The key encodes the variable identity as "class:var:uid"
+/// (e.g. "Reservoir:efin:1" or "Sddp:alpha:0").
 struct CutCoeffEntry
 {
-  std::string key {};  ///< Structured key or @alpha
+  std::string key {};  ///< Structured key "class:var:uid"
   double coeff {};  ///< Coefficient in physical space
 };
 

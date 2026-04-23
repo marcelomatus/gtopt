@@ -27,12 +27,12 @@ concurrency:
 # ---- Compiler selection ----
 # Change ACTIVE_COMPILER (and the four companion vars) to switch compilers.
 #
-#   GCC 14:
+#   GCC 14 (default — faster compile than Clang):
 #     ACTIVE_COMPILER: gcc
 #     CC: gcc-14  CXX: g++-14
 #     GCOV_TOOL: gcov-14
 #
-#   Clang 21 (default):
+#   Clang 21:
 #     ACTIVE_COMPILER: clang
 #     CC: clang  CXX: clang++
 #     GCOV_TOOL: /tmp/llvm-gcov.sh
@@ -43,18 +43,20 @@ concurrency:
 # ccache notes:
 #   CCACHE_BASEDIR  – normalise absolute paths so cache entries are portable
 #                     across runs on the same workspace path.
-#   CCACHE_SLOPPINESS=gcno_file_location – ccache 4.5+: don't hash the
-#                     location of .gcno files so coverage-instrumented TUs
-#                     are cached even when the build-dir path changes.
-#                     This is the key setting that makes ccache effective
-#                     with -fprofile-arcs / -ftest-coverage (GCC or Clang).
+#   Sloppiness (gcno_cwd, pch_defines, time_macros) is written to
+#   ~/.config/ccache/ccache.conf by cmake_local/Ccache.cmake at configure
+#   time.  Do NOT set CCACHE_SLOPPINESS here — the env var overrides the
+#   conf file and would drop whichever values are not listed in the env.
+#   NOTE: an earlier version of this workflow set gcno_file_location as
+#   a sloppiness token; that token was silently ignored by ccache (unknown
+#   identifier).  The correct modern token is gcno_cwd.
 env:
   CTEST_OUTPUT_ON_FAILURE: 1
   CPM_SOURCE_CACHE: ${{ github.workspace }}/cpm_modules
-  ACTIVE_COMPILER: clang
-  CC: clang
-  CXX: clang++
-  GCOV_TOOL: /tmp/llvm-gcov.sh
+  ACTIVE_COMPILER: gcc
+  CC: gcc-14
+  CXX: g++-14
+  GCOV_TOOL: gcov-14
   # Set to 'true' to enable code coverage instrumentation and collection.
   # Leave 'false' for faster builds without coverage overhead.
   # Can also be enabled via workflow_dispatch input `run_coverage: true`.
@@ -62,9 +64,10 @@ env:
   # Set to 'true' to enable the clang-tidy static analysis job.
   # Leave 'false' to skip it (saves ~10 min of analysis time).
   ENABLE_CLANG_TIDY: ${{ github.event.inputs.run_clang_tidy == 'true' && 'true' || 'false' }}
-  # ccache configuration (applied globally to every step)
+  # ccache configuration (applied globally to every step).
+  # Sloppiness is managed in ccache.conf by cmake_local/Ccache.cmake —
+  # do not set CCACHE_SLOPPINESS here (see ccache notes above).
   CCACHE_BASEDIR: ${{ github.workspace }}
-  CCACHE_SLOPPINESS: gcno_file_location
 
 permissions:
   contents: read
@@ -91,10 +94,14 @@ jobs:
             ${{ github.workflow }}-${{ env.ACTIVE_COMPILER }}-
           max-size: 2G
 
+      # CPM cache key hashes only the files that drive dependency resolution
+      # (CPM.cmake and the top-level CMakeLists with CPMAddPackage calls).
+      # Previously used **/CMakeLists.txt / **/*.cmake which invalidated on
+      # every unrelated CMake edit (63 files in the repo).
       - uses: actions/cache@v5
         with:
           path: "**/cpm_modules"
-          key: ${{ github.workflow }}-${{ env.ACTIVE_COMPILER }}-cpm-modules-${{ hashFiles('**/CMakeLists.txt', '**/*.cmake') }}
+          key: ${{ github.workflow }}-${{ env.ACTIVE_COMPILER }}-cpm-modules-${{ hashFiles('cmake/CPM.cmake', 'cmake/tools.cmake', 'CMakeLists.txt') }}
           restore-keys: |
             ${{ github.workflow }}-${{ env.ACTIVE_COMPILER }}-cpm-modules-
 
@@ -133,11 +140,17 @@ jobs:
 
       - name: configure
         run: |
+          # CIFast is the default: -O0 -g1 with gc-sections — no optimisation
+          # (fast compile), minimal line-only debug info (backtraces still work
+          # on test failures).  Coverage runs need full debug info for lcov
+          # line mapping, so switch back to Debug when coverage is enabled.
           COVERAGE_FLAG=""
+          BUILD_TYPE="CIFast"
           if [ "${{ env.ENABLE_COVERAGE }}" = "true" ]; then
             COVERAGE_FLAG="-DENABLE_TEST_COVERAGE=1"
+            BUILD_TYPE="Debug"
           fi
-          cmake -S all -B build ${COVERAGE_FLAG} -DCMAKE_BUILD_TYPE=Debug -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+          cmake -S all -B build ${COVERAGE_FLAG} -DCMAKE_BUILD_TYPE=${BUILD_TYPE} -DGTOPT_BUILD_INTEGRATION_TESTS=ON -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
         env:
           CC: ${{ env.CC }}
           CXX: ${{ env.CXX }}
@@ -164,7 +177,22 @@ jobs:
         run: |
           set -o pipefail
           cd build
-          ctest --build-config Debug --output-on-failure  -j$(nproc) 2>&1 | tee ctest_output.log
+          # Pin the active LP solver to CLP so that:
+          #   - the SDDP validator's per-solver golden lookup picks
+          #     `golden_iter*_clp.json` (see tools/validate_sddp_output.py),
+          #   - gtopt's auto-priority resolver deterministically uses CLP
+          #     regardless of which other COIN-OR plugins got built on the
+          #     runner (CBC occasionally loads first and hits different
+          #     degenerate optima).
+          # Removing the export here would require the validator to
+          # auto-detect the solver from solver_status.json — only
+          # produced for iter>0 runs, so not a drop-in replacement.
+          export GTOPT_SOLVER=clp
+          # --build-config is only meaningful for multi-config generators
+          # (Ninja Multi-Config, Visual Studio); ignored by single-config
+          # Ninja/Make runs, which is what this workflow uses.  Left here
+          # for compatibility.
+          ctest --output-on-failure -j$(nproc) 2>&1 | tee ctest_output.log
           echo ""
           echo "=== Test Summary ==="
           TOTAL=$(grep -c "Test #" ctest_output.log || echo 0)
@@ -307,18 +335,20 @@ jobs:
         uses: hendrikmuhs/ccache-action@v1.2.22
         with:
           key: ${{ github.workflow }}-clang-tidy
+          # Fall back to the clang build cache (not the workflow-default gcc
+          # one) — clang-tidy only uses clang-compatible object hashes.
           restore-keys: |
             ${{ github.workflow }}-clang-tidy-
-            ${{ github.workflow }}-${{ env.ACTIVE_COMPILER }}-
+            ${{ github.workflow }}-clang-
           max-size: 2G
 
       - uses: actions/cache@v5
         with:
           path: "**/cpm_modules"
-          key: ${{ github.workflow }}-clang-tidy-cpm-modules-${{ hashFiles('**/CMakeLists.txt', '**/*.cmake') }}
+          key: ${{ github.workflow }}-clang-tidy-cpm-modules-${{ hashFiles('cmake/CPM.cmake', 'cmake/tools.cmake', 'CMakeLists.txt') }}
           restore-keys: |
             ${{ github.workflow }}-clang-tidy-cpm-modules-
-            ${{ github.workflow }}-${{ env.ACTIVE_COMPILER }}-cpm-modules-
+            ${{ github.workflow }}-clang-cpm-modules-
 
       - name: install clang (full — clang-tidy required)
         uses: ./.github/actions/install-clang
@@ -333,6 +363,13 @@ jobs:
 
       - name: configure (clang-tidy mode)
         run: |
+          # Configure only to generate compile_commands.json.  PCH is disabled
+          # because run-clang-tidy does not drive cmake's compile step and
+          # would otherwise reference PCH files that were never built.
+          # No CMAKE_CXX_CLANG_TIDY hook here — run-clang-tidy drives the
+          # analysis in parallel in the next step (strictly faster than
+          # `cmake --build` + CMAKE_CXX_CLANG_TIDY because no object files
+          # are emitted and no linking happens).
           cmake -S all -Bbuild \
             -DGTOPT_BUILD_INTEGRATION_TESTS=OFF \
             -DGTOPT_BUILD_WEBSERVICE=OFF \
@@ -343,10 +380,19 @@ jobs:
             -DCMAKE_CXX_COMPILER=clang++ \
             -DCMAKE_C_COMPILER_LAUNCHER=ccache \
             -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
-            -DCMAKE_CXX_CLANG_TIDY="clang-tidy-cache;clang-tidy;--warnings-as-errors=*;--header-filter=''"
+            -DCMAKE_DISABLE_PRECOMPILE_HEADERS=ON
 
-      - name: build with clang-tidy
-        run: cmake --build build -j$(nproc)
+      - name: run-clang-tidy (parallel, via clang-tidy-cache)
+        run: |
+          # Drive clang-tidy in parallel over every TU in compile_commands.json.
+          # Equivalent to -j $(nproc).  clang-tidy-cache wraps clang-tidy so
+          # repeated runs hit the cache.  -header-filter='' keeps warnings
+          # limited to the main TU (never .hpp) — matches the project rule
+          # that clang-tidy only analyses .cpp files.
+          run-clang-tidy -p build -j "$(nproc)" -quiet \
+            -clang-tidy-binary clang-tidy-cache \
+            -header-filter='' \
+            -warnings-as-errors='*'
 
   webservice:
     runs-on: ubuntu-latest

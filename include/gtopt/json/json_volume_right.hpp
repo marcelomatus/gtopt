@@ -73,7 +73,8 @@ struct VolumeRightConstructor
     vr.use_state_variable = use_state_variable;
     vr.annual_loss = std::move(annual_loss);
     if (reset_month_str) {
-      vr.reset_month = gtopt::enum_from_name<MonthType>(*reset_month_str);
+      vr.reset_month =
+          gtopt::require_enum<MonthType>("reset_month", *reset_month_str);
     }
     vr.bound_rule = std::move(bound_rule);
     return vr;

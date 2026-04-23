@@ -23,6 +23,7 @@
 #include <gtopt/sddp_method.hpp>
 #include <gtopt/sddp_state_io.hpp>
 #include <gtopt/system_lp.hpp>
+#include <gtopt/utils.hpp>
 
 #include "sddp_helpers.hpp"
 
@@ -45,13 +46,13 @@ TEST_CASE(  // NOLINT
   // The reservoir (uid=1, class "rsv") should have an efin state
   // variable registered for each (scene=0, phase) combination because
   // the default reservoir use_state_variable is true.
-  const auto scene = SceneIndex {0};
+  const auto scene = first_scene_index();
   int efin_found = 0;
 
   for (int pi = 0; pi < num_phases; ++pi) {
     const auto& sv_map = sim.state_variables(scene, PhaseIndex {pi});
     for (const auto& [key, svar] : sv_map) {
-      if (key.col_name == "efin" && key.class_name == "rsv"
+      if (key.col_name == "efin" && key.class_name == "Reservoir"
           && key.uid == Uid {1})
       {
         ++efin_found;
@@ -76,7 +77,7 @@ TEST_CASE(  // NOLINT
   PlanningLP planning_lp(std::move(planning));
 
   const auto& sim = planning_lp.simulation();
-  const auto scene = SceneIndex {0};
+  const auto scene = first_scene_index();
 
   // Phase 0's efin state variable should have a dependent variable that
   // points to Phase 1's sini column. Similarly for Phase 1 → Phase 2.
@@ -85,7 +86,7 @@ TEST_CASE(  // NOLINT
 
     bool found_efin_with_dep = false;
     for (const auto& [key, svar] : sv_map) {
-      if (key.col_name == "efin" && key.class_name == "rsv"
+      if (key.col_name == "efin" && key.class_name == "Reservoir"
           && key.uid == Uid {1})
       {
         const auto deps = svar.dependent_variables();
@@ -108,7 +109,7 @@ TEST_CASE(  // NOLINT
   {
     const auto& sv_map = sim.state_variables(scene, PhaseIndex {2});
     for (const auto& [key, svar] : sv_map) {
-      if (key.col_name == "efin" && key.class_name == "rsv"
+      if (key.col_name == "efin" && key.class_name == "Reservoir"
           && key.uid == Uid {1})
       {
         CHECK(svar.dependent_variables().empty());
@@ -145,13 +146,13 @@ TEST_CASE(  // NOLINT
   auto save_result = save_state_csv(planning_lp, filepath, IterationIndex {0});
   REQUIRE(save_result.has_value());
 
-  // Collect reference values from the solved LP before loading
+  // Collect reference values from the solved LP via state variable map
   const auto& sim = planning_lp.simulation();
   struct RefValue
   {
     SceneIndex scene_index;
     PhaseIndex phase_index;
-    std::string name;
+    ColIndex col;
     double value;
   };
   std::vector<RefValue> ref_values;
@@ -163,24 +164,26 @@ TEST_CASE(  // NOLINT
         continue;
       }
       const auto col_sol = li.get_col_sol();
-      const auto& names = li.col_index_to_name();
-      const auto ncols = static_cast<size_t>(li.get_numcols());
+      const auto& sv_map = sim.state_variables(si, pi);
 
-      for (size_t c = 0; c < ncols && c < names.size(); ++c) {
-        const auto ci = ColIndex {static_cast<int>(c)};
-        if (names[ci].empty()) {
+      for (const auto& [key, sv] : sv_map) {
+        const auto ci = sv.col();
+        if (static_cast<size_t>(ci) >= col_sol.size()) {
           continue;
         }
         const auto phys_val = col_sol[ci];
-        // Only track non-zero values for comparison
-        if (std::abs(phys_val) > 1e-12) {
-          ref_values.push_back(RefValue {
-              .scene_index = si,
-              .phase_index = pi,
-              .name = names[ci],
-              .value = phys_val,
-          });
-        }
+        // Track every state variable value, including zeros — under CLP
+        // the 3-iter SDDP converges on a degenerate optimum that drains
+        // every reservoir, so all efin values are 0 and a `>1e-12`
+        // filter would leave ref_values empty.  The round-trip must
+        // preserve zero values too, and the downstream `matched > 0`
+        // assertion wants *any* round-trip hit, not a non-zero one.
+        ref_values.push_back(RefValue {
+            .scene_index = si,
+            .phase_index = pi,
+            .col = ci,
+            .value = phys_val,
+        });
       }
     }
   }
@@ -203,27 +206,21 @@ TEST_CASE(  // NOLINT
     if (warm.empty()) {
       continue;
     }
-    const auto& col_map = li.col_name_map();
-    auto cit = col_map.find(ref.name);
-    if (cit == col_map.end()) {
+
+    if (static_cast<size_t>(ref.col) >= warm.size()) {
       continue;
     }
 
-    const auto col_idx = static_cast<size_t>(cit->second);
-    if (col_idx >= warm.size()) {
-      continue;
-    }
-
-    const auto scale = li.get_col_scale(ColIndex {static_cast<int>(col_idx)});
-    const double loaded_phys =
-        warm[ColIndex {static_cast<int>(col_idx)}] * scale;
+    const auto scale = li.get_col_scale(ref.col);
+    const double loaded_phys = warm[ref.col] * scale;
 
     // Physical values should match within tolerance
     CHECK(loaded_phys == doctest::Approx(ref.value).epsilon(1e-6));
     ++matched;
   }
 
-  // At least some values should have matched
+  // At least some values should have matched — invariant across
+  // solvers once the `>1e-12` filter above is gone (see why).
   CHECK(matched > 0);
 
   std::filesystem::remove_all(dir);
@@ -249,8 +246,8 @@ TEST_CASE(  // NOLINT
   REQUIRE(results.has_value());
 
   // Capture the physical efin from the solved LP for phase 0
-  const auto scene = SceneIndex {0};
-  const auto phase0 = PhaseIndex {0};
+  const auto scene = first_scene_index();
+  const auto phase0 = first_phase_index();
   const auto& sys0 = planning_lp.system(scene, phase0);
   const auto& rsv_lp = sys0.elements<ReservoirLP>().front();
   const auto& scens = planning_lp.simulation().scenarios();
@@ -311,13 +308,7 @@ TEST_CASE(  // NOLINT
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
   // Build a 2-phase planning with a battery that has use_state_variable=true
-  Array<Block> block_array;
-  for (int i = 0; i < 4; ++i) {
-    block_array.push_back(Block {
-        .uid = Uid {i + 1},
-        .duration = 1.0,
-    });
-  }
+  auto block_array = make_uniform_blocks(4, 1.0);
 
   Array<Stage> stage_array = {
       Stage {
@@ -421,14 +412,14 @@ TEST_CASE(  // NOLINT
   PlanningLP planning_lp(std::move(planning));
 
   const auto& sim = planning_lp.simulation();
-  const auto scene = SceneIndex {0};
+  const auto scene = first_scene_index();
 
   // Verify battery efin state variable is registered in both phases
   int bat_efin_count = 0;
   for (int pi = 0; pi < 2; ++pi) {
     const auto& sv_map = sim.state_variables(scene, PhaseIndex {pi});
     for (const auto& [key, svar] : sv_map) {
-      if (key.col_name == "efin" && key.class_name == "bat"
+      if (key.col_name == "efin" && key.class_name == "Battery"
           && key.uid == Uid {1})
       {
         ++bat_efin_count;
@@ -440,9 +431,9 @@ TEST_CASE(  // NOLINT
 
   // Verify phase 0 efin has dependent variable pointing to phase 1
   {
-    const auto& sv_map0 = sim.state_variables(scene, PhaseIndex {0});
+    const auto& sv_map0 = sim.state_variables(scene, first_phase_index());
     for (const auto& [key, svar] : sv_map0) {
-      if (key.col_name == "efin" && key.class_name == "bat"
+      if (key.col_name == "efin" && key.class_name == "Battery"
           && key.uid == Uid {1})
       {
         const auto deps = svar.dependent_variables();
@@ -458,7 +449,7 @@ TEST_CASE(  // NOLINT
   {
     const auto& sv_map1 = sim.state_variables(scene, PhaseIndex {1});
     for (const auto& [key, svar] : sv_map1) {
-      if (key.col_name == "efin" && key.class_name == "bat"
+      if (key.col_name == "efin" && key.class_name == "Battery"
           && key.uid == Uid {1})
       {
         CHECK(svar.dependent_variables().empty());

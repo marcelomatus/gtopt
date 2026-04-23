@@ -10,6 +10,7 @@
 #include <doctest/doctest.h>
 #include <gtopt/enum_option.hpp>
 #include <gtopt/planning_options_lp.hpp>
+#include <gtopt/stage_enums.hpp>
 
 using namespace gtopt;  // NOLINT(google-global-names-in-headers)
 
@@ -198,9 +199,12 @@ TEST_CASE("ElasticFilterMode from_name")  // NOLINT
   CHECK(enum_from_name<ElasticFilterMode>("multi_cut")
             .value_or(ElasticFilterMode::single_cut)
         == ElasticFilterMode::multi_cut);
-  CHECK(enum_from_name<ElasticFilterMode>("backpropagate")
+  CHECK(enum_from_name<ElasticFilterMode>("chinneck")
             .value_or(ElasticFilterMode::single_cut)
-        == ElasticFilterMode::backpropagate);
+        == ElasticFilterMode::chinneck);
+  // The legacy "backpropagate" mode was removed; it now resolves to
+  // nullopt (callers fall back to default via value_or).
+  CHECK_FALSE(enum_from_name<ElasticFilterMode>("backpropagate").has_value());
   CHECK_FALSE(enum_from_name<ElasticFilterMode>("unknown").has_value());
 }
 
@@ -219,28 +223,6 @@ TEST_CASE("HotStartMode from_name")  // NOLINT
   CHECK(enum_from_name<HotStartMode>("replace").value_or(HotStartMode::none)
         == HotStartMode::replace);
   CHECK_FALSE(enum_from_name<HotStartMode>("bad").has_value());
-}
-
-// ─── LpNamesLevel ──────────────────────────────────────────────────────────
-
-TEST_CASE("LpNamesLevel from_name and name")  // NOLINT
-{
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
-  CHECK(
-      enum_from_name<LpNamesLevel>("minimal").value_or(LpNamesLevel::only_cols)
-      == LpNamesLevel::minimal);
-  CHECK(
-      enum_from_name<LpNamesLevel>("only_cols").value_or(LpNamesLevel::minimal)
-      == LpNamesLevel::only_cols);
-  CHECK(enum_from_name<LpNamesLevel>("cols_and_rows")
-            .value_or(LpNamesLevel::minimal)
-        == LpNamesLevel::cols_and_rows);
-  CHECK_FALSE(enum_from_name<LpNamesLevel>("bogus").has_value());
-
-  CHECK(enum_name(LpNamesLevel::minimal) == "minimal");
-  CHECK(enum_name(LpNamesLevel::only_cols) == "only_cols");
-  CHECK(enum_name(LpNamesLevel::cols_and_rows) == "cols_and_rows");
 }
 
 // ─── PlanningOptionsLP enum accessors
@@ -439,4 +421,175 @@ TEST_CASE("sddp_state_variable_lookup_mode cross_phase when set")  // NOLINT
   const PlanningOptionsLP opts(std::move(raw));
   CHECK(opts.sddp_state_variable_lookup_mode()
         == StateVariableLookupMode::cross_phase);
+}
+
+// ─── MonthType: English + Spanish, full + abbrev, case-insensitive ──────────
+
+TEST_CASE("MonthType accepts English full names, case-insensitive")  // NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  CHECK(enum_from_name<MonthType>("january") == MonthType::january);
+  CHECK(enum_from_name<MonthType>("January") == MonthType::january);
+  CHECK(enum_from_name<MonthType>("JANUARY") == MonthType::january);
+  CHECK(enum_from_name<MonthType>("december") == MonthType::december);
+  CHECK(enum_from_name<MonthType>("December") == MonthType::december);
+  CHECK(enum_from_name<MonthType>("DECEMBER") == MonthType::december);
+}
+
+TEST_CASE("MonthType accepts Spanish full names, case-insensitive")  // NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  CHECK(enum_from_name<MonthType>("enero") == MonthType::january);
+  CHECK(enum_from_name<MonthType>("Enero") == MonthType::january);
+  CHECK(enum_from_name<MonthType>("ENERO") == MonthType::january);
+  CHECK(enum_from_name<MonthType>("febrero") == MonthType::february);
+  CHECK(enum_from_name<MonthType>("marzo") == MonthType::march);
+  CHECK(enum_from_name<MonthType>("abril") == MonthType::april);
+  CHECK(enum_from_name<MonthType>("mayo") == MonthType::may);
+  CHECK(enum_from_name<MonthType>("junio") == MonthType::june);
+  CHECK(enum_from_name<MonthType>("julio") == MonthType::july);
+  CHECK(enum_from_name<MonthType>("agosto") == MonthType::august);
+  CHECK(enum_from_name<MonthType>("septiembre") == MonthType::september);
+  CHECK(enum_from_name<MonthType>("setiembre") == MonthType::september);
+  CHECK(enum_from_name<MonthType>("octubre") == MonthType::october);
+  CHECK(enum_from_name<MonthType>("noviembre") == MonthType::november);
+  CHECK(enum_from_name<MonthType>("diciembre") == MonthType::december);
+}
+
+TEST_CASE("MonthType accepts 3-letter abbreviations (EN + ES)")  // NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  // English abbreviations.
+  CHECK(enum_from_name<MonthType>("jan") == MonthType::january);
+  CHECK(enum_from_name<MonthType>("Feb") == MonthType::february);
+  CHECK(enum_from_name<MonthType>("MAR") == MonthType::march);
+  CHECK(enum_from_name<MonthType>("apr") == MonthType::april);
+  CHECK(enum_from_name<MonthType>("may") == MonthType::may);
+  CHECK(enum_from_name<MonthType>("jun") == MonthType::june);
+  CHECK(enum_from_name<MonthType>("jul") == MonthType::july);
+  CHECK(enum_from_name<MonthType>("aug") == MonthType::august);
+  CHECK(enum_from_name<MonthType>("sep") == MonthType::september);
+  CHECK(enum_from_name<MonthType>("oct") == MonthType::october);
+  CHECK(enum_from_name<MonthType>("nov") == MonthType::november);
+  CHECK(enum_from_name<MonthType>("dec") == MonthType::december);
+
+  // Spanish-only abbreviations.
+  CHECK(enum_from_name<MonthType>("ene") == MonthType::january);
+  CHECK(enum_from_name<MonthType>("Ene") == MonthType::january);
+  CHECK(enum_from_name<MonthType>("ENE") == MonthType::january);
+  CHECK(enum_from_name<MonthType>("abr") == MonthType::april);
+  CHECK(enum_from_name<MonthType>("ago") == MonthType::august);
+  CHECK(enum_from_name<MonthType>("set") == MonthType::september);
+  CHECK(enum_from_name<MonthType>("dic") == MonthType::december);
+}
+
+TEST_CASE("MonthType reverse lookup returns canonical English name")  // NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  // enum_name() walks the table in order and returns the first match by
+  // value; English full names are listed first, so the canonical name
+  // for MonthType::january must be "january" even though "enero", "jan"
+  // and "ene" also map to it.
+  CHECK(enum_name(MonthType::january) == "january");
+  CHECK(enum_name(MonthType::february) == "february");
+  CHECK(enum_name(MonthType::september) == "september");
+  CHECK(enum_name(MonthType::december) == "december");
+}
+
+TEST_CASE("MonthType rejects unknown names")  // NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  CHECK_FALSE(enum_from_name<MonthType>("").has_value());
+  CHECK_FALSE(enum_from_name<MonthType>("bogus").has_value());
+  CHECK_FALSE(enum_from_name<MonthType>("januar").has_value());
+  CHECK_FALSE(enum_from_name<MonthType>("januarys").has_value());
+  CHECK_FALSE(enum_from_name<MonthType>("ja").has_value());
+}
+
+// ─── is_alias flag on EnumEntry ─────────────────────────────────────────────
+
+TEST_CASE("LowMemoryMode alias 'snapshot' still parses to compress")  // NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  // Parsing must continue to accept the legacy alias.
+  CHECK(enum_from_name<LowMemoryMode>("snapshot").value_or(LowMemoryMode::off)
+        == LowMemoryMode::compress);
+  CHECK(require_enum<LowMemoryMode>("low-memory", "snapshot")
+        == LowMemoryMode::compress);
+  // Canonical names still parse.
+  CHECK(require_enum<LowMemoryMode>("low-memory", "off") == LowMemoryMode::off);
+  CHECK(require_enum<LowMemoryMode>("low-memory", "compress")
+        == LowMemoryMode::compress);
+  CHECK(require_enum<LowMemoryMode>("low-memory", "rebuild")
+        == LowMemoryMode::rebuild);
+}
+
+TEST_CASE("require_enum<LowMemoryMode> error message hides alias 'snapshot'")
+// NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  try {
+    (void)require_enum<LowMemoryMode>("low-memory", "xx");
+    FAIL("require_enum should have thrown");
+  } catch (const std::invalid_argument& e) {
+    const std::string msg {e.what()};
+    CHECK(msg.find("off, compress, rebuild") != std::string::npos);
+    CHECK(msg.find("snapshot") == std::string::npos);
+    CHECK(msg.find("low-memory") != std::string::npos);
+    CHECK(msg.find("xx") != std::string::npos);
+  }
+}
+
+TEST_CASE("require_enum<ElasticFilterMode> error message hides alias 'cut'")
+// NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  // "cut" is a back-compat alias for "single_cut" — still parses.
+  CHECK(require_enum<ElasticFilterMode>("elastic-mode", "cut")
+        == ElasticFilterMode::single_cut);
+
+  try {
+    (void)require_enum<ElasticFilterMode>("elastic-mode", "bogus");
+    FAIL("require_enum should have thrown");
+  } catch (const std::invalid_argument& e) {
+    const std::string msg {e.what()};
+    CHECK(msg.find("single_cut") != std::string::npos);
+    CHECK(msg.find("multi_cut") != std::string::npos);
+    CHECK(msg.find("chinneck") != std::string::npos);
+    // The bare "cut" alias must not appear as a standalone token.
+    // "single_cut" and "multi_cut" contain the substring "cut", so we
+    // verify by looking for the delimited forms produced by the joiner.
+    CHECK(msg.find(" cut,") == std::string::npos);
+    CHECK(msg.find(" cut)") == std::string::npos);
+  }
+}
+
+TEST_CASE("require_enum<CompressionCodec> error message hides alias 'none'")
+// NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  // "none" is an alias for "uncompressed" — still parses.
+  CHECK(require_enum<CompressionCodec>("output-compression", "none")
+        == CompressionCodec::uncompressed);
+
+  try {
+    (void)require_enum<CompressionCodec>("output-compression", "bogus");
+    FAIL("require_enum should have thrown");
+  } catch (const std::invalid_argument& e) {
+    const std::string msg {e.what()};
+    CHECK(msg.find("uncompressed") != std::string::npos);
+    CHECK(msg.find("zstd") != std::string::npos);
+    // The bare "none" alias must not appear in the expected list.
+    CHECK(msg.find(" none,") == std::string::npos);
+    CHECK(msg.find(" none)") == std::string::npos);
+  }
 }

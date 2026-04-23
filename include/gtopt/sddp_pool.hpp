@@ -41,6 +41,7 @@
 #include <thread>
 #include <tuple>
 
+#include <gtopt/hardware_info.hpp>
 #include <gtopt/phase.hpp>
 #include <gtopt/sddp_common.hpp>
 #include <gtopt/work_pool.hpp>
@@ -136,27 +137,34 @@ public:
  * (iteration, is_backward, phase, is_nonlp) with the default
  * `std::less<SDDPTaskKey>` comparator (smaller tuple → higher priority).
  *
- * @param cpu_factor  Over-commit factor applied to hardware_concurrency.
- *                    Default 1.25.
+ * @param cpu_factor        Over-commit factor applied to hardware_concurrency.
+ *                          Default 4.0 — aperture tasks block on clone mutex,
+ *                          so extra threads keep CPUs busy while others wait.
+ * @param memory_limit_mb   Process RSS limit in MB (0 = no limit).
  * @return A started SDDPWorkPool (heap-allocated, non-movable).
  */
 [[nodiscard]] inline std::unique_ptr<SDDPWorkPool> make_sddp_work_pool(
-    double cpu_factor = 1.25)
+    double cpu_factor = 4.0, double memory_limit_mb = 0.0)
 {
   WorkPoolConfig pool_config {};
   pool_config.name = "SDDPWorkPool";
-  pool_config.max_threads = static_cast<int>(
-      std::lround(cpu_factor * std::thread::hardware_concurrency()));
+  pool_config.max_threads =
+      static_cast<int>(std::lround(cpu_factor * physical_concurrency()));
   pool_config.max_cpu_threshold = static_cast<int>(
       100.0 - (50.0 / static_cast<double>(pool_config.max_threads)));
+  pool_config.max_process_rss_mb = memory_limit_mb;
 
   auto pool = std::make_unique<SDDPWorkPool>(pool_config);
   pool->start();
   SPDLOG_INFO(
-      "SDDP work pool started: max_threads={} cpu_threshold={:.0f}% "
-      "(hw_concurrency={})",
+      "SDDP work pool started: max_threads={} cpu_threshold={:.0f}%{} "
+      "(physical_cores={} logical_cores={})",
       pool_config.max_threads,
       static_cast<double>(pool_config.max_cpu_threshold),
+      memory_limit_mb > 0
+          ? std::format(" memory_limit={:.0f}MB", memory_limit_mb)
+          : "",
+      physical_concurrency(),
       std::thread::hardware_concurrency());
   return pool;
 }

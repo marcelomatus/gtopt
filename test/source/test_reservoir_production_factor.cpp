@@ -7,6 +7,7 @@
  * @copyright BSD-3-Clause
  */
 
+#include <filesystem>
 #include <vector>
 
 #include <doctest/doctest.h>
@@ -317,9 +318,10 @@ TEST_CASE("SystemLP with reservoir production factor element")
     REQUIRE(effs.size() == 1);
 
     auto& eff = effs.front();
-    CHECK(eff.has_coeff_indices(ScenarioUid {0}, StageUid {1}));
+    CHECK(eff.has_coeff_indices(make_uid<Scenario>(0), make_uid<Stage>(1)));
 
-    const auto& bmap = eff.coeff_indices_at(ScenarioUid {0}, StageUid {1});
+    const auto& bmap =
+        eff.coeff_indices_at(make_uid<Scenario>(0), make_uid<Stage>(1));
     CHECK(bmap.size() == 2);  // 2 blocks
   }
 
@@ -346,7 +348,8 @@ TEST_CASE("SystemLP with reservoir production factor element")
     CHECK(expected_rate > 0.0);
 
     // Check that the LP coefficient matches
-    const auto& bmap = eff.coeff_indices_at(ScenarioUid {0}, StageUid {1});
+    const auto& bmap =
+        eff.coeff_indices_at(make_uid<Scenario>(0), make_uid<Stage>(1));
     for (const auto& [buid, ci] : bmap) {
       const auto coeff = lp.get_coeff(ci.row, ci.col);
       CHECK(coeff == doctest::Approx(-expected_rate));
@@ -487,7 +490,8 @@ TEST_CASE("ReservoirProductionFactorLP - update_lp with different eini segment")
   // The coefficient is updated using vavg = (eini + efin_from_solution) / 2.
   // eini = 100 (first-stage fallback), efin comes from the LP solution.
   // With eini=100, seg1 applies: rate ≈ 1.0 + 0.001 * vavg (near 1.1).
-  const auto& bmap = eff.coeff_indices_at(ScenarioUid {0}, StageUid {1});
+  const auto& bmap =
+      eff.coeff_indices_at(make_uid<Scenario>(0), make_uid<Stage>(1));
   for (const auto& [buid, ci] : bmap) {
     const auto coeff = lp.get_coeff(ci.row, ci.col);
     // Coefficient is negative rate; should be close to -1.1
@@ -619,4 +623,316 @@ TEST_CASE(
   // always calls update_conversion_coeff when coeff indices exist.
   const auto updated = system_lp.update_lp();
   CHECK(updated > 0);
+}
+
+TEST_CASE(  // NOLINT
+    "ReservoirProductionFactorLP - add_to_output via write_out")
+{
+  // Exercises ReservoirProductionFactorLP::add_to_output (no-op) by calling
+  // write_out after the solve. Ensures the pipeline completes without error.
+
+  const Array<Bus> bus_array = {
+      {.uid = Uid {1}, .name = "b1"},
+  };
+
+  const Array<Generator> generator_array = {
+      {
+          .uid = Uid {1},
+          .name = "hydro_gen",
+          .bus = Uid {1},
+          .gcost = 5.0,
+          .capacity = 200.0,
+      },
+  };
+
+  const Array<Demand> demand_array = {
+      {.uid = Uid {1}, .name = "d1", .bus = Uid {1}, .capacity = 50.0},
+  };
+
+  const Array<Junction> junction_array = {
+      {.uid = Uid {1}, .name = "j_up"},
+      {.uid = Uid {2}, .name = "j_down", .drain = true},
+  };
+
+  const Array<Waterway> waterway_array = {
+      {
+          .uid = Uid {1},
+          .name = "ww1",
+          .junction_a = Uid {1},
+          .junction_b = Uid {2},
+          .fmin = 0.0,
+          .fmax = 100.0,
+      },
+  };
+
+  const Array<Reservoir> reservoir_array = {
+      {
+          .uid = Uid {1},
+          .name = "rsv1",
+          .junction = Uid {1},
+          .capacity = 1000.0,
+          .emin = 0.0,
+          .emax = 1000.0,
+          .eini = 500.0,
+      },
+  };
+
+  const Array<Turbine> turbine_array = {
+      {
+          .uid = Uid {1},
+          .name = "tur1",
+          .waterway = Uid {1},
+          .generator = Uid {1},
+          .production_factor = 1.0,
+          .main_reservoir = Uid {1},
+      },
+  };
+
+  const Array<ReservoirProductionFactor> reservoir_production_factor_array = {
+      {
+          .uid = Uid {1},
+          .name = "eff1",
+          .turbine = Uid {1},
+          .reservoir = Uid {1},
+          .mean_production_factor = 1.5,
+          .segments =
+              {
+                  {.volume = 0.0, .slope = 0.001, .constant = 1.0},
+                  {.volume = 800.0, .slope = 0.0001, .constant = 1.5},
+              },
+      },
+  };
+
+  const Simulation simulation = {
+      .block_array =
+          {
+              {.uid = Uid {1}, .duration = 1},
+          },
+      .stage_array =
+          {
+              {.uid = Uid {1}, .first_block = 0, .count_block = 1},
+          },
+      .scenario_array =
+          {
+              {.uid = Uid {0}},
+          },
+  };
+
+  const auto tmpdir =
+      std::filesystem::temp_directory_path() / "gtopt_test_pf_out";
+  std::filesystem::create_directories(tmpdir);
+
+  const System system = {
+      .name = "PFOutputTest",
+      .bus_array = bus_array,
+      .demand_array = demand_array,
+      .generator_array = generator_array,
+      .junction_array = junction_array,
+      .waterway_array = waterway_array,
+      .reservoir_array = reservoir_array,
+      .turbine_array = turbine_array,
+      .reservoir_production_factor_array = reservoir_production_factor_array,
+  };
+
+  PlanningOptions opts;
+  opts.output_directory = tmpdir.string();
+  const PlanningOptionsLP options(opts);
+  SimulationLP simulation_lp(simulation, options);
+  SystemLP system_lp(system, simulation_lp);
+
+  auto&& lp = system_lp.linear_interface();
+  auto result = lp.resolve();
+  REQUIRE(result.has_value());
+  CHECK(result.value() == 0);
+
+  // Verify objective is non-negative: demand=50 MW served by hydro at gcost=5
+  CHECK(lp.get_obj_value() >= 0.0);
+
+  // Verify the production factor element has stored coeff indices for the
+  // (scenario, stage) pair — this confirms add_to_lp populated the
+  // per-block row/col data that add_to_output would serialize.
+  const auto& rpf_lps = system_lp.elements<ReservoirProductionFactorLP>();
+  REQUIRE(rpf_lps.size() == 1);
+  const auto& rpf_lp = rpf_lps.front();
+  const auto& scenario_lp = simulation_lp.scenarios().front();
+  const auto& stage_lp = simulation_lp.stages().front();
+  CHECK(rpf_lp.has_coeff_indices(scenario_lp.uid(), stage_lp.uid()));
+
+  // The production factor at eini=500 is the min across segments:
+  //   seg0: 1.0 + 0.001×(500-0)   = 1.5
+  //   seg1: 1.5 + 0.0001×(500-800) = 1.47
+  // → min(1.5, 1.47) = 1.47
+  const auto pf = rpf_lp.compute_production_factor(500.0);
+  CHECK(pf == doctest::Approx(1.47).epsilon(0.01));
+
+  // Exercises ReservoirProductionFactorLP::add_to_output (no-op, always true)
+  CHECK_NOTHROW(system_lp.write_out());
+
+  std::filesystem::remove_all(tmpdir);
+}
+
+// ─── Primal solution verification: generation = production_factor × flow
+// ─────
+TEST_CASE(
+    "ReservoirProductionFactorLP - primal col_sol respects generation = "
+    "production_factor * flow")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  // Constant production factor pf = 2.0 (slope=0, constant=2.0).  Using a
+  // flat segment makes the expected coefficient independent of the volume
+  // the engine chooses (eini vs. vavg), so the primal check is robust.
+  //
+  // Turbine conversion row: generation − pf × flow = 0  ⇒  gen = 2 × flow.
+  // Demand = 50 MW, hydro is the only generator ⇒ generation = 50 MW and
+  // flow = 50 / 2 = 25 hm³/h.  Ratio generation/flow must equal pf = 2.0.
+  const Array<Bus> bus_array = {{
+      .uid = Uid {1},
+      .name = "b1",
+  }};
+
+  const Array<Generator> generator_array = {{
+      .uid = Uid {1},
+      .name = "hydro_gen",
+      .bus = Uid {1},
+      .gcost = 5.0,
+      .capacity = 200.0,
+  }};
+
+  const Array<Demand> demand_array = {{
+      .uid = Uid {1},
+      .name = "d1",
+      .bus = Uid {1},
+      .capacity = 50.0,
+  }};
+
+  const Array<Junction> junction_array = {
+      {
+          .uid = Uid {1},
+          .name = "j_upstream",
+      },
+      {
+          .uid = Uid {2},
+          .name = "j_downstream",
+          .drain = true,
+      },
+  };
+
+  const Array<Waterway> waterway_array = {{
+      .uid = Uid {1},
+      .name = "ww1",
+      .junction_a = Uid {1},
+      .junction_b = Uid {2},
+      .fmin = 0.0,
+      .fmax = 100.0,
+  }};
+
+  const Array<Reservoir> reservoir_array = {{
+      .uid = Uid {1},
+      .name = "rsv1",
+      .junction = Uid {1},
+      .capacity = 1000.0,
+      .emin = 0.0,
+      .emax = 1000.0,
+      .eini = 500.0,
+  }};
+
+  const Array<Turbine> turbine_array = {{
+      .uid = Uid {1},
+      .name = "tur1",
+      .waterway = Uid {1},
+      .generator = Uid {1},
+      .production_factor = 1.0,
+      .main_reservoir = Uid {1},
+  }};
+
+  const Array<ReservoirProductionFactor> reservoir_production_factor_array = {{
+      .uid = Uid {1},
+      .name = "eff_const",
+      .turbine = Uid {1},
+      .reservoir = Uid {1},
+      .mean_production_factor = 2.0,
+      .segments =
+          {
+              {.volume = 0.0, .slope = 0.0, .constant = 2.0},
+          },
+  }};
+
+  const Simulation simulation = {
+      .block_array = {{
+          .uid = Uid {1},
+          .duration = 1,
+      }},
+      .stage_array = {{
+          .uid = Uid {1},
+          .first_block = 0,
+          .count_block = 1,
+      }},
+      .scenario_array = {{
+          .uid = Uid {0},
+      }},
+  };
+
+  const System system = {
+      .name = "PFPrimalTest",
+      .bus_array = bus_array,
+      .demand_array = demand_array,
+      .generator_array = generator_array,
+      .junction_array = junction_array,
+      .waterway_array = waterway_array,
+      .reservoir_array = reservoir_array,
+      .turbine_array = turbine_array,
+      .reservoir_production_factor_array = reservoir_production_factor_array,
+  };
+
+  // A non-zero demand_fail_cost is required to install the load-balance row
+  // (load + fail == capacity).  Without it, the load variable is free on
+  // [0, capacity] with no cost, so the optimizer leaves it at 0 and hydro
+  // never dispatches (flow == 0).  The penalty (1000 $/MWh) far exceeds the
+  // hydro gcost (5 $/MWh), so the optimizer prefers to dispatch hydro.
+  PlanningOptions opts;
+  opts.demand_fail_cost = 1000.0;
+  const PlanningOptionsLP options {opts};
+  SimulationLP simulation_lp(simulation, options);
+  SystemLP system_lp(system, simulation_lp);
+
+  auto&& lp = system_lp.linear_interface();
+
+  // Initial solve to populate a primal so update_lp has an efin to read.
+  auto result0 = lp.resolve();
+  REQUIRE(result0.has_value());
+  CHECK(result0.value() == 0);
+
+  // Install the reservoir-dependent production factor (pf=2.0) on the
+  // turbine conversion row and re-solve with the corrected coefficient.
+  const auto updated = system_lp.update_lp();
+  CHECK(updated > 0);
+
+  auto result = lp.resolve();
+  REQUIRE(result.has_value());
+  CHECK(result.value() == 0);
+
+  // Locate the generation and flow columns for (scenario=0, stage=1, block=1).
+  const auto& scenario_lp = simulation_lp.scenarios().front();
+  const auto& stage_lp = simulation_lp.stages().front();
+  const auto block_uid = stage_lp.blocks().front().uid();
+
+  const auto& gen_lp = system_lp.elements<GeneratorLP>().front();
+  const auto& gcols = gen_lp.generation_cols_at(scenario_lp, stage_lp);
+  const auto gen_col_it = gcols.find(block_uid);
+  REQUIRE(gen_col_it != gcols.end());
+
+  const auto& ww_lp = system_lp.elements<WaterwayLP>().front();
+  const auto& fcols = ww_lp.flow_cols_at(scenario_lp, stage_lp);
+  const auto flow_col_it = fcols.find(block_uid);
+  REQUIRE(flow_col_it != fcols.end());
+
+  const auto gen_val = lp.get_col_sol()[gen_col_it->second];
+  const auto flow_val = lp.get_col_sol()[flow_col_it->second];
+
+  // With a 50 MW demand and pf=2.0, generation = 50 MW and flow = 25.
+  CHECK(gen_val == doctest::Approx(50.0).epsilon(0.01));
+  CHECK(flow_val == doctest::Approx(25.0).epsilon(0.01));
+  // And the conversion row must hold: generation ≈ pf × flow.
+  CHECK(gen_val == doctest::Approx(2.0 * flow_val).epsilon(1e-6));
 }

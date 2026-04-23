@@ -6,7 +6,6 @@
         "output_directory": "results",
         "output_format": "parquet",
         "output_compression": "zstd",
-        "use_lp_names": 1,
         "model_options": {
             "use_single_bus": false,
             "use_kirchhoff": true,
@@ -19,7 +18,6 @@
             "stationary_tol": 0.0001,
             "stationary_window": 4,
             "cut_coeff_eps": 1e-08,
-            "cut_coeff_max": 1000000.0,
             "aperture_directory": "apertures",
             "boundary_cuts_file": "boundary_cuts.csv"
         },

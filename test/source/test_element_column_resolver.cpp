@@ -14,7 +14,7 @@
 #include <string_view>
 
 #include <doctest/doctest.h>
-#include <gtopt/json/json_planning.hpp>
+#include <gtopt/gtopt_json_io.hpp>
 #include <gtopt/planning_lp.hpp>
 #include <gtopt/system_lp.hpp>
 
@@ -28,7 +28,6 @@ using namespace gtopt;  // NOLINT(google-global-names-in-headers)
 static constexpr std::string_view resolver_diverse_json = R"json({
   "options": {
     "annual_discount_rate": 0.0,
-    "lp_matrix_options": {"names_level": 1},
     "output_format": "csv",
     "output_compression": "uncompressed",
     "use_single_bus": true,
@@ -77,23 +76,23 @@ static constexpr std::string_view resolver_diverse_json = R"json({
     "user_constraint_array": [
       {
         "uid": 1, "name": "gen_limit",
-        "expression": "generator(\"g1\").generation + generator(\"g2\").generation <= 400"
+        "expression": "generator('g1').generation + generator('g2').generation <= 400"
       },
       {
         "uid": 2, "name": "demand_load_limit",
-        "expression": "demand(\"d1\").load <= 100"
+        "expression": "demand('d1').load <= 100"
       },
       {
         "uid": 3, "name": "bat_charge_limit",
-        "expression": "battery(\"bat1\").charge <= 40"
+        "expression": "battery('bat1').charge <= 40"
       },
       {
         "uid": 4, "name": "bat_discharge_limit",
-        "expression": "battery(\"bat1\").discharge <= 40"
+        "expression": "battery('bat1').discharge <= 40"
       },
       {
         "uid": 5, "name": "waterway_flow_limit",
-        "expression": "waterway(\"ww1\").flow <= 80"
+        "expression": "waterway('ww1').flow <= 80"
       },
       {
         "uid": 6, "name": "sum_all_gens",
@@ -107,7 +106,6 @@ static constexpr std::string_view resolver_diverse_json = R"json({
 static constexpr std::string_view resolver_uid_ref_json = R"json({
   "options": {
     "annual_discount_rate": 0.0,
-    "lp_matrix_options": {"names_level": 1},
     "output_format": "csv",
     "output_compression": "uncompressed",
     "use_single_bus": true,
@@ -141,12 +139,12 @@ static constexpr std::string_view resolver_uid_ref_json = R"json({
 static constexpr std::string_view resolver_unknown_json = R"json({
   "options": {
     "annual_discount_rate": 0.0,
-    "lp_matrix_options": {"names_level": 1},
     "output_format": "csv",
     "output_compression": "uncompressed",
     "use_single_bus": true,
     "demand_fail_cost": 1000,
-    "scale_objective": 1000
+    "scale_objective": 1000,
+    "constraint_mode": "normal"
   },
   "simulation": {
     "block_array": [{"uid": 1, "duration": 1}],
@@ -165,11 +163,11 @@ static constexpr std::string_view resolver_unknown_json = R"json({
     "user_constraint_array": [
       {
         "uid": 1, "name": "bad_element",
-        "expression": "generator(\"nonexistent\").generation <= 200"
+        "expression": "generator('nonexistent').generation <= 200"
       },
       {
         "uid": 2, "name": "bad_attribute",
-        "expression": "generator(\"g1\").bogus_attr <= 200"
+        "expression": "generator('g1').bogus_attr <= 200"
       }
     ]
   }
@@ -183,7 +181,7 @@ TEST_CASE(  // NOLINT
     "element_column_resolver - diverse element types solve correctly")
 {
   Planning base;
-  base.merge(daw::json::from_json<Planning>(resolver_diverse_json));
+  base.merge(parse_planning_json(resolver_diverse_json));
   PlanningLP planning_lp(std::move(base));
   auto result = planning_lp.resolve();
 
@@ -199,7 +197,7 @@ TEST_CASE(  // NOLINT
   // With constraint g1+g2<=400: total gen limited.  Demand is 100+100=200
   // in two blocks so constraint shouldn't bind.  Check solve succeeds.
   Planning base;
-  base.merge(daw::json::from_json<Planning>(resolver_diverse_json));
+  base.merge(parse_planning_json(resolver_diverse_json));
   PlanningLP planning_lp(std::move(base));
   auto result = planning_lp.resolve();
 
@@ -217,7 +215,7 @@ TEST_CASE(  // NOLINT
   // With 2 generators and demand of ~200, this shouldn't bind but should
   // resolve both generator columns.
   Planning base;
-  base.merge(daw::json::from_json<Planning>(resolver_diverse_json));
+  base.merge(parse_planning_json(resolver_diverse_json));
   PlanningLP planning_lp(std::move(base));
   auto result = planning_lp.resolve();
 
@@ -230,7 +228,7 @@ TEST_CASE(  // NOLINT
 {
   // generator(1).generation uses uid:1 form internally
   Planning base;
-  base.merge(daw::json::from_json<Planning>(resolver_uid_ref_json));
+  base.merge(parse_planning_json(resolver_uid_ref_json));
   PlanningLP planning_lp(std::move(base));
   auto result = planning_lp.resolve();
 
@@ -248,7 +246,7 @@ TEST_CASE(  // NOLINT
   // Constraints referencing nonexistent elements or unknown attributes
   // should be silently skipped (no rows added, no crash).
   Planning base;
-  base.merge(daw::json::from_json<Planning>(resolver_unknown_json));
+  base.merge(parse_planning_json(resolver_unknown_json));
   PlanningLP planning_lp(std::move(base));
   auto result = planning_lp.resolve();
 
@@ -265,8 +263,7 @@ TEST_CASE(  // NOLINT
   static constexpr std::string_view bat_energy_json = R"json({
     "options": {
       "annual_discount_rate": 0.0,
-      "lp_matrix_options": {"names_level": 1},
-      "output_format": "csv",
+        "output_format": "csv",
       "output_compression": "uncompressed",
       "use_single_bus": true,
       "demand_fail_cost": 1000,
@@ -298,14 +295,14 @@ TEST_CASE(  // NOLINT
       "user_constraint_array": [
         {
           "uid": 1, "name": "bat_energy_upper",
-          "expression": "battery(\"bat1\").energy <= 80"
+          "expression": "battery('bat1').energy <= 80"
         }
       ]
     }
   })json";
 
   Planning base;
-  base.merge(daw::json::from_json<Planning>(bat_energy_json));
+  base.merge(parse_planning_json(bat_energy_json));
   PlanningLP planning_lp(std::move(base));
   auto result = planning_lp.resolve();
 
@@ -351,7 +348,7 @@ TEST_CASE("ElementColumnResolver - uid syntax in constraint")  // NOLINT
   })json";
 
   Planning base;
-  base.merge(daw::json::from_json<Planning>(uid_ref_json));
+  base.merge(parse_planning_json(uid_ref_json));
   PlanningLP planning_lp(std::move(base));
   auto result = planning_lp.resolve();
 
@@ -369,7 +366,8 @@ TEST_CASE(  // NOLINT
   static constexpr std::string_view bad_ref_json = R"json({
     "options": {
       "demand_fail_cost": 1000,
-      "use_single_bus": true
+      "use_single_bus": true,
+      "constraint_mode": "normal"
     },
     "simulation": {
       "block_array": [{"uid": 1, "duration": 1}],
@@ -391,14 +389,14 @@ TEST_CASE(  // NOLINT
       "user_constraint_array": [
         {
           "uid": 1, "name": "bad_ref",
-          "expression": "generator(\"nonexistent\").generation <= 100"
+          "expression": "generator('nonexistent').generation <= 100"
         }
       ]
     }
   })json";
 
   Planning base;
-  base.merge(daw::json::from_json<Planning>(bad_ref_json));
+  base.merge(parse_planning_json(bad_ref_json));
   PlanningLP planning_lp(std::move(base));
   // Should still solve — the constraint with unresolved element is skipped
   auto result = planning_lp.resolve();
@@ -418,8 +416,7 @@ TEST_CASE(  // NOLINT
   static constexpr std::string_view capainst_json = R"json({
     "options": {
       "annual_discount_rate": 0.0,
-      "lp_matrix_options": {"names_level": 1},
-      "output_format": "csv",
+        "output_format": "csv",
       "output_compression": "uncompressed",
       "use_single_bus": true,
       "demand_fail_cost": 1000,
@@ -447,14 +444,75 @@ TEST_CASE(  // NOLINT
       "user_constraint_array": [
         {
           "uid": 1, "name": "gen_capainst_limit",
-          "expression": "generator(\"g1\").capainst <= 300"
+          "expression": "generator('g1').capainst <= 300"
         }
       ]
     }
   })json";
 
   Planning base;
-  base.merge(daw::json::from_json<Planning>(capainst_json));
+  base.merge(parse_planning_json(capainst_json));
+  PlanningLP planning_lp(std::move(base));
+  auto result = planning_lp.resolve();
+
+  REQUIRE(result.has_value());
+  CHECK(result.value() == 1);
+
+  const auto& li = planning_lp.systems().front().front().linear_interface();
+  CHECK(li.is_optimal());
+}
+
+TEST_CASE(  // NOLINT
+    "element_column_resolver - generator.capacost and generator.expmod publish")
+{
+  // B1 publication: `capacost` (annualized cost accumulator) and
+  // `expmod` (number of expansion modules added) must resolve as
+  // first-class user-constraint attributes alongside `capainst`.
+  // Constraint `g1.capacost <= 5e9` is loose enough to never bind, so
+  // resolution success (LP builds + solves) is the assertion.
+  static constexpr std::string_view capacost_json = R"json({
+    "options": {
+      "annual_discount_rate": 0.0,
+        "output_format": "csv",
+      "output_compression": "uncompressed",
+      "use_single_bus": true,
+      "demand_fail_cost": 1000,
+      "scale_objective": 1000
+    },
+    "simulation": {
+      "block_array": [{"uid": 1, "duration": 1}],
+      "stage_array": [{"uid": 1, "first_block": 0, "count_block": 1, "active": 1}],
+      "scenario_array": [{"uid": 1, "probability_factor": 1}]
+    },
+    "system": {
+      "name": "capacost_test",
+      "bus_array": [{"uid": 1, "name": "b1"}],
+      "generator_array": [
+        {
+          "uid": 1, "name": "g1", "bus": "b1",
+          "pmin": 0, "pmax": 300, "gcost": 20,
+          "capacity": 100, "expcap": 100, "expmod": 5,
+          "annual_capcost": 8760
+        }
+      ],
+      "demand_array": [
+        {"uid": 1, "name": "d1", "bus": "b1", "lmax": [[150]]}
+      ],
+      "user_constraint_array": [
+        {
+          "uid": 1, "name": "gen_capacost_loose",
+          "expression": "generator('g1').capacost <= 1000000"
+        },
+        {
+          "uid": 2, "name": "gen_expmod_cap",
+          "expression": "generator('g1').expmod <= 5"
+        }
+      ]
+    }
+  })json";
+
+  Planning base;
+  base.merge(parse_planning_json(capacost_json));
   PlanningLP planning_lp(std::move(base));
   auto result = planning_lp.resolve();
 
@@ -473,8 +531,7 @@ TEST_CASE(  // NOLINT
   static constexpr std::string_view bat_state_json = R"json({
     "options": {
       "annual_discount_rate": 0.0,
-      "lp_matrix_options": {"names_level": 1},
-      "output_format": "csv",
+        "output_format": "csv",
       "output_compression": "uncompressed",
       "use_single_bus": true,
       "demand_fail_cost": 1000,
@@ -510,18 +567,18 @@ TEST_CASE(  // NOLINT
       "user_constraint_array": [
         {
           "uid": 1, "name": "bat_eini_lower",
-          "expression": "battery(\"bat1\").eini >= 10"
+          "expression": "battery('bat1').eini >= 10"
         },
         {
           "uid": 2, "name": "bat_efin_upper",
-          "expression": "battery(\"bat1\").efin <= 90"
+          "expression": "battery('bat1').efin <= 90"
         }
       ]
     }
   })json";
 
   Planning base;
-  base.merge(daw::json::from_json<Planning>(bat_state_json));
+  base.merge(parse_planning_json(bat_state_json));
   PlanningLP planning_lp(std::move(base));
   auto result = planning_lp.resolve();
 
@@ -541,8 +598,7 @@ TEST_CASE(  // NOLINT
   static constexpr std::string_view rsv_state_json = R"json({
     "options": {
       "annual_discount_rate": 0.0,
-      "lp_matrix_options": {"names_level": 1},
-      "output_format": "csv",
+        "output_format": "csv",
       "output_compression": "uncompressed",
       "use_single_bus": true,
       "demand_fail_cost": 1000,
@@ -581,18 +637,18 @@ TEST_CASE(  // NOLINT
       "user_constraint_array": [
         {
           "uid": 1, "name": "rsv_eini_lower",
-          "expression": "reservoir(\"rsv1\").eini >= 100"
+          "expression": "reservoir('rsv1').eini >= 100"
         },
         {
           "uid": 2, "name": "rsv_efin_upper",
-          "expression": "reservoir(\"rsv1\").efin <= 900"
+          "expression": "reservoir('rsv1').efin <= 900"
         }
       ]
     }
   })json";
 
   Planning base;
-  base.merge(daw::json::from_json<Planning>(rsv_state_json));
+  base.merge(parse_planning_json(rsv_state_json));
   PlanningLP planning_lp(std::move(base));
   auto result = planning_lp.resolve();
 
@@ -611,8 +667,7 @@ TEST_CASE(  // NOLINT
   static constexpr std::string_view sum_bus_json = R"json({
     "options": {
       "annual_discount_rate": 0.0,
-      "lp_matrix_options": {"names_level": 1},
-      "output_format": "csv",
+        "output_format": "csv",
       "output_compression": "uncompressed",
       "use_single_bus": false,
       "use_kirchhoff": true,
@@ -651,7 +706,7 @@ TEST_CASE(  // NOLINT
   })json";
 
   Planning base;
-  base.merge(daw::json::from_json<Planning>(sum_bus_json));
+  base.merge(parse_planning_json(sum_bus_json));
   PlanningLP planning_lp(std::move(base));
   auto result = planning_lp.resolve();
 
@@ -673,8 +728,7 @@ TEST_CASE(  // NOLINT
   static constexpr std::string_view vrt_state_json = R"json({
     "options": {
       "annual_discount_rate": 0.0,
-      "lp_matrix_options": {"names_level": 1},
-      "output_format": "csv",
+        "output_format": "csv",
       "output_compression": "uncompressed",
       "use_single_bus": true,
       "demand_fail_cost": 1000,
@@ -710,22 +764,22 @@ TEST_CASE(  // NOLINT
       "user_constraint_array": [
         {
           "uid": 1, "name": "vrt_eini_lower",
-          "expression": "volume_right(\"vrt1\").eini >= 10"
+          "expression": "volume_right('vrt1').eini >= 10"
         },
         {
           "uid": 2, "name": "vrt_efin_upper",
-          "expression": "volume_right(\"vrt1\").efin <= 90"
+          "expression": "volume_right('vrt1').efin <= 90"
         },
         {
           "uid": 3, "name": "vrt_volume_bound",
-          "expression": "volume_right(\"vrt1\").volume <= 80"
+          "expression": "volume_right('vrt1').energy <= 80"
         }
       ]
     }
   })json";
 
   Planning base;
-  base.merge(daw::json::from_json<Planning>(vrt_state_json));
+  base.merge(parse_planning_json(vrt_state_json));
   PlanningLP planning_lp(std::move(base));
   auto result = planning_lp.resolve();
 
@@ -751,7 +805,6 @@ TEST_CASE(  // NOLINT
 static constexpr std::string_view resolver_scale_aware_json = R"json({
   "options": {
     "annual_discount_rate": 0.0,
-    "lp_matrix_options": {"names_level": 2},
     "output_format": "csv",
     "output_compression": "uncompressed",
     "use_single_bus": true,
@@ -794,11 +847,11 @@ static constexpr std::string_view resolver_scale_aware_json = R"json({
     "user_constraint_array": [
       {
         "uid": 1, "name": "vol_upper",
-        "expression": "reservoir(\"rsv1\").volume <= 5000"
+        "expression": "reservoir('rsv1').energy <= 5000"
       },
       {
         "uid": 2, "name": "gen_upper",
-        "expression": "generator(\"g1\").generation <= 250"
+        "expression": "generator('g1').generation <= 250"
       }
     ]
   }
@@ -820,7 +873,7 @@ TEST_CASE(  // NOLINT
   //
   // Both constraints should be properly resolved and the LP should solve.
   Planning base;
-  base.merge(daw::json::from_json<Planning>(resolver_scale_aware_json));
+  base.merge(parse_planning_json(resolver_scale_aware_json));
   PlanningLP planning_lp(std::move(base));
   auto result = planning_lp.resolve();
 

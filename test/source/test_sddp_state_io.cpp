@@ -152,7 +152,7 @@ TEST_CASE(  // NOLINT
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
   auto planning = make_3phase_hydro_planning();
-  const PlanningLP planning_lp(std::move(planning));
+  PlanningLP planning_lp(std::move(planning));
 
   const auto dir = make_state_test_dir("unsolved");
   const auto filepath = (dir / "state_unsolved.csv").string();

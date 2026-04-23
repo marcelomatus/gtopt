@@ -24,6 +24,19 @@ if TYPE_CHECKING:
 
 
 # ---------------------------------------------------------------------------
+# Packaged data templates
+# ---------------------------------------------------------------------------
+
+# Default RoR-equivalence whitelist shipped inside the gtopt_expand package.
+# The canonical copy now lives in gtopt_expand/templates/ (moved as part of
+# the gtopt_irrigation → gtopt_expand rename).  The plp2gtopt/templates/
+# copy is kept as a fallback for standalone plp2gtopt installs.
+DEFAULT_ROR_RESERVOIRS_FILE: Path = (
+    Path(__file__).resolve().parent / "templates" / "ror_equivalence.csv"
+)
+
+
+# ---------------------------------------------------------------------------
 # Utility type used by several argument groups
 # ---------------------------------------------------------------------------
 
@@ -224,7 +237,7 @@ def add_stage_arguments(parser: argparse.ArgumentParser, _conf: dict[str, str]) 
             "Example: '1:4,5,6,7,8,9,10,...' assigns stages 1-4 to phase 1, "
             "stages 5-10 each to their own phase, then one stage per phase for "
             "any remaining stages. "
-            "When omitted, the phase layout is controlled by --solver. "
+            "When omitted, the phase layout is controlled by --method. "
             "(default: not set)"
         ),
     )
@@ -327,18 +340,20 @@ def add_scenario_arguments(
 def add_solver_arguments(parser: argparse.ArgumentParser, conf: dict[str, str]) -> None:
     """Register solver type, cut-sharing, boundary cuts, convergence args."""
     parser.add_argument(
-        "-S",
-        "--solver",
-        dest="solver_type",
-        metavar="TYPE",
-        default=conf.get("solver_type", "sddp"),
-        choices=["sddp", "mono", "monolithic"],
+        "-M",
+        "--method",
+        dest="method",
+        metavar="METHOD",
+        default=conf.get("method", "cascade"),
+        choices=["sddp", "mono", "monolithic", "cascade"],
         help=(
-            "solver type controlling the simulation structure: "
+            "planning method controlling the simulation structure: "
+            "'cascade' (default) uses a 3-level cascade: L0 uninodal, L1 "
+            "transport (lines without losses/kirchhoff), L2 full network; "
             "'sddp' produces one scene per scenario and one phase per stage "
             "(for Stochastic Dual Dynamic Programming); "
-            "'mono'/'monolithic' produces a single scene with all scenarios and "
-            "a single phase with all stages (for the monolithic solver). "
+            "'mono'/'monolithic' produces a single scene with all scenarios "
+            "and a single phase with all stages (for the monolithic solver). "
             "(default: %(default)s)"
         ),
     )
@@ -408,6 +423,21 @@ def add_solver_arguments(parser: argparse.ArgumentParser, conf: dict[str, str]) 
         ),
     )
     parser.add_argument(
+        "--alias-file",
+        dest="alias_file",
+        metavar="JSON",
+        type=Path,
+        default=None,
+        help=(
+            "Path to a JSON file containing a flat {old_name: new_name} map "
+            "of state-variable renames applied when writing boundary_cuts.csv "
+            "and hot_start_cuts.csv headers.  Use this to reconcile PLP "
+            "reservoir/junction names with gtopt names without editing data "
+            "files.  Unknown keys are ignored; missing keys pass through "
+            'unchanged.  Example: {"CANUTILLAR": "CHAPO"}.'
+        ),
+    )
+    parser.add_argument(
         "--stationary-tol",
         dest="stationary_tol",
         metavar="TOL",
@@ -422,7 +452,7 @@ def add_solver_arguments(parser: argparse.ArgumentParser, conf: dict[str, str]) 
             "stationary value rather than to 0. "
             "Example: 0.01 declares convergence when the gap improves by "
             "less than 1%% over the look-back window. "
-            "Default: not set (secondary criterion disabled)."
+            "Default: same as --convergence-tol."
         ),
     )
     parser.add_argument(
@@ -434,8 +464,7 @@ def add_solver_arguments(parser: argparse.ArgumentParser, conf: dict[str, str]) 
         help=(
             "Number of iterations to look back when checking gap stationarity "
             "(secondary convergence criterion). "
-            "Only used when --stationary-tol is set. "
-            "Default: 10."
+            "Default: 4."
         ),
     )
 
@@ -514,6 +543,49 @@ def add_model_arguments(parser: argparse.ArgumentParser, conf: dict[str, str]) -
         action="store_true",
         default=None,
         help="model transmission line losses (omit to use gtopt default: true)",
+    )
+    parser.add_argument(
+        "--line-losses-mode",
+        dest="line_losses_mode",
+        metavar="MODE",
+        default=None,
+        choices=[
+            "none",
+            "linear",
+            "piecewise",
+            "bidirectional",
+            "adaptive",
+            "dynamic",
+            "piecewise_direct",
+        ],
+        help=(
+            "transmission-line loss model emitted as "
+            "model_options.line_losses_mode. 'adaptive' (gtopt default) "
+            "picks the smallest-LP PWL model — `piecewise` for fixed-"
+            "capacity lines, `bidirectional` for expandable ones. "
+            "'piecewise_direct' mirrors PLP `genpdlin.f` (per-segment "
+            "bus stamps, no loss rows) at the cost of 2·K segment cols "
+            "per direction — use for PLP LP-diff parity. "
+            "(default: not set — gtopt picks 'adaptive')"
+        ),
+    )
+    parser.add_argument(
+        "--plp-legacy",
+        dest="plp_legacy",
+        action="store_true",
+        default=False,
+        help=(
+            "bundle PLP-compatibility defaults that make gtopt outputs "
+            "closer to PLP even when that is not the highest-quality "
+            "or smallest-LP choice. Adjusts the defaults of: "
+            "--method (cascade→sddp; PLP's stochastic production mode), "
+            "--line-losses-mode (→piecewise_direct; PLP `genpdlin.f`), "
+            "--use-line-losses (→true, emitted explicitly). "
+            "pasada_mode, use_kirchhoff, discount_rate are already "
+            "PLP-aligned by default so no bundle change is needed. "
+            "reservoir_scale_mode is intentionally left alone. "
+            "Explicit flags still win over the bundle."
+        ),
     )
 
 
@@ -660,6 +732,52 @@ def add_reservoir_battery_arguments(
             "reservoir_production_factor_array.  The embedded form requires "
             "expand_reservoir_constraints() at load time. "
             "(default: %(default)s)"
+        ),
+    )
+
+
+# ---------------------------------------------------------------------------
+# 6b. RoR-as-reservoirs equivalence arguments
+# ---------------------------------------------------------------------------
+
+
+def add_ror_arguments(parser: argparse.ArgumentParser, _conf: dict[str, str]) -> None:
+    """Register ``--ror-as-reservoirs`` and ``--ror-as-reservoirs-file``.
+
+    These options let a user promote selected ``pasada`` / ``serie`` PLP
+    centrals to **daily-cycle reservoirs** (mirroring the ESS DCMod=2
+    regulation-tank pattern).  The feature is strictly whitelist-gated:
+    a central can only be promoted if its name appears in the CSV file
+    passed via ``--ror-as-reservoirs-file`` (so we never invent a vmax).
+    """
+    parser.add_argument(
+        "--ror-as-reservoirs",
+        dest="ror_as_reservoirs",
+        metavar="SELECTION",
+        default=None,
+        help=(
+            "promote run-of-river (pasada/serie) centrals to daily-cycle "
+            "reservoirs.  SELECTION is 'all', 'none', or a comma-separated "
+            "list of central names (e.g. 'CentralA,CentralB').  Requires "
+            "--ror-as-reservoirs-file; only centrals whose vmax is listed "
+            "in that CSV are eligible.  (default: feature disabled)"
+        ),
+    )
+    parser.add_argument(
+        "--ror-as-reservoirs-file",
+        dest="ror_as_reservoirs_file",
+        type=Path,
+        metavar="FILE",
+        default=DEFAULT_ROR_RESERVOIRS_FILE,
+        help=(
+            "CSV file mapping central names to daily-cycle vmax [hm3]. "
+            "Required columns: name, vmax_hm3.  Optional columns: "
+            "enabled (true/false), comment.  Only centrals whose vmax "
+            "is known should be listed here — this file is the sole "
+            "source of truth for --ror-as-reservoirs.  See "
+            "docs/templates/ror_equivalence.example.csv for the schema. "
+            "(default: packaged template at plp2gtopt/templates/"
+            "ror_equivalence.csv)"
         ),
     )
 
@@ -813,16 +931,92 @@ def add_general_arguments(
         ),
     )
     parser.add_argument(
-        "--emit-water-rights",
-        dest="emit_water_rights",
+        "--expand-water-rights",
+        dest="expand_water_rights",
         action=argparse.BooleanOptionalAction,
         default=False,
         help=(
-            "emit irrigation agreement entities (RightJunction, FlowRight, "
-            "VolumeRight, UserConstraint) from plplajam.dat and "
-            "plpmaulen.dat when present.  Also generates PAMPL parameter "
-            "files (laja_agreement.pampl, maule_agreement.pampl). "
-            "(default: %(default)s)"
+            "run the gtopt_expand laja|maule Stage-2 transforms from "
+            "plplajam.dat / plpmaulen.dat (opt-in).  When set, the "
+            "resulting FlowRight / VolumeRight / UserConstraint entities "
+            "are merged into planning.json, companion laja.pampl / "
+            "maule.pampl files are written next to it, and per-agreement "
+            "system fragments (laja_water_rights.json / "
+            "maule_water_rights.json) are emitted for the manifest.  "
+            "Parser-side *_dat.json intermediates are NOT written to "
+            "disk (never shipped).  Fully independent of --expand-lng "
+            "and --ror-as-reservoirs; the latter is complementary "
+            "because promoting MACHICURA lets the Maule agreement pick "
+            "its richer embalse template variant.  A no-op when the PLP "
+            "case has no plplajam.dat / plpmaulen.dat. (default: "
+            "%(default)s)"
+        ),
+    )
+    parser.add_argument(
+        "--expand-lng",
+        dest="expand_lng",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help=(
+            "run the gtopt_expand lng Stage-2 transform from "
+            "plpcnfgnl.dat: the resulting LngTerminal entities are "
+            "merged into planning.json.  Fully independent of "
+            "--expand-water-rights and --ror-as-reservoirs.  A no-op "
+            "when the PLP case has no plpcnfgnl.dat. (default: "
+            "%(default)s)"
+        ),
+    )
+    parser.add_argument(
+        "--expand-ror",
+        dest="expand_ror",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help=(
+            "also emit ror_promoted.json (the gtopt_expand ror audit "
+            "artifact) listing every central promoted by "
+            "--ror-as-reservoirs.  Independent of --expand-water-rights "
+            "and --expand-lng, but complementary to the former: when "
+            "MACHICURA is among the promoted RoRs, the Maule agreement "
+            "picks its richer embalse template variant instead of the "
+            "default pasada.  Has no effect when --ror-as-reservoirs "
+            "is disabled. (default: %(default)s)"
+        ),
+    )
+    parser.add_argument(
+        "--pumped-storage",
+        dest="pumped_storage_files",
+        type=Path,
+        action="append",
+        metavar="FILE",
+        default=None,
+        help=(
+            "run the ``gtopt_expand pumped_storage`` transform for each "
+            "FILE: emit a reversible pumped-storage unit (Turbine + Pump "
+            "between an upper and a lower reservoir).  May be repeated "
+            "to expand several units in one run.  Each FILE is a "
+            "canonical config JSON (name/vmin/vmax/PFs/pump_factor — "
+            "see --pumped-storage-template).  ``vmin`` / ``vmax`` at 0 "
+            "or absent fall back to the upper reservoir's ``emin`` / "
+            "``emax`` in plpcnfce.dat.  The unit name defaults to the "
+            "filename stem (e.g. ``hb_maule.json`` → ``hb_maule``).  "
+            "Writes one ``{name}.json`` per unit and merges the "
+            "entities into the planning JSON.  Requires each unit's "
+            "``lower_reservoir`` to be a reservoir — real embalse or "
+            "RoR-promoted via --ror-as-reservoirs. (default: disabled)"
+        ),
+    )
+    parser.add_argument(
+        "--pumped-storage-template",
+        action="store_true",
+        default=False,
+        help=(
+            "print a JSON template of pumped-storage parameters to "
+            "stdout, populated with HB Maule reference values "
+            "(pump.pdf §4).  Edit the output and pass it back via "
+            "--pumped-storage.  Example workflow:\n"
+            "  plp2gtopt --pumped-storage-template > hb_maule.json\n"
+            "  # edit hb_maule.json to tune specific values\n"
+            "  plp2gtopt -i plp_case --pumped-storage hb_maule.json"
         ),
     )
     parser.add_argument(

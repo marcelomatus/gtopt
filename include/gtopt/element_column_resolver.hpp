@@ -65,6 +65,28 @@ struct ResolvedCol
     const LinearProblem& lp);
 
 /**
+ * @brief Resolve an `ElementRef` into one or more `SparseRow` entries.
+ *
+ * Unlike `resolve_single_col`, this helper is compound-aware: when the
+ * referenced attribute is a registered PAMPL compound (e.g. `line.flow`
+ * → `flowp − flown`), each leg is looked up and added to @p row with
+ * the appropriate scaled coefficient.  Ordinary single-column
+ * attributes resolve to exactly one entry.
+ *
+ * @param base_coeff The outer coefficient of the constraint term; each
+ *                   emitted entry contributes `base_coeff * leg_coeff`.
+ * @return @c true if at least one column was added to @p row.
+ */
+[[nodiscard]] bool resolve_col_to_row(const SystemContext& sc,
+                                      const ScenarioLP& scenario,
+                                      const StageLP& stage,
+                                      const BlockLP& block,
+                                      const ElementRef& ref,
+                                      double base_coeff,
+                                      SparseRow& row,
+                                      const LinearProblem& lp);
+
+/**
  * @brief Try to look up a data parameter value for one element reference.
  *
  * Returns `std::nullopt` when the element is not found or the attribute is

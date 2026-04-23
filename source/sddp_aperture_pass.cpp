@@ -50,10 +50,251 @@ template<typename Range>
   return result;
 }
 
+/// Resolve the effective aperture definitions for this iteration.
+///
+/// Returns one of:
+///   - empty optional → caller should fall back to the non-aperture
+///     backward-pass path (apertures disabled, no aperture_array, or
+///     no requested UIDs matched),
+///   - filled optional → use the contained span as the effective
+///     aperture definitions.  The span references either the original
+///     `aperture_defs` (no filtering needed) or the `owned` storage
+///     appended to for synthetic/filtered apertures.
+///
+/// Shared by `backward_pass_with_apertures` (loop) and
+/// `backward_pass_with_apertures_single_phase` (single-phase
+/// dispatcher).  Previously this was duplicated ~30 LOC across both
+/// call sites; the filter semantics diverging silently was a
+/// regression magnet.
+[[nodiscard]] auto resolve_effective_apertures(
+    std::span<const gtopt::Aperture> aperture_defs,
+    std::span<const gtopt::ScenarioLP> all_scenarios,
+    const std::optional<gtopt::Array<gtopt::Uid>>& requested_uids,
+    gtopt::Array<gtopt::Aperture>& owned,  // NOLINT(runtime/references)
+    std::string_view log_tag) -> std::optional<std::span<const gtopt::Aperture>>
+{
+  using namespace gtopt;
+  if (!requested_uids.has_value()) {
+    if (aperture_defs.empty()) {
+      return std::nullopt;  // fallback
+    }
+    return std::span<const Aperture> {aperture_defs};
+  }
+
+  const auto& requested = *requested_uids;
+  if (requested.empty()) {
+    return std::nullopt;  // fallback
+  }
+
+  if (!aperture_defs.empty()) {
+    // Filter existing apertures by requested UIDs.
+    for (const auto& ap : aperture_defs) {
+      if (std::ranges::find(requested, ap.uid) != requested.end()) {
+        owned.push_back(ap);
+      }
+    }
+    for (const auto uid : requested) {
+      const bool found = std::ranges::any_of(
+          owned, [uid](const auto& a) { return a.uid == uid; });
+      if (!found) {
+        SPDLOG_WARN("{}: requested UID {} not found, skipping", log_tag, uid);
+      }
+    }
+  } else {
+    // No aperture_array: build synthetic from scenarios matching UIDs.
+    const auto num_all = std::ssize(all_scenarios);
+    owned = build_synthetic_apertures(all_scenarios,
+                                      std::min(std::ssize(requested), num_all));
+  }
+
+  if (owned.empty()) {
+    return std::nullopt;  // fallback
+  }
+  return std::span<const Aperture> {owned};
+}
+
 }  // namespace
 
 namespace gtopt
 {
+
+// ── Helper: install Benders cut on src_li with bcut fallback ────────────────
+
+auto SDDPMethod::install_aperture_backward_cut(
+    SceneIndex scene_index,
+    PhaseIndex src_phase_index,
+    PhaseIndex phase_index,
+    int cut_offset,
+    IterationIndex iteration_index,
+    ColIndex src_alpha_col,
+    const PhaseStateInfo& src_state,
+    const PhaseStateInfo& target_state,
+    std::optional<SparseRow> expected_cut,
+    LinearInterface& src_li,
+    const SolverOptions& opts) -> int
+{
+  // Fine-grained stage timers — same semantics as the Benders-only
+  // path in `backward_pass_single_phase`.  `cut_build_s` only fires
+  // when we fall through to the bcut path (the aperture-built cut
+  // arrived already built in @p expected_cut, so its build cost is
+  // captured by `total_solve_time_s` on the aperture clones — not
+  // attributable to a single per-step bwd_cut_build bucket).
+  using Clock = std::chrono::steady_clock;
+  const auto elapsed_s = [](Clock::time_point start) noexcept
+  { return std::chrono::duration<double>(Clock::now() - start).count(); };
+  double dt_cut_build = 0.0;
+  double dt_add_row = 0.0;
+  double dt_resolve = 0.0;
+  double dt_kappa = 0.0;
+  double dt_store = 0.0;
+
+  const auto ceps = m_options_.cut_coeff_eps;
+  const auto scale_obj = planning_lp().options().scale_objective();
+
+  // Try the aperture-built cut first when available.  If the post-cut
+  // resolve leaves src_li non-optimal, back it out and fall through to
+  // the bcut path.  `expected_cut` is consumed on the success path.
+  if (expected_cut.has_value()) {
+    // Release α's bootstrap pin on the source phase so the aperture
+    // expected-cut can represent arbitrary future-cost values.
+    free_alpha(scene_index, src_phase_index);
+    const auto t_add_row = Clock::now();
+    const auto cut_row = src_li.add_row(*expected_cut, ceps);
+    dt_add_row += elapsed_s(t_add_row);
+
+    // Re-solve src_li only when there is a further backward step that
+    // will consume its state.  At src_phase_index == 0 there is no
+    // earlier phase, so we trust the cut (it came from a valid aperture
+    // solve) and skip the resolve.
+    bool keep_expected_cut = true;
+    if (src_phase_index) {
+      src_li.set_log_tag(sddp_log("Backward",
+                                  iteration_index,
+                                  uid_of(scene_index),
+                                  uid_of(src_phase_index)));
+      const auto t_resolve = Clock::now();
+      auto r = src_li.resolve(opts);
+      dt_resolve += elapsed_s(t_resolve);
+      if (r.has_value() && src_li.is_optimal()) {
+        const auto t_kappa = Clock::now();
+        update_max_kappa(scene_index, src_phase_index, src_li, iteration_index);
+        dt_kappa += elapsed_s(t_kappa);
+      } else {
+        keep_expected_cut = false;
+        SPDLOG_WARN(
+            "{}: non-optimal after expected cut (status {}), "
+            "reverting row and installing bcut fallback",
+            sddp_log("Backward",
+                     iteration_index,
+                     uid_of(scene_index),
+                     uid_of(src_phase_index)),
+            src_li.get_status());
+      }
+    }
+
+    if (keep_expected_cut) {
+      const auto t_store = Clock::now();
+      store_cut(scene_index,
+                src_phase_index,
+                *expected_cut,
+                CutType::Optimality,
+                cut_row);
+      dt_store += elapsed_s(t_store);
+      SPDLOG_TRACE("{}: cut for phase {} rhs={:.4f}",
+                   sddp_log("Aperture",
+                            iteration_index,
+                            uid_of(scene_index),
+                            uid_of(phase_index)),
+                   src_phase_index,
+                   expected_cut->lowb);
+
+      auto& sstats = src_li.mutable_solver_stats();
+      ++sstats.bwd_step_count;
+      sstats.bwd_cut_build_s += dt_cut_build;
+      sstats.bwd_add_row_s += dt_add_row;
+      sstats.bwd_resolve_s += dt_resolve;
+      sstats.bwd_kappa_s += dt_kappa;
+      sstats.bwd_store_cut_s += dt_store;
+      return 1;
+    }
+
+    // Recovery: delete the bad row before adding the bcut.  The row was
+    // never passed to `store_cut`, so there is no cut-store / active-cut
+    // bookkeeping to unwind — only the backend row matrix.
+    const std::array<int, 1> to_delete {static_cast<int>(cut_row)};
+    src_li.delete_rows(to_delete);
+  }
+
+  // Bcut path: aperture failed, or the expected cut broke optimality.
+  //
+  // INVARIANT — the BACKWARD pass only produces optimality cuts.
+  //   There is NO elastic branch in the backward pass.
+  //   There are NO feasibility cuts in the backward pass.
+  //   The bcut fallback is ALWAYS a `CutType::Optimality` cut.
+  //
+  // The cut is a standard Benders underestimator
+  //   α_{k-1} ≥ Z + Σ rc_i · (s_{k-1} - v̂_i)
+  // valid for the true future-cost function at phase k-1.  The rc
+  // values are read off the state-variable registry (populated by
+  // `capture_state_variable_values` during the forward solve of
+  // phase k) and Z is `target_state.forward_full_obj_physical`.
+  //
+  // `free_alpha` fires as usual — that is exactly the point of an
+  // optimality cut: it certifies a tighter lower bound on α and
+  // releases the bootstrap floor.  Feasibility cuts (if any) are
+  // installed from the FORWARD pass when its elastic branch fires
+  // (`sddp_forward_pass.cpp`), never from here.
+  //
+  // DO NOT reclassify this cut as `Feasibility` based on what the
+  // forward pass did at phase k.  Doing so masks real Benders
+  // optimality cuts and breaks the SDDP invariant that every
+  // non-last phase receives an optimality cut per backward
+  // iteration.
+  const auto t_build = Clock::now();
+  auto fallback_cut =
+      build_benders_cut_physical(src_alpha_col,
+                                 src_state.outgoing_links,
+                                 target_state.forward_full_obj_physical,
+                                 scale_obj,
+                                 ceps);
+  fallback_cut.class_name = sddp_alpha_class_name;
+  fallback_cut.constraint_name = sddp_bcut_constraint_name;
+  fallback_cut.context = make_iteration_context(
+      uid_of(scene_index), uid_of(phase_index), iteration_index, cut_offset);
+  dt_cut_build += elapsed_s(t_build);
+
+  // Release α's bootstrap pin.  Idempotent if the expected_cut
+  // path above already did so.  This is an optimality cut; it
+  // certifies a tighter lower bound on the true future cost and
+  // α must be freed to take the implied value.
+  free_alpha(scene_index, src_phase_index);
+
+  const auto t_add_row = Clock::now();
+  const auto cut_row = src_li.add_row(fallback_cut, ceps);
+  dt_add_row += elapsed_s(t_add_row);
+
+  const auto t_store = Clock::now();
+  store_cut(
+      scene_index, src_phase_index, fallback_cut, CutType::Optimality, cut_row);
+  dt_store += elapsed_s(t_store);
+
+  SPDLOG_TRACE("{}: bcut for phase {} rhs={:.4f}",
+               sddp_log("Aperture",
+                        iteration_index,
+                        uid_of(scene_index),
+                        uid_of(phase_index)),
+               src_phase_index,
+               fallback_cut.lowb);
+
+  auto& sstats = src_li.mutable_solver_stats();
+  ++sstats.bwd_step_count;
+  sstats.bwd_cut_build_s += dt_cut_build;
+  sstats.bwd_add_row_s += dt_add_row;
+  sstats.bwd_resolve_s += dt_resolve;
+  sstats.bwd_kappa_s += dt_kappa;
+  sstats.bwd_store_cut_s += dt_store;
+  return 1;
+}
 
 // ── Helper: build the ApertureSubmitFunc callback ───────────────────────────
 
@@ -113,44 +354,51 @@ auto SDDPMethod::backward_pass_aperture_phase_impl(
   auto& phase_states = m_scene_phase_states_[scene_index];
   int cuts_added = 0;
   m_phase_grid_.record(
-      iteration_index, scene_uid(scene_index), phase_index, GridCell::Aperture);
+      iteration_index, uid_of(scene_index), phase_index, GridCell::Aperture);
 
-  const auto src_phase = phase_index - PhaseIndex {1};
-  auto& src_sys = planning_lp().system(scene_index, src_phase);
+  const auto src_phase_index = previous(phase_index);
+  auto& src_sys = planning_lp().system(scene_index, src_phase_index);
+  const auto& src_state = phase_states[src_phase_index];
 
-  // Reconstruct if released by low_memory mode
-  if (src_sys.is_backend_released()) {
-    const auto& src_st = phase_states[src_phase];
-    src_sys.reconstruct_backend(src_st.forward_col_sol,
-                                src_st.forward_row_dual);
-  }
+  // Ensure the source-phase LP backend is live.  No-op when already
+  // live; otherwise reloads from snapshot (snapshot/compress) or
+  // re-flattens from collections (rebuild).
+  src_sys.ensure_lp_built();
 
   auto& src_li = src_sys.linear_interface();
-  const auto& src_state = phase_states[src_phase];
   const auto& plp = planning_lp().simulation().phases()[phase_index];
 
-  // Enable warm-start on aperture clone resolves when configured.
-  auto aperture_solve_opts = opts;
-  aperture_solve_opts.reuse_basis = m_options_.warm_start;
-
-  // Forward-pass solution for the target phase — used as warm-start hint
-  const auto& target_state = phase_states[phase_index];
-
-  // Reconstruct target system if released by low_memory mode
   auto& target_sys = planning_lp().system(scene_index, phase_index);
-  if (target_sys.is_backend_released()) {
-    target_sys.reconstruct_backend(target_state.forward_col_sol,
-                                   target_state.forward_row_dual);
-  }
+  target_sys.ensure_lp_built();
+
+  // Populate the per-element XLP state (generation_cols, …) on the
+  // main thread BEFORE dispatching aperture tasks.  Under compress
+  // the backward-pass aperture update loop in sddp_aperture.cpp
+  // reads `sys.collections()` from every task concurrently — without
+  // a pre-populated state, each task would race on `m_collections_`
+  // via `rebuild_collections_if_needed()` and segfault.
+  // Single-threaded call here is safe; the subsequent aperture tasks
+  // only read collections.  No-op under `off` (collections always
+  // alive) and under `rebuild` (refreshed by rebuild_in_place).
+  target_sys.rebuild_collections_if_needed();
 
   // Keep the flat LP decompressed while aperture tasks create clones.
   // The guard re-compresses on scope exit (level 2 only).
   const DecompressionGuard dcomp_guard(target_sys.linear_interface());
 
+  // Resolve the α column for the source phase once; it is passed into
+  // aperture cut building and reused below for any fallback.
+  const auto* src_alpha_svar = find_alpha_state_var(
+      planning_lp().simulation(), scene_index, src_phase_index);
+  const auto src_alpha_col = (src_alpha_svar != nullptr)
+      ? src_alpha_svar->col()
+      : ColIndex {unknown_index};
+
   auto expected_cut = solve_apertures_for_phase(
       scene_index,
       phase_index,
       src_state,
+      src_alpha_col,
       base_scenario,
       all_scenarios,
       aperture_defs,
@@ -158,129 +406,30 @@ auto SDDPMethod::backward_pass_aperture_phase_impl(
       cut_offset,
       target_sys,
       plp,
-      aperture_solve_opts,
+      opts,
       m_label_maker_,
       m_options_.log_directory,
-      scene_uid(scene_index),
-      phase_uid(phase_index),
+      uid_of(scene_index),
+      uid_of(phase_index),
       make_aperture_submit_fn(phase_index, iteration_index),
       m_options_.aperture_timeout,
       m_options_.save_aperture_lp,
       m_aperture_cache_,
-      target_state.forward_col_sol,
-      target_state.forward_row_dual,
-      nullptr,  // each task creates its own clone, released on completion
       iteration_index,
-      m_options_.cut_coeff_mode,
-      m_options_.scale_alpha,
-      m_options_.cut_coeff_eps,
-      m_options_.cut_coeff_max);
+      m_options_.cut_coeff_eps);
 
-  if (!expected_cut.has_value()) {
-    // Fallback: build a regular Benders cut from the cached
-    // forward-pass data (same as backward_pass).
-    const auto& target_state = phase_states[phase_index];
-    const auto coeff_mode = m_options_.cut_coeff_mode;
-    const auto sa = m_options_.scale_alpha;
-    const auto ceps = m_options_.cut_coeff_eps;
-    const auto cmax = m_options_.cut_coeff_max;
-    const bool use_row_duals = coeff_mode == CutCoeffMode::row_dual
-        && !target_state.forward_row_dual.empty();
-    auto fallback_cut = use_row_duals
-        ? build_benders_cut_from_row_duals(src_state.alpha_col,
-                                           src_state.outgoing_links,
-                                           target_state.forward_row_dual,
-                                           target_state.forward_full_obj,
-                                           sa,
-                                           ceps)
-        : build_benders_cut(src_state.alpha_col,
-                            src_state.outgoing_links,
-                            target_state.forward_col_cost,
-                            target_state.forward_full_obj,
-                            sa,
-                            ceps);
-    fallback_cut.class_name = "Sddp";
-    fallback_cut.constraint_name = "fcut";
-    fallback_cut.context = make_iteration_context(scene_uid(scene_index),
-                                                  phase_uid(phase_index),
-                                                  iteration_index,
-                                                  cut_offset);
-    rescale_benders_cut(fallback_cut, src_state.alpha_col, cmax);
-    filter_cut_coefficients(fallback_cut, src_state.alpha_col, ceps);
-
-    {
-      const auto cut_row = src_li.add_row(fallback_cut);
-      store_cut(
-          scene_index, src_phase, fallback_cut, CutType::Optimality, cut_row);
-    }
-    ++cuts_added;
-
-    SPDLOG_TRACE("{}: fallback cut for phase {} rhs={:.4f}",
-                 sddp_log("Aperture",
-                          iteration_index,
-                          scene_uid(scene_index),
-                          phase_uid(phase_index)),
-                 src_phase,
-                 fallback_cut.lowb);
-
-    if (src_phase > PhaseIndex {0}) {
-      auto r = src_li.resolve(opts);
-      if (r.has_value() && src_li.is_optimal()) {
-        update_max_kappa(scene_index, src_phase, src_li, iteration_index);
-      }
-      if (!r.has_value() || !src_li.is_optimal()) {
-        SPDLOG_WARN(
-            "{}: non-optimal after fallback cut (status {}), "
-            "skipping further backpropagation",
-            sddp_log("Backward",
-                     iteration_index,
-                     scene_uid(scene_index),
-                     phase_uid(src_phase)),
-            src_li.get_status());
-      }
-    }
-
-    return cuts_added;
-  }
-
-  rescale_benders_cut(
-      *expected_cut, src_state.alpha_col, m_options_.cut_coeff_max);
-  filter_cut_coefficients(
-      *expected_cut, src_state.alpha_col, m_options_.cut_coeff_eps);
-
-  {
-    const auto cut_row = src_li.add_row(*expected_cut);
-    store_cut(
-        scene_index, src_phase, *expected_cut, CutType::Optimality, cut_row);
-  }
-  ++cuts_added;
-
-  SPDLOG_TRACE("{}: cut for phase {} rhs={:.4f}",
-               sddp_log("Aperture",
-                        iteration_index,
-                        scene_uid(scene_index),
-                        phase_uid(phase_index)),
-               src_phase,
-               expected_cut->lowb);
-
-  // Re-solve source phase after adding the cut to propagate feasibility.
-  // Feasibility cuts are never shared between scenes.
-  if (src_phase > PhaseIndex {0}) {
-    auto r = src_li.resolve(opts);
-    if (r.has_value() && src_li.is_optimal()) {
-      update_max_kappa(scene_index, src_phase, src_li, iteration_index);
-    }
-    if (!r.has_value() || !src_li.is_optimal()) {
-      SPDLOG_WARN(
-          "{}: non-optimal after expected cut (status {}), "
-          "skipping further backpropagation",
-          sddp_log("Backward",
-                   iteration_index,
-                   scene_uid(scene_index),
-                   phase_uid(src_phase)),
-          src_li.get_status());
-    }
-  }
+  const auto& target_state = phase_states[phase_index];
+  cuts_added += install_aperture_backward_cut(scene_index,
+                                              src_phase_index,
+                                              phase_index,
+                                              cut_offset,
+                                              iteration_index,
+                                              src_alpha_col,
+                                              src_state,
+                                              target_state,
+                                              std::move(expected_cut),
+                                              src_li,
+                                              opts);
 
   return cuts_added;
 }
@@ -305,54 +454,16 @@ auto SDDPMethod::backward_pass_with_apertures_single_phase(
         scene_index, phase_index, cut_offset, opts, iteration_index);
   }
 
-  // Determine effective apertures based on options
-  Array<Aperture> filtered;
-  std::span<const Aperture> effective_defs;
-
-  if (!m_options_.apertures.has_value()) {
-    // nullopt: use simulation aperture_array as-is (per-phase filtering
-    // happens inside build_effective_apertures via Phase::apertures)
-    if (aperture_defs.empty()) {
-      return backward_pass_single_phase(
-          scene_index, phase_index, cut_offset, opts, iteration_index);
-    }
-    effective_defs = aperture_defs;
-  } else {
-    // Non-empty UID list: filter aperture_defs to only matching UIDs
-    const auto& requested = *m_options_.apertures;
-    if (requested.empty()) {
-      return backward_pass_single_phase(
-          scene_index, phase_index, cut_offset, opts, iteration_index);
-    }
-
-    if (!aperture_defs.empty()) {
-      // Filter existing apertures by requested UIDs
-      for (const auto& ap : aperture_defs) {
-        if (std::ranges::find(requested, ap.uid) != requested.end()) {
-          filtered.push_back(ap);
-        }
-      }
-      for (const auto uid : requested) {
-        const bool found = std::ranges::any_of(
-            filtered, [uid](const auto& a) { return a.uid == uid; });
-        if (!found) {
-          SPDLOG_WARN(
-              "{}: requested UID {} not found, skipping",
-              sddp_log("Aperture", iteration_index, scene_uid(scene_index)),
-              uid);
-        }
-      }
-    } else {
-      // No aperture_array: build synthetic from scenarios matching UIDs
-      filtered = build_synthetic_apertures(all_scenarios,
-                                           static_cast<int>(requested.size()));
-    }
-
-    if (filtered.empty()) {
-      return backward_pass_single_phase(
-          scene_index, phase_index, cut_offset, opts, iteration_index);
-    }
-    effective_defs = filtered;
+  Array<Aperture> owned;
+  const auto effective = resolve_effective_apertures(
+      aperture_defs,
+      all_scenarios,
+      m_options_.apertures,
+      owned,
+      sddp_log("Aperture", iteration_index, uid_of(scene_index)));
+  if (!effective.has_value()) {
+    return backward_pass_single_phase(
+        scene_index, phase_index, cut_offset, opts, iteration_index);
   }
 
   return backward_pass_aperture_phase_impl(scene_index,
@@ -360,7 +471,7 @@ auto SDDPMethod::backward_pass_with_apertures_single_phase(
                                            cut_offset,
                                            scene_scenarios.front(),
                                            all_scenarios,
-                                           effective_defs,
+                                           *effective,
                                            opts,
                                            iteration_index);
 }
@@ -376,52 +487,17 @@ auto SDDPMethod::backward_pass_with_apertures(SceneIndex scene_index,
   const auto& all_scenarios = simulation.scenarios();
   const auto& aperture_defs = simulation.apertures();
 
-  // Determine the effective aperture definitions to use
-  Array<Aperture> filtered;
-  std::span<const Aperture> effective_defs;
-
-  if (!m_options_.apertures.has_value()) {
-    // nullopt: use simulation aperture_array (per-phase filtering via
-    // Phase::apertures happens downstream in build_effective_apertures)
-    if (aperture_defs.empty()) {
-      return backward_pass(scene_index, opts, iteration_index);
-    }
-    effective_defs = aperture_defs;
-  } else {
-    const auto& requested = *m_options_.apertures;
-    if (requested.empty()) {
-      return backward_pass(scene_index, opts, iteration_index);
-    }
-
-    if (!aperture_defs.empty()) {
-      // Filter existing apertures by requested UIDs
-      for (const auto& ap : aperture_defs) {
-        if (std::ranges::find(requested, ap.uid) != requested.end()) {
-          filtered.push_back(ap);
-        }
-      }
-      for (const auto uid : requested) {
-        const bool found = std::ranges::any_of(
-            filtered, [uid](const auto& a) { return a.uid == uid; });
-        if (!found) {
-          SPDLOG_WARN(
-              "{}: requested UID {} not found, skipping",
-              sddp_log("Aperture", iteration_index, scene_uid(scene_index)),
-              uid);
-        }
-      }
-    } else {
-      // No aperture_array: build synthetic from scenarios
-      const auto num_all = static_cast<int>(all_scenarios.size());
-      filtered = build_synthetic_apertures(
-          all_scenarios, std::min(static_cast<int>(requested.size()), num_all));
-    }
-
-    if (filtered.empty()) {
-      return backward_pass(scene_index, opts, iteration_index);
-    }
-    effective_defs = filtered;
+  Array<Aperture> owned;
+  const auto effective = resolve_effective_apertures(
+      aperture_defs,
+      all_scenarios,
+      m_options_.apertures,
+      owned,
+      sddp_log("Aperture", iteration_index, uid_of(scene_index)));
+  if (!effective.has_value()) {
+    return backward_pass(scene_index, opts, iteration_index);
   }
+  const auto effective_defs = *effective;
 
   // ── Common aperture backward loop ─────────────────────────────────────
   const auto& phases = simulation.phases();
@@ -431,7 +507,7 @@ auto SDDPMethod::backward_pass_with_apertures(SceneIndex scene_index,
   [[maybe_unused]] const auto bwd_tid = std::this_thread::get_id();
 
   SPDLOG_INFO("{}: backward starting ({} phases) [thread {}]",
-              sddp_log("Aperture", iteration_index, scene_uid(scene_index)),
+              sddp_log("Aperture", iteration_index, uid_of(scene_index)),
               num_phases - 1,
               std::hash<std::thread::id> {}(bwd_tid) % 10000);
 
@@ -452,46 +528,49 @@ auto SDDPMethod::backward_pass_with_apertures(SceneIndex scene_index,
           .code = ErrorCode::SolverError,
           .message = std::format(
               "{}: cancelled at phase {}",
-              sddp_log("Aperture", iteration_index, scene_uid(scene_index)),
-              phase_uid(phase_index)),
+              sddp_log("Aperture", iteration_index, uid_of(scene_index)),
+              uid_of(phase_index)),
       });
     }
 
-    const auto src_phase = phase_index - PhaseIndex {1};
-    auto& src_sys = planning_lp().system(scene_index, src_phase);
+    const auto src_phase_index = previous(phase_index);
+    auto& src_sys = planning_lp().system(scene_index, src_phase_index);
 
-    // Reconstruct if released by low_memory mode
-    if (src_sys.is_backend_released()) {
-      const auto& src_st = phase_states[src_phase];
-      src_sys.reconstruct_backend(src_st.forward_col_sol,
-                                  src_st.forward_row_dual);
-    }
+    const auto& src_state = phase_states[src_phase_index];
+
+    // Ensure the source-phase LP backend is live; no-op when already
+    // loaded, otherwise reload (snapshot/compress) or re-flatten
+    // (rebuild).
+    src_sys.ensure_lp_built();
 
     auto& src_li = src_sys.linear_interface();
-    const auto& src_state = phase_states[src_phase];
     const auto& plp = phases[phase_index];
 
-    // Enable warm-start on aperture clone resolves when configured.
-    auto ws_opts = opts;
-    ws_opts.reuse_basis = m_options_.warm_start;
-
-    // Forward-pass solution for the target phase — warm-start hint
+    // Forward-pass summary for the target phase.
     const auto& target_state = phase_states[phase_index];
 
-    // Reconstruct target system if released by low_memory mode
     auto& target_sys = planning_lp().system(scene_index, phase_index);
-    if (target_sys.is_backend_released()) {
-      target_sys.reconstruct_backend(target_state.forward_col_sol,
-                                     target_state.forward_row_dual);
-    }
+    target_sys.ensure_lp_built();
+    // Single-threaded XLP-state rebuild before aperture tasks are
+    // dispatched (same rationale as in
+    // `backward_pass_aperture_phase_impl`).
+    target_sys.rebuild_collections_if_needed();
 
     // Keep the flat LP decompressed while aperture tasks create clones.
     const DecompressionGuard dcomp_guard(target_sys.linear_interface());
+
+    // Resolve α column for the source phase once per iteration.
+    const auto* src_alpha_svar = find_alpha_state_var(
+        planning_lp().simulation(), scene_index, src_phase_index);
+    const auto src_alpha_col = (src_alpha_svar != nullptr)
+        ? src_alpha_svar->col()
+        : ColIndex {unknown_index};
 
     auto expected_cut = solve_apertures_for_phase(
         scene_index,
         phase_index,
         src_state,
+        src_alpha_col,
         base_scenario,
         all_scenarios,
         effective_defs,
@@ -499,126 +578,33 @@ auto SDDPMethod::backward_pass_with_apertures(SceneIndex scene_index,
         total_cuts,
         target_sys,
         plp,
-        ws_opts,
+        opts,
         m_label_maker_,
         m_options_.log_directory,
-        scene_uid(scene_index),
-        phase_uid(phase_index),
+        uid_of(scene_index),
+        uid_of(phase_index),
         make_aperture_submit_fn(phase_index, iteration_index),
         0.0,
         m_options_.save_aperture_lp,
         m_aperture_cache_,
-        target_state.forward_col_sol,
-        target_state.forward_row_dual,
-        nullptr,  // each task creates its own clone, released on completion
         iteration_index,
-        m_options_.cut_coeff_mode,
-        m_options_.scale_alpha,
         m_options_.cut_coeff_eps);
 
     if (!expected_cut.has_value()) {
-      infeasible_phases.push_back(phase_uid(phase_index));
-      const auto coeff_mode2 = m_options_.cut_coeff_mode;
-      const auto sa = m_options_.scale_alpha;
-      const auto ceps = m_options_.cut_coeff_eps;
-      const auto cmax2 = m_options_.cut_coeff_max;
-      const bool use_row_duals2 = coeff_mode2 == CutCoeffMode::row_dual
-          && !target_state.forward_row_dual.empty();
-      auto fallback_cut = use_row_duals2
-          ? build_benders_cut_from_row_duals(src_state.alpha_col,
-                                             src_state.outgoing_links,
-                                             target_state.forward_row_dual,
-                                             target_state.forward_full_obj,
-                                             sa,
-                                             ceps)
-          : build_benders_cut(src_state.alpha_col,
-                              src_state.outgoing_links,
-                              target_state.forward_col_cost,
-                              target_state.forward_full_obj,
-                              sa,
-                              ceps);
-      fallback_cut.class_name = "Sddp";
-      fallback_cut.constraint_name = "fcut";
-      fallback_cut.context = make_iteration_context(scene_uid(scene_index),
-                                                    phase_uid(phase_index),
-                                                    iteration_index,
-                                                    total_cuts);
-      rescale_benders_cut(fallback_cut, src_state.alpha_col, cmax2);
-      filter_cut_coefficients(fallback_cut, src_state.alpha_col, ceps);
-
-      {
-        const auto cut_row = src_li.add_row(fallback_cut);
-        store_cut(
-            scene_index, src_phase, fallback_cut, CutType::Optimality, cut_row);
-      }
-      ++total_cuts;
-
-      SPDLOG_TRACE("{}: fallback cut for phase {} rhs={:.4f}",
-                   sddp_log("Aperture",
-                            iteration_index,
-                            scene_uid(scene_index),
-                            phase_uid(phase_index)),
-                   src_phase,
-                   fallback_cut.lowb);
-
-      if (src_phase > PhaseIndex {0}) {
-        auto r = src_li.resolve(opts);
-        if (r.has_value() && src_li.is_optimal()) {
-          update_max_kappa(scene_index, src_phase, src_li, iteration_index);
-        }
-        if (!r.has_value() || !src_li.is_optimal()) {
-          SPDLOG_WARN(
-              "{}: non-optimal after fallback cut (status {}), "
-              "skipping further backpropagation",
-              sddp_log("Backward",
-                       iteration_index,
-                       scene_uid(scene_index),
-                       phase_uid(src_phase)),
-              src_li.get_status());
-        }
-      }
-
-      continue;
+      infeasible_phases.push_back(uid_of(phase_index));
     }
 
-    rescale_benders_cut(
-        *expected_cut, src_state.alpha_col, m_options_.cut_coeff_max);
-    filter_cut_coefficients(
-        *expected_cut, src_state.alpha_col, m_options_.cut_coeff_eps);
-
-    {
-      const auto cut_row = src_li.add_row(*expected_cut);
-      store_cut(
-          scene_index, src_phase, *expected_cut, CutType::Optimality, cut_row);
-    }
-    ++total_cuts;
-
-    SPDLOG_TRACE("{}: cut for phase {} rhs={:.4f}",
-                 sddp_log("Aperture",
-                          iteration_index,
-                          scene_uid(scene_index),
-                          phase_uid(phase_index)),
-                 src_phase,
-                 expected_cut->lowb);
-
-    // Re-solve source phase after adding the cut to propagate
-    // feasibility.
-    if (src_phase > PhaseIndex {0}) {
-      auto r = src_li.resolve(opts);
-      if (r.has_value() && src_li.is_optimal()) {
-        update_max_kappa(scene_index, src_phase, src_li, iteration_index);
-      }
-      if (!r.has_value() || !src_li.is_optimal()) {
-        SPDLOG_WARN(
-            "{}: non-optimal after expected cut (status {}), "
-            "skipping further backpropagation",
-            sddp_log("Backward",
-                     iteration_index,
-                     scene_uid(scene_index),
-                     phase_uid(src_phase)),
-            src_li.get_status());
-      }
-    }
+    total_cuts += install_aperture_backward_cut(scene_index,
+                                                src_phase_index,
+                                                phase_index,
+                                                total_cuts,
+                                                iteration_index,
+                                                src_alpha_col,
+                                                src_state,
+                                                target_state,
+                                                std::move(expected_cut),
+                                                src_li,
+                                                opts);
   }
 
   // Log a single summary for all phases with infeasible apertures
@@ -626,7 +612,7 @@ auto SDDPMethod::backward_pass_with_apertures(SceneIndex scene_index,
     SPDLOG_WARN(
         "{}: all apertures infeasible at {} phase(s) [{}], "
         "used Benders fallback cuts",
-        sddp_log("Aperture", iteration_index, scene_uid(scene_index)),
+        sddp_log("Aperture", iteration_index, uid_of(scene_index)),
         infeasible_phases.size(),
         join_values(infeasible_phases));
   }

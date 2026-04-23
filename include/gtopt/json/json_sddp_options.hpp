@@ -17,13 +17,12 @@
 namespace daw::json
 {
 using gtopt::BoundaryCutsMode;
+using gtopt::CompressionCodec;
 using gtopt::ConvergenceMode;
-using gtopt::CutCoeffMode;
 using gtopt::CutSharingMode;
 using gtopt::ElasticFilterMode;
 using gtopt::HotStartMode;
 using gtopt::LowMemoryMode;
-using gtopt::MemoryCodec;
 using gtopt::MissingCutVarMode;
 using gtopt::RecoveryMode;
 using gtopt::SddpOptions;
@@ -42,8 +41,6 @@ struct SddpOptionsConstructor
       OptInt min_iterations,
       OptReal convergence_tol,
       OptReal elastic_penalty,
-      OptReal alpha_min,
-      OptReal alpha_max,
       OptReal scale_alpha,
       OptName cut_recovery_mode_str,
       OptName recovery_mode_str,
@@ -56,7 +53,6 @@ struct SddpOptionsConstructor
       OptName aperture_directory,
       OptReal aperture_timeout,
       OptBool save_aperture_lp,
-      OptBool warm_start,
       OptName boundary_cuts_file,
       OptName boundary_cuts_mode_str,
       OptInt boundary_max_iterations,
@@ -67,13 +63,10 @@ struct SddpOptionsConstructor
       OptReal prune_dual_threshold,
       OptBool single_cut_storage,
       OptInt max_stored_cuts,
-      OptBool use_clone_pool,
       OptBool simulation_mode,
       OptName low_memory_str,
       OptName memory_codec_str,
-      OptName cut_coeff_mode_str,
       OptReal cut_coeff_eps,
-      OptReal cut_coeff_max,
       OptName convergence_mode_str,
       OptName state_variable_lookup_mode_str,
       OptReal stationary_tol,
@@ -87,8 +80,8 @@ struct SddpOptionsConstructor
   {
     SddpOptions opts;
     if (cut_sharing_mode_str) {
-      opts.cut_sharing_mode =
-          gtopt::enum_from_name<CutSharingMode>(*cut_sharing_mode_str);
+      opts.cut_sharing_mode = gtopt::require_enum<CutSharingMode>(
+          "cut_sharing_mode", *cut_sharing_mode_str);
     }
     opts.cut_directory = std::move(cut_directory);
     opts.api_enabled = api_enabled;
@@ -97,39 +90,36 @@ struct SddpOptionsConstructor
     opts.min_iterations = min_iterations;
     opts.convergence_tol = convergence_tol;
     opts.elastic_penalty = elastic_penalty;
-    opts.alpha_min = alpha_min;
-    opts.alpha_max = alpha_max;
     opts.scale_alpha = scale_alpha;
     if (cut_recovery_mode_str) {
-      opts.cut_recovery_mode =
-          gtopt::enum_from_name<HotStartMode>(*cut_recovery_mode_str);
+      opts.cut_recovery_mode = gtopt::require_enum<HotStartMode>(
+          "cut_recovery_mode", *cut_recovery_mode_str);
     }
     if (recovery_mode_str) {
-      opts.recovery_mode =
-          gtopt::enum_from_name<RecoveryMode>(*recovery_mode_str);
+      opts.recovery_mode = gtopt::require_enum<RecoveryMode>(
+          "recovery_mode", *recovery_mode_str);
     }
     opts.save_per_iteration = save_per_iteration;
     opts.cuts_input_file = std::move(cuts_input_file);
     opts.sentinel_file = std::move(sentinel_file);
     if (elastic_mode_str) {
-      opts.elastic_mode =
-          gtopt::enum_from_name<ElasticFilterMode>(*elastic_mode_str);
+      opts.elastic_mode = gtopt::require_enum<ElasticFilterMode>(
+          "elastic_mode", *elastic_mode_str);
     }
     opts.multi_cut_threshold = multi_cut_threshold;
     opts.apertures = std::move(apertures);
     opts.aperture_directory = std::move(aperture_directory);
     opts.aperture_timeout = aperture_timeout;
     opts.save_aperture_lp = save_aperture_lp;
-    opts.warm_start = warm_start;
     opts.boundary_cuts_file = std::move(boundary_cuts_file);
     if (boundary_cuts_mode_str) {
-      opts.boundary_cuts_mode =
-          gtopt::enum_from_name<BoundaryCutsMode>(*boundary_cuts_mode_str);
+      opts.boundary_cuts_mode = gtopt::require_enum<BoundaryCutsMode>(
+          "boundary_cuts_mode", *boundary_cuts_mode_str);
     }
     opts.boundary_max_iterations = boundary_max_iterations;
     if (missing_cut_var_mode_str) {
-      opts.missing_cut_var_mode =
-          gtopt::enum_from_name<MissingCutVarMode>(*missing_cut_var_mode_str);
+      opts.missing_cut_var_mode = gtopt::require_enum<MissingCutVarMode>(
+          "missing_cut_var_mode", *missing_cut_var_mode_str);
     }
     opts.named_cuts_file = std::move(named_cuts_file);
     opts.max_cuts_per_phase = max_cuts_per_phase;
@@ -137,29 +127,24 @@ struct SddpOptionsConstructor
     opts.prune_dual_threshold = prune_dual_threshold;
     opts.single_cut_storage = single_cut_storage;
     opts.max_stored_cuts = max_stored_cuts;
-    opts.use_clone_pool = use_clone_pool;
     opts.simulation_mode = simulation_mode;
     if (low_memory_str) {
-      opts.low_memory_mode =
-          gtopt::enum_from_name<LowMemoryMode>(*low_memory_str);
+      opts.low_memory_mode = gtopt::require_enum<LowMemoryMode>(
+          "low_memory_mode", *low_memory_str);
     }
     if (memory_codec_str) {
-      opts.memory_codec = gtopt::enum_from_name<MemoryCodec>(*memory_codec_str);
-    }
-    if (cut_coeff_mode_str) {
-      opts.cut_coeff_mode =
-          gtopt::enum_from_name<CutCoeffMode>(*cut_coeff_mode_str);
+      opts.memory_codec = gtopt::require_enum<CompressionCodec>(
+          "memory_codec", *memory_codec_str);
     }
     opts.cut_coeff_eps = cut_coeff_eps;
-    opts.cut_coeff_max = cut_coeff_max;
     if (convergence_mode_str) {
-      opts.convergence_mode =
-          gtopt::enum_from_name<ConvergenceMode>(*convergence_mode_str);
+      opts.convergence_mode = gtopt::require_enum<ConvergenceMode>(
+          "convergence_mode", *convergence_mode_str);
     }
     if (state_variable_lookup_mode_str) {
       opts.state_variable_lookup_mode =
-          gtopt::enum_from_name<StateVariableLookupMode>(
-              *state_variable_lookup_mode_str);
+          gtopt::require_enum<StateVariableLookupMode>(
+              "state_variable_lookup_mode", *state_variable_lookup_mode_str);
     }
     opts.stationary_tol = stationary_tol;
     opts.stationary_window = stationary_window;
@@ -187,8 +172,6 @@ struct json_data_contract<SddpOptions>
       json_number_null<"min_iterations", OptInt>,
       json_number_null<"convergence_tol", OptReal>,
       json_number_null<"elastic_penalty", OptReal>,
-      json_number_null<"alpha_min", OptReal>,
-      json_number_null<"alpha_max", OptReal>,
       json_number_null<"scale_alpha", OptReal>,
       json_string_null<"cut_recovery_mode", OptName>,
       json_string_null<"recovery_mode", OptName>,
@@ -203,7 +186,6 @@ struct json_data_contract<SddpOptions>
       json_string_null<"aperture_directory", OptName>,
       json_number_null<"aperture_timeout", OptReal>,
       json_bool_null<"save_aperture_lp", OptBool>,
-      json_bool_null<"warm_start", OptBool>,
       json_string_null<"boundary_cuts_file", OptName>,
       json_string_null<"boundary_cuts_mode", OptName>,
       json_number_null<"boundary_max_iterations", OptInt>,
@@ -214,13 +196,10 @@ struct json_data_contract<SddpOptions>
       json_number_null<"prune_dual_threshold", OptReal>,
       json_bool_null<"single_cut_storage", OptBool>,
       json_number_null<"max_stored_cuts", OptInt>,
-      json_bool_null<"use_clone_pool", OptBool>,
       json_bool_null<"simulation_mode", OptBool>,
       json_string_null<"low_memory_mode", OptName>,
       json_string_null<"memory_codec", OptName>,
-      json_string_null<"cut_coeff_mode", OptName>,
       json_number_null<"cut_coeff_eps", OptReal>,
-      json_number_null<"cut_coeff_max", OptReal>,
       json_string_null<"convergence_mode", OptName>,
       json_string_null<"state_variable_lookup_mode", OptName>,
       json_number_null<"stationary_tol", OptReal>,
@@ -243,8 +222,6 @@ struct json_data_contract<SddpOptions>
         opt.min_iterations,
         opt.convergence_tol,
         opt.elastic_penalty,
-        opt.alpha_min,
-        opt.alpha_max,
         opt.scale_alpha,
         detail::enum_to_opt_name(opt.cut_recovery_mode),
         detail::enum_to_opt_name(opt.recovery_mode),
@@ -257,7 +234,6 @@ struct json_data_contract<SddpOptions>
         opt.aperture_directory,
         opt.aperture_timeout,
         opt.save_aperture_lp,
-        opt.warm_start,
         opt.boundary_cuts_file,
         detail::enum_to_opt_name(opt.boundary_cuts_mode),
         opt.boundary_max_iterations,
@@ -268,13 +244,10 @@ struct json_data_contract<SddpOptions>
         opt.prune_dual_threshold,
         opt.single_cut_storage,
         opt.max_stored_cuts,
-        opt.use_clone_pool,
         opt.simulation_mode,
         detail::enum_to_opt_name(opt.low_memory_mode),
         detail::enum_to_opt_name(opt.memory_codec),
-        detail::enum_to_opt_name(opt.cut_coeff_mode),
         opt.cut_coeff_eps,
-        opt.cut_coeff_max,
         detail::enum_to_opt_name(opt.convergence_mode),
         detail::enum_to_opt_name(opt.state_variable_lookup_mode),
         opt.stationary_tol,

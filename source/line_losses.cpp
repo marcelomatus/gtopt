@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: BSD-3-Clause
 
 #include <algorithm>
+#include <cassert>
 #include <string>
 
 #include <gtopt/line_losses.hpp>
+#include <gtopt/line_lp.hpp>
 #include <gtopt/planning_options_lp.hpp>
 #include <gtopt/system_context.hpp>
 #include <gtopt/utils.hpp>
@@ -17,7 +19,13 @@ namespace gtopt::line_losses
 namespace
 {
 
-/// Map `adaptive` → piecewise/bidirectional; `dynamic` → piecewise.
+/// Map `adaptive` → piecewise/bidirectional; `dynamic` → piecewise;
+/// demote `piecewise_direct` → `piecewise` if expansion is active.
+///
+/// `adaptive` picks the smallest-LP piecewise-linear option:
+///   - no expansion → `piecewise` (K+3 cols, 2 rows — shared segments)
+///   - has expansion → `bidirectional` (2K+4 cols, 4 rows)
+/// `piecewise_direct` is opt-in only (PLP-diff parity; 2K+2 cols).
 constexpr LineLossesMode resolve_adaptive_dynamic(LineLossesMode mode,
                                                   bool has_expansion)
 {
@@ -27,6 +35,9 @@ constexpr LineLossesMode resolve_adaptive_dynamic(LineLossesMode mode,
                            : LineLossesMode::piecewise;
     case LineLossesMode::dynamic:
       return LineLossesMode::piecewise;
+    case LineLossesMode::piecewise_direct:
+      return has_expansion ? LineLossesMode::piecewise
+                           : LineLossesMode::piecewise_direct;
     default:
       return mode;
   }
@@ -67,6 +78,16 @@ LineLossesMode resolve_mode(const Line& line,
     }
   }
 
+  if (mode == LineLossesMode::piecewise_direct && has_expansion) {
+    static bool warned = false;
+    if (!warned) {
+      spdlog::warn(
+          "line_losses_mode 'piecewise_direct' requires no capacity "
+          "column; falling back to 'piecewise' on expandable lines");
+      warned = true;
+    }
+  }
+
   return resolve_adaptive_dynamic(mode, has_expansion);
 }
 
@@ -85,8 +106,8 @@ LossConfig make_config(LineLossesMode mode,
   const int nseg = std::max(1, loss_segments);
 
   // Validate PWL prerequisites; fall back gracefully.
-  if (mode == LineLossesMode::piecewise
-      || mode == LineLossesMode::bidirectional)
+  if (mode == LineLossesMode::piecewise || mode == LineLossesMode::bidirectional
+      || mode == LineLossesMode::piecewise_direct)
   {
     if (resistance <= 0.0 || V2 <= 0.0 || nseg < 2) {
       if (lossfactor > 0.0) {
@@ -185,7 +206,7 @@ auto add_capacity_row(LinearProblem& lp,
 {
   auto row =
       SparseRow {
-          .class_name = "Line",
+          .class_name = LineLP::ClassName.full_name(),
           .constraint_name = label,
           .variable_uid = uid,
           .context =
@@ -224,7 +245,7 @@ void add_segments(LinearProblem& lp,
     const auto seg_col = lp.add_col({
         .lowb = 0,
         .uppb = seg_width,
-        .class_name = "Line",
+        .class_name = LineLP::ClassName.full_name(),
         .variable_name = seg_label,
         .variable_uid = uid,
         .context =
@@ -248,21 +269,21 @@ struct DirLabels
 };
 
 inline constexpr DirLabels positive_labels {
-    .flow = "flowp",
+    .flow = LineLP::FlowpName,
     .seg = "flowp_seg",
-    .loss = "lossp",
+    .loss = LineLP::LosspName,
     .link = "flowp_link",
     .loss_link = "lossp_link",
-    .cap = "capacityp",
+    .cap = LineLP::CapacitypName,
 };
 
 inline constexpr DirLabels negative_labels {
-    .flow = "flown",
+    .flow = LineLP::FlownName,
     .seg = "flown_seg",
-    .loss = "lossn",
+    .loss = LineLP::LossnName,
     .link = "flown_link",
     .loss_link = "lossn_link",
-    .cap = "capacityn",
+    .cap = LineLP::CapacitynName,
 };
 
 // ─── Per-mode implementations ───────────────────────────────────────
@@ -284,8 +305,8 @@ BlockResult add_none(const ScenarioLP& scenario,
       .lowb = -block_tmax_ba,
       .uppb = block_tmax_ab,
       .cost = block_tcost,
-      .class_name = "Line",
-      .variable_name = "flowp",
+      .class_name = LineLP::ClassName.full_name(),
+      .variable_name = LineLP::FlowpName,
       .variable_uid = uid,
       .context = make_block_context(scenario.uid(), stage.uid(), block.uid()),
   });
@@ -325,8 +346,8 @@ BlockResult add_linear(const LossConfig& config,
         .lowb = 0.0,
         .uppb = block_tmax_ab,
         .cost = block_tcost,
-        .class_name = "Line",
-        .variable_name = "flowp",
+        .class_name = LineLP::ClassName.full_name(),
+        .variable_name = LineLP::FlowpName,
         .variable_uid = uid,
         .context = make_block_context(scenario.uid(), stage.uid(), block.uid()),
     });
@@ -335,8 +356,14 @@ BlockResult add_linear(const LossConfig& config,
         brow_a, brow_b, fpc, config.lossfactor, config.allocation);
 
     if (capacity_col) {
-      result.capp_row = add_capacity_row(
-          lp, scenario, stage, block, "capacityp", uid, *capacity_col, fpc);
+      result.capp_row = add_capacity_row(lp,
+                                         scenario,
+                                         stage,
+                                         block,
+                                         LineLP::CapacitypName,
+                                         uid,
+                                         *capacity_col,
+                                         fpc);
     }
   }
 
@@ -346,8 +373,8 @@ BlockResult add_linear(const LossConfig& config,
         .lowb = 0.0,
         .uppb = block_tmax_ba,
         .cost = block_tcost,
-        .class_name = "Line",
-        .variable_name = "flown",
+        .class_name = LineLP::ClassName.full_name(),
+        .variable_name = LineLP::FlownName,
         .variable_uid = uid,
         .context = make_block_context(scenario.uid(), stage.uid(), block.uid()),
     });
@@ -356,8 +383,14 @@ BlockResult add_linear(const LossConfig& config,
         brow_b, brow_a, fnc, config.lossfactor, config.allocation);
 
     if (capacity_col) {
-      result.capn_row = add_capacity_row(
-          lp, scenario, stage, block, "capacityn", uid, *capacity_col, fnc);
+      result.capn_row = add_capacity_row(lp,
+                                         scenario,
+                                         stage,
+                                         block,
+                                         LineLP::CapacitynName,
+                                         uid,
+                                         *capacity_col,
+                                         fnc);
     }
   }
 
@@ -394,6 +427,7 @@ BlockResult add_piecewise(const LossConfig& config,
   }
 
   const int nseg = config.nseg;
+  assert(nseg > 0 && "line_losses: nseg must be positive");
   const auto reserve_sz = static_cast<size_t>(nseg) + 2;
   const double seg_width = fmax / nseg;
 
@@ -405,8 +439,8 @@ BlockResult add_piecewise(const LossConfig& config,
         .lowb = 0,
         .uppb = block_tmax_ab,
         .cost = block_tcost,
-        .class_name = "Line",
-        .variable_name = "flowp",
+        .class_name = LineLP::ClassName.full_name(),
+        .variable_name = LineLP::FlowpName,
         .variable_uid = uid,
         .context = block_ctx,
     });
@@ -422,8 +456,8 @@ BlockResult add_piecewise(const LossConfig& config,
         .lowb = 0,
         .uppb = block_tmax_ba,
         .cost = block_tcost,
-        .class_name = "Line",
-        .variable_name = "flown",
+        .class_name = LineLP::ClassName.full_name(),
+        .variable_name = LineLP::FlownName,
         .variable_uid = uid,
         .context = block_ctx,
     });
@@ -436,8 +470,8 @@ BlockResult add_piecewise(const LossConfig& config,
   const auto loss_col = lp.add_col({
       .lowb = 0,
       .uppb = LinearProblem::DblMax,
-      .class_name = "Line",
-      .variable_name = "lossp",
+      .class_name = LineLP::ClassName.full_name(),
+      .variable_name = LineLP::LosspName,
       .variable_uid = uid,
       .context = make_block_context(scenario.uid(), stage.uid(), block.uid()),
   });
@@ -448,7 +482,7 @@ BlockResult add_piecewise(const LossConfig& config,
   // Linking: fp + fn − Σ seg_k = 0
   auto linkrow =
       SparseRow {
-          .class_name = "Line",
+          .class_name = LineLP::ClassName.full_name(),
           .constraint_name = "flow_link",
           .variable_uid = uid,
           .context =
@@ -466,7 +500,7 @@ BlockResult add_piecewise(const LossConfig& config,
   // Loss tracking: loss − Σ loss_k · seg_k = 0
   auto lossrow =
       SparseRow {
-          .class_name = "Line",
+          .class_name = LineLP::ClassName.full_name(),
           .constraint_name = "loss_link",
           .variable_uid = uid,
           .context =
@@ -499,7 +533,7 @@ BlockResult add_piecewise(const LossConfig& config,
                                          scenario,
                                          stage,
                                          block,
-                                         "capacityp",
+                                         LineLP::CapacitypName,
                                          uid,
                                          *capacity_col,
                                          *result.fp_col);
@@ -509,7 +543,7 @@ BlockResult add_piecewise(const LossConfig& config,
                                          scenario,
                                          stage,
                                          block,
-                                         "capacityn",
+                                         LineLP::CapacitynName,
                                          uid,
                                          *capacity_col,
                                          *result.fn_col);
@@ -548,6 +582,7 @@ DirResult add_direction(const LossConfig& config,
   }
 
   const int nseg = config.nseg;
+  assert(nseg > 0 && "line_losses: nseg must be positive");
   const auto reserve_sz = static_cast<size_t>(nseg) + 1;
   const double seg_width = block_tmax / nseg;
 
@@ -557,7 +592,7 @@ DirResult add_direction(const LossConfig& config,
       .lowb = 0,
       .uppb = block_tmax,
       .cost = block_tcost,
-      .class_name = "Line",
+      .class_name = LineLP::ClassName.full_name(),
       .variable_name = labels.flow,
       .variable_uid = uid,
       .context = block_ctx,
@@ -566,7 +601,7 @@ DirResult add_direction(const LossConfig& config,
   const auto loss_col = lp.add_col({
       .lowb = 0,
       .uppb = LinearProblem::DblMax,
-      .class_name = "Line",
+      .class_name = LineLP::ClassName.full_name(),
       .variable_name = labels.loss,
       .variable_uid = uid,
       .context = block_ctx,
@@ -581,7 +616,7 @@ DirResult add_direction(const LossConfig& config,
   // Linking: f_total − Σ f_seg_k = 0
   auto linkrow =
       SparseRow {
-          .class_name = "Line",
+          .class_name = LineLP::ClassName.full_name(),
           .constraint_name = labels.link,
           .variable_uid = uid,
           .context =
@@ -594,7 +629,7 @@ DirResult add_direction(const LossConfig& config,
   // Loss tracking: loss − Σ loss_k · f_seg_k = 0
   auto lossrow =
       SparseRow {
-          .class_name = "Line",
+          .class_name = LineLP::ClassName.full_name(),
           .constraint_name = labels.loss_link,
           .variable_uid = uid,
           .context =
@@ -685,6 +720,148 @@ BlockResult add_bidirectional(const LossConfig& config,
   };
 }
 
+/// PLP-direct per-direction helper.
+///
+/// For one direction (positive: a=sending, b=receiving; negative:
+/// a=receiving, b=sending) builds K segment cols + 1 aggregation col +
+/// 1 linking row.  Each segment is stamped directly into the bus rows
+/// with its per-segment loss factor λ_k baked into the coefficients
+/// (PLP `genpdlin.f:107-164`).
+///
+/// Returns the aggregation column so the caller can expose it as
+/// `fp_col` / `fn_col` — preserving the downstream API used by
+/// Kirchhoff and the reporters.
+[[nodiscard]] std::optional<ColIndex> add_direct_direction(
+    const LossConfig& config,
+    const ScenarioLP& scenario,
+    const StageLP& stage,
+    const BlockLP& block,
+    LinearProblem& lp,
+    SparseRow& sending_brow,
+    SparseRow& receiving_brow,
+    double block_tmax,
+    double block_tcost,
+    Uid uid,
+    const DirLabels& labels)
+{
+  if (block_tmax <= 0.0) {
+    return {};
+  }
+
+  const int nseg = config.nseg;
+  assert(nseg > 0 && "line_losses: nseg must be positive");
+  const auto reserve_sz = static_cast<size_t>(nseg) + 1;
+  const double seg_width = block_tmax / nseg;
+
+  const auto block_ctx =
+      make_block_context(scenario.uid(), stage.uid(), block.uid());
+
+  // Aggregation column: carries the transmission cost and is the single
+  // "flow" handle seen by Kirchhoff / reporters.  No bus-balance stamp
+  // (losses are baked into the per-segment coefficients).
+  const auto agg_col = lp.add_col({
+      .lowb = 0,
+      .uppb = block_tmax,
+      .cost = block_tcost,
+      .class_name = LineLP::ClassName.full_name(),
+      .variable_name = labels.flow,
+      .variable_uid = uid,
+      .context = block_ctx,
+  });
+
+  // Linking row: agg − Σ seg_k = 0
+  auto linkrow =
+      SparseRow {
+          .class_name = LineLP::ClassName.full_name(),
+          .constraint_name = labels.link,
+          .variable_uid = uid,
+          .context = block_ctx,
+      }
+          .equal(0);
+  linkrow.reserve(reserve_sz);
+  linkrow[agg_col] = +1.0;
+
+  // Per-segment cols + bus stamps with allocation-aware loss factor.
+  // Segment k (1-based) loss factor: λ_k = w · (2k−1) · R / V²
+  // (PLP `genpdlin.f:107-114`, `LinRImp = LinRes*(2*IFlu - 1)`).
+  for (const auto k : iota_range(1, nseg + 1)) {
+    const double lf_k = seg_width * config.resistance
+        * static_cast<double>((2 * k) - 1) / config.V2;
+
+    const auto seg_col = lp.add_col({
+        .lowb = 0,
+        .uppb = seg_width,
+        .class_name = LineLP::ClassName.full_name(),
+        .variable_name = labels.seg,
+        .variable_uid = uid,
+        .context =
+            make_block_context(scenario.uid(), stage.uid(), block.uid(), k),
+    });
+
+    linkrow[seg_col] = -1.0;
+    apply_linear_allocation(
+        sending_brow, receiving_brow, seg_col, lf_k, config.allocation);
+  }
+
+  [[maybe_unused]] auto linkrow_idx = lp.add_row(std::move(linkrow));
+
+  return agg_col;
+}
+
+/// PLP-direct piecewise-linear: no loss variables, no loss-tracking
+/// rows.  Per-segment bus stamps encode the quadratic loss curve
+/// directly.  Requires no capacity column.
+///
+/// Variables per block: fp_agg, fn_agg, 2·K segment cols.
+/// Constraints per block: 2 linking rows (one per direction).
+///
+/// Ref: PLP `genpdlin.f` (GenPDLinA).
+BlockResult add_piecewise_direct(const LossConfig& config,
+                                 const ScenarioLP& scenario,
+                                 const StageLP& stage,
+                                 const BlockLP& block,
+                                 LinearProblem& lp,
+                                 SparseRow& brow_a,
+                                 SparseRow& brow_b,
+                                 double block_tmax_ab,
+                                 double block_tmax_ba,
+                                 double block_tcost,
+                                 Uid uid)
+{
+  auto fp = add_direct_direction(config,
+                                 scenario,
+                                 stage,
+                                 block,
+                                 lp,
+                                 brow_a,
+                                 brow_b,
+                                 block_tmax_ab,
+                                 block_tcost,
+                                 uid,
+                                 positive_labels);
+
+  auto fn = add_direct_direction(config,
+                                 scenario,
+                                 stage,
+                                 block,
+                                 lp,
+                                 brow_b,
+                                 brow_a,
+                                 block_tmax_ba,
+                                 block_tcost,
+                                 uid,
+                                 negative_labels);
+
+  return {
+      .fp_col = fp,
+      .fn_col = fn,
+      .lossp_col = {},
+      .lossn_col = {},
+      .capp_row = {},
+      .capn_row = {},
+  };
+}
+
 }  // namespace
 
 // ─── Dispatcher ─────────────────────────────────────────────────────
@@ -756,6 +933,24 @@ BlockResult add_block(const LossConfig& config,
                                block_tcost,
                                capacity_col,
                                uid);
+
+    case LineLossesMode::piecewise_direct:
+      // `resolve_mode` demotes direct + expansion to `piecewise`,
+      // so capacity_col must be empty here.
+      assert(!capacity_col
+             && "piecewise_direct reached with capacity_col; "
+                "resolve_mode demotion was bypassed");
+      return add_piecewise_direct(config,
+                                  scenario,
+                                  stage,
+                                  block,
+                                  lp,
+                                  brow_a,
+                                  brow_b,
+                                  block_tmax_ab,
+                                  block_tmax_ba,
+                                  block_tcost,
+                                  uid);
 
     default:
       return add_none(scenario,

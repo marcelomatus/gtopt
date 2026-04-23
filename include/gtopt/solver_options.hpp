@@ -115,19 +115,28 @@ struct SolverOptions
    */
   int max_fallbacks {2};
 
-  /** @brief Enable basis-reuse optimizations for resolve on cloned LPs.
+  /** @brief Request a solver-native memory-saving mode.
    *
-   *  When true, set_solver_opts() overrides the algorithm to dual simplex
-   *  and disables presolve — both critical for basis-reuse resolves.
-   *  This is especially important when the original LP was solved with
-   *  barrier: barrier solutions carry no simplex basis, so resolving
-   *  a clone with barrier would restart from scratch, whereas dual simplex
-   *  can pivot from the crossover basis in a few iterations.
+   *  Named after CPLEX's `CPX_PARAM_MEMORYEMPHASIS`.  Independent of gtopt's
+   *  own `sddp_options.low_memory_mode` (which controls backend release +
+   *  flat-LP snapshot between phases).
    *
-   *  On CLP, additional specialOptions bits are set to retain the
-   *  factorization and work arrays from the cloned LP.
+   *  - `nullopt` (default): do not touch the backend's memory parameter —
+   *    each solver keeps its built-in default.
+   *  - `true`: ask the backend to compact internal data structures at the
+   *    cost of solve time.
+   *  - `false`: explicitly disable the backend's memory-emphasis mode.
+   *
+   *  Unsupported backends silently ignore this hint regardless of value.
+   *
+   *  Backend mapping:
+   *  - CPLEX:   CPX_PARAM_MEMORYEMPHASIS = 1 / 0 (only set when specified).
+   *  - HiGHS:   no direct equivalent (ignored).
+   *  - MindOpt: no direct equivalent (ignored).
+   *  - OSI/CLP: no direct equivalent (ignored).
+   *  - Gurobi:  no direct equivalent (ignored).
    */
-  bool reuse_basis {false};
+  std::optional<bool> memory_emphasis {};
 
   /**
    * @brief Merge another SolverOptions into this one (first-value-wins for
@@ -145,6 +154,7 @@ struct SolverOptions
     merge_opt(time_limit, other.time_limit);
     merge_opt(log_mode, other.log_mode);
     merge_opt(scaling, other.scaling);
+    merge_opt(memory_emphasis, other.memory_emphasis);
   }
 
   /**
@@ -155,7 +165,7 @@ struct SolverOptions
    * always win over backend defaults.
    *
    * Sentinels: algorithm=default_algo, threads=0, log_level=0,
-   * max_fallbacks=2, presolve=true, reuse_basis=false.
+   * max_fallbacks=2, presolve=true.
    * Optional fields: has_value() means user specified.
    */
   void overlay(const SolverOptions& user)
@@ -168,9 +178,6 @@ struct SolverOptions
     }
     if (!user.presolve) {
       presolve = user.presolve;
-    }
-    if (user.reuse_basis) {
-      reuse_basis = user.reuse_basis;
     }
     if (user.log_level != 0) {
       log_level = user.log_level;
@@ -185,6 +192,7 @@ struct SolverOptions
     merge_opt(time_limit, user.time_limit);
     merge_opt(log_mode, user.log_mode);
     merge_opt(scaling, user.scaling);
+    merge_opt(memory_emphasis, user.memory_emphasis);
   }
 };
 

@@ -13,6 +13,7 @@
 #pragma once
 
 #include <limits>
+#include <ranges>
 
 #include <gtopt/basic_types.hpp>
 #include <gtopt/lp_context.hpp>
@@ -58,6 +59,12 @@ struct SparseCol
   double uppb {DblMax};  ///< Physical upper bound (default: +infinity)
   double cost {0.0};  ///< Objective coefficient (default: 0.0)
   bool is_integer {false};  ///< is integer-constrained (default: false)
+  bool is_state {false};  ///< True when the column is a state variable used
+                          ///< in cascade/SDDP cut I/O.  Column names are
+                          ///< available when `LpNamesLevel::all` is set;
+                          ///< state variable I/O uses the StateVariable map
+                          ///< (ColIndex-based) directly.  Set via
+                          ///< `SystemContext::add_state_col()`.
   double scale {1.0};  ///< Physical-to-LP scale: physical_value = LP_value ×
                        ///< scale (default: 1.0 = no scaling)
 
@@ -65,7 +72,6 @@ struct SparseCol
   /// When @c class_name is non-empty and @c scale is still 1.0,
   /// LinearProblem::add_col() looks up the scale from its VariableScaleMap.
   /// If @c class_name is empty (default), no lookup is performed.
-  std::string_view name {};  ///< Explicit name (overrides generated name)
   std::string_view class_name {};  ///< Element class (e.g. "Bus", "Reservoir")
   std::string_view
       variable_name {};  ///< Variable name (e.g. "theta", "energy")
@@ -106,7 +112,77 @@ struct SparseCol
   }
 };
 
+/// Lightweight label metadata for a column.
+///
+/// Stored in `FlatLinearProblem` / `LinearInterface` so LP column
+/// names can be formatted on demand at `write_lp` time instead of
+/// eagerly at flatten.  This is the only column data that
+/// `LabelMaker` needs; bounds / cost / scale live in the flat LP.
+///
+/// Carries the same `(class_name, variable_name, variable_uid,
+/// context)` 4-tuple that `SparseCol` uses — a `LocalLabelMaker` at
+/// `LpNamesLevel::all` can synthesise the human-readable label
+/// (e.g. `bus.theta.1.s0.p0.b0`) from this struct alone.
+struct SparseColLabel
+{
+  std::string_view class_name {};
+  std::string_view variable_name {};
+  Uid variable_uid {unknown_uid};
+  LpContext context {};
+
+  friend constexpr bool operator==(const SparseColLabel&,
+                                   const SparseColLabel&) noexcept = default;
+};
+
+/// Hash functor for `SparseColLabel`, used by the eager duplicate-detection
+/// map in `LinearInterface`.  Combines each field via `detail::hash_combine`
+/// and dispatches on the `LpContext` variant through `std::visit`.
+struct SparseColLabelHash
+{
+  [[nodiscard]] size_t operator()(const SparseColLabel& l) const noexcept
+  {
+    size_t h = std::hash<std::string_view> {}(l.class_name);
+    h = detail::hash_combine(h,
+                             std::hash<std::string_view> {}(l.variable_name));
+    h = detail::hash_combine(h, std::hash<Uid> {}(l.variable_uid));
+    h = detail::hash_combine(
+        h,
+        std::visit(
+            []<typename T>(const T& t) noexcept -> size_t
+            {
+              if constexpr (std::is_same_v<T, std::monostate>) {
+                return 0;
+              } else {
+                return TupleHash {}(t);
+              }
+            },
+            l.context));
+    return h;
+  }
+};
+
 using ColIndex = StrongIndexType<SparseCol>;  ///< Type alias for column index
+
+/**
+ * @brief Build a `ColIndex` from the size of any sized range.
+ *
+ * Centralises the `ColIndex{static_cast<Index>(r.size())}` pattern so
+ * that callers stay in strong-index space.  Typical call sites:
+ *
+ * @code
+ *   if (col < col_index_size(col_sol)) { ... }
+ *   for (auto idx : iota_range<ColIndex>(ColIndex{0}, col_index_size(cols)))
+ * @endcode
+ *
+ * @tparam R  Any `std::ranges::sized_range`.
+ * @param  r  The range whose size should be interpreted as a column count.
+ * @return    `ColIndex{static_cast<Index>(std::ranges::size(r))}`.
+ */
+template<std::ranges::sized_range R>
+[[nodiscard]] constexpr auto col_index_size(const R& r) noexcept -> ColIndex
+{
+  return ColIndex {static_cast<Index>(std::ranges::size(r))};
+}
 
 // ── Scale-aware output helpers ───────────────────────────────────────────────
 

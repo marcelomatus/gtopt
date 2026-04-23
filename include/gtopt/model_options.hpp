@@ -73,12 +73,13 @@ struct ModelOptions
   /// The dual of this constraint is the endogenous carbon price.
   OptTRealFieldSched emission_cap {};
 
-  /// Phase range expression controlling which phases have relaxed
-  /// (continuous [0,1]) unit commitment binary variables.
+  /// Phase range expression controlling which phases use LP relaxation
+  /// (all integer/binary variables become continuous).
   /// Syntax: `"all"`, `"none"` (default), `"0"`, `"1,3:5,8:"`, `":3"`.
+  /// Sets `phase.continuous = true` on matching phases at LP setup time.
   /// Settable per cascade level or globally via
-  /// `--set model_options.relaxed_phases="all"`.
-  OptName relaxed_phases {};
+  /// `--set model_options.continuous_phases="all"`.
+  OptName continuous_phases {};
 
   void merge(const ModelOptions& opts)
   {
@@ -97,7 +98,7 @@ struct ModelOptions
     merge_opt(state_fail_cost, opts.state_fail_cost);
     merge_opt(emission_cost, opts.emission_cost);
     merge_opt(emission_cap, opts.emission_cap);
-    merge_opt(relaxed_phases, opts.relaxed_phases);
+    merge_opt(continuous_phases, opts.continuous_phases);
   }
 
   /// True if any field is set.
@@ -110,7 +111,32 @@ struct ModelOptions
         || demand_fail_cost.has_value() || reserve_fail_cost.has_value()
         || hydro_fail_cost.has_value() || hydro_use_value.has_value()
         || state_fail_cost.has_value() || emission_cost.has_value()
-        || emission_cap.has_value() || relaxed_phases.has_value();
+        || emission_cap.has_value() || continuous_phases.has_value();
+  }
+
+  /// True iff every field set in `other` has an equal value in `*this`.
+  /// Fields that `other` leaves unset are ignored.  Semantically: "applying
+  /// `other` as an override on top of `*this` would not change anything".
+  [[nodiscard]] bool covers(const ModelOptions& other) const noexcept
+  {
+    const auto covers_opt = [](const auto& self, const auto& override_val)
+    { return !override_val.has_value() || self == override_val; };
+    return covers_opt(use_single_bus, other.use_single_bus)
+        && covers_opt(use_kirchhoff, other.use_kirchhoff)
+        && covers_opt(use_line_losses, other.use_line_losses)
+        && covers_opt(line_losses_mode, other.line_losses_mode)
+        && covers_opt(kirchhoff_threshold, other.kirchhoff_threshold)
+        && covers_opt(loss_segments, other.loss_segments)
+        && covers_opt(scale_objective, other.scale_objective)
+        && covers_opt(scale_theta, other.scale_theta)
+        && covers_opt(demand_fail_cost, other.demand_fail_cost)
+        && covers_opt(reserve_fail_cost, other.reserve_fail_cost)
+        && covers_opt(hydro_fail_cost, other.hydro_fail_cost)
+        && covers_opt(hydro_use_value, other.hydro_use_value)
+        && covers_opt(state_fail_cost, other.state_fail_cost)
+        && covers_opt(emission_cost, other.emission_cost)
+        && covers_opt(emission_cap, other.emission_cap)
+        && covers_opt(continuous_phases, other.continuous_phases);
   }
 };
 

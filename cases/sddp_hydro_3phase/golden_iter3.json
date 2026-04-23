@@ -1,0 +1,60 @@
+{
+  "// description": [
+    "Golden reference for sddp_hydro_3phase at MAX_ITERATIONS=3 —",
+    "the small fixture converges in under 3 iterations, so the",
+    "converged physical state matches golden_iter50.json."
+  ],
+  "tolerance": {
+    "abs": 1.0,
+    "rel": 1.0e-4
+  },
+  "objective_value": 323100.0,
+  "solver_status": {
+    "converged": true,
+    "lower_bound": 323100.0,
+    "upper_bound": 323100.0,
+    "gap": 0.0
+  },
+  "solution_csv_rows": [
+    {"scene": 0, "phase": 1, "status": 0, "obj_value": 323100.0},
+    {"scene": 0, "phase": 2, "status": 0, "obj_value": 212325.0},
+    {"scene": 0, "phase": 3, "status": 0, "obj_value": 103125.0}
+  ],
+  "element_samples": [
+    {
+      "class": "Reservoir",
+      "stem": "efin_sol",
+      "filter": {"scene": 0, "phase": 1, "stage": 1},
+      "value_column": "uid:1",
+      "expected": 135.0
+    },
+    {
+      "class": "Reservoir",
+      "stem": "efin_sol",
+      "filter": {"scene": 0, "phase": 3, "stage": 3},
+      "value_column": "uid:1",
+      "expected": 0.0
+    },
+    {
+      "class": "Generator",
+      "stem": "generation_sol",
+      "filter": {"scene": 0, "phase": 1, "stage": 1, "block": 1},
+      "value_column": "uid:1",
+      "expected": 10.0
+    },
+    {
+      "class": "Generator",
+      "stem": "generation_sol",
+      "filter": {"scene": 0, "phase": 1, "stage": 1, "block": 1},
+      "value_column": "uid:2",
+      "expected": 90.0
+    },
+    {
+      "class": "Bus",
+      "stem": "balance_dual",
+      "filter": {"scene": 0, "phase": 1, "stage": 1, "block": 1},
+      "value_column": "uid:1",
+      "expected": 50.0
+    }
+  ]
+}

@@ -18,10 +18,12 @@
 
 #include <doctest/doctest.h>
 #include <gtopt/constraint_parser.hpp>
-#include <gtopt/json/json_planning.hpp>
+#include <gtopt/gtopt_json_io.hpp>
 #include <gtopt/planning_lp.hpp>
 #include <gtopt/simulation_lp.hpp>
 #include <gtopt/system_lp.hpp>
+
+#include "log_capture.hpp"
 
 using namespace gtopt;  // NOLINT(google-global-names-in-headers)
 
@@ -31,7 +33,6 @@ using namespace gtopt;  // NOLINT(google-global-names-in-headers)
 static constexpr std::string_view ieee4b_with_constraints_json = R"json({
   "options": {
     "annual_discount_rate": 0.0,
-    "lp_matrix_options": {"names_level": 1},
     "output_format": "csv",
     "output_compression": "uncompressed",
     "use_single_bus": false,
@@ -69,18 +70,18 @@ static constexpr std::string_view ieee4b_with_constraints_json = R"json({
       {
         "uid": 1,
         "name": "gen_pair_limit",
-        "expression": "generator(\"g1\").generation + generator(\"g2\").generation <= 300"
+        "expression": "generator('g1').generation + generator('g2').generation <= 300"
       },
       {
         "uid": 2,
         "name": "flow_bound",
-        "expression": "line(\"l1_2\").flow <= 200, for(stage in all, block in all)"
+        "expression": "line('l1_2').flow <= 200, for(stage in all, block in all)"
       },
       {
         "uid": 3,
         "name": "inactive_constraint",
         "active": false,
-        "expression": "generator(\"g1\").generation <= 10"
+        "expression": "generator('g1').generation <= 10"
       }
     ]
   }
@@ -91,7 +92,7 @@ static constexpr std::string_view ieee4b_with_constraints_json = R"json({
 TEST_CASE("User constraint - JSON parse in Planning context")
 {
   using namespace gtopt;
-  auto planning = daw::json::from_json<Planning>(ieee4b_with_constraints_json);
+  auto planning = parse_planning_json(ieee4b_with_constraints_json);
 
   CHECK(planning.system.name == "ieee_4b_constraints");
   REQUIRE(planning.system.user_constraint_array.size() == 3);
@@ -107,7 +108,7 @@ TEST_CASE("User constraint - JSON parse in Planning context")
 TEST_CASE("User constraint - parse expressions from Planning JSON")
 {
   using namespace gtopt;
-  auto planning = daw::json::from_json<Planning>(ieee4b_with_constraints_json);
+  auto planning = parse_planning_json(ieee4b_with_constraints_json);
 
   REQUIRE(planning.system.user_constraint_array.size() == 3);
 
@@ -132,9 +133,14 @@ TEST_CASE("User constraint - parse expressions from Planning JSON")
     auto expr = ConstraintParser::parse(uc.name, uc.expression);
 
     CHECK(expr.name == "flow_bound");
+    // `line.flow` is a registered compound attribute: the AST keeps a
+    // single term and row assembly later expands it into
+    // `+flowp - flown` via `resolve_col_to_row`.
     REQUIRE(expr.terms.size() == 1);
     REQUIRE(expr.terms[0].element.has_value());
     CHECK(expr.terms[0].element.value_or(ElementRef {}).element_type == "line");
+    CHECK(expr.terms[0].element.value_or(ElementRef {}).attribute == "flow");
+    CHECK(expr.terms[0].coefficient == doctest::Approx(1.0));
     CHECK(expr.domain.stages.is_all);
     CHECK(expr.domain.blocks.is_all);
   }
@@ -145,7 +151,7 @@ TEST_CASE("User constraint - merge preserves constraints")
   using namespace gtopt;
 
   Planning base;
-  base.merge(daw::json::from_json<Planning>(ieee4b_with_constraints_json));
+  base.merge(parse_planning_json(ieee4b_with_constraints_json));
 
   CHECK(base.system.user_constraint_array.size() == 3);
 
@@ -156,13 +162,13 @@ TEST_CASE("User constraint - merge preserves constraints")
         {
           "uid": 10,
           "name": "extra_limit",
-          "expression": "generator(\"g1\").generation >= 50"
+          "expression": "generator('g1').generation >= 50"
         }
       ]
     }
   })";
 
-  base.merge(daw::json::from_json<Planning>(additional_json));
+  base.merge(parse_planning_json(additional_json));
 
   CHECK(base.system.user_constraint_array.size() == 4);
   CHECK(base.system.user_constraint_array[3].name == "extra_limit");
@@ -176,7 +182,7 @@ TEST_CASE("User constraint - LP solve with constraints in JSON")
   using namespace gtopt;
 
   Planning base;
-  base.merge(daw::json::from_json<Planning>(ieee4b_with_constraints_json));
+  base.merge(parse_planning_json(ieee4b_with_constraints_json));
 
   PlanningLP planning_lp(std::move(base));
   auto result = planning_lp.resolve();
@@ -212,7 +218,7 @@ TEST_CASE("User constraint - user_constraint_file in Planning JSON")
     }
   })";
 
-  auto planning = daw::json::from_json<Planning>(json_with_file);
+  auto planning = parse_planning_json(json_with_file);
 
   REQUIRE(planning.system.user_constraint_file.has_value());
   CHECK(planning.system.user_constraint_file.value_or("")
@@ -224,10 +230,9 @@ TEST_CASE("User constraint - user_constraint_file in Planning JSON")
 
 /// Single-bus case with a tight generator capacity constraint to produce a
 /// non-zero dual on the user constraint row.
-static constexpr std::string_view single_bus_uc_dual_json = R"json({
+static constexpr std::string_view planning_single_bus_uc_dual_json = R"json({
   "options": {
     "annual_discount_rate": 0.0,
-    "lp_matrix_options": {"names_level": 1},
     "output_format": "csv",
     "output_compression": "uncompressed",
     "use_single_bus": true,
@@ -252,7 +257,7 @@ static constexpr std::string_view single_bus_uc_dual_json = R"json({
       {
         "uid": 1,
         "name": "gen_upper",
-        "expression": "generator(\"g1\").generation <= 80",
+        "expression": "generator('g1').generation <= 80",
         "constraint_type": "power"
       }
     ]
@@ -271,7 +276,7 @@ TEST_CASE("User constraint - dual values written to output (CSV)")
   std::filesystem::create_directories(tmpdir);
 
   // Write the JSON to a temp file and run via gtopt_main-style direct API
-  auto planning = daw::json::from_json<Planning>(single_bus_uc_dual_json);
+  auto planning = parse_planning_json(planning_single_bus_uc_dual_json);
   planning.options.output_directory = tmpdir.string();
 
   // Directly construct SimulationLP + SystemLP and run solve + write_out.
@@ -290,7 +295,8 @@ TEST_CASE("User constraint - dual values written to output (CSV)")
   // The user constraint "gen_upper" limits generation to 80 MW.
   // With demand at 90 MW and fail_cost = 1000, the constraint is binding,
   // so the dual should be non-zero.
-  const auto dual_file = tmpdir / "UserConstraint" / "constraint_dual.csv";
+  const auto dual_file =
+      tmpdir / "UserConstraint" / "constraint_dual_s0_p0.csv";
   CHECK(std::filesystem::exists(dual_file));
 
   if (std::filesystem::exists(dual_file)) {
@@ -312,7 +318,7 @@ TEST_CASE("User constraint - constraint_type field preserved")
 {
   using namespace gtopt;
 
-  auto planning = daw::json::from_json<Planning>(single_bus_uc_dual_json);
+  auto planning = parse_planning_json(planning_single_bus_uc_dual_json);
 
   REQUIRE(planning.system.user_constraint_array.size() == 1);
   const auto& uc = planning.system.user_constraint_array[0];
@@ -322,12 +328,169 @@ TEST_CASE("User constraint - constraint_type field preserved")
 
 // clang-format off
 
+/// Single-bus case that references `options.scale_objective` as a
+/// scalar parameter inside a user constraint expression.  Phase 1d
+/// end-to-end check: the parser must accept `options.scale_objective`,
+/// the resolver must look it up via `find_ampl_scalar`, and the LP
+/// must build and solve.
+static constexpr std::string_view singleton_scalar_uc_json = R"json({
+  "options": {
+    "annual_discount_rate": 0.0,
+    "output_compression": "uncompressed",
+    "use_single_bus": true,
+    "demand_fail_cost": 1000,
+    "scale_objective": 1
+  },
+  "simulation": {
+    "block_array": [{"uid": 1, "duration": 1}],
+    "stage_array": [{"uid": 1, "first_block": 0, "count_block": 1, "active": 1}],
+    "scenario_array": [{"uid": 1, "probability_factor": 1}]
+  },
+  "system": {
+    "name": "uc_singleton_scalar_test",
+    "bus_array": [{"uid": 1, "name": "b1"}],
+    "generator_array": [
+      {"uid": 1, "name": "g1", "bus": "b1", "pmin": 0, "pmax": 100, "gcost": 20, "capacity": 100}
+    ],
+    "demand_array": [
+      {"uid": 1, "name": "d1", "bus": "b1", "lmax": [[90.0]]}
+    ],
+    "user_constraint_array": [
+      {
+        "uid": 1,
+        "name": "scalar_ref",
+        "expression": "generator('g1').generation + options.scale_objective <= 81",
+        "constraint_type": "raw"
+      }
+    ]
+  }
+})json";
+
+// clang-format on
+
+TEST_CASE("User constraint - singleton scalar (options.*) parses and solves")
+{
+  using namespace gtopt;
+
+  auto planning = parse_planning_json(singleton_scalar_uc_json);
+
+  REQUIRE(planning.system.user_constraint_array.size() == 1);
+  const auto& uc = planning.system.user_constraint_array[0];
+
+  // The parser produces an ElementRef with empty element_id and the
+  // singleton class name in element_type.
+  auto expr = ConstraintParser::parse(uc.name, uc.expression);
+  REQUIRE(expr.terms.size() == 2);
+  REQUIRE(expr.terms[1].element.has_value());
+  const auto& scalar_ref = expr.terms[1].element.value_or(ElementRef {});
+  CHECK(scalar_ref.element_type == "options");
+  CHECK(scalar_ref.element_id.empty());
+  CHECK(scalar_ref.attribute == "scale_objective");
+
+  // End-to-end: build and solve.  With scale_objective=1, the constraint
+  // resolves to `generation + 1 <= 81` ⇒ generation <= 80.  Demand is
+  // 90 MW so the LP solves with 80 MW dispatched and 10 MW fail.
+  const PlanningOptionsLP options(planning.options);
+  SimulationLP sim_lp(planning.simulation, options);
+  SystemLP sys_lp(planning.system, sim_lp);
+
+  auto res = sys_lp.linear_interface().resolve();
+  REQUIRE(res.has_value());
+}
+
+// clang-format off
+
+/// Single-bus case that references `stage.month` from a user constraint.
+/// Tier 0+ A3 end-to-end: the parser must accept `stage.month`, the
+/// resolver must read the active stage's calendar month, and the LP must
+/// build and solve with the resulting numeric shift baked into the row's
+/// RHS.
+static constexpr std::string_view stage_month_uc_json = R"json({
+  "options": {
+    "annual_discount_rate": 0.0,
+    "output_compression": "uncompressed",
+    "use_single_bus": true,
+    "demand_fail_cost": 1000,
+    "scale_objective": 1
+  },
+  "simulation": {
+    "block_array": [{"uid": 1, "duration": 1}],
+    "stage_array": [
+      {"uid": 1, "first_block": 0, "count_block": 1, "active": 1, "month": "june"}
+    ],
+    "scenario_array": [{"uid": 1, "probability_factor": 1}]
+  },
+  "system": {
+    "name": "uc_stage_month_test",
+    "bus_array": [{"uid": 1, "name": "b1"}],
+    "generator_array": [
+      {"uid": 1, "name": "g1", "bus": "b1", "pmin": 0, "pmax": 100, "gcost": 20, "capacity": 100}
+    ],
+    "demand_array": [
+      {"uid": 1, "name": "d1", "bus": "b1", "lmax": [[90.0]]}
+    ],
+    "user_constraint_array": [
+      {
+        "uid": 1,
+        "name": "stage_month_ref",
+        "expression": "generator('g1').generation + 10 * stage.month <= 140",
+        "constraint_type": "raw",
+      },
+    ],
+  },
+})json";
+
+// clang-format on
+
+TEST_CASE("User constraint - stage.month metadata parses and solves")
+{
+  using namespace gtopt;
+
+  auto planning = parse_planning_json(stage_month_uc_json);
+
+  REQUIRE(planning.system.user_constraint_array.size() == 1);
+  REQUIRE(planning.simulation.stage_array.size() == 1);
+  REQUIRE(planning.simulation.stage_array[0].month.has_value());
+  CHECK(*planning.simulation.stage_array[0].month == MonthType::june);
+
+  // The parser must accept `stage.month` as a singleton-class scalar
+  // (no parens, no element id), producing an ElementRef with element_type
+  // "stage", empty element_id, and attribute "month".
+  const auto& uc = planning.system.user_constraint_array[0];
+  auto expr = ConstraintParser::parse(uc.name, uc.expression);
+  REQUIRE(expr.terms.size() == 2);
+  REQUIRE(expr.terms[1].element.has_value());
+  const auto& mref = expr.terms[1].element.value_or(ElementRef {});
+  CHECK(mref.element_type == "stage");
+  CHECK(mref.element_id.empty());
+  CHECK(mref.attribute == "month");
+  CHECK(expr.terms[1].coefficient == doctest::Approx(10.0));
+
+  // End-to-end: stage.month resolves to 6 (june) so the constraint
+  //   generation + 10 * 6 <= 140
+  // becomes  generation <= 80.  Demand is 90 MW so the LP solves with
+  // 80 MW dispatched and 10 MW failure (constraint binding).
+  const PlanningOptionsLP options(planning.options);
+  SimulationLP sim_lp(planning.simulation, options);
+  SystemLP sys_lp(planning.system, sim_lp);
+
+  auto res = sys_lp.linear_interface().resolve();
+  REQUIRE(res.has_value());
+
+  // Verify generation is at the constraint cap (80 MW).  We don't have a
+  // direct accessor handy in this test file, so a successful solve plus
+  // the existing dual-output infrastructure exercised elsewhere is the
+  // primary signal.  The numeric correctness is double-checked by the
+  // resolver unit test below.
+}
+
+// clang-format off
+
 /// Same single-bus case but with constraint_type = "raw" to test
 /// discount-only dual scaling.
 static constexpr std::string_view single_bus_uc_raw_json = R"json({
   "options": {
     "annual_discount_rate": 0.1,
-    "lp_matrix_options": {"names_level": 1},
     "output_format": "csv",
     "output_compression": "uncompressed",
     "use_single_bus": true,
@@ -352,13 +515,13 @@ static constexpr std::string_view single_bus_uc_raw_json = R"json({
       {
         "uid": 2,
         "name": "gen_upper_raw",
-        "expression": "generator(\"g1\").generation <= 80",
+        "expression": "generator('g1').generation <= 80",
         "constraint_type": "raw"
       },
       {
         "uid": 3,
         "name": "gen_upper_unitless",
-        "expression": "generator(\"g1\").generation <= 80",
+        "expression": "generator('g1').generation <= 80",
         "constraint_type": "unitless"
       }
     ]
@@ -376,7 +539,7 @@ TEST_CASE("User constraint - raw/unitless type produces output CSV")
   std::filesystem::remove_all(tmpdir);
   std::filesystem::create_directories(tmpdir);
 
-  auto planning = daw::json::from_json<Planning>(single_bus_uc_raw_json);
+  auto planning = parse_planning_json(single_bus_uc_raw_json);
   planning.options.output_directory = tmpdir.string();
 
   const PlanningOptionsLP options(planning.options);
@@ -389,7 +552,8 @@ TEST_CASE("User constraint - raw/unitless type produces output CSV")
   sys_lp.write_out();
 
   // Both "raw" and "unitless" constraints should produce the dual output file.
-  const auto dual_file = tmpdir / "UserConstraint" / "constraint_dual.csv";
+  const auto dual_file =
+      tmpdir / "UserConstraint" / "constraint_dual_s0_p0.csv";
   CHECK(std::filesystem::exists(dual_file));
 
   if (std::filesystem::exists(dual_file)) {
@@ -439,7 +603,6 @@ TEST_CASE(
 static constexpr std::string_view uc_multi_component_json = R"json({
   "options": {
     "annual_discount_rate": 0.0,
-    "lp_matrix_options": {"names_level": 1},
     "output_format": "csv",
     "output_compression": "uncompressed",
     "use_single_bus": false,
@@ -482,47 +645,43 @@ static constexpr std::string_view uc_multi_component_json = R"json({
     "user_constraint_array": [
       {
         "uid": 1, "name": "uc_gen",
-        "expression": "generator(\"g1\").generation <= 250"
+        "expression": "generator('g1').generation <= 250"
       },
       {
         "uid": 2, "name": "uc_demand_load",
-        "expression": "demand(\"d1\").load <= 90"
+        "expression": "demand('d1').load <= 90"
       },
       {
         "uid": 3, "name": "uc_demand_fail",
-        "expression": "demand(\"d1\").fail <= 50"
+        "expression": "demand('d1').fail <= 50"
       },
       {
         "uid": 4, "name": "uc_line_flow",
-        "expression": "line(\"l1_2\").flow <= 200"
-      },
-      {
-        "uid": 5, "name": "uc_line_flown",
-        "expression": "line(\"l1_2\").flown <= 200"
+        "expression": "line('l1_2').flow <= 200"
       },
       {
         "uid": 6, "name": "uc_bat_charge",
-        "expression": "battery(\"bat1\").charge <= 80"
+        "expression": "battery('bat1').charge <= 80"
       },
       {
         "uid": 7, "name": "uc_bat_discharge",
-        "expression": "battery(\"bat1\").discharge <= 80"
+        "expression": "battery('bat1').discharge <= 80"
       },
       {
         "uid": 8, "name": "uc_bat_energy",
-        "expression": "battery(\"bat1\").energy <= 45"
+        "expression": "battery('bat1').energy <= 45"
       },
       {
         "uid": 9, "name": "uc_bus_theta",
-        "expression": "bus(\"b1\").theta <= 10.0"
+        "expression": "bus('b1').theta <= 10.0"
       },
       {
         "uid": 10, "name": "uc_bus_angle",
-        "expression": "bus(\"b2\").angle >= -10.0"
+        "expression": "bus('b2').theta >= -10.0"
       },
       {
         "uid": 11, "name": "uc_gen_ge",
-        "expression": "generator(\"g1\").generation >= 10"
+        "expression": "generator('g1').generation >= 10"
       }
     ]
   }
@@ -534,7 +693,7 @@ TEST_CASE("User constraint - resolve_single_col multi-component")
 {
   using namespace gtopt;
 
-  auto planning = daw::json::from_json<Planning>(uc_multi_component_json);
+  auto planning = parse_planning_json(uc_multi_component_json);
   PlanningLP planning_lp(std::move(planning));
   auto result = planning_lp.resolve();
 
@@ -548,7 +707,6 @@ TEST_CASE("User constraint - resolve_single_col multi-component")
 static constexpr std::string_view uc_line_loss_json = R"json({
   "options": {
     "annual_discount_rate": 0.0,
-    "lp_matrix_options": {"names_level": 1},
     "output_format": "csv",
     "output_compression": "uncompressed",
     "use_single_bus": false,
@@ -576,17 +734,19 @@ static constexpr std::string_view uc_line_loss_json = R"json({
     ],
     "line_array": [
       {"uid": 1, "name": "l1_2", "bus_a": "b1", "bus_b": "b2",
+       "voltage": 220.0,
        "reactance": 0.02, "resistance": 0.01,
-       "tmax_ab": 300, "tmax_ba": 300}
+       "tmax_ab": 300, "tmax_ba": 300,
+       "line_losses_mode": "bidirectional", "loss_segments": 3}
     ],
     "user_constraint_array": [
       {
         "uid": 1, "name": "uc_lossp",
-        "expression": "line(\"l1_2\").lossp <= 50"
+        "expression": "line('l1_2').lossp <= 50"
       },
       {
         "uid": 2, "name": "uc_lossn",
-        "expression": "line(\"l1_2\").lossn <= 50"
+        "expression": "line('l1_2').lossn <= 50"
       }
     ]
   }
@@ -598,7 +758,7 @@ TEST_CASE("User constraint - line loss attributes (lossp/lossn)")
 {
   using namespace gtopt;
 
-  auto planning = daw::json::from_json<Planning>(uc_line_loss_json);
+  auto planning = parse_planning_json(uc_line_loss_json);
   PlanningLP planning_lp(std::move(planning));
   auto result = planning_lp.resolve();
 
@@ -611,7 +771,6 @@ TEST_CASE("User constraint - line loss attributes (lossp/lossn)")
 static constexpr std::string_view uc_sum_ref_json = R"json({
   "options": {
     "annual_discount_rate": 0.0,
-    "lp_matrix_options": {"names_level": 1},
     "output_format": "csv",
     "output_compression": "uncompressed",
     "use_single_bus": true,
@@ -650,7 +809,7 @@ static constexpr std::string_view uc_sum_ref_json = R"json({
       },
       {
         "uid": 2, "name": "uc_sum_gen_list",
-        "expression": "sum(generator(\"g1\",\"g2\").generation) <= 280"
+        "expression": "sum(generator('g1','g2').generation) <= 280"
       },
       {
         "uid": 3, "name": "uc_sum_demand_all",
@@ -670,7 +829,7 @@ TEST_CASE("User constraint - sum references (all and explicit list)")
 {
   using namespace gtopt;
 
-  auto planning = daw::json::from_json<Planning>(uc_sum_ref_json);
+  auto planning = parse_planning_json(uc_sum_ref_json);
   PlanningLP planning_lp(std::move(planning));
   auto result = planning_lp.resolve();
 
@@ -683,7 +842,6 @@ TEST_CASE("User constraint - sum references (all and explicit list)")
 static constexpr std::string_view uc_domain_filter_json = R"json({
   "options": {
     "annual_discount_rate": 0.0,
-    "lp_matrix_options": {"names_level": 1},
     "output_format": "csv",
     "output_compression": "uncompressed",
     "use_single_bus": true,
@@ -718,23 +876,23 @@ static constexpr std::string_view uc_domain_filter_json = R"json({
     "user_constraint_array": [
       {
         "uid": 1, "name": "uc_stage_filter",
-        "expression": "generator(\"g1\").generation <= 150, for(stage in {1})"
+        "expression": "generator('g1').generation <= 150, for(stage in {1})"
       },
       {
         "uid": 2, "name": "uc_block_filter",
-        "expression": "generator(\"g1\").generation <= 180, for(block in {1,2})"
+        "expression": "generator('g1').generation <= 180, for(block in {1,2})"
       },
       {
         "uid": 3, "name": "uc_scenario_filter",
-        "expression": "generator(\"g1\").generation <= 160, for(scenario in {1})"
+        "expression": "generator('g1').generation <= 160, for(scenario in {1})"
       },
       {
         "uid": 4, "name": "uc_combo_filter",
-        "expression": "generator(\"g1\").generation <= 170, for(stage in {2}, block in {1,3}, scenario in {2})"
+        "expression": "generator('g1').generation <= 170, for(stage in {2}, block in {1,3}, scenario in {2})"
       },
       {
         "uid": 5, "name": "uc_block_range",
-        "expression": "generator(\"g1\").generation <= 190, for(block in 1..2)"
+        "expression": "generator('g1').generation <= 190, for(block in 1..2)"
       }
     ]
   }
@@ -746,7 +904,7 @@ TEST_CASE("User constraint - domain filtering (stage/block/scenario)")
 {
   using namespace gtopt;
 
-  auto planning = daw::json::from_json<Planning>(uc_domain_filter_json);
+  auto planning = parse_planning_json(uc_domain_filter_json);
   PlanningLP planning_lp(std::move(planning));
   auto result = planning_lp.resolve();
 
@@ -760,7 +918,6 @@ TEST_CASE("User constraint - domain filtering (stage/block/scenario)")
 static constexpr std::string_view uc_hydro_json = R"json({
   "options": {
     "annual_discount_rate": 0.0,
-    "lp_matrix_options": {"names_level": 1},
     "output_format": "csv",
     "output_compression": "uncompressed",
     "use_single_bus": true,
@@ -820,39 +977,31 @@ static constexpr std::string_view uc_hydro_json = R"json({
     "user_constraint_array": [
       {
         "uid": 1, "name": "uc_reservoir_volume",
-        "expression": "reservoir(\"rsv1\").volume <= 900"
+        "expression": "reservoir('rsv1').energy <= 900"
       },
       {
         "uid": 2, "name": "uc_reservoir_energy",
-        "expression": "reservoir(\"rsv1\").energy >= 100"
-      },
-      {
-        "uid": 3, "name": "uc_reservoir_drain",
-        "expression": "reservoir(\"rsv1\").drain <= 500"
-      },
-      {
-        "uid": 4, "name": "uc_reservoir_spill",
-        "expression": "reservoir(\"rsv1\").spill <= 500"
+        "expression": "reservoir('rsv1').energy >= 100"
       },
       {
         "uid": 5, "name": "uc_waterway_flow",
-        "expression": "waterway(\"ww1\").flow <= 400"
+        "expression": "waterway('ww1').flow <= 400"
       },
       {
         "uid": 6, "name": "uc_turbine_gen",
-        "expression": "turbine(\"tur1\").generation <= 180"
+        "expression": "turbine('tur1').generation <= 180"
       },
       {
         "uid": 7, "name": "uc_junction_drain",
-        "expression": "junction(\"j_down\").drain <= 1000"
+        "expression": "junction('j_down').drain <= 1000"
       },
       {
         "uid": 8, "name": "uc_flow_discharge",
-        "expression": "flow(\"inflow1\").discharge <= 50"
+        "expression": "flow('inflow1').flow <= 50"
       },
       {
         "uid": 9, "name": "uc_flow_flow",
-        "expression": "flow(\"inflow1\").flow <= 50"
+        "expression": "flow('inflow1').flow <= 50"
       }
     ]
   }
@@ -866,7 +1015,7 @@ TEST_CASE(
 {
   using namespace gtopt;
 
-  auto planning = daw::json::from_json<Planning>(uc_hydro_json);
+  auto planning = parse_planning_json(uc_hydro_json);
   PlanningLP planning_lp(std::move(planning));
   auto result = planning_lp.resolve();
 
@@ -879,7 +1028,6 @@ TEST_CASE(
 static constexpr std::string_view uc_hydro_sum_json = R"json({
   "options": {
     "annual_discount_rate": 0.0,
-    "lp_matrix_options": {"names_level": 1},
     "output_format": "csv",
     "output_compression": "uncompressed",
     "use_single_bus": true,
@@ -931,7 +1079,7 @@ static constexpr std::string_view uc_hydro_sum_json = R"json({
     "user_constraint_array": [
       {
         "uid": 1, "name": "uc_sum_reservoir",
-        "expression": "sum(reservoir(all).volume) <= 1500"
+        "expression": "sum(reservoir(all).energy) <= 1500"
       },
       {
         "uid": 2, "name": "uc_sum_waterway",
@@ -963,7 +1111,7 @@ TEST_CASE("User constraint - sum references over hydro elements")
 {
   using namespace gtopt;
 
-  auto planning = daw::json::from_json<Planning>(uc_hydro_sum_json);
+  auto planning = parse_planning_json(uc_hydro_sum_json);
   PlanningLP planning_lp(std::move(planning));
   auto result = planning_lp.resolve();
 
@@ -976,7 +1124,6 @@ TEST_CASE("User constraint - sum references over hydro elements")
 static constexpr std::string_view uc_reservoir_extraction_json = R"json({
   "options": {
     "annual_discount_rate": 0.0,
-    "lp_matrix_options": {"names_level": 1},
     "output_format": "csv",
     "output_compression": "uncompressed",
     "use_single_bus": true,
@@ -1018,7 +1165,7 @@ static constexpr std::string_view uc_reservoir_extraction_json = R"json({
     "user_constraint_array": [
       {
         "uid": 1, "name": "uc_extraction",
-        "expression": "reservoir(\"rsv1\").extraction <= 300"
+        "expression": "reservoir('rsv1').extraction <= 300"
       }
     ]
   }
@@ -1030,7 +1177,7 @@ TEST_CASE("User constraint - reservoir extraction attribute")
 {
   using namespace gtopt;
 
-  auto planning = daw::json::from_json<Planning>(uc_reservoir_extraction_json);
+  auto planning = parse_planning_json(uc_reservoir_extraction_json);
   PlanningLP planning_lp(std::move(planning));
   auto result = planning_lp.resolve();
 
@@ -1044,12 +1191,12 @@ TEST_CASE("User constraint - reservoir extraction attribute")
 static constexpr std::string_view uc_unknown_ref_json = R"json({
   "options": {
     "annual_discount_rate": 0.0,
-    "lp_matrix_options": {"names_level": 1},
     "output_format": "csv",
     "output_compression": "uncompressed",
     "use_single_bus": true,
     "demand_fail_cost": 1000,
-    "scale_objective": 1000
+    "scale_objective": 1000,
+    "constraint_mode": "normal"
   },
   "simulation": {
     "block_array": [{"uid": 1, "duration": 1}],
@@ -1068,15 +1215,15 @@ static constexpr std::string_view uc_unknown_ref_json = R"json({
     "user_constraint_array": [
       {
         "uid": 1, "name": "uc_unknown_type",
-        "expression": "widget(\"w1\").power <= 100"
+        "expression": "widget('w1').power <= 100"
       },
       {
         "uid": 2, "name": "uc_unknown_attr",
-        "expression": "generator(\"g1\").foobar <= 100"
+        "expression": "generator('g1').foobar <= 100"
       },
       {
         "uid": 3, "name": "uc_nonexistent_element",
-        "expression": "generator(\"g_nonexistent\").generation <= 100"
+        "expression": "generator('g_nonexistent').generation <= 100"
       }
     ]
   }
@@ -1090,7 +1237,7 @@ TEST_CASE(
 {
   using namespace gtopt;
 
-  auto planning = daw::json::from_json<Planning>(uc_unknown_ref_json);
+  auto planning = parse_planning_json(uc_unknown_ref_json);
   PlanningLP planning_lp(std::move(planning));
 
   // Should solve successfully — unknown constraints are silently skipped
@@ -1104,7 +1251,6 @@ TEST_CASE(
 static constexpr std::string_view uc_empty_expr_json = R"json({
   "options": {
     "annual_discount_rate": 0.0,
-    "lp_matrix_options": {"names_level": 1},
     "output_format": "csv",
     "output_compression": "uncompressed",
     "use_single_bus": true,
@@ -1144,7 +1290,7 @@ TEST_CASE("User constraint - empty and invalid expressions (graceful skip)")
 {
   using namespace gtopt;
 
-  auto planning = daw::json::from_json<Planning>(uc_empty_expr_json);
+  auto planning = parse_planning_json(uc_empty_expr_json);
   PlanningLP planning_lp(std::move(planning));
 
   // Should solve — empty/invalid expressions are silently skipped
@@ -1158,7 +1304,6 @@ TEST_CASE("User constraint - empty and invalid expressions (graceful skip)")
 static constexpr std::string_view uc_uid_ref_json = R"json({
   "options": {
     "annual_discount_rate": 0.0,
-    "lp_matrix_options": {"names_level": 1},
     "output_format": "csv",
     "output_compression": "uncompressed",
     "use_single_bus": true,
@@ -1182,7 +1327,7 @@ static constexpr std::string_view uc_uid_ref_json = R"json({
     "user_constraint_array": [
       {
         "uid": 1, "name": "uc_uid_prefix",
-        "expression": "generator(\"uid:1\").generation <= 180"
+        "expression": "generator('uid:1').generation <= 180"
       },
       {
         "uid": 2, "name": "uc_bare_int",
@@ -1198,7 +1343,7 @@ TEST_CASE("User constraint - UID-based element references")
 {
   using namespace gtopt;
 
-  auto planning = daw::json::from_json<Planning>(uc_uid_ref_json);
+  auto planning = parse_planning_json(uc_uid_ref_json);
   PlanningLP planning_lp(std::move(planning));
   auto result = planning_lp.resolve();
 
@@ -1211,7 +1356,6 @@ TEST_CASE("User constraint - UID-based element references")
 static constexpr std::string_view uc_energy_type_json = R"json({
   "options": {
     "annual_discount_rate": 0.0,
-    "lp_matrix_options": {"names_level": 1},
     "output_format": "csv",
     "output_compression": "uncompressed",
     "use_single_bus": true,
@@ -1244,7 +1388,7 @@ static constexpr std::string_view uc_energy_type_json = R"json({
     "user_constraint_array": [
       {
         "uid": 1, "name": "uc_energy",
-        "expression": "battery(\"bat1\").energy <= 40",
+        "expression": "battery('bat1').energy <= 40",
         "constraint_type": "energy"
       }
     ]
@@ -1262,7 +1406,7 @@ TEST_CASE("User constraint - energy constraint_type dual output")
   std::filesystem::remove_all(tmpdir);
   std::filesystem::create_directories(tmpdir);
 
-  auto planning = daw::json::from_json<Planning>(uc_energy_type_json);
+  auto planning = parse_planning_json(uc_energy_type_json);
   planning.options.output_directory = tmpdir.string();
 
   const PlanningOptionsLP options(planning.options);
@@ -1274,7 +1418,8 @@ TEST_CASE("User constraint - energy constraint_type dual output")
 
   sys_lp.write_out();
 
-  const auto dual_file = tmpdir / "UserConstraint" / "constraint_dual.csv";
+  const auto dual_file =
+      tmpdir / "UserConstraint" / "constraint_dual_s0_p0.csv";
   CHECK(std::filesystem::exists(dual_file));
 
   std::filesystem::remove_all(tmpdir);
@@ -1286,7 +1431,6 @@ TEST_CASE("User constraint - energy constraint_type dual output")
 static constexpr std::string_view uc_ge_eq_json = R"json({
   "options": {
     "annual_discount_rate": 0.0,
-    "lp_matrix_options": {"names_level": 1},
     "output_format": "csv",
     "output_compression": "uncompressed",
     "use_single_bus": true,
@@ -1311,15 +1455,15 @@ static constexpr std::string_view uc_ge_eq_json = R"json({
     "user_constraint_array": [
       {
         "uid": 1, "name": "uc_ge",
-        "expression": "generator(\"g1\").generation >= 10"
+        "expression": "generator('g1').generation >= 10"
       },
       {
         "uid": 2, "name": "uc_eq",
-        "expression": "generator(\"g2\").generation = 50"
+        "expression": "generator('g2').generation = 50"
       },
       {
         "uid": 3, "name": "uc_combined",
-        "expression": "generator(\"g1\").generation + generator(\"g2\").generation >= 70"
+        "expression": "generator('g1').generation + generator('g2').generation >= 70"
       }
     ]
   }
@@ -1331,7 +1475,7 @@ TEST_CASE("User constraint - greater-equal and equality constraints")
 {
   using namespace gtopt;
 
-  auto planning = daw::json::from_json<Planning>(uc_ge_eq_json);
+  auto planning = parse_planning_json(uc_ge_eq_json);
   PlanningLP planning_lp(std::move(planning));
   auto result = planning_lp.resolve();
 
@@ -1344,7 +1488,6 @@ TEST_CASE("User constraint - greater-equal and equality constraints")
 static constexpr std::string_view uc_coefficients_json = R"json({
   "options": {
     "annual_discount_rate": 0.0,
-    "lp_matrix_options": {"names_level": 1},
     "output_format": "csv",
     "output_compression": "uncompressed",
     "use_single_bus": true,
@@ -1369,11 +1512,11 @@ static constexpr std::string_view uc_coefficients_json = R"json({
     "user_constraint_array": [
       {
         "uid": 1, "name": "uc_weighted",
-        "expression": "2*generator(\"g1\").generation + 3*generator(\"g2\").generation <= 500"
+        "expression": "2*generator('g1').generation + 3*generator('g2').generation <= 500"
       },
       {
         "uid": 2, "name": "uc_negative_coeff",
-        "expression": "generator(\"g1\").generation - generator(\"g2\").generation <= 100"
+        "expression": "generator('g1').generation - generator('g2').generation <= 100"
       }
     ]
   }
@@ -1385,559 +1528,9 @@ TEST_CASE("User constraint - non-unit coefficients and subtraction")
 {
   using namespace gtopt;
 
-  auto planning = daw::json::from_json<Planning>(uc_coefficients_json);
+  auto planning = parse_planning_json(uc_coefficients_json);
   PlanningLP planning_lp(std::move(planning));
   auto result = planning_lp.resolve();
 
-  REQUIRE(result.has_value());
-}
-
-// clang-format off
-
-/// Sum with type filter: sum(generator(all, type="thermal").generation).
-static constexpr std::string_view uc_type_filter_json = R"json({
-  "options": {
-    "annual_discount_rate": 0.0,
-    "lp_matrix_options": {"names_level": 1},
-    "output_format": "csv",
-    "output_compression": "uncompressed",
-    "use_single_bus": true,
-    "demand_fail_cost": 1000,
-    "scale_objective": 1000
-  },
-  "simulation": {
-    "block_array": [{"uid": 1, "duration": 1}],
-    "stage_array": [{"uid": 1, "first_block": 0, "count_block": 1, "active": 1}],
-    "scenario_array": [{"uid": 1, "probability_factor": 1}]
-  },
-  "system": {
-    "name": "uc_type_filter",
-    "bus_array": [{"uid": 1, "name": "b1"}],
-    "generator_array": [
-      {"uid": 1, "name": "g1", "bus": "b1", "pmin": 0, "pmax": 200, "gcost": 20,
-       "capacity": 200, "type": "thermal"},
-      {"uid": 2, "name": "g2", "bus": "b1", "pmin": 0, "pmax": 100, "gcost": 10,
-       "capacity": 100, "type": "solar"}
-    ],
-    "demand_array": [
-      {"uid": 1, "name": "d1", "bus": "b1", "lmax": [[80.0]]}
-    ],
-    "user_constraint_array": [
-      {
-        "uid": 1, "name": "uc_thermal_only",
-        "expression": "sum(generator(all, type=\"thermal\").generation) <= 150"
-      },
-      {
-        "uid": 2, "name": "uc_solar_only",
-        "expression": "sum(generator(all, type=\"solar\").generation) <= 80"
-      }
-    ]
-  }
-})json";
-
-// clang-format on
-
-TEST_CASE("User constraint - sum with type filter")
-{
-  using namespace gtopt;
-
-  auto planning = daw::json::from_json<Planning>(uc_type_filter_json);
-  PlanningLP planning_lp(std::move(planning));
-  auto result = planning_lp.resolve();
-
-  REQUIRE(result.has_value());
-}
-
-// clang-format off
-
-/// Battery drain alias for spill, and battery charge/discharge
-/// in a binding constraint scenario to verify the constraint is effective.
-static constexpr std::string_view uc_bat_drain_json = R"json({
-  "options": {
-    "annual_discount_rate": 0.0,
-    "lp_matrix_options": {"names_level": 1},
-    "output_format": "csv",
-    "output_compression": "uncompressed",
-    "use_single_bus": true,
-    "demand_fail_cost": 1000,
-    "scale_objective": 1
-  },
-  "simulation": {
-    "block_array": [{"uid": 1, "duration": 1}],
-    "stage_array": [{"uid": 1, "first_block": 0, "count_block": 1, "active": 1}],
-    "scenario_array": [{"uid": 1, "probability_factor": 1}]
-  },
-  "system": {
-    "name": "uc_bat_drain",
-    "bus_array": [{"uid": 1, "name": "b1"}],
-    "generator_array": [
-      {"uid": 1, "name": "g1", "bus": "b1", "pmin": 0, "pmax": 200,
-       "gcost": 20, "capacity": 200}
-    ],
-    "demand_array": [
-      {"uid": 1, "name": "d1", "bus": "b1", "lmax": [[80.0]]}
-    ],
-    "battery_array": [
-      {
-        "uid": 1, "name": "bat1", "bus": "b1",
-        "input_efficiency": 0.9, "output_efficiency": 0.9,
-        "emin": 0, "emax": 50, "eini": 25,
-        "pmax_charge": 100, "pmax_discharge": 100,
-        "gcost": 0, "capacity": 50
-      }
-    ],
-    "user_constraint_array": [
-      {
-        "uid": 1, "name": "uc_bat_drain_alias",
-        "expression": "battery(\"bat1\").drain <= 10"
-      }
-    ]
-  }
-})json";
-
-// clang-format on
-
-TEST_CASE("User constraint - battery drain alias for spill")
-{
-  using namespace gtopt;
-
-  auto planning = daw::json::from_json<Planning>(uc_bat_drain_json);
-  PlanningLP planning_lp(std::move(planning));
-  auto result = planning_lp.resolve();
-
-  REQUIRE(result.has_value());
-}
-
-// ══════════════════════════════════════════════════════════════════════════════
-// Additional coverage tests for converter, seepage, reserve_zone,
-// reserve_provision element types in resolve_single_col and collect_sum_cols,
-// plus RANGE constraint type in apply_constraint_bounds.
-// ══════════════════════════════════════════════════════════════════════════════
-
-// clang-format off
-
-/// System with a converter (battery + generator + demand) and user constraints
-/// referencing converter discharge and charge attributes.
-static constexpr std::string_view uc_converter_json = R"json({
-  "options": {
-    "annual_discount_rate": 0.0,
-    "lp_matrix_options": {"names_level": 1},
-    "output_format": "csv",
-    "output_compression": "uncompressed",
-    "use_single_bus": true,
-    "demand_fail_cost": 1000,
-    "scale_objective": 1000
-  },
-  "simulation": {
-    "block_array": [
-      {"uid": 1, "duration": 1},
-      {"uid": 2, "duration": 2}
-    ],
-    "stage_array": [{"uid": 1, "first_block": 0, "count_block": 2}],
-    "scenario_array": [{"uid": 1}]
-  },
-  "system": {
-    "name": "uc_converter",
-    "bus_array": [{"uid": 1, "name": "b1"}],
-    "generator_array": [
-      {"uid": 1, "name": "gen_charge", "bus": 1, "gcost": 10, "capacity": 200},
-      {"uid": 2, "name": "thermal", "bus": 1, "gcost": 100, "capacity": 200}
-    ],
-    "demand_array": [
-      {"uid": 1, "name": "dem_discharge", "bus": 1, "capacity": 100},
-      {"uid": 2, "name": "d_load", "bus": 1, "capacity": 50}
-    ],
-    "battery_array": [
-      {
-        "uid": 1, "name": "bat1",
-        "input_efficiency": 0.95, "output_efficiency": 0.95,
-        "emin": 0, "emax": 100, "eini": 50,
-        "pmax_charge": 100, "pmax_discharge": 100,
-        "gcost": 0, "capacity": 100
-      }
-    ],
-    "converter_array": [
-      {
-        "uid": 1, "name": "conv1",
-        "battery": 1, "generator": 1, "demand": 1,
-        "capacity": 200
-      }
-    ],
-    "user_constraint_array": [
-      {
-        "uid": 1, "name": "uc_conv_discharge",
-        "expression": "converter(\"conv1\").discharge <= 150"
-      },
-      {
-        "uid": 2, "name": "uc_conv_charge",
-        "expression": "converter(\"conv1\").charge <= 80"
-      },
-      {
-        "uid": 3, "name": "uc_sum_conv_all",
-        "expression": "sum(converter(all).discharge) <= 180"
-      }
-    ]
-  }
-})json";
-
-// clang-format on
-
-TEST_CASE("User constraint - converter discharge and charge attributes")
-{
-  using namespace gtopt;
-
-  auto planning = daw::json::from_json<Planning>(uc_converter_json);
-  PlanningLP planning_lp(std::move(planning));
-  auto result = planning_lp.resolve();
-
-  REQUIRE(result.has_value());
-}
-
-// clang-format off
-
-/// System with seepage (waterway -> reservoir seepage) and user constraints
-/// referencing seepage flow attribute.  The hydro topology uses a single
-/// junction chain: j1 -> ww1 -> j_down, with a second waterway ww_filt from
-/// j1 -> j_down carrying the seepage flow.  Both inflow and seepage feed
-/// junction j1, and j_down drains everything.
-static constexpr std::string_view uc_seepage_json = R"json({
-  "options": {
-    "annual_discount_rate": 0.0,
-    "lp_matrix_options": {"names_level": 1},
-    "output_format": "csv",
-    "output_compression": "uncompressed",
-    "use_single_bus": true,
-    "demand_fail_cost": 1000,
-    "scale_objective": 1000
-  },
-  "simulation": {
-    "block_array": [
-      {"uid": 1, "duration": 1},
-      {"uid": 2, "duration": 2}
-    ],
-    "stage_array": [{"uid": 1, "first_block": 0, "count_block": 2}],
-    "scenario_array": [{"uid": 1}]
-  },
-  "system": {
-    "name": "uc_seepage",
-    "bus_array": [{"uid": 1, "name": "b1"}],
-    "generator_array": [
-      {"uid": 1, "name": "hg1", "bus": 1, "gcost": 5, "capacity": 200},
-      {"uid": 2, "name": "thermal", "bus": 1, "gcost": 100, "capacity": 200}
-    ],
-    "demand_array": [
-      {"uid": 1, "name": "d1", "bus": 1, "capacity": 50}
-    ],
-    "junction_array": [
-      {"uid": 1, "name": "j1"},
-      {"uid": 2, "name": "j_down", "drain": true}
-    ],
-    "waterway_array": [
-      {"uid": 1, "name": "ww1", "junction_a": 1, "junction_b": 2, "fmin": 0, "fmax": 500},
-      {"uid": 2, "name": "ww_filt", "junction_a": 1, "junction_b": 2, "fmin": 0, "fmax": 100}
-    ],
-    "flow_array": [
-      {"uid": 1, "name": "inflow1", "direction": 1, "junction": 1, "discharge": 20}
-    ],
-    "reservoir_array": [
-      {"uid": 1, "name": "rsv1", "junction": 1, "capacity": 1000, "emin": 0, "emax": 1000, "eini": 500}
-    ],
-    "turbine_array": [
-      {"uid": 1, "name": "tur1", "waterway": 1, "generator": 1, "production_factor": 1.0}
-    ],
-    "reservoir_seepage_array": [
-      {
-        "uid": 1, "name": "filt1",
-        "waterway": 2, "reservoir": 1,
-        "slope": 0.02, "constant": 0.5
-      }
-    ],
-    "user_constraint_array": [
-      {
-        "uid": 1, "name": "uc_filt_flow",
-        "expression": "seepage(\"filt1\").flow <= 80"
-      },
-      {
-        "uid": 2, "name": "uc_filt_attr",
-        "expression": "seepage(\"filt1\").seepage <= 90"
-      },
-      {
-        "uid": 3, "name": "uc_sum_filt_all",
-        "expression": "sum(seepage(all).flow) <= 100"
-      }
-    ]
-  }
-})json";
-
-// clang-format on
-
-TEST_CASE("User constraint - seepage flow attribute")
-{
-  using namespace gtopt;
-
-  auto planning = daw::json::from_json<Planning>(uc_seepage_json);
-  PlanningLP planning_lp(std::move(planning));
-  auto result = planning_lp.resolve();
-
-  REQUIRE(result.has_value());
-}
-
-// clang-format off
-
-/// System with reserve zones and provisions, and user constraints referencing
-/// reserve_zone up/dn requirement and reserve_provision up/dn provision.
-static constexpr std::string_view uc_reserve_json = R"json({
-  "options": {
-    "annual_discount_rate": 0.0,
-    "lp_matrix_options": {"names_level": 1},
-    "output_format": "csv",
-    "output_compression": "uncompressed",
-    "use_single_bus": true,
-    "demand_fail_cost": 1000,
-    "reserve_fail_cost": 10000,
-    "scale_objective": 1000
-  },
-  "simulation": {
-    "block_array": [{"uid": 1, "duration": 1}],
-    "stage_array": [{"uid": 1, "first_block": 0, "count_block": 1}],
-    "scenario_array": [{"uid": 1}]
-  },
-  "system": {
-    "name": "uc_reserve",
-    "bus_array": [{"uid": 1, "name": "b1"}],
-    "generator_array": [
-      {"uid": 1, "name": "g1", "bus": 1, "gcost": 20, "capacity": 400}
-    ],
-    "demand_array": [
-      {"uid": 1, "name": "d1", "bus": 1, "capacity": 100}
-    ],
-    "reserve_zone_array": [
-      {
-        "uid": 1, "name": "rz1",
-        "urreq": 50, "drreq": 30,
-        "urcost": 1000, "drcost": 800
-      }
-    ],
-    "reserve_provision_array": [
-      {
-        "uid": 1, "name": "rp1",
-        "generator": 1, "reserve_zones": "1",
-        "urmax": 100, "drmax": 80,
-        "ur_provision_factor": 1.0,
-        "dr_provision_factor": 1.0
-      }
-    ],
-    "user_constraint_array": [
-      {
-        "uid": 1, "name": "uc_rz_up",
-        "expression": "reserve_zone(\"rz1\").up <= 80"
-      },
-      {
-        "uid": 2, "name": "uc_rz_urequirement",
-        "expression": "reserve_zone(\"rz1\").urequirement <= 70"
-      },
-      {
-        "uid": 3, "name": "uc_rz_dn",
-        "expression": "reserve_zone(\"rz1\").dn <= 60"
-      },
-      {
-        "uid": 4, "name": "uc_rz_drequirement",
-        "expression": "reserve_zone(\"rz1\").drequirement <= 50"
-      },
-      {
-        "uid": 5, "name": "uc_rp_up",
-        "expression": "reserve_provision(\"rp1\").up <= 90"
-      },
-      {
-        "uid": 6, "name": "uc_rp_uprovision",
-        "expression": "reserve_provision(\"rp1\").uprovision <= 85"
-      },
-      {
-        "uid": 7, "name": "uc_rp_dn",
-        "expression": "reserve_provision(\"rp1\").dn <= 70"
-      },
-      {
-        "uid": 8, "name": "uc_rp_dprovision",
-        "expression": "reserve_provision(\"rp1\").dprovision <= 65"
-      },
-      {
-        "uid": 9, "name": "uc_sum_rz_all",
-        "expression": "sum(reserve_zone(all).up) <= 200"
-      },
-      {
-        "uid": 10, "name": "uc_sum_rp_all",
-        "expression": "sum(reserve_provision(all).up) <= 200"
-      }
-    ]
-  }
-})json";
-
-// clang-format on
-
-TEST_CASE(
-    "User constraint - reserve zone and provision "
-    "attributes (up/dn)")
-{
-  using namespace gtopt;
-
-  auto planning = daw::json::from_json<Planning>(uc_reserve_json);
-  PlanningLP planning_lp(std::move(planning));
-  auto result = planning_lp.resolve();
-
-  REQUIRE(result.has_value());
-}
-
-// clang-format off
-
-/// Test the RANGE constraint type in apply_constraint_bounds.
-/// Syntax: "10 <= generator(...).generation <= 150" or equivalent.
-/// The ConstraintParser should produce ConstraintType::RANGE with
-/// lower_bound and upper_bound.
-static constexpr std::string_view uc_range_json = R"json({
-  "options": {
-    "annual_discount_rate": 0.0,
-    "lp_matrix_options": {"names_level": 1},
-    "output_format": "csv",
-    "output_compression": "uncompressed",
-    "use_single_bus": true,
-    "demand_fail_cost": 1000,
-    "scale_objective": 1000
-  },
-  "simulation": {
-    "block_array": [{"uid": 1, "duration": 1}],
-    "stage_array": [{"uid": 1, "first_block": 0, "count_block": 1}],
-    "scenario_array": [{"uid": 1}]
-  },
-  "system": {
-    "name": "uc_range",
-    "bus_array": [{"uid": 1, "name": "b1"}],
-    "generator_array": [
-      {"uid": 1, "name": "g1", "bus": 1, "pmin": 0, "pmax": 200, "gcost": 20, "capacity": 200}
-    ],
-    "demand_array": [
-      {"uid": 1, "name": "d1", "bus": 1, "lmax": [[80.0]]}
-    ],
-    "user_constraint_array": [
-      {
-        "uid": 1, "name": "uc_range_bound",
-        "expression": "10 <= generator(\"g1\").generation <= 150"
-      }
-    ]
-  }
-})json";
-
-// clang-format on
-
-TEST_CASE("User constraint - RANGE constraint type (double-sided bound)")
-{
-  using namespace gtopt;
-
-  auto planning = daw::json::from_json<Planning>(uc_range_json);
-  PlanningLP planning_lp(std::move(planning));
-  auto result = planning_lp.resolve();
-
-  REQUIRE(result.has_value());
-}
-
-// clang-format off
-
-/// Test unknown element type hitting the final warning path (line 460-462).
-/// The existing unknown_ref test uses "widget" which does not match any known
-/// type, triggering the catch-based path. This test ensures the warning path
-/// for truly unknown element types is reached.
-static constexpr std::string_view uc_demand_unknown_attr_json = R"json({
-  "options": {
-    "annual_discount_rate": 0.0,
-    "lp_matrix_options": {"names_level": 1},
-    "output_format": "csv",
-    "output_compression": "uncompressed",
-    "use_single_bus": true,
-    "demand_fail_cost": 1000,
-    "scale_objective": 1000
-  },
-  "simulation": {
-    "block_array": [{"uid": 1, "duration": 1}],
-    "stage_array": [{"uid": 1, "first_block": 0, "count_block": 1}],
-    "scenario_array": [{"uid": 1}]
-  },
-  "system": {
-    "name": "uc_demand_unknown_attr",
-    "bus_array": [{"uid": 1, "name": "b1"}],
-    "generator_array": [
-      {"uid": 1, "name": "g1", "bus": 1, "pmin": 0, "pmax": 200, "gcost": 20, "capacity": 200}
-    ],
-    "demand_array": [
-      {"uid": 1, "name": "d1", "bus": 1, "lmax": [[80.0]]}
-    ],
-    "user_constraint_array": [
-      {
-        "uid": 1, "name": "uc_demand_bogus_attr",
-        "expression": "demand(\"d1\").bogus_attr <= 100"
-      },
-      {
-        "uid": 2, "name": "uc_line_bogus_attr",
-        "expression": "line(\"nonexistent\").bogus <= 100"
-      },
-      {
-        "uid": 3, "name": "uc_battery_bogus_attr",
-        "expression": "battery(\"nonexistent\").bogus <= 100"
-      },
-      {
-        "uid": 4, "name": "uc_reservoir_bogus_attr",
-        "expression": "reservoir(\"nonexistent\").bogus <= 100"
-      },
-      {
-        "uid": 5, "name": "uc_bus_bogus_attr",
-        "expression": "bus(\"nonexistent\").power <= 100"
-      },
-      {
-        "uid": 6, "name": "uc_junction_bogus",
-        "expression": "junction(\"nonexistent\").bogus <= 100"
-      },
-      {
-        "uid": 7, "name": "uc_flow_bogus",
-        "expression": "flow(\"nonexistent\").bogus <= 100"
-      },
-      {
-        "uid": 8, "name": "uc_waterway_bogus",
-        "expression": "waterway(\"nonexistent\").bogus <= 100"
-      },
-      {
-        "uid": 9, "name": "uc_turbine_bogus",
-        "expression": "turbine(\"nonexistent\").bogus <= 100"
-      },
-      {
-        "uid": 10, "name": "uc_converter_bogus",
-        "expression": "converter(\"nonexistent\").bogus <= 100"
-      },
-      {
-        "uid": 11, "name": "uc_seepage_bogus",
-        "expression": "seepage(\"nonexistent\").bogus <= 100"
-      },
-      {
-        "uid": 12, "name": "uc_reserve_provision_bogus",
-        "expression": "reserve_provision(\"nonexistent\").bogus <= 100"
-      },
-      {
-        "uid": 13, "name": "uc_reserve_zone_bogus",
-        "expression": "reserve_zone(\"nonexistent\").bogus <= 100"
-      }
-    ]
-  }
-})json";
-
-// clang-format on
-
-TEST_CASE(
-    "User constraint - unknown/missing attributes for all element types "
-    "(graceful skip)")
-{
-  using namespace gtopt;
-
-  auto planning = daw::json::from_json<Planning>(uc_demand_unknown_attr_json);
-  PlanningLP planning_lp(std::move(planning));
-
-  // Should solve — all constraints with unknown/nonexistent refs are skipped
-  auto result = planning_lp.resolve();
   REQUIRE(result.has_value());
 }

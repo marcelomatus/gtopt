@@ -33,14 +33,19 @@
 #include <gtopt/flow_right.hpp>
 #include <gtopt/generator.hpp>
 #include <gtopt/generator_profile.hpp>
+#include <gtopt/inertia_provision.hpp>
+#include <gtopt/inertia_zone.hpp>
 #include <gtopt/junction.hpp>
 #include <gtopt/line.hpp>
+#include <gtopt/lng_terminal.hpp>
+#include <gtopt/pump.hpp>
 #include <gtopt/reserve_provision.hpp>
 #include <gtopt/reserve_zone.hpp>
 #include <gtopt/reservoir.hpp>
 #include <gtopt/reservoir_discharge_limit.hpp>
 #include <gtopt/reservoir_production_factor.hpp>
 #include <gtopt/reservoir_seepage.hpp>
+#include <gtopt/simple_commitment.hpp>
 #include <gtopt/turbine.hpp>
 #include <gtopt/user_constraint.hpp>
 #include <gtopt/user_param.hpp>
@@ -80,6 +85,9 @@ struct System
   Array<Converter>
       converter_array {};  ///< Battery ↔ generator/demand couplings
 
+  // ── Fuel storage ────────────────────────────────────────────────────────
+  Array<LngTerminal> lng_terminal_array {};  ///< LNG storage terminals
+
   // ── Reserve modeling ────────────────────────────────────────────────────
   Array<ReserveZone>
       reserve_zone_array {};  ///< Spinning-reserve requirement zones
@@ -89,6 +97,14 @@ struct System
   // ── Unit commitment ────────────────────────────────────────────────────
   Array<Commitment>
       commitment_array {};  ///< Generator unit commitment parameters
+  Array<SimpleCommitment>
+      simple_commitment_array {};  ///< Simplified dispatch commitments
+
+  // ── Inertia modeling ───────────────────────────────────────────────────
+  Array<InertiaZone>
+      inertia_zone_array {};  ///< System inertia requirement zones
+  Array<InertiaProvision>
+      inertia_provision_array {};  ///< Generator → inertia zone links
 
   // ── Hydro cascade ───────────────────────────────────────────────────────
   Array<Junction> junction_array {};  ///< Hydraulic nodes
@@ -101,6 +117,7 @@ struct System
       reservoir_discharge_limit_array {};  ///< Volume-dependent discharge
                                            ///< limits
   Array<Turbine> turbine_array {};  ///< Hydro turbines (waterway → generator)
+  Array<Pump> pump_array {};  ///< Hydro pumps (demand → waterway upstream)
   Array<ReservoirProductionFactor>
       reservoir_production_factor_array {};  ///< Volume-dependent turbine
                                              ///< efficiency

@@ -28,7 +28,9 @@ namespace gtopt
 class LineLP : public CapacityObjectLP<Line>
 {
 public:
-  static constexpr LPClassName ClassName {"Line", "lin"};
+  static constexpr LPClassName ClassName {"Line"};
+  static constexpr std::string_view FlowName {
+      "flow"};  ///< compound: `flowp − flown`
   static constexpr std::string_view FlowpName {"flowp"};
   static constexpr std::string_view FlownName {"flown"};
   static constexpr std::string_view LosspName {"lossp"};
@@ -36,6 +38,11 @@ public:
   static constexpr std::string_view CapacitypName {"capacityp"};
   static constexpr std::string_view CapacitynName {"capacityn"};
   static constexpr std::string_view ThetaName {"theta"};
+  /// Filter metadata keys published by `add_to_lp` for `sum(...)`
+  /// predicate matching.
+  static constexpr std::string_view TypeKey {"type"};
+  static constexpr std::string_view BusAKey {"bus_a"};
+  static constexpr std::string_view BusBKey {"bus_b"};
 
   using CapacityBase = CapacityObjectLP<Line>;
 
@@ -99,6 +106,18 @@ public:
     return lossn_cols.at({scenario.uid(), stage.uid()});
   }
 
+  [[nodiscard]] constexpr const auto& capacityp_rows_at(
+      const ScenarioLP& scenario, const StageLP& stage) const
+  {
+    return capacityp_rows.at({scenario.uid(), stage.uid()});
+  }
+
+  [[nodiscard]] constexpr const auto& capacityn_rows_at(
+      const ScenarioLP& scenario, const StageLP& stage) const
+  {
+    return capacityn_rows.at({scenario.uid(), stage.uid()});
+  }
+
   /// Check if this line created Kirchhoff (theta) rows for a given
   /// (scenario, stage) pair.
   [[nodiscard]] constexpr bool has_theta_rows(
@@ -144,18 +163,13 @@ private:
 
   STBIndexHolder<RowIndex> theta_rows;
 
-  /// Kirchhoff row normalization factor per (scenario, stage).
-  /// Each Kirchhoff row is divided by |x_tau| so that flow coefficients are
-  /// ±1 and theta coefficients are ±1/|x_tau|.  The dual must be multiplied
-  /// by this factor to recover physical units.
-  STIndexHolder<double> theta_row_scale;
-
   /**
    * @brief Add Kirchhoff (DC OPF) theta constraints for all blocks.
    *
-   * Creates a constraint row per block that links the voltage-angle
-   * difference to the total line flow:
-   *   θ_a − θ_b + x·fp − x·fn = 0
+   * Creates one equality row per block in the natural form:
+   *   -θ_a + θ_b + x_tau·fp − x_tau·fn = −φ_rad
+   * where x_tau = τ·X/V².  Row scaling is left to the LP layer's
+   * row-max equilibration (which auto-unscales duals on output).
    */
   void add_kirchhoff_rows(SystemContext& sc,
                           const ScenarioLP& scenario,

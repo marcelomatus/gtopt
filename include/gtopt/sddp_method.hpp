@@ -23,14 +23,21 @@
  *   propagate from source columns in phase t to dependent columns in
  *   phase t+1.
  *
- * **Backward pass** – starting from the last phase, optimality (Benders)
- *   cuts are generated from the reduced costs of the dependent state
- *   variables and added to the previous phase's LP.  An elastic filter
- *   ensures feasibility when the trial point from the forward pass would
- *   otherwise make the downstream LP infeasible.  Feasibility issues
- *   propagate backward iteratively: if adding a cut makes phase k
- *   infeasible, the solver builds a feasibility cut for phase k-1, and
- *   continues all the way to phase 0 if necessary.
+ * **Backward pass** – starting from the last phase and walking back to
+ *   phase 1, the solver generates a Benders optimality cut at each
+ *   step from the reduced costs of the dependent state variables and
+ *   adds it to the previous phase's LP.  Every non-last phase
+ *   receives exactly one optimality cut per backward iteration (cuts
+ *   land on phases 0..T-2; phase T-1 produces no outgoing cut).
+ *
+ *   The backward pass contains **no elastic branch and installs no
+ *   feasibility cuts**.  Forward-pass infeasibility is handled at
+ *   forward-pass time (`sddp_forward_pass.cpp`): when the original
+ *   LP at phase k is infeasible at the trial state, the elastic
+ *   filter (Chinneck Phase-1) runs on a clone, emits a feasibility
+ *   cut on phase k-1, and returns the clone's solution.  The
+ *   backward pass then treats phase k's cached solution as trial
+ *   data and builds a standard optimality cut on phase k-1.
  *
  * **Multi-scene support** – each scene is an independent trajectory (like
  *   a PLP scenario).  Scenes are solved in parallel via the work pool.
@@ -66,7 +73,6 @@
 #include <gtopt/planning_lp.hpp>
 #include <gtopt/planning_method.hpp>
 #include <gtopt/sddp_aperture.hpp>
-#include <gtopt/sddp_clone_pool.hpp>
 #include <gtopt/sddp_cut_sharing.hpp>
 #include <gtopt/sddp_cut_store.hpp>
 #include <gtopt/sddp_pool.hpp>
@@ -173,6 +179,26 @@ public:
     return m_stop_requested_.load();
   }
 
+  // ── α (future-cost) bookkeeping ──
+
+  /// Release α's bootstrap pin at (scene, phase) so a subsequently-
+  /// installed Benders (or boundary) cut can represent arbitrary
+  /// future-cost values without being artificially clipped by the
+  /// initial `lowb = uppb = 0` equality.  Idempotent.  Called
+  /// automatically before every `add_row(alpha_cut)` on the source
+  /// phase (backward pass, feasibility pass, aperture pass) and on
+  /// the last phase when the first boundary cut is installed.
+  /// Exposed publicly for characterisation tests and for external
+  /// callers that install cuts on α directly.
+  ///
+  /// Both bounds are released: `lowb ← -DblMax`, `uppb ← +DblMax`.
+  /// Under `low_memory = compress` / `rebuild` the update is mirrored
+  /// into the `m_dynamic_cols_` entry via `update_dynamic_col_bounds`
+  /// so `apply_post_load_replay` preserves the freed bounds across a
+  /// release+reload cycle.  Under `LowMemoryMode::off` only the live
+  /// backend is modified — there is no snapshot to re-sync.
+  void free_alpha(SceneIndex scene_index, PhaseIndex phase_index);
+
   // ── Live query (thread-safe, atomic reads) ──
 
   /// Current iteration number (0 before first iteration completes)
@@ -205,6 +231,17 @@ public:
     return m_converged_.load();
   }
 
+  /// Current iteration-index offset.  Starts at 0 and advances past
+  /// the last iteration executed at the end of each `solve()` call
+  /// so re-entering `solve()` on the same instance keeps each cut's
+  /// `IterationContext` disjoint from those already installed.  Also
+  /// bumped by hot-start cut loaders to start past the max iteration
+  /// found in the loaded file (see `initialize_solver`).
+  [[nodiscard]] IterationIndex iteration_offset() const noexcept
+  {
+    return m_iteration_offset_;
+  }
+
   /// Current pass: 0=idle, 1=forward, 2=backward
   [[nodiscard]] int current_pass() const noexcept
   {
@@ -229,7 +266,13 @@ public:
   /// Legacy accessor for scene 0 (backward compatibility)
   [[nodiscard]] constexpr auto& phase_states() const noexcept
   {
-    return m_scene_phase_states_[SceneIndex {0}];
+    return m_scene_phase_states_[first_scene_index()];
+  }
+
+  /// Full scene-phase states (valid after ensure_initialized()).
+  [[nodiscard]] constexpr auto& all_scene_phase_states() const noexcept
+  {
+    return m_scene_phase_states_;
   }
 
   /// SDDP options (const)
@@ -253,24 +296,25 @@ public:
   /// with only self-generated cuts.
   ///
   /// @param count  Number of leading cuts to remove (clamped to size).
-  void forget_first_cuts(int count);
+  void forget_first_cuts(std::ptrdiff_t count);
 
   /// Update dual values of stored cuts from the current LP solution.
   /// Call after the solver finishes to populate the dual field in each
   /// StoredCut with the row dual from the last forward-pass solve.
   void update_stored_cut_duals();
 
-  /// All stored cuts (for persistence / inspection)
-  [[nodiscard]] const auto& stored_cuts() const noexcept
+  /// Union view over every stored cut across scenes, rebuilt on call.
+  /// Equivalent to the former flat-vector accessor — kept for places
+  /// (cascade transitions, save helpers) that need a combined list.
+  [[nodiscard]] auto stored_cuts() const
   {
-    return m_cut_store_.stored_cuts();
+    return m_cut_store_.build_combined_cuts(planning_lp());
   }
 
-  /// Number of stored cuts (thread-safe).
-  /// In single_cut_storage mode, counts across all per-scene vectors.
-  [[nodiscard]] int num_stored_cuts() const noexcept
+  /// Total number of stored cuts across all scenes.
+  [[nodiscard]] std::ptrdiff_t num_stored_cuts() const noexcept
   {
-    return m_cut_store_.num_stored_cuts(m_options_.single_cut_storage);
+    return m_cut_store_.num_stored_cuts();
   }
 
   /// Access the cut store (for cascade orchestration, etc.).
@@ -335,7 +379,7 @@ public:
   /// Save state variable column solutions and reduced costs to a CSV file.
   /// Writes one row per column with its name, phase, scene, value, and
   /// reduced cost.  Saved alongside cuts for hot-start state restoration.
-  [[nodiscard]] auto save_state(const std::string& filepath) const
+  [[nodiscard]] auto save_state(const std::string& filepath)
       -> std::expected<void, Error>;
 
   /// Load state variable column solutions from a CSV file.
@@ -370,6 +414,28 @@ private:
 
   void initialize_alpha_variables(SceneIndex scene_index);
   void collect_state_variable_links(SceneIndex scene_index);
+
+  /// Mirror per-state-variable runtime values onto the persistent
+  /// `StateVariable` objects after a forward (or elastic-clone) solve.
+  ///
+  /// Always writes `col_sol` for every state variable of the solved
+  /// phase, and `reduced_cost` on each source state variable reached
+  /// via an incoming link from the previous phase.  Cut construction
+  /// reads both fields directly from the persistent `StateVariable`
+  /// objects, avoiding per-phase full-vector caches.
+  ///
+  /// `col_sol_phys` is a **physical-space** view (from
+  /// `LinearInterface::get_col_sol()`) so solver-tolerance noise has
+  /// already been clamped to each column's physical bound box.  The
+  /// captured raw value is recovered by dividing by the state
+  /// variable's `var_scale()`, yielding a clean raw LP value for
+  /// `StateVariable::col_sol()` consumers (cut builders, next-phase
+  /// `propagate_trial_values`).
+  void capture_state_variable_values(
+      SceneIndex scene_index,
+      PhaseIndex phase_index,
+      const ScaledView& col_sol_phys,
+      std::span<const double> reduced_costs) const noexcept;
 
   [[nodiscard]] auto forward_pass(SceneIndex scene_index,
                                   const SolverOptions& opts,
@@ -467,7 +533,7 @@ private:
   /// Store a cut for sharing and persistence (thread-safe).
   /// Writes to both per-scene storage and shared storage.
   void store_cut(SceneIndex scene_index,
-                 PhaseIndex src_phase,
+                 PhaseIndex src_phase_index,
                  const SparseRow& cut,
                  CutType type = CutType::Optimality,
                  RowIndex row = RowIndex {-1});
@@ -486,16 +552,6 @@ private:
       LinearInterface& clone,
       const SolverOptions& opts,
       const BasicTaskRequirements<SDDPTaskKey>& task_req = {})
-      -> std::expected<int, Error>;
-
-  /// Iterative feasibility backpropagation: propagate from start_phase
-  /// backward to phase 0 using elastic filter and cuts.
-  /// Returns the number of additional cuts added.
-  [[nodiscard]] auto feasibility_backpropagate(SceneIndex scene_index,
-                                               PhaseIndex start_phase,
-                                               int total_cuts,
-                                               const SolverOptions& opts,
-                                               IterationIndex iteration_index)
       -> std::expected<int, Error>;
 
   /// Create a submit function that submits complete aperture tasks to
@@ -522,20 +578,6 @@ private:
 
   /// Build combined stored cuts from per-scene vectors (for persistence).
   [[nodiscard]] std::vector<StoredCut> build_combined_cuts() const;
-
-  /// Get a pooled clone pointer for aperture solves (nullptr if pool disabled).
-  LinearInterface* get_pooled_clone_ptr(SceneIndex scene_index,
-                                        PhaseIndex phase_index)
-  {
-    if (!m_options_.use_clone_pool || !m_clone_pool_.is_allocated()) {
-      return nullptr;
-    }
-    return m_clone_pool_.get_ptr(
-        scene_index,
-        phase_index,
-        planning_lp(),
-        m_scene_phase_states_[scene_index][phase_index].base_nrows);
-  }
 
   /// Check whether the sentinel file exists (user-requested stop)
   [[nodiscard]] bool check_sentinel_stop() const;
@@ -567,7 +609,7 @@ private:
   /// Returns a ForwardPassOutcome or an error if ALL scenes failed.
   [[nodiscard]] auto run_forward_pass_all_scenes(SDDPWorkPool& pool,
                                                  const SolverOptions& opts,
-                                                 IterationIndex iter)
+                                                 IterationIndex iteration_index)
       -> std::expected<ForwardPassOutcome, Error>;
 
   /// Run the backward pass for all feasible scenes in parallel.
@@ -579,7 +621,7 @@ private:
       std::span<const uint8_t> scene_feasible,
       SDDPWorkPool& pool,
       const SolverOptions& opts,
-      IterationIndex iter) -> BackwardPassOutcome;
+      IterationIndex iteration_index) -> BackwardPassOutcome;
 
   /// Process a single backward-pass phase step (pi → pi-1) for one scene.
   /// Builds the optimality cut, stores it, adds it to the LP, re-solves,
@@ -613,13 +655,44 @@ private:
       const SolverOptions& opts,
       IterationIndex iteration_index) -> std::expected<int, Error>;
 
+  /// Install a Benders cut on the source-phase LP during the aperture
+  /// backward pass.  Shared by both aperture entry points.
+  ///
+  /// When `expected_cut` has a value (aperture produced the richer
+  /// multi-scenario cut): adds it to `src_li`, resolves when
+  /// `src_phase_index > 0`, records kappa on success.  On the rare
+  /// non-optimal resolve, deletes the freshly-added row and falls back to
+  /// a `bcut` built from cached forward-pass state-variable reduced costs
+  /// — a valid Benders underestimator that cannot make src_li infeasible.
+  ///
+  /// When `expected_cut` is empty (aperture itself produced no cut):
+  /// installs the bcut directly without resolving.
+  ///
+  /// The bcut is constructed from `StateVariable::reduced_cost()` values
+  /// captured by the forward pass via `capture_state_variable_values()`.
+  /// Those cached values are refreshed each forward solve and never
+  /// overwritten by the backward pass, so the bcut always reflects the
+  /// most recent forward-pass optimum.
+  [[nodiscard]] auto install_aperture_backward_cut(
+      SceneIndex scene_index,
+      PhaseIndex src_phase_index,
+      PhaseIndex phase_index,
+      int cut_offset,
+      IterationIndex iteration_index,
+      ColIndex src_alpha_col,
+      const PhaseStateInfo& src_state,
+      const PhaseStateInfo& target_state,
+      std::optional<SparseRow> expected_cut,
+      LinearInterface& src_li,
+      const SolverOptions& opts) -> int;
+
   /// Phase-synchronized backward pass: processes phases one at a time,
   /// sharing optimality cuts between scenes after each phase completes.
   [[nodiscard]] auto run_backward_pass_synchronized(
       std::span<const uint8_t> scene_feasible,
       SDDPWorkPool& pool,
       const SolverOptions& opts,
-      IterationIndex iter) -> BackwardPassOutcome;
+      IterationIndex iteration_index) -> BackwardPassOutcome;
 
   /// Asynchronous scene execution: when cut_sharing == none and
   /// max_async_spread > 0, scenes run their own forward/backward
@@ -637,14 +710,22 @@ private:
 
   /// Apply cut-sharing across scenes for all phases generated in this
   /// iteration.
-  /// @param cuts_before  Value of m_stored_cuts_.size() BEFORE this
-  ///                     iteration's backward pass.
   /// @param iteration    Current SDDP iteration index.
-  void apply_cut_sharing_for_iteration(std::size_t cuts_before,
-                                       IterationIndex iteration_index);
+  ///
+  /// New cuts are identified by comparing each scene's current
+  /// `m_scene_cuts_` vector size against `m_scene_cuts_before_` —
+  /// the caller must populate the latter before the backward pass.
+  void apply_cut_sharing_for_iteration(IterationIndex iteration_index);
 
-  /// Compute gap, update convergence flag, update live-query atomics, log.
-  void finalize_iteration_result(SDDPIterationResult& ir, IterationIndex iter);
+  /// Compute gap + gap_change, update convergence flag, update live-query
+  /// atomics, log.  @p results carries the previous iterations so that
+  /// gap_change can be evaluated against the look-back window before the
+  /// log line is emitted — otherwise the mid-iteration log would show a
+  /// stale 1.0 sentinel while the later "done" log shows the real value.
+  void finalize_iteration_result(
+      SDDPIterationResult& ir,
+      IterationIndex iteration_index,
+      const std::vector<SDDPIterationResult>& results);
 
   /// Write the monitoring API status file if API is enabled.
   void maybe_write_api_status(const std::string& status_file,
@@ -654,7 +735,7 @@ private:
 
   /// Save cuts (combined + per-scene) after an iteration, handling infeasible
   /// scene renaming.
-  void save_cuts_for_iteration(IterationIndex iter,
+  void save_cuts_for_iteration(IterationIndex iteration_index,
                                std::span<const uint8_t> scene_feasible);
 
   // Accessor for the wrapped PlanningLP reference (avoids raw reference member)
@@ -667,16 +748,19 @@ private:
     return m_planning_lp_.get();
   }
 
-  /// Get the scene UID for a given SceneIndex.
-  [[nodiscard]] SceneUid scene_uid(SceneIndex si) const noexcept
+  /// Convert a `SceneIndex` to the matching `SceneUid`.  Mirror
+  /// of `SimulationLP::uid_of(SceneIndex)` for callers that already
+  /// hold an SDDPMethod reference — avoids going through
+  /// `planning_lp().simulation().uid_of(...)` at every call site.
+  [[nodiscard]] SceneUid uid_of(SceneIndex si) const noexcept
   {
-    return planning_lp().simulation().scenes()[si].uid();
+    return planning_lp().simulation().uid_of(si);
   }
 
-  /// Get the phase UID for a given PhaseIndex.
-  [[nodiscard]] PhaseUid phase_uid(PhaseIndex pi) const noexcept
+  /// Convert a `PhaseIndex` to the matching `PhaseUid`.
+  [[nodiscard]] PhaseUid uid_of(PhaseIndex pi) const noexcept
   {
-    return planning_lp().simulation().phases()[pi].uid();
+    return planning_lp().simulation().uid_of(pi);
   }
 
   std::reference_wrapper<PlanningLP> m_planning_lp_;
@@ -685,10 +769,6 @@ private:
   LabelMaker m_label_maker_;
   scene_phase_states_t m_scene_phase_states_;
   SDDPCutStore m_cut_store_;
-
-  /// Clone pool: one cached LinearInterface per (scene, phase) for aperture
-  /// reuse.  Empty when use_clone_pool is false.
-  SDDPClonePool m_clone_pool_ {};
 
   /// Per-(scene, phase) count of consecutive forward-pass infeasibilities.
   /// Incremented when the elastic filter is used in forward_pass at (scene,
@@ -722,6 +802,13 @@ private:
   std::atomic<bool> m_stop_requested_ {false};
   /// When true, should_stop() returns false (simulation pass ignores stops).
   bool m_in_simulation_ {false};
+  /// Two-phase simulation flag: false during Pass 1 (fcut collection, no
+  /// crossover, no write_out), true during Pass 2 (crossover on, inline
+  /// write_out fused into each cell's solve task).  Always false outside
+  /// the simulation pass; the forward-pass body branches on this flag to
+  /// decide whether to emit parquet shards and to gate the per-cell elastic-
+  /// recovery logic.
+  bool m_sim_write_enabled_ {false};
 
   // ── Atomic live-query state ──
   std::atomic<int> m_current_iteration_ {0};

@@ -34,6 +34,8 @@ bool FlowLP::add_to_lp(const SystemContext& sc,
                        const StageLP& stage,
                        LinearProblem& lp)
 {
+  static constexpr auto ampl_name = ClassName.snake_case();
+
   if (!is_active(stage)) {
     return true;
   }
@@ -80,6 +82,12 @@ bool FlowLP::add_to_lp(const SystemContext& sc,
   // storing the indices for this scenario and stage
   const auto st_key = std::tuple {scenario.uid(), stage.uid()};
   flow_cols[st_key] = std::move(fcols);
+
+  // Register PAMPL-visible columns.
+  if (!flow_cols.at(st_key).empty()) {
+    sc.add_ampl_variable(
+        ampl_name, uid(), FlowName, scenario, stage, flow_cols.at(st_key));
+  }
 
   return true;
 }

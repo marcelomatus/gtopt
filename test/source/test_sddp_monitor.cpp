@@ -77,7 +77,7 @@ TEST_CASE("SDDPIterationResult default construction")  // NOLINT
 
   const SDDPIterationResult result {};
 
-  CHECK(result.iteration == 0);
+  CHECK(result.iteration_index == IterationIndex {0});
   CHECK(result.lower_bound == doctest::Approx(0.0));
   CHECK(result.upper_bound == doctest::Approx(0.0));
   CHECK(result.gap == doctest::Approx(0.0));
@@ -116,7 +116,7 @@ TEST_CASE("write_solver_status produces valid JSON")  // NOLINT
 
   std::vector<SDDPIterationResult> results;
   results.push_back(SDDPIterationResult {
-      .iteration = IterationIndex {1},
+      .iteration_index = IterationIndex {1},
       .lower_bound = 800.0,
       .upper_bound = 1200.0,
       .gap = 0.33,
@@ -137,7 +137,7 @@ TEST_CASE("write_solver_status produces valid JSON")  // NOLINT
           },
   });
   results.push_back(SDDPIterationResult {
-      .iteration = IterationIndex {2},
+      .iteration_index = IterationIndex {2},
       .lower_bound = 900.0,
       .upper_bound = 1050.0,
       .gap = 0.14,

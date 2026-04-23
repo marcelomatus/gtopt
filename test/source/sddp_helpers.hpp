@@ -16,7 +16,12 @@
 #include <gtopt/planning_method.hpp>
 #include <gtopt/sddp_method.hpp>
 
+#include "fixture_helpers.hpp"
+
 using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using gtopt::test_fixtures::make_single_stage_phases;
+using gtopt::test_fixtures::make_uniform_blocks;
+using gtopt::test_fixtures::make_uniform_stages;
 
 /// Create a 3-phase hydro+thermal planning problem.
 ///
@@ -31,13 +36,7 @@ using namespace gtopt;  // NOLINT(google-global-names-in-headers)
 inline auto make_3phase_hydro_planning() -> Planning
 {
   // ── Blocks: 72 total (24 per phase × 3 phases) ──
-  Array<Block> block_array;
-  for (int i = 0; i < 72; ++i) {
-    block_array.push_back(Block {
-        .uid = Uid {i + 1},
-        .duration = 1.0,
-    });
-  }
+  Array<Block> block_array = make_uniform_blocks(72, 1.0);
 
   // ── Stages: 3 stages, one per phase ──
   Array<Stage> stage_array = {
@@ -296,34 +295,14 @@ inline auto make_5phase_reservoir_planning() -> Planning
   constexpr double block_duration = 3.0;
   constexpr int total_blocks = num_phases * blocks_per_phase;
 
-  Array<Block> block_array;
-  block_array.reserve(total_blocks);
-  for (int i = 0; i < total_blocks; ++i) {
-    block_array.push_back(Block {
-        .uid = Uid {i + 1},
-        .duration = block_duration,
-    });
-  }
+  auto block_array = make_uniform_blocks(static_cast<std::size_t>(total_blocks),
+                                         block_duration);
 
-  Array<Stage> stage_array;
-  stage_array.reserve(num_phases);
-  for (int s = 0; s < num_phases; ++s) {
-    stage_array.push_back(Stage {
-        .uid = Uid {s + 1},
-        .first_block = static_cast<Size>(s * blocks_per_phase),
-        .count_block = blocks_per_phase,
-    });
-  }
-
-  Array<Phase> phase_array;
-  phase_array.reserve(num_phases);
-  for (int p = 0; p < num_phases; ++p) {
-    phase_array.push_back(Phase {
-        .uid = Uid {p + 1},
-        .first_stage = static_cast<Size>(p),
-        .count_stage = 1,
-    });
-  }
+  auto stage_array =
+      make_uniform_stages(static_cast<std::size_t>(num_phases),
+                          static_cast<std::size_t>(blocks_per_phase));
+  auto phase_array =
+      make_single_stage_phases(static_cast<std::size_t>(num_phases));
 
   const Array<Bus> bus_array = {
       {
@@ -480,34 +459,14 @@ inline auto make_5phase_small_reservoir_planning() -> Planning
   constexpr double block_duration = 3.0;
   constexpr int total_blocks = num_phases * blocks_per_phase;
 
-  Array<Block> block_array;
-  block_array.reserve(total_blocks);
-  for (int i = 0; i < total_blocks; ++i) {
-    block_array.push_back(Block {
-        .uid = Uid {i + 1},
-        .duration = block_duration,
-    });
-  }
+  auto block_array = make_uniform_blocks(static_cast<std::size_t>(total_blocks),
+                                         block_duration);
 
-  Array<Stage> stage_array;
-  stage_array.reserve(num_phases);
-  for (int s = 0; s < num_phases; ++s) {
-    stage_array.push_back(Stage {
-        .uid = Uid {s + 1},
-        .first_block = static_cast<Size>(s * blocks_per_phase),
-        .count_block = blocks_per_phase,
-    });
-  }
-
-  Array<Phase> phase_array;
-  phase_array.reserve(num_phases);
-  for (int p = 0; p < num_phases; ++p) {
-    phase_array.push_back(Phase {
-        .uid = Uid {p + 1},
-        .first_stage = static_cast<Size>(p),
-        .count_stage = 1,
-    });
-  }
+  auto stage_array =
+      make_uniform_stages(static_cast<std::size_t>(num_phases),
+                          static_cast<std::size_t>(blocks_per_phase));
+  auto phase_array =
+      make_single_stage_phases(static_cast<std::size_t>(num_phases));
 
   const Array<Bus> bus_array = {
       {
@@ -661,34 +620,14 @@ inline auto make_5phase_expansion_planning() -> Planning
   constexpr double block_duration = 3.0;
   constexpr int total_blocks = num_phases * blocks_per_phase;
 
-  Array<Block> block_array;
-  block_array.reserve(total_blocks);
-  for (int i = 0; i < total_blocks; ++i) {
-    block_array.push_back(Block {
-        .uid = Uid {i + 1},
-        .duration = block_duration,
-    });
-  }
+  auto block_array = make_uniform_blocks(static_cast<std::size_t>(total_blocks),
+                                         block_duration);
 
-  Array<Stage> stage_array;
-  stage_array.reserve(num_phases);
-  for (int s = 0; s < num_phases; ++s) {
-    stage_array.push_back(Stage {
-        .uid = Uid {s + 1},
-        .first_block = static_cast<Size>(s * blocks_per_phase),
-        .count_block = blocks_per_phase,
-    });
-  }
-
-  Array<Phase> phase_array;
-  phase_array.reserve(num_phases);
-  for (int p = 0; p < num_phases; ++p) {
-    phase_array.push_back(Phase {
-        .uid = Uid {p + 1},
-        .first_stage = static_cast<Size>(p),
-        .count_stage = 1,
-    });
-  }
+  auto stage_array =
+      make_uniform_stages(static_cast<std::size_t>(num_phases),
+                          static_cast<std::size_t>(blocks_per_phase));
+  auto phase_array =
+      make_single_stage_phases(static_cast<std::size_t>(num_phases));
 
   const Array<Bus> bus_array = {
       {
@@ -780,34 +719,14 @@ inline auto make_12phase_yearly_hydro_planning() -> Planning
   constexpr double block_duration = 1.0;
   constexpr int total_blocks = num_phases * blocks_per_phase;
 
-  Array<Block> block_array;
-  block_array.reserve(total_blocks);
-  for (int i = 0; i < total_blocks; ++i) {
-    block_array.push_back(Block {
-        .uid = Uid {i + 1},
-        .duration = block_duration,
-    });
-  }
+  auto block_array = make_uniform_blocks(static_cast<std::size_t>(total_blocks),
+                                         block_duration);
 
-  Array<Stage> stage_array;
-  stage_array.reserve(num_phases);
-  for (int s = 0; s < num_phases; ++s) {
-    stage_array.push_back(Stage {
-        .uid = Uid {s + 1},
-        .first_block = static_cast<Size>(s * blocks_per_phase),
-        .count_block = blocks_per_phase,
-    });
-  }
-
-  Array<Phase> phase_array;
-  phase_array.reserve(num_phases);
-  for (int p = 0; p < num_phases; ++p) {
-    phase_array.push_back(Phase {
-        .uid = Uid {p + 1},
-        .first_stage = static_cast<Size>(p),
-        .count_stage = 1,
-    });
-  }
+  auto stage_array =
+      make_uniform_stages(static_cast<std::size_t>(num_phases),
+                          static_cast<std::size_t>(blocks_per_phase));
+  auto phase_array =
+      make_single_stage_phases(static_cast<std::size_t>(num_phases));
 
   const Array<Bus> bus_array = {
       {
@@ -946,34 +865,14 @@ inline auto make_2scene_3phase_hydro_planning(double prob1 = 0.7,
   constexpr int blocks_per_phase = 4;
   constexpr int total_blocks = num_phases * blocks_per_phase;
 
-  Array<Block> block_array;
-  block_array.reserve(total_blocks);
-  for (int i = 0; i < total_blocks; ++i) {
-    block_array.push_back(Block {
-        .uid = Uid {i + 1},
-        .duration = 1.0,
-    });
-  }
+  auto block_array =
+      make_uniform_blocks(static_cast<std::size_t>(total_blocks), 1.0);
 
-  Array<Stage> stage_array;
-  stage_array.reserve(num_phases);
-  for (int s = 0; s < num_phases; ++s) {
-    stage_array.push_back(Stage {
-        .uid = Uid {s + 1},
-        .first_block = static_cast<Size>(s * blocks_per_phase),
-        .count_block = blocks_per_phase,
-    });
-  }
-
-  Array<Phase> phase_array;
-  phase_array.reserve(num_phases);
-  for (int p = 0; p < num_phases; ++p) {
-    phase_array.push_back(Phase {
-        .uid = Uid {p + 1},
-        .first_stage = static_cast<Size>(p),
-        .count_stage = 1,
-    });
-  }
+  auto stage_array =
+      make_uniform_stages(static_cast<std::size_t>(num_phases),
+                          static_cast<std::size_t>(blocks_per_phase));
+  auto phase_array =
+      make_single_stage_phases(static_cast<std::size_t>(num_phases));
 
   Simulation simulation = {
       .block_array = std::move(block_array),
@@ -1131,14 +1030,8 @@ inline auto make_2phase_linear_planning() -> Planning
   constexpr int blocks_per_phase = 4;
   constexpr int total_blocks = num_phases * blocks_per_phase;
 
-  Array<Block> block_array;
-  block_array.reserve(total_blocks);
-  for (int i = 0; i < total_blocks; ++i) {
-    block_array.push_back(Block {
-        .uid = Uid {i + 1},
-        .duration = 1.0,
-    });
-  }
+  auto block_array =
+      make_uniform_blocks(static_cast<std::size_t>(total_blocks), 1.0);
 
   Array<Stage> stage_array = {
       Stage {
@@ -1338,34 +1231,13 @@ inline auto make_nphase_simple_hydro_planning(int num_phases) -> Planning
   constexpr int blocks_per_phase = 4;
   const int total_blocks = num_phases * blocks_per_phase;
 
-  Array<Block> block_array;
-  block_array.reserve(static_cast<std::size_t>(total_blocks));
-  for (int i = 0; i < total_blocks; ++i) {
-    block_array.push_back(Block {
-        .uid = Uid {i + 1},
-        .duration = 1.0,
-    });
-  }
-
-  Array<Stage> stage_array;
-  stage_array.reserve(static_cast<std::size_t>(num_phases));
-  for (int s = 0; s < num_phases; ++s) {
-    stage_array.push_back(Stage {
-        .uid = Uid {s + 1},
-        .first_block = static_cast<Size>(s * blocks_per_phase),
-        .count_block = blocks_per_phase,
-    });
-  }
-
-  Array<Phase> phase_array;
-  phase_array.reserve(static_cast<std::size_t>(num_phases));
-  for (int p = 0; p < num_phases; ++p) {
-    phase_array.push_back(Phase {
-        .uid = Uid {p + 1},
-        .first_stage = static_cast<Size>(p),
-        .count_stage = 1,
-    });
-  }
+  auto block_array =
+      make_uniform_blocks(static_cast<std::size_t>(total_blocks), 1.0);
+  auto stage_array =
+      make_uniform_stages(static_cast<std::size_t>(num_phases),
+                          static_cast<std::size_t>(blocks_per_phase));
+  auto phase_array =
+      make_single_stage_phases(static_cast<std::size_t>(num_phases));
 
   Simulation simulation = {
       .block_array = std::move(block_array),
@@ -1498,34 +1370,14 @@ inline auto make_tight_reservoir_3phase_planning() -> Planning
   constexpr int blocks_per_phase = 4;
   constexpr int total_blocks = num_phases * blocks_per_phase;
 
-  Array<Block> block_array;
-  block_array.reserve(total_blocks);
-  for (int i = 0; i < total_blocks; ++i) {
-    block_array.push_back(Block {
-        .uid = Uid {i + 1},
-        .duration = 1.0,
-    });
-  }
+  auto block_array =
+      make_uniform_blocks(static_cast<std::size_t>(total_blocks), 1.0);
 
-  Array<Stage> stage_array;
-  stage_array.reserve(num_phases);
-  for (int s = 0; s < num_phases; ++s) {
-    stage_array.push_back(Stage {
-        .uid = Uid {s + 1},
-        .first_block = static_cast<Size>(s * blocks_per_phase),
-        .count_block = blocks_per_phase,
-    });
-  }
-
-  Array<Phase> phase_array;
-  phase_array.reserve(num_phases);
-  for (int p = 0; p < num_phases; ++p) {
-    phase_array.push_back(Phase {
-        .uid = Uid {p + 1},
-        .first_stage = static_cast<Size>(p),
-        .count_stage = 1,
-    });
-  }
+  auto stage_array =
+      make_uniform_stages(static_cast<std::size_t>(num_phases),
+                          static_cast<std::size_t>(blocks_per_phase));
+  auto phase_array =
+      make_single_stage_phases(static_cast<std::size_t>(num_phases));
 
   const Array<Bus> bus_array = {{
       .uid = Uid {1},
@@ -1621,6 +1473,381 @@ inline auto make_tight_reservoir_3phase_planning() -> Planning
       .system =
           {
               .name = "sddp_tight_rsv_3phase",
+              .bus_array = bus_array,
+              .demand_array = demand_array,
+              .generator_array = generator_array,
+              .junction_array = junction_array,
+              .waterway_array = waterway_array,
+              .flow_array = flow_array,
+              .reservoir_array = reservoir_array,
+              .turbine_array = turbine_array,
+          },
+  };
+}
+
+/// 3-phase fixture deliberately crafted to force forward-pass LP
+/// infeasibility on the very first iteration, so the elastic filter
+/// activates and at least one CutType::Feasibility cut is generated.
+///
+/// Mechanism:
+///   - Waterway has `fmin = 5 hm³/h` — the river is required to deliver
+///     at least 5 dam³/h downstream (irrigation contract).
+///   - Reservoir starts at `eini = 60`, NO natural inflow.
+///   - Hydro is cheap (gcost = 1), thermal is expensive (gcost = 100),
+///     so phase 0 dispatches hydro maximally to meet its 80 MW demand,
+///     draining the reservoir close to empty.
+///   - Phase 1 inherits the state-variable trial value (≈ 0) from phase 0.
+///     With no inflow and an empty reservoir it cannot satisfy
+///     `fmin × duration = 5 × 4 = 20 hm³` of forced discharge → the
+///     LP is infeasible at the trial point → SDDP triggers
+///     `elastic_filter_solve()` and installs an fcut on phase 0 telling
+///     it to leave water for phase 1.
+///
+/// This fixture is the ground truth used by the
+/// `ElasticFilterMode comparison` test: every mode must visit the
+/// elastic path here, so the per-mode cut counts (fcuts, mcuts,
+/// IIS-filtered cuts) are non-trivial and directly comparable.
+inline auto make_forced_infeasibility_planning() -> Planning
+{
+  constexpr int num_phases = 3;
+  constexpr int blocks_per_phase = 4;
+  constexpr int total_blocks = num_phases * blocks_per_phase;
+
+  auto block_array =
+      make_uniform_blocks(static_cast<std::size_t>(total_blocks), 1.0);
+  auto stage_array =
+      make_uniform_stages(static_cast<std::size_t>(num_phases),
+                          static_cast<std::size_t>(blocks_per_phase));
+  auto phase_array =
+      make_single_stage_phases(static_cast<std::size_t>(num_phases));
+
+  const Array<Bus> bus_array = {{
+      .uid = Uid {1},
+      .name = "b1",
+  }};
+  const Array<Generator> generator_array = {
+      {
+          .uid = Uid {1},
+          .name = "hydro_gen",
+          .bus = Uid {1},
+          .gcost = 1.0,  // cheap → phase 0 drains the reservoir
+          .capacity = 100.0,
+      },
+      {
+          .uid = Uid {2},
+          .name = "thermal_gen",
+          .bus = Uid {1},
+          .gcost = 100.0,  // expensive backup
+          .capacity = 500.0,
+      },
+  };
+  const Array<Demand> demand_array = {{
+      .uid = Uid {1},
+      .name = "load1",
+      .bus = Uid {1},
+      .capacity = 80.0,
+  }};
+  const Array<Junction> junction_array = {
+      {
+          .uid = Uid {1},
+          .name = "j_up",
+      },
+      {
+          .uid = Uid {2},
+          .name = "j_down",
+          .drain = true,
+      },
+  };
+  // fmin = 2 hm³/h is the forcing term: each phase must discharge at
+  // least 2 × 4 = 8 hm³.  With eini ≈ 0 inherited from phase 0's
+  // initial-iteration cheap-hydro dispatch, phase 1's LP cannot satisfy
+  // this → infeasibility → fcut.  Total mandatory discharge across
+  // phases 1+2 is 16 hm³; with eini0 = 60 the converged solution leaves
+  // ≥ 16 hm³ for downstream phases, well within the reservoir's
+  // 100 hm³ capacity.
+  const Array<Waterway> waterway_array = {{
+      .uid = Uid {1},
+      .name = "ww1",
+      .junction_a = Uid {1},
+      .junction_b = Uid {2},
+      .fmin = 2.0,
+      .fmax = 100.0,
+  }};
+  const Array<Reservoir> reservoir_array = {{
+      .uid = Uid {1},
+      .name = "rsv1",
+      .junction = Uid {1},
+      .capacity = 100.0,
+      .emin = 0.0,
+      .emax = 100.0,
+      .eini = 60.0,
+      .fmin = -1000.0,
+      .fmax = +1000.0,
+      .flow_conversion_rate = 1.0,
+  }};
+  // Small natural inflow keeps the problem solvable on iter 1+:
+  // 1 hm³/h × 4h = 4 hm³ per phase, enough that phase 2 can satisfy
+  // its own fmin (8 hm³) once phase 1 leaves ≥ 4 hm³ as state.
+  const Array<Flow> flow_array = {{
+      .uid = Uid {1},
+      .name = "inflow",
+      .direction = 1,
+      .junction = Uid {1},
+      .discharge = 1.0,
+  }};
+  const Array<Turbine> turbine_array = {{
+      .uid = Uid {1},
+      .name = "tur1",
+      .waterway = Uid {1},
+      .generator = Uid {1},
+      .production_factor = 1.0,
+  }};
+
+  Simulation simulation = {
+      .block_array = std::move(block_array),
+      .stage_array = std::move(stage_array),
+      .scenario_array = {{
+          .uid = Uid {1},
+      }},
+      .phase_array = std::move(phase_array),
+  };
+
+  PlanningOptions options;
+  options.demand_fail_cost = 1000.0;
+  options.use_single_bus = OptBool {true};
+  options.scale_objective = OptReal {1.0};
+  options.output_format = DataFormat::csv;
+  options.output_compression = CompressionCodec::uncompressed;
+
+  return Planning {
+      .options = std::move(options),
+      .simulation = std::move(simulation),
+      .system =
+          {
+              .name = "sddp_forced_infeas_3phase",
+              .bus_array = bus_array,
+              .demand_array = demand_array,
+              .generator_array = generator_array,
+              .junction_array = junction_array,
+              .waterway_array = waterway_array,
+              .flow_array = flow_array,
+              .reservoir_array = reservoir_array,
+              .turbine_array = turbine_array,
+          },
+  };
+}
+
+/// Two-reservoir variant of `make_forced_infeasibility_planning()`.
+///
+/// Both reservoirs feed the same single bus, but only reservoir 1's
+/// downstream waterway carries a mandatory minimum discharge
+/// (`fmin = 2 hm³/h`).  Reservoir 2's waterway has `fmin = 0` — it
+/// can be empty without infeasibility.
+///
+/// Forward-pass behaviour:
+///   - iter 0 phase 0 dispatches both reservoirs (cheap hydro) and
+///     drains them.
+///   - iter 0 phase 1 inherits both state-variable trial values ≈ 0.
+///     The LP cannot satisfy waterway 1's fmin (needs 2 × 4 = 8 hm³)
+///     → infeasible → elastic filter activates.
+///   - Elastic clone relaxes BOTH reservoir state-variable bounds,
+///     adds penalised slacks on each.  Only reservoir 1's slack
+///     is essential to feasibility; reservoir 2's slack is
+///     non-essential.
+///
+/// IIS distinction:
+///   - `multi_cut` mode emits per-active-slack cuts.  In a clean
+///     elastic solve only reservoir 1's slack should be active, but
+///     numerical near-degeneracy (penalty competition) can leave
+///     reservoir 2 with a tiny non-zero slack — `multi_cut` then
+///     emits cuts on both reservoirs.
+///   - `chinneck` mode runs the IIS re-fix step: it pins reservoir
+///     2's slacks to zero, re-solves, confirms the LP is still
+///     feasible (because reservoir 2 wasn't really needed), and
+///     clears reservoir 2's `sup_col`/`sdn_col` so
+///     `build_multi_cuts` emits cuts ONLY on reservoir 1.
+///
+/// Expected comparison:
+///   chinneck.feas_cuts ≤ multi.feas_cuts (strict inequality when
+///   the elastic dual is degenerate enough to keep reservoir 2's
+///   slack non-zero in the un-filtered solve).
+inline auto make_two_reservoir_forced_infeasibility_planning() -> Planning
+{
+  constexpr int num_phases = 3;
+  constexpr int blocks_per_phase = 4;
+  constexpr int total_blocks = num_phases * blocks_per_phase;
+
+  auto block_array =
+      make_uniform_blocks(static_cast<std::size_t>(total_blocks), 1.0);
+  auto stage_array =
+      make_uniform_stages(static_cast<std::size_t>(num_phases),
+                          static_cast<std::size_t>(blocks_per_phase));
+  auto phase_array =
+      make_single_stage_phases(static_cast<std::size_t>(num_phases));
+
+  const Array<Bus> bus_array = {{
+      .uid = Uid {1},
+      .name = "b1",
+  }};
+  const Array<Generator> generator_array = {
+      {
+          .uid = Uid {1},
+          .name = "hydro_gen_1",
+          .bus = Uid {1},
+          .gcost = 1.0,
+          .capacity = 100.0,
+      },
+      {
+          .uid = Uid {2},
+          .name = "hydro_gen_2",
+          .bus = Uid {1},
+          .gcost = 1.0,
+          .capacity = 100.0,
+      },
+      {
+          .uid = Uid {3},
+          .name = "thermal_gen",
+          .bus = Uid {1},
+          .gcost = 100.0,
+          .capacity = 500.0,
+      },
+  };
+  const Array<Demand> demand_array = {{
+      .uid = Uid {1},
+      .name = "load1",
+      .bus = Uid {1},
+      .capacity = 80.0,
+  }};
+
+  // Two parallel hydro systems sharing a common downstream drain.
+  // Each reservoir has its own upstream junction; both discharge
+  // into the same drain junction (Uid 99).
+  const Array<Junction> junction_array = {
+      {
+          .uid = Uid {1},
+          .name = "j_up_1",
+      },
+      {
+          .uid = Uid {2},
+          .name = "j_up_2",
+      },
+      {
+          .uid = Uid {99},
+          .name = "j_drain",
+          .drain = true,
+      },
+  };
+
+  // Waterway 1: tight fmin (forces phase 1 infeasibility when
+  // reservoir 1 inherits ≈ 0 hm³ from phase 0).
+  // Waterway 2: NO mandatory discharge — reservoir 2 can be empty
+  // without infeasibility (its state-var bound is the non-essential
+  // one that chinneck IIS should filter out).
+  const Array<Waterway> waterway_array = {
+      {
+          .uid = Uid {1},
+          .name = "ww1",
+          .junction_a = Uid {1},
+          .junction_b = Uid {99},
+          .fmin = 2.0,
+          .fmax = 100.0,
+      },
+      {
+          .uid = Uid {2},
+          .name = "ww2",
+          .junction_a = Uid {2},
+          .junction_b = Uid {99},
+          .fmin = 0.0,
+          .fmax = 100.0,
+      },
+  };
+
+  // Two reservoirs with identical capacities and initial conditions.
+  // The asymmetry comes entirely from waterway 1's fmin.
+  const Array<Reservoir> reservoir_array = {
+      {
+          .uid = Uid {1},
+          .name = "rsv1",
+          .junction = Uid {1},
+          .capacity = 100.0,
+          .emin = 0.0,
+          .emax = 100.0,
+          .eini = 60.0,
+          .fmin = -1000.0,
+          .fmax = +1000.0,
+          .flow_conversion_rate = 1.0,
+      },
+      {
+          .uid = Uid {2},
+          .name = "rsv2",
+          .junction = Uid {2},
+          .capacity = 100.0,
+          .emin = 0.0,
+          .emax = 100.0,
+          .eini = 60.0,
+          .fmin = -1000.0,
+          .fmax = +1000.0,
+          .flow_conversion_rate = 1.0,
+      },
+  };
+
+  // Small inflows on both reservoirs (1 hm³/h × 4h = 4 hm³ per phase).
+  const Array<Flow> flow_array = {
+      {
+          .uid = Uid {1},
+          .name = "inflow_1",
+          .direction = 1,
+          .junction = Uid {1},
+          .discharge = 1.0,
+      },
+      {
+          .uid = Uid {2},
+          .name = "inflow_2",
+          .direction = 1,
+          .junction = Uid {2},
+          .discharge = 1.0,
+      },
+  };
+
+  const Array<Turbine> turbine_array = {
+      {
+          .uid = Uid {1},
+          .name = "tur1",
+          .waterway = Uid {1},
+          .generator = Uid {1},
+          .production_factor = 1.0,
+      },
+      {
+          .uid = Uid {2},
+          .name = "tur2",
+          .waterway = Uid {2},
+          .generator = Uid {2},
+          .production_factor = 1.0,
+      },
+  };
+
+  Simulation simulation = {
+      .block_array = std::move(block_array),
+      .stage_array = std::move(stage_array),
+      .scenario_array = {{
+          .uid = Uid {1},
+      }},
+      .phase_array = std::move(phase_array),
+  };
+
+  PlanningOptions options;
+  options.demand_fail_cost = 1000.0;
+  options.use_single_bus = OptBool {true};
+  options.scale_objective = OptReal {1.0};
+  options.output_format = DataFormat::csv;
+  options.output_compression = CompressionCodec::uncompressed;
+
+  return Planning {
+      .options = std::move(options),
+      .simulation = std::move(simulation),
+      .system =
+          {
+              .name = "sddp_2rsv_forced_infeas_3phase",
               .bus_array = bus_array,
               .demand_array = demand_array,
               .generator_array = generator_array,

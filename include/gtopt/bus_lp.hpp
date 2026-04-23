@@ -29,9 +29,12 @@ namespace gtopt
 class BusLP : public ObjectLP<Bus>
 {
 public:
-  static constexpr LPClassName ClassName {"Bus", "bus"};
+  static constexpr LPClassName ClassName {"Bus"};
   static constexpr std::string_view BalanceName {"balance"};
   static constexpr std::string_view ThetaName {"theta"};
+  /// Metadata key published by `add_to_lp` so user-constraint filters
+  /// can match buses by their `type` field (e.g. `bus[type="hydro"]`).
+  static constexpr std::string_view TypeKey {"type"};
 
   /// Constructs a BusLP from a Bus and input context
   /// @param pbus The bus to wrap

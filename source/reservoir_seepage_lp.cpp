@@ -38,6 +38,14 @@ bool ReservoirSeepageLP::add_to_lp(const SystemContext& sc,
                                    const StageLP& stage,
                                    LinearProblem& lp)
 {
+  // Intentional exception: the PAMPL class name here is SeepageName
+  // ("seepage") rather than ClassName.snake_case() ("reservoir_seepage").
+  // Matching the downstream PAMPL convention that names this element after
+  // the seepage constraint — not the ObjectLP wrapper — so `seepage.flow`
+  // remains the canonical variable path.  Element-name registration is
+  // hoisted into `system_lp.cpp::register_all_ampl_element_names`.
+  static constexpr std::string_view ampl_name = SeepageName;
+
   if (!is_active(stage)) {
     return true;
   }
@@ -98,6 +106,18 @@ bool ReservoirSeepageLP::add_to_lp(const SystemContext& sc,
   const auto st_key = std::tuple {scenario.uid(), stage.uid()};
   seepage_rows[st_key] = std::move(frows);
   seepage_cols[st_key] = std::move(fcols);
+
+  // Register PAMPL-visible column under the canonical `flow` name
+  // (matching waterway/flow_right).  The seepage constant/slope row is
+  // exposed as a dual via add_to_output.
+  if (!seepage_cols.at(st_key).empty()) {
+    sc.add_ampl_variable(ampl_name,
+                         uid(),
+                         WaterwayLP::FlowName,
+                         scenario,
+                         stage,
+                         seepage_cols.at(st_key));
+  }
 
   // Store the coefficient state for later updates
   m_states_[st_key] = ReservoirSeepageState {

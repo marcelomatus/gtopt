@@ -11,7 +11,7 @@
 #include <string_view>
 
 #include <doctest/doctest.h>
-#include <gtopt/json/json_planning.hpp>
+#include <gtopt/gtopt_json_io.hpp>
 #include <gtopt/planning_lp.hpp>
 
 using namespace gtopt;  // NOLINT(google-global-names-in-headers)
@@ -20,7 +20,6 @@ using namespace gtopt;  // NOLINT(google-global-names-in-headers)
 static constexpr std::string_view demand_emin_json = R"({
   "options": {
     "annual_discount_rate": 0.0,
-    "lp_matrix_options": {"names_level": 1},
     "output_format": "csv",
     "output_compression": "uncompressed",
     "use_single_bus": true,
@@ -61,7 +60,7 @@ TEST_CASE("Demand emin - minimum energy constraint exercised")
 {
   using namespace gtopt;
 
-  auto planning = daw::json::from_json<Planning>(demand_emin_json);
+  auto planning = parse_planning_json(demand_emin_json);
 
   PlanningLP planning_lp(std::move(planning));
   auto result = planning_lp.resolve();
@@ -80,7 +79,6 @@ TEST_CASE("Demand emin - minimum energy constraint exercised")
 static constexpr std::string_view demand_lossfactor_json = R"({
   "options": {
     "annual_discount_rate": 0.0,
-    "lp_matrix_options": {"names_level": 1},
     "output_format": "csv",
     "output_compression": "uncompressed",
     "use_single_bus": true,
@@ -115,7 +113,7 @@ TEST_CASE("Demand lossfactor - loss factor applied in bus balance")
 {
   using namespace gtopt;
 
-  auto planning = daw::json::from_json<Planning>(demand_lossfactor_json);
+  auto planning = parse_planning_json(demand_lossfactor_json);
 
   PlanningLP planning_lp(std::move(planning));
   auto result = planning_lp.resolve();
@@ -139,7 +137,6 @@ TEST_CASE("Demand lossfactor - loss factor applied in bus balance")
 static constexpr std::string_view line_losses_json = R"({
   "options": {
     "annual_discount_rate": 0.0,
-    "lp_matrix_options": {"names_level": 1},
     "output_format": "csv",
     "output_compression": "uncompressed",
     "use_single_bus": false,
@@ -181,7 +178,7 @@ TEST_CASE("Line losses - resistive losses exercised in LP")
 {
   using namespace gtopt;
 
-  auto planning = daw::json::from_json<Planning>(line_losses_json);
+  auto planning = parse_planning_json(line_losses_json);
 
   PlanningLP planning_lp(std::move(planning));
   auto result = planning_lp.resolve();
@@ -204,7 +201,6 @@ TEST_CASE("Line losses - resistive losses exercised in LP")
 static constexpr std::string_view demand_capacity_expansion_json = R"({
   "options": {
     "annual_discount_rate": 0.1,
-    "lp_matrix_options": {"names_level": 1},
     "output_format": "csv",
     "output_compression": "uncompressed",
     "use_single_bus": true,
@@ -225,8 +221,7 @@ static constexpr std::string_view demand_capacity_expansion_json = R"({
     "generator_array": [
       {"uid": 1, "name": "g1", "bus": "b1", "pmin": 0, "pmax": 100,
        "gcost": 20, "capacity": 100,
-       "annual_capcost": 50000, "capmax": 200,
-       "expansion_module_array": [{"uid": 1, "capacity": 50}]
+       "annual_capcost": 50000, "capmax": 200
       }
     ],
     "demand_array": [
@@ -240,8 +235,7 @@ TEST_CASE("Capacity expansion - generator expansion modules exercised")
 {
   using namespace gtopt;
 
-  auto planning =
-      daw::json::from_json<Planning>(demand_capacity_expansion_json);
+  auto planning = parse_planning_json(demand_capacity_expansion_json);
 
   PlanningLP planning_lp(std::move(planning));
   auto result = planning_lp.resolve();
@@ -259,7 +253,6 @@ TEST_CASE("Capacity expansion - generator expansion modules exercised")
 static constexpr std::string_view inactive_demand_json = R"({
   "options": {
     "annual_discount_rate": 0.0,
-    "lp_matrix_options": {"names_level": 1},
     "output_format": "csv",
     "output_compression": "uncompressed",
     "use_single_bus": true,
@@ -292,7 +285,6 @@ static constexpr std::string_view inactive_demand_json = R"({
 static constexpr std::string_view reserve_provision_json = R"({
   "options": {
     "annual_discount_rate": 0.0,
-    "lp_matrix_options": {"names_level": 1},
     "output_format": "csv",
     "output_compression": "uncompressed",
     "use_single_bus": true,
@@ -319,7 +311,7 @@ static constexpr std::string_view reserve_provision_json = R"({
     ],
     "reserve_zone_array": [
       {"uid": 1, "name": "rz1",
-       "urequirement": 30, "drequirement": 20}
+       "urreq": 30, "drreq": 20}
     ],
     "reserve_provision_array": [
       {"uid": 1, "name": "rp1", "generator": 1, "reserve_zones": "1",
@@ -335,7 +327,7 @@ TEST_CASE("Reserve provision - up and down reserves exercised in LP")
 {
   using namespace gtopt;
 
-  auto planning = daw::json::from_json<Planning>(reserve_provision_json);
+  auto planning = parse_planning_json(reserve_provision_json);
 
   PlanningLP planning_lp(std::move(planning));
   auto result = planning_lp.resolve();
@@ -353,7 +345,7 @@ TEST_CASE("Inactive demand - inactive demand skipped in LP")
 {
   using namespace gtopt;
 
-  auto planning = daw::json::from_json<Planning>(inactive_demand_json);
+  auto planning = parse_planning_json(inactive_demand_json);
 
   PlanningLP planning_lp(std::move(planning));
   auto result = planning_lp.resolve();
@@ -378,7 +370,6 @@ TEST_CASE("Inactive demand - inactive demand skipped in LP")
 static constexpr std::string_view generator_profile_json = R"({
   "options": {
     "annual_discount_rate": 0.0,
-    "lp_matrix_options": {"names_level": 1},
     "output_format": "csv",
     "output_compression": "uncompressed",
     "use_single_bus": true,
@@ -419,7 +410,7 @@ TEST_CASE("Generator profile - solar profile applied to capacity")
 {
   using namespace gtopt;
 
-  auto planning = daw::json::from_json<Planning>(generator_profile_json);
+  auto planning = parse_planning_json(generator_profile_json);
 
   PlanningLP planning_lp(std::move(planning));
   auto result = planning_lp.resolve();
@@ -444,7 +435,6 @@ TEST_CASE("Generator profile - solar profile applied to capacity")
 static constexpr std::string_view multi_scenario_json = R"({
   "options": {
     "annual_discount_rate": 0.0,
-    "lp_matrix_options": {"names_level": 1},
     "output_format": "csv",
     "output_compression": "uncompressed",
     "use_single_bus": true,
@@ -479,7 +469,7 @@ TEST_CASE("Multi-scenario planning")
 {
   using namespace gtopt;
 
-  auto planning = daw::json::from_json<Planning>(multi_scenario_json);
+  auto planning = parse_planning_json(multi_scenario_json);
 
   PlanningLP planning_lp(std::move(planning));
   auto result = planning_lp.resolve();
@@ -527,7 +517,7 @@ TEST_CASE("Inactive generator - skipped in LP")
 {
   using namespace gtopt;
 
-  auto planning = daw::json::from_json<Planning>(inactive_gen_json);
+  auto planning = parse_planning_json(inactive_gen_json);
 
   PlanningLP planning_lp(std::move(planning));
   auto result = planning_lp.resolve();
@@ -591,7 +581,7 @@ TEST_CASE("Line quadratic loss model - piecewise-linear loss approximation")
 {
   using namespace gtopt;
 
-  auto planning = daw::json::from_json<Planning>(quadratic_loss_json);
+  auto planning = parse_planning_json(quadratic_loss_json);
 
   PlanningLP planning_lp(std::move(planning));
   auto result = planning_lp.resolve();
@@ -647,8 +637,7 @@ static constexpr std::string_view line_expansion_json = R"({
       {"uid": 1, "name": "l1_2", "bus_a": "b1", "bus_b": "b2",
        "reactance": 0.05,
        "tmax_ab": 100, "tmax_ba": 100,
-       "annual_capcost": 5000, "capmax": 300,
-       "expansion_module_array": [{"uid": 1, "capacity": 50}]}
+       "annual_capcost": 5000, "capmax": 300}
     ]
   }
 })";
@@ -658,7 +647,7 @@ TEST_CASE("Line capacity expansion - expansion modules exercised")
 {
   using namespace gtopt;
 
-  auto planning = daw::json::from_json<Planning>(line_expansion_json);
+  auto planning = parse_planning_json(line_expansion_json);
 
   PlanningLP planning_lp(std::move(planning));
   auto result = planning_lp.resolve();
@@ -709,8 +698,7 @@ static constexpr std::string_view line_loss_expansion_json = R"({
       {"uid": 1, "name": "l1_2", "bus_a": "b1", "bus_b": "b2",
        "reactance": 0.05, "resistance": 0.01, "voltage": 220,
        "tmax_ab": 100, "tmax_ba": 100,
-       "annual_capcost": 5000, "capmax": 300,
-       "expansion_module_array": [{"uid": 1, "capacity": 50}]}
+       "annual_capcost": 5000, "capmax": 300}
     ]
   }
 })";
@@ -720,7 +708,7 @@ TEST_CASE("Line linear loss + capacity expansion - capacity constraint paths")
 {
   using namespace gtopt;
 
-  auto planning = daw::json::from_json<Planning>(line_loss_expansion_json);
+  auto planning = parse_planning_json(line_loss_expansion_json);
 
   PlanningLP planning_lp(std::move(planning));
   auto result = planning_lp.resolve();
@@ -781,7 +769,7 @@ TEST_CASE("Battery - charge/discharge storage exercised")
 {
   using namespace gtopt;
 
-  auto planning = daw::json::from_json<Planning>(battery_planning_json);
+  auto planning = parse_planning_json(battery_planning_json);
 
   PlanningLP planning_lp(std::move(planning));
   auto result = planning_lp.resolve();

@@ -29,6 +29,7 @@ This guide provides detailed instructions for building gtopt from source, includ
 | COIN-OR CBC/CLP | 2.10+ | LP/MIP solver | `coinor-libcbc-dev` |
 | HiGHS | 1.5+ | LP/MIP solver (optional) | build from source (see below) |
 | spdlog | 1.12+ | Logging | `libspdlog-dev` |
+| jemalloc | 5.0+ | Multi-thread malloc (eliminates glibc arena fragmentation; ~60% peak-RSS reduction on SDDP runs) | `libjemalloc-dev` |
 | lld | 14+ | Fast linker (auto-detected) | `lld` |
 | tectonic | 0.15+ | White paper PDF (optional) | `curl -fsSL https://drop-sh.fullyjustified.net \| sh` |
 

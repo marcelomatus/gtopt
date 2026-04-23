@@ -38,6 +38,40 @@ def test_read_table_missing(tmp_path: Path):
     assert read_table(tmp_path, "nonexistent") is None
 
 
+def _write_hive_partition(
+    stem_dir: Path, scene: int, phase: int, df: pd.DataFrame
+) -> None:
+    part = stem_dir / f"scene={scene}" / f"phase={phase}"
+    part.mkdir(parents=True)
+    df.to_parquet(part / "part.parquet")
+
+
+def test_read_table_parquet_hive_dataset(tmp_path: Path):
+    """Reads a hive-partitioned parquet directory as one frame."""
+    stem_dir = tmp_path / "Generator" / "generation_sol.parquet"
+    _write_hive_partition(stem_dir, 0, 0, pd.DataFrame({"uid:1": [1.0]}))
+    _write_hive_partition(stem_dir, 0, 1, pd.DataFrame({"uid:1": [2.0]}))
+    _write_hive_partition(stem_dir, 1, 0, pd.DataFrame({"uid:1": [3.0]}))
+
+    result = read_table(tmp_path, "Generator/generation_sol")
+    assert result is not None
+    assert len(result) == 3
+    assert sorted(result["uid:1"].tolist()) == [1.0, 2.0, 3.0]
+    # Partition columns are surfaced automatically.
+    assert {"scene", "phase"}.issubset(result.columns)
+
+
+def test_read_table_csv_shards(tmp_path: Path):
+    """Concatenates per-(scene, phase) CSV shards in sorted order."""
+    subdir = tmp_path / "Flow"
+    subdir.mkdir()
+    pd.DataFrame({"uid:1": [10.0]}).to_csv(subdir / "flow_sol_s0_p0.csv", index=False)
+    pd.DataFrame({"uid:1": [20.0]}).to_csv(subdir / "flow_sol_s1_p0.csv", index=False)
+    result = read_table(tmp_path, "Flow/flow_sol")
+    assert result is not None
+    assert len(result) == 2
+
+
 def test_get_block_durations():
     """Extracts block UID → duration mapping."""
     planning = {

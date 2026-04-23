@@ -652,6 +652,51 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
         ),
     ],
     # ------------------------------------------------------------------
+    # System — LNG terminals
+    # ------------------------------------------------------------------
+    "lng_terminal_array": [
+        ("uid", _J_INT, True, "Unique LNG terminal identifier", 1),
+        ("name", _J_STR, True, "Terminal name", "gnl1"),
+        ("active", _J_INT, False, "1 = active, 0 = inactive (default: 1)", None),
+        ("emin", _J_SCHED, False, "Minimum tank level [m³]", 0),
+        ("emax", _J_SCHED, False, "Maximum tank level [m³]", 150000),
+        ("eini", _J_NUM, False, "Initial tank level [m³]", 80000),
+        ("efin", _J_NUM, False, "End-of-horizon minimum level [m³]", None),
+        ("ecost", _J_SCHED, False, "Holding cost [$/m³]", None),
+        ("annual_loss", _J_SCHED, False, "Boil-off gas rate [p.u./year]", 0.001),
+        ("sendout_max", _J_NUM, False, "Max regasification rate [m³/h]", None),
+        ("sendout_min", _J_NUM, False, "Min regasification rate [m³/h]", None),
+        ("delivery", _J_SCHED, False, "Scheduled LNG delivery [m³/stage]", None),
+        ("spillway_cost", _J_NUM, False, "Venting penalty cost [$/m³]", 100),
+        ("spillway_capacity", _J_NUM, False, "Max venting rate [m³/h]", None),
+        ("use_state_variable", _J_INT, False, "SDDP state (1=yes, 0=no)", 1),
+        (
+            "mean_production_factor",
+            _J_NUM,
+            False,
+            "Power conversion factor [MWh/m³] for scost",
+            None,
+        ),
+        ("scost", _J_SCHED, False, "State penalty cost [$/m³]", None),
+        ("soft_emin", _J_SCHED, False, "Soft minimum tank level [m³]", None),
+        ("soft_emin_cost", _J_SCHED, False, "Soft minimum penalty [$/m³]", None),
+        (
+            "flow_conversion_rate",
+            _J_NUM,
+            False,
+            "Flow conversion factor [m³/(m³/h·h)] (default: 1.0)",
+            None,
+        ),
+        (
+            "generators",
+            _J_STR,
+            False,
+            "JSON array of {generator, heat_rate} links "
+            '(e.g. [{"generator": 10, "heat_rate": 0.18}])',
+            None,
+        ),
+    ],
+    # ------------------------------------------------------------------
     # System — reserves
     # ------------------------------------------------------------------
     "reserve_zone_array": [
@@ -1296,8 +1341,6 @@ SDDP_OPTION_KEYS: frozenset[str] = frozenset(
         "min_iterations",
         "convergence_tol",
         "elastic_penalty",
-        "alpha_min",
-        "alpha_max",
         "cut_recovery_mode",
         "recovery_mode",
         "save_per_iteration",
@@ -1320,7 +1363,6 @@ SDDP_OPTION_KEYS: frozenset[str] = frozenset(
         "prune_dual_threshold",
         "single_cut_storage",
         "max_stored_cuts",
-        "use_clone_pool",
         "simulation_mode",
         "state_variable_lookup_mode",
         "warm_start",
@@ -1328,9 +1370,7 @@ SDDP_OPTION_KEYS: frozenset[str] = frozenset(
         "stationary_window",
         "convergence_mode",
         "convergence_confidence",
-        "cut_coeff_mode",
         "cut_coeff_eps",
-        "cut_coeff_max",
         "scale_alpha",
         "update_lp_skip",
         "forward_solver_options",
@@ -1499,7 +1539,7 @@ _OPTIONS_FIELDS: list[tuple[str, str, Any]] = [
         "Compression codec for debug LP files (e.g. 'gzip')",
         None,
     ),
-    ("lp_build", "Build LP without solving (true/false)", None),
+    ("lp_only", "Build LP without solving (true/false)", None),
     (
         "lp_coeff_ratio_threshold",
         "Warn when LP coefficient ratio exceeds this value",
@@ -1592,8 +1632,6 @@ _OPTIONS_FIELDS: list[tuple[str, str, Any]] = [
         "[sddp] Penalty for elastic constraint relaxation",
         None,
     ),
-    ("alpha_min", "[sddp] Minimum alpha (future cost) lower bound", None),
-    ("alpha_max", "[sddp] Maximum alpha (future cost) upper bound", None),
     (
         "cut_recovery_mode",
         "[sddp] Cut persistence mode: 'none' (default), 'keep', 'append', or 'replace'",
@@ -1626,7 +1664,7 @@ _OPTIONS_FIELDS: list[tuple[str, str, Any]] = [
     ),
     (
         "elastic_mode",
-        "[sddp] Elastic filter mode: 'single_cut', 'multi_cut', or 'backpropagate'",
+        "[sddp] Elastic filter mode: 'chinneck' (default), 'single_cut', or 'multi_cut'",
         None,
     ),
     (
@@ -1700,11 +1738,6 @@ _OPTIONS_FIELDS: list[tuple[str, str, Any]] = [
         0,
     ),
     (
-        "use_clone_pool",
-        "[sddp] Reuse cached LP clones for aperture solves (avoids repeated allocation)",
-        True,
-    ),
-    (
         "simulation_mode",
         "[sddp] Forward-only evaluation of loaded cuts, no training (true/false)",
         None,
@@ -1763,6 +1796,7 @@ _TEMPLATE_SYSTEM_SHEETS = [
     "line_array",
     "battery_array",
     "converter_array",
+    "lng_terminal_array",
     "reserve_zone_array",
     "reserve_provision_array",
     "junction_array",
@@ -1869,6 +1903,12 @@ _INTRO_LINES = [
         "converter_array",
         "System",
         "Battery charge/discharge converter links",
+        "TABLE",
+    ),
+    (
+        "lng_terminal_array",
+        "System",
+        "LNG storage terminals with generator fuel coupling",
         "TABLE",
     ),
     ("reserve_zone_array", "System", "Spinning-reserve zones", "TABLE"),

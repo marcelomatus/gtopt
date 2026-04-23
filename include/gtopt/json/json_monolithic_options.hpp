@@ -33,12 +33,13 @@ struct MonolithicOptionsConstructor
   {
     MonolithicOptions opts;
     if (solve_mode_str) {
-      opts.solve_mode = gtopt::enum_from_name<SolveMode>(*solve_mode_str);
+      opts.solve_mode =
+          gtopt::require_enum<SolveMode>("solve_mode", *solve_mode_str);
     }
     opts.boundary_cuts_file = std::move(boundary_cuts_file);
     if (boundary_cuts_mode_str) {
-      opts.boundary_cuts_mode =
-          gtopt::enum_from_name<BoundaryCutsMode>(*boundary_cuts_mode_str);
+      opts.boundary_cuts_mode = gtopt::require_enum<BoundaryCutsMode>(
+          "boundary_cuts_mode", *boundary_cuts_mode_str);
     }
     opts.boundary_max_iterations = boundary_max_iterations;
     opts.solver_options = solver_options;

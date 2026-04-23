@@ -444,7 +444,7 @@ def test_write_creates_json(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# _normalize_solver_type
+# _normalize_method
 # ---------------------------------------------------------------------------
 
 
@@ -454,12 +454,13 @@ def test_write_creates_json(tmp_path):
         ("sddp", "sddp"),
         ("mono", "monolithic"),
         ("monolithic", "monolithic"),
+        ("cascade", "cascade"),
         ("other", "sddp"),
     ],
 )
-def test_normalize_solver_type(input_val, expected):
-    """_normalize_solver_type maps aliases correctly."""
-    assert GTOptWriter._normalize_solver_type(input_val) == expected
+def test_normalize_method(input_val, expected):
+    """_normalize_method maps aliases correctly."""
+    assert GTOptWriter._normalize_method(input_val) == expected
 
 
 # ---------------------------------------------------------------------------
@@ -539,7 +540,7 @@ class TestProcessStageBlocksPhase:
         parser.parse_all()
         writer = GTOptWriter(parser)
         opts = _make_opts(tmp_path, "mono")
-        opts["solver_type"] = "monolithic"
+        opts["method"] = "monolithic"
         writer.process_options(opts)
         writer.process_stage_blocks(opts)
         phases = writer.planning["simulation"]["phase_array"]
@@ -555,7 +556,7 @@ class TestProcessWaterRights:
     """Tests for process_water_rights."""
 
     def test_disabled_by_default(self, tmp_path):
-        """process_water_rights does nothing when emit_water_rights is False."""
+        """process_water_rights does nothing when expand_water_rights is False."""
         parser = PLPParser({"input_dir": _PLPMin1Bus})
         parser.parse_all()
         writer = GTOptWriter(parser)
@@ -572,7 +573,7 @@ class TestProcessWaterRights:
         parser.parse_all()
         writer = GTOptWriter(parser)
         opts = _make_opts(tmp_path, "wr_on")
-        opts["emit_water_rights"] = True
+        opts["expand_water_rights"] = True
         # plp_min_1bus has no laja/maule data, so this should be a no-op
         writer.to_json(opts)
         # Should still complete without error
@@ -655,3 +656,44 @@ class TestProcessFlowTurbines:
         }
         writer.process_flow_turbines({"_pasada_hydro_names": {"CENT1"}})
         assert "flow_array" not in writer.planning["system"]
+
+
+# ---------------------------------------------------------------------------
+# _load_alias_file
+# ---------------------------------------------------------------------------
+
+
+class TestLoadAliasFile:
+    """Tests for GTOptWriter._load_alias_file."""
+
+    def test_none_returns_none(self):
+        assert GTOptWriter._load_alias_file(None) is None
+
+    def test_valid_alias(self, tmp_path):
+        path = tmp_path / "alias.json"
+        path.write_text(json.dumps({"CANUTILLAR": "CHAPO", "OLD": "NEW"}))
+        result = GTOptWriter._load_alias_file(path)
+        assert result == {"CANUTILLAR": "CHAPO", "OLD": "NEW"}
+
+    def test_missing_file_raises(self, tmp_path):
+        path = tmp_path / "nope.json"
+        with pytest.raises(RuntimeError, match="Cannot read alias file"):
+            GTOptWriter._load_alias_file(path)
+
+    def test_malformed_json_raises(self, tmp_path):
+        path = tmp_path / "bad.json"
+        path.write_text("{broken json")
+        with pytest.raises(RuntimeError, match="Cannot read alias file"):
+            GTOptWriter._load_alias_file(path)
+
+    def test_non_dict_raises(self, tmp_path):
+        path = tmp_path / "list.json"
+        path.write_text(json.dumps(["a", "b"]))
+        with pytest.raises(RuntimeError, match="flat JSON object"):
+            GTOptWriter._load_alias_file(path)
+
+    def test_non_string_values_raise(self, tmp_path):
+        path = tmp_path / "numbers.json"
+        path.write_text(json.dumps({"A": 1, "B": "ok"}))
+        with pytest.raises(RuntimeError, match="flat JSON object"):
+            GTOptWriter._load_alias_file(path)

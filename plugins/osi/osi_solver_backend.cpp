@@ -18,6 +18,7 @@
 #include <coin/OsiClpSolverInterface.hpp>
 #include <coin/OsiSolverInterface.hpp>
 #include <gtopt/solver_options.hpp>
+#include <gtopt/utils.hpp>
 
 #ifdef GTOPT_OSI_HAS_CBC
 #  include <coin/OsiCbcSolverInterface.hpp>
@@ -65,6 +66,99 @@ OsiClpSolverInterface* as_clp(OsiSolverInterface* solver,
   return nullptr;
 }
 
+/// Apply every SolverOptions field onto a *fresh* OsiSolverInterface.
+///
+/// Pure helper: mutates `solver` only, touches no backend members.  Shared
+/// between the live `apply_options()` path and `reset_solver_()`, so any
+/// option the caller ever set is replayed onto the new solver on every
+/// load_problem() cycle and on clone().
+///
+/// NOTE: SolverOptions::memory_emphasis has no documented COIN/CLP
+/// equivalent.  We deliberately leave it as a no-op here rather than
+/// forcing CLP's "maximizePivots(0)" or similar tweaks that would slow
+/// down all solves.
+void apply_options_to_solver(OsiSolverInterface* solver,
+                             OsiSolverBackend::OsiSolverType type,
+                             const SolverOptions& opts)
+{
+  if (solver == nullptr) {
+    return;
+  }
+
+  if (const auto oeps = opts.optimal_eps; oeps && *oeps > 0) {
+    solver->setDblParam(OsiDualTolerance, *oeps);
+  }
+  if (const auto feps = opts.feasible_eps; feps && *feps > 0) {
+    solver->setDblParam(OsiPrimalTolerance, *feps);
+  }
+
+  // Time limit (CLP supports this natively via ClpSimplex)
+  if (const auto tl = opts.time_limit; tl && *tl > 0.0) {
+    auto* clp = as_clp(solver, type);
+    if (clp != nullptr) {
+      clp->getModelPtr()->setMaximumSeconds(*tl);
+    }
+  }
+
+  // CLP scaling: 0=off, 2=geometric, 3=auto(default).
+  if (opts.scaling.has_value()) {
+    auto* clp = as_clp(solver, type);
+    if (clp != nullptr) {
+      auto* clp_model = clp->getModelPtr();
+      if (clp_model != nullptr) {
+        int mode = 3;  // auto (CLP default)
+        switch (*opts.scaling) {
+          case SolverScaling::none:
+            mode = 0;
+            break;
+          case SolverScaling::automatic:
+            mode = 3;
+            break;
+          case SolverScaling::aggressive:
+            mode = 2;
+            break;
+        }
+        clp_model->scaling(mode);
+      }
+    }
+  }
+
+  solver->setHintParam(OsiDoPresolveInInitial, opts.presolve, OsiHintDo);
+
+  constexpr bool On = true;
+  constexpr bool Off = false;
+
+  switch (opts.algorithm) {
+    case LPAlgo::default_algo:
+      break;
+    case LPAlgo::primal:
+      solver->setHintParam(OsiDoDualInInitial, Off, OsiHintDo);
+      solver->setHintParam(OsiDoDualInResolve, Off, OsiHintDo);
+      break;
+    case LPAlgo::dual:
+      solver->setHintParam(OsiDoDualInInitial, On, OsiHintDo);
+      solver->setHintParam(OsiDoDualInResolve, On, OsiHintDo);
+      break;
+    case LPAlgo::barrier: {
+      auto* clp = as_clp(solver, type);
+      if (clp != nullptr) {
+        auto* clp_model = clp->getModelPtr();
+        if (clp_model != nullptr) {
+          clp_model->setAlgorithm(-1);  // -1 = barrier
+          if (const auto beps = opts.barrier_eps; beps && *beps > 0) {
+            clp_model->setDblParam(ClpDualTolerance, *beps);
+          }
+        }
+      }
+      solver->setHintParam(OsiDoDualInInitial, Off, OsiHintDo);
+      solver->setHintParam(OsiDoDualInResolve, Off, OsiHintDo);
+      break;
+    }
+    case LPAlgo::last_algo:
+      break;
+  }
+}
+
 }  // namespace
 
 OsiSolverBackend::OsiSolverBackend(OsiSolverType type)
@@ -110,8 +204,15 @@ double OsiSolverBackend::infinity() const noexcept
   return m_solver_->getInfinity();
 }
 
+bool OsiSolverBackend::supports_mip() const noexcept
+{
+  // CLP is a pure LP solver; CBC is the COIN-OR MIP solver.
+  return m_type_ == OsiSolverType::cbc;
+}
+
 void OsiSolverBackend::set_prob_name(const std::string& name)
 {
+  m_prep_.prob_name = name;
   m_solver_->setStrParam(OsiProbName, name);
 }
 
@@ -119,6 +220,38 @@ std::string OsiSolverBackend::get_prob_name() const
 {
   std::string name;
   return m_solver_->getStrParam(OsiProbName, name) ? name : "";
+}
+
+void OsiSolverBackend::reset_solver_()
+{
+  // Replace the OSI solver instance with a fresh one and replay every cached
+  // piece of backend state (options, log, prob_name).  Mirrors the CPLEX
+  // plugin's reset_env_lp() and guarantees load_problem() starts from a
+  // clean solver each time.
+  m_solver_ = make_osi_solver(m_type_);
+  m_handler_ = std::make_unique<CoinMessageHandler>();
+  m_handler_->setLogLevel(0);
+  m_solver_->passInMessageHandler(m_handler_.get());
+  m_solver_->setIntParam(OsiNameDiscipline, 0);
+
+  if (!m_prep_.prob_name.empty()) {
+    m_solver_->setStrParam(OsiProbName, m_prep_.prob_name);
+  }
+  if (m_prep_.options.has_value()) {
+    apply_options_to_solver(m_solver_.get(), m_type_, *m_prep_.options);
+  }
+  if (m_prep_.log_level > 0 && !m_prep_.log_filename.empty()) {
+    const auto log_path = std::format("{}.log", m_prep_.log_filename);
+    m_log_file_ptr_.reset(
+        std::fopen(  // NOLINT(cppcoreguidelines-owning-memory)
+            log_path.c_str(),
+            "ae"));
+    if (m_log_file_ptr_) {
+      m_handler_ = std::make_unique<CoinMessageHandler>(m_log_file_ptr_.get());
+      m_handler_->setLogLevel(m_prep_.log_level);
+      m_solver_->passInMessageHandler(m_handler_.get());
+    }
+  }
 }
 
 void OsiSolverBackend::load_problem(int ncols,
@@ -132,6 +265,7 @@ void OsiSolverBackend::load_problem(int ncols,
                                     const double* rowlb,
                                     const double* rowub)
 {
+  reset_solver_();
   m_solver_->loadProblem(
       ncols, nrows, matbeg, matind, matval, collb, colub, obj, rowlb, rowub);
 }
@@ -184,12 +318,14 @@ void OsiSolverBackend::add_rows(int num_rows,
                                 const double* rowub)
 {
   // OSI does not have a CSR bulk addRows, so dispatch per row.
-  for (int r = 0; r < num_rows; ++r) {
+  // NOLINTBEGIN(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+  for (const int r : iota_range(0, num_rows)) {
     const int start = rowbeg[r];
     const int count = rowbeg[r + 1] - start;
     m_solver_->addRow(
         count, rowind + start, rowval + start, rowlb[r], rowub[r]);
   }
+  // NOLINTEND(cppcoreguidelines-pro-bounds-pointer-arithmetic)
 }
 
 void OsiSolverBackend::set_row_lower(int index, double value)
@@ -328,6 +464,15 @@ void OsiSolverBackend::initial_solve()
 
 void OsiSolverBackend::resolve()
 {
+#ifdef GTOPT_OSI_HAS_CBC
+  // When running CBC with integer variables, invoke branch-and-bound.
+  // OsiCbcSolverInterface::resolve() only does an LP re-solve; the MIP
+  // solver requires an explicit branchAndBound() call.
+  if (m_type_ == OsiSolverType::cbc && m_solver_->getNumIntegers() > 0) {
+    m_solver_->branchAndBound();
+    return;
+  }
+#endif
   m_solver_->resolve();
 }
 
@@ -384,123 +529,23 @@ SolverOptions OsiSolverBackend::optimal_options() const
 
 void OsiSolverBackend::apply_options(const SolverOptions& opts)
 {
+  m_prep_.options = opts;
   m_algorithm_ = opts.algorithm;
   m_threads_ = opts.threads;
   m_presolve_ = opts.presolve;
   m_log_level_ = opts.log_level;
-  if (const auto oeps = opts.optimal_eps; oeps && *oeps > 0) {
-    m_solver_->setDblParam(OsiDualTolerance, *oeps);
-  }
 
-  if (const auto feps = opts.feasible_eps; feps && *feps > 0) {
-    m_solver_->setDblParam(OsiPrimalTolerance, *feps);
-  }
-
-  // Time limit (CLP supports this natively via ClpSimplex)
-  if (const auto tl = opts.time_limit; tl && *tl > 0.0) {
-    auto* clp = as_clp(m_solver_.get(), m_type_);
-    if (clp != nullptr) {
-      clp->getModelPtr()->setMaximumSeconds(*tl);
-    }
-  }
-
-  // ── Warm-start override (skip when barrier is requested) ──
-  if (opts.reuse_basis && opts.algorithm != LPAlgo::barrier) {
-    m_algorithm_ = LPAlgo::dual;
-    m_presolve_ = false;
-
-    m_solver_->setHintParam(OsiDoPresolveInInitial, false, OsiHintDo);
-    m_solver_->setHintParam(OsiDoPresolveInResolve, false, OsiHintDo);
-    m_solver_->setHintParam(OsiDoDualInInitial, true, OsiHintDo);
-    m_solver_->setHintParam(OsiDoDualInResolve, true, OsiHintDo);
-
-    // Force dual simplex on CLP (avoid barrier for warm-started resolves)
-    auto* clp = as_clp(m_solver_.get(), m_type_);
-    if (clp != nullptr) {
-      auto* clp_model = clp->getModelPtr();
-      if (clp_model != nullptr) {
-        clp_model->setAlgorithm(1);  // 1 = dual simplex
-        // Bit 1: keep factorization, Bit 8: keep work areas
-        constexpr unsigned keep_factorization = 1U;
-        constexpr unsigned keep_work_areas = 8U;
-        clp_model->setSpecialOptions(
-            static_cast<int>(clp_model->specialOptions() | keep_factorization
-                             | keep_work_areas));
-      }
-    }
-    return;
-  }
-
-  // CLP scaling: 0=off, 2=geometric, 3=auto(default).
-  if (opts.scaling.has_value()) {
-    auto* clp = as_clp(m_solver_.get(), m_type_);
-    if (clp != nullptr) {
-      auto* clp_model = clp->getModelPtr();
-      if (clp_model != nullptr) {
-        int mode = 3;  // auto (CLP default)
-        switch (*opts.scaling) {
-          case SolverScaling::none:
-            mode = 0;
-            break;
-          case SolverScaling::automatic:
-            mode = 3;
-            break;
-          case SolverScaling::aggressive:
-            mode = 2;
-            break;
-        }
-        clp_model->scaling(mode);
-      }
-    }
-  }
-
-  const auto presolve = opts.presolve;
-  m_solver_->setHintParam(OsiDoPresolveInInitial, presolve, OsiHintDo);
-
-  constexpr bool On = true;
-  constexpr bool Off = false;
-
-  switch (opts.algorithm) {
-    case LPAlgo::default_algo:
-      break;
-    case LPAlgo::primal:
-      m_solver_->setHintParam(OsiDoDualInInitial, Off, OsiHintDo);
-      m_solver_->setHintParam(OsiDoDualInResolve, Off, OsiHintDo);
-      break;
-    case LPAlgo::dual:
-      m_solver_->setHintParam(OsiDoDualInInitial, On, OsiHintDo);
-      m_solver_->setHintParam(OsiDoDualInResolve, On, OsiHintDo);
-      break;
-    case LPAlgo::barrier: {
-      // CLP barrier via direct API
-      auto* clp = as_clp(m_solver_.get(), m_type_);
-      if (clp != nullptr) {
-        auto* clp_model = clp->getModelPtr();
-        if (clp_model != nullptr) {
-          // Use barrier algorithm
-          clp_model->setAlgorithm(-1);  // -1 = barrier
-
-          if (const auto beps = opts.barrier_eps; beps && *beps > 0) {
-            clp_model->setDblParam(ClpDualTolerance, *beps);
-          }
-        }
-      }
-      // Also set hint params for non-CLP solvers
-      m_solver_->setHintParam(OsiDoDualInInitial, Off, OsiHintDo);
-      m_solver_->setHintParam(OsiDoDualInResolve, Off, OsiHintDo);
-      break;
-    }
-    case LPAlgo::last_algo:
-      break;
-  }
+  apply_options_to_solver(m_solver_.get(), m_type_, opts);
 }
 
-double OsiSolverBackend::get_kappa() const
+std::optional<double> OsiSolverBackend::get_kappa() const
 {
   // Return the largest dual error as a rough proxy for the condition
   // number.  ClpFactorization::conditionNumber() is only available when
   // CLP is built without CLP_MULTIPLE_FACTORIZATIONS; in multi-factorization
-  // builds (the default on Ubuntu) the method is absent.
+  // builds (the default on Ubuntu) the method is absent — hence the
+  // dual-error proxy.  Any failure path returns std::nullopt so callers
+  // do not fold a bogus sentinel into aggregate statistics.
   auto* clp =
       as_clp(const_cast<OsiSolverInterface*>(m_solver_.get()),  // NOLINT
              m_type_);
@@ -511,10 +556,10 @@ double OsiSolverBackend::get_kappa() const
         return model->largestDualError();
       }
     } catch (...) {  // NOLINT(bugprone-empty-catch)
-      // CLP may throw on degenerate or empty models; return default kappa.
+      // CLP may throw on degenerate or empty models; treat as unavailable.
     }
   }
-  return 1.0;
+  return std::nullopt;
 }
 
 void OsiSolverBackend::open_log(FILE* file, int level)
@@ -536,6 +581,8 @@ void OsiSolverBackend::close_log()
 
 void OsiSolverBackend::set_log_filename(const std::string& filename, int level)
 {
+  m_prep_.log_filename = filename;
+  m_prep_.log_level = level;
   if (level > 0 && !filename.empty()) {
     const auto log_path = std::format("{}.log", filename);
     m_log_file_ptr_.reset(
@@ -554,6 +601,8 @@ void OsiSolverBackend::set_log_filename(const std::string& filename, int level)
 
 void OsiSolverBackend::clear_log_filename()
 {
+  m_prep_.log_filename.clear();
+  m_prep_.log_level = 0;
   m_handler_ = std::make_unique<CoinMessageHandler>();
   m_handler_->setLogLevel(0);
   m_solver_->passInMessageHandler(m_handler_.get());
@@ -563,27 +612,88 @@ void OsiSolverBackend::clear_log_filename()
   }
 }
 
+namespace
+{
+
+/// CoinLpIO's name validator rejects:
+///   - empty names (gaps in the name vector);
+///   - names with characters outside `[A-Za-z0-9_.]` — notably `-`,
+///     which appears in gtopt's unknown-uid placeholder `_-1_...`.
+/// When *any* name fails validation CoinLpIO discards the *entire*
+/// set and falls back to `R1, R2, ...`, breaking LP-file auditing
+/// and every downstream tool that relies on the generated labels.
+///
+/// `sanitise_lp_name` replaces invalid characters with `_` and
+/// substitutes a positional placeholder (`prefix_<idx>`) for empty
+/// names.  The sanitised form only affects the OSI backend's name
+/// storage; authoritative names on `LinearInterface` are preserved.
+[[nodiscard]] std::string sanitise_lp_name(std::string_view raw,
+                                           std::string_view prefix,
+                                           std::size_t idx)
+{
+  if (raw.empty()) {
+    // Synthesise a deterministic placeholder so CoinLpIO accepts the
+    // full name vector.  Index-based so two gaps can't collide.
+    return std::format("{}{}", prefix, idx);
+  }
+  std::string out;
+  out.reserve(raw.size());
+  for (const char c : raw) {
+    const bool ok = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
+        || (c >= '0' && c <= '9') || c == '_' || c == '.';
+    out.push_back(ok ? c : '_');
+  }
+  return out;
+}
+
+}  // namespace
+
 void OsiSolverBackend::push_names(const std::vector<std::string>& col_names,
                                   const std::vector<std::string>& row_names)
 {
-  // Fast path for CLP: bulk set via ClpModel::copyNames()
-  auto* clp = as_clp(m_solver_.get(), m_type_);
-  if (clp != nullptr) {
-    clp->getModelPtr()->copyNames(row_names, col_names);
-    return;
+  // Two name stores are in play on OsiClpSolverInterface:
+  //   1. ClpModel's own `m_rowNames_` / `m_columnNames_` (CLP-internal
+  //      solver consumers).
+  //   2. OSI's base-class name vectors, gated by `OsiNameDiscipline`
+  //      (what `OsiSolverInterface::writeLp` actually reads from).
+  //
+  // A previous `copyNames`-only fast path populated only (1), so cut
+  // rows added after `load_flat` had their names ignored by the LP
+  // file writer — the generated .lp file carried `R1, R2, ...`
+  // defaults instead of `sddp_fcut_...` / `sddp_bcut_...`.  Always
+  // populate BOTH stores: the CLP bulk copy for solver-internal
+  // consumers, and the OSI per-element path so writeLp() emits real
+  // labels.  Both passes are O(ncols + nrows) and negligible next to
+  // the solve they precede.
+  //
+  // We also sanitise names for the OSI store: CoinLpIO's writeLp
+  // rejects the whole set if any name contains characters it deems
+  // "illegal" (notably `-` in gtopt's `-1_` unknown-uid placeholder),
+  // silently falling back to `R1, R2, ...`.  The sanitised form only
+  // affects what OSI writes to `.lp` files; `LinearInterface`'s own
+  // `m_row_index_to_name_` / `m_col_index_to_name_` maps keep the
+  // original names verbatim.
+  m_safe_col_names_.clear();
+  m_safe_row_names_.clear();
+  m_safe_col_names_.reserve(col_names.size());
+  m_safe_row_names_.reserve(row_names.size());
+  for (std::size_t i = 0; i < col_names.size(); ++i) {
+    m_safe_col_names_.push_back(sanitise_lp_name(col_names[i], "c", i));
+  }
+  for (std::size_t i = 0; i < row_names.size(); ++i) {
+    m_safe_row_names_.push_back(sanitise_lp_name(row_names[i], "r", i));
   }
 
-  // Generic fallback: per-element via OSI
-  m_solver_->setIntParam(OsiNameDiscipline, 2);
-  for (size_t i = 0; i < col_names.size(); ++i) {
-    if (!col_names[i].empty()) {
-      m_solver_->setColName(static_cast<int>(i), col_names[i]);
-    }
+  if (auto* clp = as_clp(m_solver_.get(), m_type_); clp != nullptr) {
+    clp->getModelPtr()->copyNames(m_safe_row_names_, m_safe_col_names_);
   }
-  for (size_t i = 0; i < row_names.size(); ++i) {
-    if (!row_names[i].empty()) {
-      m_solver_->setRowName(static_cast<int>(i), row_names[i]);
-    }
+
+  m_solver_->setIntParam(OsiNameDiscipline, 2);
+  for (std::size_t i = 0; i < m_safe_col_names_.size(); ++i) {
+    m_solver_->setColName(static_cast<int>(i), m_safe_col_names_[i]);
+  }
+  for (std::size_t i = 0; i < m_safe_row_names_.size(); ++i) {
+    m_solver_->setRowName(static_cast<int>(i), m_safe_row_names_[i]);
   }
 }
 
@@ -600,8 +710,33 @@ std::unique_ptr<SolverBackend> OsiSolverBackend::clone() const
     delete raw;  // NOLINT(cppcoreguidelines-owning-memory)
     return std::make_unique<OsiSolverBackend>(m_type_);
   }
-  std::shared_ptr<OsiSolverInterface> cloned(concrete);
-  return std::make_unique<OsiSolverBackend>(m_type_, std::move(cloned));
+  std::shared_ptr<OsiSolverInterface> cloned_solver(concrete);
+  auto cloned =
+      std::make_unique<OsiSolverBackend>(m_type_, std::move(cloned_solver));
+
+  // Replay every cached field so the clone owns a backend indistinguishable
+  // from this one after a load_problem() cycle.  Options are applied to the
+  // freshly-cloned OSI solver via the shared helper; log + prob_name are
+  // replayed through the public setters so the clone owns its own FILE*.
+  cloned->m_prep_ = m_prep_;
+  cloned->m_algorithm_ = m_algorithm_;
+  cloned->m_threads_ = m_threads_;
+  cloned->m_presolve_ = m_presolve_;
+  cloned->m_log_level_ = m_log_level_;
+
+  if (!cloned->m_prep_.prob_name.empty()) {
+    cloned->m_solver_->setStrParam(OsiProbName, cloned->m_prep_.prob_name);
+  }
+  if (cloned->m_prep_.options.has_value()) {
+    apply_options_to_solver(
+        cloned->m_solver_.get(), m_type_, *cloned->m_prep_.options);
+  }
+  if (cloned->m_prep_.log_level > 0 && !cloned->m_prep_.log_filename.empty()) {
+    cloned->set_log_filename(cloned->m_prep_.log_filename,
+                             cloned->m_prep_.log_level);
+  }
+
+  return cloned;
 }
 
 }  // namespace gtopt

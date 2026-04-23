@@ -26,7 +26,8 @@ struct json_data_contract<GeneratorAttrs>
                         jvtl_TRealFieldSched>,
       json_variant_null<"annual_derating",
                         OptTRealFieldSched,
-                        jvtl_TRealFieldSched>>;
+                        jvtl_TRealFieldSched>,
+      json_bool_null<"integer_expmod", OptBool>>;
 
   constexpr static auto to_json_data(GeneratorAttrs const& attrs)
   {
@@ -40,7 +41,8 @@ struct json_data_contract<GeneratorAttrs>
                                  attrs.expmod,
                                  attrs.capmax,
                                  attrs.annual_capcost,
-                                 attrs.annual_derating);
+                                 attrs.annual_derating,
+                                 attrs.integer_expmod);
   }
 };
 
@@ -54,6 +56,7 @@ struct json_data_contract<Generator>
       json_string<"name", Name>,
       json_variant_null<"active", OptActive, jvtl_Active>,
       json_string_null<"type", OptName>,
+      json_string_null<"description", OptName>,
       json_variant<"bus", SingleId>,
       json_variant_null<"pmin", OptTBRealFieldSched, jvtl_TBRealFieldSched>,
       json_variant_null<"pmax", OptTBRealFieldSched, jvtl_TBRealFieldSched>,
@@ -69,6 +72,7 @@ struct json_data_contract<Generator>
       json_variant_null<"annual_derating",
                         OptTRealFieldSched,
                         jvtl_TRealFieldSched>,
+      json_bool_null<"integer_expmod", OptBool>,
       json_variant_null<"emission_factor",
                         OptTRealFieldSched,
                         jvtl_TRealFieldSched>>;
@@ -79,6 +83,7 @@ struct json_data_contract<Generator>
                                  generator.name,
                                  generator.active,
                                  generator.type,
+                                 generator.description,
                                  generator.bus,
                                  generator.pmin,
                                  generator.pmax,
@@ -90,6 +95,7 @@ struct json_data_contract<Generator>
                                  generator.capmax,
                                  generator.annual_capcost,
                                  generator.annual_derating,
+                                 generator.integer_expmod,
                                  generator.emission_factor);
   }
 };

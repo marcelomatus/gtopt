@@ -19,7 +19,6 @@ TEST_CASE("CascadeTransition JSON - Full deserialization")
 {
   const std::string_view json_data = R"({
     "inherit_optimality_cuts": -1,
-    "inherit_feasibility_cuts": 5,
     "inherit_targets": 10,
     "target_rtol": 0.05,
     "target_min_atol": 1.0,
@@ -31,8 +30,6 @@ TEST_CASE("CascadeTransition JSON - Full deserialization")
 
   REQUIRE(tr.inherit_optimality_cuts.has_value());
   CHECK(*tr.inherit_optimality_cuts == -1);
-  REQUIRE(tr.inherit_feasibility_cuts.has_value());
-  CHECK(*tr.inherit_feasibility_cuts == 5);
   REQUIRE(tr.inherit_targets.has_value());
   CHECK(*tr.inherit_targets == 10);
   REQUIRE(tr.target_rtol.has_value());
@@ -59,7 +56,6 @@ TEST_CASE("CascadeTransition JSON - Round-trip")
   CHECK(rt.inherit_optimality_cuts == original.inherit_optimality_cuts);
   CHECK(rt.target_rtol == original.target_rtol);
   CHECK(rt.target_penalty == original.target_penalty);
-  CHECK_FALSE(rt.inherit_feasibility_cuts.has_value());
   CHECK_FALSE(rt.inherit_targets.has_value());
 }
 

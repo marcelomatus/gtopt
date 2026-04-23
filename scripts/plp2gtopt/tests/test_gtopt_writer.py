@@ -71,7 +71,7 @@ class TestGTOptWriterWithRealParser:
         writer = GTOptWriter(parser)
         opts = _make_opts(tmp_path)
         opts["hydrologies"] = "1"
-        opts["solver_type"] = "mono"
+        opts["method"] = "mono"
         result = writer.to_json(opts)
         sim = result["simulation"]
 
@@ -122,17 +122,17 @@ class TestGTOptWriterWithRealParser:
         assert "input_directory" in opts
         assert "output_directory" in opts
         assert "demand_fail_cost" in opts.get("model_options", {})
-        # Default solver type is sddp (top-level field)
-        assert opts["method"] == "sddp"
+        # Default method is cascade (top-level field)
+        assert opts["method"] == "cascade"
 
     def test_to_json_options_monolithic_solver(self, tmp_path):
-        """options block contains solver_type=monolithic when requested."""
+        """options block contains method=monolithic when requested."""
 
         parser = PLPParser({"input_dir": _PLPMin1Bus})
         parser.parse_all()
         writer = GTOptWriter(parser)
         opts = _make_opts(tmp_path)
-        opts["solver_type"] = "mono"
+        opts["method"] = "mono"
         result = writer.to_json(opts)
         assert result["options"]["method"] == "monolithic"
 
@@ -146,17 +146,104 @@ class TestGTOptWriterProcessMethods:
         writer.process_options({"output_dir": "out"})
         assert writer.planning["simulation"]["annual_discount_rate"] == 0.0
 
-    def test_process_options_default_solver_type(self):
-        """process_options defaults to method='sddp' at top level."""
+    def test_process_options_default_method(self):
+        """process_options defaults to method='cascade' at top level."""
         writer = GTOptWriter(MagicMock())
         writer.process_options({"output_dir": "out"})
-        assert writer.planning["options"]["method"] == "sddp"
+        assert writer.planning["options"]["method"] == "cascade"
 
-    def test_process_options_monolithic_solver_type(self):
+    def test_process_options_monolithic_method(self):
         """process_options normalizes 'mono' to 'monolithic' in JSON output."""
         writer = GTOptWriter(MagicMock())
-        writer.process_options({"output_dir": "out", "solver_type": "mono"})
+        writer.process_options({"output_dir": "out", "method": "mono"})
         assert writer.planning["options"]["method"] == "monolithic"
+
+    def test_process_options_cascade_method(self):
+        """process_options emits cascade_options with 3-level default config."""
+        writer = GTOptWriter(MagicMock())
+        writer.process_options({"output_dir": "out", "method": "cascade"})
+        opts = writer.planning["options"]
+        assert opts["method"] == "cascade"
+        assert "cascade_options" in opts
+        cascade = opts["cascade_options"]
+        assert "level_array" in cascade
+        levels = cascade["level_array"]
+        assert len(levels) == 3
+        # Level 0: uninodal
+        assert levels[0]["name"] == "uninodal"
+        assert levels[0]["model_options"]["use_single_bus"] is True
+        # Level 1: transport (no kirchhoff, no losses)
+        assert levels[1]["name"] == "transport"
+        assert levels[1]["model_options"]["use_single_bus"] is False
+        assert levels[1]["model_options"]["use_kirchhoff"] is False
+        assert levels[1]["model_options"]["use_line_losses"] is False
+        # Level 2: full network
+        assert levels[2]["name"] == "full_network"
+
+    def test_process_options_cascade_iteration_split(self):
+        """cascade uses full max_iterations for level 0; 1/4 for levels 1 and 2."""
+        writer = GTOptWriter(MagicMock())
+        writer.process_options(
+            {
+                "output_dir": "out",
+                "method": "cascade",
+                "max_iterations": 100,
+            }
+        )
+        levels = writer.planning["options"]["cascade_options"]["level_array"]
+        assert levels[0]["sddp_options"]["max_iterations"] == 100
+        assert levels[1]["sddp_options"]["max_iterations"] == 25
+        assert levels[2]["sddp_options"]["max_iterations"] == 25
+
+    def test_process_options_cascade_global_budget_is_sum_of_levels(self):
+        """Cascade-level max_iterations = sum of per-level budgets, not total_iter.
+
+        Regression: previously the cascade-global budget equalled total_iter,
+        so level 0 (which gets full max_iterations) alone exhausted it and
+        levels 1-2 never ran.  The global budget must be >= the sum of
+        per-level budgets for all levels to execute.
+        """
+        writer = GTOptWriter(MagicMock())
+        writer.process_options(
+            {
+                "output_dir": "out",
+                "method": "cascade",
+                "max_iterations": 100,
+            }
+        )
+        cascade = writer.planning["options"]["cascade_options"]
+        levels = cascade["level_array"]
+        per_level_sum = sum(level["sddp_options"]["max_iterations"] for level in levels)
+        assert cascade["sddp_options"]["max_iterations"] == per_level_sum
+        assert cascade["sddp_options"]["max_iterations"] == 150  # 100 + 25 + 25
+
+    def test_process_options_cascade_small_budget_still_runs_all_levels(self):
+        """With max_iterations=5 (small), cascade global budget must be 5+1+1=7.
+
+        Regression: previously with PDMaxIte=5 from plpmat.dat, level 0
+        consumed all 5 iters and levels 1-2 never ran.  The cascade global
+        budget must now leave room for all three levels.
+        """
+        writer = GTOptWriter(MagicMock())
+        writer.process_options(
+            {
+                "output_dir": "out",
+                "method": "cascade",
+                "max_iterations": 5,
+            }
+        )
+        cascade = writer.planning["options"]["cascade_options"]
+        levels = cascade["level_array"]
+        assert levels[0]["sddp_options"]["max_iterations"] == 5
+        assert levels[1]["sddp_options"]["max_iterations"] == 1  # max(5//4, 1)
+        assert levels[2]["sddp_options"]["max_iterations"] == 1
+        assert cascade["sddp_options"]["max_iterations"] == 7  # 5 + 1 + 1
+
+    def test_process_options_cascade_no_cascade_for_sddp(self):
+        """cascade_options is NOT emitted for plain sddp."""
+        writer = GTOptWriter(MagicMock())
+        writer.process_options({"output_dir": "out", "method": "sddp"})
+        assert "cascade_options" not in writer.planning["options"]
 
     def test_process_options_no_num_apertures_in_sddp(self):
         """num_apertures is never emitted in sddp_options (C++ has no such field)."""
@@ -226,29 +313,37 @@ class TestGTOptWriterProcessMethods:
         assert "max_iterations" not in sddp
 
     def test_process_options_convergence_tol_from_plpmat(self):
-        """convergence_tol defaults to PDError from plpmat.dat when > 0."""
+        """convergence_tol takes the raw PDError value from plpmat.dat."""
         mock_parser = self._make_plpmat_parser(pd_error=0.001)
         writer = GTOptWriter(mock_parser)
         writer.process_options({"output_dir": "out"})
         sddp = writer.planning["options"]["sddp_options"]
         assert sddp["convergence_tol"] == pytest.approx(0.001)
 
+    def test_process_options_convergence_tol_no_unit_conversion(self):
+        """PDError=1.0 is emitted verbatim (no implicit percentage→fraction)."""
+        mock_parser = self._make_plpmat_parser(pd_error=1.0)
+        writer = GTOptWriter(mock_parser)
+        writer.process_options({"output_dir": "out"})
+        sddp = writer.planning["options"]["sddp_options"]
+        assert sddp["convergence_tol"] == pytest.approx(1.0)
+
     def test_process_options_convergence_tol_default(self):
-        """convergence_tol defaults to 0.1 when plpmat has no PDError."""
+        """convergence_tol defaults to 0.01 when plpmat has no PDError."""
         mock_parser = self._make_plpmat_parser(pd_error=0.0)
         writer = GTOptWriter(mock_parser)
         writer.process_options({"output_dir": "out"})
         sddp = writer.planning["options"]["sddp_options"]
-        assert sddp["convergence_tol"] == pytest.approx(0.1)
+        assert sddp["convergence_tol"] == pytest.approx(0.01)
 
     def test_process_options_convergence_tol_no_plpmat(self):
-        """convergence_tol defaults to 0.1 when no plpmat.dat is present."""
+        """convergence_tol defaults to 0.01 when no plpmat.dat is present."""
         mock_parser = MagicMock()
         mock_parser.parsed_data = {}
         writer = GTOptWriter(mock_parser)
         writer.process_options({"output_dir": "out"})
         sddp = writer.planning["options"]["sddp_options"]
-        assert sddp["convergence_tol"] == pytest.approx(0.1)
+        assert sddp["convergence_tol"] == pytest.approx(0.01)
 
     def test_process_options_convergence_tol_explicit_overrides(self):
         """Explicit convergence_tol overrides plpmat.dat value."""
@@ -257,6 +352,23 @@ class TestGTOptWriterProcessMethods:
         writer.process_options({"output_dir": "out", "convergence_tol": 0.05})
         sddp = writer.planning["options"]["sddp_options"]
         assert sddp["convergence_tol"] == pytest.approx(0.05)
+
+    def test_process_options_stationary_tol_default_matches_convergence_tol(self):
+        """stationary_tol defaults to convergence_tol (not convergence_tol/10)."""
+        mock_parser = self._make_plpmat_parser(pd_error=0.001)
+        writer = GTOptWriter(mock_parser)
+        writer.process_options({"output_dir": "out"})
+        sddp = writer.planning["options"]["sddp_options"]
+        assert sddp["stationary_tol"] == pytest.approx(sddp["convergence_tol"])
+        assert sddp["stationary_tol"] == pytest.approx(0.001)
+        assert sddp["stationary_window"] == 4
+
+    def test_process_options_stationary_tol_explicit_overrides(self):
+        """Explicit stationary_tol overrides the convergence_tol default."""
+        writer = GTOptWriter(MagicMock())
+        writer.process_options({"output_dir": "out", "stationary_tol": 0.005})
+        sddp = writer.planning["options"]["sddp_options"]
+        assert sddp["stationary_tol"] == pytest.approx(0.005)
 
     def test_process_options_demand_fail_cost_default(self):
         """demand_fail_cost defaults to 1000 when not specified."""
@@ -345,7 +457,7 @@ class TestGTOptWriterProcessMethods:
     def test_process_scenarios_monolithic_two_hydrologies(self):
         """Monolithic solver: 2 scenarios → 1 scene containing both."""
         writer = GTOptWriter(self._make_scenario_mock())
-        writer.process_scenarios({"hydrologies": "1,2", "solver_type": "monolithic"})
+        writer.process_scenarios({"hydrologies": "1,2", "method": "monolithic"})
         scenarios = writer.planning["simulation"]["scenario_array"]
         assert len(scenarios) == 2
         assert scenarios[0]["probability_factor"] == pytest.approx(0.5)
@@ -360,7 +472,7 @@ class TestGTOptWriterProcessMethods:
     def test_process_scenarios_mono_alias(self):
         """'mono' is accepted as an alias for 'monolithic'."""
         writer = GTOptWriter(self._make_scenario_mock())
-        writer.process_scenarios({"hydrologies": "1,2,3", "solver_type": "mono"})
+        writer.process_scenarios({"hydrologies": "1,2,3", "method": "mono"})
         scenes = writer.planning["simulation"]["scene_array"]
         assert len(scenes) == 1
         assert scenes[0]["count_scenario"] == 3
@@ -424,7 +536,7 @@ class TestSimulationWriter:
     def test_build_returns_required_keys(self, tmp_path):
         parser = PLPParser({"input_dir": self._CASES_DIR / "plp_min_1bus"})
         parser.parse_all()
-        opts = {"output_dir": tmp_path, "hydrologies": "1", "solver_type": "sddp"}
+        opts = {"output_dir": tmp_path, "hydrologies": "1", "method": "sddp"}
         sim = SimulationWriter(parser.parsed_data, opts).build()
         for key in (
             "block_array",
@@ -438,7 +550,7 @@ class TestSimulationWriter:
     def test_sddp_one_phase_per_stage(self, tmp_path):
         parser = PLPParser({"input_dir": self._CASES_DIR / "plp_min_1bus"})
         parser.parse_all()
-        opts = {"output_dir": tmp_path, "hydrologies": "1", "solver_type": "sddp"}
+        opts = {"output_dir": tmp_path, "hydrologies": "1", "method": "sddp"}
         sim = SimulationWriter(parser.parsed_data, opts).build()
         assert len(sim["phase_array"]) == len(sim["stage_array"])
 
@@ -448,7 +560,7 @@ class TestSimulationWriter:
         opts = {
             "output_dir": tmp_path,
             "hydrologies": "1",
-            "solver_type": "monolithic",
+            "method": "monolithic",
         }
         sim = SimulationWriter(parser.parsed_data, opts).build()
         assert len(sim["phase_array"]) == 1

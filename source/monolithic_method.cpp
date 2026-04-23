@@ -14,6 +14,7 @@
 #include <mutex>
 #include <vector>
 
+#include <gtopt/as_label.hpp>
 #include <gtopt/label_maker.hpp>
 #include <gtopt/lp_debug_writer.hpp>
 #include <gtopt/monolithic_method.hpp>
@@ -21,6 +22,7 @@
 #include <gtopt/planning_options_lp.hpp>
 #include <gtopt/sddp_cut_io.hpp>
 #include <gtopt/solver_monitor.hpp>
+#include <gtopt/utils.hpp>
 #include <gtopt/work_pool.hpp>
 #include <spdlog/spdlog.h>
 
@@ -30,7 +32,11 @@ namespace gtopt
 auto MonolithicMethod::solve(PlanningLP& planning_lp, const SolverOptions& opts)
     -> std::expected<int, Error>
 {
-  auto pool = make_solver_work_pool();
+  auto pool = make_solver_work_pool(
+      /*cpu_factor=*/2.0,
+      /*cpu_threshold_override=*/0.0,
+      /*scheduler_interval=*/std::chrono::milliseconds(50),
+      /*memory_limit_mb=*/planning_lp.options().sddp_pool_memory_limit_mb());
 
   // ── Monitoring setup ──
   const auto solve_start = std::chrono::steady_clock::now();
@@ -61,7 +67,7 @@ auto MonolithicMethod::solve(PlanningLP& planning_lp, const SolverOptions& opts)
         static_cast<std::size_t>(num_scenes),
         StrongIndexVector<PhaseIndex, PhaseStateInfo>(num_phases_bc));
 
-    const LabelMaker label_maker(planning_lp.options());
+    const LabelMaker label_maker {};
 
     auto bc_result = load_boundary_cuts_csv(planning_lp,
                                             boundary_cuts_file,
@@ -148,7 +154,7 @@ auto MonolithicMethod::solve(PlanningLP& planning_lp, const SolverOptions& opts)
                     .count();
             {
               const std::scoped_lock lk(times_mutex);
-              scene_times[static_cast<std::size_t>(scene_index)] = elapsed;
+              scene_times[scene_index] = elapsed;
             }
             ++scenes_done;
             SPDLOG_INFO("MonolithicMethod: scene {} done in {:.3f}s ({}/{})",
@@ -184,11 +190,13 @@ auto MonolithicMethod::solve(PlanningLP& planning_lp, const SolverOptions& opts)
         {
           for (auto&& [pi, system] : enumerate<PhaseIndex>(phase_systems_ref)) {
             const auto& li = system.linear_interface();
-            const double kappa = li.get_kappa();
-            if (kappa >= 0.0) {
-              max_kappa = std::max(max_kappa, kappa);
+            const auto kappa_opt = li.get_kappa();
+            if (!kappa_opt.has_value()) {
+              continue;  // backend reported unavailable — skip entirely
             }
-            if (kappa > 0.0 && kappa > threshold) {
+            const double kappa = *kappa_opt;
+            max_kappa = std::max(max_kappa, kappa);
+            if (kappa > threshold) {
               spdlog::warn(
                   "High kappa {:.2e} (threshold {:.2e}) at scene {} phase {}",
                   kappa,
@@ -199,11 +207,11 @@ auto MonolithicMethod::solve(PlanningLP& planning_lp, const SolverOptions& opts)
                   && !lp_debug_directory.empty())
               {
                 std::filesystem::create_directories(lp_debug_directory);
-                const auto stem = (std::filesystem::path(lp_debug_directory)
-                                   / std::format("kappa_sc{}_ph{}",
-                                                 system.scene().uid(),
-                                                 system.phase().uid()))
-                                      .string();
+                const auto stem =
+                    (std::filesystem::path(lp_debug_directory)
+                     / as_label(
+                         "kappa", system.scene().uid(), system.phase().uid()))
+                        .string();
                 if (auto r = li.write_lp(stem)) {
                   spdlog::warn("Saved high-kappa LP to {}.lp", stem);
                 }
@@ -257,7 +265,7 @@ auto MonolithicMethod::solve(PlanningLP& planning_lp, const SolverOptions& opts)
       json += "  \"scene_times\": [";
       {
         const std::scoped_lock lk(times_mutex);
-        for (const auto [i, t] : std::views::enumerate(scene_times)) {
+        for (const auto& [i, t] : enumerate(scene_times)) {
           if (i > 0) {
             json += ", ";
           }

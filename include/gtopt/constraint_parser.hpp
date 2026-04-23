@@ -31,6 +31,7 @@
 
 #pragma once
 
+#include <stdexcept>
 #include <string>
 #include <string_view>
 
@@ -38,6 +39,41 @@
 
 namespace gtopt
 {
+
+/**
+ * @brief Parser-time diagnostic error.
+ *
+ * Inherits from `std::invalid_argument` so existing `CHECK_THROWS_AS`
+ * fixtures keep working.  In addition to the formatted message (which
+ * includes a caret pointer and an optional hint), exposes the raw
+ * column position and the one-line hint for programmatic inspection.
+ */
+class ConstraintParseError : public std::invalid_argument
+{
+public:
+  ConstraintParseError(const std::string& formatted,
+                       std::string message,
+                       std::string hint,
+                       std::size_t column) noexcept
+      : std::invalid_argument(formatted)
+      , m_message_(std::move(message))
+      , m_hint_(std::move(hint))
+      , m_column_(column)
+  {
+  }
+
+  [[nodiscard]] const std::string& message() const noexcept
+  {
+    return m_message_;
+  }
+  [[nodiscard]] const std::string& hint() const noexcept { return m_hint_; }
+  [[nodiscard]] std::size_t column() const noexcept { return m_column_; }
+
+private:
+  std::string m_message_;
+  std::string m_hint_;
+  std::size_t m_column_ {0};
+};
 
 /**
  * @brief Parser for AMPL-inspired user constraint expressions
@@ -83,12 +119,17 @@ private:
     RBRACE,
     DOT,
     STAR,
+    SLASH,
     PLUS,
     MINUS,
     LEQ,
     GEQ,
-    EQ,
+    EQ,  ///< `=` or `==`
+    LT,  ///< `<`
+    GT,  ///< `>`
+    NE,  ///< `!=` or `<>`
     COMMA,
+    COLON,  ///< `:` — separates sum id-list from predicate filters
     DOTDOT,
   };
 
@@ -96,6 +137,7 @@ private:
   {
     TokenType type {TokenType::END};
     std::string value {};
+    std::size_t start_pos {0};  // byte offset into the source buffer
   };
 
   class Lexer
@@ -104,6 +146,8 @@ private:
     explicit Lexer(std::string_view input) noexcept;
     [[nodiscard]] Token next();
     [[nodiscard]] Token peek();
+    [[nodiscard]] std::string_view source() const noexcept { return m_input_; }
+    [[nodiscard]] std::size_t position() const noexcept { return m_pos_; }
 
   private:
     void skip_whitespace_and_comments() noexcept;
@@ -120,24 +164,66 @@ private:
   class Parser
   {
   public:
-    explicit Parser(Lexer lexer);
+    Parser(Lexer lexer, std::string_view raw_source);
     [[nodiscard]] ConstraintExpr parse_constraint();
 
   private:
     void advance();
     void expect(TokenType type);
+    void expect(TokenType type, std::string_view hint);
     [[nodiscard]] bool match(TokenType type);
     [[nodiscard]] static bool is_element_type(const std::string& name);
+    [[nodiscard]] static bool is_singleton_class(const std::string& name);
 
-    [[nodiscard]] std::vector<ConstraintTerm> parse_expr();
-    [[nodiscard]] ConstraintTerm parse_term(bool negate);
+    [[noreturn]] void error_at(std::size_t column,
+                               const std::string& message,
+                               std::string_view hint = {}) const;
+    [[noreturn]] void error_at_current(const std::string& message,
+                                       std::string_view hint = {}) const;
+
+    [[nodiscard]] static std::string_view token_type_name(
+        TokenType type) noexcept;
+
+    [[nodiscard]] std::vector<ConstraintTerm> parse_add_expr();
+    [[nodiscard]] std::vector<ConstraintTerm> parse_mul_expr();
+    [[nodiscard]] std::vector<ConstraintTerm> parse_unary();
+    [[nodiscard]] std::vector<ConstraintTerm> parse_primary();
     [[nodiscard]] ElementRef parse_element_ref(std::string type_name);
-    [[nodiscard]] ConstraintTerm parse_sum_expr(double sign);
+    [[nodiscard]] ConstraintTerm parse_sum_expr();
+    /// Parse `abs(linear_expr)` (F5).  Called when the current token is
+    /// the `abs` identifier.  Rejects nested `abs(abs(...))`.
+    [[nodiscard]] std::vector<ConstraintTerm> parse_abs_expr();
+    /// Parse `state(element_ref)` (Phase 1e).  Called when the current
+    /// token is the `state` identifier.  The argument must be a single
+    /// element reference (no sums, no nesting).  Sets `state_wrapped`
+    /// on the resulting `ElementRef`.
+    [[nodiscard]] std::vector<ConstraintTerm> parse_state_expr();
+    /// Parse `max(arg1, arg2, ...)` or `min(arg1, arg2, ...)` (F7).
+    /// Called when the current token is `max` or `min`.
+    [[nodiscard]] std::vector<ConstraintTerm> parse_minmax_expr(
+        MinMaxKind kind);
+    /// Parse `if <cond> then (<expr>) [ else (<expr>) ]` (F8).
+    /// Called when the current token is `if`.
+    [[nodiscard]] std::vector<ConstraintTerm> parse_if_expr();
+    /// Parse the condition inside an `if` expression (conjunction of
+    /// atoms on loop coordinates).
+    [[nodiscard]] std::vector<IfCondAtom> parse_if_cond();
+    /// Parse a single `<coord> op <value>` or `<coord> in { … }` atom.
+    [[nodiscard]] IfCondAtom parse_if_cond_atom();
+    /// Parse an integer literal from a NUMBER token into a `uid_t`
+    /// (the signed 32-bit backing type of all strong uids).
+    [[nodiscard]] uid_t parse_if_cond_integer(const std::string& s);
+    /// Parse a conjunction of predicates inside `sum(...: pred and pred)`.
+    /// Fills `sum_ref.filters` and advances past the predicate list.
+    void parse_sum_predicates(SumElementRef& sum_ref);
+    /// Parse one predicate `attr op value` inside a sum filter.
+    [[nodiscard]] SumPredicate parse_one_predicate();
     [[nodiscard]] ConstraintDomain parse_for_clause();
     [[nodiscard]] IndexRange parse_index_set();
 
     Lexer m_lexer_;
     Token m_current_;
+    std::string_view m_raw_source_;  // original expression for diagnostics
   };
 
   /// @brief Strip comments from expression before parsing

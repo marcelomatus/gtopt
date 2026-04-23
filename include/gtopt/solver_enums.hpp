@@ -46,7 +46,7 @@ inline constexpr auto log_mode_entries =
     });
 
 /// ADL customization point for NamedEnum concept
-constexpr auto enum_entries(SolverLogMode /*tag*/) noexcept
+[[nodiscard]] constexpr auto enum_entries(SolverLogMode /*tag*/) noexcept
 {
   return std::span {log_mode_entries};
 }
@@ -87,7 +87,7 @@ inline constexpr auto lp_algo_entries = std::to_array<EnumEntry<LPAlgo>>({
 });
 
 /// ADL customization point for NamedEnum concept
-constexpr auto enum_entries(LPAlgo /*tag*/) noexcept
+[[nodiscard]] constexpr auto enum_entries(LPAlgo /*tag*/) noexcept
 {
   return std::span {lp_algo_entries};
 }
@@ -121,7 +121,7 @@ inline constexpr auto solver_scaling_entries =
     });
 
 /// ADL customization point for NamedEnum concept
-constexpr auto enum_entries(SolverScaling /*tag*/) noexcept
+[[nodiscard]] constexpr auto enum_entries(SolverScaling /*tag*/) noexcept
 {
   return std::span {solver_scaling_entries};
 }

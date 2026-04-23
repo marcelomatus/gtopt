@@ -8,7 +8,7 @@
 #include <doctest/doctest.h>
 #include <gtopt/cascade_method.hpp>
 #include <gtopt/enum_option.hpp>
-#include <gtopt/json/json_planning.hpp>
+#include <gtopt/gtopt_json_io.hpp>
 #include <gtopt/planning_options_lp.hpp>
 
 #include "sddp_helpers.hpp"
@@ -19,67 +19,12 @@ namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-
 {
 
 // ─── Data structure tests ───────────────────────────────────────────────────
-
-TEST_CASE("ModelOptions defaults are all nullopt")  // NOLINT
-{
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
-  const ModelOptions opts;
-  CHECK(!opts.use_single_bus.has_value());
-  CHECK(!opts.use_kirchhoff.has_value());
-  CHECK(!opts.use_line_losses.has_value());
-  CHECK(!opts.kirchhoff_threshold.has_value());
-  CHECK(!opts.loss_segments.has_value());
-  CHECK(!opts.scale_objective.has_value());
-  CHECK(!opts.scale_theta.has_value());
-  CHECK(!opts.demand_fail_cost.has_value());
-  CHECK(!opts.reserve_fail_cost.has_value());
-}
-
-TEST_CASE("CascadeTransition defaults are all nullopt")  // NOLINT
-{
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
-  const CascadeTransition trans;
-  CHECK(!trans.inherit_optimality_cuts.has_value());
-  CHECK(!trans.inherit_feasibility_cuts.has_value());
-  CHECK(!trans.inherit_targets.has_value());
-  CHECK(!trans.target_rtol.has_value());
-  CHECK(!trans.target_min_atol.has_value());
-  CHECK(!trans.target_penalty.has_value());
-  CHECK(!trans.optimality_dual_threshold.has_value());
-}
-
-TEST_CASE("CascadeLevelMethod defaults are all nullopt")  // NOLINT
-{
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
-  const CascadeLevelMethod solver;
-  CHECK(!solver.max_iterations.has_value());
-  CHECK(!solver.apertures.has_value());
-  CHECK(!solver.convergence_tol.has_value());
-}
-
-TEST_CASE("CascadeLevel defaults")  // NOLINT
-{
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
-  const CascadeLevel level;
-  CHECK(!level.name.has_value());
-  CHECK(!level.model_options.has_value());
-  CHECK(!level.sddp_options.has_value());
-  CHECK(!level.transition.has_value());
-}
-
-TEST_CASE("CascadeOptions empty level_array by default")  // NOLINT
-{
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
-  const CascadeOptions opts;
-  CHECK(opts.level_array.empty());
-  CHECK(!opts.sddp_options.max_iterations.has_value());
-  CHECK(!opts.sddp_options.convergence_tol.has_value());
-}
+//
+// Note: Default-construction and merge tests for ModelOptions,
+// CascadeTransition, CascadeLevelMethod, CascadeLevel, and CascadeOptions
+// are covered authoritatively in test_model_options.cpp and
+// test_cascade_options.cpp.  Only tests specific to this file's subject
+// (CascadePlanningMethod, StateTarget, JSON/factory/integration) live here.
 
 TEST_CASE("StateTarget default initialization")  // NOLINT
 {
@@ -98,13 +43,14 @@ TEST_CASE("StateTarget with structured fields")  // NOLINT
 {
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
-  const auto ctx = make_stage_context(ScenarioUid {0}, StageUid {3});
+  const auto ctx =
+      make_stage_context(make_uid<Scenario>(0), make_uid<Stage>(3));
   const StateTarget t {
       .class_name = "Reservoir",
       .col_name = "efin",
       .uid = Uid {42},
       .context = ctx,
-      .scene_index = SceneIndex {0},
+      .scene_index = first_scene_index(),
       .phase_index = PhaseIndex {1},
       .target_value = 100.5,
       .var_scale = 1000.0,
@@ -115,12 +61,12 @@ TEST_CASE("StateTarget with structured fields")  // NOLINT
   CHECK(t.uid == Uid {42});
   CHECK(t.target_value == doctest::Approx(100.5));
   CHECK(t.var_scale == doctest::Approx(1000.0));
-  CHECK(t.scene_index == SceneIndex {0});
+  CHECK(t.scene_index == first_scene_index());
   CHECK(t.phase_index == PhaseIndex {1});
   CHECK(std::holds_alternative<StageContext>(t.context));
   const auto& stg = std::get<StageContext>(t.context);
-  CHECK(std::get<0>(stg) == ScenarioUid {0});
-  CHECK(std::get<1>(stg) == StageUid {3});
+  CHECK(std::get<0>(stg) == make_uid<Scenario>(0));
+  CHECK(std::get<1>(stg) == make_uid<Stage>(3));
 }
 
 TEST_CASE(  // NOLINT
@@ -134,7 +80,7 @@ TEST_CASE(  // NOLINT
       .class_name = "Reservoir",
       .col_name = "efin",
       .uid = Uid {5},
-      .context = make_stage_context(ScenarioUid {0}, StageUid {2}),
+      .context = make_stage_context(make_uid<Scenario>(0), make_uid<Stage>(2)),
       .target_value = 50.0,
   };
 
@@ -205,6 +151,83 @@ TEST_CASE(  // NOLINT
   CHECK_FALSE(found);
 }
 
+// Regression for 6b5ccdc4 (fix(cascade): disambiguate tgt_sup/tgt_sdn slack
+// columns by target uid+context).  Before the fix, every target's sup/sdn
+// SparseCols were added with `variable_uid = unknown_uid (-1)` and default
+// `context`, so two targets in the same LP would hash to the same
+// `(class, variable, uid, context)` metadata tuple and the eager dup
+// detector (`f21641f9`) would throw on the second `add_col` call and the
+// whole cascade transition would abort with
+// "Duplicate LP column metadata: class='Cascade' var='tgt_sup' uid=-1".
+// Observed on juan/gtopt_iplp 3-level cascade at the uninodal→transport
+// transition (6400 targets = 16 scenes × 50 phases × 8 state vars).
+//
+// We drive the fix end-to-end via a 2-level cascade run on the 3-phase
+// hydro fixture — the transport level's `add_elastic_targets` call is
+// where the dup detector trips.  If the fix is in place, the solve
+// completes; if reverted, `solve()` returns an unexpected error with
+// the "Duplicate LP column metadata" message.
+TEST_CASE(  // NOLINT
+    "CascadePlanningMethod: multi-target transition does not trip "
+    "metadata dup detector")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  auto planning = make_3phase_hydro_planning();
+  PlanningLP planning_lp(std::move(planning));
+
+  SDDPOptions sddp_opts;
+  sddp_opts.max_iterations = 3;
+  sddp_opts.convergence_tol = 0.05;
+  sddp_opts.apertures = std::vector<Uid> {};  // no apertures
+
+  // Two-level cascade.  The transition between level 1 and level 2 is
+  // where `add_elastic_targets` installs `Cascade/tgt_sup` and
+  // `Cascade/tgt_sdn` slack columns — one pair per state target.  The
+  // 3-phase hydro fixture has ≥ 2 state-variable targets (1 reservoir
+  // × at-least-2 outgoing phases), enough to exercise the dup check.
+  CascadeOptions cascade_opts;
+  cascade_opts.level_array = {
+      CascadeLevel {
+          .name = OptName {"benders"},
+          .sddp_options =
+              CascadeLevelMethod {
+                  .max_iterations = OptInt {2},
+                  .apertures = Array<Uid> {},
+                  .convergence_tol = OptReal {0.05},
+              },
+      },
+      CascadeLevel {
+          .name = OptName {"with_targets"},
+          .sddp_options =
+              CascadeLevelMethod {
+                  .max_iterations = OptInt {1},
+                  .apertures = Array<Uid> {},
+                  .convergence_tol = OptReal {0.05},
+              },
+          .transition =
+              CascadeTransition {
+                  .inherit_targets = OptInt {-1},
+                  .target_rtol = OptReal {0.05},
+                  .target_min_atol = OptReal {1.0},
+                  .target_penalty = OptReal {500.0},
+              },
+      },
+  };
+
+  CascadePlanningMethod solver(std::move(sddp_opts), std::move(cascade_opts));
+  const SolverOptions lp_opts;
+
+  auto result = solver.solve(planning_lp, lp_opts);
+
+  // The key invariant: solve() does NOT return an unexpected with a
+  // "Duplicate LP column metadata" error.  Pre-fix, transition from
+  // level 1 to level 2 would fail on the second target's sup_col.
+  REQUIRE(result.has_value());
+  // Sanity: both levels ran and produced results.
+  CHECK(!solver.all_results().empty());
+}
+
 TEST_CASE("MethodType::cascade enum")  // NOLINT
 {
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
@@ -246,8 +269,7 @@ TEST_CASE("JSON parsing of cascade method")  // NOLINT
   }
   )json";
 
-  const auto planning =
-      daw::json::from_json<Planning>(json_str);  // NOLINT(misc-include-cleaner)
+  const auto planning = parse_planning_json(json_str);
   const PlanningOptionsLP options_lp(planning.options);
   CHECK(options_lp.method_type_enum() == MethodType::cascade);
 }
@@ -290,7 +312,6 @@ TEST_CASE("JSON parsing of cascade levels")  // NOLINT
             },
             "transition": {
               "inherit_optimality_cuts": -1,
-              "inherit_feasibility_cuts": 0,
               "inherit_targets": -1,
               "target_rtol": 0.08,
               "target_min_atol": 2.0,
@@ -304,8 +325,7 @@ TEST_CASE("JSON parsing of cascade levels")  // NOLINT
   }
   )json";
 
-  const auto planning =
-      daw::json::from_json<Planning>(json_str);  // NOLINT(misc-include-cleaner)
+  const auto planning = parse_planning_json(json_str);
   const PlanningOptionsLP options_lp(planning.options);
 
   REQUIRE(options_lp.has_cascade_levels());
@@ -337,13 +357,70 @@ TEST_CASE("JSON parsing of cascade levels")  // NOLINT
     CHECK(levels[1].transition.has_value());
     const auto trans = levels[1].transition.value_or(CascadeTransition {});
     CHECK(trans.inherit_optimality_cuts.value_or(0) == -1);
-    CHECK(trans.inherit_feasibility_cuts.value_or(-1) == 0);
     CHECK(trans.inherit_targets.value_or(0) == -1);
     CHECK(trans.target_rtol.value_or(0.0) == doctest::Approx(0.08));
     CHECK(trans.target_min_atol.value_or(0.0) == doctest::Approx(2.0));
     CHECK(trans.target_penalty.value_or(0.0) == doctest::Approx(1000.0));
     CHECK(trans.optimality_dual_threshold.value_or(0.0)
           == doctest::Approx(0.001));
+  }
+}
+
+TEST_CASE("JSON parsing of cascade level active field")  // NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  // Exercises the CascadeLevel `active` OptBool wired through
+  // json_cascade_options.hpp and consumed by cascade_method.cpp:
+  //   `if (!level.active.value_or(true)) continue;`
+  //
+  // Verifies three modes: active=false (skip), active=true (explicit
+  // run), and omitted (defaults to run).  This test guards the JSON
+  // binding from silently dropping the field.
+  constexpr std::string_view json_str = R"json(
+  {
+    "options": {
+      "method": "cascade",
+      "cascade_options": {
+        "level_array": [
+          {"name": "disabled", "active": false},
+          {"name": "enabled", "active": true},
+          {"name": "default"}
+        ]
+      }
+    }
+  }
+  )json";
+
+  const auto planning = parse_planning_json(json_str);
+  const PlanningOptionsLP options_lp(planning.options);
+
+  REQUIRE(options_lp.has_cascade_levels());
+  const auto& levels = options_lp.cascade_levels();
+  REQUIRE(levels.size() == 3);
+
+  SUBCASE("active=false parsed")
+  {
+    CHECK(levels[0].name.value_or("") == "disabled");
+    REQUIRE(levels[0].active.has_value());
+    CHECK(*levels[0].active == false);
+    CHECK(levels[0].active.value_or(true) == false);
+  }
+
+  SUBCASE("active=true parsed")
+  {
+    CHECK(levels[1].name.value_or("") == "enabled");
+    REQUIRE(levels[1].active.has_value());
+    CHECK(*levels[1].active == true);
+    CHECK(levels[1].active.value_or(true) == true);
+  }
+
+  SUBCASE("active omitted defaults to active")
+  {
+    CHECK(levels[2].name.value_or("") == "default");
+    CHECK_FALSE(levels[2].active.has_value());
+    // cascade_method.cpp uses `value_or(true)` so absent → active.
+    CHECK(levels[2].active.value_or(true) == true);
   }
 }
 
@@ -359,8 +436,7 @@ TEST_CASE("JSON cascade options with empty levels uses defaults")  // NOLINT
   }
   )json";
 
-  const auto planning =
-      daw::json::from_json<Planning>(json_str);  // NOLINT(misc-include-cleaner)
+  const auto planning = parse_planning_json(json_str);
   const PlanningOptionsLP options_lp(planning.options);
   CHECK(!options_lp.has_cascade_levels());
 }
@@ -465,6 +541,24 @@ TEST_CASE("CascadePlanningMethod basic 3-phase hydro")  // NOLINT
     // 2 levels: (5 iters + 1 final fwd) + (10 iters + 1 final fwd) = 17
     CHECK(solver.all_results().size() <= 17);
   }
+
+  SUBCASE("iteration indices are strictly monotonic across levels")
+  {
+    // Regression test for the cascade iteration_offset_hint wiring:
+    // each level's SDDPMethod must receive a global iteration offset so
+    // its training indices start past the previous level's range.
+    // Without the wiring, every level's first iteration_index is 0 and
+    // save_cuts_for_iteration stacks cuts from different levels under
+    // the same index in m_cut_store_.
+    REQUIRE(result.has_value());
+    const auto& all = solver.all_results();
+    REQUIRE(!all.empty());
+    for (std::size_t i = 1; i < all.size(); ++i) {
+      const auto prev = static_cast<Index>(all[i - 1].iteration_index);
+      const auto curr = static_cast<Index>(all[i].iteration_index);
+      CHECK(curr > prev);
+    }
+  }
 }
 
 TEST_CASE("CascadePlanningMethod with empty options = single level")  // NOLINT
@@ -567,158 +661,9 @@ TEST_CASE("CascadePlanningMethod 5-phase reservoir")  // NOLINT
   }
 }
 
-// ─── CascadeLevelMethod merge tests ────────────────────────────────────────
-
-TEST_CASE("CascadeLevelMethod merge overwrites set fields only")  // NOLINT
-{
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
-  CascadeLevelMethod base;
-  base.max_iterations = OptInt {10};
-  base.convergence_tol = OptReal {0.01};
-
-  SUBCASE("merge overwrites max_iterations when set")
-  {
-    CascadeLevelMethod override_opts;
-    override_opts.max_iterations = OptInt {20};
-    base.merge(override_opts);
-    CHECK(base.max_iterations.value_or(0) == 20);
-    CHECK(base.convergence_tol.value_or(0.0) == doctest::Approx(0.01));
-    CHECK(!base.apertures.has_value());
-  }
-
-  SUBCASE("merge does not overwrite unset fields")
-  {
-    const CascadeLevelMethod empty;
-    base.merge(empty);
-    CHECK(base.max_iterations.value_or(0) == 10);
-    CHECK(base.convergence_tol.value_or(0.0) == doctest::Approx(0.01));
-  }
-
-  SUBCASE("merge overwrites apertures when set")
-  {
-    CascadeLevelMethod override_opts;
-    override_opts.apertures = Array<Uid> {
-        1,
-        2,
-        3,
-    };
-    base.merge(override_opts);
-    REQUIRE(base.apertures.has_value());
-    CHECK(base.apertures->size() == 3);
-  }
-
-  SUBCASE("merge with empty apertures replaces nullopt")
-  {
-    CascadeLevelMethod override_opts;
-    override_opts.apertures = Array<Uid> {};
-    base.merge(override_opts);
-    REQUIRE(base.apertures.has_value());
-    CHECK(base.apertures->empty());
-  }
-
-  SUBCASE("merge does not clear apertures when override is nullopt")
-  {
-    base.apertures = Array<Uid> {
-        5,
-        6,
-    };
-    const CascadeLevelMethod empty;
-    base.merge(empty);
-    REQUIRE(base.apertures.has_value());
-    CHECK(base.apertures->size() == 2);
-  }
-}
-
-// ─── CascadeTransition merge tests ─────────────────────────────────────────
-
-TEST_CASE("CascadeTransition merge overwrites set fields only")  // NOLINT
-{
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
-  CascadeTransition base;
-  base.inherit_targets = OptInt {-1};
-  base.target_penalty = OptReal {500.0};
-
-  CascadeTransition override_opts;
-  override_opts.target_penalty = OptReal {1000.0};
-  override_opts.inherit_optimality_cuts = OptInt {-1};
-
-  base.merge(override_opts);
-  CHECK(base.inherit_targets.value_or(0) == -1);
-  CHECK(base.target_penalty.value_or(0.0) == doctest::Approx(1000.0));
-  CHECK(base.inherit_optimality_cuts.value_or(0) == -1);
-  CHECK(!base.target_rtol.has_value());
-}
-
-// ─── CascadeOptions merge tests ────────────────────────────────────────────
-
-TEST_CASE("CascadeOptions merge overwrites global fields and level_array")
-// NOLINT
-{
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
-  CascadeOptions base;
-  base.sddp_options.max_iterations = OptInt {50};
-  base.sddp_options.convergence_tol = OptReal {0.01};
-
-  SUBCASE("merge overwrites max_iterations via sddp_options")
-  {
-    CascadeOptions override_opts;
-    override_opts.sddp_options.max_iterations = OptInt {100};
-    base.merge(std::move(override_opts));
-    CHECK(base.sddp_options.max_iterations.value_or(0) == 100);
-    CHECK(base.sddp_options.convergence_tol.value_or(0.0)
-          == doctest::Approx(0.01));
-  }
-
-  SUBCASE("merge replaces level_array when non-empty")
-  {
-    CascadeOptions override_opts;
-    override_opts.level_array = {
-        CascadeLevel {
-            .name = OptName {"new_level"},
-        },
-    };
-    base.merge(std::move(override_opts));
-    REQUIRE(base.level_array.size() == 1);
-    CHECK(base.level_array[0].name.value_or("") == "new_level");
-  }
-
-  SUBCASE("merge does not replace level_array when empty")
-  {
-    base.level_array = {
-        CascadeLevel {
-            .name = OptName {"existing"},
-        },
-    };
-    CascadeOptions empty;
-    base.merge(std::move(empty));
-    REQUIRE(base.level_array.size() == 1);
-    CHECK(base.level_array[0].name.value_or("") == "existing");
-  }
-}
-
-// ─── ModelOptions merge tests ──────────────────────────────────────────────
-
-TEST_CASE("ModelOptions merge overwrites set fields only")  // NOLINT
-{
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
-  ModelOptions base;
-  base.use_single_bus = OptBool {true};
-  base.demand_fail_cost = 1000.0;
-
-  ModelOptions override_opts;
-  override_opts.use_kirchhoff = OptBool {true};
-  override_opts.demand_fail_cost = 2000.0;
-
-  base.merge(override_opts);
-  CHECK(base.use_single_bus.value_or(false) == true);
-  CHECK(base.use_kirchhoff.value_or(false) == true);
-  CHECK(base.demand_fail_cost.value_or(0.0) == doctest::Approx(2000.0));
-  CHECK(!base.use_line_losses.has_value());
-}
+// Note: merge-semantics tests for CascadeLevelMethod, CascadeTransition,
+// CascadeOptions, and ModelOptions are covered in test_cascade_options.cpp
+// and test_model_options.cpp.
 
 // ─── SDDP option resolution: base → cascade global → per-level ────────────
 

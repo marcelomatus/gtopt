@@ -211,7 +211,9 @@ bool SolverRegistry::load_plugin(const std::filesystem::path& path)
     solver_names.emplace_back(*names);
   }
 
-  SPDLOG_INFO("Loaded solver plugin '{}' from {} (solvers: {})",
+  // Indent two spaces so the message sits under the "Building LP model"
+  // section when plugin loading is triggered as a side effect of LP build.
+  SPDLOG_INFO("  Loaded solver plugin '{}' from {} (solvers: {})",
               plugin_name,
               path.string(),
               join_strings(solver_names, ", "));
@@ -247,45 +249,60 @@ bool SolverRegistry::validate_solver_subprocess(const PluginHandle& plugin,
     // Any crash here (SIGSEGV, SIGABRT, etc.) terminates only the child.
     // This catches both vtable ABI mismatches AND solvers that crash during
     // actual LP solving (e.g. COIN-OR compiled with GCC in a Clang binary).
-    // NOLINTNEXTLINE(concurrency-mt-unsafe) - single-threaded child
-    auto* backend = plugin.create_fn(solver_name.c_str());
-    if (backend == nullptr) {
+    //
+    // Reset signal handlers so doctest's crash-recovery logic (inherited
+    // from the parent via fork) does not fire inside the child — without
+    // this, an uncaught exception → abort → doctest's SIGABRT handler
+    // → spurious crash output that confuses doctest's test-rerun loop.
+    // NOLINTBEGIN(cppcoreguidelines-pro-type-cstyle-cast,cert-err33-c)
+    ::signal(SIGABRT, SIG_DFL);
+    ::signal(SIGSEGV, SIG_DFL);
+    ::signal(SIGFPE, SIG_DFL);
+    // NOLINTEND(cppcoreguidelines-pro-type-cstyle-cast,cert-err33-c)
+
+    try {
+      // NOLINTNEXTLINE(concurrency-mt-unsafe) - single-threaded child
+      auto* backend = plugin.create_fn(solver_name.c_str());
+      if (backend == nullptr) {
+        ::_exit(1);  // NOLINT(concurrency-mt-unsafe)
+      }
+      // Step 1: exercise basic vtable accessors.
+      const auto bname = backend->solver_name();
+      const auto inf = backend->infinity();
+      (void)bname;
+
+      // Step 2: solve a minimal LP to confirm the solver works end-to-end.
+      // LP: min x  s.t.  x >= 1,  0 <= x <= 10
+      // This catches solvers that can be created but SEGFAULT during solving.
+      const int nc = 1;
+      const int nr = 1;
+      const std::array<int, 2> matbeg {0, 1};
+      const std::array<int, 1> matind {0};
+      const std::array<double, 1> matval {1.0};
+      const std::array<double, 1> collb {0.0};
+      const std::array<double, 1> colub {10.0};
+      const std::array<double, 1> objv {1.0};
+      const std::array<double, 1> rowlb {1.0};
+      const std::array<double, 1> rowub {inf};
+      backend->load_problem(nc,
+                            nr,
+                            matbeg.data(),
+                            matind.data(),
+                            matval.data(),
+                            collb.data(),
+                            colub.data(),
+                            objv.data(),
+                            rowlb.data(),
+                            rowub.data());
+      backend->initial_solve();
+      if (!backend->is_proven_optimal()) {
+        ::_exit(2);  // NOLINT(concurrency-mt-unsafe)
+      }
+      delete backend;  // NOLINT(cppcoreguidelines-owning-memory)
+      ::_exit(0);  // NOLINT(concurrency-mt-unsafe)
+    } catch (...) {
       ::_exit(1);  // NOLINT(concurrency-mt-unsafe)
     }
-    // Step 1: exercise basic vtable accessors.
-    const auto bname = backend->solver_name();
-    const auto inf = backend->infinity();
-    (void)bname;
-
-    // Step 2: solve a minimal LP to confirm the solver works end-to-end.
-    // LP: min x  s.t.  x >= 1,  0 <= x <= 10
-    // This catches solvers that can be created but SEGFAULT during solving.
-    const int nc = 1;
-    const int nr = 1;
-    const std::array<int, 2> matbeg {0, 1};
-    const std::array<int, 1> matind {0};
-    const std::array<double, 1> matval {1.0};
-    const std::array<double, 1> collb {0.0};
-    const std::array<double, 1> colub {10.0};
-    const std::array<double, 1> objv {1.0};
-    const std::array<double, 1> rowlb {1.0};
-    const std::array<double, 1> rowub {inf};
-    backend->load_problem(nc,
-                          nr,
-                          matbeg.data(),
-                          matind.data(),
-                          matval.data(),
-                          collb.data(),
-                          colub.data(),
-                          objv.data(),
-                          rowlb.data(),
-                          rowub.data());
-    backend->initial_solve();
-    if (!backend->is_proven_optimal()) {
-      ::_exit(2);  // NOLINT(concurrency-mt-unsafe)
-    }
-    delete backend;  // NOLINT(cppcoreguidelines-owning-memory)
-    ::_exit(0);  // NOLINT(concurrency-mt-unsafe)
   }
 
   // Parent: wait for the child to finish.
@@ -441,28 +458,55 @@ bool SolverRegistry::ensure_solver_loaded(std::string_view solver_name,
 std::unique_ptr<SolverBackend> SolverRegistry::create(
     std::string_view solver_name)
 {
-  const std::scoped_lock lock(m_mutex_);
-
-  // Ensure the requested solver is loaded (lazy).
-  ensure_solver_loaded(solver_name);
-
-  for (const auto& plugin : m_plugins_) {
-    for (const auto& name : plugin.solver_names) {
-      if (name == solver_name) {
-        auto* backend = plugin.create_fn(std::string(solver_name).c_str());
-        if (backend == nullptr) {
-          throw std::runtime_error(
-              std::format("Plugin '{}' failed to create solver '{}'",
-                          plugin.plugin_name,
-                          solver_name));
+  // We must NOT hold `m_mutex_` across `plugin.create_fn()`: for
+  // heavyweight backends (notably CPLEX → `CPXopenCPLEX()`) that call
+  // can take several milliseconds per invocation, and the
+  // `PlanningLP::create_systems` parallel build fires one
+  // `LinearInterface(...)` per (scene, phase) cell (`linear_interface.
+  // cpp:75-80`).  With 16×51 = 816 cells and CPLEX's per-create cost,
+  // the old hold-lock-across-create_fn pattern serialized 5–8 s of
+  // wall time onto a single mutex, capping pool efficiency around
+  // 78 %.
+  //
+  // Lookup runs under the lock — `m_plugins_` is a vector and would
+  // be UB to read unlocked if a concurrent `ensure_solver_loaded`
+  // could grow it — but we copy the function pointer and plugin name
+  // out of the lookup, release the lock, and *then* call `create_fn`.
+  // Each plugin is a DSO whose text segment is stable once loaded, so
+  // concurrent calls into `create_fn` are safe by construction.
+  solver_backend_factory_fn create_fn {};
+  std::string plugin_name;
+  {
+    const std::scoped_lock lock(m_mutex_);
+    ensure_solver_loaded(solver_name);
+    for (const auto& plugin : m_plugins_) {
+      for (const auto& name : plugin.solver_names) {
+        if (name == solver_name) {
+          create_fn = plugin.create_fn;
+          plugin_name = plugin.plugin_name;
+          break;
         }
-        return std::unique_ptr<SolverBackend>(backend);
+      }
+      if (create_fn != nullptr) {
+        break;
       }
     }
+  }  // ← lock released here, before the heavy create_fn call.
+
+  if (create_fn != nullptr) {
+    auto* backend = create_fn(std::string(solver_name).c_str());
+    if (backend == nullptr) {
+      throw std::runtime_error(
+          std::format("Plugin '{}' failed to create solver '{}'",
+                      plugin_name,
+                      solver_name));
+    }
+    return std::unique_ptr<SolverBackend>(backend);
   }
 
-  // Build helpful error message — load everything first to give a
-  // complete list of available solvers.
+  // Unknown solver — load everything so the error message can list
+  // every available alternative.  Re-acquires the lock inside
+  // `load_all_plugins` / `available_solvers`.
   load_all_plugins();
   const auto available = available_solvers();
   throw std::runtime_error(
@@ -550,6 +594,26 @@ bool SolverRegistry::has_solver(std::string_view name) const
 {
   const std::scoped_lock lock(m_mutex_);
   return has_solver_unlocked(name);
+}
+
+bool SolverRegistry::supports_mip(std::string_view name)
+{
+  // Use the public create() path so that lazy-load semantics match
+  // the call-site that would actually instantiate the backend.
+  try {
+    auto backend = create(name);
+    return backend && backend->supports_mip();
+  } catch (const std::exception&) {
+    return false;
+  }
+}
+
+bool SolverRegistry::has_mip_solver()
+{
+  load_all_plugins();
+  const auto solvers = available_solvers();
+  return std::ranges::any_of(
+      solvers, [this](const std::string& s) { return supports_mip(s); });
 }
 
 const std::vector<std::string>& SolverRegistry::searched_directories() const

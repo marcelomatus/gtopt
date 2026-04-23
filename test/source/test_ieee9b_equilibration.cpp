@@ -23,7 +23,7 @@
 
 #include <doctest/doctest.h>
 #include <gtopt/array_index_traits.hpp>
-#include <gtopt/json/json_planning.hpp>
+#include <gtopt/gtopt_json_io.hpp>
 #include <gtopt/lp_matrix_enums.hpp>
 #include <gtopt/planning_lp.hpp>
 
@@ -37,7 +37,6 @@ namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-
 constexpr std::string_view ieee9b_eq_json = R"({
   "options": {
     "annual_discount_rate": 0.0,
-    "lp_matrix_options": {"names_level": 1},
     "output_format": "csv",
     "output_compression": "uncompressed",
     "use_single_bus": false,
@@ -110,7 +109,7 @@ auto solve_ieee9b_eq(gtopt::LpEquilibrationMethod method,
 
   // Parse base planning and override equilibration_method + output_directory.
   Planning base;
-  base.merge(daw::json::from_json<Planning>(ieee9b_eq_json));
+  base.merge(parse_planning_json(ieee9b_eq_json));
   base.options.output_directory = out_dir.string();
   base.options.lp_matrix_options.equilibration_method = method;
 
@@ -158,10 +157,14 @@ auto solve_ieee9b_eq(gtopt::LpEquilibrationMethod method,
   };
 
   // Read back all output CSV files.
-  res.generation = read_uid_values(out_dir / "Generator" / "generation_sol", 3);
-  res.flowp = read_uid_values(out_dir / "Line" / "flowp_sol", 9);
-  res.load = read_uid_values(out_dir / "Demand" / "load_sol", 3);
-  res.balance_dual = read_uid_values(out_dir / "Bus" / "balance_dual", 9);
+  // CSV output is now sharded per (scene, phase); with no explicit
+  // scene/phase arrays both uids default to 0, so files are suffixed
+  // "_s0_p0".
+  res.generation =
+      read_uid_values(out_dir / "Generator" / "generation_sol_s0_p0", 3);
+  res.flowp = read_uid_values(out_dir / "Line" / "flowp_sol_s0_p0", 9);
+  res.load = read_uid_values(out_dir / "Demand" / "load_sol_s0_p0", 3);
+  res.balance_dual = read_uid_values(out_dir / "Bus" / "balance_dual_s0_p0", 9);
 
   return res;
 }
@@ -184,7 +187,8 @@ TEST_CASE(  // NOLINT
     REQUIRE(method.has_value());
 
     const auto out_dir = tmp_base / mode_name;
-    const auto res = solve_ieee9b_eq(*method, out_dir);
+    const auto res =
+        solve_ieee9b_eq(method.value_or(LpEquilibrationMethod::none), out_dir);
 
     CHECK(res.solve_status == 1);  // 1 scene successfully processed
     CHECK(res.obj_value > 0.0);
@@ -294,14 +298,13 @@ TEST_CASE(  // NOLINT
 
   SUBCASE("output CSV files exist")
   {
-    for (const auto* dir : {(tmp_base / "none").c_str(),
-                            (tmp_base / "row_max").c_str(),
-                            (tmp_base / "ruiz").c_str()})
-    {
-      const std::filesystem::path d(dir);
-      CHECK(std::filesystem::exists(d / "Generator" / "generation_sol.csv"));
-      CHECK(std::filesystem::exists(d / "Line" / "flowp_sol.csv"));
-      CHECK(std::filesystem::exists(d / "Demand" / "load_sol.csv"));
+    for (const auto* mode : {"none", "row_max", "ruiz"}) {
+      CAPTURE(mode);
+      const auto d = tmp_base / mode;
+      CHECK(std::filesystem::exists(d / "Generator"
+                                    / "generation_sol_s0_p0.csv"));
+      CHECK(std::filesystem::exists(d / "Line" / "flowp_sol_s0_p0.csv"));
+      CHECK(std::filesystem::exists(d / "Demand" / "load_sol_s0_p0.csv"));
       CHECK(std::filesystem::exists(d / "solution.csv"));
     }
   }

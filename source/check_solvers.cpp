@@ -20,6 +20,7 @@
 #include <string>
 #include <vector>
 
+#include <gtopt/as_label.hpp>
 #include <gtopt/check_solvers.hpp>
 #include <gtopt/linear_interface.hpp>
 #include <gtopt/linear_problem.hpp>
@@ -40,16 +41,16 @@ bool SolverTestReport::passed() const noexcept
       results, [](const SolverTestResult& r) { return !r.passed; });
 }
 
-int SolverTestReport::n_passed() const noexcept
+std::ptrdiff_t SolverTestReport::n_passed() const noexcept
 {
-  return static_cast<int>(std::ranges::count_if(
-      results, [](const SolverTestResult& r) { return r.passed; }));
+  return std::ranges::count_if(
+      results, [](const SolverTestResult& r) { return r.passed; });
 }
 
-int SolverTestReport::n_failed() const noexcept
+std::ptrdiff_t SolverTestReport::n_failed() const noexcept
 {
-  return static_cast<int>(std::ranges::count_if(
-      results, [](const SolverTestResult& r) { return !r.passed; }));
+  return std::ranges::count_if(
+      results, [](const SolverTestResult& r) { return !r.passed; });
 }
 
 // ---------------------------------------------------------------------------
@@ -380,41 +381,63 @@ SolverTestResult test_variable_types(std::string_view solver)
 }
 
 // ---------------------------------------------------------------------------
-// 7. lp_names_level + name maps (col_name_map, row_name_map)
+// 7. LP names + name maps (col_name_map, row_name_map)
 // ---------------------------------------------------------------------------
 SolverTestResult test_name_maps(std::string_view solver)
 {
   TestContext ctx;
   try {
     LinearInterface lp(solver);
-    lp.set_lp_names_level(1);
+    lp.set_label_maker(LabelMaker {LpNamesLevel::all});
 
-    TC_CHECK(ctx, lp.lp_names_level() == 1);
+    TC_CHECK(ctx, lp.label_maker().names_level() == LpNamesLevel::all);
 
+    // LabelMaker builds a label of the form
+    //   as_label(lowercase(class_name), variable_name, variable_uid)
+    // → e.g. "col_x_1".  Leaving any of these empty/unknown produces an
+    // empty label, which LinearInterface then declines to register in its
+    // name maps — so the SparseCol/SparseRow below must carry the full
+    // (class_name, variable_name, variable_uid) triple for this test to
+    // exercise the name-map machinery at all.
     const auto x1 = lp.add_col(SparseCol {
         .uppb = 10.0,
+        .class_name = "col",
+        .variable_name = "x",
+        .variable_uid = Uid {1},
     });
     const auto x2 = lp.add_col(SparseCol {
         .uppb = 5.0,
+        .class_name = "col",
+        .variable_name = "x",
+        .variable_uid = Uid {2},
     });
 
-    SparseRow row;
+    SparseRow row {
+        .lowb = 0.0,
+        .uppb = 10.0,
+        .class_name = "row",
+        .constraint_name = "my",
+        .variable_uid = Uid {1},
+    };
     row[x1] = 1.0;
-    row.lowb = 0.0;
-    row.uppb = 10.0;
     lp.add_row(row);
 
     const auto& col_map = lp.col_name_map();
-    TC_CHECK(ctx, col_map.contains("x1"));
-    TC_CHECK(ctx, col_map.contains("x2"));
+    TC_CHECK(ctx, col_map.contains("col_x_1"));
+    TC_CHECK(ctx, col_map.contains("col_x_2"));
 
     const auto& row_map = lp.row_name_map();
-    TC_CHECK(ctx, row_map.contains("my_row"));
+    TC_CHECK(ctx, row_map.contains("row_my_1"));
 
+    // TC_REQUIRE: if the backend-or-interface failed to populate the
+    // index→name vector we must stop here, otherwise the operator[] below
+    // would dereference an empty StrongIndexVector and crash the process
+    // (the previous version silently checked the size and then crashed
+    // when the check fired).
     const auto& col_idx_to_name = lp.col_index_to_name();
-    TC_CHECK(ctx, col_idx_to_name.size() == 2);
-    TC_CHECK(ctx, col_idx_to_name[x1] == "x1");
-    TC_CHECK(ctx, col_idx_to_name[x2] == "x2");
+    TC_REQUIRE(ctx, col_idx_to_name.size() == 2);
+    TC_CHECK(ctx, col_idx_to_name[x1] == "col_x_1");
+    TC_CHECK(ctx, col_idx_to_name[x2] == "col_x_2");
 
   } catch (const std::exception& ex) {
     return make_result("name_maps", /*test_passed=*/false, ex.what());
@@ -505,8 +528,14 @@ SolverTestResult test_initial_solve_optimal(std::string_view solver)
       const auto rc = lp.get_col_cost_raw();
       TC_CHECK(ctx, rc.size() == 2);
 
-      // Kappa: >= 0 when supported, -1 when not (e.g. MindOpt).
-      TC_CHECK(ctx, lp.get_kappa() >= -1.0);
+      // Kappa: has_value when backend supports it; nullopt when the
+      // query fails or the backend does not expose one (e.g. MindOpt).
+      // If a value is returned it must never be the pre-fix 1.0 sentinel
+      // silently faked by a failed query — backends now return nullopt
+      // in that case.  We only assert "non-negative when present".
+      if (const auto kappa = lp.get_kappa(); kappa.has_value()) {
+        TC_CHECK(ctx, *kappa >= 0.0);
+      }
 
     } catch (const std::exception& ex) {
       ctx.check(
@@ -725,16 +754,15 @@ SolverTestResult test_write_lp(std::string_view solver)
   try {
     const auto flat = make_2x2_flat();
     LinearInterface lp(solver, flat);
-    lp.set_lp_names_level(1);
+    lp.set_label_maker(LabelMaker {LpNamesLevel::all});
     const auto ri4 = lp.initial_solve(SolverOptions {
         .log_level = 0,
     });
     TC_REQUIRE(ctx, ri4.has_value());
 
-    const auto tmp_stem =
-        (std::filesystem::temp_directory_path()
-         / std::format("gtopt_check_solvers_{}", std::string(solver)))
-            .string();
+    const auto tmp_stem = (std::filesystem::temp_directory_path()
+                           / as_label("gtopt_check_solvers", solver))
+                              .string();
     const auto result = lp.write_lp(tmp_stem);
 
     if (result.has_value()) {
@@ -1006,7 +1034,6 @@ SolverTestResult test_barrier_resolve(std::string_view solver)
 
     const auto r_resolve = li.resolve(SolverOptions {
         .algorithm = LPAlgo::dual,
-        .reuse_basis = true,
     });
     TC_CHECK(ctx, r_resolve.has_value());
     TC_CHECK(ctx, li.is_optimal());

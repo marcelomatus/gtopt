@@ -19,6 +19,7 @@
 #include <gtopt/cli_options.hpp>
 #include <gtopt/config_file.hpp>
 #include <gtopt/gtopt_main.hpp>
+#include <gtopt/label_maker.hpp>
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/planning.hpp>
 #include <gtopt/solver_options.hpp>
@@ -66,24 +67,67 @@ template<typename T>
  * @return The corresponding integer value for the algorithm.
  * @throws cli::parse_error on unrecognised input.
  */
-[[nodiscard]] inline int parse_lp_algorithm(const std::string& s)
+[[nodiscard]] inline LPAlgo parse_lp_algorithm(std::string_view s)
 {
-  // Name-based lookup via the constexpr table in solver_options.hpp.
+  // Name-based lookup via the constexpr table in solver_enums.hpp.
   if (const auto algo = enum_from_name<LPAlgo>(s)) {
-    return static_cast<int>(*algo);
+    return *algo;
   }
   // Numeric fallback: exactly one digit, "0"–"3"
   if (s.size() == 1 && std::isdigit(static_cast<unsigned char>(s.front())) != 0)
   {
     const int v = s.front() - '0';
     if (v >= 0 && v < static_cast<int>(LPAlgo::last_algo)) {
-      return v;
+      return static_cast<LPAlgo>(v);
     }
   }
   throw cli::parse_error(
       std::format("invalid lp-algorithm value: '{}' "
                   "(expected 0-3 or default/primal/dual/barrier)",
                   s));
+}
+
+/**
+ * @brief Parse a memory size string into megabytes.
+ *
+ * Accepts a plain number (interpreted as MB) or a number with suffix:
+ * "M"/"MB" for megabytes, "G"/"GB" for gigabytes.
+ * Examples: "4096", "300M", "5G", "1.5GB".
+ *
+ * @param s The string to parse.
+ * @return Size in megabytes.
+ * @throws cli::parse_error on unrecognised input.
+ */
+[[nodiscard]] inline double parse_memory_size(const std::string& s)
+{
+  if (s.empty()) {
+    return 0.0;
+  }
+  double value = 0.0;
+  size_t pos = 0;
+  try {
+    value = std::stod(s, &pos);
+  } catch (...) {
+    throw cli::parse_error(
+        std::format("invalid memory size: '{}' (expected number with optional "
+                    "M/G suffix)",
+                    s));
+  }
+  auto suffix = s.substr(pos);
+  // Strip leading whitespace
+  while (!suffix.empty() && suffix.front() == ' ') {
+    suffix.erase(suffix.begin());
+  }
+  if (suffix.empty() || suffix == "M" || suffix == "MB" || suffix == "m"
+      || suffix == "mb")
+  {
+    return value;  // already in MB
+  }
+  if (suffix == "G" || suffix == "GB" || suffix == "g" || suffix == "gb") {
+    return value * 1024.0;
+  }
+  throw cli::parse_error(std::format(
+      "invalid memory size suffix: '{}' (expected M, MB, G, or GB)", suffix));
 }
 
 /**
@@ -103,7 +147,8 @@ template<typename T>
        "solver if a name is given (e.g. --check-solvers clp), then exit")  //
       ("solver",
        po::value<std::string>(),
-       "LP solver backend: clp (default), cbc, cplex, highs")  //
+       "LP solver backend: cplex, highs, cbc, clp "
+       "(default: auto-detect by priority cplex > highs > cbc > clp)")  //
       ("verbose,v", "enable maximum log verbosity (trace level)")  //
       ("quiet,q",
        po::value<bool>().implicit_value(/*v=*/true),
@@ -123,9 +168,6 @@ template<typename T>
        po::value<std::string>(),
        "write the assembled LP model to this file (stem; .lp extension added)")
       //
-      ("lp-names-level,n",
-       po::value<std::string>().implicit_value("only_cols"),
-       "LP naming level: 0/minimal, 1/only_cols, 2/cols_and_rows")  //
       ("matrix-eps,e",
        po::value<double>(),
        "epsilon threshold for treating LP matrix coefficients as zero")  //
@@ -137,12 +179,6 @@ template<typename T>
       ("json-file,j",
        po::value<std::string>(),
        "write the merged planning JSON to this file")  //
-      ("fast-parsing,p",
-       po::value<bool>().implicit_value(/*v=*/true),
-       "use lenient (non-strict) JSON parsing")  //
-      ("check-json,J",
-       po::value<bool>().implicit_value(/*v=*/true),
-       "warn about JSON fields not recognised by the schema")  //
       ("stats,S",
        po::value<bool>().implicit_value(/*v=*/true),
        "print LP coefficient statistics and system stats before/after solving")
@@ -159,11 +195,39 @@ template<typename T>
        po::value<bool>().implicit_value(/*v=*/true),
        "enable recovery from a previous SDDP run (loads cuts and state "
        "variables according to JSON recovery_mode; default: off)")  //
+      ("memory-saving",
+       po::value<std::string>().implicit_value("compress"),
+       "coordinated memory-saving: sets both the SDDP flat-LP release "
+       "policy (sddp_options.low_memory_mode) AND the solver-native "
+       "memory hint (solver_options.memory_emphasis, e.g. CPLEX "
+       "CPX_PARAM_MEMORYEMPHASIS).  Values: off, "
+       "compress (release solver, keep compressed flat LP — best "
+       "balance, default when flag is given without value), "
+       "rebuild (re-build base LP every solve — lowest RAM, highest "
+       "CPU).  Overridden by direct JSON settings for either option.")  //
+      // Deprecated alias for `--memory-saving` — hidden from help.
       ("low-memory",
-       po::value<std::string>().implicit_value("snapshot"),
-       "SDDP low-memory mode: off, snapshot (release solver + keep flat LP), "
-       "compress (release solver + compress flat LP)")  //
+       po::value<std::string>().implicit_value("compress"),
+       "")  //
+      ("memory-limit",
+       po::value<std::string>(),
+       "process memory limit for work pool throttling "
+       "(e.g. 4096, 300M, 5G)")  //
+      ("cpu-factor",
+       po::value<double>(),
+       "work pool thread over-commit factor (default: 4.0)")  //
+      ("write-out",
+       po::value<std::string>(),
+       "comma-separated list of output fields the solver should emit "
+       "(default: all).  Atoms: solution (alias: sol), dual, "
+       "reduced_cost (aliases: cost, rcost, rc), all, none.  "
+       "Example: --write-out sol,dual  or  --write-out all")  //
+      ("build-mode",
+       po::value<std::string>(),
+       "LP build parallelism: serial, scene-parallel, full-parallel, "
+       "direct-parallel (default: scene-parallel)")  //
       // ---- deprecated options (hidden from help, still parsed) ----
+      ("sddp-cpu-factor", po::value<double>(), "")  //
       ("input-directory,D", po::value<std::string>(), "")  //
       ("input-format,F", po::value<std::string>(), "")  //
       ("output-directory,d", po::value<std::string>(), "")  //
@@ -188,8 +252,7 @@ template<typename T>
       ("sddp-min-iterations", po::value<int>(), "")  //
       ("sddp-convergence-tol", po::value<double>(), "")  //
       ("sddp-elastic-penalty", po::value<double>(), "")  //
-      ("sddp-elastic-mode", po::value<std::string>(), "")  //
-      ("sddp-cut-coeff-mode", po::value<std::string>(), "");
+      ("sddp-elastic-mode", po::value<std::string>(), "");
   return desc;
 }
 
@@ -201,8 +264,6 @@ template<typename T>
  * @param planning The Planning object to update
  * @param use_single_bus Optional single-bus mode flag
  * @param use_kirchhoff Optional Kirchhoff mode flag
- * @param lp_names_level Optional LP naming level
- * (minimal/only_cols/cols_and_rows)
  * @param input_directory Optional input directory path
  * @param input_format Optional input format string
  * @param output_directory Optional output directory path
@@ -214,7 +275,6 @@ template<typename T>
  * @param sddp_convergence_tol Optional SDDP convergence tolerance
  * @param sddp_elastic_penalty Optional elastic penalty coefficient
  * @param sddp_elastic_mode Optional elastic filter mode string
- * @param sddp_cut_coeff_mode Optional SDDP cut coefficient mode string
  * @param sddp_num_apertures Optional number of SDDP apertures
  * @param lp_debug Optional flag to enable LP debug output
  * @param lp_compression Optional LP output compression codec string
@@ -224,7 +284,6 @@ inline void apply_cli_options(
     Planning& planning,  // NOLINT(misc-const-correctness)
     const std::optional<bool>& use_single_bus,
     const std::optional<bool>& use_kirchhoff,
-    const std::optional<LpNamesLevel>& lp_names_level,
     const std::optional<std::string>& input_directory,
     const std::optional<std::string>& input_format,
     const std::optional<std::string>& output_directory,
@@ -236,7 +295,6 @@ inline void apply_cli_options(
     const std::optional<double>& sddp_convergence_tol = {},
     const std::optional<double>& sddp_elastic_penalty = {},
     const std::optional<std::string>& sddp_elastic_mode = {},
-    const std::optional<std::string>& sddp_cut_coeff_mode = {},
     const std::optional<int>& sddp_num_apertures = {},
     const std::optional<bool>& lp_debug = {},
     const std::optional<std::string>& lp_compression = {},
@@ -250,10 +308,6 @@ inline void apply_cli_options(
     planning.options.use_kirchhoff = use_kirchhoff;
   }
 
-  if (lp_names_level) {
-    planning.options.lp_matrix_options.names_level = lp_names_level;
-  }
-
   if (output_directory) {
     planning.options.output_directory = output_directory.value();
   }
@@ -264,17 +318,17 @@ inline void apply_cli_options(
 
   if (output_format) {
     planning.options.output_format =
-        enum_from_name<DataFormat>(output_format.value());
+        require_enum<DataFormat>("output-format", output_format.value());
   }
 
   if (output_compression) {
-    planning.options.output_compression =
-        enum_from_name<CompressionCodec>(output_compression.value());
+    planning.options.output_compression = require_enum<CompressionCodec>(
+        "output-compression", output_compression.value());
   }
 
   if (input_format) {
     planning.options.input_format =
-        enum_from_name<DataFormat>(input_format.value());
+        require_enum<DataFormat>("input-format", input_format.value());
   }
 
   if (cut_directory) {
@@ -299,12 +353,8 @@ inline void apply_cli_options(
 
   if (sddp_elastic_mode) {
     planning.options.sddp_options.elastic_mode =
-        enum_from_name<ElasticFilterMode>(sddp_elastic_mode.value());
-  }
-
-  if (sddp_cut_coeff_mode) {
-    planning.options.sddp_options.cut_coeff_mode =
-        enum_from_name<CutCoeffMode>(sddp_cut_coeff_mode.value());
+        require_enum<ElasticFilterMode>("sddp-elastic-mode",
+                                        sddp_elastic_mode.value());
   }
 
   if (sddp_num_apertures) {
@@ -321,8 +371,8 @@ inline void apply_cli_options(
   }
 
   if (lp_compression) {
-    planning.options.lp_compression =
-        enum_from_name<CompressionCodec>(lp_compression.value());
+    planning.options.lp_compression = require_enum<CompressionCodec>(
+        "lp-compression", lp_compression.value());
   }
 
   if (lp_coeff_ratio_threshold) {
@@ -383,20 +433,24 @@ inline void warn_deprecated_cli(const std::optional<std::string>& opt,
  */
 inline void apply_cli_options(Planning& planning, const MainOptions& opts)
 {
-  // Emit deprecation warnings for options replaceable by --set
+  // Emit deprecation warnings for options replaceable by --set.
+  // Skip directory warnings when auto-resolved from a directory argument
+  // (these are internal, not user-provided CLI flags).
   warn_deprecated_cli(opts.use_single_bus, "use-single-bus", "use_single_bus");
   warn_deprecated_cli(opts.use_kirchhoff, "use-kirchhoff", "use_kirchhoff");
-  warn_deprecated_cli(
-      opts.input_directory, "input-directory", "input_directory");
+  if (!opts.dirs_auto_resolved) {
+    warn_deprecated_cli(
+        opts.input_directory, "input-directory", "input_directory");
+    warn_deprecated_cli(
+        opts.output_directory, "output-directory", "output_directory");
+    warn_deprecated_cli(
+        opts.cut_directory, "cut-directory", "sddp_options.cut_directory");
+    warn_deprecated_cli(opts.log_directory, "log-directory", "log_directory");
+  }
   warn_deprecated_cli(opts.input_format, "input-format", "input_format");
-  warn_deprecated_cli(
-      opts.output_directory, "output-directory", "output_directory");
   warn_deprecated_cli(opts.output_format, "output-format", "output_format");
   warn_deprecated_cli(
       opts.output_compression, "output-compression", "output_compression");
-  warn_deprecated_cli(
-      opts.cut_directory, "cut-directory", "sddp_options.cut_directory");
-  warn_deprecated_cli(opts.log_directory, "log-directory", "log_directory");
   warn_deprecated_cli(opts.sddp_max_iterations,
                       "sddp-max-iterations",
                       "sddp_options.max_iterations");
@@ -411,14 +465,11 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
                       "sddp_options.elastic_penalty");
   warn_deprecated_cli(
       opts.sddp_elastic_mode, "sddp-elastic-mode", "sddp_options.elastic_mode");
-  warn_deprecated_cli(opts.sddp_cut_coeff_mode,
-                      "sddp-cut-coeff-mode",
-                      "sddp_options.cut_coeff_mode");
   if (opts.algorithm.has_value()) {
     spdlog::warn(
         "--algorithm is deprecated, use: --set solver_options"
         ".algorithm={}",
-        enum_name(static_cast<LPAlgo>(*opts.algorithm)));
+        enum_name(*opts.algorithm));
   }
   warn_deprecated_cli(opts.threads, "threads", "solver_options.threads");
   warn_deprecated_cli(opts.lp_debug, "lp-debug", "lp_debug");
@@ -430,7 +481,6 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
   apply_cli_options(planning,
                     opts.use_single_bus,
                     opts.use_kirchhoff,
-                    opts.lp_names_level,
                     opts.input_directory,
                     opts.input_format,
                     opts.output_directory,
@@ -442,7 +492,6 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
                     opts.sddp_convergence_tol,
                     opts.sddp_elastic_penalty,
                     opts.sddp_elastic_mode,
-                    opts.sddp_cut_coeff_mode,
                     opts.sddp_num_apertures,
                     opts.lp_debug,
                     opts.lp_compression,
@@ -464,15 +513,44 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
     planning.options.sddp_options.recovery_mode = RecoveryMode::none;
   }
 
-  if (opts.low_memory_mode) {
+  if (opts.memory_saving) {
+    // Map the string to the LowMemoryMode enum and apply to the SDDP
+    // side of the equation.
     planning.options.sddp_options.low_memory_mode =
-        enum_from_name<LowMemoryMode>(*opts.low_memory_mode);
+        require_enum<LowMemoryMode>("memory-saving", *opts.memory_saving);
+    // Coordinated effect #2: hint the solver backends to compact
+    // internal data structures (CPLEX CPX_PARAM_MEMORYEMPHASIS=1; other
+    // backends silently ignore when they have no equivalent).  Only
+    // write the default when the user hasn't already set memory_emphasis
+    // explicitly in the planning JSON — JSON takes precedence.
+    if (*opts.memory_saving != "off"
+        && !planning.options.solver_options.memory_emphasis.has_value())
+    {
+      planning.options.solver_options.memory_emphasis = true;
+    }
+  }
+
+  if (opts.memory_limit) {
+    planning.options.sddp_options.pool_memory_limit_mb =
+        parse_memory_size(*opts.memory_limit);
+  }
+
+  if (opts.sddp_cpu_factor) {
+    planning.options.sddp_options.pool_cpu_factor = opts.sddp_cpu_factor;
+  }
+
+  if (opts.build_mode) {
+    planning.options.build_mode =
+        require_enum<BuildMode>("build-mode", *opts.build_mode);
+  }
+
+  if (opts.write_out) {
+    planning.options.write_out = parse_output_flags(*opts.write_out);
   }
 
   // CLI solver shortcuts → solver_options
   if (opts.algorithm) {
-    planning.options.solver_options.algorithm =
-        static_cast<LPAlgo>(*opts.algorithm);
+    planning.options.solver_options.algorithm = *opts.algorithm;
   }
   if (opts.threads) {
     planning.options.solver_options.threads = *opts.threads;
@@ -480,36 +558,9 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
 }
 
 /**
- * @brief Parse an LP names level from a string (name or integer).
+ * @brief Build LpMatrixOptions from internal parameters
  *
- * Accepts "0"–"2" or "minimal"/"only_cols"/"cols_and_rows".
- *
- * @param s The string to parse.
- * @return The corresponding LpNamesLevel value.
- * @throws cli::parse_error on unrecognised input.
- */
-[[nodiscard]] inline LpNamesLevel parse_lp_names_level(const std::string& s)
-{
-  if (const auto lvl = enum_from_name<LpNamesLevel>(s)) {
-    return *lvl;
-  }
-  if (s.size() == 1 && std::isdigit(static_cast<unsigned char>(s.front())) != 0)
-  {
-    const int v = s.front() - '0';
-    if (v >= 0 && v <= static_cast<int>(LpNamesLevel::cols_and_rows)) {
-      return static_cast<LpNamesLevel>(v);
-    }
-  }
-  throw cli::parse_error(
-      std::format("invalid lp-names-level value: '{}' "
-                  "(expected 0-2 or minimal/only_cols/cols_and_rows)",
-                  s));
-}
-
-/**
- * @brief Build LpMatrixOptions from command-line parameters
- *
- * @param lp_names_level       Optional LP naming level
+ * @param enable_names         Whether to enable column/row name generation
  * @param matrix_eps           Optional epsilon tolerance for matrix
  *                             coefficients
  * @param compute_stats        Whether to compute LP statistics (default
@@ -519,23 +570,19 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
  * @return LpMatrixOptions configured according to the parameters
  */
 [[nodiscard]] inline LpMatrixOptions make_lp_matrix_options(
-    const std::optional<LpNamesLevel>& lp_names_level,
+    bool enable_names,
     const std::optional<double>& matrix_eps,
     bool compute_stats = false,
     const std::optional<std::string>& lp_solver = {},
     std::optional<LpEquilibrationMethod> equilibration_method = {})
 {
-  const auto eps = matrix_eps.value_or(0);
-  const auto lvl = lp_names_level.value_or(LpNamesLevel::none);
-
   LpMatrixOptions lp_matrix_opts;
-  lp_matrix_opts.eps = eps;
-  lp_matrix_opts.col_with_names = lvl >= LpNamesLevel::minimal;
-  lp_matrix_opts.row_with_names = lvl >= LpNamesLevel::only_cols;
-  lp_matrix_opts.col_with_name_map = lvl >= LpNamesLevel::only_cols;
-  lp_matrix_opts.row_with_name_map = lvl >= LpNamesLevel::only_cols;
+  lp_matrix_opts.eps = matrix_eps.value_or(0);
+  lp_matrix_opts.col_with_names = enable_names;
+  lp_matrix_opts.row_with_names = enable_names;
+  lp_matrix_opts.col_with_name_map = enable_names;
+  lp_matrix_opts.row_with_name_map = enable_names;
   lp_matrix_opts.compute_stats = compute_stats;
-  lp_matrix_opts.lp_names_level = lvl;
   lp_matrix_opts.solver_name = lp_solver.value_or("");
   lp_matrix_opts.equilibration_method = equilibration_method;
 
@@ -566,21 +613,12 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
       .use_single_bus = get_opt<bool>(vm, "use-single-bus"),
       .use_kirchhoff = get_opt<bool>(vm, "use-kirchhoff"),
       .lp_file = get_opt<std::string>(vm, "lp-file"),
-      .lp_names_level = [&]() -> std::optional<LpNamesLevel>
-      {
-        if (const auto raw = get_opt<std::string>(vm, "lp-names-level")) {
-          return parse_lp_names_level(*raw);
-        }
-        return std::nullopt;
-      }(),
       .matrix_eps = get_opt<double>(vm, "matrix-eps"),
       .lp_only = get_opt<bool>(vm, "lp-only"),
       .lp_debug = get_opt<bool>(vm, "lp-debug"),
       .lp_compression = get_opt<std::string>(vm, "lp-compression"),
       .lp_coeff_ratio_threshold = get_opt<double>(vm, "lp-coeff-ratio"),
       .json_file = get_opt<std::string>(vm, "json-file"),
-      .fast_parsing = get_opt<bool>(vm, "fast-parsing"),
-      .check_json = get_opt<bool>(vm, "check-json"),
       .print_stats = get_opt<bool>(vm, "stats"),
       .trace_log = get_opt<std::string>(vm, "trace-log"),
       .cut_directory = get_opt<std::string>(vm, "cut-directory"),
@@ -590,12 +628,21 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
       .sddp_convergence_tol = get_opt<double>(vm, "sddp-convergence-tol"),
       .sddp_elastic_penalty = get_opt<double>(vm, "sddp-elastic-penalty"),
       .sddp_elastic_mode = get_opt<std::string>(vm, "sddp-elastic-mode"),
-      .sddp_cut_coeff_mode = get_opt<std::string>(vm, "sddp-cut-coeff-mode"),
       .sddp_num_apertures = get_opt<int>(vm, "sddp-num-apertures"),
       .recover = get_opt<bool>(vm, "recover"),
-      .low_memory_mode = get_opt<std::string>(vm, "low-memory"),
+      // Prefer the new `--memory-saving` name; fall back to the
+      // deprecated `--low-memory` alias for backward compatibility.
+      .memory_saving =
+          get_opt<std::string>(vm, "memory-saving")
+              .or_else([&] { return get_opt<std::string>(vm, "low-memory"); }),
+      .memory_limit = get_opt<std::string>(vm, "memory-limit"),
+      .sddp_cpu_factor =
+          get_opt<double>(vm, "cpu-factor")
+              .or_else([&] { return get_opt<double>(vm, "sddp-cpu-factor"); }),
+      .build_mode = get_opt<std::string>(vm, "build-mode"),
+      .write_out = get_opt<std::string>(vm, "write-out"),
       .solver = get_opt<std::string>(vm, "solver"),
-      .algorithm = [&]() -> std::optional<int>
+      .algorithm = [&]() -> std::optional<LPAlgo>
       {
         if (const auto raw = get_opt<std::string>(vm, "algorithm")) {
           return parse_lp_algorithm(*raw);
@@ -701,12 +748,6 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
 
   // LP options
   opts.lp_file = get_str("lp-file");
-  if (const auto raw = get_str("lp-names-level")) {
-    try {
-      opts.lp_names_level = parse_lp_names_level(*raw);
-    } catch (...) {  // NOLINT(bugprone-empty-catch)
-    }
-  }
   opts.matrix_eps = get_dbl("matrix-eps");
   opts.lp_only = get_bool("lp-only");
   opts.lp_debug = get_bool("lp-debug");
@@ -715,8 +756,6 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
 
   // Debug / output
   opts.json_file = get_str("json-file");
-  opts.fast_parsing = get_bool("fast-parsing");
-  opts.check_json = get_bool("check-json");
   opts.print_stats = get_bool("stats");
   opts.trace_log = get_str("trace-log");
 
@@ -730,9 +769,19 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
   opts.sddp_convergence_tol = get_dbl("sddp-convergence-tol");
   opts.sddp_elastic_penalty = get_dbl("sddp-elastic-penalty");
   opts.sddp_elastic_mode = get_str("sddp-elastic-mode");
-  opts.sddp_cut_coeff_mode = get_str("sddp-cut-coeff-mode");
   opts.sddp_num_apertures = get_int("sddp-num-apertures");
-  opts.low_memory_mode = get_str("low-memory");
+  // Prefer the new key; fall back to the deprecated `low-memory` alias.
+  opts.memory_saving = get_str("memory-saving");
+  if (!opts.memory_saving) {
+    opts.memory_saving = get_str("low-memory");
+  }
+  opts.memory_limit = get_str("memory-limit");
+  opts.sddp_cpu_factor = get_dbl("cpu-factor");
+  if (!opts.sddp_cpu_factor) {
+    opts.sddp_cpu_factor = get_dbl("sddp-cpu-factor");
+  }
+  opts.build_mode = get_str("build-mode");
+  opts.write_out = get_str("write-out");
 
   // Solver
   opts.solver = get_str("solver");
@@ -801,7 +850,7 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
     SolverOptions sopts;
     if (const auto raw = sv_str("algorithm")) {
       try {
-        sopts.algorithm = static_cast<LPAlgo>(parse_lp_algorithm(*raw));
+        sopts.algorithm = parse_lp_algorithm(*raw);
       } catch (...) {  // NOLINT(bugprone-empty-catch)
       }
     }
@@ -819,7 +868,7 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
     }
     sopts.time_limit = sv_dbl("time-limit");
     if (const auto raw = sv_str("scaling")) {
-      sopts.scaling = enum_from_name<SolverScaling>(*raw);
+      sopts.scaling = require_enum<SolverScaling>("scaling", *raw);
     }
     if (const auto v = sv_int("max-fallbacks")) {
       sopts.max_fallbacks = *v;
@@ -859,15 +908,12 @@ inline void merge_config_defaults(MainOptions& opts,
   merge(opts.use_single_bus, defaults.use_single_bus);
   merge(opts.use_kirchhoff, defaults.use_kirchhoff);
   merge(opts.lp_file, defaults.lp_file);
-  merge(opts.lp_names_level, defaults.lp_names_level);
   merge(opts.matrix_eps, defaults.matrix_eps);
   merge(opts.lp_only, defaults.lp_only);
   merge(opts.lp_debug, defaults.lp_debug);
   merge(opts.lp_compression, defaults.lp_compression);
   merge(opts.lp_coeff_ratio_threshold, defaults.lp_coeff_ratio_threshold);
   merge(opts.json_file, defaults.json_file);
-  merge(opts.fast_parsing, defaults.fast_parsing);
-  merge(opts.check_json, defaults.check_json);
   merge(opts.print_stats, defaults.print_stats);
   merge(opts.trace_log, defaults.trace_log);
   merge(opts.cut_directory, defaults.cut_directory);
@@ -877,9 +923,12 @@ inline void merge_config_defaults(MainOptions& opts,
   merge(opts.sddp_convergence_tol, defaults.sddp_convergence_tol);
   merge(opts.sddp_elastic_penalty, defaults.sddp_elastic_penalty);
   merge(opts.sddp_elastic_mode, defaults.sddp_elastic_mode);
-  merge(opts.sddp_cut_coeff_mode, defaults.sddp_cut_coeff_mode);
   merge(opts.sddp_num_apertures, defaults.sddp_num_apertures);
-  merge(opts.low_memory_mode, defaults.low_memory_mode);
+  merge(opts.memory_saving, defaults.memory_saving);
+  merge(opts.memory_limit, defaults.memory_limit);
+  merge(opts.sddp_cpu_factor, defaults.sddp_cpu_factor);
+  merge(opts.build_mode, defaults.build_mode);
+  merge(opts.write_out, defaults.write_out);
   merge(opts.solver, defaults.solver);
   merge(opts.algorithm, defaults.algorithm);
   merge(opts.threads, defaults.threads);

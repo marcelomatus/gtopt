@@ -23,6 +23,124 @@ namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-
 
 // ─── Single-level cascade = equivalent to direct SDDP ─────────────────────
 
+// ─── Inactive level skip: `active=false` must bypass the level ────────────
+//
+// Guards the `active` OptBool wired into cascade_method.cpp (step 0 of the
+// level loop).  Complements the JSON binding tests in
+// test_cascade_options.cpp / test_cascade_method.cpp with an end-to-end
+// check that the cascade solver actually skips the level at runtime.
+
+TEST_CASE("Cascade skips level with active=false")  // NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  auto planning = make_3phase_hydro_planning();
+  PlanningLP planning_lp(std::move(planning));
+
+  SDDPOptions base_opts;
+  base_opts.max_iterations = 4;
+  base_opts.convergence_tol = 0.01;
+  base_opts.apertures = std::vector<Uid> {};
+
+  // Two levels: first disabled, second active.  The inactive level
+  // must produce no level_stats entry and no iteration results; the
+  // active level must still run normally.
+  CascadeOptions cascade;
+  cascade.level_array = {
+      CascadeLevel {
+          .name = OptName {"disabled"},
+          .active = OptBool {false},
+          .sddp_options =
+              CascadeLevelMethod {
+                  .max_iterations = OptInt {4},
+                  .apertures = Array<Uid> {},
+              },
+      },
+      CascadeLevel {
+          .name = OptName {"active"},
+          .active = OptBool {true},
+          .sddp_options =
+              CascadeLevelMethod {
+                  .max_iterations = OptInt {4},
+                  .apertures = Array<Uid> {},
+              },
+      },
+  };
+
+  CascadePlanningMethod solver(std::move(base_opts), std::move(cascade));
+  const SolverOptions lp_opts;
+  auto res = solver.solve(planning_lp, lp_opts);
+  REQUIRE(res.has_value());
+
+  // Only one level produced stats — the active one.
+  REQUIRE(solver.level_stats().size() == 1);
+  CHECK(solver.level_stats()[0].name == "active");
+}
+
+// ─── Caller LP preservation when all remaining levels are inactive ────────
+//
+// Guards the `has_active_successor` check in cascade_method.cpp:
+// without it, level 0 releases the caller's cells anticipating a
+// fresh LP build in level 1 — but if levels 1..N are all inactive,
+// the caller's cells are the only place the solved systems live, so
+// `PlanningLP::write_out` afterwards would see an empty system grid
+// ("Writing output: 0 scene(s) × 0 phase(s)") and produce no element
+// parquets.  This test exercises that corner directly.
+
+TEST_CASE("Cascade preserves caller cells when remaining levels are inactive")
+// NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  auto planning = make_3phase_hydro_planning();
+  PlanningLP planning_lp(std::move(planning));
+
+  SDDPOptions base_opts;
+  base_opts.max_iterations = 4;
+  base_opts.convergence_tol = 0.01;
+  base_opts.apertures = std::vector<Uid> {};
+
+  // Level 0 active, levels 1 and 2 inactive.  After the solve,
+  // `planning_lp.systems()` must still be non-empty (level 0 reused
+  // the caller LP, and the inter-level cleanup must not have fired
+  // because no active successor exists).
+  CascadeOptions cascade;
+  cascade.level_array = {
+      CascadeLevel {
+          .name = OptName {"lvl0"},
+          .sddp_options =
+              CascadeLevelMethod {
+                  .max_iterations = OptInt {2},
+                  .apertures = Array<Uid> {},
+              },
+      },
+      CascadeLevel {
+          .name = OptName {"lvl1_off"},
+          .active = OptBool {false},
+      },
+      CascadeLevel {
+          .name = OptName {"lvl2_off"},
+          .active = OptBool {false},
+      },
+  };
+
+  const auto num_scenes_before = planning_lp.systems().size();
+  REQUIRE(num_scenes_before > 0);
+
+  CascadePlanningMethod solver(std::move(base_opts), std::move(cascade));
+  const SolverOptions lp_opts;
+  auto res = solver.solve(planning_lp, lp_opts);
+  REQUIRE(res.has_value());
+
+  // Caller's systems survived — they would be released by the
+  // inter-level cleanup if the guard were missing.
+  CHECK(planning_lp.systems().size() == num_scenes_before);
+  CHECK_FALSE(planning_lp.systems().empty());
+  CHECK_FALSE(planning_lp.systems().front().empty());
+  REQUIRE(solver.level_stats().size() == 1);
+  CHECK(solver.level_stats()[0].name == "lvl0");
+}
+
 TEST_CASE("Single-level cascade produces same result as direct SDDP")
 // NOLINT
 {
@@ -216,7 +334,7 @@ TEST_CASE("SDDP baseline (6-phase, no cascade)")  // NOLINT
     CHECK(last_training.converged);
     CHECK(last_training.gap < 0.01 + 1e-9);
     // 6 phases should require several iterations
-    CHECK(last_training.iteration >= IterationIndex {3});
+    CHECK(last_training.iteration_index >= IterationIndex {3});
   }
 
   SUBCASE("optimal value matches expected")
@@ -279,7 +397,6 @@ TEST_CASE("Cascade 2-level with cut inheritance only (6-phase)")
           .transition =
               CascadeTransition {
                   .inherit_optimality_cuts = OptInt {-1},
-                  .inherit_feasibility_cuts = OptInt {-1},
               },
       },
   };
@@ -514,7 +631,6 @@ TEST_CASE("Cascade 3-level with targets then cuts (6-phase)")  // NOLINT
           .transition =
               CascadeTransition {
                   .inherit_optimality_cuts = OptInt {-1},
-                  .inherit_feasibility_cuts = OptInt {-1},
               },
       },
   };
@@ -618,7 +734,6 @@ TEST_CASE("Cascade 2-level inherit_optimality_cuts=3 (forget after 3 iters)")
               CascadeTransition {
                   // Inherit optimality cuts but forget after 3 iters
                   .inherit_optimality_cuts = OptInt {3},
-                  .inherit_feasibility_cuts = OptInt {-1},
               },
       },
   };
@@ -739,7 +854,6 @@ TEST_CASE(  // NOLINT
               CascadeTransition {
                   // Keep inherited cuts forever
                   .inherit_optimality_cuts = OptInt {-1},
-                  .inherit_feasibility_cuts = OptInt {-1},
               },
       },
   };
@@ -984,6 +1098,126 @@ TEST_CASE(  // NOLINT
   // Both inheritance mechanisms should allow level 1 to converge fast
   CHECK(solver.level_stats()[1].iterations
         <= solver.level_stats()[0].iterations + 1);
+}
+
+// ─── Level-0 PlanningLP reuse ───────────────────────────────────────────────
+
+TEST_CASE(
+    "Cascade reuses caller PlanningLP when level 0 has no model overrides")
+// NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  auto planning = make_3phase_hydro_planning();
+  PlanningLP planning_lp(std::move(planning));
+
+  SDDPOptions sddp_opts;
+  sddp_opts.max_iterations = 4;
+  sddp_opts.convergence_tol = 0.01;
+  sddp_opts.apertures = std::vector<Uid> {};
+
+  // Two levels, neither sets model_options, and cascade globals are empty.
+  CascadeOptions cascade_opts;
+  cascade_opts.level_array = {
+      CascadeLevel {
+          .name = OptName {"lvl0"},
+          .sddp_options =
+              CascadeLevelMethod {
+                  .max_iterations = OptInt {3},
+                  .apertures = Array<Uid> {},
+                  .convergence_tol = OptReal {0.01},
+              },
+      },
+      CascadeLevel {
+          .name = OptName {"lvl1"},
+          .sddp_options =
+              CascadeLevelMethod {
+                  .max_iterations = OptInt {3},
+                  .apertures = Array<Uid> {},
+                  .convergence_tol = OptReal {0.01},
+              },
+          .transition =
+              CascadeTransition {
+                  .inherit_optimality_cuts = OptInt {-1},
+              },
+      },
+  };
+
+  CascadePlanningMethod solver(std::move(sddp_opts), std::move(cascade_opts));
+  const SolverOptions lp_opts;
+  auto result = solver.solve(planning_lp, lp_opts);
+
+  REQUIRE(result.has_value());
+  // Level 0 reused caller's PlanningLP.  Level 1 built its own LP;
+  // `solve()` then transferred it to `planning_lp` as the write_out
+  // delegate so `write_out()` finds populated systems when this
+  // solver is destroyed.  The owned-LPs vector is therefore empty
+  // after a successful solve (see
+  // `CascadePlanningMethod::solve` → `planning_lp.set_output_delegate`).
+  CHECK(solver.owned_lps_count() == 0);
+  // Caller's own LP cells were released at the level-0 → level-1
+  // boundary; the delegate now carries the final-level systems.
+  CHECK(planning_lp.systems().empty());
+}
+
+TEST_CASE(
+    "PlanningLP::release_cells drops systems and allows rebuild")  // NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  auto planning = make_3phase_hydro_planning();
+  PlanningLP planning_lp(std::move(planning));
+
+  REQUIRE(!planning_lp.systems().empty());
+  planning_lp.release_cells();
+  CHECK(planning_lp.systems().empty());
+
+  // Planning shell is still intact — so we can rebuild a fresh LP
+  // from the same source data without losing configuration.
+  PlanningLP rebuilt(planning_lp.planning());
+  CHECK(!rebuilt.systems().empty());
+}
+
+TEST_CASE("Cascade rebuilds level 0 PlanningLP when model overrides are set")
+// NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  auto planning = make_3phase_hydro_planning();
+  PlanningLP planning_lp(std::move(planning));
+
+  SDDPOptions sddp_opts;
+  sddp_opts.max_iterations = 3;
+  sddp_opts.convergence_tol = 0.01;
+  sddp_opts.apertures = std::vector<Uid> {};
+
+  CascadeOptions cascade_opts;
+  cascade_opts.level_array = {
+      CascadeLevel {
+          .name = OptName {"lvl0"},
+          .model_options =
+              ModelOptions {
+                  .use_single_bus = OptBool {true},
+              },
+          .sddp_options =
+              CascadeLevelMethod {
+                  .max_iterations = OptInt {3},
+                  .apertures = Array<Uid> {},
+                  .convergence_tol = OptReal {0.01},
+              },
+      },
+  };
+
+  CascadePlanningMethod solver(std::move(sddp_opts), std::move(cascade_opts));
+  const SolverOptions lp_opts;
+  auto result = solver.solve(planning_lp, lp_opts);
+
+  REQUIRE(result.has_value());
+  // Level 0 had model overrides → a fresh LP was built and owned.
+  // After solve(), the final-level LP is transferred to the caller
+  // as the write_out delegate (see `CascadePlanningMethod::solve`),
+  // so the owned-LPs vector ends up empty.
+  CHECK(solver.owned_lps_count() == 0);
 }
 
 }  // anonymous namespace

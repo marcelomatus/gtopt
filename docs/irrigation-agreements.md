@@ -339,8 +339,8 @@ multiple PAMPL files independently:
 {
   "system": {
     "user_constraint_files": [
-      "laja_agreement.pampl",
-      "maule_agreement.pampl"
+      "laja.pampl",
+      "maule.pampl"
     ]
   }
 }
@@ -583,7 +583,7 @@ Constraint rows use generic indices (`c1`, `c2`, ...) — not named.
 | — | — | `m_vmgemf`..`m_vmdeif` (volume accumulators) |
 | — | — | `m_qr105`/`m_qa105` (Res 105), `m_qhinv`/`m_qhnein` |
 
-#### gtopt LP Names (with `--lp-names-level 2`)
+#### gtopt LP Names (with `--lp-file` or `--lp-debug`)
 
 gtopt uses structured names with entity-type prefix and UID suffix:
 
@@ -945,7 +945,30 @@ auto-modulation logic, PLP-specific flags, and accumulated volume caps.
 
 ## 11. Configuration and Usage
 
-### 11.1 PLP-to-gtopt Conversion
+Irrigation cases reach gtopt through a three-stage pipeline:
+
+```text
+Stage 1 ── PLP .dat files ─────────────▶ canonical JSON
+           (plplajam.dat, plpmaulen.dat)  (laja.json, maule.json)
+           tool: plp2gtopt
+
+Stage 2 ── canonical JSON ─────────────▶ gtopt entities + PAMPL
+           (laja.json, maule.json)        (flow_right_array, volume_right_array,
+                                           laja.pampl, maule.pampl)
+           tool: gtopt_expand
+
+Stage 3 ── gtopt entities + system ────▶ LP/MIP solution
+           (system.json + *.pampl)        (results/*.parquet)
+           tool: gtopt
+```
+
+Stages 1 and 2 are decoupled so that hand-authored ``laja.json`` /
+``maule.json`` can be fed straight into Stage 2, bypassing PLP entirely.
+The canonical JSON schema is documented in the module docstrings of
+``scripts/gtopt_expand/laja_agreement.py`` and
+``scripts/gtopt_expand/maule_agreement.py``.
+
+### 11.1 Stage 1 — PLP-to-gtopt Conversion
 
 ```bash
 # Convert PLP case including irrigation agreements
@@ -956,25 +979,97 @@ plp2gtopt -i /path/to/plp_case -o /path/to/gtopt_case --first-scenario
 ```
 
 The converter automatically detects `plplajam.dat` and `plpmaulen.dat`
-in the input directory and generates the corresponding FlowRight,
-VolumeRight, UserConstraint, and PAMPL entities.
+in the input directory, writes canonical `laja.json` / `maule.json`
+artifacts, and (for backward compatibility) also emits the Stage-2
+entity and PAMPL files directly.
 
-### 11.2 Output Files
+### 11.2 Stage 2 — `gtopt_expand` CLI
 
-The converter produces:
+The `gtopt_expand` package (`scripts/gtopt_expand/`) is the
+canonical Stage-2 transform.  It consumes a canonical JSON agreement
+description and emits the corresponding gtopt entity arrays plus the
+companion PAMPL file.
+
+```bash
+# Laja: laja.json → laja_entities.json + laja.pampl
+gtopt_expand laja \
+    --input  cases/my_case/laja.json \
+    --output cases/my_case/irrigation/
+
+# Maule with explicit per-stage metadata (calendar months)
+gtopt_expand maule \
+    --input  cases/my_case/maule.json \
+    --output cases/my_case/irrigation/ \
+    --stages cases/my_case/stages.json
+
+# Show the package version
+gtopt_expand --version
+```
+
+Flags:
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--input PATH` (alias `--in`) | — | Path to `laja.json` or `maule.json`. |
+| `--output DIR` (alias `--out`) | — | Directory where entities JSON and `.pampl` are written. |
+| `--stages PATH` | `None` | Optional JSON file with per-stage `{number, month}` dicts (or `{"stages": [...]}` wrapper). When omitted, monthly arrays stay in raw hydro-year (Laja) or calendar (Maule) form — convenient for cases that don't need per-stage materialization. |
+| `--last-stage N` | `-1` (all) | Truncate the stage list to the first `N` stages. |
+| `--blocks-per-stage N` | `1` | Replicate each per-stage value across `N` blocks for block-level schedules. |
+| `--version` | — | Print package version and exit. |
+
+**Outputs:**
+
+- `<artifact>_entities.json` — contains `flow_right_array` and
+  `volume_right_array` (and, when constraints are inline,
+  `user_constraint_array`).
+- `<artifact>.pampl` — AMPL constraint definitions and parameters,
+  referenced from the entities file via `user_constraint_file`
+  (both singular and plural `user_constraint_files` are accepted
+  by the C++ `System` parser).
+
+**Exit codes:**
+
+| Code | Meaning |
+|------|---------|
+| `0` | Success. Writes a one-line `wrote <path>` summary to stderr. |
+| `2` | Input/validation/IO error (missing file, malformed JSON, schema key missing, template failure). A one-line `ERROR: ...` is written to stderr. |
+
+**`--stages` file format:** a plain list, or an object with a `stages`
+key, of per-stage dicts. Each dict must contain at least `number` (1-based
+stage index) and `month` (1 = January .. 12 = December, calendar months):
+
+```json
+[
+  {"number": 1, "month": 4},
+  {"number": 2, "month": 5},
+  {"number": 3, "month": 6}
+]
+```
+
+The Laja agreement translates calendar months back to hydrological-year
+indices (April = 0 .. March = 11) internally, so the `--stages` file
+should always use **calendar** months regardless of agreement.
+
+### 11.3 Output Files
+
+The full pipeline produces:
 - `system.json` — contains `flow_right_array`, `volume_right_array`, and
   `user_constraint_files` pointing to the PAMPL files
-- `laja_agreement.pampl` — Laja constraint definitions and parameters
-- `maule_agreement.pampl` — Maule constraint definitions and parameters
+- `laja.pampl` — Laja constraint definitions and parameters
+- `maule.pampl` — Maule constraint definitions and parameters
 
-### 11.3 Running with LP Debug
+### 11.4 Running with LP Debug
 
 To inspect the irrigation LP structure:
 
 ```bash
-gtopt /path/to/case --lp-names-level 2 \
+gtopt /path/to/case --lp-debug \
   -s lp_debug_options.json
 ```
+
+(`--lp-debug` automatically enables all four LP naming fields, so the
+generated `.lp` files carry full column and row names without any extra
+flag.)
 
 Where `lp_debug_options.json` contains:
 
@@ -996,16 +1091,16 @@ and constraints can be inspected.
 
 ### Agreement Template Specifications
 
-- **[Laja Agreement Template](../scripts/plp2gtopt/templates/laja.md)** —
+- **[Laja Agreement Template](../scripts/gtopt_expand/templates/laja.md)** —
   Complete specification of the Laja irrigation agreement: basin topology
   (Mermaid diagrams), piecewise-linear volume zone model (LaTeX formulas),
   FlowRight/VolumeRight/UserConstraint entity definitions (`laja.tson`),
-  and AMPL constraint parameters (`laja_agreement.tampl`)
-- **[Maule Agreement Template](../scripts/plp2gtopt/templates/maule.md)** —
+  and AMPL constraint parameters (`laja.tampl`)
+- **[Maule Agreement Template](../scripts/gtopt_expand/templates/maule.md)** —
   Complete specification of the Maule irrigation agreement: three-zone
   reservoir operation, Armerillo control point, La Invernada winter
   storage, Resolution 105 ecological flow, 7 irrigation districts,
-  entity definitions (`maule.tson`) and constraints (`maule_agreement.tampl`)
+  entity definitions (`maule.tson`) and constraints (`maule.tampl`)
 
 ### Reference Documentation
 

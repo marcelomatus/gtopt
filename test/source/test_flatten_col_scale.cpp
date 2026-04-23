@@ -337,7 +337,7 @@ TEST_CASE("flatten col_scale — physical constraint invariant")  // NOLINT
   // different LP coefficients but the same physical solution
   // when x and y have different col_scales.
 
-  for (const auto [sx, sy] :
+  for (const auto& [sx, sy] :
        {
            std::pair {1.0, 1.0},
            std::pair {100.0, 1.0},

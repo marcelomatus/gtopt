@@ -21,6 +21,7 @@
 #pragma once
 
 #include <concepts>
+#include <cstddef>
 #include <functional>
 #include <future>
 #include <optional>
@@ -105,7 +106,7 @@ struct ApertureEntry
 ///                        all_scenarios.size())
 /// @return Array of synthetic Aperture objects
 [[nodiscard]] auto build_synthetic_apertures(
-    std::span<const ScenarioLP> all_scenarios, int n_apertures)
+    std::span<const ScenarioLP> all_scenarios, std::ptrdiff_t n_apertures)
     -> Array<Aperture>;
 
 // ─── Aperture task submission ────────────────────────────────────────────────
@@ -161,20 +162,13 @@ using ApertureSubmitFunc = std::function<std::future<ApertureCutResult>(
 ///                         treated as infeasible and skipped.
 /// @param save_aperture_lp If true, save each aperture LP to the log directory
 /// @param aperture_cache   Cache of pre-built aperture LP data
-/// @param forward_col_sol  Forward-pass primal solution (warm-start hint for
-///                         aperture clones).  Applied after update_aperture.
-/// @param forward_row_dual Forward-pass dual solution (warm-start hint for
-///                         aperture clones).  Applied after update_aperture.
-/// @param pooled_clone     Optional pre-allocated LP clone from a work pool
 /// @param iteration        Current SDDP iteration index
-/// @param cut_coeff_mode   Mode for computing cut coefficients
-/// @param scale_alpha      Scaling factor applied to the cut alpha (RHS)
 /// @param cut_coeff_eps    Epsilon below which cut coefficients are zeroed
-/// @param cut_coeff_max    Maximum absolute cut coefficient (0 = no limit)
 [[nodiscard]] auto solve_apertures_for_phase(
     SceneIndex scene_index,
     PhaseIndex phase_index,
     const PhaseStateInfo& src_state,
+    ColIndex src_alpha_col,
     const ScenarioLP& base_scenario,
     std::span<const ScenarioLP> all_scenarios,
     std::span<const Aperture> aperture_defs,
@@ -191,13 +185,7 @@ using ApertureSubmitFunc = std::function<std::future<ApertureCutResult>(
     double aperture_timeout = 0.0,
     bool save_aperture_lp = false,
     const ApertureDataCache& aperture_cache = {},
-    std::span<const double> forward_col_sol = {},
-    std::span<const double> forward_row_dual = {},
-    LinearInterface* pooled_clone = nullptr,
     IterationIndex iteration_index = {},
-    CutCoeffMode cut_coeff_mode = CutCoeffMode::reduced_cost,
-    double scale_alpha = 1.0,
-    double cut_coeff_eps = 0.0,
-    double cut_coeff_max = 0.0) -> std::optional<SparseRow>;
+    double cut_coeff_eps = 0.0) -> std::optional<SparseRow>;
 
 }  // namespace gtopt

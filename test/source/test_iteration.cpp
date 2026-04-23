@@ -113,3 +113,47 @@ TEST_CASE("Iteration array for SDDP control")  // NOLINT
   // Tenth iteration: skip update again
   CHECK(iterations[3].should_update_lp() == false);
 }
+
+TEST_CASE("IterationIndex helpers — next/previous/advance/relative")  // NOLINT
+{
+  SUBCASE("next advances by 1")
+  {
+    constexpr auto a = IterationIndex {7};
+    static_assert(next(a) == IterationIndex {8});
+    CHECK(next(IterationIndex {0}) == IterationIndex {1});
+  }
+
+  SUBCASE("previous retreats by 1")
+  {
+    constexpr auto a = IterationIndex {7};
+    static_assert(previous(a) == IterationIndex {6});
+    CHECK(previous(IterationIndex {5}) == IterationIndex {4});
+  }
+
+  SUBCASE("next(idx, n) advances by n — replaces offset + max_iter pattern")
+  {
+    constexpr auto base = IterationIndex {10};
+    static_assert(next(base, 0) == IterationIndex {10});
+    static_assert(next(base, 5) == IterationIndex {15});
+    // Used as an exclusive upper bound: training runs [base, base + n)
+    CHECK(next(base, 20) == IterationIndex {30});
+  }
+
+  SUBCASE("iteration_relative returns a plain Index offset")
+  {
+    constexpr auto cur = IterationIndex {12};
+    constexpr auto offset = IterationIndex {3};
+    static_assert(iteration_relative(cur, offset) == Index {9});
+    // Same iteration: relative = 0
+    CHECK(iteration_relative(cur, cur) == Index {0});
+    // Negative when cur < offset — preserved without underflow surprises
+    CHECK(iteration_relative(IterationIndex {1}, IterationIndex {4})
+          == Index {-3});
+  }
+
+  SUBCASE("next(idx, n) composes with next(idx) — same result")
+  {
+    constexpr auto a = IterationIndex {42};
+    static_assert(next(next(a)) == next(a, 2));
+  }
+}

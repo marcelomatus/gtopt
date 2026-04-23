@@ -19,7 +19,6 @@ using namespace gtopt;
 
 std::expected<void, Error> add_provision(
     const std::string_view cname,
-    const SystemContext& sc,
     const ScenarioLP& scenario,
     const StageLP& stage,
     LinearProblem& lp,
@@ -75,7 +74,7 @@ std::expected<void, Error> add_provision(
 
     const auto prov_col = lp.add_col({
         .uppb = block_rmax.value(),
-        .cost = sc.block_ecost(scenario, stage, block, stage_cost),
+        .cost = CostHelper::block_ecost(scenario, stage, block, stage_cost),
         .class_name = cname,
         .variable_name = pname,
         .variable_uid = uid,
@@ -196,7 +195,8 @@ bool ReserveProvisionLP::add_to_lp(const SystemContext& sc,
                                    const StageLP& stage,
                                    LinearProblem& lp)
 {
-  static constexpr std::string_view cname = ClassName.short_name();
+  static constexpr std::string_view cname = ClassName.full_name();
+  static constexpr auto ampl_name = ClassName.snake_case();
 
   if (!is_active(stage)) {
     return true;
@@ -257,7 +257,6 @@ bool ReserveProvisionLP::add_to_lp(const SystemContext& sc,
       }
 
       if (auto res = add_provision(cname,
-                                   sc,
                                    scenario,
                                    stage,
                                    lp,
@@ -278,7 +277,6 @@ bool ReserveProvisionLP::add_to_lp(const SystemContext& sc,
         return false;
       }
       if (auto res = add_provision(cname,
-                                   sc,
                                    scenario,
                                    stage,
                                    lp,
@@ -304,6 +302,20 @@ bool ReserveProvisionLP::add_to_lp(const SystemContext& sc,
                  uid(),
                  e.what());
     return false;
+  }
+
+  // Register PAMPL-visible provision columns under the canonical
+  // `up` / `dn` spelling.
+  const auto st_key = std::tuple {scenario.uid(), stage.uid()};
+  if (const auto it = up.provision_cols.find(st_key);
+      it != up.provision_cols.end() && !it->second.empty())
+  {
+    sc.add_ampl_variable(ampl_name, uid(), UpName, scenario, stage, it->second);
+  }
+  if (const auto it = dp.provision_cols.find(st_key);
+      it != dp.provision_cols.end() && !it->second.empty())
+  {
+    sc.add_ampl_variable(ampl_name, uid(), DnName, scenario, stage, it->second);
   }
 
   return true;

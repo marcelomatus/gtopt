@@ -45,7 +45,8 @@ bool ReservoirLP::add_to_lp(SystemContext& sc,
                             const StageLP& stage,
                             LinearProblem& lp)
 {
-  static constexpr std::string_view cname = ClassName.short_name();
+  static constexpr std::string_view cname = ClassName.full_name();
+  static constexpr auto ampl_name = ClassName.snake_case();
 
   if (!is_active(stage)) {
     return true;
@@ -116,6 +117,7 @@ bool ReservoirLP::add_to_lp(SystemContext& sc,
       .scost = rsv_scost,
   };
   if (!StorageBase::add_to_lp(cname,
+                              ampl_name,
                               sc,
                               scenario,
                               stage,
@@ -140,6 +142,17 @@ bool ReservoirLP::add_to_lp(SystemContext& sc,
   // storing the indices for this scenario and stage
   const auto st_key = std::tuple {scenario.uid(), stage.uid()};
   extraction_cols[st_key] = std::move(rcols);
+
+  // Register reservoir-specific PAMPL columns.  Storage-generic variables
+  // (energy/drain/eini/efin/soft_emin) are registered centrally by
+  // StorageBase::add_to_lp.
+  sc.add_ampl_variable(ampl_name,
+                       uid(),
+                       ExtractionName,
+                       scenario,
+                       stage,
+                       extraction_cols.at(st_key));
+
   return true;
 }
 

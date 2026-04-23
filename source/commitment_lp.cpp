@@ -59,7 +59,7 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
     return true;
   }
 
-  static constexpr std::string_view cname = ClassName.short_name();
+  static constexpr std::string_view cname = ClassName.full_name();
   const auto cuid = uid();
 
   // Resolve commitment parameters
@@ -70,7 +70,7 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
       shutdown_cost_.optval(stage.uid()).value_or(0.0);
   const auto initial_u = commitment().initial_status.value_or(0.0);
   const auto is_relax = commitment().relax.value_or(false)
-      || sc.options().is_phase_relaxed(stage.phase_index());
+      || sc.simulation().phases()[stage.phase_index()].is_continuous();
   const auto is_must_run = commitment().must_run.value_or(false);
   const auto opt_ramp_up = commitment().ramp_up;
   const auto opt_ramp_down = commitment().ramp_down;
@@ -110,7 +110,9 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
       stage_emission_cost = std::get<Real>(ec);
     } else if (std::holds_alternative<std::vector<Real>>(ec)) {
       const auto& vec = std::get<std::vector<Real>>(ec);
-      const auto sidx = static_cast<size_t>(stage.uid());
+      // Stage-schedule arrays are indexed by ordinal stage position,
+      // not by the (arbitrary) stage UID.
+      const auto sidx = static_cast<size_t>(stage.index());
       if (sidx < vec.size()) {
         stage_emission_cost = vec[sidx];
       }
@@ -181,6 +183,11 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
   map_reserve(lrows, nperiods);
   map_reserve(erows, nperiods);
 
+  // Period-indexed v/w columns: avoid repeated map lookups per block in the
+  // phase-B loop (each period is visited once per block in that period).
+  std::vector<ColIndex> period_vcol(nperiods);
+  std::vector<ColIndex> period_wcol(nperiods);
+
   // block_ucol maps EVERY block uid → its period's u column
   BIndexHolder<ColIndex> block_ucol;
   map_reserve(block_ucol, blocks.size());
@@ -242,6 +249,7 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
         .context = ctx,
     });
     vcols[rep_buid] = vcol;
+    period_vcol[p] = vcol;
 
     // ── Create w (shutdown) variable ──
     const auto w_cost = CostHelper::block_ecost(
@@ -257,6 +265,7 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
         .context = ctx,
     });
     wcols[rep_buid] = wcol;
+    period_wcol[p] = wcol;
 
     // ── C1: Logic transition (per period) ──
     // u[p] - u[p-1] - v[p] + w[p] = 0
@@ -325,11 +334,11 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
     const auto gcol = gcol_it->second;
     const auto ucol = block_ucol.at(buid);
 
-    // Look up period's v/w for ramp constraints
+    // Look up period's v/w for ramp constraints via period-indexed cache
+    // (avoids two map .at() lookups per block).
     const auto pidx = block_period[bidx];
-    const auto rep_buid = blocks[period_starts[pidx]].uid();
-    const auto vcol = vcols.at(rep_buid);
-    const auto wcol = wcols.at(rep_buid);
+    const auto vcol = period_vcol[pidx];
+    const auto wcol = period_wcol[pidx];
 
     const auto gen_pmax = lp.get_col_uppb(gcol);
     const auto gen_pmin = lp.get_col_lowb(gcol);
@@ -454,10 +463,10 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
       link_row[ucol] = -gen_pmin;
 
       double prev_breakpoint = gen_pmin;
-      for (size_t k = 0; k < pmax_segs.size(); ++k) {
-        const auto seg_width = pmax_segs[k] - prev_breakpoint;
+      for (const auto& [k, pmax_k] : enumerate<int>(pmax_segs)) {
+        const auto seg_width = pmax_k - prev_breakpoint;
         if (seg_width <= 0.0) {
-          prev_breakpoint = pmax_segs[k];
+          prev_breakpoint = pmax_k;
           continue;
         }
 
@@ -468,7 +477,7 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
             CostHelper::block_ecost(scenario, stage, block, seg_marginal);
 
         const auto seg_ctx =
-            make_block_context(scenario.uid(), stage.uid(), buid);
+            make_block_context(scenario.uid(), stage.uid(), buid, k);
 
         auto seg_col = lp.add_col({
             .lowb = 0.0,
@@ -497,7 +506,7 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
 
         link_row[seg_col] = -1.0;
         segment_cols_[k][st_key][buid] = seg_col;
-        prev_breakpoint = pmax_segs[k];
+        prev_breakpoint = pmax_k;
       }
 
       segment_link_rows_[st_key][buid] = lp.add_row(std::move(link_row));

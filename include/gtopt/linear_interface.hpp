@@ -16,17 +16,25 @@
 
 #pragma once
 
+#include <concepts>
+#include <cstdio>
 #include <expected>
 #include <memory>
 #include <span>
+#include <string_view>
 #include <unordered_map>
+#include <utility>
+#include <vector>
 
 #include <gtopt/error.hpp>
 #include <gtopt/fmap.hpp>
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/low_memory_snapshot.hpp>
+#include <gtopt/memory_compress.hpp>
+#include <gtopt/sddp_enums.hpp>
 #include <gtopt/solver_backend.hpp>
 #include <gtopt/solver_options.hpp>
+#include <gtopt/solver_stats.hpp>
 #include <gtopt/strong_index_vector.hpp>
 
 namespace gtopt
@@ -37,6 +45,15 @@ namespace gtopt
 /// Models a random-access range: `view[i]` returns `data[i] * scales[i]`
 /// (or `data[i] / scales[i]` when constructed with `divides`).
 /// When scales are empty, returns raw data unchanged.
+///
+/// Optional physical-space clamp: when `lower_` and `upper_` spans are
+/// both non-empty, `operator[](i)` additionally clamps the result to
+/// `[lower_[i] * scales_[i], upper_[i] * scales_[i]]` — i.e., the clamp
+/// is applied *after* descaling, in the same physical space the caller
+/// sees.  Used by `LinearInterface::get_col_sol()` to scrub solver
+/// noise (value returned slightly outside its bound-box on an optimal
+/// solve) so downstream SDDP state propagation can pin clean values
+/// without causing next-phase infeasibility.
 ///
 /// Accepts any integer-like index type (int, size_t, ColIndex, RowIndex).
 class ScaledView
@@ -63,21 +80,55 @@ public:
   {
   }
 
+  /// Construct with physical-space clamp bounds (lower/upper in the
+  /// same raw-LP space as `data`; each element is descaled by `scales`
+  /// before clamping).  When either span is empty, clamping is skipped.
+  constexpr ScaledView(const double* data,
+                       size_t n,
+                       const double* scales,
+                       size_t ns,
+                       const double* lower,
+                       size_t nlo,
+                       const double* upper,
+                       size_t nup,
+                       Op op = Op::multiply,
+                       double global_factor = 1.0) noexcept
+      : data_(data, n)
+      , scales_(scales, ns)
+      , lower_(lower, nlo)
+      , upper_(upper, nup)
+      , op_(op)
+      , global_(global_factor)
+  {
+  }
+
   /// Construct from a raw span (no scaling).
   constexpr explicit ScaledView(std::span<const double> raw) noexcept
       : data_(raw)
   {
   }
 
-  [[nodiscard]] constexpr double operator[](auto idx) const noexcept
+  /// Accepts any integer-like type (int, size_t, ColIndex, RowIndex, …).
+  template<typename T>
+    requires std::is_convertible_v<T, size_t>
+  [[nodiscard]] constexpr double operator[](T idx) const noexcept
   {
     const auto i = static_cast<size_t>(idx);
-    if (i >= scales_.size()) {
-      return data_[i] * global_;
+    const double scale = (i < scales_.size()) ? scales_[i] : 1.0;
+    const double v = (i < scales_.size() && op_ == Op::divide)
+        ? data_[i] / scale
+        : data_[i] * scale;
+    double result = v * global_;
+    // Physical-space clamp: applied AFTER descaling so no further
+    // multiplication can re-violate the bound box.
+    if (i < lower_.size() && i < upper_.size()) {
+      const double lb_phys = lower_[i] * scale;
+      const double ub_phys = upper_[i] * scale;
+      if (lb_phys <= ub_phys) {  // guard against degenerate/inverted bounds
+        result = std::clamp(result, lb_phys, ub_phys);
+      }
     }
-    const auto v =
-        (op_ == Op::multiply) ? data_[i] * scales_[i] : data_[i] / scales_[i];
-    return v * global_;
+    return result;
   }
 
   [[nodiscard]] constexpr size_t size() const noexcept { return data_.size(); }
@@ -125,6 +176,10 @@ public:
 private:
   std::span<const double> data_ {};
   std::span<const double> scales_ {};
+  std::span<const double>
+      lower_ {};  ///< Optional raw-LP lower bounds for clamp
+  std::span<const double>
+      upper_ {};  ///< Optional raw-LP upper bounds for clamp
   Op op_ {Op::multiply};
   double global_ {1.0};  ///< Uniform factor applied to every element
 };
@@ -144,6 +199,8 @@ struct RowDiagnostics
   std::string min_col_name {};
   std::string max_col_name {};
 };
+
+class SystemLP;  // owner for the rebuild-mode back-pointer
 
 class LinearInterface
 {
@@ -194,13 +251,9 @@ public:
    * the original — use this for tentative solves such as the SDDP elastic
    * filter, where the original LP must remain unmodified.
    *
-   * @param col_sol  Optional primal solution for warm-start (empty = skip)
-   * @param row_dual Optional dual solution for warm-start (empty = skip)
    * @return A new LinearInterface wrapping the cloned solver.
    */
-  [[nodiscard]] LinearInterface clone(
-      std::span<const double> col_sol = {},
-      std::span<const double> row_dual = {}) const;
+  [[nodiscard]] LinearInterface clone() const;
 
   /**
    * @brief Apply a saved solution as warm-start hint for the next resolve.
@@ -239,18 +292,44 @@ public:
 
   // ── Low-memory mode API ─────────────────────────────────────────────────
 
-  /// Configure low-memory mode (off, snapshot, compress).
+  /// Configure low-memory mode (off, snapshot, compress, rebuild).
   void set_low_memory(LowMemoryMode mode,
-                      MemoryCodec codec = MemoryCodec::zstd) noexcept;
+                      CompressionCodec codec = CompressionCodec::lz4) noexcept;
 
   /// Save a flat LP snapshot for future reconstruction.
   /// Call from create_lp() — the LinearInterface decides whether to keep
   /// based on the configured level.
   void save_snapshot(FlatLinearProblem flat_lp);
 
-  /// Capture hot-start cuts (rows above base_numrows) into active_cuts.
-  /// Call after all initialization (alpha vars, hot-start cuts) is done.
-  void capture_hot_start_cuts();
+  /// Drop the compressed/uncompressed flat-LP snapshot held by this
+  /// interface.  Used by the SDDP simulation Pass 1 in low-memory mode
+  /// to free the per-cell LP matrix right after the solve caches its
+  /// primal/dual/cost vectors via `release_backend()` — subsequent
+  /// `PlanningLP::write_out` reads solution values straight from the
+  /// cached vectors (see Phase 2a getters) and `rebuild_collections_if_
+  /// needed` re-flattens from the live `System` element arrays, so the
+  /// flat-LP snapshot is no longer needed for any downstream step.
+  ///
+  /// Calling this after `release_backend()` is safe; the cached scalars
+  /// and vectors stay intact.  After this, a subsequent
+  /// `reconstruct_backend()` would have nothing to reload from — only
+  /// call when the LP is truly done.
+  void clear_snapshot() noexcept { m_snapshot_ = LowMemorySnapshot {}; }
+
+  /// Install a flat LP snapshot **without** loading the backend.
+  ///
+  /// Used by `SystemLP::create_lp` when low-memory mode is enabled at
+  /// build time so the initial `load_flat()` call can be skipped: the
+  /// snapshot is recorded, optionally compressed (level `compress`), and
+  /// `m_backend_released_` is flipped on so the next user-driven
+  /// `add_col` / `add_row` / solve goes through `ensure_backend()` →
+  /// `reconstruct_backend()` (which performs the single
+  /// build-time `load_flat`).
+  ///
+  /// Pre-condition: `set_low_memory()` must have been called first with a
+  /// non-`off` mode — otherwise this would defeat the lazy reconstruction
+  /// path because `release_backend()` becomes a no-op.
+  void defer_initial_load(FlatLinearProblem flat_lp);
 
   /// Reconstruct backend from saved flat LP + dynamic cols + active cuts.
   /// @param col_sol  Previous primal solution for warm-start (empty = cold)
@@ -273,11 +352,149 @@ public:
   /// Record a dynamically-added column (e.g. alpha variable).
   void record_dynamic_col(SparseCol col);
 
+  /// Update the `lowb` on the first `m_dynamic_cols_` entry matching
+  /// `(class_name, variable_name)` so that a subsequent snapshot reload
+  /// (`apply_post_load_replay`) restores the column with the new lower
+  /// bound rather than the original one.  Returns `true` iff a matching
+  /// entry was found and updated.  No-op under `LowMemoryMode::off`
+  /// (where `m_dynamic_cols_` stays empty) — the live backend is the
+  /// sole authority and needs no dynamic-col mirror.
+  bool update_dynamic_col_lowb(std::string_view class_name,
+                               std::string_view variable_name,
+                               double new_lowb) noexcept;
+
+  /// Two-sided bound update for a dynamic column — used by the SDDP
+  /// `free_alpha` path which relaxes both the pinned `lowb = 0` and
+  /// `uppb = 0` bootstrap in a single call.  Semantics mirror
+  /// `update_dynamic_col_lowb`: no-op under `LowMemoryMode::off`,
+  /// returns `true` iff a matching `(class_name, variable_name)`
+  /// entry was found in `m_dynamic_cols_` and both bounds overwritten.
+  bool update_dynamic_col_bounds(std::string_view class_name,
+                                 std::string_view variable_name,
+                                 double new_lowb,
+                                 double new_uppb) noexcept;
+
   /// Record a Benders cut row addition.
   void record_cut_row(SparseRow row);
 
+  /// Pre-reserve capacity for active cuts.  Cut loaders that know the
+  /// expected row count ahead of time can call this before their
+  /// `add_row` + `record_cut_row` loop to avoid log-N reallocations.
+  void reserve_active_cuts(std::size_t n) { m_active_cuts_.reserve(n); }
+
   /// Record cut row deletions (pruning/forgetting).
   void record_cut_deletion(std::span<const int> deleted_indices);
+
+  /// True when a `FlatLinearProblem` snapshot is currently held.
+  /// Always false in `LowMemoryMode::rebuild` after release_backend.
+  [[nodiscard]] bool has_snapshot_data() const noexcept
+  {
+    return m_snapshot_.has_data();
+  }
+
+  /// Move out the recorded dynamic columns (alpha) so the caller can
+  /// preserve them across a destructive rebuild.  Used by
+  /// `SystemLP::ensure_lp_built()` under `LowMemoryMode::rebuild`.
+  [[nodiscard]] std::vector<SparseCol> take_dynamic_cols() noexcept
+  {
+    return std::exchange(m_dynamic_cols_, {});
+  }
+
+  /// Move out the active Benders cuts so the caller can preserve them
+  /// across a destructive rebuild.
+  [[nodiscard]] std::vector<SparseRow> take_active_cuts() noexcept
+  {
+    return std::exchange(m_active_cuts_, {});
+  }
+
+  /// Restore previously-taken dynamic columns (rollback path on rebuild
+  /// failure).  Replaces any current m_dynamic_cols_.
+  void restore_dynamic_cols(std::vector<SparseCol> cols) noexcept
+  {
+    m_dynamic_cols_ = std::move(cols);
+  }
+
+  /// Restore previously-taken active cuts (rollback path on rebuild
+  /// failure).  Replaces any current m_active_cuts_.
+  void restore_active_cuts(std::vector<SparseRow> cuts) noexcept
+  {
+    m_active_cuts_ = std::move(cuts);
+  }
+
+  /// Set the base row count explicitly (used after a rebuild restores
+  /// state without re-querying the live backend).
+  void set_base_numrows(size_t n) noexcept
+  {
+    m_base_numrows_ = n;
+    m_base_numrows_set_ = true;
+  }
+
+  /// Mark this interface as "no LP loaded": flips `m_backend_released_` to
+  /// true and, for non-rebuild modes, drops the default-constructed
+  /// backend handle.  Intended for `LowMemoryMode::rebuild`, where
+  /// `SystemLP`'s constructor wants to install the low-memory configuration
+  /// without paying for an initial `load_flat()` — the next backend access
+  /// (via `ensure_backend()`) will invoke the rebuild callback to assemble
+  /// the flat LP lazily.  In rebuild mode the default backend handle is
+  /// retained so that `infinity()` stays queryable for the LinearProblem
+  /// builder used inside the rebuild callback.  Unlike `release_backend()`,
+  /// this skips solution caching and snapshot compression: there is nothing
+  /// meaningful to cache yet.
+  void mark_released() noexcept
+  {
+    if (m_low_memory_mode_ != LowMemoryMode::rebuild) {
+      m_backend_.reset();
+    }
+    m_backend_released_ = true;
+  }
+
+  /// Install the owning SystemLP as the rebuild-source for
+  /// `LowMemoryMode::rebuild`.  When the backend is released, the next
+  /// `ensure_backend()` call invokes `SystemLP::rebuild_in_place()` on
+  /// this pointer.  Must be re-set after every SystemLP move so it
+  /// tracks the new object's address.
+  ///
+  /// Pass `nullptr` to clear — typical under other low_memory modes.
+  void set_rebuild_owner(SystemLP* owner) noexcept { m_rebuild_owner_ = owner; }
+
+  /// True iff a rebuild owner has been installed.  Used by SystemLP to
+  /// decide whether an accidental pre-owner access would be a logic bug.
+  [[nodiscard]] bool has_rebuild_callback() const noexcept
+  {
+    return m_rebuild_owner_ != nullptr;
+  }
+
+  /// Replay the persistent SDDP state (dynamic cols + active cuts +
+  /// warm-start) onto the live backend after a fresh `load_flat()`.  Used
+  /// by both the compress/snapshot reconstruction path and the rebuild
+  /// callback, which share the same post-load protocol: structural rows
+  /// are in the backend, and the caller-tracked state must be replayed on
+  /// top so subsequent add_col/add_row calls append cleanly.
+  ///
+  /// Pre-condition: the backend is live (post `load_flat`) and
+  /// `m_backend_released_` has been cleared.
+  void apply_post_load_replay(std::span<const double> col_sol = {},
+                              std::span<const double> row_dual = {});
+
+  /// Finalize a rebuild in place: clear the released flag, run
+  /// `load_flat(flat_lp)` on the existing backend, and replay persistent
+  /// state (dynamic cols + base_numrows + active cuts).  Used exclusively
+  /// by the `LowMemoryMode::rebuild` callback — mirrors
+  /// `reconstruct_backend` but takes a caller-provided flat LP instead of
+  /// sourcing one from `m_snapshot_`.
+  void install_flat_as_rebuild(const FlatLinearProblem& flat_lp);
+
+  /// Ensure the backend is live.  For `LowMemoryMode::off` this is a
+  /// no-op (backend is always live).  For `snapshot` / `compress` it
+  /// reconstructs from the saved snapshot.  For `rebuild` it invokes
+  /// the installed rebuild callback (which flattens the LP from source
+  /// collections and installs it via `install_flat_as_rebuild`).
+  ///
+  /// Any mutation method (add_col, add_row, set_*, solve) calls this
+  /// internally, so most callers don't need to invoke it directly.
+  /// Useful as an explicit trigger for pure-read code paths that would
+  /// otherwise read stale cached row/col counts from a released cell.
+  void ensure_backend();
 
   /// Decompress the saved flat LP (level 2) and keep it uncompressed
   /// until enable_compression() is called.  No-op if level < 2 or
@@ -321,7 +538,64 @@ public:
    * ignored)
    * @return The index of the newly added row
    */
+  /**
+   * @brief Adds a new constraint row to the problem.
+   *
+   * Coefficients are interpreted as **physical-space** by default.
+   * When the LP was built with equilibration (row_max or ruiz) and
+   * `save_base_numrows()` has fired (i.e. this row is a post-build
+   * cut), `add_row` applies, in order:
+   *
+   *  1. Physical → LP column scaling: `coeff_j ← coeff_j ×
+   *     col_scales[j]`.  Bounds are not touched here.
+   *  2. Per-row row-max normalisation: divide coefficients and bounds
+   *     by `max|coeff_j|`, so the new row lands at `max|coeff| = 1`,
+   *     matching the structural rows processed by
+   *     `apply_row_max_equilibration` / `apply_ruiz_scaling` at build
+   *     time.
+   *  3. Composite row scale storage: `row_scale = row.scale ×
+   *     max|coeff|`, preserving `dual_phys = dual_LP × row_scale`.
+   *
+   * Otherwise (no equilibration on the LP, or this row still belongs
+   * to the structural-build phase), `add_row` is a pass-through — the
+   * physical space and LP space coincide, so no conversion happens.
+   *
+   * @param row The constraint with physical-space coefficients.
+   * @param eps Epsilon value for coefficient filtering (values below
+   *            are ignored).
+   * @return The index of the newly added row.
+   */
   RowIndex add_row(const SparseRow& row, double eps = 0.0);
+
+  /**
+   * @brief Add a cut row AND record it for low-memory replay.
+   *
+   * Equivalent to `add_row(row, eps)` followed by `record_cut_row(row)`
+   * — every cut install site needs both so the row survives a
+   * `release_backend` / `ensure_backend` cycle by being replayed
+   * through `apply_post_load_replay`.  Prefer this over the bare
+   * `add_row` + `record_cut_row` pair for new code.  Generated-cut
+   * paths that also push into `SDDPMethod::m_cut_store_` continue to
+   * use `add_row` + `store_cut` (which wraps `record_cut_row`
+   * internally) to avoid double-recording.
+   *
+   * @param row Cut row, physical-space coefficients.
+   * @param eps Coefficient filtering threshold.  Callers should pass
+   *            the active `SDDPOptions::cut_coeff_eps` so loaded and
+   *            generated cuts see the same filtering.  Defaults to 0
+   *            (no filtering) for compatibility with existing
+   *            loaders whose signatures don't plumb `cut_coeff_eps`
+   *            yet — follow-up refactor should thread that option
+   *            through each loader's parameter list.
+   * @return Row index assigned by the solver backend.
+   */
+  RowIndex add_cut_row(const SparseRow& row, double eps = 0.0)
+  {
+    const auto idx = add_row(row, eps);
+    // `record_cut_row` no-ops when `m_low_memory_mode_ == off`.
+    record_cut_row(row);
+    return idx;
+  }
 
   /**
    * @brief Bulk-add constraint rows (much faster than repeated add_row calls).
@@ -348,8 +622,23 @@ public:
    * All rows added after this point are considered cuts and are eligible
    * for pruning.  Must be called once after the structural LP is built,
    * before any Benders cuts are added.
+   *
+   * Under `LowMemoryMode::rebuild`, transparently triggers the rebuild
+   * callback when the backend is still released so callers never read a
+   * stale cached row count from an un-built cell.  `snapshot`/`compress`
+   * modes pre-seed `m_cached_numrows_` via `defer_initial_load`, so
+   * `get_numrows()` returns the correct value without a reconstruct —
+   * preserving the invariant that save_base_numrows does not flip the
+   * released flag for those modes.
    */
-  void save_base_numrows() noexcept { m_base_numrows_ = get_numrows(); }
+  void save_base_numrows()
+  {
+    if (m_low_memory_mode_ == LowMemoryMode::rebuild) {
+      ensure_backend();
+    }
+    m_base_numrows_ = get_numrows();
+    m_base_numrows_set_ = true;
+  }
 
   /**
    * @brief Get the saved base row count.
@@ -384,6 +673,27 @@ public:
    */
   [[nodiscard]] size_t get_numcols() const;
 
+  /**
+   * @brief Typed row count — use instead of `RowIndex{static_cast<Index>(
+   *        li.get_numrows())}` at every call site.
+   *
+   * Narrows `size_t → Index` in exactly one place (here) so that we can
+   * later replace the conversion with a bounds-checked one without
+   * touching every caller.  Matches the typed API used across the rest
+   * of the LP layer (`add_row` → `RowIndex`, `delete_row` → `RowIndex`,
+   * …) so idiomatic call sites stay inside strong-index space.
+   */
+  [[nodiscard]] RowIndex numrows_as_index() const
+  {
+    return RowIndex {static_cast<Index>(get_numrows())};
+  }
+
+  /// See `numrows_as_index`.
+  [[nodiscard]] ColIndex numcols_as_index() const
+  {
+    return ColIndex {static_cast<Index>(get_numcols())};
+  }
+
   /// Solver backend name (e.g. "clp", "cplex", "highs").
   [[nodiscard]] std::string_view solver_name() const noexcept
   {
@@ -410,25 +720,27 @@ public:
   /// Currently configured LP algorithm.
   [[nodiscard]] LPAlgo get_algorithm() const
   {
-    return m_backend_->get_algorithm();
+    return backend().get_algorithm();
   }
 
   /// Currently configured thread count (0 = solver default).
-  [[nodiscard]] int get_threads() const { return m_backend_->get_threads(); }
+  [[nodiscard]] int get_threads() const { return backend().get_threads(); }
 
   /// Whether presolve is currently enabled.
-  [[nodiscard]] bool get_presolve() const { return m_backend_->get_presolve(); }
+  [[nodiscard]] bool get_presolve() const { return backend().get_presolve(); }
 
   /// Current solver log verbosity level (0 = off).
-  [[nodiscard]] int get_log_level() const
-  {
-    return m_backend_->get_log_level();
-  }
+  [[nodiscard]] int get_log_level() const { return backend().get_log_level(); }
 
   /// Solver's representation of +infinity for variable bounds.
+  ///
+  /// Safe to call even when the backend has been released (low-memory
+  /// modes): the value is cached at ctor time and on every successful
+  /// `load_flat`.  Used by the rebuild callback's `flatten_from_collections`
+  /// pass, which needs infinity before the backend is repopulated.
   [[nodiscard]] double infinity() const noexcept
   {
-    return m_backend_->infinity();
+    return m_backend_ ? m_backend_->infinity() : m_cached_infinity_;
   }
 
   /// Normalize a bound value: map gtopt::DblMax to the solver's infinity.
@@ -439,7 +751,7 @@ public:
   /// LinearInterface boundary so that formulation code and solver agree.
   [[nodiscard]] double normalize_bound(double value) const noexcept
   {
-    const auto inf = m_backend_->infinity();
+    const auto inf = infinity();
     if (value >= DblMax) {
       return inf;
     }
@@ -459,13 +771,13 @@ public:
   /// True if @p value represents positive infinity for the active solver.
   [[nodiscard]] bool is_pos_inf(double value) const noexcept
   {
-    return value >= m_backend_->infinity();
+    return value >= infinity();
   }
 
   /// True if @p value represents negative infinity for the active solver.
   [[nodiscard]] bool is_neg_inf(double value) const noexcept
   {
-    return value <= -m_backend_->infinity();
+    return value <= -infinity();
   }
 
   // ── Row bound setters (raw: LP/solver units) ──
@@ -538,7 +850,7 @@ public:
 
   [[nodiscard]] auto get_obj_coeff() const
   {
-    return std::span(m_backend_->obj_coefficients(), get_numcols());
+    return std::span(backend().obj_coefficients(), get_numcols());
   }
 
   // ── Column bound setters (raw: LP/solver units) ──
@@ -574,6 +886,79 @@ public:
       const std::string& filename) const;
 
   /**
+   * @brief Produce `(col_names, row_names)` for the current LP by
+   *        synthesising real gtopt labels on demand.
+   *
+   * Sources, in priority order:
+   *   1. Pre-formatted strings in `m_col_index_to_name_` /
+   *      `m_row_index_to_name_` (populated at flatten when
+   *      `LpMatrixOptions::{col,row}_with_names` was set — i.e.
+   *      `--lp-debug`).  Zero work if already present.
+   *   2. Structural metadata: `m_col_labels_meta_` /
+   *      `m_row_labels_meta_` (populated unconditionally at flatten).
+   *      Formatted via a local `LabelMaker{LpNamesLevel::all}` so
+   *      the result matches what `--lp-debug` would have produced
+   *      at flatten time.
+   *   3. Dynamic cols (post-flatten additions, e.g. α): synthesised
+   *      from `m_dynamic_cols_[k]` via the same forced-all
+   *      `LabelMaker`.
+   *   4. Active cuts (post-flatten row additions): same, from
+   *      `m_active_cuts_[k]`.
+   *
+   * No fallback — if a col/row has neither pre-formatted name nor
+   * metadata, that indicates a `LinearInterface` invariant
+   * violation (e.g. a col was added without metadata, or load_flat
+   * was called with a FlatLinearProblem that pre-dates this
+   * contract).  The method throws `std::logic_error` in that case.
+   *
+   * Caller pays zero memory cost at flatten; synthesis happens only
+   * when this method (and therefore `write_lp`) actually fires.
+   *
+   * @param col_names  Output vector, resized to `get_num_cols()`.
+   * @param row_names  Output vector, resized to `get_num_rows()`.
+   */
+  /// Caches formatted labels back into `m_col_index_to_name_` /
+  /// `m_row_index_to_name_` so subsequent calls (repeat `write_lp`)
+  /// skip the `LabelMaker` pass.  The caches are declared `mutable`
+  /// so this method remains logically const.
+  void generate_labels_from_maps(std::vector<std::string>& col_names,
+                                 std::vector<std::string>& row_names) const;
+
+  /// Force label synthesis into the internal caches + name→index maps
+  /// without producing output vectors.  Useful for callers that
+  /// subsequently read `row_name_map()` / `col_name_map()` or
+  /// `row_index_to_name()` / `col_index_to_name()` and need them
+  /// populated under the lazy add_col / add_row path.
+  void materialize_labels() const;
+
+private:
+  /// Append/update the row-label metadata for a freshly-added row.
+  /// Called by the `add_row(SparseRow)` entry points after the row
+  /// index is known.  Resizes `m_row_labels_meta_` so `m[row_idx]`
+  /// carries the 4-tuple LabelMaker needs.
+  void track_row_label_meta(RowIndex row_idx, const SparseRow& row);
+
+  /// Compress the live `m_col_labels_meta_` / `m_row_labels_meta_`
+  /// vectors into their `_compressed_` backups and clear the live
+  /// copies.  Called from `release_backend` under
+  /// `LowMemoryMode::compress`.  No-op in other modes.
+  void compress_labels_meta_if_needed();
+
+  /// Lazy-lazy decompression: if the live metadata is empty but a
+  /// compressed buffer is non-empty, decompress it back into the
+  /// live vector (and the string pool).  No-op otherwise.  Safe to
+  /// call repeatedly and from const contexts (members are mutable).
+  void ensure_labels_meta_decompressed() const;
+
+  /// Rebuild `m_col_meta_index_` / `m_row_meta_index_` from the live
+  /// metadata vectors.  Called after `load_flat` and after
+  /// `ensure_labels_meta_decompressed` so the eager duplicate check
+  /// in `add_col` / `track_row_label_meta` can run against the full
+  /// history, not just post-reload additions.
+  void rebuild_meta_indexes() const;
+
+public:
+  /**
    * @brief Performs initial solve of the problem from scratch
    * @param solver_options Options controlling the solve process
    * @return Expected with solver status code (0 = optimal) or error
@@ -590,10 +975,58 @@ public:
       const SolverOptions& solver_options = {});
 
   /**
-   * @brief Gets the condition number of the basis matrix (if available)
-   * @return Condition number kappa, or -1.0 if not supported by backend
+   * @brief Gets the condition number of the basis matrix (if available).
+   * @return Condition number kappa, or `std::nullopt` if the backend
+   *         cannot compute one (e.g. no basis after barrier without
+   *         crossover, backend does not expose the query, or the
+   *         native API reported failure).
+   *
+   * Callers must NOT treat a missing value as 1.0 — that silently
+   * poisons any `std::max`-based aggregation across a (scene, phase)
+   * grid.  Use `std::optional::value_or`, the bool-convert, or explicit
+   * `has_value()` checks instead.
    */
-  [[nodiscard]] double get_kappa() const;
+  [[nodiscard]] std::optional<double> get_kappa() const;
+
+  /**
+   * @brief Read-only access to this LP's cumulative solver counters.
+   *
+   * Counters are incremented by `load_flat`, `initial_solve`, `resolve`,
+   * and `ensure_duals`.  Aggregation across LPs (e.g. for end-of-run
+   * reporting) is done by the caller via `SolverStats::operator+=`.
+   */
+  [[nodiscard]] constexpr const SolverStats& solver_stats() const noexcept
+  {
+    return m_solver_stats_;
+  }
+
+  /**
+   * @brief Mutable accessor to the solver-counter block.
+   *
+   * Exposed for out-of-class instrumentation — specifically
+   * `SDDPMethod::backward_pass_single_phase`, which bumps the six
+   * `bwd_*_s` timers plus `bwd_step_count` on the previous-phase LP as
+   * it installs each optimality cut.  Callers are expected to be
+   * single-writer threads for the underlying LP (same contract as every
+   * other mutating method on `LinearInterface`).
+   */
+  [[nodiscard]] constexpr SolverStats& mutable_solver_stats() noexcept
+  {
+    return m_solver_stats_;
+  }
+
+  /**
+   * @brief Fold another LP's counters into this one.
+   *
+   * Used by elastic-filter paths that resolve a `clone()`d LP and
+   * discard it: call this on the original with `clone.solver_stats()`
+   * before the clone is destroyed so the solve attempts it made still
+   * show up in the final report.
+   */
+  constexpr void merge_solver_stats(const SolverStats& other) noexcept
+  {
+    m_solver_stats_ += other;
+  }
 
   /**
    * @brief Analyze coefficient range for a single row.
@@ -681,7 +1114,7 @@ public:
    */
   [[nodiscard]] auto get_row_low_raw() const
   {
-    return std::span(m_backend_->row_lower(), get_numrows());
+    return std::span(backend().row_lower(), get_numrows());
   }
 
   /**
@@ -690,7 +1123,7 @@ public:
    */
   [[nodiscard]] auto get_row_upp_raw() const
   {
-    return std::span(m_backend_->row_upper(), get_numrows());
+    return std::span(backend().row_upper(), get_numrows());
   }
 
   // ── Row bound getters (physical: descaled) ──
@@ -704,10 +1137,16 @@ public:
    * When row scales are empty, returns raw values unchanged.
    * @return ScaledView over solver row lower bounds
    */
+  // `backend()` may call `ensure_backend()`, which can throw on a
+  // rebuild failure — a programmer-bug path we intentionally allow to
+  // terminate instead of unwinding partial LP state.  Keep `noexcept`
+  // on the API surface and suppress tidy; NOLINT lines are narrower
+  // than dropping the guarantee from every caller.
+  // NOLINTNEXTLINE(bugprone-exception-escape)
   [[nodiscard]] ScaledView get_row_low() const noexcept
   {
     const auto n = get_numrows();
-    return {m_backend_->row_lower(),
+    return {backend().row_lower(),
             n,
             m_row_scales_.data(),
             m_row_scales_.size(),
@@ -718,10 +1157,11 @@ public:
    * @brief Gets physical upper bounds for all constraint rows.
    * @return ScaledView over solver row upper bounds
    */
+  // NOLINTNEXTLINE(bugprone-exception-escape)
   [[nodiscard]] ScaledView get_row_upp() const noexcept
   {
     const auto n = get_numrows();
-    return {m_backend_->row_upper(),
+    return {backend().row_upper(),
             n,
             m_row_scales_.data(),
             m_row_scales_.size(),
@@ -740,7 +1180,7 @@ public:
    */
   [[nodiscard]] auto get_col_low_raw() const
   {
-    return std::span(m_backend_->col_lower(), get_numcols());
+    return std::span(backend().col_lower(), get_numcols());
   }
 
   /**
@@ -749,7 +1189,7 @@ public:
    */
   [[nodiscard]] auto get_col_upp_raw() const
   {
-    return std::span(m_backend_->col_upper(), get_numcols());
+    return std::span(backend().col_upper(), get_numcols());
   }
 
   // ── Column bound getters (physical: descaled) ──
@@ -762,10 +1202,11 @@ public:
    * returns raw values unchanged.
    * @return ScaledView over solver column lower bounds
    */
+  // NOLINTNEXTLINE(bugprone-exception-escape)
   [[nodiscard]] ScaledView get_col_low() const noexcept
   {
     const auto n = get_numcols();
-    return {m_backend_->col_lower(),
+    return {backend().col_lower(),
             n,
             m_col_scales_.data(),
             m_col_scales_.size(),
@@ -779,10 +1220,11 @@ public:
    * `LP_bound × col_scale` on the fly.
    * @return ScaledView over solver column upper bounds
    */
+  // NOLINTNEXTLINE(bugprone-exception-escape)
   [[nodiscard]] ScaledView get_col_upp() const noexcept
   {
     const auto n = get_numcols();
-    return {m_backend_->col_upper(),
+    return {backend().col_upper(),
             n,
             m_col_scales_.data(),
             m_col_scales_.size(),
@@ -799,10 +1241,10 @@ public:
    */
   [[nodiscard]] auto get_col_sol_raw() const -> std::span<const double>
   {
-    if (m_backend_released_) {
-      return m_cached_col_sol_;
+    if (m_backend_released_ && !m_cached_col_sol_.empty()) {
+      return {m_cached_col_sol_.data(), m_cached_col_sol_.size()};
     }
-    return {m_backend_->col_solution(), get_numcols()};
+    return {backend().col_solution(), get_numcols()};
   }
 
   /**
@@ -811,22 +1253,50 @@ public:
    * Returns a zero-copy lazy view: each access computes
    * `LP_value × col_scale` on the fly.  When col_scales are empty,
    * returns raw values unchanged.
+   *
+   * When the last solve converged to optimality (`is_optimal()` true),
+   * the returned view additionally clamps each element to the column's
+   * physical bound box `[col_low[i], col_upp[i]]`.  The clamp is
+   * applied *after* descaling so no further scale multiplication can
+   * re-introduce the bound violation.  This scrubs solver-tolerance
+   * noise that would otherwise propagate into subsequent phases as
+   * `set_col_low_raw(dep, sol+eps) = set_col_upp_raw(dep, sol+eps)`
+   * and make the next-phase LP trivially infeasible.  Callers that
+   * need the *exact* solver output (e.g. Chinneck IIS on an elastic
+   * clone where relaxed bounds would falsely "fix" the value) use
+   * `get_col_sol_raw()`.
+   *
+   * Precondition: backend must be live.  Callers under low-memory
+   * modes should invoke `ensure_backend()` first if reading after a
+   * release.
    * @return ScaledView over solver solution memory
    */
+  // NOLINTNEXTLINE(bugprone-exception-escape)
   [[nodiscard]] ScaledView get_col_sol() const noexcept
   {
-    if (m_backend_released_) {
-      return {m_cached_col_sol_.data(),
-              m_cached_col_sol_.size(),
+    const auto n = get_numcols();
+    const double* data = (m_backend_released_ && !m_cached_col_sol_.empty())
+        ? m_cached_col_sol_.data()
+        : backend().col_solution();
+    // Clamp path requires a live backend: col bounds are not cached on
+    // `release_backend`, so we'd dereference a null `m_backend_` to
+    // read them.  Also skip when the last solve wasn't optimal —
+    // solver values may then be arbitrary and clamping is misleading.
+    if (m_backend_released_ || !m_cached_is_optimal_) {
+      return {data,
+              n,
               m_col_scales_.data(),
               m_col_scales_.size(),
               ScaledView::Op::multiply};
     }
-    const auto n = get_numcols();
-    return {m_backend_->col_solution(),
+    return {data,
             n,
             m_col_scales_.data(),
             m_col_scales_.size(),
+            backend().col_lower(),
+            n,
+            backend().col_upper(),
+            n,
             ScaledView::Op::multiply};
   }
 
@@ -836,10 +1306,10 @@ public:
    */
   [[nodiscard]] auto get_col_cost_raw() const -> std::span<const double>
   {
-    if (m_backend_released_) {
-      return m_cached_col_cost_;
+    if (m_backend_released_ && !m_cached_col_cost_.empty()) {
+      return {m_cached_col_cost_.data(), m_cached_col_cost_.size()};
     }
-    return {m_backend_->reduced_cost(), get_numcols()};
+    return {backend().reduced_cost(), get_numcols()};
   }
 
   /**
@@ -848,20 +1318,23 @@ public:
    * Returns a zero-copy lazy view: each access computes
    * `LP_rc × scale_objective / col_scale` on the fly, recovering the
    * physical reduced cost in $/physical_unit.
+   *
+   * Precondition: backend must be live.
    * @return ScaledView over solver reduced-cost memory
    */
+  // NOLINTNEXTLINE(bugprone-exception-escape)
   [[nodiscard]] ScaledView get_col_cost() const noexcept
   {
-    if (m_backend_released_) {
+    const auto n = get_numcols();
+    if (m_backend_released_ && !m_cached_col_cost_.empty()) {
       return {m_cached_col_cost_.data(),
-              m_cached_col_cost_.size(),
+              n,
               m_col_scales_.data(),
               m_col_scales_.size(),
               ScaledView::Op::divide,
               m_scale_objective_};
     }
-    const auto n = get_numcols();
-    return {m_backend_->reduced_cost(),
+    return {backend().reduced_cost(),
             n,
             m_col_scales_.data(),
             m_col_scales_.size(),
@@ -959,6 +1432,28 @@ public:
     return m_row_scales_;
   }
 
+  /// Equilibration method in effect for this LP (selected by
+  /// `opts.equilibration_method` at `flatten()` time, persisted across
+  /// `load_flat`).  Used by `add_row` / `add_rows` to keep applying
+  /// per-row scaling to post-build cuts.  `none` when equilibration
+  /// was disabled at build time — in that case `add_row` leaves new
+  /// rows alone, preserving the historical behaviour.
+  [[nodiscard]] constexpr LpEquilibrationMethod equilibration_method()
+      const noexcept
+  {
+    return m_equilibration_method_;
+  }
+
+  /// Override the equilibration method recorded for this LP.  Normally
+  /// set by `load_flat` from `FlatLinearProblem::equilibration_method`;
+  /// this setter exists for unit tests that build an LP directly via
+  /// `add_col` / `add_row` (no flatten pass) and still want to exercise
+  /// the `add_equilibrated_row` path.
+  void set_equilibration_method(LpEquilibrationMethod method) noexcept
+  {
+    m_equilibration_method_ = method;
+  }
+
   /**
    * @brief Gets the global objective scaling factor.
    *
@@ -993,11 +1488,11 @@ public:
    */
   [[nodiscard]] auto get_row_dual_raw() -> std::span<const double>
   {
-    if (m_backend_released_) {
-      return m_cached_row_dual_;
+    if (m_backend_released_ && !m_cached_row_dual_.empty()) {
+      return {m_cached_row_dual_.data(), m_cached_row_dual_.size()};
     }
     ensure_duals();
-    return {m_backend_->row_price(), get_numrows()};
+    return {backend().row_price(), get_numrows()};
   }
 
   /**
@@ -1009,21 +1504,23 @@ public:
    * is π_LP = s × π_phys, hence π_phys = π_LP / s.
    * The global scale_objective factor is also applied:
    *   dual_physical = dual_LP × scale_objective / row_scale.
+   *
+   * Precondition: backend must be live.
    * @return Zero-copy lazy view per element.
    */
   [[nodiscard]] ScaledView get_row_dual()
   {
-    if (m_backend_released_) {
+    const auto n = get_numrows();
+    if (m_backend_released_ && !m_cached_row_dual_.empty()) {
       return {m_cached_row_dual_.data(),
-              m_cached_row_dual_.size(),
+              n,
               m_row_scales_.data(),
               m_row_scales_.size(),
               ScaledView::Op::divide,
               m_scale_objective_};
     }
     ensure_duals();
-    const auto n = get_numrows();
-    return {m_backend_->row_price(),
+    return {backend().row_price(),
             n,
             m_row_scales_.data(),
             m_row_scales_.size(),
@@ -1034,7 +1531,7 @@ public:
   void set_col_sol(std::span<const double> sol);
   void set_row_dual(std::span<const double> dual);
 
-  void set_log_file(const std::string& plog_file);
+  void set_log_file(std::string_view plog_file);
   [[nodiscard]] constexpr const auto& get_log_file() const
   {
     return m_log_file_;
@@ -1043,56 +1540,65 @@ public:
   void set_prob_name(const std::string& pname);
   [[nodiscard]] std::string get_prob_name() const;
 
-  /**
-   * @brief Sets the LP name uniqueness-check level.
-   *
-   * Controls name tracking and duplicate detection for add_row()/add_col():
-   *   - 0: col names tracked, row names disabled
-   *   - 1: col + row names tracked, warn on duplicate names via spdlog
-   *   - 2: col + row names tracked + throw std::runtime_error on duplicates
-   *
-   * Col name-to-index maps are populated at level >= 0.
-   * Row name-to-index maps are populated at level >= 1.
-   * The overhead is a single map insert per add_row/add_col call.
-   *
-   * @param level The LP name check level (matches names_level semantics)
-   */
-  void set_lp_names_level(int level) noexcept { m_lp_names_level_ = level; }
+  /// Set a human-readable log tag (e.g. "SDDP Forward [i0 s1 p2]") that
+  /// prefixes solver warnings emitted by `initial_solve()` / `resolve()`.
+  /// When empty, warnings fall back to `get_prob_name()`.  Callers are
+  /// expected to set this before each solve so fallback messages carry
+  /// the same context as the surrounding SDDP/monolithic info logs.
+  void set_log_tag(std::string_view tag) { m_log_tag_.assign(tag); }
+
+  [[nodiscard]] constexpr const std::string& get_log_tag() const noexcept
+  {
+    return m_log_tag_;
+  }
 
   /**
-   * @brief Gets the current LP name uniqueness-check level.
-   * @return 0-2 level (see set_lp_names_level)
+   * @brief Sets the LabelMaker used to generate and gate LP col/row labels.
+   *
+   * The LabelMaker carries the `LpNamesLevel` that controls which labels
+   * are produced for `add_col()` / `add_row()` and whether duplicate names
+   * are treated as errors.  It is normally installed automatically by
+   * `load_flat()` (which copies it from `FlatLinearProblem::label_maker`)
+   * but can also be set explicitly via this setter for tests or specialized
+   * callers.
+   *
+   * @param lm The LabelMaker to use (stored by value)
    */
-  [[nodiscard]] constexpr int lp_names_level() const noexcept
+  void set_label_maker(LabelMaker lm) noexcept { m_label_maker_ = lm; }
+
+  /// @brief Returns the LabelMaker driving label generation for add_col/row.
+  [[nodiscard]] constexpr const LabelMaker& label_maker() const noexcept
   {
-    return m_lp_names_level_;
+    return m_label_maker_;
   }
 
   /// @name Name-to-index maps (col: level >= 0, row: level >= 1)
   /// @{
 
-  /// Row (constraint) name → row index map.
-  using name_index_map_t = std::unordered_map<std::string, int32_t>;
+  /// Column (variable) name → strong column index map.
+  using col_name_map_t = std::unordered_map<std::string, ColIndex>;
+  /// Row (constraint) name → strong row index map.
+  using row_name_map_t = std::unordered_map<std::string, RowIndex>;
 
-  [[nodiscard]] constexpr const name_index_map_t& row_name_map() const noexcept
+  [[nodiscard]] constexpr const row_name_map_t& row_name_map() const noexcept
   {
     return m_row_names_;
   }
 
-  [[nodiscard]] constexpr const name_index_map_t& col_name_map() const noexcept
+  [[nodiscard]] constexpr const col_name_map_t& col_name_map() const noexcept
   {
     return m_col_names_;
   }
 
   /// Column index → name vector (empty string for unnamed columns).
-  /// Populated alongside col_name_map when lp_names_level >= 1.
+  /// Populated alongside col_name_map when names are enabled.
   [[nodiscard]] constexpr const auto& col_index_to_name() const noexcept
   {
     return m_col_index_to_name_;
   }
 
   /// Row index → name vector (empty string for unnamed rows).
-  /// Populated alongside row_name_map when lp_names_level >= 1.
+  /// Populated alongside row_name_map when names are enabled.
   [[nodiscard]] constexpr const auto& row_index_to_name() const noexcept
   {
     return m_row_index_to_name_;
@@ -1173,6 +1679,12 @@ private:
                    const std::span<const double>& elements,
                    double rowlb,
                    double rowub);
+
+  /// Internal raw-insertion path for SparseRow input.  Called by
+  /// `add_row(SparseRow)` in the pass-through branch (structural-build
+  /// phase, or no col_scales / equilibration active).  Only
+  /// `SparseRow::scale` is composed here; no col_scale, no row-max.
+  RowIndex add_row_lp_space(const SparseRow& row, double eps);
   /// @}
 
   void rebuild_row_name_maps();
@@ -1211,34 +1723,91 @@ private:
                           int level)
         : interface(&li)
     {
-      interface->m_backend_->set_log_filename(filename, level);
+      interface->backend().set_log_filename(filename, level);
     }
 
-    ~LogFileGuard() { interface->m_backend_->clear_log_filename(); }
+    // `backend().clear_log_filename()` delegates to `ensure_backend()`
+    // + `SolverBackend::clear_log_filename`; both can theoretically
+    // throw on a rebuild/solver-specific failure.  We intentionally
+    // keep the implicit-noexcept destructor — a failure here is a
+    // programmer bug that should terminate rather than unwind.
+    // NOLINTNEXTLINE(bugprone-exception-escape)
+    ~LogFileGuard() { interface->backend().clear_log_filename(); }
   };
 
   void open_log_handler(int log_level);
   void close_log_handler();
 
+  /// Centralized, auto-resurrecting access to the solver backend.
+  ///
+  /// Every read path that dereferences the backend should funnel through
+  /// here so callers don't have to remember `ensure_backend()` /
+  /// `SystemLP::ensure_lp_built()` before each access.  Under
+  /// `low_memory_mode != off` the backend may be released between
+  /// operations (e.g. by the SDDP forward pass after capturing the
+  /// solution); this accessor reconstructs it on first access and
+  /// returns a live reference.
+  ///
+  /// The `const` overload uses `const_cast` to invoke the non-const
+  /// `ensure_backend()` — standard lazy-init idiom, since rebuilding
+  /// cached backend state is a logically-const cache-refill.
+  [[nodiscard]] SolverBackend& backend()
+  {
+    ensure_backend();
+    return *m_backend_;
+  }
+  [[nodiscard]] const SolverBackend& backend() const
+  {
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast)
+    const_cast<LinearInterface*>(this)->ensure_backend();
+    return *m_backend_;
+  }
+
   std::unique_ptr<SolverBackend> m_backend_;
   std::string m_solver_name_ {};  ///< Solver name for backend reconstruction
   std::string m_solver_version_ {};  ///< Cached version for released backends
+
+  /// Cached +infinity value queried from the backend whenever it is
+  /// live (ctor and `load_flat`).  Used by `infinity()` /
+  /// `normalize_bound()` when the backend is released — in particular
+  /// by the rebuild callback's flatten pass, which must normalise
+  /// DblMax bounds *before* the backend is repopulated.
+  double m_cached_infinity_ {DblMax};
   SolverOptions m_last_solver_options_ {};  ///< Options from last solve
   std::string m_log_file_ {};
-  int m_lp_names_level_ {};  ///< LP name uniqueness-check level (0–2)
+  std::string m_log_tag_ {};  ///< Context tag prefixed to fallback warnings
+  LabelMaker m_label_maker_ {};  ///< Label generator + level gate
 
   /// Name-to-index maps for duplicate detection and later lookup.
-  /// Populated when lp_names_level >= 1.
-  name_index_map_t m_row_names_;  ///< Row (constraint) name → row index
-  name_index_map_t m_col_names_;  ///< Column (variable) name → col index
-  StrongIndexVector<ColIndex, std::string> m_col_index_to_name_;
-  StrongIndexVector<RowIndex, std::string> m_row_index_to_name_;
+  /// Populated when names are enabled.
+  // Mutable for the lazy-materialisation path: caches populated by
+  // `generate_labels_from_maps` (logically const) live here too.
+  mutable row_name_map_t m_row_names_;  ///< Row (constraint) name → row index
+  mutable col_name_map_t m_col_names_;  ///< Column (variable) name → col index
+  // Mutable so `generate_labels_from_maps` (logically const — it
+  // returns new vectors; the state update is a caching detail) can
+  // persist freshly-formatted labels for reuse on subsequent calls.
+  mutable StrongIndexVector<ColIndex, std::string> m_col_index_to_name_;
+  mutable StrongIndexVector<RowIndex, std::string> m_row_index_to_name_;
 
   size_t m_base_numrows_ {};  ///< Row count before any cuts were added
+  /// True once `save_base_numrows()` has fired.  Distinct from
+  /// `m_base_numrows_ > 0` because the structural build may legitimately
+  /// end at zero rows (e.g. pure column LPs, or tests that call
+  /// save_base_numrows before any rows exist).  `add_row` uses this to
+  /// decide whether incoming rows are cut-phase (physical + equilibration)
+  /// or structural-build-phase (LP-space pass-through).
+  bool m_base_numrows_set_ {false};
 
   double m_scale_objective_ {1.0};  ///< Global objective divisor (from flatten)
   StrongIndexVector<ColIndex, double> m_col_scales_;
   StrongIndexVector<RowIndex, double> m_row_scales_;
+  /// Equilibration method used at load_flat() time.  Persisted so that
+  /// `add_row` / `add_rows` (the post-build cut path) apply the same
+  /// per-row scaling the bulk build did, keeping kappa stable as cuts
+  /// accumulate.  `none` means the caller opted out of equilibration
+  /// at build time and we leave new rows alone.
+  LpEquilibrationMethod m_equilibration_method_ {LpEquilibrationMethod::none};
   VariableScaleMap m_variable_scale_map_ {};  ///< Moved from flatten
 
   /// Warm column solution loaded from a previous run's state file.
@@ -1259,24 +1828,26 @@ private:
 
   struct FILEcloser
   {
-    auto operator()(auto f) const { return fclose(f); }
+    void operator()(FILE* f) const noexcept { std::fclose(f); }
   };
   using log_file_ptr_t = std::unique_ptr<FILE, FILEcloser>;
   log_file_ptr_t m_log_file_ptr_;
 
-  /// Ensure the backend is live; reconstruct from snapshot if released.
-  /// Call before any mutation or solve.
-  void ensure_backend();
-
   /// Cache post-solve state and auto-release backend if low_memory is on.
   void cache_and_release();
+
+  /// Call `m_rebuild_owner_->rebuild_in_place()`.  Defined in
+  /// linear_interface.cpp where `SystemLP` is a complete type.
+  void invoke_rebuild_owner();
 
   // ── Low-memory state ──────────────────────────────────────────────────
 
   LowMemoryMode m_low_memory_mode_ {LowMemoryMode::off};
-  MemoryCodec m_memory_codec_ {MemoryCodec::zstd};
+  CompressionCodec m_memory_codec_ {CompressionCodec::lz4};
 
-  /// Snapshot: flat LP + cached solution, with compress/decompress support.
+  /// Snapshot: flat LP (uncompressed or compressed), used by the
+  /// `snapshot` / `compress` reconstruct path.  Always empty under
+  /// `rebuild` — the flat LP is regenerated from collections instead.
   LowMemorySnapshot m_snapshot_ {};
 
   /// Columns added after initial load_flat() (typically just alpha).
@@ -1285,27 +1856,106 @@ private:
   /// Net active Benders cuts (additions minus deletions).
   std::vector<SparseRow> m_active_cuts_ {};
 
+  /// Label-only metadata for every column and row populated at
+  /// flatten time (via `load_flat`) and extended at `add_col` /
+  /// `add_row` time.  Used by `generate_labels_from_maps` to
+  /// synthesise real gtopt labels on demand.
+  ///
+  /// Under `LowMemoryMode::compress`, `release_backend` compresses
+  /// these vectors into `m_col_labels_meta_compressed_` /
+  /// `m_row_labels_meta_compressed_` and clears the live copies.
+  /// Decompression is lazy-lazy: it fires only when a code path
+  /// actually reads the metadata (e.g. `generate_labels_from_maps`,
+  /// `add_col` / `add_row` extensions).  The decompressed strings
+  /// live in `m_label_string_pool_` — the pool is never cleared
+  /// while `m_col_labels_meta_` references it.  `mutable` because
+  /// the lazy decompression flow is triggered from const methods.
+  mutable std::vector<SparseColLabel> m_col_labels_meta_ {};
+  mutable std::vector<SparseRowLabel> m_row_labels_meta_ {};
+
+  /// Compressed backups of the metadata vectors — populated on
+  /// `release_backend` under `compress` mode, drained on the first
+  /// label-metadata read after reload.
+  mutable CompressedBuffer m_col_labels_meta_compressed_ {};
+  mutable CompressedBuffer m_row_labels_meta_compressed_ {};
+  mutable std::size_t m_col_labels_meta_count_ {0};
+  mutable std::size_t m_row_labels_meta_count_ {0};
+
+  /// Stable string storage backing decompressed `string_view`s in
+  /// `m_col_labels_meta_` / `m_row_labels_meta_`.  Reserved ahead of
+  /// decompression so `push_back` doesn't invalidate the views.
+  mutable std::vector<std::string> m_label_string_pool_ {};
+
+  /// Eager duplicate-detection maps, keyed on the (class_name,
+  /// variable_name/constraint_name, variable_uid, context) metadata.
+  /// Populated from `m_col_labels_meta_` / `m_row_labels_meta_` at
+  /// `load_flat` time and on every `add_col` / `track_row_label_meta`
+  /// call.  Cleared on `compress_labels_meta_if_needed` alongside the
+  /// vectors and rebuilt on `ensure_labels_meta_decompressed`.
+  ///
+  /// These maps are the single source of truth for col/row uniqueness
+  /// after the switch to metadata-driven label formatting — the
+  /// name-based check in `LinearProblem::flatten` only runs when
+  /// `col_with_name_map` / `row_with_name_map` is enabled (i.e.
+  /// `--lp-debug`), which is off in production runs.  Keeping the
+  /// check at `LinearInterface` level also catches dynamic
+  /// post-flatten insertions (α column, Benders cut rows) that
+  /// `LinearProblem` never sees.
+  ///
+  /// `mutable` because `rebuild_meta_indexes` fires from the const
+  /// `ensure_labels_meta_decompressed` path.
+  mutable std::unordered_map<SparseColLabel, ColIndex, SparseColLabelHash>
+      m_col_meta_index_ {};
+  mutable std::unordered_map<SparseRowLabel, RowIndex, SparseRowLabelHash>
+      m_row_meta_index_ {};
+
   /// Whether the backend is currently released.
   bool m_backend_released_ {false};
 
-  // ── Cached post-solve state (valid when backend is released) ────────
+  /// Re-entry guard for rebuild.  `ensure_backend()` sets this true
+  /// before calling `m_rebuild_owner_->rebuild_in_place()`, which
+  /// internally calls `load_flat` / `add_col` / `add_rows` that recurse
+  /// through `ensure_backend`.  With the guard set those recursive calls
+  /// early-return, avoiding an infinite loop.
+  bool m_rebuilding_ {false};
 
-  /// Cached primal solution from last successful solve.
-  std::vector<double> m_cached_col_sol_ {};
-  /// Cached dual values from last successful solve.
-  std::vector<double> m_cached_row_dual_ {};
-  /// Cached reduced costs from last successful solve.
-  std::vector<double> m_cached_col_cost_ {};
+  /// Back-pointer to the owning `SystemLP` under `LowMemoryMode::rebuild`.
+  /// When non-null, `ensure_backend()` calls
+  /// `m_rebuild_owner_->rebuild_in_place()` instead of the snapshot
+  /// reconstruct path.  Set by `SystemLP::install_rebuild_callback` and
+  /// re-set after every SystemLP move.  Never owns the pointee.
+  SystemLP* m_rebuild_owner_ {};
+
+  // ── Cached post-solve scalars (valid when backend is released) ─────
+
   /// Cached objective value from last successful solve.
   double m_cached_obj_value_ {};
   /// Cached kappa (condition number) from last successful solve.
-  double m_cached_kappa_ {-1.0};
+  /// `std::nullopt` means "backend reported unavailable" — never silently
+  /// reinterpret as 1.0.
+  std::optional<double> m_cached_kappa_ {};
   /// Cached number of rows at time of release.
   size_t m_cached_numrows_ {};
   /// Cached number of columns at time of release.
   size_t m_cached_numcols_ {};
   /// Whether the cached state represents an optimal solution.
   bool m_cached_is_optimal_ {false};
+
+  /// Cached post-solve primal/dual vectors (valid when `m_backend_released_`
+  /// is true AND `m_cached_is_optimal_` is true).  Populated by
+  /// `release_backend()` so downstream readers — `OutputContext`, Benders
+  /// cut assembly, SDDP state propagation — can continue to access the
+  /// solution after the solver backend has been dropped, without paying
+  /// for a re-solve.  Empty when the backend was never released, never
+  /// solved to optimum, or `m_low_memory_mode_ == LowMemoryMode::off`.
+  std::vector<double> m_cached_col_sol_ {};
+  std::vector<double> m_cached_col_cost_ {};
+  std::vector<double> m_cached_row_dual_ {};
+
+  /// Cumulative solver-activity counters (see `solver_stats.hpp`).
+  /// Written only by the thread that owns this LP; aggregated across
+  /// interfaces on the main thread at end of run.
+  SolverStats m_solver_stats_ {};
 };
 
 /// RAII guard that decompresses a LinearInterface's flat LP on construction
@@ -1317,8 +1967,8 @@ private:
 ///   {
 ///     DecompressionGuard guard(li);
 ///     // All clones created here avoid per-clone decompress overhead
-///     auto c1 = li.clone(col_sol, row_dual);
-///     auto c2 = li.clone(col_sol, row_dual);
+///     auto c1 = li.clone();
+///     auto c2 = li.clone();
 ///   }  // flat LP re-compressed here
 /// @endcode
 class DecompressionGuard

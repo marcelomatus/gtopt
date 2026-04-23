@@ -9,10 +9,12 @@
 #pragma once
 
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
 #include <gtopt/solver_backend.hpp>
+#include <gtopt/solver_options.hpp>
 
 // Forward-declare opaque CPLEX types
 struct cpxenv;
@@ -20,6 +22,51 @@ struct cpxlp;
 
 namespace gtopt
 {
+
+/// Cached state used to (re)prepare a CPLEX env + lp pair.  The backend
+/// updates this whenever the caller applies options, log settings, or a
+/// problem name; CplexEnvLp's constructor consumes it as the single
+/// point where an env and its lp are opened and configured.
+struct CplexPrep
+{
+  std::optional<SolverOptions> options {};
+  std::string log_filename {};
+  int log_level {0};
+  std::string prob_name {};
+};
+
+/// RAII owner of one CPLEX environment + one CPLEX problem.  Each
+/// CplexSolverBackend holds exactly one; when a fresh env+lp is needed
+/// (load_problem, clone) the member is move-assigned from a new
+/// CplexEnvLp, which destroys the previous pair and runs all env/lp
+/// preparation in its constructor.
+class CplexEnvLp
+{
+public:
+  /// Silent, option-free env with an empty "gtopt" problem.
+  CplexEnvLp();
+
+  /// Silent env with full preparation applied (options, log file, name).
+  explicit CplexEnvLp(const CplexPrep& prep);
+
+  ~CplexEnvLp();
+
+  CplexEnvLp(const CplexEnvLp&) = delete;
+  CplexEnvLp& operator=(const CplexEnvLp&) = delete;
+  CplexEnvLp(CplexEnvLp&& other) noexcept;
+  CplexEnvLp& operator=(CplexEnvLp&& other) noexcept;
+
+  [[nodiscard]] cpxenv* env() const noexcept { return m_env_; }
+  [[nodiscard]] cpxlp* lp() const noexcept { return m_lp_; }
+
+  /// Release the held lp so a clone replacement can be installed.
+  /// Intended for CplexSolverBackend::clone() only.
+  void reset_lp(cpxlp* new_lp) noexcept;
+
+private:
+  cpxenv* m_env_ {};
+  cpxlp* m_lp_ {};
+};
 
 /**
  * @brief Solver backend using the CPLEX C Callable Library directly.
@@ -38,6 +85,7 @@ public:
   [[nodiscard]] std::string_view solver_name() const noexcept override;
   [[nodiscard]] std::string solver_version() const override;
   [[nodiscard]] double infinity() const noexcept override;
+  [[nodiscard]] bool supports_mip() const noexcept override;
 
   // ---- problem name ----
   void set_prob_name(const std::string& name) override;
@@ -126,7 +174,7 @@ public:
   [[nodiscard]] int get_log_level() const override;
 
   // ---- diagnostics ----
-  [[nodiscard]] double get_kappa() const override;
+  [[nodiscard]] std::optional<double> get_kappa() const override;
 
   // ---- logging ----
   void open_log(FILE* file, int level) override;
@@ -146,8 +194,11 @@ private:
   void cache_problem_data() const;
   void cache_solution() const;
 
-  cpxenv* m_env_ {};
-  cpxlp* m_lp_ {};
+  /// Re-open env+lp from scratch with all cached preparation applied.
+  void reset_env_lp();
+
+  CplexEnvLp m_env_lp_;
+  CplexPrep m_prep_;
 
   mutable bool m_prob_cached_ {false};
   mutable std::vector<double> m_collb_;

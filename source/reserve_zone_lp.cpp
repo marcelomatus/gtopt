@@ -48,8 +48,8 @@ std::expected<void, Error> add_requirement(const std::string_view cname,
         ? lp.add_col({
               .lowb = 0.0,
               .uppb = block_rreq.value(),
-              .cost =
-                  -sc.block_ecost(scenario, stage, block, stage_rcost.value()),
+              .cost = -CostHelper::block_ecost(
+                  scenario, stage, block, stage_rcost.value()),
               .class_name = cname,
               .variable_name = rname,
               .variable_uid = uid,
@@ -120,6 +120,7 @@ bool ReserveZoneLP::add_to_lp(const SystemContext& sc,
                               LinearProblem& lp)
 {
   static constexpr std::string_view cname = ClassName.full_name();
+  static constexpr auto ampl_name = ClassName.snake_case();
 
   if (!is_active(stage)) {
     return true;
@@ -145,6 +146,21 @@ bool ReserveZoneLP::add_to_lp(const SystemContext& sc,
                 res.error().message);
     return false;
   }
+
+  // Register PAMPL-visible requirement columns under the canonical
+  // `up` / `dn` spelling.
+  const auto st_key = std::tuple {scenario.uid(), stage.uid()};
+  if (const auto it = ur.requirement_cols.find(st_key);
+      it != ur.requirement_cols.end() && !it->second.empty())
+  {
+    sc.add_ampl_variable(ampl_name, uid(), UpName, scenario, stage, it->second);
+  }
+  if (const auto it = dr.requirement_cols.find(st_key);
+      it != dr.requirement_cols.end() && !it->second.empty())
+  {
+    sc.add_ampl_variable(ampl_name, uid(), DnName, scenario, stage, it->second);
+  }
+
   return true;
 }
 

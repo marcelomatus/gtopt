@@ -22,7 +22,7 @@
 #include <string_view>
 
 #include <doctest/doctest.h>
-#include <gtopt/json/json_planning.hpp>
+#include <gtopt/gtopt_json_io.hpp>
 #include <gtopt/planning_lp.hpp>
 #include <gtopt/planning_options_lp.hpp>
 #include <gtopt/system_lp.hpp>
@@ -48,7 +48,6 @@ auto make_theta_uc_json(double scale_theta_val) -> std::string
       R"({{
   "options": {{
     "annual_discount_rate": 0.0,
-    "lp_matrix_options": {{"names_level": 2}},
     "output_format": "csv",
     "output_compression": "uncompressed",
     "use_single_bus": false,
@@ -86,7 +85,7 @@ auto make_theta_uc_json(double scale_theta_val) -> std::string
     "user_constraint_array": [
       {{
         "uid": 1, "name": "uc_theta_limit",
-        "expression": "bus(\"b2\").theta <= 1.0"
+        "expression": "bus('b2').theta <= 1.0"
       }}
     ]
   }}
@@ -105,7 +104,7 @@ TEST_CASE(  // NOLINT
   for (const auto st : {1.0, 0.01, 0.0001}) {
     auto json = make_theta_uc_json(st);
     Planning base;
-    base.merge(daw::json::from_json<Planning>(json));
+    base.merge(parse_planning_json(json));
 
     PlanningLP planning_lp(std::move(base));
     auto result = planning_lp.resolve();
@@ -131,7 +130,6 @@ TEST_CASE(  // NOLINT
       R"({{
   "options": {{
     "annual_discount_rate": 0.0,
-    "lp_matrix_options": {{"names_level": 2}},
     "output_format": "csv",
     "output_compression": "uncompressed",
     "use_single_bus": false,
@@ -166,18 +164,18 @@ TEST_CASE(  // NOLINT
     "user_constraint_array": [
       {{
         "uid": 1, "name": "uc_theta_b2_tight",
-        "expression": "bus(\"b2\").theta <= 0.001"
+        "expression": "bus('b2').theta <= 0.001"
       }},
       {{
         "uid": 2, "name": "uc_theta_b2_lower",
-        "expression": "bus(\"b2\").theta >= -0.001"
+        "expression": "bus('b2').theta >= -0.001"
       }}
     ]
   }}
 }})");
 
   Planning base;
-  base.merge(daw::json::from_json<Planning>(json_tight));
+  base.merge(parse_planning_json(json_tight));
   PlanningLP planning_lp(std::move(base));
   auto result = planning_lp.resolve();
 
@@ -200,7 +198,6 @@ auto make_reservoir_uc_json(double energy_scale_val) -> std::string
       R"({{
   "options": {{
     "annual_discount_rate": 0.0,
-    "lp_matrix_options": {{"names_level": 2}},
     "output_format": "csv",
     "output_compression": "uncompressed",
     "use_single_bus": true,
@@ -245,11 +242,11 @@ auto make_reservoir_uc_json(double energy_scale_val) -> std::string
     "user_constraint_array": [
       {{
         "uid": 1, "name": "uc_rsv_vol_upper",
-        "expression": "reservoir(\"rsv1\").volume <= 800"
+        "expression": "reservoir('rsv1').energy <= 800"
       }},
       {{
         "uid": 2, "name": "uc_rsv_vol_lower",
-        "expression": "reservoir(\"rsv1\").volume >= 100"
+        "expression": "reservoir('rsv1').energy >= 100"
       }}
     ]
   }}
@@ -270,7 +267,7 @@ TEST_CASE(  // NOLINT
   for (const auto es : {1.0, 1000.0}) {
     auto json = make_reservoir_uc_json(es);
     Planning base;
-    base.merge(daw::json::from_json<Planning>(json));
+    base.merge(parse_planning_json(json));
 
     PlanningLP planning_lp(std::move(base));
     auto result = planning_lp.resolve();
@@ -308,7 +305,6 @@ auto make_scale_obj_uc_json(double scale_obj) -> std::string
       R"({{
   "options": {{
     "annual_discount_rate": 0.0,
-    "lp_matrix_options": {{"names_level": 1}},
     "output_format": "csv",
     "output_compression": "uncompressed",
     "use_single_bus": true,
@@ -332,7 +328,7 @@ auto make_scale_obj_uc_json(double scale_obj) -> std::string
     "user_constraint_array": [
       {{
         "uid": 1, "name": "uc_gen_cap",
-        "expression": "generator(\"g1\").generation <= 80"
+        "expression": "generator('g1').generation <= 80"
       }}
     ]
   }}
@@ -352,7 +348,7 @@ TEST_CASE(  // NOLINT
   for (const auto so : {1.0, 1'000.0, 1'000'000.0}) {
     auto json = make_scale_obj_uc_json(so);
     Planning base;
-    base.merge(daw::json::from_json<Planning>(json));
+    base.merge(parse_planning_json(json));
 
     PlanningLP planning_lp(std::move(base));
     auto result = planning_lp.resolve();
@@ -378,7 +374,6 @@ auto make_battery_uc_json(double energy_scale_val) -> std::string
       R"({{
   "options": {{
     "annual_discount_rate": 0.0,
-    "lp_matrix_options": {{"names_level": 2}},
     "output_format": "csv",
     "output_compression": "uncompressed",
     "use_single_bus": true,
@@ -414,15 +409,15 @@ auto make_battery_uc_json(double energy_scale_val) -> std::string
     "user_constraint_array": [
       {{
         "uid": 1, "name": "uc_bat_energy_upper",
-        "expression": "battery(\"bat1\").energy <= 80"
+        "expression": "battery('bat1').energy <= 80"
       }},
       {{
         "uid": 2, "name": "uc_bat_charge_limit",
-        "expression": "battery(\"bat1\").charge <= 30"
+        "expression": "battery('bat1').charge <= 30"
       }},
       {{
         "uid": 3, "name": "uc_bat_discharge_limit",
-        "expression": "battery(\"bat1\").discharge <= 30"
+        "expression": "battery('bat1').discharge <= 30"
       }}
     ]
   }}
@@ -441,7 +436,7 @@ TEST_CASE(  // NOLINT
   for (const auto es : {1.0, 1000.0}) {
     auto json = make_battery_uc_json(es);
     Planning base;
-    base.merge(daw::json::from_json<Planning>(json));
+    base.merge(parse_planning_json(json));
 
     PlanningLP planning_lp(std::move(base));
     auto result = planning_lp.resolve();
@@ -476,7 +471,6 @@ auto make_mixed_scale_uc_json(double energy_scale_val) -> std::string
       R"({{
   "options": {{
     "annual_discount_rate": 0.0,
-    "lp_matrix_options": {{"names_level": 2}},
     "output_format": "csv",
     "output_compression": "uncompressed",
     "use_single_bus": true,
@@ -525,7 +519,7 @@ auto make_mixed_scale_uc_json(double energy_scale_val) -> std::string
       }},
       {{
         "uid": 2, "name": "uc_rsv_vol",
-        "expression": "reservoir(\"rsv1\").volume <= 600"
+        "expression": "reservoir('rsv1').energy <= 600"
       }}
     ]
   }}
@@ -545,7 +539,7 @@ TEST_CASE(  // NOLINT
   for (const auto es : {1.0, 1000.0}) {
     auto json = make_mixed_scale_uc_json(es);
     Planning base;
-    base.merge(daw::json::from_json<Planning>(json));
+    base.merge(parse_planning_json(json));
 
     PlanningLP planning_lp(std::move(base));
     auto result = planning_lp.resolve();
@@ -580,7 +574,6 @@ auto make_ctype_scale_json(double scale_obj,
       R"({{
   "options": {{
     "annual_discount_rate": 0.1,
-    "lp_matrix_options": {{"names_level": 1}},
     "output_format": "csv",
     "output_compression": "uncompressed",
     "use_single_bus": true,
@@ -604,7 +597,7 @@ auto make_ctype_scale_json(double scale_obj,
     "user_constraint_array": [
       {{
         "uid": 1, "name": "uc_gen_cap",
-        "expression": "generator(\"g1\").generation <= 80",
+        "expression": "generator('g1').generation <= 80",
         "constraint_type": "{}"
       }}
     ]
@@ -623,7 +616,7 @@ TEST_CASE(  // NOLINT
     for (const auto so : {1.0, 1'000.0, 100'000.0}) {
       auto json = make_ctype_scale_json(so, ctype);
       Planning base;
-      base.merge(daw::json::from_json<Planning>(json));
+      base.merge(parse_planning_json(json));
 
       PlanningLP planning_lp(std::move(base));
       auto result = planning_lp.resolve();
@@ -654,7 +647,6 @@ auto make_line_uc_json(double scale_theta_val,
       R"({{
   "options": {{
     "annual_discount_rate": 0.0,
-    "lp_matrix_options": {{"names_level": 2}},
     "output_format": "csv",
     "output_compression": "uncompressed",
     "use_single_bus": false,
@@ -688,7 +680,7 @@ auto make_line_uc_json(double scale_theta_val,
     "user_constraint_array": [
       {{
         "uid": 1, "name": "uc_line_flow_limit",
-        "expression": "line(\"l1_2\").flow <= 100"
+        "expression": "line('l1_2').flow <= 100"
       }}
     ]
   }}
@@ -714,7 +706,7 @@ TEST_CASE(  // NOLINT
     for (const auto so : {1.0, 1'000.0}) {
       auto json = make_line_uc_json(st, so);
       Planning base;
-      base.merge(daw::json::from_json<Planning>(json));
+      base.merge(parse_planning_json(json));
 
       PlanningLP planning_lp(std::move(base));
       auto result = planning_lp.resolve();
@@ -738,7 +730,6 @@ TEST_CASE(  // NOLINT
 static constexpr std::string_view multi_scale_uc_json = R"json({
   "options": {
     "annual_discount_rate": 0.0,
-    "lp_matrix_options": {"names_level": 2},
     "output_format": "csv",
     "output_compression": "uncompressed",
     "use_single_bus": false,
@@ -785,23 +776,23 @@ static constexpr std::string_view multi_scale_uc_json = R"json({
     "user_constraint_array": [
       {
         "uid": 1, "name": "uc_gen_total",
-        "expression": "generator(\"g1\").generation + generator(\"g2\").generation <= 250"
+        "expression": "generator('g1').generation + generator('g2').generation <= 250"
       },
       {
         "uid": 2, "name": "uc_line_flow",
-        "expression": "line(\"l1_2\").flow <= 120"
+        "expression": "line('l1_2').flow <= 120"
       },
       {
         "uid": 3, "name": "uc_bat_energy",
-        "expression": "battery(\"bat1\").energy <= 80"
+        "expression": "battery('bat1').energy <= 80"
       },
       {
         "uid": 4, "name": "uc_theta_range",
-        "expression": "bus(\"b2\").theta <= 0.5"
+        "expression": "bus('b2').theta <= 0.5"
       },
       {
         "uid": 5, "name": "uc_theta_lower",
-        "expression": "bus(\"b2\").theta >= -0.5"
+        "expression": "bus('b2').theta >= -0.5"
       }
     ]
   }
@@ -814,7 +805,7 @@ TEST_CASE(  // NOLINT
     "(theta + energy + objective)")
 {
   Planning base;
-  base.merge(daw::json::from_json<Planning>(multi_scale_uc_json));
+  base.merge(parse_planning_json(multi_scale_uc_json));
 
   PlanningLP planning_lp(std::move(base));
   auto result = planning_lp.resolve();

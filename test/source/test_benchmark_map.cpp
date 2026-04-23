@@ -34,7 +34,7 @@ namespace gtopt
 {
 
 template<typename key_type, typename value_type, typename Size>
-void map_reserve(  // NOLINT
+constexpr void map_reserve(  // NOLINT
     boost::container::flat_map<key_type, value_type>& map,
     Size n)
 {

@@ -14,6 +14,7 @@
 #include <expected>
 #include <format>
 #include <optional>
+#include <ranges>
 #include <string>
 #include <utility>
 #include <vector>
@@ -25,6 +26,7 @@
 #include <gtopt/main_options.hpp>
 #include <gtopt/output_context.hpp>
 #include <gtopt/planning_lp.hpp>
+#include <gtopt/solver_stats.hpp>
 #include <gtopt/utils.hpp>
 #include <spdlog/spdlog.h>
 #include <spdlog/stopwatch.h>
@@ -35,6 +37,27 @@ namespace gtopt
 namespace
 {
 
+/// Compute the effective equilibration method when none is set by the user.
+///
+/// Kirchhoff constraints on multi-bus networks produce heterogeneous row and
+/// column scales (reactances span multiple orders of magnitude, loss segments
+/// introduce tiny coefficients).  Ruiz equilibration handles this much better
+/// than single-pass row_max.  For single-bus or non-Kirchhoff models the
+/// simpler row_max default is retained.
+[[nodiscard]] constexpr auto effective_equilibration_method(
+    const Planning& planning) noexcept -> LpEquilibrationMethod
+{
+  const auto& lp_opts = planning.options.lp_matrix_options;
+  if (lp_opts.equilibration_method.has_value()) {
+    return *lp_opts.equilibration_method;
+  }
+  const auto& mo = planning.options.model_options;
+  const bool use_kirchhoff = mo.use_kirchhoff.value_or(true);
+  const bool use_single_bus = mo.use_single_bus.value_or(false);
+  return (use_kirchhoff && !use_single_bus) ? LpEquilibrationMethod::ruiz
+                                            : LpEquilibrationMethod::row_max;
+}
+
 /// Log pre-solve system statistics.
 void log_pre_solve_stats(
     [[maybe_unused]] const std::vector<std::string>& planning_files,
@@ -44,93 +67,202 @@ void log_pre_solve_stats(
   const auto& sim = planning.simulation;
   const auto& plan_opts = planning.options;
 
+  // Single normalized element list:
+  //  - snake_case keys, plural, fixed 18-char column → all colons align
+  //  - zero-count rows are suppressed when the element type is optional
+  //    (rights, user constraints/params, pumps); core element types are
+  //    always shown so the absence (e.g. lines=0) is still visible.
   spdlog::info("=== System statistics ===");
-  spdlog::info(std::format("  System name     : {}", sys.name));
-  spdlog::info(std::format("  System version  : {}", sys.version));
-  spdlog::info("=== System elements  ===");
-  spdlog::info(std::format("  Buses           : {}", sys.bus_array.size()));
-  spdlog::info(
-      std::format("  Generators      : {}", sys.generator_array.size()));
-  spdlog::info(std::format("  Generator profs : {}",
-                           sys.generator_profile_array.size()));
-  spdlog::info(std::format("  Demands         : {}", sys.demand_array.size()));
-  spdlog::info(
-      std::format("  Demand profs    : {}", sys.demand_profile_array.size()));
-  spdlog::info(std::format("  Lines           : {}", sys.line_array.size()));
-  spdlog::info(std::format("  Batteries       : {}", sys.battery_array.size()));
-  spdlog::info(
-      std::format("  Converters      : {}", sys.converter_array.size()));
-  spdlog::info(
-      std::format("  Reserve zones   : {}", sys.reserve_zone_array.size()));
-  spdlog::info(std::format("  Reserve provisions   : {}",
-                           sys.reserve_provision_array.size()));
-  spdlog::info(
-      std::format("  Junctions       : {}", sys.junction_array.size()));
-  spdlog::info(
-      std::format("  Waterways       : {}", sys.waterway_array.size()));
-  spdlog::info(std::format("  Flows           : {}", sys.flow_array.size()));
-  spdlog::info(
-      std::format("  Reservoirs      : {}", sys.reservoir_array.size()));
-  spdlog::info(std::format("  ReservoirSeepages     : {}",
-                           sys.reservoir_seepage_array.size()));
-  spdlog::info(std::format("  Turbines        : {}", sys.turbine_array.size()));
-  if (!sys.flow_right_array.empty()) {
-    spdlog::info(
-        std::format("  Flow rights     : {}", sys.flow_right_array.size()));
-  }
-  if (!sys.volume_right_array.empty()) {
-    spdlog::info(
-        std::format("  Volume rights   : {}", sys.volume_right_array.size()));
-  }
-  if (!sys.user_constraint_array.empty()) {
-    spdlog::info(std::format("  User constraints: {}",
-                             sys.user_constraint_array.size()));
-  }
-  if (!sys.user_param_array.empty()) {
-    spdlog::info(
-        std::format("  User params     : {}", sys.user_param_array.size()));
-  }
-  spdlog::info("=== Simulation statistics ===");
-  spdlog::info(std::format("  Blocks          : {}", sim.block_array.size()));
-  spdlog::info(std::format("  Stages          : {}", sim.stage_array.size()));
-  spdlog::info(
-      std::format("  Scenarios       : {}", sim.scenario_array.size()));
+  spdlog::info("  system             : {}", sys.name);
+  spdlog::info("  version            : {}", sys.version);
+  spdlog::info("=== System elements ===");
+  const auto log_count = [](std::string_view label, std::size_t n)
+  { spdlog::info("  {:<18} : {}", label, n); };
+  const auto log_count_if = [&](std::string_view label, std::size_t n)
+  {
+    if (n != 0) {
+      log_count(label, n);
+    }
+  };
+  log_count("buses", sys.bus_array.size());
+  log_count("generators", sys.generator_array.size());
+  log_count_if("generator_profiles", sys.generator_profile_array.size());
+  log_count("demands", sys.demand_array.size());
+  log_count_if("demand_profiles", sys.demand_profile_array.size());
+  log_count("lines", sys.line_array.size());
+  log_count_if("batteries", sys.battery_array.size());
+  log_count_if("converters", sys.converter_array.size());
+  log_count_if("reserve_zones", sys.reserve_zone_array.size());
+  log_count_if("reserve_provisions", sys.reserve_provision_array.size());
+  log_count_if("junctions", sys.junction_array.size());
+  log_count_if("waterways", sys.waterway_array.size());
+  log_count_if("flows", sys.flow_array.size());
+  log_count_if("reservoirs", sys.reservoir_array.size());
+  log_count_if("reservoir_seepages", sys.reservoir_seepage_array.size());
+  log_count_if("turbines", sys.turbine_array.size());
+  log_count_if("pumps", sys.pump_array.size());
+  log_count_if("flow_rights", sys.flow_right_array.size());
+  log_count_if("volume_rights", sys.volume_right_array.size());
+  log_count_if("user_constraints", sys.user_constraint_array.size());
+  log_count_if("user_params", sys.user_param_array.size());
+  spdlog::info("=== Simulation ===");
+  log_count("blocks", sim.block_array.size());
+  log_count("stages", sim.stage_array.size());
+  log_count("scenarios", sim.scenario_array.size());
   spdlog::info("=== Key options ===");
   const auto& mo = plan_opts.model_options;
-  spdlog::info(
-      std::format("  use_kirchhoff   : {}",
-                  mo.use_kirchhoff.value_or(false) ? "true" : "false"));
-  spdlog::info(
-      std::format("  use_single_bus  : {}",
-                  mo.use_single_bus.value_or(false) ? "true" : "false"));
-  spdlog::info(std::format("  scale_objective : {}",
-                           mo.scale_objective.value_or(1'000.0)));
-  spdlog::info(std::format("  scale_theta     : {}",
-                           mo.scale_theta.has_value()
-                               ? std::format("{:.6g}", *mo.scale_theta)
-                               : "auto (median reactance)"));
-  spdlog::info(std::format(
-      "  equilibration   : {}",
-      enum_name(plan_opts.lp_matrix_options.equilibration_method.value_or(
-          LpEquilibrationMethod::row_max))));
-  spdlog::info(
-      std::format("  demand_fail_cost: {}", mo.demand_fail_cost.value_or(0.0)));
-  spdlog::info(std::format("  input_directory : {}",
-                           plan_opts.input_directory.value_or("(default)")));
-  spdlog::info(std::format("  output_directory: {}",
-                           plan_opts.output_directory.value_or("(default)")));
-  spdlog::info(std::format("  output_format   : {}",
-                           plan_opts.output_format
-                               ? enum_name(*plan_opts.output_format)
-                               : "(default)"));
+  const auto log_kv = [](std::string_view label, std::string_view value)
+  { spdlog::info("  {:<18} : {}", label, value); };
+  log_kv("use_kirchhoff", mo.use_kirchhoff.value_or(false) ? "true" : "false");
+  log_kv("use_single_bus",
+         mo.use_single_bus.value_or(false) ? "true" : "false");
+  log_kv("scale_objective",
+         std::format("{}", mo.scale_objective.value_or(1'000.0)));
+  log_kv("scale_theta",
+         mo.scale_theta.has_value() ? std::format("{:.6g}", *mo.scale_theta)
+                                    : "auto (median reactance)");
+  log_kv(
+      "equilibration",
+      std::format("{}{}",
+                  enum_name(effective_equilibration_method(planning)),
+                  plan_opts.lp_matrix_options.equilibration_method.has_value()
+                      ? ""
+                      : " (default)"));
+  log_kv("demand_fail_cost",
+         std::format("{}", mo.demand_fail_cost.value_or(0.0)));
+  log_kv("input_directory", plan_opts.input_directory.value_or("(default)"));
+  log_kv("output_directory", plan_opts.output_directory.value_or("(default)"));
+  log_kv("output_format",
+         plan_opts.output_format
+             ? std::string {enum_name(*plan_opts.output_format)}
+             : std::string {"(default)"});
+}
+
+/// Aggregate solver activity counters across every (scene, phase) LP.
+///
+/// Walks the whole grid so the summary covers monolithic runs
+/// (one solve per cell) and SDDP/cascade runs (many solves per cell
+/// plus elastic-clone retries folded back via `merge_solver_stats`).
+[[nodiscard]] SolverStats aggregate_solver_stats(const PlanningLP& planning_lp)
+{
+  SolverStats agg;
+  for (const auto& phase_systems : planning_lp.systems()) {
+    for (const auto& sys : phase_systems) {
+      agg += sys.solver_stats();
+    }
+  }
+  return agg;
+}
+
+/// Emit a per-cell breakdown at DEBUG level.  Kept behind spdlog's
+/// level gate so normal info-level runs stay concise — the aggregate
+/// summary at INFO level is the expected end-user view.
+void log_per_cell_solver_stats(const PlanningLP& planning_lp)
+{
+  if (!spdlog::should_log(spdlog::level::debug)) {
+    return;
+  }
+  SPDLOG_DEBUG("  per-cell solver stats:");
+  for (const auto& phase_systems : planning_lp.systems()) {
+    for (const auto& sys : phase_systems) {
+      [[maybe_unused]] const auto& s = sys.solver_stats();
+      SPDLOG_DEBUG(
+          "    scene={} phase={}: load_problem={} solves={} (init={}, "
+          "resolve={}, fallback={}, crossover={}) infeas={} time={:.3f}s "
+          "kappa={:.3g}",
+          sys.scene().uid(),
+          sys.phase().uid(),
+          s.load_problem_calls,
+          s.total_solve_calls(),
+          s.initial_solve_calls,
+          s.resolve_calls,
+          s.fallback_solves,
+          s.crossover_solves,
+          s.infeasible_count,
+          s.total_solve_time_s,
+          s.max_kappa);
+    }
+  }
+}
+
+/// Post-validation: flag a mismatch between the configured low_memory
+/// mode and the actual load_problem / solve counts captured by
+/// SolverStats.
+///
+/// Heuristic (per-cell reasoning, summed across scene × phase):
+///
+///   * `low_memory == off`      → exactly one `load_problem` call per
+///     cell; `total_backend_solves > num_cells` (each solve reuses the
+///     resident backend).  If `load_problem_calls > num_cells`, some
+///     backend was reconstructed unexpectedly.
+///
+///   * `low_memory != off`      → the backend is released between
+///     solves, so every backend solve requires a matching
+///     reconstruction.  Expect
+///     `load_problem_calls ≈ total_backend_solves ≥ num_cells`.  If
+///     `load_problem_calls ≤ num_cells`, the low-memory option was
+///     configured but never exercised (no release / rebuild happened).
+void validate_low_memory_usage(const PlanningLP& planning_lp,
+                               const SolverStats& agg)
+{
+  const auto mode = planning_lp.options().sddp_low_memory();
+  std::size_t num_cells = 0;
+  for (const auto& phase_systems : planning_lp.systems()) {
+    num_cells += phase_systems.size();
+  }
+  if (num_cells == 0) {
+    return;
+  }
+  const auto load_calls = agg.load_problem_calls;
+  const auto backend_solves = agg.total_backend_solves();
+
+  if (mode == LowMemoryMode::off) {
+    spdlog::info(
+        "  low_memory      : off ({} load_problem for {} cells, {} solves)",
+        load_calls,
+        num_cells,
+        backend_solves);
+    if (load_calls > num_cells) {
+      spdlog::warn(
+          "low_memory=off but load_problem={} exceeds num_cells={}: "
+          "backend was reconstructed {} extra time(s) — unexpected rebuild",
+          load_calls,
+          num_cells,
+          load_calls - num_cells);
+    }
+  } else {
+    spdlog::info(
+        "  low_memory      : {} ({} load_problem for {} cells, {} solves)",
+        enum_name(mode),
+        load_calls,
+        num_cells,
+        backend_solves);
+    if (load_calls <= num_cells) {
+      spdlog::warn(
+          "low_memory={} was requested but not effective: "
+          "load_problem={} ≤ num_cells={} — the backend was never "
+          "reconstructed between solves (expected load_problem ≈ "
+          "backend_solves={})",
+          enum_name(mode),
+          load_calls,
+          num_cells,
+          backend_solves);
+    } else if (backend_solves > load_calls + num_cells) {
+      spdlog::warn(
+          "low_memory={} ratio unexpected: {} load_problem for {} "
+          "backend solves — some solves reused a live backend",
+          enum_name(mode),
+          load_calls,
+          backend_solves);
+    }
+  }
 }
 
 /// Log post-solve solution statistics.
 void log_post_solve_stats(const PlanningLP& planning_lp, bool optimal)
 {
   spdlog::info("=== Solution statistics ===");
-  spdlog::info(std::format("  Status          : {}",
-                           optimal ? "optimal" : "non-optimal"));
+  spdlog::info("  Status          : {}", optimal ? "optimal" : "non-optimal");
 
   if (optimal && !planning_lp.systems().empty()
       && !planning_lp.systems().front().empty())
@@ -139,12 +271,53 @@ void log_post_solve_stats(const PlanningLP& planning_lp, bool optimal)
         planning_lp.systems().front().front().linear_interface();
     const double obj_scaled = lp_if.get_obj_value();
     const double obj_unscaled = lp_if.get_obj_value_physical();
-    spdlog::info(std::format("  LP variables    : {}", lp_if.get_numcols()));
-    spdlog::info(std::format("  LP constraints  : {}", lp_if.get_numrows()));
-    spdlog::info(std::format("  Obj (scaled)    : {:.6g}", obj_scaled));
-    spdlog::info(std::format("  Obj (unscaled)  : {:.6g}", obj_unscaled));
-    spdlog::info(std::format("  Solver kappa    : {:.6g}", lp_if.get_kappa()));
+    spdlog::info("  LP variables    : {}", lp_if.get_numcols());
+    spdlog::info("  LP constraints  : {}", lp_if.get_numrows());
+    spdlog::info("  Obj (scaled)    : {:.6g}", obj_scaled);
+    spdlog::info("  Obj (unscaled)  : {:.6g}", obj_unscaled);
   }
+
+  // Aggregated solver-activity counters.  Printed for every run (not
+  // just optimal ones) so failures still expose where the backend spent
+  // its time — infeasible counts, load_problem rebuilds under
+  // low-memory mode, fallback retries, etc.
+  const auto agg = aggregate_solver_stats(planning_lp);
+  spdlog::info("  load_problem    : {}", agg.load_problem_calls);
+  spdlog::info("  solves          : {} (initial={}, resolve={})",
+               agg.total_solve_calls(),
+               agg.initial_solve_calls,
+               agg.resolve_calls);
+  if (agg.fallback_solves != 0 || agg.crossover_solves != 0) {
+    spdlog::info("  solve retries   : fallback={} crossover={}",
+                 agg.fallback_solves,
+                 agg.crossover_solves);
+  }
+  if (agg.infeasible_count != 0) {
+    spdlog::info("  infeasible      : {} (primal={}, dual={})",
+                 agg.infeasible_count,
+                 agg.primal_infeasible,
+                 agg.dual_infeasible);
+  }
+  if (agg.total_solve_calls() != 0) {
+    spdlog::info("  avg LP size     : {:.0f} vars, {:.0f} rows",
+                 agg.avg_ncols(),
+                 agg.avg_nrows());
+  }
+  if (const auto n = agg.total_solve_calls(); n != 0) {
+    spdlog::info("  solve wall time : {:.3f}s (avg {:.3f}s / {} solves)",
+                 agg.total_solve_time_s,
+                 agg.total_solve_time_s / static_cast<double>(n),
+                 n);
+  } else {
+    spdlog::info("  solve wall time : {:.3f}s", agg.total_solve_time_s);
+  }
+  if (agg.max_kappa > 0.0) {
+    spdlog::info("  Solver kappa    : {:.6g} (max across grid)", agg.max_kappa);
+  }
+
+  validate_low_memory_usage(planning_lp, agg);
+
+  log_per_cell_solver_stats(planning_lp);
 }
 
 /// Log LP coefficient statistics for all scene x phase LPs.
@@ -159,30 +332,32 @@ void log_lp_coefficient_stats(const PlanningLP& planning_lp)
       lp_entries.push_back({
           .scene_uid = system_lp.scene().uid(),
           .phase_uid = system_lp.phase().uid(),
-          .num_vars = static_cast<int>(li.get_numcols()),
-          .num_constraints = static_cast<int>(li.get_numrows()),
+          .num_vars = li.get_numcols(),
+          .num_constraints = li.get_numrows(),
           .stats_nnz = li.lp_stats_nnz(),
           .stats_zeroed = li.lp_stats_zeroed(),
           .stats_max_abs = li.lp_stats_max_abs(),
           .stats_min_abs = li.lp_stats_min_abs(),
-          .stats_max_col = static_cast<int>(li.lp_stats_max_col()),
-          .stats_min_col = static_cast<int>(li.lp_stats_min_col()),
-          .stats_max_col_name = std::string(li.lp_stats_max_col_name()),
-          .stats_min_col_name = std::string(li.lp_stats_min_col_name()),
+          .stats_max_col = li.lp_stats_max_col(),
+          .stats_min_col = li.lp_stats_min_col(),
+          .stats_max_col_name = li.lp_stats_max_col_name(),
+          .stats_min_col_name = li.lp_stats_min_col_name(),
           .row_type_stats =
               [&]
           {
-            std::vector<RowTypeStats> rts;
-            for (const auto& e : li.lp_row_type_stats()) {
-              rts.push_back({
-                  .type = e.type,
-                  .count = e.count,
-                  .nnz = e.nnz,
-                  .max_abs = e.max_abs,
-                  .min_abs = e.min_abs,
-              });
-            }
-            return rts;
+            auto view = li.lp_row_type_stats()
+                | std::views::transform(
+                            [](const auto& e) -> RowTypeStats
+                            {
+                              return {
+                                  .type = e.type,
+                                  .count = e.count,
+                                  .nnz = e.nnz,
+                                  .max_abs = e.max_abs,
+                                  .min_abs = e.min_abs,
+                              };
+                            });
+            return std::vector<RowTypeStats>(view.begin(), view.end());
           }(),
       });
     }
@@ -196,28 +371,13 @@ void log_lp_coefficient_stats(const PlanningLP& planning_lp)
                                                      const MainOptions& opts,
                                                      bool do_stats)
 {
-  // CLI --lp-names-level overrides --set; fall back to merged planning.
-  auto eff_names_level = opts.lp_names_level
-      ? opts.lp_names_level
-      : planning.options.lp_matrix_options.names_level;
-
-  // Multi-phase / SDDP / cascade methods need at least minimal column names
-  // for state variable transfer and cut I/O.
-  const auto method = planning.options.method.value_or(MethodType::monolithic);
-  const bool needs_state_names = method == MethodType::sddp
-      || method == MethodType::cascade
-      || planning.simulation.phase_array.size() > 1;
-  if (needs_state_names) {
-    if (!eff_names_level || *eff_names_level < LpNamesLevel::minimal) {
-      eff_names_level = LpNamesLevel::minimal;
-    }
-  }
+  // --lp-file and --lp-debug require all col+row names to be generated so
+  // the solver can write a readable .lp dump.
+  const bool enable_names =
+      opts.lp_file.has_value() || opts.lp_debug.value_or(false);
+  const auto eq_method = effective_equilibration_method(planning);
   auto flat_opts = make_lp_matrix_options(
-      eff_names_level,
-      opts.matrix_eps,
-      do_stats,
-      opts.solver,
-      planning.options.lp_matrix_options.equilibration_method);
+      enable_names, opts.matrix_eps, do_stats, opts.solver, eq_method);
 
   if (do_stats) {
     log_pre_solve_stats(opts.planning_files, planning);
@@ -252,7 +412,7 @@ void log_lp_coefficient_stats(const PlanningLP& planning_lp)
   const auto result = planning_lp.resolve(solver_opts);
   const auto solve_elapsed =
       std::chrono::duration<double>(solve_sw.elapsed()).count();
-  spdlog::info(std::format("  Optimization time {:.3f}s", solve_elapsed));
+  spdlog::info("  Optimization time {:.3f}s", solve_elapsed);
 
   if (result.has_value()) {
     return true;
@@ -275,17 +435,17 @@ void log_lp_coefficient_stats(const PlanningLP& planning_lp)
   const auto eps_str = [](std::optional<double> v) -> std::string
   { return v ? std::format("{}", *v) : "(default)"; };
   spdlog::error(
-      std::format("  Solver options used:"
-                  " algorithm={}, threads={}, presolve={},"
-                  " optimal_eps={}, feasible_eps={}, barrier_eps={},"
-                  " log_level={}",
-                  solver_opts.algorithm,
-                  solver_opts.threads,
-                  solver_opts.presolve,
-                  eps_str(solver_opts.optimal_eps),
-                  eps_str(solver_opts.feasible_eps),
-                  eps_str(solver_opts.barrier_eps),
-                  solver_opts.log_level));
+      "  Solver options used:"
+      " algorithm={}, threads={}, presolve={},"
+      " optimal_eps={}, feasible_eps={}, barrier_eps={},"
+      " log_level={}",
+      solver_opts.algorithm,
+      solver_opts.threads,
+      solver_opts.presolve,
+      eps_str(solver_opts.optimal_eps),
+      eps_str(solver_opts.feasible_eps),
+      eps_str(solver_opts.barrier_eps),
+      solver_opts.log_level);
   return false;
 }
 
@@ -315,8 +475,7 @@ void log_lp_coefficient_stats(const PlanningLP& planning_lp)
     }
   }
 
-  spdlog::info(
-      std::format("  Write output time {:.3f}s", out_sw.elapsed().count()));
+  spdlog::info("  Write output time {:.3f}s", out_sw.elapsed().count());
   return {};
 }
 
@@ -332,19 +491,51 @@ std::expected<int, std::string> build_solve_and_output(Planning&& planning,
         || planning.options.lp_matrix_options.compute_stats.value_or(false);
     const auto flat_opts = prepare_matrix_options(planning, opts, do_stats);
 
+    // When running cascade, pre-apply the effective level-0 model overrides
+    // to planning.options.model_options so the initial PlanningLP matches
+    // what level 0 will solve — avoids a wasted first build that cascade
+    // would throw away and rebuild.
+    if (planning.options.method.value_or(MethodType::monolithic)
+        == MethodType::cascade)
+    {
+      const auto& co = planning.options.cascade_options;
+      planning.options.model_options.merge(co.model_options);
+      if (!co.level_array.empty() && co.level_array.front().model_options) {
+        planning.options.model_options.merge(
+            *co.level_array.front().model_options);
+      }
+    }
+
     spdlog::info("=== Building LP model ===");
     const spdlog::stopwatch build_sw;
     PlanningLP planning_lp {std::move(planning),  // NOLINT
                             flat_opts};
-    spdlog::info(
-        std::format("  Build lp time {:.3f}s", build_sw.elapsed().count()));
 
-    // Log the active solver backend so monitoring tools can display it.
+    // Log the active solver backend (with version) once.  The
+    // "Building LP done in ..." line from planning_lp already covers
+    // the build wall time, so a redundant "Build lp time ..." line is
+    // intentionally not emitted here.
     if (!planning_lp.systems().empty()
         && !planning_lp.systems().front().empty())
     {
       const auto& li = planning_lp.systems().front().front().linear_interface();
-      spdlog::info(std::format("  Solver: {}", li.solver_id()));
+      spdlog::info("  Build lp time {:.3f}s — solver={}",
+                   build_sw.elapsed().count(),
+                   li.solver_id());
+    } else {
+      spdlog::info("  Build lp time {:.3f}s", build_sw.elapsed().count());
+    }
+
+    const bool want_lp_only =
+        opts.lp_only.value_or(false) || planning_lp.options().lp_only();
+
+    // lp_only is now SDDP-independent: under rebuild / compress modes
+    // the PlanningLP ctor no longer eagerly flattens every cell, so
+    // for the dump-and-exit path we explicitly drive a parallel
+    // "build all LPs" pass here before writing / exiting.  SDDPMethod
+    // is never instantiated under lp_only.
+    if (want_lp_only) {
+      planning_lp.build_all_lps_eagerly();
     }
 
     if (opts.lp_file) {
@@ -355,8 +546,7 @@ std::expected<int, std::string> build_solve_and_output(Planning&& planning,
       log_lp_coefficient_stats(planning_lp);
     }
 
-    // lp_only: skip solving if only LP assembly was requested
-    if (opts.lp_only.value_or(false) || planning_lp.options().lp_only()) {
+    if (want_lp_only) {
       spdlog::info("lp_only: all LP matrices built, skipping solve");
       return 0;
     }

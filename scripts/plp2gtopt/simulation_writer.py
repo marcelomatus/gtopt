@@ -54,9 +54,11 @@ class SimulationWriter:
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _normalize_solver_type(solver_type: str) -> str:
-        if solver_type in ("mono", "monolithic"):
+    def _normalize_method(method: str) -> str:
+        if method in ("mono", "monolithic"):
             return "monolithic"
+        if method == "cascade":
+            return "cascade"
         return "sddp"
 
     def _build_blocks_and_stages(self) -> None:
@@ -105,10 +107,8 @@ class SimulationWriter:
                 for uid, group in enumerate(phase_groups, start=1)
             ]
 
-        solver_type = self._normalize_solver_type(
-            self._options.get("solver_type", "sddp")
-        )
-        if solver_type == "monolithic":
+        method = self._normalize_method(self._options.get("method", "cascade"))
+        if method == "monolithic":
             return [{"uid": 1, "first_stage": 0, "count_stage": num_stages}]
         return [
             {"uid": i + 1, "first_stage": i, "count_stage": 1}
@@ -140,22 +140,17 @@ class SimulationWriter:
             probability_factors = [1.0 / num_scenarios] * num_scenarios
 
         scenarios: List[Dict[str, Any]] = []
-        for i, (hydro_1based, factor) in enumerate(
-            zip(hydrologies_1based, probability_factors, strict=True)
-        ):
+        for i, factor in enumerate(probability_factors):
             scenarios.append(
                 {
                     "uid": i + 1,
                     "probability_factor": factor,
-                    "hydrology": hydro_1based - 1,  # convert to 0-based index
                 }
             )
         self._simulation["scenario_array"] = scenarios
 
-        solver_type = self._normalize_solver_type(
-            self._options.get("solver_type", "sddp")
-        )
-        if solver_type == "monolithic":
+        method = self._normalize_method(self._options.get("method", "cascade"))
+        if method == "monolithic":
             self._simulation["scene_array"] = [
                 {"uid": 1, "first_scenario": 0, "count_scenario": num_scenarios}
             ]

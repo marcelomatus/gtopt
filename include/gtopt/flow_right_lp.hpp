@@ -35,7 +35,12 @@ using FlowRightLPSId = ObjectSingleId<class FlowRightLP>;
 class FlowRightLP : public ObjectLP<FlowRight>
 {
 public:
-  static constexpr LPClassName ClassName {"FlowRight", "frt"};
+  static constexpr LPClassName ClassName {"FlowRight"};
+  static constexpr std::string_view FlowName {"flow"};
+  static constexpr std::string_view FailName {"fail"};
+  static constexpr std::string_view QehName {"qeh"};
+  static constexpr std::string_view DemandName {"demand"};
+  static constexpr std::string_view QavgName {"qavg"};
 
   explicit FlowRightLP(const FlowRight& pflow, const InputContext& ic);
 

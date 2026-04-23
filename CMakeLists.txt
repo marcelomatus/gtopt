@@ -32,6 +32,7 @@ list(APPEND CMAKE_MODULE_PATH
      "${CMAKE_CURRENT_SOURCE_DIR}/cmake"
 )
 include(CxxStandard)
+include(BuildTypeDefault)
 include(FastLinker)
 
 include(CompilerCheck)
@@ -92,8 +93,32 @@ CPMAddPackage(
   NAME daw
   GITHUB_REPOSITORY beached/daw_json_link
   VERSION 3.31.0
-  SYSTEM YES
-  EXCLUDE_FROM_ALL YES
+  DOWNLOAD_ONLY YES
+)
+CPMAddPackage(
+  NAME daw_header_libraries
+  GITHUB_REPOSITORY beached/header_libraries
+  GIT_TAG master
+  GIT_SHALLOW ON
+  DOWNLOAD_ONLY YES
+)
+CPMAddPackage(
+  NAME daw_utf_range
+  GITHUB_REPOSITORY beached/utf_range
+  GIT_TAG v2.2.6
+  GIT_SHALLOW ON
+  DOWNLOAD_ONLY YES
+)
+add_library(daw::daw-json-link INTERFACE IMPORTED)
+target_include_directories(daw::daw-json-link SYSTEM INTERFACE
+  "${daw_SOURCE_DIR}/include"
+  "${daw_header_libraries_SOURCE_DIR}/include"
+  "${daw_utf_range_SOURCE_DIR}/include"
+)
+target_compile_definitions(daw::daw-json-link INTERFACE
+  DAW_USE_EXCEPTIONS=true
+  DAW_NO_FLATTEN
+  DAW_NO_FORCED_INLINE
 )
 
 CPMAddPackage(

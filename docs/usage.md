@@ -62,23 +62,34 @@ Multiple system files can be provided and will be merged.
 | `-q` | `--quiet` | `[=arg]` | Suppress all log output to stdout |
 | `-S` | `--stats` | | Print pre-solve system statistics and post-solve results summary |
 | `-s` | `--system-file` | `arg` | System JSON file(s) to process (also accepted as positional args) |
-| `-n` | `--lp-names-level` | `[=arg]` | LP naming level: `0`/`minimal`, `1`/`only_cols`, `2`/`cols_and_rows` (see below) |
 | `-l` | `--lp-file` | `arg` | Save the LP model to a file |
 | `-j` | `--json-file` | `arg` | Save the merged system configuration to a JSON file |
 | `-e` | `--matrix-eps` | `arg` | Epsilon for matrix sparsity (coefficients below this are zero) |
-| `-c` | `--lp-build` | `[=arg]` | Build the LP model and exit without solving |
-| `-p` | `--fast-parsing` | `[=arg]` | Use fast (non-strict) JSON parsing |
-| `-J` | `--check-json` | `[=arg]` | Warn about JSON fields not recognized by the schema |
+| `-c` | `--lp-only` | `[=arg]` | Build the LP model and exit without solving |
 | `-T` | `--trace-log` | `arg` | Write trace-level log messages to this file |
 | | `--solver` | `arg` | LP solver backend: `clp`, `cbc`, `cplex`, `highs` (auto-detected by default) |
 | | `--solvers` | | List available LP solver backends and exit |
 | | `--check-solvers` | `[=solver]` | Run the solver test suite against all (or a named) solver, then exit |
-| | `--method` | `arg` | Planning method: `monolithic`, `sddp`, `cascade` |
-| | `--demand-fail-cost` | `arg` | Penalty $/MWh for unserved demand |
-| | `--scale-objective` | `arg` | Objective function scaling factor |
 | | `--sddp-num-apertures` | `arg` | SDDP backward-pass aperture count: `0`=disabled, `-1`=all, `N`=first N scenarios |
 | | `--recover` | `[=arg]` | Enable recovery from a previous SDDP run (loads cuts and state variables) |
+| | `--low-memory` | `[=mode]` | SDDP low-memory mode: `off`, `snapshot` (release solver, keep flat LP), `compress` (release solver, compress flat LP). Implicit value: `snapshot`. |
+| | `--memory-limit` | `arg` | Process memory limit for work-pool throttling (e.g. `4096`, `300M`, `5G`) |
+| | `--cpu-factor` | `arg` | Work-pool thread over-commit factor (default: `4.0`) |
+| | `--build-mode` | `arg` | LP build parallelism: `serial`, `scene-parallel` (default), `full-parallel`, `direct-parallel` |
 | | `--set` | `key=value` | Set any planning option (see below) |
+
+> **LP variable/constraint names** are generated automatically whenever
+> `--lp-file` or `--lp-debug` is present. There is no separate
+> `--lp-names-level` flag: passing either flag turns on all four naming
+> fields (`col_with_names`, `row_with_names`, `col_with_name_map`,
+> `row_with_name_map`) in `LpMatrixOptions`. See
+> [LP variable and row names](#lp-variable-and-row-names) below.
+>
+> **Flags not in the table above** — `--method`, `--demand-fail-cost`,
+> `--scale-objective`, `--use-single-bus`, `--use-kirchhoff`,
+> `--input-directory`, `--output-directory`, `--input-format`,
+> `--output-format`, `--output-compression`, etc. — are still accepted as
+> deprecated aliases but emit a warning. Prefer `--set <path>=<value>`.
 
 > **`--set` key=value**: The recommended way to pass planning options
 > from the CLI. Any option that can appear in the JSON `"options"`
@@ -94,7 +105,15 @@ Multiple system files can be provided and will be merged.
 > gtopt case.json --set sddp_options.convergence_tol=1e-5
 > gtopt case.json --set input_directory=data/ --set input_format=parquet
 > gtopt case.json --set lp_debug=true --set log_directory=logs
+> # Array-index paths: target one element of a JSON array
+> gtopt case.json --set cascade_options.level_array.0.sddp_options.max_iterations=20
 > ```
+>
+> **Array indices** — numeric path components address array elements by
+> position (0-based).  For cascade `level_array` entries specifically, a
+> per-index overlay merges element-wise with the base array when sizes
+> match; a different-size overlay still replaces the array wholesale,
+> preserving the pre-existing multi-file merge behaviour.
 >
 > **Deprecated aliases** (still work, emit a warning): `-b`
 > (`--use-single-bus`), `-k` (`--use-kirchhoff`), `-D`
@@ -103,7 +122,7 @@ Multiple system files can be provided and will be merged.
 > (`--output-compression`), `--algorithm`, `--threads`,
 > `--sddp-max-iterations`, `--sddp-min-iterations`,
 > `--sddp-convergence-tol`, `--sddp-elastic-penalty`,
-> `--sddp-elastic-mode`, `--sddp-cut-coeff-mode`,
+> `--sddp-elastic-mode`,
 > `--log-directory`, `--cut-directory`, `--lp-debug`,
 > `--lp-compression`, `--lp-coeff-ratio`.
 
@@ -196,15 +215,19 @@ Solver and I/O settings:
   "use_kirchhoff": true,
   "demand_fail_cost": 1000,
   "scale_objective": 1000,
-  "lp_build_options": {
-    "names_level": "only_cols"
+  "lp_matrix_options": {
+    "equilibration_method": "ruiz",
+    "compute_stats": true
   }
 }
 ```
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `lp_build_options.names_level` | string/int | LP naming level (see [LP naming levels](#lp-naming-levels)) |
+| `lp_matrix_options.equilibration_method` | string | Matrix equilibration: `"none"`, `"row_max"` (default), `"ruiz"` |
+| `lp_matrix_options.fast_sqrt_method` | string | Approximate sqrt for Ruiz scaling (see `FastSqrtMethod`) |
+| `lp_matrix_options.compute_stats` | bool | Compute coefficient min/max/ratio during flatten |
+| `lp_matrix_options.lp_coeff_ratio_threshold` | float | Ratio threshold above which a per-scene/phase breakdown is printed (default 1e7) |
 | `output_format` | string | Output format: `"csv"` or `"parquet"` |
 | `input_format` | string | Input data format: `"csv"` or `"parquet"` |
 | `input_directory` | string | Path to the data directory (relative to the JSON file) |
@@ -244,42 +267,52 @@ gtopt mycase --set lp_debug=true --set log_directory=logs \
   --set output_compression=zstd
 ```
 
-> **Important**: LP file output (`--lp-file`, `--lp-debug`, and error LP files)
-> requires `names_level >= only_cols`.  At the default `minimal` level, row
-> names are not populated and `write_lp()` will fail silently.  Always set
-> `--lp-names-level only_cols` (or higher) when you need LP file output.
+#### LP variable and row names
 
-#### LP naming levels
+By default, the flat LP representation is assembled **without** column or row
+name metadata — names cost memory and are not needed to solve the problem.
+When you ask for an LP dump (via `--lp-file` or `--lp-debug`), gtopt sets all
+four naming fields in `LpMatrixOptions` so the resulting `.lp` file is
+readable:
 
-The `names_level` option (CLI: `--lp-names-level`, JSON:
-`lp_build_options.names_level`) controls how much naming metadata gtopt tracks
-during LP assembly.  Higher levels consume more memory but enable richer
-diagnostics.
+- `col_with_names`
+- `row_with_names`
+- `col_with_name_map`
+- `row_with_name_map`
 
-| Level | Name | Column names | Row names | Name maps | LP file output | Notes |
-|-------|------|:------------:|:---------:|:---------:|:--------------:|-------|
-| 0 | `minimal` | state vars only | no | no | **no** | Default. Smallest footprint. |
-| 1 | `only_cols` | all | yes | yes | **yes** | Required for `--lp-file`, `--lp-debug`, and error LP output. |
-| 2 | `cols_and_rows` | all | yes | yes | **yes** | Same as 1, plus warns on duplicate names. Useful for catching formulation bugs. |
+These fields are toggled together by the internal helper
+`make_lp_matrix_options(enable_names, …)` in `main_options.hpp`.  The
+`enable_names` flag is derived from:
 
-**CLI examples:**
-```bash
-# Save LP with named variables and constraints
-gtopt mycase --lp-file model --lp-names-level only_cols
-
-# Debug LP files with full names
-gtopt mycase --lp-debug --lp-names-level 1
-
-# Just pass -n (implicit value: only_cols)
-gtopt mycase --lp-file model -n
+```cpp
+enable_names = opts.lp_file.has_value() || opts.lp_debug.value_or(false);
 ```
 
-**JSON example:**
+There is **no** `--lp-names-level` CLI flag, and JSON does not expose the
+four bool fields (they are internal to the LP builder).  If you need named
+LP output, just pass either `--lp-file <path>` or `--lp-debug`:
+
+```bash
+# Save a readable LP dump next to the planning file
+gtopt mycase --lp-file model
+
+# Save one .lp per (scene, phase) / (iter, scene, phase) to log_directory
+gtopt mycase --lp-debug --set log_directory=logs
+```
+
+The JSON-visible fields of `lp_matrix_options` are:
+
+- `equilibration_method` (`"none"`, `"row_max"` (default), `"ruiz"`)
+- `fast_sqrt_method` (Ruiz only — see `FastSqrtMethod`)
+- `compute_stats` (bool)
+- `lp_coeff_ratio_threshold` (float; default 1e7)
+
 ```json
 {
   "options": {
-    "lp_build_options": {
-      "names_level": "only_cols"
+    "lp_matrix_options": {
+      "equilibration_method": "ruiz",
+      "compute_stats": true
     }
   }
 }
@@ -544,7 +577,7 @@ gtopt system_c0.json --lp-file model.lp
 Create the LP and exit (useful for validation or LP export):
 
 ```bash
-gtopt system_c0.json --lp-file model.lp --lp-build
+gtopt system_c0.json --lp-file model.lp --lp-only
 ```
 
 ### Single-bus mode
@@ -747,8 +780,10 @@ When the LP is too large to fit in memory:
   smaller per-scene LPs.
 - **Reduce reserve zones**: spinning reserve constraints add rows per bus
   per block; consolidating reserve zones reduces LP size.
-- **Disable LP names**: set `names_level` to `"minimal"` (or `0`) to reduce
-  memory overhead from name storage and lookup maps.
+- **Don't ask for LP dumps in production**: naming metadata is only generated
+  when `--lp-file` or `--lp-debug` is set.  Leaving both off keeps the four
+  `col_with_names` / `row_with_names` / `col_with_name_map` /
+  `row_with_name_map` fields at `false` and avoids name storage/lookup maps.
 
 ### File not found errors
 
@@ -800,18 +835,17 @@ You can:
   and objective coefficients.
 - Load it into an external solver (e.g., GLPK, Gurobi, CPLEX) for
   independent verification.
-- Use `grep` to search for specific variable or constraint names (enabled
-  when `names_level` is `only_cols` or `cols_and_rows`).
+- Use `grep` to search for specific variable or constraint names.  Column
+  and row names are populated automatically when `--lp-file` or `--lp-debug`
+  is in effect.
 
 **Additional debug options:**
 
-- `lp_build: true` builds all LP matrices without solving, useful for
-  inspecting the formulation without waiting for the solve.
-- `lp_coeff_ratio_threshold` (default: `1e7`) controls when per-scene/phase
-  coefficient ratio diagnostics are printed.  Lower the threshold to detect
-  numerical conditioning issues.
-- `names_level: "cols_and_rows"` assigns column and row names and warns on
-  duplicate names, useful for catching formulation bugs.
+- `--lp-only` (alias `-c`) builds all LP matrices without solving, useful
+  for inspecting the formulation without waiting for the solve.
+- `lp_matrix_options.lp_coeff_ratio_threshold` (default: `1e7`) controls
+  when per-scene/phase coefficient ratio diagnostics are printed.  Lower
+  the threshold to detect numerical conditioning issues.
 
 ---
 

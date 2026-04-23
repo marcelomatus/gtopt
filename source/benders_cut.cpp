@@ -11,10 +11,12 @@
  */
 
 #include <cmath>
-#include <span>
+#include <ranges>
 
 #include <gtopt/benders_cut.hpp>
 #include <gtopt/fmap.hpp>
+#include <gtopt/label_maker.hpp>
+#include <gtopt/utils.hpp>
 #include <gtopt/work_pool.hpp>
 
 #ifndef SPDLOG_ACTIVE_LEVEL
@@ -39,170 +41,117 @@ void propagate_trial_values(std::span<StateVarLink> links,
   }
 }
 
-void propagate_trial_values_row_dual(std::span<StateVarLink> links,
-                                     std::span<const double> source_solution,
-                                     LinearInterface& target_li) noexcept
+void propagate_trial_values(std::span<StateVarLink> links,
+                            LinearInterface& target_li) noexcept
 {
   for (auto& link : links) {
-    link.trial_value = source_solution[link.source_col];
-
-    // Keep the column at its raw LP bounds (not fixed).
-    target_li.set_col_low_raw(link.dependent_col, link.source_low);
-    target_li.set_col_upp_raw(link.dependent_col, link.source_upp);
-
-    if (link.coupling_row != RowIndex {unknown_index}) {
-      // Reuse existing coupling row — just update the RHS.
-      target_li.set_row_low_raw(link.coupling_row, link.trial_value);
-      target_li.set_row_upp_raw(link.coupling_row, link.trial_value);
-
-      SPDLOG_TRACE("row_dual propagation: col {} = {:.4f} (updated row {})",
-                   link.dependent_col,
-                   link.trial_value,
-                   link.coupling_row);
-    } else {
-      // First call: add explicit coupling constraint x_dep = trial_value.
-      auto coupling = SparseRow {
-          .lowb = link.trial_value,
-          .uppb = link.trial_value,
-      };
-      coupling[link.dependent_col] = 1.0;
-
-      link.coupling_row = target_li.add_row(coupling);
-
-      SPDLOG_TRACE(
-          "row_dual propagation: col {} = {:.4f} via new coupling row {}",
-          link.dependent_col,
-          link.trial_value,
-          link.coupling_row);
-    }
+    link.trial_value =
+        (link.state_var != nullptr) ? link.state_var->col_sol() : 0.0;
+    target_li.set_col_low_raw(link.dependent_col, link.trial_value);
+    target_li.set_col_upp_raw(link.dependent_col, link.trial_value);
   }
 }
 
-auto build_benders_cut(ColIndex alpha_col,
-                       std::span<const StateVarLink> links,
-                       std::span<const double> reduced_costs,
-                       double objective_value,
-                       double scale_alpha,
-                       double cut_coeff_eps) -> SparseRow
+auto build_benders_cut_physical(ColIndex alpha_col,
+                                std::span<const StateVarLink> links,
+                                std::span<const double> reduced_costs_physical,
+                                std::span<const double> trial_values_physical,
+                                double objective_value_physical,
+                                double cut_coeff_eps) -> SparseRow
 {
-  // Row scale = scale_alpha: all physical values are stored as-is.
-  // When the row is added to the LP (via add_row), bounds and coefficients
-  // are divided by row.scale, giving a raw alpha coefficient of 1.0.
+  // Physical-space Benders optimality cut:
+  //   α_phys ≥ z_t_phys + Σ_i rc_phys_i · (x_{t-1,i}_phys − v̂_i_phys)
+  //
+  // α coefficient is 1.0; `LinearInterface::add_row` on an
+  // equilibrated LP folds `col_scales[alpha]` automatically.  No
+  // `scale_alpha` or `inv_scale_obj` arithmetic here — every input is
+  // already in $ / physical-units, matching what `target_li.get_col_cost()`
+  // and `target_li.get_obj_value_physical()` return at the call site.
   auto row = SparseRow {
-      .lowb = objective_value,
+      .lowb = objective_value_physical,
       .uppb = LinearProblem::DblMax,
-      .scale = scale_alpha,
   };
-  row[alpha_col] = scale_alpha;
+  row[alpha_col] = 1.0;
 
-  for (const auto& link : links) {
-    const auto rc = reduced_costs[link.dependent_col];
-    if (std::abs(rc) < cut_coeff_eps) {
+  for (const auto& [i, link] : std::views::enumerate(links)) {
+    const auto rc_phys = reduced_costs_physical[link.dependent_col];
+    if (std::abs(rc_phys) < cut_coeff_eps) {
       continue;
     }
-    row[link.source_col] = -rc;
-    row.lowb -= rc * link.trial_value;
+    const auto v_hat_phys = trial_values_physical[static_cast<std::size_t>(i)];
+    row[link.source_col] = -rc_phys;
+    row.lowb -= rc_phys * v_hat_phys;
+  }
+
+  // No `already_lp_space` flag: this row IS physical.  `add_row` on an
+  // equilibrated LP will apply col_scales + row-max composition.
+  return row;
+}
+
+auto build_benders_cut_physical(ColIndex alpha_col,
+                                std::span<const StateVarLink> links,
+                                double objective_value_physical,
+                                double scale_objective,
+                                double cut_coeff_eps) -> SparseRow
+{
+  // Physical-space Benders optimality cut, reading rc and trial from
+  // each link's back-pointer StateVariable.  The forward pass mirrors
+  // the target LP's solution onto every StateVariable via
+  // `capture_state_variable_values`, so the live values are fresh at
+  // backward-pass time without needing per-LP snapshots.
+  auto row = SparseRow {
+      .lowb = objective_value_physical,
+      .uppb = LinearProblem::DblMax,
+  };
+  row[alpha_col] = 1.0;
+
+  for (const auto& link : links) {
+    if (link.state_var == nullptr) {
+      continue;
+    }
+    const auto rc_phys = link.state_var->reduced_cost_physical(scale_objective);
+    if (std::abs(rc_phys) < cut_coeff_eps) {
+      continue;
+    }
+    const auto v_hat_phys = link.state_var->col_sol_physical();
+    row[link.source_col] = -rc_phys;
+    row.lowb -= rc_phys * v_hat_phys;
   }
 
   return row;
 }
 
-auto build_benders_cut_from_row_duals(ColIndex alpha_col,
-                                      std::span<const StateVarLink> links,
-                                      std::span<const double> row_duals,
-                                      double objective_value,
-                                      double scale_alpha,
-                                      double cut_coeff_eps) -> SparseRow
+auto build_benders_cut_physical(ColIndex alpha_col,
+                                std::span<const StateVarLink> links,
+                                const LinearInterface& rc_source,
+                                double objective_value_physical,
+                                double cut_coeff_eps) -> SparseRow
 {
-  // Row scale = scale_alpha: physical values stored as-is, divided by
-  // row.scale when added to the LP (giving raw alpha coefficient = 1.0).
+  // Physical-space Benders cut that takes rc from an arbitrary solved
+  // LinearInterface (elastic clone / aperture clone) and trial from
+  // each link's source StateVariable.  Used by the forward-pass
+  // feasibility cut, the aperture per-aperture cut, and the aperture
+  // fallback bcut — all paths where the reduced cost comes from a
+  // local solve rather than the base forward pass mirror.
   auto row = SparseRow {
-      .lowb = objective_value,
+      .lowb = objective_value_physical,
       .uppb = LinearProblem::DblMax,
-      .scale = scale_alpha,
   };
-  row[alpha_col] = scale_alpha;
+  row[alpha_col] = 1.0;
 
+  const auto rc_view = rc_source.get_col_cost();
   for (const auto& link : links) {
-    const auto pi = row_duals[link.coupling_row];
-    if (std::abs(pi) < cut_coeff_eps) {
+    const auto rc_phys = rc_view[link.dependent_col];
+    if (std::abs(rc_phys) < cut_coeff_eps) {
       continue;
     }
-    row[link.source_col] = -pi;
-    row.lowb -= pi * link.trial_value;
+    const auto v_hat_phys =
+        (link.state_var != nullptr) ? link.state_var->col_sol_physical() : 0.0;
+    row[link.source_col] = -rc_phys;
+    row.lowb -= rc_phys * v_hat_phys;
   }
 
   return row;
-}
-
-// ─── Cut coefficient filtering and rescaling ────────────────────────────────
-
-void filter_cut_coefficients(SparseRow& row, ColIndex alpha_col, double eps)
-{
-  if (eps <= 0.0) {
-    return;
-  }
-
-  // Collect columns to erase (can't modify flat_map while iterating).
-  std::vector<ColIndex> to_erase;
-  for (auto it = row.cmap.begin(); it != row.cmap.end(); ++it) {
-    if (it->first != alpha_col && std::abs(it->second) < eps) {
-      to_erase.push_back(it->first);
-    }
-  }
-
-  for (const auto col : to_erase) {
-    row.cmap.erase(col);
-  }
-}
-
-bool rescale_benders_cut(SparseRow& row,
-                         ColIndex alpha_col,
-                         double cut_coeff_max)
-{
-  if (cut_coeff_max <= 0.0) {
-    return false;
-  }
-
-  // Find the largest absolute coefficient across all state-variable terms
-  // (exclude α column — it's a scaling weight, not a state-variable coeff).
-  // Collect keys to avoid flat_map iterator proxy issues.
-  std::vector<ColIndex> cols;
-  cols.reserve(row.cmap.size());
-
-  double max_coeff = 0.0;
-  for (auto it = row.cmap.begin(); it != row.cmap.end(); ++it) {
-    cols.push_back(it->first);
-    if (it->first != alpha_col) {
-      max_coeff = std::max(max_coeff, std::abs(it->second));
-    }
-  }
-
-  if (max_coeff <= cut_coeff_max) {
-    return false;  // no rescaling needed
-  }
-
-  const auto scale_factor = max_coeff / cut_coeff_max;
-
-  spdlog::warn(
-      "rescale_benders_cut: cut '{}' max|coeff|={:.2e} exceeds "
-      "threshold {:.2e}, rescaling by {:.2e}",
-      generate_lp_label(
-          row.class_name, row.constraint_name, row.variable_uid, row.context),
-      max_coeff,
-      cut_coeff_max,
-      scale_factor);
-
-  // Divide all coefficients (including α) and bounds by scale_factor.
-  for (const auto col : cols) {
-    row[col] /= scale_factor;
-  }
-  row.lowb /= scale_factor;
-  if (row.uppb != LinearProblem::DblMax && row.uppb != -LinearProblem::DblMax) {
-    row.uppb /= scale_factor;
-  }
-
-  return true;
 }
 
 // ─── Elastic filter ─────────────────────────────────────────────────────────
@@ -211,7 +160,7 @@ RelaxedVarInfo relax_fixed_state_variable(
     LinearInterface& li,
     const StateVarLink& link,
     [[maybe_unused]] PhaseIndex phase_index,
-    double penalty)
+    [[maybe_unused]] double penalty)
 {
   const auto dep = link.dependent_col;
   const auto lo = li.get_col_low_raw()[dep];
@@ -225,26 +174,21 @@ RelaxedVarInfo relax_fixed_state_variable(
   li.set_col_low_raw(dep, link.source_low);
   li.set_col_upp_raw(dep, link.source_upp);
 
-  // Penalised slack variables: up (overshoot) and dn (undershoot)
-  //
-  // When the link carries a per-variable state cost (scost > 0, e.g. from
-  // Reservoir::scost in $/hm³), use it instead of the global penalty.
-  // The scost is already in $/physical_unit, so we only need to divide
-  // by scale_objective (the caller pre-divides `penalty` by scale_obj,
-  // so we reconstruct the per-variable penalty the same way).
-  //
-  // Scale by var_scale: 1 LP unit of slack = var_scale physical units,
-  // so the cost per LP unit is base_penalty × var_scale.
-  const auto base_penalty = (link.scost > 0.0) ? link.scost : penalty;
-  const auto scaled_penalty = base_penalty * link.var_scale;
+  // Chinneck Phase-1 feasibility LP: unit-cost slack variables.  The
+  // caller (`elastic_filter_solve`) has zeroed every original
+  // objective coefficient on the clone, so the relaxed LP's optimum
+  // equals Σ(s⁺ + s⁻) — the pure feasibility gap.  Matches PLP
+  // `plp-bc.f` and Chinneck (2008) § 4.  `penalty` retained for
+  // signature stability; no longer consulted here.
+  constexpr double slack_cost = 1.0;
   const auto sup = li.add_col(SparseCol {
       .uppb = DblMax,
-      .cost = scaled_penalty,
+      .cost = slack_cost,
   });
 
   const auto sdn = li.add_col(SparseCol {
       .uppb = DblMax,
-      .cost = scaled_penalty,
+      .cost = slack_cost,
   });
 
   // dep + sup − sdn = trial_value
@@ -265,7 +209,7 @@ RelaxedVarInfo relax_fixed_state_variable(
       dep,
       link.source_low,
       link.source_upp,
-      link.source_phase);
+      link.source_phase_index);
 
   return RelaxedVarInfo {
       .relaxed = true,
@@ -277,33 +221,37 @@ RelaxedVarInfo relax_fixed_state_variable(
 auto elastic_filter_solve(const LinearInterface& li,
                           std::span<const StateVarLink> links,
                           double penalty,
-                          const SolverOptions& opts,
-                          std::span<const double> forward_col_sol,
-                          std::span<const double> forward_row_dual)
+                          const SolverOptions& opts)
     -> std::optional<ElasticSolveResult>
 {
-  // Clone the LP with warm-start – modifications don't touch the original.
-  auto cloned = li.clone(forward_col_sol, forward_row_dual);
+  // Clone the LP; modifications don't touch the original.
+  auto cloned = li.clone();
+
+  // Chinneck Phase-1 feasibility LP: zero every original objective
+  // coefficient so the relaxed LP becomes a pure feasibility problem.
+  // Its optimum equals Σ(s⁺ + s⁻) = minimum total slack activation to
+  // restore feasibility — independent of dispatch cost structure.
+  // Matches PLP `plp-bc.f`, Chinneck (2008) § 4, Ruszczyński (1997).
+  // Keeping the original obj would leak state-dependent opex into
+  // the Benders feasibility-cut RHS and drive α to diverge under
+  // SDDP iteration (observed on juan/gtopt_iplp).
+  for (const auto c : iota_range<ColIndex>(0, cloned.numcols_as_index())) {
+    cloned.set_obj_coeff(c, 0.0);
+  }
 
   ElasticSolveResult result;
   result.link_infos.reserve(links.size());
 
   bool modified = false;
   for (const auto& link : links) {
-    auto info =
-        relax_fixed_state_variable(cloned, link, link.target_phase, penalty);
+    auto info = relax_fixed_state_variable(
+        cloned, link, link.target_phase_index, penalty);
     modified |= info.relaxed;
     result.link_infos.push_back(info);
   }
 
   if (!modified) {
     return std::nullopt;
-  }
-
-  // Apply forward-pass solution as warm-start hint.  The clone now has
-  // extra columns (elastic slacks) — the helper pads with zeros.
-  if (opts.reuse_basis) {
-    cloned.set_warm_start_solution(forward_col_sol, forward_row_dual);
   }
 
   // Solve the clone with elastic slack variables
@@ -317,12 +265,128 @@ auto elastic_filter_solve(const LinearInterface& li,
   return std::nullopt;
 }
 
+auto chinneck_filter_solve(const LinearInterface& li,
+                           std::span<const StateVarLink> links,
+                           double penalty,
+                           const SolverOptions& opts,
+                           double slack_tol)
+    -> std::optional<ElasticSolveResult>
+{
+  // Phase 1 — full elastic relaxation, identical to elastic_filter_solve()
+  auto initial = elastic_filter_solve(li, links, penalty, opts);
+  if (!initial.has_value()) {
+    return std::nullopt;
+  }
+
+  auto& clone = initial->clone;
+  auto& infos = initial->link_infos;
+  const auto sol = clone.get_col_sol_raw();
+
+  // Phase 2 — classify links by slack activity
+  std::vector<std::size_t> non_essential;
+  non_essential.reserve(infos.size());
+  std::size_t n_active = 0;
+  for (std::size_t i = 0; i < infos.size(); ++i) {
+    const auto& info = infos[i];
+    if (!info.relaxed) {
+      continue;
+    }
+    const double sup_val =
+        (info.sup_col != ColIndex {unknown_index}) ? sol[info.sup_col] : 0.0;
+    const double sdn_val =
+        (info.sdn_col != ColIndex {unknown_index}) ? sol[info.sdn_col] : 0.0;
+    if (sup_val <= slack_tol && sdn_val <= slack_tol) {
+      non_essential.push_back(i);
+    } else {
+      ++n_active;
+    }
+  }
+
+  // No essential links → nothing to filter; return the full elastic result.
+  if (n_active == 0) {
+    SPDLOG_TRACE(
+        "chinneck_filter_solve: all {} relaxed bounds inactive — returning "
+        "full elastic result unchanged",
+        infos.size());
+    return initial;
+  }
+  if (non_essential.empty()) {
+    SPDLOG_TRACE(
+        "chinneck_filter_solve: all {} relaxed bounds essential — IIS == "
+        "full set, no filtering needed",
+        n_active);
+    return initial;
+  }
+
+  // Phase 3 — re-fix non-essential links by zeroing their slack uppers,
+  // forcing the elastic equation `dep + sup − sdn = trial_value` to
+  // hold strictly (sup = sdn = 0 ⇒ dep = trial_value).
+  for (const auto i : non_essential) {
+    auto& info = infos[i];
+    if (info.sup_col != ColIndex {unknown_index}) {
+      clone.set_col_upp_raw(info.sup_col, 0.0);
+    }
+    if (info.sdn_col != ColIndex {unknown_index}) {
+      clone.set_col_upp_raw(info.sdn_col, 0.0);
+    }
+  }
+
+  // Phase 4 — re-solve to confirm the IIS.
+  auto r = clone.resolve(opts);
+  const bool refixed_ok = r.has_value() && clone.is_optimal();
+
+  if (!refixed_ok) {
+    // The supposedly non-essential links were essential after all (penalty
+    // competition obscured the true IIS).  Undo the re-fix and fall back
+    // to the conservative full-elastic result.
+    SPDLOG_DEBUG(
+        "chinneck_filter_solve: re-solve infeasible after re-fixing {} "
+        "non-essential link(s) — falling back to full elastic IIS "
+        "(status {})",
+        non_essential.size(),
+        clone.get_status());
+    for (const auto i : non_essential) {
+      auto& info = infos[i];
+      if (info.sup_col != ColIndex {unknown_index}) {
+        clone.set_col_upp_raw(info.sup_col, LinearProblem::DblMax);
+      }
+      if (info.sdn_col != ColIndex {unknown_index}) {
+        clone.set_col_upp_raw(info.sdn_col, LinearProblem::DblMax);
+      }
+    }
+    // Re-solve once more to restore a consistent optimal basis for cut
+    // construction.  If even this fails we propagate the failure.
+    auto r2 = clone.resolve(opts);
+    if (!r2.has_value() || !clone.is_optimal()) {
+      return std::nullopt;
+    }
+    return initial;
+  }
+
+  // Phase 5 — IIS confirmed.  Mark non-essential links so downstream
+  // `build_multi_cuts()` and any cut consumers treat them as inactive.
+  for (const auto i : non_essential) {
+    infos[i].sup_col = ColIndex {unknown_index};
+    infos[i].sdn_col = ColIndex {unknown_index};
+  }
+
+  SPDLOG_INFO(
+      "chinneck_filter_solve: IIS = {} essential / {} relaxed bounds "
+      "(filtered {} non-essential, obj={:.4f})",
+      n_active,
+      n_active + non_essential.size(),
+      non_essential.size(),
+      clone.get_obj_value());
+  return initial;
+}
+
 auto build_feasibility_cut(const LinearInterface& li,
                            ColIndex alpha_col,
                            std::span<const StateVarLink> links,
                            double penalty,
                            const SolverOptions& opts,
-                           double scale_alpha)
+                           double /*scale_alpha*/,
+                           double /*scale_objective*/)
     -> std::optional<FeasibilityCutResult>
 {
   auto elastic = elastic_filter_solve(li, links, penalty, opts);
@@ -330,11 +394,16 @@ auto build_feasibility_cut(const LinearInterface& li,
     return std::nullopt;
   }
 
-  auto cut = build_benders_cut(alpha_col,
-                               links,
-                               elastic->clone.get_col_cost_raw(),
-                               elastic->clone.get_obj_value(),
-                               scale_alpha);
+  // Physical-space cut: rc from elastic clone, trial from state_var.
+  // The `scale_alpha` / `scale_objective` parameters are retained in
+  // the signature for source compatibility but are now unused — the
+  // physical builder lets `add_row` fold col_scales + row-max on the
+  // caller's LP.
+  auto cut =
+      build_benders_cut_physical(alpha_col,
+                                 links,
+                                 elastic->clone,
+                                 elastic->clone.get_obj_value_physical());
 
   return FeasibilityCutResult {
       .cut = std::move(cut),
@@ -349,29 +418,47 @@ auto build_multi_cuts(const ElasticSolveResult& elastic,
 {
   std::vector<SparseRow> cuts;
 
-  const auto& dep_sol = elastic.clone.get_col_sol_raw();
+  // Physical-space bound cuts.  `dep_sol_phys = LP × col_scale` puts
+  // dependent-column values in physical units on the elastic clone's
+  // LP; the resulting cut `source_col ≤ dep_val_phys` is in the same
+  // units and `add_row` on the src LP folds the source column's
+  // col_scale + row-max equilibration automatically.
+  //
+  // Slack column values (`sup`/`sdn`) are read in *raw LP* via
+  // `get_col_sol_raw` because the slack tolerance threshold
+  // `slack_tol` is defined against the LP units the elastic solve
+  // emits; they are only used to decide whether to emit the cut, not
+  // for its coefficients.
+  const auto dep_sol_phys = elastic.clone.get_col_sol();  // ScaledView
+  const auto& dep_sol_raw = elastic.clone.get_col_sol_raw();
   const auto& link_infos = elastic.link_infos;
-  const std::size_t nlinks = links.size();
 
-  int cut_counter = 0;
-  for (std::size_t li_idx = 0; li_idx < nlinks; ++li_idx) {
-    const auto& info = link_infos[li_idx];
+  // Each multi-cut row bounds a specific state-variable column, so
+  // the per-element identity (class_name + uid) disambiguates row
+  // labels across iterations and across element classes.  Uids are
+  // unique only within a class, so using `link.uid` alone would let
+  // e.g. Reservoir uid=1 and LngTerminal uid=1 collide.  We pair uid
+  // with `link.class_name` (captured at link collection time from
+  // the state-variable registry Key) so the composed label is
+  // globally unique.  Both `class_name` and `uid` are stable for the
+  // full solver lifetime — the class_name string_view references the
+  // registry Key's storage, which outlives every cut produced here.
+  for (const auto& [info, link] : std::views::zip(link_infos, links)) {
     if (!info.relaxed) {
       continue;
     }
-    const auto& link = links[li_idx];
-    const double dep_val = dep_sol[link.dependent_col];
+    const double dep_val_phys = dep_sol_phys[link.dependent_col];
 
     // sup > 0 ⟹ solution < trial_value ⟹ source ≤ dep_val
     if (info.sup_col != ColIndex {unknown_index}) {
-      const double sup_val = dep_sol[info.sup_col];
+      const double sup_val = dep_sol_raw[info.sup_col];
       if (sup_val > slack_tol) {
         auto ub_cut = SparseRow {
             .lowb = -LinearProblem::DblMax,
-            .uppb = dep_val,
-            .class_name = "Sddp",
+            .uppb = dep_val_phys,
+            .class_name = link.class_name,
             .constraint_name = "mcut_ub",
-            .variable_uid = Uid {cut_counter++},
+            .variable_uid = link.uid,
             .context = context,
         };
         ub_cut[link.source_col] = 1.0;
@@ -381,14 +468,14 @@ auto build_multi_cuts(const ElasticSolveResult& elastic,
 
     // sdn > 0 ⟹ solution > trial_value ⟹ source ≥ dep_val
     if (info.sdn_col != ColIndex {unknown_index}) {
-      const double sdn_val = dep_sol[info.sdn_col];
+      const double sdn_val = dep_sol_raw[info.sdn_col];
       if (sdn_val > slack_tol) {
         auto lb_cut = SparseRow {
-            .lowb = dep_val,
+            .lowb = dep_val_phys,
             .uppb = LinearProblem::DblMax,
-            .class_name = "Sddp",
+            .class_name = link.class_name,
             .constraint_name = "mcut_lb",
-            .variable_uid = Uid {cut_counter++},
+            .variable_uid = link.uid,
             .context = context,
         };
         lb_cut[link.source_col] = 1.0;
@@ -413,8 +500,11 @@ auto average_benders_cut(const std::vector<SparseRow>& cuts) -> SparseRow
 
   const auto n = static_cast<double>(cuts.size());
 
-  // Collect all column indices that appear in any cut
+  // Collect all column indices that appear in any cut.
+  // Use the first cut's column count as a lower-bound size hint —
+  // all cuts typically share most columns.
   flat_map<ColIndex, double> avg_coeffs;
+  map_reserve(avg_coeffs, cuts.front().cmap.size());
   double avg_rhs = 0.0;
 
   for (const auto& cut : cuts) {
@@ -469,11 +559,11 @@ auto weighted_average_benders_cut(const std::vector<SparseRow>& cuts,
   }
 
   flat_map<ColIndex, double> avg_coeffs;
+  map_reserve(avg_coeffs, cuts.front().cmap.size());
   double avg_rhs = 0.0;
 
-  for (std::size_t i = 0; i < cuts.size(); ++i) {
-    const auto& cut = cuts[i];
-    const double w = weights[i] / total_weight;
+  for (const auto& [cut, weight] : std::views::zip(cuts, weights)) {
+    const double w = weight / total_weight;
     avg_rhs += w * cut.lowb;
     for (const auto& [col, coeff] : cut.cmap) {
       avg_coeffs[col] += w * coeff;
@@ -504,6 +594,7 @@ auto accumulate_benders_cuts(const std::vector<SparseRow>& cuts) -> SparseRow
 
   // Accumulate (sum) all cuts: no division by count or weight normalisation
   flat_map<ColIndex, double> sum_coeffs;
+  map_reserve(sum_coeffs, cuts.front().cmap.size());
   double sum_rhs = 0.0;
 
   for (const auto& cut : cuts) {
@@ -531,42 +622,34 @@ auto accumulate_benders_cuts(const std::vector<SparseRow>& cuts) -> SparseRow
 auto BendersCut::elastic_filter_solve(const LinearInterface& li,
                                       std::span<const StateVarLink> links,
                                       double penalty,
-                                      const SolverOptions& opts,
-                                      std::span<const double> forward_col_sol,
-                                      std::span<const double> forward_row_dual)
+                                      const SolverOptions& opts)
     -> std::optional<ElasticSolveResult>
 {
   if (m_pool_ == nullptr) {
     // No pool available: delegate directly to the free function.
-    auto result = gtopt::elastic_filter_solve(
-        li, links, penalty, opts, forward_col_sol, forward_row_dual);
+    auto result = gtopt::elastic_filter_solve(li, links, penalty, opts);
     if (result.has_value()) {
       m_infeasible_cut_count_.fetch_add(1, std::memory_order_relaxed);
     }
     return result;
   }
 
-  // Clone the LP with warm-start – modifications don't touch the original.
-  auto cloned = li.clone(forward_col_sol, forward_row_dual);
+  // Clone the LP; modifications don't touch the original.
+  auto cloned = li.clone();
 
   ElasticSolveResult result;
   result.link_infos.reserve(links.size());
 
   bool modified = false;
   for (const auto& link : links) {
-    auto info =
-        relax_fixed_state_variable(cloned, link, link.target_phase, penalty);
+    auto info = relax_fixed_state_variable(
+        cloned, link, link.target_phase_index, penalty);
     modified |= info.relaxed;
     result.link_infos.push_back(info);
   }
 
   if (!modified) {
     return std::nullopt;
-  }
-
-  // Apply forward-pass solution as warm-start hint (pads extra cols/rows)
-  if (opts.reuse_basis) {
-    cloned.set_warm_start_solution(forward_col_sol, forward_row_dual);
   }
 
   // Transfer ownership of the cloned LP to a shared_ptr captured by value
@@ -612,7 +695,8 @@ auto BendersCut::build_feasibility_cut(const LinearInterface& li,
                                        std::span<const StateVarLink> links,
                                        double penalty,
                                        const SolverOptions& opts,
-                                       double scale_alpha)
+                                       double /*scale_alpha*/,
+                                       double /*scale_objective*/)
     -> std::optional<FeasibilityCutResult>
 {
   auto elastic = this->elastic_filter_solve(li, links, penalty, opts);
@@ -620,11 +704,12 @@ auto BendersCut::build_feasibility_cut(const LinearInterface& li,
     return std::nullopt;
   }
 
-  auto cut = build_benders_cut(alpha_col,
-                               links,
-                               elastic->clone.get_col_cost_raw(),
-                               elastic->clone.get_obj_value(),
-                               scale_alpha);
+  // See the free-function `build_feasibility_cut` above for rationale.
+  auto cut =
+      build_benders_cut_physical(alpha_col,
+                                 links,
+                                 elastic->clone,
+                                 elastic->clone.get_obj_value_physical());
 
   return FeasibilityCutResult {
       .cut = std::move(cut),

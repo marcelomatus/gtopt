@@ -13,11 +13,16 @@
 
 #pragma once
 
+#include <format>
 #include <limits>
+#include <stdexcept>
 #include <string>
 #include <unordered_map>
+#include <variant>
 #include <vector>
 
+#include <gtopt/label_maker.hpp>
+#include <gtopt/lp_matrix_enums.hpp>
 #include <gtopt/lp_matrix_options.hpp>
 #include <gtopt/sparse_row.hpp>
 #include <gtopt/strong_index_vector.hpp>
@@ -56,14 +61,28 @@ struct FlatLinearProblem
                                    ///< (max |coeff| per row).
                                    ///< dual_physical = dual_LP / row_scale.
                                    ///< Empty when row equilibration is off.
+  /// Equilibration method selected at flatten() time.  Persisted so the
+  /// `LinearInterface::add_row` path can apply the same per-row
+  /// equilibration to post-build cut rows.
+  LpEquilibrationMethod equilibration_method {LpEquilibrationMethod::none};
   double scale_objective {1.0};  ///< Global objective divisor applied during
                                  ///< flatten().  obj_physical = obj_LP ×
                                  ///< scale_objective.
 
-  name_vec_t colnm;  ///< Variable names
-  name_vec_t rownm;  ///< Constraint names
+  name_vec_t colnm;  ///< Variable names (dense; populated when names enabled)
+  name_vec_t rownm;  ///< Constraint names (dense; populated when names enabled)
   index_map_t colmp;  ///< Map from variable names to indices
   index_map_t rowmp;  ///< Map from constraint names to indices
+
+  /// Lightweight label metadata, populated unconditionally at flatten.
+  /// Carries just the `(class_name, variable_name / constraint_name,
+  /// uid, context)` fields that `LabelMaker` needs to synthesise a
+  /// human-readable label on demand.  `LinearInterface` copies these
+  /// at `load_flat` time so `write_lp` can produce real gtopt names
+  /// even when `colnm` / `rownm` are empty (flatten ran without
+  /// `col_with_names` / `row_with_names`).
+  std::vector<SparseColLabel> col_labels_meta;
+  std::vector<SparseRowLabel> row_labels_meta;
 
   std::string name;  ///< Problem name
 
@@ -113,6 +132,12 @@ struct FlatLinearProblem
   /// LinearInterface picks this up in load_flat() so dynamically
   /// added columns can be auto-scaled.
   VariableScaleMap variable_scale_map {};
+
+  /// LabelMaker copied from LinearProblem during flatten().
+  /// LinearInterface picks this up in load_flat() so dynamically
+  /// added columns and rows generate labels consistent with the
+  /// original names_level configuration.
+  LabelMaker label_maker {};
 };
 
 /**
@@ -174,6 +199,17 @@ public:
     return m_vsm_;
   }
 
+  /// Set the LabelMaker used to generate column/row labels during flatten().
+  /// The LabelMaker is copied into FlatLinearProblem so LinearInterface can
+  /// continue generating labels for dynamically added columns/rows.
+  void set_label_maker(LabelMaker lm) noexcept { m_label_maker_ = lm; }
+
+  /// Get the LabelMaker (default-constructed = names off if not set).
+  [[nodiscard]] const LabelMaker& label_maker() const noexcept
+  {
+    return m_label_maker_;
+  }
+
   /**
    * Pre-reserves capacity for columns, rows, and coefficients.
    * Call before the build loop to avoid repeated reallocations.
@@ -193,9 +229,9 @@ public:
    */
   template<typename SparseCol = gtopt::SparseCol>
   [[nodiscard]]
-  constexpr ColIndex add_col(SparseCol&& col)
+  ColIndex add_col(SparseCol&& col)
   {
-    const auto index = ColIndex {static_cast<Index>(cols.size())};
+    const auto index = col_index_size(cols);
 
     if (col.is_integer) {
       ++colints;
@@ -218,6 +254,39 @@ public:
       }
     }
 
+    // Eager duplicate detection: two SparseCols with the same
+    // (class_name, variable_name, variable_uid, context) 4-tuple
+    // would produce the same LP label and silently overwrite each
+    // other at lookup — always a bug.  Columns whose metadata is
+    // fully empty (no identity at all) are skipped so structural
+    // tests that build unnamed LP cells don't trip the detector.
+    //
+    // The check piggybacks on the map's `try_emplace` so there is
+    // no extra lookup pass.
+    if (!(col.class_name.empty() && col.variable_name.empty()
+          && col.variable_uid == unknown_uid
+          && std::holds_alternative<std::monostate>(col.context)))
+    {
+      auto [it, inserted] = m_col_meta_index_.try_emplace(
+          SparseColLabel {
+              .class_name = col.class_name,
+              .variable_name = col.variable_name,
+              .variable_uid = col.variable_uid,
+              .context = col.context,
+          },
+          index);
+      if (!inserted) {
+        throw std::runtime_error(
+            std::format("Duplicate LP column metadata: class='{}' var='{}' "
+                        "uid={} (first at col {}, duplicate at col {})",
+                        col.class_name,
+                        col.variable_name,
+                        col.variable_uid,
+                        it->second,
+                        index));
+      }
+    }
+
     cols.emplace_back(std::forward<SparseCol>(col));
     return index;
   }
@@ -229,13 +298,38 @@ public:
    */
   template<typename SparseRow = gtopt::SparseRow>
   [[nodiscard]]
-  constexpr RowIndex add_row(SparseRow&& row)
+  RowIndex add_row(SparseRow&& row)
   {
-    const auto index = RowIndex {static_cast<Index>(rows.size())};
+    const auto index = row_index_size(rows);
 
     // Normalize DblMax bounds to the configured infinity.
     normalize_bound(row.lowb);
     normalize_bound(row.uppb);
+
+    // Eager duplicate detection — see `add_col` for rationale.
+    if (!(row.class_name.empty() && row.constraint_name.empty()
+          && row.variable_uid == unknown_uid
+          && std::holds_alternative<std::monostate>(row.context)))
+    {
+      auto [it, inserted] = m_row_meta_index_.try_emplace(
+          SparseRowLabel {
+              .class_name = row.class_name,
+              .constraint_name = row.constraint_name,
+              .variable_uid = row.variable_uid,
+              .context = row.context,
+          },
+          index);
+      if (!inserted) {
+        throw std::runtime_error(
+            std::format("Duplicate LP row metadata: class='{}' cons='{}' "
+                        "uid={} (first at row {}, duplicate at row {})",
+                        row.class_name,
+                        row.constraint_name,
+                        row.variable_uid,
+                        it->second,
+                        index));
+      }
+    }
 
     ncoeffs += row.size();
     rows.emplace_back(std::forward<SparseRow>(row));
@@ -273,6 +367,26 @@ public:
   [[nodiscard]] constexpr auto get_col_uppb(ColIndex index) const
   {
     return cols.at(index).uppb;
+  }
+
+  /**
+   * Sets the lower bound of a column
+   * @param index Column index
+   * @param lowb New lower bound value
+   */
+  constexpr void set_col_lowb(ColIndex index, double lowb)
+  {
+    cols.at(index).lowb = lowb;
+  }
+
+  /**
+   * Sets the upper bound of a column
+   * @param index Column index
+   * @param uppb New upper bound value
+   */
+  constexpr void set_col_uppb(ColIndex index, double uppb)
+  {
+    cols.at(index).uppb = uppb;
   }
 
   /**
@@ -381,6 +495,20 @@ private:
   size_t colints {};  ///< Number of integer variables
   double m_infinity_ {DblMax};  ///< Target infinity for bound normalization
   VariableScaleMap m_vsm_ {};  ///< Auto-scale map (owned copy)
+  LabelMaker m_label_maker_ {};  ///< Label generator (default = names off)
+
+  /// Eager duplicate-detection maps for columns and rows, keyed on the
+  /// `(class_name, variable_name/constraint_name, variable_uid,
+  /// context)` 4-tuple that uniquely identifies an LP label source.
+  /// Populated in `add_col` / `add_row`; collision throws
+  /// `std::runtime_error` with both indices.  See
+  /// `check_unique_col_label` / `check_unique_row_label` for the hook
+  /// logic and `LinearInterface::m_col_meta_index_` for the
+  /// post-flatten counterpart that guards dynamic insertions.
+  std::unordered_map<SparseColLabel, ColIndex, SparseColLabelHash>
+      m_col_meta_index_ {};
+  std::unordered_map<SparseRowLabel, RowIndex, SparseRowLabelHash>
+      m_row_meta_index_ {};
 };
 
 }  // namespace gtopt

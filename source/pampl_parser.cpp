@@ -12,6 +12,7 @@
 #include <stdexcept>
 #include <string>
 
+#include <gtopt/as_label.hpp>
 #include <gtopt/basic_types.hpp>
 #include <gtopt/pampl_parser.hpp>
 
@@ -360,7 +361,7 @@ PamplParseResult do_parse(std::string_view source, Uid start_uid)
 
     // Auto-generate name if none was provided
     if (name.empty()) {
-      name = std::format("uc_{}", static_cast<int>(next_uid));
+      name = as_label("uc", next_uid);
     }
 
     UserConstraint uc;

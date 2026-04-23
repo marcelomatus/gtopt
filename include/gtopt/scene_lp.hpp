@@ -63,26 +63,27 @@ public:
    * @brief Construct a SceneLP from a Scene and a collection of Scenario
    * elements
    *
-   * @param scene     The Scene object
-   * @param scenarios Collection of Scenario elements
-   * @param index     Index of this scene in the parent container
+   * @param scene       The Scene object
+   * @param scenarios   Collection of Scenario elements
+   * @param scene_index Index of this scene in the parent container
    *
    * Initializes the SceneLP with the given Scene and extracts the relevant
    * ScenarioLP elements based on the Scene's first_scenario and count_scenario.
    */
   explicit SceneLP(Scene scene,
                    std::span<const Scenario> scenarios,
-                   SceneIndex index = SceneIndex {unknown_index})
+                   SceneIndex scene_index = SceneIndex {unknown_index})
       : m_scene_(std::move(scene))
-      , m_scenarios_(detail::create_scenario_array(scenarios, m_scene_, index))
-      , m_index_(index)
+      , m_scenarios_(
+            detail::create_scenario_array(scenarios, m_scene_, scene_index))
+      , m_index_(scene_index)
   {
   }
 
   explicit SceneLP(Scene scene,
                    const Simulation& simulation,
-                   SceneIndex index = SceneIndex {unknown_index})
-      : SceneLP(std::move(scene), simulation.scenario_array, index)
+                   SceneIndex scene_index = SceneIndex {unknown_index})
+      : SceneLP(std::move(scene), simulation.scenario_array, scene_index)
   {
   }
 
@@ -101,7 +102,7 @@ public:
    */
   [[nodiscard]] constexpr auto uid() const noexcept
   {
-    return SceneUid {m_scene_.uid};
+    return make_uid<Scene>(m_scene_.uid);
   }
 
   /**

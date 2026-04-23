@@ -259,10 +259,15 @@ void System::merge(System&& sys)  // NOLINT
 
   gtopt::merge(battery_array, std::move(sys.battery_array));
   gtopt::merge(converter_array, std::move(sys.converter_array));
+  gtopt::merge(lng_terminal_array, std::move(sys.lng_terminal_array));
 
   gtopt::merge(reserve_zone_array, std::move(sys.reserve_zone_array));
   gtopt::merge(reserve_provision_array, std::move(sys.reserve_provision_array));
   gtopt::merge(commitment_array, std::move(sys.commitment_array));
+  gtopt::merge(simple_commitment_array, std::move(sys.simple_commitment_array));
+
+  gtopt::merge(inertia_zone_array, std::move(sys.inertia_zone_array));
+  gtopt::merge(inertia_provision_array, std::move(sys.inertia_provision_array));
 
   gtopt::merge(junction_array, std::move(sys.junction_array));
   gtopt::merge(waterway_array, std::move(sys.waterway_array));
@@ -272,6 +277,7 @@ void System::merge(System&& sys)  // NOLINT
   gtopt::merge(reservoir_discharge_limit_array,
                std::move(sys.reservoir_discharge_limit_array));
   gtopt::merge(turbine_array, std::move(sys.turbine_array));
+  gtopt::merge(pump_array, std::move(sys.pump_array));
   gtopt::merge(reservoir_production_factor_array,
                std::move(sys.reservoir_production_factor_array));
 

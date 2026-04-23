@@ -620,11 +620,11 @@ def test_build_options_num_apertures_default():
     assert opts["num_apertures"] == "all"
 
 
-def test_build_options_short_flags_solver():
-    """-S is the short form for --solver."""
-    args = make_parser().parse_args(["-S", "mono"])
+def test_build_options_short_flags_method():
+    """-M is the short form for --method."""
+    args = make_parser().parse_args(["-M", "mono"])
     opts = build_options(args)
-    assert opts["solver_type"] == "mono"
+    assert opts["method"] == "mono"
 
 
 def test_build_options_short_flags_stages_phase():

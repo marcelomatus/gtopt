@@ -91,6 +91,22 @@ public:
    */
   [[nodiscard]] bool has_solver(std::string_view name) const;
 
+  /** @brief Check whether the named solver can solve MIP problems.
+   *
+   * Loads the plugin on demand if necessary, then queries the backend's
+   * supports_mip() method.  Returns false if the solver is not available
+   * or does not support integer variables (e.g. CLP).
+   */
+  [[nodiscard]] bool supports_mip(std::string_view name);
+
+  /** @brief True if at least one loaded backend can solve MIP problems.
+   *
+   * Calls load_all_plugins() to ensure every available solver has been
+   * inspected.  Use this to gate test cases that require a MIP-capable
+   * solver — when it returns false, the test should skip.
+   */
+  [[nodiscard]] bool has_mip_solver();
+
   /** @brief Return the best available solver name by priority.
    *
    * Loads plugins on demand until a suitable solver is found.

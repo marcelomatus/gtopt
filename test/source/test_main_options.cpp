@@ -71,16 +71,6 @@ TEST_CASE("get_opt - works with bool type")
   CHECK((result && *result == true));
 }
 
-TEST_CASE("get_opt - works with string type for names-level")
-{
-  auto desc = make_options_description();
-  auto vm = parse_args({"--lp-names-level", "cols_and_rows"}, desc);
-
-  auto result = get_opt<std::string>(vm, "lp-names-level");
-  REQUIRE(result.has_value());
-  CHECK(result.value_or("") == "cols_and_rows");
-}
-
 TEST_CASE("get_opt - works with double type")
 {
   auto desc = make_options_description();
@@ -101,16 +91,6 @@ TEST_CASE("get_opt - implicit bool value")
   CHECK(result.value_or(false) == true);
 }
 
-TEST_CASE("get_opt - implicit string value for names-level")
-{
-  auto desc = make_options_description();
-  auto vm = parse_args({"--lp-names-level"}, desc);
-
-  auto result = get_opt<std::string>(vm, "lp-names-level");
-  REQUIRE(result.has_value());
-  CHECK(result.value_or("") == "only_cols");
-}
-
 // ---- Tests for make_options_description ----
 
 TEST_CASE("make_options_description - contains expected options")
@@ -125,7 +105,6 @@ TEST_CASE("make_options_description - contains expected options")
   CHECK_NOTHROW(parse_args({"--use-single-bus"}, desc));
   CHECK_NOTHROW(parse_args({"--use-kirchhoff"}, desc));
   CHECK_NOTHROW(parse_args({"--lp-only"}, desc));
-  CHECK_NOTHROW(parse_args({"--fast-parsing"}, desc));
 }
 
 TEST_CASE("make_options_description - short options work")
@@ -137,9 +116,6 @@ TEST_CASE("make_options_description - short options work")
 
   vm = parse_args({"-k"}, desc);
   CHECK(vm.contains("use-kirchhoff"));
-
-  vm = parse_args({"-n", "only_cols"}, desc);
-  CHECK(vm.contains("lp-names-level"));
 
   vm = parse_args({"-e", "0.01"}, desc);
   CHECK(vm.contains("matrix-eps"));
@@ -211,14 +187,11 @@ TEST_CASE("apply_cli_options - no options applied")
                     std::nullopt,
                     std::nullopt,
                     std::nullopt,
-                    std::nullopt,
                     std::nullopt);
 
   CHECK_FALSE(planning.options.use_single_bus.has_value());
   CHECK_FALSE(planning.options.use_kirchhoff.has_value());
-  CHECK_FALSE(planning.options.lp_matrix_options.names_level.has_value());
   CHECK_FALSE(planning.options.input_directory.has_value());
-  CHECK_FALSE(planning.options.input_format.has_value());
   CHECK_FALSE(planning.options.output_directory.has_value());
   CHECK_FALSE(planning.options.output_format.has_value());
   CHECK_FALSE(planning.options.output_compression.has_value());
@@ -230,7 +203,6 @@ TEST_CASE("apply_cli_options - all options applied")
   apply_cli_options(planning,
                     true,
                     false,
-                    std::optional<LpNamesLevel>(LpNamesLevel::only_cols),
                     std::optional<std::string>("/input"),
                     std::optional<std::string>("parquet"),
                     std::optional<std::string>("/output"),
@@ -244,11 +216,6 @@ TEST_CASE("apply_cli_options - all options applied")
   REQUIRE(planning.options.use_kirchhoff.has_value());
   CHECK((planning.options.use_kirchhoff
          && *planning.options.use_kirchhoff == false));
-
-  REQUIRE(planning.options.lp_matrix_options.names_level.has_value());
-  CHECK((planning.options.lp_matrix_options.names_level
-         && *planning.options.lp_matrix_options.names_level
-             == LpNamesLevel::only_cols));
 
   REQUIRE(planning.options.input_directory.has_value());
   CHECK((planning.options.input_directory
@@ -279,7 +246,6 @@ TEST_CASE("apply_cli_options - partial options applied")
                     std::nullopt,
                     std::nullopt,
                     std::nullopt,
-                    std::nullopt,
                     std::optional<std::string>("/output"),
                     std::nullopt,
                     std::nullopt);
@@ -289,7 +255,6 @@ TEST_CASE("apply_cli_options - partial options applied")
          && *planning.options.use_single_bus == true));
 
   CHECK_FALSE(planning.options.use_kirchhoff.has_value());
-  CHECK_FALSE(planning.options.lp_matrix_options.names_level.has_value());
 
   REQUIRE(planning.options.output_directory.has_value());
   CHECK((planning.options.output_directory
@@ -305,7 +270,6 @@ TEST_CASE("apply_cli_options - does not overwrite existing when nullopt")
   planning.options.use_kirchhoff = true;
 
   apply_cli_options(planning,
-                    std::nullopt,
                     std::nullopt,
                     std::nullopt,
                     std::nullopt,
@@ -333,7 +297,6 @@ TEST_CASE("apply_cli_options - overwrites existing when value provided")
                     std::nullopt,
                     std::nullopt,
                     std::nullopt,
-                    std::nullopt,
                     std::optional<std::string>("new_dir"),
                     std::nullopt,
                     std::nullopt);
@@ -352,7 +315,6 @@ TEST_CASE("apply_cli_options(MainOptions) - no options applied")
 
   CHECK_FALSE(planning.options.use_single_bus.has_value());
   CHECK_FALSE(planning.options.use_kirchhoff.has_value());
-  CHECK_FALSE(planning.options.lp_matrix_options.names_level.has_value());
   CHECK_FALSE(planning.options.input_directory.has_value());
   CHECK_FALSE(planning.options.output_directory.has_value());
   CHECK_FALSE(planning.options.output_format.has_value());
@@ -371,7 +333,6 @@ TEST_CASE("apply_cli_options(MainOptions) - all options applied")
                         .output_compression = "gzip",
                         .use_single_bus = true,
                         .use_kirchhoff = false,
-                        .lp_names_level = LpNamesLevel::only_cols,
                     });
 
   REQUIRE(planning.options.use_single_bus.has_value());
@@ -432,46 +393,30 @@ TEST_CASE("apply_cli_options(MainOptions) - overwrites existing when provided")
 
 TEST_CASE("make_lp_matrix_options - defaults when both nullopt")
 {
-  auto opts = make_lp_matrix_options(std::nullopt, std::nullopt);
+  auto opts = make_lp_matrix_options(false, std::nullopt);
 
   CHECK(opts.eps == doctest::Approx(0.0));
   CHECK(opts.col_with_names == false);
   CHECK(opts.row_with_names == false);
   CHECK(opts.col_with_name_map == false);
   CHECK(opts.row_with_name_map == false);
-  CHECK(opts.lp_names_level == LpNamesLevel::none);
 }
 
-TEST_CASE(
-    "make_lp_matrix_options - names_level minimal col names for state vars")
+TEST_CASE("make_lp_matrix_options - enable_names false disables all names")
 {
-  auto opts = make_lp_matrix_options(
-      std::optional<LpNamesLevel>(LpNamesLevel::minimal), std::nullopt);
+  auto opts = make_lp_matrix_options(false, std::nullopt);
 
-  CHECK(opts.col_with_names == true);
+  // At minimal, dense col/row name vectors are not built — state variable
+  // I/O uses the state variable map (ColIndex-based) directly.
+  CHECK(opts.col_with_names == false);
   CHECK(opts.row_with_names == false);
   CHECK(opts.col_with_name_map == false);
   CHECK(opts.row_with_name_map == false);
 }
 
-TEST_CASE(
-    "make_lp_matrix_options - names_level only_cols enables col and row names")
+TEST_CASE("make_lp_matrix_options - enable_names true enables all names")
 {
-  auto opts = make_lp_matrix_options(
-      std::optional<LpNamesLevel>(LpNamesLevel::only_cols), std::nullopt);
-
-  CHECK(opts.col_with_names == true);
-  CHECK(opts.row_with_names == true);
-  CHECK(opts.col_with_name_map == true);
-  CHECK(opts.row_with_name_map == true);
-}
-
-TEST_CASE(
-    "make_lp_matrix_options - names_level cols_and_rows enables names and "
-    "errors")
-{
-  auto opts = make_lp_matrix_options(
-      std::optional<LpNamesLevel>(LpNamesLevel::cols_and_rows), std::nullopt);
+  auto opts = make_lp_matrix_options(true, std::nullopt);
 
   CHECK(opts.col_with_names == true);
   CHECK(opts.row_with_names == true);
@@ -481,17 +426,14 @@ TEST_CASE(
 
 TEST_CASE("make_lp_matrix_options - custom eps value")
 {
-  auto opts =
-      make_lp_matrix_options(std::nullopt, std::optional<double>(0.001));
+  auto opts = make_lp_matrix_options(false, std::optional<double>(0.001));
 
   CHECK(opts.eps == doctest::Approx(0.001));
 }
 
 TEST_CASE("make_lp_matrix_options - both parameters provided")
 {
-  auto opts = make_lp_matrix_options(
-      std::optional<LpNamesLevel>(LpNamesLevel::cols_and_rows),
-      std::optional<double>(1e-6));
+  auto opts = make_lp_matrix_options(true, std::optional<double>(1e-6));
 
   CHECK(opts.eps == doctest::Approx(1e-6));
   CHECK(opts.col_with_names == true);
@@ -509,8 +451,6 @@ TEST_CASE("Integration - parse and extract all option types")
       {
           "system.json",
           "--use-single-bus",
-          "--lp-names-level",
-          "cols_and_rows",
           "--matrix-eps",
           "0.01",
           "--output-directory",
@@ -523,13 +463,6 @@ TEST_CASE("Integration - parse and extract all option types")
       desc);
 
   auto use_single_bus = get_opt<bool>(vm, "use-single-bus");
-  auto names_level = [&]() -> std::optional<LpNamesLevel>
-  {
-    if (auto raw = get_opt<std::string>(vm, "lp-names-level")) {
-      return parse_lp_names_level(*raw);
-    }
-    return std::nullopt;
-  }();
   auto matrix_eps = get_opt<double>(vm, "matrix-eps");
   auto output_directory = get_opt<std::string>(vm, "output-directory");
   auto output_format = get_opt<std::string>(vm, "output-format");
@@ -537,9 +470,6 @@ TEST_CASE("Integration - parse and extract all option types")
 
   REQUIRE(use_single_bus.has_value());
   CHECK((use_single_bus && *use_single_bus == true));
-
-  REQUIRE(names_level.has_value());
-  CHECK((names_level && *names_level == LpNamesLevel::cols_and_rows));
 
   REQUIRE(matrix_eps.has_value());
   CHECK((matrix_eps && *matrix_eps == doctest::Approx(0.01)));
@@ -558,7 +488,6 @@ TEST_CASE("Integration - parse and extract all option types")
   apply_cli_options(planning,
                     use_single_bus,
                     get_opt<bool>(vm, "use-kirchhoff"),
-                    names_level,
                     get_opt<std::string>(vm, "input-directory"),
                     get_opt<std::string>(vm, "input-format"),
                     output_directory,
@@ -570,8 +499,8 @@ TEST_CASE("Integration - parse and extract all option types")
          && *planning.options.use_single_bus == true));
   CHECK_FALSE(planning.options.use_kirchhoff.has_value());
 
-  // Build flat options
-  auto flat_opts = make_lp_matrix_options(names_level, matrix_eps);
+  // Build flat options (enable_names is internal-only, set directly)
+  auto flat_opts = make_lp_matrix_options(true, matrix_eps);
   CHECK(flat_opts.eps == doctest::Approx(0.01));
   CHECK(flat_opts.col_with_names == true);
   CHECK(flat_opts.col_with_name_map == true);
@@ -595,7 +524,19 @@ TEST_CASE("LPAlgo enum_from_name - returns nullopt for unknown name")  // NOLINT
 {
   CHECK_FALSE(enum_from_name<LPAlgo>("interior").has_value());
   CHECK_FALSE(enum_from_name<LPAlgo>("").has_value());
-  CHECK_FALSE(enum_from_name<LPAlgo>("Barrier").has_value());  // case-sensitive
+  CHECK_FALSE(enum_from_name<LPAlgo>("bogus").has_value());
+}
+
+TEST_CASE("LPAlgo enum_from_name - ASCII case-insensitive")  // NOLINT
+{
+  // enum_from_name folds ASCII case, so these all match the lowercase
+  // "barrier" entry in the table.
+  CHECK(enum_from_name<LPAlgo>("Barrier").value_or(LPAlgo::default_algo)
+        == LPAlgo::barrier);
+  CHECK(enum_from_name<LPAlgo>("BARRIER").value_or(LPAlgo::default_algo)
+        == LPAlgo::barrier);
+  CHECK(enum_from_name<LPAlgo>("Primal").value_or(LPAlgo::default_algo)
+        == LPAlgo::primal);
 }
 
 TEST_CASE("LPAlgo enum_name - round-trips all enumerators")  // NOLINT
@@ -615,18 +556,18 @@ TEST_CASE("LPAlgo enum_name - unknown value returns 'unknown'")  // NOLINT
 
 TEST_CASE("parse_lp_algorithm - accepts algorithm names")  // NOLINT
 {
-  CHECK(parse_lp_algorithm("default") == 0);
-  CHECK(parse_lp_algorithm("primal") == 1);
-  CHECK(parse_lp_algorithm("dual") == 2);
-  CHECK(parse_lp_algorithm("barrier") == 3);
+  CHECK(parse_lp_algorithm("default") == LPAlgo::default_algo);
+  CHECK(parse_lp_algorithm("primal") == LPAlgo::primal);
+  CHECK(parse_lp_algorithm("dual") == LPAlgo::dual);
+  CHECK(parse_lp_algorithm("barrier") == LPAlgo::barrier);
 }
 
 TEST_CASE("parse_lp_algorithm - accepts numeric strings")  // NOLINT
 {
-  CHECK(parse_lp_algorithm("0") == 0);
-  CHECK(parse_lp_algorithm("1") == 1);
-  CHECK(parse_lp_algorithm("2") == 2);
-  CHECK(parse_lp_algorithm("3") == 3);
+  CHECK(parse_lp_algorithm("0") == LPAlgo::default_algo);
+  CHECK(parse_lp_algorithm("1") == LPAlgo::primal);
+  CHECK(parse_lp_algorithm("2") == LPAlgo::dual);
+  CHECK(parse_lp_algorithm("3") == LPAlgo::barrier);
 }
 
 TEST_CASE(
@@ -635,10 +576,23 @@ TEST_CASE(
   const auto throws = [](const std::string& s)
   { [[maybe_unused]] auto r = parse_lp_algorithm(s); };
   CHECK_THROWS_AS(throws("interior"), cli::parse_error);
-  CHECK_THROWS_AS(throws("Barrier"), cli::parse_error);
+  // "Barrier" (mixed case) is now accepted because enum_from_name is
+  // ASCII case-insensitive — use a genuinely unknown token instead.
+  CHECK_THROWS_AS(throws("bogus"), cli::parse_error);
   CHECK_THROWS_AS(throws("4"), cli::parse_error);
   CHECK_THROWS_AS(throws("-1"), cli::parse_error);
   CHECK_THROWS_AS(throws("abc"), cli::parse_error);
+}
+
+TEST_CASE("parse_lp_algorithm - accepts mixed-case names")  // NOLINT
+{
+  // Round-trip verification that the case-insensitive lookup flows all
+  // the way through parse_lp_algorithm and produces the same int as the
+  // lowercase name.
+  CHECK(parse_lp_algorithm("Barrier") == parse_lp_algorithm("barrier"));
+  CHECK(parse_lp_algorithm("PRIMAL") == parse_lp_algorithm("primal"));
+  CHECK(parse_lp_algorithm("Dual") == parse_lp_algorithm("dual"));
+  CHECK(parse_lp_algorithm("Default") == parse_lp_algorithm("default"));
 }
 
 // ---- Tests for --algorithm CLI option ----
@@ -653,28 +607,28 @@ TEST_CASE("--algorithm - accepts name via CLI")  // NOLINT
     REQUIRE(vm.contains("algorithm"));
     const auto opts = parse_main_options(vm, {});
     REQUIRE(opts.algorithm.has_value());
-    CHECK(opts.algorithm.value_or(-1) == 3);
+    CHECK(*opts.algorithm == LPAlgo::barrier);
   }
 
   SUBCASE("primal name")
   {
     auto vm = parse_args({"--algorithm", "primal"}, desc);
     const auto opts = parse_main_options(vm, {});
-    CHECK(opts.algorithm.value_or(-1) == 1);
+    CHECK(*opts.algorithm == LPAlgo::primal);
   }
 
   SUBCASE("dual name")
   {
     auto vm = parse_args({"--algorithm", "dual"}, desc);
     const auto opts = parse_main_options(vm, {});
-    CHECK(opts.algorithm.value_or(-1) == 2);
+    CHECK(*opts.algorithm == LPAlgo::dual);
   }
 
   SUBCASE("default name")
   {
     auto vm = parse_args({"--algorithm", "default"}, desc);
     const auto opts = parse_main_options(vm, {});
-    CHECK(opts.algorithm.value_or(-1) == 0);
+    CHECK(*opts.algorithm == LPAlgo::default_algo);
   }
 }
 
@@ -684,7 +638,7 @@ TEST_CASE("--algorithm - accepts numeric value via CLI")  // NOLINT
   auto vm = parse_args({"--algorithm", "2"}, desc);
   const auto opts = parse_main_options(vm, {});
   REQUIRE(opts.algorithm.has_value());
-  CHECK(opts.algorithm.value_or(-1) == 2);
+  CHECK(*opts.algorithm == LPAlgo::dual);
 }
 
 TEST_CASE("-a short option - accepts name")  // NOLINT
@@ -693,7 +647,7 @@ TEST_CASE("-a short option - accepts name")  // NOLINT
   auto vm = parse_args({"-a", "barrier"}, desc);
   const auto opts = parse_main_options(vm, {});
   REQUIRE(opts.algorithm.has_value());
-  CHECK(opts.algorithm.value_or(-1) == 3);
+  CHECK(*opts.algorithm == LPAlgo::barrier);
 }
 
 TEST_CASE("--algorithm - invalid name throws at parse_main_options")  // NOLINT
@@ -787,5 +741,63 @@ TEST_CASE("--recover gates recovery_mode in apply_cli_options")  // NOLINT
     CHECK(
         planning.options.sddp_options.recovery_mode.value_or(RecoveryMode::full)
         == RecoveryMode::none);
+  }
+}
+
+TEST_CASE("--build-mode routes into PlanningOptions::build_mode")  // NOLINT
+{
+  SUBCASE("no --build-mode leaves build_mode unset (→ default scene_parallel)")
+  {
+    Planning planning {};
+    apply_cli_options(planning, MainOptions {});
+    CHECK_FALSE(planning.options.build_mode.has_value());
+  }
+
+  SUBCASE("--build-mode=serial sets BuildMode::serial")
+  {
+    Planning planning {};
+    apply_cli_options(planning,
+                      MainOptions {
+                          .build_mode = std::string {"serial"},
+                      });
+    REQUIRE(planning.options.build_mode.has_value());
+    CHECK(planning.options.build_mode.value_or(BuildMode::full_parallel)
+          == BuildMode::serial);
+  }
+
+  SUBCASE("--build-mode=scene-parallel sets BuildMode::scene_parallel")
+  {
+    Planning planning {};
+    apply_cli_options(planning,
+                      MainOptions {
+                          .build_mode = std::string {"scene-parallel"},
+                      });
+    REQUIRE(planning.options.build_mode.has_value());
+    CHECK(planning.options.build_mode.value_or(BuildMode::full_parallel)
+          == BuildMode::scene_parallel);
+  }
+
+  SUBCASE("--build-mode=full-parallel sets BuildMode::full_parallel")
+  {
+    Planning planning {};
+    apply_cli_options(planning,
+                      MainOptions {
+                          .build_mode = std::string {"full-parallel"},
+                      });
+    REQUIRE(planning.options.build_mode.has_value());
+    CHECK(planning.options.build_mode.value_or(BuildMode::serial)
+          == BuildMode::full_parallel);
+  }
+
+  SUBCASE("--build-mode accepts underscore alias")
+  {
+    Planning planning {};
+    apply_cli_options(planning,
+                      MainOptions {
+                          .build_mode = std::string {"scene_parallel"},
+                      });
+    REQUIRE(planning.options.build_mode.has_value());
+    CHECK(planning.options.build_mode.value_or(BuildMode::full_parallel)
+          == BuildMode::scene_parallel);
   }
 }

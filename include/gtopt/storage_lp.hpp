@@ -14,6 +14,7 @@
 #include <limits>
 #include <span>
 
+#include <gtopt/cost_helper.hpp>
 #include <gtopt/index_holder.hpp>
 #include <gtopt/input_context.hpp>
 #include <gtopt/linear_interface.hpp>
@@ -101,7 +102,6 @@ public:
   static constexpr std::string_view EnergyName {"energy"};
   static constexpr std::string_view SoftEminName {"soft_emin"};
   static constexpr std::string_view DrainName {"drain"};
-  static constexpr std::string_view VolumenName {"volumen"};
   static constexpr std::string_view EfinName {"efin"};
   static constexpr std::string_view CapacityName {"capacity"};
   static constexpr std::string_view SeminGeName {"semin_ge"};
@@ -189,6 +189,15 @@ public:
     return drain_cols.at({scenario.uid(), stage.uid()});
   }
 
+  /// Non-throwing lookup: returns a pointer to the drain/spill column map
+  /// for (scenario, stage), or nullptr when not present.
+  [[nodiscard]] constexpr const BIndexHolder<ColIndex>* find_drain_cols(
+      const ScenarioLP& scenario, const StageLP& stage) const noexcept
+  {
+    const auto it = drain_cols.find({scenario.uid(), stage.uid()});
+    return it != drain_cols.end() ? &it->second : nullptr;
+  }
+
   /// Return the soft-emin slack column for (scenario, stage), if it exists.
   ///
   /// The soft-emin slack is only created when `soft_emin > 0` and
@@ -269,15 +278,16 @@ public:
                                      double default_eini,
                                      const SIdT& sid) const
   {
-    if (stage.index() == StageIndex {0}
-        && stage.phase_index() == PhaseIndex {0})
-    {
+    if (!stage.index() && !stage.phase_index()) {
       return default_eini;
     }
     const auto& li = sys.linear_interface();
     const auto col = eini_col_at(scenario, stage);
     if (li.is_optimal()) {
-      return physical_col_value(li.get_col_sol_raw(), col);
+      // Physical + optimal-only bound-clamped view: scrubs solver-
+      // tolerance noise at column bounds so a propagated eini never
+      // lands outside [emin, emax].
+      return li.get_col_sol()[col];
     }
     const auto& warm = li.warm_col_sol();
     if (!warm.empty() && static_cast<size_t>(col) < warm.size()) {
@@ -308,14 +318,14 @@ public:
                                      const StageLP& stage,
                                      double default_eini) const
   {
-    if (stage.index() == StageIndex {0}
-        && stage.phase_index() == PhaseIndex {0})
-    {
+    if (!stage.index() && !stage.phase_index()) {
       return default_eini;
     }
     const auto col = eini_col_at(scenario, stage);
     if (li.is_optimal()) {
-      return physical_col_value(li.get_col_sol_raw(), col);
+      // Physical + optimal-only bound-clamped view (see sister
+      // overload above).
+      return li.get_col_sol()[col];
     }
     const auto& warm = li.warm_col_sol();
     if (!warm.empty() && static_cast<size_t>(col) < warm.size()) {
@@ -336,7 +346,10 @@ public:
   {
     const auto col = efin_col_at(scenario, stage);
     if (li.is_optimal()) {
-      return physical_col_value(li.get_col_sol_raw(), col);
+      // Physical + optimal-only bound-clamped view: scrubs solver-
+      // tolerance noise so a propagated efin never lands outside
+      // the reservoir's physical envelope.
+      return li.get_col_sol()[col];
     }
     const auto& warm = li.warm_col_sol();
     if (!warm.empty() && static_cast<size_t>(col) < warm.size()) {
@@ -357,6 +370,7 @@ public:
 
   template<typename SystemContextT>
   bool add_to_lp(std::string_view cname,
+                 std::string_view ampl_class,
                  SystemContextT& sc,
                  const ScenarioLP& scenario,
                  const StageLP& stage,
@@ -479,21 +493,16 @@ public:
           .context = stg_ctx,
       });
       if (effective_usv && !opts.skip_state_link) {
-        // Link as DependentVariable of the previous phase's efin StateVariable
-        // so that PlanningLP::resolve_scene_phases() and the SDDP forward pass
-        // can propagate the trial value.
-        const auto efin_key =
-            StateVariable::key(scenario, *prev_stage, cname, uid(), EfinName);
-        if (auto prev_efin = sc.get_state_variable(efin_key); prev_efin) {
-          prev_efin->get().add_dependent_variable(scenario, stage, eicol);
-        } else {
-          SPDLOG_WARN(
-              "StorageLP: no efin StateVariable found for cross-phase sini "
-              "linking (class='{}' uid={} phase boundary). "
-              "Reservoir/battery state will NOT be coupled across this phase.",
-              cname,
-              static_cast<int>(uid()));
-        }
+        // Queue a deferred dependent-variable link to the previous
+        // phase's efin StateVariable.  Resolution happens in the
+        // per-scene tightening pass after parallel phase build joins
+        // (see PlanningLP::tighten_scene_phase_links).  Calling
+        // `prev_efin->add_dependent_variable` here directly would race
+        // with phase N's add_to_lp under parallel phase construction.
+        sc.defer_state_link(
+            // NOLINTNEXTLINE(readability-suspicious-call-argument)
+            StateVariable::key(scenario, *prev_stage, cname, uid(), EfinName),
+            eicol);
       } else if (effective_usv && opts.skip_state_link) {
         SPDLOG_TRACE(
             "StorageLP: skipping state link at phase boundary "
@@ -529,7 +538,7 @@ public:
       auto erow =
           SparseRow {
               .class_name = cname,
-              .constraint_name = VolumenName,
+              .constraint_name = EnergyName,
               .variable_uid = opts.variable_uid,
               .context =
                   make_block_context(scenario.uid(), stage.uid(), block.uid()),
@@ -593,7 +602,8 @@ public:
         const auto dcol = lp.add_col({
             .lowb = 0,
             .uppb = drain_capacity.value_or(LinearProblem::DblMax),
-            .cost = sc.block_ecost(scenario, stage, block, *drain_cost),
+            .cost =
+                CostHelper::block_ecost(scenario, stage, block, *drain_cost),
             .scale = flow_scale,
             .class_name = opts.class_name,
             .variable_name = DrainName,
@@ -703,7 +713,13 @@ public:
     // discover and propagate the reservoir/battery state across phase
     // boundaries (gtopt-phase = PLP-stage).
     if (effective_usv) {
-      sc.add_state_variable(
+      // Register the already-added last-block energy column as a state
+      // variable (efin); sets is_state=true for SDDP cut I/O.  Column names
+      // are available at LpNamesLevel::all, but state variable
+      // I/O uses the StateVariable map (ColIndex-based) directly.
+      sc.add_state_col(
+          lp,
+          // NOLINTNEXTLINE(readability-suspicious-call-argument)
           StateVariable::key(scenario, stage, cname, uid(), EfinName),
           prev_vc,
           opts.scost,
@@ -759,6 +775,28 @@ public:
       capacity_rows[stg_ctx] = std::move(crows);
     }
 
+    // ── Central PAMPL variable registration ──────────────────────────
+    // Register the generic storage variables (energy/drain/eini/efin/
+    // soft_emin) under the caller's canonical AMPL class name.  Callers
+    // that pass an empty ampl_class opt out and must register manually.
+    if (!ampl_class.empty()) {
+      sc.add_ampl_variable(
+          ampl_class, uid(), EnergyName, scenario, stage, energy_cols[stg_ctx]);
+      if (drain_cost) {
+        sc.add_ampl_variable(
+            ampl_class, uid(), DrainName, scenario, stage, drain_cols[stg_ctx]);
+      }
+      sc.add_ampl_variable(ampl_class, uid(), EiniName, scenario, stage, eicol);
+      sc.add_ampl_variable(
+          ampl_class, uid(), EfinName, scenario, stage, prev_vc);
+      if (const auto sit = soft_emin_slack_cols.find(stg_ctx);
+          sit != soft_emin_slack_cols.end())
+      {
+        sc.add_ampl_variable(
+            ampl_class, uid(), SoftEminName, scenario, stage, sit->second);
+      }
+    }
+
     return true;
   }
 
@@ -776,14 +814,14 @@ public:
     out.add_col_cost(cname, SiniName, pid, sini_cols);
     out.add_col_sol(cname, EfinName, pid, efin_cols);
     out.add_col_cost(cname, EfinName, pid, efin_cols);
-    out.add_col_sol(cname, VolumenName, pid, energy_cols);
-    out.add_col_cost(cname, VolumenName, pid, energy_cols);
+    out.add_col_sol(cname, EnergyName, pid, energy_cols);
+    out.add_col_cost(cname, EnergyName, pid, energy_cols);
 
     // Dual output: output_dual_scale = dc_stage_scale.
     // Row equilibration is already removed by get_row_dual().
     // This corrects the daily-cycle time-scaling (dc_stage_scale).
     // flatten() handles energy_scale via col_scale on coefficients.
-    out.add_row_dual(cname, VolumenName, pid, energy_rows, output_dual_scale);
+    out.add_row_dual(cname, EnergyName, pid, energy_rows, output_dual_scale);
 
     out.add_row_dual(cname, CapacityName, pid, capacity_rows);
     out.add_row_dual(cname, EfinName, pid, efin_rows);

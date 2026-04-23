@@ -13,6 +13,7 @@
 
 #include <algorithm>
 #include <bit>
+#include <cassert>
 #include <cmath>
 #include <cstdint>
 #include <format>
@@ -21,6 +22,9 @@
 #include <unordered_map>
 
 #include <gtopt/linear_problem.hpp>
+#include <gtopt/lp_equilibration.hpp>
+#include <gtopt/map_reserve.hpp>
+#include <gtopt/utils.hpp>
 #include <spdlog/spdlog.h>
 
 namespace gtopt
@@ -37,7 +41,7 @@ namespace
 [[nodiscard]] inline auto sqrt_ieee_halve(double x) noexcept -> double
 {
   auto bits = std::bit_cast<uint64_t>(x);
-  bits = (bits >> 1) + 0x1FF8'0000'0000'0000ULL;
+  bits = (bits >> 1U) + 0x1FF8'0000'0000'0000ULL;
   return std::bit_cast<double>(bits);
 }
 
@@ -74,13 +78,17 @@ namespace
 // Returns the per-row scale factors (max |coeff| per row, or 1.0 for
 // empty rows).
 
-auto apply_row_max_equilibration(
+[[nodiscard]] auto apply_row_max_equilibration(
     std::span<const FlatLinearProblem::index_t> matind,
     std::span<double> matval,
     std::span<double> rowlb,
     std::span<double> rowub,
     double infinity) -> std::vector<double>
 {
+  // Bulk row-max equilibration used at build time.  The per-row scaling
+  // math is shared with the single-row `equilibrate_row_in_place`
+  // primitive in `lp_equilibration.cpp`; this variant just stays
+  // CSC-oriented because it already holds the whole matrix in hand.
   const auto nrows = rowlb.size();
 
   // 1. Compute row max |coefficient| from the CSC matrix.
@@ -139,19 +147,20 @@ struct RuizScalingResult
   // col_scales are updated in-place (passed by reference)
 };
 
-auto apply_ruiz_scaling(std::span<const FlatLinearProblem::index_t> matbeg,
-                        std::span<const FlatLinearProblem::index_t> matind,
-                        std::span<double> matval,
-                        std::span<double> rowlb,
-                        std::span<double> rowub,
-                        std::span<double> collb,
-                        std::span<double> colub,
-                        std::span<double> objval,
-                        std::span<double> col_scales,
-                        double infinity,
-                        FastSqrtMethod sqrt_method = FastSqrtMethod::ieee_halve,
-                        int max_iterations = 10,
-                        double tolerance = 1e-3) -> std::vector<double>
+[[nodiscard]] auto apply_ruiz_scaling(
+    std::span<const FlatLinearProblem::index_t> matbeg,
+    std::span<const FlatLinearProblem::index_t> matind,
+    std::span<double> matval,
+    std::span<double> rowlb,
+    std::span<double> rowub,
+    std::span<double> collb,
+    std::span<double> colub,
+    std::span<double> objval,
+    std::span<double> col_scales,
+    double infinity,
+    FastSqrtMethod sqrt_method = FastSqrtMethod::ieee_halve,
+    int max_iterations = 10,
+    double tolerance = 1e-3) -> std::vector<double>
 {
   const auto nrows = rowlb.size();
   const auto ncols = collb.size();
@@ -285,6 +294,7 @@ auto LinearProblem::flatten(const LpMatrixOptions& opts) -> FlatLinearProblem
   const auto eps = opts.eps;
   for (const auto& row : rows) {
     for (const auto& [j, v] : row.cmap) {
+      assert(j >= 0 && "column index in row.cmap must be non-negative");
       if (eps < 0 || std::abs(v) > eps) [[likely]] {
         ++matbeg[static_cast<size_t>(j)];
       }
@@ -336,14 +346,14 @@ auto LinearProblem::flatten(const LpMatrixOptions& opts) -> FlatLinearProblem
   // physical_value = LP_value × col_scale, so LP_coeff = phys_coeff ×
   // col_scale.
   std::vector<double> col_scales(ncols, 1.0);
-  for (const auto& [i, col] : std::views::enumerate(cols)) {
+  for (const auto& [i, col] : enumerate(cols)) {
     col_scales[i] = col.scale;
   }
 
   std::vector<double> rowlb(nrows);
   std::vector<double> rowub(nrows);
 
-  for (const auto& [i, row] : std::views::enumerate(rows)) {
+  for (const auto& [i, row] : enumerate(rows)) {
     const auto rs = row.scale;
     const auto inv_rs = (rs != 1.0) ? 1.0 / rs : 1.0;
     rowlb[i] = (rs != 1.0 && row.lowb > -m_infinity_ && row.lowb < m_infinity_)
@@ -354,6 +364,7 @@ auto LinearProblem::flatten(const LpMatrixOptions& opts) -> FlatLinearProblem
         : row.uppb;
 
     for (const auto& [j, v_raw] : row.cmap) {
+      assert(j >= 0 && "column index in row.cmap must be non-negative");
       const auto cs = col_scales[static_cast<size_t>(j)];
       const auto v = v_raw * cs * inv_rs;
       if (eps < 0 || std::abs(v) > eps) [[likely]] {
@@ -399,7 +410,7 @@ auto LinearProblem::flatten(const LpMatrixOptions& opts) -> FlatLinearProblem
   std::vector<fp_index_t> colint;
   colint.reserve(colints);
 
-  for (const auto& [i, col] : std::views::enumerate(cols)) {
+  for (const auto& [i, col] : enumerate(cols)) {
     // SparseCol bounds are physical; convert to LP units by dividing
     // by the column scale factor.  Infinite bounds are preserved as-is
     // (IEEE 754 guarantees inf / finite = inf, but we skip the division
@@ -419,79 +430,72 @@ auto LinearProblem::flatten(const LpMatrixOptions& opts) -> FlatLinearProblem
     }
   }
 
-  // Name vectors
+  // Name vectors — delegated to LabelMaker which honors LpNamesLevel and
+  // handles the `is_state` gating for minimal-level labels.  The same
+  // LabelMaker is copied into FlatLinearProblem so LinearInterface can
+  // continue generating labels for rows/cols added after load_flat().
+  //
+  // Fallback: if the caller did not explicitly install a LabelMaker via
+  // set_label_maker() (leaving it at LpNamesLevel::none), derive an
+  // effective one from the naming bools in LpMatrixOptions.
+  //
+  // Gating: flatten() populates colnm / rownm whenever the caller asks
+  // for them via `col_with_names` / `row_with_names`.  Per-entry label
+  // content is decided by LabelMaker, so an entry may be an empty
+  // string when the level disables it — callers never need to gate.
+  const LabelMaker effective_lm = [&]
+  {
+    if (m_label_maker_.names_level() != LpNamesLevel::none) {
+      return m_label_maker_;
+    }
+    const auto lvl = (opts.row_with_name_map || opts.col_with_names)
+        ? LpNamesLevel::all
+        : LpNamesLevel::none;
+    return LabelMaker {lvl};
+  }();
+
   using fp_name_vec_t = FlatLinearProblem::name_vec_t;
-
-  // Build column names: generate from structured metadata + context when
-  // available; leave empty otherwise.
-  // Generated labels use class_name (full_name, e.g. "Reservoir") which
-  // as_label lowercases to "reservoir_eini_1_0_1".
-  auto build_col_names = [](auto& source, bool /*move_names*/) -> fp_name_vec_t
-  {
-    fp_name_vec_t names;
-    names.reserve(source.size());
-
-    for (const auto& col : source) {
-      if (!col.class_name.empty()
-          && !std::holds_alternative<std::monostate>(col.context))
-      {
-        names.emplace_back(std::visit(
-            [&](const auto& ctx) -> std::string
-            {
-              if constexpr (std::is_same_v<std::remove_cvref_t<decltype(ctx)>,
-                                           std::monostate>)
-              {
-                return {};
-              } else {
-                return generate_lp_label(
-                    col.class_name, col.variable_name, col.variable_uid, ctx);
-              }
-            },
-            col.context));
-      } else {
-        names.emplace_back();
-      }
-    }
-    return names;
-  };
-
-  // Build row names: generate from metadata when available.
-  auto build_row_names = [](auto& source, bool /*move_names*/) -> fp_name_vec_t
-  {
-    fp_name_vec_t names;
-    names.reserve(source.size());
-    for (const auto& row : source) {
-      if (!row.class_name.empty()
-          && !std::holds_alternative<std::monostate>(row.context))
-      {
-        names.emplace_back(std::visit(
-            [&](const auto& ctx) -> std::string
-            {
-              if constexpr (std::is_same_v<std::remove_cvref_t<decltype(ctx)>,
-                                           std::monostate>)
-              {
-                return {};
-              } else {
-                return generate_lp_label(
-                    row.class_name, row.constraint_name, row.variable_uid, ctx);
-              }
-            },
-            row.context));
-      } else {
-        names.emplace_back();
-      }
-    }
-    return names;
-  };
 
   fp_name_vec_t colnm;
   if (opts.col_with_names || opts.col_with_name_map) [[unlikely]] {
-    colnm = build_col_names(cols, opts.move_names);
+    colnm.reserve(cols.size());
+    for (const auto& col : cols) {
+      colnm.emplace_back(effective_lm.make_col_label(col));
+    }
   }
 
   fp_name_vec_t rownm;
   if (opts.row_with_names || opts.row_with_name_map) [[unlikely]] {
-    rownm = build_row_names(rows, opts.move_names);
+    rownm.reserve(rows.size());
+    for (const auto& row : rows) {
+      rownm.emplace_back(effective_lm.make_row_label(row));
+    }
+  }
+
+  // Lightweight label metadata — always populated regardless of
+  // `col_with_names` / `row_with_names`.  Lets `LinearInterface::
+  // generate_labels_from_maps` synthesise real gtopt labels on demand
+  // at `write_lp` time (e.g. the SDDP error-LP dump path) without
+  // requiring the user to pre-enable `--lp-debug` at build time.
+  std::vector<SparseColLabel> col_labels_meta;
+  col_labels_meta.reserve(cols.size());
+  for (const auto& col : cols) {
+    col_labels_meta.push_back(SparseColLabel {
+        .class_name = col.class_name,
+        .variable_name = col.variable_name,
+        .variable_uid = col.variable_uid,
+        .context = col.context,
+    });
+  }
+  std::vector<SparseRowLabel> row_labels_meta;
+  row_labels_meta.reserve(rows.size());
+  for (const auto& row : rows) {
+    row_labels_meta.push_back(SparseRowLabel {
+        .class_name = row.class_name,
+        .constraint_name = row.constraint_name,
+        .variable_uid = row.variable_uid,
+        .context = row.context,
+    });
   }
 
   // Index name maps
@@ -502,7 +506,7 @@ auto LinearProblem::flatten(const LpMatrixOptions& opts) -> FlatLinearProblem
     fp_index_map_t map;
     map.reserve(names.size());
 
-    for (const auto& [i, name] : std::views::enumerate(names)) {
+    for (const auto& [i, name] : enumerate(names)) {
       if (name.empty()) [[unlikely]] {
         continue;  // skip empty names to avoid false-positive duplicates
       }
@@ -590,9 +594,9 @@ auto LinearProblem::flatten(const LpMatrixOptions& opts) -> FlatLinearProblem
       if (row_scales_vec.empty()) {
         row_scales_vec.resize(nrows, 1.0);
       }
-      for (const auto& [i, row] : std::views::enumerate(rows)) {
+      for (const auto& [i, row] : enumerate(rows)) {
         if (row.scale != 1.0) {
-          row_scales_vec[static_cast<size_t>(i)] *= row.scale;
+          row_scales_vec[i] *= row.scale;
         }
       }
     }
@@ -673,6 +677,7 @@ auto LinearProblem::flatten(const LpMatrixOptions& opts) -> FlatLinearProblem
       double min_abs {std::numeric_limits<double>::max()};
     };
     std::unordered_map<std::string_view, TypeAccum> type_map;
+    map_reserve(type_map, 32);
 
     for (size_t r = 0; r < nrows; ++r) {
       const auto type = extract_row_type(rownm[r]);
@@ -738,11 +743,14 @@ auto LinearProblem::flatten(const LpMatrixOptions& opts) -> FlatLinearProblem
       .colint = std::move(colint),
       .col_scales = std::move(col_scales),
       .row_scales = std::move(row_scales_vec),
+      .equilibration_method = eq_method,
       .scale_objective = scale_obj,
       .colnm = std::move(colnm),
       .rownm = std::move(rownm),
       .colmp = std::move(colmp),
       .rowmp = std::move(rowmp),
+      .col_labels_meta = std::move(col_labels_meta),
+      .row_labels_meta = std::move(row_labels_meta),
       .name = pname,  // always copy (trivially small, enables multiple flatten)
       .stats_nnz = stats_nnz,
       .stats_zeroed = stats_zeroed,
@@ -755,6 +763,7 @@ auto LinearProblem::flatten(const LpMatrixOptions& opts) -> FlatLinearProblem
       .stats_min_col_name = std::move(stats_min_col_name),
       .row_type_stats = std::move(row_type_stats_vec),
       .variable_scale_map = std::move(m_vsm_),
+      .label_maker = effective_lm,
   };
 }
 

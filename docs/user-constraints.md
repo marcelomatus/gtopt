@@ -19,9 +19,10 @@ domain restrictions over scenarios, stages, and blocks.
 8. [Examples](#8-examples)
 9. [External Constraint Files](#9-external-constraint-files)
 10. [Formal Grammar (BNF)](#10-formal-grammar-bnf)
-11. [Comparison with AMPL](#11-comparison-with-ampl)
-12. [Best Practices](#12-best-practices)
-13. [See Also](#13-see-also)
+11. [Error Diagnostics](#11-error-diagnostics)
+12. [Comparison with AMPL](#12-comparison-with-ampl)
+13. [Best Practices](#13-best-practices)
+14. [See Also](#14-see-also)
 
 ---
 
@@ -65,6 +66,42 @@ A constraint expression has three parts:
 | RHS | Right-hand side: number or another linear expression | `300` |
 | Domain (optional) | Index restriction: `for(stage in ..., block in ...)` | `for(stage in {1,2,3}, block in 1..24)` |
 
+### Arithmetic and operator precedence
+
+Linear expressions support the standard arithmetic operators with
+C/Python-style precedence (highest to lowest):
+
+| Precedence | Operators | Associativity | Notes |
+|------------|-----------|---------------|-------|
+| 1 (tightest) | `(` `)` | — | Grouping subexpressions |
+| 2 | unary `-`, unary `+` | right | `-(a - b)` distributes the sign |
+| 3 | `*`, `/` | left | Division is by numeric literals only |
+| 4 (loosest) | binary `+`, `-` | left | Term addition/subtraction |
+
+**Parentheses** let you factor out a shared coefficient or divisor:
+
+```text
+2 * (generator('G1').generation + generator('G2').generation) <= 300
+(generator('G1').generation + generator('G2').generation) / 4 <= 25
+```
+
+**Constant folding.** Any subexpression that contains only numeric
+literals is folded at parse time, so `(2 + 3) * x`, `2 * 3 * x` and
+`6/2 * x` all resolve to a coefficient of `5`, `6`, and `3`
+respectively.
+
+**Linearity is enforced.** The parser keeps constraints linear and
+rejects two classes of non-linear expressions:
+
+- Product of two variable-bearing expressions:
+  `generator('G1').generation * generator('G2').generation` → error.
+- Division by a variable or parameter:
+  `generator('G1').generation / generator('G2').generation` → error.
+  Division by zero is also rejected at parse time.
+
+At least one side of every `*` must collapse to a constant;
+every `/` divisor must collapse to a nonzero constant.
+
 ### Range constraints
 
 Range constraints bound an expression from both sides:
@@ -74,6 +111,88 @@ Range constraints bound an expression from both sides:
 ```
 
 This creates a single LP row with both lower and upper bounds.
+
+### Nonlinear shortcuts (auto-linearized)
+
+The parser accepts three convex nonlinear shortcuts and lowers them
+into plain LP rows behind the scenes. You can use them in any
+single-sided constraint (range constraints are not supported for
+these). Arguments may be arbitrary linear expressions.
+
+#### `abs(expr)` — absolute value
+
+```text
+abs(generator('G1').generation - 50) <= 50
+```
+
+is lowered as:
+
+```text
+t >= 0
+generator('G1').generation - 50 - t <= 0
+-(generator('G1').generation - 50) - t <= 0
++ t          -- replaces abs(...) in the original row
+```
+
+**Convexity rules.** `c · abs(x)` must appear on the convex side:
+`c > 0` with `<=`, or `c < 0` with `>=`. Any other combination (e.g.
+`abs(x) >= k`) is non-convex and is rejected with a diagnostic at LP
+construction time. Nested `abs(abs(...))` is rejected at parse time.
+
+#### `max(e1, e2, ...)` and `min(e1, e2, ...)`
+
+```text
+max(generator('G1').generation, generator('G2').generation) <= 80
+min(generator('G1').generation, generator('G2').generation) >= 5
+```
+
+are lowered into one free auxiliary variable `t` plus one row per
+argument:
+
+```text
+-- max(...) <=  : t - t bounds free, arg_i - t <= 0  ∀ i
+-- min(...) >=  : same shape with t - arg_i <= 0
+```
+
+The outer coefficient is preserved, so
+`-3 * max(a, b) >= k` rewrites to the equivalent convex `<=` form.
+At least two arguments are required. A `max`/`min` on the wrong side
+of the inequality is non-convex and is rejected with a diagnostic.
+
+If every argument is a constant, the expression is folded at parse
+time (`max(3, 7)` → `7`).
+
+#### `if cond then A else B` — data-only conditional
+
+```text
+if stage = 1 then (generator('G1').generation)
+             else (generator('G1').generation * 0.5)
+    <= 60
+```
+
+The condition is evaluated **per domain instance** at LP-construction
+time against the loop coordinates — `scenario`, `stage`, and `block`
+— so only one of the two branches is emitted into the LP row for
+each (scenario, stage, block). The condition never produces an LP
+variable; it is pure data.
+
+Supported atoms:
+
+| Form | Meaning |
+|------|---------|
+| `stage = 2` | Stage UID equality |
+| `stage != 2` | Inequality |
+| `stage in {1, 2, 3}` | Set membership (integers and `a..b` ranges) |
+| `block > 12` | `<`, `<=`, `>`, `>=` on integer UIDs |
+
+Multiple atoms can be joined with `and` / `&&`:
+
+```text
+if stage = 1 and block in {1..12} then ... else ... <= 60
+```
+
+The `else` branch is optional; an omitted `else` means the LP row
+contains only the constant RHS when the condition is false.
 
 ### Element references
 
@@ -211,12 +330,55 @@ sum(generator('G1', 'G2').generation) + demand('D1').load <= 1000
 sum(generator(all).generation) - sum(demand(all).load) = 0
 ```
 
+### Filtering `sum(all)` with predicates
+
+`sum(type(all : ...).attribute)` restricts the aggregate to elements
+whose metadata matches a conjunction of predicates.  Predicates are
+separated by `and` (or `&&`) and all must hold (AND semantics):
+
+```text
+# All thermal generators
+sum(generator(all : type = 'thermal').generation) <= 150
+
+# Thermal generators on bus 1
+sum(generator(all : type = 'thermal' and bus = 1).generation) <= 150
+
+# AC lines (anything not of type "dc")
+sum(line(all : type != 'dc').flowp) <= 1000
+
+# Numeric comparisons on metadata
+sum(generator(all : bus >= 10).generation) <= 300
+
+# Set membership
+sum(generator(all : type in {'hydro', 'solar'}).generation) <= 500
+```
+
+Supported operators: `=`, `==`, `!=` / `<>`, `<`, `<=`, `>`, `>=`, and
+`in { … }`.  String values are double- or single-quoted; bare numbers
+compare numerically.  Predicates consult per-element metadata that
+each element registers during LP assembly; currently available keys:
+
+| element    | metadata keys            |
+|------------|--------------------------|
+| generator  | `type`, `bus`            |
+| demand     | `type`, `bus`            |
+| line       | `type`, `bus_a`, `bus_b` |
+| battery    | `type`                   |
+| bus        | `type`                   |
+
+Elements without a registered metadata key for the predicate's
+attribute (or without any metadata at all) are silently excluded from
+the sum — the predicate is treated as unsatisfied.  The legacy
+shortcut `sum(generator(all, type='thermal').generation)` still
+parses and lowers to a single-predicate filter.
+
 ### AMPL comparison
 
 | gtopt | AMPL equivalent |
 |-------|-----------------|
 | `sum(generator('G1','G2').generation)` | `sum{g in {"G1","G2"}} generation[g]` |
 | `sum(generator(all).generation)` | `sum{g in GENERATORS} generation[g]` |
+| `sum(generator(all : type = 'thermal').generation)` | `sum{g in GENERATORS : type[g] = 'thermal'} generation[g]` |
 | `0.5 * sum(demand(all).load)` | `0.5 * sum{d in DEMANDS} load[d]` |
 
 ---
@@ -625,8 +787,8 @@ collisions:
 {
   "system": {
     "user_constraint_files": [
-      "laja_agreement.pampl",
-      "maule_agreement.pampl"
+      "laja.pampl",
+      "maule.pampl"
     ]
   }
 }
@@ -670,15 +832,51 @@ gtopt base.json overrides.json
 constraint     := expr comp_op expr [',' for_clause]
                |  number comp_op expr comp_op number [',' for_clause]
 
-expr           := term (('+' | '-') term)*
+expr           := add_expr
 
-term           := [number '*'] element_ref
-               |  [number '*'] sum_expr
-               |  ['-'] number
+add_expr       := mul_expr (('+' | '-') mul_expr)*
+
+mul_expr       := unary (('*' | '/') unary)*
+
+unary          := ('+' | '-') unary
+               |  primary
+
+primary        := number
+               |  '(' add_expr ')'
+               |  sum_expr
+               |  abs_expr              -- F5: absolute value
+               |  minmax_expr           -- F7: min / max envelope
+               |  if_expr               -- F8: data-only conditional
+               |  element_ref
+               |  IDENT                 -- bare parameter reference
+
+-- Linearity rules (enforced at parse time):
+--   * At least one operand of every '*' must fold to a numeric constant.
+--   * The right operand of every '/' must fold to a nonzero constant.
+--   * Any subexpression made of numeric literals is constant-folded.
+--   * abs / max / min / if are not allowed inside a RANGE constraint
+--     (`lo <= expr <= hi`): only single-sided `<=` / `>=` are convex.
 
 element_ref    := element_type '(' element_id ')' '.' IDENT
 
 sum_expr       := 'sum' '(' element_type '(' id_list ')' '.' IDENT ')'
+
+abs_expr       := 'abs' '(' add_expr ')'
+
+minmax_expr    := ('max' | 'min') '(' add_expr (',' add_expr)+ ')'
+
+if_expr        := 'if' if_cond 'then' '(' add_expr ')'
+                  [ 'else' '(' add_expr ')' ]
+
+if_cond        := if_atom (('and' | '&&') if_atom)*
+
+if_atom        := index_dim if_cmp_op number
+               |  index_dim 'in' '{' number_or_range (',' number_or_range)* '}'
+
+if_cmp_op      := '=' | '==' | '!=' | '<>' | '<' | '<=' | '>' | '>='
+
+number_or_range := number
+                |  number '..' number
 
 id_list        := 'all'
                |  element_id (',' element_id)*
@@ -717,9 +915,97 @@ IDENT          := [a-zA-Z_][a-zA-Z0-9_]*
 number         := [0-9]+ ('.' [0-9]+)?
 ```
 
+**Reserved keywords.** The tokens `abs`, `max`, `min`, `if`, `then`,
+`else`, `and`, `in`, `all`, `sum`, `for`, `scenario`, `stage`, and
+`block` are reserved by the grammar above — they cannot appear as
+element names or parameter names inside an expression.
+
 ---
 
-## 11. Comparison with AMPL
+## 11. Error Diagnostics
+
+When a constraint expression fails to parse, the parser throws a
+`gtopt::ConstraintParseError` (which derives from `std::invalid_argument`
+for backward compatibility). The error's `what()` includes:
+
+1. A column indicator (1-based) pointing at the offending token.
+2. The original source line.
+3. A caret (`^`) under the exact column.
+4. An optional `hint:` line suggesting a fix.
+
+For example, the non-linear product
+`generator('G1').generation * generator('G2').generation <= 100` yields:
+
+```text
+Parse error at column 29: Non-linear product: both sides of '*' contain
+variables or parameters; only scalar-by-expression products are allowed
+  generator('G1').generation * generator('G2').generation <= 100
+                              ^
+  hint: at least one operand of '*' must be a constant
+```
+
+Division by zero, division by a variable, unterminated string literals,
+stray characters, missing attributes after `.`, unknown `for`-clause
+dimensions, and malformed index sets are all reported with the same
+caret + hint format.
+
+The `ConstraintParseError` type also exposes its components programmatically:
+
+```cpp
+try {
+  auto expr = ConstraintParser::parse(...);
+} catch (const gtopt::ConstraintParseError& e) {
+  std::cerr << e.what();       // formatted caret + hint
+  e.message();                  // raw diagnostic text
+  e.hint();                     // suggestion (may be empty)
+  e.column();                   // 0-based byte offset into the source
+}
+```
+
+Because `ConstraintParseError` inherits from `std::invalid_argument`,
+existing `catch (const std::invalid_argument&)` handlers continue to
+work unchanged.
+
+### `constraint_mode` — runtime error policy
+
+Some user-constraint errors only surface at LP-construction time, not
+at parse time. Examples:
+
+- Non-convex `abs(x) >= k` (wrong side of the inequality)
+- Non-convex `c * max(…)` with a sign that violates convexity
+- Nested `abs`/`min`/`max`/`if` inside another wrapper (v1 limit)
+- Unknown user parameter name referenced from an expression
+
+The `constraint_mode` option in `PlanningOptions` (alongside
+`demand_fail_cost`, `scale_objective`, etc.) controls how these
+runtime errors are treated:
+
+| Value     | Behavior                                                            |
+|-----------|---------------------------------------------------------------------|
+| `normal`  | Log a warning/error and silently drop the offending constraint.     |
+| `strict`  | **(Default.)** Abort the LP build with a diagnostic.                |
+| `debug`   | Same as `strict`, plus verbose per-row lowering trace at `info`.    |
+
+Example:
+
+```json
+"options": {
+  "constraint_mode": "debug"
+}
+```
+
+Running in `debug` mode is the recommended way to author a new
+user constraint — it prints the lowered rows so you can sanity-check
+which LP columns were picked up.
+
+> **Tip.** Non-convex / unknown-parameter errors are only recoverable
+> in `normal` mode because the constraint is dropped entirely. If you
+> want a non-strict build *and* also want the author to notice the
+> problem, grep the logs for `non-convex` or `unknown parameter`.
+
+---
+
+## 12. Comparison with AMPL
 
 ### AMPL equivalents
 
@@ -787,7 +1073,7 @@ The gtopt constraint language is intentionally **narrower** than AMPL:
 
 ---
 
-## 12. Best Practices
+## 13. Best Practices
 
 1. **Name constraints meaningfully**: use descriptive names like
    `gen_pair_limit` or `night_battery_reserve`, not `c1` or `test`.
@@ -824,7 +1110,7 @@ The gtopt constraint language is intentionally **narrower** than AMPL:
 
 ---
 
-## 13. See Also
+## 14. See Also
 
 - **[Irrigation Agreements](irrigation-agreements.md)** — Laja and Maule
   agreement modeling, FlowRight/VolumeRight entities, PLP comparison

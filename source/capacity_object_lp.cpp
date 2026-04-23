@@ -18,6 +18,7 @@ namespace gtopt
 {
 
 bool CapacityObjectBase::add_to_lp(SystemContext& sc,
+                                   std::string_view ampl_class,
                                    const ScenarioLP& scenario,
                                    const StageLP& stage,
                                    LinearProblem& lp)
@@ -53,29 +54,67 @@ bool CapacityObjectBase::add_to_lp(SystemContext& sc,
     }
   } else {
     if (prev_stage != nullptr) {
-      const auto stg_ctx = make_stage_context(scenario.uid(), stage.uid());
-      auto process_prev_state =
-          [&](const std::string_view col_name) -> std::optional<ColIndex>
-      {
-        if (auto prev_svar = sc.get_state_variable(
-                sv_key_p(scenario, *prev_stage, col_name));
-            prev_svar)
+      // Cross-phase boundary.  Under parallel phase construction within
+      // a scene, the producer-side `StateVariable` in the previous
+      // phase may not yet exist when this phase runs, so we cannot
+      // call `get_state_variable(prev_key)` here.  Instead we
+      // determine deterministically — from this element's own
+      // expansion schedules — whether the previous phase will publish
+      // capainst/capacost StateVariables (publishing is sticky from
+      // the first stage where `stage_maxexpcap > 0`).  When yes, we
+      // allocate the dependent columns up-front and queue the
+      // producer-side `add_dependent_variable` link to be resolved
+      // later by `PlanningLP::tighten_scene_phase_links`.
+      bool prev_phase_publishes = false;
+      for (const auto& s : sc.simulation().stages()) {
+        if (s.index() > prev_stage->index()) {
+          break;
+        }
+        const auto suid = s.uid();
+        const auto se_expcap = m_expcap_.at(suid).value_or(0.0);
+        const auto se_expmod = m_expmod_.at(suid).value_or(0.0);
+        if (se_expcap * se_expmod > 0) {
+          prev_phase_publishes = true;
+          break;
+        }
+      }
+
+      prev_stage_capacity = stage_capacity;
+
+      if (prev_phase_publishes) {
+        const auto stg_ctx = make_stage_context(scenario.uid(), stage.uid());
+        auto make_dependent_col =
+            [&](const std::string_view state_name,
+                const std::string_view dep_name) -> ColIndex
         {
+          // Dependent state column: mirrors a state variable from the
+          // previous phase.  Marked is_state for SDDP cut I/O; column
+          // names are available at LpNamesLevel::all, but
+          // state variable I/O uses the StateVariable map (ColIndex-based)
+          // directly.  The producer-side link is queued via
+          // `defer_state_link` and resolved in
+          // `PlanningLP::tighten_scene_phase_links` after parallel phase
+          // construction joins.
+          //
+          // `dep_name` carries a "_prev" suffix so the LP metadata
+          // differs from the stage's own capainst/capacost (added
+          // below); `state_name` is the un-suffixed name used to
+          // look up the publisher state variable in the previous
+          // phase.
           auto col = lp.add_col({
+              .is_state = true,
               .class_name = m_class_name_,
-              .variable_name = col_name,
+              .variable_name = dep_name,
               .variable_uid = uid(),
               .context = stg_ctx,
           });
-          prev_svar->get().add_dependent_variable(scenario, stage, col);
+          sc.defer_state_link(sv_key_p(scenario, *prev_stage, state_name), col);
           return col;
-        }
-        return std::nullopt;
-      };
+        };
 
-      prev_stage_capacity = stage_capacity;
-      prev_capainst_col = process_prev_state(CapainstName);
-      prev_capacost_col = process_prev_state(CapacostName);
+        prev_capainst_col = make_dependent_col(CapainstName, CapainstPrevName);
+        prev_capacost_col = make_dependent_col(CapacostName, CapacostPrevName);
+      }
     }
   }
 
@@ -84,17 +123,18 @@ bool CapacityObjectBase::add_to_lp(SystemContext& sc,
   }
 
   const auto stg_ctx = make_stage_context(scenario.uid(), stage.uid());
-  const auto capainst_col = lp.add_col({
-      .lowb = stage_capacity,
-      .uppb = stage_capmax,
-      .cost = 0.0,
-      .class_name = m_class_name_,
-      .variable_name = CapainstName,
-      .variable_uid = uid(),
-      .context = stg_ctx,
-  });
-  sc.add_state_variable(
-      sv_key_p(scenario, stage, CapainstName), capainst_col, 0.0, 1.0, stg_ctx);
+  const auto capainst_col =
+      sc.add_state_col(lp,
+                       sv_key_p(scenario, stage, CapainstName),
+                       SparseCol {
+                           .lowb = stage_capacity,
+                           .uppb = stage_capmax,
+                           .cost = 0.0,
+                           .class_name = m_class_name_,
+                           .variable_name = CapainstName,
+                           .variable_uid = uid(),
+                           .context = stg_ctx,
+                       });
 
   SparseRow capainst_row;
   capainst_row.class_name = m_class_name_;
@@ -103,15 +143,16 @@ bool CapacityObjectBase::add_to_lp(SystemContext& sc,
   capainst_row.context = stg_ctx;
   capainst_row[capainst_col] = -1;
 
-  const auto capacost_col = lp.add_col({
-      .cost = sc.stage_ecost(stage, 1.0),
-      .class_name = m_class_name_,
-      .variable_name = CapacostName,
-      .variable_uid = uid(),
-      .context = stg_ctx,
-  });
-  sc.add_state_variable(
-      sv_key_p(scenario, stage, CapacostName), capacost_col, 0.0, 1.0, stg_ctx);
+  const auto capacost_col =
+      sc.add_state_col(lp,
+                       sv_key_p(scenario, stage, CapacostName),
+                       SparseCol {
+                           .cost = CostHelper::stage_ecost(stage, 1.0),
+                           .class_name = m_class_name_,
+                           .variable_name = CapacostName,
+                           .variable_uid = uid(),
+                           .context = stg_ctx,
+                       });
 
   SparseRow capacost_row;
   capacost_row.class_name = m_class_name_;
@@ -123,6 +164,8 @@ bool CapacityObjectBase::add_to_lp(SystemContext& sc,
   if (stage_maxexpcap > 0) {
     const auto expmod_col = expmod_cols[stage.uid()] = lp.add_col({
         .uppb = stage_expmod,
+        .is_integer = m_integer_expmod_
+            && !sc.simulation().phases()[stage.phase_index()].is_continuous(),
         .class_name = m_class_name_,
         .variable_name = ExpmodName,
         .variable_uid = uid(),
@@ -148,6 +191,23 @@ bool CapacityObjectBase::add_to_lp(SystemContext& sc,
   const auto dcap = prev_stage_capacity - stage_capacity;
   capainst_rows[stage_uid] = lp.add_row(std::move(capainst_row.equal(dcap)));
   capacost_rows[stage_uid] = lp.add_row(std::move(capacost_row.equal(0.0)));
+
+  // Register the stage-level capacity-expansion columns with the PAMPL
+  // variable registry so user-constraint expressions like
+  // `generator("G1").capainst` or `sum(g in generator(all : type="hydro"),
+  // g.capacost) <= budget` resolve without each element having to
+  // register them individually.
+  if (!ampl_class.empty()) {
+    sc.add_ampl_variable(
+        ampl_class, uid(), CapainstName, scenario, stage, capainst_col);
+    sc.add_ampl_variable(
+        ampl_class, uid(), CapacostName, scenario, stage, capacost_col);
+    if (const auto it = expmod_cols.find(stage.uid()); it != expmod_cols.end())
+    {
+      sc.add_ampl_variable(
+          ampl_class, uid(), ExpmodName, scenario, stage, it->second);
+    }
+  }
 
   return true;
 }

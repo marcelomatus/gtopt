@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <gtopt/json/json_basic_types.hpp>
 #include <gtopt/json/json_options.hpp>
 #include <gtopt/json/json_simulation.hpp>
 #include <gtopt/json/json_system.hpp>
@@ -19,20 +20,40 @@
 namespace daw::json
 {
 
+using gtopt::HourBlockEntry;
 using gtopt::Planning;
 using gtopt::PlanningOptions;
 
 template<>
+struct json_data_contract<HourBlockEntry>
+{
+  using type = json_member_list<json_number<"hour", Uid>,
+                                json_number<"stage", Uid>,
+                                json_number<"block", Uid>>;
+
+  [[nodiscard]] constexpr static auto to_json_data(HourBlockEntry const& entry)
+  {
+    return std::forward_as_tuple(entry.hour, entry.stage, entry.block);
+  }
+};
+
+template<>
 struct json_data_contract<Planning>
 {
-  using type = json_member_list<json_class_null<"options", PlanningOptions>,
-                                json_class_null<"simulation", Simulation>,
-                                json_class_null<"system", System>>;
+  using type = json_member_list<
+      json_class_null<"options", PlanningOptions>,
+      json_class_null<"simulation", Simulation>,
+      json_class_null<"system", System>,
+      json_array_null<"hour_block_map",
+                      std::optional<gtopt::Array<HourBlockEntry>>,
+                      HourBlockEntry>>;
 
   [[nodiscard]] constexpr static auto to_json_data(Planning const& planning)
   {
-    return std::forward_as_tuple(
-        planning.options, planning.simulation, planning.system);
+    return std::forward_as_tuple(planning.options,
+                                 planning.simulation,
+                                 planning.system,
+                                 planning.hour_block_map);
   }
 };
 }  // namespace daw::json

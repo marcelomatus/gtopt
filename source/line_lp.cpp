@@ -60,33 +60,37 @@ void LineLP::add_kirchhoff_rows(SystemContext& sc,
   // V defaults to 1.0 (per-unit mode).  When V is in kV, X must be in Ω
   // so that B = V²/X yields consistent susceptance units.
   const double V = voltage.at(stage.uid()).value_or(1);
-  // Physical susceptance: χ = X / V².
-  // flatten() applies col_scale (scale_theta) to theta column coefficients.
+  // Physical susceptance term x = X / V² (reactance per V²).
   const double x = X / (V * V);
 
   // Off-nominal tap ratio: scales effective susceptance by τ.
-  // Kirchhoff: -θ'_a + θ'_b + τ·χ·f_p − τ·χ·f_n = −φ/scale_theta
   const double tau = tap_ratio.at(stage.uid()).value_or(1.0);
   const double x_tau = tau * x;
+  if (x_tau == 0.0) {
+    return;
+  }
 
   // Phase-shift angle in radians; shifts the equality constraint RHS.
   const double phi_deg = phase_shift_deg.at(stage.uid()).value_or(0.0);
   const double phi_rad = phi_deg * std::numbers::pi / 180.0;
 
-  // Row normalization: divide the entire Kirchhoff row by |x_tau| so that
-  // flow coefficients become ±1 and theta coefficients become ±1/|x_tau|.
-  // This reduces the coefficient ratio within each row from |x_tau| to 1,
-  // improving numerical conditioning.
-  const double abs_x_tau = std::abs(x_tau);
-  const double row_norm = (abs_x_tau > 0.0) ? abs_x_tau : 1.0;
-  const double inv_norm = 1.0 / row_norm;
-
-  // Normalized RHS = -phi_rad / row_norm (physical units)
-  const double kirchhoff_rhs = -phi_rad * inv_norm;
-
-  // Normalized coefficients: theta terms = ±1/row_norm, flow terms = ±sign
-  const double theta_coeff = inv_norm;
-  const double flow_sign = (x_tau >= 0.0) ? 1.0 : -1.0;
+  // Natural Kirchhoff form (no manual row pre-scaling):
+  //
+  //   -θ_a + θ_b + x_tau·f_p − x_tau·f_n = −φ_rad
+  //
+  // Prior versions divided the entire row by |x_tau| so that flow
+  // coefficients became ±1, but this required a dual back-scale factor
+  // (`theta_row_scale`) to recover physical units on output, and it
+  // defeated the LP layer's row-max equilibration (which already handles
+  // row norms internally).
+  //
+  // Writing the row in its natural form hands row scaling back to
+  // `linear_problem.cpp` row-max equilibration, which auto-unscales
+  // duals. The theta column is separately col-scaled by `scale_theta`
+  // (chosen as median(|x_tau|) in planning_lp.cpp:auto_scale_theta),
+  // so after equilibration the median line's row has near-unit
+  // coefficients both in the theta and flow directions.
+  const double kirchhoff_rhs = -phi_rad;
 
   BIndexHolder<RowIndex> trows;
   map_reserve(trows, blocks.size());
@@ -96,7 +100,7 @@ void LineLP::add_kirchhoff_rows(SystemContext& sc,
     auto trow =
         SparseRow {
             .class_name = ClassName.full_name(),
-            .constraint_name = "theta",
+            .constraint_name = ThetaName,
             .variable_uid = uid(),
             .context =
                 make_block_context(scenario.uid(), stage.uid(), block.uid()),
@@ -105,13 +109,13 @@ void LineLP::add_kirchhoff_rows(SystemContext& sc,
 
     trow.reserve(4);
 
-    trow[theta_a_cols.at(buid)] = -theta_coeff;
-    trow[theta_b_cols.at(buid)] = +theta_coeff;
+    trow[theta_a_cols.at(buid)] = -1.0;
+    trow[theta_b_cols.at(buid)] = +1.0;
     if (!fpcols.empty()) {
-      trow[fpcols.at(buid)] = +flow_sign;
+      trow[fpcols.at(buid)] = +x_tau;
     }
     if (!fncols.empty()) {
-      trow[fncols.at(buid)] = -flow_sign;
+      trow[fncols.at(buid)] = -x_tau;
     }
 
     trows[buid] = lp.add_row(std::move(trow));
@@ -119,8 +123,6 @@ void LineLP::add_kirchhoff_rows(SystemContext& sc,
 
   const auto st_key = std::tuple {scenario.uid(), stage.uid()};
   theta_rows[st_key] = std::move(trows);
-  // Store normalization factor for dual unscaling in add_to_output.
-  theta_row_scale[st_key] = row_norm;
 }
 
 // ── add_to_lp ───────────────────────────────────────────────────────
@@ -130,12 +132,31 @@ bool LineLP::add_to_lp(SystemContext& sc,
                        const StageLP& stage,
                        LinearProblem& lp)
 {
+  static constexpr auto ampl_name = ClassName.snake_case();
+
   if (is_loop()) {
     return true;
   }
 
-  if (!CapacityBase::add_to_lp(sc, scenario, stage, lp)) {
+  if (!CapacityBase::add_to_lp(sc, ampl_name, scenario, stage, lp)) {
     return false;
+  }
+
+  // F9: register filter metadata for sum(...) predicates.
+  {
+    AmplElementMetadata metadata;
+    metadata.reserve(3);
+    if (const auto& t = line().type) {
+      metadata.emplace_back(TypeKey, *t);
+    }
+    // Resolve via `sc.element<BusLP>` (handles both Uid and Name forms
+    // of the JSON-side `bus_a` / `bus_b` SingleId variant — `std::get<Uid>`
+    // would throw if the JSON used a string name).
+    metadata.emplace_back(
+        BusAKey, static_cast<double>(sc.element<BusLP>(bus_a_sid()).uid()));
+    metadata.emplace_back(
+        BusBKey, static_cast<double>(sc.element<BusLP>(bus_b_sid()).uid()));
+    sc.register_ampl_element_metadata(ampl_name, uid(), std::move(metadata));
   }
 
   if (!is_active(stage)) [[unlikely]] {
@@ -204,7 +225,7 @@ bool LineLP::add_to_lp(SystemContext& sc,
     const auto [block_tmax_ab, block_tmax_ba] = sc.block_maxmin_at(
         stage, block, tmax_ab, tmax_ba, stage_capacity, -stage_capacity);
     const auto block_tcost =
-        sc.block_ecost(scenario, stage, block, stage_tcost);
+        CostHelper::block_ecost(scenario, stage, block, stage_tcost);
 
     auto result = line_losses::add_block(loss_config,
                                          scenario,
@@ -252,6 +273,28 @@ bool LineLP::add_to_lp(SystemContext& sc,
   lossp_cols[st_key] = std::move(lpcols);
   lossn_cols[st_key] = std::move(lncols);
 
+  // Register PAMPL-visible columns.
+  if (!flowp_cols.at(st_key).empty()) {
+    sc.add_ampl_variable(
+        ampl_name, uid(), FlowpName, scenario, stage, flowp_cols.at(st_key));
+  }
+  if (!flown_cols.at(st_key).empty()) {
+    sc.add_ampl_variable(
+        ampl_name, uid(), FlownName, scenario, stage, flown_cols.at(st_key));
+  }
+  if (!lossp_cols.at(st_key).empty()) {
+    sc.add_ampl_variable(
+        ampl_name, uid(), LosspName, scenario, stage, lossp_cols.at(st_key));
+  }
+  if (!lossn_cols.at(st_key).empty()) {
+    sc.add_ampl_variable(
+        ampl_name, uid(), LossnName, scenario, stage, lossn_cols.at(st_key));
+  }
+  // `capainst` is registered centrally by CapacityBase::add_to_lp.
+  // The `line.flow` compound (+1·flowp − 1·flown) is registered once
+  // per SimulationLP by `system_lp.cpp::register_all_ampl_element_names`
+  // (called via std::call_once from the SystemLP constructor).
+
   return true;
 }
 
@@ -278,9 +321,11 @@ bool LineLP::add_to_output(OutputContext& out) const
   out.add_row_dual(cname, CapacitypName, pid, capacityp_rows);
   out.add_row_dual(cname, CapacitynName, pid, capacityn_rows);
 
-  // Kirchhoff duals must be multiplied by row_norm to undo the
-  // normalization applied in add_kirchhoff_rows().
-  out.add_row_dual(cname, ThetaName, pid, theta_rows, theta_row_scale);
+  // Kirchhoff rows are now written in their natural form (no manual
+  // pre-scaling), so duals come out in physical units directly and no
+  // post-hoc back-scale is needed. Row-max equilibration is handled by
+  // the LP layer, which auto-unscales duals.
+  out.add_row_dual(cname, ThetaName, pid, theta_rows);
 
   return CapacityBase::add_to_output(out);
 }

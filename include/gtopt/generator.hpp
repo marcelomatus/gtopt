@@ -61,6 +61,7 @@ struct GeneratorAttrs
       annual_capcost {};  ///< Annualized investment cost [$/MW-year]
   OptTRealFieldSched
       annual_derating {};  ///< Annual capacity derating factor [p.u./year]
+  OptBool integer_expmod {};  ///< Integer-constrain the expmod variable
 };
 
 /**
@@ -82,6 +83,8 @@ struct Generator
   OptActive active {};  ///< Activation status (default: active)
   OptName type {};  ///< Optional generator type tag (e.g. "thermal", "hydro",
                     ///< "solar")
+  OptName description {};  ///< Free-form label for UI/post-processing; not
+                           ///< used by the LP solver.
 
   SingleId bus {unknown_uid};  ///< Bus ID where the generator is connected
 
@@ -100,6 +103,7 @@ struct Generator
       annual_capcost {};  ///< Annualized investment cost [$/MW-year]
   OptTRealFieldSched
       annual_derating {};  ///< Annual capacity derating factor [p.u./year]
+  OptBool integer_expmod {};  ///< Integer-constrain the expmod variable
 
   OptTRealFieldSched emission_factor {};  ///< CO2 emission rate [tCO2/MWh]
 
@@ -136,6 +140,7 @@ struct Generator
     self.capmax = std::exchange(attrs.capmax, {});
     self.annual_capcost = std::exchange(attrs.annual_capcost, {});
     self.annual_derating = std::exchange(attrs.annual_derating, {});
+    self.integer_expmod = std::exchange(attrs.integer_expmod, {});
 
     return self;
   }

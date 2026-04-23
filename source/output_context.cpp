@@ -10,17 +10,20 @@
  */
 
 #include <algorithm>  // For std::find
+#include <array>
 #include <concepts>
 #include <filesystem>
 #include <format>
 #include <fstream>
 #include <string>
 #include <unordered_map>
+#include <utility>
 
 #include <arrow/csv/api.h>
 #include <arrow/io/api.h>
 #include <arrow/io/compressed.h>
 #include <arrow/util/compression.h>
+#include <gtopt/map_reserve.hpp>
 #include <gtopt/output_context.hpp>
 #include <parquet/arrow/writer.h>
 #include <parquet/types.h>
@@ -181,17 +184,25 @@ auto make_table(FieldVector&& field_vector)
 [[nodiscard]] auto resolve_parquet_codec(std::string_view zfmt)
 {
   using codec_t = decltype(parquet::Compression::UNCOMPRESSED);
-  static const std::unordered_map<std::string, codec_t> codec_map {
-      {"", parquet::Compression::UNCOMPRESSED},
-      {"none", parquet::Compression::UNCOMPRESSED},
-      {"uncompressed", parquet::Compression::UNCOMPRESSED},
-      {"gzip", parquet::Compression::GZIP},
-      {"zstd", parquet::Compression::ZSTD},
-      {"lzo", parquet::Compression::LZO},
-  };
-  const auto it = codec_map.find(std::string(zfmt));
-  return it != codec_map.end() ? it->second
-                               : parquet::Compression::UNCOMPRESSED;
+  // Small fixed table — linear scan is cheaper than a hash lookup and
+  // avoids constructing a std::string from the string_view key.
+  static constexpr std::array<std::pair<std::string_view, codec_t>, 6>
+      codec_map {
+          {
+              {"", parquet::Compression::UNCOMPRESSED},
+              {"none", parquet::Compression::UNCOMPRESSED},
+              {"uncompressed", parquet::Compression::UNCOMPRESSED},
+              {"gzip", parquet::Compression::GZIP},
+              {"zstd", parquet::Compression::ZSTD},
+              {"lzo", parquet::Compression::LZO},
+          },
+      };
+  for (const auto& [name, codec] : codec_map) {
+    if (name == zfmt) {
+      return codec;
+    }
+  }
+  return parquet::Compression::UNCOMPRESSED;
 }
 
 auto parquet_write_table(const auto& fpath, const auto& table, const auto& zfmt)
@@ -294,7 +305,11 @@ auto write_table(std::string_view fmt,
 }
 
 template<typename Type = double>
-auto create_tables(auto&& output_directory, auto&& field_vector_map)
+auto create_tables(std::string_view fmt,
+                   SceneUid scene_uid,
+                   PhaseUid phase_uid,
+                   auto&& output_directory,
+                   auto&& field_vector_map)
 {
   using PathTable =
       std::pair<std::filesystem::path, std::shared_ptr<arrow::Table>>;
@@ -302,17 +317,42 @@ auto create_tables(auto&& output_directory, auto&& field_vector_map)
   std::vector<PathTable> path_tables;
 
   const auto dirpath = std::filesystem::path(output_directory);
+  const auto scene_part = std::format("scene={}", scene_uid);
+  const auto phase_part = std::format("phase={}", phase_uid);
+  const auto csv_shard_suffix = std::format("_s{}_p{}", scene_uid, phase_uid);
+
   for (auto&& [class_fname, vfields] : field_vector_map) {
-    auto&& [cname, fname] = class_fname;
+    // Key is std::array<std::string_view, 3> = (cname, fname, sname).
+    // The file-name stem is `fname_sname` — composed once here instead
+    // of at every `add_field` call (previously `as_label(fname, sname)`
+    // allocated per element).
+    const auto& cname = class_fname[0];
+    const auto fname_stem =
+        std::format("{}_{}", class_fname[1], class_fname[2]);
     const auto mtable = make_table<Type>(vfields);
 
-    const auto dpath = dirpath / cname;
+    const auto cname_dir = dirpath / cname;
+
+    // Parquet: hive-partitioned directory
+    //   {cname}/{fname_stem}.parquet/scene=<N>/phase=<M>/part{.parquet}
+    // CSV: per-(scene, phase) shard in the class directory
+    //   {cname}/{fname_stem}_s<N>_p<M>{.csv,.csv.zst,.csv.gz}
+    std::filesystem::path dir_to_create;
+    std::filesystem::path fpath;
+    if (fmt == "parquet") {
+      dir_to_create =
+          cname_dir / (fname_stem + ".parquet") / scene_part / phase_part;
+      fpath = dir_to_create / "part";
+    } else {
+      dir_to_create = cname_dir;
+      fpath = cname_dir / (fname_stem + csv_shard_suffix);
+    }
 
     std::error_code ec;
-    std::filesystem::create_directories(dpath, ec);
+    std::filesystem::create_directories(dir_to_create, ec);
     if (ec) {
       SPDLOG_CRITICAL("Cannot create output directory '{}': {}",
-                      dpath.string(),
+                      dir_to_create.string(),
                       ec.message());
       continue;
     }
@@ -320,11 +360,11 @@ auto create_tables(auto&& output_directory, auto&& field_vector_map)
     if (!mtable.ok()) {
       SPDLOG_CRITICAL("Cannot create table '{}/{}': {}",
                       cname,
-                      fname,
+                      fname_stem,
                       mtable.status().ToString());
       continue;
     }
-    path_tables.emplace_back(dpath / fname, *mtable);
+    path_tables.emplace_back(std::move(fpath), *mtable);
   }
 
   return path_tables;
@@ -394,16 +434,19 @@ void OutputContext::write() const
 {
   const auto fmt = options().output_format();
   const auto zfmt = options().output_compression();
-  auto path_tables =
-      create_tables(options().output_directory(), field_vector_map);
+  auto path_tables = create_tables(fmt,
+                                   m_scene_uid_,
+                                   m_phase_uid_,
+                                   options().output_directory(),
+                                   field_vector_map);
 
   SPDLOG_DEBUG(
       "  Writing {} output tables to '{}' "
       "(scene={}, phase={}, format={}, compression={})",
       path_tables.size(),
       options().output_directory(),
-      static_cast<Uid>(m_scene_uid_),
-      static_cast<Uid>(m_phase_uid_),
+      m_scene_uid_,
+      m_phase_uid_,
       fmt,
       zfmt);
 
@@ -433,6 +476,7 @@ OutputContext::OutputContext(const SystemContext& psc,
     : sc(psc)
     , m_scene_uid_(scene_uid)
     , m_phase_uid_(phase_uid)
+    , m_output_flags_(psc.options().write_out())
     , col_sol_span(linear_interface.get_col_sol())
     , col_cost_span(linear_interface.get_col_cost())
     , row_dual_span(linear_interface.get_row_dual())
@@ -440,6 +484,14 @@ OutputContext::OutputContext(const SystemContext& psc,
     , st_prelude(make_st_prelude(psc.st_uids()))
     , t_prelude(make_t_prelude(psc.t_uids()))
 {
+  // Pre-reserve buckets for field_vector_map: a typical cell emits
+  // ~150 unique (class, fname, sname) keys on juan/iplp (20+ element
+  // classes × ~7 fields/class).  Reserving up-front avoids ~4-5
+  // incremental rehashes on the per-cell insertions.  Kept as
+  // `unordered_map` (not flat_map) because downstream write_out
+  // iterates keys in any order.
+  constexpr std::size_t map_reserve_size = 256;
+  map_reserve(field_vector_map, map_reserve_size);
 }
 
 }  // namespace gtopt

@@ -66,47 +66,51 @@ function(target_enable_unity_build target)
   endforeach()
   list(LENGTH _sources _n_sources)
 
-  if(ARG_BATCH_SIZE)
-    # Explicit batch size — use directly, no per-directory grouping.
-    set(_batch ${ARG_BATCH_SIZE})
-  else()
-    # ── Per-directory grouping and batch-size computation ──
-    # 1. Discover unique directories among the target's sources.
-    set(_dirs)
+  # ── Per-directory grouping and batch-size computation ──
+  # Always assign UNITY_GROUP per directory so files from different
+  # directories are never mixed in the same unity source (even when an
+  # explicit BATCH_SIZE is provided).
+  # 1. Discover unique directories among the target's sources.
+  set(_dirs)
+  foreach(_src IN LISTS _sources)
+    get_filename_component(_dir "${_src}" DIRECTORY)
+    # Normalise to a short label so the log is readable.
+    file(RELATIVE_PATH _rel "${CMAKE_CURRENT_SOURCE_DIR}" "${_dir}")
+    if("${_rel}" STREQUAL "")
+      set(_rel ".")
+    endif()
+    list(APPEND _dirs "${_rel}")
+  endforeach()
+  list(REMOVE_DUPLICATES _dirs)
+
+  # 2. For each directory, count files and assign UNITY_GROUP.
+  set(_max_batch 2)
+  foreach(_dir IN LISTS _dirs)
+    # Collect sources in this directory.
+    set(_dir_sources)
     foreach(_src IN LISTS _sources)
-      get_filename_component(_dir "${_src}" DIRECTORY)
-      # Normalise to a short label so the log is readable.
-      file(RELATIVE_PATH _rel "${CMAKE_CURRENT_SOURCE_DIR}" "${_dir}")
+      get_filename_component(_abs_dir "${_src}" DIRECTORY)
+      file(RELATIVE_PATH _rel "${CMAKE_CURRENT_SOURCE_DIR}" "${_abs_dir}")
       if("${_rel}" STREQUAL "")
         set(_rel ".")
       endif()
-      list(APPEND _dirs "${_rel}")
-    endforeach()
-    list(REMOVE_DUPLICATES _dirs)
-
-    # 2. For each directory, count files and assign UNITY_GROUP.
-    #    Compute per-directory batch size = ceil(n_files / n_cores),
-    #    clamped to [2, n_files].
-    set(_max_batch 2)
-    foreach(_dir IN LISTS _dirs)
-      # Collect sources in this directory.
-      set(_dir_sources)
-      foreach(_src IN LISTS _sources)
-        get_filename_component(_abs_dir "${_src}" DIRECTORY)
-        file(RELATIVE_PATH _rel "${CMAKE_CURRENT_SOURCE_DIR}" "${_abs_dir}")
-        if("${_rel}" STREQUAL "")
-          set(_rel ".")
-        endif()
-        if("${_rel}" STREQUAL "${_dir}")
-          list(APPEND _dir_sources "${_src}")
-        endif()
-      endforeach()
-
-      list(LENGTH _dir_sources _n_dir)
-      if(_n_dir EQUAL 0)
-        continue()
+      if("${_rel}" STREQUAL "${_dir}")
+        list(APPEND _dir_sources "${_src}")
       endif()
+    endforeach()
 
+    list(LENGTH _dir_sources _n_dir)
+    if(_n_dir EQUAL 0)
+      continue()
+    endif()
+
+    if(ARG_BATCH_SIZE)
+      # Explicit batch size — use as-is but clamp to [1, n_dir].
+      set(_batch ${ARG_BATCH_SIZE})
+      if(_batch LESS 1)
+        set(_batch 1)
+      endif()
+    else()
       # Batch size: enough batches to saturate cores, capped at 8.
       math(EXPR _batch "(${_n_dir} + ${GTOPT_NPROC} - 1) / ${GTOPT_NPROC}")
       if(_batch LESS 2)
@@ -115,29 +119,29 @@ function(target_enable_unity_build target)
       if(_batch GREATER 8)
         set(_batch 8)
       endif()
-      if(_batch GREATER _n_dir)
-        set(_batch ${_n_dir})
-      endif()
+    endif()
+    if(_batch GREATER _n_dir)
+      set(_batch ${_n_dir})
+    endif()
 
-      # Track the maximum batch size across directories — CMake uses a single
-      # UNITY_BUILD_BATCH_SIZE per target, so we use the largest one and rely
-      # on UNITY_GROUP to keep directories separate.
-      if(_batch GREATER _max_batch)
-        set(_max_batch ${_batch})
-      endif()
+    # Track the maximum batch size across directories — CMake uses a single
+    # UNITY_BUILD_BATCH_SIZE per target, so we use the largest one and rely
+    # on UNITY_GROUP to keep directories separate.
+    if(_batch GREATER _max_batch)
+      set(_max_batch ${_batch})
+    endif()
 
-      # Assign a per-directory unity group so files from different
-      # directories are never mixed in the same unity source.
-      string(REPLACE "/" "_" _group "dir_${_dir}")
-      foreach(_src IN LISTS _dir_sources)
-        set_source_files_properties("${_src}" PROPERTIES UNITY_GROUP "${_group}")
-      endforeach()
-
-      message(STATUS "  unity group '${_dir}': ${_n_dir} files, batch ${_batch}")
+    # Assign a per-directory unity group so files from different
+    # directories are never mixed in the same unity source.
+    string(REPLACE "/" "_" _group "dir_${_dir}")
+    foreach(_src IN LISTS _dir_sources)
+      set_source_files_properties("${_src}" PROPERTIES UNITY_GROUP "${_group}")
     endforeach()
 
-    set(_batch ${_max_batch})
-  endif()
+    message(STATUS "  unity group '${_dir}': ${_n_dir} files, batch ${_batch}")
+  endforeach()
+
+  set(_batch ${_max_batch})
 
   set_target_properties(${target} PROPERTIES
     UNITY_BUILD ON

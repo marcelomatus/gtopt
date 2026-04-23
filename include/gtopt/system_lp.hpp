@@ -26,13 +26,18 @@
 #include <gtopt/flow_right_lp.hpp>
 #include <gtopt/generator_lp.hpp>
 #include <gtopt/generator_profile_lp.hpp>
+#include <gtopt/inertia_provision_lp.hpp>
+#include <gtopt/inertia_zone_lp.hpp>
 #include <gtopt/junction_lp.hpp>
 #include <gtopt/line_lp.hpp>
 #include <gtopt/linear_interface.hpp>
+#include <gtopt/lng_terminal_lp.hpp>
 #include <gtopt/lp_fingerprint.hpp>
+#include <gtopt/lp_matrix_options.hpp>
 #include <gtopt/output_context.hpp>
 #include <gtopt/phase_lp.hpp>
 #include <gtopt/planning_options_lp.hpp>
+#include <gtopt/pump_lp.hpp>
 #include <gtopt/reserve_provision_lp.hpp>
 #include <gtopt/reserve_zone_lp.hpp>
 #include <gtopt/reservoir_discharge_limit_lp.hpp>
@@ -42,6 +47,7 @@
 #include <gtopt/scenario_lp.hpp>
 #include <gtopt/scene_lp.hpp>
 #include <gtopt/schedule.hpp>
+#include <gtopt/simple_commitment_lp.hpp>
 #include <gtopt/solver_options.hpp>
 #include <gtopt/system.hpp>
 #include <gtopt/system_context.hpp>
@@ -86,6 +92,9 @@ static_assert(AddToLP<ConverterLP>);
 static_assert(AddToLP<ReserveZoneLP>);
 static_assert(AddToLP<ReserveProvisionLP>);
 static_assert(AddToLP<CommitmentLP>);
+static_assert(AddToLP<SimpleCommitmentLP>);
+static_assert(AddToLP<InertiaZoneLP>);
+static_assert(AddToLP<InertiaProvisionLP>);
 
 static_assert(AddToLP<JunctionLP>);
 static_assert(AddToLP<WaterwayLP>);
@@ -94,9 +103,11 @@ static_assert(AddToLP<ReservoirLP>);
 static_assert(AddToLP<ReservoirSeepageLP>);
 static_assert(AddToLP<ReservoirDischargeLimitLP>);
 static_assert(AddToLP<TurbineLP>);
+static_assert(AddToLP<PumpLP>);
 static_assert(AddToLP<ReservoirProductionFactorLP>);
 static_assert(AddToLP<FlowRightLP>);
 static_assert(AddToLP<VolumeRightLP>);
+static_assert(AddToLP<LngTerminalLP>);
 static_assert(AddToLP<UserConstraintLP>);
 
 /**
@@ -132,8 +143,17 @@ public:
   SystemLP(const SystemLP&) = delete;
   SystemLP& operator=(const SystemLP&) noexcept = delete;
 
-  SystemLP(SystemLP&&) noexcept = default;
-  SystemLP& operator=(SystemLP&&) noexcept = default;
+  /// Move constructor: member-wise moves, then re-points the embedded
+  /// `m_system_context_` back-reference to `*this` (and rebuilds its
+  /// `m_collection_ptrs_` table from `this->m_collections_`).  A defaulted
+  /// move would leave SystemContext referring to the moved-from SystemLP,
+  /// which only worked previously because PlanningLP::create_systems
+  /// happened to never move SystemLP after construction.  Required for
+  /// the parallel phase build path that emplaces SystemLPs into a
+  /// `vector<optional<SystemLP>>` and then moves them into the final
+  /// `vector<SystemLP>`.
+  SystemLP(SystemLP&& other) noexcept;
+  SystemLP& operator=(SystemLP&& other) noexcept;
   ~SystemLP() noexcept = default;
 
   /**
@@ -148,7 +168,7 @@ public:
                     SimulationLP& simulation,
                     PhaseLP phase,
                     SceneLP scene,
-                    const LpMatrixOptions& flat_opts = {});
+                    LpMatrixOptions flat_opts = {});
 
   explicit SystemLP(const System& system,
                     SimulationLP& simulation,
@@ -156,15 +176,23 @@ public:
       : SystemLP(system,
                  simulation,
                  PhaseLP {
-                     Phase(),
+                     Phase {
+                         .uid = 0,
+                         .name = {},
+                         .active = {},
+                     },
                      simulation.options(),
                      simulation.simulation(),
-                     PhaseIndex {0},
+                     first_phase_index(),
                  },
                  SceneLP {
-                     Scene(),
+                     Scene {
+                         .uid = 0,
+                         .name = {},
+                         .active = {},
+                     },
                      simulation.simulation(),
-                     SceneIndex {0},
+                     first_scene_index(),
                  },
                  flat_opts)
   {
@@ -184,6 +212,9 @@ public:
                                    Collection<ReserveZoneLP>,
                                    Collection<ReserveProvisionLP>,
                                    Collection<CommitmentLP>,
+                                   Collection<SimpleCommitmentLP>,
+                                   Collection<InertiaZoneLP>,
+                                   Collection<InertiaProvisionLP>,
                                    Collection<JunctionLP>,
                                    Collection<WaterwayLP>,
                                    Collection<FlowLP>,
@@ -191,9 +222,11 @@ public:
                                    Collection<ReservoirSeepageLP>,
                                    Collection<ReservoirDischargeLimitLP>,
                                    Collection<TurbineLP>,
+                                   Collection<PumpLP>,
                                    Collection<ReservoirProductionFactorLP>,
                                    Collection<FlowRightLP>,
                                    Collection<VolumeRightLP>,
+                                   Collection<LngTerminalLP>,
                                    Collection<UserConstraintLP>>;
 
   template<typename Self>
@@ -342,6 +375,38 @@ public:
    */
   void write_out();
 
+  /// True when `write_out()` has already emitted this cell's element
+  /// tables (set by the SDDP simulation pass right after its final
+  /// per-cell solve).  Callers that iterate every cell to write output
+  /// should skip cells that return true to avoid overwriting the
+  /// sim-pass output with values read from a rehydrated (possibly
+  /// un-solved) backend under `compress` / `rebuild`.
+  [[nodiscard]] constexpr bool output_written() const noexcept
+  {
+    return m_output_written_;
+  }
+
+  /// Reset the `output_written()` flag so the next `write_out()` call
+  /// re-emits this cell.  Intended for the SDDP simulation-pass
+  /// feasibility-recovery loop: when a later phase fails its solve and
+  /// installs a feasibility cut on this phase's LP, this phase must be
+  /// re-solved (yielding new state-variable values) and its output
+  /// re-written to reflect the new trajectory.  File writes overwrite
+  /// in place (parquet: hive partition + "part"; csv: per-(scene,phase)
+  /// shard), so clearing the flag is all that is needed.
+  constexpr void clear_output_written() noexcept { m_output_written_ = false; }
+
+  /// Skip this cell in `PlanningLP::write_out`.  Set when the owning
+  /// SDDP method has permanently excluded the scene (elastic filter
+  /// produced no feasibility cut, so no valid solution exists for
+  /// this cell).  Avoids the wasted rebuild + re-solve that the
+  /// write path would otherwise do to "rehydrate" the cell.
+  [[nodiscard]] constexpr bool output_skipped() const noexcept
+  {
+    return m_output_skipped_;
+  }
+  constexpr void set_output_skipped(bool v) noexcept { m_output_skipped_ = v; }
+
   /// Access the LP fingerprint computed during create_lp().
   [[nodiscard]] constexpr const LpFingerprint& fingerprint() const noexcept
   {
@@ -384,6 +449,67 @@ private:
   LpFingerprint m_fingerprint_;
   std::optional<ObjectSingleId<BusLP>> m_single_bus_id_ {};
 
+  /// Flat-assembly options captured at construction.  Kept alive so that
+  /// `LowMemoryMode::rebuild` can re-invoke `create_lp(m_flat_opts_)`
+  /// inside every `ensure_lp_built()` call.
+  LpMatrixOptions m_flat_opts_ {};
+
+  /// True once the LP fingerprint has been computed.  In rebuild mode
+  /// subsequent rebuilds skip recomputation (the model is deterministic
+  /// and re-hashing would be wasted work).
+  bool m_fingerprint_was_set_ {false};
+
+  /// True once `create_collections` has been called.  Non-rebuild modes
+  /// set this in the ctor (eager build).  Rebuild mode flips it on the
+  /// first `rebuild_in_place` call, amortising the ~0.4s per-cell
+  /// collection construction cost across the SDDP iterations that
+  /// actually touch the cell.  Before the flag is set, `m_collections_`
+  /// is default-constructed (empty) and no LP element wrapper has been
+  /// allocated for this cell.
+  bool m_collections_built_ {false};
+
+  /// True once `write_out()` has emitted this cell's element tables.
+  /// Set by the SDDP simulation pass, which calls `write_out()` right
+  /// after the final per-cell solve while the backend (and hence
+  /// `col_sol` / `row_dual`) is still live — this is the one guaranteed
+  /// point where the output reflects the same LP the SDDP iteration
+  /// actually solved, regardless of `low_memory_mode`.  Subsequent
+  /// invocations (from `PlanningLP::write_out`) skip the cell so that
+  /// output is solution-invariant between `off` and `compress`.
+  bool m_output_written_ {false};
+
+  /// True when this cell belongs to a scene the simulation pass
+  /// declared infeasible (no valid primal/dual vectors exist).  Set
+  /// by the sim pass's post-failure cleanup; consumed by
+  /// `PlanningLP::write_out` to skip the cell without triggering a
+  /// rehydrate + re-solve round-trip that would produce meaningless
+  /// output.
+  bool m_output_skipped_ {false};
+
+  /// Exact (ncols, nrows) from the first successful flatten.  Used as
+  /// the reserve hint on subsequent `LowMemoryMode::rebuild` flatten
+  /// passes — matches the actual sizes and avoids the vector-growth
+  /// reallocations that the shape heuristic tends to trigger.  Zero
+  /// until the first flatten completes.
+  size_t m_last_flat_ncols_ {0};
+  size_t m_last_flat_nrows_ {0};
+
+  /// Deferred dependent-variable links recorded during this phase's
+  /// `add_to_lp` pass.  Under parallel phase construction within a
+  /// scene, phase N+1 cannot safely call `add_dependent_variable` on
+  /// phase N's `StateVariable` (it may not yet exist, and concurrent
+  /// vector growth is not thread-safe).  Instead, the dependent side
+  /// records a `PendingStateLink` here, and a sequential tightening
+  /// pass over `phase_systems[scene_index]` resolves each link after
+  /// the parallel build joins.  Storage lives on `SystemLP` (not on
+  /// `SimulationLP`) because every link is intra-scene by construction
+  /// — there is no cross-scene access pattern, and partitioning a
+  /// centralized registry by scene would be needless indirection.
+  ///
+  /// Written by exactly one thread (the phase task that owns this
+  /// `SystemLP`); drained by exactly one thread during tightening.
+  std::vector<PendingStateLink> m_pending_state_links_;
+
   /// Transient pointer to the previous phase's LinearInterface, set by
   /// dispatch_update_lp() before calling update_lp().  Allows update_lp
   /// elements to look up the previous phase's efin when computing vini
@@ -403,15 +529,65 @@ public:
     return m_prev_phase_sys_;
   }
 
+  // ── Deferred state-variable linking ───────────────────────────────────
+  //
+  // See `m_pending_state_links_` for the rationale.  Called from element
+  // `add_to_lp` (via `SystemContext::defer_state_link`) when phase N+1
+  // would otherwise call `add_dependent_variable` on phase N's
+  // `StateVariable` directly.  The `here_key` carries this phase's
+  // `(scene, phase)` identity so the tightening pass can construct the
+  // dependent `LPVariable` without re-deriving it from `*this`.
+
+  void defer_state_link(StateVariable::Key prev_key,
+                        LPKey here_key,
+                        ColIndex here_col)
+  {
+    m_pending_state_links_.emplace_back(PendingStateLink {
+        .prev_key = prev_key,
+        .here_key = here_key,
+        .here_col = here_col,
+    });
+  }
+
+  template<typename Self>
+  [[nodiscard]] constexpr auto&& pending_state_links(this Self&& self) noexcept
+  {
+    return std::forward<Self>(self).m_pending_state_links_;
+  }
+
   // ── Low-memory mode API (thin forwarding to LinearInterface) ──────────
 
   void set_low_memory(LowMemoryMode mode,
-                      MemoryCodec codec = MemoryCodec::zstd) noexcept
+                      CompressionCodec codec = CompressionCodec::lz4)
   {
     m_linear_interface_.set_low_memory(mode, codec);
+    // Keep m_flat_opts_ in sync so rebuild_in_place() re-flattens with the
+    // correct mode + codec.  Also install the rebuild callback: callers
+    // may flip from `off` → `rebuild` mid-run (SDDPMethod::initialize_solver
+    // does exactly that on already-constructed SystemLPs), and
+    // ensure_backend needs the callback for the lazy rebuild to fire.
+    m_flat_opts_.low_memory_mode = mode;
+    m_flat_opts_.memory_codec = codec;
+    install_rebuild_callback();
   }
 
-  void release_backend() noexcept { m_linear_interface_.release_backend(); }
+  /// Release the solver backend and (under any non-`off` low-memory
+  /// mode) drop the per-cell collection wrappers.  The memory ceiling
+  /// under compress/rebuild becomes `active_workers × per-cell` instead
+  /// of `num_cells × per-cell` resident forever.  Rebuild paths:
+  ///  - `rebuild`: `rebuild_in_place()` (runs flatten on every reload).
+  ///  - `compress`: `ensure_lp_built()` transparently invokes
+  ///    `rebuild_collections_if_needed()` so any subsequent
+  ///    `sys.collections()` read (backward-pass aperture updates,
+  ///    `write_out`, etc.) sees the fully-populated XLP state.
+  void release_backend()
+  {
+    m_linear_interface_.release_backend();
+    if (m_flat_opts_.low_memory_mode != LowMemoryMode::off) {
+      m_collections_ = collections_t {};
+      m_collections_built_ = false;
+    }
+  }
 
   void reconstruct_backend(std::span<const double> col_sol = {},
                            std::span<const double> row_dual = {})
@@ -419,9 +595,91 @@ public:
     m_linear_interface_.reconstruct_backend(col_sol, row_dual);
   }
 
+  /// Ensure the LP is built and ready to solve — and, under compress,
+  /// ensure the per-element XLP state in `m_collections_` is populated
+  /// so callers can immediately read `sys.collections()`.  Handles all
+  /// four `low_memory_mode` paths uniformly:
+  ///  - `off`: no-op (backend + collections are always live).
+  ///  - `snapshot` / `compress`: reconstruct backend from snapshot if
+  ///    released; then, under compress, re-run the flatten pass for its
+  ///    `add_to_lp` side effects on the XLP wrappers (throw-away LP
+  ///    output; backend untouched).
+  ///  - `rebuild`: invoke the SystemLP-owned rebuild callback if
+  ///    released — that already refreshes collections.
+  ///
+  /// Callers that subsequently mutate the LP (add_col, add_row, set_*)
+  /// can skip the explicit call — those mutations invoke ensure_backend
+  /// themselves.  Keep this entry point for code paths that read
+  /// `sys.collections()` or stale cached row/col counts after a prior
+  /// `release_backend()`.
+  void ensure_lp_built();
+
+  /// Regenerate the flat LP from the live element collections and load
+  /// it into the existing `m_linear_interface_` in place.  Public only
+  /// so that `LinearInterface::ensure_backend()` can reach it via its
+  /// `m_rebuild_owner_` back-pointer; the intended caller is always
+  /// that one path.  Does NOT replace `m_linear_interface_` — it
+  /// mutates its backend via `install_flat_as_rebuild`, which is safe
+  /// even when invoked from inside a LinearInterface method
+  /// (e.g. `add_col` → `ensure_backend`).
+  void rebuild_in_place();
+
+  /// Under `LowMemoryMode::compress`, rebuild the per-element XLP
+  /// state (generation_cols, capacity_rows, …) if it was dropped by a
+  /// prior `release_backend()`.  Runs `create_collections()` followed
+  /// by a throw-away flatten whose sole purpose is the `add_to_lp()`
+  /// side effects on the XLP wrappers — the produced
+  /// `FlatLinearProblem` is discarded, the solver backend is
+  /// untouched.  No-op under `off` / `rebuild` (the former never
+  /// drops, the latter refreshes via `rebuild_in_place`).  Invoked
+  /// from `ensure_lp_built()` so any caller that does
+  /// `ensure_lp_built → read collections` works transparently.
+  void rebuild_collections_if_needed();
+
+private:
+  /// Install the rebuild callback on `m_linear_interface_` so that any
+  /// access to a released backend lazily regenerates the LP from
+  /// collections.  Called from the constructor (when the LP is first
+  /// configured) and from every move ctor / move assignment, since the
+  /// captured `this` pointer is invalidated by a move.  No-op outside
+  /// `LowMemoryMode::rebuild`.
+  void install_rebuild_callback();
+
+public:
+  /// Forward accessor to the LP's cumulative solver counters.
+  [[nodiscard]] constexpr const SolverStats& solver_stats() const noexcept
+  {
+    return m_linear_interface_.solver_stats();
+  }
+
+  /// Forward the clone-merge helper so callers that spin up a cloned
+  /// LP for elastic filtering can fold its counters back in before it
+  /// is destroyed.
+  constexpr void merge_solver_stats(const SolverStats& other) noexcept
+  {
+    m_linear_interface_.merge_solver_stats(other);
+  }
+
   void record_dynamic_col(SparseCol col)
   {
     m_linear_interface_.record_dynamic_col(std::move(col));
+  }
+
+  bool update_dynamic_col_lowb(std::string_view class_name,
+                               std::string_view variable_name,
+                               double new_lowb) noexcept
+  {
+    return m_linear_interface_.update_dynamic_col_lowb(
+        class_name, variable_name, new_lowb);
+  }
+
+  bool update_dynamic_col_bounds(std::string_view class_name,
+                                 std::string_view variable_name,
+                                 double new_lowb,
+                                 double new_uppb) noexcept
+  {
+    return m_linear_interface_.update_dynamic_col_bounds(
+        class_name, variable_name, new_lowb, new_uppb);
   }
 
   void record_cut_row(SparseRow row)

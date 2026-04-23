@@ -39,8 +39,7 @@ GeneratorLP::GeneratorLP(const Generator& generator, const InputContext& ic)
     , gcost(ic, ClassName, id(), std::move(object().gcost))
     , emission_factor(ic, ClassName, id(), std::move(object().emission_factor))
 {
-  SPDLOG_DEBUG(
-      fmt::format("GeneratorLP created for generator with uid {}", uid()));
+  SPDLOG_DEBUG("GeneratorLP created for generator with uid {}", uid());
 }
 
 /**
@@ -65,8 +64,27 @@ bool GeneratorLP::add_to_lp(SystemContext& sc,
                             const StageLP& stage,
                             LinearProblem& lp)
 {
-  if (!CapacityBase::add_to_lp(sc, scenario, stage, lp)) [[unlikely]] {
+  static constexpr auto ampl_name = ClassName.snake_case();
+
+  if (!CapacityBase::add_to_lp(sc, ampl_name, scenario, stage, lp)) [[unlikely]]
+  {
     return false;
+  }
+
+  // Register filter metadata (F9) so `sum(generator(all : type="hydro")...)`
+  // predicates can be evaluated at row-assembly time.
+  {
+    AmplElementMetadata metadata;
+    metadata.reserve(2);
+    if (const auto& t = generator().type) {
+      metadata.emplace_back(TypeKey, *t);
+    }
+    // Resolve via `sc.element<BusLP>` (handles both Uid and Name forms
+    // of the JSON-side `bus` SingleId variant — `std::get<Uid>` would
+    // throw if the JSON used a string name).
+    metadata.emplace_back(
+        BusKey, static_cast<double>(sc.element<BusLP>(bus_sid()).uid()));
+    sc.register_ampl_element_metadata(ampl_name, uid(), std::move(metadata));
   }
 
   if (!is_active(stage)) [[unlikely]] {
@@ -101,20 +119,20 @@ bool GeneratorLP::add_to_lp(SystemContext& sc,
         sc.block_maxmin_at(stage, block, pmax, pmin, stage_capacity);
 
     SPDLOG_DEBUG(
-        fmt::format("GeneratorLP::add_to_lp: gen {} stage {} block {} pmin {} "
-                    "pmax {} capacity {}",
-                    guid,
-                    stage.uid(),
-                    block.uid(),
-                    block_pmin,
-                    block_pmax,
-                    stage_capacity));
+        "GeneratorLP::add_to_lp: gen {} stage {} block {} pmin {} "
+        "pmax {} capacity {}",
+        guid,
+        stage.uid(),
+        block.uid(),
+        block_pmin,
+        block_pmax,
+        stage_capacity);
 
     // Create generation variable for this time block
     const auto gcol = lp.add_col({
         .lowb = block_pmin,
         .uppb = block_pmax,
-        .cost = sc.block_ecost(scenario, stage, block, stage_gcost),
+        .cost = CostHelper::block_ecost(scenario, stage, block, stage_gcost),
         .class_name = ClassName.full_name(),
         .variable_name = GenerationName,
         .variable_uid = guid,
@@ -150,10 +168,19 @@ bool GeneratorLP::add_to_lp(SystemContext& sc,
   const auto st_key = std::tuple {scenario.uid(), stage.uid()};
   if (!gcols.empty()) {
     generation_cols[st_key] = std::move(gcols);
+    // Register PAMPL-visible columns with the variable registry.
+    sc.add_ampl_variable(ampl_name,
+                         guid,
+                         GenerationName,
+                         scenario,
+                         stage,
+                         generation_cols.at(st_key));
   }
   if (!crows.empty()) {
     capacity_rows[st_key] = std::move(crows);
   }
+
+  // `capainst` is registered centrally by CapacityBase::add_to_lp.
 
   return true;
 }

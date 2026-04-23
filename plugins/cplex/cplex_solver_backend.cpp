@@ -106,9 +106,107 @@ double cplex_row_ub(char sense, double rhs, double range, double cpx_inf)
   }
 }
 
+/// Apply a SolverOptions bundle onto a CPLEX env.  Pure env-level mutation
+/// — never touches backend member fields.  Shared between CplexEnvLp's
+/// ctor (fresh env preparation) and CplexSolverBackend::apply_options()
+/// (live in-place tweaks).
+void apply_options_to_env(cpxenv* env, const SolverOptions& opts)
+{
+  if (opts.threads > 0) {
+    CPXsetintparam(env, CPX_PARAM_THREADS, opts.threads);
+  }
+
+  CPXsetintparam(env, CPX_PARAM_PREIND, opts.presolve ? CPX_ON : CPX_OFF);
+
+  if (opts.scaling.has_value()) {
+    int scaind = 0;
+    switch (*opts.scaling) {
+      case SolverScaling::none:
+        scaind = -1;
+        break;
+      case SolverScaling::automatic:
+        scaind = 0;
+        break;
+      case SolverScaling::aggressive:
+        scaind = 1;
+        break;
+    }
+    CPXsetintparam(env, CPX_PARAM_SCAIND, scaind);
+  }
+
+  if (const auto oeps = opts.optimal_eps; oeps && *oeps > 0) {
+    CPXsetdblparam(env, CPX_PARAM_EPOPT, *oeps);
+  }
+  if (const auto feps = opts.feasible_eps; feps && *feps > 0) {
+    CPXsetdblparam(env, CPX_PARAM_EPRHS, *feps);
+  }
+  if (const auto tl = opts.time_limit; tl && *tl > 0.0) {
+    CPXsetdblparam(env, CPX_PARAM_TILIM, *tl);
+  }
+
+  // Only touch CPX_PARAM_MEMORYEMPHASIS when the user explicitly set
+  // SolverOptions::memory_emphasis — otherwise leave CPLEX's own default.
+  if (const auto me = opts.memory_emphasis; me.has_value()) {
+    CPXsetintparam(env, CPX_PARAM_MEMORYEMPHASIS, *me ? CPX_ON : CPX_OFF);
+  }
+
+  {
+    switch (opts.algorithm) {
+      case LPAlgo::default_algo:
+        CPXsetintparam(env, CPX_PARAM_LPMETHOD, CPX_ALG_AUTOMATIC);
+        break;
+      case LPAlgo::primal:
+        CPXsetintparam(env, CPX_PARAM_LPMETHOD, CPX_ALG_PRIMAL);
+        break;
+      case LPAlgo::dual:
+        CPXsetintparam(env, CPX_PARAM_LPMETHOD, CPX_ALG_DUAL);
+        break;
+      case LPAlgo::barrier:
+        CPXsetintparam(env, CPX_PARAM_LPMETHOD, CPX_ALG_BARRIER);
+        if (const auto beps = opts.barrier_eps; beps && *beps > 0) {
+          CPXsetdblparam(env, CPX_PARAM_BAREPCOMP, *beps);
+        }
+        break;
+      case LPAlgo::last_algo:
+        break;
+    }
+
+    // Apply crossover regardless of algorithm: CPLEX may auto-pick
+    // barrier under LPAlgo::default_algo (CPX_ALG_AUTOMATIC), and
+    // CPX_PARAM_BARCROSSALG defaults to 0 (automatic crossover).  Force
+    // the flag explicitly so opts.crossover==false truly disables it.
+    CPXsetintparam(env,
+                   CPX_PARAM_BARCROSSALG,
+                   opts.crossover ? CPX_ALG_PRIMAL : CPX_ALG_NONE);
+  }
+
+  CPXsetintparam(env, CPX_PARAM_SCRIND, opts.log_level > 0 ? CPX_ON : CPX_OFF);
+}
+
+/// Enable CPLEX file logging with the provided basename + level.  When
+/// level==0 or filename is empty, nothing is written — CPLEX stays silent
+/// and no cplex.log is created.
+void apply_log_filename_to_env(cpxenv* env,
+                               const std::string& filename,
+                               int level)
+{
+  if (level > 0 && !filename.empty()) {
+    const auto log_path = std::format("{}.log", filename);
+    CPXsetlogfilename(env, log_path.c_str(), "a");
+    CPXsetintparam(env, CPX_PARAM_SCRIND, CPX_ON);
+  }
+}
+
 }  // namespace
 
-CplexSolverBackend::CplexSolverBackend()
+// ============================================================
+// CplexEnvLp — RAII for a CPLEX environment + problem pair.
+// Its ctor is the single point where a fresh env+lp is opened,
+// configured, and named; its dtor releases every byte CPLEX
+// allocated for that pair.
+// ============================================================
+
+CplexEnvLp::CplexEnvLp()
 {
   int status = 0;
   m_env_ = CPXopenCPLEX(&status);
@@ -116,7 +214,8 @@ CplexSolverBackend::CplexSolverBackend()
     throw std::runtime_error(
         std::format("CPLEX: CPXopenCPLEX failed with status {}", status));
   }
-  // Screen output off by default
+  // Silent by default: no screen output, no log file.  Callers must
+  // explicitly opt in via SolverOptions::log_level or set_log_filename().
   CPXsetintparam(m_env_, CPX_PARAM_SCRIND, CPX_OFF);
 
   m_lp_ = CPXcreateprob(m_env_, &status, "gtopt");
@@ -127,7 +226,19 @@ CplexSolverBackend::CplexSolverBackend()
   }
 }
 
-CplexSolverBackend::~CplexSolverBackend()
+CplexEnvLp::CplexEnvLp(const CplexPrep& prep)
+    : CplexEnvLp()
+{
+  if (prep.options.has_value()) {
+    apply_options_to_env(m_env_, *prep.options);
+  }
+  apply_log_filename_to_env(m_env_, prep.log_filename, prep.log_level);
+  if (!prep.prob_name.empty()) {
+    CPXchgprobname(m_env_, m_lp_, prep.prob_name.c_str());
+  }
+}
+
+CplexEnvLp::~CplexEnvLp()
 {
   if (m_lp_ != nullptr) {
     CPXfreeprob(m_env_, &m_lp_);
@@ -135,6 +246,47 @@ CplexSolverBackend::~CplexSolverBackend()
   if (m_env_ != nullptr) {
     CPXcloseCPLEX(&m_env_);
   }
+}
+
+CplexEnvLp::CplexEnvLp(CplexEnvLp&& other) noexcept
+    : m_env_(std::exchange(other.m_env_, nullptr))
+    , m_lp_(std::exchange(other.m_lp_, nullptr))
+{
+}
+
+CplexEnvLp& CplexEnvLp::operator=(CplexEnvLp&& other) noexcept
+{
+  if (this != &other) {
+    if (m_lp_ != nullptr) {
+      CPXfreeprob(m_env_, &m_lp_);
+    }
+    if (m_env_ != nullptr) {
+      CPXcloseCPLEX(&m_env_);
+    }
+    m_env_ = std::exchange(other.m_env_, nullptr);
+    m_lp_ = std::exchange(other.m_lp_, nullptr);
+  }
+  return *this;
+}
+
+void CplexEnvLp::reset_lp(cpxlp* new_lp) noexcept
+{
+  if (m_lp_ != nullptr) {
+    CPXfreeprob(m_env_, &m_lp_);
+  }
+  m_lp_ = new_lp;
+}
+
+// ============================================================
+// CplexSolverBackend
+// ============================================================
+
+CplexSolverBackend::CplexSolverBackend() = default;
+CplexSolverBackend::~CplexSolverBackend() = default;
+
+void CplexSolverBackend::reset_env_lp()
+{
+  m_env_lp_ = CplexEnvLp {m_prep_};
 }
 
 std::string_view CplexSolverBackend::solver_name() const noexcept
@@ -155,17 +307,26 @@ double CplexSolverBackend::infinity() const noexcept
   return CPX_INFBOUND;
 }
 
+bool CplexSolverBackend::supports_mip() const noexcept
+{
+  return true;
+}
+
 void CplexSolverBackend::set_prob_name(const std::string& name)
 {
-  CPXchgprobname(m_env_, m_lp_, name.c_str());
+  m_prep_.prob_name = name;
+  CPXchgprobname(m_env_lp_.env(), m_env_lp_.lp(), name.c_str());
 }
 
 std::string CplexSolverBackend::get_prob_name() const
 {
   std::array<char, 256> buf {};
   int surplus = 0;
-  if (CPXgetprobname(
-          m_env_, m_lp_, buf.data(), static_cast<int>(buf.size()), &surplus)
+  if (CPXgetprobname(m_env_lp_.env(),
+                     m_env_lp_.lp(),
+                     buf.data(),
+                     static_cast<int>(buf.size()),
+                     &surplus)
       == 0)
   {
     return {buf.data()};
@@ -188,18 +349,17 @@ void CplexSolverBackend::load_problem(int ncols,
   m_sol_cached_ = false;
   m_solve_status_ = 0;
 
-  // Delete old problem data
-  int status = 0;
-  CPXfreeprob(m_env_, &m_lp_);
-  m_lp_ = CPXcreateprob(m_env_, &status, "gtopt");
-  if (m_lp_ == nullptr) {
-    throw std::runtime_error(
-        std::format("CPLEX: CPXcreateprob failed with status {}", status));
-  }
+  // Cycle the entire CPLEX env+lp pair so every byte of per-LP state that
+  // CPLEX allocated for the previous problem is released.  The new pair
+  // is re-prepared (options, log filename, prob name) via m_prep_ inside
+  // CplexEnvLp's constructor — one centralized place for env/lp setup.
+  reset_env_lp();
 
   if (ncols == 0 && nrows == 0) {
     return;
   }
+
+  int status = 0;
 
   // Convert row bounds to CPLEX sense/rhs/range
   std::vector<char> sense(static_cast<size_t>(nrows));
@@ -290,8 +450,8 @@ void CplexSolverBackend::load_problem(int ncols,
   }
 
   // CPLEX expects column-sparse format via CPXcopylp
-  status = CPXcopylp(m_env_,
-                     m_lp_,
+  status = CPXcopylp(m_env_lp_.env(),
+                     m_env_lp_.lp(),
                      ncols,
                      nrows,
                      CPX_MIN,  // minimization
@@ -314,12 +474,12 @@ void CplexSolverBackend::load_problem(int ncols,
 
 int CplexSolverBackend::get_num_cols() const
 {
-  return CPXgetnumcols(m_env_, m_lp_);
+  return CPXgetnumcols(m_env_lp_.env(), m_env_lp_.lp());
 }
 
 int CplexSolverBackend::get_num_rows() const
 {
-  return CPXgetnumrows(m_env_, m_lp_);
+  return CPXgetnumrows(m_env_lp_.env(), m_env_lp_.lp());
 }
 
 void CplexSolverBackend::add_col(double lb, double ub, double obj)
@@ -327,8 +487,17 @@ void CplexSolverBackend::add_col(double lb, double ub, double obj)
   m_prob_cached_ = false;
   m_sol_cached_ = false;
   const int matbeg = 0;
-  CPXaddcols(
-      m_env_, m_lp_, 1, 0, &obj, &matbeg, nullptr, nullptr, &lb, &ub, nullptr);
+  CPXaddcols(m_env_lp_.env(),
+             m_env_lp_.lp(),
+             1,
+             0,
+             &obj,
+             &matbeg,
+             nullptr,
+             nullptr,
+             &lb,
+             &ub,
+             nullptr);
 }
 
 void CplexSolverBackend::set_col_lower(int index, double value)
@@ -336,7 +505,7 @@ void CplexSolverBackend::set_col_lower(int index, double value)
   m_prob_cached_ = false;
   m_sol_cached_ = false;
   const char bound_type = 'L';
-  CPXchgbds(m_env_, m_lp_, 1, &index, &bound_type, &value);
+  CPXchgbds(m_env_lp_.env(), m_env_lp_.lp(), 1, &index, &bound_type, &value);
 }
 
 void CplexSolverBackend::set_col_upper(int index, double value)
@@ -344,13 +513,13 @@ void CplexSolverBackend::set_col_upper(int index, double value)
   m_prob_cached_ = false;
   m_sol_cached_ = false;
   const char bound_type = 'U';
-  CPXchgbds(m_env_, m_lp_, 1, &index, &bound_type, &value);
+  CPXchgbds(m_env_lp_.env(), m_env_lp_.lp(), 1, &index, &bound_type, &value);
 }
 
 void CplexSolverBackend::set_obj_coeff(int index, double value)
 {
   m_prob_cached_ = false;
-  CPXchgobj(m_env_, m_lp_, 1, &index, &value);
+  CPXchgobj(m_env_lp_.env(), m_env_lp_.lp(), 1, &index, &value);
 }
 
 void CplexSolverBackend::add_row(int num_elements,
@@ -368,8 +537,8 @@ void CplexSolverBackend::add_row(int num_elements,
   bounds_to_cplex(rowlb, rowub, CPX_INFBOUND, sense, rhs, range);
 
   const int rmatbeg = 0;
-  int status = CPXaddrows(m_env_,
-                          m_lp_,
+  int status = CPXaddrows(m_env_lp_.env(),
+                          m_env_lp_.lp(),
                           0,
                           1,
                           num_elements,
@@ -387,8 +556,8 @@ void CplexSolverBackend::add_row(int num_elements,
 
   // Set range value for ranged rows
   if (sense == 'R' && std::abs(range) > 1e-20) {
-    const int row_idx = CPXgetnumrows(m_env_, m_lp_) - 1;
-    CPXchgrngval(m_env_, m_lp_, 1, &row_idx, &range);
+    const int row_idx = CPXgetnumrows(m_env_lp_.env(), m_env_lp_.lp()) - 1;
+    CPXchgrngval(m_env_lp_.env(), m_env_lp_.lp(), 1, &row_idx, &range);
   }
 }
 
@@ -412,8 +581,8 @@ void CplexSolverBackend::add_rows(int num_rows,
         rowlb[r], rowub[r], CPX_INFBOUND, senses[r], rhs_vec[r], range_vec[r]);
   }
 
-  int status = CPXaddrows(m_env_,
-                          m_lp_,
+  int status = CPXaddrows(m_env_lp_.env(),
+                          m_env_lp_.lp(),
                           0,
                           num_rows,
                           rowbeg[num_rows],
@@ -430,11 +599,12 @@ void CplexSolverBackend::add_rows(int num_rows,
   }
 
   // Set range values for ranged rows
-  const int first_new_row = CPXgetnumrows(m_env_, m_lp_) - num_rows;
+  const int first_new_row =
+      CPXgetnumrows(m_env_lp_.env(), m_env_lp_.lp()) - num_rows;
   for (int r = 0; r < num_rows; ++r) {
     if (senses[r] == 'R' && std::abs(range_vec[r]) > 1e-20) {
       const int row_idx = first_new_row + r;
-      CPXchgrngval(m_env_, m_lp_, 1, &row_idx, &range_vec[r]);
+      CPXchgrngval(m_env_lp_.env(), m_env_lp_.lp(), 1, &row_idx, &range_vec[r]);
     }
   }
 }
@@ -448,11 +618,15 @@ void CplexSolverBackend::set_row_lower(int index, double value)
   char old_sense {};
   double old_rhs {};
   double old_range {};
-  CPXgetrowinfeas(
-      m_env_, m_lp_, nullptr, nullptr, 0, 0);  // ensure internal state
-  CPXgetsense(m_env_, m_lp_, &old_sense, index, index);
-  CPXgetrhs(m_env_, m_lp_, &old_rhs, index, index);
-  CPXgetrngval(m_env_, m_lp_, &old_range, index, index);
+  CPXgetrowinfeas(m_env_lp_.env(),
+                  m_env_lp_.lp(),
+                  nullptr,
+                  nullptr,
+                  0,
+                  0);  // ensure internal state
+  CPXgetsense(m_env_lp_.env(), m_env_lp_.lp(), &old_sense, index, index);
+  CPXgetrhs(m_env_lp_.env(), m_env_lp_.lp(), &old_rhs, index, index);
+  CPXgetrngval(m_env_lp_.env(), m_env_lp_.lp(), &old_range, index, index);
 
   const double old_ub =
       cplex_row_ub(old_sense, old_rhs, old_range, CPX_INFBOUND);
@@ -462,9 +636,9 @@ void CplexSolverBackend::set_row_lower(int index, double value)
   double new_range {};
   bounds_to_cplex(value, old_ub, CPX_INFBOUND, new_sense, new_rhs, new_range);
 
-  CPXchgsense(m_env_, m_lp_, 1, &index, &new_sense);
-  CPXchgrhs(m_env_, m_lp_, 1, &index, &new_rhs);
-  CPXchgrngval(m_env_, m_lp_, 1, &index, &new_range);
+  CPXchgsense(m_env_lp_.env(), m_env_lp_.lp(), 1, &index, &new_sense);
+  CPXchgrhs(m_env_lp_.env(), m_env_lp_.lp(), 1, &index, &new_rhs);
+  CPXchgrngval(m_env_lp_.env(), m_env_lp_.lp(), 1, &index, &new_range);
 }
 
 void CplexSolverBackend::set_row_upper(int index, double value)
@@ -475,9 +649,9 @@ void CplexSolverBackend::set_row_upper(int index, double value)
   char old_sense {};
   double old_rhs {};
   double old_range {};
-  CPXgetsense(m_env_, m_lp_, &old_sense, index, index);
-  CPXgetrhs(m_env_, m_lp_, &old_rhs, index, index);
-  CPXgetrngval(m_env_, m_lp_, &old_range, index, index);
+  CPXgetsense(m_env_lp_.env(), m_env_lp_.lp(), &old_sense, index, index);
+  CPXgetrhs(m_env_lp_.env(), m_env_lp_.lp(), &old_rhs, index, index);
+  CPXgetrngval(m_env_lp_.env(), m_env_lp_.lp(), &old_range, index, index);
 
   const double old_lb =
       cplex_row_lb(old_sense, old_rhs, old_range, CPX_INFBOUND);
@@ -487,9 +661,9 @@ void CplexSolverBackend::set_row_upper(int index, double value)
   double new_range {};
   bounds_to_cplex(old_lb, value, CPX_INFBOUND, new_sense, new_rhs, new_range);
 
-  CPXchgsense(m_env_, m_lp_, 1, &index, &new_sense);
-  CPXchgrhs(m_env_, m_lp_, 1, &index, &new_rhs);
-  CPXchgrngval(m_env_, m_lp_, 1, &index, &new_range);
+  CPXchgsense(m_env_lp_.env(), m_env_lp_.lp(), 1, &index, &new_sense);
+  CPXchgrhs(m_env_lp_.env(), m_env_lp_.lp(), 1, &index, &new_rhs);
+  CPXchgrngval(m_env_lp_.env(), m_env_lp_.lp(), 1, &index, &new_range);
 }
 
 void CplexSolverBackend::set_row_bounds(int index, double lb, double ub)
@@ -502,9 +676,9 @@ void CplexSolverBackend::set_row_bounds(int index, double lb, double ub)
   double new_range {};
   bounds_to_cplex(lb, ub, CPX_INFBOUND, new_sense, new_rhs, new_range);
 
-  CPXchgsense(m_env_, m_lp_, 1, &index, &new_sense);
-  CPXchgrhs(m_env_, m_lp_, 1, &index, &new_rhs);
-  CPXchgrngval(m_env_, m_lp_, 1, &index, &new_range);
+  CPXchgsense(m_env_lp_.env(), m_env_lp_.lp(), 1, &index, &new_sense);
+  CPXchgrhs(m_env_lp_.env(), m_env_lp_.lp(), 1, &index, &new_rhs);
+  CPXchgrngval(m_env_lp_.env(), m_env_lp_.lp(), 1, &index, &new_range);
 }
 
 void CplexSolverBackend::delete_rows(int num, const int* indices)
@@ -515,7 +689,7 @@ void CplexSolverBackend::delete_rows(int num, const int* indices)
   // CPXdelrows expects a sorted range [begin, end].
   // We need to delete individual indices — use CPXdelsetrows with a delstat
   // array.
-  const int nrows = CPXgetnumrows(m_env_, m_lp_);
+  const int nrows = CPXgetnumrows(m_env_lp_.env(), m_env_lp_.lp());
   std::vector<int> delstat(static_cast<size_t>(nrows), 0);
   for (int i = 0; i < num; ++i) {
     const auto idx = static_cast<size_t>(
@@ -524,13 +698,13 @@ void CplexSolverBackend::delete_rows(int num, const int* indices)
       delstat[idx] = 1;
     }
   }
-  CPXdelsetrows(m_env_, m_lp_, delstat.data());
+  CPXdelsetrows(m_env_lp_.env(), m_env_lp_.lp(), delstat.data());
 }
 
 double CplexSolverBackend::get_coeff(int row, int col) const
 {
   double value = 0.0;
-  CPXgetcoef(m_env_, m_lp_, row, col, &value);
+  CPXgetcoef(m_env_lp_.env(), m_env_lp_.lp(), row, col, &value);
   return value;
 }
 
@@ -538,7 +712,7 @@ void CplexSolverBackend::set_coeff(int row, int col, double value)
 {
   m_prob_cached_ = false;
   m_sol_cached_ = false;
-  CPXchgcoef(m_env_, m_lp_, row, col, value);
+  CPXchgcoef(m_env_lp_.env(), m_env_lp_.lp(), row, col, value);
 }
 
 bool CplexSolverBackend::supports_set_coeff() const noexcept
@@ -550,10 +724,10 @@ void CplexSolverBackend::set_continuous(int index)
 {
   m_sol_cached_ = false;
   // If problem is MIP, change column type to continuous
-  const int cplex_type = CPXgetprobtype(m_env_, m_lp_);
+  const int cplex_type = CPXgetprobtype(m_env_lp_.env(), m_env_lp_.lp());
   if (cplex_type == CPXPROB_MILP || cplex_type == CPXPROB_MIQP) {
     const char ctype = CPX_CONTINUOUS;
-    CPXchgctype(m_env_, m_lp_, 1, &index, &ctype);
+    CPXchgctype(m_env_lp_.env(), m_env_lp_.lp(), 1, &index, &ctype);
   }
 }
 
@@ -561,22 +735,22 @@ void CplexSolverBackend::set_integer(int index)
 {
   m_sol_cached_ = false;
   // Promote to MIP if needed
-  const int cplex_type = CPXgetprobtype(m_env_, m_lp_);
+  const int cplex_type = CPXgetprobtype(m_env_lp_.env(), m_env_lp_.lp());
   if (cplex_type != CPXPROB_MILP && cplex_type != CPXPROB_MIQP) {
-    CPXchgprobtype(m_env_, m_lp_, CPXPROB_MILP);
+    CPXchgprobtype(m_env_lp_.env(), m_env_lp_.lp(), CPXPROB_MILP);
   }
   const char ctype = CPX_INTEGER;
-  CPXchgctype(m_env_, m_lp_, 1, &index, &ctype);
+  CPXchgctype(m_env_lp_.env(), m_env_lp_.lp(), 1, &index, &ctype);
 }
 
 bool CplexSolverBackend::is_continuous(int index) const
 {
-  const int cplex_type = CPXgetprobtype(m_env_, m_lp_);
+  const int cplex_type = CPXgetprobtype(m_env_lp_.env(), m_env_lp_.lp());
   if (cplex_type != CPXPROB_MILP && cplex_type != CPXPROB_MIQP) {
     return true;  // All continuous in LP
   }
   char ctype {};
-  CPXgetctype(m_env_, m_lp_, &ctype, index, index);
+  CPXgetctype(m_env_lp_.env(), m_env_lp_.lp(), &ctype, index, index);
   return ctype == CPX_CONTINUOUS;
 }
 
@@ -591,17 +765,17 @@ void CplexSolverBackend::cache_problem_data() const
     return;
   }
 
-  const int ncols = CPXgetnumcols(m_env_, m_lp_);
-  const int nrows = CPXgetnumrows(m_env_, m_lp_);
+  const int ncols = CPXgetnumcols(m_env_lp_.env(), m_env_lp_.lp());
+  const int nrows = CPXgetnumrows(m_env_lp_.env(), m_env_lp_.lp());
 
   m_collb_.resize(static_cast<size_t>(ncols));
   m_colub_.resize(static_cast<size_t>(ncols));
   m_obj_.resize(static_cast<size_t>(ncols));
 
   if (ncols > 0) {
-    CPXgetlb(m_env_, m_lp_, m_collb_.data(), 0, ncols - 1);
-    CPXgetub(m_env_, m_lp_, m_colub_.data(), 0, ncols - 1);
-    CPXgetobj(m_env_, m_lp_, m_obj_.data(), 0, ncols - 1);
+    CPXgetlb(m_env_lp_.env(), m_env_lp_.lp(), m_collb_.data(), 0, ncols - 1);
+    CPXgetub(m_env_lp_.env(), m_env_lp_.lp(), m_colub_.data(), 0, ncols - 1);
+    CPXgetobj(m_env_lp_.env(), m_env_lp_.lp(), m_obj_.data(), 0, ncols - 1);
   }
 
   m_rowlb_.resize(static_cast<size_t>(nrows));
@@ -611,9 +785,9 @@ void CplexSolverBackend::cache_problem_data() const
     std::vector<char> sense(static_cast<size_t>(nrows));
     std::vector<double> rhs(static_cast<size_t>(nrows));
     std::vector<double> range(static_cast<size_t>(nrows));
-    CPXgetsense(m_env_, m_lp_, sense.data(), 0, nrows - 1);
-    CPXgetrhs(m_env_, m_lp_, rhs.data(), 0, nrows - 1);
-    CPXgetrngval(m_env_, m_lp_, range.data(), 0, nrows - 1);
+    CPXgetsense(m_env_lp_.env(), m_env_lp_.lp(), sense.data(), 0, nrows - 1);
+    CPXgetrhs(m_env_lp_.env(), m_env_lp_.lp(), rhs.data(), 0, nrows - 1);
+    CPXgetrngval(m_env_lp_.env(), m_env_lp_.lp(), range.data(), 0, nrows - 1);
 
     for (int i = 0; i < nrows; ++i) {
       const auto idx = static_cast<size_t>(i);
@@ -633,20 +807,23 @@ void CplexSolverBackend::cache_solution() const
     return;
   }
 
-  const int ncols = CPXgetnumcols(m_env_, m_lp_);
-  const int nrows = CPXgetnumrows(m_env_, m_lp_);
+  const int ncols = CPXgetnumcols(m_env_lp_.env(), m_env_lp_.lp());
+  const int nrows = CPXgetnumrows(m_env_lp_.env(), m_env_lp_.lp());
 
   m_col_solution_.resize(static_cast<size_t>(ncols));
   m_reduced_cost_.resize(static_cast<size_t>(ncols));
   m_row_price_.resize(static_cast<size_t>(nrows));
 
   if (ncols > 0) {
-    CPXgetx(m_env_, m_lp_, m_col_solution_.data(), 0, ncols - 1);
-    CPXgetdj(m_env_, m_lp_, m_reduced_cost_.data(), 0, ncols - 1);
+    CPXgetx(
+        m_env_lp_.env(), m_env_lp_.lp(), m_col_solution_.data(), 0, ncols - 1);
+    CPXgetdj(
+        m_env_lp_.env(), m_env_lp_.lp(), m_reduced_cost_.data(), 0, ncols - 1);
   }
 
   if (nrows > 0) {
-    CPXgetpi(m_env_, m_lp_, m_row_price_.data(), 0, nrows - 1);
+    CPXgetpi(
+        m_env_lp_.env(), m_env_lp_.lp(), m_row_price_.data(), 0, nrows - 1);
   }
 
   m_sol_cached_ = true;
@@ -703,7 +880,7 @@ const double* CplexSolverBackend::row_price() const
 double CplexSolverBackend::obj_value() const
 {
   double val = 0.0;
-  CPXgetobjval(m_env_, m_lp_, &val);
+  CPXgetobjval(m_env_lp_.env(), m_env_lp_.lp(), &val);
   return val;
 }
 
@@ -712,7 +889,8 @@ void CplexSolverBackend::set_col_solution(const double* sol)
   if (sol == nullptr) {
     return;
   }
-  const auto ncols = static_cast<size_t>(CPXgetnumcols(m_env_, m_lp_));
+  const auto ncols =
+      static_cast<size_t>(CPXgetnumcols(m_env_lp_.env(), m_env_lp_.lp()));
   // Cache the provided solution so that col_solution() returns it
   // immediately, without requiring a re-solve.
   m_col_solution_.assign(
@@ -720,8 +898,8 @@ void CplexSolverBackend::set_col_solution(const double* sol)
       sol + ncols);  // NOLINT(cppcoreguidelines-pro-bounds-pointer-arithmetic)
   m_sol_cached_ = true;
   // Also provide it to CPLEX as a warm-start hint.
-  CPXcopystart(m_env_,
-               m_lp_,
+  CPXcopystart(m_env_lp_.env(),
+               m_env_lp_.lp(),
                nullptr,  // cstat (basis statuses for columns)
                nullptr,  // rstat (basis statuses for rows)
                sol,  // primal values
@@ -736,8 +914,8 @@ void CplexSolverBackend::set_row_price(const double* price)
     return;
   }
   m_sol_cached_ = false;
-  CPXcopystart(m_env_,
-               m_lp_,
+  CPXcopystart(m_env_lp_.env(),
+               m_env_lp_.lp(),
                nullptr,  // cstat
                nullptr,  // rstat
                nullptr,  // primal
@@ -750,11 +928,11 @@ void CplexSolverBackend::initial_solve()
 {
   m_sol_cached_ = false;
 
-  const int cplex_type = CPXgetprobtype(m_env_, m_lp_);
+  const int cplex_type = CPXgetprobtype(m_env_lp_.env(), m_env_lp_.lp());
   if (cplex_type == CPXPROB_MILP || cplex_type == CPXPROB_MIQP) {
-    m_solve_status_ = CPXmipopt(m_env_, m_lp_);
+    m_solve_status_ = CPXmipopt(m_env_lp_.env(), m_env_lp_.lp());
   } else {
-    m_solve_status_ = CPXlpopt(m_env_, m_lp_);
+    m_solve_status_ = CPXlpopt(m_env_lp_.env(), m_env_lp_.lp());
   }
 }
 
@@ -762,28 +940,25 @@ void CplexSolverBackend::resolve()
 {
   m_sol_cached_ = false;
 
-  const int cplex_type = CPXgetprobtype(m_env_, m_lp_);
+  const int cplex_type = CPXgetprobtype(m_env_lp_.env(), m_env_lp_.lp());
   if (cplex_type == CPXPROB_MILP || cplex_type == CPXPROB_MIQP) {
-    m_solve_status_ = CPXmipopt(m_env_, m_lp_);
+    m_solve_status_ = CPXmipopt(m_env_lp_.env(), m_env_lp_.lp());
   } else {
     // CPXlpopt respects CPX_PARAM_LPMETHOD set by apply_options().
-    // When reuse_basis is true, apply_options() sets LPMETHOD to dual simplex
-    // and enables advanced start — so warm-start still works correctly.
-    // When barrier is requested, CPXlpopt uses barrier as configured.
-    m_solve_status_ = CPXlpopt(m_env_, m_lp_);
+    m_solve_status_ = CPXlpopt(m_env_lp_.env(), m_env_lp_.lp());
   }
 }
 
 bool CplexSolverBackend::is_proven_optimal() const
 {
-  const int stat = CPXgetstat(m_env_, m_lp_);
+  const int stat = CPXgetstat(m_env_lp_.env(), m_env_lp_.lp());
   return stat == CPX_STAT_OPTIMAL || stat == CPXMIP_OPTIMAL
       || stat == CPXMIP_OPTIMAL_TOL;
 }
 
 bool CplexSolverBackend::is_abandoned() const
 {
-  const int stat = CPXgetstat(m_env_, m_lp_);
+  const int stat = CPXgetstat(m_env_lp_.env(), m_env_lp_.lp());
   return stat == CPX_STAT_ABORT_USER || stat == CPX_STAT_ABORT_IT_LIM
       || stat == CPX_STAT_ABORT_TIME_LIM || stat == CPX_STAT_ABORT_OBJ_LIM
       || stat == CPX_STAT_NUM_BEST;
@@ -791,13 +966,13 @@ bool CplexSolverBackend::is_abandoned() const
 
 bool CplexSolverBackend::is_proven_primal_infeasible() const
 {
-  const int stat = CPXgetstat(m_env_, m_lp_);
+  const int stat = CPXgetstat(m_env_lp_.env(), m_env_lp_.lp());
   return stat == CPX_STAT_INFEASIBLE || stat == CPXMIP_INFEASIBLE;
 }
 
 bool CplexSolverBackend::is_proven_dual_infeasible() const
 {
-  const int stat = CPXgetstat(m_env_, m_lp_);
+  const int stat = CPXgetstat(m_env_lp_.env(), m_env_lp_.lp());
   return stat == CPX_STAT_UNBOUNDED || stat == CPXMIP_UNBOUNDED;
 }
 
@@ -834,116 +1009,59 @@ SolverOptions CplexSolverBackend::optimal_options() const
 
 void CplexSolverBackend::apply_options(const SolverOptions& opts)
 {
+  m_prep_.options = opts;
   m_algorithm_ = opts.algorithm;
   m_threads_ = opts.threads;
   m_presolve_ = opts.presolve;
   m_log_level_ = opts.log_level;
-  if (opts.threads > 0) {
-    CPXsetintparam(m_env_, CPX_PARAM_THREADS, opts.threads);
-  }
-
-  CPXsetintparam(m_env_, CPX_PARAM_PREIND, opts.presolve ? CPX_ON : CPX_OFF);
-
-  // Scaling: map SolverScaling → CPLEX CPX_PARAM_SCAIND.
-  if (opts.scaling.has_value()) {
-    int scaind = 0;  // equilibration (CPLEX default)
-    switch (*opts.scaling) {
-      case SolverScaling::none:
-        scaind = -1;
-        break;
-      case SolverScaling::automatic:
-        scaind = 0;
-        break;
-      case SolverScaling::aggressive:
-        scaind = 1;
-        break;
-    }
-    CPXsetintparam(m_env_, CPX_PARAM_SCAIND, scaind);
-  }
-
-  if (const auto oeps = opts.optimal_eps; oeps && *oeps > 0) {
-    CPXsetdblparam(m_env_, CPX_PARAM_EPOPT, *oeps);
-  }
-
-  if (const auto feps = opts.feasible_eps; feps && *feps > 0) {
-    CPXsetdblparam(m_env_, CPX_PARAM_EPRHS, *feps);
-  }
-
-  if (const auto tl = opts.time_limit; tl && *tl > 0.0) {
-    CPXsetdblparam(m_env_, CPX_PARAM_TILIM, *tl);
-  }
-
-  if (opts.reuse_basis && opts.algorithm != LPAlgo::barrier) {
-    m_algorithm_ = LPAlgo::dual;
-    m_presolve_ = false;
-
-    // Dual simplex with warm start
-    CPXsetintparam(m_env_, CPX_PARAM_LPMETHOD, CPX_ALG_DUAL);
-    CPXsetintparam(m_env_, CPX_PARAM_PREIND, CPX_OFF);
-    CPXsetintparam(m_env_, CPX_PARAM_ADVIND, 1);  // use advanced start
-    return;
-  }
-
-  switch (opts.algorithm) {
-    case LPAlgo::default_algo:
-      CPXsetintparam(m_env_, CPX_PARAM_LPMETHOD, CPX_ALG_AUTOMATIC);
-      break;
-    case LPAlgo::primal:
-      CPXsetintparam(m_env_, CPX_PARAM_LPMETHOD, CPX_ALG_PRIMAL);
-      break;
-    case LPAlgo::dual:
-      CPXsetintparam(m_env_, CPX_PARAM_LPMETHOD, CPX_ALG_DUAL);
-      break;
-    case LPAlgo::barrier:
-      CPXsetintparam(m_env_, CPX_PARAM_LPMETHOD, CPX_ALG_BARRIER);
-      if (const auto beps = opts.barrier_eps; beps && *beps > 0) {
-        CPXsetdblparam(m_env_, CPX_PARAM_BAREPCOMP, *beps);
-      }
-      // Crossover: primal (benchmark optimal) or none (forward training).
-      CPXsetintparam(
-          m_env_, CPX_PARAM_BARCROSSALG, opts.crossover ? 1 : CPX_ALG_NONE);
-      break;
-    case LPAlgo::last_algo:
-      break;
-  }
-
-  CPXsetintparam(
-      m_env_, CPX_PARAM_SCRIND, opts.log_level > 0 ? CPX_ON : CPX_OFF);
+  apply_options_to_env(m_env_lp_.env(), opts);
 }
 
-double CplexSolverBackend::get_kappa() const
+std::optional<double> CplexSolverBackend::get_kappa() const
 {
-  double kappa = 1.0;
-  if (CPXgetdblquality(m_env_, m_lp_, &kappa, CPX_KAPPA) != 0) {
-    kappa = 1.0;
+  // CPX_KAPPA requires a valid basis.  After a barrier solve without
+  // crossover CPLEX has no basis and CPXgetdblquality returns a non-zero
+  // status; we propagate that as nullopt.  We do NOT try to sniff the
+  // solution method here — the CPXgetdblquality return code is the
+  // authoritative signal.
+  double kappa = 0.0;
+  if (CPXgetdblquality(m_env_lp_.env(), m_env_lp_.lp(), &kappa, CPX_KAPPA) != 0)
+  {
+    return std::nullopt;
   }
   return kappa;
 }
 
 void CplexSolverBackend::open_log(FILE* /*file*/, int level)
 {
-  CPXsetintparam(m_env_, CPX_PARAM_SCRIND, level > 0 ? CPX_ON : CPX_OFF);
+  CPXsetintparam(
+      m_env_lp_.env(), CPX_PARAM_SCRIND, level > 0 ? CPX_ON : CPX_OFF);
 }
 
 void CplexSolverBackend::close_log()
 {
-  CPXsetintparam(m_env_, CPX_PARAM_SCRIND, CPX_OFF);
+  CPXsetintparam(m_env_lp_.env(), CPX_PARAM_SCRIND, CPX_OFF);
 }
 
 void CplexSolverBackend::set_log_filename(const std::string& filename,
                                           int level)
 {
+  // Only enable file logging when the caller actually wants it.  Otherwise
+  // leave CPLEX silent — critical for avoiding a spurious cplex.log in the
+  // working directory.
   if (level > 0 && !filename.empty()) {
-    const auto log_path = std::format("{}.log", filename);
-    CPXsetlogfilename(m_env_, log_path.c_str(), "a");
-    CPXsetintparam(m_env_, CPX_PARAM_SCRIND, CPX_ON);
+    m_prep_.log_filename = filename;
+    m_prep_.log_level = level;
+    apply_log_filename_to_env(m_env_lp_.env(), filename, level);
   }
 }
 
 void CplexSolverBackend::clear_log_filename()
 {
-  CPXsetlogfilename(m_env_, nullptr, nullptr);
-  CPXsetintparam(m_env_, CPX_PARAM_SCRIND, CPX_OFF);
+  m_prep_.log_filename.clear();
+  m_prep_.log_level = 0;
+  CPXsetlogfilename(m_env_lp_.env(), nullptr, nullptr);
+  CPXsetintparam(m_env_lp_.env(), CPX_PARAM_SCRIND, CPX_OFF);
 }
 
 void CplexSolverBackend::push_names(const std::vector<std::string>& col_names,
@@ -955,7 +1073,7 @@ void CplexSolverBackend::push_names(const std::vector<std::string>& col_names,
     if (!col_names[static_cast<size_t>(i)].empty()) {
       std::string name_buf = col_names[static_cast<size_t>(i)];
       auto* name_ptr = name_buf.data();
-      CPXchgcolname(m_env_, m_lp_, 1, &i, &name_ptr);
+      CPXchgcolname(m_env_lp_.env(), m_env_lp_.lp(), 1, &i, &name_ptr);
     }
   }
 
@@ -964,7 +1082,7 @@ void CplexSolverBackend::push_names(const std::vector<std::string>& col_names,
     if (!row_names[static_cast<size_t>(i)].empty()) {
       std::string name_buf = row_names[static_cast<size_t>(i)];
       auto* name_ptr = name_buf.data();
-      CPXchgrowname(m_env_, m_lp_, 1, &i, &name_ptr);
+      CPXchgrowname(m_env_lp_.env(), m_env_lp_.lp(), 1, &i, &name_ptr);
     }
   }
 }
@@ -972,21 +1090,41 @@ void CplexSolverBackend::push_names(const std::vector<std::string>& col_names,
 void CplexSolverBackend::write_lp(const char* filename)
 {
   const auto file = std::format("{}.lp", filename);
-  CPXwriteprob(m_env_, m_lp_, file.c_str(), "LP");
+  CPXwriteprob(m_env_lp_.env(), m_env_lp_.lp(), file.c_str(), "LP");
 }
 
 std::unique_ptr<SolverBackend> CplexSolverBackend::clone() const
 {
   auto cloned = std::make_unique<CplexSolverBackend>();
 
-  // Clone the problem via CPXcloneprob
+  // The clone owns its own env+lp pair — no sharing with the source.
+  //
+  //   1. Propagate the preparation state so the new env mirrors the
+  //      source's options, log settings, and prob name.
+  //   2. Rebuild env+lp through CplexEnvLp's ctor: a fresh CPXopenCPLEX
+  //      call yields an independent environment, and a fresh
+  //      CPXcreateprob gives it an empty problem.
+  //   3. Deep-copy the source problem into the clone's own environment
+  //      via CPXcloneprob, replacing the empty lp.
+  //
+  // When the returned clone is destroyed, CplexEnvLp's destructor calls
+  // CPXfreeprob on its own lp and CPXcloseCPLEX on its own env — no
+  // aliasing with the source, so destruction is always clean.
+  cloned->m_prep_ = m_prep_;
+  cloned->m_algorithm_ = m_algorithm_;
+  cloned->m_threads_ = m_threads_;
+  cloned->m_presolve_ = m_presolve_;
+  cloned->m_log_level_ = m_log_level_;
+  cloned->reset_env_lp();
+
   int status = 0;
-  CPXfreeprob(cloned->m_env_, &cloned->m_lp_);
-  cloned->m_lp_ = CPXcloneprob(cloned->m_env_, m_lp_, &status);
-  if (cloned->m_lp_ == nullptr) {
+  cpxlp* const cloned_lp =
+      CPXcloneprob(cloned->m_env_lp_.env(), m_env_lp_.lp(), &status);
+  if (cloned_lp == nullptr) {
     throw std::runtime_error(
         std::format("CPLEX: CPXcloneprob failed with status {}", status));
   }
+  cloned->m_env_lp_.reset_lp(cloned_lp);
 
   return cloned;
 }

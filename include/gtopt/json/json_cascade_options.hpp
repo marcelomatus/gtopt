@@ -27,7 +27,6 @@ struct json_data_contract<CascadeTransition>
 {
   using type =
       json_member_list<json_number_null<"inherit_optimality_cuts", OptInt>,
-                       json_number_null<"inherit_feasibility_cuts", OptInt>,
                        json_number_null<"inherit_targets", OptInt>,
                        json_number_null<"target_rtol", OptReal>,
                        json_number_null<"target_min_atol", OptReal>,
@@ -37,7 +36,6 @@ struct json_data_contract<CascadeTransition>
   constexpr static auto to_json_data(CascadeTransition const& opt)
   {
     return std::forward_as_tuple(opt.inherit_optimality_cuts,
-                                 opt.inherit_feasibility_cuts,
                                  opt.inherit_targets,
                                  opt.target_rtol,
                                  opt.target_min_atol,
@@ -71,14 +69,19 @@ struct json_data_contract<CascadeLevel>
   using type =
       json_member_list<json_number_null<"uid", OptUid>,
                        json_string_null<"name", OptName>,
+                       json_bool_null<"active", OptBool>,
                        json_class_null<"model_options", ModelOptions>,
                        json_class_null<"sddp_options", CascadeLevelMethod>,
                        json_class_null<"transition", CascadeTransition>>;
 
   constexpr static auto to_json_data(CascadeLevel const& opt)
   {
-    return std::forward_as_tuple(
-        opt.uid, opt.name, opt.model_options, opt.sddp_options, opt.transition);
+    return std::forward_as_tuple(opt.uid,
+                                 opt.name,
+                                 opt.active,
+                                 opt.model_options,
+                                 opt.sddp_options,
+                                 opt.transition);
   }
 };
 

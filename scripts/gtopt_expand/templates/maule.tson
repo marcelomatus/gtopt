@@ -1,0 +1,779 @@
+{# ================================================================= #}
+{# Maule Irrigation Agreement (Convenio del Maule, 1947/1983)        #}
+{# JSON Entity Template — FlowRight, VolumeRight, UserConstraint     #}
+{#                                                                   #}
+{# This template defines the gtopt JSON entity structure for the     #}
+{# Maule agreement.  Parameters marked {{ param }} are filled at render  #}
+{# time from values parsed from plpmaulen.dat and pre-computed by    #}
+{# maule_writer.py (schedules, zone thresholds, costs).              #}
+{#                                                                   #}
+{# PLP Fortran sources (authoritative):                              #}
+{#   parmaule.f    — PAR_MAULE parameter structure                   #}
+{#   plp-maule0.f  — initialization, config parsing                  #}
+{#   genpdmaule.f  — LP constraint matrix assembly, FijaMaule        #}
+{#   plp-maule1.f  — per-stage constraints, conditional bound flip   #}
+{#   plp-maule2.f  — post-solve state update (economics tracking)    #}
+{#                                                                   #}
+{# Key design difference PLP vs gtopt:                               #}
+{#   PLP: FijaMaule callback uses if/else logic to activate one      #}
+{#        zone at a time based on Colbun reservoir volume             #}
+{#   gtopt: overlapping bound_rule segments with step functions       #}
+{#          achieve zone exclusivity — same result, data-driven      #}
+{# ================================================================= #}
+
+{# ================================================================= #}
+{# LEGAL CONTEXT                                                     #}
+{#                                                                   #}
+{# The Convenio del Maule governs water allocation from the Colbun   #}
+{# reservoir system between:                                         #}
+{#   - ENDESA/Colbun (electric generation): ~800 MW total            #}
+{#     (Colbun + Machicura + Cipreses/Pehuenche cascade)             #}
+{#   - Agricultural irrigation: ~90,000+ ha in the Maule region      #}
+{#                                                                   #}
+{# Unlike Laja (piecewise-linear zones), Maule uses a simpler        #}
+{# three-zone model with proportional allocation in the middle zone: #}
+{#                                                                   #}
+{#   Zone         Volume Range         Rights Rule                   #}
+{#   Extraord.    0 - 129 hm3          No extraction for either      #}
+{#   Ordinary     129 - 581 hm3        20% electric / 80% irrigation #}
+{#   Normal       > 581 hm3            Full rights for both parties  #}
+{#                                                                   #}
+{# Additional features:                                              #}
+{#   - Resolution 105 (DGA, 1983): mandatory minimum ecological     #}
+{#     flow at the Melado river junction, year-round                 #}
+{#   - La Invernada: seasonal storage reservoir for winter banking   #}
+{#   - Bocatoma Canelon: canal intake infrastructure cost            #}
+{#   - 7 irrigation districts with proportional allocation           #}
+{# ================================================================= #}
+
+{# ================================================================= #}
+{# THREE-ZONE RESERVOIR OPERATION                                    #}
+{#                                                                   #}
+{#   PLP "Colchones" (Maule)          gtopt bound_rule segments      #}
+{#                                                                   #}
+{#        VolMax (Colbun)                                            #}
+{#   +-------------------------+                                     #}
+{#   |                         |    Normal elec bound_rule:          #}
+{#   |   Normal Zone           |    seg[0]: V>=0,   const=0  (OFF)  #}
+{#   |                         |    seg[1]: V>=581, const=30 (ON)   #}
+{#   |   Elec: 30 m3/s daily   |                                    #}
+{#   |   Irr:  200 m3/s        |    Normal irr bound_rule:          #}
+{#   |   Comp: allowed         |    seg[0]: V>=0,   const=0  (OFF)  #}
+{#   |                         |    seg[1]: V>=581, const=200(ON)   #}
+{#   +-- 581 hm3 --------------+                                    #}
+{#   |                         |    Ordinary elec bound_rule:        #}
+{#   |   Ordinary Reserve      |    seg[0]: V>=0,   const=0  (OFF)  #}
+{#   |   (452 hm3)             |    seg[1]: V>=129, const=30 (ON)   #}
+{#   |                         |    seg[2]: V>=581, const=0  (OFF)  #}
+{#   |   20% -> ENDESA         |                                    #}
+{#   |   80% -> Irrigators     |    Ordinary irr bound_rule:        #}
+{#   |                         |    seg[0]: V>=0,   const=0  (OFF)  #}
+{#   |   UserConstraint:       |    seg[1]: V>=129, const=200(ON)   #}
+{#   |   elec<=20% of total    |    seg[2]: V>=581, const=0  (OFF)  #}
+{#   +-- 129 hm3 --------------+                                    #}
+{#   |                         |                                     #}
+{#   |   Extraordinary         |    All rights: const=0 (OFF)       #}
+{#   |   Reserve (129 hm3)     |    No extraction allowed           #}
+{#   |   Minimal flows only    |                                     #}
+{#   +-- 0 hm3 ----------------+                                    #}
+{#                                                                   #}
+{# The 3-segment pattern for ordinary reserve achieves zone          #}
+{# exclusivity:                                                      #}
+{#   V < 129:       const=0 -> deactivated (extraordinary zone)     #}
+{#   129 <= V < 581: const=30 -> active (ordinary zone)             #}
+{#   V >= 581:       const=0 -> deactivated (normal zone takes over)#}
+{# ================================================================= #}
+
+{# ================================================================= #}
+{# PLP-TO-GTOPT VARIABLE MAPPING                                     #}
+{#                                                                   #}
+{# Flow variables (per block, genpdmaule.f):                         #}
+{#   PLP Variable   PLP Name                  gtopt FlowRight        #}
+{#   IQMNE          Gasto Normal Electrico    maule_gasto_normal_elec#}
+{#   IQMNR          Gasto Normal Riego        maule_gasto_normal_riego#}
+{#   IQMOE          Gasto Ordinario Elec.     maule_gasto_ordinario_elec#}
+{#   IQMOR          Gasto Ordinario Riego     maule_gasto_ordinario_riego#}
+{#   IQMCE          Compensacion Electrica    maule_compensacion_elec#}
+{#   IQA105         Resolucion 105            maule_resolucion_105   #}
+{#   IQIDN          Deficit Invernada         invernada_deficit      #}
+{#   IQISD          Sin Deficit Invernada     invernada_sin_deficit  #}
+{#   IQNINV         Caudal Natural Invernada  invernada_caudal_natural#}
+{#   IQHEIN         Embalsar Invernada        invernada_embalsar     #}
+{#   IQHNEIN        No Embalsar Invernada     invernada_no_embalsar  #}
+{#                                                                   #}
+{# Volume state variables (per stage):                               #}
+{#   PLP Variable   PLP Name                  gtopt VolumeRight      #}
+{#   IVMGEMF        Vol Elec Mensual          maule_vol_gasto_elec_mensual#}
+{#   IVMGEAF        Vol Elec Anual            maule_vol_gasto_elec_anual#}
+{#   IVMGRTF        Vol Riego Temporada       maule_vol_gasto_riego_temp#}
+{#   VolCompEND     Compensacion ENDESA       maule_vol_compensacion_elec#}
+{#   (new)          Reserva Ord. Elec.        maule_vol_reserva_ord_elec#}
+{#   (new)          Reserva Ord. Riego        maule_vol_reserva_ord_riego#}
+{#   IVMDEIF        Economia Invernada        maule_vol_econ_invernada#}
+{#                                                                   #}
+{# Hourly aggregates (PLP "H"-suffix, auto-created by use_average): #}
+{#   IQMNEH, IQMNRH, IQMOEH, IQMORH, IQMCEH                       #}
+{#   -> FlowRight qeh column + qavg constraint row                  #}
+{# ================================================================= #}
+
+{# ================================================================= #}
+{# PLP CONSTRAINT MAPPING (genpdmaule.f)                             #}
+{#                                                                   #}
+{# Block-level (per block j):                                        #}
+{#   R1: Flow partition (per central):                               #}
+{#       -qg_i_j + m_qmne_j + m_qmnr_j + m_qmoe_j + m_qmor_j      #}
+{#       + m_qmce_j = 0                                             #}
+{#       -> RightJunction partition_{central}                        #}
+{#   R2: Armerillo balance:                                          #}
+{#       Q_inter + Q_inv + Q_maule - Q_elec - Q_irr + drain >= 0    #}
+{#       -> RightJunction "armerillo" (drain=true)                   #}
+{#   R3: Invernada winter balance:                                   #}
+{#       m_qidn + m_qisd + m_qninv - m_qhein - m_qhnein = QAflInv  #}
+{#       -> UserConstraint invernada_balance                         #}
+{#                                                                   #}
+{# Stage-level:                                                      #}
+{#   R4-R8: Averaging (per rights category):                         #}
+{#       IQMNEH - sum_j[dur_ratio_j * m_qmne_j] = 0                 #}
+{#       -> FlowRight qavg row (auto by use_average=true)            #}
+{#   R9: Monthly electric accumulation:                              #}
+{#       IVMGEMF = Prev + (etadur/ScaleVol) * IQMNEH                #}
+{#       -> VolumeRight energy balance                               #}
+{#   R10: Annual electric accumulation:                              #}
+{#       IVMGEAF = Prev + IVMGEMF                                   #}
+{#       -> VolumeRight energy balance                               #}
+{#   R11: Seasonal irrigation accumulation:                          #}
+{#       IVMGRTF = Prev + (etadur/ScaleVol) * IQMNRH                #}
+{#       -> VolumeRight energy balance                               #}
+{#   R14-R15: Percentage allocation (ordinary reserve):              #}
+{#       IQMOEH <= pct_elec% * (IQMOEH + IQMORH)                    #}
+{#       IQMORH <= pct_riego% * (IQMOEH + IQMORH)                   #}
+{#       -> UserConstraint maule_pct_ordinario_elec/riego            #}
+{#   R16+: District proportional allocation:                         #}
+{#       flow(dist_i) = pct_i% * flow(maule_gasto_normal_riego)     #}
+{#       -> UserConstraint dist_{name}                               #}
+{# ================================================================= #}
+
+{# ================================================================= #}
+{# UPDATE_LP BEHAVIOR                                                #}
+{#                                                                   #}
+{# PLP: genpdmaule.f / FijaMaule — called each stage before LP      #}
+{#   solve.  Reads Colbun reservoir volume, determines active zone   #}
+{#   (extraordinary / ordinary / normal), and sets column bounds:    #}
+{#   - Normal zone: elec=30, irr=200*pct_riego(month)               #}
+{#   - Ordinary: elec=30*mod_elec(month), irr=200*pct_riego(month)  #}
+{#     plus UserConstraint 20/80 split active                        #}
+{#   - Extraordinary: all bounds = 0 (no extraction)                 #}
+{#                                                                   #}
+{# gtopt: Each FlowRight with a bound_rule has HasUpdateLP.  During  #}
+{#   SystemLP::update_lp(), the bound_rule step function is          #}
+{#   evaluated using Colbun reservoir volume:                        #}
+{#   - V < 129: all segments evaluate to 0 -> no extraction          #}
+{#   - 129 <= V < 581: ordinary segments active, normal OFF          #}
+{#   - V >= 581: normal segments active, ordinary OFF                #}
+{#                                                                   #}
+{# The fmax schedule (monthly modulation) provides the second        #}
+{# dimension of variability: fmax = pct_riego(month)/100 * 200.     #}
+{# The effective upper bound is min(fmax, bound_rule_value).         #}
+{#                                                                   #}
+{# VolumeRight reset behavior:                                       #}
+{#   reset_month=january: monthly electric (IVMGEMF) resets          #}
+{#   reset_month=june: annual electric (IVMGEAF) and seasonal       #}
+{#     irrigation (IVMGRTF) reset — June starts the "year" for      #}
+{#     the Maule convention                                          #}
+{#   No reset: compensation and Invernada economy carry forward      #}
+{#                                                                   #}
+{# Conditional bound flipping (La Invernada, plp-maule1.f):          #}
+{#   PLP flips IQIDN/IQISD upper bounds based on whether current    #}
+{#   irrigation demand exceeds available surface inflow.  This is    #}
+{#   a simulation-level conditional, NOT a pure LP constraint.       #}
+{#   gtopt: NOT YET MODELED — would need a custom update_lp rule    #}
+{#   or a bound_rule referencing the demand-inflow gap.              #}
+{# ================================================================= #}
+
+{
+  "flow_right_array": [
+    {# ============================================================= #}
+    {# FlowRight: maule_gasto_normal_elec (PLP: IQMNE)              #}
+    {#                                                               #}
+    {# Normal zone electric rights.  Active only when Colbun volume  #}
+    {# is in the normal zone (above v_zone_normal = 581 hm3).       #}
+    {#                                                               #}
+    {# PLP: genpdmaule.f creates m_qmne_j per block.  FijaMaule     #}
+    {# sets upper bound = gasto_elec_dia_max (30 m3/s) when in      #}
+    {# normal zone, 0 otherwise.                                     #}
+    {#                                                               #}
+    {# bound_rule: 2-segment step function:                          #}
+    {#   seg[0]: V>=0,   const=0   (OFF below normal zone)          #}
+    {#   seg[1]: V>=581, const=30  (ON in normal zone)              #}
+    {#                                                               #}
+    {# fail_cost: PLP Penalizador_1 (1500 $/m3/s).  Applied when    #}
+    {# the optimizer cannot deliver the full electric entitlement.   #}
+    {# ============================================================= #}
+    {
+      "name": "maule_gasto_normal_elec",
+      "purpose": "generation",
+      "direction": -1,
+      "discharge": 0,
+      "fmax": {{ elec_day_max }},
+      "use_average": true,
+      "fail_cost": {{ penalizador_1 }},
+      "bound_rule": {
+        "reservoir": {{ res_colbun }},
+        "segments": [
+          {"volume": 0, "slope": 0, "constant": 0},
+          {"volume": {{ v_zone_normal }}, "slope": 0, "constant": {{ elec_day_max }}}
+        ]
+      }
+    },
+
+    {# ============================================================= #}
+    {# FlowRight: maule_gasto_normal_riego (PLP: IQMNR)             #}
+    {#                                                               #}
+    {# Normal zone irrigation rights.  Active only in normal zone.   #}
+    {# fmax modulated by monthly irrigation percentage schedule:     #}
+    {#   fmax = pct_riego_mensual[month] / 100 * gasto_riego_max     #}
+    {#                                                               #}
+    {# PLP monthly percentages (PRiegoMaule):                        #}
+    {#   Jan:100 Feb:80 Mar:55 Apr:30 May:20 Jun:0                  #}
+    {#   Jul:0   Aug:0  Sep:30 Oct:70 Nov:90 Dec:100                #}
+    {#                                                               #}
+    {# bound_rule: same 2-segment pattern as normal electric.        #}
+    {#   seg[0]: V>=0,   const=0   (OFF below normal zone)          #}
+    {#   seg[1]: V>=581, const=200 (ON — base irrigation flow)      #}
+    {#                                                               #}
+    {# The effective bound is min(fmax_schedule, bound_rule_value).  #}
+    {# During update_lp(), if V drops below 581: bound_rule -> 0,   #}
+    {# disabling normal irrigation regardless of seasonal fmax.      #}
+    {#                                                               #}
+    {# use_value: benefit of irrigation delivery (valor_riego).      #}
+    {# Negative cost in objective = benefit.  Only emitted if > 0.   #}
+    {# ============================================================= #}
+    {
+      "name": "maule_gasto_normal_riego",
+      "purpose": "irrigation",
+      "direction": -1,
+      "discharge": 0,
+      "fmax": {{ irr_fmax_schedule }},
+      "use_average": true,
+      "fail_cost": {{ costo_riego_ns_maule }},
+      "bound_rule": {
+        "reservoir": {{ res_colbun }},
+        "segments": [
+          {"volume": 0, "slope": 0, "constant": 0},
+          {"volume": {{ v_zone_normal }}, "slope": 0, "constant": {{ riego_max }}}
+        ]
+      }
+      {% if valor_riego > 0 %}
+      ,"use_value": {{ valor_riego }}
+      {% endif %}
+    },
+
+    {# ============================================================= #}
+    {# FlowRight: maule_gasto_ordinario_elec (PLP: IQMOE)           #}
+    {#                                                               #}
+    {# Ordinary reserve electric rights.  Active only in the         #}
+    {# ordinary zone (129 <= V < 581 hm3).                          #}
+    {#                                                               #}
+    {# PLP: FijaMaule activates IQMOE only in ordinary zone.        #}
+    {# fmax modulated by mod_elec_reserva monthly schedule:          #}
+    {#   100% (Jan-Jun), 0% (Jul-Dec) in typical PLP config.        #}
+    {#   fmax = mod_elec(month) / 100 * gasto_elec_dia_max          #}
+    {#                                                               #}
+    {# bound_rule: 3-segment step function for zone exclusivity:    #}
+    {#   seg[0]: V>=0,   const=0  (OFF — extraordinary zone)        #}
+    {#   seg[1]: V>=129, const=30 (ON  — ordinary zone)             #}
+    {#   seg[2]: V>=581, const=0  (OFF — normal zone takes over)    #}
+    {#                                                               #}
+    {# The 20/80 proportional split is enforced by UserConstraint    #}
+    {# maule_pct_ordinario_elec (see below), NOT by the bound_rule.  #}
+    {# ============================================================= #}
+    {
+      "name": "maule_gasto_ordinario_elec",
+      "purpose": "generation",
+      "direction": -1,
+      "discharge": 0,
+      "fmax": {{ elec_ord_fmax }},
+      "use_average": true,
+      "bound_rule": {
+        "reservoir": {{ res_colbun }},
+        "segments": [
+          {"volume": 0, "slope": 0, "constant": 0},
+          {"volume": {{ v_zone_extraord }}, "slope": 0, "constant": {{ elec_day_max }}},
+          {"volume": {{ v_zone_normal }}, "slope": 0, "constant": 0}
+        ]
+      }
+    },
+
+    {# ============================================================= #}
+    {# FlowRight: maule_gasto_ordinario_riego (PLP: IQMOR)          #}
+    {#                                                               #}
+    {# Ordinary reserve irrigation rights.  Same 3-segment          #}
+    {# bound_rule as ordinary electric but with irrigation base flow.#}
+    {# The 80% cap is enforced by UserConstraint, not bound_rule.    #}
+    {#                                                               #}
+    {# PLP: FijaMaule activates IQMOR only in ordinary zone.        #}
+    {# fmax = same seasonal schedule as normal irrigation.            #}
+    {# ============================================================= #}
+    {
+      "name": "maule_gasto_ordinario_riego",
+      "purpose": "irrigation",
+      "direction": -1,
+      "discharge": 0,
+      "fmax": {{ irr_fmax_schedule }},
+      "use_average": true,
+      "bound_rule": {
+        "reservoir": {{ res_colbun }},
+        "segments": [
+          {"volume": 0, "slope": 0, "constant": 0},
+          {"volume": {{ v_zone_extraord }}, "slope": 0, "constant": {{ riego_max }}},
+          {"volume": {{ v_zone_normal }}, "slope": 0, "constant": 0}
+        ]
+      }
+      {% if valor_riego > 0 %}
+      ,"use_value": {{ valor_riego }}
+      {% endif %}
+    },
+
+    {# ============================================================= #}
+    {# FlowRight: maule_compensacion_elec (PLP: IQMCE)              #}
+    {#                                                               #}
+    {# ENDESA compensation flow.  Compensates ENDESA for irrigation  #}
+    {# priority in the ordinary reserve zone.  No bound_rule — this  #}
+    {# is available regardless of zone (tracks cumulative volume     #}
+    {# via VolumeRight maule_vol_compensacion_elec).                 #}
+    {#                                                               #}
+    {# PLP: IQMCEH hourly aggregate, volume tracked by VolCompEND.   #}
+    {# No zone restriction — compensation can be drawn from any zone.#}
+    {# ============================================================= #}
+    {
+      "name": "maule_compensacion_elec",
+      "purpose": "generation",
+      "direction": -1,
+      "discharge": 0,
+      "fmax": {{ elec_day_max }},
+      "use_average": true
+    },
+
+    {# ============================================================= #}
+    {# FlowRight: maule_resolucion_105 (PLP: IQA105)                #}
+    {#                                                               #}
+    {# Resolution 105 (DGA, 1983): mandatory minimum ecological     #}
+    {# flow at the Melado river junction, year-round.  This is a     #}
+    {# FIXED discharge (not variable) — the optimizer MUST deliver   #}
+    {# this flow.  Failure incurs fail_cost penalty.                 #}
+    {#                                                               #}
+    {# PLP: variable index 31 in genpdmaule.f.  Monthly schedule    #}
+    {# from QRiego105(12):                                           #}
+    {#   Apr:80  May:40  Jun-Aug:40  Sep:60  Oct:140  Nov:180       #}
+    {#   Dec:200 Jan:200 Feb:180 Mar:120                             #}
+    {#                                                               #}
+    {# In gtopt: FlowRight in fixed mode (discharge > 0, fmax = 0). #}
+    {# The discharge is an STBRealFieldSched (3D: scenario x stage   #}
+    {# x block) with monthly values replicated across blocks.        #}
+    {#                                                               #}
+    {# use_value: benefit of ecological flow delivery (valor_res105).#}
+    {# Only emitted if > 0.                                          #}
+    {# ============================================================= #}
+    {
+      "name": "maule_resolucion_105",
+      "purpose": "environmental",
+      "direction": -1,
+      "discharge": {{ res105_discharge }},
+      "fail_cost": {{ costo_riego_ns_res105 }}
+      {% if valor_riego_res105 > 0 %}
+      ,"use_value": {{ valor_riego_res105 }}
+      {% endif %}
+    },
+
+    {# ============================================================= #}
+    {# FlowRights: La Invernada winter storage balance               #}
+    {#                                                               #}
+    {# La Invernada is a seasonal reservoir used for winter water     #}
+    {# banking.  PLP models it with 5 block-level flow variables     #}
+    {# forming a balance (genpdmaule.f R3):                          #}
+    {#   m_qidn + m_qisd + m_qninv = m_qhein + m_qhnein             #}
+    {#   (inflows = outflows)                                        #}
+    {#                                                               #}
+    {# Supply side (direction=+1):                                   #}
+    {#   invernada_deficit:       deficit-mode discharge (must        #}
+    {#     release when irrigators need more than inflow provides)    #}
+    {#   invernada_sin_deficit:   no-deficit storage flow (can store  #}
+    {#     when irrigators are satisfied)                             #}
+    {#   invernada_caudal_natural: natural inflow to La Invernada    #}
+    {#                                                               #}
+    {# Withdrawal side (direction=-1):                               #}
+    {#   invernada_embalsar:      storage into reservoir (banking)    #}
+    {#   invernada_no_embalsar:   bypass (not stored, passes through)#}
+    {#                                                               #}
+    {# PLP conditional bound flipping (plp-maule1.f):                #}
+    {#   If irr_demand > inflow: IQIDN=inf, IQISD=0 (must release)  #}
+    {#   If irr_demand < inflow: IQIDN=0, IQISD=inf (may store)     #}
+    {# gtopt: NOT YET MODELED — both are free variables.             #}
+    {#                                                               #}
+    {# Objective terms (PLP):                                        #}
+    {#   +FCau * CostoEmbalsar * IQHEIN    (storage cost)            #}
+    {#   +FCau * CostoNoEmbalsar * IQHNEIN  (bypass penalty)         #}
+    {# gtopt: mapped to use_value on the respective FlowRights.     #}
+    {# ============================================================= #}
+    {# fmax = qmax_invernada makes these true free variables in      #}
+    {# [0, qmax_invernada].  Without fmax, flow_right_lp.cpp pins    #}
+    {# the column to [discharge, discharge] = [0, 0] and the         #}
+    {# invernada_balance UserConstraint degenerates to 0 = 0.        #}
+    {
+      "name": "invernada_deficit",
+      "purpose": "irrigation",
+      "direction": 1,
+      "discharge": 0,
+      "fmax": {{ qmax_invernada }},
+      "use_average": true
+    },
+
+    {
+      "name": "invernada_sin_deficit",
+      "purpose": "irrigation",
+      "direction": 1,
+      "discharge": 0,
+      "fmax": {{ qmax_invernada }},
+      "use_average": true
+    },
+
+    {
+      "name": "invernada_caudal_natural",
+      "purpose": "irrigation",
+      "direction": 1,
+      "discharge": 0,
+      "fmax": {{ qmax_invernada }},
+      "use_average": true
+    },
+
+    {# Storage FlowRight: use_value = CostoEmbalsar (PLP: 1500 $/m3)#}
+    {# Only emitted when costo_embalsar > 0.                        #}
+    {
+      "name": "invernada_embalsar",
+      "purpose": "economy",
+      "direction": -1,
+      "discharge": 0,
+      "fmax": {{ qmax_invernada }},
+      "use_average": true
+      {% if costo_embalsar > 0 %}
+      ,"use_value": {{ costo_embalsar }}
+      {% endif %}
+    },
+
+    {# Bypass FlowRight: use_value = CostoNoEmbalsar (PLP: 1000 $/m3)#}
+    {# Only emitted when costo_no_embalsar > 0.                     #}
+    {
+      "name": "invernada_no_embalsar",
+      "purpose": "economy",
+      "direction": -1,
+      "discharge": 0,
+      "fmax": {{ qmax_invernada }},
+      "use_average": true
+      {% if costo_no_embalsar > 0 %}
+      ,"use_value": {{ costo_no_embalsar }}
+      {% endif %}
+    }
+
+    {# ============================================================= #}
+    {# FlowRight: maule_bocatoma_canelon (PLP: BCanelon)             #}
+    {#                                                               #}
+    {# Canal intake infrastructure cost.  Penalizes use of the       #}
+    {# Canelon irrigation intake when water is diverted through it.  #}
+    {# PLP: CostoCanelon * BloDur/FPhi in objective function.        #}
+    {#                                                               #}
+    {# Conditional — only emitted when costo_canelon > 0.            #}
+    {# ============================================================= #}
+    {% if costo_canelon > 0 %}
+    ,{
+      "name": "maule_bocatoma_canelon",
+      "purpose": "irrigation",
+      "direction": -1,
+      "discharge": 0,
+      "use_value": {{ costo_canelon }}
+    }
+    {% endif %}
+
+    {# ============================================================= #}
+    {# FlowRight: District withdrawals                               #}
+    {#                                                               #}
+    {# 7 irrigation districts with proportional allocation.  Each    #}
+    {# receives a fixed percentage of the total normal irrigation    #}
+    {# flow (maule_gasto_normal_riego).  The proportional split is   #}
+    {# enforced by UserConstraint (dist_{name}), not by bound_rule.  #}
+    {#                                                               #}
+    {# PLP district percentages (plpmaulen.dat):                     #}
+    {#   RieCMNA:        12.66% (exact, =)                           #}
+    {#   RieCMNB:        14.70% (exact, =)                           #}
+    {#   RieMaitenes:    10.49% (exact, =)                           #}
+    {#   RieMauleSur:    11.97% (exact, =)                           #}
+    {#   RieMelado:      12.65% (slack, <=)                          #}
+    {#   RieSur123SCDZ:  34.27% (exact, =)                           #}
+    {#   RieMolinosOtros: 3.26% (exact, =)                           #}
+    {#   Total:         100.00%                                      #}
+    {#                                                               #}
+    {# Districts with has_slack=True use <= (allowing under-          #}
+    {# extraction); those without use = (exact proportional).        #}
+    {# RieMelado is the only slack district in the standard config.  #}
+    {#                                                               #}
+    {# Name transform: Rie prefix -> retiro_ prefix in gtopt        #}
+    {# (e.g. RieCMNA -> retiro_CMNA).                               #}
+    {#                                                               #}
+    {# Pre-computed in maule_writer._compute_district_entities()     #}
+    {# because fmax depends on the irrigation schedule.              #}
+    {# ============================================================= #}
+    {% for fr in district_flow_rights %}
+    ,{{ fr }}
+    {% endfor %}
+  ],
+
+  "volume_right_array": [
+    {# ============================================================= #}
+    {# VolumeRight: maule_vol_gasto_elec_mensual (PLP: IVMGEMF)      #}
+    {#                                                               #}
+    {# Monthly electric accumulator.  Tracks accumulated electric    #}
+    {# extraction within the current MONTH.  Resets every January.   #}
+    {#                                                               #}
+    {# PLP balance (genpdmaule.f R9):                                #}
+    {#   IVMGEMF = Prev + (etadur/ScaleVol) * IQMNEH                #}
+    {# gtopt: VolumeRight energy balance (StorageLP pattern).        #}
+    {#                                                               #}
+    {# emax = gasto_elec_men_max (25 hm3): monthly electric cap.    #}
+    {# reset_month = january: resets to 0 at each January stage.    #}
+    {# ============================================================= #}
+    {
+      "name": "maule_vol_gasto_elec_mensual",
+      "purpose": "generation",
+      "reservoir": {{ res_colbun }},
+      "eini": {{ v_gasto_elec_men_ini }},
+      "emax": {{ gasto_elec_men_max }},
+      "use_state_variable": true,
+      "reset_month": "january"
+    },
+
+    {# ============================================================= #}
+    {# VolumeRight: maule_vol_gasto_elec_anual (PLP: IVMGEAF)       #}
+    {#                                                               #}
+    {# Annual electric accumulator.  Tracks accumulated electric     #}
+    {# extraction within the current YEAR (June-May cycle).          #}
+    {#                                                               #}
+    {# PLP balance (genpdmaule.f R10):                               #}
+    {#   IVMGEAF = Prev + IVMGEMF                                   #}
+    {# Note: PLP couples this to the monthly accumulator.  In gtopt, #}
+    {# the coupling is via the FlowRight's qeh column appearing in   #}
+    {# both VolumeRight balance rows.                                #}
+    {#                                                               #}
+    {# emax = v_der_elect_anu_max (250 hm3): annual electric cap.   #}
+    {# reset_month = june: resets at the Maule convention year start.#}
+    {# ============================================================= #}
+    {
+      "name": "maule_vol_gasto_elec_anual",
+      "purpose": "generation",
+      "reservoir": {{ res_colbun }},
+      "eini": {{ v_gasto_elec_anu_ini }},
+      "emax": {{ v_der_elect_anu_max }},
+      "use_state_variable": true,
+      "reset_month": "june"
+    },
+
+    {# ============================================================= #}
+    {# VolumeRight: maule_vol_gasto_riego_temp (PLP: IVMGRTF)       #}
+    {#                                                               #}
+    {# Seasonal irrigation accumulator.  Tracks accumulated          #}
+    {# irrigation extraction within the current irrigation season.   #}
+    {#                                                               #}
+    {# PLP balance (genpdmaule.f R11):                               #}
+    {#   IVMGRTF = Prev + (etadur/ScaleVol) * IQMNRH                #}
+    {#                                                               #}
+    {# emax = v_der_riego_temp_max (800 hm3): seasonal irrigation   #}
+    {# cap (total allowed per season).                               #}
+    {# reset_month = june: same annual cycle as electric.            #}
+    {# ============================================================= #}
+    {
+      "name": "maule_vol_gasto_riego_temp",
+      "purpose": "irrigation",
+      "reservoir": {{ res_colbun }},
+      "eini": {{ v_gasto_riego_ini }},
+      "emax": {{ v_der_riego_temp_max }},
+      "use_state_variable": true,
+      "reset_month": "june"
+    },
+
+    {# ============================================================= #}
+    {# VolumeRight: maule_vol_compensacion_elec (PLP: VolCompEND)    #}
+    {#                                                               #}
+    {# ENDESA compensation accumulator.  Tracks cumulative ENDESA    #}
+    {# compensation volume.  No reset — carries forward indefinitely.#}
+    {#                                                               #}
+    {# PLP: VolCompEND tracks how much ENDESA has been compensated   #}
+    {# for irrigation priority in the ordinary reserve zone.         #}
+    {# emax = v_comp_elec_max (350 hm3): maximum compensation.      #}
+    {# ============================================================= #}
+    {
+      "name": "maule_vol_compensacion_elec",
+      "purpose": "generation",
+      "reservoir": {{ res_colbun }},
+      "eini": {{ v_comp_elec_ini }},
+      "emax": {{ v_comp_elec_max }},
+      "use_state_variable": true
+    },
+
+    {# ============================================================= #}
+    {# VolumeRight: maule_vol_reserva_ord_elec                       #}
+    {# (PLP: v_gasto_rext_elec / v_der_rext_elec)                   #}
+    {#                                                               #}
+    {# Extraordinary reserve electric accumulator.  Tracks           #}
+    {# accumulated electric extraction from the extraordinary        #}
+    {# reserve zone (bottom zone, 0..v_reserva_extraord hm3).       #}
+    {#                                                               #}
+    {# This is a gtopt addition beyond the base PLP model.  PLP     #}
+    {# tracks this implicitly via zone-transition flags              #}
+    {# (FPasoPorResOrd, FVieneDeResOrd) which are boolean state      #}
+    {# flags, not LP variables.  gtopt makes this explicit as a      #}
+    {# VolumeRight.                                                  #}
+    {#                                                               #}
+    {# emax = v_reserva_extraord (129 hm3): max extraction from     #}
+    {# extraordinary reserve.                                        #}
+    {# ============================================================= #}
+    {
+      "name": "maule_vol_reserva_ord_elec",
+      "purpose": "generation",
+      "reservoir": {{ res_colbun }},
+      "eini": {{ v_gasto_rext_elec_ini }},
+      "emax": {{ v_reserva_extraord }},
+      "use_state_variable": true
+    },
+
+    {# ============================================================= #}
+    {# VolumeRight: maule_vol_reserva_ord_riego                      #}
+    {# (PLP: v_gasto_rext_riego / v_der_rext_riego)                 #}
+    {#                                                               #}
+    {# Same as above but for irrigation extraction from the          #}
+    {# extraordinary reserve zone.                                   #}
+    {# ============================================================= #}
+    {
+      "name": "maule_vol_reserva_ord_riego",
+      "purpose": "irrigation",
+      "reservoir": {{ res_colbun }},
+      "eini": {{ v_gasto_rext_riego_ini }},
+      "emax": {{ v_reserva_extraord }},
+      "use_state_variable": true
+    },
+
+    {# ============================================================= #}
+    {# VolumeRight: maule_vol_econ_invernada (PLP: IVMDEIF)          #}
+    {#                                                               #}
+    {# La Invernada winter economy accumulator.  Tracks unused       #}
+    {# winter storage rights.  Not coupled to Colbun but to the     #}
+    {# CIPRESES reservoir (La Invernada physical reservoir).         #}
+    {#                                                               #}
+    {# PLP (plp-maule2.f):                                           #}
+    {#   saving = unused winter storage rights deposited             #}
+    {#   extraction = economy spending                               #}
+    {#   Balance: economy_vol = prev + saving - extraction           #}
+    {#                                                               #}
+    {# No reset_month: economy carries across years.                 #}
+    {# saving_rate: max economy deposit rate (qmax_invernada).       #}
+    {#                                                               #}
+    {# SIMPLIFICATION: PLP's more complex Invernada rules (seasonal  #}
+    {# usage windows, acumulable flag, conditional reset) are not    #}
+    {# yet represented in gtopt.  The economy is modeled as a simple #}
+    {# accumulator with no conditional reset or overflow cap.        #}
+    {# ============================================================= #}
+    {
+      "name": "maule_vol_econ_invernada",
+      "purpose": "economy",
+      "reservoir": {{ central_invernada }},
+      "eini": {{ v_econ_inver_ini }},
+      "saving_rate": {{ qmax_invernada }},
+      "use_state_variable": true
+    }
+  ],
+
+  "user_constraint_array": [
+    {# ============================================================= #}
+    {# UserConstraint: invernada_balance                              #}
+    {# PLP constraint R3 (genpdmaule.f):                             #}
+    {#   m_qidn + m_qisd + m_qninv - m_qhein - m_qhnein = QAflInv  #}
+    {#                                                               #}
+    {# La Invernada flow balance: inflows must equal outflows.       #}
+    {# This ensures that all water entering the Invernada system     #}
+    {# is either stored (embalsar) or passed through (no_embalsar).  #}
+    {#                                                               #}
+    {# In PLP, the RHS is QAflInvern (natural inflow).  In gtopt,   #}
+    {# the natural inflow is the invernada_caudal_natural FlowRight  #}
+    {# on the supply side, making both sides of the equation visible #}
+    {# in the LP.                                                    #}
+    {# ============================================================= #}
+    {# `penalty` + `penalty_class = "hydro_flow"` makes the balance     #}
+    {# soft: if the PLP-style conditional bound-flipping would have    #}
+    {# forced infeasibility (irr_demand > inflow with deficit pinned),  #}
+    {# the LP absorbs the gap through visible slack columns priced at  #}
+    {# `penalty_invernada` $/m³ × block_duration × 3600 (mirroring     #}
+    {# FlowRight.fail_cost).  Setting `penalty` to 0 disables the     #}
+    {# soft relaxation and restores the hard-equality behaviour.       #}
+    {
+      "name": "invernada_balance",
+      "expression": {{ expression_invernada }},
+      "description": {{ description_invernada }},
+      "penalty": {{ penalty_invernada }},
+      "penalty_class": "hydro_flow"
+    },
+
+    {# ============================================================= #}
+    {# UserConstraint: maule_pct_ordinario_elec                      #}
+    {# PLP constraint R14 (genpdmaule.f):                            #}
+    {#   IQMOEH <= pct_elec_reserva% * (IQMOEH + IQMORH)            #}
+    {#                                                               #}
+    {# In the ordinary reserve zone, electric extraction is capped   #}
+    {# at pct_elec_reserva% (typically 20%) of the TOTAL flow from   #}
+    {# the ordinary reserve (electric + irrigation combined).        #}
+    {#                                                               #}
+    {# Rewritten: elec <= 0.20 * elec + 0.20 * irr                  #}
+    {# -> (1-0.20) * elec <= 0.20 * irr                             #}
+    {# -> 0.80 * elec <= 0.20 * irr                                 #}
+    {# This is equivalent but uses the form compatible with gtopt's  #}
+    {# UserConstraint expression syntax.                             #}
+    {#                                                               #}
+    {# When the reservoir is NOT in the ordinary zone, the           #}
+    {# bound_rule on the FlowRights sets them to 0, making this     #}
+    {# constraint trivially satisfied (0 <= 0).                      #}
+    {# ============================================================= #}
+    {
+      "name": "maule_pct_ordinario_elec",
+      "expression": {{ expression_pct_elec }},
+      "description": {{ description_pct_elec }}
+    },
+
+    {# ============================================================= #}
+    {# UserConstraint: maule_pct_ordinario_riego                     #}
+    {# PLP constraint R15 (genpdmaule.f):                            #}
+    {#   IQMORH <= pct_riego_reserva% * (IQMOEH + IQMORH)           #}
+    {#                                                               #}
+    {# Same pattern as electric but for irrigation (typically 80%).  #}
+    {# Together with pct_ordinario_elec, this ensures the 20/80     #}
+    {# split in the ordinary reserve zone.                           #}
+    {# ============================================================= #}
+    {
+      "name": "maule_pct_ordinario_riego",
+      "expression": {{ expression_pct_riego }},
+      "description": {{ description_pct_riego }}
+    }
+
+    {# ============================================================= #}
+    {# UserConstraint: District proportional allocation               #}
+    {# PLP constraints R16-R22 (genpdmaule.f):                      #}
+    {#   flow(district_i) [=|<=] pct_i% * flow(maule_normal_riego)  #}
+    {#                                                               #}
+    {# Each district gets a fixed percentage of the total normal     #}
+    {# irrigation flow.  Districts with has_slack=True use <=        #}
+    {# (allowing under-extraction), others use = (exact split).     #}
+    {#                                                               #}
+    {# Pre-computed in maule_writer._compute_district_entities()     #}
+    {# because the expressions contain computed percentage fractions #}
+    {# and district-specific constraint operators.                   #}
+    {# ============================================================= #}
+    {% for uc in district_constraints %}
+    ,{{ uc }}
+    {% endfor %}
+  ]
+}

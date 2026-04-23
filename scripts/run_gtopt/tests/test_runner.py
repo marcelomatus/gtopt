@@ -5,6 +5,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from run_gtopt._runner import (
+    _read_result_table,
     check_solution,
     find_error_lp_files,
     report_solution,
@@ -148,3 +149,48 @@ def test_run_check_lp_prints_instructions(tmp_path: Path, capsys):
     assert "Error LP Diagnostics" in captured.out
     assert "gtopt_check_lp" in captured.out
     assert str(logs) in captured.out
+
+
+def test_read_result_table_single_parquet(tmp_path: Path):
+    """Legacy single-file parquet layout is read as one frame."""
+    import pandas as pd  # noqa: PLC0415
+
+    subdir = tmp_path / "Generator"
+    subdir.mkdir()
+    pd.DataFrame({"uid:1": [1.0, 2.0]}).to_parquet(subdir / "generation_sol.parquet")
+    df = _read_result_table(tmp_path, "Generator/generation_sol")
+    assert df is not None
+    assert len(df) == 2
+
+
+def test_read_result_table_parquet_hive_dataset(tmp_path: Path):
+    """A hive-partitioned directory is read as one logical frame."""
+    import pandas as pd  # noqa: PLC0415
+
+    stem_dir = tmp_path / "Generator" / "generation_sol.parquet"
+    for scene, phase, val in [(0, 0, 1.0), (0, 1, 2.0), (1, 0, 3.0)]:
+        part = stem_dir / f"scene={scene}" / f"phase={phase}"
+        part.mkdir(parents=True)
+        pd.DataFrame({"uid:1": [val]}).to_parquet(part / "part.parquet")
+    df = _read_result_table(tmp_path, "Generator/generation_sol")
+    assert df is not None
+    assert sorted(df["uid:1"].tolist()) == [1.0, 2.0, 3.0]
+    assert {"scene", "phase"}.issubset(df.columns)
+
+
+def test_read_result_table_csv_shards(tmp_path: Path):
+    """CSV shards are concatenated in sorted order."""
+    import pandas as pd  # noqa: PLC0415
+
+    subdir = tmp_path / "Flow"
+    subdir.mkdir()
+    pd.DataFrame({"uid:1": [10.0]}).to_csv(subdir / "flow_sol_s0_p0.csv", index=False)
+    pd.DataFrame({"uid:1": [20.0]}).to_csv(subdir / "flow_sol_s1_p0.csv", index=False)
+    df = _read_result_table(tmp_path, "Flow/flow_sol")
+    assert df is not None
+    assert len(df) == 2
+
+
+def test_read_result_table_missing(tmp_path: Path):
+    """Missing stem returns None."""
+    assert _read_result_table(tmp_path, "Nope/missing") is None

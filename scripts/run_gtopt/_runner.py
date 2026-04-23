@@ -418,15 +418,34 @@ def _total_dir_size(path: Path) -> int:
 
 
 def _read_result_table(results_dir: Path, stem: str):
-    """Try to read a result file as a pandas DataFrame."""
+    """Try to read a result file as a pandas DataFrame.
+
+    Handles three layouts transparently:
+
+    * Legacy single file: ``{stem}.{ext}``.
+    * Hive-partitioned parquet directory: ``{stem}.parquet/`` containing
+      ``scene=<N>/phase=<M>/part.parquet`` — read as one frame via
+      ``pd.read_parquet``.
+    * CSV shards: ``{stem}_s*_p*.{csv,csv.zst,csv.gz}`` concatenated in
+      sorted order.
+    """
     try:
         import pandas as pd  # noqa: PLC0415
 
-        for ext in (".parquet", ".csv", ".csv.zst", ".csv.gz"):
+        pq_path = results_dir / (stem + ".parquet")
+        if pq_path.is_dir() or pq_path.is_file():
+            return pd.read_parquet(pq_path)
+
+        parent = results_dir / Path(stem).parent
+        name = Path(stem).name
+        for ext in (".csv", ".csv.zst", ".csv.gz"):
+            shards = sorted(parent.glob(f"{name}_s*_p*{ext}"))
+            if shards:
+                frames = [pd.read_csv(f) for f in shards]
+                return pd.concat(frames, ignore_index=True) if frames else None
+
             fpath = results_dir / (stem + ext)
             if fpath.is_file():
-                if ext == ".parquet":
-                    return pd.read_parquet(fpath)
                 return pd.read_csv(fpath)
     except Exception:  # noqa: BLE001  # pylint: disable=broad-exception-caught
         pass

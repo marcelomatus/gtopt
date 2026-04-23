@@ -145,7 +145,7 @@ def build_aperture_array(
     aperture_array: List[Dict[str, Any]] = []
     extra_scenarios: List[Dict[str, Any]] = []
 
-    for ap_idx, hydro_1based in enumerate(unique_hydros):
+    for hydro_1based in unique_hydros:
         hydro_0based = hydro_1based - 1
         # Look up the gtopt scenario UID for this hydrology
         scenario_uid = scenario_hydro_map.get(hydro_0based)
@@ -166,7 +166,7 @@ def build_aperture_array(
 
         aperture_array.append(
             {
-                "uid": ap_idx + 1,
+                "uid": hydro_1based,
                 "source_scenario": scenario_uid,
                 "probability_factor": prob,
             }
@@ -226,8 +226,8 @@ def build_phase_apertures(
                 unique_hydros.append(h)
 
     hydro_to_aperture_uid: Dict[int, int] = {}
-    for ap_idx, hydro_1based in enumerate(unique_hydros):
-        hydro_to_aperture_uid[hydro_1based] = ap_idx + 1
+    for hydro_1based in unique_hydros:
+        hydro_to_aperture_uid[hydro_1based] = hydro_1based
 
     # For each phase, collect the aperture hydros across its stages.
     # Duplicates are preserved: if the same hydro index appears in multiple

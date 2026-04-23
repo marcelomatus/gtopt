@@ -93,15 +93,18 @@ target_link_libraries(
 )
 
 # ---- Unity build ----
-# Exclude main.cpp from unity batching — it defines
-# DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN which emits doctest's implementation
-# and must be compiled as a standalone translation unit.
-set_source_files_properties(
-  "${CMAKE_CURRENT_SOURCE_DIR}/source/main.cpp"
-  PROPERTIES SKIP_UNITY_BUILD_INCLUSION ON
-)
+# main.cpp is treated the same as every other test file: it participates
+# in unity batching.  Its DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN works because
+# the list(PREPEND) above makes it the first file in the source list and
+# therefore the first #include in its unity batch, so the macro is defined
+# before <doctest/doctest.h> is first processed.
+set(GTOPT_UNITY_BUILD ON)
 include(UnityBuild)
-target_enable_unity_build(${PROJECT_NAME})
+# BATCH_SIZE 11 targets ~19 unity batches = ~19 compile jobs, scaled for
+# a 20-core build host.  Distribution per UNITY_GROUP:
+#   source/      (~163 files) → ceil(163/11) = 15 batches
+#   source/json/ (~ 39 files) → ceil( 39/11) =  4 batches
+target_enable_unity_build(${PROJECT_NAME} BATCH_SIZE 11)
 
 # ---- Precompiled headers ----
 include(PrecompiledHeaders)

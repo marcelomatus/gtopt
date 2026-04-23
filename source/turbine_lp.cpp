@@ -44,6 +44,8 @@ bool TurbineLP::add_to_lp(const SystemContext& sc,
                           const StageLP& stage,
                           LinearProblem& lp)
 {
+  static constexpr auto ampl_name = ClassName.snake_case();
+
   if (!is_active(stage)) {
     return true;
   }
@@ -87,7 +89,7 @@ bool TurbineLP::add_to_lp(const SystemContext& sc,
           .context =
               make_block_context(scenario.uid(), stage.uid(), block.uid()),
       };
-      rrow[gcol] = 1;
+      rrow[gcol] = 1.0;
       rrow[dcol] = -stage_conversion_rate;
 
       rrows[buid] = lp.add_row(std::move(rrow.less_equal(0)));
@@ -111,7 +113,7 @@ bool TurbineLP::add_to_lp(const SystemContext& sc,
               make_block_context(scenario.uid(), stage.uid(), block.uid()),
       };
       rrow[fcol] = -stage_conversion_rate;
-      rrow[gcol] = 1;
+      rrow[gcol] = 1.0;
 
       rrows[buid] =
           lp.add_row(std::move(use_drain ? rrow.less_equal(0) : rrow.equal(0)));
@@ -139,6 +141,19 @@ bool TurbineLP::add_to_lp(const SystemContext& sc,
   const auto st_key = std::tuple {scenario.uid(), stage.uid()};
   conversion_rows[st_key] = std::move(rrows);
   capacity_rows[st_key] = std::move(crows);
+
+  // Register the turbine's "generation" attribute under the turbine's own
+  // uid + ampl_name, pointing at the associated generator's per-block
+  // generation column map.  Safe: the generator's generation_cols map is
+  // owned by the GeneratorLP instance and persists for the full solve.
+  if (!gen_cols.empty()) {
+    sc.add_ampl_variable(ampl_name,
+                         uid(),
+                         GeneratorLP::GenerationName,
+                         scenario,
+                         stage,
+                         gen_cols);
+  }
 
   return true;
 }

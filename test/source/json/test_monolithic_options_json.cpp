@@ -24,8 +24,7 @@ TEST_CASE("MonolithicOptions JSON - Full deserialization")
       "threads": 4,
       "presolve": true,
       "log_level": 0,
-      "time_limit": 3600.0,
-      "reuse_basis": false
+      "time_limit": 3600.0
     }
   })";
 

@@ -1,6 +1,10 @@
 cmake_minimum_required(VERSION 3.31.6)
 
-project(gtoptIntegrationTest LANGUAGES CXX)
+# LANGUAGES NONE — defer the C++ compiler probe.  In external-binary mode
+# (the common case) this sub-project compiles nothing, so requiring a working
+# clang/gcc at configure time would be pure friction.  enable_language(CXX)
+# is called below only if we fall through to the self-contained fallback.
+project(gtoptIntegrationTest LANGUAGES NONE)
 
 # ---- Shared cmake module path ----
 list(APPEND CMAKE_MODULE_PATH
@@ -8,37 +12,99 @@ list(APPEND CMAKE_MODULE_PATH
      "${CMAKE_CURRENT_LIST_DIR}/../cmake"
 )
 
-# ---- Build defaults ----
+# ---- Build defaults (language-agnostic) ----
 include(BuildTypeDefault)
-include(CxxStandard)
-include(Ccache)
-include(FastLinker)
 
 # ---- Options ----
 option(ENABLE_TEST_COVERAGE "Enable test coverage instrumentation" OFF)
 
-# ---- Compiler checks and tools ----
-include(CompilerCheck)
-include("${CMAKE_CURRENT_LIST_DIR}/../cmake/tools.cmake")
+# Absolute path to a prebuilt gtopt binary.  When non-empty, the gtopt
+# library and standalone sources are NOT compiled in this build tree — the
+# CTest cases invoke the external binary directly.  If left empty the
+# resolver below tries $ENV{GTOPT_BIN} and the conventional
+# ../build/standalone/gtopt location before falling back to a local build.
+set(GTOPT_BINARY "" CACHE FILEPATH
+    "Absolute path to a prebuilt gtopt binary (auto-detected if empty)")
 
-# ---- Dependencies ----
-option(CPM_USE_LOCAL_PACKAGES "Try find_package first" ON)
-include("${CMAKE_CURRENT_LIST_DIR}/../cmake/CPM.cmake")
+# ---- Resolve the gtopt binary to drive the tests ----
+# Precedence (first hit wins):
+#   1. GTOPT_BINARY explicitly set via -D or cache.
+#   2. Target 'gtoptStandalone' already defined (e.g. when included from
+#      all/CMakeLists.txt alongside standalone/).
+#   3. Auto-detection: $ENV{GTOPT_BIN}, then ../build/standalone/gtopt
+#      relative to this directory.
+#   4. Self-contained fallback: compile the standalone sources into this
+#      build tree so the sub-project remains usable from a fresh checkout.
+#
+# GTOPT_EXECUTABLE_FILE is consumed by add_e2e_case()/add_sddp_case() and
+# resolves to either a generator expression ($<TARGET_FILE:...>) or a
+# literal absolute path, transparently substituted into add_test() commands.
+set(_gtopt_mode "")
 
-if(NOT TARGET gtopt::gtopt)
-  CPMAddPackage(NAME gtopt SOURCE_DIR "${CMAKE_CURRENT_LIST_DIR}/..")
+if(GTOPT_BINARY)
+  if(NOT EXISTS "${GTOPT_BINARY}")
+    message(FATAL_ERROR
+      "GTOPT_BINARY is set but does not exist: ${GTOPT_BINARY}")
+  endif()
+  set(GTOPT_EXECUTABLE_FILE "${GTOPT_BINARY}")
+  set(_gtopt_mode "explicit")
+elseif(TARGET gtoptStandalone)
+  set(GTOPT_EXECUTABLE_TARGET gtoptStandalone)
+  set(GTOPT_EXECUTABLE_FILE "$<TARGET_FILE:${GTOPT_EXECUTABLE_TARGET}>")
+  set(_gtopt_mode "in-tree target")
+else()
+  # Auto-detection.
+  set(_gtopt_candidates "")
+  if(DEFINED ENV{GTOPT_BIN})
+    list(APPEND _gtopt_candidates "$ENV{GTOPT_BIN}")
+  endif()
+  list(APPEND _gtopt_candidates
+       "${CMAKE_CURRENT_LIST_DIR}/../build/standalone/gtopt")
+
+  foreach(_c IN LISTS _gtopt_candidates)
+    if(EXISTS "${_c}" AND NOT IS_DIRECTORY "${_c}")
+      get_filename_component(GTOPT_BINARY "${_c}" REALPATH)
+      set(GTOPT_EXECUTABLE_FILE "${GTOPT_BINARY}")
+      set(_gtopt_mode "auto-detected")
+      break()
+    endif()
+  endforeach()
+  unset(_gtopt_candidates)
 endif()
 
-include(ClangFormat)
-
-# ---- Standalone binary (or reuse from parent) ----
-# When included from all/CMakeLists.txt the standalone binary is already
-# built as target 'gtoptStandalone'.  Reuse it to avoid recompilation.
-# GTOPT_EXECUTABLE_TARGET is consumed by add_e2e_case() to reference the
-# binary via $<TARGET_FILE:${GTOPT_EXECUTABLE_TARGET}>.
-if(TARGET gtoptStandalone)
-  set(GTOPT_EXECUTABLE_TARGET gtoptStandalone)
+if(_gtopt_mode STREQUAL "explicit")
+  message(STATUS
+    "Integration tests: using explicit GTOPT_BINARY=${GTOPT_BINARY}")
+elseif(_gtopt_mode STREQUAL "in-tree target")
+  message(STATUS
+    "Integration tests: reusing in-tree gtoptStandalone target "
+    "(no recompilation)")
+elseif(_gtopt_mode STREQUAL "auto-detected")
+  message(STATUS
+    "Integration tests: auto-detected prebuilt gtopt at ${GTOPT_BINARY} "
+    "(pass -DGTOPT_BINARY=/other/path to override, or remove the file to "
+    "force a local build)")
 else()
+  # Self-contained fallback — compile everything here.
+  message(STATUS
+    "Integration tests: no prebuilt gtopt found — compiling the binary "
+    "in this build tree")
+
+  enable_language(CXX)
+  include(CxxStandard)
+  include(Ccache)
+  include(FastLinker)
+  include(CompilerCheck)
+  include("${CMAKE_CURRENT_LIST_DIR}/../cmake/tools.cmake")
+
+  option(CPM_USE_LOCAL_PACKAGES "Try find_package first" ON)
+  include("${CMAKE_CURRENT_LIST_DIR}/../cmake/CPM.cmake")
+  if(NOT TARGET gtopt::gtopt)
+    CPMAddPackage(NAME gtopt SOURCE_DIR "${CMAKE_CURRENT_LIST_DIR}/..")
+  endif()
+
+  include(ClangFormat)
+
   file(GLOB sources CONFIGURE_DEPENDS
        "${CMAKE_CURRENT_LIST_DIR}/../standalone/source/[a-zA-Z]*.cpp"
   )
@@ -51,6 +117,7 @@ else()
   )
 
   set(GTOPT_EXECUTABLE_TARGET ${PROJECT_NAME})
+  set(GTOPT_EXECUTABLE_FILE "$<TARGET_FILE:${GTOPT_EXECUTABLE_TARGET}>")
 
   include(Coverage)
   if(ENABLE_TEST_COVERAGE)
@@ -61,9 +128,16 @@ else()
   endif()
 endif()
 
+unset(_gtopt_mode)
+
 # ---- Ensure solver plugins are rebuilt before running tests ----
-include(GtoptPlugin)
-gtopt_require_solver_plugins(${GTOPT_EXECUTABLE_TARGET})
+# Only meaningful when we have an in-tree target to hang dependencies on.
+# In external/auto-detected mode the plugins live next to GTOPT_BINARY and
+# are managed by the build that produced it.
+if(DEFINED GTOPT_EXECUTABLE_TARGET)
+  include(GtoptPlugin)
+  gtopt_require_solver_plugins(${GTOPT_EXECUTABLE_TARGET})
+endif()
 
 # ---- Testing ----
 enable_testing()
@@ -110,11 +184,118 @@ add_e2e_case(exp_bat_4b_24 exp_bat_4b_24.json)
 # ---- SDDP test cases ----
 # To add a new SDDP case, place it under cases/<name>/ with a system JSON file
 # that has method="sddp", then add a line:
-#   add_sddp_case(<name> <system_json> [MAX_ITERATIONS <n>])
-add_sddp_case(sddp_hydro_3phase sddp_hydro_3phase.json MAX_ITERATIONS 3)
-add_sddp_case(sddp_hydro_3phase_lowmem sddp_hydro_3phase.json MAX_ITERATIONS 3
-  CASE_DIR sddp_hydro_3phase
-  EXTRA_SET "sddp_options.low_memory_mode=compress")
+#   add_sddp_case(<name> <system_json>
+#                 [MAX_ITERATIONS <n>]
+#                 [LOW_MEMORY <off|compress|rebuild>])
+#
+# The small sddp_hydro_3phase fixture (1 reservoir, 2 generators, 3 phases)
+# is the regression harness for SDDP — every listed case solves with the
+# external gtopt binary in parquet output mode and is then validated by
+# `tools/validate_sddp_output.py`, which reads the hive-partitioned
+# parquet shards and asserts tolerance-bounded physical invariants
+# (reservoir efin bounds, generation ≥ 0, demand shortage ≥ 0, optimal
+# cells have finite obj_value).
+#
+# Grid: {MAX_ITERATIONS ∈ {0, 3, 50}} × {LOW_MEMORY ∈ {off, compress, rebuild}}
+# — 0 exercises pure sim-pass from loaded cuts, 3 is a quick training
+# sanity check, 50 lets SDDP converge so the final UB ≈ LB.  Each
+# low_memory variant exercises a different backend-lifecycle path
+# (off keeps backends live, compress release + replay from snapshot,
+# rebuild re-flattens from collections).
+
+# Per-iteration goldens live next to the case:
+#
+#   cases/sddp_hydro_3phase/golden_iter0.json   — pure sim pass, no training;
+#     hydro runs flat out, reservoir drained; objective_value = 104 700.
+#   cases/sddp_hydro_3phase/golden_iter3.json   — this small fixture is
+#     easy enough that SDDP converges within 3 iterations, so iter=3
+#     goldens match the iter=50 converged state (323 100).
+#   cases/sddp_hydro_3phase/golden_iter50.json  — fully converged
+#     reference, UB=LB=323 100.
+#
+# Every case (iter=0 / iter=3 / iter=50, off / compress / rebuild) pins
+# its objective_value, per-phase obj_values, and 5 element samples
+# (Reservoir/efin_sol, Generator/generation_sol, Bus/balance_dual) so
+# a numerical drift in any low_memory mode surfaces immediately.
+
+# max_iter=0 (pure sim pass) across all three low-memory modes.
+add_sddp_case(sddp_hydro_3phase_iter0_off sddp_hydro_3phase.json
+  CASE_DIR sddp_hydro_3phase MAX_ITERATIONS 0 LOW_MEMORY off
+  ALLOWED_EXIT_CODES "0;1"
+  GOLDEN golden_iter0.json)
+add_sddp_case(sddp_hydro_3phase_iter0_compress sddp_hydro_3phase.json
+  CASE_DIR sddp_hydro_3phase MAX_ITERATIONS 0 LOW_MEMORY compress
+  ALLOWED_EXIT_CODES "0;1"
+  GOLDEN golden_iter0.json)
+add_sddp_case(sddp_hydro_3phase_iter0_rebuild sddp_hydro_3phase.json
+  CASE_DIR sddp_hydro_3phase MAX_ITERATIONS 0 LOW_MEMORY rebuild
+  ALLOWED_EXIT_CODES "0;1"
+  GOLDEN golden_iter0.json)
+
+# Quick training sanity check (iter=3) — off-mode only; iter=50 covers
+# compress + rebuild below.
+add_sddp_case(sddp_hydro_3phase_iter3 sddp_hydro_3phase.json
+  CASE_DIR sddp_hydro_3phase MAX_ITERATIONS 3
+  GOLDEN golden_iter3.json)
+
+# Converged runs (iter=50) across all three low-memory modes.
+add_sddp_case(sddp_hydro_3phase_iter50_off sddp_hydro_3phase.json
+  CASE_DIR sddp_hydro_3phase MAX_ITERATIONS 50 LOW_MEMORY off
+  GOLDEN golden_iter50.json)
+add_sddp_case(sddp_hydro_3phase_iter50_compress sddp_hydro_3phase.json
+  CASE_DIR sddp_hydro_3phase MAX_ITERATIONS 50 LOW_MEMORY compress
+  GOLDEN golden_iter50.json)
+add_sddp_case(sddp_hydro_3phase_iter50_rebuild sddp_hydro_3phase.json
+  CASE_DIR sddp_hydro_3phase MAX_ITERATIONS 50 LOW_MEMORY rebuild
+  GOLDEN golden_iter50.json)
+
+# ---- Cut hot-start round-trip ----
+# End-to-end guard for the cut-I/O + α-free pipeline:
+#
+#   save:  run SDDP iter=50 to convergence.  The default SDDP options
+#          populate `cuts_output_file = <output_dir>/cuts/sddp_cuts.csv`
+#          and save the converged cut set there at run end (see
+#          `source/planning_method.cpp` + `source/sddp_iteration.cpp`).
+#          No extra `--set` needed on the save side.
+#   load:  run SDDP iter=0 (pure sim pass, no training) on the same
+#          system, with `sddp_options.cuts_input_file=<save-side csv>`
+#          and `sddp_options.recovery_mode=cuts`.  The loader must
+#            (a) consume α pre-registered by
+#                `register_alpha_variables` on every phase,
+#            (b) call `free_alpha(…)` per installed cut to release the
+#                `lowb = uppb = 0` bootstrap pin, and
+#            (c) install cuts with a unique `IterationContext` per row
+#                so the metadata-based dup detector in
+#                `LinearInterface::add_row` doesn't fire.
+#   validate: the sim pass must reproduce the converged objective
+#             (UB = 323 100) — golden_iter50.json is shared with the
+#             direct iter=50 run above.
+#
+# The load test CTest-DEPENDS on the save test so the shared CSV
+# exists before the load step runs.
+set(_hotstart_cuts
+    "${CMAKE_CURRENT_BINARY_DIR}/test_output/sddp_hydro_3phase_hotstart_save_sddp/cuts/sddp_cuts.csv")
+
+add_sddp_case(sddp_hydro_3phase_hotstart_save sddp_hydro_3phase.json
+  CASE_DIR sddp_hydro_3phase MAX_ITERATIONS 50
+  GOLDEN golden_iter50.json)
+
+add_sddp_case(sddp_hydro_3phase_hotstart_load sddp_hydro_3phase.json
+  CASE_DIR sddp_hydro_3phase MAX_ITERATIONS 0
+  RECOVER
+  EXTRA_SET
+    "sddp_options.cuts_input_file=${_hotstart_cuts}"
+    "sddp_options.recovery_mode=cuts"
+  GOLDEN golden_iter50_hotstart.json)
+
+# The load run reads the CSV produced by the save run — enforce
+# ordering via CTest dependency on the save-side validate step
+# (which in turn depends on save-side solve).  Without this, a
+# parallel ctest run could launch both tests concurrently and the
+# load step would see an empty/missing cuts file.
+set_tests_properties(e2e_sddp_hydro_3phase_hotstart_load_sddp_solve
+  PROPERTIES DEPENDS e2e_sddp_hydro_3phase_hotstart_save_sddp_validate)
+
 if(GTOPT_SLOW_TESTS)
   add_sddp_case(gtopt_case_2y gtopt_case_2y.json
     MAX_ITERATIONS 1 TIMEOUT 600 LABELS slow)

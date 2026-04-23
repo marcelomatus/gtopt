@@ -38,37 +38,44 @@ auto BusLP::lazy_add_theta(const SystemContext& sc,
   map_reserve(tblocks, blocks.size());
 
   if (stage.is_active() && needs_kirchhoff(sc)) [[likely]] {
-    std::ranges::for_each(
-        blocks,
-        [&](const BlockLP& block)
-        {
-          const auto buid = block.uid();
-          const auto ctx =
-              make_block_context(scenario.uid(), stage.uid(), block.uid());
+    std::ranges::for_each(blocks,
+                          [&](const BlockLP& block)
+                          {
+                            const auto buid = block.uid();
+                            const auto ctx = make_block_context(
+                                scenario.uid(), stage.uid(), block.uid());
 
-          const auto& theta = reference_theta();
-          if (theta) [[unlikely]] {
-            tblocks[buid] = lp.add_col(SparseCol {
-                .lowb = *theta,
-                .uppb = *theta,
-                .class_name = ClassName.full_name(),
-                .variable_name = "theta",
-                .variable_uid = uid(),
-                .context = ctx,
-            });
-          } else [[likely]] {
-            constexpr double theta_bound =
-                2 * std::numbers::pi;  // Default bound for theta
-            tblocks[buid] = lp.add_col(SparseCol {
-                .lowb = -theta_bound,
-                .uppb = +theta_bound,
-                .class_name = ClassName.full_name(),
-                .variable_name = "theta",
-                .variable_uid = uid(),
-                .context = ctx,
-            });
-          }
-        });
+                            const auto& theta = reference_theta();
+                            if (theta) [[unlikely]] {
+                              tblocks[buid] = lp.add_col(SparseCol {
+                                  .lowb = *theta,
+                                  .uppb = *theta,
+                                  .class_name = ClassName.full_name(),
+                                  .variable_name = ThetaName,
+                                  .variable_uid = uid(),
+                                  .context = ctx,
+                              });
+                            } else [[likely]] {
+                              // Default bound ±2π accommodates test cases and
+                              // unnormalized per-unit data where effective X
+                              // is large relative to the flow magnitude.
+                              // Note: variable bounds do not enter the basis
+                              // condition number directly, so tightening this
+                              // does not meaningfully help kappa — the LP
+                              // coefficients in the Kirchhoff row are what
+                              // matter (see scale_theta / auto_scale_theta).
+                              constexpr double theta_bound =
+                                  2 * std::numbers::pi;
+                              tblocks[buid] = lp.add_col(SparseCol {
+                                  .lowb = -theta_bound,
+                                  .uppb = +theta_bound,
+                                  .class_name = ClassName.full_name(),
+                                  .variable_name = ThetaName,
+                                  .variable_uid = uid(),
+                                  .context = ctx,
+                              });
+                            }
+                          });
   }
 
   // Store the theta columns for this scenario and stage
@@ -76,11 +83,28 @@ auto BusLP::lazy_add_theta(const SystemContext& sc,
   return theta_cols[st_key] = std::move(tblocks);
 }
 
-bool BusLP::add_to_lp(const SystemContext& /*sc*/,
+bool BusLP::add_to_lp(const SystemContext& sc,
                       const ScenarioLP& scenario,
                       const StageLP& stage,
                       LinearProblem& lp)
 {
+  static constexpr auto ampl_name = ClassName.snake_case();
+
+  // Theta columns are lazy-created by lines that need Kirchhoff; the
+  // resolver retains a special-case fallback for `bus.theta`/`bus.angle`
+  // via `lookup_theta_col`, so we do NOT register a per-block variable
+  // here — `theta_cols` may still be empty at this point in the solve
+  // sequence.  The element-name registration is hoisted into
+  // `system_lp.cpp::register_all_ampl_element_names` (runs once per
+  // SimulationLP via std::call_once from the SystemLP constructor).
+
+  // F9: register filter metadata for sum(...) predicates.
+  if (const auto& t = bus().type) {
+    AmplElementMetadata metadata;
+    metadata.emplace_back(TypeKey, *t);
+    sc.register_ampl_element_metadata(ampl_name, uid(), std::move(metadata));
+  }
+
   if (!is_active(stage)) {
     return true;
   }

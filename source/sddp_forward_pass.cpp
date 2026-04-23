@@ -17,7 +17,9 @@
 #include <span>
 #include <thread>
 
+#include <gtopt/as_label.hpp>
 #include <gtopt/benders_cut.hpp>
+#include <gtopt/lp_context.hpp>
 #include <gtopt/planning_lp.hpp>
 #include <gtopt/sddp_method.hpp>
 #include <gtopt/system_lp.hpp>
@@ -33,21 +35,6 @@ namespace gtopt
 
 namespace
 {
-/// Round *n* up to the next multiple of *alignment*.
-constexpr std::size_t align_up(std::size_t n, std::size_t alignment) noexcept
-{
-  return (n + alignment - 1) / alignment * alignment;
-}
-
-/// Assign *src* into *dst* and pad with zeros to at least *src.size() + extra*,
-/// rounded up to a 16-element boundary.
-void assign_padded(std::vector<double>& dst,
-                   std::span<const double> src,
-                   std::size_t extra)
-{
-  dst.assign(src.begin(), src.end());
-  dst.resize(align_up(src.size() + extra, 16), 0.0);
-}
 }  // namespace
 
 auto SDDPMethod::forward_pass(SceneIndex scene_index,
@@ -58,26 +45,25 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
   const auto& phases = planning_lp().simulation().phases();
   auto& phase_states = m_scene_phase_states_[scene_index];
   double total_opex = 0.0;
+  const auto fwd_scene_start = std::chrono::steady_clock::now();
 
   // Apply solve_timeout to the solver options if configured
   auto effective_opts = opts;
   if (m_options_.solve_timeout > 0.0) {
     effective_opts.time_limit = m_options_.solve_timeout;
   }
-  // After the first iteration the LP already carries a valid basis from the
-  // previous solve.  Enable warm-start (dual simplex + no presolve) so the
-  // solver pivots from that basis instead of re-solving from scratch with
-  // barrier.  With hot start (offset > 0), reuse_basis is enabled from the
-  // first iteration since the LP already has a basis.
-  if (iteration_index > m_iteration_offset_ && m_options_.warm_start) {
-    effective_opts.reuse_basis = true;
-  }
 
+  // Per-scene "starting" trace dropped to DEBUG: the aggregate
+  // "SDDP Forward [iN]: dispatching M scene(s) ..." line in
+  // sddp_method.cpp already covers the user-facing fan-out, and
+  // emitting one INFO line per scene per iteration was just noise
+  // (16 lines at the same millisecond on this run).
   [[maybe_unused]] const auto fwd_tid = std::this_thread::get_id();
-  SPDLOG_INFO("{}: starting ({} phases) [thread {}]",
-              sddp_log("Forward", iteration_index, scene_uid(scene_index)),
-              phases.size(),
-              std::hash<std::thread::id> {}(fwd_tid) % 10000);
+  SPDLOG_DEBUG("SDDP Forward [i{} s{}]: starting ({} phases) [thread {}]",
+               iteration_index,
+               uid_of(scene_index),
+               phases.size(),
+               std::hash<std::thread::id> {}(fwd_tid) % 10000);
 
   // Check once whether update_lp should run for this iteration
   // (respects explicit skip/force flags and global skip count).
@@ -90,51 +76,41 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
           .message = std::format("{}: cancelled",
                                  sddp_log("Forward",
                                           iteration_index,
-                                          scene_uid(scene_index),
-                                          phase_uid(phase_index))),
+                                          uid_of(scene_index),
+                                          uid_of(phase_index))),
       });
     }
 
     auto& system = planning_lp().system(scene_index, phase_index);
     auto& state = phase_states[phase_index];
 
-    // Reconstruct LP backend if released by low_memory mode.
-    // dispatch_update_lp() runs after this point, so coefficient updates
-    // are replayed naturally.
-    if (system.is_backend_released()) {
-      SPDLOG_DEBUG("{}: reconstructing backend for low_memory",
-                   sddp_log("Forward",
-                            iteration_index,
-                            scene_uid(scene_index),
-                            phase_uid(phase_index)));
-      system.reconstruct_backend(state.forward_col_sol, state.forward_row_dual);
-    }
+    // Ensure the LP backend is live.  No-op when mode=off or when a
+    // prior task already reloaded this cell; otherwise reconstructs
+    // from snapshot (snapshot/compress) or re-flattens from collections
+    // (rebuild).  dispatch_update_lp() runs after this point, so
+    // coefficient updates are replayed naturally.
+    system.ensure_lp_built();
 
     auto& li = system.linear_interface();
 
     // Propagate state variables from previous phase.
-    // Use the cached solution (not the live backend) so that the previous
-    // phase's solver backend can be released for low-memory mode.
-    if (phase_index != PhaseIndex {0}) {
-      const auto prev = phase_index - PhaseIndex {1};
-      auto& prev_st = phase_states[prev];
-      const std::span<const double> prev_sol = prev_st.forward_col_sol;
+    // Trial values are read from each link's source StateVariable
+    // (col_sol() mirror, populated by the previous phase's solve via
+    // `capture_state_variable_values`).  Mode-agnostic: works identically
+    // across LowMemoryMode off / snapshot / compress / rebuild.
+    if (phase_index) {
+      const auto prev_phase_index = previous(phase_index);
+      auto& prev_st = phase_states[prev_phase_index];
 
-      const auto coeff_mode = m_options_.cut_coeff_mode;
-      if (coeff_mode == CutCoeffMode::row_dual) {
-        propagate_trial_values_row_dual(prev_st.outgoing_links, prev_sol, li);
-      } else {
-        propagate_trial_values(prev_st.outgoing_links, prev_sol, li);
-      }
+      propagate_trial_values(prev_st.outgoing_links, li);
 
-      SPDLOG_TRACE("{}: propagated {} state vars from phase {} ({})",
-                   sddp_log("Forward",
-                            iteration_index,
-                            scene_uid(scene_index),
-                            phase_uid(phase_index)),
-                   prev_st.outgoing_links.size(),
-                   phase_uid(prev),
-                   enum_name(coeff_mode));
+      SPDLOG_TRACE(
+          "SDDP Forward [i{} s{} p{}]: propagated {} state vars from phase {}",
+          iteration_index,
+          uid_of(scene_index),
+          uid_of(phase_index),
+          prev_st.outgoing_links.size(),
+          uid_of(prev_phase_index));
     }
 
     // Update volume-dependent LP coefficients (discharge limits, turbine
@@ -144,11 +120,10 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
     if (do_update) {
       const auto updated = update_lp_for_phase(scene_index, phase_index);
       if (updated > 0) {
-        SPDLOG_TRACE("{}: updated {} LP elements",
-                     sddp_log("Forward",
-                              iteration_index,
-                              scene_uid(scene_index),
-                              phase_uid(phase_index)),
+        SPDLOG_TRACE("SDDP Forward [i{} s{} p{}]: updated {} LP elements",
+                     iteration_index,
+                     uid_of(scene_index),
+                     uid_of(phase_index),
                      updated);
       }
     }
@@ -157,8 +132,8 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
     // submit gzip compression as a fire-and-forget async task.
     // Selective filters (scene/phase range) skip non-matching LPs.
     if (m_options_.lp_debug) {
-      const bool in_range = in_lp_debug_range(scene_uid(scene_index),
-                                              phase_uid(phase_index),
+      const bool in_range = in_lp_debug_range(uid_of(scene_index),
+                                              uid_of(phase_index),
                                               m_options_.lp_debug_scene_min,
                                               m_options_.lp_debug_scene_max,
                                               m_options_.lp_debug_phase_min,
@@ -166,19 +141,12 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
       if (in_range) {
         const auto dbg_stem = (std::filesystem::path(m_options_.log_directory)
                                / std::format(sddp_file::debug_lp_fmt,
-                                             iteration_index,
-                                             scene_uid(scene_index),
-                                             phase_uid(phase_index)))
+                                             uid_of(scene_index),
+                                             uid_of(phase_index),
+                                             iteration_index))
                                   .string();
         m_lp_debug_writer_.write(li, dbg_stem);
       }
-    }
-
-    // Apply saved forward-pass solution from the previous iteration as
-    // warm-start hint.  Dimension mismatches (new cut rows) are handled
-    // by set_warm_start_solution() via zero-padding.
-    if (effective_opts.reuse_basis) {
-      li.set_warm_start_solution(state.forward_col_sol, state.forward_row_dual);
     }
 
     // Configure solver log file based on log_mode.
@@ -188,13 +156,18 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
         && !m_options_.log_directory.empty())
     {
       std::filesystem::create_directories(m_options_.log_directory);
-      li.set_log_file((std::filesystem::path(m_options_.log_directory)
-                       / std::format("{}_sc{}_ph{}",
-                                     li.solver_name(),
-                                     scene_uid(scene_index),
-                                     phase_uid(phase_index)))
-                          .string());
+      li.set_log_file(
+          (std::filesystem::path(m_options_.log_directory)
+           / as_label(
+               li.solver_name(), uid_of(scene_index), uid_of(phase_index)))
+              .string());
     }
+
+    // Tag the LP with the SDDP Forward key so fallback warnings emitted
+    // by LinearInterface::resolve() carry the same context as the
+    // surrounding SDDP info logs.
+    li.set_log_tag(sddp_log(
+        "Forward", iteration_index, uid_of(scene_index), uid_of(phase_index)));
 
     // Solve directly — already running in a pool thread.
     auto result = li.resolve(effective_opts);
@@ -206,32 +179,37 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
       if (m_options_.solve_timeout > 0.0
           && (solve_status == 1 || solve_status == 3))
       {
-        spdlog::critical("{}: solve timeout ({:.1f}s) (status {})",
-                         sddp_log("Forward",
-                                  iteration_index,
-                                  scene_uid(scene_index),
-                                  phase_uid(phase_index)),
-                         m_options_.solve_timeout,
-                         solve_status);
+        spdlog::critical(
+            "SDDP Forward [i{} s{} p{}]: solve timeout ({:.1f}s) (status {})",
+            iteration_index,
+            uid_of(scene_index),
+            uid_of(phase_index),
+            m_options_.solve_timeout,
+            solve_status);
         return std::unexpected(Error {
             .code = ErrorCode::SolverError,
             .message = std::format("{}: solve timeout ({:.1f}s) (status {})",
                                    sddp_log("Forward",
                                             iteration_index,
-                                            scene_uid(scene_index),
-                                            phase_uid(phase_index)),
+                                            uid_of(scene_index),
+                                            uid_of(phase_index)),
                                    m_options_.solve_timeout,
                                    solve_status),
             .status = solve_status,
         });
       }
 
-      SPDLOG_WARN("{}: non-optimal (status {}), trying elastic solve",
-                  sddp_log("Forward",
-                           iteration_index,
-                           scene_uid(scene_index),
-                           phase_uid(phase_index)),
-                  solve_status);
+      // Pre-elastic notice demoted to DEBUG: the final outcome line
+      // ("elastic ok" + "installed fcut") at INFO level is the one-line
+      // summary callers expect per infeasible LP.  Keep the status code
+      // accessible under `-v` / trace log for deep post-mortems.
+      SPDLOG_DEBUG(
+          "SDDP Forward [i{} s{} p{}]: non-optimal (status {}), trying elastic"
+          " solve",
+          iteration_index,
+          uid_of(scene_index),
+          uid_of(phase_index),
+          solve_status);
       // Clone the LP, apply elastic filter, and solve the clone.
       // The original LP remains unmodified (PLP clone pattern).
       auto elastic_result = elastic_solve(scene_index, phase_index, opts);
@@ -242,7 +220,7 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
       if (elastic_result.has_value()) {
         auto& solved_li = elastic_result->clone;
         m_phase_grid_.record(iteration_index,
-                             scene_uid(scene_index),
+                             uid_of(scene_index),
                              phase_index,
                              GridCell::Elastic);
         // Track max kappa from elastic solve
@@ -250,114 +228,332 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
         // Increment infeasibility counter for this (scene, phase)
         ++m_infeasibility_counter_[scene_index][phase_index];
 
-        // Cache solution data for the backward pass
+        // Cache solution data for the backward pass (physical space).
         const auto obj = solved_li.get_obj_value();
-        state.forward_full_obj = obj;
+        state.forward_full_obj_physical = solved_li.get_obj_value_physical();
 
+        // Read col_sol in physical space so `LinearInterface`'s
+        // optimal-only clamp scrubs any at-bound solver noise before
+        // it gets written onto the StateVariable and pinned into the
+        // next phase's dependent column (would otherwise make the
+        // next-phase LP trivially infeasible via
+        // `lowb = uppb = uppb + eps`).
+        const auto sol_phys = solved_li.get_col_sol();
         const auto rc = solved_li.get_col_cost_raw();
-        state.forward_col_cost.assign(rc.begin(), rc.end());
 
-        // Save primal solution for aperture warm-start (pre-padded
-        // so set_warm_start_solution can use a subspan without allocation).
-        // Duals are NOT cached from the elastic clone — the clone's LP is
-        // modified (relaxed bounds + slack variables), so its duals don't
-        // represent the original problem's shadow prices.  The backward
-        // pass detects empty forward_row_dual and falls back to reduced-
-        // cost-based cuts.
-        const auto n_links = state.outgoing_links.size();
-        assign_padded(
-            state.forward_col_sol, solved_li.get_col_sol_raw(), n_links);
-        state.forward_row_dual.clear();
+        // Mirror per-state-variable values needed by cut construction
+        // and next-phase propagation onto the StateVariable objects.
+        //
+        // Duals of the elastic clone are NOT written — the clone's LP is
+        // modified (relaxed bounds + slack variables) so its duals don't
+        // represent the original problem's shadow prices.  Downstream
+        // code falls back to reduced-cost cuts (see backward_pass_*).
+        capture_state_variable_values(scene_index, phase_index, sol_phys, rc);
 
         const auto sa = m_options_.scale_alpha;
-        const auto alpha_val = (state.alpha_col != ColIndex {unknown_index})
-            ? solved_li.get_col_sol_raw()[state.alpha_col] * sa
-            : 0.0;
+        // Alpha is registered as a state variable; its freshly-captured
+        // col_sol() is the LP solution value (already in scaled LP units).
+        const auto* alpha_svar = find_alpha_state_var(
+            planning_lp().simulation(), scene_index, phase_index);
+        const auto alpha_val =
+            (alpha_svar != nullptr) ? alpha_svar->col_sol() * sa : 0.0;
         state.forward_objective = obj - alpha_val;
         total_opex += state.forward_objective;
 
-        SPDLOG_INFO(
-            "{}: elastic ok, obj={:.4f} alpha={:.4f} opex={:.4f} "
-            "[infeas_count={}]",
-            sddp_log("Forward",
-                     iteration_index,
-                     scene_uid(scene_index),
-                     phase_uid(phase_index)),
-            obj,
-            alpha_val,
-            state.forward_objective,
-            m_infeasibility_counter_[scene_index][phase_index]);
-      } else {
-        // Save the infeasible LP and run diagnostics only when:
-        //  - it's the first phase (the scene will be declared infeasible), or
-        //  - trace/debug logging is enabled (developer debugging).
-        // During normal SDDP iteration, skip writing/diagnosing error LPs
-        // to avoid I/O overhead.
-        const bool is_first_phase = (phase_index == PhaseIndex {0});
-        const bool is_trace_debug =
-            (spdlog::get_level() <= spdlog::level::debug);
-        if (!m_options_.log_directory.empty()
-            && (is_first_phase || is_trace_debug))
-        {
-          spdlog::warn("{}: infeasible LP (status {})",
-                       sddp_log("Forward",
-                                iteration_index,
-                                scene_uid(scene_index),
-                                phase_uid(phase_index)),
-                       solve_status);
+        // "elastic ok" summary moved below and merged with the fcut-install
+        // line so each infeasible LP produces exactly one INFO line.
+
+        // PLP-style: install a Benders feasibility cut on phase p-1
+        // right from the forward pass, so the next forward iteration
+        // avoids regenerating the same infeasible trial point.  Uses
+        // reduced costs on the dependent state-var columns from the
+        // elastic clone (cost_raw at optimum of the relaxed LP).  When
+        // the per-(scene, phase) infeasibility counter exceeds
+        // multi_cut_threshold, additionally install one bound cut per
+        // activated slack (`build_multi_cuts`).
+        if (phase_index) {
+          const auto prev_phase_index = previous(phase_index);
+          auto& prev_sys = planning_lp().system(scene_index, prev_phase_index);
+          const auto& prev_state = phase_states[prev_phase_index];
+          prev_sys.ensure_lp_built();
+          auto& prev_li = prev_sys.linear_interface();
+
+          const auto infeas_count =
+              m_infeasibility_counter_[scene_index][phase_index];
+
+          // Resolve α column freshly from the registry so we never read
+          // a stale cached index (low_memory reconstruct paths).
+          const auto* prev_alpha_svar = find_alpha_state_var(
+              planning_lp().simulation(), scene_index, prev_phase_index);
+          const auto prev_alpha_col = (prev_alpha_svar != nullptr)
+              ? prev_alpha_svar->col()
+              : ColIndex {unknown_index};
+
+          // Physical-space fcut: rc from the elastic clone, trial from
+          // each link's source StateVariable.  `add_row` on the
+          // equilibrated prev LP folds col_scales + row-max, so the
+          // prior `rescale_benders_cut` pass is no longer needed.
+          auto feas_cut =
+              build_benders_cut_physical(prev_alpha_col,
+                                         prev_state.outgoing_links,
+                                         solved_li,
+                                         solved_li.get_obj_value_physical(),
+                                         m_options_.cut_coeff_eps);
+          feas_cut.class_name = sddp_alpha_class_name;
+          feas_cut.constraint_name = sddp_fcut_constraint_name;
+          feas_cut.context = make_iteration_context(uid_of(scene_index),
+                                                    uid_of(phase_index),
+                                                    iteration_index,
+                                                    infeas_count);
+          // Do NOT release α's bootstrap pin on a feasibility cut.
+          // Feasibility cuts only assert "these master states cause
+          // downstream infeasibility" — they convey no lower bound on
+          // the true future cost.  α must stay floored at
+          // `lowb = sddp_alpha_bootstrap_min (=0)` until an
+          // *optimality* cut arrives to certify a tighter lower
+          // bound.  Previously this `free_alpha` call released α to
+          // `[-DblMax, +DblMax]`, letting subsequent solves drive α
+          // arbitrarily negative when only feasibility cuts bound it
+          // from below — producing negative UBs on juan/gtopt_iplp
+          // under the attempted Chinneck Phase-1 formulation.
+          // Aperture/Benders backward-pass paths (which install
+          // `CutType::Optimality`) still call `free_alpha` at their
+          // own cut-install sites.
+          {
+            const auto cut_row =
+                prev_li.add_row(feas_cut, m_options_.cut_coeff_eps);
+            store_cut(scene_index,
+                      prev_phase_index,
+                      feas_cut,
+                      CutType::Feasibility,
+                      cut_row);
+          }
+
+          // Chinneck mode also emits per-bound cuts, but only on the IIS
+          // subset (chinneck_filter_solve cleared sup_col/sdn_col on the
+          // non-essential links so build_multi_cuts skips them naturally).
+          //
+          // Comparison is `>=`: a multi_cut_threshold of N means "switch
+          // on the Nth fcut event at this (scene, phase)".  The counter
+          // is persistent (does not reset on successful solves) so this
+          // counts *cumulative* events, not consecutive ones.
+          const bool use_multi_cut =
+              (m_options_.elastic_filter_mode == ElasticFilterMode::multi_cut)
+              || (m_options_.elastic_filter_mode == ElasticFilterMode::chinneck)
+              || (m_options_.multi_cut_threshold == 0)
+              || (m_options_.multi_cut_threshold > 0
+                  && infeas_count >= m_options_.multi_cut_threshold);
+
+          int mc_added = 0;
+          if (use_multi_cut) {
+            auto mc_cuts =
+                build_multi_cuts(*elastic_result,
+                                 prev_state.outgoing_links,
+                                 make_iteration_context(uid_of(scene_index),
+                                                        uid_of(phase_index),
+                                                        iteration_index,
+                                                        infeas_count));
+            for (auto& mc : mc_cuts) {
+              const auto cut_row = prev_li.add_row(mc);
+              store_cut(scene_index,
+                        prev_phase_index,
+                        mc,
+                        CutType::Feasibility,
+                        cut_row);
+              ++mc_added;
+            }
+          }
+
+          // List the state-variable elements actually present in the
+          // installed cut (survivors of cut_coeff_eps filtering), so
+          // the diagnostic points at the elements driving the fcut.
+          // Format: "Class:uid:col_name, ..." (e.g. "Reservoir:8:efin").
+          std::string state_elems;
+          for (const auto& link : prev_state.outgoing_links) {
+            if (!feas_cut.cmap.contains(link.source_col)) {
+              continue;
+            }
+            if (!state_elems.empty()) {
+              state_elems += ", ";
+            }
+            state_elems += std::format(
+                "{}:{}:{}", link.class_name, Index {link.uid}, link.col_name);
+          }
+
+          // One-line per infeasible LP, emitted *after* the fcut (and any
+          // multi-cuts) have been installed on prev_li.  Timing is
+          // deliberate — the log signals a completed cut install, not
+          // merely the detection of infeasibility.
+          SPDLOG_INFO(
+              "SDDP Forward [i{} s{} p{}]: elastic → fcut on p{} "
+              "(obj={:.4g} alpha={:.4g} opex={:.4g} infeas_count={}{}) "
+              "state=[{}]",
+              iteration_index,
+              uid_of(scene_index),
+              uid_of(phase_index),
+              uid_of(prev_phase_index),
+              obj,
+              alpha_val,
+              state.forward_objective,
+              infeas_count,
+              mc_added > 0 ? std::format(" +{}mc", mc_added) : "",
+              state_elems);
+          // Do not release prev_sys backend here — the backward pass
+          // will visit phase p-1 shortly and re-ensure_lp_built() itself.
+          //
+          // Two-pass simulation (Pass 1 only): the fcut just installed
+          // lives persistently on prev_li's m_active_cuts_, so Pass 2
+          // sees it on every cell whether backends stayed alive (off)
+          // or were reconstructed from snapshot (compress/rebuild).
+          // No in-forward-pass backward recovery needed — Pass 2 is the
+          // single recovery step.
         }
+      } else {
+        // Elastic filter could not produce a feasibility cut.  Two
+        // mutually exclusive reasons:
+        //   A. phase_index == 0 (no predecessor phase to cut on)
+        //   B. the state-variable-relaxed clone was itself infeasible
+        //      (infeasibility rooted outside state-variable bounds —
+        //       e.g. demand balance, flow limits, or a pre-installed
+        //       cut row — which the elastic filter cannot relax)
+        // Per SDDP theory, no recovery is possible from either — the
+        // scene is declared infeasible for this iteration.  The caller
+        // (run_forward_pass_all_scenes) sets scene_feasible[s] = 0 when
+        // it sees the returned Error; compute_iteration_bounds then
+        // excludes this scene from UB/LB.  Retries on the same state
+        // cannot change this outcome.
+        //
+        // Dump the original (pre-elastic) LP to <log_directory>/
+        // error_s<scene_uid>_p<phase_uid>_i<iteration_index>.lp so the
+        // user can diagnose offline.  `elastic_solve` never touches the
+        // original LP (PLP clone pattern), so `system.linear_interface()`
+        // still holds the state that failed.  `release_backend()` above
+        // may have dropped the solver object under low_memory; rebuild
+        // it before writing.  Failure to write is non-fatal — we log a
+        // warning and continue returning the original error.
+        std::string saved_error_lp;
+        {
+          std::error_code mkdir_ec;
+          std::filesystem::create_directories(m_options_.log_directory,
+                                              mkdir_ec);
+          system.ensure_lp_built();
+          const auto stem = (std::filesystem::path(m_options_.log_directory)
+                             / std::format(sddp_file::error_lp_fmt,
+                                           uid_of(scene_index),
+                                           uid_of(phase_index),
+                                           iteration_index))
+                                .string();
+          // `linear_interface().write_lp` appends ".lp" but keeps the
+          // stem verbatim.  `SystemLP::write_lp` would additionally
+          // tack on `_scene_X_phase_Y`, duplicating the UIDs already
+          // baked into our stem — so we bypass it.
+          if (auto wr = system.linear_interface().write_lp(stem); wr) {
+            saved_error_lp = stem + ".lp";
+          } else {
+            spdlog::warn(
+                "SDDP Forward [i{} s{} p{}]: failed to save error LP "
+                "to {}: {}",
+                iteration_index,
+                uid_of(scene_index),
+                uid_of(phase_index),
+                stem,
+                wr.error().message);
+          }
+        }
+
+        spdlog::warn(
+            "SDDP Forward [i{} s{} p{}]: elastic filter produced no "
+            "feasibility cut — declaring phase p{} and scene s{} "
+            "infeasible for iter i{} (solver status {}, reason: {}){}",
+            iteration_index,
+            uid_of(scene_index),
+            uid_of(phase_index),
+            uid_of(phase_index),
+            uid_of(scene_index),
+            iteration_index,
+            solve_status,
+            !phase_index ? "no predecessor phase to cut on"
+                         : "relaxed clone infeasible",
+            saved_error_lp.empty()
+                ? std::string {}
+                : std::format(" [LP saved to {}]", saved_error_lp));
         return std::unexpected(Error {
             .code = ErrorCode::SolverError,
-            .message = std::format("{}: failed (status {})",
+            .message = std::format("{}: elastic filter produced no "
+                                   "feasibility cut (status {})",
                                    sddp_log("Forward",
                                             iteration_index,
-                                            scene_uid(scene_index),
-                                            phase_uid(phase_index)),
+                                            uid_of(scene_index),
+                                            uid_of(phase_index)),
                                    solve_status),
         });
       }
     } else {
-      // Release solver backend — no-op when low_memory is off.
-      system.release_backend();
-
-      // Phase solved normally – reset infeasibility counter
-      m_infeasibility_counter_[scene_index][phase_index] = 0;
-      m_phase_grid_.record(iteration_index,
-                           scene_uid(scene_index),
-                           phase_index,
-                           GridCell::Forward);
+      // Phase solved normally — counter is intentionally NOT reset.
+      // Persistent counter (PLP convention): a (scene, phase) that flaps
+      // between feasible and infeasible across iterations should still
+      // accumulate towards the multi_cut auto-switch threshold; the
+      // intermittent successes don't mean the elastic cut history is
+      // adequate.  See docs/methods/sddp.md §S5.4.
+      m_phase_grid_.record(
+          iteration_index, uid_of(scene_index), phase_index, GridCell::Forward);
       // Track max kappa from forward solve
       update_max_kappa(scene_index, phase_index, li, iteration_index);
 
-      // Cache solution data for the backward pass
+      // Cache solution data for the backward pass — must happen before
+      // release_backend() which may discard cached solution vectors.
+      // Store the objective in physical ($) space so the backward pass
+      // can call `build_benders_cut_physical` without re-applying
+      // `scale_objective`.
       const auto obj = li.get_obj_value();
-      state.forward_full_obj = obj;
+      state.forward_full_obj_physical = li.get_obj_value_physical();
 
+      // Physical-space, optimal-only bound-clamped view (see
+      // `LinearInterface::get_col_sol`) — scrubs at-bound solver noise
+      // so the next phase's `propagate_trial_values` pin stays inside
+      // the target column's physical bound box.
+      const auto sol_phys = li.get_col_sol();
       const auto rc = li.get_col_cost_raw();
-      state.forward_col_cost.assign(rc.begin(), rc.end());
 
-      // Save primal/dual solution for aperture warm-start (pre-padded
-      // so set_warm_start_solution can use a subspan without allocation).
-      const auto n_links = state.outgoing_links.size();
-      assign_padded(state.forward_col_sol, li.get_col_sol_raw(), n_links);
-      assign_padded(state.forward_row_dual, li.get_row_dual_raw(), 2 * n_links);
+      // Mirror per-state-variable runtime values onto the persistent
+      // StateVariable objects.  These replace the former per-PhaseState
+      // full-vector caches for both next-phase trial-value propagation
+      // and backward-pass cut construction.  Cuts always use reduced
+      // costs, so row duals are never needed here.
+      capture_state_variable_values(scene_index, phase_index, sol_phys, rc);
 
       const auto sa = m_options_.scale_alpha;
-      const auto alpha_val = (state.alpha_col != ColIndex {unknown_index})
-          ? li.get_col_sol_raw()[state.alpha_col] * sa
-          : 0.0;
+      const auto* alpha_svar = find_alpha_state_var(
+          planning_lp().simulation(), scene_index, phase_index);
+      const auto alpha_val =
+          (alpha_svar != nullptr) ? alpha_svar->col_sol() * sa : 0.0;
       state.forward_objective = obj - alpha_val;
+
+      // Release solver backend — no-op when low_memory is off.
+      //
+      // The flat-LP snapshot IS retained here even during simulation
+      // Pass 1, because a later phase's solve may hit the elastic
+      // branch and need to `ensure_lp_built()` an earlier phase to
+      // install an fcut on it (see the elastic → fcut path above).
+      // That reconstruct needs the earlier phase's snapshot intact.
+      //
+      // Aggressive snapshot drop runs AFTER Pass 1's retry loop has
+      // converged — at that point no further in-pass reconstruct is
+      // possible and only `PlanningLP::write_out` remains, which reads
+      // from the Phase-2a cache and re-flattens `System` element
+      // arrays (no snapshot needed).  See `drop_sim_snapshots()` on
+      // PlanningLP called by `SDDPMethod::simulation_pass`.
+      system.release_backend();
 
       // Guard against solver returning "optimal" with NaN values
       // (can happen when inherited cuts cause ill-conditioning).
       if (std::isnan(state.forward_objective)) {
         SPDLOG_WARN(
-            "{}: solve returned optimal but forward_objective is NaN "
-            "(obj={}, alpha={})",
-            sddp_log("Forward",
-                     iteration_index,
-                     scene_uid(scene_index),
-                     phase_uid(phase_index)),
+            "SDDP Forward [i{} s{} p{}]: solve returned optimal but"
+            " forward_objective is NaN (obj={}, alpha={})",
+            iteration_index,
+            uid_of(scene_index),
+            uid_of(phase_index),
             obj,
             alpha_val);
         return std::unexpected(Error {
@@ -365,21 +561,22 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
             .message = std::format("{}: optimal status but NaN in solution",
                                    sddp_log("Forward",
                                             iteration_index,
-                                            scene_uid(scene_index),
-                                            phase_uid(phase_index))),
+                                            uid_of(scene_index),
+                                            uid_of(phase_index))),
         });
       }
 
       total_opex += state.forward_objective;
 
-      SPDLOG_TRACE("{}: obj={:.4f} alpha={:.4f} opex={:.4f}",
-                   sddp_log("Forward",
-                            iteration_index,
-                            scene_uid(scene_index),
-                            phase_uid(phase_index)),
-                   obj,
-                   alpha_val,
-                   state.forward_objective);
+      SPDLOG_TRACE(
+          "SDDP Forward [i{} s{} p{}]: obj={:.4f} alpha={:.4f}"
+          " opex={:.4f}",
+          iteration_index,
+          uid_of(scene_index),
+          uid_of(phase_index),
+          obj,
+          alpha_val,
+          state.forward_objective);
     }
   }
 
@@ -387,20 +584,30 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
   // inherited cuts cause solver ill-conditioning (barrier failure with
   // subsequent dual fallback producing NaN values).
   if (std::isnan(total_opex)) {
-    SPDLOG_WARN("{}: total_opex is NaN — solver ill-conditioning",
-                sddp_log("Forward", iteration_index, scene_uid(scene_index)));
+    SPDLOG_WARN(
+        "SDDP Forward [i{} s{}]: total_opex is NaN —"
+        " solver ill-conditioning",
+        iteration_index,
+        uid_of(scene_index));
     return std::unexpected(Error {
         .code = ErrorCode::SolverError,
         .message = std::format(
             "{}: forward pass total cost is NaN",
-            sddp_log("Forward", iteration_index, scene_uid(scene_index))),
+            sddp_log("Forward", iteration_index, uid_of(scene_index))),
     });
   }
 
-  SPDLOG_INFO("{}: done, total_opex={:.4f} [thread {}]",
-              sddp_log("Forward", iteration_index, scene_uid(scene_index)),
-              total_opex,
-              std::hash<std::thread::id> {}(fwd_tid) % 10000);
+  const auto fwd_scene_s =
+      std::chrono::duration<double>(std::chrono::steady_clock::now()
+                                    - fwd_scene_start)
+          .count();
+  SPDLOG_INFO(
+      "SDDP Forward [i{} s{}]: done, total_opex={:.4f} ({:.3f}s) [thread {}]",
+      iteration_index,
+      uid_of(scene_index),
+      total_opex,
+      fwd_scene_s,
+      std::hash<std::thread::id> {}(fwd_tid) % 10000);
   return total_opex;
 }
 

@@ -71,7 +71,6 @@ public:
    * @return true if successful
    */
   bool add_profile_to_lp(std::string_view full_class_name,
-                         const SystemContext& sc,
                          const ScenarioLP& scenario,
                          const StageLP& stage,
                          LinearProblem& lp,
@@ -96,7 +95,7 @@ public:
       const auto buid = block.uid();
       const auto block_profile = profile.at(scenario.uid(), stage.uid(), buid);
       const auto block_scost =
-          sc.block_ecost(scenario, stage, block, stage_scost);
+          CostHelper::block_ecost(scenario, stage, block, stage_scost);
 
       const auto block_ctx =
           make_block_context(scenario.uid(), stage.uid(), block.uid());

@@ -73,8 +73,6 @@ struct MainOptions
   // ---- LP options ----
   /** @brief Path stem for writing the LP model file */
   std::optional<std::string> lp_file {};
-  /** @brief LP naming level: minimal, only_cols, cols_and_rows */
-  std::optional<LpNamesLevel> lp_names_level {};
   /** @brief Epsilon tolerance for LP matrix coefficients */
   std::optional<double> matrix_eps {};
   /** @brief Build all scene/phase LP matrices but skip solving entirely */
@@ -96,10 +94,6 @@ struct MainOptions
   std::optional<std::string> json_file {};
 
   // ---- execution control ----
-  /** @brief Use fast (non-strict) JSON parsing */
-  std::optional<bool> fast_parsing {};
-  /** @brief Warn about JSON fields not recognised by the schema */
-  std::optional<bool> check_json {};
   /** @brief Print pre- and post-solve system statistics */
   std::optional<bool> print_stats {};
 
@@ -125,11 +119,9 @@ struct MainOptions
   /** @brief Penalty coefficient for SDDP elastic slack variables (default:
    * 1000) */
   std::optional<double> sddp_elastic_penalty {};
-  /** @brief SDDP elastic filter mode: "cut" (default) or "backpropagate" */
+  /** @brief SDDP elastic filter mode: "chinneck" (default), "single_cut",
+   *  "multi_cut".  Aliases: "iis" → chinneck, "cut" → single_cut. */
   std::optional<std::string> sddp_elastic_mode {};
-  /** @brief SDDP cut coefficient source: "reduced_cost" (default) or
-   * "row_dual" (PLP-style explicit coupling constraint rows) */
-  std::optional<std::string> sddp_cut_coeff_mode {};
   /** @brief Number of SDDP backward-pass apertures (0=disabled, -1=all) */
   std::optional<int> sddp_num_apertures {};
   /** @brief Enable SDDP hot-start from previously saved cuts */
@@ -144,9 +136,54 @@ struct MainOptions
    */
   std::optional<bool> recover {};
 
-  /** @brief SDDP low-memory mode: off, snapshot, or compress.
-   * Trades CPU time for significant memory savings. */
-  std::optional<std::string> low_memory_mode {};
+  /** @brief Global memory-saving mode: `off` / `compress` / `rebuild`.
+   *
+   * Generalises the older `--low-memory` flag: when set, the CLI applies
+   * a coordinated set of memory-saving defaults across the whole run:
+   *
+   *   - `sddp_options.low_memory_mode` = <value>  (same semantics as
+   *     before: off / compress / rebuild of the flat-LP snapshot)
+   *   - `solver_options.memory_emphasis` = true    (solver-native hint;
+   *     CPLEX's `CPX_PARAM_MEMORYEMPHASIS=1`, ignored by backends that
+   *     have no equivalent).
+   *
+   * Users who want finer control can still set `low_memory_mode` or
+   * `memory_emphasis` directly in the planning JSON — the CLI is just
+   * the shortcut "turn everything on sensibly".
+   *
+   * Implicit value (flag with no argument) is `compress`, which is the
+   * best balance: releases the solver backend between phases (big RAM
+   * win) while keeping the compressed flat LP so the next solve
+   * reconstructs in ~50 ms instead of a full re-flatten.  `rebuild`
+   * gives the lowest steady-state RAM at higher CPU cost.
+   *
+   * Bound to `--memory-saving`; `--low-memory` remains as a hidden
+   * deprecated alias for one release. */
+  std::optional<std::string> memory_saving {};
+
+  // ---- resource limits ----
+  /** @brief Process memory limit for work pool throttling.
+   * Accepts an absolute value in MB, or a string with suffix:
+   * "300M" (megabytes), "5G" (gigabytes).  0 = no limit (default). */
+  std::optional<std::string> memory_limit {};
+
+  /** @brief SDDP work pool CPU over-commit factor.
+   * Multiplied by hardware_concurrency to set max pool threads.
+   * Default 4.0 — extra threads compensate for clone mutex blocking. */
+  std::optional<double> sddp_cpu_factor {};
+
+  /** @brief LP build parallelism mode: "serial", "scene-parallel",
+   *  or "full-parallel" (default).  Routed to
+   *  `planning.options.build_mode` by `apply_cli_options`.  See
+   *  `BuildMode` in `planning_enums.hpp` for the full contract. */
+  std::optional<std::string> build_mode {};
+
+  /** @brief Comma-separated list of output fields to emit
+   * (`solution`, `dual`, `reduced_cost`, or aliases `sol`, `cost`,
+   * `rcost`, `rc`; also `all` and `none`).  Default (unset) emits
+   * every field.  Routed to `planning.options.write_out` by
+   * `apply_cli_options`. */
+  std::optional<std::string> write_out {};
 
   // ---- solver selection ----
   /** @brief LP solver backend name ("clp", "cbc", "cplex", "highs").
@@ -154,9 +191,9 @@ struct MainOptions
   std::optional<std::string> solver {};
 
   // ---- solver algorithm (shortcuts for solver_options fields) ----
-  /** @brief LP solution algorithm override (0=default, 1=primal, 2=dual,
-   * 3=barrier).  Mapped to solver_options.algorithm by apply_cli_options. */
-  std::optional<int> algorithm {};
+  /** @brief LP solution algorithm override.
+   * Mapped to solver_options.algorithm by apply_cli_options. */
+  std::optional<LPAlgo> algorithm {};
   /** @brief Number of solver threads override (0=automatic).
    *  Mapped to solver_options.threads by apply_cli_options. */
   std::optional<int> threads {};
@@ -183,6 +220,11 @@ struct MainOptions
    * Example: ``--set sddp_options.forward_solver_options.threads=8``
    */
   std::vector<std::string> set_options {};
+
+  /** @brief True when input/output/log/cut directories were auto-resolved
+   * from a directory argument (not explicitly set by the user).
+   * Suppresses deprecation warnings in apply_cli_options. */
+  bool dirs_auto_resolved {false};
 };
 
 /**

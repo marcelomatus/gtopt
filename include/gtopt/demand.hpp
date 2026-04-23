@@ -52,6 +52,7 @@ struct DemandAttrs
   OptTBRealFieldSched lmax {};  ///< Maximum served load [MW]
   OptTRealFieldSched lossfactor {};  ///< Network loss factor [p.u.]
   OptTRealFieldSched fcost {};  ///< Demand curtailment cost [$/MWh]
+  OptBool forced {};  ///< When true, load is fixed at lmax (PLP-style)
   OptTRealFieldSched
       emin {};  ///< Minimum energy that must be served per stage [MWh]
   OptTRealFieldSched ecost {};  ///< Energy-shortage cost [$/MWh]
@@ -66,6 +67,7 @@ struct DemandAttrs
       annual_capcost {};  ///< Annualized investment cost [$/MW-year]
   OptTRealFieldSched
       annual_derating {};  ///< Annual capacity derating factor [p.u./year]
+  OptBool integer_expmod {};  ///< Integer-constrain the expmod variable
 };
 
 /**
@@ -92,6 +94,7 @@ struct Demand
   OptTBRealFieldSched lmax {};  ///< Maximum served load [MW]
   OptTRealFieldSched lossfactor {};  ///< Network loss factor [p.u.]
   OptTRealFieldSched fcost {};  ///< Demand curtailment cost [$/MWh]
+  OptBool forced {};  ///< When true, load is fixed at lmax (PLP-style)
   OptTRealFieldSched
       emin {};  ///< Minimum energy that must be served per stage [MWh]
   OptTRealFieldSched ecost {};  ///< Energy-shortage cost [$/MWh]
@@ -106,6 +109,7 @@ struct Demand
       annual_capcost {};  ///< Annualized investment cost [$/MW-year]
   OptTRealFieldSched
       annual_derating {};  ///< Annual capacity derating factor [p.u./year]
+  OptBool integer_expmod {};  ///< Integer-constrain the expmod variable
 
   /**
    * @brief Sets the demand attributes from a DemandAttrs object
@@ -122,6 +126,7 @@ struct Demand
     self.lmax = std::exchange(attrs.lmax, {});
     self.lossfactor = std::exchange(attrs.lossfactor, {});
     self.fcost = std::exchange(attrs.fcost, {});
+    self.forced = std::exchange(attrs.forced, {});
     self.emin = std::exchange(attrs.emin, {});
     self.ecost = std::exchange(attrs.ecost, {});
 
@@ -131,6 +136,7 @@ struct Demand
     self.capmax = std::exchange(attrs.capmax, {});
     self.annual_capcost = std::exchange(attrs.annual_capcost, {});
     self.annual_derating = std::exchange(attrs.annual_derating, {});
+    self.integer_expmod = std::exchange(attrs.integer_expmod, {});
 
     return self;
   }

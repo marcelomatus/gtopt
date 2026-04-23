@@ -26,34 +26,20 @@ namespace gtopt
 /**
  * @brief LP variable/constraint naming level for matrix assembly.
  *
- * Controls how much naming information is generated during LP construction.
- * Higher levels provide better diagnostics but consume more memory.
+ * Controls whether naming information is generated during LP construction.
+ * When enabled (`all`), column and row names, name-to-index maps, and
+ * duplicate-name error checking are all active.  State variable I/O uses
+ * the StateVariable map (ColIndex-based) directly and does not need
+ * column name strings.
  *
- * - `minimal`:      State-variable column names only (for internal use,
- *                   e.g. cascade solver state transfer).  Smallest footprint.
- * - `only_cols`:    All column names + name-to-index maps.
- * - `cols_and_rows`: Column + row names + maps.  Warns on duplicate names.
+ * - `none`: No names generated (default, lowest memory).
+ * - `all`:  All column + row names + name-to-index maps; duplicates throw.
  */
 enum class LpNamesLevel : int8_t
 {
-  none = -1,  ///< No names generated (lowest memory, default)
-  minimal = 0,  ///< State-variable column names only
-  only_cols = 1,  ///< All column names + name maps
-  cols_and_rows = 2,  ///< Column + row names + maps + warn on duplicates
+  none = 0,  ///< No names generated (lowest memory, default)
+  all = 1,  ///< All column + row names + name maps; duplicates throw
 };
-
-inline constexpr auto lp_names_level_entries =
-    std::to_array<EnumEntry<LpNamesLevel>>({
-        {.name = "none", .value = LpNamesLevel::none},
-        {.name = "minimal", .value = LpNamesLevel::minimal},
-        {.name = "only_cols", .value = LpNamesLevel::only_cols},
-        {.name = "cols_and_rows", .value = LpNamesLevel::cols_and_rows},
-    });
-
-constexpr auto enum_entries(LpNamesLevel /*tag*/) noexcept
-{
-  return std::span {lp_names_level_entries};
-}
 
 // --- LpEquilibrationMethod --------------------------------------------------
 
@@ -90,7 +76,8 @@ inline constexpr auto lp_equilibration_method_entries =
         {.name = "ruiz", .value = LpEquilibrationMethod::ruiz},
     });
 
-constexpr auto enum_entries(LpEquilibrationMethod /*tag*/) noexcept
+[[nodiscard]] constexpr auto enum_entries(
+    LpEquilibrationMethod /*tag*/) noexcept
 {
   return std::span {lp_equilibration_method_entries};
 }
@@ -122,7 +109,7 @@ inline constexpr auto fast_sqrt_method_entries =
         {.name = "std_sqrt", .value = FastSqrtMethod::std_sqrt},
     });
 
-constexpr auto enum_entries(FastSqrtMethod /*tag*/) noexcept
+[[nodiscard]] constexpr auto enum_entries(FastSqrtMethod /*tag*/) noexcept
 {
   return std::span {fast_sqrt_method_entries};
 }

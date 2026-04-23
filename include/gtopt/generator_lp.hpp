@@ -27,9 +27,13 @@ namespace gtopt
 class GeneratorLP : public CapacityObjectLP<Generator>
 {
 public:
-  static constexpr LPClassName ClassName {"Generator", "gen"};
+  static constexpr LPClassName ClassName {"Generator"};
   static constexpr std::string_view GenerationName {"generation"};
   static constexpr std::string_view CapacityName {"capacity"};
+  /// Filter metadata keys published by `add_to_lp` for `sum(...)`
+  /// predicate matching.
+  static constexpr std::string_view TypeKey {"type"};
+  static constexpr std::string_view BusKey {"bus"};
 
   using CapacityBase = CapacityObjectLP<Generator>;
 
@@ -61,6 +65,13 @@ public:
                                  const StageLP& stage) const
   {
     return generation_cols.at({scenario.uid(), stage.uid()});
+  }
+
+  [[nodiscard]]
+  const auto& capacity_rows_at(const ScenarioLP& scenario,
+                               const StageLP& stage) const
+  {
+    return capacity_rows.at({scenario.uid(), stage.uid()});
   }
 
   /// @name Parameter accessors for user constraint resolution

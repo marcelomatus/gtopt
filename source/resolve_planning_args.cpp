@@ -44,6 +44,8 @@ namespace gtopt
         // from a parent directory we must point at the actual dir.
         // Similarly, output_directory="results" in the JSON would resolve
         // relative to CWD, so we prefix it with the dir path.
+        // Mark as auto-resolved so apply_cli_options skips deprecation
+        // warnings.
         if (!opts.input_directory) {
           opts.input_directory = path.string();
         }
@@ -56,6 +58,7 @@ namespace gtopt
         if (!opts.cut_directory) {
           opts.cut_directory = (path / "cuts").string();
         }
+        opts.dirs_auto_resolved = true;
       } else {
         // Directory exists but dir/basename.json does not — treat as a
         // bare stem (e.g. "bat4b24" is both a data directory and a stem

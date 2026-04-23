@@ -49,7 +49,7 @@ class SystemLP;
 class ReservoirSeepageLP : public ObjectLP<ReservoirSeepage>
 {
 public:
-  static constexpr LPClassName ClassName {"ReservoirSeepage", "fil"};
+  static constexpr LPClassName ClassName {"ReservoirSeepage"};
   static constexpr std::string_view SeepageName {"seepage"};
 
   /// Constructs a ReservoirSeepageLP from a ReservoirSeepage and input context.

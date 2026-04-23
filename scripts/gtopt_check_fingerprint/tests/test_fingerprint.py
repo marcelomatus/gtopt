@@ -145,7 +145,7 @@ class TestJsonRoundTrip:
         json_path = tmp_path / "fingerprint.json"
         write_fingerprint_json(fp, json_path)
 
-        with open(json_path) as f:
+        with open(json_path, encoding="utf-8") as f:
             data = json.load(f)
 
         assert data["version"] == 1

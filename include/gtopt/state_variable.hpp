@@ -88,8 +88,8 @@ public:
 
   struct Key
   {
-    ScenarioUid scenario_uid {unknown_uid};
-    StageUid stage_uid {unknown_uid};
+    ScenarioUid scenario_uid = unknown_uid_of<Scenario>();
+    StageUid stage_uid = unknown_uid_of<Stage>();
     Uid uid {unknown_uid};
     std::string_view col_name;
     std::string_view class_name;
@@ -105,7 +105,8 @@ public:
       PhaseIndex phase_index,
       StageUid stage_uid,
       SceneIndex scene_index = SceneIndex {unknown_index},
-      ScenarioUid scenario_uid = ScenarioUid {unknown_uid}) noexcept -> Key
+      ScenarioUid scenario_uid = make_uid<Scenario>(unknown_uid)) noexcept
+      -> Key
   {
     return {
         .scenario_uid = scenario_uid,
@@ -201,11 +202,102 @@ public:
         col);
   }
 
+  // ── Runtime SDDP values (mutable — written during solve passes) ────────
+  //
+  // These carry the per-state-variable post-solve values consumed by
+  // next-phase trial propagation and backward-pass cut construction.
+  //
+  //   - col_sol       : always set after a forward solve (free — just a
+  //                     primal read).  Used to propagate trial values to
+  //                     the next phase's dependent column.
+  //   - reduced_cost  : always set after a forward solve (free — just a
+  //                     reduced-cost read on the dependent column).
+  //
+  // Cut construction uses reduced costs only.  See docs/methods/sddp.md
+  // for why the row-dual (PLP-style) formulation was removed.
+  //
+  // `mutable` allows mutation via `const StateVariable*` pointers stored
+  // on `StateVarLink`, keeping the const-correctness of the registry map
+  // iteration at link-build time.
+
+  /// Forward-pass primal solution of this state variable's source column,
+  /// in **raw LP** space.  Multiply by `var_scale()` to obtain the
+  /// physical value, or use `col_sol_physical()` below.
+  [[nodiscard]] constexpr auto col_sol() const noexcept { return m_col_sol_; }
+  constexpr void set_col_sol(double v) const noexcept { m_col_sol_ = v; }
+
+  /// Physical-space primal solution:  `LP × var_scale`.
+  ///
+  /// For the alpha future-cost column this equals `LP × scale_alpha`,
+  /// matching the `alpha_svar->col_sol() * sa` idiom at the forward-
+  /// pass call sites.  For state variables with `var_scale = 1.0`
+  /// (bare primal columns without a flatten-time semantic scale) this
+  /// returns the same value as `col_sol()`.
+  [[nodiscard]] constexpr double col_sol_physical() const noexcept
+  {
+    return m_col_sol_ * m_var_scale_;
+  }
+
+  /// Reduced cost of the dependent column in the target phase's last
+  /// solve, in **raw LP** space.  Use `reduced_cost_physical()` below
+  /// when building physical-space Benders cuts.
+  [[nodiscard]] constexpr auto reduced_cost() const noexcept
+  {
+    return m_reduced_cost_;
+  }
+  constexpr void set_reduced_cost(double v) const noexcept
+  {
+    m_reduced_cost_ = v;
+  }
+
+  /// Physical-space reduced cost (`$/physical_unit`):
+  ///   `rc_LP × scale_objective / var_scale`.
+  ///
+  /// This matches the `LinearInterface::get_col_cost()` convention
+  /// (`LP × scale_objective / col_scale`), so the physical-space
+  /// Benders cut builder (`build_benders_cut_physical`) can take
+  /// either source with identical semantics.  `scale_objective` is
+  /// passed as an argument because it's a global option, not a
+  /// per-state-variable property.
+  [[nodiscard]] constexpr double reduced_cost_physical(
+      double scale_objective) const noexcept
+  {
+    return m_reduced_cost_ * scale_objective / m_var_scale_;
+  }
+
 private:
   double m_scost_ {0.0};
   double m_var_scale_ {1.0};
   LpContext m_context_ {};
   std::vector<DependentVariable> m_dependent_variables_;
+
+  mutable double m_col_sol_ {0.0};
+  mutable double m_reduced_cost_ {0.0};
+};
+
+/// Deferred state-variable link record.
+///
+/// Recorded by phase N+1's `add_to_lp` so that the eventual
+/// `add_dependent_variable` call on phase N's matching `StateVariable`
+/// can be performed in a sequential tightening pass *after* all phases
+/// of a scene have been built — possibly in parallel.
+///
+/// The structured `prev_key` uniquely identifies the producing
+/// `StateVariable` in the global `(scene, phase)`-partitioned registry,
+/// so the tightening pass needs no reference to phase N's `SystemLP` to
+/// resolve the link.  `(here_key, here_col)` names the dependent column
+/// to register on the resolved `StateVariable`.
+///
+/// `prev_key.col_name` and `prev_key.class_name` are `std::string_view`s
+/// — they must point to storage that outlives this record.  In practice
+/// they always point at the `static constexpr` literals declared by the
+/// element classes (e.g. `StorageLP::EfinName`, the class name constant)
+/// so the lifetime requirement is satisfied trivially.
+struct PendingStateLink
+{
+  StateVariable::Key prev_key;
+  LPKey here_key;
+  ColIndex here_col {unknown_index};
 };
 
 }  // namespace gtopt

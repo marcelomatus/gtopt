@@ -45,9 +45,9 @@ struct SolverOptionsConstructor
                            OptInt log_level,
                            OptSolverLogMode log_mode,
                            OptReal time_limit,
-                           OptBool reuse_basis,
                            OptSolverScaling scaling,
-                           OptInt max_fallbacks) const
+                           OptInt max_fallbacks,
+                           OptBool memory_emphasis) const
   {
     return SolverOptions {
         .algorithm = algorithm.value_or(LPAlgo::barrier),
@@ -63,7 +63,7 @@ struct SolverOptionsConstructor
             ? scaling
             : OptSolverScaling {SolverScaling::automatic},
         .max_fallbacks = max_fallbacks.value_or(2),
-        .reuse_basis = reuse_basis.value_or(false),
+        .memory_emphasis = memory_emphasis,
     };
   }
 };
@@ -82,9 +82,9 @@ struct json_data_contract<SolverOptions>
                                 json_number_null<"log_level", OptInt>,
                                 json_number_null<"log_mode", OptSolverLogMode>,
                                 json_number_null<"time_limit", OptReal>,
-                                json_bool_null<"reuse_basis", OptBool>,
                                 json_number_null<"scaling", OptSolverScaling>,
-                                json_number_null<"max_fallbacks", OptInt>>;
+                                json_number_null<"max_fallbacks", OptInt>,
+                                json_bool_null<"memory_emphasis", OptBool>>;
 
   static constexpr auto to_json_data(SolverOptions const& opt)
   {
@@ -97,9 +97,9 @@ struct json_data_contract<SolverOptions>
                            OptInt {opt.log_level},
                            opt.log_mode,
                            opt.time_limit,
-                           OptBool {opt.reuse_basis},
                            opt.scaling,
-                           OptInt {opt.max_fallbacks});
+                           OptInt {opt.max_fallbacks},
+                           opt.memory_emphasis);
   }
 };
 

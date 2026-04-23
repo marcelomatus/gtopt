@@ -1,8 +1,8 @@
 """Integration tests for Laja/Maule water rights emission.
 
-Tests that plp2gtopt with --emit-water-rights produces correct
+Tests that plp2gtopt with --expand-water-rights produces correct
 rights entities and PAMPL files from the plp_2_years support case,
-and that gtopt --lp-build can assemble the LP matrix successfully.
+and that gtopt --lp-only can assemble the LP matrix successfully.
 """
 
 from __future__ import annotations
@@ -40,8 +40,19 @@ class TestWaterRightsIntegration:
 
     @pytest.fixture(scope="class")
     def converted_case(self, tmp_path_factory):
-        """Run plp2gtopt with --emit-water-rights on plp_2_years."""
+        """Exercise the auto-expanded irrigation pipeline on plp_2_years.
+
+        Runs ``plp2gtopt --expand-water-rights`` so ``gtopt_expand``
+        is invoked in-process.  The resulting planning JSON contains
+        all merged entities, the companion ``laja.pampl`` /
+        ``maule.pampl`` files land in the output directory, and
+        per-agreement system fragments (``laja_water_rights.json`` /
+        ``maule_water_rights.json``) are emitted for the manifest
+        path.  No ``*_dat.json`` parser intermediates are written —
+        those are not shipped.
+        """
         output_dir = tmp_path_factory.mktemp("plp2y_rights")
+
         result = subprocess.run(
             [
                 sys.executable,
@@ -55,7 +66,7 @@ class TestWaterRightsIntegration:
                 "1y",
                 "-F",
                 "csv",
-                "--emit-water-rights",
+                "--expand-water-rights",
                 "--use-kirchhoff",
                 "--demand-fail-cost",
                 "1000",
@@ -71,18 +82,25 @@ class TestWaterRightsIntegration:
             f"plp2gtopt failed:\nstdout: {result.stdout}\nstderr: {result.stderr}"
         )
 
-        # Find the JSON file
-        json_files = list(output_dir.glob("*.json"))
+        # Find the main planning JSON (excluding the manifest fragments
+        # plp2gtopt also emits).
+        _aux_names = {
+            "laja_water_rights.json",
+            "maule_water_rights.json",
+            "ror_promoted.json",
+        }
+        json_files = [p for p in output_dir.glob("*.json") if p.name not in _aux_names]
         assert len(json_files) == 1, f"Expected 1 JSON file, got {json_files}"
 
         with open(json_files[0], encoding="utf-8") as f:
             planning = json.load(f)
+        system = planning.get("system", {})
 
         return {
             "output_dir": output_dir,
             "json_file": json_files[0],
             "planning": planning,
-            "system": planning.get("system", {}),
+            "system": system,
         }
 
     # -- Laja entity checks --
@@ -150,8 +168,8 @@ class TestWaterRightsIntegration:
         ucs = converted_case["system"].get("user_constraint_array", [])
         if not ucs:
             # Constraints are in PAMPL file — check file exists with content
-            pampl = converted_case["output_dir"] / "maule_agreement.pampl"
-            assert pampl.exists(), "maule_agreement.pampl not found"
+            pampl = converted_case["output_dir"] / "maule.pampl"
+            assert pampl.exists(), "maule.pampl not found"
             assert "constraint" in pampl.read_text(encoding="utf-8")
             return
         maule_ucs = [uc for uc in ucs if not uc["name"].startswith("laja_")]
@@ -206,8 +224,8 @@ class TestWaterRightsIntegration:
 
     def test_maule_pampl_generated(self, converted_case):
         """Maule PAMPL file is generated in output directory."""
-        pampl_file = converted_case["output_dir"] / "maule_agreement.pampl"
-        assert pampl_file.exists(), "maule_agreement.pampl not found"
+        pampl_file = converted_case["output_dir"] / "maule.pampl"
+        assert pampl_file.exists(), "maule.pampl not found"
         content = pampl_file.read_text(encoding="utf-8")
         assert "constraint" in content, "PAMPL file has no constraints"
         assert "param" in content, "PAMPL file has no params"
@@ -249,14 +267,21 @@ class TestWaterRightsIntegration:
     reason="plp_2_years support directory not available",
 )
 class TestGtoptLpBuild:
-    """Test that gtopt --lp-build succeeds on the converted case."""
+    """Test that gtopt --lp-only succeeds on the converted case."""
 
     @pytest.fixture(scope="class")
     def lp_build_result(self, tmp_path_factory, gtopt_bin):
-        """Run plp2gtopt + gtopt --lp-build on plp_2_years."""
+        """Run plp2gtopt (with default auto-expand) + gtopt --lp-only.
+
+        Relies on the default ``--expand-water-rights`` / ``--expand-lng``
+        behaviour: plp2gtopt runs the ``gtopt_expand`` Stage-2 transforms
+        internally and merges their entities into the planning JSON, so
+        the downstream ``gtopt --lp-only`` sees a single coherent system
+        without any manual glue.
+        """
         output_dir = tmp_path_factory.mktemp("plp2y_lp_build")
 
-        # Step 1: Convert with plp2gtopt
+        # Step 1: Convert with plp2gtopt — auto-expand is on by default.
         conv_result = subprocess.run(
             [
                 sys.executable,
@@ -270,7 +295,7 @@ class TestGtoptLpBuild:
                 "1y",
                 "-F",
                 "csv",
-                "--emit-water-rights",
+                "--expand-water-rights",
                 "--use-kirchhoff",
                 "--demand-fail-cost",
                 "1000",
@@ -285,12 +310,18 @@ class TestGtoptLpBuild:
         )
         assert conv_result.returncode == 0, f"plp2gtopt failed: {conv_result.stderr}"
 
-        # Find the JSON file
-        json_files = list(output_dir.glob("*.json"))
-        assert len(json_files) == 1
+        # Find the planning JSON file (excluding the per-agreement
+        # system fragments and the RoR audit artifact that plp2gtopt
+        # also emits for the manifest).
+        _aux_names = {
+            "laja_water_rights.json",
+            "maule_water_rights.json",
+            "ror_promoted.json",
+        }
+        json_files = [p for p in output_dir.glob("*.json") if p.name not in _aux_names]
+        assert len(json_files) == 1, f"Expected 1 JSON file, got {json_files}"
 
-        # Set constraint_mode to normal in the JSON (some constraint
-        # references may not resolve in this stripped-down test case)
+        # Force constraint_mode=normal so user_constraint assembly is exercised.
         with open(json_files[0], encoding="utf-8") as f:
             planning = json.load(f)
         planning.setdefault("options", {})["constraint_mode"] = "normal"

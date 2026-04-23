@@ -230,6 +230,16 @@ public:
                                     Projection proj,
                                     const Factor& factor = Factor()) const
   {
+    // Early-exit when the holder is empty.  This is the only allocation
+    // win — measurement showed that lazy allocation of `values`/`valid`
+    // with a hit-index backfill is slower than the eager allocation
+    // because the hot-loop `push_back` + later backfill beats plain
+    // `valid[idx] = true` for dense holders.  Keep the eager path and
+    // only skip work when there's nothing to iterate for.
+    if (hstb.empty()) {
+      return std::pair {std::vector<double> {}, std::vector<bool> {}};
+    }
+
     const auto size = m_active_scenarios_.size() * m_active_blocks_.size();
 
     std::vector<double> values(size);
@@ -271,6 +281,10 @@ public:
                                     Projection proj,
                                     const Factor& factor = Factor()) const
   {
+    if (hstb.empty()) {
+      return std::pair {std::vector<double> {}, std::vector<bool> {}};
+    }
+
     const auto size = m_active_scenarios_.size() * m_active_blocks_.size();
 
     std::vector<double> values(size);
@@ -326,6 +340,10 @@ public:
                                     const Factor& factor,
                                     const STIndexHolder<double>& st_scale) const
   {
+    if (hstb.empty()) {
+      return std::pair {std::vector<double> {}, std::vector<bool> {}};
+    }
+
     const auto size = m_active_scenarios_.size() * m_active_blocks_.size();
 
     std::vector<double> values(size);
@@ -374,6 +392,10 @@ public:
                                     Projection proj,
                                     const Factor& factor = Factor()) const
   {
+    if (hst.empty()) {
+      return std::pair {std::vector<double> {}, std::vector<bool> {}};
+    }
+
     const auto size = m_active_scenarios_.size() * m_active_stages_.size();
     std::vector<double> values(size);
     std::vector<bool> valid(size, false);
@@ -412,6 +434,10 @@ public:
                                     Projection proj = {},
                                     const Factor& factor = {}) const
   {
+    if (ht.empty()) {
+      return std::pair {std::vector<double> {}, std::vector<bool> {}};
+    }
+
     const auto size = m_active_stages_.size();
     std::vector<double> values(size);
     std::vector<bool> valid(size, false);

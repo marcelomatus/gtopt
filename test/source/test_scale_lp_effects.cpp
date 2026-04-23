@@ -20,7 +20,7 @@
 #include <doctest/doctest.h>
 #include <gtopt/block_lp.hpp>
 #include <gtopt/cost_helper.hpp>
-#include <gtopt/json/json_planning.hpp>
+#include <gtopt/gtopt_json_io.hpp>
 #include <gtopt/monolithic_method.hpp>
 #include <gtopt/planning_lp.hpp>
 #include <gtopt/planning_options_lp.hpp>
@@ -44,7 +44,6 @@ auto make_ieee4b_json(double scale_obj,
       R"({{
   "options": {{
     "annual_discount_rate": 0.0,
-    "lp_matrix_options": {{"names_level": 2}},
     "output_format": "csv",
     "output_compression": "uncompressed",
     "use_single_bus": false,
@@ -87,13 +86,14 @@ auto make_ieee4b_json(double scale_obj,
 }
 
 /// Solve the IEEE 4-bus case and return (scaled_obj, kappa).
+/// Kappa is -1.0 when the backend reported std::nullopt (unavailable).
 auto solve_ieee4b(double scale_obj,
                   double scale_theta_val,
                   bool use_kirchhoff = true) -> std::pair<double, double>
 {
   auto json = make_ieee4b_json(scale_obj, scale_theta_val, use_kirchhoff);
   Planning base;
-  base.merge(daw::json::from_json<Planning>(json));
+  base.merge(parse_planning_json(json));
 
   PlanningLP planning_lp(std::move(base));
   MonolithicMethod solver;
@@ -105,7 +105,7 @@ auto solve_ieee4b(double scale_obj,
   REQUIRE(!systems.front().empty());
   const auto& li = systems.front().front().linear_interface();
 
-  return {li.get_obj_value(), li.get_kappa()};
+  return {li.get_obj_value(), li.get_kappa().value_or(-1.0)};
 }
 
 // ---------------------------------------------------------------
@@ -148,7 +148,7 @@ TEST_CASE(  // NOLINT
   for (const auto st : {0.01, 0.001, 0.0001}) {
     auto json = make_ieee4b_json(scale_obj, st);
     Planning base;
-    base.merge(daw::json::from_json<Planning>(json));
+    base.merge(parse_planning_json(json));
     PlanningLP planning_lp(std::move(base));
 
     auto result = planning_lp.resolve();

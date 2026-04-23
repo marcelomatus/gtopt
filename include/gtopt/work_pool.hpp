@@ -48,6 +48,7 @@
 #include <vector>
 
 #include <gtopt/cpu_monitor.hpp>
+#include <gtopt/hardware_info.hpp>
 #include <gtopt/memory_monitor.hpp>
 #include <spdlog/spdlog.h>
 
@@ -66,16 +67,30 @@ struct WorkPoolConfig
   double max_process_rss_mb;  ///< Block dispatch if process RSS > this (0=off)
   std::chrono::milliseconds scheduler_interval;
   std::string name;
+  bool enable_periodic_stats {true};  ///< Log periodic CPU/MEM stats
+  /// Hard cap on process bytes paged to swap (MB).  When VmSwap exceeds
+  /// this, dispatch is blocked to let active tasks drain and release
+  /// memory instead of pushing more pages out.  Default 2048 MB — kicks
+  /// in before the kernel starts thrashing; set to 0 to disable.
+  double max_process_swap_mb {2048.0};
+  /// Soft cap on system swap I/O rate (pages/sec, sum of pswpin+pswpout).
+  /// When the kernel is thrashing above this rate, dispatch is blocked.
+  /// Only evaluated near thread saturation so quiescent paging (e.g.
+  /// init-time swap readahead) does not stall the pool.  0 = disabled.
+  double max_swap_io_per_sec {0.0};
 
   explicit WorkPoolConfig(
-      int max_threads_ = static_cast<int>(std::thread::hardware_concurrency()),
+      int max_threads_ = static_cast<int>(physical_concurrency()),
       double max_cpu_threshold_ = 95.0,
       double min_free_memory_mb_ = 4096.0,
-      double max_memory_percent_ = 95.0,
+      double max_memory_percent_ = 90.0,
       double max_process_rss_mb_ = 0.0,
       std::chrono::milliseconds scheduler_interval_ =
-          std::chrono::milliseconds(20),
-      std::string name_ = "WorkPool") noexcept
+          std::chrono::milliseconds(50),
+      std::string name_ = "WorkPool",
+      bool enable_periodic_stats_ = true,
+      double max_process_swap_mb_ = 2048.0,
+      double max_swap_io_per_sec_ = 0.0) noexcept
       : max_threads(max_threads_)
       , max_cpu_threshold(max_cpu_threshold_)
       , min_free_memory_mb(min_free_memory_mb_)
@@ -83,6 +98,9 @@ struct WorkPoolConfig
       , max_process_rss_mb(max_process_rss_mb_)
       , scheduler_interval(scheduler_interval_)
       , name(std::move(name_))
+      , enable_periodic_stats(enable_periodic_stats_)
+      , max_process_swap_mb(max_process_swap_mb_)
+      , max_swap_io_per_sec(max_swap_io_per_sec_)
   {
   }
 };
@@ -281,8 +299,11 @@ private:
   double min_free_memory_mb_;
   double max_memory_percent_;
   double max_process_rss_mb_;
+  double max_process_swap_mb_;
+  double max_swap_io_per_sec_;
   std::chrono::milliseconds scheduler_interval_;
   std::string name_;
+  bool enable_periodic_stats_;
 
   std::atomic<size_t> tasks_completed_ {0};
   std::atomic<size_t> tasks_submitted_ {0};
@@ -294,6 +315,24 @@ private:
   double total_task_cpu_pct_ {0.0};
   double total_task_rss_delta_mb_ {0.0};
   std::chrono::steady_clock::time_point pool_start_time_ {};
+
+  // Throttle event counters.  Atomic so `can_dispatch_next()` can bump
+  // them without taking the active mutex.  `mutable` because they are
+  // incremented from `should_schedule_new_task() const` — they form
+  // pure diagnostic state (like a mutex), not logical pool state.
+  // Reported in the pool's Final log line so operators see at a glance
+  // which gate (if any) held work back.
+  mutable std::atomic<size_t> throttled_cpu_ {0};
+  mutable std::atomic<size_t> throttled_memory_pct_ {0};
+  mutable std::atomic<size_t> throttled_free_memory_ {0};
+  mutable std::atomic<size_t> throttled_process_rss_ {0};
+  mutable std::atomic<size_t> throttled_process_swap_ {0};
+  mutable std::atomic<size_t> throttled_swap_io_ {0};
+
+  // Stall detection: tracked across `log_periodic_stats()` calls to detect
+  // when `tasks_completed` stops advancing while work is still queued.
+  mutable size_t last_logged_completed_ {0};
+  mutable int stall_intervals_ {0};
 
 public:
   BasicWorkPool(BasicWorkPool&&) = delete;
@@ -308,12 +347,15 @@ public:
       , min_free_memory_mb_(config.min_free_memory_mb)
       , max_memory_percent_(config.max_memory_percent)
       , max_process_rss_mb_(config.max_process_rss_mb)
+      , max_process_swap_mb_(config.max_process_swap_mb)
+      , max_swap_io_per_sec_(config.max_swap_io_per_sec)
       , scheduler_interval_(config.scheduler_interval)
       , name_(std::move(config.name))
+      , enable_periodic_stats_(config.enable_periodic_stats)
   {
     spdlog::info(
         "  {} initialized: {} max threads, {:.0f}% CPU threshold, "
-        "{:.0f} MB min free mem, {:.0f}% max mem{}",
+        "{:.0f} MB min free mem, {:.0f}% max mem{}{}{}",
         name_,
         max_threads_,
         max_cpu_threshold_,
@@ -321,10 +363,26 @@ public:
         max_memory_percent_,
         max_process_rss_mb_ > 0
             ? std::format(", {:.0f} MB max RSS", max_process_rss_mb_)
+            : "",
+        max_process_swap_mb_ > 0
+            ? std::format(", {:.0f} MB max VmSwap", max_process_swap_mb_)
+            : "",
+        max_swap_io_per_sec_ > 0
+            ? std::format(", {:.0f} pg/s max swap I/O", max_swap_io_per_sec_)
             : "");
   }
 
-  ~BasicWorkPool() { shutdown(); }
+  ~BasicWorkPool() noexcept
+  {
+    // Destructor must not throw.  `shutdown()` calls spdlog / std::format
+    // which can in principle throw `std::format_error`; swallow any such
+    // exception rather than terminating the program during teardown.
+    try {
+      shutdown();
+    } catch (...) {  // NOLINT(bugprone-empty-catch)
+      // best-effort cleanup; deliberately swallowed
+    }
+  }
 
   void start()
   {
@@ -350,28 +408,33 @@ public:
 
             while (!stoken.stop_requested() && running_) {
               cleanup_completed_tasks();
-              if (should_schedule_new_task()) {
+
+              // Dispatch as many ready tasks as possible in one pass
+              while (should_schedule_new_task()) {
                 schedule_next_task();
               }
 
               // Periodic stats logging
               const auto now = std::chrono::steady_clock::now();
-              if (now - last_log >= log_interval) {
+              if (enable_periodic_stats_ && now - last_log >= log_interval) {
                 log_periodic_stats();
                 last_log = now;
               }
 
-              // Wait on cv_ so that shutdown() and submit() can wake us
-              // immediately instead of blocking up to scheduler_interval_.
+              // Wait on cv_ — wakes immediately on submit(), task
+              // completion, or shutdown instead of sleeping the full
+              // interval.
               std::unique_lock lock(queue_mutex_);
-              cv_.wait_for(
-                  lock,
-                  scheduler_interval_,
-                  [&] { return stoken.stop_requested() || !running_.load(); });
+              cv_.wait_for(lock,
+                           scheduler_interval_,
+                           [&]
+                           {
+                             return stoken.stop_requested() || !running_.load()
+                                 || !task_queue_.empty();
+                           });
             }
           },
       };
-      spdlog::info("  {} started", name_);
     } catch (const std::exception& e) {
       running_ = false;
       auto msg = std::format("Failed to start BasicWorkPool: {}", e.what());
@@ -435,6 +498,13 @@ public:
 
       auto future = task->get_future();
 
+      // Fast path: if the queue is empty and we have thread capacity,
+      // launch directly without enqueuing — avoids scheduler round-trip.
+      if (try_launch_direct(task, req)) {
+        tasks_submitted_.fetch_add(1, std::memory_order_relaxed);
+        return future;
+      }
+
       {
         const std::scoped_lock<std::mutex> lock(queue_mutex_);
         try {
@@ -477,6 +547,51 @@ public:
     return submit(std::forward<Func>(func), std::move(req));
   }
 
+  /// Submit multiple callables under a single lock acquisition.
+  /// Returns a vector of futures, one per callable.
+  template<typename Func>
+  [[nodiscard]] auto submit_batch(
+      std::vector<std::pair<Func, Requirements>>& tasks)
+      -> std::vector<std::expected<std::future<std::invoke_result_t<Func>>,
+                                   std::error_code>>
+  {
+    using ReturnType = std::invoke_result_t<Func>;
+    using ResultVec =
+        std::vector<std::expected<std::future<ReturnType>, std::error_code>>;
+
+    ResultVec results;
+    results.reserve(tasks.size());
+
+    {
+      const std::scoped_lock<std::mutex> lock(queue_mutex_);
+      for (auto& [func, req] : tasks) {
+        try {
+          auto ptask = std::make_shared<std::packaged_task<ReturnType()>>(
+              std::move(func));
+          results.push_back(ptask->get_future());
+          task_queue_.emplace_back([ptask]() { (*ptask)(); }, req);
+          std::ranges::push_heap(task_queue_, std::less<> {});
+          tasks_submitted_.fetch_add(1, std::memory_order_relaxed);
+          tasks_pending_.fetch_add(1, std::memory_order_relaxed);
+        } catch (const std::exception& e) {
+          SPDLOG_ERROR("Failed to enqueue batch task: {}", e.what());
+          results.push_back(std::unexpected(
+              std::make_error_code(std::errc::operation_not_permitted)));
+        }
+      }
+    }
+
+    cv_.notify_one();
+    return results;
+  }
+
+  /// Thread cap configured for this pool.  Needed by tests that
+  /// verify `make_solver_work_pool(cpu_factor)` clamps its thread
+  /// count correctly (e.g. tiny `cpu_factor` must floor to 1 thread
+  /// to give a genuine serial baseline).  Safe to call from any
+  /// thread — `max_threads_` is set once in the constructor.
+  [[nodiscard]] int max_threads() const noexcept { return max_threads_; }
+
   struct Statistics
   {
     size_t tasks_submitted;
@@ -488,9 +603,27 @@ public:
     double current_memory_percent;  ///< System memory usage %
     double available_memory_mb;  ///< System available memory MB
     double process_rss_mb;  ///< Process RSS in MB
+    double process_swap_mb;  ///< Process VmSwap in MB
+    double swap_used_mb;  ///< System swap used in MB
+    double swap_io_rate;  ///< Pages/sec (pswpin + pswpout)
     size_t lp_tasks_dispatched;  ///< Total LP tasks dispatched
     double avg_task_cpu_pct;  ///< Average CPU % per LP task
     double avg_task_rss_delta_mb;  ///< Average RSS delta per LP task
+    /// @name Throttle event counters
+    /// Count of `can_dispatch_next()` returning false for each reason.
+    /// The same scheduling tick may exercise multiple gates; each
+    /// failing gate bumps its own counter.  Zero on a well-fed pool;
+    /// non-zero indicates the pool was holding back work for that
+    /// reason.  Useful for diagnosing "why is my pool only at 50 %
+    /// CPU?" without turning on DEBUG logs.
+    /// @{
+    size_t throttled_cpu;
+    size_t throttled_memory_pct;
+    size_t throttled_free_memory;
+    size_t throttled_process_rss;
+    size_t throttled_process_swap;
+    size_t throttled_swap_io;
+    /// @}
   };
 
   Statistics get_statistics() const noexcept
@@ -516,9 +649,22 @@ public:
         .current_memory_percent = memory_monitor_.get_memory_percent(),
         .available_memory_mb = memory_monitor_.get_available_mb(),
         .process_rss_mb = memory_monitor_.get_process_rss_mb(),
+        .process_swap_mb = memory_monitor_.get_process_swap_mb(),
+        .swap_used_mb = memory_monitor_.get_swap_used_mb(),
+        .swap_io_rate = memory_monitor_.get_swap_io_rate(),
         .lp_tasks_dispatched = dispatched,
         .avg_task_cpu_pct = avg_cpu,
         .avg_task_rss_delta_mb = avg_mem,
+        .throttled_cpu = throttled_cpu_.load(std::memory_order_relaxed),
+        .throttled_memory_pct =
+            throttled_memory_pct_.load(std::memory_order_relaxed),
+        .throttled_free_memory =
+            throttled_free_memory_.load(std::memory_order_relaxed),
+        .throttled_process_rss =
+            throttled_process_rss_.load(std::memory_order_relaxed),
+        .throttled_process_swap =
+            throttled_process_swap_.load(std::memory_order_relaxed),
+        .throttled_swap_io = throttled_swap_io_.load(std::memory_order_relaxed),
     };
   }
 
@@ -533,6 +679,7 @@ public:
           "  Threads: {:>6} active / {:>6} max\n"
           "  CPU Load: {:>6.1f}%\n"
           "  Memory: {:.1f}% used, {:.0f} MB free, RSS {:.0f} MB\n"
+          "  Swap: VmSwap {:.0f} MB, system used {:.0f} MB, I/O {:.0f} pg/s\n"
           "  LP tasks: {} dispatched, avg CPU {:.1f}%, avg mem delta "
           "{:.1f} MB\n",
           stats.tasks_submitted,
@@ -545,6 +692,9 @@ public:
           stats.current_memory_percent,
           stats.available_memory_mb,
           stats.process_rss_mb,
+          stats.process_swap_mb,
+          stats.swap_used_mb,
+          stats.swap_io_rate,
           stats.lp_tasks_dispatched,
           stats.avg_task_cpu_pct,
           stats.avg_task_rss_delta_mb);
@@ -556,6 +706,70 @@ public:
   void log_statistics() const { spdlog::info(format_statistics()); }
 
 private:
+  /// Fast-path: launch a task directly from submit() when the queue is
+  /// empty and thread capacity is available.  Returns true on success.
+  template<typename ReturnType>
+  bool try_launch_direct(
+      const std::shared_ptr<std::packaged_task<ReturnType()>>& task,
+      const Requirements& req)
+  {
+    const auto threads_needed = req.estimated_threads;
+    const auto current_threads =
+        active_threads_.load(std::memory_order_relaxed);
+
+    // Only use fast path when queue is empty and threads available
+    if (current_threads + threads_needed > max_threads_) {
+      return false;
+    }
+
+    // Try to claim the queue lock; if contended, fall back to enqueue
+    std::unique_lock queue_lock(queue_mutex_, std::try_to_lock);
+    if (!queue_lock.owns_lock() || !task_queue_.empty()) {
+      return false;
+    }
+    queue_lock.unlock();
+
+    active_threads_.fetch_add(threads_needed, std::memory_order_relaxed);
+
+    auto stats = std::make_shared<TaskResourceStats>();
+    stats->cpu_load_before = cpu_monitor_.get_load();
+    stats->rss_mb_before = memory_monitor_.get_process_rss_mb();
+
+    try {
+      auto future = std::async(
+          std::launch::async,
+          [task, stats, this]() mutable noexcept
+          {
+            try {
+              (*task)();
+            } catch (const std::exception& e) {
+              SPDLOG_ERROR("Task execution failed: {}", e.what());
+            } catch (...) {
+              SPDLOG_ERROR("Task execution failed with unknown exception");
+            }
+            stats->cpu_load_after = cpu_monitor_.get_load();
+            stats->rss_mb_after = memory_monitor_.get_process_rss_mb();
+            cv_.notify_one();
+          });
+
+      {
+        const std::scoped_lock active_lock(active_mutex_);
+        active_tasks_.push_back(ActiveTask {
+            .future = std::move(future),
+            .estimated_threads = threads_needed,
+            .start_time = std::chrono::steady_clock::now(),
+            .resource_stats = std::move(stats),
+        });
+      }
+      tasks_active_.fetch_add(1, std::memory_order_relaxed);
+      return true;
+
+    } catch (...) {
+      active_threads_.fetch_sub(threads_needed, std::memory_order_relaxed);
+      return false;
+    }
+  }
+
   void cleanup_completed_tasks()
   {
     const std::scoped_lock<std::mutex> lock(active_mutex_);
@@ -588,9 +802,16 @@ private:
 
   bool should_schedule_new_task() const
   {
-    std::unique_lock queue_lock(queue_mutex_, std::defer_lock);
-    std::unique_lock active_lock(active_mutex_, std::defer_lock);
-    std::lock(queue_lock, active_lock);
+    // Lock-free fast-reject: check atomics before acquiring any mutex.
+    if (tasks_pending_.load(std::memory_order_relaxed) == 0) {
+      return false;
+    }
+    if (active_threads_.load(std::memory_order_relaxed) >= max_threads_) {
+      return false;
+    }
+
+    // Need the queue lock to inspect the top task's requirements
+    const std::unique_lock queue_lock(queue_mutex_);
 
     if (task_queue_.empty()) {
       return false;
@@ -607,27 +828,35 @@ private:
     const auto is_critical =
         next_task.requirements().priority == TaskPriority::Critical;
 
-    // CPU check
-    const auto cpu_load = cpu_monitor_.get_load();
-    auto cpu_threshold = max_cpu_threshold_;
-    switch (next_task.requirements().priority) {
-      case TaskPriority::Critical:
-        cpu_threshold = 95.0;
-        break;
-      case TaskPriority::High:
-        cpu_threshold = max_cpu_threshold_ + 5.0;
-        break;
-      default:
-        break;
-    }
-    if (cpu_load >= cpu_threshold) {
-      return false;
+    // CPU check — only apply when threads are near saturation.
+    // Thread count is the primary concurrency limiter; CPU load is a
+    // secondary guard that only matters when cores are already busy.
+    if (current_threads + threads_needed
+        >= static_cast<int>(max_threads_ * 0.8))
+    {
+      const auto cpu_load = cpu_monitor_.get_physical_load();
+      auto cpu_threshold = max_cpu_threshold_;
+      switch (next_task.requirements().priority) {
+        case TaskPriority::Critical:
+          cpu_threshold = 95.0;
+          break;
+        case TaskPriority::High:
+          cpu_threshold = max_cpu_threshold_ + 5.0;
+          break;
+        default:
+          break;
+      }
+      if (cpu_load >= cpu_threshold) {
+        throttled_cpu_.fetch_add(1, std::memory_order_relaxed);
+        return false;
+      }
     }
 
     // Memory checks (Critical tasks get relaxed thresholds)
     const auto mem_pct = memory_monitor_.get_memory_percent();
     const auto mem_threshold = is_critical ? 98.0 : max_memory_percent_;
     if (mem_pct >= mem_threshold) {
+      throttled_memory_pct_.fetch_add(1, std::memory_order_relaxed);
       SPDLOG_DEBUG("{}: blocked by memory usage {:.1f}% >= {:.1f}%",
                    name_,
                    mem_pct,
@@ -639,6 +868,7 @@ private:
     const auto free_threshold =
         is_critical ? min_free_memory_mb_ * 0.5 : min_free_memory_mb_;
     if (free_mb < free_threshold && free_mb > 0.0) {
+      throttled_free_memory_.fetch_add(1, std::memory_order_relaxed);
       SPDLOG_DEBUG("{}: blocked by low free memory {:.0f} MB < {:.0f} MB",
                    name_,
                    free_mb,
@@ -651,10 +881,48 @@ private:
       const auto rss_threshold =
           is_critical ? max_process_rss_mb_ * 1.1 : max_process_rss_mb_;
       if (rss >= rss_threshold) {
+        throttled_process_rss_.fetch_add(1, std::memory_order_relaxed);
         SPDLOG_DEBUG("{}: blocked by process RSS {:.0f} MB >= {:.0f} MB",
                      name_,
                      rss,
                      rss_threshold);
+        return false;
+      }
+    }
+
+    // Swap-pressure gates: once pages are going to/from swap, adding work
+    // tends to deepen the thrash.  Critical tasks get 10% headroom to
+    // avoid deadlocking progress when the pool is already paging.
+    if (max_process_swap_mb_ > 0.0) {
+      const auto vmswap = memory_monitor_.get_process_swap_mb();
+      const auto swap_threshold =
+          is_critical ? max_process_swap_mb_ * 1.1 : max_process_swap_mb_;
+      if (vmswap >= swap_threshold) {
+        throttled_process_swap_.fetch_add(1, std::memory_order_relaxed);
+        SPDLOG_DEBUG("{}: blocked by VmSwap {:.0f} MB >= {:.0f} MB",
+                     name_,
+                     vmswap,
+                     swap_threshold);
+        return false;
+      }
+    }
+
+    // Only enforce the swap I/O rate gate once threads are near saturation —
+    // low-concurrency activity can benignly trigger a few pages/sec of
+    // swap-in as fresh code is faulted in.
+    if (max_swap_io_per_sec_ > 0.0
+        && current_threads + threads_needed
+            >= static_cast<int>(max_threads_ * 0.8))
+    {
+      const auto rate = memory_monitor_.get_swap_io_rate();
+      const auto rate_threshold =
+          is_critical ? max_swap_io_per_sec_ * 2.0 : max_swap_io_per_sec_;
+      if (rate >= rate_threshold) {
+        throttled_swap_io_.fetch_add(1, std::memory_order_relaxed);
+        SPDLOG_DEBUG("{}: blocked by swap I/O rate {:.0f} pg/s >= {:.0f} pg/s",
+                     name_,
+                     rate,
+                     rate_threshold);
         return false;
       }
     }
@@ -701,6 +969,9 @@ private:
             // Sample after execution
             stats->cpu_load_after = cpu_monitor_.get_load();
             stats->rss_mb_after = memory_monitor_.get_process_rss_mb();
+
+            // Wake scheduler so it can immediately dispatch pending work
+            cv_.notify_one();
           });
 
       active_tasks_.push_back(ActiveTask {
@@ -721,18 +992,96 @@ private:
   {
     try {
       const auto stats = get_statistics();
+      // Only include swap fields in the line when they have signal — keeps
+      // the common case compact while making thrash visible when it starts.
+      const auto swap_tail =
+          (stats.process_swap_mb > 0.0 || stats.swap_io_rate > 0.0)
+          ? std::format("  Swap: {:.0f} MB ({:.0f} pg/s)",
+                        stats.process_swap_mb,
+                        stats.swap_io_rate)
+          : std::string {};
       spdlog::info(
           "[{}] CPU: {:.1f}%  MEM: {:.0f} MB free ({:.1f}%)  "
-          "RSS: {:.0f} MB  Active: {}/{}  Pending: {}  Done: {}",
+          "RSS: {:.0f} MB{}  Active: {}/{}  Pending: {}  Done: {}",
           name_,
           stats.current_cpu_load,
           stats.available_memory_mb,
           stats.current_memory_percent,
           stats.process_rss_mb,
+          swap_tail,
           stats.active_threads,
           max_threads_,
           stats.tasks_pending,
           stats.tasks_completed);
+
+      // Stall detection: when `tasks_completed` has not advanced since the
+      // previous periodic log yet work is still queued or running, surface
+      // the dispatch gate that is blocking progress.  Mirrors the checks in
+      // `can_dispatch_next()` so the user sees the same condition the
+      // scheduler sees.
+      const bool has_work = stats.tasks_pending > 0 || stats.tasks_active > 0;
+      const bool no_progress = stats.tasks_completed == last_logged_completed_;
+      if (has_work && no_progress) {
+        ++stall_intervals_;
+      } else {
+        stall_intervals_ = 0;
+      }
+      last_logged_completed_ = stats.tasks_completed;
+
+      if (stall_intervals_ >= 2) {
+        std::string reason;
+        if (stats.current_memory_percent >= max_memory_percent_) {
+          reason = std::format("memory usage {:.1f}% >= {:.1f}%",
+                               stats.current_memory_percent,
+                               max_memory_percent_);
+        } else if (stats.available_memory_mb < min_free_memory_mb_
+                   && stats.available_memory_mb > 0.0)
+        {
+          reason = std::format("free memory {:.0f} MB < {:.0f} MB",
+                               stats.available_memory_mb,
+                               min_free_memory_mb_);
+        } else if (max_process_rss_mb_ > 0.0
+                   && stats.process_rss_mb >= max_process_rss_mb_)
+        {
+          reason = std::format("process RSS {:.0f} MB >= {:.0f} MB",
+                               stats.process_rss_mb,
+                               max_process_rss_mb_);
+        } else if (max_process_swap_mb_ > 0.0
+                   && stats.process_swap_mb >= max_process_swap_mb_)
+        {
+          reason = std::format("process VmSwap {:.0f} MB >= {:.0f} MB",
+                               stats.process_swap_mb,
+                               max_process_swap_mb_);
+        } else if (max_swap_io_per_sec_ > 0.0
+                   && stats.swap_io_rate >= max_swap_io_per_sec_)
+        {
+          reason = std::format("swap thrashing {:.0f} pg/s >= {:.0f} pg/s",
+                               stats.swap_io_rate,
+                               max_swap_io_per_sec_);
+        } else if (stats.active_threads + 1
+                       >= static_cast<int>(max_threads_ * 0.8)
+                   && stats.current_cpu_load >= max_cpu_threshold_)
+        {
+          reason = std::format("CPU load {:.1f}% >= {:.1f}%",
+                               stats.current_cpu_load,
+                               max_cpu_threshold_);
+        } else if (stats.swap_io_rate > 0.0) {
+          reason = std::format(
+              "active task(s) not completing (kernel paging "
+              "{:.0f} pg/s — likely thrash)",
+              stats.swap_io_rate);
+        } else {
+          reason =
+              "active task(s) not completing (external block or blocked I/O)";
+        }
+        SPDLOG_WARN(
+            "[{}] no progress for {} intervals ({} pending, {} active): {}",
+            name_,
+            stall_intervals_,
+            stats.tasks_pending,
+            stats.tasks_active,
+            reason);
+      }
     } catch (const std::exception& e) {
       SPDLOG_WARN("log_periodic_stats failed: {}", e.what());
     }
@@ -742,6 +1091,13 @@ private:
   {
     try {
       const auto stats = get_statistics();
+      // Skip the noisy "Final: 0 tasks dispatched, 0 completed ..." that
+      // otherwise emits whenever a pool is constructed for a code path
+      // (hot-start cut load, monitoring init, ...) that ends up not
+      // dispatching any work.
+      if (stats.lp_tasks_dispatched == 0 && stats.tasks_completed == 0) {
+        return;
+      }
       const auto elapsed =
           std::chrono::duration<double>(std::chrono::steady_clock::now()
                                         - pool_start_time_)
@@ -755,6 +1111,29 @@ private:
           stats.avg_task_cpu_pct,
           stats.avg_task_rss_delta_mb,
           elapsed);
+
+      // Throttle summary — only emit when at least one gate fired so a
+      // healthy pool stays silent.  Operators use this to diagnose
+      // "why is my pool only at 50% CPU?" without re-running with
+      // DEBUG logs.  Each counter is the number of schedule ticks on
+      // which that gate blocked dispatch.
+      const auto total_throttle = stats.throttled_cpu
+          + stats.throttled_memory_pct + stats.throttled_free_memory
+          + stats.throttled_process_rss + stats.throttled_process_swap
+          + stats.throttled_swap_io;
+      if (total_throttle > 0) {
+        spdlog::info(
+            "[{}]   throttle events: cpu={} mem%={} free_mem={} rss={} "
+            "swap={} swap_io={} (total={})",
+            name_,
+            stats.throttled_cpu,
+            stats.throttled_memory_pct,
+            stats.throttled_free_memory,
+            stats.throttled_process_rss,
+            stats.throttled_process_swap,
+            stats.throttled_swap_io,
+            total_throttle);
+      }
     } catch (const std::exception& e) {
       SPDLOG_WARN("log_final_stats failed: {}", e.what());
     }

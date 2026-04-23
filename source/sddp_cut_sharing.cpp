@@ -11,6 +11,7 @@
 #include <gtopt/benders_cut.hpp>
 #include <gtopt/planning_lp.hpp>
 #include <gtopt/sddp_cut_sharing.hpp>
+#include <gtopt/sddp_types.hpp>
 #include <gtopt/system_lp.hpp>
 
 #ifndef SPDLOG_ACTIVE_LEVEL
@@ -29,8 +30,7 @@ void share_cuts_for_phase(
     PlanningLP& planning,
     LpContext context)
 {
-  const auto num_scenes =
-      static_cast<Index>(planning.simulation().scenes().size());
+  const auto num_scenes = planning.simulation().scene_count();
 
   if (num_scenes <= 1 || mode == CutSharingMode::none) {
     return;
@@ -40,8 +40,8 @@ void share_cuts_for_phase(
   const auto apply_context = [&](SparseRow& row)
   {
     if (!std::holds_alternative<std::monostate>(context)) {
-      row.class_name = "Sddp";
-      row.constraint_name = "share";
+      row.class_name = sddp_alpha_class_name;
+      row.constraint_name = sddp_share_cut_constraint_name;
       row.context = context;
     }
   };

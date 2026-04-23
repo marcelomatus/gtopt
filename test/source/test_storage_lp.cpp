@@ -706,10 +706,14 @@ TEST_CASE(  // NOLINT
   // "energy" with stage context, producing identical names.
   PlanningOptions popts;
   popts.demand_fail_cost = 1000.0;
-  popts.lp_matrix_options.names_level = LpNamesLevel::cols_and_rows;
+  popts.lp_matrix_options.col_with_names = true;
+  popts.lp_matrix_options.row_with_names = true;
+  popts.lp_matrix_options.col_with_name_map = true;
+  popts.lp_matrix_options.row_with_name_map = true;
 
   auto options = PlanningOptionsLP {popts};
-  SimulationLP sim_lp(make_simple_simulation(), options);
+  const auto sim = make_simple_simulation();
+  SimulationLP sim_lp(sim, options);
 
   const Array<Bus> bus_array = {
       {

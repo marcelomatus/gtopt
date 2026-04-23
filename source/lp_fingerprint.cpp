@@ -13,8 +13,11 @@
 #include <format>
 #include <fstream>
 #include <set>
+#include <string_view>
 
+#include <gtopt/as_label.hpp>
 #include <gtopt/lp_fingerprint.hpp>
+#include <gtopt/utils.hpp>
 
 namespace gtopt
 {
@@ -74,14 +77,14 @@ constexpr uint32_t rotr(uint32_t x, unsigned n)
   return (x >> n) | (x << (32 - n));
 }
 
-auto sha256(const std::string& input) -> std::string
+auto sha256(std::string_view input) -> std::string
 {
   // Pre-processing: convert input to padded message blocks
   auto msg_len = input.size();
-  uint64_t bit_len = msg_len * 8;
+  const uint64_t bit_len = msg_len * 8;
 
   // Pad: append 0x80, then zeros, then 64-bit big-endian length
-  size_t padded_len = ((msg_len + 9 + 63) / 64) * 64;
+  const size_t padded_len = ((msg_len + 9 + 63) / 64) * 64;
   std::vector<uint8_t> msg(padded_len, 0);
   std::memcpy(msg.data(), input.data(), msg_len);
   msg[msg_len] = 0x80;
@@ -102,29 +105,30 @@ auto sha256(const std::string& input) -> std::string
       0x5be0cd19,
   };
 
-  // Process each 512-bit block
+  // Process each 512-bit block.  Indices in the inner loops are bounded by
+  // the loop limits (i < 16, i < 64) and the array sizes (w=64, k_sha256=64),
+  // so unchecked subscript access is safe and is the hot path.
+  // NOLINTBEGIN(cppcoreguidelines-pro-bounds-constant-array-index)
   for (size_t offset = 0; offset < padded_len; offset += 64) {
     std::array<uint32_t, 64> w {};
     for (size_t i = 0; i < 16; ++i) {
       const auto base = offset + (i * 4);
-      w.at(i) = (static_cast<uint32_t>(msg[base]) << 24U)
+      w[i] = (static_cast<uint32_t>(msg[base]) << 24U)
           | (static_cast<uint32_t>(msg[base + 1]) << 16U)
           | (static_cast<uint32_t>(msg[base + 2]) << 8U)
           | static_cast<uint32_t>(msg[base + 3]);
     }
     for (size_t i = 16; i < 64; ++i) {
-      auto s0 =
-          rotr(w.at(i - 15), 7) ^ rotr(w.at(i - 15), 18) ^ (w.at(i - 15) >> 3U);
-      auto s1 =
-          rotr(w.at(i - 2), 17) ^ rotr(w.at(i - 2), 19) ^ (w.at(i - 2) >> 2U);
-      w.at(i) = w.at(i - 16) + s0 + w.at(i - 7) + s1;
+      auto s0 = rotr(w[i - 15], 7) ^ rotr(w[i - 15], 18) ^ (w[i - 15] >> 3U);
+      auto s1 = rotr(w[i - 2], 17) ^ rotr(w[i - 2], 19) ^ (w[i - 2] >> 2U);
+      w[i] = w[i - 16] + s0 + w[i - 7] + s1;
     }
 
     auto [a, b, c, d, e, f, g, hh] = h;
     for (size_t i = 0; i < 64; ++i) {
       auto s1 = rotr(e, 6) ^ rotr(e, 11) ^ rotr(e, 25);
       auto ch = (e & f) ^ (~e & g);
-      auto temp1 = hh + s1 + ch + k_sha256.at(i) + w.at(i);
+      auto temp1 = hh + s1 + ch + k_sha256[i] + w[i];
       auto s0 = rotr(a, 2) ^ rotr(a, 13) ^ rotr(a, 22);
       auto maj = (a & b) ^ (a & c) ^ (b & c);
       auto temp2 = s0 + maj;
@@ -147,6 +151,7 @@ auto sha256(const std::string& input) -> std::string
     h[6] += g;
     h[7] += hh;
   }
+  // NOLINTEND(cppcoreguidelines-pro-bounds-constant-array-index)
 
   // Format as hex string
   std::string result;
@@ -174,7 +179,7 @@ auto hash_template(const std::vector<FingerprintEntry>& entries) -> std::string
 
 }  // namespace
 
-auto sha256_hex(const std::string& input) -> std::string
+auto sha256_hex(std::string_view input) -> std::string
 {
   return sha256(input);
 }
@@ -247,7 +252,7 @@ auto json_escape(std::string_view s) -> std::string
 {
   std::string result;
   result.reserve(s.size());
-  for (char c : s) {
+  for (const char c : s) {
     if (c == '"' || c == '\\') {
       result += '\\';
     }
@@ -273,9 +278,9 @@ void write_lp_fingerprint(const LpFingerprint& fingerprint,
   std::ofstream out(filepath);
 
   out << "{\n";
-  out << std::format("  \"version\": 1,\n");
-  out << std::format("  \"scene_uid\": {},\n", scene_uid);
-  out << std::format("  \"phase_uid\": {},\n", phase_uid);
+  out << "  \"version\": 1,\n";
+  out << "  \"scene_uid\": " << as_label(scene_uid) << ",\n";
+  out << "  \"phase_uid\": " << as_label(phase_uid) << ",\n";
 
   // -- structural section --
   out << "  \"structural\": {\n";
@@ -283,8 +288,7 @@ void write_lp_fingerprint(const LpFingerprint& fingerprint,
   // columns
   out << "    \"columns\": {\n";
   out << "      \"template\": [\n";
-  for (size_t i = 0; i < fingerprint.col_template.size(); ++i) {
-    const auto& e = fingerprint.col_template[i];
+  for (const auto& [i, e] : enumerate(fingerprint.col_template)) {
     out << std::format(
         "        {{\"class\": \"{}\", \"variable\": \"{}\", "
         "\"context_type\": \"{}\"}}",
@@ -302,8 +306,7 @@ void write_lp_fingerprint(const LpFingerprint& fingerprint,
   // rows
   out << "    \"rows\": {\n";
   out << "      \"template\": [\n";
-  for (size_t i = 0; i < fingerprint.row_template.size(); ++i) {
-    const auto& e = fingerprint.row_template[i];
+  for (const auto& [i, e] : enumerate(fingerprint.row_template)) {
     out << std::format(
         "        {{\"class\": \"{}\", \"constraint\": \"{}\", "
         "\"context_type\": \"{}\"}}",

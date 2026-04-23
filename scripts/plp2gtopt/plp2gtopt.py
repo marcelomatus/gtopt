@@ -595,6 +595,8 @@ def convert_plp_case(options: dict[str, Any]) -> None:
             # Fix temp dir paths in the planning dict and re-write the
             # JSON.
             if not json_inside:
+                from .gtopt_writer import _strip_internal_keys  # noqa: PLC0415
+
                 tmp_str = str(tmp_options["output_dir"])
                 final_str = str(output_dir)
                 plan_json = json.dumps(writer.planning)
@@ -602,7 +604,7 @@ def convert_plp_case(options: dict[str, Any]) -> None:
                     plan_json = plan_json.replace(tmp_str, final_str)
                     writer.planning = json.loads(plan_json)
                 with open(output_file, "w", encoding="utf-8") as f:
-                    json.dump(writer.planning, f, indent=4)
+                    json.dump(_strip_internal_keys(writer.planning), f, indent=4)
 
             # Mark last build step done before printing tables
             progress.step("validate")
@@ -785,5 +787,32 @@ def print_variable_scales_template(options: dict[str, Any]) -> int:
         print(output)
         return 0
     except (RuntimeError, FileNotFoundError, ValueError, OSError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+
+
+def print_pumped_storage_template() -> int:
+    """Print a pumped-storage parameters JSON template to stdout.
+
+    The template is :func:`gtopt_expand.pumped_storage_default_config`
+    populated with HB Maule reference values (pump.pdf §4) and
+    ``vmin`` / ``vmax`` set to ``0.0`` — those two fields, when left at
+    zero, fall back to the upper reservoir's ``emin`` / ``emax`` in
+    ``plpcnfce.dat`` at expansion time.  The ``name`` field drives all
+    emitted element names; change it to match the plant before use
+    (or leave the default and rely on the filename stem).
+
+    Returns:
+        0 on success, 1 on error.
+    """
+    try:
+        from gtopt_expand import pumped_storage_default_config  # noqa: PLC0415
+
+        template = pumped_storage_default_config(
+            name="pumped_storage", vmin=0.0, vmax=0.0
+        )
+        print(json.dumps(template, indent=2))
+        return 0
+    except (RuntimeError, ImportError, ValueError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1

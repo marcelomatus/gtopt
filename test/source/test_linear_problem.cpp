@@ -279,6 +279,8 @@ TEST_CASE("Linear problem advanced operations")
         .rownm = {"", ""},
         .colmp = {},
         .rowmp = {},
+        .col_labels_meta = {},
+        .row_labels_meta = {},
         .name = "SEN",
     };
 
@@ -326,6 +328,8 @@ TEST_CASE("Linear problem advanced operations")
         .rownm = {},
         .colmp = {},
         .rowmp = {},
+        .col_labels_meta = {},
+        .row_labels_meta = {},
         .name = "SEN",
     };
 
@@ -1389,4 +1393,98 @@ TEST_CASE(  // NOLINT
     CHECK(duals[0] == doctest::Approx(duals_none[0]).epsilon(1e-4));
     CHECK(duals[1] == doctest::Approx(duals_none[1]).epsilon(1e-4));
   }
+}
+
+TEST_CASE("LinearProblem - duplicate column metadata throws at add_col")
+{
+  const auto ctx =
+      make_stage_context(make_uid<Scenario>(0), make_uid<Stage>(0));
+
+  LinearProblem lp;
+  std::ignore = lp.add_col(SparseCol {
+      .lowb = 0.0,
+      .uppb = 1.0,
+      .class_name = "X",
+      .variable_name = "v",
+      .variable_uid = Uid {1},
+      .context = ctx,
+  });
+
+  // Same 4-tuple metadata (class_name, variable_name, variable_uid,
+  // context) — must throw at add_col, not at flatten.
+  CHECK_THROWS_AS(std::ignore = lp.add_col(SparseCol {
+                      .lowb = 0.0,
+                      .uppb = 2.0,
+                      .class_name = "X",
+                      .variable_name = "v",
+                      .variable_uid = Uid {1},
+                      .context = ctx,
+                  }),
+                  std::runtime_error);
+
+  // Differing in any one field (here: uid) succeeds.
+  std::ignore = lp.add_col(SparseCol {
+      .lowb = 0.0,
+      .uppb = 2.0,
+      .class_name = "X",
+      .variable_name = "v",
+      .variable_uid = Uid {2},
+      .context = ctx,
+  });
+  CHECK(lp.get_numcols() == 2);
+}
+
+TEST_CASE("LinearProblem - duplicate row metadata throws at add_row")
+{
+  const auto ctx =
+      make_stage_context(make_uid<Scenario>(0), make_uid<Stage>(0));
+
+  LinearProblem lp;
+  const auto c = lp.add_col(SparseCol {
+      .uppb = 10.0,
+      .class_name = "X",
+      .variable_name = "v",
+      .variable_uid = Uid {1},
+      .context = ctx,
+  });
+
+  SparseRow row;
+  row[c] = 1.0;
+  row.uppb = 5.0;
+  row.class_name = "R";
+  row.constraint_name = "bal";
+  row.variable_uid = Uid {1};
+  row.context = ctx;
+  std::ignore = lp.add_row(std::move(row));
+
+  // Rebuild the same-metadata row and attempt to add it — should throw.
+  SparseRow dup;
+  dup[c] = 2.0;
+  dup.uppb = 10.0;
+  dup.class_name = "R";
+  dup.constraint_name = "bal";
+  dup.variable_uid = Uid {1};
+  dup.context = ctx;
+  CHECK_THROWS_AS(std::ignore = lp.add_row(std::move(dup)), std::runtime_error);
+}
+
+TEST_CASE("LinearProblem - empty metadata rows/cols skip uniqueness check")
+{
+  // Structural cells with no identity must all succeed — the dup
+  // detector intentionally ignores entries whose class_name /
+  // variable_name / variable_uid / context are all default.
+  LinearProblem lp;
+  std::ignore = lp.add_col(SparseCol {.lowb = 0.0, .uppb = 1.0});
+  std::ignore = lp.add_col(SparseCol {.lowb = 0.0, .uppb = 2.0});
+  CHECK(lp.get_numcols() == 2);
+
+  SparseRow a;
+  a[ColIndex {0}] = 1.0;
+  a.uppb = 5.0;
+  std::ignore = lp.add_row(std::move(a));
+  SparseRow b;
+  b[ColIndex {0}] = 1.0;
+  b.uppb = 10.0;
+  std::ignore = lp.add_row(std::move(b));
+  CHECK(lp.get_numrows() == 2);
 }

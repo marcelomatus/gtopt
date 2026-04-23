@@ -11,6 +11,7 @@ from gtopt_config import DEFAULT_CONFIG_PATH, get_version, load_config, save_sec
 
 from .plp2gtopt import (
     convert_plp_case,
+    print_pumped_storage_template,
     print_variable_scales_template,
     validate_plp_case,
 )
@@ -151,6 +152,7 @@ def make_parser() -> argparse.ArgumentParser:
         add_io_arguments,
         add_model_arguments,
         add_reservoir_battery_arguments,
+        add_ror_arguments,
         add_scenario_arguments,
         add_solver_arguments,
         add_stage_arguments,
@@ -171,6 +173,7 @@ def make_parser() -> argparse.ArgumentParser:
     add_solver_arguments(parser, conf)
     add_model_arguments(parser, conf)
     add_reservoir_battery_arguments(parser, conf)
+    add_ror_arguments(parser, conf)
     add_tech_arguments(parser, conf)
     add_general_arguments(parser, conf)
 
@@ -183,7 +186,7 @@ _SECTION_DEFAULTS: dict[str, str] = {
     "compression_level": "1",
     "output_format": "parquet",
     "input_format": "parquet",
-    "solver_type": "sddp",
+    "method": "cascade",
     "demand_fail_cost": "1000.0",
     "state_fail_cost": "1000.0",
     "scale_objective": "1000.0",
@@ -228,8 +231,60 @@ def _infer_output_dir(input_dir: Path, explicit_output: Path) -> Path:
     return explicit_output
 
 
+def _apply_plp_legacy_bundle(args: argparse.Namespace) -> None:
+    """Apply --plp-legacy defaults in place, honouring explicit flags.
+
+    The bundle substitutes defaults so that gtopt output is as close to
+    PLP as possible, at the cost of LP quality / size.  Explicit user
+    flags take precedence — we only override values that the user
+    did not set on the command line.
+
+    Bundle table (see --plp-legacy help):
+
+      | Option           | Default (normal)       | --plp-legacy       |
+      |------------------|------------------------|--------------------|
+      | method           | cascade                | sddp               |
+      | line_losses_mode | unset (→adaptive)      | piecewise_direct   |
+      | use_line_losses  | unset (→gtopt true)    | true (explicit)    |
+      | pasada_mode      | flow-turbine           | flow-turbine (=)   |
+      | use_kirchhoff    | true                   | true (=)           |
+      | discount_rate    | 0.0                    | 0.0 (=)            |
+
+    `=` marks no-op bundle entries: gtopt's normal default already
+    matches PLP so no change is needed.  `reservoir_scale_mode` is
+    intentionally left alone (user preference).
+    """
+    if not args.plp_legacy:
+        return
+
+    # argparse stores the final parsed value regardless of whether it
+    # came from the CLI or the default.  Inspect sys.argv directly to
+    # tell "user typed --method" apart from "default was cascade".
+    explicit_flags = {a.split("=", 1)[0] for a in sys.argv[1:]}
+    explicit_method = {"-M", "--method"} & explicit_flags
+    explicit_losses = {"--line-losses-mode"} & explicit_flags
+    explicit_use_losses = {"-L", "--use-line-losses"} & explicit_flags
+
+    applied: list[str] = []
+    if not explicit_method and args.method != "sddp":
+        args.method = "sddp"
+        applied.append("method=sddp")
+    if not explicit_losses and args.line_losses_mode != "piecewise_direct":
+        args.line_losses_mode = "piecewise_direct"
+        applied.append("line_losses_mode=piecewise_direct")
+    if not explicit_use_losses and args.use_line_losses is None:
+        # Force explicit `true` in the JSON so the PLP-compat intent is
+        # self-documenting, even though the gtopt default is also true.
+        args.use_line_losses = True
+        applied.append("use_line_losses=true")
+
+    if applied:
+        logging.info("--plp-legacy: applying %s", ", ".join(applied))
+
+
 def build_options(args: argparse.Namespace) -> dict:
     """Convert parsed CLI arguments to a conversion options dict."""
+    _apply_plp_legacy_bundle(args)
     input_dir = _resolve_input_dir(args)
 
     # When -o is not given, infer the output dir:
@@ -264,7 +319,7 @@ def build_options(args: argparse.Namespace) -> dict:
         "excel_file": args.excel_file,
         "name": name,
         "sys_version": args.sys_version,
-        "solver_type": args.solver_type,
+        "method": args.method,
         "stages_phase": args.stages_phase,
         "num_apertures": args.num_apertures,
         "aperture_directory": args.aperture_directory,
@@ -283,6 +338,8 @@ def build_options(args: argparse.Namespace) -> dict:
         model_opts["reserve_fail_cost"] = args.reserve_fail_cost
     if args.use_line_losses is not None:
         model_opts["use_line_losses"] = args.use_line_losses
+    if args.line_losses_mode is not None:
+        model_opts["line_losses_mode"] = args.line_losses_mode
     opts["model_options"] = model_opts
 
     if args.cut_sharing_mode is not None:
@@ -295,6 +352,8 @@ def build_options(args: argparse.Namespace) -> dict:
         opts["no_boundary_cuts"] = True
     if args.hot_start_cuts:
         opts["hot_start_cuts"] = True
+    if args.alias_file is not None:
+        opts["alias_file"] = args.alias_file
     if args.stationary_tol is not None:
         opts["stationary_tol"] = args.stationary_tol
     if args.stationary_window is not None:
@@ -314,7 +373,16 @@ def build_options(args: argparse.Namespace) -> dict:
         opts["variable_scales_file"] = args.variable_scales_file
     opts["soft_emin_cost"] = args.soft_emin_cost
     opts["embed_reservoir_constraints"] = args.embed_reservoir_constraints
-    opts["emit_water_rights"] = args.emit_water_rights
+    opts["expand_water_rights"] = args.expand_water_rights
+    opts["expand_lng"] = args.expand_lng
+    opts["expand_ror"] = args.expand_ror
+    ps_files = getattr(args, "pumped_storage_files", None)
+    if ps_files:
+        opts["pumped_storage_files"] = [Path(p) for p in ps_files]
+    if args.ror_as_reservoirs is not None:
+        opts["ror_as_reservoirs"] = args.ror_as_reservoirs
+    if args.ror_as_reservoirs_file is not None:
+        opts["ror_as_reservoirs_file"] = args.ror_as_reservoirs_file
     opts["run_check"] = args.run_check
     # Technology detection
     opts["auto_detect_tech"] = args.auto_detect_tech
@@ -402,6 +470,9 @@ def main(argv: list[str] | None = None) -> None:
 
     if args.variable_scales_template:
         sys.exit(print_variable_scales_template(build_options(args)))
+
+    if getattr(args, "pumped_storage_template", False):
+        sys.exit(print_pumped_storage_template())
 
     try:
         convert_plp_case(build_options(args))

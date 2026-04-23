@@ -87,6 +87,7 @@ _SYSTEM_SHEETS = frozenset(
         "demand_profile_array",
         "battery_array",
         "converter_array",
+        "lng_terminal_array",
         "reserve_zone_array",
         "reserve_provision_array",
         "junction_array",
@@ -352,10 +353,10 @@ def df_to_opts(df, options):
         opts = dict(zip(df.option, df.value))
         for key, value in options.items():
             opts[key] = value
-        # use_lp_names changed from bool to int (0–2 naming level).
-        # Convert legacy boolean values for backward compatibility.
-        if "use_lp_names" in opts and isinstance(opts["use_lp_names"], bool):
-            opts["use_lp_names"] = 1 if opts["use_lp_names"] else 0
+        # use_lp_names was removed from the C++ PlanningOptions struct
+        # (replaced by lp_matrix_options.col_with_names / row_with_names).
+        # Strip it so the JSON parser does not reject the unknown field.
+        opts.pop("use_lp_names", None)
         return opts
 
     logging.error(
@@ -476,6 +477,7 @@ def log_conversion_stats(
             ("Lines", counts.get("line_array", 0)),
             ("Batteries", counts.get("battery_array", 0)),
             ("Converters", counts.get("converter_array", 0)),
+            ("LNG terminals", counts.get("lng_terminal_array", 0)),
             ("Junctions", counts.get("junction_array", 0)),
             ("Waterways", counts.get("waterway_array", 0)),
             ("Reservoirs", counts.get("reservoir_array", 0)),

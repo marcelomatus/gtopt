@@ -1,0 +1,50 @@
+{
+  "// description": [
+    "CLP-specific golden for sddp_hydro_3phase at MAX_ITERATIONS=50.",
+    "The LP has degenerate optima in its block-level dispatch: CPLEX",
+    "stores 135 units in the reservoir and uses hydro at 10 MW in every",
+    "block; CLP drains the reservoir immediately and covers everything",
+    "with thermal.  Both produce the same UB = LB = 323 100 (the only",
+    "solver-invariant quantity that SDDP truly pins), so this golden",
+    "checks the total objective and the drained-end-of-horizon invariant",
+    "but leaves the per-block split to the per-solver variant.",
+    "",
+    "Per-phase obj_value inside solution.csv also differs across",
+    "`low_memory` modes under CLP (compress/rebuild settle on a",
+    "slightly different alternate optimum than `off` — phase 3 = 102 450",
+    "vs 109 200).  Keeping only the phase-1 total keeps the CLP",
+    "goldens mode-invariant."
+  ],
+  "tolerance": {
+    "abs": 1.0,
+    "rel": 1.0e-4
+  },
+  "objective_value": 323100.0,
+  "solver_status": {
+    "converged": true,
+    "lower_bound": 323100.0,
+    "upper_bound": 323100.0,
+    "gap": 0.0
+  },
+  "solution_csv_rows": [
+    {"scene": 0, "phase": 1, "status": 0, "obj_value": 323100.0}
+  ],
+  "element_samples": [
+    {
+      "// Reservoir drained at the horizon — solver-invariant:": "",
+      "class": "Reservoir",
+      "stem": "efin_sol",
+      "filter": {"scene": 0, "phase": 3, "stage": 3},
+      "value_column": "uid:1",
+      "expected": 0.0
+    },
+    {
+      "// Bus balance dual = marginal cost = thermal gcost:": "",
+      "class": "Bus",
+      "stem": "balance_dual",
+      "filter": {"scene": 0, "phase": 1, "stage": 1, "block": 1},
+      "value_column": "uid:1",
+      "expected": 50.0
+    }
+  ]
+}

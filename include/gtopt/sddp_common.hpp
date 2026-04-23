@@ -18,6 +18,7 @@
 #include <mutex>
 #include <string>
 
+#include <gtopt/as_label.hpp>
 #include <gtopt/basic_types.hpp>
 #include <gtopt/iteration.hpp>
 #include <gtopt/phase.hpp>
@@ -36,8 +37,8 @@ struct PhaseStateInfo;
 // ─── Uniform SDDP log prefix ────────────────────────────────────────────────
 //
 // Every SDDP info/warn log line uses:
-//   "SDDP <Phase> [i<iter> s<scene> p<phase>]: <message>"
-//   "SDDP <Phase> [i<iter> s<scene> p<phase> a<aperture>]: <message>"
+//   "SDDP <Phase> [i<iteration> s<scene> p<phase>]: <message>"
+//   "SDDP <Phase> [i<iteration> s<scene> p<phase> a<aperture>]: <message>"
 //
 // where <Phase> is Forward, Backward, Aperture, etc.
 // The bracketed key is easy to parse in run_gtopt:
@@ -48,36 +49,62 @@ struct PhaseStateInfo;
 /// "SDDP Forward [i0 s1 p2]" — with phase tag and per-phase key.
 template<typename S, typename P>
 [[nodiscard]] inline std::string sddp_log(std::string_view tag,
-                                          IterationIndex iter,
+                                          IterationIndex iteration_index,
                                           S scene,
                                           P phase)
 {
-  return std::format("SDDP {} [i{} s{} p{}]", tag, iter, scene, phase);
+  return as_label<void>("SDDP ",
+                        tag,
+                        " [i",
+                        iteration_index,
+                        ' ',
+                        's',
+                        scene,
+                        ' ',
+                        'p',
+                        phase,
+                        ']');
 }
 
 /// "SDDP Aperture [i0 s1 p2 a5]" — with aperture uid appended.
 template<typename S, typename P, typename A>
-[[nodiscard]] inline std::string sddp_log(
-    std::string_view tag, IterationIndex iter, S scene, P phase, A aperture)
+[[nodiscard]] inline std::string sddp_log(std::string_view tag,
+                                          IterationIndex iteration_index,
+                                          S scene,
+                                          P phase,
+                                          A aperture)
 {
-  return std::format(
-      "SDDP {} [i{} s{} p{} a{}]", tag, iter, scene, phase, aperture);
+  return as_label<void>("SDDP ",
+                        tag,
+                        " [i",
+                        iteration_index,
+                        ' ',
+                        's',
+                        scene,
+                        ' ',
+                        'p',
+                        phase,
+                        ' ',
+                        'a',
+                        aperture,
+                        ']');
 }
 
 /// "SDDP Forward [i0 s1]" — scene-level (no phase).
 template<typename S>
 [[nodiscard]] inline std::string sddp_log(std::string_view tag,
-                                          IterationIndex iter,
+                                          IterationIndex iteration_index,
                                           S scene)
 {
-  return std::format("SDDP {} [i{} s{}]", tag, iter, scene);
+  return as_label<void>(
+      "SDDP ", tag, " [i", iteration_index, ' ', 's', scene, ']');
 }
 
 /// "SDDP Init [i0]" — iteration-level only.
 [[nodiscard]] inline std::string sddp_log(std::string_view tag,
-                                          IterationIndex iter)
+                                          IterationIndex iteration_index)
 {
-  return std::format("SDDP {} [i{}]", tag, iter);
+  return as_label<void>("SDDP ", tag, " [i", iteration_index, ']');
 }
 
 // ─── Phase grid recorder ────────────────────────────────────────────────────
@@ -112,17 +139,16 @@ public:
               GridCell state)
   {
     const auto key = Key {
-        .iteration = iteration_index,
+        .iteration_index = iteration_index,
         .scene_uid = scene_uid,
     };
-    const auto phase_col = static_cast<std::size_t>(phase_index);
     const std::scoped_lock lock(m_mutex_);
     auto& row = m_rows_[key];
-    if (phase_col >= row.size()) {
-      row.resize(phase_col + 1, '.');
+    if (phase_index >= std::ssize(row)) {
+      row.resize(next(phase_index), '.');
     }
     const char ch = static_cast<char>(state);
-    auto& cell = row[phase_col];
+    auto& cell = row[phase_index];
     cell = std::max(cell, ch);
   }
 
@@ -143,7 +169,7 @@ public:
       }
       first = false;
       json += std::format(R"(      {{"i": {}, "s": {}, "cells": "{}"}})",
-                          key.iteration,
+                          key.iteration_index,
                           key.scene_uid,
                           row);
     }
@@ -162,7 +188,7 @@ public:
 private:
   struct Key
   {
-    IterationIndex iteration {};
+    IterationIndex iteration_index {};
     SceneUid scene_uid {};
     auto operator<=>(const Key&) const = default;
   };

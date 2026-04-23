@@ -577,7 +577,6 @@ def make_bat4b_case_json(
     return {
         "options": {
             "annual_discount_rate": 0.0,
-            "use_lp_names": 1,
             "output_format": "csv",
             "output_compression": "uncompressed",
             "use_single_bus": False,
@@ -816,7 +815,6 @@ def write_bat4b_case(
     case = {
         "options": {
             "annual_discount_rate": 0.0,
-            "use_lp_names": 1,
             "output_format": "csv",
             "output_compression": "uncompressed",
             "use_single_bus": False,

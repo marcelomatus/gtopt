@@ -45,12 +45,23 @@ bool BatteryLP::add_to_lp(SystemContext& sc,
                           const StageLP& stage,
                           LinearProblem& lp)
 {
-  static constexpr std::string_view cname = ClassName.short_name();
+  static constexpr std::string_view cname = ClassName.full_name();
+  static constexpr auto ampl_name = ClassName.snake_case();
   static constexpr double flow_conversion_rate = 1.0;
 
   // Add capacity-related variables and constraints
-  if (!CapacityBase::add_to_lp(sc, scenario, stage, lp)) [[unlikely]] {
+  if (!CapacityBase::add_to_lp(sc, ampl_name, scenario, stage, lp)) [[unlikely]]
+  {
     return false;
+  }
+
+  // F9: register filter metadata for sum(...) predicates.  Battery `bus`
+  // is optional (standalone batteries are decomposed by
+  // `System::expand_batteries()`), so we only register `type`.
+  if (const auto& t = battery().type) {
+    AmplElementMetadata metadata;
+    metadata.emplace_back(TypeKey, *t);
+    sc.register_ampl_element_metadata(ampl_name, uid(), std::move(metadata));
   }
 
   // Get capacity information
@@ -103,6 +114,7 @@ bool BatteryLP::add_to_lp(SystemContext& sc,
       .flow_scale = fs,
   };
   if (!StorageBase::add_to_lp(cname,
+                              ampl_name,
                               sc,
                               scenario,
                               stage,
@@ -127,6 +139,14 @@ bool BatteryLP::add_to_lp(SystemContext& sc,
   const auto st_key = std::tuple {scenario.uid(), stage.uid()};
   finp_cols[st_key] = std::move(finps);
   fout_cols[st_key] = std::move(fouts);
+
+  // Register battery-specific PAMPL columns.  Storage-generic variables
+  // (energy/drain/eini/efin/soft_emin) are registered centrally by
+  // StorageBase::add_to_lp; `capainst` by CapacityBase::add_to_lp.
+  sc.add_ampl_variable(
+      ampl_name, uid(), ChargeName, scenario, stage, finp_cols.at(st_key));
+  sc.add_ampl_variable(
+      ampl_name, uid(), DischargeName, scenario, stage, fout_cols.at(st_key));
 
   return true;
 }

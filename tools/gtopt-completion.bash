@@ -24,17 +24,38 @@ _gtopt()
         --solver)
             COMPREPLY=( $(compgen -W "clp cbc cplex highs" -- "$cur") )
             return ;;
-        --lp-names-level|-n)
-            COMPREPLY=( $(compgen -W "0 1 2 minimal only_cols cols_and_rows" -- "$cur") )
-            return ;;
-        --system-file|-s|--lp-file|-l|--json-file|-j|--trace-log|-T)
-            _filedir
-            return ;;
         --check-solvers)
             COMPREPLY=( $(compgen -W "clp cbc cplex highs" -- "$cur") )
             return ;;
-        --sddp-num-apertures)
-            COMPREPLY=( $(compgen -W "0 -1" -- "$cur") )
+        --low-memory)
+            COMPREPLY=( $(compgen -W "off snapshot compress" -- "$cur") )
+            return ;;
+        --output-format|-f|--input-format|-F)
+            COMPREPLY=( $(compgen -W "parquet csv" -- "$cur") )
+            return ;;
+        --output-compression|-C|--lp-compression)
+            COMPREPLY=( $(compgen -W "zstd gzip lz4 snappy uncompressed none brotli bzip2 xz lzo auto" -- "$cur") )
+            return ;;
+        --sddp-elastic-mode)
+            COMPREPLY=( $(compgen -W "none forward backward both" -- "$cur") )
+            return ;;
+        --algorithm|-a)
+            COMPREPLY=( $(compgen -W "default primal dual barrier" -- "$cur") )
+            return ;;
+        --system-file|-s|--lp-file|-l|--json-file|-j|--trace-log|-T|\
+        --cut-directory|--log-directory)
+            _filedir
+            return ;;
+        --input-directory|-D|--output-directory|-d)
+            _filedir -d
+            return ;;
+        --sddp-num-apertures|--matrix-eps|-e|--threads|-t|\
+        --sddp-max-iterations|--sddp-min-iterations|\
+        --sddp-convergence-tol|--sddp-elastic-penalty|--lp-coeff-ratio|\
+        --memory-limit|--cpu-factor)
+            return ;;
+        --build-mode)
+            COMPREPLY=( $(compgen -W "serial scene-parallel full-parallel direct-parallel" -- "$cur") )
             return ;;
         --set)
             return ;;
@@ -44,11 +65,20 @@ _gtopt()
         local opts="--help -h --version -V --solvers --check-solvers
             --solver --verbose -v --quiet -q
             --system-file -s --set
-            --lp-file -l --lp-names-level -n --matrix-eps -e
-            --lp-only -c
-            --json-file -j --fast-parsing -p --check-json -J
+            --input-directory -D --input-format -F
+            --output-directory -d --output-format -f --output-compression -C
+            --lp-file -l --matrix-eps -e
+            --lp-only -c --lp-debug --lp-compression --lp-coeff-ratio
+            --json-file -j
             --stats -S --trace-log -T
-            --sddp-num-apertures --recover"
+            --algorithm -a --threads -t
+            --use-single-bus -b --use-kirchhoff -k
+            --sddp-num-apertures --sddp-max-iterations --sddp-min-iterations
+            --sddp-convergence-tol --sddp-elastic-penalty
+            --sddp-elastic-mode
+            --cut-directory --log-directory
+            --low-memory --memory-limit --cpu-factor --build-mode
+            --recover"
         COMPREPLY=( $(compgen -W "$opts" -- "$cur") )
     else
         _filedir
@@ -493,7 +523,9 @@ _plp2gtopt()
             --pasada-mode
             --tech-detect --no-tech-detect --tech-overrides --tech-list
             --stages-phase -g
-            --emit-water-rights --no-emit-water-rights
+            --expand-water-rights --no-expand-water-rights
+            --expand-lng --no-expand-lng
+            --expand-ror --no-expand-ror
             --check --no-check --init-config
             --log --log-level -l --no-color --version -V --help -h" -- "$cur") )
     else

@@ -1,5 +1,8 @@
 // SPDX-License-Identifier: BSD-3-Clause
+#include <filesystem>
+
 #include <doctest/doctest.h>
+#include <gtopt/generator_lp.hpp>
 #include <gtopt/linear_interface.hpp>
 #include <gtopt/reservoir_discharge_limit.hpp>
 #include <gtopt/simulation_lp.hpp>
@@ -1123,4 +1126,325 @@ TEST_CASE("ReservoirDischargeLimitLP - update_lp is a no-op without segments")
   // Single segment → update_lp is a no-op
   const auto updated = system_lp.update_lp();
   CHECK(updated == 0);
+}
+
+TEST_CASE("ReservoirDischargeLimitLP - add_to_output via write_out")  // NOLINT
+{
+  // Exercises ReservoirDischargeLimitLP::add_to_output (qeh_cols + vol_rows)
+  // by calling system_lp.write_out() after the solve.
+  const Array<Bus> bus_array = {{.uid = Uid {1}, .name = "b1"}};
+
+  const Array<Generator> generator_array = {
+      {
+          .uid = Uid {1},
+          .name = "hydro_gen",
+          .bus = Uid {1},
+          .gcost = 5.0,
+          .capacity = 500.0,
+      },
+      {
+          .uid = Uid {2},
+          .name = "thermal_gen",
+          .bus = Uid {1},
+          .gcost = 100.0,
+          .capacity = 200.0,
+      },
+  };
+
+  const Array<Demand> demand_array = {
+      {.uid = Uid {1}, .name = "d1", .bus = Uid {1}, .capacity = 80.0},
+  };
+
+  const Array<Junction> junction_array = {
+      {.uid = Uid {1}, .name = "j1"},
+      {.uid = Uid {2}, .name = "j2", .drain = true},
+  };
+
+  const Array<Waterway> waterway_array = {
+      {
+          .uid = Uid {1},
+          .name = "ww1",
+          .junction_a = Uid {1},
+          .junction_b = Uid {2},
+          .fmin = 0.0,
+          .fmax = 500.0,
+      },
+  };
+
+  const Array<Reservoir> reservoir_array = {
+      {
+          .uid = Uid {1},
+          .name = "rsv1",
+          .junction = Uid {1},
+          .capacity = 10000.0,
+          .emin = 0.0,
+          .emax = 10000.0,
+          .eini = 5000.0,
+      },
+  };
+
+  const Array<Turbine> turbine_array = {
+      {
+          .uid = Uid {1},
+          .name = "tur1",
+          .waterway = Uid {1},
+          .generator = Uid {1},
+          .production_factor = 1.0,
+      },
+  };
+
+  const Array<ReservoirDischargeLimit> reservoir_discharge_limit_array = {
+      {
+          .uid = Uid {1},
+          .name = "ddl1",
+          .waterway = Uid {1},
+          .reservoir = Uid {1},
+          .segments =
+              {
+                  {.volume = 0.0, .slope = 1e-4, .intercept = 10.0},
+                  {.volume = 5000.0, .slope = 2e-4, .intercept = 30.0},
+              },
+      },
+  };
+
+  const Simulation simulation = {
+      .block_array = {{.uid = Uid {1}, .duration = 1}},
+      .stage_array = {{.uid = Uid {1}, .first_block = 0, .count_block = 1}},
+      .scenario_array = {{.uid = Uid {0}}},
+  };
+
+  const auto tmpdir =
+      std::filesystem::temp_directory_path() / "gtopt_test_ddl_out";
+  std::filesystem::create_directories(tmpdir);
+
+  const System system = {
+      .name = "DDLOutputTest",
+      .bus_array = bus_array,
+      .demand_array = demand_array,
+      .generator_array = generator_array,
+      .junction_array = junction_array,
+      .waterway_array = waterway_array,
+      .reservoir_array = reservoir_array,
+      .reservoir_discharge_limit_array = reservoir_discharge_limit_array,
+      .turbine_array = turbine_array,
+  };
+
+  PlanningOptions opts;
+  opts.output_directory = tmpdir.string();
+  const PlanningOptionsLP options(opts);
+  SimulationLP simulation_lp(simulation, options);
+  SystemLP system_lp(system, simulation_lp);
+
+  auto&& lp = system_lp.linear_interface();
+  auto result = lp.resolve();
+  REQUIRE(result.has_value());
+  CHECK(result.value() == 0);
+
+  // Objective should be non-negative: demand=80 MW served by a mix of
+  // cheap hydro (gcost=5) and expensive thermal (gcost=100).
+  CHECK(lp.get_obj_value() >= 0.0);
+
+  // Verify the hydro generator's generation col has a non-negative value.
+  // With production_factor=1 and the DDL limiting discharge, the hydro
+  // gen produces some but not all the demand.
+  const auto& gen_lps = system_lp.elements<GeneratorLP>();
+  REQUIRE(gen_lps.size() == 2);
+  const auto& scenario_lp = simulation_lp.scenarios().front();
+  const auto& stage_lp = simulation_lp.stages().front();
+  const auto& hydro_gen_lp = gen_lps.front();
+  const auto& hydro_gen_cols =
+      hydro_gen_lp.generation_cols_at(scenario_lp, stage_lp);
+  CHECK_FALSE(hydro_gen_cols.empty());
+  const auto sol = lp.get_col_sol();
+  for (const auto& [buid, col] : hydro_gen_cols) {
+    CHECK(sol[col] >= 0.0);
+  }
+
+  // Exercises ReservoirDischargeLimitLP::add_to_output
+  CHECK_NOTHROW(system_lp.write_out());
+
+  std::filesystem::remove_all(tmpdir);
+}
+
+TEST_CASE(
+    "ReservoirDischargeLimitLP - qeh column binds at upper bound and dvol row "
+    "dual is non-zero")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  // Derivation (single block, duration = 1 h, stage duration = 1 h):
+  //   qeh = (dur_b / dur_stage) × flow_b = flow_b
+  //   Tight cap (slope = 0):  qeh ≤ intercept = 50
+  //   Turbine production_factor = 1 ⇒ hydro MW = flow m³/s = qeh
+  //   Demand = 200 MW, hydro gcost = 1, thermal gcost = 100 ⇒
+  //   optimum pins qeh at 50, thermal supplies the remaining 150 MW.
+  //   The dvol row is thus binding with a strictly positive dual price
+  //   (marginal value of relaxing the cap ≈ gcost_thermal − gcost_hydro = 99).
+  const Array<Bus> bus_array = {{
+      .uid = Uid {1},
+      .name = "b1",
+  }};
+
+  const Array<Generator> generator_array = {
+      {
+          .uid = Uid {1},
+          .name = "hydro_gen",
+          .bus = Uid {1},
+          .gcost = 1.0,
+          .capacity = 500.0,
+      },
+      {
+          .uid = Uid {2},
+          .name = "thermal_gen",
+          .bus = Uid {1},
+          .gcost = 100.0,
+          .capacity = 500.0,
+      },
+  };
+
+  const Array<Demand> demand_array = {{
+      .uid = Uid {1},
+      .name = "d1",
+      .bus = Uid {1},
+      .capacity = 200.0,
+  }};
+
+  const Array<Junction> junction_array = {
+      {
+          .uid = Uid {1},
+          .name = "j_up",
+      },
+      {
+          .uid = Uid {2},
+          .name = "j_down",
+          .drain = true,
+      },
+  };
+
+  const Array<Waterway> waterway_array = {{
+      .uid = Uid {1},
+      .name = "ww1",
+      .junction_a = Uid {1},
+      .junction_b = Uid {2},
+      .fmin = 0.0,
+      .fmax = 500.0,
+  }};
+
+  const Array<Reservoir> reservoir_array = {{
+      .uid = Uid {1},
+      .name = "rsv1",
+      .junction = Uid {1},
+      .capacity = 100000.0,
+      .emin = 0.0,
+      .emax = 100000.0,
+      .eini = 50000.0,
+  }};
+
+  const Array<Turbine> turbine_array = {{
+      .uid = Uid {1},
+      .name = "tur1",
+      .waterway = Uid {1},
+      .generator = Uid {1},
+      .production_factor = 1.0,
+  }};
+
+  // Volume-independent cap: qeh ≤ 50 m³/s
+  const Array<ReservoirDischargeLimit> reservoir_discharge_limit_array = {{
+      .uid = Uid {1},
+      .name = "ddl_tight",
+      .waterway = Uid {1},
+      .reservoir = Uid {1},
+      .segments =
+          {
+              {.volume = 0.0, .slope = 0.0, .intercept = 50.0},
+          },
+  }};
+
+  const Simulation simulation = {
+      .block_array = {{
+          .uid = Uid {1},
+          .duration = 1.0,
+      }},
+      .stage_array = {{
+          .uid = Uid {1},
+          .first_block = 0,
+          .count_block = 1,
+      }},
+      .scenario_array = {{
+          .uid = Uid {0},
+      }},
+  };
+
+  const System system = {
+      .name = "DDLBindingTest",
+      .bus_array = bus_array,
+      .demand_array = demand_array,
+      .generator_array = generator_array,
+      .junction_array = junction_array,
+      .waterway_array = waterway_array,
+      .reservoir_array = reservoir_array,
+      .reservoir_discharge_limit_array = reservoir_discharge_limit_array,
+      .turbine_array = turbine_array,
+  };
+
+  // Enable LP name maps so we can look up the qeh column and dvol row.
+  PlanningOptions opts;
+  opts.demand_fail_cost = 1000.0;
+  opts.lp_matrix_options.col_with_names = true;
+  opts.lp_matrix_options.row_with_names = true;
+  opts.lp_matrix_options.col_with_name_map = true;
+  opts.lp_matrix_options.row_with_name_map = true;
+  const PlanningOptionsLP options_lp(opts);
+
+  // The SystemLP(system, simulation_lp) overload defaults flat_opts to an
+  // empty LpMatrixOptions — the naming flags on `opts.lp_matrix_options`
+  // are NOT forwarded automatically.  Pass an explicit LpMatrixOptions
+  // with naming enabled so lp.col_name_map() / lp.row_name_map() are
+  // populated after flatten().
+  LpMatrixOptions flat_opts;
+  flat_opts.col_with_names = true;
+  flat_opts.row_with_names = true;
+  flat_opts.col_with_name_map = true;
+  flat_opts.row_with_name_map = true;
+
+  SimulationLP simulation_lp(simulation, options_lp);
+  SystemLP system_lp(system, simulation_lp, flat_opts);
+
+  auto&& lp = system_lp.linear_interface();
+  const auto result = lp.resolve();
+  REQUIRE(result.has_value());
+  CHECK(result.value() == 0);
+
+  // Locate the qeh column (unique: only one RDL in this system).
+  ColIndex qeh_col {-1};
+  int qeh_matches = 0;
+  for (const auto& [name, idx] : lp.col_name_map()) {
+    if (name.contains("qeh")) {
+      qeh_col = idx;
+      ++qeh_matches;
+    }
+  }
+  REQUIRE(qeh_matches == 1);
+
+  // Locate the dvol row (unique: only one RDL in this system).
+  RowIndex dvol_row {-1};
+  int dvol_matches = 0;
+  for (const auto& [name, idx] : lp.row_name_map()) {
+    if (name.contains("dvol")) {
+      dvol_row = idx;
+      ++dvol_matches;
+    }
+  }
+  REQUIRE(dvol_matches == 1);
+
+  // (b) Column hits the cap: qeh = intercept = 50 m³/s.
+  const auto qeh_val = lp.get_col_sol()[qeh_col];
+  CHECK(qeh_val == doctest::Approx(50.0).epsilon(1e-4));
+
+  // (a) Row is binding → dual is non-zero.  The sign depends on the
+  // solver's convention for ≤ constraints; we only require |dual| > 0.
+  const auto row_duals = lp.get_row_dual_raw();
+  REQUIRE(row_duals.size() == static_cast<std::size_t>(lp.get_numrows()));
+  const auto dvol_dual = row_duals[dvol_row];
+  CHECK(std::abs(dvol_dual) > 1e-6);
 }

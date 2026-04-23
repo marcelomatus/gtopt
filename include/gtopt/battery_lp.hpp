@@ -33,9 +33,17 @@ using BatteryLPSId = ObjectSingleId<class BatteryLP>;
 class BatteryLP : public StorageLP<CapacityObjectLP<Battery>>
 {
 public:
-  static constexpr LPClassName ClassName {"Battery", "bat"};
+  static constexpr LPClassName ClassName {"Battery"};
   static constexpr std::string_view FinpName {"finp"};
   static constexpr std::string_view FoutName {"fout"};
+  // User-facing attribute aliases used by PAMPL expression resolution.
+  // "charge" resolves to finp_cols, "discharge" resolves to fout_cols.
+  static constexpr std::string_view ChargeName {"charge"};
+  static constexpr std::string_view DischargeName {"discharge"};
+  /// Filter metadata key published by `add_to_lp` for `sum(...)`
+  /// predicate matching.  Battery `bus` is optional, so only `type`
+  /// is registered (see `add_to_lp` for the rationale).
+  static constexpr std::string_view TypeKey {"type"};
 
   using CapacityBase = CapacityObjectLP<Battery>;
   using StorageBase = StorageLP<CapacityObjectLP<Battery>>;

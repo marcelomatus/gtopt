@@ -135,15 +135,29 @@ def load_pandapower_net(file_path: Path):
 # ---------------------------------------------------------------------------
 
 
+def _find_gtopt_csv(comp_dir: Path, stem: str) -> Path:
+    """Return the CSV path for ``stem`` inside ``comp_dir``.
+
+    gtopt now writes per-(scene, phase) shards named ``{stem}_s*_p*.csv``;
+    fall back to the legacy single-file ``{stem}.csv`` layout.
+    """
+    shards = sorted(comp_dir.glob(f"{stem}_s*_p*.csv"))
+    if shards:
+        return shards[0]
+    legacy = comp_dir / f"{stem}.csv"
+    if legacy.exists():
+        return legacy
+    # Reported error mentions the legacy name so existing tests keep matching.
+    raise FileNotFoundError(f"Not found: {comp_dir / f'{stem}.csv'}")
+
+
 def read_gtopt_generation(output_dir: Path) -> list:
     """Return per-generator dispatch (MW) from Generator/generation_sol.csv.
 
     The CSV has a header row whose uid columns start with ``uid:``.
     Only the first data row (single block/stage/scenario) is read.
     """
-    gen_file = output_dir / "Generator" / "generation_sol.csv"
-    if not gen_file.exists():
-        raise FileNotFoundError(f"Not found: {gen_file}")
+    gen_file = _find_gtopt_csv(output_dir / "Generator", "generation_sol")
     with open(gen_file, newline="", encoding="utf-8") as fh:
         reader = csv.reader(fh)
         header = next(reader)
@@ -157,9 +171,7 @@ def read_gtopt_lmps(output_dir: Path) -> list:
 
     Reads only the first data row (single block/stage/scenario).
     """
-    lmp_file = output_dir / "Bus" / "balance_dual.csv"
-    if not lmp_file.exists():
-        raise FileNotFoundError(f"Not found: {lmp_file}")
+    lmp_file = _find_gtopt_csv(output_dir / "Bus", "balance_dual")
     with open(lmp_file, newline="", encoding="utf-8") as fh:
         reader = csv.reader(fh)
         header = next(reader)
@@ -238,17 +250,16 @@ def read_gtopt_battery_dispatch(output_dir: Path) -> tuple:
     from the grid) at block *b* for battery uid:1.
     """
 
-    def _read_battery_csv(path: Path) -> list:
-        if not path.exists():
-            raise FileNotFoundError(f"Not found: {path}")
+    def _read_battery_csv(stem: str) -> list:
+        path = _find_gtopt_csv(bat_dir, stem)
         with open(path, newline="", encoding="utf-8") as fh:
             reader = csv.reader(fh)
             next(reader)  # skip header
             return [float(row[-1]) for row in reader]
 
     bat_dir = output_dir / "Battery"
-    fout = _read_battery_csv(bat_dir / "fout_sol.csv")
-    finp = _read_battery_csv(bat_dir / "finp_sol.csv")
+    fout = _read_battery_csv("fout_sol")
+    finp = _read_battery_csv("finp_sol")
     return fout, finp
 
 
@@ -1052,9 +1063,7 @@ def _compare_bat_4b_24(
             f"got fout={len(fout)}, finp={len(finp)}"
         )
 
-    gen_file = output_dir / "Generator" / "generation_sol.csv"
-    if not gen_file.exists():
-        raise FileNotFoundError(f"Not found: {gen_file}")
+    gen_file = _find_gtopt_csv(output_dir / "Generator", "generation_sol")
 
     gtopt_gen_all: list = []
     with open(gen_file, newline="", encoding="utf-8") as fh:
@@ -1196,9 +1205,7 @@ def _compare_plp(
     n_blocks = len(plp_gen)
 
     # --- Read gtopt generation (all blocks) ---
-    gen_file = output_dir / "Generator" / "generation_sol.csv"
-    if not gen_file.exists():
-        raise FileNotFoundError(f"Not found: {gen_file}")
+    gen_file = _find_gtopt_csv(output_dir / "Generator", "generation_sol")
     gtopt_gen_all: list = []
     with open(gen_file, newline="", encoding="utf-8") as fh:
         reader = csv.reader(fh)
@@ -1219,9 +1226,7 @@ def _compare_plp(
                 pass  # battery files absent → treat as all-zero
 
     # --- Read gtopt LMPs (all blocks) ---
-    lmp_file = output_dir / "Bus" / "balance_dual.csv"
-    if not lmp_file.exists():
-        raise FileNotFoundError(f"Not found: {lmp_file}")
+    lmp_file = _find_gtopt_csv(output_dir / "Bus", "balance_dual")
     gtopt_lmp_all: list = []
     with open(lmp_file, newline="", encoding="utf-8") as fh:
         reader = csv.reader(fh)

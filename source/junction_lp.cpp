@@ -17,11 +17,13 @@
 namespace gtopt
 {
 
-bool JunctionLP::add_to_lp(const SystemContext& /*sc*/,
+bool JunctionLP::add_to_lp(const SystemContext& sc,
                            const ScenarioLP& scenario,
                            const StageLP& stage,
                            LinearProblem& lp)
 {
+  static constexpr auto ampl_name = ClassName.snake_case();
+
   // Skip inactive junctions for this stage
   if (!is_active(stage)) {
     return true;
@@ -71,6 +73,12 @@ bool JunctionLP::add_to_lp(const SystemContext& /*sc*/,
   const auto st_key = std::tuple {scenario.uid(), stage.uid()};
   drain_cols[st_key] = std::move(dcols);
   balance_rows[st_key] = std::move(brows);
+
+  // Register PAMPL-visible columns — drain only exists when enabled.
+  if (!drain_cols.at(st_key).empty()) {
+    sc.add_ampl_variable(
+        ampl_name, uid(), DrainName, scenario, stage, drain_cols.at(st_key));
+  }
 
   return true;
 }

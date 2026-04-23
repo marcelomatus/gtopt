@@ -1820,8 +1820,7 @@ the solver strategy:
             "max_iterations": 20
           },
           "transition": {
-            "inherit_optimality_cuts": true,
-            "inherit_feasibility_cuts": true
+            "inherit_optimality_cuts": true
           }
         }
       ]

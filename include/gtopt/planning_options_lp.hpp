@@ -69,8 +69,6 @@ public:
   /** @brief Default compression codec for output files */
   static constexpr CompressionCodec default_output_compression =
       CompressionCodec::zstd;
-  /** @brief Default LP naming level (minimal = state-var col names only) */
-  static constexpr LpNamesLevel default_names_level = LpNamesLevel::none;
   /** @brief Default setting for using UIDs in filenames */
   static constexpr Bool default_use_uid_fname = true;
   /** @brief Default annual discount rate for multi-year planning */
@@ -171,15 +169,16 @@ public:
     return m_options_.model_options.emission_cap;
   }
 
-  /// @brief Whether a given phase should use relaxed (continuous) UC binaries.
-  /// Parses the `relaxed_phases` string from model_options using PhaseRangeSet.
-  [[nodiscard]] bool is_phase_relaxed(int phase_index) const
+  /// @brief Whether a given phase should use continuous LP relaxation.
+  /// Parses the `continuous_phases` string from model_options using
+  /// PhaseRangeSet.
+  [[nodiscard]] bool is_phase_continuous(int phase_index) const
   {
-    const auto& rp = m_options_.model_options.relaxed_phases;
-    if (!rp.has_value()) {
+    const auto& cp = m_options_.model_options.continuous_phases;
+    if (!cp.has_value()) {
       return false;
     }
-    return PhaseRangeSet(*rp).contains(phase_index);
+    return PhaseRangeSet(*cp).contains(phase_index);
   }
 
   /// @brief Gets the line losses mode, with backward-compat fallback.
@@ -248,16 +247,6 @@ public:
   [[nodiscard]] constexpr auto scale_theta() const
   {
     return m_options_.model_options.scale_theta.value_or(1.0);
-  }
-
-  /**
-   * @brief Gets the LP naming level, using default if not set
-   * @return LP naming level: minimal, only_cols, or cols_and_rows
-   */
-  [[nodiscard]] constexpr auto names_level() const -> LpNamesLevel
-  {
-    return m_options_.lp_matrix_options.names_level.value_or(
-        default_names_level);
   }
 
   /**
@@ -442,10 +431,19 @@ public:
   }
 
   /// The matrix equilibration method to use.
+  ///
+  /// Default is `ruiz` when Kirchhoff constraints are active on a multi-bus
+  /// network (heterogeneous row/column scales from reactances and loss
+  /// segments produce high coefficient ratios), otherwise `row_max`.
+  /// A user-supplied value always takes precedence.
   [[nodiscard]] constexpr auto equilibration_method() const noexcept
   {
-    return m_options_.lp_matrix_options.equilibration_method.value_or(
-        LpEquilibrationMethod::none);
+    if (m_options_.lp_matrix_options.equilibration_method.has_value()) {
+      return *m_options_.lp_matrix_options.equilibration_method;
+    }
+    const bool kirchhoff_multi_bus = use_kirchhoff() && !use_single_bus();
+    return kirchhoff_multi_bus ? LpEquilibrationMethod::ruiz
+                               : LpEquilibrationMethod::row_max;
   }
 
   /// Controls error handling for user constraint resolution.
@@ -453,6 +451,14 @@ public:
   [[nodiscard]] constexpr auto constraint_mode() const noexcept
   {
     return m_options_.constraint_mode.value_or(ConstraintMode::strict);
+  }
+
+  /// Which output fields `OutputContext` should emit.  Default is
+  /// `OutputFlags::all` — every field (solution, dual, reduced_cost).
+  /// Bound to CLI `--write-out` and JSON `write_out`.
+  [[nodiscard]] constexpr auto write_out() const noexcept -> OutputFlags
+  {
+    return m_options_.write_out.value_or(OutputFlags::all);
   }
 
   /**
@@ -563,22 +569,54 @@ public:
   static constexpr Int default_sddp_min_iterations = 2;
   /** @brief Default relative convergence tolerance */
   static constexpr Real default_sddp_convergence_tol = 1e-4;
-  /** @brief Default elastic slack penalty */
-  static constexpr Real default_sddp_elastic_penalty = 1e3;
-  /** @brief Default lower bound for future cost variable α */
-  static constexpr Real default_sddp_alpha_min = 0.0;
-  /** @brief Default upper bound for future cost variable α */
-  static constexpr Real default_sddp_alpha_max = 1e12;
-  /** @brief Default cut coefficient epsilon for filtering tiny coefficients */
-  static constexpr Real default_sddp_cut_coeff_eps = 1e-12;
-  /** @brief Default max coefficient threshold for cut rescaling */
-  static constexpr Real default_sddp_cut_coeff_max = 1e6;
-  /** @brief Default elastic filter mode */
+  /** @brief Default elastic slack penalty (per physical unit, scaled
+   *         by `var_scale` per link inside `relax_fixed_state_variable`).
+   *
+   *         Reduced from 1e3 → 1e2: with the Chinneck IIS filter the
+   *         penalty no longer needs to dominate natural generation costs
+   *         (~50 $/MWh).  Smaller penalties keep the LP matrix
+   *         well-conditioned and reduce `rescale_benders_cut` warnings.
+   *         Override via `--set sddp_options.elastic_penalty=<p>` or
+   *         the `sddp_options.elastic_penalty` JSON field if a particular
+   *         case needs a stronger forcing term. */
+  static constexpr Real default_sddp_elastic_penalty = 1e2;
+  // α is a free LP variable (no explicit bounds) — see
+  // `sddp_method.cpp::initialize_alpha_variables`.  The
+  // `default_sddp_alpha_min` / `default_sddp_alpha_max` constants were
+  // removed when the bounds were dropped.
+  /** @brief Default cut coefficient epsilon for filtering tiny coefficients.
+   *
+   * Raised from 1e-12 to 1e-6 (P1-2) so that Benders cuts drop
+   * near-zero coefficients that the LP solver cannot distinguish from
+   * noise anyway. Keeping micro-coefficients around inflates the basis
+   * condition number (kappa) by several orders of magnitude on large
+   * GTEP cases without changing the optimal value.  Users solving
+   * academic-scale instances can still lower this in JSON.
+   */
+  static constexpr Real default_sddp_cut_coeff_eps = 1e-6;
+  /** @brief Default elastic filter mode.
+   *
+   *  Set to `chinneck` (IIS-based) so feasibility cuts are emitted only
+   *  on the irreducible infeasible subset of relaxed state-variable
+   *  bounds.  Falls back to the full elastic result when the IIS
+   *  re-fix step cannot confirm a smaller subset (penalty competition
+   *  / degenerate LP), so behaviour matches `multi_cut` in the worst
+   *  case and is strictly better otherwise.  See
+   *  `ElasticFilterMode::chinneck` documentation in
+   *  `gtopt/sddp_enums.hpp` for the algorithm. */
   static constexpr ElasticFilterMode default_sddp_elastic_mode =
-      ElasticFilterMode::single_cut;
+      ElasticFilterMode::chinneck;
   /** @brief Default multi_cut threshold (auto-switch after this many
-   *         consecutive forward-pass infeasibilities at a phase) */
-  static constexpr int default_sddp_multi_cut_threshold = 10;
+   *         cumulative forward-pass infeasibilities at a phase).
+   *
+   *         Counter is persistent across iterations (no reset on
+   *         successful solves), so the threshold counts *total* fcut
+   *         events at a (scene, phase), not consecutive ones.  Reduced
+   *         from 10 → 3: with the persistent counter and the chinneck
+   *         IIS option available, switching to per-bound multi-cuts on
+   *         the 3rd hit is the right balance between cut tightness and
+   *         LP size growth (PLP CEN-65 convention). */
+  static constexpr int default_sddp_multi_cut_threshold = 3;
   /** @brief Default stationary-gap tolerance.
    * When the relative gap change over the look-back window is below this
    * value, the gap is considered stationary.  Used by the stationary and
@@ -702,24 +740,6 @@ public:
   }
 
   /**
-   * @brief Gets the lower bound for future cost variable α
-   * @return α lower bound in $ (default: 0.0)
-   */
-  [[nodiscard]] constexpr auto sddp_alpha_min() const
-  {
-    return m_options_.sddp_options.alpha_min.value_or(default_sddp_alpha_min);
-  }
-
-  /**
-   * @brief Gets the upper bound for future cost variable α
-   * @return α upper bound in $ (default: 1e12)
-   */
-  [[nodiscard]] constexpr auto sddp_alpha_max() const
-  {
-    return m_options_.sddp_options.alpha_max.value_or(default_sddp_alpha_max);
-  }
-
-  /**
    * @brief Gets the scale divisor for future cost variable α
    * @return α scale divisor (default: 1000, analogous to PLP varphi scale)
    */
@@ -767,7 +787,7 @@ public:
 
   /**
    * @brief Gets the elastic filter mode as a string name
-   * @return "single_cut" (default), "multi_cut", or "backpropagate"
+   * @return "chinneck" (default), "single_cut", or "multi_cut"
    */
   [[nodiscard]] auto sddp_elastic_mode() const -> std::string_view
   {
@@ -786,16 +806,6 @@ public:
   }
 
   /**
-   * @brief Gets the cut coefficient extraction mode as a typed enum
-   * @return The CutCoeffMode enum value (default: reduced_cost)
-   */
-  [[nodiscard]] constexpr auto sddp_cut_coeff_mode_enum() const -> CutCoeffMode
-  {
-    return m_options_.sddp_options.cut_coeff_mode.value_or(
-        CutCoeffMode::reduced_cost);
-  }
-
-  /**
    * @brief Gets the cut coefficient tolerance for filtering tiny coefficients
    * @return Absolute tolerance (default: 0.0 = no filtering)
    */
@@ -803,16 +813,6 @@ public:
   {
     return m_options_.sddp_options.cut_coeff_eps.value_or(
         default_sddp_cut_coeff_eps);
-  }
-
-  /**
-   * @brief Gets the max coefficient threshold for cut rescaling
-   * @return Max threshold (default: 1e6)
-   */
-  [[nodiscard]] constexpr auto sddp_cut_coeff_max() const -> double
-  {
-    return m_options_.sddp_options.cut_coeff_max.value_or(
-        default_sddp_cut_coeff_max);
   }
 
   /**
@@ -903,12 +903,6 @@ public:
     return m_options_.sddp_options.max_stored_cuts.value_or(0);
   }
 
-  /// Reuse cached LP clones for aperture solves.  Default: true.
-  [[nodiscard]] constexpr auto sddp_use_clone_pool() const
-  {
-    return m_options_.sddp_options.use_clone_pool.value_or(true);
-  }
-
   /// Low memory mode: off, snapshot, or compress.
   [[nodiscard]] constexpr auto sddp_low_memory() const
   {
@@ -919,19 +913,42 @@ public:
   [[nodiscard]] constexpr auto sddp_memory_codec() const
   {
     return m_options_.sddp_options.memory_codec.value_or(
-        MemoryCodec::auto_select);
-  }
-
-  /** @brief Whether SDDP resolves use warm-start (default: true). */
-  [[nodiscard]] constexpr auto sddp_warm_start() const
-  {
-    return m_options_.sddp_options.warm_start.value_or(true);
+        CompressionCodec::auto_select);
   }
 
   /** @brief Maximum async iteration spread (0 = synchronous, default). */
   [[nodiscard]] constexpr auto sddp_max_async_spread() const
   {
     return m_options_.sddp_options.max_async_spread.value_or(0);
+  }
+
+  /** @brief SDDP work pool CPU over-commit factor (default: 4.0). */
+  [[nodiscard]] constexpr auto sddp_pool_cpu_factor() const
+  {
+    return m_options_.sddp_options.pool_cpu_factor.value_or(4.0);
+  }
+
+  /** @brief LP-build work-pool CPU over-commit factor (default: 2.0).
+   *
+   * Currently shares the `sddp_options.pool_cpu_factor` field with the
+   * SDDP pool so that a single `--cpu-factor` CLI flag controls both
+   * pools uniformly.  When the user does **not** set `--cpu-factor`,
+   * the LP-build pool falls back to a more conservative 2.0× factor
+   * (vs the SDDP pool's 4.0×) — reflecting that LP build is memory-
+   * heavy (constructing full SystemLP trees) while SDDP solving is
+   * CPU-bound (solver calls).  When the CLI flag is set, both pools
+   * pick it up and the user can force a 1-thread serial baseline via
+   * `--cpu-factor 0.025` on a typical 20-core box.
+   */
+  [[nodiscard]] constexpr auto build_pool_cpu_factor() const
+  {
+    return m_options_.sddp_options.pool_cpu_factor.value_or(2.0);
+  }
+
+  /** @brief SDDP work pool memory limit in MB (0 = no limit). */
+  [[nodiscard]] constexpr auto sddp_pool_memory_limit_mb() const
+  {
+    return m_options_.sddp_options.pool_memory_limit_mb.value_or(0.0);
   }
 
   /** @brief How update_lp elements obtain reservoir/battery volume between
@@ -1013,6 +1030,16 @@ public:
   [[nodiscard]] constexpr auto method_type_enum() const -> MethodType
   {
     return m_options_.method.value_or(default_method_type);
+  }
+
+  /// LP-build mode as an enum.  Defaults to `scene_parallel` — the
+  /// pre-00c605d7 per-scene work-pool submission (coarse granularity,
+  /// lower pool/malloc-arena contention).  Users may opt into
+  /// `full_parallel` via `--build-mode full-parallel` for maximum
+  /// concurrency, or `serial` for a genuine in-thread baseline.
+  [[nodiscard]] constexpr auto build_mode_enum() const -> BuildMode
+  {
+    return m_options_.build_mode.value_or(BuildMode::scene_parallel);
   }
 
   /// SDDP boundary cuts mode as an enum.

@@ -40,7 +40,7 @@ struct StageConstructor
     s.count_block = count_block;
     s.discount_factor = discount_factor;
     if (month_str) {
-      s.month = gtopt::enum_from_name<MonthType>(*month_str);
+      s.month = gtopt::require_enum<MonthType>("month", *month_str);
     }
     s.chronological = chronological;
     return s;

@@ -9,20 +9,29 @@
 
 #include <doctest/doctest.h>
 #include <gtopt/benders_cut.hpp>
+#include <gtopt/sddp_types.hpp>
 #include <gtopt/sparse_col.hpp>
 
 using namespace gtopt;  // NOLINT(google-global-names-in-headers)
 
 // ---------------------------------------------------------------------------
-// build_benders_cut
+// build_benders_cut_physical — physical-space cut builder intended for
+// `LinearInterface::add_row` on an equilibrated LP.  Unlike the LP-space
+// overloads above, this variant:
+//   - takes `reduced_costs_physical` and `objective_value_physical`
+//     (caller uses `target_li.get_col_cost()` / `get_obj_value_physical()`);
+//   - takes `trial_values_physical` as a span indexed parallel to
+//     `links` (caller builds it from `source_li.get_col_sol()[...]`);
+//   - emits coefficient 1.0 on the α column and row.scale 1.0 — the LP
+//     interface folds col_scales + row-max internally on insertion;
+//   - leaves `already_lp_space == false` so `add_row` applies the
+//     physical → LP conversion pipeline.
 // ---------------------------------------------------------------------------
 
-TEST_CASE("build_benders_cut basic optimality cut")  // NOLINT
+TEST_CASE("build_benders_cut_physical basic cut")  // NOLINT
 {
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
-  // Simple 2-link scenario:
-  //   α >= z + rc1*(x1 - v1) + rc2*(x2 - v2)
   const ColIndex alpha {
       0,
   };
@@ -36,7 +45,6 @@ TEST_CASE("build_benders_cut basic optimality cut")  // NOLINT
               ColIndex {
                   10,
               },
-          .trial_value = 5.0,
       },
       {
           .source_col =
@@ -47,36 +55,46 @@ TEST_CASE("build_benders_cut basic optimality cut")  // NOLINT
               ColIndex {
                   11,
               },
-          .trial_value = 3.0,
       },
   };
 
-  // Reduced costs at dependent columns
-  std::vector<double> rc(12, 0.0);
-  rc[10] = 2.0;
-  rc[11] = -1.0;
+  // Physical reduced costs at dependent columns.
+  std::vector<double> rc_phys(12, 0.0);
+  rc_phys[10] = 2.0;
+  rc_phys[11] = -1.0;
 
-  const double obj_value = 100.0;
-  auto cut = build_benders_cut(alpha, links, rc, obj_value);
+  // Physical trial values, one per link (positional, not per dep_col).
+  const std::vector<double> trial_phys {5.0, 3.0};
 
-  // α coefficient = 1.0
+  const double obj_phys = 100.0;
+  const auto cut =
+      build_benders_cut_physical(alpha, links, rc_phys, trial_phys, obj_phys);
+
+  // α coefficient = 1.0 (no scale_alpha — that's a col_scale of alpha,
+  // applied by add_row on insertion).
   CHECK(cut.cmap.at(alpha) == doctest::Approx(1.0));
-  // source_col[0] coefficient = -rc[10] = -2.0
+
+  // source_col[0] coefficient = -rc_phys[10] = -2.0
   CHECK(cut.cmap.at(ColIndex {
             1,
         })
         == doctest::Approx(-2.0));
-  // source_col[1] coefficient = -rc[11] = 1.0
+  // source_col[1] coefficient = -rc_phys[11] = 1.0
   CHECK(cut.cmap.at(ColIndex {
             2,
         })
         == doctest::Approx(1.0));
-  // lowb = obj - rc1*v1 - rc2*v2 = 100 - 2*5 - (-1)*3 = 100-10+3 = 93
+
+  // lowb = obj_phys - rc1*v1 - rc2*v2 = 100 - 2*5 - (-1)*3 = 93
   CHECK(cut.lowb == doctest::Approx(93.0));
   CHECK(cut.uppb == LinearProblem::DblMax);
+
+  // Row starts in physical space; add_row will apply col_scales +
+  // row-max and set a composite row_scale.
+  CHECK(cut.scale == doctest::Approx(1.0));
 }
 
-TEST_CASE("build_benders_cut with empty links")  // NOLINT
+TEST_CASE("build_benders_cut_physical with empty links")  // NOLINT
 {
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
@@ -84,12 +102,253 @@ TEST_CASE("build_benders_cut with empty links")  // NOLINT
       0,
   };
   const std::vector<StateVarLink> empty_links;
-  const std::vector<double> rc;
+  const std::vector<double> rc_phys;
+  const std::vector<double> trial_phys;
 
-  auto cut = build_benders_cut(alpha, empty_links, rc, 42.0);
+  const auto cut =
+      build_benders_cut_physical(alpha, empty_links, rc_phys, trial_phys, 42.0);
   CHECK(cut.lowb == doctest::Approx(42.0));
   CHECK(cut.cmap.at(alpha) == doctest::Approx(1.0));
   CHECK(cut.cmap.size() == 1);
+}
+
+TEST_CASE(
+    "build_benders_cut_physical eps filter drops tiny rc terms")  // NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  const ColIndex alpha {
+      0,
+  };
+  const std::vector<StateVarLink> links = {
+      {
+          .source_col =
+              ColIndex {
+                  1,
+              },
+          .dependent_col =
+              ColIndex {
+                  10,
+              },
+      },
+      {
+          .source_col =
+              ColIndex {
+                  2,
+              },
+          .dependent_col =
+              ColIndex {
+                  11,
+              },
+      },
+  };
+
+  std::vector<double> rc_phys(12, 0.0);
+  rc_phys[10] = 1e-12;  // below eps
+  rc_phys[11] = 4.0;
+
+  const std::vector<double> trial_phys {5.0, 3.0};
+
+  const auto cut =
+      build_benders_cut_physical(alpha,
+                                 links,
+                                 rc_phys,
+                                 trial_phys,
+                                 /*objective_value_physical=*/100.0,
+                                 /*cut_coeff_eps=*/1e-8);
+
+  // Link 0 filtered out: no coefficient for source_col 1, and its
+  // contribution (rc1*v1 ≈ 5e-12) does not affect lowb.
+  CHECK_FALSE(cut.cmap.contains(ColIndex {
+      1,
+  }));
+  // Link 1 kept: source_col 2 gets -rc=-4.
+  CHECK(cut.cmap.at(ColIndex {
+            2,
+        })
+        == doctest::Approx(-4.0));
+  // lowb = obj - rc2*v2 = 100 - 4*3 = 88.
+  CHECK(cut.lowb == doctest::Approx(88.0));
+}
+
+TEST_CASE("build_benders_cut_physical preserves physical-space contract")
+{
+  // Regression guard: the physical builder must NOT apply any
+  // scale_alpha / scale_objective arithmetic.  Coefficients and RHS
+  // are taken verbatim from the physical inputs so that add_row on an
+  // equilibrated LP can safely fold col_scales and row-max.
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  const ColIndex alpha {
+      0,
+  };
+  const std::vector<StateVarLink> links = {
+      {
+          .source_col =
+              ColIndex {
+                  1,
+              },
+          .dependent_col =
+              ColIndex {
+                  10,
+              },
+      },
+  };
+  std::vector<double> rc_phys(11, 0.0);
+  rc_phys[10] = 3.14;
+  const std::vector<double> trial_phys {2.0};
+
+  const auto cut = build_benders_cut_physical(
+      alpha, links, rc_phys, trial_phys, /*objective_value_physical=*/7.5);
+
+  CHECK(cut.cmap.at(alpha) == doctest::Approx(1.0));
+  CHECK(cut.cmap.at(ColIndex {
+            1,
+        })
+        == doctest::Approx(-3.14));
+  // lowb = 7.5 - 3.14*2.0 = 7.5 - 6.28 = 1.22
+  CHECK(cut.lowb == doctest::Approx(1.22));
+  // No row.scale → scale stays 1.0; add_row handles col_scales[alpha].
+  CHECK(cut.scale == doctest::Approx(1.0));
+}
+
+// ---------------------------------------------------------------------------
+// build_benders_cut_physical — state_var-based overload (SDDP backward-pass)
+//
+// The state_var overload reads rc and trial from `link.state_var` instead
+// of parallel spans.  It descales the stored raw-LP reduced cost via
+// `reduced_cost_physical(scale_obj) = rc_LP * scale_obj / var_scale` so
+// the cut is in $ / physical_unit regardless of scale_objective.
+// ---------------------------------------------------------------------------
+
+TEST_CASE("build_benders_cut_physical state_var overload matches span overload")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  // Hand-rolled StateVariable objects.  ColIndex in the state_var is the
+  // source column (what the cut will coefficient on); the `var_scale` and
+  // the raw-LP rc/col_sol determine physical values.
+  constexpr auto mkctx = [] { return LpContext {}; };
+
+  const StateVariable::LPKey key0 {
+      .scene_index = first_scene_index(),
+      .phase_index = PhaseIndex {0},
+  };
+  StateVariable svar0 {
+      key0,
+      ColIndex {1},
+      /*scost=*/0.0,
+      /*var_scale=*/2.0,
+      mkctx(),
+  };
+  svar0.set_col_sol(5.0);  // phys = 5 * 2 = 10
+  svar0.set_reduced_cost(0.4);  // rc_phys = 0.4 * scale_obj / 2
+
+  StateVariable svar1 {
+      key0,
+      ColIndex {2},
+      /*scost=*/0.0,
+      /*var_scale=*/1.0,
+      mkctx(),
+  };
+  svar1.set_col_sol(3.0);  // phys = 3
+  svar1.set_reduced_cost(-2.0);  // rc_phys = -2 * scale_obj
+
+  constexpr double scale_obj = 10.0;
+
+  const std::vector<StateVarLink> links = {
+      {
+          .source_col = ColIndex {1},
+          .dependent_col = ColIndex {10},
+          .state_var = &svar0,
+      },
+      {
+          .source_col = ColIndex {2},
+          .dependent_col = ColIndex {11},
+          .state_var = &svar1,
+      },
+  };
+
+  // rc_phys[0] = 0.4 * 10 / 2 = 2.0
+  // rc_phys[1] = -2.0 * 10 / 1 = -20.0
+  // v̂_phys[0] = 10.0, v̂_phys[1] = 3.0
+  // lowb = 100 - 2*10 - (-20)*3 = 100 - 20 + 60 = 140
+  const double obj_phys = 100.0;
+  const auto cut =
+      build_benders_cut_physical(ColIndex {0}, links, obj_phys, scale_obj);
+
+  CHECK(cut.cmap.at(ColIndex {0}) == doctest::Approx(1.0));
+  CHECK(cut.cmap.at(ColIndex {1}) == doctest::Approx(-2.0));
+  CHECK(cut.cmap.at(ColIndex {2}) == doctest::Approx(20.0));
+  CHECK(cut.lowb == doctest::Approx(140.0));
+  CHECK(cut.scale == doctest::Approx(1.0));
+}
+
+TEST_CASE("build_benders_cut_physical state_var overload eps filters small rc")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  const StateVariable::LPKey key0 {
+      .scene_index = first_scene_index(),
+      .phase_index = PhaseIndex {0},
+  };
+  StateVariable svar_tiny {
+      key0,
+      ColIndex {1},
+      0.0,
+      1.0,
+      LpContext {},
+  };
+  svar_tiny.set_col_sol(5.0);
+  svar_tiny.set_reduced_cost(1e-13);  // rc_phys = 1e-13 * 1 / 1 = 1e-13
+
+  StateVariable svar_big {
+      key0,
+      ColIndex {2},
+      0.0,
+      1.0,
+      LpContext {},
+  };
+  svar_big.set_col_sol(3.0);
+  svar_big.set_reduced_cost(4.0);
+
+  const std::vector<StateVarLink> links = {
+      {.source_col = ColIndex {1}, .state_var = &svar_tiny},
+      {.source_col = ColIndex {2}, .state_var = &svar_big},
+  };
+
+  const auto cut =
+      build_benders_cut_physical(ColIndex {0},
+                                 links,
+                                 /*objective_value_physical=*/100.0,
+                                 /*scale_objective=*/1.0,
+                                 /*cut_coeff_eps=*/1e-8);
+
+  CHECK_FALSE(cut.cmap.contains(ColIndex {1}));
+  CHECK(cut.cmap.at(ColIndex {2}) == doctest::Approx(-4.0));
+  // lowb = 100 - 4*3 = 88.  Tiny rc contribution (1e-13 * 5) is also
+  // dropped since the whole link is skipped.
+  CHECK(cut.lowb == doctest::Approx(88.0));
+}
+
+TEST_CASE(
+    "build_benders_cut_physical state_var overload handles null state_var")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  // Test-fixture convention: a link with state_var==nullptr contributes
+  // nothing to the cut (no coefficient, no RHS adjustment).
+  const std::vector<StateVarLink> links = {
+      {.source_col = ColIndex {1}, .state_var = nullptr},
+  };
+  const auto cut = build_benders_cut_physical(ColIndex {0},
+                                              links,
+                                              /*objective_value_physical=*/42.0,
+                                              /*scale_objective=*/1.0);
+
+  CHECK(cut.cmap.at(ColIndex {0}) == doctest::Approx(1.0));
+  CHECK_FALSE(cut.cmap.contains(ColIndex {1}));
+  CHECK(cut.lowb == doctest::Approx(42.0));
 }
 
 // ---------------------------------------------------------------------------
@@ -410,23 +669,19 @@ TEST_CASE("propagate_trial_values sets bounds")  // NOLINT
   const auto s1 = li.add_col(SparseCol {
       .lowb = 0.0,
       .uppb = 100.0,
-      .name = "s1",
   });
   const auto s2 = li.add_col(SparseCol {
       .lowb = 0.0,
       .uppb = 100.0,
-      .name = "s2",
   });
   // dependent columns
   const auto d1 = li.add_col(SparseCol {
       .lowb = 0.0,
       .uppb = 100.0,
-      .name = "d1",
   });
   const auto d2 = li.add_col(SparseCol {
       .lowb = 0.0,
       .uppb = 100.0,
-      .name = "d2",
   });
 
   std::vector<StateVarLink> links = {
@@ -471,7 +726,6 @@ TEST_CASE("relax_fixed_state_variable relaxes a fixed column")  // NOLINT
   const auto dep = li.add_col(SparseCol {
       .lowb = 0.0,
       .uppb = 100.0,
-      .name = "dep",
   });
 
   // Fix the column (simulate propagate_trial_values)
@@ -484,11 +738,11 @@ TEST_CASE("relax_fixed_state_variable relaxes a fixed column")  // NOLINT
               99,
           },
       .dependent_col = dep,
-      .source_phase =
+      .source_phase_index =
           PhaseIndex {
               0,
           },
-      .target_phase =
+      .target_phase_index =
           PhaseIndex {
               1,
           },
@@ -531,7 +785,6 @@ TEST_CASE("relax_fixed_state_variable skips unfixed column")  // NOLINT
   const auto dep = li.add_col(SparseCol {
       .lowb = 0.0,
       .uppb = 100.0,
-      .name = "dep",
   });
 
   const StateVarLink link {
@@ -627,32 +880,26 @@ TEST_CASE("build_multi_cuts with active slack generates cuts")  // NOLINT
   const auto dep0 = cloned_li.add_col(SparseCol {
       .lowb = 0.0,
       .uppb = 100.0,
-      .name = "dep0",
   });
   const auto dep1 = cloned_li.add_col(SparseCol {
       .lowb = 0.0,
       .uppb = 100.0,
-      .name = "dep1",
   });
   const auto sup0 = cloned_li.add_col(SparseCol {
       .lowb = 0.0,
       .uppb = 100.0,
-      .name = "sup0",
   });
   const auto sdn0 = cloned_li.add_col(SparseCol {
       .lowb = 0.0,
       .uppb = 100.0,
-      .name = "sdn0",
   });
   const auto sup1 = cloned_li.add_col(SparseCol {
       .lowb = 0.0,
       .uppb = 100.0,
-      .name = "sup1",
   });
   const auto sdn1 = cloned_li.add_col(SparseCol {
       .lowb = 0.0,
       .uppb = 100.0,
-      .name = "sdn1",
   });
 
   // Set objective to minimise slack penalties
@@ -711,6 +958,10 @@ TEST_CASE("build_multi_cuts with active slack generates cuts")  // NOLINT
       },
   };
 
+  // build_multi_cuts uses `link.class_name` + `link.uid` as the row's
+  // identity for LabelMaker (so labels stay globally unique across
+  // state-var classes that share a UID).  Populate those fields on
+  // each link so the cuts come out with realistic metadata.
   const std::vector<StateVarLink> links = {
       {
           .source_col =
@@ -719,6 +970,9 @@ TEST_CASE("build_multi_cuts with active slack generates cuts")  // NOLINT
               },
           .dependent_col = dep0,
           .trial_value = 30.0,
+          .class_name = "Reservoir",
+          .col_name = "efin",
+          .uid = Uid {7},
       },
       {
           .source_col =
@@ -727,6 +981,9 @@ TEST_CASE("build_multi_cuts with active slack generates cuts")  // NOLINT
               },
           .dependent_col = dep1,
           .trial_value = 50.0,
+          .class_name = "Battery",
+          .col_name = "sini",
+          .uid = Uid {3},
       },
   };
 
@@ -737,8 +994,9 @@ TEST_CASE("build_multi_cuts with active slack generates cuts")  // NOLINT
   CHECK(cuts.size() == 2);
 
   // First cut: ub_cut for link 0 (sup0 active)
-  CHECK(cuts[0].class_name == "Sddp");
+  CHECK(cuts[0].class_name == "Reservoir");
   CHECK(cuts[0].constraint_name == "mcut_ub");
+  CHECK(cuts[0].variable_uid == Uid {7});
   CHECK(cuts[0].uppb == doctest::Approx(25.0));
   CHECK(cuts[0].cmap.at(ColIndex {
             100,
@@ -746,13 +1004,137 @@ TEST_CASE("build_multi_cuts with active slack generates cuts")  // NOLINT
         == doctest::Approx(1.0));
 
   // Second cut: lb_cut for link 1 (sdn1 active)
-  CHECK(cuts[1].class_name == "Sddp");
+  CHECK(cuts[1].class_name == "Battery");
   CHECK(cuts[1].constraint_name == "mcut_lb");
+  CHECK(cuts[1].variable_uid == Uid {3});
   CHECK(cuts[1].lowb == doctest::Approx(60.0));
   CHECK(cuts[1].cmap.at(ColIndex {
             101,
         })
         == doctest::Approx(1.0));
+}
+
+// ---------------------------------------------------------------------------
+// Multi-cut physical-space regression guard: post-migration,
+// `build_multi_cuts` emits rows with physical-space dep_val bounds
+// (via `get_col_sol()`) so `add_row` can fold col_scales + row-max.
+// ---------------------------------------------------------------------------
+
+TEST_CASE(
+    "build_multi_cuts emits physical-space cuts (no already_lp_space flag)")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  // Reuse the scaffold from "build_multi_cuts with active slack
+  // generates cuts" — identical LP setup, identical slack activation.
+  // Post-migration, multi-cut rows carry physical-space dep_val
+  // bounds (via `get_col_sol()`) so `add_row` on the source LP folds
+  // col_scales + per-row row-max like freshly-built Benders cuts;
+  // this test guards against regressing back to LP-space bounds.
+  LinearInterface cloned_li;
+  const auto dep0 = cloned_li.add_col(SparseCol {
+      .lowb = 0.0,
+      .uppb = 100.0,
+  });
+  const auto dep1 = cloned_li.add_col(SparseCol {
+      .lowb = 0.0,
+      .uppb = 100.0,
+  });
+  const auto sup0 = cloned_li.add_col(SparseCol {
+      .lowb = 0.0,
+      .uppb = 100.0,
+  });
+  const auto sdn0 = cloned_li.add_col(SparseCol {
+      .lowb = 0.0,
+      .uppb = 100.0,
+  });
+  const auto sup1 = cloned_li.add_col(SparseCol {
+      .lowb = 0.0,
+      .uppb = 100.0,
+  });
+  const auto sdn1 = cloned_li.add_col(SparseCol {
+      .lowb = 0.0,
+      .uppb = 100.0,
+  });
+  cloned_li.set_obj_coeff(sup0, 1.0);
+  cloned_li.set_obj_coeff(sdn0, 1.0);
+  cloned_li.set_obj_coeff(sup1, 1.0);
+  cloned_li.set_obj_coeff(sdn1, 1.0);
+
+  // Trivial balance rows so the LP is structurally valid.
+  SparseRow r0;
+  r0[dep0] = 1.0;
+  r0[sup0] = -1.0;
+  r0[sdn0] = 1.0;
+  r0.lowb = 30.0;
+  r0.uppb = 30.0;
+  cloned_li.add_row(r0);
+  SparseRow r1;
+  r1[dep1] = 1.0;
+  r1[sup1] = -1.0;
+  r1[sdn1] = 1.0;
+  r1.lowb = 50.0;
+  r1.uppb = 50.0;
+  cloned_li.add_row(r1);
+
+  auto res = cloned_li.initial_solve();
+  REQUIRE(res.has_value());
+
+  // Spoof slack > 0 on both links so build_multi_cuts emits two cuts.
+  const std::vector<double> sol = {
+      25.0,
+      60.0,
+      5.0,
+      0.0,
+      0.0,
+      10.0,
+  };
+  cloned_li.set_col_sol(sol);
+
+  ElasticSolveResult elastic;
+  elastic.clone = std::move(cloned_li);
+  elastic.link_infos = {
+      {
+          .relaxed = true,
+          .sup_col = sup0,
+          .sdn_col = sdn0,
+      },
+      {
+          .relaxed = true,
+          .sup_col = sup1,
+          .sdn_col = sdn1,
+      },
+  };
+  const std::vector<StateVarLink> links = {
+      {
+          .source_col =
+              ColIndex {
+                  100,
+              },
+          .dependent_col = dep0,
+          .trial_value = 30.0,
+          .class_name = "Reservoir",
+          .col_name = "efin",
+          .uid = Uid {7},
+      },
+      {
+          .source_col =
+              ColIndex {
+                  101,
+              },
+          .dependent_col = dep1,
+          .trial_value = 50.0,
+          .class_name = "Battery",
+          .col_name = "sini",
+          .uid = Uid {3},
+      },
+  };
+
+  const auto cuts = build_multi_cuts(elastic, links);
+  REQUIRE(cuts.size() == 2);
+  for (const auto& cut : cuts) {
+    CHECK(cut.scale == doctest::Approx(1.0));
+  }
 }
 
 TEST_CASE("elastic_filter_solve free function succeeds")  // NOLINT
@@ -765,12 +1147,10 @@ TEST_CASE("elastic_filter_solve free function succeeds")  // NOLINT
   const auto x1 = li.add_col(SparseCol {
       .lowb = 0.0,
       .uppb = 100.0,
-      .name = "x1",
   });
   const auto alpha = li.add_col(SparseCol {
       .lowb = 0.0,
       .uppb = LinearProblem::DblMax,
-      .name = "alpha",
   });
   li.set_obj_coeff(x1, 1.0);
   li.set_obj_coeff(alpha, 0.0);
@@ -795,7 +1175,7 @@ TEST_CASE("elastic_filter_solve free function succeeds")  // NOLINT
                   99,
               },
           .dependent_col = x1,
-          .target_phase =
+          .target_phase_index =
               PhaseIndex {
                   1,
               },
@@ -806,7 +1186,6 @@ TEST_CASE("elastic_filter_solve free function succeeds")  // NOLINT
   };
 
   SolverOptions opts;
-  opts.reuse_basis = true;
 
   auto elastic = elastic_filter_solve(li, links, 1e6, opts);
   // The result depends on whether the column is truly fixed (low==upp)
@@ -820,595 +1199,29 @@ TEST_CASE("elastic_filter_solve free function succeeds")  // NOLINT
 }
 
 // ---------------------------------------------------------------------------
-// propagate_trial_values_row_dual
-// ---------------------------------------------------------------------------
-
-TEST_CASE("propagate_trial_values_row_dual adds coupling rows")  // NOLINT
-{
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
-  LinearInterface li;
-  // source columns
-  const auto s1 = li.add_col(SparseCol {
-      .lowb = 0.0,
-      .uppb = 100.0,
-      .name = "s1",
-  });
-  const auto s2 = li.add_col(SparseCol {
-      .lowb = 0.0,
-      .uppb = 100.0,
-      .name = "s2",
-  });
-  // dependent columns
-  const auto d1 = li.add_col(SparseCol {
-      .lowb = 0.0,
-      .uppb = 100.0,
-      .name = "d1",
-  });
-  const auto d2 = li.add_col(SparseCol {
-      .lowb = 0.0,
-      .uppb = 100.0,
-      .name = "d2",
-  });
-
-  std::vector<StateVarLink> links = {
-      {
-          .source_col = s1,
-          .dependent_col = d1,
-          .source_low = 0.0,
-          .source_upp = 100.0,
-      },
-      {
-          .source_col = s2,
-          .dependent_col = d2,
-          .source_low = 0.0,
-          .source_upp = 100.0,
-      },
-  };
-
-  // Source solution: s1=25, s2=50
-  std::vector<double> source_sol = {
-      25.0,
-      50.0,
-      0.0,
-      0.0,
-  };
-
-  CHECK(li.get_numrows() == 0);
-  propagate_trial_values_row_dual(links, source_sol, li);
-
-  SUBCASE("trial values are set correctly")
-  {
-    CHECK(links[0].trial_value == doctest::Approx(25.0));
-    CHECK(links[1].trial_value == doctest::Approx(50.0));
-  }
-
-  SUBCASE("dependent columns keep physical bounds (not fixed)")
-  {
-    CHECK(li.get_col_low()[d1] == doctest::Approx(0.0));
-    CHECK(li.get_col_upp()[d1] == doctest::Approx(100.0));
-    CHECK(li.get_col_low()[d2] == doctest::Approx(0.0));
-    CHECK(li.get_col_upp()[d2] == doctest::Approx(100.0));
-  }
-
-  SUBCASE("explicit coupling constraint rows were added")
-  {
-    CHECK(li.get_numrows() == 2);
-  }
-
-  SUBCASE("coupling_row indices are stored in links")
-  {
-    CHECK(links[0].coupling_row
-          != RowIndex {
-              unknown_index,
-          });
-    CHECK(links[1].coupling_row
-          != RowIndex {
-              unknown_index,
-          });
-    // Rows should be sequential
-    CHECK(static_cast<Index>(links[1].coupling_row)
-          == static_cast<Index>(links[0].coupling_row) + 1);
-  }
-}
-
-// ---------------------------------------------------------------------------
-// build_benders_cut_from_row_duals
-// ---------------------------------------------------------------------------
-
-TEST_CASE("build_benders_cut_from_row_duals basic cut")  // NOLINT
-{
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
-  // Same scenario as build_benders_cut, but using row duals instead of
-  // reduced costs.  The math is identical:
-  //   α >= z + π1*(x1 - v1) + π2*(x2 - v2)
-  const ColIndex alpha {
-      0,
-  };
-  std::vector<StateVarLink> links = {
-      {
-          .source_col =
-              ColIndex {
-                  1,
-              },
-          .dependent_col =
-              ColIndex {
-                  10,
-              },
-          .trial_value = 5.0,
-          .coupling_row =
-              RowIndex {
-                  3,
-              },
-      },
-      {
-          .source_col =
-              ColIndex {
-                  2,
-              },
-          .dependent_col =
-              ColIndex {
-                  11,
-              },
-          .trial_value = 3.0,
-          .coupling_row =
-              RowIndex {
-                  4,
-              },
-      },
-  };
-
-  // Row duals at coupling constraint rows
-  std::vector<double> row_duals(5, 0.0);
-  row_duals[3] = 2.0;  // π1
-  row_duals[4] = -1.0;  // π2
-
-  const double obj_value = 100.0;
-  auto cut =
-      build_benders_cut_from_row_duals(alpha, links, row_duals, obj_value);
-  // α coefficient = 1.0
-  CHECK(cut.cmap.at(alpha) == doctest::Approx(1.0));
-  // source_col[0] coefficient = -π1 = -2.0
-  CHECK(cut.cmap.at(ColIndex {
-            1,
-        })
-        == doctest::Approx(-2.0));
-  // source_col[1] coefficient = -π2 = 1.0
-  CHECK(cut.cmap.at(ColIndex {
-            2,
-        })
-        == doctest::Approx(1.0));
-  // lowb = obj - π1*v1 - π2*v2 = 100 - 2*5 - (-1)*3 = 93
-  CHECK(cut.lowb == doctest::Approx(93.0));
-  CHECK(cut.uppb == LinearProblem::DblMax);
-}
-
-TEST_CASE(
-    "build_benders_cut and row_duals produce same cut for equivalent "
-    "duals")  // NOLINT
-{
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
-  // When reduced costs and row duals report the same values, the two
-  // cut builders must produce identical results.
-  const ColIndex alpha {
-      0,
-  };
-
-  // Reduced-cost links (dependent_col index into rc vector)
-  std::vector<StateVarLink> rc_links = {
-      {
-          .source_col =
-              ColIndex {
-                  1,
-              },
-          .dependent_col =
-              ColIndex {
-                  5,
-              },
-          .trial_value = 10.0,
-      },
-  };
-  std::vector<double> rc(6, 0.0);
-  rc[5] = 3.5;
-
-  // Row-dual links (coupling_row index into row_duals vector)
-  std::vector<StateVarLink> rd_links = {
-      {
-          .source_col =
-              ColIndex {
-                  1,
-              },
-          .dependent_col =
-              ColIndex {
-                  5,
-              },
-          .trial_value = 10.0,
-          .coupling_row =
-              RowIndex {
-                  2,
-              },
-      },
-  };
-  std::vector<double> row_duals(3, 0.0);
-  row_duals[2] = 3.5;  // same value as rc[5]
-
-  auto cut_rc = build_benders_cut(alpha, rc_links, rc, 200.0);
-  auto cut_rd =
-      build_benders_cut_from_row_duals(alpha, rd_links, row_duals, 200.0);
-
-  CHECK(cut_rc.lowb == doctest::Approx(cut_rd.lowb));
-  CHECK(cut_rc.cmap.at(alpha) == doctest::Approx(cut_rd.cmap.at(alpha)));
-  CHECK(cut_rc.cmap.at(ColIndex {
-            1,
-        })
-        == doctest::Approx(cut_rd.cmap.at(ColIndex {
-            1,
-        })));
-}
-
-// ---------------------------------------------------------------------------
-// build_benders_cut with cut_coeff_eps filtering
-// ---------------------------------------------------------------------------
-
-TEST_CASE("build_benders_cut filters tiny coefficients via cut_coeff_eps")
-{
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
-  const ColIndex alpha {
-      0,
-  };
-  const std::vector<StateVarLink> links = {
-      {
-          .source_col =
-              ColIndex {
-                  1,
-              },
-          .dependent_col =
-              ColIndex {
-                  10,
-              },
-          .trial_value = 5.0,
-      },
-      {
-          .source_col =
-              ColIndex {
-                  2,
-              },
-          .dependent_col =
-              ColIndex {
-                  11,
-              },
-          .trial_value = 3.0,
-      },
-  };
-
-  std::vector<double> rc(12, 0.0);
-  rc[10] = 2.0;  // significant coefficient
-  rc[11] = 1e-14;  // numerically tiny — should be filtered
-
-  const double obj_value = 100.0;
-
-  SUBCASE("eps=0 keeps all coefficients")
-  {
-    auto cut = build_benders_cut(alpha, links, rc, obj_value);
-    // Both coefficients present
-    CHECK(cut.cmap.contains(ColIndex {
-        1,
-    }));
-    CHECK(cut.cmap.contains(ColIndex {
-        2,
-    }));
-    CHECK(cut.cmap.at(ColIndex {
-              2,
-          })
-          == doctest::Approx(-1e-14));
-    // lowb includes tiny rc adjustment: 100 - 2*5 - 1e-14*3
-    CHECK(cut.lowb == doctest::Approx(90.0).epsilon(1e-10));
-  }
-
-  SUBCASE("eps=1e-12 filters tiny coefficient")
-  {
-    auto cut = build_benders_cut(alpha, links, rc, obj_value, 1.0, 1e-12);
-    // Only the significant coefficient survives
-    CHECK(cut.cmap.contains(ColIndex {
-        1,
-    }));
-    CHECK_FALSE(cut.cmap.contains(ColIndex {
-        2,
-    }));
-    // lowb = 100 - 2*5 = 90 (no tiny adjustment)
-    CHECK(cut.lowb == doctest::Approx(90.0));
-  }
-
-  SUBCASE("eps larger than all coefficients removes all link terms")
-  {
-    auto cut = build_benders_cut(alpha, links, rc, obj_value, 1.0, 100.0);
-    // Only alpha column remains
-    CHECK(cut.cmap.size() == 1);
-    CHECK(cut.cmap.contains(alpha));
-    CHECK(cut.lowb == doctest::Approx(100.0));
-  }
-}
-
-// ---------------------------------------------------------------------------
-// rescale_benders_cut
-// ---------------------------------------------------------------------------
-
-TEST_CASE("rescale_benders_cut scales down large coefficients")
-{
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
-  const ColIndex alpha {
-      0,
-  };
-  auto row = SparseRow {
-      .lowb = 1e9,
-      .uppb = LinearProblem::DblMax,
-  };
-  row[alpha] = 1000.0;  // scale_alpha
-  row[ColIndex {
-      1,
-  }] = -2e8;  // large coeff
-  row[ColIndex {
-      2,
-  }] = 5e7;  // medium coeff
-
-  // max|coeff| = 2e8, threshold = 1e6 → scale_factor = 200
-  const bool scaled = rescale_benders_cut(row, alpha, 1e6);
-  CHECK(scaled);
-
-  // All coefficients divided by 200
-  CHECK(row[alpha] == doctest::Approx(1000.0 / 200.0));
-  CHECK(row[ColIndex {
-            1,
-        }]
-        == doctest::Approx(-2e8 / 200.0));
-  CHECK(row[ColIndex {
-            2,
-        }]
-        == doctest::Approx(5e7 / 200.0));
-  CHECK(row.lowb == doctest::Approx(1e9 / 200.0));
-  CHECK(row.uppb == LinearProblem::DblMax);  // DblMax preserved
-}
-
-TEST_CASE("rescale_benders_cut does nothing when below threshold")
-{
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
-  const ColIndex alpha {
-      0,
-  };
-  auto row = SparseRow {
-      .lowb = 100.0,
-      .uppb = LinearProblem::DblMax,
-  };
-  row[alpha] = 1.0;
-  row[ColIndex {
-      1,
-  }] = -5.0;
-
-  const bool scaled = rescale_benders_cut(row, alpha, 1e6);
-  CHECK_FALSE(scaled);
-  CHECK(row[ColIndex {
-            1,
-        }]
-        == doctest::Approx(-5.0));
-}
-
-TEST_CASE("rescale_benders_cut disabled when threshold is zero")
-{
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
-  const ColIndex alpha {
-      0,
-  };
-  auto row = SparseRow {
-      .lowb = 1e20,
-      .uppb = LinearProblem::DblMax,
-  };
-  row[alpha] = 1.0;
-  row[ColIndex {
-      1,
-  }] = -1e15;
-
-  const bool scaled = rescale_benders_cut(row, alpha, 0.0);
-  CHECK_FALSE(scaled);
-}
-
-// ---------------------------------------------------------------------------
-// filter_cut_coefficients
-// ---------------------------------------------------------------------------
-
-TEST_CASE("filter_cut_coefficients removes small coefficients")
-{
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
-  const ColIndex alpha {
-      0,
-  };
-  auto row = SparseRow {
-      .lowb = 100.0,
-      .uppb = LinearProblem::DblMax,
-  };
-  row[alpha] = 1.0;
-  row[ColIndex {
-      1,
-  }] = -5.0;
-  row[ColIndex {
-      2,
-  }] = 1e-13;  // tiny
-  row[ColIndex {
-      3,
-  }] = -1e-14;  // tiny
-
-  filter_cut_coefficients(row, alpha, 1e-12);
-
-  CHECK(row.cmap.contains(alpha));  // α never filtered
-  CHECK(row.cmap.contains(ColIndex {
-      1,
-  }));  // significant
-  CHECK_FALSE(row.cmap.contains(ColIndex {
-      2,
-  }));  // filtered
-  CHECK_FALSE(row.cmap.contains(ColIndex {
-      3,
-  }));  // filtered
-}
-
-TEST_CASE("filter_cut_coefficients preserves alpha even if tiny")
-{
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
-  const ColIndex alpha {
-      0,
-  };
-  auto row = SparseRow {
-      .lowb = 0.0,
-      .uppb = LinearProblem::DblMax,
-  };
-  row[alpha] = 1e-15;  // α is tiny but must survive
-
-  filter_cut_coefficients(row, alpha, 1e-12);
-  CHECK(row.cmap.contains(alpha));
-}
-
-TEST_CASE("rescale then filter produces clean cut")
-{
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
-  const ColIndex alpha {
-      0,
-  };
-  auto row = SparseRow {
-      .lowb = 1e10,
-      .uppb = LinearProblem::DblMax,
-  };
-  row[alpha] = 1000.0;
-  row[ColIndex {
-      1,
-  }] = -1e8;  // significant
-  row[ColIndex {
-      2,
-  }] = 1e-4;  // small before rescale, will be ~1e-10 after
-
-  // Rescale: max|coeff| = 1e8, threshold = 1e6 → scale_factor = 100
-  rescale_benders_cut(row, alpha, 1e6);
-  CHECK(row[ColIndex {
-            1,
-        }]
-        == doctest::Approx(-1e6));
-  CHECK(row[ColIndex {
-            2,
-        }]
-        == doctest::Approx(1e-6));
-
-  // Filter: 1e-6 < 1e-5 → col 2 removed
-  filter_cut_coefficients(row, alpha, 1e-5);
-  CHECK(row.cmap.contains(ColIndex {
-      1,
-  }));
-  CHECK_FALSE(row.cmap.contains(ColIndex {
-      2,
-  }));
-}
-
-// ---------------------------------------------------------------------------
-// cut_coeff_eps filtering (build_benders_cut_from_row_duals)
-// ---------------------------------------------------------------------------
-
-TEST_CASE(
-    "build_benders_cut_from_row_duals filters tiny coefficients via "
-    "cut_coeff_eps")
-{
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
-  const ColIndex alpha {
-      0,
-  };
-  std::vector<StateVarLink> links = {
-      {
-          .source_col =
-              ColIndex {
-                  1,
-              },
-          .dependent_col =
-              ColIndex {
-                  10,
-              },
-          .trial_value = 5.0,
-          .coupling_row =
-              RowIndex {
-                  3,
-              },
-      },
-      {
-          .source_col =
-              ColIndex {
-                  2,
-              },
-          .dependent_col =
-              ColIndex {
-                  11,
-              },
-          .trial_value = 3.0,
-          .coupling_row =
-              RowIndex {
-                  4,
-              },
-      },
-  };
-
-  std::vector<double> row_duals(5, 0.0);
-  row_duals[3] = 2.0;  // significant
-  row_duals[4] = -1e-15;  // tiny — should be filtered
-
-  const double obj_value = 100.0;
-
-  SUBCASE("eps=0 keeps all")
-  {
-    auto cut =
-        build_benders_cut_from_row_duals(alpha, links, row_duals, obj_value);
-    CHECK(cut.cmap.contains(ColIndex {
-        2,
-    }));
-  }
-
-  SUBCASE("eps=1e-12 filters tiny row dual")
-  {
-    auto cut = build_benders_cut_from_row_duals(
-        alpha, links, row_duals, obj_value, 1.0, 1e-12);
-    CHECK(cut.cmap.contains(ColIndex {
-        1,
-    }));
-    CHECK_FALSE(cut.cmap.contains(ColIndex {
-        2,
-    }));
-    CHECK(cut.lowb == doctest::Approx(90.0));
-  }
-}
-
-// ---------------------------------------------------------------------------
 // Elastic filter scaling with large energy_scale reservoir
 // ---------------------------------------------------------------------------
 
 TEST_CASE(  // NOLINT
-    "elastic filter penalty scales correctly with large energy_scale")
+    "elastic filter slack costs are unit under Chinneck Phase-1")
 {
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
-  // Scenario: a reservoir with physical volume ~1000 hm³
-  //   energy_scale = 1000  → LP efin variable ≈ 1.0
-  //   state_fail_cost = 1000 $/MWh, mean_production_factor = 5 MWh/hm³
-  //   → scost = 5000 $/hm³
-  //   scale_objective = 1e7
-  //   → link.scost = 5000 / 1e7 = 5e-4  (pre-divided)
-  //   → link.var_scale = 1000
-  //   → penalty on slack = 5e-4 × 1000 = 0.5  (LP units)
+  // Chinneck Phase-1 convention for SDDP feasibility cuts (see
+  // `elastic_filter_solve` in source/benders_cut.cpp, PLP `plp-bc.f`,
+  // and Chinneck (2008) "Feasibility and Infeasibility in
+  // Optimization" § 4):
+  //   - Every original objective coefficient is zeroed on the clone.
+  //   - Slack variables added by `relax_fixed_state_variable` get
+  //     cost = 1.0 regardless of link.scost or global penalty.
+  //   - The relaxed LP's optimum = Σ(s⁺ + s⁻) = pure feasibility
+  //     gap — independent of dispatch cost structure.
   //
-  // This test verifies that the elastic penalty coefficient is O(1) and
-  // does not produce ill-conditioned cut coefficients.
+  // Keeping original obj or scost-scaled slack cost would leak
+  // state-dependent opex into the Benders feasibility-cut RHS and
+  // drive α to diverge under SDDP iteration (observed on
+  // juan/gtopt_iplp).  `link.scost` and the global `penalty`
+  // argument are retained only for signature stability.
 
   constexpr double energy_scale = 1000.0;
   constexpr double scale_obj = 1e7;
@@ -1426,12 +1239,10 @@ TEST_CASE(  // NOLINT
   const auto efin = li.add_col(SparseCol {
       .lowb = 0.0,
       .uppb = 1.0,
-      .name = "efin",
   });  // [0, 1000 hm³] in LP
   const auto alpha = li.add_col(SparseCol {
       .lowb = 0.0,
       .uppb = LinearProblem::DblMax,
-      .name = "alpha",
   });
 
   // Objective: small coefficient on efin (normal LP scale)
@@ -1460,11 +1271,11 @@ TEST_CASE(  // NOLINT
                   99,
               },
           .dependent_col = efin,
-          .source_phase =
+          .source_phase_index =
               PhaseIndex {
                   0,
               },
-          .target_phase =
+          .target_phase_index =
               PhaseIndex {
                   1,
               },
@@ -1476,7 +1287,7 @@ TEST_CASE(  // NOLINT
       },
   };
 
-  SUBCASE("relax_fixed_state_variable uses scost × var_scale as penalty")
+  SUBCASE("relax_fixed_state_variable adds unit-cost slacks")
   {
     auto clone = li.clone();
     auto info = relax_fixed_state_variable(clone,
@@ -1488,16 +1299,12 @@ TEST_CASE(  // NOLINT
 
     REQUIRE(info.relaxed);
 
-    // The penalty should be scost × var_scale = 5e-4 × 1000 = 0.5
-    const auto expected_penalty = link_scost * energy_scale;
-    CHECK(expected_penalty == doctest::Approx(0.5));
-
-    // Verify slack objective coefficients match
+    // Chinneck Phase-1: unit slack cost regardless of link.scost.
     const auto obj = clone.get_obj_coeff();
-    CHECK(obj[info.sup_col] == doctest::Approx(expected_penalty));
-    CHECK(obj[info.sdn_col] == doctest::Approx(expected_penalty));
+    CHECK(obj[info.sup_col] == doctest::Approx(1.0));
+    CHECK(obj[info.sdn_col] == doctest::Approx(1.0));
 
-    // Penalty is O(1), not O(1e6) — well-conditioned
+    // Sanity: well-conditioned coefficients.
     CHECK(obj[info.sup_col] < 10.0);
     CHECK(obj[info.sup_col] > 1e-6);
   }
@@ -1512,11 +1319,12 @@ TEST_CASE(  // NOLINT
     if (elastic.has_value()) {
       REQUIRE(elastic->clone.is_optimal());
 
-      // Build a Benders cut from the elastic result
-      auto cut = build_benders_cut(alpha,
-                                   links,
-                                   elastic->clone.get_col_cost_raw(),
-                                   elastic->clone.get_obj_value());
+      // Build a Benders cut from the elastic result (physical space).
+      auto cut =
+          build_benders_cut_physical(alpha,
+                                     links,
+                                     elastic->clone,
+                                     elastic->clone.get_obj_value_physical());
 
       // Cut coefficient on source_col should be the reduced cost
       // of the dependent column — proportional to the penalty, not huge
@@ -1532,9 +1340,11 @@ TEST_CASE(  // NOLINT
     }
   }
 
-  SUBCASE("global penalty fallback when scost is zero")
+  SUBCASE("slack cost remains unit when scost is zero")
   {
-    // When scost=0, the global penalty is used instead
+    // Under Chinneck Phase-1, neither scost nor the global penalty
+    // parameter is consulted — slack cost is always 1.0.  Verify
+    // with scost = 0 and a non-zero global penalty argument.
     auto link_no_scost = links[0];
     link_no_scost.scost = 0.0;
 
@@ -1550,13 +1360,9 @@ TEST_CASE(  // NOLINT
 
     REQUIRE(info.relaxed);
 
-    // Penalty = global_penalty × var_scale = 1e-4 × 1000 = 0.1
-    const auto expected_penalty = global_penalty * energy_scale;
-    CHECK(expected_penalty == doctest::Approx(0.1));
-
     const auto obj = clone.get_obj_coeff();
-    CHECK(obj[info.sup_col] == doctest::Approx(expected_penalty));
-    CHECK(obj[info.sdn_col] == doctest::Approx(expected_penalty));
+    CHECK(obj[info.sup_col] == doctest::Approx(1.0));
+    CHECK(obj[info.sdn_col] == doctest::Approx(1.0));
   }
 
   SUBCASE("penalty without scaling would be ill-conditioned")
@@ -1571,5 +1377,251 @@ TEST_CASE(  // NOLINT
 
     // The properly scaled penalty is O(1)
     CHECK(scaled_penalty == doctest::Approx(0.5));
+  }
+}
+
+// ---------------------------------------------------------------------------
+// chinneck_filter_solve — Chinneck IIS filter
+// ---------------------------------------------------------------------------
+//
+// Helper: build a small LP with two columns x1, x2 — both fixable as
+// state-variable links — and two upper-bound constraints x1 ≤ ub1,
+// x2 ≤ ub2.  The trial values then drive which links are essential
+// after elastic relaxation.
+namespace
+{
+
+struct ChinneckFixture
+{
+  LinearInterface li {};
+  ColIndex x1 {};
+  ColIndex x2 {};
+  std::vector<StateVarLink> links {};
+
+  ChinneckFixture(double trial1,
+                  double trial2,
+                  double ub1 = 10.0,
+                  double ub2 = 50.0)
+  {
+    x1 = li.add_col(SparseCol {.lowb = 0.0, .uppb = ub1 + 1000.0});
+    x2 = li.add_col(SparseCol {.lowb = 0.0, .uppb = ub2 + 1000.0});
+    li.set_obj_coeff(x1, 1.0);
+    li.set_obj_coeff(x2, 1.0);
+
+    SparseRow r1;
+    r1[x1] = 1.0;
+    r1.uppb = ub1;
+    r1.lowb = -LinearProblem::DblMax;
+    li.add_row(r1);
+
+    SparseRow r2;
+    r2[x2] = 1.0;
+    r2.uppb = ub2;
+    r2.lowb = -LinearProblem::DblMax;
+    li.add_row(r2);
+
+    auto res = li.initial_solve();
+    REQUIRE(res.has_value());
+    REQUIRE(li.is_optimal());
+
+    // Pin both columns at the trial values (state-variable convention).
+    li.set_col(x1, trial1);
+    li.set_col(x2, trial2);
+
+    links = {
+        {
+            .source_col = ColIndex {99},
+            .dependent_col = x1,
+            .target_phase_index = PhaseIndex {1},
+            .trial_value = trial1,
+            .source_low = 0.0,
+            .source_upp = ub1 + 1000.0,
+        },
+        {
+            .source_col = ColIndex {100},
+            .dependent_col = x2,
+            .target_phase_index = PhaseIndex {1},
+            .trial_value = trial2,
+            .source_low = 0.0,
+            .source_upp = ub2 + 1000.0,
+        },
+    };
+  }
+};
+
+}  // namespace
+
+TEST_CASE(  // NOLINT
+    "chinneck_filter_solve filters non-essential link")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  // trial1 = 5  (≤ ub1 = 10 — feasible, link non-essential)
+  // trial2 = 100 (> ub2 = 50  — infeasible, link essential)
+  ChinneckFixture fx {5.0, 100.0};
+  SolverOptions opts;
+
+  auto result = chinneck_filter_solve(fx.li, fx.links, 1e3, opts);
+
+  REQUIRE(result.has_value());
+  REQUIRE(result->link_infos.size() == 2);
+
+  // Link 1 (trial=5, ub=10): non-essential — slack cols cleared.
+  CHECK(result->link_infos[0].sup_col == ColIndex {unknown_index});
+  CHECK(result->link_infos[0].sdn_col == ColIndex {unknown_index});
+
+  // Link 2 (trial=100, ub=50): essential — slack cols preserved.
+  CHECK(result->link_infos[1].sup_col != ColIndex {unknown_index});
+  CHECK(result->link_infos[1].sdn_col != ColIndex {unknown_index});
+
+  // Clone is still optimal after the IIS-filter re-fix solve.
+  CHECK(result->clone.is_optimal());
+}
+
+TEST_CASE(  // NOLINT
+    "chinneck_filter_solve preserves all when full IIS")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  // Both trial values infeasible — every relaxed bound is essential.
+  ChinneckFixture fx {500.0, 500.0};
+  SolverOptions opts;
+
+  auto result = chinneck_filter_solve(fx.li, fx.links, 1e3, opts);
+
+  REQUIRE(result.has_value());
+  REQUIRE(result->link_infos.size() == 2);
+
+  // Both links remain active — no filtering possible.
+  CHECK(result->link_infos[0].sup_col != ColIndex {unknown_index});
+  CHECK(result->link_infos[0].sdn_col != ColIndex {unknown_index});
+  CHECK(result->link_infos[1].sup_col != ColIndex {unknown_index});
+  CHECK(result->link_infos[1].sdn_col != ColIndex {unknown_index});
+}
+
+TEST_CASE(  // NOLINT
+    "chinneck_filter_solve all-feasible trials yield zero-active result")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  // Both trial values within bounds — no slack should activate.
+  ChinneckFixture fx {3.0, 20.0};
+  SolverOptions opts;
+
+  auto result = chinneck_filter_solve(fx.li, fx.links, 1e3, opts);
+
+  // When all relaxed bounds are inactive the function returns the full
+  // elastic result unchanged (no filtering needed).
+  REQUIRE(result.has_value());
+  REQUIRE(result->link_infos.size() == 2);
+  CHECK(result->clone.is_optimal());
+
+  // The full-elastic-pass result preserves slack columns even when slacks
+  // are zero — it's the chinneck IIS pass that would clear them, but here
+  // there is nothing to filter (n_active == 0 short-circuit).
+  CHECK(result->link_infos[0].relaxed);
+  CHECK(result->link_infos[1].relaxed);
+}
+
+TEST_CASE(  // NOLINT
+    "chinneck IIS-filtered build_multi_cuts emits cuts only on IIS subset")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  // Mixed: link 1 non-essential, link 2 essential.
+  ChinneckFixture fx {5.0, 100.0};
+  SolverOptions opts;
+
+  auto result = chinneck_filter_solve(fx.li, fx.links, 1e3, opts);
+  REQUIRE(result.has_value());
+
+  auto cuts = build_multi_cuts(*result, fx.links);
+
+  // build_multi_cuts skips links whose sup_col/sdn_col are unknown_index,
+  // so only the essential link 2 contributes — at most 2 cuts (ub + lb).
+  CHECK(cuts.size() <= 2);
+  for (const auto& cut : cuts) {
+    // Cuts on link 2's source_col only.
+    CHECK(cut.cmap.contains(ColIndex {100}));
+    CHECK_FALSE(cut.cmap.contains(ColIndex {99}));
+  }
+}
+
+// ---------------------------------------------------------------------------
+// ElasticFilterMode — exercise all four values via parser + dispatch
+// ---------------------------------------------------------------------------
+
+TEST_CASE(  // NOLINT
+    "ElasticFilterMode parses all four named modes plus aliases")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  CHECK(parse_elastic_filter_mode("single_cut")
+        == ElasticFilterMode::single_cut);
+  CHECK(parse_elastic_filter_mode("cut")  // alias
+        == ElasticFilterMode::single_cut);
+  CHECK(parse_elastic_filter_mode("multi_cut") == ElasticFilterMode::multi_cut);
+  CHECK(parse_elastic_filter_mode("chinneck") == ElasticFilterMode::chinneck);
+  CHECK(parse_elastic_filter_mode("iis")  // alias for chinneck
+        == ElasticFilterMode::chinneck);
+
+  // Unknown name (including the retired "backpropagate" mode) falls back
+  // to the default mode (chinneck — IIS-based).
+  CHECK(parse_elastic_filter_mode("backpropagate")
+        == ElasticFilterMode::chinneck);
+  CHECK(parse_elastic_filter_mode("nonsense") == ElasticFilterMode::chinneck);
+}
+
+TEST_CASE(  // NOLINT
+    "ElasticFilterMode every value yields a usable dispatch on a single LP")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  // Same LP, sweep all three modes.  We don't run a full SDDP solve
+  // here — that's covered by integration tests — but we verify the
+  // elastic pass + cut-construction pipeline runs end-to-end without
+  // crashing for every mode and produces a non-empty cut row when
+  // relevant.
+  for (const auto mode : {ElasticFilterMode::single_cut,
+                          ElasticFilterMode::multi_cut,
+                          ElasticFilterMode::chinneck})
+  {
+    CAPTURE(static_cast<int>(mode));
+
+    ChinneckFixture fx {5.0, 100.0};
+    SolverOptions opts;
+
+    // The elastic-pass entry point used by all modes is the free
+    // elastic_filter_solve / chinneck_filter_solve pair.  Mode dispatch
+    // happens at the call site (SDDPMethod::elastic_solve), so here we
+    // simulate that branch.
+    auto result = (mode == ElasticFilterMode::chinneck)
+        ? chinneck_filter_solve(fx.li, fx.links, 1e3, opts)
+        : elastic_filter_solve(fx.li, fx.links, 1e3, opts);
+
+    REQUIRE(result.has_value());
+    REQUIRE(result->link_infos.size() == 2);
+    CHECK(result->clone.is_optimal());
+
+    // single_cut consumes the elastic result via
+    // build_benders_cut_physical; multi_cut / chinneck additionally
+    // call build_multi_cuts.  Both should run without throwing.
+    auto bc =
+        build_benders_cut_physical(ColIndex {99},  // any source_col
+                                   fx.links,
+                                   result->clone,
+                                   result->clone.get_obj_value_physical());
+    CHECK(bc.cmap.size() >= 1);
+
+    if (mode == ElasticFilterMode::multi_cut
+        || mode == ElasticFilterMode::chinneck)
+    {
+      auto mc = build_multi_cuts(*result, fx.links);
+      // For chinneck, only the essential link contributes (cuts.size() ≤ 2).
+      // For multi_cut, both links may contribute (cuts.size() ≤ 4).
+      const std::size_t expected_max =
+          (mode == ElasticFilterMode::chinneck) ? 2 : 4;
+      CHECK(mc.size() <= expected_max);
+    }
   }
 }

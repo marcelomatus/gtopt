@@ -16,6 +16,7 @@
 #include <gtopt/output_context.hpp>
 #include <gtopt/simulation_lp.hpp>
 #include <gtopt/system_lp.hpp>
+#include <gtopt/utils.hpp>
 #include <zlib.h>
 #include <zstd.h>
 
@@ -636,7 +637,8 @@ TEST_CASE("OutputContext - CSV gzip output is readable through csv_read_table")
   REQUIRE(lp.resolve().has_value());
   system_lp.write_out();
 
-  const auto table = csv_read_table(tmpdir / "Generator" / "generation_sol");
+  const auto table =
+      csv_read_table(tmpdir / "Generator" / "generation_sol_s0_p0");
   REQUIRE(table.has_value());
   CHECK((table && (*table)->num_rows() > 0));
 
@@ -1087,9 +1089,9 @@ TEST_CASE(  // NOLINT
 
   // For each column: physical == raw * scale.
   // With no VariableScale entries, all scales default to 1.0.
-  for (size_t i = 0; i < col_sol.size(); ++i) {
-    const double scale = lp.get_col_scale(ColIndex {static_cast<Index>(i)});
-    CHECK(col_sol[i] == doctest::Approx(col_sol_raw[i] * scale));
+  for (const auto ci : iota_range<ColIndex>(0, col_sol.size())) {
+    const double scale = lp.get_col_scale(ci);
+    CHECK(col_sol[ci] == doctest::Approx(col_sol_raw[ci] * scale));
   }
 
   // Write output and verify files exist

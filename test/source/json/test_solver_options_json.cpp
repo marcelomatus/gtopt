@@ -18,8 +18,7 @@ TEST_CASE("SolverOptions JSON basic parsing")
     "algorithm": 3,
     "threads": 4,
     "presolve": true,
-    "log_level": 1,
-    "reuse_basis": false
+    "log_level": 1
   })";
 
   const SolverOptions opts = daw::json::from_json<SolverOptions>(json_data);
@@ -42,8 +41,7 @@ TEST_CASE("SolverOptions JSON with tolerances")
     "optimal_eps": 1e-8,
     "feasible_eps": 1e-7,
     "barrier_eps": 1e-10,
-    "log_level": 0,
-    "reuse_basis": false
+    "log_level": 0
   })";
 
   const SolverOptions opts = daw::json::from_json<SolverOptions>(json_data);
@@ -90,7 +88,6 @@ TEST_CASE("SolverOptions JSON empty object uses defaults")
   CHECK(opts.threads == 2);
   CHECK(opts.presolve == true);
   CHECK(opts.log_level == 0);
-  CHECK(opts.reuse_basis == false);
   CHECK_FALSE(opts.optimal_eps.has_value());
   CHECK_FALSE(opts.feasible_eps.has_value());
   CHECK_FALSE(opts.barrier_eps.has_value());
@@ -161,7 +158,6 @@ TEST_CASE("SolverOptions JSON partial object uses defaults for missing")
   CHECK(opts.threads == 16);
   CHECK(opts.presolve == true);
   CHECK(opts.log_level == 0);
-  CHECK(opts.reuse_basis == false);
 }
 
 TEST_CASE("SolverOptions JSON max_fallbacks parsing and round-trip")
