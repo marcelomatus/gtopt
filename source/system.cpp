@@ -132,10 +132,10 @@ void System::expand_batteries()
       } else {
         const auto src_label = std::visit(
             [](const auto& v) { return std::format("{}", v); }, src_id);
-        SPDLOG_WARN(std::format(
+        SPDLOG_WARN(
             "Battery '{}': source_generator '{}' not found in generator_array",
             battery.name,
-            src_label));
+            src_label);
       }
       battery.source_generator.reset();
     }

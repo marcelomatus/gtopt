@@ -186,7 +186,7 @@ int main(int argc, char** argv)
     return classify_error_exit_code(result.error());
   } catch (const std::exception& ex) {
     try {
-      spdlog::critical(std::format("Exception: {}", ex.what()));
+      spdlog::critical("Exception: {}", ex.what());
     } catch (...) {
       spdlog::critical(ex.what());
     }
