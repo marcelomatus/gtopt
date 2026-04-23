@@ -336,6 +336,152 @@ def model_to_visjs(model: GraphModel) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Public ReactFlow data export
+# ---------------------------------------------------------------------------
+
+
+def _reactflow_layout(model: GraphModel) -> dict[str, tuple[float, float]]:
+    """Compute a simple force-directed layout for ReactFlow.
+
+    Uses a circular fallback layout when networkx is not available,
+    and a spring layout (fruchterman_reingold) otherwise.  Returns a
+    dict mapping ``node_id`` to ``(x, y)`` pixel coordinates.
+    """
+    if not model.nodes:
+        return {}
+
+    try:
+        import math
+
+        import networkx as nx
+
+        graph: nx.Graph = nx.Graph()
+        for node in model.nodes:
+            graph.add_node(node.node_id)
+        for edge in model.edges:
+            if edge.src in graph and edge.dst in graph:
+                graph.add_edge(edge.src, edge.dst)
+
+        # spring_layout returns coords in [-1, 1]; scale to a reasonable pixel grid
+        k = 1.5 / math.sqrt(max(1, len(model.nodes)))
+        pos = nx.spring_layout(graph, k=k, seed=42, iterations=100)
+        scale = 150.0 * math.sqrt(max(1, len(model.nodes)))
+        return {
+            nid: (float(x) * scale, float(y) * scale) for nid, (x, y) in pos.items()
+        }
+    except ImportError:
+        # Fallback: circular layout
+        import math
+
+        n = len(model.nodes)
+        radius = max(120.0, 40.0 * n / (2.0 * math.pi))
+        return {
+            node.node_id: (
+                radius * math.cos(2.0 * math.pi * i / n),
+                radius * math.sin(2.0 * math.pi * i / n),
+            )
+            for i, node in enumerate(model.nodes)
+        }
+
+
+# Mapping from GraphModel node kinds to ReactFlow custom node `type` identifiers.
+# These identifiers are consumed by the ReactFlow frontend to select a custom
+# node component.  Unknown kinds fall back to "default".
+_REACTFLOW_NODE_TYPE = {
+    "bus": "bus",
+    "gen": "generator",
+    "gen_solar": "generator",
+    "gen_hydro": "generator",
+    "gen_wind": "generator",
+    "gen_thermal": "generator",
+    "gen_battery": "generator",
+    "demand": "demand",
+    "battery": "battery",
+    "converter": "converter",
+    "junction": "junction",
+    "reservoir": "reservoir",
+    "turbine": "turbine",
+    "flow": "flow",
+    "seepage": "seepage",
+    "reserve_zone": "reserve_zone",
+}
+
+
+def model_to_reactflow(model: GraphModel) -> dict:
+    """Convert a :class:`GraphModel` to a ReactFlow-compatible ``{nodes, edges}`` dict.
+
+    This is the **public API** for producing data consumable by a
+    `React Flow <https://reactflow.dev/>`_ ``<ReactFlow>`` component.  The
+    node layout is computed using a spring-force algorithm (or a circular
+    fallback if networkx is not available).
+
+    Returns a dict with two keys:
+
+    ``nodes``
+        A list of ReactFlow node objects, each with the fields ``id``, ``type``,
+        ``position`` (``{x, y}``), and ``data`` (``{label, tooltip, kind,
+        cluster, color}``).
+
+    ``edges``
+        A list of ReactFlow edge objects with ``id``, ``source``, ``target``,
+        ``label``, ``type``, ``animated``, ``style``, and ``data``.
+    """
+    layout = _reactflow_layout(model)
+
+    rf_nodes = []
+    for node in model.nodes:
+        colors = _PYVIS_COLORS.get(
+            node.kind, {"background": "#F0F0F0", "border": "#555"}
+        )
+        x, y = layout.get(node.node_id, (0.0, 0.0))
+        rf_nodes.append(
+            {
+                "id": node.node_id,
+                "type": _REACTFLOW_NODE_TYPE.get(node.kind, "default"),
+                "position": {"x": x, "y": y},
+                "data": {
+                    "label": node.label,
+                    "tooltip": node.tooltip or node.label,
+                    "kind": node.kind,
+                    "cluster": node.cluster or "",
+                    "background": colors.get("background", "#F0F0F0"),
+                    "border": colors.get("border", "#555"),
+                    "size": node.size
+                    if node.size > 0
+                    else _PYVIS_SIZE_MAP.get(node.kind, 20),
+                },
+            }
+        )
+
+    rf_edges = []
+    for i, edge in enumerate(model.edges):
+        edge_style = {
+            "stroke": edge.color or "#2C3E50",
+            "strokeWidth": max(1.0, min(6.0, edge.weight)),
+        }
+        if edge.style in ("dashed", "dotted"):
+            edge_style["strokeDasharray"] = "6 4"
+        rf_edges.append(
+            {
+                "id": f"e{i}",
+                "source": edge.src,
+                "target": edge.dst,
+                "label": edge.label.replace("\n", " ") if edge.label else "",
+                "type": "smoothstep",
+                "animated": edge.style == "animated",
+                "style": edge_style,
+                "markerEnd": ({"type": "arrowclosed"} if edge.directed else None),
+                "data": {
+                    "kind": edge.style,
+                    "weight": edge.weight,
+                },
+            }
+        )
+
+    return {"nodes": rf_nodes, "edges": rf_edges}
+
+
+# ---------------------------------------------------------------------------
 # Interactive HTML renderer (pyvis + font-awesome + custom icons)
 # ---------------------------------------------------------------------------
 

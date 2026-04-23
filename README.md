@@ -223,6 +223,26 @@ gtopt_gui system_c0.json
 
 For detailed usage and options, see [guiservice/GTOPT_GUI.md](guiservice/GTOPT_GUI.md).
 
+### GUI Plus (Next.js / React front-end)
+
+An alternative modern front-end — **GUI Plus** — is available under
+[`guiservice-plus/`](guiservice-plus/). It is a Next.js 15 + React 19 +
+Tailwind v4 + shadcn/ui single-page app that sits on top of the existing
+Flask `guiservice` and offers an interactive topology editor (ReactFlow),
+technology-coloured dispatch stack charts, SDDP convergence views, a merit
+order table, and a KPI dashboard.
+
+```bash
+# Launch both the Flask guiservice and GUI Plus together
+gtopt_gui --ui-plus --ui-plus-port 5002
+
+# Or run it standalone against an existing Flask guiservice
+cd guiservice-plus && npm install
+GTOPT_GUISERVICE_URL=http://localhost:5001 npm run dev -- -p 5002
+```
+
+See [guiservice-plus/README.md](guiservice-plus/README.md) for details.
+
 ### Quick Start with gtopt_guisrv
 
 For running the GUI service as a web server (without opening a browser):
