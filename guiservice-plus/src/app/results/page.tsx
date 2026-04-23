@@ -22,6 +22,8 @@ import { CapacityExpansion } from '@/components/results/capacity-expansion';
 import { SddpConvergence } from '@/components/results/sddp-convergence';
 import { MeritOrderTable } from '@/components/results/merit-order-table';
 import { KpiStrip } from '@/components/results/kpi-strip';
+import { EmissionsPanel } from '@/components/results/emissions-panel';
+import { ReserveMarginChart } from '@/components/results/reserve-margin-chart';
 
 export default function ResultsPage() {
   const results = useStore((s) => s.results);
@@ -90,6 +92,8 @@ export default function ResultsPage() {
               <TabsTrigger value="expansion">Expansion</TabsTrigger>
               <TabsTrigger value="sddp">SDDP convergence</TabsTrigger>
               <TabsTrigger value="merit">Merit order</TabsTrigger>
+              <TabsTrigger value="emissions">Emissions</TabsTrigger>
+              <TabsTrigger value="reserve">Reserve</TabsTrigger>
             </TabsList>
             <TabsContent value="dispatch">
               <DispatchStack results={results} />
@@ -105,6 +109,12 @@ export default function ResultsPage() {
             </TabsContent>
             <TabsContent value="merit">
               <MeritOrderTable results={results} />
+            </TabsContent>
+            <TabsContent value="emissions">
+              <EmissionsPanel />
+            </TabsContent>
+            <TabsContent value="reserve">
+              <ReserveMarginChart results={results} />
             </TabsContent>
           </Tabs>
         </>

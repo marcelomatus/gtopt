@@ -25,6 +25,7 @@ import { SimulationEditor } from '@/components/case/simulation-editor';
 import { ElementEditor } from '@/components/case/element-editor';
 import { CaseHealthPanel } from '@/components/case/case-health-panel';
 import { JsonPreviewDialog } from '@/components/case/json-preview-dialog';
+import { NewCaseWizard } from '@/components/case/new-case-wizard';
 import { ElementKind } from '@/lib/schemas';
 
 const SECTIONS: ElementKind[] = ['bus', 'generator', 'demand', 'line', 'battery'];
@@ -60,6 +61,12 @@ export default function CaseEditorPage() {
   });
 
   const [jsonOpen, setJsonOpen] = React.useState(false);
+  const [wizardOpen, setWizardOpen] = React.useState(false);
+
+  // Auto-open wizard when ?wizard=1
+  React.useEffect(() => {
+    if (search.get('wizard') === '1') setWizardOpen(true);
+  }, [search]);
 
   return (
     <div className="space-y-6">
@@ -73,6 +80,7 @@ export default function CaseEditorPage() {
           </p>
         </div>
         <div className="flex gap-2">
+          <Button onClick={() => setWizardOpen(true)}>New case…</Button>
           <Button variant="outline" onClick={() => setJsonOpen(true)}>
             Preview JSON
           </Button>
@@ -151,6 +159,7 @@ export default function CaseEditorPage() {
       </div>
 
       <JsonPreviewDialog open={jsonOpen} onOpenChange={setJsonOpen} />
+      <NewCaseWizard open={wizardOpen} onOpenChange={setWizardOpen} />
     </div>
   );
 }
