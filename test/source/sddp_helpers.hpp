@@ -2291,6 +2291,21 @@ inline auto make_backtracking_recovery_two_reservoir_planning() -> Planning
   options.scale_objective = OptReal {1.0};
   options.output_format = DataFormat::csv;
   options.output_compression = CompressionCodec::uncompressed;
+  // Give both reservoirs a non-unit energy scale so the eini/sini
+  // propagation path exercises the cross-phase scale conversion
+  // that `propagate_trial_values` (source/benders_cut.cpp:44-71)
+  // routes through physical space.  With the physical-space fix
+  // landed in 0a45e52b, phase N's sini must equal the physical
+  // end-of-phase state from phase N-1, regardless of the value of
+  // `var_scale`.  Before the fix (and without this non-unit scale)
+  // the pathological factor was masked because var_scale == 1.0.
+  options.variable_scales = {
+      {
+          .class_name = "Reservoir",
+          .variable = "energy",
+          .scale = 10.0,
+      },
+  };
 
   return Planning {
       .options = std::move(options),
