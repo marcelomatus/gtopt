@@ -1,8 +1,10 @@
 'use client';
 
-import { Moon, Sun, Laptop, Command as CmdIcon } from 'lucide-react';
+import { Moon, Sun, Laptop, Command as CmdIcon, Bot } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useStore, type Theme } from '@/lib/store';
+import { DEFAULT_AI_CONFIG } from '@/lib/ai-config';
+import { cn } from '@/lib/utils';
 
 function ThemeCycle() {
   const theme = useStore((s) => s.theme);
@@ -29,9 +31,13 @@ function ThemeCycle() {
 
 export function TopBar({
   onOpenCommandPalette,
+  onToggleAi,
 }: {
   onOpenCommandPalette?: () => void;
+  onToggleAi?: () => void;
 }) {
+  const aiEnabled = useStore((s) => (s.aiConfig ?? DEFAULT_AI_CONFIG).enabled);
+
   return (
     <header className="flex h-14 items-center justify-between border-b bg-background px-6">
       <div className="text-sm text-muted-foreground">
@@ -47,6 +53,26 @@ export function TopBar({
           <CmdIcon className="h-3.5 w-3.5" />
           <span className="text-xs">⌘K</span>
         </Button>
+
+        {/* AI toggle button */}
+        <Button
+          variant="ghost"
+          size="icon"
+          aria-label="Toggle AI chat panel"
+          onClick={onToggleAi}
+          className="relative"
+        >
+          <Bot className="h-4 w-4" />
+          {aiEnabled && (
+            <span
+              className={cn(
+                'absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-emerald-500 ring-2 ring-background',
+              )}
+              aria-label="AI enabled"
+            />
+          )}
+        </Button>
+
         <ThemeCycle />
       </div>
     </header>

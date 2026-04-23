@@ -1,6 +1,8 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { CaseData } from './api';
+import type { AiConfig, AiMessage } from './ai-config';
+import { DEFAULT_AI_CONFIG } from './ai-config';
 
 const BLANK_CASE: CaseData = {
   case_name: 'new_case',
@@ -36,6 +38,8 @@ type State = {
   theme: Theme;
 
   results: Record<string, unknown> | null;
+  aiConfig: AiConfig;
+  aiMessages: AiMessage[];
 
   setCaseData: (data: CaseData) => void;
   updateCaseData: (mutator: (draft: CaseData) => CaseData) => void;
@@ -52,6 +56,10 @@ type State = {
   setTheme: (theme: Theme) => void;
 
   setResults: (r: Record<string, unknown> | null) => void;
+  setAiConfig: (config: Partial<AiConfig>) => void;
+  addAiMessage: (msg: AiMessage) => void;
+  updateAiMessage: (id: string, patch: Partial<AiMessage>) => void;
+  clearAiMessages: () => void;
 };
 
 const MAX_HISTORY = 50;
@@ -67,6 +75,8 @@ export const useStore = create<State>()(
       selectedBlock: null,
       theme: 'system',
       results: null,
+      aiConfig: DEFAULT_AI_CONFIG,
+      aiMessages: [],
 
       setCaseData: (data) =>
         set((state) => ({
@@ -124,12 +134,24 @@ export const useStore = create<State>()(
       setTheme: (theme) => set({ theme }),
 
       setResults: (r) => set({ results: r }),
+      setAiConfig: (config) =>
+        set((state) => ({ aiConfig: { ...state.aiConfig, ...config } })),
+      addAiMessage: (msg) =>
+        set((state) => ({ aiMessages: [...state.aiMessages, msg] })),
+      updateAiMessage: (id, patch) =>
+        set((state) => ({
+          aiMessages: state.aiMessages.map((m) =>
+            m.id === id ? { ...m, ...patch } : m,
+          ),
+        })),
+      clearAiMessages: () => set({ aiMessages: [] }),
     }),
     {
       name: 'gtopt-gui-plus',
       partialize: (state) => ({
         caseData: state.caseData,
         theme: state.theme,
+        aiConfig: state.aiConfig,
       }),
     },
   ),
