@@ -1233,9 +1233,14 @@ TEST_CASE(  // NOLINT
 
     REQUIRE(info.relaxed);
 
-    // New convention: slack_cost = penalty × link.var_scale.
-    // penalty = 1e-4, var_scale = 1000 → slack_cost = 0.1.
-    const double expected_slack_cost = penalty * energy_scale;
+    // P0-A convention (2026-04-23): per-variable `link.scost` overrides
+    // the global `penalty` when set (> 0) — multi-reservoir fixtures
+    // with differing water values can now price their slacks differently.
+    //   expected_base = (scost > 0 ? scost : penalty)
+    //   slack_cost    = expected_base × var_scale
+    // Here scost = 5e-4 > 0, so expected = 5e-4 × 1000 = 0.5.
+    const double expected_base = (link_scost > 0.0) ? link_scost : penalty;
+    const double expected_slack_cost = expected_base * energy_scale;
     const auto obj = clone.get_obj_coeff();
     CHECK(obj[info.sup_col] == doctest::Approx(expected_slack_cost));
     CHECK(obj[info.sdn_col] == doctest::Approx(expected_slack_cost));

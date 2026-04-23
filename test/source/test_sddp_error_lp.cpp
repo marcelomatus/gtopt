@@ -238,18 +238,25 @@ TEST_CASE(  // NOLINT
   SDDPMethod sddp(planning_lp, sddp_opts);
   auto results = sddp.solve();
 
-  // Post-D1+D11 multi-cut rewrite (2026-04-22): the
-  // `make_forced_infeasibility_planning` fixture is no longer
-  // unrecoverable — Birge-Louveaux π-weighted cuts with
-  // `elastic_penalty × var_scale × phase_discount` slack pricing
-  // carve out the infeasible region on the first forward pass.
-  // The test originally characterized the OLD multi-cut behaviour
-  // (1.0-weighted bound-cut stacking that drove phase-0
-  // infeasibility).  It now acts as a regression guard against
-  // that failure mode coming back, which manifests as a
-  // *successful* solve instead of an unrecoverable-error exit.
-  CHECK(results.has_value());
-  CHECK_FALSE(logs.contains("elastic filter produced no feasibility cut"));
+  // Post-D3 slack-bound swap fix (2026-04-23): the
+  // `make_forced_infeasibility_planning` fixture is genuinely
+  // unrecoverable when D3 finite slack bounds are installed
+  // correctly.  Phase 0 drains the reservoir to eini=0 via cheap
+  // hydro dispatch (α=0 bootstrap), leaving phase 1 with 4 hm³ of
+  // inflow but a mandatory 8 hm³ discharge → infeasible.  The
+  // elastic filter installs an fcut on phase 0, but phase 0 is the
+  // boundary phase (no predecessor to recurse on), so recovery
+  // stops.  This matches PLP's behavior when reaching the boundary
+  // stage of an unrecoverable case.
+  //
+  // An intermediate 2026-04-22 commit observed a misleading
+  // "success" caused by a latent D3 sign-bug that made slacks
+  // degenerate → elastic_filter_solve returned `nullopt` → no
+  // cuts were ever installed → the forward pass ran oblivious.
+  // That was corrected in the 2026-04-23 D3 swap fix.
+  REQUIRE_FALSE(results.has_value());
+  CHECK(results.error().code == ErrorCode::SolverError);
+  CHECK(logs.contains("elastic filter produced no feasibility cut"));
 }
 
 }  // namespace

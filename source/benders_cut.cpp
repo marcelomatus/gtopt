@@ -233,10 +233,16 @@ auto build_feasibility_cut_physical(std::span<const StateVarLink> links,
         : 0.0;
     const double dx = sdn_val - sup_val;
 
+    // dx is in slack-col raw LP units; lift to physical via the
+    // state variable's var_scale so `v̂_phys + dx · var_scale`
+    // equals the clone's physical `dep` optimum.  Without the
+    // `× var_scale` factor the RHS silently miscomputes whenever
+    // var_scale ≠ 1 (RALCO/ELTORO energy state variables at √10
+    // triggered this in plp_2_years).
     const double v_hat_phys =
         (link.state_var != nullptr) ? link.state_var->col_sol_physical() : 0.0;
     row[link.source_col] = pi;
-    row.lowb += pi * (v_hat_phys + dx);
+    row.lowb += pi * (v_hat_phys + (dx * link.var_scale));
   }
 
   return row;
@@ -294,28 +300,68 @@ RelaxedVarInfo relax_fixed_state_variable(
   // (p19 vs p15), breaking the α-free degeneracy that was
   // diagnosed in the phase-13 thrash.  Previously hard-coded to
   // 1.0 (Chinneck (2008) § 4 pure-feasibility).
-  const double slack_cost = penalty * link.var_scale;
+  // P0-A fix (2026-04-23): per-variable `link.scost` overrides the
+  // global penalty when set (> 0).  `scost` is populated in
+  // `collect_state_variable_links` from `svar.scost() / scale_obj`,
+  // matching the pre-divide-by-scale_obj convention of `penalty`.
+  // Multi-reservoir fixtures with differing water values previously
+  // had this field silently discarded — every slack was priced at
+  // the same global penalty, breaking the elastic filter's ability
+  // to prefer cheap-to-violate variables over expensive ones.
+  const double base_penalty = (link.scost > 0.0) ? link.scost : penalty;
+  const double slack_cost = base_penalty * link.var_scale;
 
-  // Slack upper bounds: kept at DblMax (unconstrained).  PLP's
-  // `osi_lp_get_feasible_cut` bounds slacks by the physical
-  // distance to the source column box (`colub = source_upp −
-  // trial`; `collb = trial − source_low`), but that requires the
-  // caller to have populated both `source_low` / `source_upp` and
-  // the cross-phase scale to resolve to LP units.  Several
-  // internal test fixtures construct StateVarLinks with default
-  // `source_{low,upp} = 0` and `var_scale = 0`, which would
-  // produce zero-width slack boxes and render the elastic clone
-  // infeasible.  Leaving slacks unbounded keeps the clone solvable
-  // under any fixture; the weighted slack cost above plus the
-  // multi-cut RHS clamp in `build_multi_cuts` together enforce the
-  // same physical-feasibility guarantee.
+  // D3 — finite slack upper bounds matching PLP's
+  // `osicallsc.cpp::osi_lp_get_feasible_cut` convention.
+  //
+  // PLP's fixing equation is  `dep − sp + sn = trial`  (osicallsc.cpp
+  // :668,681 — sp has element −1.0, sn has element +1.0):
+  //     sp lifts dep UP,  sp.upper = colUpp − trial
+  //     sn pulls dep DOWN, sn.upper = trial − colLow
+  //
+  // gtopt's fixing equation is  `dep + sup − sdn = trial`:
+  //     sdn lifts dep UP,  sdn.upper = colUpp_LP − trial
+  //     sup pulls dep DOWN, sup.upper = trial − colLow_LP
+  //
+  // Note the NAMING is opposite between PLP (sp=up, sn=down) and
+  // gtopt (sdn=up, sup=down).  What matters is the SIGN of the
+  // coefficient on each slack in the fixing row.  The common
+  // physical meaning is: the upward slack is bounded by how much
+  // room there is to the column's upper bound; the downward
+  // slack is bounded by how much room there is to the column's
+  // lower bound.  `source_{low,upp}` are physical per 0a45e52b,
+  // so we convert to LP units via `source / var_scale` before
+  // subtracting the LP-space trial_value.
+  //
+  // Safety fallback: if `source_low == source_upp` (zero-width
+  // box — typically when a fixture forgets to populate bounds)
+  // OR `var_scale == 0`, the finite-bound math collapses.  In
+  // that degenerate case revert to `DblMax`, matching the pre-D3
+  // behaviour so unit-test scaffolds that haven't populated
+  // bounds still exercise the filter.
+  const bool have_finite_box =
+      (link.var_scale > 0.0) && (link.source_upp > link.source_low);
+  const double vs = have_finite_box ? link.var_scale : 1.0;
+  const double src_upp_lp =
+      have_finite_box ? link.source_upp / vs : LinearProblem::DblMax;
+  const double src_low_lp =
+      have_finite_box ? link.source_low / vs : -LinearProblem::DblMax;
+  // sdn lifts dep UP (coeff −1 in the fixing row → dep = trial + sdn − sup)
+  const double sdn_uppb = have_finite_box
+      ? std::max(0.0, src_upp_lp - link.trial_value)
+      : LinearProblem::DblMax;
+  // sup pulls dep DOWN (coeff +1 in the fixing row)
+  const double sup_uppb = have_finite_box
+      ? std::max(0.0, link.trial_value - src_low_lp)
+      : LinearProblem::DblMax;
+
   const auto sup = li.add_col(SparseCol {
-      .uppb = DblMax,
+      .uppb = sup_uppb,
       .cost = slack_cost,
   });
 
   const auto sdn = li.add_col(SparseCol {
-      .uppb = DblMax,
+      .uppb = sdn_uppb,
       .cost = slack_cost,
   });
 
@@ -636,10 +682,17 @@ auto build_multi_cuts(ElasticSolveResult& elastic,
       continue;
     }
 
-    // dx = sdn_val - sup_val (same sign convention as
-    // `build_feasibility_cut_physical`: our fixing equation is
-    // `dep + sup − sdn = v̂`, so at the elastic optimum
-    // `dep_clone = v̂ − sup + sdn = v̂ + dx`).
+    // dx = sdn_val - sup_val in slack-col raw LP units (slacks are
+    // added with col_scale = 1, so raw == physical for the slack
+    // itself).  Our fixing equation is `dep + sup − sdn = v̂`, so
+    // at the elastic optimum `dep_clone_lp = v̂_lp + dx` where
+    // `dx = sdn − sup`.  To lift `dep_clone` into physical units
+    // we multiply by the state variable's var_scale (source-col
+    // scale, equal to dep-col scale for shared state variables):
+    //     dep_clone_phys = v̂_phys + dx · var_scale
+    // Prior to 2026-04-22 this code used `v̂_phys + dx` directly,
+    // silently miscomputing the cut RHS when var_scale ≠ 1 (e.g.
+    // RALCO / ELTORO at √10).
     const double sup_val = (info.sup_col != ColIndex {unknown_index})
         ? sol_raw[info.sup_col]
         : 0.0;
@@ -650,16 +703,21 @@ auto build_multi_cuts(ElasticSolveResult& elastic,
 
     const double v_hat_phys =
         (link.state_var != nullptr) ? link.state_var->col_sol_physical() : 0.0;
+    const double dep_clone_phys = v_hat_phys + (dx * link.var_scale);
 
-    // Cut: pi · source_col ≥ pi · (v̂_phys + dx) + outward ε · |rhs|
-    const double rhs_base = pi * (v_hat_phys + dx);
+    // Cut: pi · source_col ≥ pi · dep_clone_phys + outward ε · |rhs|
+    const double rhs_base = pi * dep_clone_phys;
     const double eps_term = kFactEps * std::abs(rhs_base);
     const double rhs = rhs_base + ((pi > 0.0) ? eps_term : -eps_term);
 
-    // Clamp to source column's physical box so the cut never
-    // forces the source outside its own [source_low, source_upp].
-    // Mirrors PLP's `OptiMLD` clamp in `AgrResPD[v,i]` and our
-    // existing row-bound safety for single-variable bound cuts.
+    // Defensive clamp to the source column's physical box.  With
+    // finite D3 slack bounds (`relax_fixed_state_variable` caps
+    // sup/sdn by the distance from trial to the source-col
+    // feasible box in LP units), `dep_clone_phys` is already
+    // guaranteed to sit in [source_low, source_upp] — the clamp
+    // only bites when a fixture leaves `source_low == source_upp`
+    // or `var_scale == 0` and D3 falls back to DblMax bounds.
+    // Mirrors PLP's `OptiMLD` clamp in `AgrResPD[v,i]`.
     const double implied_bound = rhs / pi;
     const double clamped_bound =
         std::clamp(implied_bound, link.source_low, link.source_upp);
