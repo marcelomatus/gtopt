@@ -699,6 +699,15 @@ void OsiSolverBackend::push_names(const std::vector<std::string>& col_names,
 
 void OsiSolverBackend::write_lp(const char* filename)
 {
+  // CoinLpIO::setLpDataRowAndColNames validates rownames[nrow] as the
+  // objective function name slot.  OsiSolverInterface::getObjName()
+  // returns "" by default, which CoinLpIO treats as an invalid name and
+  // falls back to default "cons0/cons1/..." row labels — erasing all
+  // custom constraint names (including "sddp_fcut_...") from the LP file.
+  // Ensure the objective has a non-empty name before writing.
+  if (m_solver_->getObjName().empty()) {
+    m_solver_->setObjName("obj");
+  }
   m_solver_->writeLp(filename);
 }
 
