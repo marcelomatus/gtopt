@@ -361,7 +361,7 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
       {
         ir.converged = true;
         ir.stationary_converged = true;
-        m_converged_.store(true);
+        update_live_metrics_([](LiveMetrics& m) { m.converged = true; });
         SPDLOG_INFO(
             "SDDP Iter [i{}]: stationary gap convergence "
             "(gap_change={:.6f} < stationary_tol={:.6f}) [CONVERGED]",
@@ -437,7 +437,7 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
         if (gap_abs <= ci_threshold) {
           ir.converged = true;
           ir.statistical_converged = true;
-          m_converged_.store(true);
+          update_live_metrics_([](LiveMetrics& m) { m.converged = true; });
           SPDLOG_INFO(
               "SDDP Iter [i{}]: statistical CI convergence "
               "(UB-LB={:.4f} <= z*σ={:.4f}, z={:.3f}, "
@@ -458,7 +458,7 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
           ir.converged = true;
           ir.statistical_converged = true;
           ir.stationary_converged = true;
-          m_converged_.store(true);
+          update_live_metrics_([](LiveMetrics& m) { m.converged = true; });
           SPDLOG_INFO(
               "SDDP Iter [i{}]: statistical + stationary convergence "
               "(UB-LB={:.4f} > z*σ={:.4f} but gap_change={:.6f} "
@@ -1253,14 +1253,17 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
         }
       }
 
-      // Update live-query atomics
-      m_current_iteration_.store(next_converge_iteration_index);
-      m_current_gap_.store(ir.gap);
-      m_current_lb_.store(ir.lower_bound);
-      m_current_ub_.store(ir.upper_bound);
-      if (ir.converged) {
-        m_converged_.store(true);
-      }
+      // Publish a fresh coherent live-metrics snapshot.  Preserves the
+      // `converged` flag if an earlier in-iteration check already set
+      // it (stationary / CI convergence blocks above).
+      const bool was_converged = has_converged();
+      publish_live_metrics_(LiveMetrics {
+          .iteration = next_converge_iteration_index,
+          .gap = ir.gap,
+          .lower_bound = ir.lower_bound,
+          .upper_bound = ir.upper_bound,
+          .converged = ir.converged || was_converged,
+      });
 
       // Log aggregate with pool stats
       {
@@ -1323,12 +1326,13 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
 
         const auto min_ci = tracker.min_completed_iteration();
         const auto max_ci = tracker.max_completed_iteration();
+        const auto metrics = live_metrics_();
         const SolverStatusSnapshot snapshot {
-            .iteration = m_current_iteration_.load(),
-            .gap = m_current_gap_.load(),
-            .lower_bound = m_current_lb_.load(),
-            .upper_bound = m_current_ub_.load(),
-            .converged = m_converged_.load(),
+            .iteration_index = metrics->iteration,
+            .gap = metrics->gap,
+            .lower_bound = metrics->lower_bound,
+            .upper_bound = metrics->upper_bound,
+            .converged = metrics->converged,
             .max_iterations = m_options_.max_iterations,
             .min_iterations = m_options_.min_iterations,
             .current_pass = m_current_pass_.load(),

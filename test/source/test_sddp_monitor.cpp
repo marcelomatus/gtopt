@@ -31,7 +31,7 @@ TEST_CASE("SolverStatusSnapshot default construction")  // NOLINT
 
   const SolverStatusSnapshot snap {};
 
-  CHECK(snap.iteration == 0);
+  CHECK(snap.iteration_index == 0);
   CHECK(snap.gap == doctest::Approx(0.0));
   CHECK(snap.lower_bound == doctest::Approx(0.0));
   CHECK(snap.upper_bound == doctest::Approx(0.0));
@@ -47,7 +47,7 @@ TEST_CASE("SolverStatusSnapshot with custom values")  // NOLINT
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
   const SolverStatusSnapshot snap {
-      .iteration = 5,
+      .iteration_index = IterationIndex {5},
       .gap = 0.01,
       .lower_bound = 1000.0,
       .upper_bound = 1010.0,
@@ -58,7 +58,7 @@ TEST_CASE("SolverStatusSnapshot with custom values")  // NOLINT
       .scenes_done = 3,
   };
 
-  CHECK(snap.iteration == 5);
+  CHECK(snap.iteration_index == 5);
   CHECK(snap.gap == doctest::Approx(0.01));
   CHECK(snap.lower_bound == doctest::Approx(1000.0));
   CHECK(snap.upper_bound == doctest::Approx(1010.0));
@@ -103,7 +103,7 @@ TEST_CASE("write_solver_status produces valid JSON")  // NOLINT
           .string();
 
   const SolverStatusSnapshot snap {
-      .iteration = 3,
+      .iteration_index = IterationIndex {3},
       .gap = 0.05,
       .lower_bound = 950.0,
       .upper_bound = 1000.0,
@@ -204,7 +204,7 @@ TEST_CASE("write_solver_status handles empty results")  // NOLINT
                             .string();
 
   const SolverStatusSnapshot snap {
-      .iteration = 0,
+      .iteration_index = IterationIndex {0},
       .converged = false,
       .max_iterations = 50,
   };
@@ -238,7 +238,7 @@ TEST_CASE(
                             .string();
 
   const SolverStatusSnapshot snap {
-      .iteration = 10,
+      .iteration_index = IterationIndex {10},
       .gap = 1e-5,
       .lower_bound = 999.99,
       .upper_bound = 1000.0,
