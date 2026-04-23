@@ -716,17 +716,60 @@ void OsiSolverBackend::push_names(const std::vector<std::string>& col_names,
 
 void OsiSolverBackend::write_lp(const char* filename)
 {
-  // Defensive fallback when the caller bypassed `push_names` and the
-  // OSI objective-name slot is still empty.  `push_names` is the
-  // primary populator (it extends `row_names` by one slot with the
-  // obj label and seeds both `ClpModel::copyNames` and
-  // `setObjName`); if it ran, `getObjName()` is already "obj" here
-  // and this branch is a no-op.  Mirrors the intent of draft PR #429
-  // (94e35082).
-  if (m_solver_->getObjName().empty()) {
-    m_solver_->setObjName("obj");
+  // Bypass `OsiSolverInterface::writeLp` and call `writeLpNative`
+  // directly with explicit `(nrow+1)`-sized row-names and
+  // `ncol`-sized col-names arrays.  Per CoinLpIO's contract
+  // (/usr/include/coin/OsiSolverInterface.hpp:1569-1572), the row-names
+  // array must have exactly `getNumRows() + 1` distinct entries with
+  // the last slot being the objective function label.  The default
+  // `writeLp` path builds this array internally from the solver's
+  // stored names; on OsiClpSolverInterface the objective-name slot is
+  // populated from ClpModel's `objectiveName_`, which `copyNames`
+  // clears.  Result: even when `push_names` populated every row/col
+  // slot, the objective slot ends up empty and CoinLpIO rejects the
+  // whole set — all row/col labels are replaced with `R*/C*` defaults
+  // and `sddp_fcut_…` labels are lost from the written `.lp` file.
+  //
+  // `m_safe_row_names_` already carries `nrow + 1` entries (with "obj"
+  // as the last element, seeded by `push_names`).  Passing it directly
+  // to `writeLpNative` sidesteps the stored-obj-name hazard entirely.
+  //
+  // Fallback path when `push_names` was not called: hand NULL to
+  // `writeLpNative` so it uses generic defaults (no custom labels
+  // expected).
+  const auto nrow = static_cast<std::size_t>(m_solver_->getNumRows());
+  const auto ncol = static_cast<std::size_t>(m_solver_->getNumCols());
+  if (m_safe_row_names_.size() == nrow + 1 && m_safe_col_names_.size() == ncol)
+  {
+    std::vector<const char*> row_ptrs;
+    std::vector<const char*> col_ptrs;
+    row_ptrs.reserve(nrow + 1);
+    col_ptrs.reserve(ncol);
+    for (const auto& s : m_safe_row_names_) {
+      row_ptrs.push_back(s.c_str());
+    }
+    for (const auto& s : m_safe_col_names_) {
+      col_ptrs.push_back(s.c_str());
+    }
+    // `writeLpNative` does not auto-append an extension the way
+    // `writeLp` does — add ".lp" explicitly so the on-disk path
+    // matches what `LinearInterface::write_lp`'s caller expects.
+    const auto full_path = std::string {filename} + ".lp";
+    m_solver_->writeLpNative(full_path.c_str(),
+                             row_ptrs.data(),
+                             col_ptrs.data(),
+                             /*epsilon=*/1e-5,
+                             /*numberAcross=*/10,
+                             /*decimals=*/9,
+                             /*objSense=*/0.0,
+                             /*useRowNames=*/true);
+  } else {
+    // Defensive fallback when the caller bypassed `push_names`.
+    if (m_solver_->getObjName().empty()) {
+      m_solver_->setObjName("obj");
+    }
+    m_solver_->writeLp(filename);
   }
-  m_solver_->writeLp(filename);
 }
 
 std::unique_ptr<SolverBackend> OsiSolverBackend::clone() const
