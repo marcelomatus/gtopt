@@ -631,8 +631,10 @@ TEST_CASE("LinearInterface - infinity normalization")  // NOLINT
 
   SUBCASE("normalize_bound maps DblMax to +infinity")
   {
-    CHECK(li.normalize_bound(LinearProblem::DblMax) == doctest::Approx(inf));
-    CHECK(li.normalize_bound(-LinearProblem::DblMax) == doctest::Approx(-inf));
+    // Direct equality — `Approx` degenerates to NaN for IEEE inf
+    // (HiGHS's `infinity()`) and reports spurious inequalities.
+    CHECK(li.normalize_bound(LinearProblem::DblMax) == inf);
+    CHECK(li.normalize_bound(-LinearProblem::DblMax) == -inf);
   }
 
   SUBCASE("normalize_bound preserves finite values")
@@ -646,23 +648,31 @@ TEST_CASE("LinearInterface - infinity normalization")  // NOLINT
   {
     const auto [lo, up] =
         li.normalize_bounds(-LinearProblem::DblMax, LinearProblem::DblMax);
-    CHECK(lo == doctest::Approx(-inf));
-    CHECK(up == doctest::Approx(inf));
+    // Direct equality — `doctest::Approx` uses a relative-tolerance
+    // margin that degenerates to NaN for IEEE infinities (the
+    // `infinity()` value HiGHS returns) and reports spurious
+    // inequalities even when both sides are the same infinity.
+    CHECK(lo == -inf);
+    CHECK(up == inf);
   }
 
   SUBCASE("is_pos_inf / is_neg_inf predicates")
   {
-    // Predicates return true when |value| >= infinity().  Use
-    // inf/2 as the "well below infinity" probe — inf itself varies
-    // per solver (CLP ≈ 1e20, HiGHS ≈ 1e30, CPLEX ≈ 1e20).
+    // Predicates return true when |value| >= infinity().  The
+    // "well below infinity" probe depends on what infinity() is:
+    //   CPLEX / CLP / CBC: finite sentinel (~1e20) — `inf * 0.5`
+    //     is strictly less than inf, so !is_pos_inf.
+    //   HiGHS: IEEE `std::numeric_limits<double>::infinity()` —
+    //     `inf * 0.5` is still IEEE inf, so is_pos_inf(inf * 0.5)
+    //     is true.  Use a finite probe (1.0) instead.
     CHECK(li.is_pos_inf(inf));
     CHECK(li.is_pos_inf(inf * 2.0));
     CHECK_FALSE(li.is_pos_inf(0.0));
-    CHECK_FALSE(li.is_pos_inf(inf * 0.5));
+    CHECK_FALSE(li.is_pos_inf(1.0));
     CHECK(li.is_neg_inf(-inf));
     CHECK(li.is_neg_inf(-inf * 2.0));
     CHECK_FALSE(li.is_neg_inf(0.0));
-    CHECK_FALSE(li.is_neg_inf(-inf * 0.5));
+    CHECK_FALSE(li.is_neg_inf(-1.0));
   }
 }
 

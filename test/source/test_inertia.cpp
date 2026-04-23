@@ -175,7 +175,11 @@ TEST_CASE("InertiaZoneLP - explicit provision_factor")
       },
   };
 
-  // Use explicit provision_factor instead of H and S
+  // Use explicit provision_factor instead of H and S.  Small
+  // tie-breaker cost on r_inertia so the LP has a unique optimum at
+  // the minimum-feasible r (without it, any r ∈ [25, 50] is equally
+  // optimal and solvers disagree on which extremum they return —
+  // CPLEX: 25, MindOpt: 50).
   const Array<InertiaProvision> inertia_provision_array = {
       {
           .uid = Uid {1},
@@ -183,6 +187,7 @@ TEST_CASE("InertiaZoneLP - explicit provision_factor")
           .generator = Uid {1},
           .inertia_zones = "1",
           .provision_factor = 8.0,
+          .cost = 0.01,
       },
   };
 
@@ -208,10 +213,10 @@ TEST_CASE("InertiaZoneLP - explicit provision_factor")
   REQUIRE(result.has_value());
   CHECK(result.value() == 0);
 
-  // Requirement 200 MWs with Φ=8 is feasible at r=25 MW (within
-  // provision_max = gen_pmin = 50).  With no cost on r_inertia and a
-  // large reserve_fail_cost penalty on the slack, the LP minimises r
-  // to exactly 25 MW (slack = 0).
+  // Requirement 200 MWs with Φ=8 is feasible at r=25 MW (r · Φ ≥
+  // 200 → r ≥ 25; provision_max = gen_pmin = 50).  The 0.01 $/MW
+  // provision cost above breaks the tie between r=25 and r=50 so
+  // the LP uniquely prefers the minimum.
   const auto& ip_lps = system_lp.elements<InertiaProvisionLP>();
   REQUIRE(ip_lps.size() == 1);
   const auto& ip_lp = ip_lps.front();
@@ -438,6 +443,8 @@ TEST_CASE(
       },
   };
 
+  // Small tie-breaker cost on provision so the LP uniquely prefers
+  // the minimum-feasible r (see sibling test for detail).
   const Array<InertiaProvision> inertia_provision_array = {
       {
           .uid = Uid {1},
@@ -445,6 +452,7 @@ TEST_CASE(
           .generator = Uid {1},
           .inertia_zones = "1",
           .provision_factor = 8.0,
+          .cost = 0.01,
       },
   };
 
@@ -478,7 +486,9 @@ TEST_CASE(
   // Verify the provision col solution: generator capacity=200, pmin=50,
   // provision_factor=8 → max provision = pmin × provision_factor = 50 × 8 =
   // 400 MWs.  Requirement = 200 MWs, so provision should be
-  // min(requirement, 400) / provision_factor = 200 / 8 = 25 MW.
+  // min(requirement, 400) / provision_factor = 200 / 8 = 25 MW.  The
+  // 0.01 $/MW tie-breaker cost breaks the [25, 50] alternate-optima
+  // interval and forces r=25 uniquely.
   const auto& ip_lps = system_lp.elements<InertiaProvisionLP>();
   REQUIRE(ip_lps.size() == 1);
   const auto& ip_lp = ip_lps.front();
