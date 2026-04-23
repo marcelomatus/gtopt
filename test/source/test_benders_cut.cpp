@@ -1160,7 +1160,10 @@ TEST_CASE("build_multi_cuts with active slack generates cuts")  // NOLINT
   // build_multi_cuts uses `link.class_name` + `link.uid` as the row's
   // identity for LabelMaker (so labels stay globally unique across
   // state-var classes that share a UID).  Populate those fields on
-  // each link so the cuts come out with realistic metadata.
+  // each link so the cuts come out with realistic metadata.  The
+  // `source_low` / `source_upp` fields must enclose the dep_val so
+  // the new bound-clamp logic in build_multi_cuts does not suppress
+  // the cut as redundant with the source column's own bounds.
   const std::vector<StateVarLink> links = {
       {
           .source_col =
@@ -1169,6 +1172,8 @@ TEST_CASE("build_multi_cuts with active slack generates cuts")  // NOLINT
               },
           .dependent_col = dep0,
           .trial_value = 30.0,
+          .source_low = 0.0,
+          .source_upp = 1000.0,
           .class_name = "Reservoir",
           .col_name = "efin",
           .uid = Uid {7},
@@ -1180,6 +1185,8 @@ TEST_CASE("build_multi_cuts with active slack generates cuts")  // NOLINT
               },
           .dependent_col = dep1,
           .trial_value = 50.0,
+          .source_low = 0.0,
+          .source_upp = 1000.0,
           .class_name = "Battery",
           .col_name = "sini",
           .uid = Uid {3},
@@ -1211,6 +1218,159 @@ TEST_CASE("build_multi_cuts with active slack generates cuts")  // NOLINT
             101,
         })
         == doctest::Approx(1.0));
+}
+
+// ---------------------------------------------------------------------------
+// Regression test for the phase-28 mcut-exceeds-emax bug diagnosed on
+// plp_2_years (2026-04-22).  The elastic filter emitted
+//     reservoir_mcut_lb_65_*: reservoir_energy_65_* >= 917.47 LP
+// against a column capped at the physical emax, causing the following
+// forward-pass attempt on phase N-1 to be strictly infeasible.
+//
+// Fix: clamp each bound cut's RHS to the source column's physical
+// [source_low, source_upp] box and drop cuts that would be trivially
+// satisfied by the column's own bounds.
+// ---------------------------------------------------------------------------
+TEST_CASE(  // NOLINT
+    "build_multi_cuts clamps cut RHS to source column physical bounds")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  // Tiny clone: 2 dep cols + 1 sup + 1 sdn per link.  We DON'T solve
+  // the clone — instead we set its col_sol manually via set_col_sol
+  // so the clone's `get_col_sol()` returns deterministic dep_val
+  // values.  The relevant behaviour under test is the clamp logic on
+  // those values against `StateVarLink::source_{low,upp}`.
+  LinearInterface cloned_li;
+
+  // link 0: dep_val = 917 physical, source box = [158, 371].
+  // Under sdn-active: lb_cut.lowb = min(917, 371) = 371.  But 371 ==
+  // source_upp so the cut is trivially non-binding → skipped.
+  const auto dep0 = cloned_li.add_col(SparseCol {.uppb = 2000.0});
+  const auto sup0 = cloned_li.add_col(SparseCol {.uppb = 100.0});
+  const auto sdn0 = cloned_li.add_col(SparseCol {.uppb = 100.0});
+
+  // link 1: dep_val = 100 physical, source box = [0, 1000].
+  // Under sdn-active: lb_cut.lowb = min(100, 1000) = 100 > 0 → emit.
+  const auto dep1 = cloned_li.add_col(SparseCol {.uppb = 2000.0});
+  const auto sup1 = cloned_li.add_col(SparseCol {.uppb = 100.0});
+  const auto sdn1 = cloned_li.add_col(SparseCol {.uppb = 100.0});
+
+  // link 2: dep_val = -10 (phys) below source_low=5; sup-active path.
+  // ub_cut.uppb = max(-10, 5) = 5 == source_low → cut collapses to
+  // source_low, which is redundant with the column's lower bound; in
+  // the strict-inequality logic (`ub < src_upp_phys`) this still emits
+  // because 5 < 100, but the resulting bound is loose vs. column
+  // lower.  That's fine — the rule is "don't embed infeasibility,"
+  // not "strictly improve every time."
+  const auto dep2 = cloned_li.add_col(SparseCol {.uppb = 2000.0});
+  const auto sup2 = cloned_li.add_col(SparseCol {.uppb = 100.0});
+  const auto sdn2 = cloned_li.add_col(SparseCol {.uppb = 100.0});
+
+  // Populate the raw solution so get_col_sol_raw/get_col_sol return
+  // deterministic values.  col_scale defaults to 1.0 so raw == phys.
+  std::vector<double> sol(cloned_li.get_numcols(), 0.0);
+  sol[dep0] = 917.0;  // above source_upp for link 0 → clamp to 371
+  sol[dep1] = 100.0;  // inside link 1's source box → emit as-is
+  sol[dep2] = -10.0;  // below source_low for link 2
+  sol[sup0] = 0.0;
+  sol[sdn0] = 10.0;  // sdn-active → lb_cut candidate on link 0
+  sol[sup1] = 0.0;
+  sol[sdn1] = 10.0;  // sdn-active → lb_cut candidate on link 1
+  sol[sup2] = 10.0;  // sup-active → ub_cut candidate on link 2
+  sol[sdn2] = 0.0;
+  cloned_li.set_col_sol(sol);
+
+  ElasticSolveResult elastic;
+  elastic.clone = std::move(cloned_li);
+  elastic.link_infos = {
+      {.relaxed = true, .sup_col = sup0, .sdn_col = sdn0},
+      {.relaxed = true, .sup_col = sup1, .sdn_col = sdn1},
+      {.relaxed = true, .sup_col = sup2, .sdn_col = sdn2},
+  };
+  const std::vector<StateVarLink> links = {
+      // RALCO-like: dep_val 917 above source_upp 371 → no cut
+      {
+          .source_col = ColIndex {100},
+          .dependent_col = dep0,
+          .source_low = 158.35,
+          .source_upp = 371.03,
+          .class_name = "Reservoir",
+          .col_name = "efin",
+          .uid = Uid {65},
+      },
+      // Healthy: dep_val 100 inside [0, 1000] → emit lb_cut @ 100
+      {
+          .source_col = ColIndex {101},
+          .dependent_col = dep1,
+          .source_low = 0.0,
+          .source_upp = 1000.0,
+          .class_name = "Reservoir",
+          .col_name = "efin",
+          .uid = Uid {6},
+      },
+      // Below source_low: dep_val -10 → ub_cut.uppb = max(-10,5) = 5,
+      // still < source_upp=100 so emit (at the lower bound).
+      {
+          .source_col = ColIndex {102},
+          .dependent_col = dep2,
+          .source_low = 5.0,
+          .source_upp = 100.0,
+          .class_name = "Reservoir",
+          .col_name = "efin",
+          .uid = Uid {21},
+      },
+  };
+
+  const auto cuts = build_multi_cuts(elastic, links);
+
+  SUBCASE("no cut exceeds source_upp or falls below source_low")
+  {
+    for (const auto& cut : cuts) {
+      // Find which link this cut targets (by the single source_col in
+      // the cmap).
+      REQUIRE(cut.cmap.size() == 1);
+      const auto src_col = cut.cmap.begin()->first;
+      // Match to the originating link.
+      const auto it = std::ranges::find_if(links,
+                                           [src_col](const StateVarLink& l)
+                                           { return l.source_col == src_col; });
+      REQUIRE(it != links.end());
+      if (cut.constraint_name == "mcut_lb") {
+        // source ≥ lowb: lowb must not exceed source_upp.
+        CHECK(cut.lowb <= it->source_upp);
+      } else if (cut.constraint_name == "mcut_ub") {
+        // source ≤ uppb: uppb must not be below source_low.
+        CHECK(cut.uppb >= it->source_low);
+      }
+    }
+  }
+
+  SUBCASE("RALCO-like link (dep_val 917 > source_upp 371) clamps to source_upp")
+  {
+    // Under sdn-active, the raw filter asked for `source ≥ 917` which
+    // is infeasible against the physical emax of 371.  The clamp
+    // emits `source ≥ 371` (= source_upp), which combined with the
+    // column's own `≤ 371` forces `source = 371` — the tightest
+    // FEASIBLE representation of "phase N needs maximal state".
+    const auto it = std::ranges::find_if(
+        cuts, [](const SparseRow& c) { return c.variable_uid == Uid {65}; });
+    REQUIRE(it != cuts.end());
+    CHECK(it->constraint_name == "mcut_lb");
+    CHECK(it->lowb == doctest::Approx(371.03));
+    // The critical invariant that prevents the phase-27 infeasibility:
+    // lowb must NEVER exceed source_upp.
+    CHECK(it->lowb <= 371.03);
+  }
+
+  SUBCASE("healthy link (dep_val within source box) emits exactly one lb_cut")
+  {
+    const auto it = std::ranges::find_if(
+        cuts, [](const SparseRow& c) { return c.variable_uid == Uid {6}; });
+    REQUIRE(it != cuts.end());
+    CHECK(it->constraint_name == "mcut_lb");
+    CHECK(it->lowb == doctest::Approx(100.0));
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1312,6 +1472,8 @@ TEST_CASE(
               },
           .dependent_col = dep0,
           .trial_value = 30.0,
+          .source_low = 0.0,
+          .source_upp = 1000.0,
           .class_name = "Reservoir",
           .col_name = "efin",
           .uid = Uid {7},
@@ -1323,6 +1485,8 @@ TEST_CASE(
               },
           .dependent_col = dep1,
           .trial_value = 50.0,
+          .source_low = 0.0,
+          .source_upp = 1000.0,
           .class_name = "Battery",
           .col_name = "sini",
           .uid = Uid {3},

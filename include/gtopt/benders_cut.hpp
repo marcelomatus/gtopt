@@ -309,9 +309,17 @@ void propagate_trial_values(std::span<StateVarLink> links,
 /// Contains the solved LP clone and per-link slack column information.
 struct ElasticSolveResult
 {
-  LinearInterface clone;  ///< Solved elastic clone
+  LinearInterface clone;  ///< Elastic clone (solved when `solved == true`)
   /// One RelaxedVarInfo per outgoing link (same order as @p links)
   std::vector<RelaxedVarInfo> link_infos {};
+  /// True when the clone reached an optimal solution and its duals /
+  /// primal values are usable for cut construction.  False when the
+  /// clone itself came back non-optimal (i.e. state-variable
+  /// relaxation alone cannot restore feasibility — infeasibility is
+  /// rooted in rows the elastic filter cannot relax).  When false,
+  /// callers should treat the clone as diagnostic-only (write it to
+  /// disk for post-mortem) and NOT read duals from it.
+  bool solved {true};
 };
 
 /// Clone the LP, apply elastic relaxation on fixed state-variable columns,

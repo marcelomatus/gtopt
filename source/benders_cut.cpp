@@ -363,13 +363,18 @@ auto elastic_filter_solve(const LinearInterface& li,
 
   // Solve the clone with elastic slack variables
   auto r = cloned.resolve(opts);
-  if (r.has_value() && cloned.is_optimal()) {
+  result.solved = r.has_value() && cloned.is_optimal();
+  if (result.solved) {
     SPDLOG_TRACE("elastic_filter_solve: solved clone (obj={:.4f})",
                  cloned.get_obj_value());
-    result.clone = std::move(cloned);
-    return result;
+  } else {
+    SPDLOG_DEBUG(
+        "elastic_filter_solve: clone did NOT reach optimal — "
+        "returning with solved=false so callers can persist the "
+        "clone for post-mortem diagnostics");
   }
-  return std::nullopt;
+  result.clone = std::move(cloned);
+  return result;
 }
 
 auto chinneck_filter_solve(const LinearInterface& li,
@@ -383,6 +388,14 @@ auto chinneck_filter_solve(const LinearInterface& li,
   auto initial = elastic_filter_solve(li, links, penalty, opts);
   if (!initial.has_value()) {
     return std::nullopt;
+  }
+  // When the elastic clone itself is infeasible, propagate the
+  // result verbatim (with solved=false) so the caller can persist
+  // the unsolved clone for diagnostics.  Continuing into the
+  // slack-classification phase would read `get_col_sol_raw()` off
+  // an unsolved LP and return garbage.
+  if (!initial->solved) {
+    return initial;
   }
 
   auto& clone = initial->clone;
@@ -554,22 +567,61 @@ auto build_multi_cuts(const ElasticSolveResult& elastic,
     if (!info.relaxed) {
       continue;
     }
-    const double dep_val_phys = dep_sol_phys[link.dependent_col];
+    const double dep_val_phys_raw = dep_sol_phys[link.dependent_col];
+
+    // Clamp the bound-cut RHS to the source column's PHYSICAL feasible
+    // box `[source_low, source_upp]` captured at link-collection time
+    // (see `SDDPMethod::collect_state_variable_links` in
+    // sddp_method.cpp and `StateVarLink::source_{low,upp}` in
+    // benders_cut.hpp — both in physical units after the scale-bug fix
+    // in commit 0a45e52b).
+    //
+    // Without this clamp, the elastic clone's unbounded slack solution
+    // can push the relaxed dependent variable outside the source
+    // column's physical box and emit an mcut of the form
+    //     source_col ≥ dep_val_phys  with dep_val_phys > source_upp_phys
+    // — impossible to satisfy because the column is physically bounded
+    // at `source_upp_phys` (= emax).  Diagnosed on plp_2_years phase
+    // 27/28 where the elastic filter produced
+    //     reservoir_mcut_lb_65_*: reservoir_energy_65_* ≥ 917.47 LP
+    // against a column capped at emax = 371.03 LP, causing the next
+    // forward-pass attempt on phase 27 to be strictly infeasible.
+    //
+    // Sanitization rules:
+    //   - `mcut_ub` (source ≤ dep_val_phys): take dep_val_phys =
+    //     max(dep_val_phys, source_low).  If dep_val_phys ≥ source_upp
+    //     the cut is trivially non-binding (source's upper bound is
+    //     already tighter) → skip emission.
+    //   - `mcut_lb` (source ≥ dep_val_phys): take dep_val_phys =
+    //     min(dep_val_phys, source_upp).  If dep_val_phys ≤ source_low
+    //     the cut is trivially non-binding → skip emission.
+    //
+    // A cut that collapses to the column's own bound is still valid
+    // but redundant with the existing column bound; skipping it keeps
+    // the LP lean and avoids the row-name collision diagnostic noise
+    // from "Duplicate LP row metadata" detectors.
+    const double src_low_phys = link.source_low;
+    const double src_upp_phys = link.source_upp;
 
     // sup > 0 ⟹ solution < trial_value ⟹ source ≤ dep_val
     if (info.sup_col != ColIndex {unknown_index}) {
       const double sup_val = dep_sol_raw[info.sup_col];
       if (sup_val > slack_tol) {
-        auto ub_cut = SparseRow {
-            .lowb = -LinearProblem::DblMax,
-            .uppb = dep_val_phys,
-            .class_name = link.class_name,
-            .constraint_name = "mcut_ub",
-            .variable_uid = link.uid,
-            .context = context,
-        };
-        ub_cut[link.source_col] = 1.0;
-        cuts.push_back(std::move(ub_cut));
+        // Clamp below by source_low.  `ub == src_upp` is redundant
+        // with the column's own upper bound, so skip emission there.
+        const double ub = std::max(dep_val_phys_raw, src_low_phys);
+        if (ub < src_upp_phys) {
+          auto ub_cut = SparseRow {
+              .lowb = -LinearProblem::DblMax,
+              .uppb = ub,
+              .class_name = link.class_name,
+              .constraint_name = "mcut_ub",
+              .variable_uid = link.uid,
+              .context = context,
+          };
+          ub_cut[link.source_col] = 1.0;
+          cuts.push_back(std::move(ub_cut));
+        }
       }
     }
 
@@ -577,16 +629,21 @@ auto build_multi_cuts(const ElasticSolveResult& elastic,
     if (info.sdn_col != ColIndex {unknown_index}) {
       const double sdn_val = dep_sol_raw[info.sdn_col];
       if (sdn_val > slack_tol) {
-        auto lb_cut = SparseRow {
-            .lowb = dep_val_phys,
-            .uppb = LinearProblem::DblMax,
-            .class_name = link.class_name,
-            .constraint_name = "mcut_lb",
-            .variable_uid = link.uid,
-            .context = context,
-        };
-        lb_cut[link.source_col] = 1.0;
-        cuts.push_back(std::move(lb_cut));
+        // Clamp above by source_upp.  `lb == src_low` is redundant
+        // with the column's own lower bound, so skip emission there.
+        const double lb = std::min(dep_val_phys_raw, src_upp_phys);
+        if (lb > src_low_phys) {
+          auto lb_cut = SparseRow {
+              .lowb = lb,
+              .uppb = LinearProblem::DblMax,
+              .class_name = link.class_name,
+              .constraint_name = "mcut_lb",
+              .variable_uid = link.uid,
+              .context = context,
+          };
+          lb_cut[link.source_col] = 1.0;
+          cuts.push_back(std::move(lb_cut));
+        }
       }
     }
   }

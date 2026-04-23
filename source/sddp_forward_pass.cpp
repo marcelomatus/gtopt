@@ -257,7 +257,7 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
       // Release solver backend — no-op when low_memory is off.
       system.release_backend();
 
-      if (elastic_result.has_value()) {
+      if (elastic_result.has_value() && elastic_result->solved) {
         m_phase_grid_.record(iteration_index,
                              uid_of(scene_index),
                              phase_index,
@@ -463,6 +463,7 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
         // it before writing.  Failure to write is non-fatal — we log a
         // warning and continue returning the original error.
         std::string saved_error_lp;
+        std::string saved_elastic_lp;
         {
           std::error_code mkdir_ec;
           std::filesystem::create_directories(m_options_.log_directory,
@@ -490,6 +491,28 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
                 stem,
                 wr.error().message);
           }
+
+          // Also persist the elastic clone (if elastic_solve returned
+          // one) so post-mortem can diagnose WHY the state-variable
+          // relaxation alone couldn't restore feasibility — the
+          // original LP + the unsolved clone together pinpoint rows
+          // the filter cannot relax.  Suffix `_elastic` so the two
+          // files are colocated and trivially distinguishable.
+          if (elastic_result.has_value()) {
+            const auto elastic_stem = stem + "_elastic";
+            if (auto wr = elastic_result->clone.write_lp(elastic_stem); wr) {
+              saved_elastic_lp = elastic_stem + ".lp";
+            } else {
+              spdlog::warn(
+                  "SDDP Forward [i{} s{} p{}]: failed to save elastic "
+                  "clone LP to {}: {}",
+                  iteration_index,
+                  uid_of(scene_index),
+                  uid_of(phase_index),
+                  elastic_stem,
+                  wr.error().message);
+            }
+          }
         }
 
         spdlog::warn(
@@ -505,9 +528,16 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
             solve_status,
             !phase_index ? "no predecessor phase to cut on"
                          : "relaxed clone infeasible",
-            saved_error_lp.empty()
+            saved_error_lp.empty() && saved_elastic_lp.empty()
                 ? std::string {}
-                : std::format(" [LP saved to {}]", saved_error_lp));
+                : std::format(
+                      " [LP{} saved to {}{}{}]",
+                      saved_elastic_lp.empty() ? "" : "s",
+                      saved_error_lp,
+                      (saved_error_lp.empty() || saved_elastic_lp.empty())
+                          ? ""
+                          : " + ",
+                      saved_elastic_lp));
         return std::unexpected(Error {
             .code = ErrorCode::SolverError,
             .message = std::format("{}: elastic filter produced no "
