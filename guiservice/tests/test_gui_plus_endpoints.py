@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import json
 
 import pytest
 
@@ -68,9 +67,7 @@ def _valid_case() -> dict:
         "options": {},
         "simulation": {
             "block_array": [{"uid": 1, "duration": 1}],
-            "stage_array": [
-                {"uid": 1, "first_block": 0, "count_block": 1, "active": 1}
-            ],
+            "stage_array": [{"uid": 1, "first_block": 0, "count_block": 1, "active": 1}],
             "scenario_array": [{"uid": 1, "probability_factor": 1}],
         },
         "system": {

@@ -18,7 +18,7 @@ import tempfile
 import zipfile
 from base64 import b64decode, b64encode
 from collections import deque
-from typing import Any
+from typing import Any, cast
 
 import pandas as pd
 import requests as http_requests
@@ -1557,9 +1557,7 @@ def _blank_template() -> dict[str, Any]:
         },
         "simulation": {
             "block_array": [{"uid": 1, "duration": 1}],
-            "stage_array": [
-                {"uid": 1, "first_block": 0, "count_block": 1, "active": 1}
-            ],
+            "stage_array": [{"uid": 1, "first_block": 0, "count_block": 1, "active": 1}],
             "scenario_array": [{"uid": 1, "probability_factor": 1}],
         },
         "system": {
@@ -1620,8 +1618,9 @@ def get_template(slug: str):
     try:
         with open(path, "r", encoding="utf-8") as fh:
             planning = json.load(fh)
-    except (OSError, json.JSONDecodeError) as exc:
-        return jsonify({"error": f"Failed to load template: {exc}"}), 500
+    except (OSError, json.JSONDecodeError):
+        app.logger.exception("Failed to load template %s", slug)
+        return jsonify({"error": "Failed to load template"}), 500
 
     return jsonify(_planning_json_to_case_data(planning, slug))
 
@@ -1646,7 +1645,7 @@ def _validate_case(case_data: dict[str, Any]) -> dict[str, Any]:
     for elem_type, items in system.items():
         if not isinstance(items, list):
             continue
-        names = set()
+        names: set[str] = set()
         uids: set[int] = set()
         for i, item in enumerate(items):
             if not isinstance(item, dict):
@@ -1660,9 +1659,7 @@ def _validate_case(case_data: dict[str, Any]) -> dict[str, Any]:
                             "element_type": elem_type,
                             "index": i,
                             "uid": uid,
-                            "message": (
-                                f"Duplicate uid={uid} in {elem_type}_array"
-                            ),
+                            "message": (f"Duplicate uid={uid} in {elem_type}_array"),
                         }
                     )
                 uids.add(uid)
@@ -1684,12 +1681,10 @@ def _validate_case(case_data: dict[str, Any]) -> dict[str, Any]:
                             "element_type": elem_type,
                             "index": i,
                             "name": name,
-                            "message": (
-                                f"Duplicate name='{name}' in {elem_type}_array"
-                            ),
+                            "message": (f"Duplicate name='{name}' in {elem_type}_array"),
                         }
                     )
-                names.add(name)
+                names.add(str(name))
         by_type_names[elem_type] = names
         by_type_uids[elem_type] = uids
 
@@ -1698,10 +1693,11 @@ def _validate_case(case_data: dict[str, Any]) -> dict[str, Any]:
         schema = ELEMENT_SCHEMAS.get(elem_type)
         if schema is None or not isinstance(items, list):
             continue
+        fields = cast(list[dict[str, Any]], schema["fields"])
         for i, item in enumerate(items):
             if not isinstance(item, dict):
                 continue
-            for field in schema["fields"]:
+            for field in fields:
                 ref = field.get("ref")
                 if not ref:
                     continue
@@ -1716,10 +1712,7 @@ def _validate_case(case_data: dict[str, Any]) -> dict[str, Any]:
                                 "index": i,
                                 "field": fname,
                                 "ref": ref,
-                                "message": (
-                                    f"{elem_type}[{i}].{fname} is required "
-                                    f"(ref={ref})"
-                                ),
+                                "message": (f"{elem_type}[{i}].{fname} is required (ref={ref})"),
                             }
                         )
                     continue
@@ -1753,7 +1746,8 @@ def _validate_case(case_data: dict[str, Any]) -> dict[str, Any]:
         schema = ELEMENT_SCHEMAS.get(elem_type)
         if schema is None or not isinstance(items, list):
             continue
-        bus_fields = [f["name"] for f in schema["fields"] if f.get("ref") == "bus"]
+        fields = cast(list[dict[str, Any]], schema["fields"])
+        bus_fields = [f["name"] for f in fields if f.get("ref") == "bus"]
         if not bus_fields:
             continue
         for item in items:
@@ -1813,9 +1807,7 @@ def api_check_refs():
     case_data = request.get_json(silent=True) or {}
     full = _validate_case(case_data)
     ref_errors = [
-        e
-        for e in full["errors"]
-        if e.get("type") in ("dangling_ref", "missing_required_ref")
+        e for e in full["errors"] if e.get("type") in ("dangling_ref", "missing_required_ref")
     ]
     return jsonify(
         {
@@ -1842,19 +1834,18 @@ def api_results_summary():
 
     try:
         # Lazy import so guiservice still loads when scripts are not installed.
+        # pylint: disable=import-outside-toplevel
         from gtopt_results_summary.summary import summarize_output_dict
 
-        summary = summarize_output_dict(
-            results, tech_map=tech_map, scale_objective=scale_obj
-        )
+        summary = summarize_output_dict(results, tech_map=tech_map, scale_objective=scale_obj)
     except ImportError:
         return (
             jsonify({"error": "gtopt_results_summary is not installed"}),
             503,
         )
-    except Exception as exc:  # pylint: disable=broad-exception-caught
+    except Exception:  # pylint: disable=broad-exception-caught
         app.logger.exception("Results summary error")
-        return jsonify({"error": str(exc)}), 500
+        return jsonify({"error": "Results summary failed"}), 500
     return jsonify(summary)
 
 
@@ -1902,15 +1893,14 @@ def api_results_aggregate():
             grouped = df.groupby(group_by, as_index=False)
             aggregated = getattr(grouped, agg)(numeric_only=True)
         else:
-            aggregated = pd.DataFrame(
-                [getattr(df[num_cols], agg)(numeric_only=True).to_dict()]
-            )
-    except Exception as exc:  # pylint: disable=broad-exception-caught
-        return jsonify({"error": f"Aggregation failed: {exc}"}), 500
+            aggregated = pd.DataFrame([getattr(df[num_cols], agg)(numeric_only=True).to_dict()])
+    except Exception:  # pylint: disable=broad-exception-caught
+        app.logger.exception("Aggregation failed")
+        return jsonify({"error": "Aggregation failed"}), 500
 
-    rows = [[_sanitize_value(x) for x in row] for row in aggregated.itertuples(
-        index=False, name=None
-    )]
+    rows = [
+        [_sanitize_value(x) for x in row] for row in aggregated.itertuples(index=False, name=None)
+    ]
     return jsonify({"rows": rows, "columns": list(aggregated.columns)})
 
 
@@ -1931,6 +1921,7 @@ def api_results_export_excel():
     case_name = body.get("case_name") or "results"
 
     try:
+        # pylint: disable=import-outside-toplevel
         from gtopt_timeseries_export.exporter import export_from_dict
     except ImportError:
         return (
@@ -1947,20 +1938,18 @@ def api_results_export_excel():
             scale_objective=scale_obj,
             tech_map=tech_map,
         )
-    except Exception as exc:  # pylint: disable=broad-exception-caught
+    except Exception:  # pylint: disable=broad-exception-caught
         app.logger.exception("Excel export error")
         # Best-effort cleanup
         try:
             os.unlink(dest)
         except OSError:
             pass
-        return jsonify({"error": str(exc)}), 500
+        return jsonify({"error": "Excel export failed"}), 500
 
     return send_file(
         dest,
-        mimetype=(
-            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        ),
+        mimetype=("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
         as_attachment=True,
         download_name=f"{case_name}.xlsx",
     )

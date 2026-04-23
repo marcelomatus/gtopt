@@ -10,6 +10,7 @@ The public entry points are:
 
 from __future__ import annotations
 
+import csv as _csv
 import io
 import os
 import zipfile
@@ -68,9 +69,7 @@ def _extract_tech_total(
     return by_tech
 
 
-def _find_path(
-    outputs: dict[str, Any], relpath: str
-) -> dict[str, Any] | None:
+def _find_path(outputs: dict[str, Any], relpath: str) -> dict[str, Any] | None:
     """Return the outputs entry matching a parent/basename path.
 
     The outputs dict produced by _parse_results_zip uses keys with the
@@ -210,8 +209,7 @@ def summarize_output_dict(
                 continue
             try:
                 col_max = float(pd.to_numeric(df[col], errors="coerce").max())
-                if col_max > peak:
-                    peak = col_max
+                peak = max(peak, col_max)
             except (TypeError, ValueError):
                 continue
         summary["peak_unserved"] = peak
@@ -237,17 +235,13 @@ def summarize_output_dict(
             summary["lmp_max"] = max(maxs)
             summary["lmp_mean"] = sum(means) / len(means)
         # Number of buses = column count minus indexing columns
-        summary["n_buses"] = len(
-            [c for c in df.columns if c not in skip_cols]
-        )
+        summary["n_buses"] = len([c for c in df.columns if c not in skip_cols])
 
     # Line count (from flowp_sol) if available
     flow = _find_path(outputs, _FLOW_PATH)
     if flow is not None:
         df = _rows_to_df(flow)
-        summary["n_lines"] = len(
-            [c for c in df.columns if c not in skip_cols]
-        )
+        summary["n_lines"] = len([c for c in df.columns if c not in skip_cols])
 
     return summary
 
@@ -267,8 +261,6 @@ def _read_output_dir(path: Path) -> dict[str, Any]:
             name = fname.lower()
             try:
                 if name == "solution.csv":
-                    import csv as _csv
-
                     with open(full, "r", encoding="utf-8") as fh:
                         for row in _csv.reader(fh):
                             if len(row) >= 2:
@@ -298,9 +290,10 @@ def _read_zip(path: Path) -> dict[str, Any]:
     """Parse a results ZIP into the same dict shape as _parse_results_zip."""
     # Defer the import to avoid creating a circular dependency at import time.
     try:
-        from guiservice.app import _parse_results_zip  # type: ignore
+        # pylint: disable=import-outside-toplevel
+        from guiservice.app import _parse_results_zip
     except ImportError:
-        _parse_results_zip = None  # type: ignore[assignment]
+        _parse_results_zip = None
 
     if _parse_results_zip is not None:
         with open(path, "rb") as fh:
@@ -314,8 +307,6 @@ def _read_zip(path: Path) -> dict[str, Any]:
             parent = os.path.basename(os.path.dirname(name))
             try:
                 if base == "solution.csv":
-                    import csv as _csv
-
                     content = zf.read(name).decode("utf-8")
                     for row in _csv.reader(io.StringIO(content)):
                         if len(row) >= 2:
@@ -366,9 +357,7 @@ def summarize_results(
     elif path.suffix.lower() == ".zip":
         results = _read_zip(path)
     else:
-        raise ValueError(
-            f"Expected a directory or .zip file, got {path}"
-        )
+        raise ValueError(f"Expected a directory or .zip file, got {path}")
     return summarize_output_dict(
         results, tech_map=tech_map, scale_objective=scale_objective
     )

@@ -13,7 +13,6 @@ import os
 from pathlib import Path
 from typing import Any
 
-import pandas as pd
 
 from gtopt_results_summary.summary import (
     _read_output_dir,
@@ -90,6 +89,7 @@ def export_from_dict(
     # requirements.txt).  Import here so a missing openpyxl produces a
     # clearer error message.
     try:
+        # pylint: disable=import-outside-toplevel
         from openpyxl import Workbook
         from openpyxl.styles import Alignment, Font, PatternFill
     except ImportError as exc:  # pragma: no cover
@@ -184,9 +184,7 @@ def export_to_excel(
     elif src.suffix.lower() == ".zip":
         results = _read_zip(src)
     else:
-        raise ValueError(
-            f"Expected a directory or .zip file, got {src}"
-        )
+        raise ValueError(f"Expected a directory or .zip file, got {src}")
     return export_from_dict(
         results,
         destination,
