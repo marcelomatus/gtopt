@@ -105,6 +105,12 @@ struct StateVarLink
   std::string_view class_name {};  ///< e.g. "Reservoir", "Battery"
   std::string_view col_name {};  ///< e.g. "efin", "sini"
   Uid uid {unknown_uid};  ///< Element UID
+  /// Human-readable element name (e.g. "LMAULE", "RALCO").  Resolved
+  /// from `SimulationLP::m_ampl_element_names_` at link-collection time
+  /// via a reverse scan of the (class_name, name) → uid map.  Empty
+  /// when the element was never registered in the AMPL name map — in
+  /// that case diagnostic logs fall back to the numeric uid.
+  std::string_view name {};
 };
 
 // ─── Elastic relaxation result ──────────────────────────────────────────────

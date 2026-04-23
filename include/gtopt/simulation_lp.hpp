@@ -550,6 +550,27 @@ public:
                                                : std::nullopt;
   }
 
+  /// Reverse lookup: element name by (class_name, uid).  Linear scan —
+  /// only use on rare / diagnostic paths (e.g. SDDP fcut logging).
+  /// `class_name` may be either PascalCase (e.g. "Reservoir") or
+  /// snake_case ("reservoir") — the registry key is always snake_case,
+  /// and the comparison uses the lazy `SnakeCaseView` from `as_label.hpp`
+  /// which is idempotent on already-snake_case input.  Returns a
+  /// `string_view` into the same stable storage as the registry key
+  /// (element `Id::name`, owned by `System`), or empty view when no
+  /// match is found.
+  [[nodiscard]] std::string_view lookup_ampl_element_name(
+      std::string_view class_name, Uid element_uid) const noexcept
+  {
+    const auto class_snake = gtopt::snake_case(class_name);
+    for (const auto& [key, uid] : m_ampl_element_names_) {
+      if (uid == element_uid && class_snake == key.first) {
+        return key.second;
+      }
+    }
+    return {};
+  }
+
   /// Register a compound PAMPL attribute for a class.  The compound
   /// name resolves to the linear combination `Σ leg.coefficient *
   /// <leg.source_attribute>` using the already-registered per-element

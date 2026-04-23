@@ -612,6 +612,20 @@ void SDDPMethod::collect_state_variable_links(SceneIndex scene_index)
         // column's own `col_scale` — scale-agnostic across phases even
         // when `var_scale(source) != col_scale(dependent)`.
         const double svar_scale = svar.var_scale();
+        // Reverse-lookup human-readable element name for diagnostic
+        // logs (e.g. "Reservoir:LMAULE:efin" instead of
+        // "Reservoir:1:efin").  The map itself is populated once at
+        // `SystemLP` construction via `register_all_ampl_element_names`;
+        // by the time SDDP solve runs it is read-only and safe for
+        // the linear scan.  `lookup_ampl_element_name` handles the
+        // PascalCase/snake_case mismatch internally (the StateVariable
+        // key stores class_name in PascalCase while the AMPL registry
+        // uses snake_case).  Empty string_view when the element has
+        // no registered AMPL name (test fixtures, plain JSON without
+        // the `name:` field) — diagnostic logs then fall back to
+        // numeric uid.
+        const auto element_name =
+            sim.lookup_ampl_element_name(key.class_name, key.uid);
         state.outgoing_links.push_back(StateVarLink {
             .source_col = svar.col(),
             .dependent_col = dep.col(),
@@ -625,10 +639,12 @@ void SDDPMethod::collect_state_variable_links(SceneIndex scene_index)
             // (flat_map, stable for the full solver lifetime — same
             // lifetime that already couples source and dependent LP cols).
             .state_var = &svar,
-            // Identity for diagnostic logs (e.g. "Reservoir:8:efin").
+            // Identity for diagnostic logs (e.g. "Reservoir:LMAULE:efin"
+            // when `name` is resolved, falls back to "Reservoir:8:efin").
             .class_name = key.class_name,
             .col_name = key.col_name,
             .uid = key.uid,
+            .name = element_name,
         });
       }
     }

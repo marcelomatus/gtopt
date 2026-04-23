@@ -382,6 +382,53 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
                         cut_row);
               ++mc_added;
             }
+
+            // P0-B fallback (2026-04-23): if `build_multi_cuts`
+            // filtered every link (all |π| < slack_tol — happens
+            // on near-degenerate elastic solves where the dual is
+            // numerically zero at the vertex), fall back to the
+            // aggregated π-weighted `build_feasibility_cut_physical`.
+            // Without this fallback the forward pass would silently
+            // install zero cuts, then loop until
+            // `forward_max_attempts` exhausts — a silent convergence
+            // failure indistinguishable from a successful cut install
+            // in the logs.  Mirrors PLP's `AgrElastici` which always
+            // emits a single aggregated Farkas-ray cut.
+            if (mc_added == 0) {
+              SPDLOG_WARN(
+                  "SDDP Forward [i{} s{} p{}]: multi_cut produced 0 cuts "
+                  "(all |π| < slack_tol) — falling back to aggregated "
+                  "Benders fcut on p{} to avoid silent convergence loop",
+                  iteration_index,
+                  uid_of(scene_index),
+                  uid_of(phase_index),
+                  uid_of(prev_phase_index));
+
+              feas_cut =
+                  build_feasibility_cut_physical(prev_state.outgoing_links,
+                                                 elastic_result->link_infos,
+                                                 elastic_result->clone,
+                                                 m_options_.cut_coeff_eps);
+              feas_cut.class_name = sddp_alpha_class_name;
+              feas_cut.constraint_name = sddp_fcut_constraint_name;
+              feas_cut.context = make_iteration_context(uid_of(scene_index),
+                                                        uid_of(phase_index),
+                                                        iteration_index,
+                                                        infeas_count);
+
+              const auto cut_row = add_cut_row(planning_lp(),
+                                               scene_index,
+                                               prev_phase_index,
+                                               CutType::Feasibility,
+                                               feas_cut,
+                                               m_options_.cut_coeff_eps);
+              store_cut(scene_index,
+                        prev_phase_index,
+                        feas_cut,
+                        CutType::Feasibility,
+                        cut_row);
+              ++mc_added;
+            }
           }
 
           // List the state-variable elements actually present in the
@@ -395,8 +442,17 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
             if (!state_elems.empty()) {
               state_elems += ", ";
             }
-            state_elems += std::format(
-                "{}:{}:{}", link.class_name, Index {link.uid}, link.col_name);
+            // Prefer the human-readable name (e.g. "Reservoir:LMAULE:efin")
+            // when resolvable via the AMPL element-name registry; fall back
+            // to numeric uid when the element has no registered name
+            // (test fixtures, PAMPL-less JSON input).
+            if (!link.name.empty()) {
+              state_elems += std::format(
+                  "{}:{}:{}", link.class_name, link.name, link.col_name);
+            } else {
+              state_elems += std::format(
+                  "{}:{}:{}", link.class_name, Index {link.uid}, link.col_name);
+            }
           }
 
           // One-line per infeasible LP, emitted *after* the fcut (and any
