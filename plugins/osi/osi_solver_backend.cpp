@@ -676,13 +676,22 @@ void OsiSolverBackend::push_names(const std::vector<std::string>& col_names,
   m_safe_col_names_.clear();
   m_safe_row_names_.clear();
   m_safe_col_names_.reserve(col_names.size());
-  m_safe_row_names_.reserve(row_names.size());
+  // +1 slot for the objective name — ClpModel's `copyNames` treats
+  // `rowNames[nrow]` as the objective function label, and CoinLpIO
+  // later validates that slot when writing .lp files.  A missing
+  // obj-slot surfaces as `vnames[nrow]: ` (empty) → all labels are
+  // discarded and replaced with `R1/R2/…` / `C1/C2/…` defaults.
+  m_safe_row_names_.reserve(row_names.size() + 1);
   for (std::size_t i = 0; i < col_names.size(); ++i) {
     m_safe_col_names_.push_back(sanitise_lp_name(col_names[i], "c", i));
   }
   for (std::size_t i = 0; i < row_names.size(); ++i) {
     m_safe_row_names_.push_back(sanitise_lp_name(row_names[i], "r", i));
   }
+  // Append the objective-row label as the last entry.  Constant
+  // "obj" is sufficient — only the non-emptiness matters for
+  // CoinLpIO's validator.
+  m_safe_row_names_.emplace_back("obj");
 
   if (auto* clp = as_clp(m_solver_.get(), m_type_); clp != nullptr) {
     clp->getModelPtr()->copyNames(m_safe_row_names_, m_safe_col_names_);
@@ -692,13 +701,31 @@ void OsiSolverBackend::push_names(const std::vector<std::string>& col_names,
   for (std::size_t i = 0; i < m_safe_col_names_.size(); ++i) {
     m_solver_->setColName(static_cast<int>(i), m_safe_col_names_[i]);
   }
-  for (std::size_t i = 0; i < m_safe_row_names_.size(); ++i) {
+  // Loop bound is `row_names.size()` (real rows only), not
+  // `m_safe_row_names_.size()` (which includes the obj-slot at
+  // index nrow).  `setRowName(nrow, …)` on an n-row interface is
+  // out-of-bounds for the OSI per-row store.
+  for (std::size_t i = 0; i < row_names.size(); ++i) {
     m_solver_->setRowName(static_cast<int>(i), m_safe_row_names_[i]);
   }
+  // Propagate the objective-row label to OSI's objective-name slot
+  // so callers that bypass ClpModel (e.g. foreign writers) still see
+  // a non-empty label.
+  m_solver_->setObjName(m_safe_row_names_.back());
 }
 
 void OsiSolverBackend::write_lp(const char* filename)
 {
+  // Defensive fallback when the caller bypassed `push_names` and the
+  // OSI objective-name slot is still empty.  `push_names` is the
+  // primary populator (it extends `row_names` by one slot with the
+  // obj label and seeds both `ClpModel::copyNames` and
+  // `setObjName`); if it ran, `getObjName()` is already "obj" here
+  // and this branch is a no-op.  Mirrors the intent of draft PR #429
+  // (94e35082).
+  if (m_solver_->getObjName().empty()) {
+    m_solver_->setObjName("obj");
+  }
   m_solver_->writeLp(filename);
 }
 
