@@ -17,9 +17,9 @@
  * | `linear`            | 0                | 1–2 (flow per dir)        |
  * | `piecewise`         | 2                | K+3 (segs + loss + fp+fn) |
  * | `bidirectional`     | 4                | 2(K+2) (per-dir segs)     |
- * | `adaptive`          | resolved at config time (compact/bidirectional) |
- * | `dynamic`           | placeholder → piecewise                         |
- * | `piecewise_compact` | 2                | 2(K+1) (per-dir segs + fp/fn) |
+ * | `adaptive`          | resolved at config time (piecewise/bidirectional) |
+ * | `dynamic`           | placeholder → piecewise                           |
+ * | `piecewise_direct`  | 2                | 2(K+1) (per-dir segs + fp/fn) |
  *
  * ### Mathematical background
  *
@@ -104,14 +104,14 @@ struct BlockResult
  *
  * If the resolved mode is `adaptive`, it is mapped to:
  *   - `bidirectional` if the line has expansion modules (`has_expansion`)
- *   - `piecewise_compact` otherwise (PLP-faithful, zero loss rows)
+ *   - `piecewise` otherwise (smallest-LP shared-segment model)
  *
  * If the resolved mode is `dynamic`, it falls back to `piecewise`
  * (with a log warning on first call).
  *
- * If the resolved mode is `piecewise_compact` **and** the line has
+ * If the resolved mode is `piecewise_direct` **and** the line has
  * expansion (`has_expansion`), it falls back to `piecewise` with a
- * one-shot warning — the compact model bakes the per-segment bound
+ * one-shot warning — the direct model bakes the per-segment bound
  * `tmax/K` into variable bounds and cannot be linked to a capacity
  * column.
  *
@@ -148,12 +148,12 @@ struct BlockResult
  * @brief Add loss model variables and constraints for one block.
  *
  * Dispatches to the appropriate mode implementation:
- *   - `none`:              single bidirectional flow, no loss
- *   - `linear`:            directional flows with loss coefficients
- *   - `piecewise`:         shared segments for |f| = fp + fn [1]
- *   - `bidirectional`:     independent segments per direction [3]
- *   - `piecewise_compact`: PLP-faithful, per-segment bus stamps, no
- *                          loss var/row (requires no capacity column)
+ *   - `none`:             single bidirectional flow, no loss
+ *   - `linear`:           directional flows with loss coefficients
+ *   - `piecewise`:        shared segments for |f| = fp + fn [1]
+ *   - `bidirectional`:    independent segments per direction [3]
+ *   - `piecewise_direct`: PLP-faithful, per-segment bus stamps, no
+ *                         loss var/row (requires no capacity column)
  *
  * @return LP indices for the created variables and constraints.
  */

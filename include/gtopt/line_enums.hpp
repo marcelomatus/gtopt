@@ -106,7 +106,7 @@ inline constexpr auto loss_allocation_mode_entries =
  *   that falls back to `piecewise` with a log warning.
  *   Ref: Macedo et al. (2011), §III — dynamic cut adjustment.
  *
- * - `piecewise_compact` (6): PLP-faithful two-direction piecewise-linear
+ * - `piecewise_direct` (6): PLP-faithful two-direction piecewise-linear
  *   model for lines **without capacity expansion**.  Per direction, K
  *   segment variables (bound `[0, tmax_dir/K]`) inject directly into
  *   the bus-balance rows with the per-segment loss factor
@@ -116,9 +116,9 @@ inline constexpr auto loss_allocation_mode_entries =
  *   aggregation column (`flowp`, `flown`) plus one linking row per
  *   direction preserves the downstream `fp_col` / `fn_col` API so the
  *   Kirchhoff (KVL) row and reporters require no changes.
- *   Activation: resolved automatically by `adaptive` for lines with no
- *   capacity column; explicit selection on an expandable line falls
- *   back to `piecewise` with a warning.
+ *   Activation: opt-in only — `adaptive` prefers `piecewise` (smaller
+ *   LP).  Select explicitly for PLP-diff parity.  On expandable lines
+ *   this mode falls back to `piecewise` with a warning.
  *   Ref: PLP Fortran `genpdlin.f` (GenPDLinA).
  */
 enum class LineLossesMode : uint8_t
@@ -129,7 +129,7 @@ enum class LineLossesMode : uint8_t
   bidirectional = 3,  ///< Two-direction piecewise-linear (gtopt legacy)
   adaptive = 4,  ///< Piecewise if fixed capacity, bidirectional if expandable
   dynamic = 5,  ///< Dynamic piecewise-linear (future; falls back to piecewise)
-  piecewise_compact = 6,  ///< PLP-style compact PWL (no loss vars/rows)
+  piecewise_direct = 6,  ///< PLP-style compact PWL (no loss vars/rows)
 };
 
 inline constexpr auto line_losses_mode_entries =
@@ -140,8 +140,7 @@ inline constexpr auto line_losses_mode_entries =
         {.name = "bidirectional", .value = LineLossesMode::bidirectional},
         {.name = "adaptive", .value = LineLossesMode::adaptive},
         {.name = "dynamic", .value = LineLossesMode::dynamic},
-        {.name = "piecewise_compact",
-         .value = LineLossesMode::piecewise_compact},
+        {.name = "piecewise_direct", .value = LineLossesMode::piecewise_direct},
     });
 
 [[nodiscard]] constexpr auto enum_entries(LineLossesMode /*tag*/) noexcept

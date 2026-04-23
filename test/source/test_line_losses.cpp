@@ -95,16 +95,18 @@ TEST_CASE("line_losses::resolve_mode fallback chain")
   {
     Line line;
     line.use_line_losses = true;
-    // Global default is adaptive → resolves to piecewise_compact (no expansion)
+    // Global default is adaptive → resolves to piecewise (no expansion).
+    // `adaptive` picks the smallest-LP PWL model, so piecewise_direct is
+    // opt-in only.
     CHECK(line_losses::resolve_mode(line, options_lp, false)
-          == LineLossesMode::piecewise_compact);
+          == LineLossesMode::piecewise);
   }
 
-  SUBCASE("adaptive resolves to piecewise_compact without expansion")
+  SUBCASE("adaptive resolves to piecewise without expansion")
   {
     Line line;
     CHECK(line_losses::resolve_mode(line, options_lp, false)
-          == LineLossesMode::piecewise_compact);
+          == LineLossesMode::piecewise);
   }
 
   SUBCASE("adaptive resolves to bidirectional with expansion")
@@ -114,20 +116,20 @@ TEST_CASE("line_losses::resolve_mode fallback chain")
           == LineLossesMode::bidirectional);
   }
 
-  SUBCASE("piecewise_compact + expansion demotes to piecewise")
+  SUBCASE("piecewise_direct + expansion demotes to piecewise")
   {
     Line line;
-    line.line_losses_mode = "piecewise_compact";
+    line.line_losses_mode = "piecewise_direct";
     CHECK(line_losses::resolve_mode(line, options_lp, true)
           == LineLossesMode::piecewise);
   }
 
-  SUBCASE("piecewise_compact + no expansion stays compact")
+  SUBCASE("piecewise_direct + no expansion stays direct")
   {
     Line line;
-    line.line_losses_mode = "piecewise_compact";
+    line.line_losses_mode = "piecewise_direct";
     CHECK(line_losses::resolve_mode(line, options_lp, false)
-          == LineLossesMode::piecewise_compact);
+          == LineLossesMode::piecewise_direct);
   }
 
   SUBCASE("dynamic falls back to piecewise")
@@ -159,9 +161,9 @@ TEST_CASE("line_losses::resolve_mode fallback chain")
     Line line;
     line.use_line_losses = true;
     // Global is none, but per-line enables → falls back to default (adaptive)
-    // Without expansion → piecewise_compact
+    // Without expansion → piecewise (smallest-LP PWL)
     CHECK(line_losses::resolve_mode(line, options_none, false)
-          == LineLossesMode::piecewise_compact);
+          == LineLossesMode::piecewise);
     // With expansion → bidirectional
     CHECK(line_losses::resolve_mode(line, options_none, true)
           == LineLossesMode::bidirectional);
@@ -975,12 +977,12 @@ TEST_CASE("line_losses LP structure - bidirectional mode")
   }
 }
 
-// ── piecewise_compact mode LP structure ────────────────────────────
+// ── piecewise_direct mode LP structure ─────────────────────────────
 
-TEST_CASE("line_losses LP structure - piecewise_compact mode")
+TEST_CASE("line_losses LP structure - piecewise_direct mode")
 {
   // 3 segments per direction, R=0.01, V=100 → V²=10000
-  LPFixture fix("piecewise_compact", /*loss_segments=*/3);
+  LPFixture fix("piecewise_direct", /*loss_segments=*/3);
   auto& li = fix.lp();
 
   SUBCASE("creates fp_agg, fn_agg + K=3 segments per direction; no loss cols")
@@ -1120,7 +1122,7 @@ TEST_CASE("line_losses LP structure - piecewise_compact mode")
     }
   }
 
-  SUBCASE("compact has same row count as piecewise but no loss cols")
+  SUBCASE("direct has same row count as piecewise but no loss cols")
   {
     LPFixture fix_pw("piecewise", /*loss_segments=*/3);
     auto& li_pw = fix_pw.lp();
@@ -1128,15 +1130,15 @@ TEST_CASE("line_losses LP structure - piecewise_compact mode")
     // piecewise: 1 flow_link + 1 loss_link = 2 line-specific rows
     const int pw_rows = count_rows_containing(li_pw, "line_flow_link")
         + count_rows_containing(li_pw, "line_loss_link");
-    // compact: flowp_link + flown_link = 2 line-specific rows
-    const int cmp_rows = count_rows_containing(li, "line_flowp_link")
+    // direct: flowp_link + flown_link = 2 line-specific rows
+    const int dir_rows = count_rows_containing(li, "line_flowp_link")
         + count_rows_containing(li, "line_flown_link")
         + count_rows_containing(li, "line_loss_link");
 
     CHECK(pw_rows == 2);
-    CHECK(cmp_rows == 2);
+    CHECK(dir_rows == 2);
 
-    // But compact has zero loss variables
+    // But direct has zero loss variables
     CHECK(count_cols_containing(li, "line_lossp_")
               + count_cols_containing(li, "line_lossn_")
           == 0);
@@ -1146,26 +1148,27 @@ TEST_CASE("line_losses LP structure - piecewise_compact mode")
   }
 }
 
-TEST_CASE("line_losses engine - piecewise_compact objective matches piecewise")
+TEST_CASE("line_losses engine - piecewise_direct objective matches piecewise")
 {
-  const auto obj_cmp = solve_with_mode("piecewise_compact");
+  const auto obj_dir = solve_with_mode("piecewise_direct");
   const auto obj_pw = solve_with_mode("piecewise");
   const auto obj_bi = solve_with_mode("bidirectional");
   // All three approximate the same quadratic loss for this unidirectional
-  // flow case; compact must agree with both to segment granularity.
-  CHECK(obj_cmp > 1.0);
-  CHECK(obj_cmp < 1.01);
-  CHECK(obj_cmp == doctest::Approx(obj_pw).epsilon(0.001));
-  CHECK(obj_cmp == doctest::Approx(obj_bi).epsilon(0.01));
+  // flow case; direct must agree with both to segment granularity.
+  CHECK(obj_dir > 1.0);
+  CHECK(obj_dir < 1.01);
+  CHECK(obj_dir == doctest::Approx(obj_pw).epsilon(0.001));
+  CHECK(obj_dir == doctest::Approx(obj_bi).epsilon(0.01));
 }
 
-TEST_CASE("line_losses engine - adaptive defaults to piecewise_compact")
+TEST_CASE("line_losses engine - adaptive defaults to piecewise")
 {
-  // With no explicit mode, global default is adaptive → piecewise_compact
-  // on lines without expansion.  Objective must match explicit compact.
+  // With no explicit mode, global default is adaptive → piecewise on
+  // lines without expansion (smallest LP of the PWL modes).  Objective
+  // must match explicit piecewise.
   const auto obj_adaptive = solve_with_mode("adaptive");
-  const auto obj_compact = solve_with_mode("piecewise_compact");
-  CHECK(obj_adaptive == doctest::Approx(obj_compact).epsilon(1e-9));
+  const auto obj_piecewise = solve_with_mode("piecewise");
+  CHECK(obj_adaptive == doctest::Approx(obj_piecewise).epsilon(1e-9));
 }
 
 // ── linear mode auto-compute from R/V ──────────────────────────────
@@ -1236,8 +1239,32 @@ TEST_CASE("line_losses - all modes cross-comparison matrix")
     int loss_link_rows;  // rows matching "line_loss_link_"
     int lossp_link_rows;
     int lossn_link_rows;
+    // Total unique line-loss-engine cols/rows (sum of disjoint matches
+    // above; aggregation + segments + loss + all link rows).  Checked
+    // against a direct count of cols/rows whose name starts with "line_"
+    // minus the capacity-base cols ("line_capainst_", "line_capacost_"),
+    // so any hidden col/row added by a mode trips this check.
+    int total_loss_cols;
+    int total_loss_rows;
   };
 
+  // Totals per mode (per line, per block, no expansion, no Kirchhoff):
+  //
+  // | mode                 | loss-engine cols | loss-engine rows |
+  // |----------------------|-----------------:|-----------------:|
+  // | none                 | 1                | 0                |
+  // | linear               | 2                | 0                |
+  // | piecewise            | K + 3            | 2                |
+  // | bidirectional        | 2·(K + 2)        | 4                |
+  // | dynamic              | K + 3            | 2                |
+  // | adaptive (→piecewise) | K + 3           | 2                |
+  // | piecewise_direct     | 2·(K + 1)        | 2                |
+  //
+  // NOTE: piecewise_direct has MORE cols than piecewise (per-direction
+  // segments cannot be shared with direction-dependent loss allocation).
+  // Its win is PLP-semantic parity + zero loss cols/rows, not LP size.
+  // `adaptive` now picks the smallest-LP PWL model (`piecewise`), so
+  // `piecewise_direct` is an opt-in for PLP-diff parity only.
   const std::array<ModeExpect, 7> expect = {{
       {.name = "none",
        .flowp_like_cols = 1,
@@ -1252,7 +1279,9 @@ TEST_CASE("line_losses - all modes cross-comparison matrix")
        .flown_link_rows = 0,
        .loss_link_rows = 0,
        .lossp_link_rows = 0,
-       .lossn_link_rows = 0},
+       .lossn_link_rows = 0,
+       .total_loss_cols = 1,
+       .total_loss_rows = 0},
       {.name = "linear",
        .flowp_like_cols = 1,
        .flown_like_cols = 1,
@@ -1266,7 +1295,9 @@ TEST_CASE("line_losses - all modes cross-comparison matrix")
        .flown_link_rows = 0,
        .loss_link_rows = 0,
        .lossp_link_rows = 0,
-       .lossn_link_rows = 0},
+       .lossn_link_rows = 0,
+       .total_loss_cols = 2,
+       .total_loss_rows = 0},
       {.name = "piecewise",
        .flowp_like_cols = 1,
        .flown_like_cols = 1,
@@ -1280,7 +1311,9 @@ TEST_CASE("line_losses - all modes cross-comparison matrix")
        .flown_link_rows = 0,
        .loss_link_rows = 1,
        .lossp_link_rows = 0,
-       .lossn_link_rows = 0},
+       .lossn_link_rows = 0,
+       .total_loss_cols = K + 3,
+       .total_loss_rows = 2},
       {.name = "bidirectional",
        .flowp_like_cols = 1 + K,
        .flown_like_cols = 1 + K,
@@ -1294,7 +1327,9 @@ TEST_CASE("line_losses - all modes cross-comparison matrix")
        .flown_link_rows = 1,
        .loss_link_rows = 0,
        .lossp_link_rows = 1,
-       .lossn_link_rows = 1},
+       .lossn_link_rows = 1,
+       .total_loss_cols = 2 * (K + 2),
+       .total_loss_rows = 4},
       {.name = "dynamic",  // placeholder → piecewise
        .flowp_like_cols = 1,
        .flown_like_cols = 1,
@@ -1308,8 +1343,26 @@ TEST_CASE("line_losses - all modes cross-comparison matrix")
        .flown_link_rows = 0,
        .loss_link_rows = 1,
        .lossp_link_rows = 0,
-       .lossn_link_rows = 0},
-      {.name = "adaptive",  // → piecewise_compact (no expansion)
+       .lossn_link_rows = 0,
+       .total_loss_cols = K + 3,
+       .total_loss_rows = 2},
+      {.name = "adaptive",  // → piecewise (no expansion)
+       .flowp_like_cols = 1,
+       .flown_like_cols = 1,
+       .seg_cols = K,
+       .flowp_seg_cols = 0,
+       .flown_seg_cols = 0,
+       .lossp_cols = 1,
+       .lossn_cols = 0,
+       .flow_link_rows = 1,
+       .flowp_link_rows = 0,
+       .flown_link_rows = 0,
+       .loss_link_rows = 1,
+       .lossp_link_rows = 0,
+       .lossn_link_rows = 0,
+       .total_loss_cols = K + 3,
+       .total_loss_rows = 2},
+      {.name = "piecewise_direct",
        .flowp_like_cols = 1 + K,
        .flown_like_cols = 1 + K,
        .seg_cols = 0,
@@ -1322,22 +1375,52 @@ TEST_CASE("line_losses - all modes cross-comparison matrix")
        .flown_link_rows = 1,
        .loss_link_rows = 0,
        .lossp_link_rows = 0,
-       .lossn_link_rows = 0},
-      {.name = "piecewise_compact",
-       .flowp_like_cols = 1 + K,
-       .flown_like_cols = 1 + K,
-       .seg_cols = 0,
-       .flowp_seg_cols = K,
-       .flown_seg_cols = K,
-       .lossp_cols = 0,
-       .lossn_cols = 0,
-       .flow_link_rows = 0,
-       .flowp_link_rows = 1,
-       .flown_link_rows = 1,
-       .loss_link_rows = 0,
-       .lossp_link_rows = 0,
-       .lossn_link_rows = 0},
+       .lossn_link_rows = 0,
+       .total_loss_cols = 2 * (K + 1),
+       .total_loss_rows = 2},
   }};
+
+  // Count cols/rows whose name starts with `line_` but are NOT part of
+  // the CapacityObjectLP base ("line_capainst_", "line_capacost_", and
+  // their equality rows of the same names).  This gives a direct count
+  // of cols/rows added by the loss engine alone, independent of the
+  // per-mode substring categories above — so if any mode adds a hidden
+  // col/row that doesn't match one of the known categories, the sum
+  // equality fails.
+  const auto count_loss_cols = [](const LinearInterface& li) -> int
+  {
+    int count = 0;
+    for (const auto& [name, _idx] : li.col_name_map()) {
+      if (name.starts_with("line_") && !name.starts_with("line_capainst_")
+          && !name.starts_with("line_capacost_"))
+      {
+        ++count;
+      }
+    }
+    return count;
+  };
+  const auto count_loss_rows = [](const LinearInterface& li) -> int
+  {
+    int count = 0;
+    for (const auto& [name, _idx] : li.row_name_map()) {
+      if (name.starts_with("line_") && !name.starts_with("line_capainst_")
+          && !name.starts_with("line_capacost_"))
+      {
+        ++count;
+      }
+    }
+    return count;
+  };
+
+  // Baseline: solve 'none' once and record totals for delta checks.
+  LPFixture fix_none("none", K);
+  auto& li_none = fix_none.lp();
+  const int none_numcols = li_none.get_numcols();
+  const int none_numrows = li_none.get_numrows();
+  const int none_loss_cols = count_loss_cols(li_none);
+  const int none_loss_rows = count_loss_rows(li_none);
+  REQUIRE(none_loss_cols == 1);  // just the bidirectional flow var
+  REQUIRE(none_loss_rows == 0);
 
   for (const auto& e : expect) {
     CAPTURE(e.name);
@@ -1361,6 +1444,21 @@ TEST_CASE("line_losses - all modes cross-comparison matrix")
     CHECK(count_rows_containing(li, "line_lossp_link_") == e.lossp_link_rows);
     CHECK(count_rows_containing(li, "line_lossn_link_") == e.lossn_link_rows);
 
+    // ── total loss-engine cols/rows ────────────────────────────────
+    // Hard equality on totals: regression guard against any mode
+    // silently growing its LP footprint.  Also validates the expected
+    // table above is internally consistent with the per-category counts.
+    CHECK(count_loss_cols(li) == e.total_loss_cols);
+    CHECK(count_loss_rows(li) == e.total_loss_rows);
+
+    // ── delta vs 'none' baseline ───────────────────────────────────
+    // Loss-engine cols/rows are the only per-mode LP changes; everything
+    // else (buses, generators, demand, capacity base) is identical.
+    CHECK(li.get_numcols() - none_numcols
+          == e.total_loss_cols - none_loss_cols);
+    CHECK(li.get_numrows() - none_numrows
+          == e.total_loss_rows - none_loss_rows);
+
     // ── solve: every mode must produce a feasible optimum ──────────
     auto result = li.resolve();
     REQUIRE(result.has_value());
@@ -1376,10 +1474,16 @@ TEST_CASE("line_losses - all modes cross-comparison matrix")
     }
 
     // ── PWL loss coefficients (where applicable) ──────────────────
-    // Shared segments (piecewise/dynamic) and per-direction segments
-    // (bidirectional/adaptive/piecewise_compact) must all use the
-    // same per-segment λ_k = width · R · (2k-1) / V².
-    if (e.name == "piecewise" || e.name == "dynamic") {
+    // All PWL modes must use the same per-segment
+    //   λ_k = width · R · (2k-1) / V²
+    // but encode it differently:
+    //  - piecewise / dynamic / adaptive (→piecewise): coefficient -λ_k
+    //    on the `loss_link_` row for each `line_seg_` col.
+    //  - bidirectional: coefficient -λ_k on `lossn_link_` for each
+    //    `line_flown_seg_` col (and analogously for the positive side).
+    //  - piecewise_direct: no loss row — +(1 − λ_k) stamped on the
+    //    receiver bus-balance row for each `line_flowp_seg_` col.
+    if (e.name == "piecewise" || e.name == "dynamic" || e.name == "adaptive") {
       const auto lsl = find_row(li, "line_loss_link_");
       std::vector<std::pair<std::string, double>> coeffs;
       for (const auto& [n, idx] : li.col_name_map()) {
@@ -1413,8 +1517,8 @@ TEST_CASE("line_losses - all modes cross-comparison matrix")
       }
     }
 
-    if (e.name == "adaptive" || e.name == "piecewise_compact") {
-      // Compact: no loss row — λ_k is stamped on the bus-balance row
+    if (e.name == "piecewise_direct") {
+      // Direct: no loss row — λ_k is stamped on the bus-balance row
       // (receiver allocation: bus_b coeff = +(1 - λ_k)).
       const auto bal_b = find_row(li, "bus_balance_2");
       std::vector<std::pair<std::string, double>> coeffs;
@@ -1436,7 +1540,7 @@ TEST_CASE("line_losses - all modes cross-comparison matrix")
 
 TEST_CASE("line_losses - all modes agree on total-cost ordering")
 {
-  // One solve per mode; compact, adaptive, piecewise, bidirectional all
+  // One solve per mode; direct, adaptive, piecewise, bidirectional all
   // approximate the same quadratic loss — they must agree.  Linear is
   // a looser single-piece approximation; none is the lower bound.
   const double obj_none = solve_with_mode("none");
@@ -1445,7 +1549,7 @@ TEST_CASE("line_losses - all modes agree on total-cost ordering")
   const double obj_bidirectional = solve_with_mode("bidirectional");
   const double obj_dynamic = solve_with_mode("dynamic");
   const double obj_adaptive = solve_with_mode("adaptive");
-  const double obj_compact = solve_with_mode("piecewise_compact");
+  const double obj_direct = solve_with_mode("piecewise_direct");
 
   // Lossless baseline
   CHECK(obj_none == doctest::Approx(1.0).epsilon(0.001));
@@ -1456,12 +1560,13 @@ TEST_CASE("line_losses - all modes agree on total-cost ordering")
   CHECK(obj_bidirectional >= obj_none);
   CHECK(obj_dynamic >= obj_none);
   CHECK(obj_adaptive >= obj_none);
-  CHECK(obj_compact >= obj_none);
+  CHECK(obj_direct >= obj_none);
 
   // PWL modes approximate the same quadratic loss → agree closely.
   CHECK(obj_piecewise == doctest::Approx(obj_bidirectional).epsilon(0.01));
-  CHECK(obj_piecewise == doctest::Approx(obj_compact).epsilon(0.01));
-  CHECK(obj_piecewise == doctest::Approx(obj_adaptive).epsilon(0.01));
+  CHECK(obj_piecewise == doctest::Approx(obj_direct).epsilon(0.01));
+  // `adaptive` resolves to `piecewise` on no-expansion lines → exact match.
+  CHECK(obj_piecewise == doctest::Approx(obj_adaptive).epsilon(1e-9));
   CHECK(obj_piecewise == doctest::Approx(obj_dynamic).epsilon(1e-9));
 
   // Linear vs PWL: for this fixture (unidirectional, |f|=100, tmax=200)

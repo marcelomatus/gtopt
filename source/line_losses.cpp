@@ -19,20 +19,25 @@ namespace gtopt::line_losses
 namespace
 {
 
-/// Map `adaptive` → compact/bidirectional; `dynamic` → piecewise;
-/// demote `piecewise_compact` → `piecewise` if expansion is active.
+/// Map `adaptive` → piecewise/bidirectional; `dynamic` → piecewise;
+/// demote `piecewise_direct` → `piecewise` if expansion is active.
+///
+/// `adaptive` picks the smallest-LP piecewise-linear option:
+///   - no expansion → `piecewise` (K+3 cols, 2 rows — shared segments)
+///   - has expansion → `bidirectional` (2K+4 cols, 4 rows)
+/// `piecewise_direct` is opt-in only (PLP-diff parity; 2K+2 cols).
 constexpr LineLossesMode resolve_adaptive_dynamic(LineLossesMode mode,
                                                   bool has_expansion)
 {
   switch (mode) {
     case LineLossesMode::adaptive:
       return has_expansion ? LineLossesMode::bidirectional
-                           : LineLossesMode::piecewise_compact;
+                           : LineLossesMode::piecewise;
     case LineLossesMode::dynamic:
       return LineLossesMode::piecewise;
-    case LineLossesMode::piecewise_compact:
+    case LineLossesMode::piecewise_direct:
       return has_expansion ? LineLossesMode::piecewise
-                           : LineLossesMode::piecewise_compact;
+                           : LineLossesMode::piecewise_direct;
     default:
       return mode;
   }
@@ -73,11 +78,11 @@ LineLossesMode resolve_mode(const Line& line,
     }
   }
 
-  if (mode == LineLossesMode::piecewise_compact && has_expansion) {
+  if (mode == LineLossesMode::piecewise_direct && has_expansion) {
     static bool warned = false;
     if (!warned) {
       spdlog::warn(
-          "line_losses_mode 'piecewise_compact' requires no capacity "
+          "line_losses_mode 'piecewise_direct' requires no capacity "
           "column; falling back to 'piecewise' on expandable lines");
       warned = true;
     }
@@ -102,7 +107,7 @@ LossConfig make_config(LineLossesMode mode,
 
   // Validate PWL prerequisites; fall back gracefully.
   if (mode == LineLossesMode::piecewise || mode == LineLossesMode::bidirectional
-      || mode == LineLossesMode::piecewise_compact)
+      || mode == LineLossesMode::piecewise_direct)
   {
     if (resistance <= 0.0 || V2 <= 0.0 || nseg < 2) {
       if (lossfactor > 0.0) {
@@ -715,7 +720,7 @@ BlockResult add_bidirectional(const LossConfig& config,
   };
 }
 
-/// PLP-compact per-direction helper.
+/// PLP-direct per-direction helper.
 ///
 /// For one direction (positive: a=sending, b=receiving; negative:
 /// a=receiving, b=sending) builds K segment cols + 1 aggregation col +
@@ -726,7 +731,7 @@ BlockResult add_bidirectional(const LossConfig& config,
 /// Returns the aggregation column so the caller can expose it as
 /// `fp_col` / `fn_col` — preserving the downstream API used by
 /// Kirchhoff and the reporters.
-[[nodiscard]] std::optional<ColIndex> add_compact_direction(
+[[nodiscard]] std::optional<ColIndex> add_direct_direction(
     const LossConfig& config,
     const ScenarioLP& scenario,
     const StageLP& stage,
@@ -803,7 +808,7 @@ BlockResult add_bidirectional(const LossConfig& config,
   return agg_col;
 }
 
-/// PLP-compact piecewise-linear: no loss variables, no loss-tracking
+/// PLP-direct piecewise-linear: no loss variables, no loss-tracking
 /// rows.  Per-segment bus stamps encode the quadratic loss curve
 /// directly.  Requires no capacity column.
 ///
@@ -811,41 +816,41 @@ BlockResult add_bidirectional(const LossConfig& config,
 /// Constraints per block: 2 linking rows (one per direction).
 ///
 /// Ref: PLP `genpdlin.f` (GenPDLinA).
-BlockResult add_piecewise_compact(const LossConfig& config,
-                                  const ScenarioLP& scenario,
-                                  const StageLP& stage,
-                                  const BlockLP& block,
-                                  LinearProblem& lp,
-                                  SparseRow& brow_a,
-                                  SparseRow& brow_b,
-                                  double block_tmax_ab,
-                                  double block_tmax_ba,
-                                  double block_tcost,
-                                  Uid uid)
+BlockResult add_piecewise_direct(const LossConfig& config,
+                                 const ScenarioLP& scenario,
+                                 const StageLP& stage,
+                                 const BlockLP& block,
+                                 LinearProblem& lp,
+                                 SparseRow& brow_a,
+                                 SparseRow& brow_b,
+                                 double block_tmax_ab,
+                                 double block_tmax_ba,
+                                 double block_tcost,
+                                 Uid uid)
 {
-  auto fp = add_compact_direction(config,
-                                  scenario,
-                                  stage,
-                                  block,
-                                  lp,
-                                  brow_a,
-                                  brow_b,
-                                  block_tmax_ab,
-                                  block_tcost,
-                                  uid,
-                                  positive_labels);
+  auto fp = add_direct_direction(config,
+                                 scenario,
+                                 stage,
+                                 block,
+                                 lp,
+                                 brow_a,
+                                 brow_b,
+                                 block_tmax_ab,
+                                 block_tcost,
+                                 uid,
+                                 positive_labels);
 
-  auto fn = add_compact_direction(config,
-                                  scenario,
-                                  stage,
-                                  block,
-                                  lp,
-                                  brow_b,
-                                  brow_a,
-                                  block_tmax_ba,
-                                  block_tcost,
-                                  uid,
-                                  negative_labels);
+  auto fn = add_direct_direction(config,
+                                 scenario,
+                                 stage,
+                                 block,
+                                 lp,
+                                 brow_b,
+                                 brow_a,
+                                 block_tmax_ba,
+                                 block_tcost,
+                                 uid,
+                                 negative_labels);
 
   return {
       .fp_col = fp,
@@ -929,23 +934,23 @@ BlockResult add_block(const LossConfig& config,
                                capacity_col,
                                uid);
 
-    case LineLossesMode::piecewise_compact:
-      // `resolve_mode` demotes compact + expansion to `piecewise`,
+    case LineLossesMode::piecewise_direct:
+      // `resolve_mode` demotes direct + expansion to `piecewise`,
       // so capacity_col must be empty here.
       assert(!capacity_col
-             && "piecewise_compact reached with capacity_col; "
+             && "piecewise_direct reached with capacity_col; "
                 "resolve_mode demotion was bypassed");
-      return add_piecewise_compact(config,
-                                   scenario,
-                                   stage,
-                                   block,
-                                   lp,
-                                   brow_a,
-                                   brow_b,
-                                   block_tmax_ab,
-                                   block_tmax_ba,
-                                   block_tcost,
-                                   uid);
+      return add_piecewise_direct(config,
+                                  scenario,
+                                  stage,
+                                  block,
+                                  lp,
+                                  brow_a,
+                                  brow_b,
+                                  block_tmax_ab,
+                                  block_tmax_ba,
+                                  block_tcost,
+                                  uid);
 
     default:
       return add_none(scenario,
