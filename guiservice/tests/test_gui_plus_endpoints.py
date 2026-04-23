@@ -283,3 +283,230 @@ def test_diagram_topology_reactflow(client):
     n0 = body["nodes"][0]
     assert set(n0.keys()) >= {"id", "type", "position", "data"}
     assert set(n0["position"].keys()) == {"x", "y"}
+
+
+# ---------------------------------------------------------------------------
+# /api/case/validate – additional edge cases
+# ---------------------------------------------------------------------------
+
+
+def test_validate_empty_system(client):
+    case = {
+        "case_name": "empty",
+        "options": {},
+        "simulation": {
+            "block_array": [{"uid": 1, "duration": 1}],
+            "stage_array": [{"uid": 1, "first_block": 0, "count_block": 1}],
+            "scenario_array": [{"uid": 1, "probability_factor": 1}],
+        },
+        "system": {},
+    }
+    resp = client.post("/api/case/validate", json=case)
+    assert resp.status_code == 200
+    body = resp.get_json()
+    # Empty system is valid (no structural errors)
+    assert "ok" in body
+
+
+def test_validate_missing_simulation(client):
+    case = {"case_name": "x", "system": {"bus": [{"uid": 1, "name": "b1"}]}}
+    resp = client.post("/api/case/validate", json=case)
+    # Should not crash — returns 200 with warnings for missing simulation arrays
+    assert resp.status_code == 200
+    body = resp.get_json()
+    assert "ok" in body
+
+
+def test_validate_non_json_body(client):
+    """Non-JSON body: Flask silently returns None → treated as empty case."""
+    resp = client.post(
+        "/api/case/validate",
+        data="not json",
+        content_type="text/plain",
+    )
+    # Flask get_json(silent=True) returns None for non-JSON content-type;
+    # endpoint falls back to {} and validates the empty case → 200.
+    assert resp.status_code == 200
+    body = resp.get_json()
+    assert "ok" in body
+
+
+def test_validate_empty_body(client):
+    """Empty JSON body: Flask silently returns None → treated as empty case."""
+    resp = client.post("/api/case/validate", data=b"", content_type="application/json")
+    # Empty / invalid JSON body → get_json(silent=True) → None → {} → 200
+    assert resp.status_code == 200
+    body = resp.get_json()
+    assert "ok" in body
+
+
+# ---------------------------------------------------------------------------
+# /api/results/aggregate – more coverage
+# ---------------------------------------------------------------------------
+
+
+def test_results_aggregate_mean(client):
+    table = {
+        "columns": ["scenario", "stage", "block", "v"],
+        "data": [
+            [1, 1, 1, 10.0],
+            [1, 1, 2, 20.0],
+        ],
+    }
+    resp = client.post(
+        "/api/results/aggregate",
+        json={"table": table, "group_by": [], "aggregation": "mean"},
+    )
+    assert resp.status_code == 200
+    body = resp.get_json()
+    v_idx = body["columns"].index("v")
+    values = [row[v_idx] for row in body["rows"]]
+    # Mean of [10, 20] = 15
+    assert any(abs(v - 15.0) < 0.01 for v in values)
+
+
+def test_results_aggregate_no_data_rows(client):
+    table = {
+        "columns": ["scenario", "stage", "block", "v"],
+        "data": [],
+    }
+    resp = client.post(
+        "/api/results/aggregate",
+        json={"table": table, "group_by": ["stage"], "aggregation": "sum"},
+    )
+    assert resp.status_code == 200
+    body = resp.get_json()
+    assert body["rows"] == []
+
+
+# ---------------------------------------------------------------------------
+# /api/results/summary – additional scenarios
+# ---------------------------------------------------------------------------
+
+
+def test_results_summary_with_fail_sol(client):
+    results = {
+        "solution": {"obj_value": "1.0", "status": "0"},
+        "outputs": {
+            "Demand/fail_sol": {
+                "columns": ["scenario", "stage", "block", "uid:1"],
+                "data": [[1, 1, 1, 3.0], [1, 1, 2, 0.0]],
+            }
+        },
+    }
+    resp = client.post("/api/results/summary", json={"results": results})
+    assert resp.status_code == 200
+    body = resp.get_json()
+    assert body["total_unserved"] == pytest.approx(3.0)
+
+
+def test_results_summary_bad_obj_value(client):
+    results = {
+        "solution": {"obj_value": "not_a_number", "status": "0"},
+        "outputs": {},
+    }
+    resp = client.post("/api/results/summary", json={"results": results})
+    # Should not crash — obj_value_raw and obj_value are both None when unparseable
+    assert resp.status_code == 200
+    body = resp.get_json()
+    assert body["obj_value"] is None or isinstance(body["obj_value"], (int, float))
+
+
+# ---------------------------------------------------------------------------
+# /api/results/export/excel – content-type and disposition headers
+# ---------------------------------------------------------------------------
+
+
+def test_results_export_excel_content_type(client):
+    results = {
+        "solution": {"obj_value": "1.0", "status": "0"},
+        "outputs": {},
+    }
+    resp = client.post(
+        "/api/results/export/excel",
+        json={"results": results, "case_name": "mycase"},
+    )
+    assert resp.status_code == 200
+    ct = resp.headers.get("Content-Type", "")
+    assert "spreadsheet" in ct or "octet" in ct or "excel" in ct
+
+
+def test_results_export_excel_no_case_name(client):
+    results = {"solution": {}, "outputs": {}}
+    resp = client.post("/api/results/export/excel", json={"results": results})
+    # Should work without a case_name (uses default "results")
+    assert resp.status_code == 200
+    assert resp.data[:4] == b"PK\x03\x04"
+
+
+# ---------------------------------------------------------------------------
+# /api/templates – list structure
+# ---------------------------------------------------------------------------
+
+
+def test_templates_list_has_slug_name_description(client):
+    resp = client.get("/api/templates")
+    assert resp.status_code == 200
+    body = resp.get_json()
+    for t in body["templates"]:
+        assert "slug" in t
+        assert "name" in t
+        assert "description" in t
+
+
+def test_get_template_has_system_bus(client):
+    resp = client.get("/api/templates/blank")
+    assert resp.status_code == 200
+    body = resp.get_json()
+    assert "bus" in body["system"]
+    buses = body["system"]["bus"]
+    assert isinstance(buses, list)
+    assert len(buses) >= 1
+    assert "uid" in buses[0]
+
+
+# ---------------------------------------------------------------------------
+# /api/diagram/topology – error cases
+# ---------------------------------------------------------------------------
+
+
+def test_diagram_topology_missing_case_data(client):
+    """With no caseData key the endpoint falls back to the body itself ({}).
+
+    The topology builder handles an empty case gracefully: returns 200 with
+    empty nodes/edges.  If gtopt_diagram is unavailable → 503.
+    """
+    resp = client.post("/api/diagram/topology", json={})
+    # Accepted outcomes: 200 (empty graph), 400/422/500/503 (error)
+    assert resp.status_code in (200, 400, 422, 500, 503)
+    if resp.status_code == 200:
+        body = resp.get_json()
+        assert "nodes" in body
+        assert "edges" in body
+
+
+def test_diagram_topology_visjs_format(client):
+    case_data = {
+        "case_name": "c",
+        "options": {},
+        "simulation": {
+            "block_array": [{"uid": 1, "duration": 1}],
+            "stage_array": [{"uid": 1, "first_block": 0, "count_block": 1}],
+            "scenario_array": [{"uid": 1, "probability_factor": 1}],
+        },
+        "system": {
+            "bus": [{"uid": 1, "name": "b1"}],
+            "generator": [{"uid": 10, "name": "g1", "bus": "b1"}],
+        },
+    }
+    resp = client.post(
+        "/api/diagram/topology",
+        json={"caseData": case_data, "format": "visjs"},
+    )
+    if resp.status_code == 503:
+        pytest.skip("gtopt_diagram not available")
+    assert resp.status_code == 200
+    body = resp.get_json()
+    assert body["meta"]["format"] == "visjs"
+    assert "nodes" in body
+    assert "edges" in body
