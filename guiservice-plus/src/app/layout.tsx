@@ -1,8 +1,10 @@
 import type { Metadata } from 'next';
 import '@/styles/globals.css';
+import { Toaster } from 'sonner';
 import { ThemeProvider } from '@/components/layout/theme-provider';
 import { QueryProvider } from '@/components/layout/query-provider';
 import { AppShell } from '@/components/layout/app-shell';
+import { AutoSaveWatcher } from '@/components/layout/auto-save-watcher';
 
 export const metadata: Metadata = {
   title: 'gtopt – GUI Plus',
@@ -28,7 +30,9 @@ export default function RootLayout({
         <ThemeProvider>
           <QueryProvider>
             <AppShell>{children}</AppShell>
+            <AutoSaveWatcher />
           </QueryProvider>
+          <Toaster richColors closeButton position="bottom-right" />
         </ThemeProvider>
       </body>
     </html>
