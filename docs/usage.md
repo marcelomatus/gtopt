@@ -641,10 +641,10 @@ to the system and marking stages as `chronological`:
 
 ```bash
 # Run with LP relaxation (fastest, no branch-and-bound)
-gtopt uc_case.json --set model_options.relaxed_phases=all
+gtopt uc_case.json --set model_options.continuous_phases=all
 
 # Run with full MIP (integer binaries)
-gtopt uc_case.json --set model_options.relaxed_phases=none
+gtopt uc_case.json --set model_options.continuous_phases=none
 
 # Add a carbon price
 gtopt uc_case.json --set model_options.emission_cost=30
