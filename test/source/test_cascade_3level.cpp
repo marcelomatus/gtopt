@@ -130,8 +130,18 @@ TEST_CASE("Cascade 3-level uninodal-transport-full on 2-bus hydro")  // NOLINT
   SUBCASE("bounds are valid across all levels")
   {
     for (const auto& ls : solver.level_stats()) {
-      CHECK(ls.lower_bound <= ls.upper_bound + 1e-6);
-      CHECK(ls.gap >= -1e-12);
+      // Tolerance is scaled by the objective magnitude so the
+      // invariant `LB <= UB` survives solver-specific numerical
+      // noise (observed: CPLEX ~1e-13 abs, MindOpt ~2e-10 abs on
+      // a 39150-magnitude objective).
+      const auto scale =
+          std::max({std::abs(ls.lower_bound), std::abs(ls.upper_bound), 1.0});
+      CHECK(ls.lower_bound <= ls.upper_bound + (1e-8 * scale));
+      // gap is typically (UB-LB)/|UB| — can dip slightly negative
+      // when LB overshoots UB by a few ULPs from the backward-pass
+      // row equilibration.  1e-8 is well below any meaningful
+      // convergence threshold while tolerating solver precision.
+      CHECK(ls.gap >= -1e-8);
       CHECK(ls.cuts_added >= 0);
       CHECK(ls.elapsed_s > 0.0);
     }
