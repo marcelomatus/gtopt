@@ -301,6 +301,7 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
                                          m_options_.cut_coeff_eps);
           feas_cut.class_name = sddp_alpha_class_name;
           feas_cut.constraint_name = sddp_fcut_constraint_name;
+          feas_cut.variable_uid = uid_of(prev_phase_index);
           feas_cut.context = make_iteration_context(uid_of(scene_index),
                                                     uid_of(phase_index),
                                                     iteration_index,
