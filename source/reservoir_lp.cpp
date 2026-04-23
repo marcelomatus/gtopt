@@ -45,7 +45,7 @@ bool ReservoirLP::add_to_lp(SystemContext& sc,
                             const StageLP& stage,
                             LinearProblem& lp)
 {
-  static constexpr std::string_view cname = ClassName.full_name();
+  static constexpr const auto& cname = ClassName;
   static constexpr auto ampl_name = ClassName.snake_case();
 
   if (!is_active(stage)) {
@@ -169,7 +169,7 @@ bool ReservoirLP::add_to_lp(SystemContext& sc,
  */
 bool ReservoirLP::add_to_output(OutputContext& out) const
 {
-  static constexpr std::string_view cname = ClassName.full_name();
+  static constexpr const auto& cname = ClassName;
 
   // Extraction columns have .scale = flow_scale; auto-descaled by
   // LinearInterface's get_col_sol() / get_col_cost().

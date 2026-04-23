@@ -29,6 +29,7 @@
 
 #include <gtopt/basic_types.hpp>
 #include <gtopt/linear_problem.hpp>
+#include <gtopt/lp_class_name.hpp>
 #include <gtopt/lp_context.hpp>
 #include <gtopt/phase.hpp>
 #include <gtopt/scenario.hpp>
@@ -94,13 +95,21 @@ public:
     StageUid stage_uid = unknown_uid_of<Stage>();
     Uid uid {unknown_uid};
     std::string_view col_name;
-    std::string_view class_name;
+    /// LP class identity stored by value.  `LPClassName` is a
+    /// trivially-copyable 72-byte aggregate carrying both the
+    /// PascalCase `full_name()` and precomputed snake_case
+    /// `short_name()`, so call sites get zero-runtime access to
+    /// either form.  Comparisons against string literals (e.g.
+    /// `key.class_name == "Reservoir"`) work via LPClassName's
+    /// implicit conversion to `std::string_view` (returns
+    /// `full_name()`).
+    LPClassName class_name {};
     LPKey lp_key;
 
     constexpr auto operator<=>(const Key&) const noexcept = default;
   };
 
-  [[nodiscard]] static auto key(std::string_view class_name,
+  [[nodiscard]] static auto key(LPClassName class_name,
                                 Uid uid,
                                 std::string_view col_name,
                                 PhaseIndex phase_index,
@@ -144,7 +153,7 @@ public:
   [[nodiscard]]
   static auto key(const ScenarioLP& scenario,
                   const StageLP& stage,
-                  std::string_view class_name,
+                  LPClassName class_name,
                   Uid element_uid,
                   std::string_view col_name) -> Key
   {

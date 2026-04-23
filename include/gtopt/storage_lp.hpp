@@ -379,7 +379,7 @@ public:
   }
 
   template<typename SystemContextT>
-  bool add_to_lp(std::string_view cname,
+  bool add_to_lp(const LPClassName& cname,
                  std::string_view ampl_class,
                  SystemContextT& sc,
                  const ScenarioLP& scenario,

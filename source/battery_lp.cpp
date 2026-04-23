@@ -45,7 +45,7 @@ bool BatteryLP::add_to_lp(SystemContext& sc,
                           const StageLP& stage,
                           LinearProblem& lp)
 {
-  static constexpr std::string_view cname = ClassName.full_name();
+  static constexpr const auto& cname = ClassName;
   static constexpr auto ampl_name = ClassName.snake_case();
   static constexpr double flow_conversion_rate = 1.0;
 
@@ -163,7 +163,7 @@ bool BatteryLP::add_to_lp(SystemContext& sc,
  */
 bool BatteryLP::add_to_output(OutputContext& out) const
 {
-  static constexpr std::string_view cname = ClassName.full_name();
+  static constexpr const auto& cname = ClassName;
 
   // Add finp variable solutions and costs to output
   out.add_col_sol(cname, FinpName, id(), finp_cols);

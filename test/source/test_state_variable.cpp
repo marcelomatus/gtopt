@@ -14,7 +14,7 @@ TEST_CASE("StateVariable::Key functionality")
     // removed because `unknown_uid = -1` silently embeds the
     // rejected `-` char into downstream LP labels (CoinLpIO /
     // CBC failure mode).
-    const auto key = StateVariable::key("TestClass",
+    const auto key = StateVariable::key(LPClassName {"TestClass"},
                                         123,
                                         "test_col",
                                         PhaseIndex {1},
@@ -33,21 +33,21 @@ TEST_CASE("StateVariable::Key functionality")
 
   SUBCASE("Key comparison")
   {
-    const auto key1 = StateVariable::key("ClassA",
+    const auto key1 = StateVariable::key(LPClassName {"ClassA"},
                                          1,
                                          "col1",
                                          PhaseIndex {1},
                                          make_uid<Stage>(1),
                                          SceneIndex {0},
                                          make_uid<Scenario>(0));
-    const auto key2 = StateVariable::key("ClassA",
+    const auto key2 = StateVariable::key(LPClassName {"ClassA"},
                                          1,
                                          "col1",
                                          PhaseIndex {1},
                                          make_uid<Stage>(1),
                                          SceneIndex {0},
                                          make_uid<Scenario>(0));
-    const auto key3 = StateVariable::key("ClassB",
+    const auto key3 = StateVariable::key(LPClassName {"ClassB"},
                                          1,
                                          "col1",
                                          PhaseIndex {1},
@@ -63,7 +63,7 @@ TEST_CASE("StateVariable::Key functionality")
   {
     // uid must be concrete
     CHECK_THROWS_AS(
-        [[maybe_unused]] auto k1 = StateVariable::key("C",
+        [[maybe_unused]] auto k1 = StateVariable::key(LPClassName {"C"},
                                                       unknown_uid,
                                                       "col",
                                                       PhaseIndex {0},
@@ -74,7 +74,7 @@ TEST_CASE("StateVariable::Key functionality")
 
     // scenario_uid must be concrete
     CHECK_THROWS_AS([[maybe_unused]] auto k2 =
-                        StateVariable::key("C",
+                        StateVariable::key(LPClassName {"C"},
                                            1,
                                            "col",
                                            PhaseIndex {0},
@@ -85,7 +85,7 @@ TEST_CASE("StateVariable::Key functionality")
 
     // stage_uid must be concrete
     CHECK_THROWS_AS([[maybe_unused]] auto k3 =
-                        StateVariable::key("C",
+                        StateVariable::key(LPClassName {"C"},
                                            1,
                                            "col",
                                            PhaseIndex {0},

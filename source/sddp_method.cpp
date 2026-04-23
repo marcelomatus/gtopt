@@ -59,7 +59,7 @@ const StateVariable* find_alpha_state_var(const SimulationLP& sim,
   auto svar = sim.state_variable(StateVariable::Key {
       .uid = sddp_alpha_uid,
       .col_name = sddp_alpha_col_name,
-      .class_name = sddp_alpha_class_name,
+      .class_name = sddp_alpha_lp_class,
       .lp_key = {.scene_index = scene_index, .phase_index = phase_index},
   });
   return svar ? &svar->get() : nullptr;
@@ -462,7 +462,7 @@ void register_alpha_variables(PlanningLP& planning_lp,
         StateVariable::Key {
             .uid = sddp_alpha_uid,
             .col_name = sddp_alpha_col_name,
-            .class_name = sddp_alpha_class_name,
+            .class_name = sddp_alpha_lp_class,
             .lp_key = {.scene_index = scene_index, .phase_index = pi},
         },
         alpha_col,
@@ -595,7 +595,11 @@ void SDDPMethod::collect_state_variable_links(SceneIndex scene_index)
       // entry (`register_alpha_variables` doesn't set one), so this
       // skip is also a no-op by construction — kept explicit to protect
       // against a future change that might add cross-phase α linking.
-      if (key.class_name == sddp_alpha_class_name) {
+      // α is registered with class_name = sddp_alpha_lp_class.
+      // LPClassName's operator== compares the underlying full_name,
+      // so value-compare works against either another LPClassName
+      // or (via implicit conversion) a string_view.
+      if (key.class_name == sddp_alpha_lp_class) {
         continue;
       }
 

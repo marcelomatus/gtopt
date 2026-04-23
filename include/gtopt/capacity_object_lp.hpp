@@ -29,6 +29,7 @@
 #pragma once
 
 #include <gtopt/capacity.hpp>
+#include <gtopt/lp_class_name.hpp>
 #include <gtopt/object_lp.hpp>
 
 namespace gtopt
@@ -70,7 +71,7 @@ struct CapacityObjectBase
                                         OF&& annual_capcost,
                                         OF&& annual_derating,
                                         OptBool integer_expmod = {})
-      : m_class_name_(cname.full_name())
+      : m_class_name_(cname)
       , m_id_(std::move(pid))
       , m_capacity_(ic, cname.full_name(), id(), std::forward<OF>(capacity))
       , m_expcap_(ic, cname.full_name(), id(), std::forward<OF>(expcap))
@@ -202,7 +203,7 @@ private:
         scenario, stage, self.m_class_name_, self.uid(), col_name);
   }
 
-  std::string_view m_class_name_ = "CapacityObject";
+  LPClassName m_class_name_ {"CapacityObject"};
 
   Id m_id_;
   OptTRealSched m_capacity_;

@@ -28,6 +28,14 @@ struct LPClassName
   /// Longest current name: "ReservoirProductionFactor" → 27 chars.
   static constexpr std::size_t max_short_len = 48;
 
+  /// Default constructor yields an empty class name (both full_name()
+  /// and snake_case() return empty views).  Required so that
+  /// aggregate types like `StateVariable::Key` (which stores an
+  /// `LPClassName` by value) can be default-initialised — the empty
+  /// instance signals "unset" and comparisons against a live class
+  /// name reliably fail.
+  constexpr LPClassName() noexcept = default;
+
   explicit constexpr LPClassName(std::string_view pfull_name) noexcept
       : m_full_name(pfull_name)
       , m_short_len(detail::snake_case_size(pfull_name))
@@ -39,6 +47,33 @@ struct LPClassName
       }
       m_short_buf[pos++] = detail::to_lower_char(pfull_name[i]);
     }
+  }
+
+  [[nodiscard]] constexpr bool empty() const noexcept
+  {
+    return m_full_name.empty();
+  }
+
+  [[nodiscard]] constexpr auto operator<=>(
+      const LPClassName& other) const noexcept
+  {
+    return m_full_name <=> other.m_full_name;
+  }
+
+  /// Heterogeneous equality against any string-like (string_view /
+  /// std::string / const char*).  Compares the PascalCase
+  /// `full_name()`.  Lets call sites compare a stored `LPClassName`
+  /// against a string literal without explicit conversion — e.g.
+  /// `key.class_name == "Reservoir"` works.
+  [[nodiscard]] constexpr bool operator==(std::string_view other) const noexcept
+  {
+    return m_full_name == other;
+  }
+
+  [[nodiscard]] constexpr bool operator==(
+      const LPClassName& other) const noexcept
+  {
+    return m_full_name == other.m_full_name;
   }
 
   [[nodiscard]] constexpr std::string_view full_name() const noexcept

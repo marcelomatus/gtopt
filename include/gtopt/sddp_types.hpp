@@ -39,6 +39,7 @@
 
 #include <gtopt/benders_cut.hpp>
 #include <gtopt/iteration.hpp>
+#include <gtopt/lp_class_name.hpp>
 #include <gtopt/planning_enums.hpp>
 #include <gtopt/sddp_cut_store_enums.hpp>
 #include <gtopt/sddp_enums.hpp>
@@ -131,9 +132,20 @@ constexpr auto stop_request = "sddp_stop_request.json";
 // Alpha is the method-owned cost-to-go variable added to every phase
 // except the last.  It is registered in `sim.state_variables()` like any
 // other state variable so that state/cut CSV I/O and cross-level
-// resolution treat it uniformly.  These constants centralise the
-// class/column name so every call site uses the same identifiers.
-constexpr std::string_view sddp_alpha_class_name = "Sddp";
+// resolution treat it uniformly.
+//
+// `sddp_alpha_lp_class` is the canonical `LPClassName` carrying both
+// the PascalCase full_name ("Sddp") and precomputed snake_case
+// short_name ("sddp").  `StateVariable::Key::class_name` and
+// `StateVarLink::class_name` store `const LPClassName*` pointing at
+// this constant (or at another LP class's static `ClassName`) so cut
+// builders and AMPL lookups hit the right form without any runtime
+// string conversion.  `sddp_alpha_class_name` (string_view) is kept
+// as a convenience alias for `SparseRow`/`SparseCol` metadata, which
+// store only the PascalCase view.
+inline constexpr LPClassName sddp_alpha_lp_class {"Sddp"};
+constexpr std::string_view sddp_alpha_class_name =
+    sddp_alpha_lp_class.full_name();
 constexpr std::string_view sddp_alpha_col_name = "alpha";
 
 /// Constraint-name tags carried on LP row metadata for each kind

@@ -42,6 +42,7 @@
 #include <gtopt/basic_types.hpp>
 #include <gtopt/linear_interface.hpp>
 #include <gtopt/linear_problem.hpp>
+#include <gtopt/lp_class_name.hpp>
 #include <gtopt/lp_context.hpp>
 #include <gtopt/phase.hpp>
 #include <gtopt/solver_options.hpp>
@@ -102,7 +103,11 @@ struct StateVarLink
   /// Captured once at link collection time from the simulation registry
   /// Key.  The string_views reference the same stable storage as the
   /// map keys, so they outlive the link for the whole solver lifetime.
-  std::string_view class_name {};  ///< e.g. "Reservoir", "Battery"
+  /// LP class identity stored by value.  Mirrors
+  /// `StateVariable::Key::class_name` — copied from the source Key
+  /// at link-collection time.  Zero-runtime access to both
+  /// PascalCase `full_name()` and snake_case `short_name()`.
+  LPClassName class_name {};
   std::string_view col_name {};  ///< e.g. "efin", "sini"
   Uid uid {unknown_uid};  ///< Element UID
   /// Human-readable element name (e.g. "LMAULE", "RALCO").  Resolved
