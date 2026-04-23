@@ -17,6 +17,7 @@ This project includes comprehensive documentation for different use cases:
 - **[README.md](README.md)** (this file) - Project overview, quick installation, and basic usage
 - **[Understanding gtopt](docs/overview.md)** - Global overview: repository layout, architecture layers, data flow, and technology stack
 - **[Planning Guide](docs/planning-guide.md)** - Complete planning guide: time structure, system elements, JSON format, and worked examples
+- **[Unit Commitment Guide](docs/unit-commitment.md)** - Three-bin UC formulation, startup tiers, piecewise heat rate, emission framework, and worked examples
 - **[Mathematical Formulation](docs/formulation/mathematical-formulation.md)** - Full LP/MIP optimization formulation with LaTeX notation
 - **[Building Guide](BUILDING.md)** - Detailed build instructions for all platforms, dependencies, and troubleshooting
 - **[Usage Guide](docs/usage.md)** - Complete command-line reference, examples, and advanced usage patterns
@@ -50,6 +51,7 @@ This project includes comprehensive documentation for different use cases:
 
 * **Cost Optimization**: minimizes investment (CAPEX) and operational (OPEX) costs.
 * **System Modeling**: supports single-bus or multi-bus DC power flow (Kirchhoff laws).
+* **Unit Commitment**: tight three-bin (u,v,w) MIP formulation with startup tiers, piecewise heat rate, ramp constraints, min up/down time, and emission pricing.
 * **Multiple Solvers**: monolithic LP, SDDP decomposition, and cascade multi-level hybrid SDDP with progressive LP refinement.
 * **Flexible I/O**: high-speed parsing and export to Parquet, CSV, and JSON.
 * **Scalability**: designed for large-scale grids with sparse matrix assembly.

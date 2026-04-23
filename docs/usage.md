@@ -634,6 +634,28 @@ gtopt system.json --quiet
 SPDLOG_LEVEL=debug gtopt system.json
 ```
 
+### Unit commitment
+
+Enable unit commitment for thermal generators by adding a `commitment_array`
+to the system and marking stages as `chronological`:
+
+```bash
+# Run with LP relaxation (fastest, no branch-and-bound)
+gtopt uc_case.json --set model_options.relaxed_phases=all
+
+# Run with full MIP (integer binaries)
+gtopt uc_case.json --set model_options.relaxed_phases=none
+
+# Add a carbon price
+gtopt uc_case.json --set model_options.emission_cost=30
+
+# Set an emission cap
+gtopt uc_case.json --set model_options.emission_cap=500000
+```
+
+> See [Unit Commitment Guide](unit-commitment.md) for the full formulation,
+> JSON schema, and worked examples.
+
 ## Troubleshooting Solver Issues
 
 This section covers common solver problems, their causes, and diagnostic
@@ -873,6 +895,8 @@ if __name__ == "__main__":
 
 ## See also
 
+- **[Unit Commitment Guide](unit-commitment.md)** — Three-bin UC
+  formulation, emission framework, and worked examples
 - **[Mathematical Formulation](formulation/mathematical-formulation.md)**
   — Full LP/MIP optimization formulation with academic references
 - **[Planning Options Reference](planning-options.md)** — Full option

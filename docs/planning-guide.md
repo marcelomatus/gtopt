@@ -1871,6 +1871,8 @@ after the solve completes.
 
 ## See also
 
+- **[Unit Commitment Guide](unit-commitment.md)** — Three-bin UC
+  formulation, emission framework, startup tiers, and worked examples
 - **[Mathematical Formulation](formulation/mathematical-formulation.md)**
   — Full LP/MIP optimization formulation with LaTeX notation, JSON-to-symbol
   mapping, and academic references
