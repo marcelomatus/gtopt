@@ -18,7 +18,7 @@ import tempfile
 import zipfile
 from base64 import b64decode, b64encode
 from collections import deque
-from typing import Any
+from typing import Any, cast
 
 import pandas as pd
 import requests as http_requests
@@ -42,6 +42,7 @@ try:
         _sys.path.insert(0, _scripts_dir)
     from gtopt_diagram import FilterOptions as _FilterOptions
     from gtopt_diagram import TopologyBuilder as _TopologyBuilder
+    from gtopt_diagram import model_to_reactflow as _model_to_reactflow
     from gtopt_diagram import model_to_visjs as _model_to_visjs
 
     _DIAGRAM_AVAILABLE = True
@@ -49,6 +50,7 @@ except ImportError:
     _FilterOptions = None
     _TopologyBuilder = None
     _model_to_visjs = None
+    _model_to_reactflow = None
     _DIAGRAM_AVAILABLE = False
 
 app = Flask(__name__)
@@ -1450,6 +1452,7 @@ def diagram_topology():
     no_gen = bool(body.get("no_generators", False))
     compact = bool(body.get("compact", False))
     vthresh = float(body.get("voltage_threshold", 0.0))
+    fmt = str(body.get("format", "visjs")).lower()
 
     # Build the gtopt planning JSON from GUI case data
     try:
@@ -1470,8 +1473,10 @@ def diagram_topology():
         app.logger.exception("Topology builder error")
         return jsonify({"error": str(exc)}), 500
 
-    # Convert GraphModel to vis.js format using the public API
-    graph = _model_to_visjs(model)
+    if fmt == "reactflow":
+        graph = _model_to_reactflow(model)
+    else:
+        graph = _model_to_visjs(model)
 
     meta = {
         "aggregate": builder.eff_agg,
@@ -1479,12 +1484,475 @@ def diagram_topology():
         "no_generators": no_gen,
         "n_nodes": len(graph["nodes"]),
         "n_edges": len(graph["edges"]),
+        "format": fmt if fmt == "reactflow" else "visjs",
     }
     if builder.auto_info:
         meta["n_total"] = builder.auto_info[0]
         meta["auto_mode"] = True
 
     return jsonify({"nodes": graph["nodes"], "edges": graph["edges"], "meta": meta})
+
+
+# ---------------------------------------------------------------------------
+# GUI Plus: validation, templates, and results aggregation endpoints
+# ---------------------------------------------------------------------------
+
+
+# Templates shipped inside the repo.  Key = slug used in URLs, value = path
+# relative to the repository root (two levels up from guiservice/app.py).
+_REPO_ROOT = os.path.dirname(os.path.dirname(__file__))
+_TEMPLATES_DIR = os.path.join(_REPO_ROOT, "cases")
+
+# Curated list of templates; must be present on disk.  The `blank` template
+# has a special in-memory definition below and therefore no file.
+_CASE_TEMPLATES: list[dict[str, Any]] = [
+    {
+        "slug": "blank",
+        "name": "Blank case",
+        "description": "An empty case with a single block/stage/scenario scaffold.",
+        "category": "starter",
+    },
+    {
+        "slug": "c0",
+        "name": "c0 — single-bus expansion",
+        "description": "5-stage multi-stage capacity expansion of a single-bus case.",
+        "category": "expansion",
+        "path": os.path.join(_TEMPLATES_DIR, "c0", "system_c0.json"),
+    },
+    {
+        "slug": "ieee_4b_ori",
+        "name": "IEEE 4-bus",
+        "description": "4-bus OPF test case with 2 thermal generators.",
+        "category": "opf",
+        "path": os.path.join(_TEMPLATES_DIR, "ieee_4b_ori", "ieee_4b_ori.json"),
+    },
+    {
+        "slug": "ieee_9b_ori",
+        "name": "IEEE 9-bus",
+        "description": "Standard 9-bus OPF benchmark (single snapshot).",
+        "category": "opf",
+        "path": os.path.join(_TEMPLATES_DIR, "ieee_9b_ori", "ieee_9b_ori.json"),
+    },
+    {
+        "slug": "ieee_14b_ori",
+        "name": "IEEE 14-bus",
+        "description": "Standard 14-bus OPF benchmark (24 hourly blocks).",
+        "category": "opf",
+        "path": os.path.join(_TEMPLATES_DIR, "ieee_14b_ori", "ieee_14b_ori.json"),
+    },
+]
+
+
+def _blank_template() -> dict[str, Any]:
+    """Return a minimal blank gtopt case."""
+    return {
+        "options": {
+            "input_directory": "case",
+            "input_format": "csv",
+            "output_directory": "output",
+            "output_format": "csv",
+            "use_single_bus": True,
+            "scale_objective": 1000.0,
+            "demand_fail_cost": 1000.0,
+        },
+        "simulation": {
+            "block_array": [{"uid": 1, "duration": 1}],
+            "stage_array": [{"uid": 1, "first_block": 0, "count_block": 1, "active": 1}],
+            "scenario_array": [{"uid": 1, "probability_factor": 1}],
+        },
+        "system": {
+            "name": "blank",
+            "bus_array": [{"uid": 1, "name": "b1"}],
+        },
+    }
+
+
+def _planning_json_to_case_data(planning: dict[str, Any], name: str) -> dict[str, Any]:
+    """Convert a raw planning JSON into the GUI case_data shape."""
+    case_data: dict[str, Any] = {
+        "case_name": name,
+        "options": planning.get("options", {}),
+        "simulation": planning.get("simulation", {}),
+        "system": {},
+        "data_files": {},
+    }
+    system_raw = planning.get("system", {})
+    for elem_type, array_key in ELEMENT_TO_ARRAY_KEY.items():
+        if array_key in system_raw:
+            case_data["system"][elem_type] = system_raw[array_key]
+    return case_data
+
+
+@app.route("/api/templates", methods=["GET"])
+def list_templates():
+    """Return the curated list of bundled case templates."""
+    out = []
+    for tpl in _CASE_TEMPLATES:
+        entry = {
+            "slug": tpl["slug"],
+            "name": tpl["name"],
+            "description": tpl["description"],
+            "category": tpl["category"],
+        }
+        # Only advertise templates whose file exists (blank is always available).
+        if tpl["slug"] == "blank" or os.path.isfile(tpl.get("path", "")):
+            out.append(entry)
+    return jsonify({"templates": out})
+
+
+@app.route("/api/templates/<slug>", methods=["GET"])
+def get_template(slug: str):
+    """Return the full case JSON for a given template slug."""
+    tpl = next((t for t in _CASE_TEMPLATES if t["slug"] == slug), None)
+    if tpl is None:
+        return jsonify({"error": f"Unknown template: {slug}"}), 404
+
+    if tpl["slug"] == "blank":
+        planning = _blank_template()
+        return jsonify(_planning_json_to_case_data(planning, "blank"))
+
+    path = tpl.get("path")
+    if not path or not os.path.isfile(path):
+        return jsonify({"error": f"Template file missing: {slug}"}), 404
+
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            planning = json.load(fh)
+    except (OSError, json.JSONDecodeError):
+        app.logger.exception("Failed to load template %s", slug)
+        return jsonify({"error": "Failed to load template"}), 500
+
+    return jsonify(_planning_json_to_case_data(planning, slug))
+
+
+def _validate_case(case_data: dict[str, Any]) -> dict[str, Any]:
+    """Run structural checks and return a ``{errors, warnings}`` dict.
+
+    Errors indicate that the case will fail to solve (duplicate UIDs,
+    missing required refs).  Warnings indicate smells that do not
+    necessarily cause a failure (buses with no connected element, empty
+    arrays, etc.).
+    """
+    errors: list[dict[str, Any]] = []
+    warnings: list[dict[str, Any]] = []
+
+    system = case_data.get("system") or {}
+
+    # Duplicate UIDs and name collection per element type
+    by_type_names: dict[str, set[str]] = {}
+    by_type_uids: dict[str, set[int]] = {}
+
+    for elem_type, items in system.items():
+        if not isinstance(items, list):
+            continue
+        names: set[str] = set()
+        uids: set[int] = set()
+        for i, item in enumerate(items):
+            if not isinstance(item, dict):
+                continue
+            uid = item.get("uid")
+            if uid is not None:
+                if uid in uids:
+                    errors.append(
+                        {
+                            "type": "duplicate_uid",
+                            "element_type": elem_type,
+                            "index": i,
+                            "uid": uid,
+                            "message": (f"Duplicate uid={uid} in {elem_type}_array"),
+                        }
+                    )
+                uids.add(uid)
+            name = item.get("name")
+            if name in (None, ""):
+                errors.append(
+                    {
+                        "type": "missing_name",
+                        "element_type": elem_type,
+                        "index": i,
+                        "message": f"{elem_type}[{i}] is missing a name",
+                    }
+                )
+            else:
+                if name in names:
+                    errors.append(
+                        {
+                            "type": "duplicate_name",
+                            "element_type": elem_type,
+                            "index": i,
+                            "name": name,
+                            "message": (f"Duplicate name='{name}' in {elem_type}_array"),
+                        }
+                    )
+                names.add(str(name))
+        by_type_names[elem_type] = names
+        by_type_uids[elem_type] = uids
+
+    # Referential integrity: every field with a ``ref`` must resolve
+    for elem_type, items in system.items():
+        schema = ELEMENT_SCHEMAS.get(elem_type)
+        if schema is None or not isinstance(items, list):
+            continue
+        fields = cast(list[dict[str, Any]], schema["fields"])
+        for i, item in enumerate(items):
+            if not isinstance(item, dict):
+                continue
+            for field in fields:
+                ref = field.get("ref")
+                if not ref:
+                    continue
+                fname = field["name"]
+                val = item.get(fname)
+                if val in (None, "", []):
+                    if field.get("required"):
+                        errors.append(
+                            {
+                                "type": "missing_required_ref",
+                                "element_type": elem_type,
+                                "index": i,
+                                "field": fname,
+                                "ref": ref,
+                                "message": (f"{elem_type}[{i}].{fname} is required (ref={ref})"),
+                            }
+                        )
+                    continue
+                target_names = by_type_names.get(ref, set())
+                target_uids = by_type_uids.get(ref, set())
+                # The reference may be a name (string) or a uid (int).
+                if isinstance(val, (int, float)):
+                    ok = int(val) in target_uids
+                else:
+                    ok = str(val) in target_names
+                if not ok:
+                    errors.append(
+                        {
+                            "type": "dangling_ref",
+                            "element_type": elem_type,
+                            "index": i,
+                            "field": fname,
+                            "ref": ref,
+                            "value": val,
+                            "message": (
+                                f"{elem_type}[{i}].{fname}={val!r} does not "
+                                f"match any {ref}.name or {ref}.uid"
+                            ),
+                        }
+                    )
+
+    # Warning: buses with no connected element
+    bus_names = by_type_names.get("bus", set())
+    referenced_buses: set[str] = set()
+    for elem_type, items in system.items():
+        schema = ELEMENT_SCHEMAS.get(elem_type)
+        if schema is None or not isinstance(items, list):
+            continue
+        fields = cast(list[dict[str, Any]], schema["fields"])
+        bus_fields = [f["name"] for f in fields if f.get("ref") == "bus"]
+        if not bus_fields:
+            continue
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            for bf in bus_fields:
+                val = item.get(bf)
+                if val not in (None, "", []):
+                    referenced_buses.add(str(val))
+
+    for name in bus_names - referenced_buses:
+        warnings.append(
+            {
+                "type": "isolated_bus",
+                "element_type": "bus",
+                "name": name,
+                "message": f"Bus '{name}' has no connected element",
+            }
+        )
+
+    # Warning: simulation array empty
+    sim = case_data.get("simulation") or {}
+    for key, label in (
+        ("block_array", "blocks"),
+        ("stage_array", "stages"),
+        ("scenario_array", "scenarios"),
+    ):
+        arr = sim.get(key) or []
+        if not arr:
+            warnings.append(
+                {
+                    "type": "empty_simulation_array",
+                    "array": key,
+                    "message": f"No {label} defined (simulation.{key} is empty)",
+                }
+            )
+
+    return {
+        "ok": not errors,
+        "n_errors": len(errors),
+        "n_warnings": len(warnings),
+        "errors": errors,
+        "warnings": warnings,
+    }
+
+
+@app.route("/api/case/validate", methods=["POST"])
+def api_validate_case():
+    """Validate a case structure; return errors and warnings."""
+    case_data = request.get_json(silent=True) or {}
+    return jsonify(_validate_case(case_data))
+
+
+@app.route("/api/case/check_refs", methods=["POST"])
+def api_check_refs():
+    """Return only the cross-reference errors (subset of validate)."""
+    case_data = request.get_json(silent=True) or {}
+    full = _validate_case(case_data)
+    ref_errors = [
+        e for e in full["errors"] if e.get("type") in ("dangling_ref", "missing_required_ref")
+    ]
+    return jsonify(
+        {
+            "ok": not ref_errors,
+            "n_errors": len(ref_errors),
+            "errors": ref_errors,
+        }
+    )
+
+
+@app.route("/api/results/summary", methods=["POST"])
+def api_results_summary():
+    """Compute KPI summary from a parsed results dict.
+
+    Body JSON:
+      results          — parsed results dict (same shape as /api/results/upload)
+      scale_objective  — optional float (default 1.0)
+      tech_map         — optional dict[uid_str, tech_str]
+    """
+    body = request.get_json(silent=True) or {}
+    results = body.get("results") or {}
+    scale_obj = float(body.get("scale_objective", 1.0))
+    tech_map = body.get("tech_map")
+
+    try:
+        # Lazy import so guiservice still loads when scripts are not installed.
+        # pylint: disable=import-outside-toplevel
+        from gtopt_results_summary.summary import summarize_output_dict
+
+        summary = summarize_output_dict(results, tech_map=tech_map, scale_objective=scale_obj)
+    except ImportError:
+        return (
+            jsonify({"error": "gtopt_results_summary is not installed"}),
+            503,
+        )
+    except Exception:  # pylint: disable=broad-exception-caught
+        app.logger.exception("Results summary error")
+        return jsonify({"error": "Results summary failed"}), 500
+    return jsonify(summary)
+
+
+@app.route("/api/results/aggregate", methods=["POST"])
+def api_results_aggregate():
+    """Aggregate one output table along the (scenario, stage, block) dimensions.
+
+    Body JSON:
+      table            — {columns:[...], data:[[...]]} (required)
+      group_by         — optional list of indexing columns to keep
+                        (default: all of scenario/stage/block that exist)
+      aggregation      — "sum" | "mean" | "max" | "min"  (default "sum")
+
+    Response:
+      rows             — aggregated rows in the same shape
+      columns          — column order of the aggregated result
+    """
+    body = request.get_json(silent=True) or {}
+    table = body.get("table") or {}
+    cols = list(table.get("columns") or [])
+    data = table.get("data") or []
+    if not cols:
+        return jsonify({"error": "Empty table"}), 400
+
+    agg = str(body.get("aggregation", "sum")).lower()
+    if agg not in ("sum", "mean", "max", "min"):
+        return jsonify({"error": f"Unknown aggregation: {agg}"}), 400
+
+    idx_candidates = [c for c in ("scenario", "stage", "block") if c in cols]
+    group_by = body.get("group_by")
+    if group_by is None:
+        group_by = idx_candidates
+    else:
+        group_by = [c for c in group_by if c in cols]
+
+    if not data:
+        return jsonify({"rows": [], "columns": cols})
+
+    try:
+        df = pd.DataFrame(data, columns=cols)
+        num_cols = [c for c in cols if c not in group_by]
+        for c in num_cols:
+            df[c] = pd.to_numeric(df[c], errors="coerce")
+        if group_by:
+            grouped = df.groupby(group_by, as_index=False)
+            aggregated = getattr(grouped, agg)(numeric_only=True)
+        else:
+            aggregated = pd.DataFrame([getattr(df[num_cols], agg)(numeric_only=True).to_dict()])
+    except Exception:  # pylint: disable=broad-exception-caught
+        app.logger.exception("Aggregation failed")
+        return jsonify({"error": "Aggregation failed"}), 500
+
+    rows = [
+        [_sanitize_value(x) for x in row] for row in aggregated.itertuples(index=False, name=None)
+    ]
+    return jsonify({"rows": rows, "columns": list(aggregated.columns)})
+
+
+@app.route("/api/results/export/excel", methods=["POST"])
+def api_results_export_excel():
+    """Export a parsed results dict to a downloadable Excel workbook.
+
+    Body JSON:
+      results          — parsed results dict
+      scale_objective  — optional float (default 1.0)
+      tech_map         — optional per-uid technology mapping
+      case_name        — optional download filename stem (default "results")
+    """
+    body = request.get_json(silent=True) or {}
+    results = body.get("results") or {}
+    scale_obj = float(body.get("scale_objective", 1.0))
+    tech_map = body.get("tech_map")
+    case_name = body.get("case_name") or "results"
+
+    try:
+        # pylint: disable=import-outside-toplevel
+        from gtopt_timeseries_export.exporter import export_from_dict
+    except ImportError:
+        return (
+            jsonify({"error": "gtopt_timeseries_export is not installed"}),
+            503,
+        )
+
+    with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as tmp:
+        dest = tmp.name
+    try:
+        export_from_dict(
+            results,
+            dest,
+            scale_objective=scale_obj,
+            tech_map=tech_map,
+        )
+    except Exception:  # pylint: disable=broad-exception-caught
+        app.logger.exception("Excel export error")
+        # Best-effort cleanup
+        try:
+            os.unlink(dest)
+        except OSError:
+            pass
+        return jsonify({"error": "Excel export failed"}), 500
+
+    return send_file(
+        dest,
+        mimetype=("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+        as_attachment=True,
+        download_name=f"{case_name}.xlsx",
+    )
 
 
 def main():

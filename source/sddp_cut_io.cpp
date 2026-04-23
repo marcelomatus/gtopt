@@ -181,9 +181,9 @@ void write_cut_coefficients_unscaled(std::ostream& ofs,
 /// Extract the iteration number from a cut name.
 ///
 /// Cut name formats:
-///   sddp_scut_{scene}_{phase}_{iteration}_{offset}  → field [4]
-///   sddp_fcut_{scene}_{phase}_{iteration}_{offset}  → field [4]
-///   sddp_bcut_{scene}_{phase}_{iteration}_{offset}  → field [4]
+///   sddp_scut_{uid}_{scene}_{phase}_{iteration}_{offset}  → field [5]
+///   sddp_fcut_{uid}_{scene}_{phase}_{iteration}_{offset}  → field [5]
+///   sddp_bcut_{uid}_{scene}_{phase}_{iteration}_{offset}  → field [5]
 ///   sddp_ecut_{scene}_{phase}_{total_cuts}           → no iteration
 ///
 /// The on-disk `{iteration}` field is a 0-based **IterationIndex**
@@ -205,10 +205,15 @@ void write_cut_coefficients_unscaled(std::ostream& ofs,
   {
     return IterationIndex {0};
   }
-  // Split by '_' and take the 5th field (index 4)
+  // Split by '_' and take the 6th field (index 5).
+  // Format: sddp_{type}_{uid}_{scene}_{phase}_{iteration}_{offset}
+  // Note: the uid field may be negative (legacy `-1` placeholder)
+  // which introduces an extra '_' — field counting handles both
+  // the old `-1` format and the current positive-integer uid format
+  // correctly because '-' is not treated as a separator.
   int field = 0;
   std::string_view::size_type pos = 0;
-  while (pos < name.size() && field < 4) {
+  while (pos < name.size() && field < 5) {
     pos = name.find('_', pos);
     if (pos == std::string_view::npos) {
       return IterationIndex {0};
@@ -216,7 +221,7 @@ void write_cut_coefficients_unscaled(std::ostream& ofs,
     ++pos;
     ++field;
   }
-  if (field != 4 || pos >= name.size()) {
+  if (field != 5 || pos >= name.size()) {
     return IterationIndex {0};
   }
   const auto end = name.find('_', pos);
@@ -598,6 +603,7 @@ void write_cut_coefficients_unscaled(std::ostream& ofs,
           .uppb = LinearProblem::DblMax,
           .class_name = sddp_loaded_cut_class_name,
           .constraint_name = sddp_loaded_cut_constraint_name,
+          .variable_uid = phase_uid,
       };
 
       // Resolve the phase UID to a PhaseIndex
@@ -1170,6 +1176,7 @@ void write_cut_coefficients_unscaled(std::ostream& ofs,
             .scale = sa,
             .class_name = sddp_boundary_cut_class_name,
             .constraint_name = sddp_loaded_cut_constraint_name,
+            .variable_uid = sim.uid_of(last_phase),
             .context =
                 make_iteration_context(sim.uid_of(scene_index),
                                        sim.uid_of(last_phase),
@@ -1500,6 +1507,7 @@ void write_cut_coefficients_unscaled(std::ostream& ofs,
             .scale = sa,
             .class_name = sddp_named_cut_class_name,
             .constraint_name = sddp_loaded_cut_constraint_name,
+            .variable_uid = sim.uid_of(phase_index),
             .context =
                 make_iteration_context(sim.uid_of(scene_index),
                                        sim.uid_of(phase_index),
@@ -1733,6 +1741,7 @@ void write_cut_coefficients_unscaled(std::ostream& ofs,
           .uppb = LinearProblem::DblMax,
           .class_name = sddp_loaded_cut_class_name,
           .constraint_name = sddp_loaded_cut_constraint_name,
+          .variable_uid = sim.uid_of(phase_index),
       };
 
       // State variable map for structured key resolution

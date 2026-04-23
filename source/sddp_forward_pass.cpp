@@ -328,7 +328,10 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
                   && infeas_count >= m_options_.multi_cut_threshold);
 
           // Aggregated feasibility cut — emitted ONLY when we are
-          // NOT in multi-cut mode (D11 exclusivity).
+          // NOT in multi-cut mode (D11 exclusivity).  Uses the α-free
+          // Birge-Louveaux π-weighted builder from commit ae4ba13d,
+          // which reads row duals of the fixing equations (not
+          // reduced costs) from the elastic clone.
           auto feas_cut = !use_multi_cut
               ? build_feasibility_cut_physical(prev_state.outgoing_links,
                                                elastic_result->link_infos,
@@ -339,6 +342,10 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
           if (!use_multi_cut) {
             feas_cut.class_name = sddp_alpha_class_name;
             feas_cut.constraint_name = sddp_fcut_constraint_name;
+            // variable_uid = prev phase UID from master (#426) — without
+            // this the row carries unknown_uid=-1 which serialises as
+            // `sddp_fcut_-1_…`, rejected by CoinLpIO's row-name validator.
+            feas_cut.variable_uid = uid_of(prev_phase_index);
             feas_cut.context = make_iteration_context(uid_of(scene_index),
                                                       uid_of(phase_index),
                                                       iteration_index,
@@ -411,6 +418,9 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
                                                  m_options_.cut_coeff_eps);
               feas_cut.class_name = sddp_alpha_class_name;
               feas_cut.constraint_name = sddp_fcut_constraint_name;
+              // Same uid invariant as the non-multi-cut path (master #426)
+              // — avoids `sddp_fcut_-1_…` rows that CoinLpIO rejects.
+              feas_cut.variable_uid = uid_of(prev_phase_index);
               feas_cut.context = make_iteration_context(uid_of(scene_index),
                                                         uid_of(phase_index),
                                                         iteration_index,

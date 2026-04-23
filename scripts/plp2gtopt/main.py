@@ -231,8 +231,60 @@ def _infer_output_dir(input_dir: Path, explicit_output: Path) -> Path:
     return explicit_output
 
 
+def _apply_plp_legacy_bundle(args: argparse.Namespace) -> None:
+    """Apply --plp-legacy defaults in place, honouring explicit flags.
+
+    The bundle substitutes defaults so that gtopt output is as close to
+    PLP as possible, at the cost of LP quality / size.  Explicit user
+    flags take precedence — we only override values that the user
+    did not set on the command line.
+
+    Bundle table (see --plp-legacy help):
+
+      | Option           | Default (normal)       | --plp-legacy       |
+      |------------------|------------------------|--------------------|
+      | method           | cascade                | sddp               |
+      | line_losses_mode | unset (→adaptive)      | piecewise_direct   |
+      | use_line_losses  | unset (→gtopt true)    | true (explicit)    |
+      | pasada_mode      | flow-turbine           | flow-turbine (=)   |
+      | use_kirchhoff    | true                   | true (=)           |
+      | discount_rate    | 0.0                    | 0.0 (=)            |
+
+    `=` marks no-op bundle entries: gtopt's normal default already
+    matches PLP so no change is needed.  `reservoir_scale_mode` is
+    intentionally left alone (user preference).
+    """
+    if not args.plp_legacy:
+        return
+
+    # argparse stores the final parsed value regardless of whether it
+    # came from the CLI or the default.  Inspect sys.argv directly to
+    # tell "user typed --method" apart from "default was cascade".
+    explicit_flags = {a.split("=", 1)[0] for a in sys.argv[1:]}
+    explicit_method = {"-M", "--method"} & explicit_flags
+    explicit_losses = {"--line-losses-mode"} & explicit_flags
+    explicit_use_losses = {"-L", "--use-line-losses"} & explicit_flags
+
+    applied: list[str] = []
+    if not explicit_method and args.method != "sddp":
+        args.method = "sddp"
+        applied.append("method=sddp")
+    if not explicit_losses and args.line_losses_mode != "piecewise_direct":
+        args.line_losses_mode = "piecewise_direct"
+        applied.append("line_losses_mode=piecewise_direct")
+    if not explicit_use_losses and args.use_line_losses is None:
+        # Force explicit `true` in the JSON so the PLP-compat intent is
+        # self-documenting, even though the gtopt default is also true.
+        args.use_line_losses = True
+        applied.append("use_line_losses=true")
+
+    if applied:
+        logging.info("--plp-legacy: applying %s", ", ".join(applied))
+
+
 def build_options(args: argparse.Namespace) -> dict:
     """Convert parsed CLI arguments to a conversion options dict."""
+    _apply_plp_legacy_bundle(args)
     input_dir = _resolve_input_dir(args)
 
     # When -o is not given, infer the output dir:
@@ -286,6 +338,8 @@ def build_options(args: argparse.Namespace) -> dict:
         model_opts["reserve_fail_cost"] = args.reserve_fail_cost
     if args.use_line_losses is not None:
         model_opts["use_line_losses"] = args.use_line_losses
+    if args.line_losses_mode is not None:
+        model_opts["line_losses_mode"] = args.line_losses_mode
     opts["model_options"] = model_opts
 
     if args.cut_sharing_mode is not None:

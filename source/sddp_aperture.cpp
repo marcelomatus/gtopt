@@ -385,6 +385,7 @@ auto solve_apertures_for_phase(
                                                 cut_coeff_eps);
           cut.class_name = sddp_alpha_class_name;
           cut.constraint_name = sddp_aperture_cut_constraint_name;
+          cut.variable_uid = phase_uid_val;
           cut.context = make_aperture_context(
               scene_uid_val, phase_uid_val, ap_uid, total_cuts);
 
@@ -484,6 +485,7 @@ auto solve_apertures_for_phase(
   auto ecut = weighted_average_benders_cut(aperture_cuts, aperture_weights);
   ecut.class_name = sddp_alpha_class_name;
   ecut.constraint_name = sddp_ecut_constraint_name;
+  ecut.variable_uid = phase_uid_val;
   ecut.context = make_iteration_context(
       scene_uid_val, phase_uid_val, iteration_index, total_cuts);
   return ecut;

@@ -1088,6 +1088,7 @@ auto SDDPMethod::backward_pass_single_phase(SceneIndex scene_index,
                                         ceps);
   cut.class_name = sddp_alpha_class_name;
   cut.constraint_name = sddp_scut_constraint_name;
+  cut.variable_uid = uid_of(prev_phase_index);
   cut.context = make_iteration_context(
       uid_of(scene_index), uid_of(phase_index), iteration_index, cut_offset);
   const auto dt_build = elapsed_s(t_build);

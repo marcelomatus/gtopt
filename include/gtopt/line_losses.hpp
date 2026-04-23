@@ -11,14 +11,15 @@
  *
  * ### Supported modes
  *
- * | Mode          | Extra rows/block | Extra cols/block       |
- * |---------------|-----------------|------------------------|
- * | `none`        | 0               | 1 (bidirectional flow) |
- * | `linear`      | 0               | 1–2 (flow per dir)     |
- * | `piecewise`   | 2               | K+3 (segs + loss + fp + fn) |
- * | `bidirectional` | 4             | 2(K+2) (per-dir segs)  |
- * | `adaptive`    | resolved at config time to piecewise or bidirectional |
- * | `dynamic`     | placeholder → piecewise                  |
+ * | Mode                | Extra rows/block | Extra cols/block          |
+ * |---------------------|------------------|---------------------------|
+ * | `none`              | 0                | 1 (bidirectional flow)    |
+ * | `linear`            | 0                | 1–2 (flow per dir)        |
+ * | `piecewise`         | 2                | K+3 (segs + loss + fp+fn) |
+ * | `bidirectional`     | 4                | 2(K+2) (per-dir segs)     |
+ * | `adaptive`          | resolved at config time (piecewise/bidirectional) |
+ * | `dynamic`           | placeholder → piecewise                           |
+ * | `piecewise_direct`  | 2                | 2(K+1) (per-dir segs + fp/fn) |
  *
  * ### Mathematical background
  *
@@ -103,10 +104,16 @@ struct BlockResult
  *
  * If the resolved mode is `adaptive`, it is mapped to:
  *   - `bidirectional` if the line has expansion modules (`has_expansion`)
- *   - `piecewise` otherwise
+ *   - `piecewise` otherwise (smallest-LP shared-segment model)
  *
  * If the resolved mode is `dynamic`, it falls back to `piecewise`
  * (with a log warning on first call).
+ *
+ * If the resolved mode is `piecewise_direct` **and** the line has
+ * expansion (`has_expansion`), it falls back to `piecewise` with a
+ * one-shot warning — the direct model bakes the per-segment bound
+ * `tmax/K` into variable bounds and cannot be linked to a capacity
+ * column.
  *
  * @param line            The line data (per-element overrides)
  * @param options         Global planning options
@@ -141,10 +148,12 @@ struct BlockResult
  * @brief Add loss model variables and constraints for one block.
  *
  * Dispatches to the appropriate mode implementation:
- *   - `none`:          single bidirectional flow, no loss
- *   - `linear`:        directional flows with loss coefficients
- *   - `piecewise`:     shared segments for |f| = fp + fn [1]
- *   - `bidirectional`: independent segments per direction [3]
+ *   - `none`:             single bidirectional flow, no loss
+ *   - `linear`:           directional flows with loss coefficients
+ *   - `piecewise`:        shared segments for |f| = fp + fn [1]
+ *   - `bidirectional`:    independent segments per direction [3]
+ *   - `piecewise_direct`: PLP-faithful, per-segment bus stamps, no
+ *                         loss var/row (requires no capacity column)
  *
  * @return LP indices for the created variables and constraints.
  */

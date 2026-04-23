@@ -17,6 +17,7 @@ This project includes comprehensive documentation for different use cases:
 - **[README.md](README.md)** (this file) - Project overview, quick installation, and basic usage
 - **[Understanding gtopt](docs/overview.md)** - Global overview: repository layout, architecture layers, data flow, and technology stack
 - **[Planning Guide](docs/planning-guide.md)** - Complete planning guide: time structure, system elements, JSON format, and worked examples
+- **[Unit Commitment Guide](docs/unit-commitment.md)** - Three-bin UC formulation, startup tiers, piecewise heat rate, emission framework, and worked examples
 - **[Mathematical Formulation](docs/formulation/mathematical-formulation.md)** - Full LP/MIP optimization formulation with LaTeX notation
 - **[Building Guide](BUILDING.md)** - Detailed build instructions for all platforms, dependencies, and troubleshooting
 - **[Usage Guide](docs/usage.md)** - Complete command-line reference, examples, and advanced usage patterns
@@ -50,6 +51,7 @@ This project includes comprehensive documentation for different use cases:
 
 * **Cost Optimization**: minimizes investment (CAPEX) and operational (OPEX) costs.
 * **System Modeling**: supports single-bus or multi-bus DC power flow (Kirchhoff laws).
+* **Unit Commitment**: tight three-bin (u,v,w) MIP formulation with startup tiers, piecewise heat rate, ramp constraints, min up/down time, and emission pricing.
 * **Multiple Solvers**: monolithic LP, SDDP decomposition, and cascade multi-level hybrid SDDP with progressive LP refinement.
 * **Flexible I/O**: high-speed parsing and export to Parquet, CSV, and JSON.
 * **Scalability**: designed for large-scale grids with sparse matrix assembly.
@@ -220,6 +222,26 @@ gtopt_gui system_c0.json
 5. View results with interactive charts and tables
 
 For detailed usage and options, see [guiservice/GTOPT_GUI.md](guiservice/GTOPT_GUI.md).
+
+### GUI Plus (Next.js / React front-end)
+
+An alternative modern front-end — **GUI Plus** — is available under
+[`guiservice-plus/`](guiservice-plus/). It is a Next.js 15 + React 19 +
+Tailwind v4 + shadcn/ui single-page app that sits on top of the existing
+Flask `guiservice` and offers an interactive topology editor (ReactFlow),
+technology-coloured dispatch stack charts, SDDP convergence views, a merit
+order table, and a KPI dashboard.
+
+```bash
+# Launch both the Flask guiservice and GUI Plus together
+gtopt_gui --ui-plus --ui-plus-port 5002
+
+# Or run it standalone against an existing Flask guiservice
+cd guiservice-plus && npm install
+GTOPT_GUISERVICE_URL=http://localhost:5001 npm run dev -- -p 5002
+```
+
+See [guiservice-plus/README.md](guiservice-plus/README.md) for details.
 
 ### Quick Start with gtopt_guisrv
 

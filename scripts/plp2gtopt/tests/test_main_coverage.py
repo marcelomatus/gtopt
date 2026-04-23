@@ -184,6 +184,8 @@ class TestBuildOptions:
             "use_kirchhoff": True,
             "reserve_fail_cost": None,
             "use_line_losses": None,
+            "line_losses_mode": None,
+            "plp_legacy": False,
             "cut_sharing_mode": None,
             "boundary_cuts_mode": None,
             "boundary_max_iterations": None,
@@ -306,6 +308,66 @@ class TestBuildOptions:
         args = self._make_args(pasada_mode=None)
         opts = build_options(args)
         assert opts["pasada_mode"] == "flow-turbine"
+
+    def test_line_losses_mode_explicit(self):
+        args = self._make_args(line_losses_mode="piecewise_direct")
+        opts = build_options(args)
+        assert opts["model_options"]["line_losses_mode"] == "piecewise_direct"
+
+    def test_line_losses_mode_absent_when_not_set(self):
+        args = self._make_args()
+        opts = build_options(args)
+        # Not emitted when user did not set it — gtopt picks adaptive
+        assert "line_losses_mode" not in opts["model_options"]
+
+    def test_plp_legacy_bundles_method_and_losses(self):
+        # Empty argv → neither --method nor --line-losses-mode is explicit,
+        # so --plp-legacy fills method + line_losses_mode + use_line_losses.
+        with patch.object(sys, "argv", ["plp2gtopt", "--plp-legacy"]):
+            args = self._make_args(plp_legacy=True)
+            opts = build_options(args)
+        assert opts["method"] == "sddp"
+        assert opts["model_options"]["line_losses_mode"] == "piecewise_direct"
+        assert opts["model_options"]["use_line_losses"] is True
+
+    def test_plp_legacy_respects_explicit_use_line_losses(self):
+        # User passed --use-line-losses → bundle must not touch the value,
+        # but still bundles method + line_losses_mode.
+        with patch.object(sys, "argv", ["plp2gtopt", "--plp-legacy", "-L"]):
+            args = self._make_args(plp_legacy=True, use_line_losses=True)
+            opts = build_options(args)
+        assert opts["model_options"]["use_line_losses"] is True
+        assert opts["method"] == "sddp"
+        assert opts["model_options"]["line_losses_mode"] == "piecewise_direct"
+
+    def test_plp_legacy_respects_explicit_method(self):
+        # User passes --method=monolithic explicitly → legacy bundle
+        # must NOT override it, but still sets line_losses_mode.
+        with patch.object(
+            sys, "argv", ["plp2gtopt", "--plp-legacy", "--method=monolithic"]
+        ):
+            args = self._make_args(plp_legacy=True, method="monolithic")
+            opts = build_options(args)
+        assert opts["method"] == "monolithic"
+        assert opts["model_options"]["line_losses_mode"] == "piecewise_direct"
+
+    def test_plp_legacy_respects_explicit_losses_mode(self):
+        with patch.object(
+            sys,
+            "argv",
+            ["plp2gtopt", "--plp-legacy", "--line-losses-mode", "piecewise"],
+        ):
+            args = self._make_args(plp_legacy=True, line_losses_mode="piecewise")
+            opts = build_options(args)
+        assert opts["method"] == "sddp"  # still bundled
+        assert opts["model_options"]["line_losses_mode"] == "piecewise"
+
+    def test_plp_legacy_off_leaves_defaults(self):
+        with patch.object(sys, "argv", ["plp2gtopt"]):
+            args = self._make_args(plp_legacy=False)
+            opts = build_options(args)
+        assert opts["method"] == "cascade"
+        assert "line_losses_mode" not in opts["model_options"]
 
 
 # ---------------------------------------------------------------------------
