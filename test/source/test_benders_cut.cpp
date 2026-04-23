@@ -1069,437 +1069,6 @@ TEST_CASE("build_multi_cuts with no relaxed links returns empty")  // NOLINT
   CHECK(cuts.empty());
 }
 
-TEST_CASE("build_multi_cuts with active slack generates cuts")  // NOLINT
-{
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
-  // Build a small LP that will serve as the "cloned" elastic LP.
-  // We need columns for: dep0, dep1, sup0, sdn0, sup1, sdn1
-  LinearInterface cloned_li;
-  const auto dep0 = cloned_li.add_col(SparseCol {
-      .lowb = 0.0,
-      .uppb = 100.0,
-  });
-  const auto dep1 = cloned_li.add_col(SparseCol {
-      .lowb = 0.0,
-      .uppb = 100.0,
-  });
-  const auto sup0 = cloned_li.add_col(SparseCol {
-      .lowb = 0.0,
-      .uppb = 100.0,
-  });
-  const auto sdn0 = cloned_li.add_col(SparseCol {
-      .lowb = 0.0,
-      .uppb = 100.0,
-  });
-  const auto sup1 = cloned_li.add_col(SparseCol {
-      .lowb = 0.0,
-      .uppb = 100.0,
-  });
-  const auto sdn1 = cloned_li.add_col(SparseCol {
-      .lowb = 0.0,
-      .uppb = 100.0,
-  });
-
-  // Set objective to minimise slack penalties
-  cloned_li.set_obj_coeff(dep0, 0.0);
-  cloned_li.set_obj_coeff(dep1, 0.0);
-  cloned_li.set_obj_coeff(sup0, 1000.0);
-  cloned_li.set_obj_coeff(sdn0, 1000.0);
-  cloned_li.set_obj_coeff(sup1, 1000.0);
-  cloned_li.set_obj_coeff(sdn1, 1000.0);
-
-  // Add trivial constraints to make LP valid
-  SparseRow r0;
-  r0[dep0] = 1.0;
-  r0[sup0] = -1.0;
-  r0[sdn0] = 1.0;
-  r0.lowb = 30.0;
-  r0.uppb = 30.0;
-  cloned_li.add_row(r0);
-
-  SparseRow r1;
-  r1[dep1] = 1.0;
-  r1[sup1] = -1.0;
-  r1[sdn1] = 1.0;
-  r1.lowb = 50.0;
-  r1.uppb = 50.0;
-  cloned_li.add_row(r1);
-
-  // Solve to get a valid solution — dep0=30, dep1=50, all slacks=0
-  auto res = cloned_li.initial_solve();
-  REQUIRE(res.has_value());
-
-  // Now manually set column solution to simulate slack > 0:
-  // dep0=25, sup0=5 (slack up active), dep1=60, sdn1=10 (slack down active)
-  std::vector<double> sol = {
-      25.0,
-      60.0,
-      5.0,
-      0.0,
-      0.0,
-      10.0,
-  };
-  cloned_li.set_col_sol(sol);
-
-  ElasticSolveResult elastic;
-  elastic.clone = std::move(cloned_li);
-  elastic.link_infos = {
-      {
-          .relaxed = true,
-          .sup_col = sup0,
-          .sdn_col = sdn0,
-      },
-      {
-          .relaxed = true,
-          .sup_col = sup1,
-          .sdn_col = sdn1,
-      },
-  };
-
-  // build_multi_cuts uses `link.class_name` + `link.uid` as the row's
-  // identity for LabelMaker (so labels stay globally unique across
-  // state-var classes that share a UID).  Populate those fields on
-  // each link so the cuts come out with realistic metadata.  The
-  // `source_low` / `source_upp` fields must enclose the dep_val so
-  // the new bound-clamp logic in build_multi_cuts does not suppress
-  // the cut as redundant with the source column's own bounds.
-  const std::vector<StateVarLink> links = {
-      {
-          .source_col =
-              ColIndex {
-                  100,
-              },
-          .dependent_col = dep0,
-          .trial_value = 30.0,
-          .source_low = 0.0,
-          .source_upp = 1000.0,
-          .class_name = "Reservoir",
-          .col_name = "efin",
-          .uid = Uid {7},
-      },
-      {
-          .source_col =
-              ColIndex {
-                  101,
-              },
-          .dependent_col = dep1,
-          .trial_value = 50.0,
-          .source_low = 0.0,
-          .source_upp = 1000.0,
-          .class_name = "Battery",
-          .col_name = "sini",
-          .uid = Uid {3},
-      },
-  };
-
-  auto cuts = build_multi_cuts(elastic, links);
-
-  // sup0=5 > 0 → upper-bound cut on source_col[0] <= dep_val=25
-  // sdn1=10 > 0 → lower-bound cut on source_col[1] >= dep_val=60
-  CHECK(cuts.size() == 2);
-
-  // First cut: ub_cut for link 0 (sup0 active)
-  CHECK(cuts[0].class_name == "Reservoir");
-  CHECK(cuts[0].constraint_name == "mcut_ub");
-  CHECK(cuts[0].variable_uid == Uid {7});
-  CHECK(cuts[0].uppb == doctest::Approx(25.0));
-  CHECK(cuts[0].cmap.at(ColIndex {
-            100,
-        })
-        == doctest::Approx(1.0));
-
-  // Second cut: lb_cut for link 1 (sdn1 active)
-  CHECK(cuts[1].class_name == "Battery");
-  CHECK(cuts[1].constraint_name == "mcut_lb");
-  CHECK(cuts[1].variable_uid == Uid {3});
-  CHECK(cuts[1].lowb == doctest::Approx(60.0));
-  CHECK(cuts[1].cmap.at(ColIndex {
-            101,
-        })
-        == doctest::Approx(1.0));
-}
-
-// ---------------------------------------------------------------------------
-// Regression test for the phase-28 mcut-exceeds-emax bug diagnosed on
-// plp_2_years (2026-04-22).  The elastic filter emitted
-//     reservoir_mcut_lb_65_*: reservoir_energy_65_* >= 917.47 LP
-// against a column capped at the physical emax, causing the following
-// forward-pass attempt on phase N-1 to be strictly infeasible.
-//
-// Fix: clamp each bound cut's RHS to the source column's physical
-// [source_low, source_upp] box and drop cuts that would be trivially
-// satisfied by the column's own bounds.
-// ---------------------------------------------------------------------------
-TEST_CASE(  // NOLINT
-    "build_multi_cuts clamps cut RHS to source column physical bounds")
-{
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
-  // Tiny clone: 2 dep cols + 1 sup + 1 sdn per link.  We DON'T solve
-  // the clone — instead we set its col_sol manually via set_col_sol
-  // so the clone's `get_col_sol()` returns deterministic dep_val
-  // values.  The relevant behaviour under test is the clamp logic on
-  // those values against `StateVarLink::source_{low,upp}`.
-  LinearInterface cloned_li;
-
-  // link 0: dep_val = 917 physical, source box = [158, 371].
-  // Under sdn-active: lb_cut.lowb = min(917, 371) = 371.  But 371 ==
-  // source_upp so the cut is trivially non-binding → skipped.
-  const auto dep0 = cloned_li.add_col(SparseCol {.uppb = 2000.0});
-  const auto sup0 = cloned_li.add_col(SparseCol {.uppb = 100.0});
-  const auto sdn0 = cloned_li.add_col(SparseCol {.uppb = 100.0});
-
-  // link 1: dep_val = 100 physical, source box = [0, 1000].
-  // Under sdn-active: lb_cut.lowb = min(100, 1000) = 100 > 0 → emit.
-  const auto dep1 = cloned_li.add_col(SparseCol {.uppb = 2000.0});
-  const auto sup1 = cloned_li.add_col(SparseCol {.uppb = 100.0});
-  const auto sdn1 = cloned_li.add_col(SparseCol {.uppb = 100.0});
-
-  // link 2: dep_val = -10 (phys) below source_low=5; sup-active path.
-  // ub_cut.uppb = max(-10, 5) = 5 == source_low → cut collapses to
-  // source_low, which is redundant with the column's lower bound; in
-  // the strict-inequality logic (`ub < src_upp_phys`) this still emits
-  // because 5 < 100, but the resulting bound is loose vs. column
-  // lower.  That's fine — the rule is "don't embed infeasibility,"
-  // not "strictly improve every time."
-  const auto dep2 = cloned_li.add_col(SparseCol {.uppb = 2000.0});
-  const auto sup2 = cloned_li.add_col(SparseCol {.uppb = 100.0});
-  const auto sdn2 = cloned_li.add_col(SparseCol {.uppb = 100.0});
-
-  // Populate the raw solution so get_col_sol_raw/get_col_sol return
-  // deterministic values.  col_scale defaults to 1.0 so raw == phys.
-  std::vector<double> sol(cloned_li.get_numcols(), 0.0);
-  sol[dep0] = 917.0;  // above source_upp for link 0 → clamp to 371
-  sol[dep1] = 100.0;  // inside link 1's source box → emit as-is
-  sol[dep2] = -10.0;  // below source_low for link 2
-  sol[sup0] = 0.0;
-  sol[sdn0] = 10.0;  // sdn-active → lb_cut candidate on link 0
-  sol[sup1] = 0.0;
-  sol[sdn1] = 10.0;  // sdn-active → lb_cut candidate on link 1
-  sol[sup2] = 10.0;  // sup-active → ub_cut candidate on link 2
-  sol[sdn2] = 0.0;
-  cloned_li.set_col_sol(sol);
-
-  ElasticSolveResult elastic;
-  elastic.clone = std::move(cloned_li);
-  elastic.link_infos = {
-      {.relaxed = true, .sup_col = sup0, .sdn_col = sdn0},
-      {.relaxed = true, .sup_col = sup1, .sdn_col = sdn1},
-      {.relaxed = true, .sup_col = sup2, .sdn_col = sdn2},
-  };
-  const std::vector<StateVarLink> links = {
-      // RALCO-like: dep_val 917 above source_upp 371 → no cut
-      {
-          .source_col = ColIndex {100},
-          .dependent_col = dep0,
-          .source_low = 158.35,
-          .source_upp = 371.03,
-          .class_name = "Reservoir",
-          .col_name = "efin",
-          .uid = Uid {65},
-      },
-      // Healthy: dep_val 100 inside [0, 1000] → emit lb_cut @ 100
-      {
-          .source_col = ColIndex {101},
-          .dependent_col = dep1,
-          .source_low = 0.0,
-          .source_upp = 1000.0,
-          .class_name = "Reservoir",
-          .col_name = "efin",
-          .uid = Uid {6},
-      },
-      // Below source_low: dep_val -10 → ub_cut.uppb = max(-10,5) = 5,
-      // still < source_upp=100 so emit (at the lower bound).
-      {
-          .source_col = ColIndex {102},
-          .dependent_col = dep2,
-          .source_low = 5.0,
-          .source_upp = 100.0,
-          .class_name = "Reservoir",
-          .col_name = "efin",
-          .uid = Uid {21},
-      },
-  };
-
-  const auto cuts = build_multi_cuts(elastic, links);
-
-  SUBCASE("no cut exceeds source_upp or falls below source_low")
-  {
-    for (const auto& cut : cuts) {
-      // Find which link this cut targets (by the single source_col in
-      // the cmap).
-      REQUIRE(cut.cmap.size() == 1);
-      const auto src_col = cut.cmap.begin()->first;
-      // Match to the originating link.
-      const auto it = std::ranges::find_if(links,
-                                           [src_col](const StateVarLink& l)
-                                           { return l.source_col == src_col; });
-      REQUIRE(it != links.end());
-      if (cut.constraint_name == "mcut_lb") {
-        // source ≥ lowb: lowb must not exceed source_upp.
-        CHECK(cut.lowb <= it->source_upp);
-      } else if (cut.constraint_name == "mcut_ub") {
-        // source ≤ uppb: uppb must not be below source_low.
-        CHECK(cut.uppb >= it->source_low);
-      }
-    }
-  }
-
-  SUBCASE("RALCO-like link (dep_val 917 > source_upp 371) clamps to source_upp")
-  {
-    // Under sdn-active, the raw filter asked for `source ≥ 917` which
-    // is infeasible against the physical emax of 371.  The clamp
-    // emits `source ≥ 371` (= source_upp), which combined with the
-    // column's own `≤ 371` forces `source = 371` — the tightest
-    // FEASIBLE representation of "phase N needs maximal state".
-    const auto it = std::ranges::find_if(
-        cuts, [](const SparseRow& c) { return c.variable_uid == Uid {65}; });
-    REQUIRE(it != cuts.end());
-    CHECK(it->constraint_name == "mcut_lb");
-    CHECK(it->lowb == doctest::Approx(371.03));
-    // The critical invariant that prevents the phase-27 infeasibility:
-    // lowb must NEVER exceed source_upp.
-    CHECK(it->lowb <= 371.03);
-  }
-
-  SUBCASE("healthy link (dep_val within source box) emits exactly one lb_cut")
-  {
-    const auto it = std::ranges::find_if(
-        cuts, [](const SparseRow& c) { return c.variable_uid == Uid {6}; });
-    REQUIRE(it != cuts.end());
-    CHECK(it->constraint_name == "mcut_lb");
-    CHECK(it->lowb == doctest::Approx(100.0));
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Multi-cut physical-space regression guard: post-migration,
-// `build_multi_cuts` emits rows with physical-space dep_val bounds
-// (via `get_col_sol()`) so `add_row` can fold col_scales + row-max.
-// ---------------------------------------------------------------------------
-
-TEST_CASE(
-    "build_multi_cuts emits physical-space cuts (no already_lp_space flag)")
-{
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
-  // Reuse the scaffold from "build_multi_cuts with active slack
-  // generates cuts" — identical LP setup, identical slack activation.
-  // Post-migration, multi-cut rows carry physical-space dep_val
-  // bounds (via `get_col_sol()`) so `add_row` on the source LP folds
-  // col_scales + per-row row-max like freshly-built Benders cuts;
-  // this test guards against regressing back to LP-space bounds.
-  LinearInterface cloned_li;
-  const auto dep0 = cloned_li.add_col(SparseCol {
-      .lowb = 0.0,
-      .uppb = 100.0,
-  });
-  const auto dep1 = cloned_li.add_col(SparseCol {
-      .lowb = 0.0,
-      .uppb = 100.0,
-  });
-  const auto sup0 = cloned_li.add_col(SparseCol {
-      .lowb = 0.0,
-      .uppb = 100.0,
-  });
-  const auto sdn0 = cloned_li.add_col(SparseCol {
-      .lowb = 0.0,
-      .uppb = 100.0,
-  });
-  const auto sup1 = cloned_li.add_col(SparseCol {
-      .lowb = 0.0,
-      .uppb = 100.0,
-  });
-  const auto sdn1 = cloned_li.add_col(SparseCol {
-      .lowb = 0.0,
-      .uppb = 100.0,
-  });
-  cloned_li.set_obj_coeff(sup0, 1.0);
-  cloned_li.set_obj_coeff(sdn0, 1.0);
-  cloned_li.set_obj_coeff(sup1, 1.0);
-  cloned_li.set_obj_coeff(sdn1, 1.0);
-
-  // Trivial balance rows so the LP is structurally valid.
-  SparseRow r0;
-  r0[dep0] = 1.0;
-  r0[sup0] = -1.0;
-  r0[sdn0] = 1.0;
-  r0.lowb = 30.0;
-  r0.uppb = 30.0;
-  cloned_li.add_row(r0);
-  SparseRow r1;
-  r1[dep1] = 1.0;
-  r1[sup1] = -1.0;
-  r1[sdn1] = 1.0;
-  r1.lowb = 50.0;
-  r1.uppb = 50.0;
-  cloned_li.add_row(r1);
-
-  auto res = cloned_li.initial_solve();
-  REQUIRE(res.has_value());
-
-  // Spoof slack > 0 on both links so build_multi_cuts emits two cuts.
-  const std::vector<double> sol = {
-      25.0,
-      60.0,
-      5.0,
-      0.0,
-      0.0,
-      10.0,
-  };
-  cloned_li.set_col_sol(sol);
-
-  ElasticSolveResult elastic;
-  elastic.clone = std::move(cloned_li);
-  elastic.link_infos = {
-      {
-          .relaxed = true,
-          .sup_col = sup0,
-          .sdn_col = sdn0,
-      },
-      {
-          .relaxed = true,
-          .sup_col = sup1,
-          .sdn_col = sdn1,
-      },
-  };
-  const std::vector<StateVarLink> links = {
-      {
-          .source_col =
-              ColIndex {
-                  100,
-              },
-          .dependent_col = dep0,
-          .trial_value = 30.0,
-          .source_low = 0.0,
-          .source_upp = 1000.0,
-          .class_name = "Reservoir",
-          .col_name = "efin",
-          .uid = Uid {7},
-      },
-      {
-          .source_col =
-              ColIndex {
-                  101,
-              },
-          .dependent_col = dep1,
-          .trial_value = 50.0,
-          .source_low = 0.0,
-          .source_upp = 1000.0,
-          .class_name = "Battery",
-          .col_name = "sini",
-          .uid = Uid {3},
-      },
-  };
-
-  const auto cuts = build_multi_cuts(elastic, links);
-  REQUIRE(cuts.size() == 2);
-  for (const auto& cut : cuts) {
-    CHECK(cut.scale == doctest::Approx(1.0));
-  }
-}
-
 TEST_CASE("elastic_filter_solve free function succeeds")  // NOLINT
 {
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
@@ -1566,25 +1135,26 @@ TEST_CASE("elastic_filter_solve free function succeeds")  // NOLINT
 // ---------------------------------------------------------------------------
 
 TEST_CASE(  // NOLINT
-    "elastic filter slack costs are unit under Chinneck Phase-1")
+    "elastic filter slack cost = penalty × link.var_scale")
 {
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
-  // Chinneck Phase-1 convention for SDDP feasibility cuts (see
-  // `elastic_filter_solve` in source/benders_cut.cpp, PLP `plp-bc.f`,
-  // and Chinneck (2008) "Feasibility and Infeasibility in
-  // Optimization" § 4):
-  //   - Every original objective coefficient is zeroed on the clone.
+  // PLP convention for SDDP feasibility cuts (see
+  // `elastic_filter_solve` / `relax_fixed_state_variable` in
+  // source/benders_cut.cpp, and PLP `plp-agrespd.f::AgrElastici`):
+  //   - Every original objective coefficient is zeroed on the clone
+  //     (caller's responsibility — `elastic_filter_solve` does it).
   //   - Slack variables added by `relax_fixed_state_variable` get
-  //     cost = 1.0 regardless of link.scost or global penalty.
-  //   - The relaxed LP's optimum = Σ(s⁺ + s⁻) = pure feasibility
-  //     gap — independent of dispatch cost structure.
+  //     cost = `penalty × link.var_scale` where `penalty` is passed
+  //     from `SDDPMethod::elastic_solve` as
+  //         100 × target_phase_discount / scale_objective
+  //     The `var_scale` multiplier matches the fixing equation's
+  //     scale convention (dep in LP units = physical / var_scale).
   //
-  // Keeping original obj or scost-scaled slack cost would leak
-  // state-dependent opex into the Benders feasibility-cut RHS and
-  // drive α to diverge under SDDP iteration (observed on
-  // juan/gtopt_iplp).  `link.scost` and the global `penalty`
-  // argument are retained only for signature stability.
+  // Historical note: previously hard-coded to 1.0 ("Chinneck Phase-1
+  // pure feasibility").  Changing to `penalty × var_scale` breaks a
+  // cold-start degeneracy where α-free fcuts carried no economic
+  // weight — diagnosed on plp_2_years iter 0.
 
   constexpr double energy_scale = 1000.0;
   constexpr double scale_obj = 1e7;
@@ -1650,22 +1220,25 @@ TEST_CASE(  // NOLINT
       },
   };
 
-  SUBCASE("relax_fixed_state_variable adds unit-cost slacks")
+  SUBCASE("relax_fixed_state_variable adds penalty × var_scale slacks")
   {
     auto clone = li.clone();
+    constexpr double penalty = 1e-4;  // global base penalty
     auto info = relax_fixed_state_variable(clone,
                                            links[0],
                                            PhaseIndex {
                                                1,
                                            },
-                                           1e-4);  // global fallback (unused)
+                                           penalty);
 
     REQUIRE(info.relaxed);
 
-    // Chinneck Phase-1: unit slack cost regardless of link.scost.
+    // New convention: slack_cost = penalty × link.var_scale.
+    // penalty = 1e-4, var_scale = 1000 → slack_cost = 0.1.
+    const double expected_slack_cost = penalty * energy_scale;
     const auto obj = clone.get_obj_coeff();
-    CHECK(obj[info.sup_col] == doctest::Approx(1.0));
-    CHECK(obj[info.sdn_col] == doctest::Approx(1.0));
+    CHECK(obj[info.sup_col] == doctest::Approx(expected_slack_cost));
+    CHECK(obj[info.sdn_col] == doctest::Approx(expected_slack_cost));
 
     // Sanity: well-conditioned coefficients.
     CHECK(obj[info.sup_col] < 10.0);
@@ -1703,11 +1276,10 @@ TEST_CASE(  // NOLINT
     }
   }
 
-  SUBCASE("slack cost remains unit when scost is zero")
+  SUBCASE("slack cost independent of link.scost")
   {
-    // Under Chinneck Phase-1, neither scost nor the global penalty
-    // parameter is consulted — slack cost is always 1.0.  Verify
-    // with scost = 0 and a non-zero global penalty argument.
+    // The `link.scost` field is not part of the slack-cost formula —
+    // verifying that zeroing it does not affect the slack price.
     auto link_no_scost = links[0];
     link_no_scost.scost = 0.0;
 
@@ -1723,9 +1295,10 @@ TEST_CASE(  // NOLINT
 
     REQUIRE(info.relaxed);
 
+    const double expected_slack_cost = global_penalty * energy_scale;
     const auto obj = clone.get_obj_coeff();
-    CHECK(obj[info.sup_col] == doctest::Approx(1.0));
-    CHECK(obj[info.sdn_col] == doctest::Approx(1.0));
+    CHECK(obj[info.sup_col] == doctest::Approx(expected_slack_cost));
+    CHECK(obj[info.sdn_col] == doctest::Approx(expected_slack_cost));
   }
 
   SUBCASE("penalty without scaling would be ill-conditioned")
@@ -1988,3 +1561,148 @@ TEST_CASE(  // NOLINT
     }
   }
 }
+
+// ===========================================================================
+// PLP vs gtopt multi-cut critical review (2026-04-22)
+// ===========================================================================
+//
+// Audit of gtopt's `build_multi_cuts` (source/benders_cut.cpp:534-659)
+// and `elastic_filter_solve` (source/benders_cut.cpp:316-386) against
+// PLP's equivalent machinery in the `marcelomatus/plp_storage` repo,
+// specifically:
+//   - plp-agrespd.f::AgrElastici         (feasibility-cut builder)
+//   - osicallsc.cpp::osi_lp_get_feasible_cut
+//                                        (elastic clone + Farkas-ray extract)
+//   - plp-faseprim.f / plp-fasedual.f    (forward/backward-pass callers)
+//
+// ----- Section A: PLP multi-cut pseudocode --------------------------------
+//
+// plp-agrespd.f AgrElastici:
+//   1. Builds `rows_ori[]` = fixing-row indices in lpi (prev stage) and
+//      `cols_dest[]` = state-var column indices in lpo (current stage),
+//      one per reservoir.
+//   2. Calls osi_lp_get_feasible_cut(lpi, lpo, nrows_ori, rows_ori,
+//          cols_dest, objs=0, fname, deps, FactDbl, ray, rhsi, RoundRay).
+//      [osicallsc.cpp osi_lp_get_feasible_cut]:
+//        - Clones lpi ("cloned" LP).
+//        - Sets EVERY objective coefficient to 0 (Chinneck Phase-1).
+//        - For each i in [0, nrows_ori):
+//            collb = max(rhs - lp_dest->getColLower()[cols[i]], 0.0);
+//            colub = max(lp_dest->getColUpper()[cols[i]] - rhs, 0.0);
+//            obj   = objs ? objs[i] : 1.0;          // slack cost = 1.0 const
+//            redcost = 0.01 * lp_dest->getReducedCost()[cols[i]];
+//            addCol(sp, upperbound = colub, cost = obj + max(redcost,0));
+//            addCol(sn, upperbound = collb, cost = obj - min(redcost,0));
+//            // Fixing row modified to: dep - sp + sn = rhs
+//        - lp->resolve() (Phase-1 minimum slack solve).
+//        - For each i:
+//            ray[i] = |dual[row]| < eps ? 0 : -dual[row];
+//            dx     = x[sp] - x[sn];
+//            rhsi[i] = (b[row] + dx) * ray[i];
+//            (optional round_ray: ray[i] = ±1)
+//        - rhsi[nrows_ori] = Σ rhsi[i].
+//   3. If FOneFeasRay (the aggregated / "single" form):
+//        Build ONE cut:  Σ_i ray[i] * cols_dest[i] ≥ Σ_i rhsi[i] +
+//        FactEPS·|sum| Only non-zero ray[i] are included.
+//      Else (the "multi-cut" / per-reservoir form):
+//        For each i with ray[i] != 0:
+//          Build ONE cut:  ray[i] * cols_dest[i] ≥ rhsi[i] + FactEPS·|rhsi[i]|
+//   4. Optional FactMLD magnitude clamp:
+//        if |rhs| > FactMLD: rescale coeffs and rhs by FactMLD/|rhs|.
+//
+// KEY PROPERTIES (PLP multi-cut, i.e. FOneFeasRay=.FALSE.):
+//   - Per-column coefficient is `ray[i]` (signed Farkas multiplier),
+//     NOT 1.0 — classical Benders feasibility cut, always implied by
+//     the original LP's feasible set.
+//   - Cuts are emitted only when ray[i] != 0 (non-zero Farkas component).
+//   - ONE cut per reservoir, always in ≥ form.  PLP never emits both a
+//     lower AND upper bound cut on the same reservoir at the same event.
+//   - Cut RHS = (b + dx) * ray[i], perturbed outward by FactEPS*|rhs|.
+//     NOT clamped to physical [emin, emax] — the Farkas-ray form is
+//     already implied by the original polyhedron.
+//   - Slack columns have explicit finite upper bounds (colub/collb) =
+//     distance from fixing-row RHS to the physical column bound.  This
+//     is the "mini-clamp" that prevents the elastic clone from pushing
+//     the dependent column past its physical domain.
+//   - Slack cost is a constant `obj = 1.0` (+ tiny reduced-cost bias).
+//     Does NOT depend on phase discount or objective scale.
+//
+// ----- Section B: gtopt multi-cut pseudocode ------------------------------
+//
+// source/benders_cut.cpp relax_fixed_state_variable (line 247):
+//   - Sets dep col bounds to [link.source_low, link.source_upp] (physical).
+//   - Adds sup/sdn slacks with uppb = DblMax (UNBOUNDED), cost = penalty.
+//     (penalty = phase_discount / scale_obj per current
+//     SDDPMethod::elastic_solve.)
+//   - Adds fixing row: dep + sup - sdn = trial_value.
+//
+// source/benders_cut.cpp elastic_filter_solve (line 324):
+//   - Clones the LP, zeroes every obj coeff (Chinneck Phase-1).
+//   - Leaves α unmodified (excluded from links).
+//   - Solves the clone.
+//
+// source/benders_cut.cpp build_multi_cuts (line 534):
+//   For each link with info.relaxed:
+//     dep_val_phys = clone.get_col_sol()[link.dependent_col].
+//     If info.sup_col != unknown && clone.get_col_sol_raw()[sup] > slack_tol:
+//         ub = max(dep_val_phys, source_low)
+//         if ub < source_upp: emit `mcut_ub:  source_col ≤ ub` with coeff 1.0
+//     If info.sdn_col != unknown && clone.get_col_sol_raw()[sdn] > slack_tol:
+//         lb = min(dep_val_phys, source_upp)
+//         if lb > source_low: emit `mcut_lb:  source_col ≥ lb` with coeff 1.0
+//
+// Separately (source/sddp_forward_pass.cpp:312-395), gtopt ALWAYS
+// installs a single aggregated feasibility cut built from the fixing-row
+// DUALS (build_feasibility_cut_physical, line 176 of benders_cut.cpp):
+//     Σ π_i * source_col_i ≥ Σ π_i * (v̂_i + dx_i)
+// and THEN (if `use_multi_cut` is on) appends the per-reservoir bound
+// cuts on top of the aggregated cut — i.e. BOTH are added in the same
+// infeasibility event.
+//
+// ----- Section C: Divergence table ----------------------------------------
+//
+// | # | Aspect                | PLP                    | gtopt                |
+// |---|-----------------------|------------------------|----------------------|
+// | D1| Source-col coefficient| ray[i] (signed Farkas) | 1.0 always           |
+// | D2| Cut RHS               | (b+dx)*ray[i] + ε      | dep_val_phys         |
+// | D3| Slack col upper bound | colUpp−rhs / rhs−colLow| DblMax (unbounded)   |
+// | D4| Slack cost            | 1.0 const              | phase_disc/scale_obj |
+// | D5| Active criterion      | ray[i] != 0 (signed)   | sup/sdn > slack_tol  |
+// | D6| Cut direction         | always ≥ (one per i)   | two (mcut_lb +
+// mcut_ub)| | D7| Cut-RHS clamp         | only |rhs|>FactMLD     | [source_low,
+// source_upp]| | D8| Outward ε perturb     | rhs += FactEPS*|rhs|   | none | |
+// D9| round_ray option      | FRoundRay → ±1         | none                 |
+// | D10| Which phase's LP    | lpo = lp(ISimul, IEtapaDest=IEtapaOri-1) |
+// prev_phase_index (matches)| | D11| Aggregated + multi  | Exclusive
+// (FOneFeasRay)| Both: feas_cut + mcuts stacked| | D12| Mode flag           |
+// FOneFeasRay (boolean)  | multi_cut_threshold + elastic_mode|
+//
+// ----- Section D: Hypothesis on why gtopt's multi-cut fails ---------------
+//
+// On plp_2_years iter 0, p28 infeasibility triggers gtopt to install:
+//   (a) 1 aggregated fcut (rows 312-350) on p27, with coefficients π_i
+//       on source_cols (physical-space) and RHS = Σ π_i · (v̂_i + dx_i).
+//   (b) 5 bound mcuts (rows 374-395) on p27, each of the form
+//       `1.0 * source_col ≥ dep_val_phys` or `1.0 * source_col ≤ dep_val_phys`.
+// The p27 LP's next solve then hits the bound-infeasibility on
+// `reservoir_energy_65_51` because the stacked mcuts enforce HARD
+// bounds on several reservoirs simultaneously.  PLP never stacks —
+// it emits ONE cut per reservoir with coefficient `ray[i]` (which can
+// cancel out infeasibility ε cleanly via Farkas) and only ONE form
+// per event (either single-aggregated OR per-reservoir, not both).
+//
+// Prime suspects (in descending order of likelihood):
+//   (H1) Stacking aggregated + multi (D11): doubles the Farkas
+//        coverage into both a soft (π-weighted) and a hard (1.0-weighted)
+//        form, overconstraining p27.
+//   (H2) 1.0 coefficient vs ray[i] (D1): emits strictly tighter bounds
+//        than the Farkas ray would, under-approximating the feasible set.
+//   (H3) Two-sided direction (D6): a single reservoir can land in both
+//        sup>0 AND sdn>0 regimes across a single IIS subset if the
+//        Chinneck filter sorts weirdly — cutting both sides is
+//        physically inconsistent for any reservoir.
+//   (H4) Slack-cost = phase_discount/scale_obj (D4): under very small
+//        phase_discount values, the slack becomes essentially free, and
+//        the elastic LP may choose dep values arbitrarily, making
+//        `dep_val_phys` meaningless as a cut RHS.
+//

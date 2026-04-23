@@ -433,7 +433,10 @@ struct FeasibilityCutResult
 /// @param context  LP context for the generated cut rows
 /// @param slack_tol  Minimum slack magnitude to consider "active"
 /// @return Vector of bound-constraint cuts (may be empty)
-[[nodiscard]] auto build_multi_cuts(const ElasticSolveResult& elastic,
+/// Non-const on `elastic` because reading the fixing-row Farkas
+/// duals (`elastic.clone.get_row_dual_raw()`) may lazily trigger
+/// `ensure_duals()` on the backend.
+[[nodiscard]] auto build_multi_cuts(ElasticSolveResult& elastic,
                                     std::span<const StateVarLink> links,
                                     const LpContext& context = {},
                                     double slack_tol = 1e-6)

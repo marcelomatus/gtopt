@@ -303,39 +303,51 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
           const auto infeas_count =
               m_infeasibility_counter_[scene_index][phase_index];
 
-          // Physical-space α-free feasibility cut (classical Benders /
-          // PLP convention).  Reads ROW DUALS of the state-fixing
-          // equations installed by `relax_fixed_state_variable`, using
-          // the `fixing_row` indices carried in each `RelaxedVarInfo`.
-          // Crossover is enabled on the elastic solve (see
-          // `SDDPMethod::elastic_solve`) so duals are vertex-quality.
-          auto feas_cut =
-              build_feasibility_cut_physical(prev_state.outgoing_links,
-                                             elastic_result->link_infos,
-                                             elastic_result->clone,
-                                             m_options_.cut_coeff_eps);
-          feas_cut.class_name = sddp_alpha_class_name;
-          feas_cut.constraint_name = sddp_fcut_constraint_name;
-          feas_cut.context = make_iteration_context(uid_of(scene_index),
-                                                    uid_of(phase_index),
-                                                    iteration_index,
-                                                    infeas_count);
-          // Do NOT release α's bootstrap pin on a feasibility cut.
-          // Feasibility cuts only assert "these master states cause
-          // downstream infeasibility" — they convey no lower bound on
-          // the true future cost.  α stays pinned at
-          // `lowb = uppb = sddp_alpha_bootstrap_min (=0)` until an
-          // *optimality* cut arrives to certify a tighter lower
-          // bound.  Aperture/Benders backward-pass paths (which install
-          // `CutType::Optimality`) still call `free_alpha` at their
-          // own cut-install sites.
-          {
-            // α is left untouched on a feasibility cut — whatever
-            // bound state the previous phase's LP has (bootstrap
-            // `[0, 0]`, or freed `[-DblMax, +DblMax]` from a prior
-            // optimality cut) is preserved.  The row-dual fcut
-            // builder produces coefficients purely on state
-            // (source_col) terms, independent of α's state.
+          // D11 — PLP convention: aggregated π-weighted feasibility cut
+          // AND per-reservoir Farkas-ray multi-cuts are **mutually
+          // exclusive**.  The PLP `FOneFeasRay` boolean in
+          // `plp-agrespd.f::AgrElastici` switches between the two
+          // modes at the call site; we replicate that here.
+          //
+          // Stacking both (gtopt's pre-2026-04 behaviour) over-
+          // constrains p_{t-1}: the aggregated cut already excludes
+          // the infeasible trial point via a single hyperplane, and
+          // adding per-reservoir bound cuts on top introduces
+          // potentially inconsistent Farkas-ray slices that can
+          // make p_{t-1} itself infeasible — the observed collapse
+          // on plp_2_years phase 27.
+          //
+          // Threshold ≤ 0: immediately use multi-cut; > 0: wait for
+          // `infeas_count ≥ threshold` cumulative events at this
+          // (scene, phase) before switching.  The counter is
+          // persistent (does not reset on successful solves).
+          const bool use_multi_cut =
+              (m_options_.elastic_filter_mode == ElasticFilterMode::multi_cut)
+              || (m_options_.multi_cut_threshold == 0)
+              || (m_options_.multi_cut_threshold > 0
+                  && infeas_count >= m_options_.multi_cut_threshold);
+
+          // Aggregated feasibility cut — emitted ONLY when we are
+          // NOT in multi-cut mode (D11 exclusivity).
+          auto feas_cut = !use_multi_cut
+              ? build_feasibility_cut_physical(prev_state.outgoing_links,
+                                               elastic_result->link_infos,
+                                               elastic_result->clone,
+                                               m_options_.cut_coeff_eps)
+              : SparseRow {};
+
+          if (!use_multi_cut) {
+            feas_cut.class_name = sddp_alpha_class_name;
+            feas_cut.constraint_name = sddp_fcut_constraint_name;
+            feas_cut.context = make_iteration_context(uid_of(scene_index),
+                                                      uid_of(phase_index),
+                                                      iteration_index,
+                                                      infeas_count);
+            // α stays pinned at `[0, 0]` (bootstrap) on a feasibility
+            // cut.  Feasibility cuts only assert "these master states
+            // cause downstream infeasibility" — they convey no lower
+            // bound on the true future cost.  α is only freed by
+            // aperture/Benders backward-pass optimality cuts.
             const auto cut_row = add_cut_row(planning_lp(),
                                              scene_index,
                                              prev_phase_index,
@@ -348,28 +360,6 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
                       CutType::Feasibility,
                       cut_row);
           }
-
-          // Chinneck mode emits per-bound cuts on the IIS subset (the
-          // essential links identified by `chinneck_filter_solve`),
-          // but only after `multi_cut_threshold` cumulative
-          // infeasibility events at this (scene, phase) — keeping the
-          // IIS-filtered fcut alone for longer before falling back to
-          // the more aggressive (and physically riskier) bound cuts.
-          // Those bound cuts set `source_col {<=,>=} dep_val_phys`
-          // where `dep_val_phys` comes from the Chinneck-relaxed LP
-          // and may exceed the source phase's physically reachable
-          // set — observed on juan/gtopt_iplp as phase-0 infeasibility
-          // after ~3 iterations of mcut accumulation on reservoir 1.
-          //
-          // Comparison is `>=`: a multi_cut_threshold of N means "switch
-          // on the Nth fcut event at this (scene, phase)".  The counter
-          // is persistent (does not reset on successful solves) so this
-          // counts *cumulative* events, not consecutive ones.
-          const bool use_multi_cut =
-              (m_options_.elastic_filter_mode == ElasticFilterMode::multi_cut)
-              || (m_options_.multi_cut_threshold == 0)
-              || (m_options_.multi_cut_threshold > 0
-                  && infeas_count >= m_options_.multi_cut_threshold);
 
           if (use_multi_cut) {
             auto mc_cuts =
@@ -399,7 +389,7 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
           // the diagnostic points at the elements driving the fcut.
           // Format: "Class:uid:col_name, ..." (e.g. "Reservoir:8:efin").
           for (const auto& link : prev_state.outgoing_links) {
-            if (!feas_cut.cmap.contains(link.source_col)) {
+            if (!use_multi_cut && !feas_cut.cmap.contains(link.source_col)) {
               continue;
             }
             if (!state_elems.empty()) {

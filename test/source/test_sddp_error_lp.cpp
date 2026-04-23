@@ -238,29 +238,18 @@ TEST_CASE(  // NOLINT
   SDDPMethod sddp(planning_lp, sddp_opts);
   auto results = sddp.solve();
 
-  REQUIRE_FALSE(results.has_value());
-  CHECK(results.error().code == ErrorCode::SolverError);
-
-  CAPTURE(results.error().message);
-  // The per-scene WARN substring is shared by Branch A and Branch B;
-  // we pin it without committing to which branch fired.
-  CHECK(logs.contains("elastic filter produced no feasibility cut"));
-
-  // E-1: at least one error_s*_p*_i*.lp file must land in log_dir.
-  // The exact (scene_uid, phase_uid, iteration) depends on when the
-  // multi_cut bound rows fire vs the base infeasibility, which is
-  // part of what this characterization test deliberately does not
-  // commit to — we only assert SOMETHING was saved.
-  bool found_error_lp = false;
-  for (const auto& ent : std::filesystem::directory_iterator {log_dir}) {
-    const auto name = ent.path().filename().string();
-    if (name.starts_with("error_s") && name.ends_with(".lp")) {
-      found_error_lp = true;
-      break;
-    }
-  }
-  CHECK(found_error_lp);
-  CHECK(logs.contains("[LP saved to"));
+  // Post-D1+D11 multi-cut rewrite (2026-04-22): the
+  // `make_forced_infeasibility_planning` fixture is no longer
+  // unrecoverable — Birge-Louveaux π-weighted cuts with
+  // `elastic_penalty × var_scale × phase_discount` slack pricing
+  // carve out the infeasible region on the first forward pass.
+  // The test originally characterized the OLD multi-cut behaviour
+  // (1.0-weighted bound-cut stacking that drove phase-0
+  // infeasibility).  It now acts as a regression guard against
+  // that failure mode coming back, which manifests as a
+  // *successful* solve instead of an unrecoverable-error exit.
+  CHECK(results.has_value());
+  CHECK_FALSE(logs.contains("elastic filter produced no feasibility cut"));
 }
 
 }  // namespace

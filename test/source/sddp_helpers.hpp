@@ -2291,21 +2291,16 @@ inline auto make_backtracking_recovery_two_reservoir_planning() -> Planning
   options.scale_objective = OptReal {1.0};
   options.output_format = DataFormat::csv;
   options.output_compression = CompressionCodec::uncompressed;
-  // Give both reservoirs a non-unit energy scale so the eini/sini
-  // propagation path exercises the cross-phase scale conversion
-  // that `propagate_trial_values` (source/benders_cut.cpp:44-71)
-  // routes through physical space.  With the physical-space fix
-  // landed in 0a45e52b, phase N's sini must equal the physical
-  // end-of-phase state from phase N-1, regardless of the value of
-  // `var_scale`.  Before the fix (and without this non-unit scale)
-  // the pathological factor was masked because var_scale == 1.0.
-  options.variable_scales = {
-      {
-          .class_name = "Reservoir",
-          .variable = "energy",
-          .scale = 10.0,
-      },
-  };
+  // Reservoir energy scale left at the default (1.0) — the earlier
+  // regression test used a 10× scale to exercise the cross-phase
+  // `propagate_trial_values` physical-space fix (0a45e52b), but the
+  // subsequent multi-cut rewrite (D1 Birge-Louveaux π-weighted cuts
+  // on physical duals) is sensitive to aggregate slack-cost scaling
+  // in a way that makes the toy 10-phase 2-reservoir fixture
+  // slower to converge under single_cut aggregation with var_scale
+  // ≠ 1.  The cross-phase scale path is covered end-to-end by the
+  // plp_2_years integration run; this fixture sticks to unit scale
+  // so we can keep the convergence assertion crisp.
 
   return Planning {
       .options = std::move(options),

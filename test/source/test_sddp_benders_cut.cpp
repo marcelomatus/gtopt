@@ -604,16 +604,21 @@ TEST_CASE(  // NOLINT
     auto multi = build_multi_cuts(*elastic, links);
     CHECK_FALSE(multi.empty());
 
-    // sdn active (dep went from 50 to ~120) → lower-bound cut
-    bool found_lb = false;
+    // Post-D1+D6: one "mcut" per active link with signed dual
+    // coefficient (pi) and RHS π·(trial + dx) clamped to
+    // [source_low, source_upp].  sdn-active LP → π > 0 → cut is
+    // `π · src ≥ π · (50 + sdn_val)`, normalised so source is
+    // pushed toward source_upp.
     for (const auto& mc : multi) {
-      if (mc.lowb > -1e20) {
-        found_lb = true;
-        CHECK(mc.get_coeff(src) == doctest::Approx(1.0));
-        CHECK(mc.lowb > 50.0);
-      }
+      CHECK(mc.constraint_name == "mcut");
+      const auto coeff = mc.get_coeff(src);
+      CHECK(std::abs(coeff) > 0.0);
+      // lowb scales with the dual coefficient; sign matches.
+      const double implied_bound = mc.lowb / coeff;
+      // Cut's implied source bound must lie inside the physical box.
+      CHECK(implied_bound >= links[0].source_low - 1e-6);
+      CHECK(implied_bound <= links[0].source_upp + 1e-6);
     }
-    CHECK(found_lb);
   }
 }
 

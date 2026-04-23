@@ -724,8 +724,38 @@ std::optional<SDDPMethod::ElasticResult> SDDPMethod::elastic_solve(
   // other LP objective coefficients that go through stage_ecost / cost_factor.
   // The per-variable physical-unit scaling (var_scale) is applied inside
   // relax_fixed_state_variable() using each link's var_scale field.
+  //
+  // Slack-cost scaling: the elastic filter's slack variables (sup/sdn)
+  // were previously given cost = 1 (Chinneck's pure-feasibility
+  // convention).  On plp_2_years iter 0 this produced a degeneracy
+  // where every α-free fcut contributed a tiny hyperplane on the
+  // state and no signal on future cost, stalling convergence as
+  // phases 13-25 thrashed through 100 backtracks without closing
+  // the gap.  Multiplying the slack cost by the target phase's
+  // discount factor puts each slack on the same economic footing
+  // as dispatch costs at that phase — the elastic objective now
+  // reflects "discounted cost of violating the state pin" rather
+  // than "unit-feasibility gap", breaking the degeneracy when no
+  // optimality cuts have arrived yet at intermediate phases.
   const auto scale_obj = li.scale_objective();
-  const auto scaled_penalty = m_options_.elastic_penalty / scale_obj;
+  const auto& target_phase = planning_lp().simulation().phases()[phase_index];
+  const double phase_discount = target_phase.stages().empty()
+      ? 1.0
+      : target_phase.stages().front().discount_factor();
+  // Slack-cost base = elastic_penalty × phase_discount / scale_obj
+  // (LP units).  The per-link `link.var_scale` multiplier is
+  // applied inside `relax_fixed_state_variable`:
+  //     slack_cost = penalty × link.var_scale
+  // so multi-reservoir fixtures with varying scales get consistent
+  // "per physical unit violated" pricing.  Empirically:
+  //   - Production 2y/juan: penalty ≈ 100/scale_obj lets D1 π-duals
+  //     carry enough economic weight to drive cuts through phases
+  //     1-27 on the first forward attempt.
+  //   - Toy fixtures (10-phase 2-reservoir) prefer smaller penalties
+  //     where Chinneck Phase-1 is not over-pressurised; they can
+  //     override via `sddp_options.elastic_penalty`.
+  const auto scaled_penalty =
+      m_options_.elastic_penalty * phase_discount / scale_obj;
 
   // Chinneck IIS mode runs an extra re-solve to filter non-essential
   // relaxed bounds before cut construction.  Other modes use the regular

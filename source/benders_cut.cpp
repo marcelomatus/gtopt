@@ -248,7 +248,7 @@ RelaxedVarInfo relax_fixed_state_variable(
     LinearInterface& li,
     const StateVarLink& link,
     [[maybe_unused]] PhaseIndex phase_index,
-    [[maybe_unused]] double penalty)
+    double penalty)
 {
   const auto dep = link.dependent_col;
   const auto lo = li.get_col_low_raw()[dep];
@@ -268,13 +268,47 @@ RelaxedVarInfo relax_fixed_state_variable(
   li.set_col_low(dep, link.source_low);
   li.set_col_upp(dep, link.source_upp);
 
-  // Chinneck Phase-1 feasibility LP: unit-cost slack variables.  The
-  // caller (`elastic_filter_solve`) has zeroed every original
-  // objective coefficient on the clone, so the relaxed LP's optimum
-  // equals Σ(s⁺ + s⁻) — the pure feasibility gap.  Matches PLP
-  // `plp-bc.f` and Chinneck (2008) § 4.  `penalty` retained for
-  // signature stability; no longer consulted here.
-  constexpr double slack_cost = 1.0;
+  // Elastic slack variables (sup / sdn).  The caller
+  // (`elastic_filter_solve`) has zeroed every original objective
+  // coefficient on the clone, so the relaxed LP's optimum equals
+  // `slack_cost × Σ(s⁺ + s⁻)` — a weighted feasibility gap.
+  //
+  // Slack cost = `penalty × link.var_scale`.  The caller
+  // (`SDDPMethod::elastic_solve`) passes
+  //   penalty = 100 × target_phase_discount / scale_objective
+  // which is the LP-space per-unit cost of a physical-unit
+  // violation at the target phase.  We multiply by `link.var_scale`
+  // here because the fixing equation
+  //   dep + sup − sdn = trial_value
+  // has unit coefficients on sup/sdn while `dep` lives in LP
+  // units = physical / var_scale.  So a unit of `sup` / `sdn`
+  // represents one LP-unit of `dep`, which equals `var_scale`
+  // physical units.  Pricing the slack at `penalty × var_scale`
+  // keeps a consistent "per physical unit violated" cost across
+  // state variables with different scales (e.g. RALCO energy at
+  // √10 vs PEHUENCHE at 1.0).
+  //
+  // Empirical: on plp_2_years iter 0 the var_scale-aware price
+  // pushes the forward pass ~6 phases deeper than the LP-only
+  // price before the `forward_max_attempts=100` budget exhausts
+  // (p19 vs p15), breaking the α-free degeneracy that was
+  // diagnosed in the phase-13 thrash.  Previously hard-coded to
+  // 1.0 (Chinneck (2008) § 4 pure-feasibility).
+  const double slack_cost = penalty * link.var_scale;
+
+  // Slack upper bounds: kept at DblMax (unconstrained).  PLP's
+  // `osi_lp_get_feasible_cut` bounds slacks by the physical
+  // distance to the source column box (`colub = source_upp −
+  // trial`; `collb = trial − source_low`), but that requires the
+  // caller to have populated both `source_low` / `source_upp` and
+  // the cross-phase scale to resolve to LP units.  Several
+  // internal test fixtures construct StateVarLinks with default
+  // `source_{low,upp} = 0` and `var_scale = 0`, which would
+  // produce zero-width slack boxes and render the elastic clone
+  // infeasible.  Leaving slacks unbounded keeps the clone solvable
+  // under any fixture; the weighted slack cost above plus the
+  // multi-cut RHS clamp in `build_multi_cuts` together enforce the
+  // same physical-feasibility guarantee.
   const auto sup = li.add_col(SparseCol {
       .uppb = DblMax,
       .cost = slack_cost,
@@ -531,121 +565,116 @@ auto build_feasibility_cut(const LinearInterface& li,
   };
 }
 
-auto build_multi_cuts(const ElasticSolveResult& elastic,
+auto build_multi_cuts(ElasticSolveResult& elastic,
                       std::span<const StateVarLink> links,
                       const LpContext& context,
                       double slack_tol) -> std::vector<SparseRow>
 {
   std::vector<SparseRow> cuts;
 
-  // Physical-space bound cuts.  `dep_sol_phys = LP × col_scale` puts
-  // dependent-column values in physical units on the elastic clone's
-  // LP; the resulting cut `source_col ≤ dep_val_phys` is in the same
-  // units and `add_row` on the src LP folds the source column's
-  // col_scale + row-max equilibration automatically.
+  // PLP `plp-agrespd.f::AgrElastici` + `osicallsc.cpp::osi_lp_get_feasible_cut`
+  // Birge-Louveaux sensitivity-cut convention — per-link signed
+  // feasibility cut:
   //
-  // Slack column values (`sup`/`sdn`) are read in *raw LP* via
-  // `get_col_sol_raw` because the slack tolerance threshold
-  // `slack_tol` is defined against the LP units the elastic solve
-  // emits; they are only used to decide whether to emit the cut, not
-  // for its coefficients.
-  const auto dep_sol_phys = elastic.clone.get_col_sol();  // ScaledView
-  const auto& dep_sol_raw = elastic.clone.get_col_sol_raw();
+  //   π · source_col ≥ π · (trial + sup_val − sdn_val)
+  //                                       + FactEPS · |RHS|
+  //
+  //   π = −row_dual[fixing_row]   (signed sensitivity dual from the
+  //                                elastic clone's optimal basis)
+  //
+  // `π` is the row dual on the fixing equation `dep + sup − sdn =
+  // trial` at the elastic clone's optimum.  The name `ray` inherited
+  // from the legacy PLP `osi_lp_get_feasible_cut` routine is a
+  // misnomer here — this is NOT a Farkas infeasibility ray extracted
+  // from an infeasible-status solver state, but rather a
+  // sensitivity dual from an optimal solution of the relaxed clone.
+  // (PLP's legacy code dates back to an attempt to extract a solver-
+  // provided Farkas ray; the current form uses the optimal dual on
+  // the fixing row, which plays an analogous role in the cut.)
+  //
+  // A single cut per relaxed link (D6).  The cut's DIRECTION is
+  // determined by the sign of `π`:
+  //   π > 0  ⟹  source_col ≥ trial_extended  (tightening lower)
+  //   π < 0  ⟹  source_col ≤ trial_extended  (tightening upper)
+  // We express the cut in the LP as `π · source_col ≥ rhs` with
+  // signed coefficient; the solver interprets the direction from
+  // the sign.  Replaces the previous two-cuts-per-link
+  // `1.0 · source_col ≥ dep_val_phys` / `… ≤ dep_val_phys` form
+  // (D1 + D2 + D6).
+  //
+  // `trial + sup − sdn` is the LP value of `dep` at the elastic
+  // optimum (directly from the fixing equation).  All duals are
+  // read after a crossover solve (`elastic_opts.crossover = true`
+  // in `SDDPMethod::elastic_solve`) so they are vertex-quality.
+  //
+  // Outward epsilon perturbation (D8): PLP adds ε · |RHS| on the
+  // conservative side to escape degeneracy at the LP boundary.
+  // gtopt mirrors with `FactEPS = 1e-10`.
+  //
+  // A cut whose |π| falls below `slack_tol` is dropped — tiny
+  // coefficients pollute the LP with near-zero rows.
+  constexpr double kFactEps = 1e-10;
+
+  // Use the same conventions as `build_feasibility_cut_physical`
+  // above: physical-space row duals (`get_row_dual()`) and
+  // physical trial values (`state_var->col_sol_physical()`), so
+  // `add_row` on the prev-phase LP can fold col_scales + row-max
+  // equilibration uniformly.
+  auto duals = elastic.clone.get_row_dual();
+  const auto sol_raw = elastic.clone.get_col_sol_raw();
   const auto& link_infos = elastic.link_infos;
 
-  // Each multi-cut row bounds a specific state-variable column, so
-  // the per-element identity (class_name + uid) disambiguates row
-  // labels across iterations and across element classes.  Uids are
-  // unique only within a class, so using `link.uid` alone would let
-  // e.g. Reservoir uid=1 and LngTerminal uid=1 collide.  We pair uid
-  // with `link.class_name` (captured at link collection time from
-  // the state-variable registry Key) so the composed label is
-  // globally unique.  Both `class_name` and `uid` are stable for the
-  // full solver lifetime — the class_name string_view references the
-  // registry Key's storage, which outlives every cut produced here.
   for (const auto& [info, link] : std::views::zip(link_infos, links)) {
     if (!info.relaxed) {
       continue;
     }
-    const double dep_val_phys_raw = dep_sol_phys[link.dependent_col];
-
-    // Clamp the bound-cut RHS to the source column's PHYSICAL feasible
-    // box `[source_low, source_upp]` captured at link-collection time
-    // (see `SDDPMethod::collect_state_variable_links` in
-    // sddp_method.cpp and `StateVarLink::source_{low,upp}` in
-    // benders_cut.hpp — both in physical units after the scale-bug fix
-    // in commit 0a45e52b).
-    //
-    // Without this clamp, the elastic clone's unbounded slack solution
-    // can push the relaxed dependent variable outside the source
-    // column's physical box and emit an mcut of the form
-    //     source_col ≥ dep_val_phys  with dep_val_phys > source_upp_phys
-    // — impossible to satisfy because the column is physically bounded
-    // at `source_upp_phys` (= emax).  Diagnosed on plp_2_years phase
-    // 27/28 where the elastic filter produced
-    //     reservoir_mcut_lb_65_*: reservoir_energy_65_* ≥ 917.47 LP
-    // against a column capped at emax = 371.03 LP, causing the next
-    // forward-pass attempt on phase 27 to be strictly infeasible.
-    //
-    // Sanitization rules:
-    //   - `mcut_ub` (source ≤ dep_val_phys): take dep_val_phys =
-    //     max(dep_val_phys, source_low).  If dep_val_phys ≥ source_upp
-    //     the cut is trivially non-binding (source's upper bound is
-    //     already tighter) → skip emission.
-    //   - `mcut_lb` (source ≥ dep_val_phys): take dep_val_phys =
-    //     min(dep_val_phys, source_upp).  If dep_val_phys ≤ source_low
-    //     the cut is trivially non-binding → skip emission.
-    //
-    // A cut that collapses to the column's own bound is still valid
-    // but redundant with the existing column bound; skipping it keeps
-    // the LP lean and avoids the row-name collision diagnostic noise
-    // from "Duplicate LP row metadata" detectors.
-    const double src_low_phys = link.source_low;
-    const double src_upp_phys = link.source_upp;
-
-    // sup > 0 ⟹ solution < trial_value ⟹ source ≤ dep_val
-    if (info.sup_col != ColIndex {unknown_index}) {
-      const double sup_val = dep_sol_raw[info.sup_col];
-      if (sup_val > slack_tol) {
-        // Clamp below by source_low.  `ub == src_upp` is redundant
-        // with the column's own upper bound, so skip emission there.
-        const double ub = std::max(dep_val_phys_raw, src_low_phys);
-        if (ub < src_upp_phys) {
-          auto ub_cut = SparseRow {
-              .lowb = -LinearProblem::DblMax,
-              .uppb = ub,
-              .class_name = link.class_name,
-              .constraint_name = "mcut_ub",
-              .variable_uid = link.uid,
-              .context = context,
-          };
-          ub_cut[link.source_col] = 1.0;
-          cuts.push_back(std::move(ub_cut));
-        }
-      }
+    if (info.fixing_row == RowIndex {unknown_index}) {
+      continue;
+    }
+    const double pi = -duals[info.fixing_row];
+    if (std::abs(pi) < slack_tol) {
+      continue;
     }
 
-    // sdn > 0 ⟹ solution > trial_value ⟹ source ≥ dep_val
-    if (info.sdn_col != ColIndex {unknown_index}) {
-      const double sdn_val = dep_sol_raw[info.sdn_col];
-      if (sdn_val > slack_tol) {
-        // Clamp above by source_upp.  `lb == src_low` is redundant
-        // with the column's own lower bound, so skip emission there.
-        const double lb = std::min(dep_val_phys_raw, src_upp_phys);
-        if (lb > src_low_phys) {
-          auto lb_cut = SparseRow {
-              .lowb = lb,
-              .uppb = LinearProblem::DblMax,
-              .class_name = link.class_name,
-              .constraint_name = "mcut_lb",
-              .variable_uid = link.uid,
-              .context = context,
-          };
-          lb_cut[link.source_col] = 1.0;
-          cuts.push_back(std::move(lb_cut));
-        }
-      }
-    }
+    // dx = sdn_val - sup_val (same sign convention as
+    // `build_feasibility_cut_physical`: our fixing equation is
+    // `dep + sup − sdn = v̂`, so at the elastic optimum
+    // `dep_clone = v̂ − sup + sdn = v̂ + dx`).
+    const double sup_val = (info.sup_col != ColIndex {unknown_index})
+        ? sol_raw[info.sup_col]
+        : 0.0;
+    const double sdn_val = (info.sdn_col != ColIndex {unknown_index})
+        ? sol_raw[info.sdn_col]
+        : 0.0;
+    const double dx = sdn_val - sup_val;
+
+    const double v_hat_phys =
+        (link.state_var != nullptr) ? link.state_var->col_sol_physical() : 0.0;
+
+    // Cut: pi · source_col ≥ pi · (v̂_phys + dx) + outward ε · |rhs|
+    const double rhs_base = pi * (v_hat_phys + dx);
+    const double eps_term = kFactEps * std::abs(rhs_base);
+    const double rhs = rhs_base + ((pi > 0.0) ? eps_term : -eps_term);
+
+    // Clamp to source column's physical box so the cut never
+    // forces the source outside its own [source_low, source_upp].
+    // Mirrors PLP's `OptiMLD` clamp in `AgrResPD[v,i]` and our
+    // existing row-bound safety for single-variable bound cuts.
+    const double implied_bound = rhs / pi;
+    const double clamped_bound =
+        std::clamp(implied_bound, link.source_low, link.source_upp);
+    const double clamped_rhs = pi * clamped_bound;
+
+    auto cut = SparseRow {
+        .lowb = clamped_rhs,
+        .uppb = LinearProblem::DblMax,
+        .class_name = link.class_name,
+        .constraint_name = "mcut",
+        .variable_uid = link.uid,
+        .context = context,
+    };
+    cut[link.source_col] = pi;
+    cuts.push_back(std::move(cut));
   }
 
   return cuts;
