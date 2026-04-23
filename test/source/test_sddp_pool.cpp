@@ -20,9 +20,13 @@ TEST_CASE("SDDPTaskKey type and constants")  // NOLINT
 {
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
-  SUBCASE("SDDPTaskKey is a 4-tuple of int")
+  SUBCASE("SDDPTaskKey is a 4-tuple of strong types")
   {
-    static_assert(std::same_as<SDDPTaskKey, std::tuple<int, int, int, int>>);
+    static_assert(std::same_as<SDDPTaskKey,
+                               std::tuple<IterationIndex,
+                                          SDDPPassDirection,
+                                          PhaseIndex,
+                                          SDDPTaskKind>>);
     CHECK(true);
   }
 
@@ -44,11 +48,10 @@ TEST_CASE("SDDPTaskKey type and constants")  // NOLINT
                                            SDDPTaskKind::lp),
         .name = {},
     };
-    CHECK(std::get<0>(req.priority_key) == 1);
-    CHECK(std::get<1>(req.priority_key)
-          == static_cast<int>(SDDPPassDirection::forward));
-    CHECK(std::get<2>(req.priority_key) == 2);
-    CHECK(std::get<3>(req.priority_key) == static_cast<int>(SDDPTaskKind::lp));
+    CHECK(std::get<0>(req.priority_key) == IterationIndex {1});
+    CHECK(std::get<1>(req.priority_key) == SDDPPassDirection::forward);
+    CHECK(std::get<2>(req.priority_key) == PhaseIndex {2});
+    CHECK(std::get<3>(req.priority_key) == SDDPTaskKind::lp);
   }
 }
 

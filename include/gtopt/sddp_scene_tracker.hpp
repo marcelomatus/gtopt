@@ -128,7 +128,11 @@ public:
     return *std::ranges::max_element(m_scene_completed_iter_);
   }
 
-  /// Snapshot of per-scene completed iteration indices.
+  /// Snapshot of per-scene completed iteration indices, as raw int for
+  /// the JSON serialisation boundary (`SolverStatusSnapshot`,
+  /// `SDDPIterationResult`).  The unwrap here is legitimate — downstream
+  /// consumers only print/JSON-serialise these values and never use them
+  /// as `IterationIndex` identities.
   [[nodiscard]] auto scene_iterations() const -> std::vector<int>
   {
     std::vector<int> result;

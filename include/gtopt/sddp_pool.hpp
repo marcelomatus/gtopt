@@ -56,19 +56,6 @@ namespace gtopt
 
 // ─── SDDPTaskKey and named constants ─────────────────────────────────────────
 
-/// @brief SDDP solver task priority key.
-///
-/// A 4-tuple `(iteration_index, is_backward, phase_index, is_nonlp)`:
-///  - `iteration_index`: SDDP iteration number (0, 1, …)
-///  - `is_backward`:     0 = forward pass, 1 = backward pass
-///  - `phase_index`:     phase within the iteration (0, 1, …)
-///  - `is_nonlp`:        0 = LP solve/resolve, 1 = other (e.g. write_lp)
-///
-/// With the default `std::less<SDDPTaskKey>` comparator, the tuple is
-/// compared lexicographically: lower iteration → lower `is_backward` →
-/// lower phase → lower `is_nonlp` → higher execution priority.
-using SDDPTaskKey = std::tuple<int, int, int, int>;
-
 /// @brief Pass direction for the `is_backward` field of `SDDPTaskKey`.
 /// Forward (0) has higher priority than backward (1) in lexicographic order.
 // NOLINTBEGIN(performance-enum-size) — int matches SDDPTaskKey tuple element
@@ -88,27 +75,38 @@ enum class SDDPTaskKind : int
 };
 // NOLINTEND(performance-enum-size)
 
+/// @brief SDDP solver task priority key.
+///
+/// A 4-tuple `(iteration_index, direction, phase_index, kind)` using the
+/// project's strong types so that construction and inspection stay
+/// type-safe end-to-end:
+///  - `IterationIndex`:    SDDP iteration number (0, 1, …)
+///  - `SDDPPassDirection`: `forward` (0) or `backward` (1)
+///  - `PhaseIndex`:        phase within the iteration (0, 1, …)
+///  - `SDDPTaskKind`:      `lp` (0) or `non_lp` (1)
+///
+/// Tuple comparison with `std::less<SDDPTaskKey>` remains lexicographic —
+/// both strong indices and enum classes expose `operator<` that matches
+/// their integer ordering, so lower iteration → forward → lower phase →
+/// lp → higher execution priority.
+using SDDPTaskKey =
+    std::tuple<IterationIndex, SDDPPassDirection, PhaseIndex, SDDPTaskKind>;
+
 /// @brief Build an SDDPTaskKey from strongly-typed SDDP parameters.
 ///
-/// Centralises the int conversions in one place so that callers never
-/// need `static_cast<int>` when constructing task keys.
+/// Preserves strong types through the tuple — no unwrapping needed.
 ///
-/// @param iteration   SDDP iteration index
-/// @param direction   Forward or backward pass
-/// @param phase_index Phase index within the iteration
-/// @param kind        LP solve or non-LP task
+/// @param iteration_index SDDP iteration index
+/// @param direction       Forward or backward pass
+/// @param phase_index     Phase index within the iteration
+/// @param kind            LP solve or non-LP task
 [[nodiscard]] constexpr auto make_sddp_task_key(IterationIndex iteration_index,
                                                 SDDPPassDirection direction,
                                                 PhaseIndex phase_index,
                                                 SDDPTaskKind kind) noexcept
     -> SDDPTaskKey
 {
-  return SDDPTaskKey {
-      static_cast<int>(iteration_index),
-      static_cast<int>(direction),
-      static_cast<int>(phase_index),
-      static_cast<int>(kind),
-  };
+  return {iteration_index, direction, phase_index, kind};
 }
 
 // ─── SDDPWorkPool

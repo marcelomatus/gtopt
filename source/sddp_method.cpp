@@ -1207,8 +1207,7 @@ auto SDDPMethod::load_named_cuts(const std::string& filepath)
 auto SDDPMethod::save_state(const std::string& filepath)
     -> std::expected<void, Error>
 {
-  return save_state_csv(
-      planning_lp(), filepath, IterationIndex {m_current_iteration_.load()});
+  return save_state_csv(planning_lp(), filepath, m_current_iteration_.load());
 }
 
 auto SDDPMethod::load_state(const std::string& filepath)
@@ -1590,7 +1589,7 @@ auto SDDPMethod::initialize_solver() -> std::expected<void, Error>
 
 void SDDPMethod::reset_live_state() noexcept
 {
-  m_current_iteration_.store(0);
+  m_current_iteration_.store(IterationIndex {0});
   m_current_gap_.store(1.0);
   m_current_lb_.store(0.0);
   m_current_ub_.store(0.0);
@@ -2014,7 +2013,9 @@ void SDDPMethod::maybe_write_api_status(
   }
 
   const SolverStatusSnapshot snapshot {
-      .iteration = m_current_iteration_.load(),
+      // `.iteration` is an `int` at the JSON-serialisation boundary;
+      // unwrap the strong IterationIndex explicitly here.
+      .iteration = static_cast<int>(m_current_iteration_.load()),
       .gap = m_current_gap_.load(),
       .lower_bound = m_current_lb_.load(),
       .upper_bound = m_current_ub_.load(),

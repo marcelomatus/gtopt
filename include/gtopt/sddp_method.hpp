@@ -202,7 +202,7 @@ public:
   // ── Live query (thread-safe, atomic reads) ──
 
   /// Current iteration number (0 before first iteration completes)
-  [[nodiscard]] int current_iteration() const noexcept
+  [[nodiscard]] IterationIndex current_iteration() const noexcept
   {
     return m_current_iteration_.load();
   }
@@ -811,7 +811,10 @@ private:
   bool m_sim_write_enabled_ {false};
 
   // ── Atomic live-query state ──
-  std::atomic<int> m_current_iteration_ {0};
+  // `IterationIndex` is a `strong::type<Index, …>` — a POD wrapper
+  // around `int32_t`, trivially copyable, so `std::atomic<IterationIndex>`
+  // is well-formed and lock-free on x86-64 (same as `std::atomic<int32_t>`).
+  std::atomic<IterationIndex> m_current_iteration_ {IterationIndex {0}};
   std::atomic<double> m_current_gap_ {1.0};
   std::atomic<double> m_current_lb_ {0.0};
   std::atomic<double> m_current_ub_ {0.0};
