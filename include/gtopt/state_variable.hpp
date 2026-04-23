@@ -21,7 +21,9 @@
 
 #pragma once
 
+#include <cassert>
 #include <span>
+#include <stdexcept>
 #include <string_view>
 #include <vector>
 
@@ -98,16 +100,36 @@ public:
     constexpr auto operator<=>(const Key&) const noexcept = default;
   };
 
-  [[nodiscard]] static constexpr auto key(
-      std::string_view class_name,
-      Uid uid,
-      std::string_view col_name,
-      PhaseIndex phase_index,
-      StageUid stage_uid,
-      SceneIndex scene_index = SceneIndex {unknown_index},
-      ScenarioUid scenario_uid = make_uid<Scenario>(unknown_uid)) noexcept
-      -> Key
+  [[nodiscard]] static auto key(std::string_view class_name,
+                                Uid uid,
+                                std::string_view col_name,
+                                PhaseIndex phase_index,
+                                StageUid stage_uid,
+                                SceneIndex scene_index,
+                                ScenarioUid scenario_uid) -> Key
   {
+    // Every state variable must carry a valid element uid so that
+    // cross-phase cuts (fcut/scut/bcut/ecut/aper_cut) serialise with
+    // parseable names.  `unknown_uid = -1` slips into LP labels as
+    // `-1_…`, whose embedded `-` char is rejected by CoinLpIO's name
+    // validator (see master #426 / a8a0e452, PR #429) and causes CBC
+    // to strip every col/row label from the written LP file.  Catch
+    // the root cause here — throw in both debug and release builds
+    // so an unknown uid is never silently embedded into LP labels.
+    // scene/scenario/stage uids must also be concrete; silent defaults
+    // to `unknown_*` produce the same `-1_…` pattern in labels.
+    if (uid == unknown_uid) {
+      throw std::invalid_argument(
+          "StateVariable::key: uid must not be unknown_uid");
+    }
+    if (scenario_uid == unknown_uid_of<Scenario>()) {
+      throw std::invalid_argument(
+          "StateVariable::key: scenario_uid must not be unknown");
+    }
+    if (stage_uid == unknown_uid_of<Stage>()) {
+      throw std::invalid_argument(
+          "StateVariable::key: stage_uid must not be unknown");
+    }
     return {
         .scenario_uid = scenario_uid,
         .stage_uid = stage_uid,

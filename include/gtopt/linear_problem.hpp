@@ -254,6 +254,26 @@ public:
       }
     }
 
+    // Labelled columns must carry a concrete `variable_uid`.  Leaving
+    // it at `unknown_uid = -1` serialises the column label as
+    // `<class>_<var>_-1_…`, whose `-` is rejected by CoinLpIO's name
+    // validator and causes CBC to strip every col/row label from
+    // the written LP file (master #426 / a8a0e452, PR #429).  Throw
+    // on the addition path so the offending callsite is flagged at
+    // build time rather than surfacing as an opaque LP-file audit
+    // failure.
+    if (!col.class_name.empty() && col.variable_uid == unknown_uid) {
+      throw std::invalid_argument(
+          std::format("LinearProblem::add_col: labelled column (class='{}', "
+                      "var='{}') has variable_uid = unknown_uid — the LP "
+                      "label serialises to `…_-1_…` and CoinLpIO rejects "
+                      "it (all labels dropped on write_lp).  Set a concrete "
+                      "variable_uid, or leave class_name empty for an "
+                      "anonymous column.",
+                      col.class_name,
+                      col.variable_name));
+    }
+
     // Eager duplicate detection: two SparseCols with the same
     // (class_name, variable_name, variable_uid, context) 4-tuple
     // would produce the same LP label and silently overwrite each

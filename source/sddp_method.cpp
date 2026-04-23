@@ -439,6 +439,14 @@ void register_alpha_variables(PlanningLP& planning_lp,
         .scale = scale_alpha,
         .class_name = sddp_alpha_class_name,
         .variable_name = sddp_alpha_col_name,
+        // Without variable_uid the column label serialises to
+        // `sddp_alpha_-1_<scene>_<phase>` (unknown_uid = -1), whose
+        // embedded `-` char is rejected by CoinLpIO's name validator
+        // — CBC then strips every col/row label from the written LP.
+        // Mirrors master #426 (a8a0e452) which set this on cut rows.
+        // α is unique per (scene, phase), so `sddp_alpha_uid = 0`
+        // disambiguates trivially.
+        .variable_uid = sddp_alpha_uid,
         .context =
             make_scene_phase_context(sim.uid_of(scene_index), phase.uid()),
     };
