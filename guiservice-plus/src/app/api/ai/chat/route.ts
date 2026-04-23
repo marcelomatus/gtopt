@@ -47,13 +47,59 @@ type RequestBody = {
 // OpenAI / compatible (ollama, custom)
 // ---------------------------------------------------------------------------
 
+function isPrivateOrLocalHost(hostname: string): boolean {
+  const h = hostname.toLowerCase();
+  if (h === 'localhost' || h === '::1') return true;
+
+  // Basic IPv4 checks
+  const ipv4 = h.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+  if (ipv4) {
+    const [a, b] = [Number(ipv4[1]), Number(ipv4[2])];
+    if (a === 10) return true;
+    if (a === 127) return true;
+    if (a === 169 && b === 254) return true;
+    if (a === 172 && b >= 16 && b <= 31) return true;
+    if (a === 192 && b === 168) return true;
+  }
+
+  // Common local/private IPv6 patterns
+  if (h.startsWith('fc') || h.startsWith('fd') || h.startsWith('fe80:')) return true;
+
+  return false;
+}
+
+function getValidatedOpenAIBaseUrl(config: AiConfig): string {
+  const rawBase = config.baseUrl || 'https://api.openai.com/v1';
+
+  let parsed: URL;
+  try {
+    parsed = new URL(rawBase);
+  } catch {
+    throw new Error('Invalid AI base URL.');
+  }
+
+  if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+    throw new Error('AI base URL must use http or https.');
+  }
+
+  if (parsed.username || parsed.password) {
+    throw new Error('AI base URL must not include credentials.');
+  }
+
+  if (isPrivateOrLocalHost(parsed.hostname)) {
+    throw new Error('AI base URL points to a disallowed host.');
+  }
+
+  return parsed.toString().replace(/\/$/, '');
+}
+
 async function callOpenAI(
   config: AiConfig,
   messages: OAIMessage[],
   useTools: boolean,
 ): Promise<OAIMessage> {
-  const base = config.baseUrl || 'https://api.openai.com/v1';
-  const url = `${base.replace(/\/$/, '')}/chat/completions`;
+  const base = getValidatedOpenAIBaseUrl(config);
+  const url = `${base}/chat/completions`;
 
   const body: Record<string, unknown> = {
     model: config.model,
