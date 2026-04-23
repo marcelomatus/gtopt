@@ -353,7 +353,7 @@ def _reactflow_layout(model: GraphModel) -> dict[str, tuple[float, float]]:
     try:
         import math
 
-        import networkx as nx  # type: ignore
+        import networkx as nx
 
         graph: nx.Graph = nx.Graph()
         for node in model.nodes:

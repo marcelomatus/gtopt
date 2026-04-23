@@ -68,8 +68,22 @@ function isPrivateOrLocalHost(hostname: string): boolean {
   return false;
 }
 
-function getValidatedOpenAIBaseUrl(config: AiConfig): string {
-  const rawBase = config.baseUrl || 'https://api.openai.com/v1';
+/** Known-safe provider base URLs; skip private-host check for these. */
+const KNOWN_PROVIDER_BASES: Record<string, string> = {
+  openai: 'https://api.openai.com/v1',
+  anthropic: 'https://api.anthropic.com/v1',
+} as const;
+
+function getValidatedOpenAIBaseUrl(config: AiConfig): URL {
+  // For known providers, use the hard-coded base URL unconditionally.
+  if (config.provider in KNOWN_PROVIDER_BASES) {
+    return new URL(KNOWN_PROVIDER_BASES[config.provider as keyof typeof KNOWN_PROVIDER_BASES]);
+  }
+
+  const rawBase = config.baseUrl ?? '';
+  if (!rawBase) {
+    throw new Error('No base URL configured for custom AI provider.');
+  }
 
   let parsed: URL;
   try {
@@ -90,7 +104,10 @@ function getValidatedOpenAIBaseUrl(config: AiConfig): string {
     throw new Error('AI base URL points to a disallowed host.');
   }
 
-  return parsed.toString().replace(/\/$/, '');
+  // Return a new URL built from only the validated components (scheme + host + port + path)
+  // to prevent injection from query strings or hash fragments in the user input.
+  const safe = new URL(`${parsed.protocol}//${parsed.host}${parsed.pathname}`);
+  return safe;
 }
 
 async function callOpenAI(
@@ -99,7 +116,9 @@ async function callOpenAI(
   useTools: boolean,
 ): Promise<OAIMessage> {
   const base = getValidatedOpenAIBaseUrl(config);
-  const url = `${base}/chat/completions`;
+  // Build the completions endpoint URL from the validated base URL object.
+  const basePath = base.pathname.replace(/\/$/, '');
+  const url = new URL(`${basePath}/chat/completions`, base.origin);
 
   const body: Record<string, unknown> = {
     model: config.model,
