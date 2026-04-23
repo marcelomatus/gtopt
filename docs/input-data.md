@@ -1351,7 +1351,7 @@ System-wide modeling options that control emission pricing and LP relaxation.
 |-------|------|-------|----------|-------------|
 | `emission_cost` | number\|array\|string | $/tCO₂ | No | System-wide carbon price. Generators with `emission_factor` incur an additional objective cost. See [Emission Cost](unit-commitment.md#6-emission-cost-and-cap) |
 | `emission_cap` | number\|array\|string | tCO₂ | No | Annual CO₂ cap per stage. Creates a constraint limiting total emissions from all generators with `emission_factor` |
-| `relaxed_phases` | string | — | No | Phase range expression for LP relaxation of UC binaries: `"all"`, `"none"`, `"1,3:5"`, etc. Default: `"none"`. See [Relaxation Control](unit-commitment.md#9-relaxation-control) |
+| `continuous_phases` | string | — | No | Phase range expression for LP relaxation of UC binaries: `"all"`, `"none"`, `"1,3:5"`, etc. Default: `"none"`. See [Relaxation Control](unit-commitment.md#9-relaxation-control) |
 
 ---
 

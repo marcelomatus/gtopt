@@ -47,12 +47,13 @@ Install all tools with a single `pip` command from the repository root:
 pip install ./scripts
 ```
 
-This registers all 20 command-line tools on your `PATH`:
+This registers all 21 command-line tools on your `PATH`:
 `gtopt_diagram`, `plp2gtopt`, `pp2gtopt`, `gtopt2pp`, `igtopt`,
 `cvs2parquet`, `ts2gtopt`, `gtopt_compare`, `run_gtopt`,
 `gtopt_monitor`, `gtopt_check_json`, `gtopt_check_lp`,
 `gtopt_check_output`, `gtopt_check_solvers`, `gtopt_compress_lp`,
 `gtopt_check_fingerprint`, `gtopt_field_extractor`, `gtopt_check_pampl`,
+`gtopt_expand`, `cen_demanda`,
 and `plp_compress_case`.  An editable install is useful during
 development:
 
@@ -94,6 +95,8 @@ Each command-line tool lives in its own Python package directory under
 | `gtopt_config/` | *(library)* | Unified configuration management |
 | `gtopt_monitor/` | `gtopt_monitor` | Live solver monitoring dashboard |
 | `ts2gtopt/` | `ts2gtopt` | Time-series → gtopt block schedule converter |
+| `gtopt_expand/` | `gtopt_expand` | Expansion transforms: LNG terminal, ROR promotion, pumped storage, irrigation agreements (`gtopt_irrigation` is a deprecated alias) |
+| `cen_demanda/` | `cen_demanda` | Coordinador Eléctrico Nacional SIPUB hourly demand downloader |
 
 ### Dependencies
 

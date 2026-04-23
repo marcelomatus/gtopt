@@ -191,7 +191,7 @@ Add a `commitment_array` to your system and mark the stage as `chronological`:
 ```bash
 gtopt my_case.json
 # Or with LP relaxation for faster solves:
-gtopt my_case.json --set model_options.relaxed_phases=all
+gtopt my_case.json --set model_options.continuous_phases=all
 ```
 
 ### What happens
@@ -220,7 +220,7 @@ generator $g$ and time period $t$:
 | $v_{g,t}$ | Binary | $\{0, 1\}$ | **Startup**: 1 if generator $g$ starts up at time $t$ |
 | $w_{g,t}$ | Binary | $\{0, 1\}$ | **Shutdown**: 1 if generator $g$ shuts down at time $t$ |
 
-When `relax = true` or the phase is in `relaxed_phases`, these variables
+When `relax = true` or the phase is in `continuous_phases`, these variables
 become continuous in $[0, 1]$.
 
 ### 4.2 Core Constraints (C1–C3)
@@ -577,20 +577,20 @@ This is useful for:
 
 ### Per-Phase Relaxation
 
-Set `model_options.relaxed_phases` to relax binaries for specific planning
+Set `model_options.continuous_phases` to relax binaries for specific planning
 phases without modifying individual commitment entries:
 
 ```json
 {
   "options": {
     "model_options": {
-      "relaxed_phases": "all"
+      "continuous_phases": "all"
     }
   }
 }
 ```
 
-The `relaxed_phases` field accepts a phase range expression:
+The `continuous_phases` field accepts a phase range expression:
 
 | Expression | Meaning |
 |------------|---------|
@@ -606,7 +606,7 @@ The `relaxed_phases` field accepts a phase range expression:
 The CLI equivalent:
 
 ```bash
-gtopt my_case.json --set model_options.relaxed_phases="all"
+gtopt my_case.json --set model_options.continuous_phases="all"
 ```
 
 ### Must-Run
@@ -720,7 +720,7 @@ to constrain total emissions.
     "model_options": {
       "emission_cost": 30.0,
       "emission_cap": 500000.0,
-      "relaxed_phases": "none"
+      "continuous_phases": "none"
     }
   }
 }
@@ -730,7 +730,7 @@ to constrain total emissions.
 |-------|------|---------|------|-------------|
 | `emission_cost` | real / array | — | $/tCO₂ | System-wide carbon price |
 | `emission_cap` | real / array | — | tCO₂ | Annual CO₂ cap per stage |
-| `relaxed_phases` | string | `"none"` | — | Phase range expression for LP relaxation |
+| `continuous_phases` | string | `"none"` | — | Phase range expression for LP relaxation |
 
 ---
 

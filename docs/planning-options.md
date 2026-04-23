@@ -53,7 +53,7 @@ All fields are `std::optional` -- absent fields inherit built-in defaults
 | `output_directory` | string | `"output"` | Root directory for result files |
 | `output_format` | string | `"parquet"` | Output format: `"parquet"` or `"csv"` |
 | `output_compression` | string | `"zstd"` | Compression codec for output files |
-| `use_uid_fname` | bool | `false` | Use UIDs instead of names in filenames |
+| `use_uid_fname` | bool | `true` | Use UIDs instead of names in filenames |
 
 ### Model Parameters (deprecated flat fields)
 
@@ -70,7 +70,7 @@ All fields are `std::optional` -- absent fields inherit built-in defaults
 | `hydro_use_value` | float | -- | **Deprecated** — use `model_options.hydro_use_value` |
 | `use_line_losses` | bool | `true` | **Deprecated** — use `model_options.use_line_losses` |
 | `loss_segments` | int | `1` | **Deprecated** — use `model_options.loss_segments` |
-| `use_kirchhoff` | bool | `false` | **Deprecated** — use `model_options.use_kirchhoff` |
+| `use_kirchhoff` | bool | `true` | **Deprecated** — use `model_options.use_kirchhoff` |
 | `use_single_bus` | bool | `false` | **Deprecated** — use `model_options.use_single_bus` |
 | `kirchhoff_threshold` | float | `0.0` | **Deprecated** — use `model_options.kirchhoff_threshold` |
 | `scale_objective` | float | `1000` | **Deprecated** — use `model_options.scale_objective` |
@@ -134,7 +134,7 @@ solver configurations.
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `use_single_bus` | bool | `false` | Collapse network to single bus (copper-plate) |
-| `use_kirchhoff` | bool | `false` | Apply DC Kirchhoff voltage-law constraints |
+| `use_kirchhoff` | bool | `true` | Apply DC Kirchhoff voltage-law constraints |
 | `use_line_losses` | bool | `true` | **Deprecated** — use `line_losses_mode` instead. Model resistive line losses (on/off) |
 | `line_losses_mode` | string | `"adaptive"` | Line loss formulation: `"none"`, `"linear"`, `"piecewise"`, `"bidirectional"`, `"adaptive"`, `"dynamic"` |
 | `kirchhoff_threshold` | float | `0.0` | Min bus voltage [kV] for Kirchhoff activation |

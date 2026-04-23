@@ -1097,7 +1097,7 @@ In summary tables below, ✱ marks required fields.
 | Element | Key fields | Description |
 |---------|-----------|-------------|
 | **Block** | `uid`✱, `duration`✱ (h) | Smallest time unit; `energy = power × duration` |
-| **Stage** | `uid`✱, `first_block`, `count_block`, `discount_factor` | Investment period grouping consecutive blocks |
+| **Stage** | `uid`✱, `first_block`, `count_block`, `discount_factor`, `chronological` | Investment period grouping consecutive blocks; `chronological: true` enables unit commitment |
 | **Scenario** | `uid`✱, `probability_factor` | One realization of uncertain inputs |
 | **Phase** | `uid`✱, `first_stage`, `count_stage` | Groups consecutive stages (advanced) |
 | **Scene** | `uid`✱, `first_scenario`, `count_scenario` | Cross-products scenarios with phases |
@@ -1107,7 +1107,7 @@ In summary tables below, ✱ marks required fields.
 | Element | Key fields | Description |
 |---------|-----------|-------------|
 | **Bus** | `uid`✱, `name`✱, `voltage` (kV), `reference_theta` | Electrical node |
-| **Generator** | `uid`✱, `name`✱, `bus`✱, `pmax`, `gcost` ($/MWh), `capacity`, `expcap`, `expmod`, `annual_capcost` | Generation unit |
+| **Generator** | `uid`✱, `name`✱, `bus`✱, `pmax`, `gcost` ($/MWh), `capacity`, `expcap`, `expmod`, `capmax`, `annual_capcost`, `annual_derating`, `integer_expmod`, `emission_factor` | Generation unit |
 | **Demand** | `uid`✱, `name`✱, `bus`✱, `lmax`, `capacity`, `expcap`, `expmod`, `annual_capcost` | Electrical load |
 | **Line** | `uid`✱, `name`✱, `bus_a`✱, `bus_b`✱, `reactance`, `tmax_ab`, `tmax_ba`, `expcap`, `expmod` | Transmission branch |
 
