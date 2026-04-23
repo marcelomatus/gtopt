@@ -544,6 +544,49 @@ def add_model_arguments(parser: argparse.ArgumentParser, conf: dict[str, str]) -
         default=None,
         help="model transmission line losses (omit to use gtopt default: true)",
     )
+    parser.add_argument(
+        "--line-losses-mode",
+        dest="line_losses_mode",
+        metavar="MODE",
+        default=None,
+        choices=[
+            "none",
+            "linear",
+            "piecewise",
+            "bidirectional",
+            "adaptive",
+            "dynamic",
+            "piecewise_direct",
+        ],
+        help=(
+            "transmission-line loss model emitted as "
+            "model_options.line_losses_mode. 'adaptive' (gtopt default) "
+            "picks the smallest-LP PWL model — `piecewise` for fixed-"
+            "capacity lines, `bidirectional` for expandable ones. "
+            "'piecewise_direct' mirrors PLP `genpdlin.f` (per-segment "
+            "bus stamps, no loss rows) at the cost of 2·K segment cols "
+            "per direction — use for PLP LP-diff parity. "
+            "(default: not set — gtopt picks 'adaptive')"
+        ),
+    )
+    parser.add_argument(
+        "--plp-legacy",
+        dest="plp_legacy",
+        action="store_true",
+        default=False,
+        help=(
+            "bundle PLP-compatibility defaults that make gtopt outputs "
+            "closer to PLP even when that is not the highest-quality "
+            "or smallest-LP choice. Adjusts the defaults of: "
+            "--method (cascade→sddp; PLP's stochastic production mode), "
+            "--line-losses-mode (→piecewise_direct; PLP `genpdlin.f`), "
+            "--use-line-losses (→true, emitted explicitly). "
+            "pasada_mode, use_kirchhoff, discount_rate are already "
+            "PLP-aligned by default so no bundle change is needed. "
+            "reservoir_scale_mode is intentionally left alone. "
+            "Explicit flags still win over the bundle."
+        ),
+    )
 
 
 # ---------------------------------------------------------------------------
