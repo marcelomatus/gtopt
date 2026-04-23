@@ -142,11 +142,11 @@ public:
 
   template<typename ScenarioLP, typename StageLP>
   [[nodiscard]]
-  static constexpr auto key(const ScenarioLP& scenario,
-                            const StageLP& stage,
-                            std::string_view class_name,
-                            Uid element_uid,
-                            std::string_view col_name) noexcept -> Key
+  static auto key(const ScenarioLP& scenario,
+                  const StageLP& stage,
+                  std::string_view class_name,
+                  Uid element_uid,
+                  std::string_view col_name) -> Key
   {
     return key(class_name,
                element_uid,
@@ -155,17 +155,6 @@ public:
                stage.uid(),
                scenario.scene_index(),
                scenario.uid());
-  }
-
-  template<typename StageLP>
-  [[nodiscard]]
-  static constexpr auto key(const StageLP& stage,
-                            std::string_view class_name,
-                            Uid element_uid,
-                            std::string_view col_name) noexcept -> Key
-  {
-    return key(
-        class_name, element_uid, col_name, stage.phase_index(), stage.uid());
   }
 
   constexpr explicit StateVariable(LPKey lp_key,
