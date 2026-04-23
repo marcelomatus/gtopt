@@ -5,10 +5,41 @@ on:
     branches:
       - master
       - main
+    paths-ignore:
+      # Pure-documentation and non-C++ paths that have their own CI
+      # workflows or need no CI at all.  When a push/PR changes ONLY
+      # these paths, Ubuntu builds + integration tests are skipped.
+      # Paths here must be fully covered by another workflow
+      # (scripts.yml, guiservice.yml, docs.yml, style.yml).
+      - '**/*.md'
+      - 'docs/**'
+      - 'LICENSE'
+      - 'scripts/**'
+      - 'guiservice/**'
+      - '.github/workflows/scripts.yml'
+      - '.github/workflows/guiservice.yml'
+      - '.github/workflows/docs.yml'
+      - '.github/workflows/style.yml'
+      - '.github/workflows/autoformat.yml'
+      - '.github/workflows/coverage.yml'
+      - '.github/workflows/profile.yml'
   pull_request:
     branches:
       - master
       - main
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
+      - 'LICENSE'
+      - 'scripts/**'
+      - 'guiservice/**'
+      - '.github/workflows/scripts.yml'
+      - '.github/workflows/guiservice.yml'
+      - '.github/workflows/docs.yml'
+      - '.github/workflows/style.yml'
+      - '.github/workflows/autoformat.yml'
+      - '.github/workflows/coverage.yml'
+      - '.github/workflows/profile.yml'
   workflow_dispatch:
     inputs:
       run_clang_tidy:
@@ -157,6 +188,19 @@ jobs:
 
       - name: build
         run: cmake --build build -j$(nproc)
+
+      - name: ccache stats
+        if: always()
+        run: |
+          {
+            echo '## ccache statistics'
+            echo ''
+            echo 'Compiler: `${{ env.CXX }}` — cache key `${{ github.workflow }}-${{ env.ACTIVE_COMPILER }}`'
+            echo ''
+            echo '```'
+            ccache -s -v || ccache -s
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: verify binary has no missing shared libraries
         run: |
@@ -454,41 +498,55 @@ jobs:
         env:
           GTOPT_BIN: ${{ github.workspace }}/gtopt-install/bin/gtopt
 
-  install-and-test-gtopt-websrv:
+  # Merged from two former jobs (install-and-test-gtopt-websrv +
+  # test-integrated-gtopt-gui): both downloaded the binary, installed
+  # webservice via CMake, cached Next.js, and set up Node.  Running
+  # them in one job removes ~45 s of duplicated setup overhead.
+  test-installed-integrations:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     needs: build
+    name: test-installed-integrations (websrv + gui)
 
     steps:
       - uses: actions/checkout@v6
+
+      - name: Set up Python with uv
+        uses: ./.github/actions/setup-python-uv
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: "npm"
+          cache-dependency-path: webservice/package-lock.json
+
+      - name: install gtopt runtime dependencies
+        uses: ./.github/actions/install-apt-deps
 
       - name: download gtopt binary
         uses: actions/download-artifact@v8
         with:
           name: gtopt-binary-debug
-          path: ${{ github.workspace }}/gtopt-install/bin
+          path: ${{ runner.temp }}/gtopt-bin
 
-      - name: install gtopt runtime dependencies
-        uses: ./.github/actions/install-apt-deps
-
-      - name: make gtopt executable
-        run: chmod +x gtopt-install/bin/gtopt
-
-      - name: verify only standalone gtopt binary is installed
+      - name: verify only standalone gtopt binary is published
         run: |
-          test -x gtopt-install/bin/gtopt
-          if find "gtopt-install" -type f -name 'libgtopt.a' | grep -q .; then
-            echo "::error::libgtopt.a was installed, expected binary-only installation"
-            find "gtopt-install" -type f -name 'libgtopt.a'
+          test -x ${{ runner.temp }}/gtopt-bin/gtopt
+          if find "${{ runner.temp }}/gtopt-bin" -type f -name 'libgtopt.a' | grep -q .; then
+            echo "::error::libgtopt.a was published, expected binary-only artifact"
+            find "${{ runner.temp }}/gtopt-bin" -type f -name 'libgtopt.a'
             exit 1
           fi
-          echo "✓ standalone gtopt binary installed without libgtopt.a"
+          echo "✓ gtopt-binary-debug artifact contains binary only (no libgtopt.a)"
 
-      - uses: actions/setup-node@v6
-        with:
-          node-version: "24"
-          cache: "npm"
-          cache-dependency-path: webservice/package-lock.json
+      - name: install gtopt binary
+        run: |
+          mkdir -p $HOME/gtopt-install/bin
+          cp ${{ runner.temp }}/gtopt-bin/gtopt $HOME/gtopt-install/bin/gtopt
+          # Copy solver plugin libraries alongside the binary
+          cp ${{ runner.temp }}/gtopt-bin/libgtopt_solver_*.so $HOME/gtopt-install/bin/ 2>/dev/null || true
+          chmod +x $HOME/gtopt-install/bin/gtopt
 
       - name: cache Next.js build
         uses: actions/cache@v5
@@ -498,43 +556,36 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-nextjs-${{ hashFiles('webservice/package-lock.json') }}-
 
-      - name: Configure webservice with CMake
-        run: cmake -S webservice -B build-webservice
-
-      - name: Install webservice
-        run: cmake --install build-webservice --prefix $HOME/gtopt-install
-
-      - name: Verify gtopt_websrv launcher is installed
+      - name: Configure and install webservice
         run: |
+          cmake -S webservice -B build-webservice
+          cmake --install build-webservice --prefix $HOME/gtopt-install
+
+      - name: Configure and install guiservice
+        run: |
+          cmake -S guiservice -B build-guiservice
+          cmake --install build-guiservice --prefix $HOME/gtopt-install
+
+      - name: Verify launcher, systemd unit, and webservice build artefacts
+        run: |
+          # Merged from the old install-and-test-gtopt-websrv verification
+          # steps + test-integrated-gtopt-gui's npm install/build check.
           test -f $HOME/gtopt-install/bin/gtopt_websrv
           test -x $HOME/gtopt-install/bin/gtopt_websrv
-          echo "✓ gtopt_websrv launcher found and is executable"
+          test -f $HOME/gtopt-install/share/gtopt/webservice/gtopt-webservice.service
+          test -d $HOME/gtopt-install/share/gtopt/webservice/node_modules
+          test -d $HOME/gtopt-install/share/gtopt/webservice/.next
+          echo "✓ gtopt_websrv launcher is executable"
+          echo "✓ systemd unit file installed"
+          echo "✓ npm install + npm run build completed during installation"
 
-      - name: Test gtopt_websrv help
+      - name: Test gtopt_websrv --help
         run: |
-          $HOME/gtopt-install/bin/gtopt_websrv --help | grep -q "gtopt_websrv - Launcher for gtopt web service"
+          $HOME/gtopt-install/bin/gtopt_websrv --help \
+            | grep -q "gtopt_websrv - Launcher for gtopt web service"
           echo "✓ Help command works"
 
-      - name: Verify systemd service file is included
-        run: |
-          test -f $HOME/gtopt-install/share/gtopt/webservice/gtopt-webservice.service
-          echo "✓ Systemd service file installed"
-
-      - name: Verify webservice was built during installation
-        run: |
-          test -d $HOME/gtopt-install/share/gtopt/webservice/node_modules
-          echo "✓ npm install ran successfully during installation"
-          test -d $HOME/gtopt-install/share/gtopt/webservice/.next
-          echo "✓ npm run build ran successfully during installation"
-
-      - name: Copy gtopt binary to install prefix
-        run: |
-          cp gtopt-install/bin/gtopt $HOME/gtopt-install/bin/gtopt
-          # Copy solver plugin libraries alongside the binary
-          cp gtopt-install/bin/libgtopt_solver_*.so $HOME/gtopt-install/bin/ 2>/dev/null || true
-          chmod +x $HOME/gtopt-install/bin/gtopt
-
-      - name: Test webservice runs after installation
+      - name: Test webservice runs (install_test.sh)
         run: |
           export GTOPT_BIN="$HOME/gtopt-install/bin/gtopt"
           cd $HOME/gtopt-install/share/gtopt/webservice
@@ -567,66 +618,6 @@ jobs:
           fi
           kill $SERVER_PID 2>/dev/null || true
           echo "✓ All --check-api tests passed"
-
-  test-integrated-gtopt-gui:
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    needs: build
-
-    steps:
-      - uses: actions/checkout@v6
-
-      - name: Set up Python with uv
-        uses: ./.github/actions/setup-python-uv
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v6
-        with:
-          node-version: '24'
-          cache: "npm"
-          cache-dependency-path: webservice/package-lock.json
-
-      - name: install gtopt runtime dependencies
-        uses: ./.github/actions/install-apt-deps
-
-      - name: download gtopt binary
-        uses: actions/download-artifact@v8
-        with:
-          name: gtopt-binary-debug
-          path: ${{ runner.temp }}/gtopt-bin
-
-      - name: install gtopt binary
-        run: |
-          mkdir -p $HOME/gtopt-install/bin
-          cp ${{ runner.temp }}/gtopt-bin/gtopt $HOME/gtopt-install/bin/gtopt
-          # Copy solver plugin libraries alongside the binary
-          cp ${{ runner.temp }}/gtopt-bin/libgtopt_solver_*.so $HOME/gtopt-install/bin/ 2>/dev/null || true
-          chmod +x $HOME/gtopt-install/bin/gtopt
-
-      - name: Configure and install guiservice
-        run: |
-          cmake -S guiservice -B build-guiservice
-          cmake --install build-guiservice --prefix $HOME/gtopt-install
-
-      - name: cache Next.js build
-        uses: actions/cache@v5
-        with:
-          path: ~/gtopt-install/share/gtopt/webservice/.next/cache
-          key: ${{ runner.os }}-nextjs-${{ hashFiles('webservice/package-lock.json') }}-${{ hashFiles('webservice/src/**/*.ts', 'webservice/src/**/*.tsx', 'webservice/*.mjs', 'webservice/*.js', 'webservice/*.ts') }}
-          restore-keys: |
-            ${{ runner.os }}-nextjs-${{ hashFiles('webservice/package-lock.json') }}-
-
-      - name: Configure and install webservice
-        run: |
-          cmake -S webservice -B build-webservice
-          cmake --install build-webservice --prefix $HOME/gtopt-install
-
-      - name: Verify webservice was built during installation
-        run: |
-          test -d $HOME/gtopt-install/share/gtopt/webservice/node_modules
-          echo "✓ npm install ran successfully during installation"
-          test -d $HOME/gtopt-install/share/gtopt/webservice/.next
-          echo "✓ npm run build ran successfully during installation"
 
       - name: Test gtopt_gui with integrated webservice
         run: |
