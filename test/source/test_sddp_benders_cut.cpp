@@ -601,7 +601,7 @@ TEST_CASE(  // NOLINT
   if (elastic) {
     CHECK(elastic->clone.is_optimal());
 
-    auto multi = build_multi_cuts(*elastic, links);
+    auto multi = build_multi_cuts(*elastic, links, {}, 1e-6, 0);
     CHECK_FALSE(multi.empty());
 
     // Post-D1+D6: one "mcut" per active link with signed dual
@@ -661,9 +661,131 @@ TEST_CASE(  // NOLINT
   auto elastic = elastic_filter_solve(li, links, 1e6, {});
   REQUIRE(elastic.has_value());
   if (elastic) {
-    auto multi = build_multi_cuts(*elastic, links);
+    auto multi = build_multi_cuts(*elastic, links, {}, 1e-6, 0);
     CHECK(multi.empty());
   }
+}
+
+// Regression: previous implementation clamped the cut's implied bound to
+// `[source_low, source_upp]` and then emitted `pi · source ≥ pi · upper`
+// whenever elastic push exceeded the upper bound — producing degenerate
+// single-point cuts that combined with existing `source ≤ source_upp` to
+// pin the source at its edge.  PLP's equivalent clamp is commented out;
+// the fix removes the clamp so the cut has its raw RHS.  The filter
+// `|π · dx| < 1e-16 · |π · trial|` drops only numerical-noise cuts.
+// This regression verifies the emitted cut has `rhs = pi · dep_clone_phys`
+// unmodified (no clamp to the source box).
+TEST_CASE(  // NOLINT
+    "build_multi_cuts - cut RHS is not clamped to source_upp")
+{
+  // Scenario: trial = 0, source_upp = 50.  Elastic pushes dep to 50 via
+  // sdn activation (dx = 50).  With link.state_var nullptr, v_hat_phys=0,
+  // so `dep_clone_phys = 0 + 50 = 50`.  Pre-fix the clamp produced
+  // `lowb = pi · 50` (clamped at source_upp).  Post-fix `lowb = pi · 50`
+  // plus the outward FactEps perturbation.  The cut should be emitted.
+  LinearInterface li;
+  const auto x0 = li.add_col(SparseCol {
+      .lowb = 0.0,
+      .uppb = 1000.0,
+  });
+  li.set_obj_coeff(x0, 1.0);
+  const auto dep = li.add_col(SparseCol {
+      .lowb = 0.0,
+      .uppb = 0.0,
+  });
+
+  auto push_dep = SparseRow {
+      .lowb = 50.0,
+      .uppb = LinearProblem::DblMax,
+  };
+  push_dep[dep] = 1.0;
+  li.add_row(push_dep);
+
+  [[maybe_unused]] auto r0 = li.resolve({});
+  CHECK_FALSE(li.is_optimal());
+
+  const std::vector<StateVarLink> links = {
+      StateVarLink {
+          .source_col = ColIndex {10},
+          .dependent_col = dep,
+          .target_phase_index = PhaseIndex {1},
+          .trial_value = 0.0,
+          .source_low = 0.0,
+          .source_upp = 50.0,
+      },
+  };
+
+  auto elastic = elastic_filter_solve(li, links, 1e6, {});
+  REQUIRE(elastic.has_value());
+  REQUIRE(elastic->clone.is_optimal());
+
+  const auto multi = build_multi_cuts(*elastic, links, {}, 1e-6, 0);
+  REQUIRE_FALSE(multi.empty());
+  // Verify the cut has a meaningful coefficient and its RHS corresponds
+  // to `dep_clone_phys ≈ 50` (the elastic-activated target), NOT clamped
+  // to any particular side of the source box.
+  const auto& mc = multi.front();
+  const auto coeff = mc.get_coeff(links[0].source_col);
+  REQUIRE(std::abs(coeff) > 0.0);
+  const double implied_bound = mc.lowb / coeff;
+  // Should reflect dep_clone_phys ≈ 50 (± FactEps perturbation).
+  CHECK(std::abs(implied_bound - 50.0) < 1.0);
+}
+
+// Regression: low-|dx| filter — port of PLP `osicallsc.cpp:727-730`.
+// Drive the elastic filter with a dep trial that is only marginally
+// outside the box by an amount below the dx-tolerance
+// `(|trial| + 1e-8) * 1e-8`.  The elastic LP technically activates the
+// slack, but the numerical push is below the filter threshold.  Pre-fix,
+// `build_multi_cuts` emits a cut with near-zero coefficient — noise that
+// can accumulate across iterations.  Post-fix, the filter drops it.
+TEST_CASE(  // NOLINT
+    "build_multi_cuts - dx magnitude filter drops near-zero-activation cut")
+{
+  LinearInterface li;
+  const auto x0 = li.add_col(SparseCol {
+      .lowb = 0.0,
+      .uppb = 200.0,
+  });
+  li.set_obj_coeff(x0, 1.0);
+  const auto dep = li.add_col(SparseCol {
+      .lowb = 50.0,
+      .uppb = 50.0,
+  });
+
+  // Demand x0 + dep >= 100 + 1e-10 — a RHS that is *practically* 100 but
+  // infinitesimally above.  With x0 up to 200 the LP resolves cleanly to
+  // x0 = 50 + ε, dep = 50 — so the base LP is feasible and the elastic
+  // filter sees no real need to push dep.  The sdn slack variable stays
+  // at zero (or numerical noise), driving |dx| below the filter tol.
+  auto demand = SparseRow {
+      .lowb = 100.0,
+      .uppb = LinearProblem::DblMax,
+  };
+  demand[x0] = 1.0;
+  demand[dep] = 1.0;
+  li.add_row(demand);
+
+  [[maybe_unused]] auto r0 = li.resolve({});
+  REQUIRE(li.is_optimal());
+
+  const std::vector<StateVarLink> links = {
+      StateVarLink {
+          .source_col = ColIndex {10},
+          .dependent_col = dep,
+          .target_phase_index = PhaseIndex {1},
+          .trial_value = 50.0,
+          .source_low = 0.0,
+          .source_upp = 200.0,
+      },
+  };
+
+  auto elastic = elastic_filter_solve(li, links, 1e6, {});
+  REQUIRE(elastic.has_value());
+  // Feasible base LP → elastic clone should also be feasible at the
+  // original trial, slacks at zero, dx ≈ 0.  No cut should be emitted.
+  const auto multi = build_multi_cuts(*elastic, links, {}, 1e-6, 0);
+  CHECK(multi.empty());
 }
 
 TEST_CASE(  // NOLINT

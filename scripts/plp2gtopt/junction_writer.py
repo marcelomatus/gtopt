@@ -27,6 +27,7 @@ from .manem_parser import ManemParser
 from .ralco_parser import RalcoParser
 from .manem_writer import ManemWriter
 from .minembh_parser import MinembhParser
+from .vrebemb_parser import VrebembParser
 from .ror_equivalence_parser import RorSpec
 from .stage_parser import StageParser
 
@@ -101,6 +102,7 @@ class Reservoir(_ReservoirRequired, total=False):
     """
 
     use_state_variable: bool
+    spill_junction: str
     soft_emin: list[float]
     soft_emin_cost: list[float]
     seepage: List[Dict[str, Any]]
@@ -234,6 +236,7 @@ class JunctionWriter(BaseWriter):
         filemb_parser: Optional[FilembParser] = None,
         ralco_parser: Optional[RalcoParser] = None,
         minembh_parser: Optional[MinembhParser] = None,
+        vrebemb_parser: Optional[VrebembParser] = None,
         options: Optional[Dict[str, Any]] = None,
     ) -> None:
         """Initialize hydro system writer.
@@ -264,6 +267,7 @@ class JunctionWriter(BaseWriter):
         self.filemb_parser = filemb_parser
         self.ralco_parser = ralco_parser
         self.minembh_parser = minembh_parser
+        self.vrebemb_parser = vrebemb_parser
         self._embed_reservoir_constraints = bool(
             self.options.get("embed_reservoir_constraints", False)
         )
@@ -716,6 +720,15 @@ class JunctionWriter(BaseWriter):
             emin = "emin" if pcol_name in parquet_cols["emin"] else central["emin"]
             emax = "emax" if pcol_name in parquet_cols["emax"] else central["emax"]
 
+            # PLP-style spill routing: when `SerVer > 0` the reservoir's
+            # vertimiento flows to the SerVer-named central's junction.
+            # Set the optional `spill_junction` so gtopt's ReservoirLP wires
+            # the drain column into that downstream junction's balance row
+            # (matches PLP's `qv` chain).  When SerVer == 0 (drain to sea)
+            # leave it unset — drain stays a pure storage sink.
+            ser_ver = central.get("ser_ver", 0)
+            spill_junction_name = self._junction_names.get(ser_ver) if ser_ver else None
+
             reservoir: Reservoir = {
                 "uid": central["number"],
                 "name": central["name"],
@@ -725,13 +738,40 @@ class JunctionWriter(BaseWriter):
                 "emin": emin,
                 "emax": emax,
                 "capacity": central["emax"],
-                "fmin": -10000.0,
-                "fmax": +10000.0,
-                "spillway_cost": 1.0,
-                "spillway_capacity": 6000.0,
+                # PLP's `qe` (storage flow-balance) is *unbounded* by default
+                # (LeeQeBnd: ±DINFTY), with optional per-reservoir overrides
+                # via plpqebnd.dat (absent in this case).  The bound that
+                # actually matters is the reservoir energy box [emin, emax]
+                # — the storage equality folds qe into that automatically.
+                # gtopt's previous ±10000 was a magic constant tighter than
+                # PLP and tighter than the implicit storage-derived bound,
+                # which hurt LP scaling without restricting feasibility.
+                # 1e30 is gtopt's effective-infinity sentinel (clamped to the
+                # solver's infinity at flatten-time by LinearInterface).
+                "fmin": -1.0e30,
+                "fmax": +1.0e30,
+                # Per-reservoir spill cost: PLP's plpvrebemb.dat carries
+                # `Costo de Rebalse` (EmbCReb) per embalse.  When present
+                # use it; otherwise fall back to plpmat.dat's `CVert`
+                # (global default), then to legacy magic 1.0.
+                "spillway_cost": (
+                    (
+                        self.vrebemb_parser.get_cost(central_name)
+                        if self.vrebemb_parser is not None
+                        else None
+                    )
+                    or 1.0
+                ),
+                # spillway_capacity is a *separate* concept: max uncontrolled
+                # spill rate.  PLP's plpcnfce.dat VertMax populates it for
+                # run-of-river plants but is 0 for embalses in this dataset
+                # — keep the legacy 6000 default as fallback.
+                "spillway_capacity": central.get("vert_max") or 6000.0,
                 "annual_loss": 0.0,
                 "flow_conversion_rate": 3.6 / 1000.0,
             }
+            if spill_junction_name is not None:
+                reservoir["spill_junction"] = spill_junction_name
 
             # Energy scaling mode: energy scale for LP variables is now handled
             # exclusively via the ``variable_scales`` option in the planning

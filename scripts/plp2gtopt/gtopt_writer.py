@@ -272,6 +272,8 @@ class GTOptWriter:
             model_opts["reserve_fail_cost"] = src_model["reserve_fail_cost"]
         if "use_line_losses" in src_model:
             model_opts["use_line_losses"] = src_model["use_line_losses"]
+        if "line_losses_mode" in src_model:
+            model_opts["line_losses_mode"] = src_model["line_losses_mode"]
 
         planning_opts: dict[str, Any] = {
             "method": method,
@@ -797,6 +799,7 @@ class GTOptWriter:
         filemb = self.parser.parsed_data.get("filemb_parser", None)
         ralco = self.parser.parsed_data.get("ralco_parser", None)
         minembh = self.parser.parsed_data.get("minembh_parser", None)
+        vrebemb = self.parser.parsed_data.get("vrebemb_parser", None)
         jw = JunctionWriter(
             central_parser=centrals,
             stage_parser=stages,
@@ -808,6 +811,7 @@ class GTOptWriter:
             filemb_parser=filemb,
             ralco_parser=ralco,
             minembh_parser=minembh,
+            vrebemb_parser=vrebemb,
             options=options,
         )
         json_junctions = jw.to_json_array()

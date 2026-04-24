@@ -336,7 +336,8 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
               ? build_feasibility_cut_physical(prev_state.outgoing_links,
                                                elastic_result->link_infos,
                                                elastic_result->clone,
-                                               m_options_.cut_coeff_eps)
+                                               m_options_.cut_coeff_eps,
+                                               static_cast<int>(infeas_count))
               : SparseRow {};
 
           if (!use_multi_cut) {
@@ -375,7 +376,9 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
                                  make_iteration_context(uid_of(scene_index),
                                                         uid_of(phase_index),
                                                         iteration_index,
-                                                        infeas_count));
+                                                        infeas_count),
+                                 m_options_.cut_coeff_eps,
+                                 static_cast<int>(infeas_count));
             for (auto& mc : mc_cuts) {
               const auto cut_row = add_cut_row(planning_lp(),
                                                scene_index,
@@ -411,11 +414,12 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
                   uid_of(phase_index),
                   uid_of(prev_phase_index));
 
-              feas_cut =
-                  build_feasibility_cut_physical(prev_state.outgoing_links,
-                                                 elastic_result->link_infos,
-                                                 elastic_result->clone,
-                                                 m_options_.cut_coeff_eps);
+              feas_cut = build_feasibility_cut_physical(
+                  prev_state.outgoing_links,
+                  elastic_result->link_infos,
+                  elastic_result->clone,
+                  m_options_.cut_coeff_eps,
+                  static_cast<int>(infeas_count));
               feas_cut.class_name = sddp_alpha_class_name;
               feas_cut.constraint_name = sddp_fcut_constraint_name;
               // Same uid invariant as the non-multi-cut path (master #426)

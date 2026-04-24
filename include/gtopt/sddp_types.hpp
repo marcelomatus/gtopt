@@ -277,8 +277,13 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   /// the total number of solves to prevent an infinite
   /// backtrack/retry loop — when exceeded, the scene is declared
   /// infeasible for this iteration and excluded from UB aggregation.
-  /// Matches PLP's `FactMXC` knob in `plp-faseprim.f`.  Default 100.
-  int forward_max_attempts {100};
+  /// Matches PLP's `FactMXC` knob in `plp-faseprim.f` (`getopts.f:257`,
+  /// default **5000**).  Prior gtopt default was 100 — too tight for
+  /// pathological cases whose iter-0 forward pass needs to backtrack
+  /// across many phases to build the initial cut set (observed on
+  /// juan/gtopt_iplp: every scene hits 100 before phase 1 master has
+  /// enough cuts to be feasible).  Default now matches PLP's 5000.
+  int forward_max_attempts {5000};
 
   /// File format for cut and state variable I/O (csv or json).
   /// CSV uses structured keys (class:var:uid=coeff) and is backward

@@ -1065,7 +1065,7 @@ TEST_CASE("build_multi_cuts with no relaxed links returns empty")  // NOLINT
       },
   };
 
-  auto cuts = build_multi_cuts(elastic, links);
+  auto cuts = build_multi_cuts(elastic, links, {}, 1e-6, 0);
   CHECK(cuts.empty());
 }
 
@@ -1476,7 +1476,7 @@ TEST_CASE(  // NOLINT
   auto result = chinneck_filter_solve(fx.li, fx.links, 1e3, opts);
   REQUIRE(result.has_value());
 
-  auto cuts = build_multi_cuts(*result, fx.links);
+  auto cuts = build_multi_cuts(*result, fx.links, {}, 1e-6, 0);
 
   // build_multi_cuts skips links whose sup_col/sdn_col are unknown_index,
   // so only the essential link 2 contributes — at most 2 cuts (ub + lb).
@@ -1557,7 +1557,7 @@ TEST_CASE(  // NOLINT
     if (mode == ElasticFilterMode::multi_cut
         || mode == ElasticFilterMode::chinneck)
     {
-      auto mc = build_multi_cuts(*result, fx.links);
+      auto mc = build_multi_cuts(*result, fx.links, {}, 1e-6, 0);
       // For chinneck, only the essential link contributes (cuts.size() ≤ 2).
       // For multi_cut, both links may contribute (cuts.size() ≤ 4).
       const std::size_t expected_max =

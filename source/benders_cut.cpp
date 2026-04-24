@@ -176,7 +176,8 @@ auto build_benders_cut_physical(ColIndex alpha_col,
 auto build_feasibility_cut_physical(std::span<const StateVarLink> links,
                                     std::span<const RelaxedVarInfo> link_infos,
                                     LinearInterface& rc_source,
-                                    double cut_coeff_eps) -> SparseRow
+                                    double cut_coeff_eps,
+                                    int niter) -> SparseRow
 {
   // Classical Benders feasibility cut (PLP convention): no α column,
   // pure state-coupling built from **row duals** of the fixing
@@ -233,6 +234,20 @@ auto build_feasibility_cut_physical(std::span<const StateVarLink> links,
         : 0.0;
     const double dx = sdn_val - sup_val;
 
+    // Relative low-activation filter — same form as `build_multi_cuts`:
+    // drop the link when `|π · dx|` is below `1e-12 × (|π · v̂| + 1e-8)`.
+    // Without this filter, a link whose slack barely activated (trial
+    // at bound → dx ≈ 0, π large) injects `π · v̂` into the RHS and
+    // the source_col into the LHS, biasing the aggregate toward
+    // `Σ πᵢ · sᵢ ≥ Σ πᵢ · v̂ᵢ`.
+    {
+      const double rhs_scale =
+          (std::abs(pi) * std::abs(link.trial_value)) + 1e-8;
+      if (std::abs(pi * dx) < 1e-12 * rhs_scale) {
+        continue;
+      }
+    }
+
     // dx is in slack-col raw LP units; lift to physical via the
     // state variable's var_scale so `v̂_phys + dx · var_scale`
     // equals the clone's physical `dep` optimum.  Without the
@@ -241,8 +256,21 @@ auto build_feasibility_cut_physical(std::span<const StateVarLink> links,
     // triggered this in plp_2_years).
     const double v_hat_phys =
         (link.state_var != nullptr) ? link.state_var->col_sol_physical() : 0.0;
+    const double dep_clone_phys = v_hat_phys + (dx * link.var_scale);
+
     row[link.source_col] = pi;
-    row.lowb += pi * (v_hat_phys + (dx * link.var_scale));
+    row.lowb += pi * dep_clone_phys;
+  }
+
+  // Outward perturbation on the aggregated RHS, scaled by `niter` (the
+  // number of times this (scene, phase) has already emitted a cut in
+  // this iteration).  Starting from 0 means the first cut has no
+  // perturbation; each repeat bumps ε × |rhs| upward, helping the
+  // master escape a degenerate LP vertex that keeps regenerating the
+  // same row.  Matches PLP's escalating retry strategy.
+  const double eps_factor = 1e-10 * static_cast<double>(niter);
+  if (eps_factor > 0.0) {
+    row.lowb += eps_factor * std::abs(row.lowb);
   }
 
   return row;
@@ -614,7 +642,8 @@ auto build_feasibility_cut(const LinearInterface& li,
 auto build_multi_cuts(ElasticSolveResult& elastic,
                       std::span<const StateVarLink> links,
                       const LpContext& context,
-                      double slack_tol) -> std::vector<SparseRow>
+                      double cut_coeff_eps,
+                      int niter) -> std::vector<SparseRow>
 {
   std::vector<SparseRow> cuts;
 
@@ -653,13 +682,19 @@ auto build_multi_cuts(ElasticSolveResult& elastic,
   // read after a crossover solve (`elastic_opts.crossover = true`
   // in `SDDPMethod::elastic_solve`) so they are vertex-quality.
   //
-  // Outward epsilon perturbation (D8): PLP adds ε · |RHS| on the
-  // conservative side to escape degeneracy at the LP boundary.
-  // gtopt mirrors with `FactEPS = 1e-10`.
+  // Outward epsilon perturbation (D8), scaled by `niter` — the number
+  // of times this (scene, phase) has already emitted a feasibility cut
+  // in the current iteration.  `kFactEps = 1e-10 · niter` starts at 0
+  // on the first emission (raw RHS) and escalates on each repeat so
+  // the master escapes a degenerate LP vertex that keeps regenerating
+  // the same cut.  Pathological cases (juan/gtopt_iplp) used to emit
+  // the same cut hundreds of times with a fixed small ε; the
+  // niter-scaled form lets the perturbation grow until the master
+  // moves.  Matches PLP's escalating retry strategy.
   //
-  // A cut whose |π| falls below `slack_tol` is dropped — tiny
+  // A cut whose |π| falls below `cut_coeff_eps` is dropped — tiny
   // coefficients pollute the LP with near-zero rows.
-  constexpr double kFactEps = 1e-10;
+  const double kFactEps = 1e-10 * static_cast<double>(niter);
 
   // Use the same conventions as `build_feasibility_cut_physical`
   // above: physical-space row duals (`get_row_dual()`) and
@@ -678,7 +713,7 @@ auto build_multi_cuts(ElasticSolveResult& elastic,
       continue;
     }
     const double pi = -duals[info.fixing_row];
-    if (std::abs(pi) < slack_tol) {
+    if (std::abs(pi) < cut_coeff_eps) {
       continue;
     }
 
@@ -701,6 +736,25 @@ auto build_multi_cuts(ElasticSolveResult& elastic,
         : 0.0;
     const double dx = sdn_val - sup_val;
 
+    // Relative low-activation filter: drop cuts where the cut's shift
+    // from the trial state is below `1e-12 × (|π · v̂| + 1e-8)`
+    // (several orders above machine-ε relative to RHS magnitude).
+    // The cut has the form `pi · source_col ≥ pi · (v̂ + dx · var_scale)`,
+    // so the effective push of the cut (relative to its own RHS) is
+    // `pi · dx / (pi · v̂ + eps) ≈ dx / v̂`.  When below the threshold
+    // the cut shift is beneath meaningful precision and the cut is
+    // effectively redundant.
+    //
+    // PLP's analogous filter (`osicallsc.cpp:727-730`) uses the
+    // additive form `(|b|+1e-8) · FactEps > |dx|`.
+    {
+      const double rhs_scale =
+          (std::abs(pi) * std::abs(link.trial_value)) + 1e-8;
+      if (std::abs(pi * dx) < 1e-12 * rhs_scale) {
+        continue;
+      }
+    }
+
     const double v_hat_phys =
         (link.state_var != nullptr) ? link.state_var->col_sol_physical() : 0.0;
     const double dep_clone_phys = v_hat_phys + (dx * link.var_scale);
@@ -710,14 +764,19 @@ auto build_multi_cuts(ElasticSolveResult& elastic,
     const double eps_term = kFactEps * std::abs(rhs_base);
     const double rhs = rhs_base + ((pi > 0.0) ? eps_term : -eps_term);
 
-    // Defensive clamp to the source column's physical box.  With
-    // finite D3 slack bounds (`relax_fixed_state_variable` caps
-    // sup/sdn by the distance from trial to the source-col
-    // feasible box in LP units), `dep_clone_phys` is already
-    // guaranteed to sit in [source_low, source_upp] — the clamp
-    // only bites when a fixture leaves `source_low == source_upp`
-    // or `var_scale == 0` and D3 falls back to DblMax bounds.
-    // Mirrors PLP's `OptiMLD` clamp in `AgrResPD[v,i]`.
+    // Defensive clamp to `[source_low, source_upp]` — keeps the cut
+    // feasible when `dep_clone_phys` falls outside the source
+    // column's physical box (happens when `relax_fixed_state_variable`
+    // sets slack bounds to DblMax via the `source_low == source_upp`
+    // or `var_scale == 0` fallbacks).  Without this clamp, cuts can
+    // become hard-infeasible, breaking backtracking recovery.
+    //
+    // The clamp alone WAS the juan/gtopt_iplp emax-pinning bug when
+    // combined with dx ≈ 0 — the cut collapsed to `source ≥ emax`.
+    // The low-activation filter above (|π · dx| < 1e-16 · RHS) drops
+    // those degenerate cases before they reach this clamp, so the
+    // clamp now only bites when `dep_clone_phys` legitimately exceeds
+    // the box — matching PLP's behaviour via its filter sequencing.
     const double implied_bound = rhs / pi;
     const double clamped_bound =
         std::clamp(implied_bound, link.source_low, link.source_upp);

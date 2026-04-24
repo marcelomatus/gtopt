@@ -97,6 +97,16 @@ struct Reservoir
 
   SingleId junction {unknown_uid};  ///< ID of the associated hydraulic junction
 
+  /// Optional downstream junction for spill routing.  When set, the
+  /// reservoir's drain (spillway) variable is also added with coefficient
+  /// `+1.0` (m³/s as inflow) to that junction's balance row, so spilled
+  /// water flows downstream instead of vanishing.  Mirrors PLP's `qv` chain
+  /// where the vertimiento variable appears in BOTH the source reservoir's
+  /// balance AND the downstream junction's balance (PLP `SerVer` field in
+  /// `plpcnfce.dat`).  When unset (default), drain depletes storage only —
+  /// matches the behaviour for reservoirs whose `SerVer = 0` (spill to sea).
+  OptSingleId spill_junction {};
+
   OptReal spillway_capacity {
       default_spillway_capacity};  ///< Maximum uncontrolled spill capacity
                                    ///< [m³/s]

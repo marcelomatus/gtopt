@@ -302,7 +302,8 @@ void propagate_trial_values(std::span<StateVarLink> links,
     std::span<const StateVarLink> links,
     std::span<const RelaxedVarInfo> link_infos,
     LinearInterface& rc_source,
-    double cut_coeff_eps = 0.0) -> SparseRow;
+    double cut_coeff_eps,
+    int niter) -> SparseRow;
 
 // ─── Elastic filter ─────────────────────────────────────────────────────────
 
@@ -449,9 +450,9 @@ struct FeasibilityCutResult
 /// `ensure_duals()` on the backend.
 [[nodiscard]] auto build_multi_cuts(ElasticSolveResult& elastic,
                                     std::span<const StateVarLink> links,
-                                    const LpContext& context = {},
-                                    double slack_tol = 1e-6)
-    -> std::vector<SparseRow>;
+                                    const LpContext& context,
+                                    double cut_coeff_eps,
+                                    int niter) -> std::vector<SparseRow>;
 
 // ─── Cut averaging ──────────────────────────────────────────────────────────
 
