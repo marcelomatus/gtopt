@@ -198,9 +198,12 @@ TEST_CASE("make_planning_method SDDP wiring snapshot")  // NOLINT
     CHECK(so.convergence_confidence == doctest::Approx(0.95));
 
     // ── Advanced tuning ──
-    CHECK(so.elastic_penalty == doctest::Approx(1e2));
+    // PLP parity (2026-04-24): elastic_penalty default = 1.0 (matches
+    // PLP osicallsc.cpp:658 `objs=1.0` flat); cut_coeff_eps default
+    // = 1e-8 (matches PLP FactEPS in getopts.f:231).
+    CHECK(so.elastic_penalty == doctest::Approx(1.0));
     CHECK(so.elastic_filter_mode == ElasticFilterMode::single_cut);
-    CHECK(so.cut_coeff_eps == doctest::Approx(1e-6));
+    CHECK(so.cut_coeff_eps == doctest::Approx(1e-8));
     CHECK(so.multi_cut_threshold == 100);
     CHECK(!so.apertures.has_value());
     CHECK(so.aperture_timeout == doctest::Approx(15.0));

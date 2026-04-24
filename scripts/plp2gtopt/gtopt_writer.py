@@ -185,7 +185,7 @@ class GTOptWriter:
         output_format = options.get("output_format", "parquet")
         input_format = options.get("input_format", output_format)
         compression = options.get("compression", "zstd")
-        method = self._normalize_method(options.get("method", "cascade"))
+        method = self._normalize_method(options.get("method", "sddp"))
 
         # Build the nested sddp_options block (all sddp_* fields except method).
         # NOTE: num_apertures is NOT emitted here — the C++ SddpOptions JSON
@@ -198,6 +198,23 @@ class GTOptWriter:
         cut_sharing_mode = options.get("cut_sharing_mode")
         if cut_sharing_mode is not None:
             sddp_opts["cut_sharing_mode"] = cut_sharing_mode
+
+        # elastic_mode controls how the forward-pass elastic filter emits
+        # feasibility cuts when a subproblem is infeasible:
+        #   - "single_cut" (gtopt C++ default): one aggregated π-weighted
+        #     Benders cut touching every relaxed state variable.  Tight LP
+        #     but any numeric drift at the box edge makes the cut
+        #     hard-infeasible (observed on juan/gtopt_iplp p2).
+        #   - "multi_cut" (PLP convention, plp2gtopt default): one per-link
+        #     Birge-Louveaux cut per relaxed state, each clamped to its own
+        #     box — matches PLP's `plp-agrespd.f::AgrElastici` +
+        #     `osi_lp_get_feasible_cut` path.
+        # plp2gtopt always emits multi_cut so gtopt runs produced from PLP
+        # cases behave like PLP by default; users can still override via
+        # `--set sddp_options.elastic_mode=single_cut` on the CLI.
+        # Note: the JSON key is `elastic_mode` (mapped to internal
+        # `SDDPOptions.elastic_filter_mode` in `planning_method.cpp`).
+        sddp_opts["elastic_mode"] = options.get("elastic_mode", "multi_cut")
 
         max_iter = options.get("max_iterations")
         if max_iter is None:
@@ -255,10 +272,24 @@ class GTOptWriter:
             input_dir_val = str(output_dir)
 
         src_model = options.get("model_options", {})
+
+        # PLP parity: the curtailment cost is applied PER-DEMAND via each
+        # real demand's ``fcost`` field (set from falla_by_bus below).  The
+        # global ``model_options.demand_fail_cost`` is kept at 0 so that
+        # synthetic demands created by gtopt's C++ ``System::expand_batteries``
+        # (to model battery AC-side charging) inherit fcost=0 and are truly
+        # DISPATCHABLE in [0, pmax_charge] — without a positive default the
+        # LP would otherwise force battery charging at pmax to avoid the
+        # per-MWh fail-cost penalty.
+        user_demand_fail = src_model.get("demand_fail_cost")
+        effective_demand_fail = (
+            user_demand_fail if user_demand_fail is not None else 0.0
+        )
+
         model_opts = {
             "use_single_bus": src_model.get("use_single_bus", False),
             "use_kirchhoff": src_model.get("use_kirchhoff", True),
-            "demand_fail_cost": src_model.get("demand_fail_cost", 1000),
+            "demand_fail_cost": effective_demand_fail,
             "state_fail_cost": src_model.get("state_fail_cost", 1000),
         }
         # Only emit scale_objective if explicitly set (C++ default is 1000).
@@ -358,7 +389,7 @@ class GTOptWriter:
                 )
             self.planning["simulation"]["phase_array"] = phase_array
         else:
-            method = self._normalize_method(options.get("method", "cascade"))
+            method = self._normalize_method(options.get("method", "sddp"))
             if method == "monolithic":
                 # One phase covering all stages
                 self.planning["simulation"]["phase_array"] = [
@@ -482,7 +513,7 @@ class GTOptWriter:
             )
         self.planning["simulation"]["scenario_array"] = scenarios
 
-        method = self._normalize_method(options.get("method", "cascade"))
+        method = self._normalize_method(options.get("method", "sddp"))
 
         if method == "monolithic":
             scenes = [
@@ -800,6 +831,8 @@ class GTOptWriter:
         ralco = self.parser.parsed_data.get("ralco_parser", None)
         minembh = self.parser.parsed_data.get("minembh_parser", None)
         vrebemb = self.parser.parsed_data.get("vrebemb_parser", None)
+        plpmat = self.parser.parsed_data.get("plpmat_parser", None)
+        cenpmax = self.parser.parsed_data.get("cenpmax_parser", None)
         jw = JunctionWriter(
             central_parser=centrals,
             stage_parser=stages,
@@ -812,6 +845,8 @@ class GTOptWriter:
             ralco_parser=ralco,
             minembh_parser=minembh,
             vrebemb_parser=vrebemb,
+            plpmat_parser=plpmat,
+            cenpmax_parser=cenpmax,
             options=options,
         )
         json_junctions = jw.to_json_array()

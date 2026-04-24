@@ -788,6 +788,83 @@ TEST_CASE(  // NOLINT
   CHECK(multi.empty());
 }
 
+// Regression: feasibility cuts must translate `dx` (LP-space slack
+// activation) to physical units via the dep column's *effective*
+// LP-to-physical scale, which includes any ruiz-added factor on top
+// of the user's `var_scale`.  Pre-fix, `relax_fixed_state_variable`
+// and `build_multi_cuts` used `link.var_scale` alone — under ruiz
+// equilibration (additional multiplicative factor on col_scale) the
+// lifted `dep_clone_phys` was off by the ruiz factor and the elastic
+// clone was spuriously infeasible.  Setting `SparseCol.scale` on the
+// dep column at add_col time (analogous to ruiz-induced scaling) and
+// verifying the cut RHS is correctly lifted exercises the fix.
+TEST_CASE(  // NOLINT
+    "build_multi_cuts - cut RHS tracks dep col_scale ≠ var_scale (ruiz-like)")
+{
+  LinearInterface li;
+  const auto x0 = li.add_col(SparseCol {
+      .lowb = 0.0,
+      .uppb = 1000.0,
+  });
+  li.set_obj_coeff(x0, 1.0);
+
+  // Emulate a ruiz-scaled dep column: col_scale = 10 (physical = 10 × LP).
+  // User's link.var_scale = 1 (no user var_scale), so the scale we rely
+  // on for dep_clone_phys is PURELY the column's LP-to-physical scale.
+  const auto dep = li.add_col(SparseCol {
+      .lowb = 0.0,
+      .uppb = 0.0,
+      .scale = 10.0,  // 1 LP unit of `dep` = 10 physical units.
+  });
+
+  // push_dep row: dep (LP-space!) >= 5 → dep_phys >= 50.
+  auto push_dep = SparseRow {
+      .lowb = 5.0,
+      .uppb = LinearProblem::DblMax,
+  };
+  push_dep[dep] = 1.0;
+  li.add_row(push_dep);
+
+  [[maybe_unused]] auto r0 = li.resolve({});
+  CHECK_FALSE(li.is_optimal());
+
+  // source_upp = 100 physical; var_scale = 1 (user scale).  With the
+  // fix, `relax_fixed_state_variable` will use `get_col_scale(dep) = 10`
+  // and compute slack bounds `src_upp_lp = 100 / 10 = 10` (LP units),
+  // matching the LP-space `dep` bound.  Pre-fix it used var_scale=1
+  // and produced `src_upp_lp = 100`, inconsistent with dep's LP bound
+  // of `100 / 10 = 10` → elastic clone infeasible.
+  const std::vector<StateVarLink> links = {
+      StateVarLink {
+          .source_col = ColIndex {10},
+          .dependent_col = dep,
+          .target_phase_index = PhaseIndex {1},
+          .trial_value = 0.0,
+          .source_low = 0.0,
+          .source_upp = 100.0,
+          .var_scale = 1.0,
+      },
+  };
+
+  auto elastic = elastic_filter_solve(li, links, 1e6, {});
+  REQUIRE(elastic.has_value());
+  // Elastic clone must solve cleanly under the ruiz-like col_scale.
+  // Pre-fix this failed with status 2 (relaxed clone infeasible).
+  REQUIRE(elastic->clone.is_optimal());
+
+  const auto multi = build_multi_cuts(*elastic, links, {}, 1e-6, 0);
+  REQUIRE_FALSE(multi.empty());
+  // Implied cut bound should reflect dep_clone_phys ≈ 50 physical
+  // (5 LP × col_scale=10), NOT 5 (LP alone) nor 0.5 (dx/10).
+  const auto& mc = multi.front();
+  const auto coeff = mc.get_coeff(links[0].source_col);
+  REQUIRE(std::abs(coeff) > 0.0);
+  const double implied_bound = mc.lowb / coeff;
+  // Allow generous tolerance around 50 (the outward FactEps perturbation
+  // + niter=0 means no perturbation here, but solver noise may nudge).
+  CHECK(std::abs(implied_bound - 50.0) < 5.0);
+}
+
 TEST_CASE(  // NOLINT
     "Benders cut tightens lower bound in two-phase LP")
 {

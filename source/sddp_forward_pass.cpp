@@ -250,6 +250,44 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
           uid_of(scene_index),
           uid_of(phase_index),
           solve_status);
+
+      // Optional pre-elastic LP dump — gated on `lp_debug` + the user's
+      // `lp_debug_{scene,phase}_{min,max}` window (same convention as
+      // aperture_pass.cpp:412-421) so it does NOT fire on every
+      // cascade backtrack by default.  Captures the phase LP with the
+      // trial state from the previous phase FIXED onto state-variable
+      // columns — the first infeasible LP of a cascade, complementing
+      // the existing `error_*.lp` path (which only dumps when elastic
+      // recovery gives up at the deepest backtrack).  Filename:
+      //   <log_directory>/preelastic_s<scene>_p<phase>_i<iter>.lp
+      if (m_options_.lp_debug && !m_options_.log_directory.empty()
+          && in_lp_debug_range(uid_of(scene_index),
+                               uid_of(phase_index),
+                               m_options_.lp_debug_scene_min,
+                               m_options_.lp_debug_scene_max,
+                               m_options_.lp_debug_phase_min,
+                               m_options_.lp_debug_phase_max))
+      {
+        std::error_code mkdir_ec;
+        std::filesystem::create_directories(m_options_.log_directory, mkdir_ec);
+        const auto pre_stem = (std::filesystem::path(m_options_.log_directory)
+                               / std::format("preelastic_s{}_p{}_i{}",
+                                             uid_of(scene_index),
+                                             uid_of(phase_index),
+                                             iteration_index))
+                                  .string();
+        if (auto wr = li.write_lp(pre_stem); !wr) {
+          spdlog::warn(
+              "SDDP Forward [i{} s{} p{}]: failed to save pre-elastic LP "
+              "to {}: {}",
+              iteration_index,
+              uid_of(scene_index),
+              uid_of(phase_index),
+              pre_stem,
+              wr.error().message);
+        }
+      }
+
       // Clone the LP, apply elastic filter, and solve the clone.
       // The original LP remains unmodified (PLP clone pattern).
       auto elastic_result = elastic_solve(scene_index, phase_index, opts);

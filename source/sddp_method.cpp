@@ -624,6 +624,12 @@ void SDDPMethod::collect_state_variable_links(SceneIndex scene_index)
         // column's own `col_scale` — scale-agnostic across phases even
         // when `var_scale(source) != col_scale(dependent)`.
         const double svar_scale = svar.var_scale();
+        // Effective LP-to-physical scale on the source column: includes
+        // any ruiz-added factor on top of the user's var_scale.  Used to
+        // lift raw LP bounds `col_lo/col_hi` into physical units; using
+        // `svar_scale` alone undercounts the ruiz factor and the cut-
+        // RHS clamp then kicks in at the wrong physical boundary.
+        const double src_col_scale = src_li.get_col_scale(svar.col());
         // Reverse-lookup human-readable element name for diagnostic
         // logs (e.g. "Reservoir:LMAULE:efin" instead of
         // "Reservoir:1:efin").  The map itself is populated once at
@@ -643,8 +649,8 @@ void SDDPMethod::collect_state_variable_links(SceneIndex scene_index)
             .dependent_col = dep.col(),
             .source_phase_index = phase_index,
             .target_phase_index = dep.phase_index(),
-            .source_low = col_lo[svar.col()] * svar_scale,
-            .source_upp = col_hi[svar.col()] * svar_scale,
+            .source_low = col_lo[svar.col()] * src_col_scale,
+            .source_upp = col_hi[svar.col()] * src_col_scale,
             .var_scale = svar_scale,
             .scost = link_scost,
             // Raw pointer into the simulation's state-variable registry
@@ -770,20 +776,19 @@ std::optional<SDDPMethod::ElasticResult> SDDPMethod::elastic_solve(
   const double phase_discount = target_phase.stages().empty()
       ? 1.0
       : target_phase.stages().front().discount_factor();
-  // Slack-cost base = elastic_penalty × phase_discount / scale_obj
-  // (LP units).  The per-link `link.var_scale` multiplier is
-  // applied inside `relax_fixed_state_variable`:
-  //     slack_cost = penalty × link.var_scale
-  // so multi-reservoir fixtures with varying scales get consistent
-  // "per physical unit violated" pricing.  Empirically:
-  //   - Production 2y/juan: penalty ≈ 100/scale_obj lets D1 π-duals
-  //     carry enough economic weight to drive cuts through phases
-  //     1-27 on the first forward attempt.
-  //   - Toy fixtures (10-phase 2-reservoir) prefer smaller penalties
-  //     where Chinneck Phase-1 is not over-pressurised; they can
-  //     override via `sddp_options.elastic_penalty`.
-  const auto scaled_penalty =
-      m_options_.elastic_penalty * phase_discount / scale_obj;
+  // Slack-cost base matches PLP's Chinneck Phase-1 convention:
+  // `osicallsc.cpp:658` passes obj=1.0 flat to every slack when
+  // `objs == nullptr` (PLP's AgrElastici call site at
+  // `plp-agrespd.f:673`).  gtopt's `relax_fixed_state_variable`
+  // prices each slack at `penalty` (no `× var_scale`, no
+  // `/ scale_obj`), so with `elastic_penalty = 1.0` (default) the
+  // cloned LP's slack obj equals `phase_discount ≈ 1.0` — exactly
+  // PLP's raw unit cost.  `phase_discount` stays as gtopt-local
+  // economic weighting so the slack stays commensurate with
+  // dispatch cost at the target phase.  `scale_obj` retained for
+  // signature stability only.
+  (void)scale_obj;
+  const auto scaled_penalty = m_options_.elastic_penalty * phase_discount;
 
   // Chinneck IIS mode runs an extra re-solve to filter non-essential
   // relaxed bounds before cut construction.  Other modes use the regular

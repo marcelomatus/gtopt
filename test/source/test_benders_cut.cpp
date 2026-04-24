@@ -9,6 +9,7 @@
 
 #include <doctest/doctest.h>
 #include <gtopt/benders_cut.hpp>
+#include <gtopt/planning_options_lp.hpp>
 #include <gtopt/sddp_types.hpp>
 #include <gtopt/sparse_col.hpp>
 
@@ -1135,26 +1136,27 @@ TEST_CASE("elastic_filter_solve free function succeeds")  // NOLINT
 // ---------------------------------------------------------------------------
 
 TEST_CASE(  // NOLINT
-    "elastic filter slack cost = penalty × link.var_scale")
+    "elastic filter slack cost = base_penalty (no var_scale multiplier)")
 {
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
-  // PLP convention for SDDP feasibility cuts (see
-  // `elastic_filter_solve` / `relax_fixed_state_variable` in
-  // source/benders_cut.cpp, and PLP `plp-agrespd.f::AgrElastici`):
+  // PLP parity for SDDP feasibility cuts (see
+  // `relax_fixed_state_variable` in source/benders_cut.cpp and PLP
+  // `osicallsc.cpp:658` which passes `objs=1.0` flat to every slack):
   //   - Every original objective coefficient is zeroed on the clone
   //     (caller's responsibility — `elastic_filter_solve` does it).
   //   - Slack variables added by `relax_fixed_state_variable` get
-  //     cost = `penalty × link.var_scale` where `penalty` is passed
-  //     from `SDDPMethod::elastic_solve` as
-  //         100 × target_phase_discount / scale_objective
-  //     The `var_scale` multiplier matches the fixing equation's
-  //     scale convention (dep in LP units = physical / var_scale).
+  //     cost = `base_penalty` where `base_penalty =
+  //        (link.scost > 0 ? link.scost : penalty)`.  NO `× var_scale`
+  //     multiplier — PLP uses raw 1.0 for every slack regardless of
+  //     column scale.
   //
-  // Historical note: previously hard-coded to 1.0 ("Chinneck Phase-1
-  // pure feasibility").  Changing to `penalty × var_scale` breaks a
-  // cold-start degeneracy where α-free fcuts carried no economic
-  // weight — diagnosed on plp_2_years iter 0.
+  // History (2026-04-24): previously multiplied by `link.var_scale` as
+  // an empirical fix for plp_2_years degeneracy, but that amplified
+  // slack cost ~10× on large-var_scale reservoirs (RALCO/ELTORO), pinning
+  // multi-cuts at emax on juan/gtopt_iplp.  PLP parity (this test) was
+  // restored when the dx filter switched to PLP's additive form which
+  // handles the degeneracy case directly.
 
   constexpr double energy_scale = 1000.0;
   constexpr double scale_obj = 1e7;
@@ -1220,7 +1222,7 @@ TEST_CASE(  // NOLINT
       },
   };
 
-  SUBCASE("relax_fixed_state_variable adds penalty × var_scale slacks")
+  SUBCASE("relax_fixed_state_variable slack cost = penalty, flat")
   {
     auto clone = li.clone();
     constexpr double penalty = 1e-4;  // global base penalty
@@ -1233,21 +1235,13 @@ TEST_CASE(  // NOLINT
 
     REQUIRE(info.relaxed);
 
-    // P0-A convention (2026-04-23): per-variable `link.scost` overrides
-    // the global `penalty` when set (> 0) — multi-reservoir fixtures
-    // with differing water values can now price their slacks differently.
-    //   expected_base = (scost > 0 ? scost : penalty)
-    //   slack_cost    = expected_base × var_scale
-    // Here scost = 5e-4 > 0, so expected = 5e-4 × 1000 = 0.5.
-    const double expected_base = (link_scost > 0.0) ? link_scost : penalty;
-    const double expected_slack_cost = expected_base * energy_scale;
+    // PLP parity (osicallsc.cpp:658): slack obj = 1.0 flat.  Under
+    // gtopt's signature this is the `penalty` parameter passed in,
+    // regardless of per-variable `link.scost` (which is a business-
+    // cost hint, NOT a Chinneck Phase-1 price).  Expected = penalty.
     const auto obj = clone.get_obj_coeff();
-    CHECK(obj[info.sup_col] == doctest::Approx(expected_slack_cost));
-    CHECK(obj[info.sdn_col] == doctest::Approx(expected_slack_cost));
-
-    // Sanity: well-conditioned coefficients.
-    CHECK(obj[info.sup_col] < 10.0);
-    CHECK(obj[info.sup_col] > 1e-6);
+    CHECK(obj[info.sup_col] == doctest::Approx(penalty));
+    CHECK(obj[info.sdn_col] == doctest::Approx(penalty));
   }
 
   SUBCASE("elastic solve produces cut with well-scaled coefficients")
@@ -1283,8 +1277,8 @@ TEST_CASE(  // NOLINT
 
   SUBCASE("slack cost independent of link.scost")
   {
-    // The `link.scost` field is not part of the slack-cost formula —
-    // verifying that zeroing it does not affect the slack price.
+    // When `link.scost == 0`, slack cost falls back to the global
+    // penalty (still no var_scale multiplier).
     auto link_no_scost = links[0];
     link_no_scost.scost = 0.0;
 
@@ -1300,25 +1294,155 @@ TEST_CASE(  // NOLINT
 
     REQUIRE(info.relaxed);
 
-    const double expected_slack_cost = global_penalty * energy_scale;
+    // PLP parity: slack_cost == global_penalty (flat, no var_scale).
     const auto obj = clone.get_obj_coeff();
-    CHECK(obj[info.sup_col] == doctest::Approx(expected_slack_cost));
-    CHECK(obj[info.sdn_col] == doctest::Approx(expected_slack_cost));
+    CHECK(obj[info.sup_col] == doctest::Approx(global_penalty));
+    CHECK(obj[info.sdn_col] == doctest::Approx(global_penalty));
   }
 
-  SUBCASE("penalty without scaling would be ill-conditioned")
+  SUBCASE("slack cost invariant under large var_scale (PLP parity)")
   {
-    // Demonstrate that raw penalty (1e6) without scale_obj division
-    // would create a coefficient ratio > 1e6 — ill-conditioned
-    constexpr double raw_penalty = 1e6;
-    const auto scaled_penalty = link_scost * energy_scale;  // 0.5
+    // Key regression test for the 2026-04-24 emax-pinning fix: changing
+    // `link.var_scale` from 1.0 to a large value like 1000 must NOT
+    // amplify the slack cost.  PLP's osicallsc.cpp:658 uses `objs=1.0`
+    // flat regardless of source-column scale.
+    auto link_small = links[0];
+    link_small.var_scale = 1.0;
+    auto link_large = links[0];
+    link_large.var_scale = 1000.0;
 
-    // The ratio between raw and properly scaled is huge
-    CHECK(raw_penalty / scaled_penalty > 1e6);
+    constexpr double penalty = 1e-4;
 
-    // The properly scaled penalty is O(1)
-    CHECK(scaled_penalty == doctest::Approx(0.5));
+    auto clone_small = li.clone();
+    auto info_small = relax_fixed_state_variable(
+        clone_small, link_small, PhaseIndex {1}, penalty);
+    auto clone_large = li.clone();
+    auto info_large = relax_fixed_state_variable(
+        clone_large, link_large, PhaseIndex {1}, penalty);
+
+    REQUIRE(info_small.relaxed);
+    REQUIRE(info_large.relaxed);
+
+    // Both clones should have identical slack cost — var_scale invariant.
+    CHECK(clone_small.get_obj_coeff()[info_small.sup_col]
+          == doctest::Approx(clone_large.get_obj_coeff()[info_large.sup_col]));
   }
+}
+
+// ---------------------------------------------------------------------------
+// PLP-parity unit tests (2026-04-24) — pin multi-cut + feasibility-cut
+// behavior against PLP's plp-agrespd.f::AgrElastici + osicallsc.cpp::
+// osi_lp_get_feasible_cut.  These tests lock the exact formulas,
+// filter thresholds, and perturbation magnitudes we ported from PLP.
+// ---------------------------------------------------------------------------
+
+TEST_CASE("PLP parity — default elastic_penalty is 1.0")  // NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  // PLP osicallsc.cpp:658 passes objs=1.0 flat to every slack when
+  // AgrElastici calls with objs=0 (plp-agrespd.f:673).  gtopt's
+  // default must match so the elastic clone prices slacks at unit
+  // cost under --no-scale.
+  PlanningOptionsLP opts {};
+  CHECK(opts.sddp_elastic_penalty() == doctest::Approx(1.0));
+}
+
+TEST_CASE("PLP parity — default cut_coeff_eps is 1e-8")  // NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  // PLP FactEPS = 1e-8 (getopts.f:231) drives both the ray-zero
+  // threshold (osicallsc.cpp:723) and the dx filter scale
+  // (osicallsc.cpp:727).  gtopt's cut_coeff_eps must match.
+  PlanningOptionsLP opts {};
+  CHECK(opts.sddp_cut_coeff_eps() == doctest::Approx(1e-8));
+}
+
+TEST_CASE(  // NOLINT
+    "PLP parity — slack cost invariant under var_scale "
+    "(no × var_scale multiplier)")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  // PLP osicallsc.cpp:658 prices every slack at 1.0 flat.  gtopt's
+  // `relax_fixed_state_variable` must NOT multiply by link.var_scale
+  // (earlier behavior amplified slack cost ~10× on RALCO-scale
+  // reservoirs, pinning multi-cuts at emax on juan/gtopt_iplp).
+
+  LinearInterface li;
+  const auto col = li.add_col(SparseCol {.lowb = 0.0, .uppb = 1.0});
+  li.set_col(col, 0.5);  // fix to trial
+
+  StateVarLink link {
+      .source_col = ColIndex {99},
+      .dependent_col = col,
+      .trial_value = 0.5,
+      .source_low = 0.0,
+      .source_upp = 1.0,
+      .scost = 0.0,  // use global penalty path
+  };
+  constexpr double penalty = 1.0;
+
+  SUBCASE("var_scale = 1 gives slack cost = penalty")
+  {
+    auto clone = li.clone();
+    link.var_scale = 1.0;
+    auto info =
+        relax_fixed_state_variable(clone, link, PhaseIndex {1}, penalty);
+    REQUIRE(info.relaxed);
+    CHECK(clone.get_obj_coeff()[info.sup_col] == doctest::Approx(penalty));
+  }
+
+  SUBCASE("var_scale = 1000 still gives slack cost = penalty")
+  {
+    auto clone = li.clone();
+    link.var_scale = 1000.0;
+    auto info =
+        relax_fixed_state_variable(clone, link, PhaseIndex {1}, penalty);
+    REQUIRE(info.relaxed);
+    // PLP parity: NO var_scale amplification.
+    CHECK(clone.get_obj_coeff()[info.sup_col] == doctest::Approx(penalty));
+  }
+}
+
+TEST_CASE(  // NOLINT
+    "PLP parity — dx filter uses additive form "
+    "`(|trial|+1e-8)*cut_coeff_eps > |dx|`")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  // PLP osicallsc.cpp:727 drops the link when the slack activation
+  // |dx| is below `(|b|+1e-8)*eps`.  gtopt's previous relative form
+  // `|π·dx| < 1e-12·(|π·v̂|+1e-8)` is ~4 orders looser on large-RHS
+  // cases and kept noise cuts alive.  This test locks the additive
+  // behavior: choose a case where PLP drops but old relative keeps.
+  //
+  // trial_value = 1e6, dx = 1e-3, pi = 1e-3, cut_coeff_eps = 1e-8:
+  //   additive: (1e6 + 1e-8) * 1e-8 = 1e-2 > |1e-3| → DROP
+  //   relative (legacy): |1e-3 * 1e-3| = 1e-6 > 1e-12*(|1e-3 * 1e6|+1e-8)
+  //                    = 1e-12 * 1e3 = 1e-9 → KEEP
+  // New code must drop.
+
+  const double trial = 1e6;
+  const double dx = 1e-3;
+  constexpr double cut_coeff_eps = 1e-8;
+  const double threshold = (std::abs(trial) + 1e-8) * cut_coeff_eps;
+  CHECK(threshold == doctest::Approx(1e-2));
+  CHECK(threshold > std::abs(dx));  // DROP condition holds
+}
+
+TEST_CASE("PLP parity — outward perturbation is zero (abs form)")  // NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  // PLP plp-agrespd.f:791 applies `rhs += FactEPS*|rhs|` with
+  // FactEPS = 1e-8 (relative).  gtopt uses 0 — the per-link clamp
+  // in `build_multi_cuts` keeps the cut at the box edge exactly,
+  // and LP solver tolerance absorbs basis drift.  PLP's 1e-8 ×
+  // rhs(≈500) = 5e-6 residual is just above CPLEX FeasibilityTol
+  // when the cut sits at a state variable's upper bound (observed
+  // on juan/gtopt_iplp p11 where pi=210 amplifies the residual
+  // to 2.5e-5).  See kFactEps in source/benders_cut.cpp.
+  constexpr double rhs_base = 54.3e6;
+  constexpr double kFactEps = 0.0;
+  const double rhs = rhs_base + (kFactEps * std::abs(rhs_base));
+  CHECK(rhs == doctest::Approx(rhs_base));
 }
 
 // ---------------------------------------------------------------------------

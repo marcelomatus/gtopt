@@ -52,6 +52,7 @@ from gtopt_check_json._hydro_checks import (
     check_battery_efficiency,
     check_capacity_adequacy,
     check_cascade_levels,
+    check_seepage_at_vmin,
 )
 
 # -- Re-export reference checks ---------------------------------------------
@@ -84,6 +85,7 @@ _CHECK_REGISTRY: list[tuple[str, Any, bool]] = [
     ("unreferenced_elements", check_unreferenced_elements, False),
     ("capacity_adequacy", check_capacity_adequacy, False),
     ("battery_efficiency", check_battery_efficiency, False),
+    ("seepage_at_vmin", check_seepage_at_vmin, False),
     ("cascade_levels", check_cascade_levels, False),
     ("simulation_mode", check_simulation_mode, False),
     ("sddp_options", check_sddp_options, False),
@@ -161,6 +163,7 @@ __all__ = [
     "check_element_references",
     "check_name_uniqueness",
     "check_sddp_options",
+    "check_seepage_at_vmin",
     "check_simulation_mode",
     "check_uid_uniqueness",
     "check_unreferenced_elements",

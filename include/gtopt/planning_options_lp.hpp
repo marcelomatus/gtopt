@@ -579,21 +579,26 @@ public:
    *         Override via `--set sddp_options.elastic_penalty=<p>` or
    *         the `sddp_options.elastic_penalty` JSON field if a particular
    *         case needs a stronger forcing term. */
-  static constexpr Real default_sddp_elastic_penalty = 1e2;
+  // PLP parity: slack obj = 1.0 flat (osicallsc.cpp:658, objs passed as 0
+  // → default 1.0 for every slack).  gtopt's elastic_filter_solve zeroes
+  // the clone's original obj and prices slacks at this penalty, so 1.0
+  // reproduces PLP's pure Chinneck Phase-1 feasibility LP.
+  static constexpr Real default_sddp_elastic_penalty = 1.0;
   // α is a free LP variable (no explicit bounds) — see
   // `sddp_method.cpp::initialize_alpha_variables`.  The
   // `default_sddp_alpha_min` / `default_sddp_alpha_max` constants were
   // removed when the bounds were dropped.
   /** @brief Default cut coefficient epsilon for filtering tiny coefficients.
    *
-   * Raised from 1e-12 to 1e-6 (P1-2) so that Benders cuts drop
-   * near-zero coefficients that the LP solver cannot distinguish from
-   * noise anyway. Keeping micro-coefficients around inflates the basis
-   * condition number (kappa) by several orders of magnitude on large
-   * GTEP cases without changing the optimal value.  Users solving
-   * academic-scale instances can still lower this in JSON.
+   * PLP parity: PLP's `FactEPS = 1e-8` (getopts.f:231) is the single
+   * tolerance used both as the ray-zero threshold and the dx-filter
+   * scale in `osi_lp_get_feasible_cut` (osicallsc.cpp:723,727).  We
+   * use the same value as `cut_coeff_eps` — the tighter 1e-8 lets
+   * weakly-coupled links survive the filter (1e-6 would drop them
+   * silently on large-trial-value cases).  Academic / toy fixtures
+   * can raise this via JSON if they need the looser legacy 1e-6.
    */
-  static constexpr Real default_sddp_cut_coeff_eps = 1e-6;
+  static constexpr Real default_sddp_cut_coeff_eps = 1e-8;
   /** @brief Default elastic filter mode.
    *
    *  Set to `single_cut` — the classical PLP/Birge-Louveaux Benders

@@ -344,14 +344,14 @@ def add_solver_arguments(parser: argparse.ArgumentParser, conf: dict[str, str]) 
         "--method",
         dest="method",
         metavar="METHOD",
-        default=conf.get("method", "cascade"),
+        default=conf.get("method", "sddp"),
         choices=["sddp", "mono", "monolithic", "cascade"],
         help=(
             "planning method controlling the simulation structure: "
-            "'cascade' (default) uses a 3-level cascade: L0 uninodal, L1 "
-            "transport (lines without losses/kirchhoff), L2 full network; "
-            "'sddp' produces one scene per scenario and one phase per stage "
-            "(for Stochastic Dual Dynamic Programming); "
+            "'sddp' (default) produces one scene per scenario and one phase "
+            "per stage (for Stochastic Dual Dynamic Programming); "
+            "'cascade' uses a 3-level cascade: L0 uninodal, L1 transport "
+            "(lines without losses/kirchhoff), L2 full network; "
             "'mono'/'monolithic' produces a single scene with all scenarios "
             "and a single phase with all stages (for the monolithic solver). "
             "(default: %(default)s)"
@@ -479,13 +479,21 @@ def add_solver_arguments(parser: argparse.ArgumentParser, conf: dict[str, str]) 
 
 def add_model_arguments(parser: argparse.ArgumentParser, conf: dict[str, str]) -> None:
     """Register demand-fail-cost, scale factors, kirchhoff, line losses, etc."""
+    # `default=None` signals "auto-derive from plpcnfce.dat's falla
+    # centrals" (CentralParser.avg_falla_cost — see gtopt_writer.py).
+    # Explicit `--demand-fail-cost NNNN` or `demand_fail_cost = NNNN` in
+    # the conf still overrides.
+    _default_dfc = conf.get("demand_fail_cost")
     parser.add_argument(
         "--demand-fail-cost",
         dest="demand_fail_cost",
         type=float,
         metavar="COST",
-        default=float(conf.get("demand_fail_cost", "1000.0")),
-        help="cost penalty for demand curtailment in $/MWh (default: %(default)s)",
+        default=float(_default_dfc) if _default_dfc is not None else None,
+        help=(
+            "cost penalty for demand curtailment in $/MWh "
+            "(default: average first-tier FALLA gcost from plpcnfce.dat)"
+        ),
     )
     parser.add_argument(
         "--state-fail-cost",
@@ -581,10 +589,9 @@ def add_model_arguments(parser: argparse.ArgumentParser, conf: dict[str, str]) -
             "bundle PLP-compatibility defaults that make gtopt outputs "
             "closer to PLP even when that is not the highest-quality "
             "or smallest-LP choice. Adjusts the defaults of: "
-            "--method (cascade→sddp; PLP's stochastic production mode), "
             "--line-losses-mode (→piecewise_direct; PLP `genpdlin.f`), "
             "--use-line-losses (→true, emitted explicitly). "
-            "pasada_mode, use_kirchhoff, discount_rate are already "
+            "method, pasada_mode, use_kirchhoff, discount_rate are already "
             "PLP-aligned by default so no bundle change is needed. "
             "reservoir_scale_mode is intentionally left alone. "
             "Explicit flags still win over the bundle."

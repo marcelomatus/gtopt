@@ -717,8 +717,14 @@ TEST_CASE("validate_planning - negative Line tmax_ab is an error")  // NOLINT
 }
 
 TEST_CASE(
-    "validate_planning - Waterway fmax must be strictly positive")  // NOLINT
+    "validate_planning - Waterway fmax may be zero (PLP parity)")  // NOLINT
 {
+  // PLP plpcnfce.dat allows VertMax = 0 to hard-pin the per-block
+  // vertimiento waterway at 0 flow (see leecnfce.f:342-343 +
+  // genpdver.f:163).  gtopt's validator used to reject fmax=0 under
+  // strict positivity, which forced plp2gtopt to translate 0 → None
+  // and silently produce an UNBOUNDED spillway.  Now fmax >= 0 is
+  // accepted: fmin=fmax=0 legally pins the flow.
   auto p = make_minimal_planning();
   p.system.junction_array = {
       {.uid = Uid {1}, .name = "jA"},
@@ -731,7 +737,28 @@ TEST_CASE(
           .junction_a = Uid {1},
           .junction_b = Uid {2},
           .fmin = Real {0.0},
-          .fmax = Real {0.0},  // zero is rejected (strict positivity)
+          .fmax = Real {0.0},  // PLP-style pinned-at-zero waterway
+      },
+  };
+  auto result = validate_planning(p);
+  CHECK(result.ok());
+}
+
+TEST_CASE("validate_planning - Waterway fmax negative is rejected")  // NOLINT
+{
+  auto p = make_minimal_planning();
+  p.system.junction_array = {
+      {.uid = Uid {1}, .name = "jA"},
+      {.uid = Uid {2}, .name = "jB", .drain = true},
+  };
+  p.system.waterway_array = {
+      {
+          .uid = Uid {1},
+          .name = "ww_neg",
+          .junction_a = Uid {1},
+          .junction_b = Uid {2},
+          .fmin = Real {0.0},
+          .fmax = Real {-1.0},  // negative fmax rejected (non_negative)
       },
   };
   auto result = validate_planning(p);

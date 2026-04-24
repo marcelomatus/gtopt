@@ -869,24 +869,19 @@ auto PlanningLP::create_systems(System& system,
     }
   }
 
-  // After all add_to_lp calls, dispatch a single initial update_lp pass
-  // so that volume-dependent LP elements are set from the reservoir eini
-  // values before any solver is called.
-  //
-  // Skipped under low-memory mode: each (scene, phase) backend is
-  // currently deferred (no load_flat called yet) and the very first
-  // solve pass already calls `dispatch_update_lp` after reconstructing
-  // the backend, so this pre-pass would only force a wasted
-  // reconstruct_backend → load_flat → set_col_*** roundtrip and then
-  // throw the bounds away on the next release.  See
-  // sddp_forward_pass.cpp's per-phase reconstruct + dispatch_update_lp.
-  if (resolved_opts.low_memory_mode == LowMemoryMode::off) {
-    for (auto& phase_systems : all_systems) {
-      for (auto& sys : phase_systems) {
-        std::ignore = sys.update_lp();
-      }
-    }
-  }
+  // INVARIANT: every element's ``add_to_lp`` is responsible for emitting
+  // a valid LP on its own — no ``update_lp`` should be required to make
+  // the freshly-built LP solvable / physically meaningful.  ``update_lp``
+  // is a pure refinement that re-evaluates state-dependent coefficients
+  // (e.g. volume-dependent production factors, discharge limits, flow
+  // rights) using a previous solve's solution.  We therefore skip the
+  // historical "initial update_lp pass" here: invoking it before any
+  // solve only re-evaluates the curves at ``eini`` (a stale fallback
+  // that pessimistically pins coefficients to low-volume values),
+  // overwriting the correct ``mean_production_factor`` rates that
+  // ``TurbineLP::add_to_lp`` already wrote.  The first real
+  // ``update_lp`` happens in the SDDP forward pass after the first
+  // solve produces an optimal solution.
 
   const double elapsed = std::chrono::duration<double>(
                              std::chrono::steady_clock::now() - build_start)

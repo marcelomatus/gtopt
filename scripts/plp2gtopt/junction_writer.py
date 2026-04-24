@@ -19,6 +19,7 @@ from typing import Any, Dict, List, Optional, cast, TypedDict
 from .base_writer import BaseWriter
 from .central_parser import CentralParser
 from .cenfi_parser import CenfiParser
+from .cenpmax_parser import CenpmaxParser
 from .cenre_parser import CenreParser
 from .extrac_parser import ExtracParser
 from .aflce_parser import AflceParser
@@ -36,6 +37,71 @@ _logger = logging.getLogger(__name__)
 # UIDs for synthetic "ocean" drain junctions start above this offset so they
 # cannot collide with central UIDs (which are typically in the range 1–999).
 _OCEAN_UID_OFFSET = 10000
+
+
+def _eval_pf_segments(segments: List[Dict[str, float]], volume: float) -> float:
+    """Evaluate a piecewise-linear PF curve at ``volume``.
+
+    Picks the segment whose breakpoint is the largest ≤ ``volume`` and
+    returns ``slope*volume + constant``.  Matches PLP's convention for
+    volume-indexed piecewise tables.
+    """
+    if not segments:
+        return 0.0
+    active = segments[0]
+    for seg in segments:
+        if float(seg.get("volume", 0.0)) <= volume:
+            active = seg
+        else:
+            break
+    slope = float(active.get("slope", 0.0))
+    constant = float(active.get("constant", 0.0))
+    return (slope * volume) + constant
+
+
+def _merge_pf_curves_min(
+    primary: List[Dict[str, float]],
+    other: List[Dict[str, float]],
+) -> List[Dict[str, float]]:
+    """Combine two production-factor curves by taking the min at each breakpoint.
+
+    ``primary`` carries the volume breakpoint structure (typically the
+    plpcenpmax-derived curve, which has multiple segments). ``other``
+    usually has a single linear segment (plpcenre's Rendi curve). For
+    each breakpoint in ``primary``, evaluate both curves; if ``other``
+    is lower, adopt ``other``'s slope/constant on that segment.
+    Otherwise keep ``primary``'s.  Matches the user-requested
+    "MIN envelope" combination of the two physical constraints.
+    """
+    if not primary:
+        return list(other)
+    if not other:
+        return list(primary)
+    merged: List[Dict[str, float]] = []
+    for seg in primary:
+        vol = float(seg.get("volume", 0.0))
+        pf_prim = _eval_pf_segments(primary, vol)
+        pf_other = _eval_pf_segments(other, vol)
+        if pf_other < pf_prim:
+            # Find the active `other` segment at this volume and adopt
+            # its slope/constant on the merged segment so the line at
+            # `vol` equals `pf_other` and stays monotone with `other`.
+            active = other[0]
+            for oseg in other:
+                if float(oseg.get("volume", 0.0)) <= vol:
+                    active = oseg
+                else:
+                    break
+            merged.append(
+                {
+                    "volume": vol,
+                    "slope": float(active.get("slope", 0.0)),
+                    "constant": float(active.get("constant", 0.0)),
+                }
+            )
+        else:
+            merged.append(dict(seg))
+    return merged
 
 
 class Waterway(TypedDict, total=False):
@@ -224,7 +290,7 @@ class HydroSystemOutput(TypedDict):
 class JunctionWriter(BaseWriter):
     """Converts central plant data to hydro system JSON format for GTOPT."""
 
-    def __init__(
+    def __init__(  # pylint: disable=too-many-arguments
         self,
         central_parser: Optional[CentralParser] = None,
         stage_parser: Optional[StageParser] = None,
@@ -237,6 +303,8 @@ class JunctionWriter(BaseWriter):
         ralco_parser: Optional[RalcoParser] = None,
         minembh_parser: Optional[MinembhParser] = None,
         vrebemb_parser: Optional[VrebembParser] = None,
+        plpmat_parser: Optional[Any] = None,
+        cenpmax_parser: Optional[CenpmaxParser] = None,
         options: Optional[Dict[str, Any]] = None,
     ) -> None:
         """Initialize hydro system writer.
@@ -255,6 +323,11 @@ class JunctionWriter(BaseWriter):
             ralco_parser: Parser for drawdown limit data (plpralco.dat).
             minembh_parser: Parser for soft minimum volume constraints
                 (plpminembh.dat).
+            cenpmax_parser: Parser for volume-dependent turbine Pmax curves
+                (plpcenpmax.dat). When provided, each entry emits a
+                ReservoirProductionFactor (scaled by the physical flow cap
+                ``PotMax / Rendi``) and fixes the turbine's generation
+                waterway ``fmax`` to that same flow cap.
             options: Configuration options for the writer
         """
         super().__init__(central_parser, options)
@@ -268,6 +341,8 @@ class JunctionWriter(BaseWriter):
         self.ralco_parser = ralco_parser
         self.minembh_parser = minembh_parser
         self.vrebemb_parser = vrebemb_parser
+        self.plpmat_parser = plpmat_parser
+        self.cenpmax_parser = cenpmax_parser
         self._embed_reservoir_constraints = bool(
             self.options.get("embed_reservoir_constraints", False)
         )
@@ -419,6 +494,13 @@ class JunctionWriter(BaseWriter):
         if self.cenre_parser and central_parser:
             self._process_reservoir_efficiencies(system)
 
+        # Process volume-dependent turbine Pmax curves (plpcenpmax.dat).
+        # Emits additional ReservoirProductionFactor entries and pins each
+        # turbine's generation waterway fmax to the physical flow cap
+        # ``PotMax / Rendi``.  Co-exists with plpcenre.dat efficiencies.
+        if self.cenpmax_parser and central_parser:
+            self._process_cenpmax(system)
+
         return [cast(Dict[str, Any], system)]
 
     def _process_central(
@@ -475,14 +557,26 @@ class JunctionWriter(BaseWriter):
             central_id,
             central["ser_hid"],
         )
-        # PLP convention: vert_max == 0 in plpcnfce.dat means "not specified"
-        # for the spillway flow cap (there is still a physical spillway; the
-        # file just does not constrain its flow).  gtopt's validator rejects
-        # waterway fmax == 0 as "must be > 0", so we translate 0 → None and
-        # let the field be omitted, yielding an unbounded spillway.
-        vert_max_raw = central.get("vert_max", 0.0)
+        # PLP parity: `VertMax` from plpcnfce.dat is the HARD UPPER bound
+        # on per-block vertimiento `qv_k` (leecnfce.f:342-343 copies it
+        # into `CenVMax`, then genpdver.f:163 sets it as the LP column's
+        # upper bound).  VertMax == 0 therefore pins `qv_k ∈ [0,0]` — any
+        # per-block spill from this reservoir is forbidden, and overspill
+        # must go through the stage-level qrb mechanism (plpvrebemb.dat)
+        # instead.
+        #
+        # History (2026-04-24): this code used to translate VertMax==0 to
+        # `None` (omitted fmax) because gtopt's validator rejected
+        # fmax=0.  That silently produced an UNBOUNDED ver_waterway,
+        # letting water drain out of embalses even though PLP hard-pins
+        # qv_k = 0 — observed on juan/gtopt_iplp where ELTORO depleted
+        # 99.6 Hm³ in week 1 through its "spillway" despite
+        # `reservoir_drain = 0`.  The validator now accepts fmax==0
+        # (validate_planning.cpp: Positivity::non_negative) so we emit
+        # the zero bound directly.
+        vert_max_raw = central.get("vert_max")
         vert_fmax: Optional[float] = (
-            None if vert_max_raw in (0, 0.0) else float(vert_max_raw)
+            None if vert_max_raw is None else float(vert_max_raw)
         )
         ver_waterway = self._create_waterway(
             central_name + "_ver",
@@ -750,23 +844,20 @@ class JunctionWriter(BaseWriter):
                 # solver's infinity at flatten-time by LinearInterface).
                 "fmin": -1.0e30,
                 "fmax": +1.0e30,
-                # Per-reservoir spill cost: PLP's plpvrebemb.dat carries
-                # `Costo de Rebalse` (EmbCReb) per embalse.  When present
-                # use it; otherwise fall back to plpmat.dat's `CVert`
-                # (global default), then to legacy magic 1.0.
-                "spillway_cost": (
-                    (
-                        self.vrebemb_parser.get_cost(central_name)
-                        if self.vrebemb_parser is not None
-                        else None
-                    )
-                    or 1.0
-                ),
-                # spillway_capacity is a *separate* concept: max uncontrolled
-                # spill rate.  PLP's plpcnfce.dat VertMax populates it for
-                # run-of-river plants but is 0 for embalses in this dataset
-                # — keep the legacy 6000 default as fallback.
-                "spillway_capacity": central.get("vert_max") or 6000.0,
+                # Spillway cost & capacity:
+                # ─ If reservoir IS in plpvrebemb.dat (has an explicit
+                #   `Costo de Rebalse`) it follows PLP's qrb stage-rebalse
+                #   model: per-block vertimiento qv_k is bounded to 0
+                #   (matches plpcnfce.dat VertMax=0) and the only path to
+                #   spill is via the costed drain.  Map to gtopt:
+                #     spillway_capacity = 0  (no per-block free spill)
+                #     spillway_cost     = Costo de Rebalse (LP-visible)
+                # ─ Otherwise: fall back to plpmat.dat's global `CVert`
+                #   for the cost (legacy 1.0 if absent) and use the
+                #   plpcnfce.dat VertMax for the capacity (only the
+                #   missing-field case falls back to the legacy 6000 —
+                #   an explicit VertMax=0 must be honoured).
+                **self._spillway_fields(central_name, central),
                 "annual_loss": 0.0,
                 "flow_conversion_rate": 3.6 / 1000.0,
             }
@@ -789,6 +880,71 @@ class JunctionWriter(BaseWriter):
             self._apply_soft_emin(reservoir, central_name)
 
             system["reservoir_array"].append(reservoir)
+
+    # Reservoirs whose drain is hard-killed (capacity = 0) regardless of
+    # plpvrebemb.dat / plpcnfce.dat content.  ELTORO is so large
+    # (emax=5585 Hm³ vs eini=1731 Hm³) with high filtration (~15 m³/s)
+    # that overspill never materialises in practice — leaving the drain
+    # open lets the LP use it as a free bypass that PLP does not have.
+    _DRAIN_KILLED_RESERVOIRS = frozenset({"ELTORO"})
+
+    def _spillway_fields(
+        self, central_name: str, central: Dict[str, Any]
+    ) -> Dict[str, float]:
+        """Compute ``spillway_cost`` and ``spillway_capacity`` for one reservoir.
+
+        Mapping to PLP:
+        - When the reservoir is in ``plpvrebemb.dat`` it follows PLP's
+          stage-rebalse model.  PLP exposes two variables — per-block
+          ``qv_k`` (bounded by ``VertMax`` in ``plpcnfce.dat``) and
+          stage-level ``qrb`` (uncapped, costed at ``Costo de Rebalse``).
+          gtopt has only one drain column per block, so we collapse both
+          roles into ``reservoir_drain``: take the high ``Costo de
+          Rebalse`` as the cost (so the drain is visibly costly in the
+          obj) and keep the legacy 6000 m³/s sentinel as the capacity
+          (mirrors PLP's effectively-uncapped ``qrb``).  Any reservoir
+          listed in :pyattr:`_DRAIN_KILLED_RESERVOIRS` is overridden to
+          capacity = 0 (drain hard-disabled).
+        - When the reservoir is *not* in ``plpvrebemb.dat`` it has no
+          stage-rebalse mechanism in PLP.  The cost falls back to PLP's
+          global ``CVert`` (``plpmat.dat``) — legacy 1.0 if that field
+          is absent — and the capacity follows the per-block ``VertMax``
+          from ``plpcnfce.dat`` (an explicit 0.0 is preserved; a missing
+          field falls back to the legacy 6000 sentinel).
+
+        The cost is always set on the LP column even when capacity is
+        zero, so the drain coefficient remains visible in the objective
+        row.
+        """
+        rebalse_cost: Optional[float] = (
+            self.vrebemb_parser.get_cost(central_name)
+            if self.vrebemb_parser is not None
+            else None
+        )
+
+        if rebalse_cost is not None:
+            capacity = (
+                0.0 if central_name.upper() in self._DRAIN_KILLED_RESERVOIRS else 6000.0
+            )
+            return {
+                "spillway_cost": rebalse_cost,
+                "spillway_capacity": capacity,
+            }
+
+        # Not in plpvrebemb.dat → CVert (plpmat.dat) for cost, VertMax
+        # (plpcnfce.dat) for capacity.
+        default_cost = 1.0
+        if self.plpmat_parser is not None:
+            cvert = getattr(self.plpmat_parser, "vert_cost", 0.0) or 0.0
+            if cvert > 0.0:
+                default_cost = cvert
+
+        vert_max = central.get("vert_max")
+        capacity = 6000.0 if vert_max is None else float(vert_max)
+        return {
+            "spillway_cost": default_cost,
+            "spillway_capacity": capacity,
+        }
 
     def _apply_soft_emin(self, reservoir: Reservoir, central_name: str) -> None:
         """Add soft_emin and soft_emin_cost from plpminembh.dat if available.
@@ -836,6 +992,102 @@ class JunctionWriter(BaseWriter):
             if r["name"] == name:
                 return r
         return None
+
+    def _fix_first_seepage_segment(
+        self, rsv: Reservoir, segments: List[Dict[str, Any]]
+    ) -> List[Dict[str, Any]]:
+        """Force ``q_filt(vmin) = 0`` on the first piecewise seepage segment.
+
+        PLP's filtration curves are physically expected to drop to zero at
+        an empty reservoir, but the raw data in plpfilemb.dat occasionally
+        violates this (e.g. CIPRESES first segment yields a non-zero
+        ``q_filt`` at ``vmin`` due to fitting noise).  Without correction
+        the LP can be forced to discharge water that isn't physically in
+        storage, breaking the SDDP forward pass near the lower volume
+        bound.
+
+        The fix anchors the first segment at two points:
+        - ``q_filt(vmin) = 0`` (new constraint)
+        - ``q_filt(seg2.volume)`` = original value at the joint with
+          segment 2 (preserves continuity with the rest of the curve)
+
+        This produces a slightly different (usually steeper) slope for
+        segment 1 and a corresponding intercept; segments 2+ are left
+        unchanged.
+
+        When ``options['plp_legacy']`` is true the segments are emitted
+        verbatim and only a warning is logged — for bit-for-bit PLP
+        comparison work.
+        """
+        if not segments:
+            return segments
+
+        first = segments[0]
+        slope = float(first.get("slope", 0.0))
+        constant = float(first.get("constant", 0.0))
+
+        emin_raw = rsv.get("emin", 0.0)
+        vmin = float(emin_raw) if isinstance(emin_raw, (int, float)) else 0.0
+
+        q_at_vmin = constant + slope * vmin
+        if abs(q_at_vmin) <= 1e-9:
+            return segments  # already zero — no fix needed
+
+        rsv_name = rsv.get("name", "?")
+        plp_legacy = bool(self.options.get("plp_legacy", False))
+
+        if plp_legacy or len(segments) < 2:
+            # In PLP-legacy mode keep raw coefficients; if there's no
+            # second segment we can't anchor the new slope cleanly.
+            mode = "plp-legacy preserved" if plp_legacy else "single segment"
+            _logger.warning(
+                "Reservoir '%s' seepage first segment: q(vmin=%.4f)=%.4f "
+                "(expected 0); %s — no fix applied.",
+                rsv_name,
+                vmin,
+                q_at_vmin,
+                mode,
+            )
+            return segments
+
+        seg2_vol = float(segments[1].get("volume", 0.0))
+        if seg2_vol <= vmin:
+            _logger.warning(
+                "Reservoir '%s' seepage: second segment starts at vol=%.4f "
+                "≤ vmin=%.4f; cannot anchor first-segment fix — skipping.",
+                rsv_name,
+                seg2_vol,
+                vmin,
+            )
+            return segments
+
+        # Anchor: q(vmin)=0 and q(seg2_vol)=q_at_seg2 (continuity).
+        q_at_seg2 = constant + slope * seg2_vol
+        new_slope = q_at_seg2 / (seg2_vol - vmin)
+        new_constant = -new_slope * vmin
+
+        _logger.warning(
+            "Reservoir '%s' seepage first segment: q(vmin=%.4f)=%.4f → 0 "
+            "(rebuilt: slope %.6g→%.6g, constant %.6g→%.6g, anchored at "
+            "vol=%.4f with q=%.4f).",
+            rsv_name,
+            vmin,
+            q_at_vmin,
+            slope,
+            new_slope,
+            constant,
+            new_constant,
+            seg2_vol,
+            q_at_seg2,
+        )
+
+        fixed = list(segments)
+        fixed[0] = {
+            **first,
+            "slope": new_slope,
+            "constant": new_constant,
+        }
+        return fixed
 
     def _append_reservoir_constraint(
         self,
@@ -1003,15 +1255,19 @@ class JunctionWriter(BaseWriter):
                 continue
             system["waterway_array"].append(filt_waterway)
 
-            # Use first segment's values as the default slope/constant
-            default_slope = segments[0]["slope"] if segments else 0.0
-            default_constant = segments[0]["constant"] if segments else 0.0
-
             # Find the source reservoir
             rsv = self._find_reservoir(system, rsv_name)
             if rsv is None:
                 _logger.warning("Filemb reservoir '%s' not found; skipping.", rsv_name)
                 continue
+
+            # Apply the q(vmin)=0 fix to the first segment unless --plp-legacy
+            # is set (in which case keep raw PLP coefficients).
+            segments = self._fix_first_seepage_segment(rsv, segments)
+
+            # Use first segment's values as the default slope/constant
+            default_slope = segments[0]["slope"] if segments else 0.0
+            default_constant = segments[0]["constant"] if segments else 0.0
 
             seep_array = system["reservoir_seepage_array"]
             seep_idx = len(seep_array) + len(rsv.get("seepage", [])) + 1
@@ -1166,6 +1422,171 @@ class JunctionWriter(BaseWriter):
                 "reservoir": rsv["name"],
                 "mean_production_factor": entry["mean_production_factor"],
                 "segments": segments,
+            }
+            self._append_reservoir_constraint(
+                system,
+                rsv,
+                pfac,
+                "reservoir_production_factor_array",
+                "production_factor",
+            )
+
+    def _process_cenpmax(
+        self,
+        system: HydroSystemOutput,
+    ) -> None:
+        """Process plpcenpmax.dat curves into production-factor segments.
+
+        For each volume-dependent Pmax curve entry:
+
+        - Looks up the central to recover ``pmax`` and ``efficiency``
+          (Rendi). Computes the physical flow cap ``flow_ref = pmax / Rendi``.
+        - Fixes the turbine's generation waterway ``fmax`` to ``flow_ref``.
+        - Emits a :class:`ReservoirProductionFactor` whose segments are the
+          PLP ``{volume, slope, constant}`` curve scaled by ``1/flow_ref``.
+          This turns the MW curve into a production-factor curve
+          (``MW / (m³/s)``) because the LP flow variable is already bounded
+          by ``flow_ref``, so ``PF(V) × flow_ref`` reproduces PLP's Pmax(V).
+
+        Entries referencing unknown centrals, centrals with ``pmax <= 0`` /
+        ``efficiency <= 0``, or centrals without a turbine (bus<=0) are
+        skipped with a warning.  This method is additive to
+        ``_process_reservoir_efficiencies`` and appends to the same
+        ``reservoir_production_factor_array``.
+        """
+        if not self.cenpmax_parser:
+            return
+
+        # Turbine name → gen-waterway name (to lookup and mutate fmax)
+        turbine_waterway: Dict[str, str] = {
+            t["name"]: t["waterway"] for t in system["turbine_array"]
+        }
+
+        # Waterway name → waterway dict (to set fmax in place)
+        waterway_by_name: Dict[str, Waterway] = {
+            w["name"]: w for w in system["waterway_array"]
+        }
+
+        for idx, entry in enumerate(self.cenpmax_parser.pmax_curves, start=1):
+            central_name = entry["name"]
+            reservoir_name = entry["reservoir"]
+
+            central_data = self.central_parser.get_central_by_name(central_name)
+            if central_data is None:
+                _logger.warning(
+                    "Cenpmax central '%s' not found in central_parser; skipping.",
+                    central_name,
+                )
+                continue
+
+            pot_max = float(central_data.get("pmax", 0.0) or 0.0)
+            efficiency = float(central_data.get("efficiency", 0.0) or 0.0)
+
+            if pot_max <= 0.0 or efficiency <= 0.0:
+                _logger.warning(
+                    "Cenpmax central '%s': pmax=%g, efficiency=%g — cannot "
+                    "compute flow cap; skipping.",
+                    central_name,
+                    pot_max,
+                    efficiency,
+                )
+                continue
+
+            flow_ref = pot_max / efficiency
+
+            ww_name = turbine_waterway.get(central_name)
+            if ww_name is None:
+                if central_data.get("bus", 0) <= 0:
+                    _logger.debug(
+                        "Cenpmax central '%s': reservoir-only central"
+                        " (bus<=0), no turbine; skipping.",
+                        central_name,
+                    )
+                else:
+                    _logger.warning(
+                        "Cenpmax central '%s': no matching turbine found; skipping.",
+                        central_name,
+                    )
+                continue
+
+            waterway = waterway_by_name.get(ww_name)
+            if waterway is None:
+                _logger.warning(
+                    "Cenpmax central '%s': generation waterway '%s' not"
+                    " found; skipping.",
+                    central_name,
+                    ww_name,
+                )
+                continue
+
+            # Pin the generation waterway flow cap to the physical limit.
+            waterway["fmax"] = flow_ref
+
+            rsv = self._find_reservoir(system, reservoir_name)
+            if rsv is None:
+                _logger.warning(
+                    "Cenpmax reservoir '%s' not found; skipping PF entry.",
+                    reservoir_name,
+                )
+                continue
+
+            # Convert the raw Pmax(V) curve to production-factor units by
+            # dividing by `flow_ref` (MW → MW/(m³/s)).
+            cenpmax_pf_segments: List[ProductionFactorSegment] = [
+                {
+                    "volume": float(seg["volume"]),
+                    "slope": float(seg["slope"]) / flow_ref,
+                    "constant": float(seg["constant"]) / flow_ref,
+                }
+                for seg in entry["segments"]
+            ]
+
+            # When plpcenre ALSO provides a PF curve for this reservoir,
+            # merge the two sources by taking the MIN value at each
+            # plpcenpmax breakpoint — the most restrictive curve wins,
+            # matching PLP's combined physics where turbine flow is
+            # bounded by BOTH Rendi (efficiency) and Pmax (power cap).
+            # Emit a single replacement entry; drop the cenre one.
+            pfac_array = system["reservoir_production_factor_array"]
+            cenre_idx = next(
+                (
+                    i
+                    for i, e in enumerate(pfac_array)
+                    if e.get("reservoir") == rsv["name"]
+                ),
+                None,
+            )
+
+            scaled_segments = cenpmax_pf_segments
+            if cenre_idx is not None:
+                cenre_entry = pfac_array[cenre_idx]
+                cenre_segs = cenre_entry.get("segments", [])
+                if cenre_segs:
+                    scaled_segments = _merge_pf_curves_min(
+                        cenpmax_pf_segments, cenre_segs
+                    )
+                pfac_array.pop(cenre_idx)
+                embedded = rsv.get("production_factor", [])
+                if isinstance(embedded, list):
+                    rsv["production_factor"] = [
+                        e for e in embedded if e is not cenre_entry
+                    ]
+                _logger.warning(
+                    "Reservoir '%s' has both plpcenre and plpcenpmax PF "
+                    "curves — emitting MIN-envelope combined curve "
+                    "(%d segments) in place of '%s'.",
+                    rsv["name"],
+                    len(scaled_segments),
+                    cenre_entry.get("name", "?"),
+                )
+
+            pfac: Dict[str, Any] = {
+                "uid": rsv["uid"],
+                "name": f"{rsv['name']}_pmax_pfac_{idx}",
+                "turbine": central_name,
+                "reservoir": rsv["name"],
+                "mean_production_factor": efficiency,
+                "segments": scaled_segments,
             }
             self._append_reservoir_constraint(
                 system,

@@ -1051,3 +1051,382 @@ def test_embalse_bus_zero_never_skipped():
     # Embalse always creates junction + reservoir
     assert len(result["junction_array"]) >= 1
     assert len(result["reservoir_array"]) == 1
+
+
+# Tests for _spillway_fields — spillway_cost / spillway_capacity logic.
+# Mirrors PLP's two-tier spill model: per-block qv_k bounded by VertMax in
+# plpcnfce.dat, and stage-level qrb costed at Costo de Rebalse from
+# plpvrebemb.dat (ELTORO is hard-killed because filtration absorbs all
+# overspill in practice).
+
+
+class _MockVrebembParser:
+    """Minimal stand-in for VrebembParser in spillway tests."""
+
+    def __init__(self, costs: Dict[str, float]):
+        self._costs = costs
+
+    def get_cost(self, name: str) -> Optional[float]:
+        return self._costs.get(name)
+
+
+class _MockPlpmatParser:
+    """Minimal stand-in for PlpmatParser exposing only ``vert_cost``."""
+
+    def __init__(self, vert_cost: float):
+        self.vert_cost = vert_cost
+
+
+def _make_jw(
+    *,
+    vrebemb: Optional[_MockVrebembParser] = None,
+    plpmat: Optional[_MockPlpmatParser] = None,
+) -> JunctionWriter:
+    """Build a JunctionWriter wired only with the parsers under test."""
+    return JunctionWriter(
+        central_parser=MockCentralParser([]),
+        vrebemb_parser=vrebemb,
+        plpmat_parser=plpmat,
+    )
+
+
+def test_spillway_in_vrebemb_not_killed_uses_costo_rebalse_and_6000_cap():
+    """LMAULE-style: in plpvrebemb.dat → cost from file, capacity=6000."""
+    jw = _make_jw(vrebemb=_MockVrebembParser({"LMAULE": 5000.0}))
+    fields = jw._spillway_fields("LMAULE", {"vert_max": 0.0})
+    assert fields == {"spillway_cost": 5000.0, "spillway_capacity": 6000.0}
+
+
+def test_spillway_eltoro_in_killed_set_zero_capacity_cost_still_set():
+    """ELTORO is in plpvrebemb.dat AND in killed set → drain hard-disabled.
+
+    The cost coefficient must still be set so the LP column appears in the
+    objective row even though the variable is bounded to 0.
+    """
+    jw = _make_jw(vrebemb=_MockVrebembParser({"ELTORO": 5000.0}))
+    fields = jw._spillway_fields("ELTORO", {"vert_max": 0.0})
+    assert fields["spillway_capacity"] == 0.0
+    assert fields["spillway_cost"] == 5000.0
+
+
+def test_spillway_killed_set_match_is_case_insensitive():
+    """Central names from plpcnfce.dat may have any case — match upper()."""
+    jw = _make_jw(vrebemb=_MockVrebembParser({"eltoro": 5000.0}))
+    fields = jw._spillway_fields("eltoro", {"vert_max": 0.0})
+    assert fields["spillway_capacity"] == 0.0
+
+
+def test_spillway_not_in_vrebemb_honours_explicit_zero_vertmax():
+    """Run-of-river style: not in plpvrebemb, VertMax=0 must NOT fall back to 6000.
+
+    This is the ``central.get('vert_max') or 6000.0`` truthiness bug we
+    fixed: 0.0 is falsy in Python and was being silently replaced by
+    6000.0, opening a free per-block drain path that PLP does not have.
+    """
+    jw = _make_jw(plpmat=_MockPlpmatParser(vert_cost=0.01))
+    fields = jw._spillway_fields("RUNOFRIVER", {"vert_max": 0.0})
+    assert fields["spillway_capacity"] == 0.0
+    assert fields["spillway_cost"] == 0.01
+
+
+def test_spillway_not_in_vrebemb_missing_vertmax_falls_back_to_6000():
+    """If VertMax field is *absent* (None) — keep the legacy 6000 sentinel.
+
+    Distinguish ``None`` (field absent → fallback) from ``0.0`` (explicit
+    physical bound → honour).
+    """
+    jw = _make_jw(plpmat=_MockPlpmatParser(vert_cost=0.01))
+    fields = jw._spillway_fields("RUNOFRIVER", {})
+    assert fields["spillway_capacity"] == 6000.0
+    assert fields["spillway_cost"] == 0.01
+
+
+def test_spillway_cost_falls_back_to_one_when_no_plpmat():
+    """No plpmat parser at all → legacy 1.0 cost fallback (last resort)."""
+    jw = _make_jw()
+    fields = jw._spillway_fields("RUNOFRIVER", {"vert_max": 5.0})
+    assert fields == {"spillway_cost": 1.0, "spillway_capacity": 5.0}
+
+
+def test_spillway_cost_falls_back_to_one_when_cvert_is_zero():
+    """plpmat present but CVert=0 → still fall back to 1.0 (zero is meaningless)."""
+    jw = _make_jw(plpmat=_MockPlpmatParser(vert_cost=0.0))
+    fields = jw._spillway_fields("RUNOFRIVER", {"vert_max": 5.0})
+    assert fields["spillway_cost"] == 1.0
+
+
+def test_spillway_vrebemb_takes_precedence_over_plpmat():
+    """When both parsers report a cost, plpvrebemb wins (per-embalse > global)."""
+    jw = _make_jw(
+        vrebemb=_MockVrebembParser({"LMAULE": 5000.0}),
+        plpmat=_MockPlpmatParser(vert_cost=0.01),
+    )
+    fields = jw._spillway_fields("LMAULE", {"vert_max": 0.0})
+    assert fields["spillway_cost"] == 5000.0
+
+
+# ── _process_cenpmax tests (plpcenpmax.dat → ReservoirProductionFactor) ──────
+
+
+class _MockCenpmaxParser:
+    """Minimal stand-in for CenpmaxParser in _process_cenpmax tests.
+
+    Exposes the ``pmax_curves`` attribute consumed by the writer without
+    requiring a real plpcenpmax.dat file on disk.
+    """
+
+    def __init__(self, pmax_curves: List[Dict[str, Any]]):
+        self.pmax_curves = pmax_curves
+
+
+def _make_ralco_parser() -> MockCentralParser:
+    """Return a MockCentralParser with a RALCO-like embalse + turbine.
+
+    The reservoir sits on its own junction (``RALCO_dam``) and the turbine
+    (``RALCO``) drains it via a generation waterway.  RALCO's PotMax=690 MW
+    and efficiency=1.518 MW/(m³/s) yield a physical flow cap of
+    690 / 1.518 = 454.5 m³/s.
+    """
+    return MockCentralParser(
+        [
+            {
+                "name": "RALCO_dam",
+                "number": 10,
+                "type": "embalse",
+                "bus": 0,
+                "pmin": 0,
+                "pmax": 0,
+                "vert_min": 0,
+                "vert_max": 50,
+                "efficiency": 0.0,
+                "ser_hid": 11,  # feeds RALCO turbine
+                "ser_ver": 0,
+                "afluent": 0.0,
+                "vol_ini": 500.0,
+                "vol_fin": 450.0,
+                "emin": 100.0,
+                "emax": 1000.0,
+            },
+            {
+                "name": "RALCO",
+                "number": 11,
+                "type": "serie",
+                "bus": 20,
+                "pmin": 0,
+                "pmax": 690.0,
+                "vert_min": 0,
+                "vert_max": 0,
+                "efficiency": 1.518,
+                "ser_hid": 12,
+                "ser_ver": 0,
+                "afluent": 0.0,
+            },
+        ]
+    )
+
+
+def test_cenpmax_emits_production_factor():
+    """Cenpmax curve emits a scaled PF entry and pins waterway fmax."""
+    central_parser = _make_ralco_parser()
+    cenpmax = _MockCenpmaxParser(
+        [
+            {
+                "name": "RALCO",
+                "reservoir": "RALCO_dam",
+                "segments": [
+                    {"volume": 409.4, "slope": 0.4616, "constant": 339.83},
+                    {"volume": 480.0, "slope": 0.3734, "constant": 382.17},
+                ],
+            }
+        ]
+    )
+    writer = JunctionWriter(
+        central_parser=central_parser,
+        cenpmax_parser=cenpmax,
+    )
+    result = writer.to_json_array()[0]
+
+    # One PF entry emitted from the cenpmax curve
+    pfac_arr = result["reservoir_production_factor_array"]
+    assert len(pfac_arr) == 1
+    pf = pfac_arr[0]
+    assert pf["turbine"] == "RALCO"
+    assert pf["reservoir"] == "RALCO_dam"
+    assert pf["name"] == "RALCO_dam_pmax_pfac_1"
+    assert pf["mean_production_factor"] == pytest.approx(1.518)
+
+    # Physical flow cap = 690 / 1.518 = 454.5 m³/s
+    flow_ref = 690.0 / 1.518
+    assert pf["segments"][0]["volume"] == pytest.approx(409.4)
+    assert pf["segments"][0]["slope"] == pytest.approx(0.4616 / flow_ref)
+    assert pf["segments"][0]["constant"] == pytest.approx(339.83 / flow_ref)
+    assert pf["segments"][1]["volume"] == pytest.approx(480.0)
+    assert pf["segments"][1]["slope"] == pytest.approx(0.3734 / flow_ref)
+    assert pf["segments"][1]["constant"] == pytest.approx(382.17 / flow_ref)
+
+    # Turbine's gen-waterway fmax was pinned to the physical flow cap
+    turbine = next(t for t in result["turbine_array"] if t["name"] == "RALCO")
+    ww = next(w for w in result["waterway_array"] if w["name"] == turbine["waterway"])
+    assert ww["fmax"] == pytest.approx(flow_ref)
+
+
+def test_cenpmax_missing_central_skips(caplog):
+    """Cenpmax entry for an unknown central is skipped with a warning."""
+    central_parser = _make_ralco_parser()
+    cenpmax = _MockCenpmaxParser(
+        [
+            {
+                "name": "GHOST",
+                "reservoir": "RALCO_dam",
+                "segments": [
+                    {"volume": 0.0, "slope": 0.1, "constant": 1.0},
+                ],
+            }
+        ]
+    )
+    writer = JunctionWriter(
+        central_parser=central_parser,
+        cenpmax_parser=cenpmax,
+    )
+    with caplog.at_level(logging.WARNING):
+        result = writer.to_json_array()[0]
+    assert result["reservoir_production_factor_array"] == []
+    assert any("GHOST" in rec.getMessage() for rec in caplog.records)
+
+
+def test_cenpmax_zero_pot_max_skips(caplog):
+    """Central with pmax=0 or efficiency=0 is skipped (flow_ref undefined)."""
+    centrals = MockCentralParser(
+        [
+            {
+                "name": "RALCO_dam",
+                "number": 10,
+                "type": "embalse",
+                "bus": 0,
+                "pmin": 0,
+                "pmax": 0,
+                "vert_min": 0,
+                "vert_max": 50,
+                "efficiency": 0.0,
+                "ser_hid": 11,
+                "ser_ver": 0,
+                "afluent": 0.0,
+                "vol_ini": 500.0,
+                "vol_fin": 450.0,
+                "emin": 100.0,
+                "emax": 1000.0,
+            },
+            {
+                "name": "BROKEN",
+                "number": 11,
+                "type": "serie",
+                "bus": 20,
+                "pmin": 0,
+                "pmax": 0.0,  # zero pmax → skip
+                "vert_min": 0,
+                "vert_max": 0,
+                "efficiency": 1.5,
+                "ser_hid": 12,
+                "ser_ver": 0,
+                "afluent": 0.0,
+            },
+        ]
+    )
+    cenpmax = _MockCenpmaxParser(
+        [
+            {
+                "name": "BROKEN",
+                "reservoir": "RALCO_dam",
+                "segments": [{"volume": 0.0, "slope": 0.1, "constant": 1.0}],
+            }
+        ]
+    )
+    writer = JunctionWriter(
+        central_parser=centrals,
+        cenpmax_parser=cenpmax,
+    )
+    with caplog.at_level(logging.WARNING):
+        result = writer.to_json_array()[0]
+    assert result["reservoir_production_factor_array"] == []
+    assert any("BROKEN" in rec.getMessage() for rec in caplog.records)
+
+
+def test_cenpmax_no_turbine_skips():
+    """Central with bus<=0 has no turbine; cenpmax entry is skipped silently."""
+    centrals = MockCentralParser(
+        [
+            {
+                "name": "RALCO_dam",
+                "number": 10,
+                "type": "embalse",
+                "bus": 0,  # no turbine → cannot pin waterway fmax
+                "pmin": 0,
+                "pmax": 100.0,
+                "vert_min": 0,
+                "vert_max": 50,
+                "efficiency": 1.5,
+                "ser_hid": 0,
+                "ser_ver": 0,
+                "afluent": 0.0,
+                "vol_ini": 500.0,
+                "vol_fin": 450.0,
+                "emin": 100.0,
+                "emax": 1000.0,
+            },
+        ]
+    )
+    cenpmax = _MockCenpmaxParser(
+        [
+            {
+                "name": "RALCO_dam",
+                "reservoir": "RALCO_dam",
+                "segments": [{"volume": 0.0, "slope": 0.1, "constant": 1.0}],
+            }
+        ]
+    )
+    writer = JunctionWriter(
+        central_parser=centrals,
+        cenpmax_parser=cenpmax,
+    )
+    result = writer.to_json_array()[0]
+    assert result["reservoir_production_factor_array"] == []
+
+
+def test_cenpmax_coexists_with_cenre():
+    """When plpcenre + plpcenpmax both define a PF curve, they are merged
+    into a single MIN-envelope curve (not emitted as two separate entries).
+    """
+    central_parser = _make_ralco_parser()
+    cenre = MockCenreParser(
+        [
+            {
+                "name": "RALCO",
+                "reservoir": "RALCO_dam",
+                "mean_production_factor": 1.518,
+                "segments": [
+                    {"volume": 0.0, "slope": 0.0003, "constant": 1.2},
+                ],
+            }
+        ]
+    )
+    cenpmax = _MockCenpmaxParser(
+        [
+            {
+                "name": "RALCO",
+                "reservoir": "RALCO_dam",
+                "segments": [
+                    {"volume": 409.4, "slope": 0.4616, "constant": 339.83},
+                ],
+            }
+        ]
+    )
+    writer = JunctionWriter(
+        central_parser=central_parser,
+        cenre_parser=cenre,
+        cenpmax_parser=cenpmax,
+    )
+    result = writer.to_json_array()[0]
+    pfac_arr = result["reservoir_production_factor_array"]
+    # MIN envelope merge: exactly one entry replacing both sources
+    assert len(pfac_arr) == 1
+    assert pfac_arr[0]["reservoir"] == "RALCO_dam"

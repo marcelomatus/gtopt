@@ -94,7 +94,15 @@ bool ReservoirSeepageLP::add_to_lp(const SystemContext& sc,
         }
             .equal(effective_rhs);
 
-    frow[eini_col] = frow[efin_col] = -lp_slope * 0.5;
+    // Anchor seepage to vfin only: q_filt = constant + slope · efin.
+    // This makes the linearised constraint physically consistent at the
+    // segment endpoints — in particular, when vfin → 0 in Tramo 1
+    // (constant = 0, slope = first-segment slope), the row forces
+    // q_filt → 0 as required by the PLP physics.  The previous
+    // mid-stage average form (-0.5·slope on each of eini and efin)
+    // pinned q_filt to a non-zero value even at vfin = 0 because of
+    // the eini contribution.
+    frow[efin_col] = -lp_slope;
 
     frow[fcol] = 1;
 
@@ -157,12 +165,16 @@ int ReservoirSeepageLP::update_lp(SystemLP& sys,
   const auto st_key = std::tuple {scenario.uid(), stage.uid()};
   auto& state = m_states_.at(st_key);
 
-  const auto vini =
-      rsv.physical_eini(sys, scenario, stage, default_volume, reservoir_sid());
+  // Segment selection uses the *end-of-stage* volume (vfin) rather than the
+  // mid-stage average (vini+vfin)/2.  vfin is the SDDP cut anchor and the
+  // LP's free decision variable, so anchoring the segment choice to it
+  // keeps the linearised seepage curve consistent with the regime where
+  // the LP is actually operating.  The mid-point average can pick a
+  // segment that fits neither end of the stage well, which is especially
+  // brittle when vfin crosses a tramo boundary (e.g. ELTORO drawing
+  // below 400 Hm³ from a 1731 Hm³ start).
   const auto vfin = rsv.physical_efin(sys, scenario, stage, default_volume);
-  const Real volume = (vini + vfin) / 2.0;
-
-  const auto coeffs = select_seepage_coeffs(seepage().segments, volume);
+  const auto coeffs = select_seepage_coeffs(seepage().segments, vfin);
 
   const auto new_slope = coeffs.slope;
   const auto new_rhs = coeffs.intercept;
@@ -176,8 +188,8 @@ int ReservoirSeepageLP::update_lp(SystemLP& sys,
 
   for (const auto& [buid, row] : frows) {
     if (new_slope != state.current_slope) {
-      li.set_coeff(row, state.eini_col, -new_slope * 0.5);
-      li.set_coeff(row, state.efin_col, -new_slope * 0.5);
+      // Anchor on efin only — see add_to_lp() above for rationale.
+      li.set_coeff(row, state.efin_col, -new_slope);
     }
     if (new_rhs != state.current_rhs) {
       li.set_rhs(row, new_rhs);
@@ -187,9 +199,9 @@ int ReservoirSeepageLP::update_lp(SystemLP& sys,
 
   SPDLOG_TRACE(
       "ReservoirSeepageLP uid={}: updated constraints "
-      "(volume={:.1f}, slope={:.6f}, rhs={:.6f})",
+      "(vfin={:.1f}, slope={:.6f}, rhs={:.6f})",
       uid(),
-      volume,
+      vfin,
       new_slope,
       new_rhs);
 

@@ -936,3 +936,138 @@ TEST_CASE(
   // And the conversion row must hold: generation ≈ pf × flow.
   CHECK(gen_val == doctest::Approx(2.0 * flow_val).epsilon(1e-6));
 }
+
+// ─── INVARIANT: add_to_lp produces a valid LP without update_lp ──────────────
+//
+// Regression test for the iter-0 hydro-dispatch parity bug: when a
+// ReservoirProductionFactor element exists with a piecewise-linear
+// segment list, the LP built by ``add_to_lp`` (no ``update_lp`` call)
+// must use the turbine's ``production_factor`` (= cenre's mean rendi)
+// as the conversion-row coefficient — NOT the curve evaluated at
+// ``eini`` (which would pessimistically pin to a low-volume value).
+//
+// Before the fix in ``planning_lp.cpp``, an eager initial
+// ``update_lp()`` pass overwrote the ``mean_production_factor`` rate
+// with ``evaluate_production_factor(segments, eini)``, baking a worse
+// rate into iter-0 and breaking parity with PLP's stage-1 forward
+// pass.  The invariant guards against regression.
+TEST_CASE(
+    "ReservoirProductionFactor: add_to_lp leaves coef = mean_production_factor")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  // Set up a single-reservoir hydro-only system.  The PF curve's value
+  // at eini=500 is min(1.0+0.001*500, 1.5+0.0001*(500-800)) = min(1.5, 1.47)
+  // = 1.47.  With our fix, the initial LP coef must remain 2.0
+  // (turbine.production_factor) — i.e. it must NOT have been
+  // overwritten to 1.47 by an eager update_lp pass.
+  const Array<Bus> bus_array = {{
+      .uid = Uid {1},
+      .name = "b1",
+  }};
+  const Array<Generator> generator_array = {{
+      .uid = Uid {1},
+      .name = "hydro_gen",
+      .bus = Uid {1},
+      .gcost = 5.0,
+      .capacity = 200.0,
+  }};
+  const Array<Demand> demand_array = {{
+      .uid = Uid {1},
+      .name = "d1",
+      .bus = Uid {1},
+      .capacity = 50.0,
+  }};
+  const Array<Junction> junction_array = {
+      {.uid = Uid {1}, .name = "j_up"},
+      {.uid = Uid {2}, .name = "j_dn", .drain = true},
+  };
+  const Array<Waterway> waterway_array = {{
+      .uid = Uid {1},
+      .name = "ww1",
+      .junction_a = Uid {1},
+      .junction_b = Uid {2},
+      .fmin = 0.0,
+      .fmax = 100.0,
+  }};
+  const Array<Reservoir> reservoir_array = {{
+      .uid = Uid {1},
+      .name = "rsv1",
+      .junction = Uid {1},
+      .capacity = 1000.0,
+      .emin = 0.0,
+      .eini = 500.0,
+  }};
+  const Array<Turbine> turbine_array = {{
+      .uid = Uid {1},
+      .name = "tur1",
+      .waterway = Uid {1},
+      .generator = Uid {1},
+      // Mean PF = 2.0 (from cenre).  This is what the LP must use until
+      // a real solve produces a volume that update_lp can re-evaluate.
+      .production_factor = 2.0,
+      .main_reservoir = Uid {1},
+  }};
+  const Array<ReservoirProductionFactor> reservoir_production_factor_array = {{
+      .uid = Uid {1},
+      .name = "eff1",
+      .turbine = Uid {1},
+      .reservoir = Uid {1},
+      .mean_production_factor = 2.0,
+      .segments =
+          {
+              // Curve evaluates to ~1.47 at eini=500 (intentionally
+              // distinct from mean=2.0) so we can see if update_lp got
+              // called eagerly.
+              {.volume = 0.0, .slope = 0.001, .constant = 1.0},
+              {.volume = 800.0, .slope = 0.0001, .constant = 1.5},
+          },
+  }};
+  const Simulation simulation = {
+      .block_array = {{.uid = Uid {1}, .duration = 1}},
+      .stage_array = {{.uid = Uid {1}, .first_block = 0, .count_block = 1}},
+      .scenario_array = {{.uid = Uid {0}}},
+  };
+  const System system = {
+      .name = "AddToLpInvariant",
+      .bus_array = bus_array,
+      .demand_array = demand_array,
+      .generator_array = generator_array,
+      .junction_array = junction_array,
+      .waterway_array = waterway_array,
+      .reservoir_array = reservoir_array,
+      .turbine_array = turbine_array,
+      .reservoir_production_factor_array = reservoir_production_factor_array,
+  };
+
+  const PlanningOptionsLP options;
+  SimulationLP simulation_lp(simulation, options);
+  SystemLP system_lp(system, simulation_lp);
+
+  auto& lp = system_lp.linear_interface();
+  auto& effs = system_lp.elements<ReservoirProductionFactorLP>();
+  REQUIRE(effs.size() == 1);
+  auto& eff = effs.front();
+
+  // Sanity: the cenpmax-style curve evaluates to ~1.47 at eini=500.
+  // If the bug regresses, the LP coefficient will be -1.47 (curve)
+  // instead of -2.0 (mean PF).
+  const auto curve_at_eini = eff.compute_production_factor(500.0);
+  CHECK(curve_at_eini == doctest::Approx(1.47).epsilon(0.01));
+  CHECK(curve_at_eini < 2.0);
+
+  // INVARIANT: the LP coefficient set by add_to_lp must use the
+  // turbine's production_factor (2.0), not the curve evaluation (1.47).
+  const auto& bmap =
+      eff.coeff_indices_at(make_uid<Scenario>(0), make_uid<Stage>(1));
+  REQUIRE(!bmap.empty());
+  for (const auto& [buid, ci] : bmap) {
+    const auto coeff = lp.get_coeff(ci.row, ci.col);
+    CHECK(coeff == doctest::Approx(-2.0).epsilon(1e-6));
+  }
+
+  // The LP must be solvable without any prior update_lp call.
+  auto result = lp.resolve();
+  REQUIRE(result.has_value());
+  CHECK(result.value() == 0);
+}

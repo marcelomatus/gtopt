@@ -94,10 +94,14 @@ public:
   /**
    * @brief Update reservoir-dependent LP coefficients for this seepage.
    *
-   * When the ReservoirSeepage has piecewise-linear segments, selects the active
-   * segment based on the reservoir's current volume (vini from previous
-   * phase) and updates:
-   * - The coefficient on eini/efin columns: -slope * 0.5
+   * When the ReservoirSeepage has piecewise-linear segments, selects the
+   * active segment from the *end-of-stage* volume (vfin) — vfin is the
+   * SDDP cut anchor and the LP's free decision variable, so anchoring
+   * the segment choice to it keeps the linearised seepage curve
+   * consistent with the regime where the LP is operating.  Updates:
+   * - The coefficient on the efin column: -slope_i  (efin-only form,
+   *   so q_filt = constant_i + slope_i * efin → 0 when vfin = 0 in
+   *   Tramo 1).
    * - The RHS (row bounds): intercept = constant_i - slope_i * volume_i
    *
    * Only dispatches set_coeff/set_rhs calls when the new value differs

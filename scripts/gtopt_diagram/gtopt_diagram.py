@@ -98,6 +98,7 @@ from __future__ import annotations
 import logging
 import sys
 from collections import defaultdict
+from typing import Optional
 
 from gtopt_diagram._classify import (
     classify_gen as _classify_gen_impl,
@@ -893,6 +894,31 @@ class TopologyBuilder:
                     )
                 )
 
+    def _resolve_gen_node_id(self, gen_ref) -> Optional[str]:
+        """Return the id of the node that represents *gen_ref* in the current view.
+
+        Honours the active aggregation mode: when generators are collapsed into
+        ``agg_bus_*`` / ``agg_type_*`` / ``agg_global_*`` super-nodes, returns
+        the id of the matching super-node so that profile/converter/turbine
+        edges still land on something visible. Falls back to the individual
+        generator id in ``none`` mode.
+        """
+        gen = self._find("generator_array", gen_ref)
+        if gen is None:
+            return None
+        agg = self._eff_agg
+        if agg == "none":
+            return self._gid(gen)
+        if agg == "bus":
+            return f"agg_bus_{gen.get('bus')}"
+        if agg == "type":
+            gt = _classify_gen(gen, self._turb_refs)
+            return f"agg_type_{gen.get('bus')}_{gt}"
+        if agg == "global":
+            gt = _classify_gen(gen, self._turb_refs)
+            return f"agg_global_{gt}"
+        return self._gid(gen)
+
     def _generator_profiles(self):
         """Draw generator profile nodes linked to their generators."""
         for gp in self.sys.get("generator_profile_array", []):
@@ -910,9 +936,7 @@ class TopologyBuilder:
                     tooltip=f"GeneratorProfile uid={gp.get('uid')} profile={plbl}",
                 )
             )
-            gen_id = self._find_node_id(
-                "generator_array", gp.get("generator"), self._gid
-            )
+            gen_id = self._resolve_gen_node_id(gp.get("generator"))
             if gen_id:
                 self.model.add_edge(
                     Edge(

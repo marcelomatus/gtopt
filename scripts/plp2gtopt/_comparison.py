@@ -402,18 +402,12 @@ def _plp_indicators(
     indicators["avg_flow_m3s"] = avg_flow_m3s
 
     # --- Average failure cost from falla centrals (min gcost per bus) ---
+    # Single source of truth: CentralParser.avg_falla_cost().  The same
+    # value is used by gtopt_writer.py as the default for the JSON's
+    # model_options.demand_fail_cost so the diagnostic row shown in this
+    # table matches what gtopt's LP actually prices curtailment at.
     if central_parser:
-        fcost_by_bus: dict[int, float] = {}
-        for c in central_parser.centrals:
-            if c.get("type") != "falla" or c.get("bus", 0) <= 0:
-                continue
-            bus = c["bus"]
-            gcost = float(c.get("gcost", 0.0))
-            if bus not in fcost_by_bus or gcost < fcost_by_bus[bus]:
-                fcost_by_bus[bus] = gcost
-        indicators["avg_fcost"] = (
-            sum(fcost_by_bus.values()) / len(fcost_by_bus) if fcost_by_bus else 0.0
-        )
+        indicators["avg_fcost"] = central_parser.avg_falla_cost()
 
     return indicators
 

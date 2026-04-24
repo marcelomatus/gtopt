@@ -299,20 +299,37 @@ def model_to_visjs(model: GraphModel) -> dict:
         colors = _PYVIS_COLORS.get(
             node.kind, {"background": "#F0F0F0", "border": "#555"}
         )
-        vis_nodes.append(
-            {
-                "id": node.node_id,
-                "label": node.label,
-                "title": node.tooltip or node.label,
-                "shape": _PYVIS_SHAPE_MAP.get(node.kind, "dot"),
-                "color": colors,
-                "size": node.size
-                if node.size > 0
-                else _PYVIS_SIZE_MAP.get(node.kind, 20),
-                "kind": node.kind,
-                "group": node.cluster or node.kind,
-            }
-        )
+        base_size = node.size if node.size > 0 else _PYVIS_SIZE_MAP.get(node.kind, 20)
+        # Use a kind-specific icon when one is available (matches the standalone
+        # HTML renderer); fall back to the geometric vis.js shape otherwise.
+        icon_uri = _icon_b64_uri(node.kind)
+        if icon_uri:
+            vis_nodes.append(
+                {
+                    "id": node.node_id,
+                    "label": node.label,
+                    "title": node.tooltip or node.label,
+                    "shape": "image",
+                    "image": icon_uri,
+                    "color": colors,
+                    "size": base_size + 8,
+                    "kind": node.kind,
+                    "group": node.cluster or node.kind,
+                }
+            )
+        else:
+            vis_nodes.append(
+                {
+                    "id": node.node_id,
+                    "label": node.label,
+                    "title": node.tooltip or node.label,
+                    "shape": _PYVIS_SHAPE_MAP.get(node.kind, "dot"),
+                    "color": colors,
+                    "size": base_size,
+                    "kind": node.kind,
+                    "group": node.cluster or node.kind,
+                }
+            )
 
     vis_edges = []
     for i, edge in enumerate(model.edges):
