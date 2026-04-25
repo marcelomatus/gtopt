@@ -7,7 +7,6 @@
  */
 
 #include <algorithm>
-#include <array>
 #include <cassert>
 #include <chrono>
 #include <cstring>
@@ -86,9 +85,11 @@ template<typename LabelT>
 
   const auto write_u16 = [&](uint16_t v)
   {
-    const std::array<char, 2> bytes {static_cast<char>(v & 0xFFU),
-                                     static_cast<char>((v >> 8U) & 0xFFU)};
-    out.insert(out.end(), bytes.begin(), bytes.end());
+    // Promote to unsigned int explicitly so the right-shift is in
+    // unsigned arithmetic (avoids hicpp-signed-bitwise).
+    const auto vu = static_cast<unsigned>(v);
+    out.push_back(static_cast<char>(vu & 0xFFU));
+    out.push_back(static_cast<char>((vu >> 8U) & 0xFFU));
   };
   const auto write_sv = [&](std::string_view s)
   {
@@ -99,8 +100,10 @@ template<typename LabelT>
   };
   const auto write_bytes = [&](const void* ptr, std::size_t n)
   {
-    const auto* p = static_cast<const char*>(ptr);
-    out.insert(out.end(), p, p + n);
+    // Express the pointer + length as a span and iterate it instead of
+    // raw `p + n` pointer arithmetic.
+    const std::span<const char> bytes {static_cast<const char*>(ptr), n};
+    out.insert(out.end(), bytes.begin(), bytes.end());
   };
 
   for (const auto& lbl : labels) {
@@ -132,21 +135,25 @@ template<typename LabelT>
   std::size_t pos = 0;
   const auto read_u16 = [&]() -> uint16_t
   {
-    const uint16_t lo = static_cast<uint8_t>(data[pos]);
-    const uint16_t hi = static_cast<uint8_t>(data[pos + 1]);
+    // unsigned int locals so the left-shift stays in unsigned space
+    // (avoids hicpp-signed-bitwise on the implicit-promotion-to-int).
+    const unsigned lo = static_cast<uint8_t>(data[pos]);
+    const unsigned hi = static_cast<uint8_t>(data[pos + 1]);
     pos += 2;
     return static_cast<uint16_t>(lo | (hi << 8U));
   };
   const auto read_sv = [&]() -> std::string_view
   {
     const auto n = read_u16();
-    string_pool.emplace_back(data.data() + pos, n);
+    const auto bytes = data.subspan(pos, n);
+    string_pool.emplace_back(bytes.data(), bytes.size());
     pos += n;
     return string_pool.back();
   };
   const auto read_bytes = [&](void* ptr, std::size_t n)
   {
-    std::memcpy(ptr, data.data() + pos, n);
+    const auto bytes = data.subspan(pos, n);
+    std::memcpy(ptr, bytes.data(), bytes.size());
     pos += n;
   };
 
@@ -1697,8 +1704,8 @@ void LinearInterface::ensure_labels_meta_decompressed() const
     // + variable_name) so `push_back` never reallocates and the
     // revived `string_view`s stay valid.
     m_label_string_pool_.clear();
-    m_label_string_pool_.reserve(m_col_labels_meta_count_ * 2
-                                 + m_row_labels_meta_count_ * 2);
+    m_label_string_pool_.reserve((m_col_labels_meta_count_ * 2)
+                                 + (m_row_labels_meta_count_ * 2));
     m_col_labels_meta_ =
         deserialize_labels_meta<SparseColLabel>({bytes.data(), bytes.size()},
                                                 m_col_labels_meta_count_,

@@ -589,11 +589,11 @@ void SDDPMethod::capture_state_variable_values(
   //    `phys / var_scale` — one division on an already-clean number,
   //    so it can't re-introduce the bound violation that clamping at
   //    physical removed.
-  const auto ncols = col_sol_phys.size();
+  const auto ncols = col_index_size(col_sol_phys);
   for (const auto& [key, svar] : sim.state_variables(scene_index, phase_index))
   {
     const auto col = svar.col();
-    if (static_cast<size_t>(col) < ncols) {
+    if (col < ncols) {
       const double phys = col_sol_phys[col];
       const double vs = svar.var_scale();
       svar.set_col_sol((vs != 0.0) ? phys / vs : phys);
