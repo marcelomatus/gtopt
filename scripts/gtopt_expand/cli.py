@@ -45,6 +45,11 @@ from gtopt_expand import __version__ as _pkg_version
 from gtopt_expand.laja_agreement import LajaAgreement
 from gtopt_expand.lng_expand import expand_lng_from_file
 from gtopt_expand.maule_agreement import MauleAgreement
+from gtopt_expand.pmin_flowright_expand import (
+    DEFAULT_PMIN_CSV,
+    DEFAULT_UID_START as _PMIN_UID_START,
+    expand_pmin_flowright_from_file,
+)
 from gtopt_expand.pumped_storage_expand import expand_pumped_storage_from_file
 from gtopt_expand.ror_expand import DEFAULT_ROR_CSV, expand_ror_from_file
 
@@ -431,6 +436,49 @@ def _build_parser() -> argparse.ArgumentParser:
         help=("'all' (default), 'none', or comma-separated central names to promote"),
     )
 
+    # ── pmin-as-FlowRight subcommand ────────────────────────────────────
+    pmin_sp = sub.add_parser(
+        "pmin_as_flowright",
+        help=(
+            "rewrite hydro generators with pmin-as-flow-obligation into"
+            " FlowRights (drops generator pmin, appends FlowRight on the"
+            " gen waterway's downstream junction)"
+        ),
+    )
+    pmin_sp.add_argument(
+        "--input",
+        "--in",
+        dest="input_path",
+        required=True,
+        help="path to the planning JSON to mutate",
+    )
+    pmin_sp.add_argument(
+        "--output",
+        "--out",
+        dest="output_path",
+        required=True,
+        help=(
+            "path where the mutated planning JSON is written (may be the"
+            " same as --input for in-place edits)"
+        ),
+    )
+    pmin_sp.add_argument(
+        "--csv",
+        dest="csv_path",
+        default=str(DEFAULT_PMIN_CSV),
+        help=(
+            "path to pmin_as_flowright.csv whitelist"
+            f" (default: bundled {DEFAULT_PMIN_CSV.name})"
+        ),
+    )
+    pmin_sp.add_argument(
+        "--uid-start",
+        dest="uid_start",
+        type=int,
+        default=_PMIN_UID_START,
+        help=(f"first UID assigned to new FlowRights (default: {_PMIN_UID_START})"),
+    )
+
     # ── Pumped-storage subcommand ───────────────────────────────────────
     ps_sp = sub.add_parser(
         "pumped_storage",
@@ -542,6 +590,27 @@ def _run_pumped_storage(args: argparse.Namespace) -> Path:
     return last_output
 
 
+def _run_pmin_flowright(args: argparse.Namespace) -> Path:
+    """Execute the pmin-as-FlowRight transform and return the output path.
+
+    Mutates the planning JSON at ``--input`` and writes the result to
+    ``--output`` (which may be the same path for in-place edits).  The
+    number of converted centrals is logged to stderr.
+    """
+    output_path = Path(args.output_path)
+    converted = expand_pmin_flowright_from_file(
+        planning_path=args.input_path,
+        output_path=output_path,
+        csv_path=args.csv_path,
+        uid_start=args.uid_start,
+    )
+    print(
+        f"pmin_as_flowright: converted {converted} central(s)",
+        file=sys.stderr,
+    )
+    return output_path
+
+
 def _run_lng(args: argparse.Namespace) -> Path:
     """Execute the LNG expansion and return the entities path."""
     out_dir = Path(args.output_dir)
@@ -566,6 +635,8 @@ def _run(args: argparse.Namespace) -> Path:
         return _run_ror(args)
     if args.subcommand == "pumped_storage":
         return _run_pumped_storage(args)
+    if args.subcommand == "pmin_as_flowright":
+        return _run_pmin_flowright(args)
 
     stages = _load_stages(args.stages_path)
     options: dict[str, Any] = {
@@ -620,7 +691,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"ERROR: I/O failure: {exc}", file=sys.stderr)
         return 2
 
-    if args.subcommand in ("lng", "ror", "pumped_storage"):
+    if args.subcommand in ("lng", "ror", "pumped_storage", "pmin_as_flowright"):
         print(f"wrote {entities_path}", file=sys.stderr)
     else:
         pampl_path = entities_path.with_name(f"{args.subcommand}.pampl")
