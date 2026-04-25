@@ -730,27 +730,19 @@ auto build_multi_cuts(ElasticSolveResult& elastic,
   // read after a crossover solve (`elastic_opts.crossover = true`
   // in `SDDPMethod::elastic_solve`) so they are vertex-quality.
   //
-  // PLP parity (plp-agrespd.f:791): flat FactEPS outward perturbation
-  // on each per-link RHS.  PLP applies `rhs += FactEPS · |rhs|`
-  // unconditionally in the multi-cut branch — no niter escalation.
+  // Outward epsilon perturbation (D8), scaled by `niter` — the number
+  // of times this (scene, phase) has already emitted a feasibility cut
+  // in the current iteration.  `kFactEps = 1e-10 · niter` starts at 0
+  // on the first emission (raw RHS) and escalates on each repeat so
+  // the master escapes a degenerate LP vertex that keeps regenerating
+  // the same cut.  Pathological cases (juan/gtopt_iplp) used to emit
+  // the same cut hundreds of times with a fixed small ε; the
+  // niter-scaled form lets the perturbation grow until the master
+  // moves.  Matches PLP's escalating retry strategy.
+  //
   // A cut whose |π| falls below `cut_coeff_eps` is dropped — tiny
   // coefficients pollute the LP with near-zero rows.
-  (void)niter;
-  // PLP's FactEPS = 1e-8 (getopts.f:231) applied as `rhs += FactEPS·|rhs|`
-  // (plp-agrespd.f:722, 791) is designed for PLP's unit ray magnitudes
-  // where the resulting LP residual is ε·|rhs| = O(1e-6) — just within
-  // typical solver tolerance.  gtopt's duals can be much larger (pi ≈
-  // 210 on RALCO at juan/gtopt_iplp p11 because dep is coupled through
-  // downstream constraints), so the same formula produces residuals
-  // ≈ ε·pi·|dep| that trip CPLEX's FeasibilityTol=1e-6.
-  //
-  // Set to 0 here: the per-link clamp below keeps `dep_clone_phys`
-  // inside `[source_low, source_upp]`, so the cut sits AT the box edge
-  // rather than slightly OUTSIDE it — LP solver tolerance absorbs any
-  // residual numerical drift on the basis side.  If cycling on the
-  // same cut becomes an issue in practice, re-introduce an ABSOLUTE
-  // (not relative) 1e-8 bump scaled by 1/pi.
-  constexpr double kFactEps = 0.0;
+  const double kFactEps = 1e-10 * static_cast<double>(niter);
 
   // Use the same conventions as `build_feasibility_cut_physical`
   // above: physical-space row duals (`get_row_dual()`) and
@@ -792,14 +784,27 @@ auto build_multi_cuts(ElasticSolveResult& elastic,
         : 0.0;
     const double dx = sdn_val - sup_val;
 
-    // PLP parity (osicallsc.cpp:727-730): drop the link when the slack
-    // activation |dx| is below `(|trial| + 1e-8) × cut_coeff_eps`.  This
-    // additive form is independent of π magnitude (so small-π cases are
-    // handled symmetrically) and matches PLP's FactEPS-gated filter.
-    // The previous relative form `|π·dx| < 1e-12·(|π·v̂|+1e-8)` was ~4
-    // orders of magnitude looser on large-RHS columns.
-    if ((std::abs(link.trial_value) + 1e-8) * cut_coeff_eps > std::abs(dx)) {
-      continue;
+    // Relative low-activation filter: drop cuts where the cut's shift
+    // from the trial state is below `1e-12 × (|π · v̂| + 1e-8)`
+    // (several orders above machine-ε relative to RHS magnitude).
+    // The cut has the form `pi · source_col ≥ pi · (v̂ + dx · scale)`,
+    // so the effective push of the cut (relative to its own RHS) is
+    // `pi · dx / (pi · v̂ + eps) ≈ dx / v̂`.  When below the threshold
+    // the cut shift is beneath meaningful precision and the cut is
+    // effectively redundant.  Crucially, this catches the degenerate
+    // case where `dx ≈ 0` and the trial sits at a box bound — without
+    // this filter, the clamp below collapses the cut to
+    // `source ≥ source_upp` (or `≥ source_low`) and pins the master
+    // LP to the box edge.  PLP's analogous filter
+    // (`osicallsc.cpp:727-730`) uses an additive form that is ~4
+    // orders looser on large-RHS columns; the relative form here is
+    // tighter and matches the LP's relative tolerance more cleanly.
+    {
+      const double rhs_scale =
+          (std::abs(pi) * std::abs(link.trial_value)) + 1e-8;
+      if (std::abs(pi * dx) < 1e-12 * rhs_scale) {
+        continue;
+      }
     }
 
     // Lift dx (slack-col raw LP units) to physical via the dep column's
@@ -814,26 +819,41 @@ auto build_multi_cuts(ElasticSolveResult& elastic,
         elastic.clone.get_col_scale(link.dependent_col);
     const double dep_clone_phys = v_hat_phys + (dx * dep_scale_phys);
 
-    // PLP parity (osicallsc.cpp:753, plp-agrespd.f:791):
-    //   rhs = nx · ray, then rhs += FactEPS · |rhs| (outward).
+    // Cut: pi · source_col ≥ pi · dep_clone_phys + outward ε · |rhs|
+    // (signed so the perturbation is always *outward* in the cut's
+    // direction — for π > 0 the cut tightens lower so add +ε, for
+    // π < 0 it tightens upper so subtract ε).
+    const double rhs_base = pi * dep_clone_phys;
+    const double eps_term = kFactEps * std::abs(rhs_base);
+    const double rhs = rhs_base + ((pi > 0.0) ? eps_term : -eps_term);
+
+    // Defensive clamp on the IMPLIED BOUND (`rhs / pi`), not on
+    // `dep_clone_phys` directly — keeps the cut feasible against the
+    // source column's physical box without collapsing the cut to the
+    // box edge when the elastic clone hit the bound.  Concretely:
+    //   - `clamped_bound = clamp(rhs/pi, source_low, source_upp)`
+    //     bounds the implied source value to the achievable range.
+    //   - `clamped_rhs = pi · clamped_bound` reconstructs the RHS
+    //     after clamp.
     //
-    // Defensive clamp on `dep_clone_phys` to `[source_low, source_upp]`
-    // — PLP's analogous clamp (osicallsc.cpp:744-751) is commented out,
-    // but gtopt's LP writer is stricter about row-LHS vs column-box
-    // residuals at solver tolerance.  Without the clamp, `dep_clone`
-    // can drift a few ULPs past `source_upp` from LP roundoff and the
-    // resulting cut `pi · source ≥ pi · dep_clone` becomes
-    // hard-infeasible against `source ≤ source_upp` by
-    // `pi · (dep_clone - source_upp) ≈ 1e-8 · pi` — enough to trip
-    // CPLEX's 1e-6 feasibility tolerance on large-π cuts (RALCO on
-    // juan/gtopt_iplp p11 showed pi=210, gap=2.5e-5).
-    const double clamped_dep =
-        std::clamp(dep_clone_phys, link.source_low, link.source_upp);
-    const double rhs_base = pi * clamped_dep;
-    const double rhs = rhs_base + (kFactEps * std::abs(rhs_base));
+    // The previous form `clamp(dep_clone_phys, …)` collapsed the cut
+    // to `source ≥ source_upp` (emax-pinning) when `dx ≈ 0` and
+    // `dep_clone_phys ≈ source_upp`.  The relative low-activation
+    // filter above drops those degenerate cases first; with that
+    // filter in place the clamp here only bites when
+    // `dep_clone_phys` *legitimately* exceeds the box (e.g. ULP
+    // drift from LP roundoff on the elastic side), preserving cut
+    // information instead of forcing emax equality.  PLP's analogous
+    // clamp is commented out (osicallsc.cpp:744-751); gtopt keeps a
+    // tighter form because the LP writer is stricter about row-LHS
+    // vs column-box residuals at solver tolerance.
+    const double implied_bound = rhs / pi;
+    const double clamped_bound =
+        std::clamp(implied_bound, link.source_low, link.source_upp);
+    const double clamped_rhs = pi * clamped_bound;
 
     auto cut = SparseRow {
-        .lowb = rhs,
+        .lowb = clamped_rhs,
         .uppb = LinearProblem::DblMax,
         .class_name = link.class_name,
         .constraint_name = "mcut",
