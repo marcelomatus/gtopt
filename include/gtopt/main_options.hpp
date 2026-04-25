@@ -19,8 +19,10 @@
 #include <gtopt/cli_options.hpp>
 #include <gtopt/config_file.hpp>
 #include <gtopt/gtopt_main.hpp>
+#include <gtopt/hardware_info.hpp>
 #include <gtopt/label_maker.hpp>
 #include <gtopt/linear_problem.hpp>
+#include <gtopt/memory_monitor.hpp>
 #include <gtopt/planning.hpp>
 #include <gtopt/solver_options.hpp>
 
@@ -213,9 +215,20 @@ template<typename T>
        po::value<std::string>(),
        "process memory limit for work pool throttling "
        "(e.g. 4096, 300M, 5G)")  //
+      ("memory-quota",
+       po::value<double>(),
+       "memory budget as a percentage of total host RAM "
+       "(e.g. 30 → 30% of MemTotal, applied as --memory-limit). "
+       "Overrides --memory-limit when both are given.")  //
       ("cpu-factor",
        po::value<double>(),
        "work pool thread over-commit factor (default: 4.0)")  //
+      ("cpu-quota",
+       po::value<double>(),
+       "CPU budget as a percentage of physical cores (e.g. 30 → use "
+       "30% of physical cores).  Shrinks physical_concurrency() once "
+       "at startup so every work pool's max_threads scales down "
+       "automatically.  Does not affect LP solver thread count.")  //
       ("write-out",
        po::value<std::string>(),
        "comma-separated list of output fields the solver should emit "
@@ -530,7 +543,56 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
     }
   }
 
-  if (opts.memory_limit) {
+  // CPU quota: clamp `physical_concurrency()` once for the rest of the
+  // process so every work-pool factory's `cpu_factor × physical_cores`
+  // calculation gets the right slice of the host.  Must happen before
+  // any pool is constructed.  Values outside (0, 100) are silently
+  // ignored by `set_cpu_quota_pct` (no-op clamp).
+  if (opts.cpu_quota) {
+    set_cpu_quota_pct(*opts.cpu_quota);
+    if (get_cpu_quota_pct() > 0.0) {
+      spdlog::info("cpu-quota={:.0f}% → effective physical cores: {} of {}",
+                   *opts.cpu_quota,
+                   physical_concurrency(),
+                   detected_physical_concurrency());
+    } else {
+      spdlog::warn(
+          "cpu-quota={} is outside (0, 100) — ignored; "
+          "physical_concurrency()={}",
+          *opts.cpu_quota,
+          physical_concurrency());
+    }
+  }
+
+  // Memory quota: translate "% of MemTotal" to an absolute MB value
+  // and route through the existing `pool_memory_limit_mb` pipeline.
+  // Takes precedence over `--memory-limit` when both are set.
+  std::optional<double> resolved_memory_limit_mb;
+  if (opts.memory_quota && *opts.memory_quota > 0.0
+      && *opts.memory_quota < 100.0)
+  {
+    const auto snap = MemoryMonitor::get_system_memory_snapshot();
+    if (snap.total_mb > 0.0) {
+      resolved_memory_limit_mb = snap.total_mb * (*opts.memory_quota) / 100.0;
+      spdlog::info("memory-quota={:.0f}% of {:.0f} MB → memory_limit={:.0f} MB",
+                   *opts.memory_quota,
+                   snap.total_mb,
+                   *resolved_memory_limit_mb);
+    } else {
+      spdlog::warn(
+          "memory-quota={}% requested but MemTotal could not be read; "
+          "ignoring",
+          *opts.memory_quota);
+    }
+  } else if (opts.memory_quota) {
+    spdlog::warn("memory-quota={} is outside (0, 100) — ignored",
+                 *opts.memory_quota);
+  }
+
+  if (resolved_memory_limit_mb) {
+    planning.options.sddp_options.pool_memory_limit_mb =
+        resolved_memory_limit_mb;
+  } else if (opts.memory_limit) {
     planning.options.sddp_options.pool_memory_limit_mb =
         parse_memory_size(*opts.memory_limit);
   }
@@ -636,9 +698,11 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
           get_opt<std::string>(vm, "memory-saving")
               .or_else([&] { return get_opt<std::string>(vm, "low-memory"); }),
       .memory_limit = get_opt<std::string>(vm, "memory-limit"),
+      .memory_quota = get_opt<double>(vm, "memory-quota"),
       .sddp_cpu_factor =
           get_opt<double>(vm, "cpu-factor")
               .or_else([&] { return get_opt<double>(vm, "sddp-cpu-factor"); }),
+      .cpu_quota = get_opt<double>(vm, "cpu-quota"),
       .build_mode = get_opt<std::string>(vm, "build-mode"),
       .write_out = get_opt<std::string>(vm, "write-out"),
       .solver = get_opt<std::string>(vm, "solver"),
@@ -776,10 +840,12 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
     opts.memory_saving = get_str("low-memory");
   }
   opts.memory_limit = get_str("memory-limit");
+  opts.memory_quota = get_dbl("memory-quota");
   opts.sddp_cpu_factor = get_dbl("cpu-factor");
   if (!opts.sddp_cpu_factor) {
     opts.sddp_cpu_factor = get_dbl("sddp-cpu-factor");
   }
+  opts.cpu_quota = get_dbl("cpu-quota");
   opts.build_mode = get_str("build-mode");
   opts.write_out = get_str("write-out");
 
@@ -926,7 +992,9 @@ inline void merge_config_defaults(MainOptions& opts,
   merge(opts.sddp_num_apertures, defaults.sddp_num_apertures);
   merge(opts.memory_saving, defaults.memory_saving);
   merge(opts.memory_limit, defaults.memory_limit);
+  merge(opts.memory_quota, defaults.memory_quota);
   merge(opts.sddp_cpu_factor, defaults.sddp_cpu_factor);
+  merge(opts.cpu_quota, defaults.cpu_quota);
   merge(opts.build_mode, defaults.build_mode);
   merge(opts.write_out, defaults.write_out);
   merge(opts.solver, defaults.solver);
