@@ -2129,3 +2129,86 @@ TEST_CASE("benchmark CSV vs JSON save/load with many cuts")  // NOLINT
   std::filesystem::remove(csv_file);
   std::filesystem::remove(json_file);
 }
+
+// ── extract_iteration_from_name ──────────────────────────────────────────────
+//
+// Parses the 0-based ``IterationIndex`` field embedded in an SDDP cut row
+// label.  The function is exposed in the gtopt namespace (declared in
+// ``sddp_cut_io.hpp``) precisely so this test can exercise it without
+// reaching into translation-unit-private symbols.  Coverage targets the
+// three label families that DO carry an iteration field
+// (``sddp_scut_*`` / ``sddp_fcut_*`` / ``sddp_bcut_*``) plus the one
+// that does NOT (``sddp_ecut_*``) and a handful of malformed inputs.
+
+TEST_CASE("extract_iteration_from_name parses scut/fcut/bcut labels")  // NOLINT
+{
+  // Format: sddp_{type}_{uid}_{scene}_{phase}_{iteration}_{offset}
+  CHECK(extract_iteration_from_name("sddp_scut_42_1_2_3_0")
+        == IterationIndex {3});
+  CHECK(extract_iteration_from_name("sddp_fcut_42_1_2_7_0")
+        == IterationIndex {7});
+  CHECK(extract_iteration_from_name("sddp_bcut_42_1_2_15_0")
+        == IterationIndex {15});
+
+  SUBCASE("0-based field is preserved verbatim — caller does the +1 to UID")
+  {
+    // No internal +1 conversion: the function returns IterationIndex,
+    // matching the on-disk format.  Callers feeding this into
+    // ``make_iteration_context`` apply ``uid_of(...)`` at the boundary.
+    CHECK(extract_iteration_from_name("sddp_scut_1_0_0_0_0")
+          == IterationIndex {0});
+    CHECK(extract_iteration_from_name("sddp_scut_1_0_0_99_5")
+          == IterationIndex {99});
+  }
+
+  SUBCASE("negative-uid placeholder (= unknown_uid) is rejected")
+  {
+    // ``sddp_{type}_-1_…`` encodes ``unknown_uid`` for the
+    // variable_uid field — bad-formed labels that should never
+    // reach the cut loader.  Modern emitters always produce a
+    // real positive UID; the legacy placeholder is rejected with
+    // ``std::invalid_argument`` so upstream emitters surface the
+    // bug directly instead of silently round-tripping a sentinel.
+    // The ``(void)`` cast suppresses the ``[[nodiscard]]`` warning
+    // on the function call — we are checking the throw side-effect
+    // here, not the return value.
+    CHECK_THROWS_AS((void)extract_iteration_from_name("sddp_scut_-1_0_0_4_0"),
+                    std::invalid_argument);
+    CHECK_THROWS_AS((void)extract_iteration_from_name("sddp_fcut_-1_2_3_11_7"),
+                    std::invalid_argument);
+    CHECK_THROWS_AS((void)extract_iteration_from_name("sddp_bcut_-1_0_0_0_0"),
+                    std::invalid_argument);
+    // A real positive variable_uid + negative scene_uid also throws.
+    CHECK_THROWS_AS((void)extract_iteration_from_name("sddp_scut_42_-1_0_0_0"),
+                    std::invalid_argument);
+    // Negative offset (the trailing field) is allowed — it is a
+    // free ``int`` discriminator, not a UID.
+    CHECK(extract_iteration_from_name("sddp_scut_42_0_0_3_-7")
+          == IterationIndex {3});
+  }
+}
+
+TEST_CASE(
+    "extract_iteration_from_name returns 0 for ecut/non-cut/malformed")  // NOLINT
+{
+  // ecut labels do NOT carry an iteration field.
+  CHECK(extract_iteration_from_name("sddp_ecut_1_2_42") == IterationIndex {0});
+
+  // Non-cut row names are silently rejected (no warning, just 0).
+  CHECK(extract_iteration_from_name("bus_balance_1_51_28_271")
+        == IterationIndex {0});
+  CHECK(extract_iteration_from_name("") == IterationIndex {0});
+
+  SUBCASE("too few underscore-separated fields returns 0")
+  {
+    CHECK(extract_iteration_from_name("sddp_scut_1") == IterationIndex {0});
+    CHECK(extract_iteration_from_name("sddp_scut_1_2_3_")
+          == IterationIndex {0});
+  }
+
+  SUBCASE("non-numeric iteration field returns 0")
+  {
+    CHECK(extract_iteration_from_name("sddp_scut_1_0_0_abc_0")
+          == IterationIndex {0});
+  }
+}

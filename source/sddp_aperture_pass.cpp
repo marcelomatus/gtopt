@@ -267,8 +267,10 @@ auto SDDPMethod::install_aperture_backward_cut(
   fallback_cut.class_name = sddp_alpha_class_name;
   fallback_cut.constraint_name = sddp_bcut_constraint_name;
   fallback_cut.variable_uid = uid_of(src_phase_index);
-  fallback_cut.context = make_iteration_context(
-      uid_of(scene_index), uid_of(phase_index), iteration_index, cut_offset);
+  fallback_cut.context = make_iteration_context(uid_of(scene_index),
+                                                uid_of(phase_index),
+                                                gtopt::uid_of(iteration_index),
+                                                cut_offset);
   dt_cut_build += elapsed_s(t_build);
 
   // Unified `add_cut_row`: releases α on `src_phase_index` iff the

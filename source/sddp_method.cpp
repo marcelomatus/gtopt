@@ -1106,8 +1106,10 @@ auto SDDPMethod::backward_pass_single_phase(SceneIndex scene_index,
   cut.class_name = sddp_alpha_class_name;
   cut.constraint_name = sddp_scut_constraint_name;
   cut.variable_uid = uid_of(prev_phase_index);
-  cut.context = make_iteration_context(
-      uid_of(scene_index), uid_of(phase_index), iteration_index, cut_offset);
+  cut.context = make_iteration_context(uid_of(scene_index),
+                                       uid_of(phase_index),
+                                       gtopt::uid_of(iteration_index),
+                                       cut_offset);
   const auto dt_build = elapsed_s(t_build);
 
   // Unified `add_cut_row`: releases α on `prev_phase_index` iff the
@@ -1243,10 +1245,13 @@ auto SDDPMethod::backward_pass(SceneIndex scene_index,
 void SDDPMethod::share_cuts_for_phase(
     PhaseIndex phase_index,
     const StrongIndexVector<SceneIndex, std::vector<SparseRow>>& scene_cuts,
-    [[maybe_unused]] IterationIndex iteration_index)
+    IterationIndex iteration_index)
 {
-  gtopt::share_cuts_for_phase(
-      phase_index, scene_cuts, m_options_.cut_sharing, planning_lp(), {});
+  gtopt::share_cuts_for_phase(phase_index,
+                              scene_cuts,
+                              m_options_.cut_sharing,
+                              planning_lp(),
+                              iteration_index);
 }
 
 // ── Cut pruning ─────────────────────────────────────────────────────────────

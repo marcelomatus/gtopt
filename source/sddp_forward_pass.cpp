@@ -19,6 +19,7 @@
 
 #include <gtopt/as_label.hpp>
 #include <gtopt/benders_cut.hpp>
+#include <gtopt/iteration.hpp>
 #include <gtopt/lp_context.hpp>
 #include <gtopt/planning_lp.hpp>
 #include <gtopt/sddp_method.hpp>
@@ -385,10 +386,11 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
             // this the row carries unknown_uid=-1 which serialises as
             // `sddp_fcut_-1_…`, rejected by CoinLpIO's row-name validator.
             feas_cut.variable_uid = uid_of(prev_phase_index);
-            feas_cut.context = make_iteration_context(uid_of(scene_index),
-                                                      uid_of(phase_index),
-                                                      iteration_index,
-                                                      infeas_count);
+            feas_cut.context =
+                make_iteration_context(uid_of(scene_index),
+                                       uid_of(phase_index),
+                                       gtopt::uid_of(iteration_index),
+                                       infeas_count);
             // α stays pinned at `[0, 0]` (bootstrap) on a feasibility
             // cut.  Feasibility cuts only assert "these master states
             // cause downstream infeasibility" — they convey no lower
@@ -408,15 +410,15 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
           }
 
           if (use_multi_cut) {
-            auto mc_cuts =
-                build_multi_cuts(*elastic_result,
-                                 prev_state.outgoing_links,
-                                 make_iteration_context(uid_of(scene_index),
-                                                        uid_of(phase_index),
-                                                        iteration_index,
-                                                        infeas_count),
-                                 m_options_.cut_coeff_eps,
-                                 static_cast<int>(infeas_count));
+            auto mc_cuts = build_multi_cuts(
+                *elastic_result,
+                prev_state.outgoing_links,
+                make_iteration_context(uid_of(scene_index),
+                                       uid_of(phase_index),
+                                       gtopt::uid_of(iteration_index),
+                                       infeas_count),
+                m_options_.cut_coeff_eps,
+                static_cast<int>(infeas_count));
             for (auto& mc : mc_cuts) {
               const auto cut_row = add_cut_row(planning_lp(),
                                                scene_index,
@@ -463,10 +465,11 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
               // Same uid invariant as the non-multi-cut path (master #426)
               // — avoids `sddp_fcut_-1_…` rows that CoinLpIO rejects.
               feas_cut.variable_uid = uid_of(prev_phase_index);
-              feas_cut.context = make_iteration_context(uid_of(scene_index),
-                                                        uid_of(phase_index),
-                                                        iteration_index,
-                                                        infeas_count);
+              feas_cut.context =
+                  make_iteration_context(uid_of(scene_index),
+                                         uid_of(phase_index),
+                                         gtopt::uid_of(iteration_index),
+                                         infeas_count);
 
               const auto cut_row = add_cut_row(planning_lp(),
                                                scene_index,

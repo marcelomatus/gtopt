@@ -487,7 +487,7 @@ auto solve_apertures_for_phase(
   ecut.constraint_name = sddp_ecut_constraint_name;
   ecut.variable_uid = phase_uid_val;
   ecut.context = make_iteration_context(
-      scene_uid_val, phase_uid_val, iteration_index, total_cuts);
+      scene_uid_val, phase_uid_val, uid_of(iteration_index), total_cuts);
   return ecut;
 }
 
