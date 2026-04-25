@@ -1051,3 +1051,115 @@ def test_embalse_bus_zero_never_skipped():
     # Embalse always creates junction + reservoir
     assert len(result["junction_array"]) >= 1
     assert len(result["reservoir_array"]) == 1
+
+
+# ─── PLP sentinel vert_max / vert_min normalization ───────────────────────────
+
+
+@pytest.mark.parametrize("sentinel_value", [9000.0, 9911.0, 9999.0, 10042.0, 99999.0])
+def test_vert_max_sentinel_dropped(sentinel_value, caplog):
+    """Sentinel-large vert_max is treated as unbounded (no fmax emitted)."""
+    central = {
+        "name": "SerieX",
+        "number": 1,
+        "type": "serie",
+        "bus": 0,
+        "pmin": 0,
+        "pmax": 100,
+        "vert_min": 0,
+        "vert_max": sentinel_value,
+        "efficiency": 1.0,
+        "ser_hid": 2,
+        "ser_ver": 3,
+        "afluent": 0.0,
+    }
+    writer = JunctionWriter(central_parser=MockCentralParser([central]))
+    with caplog.at_level(logging.INFO):
+        result = writer.to_json_array()[0]
+
+    ver_ww = next(w for w in result["waterway_array"] if w["name"].endswith("_ver_1_3"))
+    assert "fmax" not in ver_ww, (
+        f"Sentinel vert_max={sentinel_value} should yield no fmax field"
+    )
+    assert ver_ww["fmin"] == 0.0
+    assert writer._vert_sentinel_count >= 1
+    # The summary log line should be emitted.
+    assert any("Normalized" in r.message for r in caplog.records)
+
+
+def test_vert_max_real_value_preserved():
+    """Real (non-sentinel) vert_max values are preserved as fmax."""
+    central = {
+        "name": "SerieY",
+        "number": 1,
+        "type": "serie",
+        "bus": 0,
+        "pmin": 0,
+        "pmax": 100,
+        "vert_min": 0,
+        "vert_max": 20.1,  # real value observed in plpcnfce.dat (OJOS_DE_AGUA)
+        "efficiency": 1.0,
+        "ser_hid": 2,
+        "ser_ver": 3,
+        "afluent": 0.0,
+    }
+    writer = JunctionWriter(central_parser=MockCentralParser([central]))
+    result = writer.to_json_array()[0]
+
+    ver_ww = next(w for w in result["waterway_array"] if w["name"].endswith("_ver_1_3"))
+    assert ver_ww["fmax"] == 20.1
+    assert writer._vert_sentinel_count == 0
+
+
+def test_vert_min_sentinel_dropped():
+    """Sentinel-large vert_min is reset to 0 to avoid forced spill infeasibility."""
+    central = {
+        "name": "SerieZ",
+        "number": 1,
+        "type": "serie",
+        "bus": 0,
+        "pmin": 0,
+        "pmax": 100,
+        "vert_min": 9925.0,  # would force impossible minimum spill
+        "vert_max": 0,
+        "efficiency": 1.0,
+        "ser_hid": 2,
+        "ser_ver": 3,
+        "afluent": 0.0,
+    }
+    writer = JunctionWriter(central_parser=MockCentralParser([central]))
+    result = writer.to_json_array()[0]
+
+    ver_ww = next(w for w in result["waterway_array"] if w["name"].endswith("_ver_1_3"))
+    assert ver_ww["fmin"] == 0.0
+    assert writer._vert_sentinel_count >= 1
+
+
+def test_vert_max_sentinel_on_embalse():
+    """Sentinel vert_max on an embalse (e.g. PEHUENCHE) is also dropped."""
+    embalse = {
+        "name": "PEHUENCHE",
+        "number": 21,
+        "type": "embalse",
+        "bus": 0,
+        "pmin": 0,
+        "pmax": 543.3,
+        "vert_min": 0,
+        "vert_max": 9999.0,  # observed sentinel in plp_long_term/plpcnfce.dat
+        "efficiency": 1.78,
+        "ser_hid": 25,
+        "ser_ver": 22,
+        "afluent": 0.0,
+        "vol_ini": 1.2,
+        "vol_fin": 1.2,
+        "emin": 1.06,
+        "emax": 1.34,
+    }
+    writer = JunctionWriter(central_parser=MockCentralParser([embalse]))
+    result = writer.to_json_array()[0]
+
+    ver_ww = next(
+        w for w in result["waterway_array"] if w["name"].endswith("_ver_21_22")
+    )
+    assert "fmax" not in ver_ww
+    assert writer._vert_sentinel_count >= 1

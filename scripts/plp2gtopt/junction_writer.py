@@ -36,6 +36,21 @@ _logger = logging.getLogger(__name__)
 # cannot collide with central UIDs (which are typically in the range 1–999).
 _OCEAN_UID_OFFSET = 10000
 
+# PLP convention: VertMin/VertMax in plpcnfce.dat is sometimes set to a
+# numeric sentinel meaning "essentially unbounded" — observed values are in
+# the 9000–10042 band (looks like 9000 + central_index) and 99999.  A real
+# Chilean spillway flow cap is at most a few thousand m³/s, so any value at
+# or above this threshold is treated as "unspecified" and dropped from the
+# emitted waterway, leaving the spill flow unbounded.  Keeping the sentinel
+# as a literal upper bound inflates LP matrix kappa and yields false
+# binding-bound duals.
+_VERT_BOUND_SENTINEL_THRESHOLD = 9000.0
+
+
+def _is_vert_sentinel(value: float) -> bool:
+    """Return True if ``value`` looks like a "no bound" sentinel."""
+    return value >= _VERT_BOUND_SENTINEL_THRESHOLD
+
 
 class Waterway(TypedDict, total=False):
     """Represents a waterway connection between junctions in the hydro system."""
@@ -272,6 +287,7 @@ class JunctionWriter(BaseWriter):
         self._junction_names: dict[int, str] = {}
         self._skipped_isolated: list[str] = []
         self._referenced_junctions: set[int] = set()
+        self._vert_sentinel_count = 0
         # Resolved at the start of to_json_array() from --ror-as-reservoirs*
         # options.  Maps promoted central name -> RorSpec (vmax_hm3 +
         # production_factor override).
@@ -415,6 +431,14 @@ class JunctionWriter(BaseWriter):
         if self.cenre_parser and central_parser:
             self._process_reservoir_efficiencies(system)
 
+        if self._vert_sentinel_count > 0:
+            _logger.info(
+                "Normalized %d sentinel vert_min/vert_max bound(s) "
+                "(>= %g) to unbounded — improves LP scaling.",
+                self._vert_sentinel_count,
+                _VERT_BOUND_SENTINEL_THRESHOLD,
+            )
+
         return [cast(Dict[str, Any], system)]
 
     def _process_central(
@@ -475,16 +499,42 @@ class JunctionWriter(BaseWriter):
         # for the spillway flow cap (there is still a physical spillway; the
         # file just does not constrain its flow).  gtopt's validator rejects
         # waterway fmax == 0 as "must be > 0", so we translate 0 → None and
-        # let the field be omitted, yielding an unbounded spillway.
-        vert_max_raw = central.get("vert_max", 0.0)
-        vert_fmax: Optional[float] = (
-            None if vert_max_raw in (0, 0.0) else float(vert_max_raw)
-        )
+        # let the field be omitted, yielding an unbounded spillway.  Large
+        # PLP sentinel values (see ``_VERT_BOUND_SENTINEL_THRESHOLD``) are
+        # treated identically — they mean "unbounded" and would otherwise
+        # bloat LP matrix kappa.
+        vert_max_raw = float(central.get("vert_max", 0.0) or 0.0)
+        if vert_max_raw in (0, 0.0) or _is_vert_sentinel(vert_max_raw):
+            vert_fmax: Optional[float] = None
+            if _is_vert_sentinel(vert_max_raw):
+                self._vert_sentinel_count += 1
+                _logger.debug(
+                    "Dropping sentinel vert_max=%g for central '%s' "
+                    "(treated as unbounded spillway).",
+                    vert_max_raw,
+                    central_name,
+                )
+        else:
+            vert_fmax = vert_max_raw
+
+        vert_min_raw = float(central.get("vert_min", 0.0) or 0.0)
+        if _is_vert_sentinel(vert_min_raw):
+            self._vert_sentinel_count += 1
+            _logger.debug(
+                "Dropping sentinel vert_min=%g for central '%s' "
+                "(treated as 0 — no minimum spill).",
+                vert_min_raw,
+                central_name,
+            )
+            vert_fmin = 0.0
+        else:
+            vert_fmin = vert_min_raw
+
         ver_waterway = self._create_waterway(
             central_name + "_ver",
             central_id,
             central["ser_ver"],
-            central.get("vert_min", 0.0),
+            vert_fmin,
             vert_fmax,
         )
 
