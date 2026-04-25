@@ -13,7 +13,6 @@
 
 #pragma once
 
-#include <cassert>
 #include <functional>
 #include <optional>
 
@@ -22,6 +21,7 @@
 #include <gtopt/junction_lp.hpp>
 #include <gtopt/linear_interface.hpp>
 #include <gtopt/scenario.hpp>
+#include <gtopt/utils.hpp>
 
 namespace gtopt
 {
@@ -51,10 +51,8 @@ public:
 
   [[nodiscard]] auto junction_sid() const
   {
-    const auto& opt = flow().junction;
-    assert(opt.has_value()
-           && "junction_sid() called on a Flow without a junction");
-    return JunctionLPSId {*opt};
+    return JunctionLPSId {
+        require_sid(flow().junction, "FlowLP::junction_sid", "junction")};
   }
 
   [[nodiscard]] constexpr bool is_input() const noexcept

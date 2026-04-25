@@ -28,6 +28,31 @@
 namespace gtopt
 {
 
+void BoxEdgeStats::tally(double clamped, const StateVarLink& link)
+{
+  // Decile band width — anything within 10 % of either edge of the
+  // source box ``[source_low, source_upp]`` counts as "at the edge".
+  // The fallback ``std::max(1.0, …)`` keeps the band well-defined
+  // even when the source bounds collapse to a single point (zero
+  // box_width) — typical in test fixtures that haven't populated
+  // physical bounds.
+  const double box_width = std::max(1.0, link.source_upp - link.source_low);
+  const double tol = 0.10 * box_width;
+  if (clamped >= link.source_upp - tol) {
+    ++upper;
+    if (!link.name.empty()) {
+      if (!upper_names.empty()) {
+        upper_names += ", ";
+      }
+      upper_names += link.name;
+    }
+  } else if (clamped <= link.source_low + tol) {
+    ++lower;
+  } else {
+    ++inside;
+  }
+}
+
 // ─── Optimality cut ─────────────────────────────────────────────────────────
 
 void propagate_trial_values(std::span<StateVarLink> links,
@@ -204,6 +229,13 @@ auto build_feasibility_cut_physical(std::span<const StateVarLink> links,
   auto duals = rc_source.get_row_dual();
   const auto sol_raw = rc_source.get_col_sol_raw();
 
+  // Box-edge degeneracy diagnostic.  See `BoxEdgeStats` for the
+  // tally semantics: every active link is bucketed into upper / lower
+  // / inside relative to its source box ``[source_low, source_upp]``,
+  // and a WARN fires when every active link clamps at the upper
+  // edge (= the cascade-infeasibility signature).
+  BoxEdgeStats box_stats;
+
   const auto n = std::min(links.size(), link_infos.size());
   for (std::size_t i = 0; i < n; ++i) {
     const auto& link = links[i];
@@ -264,8 +296,29 @@ auto build_feasibility_cut_physical(std::span<const StateVarLink> links,
     const double clamped =
         std::clamp(dep_clone_phys, link.source_low, link.source_upp);
 
+    box_stats.tally(clamped, link);
+
     row[link.source_col] = pi;
     row.lowb += pi * clamped;
+  }
+
+  if (box_stats.all_upper_degenerate()) {
+    SPDLOG_WARN(
+        "build_feasibility_cut_physical: degenerate cut — "
+        "all {} contributing links clamp at source_upp; "
+        "RHS floors every state at its physical max.  Likely "
+        "cascade-infeasibility on next master retry. "
+        "Reservoirs: [{}]",
+        box_stats.total(),
+        box_stats.upper_names);
+  } else if (box_stats.total() > 0) {
+    SPDLOG_DEBUG(
+        "build_feasibility_cut_physical: cut box-edge stats — "
+        "upper={} lower={} inside={} (of {} active links)",
+        box_stats.upper,
+        box_stats.lower,
+        box_stats.inside,
+        box_stats.total());
   }
 
   // PLP parity (plp-agrespd.f:722): flat FactEPS-relative outward
@@ -431,6 +484,16 @@ RelaxedVarInfo relax_fixed_state_variable(
       ? std::max(0.0, link.trial_value - src_low_lp)
       : LinearProblem::DblMax;
 
+  // Symmetric slack cost — PLP convention (``osicallsc.cpp:658``):
+  // both ``sup`` and ``sdn`` are priced at the same ``slack_cost``
+  // (= 1.0 by default in PLP, ``penalty`` here).  Asymmetric biasing
+  // was tested on juan/gtopt_iplp (``kSdnUpwardBias = 1e-3`` aiming
+  // to break the emax-pinning vertex) but did NOT change CPLEX's
+  // vertex selection because the chosen optimum is structurally
+  // determined by p28's tightness, not a tiebreak.  Reverted to
+  // PLP-equivalent symmetric pricing so the elastic clone behaves
+  // identically to PLP's ``osi_lp_get_feasible_cut`` modulo
+  // gtopt's stricter row writer.
   const auto sup = li.add_col(SparseCol {
       .uppb = sup_uppb,
       .cost = slack_cost,
@@ -742,7 +805,7 @@ auto build_multi_cuts(ElasticSolveResult& elastic,
   //
   // A cut whose |π| falls below `cut_coeff_eps` is dropped — tiny
   // coefficients pollute the LP with near-zero rows.
-  const double kFactEps = 1e-10 * static_cast<double>(niter);
+  const double kFactEps = 0.01 * cut_coeff_eps * static_cast<double>(niter);
 
   // Use the same conventions as `build_feasibility_cut_physical`
   // above: physical-space row duals (`get_row_dual()`) and
@@ -751,7 +814,31 @@ auto build_multi_cuts(ElasticSolveResult& elastic,
   // equilibration uniformly.
   auto duals = elastic.clone.get_row_dual();
   const auto sol_raw = elastic.clone.get_col_sol_raw();
+  // Per-column raw objective coefficients on the elastic clone.
+  // The slack columns ``info.sup_col`` / ``info.sdn_col`` were
+  // priced at relaxation time by ``relax_fixed_state_variable``
+  // (``slack_cost_sup = penalty`` and
+  // ``slack_cost_sdn = penalty × (1 + kSdnUpwardBias)``), so reading
+  // the cost back from the clone is the canonical source of truth —
+  // it captures the actual per-direction asymmetric bias plus any
+  // future per-link variation, with no plumbing through the call
+  // chain.  Only the global ``penalty`` parameter is still passed
+  // in (used as a sanity baseline); per-link costs override it
+  // below.
+  const auto col_costs = elastic.clone.get_col_cost_raw();
   const auto& link_infos = elastic.link_infos;
+
+  // Box-edge degeneracy diagnostic + drop-degenerate guard.  See
+  // `BoxEdgeStats` for the per-link tally semantics.  When every
+  // emitted cut clamps at the upper edge (top 10 % of each
+  // ``[source_low, source_upp]`` box), the family is degenerate —
+  // it floors every state at emax, which the master cannot reach
+  // in one phase if the predecessor's solved efin sits anywhere
+  // meaningfully below.  We DROP that family at the end of this
+  // function (see post-loop guard) so the caller can declare
+  // infeasibility cleanly instead of installing rows that will
+  // cascade-fail on the next forward attempt.
+  BoxEdgeStats box_stats;
 
   for (const auto& [info, link] : std::views::zip(link_infos, links)) {
     if (!info.relaxed) {
@@ -761,7 +848,49 @@ auto build_multi_cuts(ElasticSolveResult& elastic,
       continue;
     }
     const double pi = -duals[info.fixing_row];
-    if (std::abs(pi) < cut_coeff_eps) {
+
+    // Per-link slack cost — read from the clone's slack columns so
+    // the filter threshold automatically picks up whatever
+    // ``relax_fixed_state_variable`` set, including the asymmetric
+    // ``sdn`` upward bias (``slack_cost_sdn = penalty × (1 + 1e-3)``)
+    // and any future ``var_scale``-aware pricing (e.g.
+    // ``penalty × var_scale`` for per-physical-unit cost).
+    //
+    // **Unit alignment with ``pi``**: ``pi = -duals[fixing_row]`` is
+    // returned by ``get_row_dual()`` which delivers *physical* duals
+    // (raw_dual × row_scale × … — see LinearInterface).
+    // ``get_col_cost_raw()`` returns raw-LP-space costs.  We promote
+    // the raw cost to physical via ``cost_phys = raw_cost ×
+    // get_col_scale(col)``.  For the slack columns this is a no-op
+    // today (they were added with the default ``col_scale = 1``),
+    // but writing the conversion explicitly keeps the comparison
+    // dimensionally consistent and robust if a future change ever
+    // assigns a non-unit scale to slack columns (e.g. ruiz
+    // equilibration).
+    //
+    // The dual ``pi`` is bounded by ``[-slack_cost_sdn_phys,
+    // +slack_cost_sup_phys]`` at the elastic optimum, so a
+    // meaningful "non-trivial pi" threshold scales with the larger
+    // of the two physical slack costs.  ``default_penalty = 1.0``
+    // matches the PLP convention (``osicallsc.cpp:658``: ``obj=1.0``
+    // flat) and is the fallback when either slack column is absent
+    // (defensive — normally both slacks are added by
+    // ``relax_fixed_state_variable``).
+    constexpr double default_penalty = 1.0;
+    const auto slack_cost_phys =
+        [&col_costs, &elastic](ColIndex slack_col) noexcept -> double
+    {
+      if (slack_col == ColIndex {unknown_index}) {
+        return default_penalty;
+      }
+      const double col_scale = elastic.clone.get_col_scale(slack_col);
+      return std::abs(col_costs[slack_col]) * col_scale;
+    };
+    const double slack_cost_sup = slack_cost_phys(info.sup_col);
+    const double slack_cost_sdn = slack_cost_phys(info.sdn_col);
+    const double slack_cost_max = std::max(slack_cost_sup, slack_cost_sdn);
+
+    if (std::abs(pi) < cut_coeff_eps * slack_cost_max) {
       continue;
     }
 
@@ -784,27 +913,25 @@ auto build_multi_cuts(ElasticSolveResult& elastic,
         : 0.0;
     const double dx = sdn_val - sup_val;
 
-    // Relative low-activation filter: drop cuts where the cut's shift
-    // from the trial state is below `1e-12 × (|π · v̂| + 1e-8)`
-    // (several orders above machine-ε relative to RHS magnitude).
-    // The cut has the form `pi · source_col ≥ pi · (v̂ + dx · scale)`,
-    // so the effective push of the cut (relative to its own RHS) is
-    // `pi · dx / (pi · v̂ + eps) ≈ dx / v̂`.  When below the threshold
-    // the cut shift is beneath meaningful precision and the cut is
-    // effectively redundant.  Crucially, this catches the degenerate
-    // case where `dx ≈ 0` and the trial sits at a box bound — without
-    // this filter, the clamp below collapses the cut to
-    // `source ≥ source_upp` (or `≥ source_low`) and pins the master
-    // LP to the box edge.  PLP's analogous filter
-    // (`osicallsc.cpp:727-730`) uses an additive form that is ~4
-    // orders looser on large-RHS columns; the relative form here is
-    // tighter and matches the LP's relative tolerance more cleanly.
-    {
-      const double rhs_scale =
-          (std::abs(pi) * std::abs(link.trial_value)) + 1e-8;
-      if (std::abs(pi * dx) < 1e-12 * rhs_scale) {
-        continue;
-      }
+    // PLP-style additive low-activation filter
+    // (``osicallsc.cpp:727-730``):
+    //
+    //   if |dx| < (|trial| + 1e-8) × cut_coeff_eps  ⇒  drop
+    //
+    // Filter form copied verbatim from PLP's
+    // ``osi_lp_get_feasible_cut`` to preserve cut-emission parity
+    // with PLP's reference implementation.  The threshold operates
+    // on the slack activation ``|dx|`` directly (NOT on the cut RHS
+    // contribution ``|π·dx|``), so its scale matches what PLP
+    // measures and the same per-link cuts are dropped.  Replaces
+    // the previous gtopt-local relative form
+    // ``|π·dx| < 0.1 × cut_coeff_eps × (|π·v̂| + cut_coeff_eps)``
+    // which over-filtered when ``|π|`` was small (the dual is
+    // dimensioned with the slack cost; tiny ``|π|`` could survive
+    // PLP's filter but be killed by the relative form).  ``+1e-8``
+    // offset keeps the bound finite at ``trial = 0``.
+    if (std::abs(dx) < (std::abs(link.trial_value) + 1e-8) * cut_coeff_eps) {
+      continue;
     }
 
     // Lift dx (slack-col raw LP units) to physical via the dep column's
@@ -862,6 +989,39 @@ auto build_multi_cuts(ElasticSolveResult& elastic,
     };
     cut[link.source_col] = pi;
     cuts.push_back(std::move(cut));
+
+    box_stats.tally(clamped_bound, link);
+  }
+
+  if (box_stats.all_upper_degenerate()) {
+    // Drop the entire family.  PLP's analogous path
+    // (``osicallsc.cpp::osi_lp_get_feasible_cut``) silently emits
+    // the same emax-pinning shape, but in gtopt the downstream
+    // multi-cut install + retry chain cascades through every
+    // upstream phase before the forward-pass attempt budget
+    // exhausts (juan/gtopt_iplp: 28 backtracks p28→p1).  Clearing
+    // ``cuts`` lets the caller in
+    // ``sddp_forward_pass.cpp::forward_pass`` see "no feasibility
+    // cut produced" and declare the scene infeasible immediately,
+    // skipping the wasted retries.
+    SPDLOG_WARN(
+        "build_multi_cuts: degenerate cut family — all {} per-link "
+        "cuts clamp at source_upp (top 10 %% of each box).  RHS "
+        "would floor every state at its physical max; cascade-"
+        "infeasibility on next master retry guaranteed.  DROPPING "
+        "the family so the caller declares infeasibility cleanly. "
+        "Reservoirs: [{}]",
+        box_stats.total(),
+        box_stats.upper_names);
+    cuts.clear();
+  } else if (box_stats.total() > 0 && box_stats.upper > 0) {
+    SPDLOG_DEBUG(
+        "build_multi_cuts: cut box-edge stats — upper={} lower={} "
+        "inside={} (of {} active links) — partial degeneracy",
+        box_stats.upper,
+        box_stats.lower,
+        box_stats.inside,
+        box_stats.total());
   }
 
   return cuts;

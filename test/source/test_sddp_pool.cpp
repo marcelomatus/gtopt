@@ -52,6 +52,91 @@ TEST_CASE("SDDPTaskKey type and constants")  // NOLINT
   }
 }
 
+// ─── make_{forward,backward}_lp_task_req builders ───────────────────────────
+//
+// The builders centralise the (priority, priority_key) tuple used by every
+// SDDP LP-solve scheduler call site.  Coverage targets:
+//  - Forward and backward share `TaskPriority::Medium` (no High/Medium split).
+//  - Direction encoding (fwd=0, bwd=1) lands in the second tuple slot.
+//  - Kind is locked to `SDDPTaskKind::lp` (these are LP-solve task reqs,
+//    not the generic non_lp wrapper).
+//  - Lexicographic ordering invariants on the priority_key match the
+//    documented contract.
+
+TEST_CASE("make_forward_lp_task_req fills the canonical slots")  // NOLINT
+{
+  const auto req = make_forward_lp_task_req(IterationIndex {3}, PhaseIndex {7});
+
+  CHECK(req.priority == TaskPriority::Medium);
+  CHECK(std::get<0>(req.priority_key) == 3);
+  CHECK(std::get<1>(req.priority_key)
+        == static_cast<int>(SDDPPassDirection::forward));
+  CHECK(std::get<2>(req.priority_key) == 7);
+  CHECK(std::get<3>(req.priority_key) == static_cast<int>(SDDPTaskKind::lp));
+  CHECK(!req.name.has_value());
+}
+
+TEST_CASE("make_backward_lp_task_req fills the canonical slots")  // NOLINT
+{
+  const auto req =
+      make_backward_lp_task_req(IterationIndex {3}, PhaseIndex {7});
+
+  CHECK(req.priority == TaskPriority::Medium);
+  CHECK(std::get<0>(req.priority_key) == 3);
+  CHECK(std::get<1>(req.priority_key)
+        == static_cast<int>(SDDPPassDirection::backward));
+  CHECK(std::get<2>(req.priority_key) == 7);
+  CHECK(std::get<3>(req.priority_key) == static_cast<int>(SDDPTaskKind::lp));
+}
+
+TEST_CASE("forward LP task ranks above backward LP task")  // NOLINT
+{
+  // Same iteration + phase: only the direction differs.  The
+  // lexicographic comparator must pick the forward task as more
+  // urgent (smaller tuple).
+  const auto fwd = make_forward_lp_task_req(IterationIndex {0}, PhaseIndex {0});
+  const auto bwd =
+      make_backward_lp_task_req(IterationIndex {0}, PhaseIndex {0});
+  CHECK(fwd.priority_key < bwd.priority_key);
+}
+
+TEST_CASE("task_req ordering: lower iter / lower phase / fwd < bwd")  // NOLINT
+{
+  // Lexicographic priority_key must obey the documented ordering:
+  //   (iteration, direction, phase, kind) ascending = higher priority.
+  const auto i0_fwd_p0 =
+      make_forward_lp_task_req(IterationIndex {0}, PhaseIndex {0}).priority_key;
+  const auto i0_fwd_p1 =
+      make_forward_lp_task_req(IterationIndex {0}, PhaseIndex {1}).priority_key;
+  const auto i0_bwd_p0 =
+      make_backward_lp_task_req(IterationIndex {0}, PhaseIndex {0})
+          .priority_key;
+  const auto i1_fwd_p0 =
+      make_forward_lp_task_req(IterationIndex {1}, PhaseIndex {0}).priority_key;
+
+  // Iteration dominates everything (front of the tuple).
+  CHECK(i0_fwd_p0 < i1_fwd_p0);
+  CHECK(i0_bwd_p0 < i1_fwd_p0);  // even backward of iter 0 wins over fwd iter 1
+
+  // Within the same iteration, forward beats backward.
+  CHECK(i0_fwd_p0 < i0_bwd_p0);
+
+  // Within the same (iteration, direction), lower phase wins.
+  CHECK(i0_fwd_p0 < i0_fwd_p1);
+}
+
+TEST_CASE("task_req builders are constexpr-evaluable")  // NOLINT
+{
+  // Compile-time evaluation locks in the no-allocation, no-runtime-init
+  // contract — `BasicTaskRequirements` is a literal type and the
+  // builders must stay constexpr-compatible.
+  constexpr auto kReq =
+      make_forward_lp_task_req(IterationIndex {2}, PhaseIndex {5});
+  static_assert(std::get<0>(kReq.priority_key) == 2);
+  static_assert(std::get<2>(kReq.priority_key) == 5);
+  CHECK(true);
+}
+
 // ─── Task ordering with SDDPTaskKey ──────────────────────────────────────────
 
 TEST_CASE("Task<SDDPTaskKey> ordering is lexicographic")  // NOLINT

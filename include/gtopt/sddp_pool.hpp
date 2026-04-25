@@ -111,6 +111,53 @@ enum class SDDPTaskKind : int
   };
 }
 
+// ─── Task-requirement builders (LP solves) ───────────────────────────────────
+
+/// Build a `BasicTaskRequirements<SDDPTaskKey>` for a forward-pass LP solve.
+///
+/// Centralises the (priority, priority_key) tuple so the SDDP solver
+/// never spells out the four-element key inline, and so the lexicographic
+/// ordering invariant stays in one place:
+///
+///   forward LP < backward LP            (same iter, same phase)
+///   iter N LP  < iter N+1 LP            (same direction, same phase)
+///   phase P LP < phase P+1 LP           (same iter, same direction)
+///
+/// Both forward and backward solves share `TaskPriority::Medium`; the
+/// tuple key alone provides full SDDP ordering.  Exposed for unit
+/// testing — the priority-key invariant is the contract every SDDP
+/// scheduler caller relies on, and a regression here silently
+/// reorders the solve graph.
+[[nodiscard]] constexpr auto make_forward_lp_task_req(
+    IterationIndex iteration_index, PhaseIndex phase_index) noexcept
+    -> BasicTaskRequirements<SDDPTaskKey>
+{
+  return BasicTaskRequirements<SDDPTaskKey> {
+      .priority = TaskPriority::Medium,
+      .priority_key = make_sddp_task_key(iteration_index,
+                                         SDDPPassDirection::forward,
+                                         phase_index,
+                                         SDDPTaskKind::lp),
+      .name = {},
+  };
+}
+
+/// Build a `BasicTaskRequirements<SDDPTaskKey>` for a backward-pass LP solve.
+/// See `make_forward_lp_task_req` for the ordering invariant.
+[[nodiscard]] constexpr auto make_backward_lp_task_req(
+    IterationIndex iteration_index, PhaseIndex phase_index) noexcept
+    -> BasicTaskRequirements<SDDPTaskKey>
+{
+  return BasicTaskRequirements<SDDPTaskKey> {
+      .priority = TaskPriority::Medium,
+      .priority_key = make_sddp_task_key(iteration_index,
+                                         SDDPPassDirection::backward,
+                                         phase_index,
+                                         SDDPTaskKind::lp),
+      .name = {},
+  };
+}
+
 // ─── SDDPWorkPool
 // ─────────────────────────────────────────────────────────────
 

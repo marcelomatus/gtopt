@@ -110,6 +110,55 @@ struct ApertureEntry
     std::span<const ScenarioLP> all_scenarios, std::ptrdiff_t n_apertures)
     -> Array<Aperture>;
 
+// ─── Effective aperture resolution (filter / synthetic / fallback) ──────────
+
+/// Resolve the effective aperture definitions for a single backward-pass
+/// step.
+///
+/// Centralises the four-way decision used by both
+/// `backward_pass_with_apertures` (loop) and
+/// `backward_pass_with_apertures_single_phase` (single-phase dispatcher):
+///
+///   1. ``requested_uids`` is empty (``std::nullopt``):
+///      - if ``aperture_defs`` is also empty → ``std::nullopt`` (caller
+///        falls back to the non-aperture backward path),
+///      - otherwise → return a span over ``aperture_defs`` unchanged.
+///
+///   2. ``requested_uids`` is present:
+///      - if the requested list is empty → ``std::nullopt`` (fallback),
+///      - if ``aperture_defs`` is non-empty → filter ``aperture_defs``
+///        by UID into ``owned`` (warning emitted for any requested UID
+///        not found),
+///      - if ``aperture_defs`` is empty → build a synthetic aperture
+///        list from ``all_scenarios`` (one per scenario, sized to
+///        ``min(|requested|, |all_scenarios|)``).
+///
+///   3. If after filtering / synthesis ``owned`` is still empty →
+///      ``std::nullopt`` (fallback).
+///
+/// The returned span aliases either the original ``aperture_defs``
+/// span or the caller-provided ``owned`` storage; the caller must
+/// keep both alive for the lifetime of the returned span.
+///
+/// @param aperture_defs   All aperture definitions from the simulation.
+/// @param all_scenarios   All scenario LP objects (used to build a
+///                        synthetic aperture list when no aperture_array).
+/// @param requested_uids  Per-phase aperture UID set (may be empty
+///                        ``std::nullopt`` to mean "use everything").
+/// @param owned           Output storage for filtered / synthetic
+///                        apertures.  Must be empty on entry.  The
+///                        returned span may reference this buffer.
+/// @param log_tag         Caller tag for the "requested UID not found"
+///                        warning (e.g. "BackwardPass[i3 s1 p7]").
+/// @return Span over the effective apertures, or ``std::nullopt`` to
+///         tell the caller to fall back to the non-aperture path.
+[[nodiscard]] auto resolve_effective_apertures(
+    std::span<const Aperture> aperture_defs,
+    std::span<const ScenarioLP> all_scenarios,
+    const std::optional<Array<Uid>>& requested_uids,
+    Array<Aperture>& owned,
+    std::string_view log_tag) -> std::optional<std::span<const Aperture>>;
+
 // ─── Aperture task submission ────────────────────────────────────────────────
 
 /// Result of a single aperture task (clone + update + solve + cut).

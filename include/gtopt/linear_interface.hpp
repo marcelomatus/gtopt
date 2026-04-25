@@ -1745,6 +1745,13 @@ private:
     return *m_backend_;
   }
 
+  /// `ensure_backend()` + null-guard combined.  Use from raw mutation
+  /// setters that previously did `ensure_backend(); assert(m_backend_)`.
+  /// Throws `std::logic_error` if `m_backend_` is still null after
+  /// `ensure_backend()` returns — that condition indicates an internal
+  /// invariant violation, not a user error.
+  [[nodiscard]] SolverBackend& backend_or_throw(std::string_view caller);
+
   std::unique_ptr<SolverBackend> m_backend_;
   std::string m_solver_name_ {};  ///< Solver name for backend reconstruction
   std::string m_solver_version_ {};  ///< Cached version for released backends

@@ -95,13 +95,8 @@ namespace gtopt
 namespace
 {
 
-/// Returns true if *col_name* is a final-state-variable name that can
-/// appear in boundary/hot-start cut CSV headers (efin, soc, vfin).
-[[nodiscard]] constexpr auto is_final_state_col(std::string_view col_name)
-    -> bool
-{
-  return col_name == "efin" || col_name == "soc" || col_name == "vfin";
-}
+// `is_final_state_col` is now declared in `sddp_cut_io.hpp` so it can be
+// covered by unit tests; no local copy is needed here.
 
 // ─── Structured key helpers ─────────────────────────────────────────────────
 

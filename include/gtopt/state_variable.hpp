@@ -21,7 +21,6 @@
 
 #pragma once
 
-#include <cassert>
 #include <span>
 #include <stdexcept>
 #include <string_view>

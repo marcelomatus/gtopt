@@ -50,30 +50,25 @@ template<typename Range>
   return result;
 }
 
-/// Resolve the effective aperture definitions for this iteration.
-///
-/// Returns one of:
-///   - empty optional → caller should fall back to the non-aperture
-///     backward-pass path (apertures disabled, no aperture_array, or
-///     no requested UIDs matched),
-///   - filled optional → use the contained span as the effective
-///     aperture definitions.  The span references either the original
-///     `aperture_defs` (no filtering needed) or the `owned` storage
-///     appended to for synthetic/filtered apertures.
-///
-/// Shared by `backward_pass_with_apertures` (loop) and
-/// `backward_pass_with_apertures_single_phase` (single-phase
-/// dispatcher).  Previously this was duplicated ~30 LOC across both
-/// call sites; the filter semantics diverging silently was a
-/// regression magnet.
-[[nodiscard]] auto resolve_effective_apertures(
-    std::span<const gtopt::Aperture> aperture_defs,
-    std::span<const gtopt::ScenarioLP> all_scenarios,
-    const std::optional<gtopt::Array<gtopt::Uid>>& requested_uids,
-    gtopt::Array<gtopt::Aperture>& owned,  // NOLINT(runtime/references)
-    std::string_view log_tag) -> std::optional<std::span<const gtopt::Aperture>>
+// `resolve_effective_apertures` was moved out of the anonymous
+// namespace into `namespace gtopt` (declared in `sddp_aperture.hpp`)
+// so the four-way decision (filter / synthetic / pass-through /
+// fallback) can be covered by unit tests without reaching into
+// translation-unit-private symbols.  See the header for the full
+// contract.
+
+}  // namespace
+
+namespace gtopt
 {
-  using namespace gtopt;
+
+[[nodiscard]] auto resolve_effective_apertures(
+    std::span<const Aperture> aperture_defs,
+    std::span<const ScenarioLP> all_scenarios,
+    const std::optional<Array<Uid>>& requested_uids,
+    Array<Aperture>& owned,
+    std::string_view log_tag) -> std::optional<std::span<const Aperture>>
+{
   if (!requested_uids.has_value()) {
     if (aperture_defs.empty()) {
       return std::nullopt;  // fallback
@@ -112,11 +107,6 @@ template<typename Range>
   }
   return std::span<const Aperture> {owned};
 }
-
-}  // namespace
-
-namespace gtopt
-{
 
 // ── Helper: install Benders cut on src_li with bcut fallback ────────────────
 

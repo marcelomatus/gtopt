@@ -70,6 +70,37 @@ class PlanningLP;
 [[nodiscard]] auto extract_iteration_from_name(std::string_view name)
     -> IterationIndex;
 
+/// Canonical state-variable column name that may appear as a cut
+/// coefficient column in boundary / hot-start cut CSV headers.
+///
+/// Mirrors the value of ``StorageLP<...>::EfinName`` (the LP
+/// assembly emits this name from ``StorageLP::add_to_lp`` for
+/// reservoir / battery / lng-terminal final energy).  We define a
+/// local mirror — instead of reaching ``StorageLP::EfinName``
+/// directly — because ``StorageLP`` is a class template and its
+/// static members aren't reachable without an instantiation.
+///
+/// Defined as a named constexpr constant — never spelled inline as a
+/// string literal — so a regression that breaks the allow-list shows
+/// up at the type/symbol level, not as a silent string mismatch.
+inline constexpr std::string_view EfinColName {"efin"};
+
+/// Returns true if @p col_name is a final-state column name that may
+/// appear in boundary / hot-start cut CSV headers.
+///
+/// Used by the cut CSV loader to decide whether a header column is a
+/// state variable (and thus a candidate cut coefficient column) or
+/// metadata (rhs / scene / phase / iteration).
+///
+/// Exposed for unit testing: the predicate is the source of truth for
+/// the cut-file column allow-list, and a regression here silently
+/// drops state coefficients on load.
+[[nodiscard]] constexpr auto is_final_state_col(
+    std::string_view col_name) noexcept -> bool
+{
+  return col_name == EfinColName;
+}
+
 /// Build a scene UID -> SceneIndex lookup from a SimulationLP.
 /// Uses flat_map for cache-friendly sorted lookup.
 [[nodiscard]] auto build_scene_uid_map(const PlanningLP& planning_lp)

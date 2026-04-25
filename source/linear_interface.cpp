@@ -12,11 +12,14 @@
 #include <chrono>
 #include <cstring>
 #include <expected>
+#include <format>
 #include <limits>
 #include <memory>
 #include <mutex>
 #include <ranges>
 #include <span>
+#include <stdexcept>
+#include <string_view>
 
 #include <gtopt/error.hpp>
 #include <gtopt/linear_interface.hpp>
@@ -1328,18 +1331,28 @@ void LinearInterface::set_obj_coeff(const ColIndex index, const double value)
 
 // ── Raw column bound setters (LP/solver units) ──
 
-void LinearInterface::set_col_low_raw(const ColIndex index, const double value)
+SolverBackend& LinearInterface::backend_or_throw(std::string_view caller)
 {
   ensure_backend();
-  assert(m_backend_ != nullptr);
-  m_backend_->set_col_lower(static_cast<int>(index), normalize_bound(value));
+  if (!m_backend_) {
+    throw std::logic_error(
+        std::format("LinearInterface::{}: backend is null after "
+                    "ensure_backend() — internal invariant violated",
+                    caller));
+  }
+  return *m_backend_;
+}
+
+void LinearInterface::set_col_low_raw(const ColIndex index, const double value)
+{
+  auto& backend = backend_or_throw("set_col_low_raw");
+  backend.set_col_lower(static_cast<int>(index), normalize_bound(value));
 }
 
 void LinearInterface::set_col_upp_raw(const ColIndex index, const double value)
 {
-  ensure_backend();
-  assert(m_backend_ != nullptr);
-  m_backend_->set_col_upper(static_cast<int>(index), normalize_bound(value));
+  auto& backend = backend_or_throw("set_col_upp_raw");
+  backend.set_col_upper(static_cast<int>(index), normalize_bound(value));
 }
 
 void LinearInterface::set_col_raw(const ColIndex index, const double value)
@@ -1382,16 +1395,14 @@ void LinearInterface::set_col(const ColIndex index, const double physical_value)
 
 void LinearInterface::set_row_low_raw(const RowIndex index, const double value)
 {
-  ensure_backend();
-  assert(m_backend_ != nullptr);
-  m_backend_->set_row_lower(static_cast<int>(index), normalize_bound(value));
+  auto& backend = backend_or_throw("set_row_low_raw");
+  backend.set_row_lower(static_cast<int>(index), normalize_bound(value));
 }
 
 void LinearInterface::set_row_upp_raw(const RowIndex index, const double value)
 {
-  ensure_backend();
-  assert(m_backend_ != nullptr);
-  m_backend_->set_row_upper(static_cast<int>(index), normalize_bound(value));
+  auto& backend = backend_or_throw("set_row_upp_raw");
+  backend.set_row_upper(static_cast<int>(index), normalize_bound(value));
 }
 
 void LinearInterface::set_rhs_raw(const RowIndex row, const double rhs)

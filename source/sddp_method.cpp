@@ -917,53 +917,10 @@ void SDDPMethod::dispatch_update_lp(SceneIndex scene_index,
 
 // ── SDDP task priority helpers ───────────────────────────────────────────────
 
-namespace
-{
-
-/// Build an `SDDPTaskKey` tuple for an SDDP LP solve task.
-///
-/// The key is `(iteration, is_backward, phase, is_nonlp)` where:
-///  - `is_backward`: 0 = forward pass, 1 = backward pass
-///  - `is_nonlp`:    0 = LP solve/resolve, 1 = other (e.g. write_lp)
-///
-/// With the default `std::less<SDDPTaskKey>` comparator (lexicographic),
-/// smaller tuples have **higher** execution priority:
-///  - Lower iteration → higher priority
-///  - Forward pass (0) → higher priority than backward (1)
-///  - Lower phase index → higher priority
-///  - LP solve (0) → higher priority than non-LP (1)
-///
-/// Both forward and backward LP solves use `TaskPriority::Medium`.
-/// The tuple key alone provides the full SDDP ordering, removing the
-/// need for the old High/Medium tier split.
-
-BasicTaskRequirements<SDDPTaskKey> make_forward_lp_task_req(
-    IterationIndex iteration_index, PhaseIndex phase_index) noexcept
-{
-  return BasicTaskRequirements<SDDPTaskKey> {
-      .priority = TaskPriority::Medium,
-      .priority_key = make_sddp_task_key(iteration_index,
-                                         SDDPPassDirection::forward,
-                                         phase_index,
-                                         SDDPTaskKind::lp),
-      .name = {},
-  };
-}
-
-BasicTaskRequirements<SDDPTaskKey> make_backward_lp_task_req(
-    IterationIndex iteration_index, PhaseIndex phase_index) noexcept
-{
-  return BasicTaskRequirements<SDDPTaskKey> {
-      .priority = TaskPriority::Medium,
-      .priority_key = make_sddp_task_key(iteration_index,
-                                         SDDPPassDirection::backward,
-                                         phase_index,
-                                         SDDPTaskKind::lp),
-      .name = {},
-  };
-}
-
-}  // namespace
+// `make_forward_lp_task_req` and `make_backward_lp_task_req` are now declared
+// in `<gtopt/sddp_pool.hpp>` (next to `make_sddp_task_key`) so the priority-
+// key ordering invariant can be covered by unit tests.  The previous
+// anonymous-namespace duplicates were removed in the audit pass.
 
 // ── forward_pass() — now in sddp_forward_pass.cpp ───────────────────────────
 

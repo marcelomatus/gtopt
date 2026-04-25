@@ -1835,3 +1835,204 @@ TEST_CASE(  // NOLINT
 //        the elastic LP may choose dep values arbitrarily, making
 //        `dep_val_phys` meaningless as a cut RHS.
 //
+
+// ===========================================================================
+// BoxEdgeStats — unit-test the cut-emission box-edge tally
+// ===========================================================================
+//
+// `BoxEdgeStats` (declared in `benders_cut.hpp`, exposed from anonymous
+// namespace 2026-04-25) drives the degenerate-cut detection used by
+// both `build_feasibility_cut_physical` and `build_multi_cuts`.  These
+// tests exercise the band-classifier and the `all_upper_degenerate()`
+// predicate in isolation — no LP, no elastic clone, no solver
+// dependency — so a regression in the threshold (currently 10 % of
+// box width) shows up immediately rather than only as a behavioural
+// drift in juan/gtopt_iplp end-to-end runs.
+
+namespace
+{
+/// Minimal StateVarLink fixture for BoxEdgeStats tests.  Only the
+/// fields the tally function reads (``source_low``, ``source_upp``,
+/// ``name``) need real values; the rest stay at struct defaults.
+StateVarLink make_link(double low, double upp, std::string_view name)
+{
+  StateVarLink link {};
+  link.source_low = low;
+  link.source_upp = upp;
+  link.name = name;
+  return link;
+}
+}  // namespace
+
+TEST_CASE("BoxEdgeStats — empty stats")  // NOLINT
+{
+  BoxEdgeStats stats;
+  CHECK(stats.upper == 0);
+  CHECK(stats.lower == 0);
+  CHECK(stats.inside == 0);
+  CHECK(stats.total() == 0);
+  CHECK(stats.upper_names.empty());
+  // Empty stats are NOT degenerate: the threshold requires at least
+  // 2 active links to fire.
+  CHECK_FALSE(stats.all_upper_degenerate());
+}
+
+TEST_CASE("BoxEdgeStats — single upper-clamp is not degenerate")  // NOLINT
+{
+  // Threshold is `total() >= 2`; one link alone never trips the
+  // family-degeneracy heuristic regardless of where it lands.  This
+  // keeps the WARN/drop quiet on small fixtures with a single
+  // reservoir while still firing on multi-reservoir cascades.
+  BoxEdgeStats stats;
+  const auto link = make_link(0.0, 100.0, "OnlyOne");
+  stats.tally(/*clamped=*/100.0, link);  // exactly source_upp
+  CHECK(stats.upper == 1);
+  CHECK(stats.total() == 1);
+  CHECK_FALSE(stats.all_upper_degenerate());
+  // Name still recorded for diagnostic logging.
+  CHECK(stats.upper_names == "OnlyOne");
+}
+
+TEST_CASE("BoxEdgeStats — top-10% band classifies as upper")  // NOLINT
+{
+  // Empirical observation on juan/gtopt_iplp: degenerate cuts
+  // cluster at 95-100 % of emax (LMAULE/PEHUENCHE/RAPEL at ~95-98 %,
+  // ELTORO/CIPRESES/RALCO exactly at 100 %).  The top-10 % band is
+  // wide enough to capture all of them.
+  BoxEdgeStats stats;
+  const auto box = make_link(0.0, 100.0, "Box");
+  stats.tally(100.0, box);  // exactly upper edge
+  CHECK(stats.upper == 1);
+
+  stats.tally(95.0, box);  // top 5 %
+  CHECK(stats.upper == 2);
+
+  stats.tally(90.0, box);  // exactly at 10 % threshold from upper
+  CHECK(stats.upper == 3);
+
+  // Just below the band: should land in `inside`.
+  stats.tally(89.99, box);
+  CHECK(stats.inside == 1);
+}
+
+TEST_CASE("BoxEdgeStats — bottom-10% band classifies as lower")  // NOLINT
+{
+  BoxEdgeStats stats;
+  const auto box = make_link(0.0, 100.0, "Box");
+  stats.tally(0.0, box);  // exactly lower edge
+  CHECK(stats.lower == 1);
+
+  stats.tally(5.0, box);  // top 5 % from below
+  CHECK(stats.lower == 2);
+
+  stats.tally(10.0, box);  // exactly at 10 % threshold from lower
+  CHECK(stats.lower == 3);
+
+  stats.tally(10.01, box);  // just inside
+  CHECK(stats.inside == 1);
+}
+
+TEST_CASE("BoxEdgeStats — mid-box clamps go to inside")  // NOLINT
+{
+  BoxEdgeStats stats;
+  const auto box = make_link(0.0, 100.0, "Box");
+  stats.tally(50.0, box);
+  stats.tally(30.0, box);
+  stats.tally(70.0, box);
+  CHECK(stats.upper == 0);
+  CHECK(stats.lower == 0);
+  CHECK(stats.inside == 3);
+  CHECK(stats.total() == 3);
+  // Mid-box family is NOT degenerate (no upper-pinning at all).
+  CHECK_FALSE(stats.all_upper_degenerate());
+}
+
+TEST_CASE("BoxEdgeStats — all_upper_degenerate predicate")  // NOLINT
+{
+  // The cascade-infeasibility signature: every active link clamps at
+  // its source_upp.  This triggers the WARN + drop path in
+  // build_multi_cuts.
+  BoxEdgeStats stats;
+  const auto a = make_link(0.0, 100.0, "ELTORO");
+  const auto b = make_link(0.0, 200.0, "RALCO");
+
+  stats.tally(100.0, a);  // upper of a
+  stats.tally(195.0, b);  // top 2.5 % of b — within the 10 % band
+  CHECK(stats.upper == 2);
+  CHECK(stats.total() == 2);
+  CHECK(stats.all_upper_degenerate());
+
+  // Names accumulate in order, comma-joined for the WARN message.
+  CHECK(stats.upper_names == "ELTORO, RALCO");
+}
+
+TEST_CASE("BoxEdgeStats — mixing breaks degeneracy")  // NOLINT
+{
+  // Even one inside or lower clamp removes the "all upper" signal —
+  // in production this means the cut is *partially* informative
+  // (some links contribute meaningful tightening), not the
+  // cascade-fail emax-pinning shape.  WARN stays quiet, DEBUG fires.
+  BoxEdgeStats stats;
+  const auto box = make_link(0.0, 100.0, "Box");
+  stats.tally(99.0, box);  // upper
+  stats.tally(50.0, box);  // inside
+  CHECK(stats.upper == 1);
+  CHECK(stats.inside == 1);
+  CHECK_FALSE(stats.all_upper_degenerate());
+}
+
+TEST_CASE("BoxEdgeStats — empty link names are skipped")  // NOLINT
+{
+  // Links without an AMPL element name (test fixtures, JSON without
+  // `name:` field) still tally into the upper count, but they don't
+  // appear in `upper_names`.  The WARN message that consumes
+  // `upper_names` falls back to the numeric uid for those links.
+  BoxEdgeStats stats;
+  const auto named = make_link(0.0, 100.0, "Named");
+  const auto anon = make_link(0.0, 100.0, /*name=*/"");
+
+  stats.tally(99.0, anon);
+  stats.tally(99.0, named);
+  CHECK(stats.upper == 2);
+  // Only the named link contributes to the comma-joined string.
+  CHECK(stats.upper_names == "Named");
+}
+
+TEST_CASE(
+    "BoxEdgeStats — degenerate zero-width box uses unit fallback")  // NOLINT
+{
+  // When source_low == source_upp (degenerate / unset bounds in a
+  // test fixture), `box_width` clamps to 1.0, so the 10 % band
+  // becomes ±0.1 absolute around the (coincident) bounds.  The
+  // tally classifies everything within that band as "upper" (since
+  // upper edge gets the first `if` check).  This keeps the helper
+  // robust under fixture-induced degeneracy without crashing or
+  // dividing by zero.
+  BoxEdgeStats stats;
+  const auto degen = make_link(50.0, 50.0, "Degen");
+  stats.tally(50.0, degen);  // exactly at the (coincident) edges
+  CHECK(stats.upper == 1);
+  // Anything ≥ source_upp - 0.1 = 49.9 still classifies as upper.
+  stats.tally(49.95, degen);
+  CHECK(stats.upper == 2);
+  // Below the 0.1-band lower edge of the unit fallback: classifies
+  // as lower (since lower test runs after upper-test fails).
+  stats.tally(49.85, degen);
+  CHECK(stats.lower == 1);
+}
+
+TEST_CASE("BoxEdgeStats — negative-range box (unusual but legal)")  // NOLINT
+{
+  // ``source_low`` could be negative (e.g. for a bidirectional
+  // state variable) and ``source_upp`` correspondingly larger.  The
+  // tally just compares values; sign doesn't matter as long as
+  // ``upp ≥ low``.
+  BoxEdgeStats stats;
+  const auto box = make_link(-100.0, 100.0, "Bi");  // width = 200, tol = 20
+  stats.tally(85.0, box);  // 85 ≥ 100 - 20 = 80 → upper
+  stats.tally(-85.0, box);  // -85 ≤ -100 + 20 = -80 → lower
+  stats.tally(0.0, box);  // mid → inside
+  CHECK(stats.upper == 1);
+  CHECK(stats.lower == 1);
+  CHECK(stats.inside == 1);
+}

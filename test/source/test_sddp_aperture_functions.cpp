@@ -308,6 +308,173 @@ TEST_CASE(
   CHECK(result[0].probability_factor.value_or(0.0) == doctest::Approx(1.0));
 }
 
+// ─── resolve_effective_apertures ────────────────────────────────────────────
+//
+// The four-way decision tree in `resolve_effective_apertures` is shared
+// by both `backward_pass_with_apertures` and its single-phase variant.
+// The semantics that must be preserved:
+//
+//   case A: requested_uids = nullopt, aperture_defs empty   → nullopt
+//   case B: requested_uids = nullopt, aperture_defs present → pass-through
+//   case C: requested_uids empty                            → nullopt
+//   case D: requested_uids present, aperture_defs present   → filter-by-UID
+//   case E: requested_uids present, aperture_defs empty     → synthetic
+//   case F: filter / synthesis produces an empty list       → nullopt
+//
+// Each subcase locks in one branch.  Keeping these in unit tests means
+// silently breaking the filter/fallback logic surfaces here instead of
+// in a four-hour SDDP regression run.
+
+TEST_CASE(
+    "resolve_effective_apertures — case A: nullopt + empty defs")  // NOLINT
+{
+  // No requested UIDs and no aperture definitions → nothing to do,
+  // caller falls back to the non-aperture backward pass.
+  Array<Aperture> owned;
+  const auto result = resolve_effective_apertures(
+      /*aperture_defs=*/ {},
+      /*all_scenarios=*/ {},
+      /*requested_uids=*/std::nullopt,
+      owned,
+      "test");
+  CHECK_FALSE(result.has_value());
+  CHECK(owned.empty());
+}
+
+TEST_CASE(
+    "resolve_effective_apertures — case B: nullopt + defs pass through")  // NOLINT
+{
+  // No requested UIDs but defs are present → return the defs span
+  // unchanged.  ``owned`` stays untouched so we can assert that the
+  // returned span aliases the input, not the scratch buffer.
+  const std::vector<Aperture> defs {
+      {.uid = Uid {1}, .source_scenario = Uid {10}},
+      {.uid = Uid {2}, .source_scenario = Uid {20}},
+  };
+
+  Array<Aperture> owned;
+  const auto result = resolve_effective_apertures(
+      /*aperture_defs=*/defs,
+      /*all_scenarios=*/ {},
+      /*requested_uids=*/std::nullopt,
+      owned,
+      "test");
+
+  REQUIRE(result.has_value());
+  CHECK(result->size() == defs.size());
+  CHECK(result->data() == defs.data());  // aliases input, not `owned`
+  CHECK(owned.empty());
+}
+
+TEST_CASE(
+    "resolve_effective_apertures — case C: empty requested list")  // NOLINT
+{
+  // requested_uids present but empty: explicit "no apertures
+  // requested" — caller must fall back.  Distinct from case A in
+  // that aperture_defs MAY exist but is irrelevant.
+  const std::vector<Aperture> defs {
+      {.uid = Uid {1}, .source_scenario = Uid {10}},
+  };
+
+  Array<Aperture> owned;
+  const auto result = resolve_effective_apertures(
+      /*aperture_defs=*/defs,
+      /*all_scenarios=*/ {},
+      /*requested_uids=*/std::optional<Array<Uid>> {Array<Uid> {}},
+      owned,
+      "test");
+
+  CHECK_FALSE(result.has_value());
+  CHECK(owned.empty());
+}
+
+TEST_CASE("resolve_effective_apertures — case D: filter defs by UID")  // NOLINT
+{
+  // Requested UIDs present + defs present → keep only the defs
+  // whose uid appears in the requested set, preserving definition
+  // order.  Unmatched requested UIDs emit a SPDLOG_WARN but do NOT
+  // cause failure.
+  const std::vector<Aperture> defs {
+      {.uid = Uid {1}, .source_scenario = Uid {10}},
+      {.uid = Uid {2}, .source_scenario = Uid {20}},
+      {.uid = Uid {3}, .source_scenario = Uid {30}},
+      {.uid = Uid {4}, .source_scenario = Uid {40}},
+  };
+
+  Array<Aperture> owned;
+  const Array<Uid> requested {Uid {2}, Uid {4}, Uid {99}};  // 99 = not found
+
+  const auto result = resolve_effective_apertures(
+      /*aperture_defs=*/defs,
+      /*all_scenarios=*/ {},
+      /*requested_uids=*/std::optional<Array<Uid>> {requested},
+      owned,
+      "test");
+
+  REQUIRE(result.has_value());
+  REQUIRE(result->size() == 2);
+  CHECK((*result)[0].uid == Uid {2});
+  CHECK((*result)[1].uid == Uid {4});
+  // Returned span aliases `owned`, not the input defs.
+  CHECK(result->data() == owned.data());
+}
+
+TEST_CASE(
+    "resolve_effective_apertures — case E: synthetic from scenarios")  // NOLINT
+{
+  // requested_uids present + aperture_defs empty → synthesise
+  // apertures from the first |min(requested, scenarios)| scenarios,
+  // each with equal probability.  See `build_synthetic_apertures`.
+  const std::vector<ScenarioLP> scenarios {
+      ScenarioLP {Scenario {.uid = Uid {10}}, first_scenario_index()},
+      ScenarioLP {Scenario {.uid = Uid {20}}, ScenarioIndex {1}},
+      ScenarioLP {Scenario {.uid = Uid {30}}, ScenarioIndex {2}},
+  };
+  const Array<Uid> requested {Uid {10}, Uid {20}};  // ask for 2
+
+  Array<Aperture> owned;
+  const auto result = resolve_effective_apertures(
+      /*aperture_defs=*/ {},
+      /*all_scenarios=*/scenarios,
+      /*requested_uids=*/std::optional<Array<Uid>> {requested},
+      owned,
+      "test");
+
+  REQUIRE(result.has_value());
+  REQUIRE(result->size() == 2);
+  CHECK((*result)[0].uid == Uid {10});
+  CHECK((*result)[1].uid == Uid {20});
+  CHECK((*result)[0].probability_factor.value_or(0.0) == doctest::Approx(0.5));
+  CHECK((*result)[1].probability_factor.value_or(0.0) == doctest::Approx(0.5));
+  CHECK(result->data() == owned.data());
+}
+
+TEST_CASE(
+    "resolve_effective_apertures — case F: filter result is empty")  // NOLINT
+{
+  // requested_uids present + aperture_defs present, but the filter
+  // produces nothing (no UID overlap) → return nullopt so the caller
+  // falls back to the non-aperture backward path.  All requested UIDs
+  // log a "not found" warning but the function must still return
+  // nullopt rather than an empty span.
+  const std::vector<Aperture> defs {
+      {.uid = Uid {1}, .source_scenario = Uid {10}},
+      {.uid = Uid {2}, .source_scenario = Uid {20}},
+  };
+  const Array<Uid> requested {Uid {99}, Uid {100}};
+
+  Array<Aperture> owned;
+  const auto result = resolve_effective_apertures(
+      /*aperture_defs=*/defs,
+      /*all_scenarios=*/ {},
+      /*requested_uids=*/std::optional<Array<Uid>> {requested},
+      owned,
+      "test");
+
+  CHECK_FALSE(result.has_value());
+  CHECK(owned.empty());
+}
+
 // ─── ApertureValueFn concept tests ──────────────────────────────────────────
 
 TEST_CASE("ApertureValueFn — lambda returning value")  // NOLINT

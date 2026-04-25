@@ -2212,3 +2212,70 @@ TEST_CASE(
           == IterationIndex {0});
   }
 }
+
+// ── is_final_state_col ───────────────────────────────────────────────────────
+//
+// Allow-list predicate driving cut-CSV column classification.
+// ``EfinColName`` (= ``StorageLP::EfinName``, the storage final-energy
+// column) is the only state-variable column actually emitted by the
+// current LP assembly — silently dropping it here would cause the cut
+// loader to skip every state coefficient on reload, corrupting the
+// future-cost approximation.  Constexpr so the test also doubles as a
+// compile-time invariant.
+
+TEST_CASE(
+    "is_final_state_col matches the canonical state vocabulary")  // NOLINT
+{
+  // Drive the predicate from its own named constant — never an inline
+  // string literal — so any rename of the constant still leaves the
+  // test asserting against the real allow-list.
+  CHECK(is_final_state_col(EfinColName));
+
+  // Promote the constexpr-ness: any future regression that turns the
+  // predicate into a non-constexpr function will fail to compile
+  // (static_assert), not just at runtime.
+  static_assert(is_final_state_col(EfinColName));
+
+  SUBCASE("constant carries the agreed-upon on-disk value")
+  {
+    // Lock the wire format: the CSV header token that downstream
+    // tooling and existing cut files already depend on.  Changing
+    // ``EfinColName`` is a format break — this assertion is the
+    // tripwire.  We compare to a string literal here because this
+    // is the one place we are explicitly testing the value, not the
+    // identifier.
+    static_assert(EfinColName == std::string_view {"efin"});
+    CHECK(true);
+  }
+
+  SUBCASE("rejects metadata, near-miss, and unrelated column names")
+  {
+    // Metadata columns that share the cut CSV header but are NOT
+    // state coefficients.
+    CHECK_FALSE(is_final_state_col("rhs"));
+    CHECK_FALSE(is_final_state_col("scene"));
+    CHECK_FALSE(is_final_state_col("phase"));
+    CHECK_FALSE(is_final_state_col("iteration"));
+    CHECK_FALSE(is_final_state_col("name"));
+
+    // Near-miss / case-sensitive: predicate is exact match.
+    CHECK_FALSE(is_final_state_col("EFIN"));
+    CHECK_FALSE(is_final_state_col("Efin"));
+    CHECK_FALSE(is_final_state_col("efin "));
+    CHECK_FALSE(is_final_state_col(" efin"));
+    CHECK_FALSE(is_final_state_col("efin2"));
+    CHECK_FALSE(is_final_state_col(""));
+
+    // Unrelated state-ish names that callers might accidentally pass
+    // (e.g. dispatch/flow vars must NOT be classified as final-state,
+    // and historical aspirational names like ``soc`` / ``vfin`` are
+    // NOT in the allow-list because no LP element actually emits them).
+    CHECK_FALSE(is_final_state_col("eini"));
+    CHECK_FALSE(is_final_state_col("vini"));
+    CHECK_FALSE(is_final_state_col("alpha"));
+    CHECK_FALSE(is_final_state_col("flow"));
+    CHECK_FALSE(is_final_state_col("dispatch"));
+    CHECK_FALSE(is_final_state_col("soc"));
+    CHECK_FALSE(is_final_state_col("vfin"));
+  }
+}
