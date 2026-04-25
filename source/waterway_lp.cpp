@@ -9,6 +9,7 @@
  * builds LP flow variables and constraints between hydro junctions.
  */
 
+#include <gtopt/cost_helper.hpp>
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/output_context.hpp>
 #include <gtopt/system_context.hpp>
@@ -23,6 +24,7 @@ WaterwayLP::WaterwayLP(const Waterway& pwaterway, const InputContext& ic)
     , fmax(ic, ClassName, id(), std::move(waterway().fmax))
     , capacity(ic, ClassName, id(), std::move(waterway().capacity))
     , lossfactor(ic, ClassName, id(), std::move(waterway().lossfactor))
+    , fcost(ic, ClassName, id(), std::move(waterway().fcost))
 {
 }
 
@@ -53,6 +55,7 @@ bool WaterwayLP::add_to_lp(const SystemContext& sc,
   const auto stage_capacity =
       capacity.at(stage.uid()).value_or(LinearProblem::DblMax);
   const auto stage_lossfactor = sc.stage_lossfactor(stage, lossfactor);
+  const auto stage_fcost = fcost.optval(stage.uid());
 
   const auto& blocks = stage.blocks();
 
@@ -75,6 +78,9 @@ bool WaterwayLP::add_to_lp(const SystemContext& sc,
     const auto fc = lp.add_col({
         .lowb = block_fmin,
         .uppb = block_fmax,
+        .cost = stage_fcost
+            ? CostHelper::block_ecost(scenario, stage, block, *stage_fcost)
+            : 0.0,
         .class_name = ClassName.full_name(),
         .variable_name = FlowName,
         .variable_uid = uid(),

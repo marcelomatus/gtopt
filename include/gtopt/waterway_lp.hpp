@@ -57,6 +57,7 @@ private:
   OptTBRealSched fmax;
   OptTRealSched capacity;
   OptTRealSched lossfactor;
+  OptTRealSched fcost;
 
   STBIndexHolder<ColIndex> flow_cols;
 };

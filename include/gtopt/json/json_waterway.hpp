@@ -21,7 +21,8 @@ struct json_data_contract<Waterway>
       json_variant_null<"capacity", OptTRealFieldSched, jvtl_TRealFieldSched>,
       json_variant_null<"lossfactor", OptTRealFieldSched, jvtl_TRealFieldSched>,
       json_variant_null<"fmin", OptTBRealFieldSched, jvtl_TBRealFieldSched>,
-      json_variant_null<"fmax", OptTBRealFieldSched, jvtl_TBRealFieldSched>>;
+      json_variant_null<"fmax", OptTBRealFieldSched, jvtl_TBRealFieldSched>,
+      json_variant_null<"fcost", OptTRealFieldSched, jvtl_TRealFieldSched>>;
 
   constexpr static auto to_json_data(Waterway const& waterway)
   {
@@ -33,7 +34,8 @@ struct json_data_contract<Waterway>
                                  waterway.capacity,
                                  waterway.lossfactor,
                                  waterway.fmin,
-                                 waterway.fmax);
+                                 waterway.fmax,
+                                 waterway.fcost);
   }
 };
 }  // namespace daw::json

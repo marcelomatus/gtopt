@@ -66,6 +66,14 @@ struct Waterway
 
   OptTBRealFieldSched fmin {0.0};  ///< Minimum required water flow [m³/s]
   OptTBRealFieldSched fmax {300'000.0};  ///< Maximum allowed water flow [m³/s]
+
+  OptTRealFieldSched fcost {};  ///< Per-flow cost on `waterway_flow` column
+                                ///< [$/(m³/s)/h] — applied via
+                                ///< CostHelper::block_ecost(...) so the LP
+                                ///< pays `fcost · q · duration` per block.
+                                ///< Used to model PLP `qrb`-style spillway
+                                ///< penalties on `_ver` arcs (rebalse cost
+                                ///< from plpvrebemb.dat).
 };
 
 }  // namespace gtopt

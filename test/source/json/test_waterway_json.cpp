@@ -145,4 +145,45 @@ TEST_CASE("Waterway with empty optional fields")
   CHECK(waterway.lossfactor.has_value() == false);
   CHECK(waterway.fmin.has_value() == false);
   CHECK(waterway.fmax.has_value() == false);
+  CHECK(waterway.fcost.has_value() == false);
+}
+
+TEST_CASE("Waterway JSON with fcost (per-flow penalty)")
+{
+  using namespace gtopt;
+
+  // fcost models PLP's `qrb` rebalse penalty on `_ver` arcs — the LP
+  // pays `fcost · waterway_flow · block_duration` per block (scaled
+  // by scenario probability, stage discount, and scale_objective).
+  std::string_view json_data = R"({
+    "uid":12,
+    "name":"RALCO_ver_65_67",
+    "junction_a":65,
+    "junction_b":67,
+    "fcost":0.1
+  })";
+
+  const Waterway waterway = daw::json::from_json<Waterway>(json_data);
+
+  CHECK(waterway.uid == 12);
+  CHECK(waterway.name == "RALCO_ver_65_67");
+  REQUIRE(waterway.fcost.has_value());
+  CHECK(std::get<double>(waterway.fcost.value_or(0.0)) == doctest::Approx(0.1));
+}
+
+TEST_CASE("Waterway fcost roundtrips through JSON")
+{
+  Waterway original;
+  original.uid = 12;
+  original.name = "RALCO_ver_65_67";
+  original.junction_a = SingleId(Uid {65});
+  original.junction_b = SingleId(Uid {67});
+  original.fcost = 5000.0;  // LMAULE-style high rebalse cost
+
+  const auto json = daw::json::to_json(original);
+  const Waterway roundtrip = daw::json::from_json<Waterway>(json);
+
+  REQUIRE(roundtrip.fcost.has_value());
+  CHECK(std::get<double>(roundtrip.fcost.value_or(0.0))
+        == doctest::Approx(5000.0));
 }

@@ -114,6 +114,7 @@ class Waterway(TypedDict, total=False):
     fmin: float
     fmax: float
     capacity: float
+    fcost: float
 
 
 class Junction(TypedDict):
@@ -369,12 +370,18 @@ class JunctionWriter(BaseWriter):
         fmin: float = 0.0,
         fmax: Optional[float] = None,
         capacity: Optional[float] = None,
+        fcost: Optional[float] = None,
     ) -> Optional[Waterway]:
         """Create a waterway connection between two junctions.
 
         Uses the junction name map (built during to_json_array) to
         resolve numeric IDs to names. Falls back to the numeric ID
         for ocean junctions that aren't in the map yet.
+
+        ``fcost`` (optional) sets a per-flow cost on the waterway; LP
+        objective gets ``fcost · waterway_flow · block_duration`` per
+        block.  Used to model PLP's ``qrb`` (rebalse) penalty on `_ver`
+        arcs from ``plpvrebemb.dat``.
         """
         if target_id == 0:
             return None
@@ -394,6 +401,8 @@ class JunctionWriter(BaseWriter):
             waterway["fmax"] = fmax
         if capacity is not None:
             waterway["capacity"] = capacity
+        if fcost is not None:
+            waterway["fcost"] = fcost
 
         return waterway
 
@@ -557,33 +566,70 @@ class JunctionWriter(BaseWriter):
             central_id,
             central["ser_hid"],
         )
-        # PLP parity: `VertMax` from plpcnfce.dat is the HARD UPPER bound
-        # on per-block vertimiento `qv_k` (leecnfce.f:342-343 copies it
-        # into `CenVMax`, then genpdver.f:163 sets it as the LP column's
-        # upper bound).  VertMax == 0 therefore pins `qv_k ∈ [0,0]` — any
-        # per-block spill from this reservoir is forbidden, and overspill
-        # must go through the stage-level qrb mechanism (plpvrebemb.dat)
-        # instead.
+        # Spill arc (`_ver`) configuration.
         #
-        # History (2026-04-24): this code used to translate VertMax==0 to
-        # `None` (omitted fmax) because gtopt's validator rejected
-        # fmax=0.  That silently produced an UNBOUNDED ver_waterway,
-        # letting water drain out of embalses even though PLP hard-pins
-        # qv_k = 0 — observed on juan/gtopt_iplp where ELTORO depleted
-        # 99.6 Hm³ in week 1 through its "spillway" despite
-        # `reservoir_drain = 0`.  The validator now accepts fmax==0
-        # (validate_planning.cpp: Positivity::non_negative) so we emit
-        # the zero bound directly.
-        vert_max_raw = central.get("vert_max")
-        vert_fmax: Optional[float] = (
-            None if vert_max_raw is None else float(vert_max_raw)
+        # Two regimes, mirroring PLP behaviour:
+        #
+        # 1. Reservoir IS in plpvrebemb.dat (``Costo de Rebalse`` defined).
+        #    PLP exposes a stage-level ``qrb`` rebalse var (uncapped,
+        #    costed at Costo de Rebalse) — its per-block ``qv_k`` is
+        #    pinned to VertMax=0.  We model this *physically* in gtopt
+        #    by leaving the per-block ``_ver`` arc open (fmax = None,
+        #    so the default 300_000 m³/s sentinel applies) and putting
+        #    the rebalse penalty directly on the waterway as ``fcost``.
+        #    The reservoir's ``spillway_capacity`` is set to 0 in
+        #    ``_spillway_fields`` to disable the redundant
+        #    ``reservoir_drain`` teleport — water now follows the
+        #    physical chain  storage → extraction → junction → _ver.
+        #
+        # 2. Reservoir is NOT in plpvrebemb.dat.  No stage-rebalse
+        #    mechanism exists in PLP — per-block ``qv_k`` is bounded
+        #    by VertMax from plpcnfce.dat (an explicit 0 is honoured;
+        #    a missing field falls back to the default 300_000).  The
+        #    ``_ver`` arc carries no ``fcost``; cost (if any) lives on
+        #    ``reservoir_drain`` via plpmat.dat's ``CVert`` fallback.
+        #
+        # History (2026-04-24): regime 1 used to emit ``vert_fmax=0``
+        # everywhere, leaving the ``_ver`` arc as dead weight while a
+        # parallel ``reservoir_drain`` teleport (cost from plpvrebemb)
+        # bypassed the physical waterway.  This caused juan/gtopt_iplp
+        # iter-0 cascade infeasibilities at p27/p28 because PANGUE
+        # (also in plpvrebemb) had its only physical outlet to the
+        # ANGOSTURA drain junction pinned to 0, while RALCO's drain
+        # teleported into PANGUE without going through ``_ver``.  The
+        # physical model below is both more correct and resolves the
+        # cascade.
+        rebalse_cost: Optional[float] = (
+            self.vrebemb_parser.get_cost(central_name)
+            if self.vrebemb_parser is not None
+            else None
         )
+        in_vrebemb = rebalse_cost is not None
+        # Global default vert cost from plpmat.dat (``CVert`` in PLP) — used
+        # as the per-flow penalty on `_ver` arcs of reservoirs that are NOT
+        # in plpvrebemb.dat.  Without this the LP would have a free spillway
+        # on every non-rebalse reservoir; PLP charges every spill with at
+        # least CVert (typically a small but non-zero number, ~0.01).
+        cvert_default: Optional[float] = None
+        if self.plpmat_parser is not None:
+            cvert = getattr(self.plpmat_parser, "vert_cost", 0.0) or 0.0
+            if cvert > 0.0:
+                cvert_default = cvert
+
+        vert_max_raw = central.get("vert_max")
+        if in_vrebemb:
+            vert_fmax: Optional[float] = None  # uncapped — see comment above
+            vert_fcost: Optional[float] = rebalse_cost
+        else:
+            vert_fmax = None if vert_max_raw is None else float(vert_max_raw)
+            vert_fcost = cvert_default
         ver_waterway = self._create_waterway(
             central_name + "_ver",
             central_id,
             central["ser_ver"],
             central.get("vert_min", 0.0),
             vert_fmax,
+            fcost=vert_fcost,
         )
 
         # For embalse/serie/pasada centrals with ser_hid=0, complete the
@@ -881,13 +927,6 @@ class JunctionWriter(BaseWriter):
 
             system["reservoir_array"].append(reservoir)
 
-    # Reservoirs whose drain is hard-killed (capacity = 0) regardless of
-    # plpvrebemb.dat / plpcnfce.dat content.  ELTORO is so large
-    # (emax=5585 Hm³ vs eini=1731 Hm³) with high filtration (~15 m³/s)
-    # that overspill never materialises in practice — leaving the drain
-    # open lets the LP use it as a free bypass that PLP does not have.
-    _DRAIN_KILLED_RESERVOIRS = frozenset({"ELTORO"})
-
     def _spillway_fields(
         self, central_name: str, central: Dict[str, Any]
     ) -> Dict[str, float]:
@@ -895,26 +934,23 @@ class JunctionWriter(BaseWriter):
 
         Mapping to PLP:
         - When the reservoir is in ``plpvrebemb.dat`` it follows PLP's
-          stage-rebalse model.  PLP exposes two variables — per-block
-          ``qv_k`` (bounded by ``VertMax`` in ``plpcnfce.dat``) and
-          stage-level ``qrb`` (uncapped, costed at ``Costo de Rebalse``).
-          gtopt has only one drain column per block, so we collapse both
-          roles into ``reservoir_drain``: take the high ``Costo de
-          Rebalse`` as the cost (so the drain is visibly costly in the
-          obj) and keep the legacy 6000 m³/s sentinel as the capacity
-          (mirrors PLP's effectively-uncapped ``qrb``).  Any reservoir
-          listed in :pyattr:`_DRAIN_KILLED_RESERVOIRS` is overridden to
-          capacity = 0 (drain hard-disabled).
+          stage-rebalse model.  PLP's ``qrb`` (uncapped, costed at
+          ``Costo de Rebalse``) is now modelled physically via the
+          ``_ver`` waterway carrying both an open ``fmax`` and the
+          ``fcost = Costo de Rebalse`` (see ``add_central`` for the
+          waterway emission).  The reservoir's drain teleport
+          (``reservoir_drain``) is therefore disabled by setting
+          ``spillway_capacity = 0``, leaving water to flow through the
+          physical chain  storage → extraction → junction → _ver.
+          ``spillway_cost`` is still set to ``Costo de Rebalse`` so the
+          field round-trips through JSON unchanged, but it has no LP
+          effect because the column is bounded ``[0, 0]``.
         - When the reservoir is *not* in ``plpvrebemb.dat`` it has no
           stage-rebalse mechanism in PLP.  The cost falls back to PLP's
           global ``CVert`` (``plpmat.dat``) — legacy 1.0 if that field
           is absent — and the capacity follows the per-block ``VertMax``
           from ``plpcnfce.dat`` (an explicit 0.0 is preserved; a missing
           field falls back to the legacy 6000 sentinel).
-
-        The cost is always set on the LP column even when capacity is
-        zero, so the drain coefficient remains visible in the objective
-        row.
         """
         rebalse_cost: Optional[float] = (
             self.vrebemb_parser.get_cost(central_name)
@@ -923,12 +959,11 @@ class JunctionWriter(BaseWriter):
         )
 
         if rebalse_cost is not None:
-            capacity = (
-                0.0 if central_name.upper() in self._DRAIN_KILLED_RESERVOIRS else 6000.0
-            )
+            # Drain teleport is disabled — the physical ``_ver`` arc
+            # (open + costed) carries the spill in its place.
             return {
                 "spillway_cost": rebalse_cost,
-                "spillway_capacity": capacity,
+                "spillway_capacity": 0.0,
             }
 
         # Not in plpvrebemb.dat → CVert (plpmat.dat) for cost, VertMax

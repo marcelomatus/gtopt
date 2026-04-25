@@ -1090,30 +1090,29 @@ def _make_jw(
     )
 
 
-def test_spillway_in_vrebemb_not_killed_uses_costo_rebalse_and_6000_cap():
-    """LMAULE-style: in plpvrebemb.dat → cost from file, capacity=6000."""
+def test_spillway_in_vrebemb_disables_drain_teleport():
+    """LMAULE-style: in plpvrebemb.dat → ``reservoir_drain`` teleport disabled
+    (capacity=0); the rebalse penalty now lives on the ``_ver`` waterway as
+    ``fcost``.  ``spillway_cost`` is still emitted so the field round-trips
+    through JSON unchanged but has no LP effect on a 0-capacity drain.
+    """
     jw = _make_jw(vrebemb=_MockVrebembParser({"LMAULE": 5000.0}))
     fields = jw._spillway_fields("LMAULE", {"vert_max": 0.0})
-    assert fields == {"spillway_cost": 5000.0, "spillway_capacity": 6000.0}
+    assert fields == {"spillway_cost": 5000.0, "spillway_capacity": 0.0}
 
 
-def test_spillway_eltoro_in_killed_set_zero_capacity_cost_still_set():
-    """ELTORO is in plpvrebemb.dat AND in killed set → drain hard-disabled.
+def test_spillway_in_vrebemb_eltoro_disables_drain_teleport():
+    """ELTORO is in plpvrebemb.dat → drain teleport disabled (cap=0).
 
-    The cost coefficient must still be set so the LP column appears in the
-    objective row even though the variable is bounded to 0.
+    Previously this case relied on a hard-coded ``_DRAIN_KILLED_RESERVOIRS``
+    override; the physical-_ver model removes the need for that override
+    because the spill path is naturally costed at ``rebalse_cost`` via the
+    waterway ``fcost``.
     """
     jw = _make_jw(vrebemb=_MockVrebembParser({"ELTORO": 5000.0}))
     fields = jw._spillway_fields("ELTORO", {"vert_max": 0.0})
     assert fields["spillway_capacity"] == 0.0
     assert fields["spillway_cost"] == 5000.0
-
-
-def test_spillway_killed_set_match_is_case_insensitive():
-    """Central names from plpcnfce.dat may have any case — match upper()."""
-    jw = _make_jw(vrebemb=_MockVrebembParser({"eltoro": 5000.0}))
-    fields = jw._spillway_fields("eltoro", {"vert_max": 0.0})
-    assert fields["spillway_capacity"] == 0.0
 
 
 def test_spillway_not_in_vrebemb_honours_explicit_zero_vertmax():
