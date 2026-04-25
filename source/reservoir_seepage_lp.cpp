@@ -165,16 +165,28 @@ int ReservoirSeepageLP::update_lp(SystemLP& sys,
   const auto st_key = std::tuple {scenario.uid(), stage.uid()};
   auto& state = m_states_.at(st_key);
 
-  // Segment selection uses the *end-of-stage* volume (vfin) rather than the
-  // mid-stage average (vini+vfin)/2.  vfin is the SDDP cut anchor and the
-  // LP's free decision variable, so anchoring the segment choice to it
-  // keeps the linearised seepage curve consistent with the regime where
-  // the LP is actually operating.  The mid-point average can pick a
-  // segment that fits neither end of the stage well, which is especially
-  // brittle when vfin crosses a tramo boundary (e.g. ELTORO drawing
-  // below 400 Hm³ from a 1731 Hm³ start).
-  const auto vfin = rsv.physical_efin(sys, scenario, stage, default_volume);
-  const auto coeffs = select_seepage_coeffs(seepage().segments, vfin);
+  // Segment selection uses the *start-of-stage* volume (vini), which by
+  // the time `update_lp` runs has already been propagated from the
+  // predecessor phase's solved efin via `physical_eini`'s cross-phase
+  // lookup (storage_lp.hpp::physical_eini(sys,...,sid) walks back to
+  // `prev_sys->element(...).physical_efin(...)`).  Using vini matches
+  // PLP's filtration construction, which evaluates the segment at the
+  // start-of-stage state — the only volume value that is actually known
+  // at the moment we build / update the stage's LP, since the
+  // current-stage `efin` is still a free variable awaiting solve.
+  //
+  // The previous form anchored on `physical_efin(sys, stage, ...)` at the
+  // CURRENT stage, which at iter-0 first attempt has no prior solve and
+  // therefore returns the default `eini` fallback (= the JSON-level
+  // initial volume, e.g. 1731 Hm³ for ELTORO).  That pinned segment 2
+  // (covering [400, 2700]) for every stage of every scenario, even when
+  // the predecessor's efin had already drained ELTORO well below 400 Hm³
+  // in the forward pass.  At efin → 0 the segment-2 line forces a
+  // 15.09 m³/s seepage from an empty reservoir, structurally breaking
+  // the LP — observed on juan/gtopt_iplp p27/p37 cascade.
+  const auto vini =
+      rsv.physical_eini(sys, scenario, stage, default_volume, reservoir_sid());
+  const auto coeffs = select_seepage_coeffs(seepage().segments, vini);
 
   const auto new_slope = coeffs.slope;
   const auto new_rhs = coeffs.intercept;

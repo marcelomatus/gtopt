@@ -291,6 +291,53 @@ public:
     if (!stage.index() && !stage.phase_index()) {
       return default_eini;
     }
+    // Priority chain (revised 2026-04-25 — driven by seepage segment-
+    // selection requirements observed on juan/gtopt_iplp p27/p37):
+    //
+    //   1. Previous phase's *optimal* efin — the most physically accurate
+    //      value for our stage's start-of-stage volume, since the
+    //      state-link semantics define `eini[N] = efin[N-1]`.  Whenever
+    //      the predecessor has just been solved (forward-pass position
+    //      N > 0), this gives a freshly-propagated value that reflects
+    //      the actual reservoir trajectory rather than any stale or
+    //      JSON-default fallback.
+    //
+    //   2. Our phase's own optimal `eini_col` — used when the predecessor
+    //      was not solved (e.g. iter-0 backward pass at the FIRST phase),
+    //      but our own LP has been solved by a previous attempt in the
+    //      current iteration.  The `eini_col` value reflects the
+    //      state-link constraint applied to our LP at the time of solve.
+    //
+    //   3. Hot-start warm value — loaded from a prior-run state file via
+    //      `LinearInterface::warm_col_sol()`.  Falls through here when
+    //      this LP has never been solved and no predecessor exists in
+    //      the current run.
+    //
+    //   4. Global default `eini` from the JSON — last-resort fallback.
+    //
+    // The previous order (own optimal → warm → cross-phase) caused
+    // ReservoirSeepage::update_lp to evaluate the linearised filtration
+    // curve at our own stale `eini_col` (which at iter-0 build time =
+    // JSON eini), pinning ELTORO to segment 2 (volume range [400, 2700])
+    // even when the predecessor's solved efin had drained ELTORO well
+    // below 400 Hm³.  At physical efin → 0 the segment-2 line
+    // structurally forces 15.09 m³/s of seepage from an empty reservoir,
+    // breaking the LP.  Cross-phase first eliminates this miscompute.
+    //
+    // 1. Cross-phase: previous phase's optimal efin.
+    if (const auto* prev_sys = sys.prev_phase_sys()) {
+      const auto& prev_li = prev_sys->linear_interface();
+      if (prev_li.is_optimal()) {
+        const auto& prev_rsv =
+            prev_sys->template element<typename SIdT::object_type>(sid);
+        const auto& prev_stages = prev_sys->phase().stages();
+        if (!prev_stages.empty()) {
+          return prev_rsv.physical_efin(
+              prev_li, scenario, prev_stages.back(), default_eini);
+        }
+      }
+    }
+    // 2. Our phase's optimal `eini_col` solution.
     const auto& li = sys.linear_interface();
     const auto col = eini_col_at(scenario, stage);
     if (li.is_optimal()) {
@@ -299,23 +346,12 @@ public:
       // lands outside [emin, emax].
       return li.get_col_sol()[col];
     }
+    // 3. Hot-start warm value.
     const auto& warm = li.warm_col_sol();
     if (!warm.empty() && static_cast<size_t>(col) < warm.size()) {
       return physical_col_value(warm, col);
     }
-    // Cross-phase fallback: eini at phase N == efin at phase N-1.
-    // Look up the same storage element in the previous phase and
-    // retrieve its efin from the last stage.
-    if (const auto* prev_sys = sys.prev_phase_sys()) {
-      const auto& prev_rsv =
-          prev_sys->template element<typename SIdT::object_type>(sid);
-      const auto& prev_li = prev_sys->linear_interface();
-      const auto& prev_stages = prev_sys->phase().stages();
-      if (!prev_stages.empty()) {
-        return prev_rsv.physical_efin(
-            prev_li, scenario, prev_stages.back(), default_eini);
-      }
-    }
+    // 4. Global default eini.
     return default_eini;
   }
 
