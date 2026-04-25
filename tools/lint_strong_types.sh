@@ -113,8 +113,8 @@ redundant_index_cast=$(run_grep \
   "${SEARCH_PATHS[@]}" \
   | grep -vE '\.size\(\)' \
   | grep -vE 'size_t|std::ssize|static_cast<Index>\(m_' \
-  | grep -vE '^source/sddp_iteration\.cpp:(700|1373):.*SceneIndex[[:space:]]*\{[[:space:]]*static_cast<Index>\([a-z_]+_sz\)' \
-  | grep -vE '^source/sddp_cut_store\.cpp:214:.*static_cast<Index>\(psi\.base_nrows\)' \
+  | grep -vE '^source/sddp_iteration\.cpp:[0-9]+:.*SceneIndex[[:space:]]*\{[[:space:]]*static_cast<Index>\([a-z_]+_sz\)' \
+  | grep -vE '^source/sddp_cut_store\.cpp:[0-9]+:.*static_cast<Index>\(psi\.base_nrows\)' \
   | grep -vE '^include/gtopt/iteration\.hpp:[0-9]+:.*static_cast<Index>\((cur|offset)\)' \
   || true)
 if [[ -n "$redundant_index_cast" ]]; then
