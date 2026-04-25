@@ -833,6 +833,8 @@ class GTOptWriter:
         vrebemb = self.parser.parsed_data.get("vrebemb_parser", None)
         plpmat = self.parser.parsed_data.get("plpmat_parser", None)
         cenpmax = self.parser.parsed_data.get("cenpmax_parser", None)
+        mance = self.parser.parsed_data.get("mance_parser", None)
+        block = self.parser.parsed_data.get("block_parser", None)
         jw = JunctionWriter(
             central_parser=centrals,
             stage_parser=stages,
@@ -847,6 +849,8 @@ class GTOptWriter:
             vrebemb_parser=vrebemb,
             plpmat_parser=plpmat,
             cenpmax_parser=cenpmax,
+            mance_parser=mance,
+            block_parser=block,
             options=options,
         )
         json_junctions = jw.to_json_array()
