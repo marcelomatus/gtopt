@@ -6,6 +6,7 @@
  * @copyright BSD-3-Clause
  */
 
+#include <algorithm>
 #include <format>
 #include <stdexcept>
 
@@ -474,6 +475,68 @@ void OsiSolverBackend::resolve()
   }
 #endif
   m_solver_->resolve();
+}
+
+void OsiSolverBackend::engage_robust_solve()
+{
+  if (m_solver_ == nullptr) {
+    return;
+  }
+
+  if (!m_saved_robust_state_.has_value()) {
+    RobustState saved {};
+    m_solver_->getDblParam(OsiDualTolerance, saved.dual_tolerance);
+    m_solver_->getDblParam(OsiPrimalTolerance, saved.primal_tolerance);
+    saved.presolve_passes = 0;
+    saved.engage_count = 0;
+    m_saved_robust_state_ = saved;
+  }
+  ++m_saved_robust_state_->engage_count;
+
+  // Compound: read live tolerances, multiply by 10, clamp to a safe
+  // upper bound (CLP rejects tolerances above ~1e-1).
+  double cur_dual = 0.0;
+  double cur_primal = 0.0;
+  m_solver_->getDblParam(OsiDualTolerance, cur_dual);
+  m_solver_->getDblParam(OsiPrimalTolerance, cur_primal);
+
+  constexpr double k_max_tol = 1e-1;
+  m_solver_->setDblParam(OsiDualTolerance,
+                         std::min(cur_dual * 10.0, k_max_tol));
+  m_solver_->setDblParam(OsiPrimalTolerance,
+                         std::min(cur_primal * 10.0, k_max_tol));
+
+  // CLP-specific robustness: enable perturbation, more pivot tolerances.
+  if (auto* clp = as_clp(m_solver_.get(), m_type_); clp != nullptr) {
+    if (auto* clp_model = clp->getModelPtr(); clp_model != nullptr) {
+      // Force perturbation (CLP perturbation flag: 50 = automatic, 100 = off).
+      // Lower numbers = more aggressive perturbation, helps degenerate LPs.
+      clp_model->setPerturbation(50);
+    }
+  }
+}
+
+void OsiSolverBackend::disengage_robust_solve() noexcept
+{
+  if (!m_saved_robust_state_.has_value()) {
+    return;
+  }
+  if (m_solver_ == nullptr) {
+    m_saved_robust_state_.reset();
+    return;
+  }
+
+  const auto& s = *m_saved_robust_state_;
+  m_solver_->setDblParam(OsiDualTolerance, s.dual_tolerance);
+  m_solver_->setDblParam(OsiPrimalTolerance, s.primal_tolerance);
+
+  if (auto* clp = as_clp(m_solver_.get(), m_type_); clp != nullptr) {
+    if (auto* clp_model = clp->getModelPtr(); clp_model != nullptr) {
+      // Restore CLP default perturbation (100 = off, the CLP default).
+      clp_model->setPerturbation(100);
+    }
+  }
+  m_saved_robust_state_.reset();
 }
 
 bool OsiSolverBackend::is_proven_optimal() const

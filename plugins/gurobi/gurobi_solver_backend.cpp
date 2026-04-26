@@ -810,6 +810,65 @@ void GurobiSolverBackend::resolve()
   }
 }
 
+void GurobiSolverBackend::engage_robust_solve()
+{
+  if (m_env_ == nullptr) {
+    return;
+  }
+
+  if (!m_saved_robust_state_.has_value()) {
+    RobustState saved {};
+    GRBgetdblparam(m_env_, GRB_DBL_PAR_OPTIMALITYTOL, &saved.optimality_tol);
+    GRBgetdblparam(m_env_, GRB_DBL_PAR_FEASIBILITYTOL, &saved.feasibility_tol);
+    GRBgetdblparam(m_env_, GRB_DBL_PAR_BARCONVTOL, &saved.bar_conv_tol);
+    GRBgetintparam(m_env_, GRB_INT_PAR_NUMERICFOCUS, &saved.numeric_focus);
+    saved.engage_count = 0;
+    m_saved_robust_state_ = saved;
+  }
+  ++m_saved_robust_state_->engage_count;
+
+  double cur_opt = 0.0;
+  double cur_feas = 0.0;
+  double cur_bar = 0.0;
+  GRBgetdblparam(m_env_, GRB_DBL_PAR_OPTIMALITYTOL, &cur_opt);
+  GRBgetdblparam(m_env_, GRB_DBL_PAR_FEASIBILITYTOL, &cur_feas);
+  GRBgetdblparam(m_env_, GRB_DBL_PAR_BARCONVTOL, &cur_bar);
+
+  // Gurobi caps OptimalityTol/FeasibilityTol at 1e-2; BarConvTol at 1.0.
+  constexpr double k_max_simplex_tol = 1e-2;
+  constexpr double k_max_barrier_tol = 1.0;
+  GRBsetdblparam(m_env_,
+                 GRB_DBL_PAR_OPTIMALITYTOL,
+                 std::min(cur_opt * 10.0, k_max_simplex_tol));
+  GRBsetdblparam(m_env_,
+                 GRB_DBL_PAR_FEASIBILITYTOL,
+                 std::min(cur_feas * 10.0, k_max_simplex_tol));
+  GRBsetdblparam(m_env_,
+                 GRB_DBL_PAR_BARCONVTOL,
+                 std::min(cur_bar * 10.0, k_max_barrier_tol));
+
+  // NumericFocus: 0=auto, 1=careful, 2=more careful, 3=most careful.
+  GRBsetintparam(m_env_, GRB_INT_PAR_NUMERICFOCUS, 2);
+}
+
+void GurobiSolverBackend::disengage_robust_solve() noexcept
+{
+  if (!m_saved_robust_state_.has_value()) {
+    return;
+  }
+  if (m_env_ == nullptr) {
+    m_saved_robust_state_.reset();
+    return;
+  }
+
+  const auto& s = *m_saved_robust_state_;
+  GRBsetdblparam(m_env_, GRB_DBL_PAR_OPTIMALITYTOL, s.optimality_tol);
+  GRBsetdblparam(m_env_, GRB_DBL_PAR_FEASIBILITYTOL, s.feasibility_tol);
+  GRBsetdblparam(m_env_, GRB_DBL_PAR_BARCONVTOL, s.bar_conv_tol);
+  GRBsetintparam(m_env_, GRB_INT_PAR_NUMERICFOCUS, s.numeric_focus);
+  m_saved_robust_state_.reset();
+}
+
 // ── status ───────────────────────────────────────────────────────────────
 
 namespace

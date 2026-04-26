@@ -949,6 +949,80 @@ void CplexSolverBackend::resolve()
   }
 }
 
+void CplexSolverBackend::engage_robust_solve()
+{
+  auto* env = m_env_lp_.env();
+  if (env == nullptr) {
+    return;
+  }
+
+  // Capture baseline parameters on the *first* engage so that disengage
+  // always restores the very first state we observed.  Subsequent
+  // engages (escalations) bump tolerances another × 10 without
+  // overwriting the baseline snapshot.
+  if (!m_saved_robust_state_.has_value()) {
+    RobustState saved {};
+    CPXgetdblparam(env, CPX_PARAM_EPOPT, &saved.epopt);
+    CPXgetdblparam(env, CPX_PARAM_EPRHS, &saved.eprhs);
+    CPXgetdblparam(env, CPX_PARAM_BAREPCOMP, &saved.barepcomp);
+    CPXgetintparam(env, CPX_PARAM_NUMERICALEMPHASIS, &saved.numerical_emphasis);
+    CPXgetintparam(env, CPX_PARAM_PERIND, &saved.perind);
+    CPXgetintparam(env, CPX_PARAM_REPEATPRESOLVE, &saved.repeat_presolve);
+    saved.engage_count = 0;
+    m_saved_robust_state_ = saved;
+  }
+  ++m_saved_robust_state_->engage_count;
+
+  // Loosen tolerances by an additional × 10 multiplier per engage.  The
+  // base values must come from the live env (after any previous engage)
+  // so the chain naturally compounds: ×10 → ×100 → ×1000.
+  double cur_epopt = 0.0;
+  double cur_eprhs = 0.0;
+  double cur_barepcomp = 0.0;
+  CPXgetdblparam(env, CPX_PARAM_EPOPT, &cur_epopt);
+  CPXgetdblparam(env, CPX_PARAM_EPRHS, &cur_eprhs);
+  CPXgetdblparam(env, CPX_PARAM_BAREPCOMP, &cur_barepcomp);
+
+  // CPLEX caps EPOPT/EPRHS at 1e-1 — clamp to the documented upper bound.
+  constexpr double k_max_simplex_tol = 1e-1;
+  constexpr double k_max_barrier_tol = 1e-1;
+  CPXsetdblparam(
+      env, CPX_PARAM_EPOPT, std::min(cur_epopt * 10.0, k_max_simplex_tol));
+  CPXsetdblparam(
+      env, CPX_PARAM_EPRHS, std::min(cur_eprhs * 10.0, k_max_simplex_tol));
+  CPXsetdblparam(env,
+                 CPX_PARAM_BAREPCOMP,
+                 std::min(cur_barepcomp * 10.0, k_max_barrier_tol));
+
+  // Numerical emphasis: trade speed for stability.  Perturbation index
+  // forces simplex to perturb bounds preemptively (helps degenerate LPs).
+  // RepeatPresolve=3 = aggressively re-presolve at the root.
+  CPXsetintparam(env, CPX_PARAM_NUMERICALEMPHASIS, CPX_ON);
+  CPXsetintparam(env, CPX_PARAM_PERIND, CPX_ON);
+  CPXsetintparam(env, CPX_PARAM_REPEATPRESOLVE, 3);
+}
+
+void CplexSolverBackend::disengage_robust_solve() noexcept
+{
+  if (!m_saved_robust_state_.has_value()) {
+    return;
+  }
+  auto* env = m_env_lp_.env();
+  if (env == nullptr) {
+    m_saved_robust_state_.reset();
+    return;
+  }
+
+  const auto& s = *m_saved_robust_state_;
+  CPXsetdblparam(env, CPX_PARAM_EPOPT, s.epopt);
+  CPXsetdblparam(env, CPX_PARAM_EPRHS, s.eprhs);
+  CPXsetdblparam(env, CPX_PARAM_BAREPCOMP, s.barepcomp);
+  CPXsetintparam(env, CPX_PARAM_NUMERICALEMPHASIS, s.numerical_emphasis);
+  CPXsetintparam(env, CPX_PARAM_PERIND, s.perind);
+  CPXsetintparam(env, CPX_PARAM_REPEATPRESOLVE, s.repeat_presolve);
+  m_saved_robust_state_.reset();
+}
+
 bool CplexSolverBackend::is_proven_optimal() const
 {
   const int stat = CPXgetstat(m_env_lp_.env(), m_env_lp_.lp());

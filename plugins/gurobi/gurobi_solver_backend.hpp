@@ -134,6 +134,10 @@ public:
   void initial_solve() override;
   void resolve() override;
 
+  // ---- robust-solve mode ----
+  void engage_robust_solve() override;
+  void disengage_robust_solve() noexcept override;
+
   // ---- status ----
   [[nodiscard]] bool is_proven_optimal() const override;
   [[nodiscard]] bool is_abandoned() const override;
@@ -212,6 +216,18 @@ private:
   int m_threads_ {0};
   bool m_presolve_ {true};
   int m_log_level_ {0};
+
+  /// Snapshot of Gurobi numerical parameters captured by
+  /// engage_robust_solve().
+  struct RobustState
+  {
+    double optimality_tol {};
+    double feasibility_tol {};
+    double bar_conv_tol {};
+    int numeric_focus {};
+    int engage_count {0};
+  };
+  std::optional<RobustState> m_saved_robust_state_;
 };
 
 }  // namespace gtopt

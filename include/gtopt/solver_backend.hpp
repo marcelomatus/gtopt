@@ -32,7 +32,7 @@ namespace gtopt
  * SolverRegistry checks the plugin's reported ABI version at load time
  * and rejects incompatible plugins with a clear error instead of crashing.
  */
-inline constexpr int k_solver_abi_version = 5;
+inline constexpr int k_solver_abi_version = 6;
 
 /**
  * @brief Abstract interface for LP/MIP solver backends.
@@ -169,6 +169,30 @@ public:
   virtual void initial_solve() = 0;
   virtual void resolve() = 0;
 
+  // ---- robust-solve mode ----
+
+  /// Switch the solver into a high-effort, numerically-conservative
+  /// mode for the next solve.  Each backend internally:
+  ///
+  /// * Saves whichever native parameters it modifies.
+  /// * Loosens the optimality / feasibility / barrier tolerances
+  ///   (typical: × 10).
+  /// * Enables solver-specific robustness knobs (CPLEX:
+  ///   NUMERICALEMPHASIS=1, PERIND=1, REPEATPRESOLVE=3; HiGHS: enable
+  ///   the high-accuracy IPM + scaling; CBC/CLP: tightened pivot
+  ///   tolerances).
+  ///
+  /// May be called repeatedly — implementations should treat
+  /// successive engages as additional "× 10" loosenings (or no-op,
+  /// at the implementer's discretion) so the fallback chain can
+  /// escalate.  Always paired with disengage_robust_solve() via the
+  /// RobustSolveGuard RAII helper.
+  virtual void engage_robust_solve() = 0;
+
+  /// Restore parameters captured by engage_robust_solve.  No-op when
+  /// engage was never called.  Safe to call from a destructor.
+  virtual void disengage_robust_solve() noexcept = 0;
+
   // ---- status ----
 
   [[nodiscard]] virtual bool is_proven_optimal() const = 0;
@@ -251,6 +275,38 @@ public:
   // ---- deep copy ----
 
   [[nodiscard]] virtual std::unique_ptr<SolverBackend> clone() const = 0;
+};
+
+/// RAII helper that engages the solver's robust-solve mode for the
+/// lifetime of the guard.  Construction calls SolverBackend::
+/// engage_robust_solve(); destruction calls disengage_robust_solve().
+/// Non-copyable, non-movable so the engage/disengage pair always
+/// matches the surrounding scope.
+class RobustSolveGuard
+{
+public:
+  explicit RobustSolveGuard(SolverBackend& backend)
+      : m_backend_(&backend)
+  {
+    m_backend_->engage_robust_solve();
+  }
+
+  ~RobustSolveGuard() { m_backend_->disengage_robust_solve(); }
+
+  RobustSolveGuard(const RobustSolveGuard&) = delete;
+  RobustSolveGuard& operator=(const RobustSolveGuard&) = delete;
+  RobustSolveGuard(RobustSolveGuard&&) = delete;
+  RobustSolveGuard& operator=(RobustSolveGuard&&) = delete;
+
+  /// Layer another × 10 tolerance loosening on top of the current
+  /// robust-mode state.  Equivalent to calling
+  /// SolverBackend::engage_robust_solve() once more — the saved state
+  /// captured by the first engage is preserved so disengage still
+  /// restores baseline parameters when the guard expires.
+  void escalate() { m_backend_->engage_robust_solve(); }
+
+private:
+  SolverBackend* m_backend_;
 };
 
 /// Plugin entry-point function type: creates a SolverBackend by solver name.

@@ -1816,7 +1816,14 @@ std::expected<int, Error> LinearInterface::initial_solve(
     timed_solve();
 
     if (!is_optimal() && effective.max_fallbacks > 0) {
-      // Algorithm fallback cycle: try alternative algorithms
+      // Algorithm fallback cycle: try alternative algorithms wrapped in
+      // a solver-specific robust-solve mode.  The guard engages on
+      // construction (loosens tolerances, enables numerical-emphasis
+      // knobs) and disengages on scope exit, restoring the baseline
+      // parameters.  Each iteration also calls escalate() to compound
+      // the loosening (× 10 → × 100 → × 1000) so a stubborn LP gets a
+      // genuinely different attempt each time.
+      RobustSolveGuard robust_guard(*m_backend_);
       auto fallback_opts = effective;
       auto current_algo = effective.algorithm;
 
@@ -1830,7 +1837,9 @@ std::expected<int, Error> LinearInterface::initial_solve(
                      next_algo);
 
         fallback_opts.algorithm = next_algo;
-        fallback_opts.presolve = false;
+        // Robust-solve mode handles tolerance loosening + numerical
+        // emphasis; presolve stays enabled so we do not throw away
+        // CPLEX/HiGHS preprocessing on the retry.
         // Reset aggressive scaling on fallback — aggressive scaling can
         // cause numerical difficulties (high kappa) that prevent the
         // primary algorithm from converging; the fallback algorithm may
@@ -1839,6 +1848,11 @@ std::expected<int, Error> LinearInterface::initial_solve(
           fallback_opts.scaling = SolverScaling::automatic;
         }
         m_backend_->apply_options(fallback_opts);
+        // Escalate from the second iteration onwards: the first
+        // RobustSolveGuard ctor already engaged once.
+        if (attempt > 0) {
+          robust_guard.escalate();
+        }
 
         ++m_solver_stats_.fallback_solves;
         timed_solve();
@@ -1927,7 +1941,12 @@ std::expected<int, Error> LinearInterface::resolve(
     timed_solve();
 
     if (!is_optimal() && effective.max_fallbacks > 0) {
-      // Algorithm fallback cycle: try alternative algorithms
+      // Algorithm fallback cycle: try alternative algorithms in
+      // solver-specific robust-solve mode (see initial_solve for the
+      // pattern).  Disabling presolve on every retry was hiding feasible
+      // LPs from CPLEX; instead let the backend loosen tolerances and
+      // enable numerical emphasis through the guard.
+      RobustSolveGuard robust_guard(*m_backend_);
       auto fallback_opts = effective;
       auto current_algo = effective.algorithm;
 
@@ -1947,7 +1966,6 @@ std::expected<int, Error> LinearInterface::resolve(
                      next_algo);
 
         fallback_opts.algorithm = next_algo;
-        fallback_opts.presolve = false;
         // Reset aggressive scaling on fallback — aggressive scaling can
         // cause numerical difficulties (high kappa) that prevent the
         // primary algorithm from converging; the fallback algorithm may
@@ -1956,6 +1974,9 @@ std::expected<int, Error> LinearInterface::resolve(
           fallback_opts.scaling = SolverScaling::automatic;
         }
         m_backend_->apply_options(fallback_opts);
+        if (attempt > 0) {
+          robust_guard.escalate();
+        }
 
         ++m_solver_stats_.fallback_solves;
         timed_solve();
