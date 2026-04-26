@@ -333,6 +333,92 @@ TEST_CASE("build_benders_cut_physical state_var overload eps filters small rc")
 }
 
 TEST_CASE(
+    "build_benders_cut_physical state_var overload — scale_objective sweep")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  // The state_var overload's contract is:
+  //   row_coef[source_col] = -reduced_cost_physical(scale_obj)
+  //                        = -(raw_LP_rc × scale_obj / var_scale)
+  //   row.lowb = obj_phys - Σ_i (rc_phys_i × col_sol_phys_i)
+  //
+  // The PHYSICAL coefficients of the cut must be invariant under
+  // `scale_objective` because the input `obj_phys` is physical and
+  // `reduced_cost_physical` already absorbs the obj scale.  This
+  // sweep pins that invariance and is the regression test for any
+  // future change that re-introduces an extra scale_obj factor in
+  // the cut builder (the symptom of the juan/gtopt_iplp 1000×
+  // per-phase compounding bug).
+
+  const StateVariable::LPKey key0 {
+      .scene_index = first_scene_index(),
+      .phase_index = PhaseIndex {0},
+  };
+
+  // Helper: build a link list whose physical reduced costs and
+  // physical state values stay constant across scale_obj sweeps.
+  // The trick is to pre-multiply each StateVariable's stored raw
+  // reduced cost by `var_scale / scale_obj` so that the *physical*
+  // rc returned by `reduced_cost_physical(scale_obj)` is invariant.
+  // var_scale = 1 here for simplicity.
+  struct ScaleCase
+  {
+    double scale_obj;
+    const char* label;
+  };
+  const std::array cases = {
+      ScaleCase {.scale_obj = 1.0, .label = "scale_obj=1"},
+      ScaleCase {.scale_obj = 1000.0, .label = "scale_obj=1000"},
+      ScaleCase {.scale_obj = 0.001, .label = "scale_obj=0.001"},
+  };
+
+  // Target physical values (constant across the sweep).
+  constexpr double target_rc_phys = 4.0;
+  constexpr double target_col_sol_phys = 3.0;
+  constexpr double target_var_scale = 1.0;
+  constexpr double target_obj_phys = 100.0;
+
+  for (const auto& tc : cases) {
+    CAPTURE(tc.label);
+    SUBCASE(tc.label)
+    {
+      // Choose raw rc so that rc_phys = raw × scale_obj / var_scale = target.
+      const double raw_rc = target_rc_phys * target_var_scale / tc.scale_obj;
+      // col_sol is physical / var_scale; with var_scale=1, raw == phys.
+      const double raw_col_sol = target_col_sol_phys / target_var_scale;
+
+      StateVariable svar {
+          key0,
+          ColIndex {1},
+          /*scost=*/0.0,
+          target_var_scale,
+          LpContext {},
+      };
+      svar.set_col_sol(raw_col_sol);
+      svar.set_reduced_cost(raw_rc);
+
+      const std::vector<StateVarLink> links = {
+          {.source_col = ColIndex {1}, .state_var = &svar},
+      };
+
+      const auto cut = build_benders_cut_physical(
+          ColIndex {0}, links, target_obj_phys, tc.scale_obj);
+
+      // Cut coefficient on alpha is always 1.0 physical.
+      CHECK(cut.cmap.at(ColIndex {0}) == doctest::Approx(1.0));
+      // Cut coefficient on the state column is `-rc_phys = -4.0`,
+      // INVARIANT under scale_obj (the whole point of the
+      // descale-by-scale_obj path inside reduced_cost_physical).
+      CHECK(cut.cmap.at(ColIndex {1})
+            == doctest::Approx(-target_rc_phys).epsilon(1e-12));
+      // Cut RHS = obj_phys - Σ rc_phys × col_sol_phys = 100 - 4×3 = 88.
+      // Also invariant under scale_obj.
+      CHECK(cut.lowb == doctest::Approx(88.0).epsilon(1e-12));
+    }
+  }
+}
+
+TEST_CASE(
     "build_benders_cut_physical state_var overload handles null state_var")
 {
   using namespace gtopt;  // NOLINT(google-build-using-namespace)

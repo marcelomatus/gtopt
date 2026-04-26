@@ -655,6 +655,10 @@ LinearInterface LinearInterface::clone() const
   auto cloned = LinearInterface {backend().clone(), m_log_file_};
   cloned.m_scale_objective_ = m_scale_objective_;
   cloned.m_col_scales_ = m_col_scales_;
+  cloned.m_row_scales_ = m_row_scales_;
+  cloned.m_equilibration_method_ = m_equilibration_method_;
+  cloned.m_base_numrows_ = m_base_numrows_;
+  cloned.m_base_numrows_set_ = m_base_numrows_set_;
   cloned.m_variable_scale_map_ = m_variable_scale_map_;
   cloned.m_log_tag_ = m_log_tag_;
   return cloned;
@@ -989,7 +993,16 @@ RowIndex LinearInterface::add_row(const SparseRow& row, const double eps)
 
   // 2. SparseRow::scale composition (divides row contents by row.scale,
   //    same contract as `flatten()` applies to structural rows before
-  //    the bulk equilibration pass).
+  //    the bulk equilibration pass).  We start `composite_scale` here
+  //    and accumulate the scale_objective divisor in step 1b BEFORE the
+  //    per-row equilibration in step 3.  Including scale_obj in
+  //    `composite_scale` (rather than just scaling elements / bounds
+  //    in place without recording it) is what makes the round-trip
+  //    invariants hold: get_row_low()[cut] = raw_lb × composite_scale =
+  //    phys_lb (verbatim), and get_row_dual()[cut] = raw_dual ×
+  //    scale_obj / composite_scale = raw_dual × scale_obj / (scale_obj ×
+  //    row_scale_part) = raw_dual / row_scale_part = π_phys (correct
+  //    physical dual).
   double composite_scale = row.scale;
   if (row.scale != 1.0) {
     const auto inv_rs = 1.0 / row.scale;
@@ -1002,6 +1015,47 @@ RowIndex LinearInterface::add_row(const SparseRow& row, const double eps)
     if (ub > -infy && ub < infy) {
       ub *= inv_rs;
     }
+  }
+
+  // 1b. Global objective scaling — folded into `composite_scale`.
+  //
+  //  SDDP optimality / feasibility cuts are objective-related rows
+  //  (they bound α, which represents future cost in $-units).  The
+  //  OBJ itself is divided by `scale_objective` at `flatten()` time
+  //  (linear_problem.cpp:725-729); cut rows added later via this path
+  //  were previously left un-divided, leaving cuts and obj in
+  //  inconsistent scales by exactly `scale_objective` (juan/gtopt_iplp
+  //  LMAULE: 4.2e+5 → 4.2e+8 → 4.2e+11 across consecutive backward
+  //  phases at scale_obj=1000).
+  //
+  //  We divide elements + finite bounds by scale_objective AND record
+  //  the divisor in `composite_scale` (which is later passed to
+  //  `set_row_scale` so accessor views can recover the original
+  //  physical bound / dual):
+  //
+  //    raw_lb_stored          = phys_lb / (scale_obj × row_scale_part)
+  //    composite_scale_stored = scale_obj × row_scale_part
+  //    get_row_low[i]         = raw_lb × composite_scale = phys_lb ✓
+  //    get_row_dual[i]        = raw_dual × scale_obj / composite_scale
+  //                           = raw_dual / row_scale_part = π_phys ✓
+  //
+  //  The previous form of this fix divided in-place WITHOUT folding
+  //  into composite_scale; the resulting row stored `raw_lb = phys_lb /
+  //  scale_obj` but `row_scale = 1`, so `get_row_low` returned
+  //  `phys_lb / scale_obj` instead of `phys_lb` — a silent off-by-
+  //  scale_obj that broke the physical readback contract.
+  if (m_scale_objective_ != 1.0) {
+    const auto inv_so = 1.0 / m_scale_objective_;
+    for (auto& v : elements) {
+      v *= inv_so;
+    }
+    if (lb > -infy && lb < infy) {
+      lb *= inv_so;
+    }
+    if (ub > -infy && ub < infy) {
+      ub *= inv_so;
+    }
+    composite_scale *= m_scale_objective_;
   }
 
   // 3. Per-row row-max equilibration, only when the LP was built with

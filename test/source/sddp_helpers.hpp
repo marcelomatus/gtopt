@@ -2126,7 +2126,6 @@ inline auto make_backtracking_recovery_two_reservoir_planning() -> Planning
   constexpr int num_phases = 10;
   constexpr int blocks_per_phase = 1;
   constexpr int total_blocks = num_phases * blocks_per_phase;
-  constexpr int phase_seven_stage_idx = 6;
 
   auto block_array =
       make_uniform_blocks(static_cast<std::size_t>(total_blocks), 1.0);
@@ -2136,19 +2135,29 @@ inline auto make_backtracking_recovery_two_reservoir_planning() -> Planning
   auto phase_array =
       make_single_stage_phases(static_cast<std::size_t>(num_phases));
 
-  // Per-stage emin (shared between both reservoirs): zero except
-  // phase 7 = 180.
+  // Per-stage emin: zero throughout (no per-stage minimum).  The
+  // cascade pressure now comes from the **terminal `efin` row**
+  // (vfin >= 150) instead of a mid-horizon emin spike.  Mirrors the
+  // juan/gtopt_iplp p51 LMAULE infeasibility that originally surfaced
+  // the cut-row /scale_objective bug: a strict terminal volume target
+  // that the iter-0 forward pass cannot meet without future-cost
+  // cuts steering the trajectory.
   std::vector<double> emin_per_stage(num_phases, 0.0);
-  emin_per_stage[phase_seven_stage_idx] = 180.0;
 
-  // Per-stage inflow schedule (scenario × stage × block), phase-1
-  // boost identical on both reservoirs.
+  // Per-stage inflow schedule (scenario × stage × block): a phase-0
+  // boost of 80 hm³ followed by a flat 20 hm³.  Total per reservoir
+  // = 80 + 9×20 = 260 hm³, well above `efin = 150`.  The boost
+  // matters because without it the forward pass would need to lift
+  // every phase's stored volume, and the cascade walk would hit
+  // phase 0 with no slack (eini=0, no inflow buffer → no feasible
+  // recovery).  With the boost, the recovery point lands around
+  // phase 6, well within `forward_max_attempts`.
   auto make_inflow_schedule = []
   {
     std::vector<std::vector<double>> inflow_2d;
     inflow_2d.reserve(num_phases);
     for (int st = 0; st < num_phases; ++st) {
-      inflow_2d.push_back(std::vector<double> {st == 0 ? 80.0 : 10.0});
+      inflow_2d.push_back(std::vector<double> {st == 0 ? 80.0 : 20.0});
     }
     std::vector<std::vector<std::vector<double>>> inflow_3d;
     inflow_3d.push_back(std::move(inflow_2d));
@@ -2217,6 +2226,12 @@ inline auto make_backtracking_recovery_two_reservoir_planning() -> Planning
           .fmax = 100.0,
       },
   };
+  // Both reservoirs start EMPTY (`eini = 0`) and must end at
+  // `efin = 150` hm³.  Cumulative inflow per reservoir is 200 hm³
+  // (10 phases × 20 hm³), so filling to 150 leaves 50 hm³ of slack
+  // for hydro generation — the cascade has a feasible recovery
+  // point but only after the elastic filter installs an fcut that
+  // steers the trajectory away from greedy hydro use.
   const Array<Reservoir> reservoir_array = {
       {
           .uid = Uid {1},
@@ -2225,7 +2240,8 @@ inline auto make_backtracking_recovery_two_reservoir_planning() -> Planning
           .capacity = 200.0,
           .emin = emin_per_stage,
           .emax = 200.0,
-          .eini = 120.0,
+          .eini = 0.0,
+          .efin = 150.0,
           .fmin = -1000.0,
           .fmax = +1000.0,
           .flow_conversion_rate = 1.0,
@@ -2237,7 +2253,8 @@ inline auto make_backtracking_recovery_two_reservoir_planning() -> Planning
           .capacity = 200.0,
           .emin = emin_per_stage,
           .emax = 200.0,
-          .eini = 120.0,
+          .eini = 0.0,
+          .efin = 150.0,
           .fmin = -1000.0,
           .fmax = +1000.0,
           .flow_conversion_rate = 1.0,

@@ -522,27 +522,21 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
 
   if (opts.no_scale.value_or(false)) {
     // `--no-scale` disables every auto-scaling / equilibration
-    // mechanism for debug / physical-unit validation.  JSON-explicit
-    // values take precedence; we only fill in when the JSON left the
-    // field unset (the Opt* fields use nullopt as the "not-set"
-    // sentinel).
-    if (!planning.options.model_options.scale_objective.has_value()) {
-      planning.options.model_options.scale_objective = 1.0;
-    }
-    if (!planning.options.model_options.scale_theta.has_value()) {
-      planning.options.model_options.scale_theta = 1.0;
-    }
-    if (!planning.options.lp_matrix_options.equilibration_method.has_value()) {
-      planning.options.lp_matrix_options.equilibration_method =
-          LpEquilibrationMethod::none;
-    }
+    // mechanism for debug / physical-unit validation.  CLI flag wins
+    // over JSON: an explicit `scale_objective: 1000` in the planning
+    // file would otherwise silently survive `--no-scale` (observed on
+    // juan/gtopt_iplp where SDDP cuts compounded by 1000× per backward
+    // phase due to scale_objective=1000 being applied to physical-
+    // space cut rows).
+    planning.options.model_options.scale_objective = 1.0;
+    planning.options.model_options.scale_theta = 1.0;
+    planning.options.lp_matrix_options.equilibration_method =
+        LpEquilibrationMethod::none;
     // Kill switch for the per-element auto-scale heuristics in
     // `PlanningLP::auto_scale_theta / _reservoirs / _lng_terminals`
     // — without this the reservoir energy/flow variable_scales would
     // still be computed and applied at LP construction.
-    if (!planning.options.model_options.auto_scale.has_value()) {
-      planning.options.model_options.auto_scale = false;
-    }
+    planning.options.model_options.auto_scale = false;
   }
 
   if (opts.memory_saving) {
