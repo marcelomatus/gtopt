@@ -874,13 +874,28 @@ int SDDPMethod::update_lp_for_phase(SceneIndex scene_index,
 {
   auto& sys = planning_lp().system(scene_index, phase_index);
 
-  // Set previous phase's SystemLP so that update_lp elements
-  // (seepage, production factor, discharge limit) can look up the
-  // previous phase's efin when computing reservoir volume via
-  // physical_eini.  In warm_start mode, skip this — physical_eini
-  // falls back to the warm solution or vini instead.
-  const auto lookup = planning_lp().options().sddp_state_variable_lookup_mode();
-  if (phase_index && lookup == StateVariableLookupMode::cross_phase) {
+  // Set previous phase's SystemLP unconditionally so that update_lp
+  // elements (seepage, production factor, discharge limit) can look up
+  // the previous phase's optimal efin when re-evaluating volume-
+  // dependent linearisations via physical_eini.
+  //
+  // The pointer is consumed read-only — solely for segment selection
+  // during LP coefficient updates — and physical_eini only follows the
+  // cross-phase branch when the predecessor LP is_optimal().  It does
+  // not change state-variable propagation, which is governed by the
+  // separate sddp_state_variable_lookup_mode option (warm_start vs
+  // cross_phase) handled in propagate_trial_values.
+  //
+  // Previously this pointer was only set when lookup == cross_phase,
+  // leaving warm_start (the default) with prev_phase_sys = nullptr.
+  // physical_eini then fell through to its JSON `eini` fallback (e.g.
+  // 1731 Hm³ for ELTORO), pinning the seepage segment to the
+  // construction-time volume regardless of the actual forward-pass
+  // trajectory.  Observed on juan/gtopt_iplp p38 where the resulting
+  // 15.09 m³/s seepage baseflow exceeded the scheduled affluent and
+  // structurally broke the LP after the forward pass had drained the
+  // reservoir to zero.
+  if (phase_index) {
     const auto prev_phase_index = previous(phase_index);
     sys.set_prev_phase_sys(
         &planning_lp().system(scene_index, prev_phase_index));
