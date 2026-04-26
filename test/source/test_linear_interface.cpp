@@ -1906,7 +1906,13 @@ namespace
 /// Build a small standalone LP:
 ///   min 2 x1 + 3 x2   s.t.  x1 + x2 >= 5,   x1, x2 in [0, 10]
 /// Returns the interface together with the column / row indices.
-struct SimpleLP
+///
+/// Note: the type name `CloneFixture` (rather than e.g. `SimpleLp`) is
+/// chosen to avoid a unity-build collision with the helper of the same
+/// purpose defined in `test_linear_interface_lowmem.cpp`, whose
+/// anonymous namespace would otherwise shadow this one when both files
+/// land in the same unity batch.
+struct CloneFixture
 {
   LinearInterface li;
   ColIndex x1;
@@ -1914,9 +1920,9 @@ struct SimpleLP
   RowIndex r;
 };
 
-[[nodiscard]] SimpleLP make_simple_lp()
+[[nodiscard]] CloneFixture make_clone_fixture()
 {
-  SimpleLP s;
+  CloneFixture s;
   s.x1 = s.li.add_col(SparseCol {
       .uppb = 10.0,
       .cost = 2.0,
@@ -1939,7 +1945,7 @@ struct SimpleLP
 TEST_CASE("LinearInterface::clone - mutating clone does not affect original")
 // NOLINT
 {
-  auto orig = make_simple_lp();
+  auto orig = make_clone_fixture();
   REQUIRE(orig.li.initial_solve().has_value());
   REQUIRE(orig.li.is_optimal());
   const double orig_obj = orig.li.get_obj_value();
@@ -2012,7 +2018,7 @@ TEST_CASE("LinearInterface::clone - mutating clone does not affect original")
 TEST_CASE("LinearInterface::clone - mutating original does not affect clone")
 // NOLINT
 {
-  auto orig = make_simple_lp();
+  auto orig = make_clone_fixture();
   REQUIRE(orig.li.initial_solve().has_value());
 
   auto cloned = orig.li.clone();
@@ -2036,7 +2042,7 @@ TEST_CASE("LinearInterface::clone - mutating original does not affect clone")
 TEST_CASE("LinearInterface::clone - preserves scale_objective and col_scales")
 // NOLINT
 {
-  auto orig = make_simple_lp();
+  auto orig = make_clone_fixture();
 
   // Set some non-default scales that clone must propagate.
   orig.li.set_col_scale(orig.x1, 2.5);
@@ -2113,7 +2119,7 @@ TEST_CASE("LinearInterface::clone - preserves variable_scale_map lookups")
 TEST_CASE("LinearInterface::clone - sibling clones are mutually independent")
 // NOLINT
 {
-  auto orig = make_simple_lp();
+  auto orig = make_clone_fixture();
   REQUIRE(orig.li.initial_solve().has_value());
 
   auto a = orig.li.clone();
@@ -2137,7 +2143,7 @@ TEST_CASE("LinearInterface::clone - sibling clones are mutually independent")
 TEST_CASE("LinearInterface::clone - clone-of-clone preserves invariants")
 // NOLINT
 {
-  auto orig = make_simple_lp();
+  auto orig = make_clone_fixture();
   orig.li.set_col_scale(orig.x1, 3.0);
   REQUIRE(orig.li.initial_solve().has_value());
   const double orig_obj = orig.li.get_obj_value();
@@ -2172,7 +2178,7 @@ TEST_CASE("LinearInterface::clone - clone outlives original")  // NOLINT
   double expected_obj = 0.0;
 
   {
-    auto orig = make_simple_lp();
+    auto orig = make_clone_fixture();
     orig.li.set_col_scale(orig.x1, 1.5);
     REQUIRE(orig.li.initial_solve().has_value());
     expected_x1_low = orig.li.get_col_low()[orig.x1];
