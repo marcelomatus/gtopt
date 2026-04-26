@@ -115,12 +115,14 @@ namespace
 [[nodiscard]] std::string build_set_option_json(std::string_view dotted_key,
                                                 std::string_view json_val)
 {
-  // Split the key on '.' — preserves views into dotted_key so lifetime
-  // of `parts` is bounded by that of @p dotted_key.
-  const auto parts = dotted_key | std::views::split('.')
-      | std::views::transform([](auto r)
-                              { return std::string_view {r.data(), r.size()}; })
-      | std::ranges::to<std::vector>();
+  // Split the key on '.' and collect into a vector of string_views.
+  // `std::ranges::to<std::vector>()` has a libstdc++-14 / clang-21
+  // compatibility issue (forward_like before definition), so we use the
+  // explicit loop form instead.
+  std::vector<std::string_view> parts;
+  for (auto r : dotted_key | std::views::split('.')) {
+    parts.emplace_back(r.data(), r.size());
+  }
 
   // Build the nested path body and track the closing brackets we owe.
   // `closers` is appended in order; we emit it reversed at the end.
