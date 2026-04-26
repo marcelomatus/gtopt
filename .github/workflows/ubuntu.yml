@@ -546,7 +546,11 @@ jobs:
 
       - name: verify only standalone gtopt binary is published
         run: |
-          test -x ${{ runner.temp }}/gtopt-bin/gtopt
+          # actions/upload-artifact does not preserve the executable bit, so
+          # check for file existence (test -f) rather than executability and
+          # restore the bit before the binary is consumed downstream.
+          test -f ${{ runner.temp }}/gtopt-bin/gtopt
+          chmod +x ${{ runner.temp }}/gtopt-bin/gtopt
           if find "${{ runner.temp }}/gtopt-bin" -type f -name 'libgtopt.a' | grep -q .; then
             echo "::error::libgtopt.a was published, expected binary-only artifact"
             find "${{ runner.temp }}/gtopt-bin" -type f -name 'libgtopt.a'
