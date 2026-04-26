@@ -819,7 +819,18 @@ ColIndex LinearInterface::add_col(const SparseCol& col)
   const auto index = m_backend_->get_num_cols();
   const auto col_idx = ColIndex {index};
 
-  m_backend_->add_col(lowb, uppb, col.cost);
+  // Apply the global objective scaling to the obj coefficient,
+  // matching the per-column / scale_objective divide that
+  // `LinearProblem::flatten()` performs at structural-build time
+  // (linear_problem.cpp:725-729).  Without this, columns added
+  // post-flatten land in the LP with cost `scale_objective` times
+  // larger than structural columns' costs — breaking the SDDP
+  // backward-pass cut dynamics on `add_alpha_state_var` (juan/
+  // gtopt_iplp at scale_obj=1000: LB inflated to 1.5e+19 at iter 1).
+  // `col.scale` is left unchanged here because callers pre-apply it
+  // to `col.cost` themselves; treating col.scale as a physical
+  // multiplier would double-apply.
+  m_backend_->add_col(lowb, uppb, col.cost / m_scale_objective_);
 
   // Register scale if non-unity.
   if (col.scale != 1.0) {

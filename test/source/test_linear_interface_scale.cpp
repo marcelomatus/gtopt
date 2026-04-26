@@ -394,6 +394,77 @@ TEST_CASE("LinearInterface - raw and physical row bound setters")  // NOLINT
 }
 
 // ────────────────────────────────────────────────────────────────────
+// Test 5.5 — `add_col` post-flatten applies `/ scale_objective`.
+//
+// Pins the parity between structural columns (whose cost is divided by
+// `scale_objective` at `flatten()` time, linear_problem.cpp:725-729)
+// and post-flatten columns (e.g. SDDP α via
+// `SDDPMethod::add_alpha_state_var`).  Without the divide, the
+// post-flatten column lands in the LP with cost `scale_objective`
+// times larger than every structural column, dominating the
+// minimisation and pinning the column to its lower bound.
+//
+// Symptom on juan/gtopt_iplp at scale_obj=1000: SDDP α gets cost 1000
+// in LP-space (intended: 0.001) → α pinned to its bootstrap floor →
+// cuts cannot bind α from above → LB inflates to 1.5e+19 at iter 1,
+// max kappa 1.55e+34.  This test pins the dimensional contract
+// directly so any regression that re-introduces an unscaled add_col
+// path is caught at unit-test granularity.
+// ────────────────────────────────────────────────────────────────────
+TEST_CASE(
+    "LinearInterface - add_col post-flatten cost / scale_objective")  // NOLINT
+{
+  // The model: pin two columns to 1, one structural and one
+  // post-flatten.  Both have phys cost = 1 (and col_scale = 1).
+  // The optimal physical objective MUST equal 2.0 — same physical
+  // cost, same physical solution — regardless of `scale_objective`.
+  //
+  // Pre-fix: the post-flatten column's stored cost was scale_obj
+  // larger than the structural one, so the LP optimum at scale_obj
+  // != 1 was incorrect (or different from scale_obj=1) by exactly
+  // the missing factor.
+  constexpr std::array scale_objs = {1.0, 100.0, 1000.0};
+
+  for (const double scale_obj : scale_objs) {
+    CAPTURE(scale_obj);
+    LinearProblem lp("addcol_scale");
+    const auto c_struct = lp.add_col(SparseCol {.uppb = 100.0, .cost = 1.0});
+    auto r0 = SparseRow {};
+    r0[c_struct] = 1.0;
+    r0.greater_equal(0.0);
+    std::ignore = lp.add_row(std::move(r0));
+
+    LinearInterface li(
+        "",
+        lp.flatten({.equilibration_method = LpEquilibrationMethod::none,
+                    .scale_objective = scale_obj}));
+    li.save_base_numrows();
+
+    // Post-flatten column with the SAME physical cost.  The fix
+    // ensures the LP-space stored cost equals `1.0 / scale_obj`,
+    // matching the structural column.
+    const auto c_new = li.add_col(SparseCol {.uppb = 100.0, .cost = 1.0});
+
+    // Pin both columns to physical x=1 so we can inspect obj_phys.
+    li.set_col_low(c_struct, 1.0);
+    li.set_col_upp(c_struct, 1.0);
+    li.set_col_low(c_new, 1.0);
+    li.set_col_upp(c_new, 1.0);
+
+    const auto status = li.initial_solve({});
+    REQUIRE((status && *status == 0));
+    REQUIRE(li.is_optimal());
+
+    // The physical obj must equal 2.0 = 2 × (cost × x_phys) at any
+    // scale_objective.  With the fix, both cols' physical
+    // contributions are identical (1.0 each).  Pre-fix, the
+    // post-flatten col's contribution would be scale_obj larger,
+    // breaking the physical invariance.
+    CHECK(li.get_obj_value() * scale_obj == doctest::Approx(2.0).epsilon(1e-9));
+  }
+}
+
+// ────────────────────────────────────────────────────────────────────
 // Test 6 — closes G9, G10
 // Physical objective value and scale_objective() accessor.
 // ────────────────────────────────────────────────────────────────────
