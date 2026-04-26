@@ -522,13 +522,15 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
 
   if (opts.no_scale.value_or(false)) {
     // `--no-scale` disables every auto-scaling / equilibration
-    // mechanism for debug / physical-unit validation.  CLI flag wins
-    // over JSON: an explicit `scale_objective: 1000` in the planning
-    // file would otherwise silently survive `--no-scale` (observed on
-    // juan/gtopt_iplp where SDDP cuts compounded by 1000× per backward
-    // phase due to scale_objective=1000 being applied to physical-
-    // space cut rows).
-    planning.options.model_options.scale_objective = 1.0;
+    // mechanism for debug / physical-unit validation EXCEPT
+    // `scale_objective`, which is left at its JSON / default value
+    // so the user can isolate-test `scale_objective` independently
+    // from the other scaling layers.  Use this to probe whether
+    // SDDP / cut-construction code is invariant under
+    // `scale_objective` alone, with all other scales fixed at unity.
+    //
+    // To FULLY disable all scaling (including scale_objective), pass
+    // `--no-scale --set model_options.scale_objective=1`.
     planning.options.model_options.scale_theta = 1.0;
     planning.options.lp_matrix_options.equilibration_method =
         LpEquilibrationMethod::none;
