@@ -746,8 +746,22 @@ void LinearInterface::load_flat(const FlatLinearProblem& flat_lp)
   // been enabled at flatten.  The overhead is comparable to
   // `colnm`/`rownm` but carries structured fields rather than already-
   // formatted strings.
-  m_col_labels_meta_ = flat_lp.col_labels_meta;
-  m_row_labels_meta_ = flat_lp.row_labels_meta;
+  //
+  // If compress_labels_meta_if_needed() ran during release_backend(), the
+  // compressed buffers are the authoritative source (they capture labels
+  // for all columns including dynamically-added ones).  Do NOT overwrite
+  // the (empty) live vectors with the flat LP's potentially-stale or
+  // structural-only labels; ensure_labels_meta_decompressed() will lazily
+  // restore the live vectors from the compressed buffers on the next
+  // add_col / track_row_label_meta call.  Skipping the assignment keeps
+  // m_col_labels_meta_ empty so that ensure_labels_meta_decompressed()'s
+  // guard (!compressed.empty() && live.empty()) fires correctly.
+  if (m_col_labels_meta_compressed_.empty()) {
+    m_col_labels_meta_ = flat_lp.col_labels_meta;
+  }
+  if (m_row_labels_meta_compressed_.empty()) {
+    m_row_labels_meta_ = flat_lp.row_labels_meta;
+  }
 
   // Seed the eager duplicate-detection maps from the structural
   // metadata so post-flatten add_col / add_row calls (α column,
