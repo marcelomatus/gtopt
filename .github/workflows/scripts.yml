@@ -57,7 +57,20 @@ jobs:
             --cov-report=xml:coverage.xml \
             --cov-report=term-missing
 
+      - name: ruff (lint)
+        working-directory: scripts
+        run: ruff check .
+
+      - name: pylint
+        working-directory: scripts
+        run: pylint --jobs=0 gtopt_compare cvs2parquet gtopt_diagram gtopt_field_extractor igtopt plp2gtopt pp2gtopt gtopt_monitor ts2gtopt gtopt2pp gtopt_check_json gtopt_check_lp gtopt_check_output gtopt_check_solvers gtopt_compress_lp gtopt_config run_gtopt
+
+      - name: mypy
+        working-directory: scripts
+        run: mypy gtopt_compare cvs2parquet gtopt_diagram gtopt_field_extractor igtopt plp2gtopt pp2gtopt gtopt_monitor ts2gtopt gtopt2pp gtopt_check_json gtopt_check_lp gtopt_check_output gtopt_check_solvers gtopt_compress_lp gtopt_config run_gtopt --ignore-missing-imports
+
       - name: Check coverage threshold (warning only)
+        if: always()
         working-directory: scripts
         run: |
           coverage report --fail-under=83 || \
@@ -65,6 +78,7 @@ jobs:
         continue-on-error: true
 
       - name: Upload coverage report
+        if: always()
         uses: actions/upload-artifact@v7
         with:
           name: python-coverage-xml
@@ -73,6 +87,7 @@ jobs:
           if-no-files-found: warn
 
       - name: Generate coverage summary
+        if: always()
         working-directory: scripts
         run: |
           python - <<'EOF'
@@ -169,6 +184,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     name: cmake-install
+    # Run after `test` so the uv package cache is warm and we fail fast on
+    # unit-test/lint regressions before exercising cmake --install paths.
+    needs: test
 
     steps:
       - uses: actions/checkout@v6
@@ -309,29 +327,3 @@ jobs:
         run: |
           pp2gtopt --list-networks
           echo "✓ pp2gtopt --list-networks works"
-
-  lint:
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    name: lint
-
-    steps:
-      - uses: actions/checkout@v6
-
-      - name: Set up Python with uv
-        uses: ./.github/actions/setup-python-uv
-
-      - name: Install dev dependencies
-        run: uv pip install --system -e "./scripts[dev]"
-
-      - name: ruff (lint)
-        working-directory: scripts
-        run: ruff check .
-
-      - name: pylint
-        working-directory: scripts
-        run: pylint --jobs=0 gtopt_compare cvs2parquet gtopt_diagram gtopt_field_extractor igtopt plp2gtopt pp2gtopt gtopt_monitor ts2gtopt gtopt2pp gtopt_check_json gtopt_check_lp gtopt_check_output gtopt_check_solvers gtopt_compress_lp gtopt_config run_gtopt
-
-      - name: mypy
-        working-directory: scripts
-        run: mypy gtopt_compare cvs2parquet gtopt_diagram gtopt_field_extractor igtopt plp2gtopt pp2gtopt gtopt_monitor ts2gtopt gtopt2pp gtopt_check_json gtopt_check_lp gtopt_check_output gtopt_check_solvers gtopt_compress_lp gtopt_config run_gtopt --ignore-missing-imports

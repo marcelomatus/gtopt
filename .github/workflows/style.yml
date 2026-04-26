@@ -1,7 +1,11 @@
 name: Style
 
 on:
-  push:
+  # Only run on pull requests targeting master/main.  The Auto-format
+  # workflow already runs on every push to feature branches and pushes a
+  # fixup commit when needed, so running format checks on `push` would be
+  # redundant.  Restricting to `pull_request` halves the number of format
+  # runs visible in the PR Checks UI.
   pull_request:
     branches:
       - master
@@ -9,20 +13,17 @@ on:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  # Do NOT cancel in-progress runs: the Auto-format bot pushes a fixup commit
-  # immediately after a formatting violation is detected, which would cancel
-  # the still-running format check and show a spurious "cancelled" error in
-  # the PR checks UI.  Format checks are fast (< 2 min) so the waste of
-  # running two overlapping jobs is negligible.
-  cancel-in-progress: false
+  # Safe to cancel: this workflow only runs on `pull_request`, and the
+  # Auto-format bot fires on `push`, so the two events never share the same
+  # concurrency group.  Cancelling stale runs avoids piling up checks when a
+  # PR is updated rapidly.
+  cancel-in-progress: true
 
 permissions:
   contents: read
 
 jobs:
   check-format:
-    # Skip the auto-format fixup commit so it doesn't trigger a redundant check
-    if: "!contains(github.event.head_commit.message, 'style: auto-apply')"
     # Format violations are warnings, never errors — keep the workflow green
     # even if the clang installation step has a transient failure.
     continue-on-error: true
@@ -93,9 +94,37 @@ jobs:
           # Always exit 0 — violations are warnings, not errors
           exit 0
 
+      - name: run strong-type hygiene lint
+        # Forbid re-introduction of the `static_cast<Uid>(...)`,
+        # `StrongIndex{static_cast<Index>(...size())}`, and raw `±1` arithmetic
+        # on positional strong indices that the strong-type hygiene PRs
+        # eliminated.  Runs the repo-local `tools/lint_strong_types.sh`.
+        #
+        # Marked as warnings-only (always exits 0) while the call-site
+        # migration PRs are in flight — master still carries a handful of
+        # hits that those PRs will clear.  Flip `exit 0` → `exit $EXIT_CODE`
+        # in a follow-up PR once the cleanup is complete.
+        run: |
+          set +e
+          LINT_OUT=$(bash tools/lint_strong_types.sh 2>&1)
+          EXIT_CODE=$?
+          set -e
+
+          if [ $EXIT_CODE -ne 0 ]; then
+            echo "$LINT_OUT"
+            echo "::warning title=strong-type-lint::Strong-type hygiene violations detected. See tools/lint_strong_types.sh for the ruleset."
+            echo "## ⚠️ strong-type-lint: violations detected" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            echo "$LINT_OUT" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+          else
+            echo "$LINT_OUT"
+            echo "## ✅ strong-type-lint: no violations" >> $GITHUB_STEP_SUMMARY
+          fi
+          # Warnings-only while call-site migration is in flight.
+          exit 0
+
   check-python-format:
-    # Skip the auto-format fixup commit so it doesn't trigger a redundant check
-    if: "!contains(github.event.head_commit.message, 'style: auto-apply')"
     # Format violations are warnings, never errors — keep the workflow green
     # even if the ruff installation step has a transient failure.
     continue-on-error: true
@@ -140,44 +169,5 @@ jobs:
             echo "## ✅ ruff format: no violations" >> $GITHUB_STEP_SUMMARY
           fi
           # Always exit 0 — violations are warnings, not errors
-          exit 0
-
-  check-strong-types:
-    # Forbid re-introduction of the `static_cast<Uid>(...)`,
-    # `StrongIndex{static_cast<Index>(...size())}`, and raw `±1` arithmetic
-    # on positional strong indices that the strong-type hygiene PRs
-    # eliminated.  Runs the repo-local `tools/lint_strong_types.sh`.
-    #
-    # Marked as warnings-only (always exits 0) while the call-site
-    # migration PRs are in flight — master still carries a handful of
-    # hits that those PRs will clear.  Flip `exit 0` → `exit $EXIT_CODE`
-    # in a follow-up PR once the cleanup is complete.
-    if: "!contains(github.event.head_commit.message, 'style: auto-apply')"
-    continue-on-error: true
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-
-    steps:
-      - uses: actions/checkout@v6
-
-      - name: run strong-type hygiene lint
-        run: |
-          set +e
-          LINT_OUT=$(bash tools/lint_strong_types.sh 2>&1)
-          EXIT_CODE=$?
-          set -e
-
-          if [ $EXIT_CODE -ne 0 ]; then
-            echo "$LINT_OUT"
-            echo "::warning title=strong-type-lint::Strong-type hygiene violations detected. See tools/lint_strong_types.sh for the ruleset."
-            echo "## ⚠️ strong-type-lint: violations detected" >> $GITHUB_STEP_SUMMARY
-            echo '```' >> $GITHUB_STEP_SUMMARY
-            echo "$LINT_OUT" >> $GITHUB_STEP_SUMMARY
-            echo '```' >> $GITHUB_STEP_SUMMARY
-          else
-            echo "$LINT_OUT"
-            echo "## ✅ strong-type-lint: no violations" >> $GITHUB_STEP_SUMMARY
-          fi
-          # Warnings-only while call-site migration is in flight.
           exit 0
 
