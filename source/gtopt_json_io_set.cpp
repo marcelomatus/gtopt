@@ -117,10 +117,10 @@ namespace
 {
   // Split the key on '.' — preserves views into dotted_key so lifetime
   // of `parts` is bounded by that of @p dotted_key.
-  const auto parts = dotted_key | std::views::split('.')
-      | std::views::transform([](auto r)
-                              { return std::string_view {r.data(), r.size()}; })
-      | std::ranges::to<std::vector>();
+  std::vector<std::string_view> parts;
+  for (auto r : dotted_key | std::views::split('.')) {
+    parts.emplace_back(r.data(), r.size());
+  }
 
   // Build the nested path body and track the closing brackets we owe.
   // `closers` is appended in order; we emit it reversed at the end.
