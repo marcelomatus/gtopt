@@ -91,6 +91,25 @@ struct ModelOptions
   /// `--set model_options.continuous_phases="all"`.
   OptName continuous_phases {};
 
+  /// Whether to enforce the per-stage `emin` floor as a HARD lower bound
+  /// on the reservoir's stage-end volume (`efin =
+  /// reservoir_energy_<last_block>`) and on the stage-start volume
+  /// (`reservoir_sini`).
+  ///
+  /// `false` (default, PLP-style): both columns have `lowb = 0`.  The floor is
+  /// not enforced as a constraint; SDDP convergence is responsible for keeping
+  /// the trajectory above `emin`.  Matches PLP's per-stage LP, where `ve<u>`
+  /// is `Free` mid-stage and only `vf<u>` (future volume) has the `vmin` lower
+  /// bound.  Combined with a missing soft slack on the gtopt discharge-limit
+  /// row this gives the most PLP-faithful relaxation.
+  ///
+  /// `true` (opt-in, strict): both columns get `lowb = stage_emin`.  The floor
+  /// is a hard constraint per stage; iter-0 of an SDDP cascade may
+  /// over-constrain the forward pass when state vars cluster at the floor.
+  /// Useful for users who want the strictest possible volume-constraint
+  /// enforcement.
+  OptBool strict_storage_emin {};
+
   void merge(const ModelOptions& opts)
   {
     merge_opt(use_single_bus, opts.use_single_bus);
@@ -110,6 +129,7 @@ struct ModelOptions
     merge_opt(emission_cost, opts.emission_cost);
     merge_opt(emission_cap, opts.emission_cap);
     merge_opt(continuous_phases, opts.continuous_phases);
+    merge_opt(strict_storage_emin, opts.strict_storage_emin);
   }
 
   /// True if any field is set.
@@ -122,7 +142,8 @@ struct ModelOptions
         || demand_fail_cost.has_value() || reserve_fail_cost.has_value()
         || hydro_fail_cost.has_value() || hydro_use_value.has_value()
         || state_fail_cost.has_value() || emission_cost.has_value()
-        || emission_cap.has_value() || continuous_phases.has_value();
+        || emission_cap.has_value() || continuous_phases.has_value()
+        || strict_storage_emin.has_value();
   }
 
   /// True iff every field set in `other` has an equal value in `*this`.
@@ -147,7 +168,8 @@ struct ModelOptions
         && covers_opt(state_fail_cost, other.state_fail_cost)
         && covers_opt(emission_cost, other.emission_cost)
         && covers_opt(emission_cap, other.emission_cap)
-        && covers_opt(continuous_phases, other.continuous_phases);
+        && covers_opt(continuous_phases, other.continuous_phases)
+        && covers_opt(strict_storage_emin, other.strict_storage_emin);
   }
 };
 

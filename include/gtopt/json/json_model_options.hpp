@@ -41,7 +41,8 @@ struct json_data_contract<ModelOptions>
                        json_variant_null<"emission_cap",
                                          OptTRealFieldSched,
                                          jvtl_TRealFieldSched>,
-                       json_string_null<"continuous_phases", OptName>>;
+                       json_string_null<"continuous_phases", OptName>,
+                       json_bool_null<"strict_storage_emin", OptBool>>;
 
   constexpr static auto to_json_data(ModelOptions const& opt)
   {
@@ -61,7 +62,8 @@ struct json_data_contract<ModelOptions>
                                  opt.state_fail_cost,
                                  opt.emission_cost,
                                  opt.emission_cap,
-                                 opt.continuous_phases);
+                                 opt.continuous_phases,
+                                 opt.strict_storage_emin);
   }
 };
 

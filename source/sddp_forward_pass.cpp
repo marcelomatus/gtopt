@@ -516,9 +516,48 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
           // merely the detection of infeasibility.  obj / opex values are
           // deliberately absent: the clone's objective is a feasibility
           // gap, not a cost, and mixing it into the forward-pass log
-          // would invite misinterpretation.  `backtrack→p{}` marks the
-          // phase index we are about to re-solve (p-1) — matches PLP's
-          // "retrocedemos a la etapa anterior" log line in faseprim.
+          // would invite misinterpretation.  Trailing tag distinguishes
+          // the two control-flow modes:
+          //   `fail-stop` (default): scene's forward pass exits this
+          //     iteration after the fcut is installed; the next
+          //     iteration restarts from p1 with the new cut available
+          //     in the global cut store.
+          //   `backtrack→p{}` (legacy): phase_idx is decremented and
+          //     p-1 is re-solved under the new fcut.  Matches PLP's
+          //     "retrocedemos a la etapa anterior" log in faseprim.
+          if (m_options_.forward_fail_stop) {
+            SPDLOG_INFO(
+                "SDDP Forward [i{} s{} p{}]: elastic → fcut on p{} "
+                "(infeas_count={}{}) state=[{}] fail-stop scene",
+                iteration_index,
+                uid_of(scene_index),
+                uid_of(phase_index),
+                uid_of(prev_phase_index),
+                infeas_count,
+                mc_added > 0 ? std::format(" +{}mc", mc_added) : "",
+                state_elems);
+
+            // Scene-level fail-stop: the fcut on p-1 has been installed
+            // and persists in the global cut store across iterations.
+            // Returning Error here causes `run_forward_pass_all_scenes`
+            // to set `scene_feasible[scene_index] = 0` for this iter
+            // (other scenes continue uninterrupted); the next iteration
+            // restarts every scene's forward pass from p1 with the
+            // freshly accumulated cuts.
+            return std::unexpected(Error {
+                .code = ErrorCode::SolverError,
+                .message =
+                    std::format("{}: fail-stop after elastic fcut on p{} "
+                                "(infeas_count={})",
+                                sddp_log("Forward",
+                                         iteration_index,
+                                         uid_of(scene_index),
+                                         uid_of(phase_index)),
+                                uid_of(prev_phase_index),
+                                infeas_count),
+            });
+          }
+
           SPDLOG_INFO(
               "SDDP Forward [i{} s{} p{}]: elastic → fcut on p{} "
               "(infeas_count={}{}) state=[{}] backtrack→p{}",

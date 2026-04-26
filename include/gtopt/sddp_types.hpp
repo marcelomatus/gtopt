@@ -285,6 +285,26 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   /// enough cuts to be feasible).  Default now matches PLP's 5000.
   int forward_max_attempts {5000};
 
+  /// Scene-level fail-stop forward pass (default: true).
+  ///
+  /// When true, an infeasible phase that produces a feasibility cut on
+  /// its predecessor causes the scene's forward pass to STOP for the
+  /// current iteration: the fcut is installed on phase p-1, the scene
+  /// is marked failed (returned Error → caller sets scene_feasible=0),
+  /// and the next iteration starts fresh from p1 with the newly
+  /// accumulated cuts (preserved in the global cut store).  Other
+  /// scenes continue uninterrupted.  Avoids the iter-0 cascade that
+  /// walks back through many stages and produces degenerate cuts.
+  ///
+  /// When false, restores the legacy PLP-style backtracking forward
+  /// pass: after installing the fcut on p-1, `phase_idx` is decremented
+  /// and p-1 is re-solved under the new cut.  If p-1 is still
+  /// infeasible, a fresh fcut is installed on p-2 and the cascade
+  /// continues — bounded by `forward_max_attempts`.  Kept available
+  /// for regression tests and academic fixtures that depend on the
+  /// cascade dynamics.
+  bool forward_fail_stop {true};
+
   /// File format for cut and state variable I/O (csv or json).
   /// CSV uses structured keys (class:var:uid=coeff) and is backward
   /// compatible with legacy name-based CSV files on the load side.

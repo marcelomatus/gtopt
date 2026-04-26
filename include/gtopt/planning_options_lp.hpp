@@ -56,6 +56,10 @@ public:
   static constexpr Bool default_use_kirchhoff = true;
   /** @brief Default setting for single-bus modeling */
   static constexpr Bool default_use_single_bus = false;
+  /** @brief Default setting for strict per-stage volume floor (`emin`)
+   *  enforcement on `reservoir_sini` and the last-block `efin` column.
+   *  `false` (default, PLP-style): bound is relaxed to `lowb = 0`. */
+  static constexpr Bool default_strict_storage_emin = false;
   /** @brief Default threshold for Kirchhoff constraints */
   static constexpr Real default_kirchhoff_threshold = 0;
   /** @brief Default objective function scaling factor */
@@ -227,6 +231,19 @@ public:
   {
     return m_options_.model_options.use_single_bus.value_or(
         default_use_single_bus);
+  }
+
+  /// @brief Whether to enforce the per-stage `emin` floor as a HARD lower
+  /// bound on the storage `sini` and last-block `efin` columns.
+  ///
+  /// When `false` (default, PLP-style), both columns get `lowb = 0` so the
+  /// LP can dip below the floor at iter-0 of an SDDP cascade without
+  /// becoming infeasible.  When `true`, the historic strict behaviour is
+  /// restored: both columns get `lowb = stage_emin`.
+  [[nodiscard]] constexpr auto strict_storage_emin() const
+  {
+    return m_options_.model_options.strict_storage_emin.value_or(
+        default_strict_storage_emin);
   }
 
   /// @brief Gets the objective function scaling factor.
@@ -649,6 +666,19 @@ public:
    * where the gap stabilises above the CI threshold.
    * Default: 0.95 (95% confidence interval). */
   static constexpr Real default_sddp_convergence_confidence = 0.95;
+  /** @brief Default for the scene-level fail-stop forward pass.
+   *
+   *  true (the new default) — when an infeasible phase emits an fcut
+   *  on its predecessor, stop the scene's forward pass for the
+   *  current iteration.  The next iteration restarts from p1 with
+   *  the freshly accumulated cuts.
+   *
+   *  false — restore the legacy PLP-style backtracking cascade:
+   *  decrement `phase_idx` after installing the fcut and re-solve
+   *  p-1 in the same forward pass, recursing back through phases
+   *  until a feasible point is reached or `forward_max_attempts`
+   *  is exhausted. */
+  static constexpr Bool default_sddp_forward_fail_stop = true;
 
   /**
    * @brief Gets the SDDP cut sharing mode as a string name
@@ -775,6 +805,17 @@ public:
   [[nodiscard]] constexpr auto sddp_save_per_iteration() const
   {
     return m_options_.sddp_options.save_per_iteration.value_or(true);
+  }
+
+  /**
+   * @brief Whether the forward pass fail-stops at the scene level
+   *        instead of cascading backward through phases (default: true).
+   * @return true if scene-level fail-stop is enabled.
+   */
+  [[nodiscard]] constexpr auto sddp_forward_fail_stop() const
+  {
+    return m_options_.sddp_options.forward_fail_stop.value_or(
+        default_sddp_forward_fail_stop);
   }
 
   /**

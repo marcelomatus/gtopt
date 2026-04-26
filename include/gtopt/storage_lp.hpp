@@ -483,6 +483,16 @@ public:
     const auto [stage_emax, stage_emin] =
         sc.stage_maxmin_at(stage, emax, emin, stage_capacity);
 
+    // PLP-style emin enforcement gate.  When false (default), the per-stage
+    // `emin` floor is dropped from the `sini` (cross-phase initial energy)
+    // and last-block `efin` columns so the LP can dip below `emin` at iter-0
+    // of an SDDP cascade — exactly mirroring PLP, where `ve<u>` is Free and
+    // only the future-volume column `vf<u>` carries the `vmin` lower bound.
+    // When true, the strict bound is restored on both columns.
+    const bool strict_volume = sc.options().strict_storage_emin();
+    const double sini_lowb = strict_volume ? stage_emin : 0.0;
+    const double efin_block_lowb = strict_volume ? stage_emin : 0.0;
+
     // Determine the initial-energy column (vicol / eini):
     //
     //  ┌─────────────────────┬──────────────────────────────────────────────┐
@@ -530,7 +540,7 @@ public:
       // in the first phase; sini columns are the SDDP inter-phase coupling
       // variables propagated by the forward pass.
       eicol = lp.add_col({
-          .lowb = stage_emin,
+          .lowb = sini_lowb,
           .uppb = stage_emax,
           .scale = energy_scale,
           .class_name = opts.class_name,
@@ -605,13 +615,35 @@ public:
               .equal(0);
 
       // Energy LP variable is in scaled units (physical / energy_scale).
-      // All blocks use uniform bounds [lp_emin, lp_emax].
       // - Global initial condition (eini) is a separate column created before
       //   this loop, used as prev_vc for the first block (is_first_block).
       // - Global final condition (efin) is a named >= row added below for the
       //   last block (is_last_block) of the last stage.
+      //
+      // PLP-style emin enforcement (revised 2026-04-25): the per-stage `emin`
+      // floor is applied to the last-block energy column (which serves
+      // as `efin`, the inter-stage handoff state) ONLY when the user opts in
+      // via `model_options.strict_storage_emin=true`.  Intra-stage
+      // blocks always use `lowb = 0` so the energy-balance row has the same
+      // headroom as PLP's `qe<u>_b` Free / `ve<u>` Free formulation.
+      //
+      // Why default lax: at iter-0 of an SDDP cascade, the forward pass may
+      // fix `sini = stage_emin` if the predecessor's trial drove the reservoir
+      // to its floor.  Combined with the energy-balance equation
+      // `energy_b = sini − fcr·duration·extraction − ...`, a per-block
+      // `lowb = stage_emin` leaves zero headroom and forces a primal
+      // infeasibility.  PLP's per-stage LP avoids this by enforcing emin only
+      // on the future-volume column (`vf<u> ≥ vmin`).  Mirroring that here
+      // keeps the LP feasible across the iter-0 cascade.  When
+      // `strict_storage_emin=true`, the historic strict bound is
+      // restored — `efin_block_lowb = stage_emin` — preserving the inter-
+      // stage semantics so the next stage's `sini` is also ≥ stage_emin.
+      //
+      // Capacity (uppb = stage_emax) is a real physical bound and stays per
+      // block.
+      const bool emin_block = (buid == blocks.back().uid());
       const auto ec = lp.add_col({
-          .lowb = stage_emin,
+          .lowb = emin_block ? efin_block_lowb : 0.0,
           .uppb = stage_emax,
           .cost = stage_ecost,
           .scale = energy_scale,
