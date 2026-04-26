@@ -1536,3 +1536,162 @@ TEST_CASE(  // NOLINT
   // dual is clearly non-zero.
   CHECK(std::abs(water_dual) > 1e-3);
 }
+
+/// Regression: a reservoir whose `spillway_capacity == 0` must NOT emit
+/// a `reservoir_drain_*` LP column nor reference it from the energy_balance
+/// row.  Background: PLP encodes reservoirs whose spillway is structurally
+/// disabled (e.g. LMAULE/ELTORO) by setting IBind/SerVer = 0 → plp2gtopt
+/// outputs `spillway_capacity = 0.0`.  Before the fix, gtopt emitted a
+/// `[0,0]` drain column per (block, stage, scenario), bloating the LP with
+/// thousands of dead variables.  After the fix, drain emission is gated by
+/// a positive capacity.
+TEST_CASE(  // NOLINT
+    "ReservoirLP spillway_capacity=0 omits reservoir_drain column")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  const Array<Bus> bus_array = {
+      {
+          .uid = Uid {1},
+          .name = "b1",
+      },
+  };
+  const Array<Generator> generator_array = {
+      {
+          .uid = Uid {1},
+          .name = "g1",
+          .bus = Uid {1},
+          .gcost = 10.0,
+          .capacity = 200.0,
+      },
+  };
+  const Array<Demand> demand_array = {
+      {
+          .uid = Uid {1},
+          .name = "d1",
+          .bus = Uid {1},
+          .lmax = 50.0,
+      },
+  };
+  const Array<Junction> junction_array = {
+      {
+          .uid = Uid {1},
+          .name = "j_up",
+      },
+      {
+          .uid = Uid {2},
+          .name = "j_down",
+          .drain = true,
+      },
+  };
+  const Array<Waterway> waterway_array = {
+      {
+          .uid = Uid {1},
+          .name = "ww1",
+          .junction_a = Uid {1},
+          .junction_b = Uid {2},
+          .fmin = 0.0,
+          .fmax = 100.0,
+      },
+  };
+
+  // Two reservoirs: one with spillway disabled (capacity=0), one with a
+  // positive capacity AND a non-zero spillway_cost (drain enabled).
+  const Array<Reservoir> reservoir_array = {
+      {
+          .uid = Uid {10},
+          .name = "rsv_no_spill",
+          .junction = Uid {1},
+          .spillway_capacity = 0.0,
+          .spillway_cost = 5.0,  // cost set, but capacity=0 → still disabled
+          .capacity = 1000.0,
+          .emin = 0.0,
+          .emax = 1000.0,
+          .eini = 500.0,
+          .use_state_variable = false,
+      },
+      {
+          .uid = Uid {11},
+          .name = "rsv_with_spill",
+          .junction = Uid {1},
+          .spillway_capacity = 1000.0,
+          .spillway_cost = 5.0,
+          .capacity = 1000.0,
+          .emin = 0.0,
+          .emax = 1000.0,
+          .eini = 500.0,
+          .use_state_variable = false,
+      },
+  };
+
+  const Simulation simulation = {
+      .block_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .duration = 1,
+              },
+          },
+      .stage_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .first_block = 0,
+                  .count_block = 1,
+              },
+          },
+      .scenario_array =
+          {
+              {
+                  .uid = Uid {0},
+              },
+          },
+  };
+
+  const System system = {
+      .name = "RsvNoSpillTest",
+      .bus_array = bus_array,
+      .demand_array = demand_array,
+      .generator_array = generator_array,
+      .junction_array = junction_array,
+      .waterway_array = waterway_array,
+      .reservoir_array = reservoir_array,
+  };
+
+  PlanningOptions opts;
+  opts.demand_fail_cost = 1000.0;
+  const PlanningOptionsLP options {opts};
+  SimulationLP simulation_lp(simulation, options);
+  SystemLP system_lp(system, simulation_lp);
+
+  auto& lp = system_lp.linear_interface();
+  const auto result = lp.resolve();
+  REQUIRE(result.has_value());
+  CHECK(result.value() == 0);
+
+  const auto& reservoir_lps = system_lp.elements<ReservoirLP>();
+  REQUIRE(reservoir_lps.size() == 2);
+
+  const auto find_rsv = [&](Uid u) -> const ReservoirLP&
+  {
+    const auto it = std::ranges::find_if(
+        reservoir_lps, [u](const auto& r) { return r.uid() == u; });
+    REQUIRE(it != reservoir_lps.end());
+    return *it;
+  };
+
+  const auto& rsv_no_spill = find_rsv(Uid {10});
+  const auto& rsv_with_spill = find_rsv(Uid {11});
+
+  const auto& scenario_lp = simulation_lp.scenarios().front();
+  const auto& stage_lp = simulation_lp.stages().front();
+
+  // The disabled reservoir must not register any drain columns.
+  CHECK(rsv_no_spill.find_drain_cols(scenario_lp, stage_lp) == nullptr);
+
+  // The enabled reservoir must still register one drain column per block.
+  const auto* dcols_with =
+      rsv_with_spill.find_drain_cols(scenario_lp, stage_lp);
+  REQUIRE(dcols_with != nullptr);
+  CHECK(dcols_with->size() == 1);
+}

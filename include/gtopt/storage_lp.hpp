@@ -561,6 +561,17 @@ public:
       // An efin==eini close constraint is added after the block loop below.
     }
 
+    // Drain (spillway) emission gate: skip the per-block drain column when
+    // the caller signals the drain is disabled by passing a *zero* capacity.
+    // For Reservoir this corresponds to `Reservoir.spillway_capacity == 0`
+    // (PLP `IBind`/`SerVer == 0` reservoirs whose spillway is structurally
+    // bound to zero — emitting a `[0,0]` column adds dead variables and rows
+    // to the energy balance).  When the capacity is unset the column keeps
+    // the historical unbounded behaviour (DblMax), so existing callers that
+    // pass `drain_capacity = std::nullopt` are unchanged.
+    const bool drain_enabled =
+        drain_cost.has_value() && drain_capacity.value_or(1.0) > 0.0;
+
     BIndexHolder<ColIndex> ecols;
     BIndexHolder<ColIndex> dcols;
     BIndexHolder<RowIndex> erows;
@@ -568,7 +579,9 @@ public:
     map_reserve(ecols, blocks.size());
     map_reserve(erows, blocks.size());
     map_reserve(crows, blocks.size());
-    map_reserve(dcols, blocks.size());
+    if (drain_enabled) {
+      map_reserve(dcols, blocks.size());
+    }
 
     // stg_ctx (StageContext = tuple<ScenarioUid, StageUid>) serves as both
     // the LP hierarchy context and the index holder key.
@@ -643,7 +656,7 @@ public:
             * block.duration() * dc_stage_scale;
       }
 
-      if (drain_cost) {
+      if (drain_enabled) {
         // Physical drain cost — flatten() applies col_scale.
         const auto dcol = lp.add_col({
             .lowb = 0,
@@ -813,7 +826,7 @@ public:
     efin_cols[stg_ctx] = prev_vc;
     energy_rows[stg_ctx] = std::move(erows);
     energy_cols[stg_ctx] = std::move(ecols);
-    if (drain_cost) {
+    if (drain_enabled) {
       drain_cols[stg_ctx] = std::move(dcols);
     }
 
@@ -828,7 +841,7 @@ public:
     if (!ampl_class.empty()) {
       sc.add_ampl_variable(
           ampl_class, uid(), EnergyName, scenario, stage, energy_cols[stg_ctx]);
-      if (drain_cost) {
+      if (drain_enabled) {
         sc.add_ampl_variable(
             ampl_class, uid(), DrainName, scenario, stage, drain_cols[stg_ctx]);
       }
