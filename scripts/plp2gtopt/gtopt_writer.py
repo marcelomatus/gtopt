@@ -1194,6 +1194,64 @@ class GTOptWriter:
             len(entities.get("lng_terminal_array", [])),
         )
 
+    def process_pmin_flowright(self, options):
+        """Convert whitelisted generators' ``pmin`` into FlowRight obligations.
+
+        Companion to :mod:`gtopt_expand.pmin_flowright_expand`.  Runs
+        only when ``options["pmin_as_flowright"]`` is set (string;
+        empty string means "use bundled default CSV").  For each
+        whitelisted central:
+
+        * Looks up the gen waterway and its ``junction_b`` in
+          ``planning["system"]``.
+        * Computes ``flow_min[block] = pmin[block] / Rendi`` from
+          ``mance_parser`` (per-stage-per-block pmin) — falls back to
+          the central's static ``pmin`` when there is no mance entry.
+        * Writes ``FlowRight/<central>_pmin_as_flow_right.parquet``
+          (one column per FlowRight, schema mirrors
+          ``Generator/pmin.parquet``).
+        * Appends a FlowRight JSON entry to
+          ``planning["system"]["flow_right_array"]`` with
+          ``discharge = "<central>_pmin_as_flow_right"``,
+          ``junction = junction_b`` and a ``fail_cost`` calibrated
+          from plpvrebemb (2× max rebalse_cost) or plpmat CVert
+          (2× CVert) — fallback $10 000/m³/s·h when neither is set.
+        * Zeros the matching generator's ``pmin`` so the LP no longer
+          enforces the must-run obligation directly.
+        """
+        spec = options.get("pmin_as_flowright")
+        if spec is None:
+            return
+
+        from ._parsers import DEFAULT_PMIN_FLOWRIGHT_FILE  # noqa: PLC0415
+        from .pmin_flowright_writer import (  # noqa: PLC0415
+            PminFlowRightWriter,
+            resolve_whitelist,
+        )
+
+        try:
+            whitelist = resolve_whitelist(
+                str(spec), default_csv=DEFAULT_PMIN_FLOWRIGHT_FILE
+            )
+        except (FileNotFoundError, ValueError) as exc:
+            _logger.warning("pmin_as_flowright: %s; skipping conversion.", exc)
+            return
+        if not whitelist:
+            return
+
+        writer = PminFlowRightWriter(
+            whitelist=whitelist,
+            central_parser=self.parser.parsed_data.get("central_parser"),
+            mance_parser=self.parser.parsed_data.get("mance_parser"),
+            block_parser=self.parser.parsed_data.get("block_parser"),
+            stage_parser=self.parser.parsed_data.get("stage_parser"),
+            scenarios=self.planning["simulation"].get("scenario_array", []),
+            vrebemb_parser=self.parser.parsed_data.get("vrebemb_parser"),
+            plpmat_parser=self.parser.parsed_data.get("plpmat_parser"),
+            options=options,
+        )
+        writer.process(self.planning["system"])
+
     def process_flow_turbines(self, options):
         """Create Flow + Turbine(flow=ref) for hydro pasada centrals.
 
@@ -1878,6 +1936,7 @@ class GTOptWriter:
         self.process_generator_profiles(options)
         self.process_junctions(options)
         self.process_flow_turbines(options)
+        self.process_pmin_flowright(options)
         _step("water_rights")
         self.process_water_rights(options)
         _step("lng")

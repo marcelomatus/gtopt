@@ -184,7 +184,7 @@ def test_transit_bus0_with_mance_registers_tuple() -> None:
         jw.to_json_array()
 
     assert len(jw._transit_gen_waterways) == 1
-    cid, _ww_uid, name = jw._transit_gen_waterways[0]
+    cid, _ww_uid, name, _ww_dict = jw._transit_gen_waterways[0]
     assert cid == 10
     assert name == "LMAULE"
 
@@ -281,7 +281,7 @@ def test_write_bounds_noop_missing_block_parser() -> None:
     """Registry populated but block_parser=None → no-op, no exception."""
     jw = _make_jw(mance_entries=[_MANCE_DATA])
     # Manually inject a registry entry and then remove block_parser
-    jw._transit_gen_waterways = [(10, 1, "LMAULE")]
+    jw._transit_gen_waterways = [(10, 1, "LMAULE", {})]
     jw.block_parser = None
     jw._write_transit_waterway_bounds()  # must not raise
 
@@ -289,7 +289,7 @@ def test_write_bounds_noop_missing_block_parser() -> None:
 def test_write_bounds_noop_missing_mance_parser() -> None:
     """Registry populated but mance_parser=None → no-op, no exception."""
     jw = _make_jw(mance_entries=[_MANCE_DATA])
-    jw._transit_gen_waterways = [(10, 1, "LMAULE")]
+    jw._transit_gen_waterways = [(10, 1, "LMAULE", {})]
     jw.mance_parser = None
     jw._write_transit_waterway_bounds()  # must not raise
 
@@ -361,7 +361,7 @@ def test_ocean_fallback_gen_waterway_registered() -> None:
         "name": "B_LAMINA",
         "block": np.array([1, 2], dtype=np.int32),
         "pmin": np.array([10.0, 20.0], dtype=np.float64),
-        "pmax": np.array([80.0, 80.0], dtype=np.float64),
+        "pmax": np.array([80.0, 70.0], dtype=np.float64),
     }
 
     # B_LAMINA must be referenced by another central so it is not skipped
@@ -390,7 +390,7 @@ def test_ocean_fallback_gen_waterway_registered() -> None:
         result = jw.to_json_array()
 
     assert len(jw._transit_gen_waterways) == 1
-    cid, _ww_uid, name = jw._transit_gen_waterways[0]
+    cid, _ww_uid, name, _ww_dict = jw._transit_gen_waterways[0]
     assert cid == 30
     assert name == "B_LAMINA"
 

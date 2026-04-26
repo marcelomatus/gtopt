@@ -1570,9 +1570,27 @@ class JunctionWriter(BaseWriter):
         Creates ReservoirDischargeLimit elements that constrain the stage-average
         discharge from a reservoir as a piecewise-linear function of volume.
         The waterway reference is resolved from the reservoir's turbine.
+
+        Reservoirs listed in ``--disable-discharge-limit-for`` are skipped:
+        gtopt models the discharge-limit row as a hard inequality, but PLP
+        relies on its soft ``vrbp``/``vrbn`` slack pair on the same row
+        (``c6531..c6540``/``c6541..c6550`` family).  Without the slack, gtopt
+        can become spuriously infeasible at iter-0 of an SDDP cascade once
+        the forward pass drives the reservoir down to its emin floor.
         """
         if not self.ralco_parser:
             return
+
+        # Optional CLI-provided exclusion list (comma-separated reservoir
+        # names).  Empty / unset → emit all entries (legacy behaviour).
+        disabled_raw = (
+            self.options.get("disable_discharge_limit_for") if self.options else None
+        )
+        disabled_set: set[str] = set()
+        if disabled_raw:
+            disabled_set = {
+                name.strip() for name in str(disabled_raw).split(",") if name.strip()
+            }
 
         # Build reservoir name → turbine waterway name map
         turbine_waterway: Dict[str, str] = {}
@@ -1581,6 +1599,13 @@ class JunctionWriter(BaseWriter):
 
         for entry in self.ralco_parser.reservoir_discharge_limits:
             rsv_name = entry["reservoir"]
+            if rsv_name in disabled_set:
+                _logger.info(
+                    "Skipping plpralco discharge limit for reservoir '%s' "
+                    "(disabled via --disable-discharge-limit-for).",
+                    rsv_name,
+                )
+                continue
             segments = entry.get("segments", [])
 
             rsv = self._find_reservoir(system, rsv_name)

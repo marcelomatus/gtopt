@@ -374,6 +374,17 @@ def build_options(args: argparse.Namespace) -> dict:
     opts["soft_emin_cost"] = args.soft_emin_cost
     opts["embed_reservoir_constraints"] = args.embed_reservoir_constraints
     opts["plp_legacy"] = args.plp_legacy
+    if getattr(args, "disable_discharge_limit_for", None):
+        opts["disable_discharge_limit_for"] = args.disable_discharge_limit_for
+    # ``--pmin-as-flowright`` may be:
+    #   - absent (None): feature disabled
+    #   - flag without value (""): use bundled default CSV
+    #   - a CSV path on disk: use that whitelist
+    #   - a comma-separated list of names: use those names
+    if getattr(args, "pmin_as_flowright", None) is not None:
+        opts["pmin_as_flowright"] = args.pmin_as_flowright
+    if getattr(args, "flow_right_fail_cost", None) is not None:
+        opts["flow_right_fail_cost"] = args.flow_right_fail_cost
     opts["expand_water_rights"] = args.expand_water_rights
     opts["expand_lng"] = args.expand_lng
     opts["expand_ror"] = args.expand_ror
