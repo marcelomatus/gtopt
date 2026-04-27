@@ -2974,8 +2974,13 @@ TEST_CASE(  // NOLINT
     }
     PlanningLP plp(std::move(planning));
 
+    // Iterate to convergence so the SDDP policy stabilises and the
+    // forward-pass trajectory at the final iteration is the LP-
+    // optimal one (not the iter-0 greedy one).  The dual-based
+    // threshold predicts behaviour at the converged policy.
     SDDPOptions sddp_opts;
-    sddp_opts.max_iterations = 1;
+    sddp_opts.max_iterations = 30;
+    sddp_opts.convergence_tol = 1e-3;
     sddp_opts.elastic_filter_mode = ElasticFilterMode::single_cut;
     sddp_opts.multi_cut_threshold = -1;
     sddp_opts.forward_max_attempts = 200;
@@ -2990,7 +2995,7 @@ TEST_CASE(  // NOLINT
     REQUIRE_FALSE(results->empty());
 
     CaseResult cr;
-    cr.ub = results->front().upper_bound;
+    cr.ub = results->back().upper_bound;
     cr.vols = {read_terminal_vol_end(plp, 0), read_terminal_vol_end(plp, 1)};
     cr.efin_duals = {read_efin_row_dual(plp, 0), read_efin_row_dual(plp, 1)};
     for (const auto& c : sddp.stored_cuts()) {
@@ -3001,14 +3006,16 @@ TEST_CASE(  // NOLINT
     return cr;
   };
 
-  // Hard variant — the original fixture: efin = 150, no slack.  The
-  // cascade must succeed; terminal volumes hit efin; the efin-row
-  // dual is the LOCAL marginal cost of forcing efin at the last
+  // Hard variant — the original fixture: efin = 150, no slack.
+  // The cascade must succeed; terminal volumes hit efin; the
+  // efin-row dual is the marginal cost of forcing efin at the last
   // phase (≈ thermal_gcost − hydro_gcost = 100 − 1 = 99 here).
-  // This dual is the threshold *for a monolithic LP*; SDDP iter-0
-  // cascade dynamics decouple the per-phase trajectories, so the
-  // soft-variant trajectories are not strictly above-/below-pinned
-  // by this single threshold (see below).
+  // The soft variant runs the SAME SDDP loop to convergence
+  // (max_iterations=30, convergence_tol=1e-3), so the threshold
+  // concept holds exactly: efin_cost > dual ⇒ converged policy
+  // reaches efin (no slack); efin_cost < dual ⇒ slack is cheaper
+  // than the marginal substitution and at least one reservoir
+  // misses efin.
   const auto hard = run_case({});
   CAPTURE(hard.ub);
   CAPTURE(hard.vols[0]);
@@ -3046,14 +3053,12 @@ TEST_CASE(  // NOLINT
          || under.vols[1] < efin_target - feas_tol));
   CHECK(under.fcuts <= hard.fcuts);
 
-  // Soft variant ABOVE threshold (efin_cost = dual_max × 2): in a
-  // *monolithic* LP both reservoirs would reach efin.  Under SDDP
-  // iter-0 the greedy forward pass and the absent cascade can leave
-  // one reservoir below efin even at this price — the dual is local
-  // to the last-phase LP and doesn't account for the multi-phase
-  // hydro substitution chain that would actually be needed.  We
-  // therefore CHECK only that the LP solves cleanly and that
-  // *at least one* reservoir reaches efin, CAPTUREing the rest.
+  // Soft variant ABOVE threshold (efin_cost = dual_max × 2): the
+  // converged SDDP policy prefers running thermal over paying slack,
+  // so both reservoirs reach efin and the UB matches the hard UB
+  // (slack column is dormant).  The soft cascade is also empty —
+  // the slack absorbs would-be infeasibilities so no fcuts are
+  // installed.
   const double above = dual_max * 2.0;
   CAPTURE(above);
   const auto over = run_case(OptReal {above});
@@ -3063,9 +3068,13 @@ TEST_CASE(  // NOLINT
   CAPTURE(over.fcuts);
   CHECK(std::isfinite(over.ub));
   CHECK(over.ub > 0.0);
-  CHECK((over.vols[0] >= efin_target - feas_tol
-         || over.vols[1] >= efin_target - feas_tol));
+  CHECK(over.vols[0] >= efin_target - feas_tol);
+  CHECK(over.vols[1] >= efin_target - feas_tol);
   CHECK(over.fcuts <= hard.fcuts);
+  // Above-threshold soft UB ≈ hard UB (slack is dormant): both runs
+  // converge to the same trajectory.  Allow a 1% slop for SDDP
+  // convergence noise.
+  CHECK(over.ub == doctest::Approx(hard.ub).epsilon(0.01));
 }
 
 // ─── Stationary-gap ceiling guard (commit f466936f) ───────────────────────
