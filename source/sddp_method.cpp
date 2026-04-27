@@ -2050,10 +2050,18 @@ void SDDPMethod::compute_iteration_bounds(
     if (scene_feasible[scene] == 0U) {
       continue;
     }
+    // Physical ($) units — must match the physical-space upper bound
+    // aggregated in ``sddp_forward_pass`` (which uses
+    // ``get_obj_value_physical()`` after commit dd5c88ee).  Reading
+    // LP-raw here put UB and LB in different unit spaces, producing
+    // a gap = (UB − LB) / |UB| ≈ ``scale_objective − 1`` /
+    // ``scale_objective`` that never closes regardless of cut
+    // quality (juan/gtopt_iplp at scale_objective = 1000: a
+    // permanent ≈ 0.999 gap).
     const double lb_si = planning_lp()
                              .system(scene, first_phase_index())
                              .linear_interface()
-                             .get_obj_value();
+                             .get_obj_value_physical();
     ir.scene_lower_bounds[scene] = lb_si;
     weighted_lower += weights[scene] * lb_si;
   }
