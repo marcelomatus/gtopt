@@ -41,6 +41,27 @@ _logger = logging.getLogger(__name__)
 # cannot collide with central UIDs (which are typically in the range 1–999).
 _OCEAN_UID_OFFSET = 10000
 
+# PLP convention: ``PotMax`` (max generation power) and ``VertMax`` (max
+# spillway flow) in plpcnfce.dat are sometimes set to a numeric sentinel
+# meaning "essentially unbounded" — observed values are in the 9000-10042
+# band (looks like 9000 + central_index) and 99999.  A real Chilean
+# generator/spillway flow cap is at most a few thousand m³/s, so any value
+# at or above this threshold is treated as "unspecified" and dropped from
+# the emitted waterway, leaving the flow unbounded.  Keeping the sentinel
+# as a literal LP upper bound inflates matrix kappa (max coef ÷ min coef)
+# and yields false binding-bound duals during SDDP cuts.
+#
+# This patch re-introduces the helper that was added in 8d1fff9b and
+# subsequently removed by the 86616b80 refactor — and extends coverage to
+# the ``gen`` waterway side (``fmax = PotMax / Rendi``) which never had
+# the check in the first place.
+_PLP_NO_LIMIT_SENTINEL = 9000.0
+
+
+def _is_plp_no_limit(value: float) -> bool:
+    """Return True if ``value`` looks like a PLP "no bound" sentinel."""
+    return value >= _PLP_NO_LIMIT_SENTINEL
+
 
 def _eval_pf_segments(segments: List[Dict[str, float]], volume: float) -> float:
     """Evaluate a piecewise-linear PF curve at ``volume``.
@@ -359,6 +380,11 @@ class JunctionWriter(BaseWriter):
         self._junction_names: dict[int, str] = {}
         self._skipped_isolated: list[str] = []
         self._referenced_junctions: set[int] = set()
+        # Counter for PLP "no limit" sentinels normalised on gen and ver
+        # waterways (see ``_is_plp_no_limit``).  Logged once at end of
+        # ``to_json_array`` so the user can see how many spurious bounds
+        # were dropped — improves LP scaling.
+        self._plp_no_limit_count: int = 0
         # Gen waterways of transit centrals (``bus = 0``) that have
         # plpmance.dat per-stage flow envelopes.  These centrals have
         # no generator entry to consume Generator/pmin.parquet, so we
@@ -483,6 +509,8 @@ class JunctionWriter(BaseWriter):
 
         # Track isolated centrals that were skipped
         self._skipped_isolated = []
+        # Reset PLP no-limit sentinel counter for this conversion run.
+        self._plp_no_limit_count = 0
 
         # Build set of junction numbers referenced as downstream targets by
         # other centrals.  A central with ser_hid=0/ser_ver=0 that IS referenced
@@ -532,6 +560,14 @@ class JunctionWriter(BaseWriter):
         # Per-stage flow envelope (fmin/fmax) on gen waterways of
         # transit-only centrals (``bus = 0`` AND has plpmance.dat).
         self._write_transit_waterway_bounds()
+
+        if self._plp_no_limit_count > 0:
+            _logger.info(
+                "Normalised %d PLP 'no limit' sentinel(s) (>= %g) on gen+ver "
+                "waterway bounds — improves LP scaling.",
+                self._plp_no_limit_count,
+                _PLP_NO_LIMIT_SENTINEL,
+            )
 
         return [cast(Dict[str, Any], system)]
 
@@ -605,7 +641,14 @@ class JunctionWriter(BaseWriter):
         gen_rendi = float(central.get("efficiency", 0.0) or 0.0)
         gen_fmax: Optional[float] = None
         if gen_pot_max > 0.0 and gen_rendi > 0.0:
-            gen_fmax = gen_pot_max / gen_rendi
+            # PLP encodes "no PotMax cap" as a sentinel ≥ 9000 MW.  Treat
+            # it as unspecified so the gen waterway stays unbounded —
+            # otherwise a 9999 MW PotMax with Rendi=1.0 would emit a
+            # literal fmax=9999 m³/s upper bound, inflating LP kappa.
+            if _is_plp_no_limit(gen_pot_max):
+                self._plp_no_limit_count += 1
+            else:
+                gen_fmax = gen_pot_max / gen_rendi
         gen_waterway = self._create_waterway(
             central_name + "_gen",
             central_id,
@@ -674,7 +717,20 @@ class JunctionWriter(BaseWriter):
             vert_fmax: Optional[float] = None
             vert_fcost: Optional[float] = rebalse_cost
         else:
-            vert_fmax = None if vert_max_raw is None else float(vert_max_raw)
+            # Same PLP "no limit" sentinel as on the gen side — VertMax
+            # values ≥ 9000 m³/s mean "unbounded" (often 9000 + central
+            # index, or 99999); emitting them as literal upper bounds
+            # bloats LP matrix kappa and can yield false binding-bound
+            # duals.  Drop them to None so the field is omitted.
+            if vert_max_raw is None:
+                vert_fmax = None
+            else:
+                v = float(vert_max_raw)
+                if _is_plp_no_limit(v):
+                    self._plp_no_limit_count += 1
+                    vert_fmax = None
+                else:
+                    vert_fmax = v
             vert_fcost = cvert_default
         ver_waterway = self._create_waterway(
             central_name + "_ver",
@@ -728,7 +784,16 @@ class JunctionWriter(BaseWriter):
                 spill_fmax = 1.0e30
                 spill_fcost = rebalse_cost
             elif vert_max_for_spill > 0.0:
-                spill_fmax = float(vert_max_for_spill)
+                # Same PLP "no limit" sentinel handling as the gen+ver
+                # paths above: VertMax >= 9000 m³/s means "unbounded",
+                # so use gtopt's 1e30 effective-infinity sentinel
+                # (clamped to solver infinity at flatten-time) instead of
+                # baking the literal sentinel into the LP upper bound.
+                if _is_plp_no_limit(float(vert_max_for_spill)):
+                    self._plp_no_limit_count += 1
+                    spill_fmax = 1.0e30
+                else:
+                    spill_fmax = float(vert_max_for_spill)
                 spill_fcost = cvert_default
             if spill_fmax is not None:
                 self._ocean_junction_counter += 1
