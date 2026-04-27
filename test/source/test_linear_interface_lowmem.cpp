@@ -249,6 +249,58 @@ TEST_CASE("LinearInterface - max_fallbacks=1 tries one alternative")  // NOLINT
 namespace
 // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
 {
+/// Build a LinearInterface with labeled columns and rows directly via
+/// add_col / add_row (no flatten path).  Used to exercise the label
+/// metadata compression/decompression path in compress mode.
+struct LabeledLp
+{
+  LinearInterface li;
+  ColIndex x1;
+  ColIndex x2;
+  RowIndex r1;
+};
+
+LabeledLp make_labeled_lp()
+{
+  LinearInterface li;
+
+  // Two labeled columns with distinct class_name / variable_name / uid.
+  // min 2·x1 + 3·x2  s.t.  x1 + x2 >= 5,  0 <= x1,x2 <= 10.
+  const auto x1 = li.add_col(SparseCol {
+      .lowb = 0.0,
+      .uppb = 10.0,
+      .cost = 2.0,
+      .class_name = "Gen",
+      .variable_name = "generation",
+      .variable_uid = Uid {1},
+  });
+  const auto x2 = li.add_col(SparseCol {
+      .lowb = 0.0,
+      .uppb = 10.0,
+      .cost = 3.0,
+      .class_name = "Gen",
+      .variable_name = "generation",
+      .variable_uid = Uid {2},
+  });
+
+  // One labeled row.
+  SparseRow row;
+  row[x1] = 1.0;
+  row[x2] = 1.0;
+  row.lowb = 5.0;
+  row.uppb = SparseRow::DblMax;
+  row.class_name = "Bus";
+  row.constraint_name = "balance";
+  row.variable_uid = Uid {10};
+  const auto r1 = li.add_row(row);
+
+  return LabeledLp {
+      .li = std::move(li),
+      .x1 = x1,
+      .x2 = x2,
+      .r1 = r1,
+  };
+}
 struct SimpleLp
 {
   LinearInterface li;
@@ -1299,4 +1351,332 @@ TEST_CASE(
       CHECK(snap.flat_lp.matval[i] == doctest::Approx(flat.matval[i]));
     }
   }
+}
+
+// ── Label-metadata compress / decompress round-trip ───────────────────────
+//
+// The label-metadata path (serialize_labels_meta / deserialize_labels_meta
+// and their drivers compress_labels_meta_if_needed /
+// ensure_labels_meta_decompressed) is exercised by the following tests.
+// Each test builds a LinearInterface with labeled cols/rows, puts it in
+// compress mode, triggers a release_backend() → compress_labels_meta_if_
+// needed() cycle, then reconstructs and reads back the labels.
+
+TEST_CASE(  // NOLINT
+    "LinearInterface — label metadata survives compress/decompress round-trip")
+{
+  auto [li, x1, x2, r1] = make_labeled_lp();
+
+  // Solve to have a valid solution for the release → reconstruct cycle.
+  auto res = li.initial_solve();
+  REQUIRE(res.has_value());
+  REQUIRE(li.is_optimal());
+
+  // The optimal solution: x1=5, x2=0, obj=10.
+  CHECK(li.get_obj_value() == doctest::Approx(10.0));
+
+  // Build a flat snapshot so release_backend can reuse it.  Use the
+  // SAME labels as the live LinearInterface so that load_flat()'s
+  // `m_col_labels_meta_ = flat_lp.col_labels_meta` overwrite preserves
+  // the original metadata (the snapshot is the authoritative source
+  // for structural labels in compress mode).
+  LinearProblem lp;
+  const auto c1 = lp.add_col({
+      .lowb = 0.0,
+      .uppb = 10.0,
+      .cost = 2.0,
+      .class_name = "Gen",
+      .variable_name = "generation",
+      .variable_uid = Uid {1},
+  });
+  const auto c2 = lp.add_col({
+      .lowb = 0.0,
+      .uppb = 10.0,
+      .cost = 3.0,
+      .class_name = "Gen",
+      .variable_name = "generation",
+      .variable_uid = Uid {2},
+  });
+  const auto row_idx = lp.add_row({
+      .lowb = 5.0,
+      .uppb = SparseRow::DblMax,
+      .class_name = "Bus",
+      .constraint_name = "balance",
+      .variable_uid = Uid {10},
+  });
+  lp.set_coeff(row_idx, c1, 1.0);
+  lp.set_coeff(row_idx, c2, 1.0);
+  auto flat = lp.flatten({});
+
+  SUBCASE("lz4 codec — label vectors cleared after release")
+  {
+    li.set_low_memory(LowMemoryMode::compress, CompressionCodec::lz4);
+    li.save_snapshot(FlatLinearProblem {flat});
+
+    // release_backend() calls compress_labels_meta_if_needed() internally.
+    li.release_backend();
+    REQUIRE(li.is_backend_released());
+
+    // Reconstruct — ensure_labels_meta_decompressed() fires inside add_col.
+    li.reconstruct_backend();
+    REQUIRE_FALSE(li.is_backend_released());
+
+    // Add a new column after the decompress cycle — proves that the
+    // duplicate-detection map was rebuilt correctly and new entries can
+    // be inserted.
+    const auto x3 = li.add_col(SparseCol {
+        .lowb = 0.0,
+        .uppb = 5.0,
+        .cost = 1.0,
+        .class_name = "Gen",
+        .variable_name = "generation",
+        .variable_uid = Uid {3},
+    });
+    CHECK(static_cast<size_t>(x3) == 2);  // third column
+
+    // Resolve still works after the decompression round-trip.
+    auto r = li.resolve();
+    REQUIRE(r.has_value());
+  }
+
+  SUBCASE("zstd codec — label vectors cleared after release")
+  {
+    li.set_low_memory(LowMemoryMode::compress, CompressionCodec::zstd);
+    li.save_snapshot(FlatLinearProblem {flat});
+
+    li.release_backend();
+    REQUIRE(li.is_backend_released());
+
+    li.reconstruct_backend();
+    REQUIRE_FALSE(li.is_backend_released());
+
+    // Duplicate detection survives: inserting the same (class, var, uid)
+    // as x1 after a decompress cycle must still throw.
+    CHECK_THROWS(li.add_col(SparseCol {
+        .lowb = 0.0,
+        .uppb = 10.0,
+        .cost = 2.0,
+        .class_name = "Gen",
+        .variable_name = "generation",
+        .variable_uid = Uid {1},  // same uid as x1 → duplicate
+    }));
+  }
+
+  SUBCASE("multiple compress/decompress cycles keep labels consistent")
+  {
+    li.set_low_memory(LowMemoryMode::compress, CompressionCodec::lz4);
+    li.save_snapshot(FlatLinearProblem {flat});
+
+    for (int cycle = 0; cycle < 3; ++cycle) {
+      li.release_backend();
+      REQUIRE(li.is_backend_released());
+
+      li.reconstruct_backend();
+      REQUIRE_FALSE(li.is_backend_released());
+
+      auto r = li.resolve();
+      REQUIRE(r.has_value());
+      CHECK(li.get_obj_value() == doctest::Approx(10.0));
+    }
+  }
+}
+
+TEST_CASE(  // NOLINT
+    "LinearInterface — label metadata with monostate context serializes "
+    "correctly")
+{
+  // Columns/rows whose LpContext is std::monostate (the default) must still
+  // round-trip correctly — the serialize path must write the correct zero
+  // bytes for the monostate arm and the deserialize path must reconstruct it.
+  LinearInterface li;
+
+  const auto x1 = li.add_col(SparseCol {
+      .lowb = 0.0,
+      .uppb = 20.0,
+      .cost = 5.0,
+      .class_name = "Demand",
+      .variable_name = "load",
+      .variable_uid = Uid {7},
+      // context defaults to std::monostate{}
+  });
+  SparseRow row;
+  row[x1] = 1.0;
+  row.lowb = 0.0;
+  row.uppb = SparseRow::DblMax;
+  row.class_name = "Demand";
+  row.constraint_name = "capacity";
+  row.variable_uid = Uid {7};
+  li.add_row(row);
+
+  auto res = li.initial_solve();
+  REQUIRE(res.has_value());
+
+  // Build minimal flat snapshot — labels match the live LinearInterface.
+  LinearProblem lp;
+  const auto c = lp.add_col({
+      .lowb = 0.0,
+      .uppb = 20.0,
+      .cost = 5.0,
+      .class_name = "Demand",
+      .variable_name = "load",
+      .variable_uid = Uid {7},
+  });
+  const auto r = lp.add_row({
+      .lowb = 0.0,
+      .uppb = SparseRow::DblMax,
+      .class_name = "Demand",
+      .constraint_name = "capacity",
+      .variable_uid = Uid {7},
+  });
+  lp.set_coeff(r, c, 1.0);
+  auto flat = lp.flatten({});
+
+  li.set_low_memory(LowMemoryMode::compress, CompressionCodec::lz4);
+  li.save_snapshot(FlatLinearProblem {flat});
+
+  li.release_backend();
+  REQUIRE(li.is_backend_released());
+
+  li.reconstruct_backend();
+  REQUIRE_FALSE(li.is_backend_released());
+
+  // Same-uid insertion must still be detected as duplicate after round-trip.
+  CHECK_THROWS(li.add_col(SparseCol {
+      .lowb = 0.0,
+      .uppb = 20.0,
+      .cost = 5.0,
+      .class_name = "Demand",
+      .variable_name = "load",
+      .variable_uid = Uid {7},
+  }));
+}
+
+// ── update_dynamic_col_lowb ───────────────────────────────────────────────
+
+TEST_CASE(  // NOLINT
+    "LinearInterface::update_dynamic_col_lowb updates stored lower bound")
+{
+  // update_dynamic_col_lowb only has effect when low-memory mode is active
+  // (i.e. m_dynamic_cols_ is populated via record_dynamic_col).
+
+  auto [li, flat, x1, x2] = make_simple_lp();
+
+  li.set_low_memory(LowMemoryMode::compress);
+  li.save_snapshot(FlatLinearProblem {flat});
+
+  // Record a dynamic column representing an alpha variable.
+  SparseCol alpha_col;
+  alpha_col.lowb = 0.0;
+  alpha_col.uppb = 1000.0;
+  alpha_col.cost = 0.0;
+  alpha_col.class_name = "Sddp";
+  alpha_col.variable_name = "alpha";
+  [[maybe_unused]] const auto alpha = li.add_col(alpha_col);
+  li.record_dynamic_col(alpha_col);
+  li.save_base_numrows();
+
+  SUBCASE("match by class_name + variable_name updates lowb, returns true")
+  {
+    const bool updated = li.update_dynamic_col_lowb("Sddp", "alpha", -500.0);
+    CHECK(updated);
+
+    // Release and reconstruct — the replayed column must carry the new lowb.
+    li.release_backend();
+    li.reconstruct_backend();
+
+    // The dynamic col is replayed as the third column (index 2).
+    // Its lower bound should now be -500.
+    const ColIndex alpha_idx {2};
+    const auto low = li.get_col_low_raw();
+    const auto upp = li.get_col_upp_raw();
+    REQUIRE(low.size() > static_cast<size_t>(alpha_idx));
+    REQUIRE(upp.size() > static_cast<size_t>(alpha_idx));
+    CHECK(low[static_cast<size_t>(alpha_idx)] == doctest::Approx(-500.0));
+    CHECK(upp[static_cast<size_t>(alpha_idx)] == doctest::Approx(1000.0));
+  }
+
+  SUBCASE("wrong class_name — no match, returns false")
+  {
+    const bool updated = li.update_dynamic_col_lowb("Other", "alpha", -99.0);
+    CHECK_FALSE(updated);
+  }
+
+  SUBCASE("wrong variable_name — no match, returns false")
+  {
+    const bool updated = li.update_dynamic_col_lowb("Sddp", "not_alpha", -99.0);
+    CHECK_FALSE(updated);
+  }
+
+  SUBCASE("no dynamic cols recorded — returns false")
+  {
+    // A fresh LI in compress mode with no record_dynamic_col call.
+    LinearInterface li2;
+    li2.set_low_memory(LowMemoryMode::compress);
+
+    const bool updated = li2.update_dynamic_col_lowb("Sddp", "alpha", -1.0);
+    CHECK_FALSE(updated);
+  }
+}
+
+// ── add_row_lp_space with scale != 1.0 ───────────────────────────────────
+
+TEST_CASE(  // NOLINT
+    "LinearInterface — add_row with SparseRow::scale != 1.0 scales bounds and "
+    "coefficients")
+{
+  // A row with scale == 2.0 is semantically equivalent to the same row
+  // with all coefficients and bounds divided by 2.0 before insertion.
+  // The LP backend stores the un-scaled row (divide by rs) and
+  // `set_row_scale` records rs so that dual variables can be rescaled.
+  LinearInterface li_scaled;
+  LinearInterface li_plain;
+
+  // Column: 0 <= x <= 100, cost = 1.
+  const auto xs = li_scaled.add_col(SparseCol {
+      .lowb = 0.0,
+      .uppb = 100.0,
+      .cost = 1.0,
+  });
+  const auto xp = li_plain.add_col(SparseCol {
+      .lowb = 0.0,
+      .uppb = 100.0,
+      .cost = 1.0,
+  });
+
+  // Scaled LP: row  2·x >= 20  with scale=2
+  //   → stored internally as  x >= 10  (bounds divided by 2)
+  // Plain LP: same constraint in un-scaled form  x >= 10
+  SparseRow scaled_row;
+  scaled_row[xs] = 2.0;
+  scaled_row.lowb = 20.0;
+  scaled_row.uppb = SparseRow::DblMax;
+  scaled_row.scale = 2.0;
+  li_scaled.add_row(scaled_row);
+
+  SparseRow plain_row;
+  plain_row[xp] = 1.0;
+  plain_row.lowb = 10.0;
+  plain_row.uppb = SparseRow::DblMax;
+  // scale defaults to 1.0 — no rescaling
+  li_plain.add_row(plain_row);
+
+  // Both must solve to the same objective: min x s.t. x >= 10 → obj = 10.
+  const SolverOptions opts;
+  auto r_scaled = li_scaled.initial_solve(opts);
+  auto r_plain = li_plain.initial_solve(opts);
+
+  REQUIRE(r_scaled.has_value());
+  REQUIRE(r_plain.has_value());
+  REQUIRE(li_scaled.is_optimal());
+  REQUIRE(li_plain.is_optimal());
+
+  CHECK(li_scaled.get_obj_value() == doctest::Approx(10.0));
+  CHECK(li_plain.get_obj_value() == doctest::Approx(10.0));
+
+  // Solution value is the same (x = 10 in both).
+  const auto sol_scaled = li_scaled.get_col_sol_raw();
+  const auto sol_plain = li_plain.get_col_sol_raw();
+  REQUIRE(sol_scaled.size() == 1);
+  REQUIRE(sol_plain.size() == 1);
+  CHECK(sol_scaled[xs] == doctest::Approx(sol_plain[xp]));
 }

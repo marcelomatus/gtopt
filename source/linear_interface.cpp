@@ -749,6 +749,15 @@ void LinearInterface::load_flat(const FlatLinearProblem& flat_lp)
   m_col_labels_meta_ = flat_lp.col_labels_meta;
   m_row_labels_meta_ = flat_lp.row_labels_meta;
 
+  // The flat LP carries the authoritative structural labels.  Drop any
+  // stale compressed buffer left over from a previous release_backend()
+  // cycle so `ensure_labels_meta_decompressed()` doesn't later try to
+  // overlay outdated metadata on top of the freshly-loaded vectors.
+  m_col_labels_meta_compressed_ = {};
+  m_row_labels_meta_compressed_ = {};
+  m_col_labels_meta_count_ = 0;
+  m_row_labels_meta_count_ = 0;
+
   // Seed the eager duplicate-detection maps from the structural
   // metadata so post-flatten add_col / add_row calls (α column,
   // Benders cut rows, etc.) can be checked against the full history.
