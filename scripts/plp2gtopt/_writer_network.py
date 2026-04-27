@@ -51,8 +51,32 @@ class NetworkMixin:
         demand_writer = DemandWriter(demands, blocks, options)
         demand_array = demand_writer.to_json_array()
 
-        # Set fcost from falla centrals (bus → min gcost falla)
+        # Set fcost from falla centrals (bus → min gcost falla).  Real
+        # demands on buses without a matching falla central fall back to
+        # ``default_real_demand_fail_cost`` (computed from PLP's
+        # ``avg_falla_cost`` if available, else 1000 $/MWh) so they
+        # aren't freely shed under the post-3581a80e default
+        # ``model_options.demand_fail_cost = 0`` (kept at 0 so synthetic
+        # battery-charge demands inherit fcost=0; only REAL demands need
+        # the per-row fallback).  Synthetic demands are added in C++ at
+        # ``System::expand_batteries`` and are NOT in this loop.
         falla_by_bus = self._falla_by_bus()
+        central_parser = self.parser.parsed_data.get("central_parser")
+        # Hard fallback when the case has zero falla centrals at all
+        # (PLP data without any explicit curtailment encoding).  1000
+        # $/MWh is the conventional PLP "very expensive" curtailment
+        # price and matches gtopt's C++ default for ``demand_fail_cost``.
+        _DEFAULT_REAL_DEMAND_FAIL_COST_FALLBACK = 1000.0
+        default_real_fcost: float = _DEFAULT_REAL_DEMAND_FAIL_COST_FALLBACK
+        if central_parser is not None:
+            try:
+                avg = float(central_parser.avg_falla_cost())
+            except (TypeError, ValueError):
+                # Mock parser in unit tests — keep the fallback.
+                avg = 0.0
+            if avg > 0.0:
+                default_real_fcost = avg
+
         if falla_by_bus:
             # Write Demand/fcost for fallas with cost schedules
             filed_buses = demand_writer.write_fcost(
@@ -60,7 +84,7 @@ class NetworkMixin:
                 falla_by_bus,
                 self.parser.parsed_data.get("cost_parser"),
                 self.parser.parsed_data.get("stage_parser"),
-                self.parser.parsed_data.get("central_parser"),
+                central_parser,
             )
             for dem in demand_array:
                 bus = dem.get("bus")
@@ -69,6 +93,15 @@ class NetworkMixin:
                         dem["fcost"] = "fcost"
                     else:
                         dem["fcost"] = falla_by_bus[bus].get("gcost", 0.0)
+                else:
+                    # Real demand without a matching falla → fallback default
+                    dem["fcost"] = default_real_fcost
+        else:
+            # No falla centrals at all — apply the fallback default to
+            # every real demand so they aren't freely shed under global
+            # demand_fail_cost=0.
+            for dem in demand_array:
+                dem["fcost"] = default_real_fcost
 
         self.planning["system"]["demand_array"] = demand_array
 

@@ -396,14 +396,16 @@ def test_min_reservoir_conversion(tmp_path):
     j_names = {j["name"] for j in junctions}
     assert "Reservoir1" in j_names
     assert "TurbineGen" in j_names
-    # Embalse junction has drain=True because ser_ver=0 (no spillway downstream
-    # junction — excess water leaves via the junction drain flag rather than a
-    # dedicated spillway waterway).
+    # Post-86616b80 (junction_writer.py:979): drain is True only when BOTH
+    # gen and ver waterways are absent.  Reservoir1 has gen waterway →
+    # TurbineGen, and TurbineGen has gen → ocean.  Both source junctions
+    # therefore have drain=False — excess water leaves through explicit
+    # arcs (the `_ver` ocean fallback for terminal centrals), not via a
+    # zero-cost teleport on the source junction.
     rsv_j = next(j for j in junctions if j["name"] == "Reservoir1")
-    assert rsv_j["drain"] is True
-    # Serie without downstream is also a drain
+    assert rsv_j["drain"] is False
     turb_j = next(j for j in junctions if j["name"] == "TurbineGen")
-    assert turb_j["drain"] is True
+    assert turb_j["drain"] is False
 
     # Waterways: embalse→serie (ser_hid=2) + serie→ocean (ser_hid=0 fix)
     waterways = sys_data.get("waterway_array", [])

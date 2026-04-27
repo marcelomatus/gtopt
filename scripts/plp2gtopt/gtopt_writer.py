@@ -159,6 +159,15 @@ class GTOptWriter(
                         "use_line_losses",
                         "kirchhoff_threshold",
                         "loss_segments",
+                        # PLP-faithful per-stage emin (PLP's `ve<u>` is Free
+                        # mid-stage; only future-volume `vf<u>` carries the
+                        # `vmin` lower bound).  Without this in the cascade
+                        # filter, the C++ default (true since 3581a80e —
+                        # strict-floor on `reservoir_sini` and last-block
+                        # `efin`) kicks in and breaks SDDP convergence on
+                        # cases with hard `efin >= eini` rows like
+                        # plp_case_2y / juan/IPLP_uninodal.
+                        "strict_storage_emin",
                     )
                 },
                 "sddp_options": {

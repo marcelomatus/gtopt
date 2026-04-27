@@ -504,10 +504,18 @@ def _gtopt_element_counts(planning: dict[str, Any]) -> dict[str, Any]:
     for gtype, gcount in type_counts.items():
         counts[f"gen_{gtype}"] = gcount
 
-    # Stateless reservoirs: use_state_variable == False
+    # Stateless reservoirs: PLP ``hid_indep=T`` is mapped to either
+    # ``use_state_variable=False`` (--plp-legacy mode) or
+    # ``daily_cycle=True`` (default mode — the C++ ``StorageOptions``
+    # forces ``use_state_variable=False`` whenever ``daily_cycle`` is
+    # true, so the two encodings are semantically equivalent).  Count
+    # both forms so the gtopt-vs-PLP comparison stays consistent across
+    # modes.  See junction_writer.py:1219-1223.
     reservoirs = psys.get("reservoir_array", [])
     counts["stateless_reservoirs"] = sum(
-        1 for r in reservoirs if r.get("use_state_variable") is False
+        1
+        for r in reservoirs
+        if r.get("use_state_variable") is False or r.get("daily_cycle") is True
     )
 
     # Flow + generator profile names for comparison with PLP affluents

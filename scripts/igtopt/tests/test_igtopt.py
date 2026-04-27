@@ -820,7 +820,12 @@ def _prepare_case(xlsx: pathlib.Path, case_dir: pathlib.Path) -> pathlib.Path:
 # Reference objective values (gtopt on the original JSON, scale_objective=1000)
 # obj_value in solution.csv is the physical (unscaled) cost.
 _IEEE57B_OBJ_REF = 25016000.0  # $/h  (physical cost)
-_BAT4B24_OBJ_REF = 44862000.0  # $/h  (physical cost)
+_BAT4B24_OBJ_REF = 42054000.0  # $/h  (physical cost)
+# Updated post-3581a80e (``fix(battery,plp2gtopt): pin synthetic charge demand
+# fcost=0``).  Synthetic battery-charge demands now carry ``fcost = 0`` so the
+# LP is no longer forced to charge at ``pmax`` to avoid the global
+# ``demand_fail_cost`` penalty.  The previous reference (44862000) was inflated
+# by exactly that artificial charge-demand penalty.
 
 
 @pytest.mark.integration
