@@ -24,10 +24,15 @@
 
 #include <cstddef>
 #include <format>
+#include <string>
 #include <type_traits>
 #include <unordered_map>
 
 #include <doctest/doctest.h>
+#include <gtopt/block.hpp>
+#include <gtopt/phase.hpp>
+#include <gtopt/scenario.hpp>
+#include <gtopt/stage.hpp>
 #include <gtopt/uid.hpp>
 
 using namespace gtopt;  // NOLINT(google-global-names-in-headers)
@@ -214,4 +219,64 @@ TEST_CASE("UidOf implicitly converts to uid_t for legacy interop")  // NOLINT
   // Explicit cast also works
   CHECK(static_cast<gtopt::uid_t>(u) == 7);
   CHECK(u.value() == 7);
+}
+
+// ─── Concrete type aliases
+// ────────────────────────────────────────────────────
+
+TEST_CASE("Concrete alias types are distinct UidOf specialisations")  // NOLINT
+{
+  static_assert(!std::is_same_v<BlockUid, StageUid>);
+  static_assert(!std::is_same_v<StageUid, ScenarioUid>);
+  static_assert(!std::is_same_v<ScenarioUid, PhaseUid>);
+  static_assert(!std::is_same_v<BlockUid, PhaseUid>);
+}
+
+TEST_CASE("Concrete alias construction and value")  // NOLINT
+{
+  const BlockUid bu = make_uid<Block>(3);
+  const StageUid su = make_uid<Stage>(3);
+  const ScenarioUid scu = make_uid<Scenario>(3);
+  const PhaseUid pu = make_uid<Phase>(3);
+
+  CHECK(bu.value() == 3);
+  CHECK(su.value() == 3);
+  CHECK(scu.value() == 3);
+  CHECK(pu.value() == 3);
+}
+
+TEST_CASE("value_of free function unwraps a UidOf")  // NOLINT
+{
+  const StageUid su = make_uid<Stage>(7);
+  CHECK(value_of(su) == 7);
+  const BlockUid bu = make_uid<Block>(42);
+  CHECK(value_of(bu) == 42);
+}
+
+TEST_CASE("unknown_uid_of<Tag> matches default-constructed UidOf")  // NOLINT
+{
+  const BlockUid unk = unknown_uid_of<Block>();
+  CHECK(unk.is_unknown());
+  CHECK(unk == BlockUid {});
+}
+
+TEST_CASE("BlockUid as unordered_map key")  // NOLINT
+{
+  std::unordered_map<BlockUid, std::string> m;
+  const BlockUid k1 = make_uid<Block>(10);
+  const BlockUid k2 = make_uid<Block>(20);
+  m[k1] = "ten";
+  m[k2] = "twenty";
+
+  CHECK(m.at(k1) == "ten");
+  CHECK(m.at(k2) == "twenty");
+  CHECK(m.count(make_uid<Block>(10)) == 1);
+  CHECK(m.count(make_uid<Block>(99)) == 0);
+}
+
+TEST_CASE("UidOf std::format — concrete types render as integers")  // NOLINT
+{
+  const BlockUid bu = make_uid<Block>(17);
+  const std::string s = std::format("{}", bu);
+  CHECK(s == "17");
 }

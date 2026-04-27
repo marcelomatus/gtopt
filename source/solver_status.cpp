@@ -45,7 +45,7 @@ void write_solver_status(const std::string& filepath,
   const char* status_str = nullptr;
   if (snapshot.converged) {
     status_str = "converged";
-  } else if (snapshot.iteration == 0) {
+  } else if (snapshot.iteration_index == IterationIndex {0}) {
     status_str = "initializing";
   } else {
     status_str = "running";
@@ -56,7 +56,7 @@ void write_solver_status(const std::string& filepath,
   json += std::format("  \"timestamp\": {:.3f},\n", now_ts);
   json += std::format("  \"elapsed_s\": {:.3f},\n", elapsed_seconds);
   json += std::format("  \"status\": \"{}\",\n", status_str);
-  json += std::format("  \"iteration\": {},\n", snapshot.iteration);
+  json += std::format("  \"iteration\": {},\n", snapshot.iteration_index);
   json += std::format("  \"lower_bound\": {:.6f},\n", snapshot.lower_bound);
   json += std::format("  \"upper_bound\": {:.6f},\n", snapshot.upper_bound);
   json += std::format("  \"gap\": {:.6f},\n", snapshot.gap);

@@ -183,7 +183,17 @@ def _cplex_script(
         else ""
     )
 
+    # Suppress the default `cplex.log` and the per-clone `clone1.log` /
+    # `clone2.log` files that `tools conflict` would otherwise drop into
+    # the launching cwd:
+    #   * `set logfile *`       — redirect main log to stdout (already
+    #                              captured via subprocess); CPLEX
+    #                              creates `cplex.log` only when no
+    #                              destination is configured.
+    #   * `set output clonelog -1` — disable per-clone log files.
     return (
+        "set logfile *\n"
+        "set output clonelog -1\n"
         f"read {lp_path}\n"
         "set preprocessing presolve n\n"
         f"{method_cmd}"

@@ -31,7 +31,11 @@ class SolverMonitor;
 /// need access to the solver's atomic members or options struct.
 struct SolverStatusSnapshot
 {
-  int iteration {};  ///< Current iteration number
+  /// Current iteration number.  Strong-typed so the ~2 callers that
+  /// populate it don't need `static_cast<int>(IterationIndex)` unwraps;
+  /// the JSON serialiser (`solver_status.cpp`) renders it as an int
+  /// via `strong::formattable` without any conversion.
+  IterationIndex iteration_index {};
   double gap {};  ///< Current relative convergence gap
   double lower_bound {};  ///< Current lower bound
   double upper_bound {};  ///< Current upper bound

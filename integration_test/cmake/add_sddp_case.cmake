@@ -42,7 +42,11 @@ function(add_sddp_case case_name system_json)
     set(ARG_LOW_MEMORY "off")
   endif()
   if(NOT DEFINED ARG_TIMEOUT)
-    set(ARG_TIMEOUT 300)
+    # 600 s default — gives shared/slow CI runners enough headroom for the
+    # iter50 compress/rebuild cases (which complete in <1 s on a quiet
+    # machine but have been observed to spuriously hit a 300 s limit on
+    # GitHub-hosted runners under load).
+    set(ARG_TIMEOUT 600)
   endif()
   if(NOT DEFINED ARG_ALLOWED_EXIT_CODES)
     set(ARG_ALLOWED_EXIT_CODES "0")

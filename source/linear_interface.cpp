@@ -7,22 +7,17 @@
  */
 
 #include <algorithm>
-#include <array>
 #include <cassert>
 #include <chrono>
 #include <cstring>
-#include <expected>
-#include <format>
-#include <limits>
 #include <memory>
 #include <mutex>
 #include <ranges>
 #include <span>
-#include <stdexcept>
-#include <string_view>
 
 #include <gtopt/error.hpp>
 #include <gtopt/linear_interface.hpp>
+#include <gtopt/linear_interface_labels_codec.hpp>
 #include <gtopt/lp_equilibration.hpp>
 #include <gtopt/map_reserve.hpp>
 #include <gtopt/memory_compress.hpp>
@@ -33,142 +28,6 @@
 
 namespace gtopt
 {
-
-namespace
-{
-/// True for a metadata entry that carries no identifying fields.
-/// Entries with no class_name / variable_name / unknown uid /
-/// monostate context are skipped by the duplicate-detection maps —
-/// several internal paths (structural tests, unnamed bootstrap
-/// bookkeeping) legitimately create unlabelled cols/rows and they
-/// must not trip the detector.
-[[nodiscard]] constexpr bool is_empty_col_label(
-    const SparseColLabel& l) noexcept
-{
-  return l.class_name.empty() && l.variable_name.empty()
-      && l.variable_uid == unknown_uid
-      && std::holds_alternative<std::monostate>(l.context);
-}
-
-[[nodiscard]] constexpr bool is_empty_row_label(
-    const SparseRowLabel& l) noexcept
-{
-  return l.class_name.empty() && l.constraint_name.empty()
-      && l.variable_uid == unknown_uid
-      && std::holds_alternative<std::monostate>(l.context);
-}
-
-// ── Label-metadata serialization (Step 3 / Option B) ─────────────────
-
-/// Byte-level serializer for a vector of `SparseColLabel` /
-/// `SparseRowLabel`.  Layout, per entry:
-///
-///   u16  class_name_len
-///   N    class_name bytes
-///   u16  second_string_len   (variable_name or constraint_name)
-///   M    second_string bytes
-///   8    variable_uid (memcpy of Uid)
-///   sizeof(LpContext)  context bytes (memcpy)
-///
-/// `LpContext` is a `std::variant` of tuples of strong-int-typed uids —
-/// trivially copyable, so a direct memcpy round-trips correctly.  The
-/// string_view content is copied inline so the compressed form is
-/// self-contained (no dangling pointers into the original string
-/// storage).  Decompression re-materialises each string into a
-/// per-LinearInterface `string_pool` whose stable addresses back the
-/// revived string_views — the pool is pre-sized via `reserve` so
-/// push_back never reallocates.
-template<typename LabelT>
-[[nodiscard]] std::vector<char> serialize_labels_meta(
-    const std::vector<LabelT>& labels)
-{
-  std::vector<char> out;
-  // Pre-reserve a conservative estimate (2 strings × 16 + uid +
-  // context).  Realloc paths are fine but this avoids most.
-  out.reserve(labels.size() * 80);
-
-  const auto write_u16 = [&](uint16_t v)
-  {
-    const std::array<char, 2> bytes {static_cast<char>(v & 0xFFU),
-                                     static_cast<char>((v >> 8U) & 0xFFU)};
-    out.insert(out.end(), bytes.begin(), bytes.end());
-  };
-  const auto write_sv = [&](std::string_view s)
-  {
-    assert(s.size() <= std::numeric_limits<uint16_t>::max()
-           && "LP class/variable/constraint name too long for u16 length");
-    write_u16(static_cast<uint16_t>(s.size()));
-    out.insert(out.end(), s.begin(), s.end());
-  };
-  const auto write_bytes = [&](const void* ptr, std::size_t n)
-  {
-    const auto* p = static_cast<const char*>(ptr);
-    out.insert(out.end(), p, p + n);
-  };
-
-  for (const auto& lbl : labels) {
-    write_sv(lbl.class_name);
-    if constexpr (requires { lbl.variable_name; }) {
-      write_sv(lbl.variable_name);
-    } else {
-      write_sv(lbl.constraint_name);
-    }
-    write_bytes(&lbl.variable_uid, sizeof(lbl.variable_uid));
-    write_bytes(&lbl.context, sizeof(lbl.context));
-  }
-  return out;
-}
-
-/// Inverse of `serialize_labels_meta`.  Re-materialises strings into
-/// `string_pool` (which MUST be reserved to at least `2 * num_entries`
-/// before calling, so string_views into pool entries stay valid —
-/// push_back must not reallocate).
-template<typename LabelT>
-[[nodiscard]] std::vector<LabelT> deserialize_labels_meta(
-    std::span<const char> data,
-    std::size_t num_entries,
-    std::vector<std::string>& string_pool)
-{
-  std::vector<LabelT> out;
-  out.reserve(num_entries);
-
-  std::size_t pos = 0;
-  const auto read_u16 = [&]() -> uint16_t
-  {
-    const uint16_t lo = static_cast<uint8_t>(data[pos]);
-    const uint16_t hi = static_cast<uint8_t>(data[pos + 1]);
-    pos += 2;
-    return static_cast<uint16_t>(lo | (hi << 8U));
-  };
-  const auto read_sv = [&]() -> std::string_view
-  {
-    const auto n = read_u16();
-    string_pool.emplace_back(data.data() + pos, n);
-    pos += n;
-    return string_pool.back();
-  };
-  const auto read_bytes = [&](void* ptr, std::size_t n)
-  {
-    std::memcpy(ptr, data.data() + pos, n);
-    pos += n;
-  };
-
-  for (std::size_t k = 0; k < num_entries; ++k) {
-    LabelT lbl {};
-    lbl.class_name = read_sv();
-    if constexpr (requires { lbl.variable_name; }) {
-      lbl.variable_name = read_sv();
-    } else {
-      lbl.constraint_name = read_sv();
-    }
-    read_bytes(&lbl.variable_uid, sizeof(lbl.variable_uid));
-    read_bytes(&lbl.context, sizeof(lbl.context));
-    out.push_back(std::move(lbl));
-  }
-  return out;
-}
-
-}  // namespace
 
 // ── Constructors ──
 
@@ -749,6 +608,15 @@ void LinearInterface::load_flat(const FlatLinearProblem& flat_lp)
   m_col_labels_meta_ = flat_lp.col_labels_meta;
   m_row_labels_meta_ = flat_lp.row_labels_meta;
 
+  // The flat LP carries the authoritative structural labels.  Drop any
+  // stale compressed buffer left over from a previous release_backend()
+  // cycle so `ensure_labels_meta_decompressed()` doesn't later try to
+  // overlay outdated metadata on top of the freshly-loaded vectors.
+  m_col_labels_meta_compressed_ = {};
+  m_row_labels_meta_compressed_ = {};
+  m_col_labels_meta_count_ = 0;
+  m_row_labels_meta_count_ = 0;
+
   // Seed the eager duplicate-detection maps from the structural
   // metadata so post-flatten add_col / add_row calls (α column,
   // Benders cut rows, etc.) can be checked against the full history.
@@ -808,6 +676,48 @@ void LinearInterface::set_time_limit(double /*time_limit*/)
 
 // ── Column operations ──
 
+ColIndex LinearInterface::add_col(const std::string& name,
+                                  double collb,
+                                  double colub)
+{
+  // Ensure the backend is live before we touch it.  Under
+  // `LowMemoryMode::compress` / `rebuild`, `m_backend_` may have been
+  // released; `ensure_backend()` lazily reconstructs it.  The assert
+  // doubles as a hint to clang-static-analyzer, which otherwise can't
+  // see through the rebuild callback and flags every subsequent
+  // `m_backend_->…` as a potential null dereference.
+  ensure_backend();
+  assert(m_backend_ != nullptr);
+  const auto index = m_backend_->get_num_cols();
+  const auto col = ColIndex {index};
+
+  m_backend_->add_col(normalize_bound(collb), normalize_bound(colub), 0.0);
+
+  // Uniqueness is enforced on metadata (via m_col_meta_index_) in
+  // add_col(SparseCol).  The string path here just records the
+  // pre-formatted name when one is provided; duplicates surface at
+  // the metadata layer.
+  if (m_label_maker_.col_names_enabled() && !name.empty()) {
+    if (std::ssize(m_col_index_to_name_) <= index) {
+      m_col_index_to_name_.resize(static_cast<size_t>(index) + 1);
+    }
+    m_col_index_to_name_[col] = name;
+  }
+
+  return col;
+}
+
+ColIndex LinearInterface::add_col(const std::string& name)
+{
+  return add_col(name, 0.0, m_backend_->infinity());
+}
+
+ColIndex LinearInterface::add_free_col(const std::string& name)
+{
+  return add_col(name, -m_backend_->infinity(), m_backend_->infinity());
+}
+
+// NOLINTNEXTLINE(misc-no-recursion)
 ColIndex LinearInterface::add_col(const SparseCol& col)
 {
   ensure_backend();
@@ -1396,28 +1306,18 @@ void LinearInterface::set_obj_coeff(const ColIndex index, const double value)
 
 // ── Raw column bound setters (LP/solver units) ──
 
-SolverBackend& LinearInterface::backend_or_throw(std::string_view caller)
-{
-  ensure_backend();
-  if (!m_backend_) {
-    throw std::logic_error(
-        std::format("LinearInterface::{}: backend is null after "
-                    "ensure_backend() — internal invariant violated",
-                    caller));
-  }
-  return *m_backend_;
-}
-
 void LinearInterface::set_col_low_raw(const ColIndex index, const double value)
 {
-  auto& backend = backend_or_throw("set_col_low_raw");
-  backend.set_col_lower(static_cast<int>(index), normalize_bound(value));
+  ensure_backend();
+  assert(m_backend_ != nullptr);
+  m_backend_->set_col_lower(static_cast<int>(index), normalize_bound(value));
 }
 
 void LinearInterface::set_col_upp_raw(const ColIndex index, const double value)
 {
-  auto& backend = backend_or_throw("set_col_upp_raw");
-  backend.set_col_upper(static_cast<int>(index), normalize_bound(value));
+  ensure_backend();
+  assert(m_backend_ != nullptr);
+  m_backend_->set_col_upper(static_cast<int>(index), normalize_bound(value));
 }
 
 void LinearInterface::set_col_raw(const ColIndex index, const double value)
@@ -1460,14 +1360,16 @@ void LinearInterface::set_col(const ColIndex index, const double physical_value)
 
 void LinearInterface::set_row_low_raw(const RowIndex index, const double value)
 {
-  auto& backend = backend_or_throw("set_row_low_raw");
-  backend.set_row_lower(static_cast<int>(index), normalize_bound(value));
+  ensure_backend();
+  assert(m_backend_ != nullptr);
+  m_backend_->set_row_lower(static_cast<int>(index), normalize_bound(value));
 }
 
 void LinearInterface::set_row_upp_raw(const RowIndex index, const double value)
 {
-  auto& backend = backend_or_throw("set_row_upp_raw");
-  backend.set_row_upper(static_cast<int>(index), normalize_bound(value));
+  ensure_backend();
+  assert(m_backend_ != nullptr);
+  m_backend_->set_row_upper(static_cast<int>(index), normalize_bound(value));
 }
 
 void LinearInterface::set_rhs_raw(const RowIndex row, const double rhs)
@@ -1547,544 +1449,16 @@ bool LinearInterface::is_integer(const ColIndex index) const
   return m_backend_->is_integer(static_cast<int>(index));
 }
 
-// ── Names & LP file output ──
-
-void LinearInterface::generate_labels_from_maps(
-    std::vector<std::string>& col_names,
-    std::vector<std::string>& row_names) const
-{
-  // Lazy-lazy decompression: if `release_backend` stashed the
-  // metadata into compressed buffers, rehydrate it now on first
-  // read.  No-op in modes that never compressed.
-  ensure_labels_meta_decompressed();
-
-  // Forced-all LabelMaker: `m_label_maker_` is whatever flatten
-  // captured (typically `none`).  Here we want real labels always,
-  // synthesised on demand from metadata.
-  const LabelMaker writer_labels {LpNamesLevel::all};
-
-  const auto ncols = static_cast<size_t>(m_backend_->get_num_cols());
-  col_names.assign(ncols, std::string {});
-
-  // Keep the formatted-name cache sized with the live LP so
-  // subsequent `generate_labels_from_maps` calls (after `add_col`
-  // added new entries) hit the cache for already-formatted cols and
-  // only format the tail.
-  if (m_col_index_to_name_.size() < ncols) {
-    m_col_index_to_name_.resize(ncols);
-  }
-
-  for (size_t i = 0; i < ncols; ++i) {
-    const ColIndex ci {i};
-
-    // Cache hit: label was populated by a legacy `add_col(string, …)`
-    // overload (user-supplied name) or by a prior call to this method.
-    if (!m_col_index_to_name_[ci].empty()) {
-      col_names[i] = m_col_index_to_name_[ci];
-      continue;
-    }
-
-    // Cache miss: synthesise from metadata and cache the result so
-    // subsequent calls (repeat `write_lp`) avoid re-formatting.
-    if (i >= m_col_labels_meta_.size()) {
-      throw std::logic_error(std::format(
-          "LinearInterface::generate_labels_from_maps: col {} has no "
-          "entry in m_col_labels_meta_ (size {}) and no pre-formatted "
-          "name — col was added without metadata tracking.",
-          i,
-          m_col_labels_meta_.size()));
-    }
-    const auto& meta = m_col_labels_meta_[i];
-    SparseCol view {};
-    view.class_name = meta.class_name;
-    view.variable_name = meta.variable_name;
-    view.variable_uid = meta.variable_uid;
-    view.context = meta.context;
-    auto label = writer_labels.make_col_label(view);
-    if (label.empty()) {
-      throw std::logic_error(
-          std::format("LinearInterface::generate_labels_from_maps: col {} has "
-                      "metadata without a class_name (unlabelable).",
-                      i));
-    }
-    m_col_index_to_name_[ci] = label;  // cache in index→name
-    if (auto [it, inserted] = m_col_names_.try_emplace(label, ci); !inserted) {
-      throw std::runtime_error(std::format(
-          "LinearInterface: duplicate col metadata — label '{}' synthesised "
-          "by col {} was already emitted by col {}.  Two cols share "
-          "(class_name, variable_name, uid, context).",
-          label,
-          i,
-          it->second));
-    }
-    col_names[i] = std::move(label);
-  }
-
-  const auto nrows = static_cast<size_t>(m_backend_->get_num_rows());
-  row_names.assign(nrows, std::string {});
-  if (m_row_index_to_name_.size() < nrows) {
-    m_row_index_to_name_.resize(nrows);
-  }
-
-  for (size_t i = 0; i < nrows; ++i) {
-    const RowIndex ri {i};
-    if (!m_row_index_to_name_[ri].empty()) {
-      row_names[i] = m_row_index_to_name_[ri];
-      continue;
-    }
-    if (i >= m_row_labels_meta_.size()) {
-      throw std::logic_error(std::format(
-          "LinearInterface::generate_labels_from_maps: row {} has no "
-          "entry in m_row_labels_meta_ (size {}) and no pre-formatted "
-          "name — row was added without metadata tracking.",
-          i,
-          m_row_labels_meta_.size()));
-    }
-    const auto& meta = m_row_labels_meta_[i];
-    SparseRow view {};
-    view.class_name = meta.class_name;
-    view.constraint_name = meta.constraint_name;
-    view.variable_uid = meta.variable_uid;
-    view.context = meta.context;
-    auto label = writer_labels.make_row_label(view);
-    if (label.empty()) {
-      throw std::logic_error(
-          std::format("LinearInterface::generate_labels_from_maps: row {} has "
-                      "metadata without a class_name (unlabelable).",
-                      i));
-    }
-    m_row_index_to_name_[ri] = label;  // cache in index→name
-    if (auto [it, inserted] = m_row_names_.try_emplace(label, ri); !inserted) {
-      throw std::runtime_error(std::format(
-          "LinearInterface: duplicate row metadata — label '{}' synthesised "
-          "by row {} was already emitted by row {}.  Two rows share "
-          "(class_name, constraint_name, uid, context).",
-          label,
-          i,
-          it->second));
-    }
-    row_names[i] = std::move(label);
-  }
-}
-
-void LinearInterface::materialize_labels() const
-{
-  // Trigger `generate_labels_from_maps` so caches
-  // (`m_col_index_to_name_` / `m_row_index_to_name_`) and name→index
-  // maps (`m_col_names_` / `m_row_names_`) are populated.  Discards
-  // the returned vectors — callers that need them directly should
-  // call `generate_labels_from_maps` themselves.
-  std::vector<std::string> col_names;
-  std::vector<std::string> row_names;
-  generate_labels_from_maps(col_names, row_names);
-}
-
-void LinearInterface::compress_labels_meta_if_needed()
-{
-  if (m_low_memory_mode_ == LowMemoryMode::off) {
-    return;
-  }
-  // Always re-compress whenever live data is present.  A stale
-  // compressed buffer may already exist from a previous release
-  // cycle; the recompressed buffer supersedes it so growth between
-  // release cycles (cuts appended on iter N, α re-appended on
-  // reload, etc.) is captured.  When live is empty (already
-  // compressed and no post-reload mutations) this is a no-op.
-  if (!m_col_labels_meta_.empty()) {
-    m_col_labels_meta_count_ = m_col_labels_meta_.size();
-    const auto bytes = serialize_labels_meta(m_col_labels_meta_);
-    const auto codec = select_codec(m_memory_codec_);
-    m_col_labels_meta_compressed_ =
-        compress_buffer({bytes.data(), bytes.size()}, codec);
-    // Drop the live vector; `string_view`s in `m_col_labels_meta_`
-    // are now invalidated.  The string pool stays alive until the
-    // next decompression cycle reseeds it with fresh strings.
-    m_col_labels_meta_.clear();
-    m_col_labels_meta_.shrink_to_fit();
-  }
-  if (!m_row_labels_meta_.empty()) {
-    m_row_labels_meta_count_ = m_row_labels_meta_.size();
-    const auto bytes = serialize_labels_meta(m_row_labels_meta_);
-    const auto codec = select_codec(m_memory_codec_);
-    m_row_labels_meta_compressed_ =
-        compress_buffer({bytes.data(), bytes.size()}, codec);
-    m_row_labels_meta_.clear();
-    m_row_labels_meta_.shrink_to_fit();
-  }
-
-  // Duplicate-detection maps hold string_views into the live vectors
-  // we just emptied; they'd dangle if left populated.  Rebuilt in
-  // `ensure_labels_meta_decompressed` on the next read.
-  m_col_meta_index_.clear();
-  m_row_meta_index_.clear();
-}
-
-void LinearInterface::ensure_labels_meta_decompressed() const
-{
-  bool decompressed_any = false;
-  // Decompress on first read / write after `compress_labels_meta_if_
-  // needed` fired.  Idempotent: non-empty live vectors mean we've
-  // already decompressed (or never compressed in the first place).
-  if (!m_col_labels_meta_compressed_.empty() && m_col_labels_meta_.empty()) {
-    const auto bytes = m_col_labels_meta_compressed_.decompress_data();
-    // Reserve the pool to hold 2 string_views per entry (class_name
-    // + variable_name) so `push_back` never reallocates and the
-    // revived `string_view`s stay valid.
-    m_label_string_pool_.clear();
-    m_label_string_pool_.reserve(m_col_labels_meta_count_ * 2
-                                 + m_row_labels_meta_count_ * 2);
-    m_col_labels_meta_ =
-        deserialize_labels_meta<SparseColLabel>({bytes.data(), bytes.size()},
-                                                m_col_labels_meta_count_,
-                                                m_label_string_pool_);
-    m_col_labels_meta_compressed_ = {};
-    m_col_labels_meta_count_ = 0;
-    decompressed_any = true;
-  }
-  if (!m_row_labels_meta_compressed_.empty() && m_row_labels_meta_.empty()) {
-    const auto bytes = m_row_labels_meta_compressed_.decompress_data();
-    // Keep existing col-pool entries — if col was decompressed first
-    // the string_views still point into their original pool slots.
-    // The row pass just appends.
-    if (m_label_string_pool_.capacity() == 0) {
-      m_label_string_pool_.reserve(m_row_labels_meta_count_ * 2);
-    }
-    m_row_labels_meta_ =
-        deserialize_labels_meta<SparseRowLabel>({bytes.data(), bytes.size()},
-                                                m_row_labels_meta_count_,
-                                                m_label_string_pool_);
-    m_row_labels_meta_compressed_ = {};
-    m_row_labels_meta_count_ = 0;
-    decompressed_any = true;
-  }
-  // Rehydrate the duplicate-detection maps so add_col / add_row
-  // after a reload keep enforcing uniqueness against the whole
-  // history, not just post-reload additions.
-  if (decompressed_any) {
-    rebuild_meta_indexes();
-  }
-}
-
-void LinearInterface::rebuild_meta_indexes() const
-{
-  m_col_meta_index_.clear();
-  m_col_meta_index_.reserve(m_col_labels_meta_.size());
-  for (const auto [i, label] : enumerate<ColIndex>(m_col_labels_meta_)) {
-    if (!is_empty_col_label(label)) {
-      m_col_meta_index_.emplace(label, i);
-    }
-  }
-  m_row_meta_index_.clear();
-  m_row_meta_index_.reserve(m_row_labels_meta_.size());
-  for (const auto [i, label] : enumerate<RowIndex>(m_row_labels_meta_)) {
-    if (!is_empty_row_label(label)) {
-      m_row_meta_index_.emplace(label, i);
-    }
-  }
-}
-
-void LinearInterface::push_names_to_solver() const
-{
-  std::vector<std::string> col_names;
-  std::vector<std::string> row_names;
-  generate_labels_from_maps(col_names, row_names);
-  m_backend_->push_names(col_names, row_names);
-}
-
-auto LinearInterface::write_lp(const std::string& filename) const
-    -> std::expected<void, Error>
-{
-  if (filename.empty()) {
-    return {};
-  }
-
-  // Names may be missing entirely (flatten ran without
-  // `LpMatrixOptions::{col,row}_with_names`) or populated only for a
-  // prefix of cols/rows.  `push_names_to_solver` fills the gaps with
-  // generic `c<index>` / `r<index>` labels so the backend always
-  // receives a fully-named LP.  Real gtopt names (e.g.
-  // `Bus.theta.s0.p0.b0`) still require names enabled at flatten
-  // time — run with `--lp-debug` or the equivalent
-  // `LpMatrixOptions{col_with_names, row_with_names} = true` for
-  // those.  The generic fallback guarantees `write_lp` never fails
-  // on a well-formed backend, which is a hard requirement for the
-  // SDDP error-LP dump path.
-  push_names_to_solver();
-  m_backend_->write_lp(filename.c_str());
-  return {};
-}
-
-// ── Algorithm fallback ──
-
-namespace
-{
-
-/// Return the next algorithm in the fallback cycle:
-/// barrier → dual → primal → barrier.
-/// For default_algo, the cycle starts as if it were barrier.
-constexpr LPAlgo next_fallback_algo(LPAlgo current) noexcept
-{
-  switch (current) {
-    case LPAlgo::barrier:
-      return LPAlgo::dual;
-    case LPAlgo::dual:
-      return LPAlgo::primal;
-    case LPAlgo::primal:
-      return LPAlgo::barrier;
-    case LPAlgo::default_algo:
-    case LPAlgo::last_algo:
-      return LPAlgo::dual;
-  }
-  return LPAlgo::dual;
-}
-
-}  // namespace
-
-// ── Solve ──
-
-std::expected<int, Error> LinearInterface::initial_solve(
-    const SolverOptions& solver_options)
-{
-  using Clock = std::chrono::steady_clock;
-
-  ++m_solver_stats_.initial_solve_calls;
-  m_solver_stats_.total_ncols += get_numcols();
-  m_solver_stats_.total_nrows += get_numrows();
-
-  try {
-    // Start from backend-optimal defaults, overlay user settings on top.
-    auto effective = m_backend_->optimal_options();
-    effective.overlay(solver_options);
-    m_last_solver_options_ = effective;
-
-    m_backend_->apply_options(effective);
-
-    const auto log_mode = effective.log_mode.value_or(SolverLogMode::nolog);
-    const auto log_level = log_mode != SolverLogMode::nolog
-        ? std::max(effective.log_level, 1)
-        : effective.log_level;
-
-    auto timed_solve = [&]
-    {
-      const auto t0 = Clock::now();
-      if (log_mode != SolverLogMode::nolog && !m_log_file_.empty()) {
-        const LogFileGuard log_guard(*this, m_log_file_, log_level);
-        m_backend_->initial_solve();
-      } else {
-        const HandlerGuard guard(*this, log_level);
-        m_backend_->initial_solve();
-      }
-      m_solver_stats_.total_solve_time_s +=
-          std::chrono::duration<double>(Clock::now() - t0).count();
-    };
-
-    timed_solve();
-
-    if (!is_optimal() && effective.max_fallbacks > 0) {
-      // Algorithm fallback cycle: try alternative algorithms wrapped in
-      // a solver-specific robust-solve mode.  The guard engages on
-      // construction (loosens tolerances, enables numerical-emphasis
-      // knobs) and disengages on scope exit, restoring the baseline
-      // parameters.  Each iteration also calls escalate() to compound
-      // the loosening (× 10 → × 100 → × 1000) so a stubborn LP gets a
-      // genuinely different attempt each time.
-      RobustSolveGuard robust_guard(*m_backend_);
-      auto fallback_opts = effective;
-      auto current_algo = effective.algorithm;
-
-      for (int attempt = 0; attempt < effective.max_fallbacks && !is_optimal();
-           ++attempt)
-      {
-        const auto next_algo = next_fallback_algo(current_algo);
-        spdlog::warn("{}: initial_solve non-optimal with {}, fallback to {}",
-                     m_log_tag_.empty() ? get_prob_name() : m_log_tag_,
-                     current_algo,
-                     next_algo);
-
-        fallback_opts.algorithm = next_algo;
-        // Robust-solve mode handles tolerance loosening + numerical
-        // emphasis; presolve stays enabled so we do not throw away
-        // CPLEX/HiGHS preprocessing on the retry.
-        // Reset aggressive scaling on fallback — aggressive scaling can
-        // cause numerical difficulties (high kappa) that prevent the
-        // primary algorithm from converging; the fallback algorithm may
-        // succeed with the solver's default scaling strategy.
-        if (fallback_opts.scaling == SolverScaling::aggressive) {
-          fallback_opts.scaling = SolverScaling::automatic;
-        }
-        m_backend_->apply_options(fallback_opts);
-        // Escalate from the second iteration onwards: the first
-        // RobustSolveGuard ctor already engaged once.
-        if (attempt > 0) {
-          robust_guard.escalate();
-        }
-
-        ++m_solver_stats_.fallback_solves;
-        timed_solve();
-
-        current_algo = next_algo;
-      }
-    }
-
-    if (!is_optimal()) {
-      // Classify infeasibility for the end-of-run stats report.  Query
-      // the backend directly (not get_status()) so primal/dual are
-      // distinguishable — get_status() collapses them into status 2.
-      ++m_solver_stats_.infeasible_count;
-      if (m_backend_->is_proven_primal_infeasible()) {
-        ++m_solver_stats_.primal_infeasible;
-      } else if (m_backend_->is_proven_dual_infeasible()) {
-        ++m_solver_stats_.dual_infeasible;
-      }
-      return std::unexpected(Error {
-          .code = ErrorCode::SolverError,
-          .message = std::format(
-              "Solver returned non-optimal for problem: {} status: {}{}",
-              get_prob_name(),
-              get_status(),
-              effective.max_fallbacks > 0 ? " (after algorithm fallback cycle)"
-                                          : ""),
-          .status = get_status(),
-      });
-    }
-
-    if (const auto k = m_backend_->get_kappa(); k.has_value()) {
-      m_solver_stats_.max_kappa = std::max(m_solver_stats_.max_kappa, *k);
-    }
-
-    const auto status = get_status();
-    cache_and_release();
-    return status;
-
-  } catch (const std::exception& e) {
-    return std::unexpected(Error {
-        .code = ErrorCode::InternalError,
-        .message =
-            std::format("Unexpected error in initial_solve: {}", e.what()),
-    });
-  }
-}
-
-std::expected<int, Error> LinearInterface::resolve(
-    const SolverOptions& solver_options)
-{
-  using Clock = std::chrono::steady_clock;
-
-  ensure_backend();
-
-  ++m_solver_stats_.resolve_calls;
-  m_solver_stats_.total_ncols += get_numcols();
-  m_solver_stats_.total_nrows += get_numrows();
-
-  try {
-    // Start from backend-optimal defaults, overlay user settings on top.
-    auto effective = m_backend_->optimal_options();
-    effective.overlay(solver_options);
-    m_last_solver_options_ = effective;
-
-    m_backend_->apply_options(effective);
-
-    const auto log_mode = effective.log_mode.value_or(SolverLogMode::nolog);
-    const auto log_level = log_mode != SolverLogMode::nolog
-        ? std::max(effective.log_level, 1)
-        : effective.log_level;
-
-    auto timed_solve = [&]
-    {
-      const auto t0 = Clock::now();
-      if (log_mode != SolverLogMode::nolog && !m_log_file_.empty()) {
-        const LogFileGuard log_guard(*this, m_log_file_, log_level);
-        m_backend_->resolve();
-      } else {
-        const HandlerGuard guard(*this, log_level);
-        m_backend_->resolve();
-      }
-      m_solver_stats_.total_solve_time_s +=
-          std::chrono::duration<double>(Clock::now() - t0).count();
-    };
-
-    timed_solve();
-
-    if (!is_optimal() && effective.max_fallbacks > 0) {
-      // Algorithm fallback cycle: try alternative algorithms in
-      // solver-specific robust-solve mode (see initial_solve for the
-      // pattern).  Disabling presolve on every retry was hiding feasible
-      // LPs from CPLEX; instead let the backend loosen tolerances and
-      // enable numerical emphasis through the guard.
-      RobustSolveGuard robust_guard(*m_backend_);
-      auto fallback_opts = effective;
-      auto current_algo = effective.algorithm;
-
-      for (int attempt = 0; attempt < effective.max_fallbacks && !is_optimal();
-           ++attempt)
-      {
-        const auto next_algo = next_fallback_algo(current_algo);
-        // Demoted to DEBUG: these fallback-cycle lines were printing 2–3
-        // consecutive warn lines per infeasible LP (barrier→dual→primal).
-        // Final outcome is covered by the single "elastic ok" / "installed
-        // fcut" INFO line in sddp_forward_pass.cpp, so the fallback-step
-        // chatter is noise in the main log.  Still available at debug
-        // level for a deep post-mortem.
-        SPDLOG_DEBUG("{}: resolve non-optimal with {}, fallback to {}",
-                     m_log_tag_.empty() ? get_prob_name() : m_log_tag_,
-                     current_algo,
-                     next_algo);
-
-        fallback_opts.algorithm = next_algo;
-        // Reset aggressive scaling on fallback — aggressive scaling can
-        // cause numerical difficulties (high kappa) that prevent the
-        // primary algorithm from converging; the fallback algorithm may
-        // succeed with the solver's default scaling strategy.
-        if (fallback_opts.scaling == SolverScaling::aggressive) {
-          fallback_opts.scaling = SolverScaling::automatic;
-        }
-        m_backend_->apply_options(fallback_opts);
-        if (attempt > 0) {
-          robust_guard.escalate();
-        }
-
-        ++m_solver_stats_.fallback_solves;
-        timed_solve();
-
-        current_algo = next_algo;
-      }
-    }
-
-    if (!is_optimal()) {
-      // Classify infeasibility for the end-of-run stats report.
-      ++m_solver_stats_.infeasible_count;
-      if (m_backend_->is_proven_primal_infeasible()) {
-        ++m_solver_stats_.primal_infeasible;
-      } else if (m_backend_->is_proven_dual_infeasible()) {
-        ++m_solver_stats_.dual_infeasible;
-      }
-      return std::unexpected(Error {
-          .code = ErrorCode::SolverError,
-          .message = std::format(
-              "Solver returned non-optimal for problem: {} status: {}{}",
-              get_prob_name(),
-              get_status(),
-              effective.max_fallbacks > 0 ? " (after algorithm fallback cycle)"
-                                          : ""),
-          .status = get_status(),
-      });
-    }
-
-    if (const auto k = m_backend_->get_kappa(); k.has_value()) {
-      m_solver_stats_.max_kappa = std::max(m_solver_stats_.max_kappa, *k);
-    }
-
-    const auto status = get_status();
-    cache_and_release();
-    return status;
-
-  } catch (const std::exception& e) {
-    return std::unexpected(Error {
-        .code = ErrorCode::InternalError,
-        .message = std::format("Unexpected error in resolve: {}", e.what()),
-    });
-  }
-}
+// ── Names & LP file output ─ moved to linear_interface_labels.cpp
+// ── Solve ─ moved to linear_interface_solve.cpp
+//
+// `generate_labels_from_maps`, `materialize_labels`,
+// `compress_labels_meta_if_needed`, `ensure_labels_meta_decompressed`,
+// `rebuild_meta_indexes`, `push_names_to_solver`, `write_lp` live in
+// `source/linear_interface_labels.cpp`.
+//
+// `initial_solve`, `resolve`, and the algorithm-fallback helper
+// `next_fallback_algo` live in `source/linear_interface_solve.cpp`.
 
 // ── Lazy crossover ──
 

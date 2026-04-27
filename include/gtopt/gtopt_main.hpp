@@ -164,13 +164,41 @@ struct MainOptions
   // ---- resource limits ----
   /** @brief Process memory limit for work pool throttling.
    * Accepts an absolute value in MB, or a string with suffix:
-   * "300M" (megabytes), "5G" (gigabytes).  0 = no limit (default). */
+   * "300M" (megabytes), "5G" (gigabytes).  0 = no limit (default).
+   * Mutually exclusive with `memory_quota` — when both are set,
+   * `memory_quota` wins (it is the higher-level convenience flag). */
   std::optional<std::string> memory_limit {};
+
+  /** @brief Memory budget as a percentage of total host RAM.
+   *
+   * Sugar for `memory_limit`: when set, `apply_cli_options` reads
+   * `MemTotal` from `/proc/meminfo` and assigns
+   * `pool_memory_limit_mb = total_mb × pct / 100`.  Values outside
+   * (0, 100) are treated as "unset".
+   *
+   * Bound to `--memory-quota`. */
+  std::optional<double> memory_quota {};
 
   /** @brief SDDP work pool CPU over-commit factor.
    * Multiplied by hardware_concurrency to set max pool threads.
    * Default 4.0 — extra threads compensate for clone mutex blocking. */
   std::optional<double> sddp_cpu_factor {};
+
+  /** @brief CPU budget as a percentage of physical cores.
+   *
+   * When set during `apply_cli_options`, calls
+   * `set_cpu_quota_pct(pct)`.  This shrinks the value reported by
+   * `physical_concurrency()` for the rest of the process to
+   * `ceil(detected × pct / 100)` — every work-pool factory then sizes
+   * itself against the smaller base, so a `cpu_factor=2.0` pool on a
+   * 9-core box with `cpu_quota=30` ends up at `max_threads=6` instead
+   * of 18.  Values outside (0, 100) are treated as "unset" (no clamp).
+   *
+   * Does **not** affect the LP solver's internal thread count —
+   * use `--threads` / per-solver settings for that.
+   *
+   * Bound to `--cpu-quota`. */
+  std::optional<double> cpu_quota {};
 
   /** @brief LP build parallelism mode: "serial", "scene-parallel",
    *  or "full-parallel" (default).  Routed to

@@ -8,8 +8,10 @@
  * Tests for the flat_map type alias and map_reserve helper.
  */
 
+#include <map>
 #include <string>
 #include <tuple>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -429,4 +431,43 @@ TEST_CASE(  // NOLINT
   CHECK(map.find(kN * 2 - 2) != map.end());
   CHECK(map.find(1) == map.end());  // odd keys absent
   CHECK(map.at(500) == 250);
+}
+
+// ── map_reserve for std::unordered_map ───────────────────────────────────────
+
+TEST_CASE("map_reserve — std::unordered_map reserves capacity")  // NOLINT
+{
+  std::unordered_map<int, int> m;
+  map_reserve(m, 128);
+  // After reserve, at least 128 elements fit without rehash.
+  CHECK(m.bucket_count() * m.max_load_factor() >= 128.0F);
+  CHECK(m.empty());
+}
+
+TEST_CASE("map_reserve — std::unordered_map usable after reserve")  // NOLINT
+{
+  std::unordered_map<int, int> m;
+  map_reserve(m, 64);
+  for (int i = 0; i < 64; ++i) {
+    m[i] = i * 2;
+  }
+  CHECK(m.size() == 64U);
+  for (int i = 0; i < 64; ++i) {
+    CHECK(m.at(i) == i * 2);
+  }
+}
+
+// ── map_reserve for std::map (no-op) ─────────────────────────────────────────
+
+TEST_CASE("map_reserve — std::map is a no-op")  // NOLINT
+{
+  std::map<int, int> m;
+  map_reserve(m, 100);
+  CHECK(m.empty());
+  m[1] = 10;
+  m[2] = 20;
+  map_reserve(m, 200);
+  CHECK(m.size() == 2U);
+  CHECK(m.at(1) == 10);
+  CHECK(m.at(2) == 20);
 }

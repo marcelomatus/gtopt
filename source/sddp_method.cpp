@@ -697,11 +697,11 @@ void SDDPMethod::capture_state_variable_values(
   //    `phys / var_scale` — one division on an already-clean number,
   //    so it can't re-introduce the bound violation that clamping at
   //    physical removed.
-  const auto ncols = col_sol_phys.size();
+  const auto ncols = col_index_size(col_sol_phys);
   for (const auto& [key, svar] : sim.state_variables(scene_index, phase_index))
   {
     const auto col = svar.col();
-    if (static_cast<size_t>(col) < ncols) {
+    if (col < ncols) {
       const double phys = col_sol_phys[col];
       const double vs = svar.var_scale();
       svar.set_col_sol((vs != 0.0) ? phys / vs : phys);
@@ -1336,8 +1336,7 @@ auto SDDPMethod::load_named_cuts(const std::string& filepath)
 auto SDDPMethod::save_state(const std::string& filepath)
     -> std::expected<void, Error>
 {
-  return save_state_csv(
-      planning_lp(), filepath, IterationIndex {m_current_iteration_.load()});
+  return save_state_csv(planning_lp(), filepath, current_iteration());
 }
 
 auto SDDPMethod::load_state(const std::string& filepath)
@@ -1719,11 +1718,10 @@ auto SDDPMethod::initialize_solver() -> std::expected<void, Error>
 
 void SDDPMethod::reset_live_state() noexcept
 {
-  m_current_iteration_.store(0);
-  m_current_gap_.store(1.0);
-  m_current_lb_.store(0.0);
-  m_current_ub_.store(0.0);
-  m_converged_.store(false);
+  // Publish a fresh default-initialised snapshot.  Callers of the
+  // live-query API see `(iteration=0, gap=1.0, lb=0.0, ub=0.0,
+  // converged=false)` as a single coherent reset.
+  publish_live_metrics_(LiveMetrics {});
   m_current_pass_.store(0);
   m_scenes_done_.store(0);
 }
@@ -2104,11 +2102,13 @@ void SDDPMethod::finalize_iteration_result(
        >= m_iteration_offset_ + IterationIndex {m_options_.min_iterations - 1});
   ir.converged = gap_ok && past_min_iter;
 
-  m_current_iteration_.store(iteration_index);
-  m_current_gap_.store(ir.gap);
-  m_current_lb_.store(ir.lower_bound);
-  m_current_ub_.store(ir.upper_bound);
-  m_converged_.store(ir.converged);
+  publish_live_metrics_(LiveMetrics {
+      .iteration = iteration_index,
+      .gap = ir.gap,
+      .lower_bound = ir.lower_bound,
+      .upper_bound = ir.upper_bound,
+      .converged = ir.converged,
+  });
 
   // Per-iteration end-of-iteration summary is emitted from
   // sddp_iteration.cpp (`SDDP Iter [i{}]: done in ...`).  Keep only the
@@ -2151,12 +2151,15 @@ void SDDPMethod::maybe_write_api_status(
         planning_lp().systems().front().front().linear_interface().solver_id();
   }
 
+  // Read the 5 per-iteration metrics from a single coherent snapshot
+  // so `iteration` can never come from a different step than `gap`.
+  const auto metrics = live_metrics_();
   const SolverStatusSnapshot snapshot {
-      .iteration = m_current_iteration_.load(),
-      .gap = m_current_gap_.load(),
-      .lower_bound = m_current_lb_.load(),
-      .upper_bound = m_current_ub_.load(),
-      .converged = m_converged_.load(),
+      .iteration_index = metrics->iteration,
+      .gap = metrics->gap,
+      .lower_bound = metrics->lower_bound,
+      .upper_bound = metrics->upper_bound,
+      .converged = metrics->converged,
       .max_iterations = m_options_.max_iterations,
       .min_iterations = m_options_.min_iterations,
       .current_pass = m_current_pass_.load(),
@@ -2177,7 +2180,7 @@ void SDDPMethod::save_cuts_for_iteration(
                                        planning_lp(),
                                        m_label_maker_,
                                        m_scene_phase_states_,
-                                       m_current_iteration_.load());
+                                       current_iteration());
 }
 
 // ── solve() — now in sddp_iteration.cpp ─────────────────────────────────────

@@ -6,7 +6,6 @@
  * @copyright BSD-3-Clause
  */
 
-#include <algorithm>
 #include <format>
 #include <stdexcept>
 
@@ -477,68 +476,6 @@ void OsiSolverBackend::resolve()
   m_solver_->resolve();
 }
 
-void OsiSolverBackend::engage_robust_solve()
-{
-  if (m_solver_ == nullptr) {
-    return;
-  }
-
-  if (!m_saved_robust_state_.has_value()) {
-    RobustState saved {};
-    m_solver_->getDblParam(OsiDualTolerance, saved.dual_tolerance);
-    m_solver_->getDblParam(OsiPrimalTolerance, saved.primal_tolerance);
-    saved.presolve_passes = 0;
-    saved.engage_count = 0;
-    m_saved_robust_state_ = saved;
-  }
-  ++m_saved_robust_state_->engage_count;
-
-  // Compound: read live tolerances, multiply by 10, clamp to a safe
-  // upper bound (CLP rejects tolerances above ~1e-1).
-  double cur_dual = 0.0;
-  double cur_primal = 0.0;
-  m_solver_->getDblParam(OsiDualTolerance, cur_dual);
-  m_solver_->getDblParam(OsiPrimalTolerance, cur_primal);
-
-  constexpr double k_max_tol = 1e-1;
-  m_solver_->setDblParam(OsiDualTolerance,
-                         std::min(cur_dual * 10.0, k_max_tol));
-  m_solver_->setDblParam(OsiPrimalTolerance,
-                         std::min(cur_primal * 10.0, k_max_tol));
-
-  // CLP-specific robustness: enable perturbation, more pivot tolerances.
-  if (auto* clp = as_clp(m_solver_.get(), m_type_); clp != nullptr) {
-    if (auto* clp_model = clp->getModelPtr(); clp_model != nullptr) {
-      // Force perturbation (CLP perturbation flag: 50 = automatic, 100 = off).
-      // Lower numbers = more aggressive perturbation, helps degenerate LPs.
-      clp_model->setPerturbation(50);
-    }
-  }
-}
-
-void OsiSolverBackend::disengage_robust_solve() noexcept
-{
-  if (!m_saved_robust_state_.has_value()) {
-    return;
-  }
-  if (m_solver_ == nullptr) {
-    m_saved_robust_state_.reset();
-    return;
-  }
-
-  const auto& s = *m_saved_robust_state_;
-  m_solver_->setDblParam(OsiDualTolerance, s.dual_tolerance);
-  m_solver_->setDblParam(OsiPrimalTolerance, s.primal_tolerance);
-
-  if (auto* clp = as_clp(m_solver_.get(), m_type_); clp != nullptr) {
-    if (auto* clp_model = clp->getModelPtr(); clp_model != nullptr) {
-      // Restore CLP default perturbation (100 = off, the CLP default).
-      clp_model->setPerturbation(100);
-    }
-  }
-  m_saved_robust_state_.reset();
-}
-
 bool OsiSolverBackend::is_proven_optimal() const
 {
   return m_solver_->isProvenOptimal();
@@ -739,22 +676,13 @@ void OsiSolverBackend::push_names(const std::vector<std::string>& col_names,
   m_safe_col_names_.clear();
   m_safe_row_names_.clear();
   m_safe_col_names_.reserve(col_names.size());
-  // +1 slot for the objective name — ClpModel's `copyNames` treats
-  // `rowNames[nrow]` as the objective function label, and CoinLpIO
-  // later validates that slot when writing .lp files.  A missing
-  // obj-slot surfaces as `vnames[nrow]: ` (empty) → all labels are
-  // discarded and replaced with `R1/R2/…` / `C1/C2/…` defaults.
-  m_safe_row_names_.reserve(row_names.size() + 1);
+  m_safe_row_names_.reserve(row_names.size());
   for (std::size_t i = 0; i < col_names.size(); ++i) {
     m_safe_col_names_.push_back(sanitise_lp_name(col_names[i], "c", i));
   }
   for (std::size_t i = 0; i < row_names.size(); ++i) {
     m_safe_row_names_.push_back(sanitise_lp_name(row_names[i], "r", i));
   }
-  // Append the objective-row label as the last entry.  Constant
-  // "obj" is sufficient — only the non-emptiness matters for
-  // CoinLpIO's validator.
-  m_safe_row_names_.emplace_back("obj");
 
   if (auto* clp = as_clp(m_solver_.get(), m_type_); clp != nullptr) {
     clp->getModelPtr()->copyNames(m_safe_row_names_, m_safe_col_names_);
@@ -764,75 +692,23 @@ void OsiSolverBackend::push_names(const std::vector<std::string>& col_names,
   for (std::size_t i = 0; i < m_safe_col_names_.size(); ++i) {
     m_solver_->setColName(static_cast<int>(i), m_safe_col_names_[i]);
   }
-  // Loop bound is `row_names.size()` (real rows only), not
-  // `m_safe_row_names_.size()` (which includes the obj-slot at
-  // index nrow).  `setRowName(nrow, …)` on an n-row interface is
-  // out-of-bounds for the OSI per-row store.
-  for (std::size_t i = 0; i < row_names.size(); ++i) {
+  for (std::size_t i = 0; i < m_safe_row_names_.size(); ++i) {
     m_solver_->setRowName(static_cast<int>(i), m_safe_row_names_[i]);
   }
-  // Propagate the objective-row label to OSI's objective-name slot
-  // so callers that bypass ClpModel (e.g. foreign writers) still see
-  // a non-empty label.
-  m_solver_->setObjName(m_safe_row_names_.back());
 }
 
 void OsiSolverBackend::write_lp(const char* filename)
 {
-  // Bypass `OsiSolverInterface::writeLp` and call `writeLpNative`
-  // directly with explicit `(nrow+1)`-sized row-names and
-  // `ncol`-sized col-names arrays.  Per CoinLpIO's contract
-  // (/usr/include/coin/OsiSolverInterface.hpp:1569-1572), the row-names
-  // array must have exactly `getNumRows() + 1` distinct entries with
-  // the last slot being the objective function label.  The default
-  // `writeLp` path builds this array internally from the solver's
-  // stored names; on OsiClpSolverInterface the objective-name slot is
-  // populated from ClpModel's `objectiveName_`, which `copyNames`
-  // clears.  Result: even when `push_names` populated every row/col
-  // slot, the objective slot ends up empty and CoinLpIO rejects the
-  // whole set — all row/col labels are replaced with `R*/C*` defaults
-  // and `sddp_fcut_…` labels are lost from the written `.lp` file.
-  //
-  // `m_safe_row_names_` already carries `nrow + 1` entries (with "obj"
-  // as the last element, seeded by `push_names`).  Passing it directly
-  // to `writeLpNative` sidesteps the stored-obj-name hazard entirely.
-  //
-  // Fallback path when `push_names` was not called: hand NULL to
-  // `writeLpNative` so it uses generic defaults (no custom labels
-  // expected).
-  const auto nrow = static_cast<std::size_t>(m_solver_->getNumRows());
-  const auto ncol = static_cast<std::size_t>(m_solver_->getNumCols());
-  if (m_safe_row_names_.size() == nrow + 1 && m_safe_col_names_.size() == ncol)
-  {
-    std::vector<const char*> row_ptrs;
-    std::vector<const char*> col_ptrs;
-    row_ptrs.reserve(nrow + 1);
-    col_ptrs.reserve(ncol);
-    for (const auto& s : m_safe_row_names_) {
-      row_ptrs.push_back(s.c_str());
-    }
-    for (const auto& s : m_safe_col_names_) {
-      col_ptrs.push_back(s.c_str());
-    }
-    // `writeLpNative` does not auto-append an extension the way
-    // `writeLp` does — add ".lp" explicitly so the on-disk path
-    // matches what `LinearInterface::write_lp`'s caller expects.
-    const auto full_path = std::string {filename} + ".lp";
-    m_solver_->writeLpNative(full_path.c_str(),
-                             row_ptrs.data(),
-                             col_ptrs.data(),
-                             /*epsilon=*/1e-5,
-                             /*numberAcross=*/10,
-                             /*decimals=*/9,
-                             /*objSense=*/0.0,
-                             /*useRowNames=*/true);
-  } else {
-    // Defensive fallback when the caller bypassed `push_names`.
-    if (m_solver_->getObjName().empty()) {
-      m_solver_->setObjName("obj");
-    }
-    m_solver_->writeLp(filename);
+  // CoinLpIO::setLpDataRowAndColNames validates rownames[nrow] as the
+  // objective function name slot.  OsiSolverInterface::getObjName()
+  // returns "" by default, which CoinLpIO treats as an invalid name and
+  // falls back to default "cons0/cons1/..." row labels — erasing all
+  // custom constraint names (including "sddp_fcut_...") from the LP file.
+  // Ensure the objective has a non-empty name before writing.
+  if (m_solver_->getObjName().empty()) {
+    m_solver_->setObjName("obj");
   }
+  m_solver_->writeLp(filename);
 }
 
 std::unique_ptr<SolverBackend> OsiSolverBackend::clone() const

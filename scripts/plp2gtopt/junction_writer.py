@@ -51,10 +51,11 @@ _OCEAN_UID_OFFSET = 10000
 # as a literal LP upper bound inflates matrix kappa (max coef ÷ min coef)
 # and yields false binding-bound duals during SDDP cuts.
 #
-# This patch re-introduces the helper that was added in 8d1fff9b and
-# subsequently removed by the 86616b80 refactor — and extends coverage to
-# the ``gen`` waterway side (``fmax = PotMax / Rendi``) which never had
-# the check in the first place.
+# This is the same threshold introduced as `_is_vert_sentinel` in 8d1fff9b
+# (subsequently removed by 86616b80, then re-added on both branches).
+# The merged form here renames to `_is_plp_no_limit` and extends coverage
+# to the ``gen`` waterway side (``fmax = PotMax / Rendi``) which never
+# had the check in the first place.
 _PLP_NO_LIMIT_SENTINEL = 9000.0
 
 
@@ -674,20 +675,10 @@ class JunctionWriter(BaseWriter):
         # 2. Reservoir is NOT in plpvrebemb.dat.  No stage-rebalse
         #    mechanism exists in PLP — per-block ``qv_k`` is bounded
         #    by VertMax from plpcnfce.dat (an explicit 0 is honoured;
-        #    a missing field falls back to the default 300_000).  The
-        #    ``_ver`` arc carries no ``fcost``; cost (if any) lives on
-        #    ``reservoir_drain`` via plpmat.dat's ``CVert`` fallback.
-        #
-        # History (2026-04-24): regime 1 used to emit ``vert_fmax=0``
-        # everywhere, leaving the ``_ver`` arc as dead weight while a
-        # parallel ``reservoir_drain`` teleport (cost from plpvrebemb)
-        # bypassed the physical waterway.  This caused juan/gtopt_iplp
-        # iter-0 cascade infeasibilities at p27/p28 because PANGUE
-        # (also in plpvrebemb) had its only physical outlet to the
-        # ANGOSTURA drain junction pinned to 0, while RALCO's drain
-        # teleported into PANGUE without going through ``_ver``.  The
-        # physical model below is both more correct and resolves the
-        # cascade.
+        #    PLP "no limit" sentinels >= 9000 are dropped to unbounded
+        #    via ``_is_plp_no_limit``).  The ``_ver`` arc carries no
+        #    ``fcost``; cost (if any) lives on ``reservoir_drain`` via
+        #    plpmat.dat's ``CVert`` fallback.
         rebalse_cost: Optional[float] = (
             self.vrebemb_parser.get_cost(central_name)
             if self.vrebemb_parser is not None
@@ -717,11 +708,11 @@ class JunctionWriter(BaseWriter):
             vert_fmax: Optional[float] = None
             vert_fcost: Optional[float] = rebalse_cost
         else:
-            # Same PLP "no limit" sentinel as on the gen side — VertMax
-            # values ≥ 9000 m³/s mean "unbounded" (often 9000 + central
-            # index, or 99999); emitting them as literal upper bounds
-            # bloats LP matrix kappa and can yield false binding-bound
-            # duals.  Drop them to None so the field is omitted.
+            # PLP "no limit" sentinel — VertMax values ≥ 9000 m³/s mean
+            # "unbounded" (often 9000 + central index, or 99999);
+            # emitting them as literal upper bounds bloats LP matrix
+            # kappa and can yield false binding-bound duals.  Drop them
+            # to None so the field is omitted.
             if vert_max_raw is None:
                 vert_fmax = None
             else:
@@ -732,11 +723,22 @@ class JunctionWriter(BaseWriter):
                 else:
                     vert_fmax = v
             vert_fcost = cvert_default
+
+        # PLP "no limit" sentinel applies to vert_min too — sentinel-encoded
+        # minimum-spillage caps are nonsense and would over-constrain the
+        # ``_ver`` arc.  Drop them to 0 (no forced minimum spill).
+        vert_min_raw = float(central.get("vert_min", 0.0) or 0.0)
+        if _is_plp_no_limit(vert_min_raw):
+            self._plp_no_limit_count += 1
+            vert_fmin = 0.0
+        else:
+            vert_fmin = vert_min_raw
+
         ver_waterway = self._create_waterway(
             central_name + "_ver",
             central_id,
             central["ser_ver"],
-            central.get("vert_min", 0.0),
+            vert_fmin,
             vert_fmax,
             fcost=vert_fcost,
         )

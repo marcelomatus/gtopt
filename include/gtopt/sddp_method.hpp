@@ -60,7 +60,10 @@
 
 #include <atomic>
 #include <expected>
+#include <functional>
+#include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include <gtopt/aperture.hpp>
@@ -141,6 +144,28 @@ namespace gtopt
 class SDDPMethod
 {
 public:
+  /// Aggregate per-iteration metrics exposed via the live-query API.
+  ///
+  /// Replaces five separate `std::atomic<T>` members with a single
+  /// `std::atomic<std::shared_ptr<LiveMetrics>>` snapshot pointer so
+  /// that cross-thread readers always observe a *coherent* set of
+  /// `(iteration, gap, lower_bound, upper_bound, converged)` — no torn
+  /// reads where iteration is from step N and gap is from step N+1.
+  ///
+  /// The writer (the main SDDP iteration thread) allocates a fresh
+  /// `std::shared_ptr<LiveMetrics>` at the end of each iteration and
+  /// publishes it with `std::memory_order_release`; readers acquire
+  /// via `std::memory_order_acquire`.  Allocation rate is a few per
+  /// second — negligible compared to the solve itself.
+  struct LiveMetrics
+  {
+    IterationIndex iteration {0};
+    double gap {1.0};
+    double lower_bound {0.0};
+    double upper_bound {0.0};
+    bool converged {false};
+  };
+
   explicit SDDPMethod(PlanningLP& planning_lp, SDDPOptions opts = {}) noexcept;
 
   /// Run the SDDP iterative solve
@@ -199,36 +224,41 @@ public:
   /// backend is modified — there is no snapshot to re-sync.
   void free_alpha(SceneIndex scene_index, PhaseIndex phase_index);
 
-  // ── Live query (thread-safe, atomic reads) ──
+  // ── Live query (thread-safe, atomic-shared_ptr reads) ──
+  //
+  // All five per-iteration metrics (iteration, gap, lower_bound,
+  // upper_bound, converged) read from the same `LiveMetrics` snapshot
+  // so callers observing multiple fields see a coherent view of the
+  // solver's state at one point in time.
 
   /// Current iteration number (0 before first iteration completes)
-  [[nodiscard]] int current_iteration() const noexcept
+  [[nodiscard]] IterationIndex current_iteration() const noexcept
   {
-    return m_current_iteration_.load();
+    return live_metrics_()->iteration;
   }
 
   /// Current relative convergence gap
   [[nodiscard]] double current_gap() const noexcept
   {
-    return m_current_gap_.load();
+    return live_metrics_()->gap;
   }
 
   /// Current lower bound (phase-0 objective including α)
   [[nodiscard]] double current_lower_bound() const noexcept
   {
-    return m_current_lb_.load();
+    return live_metrics_()->lower_bound;
   }
 
   /// Current upper bound (sum of actual phase costs)
   [[nodiscard]] double current_upper_bound() const noexcept
   {
-    return m_current_ub_.load();
+    return live_metrics_()->upper_bound;
   }
 
   /// Whether the solver has converged
   [[nodiscard]] bool has_converged() const noexcept
   {
-    return m_converged_.load();
+    return live_metrics_()->converged;
   }
 
   /// Current iteration-index offset.  Starts at 0 and advances past
@@ -811,13 +841,52 @@ private:
   bool m_sim_write_enabled_ {false};
 
   // ── Atomic live-query state ──
-  std::atomic<int> m_current_iteration_ {0};
-  std::atomic<double> m_current_gap_ {1.0};
-  std::atomic<double> m_current_lb_ {0.0};
-  std::atomic<double> m_current_ub_ {0.0};
-  std::atomic<bool> m_converged_ {false};
+  //
+  // One `std::atomic<std::shared_ptr<LiveMetrics>>` replaces five
+  // independent atomics (iteration, gap, lb, ub, converged) so that
+  // cross-thread readers see a coherent snapshot.  Per-iteration the
+  // writer allocates a fresh LiveMetrics and publishes the pointer;
+  // readers acquire the current pointer and deref its fields.
+  //
+  // `m_current_pass_` and `m_scenes_done_` stay as separate atomics:
+  // they change at a different rate (per-pass / per-scene-finish) and
+  // don't belong in the per-iteration snapshot cadence.
+  std::atomic<std::shared_ptr<LiveMetrics>> m_live_metrics_ {
+      std::make_shared<LiveMetrics>()};
   std::atomic<int> m_current_pass_ {0};  ///< 0=idle, 1=forward, 2=backward
   std::atomic<int> m_scenes_done_ {0};  ///< Scenes completed in current pass
+
+  /// Publish a fresh live-metrics snapshot.  Writer is always the
+  /// main iteration thread; readers use acquire semantics via
+  /// `live_metrics_()` / the live-query accessors above.
+  void publish_live_metrics_(const LiveMetrics& metrics) noexcept
+  {
+    m_live_metrics_.store(std::make_shared<LiveMetrics>(metrics),
+                          std::memory_order_release);
+  }
+
+  /// Mutate a single field of the live-metrics snapshot while leaving
+  /// the others unchanged.  Used by early-converge writers (line 364
+  /// etc. of sddp_iteration.cpp) that only want to flip `converged`.
+  /// The read-modify-write is safe because the writer is still the
+  /// single main iteration thread.
+  template<class Mutator>
+  void update_live_metrics_(Mutator&& mutator) noexcept
+  {
+    auto current = m_live_metrics_.load(std::memory_order_acquire);
+    auto next = std::make_shared<LiveMetrics>(*current);
+    std::invoke(std::forward<Mutator>(mutator), *next);
+    m_live_metrics_.store(std::move(next), std::memory_order_release);
+  }
+
+  /// Helper: acquire-load the current live-metrics snapshot.  Never
+  /// returns nullptr because the default-initialised member value is
+  /// always a valid shared_ptr.
+  [[nodiscard]] auto live_metrics_() const noexcept
+      -> std::shared_ptr<LiveMetrics>
+  {
+    return m_live_metrics_.load(std::memory_order_acquire);
+  }
   PhaseGridRecorder m_phase_grid_;  ///< Per-(iter,scene,phase) activity grid
 
   // ── BendersCut: wraps elastic-filter LP solves via the work pool ──

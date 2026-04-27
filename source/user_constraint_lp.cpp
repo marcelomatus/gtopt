@@ -215,15 +215,21 @@ struct BuildResult
       {
         if constexpr (std::is_same_v<T, BlockContext>) {
           return BlockExContext {
-              std::get<0>(c), std::get<1>(c), std::get<2>(c), extra};
+              std::get<0>(c),
+              std::get<1>(c),
+              std::get<2>(c),
+              extra,
+          };
         } else if constexpr (std::is_same_v<T, BlockExContext>) {
           // Multiple user-constraint block rows may share the same
           // source (scenario, stage, block, outer_extra); we fold
           // the aux counter into the low bits to keep uniqueness.
-          return BlockExContext {std::get<0>(c),
-                                 std::get<1>(c),
-                                 std::get<2>(c),
-                                 (std::get<3>(c) * 1000) + extra};
+          return BlockExContext {
+              std::get<0>(c),
+              std::get<1>(c),
+              std::get<2>(c),
+              (std::get<3>(c) * 1000) + extra,
+          };
         }
         return T {c};
       },

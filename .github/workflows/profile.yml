@@ -65,8 +65,13 @@ jobs:
       - name: setup ccache
         uses: hendrikmuhs/ccache-action@v1.2.22
         with:
-          key: profile-clang
+          key: gtopt-clang-profile
+          # Shared `gtopt-clang-` prefix lets profile warm-start from the
+          # ubuntu.yml / coverage.yml caches and vice versa.
           restore-keys: |
+            gtopt-clang-profile-
+            gtopt-clang-Ubuntu-clang-
+            gtopt-clang-
             profile-clang-
             Ubuntu-clang-
           max-size: 2G

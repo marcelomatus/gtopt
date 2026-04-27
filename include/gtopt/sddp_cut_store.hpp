@@ -166,7 +166,7 @@ public:
       const StrongIndexVector<SceneIndex,
                               StrongIndexVector<PhaseIndex, PhaseStateInfo>>&
           scene_phase_states,
-      int current_iteration);
+      IterationIndex current_iteration);
 
 private:
   /// Per-scene cut storage — the single source of truth for every

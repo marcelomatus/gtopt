@@ -480,7 +480,7 @@ void SDDPCutStore::save_cuts_for_iteration(
     const StrongIndexVector<SceneIndex,
                             StrongIndexVector<PhaseIndex, PhaseStateInfo>>&
     /*scene_phase_states*/,
-    int current_iteration)
+    IterationIndex current_iteration)
 {
   if (options.cuts_output_file.empty()) {
     return;
@@ -538,8 +538,7 @@ void SDDPCutStore::save_cuts_for_iteration(
   // Save state variable column solutions (latest + versioned)
   if (!cut_dir.empty()) {
     const auto state_file = (cut_dir / sddp_file::state_cols).string();
-    auto sr = save_state_csv(
-        planning_lp, state_file, IterationIndex {current_iteration});
+    auto sr = save_state_csv(planning_lp, state_file, current_iteration);
     if (!sr.has_value()) {
       SPDLOG_WARN("SDDP: could not save state at iter {}: {}",
                   iteration_index,
@@ -548,8 +547,7 @@ void SDDPCutStore::save_cuts_for_iteration(
     const auto versioned_state =
         (cut_dir / std::format(sddp_file::versioned_state_fmt, iteration_index))
             .string();
-    sr = save_state_csv(
-        planning_lp, versioned_state, IterationIndex {current_iteration});
+    sr = save_state_csv(planning_lp, versioned_state, current_iteration);
     if (!sr.has_value()) {
       SPDLOG_WARN("SDDP: could not save versioned state at iter {}: {}",
                   iteration_index,

@@ -3,6 +3,9 @@
  * @brief     Physical core detection via Linux sysfs topology
  */
 
+#include <atomic>
+#include <cmath>
+
 #include <gtopt/hardware_info.hpp>
 
 #ifdef __linux__
@@ -19,7 +22,28 @@
 namespace gtopt
 {
 
-[[nodiscard]] unsigned physical_concurrency() noexcept
+namespace
+{
+
+/// Process-global CPU quota state.  Two atomics so a reader can fetch
+/// both without locking.  `g_quota_cores` of 0 means "no clamp" and is
+/// the default for backward compatibility.  `g_quota_pct` is kept only
+/// for diagnostics / `get_cpu_quota_pct()` reporting.
+///
+/// These are necessarily mutable global state: the CLI sets the quota
+/// once at startup and every subsequent call to `physical_concurrency()`
+/// must observe the same clamp.  Encapsulating them in an instance
+/// would require threading a handle through every pool factory and the
+/// dozens of call sites that already rely on the free-function form.
+// NOLINTBEGIN(cppcoreguidelines-avoid-non-const-global-variables)
+std::atomic<unsigned> g_quota_cores {0};
+std::atomic<double> g_quota_pct {0.0};
+// NOLINTEND(cppcoreguidelines-avoid-non-const-global-variables)
+
+/// Probe the kernel topology files once.  Cached as a function-local
+/// static so repeated calls are free.  Result is independent of any
+/// CPU quota.
+[[nodiscard]] unsigned probe_physical_concurrency() noexcept
 {
 #ifdef __linux__
   try {
@@ -90,6 +114,53 @@ namespace gtopt
 #endif
 
   return std::thread::hardware_concurrency();
+}
+
+}  // namespace
+
+[[nodiscard]] unsigned detected_physical_concurrency() noexcept
+{
+  // Cache the topology probe — it never changes for the life of the
+  // process and the sysfs walk is comparatively expensive.
+  static const unsigned cached = probe_physical_concurrency();
+  return cached;
+}
+
+[[nodiscard]] unsigned physical_concurrency() noexcept
+{
+  if (const auto q = g_quota_cores.load(std::memory_order_relaxed); q != 0) {
+    return q;
+  }
+  return detected_physical_concurrency();
+}
+
+void set_cpu_quota_pct(double pct) noexcept
+{
+  // Reject non-finite, non-positive, and "no-op" (>= 100) values.
+  // Everything outside the open interval (0, 100) disables clamping.
+  if (!std::isfinite(pct) || pct <= 0.0 || pct >= 100.0) {
+    g_quota_cores.store(0, std::memory_order_relaxed);
+    g_quota_pct.store(0.0, std::memory_order_relaxed);
+    return;
+  }
+  const auto detected = detected_physical_concurrency();
+  if (detected == 0) {
+    // No detection — clamp would be meaningless; leave disabled.
+    g_quota_cores.store(0, std::memory_order_relaxed);
+    g_quota_pct.store(0.0, std::memory_order_relaxed);
+    return;
+  }
+  const auto clamped =
+      std::max(1U,
+               static_cast<unsigned>(
+                   std::ceil(static_cast<double>(detected) * pct / 100.0)));
+  g_quota_cores.store(clamped, std::memory_order_relaxed);
+  g_quota_pct.store(pct, std::memory_order_relaxed);
+}
+
+[[nodiscard]] double get_cpu_quota_pct() noexcept
+{
+  return g_quota_pct.load(std::memory_order_relaxed);
 }
 
 }  // namespace gtopt
