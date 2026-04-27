@@ -201,6 +201,7 @@ class TestBuildOptions:
             "auto_battery_energy_scale": False,
             "variable_scales_file": None,
             "soft_emin_cost": None,
+            "soft_storage_bounds": True,
             "embed_reservoir_constraints": False,
             "expand_water_rights": False,
             "expand_lng": True,
