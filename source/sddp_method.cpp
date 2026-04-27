@@ -1799,10 +1799,19 @@ auto SDDPMethod::run_forward_pass_all_scenes(SDDPWorkPool& pool,
 
   m_current_pass_.store(0);
 
-  if (out.scenes_solved == 0) {
+  // Only declare the run unrecoverably stuck when ZERO scenes survived AND
+  // ZERO feasibility cuts were installed.  When fail-stop scenes installed
+  // fcuts on predecessor phases (the documented "scene-level fail-stop"
+  // path in sddp_forward_pass.cpp:528-558), those cuts persist in the
+  // global cut store and can make the master produce different state
+  // outputs in the next iteration.  Aborting here would discard them and
+  // contradict the fail-stop design comment ("the next iteration restarts
+  // every scene's forward pass from p1 with the freshly accumulated cuts").
+  if (out.scenes_solved == 0 && out.n_fcuts_installed == 0) {
     return std::unexpected(Error {
         .code = ErrorCode::SolverError,
-        .message = "SDDP: all scenes infeasible in forward pass",
+        .message = "SDDP: all scenes infeasible in forward pass "
+                   "and no recoverable feasibility cuts were installed",
     });
   }
 
