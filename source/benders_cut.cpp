@@ -111,7 +111,7 @@ auto build_benders_cut_physical(ColIndex alpha_col,
   // equilibrated LP folds `col_scales[alpha]` automatically.  No
   // `scale_alpha` or `inv_scale_obj` arithmetic here — every input is
   // already in $ / physical-units, matching what `target_li.get_col_cost()`
-  // and `target_li.get_obj_value_physical()` return at the call site.
+  // and `target_li.get_obj_value()` return at the call site.
   auto row = SparseRow {
       .lowb = objective_value_physical,
       .uppb = LinearProblem::DblMax,
@@ -819,11 +819,8 @@ auto build_feasibility_cut(const LinearInterface& li,
   // the signature for source compatibility but are now unused — the
   // physical builder lets `add_row` fold col_scales + row-max on the
   // caller's LP.
-  auto cut =
-      build_benders_cut_physical(alpha_col,
-                                 links,
-                                 elastic->clone,
-                                 elastic->clone.get_obj_value_physical());
+  auto cut = build_benders_cut_physical(
+      alpha_col, links, elastic->clone, elastic->clone.get_obj_value());
 
   return FeasibilityCutResult {
       .cut = std::move(cut),
@@ -1335,11 +1332,8 @@ auto BendersCut::build_feasibility_cut(const LinearInterface& li,
   }
 
   // See the free-function `build_feasibility_cut` above for rationale.
-  auto cut =
-      build_benders_cut_physical(alpha_col,
-                                 links,
-                                 elastic->clone,
-                                 elastic->clone.get_obj_value_physical());
+  auto cut = build_benders_cut_physical(
+      alpha_col, links, elastic->clone, elastic->clone.get_obj_value());
 
   return FeasibilityCutResult {
       .cut = std::move(cut),

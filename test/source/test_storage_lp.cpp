@@ -669,7 +669,7 @@ TEST_CASE(  // NOLINT
   CHECK(result.value() == 0);
 
   // The objective should be positive (generator cost + ecost on energy)
-  CHECK(li.get_obj_value() > 0.0);
+  CHECK(li.get_obj_value_raw() > 0.0);
 }
 
 // ─── Regression: soft_emin column name must not collide with eini ──────────
@@ -844,7 +844,7 @@ TEST_CASE(  // NOLINT
 
   // Strictly positive objective — the cheap path of leaving the battery
   // near eini still pays the efin slack penalty.
-  CHECK(li.get_obj_value() > 0.0);
+  CHECK(li.get_obj_value_raw() > 0.0);
 }
 
 TEST_CASE(  // NOLINT
@@ -923,7 +923,7 @@ TEST_CASE(  // NOLINT
   const auto result = li.resolve();
   REQUIRE(result.has_value());
   CHECK(result.value() == 0);
-  CHECK(li.get_obj_value() >= 0.0);
+  CHECK(li.get_obj_value_raw() >= 0.0);
 }
 
 // ─── efin_cost + soft_emin combination ──────────────────────────────────────
@@ -978,7 +978,7 @@ TEST_CASE(  // NOLINT
   const auto result = li.resolve();
   REQUIRE(result.has_value());
   CHECK(result.value() == 0);
-  CHECK(li.get_obj_value() > 0.0);
+  CHECK(li.get_obj_value_raw() > 0.0);
 
   // Both slack column families must exist independently.  Without the
   // 2026-04 column-name fix (``EfinSlackName = "efin_slack"``,

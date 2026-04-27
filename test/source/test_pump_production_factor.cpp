@@ -237,7 +237,7 @@ TEST_CASE(  // NOLINT
   auto result = lp.resolve();
   REQUIRE(result.has_value());
   CHECK(result.value() == 0);
-  CHECK(lp.get_obj_value() > 0.0);
+  CHECK(lp.get_obj_value_raw() > 0.0);
 }
 
 // ---------------------------------------------------------------------------
@@ -273,7 +273,7 @@ TEST_CASE(  // NOLINT
   auto result = lp.resolve();
   REQUIRE(result.has_value());
   CHECK(result.value() == 0);
-  CHECK(lp.get_obj_value() > 0.0);
+  CHECK(lp.get_obj_value_raw() > 0.0);
 }
 
 // ---------------------------------------------------------------------------
@@ -309,7 +309,7 @@ TEST_CASE(  // NOLINT
   SystemLP slp_low(system_low, sim_low);
   auto result_low = slp_low.linear_interface().resolve();
   REQUIRE(result_low.has_value());
-  const auto obj_low = slp_low.linear_interface().get_obj_value();
+  const auto obj_low = slp_low.linear_interface().get_obj_value_raw();
 
   // High volume → high production factor
   const auto system_high = make_hb_maule_system(8000.0, true);
@@ -317,7 +317,7 @@ TEST_CASE(  // NOLINT
   SystemLP slp_high(system_high, sim_high);
   auto result_high = slp_high.linear_interface().resolve();
   REQUIRE(result_high.has_value());
-  const auto obj_high = slp_high.linear_interface().get_obj_value();
+  const auto obj_high = slp_high.linear_interface().get_obj_value_raw();
 
   // Higher Colbun volume → higher production factor → more MW per m3/s
   // → cheaper generation → lower or equal objective
@@ -365,7 +365,7 @@ TEST_CASE(  // NOLINT
   // With a single block, the optimizer cannot time-shift between gen and pump.
   // Any round-trip would be pure loss, so at most one of gen/pump is active.
   // We verify the LP solves feasibly (the optimizer doesn't need both).
-  CHECK(lp.get_obj_value() >= 0.0);
+  CHECK(lp.get_obj_value_raw() >= 0.0);
 }
 
 // ---------------------------------------------------------------------------

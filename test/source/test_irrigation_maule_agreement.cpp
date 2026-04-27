@@ -448,7 +448,7 @@ TEST_CASE(  // NOLINT
     const auto result = lp.resolve();
     REQUIRE(result.has_value());
     REQUIRE(result.value() == 0);
-    return lp.get_obj_value();
+    return lp.get_obj_value_raw();
   };
 
   // Symmetric baseline: both bins equally expensive.

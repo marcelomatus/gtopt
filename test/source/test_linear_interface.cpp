@@ -122,7 +122,7 @@ TEST_CASE("LinearInterface - LP solution")
 
   // Check objective value: 3*4 + 2*3 = 18
   const double obj_val =
-      -interface.get_obj_value();  // Negate back to get maximization value
+      -interface.get_obj_value_raw();  // Negate back to get maximization value
   REQUIRE(obj_val == doctest::Approx(18.0));
 }
 
@@ -735,7 +735,7 @@ TEST_CASE("LinearInterface - get_obj_value after solve")
   auto result = interface.resolve();
   REQUIRE(result.has_value());
 
-  CHECK(interface.get_obj_value() == doctest::Approx(0.0));
+  CHECK(interface.get_obj_value_raw() == doctest::Approx(0.0));
 }
 
 TEST_CASE("LinearInterface - log file handling")
@@ -975,14 +975,14 @@ TEST_CASE("LinearInterface - clone preserves solution")  // NOLINT
   auto res = li.initial_solve();
   REQUIRE(res.has_value());
   REQUIRE(li.is_optimal());
-  const double orig_obj = li.get_obj_value();
+  const double orig_obj = li.get_obj_value_raw();
 
   SUBCASE("clone produces same objective")
   {
     auto cloned = li.clone();
     auto r = cloned.resolve();
     REQUIRE(r.has_value());
-    CHECK(cloned.get_obj_value() == doctest::Approx(orig_obj));
+    CHECK(cloned.get_obj_value_raw() == doctest::Approx(orig_obj));
   }
 }
 
@@ -1012,7 +1012,7 @@ TEST_CASE("LinearInterface - warm-start clone resolves after bound change")
 
   auto res = li.initial_solve();
   REQUIRE(res.has_value());
-  CHECK(li.get_obj_value() == doctest::Approx(10.0));
+  CHECK(li.get_obj_value_raw() == doctest::Approx(10.0));
 
   // Clone with warm-start, tighten x1 >= 6, re-solve
   auto cloned = li.clone();
@@ -1024,7 +1024,7 @@ TEST_CASE("LinearInterface - warm-start clone resolves after bound change")
   REQUIRE(cloned.is_optimal());
 
   // Optimal: x1=6, x2=4 → obj=12+4=16
-  CHECK(cloned.get_obj_value() == doctest::Approx(16.0));
+  CHECK(cloned.get_obj_value_raw() == doctest::Approx(16.0));
   CHECK(cloned.get_col_sol()[x1] == doctest::Approx(6.0));
   CHECK(cloned.get_col_sol()[x2] == doctest::Approx(4.0));
 
@@ -1061,7 +1061,7 @@ TEST_CASE(
   barrier_opts.algorithm = LPAlgo::barrier;
   auto res = li.initial_solve(barrier_opts);
   REQUIRE(res.has_value());
-  const double orig_obj = li.get_obj_value();
+  const double orig_obj = li.get_obj_value_raw();
   // Optimal: x1=0, x2=8 → obj=16
   CHECK(orig_obj == doctest::Approx(16.0));
 
@@ -1077,7 +1077,7 @@ TEST_CASE(
   REQUIRE(cloned.is_optimal());
 
   // Optimal: x1=3, x2=5 → obj=9+10=19
-  CHECK(cloned.get_obj_value() == doctest::Approx(19.0));
+  CHECK(cloned.get_obj_value_raw() == doctest::Approx(19.0));
   CHECK(cloned.get_col_sol()[x1] == doctest::Approx(3.0));
   CHECK(cloned.get_col_sol()[x2] == doctest::Approx(5.0));
 }
@@ -1125,7 +1125,7 @@ TEST_CASE("LinearInterface - set_warm_start_solution exact dimensions")
   REQUIRE(cloned.is_optimal());
 
   // Optimal: x1=5, x2=5 → obj=10+5=15
-  CHECK(cloned.get_obj_value() == doctest::Approx(15.0));
+  CHECK(cloned.get_obj_value_raw() == doctest::Approx(15.0));
   CHECK(cloned.get_col_sol()[x1] == doctest::Approx(5.0));
   CHECK(cloned.get_col_sol()[x2] == doctest::Approx(5.0));
 }
@@ -1180,7 +1180,7 @@ TEST_CASE("LinearInterface - set_warm_start_solution pads extra rows")
   REQUIRE(li.is_optimal());
 
   // Optimal: x1=2, x2=8 → obj=4+8=12 (cut x1>=2 is binding)
-  CHECK(li.get_obj_value() == doctest::Approx(12.0));
+  CHECK(li.get_obj_value_raw() == doctest::Approx(12.0));
 }
 
 TEST_CASE("LinearInterface - set_warm_start_solution pads extra columns")
@@ -1262,7 +1262,7 @@ TEST_CASE("LinearInterface - set_warm_start_solution ignores stale snapshot")
   // Resolve should still work (stale vectors were ignored)
   auto r = li.resolve();
   REQUIRE(r.has_value());
-  CHECK(li.get_obj_value() == doctest::Approx(5.0));
+  CHECK(li.get_obj_value_raw() == doctest::Approx(5.0));
 }
 
 TEST_CASE("LinearInterface - set_warm_start_solution with empty spans is no-op")
@@ -1290,7 +1290,7 @@ TEST_CASE("LinearInterface - set_warm_start_solution with empty spans is no-op")
 
   auto r = li.resolve();
   REQUIRE(r.has_value());
-  CHECK(li.get_obj_value() == doctest::Approx(3.0));
+  CHECK(li.get_obj_value_raw() == doctest::Approx(3.0));
 }
 
 TEST_CASE(  // NOLINT
@@ -1948,7 +1948,7 @@ TEST_CASE("LinearInterface::clone - mutating clone does not affect original")
   auto orig = make_clone_fixture();
   REQUIRE(orig.li.initial_solve().has_value());
   REQUIRE(orig.li.is_optimal());
-  const double orig_obj = orig.li.get_obj_value();
+  const double orig_obj = orig.li.get_obj_value_raw();
   const double orig_x1_low = orig.li.get_col_low()[orig.x1];
   const double orig_x1_upp = orig.li.get_col_upp()[orig.x1];
   const double orig_x1_cost = orig.li.get_obj_coeff()[orig.x1];
@@ -2011,7 +2011,7 @@ TEST_CASE("LinearInterface::clone - mutating clone does not affect original")
 
     auto r = orig.li.resolve();
     REQUIRE(r.has_value());
-    CHECK(orig.li.get_obj_value() == doctest::Approx(orig_obj));
+    CHECK(orig.li.get_obj_value_raw() == doctest::Approx(orig_obj));
   }
 }
 
@@ -2146,7 +2146,7 @@ TEST_CASE("LinearInterface::clone - clone-of-clone preserves invariants")
   auto orig = make_clone_fixture();
   orig.li.set_col_scale(orig.x1, 3.0);
   REQUIRE(orig.li.initial_solve().has_value());
-  const double orig_obj = orig.li.get_obj_value();
+  const double orig_obj = orig.li.get_obj_value_raw();
 
   auto a = orig.li.clone();
   auto b = a.clone();
@@ -2161,7 +2161,7 @@ TEST_CASE("LinearInterface::clone - clone-of-clone preserves invariants")
   // The grand-clone still solves correctly on its own.
   REQUIRE(b.resolve().has_value());
   REQUIRE(b.is_optimal());
-  CHECK(b.get_obj_value() == doctest::Approx(orig_obj));
+  CHECK(b.get_obj_value_raw() == doctest::Approx(orig_obj));
 }
 
 TEST_CASE("LinearInterface::clone - clone outlives original")  // NOLINT
@@ -2183,7 +2183,7 @@ TEST_CASE("LinearInterface::clone - clone outlives original")  // NOLINT
     REQUIRE(orig.li.initial_solve().has_value());
     expected_x1_low = orig.li.get_col_low()[orig.x1];
     expected_x1_scale = orig.li.get_col_scales()[orig.x1];
-    expected_obj = orig.li.get_obj_value();
+    expected_obj = orig.li.get_obj_value_raw();
 
     cloned_opt.emplace(orig.li.clone());
   }  // orig destroyed here
@@ -2199,5 +2199,5 @@ TEST_CASE("LinearInterface::clone - clone outlives original")  // NOLINT
   // Resolve still works without referencing the destroyed source.
   REQUIRE(cloned.resolve().has_value());
   REQUIRE(cloned.is_optimal());
-  CHECK(cloned.get_obj_value() == doctest::Approx(expected_obj));
+  CHECK(cloned.get_obj_value_raw() == doctest::Approx(expected_obj));
 }

@@ -169,7 +169,8 @@ TEST_CASE("IEEE 14-bus original - solution correctness")
   SUBCASE("objective value")
   {
     // Obj (scaled) ≈ 8.334
-    CHECK(lp_interface.get_obj_value() == doctest::Approx(8.334).epsilon(1e-2));
+    CHECK(lp_interface.get_obj_value_raw()
+          == doctest::Approx(8.334).epsilon(1e-2));
   }
 
   SUBCASE("no load shedding")

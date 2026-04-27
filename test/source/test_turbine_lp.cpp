@@ -148,7 +148,7 @@ TEST_CASE(  // NOLINT
   // With 30 m3/s flow and production_factor=2, max hydro power = 60 MW.
   // Demand = 50 MW, gcost_hydro=5 < gcost_thermal=80, so hydro serves all.
   // Objective should be positive (serving 50 MW for 3 block-hours).
-  CHECK(lp.get_obj_value() > 0.0);
+  CHECK(lp.get_obj_value_raw() > 0.0);
 }
 
 // -----------------------------------------------------------------------
@@ -282,7 +282,7 @@ TEST_CASE(  // NOLINT
   auto result = lp.resolve();
   REQUIRE(result.has_value());
   CHECK(result.value() == 0);
-  CHECK(lp.get_obj_value() >= 0.0);
+  CHECK(lp.get_obj_value_raw() >= 0.0);
 }
 
 // -----------------------------------------------------------------------
@@ -438,7 +438,7 @@ TEST_CASE(  // NOLINT
   // The capacity constraint limits turbine flow to 50 m3/s.
   // With production_factor=2, max hydro power = 100 MW.
   // Demand is 100 MW, so hydro saturates and no thermal is needed.
-  CHECK(lp.get_obj_value() > 0.0);
+  CHECK(lp.get_obj_value_raw() > 0.0);
 }
 
 // -----------------------------------------------------------------------
@@ -591,7 +591,7 @@ TEST_CASE(  // NOLINT
   auto result = lp.resolve();
   REQUIRE(result.has_value());
   CHECK(result.value() == 0);
-  CHECK(lp.get_obj_value() > 0.0);
+  CHECK(lp.get_obj_value_raw() > 0.0);
 }
 
 // -----------------------------------------------------------------------
@@ -722,7 +722,7 @@ TEST_CASE(  // NOLINT
   // With 100 m3/s * 5 = 500 MW max hydro, demand = 80 MW.
   // All demand served by cheap hydro. Objective is scaled by
   // default_scale_objective (1e7), so just verify it is positive.
-  CHECK(lp.get_obj_value() > 0.0);
+  CHECK(lp.get_obj_value_raw() > 0.0);
 }
 
 // -----------------------------------------------------------------------

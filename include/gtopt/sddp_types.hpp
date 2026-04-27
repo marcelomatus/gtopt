@@ -782,7 +782,7 @@ struct PhaseStateInfo
   size_t base_nrows {0};  ///< Row count before any Benders cuts
   double forward_objective {0.0};  ///< Opex from last forward pass
   /// Full objective from last forward solve (including α), in physical
-  /// ($) space — i.e. `LinearInterface::get_obj_value_physical()`, not
+  /// ($) space — i.e. `LinearInterface::get_obj_value()`, not
   /// the scaled LP raw value.  Cached here so the backward pass can
   /// call `build_benders_cut_physical` without re-querying the
   /// original LP.

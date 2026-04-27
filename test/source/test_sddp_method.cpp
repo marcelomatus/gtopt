@@ -1089,7 +1089,7 @@ TEST_CASE(  // NOLINT
     for (int p = 0; p < n; ++p) {
       mono_total += plp_mono.system(first_scene_index(), PhaseIndex {p})
                         .linear_interface()
-                        .get_obj_value();
+                        .get_obj_value_raw();
     }
     CHECK(mono_total > 0.0);
 

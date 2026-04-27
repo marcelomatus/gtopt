@@ -131,7 +131,7 @@ TEST_CASE("Unified battery solution correctness")  // NOLINT
   const auto& lp = systems.front().front().linear_interface();
 
   // Objective: 100 MW × $10/MWh × 1 h × 2 blocks ÷ 1000 = 2.0
-  CHECK(lp.get_obj_value() == doctest::Approx(2.0));
+  CHECK(lp.get_obj_value_raw() == doctest::Approx(2.0));
 }
 
 // -----------------------------------------------------------------------
@@ -230,7 +230,7 @@ TEST_CASE("Battery definitions equivalence – same objective value")  // NOLINT
   REQUIRE(!trad_sys.empty());
   REQUIRE(!trad_sys.front().empty());
   const auto trad_obj =
-      trad_sys.front().front().linear_interface().get_obj_value();
+      trad_sys.front().front().linear_interface().get_obj_value_raw();
 
   // Unified
   Planning uni_base;
@@ -242,7 +242,7 @@ TEST_CASE("Battery definitions equivalence – same objective value")  // NOLINT
   REQUIRE(!uni_sys.empty());
   REQUIRE(!uni_sys.front().empty());
   const auto uni_obj =
-      uni_sys.front().front().linear_interface().get_obj_value();
+      uni_sys.front().front().linear_interface().get_obj_value_raw();
 
   // Both definitions must produce the same optimal objective value
   CHECK(trad_obj == doctest::Approx(uni_obj));

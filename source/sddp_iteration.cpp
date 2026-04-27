@@ -1103,14 +1103,14 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
           // Get lower bound from phase-0 objective in PHYSICAL ($)
           // units — must match the physical-space upper-bound
           // aggregated in sddp_forward_pass (which uses
-          // ``get_obj_value_physical()``).  Reading LP-raw here put
+          // ``get_obj_value()``).  Reading LP-raw here put
           // UB and LB in different unit spaces, producing a
           // permanent ``≈ scale_objective − 1`` / ``scale_objective``
           // gap that never closed regardless of cut quality.
           sp.lower_bound = planning_lp()
                                .system(scene, first_phase_index())
                                .linear_interface()
-                               .get_obj_value_physical();
+                               .get_obj_value();
 
           tracker.report_complete(scene,
                                   sp.current_iteration_index,

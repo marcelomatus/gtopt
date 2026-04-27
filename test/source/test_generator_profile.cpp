@@ -264,7 +264,7 @@ TEST_CASE("GeneratorProfileLP - generator profile with spillover cost")
   // Verify via objective: wind_gen gcost=0 (free), backup unused (gcost=100),
   // spillover cost = 20 × 10 = 200.  Objective ≈ 200.
   // scale_objective defaults to 1000, so solver objective = 200 / 1000 = 0.2
-  const auto obj = lp.get_obj_value();
+  const auto obj = lp.get_obj_value_raw();
   CHECK(obj == doctest::Approx(0.2).epsilon(1e-3));
 }
 

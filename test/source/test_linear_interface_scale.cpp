@@ -460,7 +460,7 @@ TEST_CASE(
     // contributions are identical (1.0 each).  Pre-fix, the
     // post-flatten col's contribution would be scale_obj larger,
     // breaking the physical invariance.
-    CHECK(li.get_obj_value() * scale_obj == doctest::Approx(2.0).epsilon(1e-9));
+    CHECK(li.get_obj_value() == doctest::Approx(2.0).epsilon(1e-9));
   }
 }
 
@@ -468,8 +468,7 @@ TEST_CASE(
 // Test 6 — closes G9, G10
 // Physical objective value and scale_objective() accessor.
 // ────────────────────────────────────────────────────────────────────
-TEST_CASE(
-    "LinearInterface - get_obj_value_physical with scale_objective")  // NOLINT
+TEST_CASE("LinearInterface - get_obj_value with scale_objective")  // NOLINT
 {
   // min 2*x  s.t.  x >= 5, 0 <= x <= 20
   // With scale_objective=1000, the LP obj coefficient is stored as
@@ -492,10 +491,10 @@ TEST_CASE(
   REQUIRE((status && *status == 0));
   REQUIRE(li.is_optimal());
 
-  SUBCASE("get_obj_value_physical == get_obj_value × scale_objective")
+  SUBCASE("get_obj_value == get_obj_value_raw × scale_objective")
   {
-    const double raw_obj = li.get_obj_value();
-    const double phys_obj = li.get_obj_value_physical();
+    const double raw_obj = li.get_obj_value_raw();
+    const double phys_obj = li.get_obj_value();
     CHECK(phys_obj == doctest::Approx(raw_obj * 1000.0));
     // Physical optimum: cost=2, x=5 → obj=10 (in physical $ units).
     CHECK(phys_obj == doctest::Approx(10.0).epsilon(1e-6));
@@ -505,6 +504,84 @@ TEST_CASE(
   {
     LinearInterface li_empty;
     CHECK(li_empty.scale_objective() == doctest::Approx(1.0));
+  }
+
+  SUBCASE("get_obj_value_raw is invariant of scale_objective semantics")
+  {
+    // raw_obj is what the LP solver reports directly; it is the
+    // physical_obj divided by scale_objective.  This is the contract
+    // SDDP relies on for picking which units to feed the LB/UB
+    // aggregation.
+    const double raw = li.get_obj_value_raw();
+    const double phys = li.get_obj_value();
+    CHECK(raw == doctest::Approx(phys / li.scale_objective()));
+    CHECK(raw == doctest::Approx(0.01).epsilon(1e-6));  // 0.002 × 5
+  }
+}
+
+// ────────────────────────────────────────────────────────────────────
+// SDDP LB/UB unit-consistency invariant
+//
+// SDDP aggregates the upper bound in physical units (sddp_forward_pass
+// returns `obj_physical - alpha`) and reads the lower bound from the
+// first-phase LP objective.  Both sides MUST be in the same units —
+// otherwise a non-unit `scale_objective` leaves a permanent
+// `(scale - 1) / scale` gap that prevents convergence (the juan
+// IPLP_uninodal symptom: gap pinned at ~0.999 with scale_obj=1000).
+//
+// This test pins the unit-consistency contract:  for the same LP, the
+// "LB-side" reading via get_obj_value() (physical) must equal the
+// "UB-side" aggregation (also physical) once alpha is removed.
+// ────────────────────────────────────────────────────────────────────
+TEST_CASE(  // NOLINT
+    "LinearInterface - get_obj_value matches SDDP LB/UB physical units")
+{
+  // min 50 x  s.t.  x >= 4, 0 <= x <= 10
+  // physical optimum: 50 × 4 = 200; raw = 200 / scale_obj.
+  for (const double scale_obj : {1.0, 10.0, 1000.0, 1e6}) {
+    LinearProblem lp("sddp_unit_invariant");
+    const auto c0 = lp.add_col(SparseCol {.uppb = 10.0, .cost = 50.0});
+
+    auto r0 = SparseRow {};
+    r0[c0] = 1.0;
+    r0.greater_equal(4.0);
+    std::ignore = lp.add_row(std::move(r0));
+
+    auto flat = lp.flatten({.scale_objective = scale_obj});
+
+    LinearInterface li("", flat);
+    REQUIRE(li.scale_objective() == doctest::Approx(scale_obj));
+
+    const auto status = li.initial_solve({});
+    REQUIRE((status && *status == 0));
+    REQUIRE(li.is_optimal());
+
+    CAPTURE(scale_obj);
+
+    // Physical obj must be 200 regardless of scale_objective — this is
+    // the value SDDP feeds into the UB aggregation.
+    const double phys_obj = li.get_obj_value();
+    CHECK(phys_obj == doctest::Approx(200.0).epsilon(1e-6));
+
+    // Raw obj scales inversely with scale_objective.
+    const double raw_obj = li.get_obj_value_raw();
+    CHECK(raw_obj == doctest::Approx(200.0 / scale_obj).epsilon(1e-6));
+
+    // The LB read site (now also physical post-fix) and the UB
+    // aggregation MUST agree on the same LP up to alpha; with alpha=0
+    // they match exactly.
+    CHECK(phys_obj == doctest::Approx(raw_obj * scale_obj));
+
+    // Sanity: the broken LB-raw / UB-physical pairing would produce
+    // exactly the (scale - 1) / scale gap the user observed.  Pinning
+    // this here means any future regression that re-introduces the
+    // unit mismatch will fail the test on the very same shape.
+    if (scale_obj > 1.0) {
+      const double broken_gap =
+          std::abs(phys_obj - raw_obj) / std::max(1.0, std::abs(phys_obj));
+      const double expected_broken = 1.0 - (1.0 / scale_obj);
+      CHECK(broken_gap == doctest::Approx(expected_broken).epsilon(1e-6));
+    }
   }
 }
 

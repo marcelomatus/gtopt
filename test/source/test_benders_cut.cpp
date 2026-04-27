@@ -20,7 +20,7 @@ using namespace gtopt;  // NOLINT(google-global-names-in-headers)
 // `LinearInterface::add_row` on an equilibrated LP.  Unlike the LP-space
 // overloads above, this variant:
 //   - takes `reduced_costs_physical` and `objective_value_physical`
-//     (caller uses `target_li.get_col_cost()` / `get_obj_value_physical()`);
+//     (caller uses `target_li.get_col_cost()` / `get_obj_value()`);
 //   - takes `trial_values_physical` as a span indexed parallel to
 //     `links` (caller builds it from `source_li.get_col_sol()[...]`);
 //   - emits coefficient 1.0 on the α column and row.scale 1.0 — the LP
@@ -1351,11 +1351,8 @@ TEST_CASE(  // NOLINT
       REQUIRE(elastic->clone.is_optimal());
 
       // Build a Benders cut from the elastic result (physical space).
-      auto cut =
-          build_benders_cut_physical(alpha,
-                                     links,
-                                     elastic->clone,
-                                     elastic->clone.get_obj_value_physical());
+      auto cut = build_benders_cut_physical(
+          alpha, links, elastic->clone, elastic->clone.get_obj_value());
 
       // Cut coefficient on source_col should be the reduced cost
       // of the dependent column — proportional to the penalty, not huge
@@ -1781,11 +1778,10 @@ TEST_CASE(  // NOLINT
     // single_cut consumes the elastic result via
     // build_benders_cut_physical; multi_cut / chinneck additionally
     // call build_multi_cuts.  Both should run without throwing.
-    auto bc =
-        build_benders_cut_physical(ColIndex {99},  // any source_col
-                                   fx.links,
-                                   result->clone,
-                                   result->clone.get_obj_value_physical());
+    auto bc = build_benders_cut_physical(ColIndex {99},  // any source_col
+                                         fx.links,
+                                         result->clone,
+                                         result->clone.get_obj_value());
     CHECK(bc.cmap.size() >= 1);
 
     if (mode == ElasticFilterMode::multi_cut

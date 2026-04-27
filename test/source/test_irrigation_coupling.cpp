@@ -912,7 +912,7 @@ TEST_CASE(  // NOLINT
     const auto result = lp.resolve();
     REQUIRE(result.has_value());
     CHECK(result.value() == 0);
-    return lp.get_obj_value();
+    return lp.get_obj_value_raw();
   };
 
   // 100 hm³ of rights >> 4.32 hm³ needed: hydro covers all demand,
@@ -1096,7 +1096,7 @@ TEST_CASE(  // NOLINT
     const auto result = lp.resolve();
     REQUIRE(result.has_value());
     CHECK(result.value() == 0);
-    return lp.get_obj_value();
+    return lp.get_obj_value_raw();
   };
 
   // The two solutions must reflect the zone change: above the
@@ -1266,7 +1266,7 @@ TEST_CASE(  // NOLINT
   REQUIRE(result.has_value());
   CHECK(result.value() == 0);
 
-  const auto cost = lp.get_obj_value();
+  const auto cost = lp.get_obj_value_raw();
   CHECK(cost > 0.0);
 }
 
@@ -1595,7 +1595,7 @@ TEST_CASE(  // NOLINT
     const auto result = lp.resolve();
     REQUIRE(result.has_value());
     CHECK(result.value() == 0);
-    return lp.get_obj_value();
+    return lp.get_obj_value_raw();
   };
 
   // Tiny withdrawal: hydro still has plenty of water, thermal not
@@ -1761,7 +1761,7 @@ TEST_CASE(  // NOLINT
     const auto result = lp.resolve();
     REQUIRE(result.has_value());
     CHECK(result.value() == 0);
-    return lp.get_obj_value();
+    return lp.get_obj_value_raw();
   };
 
   // 1 FlowRight × 100 m³/s requires the waterway to carry 100 m³/s of
@@ -1903,7 +1903,7 @@ TEST_CASE(  // NOLINT
     const auto result = lp.resolve();
     REQUIRE(result.has_value());
     CHECK(result.value() == 0);
-    return lp.get_obj_value();
+    return lp.get_obj_value_raw();
   };
 
   // The deficit variable absorbs the shortfall, with the objective

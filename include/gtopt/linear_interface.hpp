@@ -890,17 +890,26 @@ public:
   void set_col_upp(ColIndex index, double physical_value);
   void set_col(ColIndex index, double physical_value);
 
-  [[nodiscard]] double get_obj_value() const;
-
   /**
    * @brief Gets the objective value in physical (unscaled) units.
    *
    * Returns `raw_obj × scale_objective`, converting from LP space back
    * to physical cost units.  Equivalent to the old manual descaling
-   * `get_obj_value() * options.scale_objective()`.
-   * @return Physical objective value
+   * `get_obj_value_raw() * options.scale_objective()`.
+   * @return Physical objective value (post-descaling)
    */
-  [[nodiscard]] double get_obj_value_physical() const;
+  [[nodiscard]] double get_obj_value() const;
+
+  /**
+   * @brief Gets the raw LP objective value (in solver/LP space).
+   *
+   * Returns the value the LP solver reports directly, before
+   * `scale_objective` is reversed.  Use `get_obj_value()` when callers
+   * need physical / cost units; use this only for tests and diagnostics
+   * that need to inspect the LP-side value the solver actually returned.
+   * @return Raw LP objective value (pre-descaling)
+   */
+  [[nodiscard]] double get_obj_value_raw() const;
 
   /**
    * @brief Writes the problem to an LP format file

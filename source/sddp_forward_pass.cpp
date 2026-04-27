@@ -715,7 +715,7 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
       // ``alpha_val``, which silently broke ``upper_bound`` whenever
       // ``scale_objective != 1`` after the second SDDP iteration once
       // alpha started carrying inherited-cut weight.
-      const auto obj_physical = li.get_obj_value_physical();
+      const auto obj_physical = li.get_obj_value();
       state.forward_full_obj_physical = obj_physical;
 
       // Physical-space, optimal-only bound-clamped view (see

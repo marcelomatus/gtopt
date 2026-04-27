@@ -1619,7 +1619,7 @@ bool LinearInterface::is_prim_infeasible() const
   return m_backend_->is_proven_primal_infeasible();
 }
 
-double LinearInterface::get_obj_value() const
+double LinearInterface::get_obj_value_raw() const
 {
   if (m_backend_released_) {
     return m_cached_obj_value_;
@@ -1627,9 +1627,9 @@ double LinearInterface::get_obj_value() const
   return m_backend_->obj_value();
 }
 
-double LinearInterface::get_obj_value_physical() const
+double LinearInterface::get_obj_value() const
 {
-  return get_obj_value() * m_scale_objective_;
+  return get_obj_value_raw() * m_scale_objective_;
 }
 
 void LinearInterface::set_col_sol(const std::span<const double> sol)

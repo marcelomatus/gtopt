@@ -857,7 +857,7 @@ TEST_CASE(  // NOLINT
     auto result = lp.resolve();
     REQUIRE(result.has_value());
     CHECK(result.value() == 0);
-    return lp.get_obj_value();
+    return lp.get_obj_value_raw();
   };
 
   // With 100 hm³ of rights (plenty): all demand served by hydro → cost ≈ 0
@@ -1059,7 +1059,7 @@ TEST_CASE(  // NOLINT
     auto result = lp.resolve();
     REQUIRE(result.has_value());
     CHECK(result.value() == 0);
-    return lp.get_obj_value();
+    return lp.get_obj_value_raw();
   };
 
   // With saving enabled: the constraint forces

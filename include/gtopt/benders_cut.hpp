@@ -248,7 +248,7 @@ void propagate_trial_values(std::span<StateVarLink> links,
 ///                               in parallel with `links`, so entry `i`
 ///                               corresponds to `links[i]`.
 /// @param objective_value_physical Target subproblem optimum in $,
-///                               i.e. `target_li.get_obj_value_physical()`.
+///                               i.e. `target_li.get_obj_value()`.
 /// @param cut_coeff_eps          Drop state-var coefficients below this
 ///                               absolute threshold (default 0 =
 ///                               keep all).
@@ -295,7 +295,7 @@ void propagate_trial_values(std::span<StateVarLink> links,
 ///                                zero (rc_phys = v̂_phys = 0), matching
 ///                                the test-fixture convention.
 /// @param objective_value_physical Target subproblem optimum in $,
-///                                i.e. `target_li.get_obj_value_physical()`.
+///                                i.e. `target_li.get_obj_value()`.
 /// @param scale_objective         Global objective scale (required so
 ///                                `reduced_cost_physical()` can descale
 ///                                the LP reduced cost to $/phys_unit).

@@ -269,8 +269,8 @@ void log_post_solve_stats(const PlanningLP& planning_lp, bool optimal)
   {
     const auto& lp_if =
         planning_lp.systems().front().front().linear_interface();
-    const double obj_scaled = lp_if.get_obj_value();
-    const double obj_unscaled = lp_if.get_obj_value_physical();
+    const double obj_scaled = lp_if.get_obj_value_raw();
+    const double obj_unscaled = lp_if.get_obj_value();
     spdlog::info("  LP variables    : {}", lp_if.get_numcols());
     spdlog::info("  LP constraints  : {}", lp_if.get_numrows());
     spdlog::info("  Obj (scaled)    : {:.6g}", obj_scaled);

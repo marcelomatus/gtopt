@@ -128,7 +128,7 @@ TEST_CASE("Demand lossfactor - loss factor applied in bus balance")
 
   // With 5% loss factor, the generator must produce more than 100 MW
   // to meet 100 MW demand: gen = 100 * (1 + 0.05) = 105 MW
-  const double obj = li.get_obj_value();
+  const double obj = li.get_obj_value_raw();
   // obj = 105 * 20 / 1000 = 2.1
   CHECK(obj == doctest::Approx(2.1));
 }
@@ -193,7 +193,7 @@ TEST_CASE("Line losses - resistive losses exercised in LP")
 
   // With line losses, the generator must produce slightly more than 100 MW
   // Exact amount depends on the loss model (resistance-based)
-  const double obj = li.get_obj_value();
+  const double obj = li.get_obj_value_raw();
   CHECK(obj >= 2.0);  // >= 100 * 20 / 1000 = 2.0 (with or without losses)
 }
 
@@ -360,7 +360,7 @@ TEST_CASE("Inactive demand - inactive demand skipped in LP")
 
   // Only d1 (100 MW) is active, d2 is inactive
   // obj = 100 * 20 / 1000 = 2.0
-  const double obj = li.get_obj_value();
+  const double obj = li.get_obj_value_raw();
   CHECK(obj == doctest::Approx(2.0));
 }
 
@@ -426,7 +426,7 @@ TEST_CASE("Generator profile - solar profile applied to capacity")
   // Block 1: solar=80MW (0.8*100), demand=80MW → solar covers all
   // Block 2: solar=0MW (0.0*100), demand=120MW → thermal=120MW
   // Cost = 80*0*12 + 120*50*12 / 1000 = 72.0
-  const double obj = li.get_obj_value();
+  const double obj = li.get_obj_value_raw();
   CHECK(obj == doctest::Approx(72.0));
 }
 
@@ -531,7 +531,7 @@ TEST_CASE("Inactive generator - skipped in LP")
 
   // Only g1 ($20) serves 80 MW load; g2 is inactive (would have been cheaper)
   // obj = 80 * 20 / 1000 = 1.6
-  const double obj = li.get_obj_value();
+  const double obj = li.get_obj_value_raw();
   CHECK(obj == doctest::Approx(1.6));
 }
 
@@ -595,7 +595,7 @@ TEST_CASE("Line quadratic loss model - piecewise-linear loss approximation")
 
   // With quadratic losses, objective should be > 200*20/1000 = 4.0
   // because the generator must produce extra to compensate for losses
-  const double obj = li.get_obj_value();
+  const double obj = li.get_obj_value_raw();
   CHECK(obj >= 4.0);
 }
 
@@ -783,7 +783,7 @@ TEST_CASE("Battery - charge/discharge storage exercised")
 
   // Battery can shift cheap generation from block 1 to block 2
   // reducing need for expensive generator
-  const double obj = li.get_obj_value();
+  const double obj = li.get_obj_value_raw();
   // Without battery: 50*10*4 + 150*10*4 + ... = higher
   // With battery: lower cost via arbitrage
   CHECK(obj > 0.0);

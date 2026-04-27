@@ -1348,7 +1348,7 @@ TEST_CASE(
   auto raw_res = raw_lp.resolve();
   REQUIRE(raw_res.has_value());
   const auto raw_obj =
-      raw_lp.systems().front().front().linear_interface().get_obj_value();
+      raw_lp.systems().front().front().linear_interface().get_obj_value_raw();
 
   // hydro_flow penalty_class: penalty=5 × duration(1h) × 3600 = 18 000
   // per unit, which is >> demand_fail_cost=1000.  The LP must now keep
@@ -1358,7 +1358,7 @@ TEST_CASE(
   auto hf_res = hf_lp.resolve();
   REQUIRE(hf_res.has_value());
   const auto hf_obj =
-      hf_lp.systems().front().front().linear_interface().get_obj_value();
+      hf_lp.systems().front().front().linear_interface().get_obj_value_raw();
 
   // Raw: gen=90 @ $20 + slack=40 @ $5 = 1800 + 200 = 2000
   CHECK(raw_obj == doctest::Approx(2000.0));

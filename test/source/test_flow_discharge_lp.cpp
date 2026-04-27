@@ -703,7 +703,7 @@ TEST_CASE(  // NOLINT
     REQUIRE(res.has_value());
     CHECK(res.value() == 0);
 
-    return li.get_obj_value();
+    return li.get_obj_value_raw();
   };
 
   const auto obj_low_inflow = solve_with_discharge(10.0);
@@ -1327,7 +1327,7 @@ TEST_CASE(  // NOLINT
   auto& li = sys_lp.linear_interface();
   auto base_result = li.resolve();
   REQUIRE(base_result.has_value());
-  const double base_obj = li.get_obj_value();
+  const double base_obj = li.get_obj_value_raw();
 
   const auto& scene = sim_lp.scenes()[first_scene_index()];
   const auto& base_scenario = scene.scenarios()[0];
@@ -1346,7 +1346,7 @@ TEST_CASE(  // NOLINT
 
   auto clone_result = clone.resolve();
   REQUIRE(clone_result.has_value());
-  const double high_obj = clone.get_obj_value();
+  const double high_obj = clone.get_obj_value_raw();
 
   // Higher inflow → more cheap hydro → lower cost
   CHECK(high_obj < base_obj);

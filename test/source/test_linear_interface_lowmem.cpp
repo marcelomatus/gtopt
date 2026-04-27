@@ -128,7 +128,7 @@ TEST_CASE(
     });
     REQUIRE(result.has_value());
     CHECK(li.is_optimal());
-    CHECK(li.get_obj_value() == doctest::Approx(4.0));
+    CHECK(li.get_obj_value_raw() == doctest::Approx(4.0));
   }
 }
 
@@ -407,7 +407,7 @@ TEST_CASE(
     REQUIRE(solve.has_value());
     REQUIRE(li.is_optimal());
     // x1 + x2 >= 5; min 2x1 + 3x2 → choose x1=5, x2=0 → obj 10
-    CHECK(li.get_obj_value() == doctest::Approx(10.0));
+    CHECK(li.get_obj_value_raw() == doctest::Approx(10.0));
   }
 
   SUBCASE("compress mode: snapshot is compressed at install time")
@@ -425,7 +425,7 @@ TEST_CASE(
 
     auto solve = li.resolve();
     REQUIRE(solve.has_value());
-    CHECK(li.get_obj_value() == doctest::Approx(10.0));
+    CHECK(li.get_obj_value_raw() == doctest::Approx(10.0));
   }
 }
 
@@ -437,7 +437,7 @@ TEST_CASE("LinearInterface — low_memory save_snapshot round-trip")  // NOLINT
   auto res = li.initial_solve();
   REQUIRE(res.has_value());
   REQUIRE(li.is_optimal());
-  const double orig_obj = li.get_obj_value();
+  const double orig_obj = li.get_obj_value_raw();
   const auto orig_ncols = li.get_numcols();
   const auto orig_nrows = li.get_numrows();
 
@@ -458,7 +458,7 @@ TEST_CASE("LinearInterface — low_memory save_snapshot round-trip")  // NOLINT
 
     auto r = li.resolve();
     REQUIRE(r.has_value());
-    CHECK(li.get_obj_value() == doctest::Approx(orig_obj));
+    CHECK(li.get_obj_value_raw() == doctest::Approx(orig_obj));
   }
 
   SUBCASE("level 2: compress/decompress round-trip preserves LP")
@@ -476,7 +476,7 @@ TEST_CASE("LinearInterface — low_memory save_snapshot round-trip")  // NOLINT
 
     auto r = li.resolve();
     REQUIRE(r.has_value());
-    CHECK(li.get_obj_value() == doctest::Approx(orig_obj));
+    CHECK(li.get_obj_value_raw() == doctest::Approx(orig_obj));
   }
 
   SUBCASE("multiple release/reconstruct cycles produce same result")
@@ -493,7 +493,7 @@ TEST_CASE("LinearInterface — low_memory save_snapshot round-trip")  // NOLINT
 
       auto r = li.resolve();
       REQUIRE(r.has_value());
-      CHECK(li.get_obj_value() == doctest::Approx(orig_obj));
+      CHECK(li.get_obj_value_raw() == doctest::Approx(orig_obj));
     }
   }
 }
@@ -505,7 +505,7 @@ TEST_CASE(
 
   auto res = li.initial_solve();
   REQUIRE(res.has_value());
-  const double orig_obj = li.get_obj_value();
+  const double orig_obj = li.get_obj_value_raw();
 
   li.set_low_memory(LowMemoryMode::compress);
   li.save_snapshot(FlatLinearProblem {flat});
@@ -529,7 +529,7 @@ TEST_CASE(
   auto r = li.resolve();
   REQUIRE(r.has_value());
   // Alpha has zero cost, so objective is unchanged
-  CHECK(li.get_obj_value() == doctest::Approx(orig_obj));
+  CHECK(li.get_obj_value_raw() == doctest::Approx(orig_obj));
 }
 
 TEST_CASE("LinearInterface — low_memory reconstruct with cuts")  // NOLINT
@@ -558,7 +558,7 @@ TEST_CASE("LinearInterface — low_memory reconstruct with cuts")  // NOLINT
   // Solve with the cut
   auto r1 = li.resolve();
   REQUIRE(r1.has_value());
-  const double obj_with_cut = li.get_obj_value();
+  const double obj_with_cut = li.get_obj_value_raw();
   // x1 <= 3, so optimal x1=3, x2=2 → obj = 6 + 6 = 12
   CHECK(obj_with_cut == doctest::Approx(12.0));
 
@@ -570,7 +570,7 @@ TEST_CASE("LinearInterface — low_memory reconstruct with cuts")  // NOLINT
 
   auto r2 = li.resolve();
   REQUIRE(r2.has_value());
-  CHECK(li.get_obj_value() == doctest::Approx(obj_with_cut));
+  CHECK(li.get_obj_value_raw() == doctest::Approx(obj_with_cut));
 }
 
 TEST_CASE("LinearInterface — low_memory cut deletion tracking")  // NOLINT
@@ -579,7 +579,7 @@ TEST_CASE("LinearInterface — low_memory cut deletion tracking")  // NOLINT
 
   auto res = li.initial_solve();
   REQUIRE(res.has_value());
-  [[maybe_unused]] const double orig_obj = li.get_obj_value();
+  [[maybe_unused]] const double orig_obj = li.get_obj_value_raw();
 
   li.set_low_memory(LowMemoryMode::compress);
   li.save_snapshot(FlatLinearProblem {flat});
@@ -621,7 +621,7 @@ TEST_CASE("LinearInterface — low_memory cut deletion tracking")  // NOLINT
   auto r = li.resolve();
   REQUIRE(r.has_value());
   // Only cut1 active: x1 <= 2, so optimal x1=2, x2=3 → obj = 4 + 9 = 13
-  CHECK(li.get_obj_value() == doctest::Approx(13.0));
+  CHECK(li.get_obj_value_raw() == doctest::Approx(13.0));
 }
 
 TEST_CASE(
@@ -640,7 +640,7 @@ TEST_CASE(
   auto res = li.initial_solve();
   REQUIRE(res.has_value());
   REQUIRE(li.is_optimal());
-  const double orig_obj = li.get_obj_value();
+  const double orig_obj = li.get_obj_value_raw();
 
   li.set_low_memory(LowMemoryMode::compress);
   li.save_snapshot(FlatLinearProblem {flat});
@@ -661,7 +661,7 @@ TEST_CASE(
   SUBCASE("cached scalars + vectors still serve reads")
   {
     CHECK(li.is_optimal());
-    CHECK(li.get_obj_value() == doctest::Approx(orig_obj));
+    CHECK(li.get_obj_value_raw() == doctest::Approx(orig_obj));
     const auto after_col_sol = li.get_col_sol_raw();
     REQUIRE(after_col_sol.size() == before_col_sol.size());
     for (size_t i = 0; i < after_col_sol.size(); ++i) {
@@ -697,7 +697,7 @@ TEST_CASE("LinearInterface — low_memory reconstruct with warm-start")  // NOLI
                               li.get_col_sol_raw().end());
   std::vector<double> row_dual(li.get_row_dual_raw().begin(),
                                li.get_row_dual_raw().end());
-  const double orig_obj = li.get_obj_value();
+  const double orig_obj = li.get_obj_value_raw();
 
   li.set_low_memory(LowMemoryMode::compress);
   li.save_snapshot(FlatLinearProblem {flat});
@@ -709,7 +709,7 @@ TEST_CASE("LinearInterface — low_memory reconstruct with warm-start")  // NOLI
   SolverOptions ws_opts;
   auto r = li.resolve(ws_opts);
   REQUIRE(r.has_value());
-  CHECK(li.get_obj_value() == doctest::Approx(orig_obj));
+  CHECK(li.get_obj_value_raw() == doctest::Approx(orig_obj));
 }
 
 TEST_CASE("LinearInterface — low_memory hot-start cut replay")  // NOLINT
@@ -744,7 +744,7 @@ TEST_CASE("LinearInterface — low_memory hot-start cut replay")  // NOLINT
   auto r = li.resolve();
   REQUIRE(r.has_value());
   // x1 <= 3 → optimal x1=3, x2=2 → obj = 12
-  CHECK(li.get_obj_value() == doctest::Approx(12.0));
+  CHECK(li.get_obj_value_raw() == doctest::Approx(12.0));
 }
 
 TEST_CASE(
@@ -760,7 +760,7 @@ TEST_CASE(
                               li.get_col_sol_raw().end());
   std::vector<double> row_dual(li.get_row_dual_raw().begin(),
                                li.get_row_dual_raw().end());
-  const double orig_obj = li.get_obj_value();
+  const double orig_obj = li.get_obj_value_raw();
 
   li.set_low_memory(LowMemoryMode::compress);
   li.save_snapshot(FlatLinearProblem {flat});
@@ -774,19 +774,19 @@ TEST_CASE(
 
   auto r = cloned.resolve();
   REQUIRE(r.has_value());
-  CHECK(cloned.get_obj_value() == doctest::Approx(orig_obj));
+  CHECK(cloned.get_obj_value_raw() == doctest::Approx(orig_obj));
 
   // Modify clone — original is unmodified
   cloned.set_col_upp(x1, 3.0);
   auto r2 = cloned.resolve();
   REQUIRE(r2.has_value());
   // x1 <= 3 → x1=3, x2=2 → obj = 6 + 6 = 12
-  CHECK(cloned.get_obj_value() == doctest::Approx(12.0));
+  CHECK(cloned.get_obj_value_raw() == doctest::Approx(12.0));
 
   // Original still produces the same objective
   auto r3 = li.resolve();
   REQUIRE(r3.has_value());
-  CHECK(li.get_obj_value() == doctest::Approx(orig_obj));
+  CHECK(li.get_obj_value_raw() == doctest::Approx(orig_obj));
 }
 
 TEST_CASE("LinearInterface — low_memory level 2 multiple cycles")  // NOLINT
@@ -795,7 +795,7 @@ TEST_CASE("LinearInterface — low_memory level 2 multiple cycles")  // NOLINT
 
   auto res = li.initial_solve();
   REQUIRE(res.has_value());
-  [[maybe_unused]] const double orig_obj = li.get_obj_value();
+  [[maybe_unused]] const double orig_obj = li.get_obj_value_raw();
 
   li.set_low_memory(LowMemoryMode::compress, CompressionCodec::zstd);
   li.save_snapshot(FlatLinearProblem {flat});
@@ -814,7 +814,7 @@ TEST_CASE("LinearInterface — low_memory level 2 multiple cycles")  // NOLINT
 
   auto r1 = li.resolve();
   REQUIRE(r1.has_value());
-  const double obj1 = li.get_obj_value();
+  const double obj1 = li.get_obj_value_raw();
   // x1 <= 4, so x1=4, x2=1 → obj = 8 + 3 = 11
   CHECK(obj1 == doctest::Approx(11.0));
 
@@ -832,7 +832,7 @@ TEST_CASE("LinearInterface — low_memory level 2 multiple cycles")  // NOLINT
   auto r2 = li.resolve();
   REQUIRE(r2.has_value());
   // x1 <= 4, x2 >= 3 → x1=2, x2=3 → obj = 4 + 9 = 13
-  CHECK(li.get_obj_value() == doctest::Approx(13.0));
+  CHECK(li.get_obj_value_raw() == doctest::Approx(13.0));
 }
 
 TEST_CASE("LinearInterface — set_low_memory(0) discards flat LP")  // NOLINT
@@ -869,7 +869,8 @@ TEST_CASE("LinearInterface — clone with warm-start parameters")  // NOLINT
     SolverOptions ws_opts;
     auto r = cloned.resolve(ws_opts);
     REQUIRE(r.has_value());
-    CHECK(cloned.get_obj_value() == doctest::Approx(li.get_obj_value()));
+    CHECK(cloned.get_obj_value_raw()
+          == doctest::Approx(li.get_obj_value_raw()));
   }
 
   SUBCASE("clone without warm-start also works")
@@ -877,7 +878,8 @@ TEST_CASE("LinearInterface — clone with warm-start parameters")  // NOLINT
     auto cloned = li.clone();
     auto r = cloned.resolve();
     REQUIRE(r.has_value());
-    CHECK(cloned.get_obj_value() == doctest::Approx(li.get_obj_value()));
+    CHECK(cloned.get_obj_value_raw()
+          == doctest::Approx(li.get_obj_value_raw()));
   }
 }
 
@@ -1021,7 +1023,7 @@ TEST_CASE(
 
   auto res = li.initial_solve();
   REQUIRE(res.has_value());
-  const double orig_obj = li.get_obj_value();
+  const double orig_obj = li.get_obj_value_raw();
 
   SUBCASE("clone backend is independent — destroying clone preserves parent")
   {
@@ -1037,7 +1039,7 @@ TEST_CASE(
     CHECK(li.has_backend());
     auto r2 = li.resolve();
     REQUIRE(r2.has_value());
-    CHECK(li.get_obj_value() == doctest::Approx(orig_obj));
+    CHECK(li.get_obj_value_raw() == doctest::Approx(orig_obj));
   }
 
   SUBCASE("multiple clones can be created and destroyed")
@@ -1046,7 +1048,7 @@ TEST_CASE(
       auto cloned = li.clone();
       auto r = cloned.resolve();
       REQUIRE(r.has_value());
-      CHECK(cloned.get_obj_value() == doctest::Approx(orig_obj));
+      CHECK(cloned.get_obj_value_raw() == doctest::Approx(orig_obj));
       // clone destroyed each iteration
     }
 
@@ -1054,7 +1056,7 @@ TEST_CASE(
     CHECK(li.has_backend());
     auto r = li.resolve();
     REQUIRE(r.has_value());
-    CHECK(li.get_obj_value() == doctest::Approx(orig_obj));
+    CHECK(li.get_obj_value_raw() == doctest::Approx(orig_obj));
   }
 
   SUBCASE("clone from reconstructed backend works correctly")
@@ -1073,7 +1075,7 @@ TEST_CASE(
     auto cloned = li.clone();
     auto r = cloned.resolve();
     REQUIRE(r.has_value());
-    CHECK(cloned.get_obj_value() == doctest::Approx(orig_obj));
+    CHECK(cloned.get_obj_value_raw() == doctest::Approx(orig_obj));
 
     // Destroy clone, release parent again
     cloned = LinearInterface {};
@@ -1084,7 +1086,7 @@ TEST_CASE(
     li.reconstruct_backend();
     auto r2 = li.resolve();
     REQUIRE(r2.has_value());
-    CHECK(li.get_obj_value() == doctest::Approx(orig_obj));
+    CHECK(li.get_obj_value_raw() == doctest::Approx(orig_obj));
   }
 }
 
@@ -1112,7 +1114,7 @@ TEST_CASE(
 
   auto r1 = li.resolve();
   REQUIRE(r1.has_value());
-  const double obj_with_cut = li.get_obj_value();
+  const double obj_with_cut = li.get_obj_value_raw();
 
   // Simulate SDDP pattern: release → reconstruct → add more cuts → release
   for (int cycle = 0; cycle < 3; ++cycle) {
@@ -1129,7 +1131,7 @@ TEST_CASE(
 
     auto r = li.resolve();
     REQUIRE(r.has_value());
-    CHECK(li.get_obj_value() == doctest::Approx(obj_with_cut));
+    CHECK(li.get_obj_value_raw() == doctest::Approx(obj_with_cut));
   }
 }
 
@@ -1145,7 +1147,7 @@ TEST_CASE(
   auto res = li.initial_solve();
   REQUIRE(res.has_value());
   REQUIRE(li.is_optimal());
-  const double orig_obj = li.get_obj_value();
+  const double orig_obj = li.get_obj_value_raw();
 
   SUBCASE("released cached scalars")
   {
@@ -1156,7 +1158,7 @@ TEST_CASE(
     CHECK(li.is_backend_released());
 
     // Cached scalars are still available
-    CHECK(li.get_obj_value() == doctest::Approx(orig_obj));
+    CHECK(li.get_obj_value_raw() == doctest::Approx(orig_obj));
   }
 
   SUBCASE("reconstruct then resolve produces correct result")
@@ -1169,7 +1171,7 @@ TEST_CASE(
 
     auto r = li.resolve();
     REQUIRE(r.has_value());
-    CHECK(li.get_obj_value() == doctest::Approx(orig_obj));
+    CHECK(li.get_obj_value_raw() == doctest::Approx(orig_obj));
   }
 
   SUBCASE("multiple release/reconstruct cycles still work")
@@ -1182,7 +1184,7 @@ TEST_CASE(
       li.reconstruct_backend();
       auto r = li.resolve();
       REQUIRE(r.has_value());
-      CHECK(li.get_obj_value() == doctest::Approx(orig_obj));
+      CHECK(li.get_obj_value_raw() == doctest::Approx(orig_obj));
     }
   }
 }
@@ -1374,7 +1376,7 @@ TEST_CASE(  // NOLINT
   REQUIRE(li.is_optimal());
 
   // The optimal solution: x1=5, x2=0, obj=10.
-  CHECK(li.get_obj_value() == doctest::Approx(10.0));
+  CHECK(li.get_obj_value_raw() == doctest::Approx(10.0));
 
   // Build a flat snapshot so release_backend can reuse it.  Use the
   // SAME labels as the live LinearInterface so that load_flat()'s
@@ -1477,7 +1479,7 @@ TEST_CASE(  // NOLINT
 
       auto r = li.resolve();
       REQUIRE(r.has_value());
-      CHECK(li.get_obj_value() == doctest::Approx(10.0));
+      CHECK(li.get_obj_value_raw() == doctest::Approx(10.0));
     }
   }
 }
@@ -1671,8 +1673,8 @@ TEST_CASE(  // NOLINT
   REQUIRE(li_scaled.is_optimal());
   REQUIRE(li_plain.is_optimal());
 
-  CHECK(li_scaled.get_obj_value() == doctest::Approx(10.0));
-  CHECK(li_plain.get_obj_value() == doctest::Approx(10.0));
+  CHECK(li_scaled.get_obj_value_raw() == doctest::Approx(10.0));
+  CHECK(li_plain.get_obj_value_raw() == doctest::Approx(10.0));
 
   // Solution value is the same (x = 10 in both).
   const auto sol_scaled = li_scaled.get_col_sol_raw();

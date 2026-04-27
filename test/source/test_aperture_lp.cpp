@@ -1326,7 +1326,7 @@ TEST_CASE("FlowLP aperture bound update affects LP objective value")  // NOLINT
   auto& li = sys_lp.linear_interface();
   auto base_result = li.resolve();
   REQUIRE(base_result.has_value());
-  const double base_obj = li.get_obj_value();
+  const double base_obj = li.get_obj_value_raw();
 
   // Access scenarios and stages
   const auto& scene = sim_lp.scenes()[first_scene_index()];
@@ -1352,7 +1352,7 @@ TEST_CASE("FlowLP aperture bound update affects LP objective value")  // NOLINT
 
   auto clone_result = clone.resolve();
   REQUIRE(clone_result.has_value());
-  const double high_inflow_obj = clone.get_obj_value();
+  const double high_inflow_obj = clone.get_obj_value_raw();
 
   // With higher inflow, more cheap hydro is available → lower cost
   // (or at minimum same cost if hydro capacity isn't binding)
