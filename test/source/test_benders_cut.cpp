@@ -2062,10 +2062,12 @@ TEST_CASE(  // NOLINT
   constexpr double source_low = 0.0;
   constexpr double source_upp = 200.0;
 
+  // Compute implied_bound = rhs / pi = (pi * dep_clone_phys) / pi.
+  // Written as the real formula to verify arithmetic cancels correctly.
   auto implied = [&](double dep_clone_phys)
   {
     const double rhs = pi * dep_clone_phys;
-    return rhs / pi;  // = dep_clone_phys
+    return rhs / pi;
   };
 
   SUBCASE("within range: no clamping")
@@ -2181,52 +2183,6 @@ struct PushUpLP
         .source_low = 0.0,
         .source_upp = source_upp_lp * dep_scale,  // physical upper
     };
-  }
-};
-
-// Build a minimal LP for push-down tests:
-//   dep fixed at trial_lp (LP), row constraint dep_LP <= ub_lp (LP).
-//   StateVariable with v_hat_phys = v_hat.
-struct PushDownLP
-{
-  LinearInterface li {};
-  LinearProblem lp {};
-  ColIndex dep {};
-  StateVarLink link {};
-
-  PushDownLP(double trial_lp,
-             double ub_lp,
-             double v_hat_phys,
-             double source_upp_lp = 200.0)
-  {
-    dep = li.add_col(SparseCol {
-        .lowb = 0.0,
-        .uppb = source_upp_lp,
-    });
-    li.set_obj_coeff(dep, 0.0);
-
-    SparseRow r;
-    r[dep] = 1.0;
-    r.uppb = ub_lp;
-    r.lowb = -LinearProblem::DblMax;
-    li.add_row(r);
-
-    auto res = li.initial_solve();
-    REQUIRE(res.has_value());
-    REQUIRE(li.is_optimal());
-
-    li.set_col(dep, trial_lp);
-
-    link = {
-        .source_col = ColIndex {99},
-        .dependent_col = dep,
-        .target_phase_index = PhaseIndex {1},
-        .trial_value = trial_lp,
-        .source_low = 0.0,
-        .source_upp = source_upp_lp,  // physical (scale=1)
-        // state_var must be set by caller for v_hat_phys != 0
-    };
-    (void)v_hat_phys;
   }
 };
 
