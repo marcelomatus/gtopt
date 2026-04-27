@@ -3018,6 +3018,11 @@ TEST_CASE(  // NOLINT
           .variable = "energy",
           .scale = cfg.col_scale,
       });
+      // Under col_scale ≠ 1 disable equilibration so the cut-row /
+      // fixing-row scale composition stays explicit (no row-max
+      // normalization that re-injects col_scale into composite_scale).
+      planning.options.lp_matrix_options.equilibration_method =
+          LpEquilibrationMethod::none;
     }
     for (auto& r : planning.system.reservoir_array) {
       r.efin_cost = efin_cost_opt;

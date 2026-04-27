@@ -555,6 +555,21 @@ RelaxedVarInfo relax_fixed_state_variable(
   // a name on the elastic clone (post-mortem dumps).  ``variable_uid``
   // matches the slack's ``variable_uid`` (= dep col index) so the row
   // is colocated with its slack pair in label output.
+  //
+  // NOTE on dual scaling: this row is intentionally LP-raw with unit
+  // coefficients on dep / sup / sdn and LP-raw RHS = trial_value.
+  // ``get_row_dual()[fixing_row]`` returns ``raw_dual × scale_obj``
+  // (since ``row_scale = 1``), which is ``∂obj_phys/∂trial_LP`` — the
+  // physical objective marginal w.r.t. an LP-raw change in dep.  To
+  // obtain the marginal w.r.t. a PHYSICAL change in dep (needed by
+  // ``build_feasibility_cut_physical`` since its ``dep_clone_phys``
+  // is in physical units), the consumer divides by
+  // ``col_scale(dep)``.  Setting ``row.scale = col_scale(dep)`` here
+  // would NOT help — the resulting LP form ``(1/col_scale) × dep + …
+  // = trial_LP/col_scale`` produces a solver dual ``col_scale`` times
+  // larger, and ``get_row_dual()``'s ``× scale_obj / row_scale``
+  // composition cancels exactly back to the same value.  The
+  // col_scale division must happen in the cut consumer.
   auto elastic = SparseRow {
       .lowb = link.trial_value,
       .uppb = link.trial_value,
