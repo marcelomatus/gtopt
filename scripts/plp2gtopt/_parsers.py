@@ -513,6 +513,32 @@ def add_model_arguments(parser: argparse.ArgumentParser, conf: dict[str, str]) -
         default=float(conf.get("state_fail_cost", "1000.0")),
         help="penalty for state variable deviations in $/MWh (default: %(default)s)",
     )
+    # PLP-faithful soft volume bounds: when enabled (the default), each
+    # reservoir's hard ``efin >=`` row becomes soft via the C++
+    # ``Reservoir.efin_cost`` slack, AND the reservoir-maintenance per-stage
+    # emin is routed through the soft_emin / soft_emin_cost slack mechanism
+    # instead of a hard variable bound.  The slack costs are inherited from
+    # plpvrebemb.dat (per-reservoir Costo de Rebalse) when the reservoir is
+    # in vrebemb, falling back to plpmat.dat ``CVert`` (global), then a
+    # hard 1000 $/hm³ default.  Disable with ``--no-soft-storage-bounds``
+    # for the legacy hard-constraint behaviour.  ``--plp-legacy`` also
+    # enables this flag (PLP itself uses these as soft).
+    _default_ssb = conf.get("soft_storage_bounds")
+    parser.add_argument(
+        "--soft-storage-bounds",
+        dest="soft_storage_bounds",
+        action=argparse.BooleanOptionalAction,
+        default=(
+            _default_ssb.lower() not in ("false", "0", "no")
+            if _default_ssb is not None
+            else True
+        ),
+        help=(
+            "make reservoir efin and maintenance emin soft (slack at "
+            "plpvrebemb / CVert cost) instead of hard constraints "
+            "(default: %(default)s; --plp-legacy implies True)"
+        ),
+    )
     parser.add_argument(
         "--reserve-fail-cost",
         dest="reserve_fail_cost",

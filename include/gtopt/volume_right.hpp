@@ -110,6 +110,9 @@ struct VolumeRight
   OptTRealFieldSched ecost {};  ///< Shadow cost of accumulated rights [$/hm³]
   OptReal eini {};  ///< Initial accumulated volume at start of horizon [hm³]
   OptReal efin {};  ///< Minimum required accumulated volume at end [hm³]
+  OptReal efin_cost {};  ///< Penalty cost per unit of `efin` shortfall
+                         ///< [$/hm³].  Mirrors `Reservoir.efin_cost`
+                         ///< — see storage_lp.hpp for semantics.
 
   OptTRealFieldSched soft_emin {};  ///< Soft minimum volume per stage [hm³]
   OptTRealFieldSched

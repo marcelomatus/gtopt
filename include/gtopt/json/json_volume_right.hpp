@@ -36,6 +36,7 @@ struct VolumeRightConstructor
       OptTRealFieldSched ecost,
       OptReal eini,
       OptReal efin,
+      OptReal efin_cost,
       OptTRealFieldSched soft_emin,
       OptTRealFieldSched soft_emin_cost,
       OptTRealFieldSched demand,
@@ -62,6 +63,7 @@ struct VolumeRightConstructor
     vr.ecost = std::move(ecost);
     vr.eini = eini;
     vr.efin = efin;
+    vr.efin_cost = efin_cost;
     vr.soft_emin = std::move(soft_emin);
     vr.soft_emin_cost = std::move(soft_emin_cost);
     vr.demand = std::move(demand);
@@ -99,6 +101,7 @@ struct json_data_contract<VolumeRight>
       json_variant_null<"ecost", OptTRealFieldSched, jvtl_TRealFieldSched>,
       json_number_null<"eini", OptReal>,
       json_number_null<"efin", OptReal>,
+      json_number_null<"efin_cost", OptReal>,
       json_variant_null<"soft_emin", OptTRealFieldSched, jvtl_TRealFieldSched>,
       json_variant_null<"soft_emin_cost",
                         OptTRealFieldSched,
@@ -132,6 +135,7 @@ struct json_data_contract<VolumeRight>
                            vr.ecost,
                            vr.eini,
                            vr.efin,
+                           vr.efin_cost,
                            vr.soft_emin,
                            vr.soft_emin_cost,
                            vr.demand,

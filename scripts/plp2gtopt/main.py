@@ -278,6 +278,16 @@ def _apply_plp_legacy_bundle(args: argparse.Namespace) -> None:
         args.use_line_losses = True
         applied.append("use_line_losses=true")
 
+    # PLP itself uses soft volume bounds (per-stage rebalse-cost slack on
+    # vmin / vfin), so --plp-legacy ensures `soft_storage_bounds` is on.
+    explicit_ssb = {
+        "--soft-storage-bounds",
+        "--no-soft-storage-bounds",
+    } & explicit_flags
+    if not explicit_ssb and not args.soft_storage_bounds:
+        args.soft_storage_bounds = True
+        applied.append("soft_storage_bounds=true")
+
     if applied:
         logging.info("--plp-legacy: applying %s", ", ".join(applied))
 
@@ -323,6 +333,13 @@ def build_options(args: argparse.Namespace) -> dict:
         "stages_phase": args.stages_phase,
         "num_apertures": args.num_apertures,
         "aperture_directory": args.aperture_directory,
+        # PLP-faithful soft volume bounds: routes per-reservoir efin
+        # through the C++ ``Reservoir.efin_cost`` slack and per-stage
+        # maintenance emin through the soft_emin / soft_emin_cost slack
+        # mechanism instead of hard constraints.  See add_model_arguments
+        # in _parsers.py for cost-source priority.  Default True;
+        # ``--plp-legacy`` also enforces True.
+        "soft_storage_bounds": args.soft_storage_bounds,
     }
     # Model-specific options nested under model_options.
     model_opts: dict = {

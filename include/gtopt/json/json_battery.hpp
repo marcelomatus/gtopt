@@ -63,6 +63,11 @@ struct json_data_contract<Battery>
                         jvtl_TRealFieldSched>,  ///< Voltage cost
       json_number_null<"eini", OptReal>,  ///< Initial energy (optional)
       json_number_null<"efin", OptReal>,  ///< Final energy (optional)
+      json_number_null<"efin_cost", OptReal>,  ///< Soft-efin slack cost
+                                               ///< [$/MWh]; if set, slack
+                                               ///< column priced at this
+                                               ///< value, otherwise hard
+                                               ///< efin row.
       json_variant_null<"soft_emin",
                         OptTRealFieldSched,
                         jvtl_TRealFieldSched>,  ///< Soft minimum energy
@@ -124,6 +129,7 @@ struct json_data_contract<Battery>
                                  battery.ecost,
                                  battery.eini,
                                  battery.efin,
+                                 battery.efin_cost,
                                  battery.soft_emin,
                                  battery.soft_emin_cost,
                                  battery.pmax_charge,

@@ -169,6 +169,16 @@ struct Battery
   OptReal efin {};  ///< Minimum required terminal state of charge [MWh].
                     ///< Sets a >= constraint SoC_end >= efin in the last stage
                     ///< of the last phase (not an equality).
+  OptReal efin_cost {};  ///< Penalty cost per unit of `efin` shortfall
+                         ///< [$/MWh].  When set (and > 0) the hard
+                         ///< ``SoC_end >= efin`` row becomes soft:
+                         ///< ``SoC_end + slack >= efin`` with the slack
+                         ///< priced at `efin_cost` in the objective.
+                         ///< Mirrors the `Reservoir.efin_cost`
+                         ///< mechanism (see storage_lp.hpp).  Mostly
+                         ///< relevant for very large batteries / LNG-
+                         ///< like seasonal storage; daily-cycle BESS
+                         ///< typically leave it unset.
 
   OptTRealFieldSched
       soft_emin {};  ///< Soft minimum SoC per stage [MWh].

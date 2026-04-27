@@ -125,6 +125,19 @@ struct Reservoir
   OptReal efin {};  ///< Minimum required stored volume at end of horizon
                     ///< [hm³].  Sets a >= constraint vol_end >= efin in the
                     ///< last stage of the last phase (not an equality).
+  OptReal efin_cost {};  ///< Penalty cost per unit of `efin` shortfall
+                         ///< [$/hm³].  When set (and > 0), the hard
+                         ///< ``vol_end >= efin`` row becomes soft:
+                         ///< ``vol_end + slack >= efin`` with `slack`
+                         ///< priced at `efin_cost` in the objective.
+                         ///< This mirrors PLP's per-stage rebalse-cost
+                         ///< slack on the end-of-horizon volume target,
+                         ///< letting the LP miss `efin` at a cost rather
+                         ///< than going infeasible when upstream Benders
+                         ///< cuts have clamped `sini` below what one
+                         ///< stage of inflows can recover.  Without this
+                         ///< field, ``efin`` is enforced as a hard >=
+                         ///< constraint (the historical behaviour).
 
   OptReal mean_production_factor {};  ///< Expected turbine production factor
                                       ///< [MWh/hm³].  Converts the global
