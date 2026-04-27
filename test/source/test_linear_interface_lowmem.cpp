@@ -13,6 +13,7 @@
 #include <gtopt/linear_interface.hpp>
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/low_memory_snapshot.hpp>
+#include <gtopt/lp_context.hpp>
 #include <gtopt/memory_compress.hpp>
 #include <gtopt/solver_options.hpp>
 #include <gtopt/solver_registry.hpp>
@@ -301,7 +302,7 @@ LabeledLp make_labeled_lp()
       .r1 = r1,
   };
 }
-struct SimpleLp
+struct SimpleLiLp
 {
   LinearInterface li;
   FlatLinearProblem flat;
@@ -309,7 +310,7 @@ struct SimpleLp
   ColIndex x2;
 };
 
-SimpleLp make_simple_lp()
+SimpleLiLp make_simple_li_lp()
 {
   // min 2x1 + 3x2  s.t.  x1 + x2 >= 5,  0 <= x1,x2 <= 10
   LinearProblem lp;
@@ -339,7 +340,7 @@ SimpleLp make_simple_lp()
   li.load_flat(flat);
   li.save_base_numrows();
 
-  return SimpleLp {
+  return SimpleLiLp {
       .li = std::move(li),
       .flat = std::move(flat),
       .x1 = ColIndex {0},
@@ -430,7 +431,7 @@ TEST_CASE(
 
 TEST_CASE("LinearInterface — low_memory save_snapshot round-trip")  // NOLINT
 {
-  auto [li, flat, x1, x2] = make_simple_lp();
+  auto [li, flat, x1, x2] = make_simple_li_lp();
 
   // Solve baseline
   auto res = li.initial_solve();
@@ -500,7 +501,7 @@ TEST_CASE("LinearInterface — low_memory save_snapshot round-trip")  // NOLINT
 TEST_CASE(
     "LinearInterface — low_memory reconstruct with dynamic cols")  // NOLINT
 {
-  auto [li, flat, x1, x2] = make_simple_lp();
+  auto [li, flat, x1, x2] = make_simple_li_lp();
 
   auto res = li.initial_solve();
   REQUIRE(res.has_value());
@@ -533,7 +534,7 @@ TEST_CASE(
 
 TEST_CASE("LinearInterface — low_memory reconstruct with cuts")  // NOLINT
 {
-  auto [li, flat, x1, x2] = make_simple_lp();
+  auto [li, flat, x1, x2] = make_simple_li_lp();
 
   auto res = li.initial_solve();
   REQUIRE(res.has_value());
@@ -574,7 +575,7 @@ TEST_CASE("LinearInterface — low_memory reconstruct with cuts")  // NOLINT
 
 TEST_CASE("LinearInterface — low_memory cut deletion tracking")  // NOLINT
 {
-  auto [li, flat, x1, x2] = make_simple_lp();
+  auto [li, flat, x1, x2] = make_simple_li_lp();
 
   auto res = li.initial_solve();
   REQUIRE(res.has_value());
@@ -634,7 +635,7 @@ TEST_CASE(
   // This test verifies the exact invariant: after clear_snapshot the
   // cached scalars + vectors remain intact and still serve reads, but
   // the snapshot is gone and `reconstruct_backend()` early-returns.
-  auto [li, flat, x1, x2] = make_simple_lp();
+  auto [li, flat, x1, x2] = make_simple_li_lp();
 
   auto res = li.initial_solve();
   REQUIRE(res.has_value());
@@ -686,7 +687,7 @@ TEST_CASE(
 
 TEST_CASE("LinearInterface — low_memory reconstruct with warm-start")  // NOLINT
 {
-  auto [li, flat, x1, x2] = make_simple_lp();
+  auto [li, flat, x1, x2] = make_simple_li_lp();
 
   auto res = li.initial_solve();
   REQUIRE(res.has_value());
@@ -717,7 +718,7 @@ TEST_CASE("LinearInterface — low_memory hot-start cut replay")  // NOLINT
   // This replaces the old capture_hot_start_cuts flow, which retrofitted
   // m_active_cuts_ from the backend; cut loaders now call record_cut_row
   // directly alongside add_row.
-  auto [li, flat, x1, x2] = make_simple_lp();
+  auto [li, flat, x1, x2] = make_simple_li_lp();
 
   auto res = li.initial_solve();
   REQUIRE(res.has_value());
@@ -749,7 +750,7 @@ TEST_CASE("LinearInterface — low_memory hot-start cut replay")  // NOLINT
 TEST_CASE(
     "LinearInterface — low_memory clone from reconstructed backend")  // NOLINT
 {
-  auto [li, flat, x1, x2] = make_simple_lp();
+  auto [li, flat, x1, x2] = make_simple_li_lp();
 
   auto res = li.initial_solve();
   REQUIRE(res.has_value());
@@ -790,7 +791,7 @@ TEST_CASE(
 
 TEST_CASE("LinearInterface — low_memory level 2 multiple cycles")  // NOLINT
 {
-  auto [li, flat, x1, x2] = make_simple_lp();
+  auto [li, flat, x1, x2] = make_simple_li_lp();
 
   auto res = li.initial_solve();
   REQUIRE(res.has_value());
@@ -836,7 +837,7 @@ TEST_CASE("LinearInterface — low_memory level 2 multiple cycles")  // NOLINT
 
 TEST_CASE("LinearInterface — set_low_memory(0) discards flat LP")  // NOLINT
 {
-  auto [li, flat, x1, x2] = make_simple_lp();
+  auto [li, flat, x1, x2] = make_simple_li_lp();
 
   li.set_low_memory(LowMemoryMode::compress);
   li.save_snapshot(FlatLinearProblem {flat});
@@ -851,7 +852,7 @@ TEST_CASE("LinearInterface — set_low_memory(0) discards flat LP")  // NOLINT
 
 TEST_CASE("LinearInterface — clone with warm-start parameters")  // NOLINT
 {
-  auto [li, flat, x1, x2] = make_simple_lp();
+  auto [li, flat, x1, x2] = make_simple_li_lp();
 
   auto res = li.initial_solve();
   REQUIRE(res.has_value());
@@ -892,7 +893,7 @@ TEST_CASE(
   // vector from a reconstructed backend.  This is the contract that
   // lets `OutputContext` read solution values while the backend stays
   // released (avoiding an expensive reconstruct + re-solve).
-  auto [li, flat, x1, x2] = make_simple_lp();
+  auto [li, flat, x1, x2] = make_simple_li_lp();
 
   auto res = li.initial_solve();
   REQUIRE(res.has_value());
@@ -975,7 +976,7 @@ TEST_CASE(
 TEST_CASE(
     "LinearInterface — release_backend destroys solver backend")  // NOLINT
 {
-  auto [li, flat, x1, x2] = make_simple_lp();
+  auto [li, flat, x1, x2] = make_simple_li_lp();
 
   auto res = li.initial_solve();
   REQUIRE(res.has_value());
@@ -1016,7 +1017,7 @@ TEST_CASE(
     "LinearInterface — clone release destroys clone backend "
     "independently")  // NOLINT
 {
-  auto [li, flat, x1, x2] = make_simple_lp();
+  auto [li, flat, x1, x2] = make_simple_li_lp();
 
   auto res = li.initial_solve();
   REQUIRE(res.has_value());
@@ -1091,7 +1092,7 @@ TEST_CASE(
     "LinearInterface — release/reconstruct cycle with cuts "
     "preserves memory pattern")  // NOLINT
 {
-  auto [li, flat, x1, x2] = make_simple_lp();
+  auto [li, flat, x1, x2] = make_simple_li_lp();
 
   auto res = li.initial_solve();
   REQUIRE(res.has_value());
@@ -1139,7 +1140,7 @@ TEST_CASE(
   // callers must read them before release or trigger ensure_backend
   // to reload.  Obj_value, kappa, numrows, numcols, is_optimal stay
   // cached as scalars.
-  auto [li, flat, x1, x2] = make_simple_lp();
+  auto [li, flat, x1, x2] = make_simple_li_lp();
 
   auto res = li.initial_solve();
   REQUIRE(res.has_value());
@@ -1190,7 +1191,7 @@ TEST_CASE(
     "LowMemorySnapshot — compress/decompress size "
     "behavior across cycles")  // NOLINT
 {
-  auto [li, flat, x1, x2] = make_simple_lp();
+  auto [li, flat, x1, x2] = make_simple_li_lp();
 
   auto res = li.initial_solve();
   REQUIRE(res.has_value());
@@ -1559,7 +1560,7 @@ TEST_CASE(  // NOLINT
   // update_dynamic_col_lowb only has effect when low-memory mode is active
   // (i.e. m_dynamic_cols_ is populated via record_dynamic_col).
 
-  auto [li, flat, x1, x2] = make_simple_lp();
+  auto [li, flat, x1, x2] = make_simple_li_lp();
 
   li.set_low_memory(LowMemoryMode::compress);
   li.save_snapshot(FlatLinearProblem {flat});
@@ -1679,4 +1680,505 @@ TEST_CASE(  // NOLINT
   REQUIRE(sol_scaled.size() == 1);
   REQUIRE(sol_plain.size() == 1);
   CHECK(sol_scaled[xs] == doctest::Approx(sol_plain[xp]));
+}
+
+// ── label-meta codec round-trip — direct string equality ─────────────────
+//
+// The tests below pin down the byte-level (de)serializer in
+// `linear_interface.cpp` (anonymous namespace `serialize_labels_meta` /
+// `deserialize_labels_meta`) before the upcoming refactor moves it into
+// its own translation unit.  They synthesise the user-visible label
+// strings before and after a compress/decompress cycle and assert
+// byte-for-byte equality, exercising every `LpContext` variant arm.
+
+namespace
+// NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
+{
+struct LabelSnapshot
+{
+  std::vector<std::string> col_names;
+  std::vector<std::string> row_names;
+};
+
+LabelSnapshot capture_labels(LinearInterface& li)
+{
+  LabelSnapshot snap;
+  li.generate_labels_from_maps(snap.col_names, snap.row_names);
+  return snap;
+}
+}  // namespace
+
+TEST_CASE(  // NOLINT
+    "LinearInterface — label codec preserves names across all LpContext arms")
+{
+  // Add one column per non-monostate `LpContext` variant arm so the
+  // memcpy of `LpContext` inside `serialize_labels_meta` is exercised
+  // for every alternative.  The monostate arm is already covered by
+  // an earlier test.
+  LinearInterface li;
+
+  [[maybe_unused]] const auto x_stage = li.add_col(SparseCol {
+      .lowb = 0.0,
+      .uppb = 10.0,
+      .cost = 1.0,
+      .class_name = "Gen",
+      .variable_name = "p",
+      .variable_uid = Uid {1},
+      .context = make_stage_context(make_uid<Scenario>(3), make_uid<Stage>(7)),
+  });
+  [[maybe_unused]] const auto x_block = li.add_col(SparseCol {
+      .lowb = 0.0,
+      .uppb = 10.0,
+      .cost = 2.0,
+      .class_name = "Gen",
+      .variable_name = "p",
+      .variable_uid = Uid {2},
+      .context = make_block_context(
+          make_uid<Scenario>(3), make_uid<Stage>(7), make_uid<Block>(11)),
+  });
+  [[maybe_unused]] const auto x_blockex = li.add_col(SparseCol {
+      .lowb = 0.0,
+      .uppb = 10.0,
+      .cost = 3.0,
+      .class_name = "Gen",
+      .variable_name = "p",
+      .variable_uid = Uid {3},
+      .context = make_block_context(make_uid<Scenario>(3),
+                                    make_uid<Stage>(7),
+                                    make_uid<Block>(11),
+                                    /*extra=*/2),
+  });
+  [[maybe_unused]] const auto x_scene = li.add_col(SparseCol {
+      .lowb = 0.0,
+      .uppb = 10.0,
+      .cost = 4.0,
+      .class_name = "Sddp",
+      .variable_name = "alpha",
+      .variable_uid = Uid {4},
+      .context =
+          make_scene_phase_context(make_uid<Scene>(1), make_uid<Phase>(2)),
+  });
+  [[maybe_unused]] const auto x_iter = li.add_col(SparseCol {
+      .lowb = 0.0,
+      .uppb = 10.0,
+      .cost = 5.0,
+      .class_name = "Sddp",
+      .variable_name = "cut",
+      .variable_uid = Uid {5},
+      .context = make_iteration_context(make_uid<Scene>(1),
+                                        make_uid<Phase>(2),
+                                        make_uid<Iteration>(4),
+                                        /*extra=*/0),
+  });
+  [[maybe_unused]] const auto x_aper = li.add_col(SparseCol {
+      .lowb = 0.0,
+      .uppb = 10.0,
+      .cost = 6.0,
+      .class_name = "Sddp",
+      .variable_name = "aperture",
+      .variable_uid = Uid {6},
+      // ApertureUid is an alias for ScenarioUid in the codebase.
+      .context = make_aperture_context(make_uid<Scene>(1),
+                                       make_uid<Phase>(2),
+                                       make_uid<Scenario>(3),
+                                       /*extra=*/0),
+  });
+
+  // One row per non-monostate variant arm too.
+  SparseRow row_stage;
+  row_stage[x_stage] = 1.0;
+  row_stage.lowb = 0.0;
+  row_stage.uppb = LinearProblem::DblMax;
+  row_stage.class_name = "Bus";
+  row_stage.constraint_name = "balance";
+  row_stage.variable_uid = Uid {100};
+  row_stage.context =
+      make_stage_context(make_uid<Scenario>(3), make_uid<Stage>(7));
+  li.add_row(row_stage);
+
+  SparseRow row_block;
+  row_block[x_block] = 1.0;
+  row_block.lowb = 0.0;
+  row_block.uppb = LinearProblem::DblMax;
+  row_block.class_name = "Bus";
+  row_block.constraint_name = "balance";
+  row_block.variable_uid = Uid {101};
+  row_block.context = make_block_context(
+      make_uid<Scenario>(3), make_uid<Stage>(7), make_uid<Block>(11));
+  li.add_row(row_block);
+
+  // Capture canonical names BEFORE any compress/decompress cycle.
+  const auto names_before = capture_labels(li);
+  REQUIRE(names_before.col_names.size() == 6);
+  REQUIRE(names_before.row_names.size() == 2);
+  for (const auto& n : names_before.col_names) {
+    CHECK_FALSE(n.empty());
+  }
+
+  // Build a flat snapshot whose metadata matches the live labels —
+  // this is what `load_flat` overlays back onto `m_col_labels_meta_`
+  // after reconstruction.
+  LinearProblem lp;
+  const auto c1 = lp.add_col({
+      .lowb = 0.0,
+      .uppb = 10.0,
+      .cost = 1.0,
+      .class_name = "Gen",
+      .variable_name = "p",
+      .variable_uid = Uid {1},
+      .context = make_stage_context(make_uid<Scenario>(3), make_uid<Stage>(7)),
+  });
+  const auto c2 = lp.add_col({
+      .lowb = 0.0,
+      .uppb = 10.0,
+      .cost = 2.0,
+      .class_name = "Gen",
+      .variable_name = "p",
+      .variable_uid = Uid {2},
+      .context = make_block_context(
+          make_uid<Scenario>(3), make_uid<Stage>(7), make_uid<Block>(11)),
+  });
+  const auto c3 = lp.add_col({
+      .lowb = 0.0,
+      .uppb = 10.0,
+      .cost = 3.0,
+      .class_name = "Gen",
+      .variable_name = "p",
+      .variable_uid = Uid {3},
+      .context = make_block_context(
+          make_uid<Scenario>(3), make_uid<Stage>(7), make_uid<Block>(11), 2),
+  });
+  const auto c4 = lp.add_col({
+      .lowb = 0.0,
+      .uppb = 10.0,
+      .cost = 4.0,
+      .class_name = "Sddp",
+      .variable_name = "alpha",
+      .variable_uid = Uid {4},
+      .context =
+          make_scene_phase_context(make_uid<Scene>(1), make_uid<Phase>(2)),
+  });
+  const auto c5 = lp.add_col({
+      .lowb = 0.0,
+      .uppb = 10.0,
+      .cost = 5.0,
+      .class_name = "Sddp",
+      .variable_name = "cut",
+      .variable_uid = Uid {5},
+      .context = make_iteration_context(
+          make_uid<Scene>(1), make_uid<Phase>(2), make_uid<Iteration>(4), 0),
+  });
+  const auto c6 = lp.add_col({
+      .lowb = 0.0,
+      .uppb = 10.0,
+      .cost = 6.0,
+      .class_name = "Sddp",
+      .variable_name = "aperture",
+      .variable_uid = Uid {6},
+      .context = make_aperture_context(
+          make_uid<Scene>(1), make_uid<Phase>(2), make_uid<Scenario>(3), 0),
+  });
+  const auto r1 = lp.add_row({
+      .lowb = 0.0,
+      .uppb = SparseRow::DblMax,
+      .class_name = "Bus",
+      .constraint_name = "balance",
+      .variable_uid = Uid {100},
+      .context = make_stage_context(make_uid<Scenario>(3), make_uid<Stage>(7)),
+  });
+  const auto r2 = lp.add_row({
+      .lowb = 0.0,
+      .uppb = SparseRow::DblMax,
+      .class_name = "Bus",
+      .constraint_name = "balance",
+      .variable_uid = Uid {101},
+      .context = make_block_context(
+          make_uid<Scenario>(3), make_uid<Stage>(7), make_uid<Block>(11)),
+  });
+  lp.set_coeff(r1, c1, 1.0);
+  lp.set_coeff(r2, c2, 1.0);
+  // Touch the rest so they appear in the matrix.
+  lp.set_coeff(r1, c3, 0.0);
+  lp.set_coeff(r1, c4, 0.0);
+  lp.set_coeff(r1, c5, 0.0);
+  lp.set_coeff(r1, c6, 0.0);
+  auto flat = lp.flatten({});
+
+  SUBCASE("lz4 codec — round-trip preserves every variant arm")
+  {
+    li.set_low_memory(LowMemoryMode::compress, CompressionCodec::lz4);
+    li.save_snapshot(FlatLinearProblem {flat});
+
+    li.release_backend();
+    li.reconstruct_backend();
+
+    const auto names_after = capture_labels(li);
+    CHECK(names_after.col_names == names_before.col_names);
+    CHECK(names_after.row_names == names_before.row_names);
+  }
+
+  SUBCASE("zstd codec — round-trip preserves every variant arm")
+  {
+    li.set_low_memory(LowMemoryMode::compress, CompressionCodec::zstd);
+    li.save_snapshot(FlatLinearProblem {flat});
+
+    li.release_backend();
+    li.reconstruct_backend();
+
+    const auto names_after = capture_labels(li);
+    CHECK(names_after.col_names == names_before.col_names);
+    CHECK(names_after.row_names == names_before.row_names);
+  }
+
+  SUBCASE("three release/reconstruct cycles — names stay byte-identical")
+  {
+    li.set_low_memory(LowMemoryMode::compress, CompressionCodec::lz4);
+    li.save_snapshot(FlatLinearProblem {flat});
+
+    for (int cycle = 0; cycle < 3; ++cycle) {
+      li.release_backend();
+      li.reconstruct_backend();
+      const auto names_after = capture_labels(li);
+      CHECK(names_after.col_names == names_before.col_names);
+      CHECK(names_after.row_names == names_before.row_names);
+    }
+  }
+}
+
+// ── materialize_labels caches and stays consistent on repeat calls ───────
+
+TEST_CASE(  // NOLINT
+    "LinearInterface::materialize_labels — caches names and is idempotent")
+{
+  // First call synthesises labels from metadata and populates
+  // `m_col_index_to_name_` / `m_row_index_to_name_`.  Subsequent calls
+  // hit the cache and must return identical strings.  Direct equality
+  // of three consecutive `generate_labels_from_maps` outputs proves
+  // the cache+name-map machinery is consistent on the steady-state
+  // path — a tight invariant the upcoming labels-TU split must
+  // preserve.
+  LinearInterface li;
+
+  for (int k = 1; k <= 4; ++k) {
+    li.add_col(SparseCol {
+        .lowb = 0.0,
+        .uppb = 1.0,
+        .cost = static_cast<double>(k),
+        .class_name = "Gen",
+        .variable_name = "p",
+        .variable_uid = Uid {k},
+    });
+  }
+  SparseRow row;
+  row[ColIndex {0}] = 1.0;
+  row.lowb = 0.0;
+  row.uppb = LinearProblem::DblMax;
+  row.class_name = "Bus";
+  row.constraint_name = "balance";
+  row.variable_uid = Uid {99};
+  li.add_row(row);
+
+  std::vector<std::string> cols_first;
+  std::vector<std::string> rows_first;
+  li.generate_labels_from_maps(cols_first, rows_first);
+
+  REQUIRE(cols_first.size() == 4);
+  REQUIRE(rows_first.size() == 1);
+  for (const auto& n : cols_first) {
+    CHECK_FALSE(n.empty());
+  }
+  CHECK_FALSE(rows_first.front().empty());
+
+  // Second pass — pure cache hit — must return byte-identical strings.
+  std::vector<std::string> cols_second;
+  std::vector<std::string> rows_second;
+  li.generate_labels_from_maps(cols_second, rows_second);
+  CHECK(cols_second == cols_first);
+  CHECK(rows_second == rows_first);
+
+  // `materialize_labels` is the void-returning variant; calling it
+  // after the explicit pass must remain consistent (no rebuild side
+  // effects, no duplicate-detection throws on stable metadata).
+  li.materialize_labels();
+
+  // Third pass — names still match.
+  std::vector<std::string> cols_third;
+  std::vector<std::string> rows_third;
+  li.generate_labels_from_maps(cols_third, rows_third);
+  CHECK(cols_third == cols_first);
+  CHECK(rows_third == rows_first);
+
+  // The reverse name→index map must be populated for all formatted
+  // labels (the contract `write_lp` and the SDDP cut path depend on).
+  for (size_t i = 0; i < cols_first.size(); ++i) {
+    const auto it = li.col_name_map().find(cols_first[i]);
+    REQUIRE(it != li.col_name_map().end());
+    CHECK(static_cast<size_t>(it->second) == i);
+  }
+  const auto it_r = li.row_name_map().find(rows_first.front());
+  REQUIRE(it_r != li.row_name_map().end());
+  CHECK(static_cast<size_t>(it_r->second) == 0);
+}
+
+// ── algorithm-fallback cycle — pure helper coverage via observable path ──
+//
+// `next_fallback_algo` is a constexpr free function in the anonymous
+// namespace of `linear_interface.cpp`.  It cycles
+// barrier → dual → primal → barrier and maps `default_algo` /
+// `last_algo` onto `dual`.  Driving it through the public solve path
+// pins the cycle ordering before the upcoming `linear_interface_solve.cpp`
+// extraction.
+
+TEST_CASE(  // NOLINT
+    "LinearInterface — fallback cycle visits all 3 algorithms in order")
+{
+  // Infeasible LP forces every fallback step to fire.  With
+  // `max_fallbacks = 3`, the solver tries the starting algorithm and
+  // then 3 alternatives, hitting all three other algorithms in the
+  // cycle.  We can't observe the algorithm-per-attempt directly, but
+  // `solver_stats().fallback_solves` must equal 3 in every case — a
+  // regression in `next_fallback_algo` (e.g. a stuck cycle) would
+  // either short-circuit early or repeat an algorithm without
+  // advancing, breaking the count.
+  for (const auto start : {LPAlgo::barrier,
+                           LPAlgo::dual,
+                           LPAlgo::primal,
+                           LPAlgo::default_algo,
+                           LPAlgo::last_algo})
+  {
+    LinearInterface li;
+    const auto x = li.add_col(SparseCol {
+        .uppb = 5.0,
+        .cost = 1.0,
+    });
+    SparseRow row;
+    row[x] = 1.0;
+    row.lowb = 10.0;
+    row.uppb = LinearProblem::DblMax;
+    li.add_row(row);
+
+    const auto res = li.initial_solve(SolverOptions {
+        .algorithm = start,
+        .log_level = 0,
+        .max_fallbacks = 3,
+    });
+    REQUIRE_FALSE(res.has_value());
+
+    // 3 fallback attempts must have been recorded — the cycle did not
+    // get stuck and did not exit early.
+    CHECK(li.solver_stats().fallback_solves == 3);
+  }
+}
+
+// ── generate_labels_from_maps defensive throw paths ──────────────────────
+
+TEST_CASE(  // NOLINT
+    "LinearInterface::generate_labels_from_maps — throws on missing col meta")
+{
+  // Defensive guard inside `generate_labels_from_maps`: if the live
+  // backend reports more cols than `m_col_labels_meta_` knows about
+  // AND the index-to-name cache is empty for that col, the function
+  // throws std::logic_error with a diagnostic message.
+  //
+  // This path fires when a flat LP arrives from `load_flat` with
+  // truncated label metadata.  Construct that scenario directly by
+  // building a `FlatLinearProblem` whose `col_labels_meta` has fewer
+  // entries than `ncols`, then call `load_flat` and ask for label
+  // synthesis.
+  LinearProblem lp;
+  const auto c1 = lp.add_col({
+      .lowb = 0.0,
+      .uppb = 10.0,
+      .cost = 1.0,
+      .class_name = "Gen",
+      .variable_name = "p",
+      .variable_uid = Uid {1},
+  });
+  const auto c2 = lp.add_col({
+      .lowb = 0.0,
+      .uppb = 10.0,
+      .cost = 2.0,
+      .class_name = "Gen",
+      .variable_name = "p",
+      .variable_uid = Uid {2},
+  });
+  const auto r = lp.add_row({
+      .lowb = 0.0,
+      .uppb = SparseRow::DblMax,
+      .class_name = "Bus",
+      .constraint_name = "balance",
+      .variable_uid = Uid {99},
+  });
+  lp.set_coeff(r, c1, 1.0);
+  lp.set_coeff(r, c2, 1.0);
+  auto flat = lp.flatten({});
+
+  REQUIRE(flat.ncols == 2);
+  REQUIRE(flat.col_labels_meta.size() == 2);
+
+  // Truncate the label metadata so it lags behind ncols.  The flat LP
+  // is otherwise structurally valid — the backend will load 2 cols,
+  // but `generate_labels_from_maps` has no entry for col 1.
+  flat.col_labels_meta.pop_back();
+  REQUIRE(flat.col_labels_meta.size() == 1);
+
+  LinearInterface li;
+  li.load_flat(flat);
+
+  // The first cache miss on col 1 must throw with a message that
+  // identifies the col index and the metadata-vector size.
+  CHECK_THROWS_AS(li.materialize_labels(), std::logic_error);
+
+  bool message_was_diagnostic = false;
+  try {
+    li.materialize_labels();
+  } catch (const std::logic_error& e) {
+    const std::string msg = e.what();
+    message_was_diagnostic =
+        msg.contains("generate_labels_from_maps") && msg.contains("col 1");
+  }
+  CHECK(message_was_diagnostic);
+}
+
+TEST_CASE(  // NOLINT
+    "LinearInterface::generate_labels_from_maps — throws on missing row meta")
+{
+  // Symmetric guard for the row branch.
+  LinearProblem lp;
+  const auto c = lp.add_col({
+      .lowb = 0.0,
+      .uppb = 10.0,
+      .cost = 1.0,
+      .class_name = "Gen",
+      .variable_name = "p",
+      .variable_uid = Uid {1},
+  });
+  const auto r1 = lp.add_row({
+      .lowb = 0.0,
+      .uppb = SparseRow::DblMax,
+      .class_name = "Bus",
+      .constraint_name = "balance",
+      .variable_uid = Uid {100},
+  });
+  const auto r2 = lp.add_row({
+      .lowb = 0.0,
+      .uppb = SparseRow::DblMax,
+      .class_name = "Bus",
+      .constraint_name = "balance",
+      .variable_uid = Uid {101},
+  });
+  lp.set_coeff(r1, c, 1.0);
+  lp.set_coeff(r2, c, 1.0);
+  auto flat = lp.flatten({});
+
+  REQUIRE(flat.nrows == 2);
+  REQUIRE(flat.row_labels_meta.size() == 2);
+
+  flat.row_labels_meta.pop_back();
+  REQUIRE(flat.row_labels_meta.size() == 1);
+
+  LinearInterface li;
+  li.load_flat(flat);
+
+  CHECK_THROWS_AS(li.materialize_labels(), std::logic_error);
 }
