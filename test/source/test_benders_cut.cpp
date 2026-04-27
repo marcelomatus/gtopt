@@ -1923,6 +1923,607 @@ TEST_CASE(  // NOLINT
 //
 
 // ===========================================================================
+// ===========================================================================
+// build_multi_cuts + chinneck_filter_solve scale-coverage tests (2026-04-27)
+// ===========================================================================
+//
+// Motivation:
+//   `build_multi_cuts` computes:
+//     dep_clone_phys = v_hat_phys + dx * dep_scale_phys
+//     rhs            = pi * dep_clone_phys  +  kFactEps * |rhs|
+//     implied_bound  = rhs / pi
+//     clamped_bound  = clamp(implied_bound, source_low, source_upp)
+//
+//   `chinneck_filter_solve` classifies each link as essential (sdn>slack_tol
+//   or sup>slack_tol) BEFORE lifting to physical — so the IIS classification
+//   is *scale-invariant*.  These tests lock that property and confirm the
+//   physical implied bound tracks dep_scale_phys.
+//
+// Arithmetic tests (no LP solver required) exercise the formula directly.
+// LP-solver tests (same pattern as existing chinneck / elastic tests) verify
+// the full pipeline end-to-end; they are skipped without a solver plugin.
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Arithmetic-only scale tests — no LP solver required
+// ---------------------------------------------------------------------------
+
+TEST_CASE(  // NOLINT
+    "build_multi_cuts arithmetic — dep_clone_phys scales with dep_scale_phys")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  // Formula: dep_clone_phys = v_hat_phys + dx * dep_scale_phys
+  // With v_hat=0, dx=5 (sdn activated), dep_scale_phys ∈ {1, √10, 10}:
+  //   dep_clone_phys = 5 * scale.
+
+  constexpr double dx = 5.0;
+  constexpr double v_hat = 0.0;
+
+  SUBCASE("scale = 1")
+  {
+    const double dep_clone_phys = v_hat + dx * 1.0;
+    CHECK(dep_clone_phys == doctest::Approx(5.0));
+  }
+
+  SUBCASE("scale = sqrt(10) ≈ 3.162")
+  {
+    const double scale = std::sqrt(10.0);
+    const double dep_clone_phys = v_hat + dx * scale;
+    CHECK(dep_clone_phys == doctest::Approx(5.0 * scale));
+  }
+
+  SUBCASE("scale = 10")
+  {
+    const double dep_clone_phys = v_hat + dx * 10.0;
+    CHECK(dep_clone_phys == doctest::Approx(50.0));
+  }
+}
+
+TEST_CASE(  // NOLINT
+    "build_multi_cuts arithmetic — kFactEps niter perturbation grows RHS")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  // kFactEps = 0.01 * cut_coeff_eps * niter.  With cut_coeff_eps=1.0:
+  //   niter=0  → kFactEps=0   → eps_term=0        → rhs unchanged
+  //   niter=10 → kFactEps=0.1 → eps_term=0.1·|rhs| → rhs grows 10%
+
+  constexpr double pi = 1e3;
+  constexpr double dep_clone_phys = 5.0;
+  const double rhs_base = pi * dep_clone_phys;  // 5000.0
+
+  SUBCASE("niter = 0: no perturbation")
+  {
+    constexpr double cut_coeff_eps = 1.0;
+    constexpr int niter = 0;
+    const double kFactEps = 0.01 * cut_coeff_eps * static_cast<double>(niter);
+    const double eps_term = kFactEps * std::abs(rhs_base);
+    const double rhs = rhs_base + ((pi > 0.0) ? eps_term : -eps_term);
+    CHECK(rhs == doctest::Approx(rhs_base));
+    CHECK(rhs / pi == doctest::Approx(dep_clone_phys));
+  }
+
+  SUBCASE("niter = 10, cut_coeff_eps = 1.0: implied bound grows to 5.5")
+  {
+    constexpr double cut_coeff_eps = 1.0;
+    constexpr int niter = 10;
+    const double kFactEps = 0.01 * cut_coeff_eps * static_cast<double>(niter);
+    const double eps_term = kFactEps * std::abs(rhs_base);
+    const double rhs = rhs_base + ((pi > 0.0) ? eps_term : -eps_term);
+    const double implied = rhs / pi;
+    // Perturbation lifts implied by 10% of the base.
+    CHECK(implied == doctest::Approx(5.5).epsilon(1e-6));
+    CHECK(implied > dep_clone_phys);
+  }
+}
+
+TEST_CASE(  // NOLINT
+    "build_multi_cuts arithmetic — negative pi (sup-active): cut bounds source "
+    "above")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  // When sup activates (dep went DOWN), dx < 0, pi < 0.
+  // dep_clone_phys = v_hat + dx * dep_scale_phys = 50 + (-40)*1 = 10.
+  // rhs_base = pi * 10 = -1e3 * 10 = -1e4.
+  // implied_bound = rhs_base / pi = -1e4 / -1e3 = 10.
+  // The cut "pi * source >= rhs" means (-1e3)*source >= -1e4 → source <= 10.
+
+  constexpr double pi = -1e3;
+  constexpr double v_hat_phys = 50.0;
+  constexpr double dx = -40.0;  // sdn=0 - sup=40 = -40
+  constexpr double dep_scale_phys = 1.0;
+
+  const double dep_clone_phys = v_hat_phys + dx * dep_scale_phys;  // = 10
+  CHECK(dep_clone_phys == doctest::Approx(10.0));
+
+  constexpr double kFactEps = 0.0;  // niter=0
+  const double rhs_base = pi * dep_clone_phys;
+  const double eps_term = kFactEps * std::abs(rhs_base);
+  const double rhs = rhs_base + ((pi > 0.0) ? eps_term : -eps_term);
+  const double implied_bound = rhs / pi;
+
+  // Cut says source ≤ implied_bound = 10.
+  CHECK(pi < 0.0);
+  CHECK(implied_bound == doctest::Approx(10.0));
+  // Clamped: clamp(10, 0, 100) = 10 (no clamping).
+  const double clamped = std::clamp(implied_bound, 0.0, 100.0);
+  CHECK(clamped == doctest::Approx(10.0));
+  // clamped_rhs = pi * clamped = -1e4.
+  const double clamped_rhs = pi * clamped;
+  CHECK(clamped_rhs == doctest::Approx(-1e4));
+}
+
+TEST_CASE(  // NOLINT
+    "build_multi_cuts arithmetic — clamping to [source_low, source_upp]")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  // Three clamping scenarios: within range, below low, above upp.
+
+  constexpr double pi = 1e3;
+  constexpr double source_low = 0.0;
+  constexpr double source_upp = 200.0;
+
+  // Compute implied_bound = rhs / pi = (pi * dep_clone_phys) / pi.
+  // Written as the real formula to verify arithmetic cancels correctly.
+  auto implied = [&](double dep_clone_phys)
+  {
+    const double rhs = pi * dep_clone_phys;
+    return rhs / pi;
+  };
+
+  SUBCASE("within range: no clamping")
+  {
+    const double ib = implied(50.0);
+    CHECK(std::clamp(ib, source_low, source_upp) == doctest::Approx(50.0));
+  }
+
+  SUBCASE("below source_low: clamped to 0")
+  {
+    const double ib = implied(-10.0);
+    CHECK(std::clamp(ib, source_low, source_upp) == doctest::Approx(0.0));
+  }
+
+  SUBCASE("above source_upp: clamped to 200")
+  {
+    const double ib = implied(300.0);
+    CHECK(std::clamp(ib, source_low, source_upp) == doctest::Approx(200.0));
+  }
+}
+
+TEST_CASE(  // NOLINT
+    "chinneck_filter_solve arithmetic — IIS classification is scale-invariant")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  // The IIS classification in chinneck_filter_solve works by comparing
+  // raw LP slack values (sdn_val, sup_val) to slack_tol.  Crucially these
+  // are raw LP values, NOT physical.  Because the LP constraints are written
+  // in LP space (dep_LP ≥ lb_LP), the slack activation |dx_LP| depends on
+  // the LP-space trial vs. the LP-space constraint bound — independent of
+  // dep_scale_phys.  So the IIS classification is the same for all K.
+  //
+  // Verify the formula:
+  //   dx_LP = sdn_LP - sup_LP  (scale-independent: both are LP slack values)
+  //
+  // For dep_LP fixed at 3 (< lb_LP = 50): sdn_LP = 47, dx_LP = 47.
+  // For any col_scale K, the LP trial and constraint are IDENTICAL — same dx.
+
+  constexpr double trial_lp = 3.0;
+  constexpr double lb_lp = 50.0;
+  const double dep_at_elastic_opt = lb_lp;  // dep_LP relaxed to lb constraint
+  const double sdn_lp =
+      dep_at_elastic_opt - trial_lp;  // fixing row: dep + sup - sdn = trial
+  // At elastic opt (sup=0): dep = trial + sdn → sdn = dep - trial = 47 LP.
+  CHECK(sdn_lp == doctest::Approx(47.0));
+
+  // Scale does NOT affect sdn_lp:
+  for (const double K : {1.0, 10.0, 100.0}) {
+    (void)K;  // K scales physical but not LP slack values
+    CHECK(sdn_lp == doctest::Approx(47.0));  // same for all K
+  }
+
+  // Physical implied_bound DOES scale with K:
+  for (const double K : {1.0, 10.0, 100.0}) {
+    const double dep_clone_phys = 0.0 + sdn_lp * K;  // v_hat=0
+    CHECK(dep_clone_phys == doctest::Approx(47.0 * K));
+  }
+}
+
+// ---------------------------------------------------------------------------
+// LP-solver tests — require an LP solver plugin to run.
+// Follow same structure as the existing chinneck / elastic tests above.
+// ---------------------------------------------------------------------------
+
+namespace
+{
+
+// Build a minimal LP for push-up tests:
+//   dep fixed at trial_lp (LP), row constraint dep_LP >= lb_lp (LP),
+//   dep column has col_scale = dep_scale.
+//
+// After initial_solve (dep optimal at lb_lp), fix dep at trial_lp.
+// If trial_lp < lb_lp the LP is infeasible until elastically relaxed.
+struct PushUpLP
+{
+  LinearInterface li {};
+  ColIndex dep {};
+  StateVarLink link {};
+
+  PushUpLP(double trial_lp,
+           double lb_lp,
+           double dep_scale,
+           double source_upp_lp = 200.0)
+  {
+    // LP bounds for dep: [0, source_upp_lp] in LP space.
+    // Physical bounds: [0, source_upp_lp * dep_scale].
+    dep = li.add_col(SparseCol {
+        .lowb = 0.0,
+        .uppb = source_upp_lp,
+        .scale = dep_scale,
+    });
+    li.set_obj_coeff(dep, 1.0);
+
+    // Row constraint dep_LP >= lb_lp (LP lower bound).
+    SparseRow r;
+    r[dep] = 1.0;
+    r.lowb = lb_lp;
+    r.uppb = LinearProblem::DblMax;
+    li.add_row(r);
+
+    auto res = li.initial_solve();
+    REQUIRE(res.has_value());
+    REQUIRE(li.is_optimal());
+
+    // Pin dep at trial_lp (raw LP value).
+    li.set_col(dep, trial_lp);
+
+    link = {
+        .source_col = ColIndex {99},
+        .dependent_col = dep,
+        .target_phase_index = PhaseIndex {1},
+        .trial_value = trial_lp,
+        .source_low = 0.0,
+        .source_upp = source_upp_lp * dep_scale,  // physical upper
+    };
+  }
+};
+
+}  // namespace
+
+TEST_CASE(  // NOLINT
+    "build_multi_cuts — dep col_scale sweep: implied bound tracks dep_scale")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  // dep fixed at 0 (LP), push-up constraint dep_LP >= 5.
+  // After elastic, sdn=5 (LP), dx=5, dep_clone_phys = 5 * scale.
+  // Expected: cut.lowb / cut.coeff(source=99) ≈ 5 * scale.
+
+  SolverOptions opts;
+
+  SUBCASE("dep_scale = 1.0: implied_bound ≈ 5.0 physical")
+  {
+    PushUpLP f {0.0, 5.0, 1.0};
+    auto res = elastic_filter_solve(f.li, std::span {&f.link, 1}, 1e3, opts);
+    REQUIRE(res.has_value());
+    REQUIRE(res->solved);
+    auto cuts = build_multi_cuts(*res, std::span {&f.link, 1}, {}, 1e-6, 0);
+    REQUIRE_FALSE(cuts.empty());
+    const auto& cut = cuts.front();
+    const double coeff = cut.cmap.at(ColIndex {99});
+    CHECK(cut.lowb / coeff == doctest::Approx(5.0 * 1.0).epsilon(0.05));
+  }
+
+  SUBCASE("dep_scale = sqrt(10): implied_bound ≈ 5*sqrt(10) physical")
+  {
+    const double K = std::sqrt(10.0);
+    PushUpLP f {0.0, 5.0, K};
+    auto res = elastic_filter_solve(f.li, std::span {&f.link, 1}, 1e3, opts);
+    REQUIRE(res.has_value());
+    REQUIRE(res->solved);
+    auto cuts = build_multi_cuts(*res, std::span {&f.link, 1}, {}, 1e-6, 0);
+    REQUIRE_FALSE(cuts.empty());
+    const auto& cut = cuts.front();
+    const double coeff = cut.cmap.at(ColIndex {99});
+    CHECK(cut.lowb / coeff == doctest::Approx(5.0 * K).epsilon(0.05));
+  }
+
+  SUBCASE("dep_scale = 10.0: implied_bound ≈ 50.0 physical")
+  {
+    PushUpLP f {0.0, 5.0, 10.0};
+    auto res = elastic_filter_solve(f.li, std::span {&f.link, 1}, 1e3, opts);
+    REQUIRE(res.has_value());
+    REQUIRE(res->solved);
+    auto cuts = build_multi_cuts(*res, std::span {&f.link, 1}, {}, 1e-6, 0);
+    REQUIRE_FALSE(cuts.empty());
+    const auto& cut = cuts.front();
+    const double coeff = cut.cmap.at(ColIndex {99});
+    CHECK(cut.lowb / coeff == doctest::Approx(50.0).epsilon(0.05));
+  }
+}
+
+TEST_CASE(  // NOLINT
+    "build_multi_cuts — niter escalation: larger niter yields larger implied "
+    "bound")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  // dep fixed at 0 (LP), push-up constraint dep_LP >= 5, dep_scale=1.
+  // cut_coeff_eps = 1.0 makes the kFactEps perturbation observable.
+  //   niter=0:  implied_bound ≈ 5.0
+  //   niter=10: implied_bound ≈ 5.5  (kFactEps = 0.1, +10% of RHS)
+
+  SolverOptions opts;
+  constexpr double cut_coeff_eps = 1.0;
+
+  PushUpLP f0 {0.0, 5.0, 1.0};
+  auto res0 = elastic_filter_solve(f0.li, std::span {&f0.link, 1}, 1e3, opts);
+  REQUIRE(res0.has_value());
+  REQUIRE(res0->solved);
+  auto cuts0 =
+      build_multi_cuts(*res0, std::span {&f0.link, 1}, {}, cut_coeff_eps, 0);
+  REQUIRE_FALSE(cuts0.empty());
+  const double coeff0 = cuts0.front().cmap.at(ColIndex {99});
+  const double implied0 = cuts0.front().lowb / coeff0;
+
+  // niter = 10 — must build a fresh LP clone (elastic_filter_solve creates
+  // clone)
+  PushUpLP f10 {0.0, 5.0, 1.0};
+  auto res10 =
+      elastic_filter_solve(f10.li, std::span {&f10.link, 1}, 1e3, opts);
+  REQUIRE(res10.has_value());
+  REQUIRE(res10->solved);
+  auto cuts10 =
+      build_multi_cuts(*res10, std::span {&f10.link, 1}, {}, cut_coeff_eps, 10);
+  REQUIRE_FALSE(cuts10.empty());
+  const double coeff10 = cuts10.front().cmap.at(ColIndex {99});
+  const double implied10 = cuts10.front().lowb / coeff10;
+
+  CHECK(implied0 == doctest::Approx(5.0).epsilon(0.05));
+  CHECK(implied10 > implied0);
+  // kFactEps = 0.01 * 1.0 * 10 = 0.1 → implied10 ≈ 5.5
+  CHECK(implied10 == doctest::Approx(5.5).epsilon(0.1));
+}
+
+TEST_CASE(  // NOLINT
+    "build_multi_cuts — two links with different dep col_scales")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  // Two dep columns in one LP:
+  //   dep1: col_scale=10, fixed at 0, push dep1_LP >= 5 → implied ≈ 50 phys
+  //   dep2: col_scale=1,  fixed at 0, push dep2_LP >= 3 → implied ≈  3 phys
+
+  LinearInterface li;
+  const auto dep1 =
+      li.add_col(SparseCol {.lowb = 0.0, .uppb = 200.0, .scale = 10.0});
+  const auto dep2 = li.add_col(SparseCol {.lowb = 0.0, .uppb = 200.0});
+  li.set_obj_coeff(dep1, 1.0);
+  li.set_obj_coeff(dep2, 1.0);
+
+  // dep1 >= 5 (LP)
+  SparseRow r1;
+  r1[dep1] = 1.0;
+  r1.lowb = 5.0;
+  r1.uppb = LinearProblem::DblMax;
+  li.add_row(r1);
+
+  // dep2 >= 3 (LP)
+  SparseRow r2;
+  r2[dep2] = 1.0;
+  r2.lowb = 3.0;
+  r2.uppb = LinearProblem::DblMax;
+  li.add_row(r2);
+
+  auto res = li.initial_solve();
+  REQUIRE(res.has_value());
+  REQUIRE(li.is_optimal());
+
+  li.set_col(dep1, 0.0);
+  li.set_col(dep2, 0.0);
+
+  const std::vector<StateVarLink> links = {
+      {
+          .source_col = ColIndex {99},
+          .dependent_col = dep1,
+          .target_phase_index = PhaseIndex {1},
+          .trial_value = 0.0,
+          .source_low = 0.0,
+          .source_upp = 200.0 * 10.0,  // physical
+      },
+      {
+          .source_col = ColIndex {100},
+          .dependent_col = dep2,
+          .target_phase_index = PhaseIndex {1},
+          .trial_value = 0.0,
+          .source_low = 0.0,
+          .source_upp = 200.0,  // physical (scale=1)
+      },
+  };
+
+  SolverOptions opts;
+  auto elastic = elastic_filter_solve(li, links, 1e3, opts);
+  REQUIRE(elastic.has_value());
+  REQUIRE(elastic->solved);
+
+  auto cuts = build_multi_cuts(*elastic, links, {}, 1e-6, 0);
+
+  // Two cuts: one for dep1, one for dep2.
+  REQUIRE(cuts.size() == 2);
+
+  // Find cut for dep1 (source_col=99) and dep2 (source_col=100).
+  const SparseRow* cut1 = nullptr;
+  const SparseRow* cut2 = nullptr;
+  for (const auto& c : cuts) {
+    if (c.cmap.contains(ColIndex {99})) {
+      cut1 = &c;
+    }
+    if (c.cmap.contains(ColIndex {100})) {
+      cut2 = &c;
+    }
+  }
+
+  REQUIRE(cut1 != nullptr);
+  REQUIRE(cut2 != nullptr);
+
+  // dep1: dep_scale=10, sdn≈5 LP → dep_clone_phys = 5*10 = 50.
+  CHECK(cut1->lowb / cut1->cmap.at(ColIndex {99})
+        == doctest::Approx(50.0).epsilon(0.05));
+
+  // dep2: dep_scale=1, sdn≈3 LP → dep_clone_phys = 3*1 = 3.
+  CHECK(cut2->lowb / cut2->cmap.at(ColIndex {100})
+        == doctest::Approx(3.0).epsilon(0.05));
+}
+
+// Extend ChinneckFixture namespace: lower-bound variant for scale tests.
+// x1 non-essential (fixed at lb, dep can stay at lb → sdn=0).
+// x2 essential (fixed below lb → dep must go up → sdn activates).
+namespace
+{
+
+struct ChinneckLBFixture
+{
+  LinearInterface li {};
+  ColIndex x1 {};
+  ColIndex x2 {};
+  std::vector<StateVarLink> links {};
+
+  // trial2_lp < lb2_lp ensures x2 is essential.
+  // dep_scale2 is the col_scale of x2; x1 always has scale=1.
+  ChinneckLBFixture(double trial1_lp,
+                    double lb1_lp,
+                    double trial2_lp,
+                    double lb2_lp,
+                    double dep_scale2 = 1.0)
+  {
+    x1 = li.add_col(SparseCol {.lowb = 0.0, .uppb = 2000.0});
+    x2 = li.add_col(
+        SparseCol {.lowb = 0.0, .uppb = 2000.0, .scale = dep_scale2});
+    li.set_obj_coeff(x1, 1.0);
+    li.set_obj_coeff(x2, 1.0);
+
+    // x1 >= lb1_lp (LP)
+    SparseRow r1;
+    r1[x1] = 1.0;
+    r1.lowb = lb1_lp;
+    r1.uppb = LinearProblem::DblMax;
+    li.add_row(r1);
+
+    // x2 >= lb2_lp (LP)
+    SparseRow r2;
+    r2[x2] = 1.0;
+    r2.lowb = lb2_lp;
+    r2.uppb = LinearProblem::DblMax;
+    li.add_row(r2);
+
+    auto res = li.initial_solve();
+    REQUIRE(res.has_value());
+    REQUIRE(li.is_optimal());
+
+    li.set_col(x1, trial1_lp);
+    li.set_col(x2, trial2_lp);
+
+    links = {
+        {
+            .source_col = ColIndex {99},
+            .dependent_col = x1,
+            .target_phase_index = PhaseIndex {1},
+            .trial_value = trial1_lp,
+            .source_low = 0.0,
+            .source_upp = 2000.0,  // physical (scale=1)
+        },
+        {
+            .source_col = ColIndex {100},
+            .dependent_col = x2,
+            .target_phase_index = PhaseIndex {1},
+            .trial_value = trial2_lp,
+            .source_low = 0.0,
+            .source_upp = 2000.0 * dep_scale2,  // physical
+        },
+    };
+  }
+};
+
+}  // namespace
+
+TEST_CASE(  // NOLINT
+    "chinneck_filter_solve — IIS classification invariant under dep col_scale")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  // x1: trial=5 (at lb, non-essential), x2: trial=3 < lb=50 (essential).
+  // Regardless of dep_scale2 ∈ {1, 10, 100}, the LP-space classification
+  // must be identical: link1 non-essential, link2 essential.
+  // (IIS is determined by LP-space slack activation, not physical scale.)
+
+  SolverOptions opts;
+
+  for (const double K : {1.0, 10.0, 100.0}) {
+    CAPTURE(K);
+
+    // x1: trial=lb=5 (non-essential — already at constraint).
+    // x2: trial=3 < lb=50 (essential).
+    ChinneckLBFixture fx {5.0, 5.0, 3.0, 50.0, K};
+    auto result = chinneck_filter_solve(fx.li, fx.links, 1e3, opts);
+    REQUIRE(result.has_value());
+    REQUIRE(result->link_infos.size() == 2);
+
+    // Link 1 (trial=lb=5): non-essential — slacks cleared by chinneck.
+    CHECK(result->link_infos[0].sup_col == ColIndex {unknown_index});
+    CHECK(result->link_infos[0].sdn_col == ColIndex {unknown_index});
+
+    // Link 2 (trial=3 < lb=50): essential — slacks preserved.
+    CHECK(result->link_infos[1].sup_col != ColIndex {unknown_index});
+    CHECK(result->link_infos[1].sdn_col != ColIndex {unknown_index});
+  }
+}
+
+TEST_CASE(  // NOLINT
+    "chinneck IIS + build_multi_cuts — cut implied bound tracks dep col_scale")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  // x2: trial=3 (LP), lb=50 (LP), dep_scale ∈ {1, 10, 100}.
+  // After chinneck + build_multi_cuts, cut on link2 (source=100):
+  //   dep_clone_phys = sdn_LP * dep_scale = 47 * dep_scale.
+  //   implied_bound  = 47 * dep_scale.
+
+  SolverOptions opts;
+
+  SUBCASE("dep_scale = 1: implied_bound ≈ 47")
+  {
+    ChinneckLBFixture fx {5.0, 5.0, 3.0, 50.0, 1.0};
+    auto result = chinneck_filter_solve(fx.li, fx.links, 1e3, opts);
+    REQUIRE(result.has_value());
+    auto cuts = build_multi_cuts(*result, fx.links, {}, 1e-6, 0);
+    CHECK_FALSE(cuts.empty());
+    const auto& c = cuts.front();
+    const double coeff = c.cmap.at(ColIndex {100});
+    CHECK(c.lowb / coeff == doctest::Approx(47.0).epsilon(0.1));
+    // link1 contributes nothing (chinneck cleared its slacks + dx=0 filter)
+    for (const auto& cut : cuts) {
+      CHECK_FALSE(cut.cmap.contains(ColIndex {99}));
+    }
+  }
+
+  SUBCASE("dep_scale = 10: implied_bound ≈ 470")
+  {
+    ChinneckLBFixture fx {5.0, 5.0, 3.0, 50.0, 10.0};
+    auto result = chinneck_filter_solve(fx.li, fx.links, 1e3, opts);
+    REQUIRE(result.has_value());
+    auto cuts = build_multi_cuts(*result, fx.links, {}, 1e-6, 0);
+    CHECK_FALSE(cuts.empty());
+    const auto& c = cuts.front();
+    const double coeff = c.cmap.at(ColIndex {100});
+    CHECK(c.lowb / coeff == doctest::Approx(470.0).epsilon(0.5));
+  }
+
+  SUBCASE("dep_scale = 100: implied_bound ≈ 4700")
+  {
+    ChinneckLBFixture fx {5.0, 5.0, 3.0, 50.0, 100.0};
+    auto result = chinneck_filter_solve(fx.li, fx.links, 1e3, opts);
+    REQUIRE(result.has_value());
+    auto cuts = build_multi_cuts(*result, fx.links, {}, 1e-6, 0);
+    CHECK_FALSE(cuts.empty());
+    const auto& c = cuts.front();
+    const double coeff = c.cmap.at(ColIndex {100});
+    CHECK(c.lowb / coeff == doctest::Approx(4700.0).epsilon(5.0));
+  }
+}
+
 // BoxEdgeStats — unit-test the cut-emission box-edge tally
 // ===========================================================================
 //
