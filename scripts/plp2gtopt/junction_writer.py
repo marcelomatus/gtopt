@@ -743,6 +743,17 @@ class JunctionWriter(BaseWriter):
             fcost=vert_fcost,
         )
 
+        # **Synthetic ocean drain** — shared between the spill (`_ver`)
+        # and gen (`_gen`) ocean-fallback paths below.  When BOTH
+        # ``ser_hid == 0`` AND ``ser_ver == 0``, the two arcs would
+        # historically each get their own drain junction (`_spill`
+        # + `_ocean`), wasting one synthetic junction per terminal
+        # central.  We track the first-created drain uid and reuse it
+        # for the second path so the topology emits exactly one
+        # ``<central>_ocean`` drain.  When only one path is terminal,
+        # this still creates exactly one drain — same as before.
+        synthetic_drain_uid: Optional[int] = None
+
         # **Spillway ocean fallback** — when ``ser_ver = 0`` AND the
         # central has a positive ``VertMax``, PLP routes excess water
         # via the per-block spillway variable (uncapped within
@@ -752,10 +763,10 @@ class JunctionWriter(BaseWriter):
         # That free-drain shortcut was removed (it caused LMAULE to
         # drain 657 → 0 in p1) — but legitimate spillage paths now
         # need an explicit physical outlet.  Mirror the ``ser_hid =
-        # 0`` ocean-fallback below: synthesise a ``<central>_spill``
-        # ocean junction and emit a ``_ver`` waterway with ``fmax =
-        # VertMax`` so excess water can leave the system the same
-        # way PLP allows.  Symptom on juan/gtopt_iplp: LA_HIGUERA
+        # 0`` ocean-fallback below: synthesise (or reuse) the shared
+        # ocean junction and emit a ``_ver`` waterway with
+        # ``fmax = VertMax`` so excess water can leave the system the
+        # same way PLP allows.  Symptom on juan/gtopt_iplp: LA_HIGUERA
         # (``ser_ver = 0``, ``VertMax = 9967``, gen pmax = 0 at p1
         # via plpmance) had no spillway path → upstream affluent
         # 7.2 m³/s couldn't be discharged → infeasible.
@@ -798,58 +809,67 @@ class JunctionWriter(BaseWriter):
                     spill_fmax = float(vert_max_for_spill)
                 spill_fcost = cvert_default
             if spill_fmax is not None:
-                self._ocean_junction_counter += 1
-                spill_uid = _OCEAN_UID_OFFSET + self._ocean_junction_counter
-                spill_name = f"{central_name}_spill"
-                spill_junction: Junction = {
-                    "uid": spill_uid,
-                    "name": spill_name,
-                    "drain": True,
-                }
-                system["junction_array"].append(spill_junction)
-                self._junction_names[spill_uid] = spill_name
-                _logger.debug(
-                    "Created spillway ocean junction '%s' (uid=%d) for "
-                    "central '%s' (VertMax=%g, vrebemb=%s).",
-                    spill_name,
-                    spill_uid,
-                    central_name,
-                    vert_max_for_spill,
-                    in_vrebemb,
-                )
+                if synthetic_drain_uid is None:
+                    self._ocean_junction_counter += 1
+                    synthetic_drain_uid = (
+                        _OCEAN_UID_OFFSET + self._ocean_junction_counter
+                    )
+                    drain_name = f"{central_name}_ocean"
+                    drain_junction: Junction = {
+                        "uid": synthetic_drain_uid,
+                        "name": drain_name,
+                        "drain": True,
+                    }
+                    system["junction_array"].append(drain_junction)
+                    self._junction_names[synthetic_drain_uid] = drain_name
+                    _logger.debug(
+                        "Created shared ocean drain junction '%s' (uid=%d) "
+                        "for central '%s' (VertMax=%g, vrebemb=%s) — "
+                        "spill path",
+                        drain_name,
+                        synthetic_drain_uid,
+                        central_name,
+                        vert_max_for_spill,
+                        in_vrebemb,
+                    )
                 ver_waterway = self._create_waterway(
                     central_name + "_ver",
                     central_id,
-                    spill_uid,
+                    synthetic_drain_uid,
                     central.get("vert_min", 0.0),
                     spill_fmax,
                     fcost=spill_fcost,
                 )
 
         # For embalse/serie/pasada centrals with ser_hid=0, complete the
-        # missing generation waterway outlet by adding a synthetic
-        # "{name}_ocean" drain junction.  This covers plants that discharge
-        # directly to the sea.  The ocean junction is created regardless of
-        # bus so the hydro topology is always complete.
-        # Note: the spillway (ser_ver=0) is handled differently — by enabling
-        # drain=True on the central junction itself (see drain logic below).
+        # missing generation waterway outlet by routing it to the shared
+        # synthetic "{name}_ocean" drain junction (created above by the
+        # spill-fallback path, OR created here on first use).  Sharing
+        # the drain across both `_gen` and `_ver` arcs keeps the
+        # topology minimal — one source + one drain per terminal
+        # central, rather than the historical two-drain emission
+        # (`_spill` + `_ocean`) that wasted one synthetic junction
+        # per ser_hid=0+ser_ver=0 case.  The ocean junction is created
+        # regardless of bus so the hydro topology is always complete.
         if central_type in ("embalse", "serie", "pasada") and gen_waterway is None:
-            self._ocean_junction_counter += 1
-            ocean_uid = _OCEAN_UID_OFFSET + self._ocean_junction_counter
-            ocean_name = f"{central_name}_ocean"
-            ocean_junction: Junction = {
-                "uid": ocean_uid,
-                "name": ocean_name,
-                "drain": True,
-            }
-            system["junction_array"].append(ocean_junction)
-            self._junction_names[ocean_uid] = ocean_name
-            _logger.debug(
-                "Created ocean drain junction '%s' (uid=%d) for central '%s'.",
-                ocean_name,
-                ocean_uid,
-                central_name,
-            )
+            if synthetic_drain_uid is None:
+                self._ocean_junction_counter += 1
+                synthetic_drain_uid = _OCEAN_UID_OFFSET + self._ocean_junction_counter
+                ocean_name = f"{central_name}_ocean"
+                ocean_junction: Junction = {
+                    "uid": synthetic_drain_uid,
+                    "name": ocean_name,
+                    "drain": True,
+                }
+                system["junction_array"].append(ocean_junction)
+                self._junction_names[synthetic_drain_uid] = ocean_name
+                _logger.debug(
+                    "Created ocean drain junction '%s' (uid=%d) for "
+                    "central '%s' — gen path",
+                    ocean_name,
+                    synthetic_drain_uid,
+                    central_name,
+                )
             # Same `fmax = PotMax / Rendi` cap as the in-network gen
             # waterway path above — the ocean-drain branch handles
             # centrals with ``ser_hid = 0`` (no downstream PLP
@@ -865,7 +885,7 @@ class JunctionWriter(BaseWriter):
             gen_waterway = self._create_waterway(
                 central_name + "_gen",
                 central_id,
-                ocean_uid,
+                synthetic_drain_uid,
                 fmax=gen_fmax,
             )
 
