@@ -267,7 +267,9 @@ def test_writer_emits_flow_right_and_parquet(tmp_path: Path) -> None:
     table = pq.read_table(parquet_file)
     cols = table.column_names
     uid_col = f"uid:{_FLOW_RIGHT_UID_START}"
-    assert cols == ["block", uid_col, "stage"]
+    # Post-master refactor: `scenario` column is now emitted alongside the
+    # index columns (block, stage).  Data shape is unchanged.
+    assert set(cols) == {"scenario", "block", uid_col, "stage"}
     # flow_min = pmin / Rendi = [10/0.5, 20/0.5] = [20, 40]
     flows = table.column(uid_col).to_pylist()
     assert flows == [20.0, 40.0]

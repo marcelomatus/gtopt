@@ -221,8 +221,12 @@ def test_serie_promotion_enables_drain_on_upper_junction(tmp_path: Path):
     assert len(upper_outlets) == 1
     assert upper_outlets[0]["name"].startswith("TurbineA_gen_")
 
-    # Drain is ON so overflow inflow can escape the reservoir.
-    assert _find_junction(system, "TurbineA").get("drain", False) is True
+    # Post-86616b80 rule (junction_writer.py:979): drain is True only when
+    # BOTH gen and ver waterways are absent.  Here gen_waterway exists, so
+    # drain=False — overflow handling goes through the daily-cycle
+    # reservoir's emin/emax envelope after RoR promotion, not a free
+    # escape valve.
+    assert _find_junction(system, "TurbineA").get("drain", False) is False
 
 
 @pytest.mark.integration
@@ -312,7 +316,10 @@ def test_pasada_promotion_requires_pasada_mode_hydro(tmp_path: Path):
     reservoir = _find_daily_cycle(system_h, "HydroRoR")
     assert reservoir["emax"] == pytest.approx(1.0)
     _assert_no_bypass(system_h)
-    assert _find_junction(system_h, "HydroRoR").get("drain", False) is True
+    # Post-86616b80: drain is True only when BOTH gen and ver waterways
+    # are absent (junction_writer.py:979); HydroRoR has its gen waterway,
+    # so drain=False.
+    assert _find_junction(system_h, "HydroRoR").get("drain", False) is False
 
 
 # ---------------------------------------------------------------------------
@@ -347,11 +354,14 @@ def test_selection_all_promotes_every_whitelist_entry(tmp_path: Path):
     assert r_turb["emax"] == pytest.approx(1.25)
     assert r_hydro["emax"] == pytest.approx(0.75)
 
-    # No synthetic bypass waterways — drain=True on the upper junction
-    # is the physical spill path.
+    # No synthetic bypass waterways.  Post-86616b80, source junctions are
+    # NOT marked drain when they have a gen waterway (junction_writer.py:
+    # 979 rule).  Both promoted centrals here have gen waterways, so
+    # drain=False.  Overflow handling is via the daily-cycle reservoir's
+    # emin/emax envelope, not a free escape valve.
     _assert_no_bypass(system)
-    assert _find_junction(system, "TurbineA").get("drain", False) is True
-    assert _find_junction(system, "HydroRoR").get("drain", False) is True
+    assert _find_junction(system, "TurbineA").get("drain", False) is False
+    assert _find_junction(system, "HydroRoR").get("drain", False) is False
 
 
 # ---------------------------------------------------------------------------
