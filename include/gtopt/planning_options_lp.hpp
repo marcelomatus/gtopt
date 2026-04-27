@@ -58,8 +58,12 @@ public:
   static constexpr Bool default_use_single_bus = false;
   /** @brief Default setting for strict per-stage volume floor (`emin`)
    *  enforcement on `reservoir_sini` and the last-block `efin` column.
-   *  `false` (default, PLP-style): bound is relaxed to `lowb = 0`. */
-  static constexpr Bool default_strict_storage_emin = false;
+   *  `true` (default): both columns get `lowb = stage_emin`, so the per-stage
+   *  volume floor is a HARD constraint at the inter-stage handoff state.
+   *  Opt out with `model_options.strict_storage_emin = false` for the PLP-
+   *  style relaxation (`lowb = 0`) when iter-0 of an SDDP cascade needs the
+   *  floor relaxed to stay feasible. */
+  static constexpr Bool default_strict_storage_emin = true;
   /** @brief Default threshold for Kirchhoff constraints */
   static constexpr Real default_kirchhoff_threshold = 0;
   /** @brief Default objective function scaling factor */
@@ -236,10 +240,10 @@ public:
   /// @brief Whether to enforce the per-stage `emin` floor as a HARD lower
   /// bound on the storage `sini` and last-block `efin` columns.
   ///
-  /// When `false` (default, PLP-style), both columns get `lowb = 0` so the
-  /// LP can dip below the floor at iter-0 of an SDDP cascade without
-  /// becoming infeasible.  When `true`, the historic strict behaviour is
-  /// restored: both columns get `lowb = stage_emin`.
+  /// When `true` (default), both columns get `lowb = stage_emin` — the
+  /// strictest per-stage volume-constraint enforcement.  Set to `false` for
+  /// the PLP-style relaxation (`lowb = 0`) when the LP needs to dip below
+  /// the floor at iter-0 of an SDDP cascade without becoming infeasible.
   [[nodiscard]] constexpr auto strict_storage_emin() const
   {
     return m_options_.model_options.strict_storage_emin.value_or(

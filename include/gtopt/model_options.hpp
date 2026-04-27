@@ -96,18 +96,18 @@ struct ModelOptions
   /// reservoir_energy_<last_block>`) and on the stage-start volume
   /// (`reservoir_sini`).
   ///
-  /// `false` (default, PLP-style): both columns have `lowb = 0`.  The floor is
-  /// not enforced as a constraint; SDDP convergence is responsible for keeping
-  /// the trajectory above `emin`.  Matches PLP's per-stage LP, where `ve<u>`
-  /// is `Free` mid-stage and only `vf<u>` (future volume) has the `vmin` lower
-  /// bound.  Combined with a missing soft slack on the gtopt discharge-limit
-  /// row this gives the most PLP-faithful relaxation.
+  /// `true` (default): both columns get `lowb = stage_emin`.  The floor is a
+  /// hard constraint at the inter-stage handoff state, giving the strictest
+  /// volume-constraint enforcement.  Intra-stage blocks still use `lowb = 0`
+  /// (see `storage_lp.hpp`) so the energy-balance row keeps PLP-style
+  /// headroom mid-stage.
   ///
-  /// `true` (opt-in, strict): both columns get `lowb = stage_emin`.  The floor
-  /// is a hard constraint per stage; iter-0 of an SDDP cascade may
-  /// over-constrain the forward pass when state vars cluster at the floor.
-  /// Useful for users who want the strictest possible volume-constraint
-  /// enforcement.
+  /// `false` (opt-out, PLP-style): both columns have `lowb = 0`.  The floor
+  /// is not enforced as a constraint; SDDP convergence is responsible for
+  /// keeping the trajectory above `emin`.  Matches PLP's per-stage LP where
+  /// `ve<u>` is `Free` mid-stage and only `vf<u>` (future volume) has the
+  /// `vmin` lower bound.  Use this if iter-0 of an SDDP cascade
+  /// over-constrains the forward pass when state vars cluster at the floor.
   OptBool strict_storage_emin {};
 
   void merge(const ModelOptions& opts)

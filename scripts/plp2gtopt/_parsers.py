@@ -546,8 +546,12 @@ def add_model_arguments(parser: argparse.ArgumentParser, conf: dict[str, str]) -
         "--use-single-bus",
         dest="use_single_bus",
         action="store_true",
-        default=False,
-        help="use single-bus (copper-plate) mode (default: %(default)s)",
+        default=None,
+        help=(
+            "use single-bus (copper-plate) mode "
+            "(default: auto — true when the parsed PLP case has 0 "
+            "transmission lines, false otherwise)"
+        ),
     )
     parser.add_argument(
         "-k",

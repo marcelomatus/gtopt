@@ -149,11 +149,16 @@ void System::expand_batteries()
         .capacity = battery.pmax_discharge,
     });
 
-    // Charge demand: power absorbed from the charge bus
+    // Charge demand: power absorbed from the charge bus.
+    // fcost is pinned to 0 so this synthetic demand is truly dispatchable
+    // in [0, pmax_charge] regardless of the global model_options
+    // .demand_fail_cost — otherwise a positive global default would force
+    // the LP to charge at pmax to avoid the per-MWh fail-cost penalty.
     demand_array.push_back(Demand {
         .uid = dem_uid++,
         .name = dem_name,
         .bus = charge_bus,
+        .fcost = 0.0,
         .capacity = battery.pmax_charge,
     });
 

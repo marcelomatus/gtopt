@@ -70,7 +70,7 @@ static constexpr std::string_view unified_battery_json = R"({
         "gcost": 0,
         "capacity": 200,
         "use_state_variable": true,
-        "daily_cycle": false
+        "daily_cycle": true
       }
     ]
   }
@@ -172,7 +172,7 @@ static constexpr std::string_view traditional_battery_json = R"({
     ],
     "demand_array": [
       {"uid": 1, "name": "d1", "bus": 1, "lmax": [[100, 100]]},
-      {"uid": 2, "name": "bess1_dem", "bus": 1, "capacity": 60}
+      {"uid": 2, "name": "bess1_dem", "bus": 1, "capacity": 60, "fcost": 0}
     ],
     "battery_array": [
       {
@@ -182,7 +182,7 @@ static constexpr std::string_view traditional_battery_json = R"({
         "emin": 0, "emax": 200,
         "capacity": 200,
         "use_state_variable": true,
-        "daily_cycle": false
+        "daily_cycle": true
       }
     ],
     "converter_array": [

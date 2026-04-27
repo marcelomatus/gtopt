@@ -133,6 +133,86 @@ TEST_CASE("System::expand_batteries with unified definition")  // NOLINT
   CHECK_FALSE(system.battery_array[0].bus.has_value());
 }
 
+TEST_CASE("expand_batteries pins synthetic charge demand fcost=0")  // NOLINT
+{
+  // The synthetic charge demand created for a battery must carry an explicit
+  // fcost = 0, so it stays truly dispatchable in [0, pmax_charge] regardless
+  // of the global model_options.demand_fail_cost.  Without this pin, a
+  // positive global default (e.g. 1000 $/MWh) would penalize the LP for not
+  // charging the battery and force charging at pmax — silently distorting
+  // dispatch in any case where the global is raised.
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  System system;
+  system.name = "BatteryFcostPinTest";
+  system.bus_array = {
+      {
+          .uid = Uid {1},
+          .name = "b1",
+      },
+  };
+  system.battery_array = {
+      {
+          .uid = Uid {1},
+          .name = "bat1",
+          .bus = Uid {1},
+          .pmax_charge = 50.0,
+          .pmax_discharge = 50.0,
+          .capacity = 100.0,
+      },
+  };
+
+  system.expand_batteries();
+
+  REQUIRE(system.demand_array.size() == 1);
+  const auto& dem = system.demand_array.back();
+  CHECK(dem.name == "bat1_dem");
+  REQUIRE(dem.fcost.has_value());
+  CHECK(std::get<Real>(dem.fcost.value_or(RealFieldSched {-1.0})) == 0.0);
+}
+
+TEST_CASE("expand_batteries pins fcost=0 even with source_generator")  // NOLINT
+{
+  // Same invariant as above, but for the generation-coupled mode where the
+  // charge demand lands on the auto-created internal bus.
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  System system;
+  system.name = "CoupledBatteryFcostPinTest";
+  system.bus_array = {
+      {
+          .uid = Uid {1},
+          .name = "ext_bus",
+      },
+  };
+  system.generator_array = {
+      {
+          .uid = Uid {1},
+          .name = "solar1",
+          .gcost = 0.0,
+          .capacity = 50.0,
+      },
+  };
+  system.battery_array = {
+      {
+          .uid = Uid {1},
+          .name = "bat1",
+          .bus = Uid {1},
+          .source_generator = Name {"solar1"},
+          .pmax_charge = 50.0,
+          .pmax_discharge = 50.0,
+          .capacity = 100.0,
+      },
+  };
+
+  system.expand_batteries();
+
+  REQUIRE(system.demand_array.size() == 1);
+  const auto& dem = system.demand_array.back();
+  REQUIRE(dem.fcost.has_value());
+  CHECK(std::get<Real>(dem.fcost.value_or(RealFieldSched {-1.0})) == 0.0);
+}
+
 TEST_CASE("expand_batteries skips batteries without bus")  // NOLINT
 {
   using namespace gtopt;  // NOLINT(google-build-using-namespace)

@@ -268,11 +268,13 @@ class CentralParser(BaseParser):
 
         Used as the diagnostic "avg failure cost ($/MWh)" row in the
         plp2gtopt comparison table (``_comparison.py``).  It is NOT used
-        as a default for ``model_options.demand_fail_cost`` anymore —
-        that is kept at 0 so gtopt's synthetic battery demands (created
-        by C++ ``System::expand_batteries``) inherit fcost=0 and are
-        truly dispatchable, while real demands receive their curtailment
-        cost via per-demand ``fcost`` set in ``gtopt_writer.write_fcost``.
+        as the default for ``model_options.demand_fail_cost``; real
+        demands receive their curtailment cost via per-demand ``fcost``
+        set in ``gtopt_writer.write_fcost``, and the global default is
+        only a fallback for demands without an explicit fcost.  Synthetic
+        battery-charge demands (created by C++ ``System::expand_batteries``)
+        are pinned to fcost=0 in C++ regardless of the global, so this
+        method is purely diagnostic.
         """
         fcost_by_bus: Dict[int, float] = {}
         for c in self.centrals:

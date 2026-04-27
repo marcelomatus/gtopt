@@ -25,6 +25,7 @@ from .generator_profile_writer import GeneratorProfileWriter
 from .index_utils import parse_index_range, parse_stages_phase
 from .indhor_writer import IndhorWriter
 from .junction_writer import JunctionWriter
+from .line_parser import LineParser
 from .line_writer import LineWriter
 from .planos_writer import write_boundary_cuts_csv, write_hot_start_cuts_csv
 from .plp_parser import PLPParser
@@ -274,20 +275,53 @@ class GTOptWriter:
         src_model = options.get("model_options", {})
 
         # PLP parity: the curtailment cost is applied PER-DEMAND via each
-        # real demand's ``fcost`` field (set from falla_by_bus below).  The
-        # global ``model_options.demand_fail_cost`` is kept at 0 so that
-        # synthetic demands created by gtopt's C++ ``System::expand_batteries``
-        # (to model battery AC-side charging) inherit fcost=0 and are truly
-        # DISPATCHABLE in [0, pmax_charge] — without a positive default the
-        # LP would otherwise force battery charging at pmax to avoid the
-        # per-MWh fail-cost penalty.
+        # real demand's ``fcost`` field (set from falla_by_bus below), so
+        # the global ``model_options.demand_fail_cost`` is essentially a
+        # fallback for demands without an explicit fcost.  We default it
+        # to 0 to preserve historical behaviour; the user may safely raise
+        # it (``--demand-fail-cost N``) without distorting battery
+        # dispatch, because gtopt's C++ ``System::expand_batteries`` now
+        # pins fcost=0 explicitly on every synthetic battery-charge demand
+        # (see ``source/system.cpp`` — the synthetic demand is no longer
+        # sensitive to this global default).
         user_demand_fail = src_model.get("demand_fail_cost")
         effective_demand_fail = (
             user_demand_fail if user_demand_fail is not None else 0.0
         )
 
+        # Auto-promote to single-bus when the parsed PLP case has 0
+        # transmission lines.  Multi-bus mode with 0 lines makes every bus an
+        # isolated island, and any bus carrying must-run thermal pmin > local
+        # demand cap is structurally infeasible (no transmission to dispatch
+        # the excess elsewhere).  Explicit ``-b`` / ``--use-single-bus`` still
+        # forces True; setting ``use_single_bus`` in the conf or JSON
+        # overrides the auto-detect either way.  When the parser is a mock or
+        # the line count cannot be determined, fall back to False to preserve
+        # historical behaviour.
+        user_single_bus = src_model.get("use_single_bus")
+        if user_single_bus is None:
+            line_count = -1  # unknown
+            parsed = getattr(self.parser, "parsed_data", None)
+            if isinstance(parsed, dict):
+                lp_obj = parsed.get("line_parser")
+                if isinstance(lp_obj, LineParser):
+                    line_count = lp_obj.num_lines
+                elif isinstance(lp_obj, list):
+                    line_count = len(lp_obj)
+            if line_count == 0:
+                _logger.info(
+                    "auto-promoting model_options.use_single_bus=true: "
+                    "0 transmission lines parsed (multi-bus mode would "
+                    "create isolated islands)"
+                )
+                effective_single_bus = True
+            else:
+                effective_single_bus = False
+        else:
+            effective_single_bus = user_single_bus
+
         model_opts = {
-            "use_single_bus": src_model.get("use_single_bus", False),
+            "use_single_bus": effective_single_bus,
             "use_kirchhoff": src_model.get("use_kirchhoff", True),
             "demand_fail_cost": effective_demand_fail,
             "state_fail_cost": src_model.get("state_fail_cost", 1000),
