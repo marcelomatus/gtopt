@@ -676,13 +676,28 @@ def add_model_arguments(parser: argparse.ArgumentParser, conf: dict[str, str]) -
             "the offending reservoirs. (default: emit all)"
         ),
     )
-    parser.add_argument(
+    # ``--pmin-as-flowright`` is ON by default (uses the bundled
+    # whitelist) because PLP-faithful runs need MACHICURA / PANGUE /
+    # PILMAIQUEN / ABANICO / ANTUCO / PALMUCHO routed as FlowRight
+    # discharge obligations to keep ``reservoir_efin >= eini`` rows
+    # feasible at iter-0 of the SDDP cascade (same root cause as the
+    # plp_case_2y aperture regression and the support/juan/IPLP_uninodal
+    # investigation).  Pass ``--no-pmin-as-flowright`` to opt out.
+    _default_pmf = conf.get("pmin_as_flowright")
+    if _default_pmf is None:
+        _default_pmf_value = ""  # use bundled CSV
+    elif _default_pmf.lower() in ("false", "0", "no"):
+        _default_pmf_value = None
+    else:
+        _default_pmf_value = _default_pmf
+    pmf_group = parser.add_mutually_exclusive_group()
+    pmf_group.add_argument(
         "--pmin-as-flowright",
         dest="pmin_as_flowright",
         metavar="PATH_OR_NAMES",
         nargs="?",
         const="",  # sentinel: flag passed without value -> use bundled CSV
-        default=None,
+        default=_default_pmf_value,
         help=(
             "Convert specific hydro generators' must-run pmin into "
             "FlowRight discharge obligations.  The argument is either a "
@@ -692,10 +707,16 @@ def add_model_arguments(parser: argparse.ArgumentParser, conf: dict[str, str]) -
             "whitelist (MACHICURA, PANGUE, PILMAIQUEN, ABANICO, ANTUCO, "
             "PALMUCHO).  Per-stage discharge values are written as "
             "FlowRight/<central>_pmin_as_flow_right.parquet using the "
-            "central's plpmance pmin / Rendi.  When this flag isn't "
-            "passed, no FlowRight conversion happens (default behavior "
-            "unchanged)."
+            "central's plpmance pmin / Rendi.  ON by default; pass "
+            "--no-pmin-as-flowright to disable."
         ),
+    )
+    pmf_group.add_argument(
+        "--no-pmin-as-flowright",
+        dest="pmin_as_flowright",
+        action="store_const",
+        const=None,
+        help="disable the must-run pmin → FlowRight conversion.",
     )
     parser.add_argument(
         "--flow-right-fail-cost",

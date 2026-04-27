@@ -1410,7 +1410,13 @@ class JunctionWriter(BaseWriter):
         Both costs share ``_resolve_storage_bound_cost`` (vrebemb →
         CVert → CLI → fallback).
         """
-        if not self.options or not self.options.get("soft_storage_bounds"):
+        # Default ON when the key is absent — matches the CLI default
+        # (see ``--soft-storage-bounds`` / ``--no-soft-storage-bounds`` in
+        # ``_parsers.py``).  Programmatic callers (``convert_plp_case``)
+        # opt out by setting ``soft_storage_bounds=False``.
+        if self.options is not None and not self.options.get(
+            "soft_storage_bounds", True
+        ):
             return
 
         cost = self._resolve_storage_bound_cost(central_name)

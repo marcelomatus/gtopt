@@ -1273,9 +1273,19 @@ class GTOptWriter:
         * Zeros the matching generator's ``pmin`` so the LP no longer
           enforces the must-run obligation directly.
         """
-        spec = options.get("pmin_as_flowright")
-        if spec is None:
+        # Default ON when the key is absent — matches the CLI default
+        # (see ``--pmin-as-flowright`` / ``--no-pmin-as-flowright`` in
+        # ``_parsers.py``).  Programmatic callers
+        # (``convert_plp_case``) opt out by setting
+        # ``pmin_as_flowright=False`` or ``None``.
+        spec = options.get("pmin_as_flowright", "")
+        # ``False`` / ``None`` → opt out (no transform).
+        # ``True`` / empty string → use the bundled default whitelist.
+        # Otherwise: pass through to ``resolve_whitelist`` (path or names).
+        if spec is None or spec is False:
             return
+        if spec is True:
+            spec = ""
 
         from ._parsers import DEFAULT_PMIN_FLOWRIGHT_FILE  # noqa: PLC0415
         from .pmin_flowright_writer import (  # noqa: PLC0415
