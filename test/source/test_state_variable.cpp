@@ -9,29 +9,90 @@ TEST_CASE("StateVariable::Key functionality")
   using namespace gtopt;
   SUBCASE("Basic key creation")
   {
-    const auto key = StateVariable::key(
-        "TestClass", 123, "test_col", PhaseIndex {1}, make_uid<Stage>(2));
+    // Post-2026-04-23: `StateVariable::key()` requires concrete
+    // scene/scenario/stage uids — the unknown-uid defaults were
+    // removed because `unknown_uid = -1` silently embeds the
+    // rejected `-` char into downstream LP labels (CoinLpIO /
+    // CBC failure mode).
+    const auto key = StateVariable::key(LPClassName {"TestClass"},
+                                        123,
+                                        "test_col",
+                                        PhaseIndex {1},
+                                        make_uid<Stage>(2),
+                                        SceneIndex {0},
+                                        make_uid<Scenario>(0));
 
     CHECK(key.class_name == "TestClass");
     CHECK(key.uid == 123);
     CHECK(key.col_name == "test_col");
     CHECK(key.lp_key.phase_index == PhaseIndex {1});
     CHECK(key.stage_uid == make_uid<Stage>(2));
-    CHECK(key.scenario_uid == make_uid<Scenario>(unknown_uid));
-    CHECK(key.lp_key.scene_index == SceneIndex {unknown_index});
+    CHECK(key.scenario_uid == make_uid<Scenario>(0));
+    CHECK(key.lp_key.scene_index == SceneIndex {0});
   }
 
   SUBCASE("Key comparison")
   {
-    const auto key1 = StateVariable::key(
-        "ClassA", 1, "col1", PhaseIndex {1}, make_uid<Stage>(1));
-    const auto key2 = StateVariable::key(
-        "ClassA", 1, "col1", PhaseIndex {1}, make_uid<Stage>(1));
-    const auto key3 = StateVariable::key(
-        "ClassB", 1, "col1", PhaseIndex {1}, make_uid<Stage>(1));
+    const auto key1 = StateVariable::key(LPClassName {"ClassA"},
+                                         1,
+                                         "col1",
+                                         PhaseIndex {1},
+                                         make_uid<Stage>(1),
+                                         SceneIndex {0},
+                                         make_uid<Scenario>(0));
+    const auto key2 = StateVariable::key(LPClassName {"ClassA"},
+                                         1,
+                                         "col1",
+                                         PhaseIndex {1},
+                                         make_uid<Stage>(1),
+                                         SceneIndex {0},
+                                         make_uid<Scenario>(0));
+    const auto key3 = StateVariable::key(LPClassName {"ClassB"},
+                                         1,
+                                         "col1",
+                                         PhaseIndex {1},
+                                         make_uid<Stage>(1),
+                                         SceneIndex {0},
+                                         make_uid<Scenario>(0));
 
     CHECK(key1 == key2);
     CHECK(key1 != key3);
+  }
+
+  SUBCASE("Factory throws on unknown uids")
+  {
+    // uid must be concrete
+    CHECK_THROWS_AS(
+        [[maybe_unused]] auto k1 = StateVariable::key(LPClassName {"C"},
+                                                      unknown_uid,
+                                                      "col",
+                                                      PhaseIndex {0},
+                                                      make_uid<Stage>(0),
+                                                      SceneIndex {0},
+                                                      make_uid<Scenario>(0)),
+        std::invalid_argument);
+
+    // scenario_uid must be concrete
+    CHECK_THROWS_AS([[maybe_unused]] auto k2 =
+                        StateVariable::key(LPClassName {"C"},
+                                           1,
+                                           "col",
+                                           PhaseIndex {0},
+                                           make_uid<Stage>(0),
+                                           SceneIndex {0},
+                                           make_uid<Scenario>(unknown_uid)),
+                    std::invalid_argument);
+
+    // stage_uid must be concrete
+    CHECK_THROWS_AS([[maybe_unused]] auto k3 =
+                        StateVariable::key(LPClassName {"C"},
+                                           1,
+                                           "col",
+                                           PhaseIndex {0},
+                                           make_uid<Stage>(unknown_uid),
+                                           SceneIndex {0},
+                                           make_uid<Scenario>(0)),
+                    std::invalid_argument);
   }
 }
 

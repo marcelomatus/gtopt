@@ -11,8 +11,6 @@
  */
 #pragma once
 
-#include <cassert>
-
 #include <gtopt/demand_lp.hpp>
 #include <gtopt/pump.hpp>
 #include <gtopt/waterway_lp.hpp>

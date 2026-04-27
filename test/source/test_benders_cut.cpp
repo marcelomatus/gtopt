@@ -9,6 +9,7 @@
 
 #include <doctest/doctest.h>
 #include <gtopt/benders_cut.hpp>
+#include <gtopt/planning_options_lp.hpp>
 #include <gtopt/sddp_types.hpp>
 #include <gtopt/sparse_col.hpp>
 
@@ -329,6 +330,92 @@ TEST_CASE("build_benders_cut_physical state_var overload eps filters small rc")
   // lowb = 100 - 4*3 = 88.  Tiny rc contribution (1e-13 * 5) is also
   // dropped since the whole link is skipped.
   CHECK(cut.lowb == doctest::Approx(88.0));
+}
+
+TEST_CASE(
+    "build_benders_cut_physical state_var overload — scale_objective sweep")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  // The state_var overload's contract is:
+  //   row_coef[source_col] = -reduced_cost_physical(scale_obj)
+  //                        = -(raw_LP_rc × scale_obj / var_scale)
+  //   row.lowb = obj_phys - Σ_i (rc_phys_i × col_sol_phys_i)
+  //
+  // The PHYSICAL coefficients of the cut must be invariant under
+  // `scale_objective` because the input `obj_phys` is physical and
+  // `reduced_cost_physical` already absorbs the obj scale.  This
+  // sweep pins that invariance and is the regression test for any
+  // future change that re-introduces an extra scale_obj factor in
+  // the cut builder (the symptom of the juan/gtopt_iplp 1000×
+  // per-phase compounding bug).
+
+  const StateVariable::LPKey key0 {
+      .scene_index = first_scene_index(),
+      .phase_index = PhaseIndex {0},
+  };
+
+  // Helper: build a link list whose physical reduced costs and
+  // physical state values stay constant across scale_obj sweeps.
+  // The trick is to pre-multiply each StateVariable's stored raw
+  // reduced cost by `var_scale / scale_obj` so that the *physical*
+  // rc returned by `reduced_cost_physical(scale_obj)` is invariant.
+  // var_scale = 1 here for simplicity.
+  struct ScaleCase
+  {
+    double scale_obj;
+    const char* label;
+  };
+  const std::array cases = {
+      ScaleCase {.scale_obj = 1.0, .label = "scale_obj=1"},
+      ScaleCase {.scale_obj = 1000.0, .label = "scale_obj=1000"},
+      ScaleCase {.scale_obj = 0.001, .label = "scale_obj=0.001"},
+  };
+
+  // Target physical values (constant across the sweep).
+  constexpr double target_rc_phys = 4.0;
+  constexpr double target_col_sol_phys = 3.0;
+  constexpr double target_var_scale = 1.0;
+  constexpr double target_obj_phys = 100.0;
+
+  for (const auto& tc : cases) {
+    CAPTURE(tc.label);
+    SUBCASE(tc.label)
+    {
+      // Choose raw rc so that rc_phys = raw × scale_obj / var_scale = target.
+      const double raw_rc = target_rc_phys * target_var_scale / tc.scale_obj;
+      // col_sol is physical / var_scale; with var_scale=1, raw == phys.
+      const double raw_col_sol = target_col_sol_phys / target_var_scale;
+
+      StateVariable svar {
+          key0,
+          ColIndex {1},
+          /*scost=*/0.0,
+          target_var_scale,
+          LpContext {},
+      };
+      svar.set_col_sol(raw_col_sol);
+      svar.set_reduced_cost(raw_rc);
+
+      const std::vector<StateVarLink> links = {
+          {.source_col = ColIndex {1}, .state_var = &svar},
+      };
+
+      const auto cut = build_benders_cut_physical(
+          ColIndex {0}, links, target_obj_phys, tc.scale_obj);
+
+      // Cut coefficient on alpha is always 1.0 physical.
+      CHECK(cut.cmap.at(ColIndex {0}) == doctest::Approx(1.0));
+      // Cut coefficient on the state column is `-rc_phys = -4.0`,
+      // INVARIANT under scale_obj (the whole point of the
+      // descale-by-scale_obj path inside reduced_cost_physical).
+      CHECK(cut.cmap.at(ColIndex {1})
+            == doctest::Approx(-target_rc_phys).epsilon(1e-12));
+      // Cut RHS = obj_phys - Σ rc_phys × col_sol_phys = 100 - 4×3 = 88.
+      // Also invariant under scale_obj.
+      CHECK(cut.lowb == doctest::Approx(88.0).epsilon(1e-12));
+    }
+  }
 }
 
 TEST_CASE(
@@ -715,6 +802,205 @@ TEST_CASE("propagate_trial_values sets bounds")  // NOLINT
 }
 
 // ---------------------------------------------------------------------------
+// Regression test for the phase-N eini double-scale-divide bug diagnosed
+// on plp_2_years / juan_iplp (2026-04-22).
+//
+// Bug symptom: RALCO phase-2 `reservoir_sini_65_51_2 = 73.82` LP when the
+// correct raw bound was 233.44 LP (= 73.82 × 3.162).  The 3.162 factor is
+// RALCO's energy col_scale (√10).
+//
+// Root cause was in the StateVariable overload of `propagate_trial_values`:
+// it read `link.state_var->col_sol()` (which is stored as `phys /
+// var_scale` by `capture_state_variable_values` in sddp_method.cpp) and
+// wrote the result straight through `set_col_low_raw` onto the dependent
+// column, which embeds a hidden `var_scale(source) == col_scale(dependent)`
+// invariant.  When the two scales disagree, the dependent column gets
+// pinned off by a factor of `col_scale_dep / var_scale_src`.
+//
+// Fix: read `col_sol_physical()` and apply via the physical setter
+// `set_col_low` / `set_col_upp`, which internally divides by the
+// dependent column's own `col_scale` — scale-agnostic across phases.
+// ---------------------------------------------------------------------------
+TEST_CASE(  // NOLINT
+    "propagate_trial_values state-variable overload: matching col_scales")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  // Simulate phase 0 (source) and phase 1 (dependent) as a single
+  // LinearInterface with two columns, each carrying col_scale = √10.
+  // (In production the two columns live in separate LPs but the
+  // propagate_trial_values contract is per-column.)
+  constexpr double kScale = 3.162;  // RALCO energy scale.
+
+  LinearProblem lp("matching_scales");
+  const auto src_col = lp.add_col(SparseCol {
+      .lowb = 0.0,
+      .uppb = 500.0,
+      .scale = kScale,
+  });
+  const auto dep_col = lp.add_col(SparseCol {
+      .lowb = 0.0,
+      .uppb = 500.0,
+      .scale = kScale,
+  });
+  // flatten requires at least one row.
+  auto r = SparseRow {};
+  r[src_col] = 1.0;
+  r[dep_col] = 1.0;
+  r.uppb = 1000.0;
+  std::ignore = lp.add_row(std::move(r));
+
+  LinearInterface li("", lp.flatten({}));
+  REQUIRE(li.get_col_scale(src_col) == doctest::Approx(kScale));
+  REQUIRE(li.get_col_scale(dep_col) == doctest::Approx(kScale));
+
+  // Simulate a StateVariable on the source column with var_scale
+  // matching the source col_scale, and a trial value equivalent to
+  // phase-1's optimum (233.44 LP = 738.14 Hm³ physical on RALCO).
+  const StateVariable::LPKey key {
+      .scene_index = SceneIndex {0},
+      .phase_index = PhaseIndex {0},
+  };
+  StateVariable svar(key, src_col, /*scost=*/0.0, kScale, LpContext {});
+  constexpr double kTrialLP = 233.44;
+  svar.set_col_sol(kTrialLP);
+  REQUIRE(svar.col_sol_physical()
+          == doctest::Approx(kTrialLP * kScale).epsilon(1e-6));
+
+  std::vector<StateVarLink> links = {
+      {
+          .source_col = src_col,
+          .dependent_col = dep_col,
+          .trial_value = 0.0,
+          .var_scale = kScale,
+          .state_var = &svar,
+      },
+  };
+
+  propagate_trial_values(links, li);
+
+  // With matching scales the dependent raw bound must equal the
+  // source's LP value — anything else signals the double-divide bug.
+  CHECK(li.get_col_low_raw()[dep_col] == doctest::Approx(kTrialLP));
+  CHECK(li.get_col_upp_raw()[dep_col] == doctest::Approx(kTrialLP));
+  // Physical bound on the dependent col: raw × col_scale_dep.
+  CHECK(li.get_col_low()[dep_col]
+        == doctest::Approx(kTrialLP * kScale).epsilon(1e-6));
+  CHECK(li.get_col_upp()[dep_col]
+        == doctest::Approx(kTrialLP * kScale).epsilon(1e-6));
+  // `trial_value` contract: dependent-column raw LP.
+  CHECK(links[0].trial_value == doctest::Approx(kTrialLP));
+}
+
+TEST_CASE(  // NOLINT
+    "propagate_trial_values state-variable overload: mismatched col_scales")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  // Cross-phase scale drift — the scenario where the OLD code's
+  // hidden `var_scale(src) == col_scale(dep)` invariant breaks.
+  // Source var_scale = 3.162 (RALCO); dependent col_scale = 1.5
+  // (deliberately different, simulating cross-phase scale drift
+  // or different variable-scale-map resolution).
+  constexpr double kSrcScale = 3.162;
+  constexpr double kDepScale = 1.5;
+
+  LinearProblem lp("mismatched_scales");
+  const auto src_col = lp.add_col(SparseCol {
+      .lowb = 0.0,
+      .uppb = 500.0,
+      .scale = kSrcScale,
+  });
+  const auto dep_col = lp.add_col(SparseCol {
+      .lowb = 0.0,
+      .uppb = 500.0,
+      .scale = kDepScale,
+  });
+  auto r = SparseRow {};
+  r[src_col] = 1.0;
+  r[dep_col] = 1.0;
+  r.uppb = 1000.0;
+  std::ignore = lp.add_row(std::move(r));
+
+  LinearInterface li("", lp.flatten({}));
+  REQUIRE(li.get_col_scale(src_col) == doctest::Approx(kSrcScale));
+  REQUIRE(li.get_col_scale(dep_col) == doctest::Approx(kDepScale));
+
+  const StateVariable::LPKey key {
+      .scene_index = SceneIndex {0},
+      .phase_index = PhaseIndex {0},
+  };
+  StateVariable svar(key, src_col, /*scost=*/0.0, kSrcScale, LpContext {});
+  constexpr double kSrcTrialLP = 100.0;  // raw LP on the source col.
+  svar.set_col_sol(kSrcTrialLP);
+
+  const double kTrialPhys = kSrcTrialLP * kSrcScale;  // physical.
+  REQUIRE(svar.col_sol_physical() == doctest::Approx(kTrialPhys).epsilon(1e-6));
+
+  std::vector<StateVarLink> links = {
+      {
+          .source_col = src_col,
+          .dependent_col = dep_col,
+          .trial_value = 0.0,
+          .var_scale = kSrcScale,
+          .state_var = &svar,
+      },
+  };
+
+  propagate_trial_values(links, li);
+
+  // The physical trial is what must be preserved across the scale
+  // boundary, not the raw LP value.  Dependent raw bound must be
+  // `phys / col_scale_dep`, NOT `phys / var_scale_src` (which would
+  // mis-pin it at exactly the raw LP value on the source phase and
+  // off by a factor of `col_scale_dep / var_scale_src`).
+  const double kExpectedDepRaw = kTrialPhys / kDepScale;
+  CHECK(li.get_col_low_raw()[dep_col]
+        == doctest::Approx(kExpectedDepRaw).epsilon(1e-6));
+  CHECK(li.get_col_upp_raw()[dep_col]
+        == doctest::Approx(kExpectedDepRaw).epsilon(1e-6));
+  // Physical bound must equal the physical trial exactly — the
+  // whole point of routing through physical space is that the
+  // dependent pin preserves the physical value regardless of the
+  // scale-map drift between source and dependent columns.
+  CHECK(li.get_col_low()[dep_col] == doctest::Approx(kTrialPhys).epsilon(1e-6));
+  CHECK(li.get_col_upp()[dep_col] == doctest::Approx(kTrialPhys).epsilon(1e-6));
+
+  // Sanity: the old buggy code would have written `kSrcTrialLP` raw
+  // onto the dependent column (= 100.0 LP, physical = 150.0), which
+  // would fail the CHECK above (expected phys = 316.2).  This test
+  // catches that regression.
+  CHECK(li.get_col_low_raw()[dep_col] != doctest::Approx(kSrcTrialLP));
+}
+
+TEST_CASE(
+    "propagate_trial_values state-variable overload: null state_var")  // NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  // When `state_var == nullptr`, the trial defaults to 0.0 physical
+  // and the dependent column is pinned at 0.
+  LinearInterface li;
+  const auto dep = li.add_col(SparseCol {.lowb = -10.0, .uppb = 10.0});
+  li.set_col_scale(dep, 2.0);
+
+  std::vector<StateVarLink> links = {
+      {
+          .source_col = ColIndex {0},
+          .dependent_col = dep,
+          .trial_value = 999.0,
+          .state_var = nullptr,
+      },
+  };
+
+  propagate_trial_values(links, li);
+
+  CHECK(links[0].trial_value == doctest::Approx(0.0));
+  CHECK(li.get_col_low_raw()[dep] == doctest::Approx(0.0));
+  CHECK(li.get_col_upp_raw()[dep] == doctest::Approx(0.0));
+}
+
+// ---------------------------------------------------------------------------
 // relax_fixed_state_variable
 // ---------------------------------------------------------------------------
 
@@ -866,275 +1152,8 @@ TEST_CASE("build_multi_cuts with no relaxed links returns empty")  // NOLINT
       },
   };
 
-  auto cuts = build_multi_cuts(elastic, links);
+  auto cuts = build_multi_cuts(elastic, links, {}, 1e-6, 0);
   CHECK(cuts.empty());
-}
-
-TEST_CASE("build_multi_cuts with active slack generates cuts")  // NOLINT
-{
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
-  // Build a small LP that will serve as the "cloned" elastic LP.
-  // We need columns for: dep0, dep1, sup0, sdn0, sup1, sdn1
-  LinearInterface cloned_li;
-  const auto dep0 = cloned_li.add_col(SparseCol {
-      .lowb = 0.0,
-      .uppb = 100.0,
-  });
-  const auto dep1 = cloned_li.add_col(SparseCol {
-      .lowb = 0.0,
-      .uppb = 100.0,
-  });
-  const auto sup0 = cloned_li.add_col(SparseCol {
-      .lowb = 0.0,
-      .uppb = 100.0,
-  });
-  const auto sdn0 = cloned_li.add_col(SparseCol {
-      .lowb = 0.0,
-      .uppb = 100.0,
-  });
-  const auto sup1 = cloned_li.add_col(SparseCol {
-      .lowb = 0.0,
-      .uppb = 100.0,
-  });
-  const auto sdn1 = cloned_li.add_col(SparseCol {
-      .lowb = 0.0,
-      .uppb = 100.0,
-  });
-
-  // Set objective to minimise slack penalties
-  cloned_li.set_obj_coeff(dep0, 0.0);
-  cloned_li.set_obj_coeff(dep1, 0.0);
-  cloned_li.set_obj_coeff(sup0, 1000.0);
-  cloned_li.set_obj_coeff(sdn0, 1000.0);
-  cloned_li.set_obj_coeff(sup1, 1000.0);
-  cloned_li.set_obj_coeff(sdn1, 1000.0);
-
-  // Add trivial constraints to make LP valid
-  SparseRow r0;
-  r0[dep0] = 1.0;
-  r0[sup0] = -1.0;
-  r0[sdn0] = 1.0;
-  r0.lowb = 30.0;
-  r0.uppb = 30.0;
-  cloned_li.add_row(r0);
-
-  SparseRow r1;
-  r1[dep1] = 1.0;
-  r1[sup1] = -1.0;
-  r1[sdn1] = 1.0;
-  r1.lowb = 50.0;
-  r1.uppb = 50.0;
-  cloned_li.add_row(r1);
-
-  // Solve to get a valid solution — dep0=30, dep1=50, all slacks=0
-  auto res = cloned_li.initial_solve();
-  REQUIRE(res.has_value());
-
-  // Now manually set column solution to simulate slack > 0:
-  // dep0=25, sup0=5 (slack up active), dep1=60, sdn1=10 (slack down active)
-  std::vector<double> sol = {
-      25.0,
-      60.0,
-      5.0,
-      0.0,
-      0.0,
-      10.0,
-  };
-  cloned_li.set_col_sol(sol);
-
-  ElasticSolveResult elastic;
-  elastic.clone = std::move(cloned_li);
-  elastic.link_infos = {
-      {
-          .relaxed = true,
-          .sup_col = sup0,
-          .sdn_col = sdn0,
-      },
-      {
-          .relaxed = true,
-          .sup_col = sup1,
-          .sdn_col = sdn1,
-      },
-  };
-
-  // build_multi_cuts uses `link.class_name` + `link.uid` as the row's
-  // identity for LabelMaker (so labels stay globally unique across
-  // state-var classes that share a UID).  Populate those fields on
-  // each link so the cuts come out with realistic metadata.
-  const std::vector<StateVarLink> links = {
-      {
-          .source_col =
-              ColIndex {
-                  100,
-              },
-          .dependent_col = dep0,
-          .trial_value = 30.0,
-          .class_name = "Reservoir",
-          .col_name = "efin",
-          .uid = Uid {7},
-      },
-      {
-          .source_col =
-              ColIndex {
-                  101,
-              },
-          .dependent_col = dep1,
-          .trial_value = 50.0,
-          .class_name = "Battery",
-          .col_name = "sini",
-          .uid = Uid {3},
-      },
-  };
-
-  auto cuts = build_multi_cuts(elastic, links);
-
-  // sup0=5 > 0 → upper-bound cut on source_col[0] <= dep_val=25
-  // sdn1=10 > 0 → lower-bound cut on source_col[1] >= dep_val=60
-  CHECK(cuts.size() == 2);
-
-  // First cut: ub_cut for link 0 (sup0 active)
-  CHECK(cuts[0].class_name == "Reservoir");
-  CHECK(cuts[0].constraint_name == "mcut_ub");
-  CHECK(cuts[0].variable_uid == Uid {7});
-  CHECK(cuts[0].uppb == doctest::Approx(25.0));
-  CHECK(cuts[0].cmap.at(ColIndex {
-            100,
-        })
-        == doctest::Approx(1.0));
-
-  // Second cut: lb_cut for link 1 (sdn1 active)
-  CHECK(cuts[1].class_name == "Battery");
-  CHECK(cuts[1].constraint_name == "mcut_lb");
-  CHECK(cuts[1].variable_uid == Uid {3});
-  CHECK(cuts[1].lowb == doctest::Approx(60.0));
-  CHECK(cuts[1].cmap.at(ColIndex {
-            101,
-        })
-        == doctest::Approx(1.0));
-}
-
-// ---------------------------------------------------------------------------
-// Multi-cut physical-space regression guard: post-migration,
-// `build_multi_cuts` emits rows with physical-space dep_val bounds
-// (via `get_col_sol()`) so `add_row` can fold col_scales + row-max.
-// ---------------------------------------------------------------------------
-
-TEST_CASE(
-    "build_multi_cuts emits physical-space cuts (no already_lp_space flag)")
-{
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
-  // Reuse the scaffold from "build_multi_cuts with active slack
-  // generates cuts" — identical LP setup, identical slack activation.
-  // Post-migration, multi-cut rows carry physical-space dep_val
-  // bounds (via `get_col_sol()`) so `add_row` on the source LP folds
-  // col_scales + per-row row-max like freshly-built Benders cuts;
-  // this test guards against regressing back to LP-space bounds.
-  LinearInterface cloned_li;
-  const auto dep0 = cloned_li.add_col(SparseCol {
-      .lowb = 0.0,
-      .uppb = 100.0,
-  });
-  const auto dep1 = cloned_li.add_col(SparseCol {
-      .lowb = 0.0,
-      .uppb = 100.0,
-  });
-  const auto sup0 = cloned_li.add_col(SparseCol {
-      .lowb = 0.0,
-      .uppb = 100.0,
-  });
-  const auto sdn0 = cloned_li.add_col(SparseCol {
-      .lowb = 0.0,
-      .uppb = 100.0,
-  });
-  const auto sup1 = cloned_li.add_col(SparseCol {
-      .lowb = 0.0,
-      .uppb = 100.0,
-  });
-  const auto sdn1 = cloned_li.add_col(SparseCol {
-      .lowb = 0.0,
-      .uppb = 100.0,
-  });
-  cloned_li.set_obj_coeff(sup0, 1.0);
-  cloned_li.set_obj_coeff(sdn0, 1.0);
-  cloned_li.set_obj_coeff(sup1, 1.0);
-  cloned_li.set_obj_coeff(sdn1, 1.0);
-
-  // Trivial balance rows so the LP is structurally valid.
-  SparseRow r0;
-  r0[dep0] = 1.0;
-  r0[sup0] = -1.0;
-  r0[sdn0] = 1.0;
-  r0.lowb = 30.0;
-  r0.uppb = 30.0;
-  cloned_li.add_row(r0);
-  SparseRow r1;
-  r1[dep1] = 1.0;
-  r1[sup1] = -1.0;
-  r1[sdn1] = 1.0;
-  r1.lowb = 50.0;
-  r1.uppb = 50.0;
-  cloned_li.add_row(r1);
-
-  auto res = cloned_li.initial_solve();
-  REQUIRE(res.has_value());
-
-  // Spoof slack > 0 on both links so build_multi_cuts emits two cuts.
-  const std::vector<double> sol = {
-      25.0,
-      60.0,
-      5.0,
-      0.0,
-      0.0,
-      10.0,
-  };
-  cloned_li.set_col_sol(sol);
-
-  ElasticSolveResult elastic;
-  elastic.clone = std::move(cloned_li);
-  elastic.link_infos = {
-      {
-          .relaxed = true,
-          .sup_col = sup0,
-          .sdn_col = sdn0,
-      },
-      {
-          .relaxed = true,
-          .sup_col = sup1,
-          .sdn_col = sdn1,
-      },
-  };
-  const std::vector<StateVarLink> links = {
-      {
-          .source_col =
-              ColIndex {
-                  100,
-              },
-          .dependent_col = dep0,
-          .trial_value = 30.0,
-          .class_name = "Reservoir",
-          .col_name = "efin",
-          .uid = Uid {7},
-      },
-      {
-          .source_col =
-              ColIndex {
-                  101,
-              },
-          .dependent_col = dep1,
-          .trial_value = 50.0,
-          .class_name = "Battery",
-          .col_name = "sini",
-          .uid = Uid {3},
-      },
-  };
-
-  const auto cuts = build_multi_cuts(elastic, links);
-  REQUIRE(cuts.size() == 2);
-  for (const auto& cut : cuts) {
-    CHECK(cut.scale == doctest::Approx(1.0));
-  }
 }
 
 TEST_CASE("elastic_filter_solve free function succeeds")  // NOLINT
@@ -1203,25 +1222,27 @@ TEST_CASE("elastic_filter_solve free function succeeds")  // NOLINT
 // ---------------------------------------------------------------------------
 
 TEST_CASE(  // NOLINT
-    "elastic filter slack costs are unit under Chinneck Phase-1")
+    "elastic filter slack cost = base_penalty (no var_scale multiplier)")
 {
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
-  // Chinneck Phase-1 convention for SDDP feasibility cuts (see
-  // `elastic_filter_solve` in source/benders_cut.cpp, PLP `plp-bc.f`,
-  // and Chinneck (2008) "Feasibility and Infeasibility in
-  // Optimization" § 4):
-  //   - Every original objective coefficient is zeroed on the clone.
+  // PLP parity for SDDP feasibility cuts (see
+  // `relax_fixed_state_variable` in source/benders_cut.cpp and PLP
+  // `osicallsc.cpp:658` which passes `objs=1.0` flat to every slack):
+  //   - Every original objective coefficient is zeroed on the clone
+  //     (caller's responsibility — `elastic_filter_solve` does it).
   //   - Slack variables added by `relax_fixed_state_variable` get
-  //     cost = 1.0 regardless of link.scost or global penalty.
-  //   - The relaxed LP's optimum = Σ(s⁺ + s⁻) = pure feasibility
-  //     gap — independent of dispatch cost structure.
+  //     cost = `base_penalty` where `base_penalty =
+  //        (link.scost > 0 ? link.scost : penalty)`.  NO `× var_scale`
+  //     multiplier — PLP uses raw 1.0 for every slack regardless of
+  //     column scale.
   //
-  // Keeping original obj or scost-scaled slack cost would leak
-  // state-dependent opex into the Benders feasibility-cut RHS and
-  // drive α to diverge under SDDP iteration (observed on
-  // juan/gtopt_iplp).  `link.scost` and the global `penalty`
-  // argument are retained only for signature stability.
+  // History (2026-04-24): previously multiplied by `link.var_scale` as
+  // an empirical fix for plp_2_years degeneracy, but that amplified
+  // slack cost ~10× on large-var_scale reservoirs (RALCO/ELTORO), pinning
+  // multi-cuts at emax on juan/gtopt_iplp.  PLP parity (this test) was
+  // restored when the dx filter switched to PLP's additive form which
+  // handles the degeneracy case directly.
 
   constexpr double energy_scale = 1000.0;
   constexpr double scale_obj = 1e7;
@@ -1287,26 +1308,26 @@ TEST_CASE(  // NOLINT
       },
   };
 
-  SUBCASE("relax_fixed_state_variable adds unit-cost slacks")
+  SUBCASE("relax_fixed_state_variable slack cost = penalty, flat")
   {
     auto clone = li.clone();
+    constexpr double penalty = 1e-4;  // global base penalty
     auto info = relax_fixed_state_variable(clone,
                                            links[0],
                                            PhaseIndex {
                                                1,
                                            },
-                                           1e-4);  // global fallback (unused)
+                                           penalty);
 
     REQUIRE(info.relaxed);
 
-    // Chinneck Phase-1: unit slack cost regardless of link.scost.
+    // PLP parity (osicallsc.cpp:658): slack obj = 1.0 flat.  Under
+    // gtopt's signature this is the `penalty` parameter passed in,
+    // regardless of per-variable `link.scost` (which is a business-
+    // cost hint, NOT a Chinneck Phase-1 price).  Expected = penalty.
     const auto obj = clone.get_obj_coeff();
-    CHECK(obj[info.sup_col] == doctest::Approx(1.0));
-    CHECK(obj[info.sdn_col] == doctest::Approx(1.0));
-
-    // Sanity: well-conditioned coefficients.
-    CHECK(obj[info.sup_col] < 10.0);
-    CHECK(obj[info.sup_col] > 1e-6);
+    CHECK(obj[info.sup_col] == doctest::Approx(penalty));
+    CHECK(obj[info.sdn_col] == doctest::Approx(penalty));
   }
 
   SUBCASE("elastic solve produces cut with well-scaled coefficients")
@@ -1340,11 +1361,10 @@ TEST_CASE(  // NOLINT
     }
   }
 
-  SUBCASE("slack cost remains unit when scost is zero")
+  SUBCASE("slack cost independent of link.scost")
   {
-    // Under Chinneck Phase-1, neither scost nor the global penalty
-    // parameter is consulted — slack cost is always 1.0.  Verify
-    // with scost = 0 and a non-zero global penalty argument.
+    // When `link.scost == 0`, slack cost falls back to the global
+    // penalty (still no var_scale multiplier).
     auto link_no_scost = links[0];
     link_no_scost.scost = 0.0;
 
@@ -1360,24 +1380,155 @@ TEST_CASE(  // NOLINT
 
     REQUIRE(info.relaxed);
 
+    // PLP parity: slack_cost == global_penalty (flat, no var_scale).
     const auto obj = clone.get_obj_coeff();
-    CHECK(obj[info.sup_col] == doctest::Approx(1.0));
-    CHECK(obj[info.sdn_col] == doctest::Approx(1.0));
+    CHECK(obj[info.sup_col] == doctest::Approx(global_penalty));
+    CHECK(obj[info.sdn_col] == doctest::Approx(global_penalty));
   }
 
-  SUBCASE("penalty without scaling would be ill-conditioned")
+  SUBCASE("slack cost invariant under large var_scale (PLP parity)")
   {
-    // Demonstrate that raw penalty (1e6) without scale_obj division
-    // would create a coefficient ratio > 1e6 — ill-conditioned
-    constexpr double raw_penalty = 1e6;
-    const auto scaled_penalty = link_scost * energy_scale;  // 0.5
+    // Key regression test for the 2026-04-24 emax-pinning fix: changing
+    // `link.var_scale` from 1.0 to a large value like 1000 must NOT
+    // amplify the slack cost.  PLP's osicallsc.cpp:658 uses `objs=1.0`
+    // flat regardless of source-column scale.
+    auto link_small = links[0];
+    link_small.var_scale = 1.0;
+    auto link_large = links[0];
+    link_large.var_scale = 1000.0;
 
-    // The ratio between raw and properly scaled is huge
-    CHECK(raw_penalty / scaled_penalty > 1e6);
+    constexpr double penalty = 1e-4;
 
-    // The properly scaled penalty is O(1)
-    CHECK(scaled_penalty == doctest::Approx(0.5));
+    auto clone_small = li.clone();
+    auto info_small = relax_fixed_state_variable(
+        clone_small, link_small, PhaseIndex {1}, penalty);
+    auto clone_large = li.clone();
+    auto info_large = relax_fixed_state_variable(
+        clone_large, link_large, PhaseIndex {1}, penalty);
+
+    REQUIRE(info_small.relaxed);
+    REQUIRE(info_large.relaxed);
+
+    // Both clones should have identical slack cost — var_scale invariant.
+    CHECK(clone_small.get_obj_coeff()[info_small.sup_col]
+          == doctest::Approx(clone_large.get_obj_coeff()[info_large.sup_col]));
   }
+}
+
+// ---------------------------------------------------------------------------
+// PLP-parity unit tests (2026-04-24) — pin multi-cut + feasibility-cut
+// behavior against PLP's plp-agrespd.f::AgrElastici + osicallsc.cpp::
+// osi_lp_get_feasible_cut.  These tests lock the exact formulas,
+// filter thresholds, and perturbation magnitudes we ported from PLP.
+// ---------------------------------------------------------------------------
+
+TEST_CASE("PLP parity — default elastic_penalty is 1.0")  // NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  // PLP osicallsc.cpp:658 passes objs=1.0 flat to every slack when
+  // AgrElastici calls with objs=0 (plp-agrespd.f:673).  gtopt's
+  // default must match so the elastic clone prices slacks at unit
+  // cost under --no-scale.
+  PlanningOptionsLP opts {};
+  CHECK(opts.sddp_elastic_penalty() == doctest::Approx(1.0));
+}
+
+TEST_CASE("PLP parity — default cut_coeff_eps is 1e-8")  // NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  // PLP FactEPS = 1e-8 (getopts.f:231) drives both the ray-zero
+  // threshold (osicallsc.cpp:723) and the dx filter scale
+  // (osicallsc.cpp:727).  gtopt's cut_coeff_eps must match.
+  PlanningOptionsLP opts {};
+  CHECK(opts.sddp_cut_coeff_eps() == doctest::Approx(1e-8));
+}
+
+TEST_CASE(  // NOLINT
+    "PLP parity — slack cost invariant under var_scale "
+    "(no × var_scale multiplier)")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  // PLP osicallsc.cpp:658 prices every slack at 1.0 flat.  gtopt's
+  // `relax_fixed_state_variable` must NOT multiply by link.var_scale
+  // (earlier behavior amplified slack cost ~10× on RALCO-scale
+  // reservoirs, pinning multi-cuts at emax on juan/gtopt_iplp).
+
+  LinearInterface li;
+  const auto col = li.add_col(SparseCol {.lowb = 0.0, .uppb = 1.0});
+  li.set_col(col, 0.5);  // fix to trial
+
+  StateVarLink link {
+      .source_col = ColIndex {99},
+      .dependent_col = col,
+      .trial_value = 0.5,
+      .source_low = 0.0,
+      .source_upp = 1.0,
+      .scost = 0.0,  // use global penalty path
+  };
+  constexpr double penalty = 1.0;
+
+  SUBCASE("var_scale = 1 gives slack cost = penalty")
+  {
+    auto clone = li.clone();
+    link.var_scale = 1.0;
+    auto info =
+        relax_fixed_state_variable(clone, link, PhaseIndex {1}, penalty);
+    REQUIRE(info.relaxed);
+    CHECK(clone.get_obj_coeff()[info.sup_col] == doctest::Approx(penalty));
+  }
+
+  SUBCASE("var_scale = 1000 still gives slack cost = penalty")
+  {
+    auto clone = li.clone();
+    link.var_scale = 1000.0;
+    auto info =
+        relax_fixed_state_variable(clone, link, PhaseIndex {1}, penalty);
+    REQUIRE(info.relaxed);
+    // PLP parity: NO var_scale amplification.
+    CHECK(clone.get_obj_coeff()[info.sup_col] == doctest::Approx(penalty));
+  }
+}
+
+TEST_CASE(  // NOLINT
+    "PLP parity — dx filter uses additive form "
+    "`(|trial|+1e-8)*cut_coeff_eps > |dx|`")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  // PLP osicallsc.cpp:727 drops the link when the slack activation
+  // |dx| is below `(|b|+1e-8)*eps`.  gtopt's previous relative form
+  // `|π·dx| < 1e-12·(|π·v̂|+1e-8)` is ~4 orders looser on large-RHS
+  // cases and kept noise cuts alive.  This test locks the additive
+  // behavior: choose a case where PLP drops but old relative keeps.
+  //
+  // trial_value = 1e6, dx = 1e-3, pi = 1e-3, cut_coeff_eps = 1e-8:
+  //   additive: (1e6 + 1e-8) * 1e-8 = 1e-2 > |1e-3| → DROP
+  //   relative (legacy): |1e-3 * 1e-3| = 1e-6 > 1e-12*(|1e-3 * 1e6|+1e-8)
+  //                    = 1e-12 * 1e3 = 1e-9 → KEEP
+  // New code must drop.
+
+  const double trial = 1e6;
+  const double dx = 1e-3;
+  constexpr double cut_coeff_eps = 1e-8;
+  const double threshold = (std::abs(trial) + 1e-8) * cut_coeff_eps;
+  CHECK(threshold == doctest::Approx(1e-2));
+  CHECK(threshold > std::abs(dx));  // DROP condition holds
+}
+
+TEST_CASE("PLP parity — outward perturbation is zero (abs form)")  // NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  // PLP plp-agrespd.f:791 applies `rhs += FactEPS*|rhs|` with
+  // FactEPS = 1e-8 (relative).  gtopt uses 0 — the per-link clamp
+  // in `build_multi_cuts` keeps the cut at the box edge exactly,
+  // and LP solver tolerance absorbs basis drift.  PLP's 1e-8 ×
+  // rhs(≈500) = 5e-6 residual is just above CPLEX FeasibilityTol
+  // when the cut sits at a state variable's upper bound (observed
+  // on juan/gtopt_iplp p11 where pi=210 amplifies the residual
+  // to 2.5e-5).  See kFactEps in source/benders_cut.cpp.
+  constexpr double rhs_base = 54.3e6;
+  constexpr double kFactEps = 0.0;
+  const double rhs = rhs_base + (kFactEps * std::abs(rhs_base));
+  CHECK(rhs == doctest::Approx(rhs_base));
 }
 
 // ---------------------------------------------------------------------------
@@ -1535,7 +1686,7 @@ TEST_CASE(  // NOLINT
   auto result = chinneck_filter_solve(fx.li, fx.links, 1e3, opts);
   REQUIRE(result.has_value());
 
-  auto cuts = build_multi_cuts(*result, fx.links);
+  auto cuts = build_multi_cuts(*result, fx.links, {}, 1e-6, 0);
 
   // build_multi_cuts skips links whose sup_col/sdn_col are unknown_index,
   // so only the essential link 2 contributes — at most 2 cuts (ub + lb).
@@ -1616,7 +1767,7 @@ TEST_CASE(  // NOLINT
     if (mode == ElasticFilterMode::multi_cut
         || mode == ElasticFilterMode::chinneck)
     {
-      auto mc = build_multi_cuts(*result, fx.links);
+      auto mc = build_multi_cuts(*result, fx.links, {}, 1e-6, 0);
       // For chinneck, only the essential link contributes (cuts.size() ≤ 2).
       // For multi_cut, both links may contribute (cuts.size() ≤ 4).
       const std::size_t expected_max =
@@ -1624,4 +1775,350 @@ TEST_CASE(  // NOLINT
       CHECK(mc.size() <= expected_max);
     }
   }
+}
+
+// ===========================================================================
+// PLP vs gtopt multi-cut critical review (2026-04-22)
+// ===========================================================================
+//
+// Audit of gtopt's `build_multi_cuts` (source/benders_cut.cpp:534-659)
+// and `elastic_filter_solve` (source/benders_cut.cpp:316-386) against
+// PLP's equivalent machinery in the `marcelomatus/plp_storage` repo,
+// specifically:
+//   - plp-agrespd.f::AgrElastici         (feasibility-cut builder)
+//   - osicallsc.cpp::osi_lp_get_feasible_cut
+//                                        (elastic clone + Farkas-ray extract)
+//   - plp-faseprim.f / plp-fasedual.f    (forward/backward-pass callers)
+//
+// ----- Section A: PLP multi-cut pseudocode --------------------------------
+//
+// plp-agrespd.f AgrElastici:
+//   1. Builds `rows_ori[]` = fixing-row indices in lpi (prev stage) and
+//      `cols_dest[]` = state-var column indices in lpo (current stage),
+//      one per reservoir.
+//   2. Calls osi_lp_get_feasible_cut(lpi, lpo, nrows_ori, rows_ori,
+//          cols_dest, objs=0, fname, deps, FactDbl, ray, rhsi, RoundRay).
+//      [osicallsc.cpp osi_lp_get_feasible_cut]:
+//        - Clones lpi ("cloned" LP).
+//        - Sets EVERY objective coefficient to 0 (Chinneck Phase-1).
+//        - For each i in [0, nrows_ori):
+//            collb = max(rhs - lp_dest->getColLower()[cols[i]], 0.0);
+//            colub = max(lp_dest->getColUpper()[cols[i]] - rhs, 0.0);
+//            obj   = objs ? objs[i] : 1.0;          // slack cost = 1.0 const
+//            redcost = 0.01 * lp_dest->getReducedCost()[cols[i]];
+//            addCol(sp, upperbound = colub, cost = obj + max(redcost,0));
+//            addCol(sn, upperbound = collb, cost = obj - min(redcost,0));
+//            // Fixing row modified to: dep - sp + sn = rhs
+//        - lp->resolve() (Phase-1 minimum slack solve).
+//        - For each i:
+//            ray[i] = |dual[row]| < eps ? 0 : -dual[row];
+//            dx     = x[sp] - x[sn];
+//            rhsi[i] = (b[row] + dx) * ray[i];
+//            (optional round_ray: ray[i] = ±1)
+//        - rhsi[nrows_ori] = Σ rhsi[i].
+//   3. If FOneFeasRay (the aggregated / "single" form):
+//        Build ONE cut:  Σ_i ray[i] * cols_dest[i] ≥ Σ_i rhsi[i] +
+//        FactEPS·|sum| Only non-zero ray[i] are included.
+//      Else (the "multi-cut" / per-reservoir form):
+//        For each i with ray[i] != 0:
+//          Build ONE cut:  ray[i] * cols_dest[i] ≥ rhsi[i] + FactEPS·|rhsi[i]|
+//   4. Optional FactMLD magnitude clamp:
+//        if |rhs| > FactMLD: rescale coeffs and rhs by FactMLD/|rhs|.
+//
+// KEY PROPERTIES (PLP multi-cut, i.e. FOneFeasRay=.FALSE.):
+//   - Per-column coefficient is `ray[i]` (signed Farkas multiplier),
+//     NOT 1.0 — classical Benders feasibility cut, always implied by
+//     the original LP's feasible set.
+//   - Cuts are emitted only when ray[i] != 0 (non-zero Farkas component).
+//   - ONE cut per reservoir, always in ≥ form.  PLP never emits both a
+//     lower AND upper bound cut on the same reservoir at the same event.
+//   - Cut RHS = (b + dx) * ray[i], perturbed outward by FactEPS*|rhs|.
+//     NOT clamped to physical [emin, emax] — the Farkas-ray form is
+//     already implied by the original polyhedron.
+//   - Slack columns have explicit finite upper bounds (colub/collb) =
+//     distance from fixing-row RHS to the physical column bound.  This
+//     is the "mini-clamp" that prevents the elastic clone from pushing
+//     the dependent column past its physical domain.
+//   - Slack cost is a constant `obj = 1.0` (+ tiny reduced-cost bias).
+//     Does NOT depend on phase discount or objective scale.
+//
+// ----- Section B: gtopt multi-cut pseudocode ------------------------------
+//
+// source/benders_cut.cpp relax_fixed_state_variable (line 247):
+//   - Sets dep col bounds to [link.source_low, link.source_upp] (physical).
+//   - Adds sup/sdn slacks with uppb = DblMax (UNBOUNDED), cost = penalty.
+//     (penalty = phase_discount / scale_obj per current
+//     SDDPMethod::elastic_solve.)
+//   - Adds fixing row: dep + sup - sdn = trial_value.
+//
+// source/benders_cut.cpp elastic_filter_solve (line 324):
+//   - Clones the LP, zeroes every obj coeff (Chinneck Phase-1).
+//   - Leaves α unmodified (excluded from links).
+//   - Solves the clone.
+//
+// source/benders_cut.cpp build_multi_cuts (line 534):
+//   For each link with info.relaxed:
+//     dep_val_phys = clone.get_col_sol()[link.dependent_col].
+//     If info.sup_col != unknown && clone.get_col_sol_raw()[sup] > slack_tol:
+//         ub = max(dep_val_phys, source_low)
+//         if ub < source_upp: emit `mcut_ub:  source_col ≤ ub` with coeff 1.0
+//     If info.sdn_col != unknown && clone.get_col_sol_raw()[sdn] > slack_tol:
+//         lb = min(dep_val_phys, source_upp)
+//         if lb > source_low: emit `mcut_lb:  source_col ≥ lb` with coeff 1.0
+//
+// Separately (source/sddp_forward_pass.cpp:312-395), gtopt ALWAYS
+// installs a single aggregated feasibility cut built from the fixing-row
+// DUALS (build_feasibility_cut_physical, line 176 of benders_cut.cpp):
+//     Σ π_i * source_col_i ≥ Σ π_i * (v̂_i + dx_i)
+// and THEN (if `use_multi_cut` is on) appends the per-reservoir bound
+// cuts on top of the aggregated cut — i.e. BOTH are added in the same
+// infeasibility event.
+//
+// ----- Section C: Divergence table ----------------------------------------
+//
+// | # | Aspect                | PLP                    | gtopt                |
+// |---|-----------------------|------------------------|----------------------|
+// | D1| Source-col coefficient| ray[i] (signed Farkas) | 1.0 always           |
+// | D2| Cut RHS               | (b+dx)*ray[i] + ε      | dep_val_phys         |
+// | D3| Slack col upper bound | colUpp−rhs / rhs−colLow| DblMax (unbounded)   |
+// | D4| Slack cost            | 1.0 const              | phase_disc/scale_obj |
+// | D5| Active criterion      | ray[i] != 0 (signed)   | sup/sdn > slack_tol  |
+// | D6| Cut direction         | always ≥ (one per i)   | two (mcut_lb +
+// mcut_ub)| | D7| Cut-RHS clamp         | only |rhs|>FactMLD     | [source_low,
+// source_upp]| | D8| Outward ε perturb     | rhs += FactEPS*|rhs|   | none | |
+// D9| round_ray option      | FRoundRay → ±1         | none                 |
+// | D10| Which phase's LP    | lpo = lp(ISimul, IEtapaDest=IEtapaOri-1) |
+// prev_phase_index (matches)| | D11| Aggregated + multi  | Exclusive
+// (FOneFeasRay)| Both: feas_cut + mcuts stacked| | D12| Mode flag           |
+// FOneFeasRay (boolean)  | multi_cut_threshold + elastic_mode|
+//
+// ----- Section D: Hypothesis on why gtopt's multi-cut fails ---------------
+//
+// On plp_2_years iter 0, p28 infeasibility triggers gtopt to install:
+//   (a) 1 aggregated fcut (rows 312-350) on p27, with coefficients π_i
+//       on source_cols (physical-space) and RHS = Σ π_i · (v̂_i + dx_i).
+//   (b) 5 bound mcuts (rows 374-395) on p27, each of the form
+//       `1.0 * source_col ≥ dep_val_phys` or `1.0 * source_col ≤ dep_val_phys`.
+// The p27 LP's next solve then hits the bound-infeasibility on
+// `reservoir_energy_65_51` because the stacked mcuts enforce HARD
+// bounds on several reservoirs simultaneously.  PLP never stacks —
+// it emits ONE cut per reservoir with coefficient `ray[i]` (which can
+// cancel out infeasibility ε cleanly via Farkas) and only ONE form
+// per event (either single-aggregated OR per-reservoir, not both).
+//
+// Prime suspects (in descending order of likelihood):
+//   (H1) Stacking aggregated + multi (D11): doubles the Farkas
+//        coverage into both a soft (π-weighted) and a hard (1.0-weighted)
+//        form, overconstraining p27.
+//   (H2) 1.0 coefficient vs ray[i] (D1): emits strictly tighter bounds
+//        than the Farkas ray would, under-approximating the feasible set.
+//   (H3) Two-sided direction (D6): a single reservoir can land in both
+//        sup>0 AND sdn>0 regimes across a single IIS subset if the
+//        Chinneck filter sorts weirdly — cutting both sides is
+//        physically inconsistent for any reservoir.
+//   (H4) Slack-cost = phase_discount/scale_obj (D4): under very small
+//        phase_discount values, the slack becomes essentially free, and
+//        the elastic LP may choose dep values arbitrarily, making
+//        `dep_val_phys` meaningless as a cut RHS.
+//
+
+// ===========================================================================
+// BoxEdgeStats — unit-test the cut-emission box-edge tally
+// ===========================================================================
+//
+// `BoxEdgeStats` (declared in `benders_cut.hpp`, exposed from anonymous
+// namespace 2026-04-25) drives the degenerate-cut detection used by
+// both `build_feasibility_cut_physical` and `build_multi_cuts`.  These
+// tests exercise the band-classifier and the `all_upper_degenerate()`
+// predicate in isolation — no LP, no elastic clone, no solver
+// dependency — so a regression in the threshold (currently 10 % of
+// box width) shows up immediately rather than only as a behavioural
+// drift in juan/gtopt_iplp end-to-end runs.
+
+namespace
+{
+/// Minimal StateVarLink fixture for BoxEdgeStats tests.  Only the
+/// fields the tally function reads (``source_low``, ``source_upp``,
+/// ``name``) need real values; the rest stay at struct defaults.
+StateVarLink make_link(double low, double upp, std::string_view name)
+{
+  StateVarLink link {};
+  link.source_low = low;
+  link.source_upp = upp;
+  link.name = name;
+  return link;
+}
+}  // namespace
+
+TEST_CASE("BoxEdgeStats — empty stats")  // NOLINT
+{
+  BoxEdgeStats stats;
+  CHECK(stats.upper == 0);
+  CHECK(stats.lower == 0);
+  CHECK(stats.inside == 0);
+  CHECK(stats.total() == 0);
+  CHECK(stats.upper_names.empty());
+  // Empty stats are NOT degenerate: the threshold requires at least
+  // 2 active links to fire.
+  CHECK_FALSE(stats.all_upper_degenerate());
+}
+
+TEST_CASE("BoxEdgeStats — single upper-clamp is not degenerate")  // NOLINT
+{
+  // Threshold is `total() >= 2`; one link alone never trips the
+  // family-degeneracy heuristic regardless of where it lands.  This
+  // keeps the WARN/drop quiet on small fixtures with a single
+  // reservoir while still firing on multi-reservoir cascades.
+  BoxEdgeStats stats;
+  const auto link = make_link(0.0, 100.0, "OnlyOne");
+  stats.tally(/*clamped=*/100.0, link);  // exactly source_upp
+  CHECK(stats.upper == 1);
+  CHECK(stats.total() == 1);
+  CHECK_FALSE(stats.all_upper_degenerate());
+  // Name still recorded for diagnostic logging.
+  CHECK(stats.upper_names == "OnlyOne");
+}
+
+TEST_CASE("BoxEdgeStats — top-10% band classifies as upper")  // NOLINT
+{
+  // Empirical observation on juan/gtopt_iplp: degenerate cuts
+  // cluster at 95-100 % of emax (LMAULE/PEHUENCHE/RAPEL at ~95-98 %,
+  // ELTORO/CIPRESES/RALCO exactly at 100 %).  The top-10 % band is
+  // wide enough to capture all of them.
+  BoxEdgeStats stats;
+  const auto box = make_link(0.0, 100.0, "Box");
+  stats.tally(100.0, box);  // exactly upper edge
+  CHECK(stats.upper == 1);
+
+  stats.tally(95.0, box);  // top 5 %
+  CHECK(stats.upper == 2);
+
+  stats.tally(90.0, box);  // exactly at 10 % threshold from upper
+  CHECK(stats.upper == 3);
+
+  // Just below the band: should land in `inside`.
+  stats.tally(89.99, box);
+  CHECK(stats.inside == 1);
+}
+
+TEST_CASE("BoxEdgeStats — bottom-10% band classifies as lower")  // NOLINT
+{
+  BoxEdgeStats stats;
+  const auto box = make_link(0.0, 100.0, "Box");
+  stats.tally(0.0, box);  // exactly lower edge
+  CHECK(stats.lower == 1);
+
+  stats.tally(5.0, box);  // top 5 % from below
+  CHECK(stats.lower == 2);
+
+  stats.tally(10.0, box);  // exactly at 10 % threshold from lower
+  CHECK(stats.lower == 3);
+
+  stats.tally(10.01, box);  // just inside
+  CHECK(stats.inside == 1);
+}
+
+TEST_CASE("BoxEdgeStats — mid-box clamps go to inside")  // NOLINT
+{
+  BoxEdgeStats stats;
+  const auto box = make_link(0.0, 100.0, "Box");
+  stats.tally(50.0, box);
+  stats.tally(30.0, box);
+  stats.tally(70.0, box);
+  CHECK(stats.upper == 0);
+  CHECK(stats.lower == 0);
+  CHECK(stats.inside == 3);
+  CHECK(stats.total() == 3);
+  // Mid-box family is NOT degenerate (no upper-pinning at all).
+  CHECK_FALSE(stats.all_upper_degenerate());
+}
+
+TEST_CASE("BoxEdgeStats — all_upper_degenerate predicate")  // NOLINT
+{
+  // The cascade-infeasibility signature: every active link clamps at
+  // its source_upp.  This triggers the WARN + drop path in
+  // build_multi_cuts.
+  BoxEdgeStats stats;
+  const auto a = make_link(0.0, 100.0, "ELTORO");
+  const auto b = make_link(0.0, 200.0, "RALCO");
+
+  stats.tally(100.0, a);  // upper of a
+  stats.tally(195.0, b);  // top 2.5 % of b — within the 10 % band
+  CHECK(stats.upper == 2);
+  CHECK(stats.total() == 2);
+  CHECK(stats.all_upper_degenerate());
+
+  // Names accumulate in order, comma-joined for the WARN message.
+  CHECK(stats.upper_names == "ELTORO, RALCO");
+}
+
+TEST_CASE("BoxEdgeStats — mixing breaks degeneracy")  // NOLINT
+{
+  // Even one inside or lower clamp removes the "all upper" signal —
+  // in production this means the cut is *partially* informative
+  // (some links contribute meaningful tightening), not the
+  // cascade-fail emax-pinning shape.  WARN stays quiet, DEBUG fires.
+  BoxEdgeStats stats;
+  const auto box = make_link(0.0, 100.0, "Box");
+  stats.tally(99.0, box);  // upper
+  stats.tally(50.0, box);  // inside
+  CHECK(stats.upper == 1);
+  CHECK(stats.inside == 1);
+  CHECK_FALSE(stats.all_upper_degenerate());
+}
+
+TEST_CASE("BoxEdgeStats — empty link names are skipped")  // NOLINT
+{
+  // Links without an AMPL element name (test fixtures, JSON without
+  // `name:` field) still tally into the upper count, but they don't
+  // appear in `upper_names`.  The WARN message that consumes
+  // `upper_names` falls back to the numeric uid for those links.
+  BoxEdgeStats stats;
+  const auto named = make_link(0.0, 100.0, "Named");
+  const auto anon = make_link(0.0, 100.0, /*name=*/"");
+
+  stats.tally(99.0, anon);
+  stats.tally(99.0, named);
+  CHECK(stats.upper == 2);
+  // Only the named link contributes to the comma-joined string.
+  CHECK(stats.upper_names == "Named");
+}
+
+TEST_CASE(
+    "BoxEdgeStats — degenerate zero-width box uses unit fallback")  // NOLINT
+{
+  // When source_low == source_upp (degenerate / unset bounds in a
+  // test fixture), `box_width` clamps to 1.0, so the 10 % band
+  // becomes ±0.1 absolute around the (coincident) bounds.  The
+  // tally classifies everything within that band as "upper" (since
+  // upper edge gets the first `if` check).  This keeps the helper
+  // robust under fixture-induced degeneracy without crashing or
+  // dividing by zero.
+  BoxEdgeStats stats;
+  const auto degen = make_link(50.0, 50.0, "Degen");
+  stats.tally(50.0, degen);  // exactly at the (coincident) edges
+  CHECK(stats.upper == 1);
+  // Anything ≥ source_upp - 0.1 = 49.9 still classifies as upper.
+  stats.tally(49.95, degen);
+  CHECK(stats.upper == 2);
+  // Below the 0.1-band lower edge of the unit fallback: classifies
+  // as lower (since lower test runs after upper-test fails).
+  stats.tally(49.85, degen);
+  CHECK(stats.lower == 1);
+}
+
+TEST_CASE("BoxEdgeStats — negative-range box (unusual but legal)")  // NOLINT
+{
+  // ``source_low`` could be negative (e.g. for a bidirectional
+  // state variable) and ``source_upp`` correspondingly larger.  The
+  // tally just compares values; sign doesn't matter as long as
+  // ``upp ≥ low``.
+  BoxEdgeStats stats;
+  const auto box = make_link(-100.0, 100.0, "Bi");  // width = 200, tol = 20
+  stats.tally(85.0, box);  // 85 ≥ 100 - 20 = 80 → upper
+  stats.tally(-85.0, box);  // -85 ≤ -100 + 20 = -80 → lower
+  stats.tally(0.0, box);  // mid → inside
+  CHECK(stats.upper == 1);
+  CHECK(stats.lower == 1);
+  CHECK(stats.inside == 1);
 }

@@ -328,6 +328,26 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
    */
   OptInt forward_max_fallbacks {};
 
+  /** @brief Scene-level fail-stop forward pass (default: true).
+   *
+   *  When true (the new default), an infeasible phase that produces a
+   *  feasibility cut on its predecessor causes the scene's forward pass
+   *  to **stop immediately for the current iteration**: the cut is
+   *  installed on phase p-1, the scene is marked failed-this-iter, and
+   *  control returns to the caller.  The next iteration starts fresh
+   *  from p1 with the newly accumulated cuts (preserved in the global
+   *  cut store).
+   *
+   *  When false, the legacy PLP-style backtracking forward pass is
+   *  restored: after installing the fcut on p-1, `phase_idx` is
+   *  decremented and p-1 is re-solved under the new cut.  If p-1 is
+   *  still infeasible, a fresh fcut is installed on p-2 and the
+   *  cascade continues — bounded by `forward_max_attempts`.  Kept
+   *  available for regression tests and academic fixtures that depend
+   *  on the cascade dynamics.
+   */
+  OptBool forward_fail_stop {};
+
   /** @brief Maximum algorithm fallback attempts for backward-pass and
    *  aperture solves.
    *
@@ -425,6 +445,7 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
     merge_opt(stationary_window, opts.stationary_window);
     merge_opt(convergence_confidence, opts.convergence_confidence);
     merge_opt(forward_max_fallbacks, opts.forward_max_fallbacks);
+    merge_opt(forward_fail_stop, opts.forward_fail_stop);
     merge_opt(backward_max_fallbacks, opts.backward_max_fallbacks);
     merge_opt(max_async_spread, opts.max_async_spread);
     merge_opt(pool_cpu_factor, opts.pool_cpu_factor);

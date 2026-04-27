@@ -59,7 +59,7 @@ const StateVariable* find_alpha_state_var(const SimulationLP& sim,
   auto svar = sim.state_variable(StateVariable::Key {
       .uid = sddp_alpha_uid,
       .col_name = sddp_alpha_col_name,
-      .class_name = sddp_alpha_class_name,
+      .class_name = sddp_alpha_lp_class,
       .lp_key = {.scene_index = scene_index, .phase_index = phase_index},
   });
   return svar ? &svar->get() : nullptr;
@@ -407,31 +407,46 @@ void register_alpha_variables(PlanningLP& planning_lp,
       continue;  // already registered — idempotent
     }
     auto& li = planning_lp.system(scene_index, pi).linear_interface();
-    // α bootstrap: `lowb = sddp_alpha_bootstrap_min (=0)` floors the
-    // future-cost approximation at 0 in iter-0 when no cuts are yet
-    // installed — keeps the LP bounded without a positive lower
-    // bound.  `uppb = +∞` (LinearProblem::DblMax) lets α take any
-    // non-negative value once cuts land.
+    // α bootstrap: bidirectional pin `lowb = uppb =
+    // sddp_alpha_bootstrap_min (=0)` freezes α at 0 until an
+    // installed cut releases it via `free_alpha`.
     //
-    // Rationale for NOT pinning uppb=0 here (reverting f20f3e57's
-    // `lowb=uppb=0` bootstrap): the aperture/Benders backward pass
-    // only iterates phases T-1 .. 1 (no cut ever lands on phase 0),
-    // so `free_alpha(phase=0)` is never invoked and a bidirectional
-    // pin would leave phase 0's α permanently at 0 — pinning the
-    // master LP's objective to the non-α opex.  With `uppb=+∞` the
-    // master retains a valid future-cost slot that iter-0 simply
-    // ignores until the first p1→p0 backward cut releases the lower
-    // bound via `free_alpha`.  Observed on juan/gtopt_iplp: the
-    // bidirectional pin drove LB=0 every iteration because phase 0's
-    // opex is structurally 0 in that case.
+    // Rationale (supersedes the earlier `uppb=+∞` bootstrap): in
+    // iter-0 the forward LP has no cuts and α has cost
+    // `scale_alpha > 0`, so with `uppb=+∞` the minimiser drives α
+    // to its floor of 0 anyway — but *without* pinning, the Chinneck
+    // Phase-1 elastic filter (which zeros every objective coefficient
+    // including α's) has no cost signal on α, so simplex returns
+    // whatever basic value it picks.  That value gets captured into
+    // `state_var.col_sol`, contaminates downstream trial propagation
+    // and the bcut fallback's Z.  Pinning α bidirectionally removes
+    // the α column as a free variable from the Phase-1 LP and keeps
+    // the elastic clone's α = 0 regardless of objective zeroing.
+    //
+    // Phase 0's α IS released: the aperture backward pass iterates
+    // `phase_index` ∈ [T-1 .. 1] with `src_phase_index =
+    // previous(phase_index)` ∈ [T-2 .. 0], and
+    // `install_aperture_backward_cut` calls
+    // `free_alpha(scene_index, src_phase_index)` on both the
+    // expected-cut path (`sddp_aperture_pass.cpp:160`) and the bcut
+    // fallback path (`sddp_aperture_pass.cpp:270`).  So phase 0 is
+    // freed in the final step of every backward pass.
     const auto alpha_sparse = SparseCol {
         .lowb = sddp_alpha_bootstrap_min / scale_alpha,
-        .uppb = LinearProblem::DblMax,
+        .uppb = sddp_alpha_bootstrap_min / scale_alpha,
         .cost = scale_alpha,
         .is_state = true,
         .scale = scale_alpha,
         .class_name = sddp_alpha_class_name,
         .variable_name = sddp_alpha_col_name,
+        // Without variable_uid the column label serialises to
+        // `sddp_alpha_-1_<scene>_<phase>` (unknown_uid = -1), whose
+        // embedded `-` char is rejected by CoinLpIO's name validator
+        // — CBC then strips every col/row label from the written LP.
+        // Mirrors master #426 (a8a0e452) which set this on cut rows.
+        // α is unique per (scene, phase), so `sddp_alpha_uid = 0`
+        // disambiguates trivially.
+        .variable_uid = sddp_alpha_uid,
         .context =
             make_scene_phase_context(sim.uid_of(scene_index), phase.uid()),
     };
@@ -447,7 +462,7 @@ void register_alpha_variables(PlanningLP& planning_lp,
         StateVariable::Key {
             .uid = sddp_alpha_uid,
             .col_name = sddp_alpha_col_name,
-            .class_name = sddp_alpha_class_name,
+            .class_name = sddp_alpha_lp_class,
             .lp_key = {.scene_index = scene_index, .phase_index = pi},
         },
         alpha_col,
@@ -491,6 +506,51 @@ void free_alpha(PlanningLP& planning_lp,
                                 LinearProblem::DblMax);
 }
 
+// Free-function implementation declared in <gtopt/sddp_types.hpp>.
+// Consolidates the "only release α for cuts that actually reference α"
+// gate used by every optimality-cut install site.  Prevents an
+// optimality cut whose α coefficient was filtered at save time (e.g.
+// by `cut_coeff_eps`) or a pure state-coupling cut from releasing
+// the bootstrap pin, which would let α drift negative under the
+// bidirectional α bootstrap (observed on juan/gtopt_iplp as LB=0).
+void free_alpha_for_cut(PlanningLP& planning_lp,
+                        SceneIndex scene_index,
+                        PhaseIndex phase_index,
+                        const SparseRow& cut)
+{
+  const auto* alpha_svar =
+      find_alpha_state_var(planning_lp.simulation(), scene_index, phase_index);
+  if (alpha_svar == nullptr) {
+    return;  // α not registered on this cell — nothing to free.
+  }
+  if (!cut.cmap.contains(alpha_svar->col())) {
+    return;  // cut does not reference α — leave the bootstrap pin.
+  }
+  free_alpha(planning_lp, scene_index, phase_index);
+}
+
+// Free-function implementation declared in <gtopt/sddp_types.hpp>.
+// One unified cut-install entry point: releases α iff optimality +
+// cut references α, then adds the row via LinearInterface::add_cut_row
+// (which also records the cut for low-memory replay).  Callers that
+// also persist into SDDPCutStore invoke `SDDPMethod::store_cut`
+// separately with the returned RowIndex — `store_cut` no longer
+// re-records for replay to avoid double-registering.
+RowIndex add_cut_row(PlanningLP& planning_lp,
+                     SceneIndex scene_index,
+                     PhaseIndex phase_index,
+                     CutType cut_type,
+                     const SparseRow& cut,
+                     double eps)
+{
+  if (cut_type == CutType::Optimality) {
+    free_alpha_for_cut(planning_lp, scene_index, phase_index, cut);
+  }
+  return planning_lp.system(scene_index, phase_index)
+      .linear_interface()
+      .add_cut_row(cut, eps);
+}
+
 void SDDPMethod::collect_state_variable_links(SceneIndex scene_index)
 {
   const auto& sim = planning_lp().simulation();
@@ -525,6 +585,24 @@ void SDDPMethod::collect_state_variable_links(SceneIndex scene_index)
     for (const auto& [key, svar] :
          sim.state_variables(scene_index, phase_index))
     {
+      // Defensive skip: α is registered as a state variable for CSV/JSON
+      // I/O uniformity, but it is a BACKWARD-propagating variable (the
+      // future-cost estimator populated by backward-pass cuts), not a
+      // forward state like reservoir energy.  It must never enter
+      // `outgoing_links`, because the elastic filter relaxes each link's
+      // dependent column with slack variables — and we explicitly don't
+      // want slacks on α.  In practice α has no `dependent_variables()`
+      // entry (`register_alpha_variables` doesn't set one), so this
+      // skip is also a no-op by construction — kept explicit to protect
+      // against a future change that might add cross-phase α linking.
+      // α is registered with class_name = sddp_alpha_lp_class.
+      // LPClassName's operator== compares the underlying full_name,
+      // so value-compare works against either another LPClassName
+      // or (via implicit conversion) a string_view.
+      if (key.class_name == sddp_alpha_lp_class) {
+        continue;
+      }
+
       // Per-variable state cost from StateVariable (set at registration time
       // by ReservoirLP, BatteryLP, etc.).  Pre-divide by scale_objective so
       // it is consistent with the global penalty.
@@ -538,23 +616,53 @@ void SDDPMethod::collect_state_variable_links(SceneIndex scene_index)
           continue;
         }
 
+        // `source_low` / `source_upp` are documented as *physical*
+        // bounds (see `StateVarLink` in benders_cut.hpp), so scale by
+        // `var_scale` at capture time.  The `relax_fixed_state_variable`
+        // consumer then applies them via the physical setter
+        // `set_col_low` / `set_col_upp`, which divides by the dependent
+        // column's own `col_scale` — scale-agnostic across phases even
+        // when `var_scale(source) != col_scale(dependent)`.
+        const double svar_scale = svar.var_scale();
+        // Effective LP-to-physical scale on the source column: includes
+        // any ruiz-added factor on top of the user's var_scale.  Used to
+        // lift raw LP bounds `col_lo/col_hi` into physical units; using
+        // `svar_scale` alone undercounts the ruiz factor and the cut-
+        // RHS clamp then kicks in at the wrong physical boundary.
+        const double src_col_scale = src_li.get_col_scale(svar.col());
+        // Reverse-lookup human-readable element name for diagnostic
+        // logs (e.g. "Reservoir:LMAULE:efin" instead of
+        // "Reservoir:1:efin").  The map itself is populated once at
+        // `SystemLP` construction via `register_all_ampl_element_names`;
+        // by the time SDDP solve runs it is read-only and safe for
+        // the linear scan.  `lookup_ampl_element_name` handles the
+        // PascalCase/snake_case mismatch internally (the StateVariable
+        // key stores class_name in PascalCase while the AMPL registry
+        // uses snake_case).  Empty string_view when the element has
+        // no registered AMPL name (test fixtures, plain JSON without
+        // the `name:` field) — diagnostic logs then fall back to
+        // numeric uid.
+        const auto element_name =
+            sim.lookup_ampl_element_name(key.class_name, key.uid);
         state.outgoing_links.push_back(StateVarLink {
             .source_col = svar.col(),
             .dependent_col = dep.col(),
             .source_phase_index = phase_index,
             .target_phase_index = dep.phase_index(),
-            .source_low = col_lo[svar.col()],
-            .source_upp = col_hi[svar.col()],
-            .var_scale = svar.var_scale(),
+            .source_low = col_lo[svar.col()] * src_col_scale,
+            .source_upp = col_hi[svar.col()] * src_col_scale,
+            .var_scale = svar_scale,
             .scost = link_scost,
             // Raw pointer into the simulation's state-variable registry
             // (flat_map, stable for the full solver lifetime — same
             // lifetime that already couples source and dependent LP cols).
             .state_var = &svar,
-            // Identity for diagnostic logs (e.g. "Reservoir:8:efin").
+            // Identity for diagnostic logs (e.g. "Reservoir:LMAULE:efin"
+            // when `name` is resolved, falls back to "Reservoir:8:efin").
             .class_name = key.class_name,
             .col_name = key.col_name,
             .uid = key.uid,
+            .name = element_name,
         });
       }
     }
@@ -636,14 +744,51 @@ std::optional<SDDPMethod::ElasticResult> SDDPMethod::elastic_solve(
 
   // Delegate to BendersCut member (uses work pool when set).
   auto elastic_opts = opts;
-  elastic_opts.crossover = false;
+  // Crossover MUST stay enabled: the feasibility-cut builder reads
+  // row duals (`get_row_price()`) off the fixing equations to
+  // compute Farkas-ray coefficients for the classical Benders fcut
+  // (PLP / Birge-Louveaux convention).  Barrier solutions without
+  // crossover produce interior-point multipliers that are noisy and
+  // non-vertex — they cannot be used as a Farkas ray.  The crossover
+  // step converts to a vertex optimum where row duals are well-
+  // defined and α-free fcuts have non-trivial state coefficients.
+  elastic_opts.crossover = true;
 
   // Scale the elastic penalty by cost_factor so it is consistent with all
   // other LP objective coefficients that go through stage_ecost / cost_factor.
   // The per-variable physical-unit scaling (var_scale) is applied inside
   // relax_fixed_state_variable() using each link's var_scale field.
+  //
+  // Slack-cost scaling: the elastic filter's slack variables (sup/sdn)
+  // were previously given cost = 1 (Chinneck's pure-feasibility
+  // convention).  On plp_2_years iter 0 this produced a degeneracy
+  // where every α-free fcut contributed a tiny hyperplane on the
+  // state and no signal on future cost, stalling convergence as
+  // phases 13-25 thrashed through 100 backtracks without closing
+  // the gap.  Multiplying the slack cost by the target phase's
+  // discount factor puts each slack on the same economic footing
+  // as dispatch costs at that phase — the elastic objective now
+  // reflects "discounted cost of violating the state pin" rather
+  // than "unit-feasibility gap", breaking the degeneracy when no
+  // optimality cuts have arrived yet at intermediate phases.
   const auto scale_obj = li.scale_objective();
-  const auto scaled_penalty = m_options_.elastic_penalty / scale_obj;
+  const auto& target_phase = planning_lp().simulation().phases()[phase_index];
+  const double phase_discount = target_phase.stages().empty()
+      ? 1.0
+      : target_phase.stages().front().discount_factor();
+  // Slack-cost base matches PLP's Chinneck Phase-1 convention:
+  // `osicallsc.cpp:658` passes obj=1.0 flat to every slack when
+  // `objs == nullptr` (PLP's AgrElastici call site at
+  // `plp-agrespd.f:673`).  gtopt's `relax_fixed_state_variable`
+  // prices each slack at `penalty` (no `× var_scale`, no
+  // `/ scale_obj`), so with `elastic_penalty = 1.0` (default) the
+  // cloned LP's slack obj equals `phase_discount ≈ 1.0` — exactly
+  // PLP's raw unit cost.  `phase_discount` stays as gtopt-local
+  // economic weighting so the slack stays commensurate with
+  // dispatch cost at the target phase.  `scale_obj` retained for
+  // signature stability only.
+  (void)scale_obj;
+  const auto scaled_penalty = m_options_.elastic_penalty * phase_discount;
 
   // Chinneck IIS mode runs an extra re-solve to filter non-essential
   // relaxed bounds before cut construction.  Other modes use the regular
@@ -729,13 +874,28 @@ int SDDPMethod::update_lp_for_phase(SceneIndex scene_index,
 {
   auto& sys = planning_lp().system(scene_index, phase_index);
 
-  // Set previous phase's SystemLP so that update_lp elements
-  // (seepage, production factor, discharge limit) can look up the
-  // previous phase's efin when computing reservoir volume via
-  // physical_eini.  In warm_start mode, skip this — physical_eini
-  // falls back to the warm solution or vini instead.
-  const auto lookup = planning_lp().options().sddp_state_variable_lookup_mode();
-  if (phase_index && lookup == StateVariableLookupMode::cross_phase) {
+  // Set previous phase's SystemLP unconditionally so that update_lp
+  // elements (seepage, production factor, discharge limit) can look up
+  // the previous phase's optimal efin when re-evaluating volume-
+  // dependent linearisations via physical_eini.
+  //
+  // The pointer is consumed read-only — solely for segment selection
+  // during LP coefficient updates — and physical_eini only follows the
+  // cross-phase branch when the predecessor LP is_optimal().  It does
+  // not change state-variable propagation, which is governed by the
+  // separate sddp_state_variable_lookup_mode option (warm_start vs
+  // cross_phase) handled in propagate_trial_values.
+  //
+  // Previously this pointer was only set when lookup == cross_phase,
+  // leaving warm_start (the default) with prev_phase_sys = nullptr.
+  // physical_eini then fell through to its JSON `eini` fallback (e.g.
+  // 1731 Hm³ for ELTORO), pinning the seepage segment to the
+  // construction-time volume regardless of the actual forward-pass
+  // trajectory.  Observed on juan/gtopt_iplp p38 where the resulting
+  // 15.09 m³/s seepage baseflow exceeded the scheduled affluent and
+  // structurally broke the LP after the forward pass had drained the
+  // reservoir to zero.
+  if (phase_index) {
     const auto prev_phase_index = previous(phase_index);
     sys.set_prev_phase_sys(
         &planning_lp().system(scene_index, prev_phase_index));
@@ -772,53 +932,10 @@ void SDDPMethod::dispatch_update_lp(SceneIndex scene_index,
 
 // ── SDDP task priority helpers ───────────────────────────────────────────────
 
-namespace
-{
-
-/// Build an `SDDPTaskKey` tuple for an SDDP LP solve task.
-///
-/// The key is `(iteration, is_backward, phase, is_nonlp)` where:
-///  - `is_backward`: 0 = forward pass, 1 = backward pass
-///  - `is_nonlp`:    0 = LP solve/resolve, 1 = other (e.g. write_lp)
-///
-/// With the default `std::less<SDDPTaskKey>` comparator (lexicographic),
-/// smaller tuples have **higher** execution priority:
-///  - Lower iteration → higher priority
-///  - Forward pass (0) → higher priority than backward (1)
-///  - Lower phase index → higher priority
-///  - LP solve (0) → higher priority than non-LP (1)
-///
-/// Both forward and backward LP solves use `TaskPriority::Medium`.
-/// The tuple key alone provides the full SDDP ordering, removing the
-/// need for the old High/Medium tier split.
-
-BasicTaskRequirements<SDDPTaskKey> make_forward_lp_task_req(
-    IterationIndex iteration_index, PhaseIndex phase_index) noexcept
-{
-  return BasicTaskRequirements<SDDPTaskKey> {
-      .priority = TaskPriority::Medium,
-      .priority_key = make_sddp_task_key(iteration_index,
-                                         SDDPPassDirection::forward,
-                                         phase_index,
-                                         SDDPTaskKind::lp),
-      .name = {},
-  };
-}
-
-BasicTaskRequirements<SDDPTaskKey> make_backward_lp_task_req(
-    IterationIndex iteration_index, PhaseIndex phase_index) noexcept
-{
-  return BasicTaskRequirements<SDDPTaskKey> {
-      .priority = TaskPriority::Medium,
-      .priority_key = make_sddp_task_key(iteration_index,
-                                         SDDPPassDirection::backward,
-                                         phase_index,
-                                         SDDPTaskKind::lp),
-      .name = {},
-  };
-}
-
-}  // namespace
+// `make_forward_lp_task_req` and `make_backward_lp_task_req` are now declared
+// in `<gtopt/sddp_pool.hpp>` (next to `make_sddp_task_key`) so the priority-
+// key ordering invariant can be covered by unit tests.  The previous
+// anonymous-namespace duplicates were removed in the audit pass.
 
 // ── forward_pass() — now in sddp_forward_pass.cpp ───────────────────────────
 
@@ -830,9 +947,14 @@ void SDDPMethod::store_cut(SceneIndex scene_index,
                            CutType type,
                            RowIndex row)
 {
-  // Track cut for low_memory reconstruction
-  planning_lp().system(scene_index, src_phase_index).record_cut_row(cut);
-
+  // No `record_cut_row` call here — the unified free function
+  // `add_cut_row` (declared in <gtopt/sddp_types.hpp>) is the single
+  // owner of low-memory replay registration, and every cut-install
+  // site now routes through it.  `store_cut` is pure SDDP-level
+  // persistence (pushes into `m_cut_store_` for later CSV/JSON save,
+  // rolling-window prune, and cut-file replay).  Recording twice
+  // would silently register the same row on `m_active_cuts_`,
+  // inflating replay cost without changing LP semantics.
   m_cut_store_.store_cut(scene_index,
                          src_phase_index,
                          cut,
@@ -956,18 +1078,22 @@ auto SDDPMethod::backward_pass_single_phase(SceneIndex scene_index,
   cut.class_name = sddp_alpha_class_name;
   cut.constraint_name = sddp_scut_constraint_name;
   cut.variable_uid = uid_of(prev_phase_index);
-  cut.context = make_iteration_context(
-      uid_of(scene_index), uid_of(phase_index), iteration_index, cut_offset);
+  cut.context = make_iteration_context(uid_of(scene_index),
+                                       uid_of(phase_index),
+                                       gtopt::uid_of(iteration_index),
+                                       cut_offset);
   const auto dt_build = elapsed_s(t_build);
 
-  // Release α's bootstrap pin on the source phase before the cut
-  // lands — the cut itself bounds α, and keeping the `lowb = uppb
-  // = 0` equality would clip any legitimately-nonzero future-cost
-  // value.
-  free_alpha(scene_index, prev_phase_index);
-
+  // Unified `add_cut_row`: releases α on `prev_phase_index` iff the
+  // cut references α, then adds + records the row for low-memory
+  // replay in one call.
   const auto t_add_row = Clock::now();
-  const auto cut_row = src_li.add_row(cut, ceps);
+  const auto cut_row = gtopt::add_cut_row(planning_lp(),
+                                          scene_index,
+                                          prev_phase_index,
+                                          CutType::Optimality,
+                                          cut,
+                                          ceps);
   const auto dt_add_row = elapsed_s(t_add_row);
 
   const auto t_store = Clock::now();
@@ -1091,10 +1217,13 @@ auto SDDPMethod::backward_pass(SceneIndex scene_index,
 void SDDPMethod::share_cuts_for_phase(
     PhaseIndex phase_index,
     const StrongIndexVector<SceneIndex, std::vector<SparseRow>>& scene_cuts,
-    [[maybe_unused]] IterationIndex iteration_index)
+    IterationIndex iteration_index)
 {
-  gtopt::share_cuts_for_phase(
-      phase_index, scene_cuts, m_options_.cut_sharing, planning_lp(), {});
+  gtopt::share_cuts_for_phase(phase_index,
+                              scene_cuts,
+                              m_options_.cut_sharing,
+                              planning_lp(),
+                              iteration_index);
 }
 
 // ── Cut pruning ─────────────────────────────────────────────────────────────
@@ -1668,10 +1797,19 @@ auto SDDPMethod::run_forward_pass_all_scenes(SDDPWorkPool& pool,
 
   m_current_pass_.store(0);
 
-  if (out.scenes_solved == 0) {
+  // Only declare the run unrecoverably stuck when ZERO scenes survived AND
+  // ZERO feasibility cuts were installed.  When fail-stop scenes installed
+  // fcuts on predecessor phases (the documented "scene-level fail-stop"
+  // path in sddp_forward_pass.cpp:528-558), those cuts persist in the
+  // global cut store and can make the master produce different state
+  // outputs in the next iteration.  Aborting here would discard them and
+  // contradict the fail-stop design comment ("the next iteration restarts
+  // every scene's forward pass from p1 with the freshly accumulated cuts").
+  if (out.scenes_solved == 0 && out.n_fcuts_installed == 0) {
     return std::unexpected(Error {
         .code = ErrorCode::SolverError,
-        .message = "SDDP: all scenes infeasible in forward pass",
+        .message = "SDDP: all scenes infeasible in forward pass "
+                   "and no recoverable feasibility cuts were installed",
     });
   }
 

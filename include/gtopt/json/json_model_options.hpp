@@ -29,6 +29,7 @@ struct json_data_contract<ModelOptions>
                        json_number_null<"loss_segments", OptInt>,
                        json_number_null<"scale_objective", OptReal>,
                        json_number_null<"scale_theta", OptReal>,
+                       json_bool_null<"auto_scale", OptBool>,
                        json_number_null<"demand_fail_cost", OptReal>,
                        json_number_null<"reserve_fail_cost", OptReal>,
                        json_number_null<"hydro_fail_cost", OptReal>,
@@ -40,7 +41,8 @@ struct json_data_contract<ModelOptions>
                        json_variant_null<"emission_cap",
                                          OptTRealFieldSched,
                                          jvtl_TRealFieldSched>,
-                       json_string_null<"continuous_phases", OptName>>;
+                       json_string_null<"continuous_phases", OptName>,
+                       json_bool_null<"strict_storage_emin", OptBool>>;
 
   constexpr static auto to_json_data(ModelOptions const& opt)
   {
@@ -52,6 +54,7 @@ struct json_data_contract<ModelOptions>
                                  opt.loss_segments,
                                  opt.scale_objective,
                                  opt.scale_theta,
+                                 opt.auto_scale,
                                  opt.demand_fail_cost,
                                  opt.reserve_fail_cost,
                                  opt.hydro_fail_cost,
@@ -59,7 +62,8 @@ struct json_data_contract<ModelOptions>
                                  opt.state_fail_cost,
                                  opt.emission_cost,
                                  opt.emission_cap,
-                                 opt.continuous_phases);
+                                 opt.continuous_phases,
+                                 opt.strict_storage_emin);
   }
 };
 

@@ -39,7 +39,9 @@
 
 #include <gtopt/benders_cut.hpp>
 #include <gtopt/iteration.hpp>
+#include <gtopt/lp_class_name.hpp>
 #include <gtopt/planning_enums.hpp>
+#include <gtopt/sddp_cut_store_enums.hpp>
 #include <gtopt/sddp_enums.hpp>
 #include <gtopt/solver_options.hpp>
 #include <gtopt/state_variable.hpp>
@@ -86,10 +88,23 @@ constexpr auto error_scene_cuts_fmt = "error_scene_{}.csv";
 /// no feasibility cut (phase 0, or relaxed clone still infeasible).
 /// `LinearInterface::write_lp` appends the `.lp` extension.
 constexpr auto error_lp_fmt = "error_s{}_p{}_i{}";
-/// Debug LP file pattern: scene UID, phase UID, iteration index.
-/// Uses the same `s{}_p{}_i{}` short form as `error_lp_fmt` for
-/// filename-layout uniformity.
-constexpr auto debug_lp_fmt = "gtopt_s{}_p{}_i{}";
+/// Debug LP file pattern: scene UID, phase UID, iteration index,
+/// attempt counter.  The attempt counter distinguishes successive
+/// writes of the same `(scene, phase, iter)` cell under the PLP-style
+/// backtracking forward pass — every time the loop re-enters a phase
+/// (after a backtrack from p → p-1), the LP snapshot carries the
+/// accumulated fcuts installed since the last visit, so a separate
+/// file is needed to preserve the chronology.  `attempt=1` is the
+/// first visit of that phase in this iteration; subsequent values
+/// reflect backtrack re-entries.  Uses `s{}_p{}_i{}_a{}` short form
+/// matching `error_lp_fmt`.
+constexpr auto debug_lp_fmt = "gtopt_s{}_p{}_i{}_a{}";
+/// Debug LP file pattern for aperture clones: scene UID, target phase
+/// UID, aperture UID, iteration index.  Used by the aperture backward
+/// pass when `lp_debug` is enabled and the current (scene, phase)
+/// falls inside the `lp_debug_*_min/max` filter window.  The aperture
+/// UID disambiguates the N clones built from the same target phase.
+constexpr auto debug_aperture_lp_fmt = "gtopt_aperture_s{}_p{}_a{}_i{}";
 /// Sentinel file name: if this file exists in the output directory, the
 /// SDDP solver stops gracefully after the current iteration and saves
 /// cuts.  Created externally (e.g. by the webservice stop endpoint).
@@ -117,9 +132,20 @@ constexpr auto stop_request = "sddp_stop_request.json";
 // Alpha is the method-owned cost-to-go variable added to every phase
 // except the last.  It is registered in `sim.state_variables()` like any
 // other state variable so that state/cut CSV I/O and cross-level
-// resolution treat it uniformly.  These constants centralise the
-// class/column name so every call site uses the same identifiers.
-constexpr std::string_view sddp_alpha_class_name = "Sddp";
+// resolution treat it uniformly.
+//
+// `sddp_alpha_lp_class` is the canonical `LPClassName` carrying both
+// the PascalCase full_name ("Sddp") and precomputed snake_case
+// short_name ("sddp").  `StateVariable::Key::class_name` and
+// `StateVarLink::class_name` store `const LPClassName*` pointing at
+// this constant (or at another LP class's static `ClassName`) so cut
+// builders and AMPL lookups hit the right form without any runtime
+// string conversion.  `sddp_alpha_class_name` (string_view) is kept
+// as a convenience alias for `SparseRow`/`SparseCol` metadata, which
+// store only the PascalCase view.
+inline constexpr LPClassName sddp_alpha_lp_class {"Sddp"};
+constexpr std::string_view sddp_alpha_class_name =
+    sddp_alpha_lp_class.full_name();
 constexpr std::string_view sddp_alpha_col_name = "alpha";
 
 /// Constraint-name tags carried on LP row metadata for each kind
@@ -205,13 +231,18 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   /// cuts when a phase LP is infeasible at the trial state.  Only
   /// the forward pass has an elastic branch; the backward pass
   /// produces optimality cuts exclusively.
-  ///   `single_cut`: one Benders feasibility cut on the previous phase.
-  ///   `multi_cut` : the single_cut plus one bound-constraint cut
-  ///                 per activated slack variable.
-  ///   `chinneck` (default): per-IIS-bound multi-cuts after a
-  ///                 Chinneck-style elastic IIS filter pass; see
-  ///                 ElasticFilterMode in sddp_enums.hpp.
-  ElasticFilterMode elastic_filter_mode {ElasticFilterMode::chinneck};
+  ///   `single_cut` (default): one classical PLP/Birge-Louveaux
+  ///                 Benders feasibility cut from row duals of the
+  ///                 state-fixing equations at the elastic clone's
+  ///                 Phase-1 optimum.  Matches `plp-agrespd.f`.
+  ///   `multi_cut` : `single_cut` plus one bound-constraint cut per
+  ///                 activated slack variable.
+  ///   `chinneck`  : IIS-filtered multi-cut — runs an extra re-fix
+  ///                 pass to narrow the cut set to the irreducible
+  ///                 infeasible subset of relaxed bounds.  Not
+  ///                 re-validated against the row-dual fcut builder
+  ///                 introduced in commit 0307c58e.
+  ElasticFilterMode elastic_filter_mode {ElasticFilterMode::single_cut};
 
   /// Absolute tolerance for filtering tiny Benders cut coefficients.
   /// Coefficients with |value| < cut_coeff_eps are dropped from the cut.
@@ -219,15 +250,60 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   double cut_coeff_eps {0.0};
 
   /// Forward-pass infeasibility counter threshold for automatic switching
-  /// from single_cut to multi_cut.  When the forward pass has encountered
-  /// infeasibility at (scene, phase) more than this many times without
-  /// recovery, the backward-pass infeasibility handler switches to
-  /// multi_cut mode for that (scene, phase).
+  /// from single_cut / chinneck-fcut-only to multi_cut.  When the forward
+  /// pass has encountered infeasibility at (scene, phase) this many times
+  /// without recovery, the elastic branch additionally installs
+  /// `build_multi_cuts` bound cuts alongside the Benders fcut.
   ///  = 0  always use multi_cut for any infeasibility (force multi_cut).
-  ///  > 0  switch to multi_cut after the counter exceeds this threshold.
+  ///  > 0  switch to multi_cut after the counter reaches this threshold.
   ///  < 0  never auto-switch (disabled; use explicit mode only).
-  /// Default: 10.
-  int multi_cut_threshold {10};
+  /// Default: 100.  Raised from 10 because `build_multi_cuts` emits
+  /// `source_col {<=,>=} dep_val_phys` bound cuts from the Chinneck
+  /// Phase-1 LP, whose `dep_val_phys` may exceed the source phase's
+  /// physically reachable set (observed on juan/gtopt_iplp after ~3
+  /// iterations: phase 0 gets `reservoir_energy_1 >= 330.33` while its
+  /// physical cap is ~207.78 + small inflow).  Keeping the IIS-filtered
+  /// fcut alone for longer avoids the structurally-infeasible cuts that
+  /// mcut mode can install before the master has found a good trial.
+  int multi_cut_threshold {100};
+
+  /// Forward-pass backtracking cap: maximum cumulative LP solves per
+  /// scene per iteration.  When an elastic branch fires at phase p,
+  /// gtopt (PLP-style) installs the feasibility cut on phase p-1 and
+  /// BACKTRACKS to phase p-1, re-solving it under the new cut.  If
+  /// p-1 is also infeasible, an fcut is installed on p-2 and the
+  /// backtrack continues until a feasible phase is reached, after
+  /// which the pass resumes forward.  `forward_max_attempts` caps
+  /// the total number of solves to prevent an infinite
+  /// backtrack/retry loop — when exceeded, the scene is declared
+  /// infeasible for this iteration and excluded from UB aggregation.
+  /// Matches PLP's `FactMXC` knob in `plp-faseprim.f` (`getopts.f:257`,
+  /// default **5000**).  Prior gtopt default was 100 — too tight for
+  /// pathological cases whose iter-0 forward pass needs to backtrack
+  /// across many phases to build the initial cut set (observed on
+  /// juan/gtopt_iplp: every scene hits 100 before phase 1 master has
+  /// enough cuts to be feasible).  Default now matches PLP's 5000.
+  int forward_max_attempts {5000};
+
+  /// Scene-level fail-stop forward pass (default: true).
+  ///
+  /// When true, an infeasible phase that produces a feasibility cut on
+  /// its predecessor causes the scene's forward pass to STOP for the
+  /// current iteration: the fcut is installed on phase p-1, the scene
+  /// is marked failed (returned Error → caller sets scene_feasible=0),
+  /// and the next iteration starts fresh from p1 with the newly
+  /// accumulated cuts (preserved in the global cut store).  Other
+  /// scenes continue uninterrupted.  Avoids the iter-0 cascade that
+  /// walks back through many stages and produces degenerate cuts.
+  ///
+  /// When false, restores the legacy PLP-style backtracking forward
+  /// pass: after installing the fcut on p-1, `phase_idx` is decremented
+  /// and p-1 is re-solved under the new cut.  If p-1 is still
+  /// infeasible, a fresh fcut is installed on p-2 and the cascade
+  /// continues — bounded by `forward_max_attempts`.  Kept available
+  /// for regression tests and academic fixtures that depend on the
+  /// cascade dynamics.
+  bool forward_fail_stop {true};
 
   /// File format for cut and state variable I/O (csv or json).
   /// CSV uses structured keys (class:var:uid=coeff) and is backward
@@ -622,6 +698,41 @@ struct SDDPIterationResult
 void free_alpha(PlanningLP& planning_lp,
                 SceneIndex scene_index,
                 PhaseIndex phase_index);
+
+/// Release α's bootstrap pin at `(scene, phase)` ONLY when @p cut
+/// actually references α — i.e., α is registered on the cell AND
+/// the cut's sparse coefficient map contains the α column.  No-op
+/// otherwise.  Meant to be called at every optimality-cut install
+/// site (backward-pass aperture expected-cut, aperture bcut fallback,
+/// and cut-file loaders for CSV/JSON optimality cuts) so a cut that
+/// does not constrain α — e.g. α coefficient filtered by
+/// `cut_coeff_eps` at save time, or a pure state-coupling cut —
+/// does not prematurely release the bootstrap pin.  Feasibility cuts
+/// should never call this (they carry no lower-bound information on
+/// the future-cost variable); callers must gate on cut type upstream.
+void free_alpha_for_cut(PlanningLP& planning_lp,
+                        SceneIndex scene_index,
+                        PhaseIndex phase_index,
+                        const SparseRow& cut);
+
+/// Install an SDDP cut (feasibility or optimality) on the LP backend
+/// at `(scene, phase)`.  Single unified entry point for every cut
+/// install site:
+///   1. For optimality cuts that reference α, release α's bootstrap
+///      pin via `free_alpha_for_cut`.  Feasibility cuts, and
+///      optimality cuts with no α term, leave the pin intact.
+///   2. Add the row to the live LP backend and record it for
+///      low-memory replay via `LinearInterface::add_cut_row`.
+/// Callers that also persist the cut into `SDDPCutStore` should call
+/// `SDDPMethod::store_cut(...)` afterwards using the returned
+/// `RowIndex` — `store_cut` no longer re-records the cut for replay
+/// (that now happens once inside this function).
+[[nodiscard]] RowIndex add_cut_row(PlanningLP& planning_lp,
+                                   SceneIndex scene_index,
+                                   PhaseIndex phase_index,
+                                   CutType cut_type,
+                                   const SparseRow& cut,
+                                   double eps = 0.0);
 
 /// Register the α (future-cost) column on every (scene, phase)
 /// cell of @p planning_lp that does not already have it.  Each α

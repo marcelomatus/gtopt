@@ -21,6 +21,7 @@
 
 #include <cstddef>
 #include <functional>
+#include <stdexcept>
 #include <tuple>
 #include <variant>
 
@@ -131,28 +132,42 @@ using LpContext = std::variant<std::monostate,
 /// Build an SDDP scene/phase context from an already-converted
 /// `IterationUid`.  The primary overload — keeps call sites
 /// visually homogeneous (three UIDs + one extra).
-[[nodiscard]] constexpr auto make_iteration_context(SceneUid scene_uid,
-                                                    PhaseUid phase_uid,
-                                                    IterationUid iteration_uid,
-                                                    int extra)
-    -> IterationContext
+///
+/// All three UIDs must be REAL identifiers (not the
+/// ``unknown_uid`` sentinel).  Passing ``unknown_uid`` for any of
+/// them produces an unlabelable LP-row context that
+/// ``LinearInterface::generate_labels_from_maps`` cannot
+/// disambiguate from other ``unknown_uid``-tagged rows, ultimately
+/// triggering a duplicate-label collision or the
+/// "metadata without a class_name (unlabelable)" error.  Caught
+/// here at construction time by throwing ``std::invalid_argument``
+/// so the bad call site surfaces directly instead of in the (much
+/// later) label generation pass.
+[[nodiscard]] inline auto make_iteration_context(SceneUid scene_uid,
+                                                 PhaseUid phase_uid,
+                                                 IterationUid iteration_uid,
+                                                 int extra) -> IterationContext
 {
+  if (static_cast<Uid>(scene_uid) == unknown_uid) {
+    throw std::invalid_argument(
+        "make_iteration_context: scene_uid must not be unknown_uid");
+  }
+  if (static_cast<Uid>(phase_uid) == unknown_uid) {
+    throw std::invalid_argument(
+        "make_iteration_context: phase_uid must not be unknown_uid");
+  }
+  if (static_cast<Uid>(iteration_uid) == unknown_uid) {
+    throw std::invalid_argument(
+        "make_iteration_context: iteration_uid must not be unknown_uid");
+  }
   return IterationContext {scene_uid, phase_uid, iteration_uid, extra};
 }
 
-/// Convenience overload that accepts a 0-based `IterationIndex`
-/// (the runtime counter) and converts it internally via
-/// `uid_of(...)`.  Useful at SDDP call sites where the loop
-/// variable is naturally an Index.
-[[nodiscard]] constexpr auto make_iteration_context(
-    SceneUid scene_uid,
-    PhaseUid phase_uid,
-    IterationIndex iteration_index,
-    int extra) -> IterationContext
-{
-  return IterationContext {
-      scene_uid, phase_uid, uid_of(iteration_index), extra};
-}
+// (The IterationIndex convenience overload was removed: every call
+// site must pass a real ``IterationUid``.  Convert at the call site
+// via ``uid_of(iteration_index)`` (or ``sim.uid_of(...)``) — keeps
+// the type discipline visible and prevents accidental
+// ``IterationIndex`` → ``int`` narrowing in the ``extra`` slot.)
 
 /// Build an SDDP aperture cut context.
 [[nodiscard]] constexpr auto make_aperture_context(SceneUid scene_uid,

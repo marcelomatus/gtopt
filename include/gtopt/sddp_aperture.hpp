@@ -35,6 +35,7 @@
 #include <gtopt/enum_option.hpp>
 #include <gtopt/label_maker.hpp>
 #include <gtopt/linear_interface.hpp>
+#include <gtopt/lp_debug_writer.hpp>
 #include <gtopt/phase.hpp>
 #include <gtopt/scene.hpp>
 #include <gtopt/sddp_common.hpp>
@@ -109,6 +110,55 @@ struct ApertureEntry
     std::span<const ScenarioLP> all_scenarios, std::ptrdiff_t n_apertures)
     -> Array<Aperture>;
 
+// ─── Effective aperture resolution (filter / synthetic / fallback) ──────────
+
+/// Resolve the effective aperture definitions for a single backward-pass
+/// step.
+///
+/// Centralises the four-way decision used by both
+/// `backward_pass_with_apertures` (loop) and
+/// `backward_pass_with_apertures_single_phase` (single-phase dispatcher):
+///
+///   1. ``requested_uids`` is empty (``std::nullopt``):
+///      - if ``aperture_defs`` is also empty → ``std::nullopt`` (caller
+///        falls back to the non-aperture backward path),
+///      - otherwise → return a span over ``aperture_defs`` unchanged.
+///
+///   2. ``requested_uids`` is present:
+///      - if the requested list is empty → ``std::nullopt`` (fallback),
+///      - if ``aperture_defs`` is non-empty → filter ``aperture_defs``
+///        by UID into ``owned`` (warning emitted for any requested UID
+///        not found),
+///      - if ``aperture_defs`` is empty → build a synthetic aperture
+///        list from ``all_scenarios`` (one per scenario, sized to
+///        ``min(|requested|, |all_scenarios|)``).
+///
+///   3. If after filtering / synthesis ``owned`` is still empty →
+///      ``std::nullopt`` (fallback).
+///
+/// The returned span aliases either the original ``aperture_defs``
+/// span or the caller-provided ``owned`` storage; the caller must
+/// keep both alive for the lifetime of the returned span.
+///
+/// @param aperture_defs   All aperture definitions from the simulation.
+/// @param all_scenarios   All scenario LP objects (used to build a
+///                        synthetic aperture list when no aperture_array).
+/// @param requested_uids  Per-phase aperture UID set (may be empty
+///                        ``std::nullopt`` to mean "use everything").
+/// @param owned           Output storage for filtered / synthetic
+///                        apertures.  Must be empty on entry.  The
+///                        returned span may reference this buffer.
+/// @param log_tag         Caller tag for the "requested UID not found"
+///                        warning (e.g. "BackwardPass[i3 s1 p7]").
+/// @return Span over the effective apertures, or ``std::nullopt`` to
+///         tell the caller to fall back to the non-aperture path.
+[[nodiscard]] auto resolve_effective_apertures(
+    std::span<const Aperture> aperture_defs,
+    std::span<const ScenarioLP> all_scenarios,
+    const std::optional<Array<Uid>>& requested_uids,
+    Array<Aperture>& owned,
+    std::string_view log_tag) -> std::optional<std::span<const Aperture>>;
+
 // ─── Aperture task submission ────────────────────────────────────────────────
 
 /// Result of a single aperture task (clone + update + solve + cut).
@@ -164,6 +214,15 @@ using ApertureSubmitFunc = std::function<std::future<ApertureCutResult>(
 /// @param aperture_cache   Cache of pre-built aperture LP data
 /// @param iteration        Current SDDP iteration index
 /// @param cut_coeff_eps    Epsilon below which cut coefficients are zeroed
+/// @param lp_debug_writer  Optional writer.  When non-null, each aperture
+///                         clone's LP is dumped to disk (pre-solve) under
+///                         the writer's configured directory using
+///                         `sddp_file::debug_aperture_lp_fmt`.  Lets the
+///                         `lp_debug` option extend to aperture backward-
+///                         pass clones — callers are responsible for
+///                         applying the `lp_debug_scene/phase_min/max`
+///                         filter window and passing nullptr when the
+///                         current (scene, phase) is outside it.
 [[nodiscard]] auto solve_apertures_for_phase(
     SceneIndex scene_index,
     PhaseIndex phase_index,
@@ -186,6 +245,7 @@ using ApertureSubmitFunc = std::function<std::future<ApertureCutResult>(
     bool save_aperture_lp = false,
     const ApertureDataCache& aperture_cache = {},
     IterationIndex iteration_index = {},
-    double cut_coeff_eps = 0.0) -> std::optional<SparseRow>;
+    double cut_coeff_eps = 0.0,
+    LpDebugWriter* lp_debug_writer = nullptr) -> std::optional<SparseRow>;
 
 }  // namespace gtopt

@@ -125,6 +125,10 @@ public:
   void initial_solve() override;
   void resolve() override;
 
+  // ---- robust-solve mode ----
+  void engage_robust_solve() override;
+  void disengage_robust_solve() noexcept override;
+
   // ---- status ----
   [[nodiscard]] bool is_proven_optimal() const override;
   [[nodiscard]] bool is_abandoned() const override;
@@ -170,6 +174,20 @@ private:
   mutable std::vector<double> m_row_dual_;
   mutable bool m_solution_valid_ {};
   bool m_load_failed_ {};
+
+  /// Snapshot of HiGHS tolerances + presolve/scaling captured by
+  /// engage_robust_solve().  The first engage records the baseline;
+  /// disengage restores those exact values.
+  struct RobustState
+  {
+    double primal_feasibility_tolerance {};
+    double dual_feasibility_tolerance {};
+    double ipm_optimality_tolerance {};
+    std::string presolve {"on"};
+    int simplex_scale_strategy {4};
+    int engage_count {0};
+  };
+  std::optional<RobustState> m_saved_robust_state_;
 
   void cache_solution() const;
 };

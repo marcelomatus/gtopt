@@ -254,3 +254,36 @@ class CentralParser(BaseParser):
             ) from e
 
         return current_gen, idx
+
+    def avg_falla_cost(self) -> float:
+        """Average demand-failure cost derived from PLP ``falla`` centrals.
+
+        For each bus with ``falla``-type centrals (tiered curtailment
+        rungs FALLA_bus_1 .. FALLA_bus_4), takes the MIN gcost on that
+        bus (the cheapest curtailment tier).  The returned value is the
+        mean of these per-bus minima — the average "first-tier"
+        demand-failure price across the system.
+
+        Returns 0.0 when the central list has no ``falla`` centrals.
+
+        Used as the diagnostic "avg failure cost ($/MWh)" row in the
+        plp2gtopt comparison table (``_comparison.py``).  It is NOT used
+        as the default for ``model_options.demand_fail_cost``; real
+        demands receive their curtailment cost via per-demand ``fcost``
+        set in ``gtopt_writer.write_fcost``, and the global default is
+        only a fallback for demands without an explicit fcost.  Synthetic
+        battery-charge demands (created by C++ ``System::expand_batteries``)
+        are pinned to fcost=0 in C++ regardless of the global, so this
+        method is purely diagnostic.
+        """
+        fcost_by_bus: Dict[int, float] = {}
+        for c in self.centrals:
+            if c.get("type") != "falla" or c.get("bus", 0) <= 0:
+                continue
+            bus = int(c["bus"])
+            gcost = float(c.get("gcost", 0.0))
+            if bus not in fcost_by_bus or gcost < fcost_by_bus[bus]:
+                fcost_by_bus[bus] = gcost
+        if not fcost_by_bus:
+            return 0.0
+        return sum(fcost_by_bus.values()) / len(fcost_by_bus)

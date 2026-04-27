@@ -186,8 +186,8 @@ _SECTION_DEFAULTS: dict[str, str] = {
     "compression_level": "1",
     "output_format": "parquet",
     "input_format": "parquet",
-    "method": "cascade",
-    "demand_fail_cost": "1000.0",
+    "method": "sddp",
+    "demand_fail_cost": "0.0",
     "state_fail_cost": "1000.0",
     "scale_objective": "1000.0",
     "discount_rate": "0.0",
@@ -243,7 +243,7 @@ def _apply_plp_legacy_bundle(args: argparse.Namespace) -> None:
 
       | Option           | Default (normal)       | --plp-legacy       |
       |------------------|------------------------|--------------------|
-      | method           | cascade                | sddp               |
+      | method           | sddp                   | sddp (=)           |
       | line_losses_mode | unset (→adaptive)      | piecewise_direct   |
       | use_line_losses  | unset (→gtopt true)    | true (explicit)    |
       | pasada_mode      | flow-turbine           | flow-turbine (=)   |
@@ -259,7 +259,7 @@ def _apply_plp_legacy_bundle(args: argparse.Namespace) -> None:
 
     # argparse stores the final parsed value regardless of whether it
     # came from the CLI or the default.  Inspect sys.argv directly to
-    # tell "user typed --method" apart from "default was cascade".
+    # tell "user typed --method" apart from "default was sddp".
     explicit_flags = {a.split("=", 1)[0] for a in sys.argv[1:]}
     explicit_method = {"-M", "--method"} & explicit_flags
     explicit_losses = {"--line-losses-mode"} & explicit_flags
@@ -373,6 +373,18 @@ def build_options(args: argparse.Namespace) -> dict:
         opts["variable_scales_file"] = args.variable_scales_file
     opts["soft_emin_cost"] = args.soft_emin_cost
     opts["embed_reservoir_constraints"] = args.embed_reservoir_constraints
+    opts["plp_legacy"] = args.plp_legacy
+    if getattr(args, "disable_discharge_limit_for", None):
+        opts["disable_discharge_limit_for"] = args.disable_discharge_limit_for
+    # ``--pmin-as-flowright`` may be:
+    #   - absent (None): feature disabled
+    #   - flag without value (""): use bundled default CSV
+    #   - a CSV path on disk: use that whitelist
+    #   - a comma-separated list of names: use those names
+    if getattr(args, "pmin_as_flowright", None) is not None:
+        opts["pmin_as_flowright"] = args.pmin_as_flowright
+    if getattr(args, "flow_right_fail_cost", None) is not None:
+        opts["flow_right_fail_cost"] = args.flow_right_fail_cost
     opts["expand_water_rights"] = args.expand_water_rights
     opts["expand_lng"] = args.expand_lng
     opts["expand_ror"] = args.expand_ror
@@ -475,7 +487,7 @@ def main(argv: list[str] | None = None) -> None:
         sys.exit(print_pumped_storage_template())
 
     try:
-        convert_plp_case(build_options(args))
+        critical_count = convert_plp_case(build_options(args))
     except (RuntimeError, FileNotFoundError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         if no_args:
@@ -485,6 +497,18 @@ def main(argv: list[str] | None = None) -> None:
                 "or 'plp2gtopt --info <input_dir>' to inspect a case.",
                 file=sys.stderr,
             )
+        sys.exit(1)
+
+    # A structural bug in the generated planning (duplicate entity names,
+    # missing references, etc.) surfaces as a CRITICAL finding from
+    # gtopt_check_json.  Exit nonzero so CI and shell callers notice —
+    # a silent success on a broken conversion is worse than a hard error.
+    if critical_count > 0:
+        print(
+            f"error: conversion completed with {critical_count} CRITICAL "
+            f"finding(s) — fix the underlying issue before using the output.",
+            file=sys.stderr,
+        )
         sys.exit(1)
 
 

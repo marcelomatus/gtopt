@@ -11,12 +11,11 @@
  */
 #pragma once
 
-#include <cassert>
-
 #include <gtopt/flow_lp.hpp>
 #include <gtopt/generator_lp.hpp>
 #include <gtopt/reservoir_lp.hpp>
 #include <gtopt/turbine.hpp>
+#include <gtopt/utils.hpp>
 #include <gtopt/waterway_lp.hpp>
 
 namespace gtopt
@@ -63,19 +62,16 @@ public:
     return turbine().flow.has_value();
   }
 
-  [[nodiscard]] auto waterway_sid() const noexcept -> WaterwayLPSId
+  [[nodiscard]] auto waterway_sid() const -> WaterwayLPSId
   {
-    const auto& opt = turbine().waterway;
-    assert(opt.has_value()
-           && "waterway_sid() called on a Turbine without a waterway");
-    return WaterwayLPSId {*opt};
+    return WaterwayLPSId {
+        require_sid(turbine().waterway, "TurbineLP::waterway_sid", "waterway")};
   }
 
-  [[nodiscard]] auto flow_sid() const noexcept -> FlowLPSId
+  [[nodiscard]] auto flow_sid() const -> FlowLPSId
   {
-    const auto& opt = turbine().flow;
-    assert(opt.has_value() && "flow_sid() called on a Turbine without a flow");
-    return FlowLPSId {*opt};
+    return FlowLPSId {
+        require_sid(turbine().flow, "TurbineLP::flow_sid", "flow")};
   }
 
   [[nodiscard]] constexpr auto generator_sid() const noexcept

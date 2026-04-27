@@ -36,12 +36,14 @@
 
 #include <atomic>
 #include <span>
+#include <string>
 #include <string_view>
 #include <vector>
 
 #include <gtopt/basic_types.hpp>
 #include <gtopt/linear_interface.hpp>
 #include <gtopt/linear_problem.hpp>
+#include <gtopt/lp_class_name.hpp>
 #include <gtopt/lp_context.hpp>
 #include <gtopt/phase.hpp>
 #include <gtopt/solver_options.hpp>
@@ -102,9 +104,79 @@ struct StateVarLink
   /// Captured once at link collection time from the simulation registry
   /// Key.  The string_views reference the same stable storage as the
   /// map keys, so they outlive the link for the whole solver lifetime.
-  std::string_view class_name {};  ///< e.g. "Reservoir", "Battery"
+  /// LP class identity stored by value.  Mirrors
+  /// `StateVariable::Key::class_name` — copied from the source Key
+  /// at link-collection time.  Zero-runtime access to both
+  /// PascalCase `full_name()` and snake_case `short_name()`.
+  LPClassName class_name {};
   std::string_view col_name {};  ///< e.g. "efin", "sini"
   Uid uid {unknown_uid};  ///< Element UID
+  /// Human-readable element name (e.g. "LMAULE", "RALCO").  Resolved
+  /// from `SimulationLP::m_ampl_element_names_` at link-collection time
+  /// via a reverse scan of the (class_name, name) → uid map.  Empty
+  /// when the element was never registered in the AMPL name map — in
+  /// that case diagnostic logs fall back to the numeric uid.
+  std::string_view name {};
+};
+
+// ─── Cut-emission box-edge bookkeeping ──────────────────────────────────────
+
+/// Per-cut tally of how many contributing links land in each decile band of
+/// the source-column box ``[source_low, source_upp]``.
+///
+/// Shared diagnostic structure used by both
+/// ``build_feasibility_cut_physical`` (single-cut path) and
+/// ``build_multi_cuts`` (per-link multi-cut path).  The same band-classifier
+/// drift between the two emitters used to silently produce subtly different
+/// degeneracy thresholds; centralising it here keeps the threshold tunable
+/// in exactly one place.
+///
+/// **Decile bands** (10 % of ``box_width = source_upp − source_low``):
+///   - ``upper`` ← clamped value within the top 10 % of the box
+///     (``≥ source_upp − 0.10 × box_width``).
+///   - ``lower`` ← clamped value within the bottom 10 % of the box.
+///   - ``inside`` ← everything else (the middle 80 %).
+///
+/// The "all-upper" pattern (``all_upper_degenerate()`` returns true) is the
+/// signature of a degenerate "every state floored at emax" cut: the master
+/// cannot satisfy a floor at every reservoir's emax simultaneously in one
+/// phase, so installing such a cut guarantees cascade-infeasibility on the
+/// next forward attempt.  Cut emitters use this signal to drop the cut
+/// rather than install a doomed retry chain.
+///
+/// Exposed (rather than kept anonymous) so that the band-classification
+/// invariant is unit-testable in isolation, without spinning up a full
+/// elastic clone.
+struct BoxEdgeStats
+{
+  int upper {};
+  int lower {};
+  int inside {};
+  std::string upper_names;  ///< Comma-joined element names for WARN message
+
+  /// Total active links contributing to a cut (= ``upper + lower + inside``).
+  [[nodiscard]] constexpr int total() const noexcept
+  {
+    return upper + lower + inside;
+  }
+
+  /// True when EVERY active link clamps at the upper edge.  The threshold
+  /// of ``≥ 2 active`` keeps the warning quiet for trivial single-link
+  /// cuts on a small reservoir while still flaring on the multi-reservoir
+  /// degenerate cascade observed on juan/gtopt_iplp.
+  [[nodiscard]] constexpr bool all_upper_degenerate() const noexcept
+  {
+    return total() >= 2 && upper == total();
+  }
+
+  /// Tally one link's clamp into the appropriate decile bucket.
+  /// ``clamped`` is the cut's implied source value after the per-link
+  /// ``std::clamp(dep_clone_phys, source_low, source_upp)``; the helper
+  /// compares it to the box's top / bottom 10 % bands.  Names land in
+  /// ``upper_names`` only when the link has a non-empty AMPL name —
+  /// otherwise the diagnostic falls back to the numeric uid in the WARN
+  /// message that consumes ``upper_names``.
+  void tally(double clamped, const StateVarLink& link);
 };
 
 // ─── Elastic relaxation result ──────────────────────────────────────────────
@@ -119,6 +191,13 @@ struct RelaxedVarInfo
   ColIndex sup_col {unknown_index};
   /// Undershoot slack col (sdn > 0 → solution > trial)
   ColIndex sdn_col {unknown_index};
+  /// Row index of the elastic fixing equation
+  /// `dep_col + sup_col − sdn_col = trial_value` added to the clone
+  /// by `relax_fixed_state_variable`.  The dual of this row at the
+  /// clone's Phase-1 optimum is the Farkas ray component that becomes
+  /// the feasibility-cut coefficient on `source_col` — matches
+  /// `plp-agrespd.f::AgrElastici` which reads `lp->getRowPrice()[row]`.
+  RowIndex fixing_row {unknown_index};
 
   /// Implicit bool conversion: true iff the column was relaxed.
   // NOLINTNEXTLINE(google-explicit-constructor,hicpp-explicit-conversions)
@@ -250,6 +329,43 @@ void propagate_trial_values(std::span<StateVarLink> links,
     double objective_value_physical,
     double cut_coeff_eps = 0.0) -> SparseRow;
 
+/// Physical-space *feasibility* cut builder — PLP / classical-Benders
+/// convention (no α term).  Produces a pure state-coupling constraint
+///   Σ πᵢ · sᵢ ≥ Σ πᵢ · v̂ᵢ + Σ slack_iᵢ
+/// where πᵢ is the dual of the fixing equation
+/// `dep_col + sup − sdn = v̂` at the elastic clone's Phase-1 optimum,
+/// and `slack_i = x[sup_i] - x[sdn_i]` is the net slack activation
+/// (the amount the trial had to move to become feasible).  Matches
+/// `plp-agrespd.f::AgrElastici` line-for-line (`lp->getRowPrice()[row]`
+/// for the coefficient, `(b[row] + dx) * ray[i]` for the RHS term).
+///
+/// Why no α: a feasibility cut certifies "this trial point leads to
+/// downstream infeasibility" — it carries no lower-bound information
+/// on the expected future cost.  Mixing α into the cut would let the
+/// master drive α negative to "satisfy" the cut trivially (the
+/// LB-frozen-at-0 pathology).
+///
+/// @param links                   State-variable linkage descriptors.
+///                                Each link contributes its
+///                                `source_col` coefficient derived
+///                                from its paired `link_info.fixing_row`.
+/// @param link_infos              RelaxedVarInfo per link (same order
+///                                and size as @p links).  Provides
+///                                `fixing_row` for the row-dual read
+///                                and `sup_col`/`sdn_col` for the
+///                                slack-activation term in the RHS.
+/// @param rc_source               Solved elastic clone — must have
+///                                `crossover = true` so `get_row_price()`
+///                                returns a valid vertex dual.
+/// @param cut_coeff_eps           Drop state-var coefficients below
+///                                this absolute threshold (default 0).
+[[nodiscard]] auto build_feasibility_cut_physical(
+    std::span<const StateVarLink> links,
+    std::span<const RelaxedVarInfo> link_infos,
+    LinearInterface& rc_source,
+    double cut_coeff_eps,
+    int niter) -> SparseRow;
+
 // ─── Elastic filter ─────────────────────────────────────────────────────────
 
 /// Relax a single fixed state-variable column to its physical source bounds,
@@ -266,17 +382,36 @@ void propagate_trial_values(std::span<StateVarLink> links,
 /// Contains the solved LP clone and per-link slack column information.
 struct ElasticSolveResult
 {
-  LinearInterface clone;  ///< Solved elastic clone
+  LinearInterface clone;  ///< Elastic clone (solved when `solved == true`)
   /// One RelaxedVarInfo per outgoing link (same order as @p links)
   std::vector<RelaxedVarInfo> link_infos {};
+  /// True when the clone reached an optimal solution and its duals /
+  /// primal values are usable for cut construction.  False when the
+  /// clone itself came back non-optimal (i.e. state-variable
+  /// relaxation alone cannot restore feasibility — infeasibility is
+  /// rooted in rows the elastic filter cannot relax).  When false,
+  /// callers should treat the clone as diagnostic-only (write it to
+  /// disk for post-mortem) and NOT read duals from it.
+  bool solved {true};
 };
 
 /// Clone the LP, apply elastic relaxation on fixed state-variable columns,
 /// and solve the clone.  The original LP is never modified.
 ///
+/// α is intentionally outside the state-variable pool this filter
+/// operates on: callers (via `collect_state_variable_links`) already
+/// exclude α from @p links, so α never receives slack variables and
+/// its bounds are left untouched in the clone.  The Chinneck Phase-1
+/// objective zeroing applies to every column including α, but with α
+/// kept at whatever bounds the source LP has (pinned at 0 by
+/// bootstrap or freed by a prior optimality cut), the clone's solve
+/// measures the true feasibility gap on the forward state variables
+/// without α absorbing it.
+///
 /// @param li                The LP to clone (not modified)
 /// @param links             Outgoing state-variable links from the previous
-/// phase
+/// phase.  Must not contain the α column — `collect_state_variable_links`
+/// skips α by class name.
 /// @param penalty           Elastic penalty coefficient for slack variables
 /// @param opts              Solver options for the clone solve
 /// @return Solved elastic clone and per-link slack info, or nullopt if
@@ -361,21 +496,63 @@ struct FeasibilityCutResult
 /// Build per-slack bound-constraint cuts from a solved elastic clone.
 ///
 /// For each outgoing link whose slack was activated (non-zero) in the
-/// elastic-clone solution, this function generates one or two bound-cut
-/// rows on the source column:
-///   - sup > ε  ⟹  source_col ≤ dep_val   (upper-bound cut)
-///   - sdn > ε  ⟹  source_col ≥ dep_val   (lower-bound cut)
+/// elastic-clone solution, this function generates one feasibility cut
+/// on the source column:
 ///
-/// @param elastic  The solved elastic clone and per-link slack info
-/// @param links    Outgoing state-variable links (same order as elastic)
-/// @param context  LP context for the generated cut rows
-/// @param slack_tol  Minimum slack magnitude to consider "active"
-/// @return Vector of bound-constraint cuts (may be empty)
-[[nodiscard]] auto build_multi_cuts(const ElasticSolveResult& elastic,
+///   π · source_col ≥ π · clamp(v̂ + dx · scale, source_low, source_upp)
+///
+///   π   = −row_dual[fixing_row]   (signed sensitivity dual at the
+///                                   elastic clone's optimum)
+///   dx  = sdn_val − sup_val       (net slack activation on the
+///                                   fixing row ``dep + sup − sdn = v̂``)
+///
+/// Per-link drops (mirroring PLP `osicallsc.cpp::osi_lp_get_feasible_cut`):
+///   1. ``|π| < cut_coeff_eps``                       — drop tiny duals.
+///   2. ``|π · dx| < 1e-9 × (|π · v̂| + 1e-8)``        — drop sub-tolerance
+///      slack activations (the ``dx``-relative low-activation filter).
+///
+/// Whole-family drop (gtopt-specific guard, no PLP equivalent):
+///   - When EVERY surviving per-link cut clamps at ``source_upp``
+///     (top 10 % of ``[source_low, source_upp]``), the family is a
+///     "every state floored at emax" degenerate cut.  Master retries
+///     installing such a family always cascade-fail (the master cannot
+///     reach emax on every reservoir simultaneously in one phase).
+///     The function CLEARS its return vector in that case so the
+///     caller sees "no cut produced" and declares infeasibility
+///     directly, skipping the wasted retry chain (juan/gtopt_iplp:
+///     28 backtracks → 0).  A WARN is emitted naming the reservoirs.
+///
+/// @param elastic        Solved elastic clone + per-link slack info
+///                       (non-const because reading dual prices may
+///                       trigger ``ensure_duals()`` on the backend).
+///                       Per-direction slack costs
+///                       (``slack_cost_sup``/``slack_cost_sdn``)
+///                       are read directly from the clone's slack
+///                       column costs via ``get_col_cost_raw()``,
+///                       which transparently picks up the asymmetric
+///                       bias applied at relaxation time and any
+///                       future per-link variation.  No external
+///                       penalty parameter needs to be plumbed
+///                       through — the elastic clone is the single
+///                       source of truth for slack pricing.
+/// @param links          Outgoing state-variable links (same order
+///                       as ``elastic.link_infos``).
+/// @param context        LP context for the generated cut rows.
+/// @param cut_coeff_eps  Threshold for the ``|π| < ε`` drop above
+///                       (default 1e-8 in production, override for
+///                       tests).
+/// @param niter          Iteration counter; controls the outward
+///                       FactEPS perturbation (``1e-10 × niter``).
+/// @return Vector of feasibility cuts (one per surviving link), OR
+///         an empty vector when the whole-family degeneracy guard
+///         fires.  Caller (``sddp_forward_pass.cpp``) treats empty
+///         as "no feasibility cut produced" and flags the scene
+///         infeasible.
+[[nodiscard]] auto build_multi_cuts(ElasticSolveResult& elastic,
                                     std::span<const StateVarLink> links,
-                                    const LpContext& context = {},
-                                    double slack_tol = 1e-6)
-    -> std::vector<SparseRow>;
+                                    const LpContext& context,
+                                    double cut_coeff_eps,
+                                    int niter) -> std::vector<SparseRow>;
 
 // ─── Cut averaging ──────────────────────────────────────────────────────────
 

@@ -133,6 +133,10 @@ public:
   [[nodiscard]] bool is_abandoned() const override;
   [[nodiscard]] bool is_proven_primal_infeasible() const override;
   [[nodiscard]] bool is_proven_dual_infeasible() const override;
+
+  // ---- robust-solve mode ----
+  void engage_robust_solve() override;
+  void disengage_robust_solve() noexcept override;
   // ---- solver options ----
   void apply_options(const SolverOptions& opts) override;
   [[nodiscard]] SolverOptions optimal_options() const override;
@@ -193,6 +197,16 @@ private:
   int m_threads_ {0};
   bool m_presolve_ {true};
   int m_log_level_ {0};
+
+  /// Snapshot of MindOpt tolerances captured by engage_robust_solve().
+  struct RobustState
+  {
+    double dual_tol {};
+    double primal_tol {};
+    double ipm_gap_tol {};
+    int engage_count {0};
+  };
+  std::optional<RobustState> m_saved_robust_state_;
 };
 
 }  // namespace gtopt

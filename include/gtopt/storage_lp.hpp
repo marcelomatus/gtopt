@@ -100,6 +100,16 @@ public:
   static constexpr std::string_view EiniName {"eini"};
   static constexpr std::string_view SiniName {"sini"};
   static constexpr std::string_view EnergyName {"energy"};
+  /// Constraint name for the per-block energy-balance row.  Distinct
+  /// from `EnergyName` (the variable) so the LP row and column do not
+  /// share a base label — without this split, writers like
+  /// `CPXwriteprob` emit `#<col_index>` disambiguators on every
+  /// column when they detect the row/col name clash, making LP files
+  /// much harder to diff.  Keeping `EnergyName` for the variable
+  /// preserves the `<class>.energy.*` column convention that
+  /// downstream tooling (ScaledView lookup, cut I/O, Pampl readers)
+  /// already depends on.
+  static constexpr std::string_view EnergyBalanceName {"energy_balance"};
   static constexpr std::string_view SoftEminName {"soft_emin"};
   static constexpr std::string_view DrainName {"drain"};
   static constexpr std::string_view EfinName {"efin"};
@@ -281,6 +291,53 @@ public:
     if (!stage.index() && !stage.phase_index()) {
       return default_eini;
     }
+    // Priority chain (revised 2026-04-25 — driven by seepage segment-
+    // selection requirements observed on juan/gtopt_iplp p27/p37):
+    //
+    //   1. Previous phase's *optimal* efin — the most physically accurate
+    //      value for our stage's start-of-stage volume, since the
+    //      state-link semantics define `eini[N] = efin[N-1]`.  Whenever
+    //      the predecessor has just been solved (forward-pass position
+    //      N > 0), this gives a freshly-propagated value that reflects
+    //      the actual reservoir trajectory rather than any stale or
+    //      JSON-default fallback.
+    //
+    //   2. Our phase's own optimal `eini_col` — used when the predecessor
+    //      was not solved (e.g. iter-0 backward pass at the FIRST phase),
+    //      but our own LP has been solved by a previous attempt in the
+    //      current iteration.  The `eini_col` value reflects the
+    //      state-link constraint applied to our LP at the time of solve.
+    //
+    //   3. Hot-start warm value — loaded from a prior-run state file via
+    //      `LinearInterface::warm_col_sol()`.  Falls through here when
+    //      this LP has never been solved and no predecessor exists in
+    //      the current run.
+    //
+    //   4. Global default `eini` from the JSON — last-resort fallback.
+    //
+    // The previous order (own optimal → warm → cross-phase) caused
+    // ReservoirSeepage::update_lp to evaluate the linearised filtration
+    // curve at our own stale `eini_col` (which at iter-0 build time =
+    // JSON eini), pinning ELTORO to segment 2 (volume range [400, 2700])
+    // even when the predecessor's solved efin had drained ELTORO well
+    // below 400 Hm³.  At physical efin → 0 the segment-2 line
+    // structurally forces 15.09 m³/s of seepage from an empty reservoir,
+    // breaking the LP.  Cross-phase first eliminates this miscompute.
+    //
+    // 1. Cross-phase: previous phase's optimal efin.
+    if (const auto* prev_sys = sys.prev_phase_sys()) {
+      const auto& prev_li = prev_sys->linear_interface();
+      if (prev_li.is_optimal()) {
+        const auto& prev_rsv =
+            prev_sys->template element<typename SIdT::object_type>(sid);
+        const auto& prev_stages = prev_sys->phase().stages();
+        if (!prev_stages.empty()) {
+          return prev_rsv.physical_efin(
+              prev_li, scenario, prev_stages.back(), default_eini);
+        }
+      }
+    }
+    // 2. Our phase's optimal `eini_col` solution.
     const auto& li = sys.linear_interface();
     const auto col = eini_col_at(scenario, stage);
     if (li.is_optimal()) {
@@ -289,23 +346,12 @@ public:
       // lands outside [emin, emax].
       return li.get_col_sol()[col];
     }
+    // 3. Hot-start warm value.
     const auto& warm = li.warm_col_sol();
     if (!warm.empty() && static_cast<size_t>(col) < warm.size()) {
       return physical_col_value(warm, col);
     }
-    // Cross-phase fallback: eini at phase N == efin at phase N-1.
-    // Look up the same storage element in the previous phase and
-    // retrieve its efin from the last stage.
-    if (const auto* prev_sys = sys.prev_phase_sys()) {
-      const auto& prev_rsv =
-          prev_sys->template element<typename SIdT::object_type>(sid);
-      const auto& prev_li = prev_sys->linear_interface();
-      const auto& prev_stages = prev_sys->phase().stages();
-      if (!prev_stages.empty()) {
-        return prev_rsv.physical_efin(
-            prev_li, scenario, prev_stages.back(), default_eini);
-      }
-    }
+    // 4. Global default eini.
     return default_eini;
   }
 
@@ -369,7 +415,7 @@ public:
   }
 
   template<typename SystemContextT>
-  bool add_to_lp(std::string_view cname,
+  bool add_to_lp(const LPClassName& cname,
                  std::string_view ampl_class,
                  SystemContextT& sc,
                  const ScenarioLP& scenario,
@@ -437,6 +483,16 @@ public:
     const auto [stage_emax, stage_emin] =
         sc.stage_maxmin_at(stage, emax, emin, stage_capacity);
 
+    // PLP-style emin enforcement gate.  When false (default), the per-stage
+    // `emin` floor is dropped from the `sini` (cross-phase initial energy)
+    // and last-block `efin` columns so the LP can dip below `emin` at iter-0
+    // of an SDDP cascade — exactly mirroring PLP, where `ve<u>` is Free and
+    // only the future-volume column `vf<u>` carries the `vmin` lower bound.
+    // When true, the strict bound is restored on both columns.
+    const bool strict_volume = sc.options().strict_storage_emin();
+    const double sini_lowb = strict_volume ? stage_emin : 0.0;
+    const double efin_block_lowb = strict_volume ? stage_emin : 0.0;
+
     // Determine the initial-energy column (vicol / eini):
     //
     //  ┌─────────────────────┬──────────────────────────────────────────────┐
@@ -484,7 +540,7 @@ public:
       // in the first phase; sini columns are the SDDP inter-phase coupling
       // variables propagated by the forward pass.
       eicol = lp.add_col({
-          .lowb = stage_emin,
+          .lowb = sini_lowb,
           .uppb = stage_emax,
           .scale = energy_scale,
           .class_name = opts.class_name,
@@ -515,6 +571,17 @@ public:
       // An efin==eini close constraint is added after the block loop below.
     }
 
+    // Drain (spillway) emission gate: skip the per-block drain column when
+    // the caller signals the drain is disabled by passing a *zero* capacity.
+    // For Reservoir this corresponds to `Reservoir.spillway_capacity == 0`
+    // (PLP `IBind`/`SerVer == 0` reservoirs whose spillway is structurally
+    // bound to zero — emitting a `[0,0]` column adds dead variables and rows
+    // to the energy balance).  When the capacity is unset the column keeps
+    // the historical unbounded behaviour (DblMax), so existing callers that
+    // pass `drain_capacity = std::nullopt` are unchanged.
+    const bool drain_enabled =
+        drain_cost.has_value() && drain_capacity.value_or(1.0) > 0.0;
+
     BIndexHolder<ColIndex> ecols;
     BIndexHolder<ColIndex> dcols;
     BIndexHolder<RowIndex> erows;
@@ -522,7 +589,9 @@ public:
     map_reserve(ecols, blocks.size());
     map_reserve(erows, blocks.size());
     map_reserve(crows, blocks.size());
-    map_reserve(dcols, blocks.size());
+    if (drain_enabled) {
+      map_reserve(dcols, blocks.size());
+    }
 
     // stg_ctx (StageContext = tuple<ScenarioUid, StageUid>) serves as both
     // the LP hierarchy context and the index holder key.
@@ -538,7 +607,7 @@ public:
       auto erow =
           SparseRow {
               .class_name = cname,
-              .constraint_name = EnergyName,
+              .constraint_name = EnergyBalanceName,
               .variable_uid = opts.variable_uid,
               .context =
                   make_block_context(scenario.uid(), stage.uid(), block.uid()),
@@ -546,13 +615,35 @@ public:
               .equal(0);
 
       // Energy LP variable is in scaled units (physical / energy_scale).
-      // All blocks use uniform bounds [lp_emin, lp_emax].
       // - Global initial condition (eini) is a separate column created before
       //   this loop, used as prev_vc for the first block (is_first_block).
       // - Global final condition (efin) is a named >= row added below for the
       //   last block (is_last_block) of the last stage.
+      //
+      // PLP-style emin enforcement (revised 2026-04-25): the per-stage `emin`
+      // floor is applied to the last-block energy column (which serves
+      // as `efin`, the inter-stage handoff state) ONLY when the user opts in
+      // via `model_options.strict_storage_emin=true`.  Intra-stage
+      // blocks always use `lowb = 0` so the energy-balance row has the same
+      // headroom as PLP's `qe<u>_b` Free / `ve<u>` Free formulation.
+      //
+      // Why default lax: at iter-0 of an SDDP cascade, the forward pass may
+      // fix `sini = stage_emin` if the predecessor's trial drove the reservoir
+      // to its floor.  Combined with the energy-balance equation
+      // `energy_b = sini − fcr·duration·extraction − ...`, a per-block
+      // `lowb = stage_emin` leaves zero headroom and forces a primal
+      // infeasibility.  PLP's per-stage LP avoids this by enforcing emin only
+      // on the future-volume column (`vf<u> ≥ vmin`).  Mirroring that here
+      // keeps the LP feasible across the iter-0 cascade.  When
+      // `strict_storage_emin=true`, the historic strict bound is
+      // restored — `efin_block_lowb = stage_emin` — preserving the inter-
+      // stage semantics so the next stage's `sini` is also ≥ stage_emin.
+      //
+      // Capacity (uppb = stage_emax) is a real physical bound and stays per
+      // block.
+      const bool emin_block = (buid == blocks.back().uid());
       const auto ec = lp.add_col({
-          .lowb = stage_emin,
+          .lowb = emin_block ? efin_block_lowb : 0.0,
           .uppb = stage_emax,
           .cost = stage_ecost,
           .scale = energy_scale,
@@ -597,7 +688,7 @@ public:
             * block.duration() * dc_stage_scale;
       }
 
-      if (drain_cost) {
+      if (drain_enabled) {
         // Physical drain cost — flatten() applies col_scale.
         const auto dcol = lp.add_col({
             .lowb = 0,
@@ -767,7 +858,7 @@ public:
     efin_cols[stg_ctx] = prev_vc;
     energy_rows[stg_ctx] = std::move(erows);
     energy_cols[stg_ctx] = std::move(ecols);
-    if (drain_cost) {
+    if (drain_enabled) {
       drain_cols[stg_ctx] = std::move(dcols);
     }
 
@@ -782,7 +873,7 @@ public:
     if (!ampl_class.empty()) {
       sc.add_ampl_variable(
           ampl_class, uid(), EnergyName, scenario, stage, energy_cols[stg_ctx]);
-      if (drain_cost) {
+      if (drain_enabled) {
         sc.add_ampl_variable(
             ampl_class, uid(), DrainName, scenario, stage, drain_cols[stg_ctx]);
       }

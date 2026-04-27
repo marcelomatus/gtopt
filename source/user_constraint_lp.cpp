@@ -685,12 +685,12 @@ UserConstraintLP::UserConstraintLP(const UserConstraint& uc, InputContext& ic)
     try {
       m_expr_ = ConstraintParser::parse(uc.name, uc.expression);
     } catch (const std::exception& ex) {
-      SPDLOG_ERROR(std::format(
+      SPDLOG_ERROR(
           "user_constraint '{}': expression parse error: {} — "
           "check expression syntax and refer to the user-constraint "
           "documentation; constraint will be silently skipped",
           uc.name,
-          ex.what()));
+          ex.what());
       // m_expr_ stays nullopt; add_to_lp will skip this constraint silently
     }
   }
@@ -763,6 +763,14 @@ bool UserConstraintLP::add_to_lp(const SystemContext& sc,
     SparseRow row;
     row.class_name = uc.name;
     row.constraint_name = ConstraintName;
+    // Labelled rows / auxiliary cols inheriting this row's uid must
+    // carry a concrete `variable_uid` — `add_aux_col` propagates
+    // `row.variable_uid` to each `abs_aux` / `max_aux` / `min_aux`
+    // column, and an `unknown_uid = -1` there serialises as
+    // `UserConstraint_abs_aux_-1_…`, rejected by
+    // `LinearProblem::add_col`'s validator (post-2026-04-23) and by
+    // CoinLpIO's LP-writer name check.
+    row.variable_uid = uid();
     row.context = make_block_context(scenario.uid(), stage.uid(), block.uid());
 
     LowerCtx lctx {

@@ -94,7 +94,15 @@ bool ReservoirSeepageLP::add_to_lp(const SystemContext& sc,
         }
             .equal(effective_rhs);
 
-    frow[eini_col] = frow[efin_col] = -lp_slope * 0.5;
+    // Anchor seepage to vfin only: q_filt = constant + slope · efin.
+    // This makes the linearised constraint physically consistent at the
+    // segment endpoints — in particular, when vfin → 0 in Tramo 1
+    // (constant = 0, slope = first-segment slope), the row forces
+    // q_filt → 0 as required by the PLP physics.  The previous
+    // mid-stage average form (-0.5·slope on each of eini and efin)
+    // pinned q_filt to a non-zero value even at vfin = 0 because of
+    // the eini contribution.
+    frow[efin_col] = -lp_slope;
 
     frow[fcol] = 1;
 
@@ -157,12 +165,28 @@ int ReservoirSeepageLP::update_lp(SystemLP& sys,
   const auto st_key = std::tuple {scenario.uid(), stage.uid()};
   auto& state = m_states_.at(st_key);
 
+  // Segment selection uses the *start-of-stage* volume (vini), which by
+  // the time `update_lp` runs has already been propagated from the
+  // predecessor phase's solved efin via `physical_eini`'s cross-phase
+  // lookup (storage_lp.hpp::physical_eini(sys,...,sid) walks back to
+  // `prev_sys->element(...).physical_efin(...)`).  Using vini matches
+  // PLP's filtration construction, which evaluates the segment at the
+  // start-of-stage state — the only volume value that is actually known
+  // at the moment we build / update the stage's LP, since the
+  // current-stage `efin` is still a free variable awaiting solve.
+  //
+  // The previous form anchored on `physical_efin(sys, stage, ...)` at the
+  // CURRENT stage, which at iter-0 first attempt has no prior solve and
+  // therefore returns the default `eini` fallback (= the JSON-level
+  // initial volume, e.g. 1731 Hm³ for ELTORO).  That pinned segment 2
+  // (covering [400, 2700]) for every stage of every scenario, even when
+  // the predecessor's efin had already drained ELTORO well below 400 Hm³
+  // in the forward pass.  At efin → 0 the segment-2 line forces a
+  // 15.09 m³/s seepage from an empty reservoir, structurally breaking
+  // the LP — observed on juan/gtopt_iplp p27/p37 cascade.
   const auto vini =
       rsv.physical_eini(sys, scenario, stage, default_volume, reservoir_sid());
-  const auto vfin = rsv.physical_efin(sys, scenario, stage, default_volume);
-  const Real volume = (vini + vfin) / 2.0;
-
-  const auto coeffs = select_seepage_coeffs(seepage().segments, volume);
+  const auto coeffs = select_seepage_coeffs(seepage().segments, vini);
 
   const auto new_slope = coeffs.slope;
   const auto new_rhs = coeffs.intercept;
@@ -176,8 +200,8 @@ int ReservoirSeepageLP::update_lp(SystemLP& sys,
 
   for (const auto& [buid, row] : frows) {
     if (new_slope != state.current_slope) {
-      li.set_coeff(row, state.eini_col, -new_slope * 0.5);
-      li.set_coeff(row, state.efin_col, -new_slope * 0.5);
+      // Anchor on efin only — see add_to_lp() above for rationale.
+      li.set_coeff(row, state.efin_col, -new_slope);
     }
     if (new_rhs != state.current_rhs) {
       li.set_rhs(row, new_rhs);
@@ -187,9 +211,9 @@ int ReservoirSeepageLP::update_lp(SystemLP& sys,
 
   SPDLOG_TRACE(
       "ReservoirSeepageLP uid={}: updated constraints "
-      "(volume={:.1f}, slope={:.6f}, rhs={:.6f})",
+      "(vfin={:.1f}, slope={:.6f}, rhs={:.6f})",
       uid(),
-      volume,
+      vfin,
       new_slope,
       new_rhs);
 

@@ -377,7 +377,7 @@ def _add_plpinfo_sheet(ws: Any, planning: dict, options: dict, styles: dict) -> 
         ("Key Options", "HEADING"),
         ("option", "value", "", "TABLE_HEADER"),
         ("input_dir", input_dir, "", "TABLE"),
-        ("method", str(options.get("method", "cascade")), "", "TABLE"),
+        ("method", str(options.get("method", "sddp")), "", "TABLE"),
         ("hydrologies", str(options.get("hydrologies", "1")), "", "TABLE"),
         ("discount_rate", str(options.get("discount_rate", 0.0)), "", "TABLE"),
         ("use_single_bus", str(mo.get("use_single_bus", False)), "", "TABLE"),

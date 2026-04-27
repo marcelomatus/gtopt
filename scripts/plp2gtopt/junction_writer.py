@@ -19,6 +19,7 @@ from typing import Any, Dict, List, Optional, cast, TypedDict
 from .base_writer import BaseWriter
 from .central_parser import CentralParser
 from .cenfi_parser import CenfiParser
+from .cenpmax_parser import CenpmaxParser
 from .cenre_parser import CenreParser
 from .extrac_parser import ExtracParser
 from .aflce_parser import AflceParser
@@ -27,8 +28,12 @@ from .manem_parser import ManemParser
 from .ralco_parser import RalcoParser
 from .manem_writer import ManemWriter
 from .minembh_parser import MinembhParser
+from .vrebemb_parser import VrebembParser
 from .ror_equivalence_parser import RorSpec
 from .stage_parser import StageParser
+from .mance_parser import ManceParser
+from .block_parser import BlockParser
+from .mance_writer import ManceWriter
 
 _logger = logging.getLogger(__name__)
 
@@ -36,20 +41,92 @@ _logger = logging.getLogger(__name__)
 # cannot collide with central UIDs (which are typically in the range 1–999).
 _OCEAN_UID_OFFSET = 10000
 
-# PLP convention: VertMin/VertMax in plpcnfce.dat is sometimes set to a
-# numeric sentinel meaning "essentially unbounded" — observed values are in
-# the 9000–10042 band (looks like 9000 + central_index) and 99999.  A real
-# Chilean spillway flow cap is at most a few thousand m³/s, so any value at
-# or above this threshold is treated as "unspecified" and dropped from the
-# emitted waterway, leaving the spill flow unbounded.  Keeping the sentinel
-# as a literal upper bound inflates LP matrix kappa and yields false
-# binding-bound duals.
-_VERT_BOUND_SENTINEL_THRESHOLD = 9000.0
+# PLP convention: ``PotMax`` (max generation power) and ``VertMax`` (max
+# spillway flow) in plpcnfce.dat are sometimes set to a numeric sentinel
+# meaning "essentially unbounded" — observed values are in the 9000-10042
+# band (looks like 9000 + central_index) and 99999.  A real Chilean
+# generator/spillway flow cap is at most a few thousand m³/s, so any value
+# at or above this threshold is treated as "unspecified" and dropped from
+# the emitted waterway, leaving the flow unbounded.  Keeping the sentinel
+# as a literal LP upper bound inflates matrix kappa (max coef ÷ min coef)
+# and yields false binding-bound duals during SDDP cuts.
+#
+# This is the same threshold introduced as `_is_vert_sentinel` in 8d1fff9b
+# (subsequently removed by 86616b80, then re-added on both branches).
+# The merged form here renames to `_is_plp_no_limit` and extends coverage
+# to the ``gen`` waterway side (``fmax = PotMax / Rendi``) which never
+# had the check in the first place.
+_PLP_NO_LIMIT_SENTINEL = 9000.0
 
 
-def _is_vert_sentinel(value: float) -> bool:
-    """Return True if ``value`` looks like a "no bound" sentinel."""
-    return value >= _VERT_BOUND_SENTINEL_THRESHOLD
+def _is_plp_no_limit(value: float) -> bool:
+    """Return True if ``value`` looks like a PLP "no bound" sentinel."""
+    return value >= _PLP_NO_LIMIT_SENTINEL
+
+
+def _eval_pf_segments(segments: List[Dict[str, float]], volume: float) -> float:
+    """Evaluate a piecewise-linear PF curve at ``volume``.
+
+    Picks the segment whose breakpoint is the largest ≤ ``volume`` and
+    returns ``slope*volume + constant``.  Matches PLP's convention for
+    volume-indexed piecewise tables.
+    """
+    if not segments:
+        return 0.0
+    active = segments[0]
+    for seg in segments:
+        if float(seg.get("volume", 0.0)) <= volume:
+            active = seg
+        else:
+            break
+    slope = float(active.get("slope", 0.0))
+    constant = float(active.get("constant", 0.0))
+    return (slope * volume) + constant
+
+
+def _merge_pf_curves_min(
+    primary: List[Dict[str, float]],
+    other: List[Dict[str, float]],
+) -> List[Dict[str, float]]:
+    """Combine two production-factor curves by taking the min at each breakpoint.
+
+    ``primary`` carries the volume breakpoint structure (typically the
+    plpcenpmax-derived curve, which has multiple segments). ``other``
+    usually has a single linear segment (plpcenre's Rendi curve). For
+    each breakpoint in ``primary``, evaluate both curves; if ``other``
+    is lower, adopt ``other``'s slope/constant on that segment.
+    Otherwise keep ``primary``'s.  Matches the user-requested
+    "MIN envelope" combination of the two physical constraints.
+    """
+    if not primary:
+        return list(other)
+    if not other:
+        return list(primary)
+    merged: List[Dict[str, float]] = []
+    for seg in primary:
+        vol = float(seg.get("volume", 0.0))
+        pf_prim = _eval_pf_segments(primary, vol)
+        pf_other = _eval_pf_segments(other, vol)
+        if pf_other < pf_prim:
+            # Find the active `other` segment at this volume and adopt
+            # its slope/constant on the merged segment so the line at
+            # `vol` equals `pf_other` and stays monotone with `other`.
+            active = other[0]
+            for oseg in other:
+                if float(oseg.get("volume", 0.0)) <= vol:
+                    active = oseg
+                else:
+                    break
+            merged.append(
+                {
+                    "volume": vol,
+                    "slope": float(active.get("slope", 0.0)),
+                    "constant": float(active.get("constant", 0.0)),
+                }
+            )
+        else:
+            merged.append(dict(seg))
+    return merged
 
 
 class Waterway(TypedDict, total=False):
@@ -62,6 +139,7 @@ class Waterway(TypedDict, total=False):
     fmin: float
     fmax: float
     capacity: float
+    fcost: float
 
 
 class Junction(TypedDict):
@@ -116,6 +194,7 @@ class Reservoir(_ReservoirRequired, total=False):
     """
 
     use_state_variable: bool
+    spill_junction: str
     soft_emin: list[float]
     soft_emin_cost: list[float]
     seepage: List[Dict[str, Any]]
@@ -237,7 +316,7 @@ class HydroSystemOutput(TypedDict):
 class JunctionWriter(BaseWriter):
     """Converts central plant data to hydro system JSON format for GTOPT."""
 
-    def __init__(
+    def __init__(  # pylint: disable=too-many-arguments
         self,
         central_parser: Optional[CentralParser] = None,
         stage_parser: Optional[StageParser] = None,
@@ -249,6 +328,11 @@ class JunctionWriter(BaseWriter):
         filemb_parser: Optional[FilembParser] = None,
         ralco_parser: Optional[RalcoParser] = None,
         minembh_parser: Optional[MinembhParser] = None,
+        vrebemb_parser: Optional[VrebembParser] = None,
+        plpmat_parser: Optional[Any] = None,
+        cenpmax_parser: Optional[CenpmaxParser] = None,
+        mance_parser: Optional[ManceParser] = None,
+        block_parser: Optional[BlockParser] = None,
         options: Optional[Dict[str, Any]] = None,
     ) -> None:
         """Initialize hydro system writer.
@@ -267,6 +351,11 @@ class JunctionWriter(BaseWriter):
             ralco_parser: Parser for drawdown limit data (plpralco.dat).
             minembh_parser: Parser for soft minimum volume constraints
                 (plpminembh.dat).
+            cenpmax_parser: Parser for volume-dependent turbine Pmax curves
+                (plpcenpmax.dat). When provided, each entry emits a
+                ReservoirProductionFactor (scaled by the physical flow cap
+                ``PotMax / Rendi``) and fixes the turbine's generation
+                waterway ``fmax`` to that same flow cap.
             options: Configuration options for the writer
         """
         super().__init__(central_parser, options)
@@ -279,6 +368,11 @@ class JunctionWriter(BaseWriter):
         self.filemb_parser = filemb_parser
         self.ralco_parser = ralco_parser
         self.minembh_parser = minembh_parser
+        self.vrebemb_parser = vrebemb_parser
+        self.plpmat_parser = plpmat_parser
+        self.cenpmax_parser = cenpmax_parser
+        self.mance_parser = mance_parser
+        self.block_parser = block_parser
         self._embed_reservoir_constraints = bool(
             self.options.get("embed_reservoir_constraints", False)
         )
@@ -287,7 +381,23 @@ class JunctionWriter(BaseWriter):
         self._junction_names: dict[int, str] = {}
         self._skipped_isolated: list[str] = []
         self._referenced_junctions: set[int] = set()
-        self._vert_sentinel_count = 0
+        # Counter for PLP "no limit" sentinels normalised on gen and ver
+        # waterways (see ``_is_plp_no_limit``).  Logged once at end of
+        # ``to_json_array`` so the user can see how many spurious bounds
+        # were dropped — improves LP scaling.
+        self._plp_no_limit_count: int = 0
+        # Gen waterways of transit centrals (``bus = 0``) that have
+        # plpmance.dat per-stage flow envelopes.  These centrals have
+        # no generator entry to consume Generator/pmin.parquet, so we
+        # mirror the per-stage bound onto Waterway/fmin.parquet +
+        # Waterway/fmax.parquet keyed by gen-waterway uid.  See
+        # ``_write_transit_waterway_bounds``.  Each entry is
+        # ``(central_id, gen_waterway_uid, central_name, gen_waterway_dict)``;
+        # the dict reference lets us upgrade ``fmin``/``fmax`` to
+        # column refs only AFTER the parquet write decides which
+        # columns survive (ManceWriter drops cols matching the static
+        # fill).
+        self._transit_gen_waterways: list[tuple[int, int, str, "Waterway"]] = []
         # Resolved at the start of to_json_array() from --ror-as-reservoirs*
         # options.  Maps promoted central name -> RorSpec (vmax_hm3 +
         # production_factor override).
@@ -306,12 +416,18 @@ class JunctionWriter(BaseWriter):
         fmin: float = 0.0,
         fmax: Optional[float] = None,
         capacity: Optional[float] = None,
+        fcost: Optional[float] = None,
     ) -> Optional[Waterway]:
         """Create a waterway connection between two junctions.
 
         Uses the junction name map (built during to_json_array) to
         resolve numeric IDs to names. Falls back to the numeric ID
         for ocean junctions that aren't in the map yet.
+
+        ``fcost`` (optional) sets a per-flow cost on the waterway; LP
+        objective gets ``fcost · waterway_flow · block_duration`` per
+        block.  Used to model PLP's ``qrb`` (rebalse) penalty on `_ver`
+        arcs from ``plpvrebemb.dat``.
         """
         if target_id == 0:
             return None
@@ -331,6 +447,8 @@ class JunctionWriter(BaseWriter):
             waterway["fmax"] = fmax
         if capacity is not None:
             waterway["capacity"] = capacity
+        if fcost is not None:
+            waterway["fcost"] = fcost
 
         return waterway
 
@@ -392,6 +510,8 @@ class JunctionWriter(BaseWriter):
 
         # Track isolated centrals that were skipped
         self._skipped_isolated = []
+        # Reset PLP no-limit sentinel counter for this conversion run.
+        self._plp_no_limit_count = 0
 
         # Build set of junction numbers referenced as downstream targets by
         # other centrals.  A central with ser_hid=0/ser_ver=0 that IS referenced
@@ -431,12 +551,23 @@ class JunctionWriter(BaseWriter):
         if self.cenre_parser and central_parser:
             self._process_reservoir_efficiencies(system)
 
-        if self._vert_sentinel_count > 0:
+        # Process volume-dependent turbine Pmax curves (plpcenpmax.dat).
+        # Emits additional ReservoirProductionFactor entries and pins each
+        # turbine's generation waterway fmax to the physical flow cap
+        # ``PotMax / Rendi``.  Co-exists with plpcenre.dat efficiencies.
+        if self.cenpmax_parser and central_parser:
+            self._process_cenpmax(system)
+
+        # Per-stage flow envelope (fmin/fmax) on gen waterways of
+        # transit-only centrals (``bus = 0`` AND has plpmance.dat).
+        self._write_transit_waterway_bounds()
+
+        if self._plp_no_limit_count > 0:
             _logger.info(
-                "Normalized %d sentinel vert_min/vert_max bound(s) "
-                "(>= %g) to unbounded — improves LP scaling.",
-                self._vert_sentinel_count,
-                _VERT_BOUND_SENTINEL_THRESHOLD,
+                "Normalised %d PLP 'no limit' sentinel(s) (>= %g) on gen+ver "
+                "waterway bounds — improves LP scaling.",
+                self._plp_no_limit_count,
+                _PLP_NO_LIMIT_SENTINEL,
             )
 
         return [cast(Dict[str, Any], system)]
@@ -490,42 +621,115 @@ class JunctionWriter(BaseWriter):
                 return
 
         # Create waterways from the PLP ser_hid / ser_ver connections.
+        #
+        # **Generation waterway flow cap** (``fmax = PotMax / Rendi``).
+        # PLP enforces the central's max water throughput indirectly
+        # via the generator's ``PotMax`` (MW) and ``Rendi`` (MW per
+        # m³/s).  The same physical cap must apply to the equivalent
+        # gtopt waterway, otherwise the LP can drain the upstream
+        # reservoir at any rate.  Symptom on juan/gtopt_iplp: LMAULE
+        # (``PotMax=100``, ``Rendi=1.0``, ``Genera=2`` → no electrical
+        # turbine on the gtopt side, so the cap previously fell out
+        # of the cenpmax-based emission path) drained from 657 Hm³
+        # to 0 in a single stage, vs PLP keeping it 115-758 Hm³ all
+        # year.  Emitting ``fmax = PotMax / Rendi`` here makes the
+        # cap independent of whether a turbine entry will be created
+        # downstream (``bus > 0`` path), so transit-only centrals
+        # (``Genera=2``, ``bus=0``) still get the right physical
+        # bound.  ``cenpmax`` consumers later override this with the
+        # volume-dependent flow cap when applicable.
+        gen_pot_max = float(central.get("pmax", 0.0) or 0.0)
+        gen_rendi = float(central.get("efficiency", 0.0) or 0.0)
+        gen_fmax: Optional[float] = None
+        if gen_pot_max > 0.0 and gen_rendi > 0.0:
+            # PLP encodes "no PotMax cap" as a sentinel ≥ 9000 MW.  Treat
+            # it as unspecified so the gen waterway stays unbounded —
+            # otherwise a 9999 MW PotMax with Rendi=1.0 would emit a
+            # literal fmax=9999 m³/s upper bound, inflating LP kappa.
+            if _is_plp_no_limit(gen_pot_max):
+                self._plp_no_limit_count += 1
+            else:
+                gen_fmax = gen_pot_max / gen_rendi
         gen_waterway = self._create_waterway(
             central_name + "_gen",
             central_id,
             central["ser_hid"],
+            fmax=gen_fmax,
         )
-        # PLP convention: vert_max == 0 in plpcnfce.dat means "not specified"
-        # for the spillway flow cap (there is still a physical spillway; the
-        # file just does not constrain its flow).  gtopt's validator rejects
-        # waterway fmax == 0 as "must be > 0", so we translate 0 → None and
-        # let the field be omitted, yielding an unbounded spillway.  Large
-        # PLP sentinel values (see ``_VERT_BOUND_SENTINEL_THRESHOLD``) are
-        # treated identically — they mean "unbounded" and would otherwise
-        # bloat LP matrix kappa.
-        vert_max_raw = float(central.get("vert_max", 0.0) or 0.0)
-        if vert_max_raw in (0, 0.0) or _is_vert_sentinel(vert_max_raw):
-            vert_fmax: Optional[float] = None
-            if _is_vert_sentinel(vert_max_raw):
-                self._vert_sentinel_count += 1
-                _logger.debug(
-                    "Dropping sentinel vert_max=%g for central '%s' "
-                    "(treated as unbounded spillway).",
-                    vert_max_raw,
-                    central_name,
-                )
-        else:
-            vert_fmax = vert_max_raw
+        # Spill arc (`_ver`) configuration.
+        #
+        # Two regimes, mirroring PLP behaviour:
+        #
+        # 1. Reservoir IS in plpvrebemb.dat (``Costo de Rebalse`` defined).
+        #    PLP exposes a stage-level ``qrb`` rebalse var (uncapped,
+        #    costed at Costo de Rebalse) — its per-block ``qv_k`` is
+        #    pinned to VertMax=0.  We model this *physically* in gtopt
+        #    by leaving the per-block ``_ver`` arc open (fmax = None,
+        #    so the default 300_000 m³/s sentinel applies) and putting
+        #    the rebalse penalty directly on the waterway as ``fcost``.
+        #    The reservoir's ``spillway_capacity`` is set to 0 in
+        #    ``_spillway_fields`` to disable the redundant
+        #    ``reservoir_drain`` teleport — water now follows the
+        #    physical chain  storage → extraction → junction → _ver.
+        #
+        # 2. Reservoir is NOT in plpvrebemb.dat.  No stage-rebalse
+        #    mechanism exists in PLP — per-block ``qv_k`` is bounded
+        #    by VertMax from plpcnfce.dat (an explicit 0 is honoured;
+        #    PLP "no limit" sentinels >= 9000 are dropped to unbounded
+        #    via ``_is_plp_no_limit``).  The ``_ver`` arc carries no
+        #    ``fcost``; cost (if any) lives on ``reservoir_drain`` via
+        #    plpmat.dat's ``CVert`` fallback.
+        rebalse_cost: Optional[float] = (
+            self.vrebemb_parser.get_cost(central_name)
+            if self.vrebemb_parser is not None
+            else None
+        )
+        in_vrebemb = rebalse_cost is not None
+        # Global default vert cost from plpmat.dat (``CVert`` in PLP) — used
+        # as the per-flow penalty on `_ver` arcs of reservoirs that are NOT
+        # in plpvrebemb.dat.  Without this the LP would have a free spillway
+        # on every non-rebalse reservoir; PLP charges every spill with at
+        # least CVert (typically a small but non-zero number, ~0.01).
+        cvert_default: Optional[float] = None
+        if self.plpmat_parser is not None:
+            cvert = getattr(self.plpmat_parser, "vert_cost", 0.0) or 0.0
+            if cvert > 0.0:
+                cvert_default = cvert
 
+        vert_max_raw = central.get("vert_max")
+        if in_vrebemb:
+            # PLP has BOTH per-block ``qv_k`` (capped at VertMax, often
+            # 0) AND stage-level ``qrb`` (uncapped, costed at
+            # ``Costo de Rebalse``).  We approximate the union by
+            # leaving ``_ver`` uncapped and putting ``rebalse_cost`` on
+            # it; tightening to ``VertMax = 0`` makes p2 infeasible
+            # because ELTORO needs SOMEWHERE for excess water to go
+            # and gtopt has no separate stage-rebalse mechanism.
+            vert_fmax: Optional[float] = None
+            vert_fcost: Optional[float] = rebalse_cost
+        else:
+            # PLP "no limit" sentinel — VertMax values ≥ 9000 m³/s mean
+            # "unbounded" (often 9000 + central index, or 99999);
+            # emitting them as literal upper bounds bloats LP matrix
+            # kappa and can yield false binding-bound duals.  Drop them
+            # to None so the field is omitted.
+            if vert_max_raw is None:
+                vert_fmax = None
+            else:
+                v = float(vert_max_raw)
+                if _is_plp_no_limit(v):
+                    self._plp_no_limit_count += 1
+                    vert_fmax = None
+                else:
+                    vert_fmax = v
+            vert_fcost = cvert_default
+
+        # PLP "no limit" sentinel applies to vert_min too — sentinel-encoded
+        # minimum-spillage caps are nonsense and would over-constrain the
+        # ``_ver`` arc.  Drop them to 0 (no forced minimum spill).
         vert_min_raw = float(central.get("vert_min", 0.0) or 0.0)
-        if _is_vert_sentinel(vert_min_raw):
-            self._vert_sentinel_count += 1
-            _logger.debug(
-                "Dropping sentinel vert_min=%g for central '%s' "
-                "(treated as 0 — no minimum spill).",
-                vert_min_raw,
-                central_name,
-            )
+        if _is_plp_no_limit(vert_min_raw):
+            self._plp_no_limit_count += 1
             vert_fmin = 0.0
         else:
             vert_fmin = vert_min_raw
@@ -536,7 +740,91 @@ class JunctionWriter(BaseWriter):
             central["ser_ver"],
             vert_fmin,
             vert_fmax,
+            fcost=vert_fcost,
         )
+
+        # **Spillway ocean fallback** — when ``ser_ver = 0`` AND the
+        # central has a positive ``VertMax``, PLP routes excess water
+        # via the per-block spillway variable (uncapped within
+        # ``VertMax``).  The previous gtopt implementation translated
+        # ``ser_ver = 0`` as "no spillway" and relied on the
+        # junction's ``drain = True`` to absorb the missing water.
+        # That free-drain shortcut was removed (it caused LMAULE to
+        # drain 657 → 0 in p1) — but legitimate spillage paths now
+        # need an explicit physical outlet.  Mirror the ``ser_hid =
+        # 0`` ocean-fallback below: synthesise a ``<central>_spill``
+        # ocean junction and emit a ``_ver`` waterway with ``fmax =
+        # VertMax`` so excess water can leave the system the same
+        # way PLP allows.  Symptom on juan/gtopt_iplp: LA_HIGUERA
+        # (``ser_ver = 0``, ``VertMax = 9967``, gen pmax = 0 at p1
+        # via plpmance) had no spillway path → upstream affluent
+        # 7.2 m³/s couldn't be discharged → infeasible.
+        if ver_waterway is None and central_type in ("embalse", "serie", "pasada"):
+            vert_max_for_spill = central.get("vert_max", 0.0) or 0.0
+            # Two paths trigger the synthetic ``<central>_spill``
+            # ocean junction + ``_ver`` waterway fallback when
+            # ``ser_ver = 0``:
+            #
+            #   (a) ``VertMax > 0``: use ``fmax = VertMax`` and the
+            #       ``CVert`` default cost — the per-block spill
+            #       cap matches what PLP's plpcnfce VertMax field
+            #       describes.  Original LA_HIGUERA case.
+            #
+            #   (b) Central is in plpvrebemb.dat (``in_vrebemb`` /
+            #       ``rebalse_cost is not None``): PLP's per-stage
+            #       rebalse aggregator ``qrb`` is uncapped, so emit
+            #       ``fmax = +1e30`` with ``fcost = rebalse_cost``
+            #       so the LP can spill arbitrary surplus while
+            #       paying the rebalse penalty.  CANUTILLAR
+            #       (in plpvrebemb, ``ser_ver = 0``, ``VertMax = 0``)
+            #       had no spill path before this branch and went
+            #       infeasible at p1 when the affluent (126.3 m³/s)
+            #       exceeded the gen cap (85.1 m³/s).
+            spill_fmax: Optional[float] = None
+            spill_fcost: Optional[float] = None
+            if in_vrebemb:
+                spill_fmax = 1.0e30
+                spill_fcost = rebalse_cost
+            elif vert_max_for_spill > 0.0:
+                # Same PLP "no limit" sentinel handling as the gen+ver
+                # paths above: VertMax >= 9000 m³/s means "unbounded",
+                # so use gtopt's 1e30 effective-infinity sentinel
+                # (clamped to solver infinity at flatten-time) instead of
+                # baking the literal sentinel into the LP upper bound.
+                if _is_plp_no_limit(float(vert_max_for_spill)):
+                    self._plp_no_limit_count += 1
+                    spill_fmax = 1.0e30
+                else:
+                    spill_fmax = float(vert_max_for_spill)
+                spill_fcost = cvert_default
+            if spill_fmax is not None:
+                self._ocean_junction_counter += 1
+                spill_uid = _OCEAN_UID_OFFSET + self._ocean_junction_counter
+                spill_name = f"{central_name}_spill"
+                spill_junction: Junction = {
+                    "uid": spill_uid,
+                    "name": spill_name,
+                    "drain": True,
+                }
+                system["junction_array"].append(spill_junction)
+                self._junction_names[spill_uid] = spill_name
+                _logger.debug(
+                    "Created spillway ocean junction '%s' (uid=%d) for "
+                    "central '%s' (VertMax=%g, vrebemb=%s).",
+                    spill_name,
+                    spill_uid,
+                    central_name,
+                    vert_max_for_spill,
+                    in_vrebemb,
+                )
+                ver_waterway = self._create_waterway(
+                    central_name + "_ver",
+                    central_id,
+                    spill_uid,
+                    central.get("vert_min", 0.0),
+                    spill_fmax,
+                    fcost=spill_fcost,
+                )
 
         # For embalse/serie/pasada centrals with ser_hid=0, complete the
         # missing generation waterway outlet by adding a synthetic
@@ -562,10 +850,49 @@ class JunctionWriter(BaseWriter):
                 ocean_uid,
                 central_name,
             )
+            # Same `fmax = PotMax / Rendi` cap as the in-network gen
+            # waterway path above — the ocean-drain branch handles
+            # centrals with ``ser_hid = 0`` (no downstream PLP
+            # central), so the synthetic ``<central>_ocean`` junction
+            # becomes the gen-waterway target.  Without this cap the
+            # waterway is unbounded and the LP can drain the upstream
+            # source at any rate.  Symptom on juan/gtopt_iplp:
+            # LA_HIGUERA (``ser_hid = 0``, ``ser_ver = 0``,
+            # ``PotMax = 155``, ``Rendi = 3.12``) had a free gen
+            # waterway, so the cascade-fix that removed the
+            # spurious junction-drain exposed an unbounded gen path
+            # at the same central.
             gen_waterway = self._create_waterway(
                 central_name + "_gen",
                 central_id,
                 ocean_uid,
+                fmax=gen_fmax,
+            )
+
+        # When a transit-only central (``bus = 0``, e.g. LMAULE,
+        # B_LaMina) has plpmance.dat per-stage flow envelopes, wire
+        # the per-stage bound onto the gen waterway: PLP fixes
+        # ``qg<i>_b = PotMin = PotMax`` (forced flow) on these stages,
+        # but gtopt has no generator entry to consume
+        # Generator/pmin.parquet, so the parquet sat unused and the
+        # waterway flowed freely up to the static cap.  We reuse the
+        # already-extracted plpmance values, rekey them by gen
+        # waterway uid, and emit Waterway/fmin.parquet +
+        # Waterway/fmax.parquet (see ``_write_transit_waterway_bounds``).
+        # Placed here so both gen-waterway creation paths (in-network
+        # and the ``ser_hid = 0`` ocean fallback) are covered.
+        if (
+            gen_waterway is not None
+            and central.get("bus", 0) == 0
+            and self.mance_parser is not None
+            and self.mance_parser.get_mance_by_name(central_name) is not None
+        ):
+            # Register only.  ``fmin``/``fmax`` string refs are set
+            # later by ``_write_transit_waterway_bounds`` for the
+            # subset whose parquet columns actually survive the
+            # static-fill drop in ``ManceWriter._create_dataframe``.
+            self._transit_gen_waterways.append(
+                (central_id, gen_waterway["uid"], central_name, gen_waterway)
             )
 
         # Add waterways if they exist
@@ -604,19 +931,32 @@ class JunctionWriter(BaseWriter):
         )
 
         # Drain logic:
-        #   embalse: drain=True when ver_waterway is None (ser_ver==0), so
-        #            excess water can leave the reservoir without an explicit
-        #            spillway waterway (spillage flows directly to sea).
-        #   others:  drain=True when any outlet waterway is absent.
-        # For a RoR-promoted central with ser_ver=0, the turbine's
-        # generation waterway is the only connection to the upper junction.
-        # Enabling drain on that junction gives the physical spill path
-        # (overflow inflow that the turbine can't pass leaves via the drain
-        # sink) without needing a synthetic bypass waterway.
-        if central_type == "embalse":
-            drain = ver_waterway is None
-        else:
-            drain = not (gen_waterway and ver_waterway)
+        # ``drain = True`` makes the central junction a system sink —
+        # water can leave gtopt's network with no downstream balance,
+        # which is the wrong default for embalse / serie / pasada
+        # centrals that have a real generation outlet (``gen_waterway``)
+        # OR a real spillway (``ver_waterway``).  PLP enforces volume
+        # balance through the central's outlets only — there is no
+        # implicit "to-sea" sink unless the central genuinely has no
+        # outlet at all.
+        #
+        # **Embalse without ``ver_waterway``** (the previous form, set
+        # ``drain = True`` for any embalse with ``ser_ver = 0``)
+        # silently created a free water-escape valve on every embalse
+        # whose spillway target is the sea.  Symptom on
+        # juan/gtopt_iplp: LMAULE (gen_waterway → LOS_CONDORES,
+        # ``ser_ver = 0``) was drained from 657 Hm³ to 0 in p1 by
+        # sending all the storage out the LMAULE-junction drain at
+        # zero cost, while PLP (no such drain) had to keep LMAULE
+        # 115-758 Hm³ all year.  The cascade-infeasibility chain at
+        # p27/p28 collapsed once this drain was removed.
+        #
+        # New rule: drain is enabled ONLY when there is NO physical
+        # outlet (``gen_waterway is None and ver_waterway is None``).
+        # That covers truly isolated centrals where the network would
+        # otherwise be unbalanced; everything else relies on PLP-style
+        # explicit balance through the gen / ver arcs.
+        drain = gen_waterway is None and ver_waterway is None
         junction: Junction = {
             "uid": central_id,
             "name": central_name,
@@ -766,6 +1106,15 @@ class JunctionWriter(BaseWriter):
             emin = "emin" if pcol_name in parquet_cols["emin"] else central["emin"]
             emax = "emax" if pcol_name in parquet_cols["emax"] else central["emax"]
 
+            # PLP-style spill routing: when `SerVer > 0` the reservoir's
+            # vertimiento flows to the SerVer-named central's junction.
+            # Set the optional `spill_junction` so gtopt's ReservoirLP wires
+            # the drain column into that downstream junction's balance row
+            # (matches PLP's `qv` chain).  When SerVer == 0 (drain to sea)
+            # leave it unset — drain stays a pure storage sink.
+            ser_ver = central.get("ser_ver", 0)
+            spill_junction_name = self._junction_names.get(ser_ver) if ser_ver else None
+
             reservoir: Reservoir = {
                 "uid": central["number"],
                 "name": central["name"],
@@ -775,13 +1124,37 @@ class JunctionWriter(BaseWriter):
                 "emin": emin,
                 "emax": emax,
                 "capacity": central["emax"],
-                "fmin": -10000.0,
-                "fmax": +10000.0,
-                "spillway_cost": 1.0,
-                "spillway_capacity": 6000.0,
+                # PLP's `qe` (storage flow-balance) is *unbounded* by default
+                # (LeeQeBnd: ±DINFTY), with optional per-reservoir overrides
+                # via plpqebnd.dat (absent in this case).  The bound that
+                # actually matters is the reservoir energy box [emin, emax]
+                # — the storage equality folds qe into that automatically.
+                # gtopt's previous ±10000 was a magic constant tighter than
+                # PLP and tighter than the implicit storage-derived bound,
+                # which hurt LP scaling without restricting feasibility.
+                # 1e30 is gtopt's effective-infinity sentinel (clamped to the
+                # solver's infinity at flatten-time by LinearInterface).
+                "fmin": -1.0e30,
+                "fmax": +1.0e30,
+                # Spillway cost & capacity:
+                # ─ If reservoir IS in plpvrebemb.dat (has an explicit
+                #   `Costo de Rebalse`) it follows PLP's qrb stage-rebalse
+                #   model: per-block vertimiento qv_k is bounded to 0
+                #   (matches plpcnfce.dat VertMax=0) and the only path to
+                #   spill is via the costed drain.  Map to gtopt:
+                #     spillway_capacity = 0  (no per-block free spill)
+                #     spillway_cost     = Costo de Rebalse (LP-visible)
+                # ─ Otherwise: fall back to plpmat.dat's global `CVert`
+                #   for the cost (legacy 1.0 if absent) and use the
+                #   plpcnfce.dat VertMax for the capacity (only the
+                #   missing-field case falls back to the legacy 6000 —
+                #   an explicit VertMax=0 must be honoured).
+                **self._spillway_fields(central_name, central),
                 "annual_loss": 0.0,
                 "flow_conversion_rate": 3.6 / 1000.0,
             }
+            if spill_junction_name is not None:
+                reservoir["spill_junction"] = spill_junction_name
 
             # Energy scaling mode: energy scale for LP variables is now handled
             # exclusively via the ``variable_scales`` option in the planning
@@ -790,15 +1163,121 @@ class JunctionWriter(BaseWriter):
             reservoir_scale_mode = self.options.get("reservoir_scale_mode", "auto")
             _ = reservoir_scale_mode  # retained for potential future use
 
-            # Small / independent reservoirs (PLP Hid_Indep='T') do not
-            # carry state across blocks — disable the state variable.
+            # Small / independent reservoirs (PLP ``Hid_Indep='T'``)
+            # do not carry state across stages — they are run-of-
+            # river-style devices that PLP buffers within the day.
+            #
+            # Two translation regimes:
+            #
+            #   1. ``--plp-legacy``: literal PLP behaviour — drop only
+            #      the inter-stage state link by emitting
+            #      ``use_state_variable = False``.  The per-stage
+            #      energy balance is kept (sini/efin free in
+            #      ``[emin, emax]`` plus a ``efin = sini`` close row)
+            #      and matches PLP's per-stage LP shape.  Useful for
+            #      bit-for-bit PLP comparison work.
+            #
+            #   2. Default (no ``--plp-legacy``): emit
+            #      ``daily_cycle = True``.  The C++ ``StorageLP``
+            #      then applies ``dc_stage_scale = 24/stage_duration``
+            #      to the energy-balance coefficients, scaling the
+            #      per-block accumulation down to a 24 h equivalent.
+            #      For monthly stages that means dividing the
+            #      affluent contribution by ~30, which lets reservoirs
+            #      whose ``Afluen × stage_duration`` would otherwise
+            #      exceed the ``[emin, emax]`` box close cleanly
+            #      within a single stage.  Symptom on juan/gtopt_iplp:
+            #      CANUTILLAR (Afluen=126.3, PotMax/Rendi=85.1,
+            #      VertMax=0, Hid_Indep=T) had no spill or
+            #      accumulation path → p1 LP infeasible.
+            #      ``daily_cycle = True`` makes the per-stage balance
+            #      satisfiable without changing the LP topology.
+            #      ``StorageOptions`` forces
+            #      ``use_state_variable = False`` whenever
+            #      ``daily_cycle`` is true, so callers don't have to
+            #      pin both fields.
             if central.get("hid_indep", False):
-                reservoir["use_state_variable"] = False
+                if self.options.get("plp_legacy", False):
+                    reservoir["use_state_variable"] = False
+                else:
+                    reservoir["daily_cycle"] = True
 
             # Soft minimum volume (plpminembh.dat "holgura" / slack)
             self._apply_soft_emin(reservoir, central_name)
 
             system["reservoir_array"].append(reservoir)
+
+    def _spillway_fields(
+        self, central_name: str, central: Dict[str, Any]
+    ) -> Dict[str, float]:
+        """Compute ``spillway_cost`` and ``spillway_capacity`` for one reservoir.
+
+        Mapping to PLP:
+        - When the reservoir is in ``plpvrebemb.dat`` it follows PLP's
+          stage-rebalse model.  PLP's ``qrb`` (uncapped, costed at
+          ``Costo de Rebalse``) is now modelled physically via the
+          ``_ver`` waterway carrying both an open ``fmax`` and the
+          ``fcost = Costo de Rebalse`` (see ``add_central`` for the
+          waterway emission).  The reservoir's drain teleport
+          (``reservoir_drain``) is therefore disabled by setting
+          ``spillway_capacity = 0``, leaving water to flow through the
+          physical chain  storage → extraction → junction → _ver.
+          ``spillway_cost`` is still set to ``Costo de Rebalse`` so the
+          field round-trips through JSON unchanged, but it has no LP
+          effect because the column is bounded ``[0, 0]``.
+        - When the reservoir is *not* in ``plpvrebemb.dat`` it has no
+          stage-rebalse mechanism in PLP.  The cost falls back to PLP's
+          global ``CVert`` (``plpmat.dat``) — legacy 1.0 if that field
+          is absent — and the capacity follows the per-block ``VertMax``
+          from ``plpcnfce.dat`` (an explicit 0.0 is preserved; a missing
+          field falls back to the legacy 6000 sentinel).
+        """
+        rebalse_cost: Optional[float] = (
+            self.vrebemb_parser.get_cost(central_name)
+            if self.vrebemb_parser is not None
+            else None
+        )
+
+        if rebalse_cost is not None:
+            # Drain teleport is disabled — the physical ``_ver`` arc
+            # (open + costed) carries the spill in its place.
+            return {
+                "spillway_cost": rebalse_cost,
+                "spillway_capacity": 0.0,
+            }
+
+        # Not in plpvrebemb.dat → costed by ``CVert`` (plpmat.dat).
+        # The CAPACITY is left effectively unbounded: PLP's per-block
+        # spillway variable ``qe*`` is **always Free** (verified on
+        # juan/gtopt_iplp p1 LP — every reservoir's ``qe*_block`` is
+        # unbounded regardless of ``VertMax``).  PLP enforces flow
+        # caps on the **generation** path (``qg*`` ≤ ``PotMax/Rendi``)
+        # and on the **per-stage rebalse** aggregator (``qrb*``,
+        # only present for plpvrebemb.dat reservoirs); the per-block
+        # ``qe*`` stays free so the LP can absorb arbitrary affluent
+        # without spilling-via-generation.
+        #
+        # The earlier translation read ``VertMax`` as the per-block
+        # cap and pinned ``spillway_capacity = VertMax = 0`` for
+        # reservoirs like CANUTILLAR, LMAULE, etc.  That created a
+        # false bottleneck: at p1 CANUTILLAR's affluent
+        # (126.3 m³/s) > gen cap (85.1 m³/s) had nowhere to go — no
+        # per-block spill, no stage-rebalse — and the LP went
+        # infeasible.  Setting capacity to ``+1e30`` (gtopt's
+        # effective-infinity sentinel, clamped to solver infinity at
+        # flatten-time) restores PLP-equivalent behaviour: per-block
+        # spill is unbounded, costed at ``CVert`` so the LP doesn't
+        # spill gratuitously when generation is more economic.
+        default_cost = 1.0
+        if self.plpmat_parser is not None:
+            cvert = getattr(self.plpmat_parser, "vert_cost", 0.0) or 0.0
+            if cvert > 0.0:
+                default_cost = cvert
+
+        return {
+            "spillway_cost": default_cost,
+            "spillway_capacity": 1.0e30,
+        }
 
     def _apply_soft_emin(self, reservoir: Reservoir, central_name: str) -> None:
         """Add soft_emin and soft_emin_cost from plpminembh.dat if available.
@@ -846,6 +1325,102 @@ class JunctionWriter(BaseWriter):
             if r["name"] == name:
                 return r
         return None
+
+    def _fix_first_seepage_segment(
+        self, rsv: Reservoir, segments: List[Dict[str, Any]]
+    ) -> List[Dict[str, Any]]:
+        """Force ``q_filt(vmin) = 0`` on the first piecewise seepage segment.
+
+        PLP's filtration curves are physically expected to drop to zero at
+        an empty reservoir, but the raw data in plpfilemb.dat occasionally
+        violates this (e.g. CIPRESES first segment yields a non-zero
+        ``q_filt`` at ``vmin`` due to fitting noise).  Without correction
+        the LP can be forced to discharge water that isn't physically in
+        storage, breaking the SDDP forward pass near the lower volume
+        bound.
+
+        The fix anchors the first segment at two points:
+        - ``q_filt(vmin) = 0`` (new constraint)
+        - ``q_filt(seg2.volume)`` = original value at the joint with
+          segment 2 (preserves continuity with the rest of the curve)
+
+        This produces a slightly different (usually steeper) slope for
+        segment 1 and a corresponding intercept; segments 2+ are left
+        unchanged.
+
+        When ``options['plp_legacy']`` is true the segments are emitted
+        verbatim and only a warning is logged — for bit-for-bit PLP
+        comparison work.
+        """
+        if not segments:
+            return segments
+
+        first = segments[0]
+        slope = float(first.get("slope", 0.0))
+        constant = float(first.get("constant", 0.0))
+
+        emin_raw = rsv.get("emin", 0.0)
+        vmin = float(emin_raw) if isinstance(emin_raw, (int, float)) else 0.0
+
+        q_at_vmin = constant + slope * vmin
+        if abs(q_at_vmin) <= 1e-9:
+            return segments  # already zero — no fix needed
+
+        rsv_name = rsv.get("name", "?")
+        plp_legacy = bool(self.options.get("plp_legacy", False))
+
+        if plp_legacy or len(segments) < 2:
+            # In PLP-legacy mode keep raw coefficients; if there's no
+            # second segment we can't anchor the new slope cleanly.
+            mode = "plp-legacy preserved" if plp_legacy else "single segment"
+            _logger.warning(
+                "Reservoir '%s' seepage first segment: q(vmin=%.4f)=%.4f "
+                "(expected 0); %s — no fix applied.",
+                rsv_name,
+                vmin,
+                q_at_vmin,
+                mode,
+            )
+            return segments
+
+        seg2_vol = float(segments[1].get("volume", 0.0))
+        if seg2_vol <= vmin:
+            _logger.warning(
+                "Reservoir '%s' seepage: second segment starts at vol=%.4f "
+                "≤ vmin=%.4f; cannot anchor first-segment fix — skipping.",
+                rsv_name,
+                seg2_vol,
+                vmin,
+            )
+            return segments
+
+        # Anchor: q(vmin)=0 and q(seg2_vol)=q_at_seg2 (continuity).
+        q_at_seg2 = constant + slope * seg2_vol
+        new_slope = q_at_seg2 / (seg2_vol - vmin)
+        new_constant = -new_slope * vmin
+
+        _logger.warning(
+            "Reservoir '%s' seepage first segment: q(vmin=%.4f)=%.4f → 0 "
+            "(rebuilt: slope %.6g→%.6g, constant %.6g→%.6g, anchored at "
+            "vol=%.4f with q=%.4f).",
+            rsv_name,
+            vmin,
+            q_at_vmin,
+            slope,
+            new_slope,
+            constant,
+            new_constant,
+            seg2_vol,
+            q_at_seg2,
+        )
+
+        fixed = list(segments)
+        fixed[0] = {
+            **first,
+            "slope": new_slope,
+            "constant": new_constant,
+        }
+        return fixed
 
     def _append_reservoir_constraint(
         self,
@@ -1013,15 +1588,19 @@ class JunctionWriter(BaseWriter):
                 continue
             system["waterway_array"].append(filt_waterway)
 
-            # Use first segment's values as the default slope/constant
-            default_slope = segments[0]["slope"] if segments else 0.0
-            default_constant = segments[0]["constant"] if segments else 0.0
-
             # Find the source reservoir
             rsv = self._find_reservoir(system, rsv_name)
             if rsv is None:
                 _logger.warning("Filemb reservoir '%s' not found; skipping.", rsv_name)
                 continue
+
+            # Apply the q(vmin)=0 fix to the first segment unless --plp-legacy
+            # is set (in which case keep raw PLP coefficients).
+            segments = self._fix_first_seepage_segment(rsv, segments)
+
+            # Use first segment's values as the default slope/constant
+            default_slope = segments[0]["slope"] if segments else 0.0
+            default_constant = segments[0]["constant"] if segments else 0.0
 
             seep_array = system["reservoir_seepage_array"]
             seep_idx = len(seep_array) + len(rsv.get("seepage", [])) + 1
@@ -1058,9 +1637,27 @@ class JunctionWriter(BaseWriter):
         Creates ReservoirDischargeLimit elements that constrain the stage-average
         discharge from a reservoir as a piecewise-linear function of volume.
         The waterway reference is resolved from the reservoir's turbine.
+
+        Reservoirs listed in ``--disable-discharge-limit-for`` are skipped:
+        gtopt models the discharge-limit row as a hard inequality, but PLP
+        relies on its soft ``vrbp``/``vrbn`` slack pair on the same row
+        (``c6531..c6540``/``c6541..c6550`` family).  Without the slack, gtopt
+        can become spuriously infeasible at iter-0 of an SDDP cascade once
+        the forward pass drives the reservoir down to its emin floor.
         """
         if not self.ralco_parser:
             return
+
+        # Optional CLI-provided exclusion list (comma-separated reservoir
+        # names).  Empty / unset → emit all entries (legacy behaviour).
+        disabled_raw = (
+            self.options.get("disable_discharge_limit_for") if self.options else None
+        )
+        disabled_set: set[str] = set()
+        if disabled_raw:
+            disabled_set = {
+                name.strip() for name in str(disabled_raw).split(",") if name.strip()
+            }
 
         # Build reservoir name → turbine waterway name map
         turbine_waterway: Dict[str, str] = {}
@@ -1069,6 +1666,13 @@ class JunctionWriter(BaseWriter):
 
         for entry in self.ralco_parser.reservoir_discharge_limits:
             rsv_name = entry["reservoir"]
+            if rsv_name in disabled_set:
+                _logger.info(
+                    "Skipping plpralco discharge limit for reservoir '%s' "
+                    "(disabled via --disable-discharge-limit-for).",
+                    rsv_name,
+                )
+                continue
             segments = entry.get("segments", [])
 
             rsv = self._find_reservoir(system, rsv_name)
@@ -1185,6 +1789,171 @@ class JunctionWriter(BaseWriter):
                 "production_factor",
             )
 
+    def _process_cenpmax(
+        self,
+        system: HydroSystemOutput,
+    ) -> None:
+        """Process plpcenpmax.dat curves into production-factor segments.
+
+        For each volume-dependent Pmax curve entry:
+
+        - Looks up the central to recover ``pmax`` and ``efficiency``
+          (Rendi). Computes the physical flow cap ``flow_ref = pmax / Rendi``.
+        - Fixes the turbine's generation waterway ``fmax`` to ``flow_ref``.
+        - Emits a :class:`ReservoirProductionFactor` whose segments are the
+          PLP ``{volume, slope, constant}`` curve scaled by ``1/flow_ref``.
+          This turns the MW curve into a production-factor curve
+          (``MW / (m³/s)``) because the LP flow variable is already bounded
+          by ``flow_ref``, so ``PF(V) × flow_ref`` reproduces PLP's Pmax(V).
+
+        Entries referencing unknown centrals, centrals with ``pmax <= 0`` /
+        ``efficiency <= 0``, or centrals without a turbine (bus<=0) are
+        skipped with a warning.  This method is additive to
+        ``_process_reservoir_efficiencies`` and appends to the same
+        ``reservoir_production_factor_array``.
+        """
+        if not self.cenpmax_parser:
+            return
+
+        # Turbine name → gen-waterway name (to lookup and mutate fmax)
+        turbine_waterway: Dict[str, str] = {
+            t["name"]: t["waterway"] for t in system["turbine_array"]
+        }
+
+        # Waterway name → waterway dict (to set fmax in place)
+        waterway_by_name: Dict[str, Waterway] = {
+            w["name"]: w for w in system["waterway_array"]
+        }
+
+        for idx, entry in enumerate(self.cenpmax_parser.pmax_curves, start=1):
+            central_name = entry["name"]
+            reservoir_name = entry["reservoir"]
+
+            central_data = self.central_parser.get_central_by_name(central_name)
+            if central_data is None:
+                _logger.warning(
+                    "Cenpmax central '%s' not found in central_parser; skipping.",
+                    central_name,
+                )
+                continue
+
+            pot_max = float(central_data.get("pmax", 0.0) or 0.0)
+            efficiency = float(central_data.get("efficiency", 0.0) or 0.0)
+
+            if pot_max <= 0.0 or efficiency <= 0.0:
+                _logger.warning(
+                    "Cenpmax central '%s': pmax=%g, efficiency=%g — cannot "
+                    "compute flow cap; skipping.",
+                    central_name,
+                    pot_max,
+                    efficiency,
+                )
+                continue
+
+            flow_ref = pot_max / efficiency
+
+            ww_name = turbine_waterway.get(central_name)
+            if ww_name is None:
+                if central_data.get("bus", 0) <= 0:
+                    _logger.debug(
+                        "Cenpmax central '%s': reservoir-only central"
+                        " (bus<=0), no turbine; skipping.",
+                        central_name,
+                    )
+                else:
+                    _logger.warning(
+                        "Cenpmax central '%s': no matching turbine found; skipping.",
+                        central_name,
+                    )
+                continue
+
+            waterway = waterway_by_name.get(ww_name)
+            if waterway is None:
+                _logger.warning(
+                    "Cenpmax central '%s': generation waterway '%s' not"
+                    " found; skipping.",
+                    central_name,
+                    ww_name,
+                )
+                continue
+
+            # Pin the generation waterway flow cap to the physical limit.
+            waterway["fmax"] = flow_ref
+
+            rsv = self._find_reservoir(system, reservoir_name)
+            if rsv is None:
+                _logger.warning(
+                    "Cenpmax reservoir '%s' not found; skipping PF entry.",
+                    reservoir_name,
+                )
+                continue
+
+            # Convert the raw Pmax(V) curve to production-factor units by
+            # dividing by `flow_ref` (MW → MW/(m³/s)).
+            cenpmax_pf_segments: List[ProductionFactorSegment] = [
+                {
+                    "volume": float(seg["volume"]),
+                    "slope": float(seg["slope"]) / flow_ref,
+                    "constant": float(seg["constant"]) / flow_ref,
+                }
+                for seg in entry["segments"]
+            ]
+
+            # When plpcenre ALSO provides a PF curve for this reservoir,
+            # merge the two sources by taking the MIN value at each
+            # plpcenpmax breakpoint — the most restrictive curve wins,
+            # matching PLP's combined physics where turbine flow is
+            # bounded by BOTH Rendi (efficiency) and Pmax (power cap).
+            # Emit a single replacement entry; drop the cenre one.
+            pfac_array = system["reservoir_production_factor_array"]
+            cenre_idx = next(
+                (
+                    i
+                    for i, e in enumerate(pfac_array)
+                    if e.get("reservoir") == rsv["name"]
+                ),
+                None,
+            )
+
+            scaled_segments = cenpmax_pf_segments
+            if cenre_idx is not None:
+                cenre_entry = pfac_array[cenre_idx]
+                cenre_segs = cenre_entry.get("segments", [])
+                if cenre_segs:
+                    scaled_segments = _merge_pf_curves_min(
+                        cenpmax_pf_segments, cenre_segs
+                    )
+                pfac_array.pop(cenre_idx)
+                embedded = rsv.get("production_factor", [])
+                if isinstance(embedded, list):
+                    rsv["production_factor"] = [
+                        e for e in embedded if e is not cenre_entry
+                    ]
+                _logger.warning(
+                    "Reservoir '%s' has both plpcenre and plpcenpmax PF "
+                    "curves — emitting MIN-envelope combined curve "
+                    "(%d segments) in place of '%s'.",
+                    rsv["name"],
+                    len(scaled_segments),
+                    cenre_entry.get("name", "?"),
+                )
+
+            pfac: Dict[str, Any] = {
+                "uid": rsv["uid"],
+                "name": f"{rsv['name']}_pmax_pfac_{idx}",
+                "turbine": central_name,
+                "reservoir": rsv["name"],
+                "mean_production_factor": efficiency,
+                "segments": scaled_segments,
+            }
+            self._append_reservoir_constraint(
+                system,
+                rsv,
+                pfac,
+                "reservoir_production_factor_array",
+                "production_factor",
+            )
+
     def _write_parquet_files(self) -> Dict[str, List[str]]:
         """Write demand data to Parquet file format."""
         #
@@ -1206,3 +1975,85 @@ class JunctionWriter(BaseWriter):
         #
 
         return manem_cols
+
+    def _write_transit_waterway_bounds(self) -> None:
+        """Emit ``Waterway/fmin.parquet`` + ``Waterway/fmax.parquet``.
+
+        Mirrors the per-stage plpmance flow envelope onto the gen
+        waterway of every transit-only central (``bus = 0``, e.g.
+        LMAULE, B_LaMina) that has plpmance entries.  These centrals
+        have no generator entry, so the existing
+        ``Generator/pmin.parquet`` columns sit unconsumed.  We rekey
+        the columns from ``uid:<central_id>`` to ``uid:<gen_waterway_uid>``
+        and write fresh parquet files in the Waterway subdirectory.
+        Only sets ``fmin`` / ``fmax`` string refs on a gen waterway
+        if the corresponding parquet column survives ManceWriter's
+        static-fill drop (a column whose entries all match the
+        central's static ``pmin`` / ``pmax`` is dropped — there is no
+        per-stage override to wire).
+
+        No-op when there are no transit centrals needing wiring or
+        when the required parsers were not provided.
+        """
+        if not self._transit_gen_waterways:
+            return
+        if (
+            self.mance_parser is None
+            or self.block_parser is None
+            or self.central_parser is None
+        ):
+            return
+
+        names_set = {nm for _, _, nm, _ in self._transit_gen_waterways}
+        items = [m for m in self.mance_parser.mances if m["name"] in names_set]
+        if not items:
+            return
+
+        rename_map = {
+            f"uid:{cid}": f"uid:{wuid}"
+            for cid, wuid, _, _ in self._transit_gen_waterways
+        }
+
+        writer = ManceWriter(
+            mance_parser=self.mance_parser,
+            central_parser=self.central_parser,
+            block_parser=self.block_parser,
+            options=self.options,
+        )
+        df_pmin, df_pmax = writer.to_dataframe(items=items)
+        df_fmin = df_pmin.rename(columns=rename_map)
+        df_fmax = df_pmax.rename(columns=rename_map)
+
+        out_dir = (
+            self.options["output_dir"] / "Waterway"
+            if "output_dir" in self.options
+            else Path("Waterway")
+        )
+        out_dir.mkdir(parents=True, exist_ok=True)
+        if not df_fmin.empty:
+            writer.write_dataframe(df_fmin, out_dir, "fmin")
+        if not df_fmax.empty:
+            writer.write_dataframe(df_fmax, out_dir, "fmax")
+
+        # Upgrade ``fmin`` / ``fmax`` to string refs on each gen
+        # waterway whose column survived the parquet write.  Centrals
+        # whose values matched the static fill (e.g. CLAJRUCUE/
+        # RIO_TENO with all-zero pmin) keep their numeric defaults.
+        fmin_uids = set(df_fmin.columns) if not df_fmin.empty else set()
+        fmax_uids = set(df_fmax.columns) if not df_fmax.empty else set()
+        wired_fmin = wired_fmax = 0
+        for _, wuid, _, ww in self._transit_gen_waterways:
+            col = f"uid:{wuid}"
+            if col in fmin_uids:
+                ww["fmin"] = "fmin"
+                wired_fmin += 1
+            if col in fmax_uids:
+                ww["fmax"] = "fmax"
+                wired_fmax += 1
+        _logger.info(
+            "Wrote per-stage Waterway fmin/fmax (%d/%d gen waterways) "
+            "for transit central(s): %s",
+            wired_fmin,
+            wired_fmax,
+            ", ".join(sorted(names_set)),
+        )

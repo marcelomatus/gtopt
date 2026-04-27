@@ -9,9 +9,11 @@
 #include <utility>
 
 #include <gtopt/benders_cut.hpp>
+#include <gtopt/lp_context.hpp>
 #include <gtopt/planning_lp.hpp>
 #include <gtopt/sddp_cut_sharing.hpp>
 #include <gtopt/sddp_types.hpp>
+#include <gtopt/simulation_lp.hpp>
 #include <gtopt/system_lp.hpp>
 
 #ifndef SPDLOG_ACTIVE_LEVEL
@@ -28,7 +30,7 @@ void share_cuts_for_phase(
     const StrongIndexVector<SceneIndex, std::vector<SparseRow>>& scene_cuts,
     CutSharingMode mode,
     PlanningLP& planning,
-    LpContext context)
+    IterationIndex iteration_index)
 {
   const auto num_scenes = planning.simulation().scene_count();
 
@@ -36,14 +38,51 @@ void share_cuts_for_phase(
     return;
   }
 
-  // Apply metadata context to a row (when context is set).
-  const auto apply_context = [&](SparseRow& row)
+  const auto& sim = planning.simulation();
+  const auto phase_uid = sim.uid_of(phase_index);
+
+  // Stamp ``row`` with class_name/constraint_name and a per-scene
+  // context built from the destination scene's UID and a per-cut
+  // ``extra`` discriminator.  This is intentionally per-scene
+  // (called inside the destination loop) because the same row is
+  // replicated across scenes, and each destination LP needs a label
+  // that is unique within ITS OWN row table.  The ``extra`` field
+  // disambiguates cuts that share (scene, phase, iter) — required
+  // by ``max`` mode where every source cut is broadcast verbatim
+  // to every scene, so a single iteration installs N cuts that
+  // would otherwise collide on metadata.  Using SceneUid{} (=
+  // unknown_uid) would collide on the first cut shared this
+  // iteration — see ``make_iteration_context``'s precondition
+  // checks.
+  //
+  // Hot-start / cascade safety: this ``extra`` only travels through
+  // the in-memory LP row label and the ``m_active_cuts_`` low-memory
+  // replay buffer (``LinearInterface::record_cut_row``).  Saved cut
+  // files (``save_cuts_csv``) iterate
+  // ``SDDPCutStore::m_scene_cuts_``, which is populated exclusively
+  // by ``SDDPCutStore::store_cut`` (backward-pass optimality and
+  // feasibility cuts).  ``share_cuts_for_phase`` never calls
+  // ``store_cut``, so the broadcast rows minted here — and their
+  // ``extra`` discriminators — are never persisted to the cut CSV.
+  //
+  // Cascade level handoff (``cascade_method.cpp``): each level
+  // saves only ``current_solver->stored_cuts()`` (=
+  // ``m_cut_store_.build_combined_cuts``), then drops the LP +
+  // solver + ``m_active_cuts_`` buffer before the next level
+  // allocates a fresh LP.  Level N+1 rebuilds its own broadcast
+  // share rows from scratch during its iterations, under a
+  // disjoint ``iteration_uid`` range (seeded via
+  // ``iteration_offset_hint = global_iter_index``), so per-cut
+  // ``extra=0..N-1`` cannot collide across levels.  Each
+  // iteration's call stamps a fresh ``iteration_uid``, so two
+  // iterations can both use ``extra=0..N-1`` without collision.
+  const auto stamp_for_scene =
+      [&](SparseRow& row, SceneIndex scene_index, int extra)
   {
-    if (!std::holds_alternative<std::monostate>(context)) {
-      row.class_name = sddp_alpha_class_name;
-      row.constraint_name = sddp_share_cut_constraint_name;
-      row.context = context;
-    }
+    row.class_name = sddp_alpha_class_name;
+    row.constraint_name = sddp_share_cut_constraint_name;
+    row.context = make_iteration_context(
+        sim.uid_of(scene_index), phase_uid, uid_of(iteration_index), extra);
   };
 
   if (mode == CutSharingMode::accumulate) {
@@ -59,13 +98,15 @@ void share_cuts_for_phase(
       return;
     }
 
-    auto accumulated = accumulate_benders_cuts(all_cuts);
-    apply_context(accumulated);
+    const auto accumulated = accumulate_benders_cuts(all_cuts);
 
     for (const auto scene_index : iota_range<SceneIndex>(0, num_scenes)) {
+      auto scene_local = accumulated;  // copy: per-scene metadata
+      // Single accumulated cut per scene → ``extra = 0`` is unique.
+      stamp_for_scene(scene_local, scene_index, /*extra=*/0);
       auto& sys = planning.system(scene_index, phase_index);
-      sys.linear_interface().add_row(accumulated);
-      sys.record_cut_row(accumulated);
+      sys.linear_interface().add_row(scene_local);
+      sys.record_cut_row(scene_local);
     }
 
     SPDLOG_TRACE(
@@ -95,13 +136,15 @@ void share_cuts_for_phase(
       return;
     }
 
-    auto accumulated = accumulate_benders_cuts(scene_avg_cuts);
-    apply_context(accumulated);
+    const auto accumulated = accumulate_benders_cuts(scene_avg_cuts);
 
     for (const auto scene_index : iota_range<SceneIndex>(0, num_scenes)) {
+      auto scene_local = accumulated;  // copy: per-scene metadata
+      // Single expected cut per scene → ``extra = 0`` is unique.
+      stamp_for_scene(scene_local, scene_index, /*extra=*/0);
       auto& sys = planning.system(scene_index, phase_index);
-      sys.linear_interface().add_row(accumulated);
-      sys.record_cut_row(accumulated);
+      sys.linear_interface().add_row(scene_local);
+      sys.record_cut_row(scene_local);
     }
 
     SPDLOG_TRACE(
@@ -111,7 +154,14 @@ void share_cuts_for_phase(
         scene_avg_cuts.size());
 
   } else if (mode == CutSharingMode::max) {
-    // Max mode: add ALL cuts from ALL scenes to ALL scenes
+    // Max mode: add ALL cuts from ALL scenes to ALL scenes.
+    // Each cut already carries its source-scene metadata from
+    // ``apply_cut_sharing_for_iteration::to_sparse_row``, so we
+    // stamp here only to overwrite with the DESTINATION scene's
+    // context (each scene's LP needs a unique-within-LP label;
+    // the source scene's metadata is fine cross-scene but breaks
+    // the duplicate-label invariant within one LP when the same
+    // cut is appended multiple times for max-mode broadcast).
     std::vector<SparseRow> all_cuts;
     for (auto&& [si, cuts] : enumerate<SceneIndex>(scene_cuts)) {
       all_cuts.insert(all_cuts.end(), cuts.begin(), cuts.end());
@@ -124,7 +174,14 @@ void share_cuts_for_phase(
     for (const auto scene_index : iota_range<SceneIndex>(0, num_scenes)) {
       auto& sys = planning.system(scene_index, phase_index);
       auto& li = sys.linear_interface();
-      for (const auto& cut : all_cuts) {
+      // ``extra`` is the per-cut counter within this destination
+      // scene's broadcast — unique within (scene, phase, iter) so
+      // the metadata invariant holds even when N source cuts land
+      // on the same LP.  `iota_range` keeps the index strongly
+      // typed (no raw int loop counter).
+      for (auto&& [extra, src_cut] : enumerate<int>(all_cuts)) {
+        auto cut = src_cut;  // copy: per-scene/per-cut stamp below
+        stamp_for_scene(cut, scene_index, extra);
         li.add_row(cut);
         sys.record_cut_row(cut);
       }

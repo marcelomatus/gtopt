@@ -35,6 +35,16 @@ DEFAULT_ROR_RESERVOIRS_FILE: Path = (
     Path(__file__).resolve().parent / "templates" / "ror_equivalence.csv"
 )
 
+# Default whitelist for the ``--pmin-as-flowright`` transform.  The
+# canonical copy ships inside the gtopt_expand package so plp2gtopt
+# and ``gtopt_expand pmin_as_flowright`` agree on the central list.
+DEFAULT_PMIN_FLOWRIGHT_FILE: Path = (
+    Path(__file__).resolve().parent.parent
+    / "gtopt_expand"
+    / "templates"
+    / "pmin_as_flowright.csv"
+)
+
 
 # ---------------------------------------------------------------------------
 # Utility type used by several argument groups
@@ -344,14 +354,14 @@ def add_solver_arguments(parser: argparse.ArgumentParser, conf: dict[str, str]) 
         "--method",
         dest="method",
         metavar="METHOD",
-        default=conf.get("method", "cascade"),
+        default=conf.get("method", "sddp"),
         choices=["sddp", "mono", "monolithic", "cascade"],
         help=(
             "planning method controlling the simulation structure: "
-            "'cascade' (default) uses a 3-level cascade: L0 uninodal, L1 "
-            "transport (lines without losses/kirchhoff), L2 full network; "
-            "'sddp' produces one scene per scenario and one phase per stage "
-            "(for Stochastic Dual Dynamic Programming); "
+            "'sddp' (default) produces one scene per scenario and one phase "
+            "per stage (for Stochastic Dual Dynamic Programming); "
+            "'cascade' uses a 3-level cascade: L0 uninodal, L1 transport "
+            "(lines without losses/kirchhoff), L2 full network; "
             "'mono'/'monolithic' produces a single scene with all scenarios "
             "and a single phase with all stages (for the monolithic solver). "
             "(default: %(default)s)"
@@ -361,7 +371,7 @@ def add_solver_arguments(parser: argparse.ArgumentParser, conf: dict[str, str]) 
         "--cut-sharing-mode",
         dest="cut_sharing_mode",
         metavar="MODE",
-        default=None,
+        default="max",
         choices=["none", "expected", "accumulate", "max"],
         help=(
             "SDDP cut sharing mode: "
@@ -369,8 +379,11 @@ def add_solver_arguments(parser: argparse.ArgumentParser, conf: dict[str, str]) 
             "'expected' computes a probability-weighted average cut; "
             "'accumulate' sums all cuts directly (correct when LP "
             "objectives include probability factors); "
-            "'max' shares all cuts from all scenes to all scenes. "
-            "(default: none)"
+            "'max' shares all cuts from all scenes to all scenes "
+            "(PLP-legacy behaviour — every per-scenario cut is "
+            "broadcast verbatim, matching `plp-agrespd.f::AgrResPD` "
+            "DO II=IBeg,IEnd). "
+            "(default: max)"
         ),
     )
     parser.add_argument(
@@ -476,13 +489,21 @@ def add_solver_arguments(parser: argparse.ArgumentParser, conf: dict[str, str]) 
 
 def add_model_arguments(parser: argparse.ArgumentParser, conf: dict[str, str]) -> None:
     """Register demand-fail-cost, scale factors, kirchhoff, line losses, etc."""
+    # `default=None` signals "auto-derive from plpcnfce.dat's falla
+    # centrals" (CentralParser.avg_falla_cost — see gtopt_writer.py).
+    # Explicit `--demand-fail-cost NNNN` or `demand_fail_cost = NNNN` in
+    # the conf still overrides.
+    _default_dfc = conf.get("demand_fail_cost")
     parser.add_argument(
         "--demand-fail-cost",
         dest="demand_fail_cost",
         type=float,
         metavar="COST",
-        default=float(conf.get("demand_fail_cost", "1000.0")),
-        help="cost penalty for demand curtailment in $/MWh (default: %(default)s)",
+        default=float(_default_dfc) if _default_dfc is not None else None,
+        help=(
+            "cost penalty for demand curtailment in $/MWh "
+            "(default: average first-tier FALLA gcost from plpcnfce.dat)"
+        ),
     )
     parser.add_argument(
         "--state-fail-cost",
@@ -525,8 +546,12 @@ def add_model_arguments(parser: argparse.ArgumentParser, conf: dict[str, str]) -
         "--use-single-bus",
         dest="use_single_bus",
         action="store_true",
-        default=False,
-        help="use single-bus (copper-plate) mode (default: %(default)s)",
+        default=None,
+        help=(
+            "use single-bus (copper-plate) mode "
+            "(default: auto — true when the parsed PLP case has 0 "
+            "transmission lines, false otherwise)"
+        ),
     )
     parser.add_argument(
         "-k",
@@ -578,13 +603,65 @@ def add_model_arguments(parser: argparse.ArgumentParser, conf: dict[str, str]) -
             "bundle PLP-compatibility defaults that make gtopt outputs "
             "closer to PLP even when that is not the highest-quality "
             "or smallest-LP choice. Adjusts the defaults of: "
-            "--method (cascade→sddp; PLP's stochastic production mode), "
             "--line-losses-mode (→piecewise_direct; PLP `genpdlin.f`), "
             "--use-line-losses (→true, emitted explicitly). "
-            "pasada_mode, use_kirchhoff, discount_rate are already "
+            "method, pasada_mode, use_kirchhoff, discount_rate are already "
             "PLP-aligned by default so no bundle change is needed. "
             "reservoir_scale_mode is intentionally left alone. "
             "Explicit flags still win over the bundle."
+        ),
+    )
+    parser.add_argument(
+        "--disable-discharge-limit-for",
+        dest="disable_discharge_limit_for",
+        metavar="NAMES",
+        default=None,
+        help=(
+            "comma-separated list of reservoir names whose plpralco-derived "
+            "ReservoirDischargeLimit constraint should NOT be emitted. "
+            "Example: 'RALCO,RAPEL'. The discharge-limit row is currently a "
+            "hard inequality with no slack; for cases where PLP relies on "
+            "the soft `vrbp/vrbn` slacks on this row (which gtopt does not "
+            "yet model) the gtopt LP can become spuriously infeasible at "
+            "iter-0 of the SDDP cascade. Use this flag to skip the row for "
+            "the offending reservoirs. (default: emit all)"
+        ),
+    )
+    parser.add_argument(
+        "--pmin-as-flowright",
+        dest="pmin_as_flowright",
+        metavar="PATH_OR_NAMES",
+        nargs="?",
+        const="",  # sentinel: flag passed without value -> use bundled CSV
+        default=None,
+        help=(
+            "Convert specific hydro generators' must-run pmin into "
+            "FlowRight discharge obligations.  The argument is either a "
+            "CSV path (same schema as gtopt_expand/templates/"
+            "pmin_as_flowright.csv) or a comma-separated list of central "
+            "names.  Without an argument, uses the bundled default "
+            "whitelist (MACHICURA, PANGUE, PILMAIQUEN, ABANICO, ANTUCO, "
+            "PALMUCHO).  Per-stage discharge values are written as "
+            "FlowRight/<central>_pmin_as_flow_right.parquet using the "
+            "central's plpmance pmin / Rendi.  When this flag isn't "
+            "passed, no FlowRight conversion happens (default behavior "
+            "unchanged)."
+        ),
+    )
+    parser.add_argument(
+        "--flow-right-fail-cost",
+        dest="flow_right_fail_cost",
+        type=float,
+        metavar="COST",
+        default=None,
+        help=(
+            "Override the FlowRight fail_cost in $/Hm³ (PLP convention; "
+            "matches plpmat.dat CCauFal value).  When unset (default), the "
+            "value is auto-resolved from plpmat.dat CCauFal.  Internally "
+            "multiplied by FactTiempoH=3.6 to convert to gtopt's "
+            "$/(m³/s·h) per-block coefficient.  Use this flag to tune the "
+            "FlowRight slack penalty empirically; for juan/gtopt_iplp the "
+            "auto value is 7000 $/Hm³ → 25200 $/(m³/s·h) internal."
         ),
     )
 

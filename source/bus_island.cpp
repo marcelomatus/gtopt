@@ -173,6 +173,21 @@ auto detect_islands_and_fix_references(Array<Bus>& buses,
   // "Building LP model" section hierarchy.
   SPDLOG_INFO("  Network has {} islands", num_islands);
 
+  // Sharper warning when the case has 0 transmission lines AND multi-bus
+  // is enabled: every bus is structurally its own island, and any bus
+  // carrying must-run thermal (Σ pmin > local demand cap) will be infeasible
+  // because there is no transmission to route the excess elsewhere.  This is
+  // almost always a configuration bug — the case probably wanted
+  // single-bus mode (use_single_bus=true).
+  if (lines.empty() && num_islands > 1) {
+    SPDLOG_WARN(
+        "  Multi-bus mode with 0 transmission lines: every bus is an "
+        "isolated island.  The LP will be infeasible whenever any bus "
+        "has must-run generation (Σ pmin) larger than its local demand "
+        "cap (Σ lmax).  Consider --set model_options.use_single_bus=true "
+        "or add transmission lines.");
+  }
+
   // For each island, ensure at least one reference bus
   for (const auto root : island_roots) {
     // Collect bus indices in this island

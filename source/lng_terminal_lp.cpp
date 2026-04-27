@@ -44,7 +44,7 @@ bool LngTerminalLP::add_to_lp(SystemContext& sc,
                               const StageLP& stage,
                               LinearProblem& lp)
 {
-  static constexpr std::string_view cname = ClassName.full_name();
+  static constexpr const auto& cname = ClassName;
   static constexpr auto ampl_name = ClassName.snake_case();
 
   if (!is_active(stage)) {
@@ -183,7 +183,7 @@ bool LngTerminalLP::add_to_lp(SystemContext& sc,
  */
 bool LngTerminalLP::add_to_output(OutputContext& out) const
 {
-  static constexpr std::string_view cname = ClassName.full_name();
+  static constexpr const auto& cname = ClassName;
 
   out.add_col_sol(cname, DeliveryName, id(), delivery_cols);
   out.add_col_cost(cname, DeliveryName, id(), delivery_cols);

@@ -32,16 +32,28 @@ class PlanningLP;
 
 /// Share optimality cuts across scenes for a single phase.
 ///
-/// @param phase_index  Phase index where cuts will be added
-/// @param scene_cuts   Per-scene optimality cuts for this phase
-/// @param mode         Cut sharing mode (none/accumulate/expected/max)
-/// @param planning     PlanningLP reference (for LP access)
-/// @param context      LP context for metadata-based naming (default: none)
+/// @param phase_index      Phase index where cuts will be added
+/// @param scene_cuts       Per-scene optimality cuts for this phase
+/// @param mode             Cut sharing mode (none/accumulate/expected/max)
+/// @param planning         PlanningLP reference (for LP access)
+/// @param iteration_index  Current SDDP iteration; combined with the
+///                         per-scene UID and ``phase_index`` to build a
+///                         unique LP-row label context for every cut
+///                         landing in each destination scene's LP
+///                         (avoids the
+///                         "metadata without a class_name" labeller
+///                         throw and the duplicate-label collision when
+///                         the same accumulated cut is replicated to
+///                         multiple scenes).  Defaults to
+///                         ``IterationIndex{0}`` for callers that
+///                         legitimately treat a single share-call as
+///                         iteration 0 (e.g. unit tests that exercise
+///                         a single iteration).
 void share_cuts_for_phase(
     PhaseIndex phase_index,
     const StrongIndexVector<SceneIndex, std::vector<SparseRow>>& scene_cuts,
     CutSharingMode mode,
     PlanningLP& planning,
-    LpContext context = {});
+    IterationIndex iteration_index = IterationIndex {0});
 
 }  // namespace gtopt

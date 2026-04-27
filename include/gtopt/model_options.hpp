@@ -46,6 +46,16 @@ struct ModelOptions
   OptReal scale_objective {};
   /// Scaling factor for voltage-angle variables.
   OptReal scale_theta {};
+  /// Enable per-element automatic scaling (reservoir energy/flow, LNG
+  /// terminal energy, bus theta) that `PlanningLP` computes at
+  /// construction time.  When unset or true, the default heuristics
+  /// (adaptive emax/fmax → power-of-10 scale, median x_τ for
+  /// scale_theta) run.  When set to false (typically via the
+  /// `--no-scale` CLI flag), all three auto-scale passes are
+  /// skipped so LP coefficients stay in raw physical units —
+  /// useful for debug / coefficient validation, at the cost of
+  /// much higher solver kappa.
+  OptBool auto_scale {};
   /// Penalty cost for unserved demand [$/MWh].
   OptReal demand_fail_cost {};
   /// Penalty cost for unserved spinning-reserve [$/MWh].
@@ -81,6 +91,25 @@ struct ModelOptions
   /// `--set model_options.continuous_phases="all"`.
   OptName continuous_phases {};
 
+  /// Whether to enforce the per-stage `emin` floor as a HARD lower bound
+  /// on the reservoir's stage-end volume (`efin =
+  /// reservoir_energy_<last_block>`) and on the stage-start volume
+  /// (`reservoir_sini`).
+  ///
+  /// `true` (default): both columns get `lowb = stage_emin`.  The floor is a
+  /// hard constraint at the inter-stage handoff state, giving the strictest
+  /// volume-constraint enforcement.  Intra-stage blocks still use `lowb = 0`
+  /// (see `storage_lp.hpp`) so the energy-balance row keeps PLP-style
+  /// headroom mid-stage.
+  ///
+  /// `false` (opt-out, PLP-style): both columns have `lowb = 0`.  The floor
+  /// is not enforced as a constraint; SDDP convergence is responsible for
+  /// keeping the trajectory above `emin`.  Matches PLP's per-stage LP where
+  /// `ve<u>` is `Free` mid-stage and only `vf<u>` (future volume) has the
+  /// `vmin` lower bound.  Use this if iter-0 of an SDDP cascade
+  /// over-constrains the forward pass when state vars cluster at the floor.
+  OptBool strict_storage_emin {};
+
   void merge(const ModelOptions& opts)
   {
     merge_opt(use_single_bus, opts.use_single_bus);
@@ -91,6 +120,7 @@ struct ModelOptions
     merge_opt(loss_segments, opts.loss_segments);
     merge_opt(scale_objective, opts.scale_objective);
     merge_opt(scale_theta, opts.scale_theta);
+    merge_opt(auto_scale, opts.auto_scale);
     merge_opt(demand_fail_cost, opts.demand_fail_cost);
     merge_opt(reserve_fail_cost, opts.reserve_fail_cost);
     merge_opt(hydro_fail_cost, opts.hydro_fail_cost);
@@ -99,6 +129,7 @@ struct ModelOptions
     merge_opt(emission_cost, opts.emission_cost);
     merge_opt(emission_cap, opts.emission_cap);
     merge_opt(continuous_phases, opts.continuous_phases);
+    merge_opt(strict_storage_emin, opts.strict_storage_emin);
   }
 
   /// True if any field is set.
@@ -111,7 +142,8 @@ struct ModelOptions
         || demand_fail_cost.has_value() || reserve_fail_cost.has_value()
         || hydro_fail_cost.has_value() || hydro_use_value.has_value()
         || state_fail_cost.has_value() || emission_cost.has_value()
-        || emission_cap.has_value() || continuous_phases.has_value();
+        || emission_cap.has_value() || continuous_phases.has_value()
+        || strict_storage_emin.has_value();
   }
 
   /// True iff every field set in `other` has an equal value in `*this`.
@@ -136,7 +168,8 @@ struct ModelOptions
         && covers_opt(state_fail_cost, other.state_fail_cost)
         && covers_opt(emission_cost, other.emission_cost)
         && covers_opt(emission_cap, other.emission_cap)
-        && covers_opt(continuous_phases, other.continuous_phases);
+        && covers_opt(continuous_phases, other.continuous_phases)
+        && covers_opt(strict_storage_emin, other.strict_storage_emin);
   }
 };
 

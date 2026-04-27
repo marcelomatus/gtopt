@@ -496,6 +496,97 @@ void HighsSolverBackend::resolve()
   }
 }
 
+void HighsSolverBackend::engage_robust_solve()
+{
+  if (m_highs_ == nullptr) {
+    return;
+  }
+
+  // Helper: query a HiGHS double option, falling back to the default
+  // if HiGHS reports an error (older versions may rename the option).
+  auto get_double = [&](const std::string& key, double fallback) -> double
+  {
+    double v = fallback;
+    if (m_highs_->getOptionValue(key, v) != HighsStatus::kOk) {
+      return fallback;
+    }
+    return v;
+  };
+
+  if (!m_saved_robust_state_.has_value()) {
+    RobustState saved {};
+    saved.primal_feasibility_tolerance =
+        get_double("primal_feasibility_tolerance", 1e-7);
+    saved.dual_feasibility_tolerance =
+        get_double("dual_feasibility_tolerance", 1e-7);
+    saved.ipm_optimality_tolerance =
+        get_double("ipm_optimality_tolerance", 1e-8);
+    {
+      std::string presolve_val = "on";
+      m_highs_->getOptionValue("presolve", presolve_val);
+      saved.presolve = presolve_val;
+    }
+    {
+      int strategy = 4;
+      m_highs_->getOptionValue("simplex_scale_strategy", strategy);
+      saved.simplex_scale_strategy = strategy;
+    }
+    saved.engage_count = 0;
+    m_saved_robust_state_ = saved;
+  }
+  ++m_saved_robust_state_->engage_count;
+
+  // Compound the loosening — read live values, multiply by 10, clamp to
+  // a sensible upper bound (HiGHS rejects tolerances above 1e-1).
+  const double cur_pft =
+      get_double("primal_feasibility_tolerance",
+                 m_saved_robust_state_->primal_feasibility_tolerance);
+  const double cur_dft =
+      get_double("dual_feasibility_tolerance",
+                 m_saved_robust_state_->dual_feasibility_tolerance);
+  const double cur_ipm =
+      get_double("ipm_optimality_tolerance",
+                 m_saved_robust_state_->ipm_optimality_tolerance);
+
+  constexpr double k_max_tol = 1e-1;
+  m_highs_->setOptionValue("primal_feasibility_tolerance",
+                           std::min(cur_pft * 10.0, k_max_tol));
+  m_highs_->setOptionValue("dual_feasibility_tolerance",
+                           std::min(cur_dft * 10.0, k_max_tol));
+  m_highs_->setOptionValue("ipm_optimality_tolerance",
+                           std::min(cur_ipm * 10.0, k_max_tol));
+
+  // Force aggressive presolve (HiGHS has no separate "more passes" knob)
+  // and force simplex_scale_strategy=4 (HiGHS' "forced" scaling, the
+  // closest analogue to CPLEX NUMERICALEMPHASIS for poorly-scaled LPs).
+  m_highs_->setOptionValue("presolve", std::string {"on"});
+  m_highs_->setOptionValue("simplex_scale_strategy", 4);
+}
+
+void HighsSolverBackend::disengage_robust_solve() noexcept
+{
+  if (!m_saved_robust_state_.has_value()) {
+    return;
+  }
+  if (m_highs_ == nullptr) {
+    m_saved_robust_state_.reset();
+    return;
+  }
+
+  const auto& s = *m_saved_robust_state_;
+  // setOptionValue may return an error on bad input but cannot throw,
+  // so the noexcept contract is fine.
+  m_highs_->setOptionValue("primal_feasibility_tolerance",
+                           s.primal_feasibility_tolerance);
+  m_highs_->setOptionValue("dual_feasibility_tolerance",
+                           s.dual_feasibility_tolerance);
+  m_highs_->setOptionValue("ipm_optimality_tolerance",
+                           s.ipm_optimality_tolerance);
+  m_highs_->setOptionValue("presolve", s.presolve);
+  m_highs_->setOptionValue("simplex_scale_strategy", s.simplex_scale_strategy);
+  m_saved_robust_state_.reset();
+}
+
 bool HighsSolverBackend::is_proven_optimal() const
 {
   return m_highs_->getModelStatus() == HighsModelStatus::kOptimal;

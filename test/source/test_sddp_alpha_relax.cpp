@@ -92,24 +92,27 @@ TEST_CASE("SDDPMethod::free_alpha — live backend: 0/+∞ → -DblMax/+DblMax")
 
   SDDPMethod sddp(plp, sddp_opts);
   // `ensure_initialized()` creates α on every phase with the
-  // bootstrap pin `lowb = sddp_alpha_bootstrap_min (=0)` and
-  // `uppb = +∞`.  Phase 0 in particular is never reached by the
-  // backward pass's `free_alpha` (cuts land on phase k-1 ≥ 0 only
-  // when the backward pass processes phase k ≥ 1), so the upper
-  // bound must not be `0` at bootstrap — otherwise α stays pinned
-  // at 0 on the master forever and LB is frozen at the non-α
-  // phase-0 opex.  See the juan/gtopt_iplp regression diagnosis.
+  // bidirectional bootstrap pin `lowb = uppb =
+  // sddp_alpha_bootstrap_min (=0)`.  Pinning (rather than the
+  // earlier `uppb=+∞` bootstrap) keeps the α column frozen at 0
+  // inside the Chinneck Phase-1 elastic filter on the forward pass
+  // — under Phase-1 all objective coefficients (including α's
+  // `scale_alpha`) are zeroed on the clone, so without a pin α
+  // would drift to whatever value simplex picks and contaminate
+  // the captured trial / bcut Z.  Phase 0 is released in the last
+  // step of every backward pass via
+  // `install_aperture_backward_cut → free_alpha(src_phase_index=0)`.
   REQUIRE(sddp.ensure_initialized().has_value());
 
   const auto scene = first_scene_index();
   constexpr PhaseIndex phase {0};
 
-  SUBCASE("pre-free baseline: α floor at 0, uppb unbounded")
+  SUBCASE("pre-free baseline: α pinned at 0")
   {
     const auto bounds = alpha_bounds_raw(plp, scene, phase);
     REQUIRE(bounds.has_value());
     CHECK(bounds->lowb == doctest::Approx(sddp_alpha_bootstrap_min));
-    CHECK(bounds->uppb > kEffectivelyPlusInf);
+    CHECK(bounds->uppb == doctest::Approx(sddp_alpha_bootstrap_min));
   }
 
   SUBCASE("after free_alpha, both bounds are released")
@@ -154,12 +157,12 @@ TEST_CASE("SDDPMethod::free_alpha — last phase has α and can be freed")
   const auto scene = first_scene_index();
   const auto last = plp.simulation().last_phase_index();
 
-  SUBCASE("α IS registered on the last phase at floor 0 / uppb +∞")
+  SUBCASE("α IS registered on the last phase pinned at 0")
   {
     const auto bounds = alpha_bounds_raw(plp, scene, last);
     REQUIRE(bounds.has_value());
     CHECK(bounds->lowb == doctest::Approx(sddp_alpha_bootstrap_min));
-    CHECK(bounds->uppb > kEffectivelyPlusInf);
+    CHECK(bounds->uppb == doctest::Approx(sddp_alpha_bootstrap_min));
   }
 
   SUBCASE("free_alpha on the last phase releases the pin")
@@ -216,6 +219,65 @@ TEST_CASE(
   REQUIRE(bounds.has_value());
   CHECK(bounds->lowb < kEffectivelyMinusInf);
   CHECK(bounds->uppb > kEffectivelyPlusInf);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// M2b — regression guard for bc257d1d's α bidirectional bootstrap pin:
+//       the pin survives release+reload even when `free_alpha` was
+//       never called.
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// Invariant under test (bc257d1d):
+//   `register_alpha_variables` builds α's `SparseCol` with
+//   `lowb = uppb = sddp_alpha_bootstrap_min (= 0)`.  Pre-bc257d1d the
+//   column was built with `uppb = LinearProblem::DblMax`, which left α
+//   as a free-above variable inside Chinneck's Phase-1 elastic clone
+//   (where all objective coefficients — including α's scale_alpha —
+//   are zeroed).  Without the bidirectional pin, simplex picks an
+//   arbitrary basic value for α on the clone, and that value used to
+//   leak into `StateVariable.col_sol()`.
+//
+// This test is symmetric to "survives low_memory compress
+// release+reload" above, but deliberately WITHOUT calling free_alpha
+// first.  The pin must survive a release+reload cycle on its own —
+// both bounds still pinned at `sddp_alpha_bootstrap_min` after
+// `release_backend` + `ensure_lp_built`.
+TEST_CASE(
+    "SDDPMethod::free_alpha — bootstrap pin survives low_memory compress "
+    "release+reload")
+{
+  auto planning = make_nphase_simple_hydro_planning(3);
+  PlanningLP plp(std::move(planning));
+
+  SDDPOptions sddp_opts;
+  sddp_opts.max_iterations = 0;
+  sddp_opts.low_memory_mode = LowMemoryMode::compress;
+  sddp_opts.memory_codec = CompressionCodec::uncompressed;
+  sddp_opts.enable_api = false;
+
+  SDDPMethod sddp(plp, sddp_opts);
+  // `ensure_initialized` registers α on every phase (with the
+  // bidirectional bootstrap pin lowb = uppb = sddp_alpha_bootstrap_min)
+  // and, under low_memory mode, eagerly releases every per-cell
+  // backend at the end.
+  REQUIRE(sddp.ensure_initialized().has_value());
+
+  const auto scene = first_scene_index();
+  constexpr PhaseIndex phase {0};
+
+  // Release+reload: no `free_alpha` in between.  The pin must be
+  // preserved by the snapshot/replay path — neither the flat snapshot
+  // nor `apply_post_load_replay`'s `m_dynamic_cols_` mirror may widen
+  // uppb back to +∞ (the pre-bc257d1d default, which left α as a
+  // free-above variable inside Chinneck's Phase-1 clone).
+  auto& sys = plp.system(scene, phase);
+  sys.release_backend();
+  sys.ensure_lp_built();
+
+  const auto bounds = alpha_bounds_raw(plp, scene, phase);
+  REQUIRE(bounds.has_value());
+  CHECK(bounds->lowb == doctest::Approx(sddp_alpha_bootstrap_min));
+  CHECK(bounds->uppb == doctest::Approx(sddp_alpha_bootstrap_min));
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

@@ -131,7 +131,8 @@ auto solve_apertures_for_phase(
     [[maybe_unused]] bool save_aperture_lp,
     const ApertureDataCache& aperture_cache,
     IterationIndex iteration_index,
-    double cut_coeff_eps) -> std::optional<SparseRow>
+    double cut_coeff_eps,
+    LpDebugWriter* lp_debug_writer) -> std::optional<SparseRow>
 {
   const auto& phase_li = sys.linear_interface();
 
@@ -325,6 +326,27 @@ auto solve_apertures_for_phase(
                     .string());
           }
 
+          // lp_debug extension for apertures: dump the clone's LP
+          // (post-update, pre-solve) when the caller provided a
+          // writer.  Caller is responsible for applying the
+          // `lp_debug_scene/phase_min/max` filter window and passing
+          // nullptr when out of range — so the writer is either
+          // inactive or unconditionally writes every aperture in
+          // range.  Each aperture task is a separate LinearInterface
+          // clone and lambda, so the writer's async compression is
+          // already thread-safe per its own future-vector.
+          if (lp_debug_writer != nullptr && lp_debug_writer->is_active()) {
+            const auto dbg_stem =
+                (std::filesystem::path(log_directory)
+                 / std::format(sddp_file::debug_aperture_lp_fmt,
+                               scene_uid_val,
+                               phase_uid_val,
+                               ap_uid,
+                               iteration_index))
+                    .string();
+            lp_debug_writer->write(clone, dbg_stem);
+          }
+
           // Solve
           [[maybe_unused]] auto solve_result = clone.resolve(aperture_opts);
           const bool feasible = clone.is_optimal();
@@ -465,7 +487,7 @@ auto solve_apertures_for_phase(
   ecut.constraint_name = sddp_ecut_constraint_name;
   ecut.variable_uid = phase_uid_val;
   ecut.context = make_iteration_context(
-      scene_uid_val, phase_uid_val, iteration_index, total_cuts);
+      scene_uid_val, phase_uid_val, uid_of(iteration_index), total_cuts);
   return ecut;
 }
 

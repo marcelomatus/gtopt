@@ -107,7 +107,7 @@ class SimulationWriter:
                 for uid, group in enumerate(phase_groups, start=1)
             ]
 
-        method = self._normalize_method(self._options.get("method", "cascade"))
+        method = self._normalize_method(self._options.get("method", "sddp"))
         if method == "monolithic":
             return [{"uid": 1, "first_stage": 0, "count_stage": num_stages}]
         return [
@@ -149,7 +149,7 @@ class SimulationWriter:
             )
         self._simulation["scenario_array"] = scenarios
 
-        method = self._normalize_method(self._options.get("method", "cascade"))
+        method = self._normalize_method(self._options.get("method", "sddp"))
         if method == "monolithic":
             self._simulation["scene_array"] = [
                 {"uid": 1, "first_scenario": 0, "count_scenario": num_scenarios}

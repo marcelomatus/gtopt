@@ -25,6 +25,7 @@ from .generator_profile_writer import GeneratorProfileWriter
 from .index_utils import parse_index_range, parse_stages_phase
 from .indhor_writer import IndhorWriter
 from .junction_writer import JunctionWriter
+from .line_parser import LineParser
 from .line_writer import LineWriter
 from .planos_writer import write_boundary_cuts_csv, write_hot_start_cuts_csv
 from .plp_parser import PLPParser
@@ -185,7 +186,7 @@ class GTOptWriter:
         output_format = options.get("output_format", "parquet")
         input_format = options.get("input_format", output_format)
         compression = options.get("compression", "zstd")
-        method = self._normalize_method(options.get("method", "cascade"))
+        method = self._normalize_method(options.get("method", "sddp"))
 
         # Build the nested sddp_options block (all sddp_* fields except method).
         # NOTE: num_apertures is NOT emitted here — the C++ SddpOptions JSON
@@ -198,6 +199,23 @@ class GTOptWriter:
         cut_sharing_mode = options.get("cut_sharing_mode")
         if cut_sharing_mode is not None:
             sddp_opts["cut_sharing_mode"] = cut_sharing_mode
+
+        # elastic_mode controls how the forward-pass elastic filter emits
+        # feasibility cuts when a subproblem is infeasible:
+        #   - "single_cut" (gtopt C++ default): one aggregated π-weighted
+        #     Benders cut touching every relaxed state variable.  Tight LP
+        #     but any numeric drift at the box edge makes the cut
+        #     hard-infeasible (observed on juan/gtopt_iplp p2).
+        #   - "multi_cut" (PLP convention, plp2gtopt default): one per-link
+        #     Birge-Louveaux cut per relaxed state, each clamped to its own
+        #     box — matches PLP's `plp-agrespd.f::AgrElastici` +
+        #     `osi_lp_get_feasible_cut` path.
+        # plp2gtopt always emits multi_cut so gtopt runs produced from PLP
+        # cases behave like PLP by default; users can still override via
+        # `--set sddp_options.elastic_mode=single_cut` on the CLI.
+        # Note: the JSON key is `elastic_mode` (mapped to internal
+        # `SDDPOptions.elastic_filter_mode` in `planning_method.cpp`).
+        sddp_opts["elastic_mode"] = options.get("elastic_mode", "multi_cut")
 
         max_iter = options.get("max_iterations")
         if max_iter is None:
@@ -255,11 +273,69 @@ class GTOptWriter:
             input_dir_val = str(output_dir)
 
         src_model = options.get("model_options", {})
+
+        # PLP parity: the curtailment cost is applied PER-DEMAND via each
+        # real demand's ``fcost`` field (set from falla_by_bus below), so
+        # the global ``model_options.demand_fail_cost`` is essentially a
+        # fallback for demands without an explicit fcost.  We default it
+        # to 0 to preserve historical behaviour; the user may safely raise
+        # it (``--demand-fail-cost N``) without distorting battery
+        # dispatch, because gtopt's C++ ``System::expand_batteries`` now
+        # pins fcost=0 explicitly on every synthetic battery-charge demand
+        # (see ``source/system.cpp`` — the synthetic demand is no longer
+        # sensitive to this global default).
+        user_demand_fail = src_model.get("demand_fail_cost")
+        effective_demand_fail = (
+            user_demand_fail if user_demand_fail is not None else 0.0
+        )
+
+        # Auto-promote to single-bus when the parsed PLP case has 0
+        # transmission lines.  Multi-bus mode with 0 lines makes every bus an
+        # isolated island, and any bus carrying must-run thermal pmin > local
+        # demand cap is structurally infeasible (no transmission to dispatch
+        # the excess elsewhere).  Explicit ``-b`` / ``--use-single-bus`` still
+        # forces True; setting ``use_single_bus`` in the conf or JSON
+        # overrides the auto-detect either way.  When the parser is a mock or
+        # the line count cannot be determined, fall back to False to preserve
+        # historical behaviour.
+        user_single_bus = src_model.get("use_single_bus")
+        if user_single_bus is None:
+            line_count = -1  # unknown
+            parsed = getattr(self.parser, "parsed_data", None)
+            if isinstance(parsed, dict):
+                lp_obj = parsed.get("line_parser")
+                if isinstance(lp_obj, LineParser):
+                    line_count = lp_obj.num_lines
+                elif isinstance(lp_obj, list):
+                    line_count = len(lp_obj)
+            if line_count == 0:
+                _logger.info(
+                    "auto-promoting model_options.use_single_bus=true: "
+                    "0 transmission lines parsed (multi-bus mode would "
+                    "create isolated islands)"
+                )
+                effective_single_bus = True
+            else:
+                effective_single_bus = False
+        else:
+            effective_single_bus = user_single_bus
+
+        # PLP-faithful per-stage emin enforcement: emit strict_storage_emin=false
+        # explicitly so the gtopt C++ default (true since 2026-04-26) does not
+        # turn the per-stage emin floor into a HARD constraint on
+        # reservoir_sini and the last-block efin column.  PLP's per-stage LP
+        # treats `ve<u>` as Free mid-stage and only `vf<u>` (future volume)
+        # carries the `vmin` lower bound; the strict-default would force the
+        # SDDP iter-0 forward pass infeasible whenever a previous Benders cut
+        # has clamped sini near 0 but the schedule still demands efin >= emin.
+        # User can opt back into strict mode by setting strict_storage_emin in
+        # the conf or via --set model_options.strict_storage_emin=true.
         model_opts = {
-            "use_single_bus": src_model.get("use_single_bus", False),
+            "use_single_bus": effective_single_bus,
             "use_kirchhoff": src_model.get("use_kirchhoff", True),
-            "demand_fail_cost": src_model.get("demand_fail_cost", 1000),
+            "demand_fail_cost": effective_demand_fail,
             "state_fail_cost": src_model.get("state_fail_cost", 1000),
+            "strict_storage_emin": src_model.get("strict_storage_emin", False),
         }
         # Only emit scale_objective if explicitly set (C++ default is 1000).
         if "scale_objective" in src_model:
@@ -272,6 +348,8 @@ class GTOptWriter:
             model_opts["reserve_fail_cost"] = src_model["reserve_fail_cost"]
         if "use_line_losses" in src_model:
             model_opts["use_line_losses"] = src_model["use_line_losses"]
+        if "line_losses_mode" in src_model:
+            model_opts["line_losses_mode"] = src_model["line_losses_mode"]
 
         planning_opts: dict[str, Any] = {
             "method": method,
@@ -356,7 +434,7 @@ class GTOptWriter:
                 )
             self.planning["simulation"]["phase_array"] = phase_array
         else:
-            method = self._normalize_method(options.get("method", "cascade"))
+            method = self._normalize_method(options.get("method", "sddp"))
             if method == "monolithic":
                 # One phase covering all stages
                 self.planning["simulation"]["phase_array"] = [
@@ -480,7 +558,7 @@ class GTOptWriter:
             )
         self.planning["simulation"]["scenario_array"] = scenarios
 
-        method = self._normalize_method(options.get("method", "cascade"))
+        method = self._normalize_method(options.get("method", "sddp"))
 
         if method == "monolithic":
             scenes = [
@@ -797,6 +875,11 @@ class GTOptWriter:
         filemb = self.parser.parsed_data.get("filemb_parser", None)
         ralco = self.parser.parsed_data.get("ralco_parser", None)
         minembh = self.parser.parsed_data.get("minembh_parser", None)
+        vrebemb = self.parser.parsed_data.get("vrebemb_parser", None)
+        plpmat = self.parser.parsed_data.get("plpmat_parser", None)
+        cenpmax = self.parser.parsed_data.get("cenpmax_parser", None)
+        mance = self.parser.parsed_data.get("mance_parser", None)
+        block = self.parser.parsed_data.get("block_parser", None)
         jw = JunctionWriter(
             central_parser=centrals,
             stage_parser=stages,
@@ -808,6 +891,11 @@ class GTOptWriter:
             filemb_parser=filemb,
             ralco_parser=ralco,
             minembh_parser=minembh,
+            vrebemb_parser=vrebemb,
+            plpmat_parser=plpmat,
+            cenpmax_parser=cenpmax,
+            mance_parser=mance,
+            block_parser=block,
             options=options,
         )
         json_junctions = jw.to_json_array()
@@ -1150,6 +1238,64 @@ class GTOptWriter:
             "lng: expanded to %d terminal(s)",
             len(entities.get("lng_terminal_array", [])),
         )
+
+    def process_pmin_flowright(self, options):
+        """Convert whitelisted generators' ``pmin`` into FlowRight obligations.
+
+        Companion to :mod:`gtopt_expand.pmin_flowright_expand`.  Runs
+        only when ``options["pmin_as_flowright"]`` is set (string;
+        empty string means "use bundled default CSV").  For each
+        whitelisted central:
+
+        * Looks up the gen waterway and its ``junction_b`` in
+          ``planning["system"]``.
+        * Computes ``flow_min[block] = pmin[block] / Rendi`` from
+          ``mance_parser`` (per-stage-per-block pmin) — falls back to
+          the central's static ``pmin`` when there is no mance entry.
+        * Writes ``FlowRight/<central>_pmin_as_flow_right.parquet``
+          (one column per FlowRight, schema mirrors
+          ``Generator/pmin.parquet``).
+        * Appends a FlowRight JSON entry to
+          ``planning["system"]["flow_right_array"]`` with
+          ``discharge = "<central>_pmin_as_flow_right"``,
+          ``junction = junction_b`` and a ``fail_cost`` calibrated
+          from plpvrebemb (2× max rebalse_cost) or plpmat CVert
+          (2× CVert) — fallback $10 000/m³/s·h when neither is set.
+        * Zeros the matching generator's ``pmin`` so the LP no longer
+          enforces the must-run obligation directly.
+        """
+        spec = options.get("pmin_as_flowright")
+        if spec is None:
+            return
+
+        from ._parsers import DEFAULT_PMIN_FLOWRIGHT_FILE  # noqa: PLC0415
+        from .pmin_flowright_writer import (  # noqa: PLC0415
+            PminFlowRightWriter,
+            resolve_whitelist,
+        )
+
+        try:
+            whitelist = resolve_whitelist(
+                str(spec), default_csv=DEFAULT_PMIN_FLOWRIGHT_FILE
+            )
+        except (FileNotFoundError, ValueError) as exc:
+            _logger.warning("pmin_as_flowright: %s; skipping conversion.", exc)
+            return
+        if not whitelist:
+            return
+
+        writer = PminFlowRightWriter(
+            whitelist=whitelist,
+            central_parser=self.parser.parsed_data.get("central_parser"),
+            mance_parser=self.parser.parsed_data.get("mance_parser"),
+            block_parser=self.parser.parsed_data.get("block_parser"),
+            stage_parser=self.parser.parsed_data.get("stage_parser"),
+            scenarios=self.planning["simulation"].get("scenario_array", []),
+            vrebemb_parser=self.parser.parsed_data.get("vrebemb_parser"),
+            plpmat_parser=self.parser.parsed_data.get("plpmat_parser"),
+            options=options,
+        )
+        writer.process(self.planning["system"])
 
     def process_flow_turbines(self, options):
         """Create Flow + Turbine(flow=ref) for hydro pasada centrals.
@@ -1835,6 +1981,7 @@ class GTOptWriter:
         self.process_generator_profiles(options)
         self.process_junctions(options)
         self.process_flow_turbines(options)
+        self.process_pmin_flowright(options)
         _step("water_rights")
         self.process_water_rights(options)
         _step("lng")

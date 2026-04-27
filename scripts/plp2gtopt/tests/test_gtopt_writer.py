@@ -122,8 +122,8 @@ class TestGTOptWriterWithRealParser:
         assert "input_directory" in opts
         assert "output_directory" in opts
         assert "demand_fail_cost" in opts.get("model_options", {})
-        # Default method is cascade (top-level field)
-        assert opts["method"] == "cascade"
+        # Default method is sddp (top-level field)
+        assert opts["method"] == "sddp"
 
     def test_to_json_options_monolithic_solver(self, tmp_path):
         """options block contains method=monolithic when requested."""
@@ -147,10 +147,10 @@ class TestGTOptWriterProcessMethods:
         assert writer.planning["simulation"]["annual_discount_rate"] == 0.0
 
     def test_process_options_default_method(self):
-        """process_options defaults to method='cascade' at top level."""
+        """process_options defaults to method='sddp' at top level."""
         writer = GTOptWriter(MagicMock())
         writer.process_options({"output_dir": "out"})
-        assert writer.planning["options"]["method"] == "cascade"
+        assert writer.planning["options"]["method"] == "sddp"
 
     def test_process_options_monolithic_method(self):
         """process_options normalizes 'mono' to 'monolithic' in JSON output."""
@@ -371,10 +371,18 @@ class TestGTOptWriterProcessMethods:
         assert sddp["stationary_tol"] == pytest.approx(0.005)
 
     def test_process_options_demand_fail_cost_default(self):
-        """demand_fail_cost defaults to 1000 when not specified."""
+        """demand_fail_cost defaults to 0 when not specified.
+
+        Real demands receive their curtailment cost via per-demand
+        ``fcost`` (from plpcnfce.dat falla centrals).  The global
+        default is 0 so that synthetic demands created by C++
+        ``System::expand_batteries`` (for battery AC-side charging)
+        inherit fcost=0 and are truly dispatchable — without this
+        the LP would otherwise force batteries to charge at pmax.
+        """
         writer = GTOptWriter(MagicMock())
         writer.process_options({"output_dir": "out"})
-        assert writer.planning["options"]["model_options"]["demand_fail_cost"] == 1000
+        assert writer.planning["options"]["model_options"]["demand_fail_cost"] == 0
 
     def test_process_options_with_discount(self):
         """process_options passes discount_rate to simulation."""
@@ -382,6 +390,38 @@ class TestGTOptWriterProcessMethods:
         writer.process_options({"output_dir": "out", "discount_rate": 0.08})
         assert writer.planning["simulation"]["annual_discount_rate"] == pytest.approx(
             0.08
+        )
+
+    def test_process_options_strict_storage_emin_default_false(self):
+        """plp2gtopt always emits ``strict_storage_emin = False``.
+
+        gtopt's C++ default for ``model_options.strict_storage_emin`` was
+        flipped to ``true`` in 3581a80e (per-stage emin floor as a HARD
+        lower bound on ``reservoir_sini`` and last-block ``efin``).  PLP's
+        per-stage LP, however, treats ``ve<u>`` as Free mid-stage and only
+        ``vf<u>`` (future volume) carries the ``vmin`` floor.  Without an
+        explicit override, plp2gtopt-generated cases would silently switch
+        to strict semantics and may go infeasible at iter-0 of an SDDP
+        cascade whenever an upstream Benders cut clamps ``sini`` near 0
+        but the schedule still demands ``efin >= emin``.
+        """
+        writer = GTOptWriter(MagicMock())
+        writer.process_options({"output_dir": "out"})
+        assert (
+            writer.planning["options"]["model_options"]["strict_storage_emin"] is False
+        )
+
+    def test_process_options_strict_storage_emin_explicit_override(self):
+        """User can opt back into strict mode by setting it in model_options."""
+        writer = GTOptWriter(MagicMock())
+        writer.process_options(
+            {
+                "output_dir": "out",
+                "model_options": {"strict_storage_emin": True},
+            }
+        )
+        assert (
+            writer.planning["options"]["model_options"]["strict_storage_emin"] is True
         )
 
     # ---- SDDP (default) scenario/scene tests --------------------------------

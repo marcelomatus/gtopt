@@ -45,7 +45,7 @@ bool ReservoirLP::add_to_lp(SystemContext& sc,
                             const StageLP& stage,
                             LinearProblem& lp)
 {
-  static constexpr std::string_view cname = ClassName.full_name();
+  static constexpr const auto& cname = ClassName;
   static constexpr auto ampl_name = ClassName.snake_case();
 
   if (!is_active(stage)) {
@@ -139,6 +139,29 @@ bool ReservoirLP::add_to_lp(SystemContext& sc,
     return false;
   }
 
+  // PLP-style spill routing: when the reservoir specifies an optional
+  // `spill_junction`, also wire the drain column into that junction's
+  // per-block balance row with coefficient +1 (m³/s as inflow).  This
+  // mirrors PLP's `qv` chain (qv28 appears in COLBUN's balance AND in
+  // the downstream MACHICURA junction balance via SerVer).  When unset
+  // the drain remains a pure storage sink — matching PLP behaviour for
+  // reservoirs whose `SerVer = 0`.
+  if (reservoir().spill_junction.has_value()) {
+    const auto& spill_junction =
+        sc.element<JunctionLP>(JunctionLPSId {*reservoir().spill_junction});
+    if (spill_junction.is_active(stage)) {
+      const auto& spill_balance_rows =
+          spill_junction.balance_rows_at(scenario, stage);
+      if (const auto* dcols_ptr = find_drain_cols(scenario, stage); dcols_ptr) {
+        for (auto&& block : blocks) {
+          const auto buid = block.uid();
+          auto& sbrow = lp.row_at(spill_balance_rows.at(buid));
+          sbrow[dcols_ptr->at(buid)] = 1.0;
+        }
+      }
+    }
+  }
+
   // storing the indices for this scenario and stage
   const auto st_key = std::tuple {scenario.uid(), stage.uid()};
   extraction_cols[st_key] = std::move(rcols);
@@ -169,7 +192,7 @@ bool ReservoirLP::add_to_lp(SystemContext& sc,
  */
 bool ReservoirLP::add_to_output(OutputContext& out) const
 {
-  static constexpr std::string_view cname = ClassName.full_name();
+  static constexpr const auto& cname = ClassName;
 
   // Extraction columns have .scale = flow_scale; auto-descaled by
   // LinearInterface's get_col_sol() / get_col_cost().

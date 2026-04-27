@@ -22,11 +22,13 @@
 #pragma once
 
 #include <span>
+#include <stdexcept>
 #include <string_view>
 #include <vector>
 
 #include <gtopt/basic_types.hpp>
 #include <gtopt/linear_problem.hpp>
+#include <gtopt/lp_class_name.hpp>
 #include <gtopt/lp_context.hpp>
 #include <gtopt/phase.hpp>
 #include <gtopt/scenario.hpp>
@@ -92,22 +94,50 @@ public:
     StageUid stage_uid = unknown_uid_of<Stage>();
     Uid uid {unknown_uid};
     std::string_view col_name;
-    std::string_view class_name;
+    /// LP class identity stored by value.  `LPClassName` is a
+    /// trivially-copyable 72-byte aggregate carrying both the
+    /// PascalCase `full_name()` and precomputed snake_case
+    /// `short_name()`, so call sites get zero-runtime access to
+    /// either form.  Comparisons against string literals (e.g.
+    /// `key.class_name == "Reservoir"`) work via LPClassName's
+    /// implicit conversion to `std::string_view` (returns
+    /// `full_name()`).
+    LPClassName class_name {};
     LPKey lp_key;
 
     constexpr auto operator<=>(const Key&) const noexcept = default;
   };
 
-  [[nodiscard]] static constexpr auto key(
-      std::string_view class_name,
-      Uid uid,
-      std::string_view col_name,
-      PhaseIndex phase_index,
-      StageUid stage_uid,
-      SceneIndex scene_index = SceneIndex {unknown_index},
-      ScenarioUid scenario_uid = make_uid<Scenario>(unknown_uid)) noexcept
-      -> Key
+  [[nodiscard]] static auto key(LPClassName class_name,
+                                Uid uid,
+                                std::string_view col_name,
+                                PhaseIndex phase_index,
+                                StageUid stage_uid,
+                                SceneIndex scene_index,
+                                ScenarioUid scenario_uid) -> Key
   {
+    // Every state variable must carry a valid element uid so that
+    // cross-phase cuts (fcut/scut/bcut/ecut/aper_cut) serialise with
+    // parseable names.  `unknown_uid = -1` slips into LP labels as
+    // `-1_…`, whose embedded `-` char is rejected by CoinLpIO's name
+    // validator (see master #426 / a8a0e452, PR #429) and causes CBC
+    // to strip every col/row label from the written LP file.  Catch
+    // the root cause here — throw in both debug and release builds
+    // so an unknown uid is never silently embedded into LP labels.
+    // scene/scenario/stage uids must also be concrete; silent defaults
+    // to `unknown_*` produce the same `-1_…` pattern in labels.
+    if (uid == unknown_uid) {
+      throw std::invalid_argument(
+          "StateVariable::key: uid must not be unknown_uid");
+    }
+    if (scenario_uid == unknown_uid_of<Scenario>()) {
+      throw std::invalid_argument(
+          "StateVariable::key: scenario_uid must not be unknown");
+    }
+    if (stage_uid == unknown_uid_of<Stage>()) {
+      throw std::invalid_argument(
+          "StateVariable::key: stage_uid must not be unknown");
+    }
     return {
         .scenario_uid = scenario_uid,
         .stage_uid = stage_uid,
@@ -120,11 +150,11 @@ public:
 
   template<typename ScenarioLP, typename StageLP>
   [[nodiscard]]
-  static constexpr auto key(const ScenarioLP& scenario,
-                            const StageLP& stage,
-                            std::string_view class_name,
-                            Uid element_uid,
-                            std::string_view col_name) noexcept -> Key
+  static auto key(const ScenarioLP& scenario,
+                  const StageLP& stage,
+                  LPClassName class_name,
+                  Uid element_uid,
+                  std::string_view col_name) -> Key
   {
     return key(class_name,
                element_uid,
@@ -133,17 +163,6 @@ public:
                stage.uid(),
                scenario.scene_index(),
                scenario.uid());
-  }
-
-  template<typename StageLP>
-  [[nodiscard]]
-  static constexpr auto key(const StageLP& stage,
-                            std::string_view class_name,
-                            Uid element_uid,
-                            std::string_view col_name) noexcept -> Key
-  {
-    return key(
-        class_name, element_uid, col_name, stage.phase_index(), stage.uid());
   }
 
   constexpr explicit StateVariable(LPKey lp_key,

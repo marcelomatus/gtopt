@@ -190,7 +190,7 @@ SolverTestResult test_construction(std::string_view solver)
 }
 
 // ---------------------------------------------------------------------------
-// 2. add_col / add_free_col: dimensions and bounds
+// 2. add_col: dimensions and bounds
 // ---------------------------------------------------------------------------
 SolverTestResult test_add_col(std::string_view solver)
 {

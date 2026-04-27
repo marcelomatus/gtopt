@@ -702,6 +702,58 @@ void MindOptSolverBackend::resolve()
   }
 }
 
+void MindOptSolverBackend::engage_robust_solve()
+{
+  if (m_env_ == nullptr) {
+    return;
+  }
+
+  if (!m_saved_robust_state_.has_value()) {
+    RobustState saved {};
+    MDOgetdblparam(m_env_, MDO_DBL_PAR_SPX_DUAL_TOLERANCE, &saved.dual_tol);
+    MDOgetdblparam(m_env_, MDO_DBL_PAR_SPX_PRIMAL_TOLERANCE, &saved.primal_tol);
+    MDOgetdblparam(m_env_, MDO_DBL_PAR_IPM_GAP_TOLERANCE, &saved.ipm_gap_tol);
+    saved.engage_count = 0;
+    m_saved_robust_state_ = saved;
+  }
+  ++m_saved_robust_state_->engage_count;
+
+  double cur_dual = 0.0;
+  double cur_primal = 0.0;
+  double cur_ipm = 0.0;
+  MDOgetdblparam(m_env_, MDO_DBL_PAR_SPX_DUAL_TOLERANCE, &cur_dual);
+  MDOgetdblparam(m_env_, MDO_DBL_PAR_SPX_PRIMAL_TOLERANCE, &cur_primal);
+  MDOgetdblparam(m_env_, MDO_DBL_PAR_IPM_GAP_TOLERANCE, &cur_ipm);
+
+  constexpr double k_max_tol = 1e-1;
+  MDOsetdblparam(m_env_,
+                 MDO_DBL_PAR_SPX_DUAL_TOLERANCE,
+                 std::min(cur_dual * 10.0, k_max_tol));
+  MDOsetdblparam(m_env_,
+                 MDO_DBL_PAR_SPX_PRIMAL_TOLERANCE,
+                 std::min(cur_primal * 10.0, k_max_tol));
+  MDOsetdblparam(m_env_,
+                 MDO_DBL_PAR_IPM_GAP_TOLERANCE,
+                 std::min(cur_ipm * 10.0, k_max_tol));
+}
+
+void MindOptSolverBackend::disengage_robust_solve() noexcept
+{
+  if (!m_saved_robust_state_.has_value()) {
+    return;
+  }
+  if (m_env_ == nullptr) {
+    m_saved_robust_state_.reset();
+    return;
+  }
+
+  const auto& s = *m_saved_robust_state_;
+  MDOsetdblparam(m_env_, MDO_DBL_PAR_SPX_DUAL_TOLERANCE, s.dual_tol);
+  MDOsetdblparam(m_env_, MDO_DBL_PAR_SPX_PRIMAL_TOLERANCE, s.primal_tol);
+  MDOsetdblparam(m_env_, MDO_DBL_PAR_IPM_GAP_TOLERANCE, s.ipm_gap_tol);
+  m_saved_robust_state_.reset();
+}
+
 // ── status ───────────────────────────────────────────────────────────────
 
 namespace

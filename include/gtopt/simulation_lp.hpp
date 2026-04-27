@@ -268,7 +268,7 @@ public:
       if (it->second.col() != col) {
         const auto msg =
             std::format("duplicated variable {}:{} in simulation map",
-                        key.class_name,
+                        key.class_name.full_name(),
                         key.col_name);
         SPDLOG_CRITICAL(msg);
         throw std::runtime_error(msg);
@@ -548,6 +548,26 @@ public:
         AmplElementNameKey {class_name, element_name});
     return (it != m_ampl_element_names_.end()) ? std::optional<Uid> {it->second}
                                                : std::nullopt;
+  }
+
+  /// Reverse lookup: element name by (LPClassName, uid).  Linear scan
+  /// — only use on rare / diagnostic paths (e.g. SDDP fcut logging).
+  /// The registry stores snake_case class_name keys; `class_name`
+  /// carries both forms precomputed, so we compare against
+  /// `class_name.snake_case()` directly — zero runtime conversion.
+  /// Returns a `string_view` into the same stable storage as the
+  /// registry key (element `Id::name`, owned by `System`), or empty
+  /// view when no match is found.
+  [[nodiscard]] std::string_view lookup_ampl_element_name(
+      const LPClassName& class_name, Uid element_uid) const noexcept
+  {
+    const auto class_snake = class_name.snake_case();
+    for (const auto& [key, uid] : m_ampl_element_names_) {
+      if (uid == element_uid && class_snake == key.first) {
+        return key.second;
+      }
+    }
+    return {};
   }
 
   /// Register a compound PAMPL attribute for a class.  The compound

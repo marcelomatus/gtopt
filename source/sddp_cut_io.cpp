@@ -95,13 +95,8 @@ namespace gtopt
 namespace
 {
 
-/// Returns true if *col_name* is a final-state-variable name that can
-/// appear in boundary/hot-start cut CSV headers (efin, soc, vfin).
-[[nodiscard]] constexpr auto is_final_state_col(std::string_view col_name)
-    -> bool
-{
-  return col_name == "efin" || col_name == "soc" || col_name == "vfin";
-}
+// `is_final_state_col` is now declared in `sddp_cut_io.hpp` so it can be
+// covered by unit tests; no local copy is needed here.
 
 // ─── Structured key helpers ─────────────────────────────────────────────────
 
@@ -178,26 +173,16 @@ void write_cut_coefficients_unscaled(std::ostream& ofs,
   }
 }
 
-/// Extract the iteration number from a cut name.
-///
-/// Cut name formats:
-///   sddp_scut_{uid}_{scene}_{phase}_{iteration}_{offset}  → field [5]
-///   sddp_fcut_{uid}_{scene}_{phase}_{iteration}_{offset}  → field [5]
-///   sddp_bcut_{uid}_{scene}_{phase}_{iteration}_{offset}  → field [5]
-///   sddp_ecut_{scene}_{phase}_{total_cuts}           → no iteration
-///
-/// The on-disk `{iteration}` field is a 0-based **IterationIndex**
-/// (matching the runtime loop counter) — NOT the 1-based
-/// `IterationUid` that LP-label contexts carry.  Callers that need
-/// a UID for `make_iteration_context(...)` convert at the boundary
-/// via `uid_of(extract_iteration_from_name(...))`; the
-/// `make_iteration_context(SceneUid, PhaseUid, IterationIndex, int)`
-/// overload does this transparently.  Keeping the disk format
-/// 0-based preserves backward compat with existing golden files.
-///
-/// Returns 0 if the iteration cannot be determined.
-[[nodiscard]] auto extract_iteration_from_name(std::string_view name)
-    -> IterationIndex
+}  // namespace
+
+// ``extract_iteration_from_name`` lives in namespace ``gtopt`` (not
+// the anonymous namespace) so the unit test in
+// ``test/source/test_sddp_cut_io.cpp`` can exercise it without having
+// to reach into a translation-unit-private symbol.  The function is
+// declared in ``sddp_cut_io.hpp``; the comment block on the
+// declaration documents the on-disk format and return-value
+// semantics.
+auto extract_iteration_from_name(std::string_view name) -> IterationIndex
 {
   // scut, fcut, and bcut encode the iteration; ecut does not.
   if (!name.starts_with("sddp_scut_") && !name.starts_with("sddp_fcut_")
@@ -205,23 +190,45 @@ void write_cut_coefficients_unscaled(std::ostream& ofs,
   {
     return IterationIndex {0};
   }
-  // Split by '_' and take the 6th field (index 5).
   // Format: sddp_{type}_{uid}_{scene}_{phase}_{iteration}_{offset}
-  // Note: the uid field may be negative (legacy `-1` placeholder)
-  // which introduces an extra '_' — field counting handles both
-  // the old `-1` format and the current positive-integer uid format
-  // correctly because '-' is not treated as a separator.
-  int field = 0;
+  //
+  // Hardening (2026-04-25): every UID-bearing field
+  // (variable_uid, scene_uid, phase_uid, iteration_uid) MUST be
+  // a real positive identifier.  A negative value indicates the
+  // ``unknown_uid`` (= -1) sentinel propagated from a row that
+  // was emitted without a real UID attached — bad-formed cuts
+  // that should never reach load time.  Modern emitters
+  // (``make_iteration_context`` + the cut-name generators in
+  // ``label_maker.cpp``) all produce positive UIDs; the
+  // ``unknown_uid`` placeholder remains as a regression-guard
+  // signal rather than a routine path.  We throw
+  // ``std::invalid_argument`` so the upstream bug surfaces
+  // directly instead of silently round-tripping the sentinel.
+  //
+  // Only ``offset`` (the 6th field) is allowed to be negative —
+  // it is a free ``int`` discriminator, not a UID.  Scan the
+  // first five fields for any ``-`` immediately after a ``_``.
   std::string_view::size_type pos = 0;
-  while (pos < name.size() && field < 5) {
+  for (int field = 0; field < 5; ++field) {
     pos = name.find('_', pos);
     if (pos == std::string_view::npos) {
       return IterationIndex {0};
     }
     ++pos;
-    ++field;
+    if (field >= 1 && pos < name.size() && name[pos] == '-') {
+      throw std::invalid_argument(std::format(
+          "extract_iteration_from_name: cut name '{}' has a negative "
+          "UID at field {} (= unknown_uid sentinel — variable_uid, "
+          "scene_uid, phase_uid, or iteration_uid) — bad-formed "
+          "label, refusing to parse",
+          name,
+          field + 1));
+    }
   }
-  if (field != 5 || pos >= name.size()) {
+  // ``pos`` now points at the start of the iteration field
+  // (field index 5 in the 0-based count above; after 5 underscore
+  // advances).  Take the substring up to the next underscore.
+  if (pos >= name.size()) {
     return IterationIndex {0};
   }
   const auto end = name.find('_', pos);
@@ -233,8 +240,6 @@ void write_cut_coefficients_unscaled(std::ostream& ofs,
   auto [ptr, ec] = std::from_chars(first, last, result);
   return IterationIndex {(ec == std::errc {}) ? result : 0};
 }
-
-}  // namespace
 
 // ─── Save functions ─────────────────────────────────────────────────────────
 
@@ -764,24 +769,19 @@ void write_cut_coefficients_unscaled(std::ostream& ofs,
       const auto cut_offset = result.count;
       const auto phase_uid_ctx = sim.uid_of(phase_index);
       for (const auto scene_index : iota_range<SceneIndex>(0, num_scenes)) {
-        auto& li =
-            planning_lp.system(scene_index, phase_index).linear_interface();
         auto scene_row = row;
-        scene_row.context = make_iteration_context(
-            sim.uid_of(scene_index), phase_uid_ctx, cut_iter, cut_offset);
+        scene_row.context = make_iteration_context(sim.uid_of(scene_index),
+                                                   phase_uid_ctx,
+                                                   uid_of(cut_iter),
+                                                   cut_offset);
         for (const auto& [col, coeff] : resolved_coeffs) {
           scene_row[col] = coeff;
         }
-        // Release α's bootstrap pin ONLY on optimality cuts — they
-        // certify a tighter lower bound and may demand α < 0 at
-        // some master states.  Feasibility cuts leave α floored at
-        // `lowb = sddp_alpha_bootstrap_min (=0)` (see commit
-        // 5307d831 for the matching forward-pass fcut-install
-        // rationale).
-        if (cut_type == CutType::Optimality) {
-          free_alpha(planning_lp, scene_index, phase_index);
-        }
-        li.add_cut_row(scene_row);
+        // Unified `add_cut_row`: releases α iff cut_type is Optimality
+        // AND the row references α, then adds the row and records it
+        // for low-memory replay in a single call.
+        std::ignore = add_cut_row(
+            planning_lp, scene_index, phase_index, cut_type, scene_row);
       }
       ++result.count;
     }
@@ -1184,11 +1184,11 @@ void write_cut_coefficients_unscaled(std::ostream& ofs,
             .class_name = sddp_boundary_cut_class_name,
             .constraint_name = sddp_loaded_cut_constraint_name,
             .variable_uid = sim.uid_of(last_phase),
-            .context =
-                make_iteration_context(sim.uid_of(scene_index),
-                                       sim.uid_of(last_phase),
-                                       extract_iteration_from_name(rc.name),
-                                       cuts_loaded),
+            .context = make_iteration_context(
+                sim.uid_of(scene_index),
+                sim.uid_of(last_phase),
+                uid_of(extract_iteration_from_name(std::string_view {rc.name})),
+                cuts_loaded),
         };
         row[alpha_svar->col()] = sa;
 
@@ -1211,15 +1211,13 @@ void write_cut_coefficients_unscaled(std::ostream& ofs,
         }
 
         // Boundary cuts encode the future-cost function at the
-        // horizon (conceptually optimality-like: α ≥ some positive
-        // RHS at a given state).  Release α's bootstrap floor so
-        // the boundary cut can raise α above 0 on the last phase.
-        // If the boundary cut has negative RHS at some states, α
-        // still respects the `≥ 0` future-cost invariant because
-        // free_alpha only lifts the lower bound; the master LP
-        // pushes α downward via its positive α-cost anyway.
-        free_alpha(planning_lp, scene_index, last_phase);
-        li.add_cut_row(row);
+        // horizon (optimality-style: α ≥ state-dependent RHS on the
+        // last phase).  Routed through the unified `add_cut_row`
+        // helper: since the row always carries α (set above via
+        // `row[alpha_svar->col()] = sa`), the Optimality gate
+        // releases the bootstrap pin.
+        std::ignore = add_cut_row(
+            planning_lp, scene_index, last_phase, CutType::Optimality, row);
       }
       max_iteration = std::max(max_iteration, rc.iteration_index);
       ++cuts_loaded;
@@ -1517,11 +1515,12 @@ void write_cut_coefficients_unscaled(std::ostream& ofs,
             .class_name = sddp_named_cut_class_name,
             .constraint_name = sddp_loaded_cut_constraint_name,
             .variable_uid = sim.uid_of(phase_index),
-            .context =
-                make_iteration_context(sim.uid_of(scene_index),
-                                       sim.uid_of(phase_index),
-                                       extract_iteration_from_name(cut_name),
-                                       result.count),
+            .context = make_iteration_context(
+                sim.uid_of(scene_index),
+                sim.uid_of(phase_index),
+                uid_of(
+                    extract_iteration_from_name(std::string_view {cut_name})),
+                result.count),
         };
         row[alpha_svar->col()] = sa;
 
@@ -1544,10 +1543,12 @@ void write_cut_coefficients_unscaled(std::ostream& ofs,
           }
         }
 
-        // Release α's bootstrap pin before the named hot-start
-        // cut lands — see the boundary-cut loader for rationale.
-        free_alpha(planning_lp, scene_index, phase_index);
-        li.add_cut_row(row);
+        // Named hot-start cuts are optimality-style (they carry α at
+        // coefficient `sa` by construction above).  Routed through
+        // the unified `add_cut_row` so the α release, row addition,
+        // and low-memory replay registration happen in one call.
+        std::ignore = add_cut_row(
+            planning_lp, scene_index, phase_index, CutType::Optimality, row);
       }
       result.max_iteration = std::max(result.max_iteration, iteration_index);
       ++result.count;
@@ -1825,23 +1826,20 @@ void write_cut_coefficients_unscaled(std::ostream& ofs,
       const auto cut_iter = extract_iteration_from_name(entry.name);
       const auto cut_offset = result.count;
       const auto phase_uid_ctx = sim.uid_of(phase_index);
-      const bool is_optimality_cut = (entry.type != "f");
+      const auto cut_type =
+          (entry.type == "f") ? CutType::Feasibility : CutType::Optimality;
       for (const auto scene_index : iota_range<SceneIndex>(0, num_scenes)) {
-        auto& li =
-            planning_lp.system(scene_index, phase_index).linear_interface();
         auto scene_row = row;
-        scene_row.context = make_iteration_context(
-            sim.uid_of(scene_index), phase_uid_ctx, cut_iter, cut_offset);
+        scene_row.context = make_iteration_context(sim.uid_of(scene_index),
+                                                   phase_uid_ctx,
+                                                   uid_of(cut_iter),
+                                                   cut_offset);
         for (const auto& [col, coeff] : resolved_coeffs) {
           scene_row[col] = coeff;
         }
-        // Release α's bootstrap pin ONLY on optimality cuts — see
-        // the CSV loader and commit 5307d831 for the forward-pass
-        // rationale.  Feasibility cuts leave α floored at 0.
-        if (is_optimality_cut) {
-          free_alpha(planning_lp, scene_index, phase_index);
-        }
-        li.add_cut_row(scene_row);
+        // Unified `add_cut_row`: same semantics as the CSV loader.
+        std::ignore = add_cut_row(
+            planning_lp, scene_index, phase_index, cut_type, scene_row);
       }
       ++result.count;
     }

@@ -278,7 +278,7 @@ def run_post_check(
     planning: dict[str, Any],
     parser: PLPParser,
     output_dir: str | Path | None = None,
-) -> None:
+) -> int:
     """Run gtopt_check_json validation on the generated planning dict.
 
     Prints system statistics, a PLP-vs-gtopt element comparison, and
@@ -295,6 +295,13 @@ def run_post_check(
         Absolute path to the case output directory.  Passed through to
         :func:`_gtopt_indicators` so that FieldSched file references
         can be resolved from Parquet/CSV files on disk.
+
+    Returns
+    -------
+    The number of CRITICAL findings.  Callers should exit with status 1
+    when this is nonzero — critical findings indicate structural bugs
+    (e.g. duplicate entity names) that must be fixed before using the
+    converted case.
     """
     base_dir = str(output_dir) if output_dir is not None else ""
 
@@ -350,7 +357,7 @@ def run_post_check(
         )
     except ImportError:
         logger.debug("gtopt_check_json not available; skipping JSON validation checks")
-        return
+        return 0
 
     # Run validation checks (all non-AI checks)
     findings = run_all_checks(
@@ -373,7 +380,7 @@ def run_post_check(
 
     if not findings:
         print_status("All checks passed — no issues found.", ok=True)
-        return
+        return 0
 
     # Collect all findings into the warnings table
     rows: list[tuple[str, str, str]] = []
@@ -408,6 +415,7 @@ def run_post_check(
         )
 
     print_summary(critical_count, warning_count, note_count)
+    return critical_count
 
 
 def create_zip_output(output_file: Path, output_dir: Path, zip_path: Path) -> None:
@@ -479,7 +487,7 @@ def validate_plp_case(options: dict[str, Any]) -> bool:
         return False
 
 
-def convert_plp_case(options: dict[str, Any]) -> None:
+def convert_plp_case(options: dict[str, Any]) -> int:
     """Convert PLP input files to GTOPT format.
 
     Args:
@@ -491,6 +499,12 @@ def convert_plp_case(options: dict[str, Any]) -> None:
             excel_file (optional, defaults to output_file with .xlsx suffix),
             run_check (optional, default True) — run post-conversion
             validation via gtopt_check_json.
+
+    Returns:
+        The number of CRITICAL findings from post-conversion validation
+        (0 on a clean conversion).  Nonzero indicates a structural bug
+        in the generated planning — callers (main) must propagate this
+        as a nonzero process exit status so CI / shell callers notice.
 
     Raises:
         RuntimeError: If any step of the conversion fails.
@@ -623,8 +637,11 @@ def convert_plp_case(options: dict[str, Any]) -> None:
             create_zip_output(output_file, output_dir, zip_path)
 
         # Post-conversion validation
+        critical_count = 0
         if do_check:
-            run_post_check(writer.planning, parser, output_dir=output_dir)
+            critical_count = run_post_check(
+                writer.planning, parser, output_dir=output_dir
+            )
 
     except RuntimeError:
         raise
@@ -649,6 +666,8 @@ def convert_plp_case(options: dict[str, Any]) -> None:
             log_handler.close()
         if tmp_dir is not None and tmp_dir.exists():
             shutil.rmtree(tmp_dir, ignore_errors=True)
+
+    return critical_count
 
 
 def generate_variable_scales_template(options: dict[str, Any]) -> str:

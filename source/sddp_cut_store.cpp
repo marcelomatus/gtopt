@@ -18,12 +18,14 @@
 #include <vector>
 
 #include <gtopt/label_maker.hpp>
+#include <gtopt/lp_context.hpp>
 #include <gtopt/planning_lp.hpp>
 #include <gtopt/sddp_cut_io.hpp>
 #include <gtopt/sddp_cut_sharing.hpp>
 #include <gtopt/sddp_cut_store.hpp>
 #include <gtopt/sddp_method.hpp>
 #include <gtopt/sddp_state_io.hpp>
+#include <gtopt/sddp_types.hpp>
 #include <gtopt/utils.hpp>
 
 #ifndef SPDLOG_ACTIVE_LEVEL
@@ -377,7 +379,7 @@ std::vector<StoredCut> SDDPCutStore::build_combined_cuts(
 // ── apply_cut_sharing_for_iteration ────────────────────────────────────────
 
 void SDDPCutStore::apply_cut_sharing_for_iteration(
-    [[maybe_unused]] IterationIndex iteration_index,
+    IterationIndex iteration_index,
     const SDDPOptions& options,
     PlanningLP& planning_lp,
     [[maybe_unused]] const LabelMaker& label_maker)
@@ -389,12 +391,29 @@ void SDDPCutStore::apply_cut_sharing_for_iteration(
     return;
   }
 
-  auto to_sparse_row = [](const StoredCut& sc) -> SparseRow
+  // ``to_sparse_row`` populates the row's label metadata so that
+  // ``LinearInterface::generate_labels_from_maps`` can synthesise a
+  // unique LP-row name for the shared cut after it lands in the
+  // destination scene's LP.  Without ``class_name`` /
+  // ``constraint_name`` set the labeller throws
+  // ``"row N has metadata without a class_name (unlabelable)"`` (juan/
+  // gtopt_iplp iter-1 reproducer at row 5251).  ``variable_uid`` and
+  // ``context`` carry the originating cut's identity so two shared
+  // cuts on the same destination phase but from different source
+  // scenes do not collide on the duplicate-label check at
+  // ``generate_labels_from_maps:1581``.
+  auto to_sparse_row = [iteration_index](const StoredCut& sc,
+                                         int extra) -> SparseRow
   {
     auto row = SparseRow {
         .lowb = sc.rhs,
         .uppb = LinearProblem::DblMax,
         .scale = sc.scale,
+        .class_name = sddp_loaded_cut_class_name,
+        .constraint_name = sddp_loaded_cut_constraint_name,
+        .variable_uid = sc.phase_uid,
+        .context = make_iteration_context(
+            sc.scene_uid, sc.phase_uid, uid_of(iteration_index), extra),
     };
     for (const auto& [col, coeff] : sc.coefficients) {
       row[col] = coeff;
@@ -422,17 +441,31 @@ void SDDPCutStore::apply_cut_sharing_for_iteration(
       const auto si_sz = static_cast<std::size_t>(si);
       const auto offset =
           si_sz < m_scene_cuts_before_.size() ? m_scene_cuts_before_[si_sz] : 0;
-      for (std::size_t ci = offset; ci < cuts.size(); ++ci) {
+      // ``int`` matches ``make_iteration_context``'s ``extra`` slot, so
+      // ``ci`` flows straight through ``to_sparse_row`` with no cast.
+      // ``std::ssize(cuts)`` returns a signed type so the range-end
+      // doesn't trigger a sign-conversion narrowing.
+      for (const auto ci : iota_range<int>(offset, std::ssize(cuts))) {
         const auto& sc = cuts[ci];
         if (sc.type != CutType::Optimality || sc.phase_uid != pi_uid) {
           continue;
         }
-        per_scene_cuts[si].push_back(to_sparse_row(sc));
+        per_scene_cuts[si].push_back(to_sparse_row(sc, ci));
       }
     }
 
+    // ``share_cuts_for_phase`` builds a per-scene
+    // ``IterationContext`` internally (using the destination scene's
+    // UID) so the accumulated/expected shared cut row carries
+    // unique label metadata in every destination scene's LP — see
+    // its ``stamp_for_scene`` helper.  Without that, the new
+    // SparseRow synthesised by ``accumulate_benders_cuts`` /
+    // ``average_benders_cut`` would land in the LP with empty
+    // ``class_name`` and ``generate_labels_from_maps`` would
+    // throw "row N has metadata without a class_name
+    // (unlabelable)".
     gtopt::share_cuts_for_phase(
-        pi, per_scene_cuts, options.cut_sharing, planning_lp, {});
+        pi, per_scene_cuts, options.cut_sharing, planning_lp, iteration_index);
   }
 }
 

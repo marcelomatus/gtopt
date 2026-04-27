@@ -137,6 +137,10 @@ public:
   void initial_solve() override;
   void resolve() override;
 
+  // ---- robust-solve mode ----
+  void engage_robust_solve() override;
+  void disengage_robust_solve() noexcept override;
+
   // ---- status ----
   [[nodiscard]] bool is_proven_optimal() const override;
   [[nodiscard]] bool is_abandoned() const override;
@@ -209,6 +213,16 @@ private:
   };
   using log_file_ptr_t = std::unique_ptr<FILE, FileCloser>;
   log_file_ptr_t m_log_file_ptr_;
+
+  /// Snapshot of OSI/CLP tolerances captured by engage_robust_solve().
+  struct RobustState
+  {
+    double dual_tolerance {};
+    double primal_tolerance {};
+    int presolve_passes {0};
+    int engage_count {0};
+  };
+  std::optional<RobustState> m_saved_robust_state_;
 };
 
 }  // namespace gtopt

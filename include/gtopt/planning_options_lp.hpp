@@ -56,6 +56,14 @@ public:
   static constexpr Bool default_use_kirchhoff = true;
   /** @brief Default setting for single-bus modeling */
   static constexpr Bool default_use_single_bus = false;
+  /** @brief Default setting for strict per-stage volume floor (`emin`)
+   *  enforcement on `reservoir_sini` and the last-block `efin` column.
+   *  `true` (default): both columns get `lowb = stage_emin`, so the per-stage
+   *  volume floor is a HARD constraint at the inter-stage handoff state.
+   *  Opt out with `model_options.strict_storage_emin = false` for the PLP-
+   *  style relaxation (`lowb = 0`) when iter-0 of an SDDP cascade needs the
+   *  floor relaxed to stay feasible. */
+  static constexpr Bool default_strict_storage_emin = true;
   /** @brief Default threshold for Kirchhoff constraints */
   static constexpr Real default_kirchhoff_threshold = 0;
   /** @brief Default objective function scaling factor */
@@ -227,6 +235,19 @@ public:
   {
     return m_options_.model_options.use_single_bus.value_or(
         default_use_single_bus);
+  }
+
+  /// @brief Whether to enforce the per-stage `emin` floor as a HARD lower
+  /// bound on the storage `sini` and last-block `efin` columns.
+  ///
+  /// When `true` (default), both columns get `lowb = stage_emin` — the
+  /// strictest per-stage volume-constraint enforcement.  Set to `false` for
+  /// the PLP-style relaxation (`lowb = 0`) when the LP needs to dip below
+  /// the floor at iter-0 of an SDDP cascade without becoming infeasible.
+  [[nodiscard]] constexpr auto strict_storage_emin() const
+  {
+    return m_options_.model_options.strict_storage_emin.value_or(
+        default_strict_storage_emin);
   }
 
   /// @brief Gets the objective function scaling factor.
@@ -579,44 +600,63 @@ public:
    *         Override via `--set sddp_options.elastic_penalty=<p>` or
    *         the `sddp_options.elastic_penalty` JSON field if a particular
    *         case needs a stronger forcing term. */
-  static constexpr Real default_sddp_elastic_penalty = 1e2;
+  // PLP parity: slack obj = 1.0 flat (osicallsc.cpp:658, objs passed as 0
+  // → default 1.0 for every slack).  gtopt's elastic_filter_solve zeroes
+  // the clone's original obj and prices slacks at this penalty, so 1.0
+  // reproduces PLP's pure Chinneck Phase-1 feasibility LP.
+  static constexpr Real default_sddp_elastic_penalty = 1.0;
   // α is a free LP variable (no explicit bounds) — see
   // `sddp_method.cpp::initialize_alpha_variables`.  The
   // `default_sddp_alpha_min` / `default_sddp_alpha_max` constants were
   // removed when the bounds were dropped.
   /** @brief Default cut coefficient epsilon for filtering tiny coefficients.
    *
-   * Raised from 1e-12 to 1e-6 (P1-2) so that Benders cuts drop
-   * near-zero coefficients that the LP solver cannot distinguish from
-   * noise anyway. Keeping micro-coefficients around inflates the basis
-   * condition number (kappa) by several orders of magnitude on large
-   * GTEP cases without changing the optimal value.  Users solving
-   * academic-scale instances can still lower this in JSON.
+   * PLP parity: PLP's `FactEPS = 1e-8` (getopts.f:231) is the single
+   * tolerance used both as the ray-zero threshold and the dx-filter
+   * scale in `osi_lp_get_feasible_cut` (osicallsc.cpp:723,727).  We
+   * use the same value as `cut_coeff_eps` — the tighter 1e-8 lets
+   * weakly-coupled links survive the filter (1e-6 would drop them
+   * silently on large-trial-value cases).  Academic / toy fixtures
+   * can raise this via JSON if they need the looser legacy 1e-6.
    */
-  static constexpr Real default_sddp_cut_coeff_eps = 1e-6;
+  static constexpr Real default_sddp_cut_coeff_eps = 1e-8;
   /** @brief Default elastic filter mode.
    *
-   *  Set to `chinneck` (IIS-based) so feasibility cuts are emitted only
-   *  on the irreducible infeasible subset of relaxed state-variable
-   *  bounds.  Falls back to the full elastic result when the IIS
-   *  re-fix step cannot confirm a smaller subset (penalty competition
-   *  / degenerate LP), so behaviour matches `multi_cut` in the worst
-   *  case and is strictly better otherwise.  See
-   *  `ElasticFilterMode::chinneck` documentation in
-   *  `gtopt/sddp_enums.hpp` for the algorithm. */
+   *  Set to `single_cut` — the classical PLP/Birge-Louveaux Benders
+   *  feasibility cut.  A single cut is built from the row duals of
+   *  the state-fixing equations at the elastic clone's Phase-1
+   *  optimum (see `build_feasibility_cut_physical` in
+   *  `benders_cut.cpp` and the matching `plp-agrespd.f::AgrElastici`
+   *  reference implementation).  Validated end-to-end by the
+   *  PLP-style backtracking unit tests in `test_sddp_method.cpp`
+   *  — `single_cut` is the mode that makes the cascade converge.
+   *
+   *  `chinneck` (IIS-based) and `multi_cut` remain available as
+   *  explicit modes when per-bound cuts or IIS filtering are wanted;
+   *  neither has been re-validated against the row-dual fcut builder
+   *  and they retain their prior semantics. */
   static constexpr ElasticFilterMode default_sddp_elastic_mode =
-      ElasticFilterMode::chinneck;
+      ElasticFilterMode::single_cut;
   /** @brief Default multi_cut threshold (auto-switch after this many
    *         cumulative forward-pass infeasibilities at a phase).
    *
    *         Counter is persistent across iterations (no reset on
    *         successful solves), so the threshold counts *total* fcut
    *         events at a (scene, phase), not consecutive ones.  Reduced
-   *         from 10 → 3: with the persistent counter and the chinneck
-   *         IIS option available, switching to per-bound multi-cuts on
-   *         the 3rd hit is the right balance between cut tightness and
-   *         LP size growth (PLP CEN-65 convention). */
-  static constexpr int default_sddp_multi_cut_threshold = 3;
+   *         Default: 100.  Under `ElasticFilterMode::chinneck` (the
+   *         gtopt default), the IIS-filtered fcut alone is usually
+   *         enough to cut off the bad trial over subsequent
+   *         iterations.  `build_multi_cuts` can install
+   *         `source_col {<=,>=} dep_val_phys` bound cuts whose RHS
+   *         (`dep_val_phys` from the Chinneck Phase-1 LP) may exceed
+   *         the source phase's physically reachable set, making the
+   *         master LP infeasible (observed on juan/gtopt_iplp:
+   *         reservoir mcut required end-of-phase energy ≥ 330.33 with
+   *         a physical cap of ~207.78 + limited inflow).  Raising the
+   *         threshold defers the risky bound cuts until many
+   *         infeasibility events have accumulated at the same (scene,
+   *         phase), signalling that the fcut alone is not sufficient. */
+  static constexpr int default_sddp_multi_cut_threshold = 100;
   /** @brief Default stationary-gap tolerance.
    * When the relative gap change over the look-back window is below this
    * value, the gap is considered stationary.  Used by the stationary and
@@ -630,6 +670,19 @@ public:
    * where the gap stabilises above the CI threshold.
    * Default: 0.95 (95% confidence interval). */
   static constexpr Real default_sddp_convergence_confidence = 0.95;
+  /** @brief Default for the scene-level fail-stop forward pass.
+   *
+   *  true (the new default) — when an infeasible phase emits an fcut
+   *  on its predecessor, stop the scene's forward pass for the
+   *  current iteration.  The next iteration restarts from p1 with
+   *  the freshly accumulated cuts.
+   *
+   *  false — restore the legacy PLP-style backtracking cascade:
+   *  decrement `phase_idx` after installing the fcut and re-solve
+   *  p-1 in the same forward pass, recursing back through phases
+   *  until a feasible point is reached or `forward_max_attempts`
+   *  is exhausted. */
+  static constexpr Bool default_sddp_forward_fail_stop = true;
 
   /**
    * @brief Gets the SDDP cut sharing mode as a string name
@@ -756,6 +809,17 @@ public:
   [[nodiscard]] constexpr auto sddp_save_per_iteration() const
   {
     return m_options_.sddp_options.save_per_iteration.value_or(true);
+  }
+
+  /**
+   * @brief Whether the forward pass fail-stops at the scene level
+   *        instead of cascading backward through phases (default: true).
+   * @return true if scene-level fail-stop is enabled.
+   */
+  [[nodiscard]] constexpr auto sddp_forward_fail_stop() const
+  {
+    return m_options_.sddp_options.forward_fail_stop.value_or(
+        default_sddp_forward_fail_stop);
   }
 
   /**

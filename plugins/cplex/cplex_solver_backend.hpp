@@ -160,6 +160,10 @@ public:
   void initial_solve() override;
   void resolve() override;
 
+  // ---- robust-solve mode ----
+  void engage_robust_solve() override;
+  void disengage_robust_solve() noexcept override;
+
   // ---- status ----
   [[nodiscard]] bool is_proven_optimal() const override;
   [[nodiscard]] bool is_abandoned() const override;
@@ -218,6 +222,23 @@ private:
   int m_threads_ {0};
   bool m_presolve_ {true};
   int m_log_level_ {0};
+
+  /// Snapshot of the CPLEX numerical-robustness parameters captured by
+  /// engage_robust_solve().  When set, disengage_robust_solve() restores
+  /// the saved values.  Repeated engage calls keep this snapshot
+  /// (so the very first baseline survives the chain) and simply
+  /// loosen the tolerances another × 10.
+  struct RobustState
+  {
+    double epopt {};
+    double eprhs {};
+    double barepcomp {};
+    int numerical_emphasis {};
+    int perind {};
+    int repeat_presolve {};
+    int engage_count {0};
+  };
+  std::optional<RobustState> m_saved_robust_state_;
 };
 
 }  // namespace gtopt

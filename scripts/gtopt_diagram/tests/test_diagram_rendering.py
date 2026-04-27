@@ -723,3 +723,161 @@ class TestProfileCompactMode:
         dp_nodes = [n for n in model.nodes if n.kind == "dem_profile"]
         assert dp_nodes
         assert "[DemProfile]" not in dp_nodes[0].label
+
+
+# ---------------------------------------------------------------------------
+# vis.js icon emission — model_to_visjs must embed kind-specific icons
+# ---------------------------------------------------------------------------
+
+
+class TestVisjsIcons:
+    """``model_to_visjs`` must emit ``shape='image'`` + ``image=<data-uri>``
+    for every node kind that has a registered SVG icon, mirroring the
+    standalone HTML renderer.  This is the GUI's only render path, so without
+    icons the topology view would degrade to plain geometric shapes.
+    """
+
+    _PLANNING = {
+        "system": {
+            "name": "icons_test",
+            "bus_array": [{"uid": 1, "name": "B1", "voltage": 220}],
+            "generator_array": [
+                {"uid": 1, "name": "G_solar", "bus": 1, "pmax": 100},
+            ],
+            "demand_array": [
+                {"uid": 1, "name": "D1", "bus": 1, "lmax": 80},
+            ],
+        }
+    }
+
+    def _build_visjs(self):
+        from gtopt_diagram.gtopt_diagram import model_to_visjs
+
+        model = _build_model(self._PLANNING)
+        return model_to_visjs(model)
+
+    def test_bus_node_uses_image_shape(self):
+        """A bus node must have shape='image' and an inline data: URI image."""
+        visjs = self._build_visjs()
+        bus_nodes = [n for n in visjs["nodes"] if n["kind"] == "bus"]
+        assert bus_nodes, "no bus node emitted"
+        assert bus_nodes[0]["shape"] == "image"
+        assert bus_nodes[0]["image"].startswith("data:image/svg+xml;base64,")
+
+    def test_demand_node_uses_image_shape(self):
+        """Demand nodes also carry a kind-specific icon."""
+        visjs = self._build_visjs()
+        dem_nodes = [n for n in visjs["nodes"] if n["kind"] == "demand"]
+        assert dem_nodes
+        assert dem_nodes[0]["shape"] == "image"
+        assert "image" in dem_nodes[0] and dem_nodes[0]["image"]
+
+    def test_solar_generator_uses_image_shape(self):
+        """A solar generator (kind='gen_solar') must resolve to its icon."""
+        visjs = self._build_visjs()
+        gen_nodes = [n for n in visjs["nodes"] if n["kind"].startswith("gen")]
+        assert gen_nodes
+        assert gen_nodes[0]["shape"] == "image"
+        assert gen_nodes[0]["image"]
+
+    def test_no_image_field_when_geometric(self):
+        """For kinds without an icon, nodes keep the legacy geometric shape
+        and must NOT carry an ``image`` field (vis.js would otherwise try to
+        load an empty URL)."""
+        from gtopt_diagram._renderers import model_to_visjs
+        from gtopt_diagram._svg_constants import _icon_b64_uri
+        from gtopt_diagram.gtopt_diagram import GraphModel, Node
+
+        model = GraphModel()
+        # Use a kind that has no icon mapping at all.
+        unknown_kind = "definitely_not_a_real_kind"
+        assert _icon_b64_uri(unknown_kind) == ""
+        model.add_node(Node(node_id="x", label="x", kind=unknown_kind))
+        visjs = model_to_visjs(model)
+        node = visjs["nodes"][0]
+        assert node["shape"] != "image"
+        assert "image" not in node
+
+
+# ---------------------------------------------------------------------------
+# Generator profile linkage under aggregation
+# ---------------------------------------------------------------------------
+
+
+_AGGREGATED_PROFILE_PLANNING = {
+    "system": {
+        "name": "profile_agg_test",
+        "bus_array": [{"uid": 1, "name": "B1"}, {"uid": 2, "name": "B2"}],
+        "generator_array": [
+            {"uid": 1, "name": "G_solar", "bus": 1, "pmax": 100},
+            {"uid": 2, "name": "G_thermal", "bus": 1, "pmax": 200},
+            {"uid": 3, "name": "G_wind", "bus": 2, "pmax": 50},
+        ],
+        "demand_array": [{"uid": 1, "name": "D1", "bus": 1, "lmax": 80}],
+        "line_array": [{"uid": 1, "name": "L1", "bus_a": 1, "bus_b": 2}],
+        "generator_profile_array": [
+            {"uid": 1, "name": "GP_solar", "generator": 1, "profile": "p.csv"},
+            {"uid": 2, "name": "GP_wind", "generator": 3, "profile": "p.csv"},
+        ],
+    }
+}
+
+
+class TestGeneratorProfileLinkageUnderAggregation:
+    """Generator profile nodes must remain connected to a visible generator
+    node regardless of which ``--aggregate`` mode collapsed the individual
+    generators.  Before the fix, profile→generator edges referenced the
+    individual ``gen_*`` ids and were silently stripped by the orphan
+    cleanup pass when those nodes did not exist.
+    """
+
+    @staticmethod
+    def _build(aggregate: str):
+        fo = gd.FilterOptions(aggregate=aggregate)
+        builder = gd.TopologyBuilder(
+            _AGGREGATED_PROFILE_PLANNING, subsystem="electrical", opts=fo
+        )
+        return builder.build()
+
+    def _profile_edges(self, model):
+        return [e for e in model.edges if e.label == "profile"]
+
+    def test_aggregate_none_links_to_individual_gen(self):
+        """Sanity: ``aggregate='none'`` keeps the original individual link."""
+        model = self._build("none")
+        edges = self._profile_edges(model)
+        pairs = {(e.src, e.dst) for e in edges}
+        assert ("gprof_GP_solar_1", "gen_G_solar_1") in pairs
+        assert ("gprof_GP_wind_2", "gen_G_wind_3") in pairs
+
+    def test_aggregate_bus_links_to_bus_super_node(self):
+        """``aggregate='bus'`` links each profile to its bus's agg-gen node."""
+        model = self._build("bus")
+        edges = self._profile_edges(model)
+        pairs = {(e.src, e.dst) for e in edges}
+        assert ("gprof_GP_solar_1", "agg_bus_1") in pairs
+        assert ("gprof_GP_wind_2", "agg_bus_2") in pairs
+        _assert_no_dangling_edges(model)
+
+    def test_aggregate_type_links_to_bus_type_super_node(self):
+        """``aggregate='type'`` links each profile to its (bus, type) node."""
+        model = self._build("type")
+        edges = self._profile_edges(model)
+        pairs = {(e.src, e.dst) for e in edges}
+        assert ("gprof_GP_solar_1", "agg_type_1_solar") in pairs
+        assert ("gprof_GP_wind_2", "agg_type_2_wind") in pairs
+        _assert_no_dangling_edges(model)
+
+    def test_aggregate_global_links_to_global_type_node(self):
+        """``aggregate='global'`` links each profile to the global type node."""
+        model = self._build("global")
+        edges = self._profile_edges(model)
+        pairs = {(e.src, e.dst) for e in edges}
+        assert ("gprof_GP_solar_1", "agg_global_solar") in pairs
+        assert ("gprof_GP_wind_2", "agg_global_wind") in pairs
+        _assert_no_dangling_edges(model)
+
+    def test_no_dangling_edges_in_any_mode(self):
+        for mode in ("none", "bus", "type", "global"):
+            model = self._build(mode)
+            _assert_no_dangling_edges(model)

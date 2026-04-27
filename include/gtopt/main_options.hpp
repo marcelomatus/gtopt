@@ -239,6 +239,13 @@ template<typename T>
        po::value<std::string>(),
        "LP build parallelism: serial, scene-parallel, full-parallel, "
        "direct-parallel (default: scene-parallel)")  //
+      ("no-scale",
+       po::value<bool>().implicit_value(/*v=*/true),
+       "disable every automatic LP scaling / equilibration (sets "
+       "model_options.scale_objective=1.0, scale_theta=1.0, and "
+       "lp_matrix_options.equilibration_method=none).  Intended for "
+       "debug / physical-unit validation of coefficients and RHS.  "
+       "JSON settings still take precedence when present.")  //
       // ---- deprecated options (hidden from help, still parsed) ----
       ("sddp-cpu-factor", po::value<double>(), "")  //
       ("input-directory,D", po::value<std::string>(), "")  //
@@ -526,6 +533,27 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
     planning.options.sddp_options.recovery_mode = RecoveryMode::none;
   }
 
+  if (opts.no_scale.value_or(false)) {
+    // `--no-scale` disables every auto-scaling / equilibration
+    // mechanism for debug / physical-unit validation EXCEPT
+    // `scale_objective`, which is left at its JSON / default value
+    // so the user can isolate-test `scale_objective` independently
+    // from the other scaling layers.  Use this to probe whether
+    // SDDP / cut-construction code is invariant under
+    // `scale_objective` alone, with all other scales fixed at unity.
+    //
+    // To FULLY disable all scaling (including scale_objective), pass
+    // `--no-scale --set model_options.scale_objective=1`.
+    planning.options.model_options.scale_theta = 1.0;
+    planning.options.lp_matrix_options.equilibration_method =
+        LpEquilibrationMethod::none;
+    // Kill switch for the per-element auto-scale heuristics in
+    // `PlanningLP::auto_scale_theta / _reservoirs / _lng_terminals`
+    // — without this the reservoir energy/flow variable_scales would
+    // still be computed and applied at LP construction.
+    planning.options.model_options.auto_scale = false;
+  }
+
   if (opts.memory_saving) {
     // Map the string to the LowMemoryMode enum and apply to the SDDP
     // side of the equation.
@@ -714,6 +742,7 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
         return std::nullopt;
       }(),
       .threads = get_opt<int>(vm, "threads"),
+      .no_scale = get_opt<bool>(vm, "no-scale"),
       .set_options = vm.contains("set")
           ? vm["set"].as<std::vector<std::string>>()
           : std::vector<std::string> {},
@@ -991,6 +1020,7 @@ inline void merge_config_defaults(MainOptions& opts,
   merge(opts.sddp_elastic_mode, defaults.sddp_elastic_mode);
   merge(opts.sddp_num_apertures, defaults.sddp_num_apertures);
   merge(opts.memory_saving, defaults.memory_saving);
+  merge(opts.no_scale, defaults.no_scale);
   merge(opts.memory_limit, defaults.memory_limit);
   merge(opts.memory_quota, defaults.memory_quota);
   merge(opts.sddp_cpu_factor, defaults.sddp_cpu_factor);

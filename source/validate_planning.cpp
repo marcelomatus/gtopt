@@ -389,14 +389,16 @@ void check_positivity(ValidationResult& result, const System& sys)
                              "tmax_ba");
   }
 
-  // Waterway (hydro flow): fmax must be > 0, fmin must be >= 0.
-  // Negative flow would invert the direction, which should be
-  // expressed by swapping junction_a/junction_b instead.
+  // Waterway (hydro flow): fmin and fmax must be >= 0.  Negative flow
+  // would invert the direction, which should be expressed by swapping
+  // junction_a/junction_b instead.  fmax == 0 is legal: it means the
+  // flow is pinned at 0 (matches PLP's VertMax=0 → qv_k ∈ [0,0] on
+  // the vertimiento waterway — see plpcnfce.dat + leecnfce.f:342-343).
   for (const auto& ww : sys.waterway_array) {
     check_opt_field_positive(
         result, ww.fmin, Positivity::non_negative, "Waterway", ww.name, "fmin");
     check_opt_field_positive(
-        result, ww.fmax, Positivity::strict, "Waterway", ww.name, "fmax");
+        result, ww.fmax, Positivity::non_negative, "Waterway", ww.name, "fmax");
   }
 }
 

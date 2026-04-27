@@ -40,6 +40,10 @@ class PlpmatParser(BaseParser):
     - ``pd_error`` — ``PDError``, convergence tolerance
     - ``default_cuts`` — ``NPlanosPorDefecto``, default number of cuts/planes
     - ``flow_fail_cost`` — ``CCauFal``, hydro flow failure cost ($/MWh)
+    - ``vert_cost`` — ``CVert``, default vertimiento (per-block spill) cost.
+      Used as the fallback spillway_cost for reservoirs that do NOT appear
+      in plpvrebemb.dat (those that do appear use their per-embalse
+      ``Costo de Rebalse`` instead).
     """
 
     def __init__(self, file_path: str | Path) -> None:
@@ -48,6 +52,7 @@ class PlpmatParser(BaseParser):
         self.pd_error: float = 0.0
         self.default_cuts: int = 0
         self.flow_fail_cost: float = 0.0
+        self.vert_cost: float = 0.0
 
     def parse(self, parsers: Optional[dict[str, Any]] = None) -> None:
         """Parse the plpmat.dat file."""
@@ -69,3 +74,5 @@ class PlpmatParser(BaseParser):
             parts2 = lines[2].split()
             if len(parts2) >= 3:
                 self.flow_fail_cost = self._parse_float(parts2[2])
+            if len(parts2) >= 4:
+                self.vert_cost = self._parse_float(parts2[3])
