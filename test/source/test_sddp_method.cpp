@@ -2836,3 +2836,181 @@ TEST_CASE(  // NOLINT
     }
   }
 }
+
+// ── Direct unit tests for compute_iteration_bounds + finalize_iteration_result
+//
+// Pin the pure-arithmetic core of two SDDPMethod step helpers that are
+// about to move into a sibling translation unit (sddp_method_helpers.cpp).
+// Existing convergence tests exercise them transitively, but a regression
+// in the weighted-bounds formula or the convergence gate would surface
+// here as a one-line failure rather than an "iter50 doesn't converge"
+// mystery.
+
+TEST_CASE(  // NOLINT
+    "SDDPMethod::compute_iteration_bounds — weighted upper bound formula")
+{
+  auto planning = make_2scene_3phase_hydro_planning();
+  PlanningLP plp(std::move(planning));
+
+  SDDPOptions sddp_opts;
+  sddp_opts.max_iterations = 1;
+  sddp_opts.enable_api = false;
+  sddp_opts.apertures = std::vector<Uid> {};
+  SDDPMethod sddp(plp, sddp_opts);
+
+  const auto num_scenes = plp.simulation().scene_count();
+  REQUIRE(num_scenes >= 2);
+
+  SDDPIterationResult ir;
+  ir.scene_upper_bounds.assign(num_scenes, 0.0);
+  ir.scene_upper_bounds[0] = 100.0;
+  ir.scene_upper_bounds[1] = 200.0;
+
+  // All scenes infeasible → lower-bound branch contributes zero, so
+  // the test stays independent of any LP solve state.
+  std::vector<uint8_t> scene_feasible(num_scenes, 0U);
+
+  std::vector<double> weights(num_scenes, 0.0);
+  weights[0] = 0.25;
+  weights[1] = 0.75;
+
+  sddp.compute_iteration_bounds(ir, scene_feasible, weights);
+
+  // Expected: upper = 0.25·100 + 0.75·200 = 175.
+  CHECK(ir.upper_bound == doctest::Approx(175.0));
+  CHECK(ir.lower_bound == doctest::Approx(0.0));
+  REQUIRE(ir.scene_lower_bounds.size() == static_cast<size_t>(num_scenes));
+  for (const auto v : ir.scene_lower_bounds) {
+    CHECK(v == doctest::Approx(0.0));
+  }
+}
+
+TEST_CASE(  // NOLINT
+    "SDDPMethod::compute_iteration_bounds — uniform weights average bounds")
+{
+  auto planning = make_2scene_3phase_hydro_planning();
+  PlanningLP plp(std::move(planning));
+
+  SDDPOptions sddp_opts;
+  sddp_opts.max_iterations = 1;
+  sddp_opts.enable_api = false;
+  sddp_opts.apertures = std::vector<Uid> {};
+  SDDPMethod sddp(plp, sddp_opts);
+
+  const auto num_scenes = plp.simulation().scene_count();
+  REQUIRE(num_scenes >= 2);
+
+  SDDPIterationResult ir;
+  ir.scene_upper_bounds.assign(num_scenes, 0.0);
+  ir.scene_upper_bounds[0] = 80.0;
+  ir.scene_upper_bounds[1] = 120.0;
+
+  std::vector<uint8_t> scene_feasible(num_scenes, 0U);
+  std::vector<double> weights(num_scenes,
+                              1.0 / static_cast<double>(num_scenes));
+
+  sddp.compute_iteration_bounds(ir, scene_feasible, weights);
+
+  CHECK(ir.upper_bound == doctest::Approx(100.0));
+}
+
+TEST_CASE(  // NOLINT
+    "SDDPMethod::finalize_iteration_result — converged gates on tol AND min")
+{
+  // Pin the convergence rule:
+  //   ir.converged ⇔ (ir.gap < convergence_tol)
+  //                 ∧ (iter ≥ iteration_offset + min_iterations - 1).
+  // A regression in either side of the AND would change SDDP termination
+  // behaviour in subtle ways.
+  auto planning = make_3phase_hydro_planning();
+  PlanningLP plp(std::move(planning));
+
+  SDDPOptions sddp_opts;
+  sddp_opts.max_iterations = 5;
+  sddp_opts.min_iterations = 3;
+  sddp_opts.convergence_tol = 1e-5;
+  sddp_opts.stationary_tol = 0.0;  // disable stationary gate
+  sddp_opts.stationary_window = 0;
+  sddp_opts.enable_api = false;
+  sddp_opts.apertures = std::vector<Uid> {};
+  SDDPMethod sddp(plp, sddp_opts);
+
+  SUBCASE("iter < min_iterations - 1 → not converged even with zero gap")
+  {
+    SDDPIterationResult ir;
+    ir.upper_bound = 100.0;
+    ir.lower_bound = 100.0;  // gap = 0 / max(1, 100) = 0
+    const std::vector<SDDPIterationResult> empty_history;
+    sddp.finalize_iteration_result(ir, IterationIndex {0}, empty_history);
+    CHECK(ir.gap == doctest::Approx(0.0));
+    CHECK_FALSE(ir.converged);
+  }
+
+  SUBCASE("iter == min_iterations - 1 → converged when gap < tol")
+  {
+    SDDPIterationResult ir;
+    ir.upper_bound = 100.0;
+    ir.lower_bound = 100.0;
+    const std::vector<SDDPIterationResult> empty_history;
+    sddp.finalize_iteration_result(ir, IterationIndex {2}, empty_history);
+    CHECK(ir.gap == doctest::Approx(0.0));
+    CHECK(ir.converged);
+  }
+
+  SUBCASE("iter past min_iterations but gap > tol → not converged")
+  {
+    SDDPIterationResult ir_loose;
+    ir_loose.upper_bound = 100.0;
+    ir_loose.lower_bound = 50.0;  // gap = 50 / 100 = 0.5
+    const std::vector<SDDPIterationResult> empty_history;
+    sddp.finalize_iteration_result(ir_loose, IterationIndex {4}, empty_history);
+    CHECK(ir_loose.gap > sddp_opts.convergence_tol);
+    CHECK_FALSE(ir_loose.converged);
+  }
+}
+
+TEST_CASE(  // NOLINT
+    "SDDPMethod::finalize_iteration_result — gap_change uses lookback window")
+{
+  auto planning = make_3phase_hydro_planning();
+  PlanningLP plp(std::move(planning));
+
+  SDDPOptions sddp_opts;
+  sddp_opts.max_iterations = 10;
+  sddp_opts.min_iterations = 1;
+  sddp_opts.convergence_tol = 1e-5;
+  sddp_opts.stationary_tol = 0.05;
+  sddp_opts.stationary_window = 2;
+  sddp_opts.enable_api = false;
+  sddp_opts.apertures = std::vector<Uid> {};
+  SDDPMethod sddp(plp, sddp_opts);
+
+  SUBCASE("empty history keeps the 1.0 sentinel")
+  {
+    SDDPIterationResult ir;
+    ir.upper_bound = 100.0;
+    ir.lower_bound = 90.0;
+    const std::vector<SDDPIterationResult> empty_history;
+    sddp.finalize_iteration_result(ir, IterationIndex {0}, empty_history);
+    CHECK(ir.gap_change == doctest::Approx(1.0));
+  }
+
+  SUBCASE("history present → gap_change = |gap - old| / max(1e-10, |old|)")
+  {
+    // Seed two prior iterations with gap = 0.2 then 0.15.  Lookback
+    // window = 2 → consults results[size - 2].gap = 0.2.  Current ir
+    // has gap = 0.1, so |0.1 - 0.2| / 0.2 = 0.5.
+    std::vector<SDDPIterationResult> history;
+    history.emplace_back();
+    history.back().gap = 0.2;
+    history.emplace_back();
+    history.back().gap = 0.15;
+
+    SDDPIterationResult ir;
+    ir.upper_bound = 100.0;
+    ir.lower_bound = 90.0;  // gap = 0.1
+    sddp.finalize_iteration_result(ir, IterationIndex {2}, history);
+    CHECK(ir.gap == doctest::Approx(0.1));
+    CHECK(ir.gap_change == doctest::Approx(0.5));
+  }
+}

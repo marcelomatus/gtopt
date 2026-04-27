@@ -733,6 +733,15 @@ private:
                                  const SolverOptions& bwd_opts)
       -> std::expected<std::vector<SDDPIterationResult>, Error>;
 
+public:
+  // ── Iteration step helpers (public so they are independently testable)
+  // These are the per-iteration building blocks that `solve()` and
+  // `solve_async()` call.  Their pure-arithmetic contracts (weighted
+  // bounds, convergence gate, gap_change look-back) are easier to pin
+  // down with direct unit tests than via a full SDDP run.  Production
+  // callers stay inside this class; external callers have no reason to
+  // touch them directly.
+
   /// Compute and fill ir.upper_bound, ir.lower_bound, ir.scene_lower_bounds.
   void compute_iteration_bounds(SDDPIterationResult& ir,
                                 std::span<const uint8_t> scene_feasible,
@@ -768,6 +777,7 @@ private:
   void save_cuts_for_iteration(IterationIndex iteration_index,
                                std::span<const uint8_t> scene_feasible);
 
+private:
   // Accessor for the wrapped PlanningLP reference (avoids raw reference member)
   [[nodiscard]] PlanningLP& planning_lp() noexcept
   {
