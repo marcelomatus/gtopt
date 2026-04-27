@@ -901,13 +901,13 @@ RowIndex LinearInterface::add_row(const SparseRow& row, const double eps)
       is_cut_phase && (have_col_scales || have_equilibration);
 
   if (!compose_physical) {
-    return add_row_lp_space(row, eps);
+    return add_row_raw(row, eps);
   }
 
   // Physical-space cut insertion — operates directly on the flat
   // (columns, elements) representation to avoid building an
   // intermediate `SparseRow` and to keep the scale composition in one
-  // place instead of bouncing through `add_row_lp_space` (which would
+  // place instead of bouncing through `add_row_raw` (which would
   // otherwise re-apply `SparseRow::scale` on top of our already-
   // composed divisor).
   auto [columns, elements] = row.to_flat<int>(eps);
@@ -1030,8 +1030,7 @@ RowIndex LinearInterface::add_row(const SparseRow& row, const double eps)
   return row_idx;
 }
 
-RowIndex LinearInterface::add_row_lp_space(const SparseRow& row,
-                                           const double eps)
+RowIndex LinearInterface::add_row_raw(const SparseRow& row, const double eps)
 {
   // Internal raw-insertion path — called by the public `add_row` after
   // it has (optionally) composed col_scales and row-max equilibration

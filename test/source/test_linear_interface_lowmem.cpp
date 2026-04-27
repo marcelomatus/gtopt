@@ -1619,7 +1619,7 @@ TEST_CASE(  // NOLINT
   }
 }
 
-// ── add_row_lp_space with scale != 1.0 ───────────────────────────────────
+// ── add_row_raw with scale != 1.0 ───────────────────────────────────
 
 TEST_CASE(  // NOLINT
     "LinearInterface — add_row with SparseRow::scale != 1.0 scales bounds and "

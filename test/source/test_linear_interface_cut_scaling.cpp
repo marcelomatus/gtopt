@@ -707,7 +707,7 @@ TEST_CASE(
 // ── Coverage extension: lp_space dispatch path ──────────────────────────────
 //
 // When neither col_scales nor equilibration are active, `add_row(SparseRow)`
-// short-circuits to `add_row_lp_space()` (linear_interface.cpp:964) instead
+// short-circuits to `add_row_raw()` (linear_interface.cpp:964) instead
 // of compose_physical.  The fix's /scale_objective only lives in the
 // compose_physical branch, so this path stores the cut verbatim — which is
 // correct ONLY because col_scale=1 and equilibration=none means physical

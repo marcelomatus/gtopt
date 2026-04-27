@@ -568,6 +568,31 @@ public:
   RowIndex add_row(const SparseRow& row, double eps = 0.0);
 
   /**
+   * @brief Add a row in LP-raw space (skip col_scale / row-max
+   *        equilibration / scale_objective composition).
+   *
+   * Companion to ``get_col_low_raw`` / ``get_col_sol_raw`` /
+   * ``get_row_dual_raw``: callers that have already computed
+   * coefficients and bounds in the LP solver's own space (after
+   * ``flatten()`` has run) and want them inserted verbatim should
+   * use this instead of ``add_row``.  Only ``SparseRow::scale`` is
+   * composed (mirroring ``flatten()``'s treatment of static rows);
+   * no per-column ``col_scale`` multiplication, no per-row
+   * equilibration, no ``scale_objective`` divisor.
+   *
+   * Use case: SDDP elastic-filter fixing rows.  ``add_row`` in the
+   * post-flatten ("cut phase") path applies all three transforms,
+   * which silently breaks the fixing-row semantics ``dep + sup −
+   * sdn = trial`` whenever ``col_scale(dep) != 1`` — the slacks end
+   * up scaled out of step with the dependent column.  ``add_row_raw``
+   * preserves the unit coefficients and the LP-raw RHS.
+   *
+   * @param row Constraint with LP-raw coefficients and LP-raw bounds.
+   * @param eps Epsilon for coefficient filtering.
+   */
+  RowIndex add_row_raw(const SparseRow& row, double eps = 0.0);
+
+  /**
    * @brief Add a cut row AND record it for low-memory replay.
    *
    * Equivalent to `add_row(row, eps)` followed by `record_cut_row(row)`
@@ -1680,11 +1705,6 @@ private:
                    double rowlb,
                    double rowub);
 
-  /// Internal raw-insertion path for SparseRow input.  Called by
-  /// `add_row(SparseRow)` in the pass-through branch (structural-build
-  /// phase, or no col_scales / equilibration active).  Only
-  /// `SparseRow::scale` is composed here; no col_scale, no row-max.
-  RowIndex add_row_lp_space(const SparseRow& row, double eps);
   /// @}
 
   void rebuild_row_name_maps();
