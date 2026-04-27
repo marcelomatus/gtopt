@@ -348,15 +348,17 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
       // ── Stationary gap convergence ──
       // Active for gap_stationary and statistical modes.
       // Declare convergence when the gap stops improving.  Guarded by
-      // an absolute-gap ceiling so a pathological case where LB is
-      // frozen (e.g. Juan/gtopt_iplp: LB=0, UB>0, gap=1 flat) cannot
-      // masquerade as "converged" just because gap_change = 0.
-      // In pure Benders (single scene / no apertures), this is the
-      // main fallback since the CI test requires N > 1.
-      constexpr double kStationaryGapCeiling =
-          0.5;  // no convergence above 50% gap
+      // an absolute-gap ceiling (configurable via
+      // ``SDDPOptions::stationary_gap_ceiling``, default 0.5) so a
+      // pathological case where LB is frozen (e.g. pre-ef25515b
+      // Juan/gtopt_iplp: LB=0, UB>0, gap=1 flat) cannot masquerade
+      // as "converged" just because gap_change = 0.  Set the option
+      // to 1.0 to effectively disable the ceiling — appropriate for
+      // runs where the policy legitimately asymptotes at a high gap
+      // because the cheapest feasible plan pays a near-fixed slack.
+      const double stationary_gap_ceiling = m_options_.stationary_gap_ceiling;
       if (!ir.converged && past_min_iterations && gap_is_stationary
-          && ir.gap < kStationaryGapCeiling
+          && ir.gap < stationary_gap_ceiling
           && mode != ConvergenceMode::gap_only)
       {
         ir.converged = true;
@@ -382,7 +384,7 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
             ir.gap_change,
             m_options_.stationary_tol,
             ir.gap,
-            kStationaryGapCeiling);
+            stationary_gap_ceiling);
       }
 
       // ── Statistical CI convergence ──
@@ -453,7 +455,7 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
         // Same absolute-gap ceiling as the pure-stationary block above:
         // refuse to convert a frozen-LB pathology into a convergence
         // signal just because gap_change is zero.
-        else if (gap_is_stationary && ir.gap < kStationaryGapCeiling)
+        else if (gap_is_stationary && ir.gap < stationary_gap_ceiling)
         {
           ir.converged = true;
           ir.statistical_converged = true;

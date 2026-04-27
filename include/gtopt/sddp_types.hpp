@@ -556,6 +556,25 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   /// Only used when stationary_tol > 0.0.  Default: 10.
   int stationary_window {10};
 
+  /// Absolute-gap ceiling above which the stationary-gap criterion is
+  /// SUPPRESSED — even when ``gap_change < stationary_tol``, we will
+  /// NOT declare convergence if ``gap >= stationary_gap_ceiling``.
+  ///
+  /// Originally added to catch a specific Juan/gtopt_iplp pathology
+  /// where the LB stayed frozen at 0 while the UB stayed positive,
+  /// keeping ``gap = 1`` flat (gap_change = 0) — the stationary
+  /// criterion would have falsely declared convergence at 100 % gap.
+  /// After the per-physical-unit elastic-slack fix (commit ef25515b)
+  /// the LB no longer freezes on that case (it climbs slowly), but
+  /// some realistic SDDP runs DO legitimately asymptote at high gap
+  /// — e.g. when the cheapest feasible policy pays a near-fixed
+  /// slack cost that the cuts cannot reduce further.  Lowering this
+  /// ceiling (or setting it to 1.0 to effectively disable) allows
+  /// those runs to converge instead of running to ``max_iterations``.
+  ///
+  /// Default 0.5 keeps the historical behaviour.
+  double stationary_gap_ceiling {0.5};
+
   /// Confidence level for statistical convergence criterion (0-1).
   /// When > 0 and multiple scenes exist, convergence is also checked via
   /// confidence interval: UB - LB <= z_{a/2} * s (PLP-style).
