@@ -1883,3 +1883,321 @@ TEST_CASE(  // NOLINT
     CHECK(sol.size() == 1);
   }
 }
+
+// ─── Clone independence and invariant tests ─────────────────────────────────
+//
+// These tests lock in the *observable* behavior of `LinearInterface::clone()`
+// so that the planned refactor (moving `m_col_scales_`,
+// `m_variable_scale_map_`, `m_label_maker_`, label-meta vectors, etc. behind
+// `std::shared_ptr<const T>` for cheap cloning + copy-on-write) cannot
+// regress these guarantees.  They must pass both with the current by-value
+// storage and with the future shared-pointer storage.
+//
+// Invariants verified:
+//   1. Clones are independent of the original (mutations on one side do not
+//      leak to the other) — catches accidental shared-mutable-state bugs.
+//   2. Bundles that the clone must *preserve* (col_scales, scale_objective,
+//      variable_scale_map) are correctly carried over by `clone()`.
+//   3. Multi-clone scenarios: sibling clones, clone-of-clone, clone outliving
+//      the original (lifetime test that catches dangling-shared_ptr bugs).
+
+namespace
+{
+/// Build a small standalone LP:
+///   min 2 x1 + 3 x2   s.t.  x1 + x2 >= 5,   x1, x2 in [0, 10]
+/// Returns the interface together with the column / row indices.
+///
+/// Note: the type name `CloneFixture` (rather than e.g. `SimpleLp`) is
+/// chosen to avoid a unity-build collision with the helper of the same
+/// purpose defined in `test_linear_interface_lowmem.cpp`, whose
+/// anonymous namespace would otherwise shadow this one when both files
+/// land in the same unity batch.
+struct CloneFixture
+{
+  LinearInterface li;
+  ColIndex x1;
+  ColIndex x2;
+  RowIndex r;
+};
+
+[[nodiscard]] CloneFixture make_clone_fixture()
+{
+  CloneFixture s;
+  s.x1 = s.li.add_col(SparseCol {
+      .uppb = 10.0,
+      .cost = 2.0,
+  });
+  s.x2 = s.li.add_col(SparseCol {
+      .uppb = 10.0,
+      .cost = 3.0,
+  });
+
+  SparseRow row;
+  row[s.x1] = 1.0;
+  row[s.x2] = 1.0;
+  row.lowb = 5.0;
+  row.uppb = LinearProblem::DblMax;
+  s.r = s.li.add_row(row);
+  return s;
+}
+}  // namespace
+
+TEST_CASE("LinearInterface::clone - mutating clone does not affect original")
+// NOLINT
+{
+  auto orig = make_clone_fixture();
+  REQUIRE(orig.li.initial_solve().has_value());
+  REQUIRE(orig.li.is_optimal());
+  const double orig_obj = orig.li.get_obj_value();
+  const double orig_x1_low = orig.li.get_col_low()[orig.x1];
+  const double orig_x1_upp = orig.li.get_col_upp()[orig.x1];
+  const double orig_x1_cost = orig.li.get_obj_coeff()[orig.x1];
+  const auto orig_ncols = orig.li.get_numcols();
+  const auto orig_nrows = orig.li.get_numrows();
+
+  auto cloned = orig.li.clone();
+
+  SUBCASE("set_col_low on clone leaves original untouched")
+  {
+    cloned.set_col_low(orig.x1, 4.0);
+
+    CHECK(orig.li.get_col_low()[orig.x1] == doctest::Approx(orig_x1_low));
+    CHECK(cloned.get_col_low()[orig.x1] == doctest::Approx(4.0));
+  }
+
+  SUBCASE("set_col_upp on clone leaves original untouched")
+  {
+    cloned.set_col_upp(orig.x1, 7.0);
+
+    CHECK(orig.li.get_col_upp()[orig.x1] == doctest::Approx(orig_x1_upp));
+    CHECK(cloned.get_col_upp()[orig.x1] == doctest::Approx(7.0));
+  }
+
+  SUBCASE("set_obj_coeff on clone leaves original untouched")
+  {
+    cloned.set_obj_coeff(orig.x1, 99.0);
+
+    CHECK(orig.li.get_obj_coeff()[orig.x1] == doctest::Approx(orig_x1_cost));
+    CHECK(cloned.get_obj_coeff()[orig.x1] == doctest::Approx(99.0));
+  }
+
+  SUBCASE("add_col on clone leaves original ncols untouched")
+  {
+    [[maybe_unused]] const auto x3 = cloned.add_col(SparseCol {
+        .uppb = 1.0,
+        .cost = 0.5,
+    });
+
+    CHECK(orig.li.get_numcols() == orig_ncols);
+    CHECK(cloned.get_numcols() == orig_ncols + 1);
+  }
+
+  SUBCASE("add_row on clone leaves original nrows untouched")
+  {
+    SparseRow row;
+    row[orig.x1] = 1.0;
+    row.lowb = 1.0;
+    row.uppb = LinearProblem::DblMax;
+    [[maybe_unused]] const auto rr = cloned.add_row(row);
+
+    CHECK(orig.li.get_numrows() == orig_nrows);
+    CHECK(cloned.get_numrows() == orig_nrows + 1);
+  }
+
+  SUBCASE("resolving the original after clone still yields original optimum")
+  {
+    cloned.set_col_low(orig.x1, 4.0);  // perturb clone
+    [[maybe_unused]] auto _ = cloned.resolve();
+
+    auto r = orig.li.resolve();
+    REQUIRE(r.has_value());
+    CHECK(orig.li.get_obj_value() == doctest::Approx(orig_obj));
+  }
+}
+
+TEST_CASE("LinearInterface::clone - mutating original does not affect clone")
+// NOLINT
+{
+  auto orig = make_clone_fixture();
+  REQUIRE(orig.li.initial_solve().has_value());
+
+  auto cloned = orig.li.clone();
+  const double clone_x1_low = cloned.get_col_low()[orig.x1];
+  const double clone_x1_cost = cloned.get_obj_coeff()[orig.x1];
+  const auto clone_ncols = cloned.get_numcols();
+
+  // Mutate original after the clone is taken.
+  orig.li.set_col_low(orig.x1, 3.0);
+  orig.li.set_obj_coeff(orig.x1, 50.0);
+  [[maybe_unused]] const auto x3 = orig.li.add_col(SparseCol {
+      .uppb = 1.0,
+      .cost = 0.5,
+  });
+
+  CHECK(cloned.get_col_low()[orig.x1] == doctest::Approx(clone_x1_low));
+  CHECK(cloned.get_obj_coeff()[orig.x1] == doctest::Approx(clone_x1_cost));
+  CHECK(cloned.get_numcols() == clone_ncols);
+}
+
+TEST_CASE("LinearInterface::clone - preserves scale_objective and col_scales")
+// NOLINT
+{
+  auto orig = make_clone_fixture();
+
+  // Set some non-default scales that clone must propagate.
+  orig.li.set_col_scale(orig.x1, 2.5);
+  orig.li.set_col_scale(orig.x2, 0.5);
+
+  // `scale_objective()` is an observable getter; the underlying field is
+  // populated by `load_flat`, but cloning still needs to copy whatever
+  // value the source carries.  We verify the clone reads the same value.
+  const double src_scale_obj = orig.li.scale_objective();
+
+  auto cloned = orig.li.clone();
+
+  CHECK(cloned.scale_objective() == doctest::Approx(src_scale_obj));
+  REQUIRE(cloned.get_col_scales().size() == orig.li.get_col_scales().size());
+  CHECK(cloned.get_col_scales()[orig.x1] == doctest::Approx(2.5));
+  CHECK(cloned.get_col_scales()[orig.x2] == doctest::Approx(0.5));
+
+  // After mutating the original's scale, the clone's must remain stable —
+  // catches accidental shared-mutable-vector regressions.
+  orig.li.set_col_scale(orig.x1, 9.0);
+  CHECK(cloned.get_col_scales()[orig.x1] == doctest::Approx(2.5));
+}
+
+TEST_CASE("LinearInterface::clone - preserves variable_scale_map lookups")
+// NOLINT
+{
+  // Build a flat LP carrying a non-empty VariableScaleMap so that
+  // `load_flat` populates `m_variable_scale_map_`.
+  FlatLinearProblem flat;
+  flat.ncols = 2;
+  flat.nrows = 1;
+  flat.matbeg = {0, 1, 2};
+  flat.matind = {0, 0};
+  flat.matval = {1.0, 1.0};
+  flat.collb = {0.0, 0.0};
+  flat.colub = {10.0, 10.0};
+  flat.objval = {2.0, 3.0};
+  flat.rowlb = {5.0};
+  flat.rowub = {LinearProblem::DblMax};
+  flat.col_scales = {1.0, 1.0};
+  flat.row_scales = {1.0};
+
+  const std::vector<VariableScale> scales {
+      VariableScale {
+          .class_name = "Generator",
+          .variable = "p",
+          .uid = Uid {7},
+          .scale = 4.0,
+      },
+      VariableScale {
+          .class_name = "Bus",
+          .variable = "theta",
+          .scale = 0.25,
+      },
+  };
+  flat.variable_scale_map = VariableScaleMap {scales};
+
+  LinearInterface src;
+  src.load_flat(flat);
+  REQUIRE_FALSE(src.variable_scale_map().empty());
+
+  auto cloned = src.clone();
+
+  // Lookups on the clone return the same scales as on the source.
+  CHECK(cloned.variable_scale_map().lookup("Generator", "p", Uid {7})
+        == doctest::Approx(4.0));
+  CHECK(cloned.variable_scale_map().lookup("Bus", "theta")
+        == doctest::Approx(0.25));
+  // Unknown lookups still fall through to the default 1.0.
+  CHECK(cloned.variable_scale_map().lookup("Generator", "missing")
+        == doctest::Approx(1.0));
+}
+
+TEST_CASE("LinearInterface::clone - sibling clones are mutually independent")
+// NOLINT
+{
+  auto orig = make_clone_fixture();
+  REQUIRE(orig.li.initial_solve().has_value());
+
+  auto a = orig.li.clone();
+  auto b = orig.li.clone();
+
+  a.set_col_low(orig.x1, 4.0);
+  b.set_col_low(orig.x1, 2.0);
+
+  CHECK(a.get_col_low()[orig.x1] == doctest::Approx(4.0));
+  CHECK(b.get_col_low()[orig.x1] == doctest::Approx(2.0));
+  // Original is also untouched.
+  CHECK(orig.li.get_col_low()[orig.x1] == doctest::Approx(0.0));
+
+  // Both clones still solve to their own optima.
+  REQUIRE(a.resolve().has_value());
+  REQUIRE(b.resolve().has_value());
+  REQUIRE(a.is_optimal());
+  REQUIRE(b.is_optimal());
+}
+
+TEST_CASE("LinearInterface::clone - clone-of-clone preserves invariants")
+// NOLINT
+{
+  auto orig = make_clone_fixture();
+  orig.li.set_col_scale(orig.x1, 3.0);
+  REQUIRE(orig.li.initial_solve().has_value());
+  const double orig_obj = orig.li.get_obj_value();
+
+  auto a = orig.li.clone();
+  auto b = a.clone();
+
+  // Scales survive two-level cloning.
+  CHECK(b.get_col_scales()[orig.x1] == doctest::Approx(3.0));
+
+  // Mutating the intermediate clone `a` does not affect `b`.
+  a.set_col_low(orig.x1, 7.0);
+  CHECK(b.get_col_low()[orig.x1] == doctest::Approx(0.0));
+
+  // The grand-clone still solves correctly on its own.
+  REQUIRE(b.resolve().has_value());
+  REQUIRE(b.is_optimal());
+  CHECK(b.get_obj_value() == doctest::Approx(orig_obj));
+}
+
+TEST_CASE("LinearInterface::clone - clone outlives original")  // NOLINT
+{
+  // This is the lifetime test that catches shared_ptr aliasing bugs:
+  // if the upcoming refactor stores the source's bundles by reference
+  // instead of `shared_ptr`, destroying the source would dangle the
+  // clone's view of those bundles.  With `shared_ptr<const T>` (the
+  // proposed design) the clone owns its share and keeps reading
+  // correctly after the source is destroyed.
+  std::optional<LinearInterface> cloned_opt;
+  double expected_x1_low = 0.0;
+  double expected_x1_scale = 1.0;
+  double expected_obj = 0.0;
+
+  {
+    auto orig = make_clone_fixture();
+    orig.li.set_col_scale(orig.x1, 1.5);
+    REQUIRE(orig.li.initial_solve().has_value());
+    expected_x1_low = orig.li.get_col_low()[orig.x1];
+    expected_x1_scale = orig.li.get_col_scales()[orig.x1];
+    expected_obj = orig.li.get_obj_value();
+
+    cloned_opt.emplace(orig.li.clone());
+  }  // orig destroyed here
+
+  REQUIRE(cloned_opt.has_value());
+  auto& cloned = *cloned_opt;
+
+  // Reads still succeed and return the right values.
+  CHECK(cloned.get_col_low()[ColIndex {0}] == doctest::Approx(expected_x1_low));
+  CHECK(cloned.get_col_scales()[ColIndex {0}]
+        == doctest::Approx(expected_x1_scale));
+
+  // Resolve still works without referencing the destroyed source.
+  REQUIRE(cloned.resolve().has_value());
+  REQUIRE(cloned.is_optimal());
+  CHECK(cloned.get_obj_value() == doctest::Approx(expected_obj));
+}
