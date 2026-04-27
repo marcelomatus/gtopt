@@ -3037,10 +3037,10 @@ TEST_CASE(  // NOLINT
   // The threshold dual must be strictly positive — efin is binding.
   CHECK(dual_max > 0.0);
 
-  // Soft variant BELOW threshold (efin_cost = dual_max / 2): slack is
-  // cheaper than running thermal at the marginal substitution price,
-  // so at least one reservoir misses efin and pays slack.
-  const double below = dual_max * 0.5;
+  // Soft variant BELOW threshold (efin_cost = dual_max − 1): slack is
+  // marginally cheaper than running thermal at the substitution
+  // price, so at least one reservoir misses efin and pays slack.
+  const double below = dual_max - 1.0;
   CAPTURE(below);
   const auto under = run_case(OptReal {below});
   CAPTURE(under.ub);
@@ -3053,13 +3053,13 @@ TEST_CASE(  // NOLINT
          || under.vols[1] < efin_target - feas_tol));
   CHECK(under.fcuts <= hard.fcuts);
 
-  // Soft variant ABOVE threshold (efin_cost = dual_max × 2): the
-  // converged SDDP policy prefers running thermal over paying slack,
-  // so both reservoirs reach efin and the UB matches the hard UB
-  // (slack column is dormant).  The soft cascade is also empty —
-  // the slack absorbs would-be infeasibilities so no fcuts are
-  // installed.
-  const double above = dual_max * 2.0;
+  // Soft variant ABOVE threshold (efin_cost = dual_max + 1): the
+  // converged SDDP policy prefers running thermal over paying slack
+  // by a marginal $1/hm³, so both reservoirs reach efin and the UB
+  // matches the hard UB (slack column is dormant).  The soft cascade
+  // is also empty — the slack absorbs would-be infeasibilities so
+  // no fcuts are installed.
+  const double above = dual_max + 1.0;
   CAPTURE(above);
   const auto over = run_case(OptReal {above});
   CAPTURE(over.ub);
