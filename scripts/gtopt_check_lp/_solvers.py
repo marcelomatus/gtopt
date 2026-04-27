@@ -165,10 +165,29 @@ def _cplex_script(
     if barrier_eps > 0:
         tol_cmds += f"set barrier convergetol {barrier_eps}\n"
 
+    # Bump barrier numerical limits so the IIS conflict refiner does not
+    # prematurely declare "infeasible due to dual objective limit" when
+    # exploring large-magnitude infeasibilities (e.g. SDDP-cut clamps
+    # interacting with hard reservoir efin rows).  Two relevant CPLEX
+    # parameters:
+    #   - `barrier limits growth`   default 1e12 — growth-between-iterations
+    #     limit; gets triggered first when the dual objective blows up
+    #   - `barrier limits objrange` default 1e20 — absolute dual-objective
+    #     range; secondary safeguard
+    # Bumping growth to 1e18 (per user request) lets the barrier explore
+    # higher magnitudes; matching objrange to 1e30 keeps the secondary
+    # safeguard disabled effectively.
+    bar_limit_cmd = (
+        "set barrier limits growth 1e18\nset barrier limits objrange 1e30\n"
+        if effective_algo == "barrier"
+        else ""
+    )
+
     return (
         f"read {lp_path}\n"
         "set preprocessing presolve n\n"
         f"{method_cmd}"
+        f"{bar_limit_cmd}"
         f"{tol_cmds}"
         "optimize\n"
         "tools conflict\n"
