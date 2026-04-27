@@ -116,11 +116,20 @@ def test_topology_builder_method_count_lower_bound() -> None:
 def test_topology_builder_mro_pin() -> None:
     """Document the expected MRO so any base reordering surfaces in diff.
 
-    Pre-refactor, ``TopologyBuilder`` has only ``object`` as base.
-    After the split this will list every mixin in resolution order;
-    update this assertion in the same commit as the split.
+    Post-split MRO: ``TopologyBuilder`` → ``TopologyIdsMixin`` →
+    ``TopologyNetworkMixin`` → ``TopologyHydroMixin`` → ``object``.
+    The order matters: lookup helpers in ``TopologyIdsMixin`` are used by
+    methods in the other two mixins, so ``Ids`` must come first.
     """
     mro_names = [cls.__name__ for cls in TopologyBuilder.__mro__]
-    assert mro_names[0] == "TopologyBuilder"
-    assert mro_names[-1] == "object"
-    assert len(mro_names) >= 2
+    # Both Network and Hydro inherit directly from TopologyIdsMixin so
+    # mypy can resolve the inherited methods (`_bid`, `_find`, …) without
+    # `# type: ignore` annotations.  Python's C3 linearisation drops
+    # ``TopologyIdsMixin`` to the tail of the MRO.
+    assert mro_names == [
+        "TopologyBuilder",
+        "TopologyNetworkMixin",
+        "TopologyHydroMixin",
+        "TopologyIdsMixin",
+        "object",
+    ]
