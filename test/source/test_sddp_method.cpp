@@ -2976,11 +2976,13 @@ TEST_CASE(  // NOLINT
   CHECK(hard_vols[0] >= efin_target - feas_tol);
   CHECK(hard_vols[1] >= efin_target - feas_tol);
 
-  // Soft variant — efin row relaxed at 10 $/MWh.  The slack is cheap
-  // enough that the LP may pay it instead of running thermal; we
-  // CHECK only that the LP solves cleanly (≤ hard fcut count) and
-  // that vol_end stays in the [0, emax] box.
-  const auto [soft_ub, soft_vols, soft_fcuts] = run_case(OptReal {10.0});
+  // Soft variant — efin row relaxed at 100 $/MWh.  At this price the
+  // slack is comparable to thermal generation cost (gcost = 100 on
+  // the thermal_gen with capacity 60), so the LP no longer trivially
+  // dumps the volume; the test still permits any vol_end in the box.
+  // We CHECK only that the LP solves cleanly (≤ hard fcut count) and
+  // that vol_end stays in [0, emax].
+  const auto [soft_ub, soft_vols, soft_fcuts] = run_case(OptReal {100.0});
   CAPTURE(soft_ub);
   CAPTURE(soft_vols[0]);
   CAPTURE(soft_vols[1]);
