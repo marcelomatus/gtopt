@@ -2896,8 +2896,10 @@ TEST_CASE(  // NOLINT
   CHECK(hard_ub > 0.0);
   CHECK(hard_vol_end >= efin_target - feas_tol);
 
-  // Soft variant — efin row is a soft `>=` with slack priced at 10
-  // $/MWh.  In this fixture (eini=120, total inflow=80+9·10=170, hydro
+  // Soft variant — efin row is a soft `>=` with slack priced at
+  // 10 $/m³ (the fixture's volume unit; with flow_conversion_rate=1
+  // and production_factor=1 the equivalent thermal-MWh price is also
+  // ≈ 10).  In this fixture (eini=120, total inflow=80+9·10=170, hydro
   // gen capped at 30 MW/phase) reaching efin=150 leaves a thin slack
   // budget for hydro generation; with efin_cost=10 the LP may pay
   // slack instead of running expensive thermal — so vol_end can be
@@ -2976,12 +2978,15 @@ TEST_CASE(  // NOLINT
   CHECK(hard_vols[0] >= efin_target - feas_tol);
   CHECK(hard_vols[1] >= efin_target - feas_tol);
 
-  // Soft variant — efin row relaxed at 100 $/MWh.  At this price the
-  // slack is comparable to thermal generation cost (gcost = 100 on
-  // the thermal_gen with capacity 60), so the LP no longer trivially
-  // dumps the volume; the test still permits any vol_end in the box.
-  // We CHECK only that the LP solves cleanly (≤ hard fcut count) and
-  // that vol_end stays in [0, emax].
+  // Soft variant — efin row relaxed at 100 $/m³ (the fixture's volume
+  // unit; flow_conversion_rate=1 and production_factor=1 mean 1 m³
+  // ≈ 1 MWh through the turbine, so 100 $/m³ matches thermal_gen's
+  // gcost = 100 $/MWh).  At this borderline price the LP can no
+  // longer trivially dump volume — paying slack now competes head-on
+  // with running thermal — and the optimum becomes asymmetric.  The
+  // test still permits any vol_end in the box.  We CHECK only that
+  // the LP solves cleanly (≤ hard fcut count) and that vol_end stays
+  // in [0, emax].
   const auto [soft_ub, soft_vols, soft_fcuts] = run_case(OptReal {100.0});
   CAPTURE(soft_ub);
   CAPTURE(soft_vols[0]);
