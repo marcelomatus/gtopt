@@ -1429,3 +1429,160 @@ def test_cenpmax_coexists_with_cenre():
     # MIN envelope merge: exactly one entry replacing both sources
     assert len(pfac_arr) == 1
     assert pfac_arr[0]["reservoir"] == "RALCO_dam"
+
+
+# ────────────────────────────────────────────────────────────────────────────
+# PLP "no limit" sentinel handling on PotMax / VertMax
+# (re-introduced + extended from commit 8d1fff9b after the 86616b80 refactor;
+# see junction_writer.py: _is_plp_no_limit, _PLP_NO_LIMIT_SENTINEL).
+# ────────────────────────────────────────────────────────────────────────────
+
+
+def test_is_plp_no_limit_helper():
+    """The threshold predicate matches the documented 9000 m³/s cutoff.
+
+    Real Chilean spillway / generator caps are at most a few thousand m³/s,
+    so anything ≥ 9000 is treated as the PLP "essentially unbounded"
+    sentinel and must be stripped from emitted waterway bounds.
+    """
+    from ..junction_writer import _is_plp_no_limit, _PLP_NO_LIMIT_SENTINEL
+
+    assert _PLP_NO_LIMIT_SENTINEL == 9000.0
+
+    # Below threshold — real bounds, kept as-is
+    assert not _is_plp_no_limit(0.0)
+    assert not _is_plp_no_limit(1.0)
+    assert not _is_plp_no_limit(8999.99)
+
+    # At and above threshold — sentinel, dropped
+    assert _is_plp_no_limit(9000.0)
+    assert _is_plp_no_limit(9999.0)  # most common PLP value
+    assert _is_plp_no_limit(10042.0)  # 9000 + central_index pattern
+    assert _is_plp_no_limit(99999.0)  # alternate PLP no-limit form
+
+
+def _make_central_with_pmax_vertmax(name, pmax, vert_max, ser_hid=2, ser_ver=2):
+    """Helper: build a central dict with controllable PotMax/VertMax."""
+    return {
+        "name": name,
+        "number": 1,
+        "bus": 101,
+        "pmin": 0,
+        "pmax": pmax,
+        "vert_min": 0,
+        "vert_max": vert_max,
+        "efficiency": 1.0,  # gen_fmax = pmax / efficiency = pmax exactly
+        "ser_hid": ser_hid,
+        "ser_ver": ser_ver,
+        "afluent": 10.0,
+        "type": "serie",
+    }
+
+
+def test_pot_max_sentinel_dropped_on_gen_waterway():
+    """When PotMax >= 9000 the synthesised gen waterway must drop fmax.
+
+    Without this, a literal `gen_fmax = PotMax / Rendi = 9999 m³/s` upper
+    bound is baked into the LP, inflating matrix kappa and yielding false
+    binding-bound duals during SDDP cuts.
+    """
+    central = _make_central_with_pmax_vertmax(
+        "PlantSentinel", pmax=9999.0, vert_max=50.0
+    )
+    central_parser = MockCentralParser([central])
+    writer = JunctionWriter(central_parser=central_parser)
+    result = writer.to_json_array()[0]
+
+    # Find the _gen waterway for our plant
+    gen_ww = next(
+        ww
+        for ww in result["waterway_array"]
+        if "_gen_" in ww["name"] and ww["junction_a"] == "PlantSentinel"
+    )
+    # fmax field must be omitted (None or absent) — not 9999
+    assert gen_ww.get("fmax") is None, (
+        f"expected fmax dropped, got {gen_ww.get('fmax')!r}"
+    )
+
+    # Counter must reflect the normalisation
+    assert writer._plp_no_limit_count >= 1
+
+
+def test_vert_max_sentinel_dropped_on_ver_waterway():
+    """When VertMax >= 9000 the spill (`_ver`) waterway must drop fmax.
+
+    Pins the regression introduced by commit 86616b80 (which removed
+    `_is_vert_sentinel` from the non-rebalse `_ver` branch when refactoring
+    to physical fcost on _ver arcs).  Re-fixed in this change.
+    """
+    central = _make_central_with_pmax_vertmax(
+        "PlantVertSentinel", pmax=50.0, vert_max=9999.0
+    )
+    central_parser = MockCentralParser([central])
+    writer = JunctionWriter(central_parser=central_parser)
+    result = writer.to_json_array()[0]
+
+    ver_ww = next(
+        ww
+        for ww in result["waterway_array"]
+        if "_ver_" in ww["name"] and ww["junction_a"] == "PlantVertSentinel"
+    )
+    assert ver_ww.get("fmax") is None, (
+        f"expected fmax dropped, got {ver_ww.get('fmax')!r}"
+    )
+    assert writer._plp_no_limit_count >= 1
+
+
+def test_real_bound_under_threshold_preserved():
+    """Below-threshold PotMax/VertMax must be passed through unchanged.
+
+    Contrapositive sanity: 8999 m³/s is a legitimate (if uncommon) cap and
+    must NOT be dropped.  Guards against an over-broad threshold change.
+    """
+    central = _make_central_with_pmax_vertmax(
+        "PlantRealCap", pmax=8999.0, vert_max=8999.0
+    )
+    central_parser = MockCentralParser([central])
+    writer = JunctionWriter(central_parser=central_parser)
+    result = writer.to_json_array()[0]
+
+    gen_ww = next(
+        ww
+        for ww in result["waterway_array"]
+        if "_gen_" in ww["name"] and ww["junction_a"] == "PlantRealCap"
+    )
+    ver_ww = next(
+        ww
+        for ww in result["waterway_array"]
+        if "_ver_" in ww["name"] and ww["junction_a"] == "PlantRealCap"
+    )
+    # gen_fmax = pmax / efficiency = 8999 / 1.0 = 8999
+    assert gen_ww.get("fmax") == pytest.approx(8999.0)
+    assert ver_ww.get("fmax") == pytest.approx(8999.0)
+    assert writer._plp_no_limit_count == 0
+
+
+def test_plp_no_limit_log_emitted(caplog):
+    """The end-of-run info log fires once per conversion when count > 0.
+
+    Single log line per ``to_json_array`` so the user sees how many spurious
+    bounds were dropped without a per-central spam.
+    """
+    centrals = [
+        _make_central_with_pmax_vertmax("A", pmax=9999.0, vert_max=50.0),
+        _make_central_with_pmax_vertmax("B", pmax=9999.0, vert_max=9999.0),
+    ]
+    central_parser = MockCentralParser(centrals)
+    writer = JunctionWriter(central_parser=central_parser)
+
+    with caplog.at_level(logging.INFO, logger="plp2gtopt.junction_writer"):
+        writer.to_json_array()
+
+    # Must contain exactly one line summarising the normalisations
+    matching = [
+        rec for rec in caplog.records if "PLP 'no limit' sentinel" in rec.message
+    ]
+    assert len(matching) == 1, f"expected exactly 1 summary log, got {len(matching)}"
+    assert ">= 9000" in matching[0].message
+    # Counter at end of run is the sum of normalisations across both centrals
+    assert writer._plp_no_limit_count >= 2

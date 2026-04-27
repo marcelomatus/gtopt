@@ -222,4 +222,61 @@ TEST_CASE(  // NOLINT
   CHECK(flipped_true_lp.sddp_forward_fail_stop() == true);
 }
 
+// ─── Branch 4 — fail-stop early-out: cuts installed → no abort ─────────────
+//
+// Pins commit 8134c6fd:
+//   `sddp_method.cpp:1802` early-out now fires only when
+//   `scenes_solved == 0 AND n_fcuts_installed == 0`.  Previously fired
+//   on `scenes_solved == 0` alone, discarding fcuts already installed
+//   by fail-stop scenes — contradicting the documented design that
+//   "the next iteration restarts every scene's forward pass from p1
+//    with the freshly accumulated cuts".
+//
+// Same single-scenario forced-infeasibility fixture as Branches 1-3.
+// With ``forward_fail_stop = true`` the only scene fail-stops in iter 0,
+// installs ≥ 1 fcut on the predecessor, and reaches the early-out with
+// scenes_solved == 0 AND n_fcuts_installed > 0.  Pre-patch this returned
+// the "all scenes infeasible in forward pass" SolverError; post-patch it
+// must NOT.
+TEST_CASE(  // NOLINT
+    "SDDP fail-stop early-out — does NOT abort when fcuts installed")
+{
+  auto planning = make_forced_infeasibility_planning();
+  PlanningLP plp(std::move(planning));
+
+  auto sddp_opts = make_fail_stop_options(/*fail_stop=*/true);
+  // Allow more than one iteration so the patched code's "continue" path
+  // is actually exercised (iter 1 starts with the cuts from iter 0).
+  sddp_opts.max_iterations = 3;
+
+  SDDPMethod sddp(plp, sddp_opts);
+  auto results = sddp.solve();
+
+  // The fixture installs ≥ 1 feasibility cut on iter 0.  Pin that the
+  // pre-patch early-out path is not taken: either solve() succeeds, or
+  // any returned error must NOT carry the now-tightened
+  // "all scenes infeasible … no recoverable feasibility cuts" message
+  // (which only fires when n_fcuts_installed == 0).
+  if (!results.has_value()) {
+    const auto& msg = results.error().message;
+    CAPTURE(msg);
+    CHECK(msg.find("no recoverable feasibility cuts") == std::string::npos);
+  }
+
+  // Cuts installed by fail-stop scenes persist in the global cut store
+  // across the iteration boundary — proving the "discard on early-out"
+  // bug is gone.  Lower bound deliberately ≥ 1 (not == N) because cut
+  // counts depend on iter dynamics; ≥ 1 is the structural invariant.
+  const auto cuts = sddp.stored_cuts();
+  int n_feas = 0;
+  for (const auto& c : cuts) {
+    if (c.type == CutType::Feasibility) {
+      ++n_feas;
+    }
+  }
+  CAPTURE(n_feas);
+  CAPTURE(cuts.size());
+  CHECK(n_feas >= 1);
+}
+
 }  // namespace

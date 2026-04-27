@@ -392,6 +392,38 @@ class TestGTOptWriterProcessMethods:
             0.08
         )
 
+    def test_process_options_strict_storage_emin_default_false(self):
+        """plp2gtopt always emits ``strict_storage_emin = False``.
+
+        gtopt's C++ default for ``model_options.strict_storage_emin`` was
+        flipped to ``true`` in 3581a80e (per-stage emin floor as a HARD
+        lower bound on ``reservoir_sini`` and last-block ``efin``).  PLP's
+        per-stage LP, however, treats ``ve<u>`` as Free mid-stage and only
+        ``vf<u>`` (future volume) carries the ``vmin`` floor.  Without an
+        explicit override, plp2gtopt-generated cases would silently switch
+        to strict semantics and may go infeasible at iter-0 of an SDDP
+        cascade whenever an upstream Benders cut clamps ``sini`` near 0
+        but the schedule still demands ``efin >= emin``.
+        """
+        writer = GTOptWriter(MagicMock())
+        writer.process_options({"output_dir": "out"})
+        assert (
+            writer.planning["options"]["model_options"]["strict_storage_emin"] is False
+        )
+
+    def test_process_options_strict_storage_emin_explicit_override(self):
+        """User can opt back into strict mode by setting it in model_options."""
+        writer = GTOptWriter(MagicMock())
+        writer.process_options(
+            {
+                "output_dir": "out",
+                "model_options": {"strict_storage_emin": True},
+            }
+        )
+        assert (
+            writer.planning["options"]["model_options"]["strict_storage_emin"] is True
+        )
+
     # ---- SDDP (default) scenario/scene tests --------------------------------
 
     @staticmethod
