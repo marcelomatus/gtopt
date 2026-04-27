@@ -422,7 +422,6 @@ RelaxedVarInfo relax_fixed_state_variable(
   // default 1.0).  `link.scost` retained on the struct for non-SDDP
   // consumers that may use it as a true business-cost hint.
   (void)link.scost;  // intentionally unused here
-  const double slack_cost = penalty;
   // For the D3 slack-bound computation below we use the dep column's
   // *effective* LP-to-physical scale (reused in the ruiz case).  Under
   // `row_max` / `none` this equals `var_scale`; under `ruiz` it
@@ -432,6 +431,20 @@ RelaxedVarInfo relax_fixed_state_variable(
       (dep_scale_phys_raw > 0.0 && dep_scale_phys_raw != 1.0)
       ? dep_scale_phys_raw
       : link.var_scale;
+  // Slack cost is ``penalty × dep_scale_phys``.  ``penalty`` is the
+  // PLP Phase-1 unit cost (1.0 by default — see PLP's
+  // ``osicallsc.cpp:658``); the ``× dep_scale_phys`` factor makes the
+  // cost-per-PHYSICAL-unit-of-dep-relaxed invariant under col_scale.
+  // Without it the elastic clone over-relaxes by a factor of
+  // ``col_scale`` whenever ``col_scale > 1`` (1 LP-unit of slack
+  // moves dep by 1 LP-raw, which is ``col_scale`` physical units —
+  // so a unit slack cost prices each LP unit but each LP unit equals
+  // ``col_scale`` physical units, making the per-physical price
+  // ``1/col_scale`` of the unit price).  Pricing slacks at
+  // ``penalty × col_scale`` restores per-physical invariance — the
+  // elastic optimum activates the same physical-unit gap regardless
+  // of LP scaling.
+  const double slack_cost = penalty * dep_scale_phys;
 
   // D3 — finite slack upper bounds matching PLP's
   // `osicallsc.cpp::osi_lp_get_feasible_cut` convention.

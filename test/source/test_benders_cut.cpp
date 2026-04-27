@@ -1222,27 +1222,36 @@ TEST_CASE("elastic_filter_solve free function succeeds")  // NOLINT
 // ---------------------------------------------------------------------------
 
 TEST_CASE(  // NOLINT
-    "elastic filter slack cost = base_penalty (no var_scale multiplier)")
+    "elastic filter slack cost = penalty × var_scale (per-physical-unit)")
 {
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
-  // PLP parity for SDDP feasibility cuts (see
-  // `relax_fixed_state_variable` in source/benders_cut.cpp and PLP
-  // `osicallsc.cpp:658` which passes `objs=1.0` flat to every slack):
+  // Slack-cost convention for SDDP feasibility cuts (see
+  // `relax_fixed_state_variable` in source/benders_cut.cpp):
   //   - Every original objective coefficient is zeroed on the clone
   //     (caller's responsibility — `elastic_filter_solve` does it).
   //   - Slack variables added by `relax_fixed_state_variable` get
-  //     cost = `base_penalty` where `base_penalty =
-  //        (link.scost > 0 ? link.scost : penalty)`.  NO `× var_scale`
-  //     multiplier — PLP uses raw 1.0 for every slack regardless of
-  //     column scale.
+  //     cost = `penalty × dep_scale_phys` where ``dep_scale_phys``
+  //     is the dependent column's effective LP-to-physical scale
+  //     (= ``link.var_scale`` when ``col_scale(dep) == 1``, ruiz-
+  //     adjusted otherwise).
   //
-  // History (2026-04-24): previously multiplied by `link.var_scale` as
-  // an empirical fix for plp_2_years degeneracy, but that amplified
-  // slack cost ~10× on large-var_scale reservoirs (RALCO/ELTORO), pinning
-  // multi-cuts at emax on juan/gtopt_iplp.  PLP parity (this test) was
-  // restored when the dx filter switched to PLP's additive form which
-  // handles the degeneracy case directly.
+  // The ``× var_scale`` multiplier is what makes the cost-PER-
+  // PHYSICAL-UNIT-of-dep-relaxed invariant under col_scale.  Without
+  // it (the historical ``slack_cost = penalty`` form), 1 LP-unit of
+  // sup/sdn moves dep by 1 LP-raw which equals ``var_scale`` physical
+  // units, so the per-physical-unit price drops by ``1/var_scale``
+  // under col_scale > 1.  The elastic clone then over-relaxes
+  // (max-slack-activation regime) and the cascade fcut RHS lands
+  // structurally infeasible at the bottom phase — empirically
+  // surfaced on the col_scale=10 / 2-reservoir backtracking test.
+  //
+  // ``link.scost`` (the business state_fail_cost hint) is intentionally
+  // NOT used in slack pricing (line `(void)link.scost` in
+  // ``relax_fixed_state_variable``) — only the geometric ``var_scale``
+  // factor is applied.  PLP parity is preserved on the cost magnitude
+  // (``objs = 1.0`` flat per ``osicallsc.cpp:658`` — the gtopt
+  // ``penalty`` parameter); only the geometric correction is added.
 
   constexpr double energy_scale = 1000.0;
   constexpr double scale_obj = 1e7;
@@ -1308,7 +1317,7 @@ TEST_CASE(  // NOLINT
       },
   };
 
-  SUBCASE("relax_fixed_state_variable slack cost = penalty, flat")
+  SUBCASE("relax_fixed_state_variable slack cost = penalty × var_scale")
   {
     auto clone = li.clone();
     constexpr double penalty = 1e-4;  // global base penalty
@@ -1321,13 +1330,14 @@ TEST_CASE(  // NOLINT
 
     REQUIRE(info.relaxed);
 
-    // PLP parity (osicallsc.cpp:658): slack obj = 1.0 flat.  Under
-    // gtopt's signature this is the `penalty` parameter passed in,
-    // regardless of per-variable `link.scost` (which is a business-
-    // cost hint, NOT a Chinneck Phase-1 price).  Expected = penalty.
+    // Slack obj = ``penalty × dep_scale_phys``.  In this test fixture
+    // the dep col was added without an explicit ``.scale``, so
+    // ``get_col_scale(dep) == 1.0``; ``dep_scale_phys`` then falls
+    // back to ``link.var_scale = energy_scale = 1000``.
+    // Expected = penalty × 1000 = 0.1.
     const auto obj = clone.get_obj_coeff();
-    CHECK(obj[info.sup_col] == doctest::Approx(penalty));
-    CHECK(obj[info.sdn_col] == doctest::Approx(penalty));
+    CHECK(obj[info.sup_col] == doctest::Approx(penalty * energy_scale));
+    CHECK(obj[info.sdn_col] == doctest::Approx(penalty * energy_scale));
   }
 
   SUBCASE("elastic solve produces cut with well-scaled coefficients")
@@ -1363,8 +1373,11 @@ TEST_CASE(  // NOLINT
 
   SUBCASE("slack cost independent of link.scost")
   {
-    // When `link.scost == 0`, slack cost falls back to the global
-    // penalty (still no var_scale multiplier).
+    // When `link.scost == 0`, slack cost is still ``penalty × var_scale``
+    // — ``link.scost`` is a business-cost hint that is intentionally
+    // NOT used for the elastic-filter Chinneck Phase-1 price.  Only
+    // the global ``penalty`` and the geometric ``var_scale`` factor
+    // contribute.
     auto link_no_scost = links[0];
     link_no_scost.scost = 0.0;
 
@@ -1380,18 +1393,19 @@ TEST_CASE(  // NOLINT
 
     REQUIRE(info.relaxed);
 
-    // PLP parity: slack_cost == global_penalty (flat, no var_scale).
+    // Expected: slack_cost == global_penalty × var_scale.  ``link.scost``
+    // is not used.
     const auto obj = clone.get_obj_coeff();
-    CHECK(obj[info.sup_col] == doctest::Approx(global_penalty));
-    CHECK(obj[info.sdn_col] == doctest::Approx(global_penalty));
+    CHECK(obj[info.sup_col] == doctest::Approx(global_penalty * energy_scale));
+    CHECK(obj[info.sdn_col] == doctest::Approx(global_penalty * energy_scale));
   }
 
-  SUBCASE("slack cost invariant under large var_scale (PLP parity)")
+  SUBCASE("slack cost scales linearly with var_scale (col_scale invariance)")
   {
-    // Key regression test for the 2026-04-24 emax-pinning fix: changing
-    // `link.var_scale` from 1.0 to a large value like 1000 must NOT
-    // amplify the slack cost.  PLP's osicallsc.cpp:658 uses `objs=1.0`
-    // flat regardless of source-column scale.
+    // Per-physical-unit invariance: the cost of relaxing dep by 1
+    // physical unit must equal ``penalty`` regardless of var_scale.
+    // Because 1 LP-unit of sup/sdn moves dep by ``var_scale`` physical
+    // units, the LP-unit slack cost = ``penalty × var_scale``.
     auto link_small = links[0];
     link_small.var_scale = 1.0;
     auto link_large = links[0];
@@ -1409,9 +1423,11 @@ TEST_CASE(  // NOLINT
     REQUIRE(info_small.relaxed);
     REQUIRE(info_large.relaxed);
 
-    // Both clones should have identical slack cost — var_scale invariant.
-    CHECK(clone_small.get_obj_coeff()[info_small.sup_col]
-          == doctest::Approx(clone_large.get_obj_coeff()[info_large.sup_col]));
+    // Slack cost ratio = var_scale ratio (1000 / 1 = 1000).
+    const double cost_small = clone_small.get_obj_coeff()[info_small.sup_col];
+    const double cost_large = clone_large.get_obj_coeff()[info_large.sup_col];
+    CHECK(cost_small == doctest::Approx(penalty));
+    CHECK(cost_large == doctest::Approx(penalty * 1000.0));
   }
 }
 
@@ -1444,14 +1460,20 @@ TEST_CASE("PLP parity — default cut_coeff_eps is 1e-8")  // NOLINT
 }
 
 TEST_CASE(  // NOLINT
-    "PLP parity — slack cost invariant under var_scale "
-    "(no × var_scale multiplier)")
+    "Slack cost = penalty × dep_scale_phys (col_scale invariance)")
 {
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
-  // PLP osicallsc.cpp:658 prices every slack at 1.0 flat.  gtopt's
-  // `relax_fixed_state_variable` must NOT multiply by link.var_scale
-  // (earlier behavior amplified slack cost ~10× on RALCO-scale
-  // reservoirs, pinning multi-cuts at emax on juan/gtopt_iplp).
+  // ``relax_fixed_state_variable`` prices each slack at
+  // ``penalty × dep_scale_phys`` so the cost-PER-PHYSICAL-UNIT-of-
+  // dep-relaxed is invariant under col_scale.  Since 1 LP-unit of
+  // sup/sdn moves dep by 1 LP-raw which equals ``dep_scale_phys``
+  // physical units, the LP-side cost ``penalty × dep_scale_phys``
+  // delivers a constant ``penalty`` per physical unit regardless of
+  // the column scaling.  PLP's flat ``objs = 1.0`` (osicallsc.cpp:658)
+  // is preserved as the ``penalty`` parameter; only the geometric
+  // ``× dep_scale_phys`` correction is added — empirically required
+  // for the SDDP cascade to converge under col_scale > 1 (see
+  // ``test_sddp_method.cpp`` 10-phase 2-rsv test).
 
   LinearInterface li;
   const auto col = li.add_col(SparseCol {.lowb = 0.0, .uppb = 1.0});
@@ -1477,15 +1499,17 @@ TEST_CASE(  // NOLINT
     CHECK(clone.get_obj_coeff()[info.sup_col] == doctest::Approx(penalty));
   }
 
-  SUBCASE("var_scale = 1000 still gives slack cost = penalty")
+  SUBCASE("var_scale = 1000 gives slack cost = penalty × var_scale")
   {
     auto clone = li.clone();
     link.var_scale = 1000.0;
     auto info =
         relax_fixed_state_variable(clone, link, PhaseIndex {1}, penalty);
     REQUIRE(info.relaxed);
-    // PLP parity: NO var_scale amplification.
-    CHECK(clone.get_obj_coeff()[info.sup_col] == doctest::Approx(penalty));
+    // Per-physical-unit invariance: cost-per-LP-unit scales linearly
+    // with var_scale to keep cost-per-physical constant.
+    CHECK(clone.get_obj_coeff()[info.sup_col]
+          == doctest::Approx(penalty * 1000.0));
   }
 }
 

@@ -3004,6 +3004,7 @@ TEST_CASE(  // NOLINT
   {
     double scale_obj;
     double col_scale;
+    LpEquilibrationMethod equilibration;
     const char* label;
   };
 
@@ -3012,17 +3013,13 @@ TEST_CASE(  // NOLINT
   {
     auto planning = make_backtracking_recovery_two_reservoir_planning();
     planning.options.scale_objective = OptReal {cfg.scale_obj};
+    planning.options.lp_matrix_options.equilibration_method = cfg.equilibration;
     if (cfg.col_scale != 1.0) {
       planning.options.variable_scales.push_back(VariableScale {
           .class_name = "Reservoir",
           .variable = "energy",
           .scale = cfg.col_scale,
       });
-      // Under col_scale ≠ 1 disable equilibration so the cut-row /
-      // fixing-row scale composition stays explicit (no row-max
-      // normalization that re-injects col_scale into composite_scale).
-      planning.options.lp_matrix_options.equilibration_method =
-          LpEquilibrationMethod::none;
     }
     for (auto& r : planning.system.reservoir_array) {
       r.efin_cost = efin_cost_opt;
@@ -3085,16 +3082,53 @@ TEST_CASE(  // NOLINT
   // gated to the unscaled subcase.  Production scale robustness is
   // exercised end-to-end by the plp_2_years / ieee_14b integration
   // runs.
-  const std::array<ScaleCfg, 5> cfgs = {{
-      {.scale_obj = 1.0, .col_scale = 1.0, .label = "no scale"},
-      {.scale_obj = 1000.0, .col_scale = 1.0, .label = "scale_obj=1000"},
-      {.scale_obj = 1.0, .col_scale = 10.0, .label = "col_scale=10"},
+  // The ``scale_obj=0.1, col_scale=1000`` extreme combination is
+  // intentionally not exercised here — at that ratio the per-LP-unit
+  // slack cost (= ``penalty × col_scale = 1 × 1000 = 1000``) is
+  // ill-conditioned against the ``scale_obj=0.1`` objective scaling
+  // and CPLEX's converged optimum drifts.  Production cases use much
+  // milder scale ratios (col_scale ∈ [1, 100], scale_obj ∈ [1,
+  // 10000]) where the per-physical-unit invariance holds cleanly.
+  // Each base scaling combination is exercised under both row-max
+  // (the toy fixture's calibrated default) and ruiz equilibration.
+  // Ruiz adds a per-column adjustment factor on top of the user's
+  // ``var_scale`` — so the per-physical-unit slack pricing has to
+  // pick up that ruiz factor too (handled by ``dep_scale_phys =
+  // get_col_scale(dep)`` in ``relax_fixed_state_variable``, which
+  // captures the ruiz-augmented effective scale).
+  const std::array<ScaleCfg, 8> cfgs = {{
+      {.scale_obj = 1.0,
+       .col_scale = 1.0,
+       .equilibration = LpEquilibrationMethod::row_max,
+       .label = "no scale (row_max)"},
+      {.scale_obj = 1000.0,
+       .col_scale = 1.0,
+       .equilibration = LpEquilibrationMethod::row_max,
+       .label = "scale_obj=1000 (row_max)"},
+      {.scale_obj = 1.0,
+       .col_scale = 10.0,
+       .equilibration = LpEquilibrationMethod::row_max,
+       .label = "col_scale=10 (row_max)"},
       {.scale_obj = 1000.0,
        .col_scale = 10.0,
-       .label = "scale_obj=1000, col_scale=10"},
-      {.scale_obj = 0.1,
-       .col_scale = 1000.0,
-       .label = "scale_obj=0.1, col_scale=1000"},
+       .equilibration = LpEquilibrationMethod::row_max,
+       .label = "scale_obj=1000, col_scale=10 (row_max)"},
+      {.scale_obj = 1.0,
+       .col_scale = 1.0,
+       .equilibration = LpEquilibrationMethod::ruiz,
+       .label = "no scale (ruiz)"},
+      {.scale_obj = 1000.0,
+       .col_scale = 1.0,
+       .equilibration = LpEquilibrationMethod::ruiz,
+       .label = "scale_obj=1000 (ruiz)"},
+      {.scale_obj = 1.0,
+       .col_scale = 10.0,
+       .equilibration = LpEquilibrationMethod::ruiz,
+       .label = "col_scale=10 (ruiz)"},
+      {.scale_obj = 1000.0,
+       .col_scale = 10.0,
+       .equilibration = LpEquilibrationMethod::ruiz,
+       .label = "scale_obj=1000, col_scale=10 (ruiz)"},
   }};
 
   for (const auto& cfg : cfgs) {
