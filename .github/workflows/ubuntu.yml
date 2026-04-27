@@ -120,8 +120,13 @@ jobs:
       - name: setup ccache
         uses: hendrikmuhs/ccache-action@v1.2.22
         with:
-          key: ${{ github.workflow }}-${{ env.ACTIVE_COMPILER }}
+          key: gtopt-clang-${{ github.workflow }}-${{ env.ACTIVE_COMPILER }}
+          # `gtopt-clang-` is a shared prefix across ubuntu.yml, coverage.yml,
+          # and profile.yml so each workflow's cold start can be warmed by any
+          # of the others.  See plan §7a in #432.
           restore-keys: |
+            gtopt-clang-${{ github.workflow }}-${{ env.ACTIVE_COMPILER }}-
+            gtopt-clang-
             ${{ github.workflow }}-${{ env.ACTIVE_COMPILER }}-
           max-size: 2G
 
@@ -371,6 +376,10 @@ jobs:
     timeout-minutes: 30
     name: clang-tidy
     if: inputs.run_clang_tidy == true
+    # Run after the build job so the ccache + cpm_modules caches it just
+    # populated are warm.  This avoids a cold compile of every TU when
+    # clang-tidy reparses the project.
+    needs: build
 
     steps:
       - uses: actions/checkout@v6
@@ -378,10 +387,15 @@ jobs:
       - name: setup ccache
         uses: hendrikmuhs/ccache-action@v1.2.22
         with:
-          key: ${{ github.workflow }}-clang-tidy
+          key: gtopt-clang-${{ github.workflow }}-clang-tidy
           # Fall back to the clang build cache (not the workflow-default gcc
           # one) — clang-tidy only uses clang-compatible object hashes.
+          # Shared `gtopt-clang-` prefix lets us warm-start from coverage /
+          # profile caches as well.
           restore-keys: |
+            gtopt-clang-${{ github.workflow }}-clang-tidy-
+            gtopt-clang-${{ github.workflow }}-clang-
+            gtopt-clang-
             ${{ github.workflow }}-clang-tidy-
             ${{ github.workflow }}-clang-
           max-size: 2G

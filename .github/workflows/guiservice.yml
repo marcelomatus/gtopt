@@ -27,35 +27,6 @@ permissions:
   contents: read
 
 jobs:
-  lint:
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-
-    steps:
-      - uses: actions/checkout@v6
-
-      - name: Set up Python with uv
-        uses: ./.github/actions/setup-python-uv
-        with:
-          cache-suffix: guiservice
-          cache-dependency-path: guiservice/requirements.txt
-
-      - name: Install lint dependencies
-        run: |
-          uv pip install --system ruff pylint mypy types-requests
-          uv pip install --system -r guiservice/requirements.txt
-
-      - name: ruff (lint)
-        run: ruff check guiservice/app.py guiservice/gtopt_gui.py guiservice/gtopt_guisrv.py
-
-      - name: pylint
-        run: pylint --jobs=0 --rcfile=.pylintrc guiservice/app.py guiservice/gtopt_gui.py guiservice/gtopt_guisrv.py
-
-      - name: mypy
-        run: |
-          mypy guiservice/app.py guiservice/gtopt_gui.py guiservice/gtopt_guisrv.py \
-            --ignore-missing-imports
-
   test:
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -71,10 +42,23 @@ jobs:
 
       - name: Install dependencies
         run: |
-          uv pip install --system pytest pytest-cov pytest-xdist
+          uv pip install --system pytest pytest-cov pytest-xdist \
+            ruff pylint mypy types-requests
           uv pip install --system -r guiservice/requirements.txt
 
+      - name: ruff (lint)
+        run: ruff check guiservice/app.py guiservice/gtopt_gui.py guiservice/gtopt_guisrv.py
+
+      - name: pylint
+        run: pylint --jobs=0 --rcfile=.pylintrc guiservice/app.py guiservice/gtopt_gui.py guiservice/gtopt_guisrv.py
+
+      - name: mypy
+        run: |
+          mypy guiservice/app.py guiservice/gtopt_gui.py guiservice/gtopt_guisrv.py \
+            --ignore-missing-imports
+
       - name: Run tests with coverage
+        if: always()
         run: |
           python -m pytest guiservice/tests/test_app.py guiservice/tests/test_gtopt_gui.py \
             guiservice/tests/test_gtopt_guisrv.py \
@@ -84,6 +68,7 @@ jobs:
             | tee "${{ runner.temp }}/pytest-guiservice.log"
 
       - name: Check coverage threshold (warning only)
+        if: always()
         run: |
           python -m coverage report --fail-under=55 --data-file=.coverage || \
             echo "::warning::Guiservice coverage below 55% threshold"
