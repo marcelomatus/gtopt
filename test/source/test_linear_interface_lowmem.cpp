@@ -1375,11 +1375,35 @@ TEST_CASE(  // NOLINT
   // The optimal solution: x1=5, x2=0, obj=10.
   CHECK(li.get_obj_value() == doctest::Approx(10.0));
 
-  // Build a flat snapshot so release_backend can reuse it.
+  // Build a flat snapshot so release_backend can reuse it.  Use the
+  // SAME labels as the live LinearInterface so that load_flat()'s
+  // `m_col_labels_meta_ = flat_lp.col_labels_meta` overwrite preserves
+  // the original metadata (the snapshot is the authoritative source
+  // for structural labels in compress mode).
   LinearProblem lp;
-  const auto c1 = lp.add_col({.lowb = 0.0, .uppb = 10.0, .cost = 2.0});
-  const auto c2 = lp.add_col({.lowb = 0.0, .uppb = 10.0, .cost = 3.0});
-  const auto row_idx = lp.add_row({.lowb = 5.0, .uppb = SparseRow::DblMax});
+  const auto c1 = lp.add_col({
+      .lowb = 0.0,
+      .uppb = 10.0,
+      .cost = 2.0,
+      .class_name = "Gen",
+      .variable_name = "generation",
+      .variable_uid = Uid {1},
+  });
+  const auto c2 = lp.add_col({
+      .lowb = 0.0,
+      .uppb = 10.0,
+      .cost = 3.0,
+      .class_name = "Gen",
+      .variable_name = "generation",
+      .variable_uid = Uid {2},
+  });
+  const auto row_idx = lp.add_row({
+      .lowb = 5.0,
+      .uppb = SparseRow::DblMax,
+      .class_name = "Bus",
+      .constraint_name = "balance",
+      .variable_uid = Uid {10},
+  });
   lp.set_coeff(row_idx, c1, 1.0);
   lp.set_coeff(row_idx, c2, 1.0);
   auto flat = lp.flatten({});
@@ -1487,10 +1511,23 @@ TEST_CASE(  // NOLINT
   auto res = li.initial_solve();
   REQUIRE(res.has_value());
 
-  // Build minimal flat snapshot.
+  // Build minimal flat snapshot — labels match the live LinearInterface.
   LinearProblem lp;
-  const auto c = lp.add_col({.lowb = 0.0, .uppb = 20.0, .cost = 5.0});
-  const auto r = lp.add_row({.lowb = 0.0, .uppb = SparseRow::DblMax});
+  const auto c = lp.add_col({
+      .lowb = 0.0,
+      .uppb = 20.0,
+      .cost = 5.0,
+      .class_name = "Demand",
+      .variable_name = "load",
+      .variable_uid = Uid {7},
+  });
+  const auto r = lp.add_row({
+      .lowb = 0.0,
+      .uppb = SparseRow::DblMax,
+      .class_name = "Demand",
+      .constraint_name = "capacity",
+      .variable_uid = Uid {7},
+  });
   lp.set_coeff(r, c, 1.0);
   auto flat = lp.flatten({});
 
