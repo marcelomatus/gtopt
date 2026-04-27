@@ -149,6 +149,19 @@ public:
     return efin_cols.at({scenario.uid(), stage.uid()});
   }
 
+  /// Non-throwing lookup of the explicit ``vol_end >= efin`` row for
+  /// (scenario, stage).  Returns the row index if present, or
+  /// ``std::nullopt`` when ``Storage::efin`` is unset on this element.
+  [[nodiscard]] constexpr std::optional<RowIndex> find_efin_row(
+      const ScenarioLP& scenario, const StageLP& stage) const noexcept
+  {
+    const auto it = efin_rows.find({scenario.uid(), stage.uid()});
+    if (it == efin_rows.end()) {
+      return std::nullopt;
+    }
+    return it->second;
+  }
+
   /// Return the initial-energy column for (scenario, stage).
   ///
   /// Three cases:

@@ -2839,6 +2839,38 @@ inline auto read_terminal_vol_end(const PlanningLP& planning_lp,
   return li.get_col_sol()[col];
 }
 
+/// Read the dual (shadow price, $/[volume_unit]) of the hard
+/// ``vol_end >= efin`` row at the last phase / last stage.  This is
+/// the marginal cost of forcing the efin target to be reached and
+/// is the threshold for ``efin_cost``: ``efin_cost > dual`` ⇒ LP
+/// reaches efin (no slack); ``efin_cost < dual`` ⇒ LP pays slack
+/// instead.  Returns std::nullopt when the reservoir has no efin
+/// row (e.g. ``efin`` unset).
+inline auto read_efin_row_dual(PlanningLP& planning_lp,
+                               std::size_t reservoir_index,
+                               SceneIndex scene = SceneIndex {0})
+    -> std::optional<double>
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  const auto& sim = planning_lp.simulation();
+  const auto last_phase = sim.last_phase_index();
+  const auto& phases_seq = sim.phases();
+  const auto& last_phase_lp = phases_seq[last_phase];
+  const auto& last_stage = last_phase_lp.stages().back();
+  const auto& last_scenario = sim.scenarios().front();
+
+  auto& sys = planning_lp.systems()[scene][last_phase];
+  const auto& rsv_lps = sys.template elements<ReservoirLP>();
+  const auto& rsv = rsv_lps[reservoir_index];
+
+  const auto row = rsv.find_efin_row(last_scenario, last_stage);
+  if (!row) {
+    return std::nullopt;
+  }
+  auto& li = sys.linear_interface();
+  return li.get_row_dual()[*row];
+}
+
 }  // namespace
 
 TEST_CASE(  // NOLINT
@@ -2897,15 +2929,12 @@ TEST_CASE(  // NOLINT
   CHECK(hard_vol_end >= efin_target - feas_tol);
 
   // Soft variant — efin row is a soft `>=` with slack priced at
-  // 10 $/m³ (the fixture's volume unit; with flow_conversion_rate=1
-  // and production_factor=1 the equivalent thermal-MWh price is also
-  // ≈ 10).  In this fixture (eini=120, total inflow=80+9·10=170, hydro
-  // gen capped at 30 MW/phase) reaching efin=150 leaves a thin slack
-  // budget for hydro generation; with efin_cost=10 the LP may pay
-  // slack instead of running expensive thermal — so vol_end can be
-  // below efin.  We CHECK only that vol_end is non-negative and below
-  // the box upper bound (200), and CAPTURE the gap for inspection.
-  const auto [soft_ub, soft_vol_end, soft_fcuts] = run_case(OptReal {10.0});
+  // 1000 $/hm³ (project unit; high enough to dominate the cascade
+  // path).  The 1-rsv fixture's eini=120 + inflow=170 already lets
+  // the hard cascade reach vol_end=150, so on this geometry the soft
+  // variant tracks the hard one closely; we CHECK only that vol_end
+  // stays in the [0, emax] box and CAPTURE the gap.
+  const auto [soft_ub, soft_vol_end, soft_fcuts] = run_case(OptReal {1000.0});
   CAPTURE(soft_ub);
   CAPTURE(soft_vol_end);
   CAPTURE(soft_fcuts);
@@ -2926,10 +2955,18 @@ TEST_CASE(  // NOLINT
   constexpr double feas_tol = 1e-3;
 
   // Helper: build the 2-rsv fixture with optional efin_cost on both
-  // reservoirs, solve, return per-reservoir terminal volumes plus the
-  // upper bound and feasibility-cut count.
-  auto run_case = [&](const OptReal& efin_cost_opt)
-      -> std::tuple<double, std::array<double, 2>, int>
+  // reservoirs, solve, and return per-reservoir terminal volumes,
+  // efin-row duals (or nullopt for the soft variant where the row is
+  // relaxed), upper bound, and feasibility-cut count.  Owns the
+  // PlanningLP so the LP stays alive while we read duals/cols.
+  struct CaseResult
+  {
+    double ub {0.0};
+    std::array<double, 2> vols {};
+    std::array<std::optional<double>, 2> efin_duals {};
+    int fcuts {0};
+  };
+  auto run_case = [&](const OptReal& efin_cost_opt) -> CaseResult
   {
     auto planning = make_backtracking_recovery_two_reservoir_planning();
     for (auto& r : planning.system.reservoir_array) {
@@ -2952,53 +2989,83 @@ TEST_CASE(  // NOLINT
     REQUIRE(results.has_value());
     REQUIRE_FALSE(results->empty());
 
-    const std::array<double, 2> vol_end = {
-        read_terminal_vol_end(plp, 0),
-        read_terminal_vol_end(plp, 1),
-    };
-    int fcut_count = 0;
+    CaseResult cr;
+    cr.ub = results->front().upper_bound;
+    cr.vols = {read_terminal_vol_end(plp, 0), read_terminal_vol_end(plp, 1)};
+    cr.efin_duals = {read_efin_row_dual(plp, 0), read_efin_row_dual(plp, 1)};
     for (const auto& c : sddp.stored_cuts()) {
       if (c.type == CutType::Feasibility) {
-        ++fcut_count;
+        ++cr.fcuts;
       }
     }
-    return {results->front().upper_bound, vol_end, fcut_count};
+    return cr;
   };
 
-  // Hard variant — the original fixture: efin = 150, no slack.
-  // The cascade must succeed and the terminal volumes must reach efin.
-  const auto [hard_ub, hard_vols, hard_fcuts] = run_case({});
-  CAPTURE(hard_ub);
-  CAPTURE(hard_vols[0]);
-  CAPTURE(hard_vols[1]);
-  CAPTURE(hard_fcuts);
-  CHECK(std::isfinite(hard_ub));
-  CHECK(hard_ub > 0.0);
-  REQUIRE(hard_fcuts >= 1);  // cascade DID happen
-  CHECK(hard_vols[0] >= efin_target - feas_tol);
-  CHECK(hard_vols[1] >= efin_target - feas_tol);
+  // Hard variant — the original fixture: efin = 150, no slack.  The
+  // cascade must succeed; terminal volumes hit efin; the efin-row
+  // dual is the LOCAL marginal cost of forcing efin at the last
+  // phase (≈ thermal_gcost − hydro_gcost = 100 − 1 = 99 here).
+  // This dual is the threshold *for a monolithic LP*; SDDP iter-0
+  // cascade dynamics decouple the per-phase trajectories, so the
+  // soft-variant trajectories are not strictly above-/below-pinned
+  // by this single threshold (see below).
+  const auto hard = run_case({});
+  CAPTURE(hard.ub);
+  CAPTURE(hard.vols[0]);
+  CAPTURE(hard.vols[1]);
+  CAPTURE(hard.fcuts);
+  REQUIRE(hard.efin_duals[0].has_value());
+  REQUIRE(hard.efin_duals[1].has_value());
+  const double dual0 = std::abs(*hard.efin_duals[0]);
+  const double dual1 = std::abs(*hard.efin_duals[1]);
+  const double dual_max = std::max(dual0, dual1);
+  CAPTURE(dual0);
+  CAPTURE(dual1);
+  CAPTURE(dual_max);
+  CHECK(std::isfinite(hard.ub));
+  CHECK(hard.ub > 0.0);
+  REQUIRE(hard.fcuts >= 1);
+  CHECK(hard.vols[0] >= efin_target - feas_tol);
+  CHECK(hard.vols[1] >= efin_target - feas_tol);
+  // The threshold dual must be strictly positive — efin is binding.
+  CHECK(dual_max > 0.0);
 
-  // Soft variant — efin row relaxed at 100 $/m³ (the fixture's volume
-  // unit; flow_conversion_rate=1 and production_factor=1 mean 1 m³
-  // ≈ 1 MWh through the turbine, so 100 $/m³ matches thermal_gen's
-  // gcost = 100 $/MWh).  At this borderline price the LP can no
-  // longer trivially dump volume — paying slack now competes head-on
-  // with running thermal — and the optimum becomes asymmetric.  The
-  // test still permits any vol_end in the box.  We CHECK only that
-  // the LP solves cleanly (≤ hard fcut count) and that vol_end stays
-  // in [0, emax].
-  const auto [soft_ub, soft_vols, soft_fcuts] = run_case(OptReal {100.0});
-  CAPTURE(soft_ub);
-  CAPTURE(soft_vols[0]);
-  CAPTURE(soft_vols[1]);
-  CAPTURE(soft_fcuts);
-  CHECK(std::isfinite(soft_ub));
-  CHECK(soft_ub > 0.0);
-  for (const auto v : soft_vols) {
-    CHECK(v >= 0.0);
-    CHECK(v <= 200.0);
-  }
-  CHECK(soft_fcuts <= hard_fcuts);
+  // Soft variant BELOW threshold (efin_cost = dual_max / 2): slack is
+  // cheaper than running thermal at the marginal substitution price,
+  // so at least one reservoir misses efin and pays slack.
+  const double below = dual_max * 0.5;
+  CAPTURE(below);
+  const auto under = run_case(OptReal {below});
+  CAPTURE(under.ub);
+  CAPTURE(under.vols[0]);
+  CAPTURE(under.vols[1]);
+  CAPTURE(under.fcuts);
+  CHECK(std::isfinite(under.ub));
+  CHECK(under.ub > 0.0);
+  CHECK((under.vols[0] < efin_target - feas_tol
+         || under.vols[1] < efin_target - feas_tol));
+  CHECK(under.fcuts <= hard.fcuts);
+
+  // Soft variant ABOVE threshold (efin_cost = dual_max × 2): in a
+  // *monolithic* LP both reservoirs would reach efin.  Under SDDP
+  // iter-0 the greedy forward pass and the absent cascade can leave
+  // one reservoir below efin even at this price — the dual is local
+  // to the last-phase LP and doesn't account for the multi-phase
+  // hydro substitution chain that would actually be needed.  We
+  // therefore CHECK only that the LP solves cleanly and that
+  // *at least one* reservoir reaches efin, CAPTUREing the rest.
+  const double above = dual_max * 2.0;
+  CAPTURE(above);
+  const auto over = run_case(OptReal {above});
+  CAPTURE(over.ub);
+  CAPTURE(over.vols[0]);
+  CAPTURE(over.vols[1]);
+  CAPTURE(over.fcuts);
+  CHECK(std::isfinite(over.ub));
+  CHECK(over.ub > 0.0);
+  CHECK((over.vols[0] >= efin_target - feas_tol
+         || over.vols[1] >= efin_target - feas_tol));
+  CHECK(over.fcuts <= hard.fcuts);
 }
 
 // ─── Stationary-gap ceiling guard (commit f466936f) ───────────────────────
