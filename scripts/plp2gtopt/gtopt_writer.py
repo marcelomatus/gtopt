@@ -320,11 +320,22 @@ class GTOptWriter:
         else:
             effective_single_bus = user_single_bus
 
+        # PLP-faithful per-stage emin enforcement: emit strict_storage_emin=false
+        # explicitly so the gtopt C++ default (true since 2026-04-26) does not
+        # turn the per-stage emin floor into a HARD constraint on
+        # reservoir_sini and the last-block efin column.  PLP's per-stage LP
+        # treats `ve<u>` as Free mid-stage and only `vf<u>` (future volume)
+        # carries the `vmin` lower bound; the strict-default would force the
+        # SDDP iter-0 forward pass infeasible whenever a previous Benders cut
+        # has clamped sini near 0 but the schedule still demands efin >= emin.
+        # User can opt back into strict mode by setting strict_storage_emin in
+        # the conf or via --set model_options.strict_storage_emin=true.
         model_opts = {
             "use_single_bus": effective_single_bus,
             "use_kirchhoff": src_model.get("use_kirchhoff", True),
             "demand_fail_cost": effective_demand_fail,
             "state_fail_cost": src_model.get("state_fail_cost", 1000),
+            "strict_storage_emin": src_model.get("strict_storage_emin", False),
         }
         # Only emit scale_objective if explicitly set (C++ default is 1000).
         if "scale_objective" in src_model:
