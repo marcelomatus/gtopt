@@ -202,6 +202,7 @@ class TestBuildOptions:
             "variable_scales_file": None,
             "soft_emin_cost": None,
             "soft_storage_bounds": True,
+            "vert_cost_cap": 500.0,
             "embed_reservoir_constraints": False,
             "expand_water_rights": False,
             "expand_lng": True,

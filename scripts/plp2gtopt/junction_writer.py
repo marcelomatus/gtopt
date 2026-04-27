@@ -1354,22 +1354,37 @@ class JunctionWriter(BaseWriter):
         2. ``plpmat.dat`` — global ``CVert`` (when > 0).
         3. ``soft_emin_cost`` CLI default (``--soft-emin-cost``).
         4. Hard fallback ``1000.0`` so the slack is never priced at 0.
+
+        After resolution the value is clamped at ``vert_cost_cap`` (CLI
+        ``--vert-cost-cap``, default 500.0).  Real PLP cases sometimes
+        carry vrebemb costs of 5000 \\$/hm³ which dominate the SDDP
+        objective on iter-0 forward passes and produce an enormous UB
+        until enough Benders cuts steer the trajectory; capping the
+        per-slack price lets the gap close in fewer iterations at the
+        cost of allowing slightly more spillage in the LP optimum.
+        Set ``--vert-cost-cap=0`` to disable the cap.
         """
+        cap = self.options.get("vert_cost_cap", 0.0) if self.options else 0.0
+        cap = float(cap) if cap and cap > 0 else 0.0
+
+        def _capped(value: float) -> float:
+            return min(value, cap) if cap > 0 else value
+
         if self.vrebemb_parser is not None:
             cost = self.vrebemb_parser.get_cost(central_name)
             if cost is not None and cost > 0:
-                return float(cost)
+                return _capped(float(cost))
 
         if self.plpmat_parser is not None:
             cvert = getattr(self.plpmat_parser, "vert_cost", 0.0) or 0.0
             if cvert > 0:
-                return float(cvert)
+                return _capped(float(cvert))
 
         cli_cost = self.options.get("soft_emin_cost", 0.0) if self.options else 0.0
         if cli_cost and cli_cost > 0:
-            return float(cli_cost)
+            return _capped(float(cli_cost))
 
-        return 1000.0
+        return _capped(1000.0)
 
     def _apply_soft_storage_bounds(
         self,

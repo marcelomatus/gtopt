@@ -237,3 +237,53 @@ def test_soft_storage_bounds_skips_efin_cost_when_efin_zero():
     [reservoir] = system["reservoir_array"]
 
     assert "efin_cost" not in reservoir
+
+
+def test_vert_cost_cap_clamps_high_vrebemb_cost():
+    """``--vert-cost-cap`` caps the vrebemb cost passed to efin_cost."""
+    central = _make_reservoir_central(vol_fin=120.0)
+    parser = MockCentralParser([central])
+    # Vrebemb says 5000, cap at 500.
+    writer = JunctionWriter(
+        central_parser=parser,
+        stage_parser=MockStageParser(num=4),
+        vrebemb_parser=MockVrebembParser({"RsvA": 5000.0}),
+        options={"soft_storage_bounds": True, "vert_cost_cap": 500.0},
+    )
+    [system] = writer.to_json_array()
+    [reservoir] = system["reservoir_array"]
+
+    assert reservoir.get("efin_cost") == 500.0
+
+
+def test_vert_cost_cap_zero_disables_cap():
+    """``vert_cost_cap = 0`` lets the raw vrebemb cost pass through."""
+    central = _make_reservoir_central(vol_fin=120.0)
+    parser = MockCentralParser([central])
+    writer = JunctionWriter(
+        central_parser=parser,
+        stage_parser=MockStageParser(num=4),
+        vrebemb_parser=MockVrebembParser({"RsvA": 5000.0}),
+        options={"soft_storage_bounds": True, "vert_cost_cap": 0.0},
+    )
+    [system] = writer.to_json_array()
+    [reservoir] = system["reservoir_array"]
+
+    assert reservoir.get("efin_cost") == 5000.0
+
+
+def test_vert_cost_cap_passthrough_when_below_cap():
+    """Cost below the cap passes through unchanged."""
+    central = _make_reservoir_central(vol_fin=120.0)
+    parser = MockCentralParser([central])
+    writer = JunctionWriter(
+        central_parser=parser,
+        stage_parser=MockStageParser(num=4),
+        vrebemb_parser=MockVrebembParser({"RsvA": 250.0}),
+        options={"soft_storage_bounds": True, "vert_cost_cap": 500.0},
+    )
+    [system] = writer.to_json_array()
+    [reservoir] = system["reservoir_array"]
+
+    # 250 < 500 → unchanged.
+    assert reservoir.get("efin_cost") == 250.0

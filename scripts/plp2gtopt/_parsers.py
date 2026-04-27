@@ -539,6 +539,29 @@ def add_model_arguments(parser: argparse.ArgumentParser, conf: dict[str, str]) -
             "(default: %(default)s; --plp-legacy implies True)"
         ),
     )
+    # Cap on the per-reservoir spillage cost (``Costo de Rebalse`` from
+    # plpvrebemb.dat / ``CVert`` from plpmat.dat) used as ``efin_cost``
+    # / ``soft_emin_cost`` when ``--soft-storage-bounds`` is on.  PLP
+    # production cases sometimes carry vrebemb costs of 5000 \$/hm³,
+    # which dominates the SDDP objective on iter-0 forward passes and
+    # produces an enormous UB (~10⁹) until enough Benders cuts steer
+    # the trajectory to avoid the slack.  Capping the cost lets the
+    # gap close in fewer iterations at the price of allowing slightly
+    # more spillage in the LP optimum.  The cap is INCLUSIVE — costs
+    # at or below it pass through unchanged.  Set to 0 to disable.
+    _default_vcc = conf.get("vert_cost_cap")
+    parser.add_argument(
+        "--vert-cost-cap",
+        dest="vert_cost_cap",
+        type=float,
+        default=(float(_default_vcc) if _default_vcc is not None else 500.0),
+        help=(
+            "cap (\\$/hm³) for the vrebemb / CVert spillage cost emitted as "
+            "Reservoir.efin_cost / soft_emin_cost (only effective when "
+            "--soft-storage-bounds is on; 0 disables the cap; "
+            "default: %(default)s)"
+        ),
+    )
     parser.add_argument(
         "--reserve-fail-cost",
         dest="reserve_fail_cost",

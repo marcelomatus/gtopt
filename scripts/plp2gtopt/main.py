@@ -340,6 +340,11 @@ def build_options(args: argparse.Namespace) -> dict:
         # in _parsers.py for cost-source priority.  Default True;
         # ``--plp-legacy`` also enforces True.
         "soft_storage_bounds": args.soft_storage_bounds,
+        # Cap on the spillage-cost source used for ``efin_cost`` /
+        # ``soft_emin_cost`` when ``--soft-storage-bounds`` is on.
+        # Caps the per-reservoir vrebemb / global CVert before it
+        # becomes a slack price; 0 disables the cap.
+        "vert_cost_cap": args.vert_cost_cap,
     }
     # Model-specific options nested under model_options.
     model_opts: dict = {
