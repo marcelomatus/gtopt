@@ -1225,6 +1225,12 @@ class JunctionWriter(BaseWriter):
             # Soft minimum volume (plpminembh.dat "holgura" / slack)
             self._apply_soft_emin(reservoir, central_name)
 
+            # ``--soft-storage-bounds``: relax the per-reservoir efin row
+            # and route reservoir maintenance (plpmanem.dat) emin into
+            # the soft_emin slack mechanism, priced at the same per-
+            # reservoir cost (plpvrebemb / CVert / fallback).
+            self._apply_soft_storage_bounds(reservoir, central_name, parquet_cols)
+
             system["reservoir_array"].append(reservoir)
 
     def _spillway_fields(
@@ -1337,6 +1343,121 @@ class JunctionWriter(BaseWriter):
         if any(v > 0 for v in soft_emin_arr):
             reservoir["soft_emin"] = soft_emin_arr
             reservoir["soft_emin_cost"] = soft_cost_arr
+
+    def _resolve_storage_bound_cost(self, central_name: str) -> float:
+        """Per-reservoir penalty cost for soft efin / soft_emin slacks.
+
+        Preference order (matches PLP's spill cost cascade):
+
+        1. ``plpvrebemb.dat`` — explicit ``Costo de Rebalse`` for this
+           reservoir.
+        2. ``plpmat.dat`` — global ``CVert`` (when > 0).
+        3. ``soft_emin_cost`` CLI default (``--soft-emin-cost``).
+        4. Hard fallback ``1000.0`` so the slack is never priced at 0.
+        """
+        if self.vrebemb_parser is not None:
+            cost = self.vrebemb_parser.get_cost(central_name)
+            if cost is not None and cost > 0:
+                return float(cost)
+
+        if self.plpmat_parser is not None:
+            cvert = getattr(self.plpmat_parser, "vert_cost", 0.0) or 0.0
+            if cvert > 0:
+                return float(cvert)
+
+        cli_cost = self.options.get("soft_emin_cost", 0.0) if self.options else 0.0
+        if cli_cost and cli_cost > 0:
+            return float(cli_cost)
+
+        return 1000.0
+
+    def _apply_soft_storage_bounds(
+        self,
+        reservoir: Reservoir,
+        central_name: str,
+        parquet_cols: Dict[str, List[str]],
+    ) -> None:
+        """Relax per-reservoir efin and maintenance-emin to soft slacks.
+
+        Gated by ``options["soft_storage_bounds"]`` (default true; also
+        forced on by ``--plp-legacy``).  When enabled:
+
+        - If the reservoir has a non-trivial ``efin``, set
+          ``efin_cost`` so the hard ``vol_end >= efin`` row becomes
+          ``vol_end + slack >= efin`` priced at ``efin_cost``.
+        - If reservoir maintenance (plpmanem.dat) populated a per-stage
+          ``emin`` schedule for this reservoir AND ``soft_emin`` was
+          not already set by ``_apply_soft_emin`` (plpminembh.dat),
+          route the maintenance schedule into ``soft_emin`` priced at
+          the same per-reservoir cost, and replace the hard ``emin``
+          field with the static box floor (``central["emin"]``).
+
+        Both costs share ``_resolve_storage_bound_cost`` (vrebemb →
+        CVert → CLI → fallback).
+        """
+        if not self.options or not self.options.get("soft_storage_bounds"):
+            return
+
+        cost = self._resolve_storage_bound_cost(central_name)
+
+        # ─── efin → soft via efin_cost ──────────────────────────────────
+        efin = reservoir.get("efin")
+        if efin is not None and efin > 0:
+            reservoir["efin_cost"] = cost
+
+        # ─── maintenance emin → soft_emin (if not already populated) ────
+        # The hard ``emin`` field currently holds the parquet-schedule
+        # column name (``"emin"``) when manem data exists for this
+        # reservoir.  Detect that and reroute.
+        if reservoir.get("soft_emin") is not None:
+            return  # already set by plpminembh — leave it alone
+
+        # Look up the reservoir's per-stage manem emin schedule.
+        if (
+            self.manem_parser is None
+            or self.central_parser is None
+            or self.stage_parser is None
+        ):
+            return
+
+        central_number = next(
+            (
+                c["number"]
+                for c in self.central_parser.centrals_of_type.get("embalse", [])
+                if c["name"] == central_name
+            ),
+            None,
+        )
+        if central_number is None:
+            return
+        pcol_name = self.pcol_name(central_name, central_number)
+        if pcol_name not in parquet_cols.get("emin", []):
+            return  # no manem data for this reservoir
+
+        entry = self.manem_parser.get_manem_by_name(central_name)
+        if entry is None:
+            return
+
+        num_stages = self.stage_parser.num_stages
+        soft_emin_arr = [0.0] * num_stages
+        soft_cost_arr = [0.0] * num_stages
+        stages = entry["stage"]
+        emins = entry["emin"]
+        for i, stage_num in enumerate(stages):
+            idx = int(stage_num) - 1
+            if 0 <= idx < num_stages and float(emins[i]) > 0:
+                soft_emin_arr[idx] = float(emins[i])
+                soft_cost_arr[idx] = cost
+
+        if any(v > 0 for v in soft_emin_arr):
+            reservoir["soft_emin"] = soft_emin_arr
+            reservoir["soft_emin_cost"] = soft_cost_arr
+            # Static box floor only — let the schedule live in soft_emin.
+            scalar_emin = self.central_parser.centrals_of_type["embalse"]
+            for c in scalar_emin:
+                if c["name"] == central_name:
+                    reservoir["emin"] = c["emin"]
+                    break
 
     @staticmethod
     def _find_reservoir(system: HydroSystemOutput, name: str) -> Optional[Reservoir]:

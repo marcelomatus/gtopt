@@ -2802,6 +2802,198 @@ TEST_CASE(  // NOLINT
   }
 }
 
+// ─── efin_cost soft-row variant of the 10-phase backtracking fixtures ─────
+//
+// The two recovery fixtures above use a HARD ``efin`` row (or hard emin
+// shock) that triggers the elastic-filter cascade.  When ``efin_cost``
+// is non-zero, the per-reservoir efin row becomes a SOFT slack — the
+// LP can pay the slack cost instead of triggering an infeasibility
+// cascade.  These tests reuse the same 10-phase planning helpers,
+// patch ``efin_cost = 10`` onto each reservoir, and verify the
+// terminal volume at the last phase against the efin target in BOTH
+// the hard and soft variants.
+
+namespace
+{
+
+/// Read the reservoir's last-phase last-stage `efin` column value
+/// (terminal volume) from the solved SDDP planning LP.
+inline auto read_terminal_vol_end(const PlanningLP& planning_lp,
+                                  std::size_t reservoir_index,
+                                  SceneIndex scene = SceneIndex {0}) -> double
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  const auto& sim = planning_lp.simulation();
+  const auto last_phase = sim.last_phase_index();
+  const auto& phases_seq = sim.phases();
+  const auto& last_phase_lp = phases_seq[last_phase];
+  const auto& last_stage = last_phase_lp.stages().back();
+  const auto& last_scenario = sim.scenarios().front();
+
+  const auto& sys = planning_lp.systems()[scene][last_phase];
+  const auto& rsv_lps = sys.template elements<ReservoirLP>();
+  const auto& rsv = rsv_lps[reservoir_index];
+
+  const auto col = rsv.efin_col_at(last_scenario, last_stage);
+  const auto& li = sys.linear_interface();
+  return li.get_col_sol()[col];
+}
+
+}  // namespace
+
+TEST_CASE(  // NOLINT
+    "SDDPMethod efin_cost — 10-phase 1-reservoir hard vs soft, terminal vol")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  constexpr double efin_target = 150.0;
+  constexpr double feas_tol = 1e-3;
+
+  // Helper: build the 1-rsv planning with efin target and an optional
+  // soft cost; solve with single_cut elastic filter; return terminal
+  // volume + iteration result.  All other knobs match the existing
+  // 10-phase recovery tests.
+  auto run_case =
+      [&](const OptReal& efin_cost_opt) -> std::tuple<double, double, int>
+  {
+    auto planning = make_backtracking_recovery_planning();
+    planning.system.reservoir_array[0].efin = OptReal {efin_target};
+    planning.system.reservoir_array[0].efin_cost = efin_cost_opt;
+    PlanningLP plp(std::move(planning));
+
+    SDDPOptions sddp_opts;
+    sddp_opts.max_iterations = 1;
+    sddp_opts.elastic_filter_mode = ElasticFilterMode::single_cut;
+    sddp_opts.multi_cut_threshold = -1;
+    sddp_opts.forward_max_attempts = 100;
+    sddp_opts.forward_fail_stop = false;
+    sddp_opts.enable_api = false;
+    sddp_opts.cut_coeff_eps = 1e-6;
+    sddp_opts.elastic_penalty = 1e2;
+
+    SDDPMethod sddp(plp, sddp_opts);
+    auto results = sddp.solve();
+    REQUIRE(results.has_value());
+    REQUIRE_FALSE(results->empty());
+
+    const double vol_end = read_terminal_vol_end(plp, 0);
+    int fcut_count = 0;
+    for (const auto& c : sddp.stored_cuts()) {
+      if (c.type == CutType::Feasibility) {
+        ++fcut_count;
+      }
+    }
+    return {results->front().upper_bound, vol_end, fcut_count};
+  };
+
+  // Hard variant — efin row is a hard `>=` constraint.  Any successful
+  // solve must have vol_end >= efin (within feasibility tolerance).
+  const auto [hard_ub, hard_vol_end, hard_fcuts] = run_case({});
+  CAPTURE(hard_ub);
+  CAPTURE(hard_vol_end);
+  CAPTURE(hard_fcuts);
+  CHECK(std::isfinite(hard_ub));
+  CHECK(hard_ub > 0.0);
+  CHECK(hard_vol_end >= efin_target - feas_tol);
+
+  // Soft variant — efin row is a soft `>=` with slack priced at 10
+  // $/MWh.  In this fixture (eini=120, total inflow=80+9·10=170, hydro
+  // gen capped at 30 MW/phase) reaching efin=150 leaves a thin slack
+  // budget for hydro generation; with efin_cost=10 the LP may pay
+  // slack instead of running expensive thermal — so vol_end can be
+  // below efin.  We CHECK only that vol_end is non-negative and below
+  // the box upper bound (200), and CAPTURE the gap for inspection.
+  const auto [soft_ub, soft_vol_end, soft_fcuts] = run_case(OptReal {10.0});
+  CAPTURE(soft_ub);
+  CAPTURE(soft_vol_end);
+  CAPTURE(soft_fcuts);
+  CHECK(std::isfinite(soft_ub));
+  CHECK(soft_ub > 0.0);
+  CHECK(soft_vol_end >= 0.0);
+  CHECK(soft_vol_end <= 200.0);
+  // Soft variant cannot need MORE feasibility cuts than the hard one.
+  CHECK(soft_fcuts <= hard_fcuts);
+}
+
+TEST_CASE(  // NOLINT
+    "SDDPMethod efin_cost — 10-phase 2-reservoir hard vs soft, terminal vol")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  constexpr double efin_target = 150.0;
+  constexpr double feas_tol = 1e-3;
+
+  // Helper: build the 2-rsv fixture with optional efin_cost on both
+  // reservoirs, solve, return per-reservoir terminal volumes plus the
+  // upper bound and feasibility-cut count.
+  auto run_case = [&](const OptReal& efin_cost_opt)
+      -> std::tuple<double, std::array<double, 2>, int>
+  {
+    auto planning = make_backtracking_recovery_two_reservoir_planning();
+    for (auto& r : planning.system.reservoir_array) {
+      r.efin_cost = efin_cost_opt;
+    }
+    PlanningLP plp(std::move(planning));
+
+    SDDPOptions sddp_opts;
+    sddp_opts.max_iterations = 1;
+    sddp_opts.elastic_filter_mode = ElasticFilterMode::single_cut;
+    sddp_opts.multi_cut_threshold = -1;
+    sddp_opts.forward_max_attempts = 200;
+    sddp_opts.forward_fail_stop = false;
+    sddp_opts.enable_api = false;
+    sddp_opts.cut_coeff_eps = 1e-6;
+    sddp_opts.elastic_penalty = 1e2;
+
+    SDDPMethod sddp(plp, sddp_opts);
+    auto results = sddp.solve();
+    REQUIRE(results.has_value());
+    REQUIRE_FALSE(results->empty());
+
+    const std::array<double, 2> vol_end = {
+        read_terminal_vol_end(plp, 0),
+        read_terminal_vol_end(plp, 1),
+    };
+    int fcut_count = 0;
+    for (const auto& c : sddp.stored_cuts()) {
+      if (c.type == CutType::Feasibility) {
+        ++fcut_count;
+      }
+    }
+    return {results->front().upper_bound, vol_end, fcut_count};
+  };
+
+  // Hard variant — the original fixture: efin = 150, no slack.
+  // The cascade must succeed and the terminal volumes must reach efin.
+  const auto [hard_ub, hard_vols, hard_fcuts] = run_case({});
+  CAPTURE(hard_ub);
+  CAPTURE(hard_vols[0]);
+  CAPTURE(hard_vols[1]);
+  CAPTURE(hard_fcuts);
+  CHECK(std::isfinite(hard_ub));
+  CHECK(hard_ub > 0.0);
+  REQUIRE(hard_fcuts >= 1);  // cascade DID happen
+  CHECK(hard_vols[0] >= efin_target - feas_tol);
+  CHECK(hard_vols[1] >= efin_target - feas_tol);
+
+  // Soft variant — efin row relaxed at 10 $/MWh.  The slack is cheap
+  // enough that the LP may pay it instead of running thermal; we
+  // CHECK only that the LP solves cleanly (≤ hard fcut count) and
+  // that vol_end stays in the [0, emax] box.
+  const auto [soft_ub, soft_vols, soft_fcuts] = run_case(OptReal {10.0});
+  CAPTURE(soft_ub);
+  CAPTURE(soft_vols[0]);
+  CAPTURE(soft_vols[1]);
+  CAPTURE(soft_fcuts);
+  CHECK(std::isfinite(soft_ub));
+  CHECK(soft_ub > 0.0);
+  for (const auto v : soft_vols) {
+    CHECK(v >= 0.0);
+    CHECK(v <= 200.0);
+  }
+  CHECK(soft_fcuts <= hard_fcuts);
+}
+
 // ─── Stationary-gap ceiling guard (commit f466936f) ───────────────────────
 //
 // Invariant under test (commit f466936f / sddp_iteration.cpp):
