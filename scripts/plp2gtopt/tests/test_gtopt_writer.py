@@ -549,7 +549,7 @@ class TestGTOptWriterProcessMethods:
         mock_parser = MagicMock()
         mock_parser.parsed_data = {}
         writer = GTOptWriter(mock_parser)
-        with patch("plp2gtopt.gtopt_writer.JunctionWriter") as mock_jw:
+        with patch("plp2gtopt._writer_hydro.JunctionWriter") as mock_jw:
             mock_jw.return_value.to_json_array.return_value = []
             writer.process_junctions({})  # should not raise
 

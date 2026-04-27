@@ -110,8 +110,15 @@ def test_gtopt_writer_mro_pin() -> None:
     mro_names = [cls.__name__ for cls in GTOptWriter.__mro__]
     assert mro_names[0] == "GTOptWriter"
     assert mro_names[-1] == "object"
-    # Pre-split sanity: chain length is 2 (GTOptWriter → object).  After
-    # the split, this will grow to 5+ (one entry per mixin).  Update
-    # this assertion as part of the split commit so the change is
-    # explicit in code review.
-    assert len(mro_names) >= 2
+    # Post-split chain: GTOptWriter → TimeMixin → GenerationMixin →
+    # HydroMixin → NetworkMixin → BoundaryMixin → object (length 7).
+    # Reordering or losing a mixin would surface here.
+    assert mro_names == [
+        "GTOptWriter",
+        "TimeMixin",
+        "GenerationMixin",
+        "HydroMixin",
+        "NetworkMixin",
+        "BoundaryMixin",
+        "object",
+    ]

@@ -252,17 +252,17 @@ def test_gtopt_writer_to_json_returns_planning(tmp_path):
     """GTOptWriter.to_json() returns a dict with options/system/simulation keys."""
     mock_parser = _make_mock_parser()
 
-    with patch("plp2gtopt.gtopt_writer.BlockWriter") as mock_bw, patch(
-        "plp2gtopt.gtopt_writer.StageWriter"
-    ) as mock_sw, patch("plp2gtopt.gtopt_writer.BusWriter") as mock_busw, patch(
-        "plp2gtopt.gtopt_writer.CentralWriter"
-    ) as mock_cw, patch("plp2gtopt.gtopt_writer.LineWriter") as mock_lw, patch(
-        "plp2gtopt.gtopt_writer.DemandWriter"
+    with patch("plp2gtopt._writer_time.BlockWriter") as mock_bw, patch(
+        "plp2gtopt._writer_time.StageWriter"
+    ) as mock_sw, patch("plp2gtopt._writer_network.BusWriter") as mock_busw, patch(
+        "plp2gtopt._writer_generation.CentralWriter"
+    ) as mock_cw, patch("plp2gtopt._writer_network.LineWriter") as mock_lw, patch(
+        "plp2gtopt._writer_network.DemandWriter"
     ) as mock_dw, patch(
-        "plp2gtopt.gtopt_writer.GeneratorProfileWriter"
-    ) as mock_gpw, patch("plp2gtopt.gtopt_writer.AflceWriter") as mock_aw, patch(
-        "plp2gtopt.gtopt_writer.JunctionWriter"
-    ) as mock_jw, patch("plp2gtopt.gtopt_writer.BatteryWriter") as mock_battery:
+        "plp2gtopt._writer_generation.GeneratorProfileWriter"
+    ) as mock_gpw, patch("plp2gtopt._writer_hydro.AflceWriter") as mock_aw, patch(
+        "plp2gtopt._writer_hydro.JunctionWriter"
+    ) as mock_jw, patch("plp2gtopt._writer_network.BatteryWriter") as mock_battery:
         # All writers return empty arrays
         for m in [mock_bw, mock_sw, mock_busw, mock_cw, mock_lw, mock_dw]:
             m.return_value.to_json_array.return_value = []
