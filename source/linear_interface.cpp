@@ -520,6 +520,20 @@ LinearInterface LinearInterface::clone() const
   cloned.m_base_numrows_set_ = m_base_numrows_set_;
   cloned.m_variable_scale_map_ = m_variable_scale_map_;
   cloned.m_log_tag_ = m_log_tag_;
+  // Carry the structural label metadata across so that
+  // ``write_lp`` on the clone can synthesise column/row labels for
+  // post-mortem diagnostics (e.g. SDDP elastic-clone dumps when the
+  // relaxed LP is itself infeasible — see sddp_forward_pass.cpp:641).
+  // Without these, ``generate_labels_from_maps`` throws when the
+  // first inherited column is asked to produce a label.
+  cloned.m_col_labels_meta_ = m_col_labels_meta_;
+  cloned.m_row_labels_meta_ = m_row_labels_meta_;
+  cloned.m_col_meta_index_ = m_col_meta_index_;
+  cloned.m_row_meta_index_ = m_row_meta_index_;
+  cloned.m_col_names_ = m_col_names_;
+  cloned.m_row_names_ = m_row_names_;
+  cloned.m_col_index_to_name_ = m_col_index_to_name_;
+  cloned.m_row_index_to_name_ = m_row_index_to_name_;
   return cloned;
 }
 

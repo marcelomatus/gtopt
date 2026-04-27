@@ -16,6 +16,7 @@
 #include <gtopt/benders_cut.hpp>
 #include <gtopt/fmap.hpp>
 #include <gtopt/label_maker.hpp>
+#include <gtopt/sddp_types.hpp>
 #include <gtopt/utils.hpp>
 #include <gtopt/work_pool.hpp>
 
@@ -494,14 +495,49 @@ RelaxedVarInfo relax_fixed_state_variable(
   // PLP-equivalent symmetric pricing so the elastic clone behaves
   // identically to PLP's ``osi_lp_get_feasible_cut`` modulo
   // gtopt's stricter row writer.
+  // Slack columns: give them the SAME col_scale as the dependent
+  // column so the fixing row ``dep + sup − sdn = trial`` survives
+  // ``flatten()`` correctly under col_scale ≠ 1.  Without this, the
+  // row's LP-space coefficients become ``col_scale × dep_LP +
+  // sup_LP − sdn_LP = trial`` (since flatten multiplies the row's
+  // dep coefficient by ``col_scale(dep)`` but leaves sup/sdn at
+  // 1× because their scale is 1) — the slacks can then only move
+  // dep by ``1/col_scale`` of their range, producing a spurious
+  // infeasibility on the elastic clone whenever ``col_scale > 1``.
+  // Matching the slack scale to dep's col_scale keeps every term
+  // in the same LP basis.
+  //
+  // Slack uppb / cost are also expressed in the dep's LP basis:
+  // sup_uppb / sdn_uppb are computed from ``trial_value`` (already
+  // in dep-LP units) and ``src_low_lp`` / ``src_upp_lp`` (also in
+  // dep-LP units via ``vs = dep_scale_phys``), and ``slack_cost``
+  // matches PLP's Chinneck Phase-1 unit cost regardless of scale.
+  //
+  // Class name + variable name are populated so that
+  // ``LinearInterface::write_lp`` can label the slack columns when
+  // the unsolved clone is persisted for post-mortem diagnostics.
+  // Slack columns are per-link transient cols on the elastic clone:
+  // their variable_uid uses the dependent column index (unique within
+  // the clone) instead of the link's element uid (which may collide
+  // when multiple links share the same source element, e.g. the same
+  // reservoir's eini/sini at different stages).
+  const auto slack_uid = static_cast<Uid>(static_cast<int>(dep));
   const auto sup = li.add_col(SparseCol {
       .uppb = sup_uppb,
       .cost = slack_cost,
+      .scale = dep_scale_phys,
+      .class_name = sddp_alpha_class_name,
+      .variable_name = "elastic_sup",
+      .variable_uid = slack_uid,
   });
 
   const auto sdn = li.add_col(SparseCol {
       .uppb = sdn_uppb,
       .cost = slack_cost,
+      .scale = dep_scale_phys,
+      .class_name = sddp_alpha_class_name,
+      .variable_name = "elastic_sdn",
+      .variable_uid = slack_uid,
   });
 
   // dep + sup − sdn = trial_value
