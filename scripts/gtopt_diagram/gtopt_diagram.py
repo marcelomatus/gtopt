@@ -119,6 +119,7 @@ from gtopt_diagram._data_utils import (
     count_visible_buses as _count_visible_buses_impl,
     resolve_bus_ref as _resolve_bus_ref_impl,
 )
+
 # Edge/Node are re-exported for back-compat with `from gtopt_diagram.gtopt_diagram
 # import Edge, Node` call sites in tests + downstream code.
 # pylint: disable=unused-import

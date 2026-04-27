@@ -73,9 +73,7 @@ def test_element_schemas_uid_and_name_are_required(elem: str) -> None:
         return
     assert "uid" in field_index, f"{elem!r} missing 'uid' field"
     # uid is required for everything outside NAME_ONLY_ELEMENTS.
-    assert field_index["uid"].get("required") is True, (
-        f"{elem!r} 'uid' must be required"
-    )
+    assert field_index["uid"].get("required") is True, f"{elem!r} 'uid' must be required"
 
 
 # ---------------------------------------------------------------------------
@@ -91,8 +89,7 @@ def test_every_element_schema_has_array_key_mapping() -> None:
     """
     missing = sorted(set(ELEMENT_SCHEMAS.keys()) - set(ELEMENT_TO_ARRAY_KEY.keys()))
     assert not missing, (
-        f"ELEMENT_SCHEMAS has elements without ELEMENT_TO_ARRAY_KEY mapping: "
-        f"{missing}"
+        f"ELEMENT_SCHEMAS has elements without ELEMENT_TO_ARRAY_KEY mapping: {missing}"
     )
 
 
@@ -105,9 +102,7 @@ def test_array_key_mappings_follow_canonical_suffix() -> None:
     """
     for elem, array_key in ELEMENT_TO_ARRAY_KEY.items():
         assert isinstance(array_key, str), f"{elem!r} array key is not a str"
-        assert array_key.endswith("_array"), (
-            f"{elem!r} → {array_key!r} does not end in '_array'"
-        )
+        assert array_key.endswith("_array"), f"{elem!r} → {array_key!r} does not end in '_array'"
 
 
 def test_no_element_schema_has_orphan_ref() -> None:
@@ -124,6 +119,4 @@ def test_no_element_schema_has_orphan_ref() -> None:
             ref = field.get("ref")
             if ref is None:
                 continue
-            assert ref in valid_refs, (
-                f"{elem!r} field {field['name']!r} has unknown ref={ref!r}"
-            )
+            assert ref in valid_refs, f"{elem!r} field {field['name']!r} has unknown ref={ref!r}"
