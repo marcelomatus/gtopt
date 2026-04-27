@@ -180,7 +180,14 @@ void apply_options_to_env(cpxenv* env, const SolverOptions& opts)
                    opts.crossover ? CPX_ALG_PRIMAL : CPX_ALG_NONE);
   }
 
-  CPXsetintparam(env, CPX_PARAM_SCRIND, opts.log_level > 0 ? CPX_ON : CPX_OFF);
+  // SCRIND is intentionally NOT toggled here.  The screen-indicator is
+  // owned by `apply_log_filename_to_env` (which turns it on only when
+  // both `log_level > 0` AND a filename is set) and by the
+  // `CplexEnvLp()` ctor (which forces it off as the silent default).
+  // Toggling SCRIND on here based on `log_level` alone is the path
+  // that lets CPLEX fall back to `./cplex.log` (and `clone1.log` /
+  // `clone2.log` after `CPXcloneprob`) in the cwd of any caller that
+  // bumps log_level without configuring a destination.
 }
 
 /// Enable CPLEX file logging with the provided basename + level.  When
@@ -217,6 +224,11 @@ CplexEnvLp::CplexEnvLp()
   // Silent by default: no screen output, no log file.  Callers must
   // explicitly opt in via SolverOptions::log_level or set_log_filename().
   CPXsetintparam(m_env_, CPX_PARAM_SCRIND, CPX_OFF);
+  // Suppress CPLEX's automatic per-clone log files (clone1.log,
+  // clone2.log, ...) that `CPXcloneprob` would otherwise drop into the
+  // process cwd whenever SCRIND happens to be on without a configured
+  // logfile.  -1 = clone log disabled.
+  CPXsetintparam(m_env_, CPX_PARAM_CLONELOG, -1);
 
   m_lp_ = CPXcreateprob(m_env_, &status, "gtopt");
   if (m_lp_ == nullptr) {

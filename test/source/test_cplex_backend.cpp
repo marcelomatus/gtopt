@@ -267,6 +267,83 @@ TEST_CASE("set_log_filename(level>0) writes a log; clear stops it")  // NOLINT
   fs::remove(file);
 }
 
+TEST_CASE(  // NOLINT
+    "apply_options(log_level>0) without filename does not create cplex.log "
+    "or clone*.log in cwd, even after clone()")
+{
+  // Regression for the bug that left `clone1.log` / `clone2.log` /
+  // `cplex.log` next to runs whose options had a non-zero log_level
+  // (e.g. SDDP detailed-mode forward pass) without a configured log
+  // file — `apply_options_to_env` used to flip CPX_PARAM_SCRIND on
+  // unconditionally, and `CPXcloneprob` then dropped per-clone files
+  // into the process cwd.
+  auto backend = make_cplex_or_skip();
+  if (!backend) {
+    return;
+  }
+
+  namespace fs = std::filesystem;
+
+  // Run inside a dedicated cwd so we can assert nothing landed there
+  // (CPLEX writes its default `cplex.log` and `clone*.log` to the
+  // *process* cwd; there is no API to relocate them).
+  const auto orig_cwd = fs::current_path();
+  const auto run_dir =
+      fs::temp_directory_path() / "gtopt_cplex_log_clone_silence";
+  fs::remove_all(run_dir);
+  fs::create_directories(run_dir);
+  fs::current_path(run_dir);
+
+  // RAII guard: restore cwd even on assertion failure.
+  struct CwdGuard
+  {
+    fs::path prev;
+    explicit CwdGuard(fs::path p)
+        : prev(std::move(p))
+    {
+    }
+    CwdGuard(const CwdGuard&) = delete;
+    CwdGuard(CwdGuard&&) = delete;
+    CwdGuard& operator=(const CwdGuard&) = delete;
+    CwdGuard& operator=(CwdGuard&&) = delete;
+    ~CwdGuard()
+    {
+      std::error_code ec;
+      fs::current_path(prev, ec);
+    }
+  } const cwd_guard {orig_cwd};
+
+  // Verbose log_level, no filename — the historical regression path.
+  SolverOptions opts;
+  opts.log_level = 3;
+  backend->apply_options(opts);
+
+  CplexTrivialLP2 lp {backend->infinity()};
+  lp.load_into(*backend);
+  backend->initial_solve();
+  REQUIRE(backend->is_proven_optimal());
+
+  // Clone twice — each CPXcloneprob would historically drop a fresh
+  // clone1.log / clone2.log into cwd if CPX_PARAM_CLONELOG were left
+  // at its default.  Re-apply options on the clones so they too have
+  // log_level>0 + no filename.
+  auto cloned1 = backend->clone();
+  cloned1->apply_options(opts);
+  cloned1->initial_solve();
+
+  auto cloned2 = backend->clone();
+  cloned2->apply_options(opts);
+  cloned2->initial_solve();
+
+  CHECK_FALSE(fs::exists(run_dir / "cplex.log"));
+  CHECK_FALSE(fs::exists(run_dir / "clone1.log"));
+  CHECK_FALSE(fs::exists(run_dir / "clone2.log"));
+
+  // Cleanup
+  fs::current_path(orig_cwd);
+  fs::remove_all(run_dir);
+}
+
 // ---------------------------------------------------------------------------
 // B. load_problem cycles the env+lp and replays prep
 // ---------------------------------------------------------------------------
