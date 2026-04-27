@@ -267,13 +267,19 @@ def test_writer_emits_flow_right_and_parquet(tmp_path: Path) -> None:
     table = pq.read_table(parquet_file)
     cols = table.column_names
     uid_col = f"uid:{_FLOW_RIGHT_UID_START}"
-    assert cols == ["block", uid_col, "stage"]
+    # FlowRight.discharge is STBRealFieldSched (Scenario × sTage × Block);
+    # the writer mirrors Flow/discharge.parquet by emitting a ``scenario``
+    # column in addition to ``block`` / ``stage``.  When no scenarios are
+    # configured on the writer, it falls back to ``[1]``.
+    assert cols == ["scenario", "block", uid_col, "stage"]
     # flow_min = pmin / Rendi = [10/0.5, 20/0.5] = [20, 40]
     flows = table.column(uid_col).to_pylist()
     assert flows == [20.0, 40.0]
 
+    scenarios_out = table.column("scenario").to_pylist()
     blocks_out = table.column("block").to_pylist()
     stages_out = table.column("stage").to_pylist()
+    assert scenarios_out == [1, 1]
     assert blocks_out == [1, 2]
     assert stages_out == [1, 1]
 

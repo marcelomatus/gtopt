@@ -66,6 +66,7 @@ SDDP_OPTION_KEYS: frozenset[str] = frozenset(
         "update_lp_skip",
         "forward_solver_options",
         "forward_max_fallbacks",
+        "forward_fail_stop",
         "backward_solver_options",
         "backward_max_fallbacks",
         "max_async_spread",
