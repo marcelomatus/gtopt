@@ -402,10 +402,14 @@ def test_ror_promotion_drain_on_upper_junction_when_no_spillway(tmp_path: Path):
     assert len(upper_outlets) == 1
     assert upper_outlets[0]["name"].startswith("CentA_gen_")
 
-    # Drain is ON so overflow inflow can escape the reservoir without
-    # being forced through the turbine.
+    # Post-86616b80 rule (junction_writer.py:979):
+    #   drain = gen_waterway is None AND ver_waterway is None
+    # Here gen_waterway exists (CentA → ocean), so the source junction is
+    # NOT a drain.  Overflow handling goes through the daily-cycle
+    # reservoir's emin/emax envelope rather than a free escape valve on
+    # the source junction.
     junctions = {j["name"]: j for j in system["junction_array"]}
-    assert junctions["CentA"].get("drain", False) is True
+    assert junctions["CentA"].get("drain", False) is False
 
 
 def test_ror_promotion_no_bypass_when_plp_spillway_exists(tmp_path: Path):
@@ -456,10 +460,13 @@ def test_ror_promotion_does_not_affect_non_promoted_central(tmp_path: Path):
     assert not [
         w for w in system["waterway_array"] if w["name"].endswith("_ror_bypass")
     ]
-    # CentA was NOT promoted → its junction keeps drain=True per the
-    # original ser_ver=0 logic.
+    # CentA was NOT promoted.  Post-86616b80 the source junction is a
+    # drain only when BOTH gen and ver waterways are absent (see the rule
+    # at junction_writer.py:979).  CentA has a gen waterway (to its
+    # synthetic ocean drain), so drain=False — overflow handling goes
+    # through the explicit `_gen` arc and the synthetic ocean junction.
     junctions = {j["name"]: j for j in system["junction_array"]}
-    assert junctions["CentA"].get("drain", False) is True
+    assert junctions["CentA"].get("drain", False) is False
 
 
 def test_ror_promotion_serie_with_upstream_inflow_uses_drain(tmp_path: Path):
@@ -489,13 +496,17 @@ def test_ror_promotion_serie_with_upstream_inflow_uses_drain(tmp_path: Path):
         w for w in system["waterway_array"] if w["name"].endswith("_ror_bypass")
     ]
 
-    # The Mid → Down generation waterway is the only outlet from Mid's
-    # upper junction.
+    # Mid has gen waterway → Down (real downstream) and ser_ver=0 with
+    # vert_max=0 (no spillway path needed).  The gen arc is the only
+    # outlet from Mid's upper junction.
     mid_outlets = [w for w in system["waterway_array"] if w["junction_a"] == "Mid"]
     assert len(mid_outlets) == 1
     assert mid_outlets[0]["name"].startswith("Mid_gen_")
     assert mid_outlets[0]["junction_b"] == "Down"
 
-    # Drain is ON on Mid so overflow inflow has a physical escape path.
+    # Post-86616b80 rule (junction_writer.py:979): drain is True only
+    # when BOTH gen and ver are absent.  Mid has a gen waterway, so
+    # drain=False — overflow handling is via the daily-cycle reservoir's
+    # emin/emax envelope after RoR promotion, not a free escape valve.
     junctions = {j["name"]: j for j in system["junction_array"]}
-    assert junctions["Mid"].get("drain", False) is True
+    assert junctions["Mid"].get("drain", False) is False
