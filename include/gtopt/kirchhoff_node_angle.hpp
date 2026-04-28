@@ -39,11 +39,44 @@
 namespace gtopt
 {
 class BusLP;
+class LineLP;
 class LinearProblem;
 class ScenarioLP;
 class StageLP;
 class SystemContext;
 }  // namespace gtopt
+
+namespace gtopt::kirchhoff
+{
+
+/// Per-line KVL row emission, dispatched by
+/// `model_options.kirchhoff_mode`:
+///
+///   * `node_angle` (default): forwards to
+///     `kirchhoff::node_angle::add_line_kvl_rows` and returns the
+///     per-block row-index map for the caller (LineLP) to store.
+///   * `cycle_basis`: returns an empty map.  KVL rows in cycle_basis
+///     mode are emitted at the system level by
+///     `kirchhoff::cycle_basis::add_kvl_rows` after every line has
+///     finished creating its flow vars.
+///
+/// Reads per-stage scalars (`reactance`, `voltage`, `tap_ratio`,
+/// `phase_shift_deg`) directly from the `LineLP` via its `param_*`
+/// accessors, so the dispatcher carries no per-line state.
+[[nodiscard]] BIndexHolder<RowIndex> add_line_kvl_rows(
+    SystemContext& sc,
+    const ScenarioLP& scenario,
+    const StageLP& stage,
+    LinearProblem& lp,
+    const LineLP& line,
+    const BusLP& bus_a_lp,
+    const BusLP& bus_b_lp,
+    const BIndexHolder<ColIndex>& fpcols,
+    const BIndexHolder<ColIndex>& fncols,
+    const BIndexHolder<std::vector<ColIndex>>& fpsegcols,
+    const BIndexHolder<std::vector<ColIndex>>& fnsegcols);
+
+}  // namespace gtopt::kirchhoff
 
 namespace gtopt::kirchhoff::node_angle
 {

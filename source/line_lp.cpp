@@ -27,69 +27,59 @@ LineLP::LineLP(const Line& pline, const InputContext& ic)
   SPDLOG_DEBUG("LineLP created: uid={} name='{}'", id().first, id().second);
 }
 
-// ── add_kirchhoff_rows ──────────────────────────────────────────────
-//
-// Thin dispatcher: selects the KVL row-assembly strategy based on
-// `model_options.kirchhoff_mode` and stores the resulting per-block
-// row-index map for output dual emission.  The actual row construction
-// lives in the strategy module — see `kirchhoff_node_angle.cpp` for
-// the B–θ implementation.  The `cycle_basis` strategy is enum-reserved
-// but not yet implemented.
-
-void LineLP::add_kirchhoff_rows(
-    SystemContext& sc,
-    const ScenarioLP& scenario,
-    const StageLP& stage,
-    LinearProblem& lp,
-    const BusLP& bus_a_lp,
-    const BusLP& bus_b_lp,
-    const BIndexHolder<ColIndex>& fpcols,
-    const BIndexHolder<ColIndex>& fncols,
-    const BIndexHolder<std::vector<ColIndex>>& fpsegcols,
-    const BIndexHolder<std::vector<ColIndex>>& fnsegcols)
+namespace
 {
-  const auto mode = sc.options().kirchhoff_mode();
 
-  switch (mode) {
-    case KirchhoffMode::node_angle: {
-      const kirchhoff::node_angle::LineKvlInputs inputs {
-          .line_uid = uid(),
-          .class_name = ClassName.full_name(),
-          .theta_constraint_name = ThetaName,
-          .reactance = sc.stage_reactance(stage, reactance),
-          .voltage = voltage.at(stage.uid()).value_or(1.0),
-          .tap_ratio = tap_ratio.at(stage.uid()).value_or(1.0),
-          .phase_shift_deg = phase_shift_deg.at(stage.uid()).value_or(0.0),
-      };
+// ── Helpers ─────────────────────────────────────────────────────────
+//
+// Pulled out of `LineLP::add_to_lp` to keep that function focused on
+// orchestration.  Tested implicitly via the IEEE benchmark + losses
+// equivalence tests in `test_kirchhoff_modes_ieee.cpp`.
 
-      auto trows = kirchhoff::node_angle::add_line_kvl_rows(sc,
-                                                            scenario,
-                                                            stage,
-                                                            lp,
-                                                            bus_a_lp,
-                                                            bus_b_lp,
-                                                            inputs,
-                                                            fpcols,
-                                                            fncols,
-                                                            fpsegcols,
-                                                            fnsegcols);
-      if (trows.empty()) {
-        return;
-      }
-      const auto st_key = std::tuple {scenario.uid(), stage.uid()};
-      theta_rows[st_key] = std::move(trows);
-      break;
+/// Resolve `LossConfig` for a (scenario, stage).  Bundles loss-mode
+/// resolution + per-stage scalar extraction (lossfactor, R, V, nseg,
+/// allocation) so the caller can hand a single value to
+/// `line_losses::add_block` per block.  When `opt_capacity` is unset
+/// (no expansion) `fmax` is taken from the per-block `tmax_{ab,ba}`
+/// schedule maximum so the loss curve covers the actual flow range.
+[[nodiscard]] line_losses::LossConfig resolve_loss_config(
+    const LineLP& self,
+    const Line& raw_line,
+    const SystemContext& sc,
+    const StageLP& stage,
+    std::span<const BlockLP> blocks,
+    const OptTBRealSched& tmax_ab,
+    const OptTBRealSched& tmax_ba,
+    const std::optional<double>& opt_capacity,
+    bool has_expansion)
+{
+  const auto loss_mode =
+      line_losses::resolve_mode(raw_line, sc.options(), has_expansion);
+
+  const auto lf = self.param_lossfactor(stage.uid()).value_or(0.0);
+  const auto R = self.param_resistance(stage.uid()).value_or(0.0);
+  const auto V = self.param_voltage(stage.uid()).value_or(0.0);
+  const int nseg = std::max(
+      1, raw_line.loss_segments.value_or(sc.options().loss_segments()));
+
+  double fmax = 0.0;
+  if (opt_capacity) {
+    fmax = std::max(*opt_capacity, 0.0);
+  } else {
+    for (const auto& block : blocks) {
+      const auto buid = block.uid();
+      const double tab = tmax_ab.at(stage.uid(), buid).value_or(0.0);
+      const double tba = tmax_ba.at(stage.uid(), buid).value_or(0.0);
+      fmax = std::max({fmax, tab, tba});
     }
-    case KirchhoffMode::cycle_basis:
-      // Loop-flow formulation: KVL rows are emitted at the system
-      // level by `kirchhoff::cycle_basis::add_kvl_rows` after every
-      // line has finished creating its flow vars.  Per-line dispatch
-      // is therefore a no-op here — the line's flow cols (fpcols,
-      // fncols, fpsegcols, fnsegcols) are persisted on `LineLP`
-      // so the post-pass can read them across all lines together.
-      break;
   }
+
+  const auto allocation = raw_line.loss_allocation_mode_enum();
+  return line_losses::make_config(
+      loss_mode, raw_line, allocation, lf, R, V, nseg, fmax);
 }
+
+}  // namespace
 
 // ── add_to_lp ───────────────────────────────────────────────────────
 
@@ -143,35 +133,21 @@ bool LineLP::add_to_lp(SystemContext& sc,
   const double stage_capacity = opt_capacity.value_or(LinearProblem::DblMax);
   const auto stage_tcost = tcost.at(stage.uid()).value_or(0.0);
 
-  // ── Resolve loss mode via the modular engine ──────────────────────
-  const bool has_expansion = capacity_col.has_value();
-  const auto loss_mode =
-      line_losses::resolve_mode(line(), sc.options(), has_expansion);
+  const auto loss_config =
+      resolve_loss_config(*this,
+                          line(),
+                          sc,
+                          stage,
+                          blocks,
+                          tmax_ab,
+                          tmax_ba,
+                          opt_capacity,
+                          /*has_expansion=*/capacity_col.has_value());
 
-  const auto lf = lossfactor.at(stage.uid()).value_or(0.0);
-  const auto R = resistance.at(stage.uid()).value_or(0.0);
-  const auto V = voltage.at(stage.uid()).value_or(0.0);
-  const int nseg =
-      std::max(1, line().loss_segments.value_or(sc.options().loss_segments()));
-  // Use finite opt_capacity for fmax; when no capacity is defined
-  // (opt_capacity is nullopt), fall back to the scheduled tmax values
-  // (actual flow limits).
-  double fmax = 0.0;
-  if (opt_capacity) {
-    fmax = std::max(*opt_capacity, 0.0);
-  } else {
-    for (const auto& block : blocks) {
-      const auto buid = block.uid();
-      const double tab = tmax_ab.at(stage.uid(), buid).value_or(0.0);
-      const double tba = tmax_ba.at(stage.uid(), buid).value_or(0.0);
-      fmax = std::max({fmax, tab, tba});
-    }
-  }
-  const auto allocation = line().loss_allocation_mode_enum();
-
-  const auto loss_config = line_losses::make_config(
-      loss_mode, line(), allocation, lf, R, V, nseg, fmax);
-
+  // Per-block flow / capacity / loss / segment col maps assembled
+  // here; moved into the persistent `STBIndexHolder` members at the
+  // end so the cycle_basis post-pass and the AMPL resolver can read
+  // them across scenarios and stages.
   BIndexHolder<ColIndex> fpcols;
   BIndexHolder<RowIndex> cprows;
   BIndexHolder<ColIndex> fncols;
@@ -208,45 +184,31 @@ bool LineLP::add_to_lp(SystemContext& sc,
                                          capacity_col,
                                          uid());
 
-    if (result.fp_col) {
-      fpcols[buid] = *result.fp_col;
-    }
-    if (result.fn_col) {
-      fncols[buid] = *result.fn_col;
-    }
-    if (result.lossp_col) {
-      lpcols[buid] = *result.lossp_col;
-    }
-    if (result.lossn_col) {
-      lncols[buid] = *result.lossn_col;
-    }
-    if (result.capp_row) {
-      cprows[buid] = *result.capp_row;
-    }
-    if (result.capn_row) {
-      cnrows[buid] = *result.capn_row;
-    }
-    if (!result.seg_p_cols.empty()) {
-      fpsegcols[buid] = std::move(result.seg_p_cols);
-    }
-    if (!result.seg_n_cols.empty()) {
-      fnsegcols[buid] = std::move(result.seg_n_cols);
-    }
+    // Compress the eight near-identical "if present, store" clauses.
+    const auto store_opt = [&](auto& dst, const auto& src)
+    {
+      if (src)
+        dst[buid] = *src;
+    };
+    const auto store_vec = [&](auto& dst, auto&& src)
+    {
+      if (!src.empty())
+        dst[buid] = std::move(src);
+    };
+    store_opt(fpcols, result.fp_col);
+    store_opt(fncols, result.fn_col);
+    store_opt(lpcols, result.lossp_col);
+    store_opt(lncols, result.lossn_col);
+    store_opt(cprows, result.capp_row);
+    store_opt(cnrows, result.capn_row);
+    store_vec(fpsegcols, result.seg_p_cols);
+    store_vec(fnsegcols, result.seg_n_cols);
   }
 
-  // ── Kirchhoff (DC OPF) constraints ────────────────────────────────
-  add_kirchhoff_rows(sc,
-                     scenario,
-                     stage,
-                     lp,
-                     bus_a_lp,
-                     bus_b_lp,
-                     fpcols,
-                     fncols,
-                     fpsegcols,
-                     fnsegcols);
-
-  // Store all indices for this (scenario, stage)
+  // Store all indices for this (scenario, stage) BEFORE emitting KVL
+  // rows — the cycle_basis dispatcher reads `flowp_*` / `flown_*` /
+  // `*_seg_cols` via the LineLP accessors when it runs at the system
+  // level, so the persistent state must be in place by then.
   const auto st_key = std::tuple {scenario.uid(), stage.uid()};
   capacityp_rows[st_key] = std::move(cprows);
   capacityn_rows[st_key] = std::move(cnrows);
@@ -254,35 +216,47 @@ bool LineLP::add_to_lp(SystemContext& sc,
   flown_cols[st_key] = std::move(fncols);
   lossp_cols[st_key] = std::move(lpcols);
   lossn_cols[st_key] = std::move(lncols);
-  // Per-direction segment cols (only populated by `piecewise_direct`
-  // line-loss mode).  Persisted so the system-level
-  // `kirchhoff::cycle_basis::add_kvl_rows` pass can stamp them
-  // directly into per-cycle KVL rows after every line has finished
-  // creating its flow vars.
   flowp_seg_cols[st_key] = std::move(fpsegcols);
   flown_seg_cols[st_key] = std::move(fnsegcols);
 
-  // Register PAMPL-visible columns.
-  if (!flowp_cols.at(st_key).empty()) {
-    sc.add_ampl_variable(
-        ampl_name, uid(), FlowpName, scenario, stage, flowp_cols.at(st_key));
+  // ── Kirchhoff KVL rows ────────────────────────────────────────────
+  // Dispatch by `kirchhoff_mode`:
+  //   * node_angle: emits one KVL row per block here, returns a
+  //     per-block `RowIndex` map.
+  //   * cycle_basis: returns empty; KVL rows are emitted at the
+  //     system level by `kirchhoff::cycle_basis::add_kvl_rows`
+  //     after every line has finished creating its flow vars.
+  auto trows = kirchhoff::add_line_kvl_rows(sc,
+                                            scenario,
+                                            stage,
+                                            lp,
+                                            *this,
+                                            bus_a_lp,
+                                            bus_b_lp,
+                                            flowp_cols.at(st_key),
+                                            flown_cols.at(st_key),
+                                            flowp_seg_cols.at(st_key),
+                                            flown_seg_cols.at(st_key));
+  if (!trows.empty()) {
+    theta_rows[st_key] = std::move(trows);
   }
-  if (!flown_cols.at(st_key).empty()) {
-    sc.add_ampl_variable(
-        ampl_name, uid(), FlownName, scenario, stage, flown_cols.at(st_key));
-  }
-  if (!lossp_cols.at(st_key).empty()) {
-    sc.add_ampl_variable(
-        ampl_name, uid(), LosspName, scenario, stage, lossp_cols.at(st_key));
-  }
-  if (!lossn_cols.at(st_key).empty()) {
-    sc.add_ampl_variable(
-        ampl_name, uid(), LossnName, scenario, stage, lossn_cols.at(st_key));
-  }
+
+  // ── Register PAMPL-visible columns ────────────────────────────────
   // `capainst` is registered centrally by CapacityBase::add_to_lp.
   // The `line.flow` compound (+1·flowp − 1·flown) is registered once
   // per SimulationLP by `system_lp.cpp::register_all_ampl_element_names`
   // (called via std::call_once from the SystemLP constructor).
+  const auto register_if_present = [&](std::string_view name, const auto& cols)
+  {
+    const auto& m = cols.at(st_key);
+    if (!m.empty()) {
+      sc.add_ampl_variable(ampl_name, uid(), name, scenario, stage, m);
+    }
+  };
+  register_if_present(FlowpName, flowp_cols);
+  register_if_present(FlownName, flown_cols);
+  register_if_present(LosspName, lossp_cols);
+  register_if_present(LossnName, lossn_cols);
 
   return true;
 }
@@ -310,10 +284,11 @@ bool LineLP::add_to_output(OutputContext& out) const
   out.add_row_dual(cname, CapacitypName, pid, capacityp_rows);
   out.add_row_dual(cname, CapacitynName, pid, capacityn_rows);
 
-  // Kirchhoff rows are now written in their natural form (no manual
-  // pre-scaling), so duals come out in physical units directly and no
-  // post-hoc back-scale is needed. Row-max equilibration is handled by
-  // the LP layer, which auto-unscales duals.
+  // Kirchhoff rows are emitted in their natural form (no manual pre-
+  // scaling), so duals come out in physical units directly and no
+  // post-hoc back-scale is needed.  Row-max equilibration is handled
+  // by the LP layer, which auto-unscales duals.  In `cycle_basis`
+  // mode `theta_rows` is empty (no per-line KVL), so this is a no-op.
   out.add_row_dual(cname, ThetaName, pid, theta_rows);
 
   return CapacityBase::add_to_output(out);

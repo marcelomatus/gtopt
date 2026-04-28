@@ -61,16 +61,22 @@ auto BusLP::lazy_add_theta(const SystemContext& sc,
                                   .context = ctx,
                               });
                             } else [[likely]] {
-                              // Default bound ±2π accommodates test cases and
-                              // unnormalized per-unit data where effective X
-                              // is large relative to the flow magnitude.
-                              // Note: variable bounds do not enter the basis
-                              // condition number directly, so tightening this
-                              // does not meaningfully help kappa — the LP
-                              // coefficients in the Kirchhoff row are what
-                              // matter (see scale_theta / auto_scale_theta).
-                              constexpr double theta_bound =
-                                  2 * std::numbers::pi;
+                              // Adaptive theta bound = Σ_l (tmax_l ·
+                              // x_τ_l) computed at planning-options
+                              // build time by `auto_scale_theta` and
+                              // stored on `model_options.theta_max`.
+                              // Falls back to `2π` (`default_theta_max`)
+                              // only when `auto_scale=false`.  This
+                              // bound never artificially caps line
+                              // flows below `tmax` — replaces the old
+                              // hardcoded `±2π` which silently capped
+                              // flow at `2π / x_τ` on networks with
+                              // large reactance · capacity products
+                              // (e.g. IEEE 9-bus, where the ±2π bound
+                              // dropped the optimum from $7K to $55K
+                              // by forcing artificial load-shedding).
+                              const double theta_bound =
+                                  sc.options().theta_max();
                               tblocks[buid] = lp.add_col(SparseCol {
                                   .lowb = -theta_bound,
                                   .uppb = +theta_bound,
