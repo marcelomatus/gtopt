@@ -701,14 +701,14 @@ TEST_CASE("ReservoirDischargeLimitLP - binding discharge limit")
   auto res1 = sys1.linear_interface().resolve();
   REQUIRE(res1.has_value());
   CHECK(res1.value() == 0);
-  const auto obj_ddl = sys1.linear_interface().get_obj_value();
+  const auto obj_ddl = sys1.linear_interface().get_obj_value_raw();
 
   SimulationLP sim2(simulation, options);
   SystemLP sys2(system_no, sim2);
   auto res2 = sys2.linear_interface().resolve();
   REQUIRE(res2.has_value());
   CHECK(res2.value() == 0);
-  const auto obj_no = sys2.linear_interface().get_obj_value();
+  const auto obj_no = sys2.linear_interface().get_obj_value_raw();
 
   // With the DDL limiting flow to 50 m³/s, the hydro generation is capped
   // and more expensive thermal is needed → higher objective
@@ -1242,7 +1242,7 @@ TEST_CASE("ReservoirDischargeLimitLP - add_to_output via write_out")  // NOLINT
 
   // Objective should be non-negative: demand=80 MW served by a mix of
   // cheap hydro (gcost=5) and expensive thermal (gcost=100).
-  CHECK(lp.get_obj_value() >= 0.0);
+  CHECK(lp.get_obj_value_raw() >= 0.0);
 
   // Verify the hydro generator's generation col has a non-negative value.
   // With production_factor=1 and the DDL limiting discharge, the hydro

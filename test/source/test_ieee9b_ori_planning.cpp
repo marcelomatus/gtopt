@@ -139,7 +139,7 @@ TEST_CASE("IEEE 9-bus original - solution correctness")
   SUBCASE("objective value")
   {
     // Obj (scaled) ≈ 55.184 (includes generation cost + fail cost)
-    CHECK(lp_interface.get_obj_value()
+    CHECK(lp_interface.get_obj_value_raw()
           == doctest::Approx(55.184).epsilon(1e-2));
   }
 

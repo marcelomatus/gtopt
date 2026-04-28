@@ -509,3 +509,139 @@ TEST_CASE("OSI/CLP backend: parallel create+load+clone is race-free")  // NOLINT
   CHECK(ok.load() == num_threads);
   CHECK(bad.load() == 0);
 }
+
+// ────────────────────────────────────────────────────────────────────
+// engage_robust_solve / disengage_robust_solve are declared on the OSI
+// backend in osi_solver_backend.hpp.  Until 2026-04-27 the definitions
+// were missing, so any caller that loaded the .so via dlopen and tried
+// to escalate (RobustSolveGuard from sddp_iteration.cpp) would crash
+// with an unresolved-symbol abort at runtime.  These tests pin the
+// current behaviour: both methods exist, are no-throw, and survive a
+// solve / re-solve cycle.
+// ────────────────────────────────────────────────────────────────────
+
+namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
+{
+
+/// Build a trivial feasible 1-var LP onto the backend so engage/resolve
+/// have something concrete to operate on.
+void load_trivial_feasible_lp(SolverBackend& backend)
+{
+  constexpr int ncols = 1;
+  constexpr int nrows = 1;
+  std::array<int, 2> matbeg {0, 1};
+  std::array<int, 1> matind {0};
+  std::array<double, 1> matval {1.0};
+  std::array<double, 1> collb {0.0};
+  std::array<double, 1> colub {10.0};
+  std::array<double, 1> obj {1.0};
+  std::array<double, 1> rowlb {3.0};
+  std::array<double, 1> rowub {backend.infinity()};
+  backend.load_problem(ncols,
+                       nrows,
+                       matbeg.data(),
+                       matind.data(),
+                       matval.data(),
+                       collb.data(),
+                       colub.data(),
+                       obj.data(),
+                       rowlb.data(),
+                       rowub.data());
+}
+
+}  // namespace
+
+TEST_CASE("OSI/CLP engage_robust_solve is a defined symbol")  // NOLINT
+{
+  auto backend = make_osi_clp_or_skip();
+  if (!backend) {
+    return;
+  }
+  load_trivial_feasible_lp(*backend);
+
+  // Pre-fix this dlopen would resolve the symbol to nullptr and abort.
+  // Post-fix the call must just run.  The contract makes no observable
+  // promise beyond no-throw so the assertion is on the no-throw side.
+  bool threw = false;
+  try {
+    backend->engage_robust_solve();
+  } catch (...) {
+    threw = true;
+  }
+  CHECK_FALSE(threw);
+  // disengage MUST be noexcept by contract.
+  backend->disengage_robust_solve();
+  CHECK(true);
+}
+
+TEST_CASE(  // NOLINT
+    "OSI/CLP engage→resolve→disengage round-trip preserves optimality")
+{
+  auto backend = make_osi_clp_or_skip();
+  if (!backend) {
+    return;
+  }
+  load_trivial_feasible_lp(*backend);
+
+  backend->initial_solve();
+  REQUIRE(backend->is_proven_optimal());
+  const double pre_obj = backend->obj_value();
+
+  backend->engage_robust_solve();
+  backend->resolve();
+  CHECK(backend->is_proven_optimal());
+  backend->disengage_robust_solve();
+
+  // After restore, an extra resolve still finds the same optimum: the
+  // restored tolerances and presolve hints did not corrupt the LP.
+  backend->resolve();
+  CHECK(backend->is_proven_optimal());
+  const double post_obj = backend->obj_value();
+  CHECK(post_obj == doctest::Approx(pre_obj).epsilon(1e-6));
+}
+
+TEST_CASE(  // NOLINT
+    "OSI/CLP engage_robust_solve compounds without throwing")
+{
+  auto backend = make_osi_clp_or_skip();
+  if (!backend) {
+    return;
+  }
+  load_trivial_feasible_lp(*backend);
+
+  // Three successive engages — each multiplies tolerances ×10 and
+  // clamps at 1e-1.  The implementation must stay no-throw on every
+  // call (clamp avoids exceeding the OSI maximum).
+  bool threw = false;
+  try {
+    backend->engage_robust_solve();
+    backend->engage_robust_solve();
+    backend->engage_robust_solve();
+  } catch (...) {
+    threw = true;
+  }
+  CHECK_FALSE(threw);
+
+  // disengage restores the *original* state from the very first
+  // snapshot — not the last engaged state — so we can engage again
+  // afterwards and the snapshot is regenerated cleanly.
+  backend->disengage_robust_solve();
+  backend->engage_robust_solve();
+  backend->disengage_robust_solve();
+  CHECK(true);
+}
+
+TEST_CASE(  // NOLINT
+    "OSI/CLP disengage_robust_solve without prior engage is a no-op")
+{
+  auto backend = make_osi_clp_or_skip();
+  if (!backend) {
+    return;
+  }
+  // Contract: disengage is noexcept *and* a no-op when never engaged
+  // (so destructors of RobustSolveGuard on a moved-from backend stay
+  // safe).  Calling twice in a row must also be safe.
+  backend->disengage_robust_solve();
+  backend->disengage_robust_solve();
+  CHECK(true);
+}

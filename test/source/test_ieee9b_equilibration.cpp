@@ -126,7 +126,7 @@ auto solve_ieee9b_eq(gtopt::LpEquilibrationMethod method,
   auto&& systems = planning_lp.systems();
   if (!systems.empty() && !systems.front().empty()) {
     const auto& li = systems.front().front().linear_interface();
-    res.obj_value = li.get_obj_value();
+    res.obj_value = li.get_obj_value_raw();
   }
 
   // Write output files.

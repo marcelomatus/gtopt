@@ -476,6 +476,78 @@ void OsiSolverBackend::resolve()
   m_solver_->resolve();
 }
 
+void OsiSolverBackend::engage_robust_solve()
+{
+  if (m_solver_ == nullptr) {
+    return;
+  }
+
+  if (!m_saved_robust_state_.has_value()) {
+    RobustState saved {};
+    double dt = 1e-7;
+    double pt = 1e-7;
+    m_solver_->getDblParam(OsiDualTolerance, dt);
+    m_solver_->getDblParam(OsiPrimalTolerance, pt);
+    saved.dual_tolerance = dt;
+    saved.primal_tolerance = pt;
+    saved.presolve_passes = m_presolve_ ? 1 : 0;
+    saved.engage_count = 0;
+    m_saved_robust_state_ = saved;
+  }
+  ++m_saved_robust_state_->engage_count;
+
+  // Compound the loosening — read live values, multiply by 10, clamp to
+  // 1e-1 (CLP rejects tolerances above this).
+  constexpr double k_max_tol = 1e-1;
+  double cur_dt = m_saved_robust_state_->dual_tolerance;
+  double cur_pt = m_saved_robust_state_->primal_tolerance;
+  m_solver_->getDblParam(OsiDualTolerance, cur_dt);
+  m_solver_->getDblParam(OsiPrimalTolerance, cur_pt);
+
+  m_solver_->setDblParam(OsiDualTolerance, std::min(cur_dt * 10.0, k_max_tol));
+  m_solver_->setDblParam(OsiPrimalTolerance,
+                         std::min(cur_pt * 10.0, k_max_tol));
+
+  // Force presolve on — CLP's closest analogue to CPLEX REPEATPRESOLVE.
+  m_solver_->setHintParam(OsiDoPresolveInInitial, true, OsiHintDo);
+  m_solver_->setHintParam(OsiDoPresolveInResolve, true, OsiHintDo);
+
+  // CLP-specific: switch to dual simplex with cranked-up iteration cap
+  // to give the resolve more chances to recover from degeneracy.
+  if (auto* clp = as_clp(m_solver_.get(), m_type_); clp != nullptr) {
+    if (auto* clp_model = clp->getModelPtr(); clp_model != nullptr) {
+      clp_model->scaling(2);  // geometric — more aggressive than auto
+    }
+  }
+}
+
+void OsiSolverBackend::disengage_robust_solve() noexcept
+{
+  if (!m_saved_robust_state_.has_value()) {
+    return;
+  }
+  if (m_solver_ == nullptr) {
+    m_saved_robust_state_.reset();
+    return;
+  }
+
+  // OSI's setHintParam can throw CoinError on invalid hint strength; wrap
+  // every call so the noexcept contract is honoured even if a backend
+  // rejects a setting on restore.
+  try {
+    const auto& s = *m_saved_robust_state_;
+    m_solver_->setDblParam(OsiDualTolerance, s.dual_tolerance);
+    m_solver_->setDblParam(OsiPrimalTolerance, s.primal_tolerance);
+    m_solver_->setHintParam(
+        OsiDoPresolveInInitial, s.presolve_passes > 0, OsiHintDo);
+    m_solver_->setHintParam(
+        OsiDoPresolveInResolve, s.presolve_passes > 0, OsiHintDo);
+  } catch (...) {  // NOLINT(bugprone-empty-catch)
+    // Best-effort restore — swallow exceptions to keep noexcept.
+  }
+  m_saved_robust_state_.reset();
+}
+
 bool OsiSolverBackend::is_proven_optimal() const
 {
   return m_solver_->isProvenOptimal();

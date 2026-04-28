@@ -316,7 +316,7 @@ TEST_CASE(  // NOLINT
     for (const auto& sys : phase_systems) {
       const auto& li = sys.linear_interface();
       if (li.is_optimal()) {
-        total_obj_before += li.get_obj_value_physical();
+        total_obj_before += li.get_obj_value();
         ++optimal_cells;
       }
     }
@@ -332,7 +332,7 @@ TEST_CASE(  // NOLINT
     for (const auto& sys : phase_systems) {
       const auto& li = sys.linear_interface();
       if (li.is_optimal()) {
-        total_obj_after += li.get_obj_value_physical();
+        total_obj_after += li.get_obj_value();
         ++optimal_after;
       }
     }

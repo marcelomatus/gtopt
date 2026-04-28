@@ -116,7 +116,7 @@ TEST_CASE(  // NOLINT
     const auto& li = systems.front().front().linear_interface();
 
     // Physical objective should be invariant of scale_theta
-    const double obj = li.get_obj_value() * 1000.0;  // undo scale_objective
+    const double obj = li.get_obj_value_raw() * 1000.0;  // undo scale_objective
     CHECK(obj == doctest::Approx(5000.0).epsilon(1e-3));
   }
 }
@@ -277,7 +277,7 @@ TEST_CASE(  // NOLINT
     REQUIRE(!systems.empty());
     REQUIRE(!systems.front().empty());
     const auto& li = systems.front().front().linear_interface();
-    const double obj = li.get_obj_value() * 1000.0;  // undo scale_objective
+    const double obj = li.get_obj_value_raw() * 1000.0;  // undo scale_objective
 
     if (es == 1.0) {
       obj_1 = obj;
@@ -356,7 +356,7 @@ TEST_CASE(  // NOLINT
 
     auto&& systems = planning_lp.systems();
     const auto& li = systems.front().front().linear_interface();
-    const double physical_cost = li.get_obj_value() * so;
+    const double physical_cost = li.get_obj_value_raw() * so;
 
     CHECK(physical_cost == doctest::Approx(expected).epsilon(1e-2));
   }
@@ -444,7 +444,7 @@ TEST_CASE(  // NOLINT
 
     auto&& systems = planning_lp.systems();
     const auto& li = systems.front().front().linear_interface();
-    const double obj = li.get_obj_value() * 1000.0;
+    const double obj = li.get_obj_value_raw() * 1000.0;
 
     if (es == 1.0) {
       obj_1 = obj;
@@ -547,7 +547,7 @@ TEST_CASE(  // NOLINT
 
     auto&& systems = planning_lp.systems();
     const auto& li = systems.front().front().linear_interface();
-    const double obj = li.get_obj_value() * 1000.0;
+    const double obj = li.get_obj_value_raw() * 1000.0;
 
     if (es == 1.0) {
       obj_1 = obj;
@@ -625,7 +625,7 @@ TEST_CASE(  // NOLINT
       // Physical cost = 80*20 + 20*500 = 11600 (discount=0.9 for 1 stage)
       auto&& systems = planning_lp.systems();
       const auto& li = systems.front().front().linear_interface();
-      const double lp_obj = li.get_obj_value();
+      const double lp_obj = li.get_obj_value_raw();
 
       // LP obj must be positive and finite
       CHECK(lp_obj > 0.0);
@@ -714,7 +714,7 @@ TEST_CASE(  // NOLINT
 
       auto&& systems = planning_lp.systems();
       const auto& li = systems.front().front().linear_interface();
-      const double physical_cost = li.get_obj_value() * so;
+      const double physical_cost = li.get_obj_value_raw() * so;
 
       CHECK(physical_cost == doctest::Approx(expected).epsilon(1e-2));
     }
@@ -818,8 +818,8 @@ TEST_CASE(  // NOLINT
   const auto& li = systems.front().front().linear_interface();
 
   // LP should have a positive, finite objective
-  CHECK(li.get_obj_value() > 0.0);
-  CHECK(std::isfinite(li.get_obj_value()));
+  CHECK(li.get_obj_value_raw() > 0.0);
+  CHECK(std::isfinite(li.get_obj_value_raw()));
 }
 
 }  // namespace

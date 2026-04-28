@@ -1010,13 +1010,22 @@ class TestGtoptEndToEnd:
         assert rc == 0, f"gtopt crashed: {stderr}"
         out = tmp_path / "case" / "output"
 
-        gen_path = out / "Generator" / "generation_sol.csv"
-        load_path = out / "Demand" / "load_sol.csv"
-        if not gen_path.exists() or not load_path.exists():
-            pytest.skip("generation_sol or load_sol not produced")
+        # Output writer emits per-(scene,phase) files such as
+        # ``generation_sol_s0_p0.csv``; pick the first one (this case has
+        # exactly one scene × one phase).
+        gen_csvs = sorted((out / "Generator").glob("generation_sol*.csv"))
+        load_csvs = sorted((out / "Demand").glob("load_sol*.csv"))
+        assert gen_csvs, (
+            f"Generator/generation_sol*.csv not found; "
+            f"contents: {[p.name for p in (out / 'Generator').iterdir()]}"
+        )
+        assert load_csvs, (
+            f"Demand/load_sol*.csv not found; "
+            f"contents: {[p.name for p in (out / 'Demand').iterdir()]}"
+        )
 
-        gen_df = pd.read_csv(gen_path)
-        load_df = pd.read_csv(load_path)
+        gen_df = pd.read_csv(gen_csvs[0])
+        load_df = pd.read_csv(load_csvs[0])
 
         uid_gen = [c for c in gen_df.columns if c.startswith("uid:")]
         uid_load = [c for c in load_df.columns if c.startswith("uid:")]
@@ -1039,11 +1048,13 @@ class TestGtoptEndToEnd:
         _, _, rc, stderr = self._run_gtopt(gtopt_bin, tmp_path / "case", _YEAR)
         assert rc == 0, f"gtopt crashed: {stderr}"
         out = tmp_path / "case" / "output"
-        gen_path = out / "Generator" / "generation_sol.csv"
-        if not gen_path.exists():
-            pytest.skip("generation_sol.csv not produced")
+        gen_csvs = sorted((out / "Generator").glob("generation_sol*.csv"))
+        assert gen_csvs, (
+            f"Generator/generation_sol*.csv not found; "
+            f"contents: {[p.name for p in (out / 'Generator').iterdir()]}"
+        )
 
-        gen_df = pd.read_csv(gen_path)
+        gen_df = pd.read_csv(gen_csvs[0])
         uid_gen = [c for c in gen_df.columns if c.startswith("uid:")]
         gen_df["total"] = gen_df[uid_gen].sum(axis=1)
         # Stage 1 = January (summer), Stage 7 = July (winter)

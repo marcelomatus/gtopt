@@ -114,6 +114,13 @@ struct LngTerminal
   OptTRealFieldSched ecost {};  ///< Storage holding cost [$/m³]
   OptReal eini {};  ///< Initial tank level [m³]
   OptReal efin {};  ///< End-of-horizon minimum level [m³]
+  OptReal efin_cost {};  ///< Penalty cost per unit of `efin` shortfall
+                         ///< [$/m³].  When set (and > 0) the hard
+                         ///< ``vol_end >= efin`` row becomes soft:
+                         ///< ``vol_end + slack >= efin`` with the slack
+                         ///< priced at `efin_cost`.  Mirrors the
+                         ///< `Reservoir.efin_cost` mechanism (see
+                         ///< storage_lp.hpp).
 
   // ── Losses ─────────────────────────────────────────────────────────────
   OptTRealFieldSched annual_loss {};  ///< Boil-off gas rate [p.u./year]

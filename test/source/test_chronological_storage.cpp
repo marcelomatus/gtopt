@@ -145,7 +145,7 @@ TEST_CASE("Battery chronological SoC tracking")  // NOLINT
 
   // Just verify the objective is less than pure-generator cost
   // Pure generator: 50 × 80 × 4 = 16000, scaled by 1000 → 16.0
-  const auto obj = li.get_obj_value();
+  const auto obj = li.get_obj_value_raw();
   CHECK(obj <= 16.0);  // battery may reduce cost
   CHECK(obj > 0.0);  // still has cost
 }
@@ -496,7 +496,7 @@ TEST_CASE(  // NOLINT
   // Demand=60 <= g_cheap capacity=100, so g_thermal should stay off.
   // Battery may or may not participate (discharge at $0 is free).
   // Objective should be much less than if g_thermal were used.
-  const auto obj = li.get_obj_value();
+  const auto obj = li.get_obj_value_raw();
   // Pure g_cheap: 10 × 60 × 4 = 2400, scaled → 2.4
   CHECK(obj <= doctest::Approx(2.4));
 }
@@ -619,7 +619,7 @@ TEST_CASE(  // NOLINT
   // With initial_status=1, no startup cost needed.
   // Hydro should dispatch fully for all 4 blocks.
   // Thermal should stay off.
-  const auto obj = li.get_obj_value();
+  const auto obj = li.get_obj_value_raw();
   // Hydro generation: 2 × 50 × 4 = 400, noload: 1 × 4 = 4
   // Total: 404, scaled: 0.404
   // Allow some tolerance for reservoir water cost
@@ -734,7 +734,7 @@ TEST_CASE(  // NOLINT
 
   // Generator at $5/MWh dispatches for demand; battery provides
   // flexibility. Pure gen cost: 5 × 60 × 4 / 1000 = 1.2
-  const auto obj = li.get_obj_value();
+  const auto obj = li.get_obj_value_raw();
   CHECK(obj > 0.0);
   CHECK(obj < 2.0);
 }
@@ -841,7 +841,7 @@ TEST_CASE(  // NOLINT
 
   // Hydro is cheap ($1/MWh) so it dispatches: 1.0 × 40 × 4 / 1000 = 0.16
   // Thermal at $50 should stay off.
-  const auto obj = li.get_obj_value();
+  const auto obj = li.get_obj_value_raw();
   CHECK(obj < 0.5);
 
   // Reservoir volume should decrease (hydro dispatched)

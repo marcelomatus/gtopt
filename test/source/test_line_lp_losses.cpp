@@ -192,7 +192,7 @@ TEST_CASE("LineLP - quadratic losses (piecewise-linear with resistance)")
   // 0.01 MW.  The 3-segment approximation slightly overestimates this.
   // Total gen ≈ 100.01 MW, cost ≈ 1000.1, obj ≈ 1.0001 (scaled by 1000).
   // Bounds are loose to accommodate piecewise approximation error.
-  const auto obj = lp.get_obj_value();
+  const auto obj = lp.get_obj_value_raw();
   CHECK(obj > 1.0);
   CHECK(obj < 1.01);
 }
@@ -396,7 +396,7 @@ TEST_CASE(
 
   // With quadratic losses, objective should be slightly above 1.0
   // (100 MW demand + small loss at gcost=10, scaled by 1000)
-  const auto obj = lp.get_obj_value();
+  const auto obj = lp.get_obj_value_raw();
   CHECK(obj > 1.0);
   CHECK(obj < 1.01);
 }
@@ -503,7 +503,7 @@ TEST_CASE("LineLP - per-line use_line_losses overrides global option")
     CHECK(result.value() == 0);
 
     // Per-line losses enabled: objective > 1.0 (loss overhead)
-    const auto obj = lp.get_obj_value();
+    const auto obj = lp.get_obj_value_raw();
     CHECK(obj > 1.0);
     CHECK(obj < 1.01);
   }
@@ -553,7 +553,7 @@ TEST_CASE("LineLP - per-line use_line_losses overrides global option")
     CHECK(result.value() == 0);
 
     // Per-line losses disabled: objective = exactly 1.0 (no loss overhead)
-    const auto obj = lp.get_obj_value();
+    const auto obj = lp.get_obj_value_raw();
     CHECK(obj == doctest::Approx(1.0));
   }
 }
@@ -687,8 +687,11 @@ TEST_CASE("LineLP - loss allocation mode receiver (default)")  // NOLINT
   CHECK(result.value() == 1);
 
   // Generation should be ~111.1 MW (100 / 0.9)
-  const auto obj =
-      planning_lp.systems().front().front().linear_interface().get_obj_value();
+  const auto obj = planning_lp.systems()
+                       .front()
+                       .front()
+                       .linear_interface()
+                       .get_obj_value_raw();
   CHECK(obj > 0);
 }
 
@@ -788,8 +791,11 @@ TEST_CASE("LineLP - loss allocation mode sender")  // NOLINT
   CHECK(result.value() == 1);
 
   // Generation should be ~111.1 MW (same total loss, different allocation)
-  const auto obj =
-      planning_lp.systems().front().front().linear_interface().get_obj_value();
+  const auto obj = planning_lp.systems()
+                       .front()
+                       .front()
+                       .linear_interface()
+                       .get_obj_value_raw();
   CHECK(obj > 0);
 }
 
@@ -886,8 +892,11 @@ TEST_CASE("LineLP - loss allocation mode split")  // NOLINT
   REQUIRE(result.has_value());
   CHECK(result.value() == 1);
 
-  const auto obj =
-      planning_lp.systems().front().front().linear_interface().get_obj_value();
+  const auto obj = planning_lp.systems()
+                       .front()
+                       .front()
+                       .linear_interface()
+                       .get_obj_value_raw();
   CHECK(obj > 0);
 }
 
@@ -990,19 +999,22 @@ TEST_CASE("LineLP - loss allocation modes affect LMPs but all solve")  // NOLINT
   auto r1 = plp_recv.resolve();
   REQUIRE(r1.has_value());
   const auto obj_recv =
-      plp_recv.systems().front().front().linear_interface().get_obj_value();
+      plp_recv.systems().front().front().linear_interface().get_obj_value_raw();
 
   PlanningLP plp_send(make_planning("sender"));
   auto r2 = plp_send.resolve();
   REQUIRE(r2.has_value());
   const auto obj_send =
-      plp_send.systems().front().front().linear_interface().get_obj_value();
+      plp_send.systems().front().front().linear_interface().get_obj_value_raw();
 
   PlanningLP plp_split(make_planning("split"));
   auto r3 = plp_split.resolve();
   REQUIRE(r3.has_value());
-  const auto obj_split =
-      plp_split.systems().front().front().linear_interface().get_obj_value();
+  const auto obj_split = plp_split.systems()
+                             .front()
+                             .front()
+                             .linear_interface()
+                             .get_obj_value_raw();
 
   // All three should be positive and in the same ballpark
   CHECK(obj_recv > 0);

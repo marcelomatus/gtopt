@@ -398,8 +398,8 @@ TEST_CASE(
 
   // Physical objective must match (both LPs share the same physical
   // model and optimum).
-  CHECK(pre.get_obj_value_physical()
-        == doctest::Approx(post.get_obj_value_physical()).epsilon(1e-9));
+  CHECK(pre.get_obj_value()
+        == doctest::Approx(post.get_obj_value()).epsilon(1e-9));
 }
 
 // ── Solve invariance: the LP optimum must be invariant to scale_objective ──
@@ -470,7 +470,7 @@ TEST_CASE(
     REQUIRE(li.initial_solve({}).has_value());
     REQUIRE(li.is_optimal());
 
-    phys_objs.push_back(li.get_obj_value_physical());
+    phys_objs.push_back(li.get_obj_value());
     c0_phys_sols.push_back(li.get_col_sol()[c0]);
   }
 
@@ -492,7 +492,7 @@ TEST_CASE(
 // aperture / elastic filter paths.  The clone must reproduce the
 // original's primal-dual solution AND the physical objective.
 // Critical state to preserve across clone:
-//   - m_scale_objective_     (so get_obj_value_physical agrees)
+//   - m_scale_objective_     (so get_obj_value agrees)
 //   - m_col_scales_          (so get_col_cost / get_col_sol agree)
 //   - m_row_scales_          (so get_row_dual / get_row_low agree)
 //   - m_equilibration_method_, m_base_numrows_, m_base_numrows_set_
@@ -562,7 +562,7 @@ TEST_CASE(
       REQUIRE(cloned.initial_solve({}).has_value());
       REQUIRE(cloned.is_optimal());
 
-      const double clone_obj_phys = cloned.get_obj_value_physical();
+      const double clone_obj_phys = cloned.get_obj_value();
       const double clone_c0_phys = cloned.get_col_sol()[c0];
       const double clone_c1_phys = cloned.get_col_sol()[c1];
 
@@ -571,7 +571,7 @@ TEST_CASE(
       // optimum required.
       REQUIRE(original.initial_solve({}).has_value());
       REQUIRE(original.is_optimal());
-      const double orig_obj_phys = original.get_obj_value_physical();
+      const double orig_obj_phys = original.get_obj_value();
       const double orig_c0_phys = original.get_col_sol()[c0];
       const double orig_c1_phys = original.get_col_sol()[c1];
 
@@ -697,7 +697,7 @@ TEST_CASE(
   // c0_LP=5000 and obj_LP=5000 → obj_phys = 5000 × 1000 = 5e+6
   // (compared to the correct 5).  This single CHECK pins the entire
   // dimensional consistency of the compose_physical fix.
-  CHECK(li.get_obj_value_physical() == doctest::Approx(5.0).epsilon(1e-9));
+  CHECK(li.get_obj_value() == doctest::Approx(5.0).epsilon(1e-9));
 
   // The physical primal must also be 5 (not 5000).
   const auto sol_phys = li.get_col_sol();
@@ -707,7 +707,7 @@ TEST_CASE(
 // ── Coverage extension: lp_space dispatch path ──────────────────────────────
 //
 // When neither col_scales nor equilibration are active, `add_row(SparseRow)`
-// short-circuits to `add_row_lp_space()` (linear_interface.cpp:964) instead
+// short-circuits to `add_row_raw()` (linear_interface.cpp:964) instead
 // of compose_physical.  The fix's /scale_objective only lives in the
 // compose_physical branch, so this path stores the cut verbatim — which is
 // correct ONLY because col_scale=1 and equilibration=none means physical

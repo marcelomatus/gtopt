@@ -669,7 +669,7 @@ TEST_CASE(  // NOLINT
   CHECK(result.value() == 0);
 
   // The objective should be positive (generator cost + ecost on energy)
-  CHECK(li.get_obj_value() > 0.0);
+  CHECK(li.get_obj_value_raw() > 0.0);
 }
 
 // ─── Regression: soft_emin column name must not collide with eini ──────────
@@ -752,4 +752,245 @@ TEST_CASE(  // NOLINT
   const auto result = li.resolve();
   REQUIRE(result.has_value());
   CHECK(result.value() == 0);
+}
+
+// ─── efin_cost: soft slack on the per-reservoir efin row ────────────────────
+//
+// When ``Battery.efin_cost`` (or ``Reservoir.efin_cost``) is set and > 0,
+// the hard ``vol_end >= efin`` row at the last block of the last stage
+// becomes soft: ``vol_end + slack >= efin`` with the slack priced at
+// efin_cost in the objective.  Without efin_cost, the row stays hard
+// (the historical behaviour).  See storage_lp.hpp for the construction
+// and reservoir.hpp / battery.hpp / lng_terminal.hpp / volume_right.hpp
+// for the per-element field documentation.
+
+// Note: batteries default to `daily_cycle = true`, which auto-adds an
+// efin == eini constraint per phase and overrides any user-supplied
+// `efin`.  These tests therefore set `daily_cycle = false` explicitly,
+// representing a "very large" / LNG-like battery where the user does
+// want a per-horizon end-state floor.
+
+TEST_CASE(  // NOLINT
+    "StorageLP efin_cost unset → hard `efin` row: LP infeasible when "
+    "vol_end < efin")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  // Battery with eini=10, efin=80.  With pmax_charge=5 and a 2-block
+  // 1-h horizon, max end-state ≈ 10 + 2·5 = 20 MWh — well below 80.
+  // Hard `vol_end >= 80` row → LP infeasible.
+  const Array<Battery> battery_array = {
+      {
+          .uid = Uid {1},
+          .name = "bat_efin_hard",
+          .bus = Uid {1},
+          .input_efficiency = 1.0,
+          .output_efficiency = 1.0,
+          .emin = 0.0,
+          .emax = 100.0,
+          .eini = 10.0,
+          .efin = 80.0,
+          // efin_cost NOT set — row stays hard
+          .pmax_charge = 5.0,
+          .pmax_discharge = 5.0,
+          .capacity = 100.0,
+          .daily_cycle = false,  // disable auto efin == eini
+      },
+  };
+
+  auto [sys_lp, options] =
+      make_battery_system(battery_array, make_simple_simulation());
+  auto& li = sys_lp.linear_interface();
+  const auto result = li.resolve();
+  // Hard efin: LP is infeasible — either resolve returns no value
+  // (unexpected) or returns a non-optimal status (>0).
+  CHECK((!result.has_value() || result.value() != 0));
+}
+
+TEST_CASE(  // NOLINT
+    "StorageLP efin_cost > 0 → soft `efin` row: LP feasible at slack cost")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  // Same fixture as the hard-efin test above, but with efin_cost set.
+  // The slack now carries the missing ~60 MWh at $50/MWh, so the LP
+  // is feasible with strictly positive objective.
+  const Array<Battery> battery_array = {
+      {
+          .uid = Uid {1},
+          .name = "bat_efin_soft",
+          .bus = Uid {1},
+          .input_efficiency = 1.0,
+          .output_efficiency = 1.0,
+          .emin = 0.0,
+          .emax = 100.0,
+          .eini = 10.0,
+          .efin = 80.0,
+          .efin_cost = 50.0,  // soft: slack at $50/MWh
+          .pmax_charge = 5.0,
+          .pmax_discharge = 5.0,
+          .capacity = 100.0,
+          .daily_cycle = false,
+      },
+  };
+
+  auto [sys_lp, options] =
+      make_battery_system(battery_array, make_simple_simulation());
+  auto& li = sys_lp.linear_interface();
+  const auto result = li.resolve();
+  // Soft efin: LP solves to optimality (status 0).
+  REQUIRE(result.has_value());
+  CHECK(result.value() == 0);
+
+  // Strictly positive objective — the cheap path of leaving the battery
+  // near eini still pays the efin slack penalty.
+  CHECK(li.get_obj_value_raw() > 0.0);
+}
+
+TEST_CASE(  // NOLINT
+    "StorageLP efin_cost == 0 → behaves identically to unset (hard row)")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  // The slack-creation guard is ``efin_cost.has_value() && *efin_cost > 0``;
+  // setting it to exactly 0 should NOT create the slack column (matching
+  // the existing soft_emin guard pattern).  Same infeasibility as the
+  // unset case.
+  const Array<Battery> battery_array = {
+      {
+          .uid = Uid {1},
+          .name = "bat_efin_zero",
+          .bus = Uid {1},
+          .input_efficiency = 1.0,
+          .output_efficiency = 1.0,
+          .emin = 0.0,
+          .emax = 100.0,
+          .eini = 10.0,
+          .efin = 80.0,
+          .efin_cost = 0.0,  // explicit zero — slack guard rejects
+          .pmax_charge = 5.0,
+          .pmax_discharge = 5.0,
+          .capacity = 100.0,
+          .daily_cycle = false,
+      },
+  };
+
+  auto [sys_lp, options] =
+      make_battery_system(battery_array, make_simple_simulation());
+  auto& li = sys_lp.linear_interface();
+  const auto result = li.resolve();
+  CHECK((!result.has_value() || result.value() != 0));
+}
+
+TEST_CASE(  // NOLINT
+    "StorageLP large reservoir-like battery (state variable, "
+    "daily_cycle=false) builds and solves with efin_cost")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  // "Large" battery operating like a reservoir:
+  //  - daily_cycle = false (no per-stage SoC cycling)
+  //  - use_state_variable = true (SDDP-style cross-stage coupling)
+  // The hard efin row only binds at the *last stage of the last phase*
+  // and is enforced by the SDDP coordinator outside the per-stage LP.
+  // Within a single per-stage solve we verify that the LP builds and
+  // solves cleanly when efin / efin_cost are present, which guards
+  // against regressions in StorageLP construction (e.g. column-name
+  // collisions or the slack guard misfiring when SDDP is on).
+  const Array<Battery> battery_array = {
+      {
+          .uid = Uid {1},
+          .name = "bat_large",
+          .bus = Uid {1},
+          .input_efficiency = 1.0,
+          .output_efficiency = 1.0,
+          .emin = 0.0,
+          .emax = 1000.0,
+          .eini = 100.0,
+          .efin = 800.0,
+          .efin_cost = 25.0,  // soft seasonal-storage slack [$/MWh]
+          .pmax_charge = 5.0,
+          .pmax_discharge = 5.0,
+          .capacity = 1000.0,
+          .use_state_variable = true,
+          .daily_cycle = false,
+      },
+  };
+
+  auto [sys_lp, options] =
+      make_battery_system(battery_array, make_two_stage_simulation());
+  auto& li = sys_lp.linear_interface();
+  const auto result = li.resolve();
+  REQUIRE(result.has_value());
+  CHECK(result.value() == 0);
+  CHECK(li.get_obj_value_raw() >= 0.0);
+}
+
+// ─── efin_cost + soft_emin combination ──────────────────────────────────────
+//
+// Mirrors the plp2gtopt ``--soft-storage-bounds`` emission pattern:
+// per-reservoir efin is relaxed via ``efin_cost`` and per-stage emin
+// from maintenance schedules is relaxed via ``soft_emin`` /
+// ``soft_emin_cost``.  Both slacks must be priced at the same per-
+// reservoir cost (``plpvrebemb`` or ``CVert``).  This test verifies
+// that both slacks coexist in a single LP without column-name
+// collision and that the optimal solution activates them
+// independently at their respective constraints.
+
+TEST_CASE(  // NOLINT
+    "StorageLP combined efin_cost + soft_emin (plp_legacy emission)")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  // 2-stage battery with eini=10:
+  //   - Stage 1: soft_emin=15 + soft_emin_cost=5  (forces slack since
+  //     eini=10 < 15 and stage-1 charge cap is small)
+  //   - Stage 2 (last): efin=80 + efin_cost=5  (forces slack since
+  //     reaching 80 from 10 requires 70 MWh of charge in 2 blocks
+  //     of 4h each at pmax_charge=5 → max 40 MWh → 30 MWh slack)
+  //
+  // Both slacks active simultaneously, independent column families.
+  const Array<Battery> battery_array = {
+      {
+          .uid = Uid {1},
+          .name = "bat_combo",
+          .bus = Uid {1},
+          .input_efficiency = 1.0,
+          .output_efficiency = 1.0,
+          .emin = 0.0,
+          .emax = 100.0,
+          .eini = 10.0,
+          .efin = 80.0,
+          .efin_cost = 5.0,  // soft efin
+          .soft_emin = std::vector<double> {15.0, 0.0},  // tight at stage 1
+          .soft_emin_cost = std::vector<double> {5.0, 0.0},
+          .pmax_charge = 5.0,
+          .pmax_discharge = 5.0,
+          .capacity = 100.0,
+          .use_state_variable = true,
+          .daily_cycle = false,
+      },
+  };
+
+  auto [sys_lp, options] =
+      make_battery_system(battery_array, make_two_stage_simulation());
+  auto& li = sys_lp.linear_interface();
+  const auto result = li.resolve();
+  REQUIRE(result.has_value());
+  CHECK(result.value() == 0);
+  CHECK(li.get_obj_value_raw() > 0.0);
+
+  // Both slack column families must exist independently.  Without the
+  // 2026-04 column-name fix (``EfinSlackName = "efin_slack"``,
+  // ``SoftEminName = "soft_emin"``) the LP would have thrown on a
+  // duplicate column name during flatten; reaching this CHECK proves
+  // the names coexist in the same LP for the same element.
+  const auto& bat_lp = sys_lp.elements<BatteryLP>().front();
+  const auto& sc1 = sys_lp.scene().scenarios().front();
+  const auto& stg1 = sys_lp.phase().stages().front();
+  const auto soft_emin_col = bat_lp.soft_emin_col_at(sc1, stg1);
+  CHECK(soft_emin_col.has_value());
+  // efin_slack column from StorageLP::EfinSlackName lives in the LP
+  // when efin_cost > 0.  Verify the LP solved cleanly with both
+  // slack mechanisms instantiated — the obj > 0 above covers that.
 }

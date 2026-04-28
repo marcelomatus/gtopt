@@ -381,7 +381,7 @@ auto solve_apertures_for_phase(
           auto cut = build_benders_cut_physical(src_alpha_col,
                                                 src_state.outgoing_links,
                                                 clone,
-                                                clone.get_obj_value_physical(),
+                                                clone.get_obj_value(),
                                                 cut_coeff_eps);
           cut.class_name = sddp_alpha_class_name;
           cut.constraint_name = sddp_aperture_cut_constraint_name;

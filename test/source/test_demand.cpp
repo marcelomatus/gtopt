@@ -1047,7 +1047,7 @@ TEST_CASE("DemandLP - forced demand fixes load at lmax")
 
     // Load is fixed at 100 MW, generation = 100 MW.
     // cost = gcost × load × duration = 50 × 100 × (1+2) = 15000
-    const auto obj = lp.get_obj_value_physical();
+    const auto obj = lp.get_obj_value();
     CHECK(obj == doctest::Approx(15000.0));
 
     // No fail columns: with forced demand, only load + generation columns
@@ -1123,7 +1123,7 @@ TEST_CASE("DemandLP - forced demand fixes load at lmax")
 
     // With demand_fail_cost=1000 > gcost=50, optimizer serves full demand.
     // Same result as forced, but via incentive rather than constraint.
-    const auto obj = lp.get_obj_value_physical();
+    const auto obj = lp.get_obj_value();
     CHECK(obj == doctest::Approx(15000.0));
   }
 
@@ -1156,7 +1156,7 @@ TEST_CASE("DemandLP - forced demand fixes load at lmax")
     CHECK(result.value() == 0);
 
     // Zero cost: no generation needed since demand is not served
-    const auto obj = lp.get_obj_value_physical();
+    const auto obj = lp.get_obj_value();
     CHECK(obj == doctest::Approx(0.0));
   }
 }

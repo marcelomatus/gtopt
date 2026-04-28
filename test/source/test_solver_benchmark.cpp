@@ -261,7 +261,7 @@ auto run_benchmark(const std::string& solver_name,
       .algorithm = std::string(enum_name(algo)),
       .threads = threads,
       .solve_time_ms = ms,
-      .obj_value = li.is_optimal() ? li.get_obj_value() : 0.0,
+      .obj_value = li.is_optimal() ? li.get_obj_value_raw() : 0.0,
       .optimal = li.is_optimal(),
   };
 }

@@ -520,6 +520,20 @@ LinearInterface LinearInterface::clone() const
   cloned.m_base_numrows_set_ = m_base_numrows_set_;
   cloned.m_variable_scale_map_ = m_variable_scale_map_;
   cloned.m_log_tag_ = m_log_tag_;
+  // Carry the structural label metadata across so that
+  // ``write_lp`` on the clone can synthesise column/row labels for
+  // post-mortem diagnostics (e.g. SDDP elastic-clone dumps when the
+  // relaxed LP is itself infeasible — see sddp_forward_pass.cpp:641).
+  // Without these, ``generate_labels_from_maps`` throws when the
+  // first inherited column is asked to produce a label.
+  cloned.m_col_labels_meta_ = m_col_labels_meta_;
+  cloned.m_row_labels_meta_ = m_row_labels_meta_;
+  cloned.m_col_meta_index_ = m_col_meta_index_;
+  cloned.m_row_meta_index_ = m_row_meta_index_;
+  cloned.m_col_names_ = m_col_names_;
+  cloned.m_row_names_ = m_row_names_;
+  cloned.m_col_index_to_name_ = m_col_index_to_name_;
+  cloned.m_row_index_to_name_ = m_row_index_to_name_;
   return cloned;
 }
 
@@ -887,13 +901,13 @@ RowIndex LinearInterface::add_row(const SparseRow& row, const double eps)
       is_cut_phase && (have_col_scales || have_equilibration);
 
   if (!compose_physical) {
-    return add_row_lp_space(row, eps);
+    return add_row_raw(row, eps);
   }
 
   // Physical-space cut insertion — operates directly on the flat
   // (columns, elements) representation to avoid building an
   // intermediate `SparseRow` and to keep the scale composition in one
-  // place instead of bouncing through `add_row_lp_space` (which would
+  // place instead of bouncing through `add_row_raw` (which would
   // otherwise re-apply `SparseRow::scale` on top of our already-
   // composed divisor).
   auto [columns, elements] = row.to_flat<int>(eps);
@@ -1016,8 +1030,7 @@ RowIndex LinearInterface::add_row(const SparseRow& row, const double eps)
   return row_idx;
 }
 
-RowIndex LinearInterface::add_row_lp_space(const SparseRow& row,
-                                           const double eps)
+RowIndex LinearInterface::add_row_raw(const SparseRow& row, const double eps)
 {
   // Internal raw-insertion path — called by the public `add_row` after
   // it has (optionally) composed col_scales and row-max equilibration
@@ -1606,7 +1619,7 @@ bool LinearInterface::is_prim_infeasible() const
   return m_backend_->is_proven_primal_infeasible();
 }
 
-double LinearInterface::get_obj_value() const
+double LinearInterface::get_obj_value_raw() const
 {
   if (m_backend_released_) {
     return m_cached_obj_value_;
@@ -1614,9 +1627,9 @@ double LinearInterface::get_obj_value() const
   return m_backend_->obj_value();
 }
 
-double LinearInterface::get_obj_value_physical() const
+double LinearInterface::get_obj_value() const
 {
-  return get_obj_value() * m_scale_objective_;
+  return get_obj_value_raw() * m_scale_objective_;
 }
 
 void LinearInterface::set_col_sol(const std::span<const double> sol)

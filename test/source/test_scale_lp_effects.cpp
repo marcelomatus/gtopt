@@ -105,7 +105,7 @@ auto solve_ieee4b(double scale_obj,
   REQUIRE(!systems.front().empty());
   const auto& li = systems.front().front().linear_interface();
 
-  return {li.get_obj_value(), li.get_kappa().value_or(-1.0)};
+  return {li.get_obj_value_raw(), li.get_kappa().value_or(-1.0)};
 }
 
 // ---------------------------------------------------------------
@@ -159,7 +159,8 @@ TEST_CASE(  // NOLINT
 
     // LP obj should be the same regardless of scale_theta
     constexpr double expected_obj = 250.0 * 20.0 / scale_obj;
-    CHECK(li.get_obj_value() == doctest::Approx(expected_obj).epsilon(1e-4));
+    CHECK(li.get_obj_value_raw()
+          == doctest::Approx(expected_obj).epsilon(1e-4));
 
     // Theta column physical bounds should be ±2π (invariant of scale).
     // Raw LP bounds should be ±2π / scale_theta.

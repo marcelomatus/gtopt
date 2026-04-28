@@ -513,6 +513,55 @@ def add_model_arguments(parser: argparse.ArgumentParser, conf: dict[str, str]) -
         default=float(conf.get("state_fail_cost", "1000.0")),
         help="penalty for state variable deviations in $/MWh (default: %(default)s)",
     )
+    # PLP-faithful soft volume bounds: when enabled (the default), each
+    # reservoir's hard ``efin >=`` row becomes soft via the C++
+    # ``Reservoir.efin_cost`` slack, AND the reservoir-maintenance per-stage
+    # emin is routed through the soft_emin / soft_emin_cost slack mechanism
+    # instead of a hard variable bound.  The slack costs are inherited from
+    # plpvrebemb.dat (per-reservoir Costo de Rebalse) when the reservoir is
+    # in vrebemb, falling back to plpmat.dat ``CVert`` (global), then a
+    # hard 1000 $/hm³ default.  Disable with ``--no-soft-storage-bounds``
+    # for the legacy hard-constraint behaviour.  ``--plp-legacy`` also
+    # enables this flag (PLP itself uses these as soft).
+    _default_ssb = conf.get("soft_storage_bounds")
+    parser.add_argument(
+        "--soft-storage-bounds",
+        dest="soft_storage_bounds",
+        action=argparse.BooleanOptionalAction,
+        default=(
+            _default_ssb.lower() not in ("false", "0", "no")
+            if _default_ssb is not None
+            else True
+        ),
+        help=(
+            "make reservoir efin and maintenance emin soft (slack at "
+            "plpvrebemb / CVert cost) instead of hard constraints "
+            "(default: %(default)s; --plp-legacy implies True)"
+        ),
+    )
+    # Cap on the per-reservoir spillage cost (``Costo de Rebalse`` from
+    # plpvrebemb.dat / ``CVert`` from plpmat.dat) used as ``efin_cost``
+    # / ``soft_emin_cost`` when ``--soft-storage-bounds`` is on.  PLP
+    # production cases sometimes carry vrebemb costs of 5000 \$/hm³,
+    # which dominates the SDDP objective on iter-0 forward passes and
+    # produces an enormous UB (~10⁹) until enough Benders cuts steer
+    # the trajectory to avoid the slack.  Capping the cost lets the
+    # gap close in fewer iterations at the price of allowing slightly
+    # more spillage in the LP optimum.  The cap is INCLUSIVE — costs
+    # at or below it pass through unchanged.  Set to 0 to disable.
+    _default_vcc = conf.get("vert_cost_cap")
+    parser.add_argument(
+        "--vert-cost-cap",
+        dest="vert_cost_cap",
+        type=float,
+        default=(float(_default_vcc) if _default_vcc is not None else 500.0),
+        help=(
+            "cap (\\$/hm³) for the vrebemb / CVert spillage cost emitted as "
+            "Reservoir.efin_cost / soft_emin_cost (only effective when "
+            "--soft-storage-bounds is on; 0 disables the cap; "
+            "default: %(default)s)"
+        ),
+    )
     parser.add_argument(
         "--reserve-fail-cost",
         dest="reserve_fail_cost",
@@ -627,13 +676,28 @@ def add_model_arguments(parser: argparse.ArgumentParser, conf: dict[str, str]) -
             "the offending reservoirs. (default: emit all)"
         ),
     )
-    parser.add_argument(
+    # ``--pmin-as-flowright`` is ON by default (uses the bundled
+    # whitelist) because PLP-faithful runs need MACHICURA / PANGUE /
+    # PILMAIQUEN / ABANICO / ANTUCO / PALMUCHO routed as FlowRight
+    # discharge obligations to keep ``reservoir_efin >= eini`` rows
+    # feasible at iter-0 of the SDDP cascade (same root cause as the
+    # plp_case_2y aperture regression and the support/juan/IPLP_uninodal
+    # investigation).  Pass ``--no-pmin-as-flowright`` to opt out.
+    _default_pmf = conf.get("pmin_as_flowright")
+    if _default_pmf is None:
+        _default_pmf_value = ""  # use bundled CSV
+    elif _default_pmf.lower() in ("false", "0", "no"):
+        _default_pmf_value = None
+    else:
+        _default_pmf_value = _default_pmf
+    pmf_group = parser.add_mutually_exclusive_group()
+    pmf_group.add_argument(
         "--pmin-as-flowright",
         dest="pmin_as_flowright",
         metavar="PATH_OR_NAMES",
         nargs="?",
         const="",  # sentinel: flag passed without value -> use bundled CSV
-        default=None,
+        default=_default_pmf_value,
         help=(
             "Convert specific hydro generators' must-run pmin into "
             "FlowRight discharge obligations.  The argument is either a "
@@ -643,10 +707,16 @@ def add_model_arguments(parser: argparse.ArgumentParser, conf: dict[str, str]) -
             "whitelist (MACHICURA, PANGUE, PILMAIQUEN, ABANICO, ANTUCO, "
             "PALMUCHO).  Per-stage discharge values are written as "
             "FlowRight/<central>_pmin_as_flow_right.parquet using the "
-            "central's plpmance pmin / Rendi.  When this flag isn't "
-            "passed, no FlowRight conversion happens (default behavior "
-            "unchanged)."
+            "central's plpmance pmin / Rendi.  ON by default; pass "
+            "--no-pmin-as-flowright to disable."
         ),
+    )
+    pmf_group.add_argument(
+        "--no-pmin-as-flowright",
+        dest="pmin_as_flowright",
+        action="store_const",
+        const=None,
+        help="disable the must-run pmin → FlowRight conversion.",
     )
     parser.add_argument(
         "--flow-right-fail-cost",

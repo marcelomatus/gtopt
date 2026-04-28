@@ -376,8 +376,8 @@ TEST_CASE(  // NOLINT
       },
   };
 
-  auto cut = build_benders_cut_physical(
-      alpha_col, links, li, li.get_obj_value_physical());
+  auto cut =
+      build_benders_cut_physical(alpha_col, links, li, li.get_obj_value());
   CHECK(cut.get_coeff(alpha_col) == doctest::Approx(1.0));
   CHECK(cut.lowb > -1e20);
   CHECK(cut.uppb > 1e20);
@@ -942,7 +942,7 @@ TEST_CASE(  // NOLINT
 
   // Backward: build optimality cut and add to phase 0 (physical space).
   auto cut = build_benders_cut_physical(
-      alpha_col, links, phase1, phase1.get_obj_value_physical());
+      alpha_col, links, phase1, phase1.get_obj_value());
   phase0.add_row(cut);
 
   // Re-solve phase 0 with cut

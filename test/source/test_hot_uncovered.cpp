@@ -303,8 +303,11 @@ TEST_CASE("LineLP piecewise mode with sender loss allocation")  // NOLINT
   CHECK(result.value() == 1);
 
   // Verify objective is positive (generator dispatches to meet demand)
-  const auto obj =
-      planning_lp.systems().front().front().linear_interface().get_obj_value();
+  const auto obj = planning_lp.systems()
+                       .front()
+                       .front()
+                       .linear_interface()
+                       .get_obj_value_raw();
   CHECK(obj > 0.0);
 }
 
@@ -386,8 +389,11 @@ TEST_CASE("LineLP bidirectional mode with sender loss allocation")  // NOLINT
   REQUIRE(result.has_value());
   CHECK(result.value() == 1);
 
-  const auto obj =
-      planning_lp.systems().front().front().linear_interface().get_obj_value();
+  const auto obj = planning_lp.systems()
+                       .front()
+                       .front()
+                       .linear_interface()
+                       .get_obj_value_raw();
   CHECK(obj > 0.0);
 }
 
@@ -512,8 +518,11 @@ TEST_CASE("Bare UID column name lookup in Parquet schedule")  // NOLINT
   CHECK(result.value() == 1);
 
   // Verify the generator cost came from the Parquet file (42.0 * 50 MW * 1h)
-  const auto obj =
-      planning_lp.systems().front().front().linear_interface().get_obj_value();
+  const auto obj = planning_lp.systems()
+                       .front()
+                       .front()
+                       .linear_interface()
+                       .get_obj_value_raw();
   // The objective should reflect gcost = 42.0 from Parquet
   CHECK(obj > 0.0);
 

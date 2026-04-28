@@ -605,7 +605,7 @@ TEST_CASE("Reserve-UC integration: headroom conditional on u")
     // g1 dispatches 0 MW but is committed, so headroom = 100*1 - 0 = 100.
     // Up-reserve provision should be 30 MW (full requirement met).
     // Verify by checking the objective — no shortage penalty.
-    const auto obj = li.get_obj_value();
+    const auto obj = li.get_obj_value_raw();
     // Minimum cost = g2*50*10 + g1_noload*0 + reserve_cost*0 = 500
     // (no shortage penalty of 1000*30=30000)
     CHECK(obj < 10000.0);  // well below shortage penalty
@@ -627,7 +627,7 @@ TEST_CASE("Reserve-UC integration: headroom conditional on u")
 
     // g2 dispatches 50 MW (cheaper). g1 dispatches 0 MW.
     // Headroom for g1: Pmax - p = 100 - 0 = 100 ≥ 30. Reserve met.
-    const auto obj = li.get_obj_value();
+    const auto obj = li.get_obj_value_raw();
     CHECK(obj < 10000.0);  // no shortage penalty
   }
 }
@@ -1030,7 +1030,7 @@ TEST_CASE("CommitmentLP min up/down time constraints")
     // This means min_up_time constraints are satisfied trivially.
     // The objective is scaled by scale_objective (default 1000).
     // Expected: g2 dispatching 80 MW × 6 blocks × 5 $/MWh = 2400
-    const auto obj = li.get_obj_value();
+    const auto obj = li.get_obj_value_raw();
     CHECK(obj == doctest::Approx(2400.0 / 1000.0));
   }
 }
@@ -1198,7 +1198,7 @@ TEST_CASE("Hot/warm/cold startup cost tiers")
 
     // g1 should start (cheaper overall). Verify objective includes
     // cold start cost (500) + dispatch cost.
-    const auto obj = li.get_obj_value();
+    const auto obj = li.get_obj_value_raw();
     // scaled obj ≥ (10*80*6 + 500) / 1000 = 5.3
     CHECK(obj >= 5.0);
   }
@@ -1740,7 +1740,7 @@ TEST_CASE("Relaxed UC allows p=0 when u=0 despite pmin>0")
 
   // With relaxed u=0: g2 dispatches all demand (100 MW × 4 blocks)
   // cost = 10 × 100 × 4 = 4000, scaled by 1000 → 4.0
-  const auto obj = li.get_obj_value();
+  const auto obj = li.get_obj_value_raw();
   CHECK(obj == doctest::Approx(4000.0 / 1000.0));
 }
 
@@ -1877,7 +1877,7 @@ TEST_CASE("Startup tier warm window is correct with valid tier ordering")
   // If cold were used: (500 + 3200)/1000 = 3.7
   // If hot were used: (100 + 3200)/1000 = 3.3 — but hot is infeasible
   //   (offline 3h ≥ hot_start_time 2h)
-  const auto obj = li.get_obj_value();
+  const auto obj = li.get_obj_value_raw();
   // Should be warm start cost (300 + 3200) / 1000 = 3.5
   CHECK(obj == doctest::Approx(3.5).epsilon(0.05));
 }
@@ -1928,7 +1928,7 @@ TEST_CASE("Initial min-up obligation prevents early shutdown")
 
   // g1 shuts down immediately (known limitation).
   // g2 dispatches all demand: 5 × 100 × 4 = 2000, scaled = 2.0
-  const auto obj = li.get_obj_value();
+  const auto obj = li.get_obj_value_raw();
   CHECK(obj == doctest::Approx(2000.0 / 1000.0));
 }
 
@@ -2044,7 +2044,7 @@ TEST_CASE("Hot start at t=0 with recent shutdown")
   REQUIRE(result.has_value());
   CHECK(result.value() == 0);
 
-  const auto obj = li.get_obj_value();
+  const auto obj = li.get_obj_value_raw();
   // The hot window constraint checks w[t-k]=1 for recent blocks,
   // but there is no w event before the horizon for an initially
   // offline unit.  The LP selects warm start (300) + a partial
@@ -2092,7 +2092,7 @@ TEST_CASE("Noload cost accumulates for committed blocks")
   REQUIRE(result.has_value());
   CHECK(result.value() == 0);
 
-  const auto obj = li.get_obj_value();
+  const auto obj = li.get_obj_value_raw();
   CHECK(obj == doctest::Approx(2400.0 / 1000.0));
 }
 
@@ -2285,7 +2285,7 @@ TEST_CASE("Must-run forces minimum pmin generation")
   REQUIRE(result.has_value());
   CHECK(result.value() == 0);
 
-  const auto obj = li.get_obj_value();
+  const auto obj = li.get_obj_value_raw();
   CHECK(obj == doctest::Approx(7400.0 / 1000.0));
 }
 
@@ -2387,7 +2387,7 @@ TEST_CASE("Segment delta_k forced to zero when u=0")
   REQUIRE(result.has_value());
   CHECK(result.value() == 0);
 
-  const auto obj = li.get_obj_value();
+  const auto obj = li.get_obj_value_raw();
   CHECK(obj == doctest::Approx(400.0 / 1000.0));
 
   // g1 generation is 0
@@ -2726,7 +2726,7 @@ TEST_CASE("CommitmentLP - add_to_output via write_out")  // NOLINT
   // Verify objective includes noload_cost (5 $/h × 4 blocks = 20 plus gen
   // costs).  With demand=100 MW, g1 (gcost=10) dispatches first.
   // Total obj should be positive and include generation + noload cost.
-  const auto obj = li.get_obj_value();
+  const auto obj = li.get_obj_value_raw();
   CHECK(obj > 0.0);
 
   // Verify we got exactly one commitment element with populated status cols

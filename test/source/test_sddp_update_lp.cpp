@@ -43,7 +43,7 @@ TEST_CASE(
   const auto mono_obj =
       plp_mono.system(first_scene_index(), first_phase_index())
           .linear_interface()
-          .get_obj_value();
+          .get_obj_value_raw();
   SPDLOG_INFO("Reservoir mono: phase-0 obj = {:.4f}", mono_obj);
 
   // Compute total monolithic cost across all phases
@@ -51,7 +51,7 @@ TEST_CASE(
   for (int p = 0; p < 5; ++p) {
     const auto ph_obj = plp_mono.system(first_scene_index(), PhaseIndex {p})
                             .linear_interface()
-                            .get_obj_value();
+                            .get_obj_value_raw();
     SPDLOG_INFO("  phase {} obj = {:.4f}", p, ph_obj);
     mono_total += ph_obj;
   }
@@ -113,7 +113,7 @@ TEST_CASE(
   for (int p = 0; p < 5; ++p) {
     const auto ph_obj = plp_mono.system(first_scene_index(), PhaseIndex {p})
                             .linear_interface()
-                            .get_obj_value();
+                            .get_obj_value_raw();
     SPDLOG_INFO("Small reservoir mono: phase {} obj = {:.4f}", p, ph_obj);
     mono_total += ph_obj;
   }
@@ -174,7 +174,7 @@ TEST_CASE(
   for (int p = 0; p < 5; ++p) {
     const auto ph_obj = plp_mono.system(first_scene_index(), PhaseIndex {p})
                             .linear_interface()
-                            .get_obj_value();
+                            .get_obj_value_raw();
     SPDLOG_INFO("Expansion mono: phase {} obj = {:.4f}", p, ph_obj);
     mono_total += ph_obj;
   }
@@ -234,7 +234,7 @@ TEST_CASE(
   for (int p = 0; p < 12; ++p) {
     const auto ph_obj = plp_mono.system(first_scene_index(), PhaseIndex {p})
                             .linear_interface()
-                            .get_obj_value();
+                            .get_obj_value_raw();
     SPDLOG_INFO("Yearly hydro mono: phase {} obj = {:.4f}", p, ph_obj);
     mono_total += ph_obj;
   }

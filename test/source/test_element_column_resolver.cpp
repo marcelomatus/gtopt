@@ -884,6 +884,6 @@ TEST_CASE(  // NOLINT
   CHECK(li.is_optimal());
 
   // Verify the LP is feasible and produces a non-negative objective.
-  const auto obj = li.get_obj_value();
+  const auto obj = li.get_obj_value_raw();
   CHECK(obj >= 0.0);
 }

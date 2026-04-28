@@ -570,7 +570,7 @@ TEST_CASE(  // NOLINT
 
     const auto orig_ncols = li.get_numcols();
     const auto orig_nrows = li.get_numrows();
-    const auto orig_obj = li.get_obj_value();
+    const auto orig_obj = li.get_obj_value_raw();
 
     // Enable compression — snapshot was already saved during LP build
     sys.set_low_memory(LowMemoryMode::compress, CompressionCodec::lz4);
@@ -587,7 +587,7 @@ TEST_CASE(  // NOLINT
 
       auto r = li.resolve();
       REQUIRE(r.has_value());
-      CHECK(li.get_obj_value() == doctest::Approx(orig_obj));
+      CHECK(li.get_obj_value_raw() == doctest::Approx(orig_obj));
     }
   }
 
@@ -784,7 +784,7 @@ TEST_CASE(  // NOLINT
     baseline_col_names[pi] = li.col_name_map().size();
     baseline_ncols[pi] = li.get_numcols();
     baseline_nrows[pi] = li.get_numrows();
-    baseline_obj[pi] = li.get_obj_value();
+    baseline_obj[pi] = li.get_obj_value_raw();
     CHECK(baseline_col_names[pi] > 0);
   }
 

@@ -113,6 +113,11 @@ public:
   static constexpr std::string_view SoftEminName {"soft_emin"};
   static constexpr std::string_view DrainName {"drain"};
   static constexpr std::string_view EfinName {"efin"};
+  /// Slack variable name for the soft-`efin` slack column (created only
+  /// when ``Reservoir.efin_cost`` is set).  Mirrors `SoftEminName` —
+  /// the slack relaxes the hard ``vol_end >= efin`` row into
+  /// ``vol_end + slack >= efin`` priced at `efin_cost`.
+  static constexpr std::string_view EfinSlackName {"efin_slack"};
   static constexpr std::string_view CapacityName {"capacity"};
   static constexpr std::string_view SeminGeName {"semin_ge"};
 
@@ -142,6 +147,19 @@ public:
                                            const StageLP& stage) const
   {
     return efin_cols.at({scenario.uid(), stage.uid()});
+  }
+
+  /// Non-throwing lookup of the explicit ``vol_end >= efin`` row for
+  /// (scenario, stage).  Returns the row index if present, or
+  /// ``std::nullopt`` when ``Storage::efin`` is unset on this element.
+  [[nodiscard]] constexpr std::optional<RowIndex> find_efin_row(
+      const ScenarioLP& scenario, const StageLP& stage) const noexcept
+  {
+    const auto it = efin_rows.find({scenario.uid(), stage.uid()});
+    if (it == efin_rows.end()) {
+      return std::nullopt;
+    }
+    return it->second;
   }
 
   /// Return the initial-energy column for (scenario, stage).
@@ -749,6 +767,37 @@ public:
             }
                 .greater_equal(lp_efin);
         efin_row[ec] = 1.0;
+        // Soft-`efin` slack: when ``Reservoir.efin_cost`` is set (and
+        // > 0), make the hard ``vol_end >= efin`` row soft by adding a
+        // slack column priced at `efin_cost`.  The row becomes
+        // ``vol_end + slack >= efin`` so the LP can miss the
+        // end-of-horizon target at a cost rather than going infeasible
+        // when upstream Benders cuts have clamped `sini` below what one
+        // stage of inflows can recover.  Mirrors PLP's per-stage
+        // rebalse-cost slack on the volume target.  When `efin_cost`
+        // is unset / zero, the historical hard `>=` behaviour
+        // is preserved.
+        const auto& efin_cost_opt = storage().efin_cost;
+        if (efin_cost_opt.has_value() && *efin_cost_opt > 0.0) {
+          // Penalty cost per LP unit of slack: physical cost.  Apply
+          // scenario probability and discount via scenario_stage_ecost,
+          // then remove the duration factor (state penalty, not flow).
+          // flatten() applies col_scale (energy_scale) to the objective.
+          const double slack_cost =
+              sc.scenario_stage_ecost(scenario, stage, *efin_cost_opt)
+              / stage.duration();
+          const auto efin_slack_col = lp.add_col({
+              .lowb = 0,
+              .uppb = LinearProblem::DblMax,
+              .cost = slack_cost,
+              .scale = energy_scale,
+              .class_name = opts.class_name,
+              .variable_name = EfinSlackName,
+              .variable_uid = opts.variable_uid,
+              .context = stg_ctx,
+          });
+          efin_row[efin_slack_col] = 1.0;
+        }
         efin_rows[stg_ctx] = lp.add_row(std::move(efin_row));
       }
 

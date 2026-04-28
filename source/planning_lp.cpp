@@ -1197,7 +1197,7 @@ void PlanningLP::write_out()
           .scene_uid = system.scene().uid(),
           .phase_uid = system.phase().uid(),
           .status = status,
-          .obj_value = li.get_obj_value_physical(),
+          .obj_value = li.get_obj_value(),
           // Backend returns std::nullopt when kappa is unavailable; we
           // store -1 in the CSV to mirror the "unset" convention used
           // elsewhere in the stats pipeline.  Downstream readers treat

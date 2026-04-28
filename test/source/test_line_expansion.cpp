@@ -215,7 +215,7 @@ TEST_CASE("Phase-shifting transformer modifies Kirchhoff RHS")
   CHECK(result.value() == 0);
 
   // Objective should equal 100 MW * $10/MWh / scale_objective (1000) = 1.0
-  CHECK(lp_iface.get_obj_value() == doctest::Approx(1.0));
+  CHECK(lp_iface.get_obj_value_raw() == doctest::Approx(1.0));
 }
 
 // ── Capacity expansion + loss model tests ─────────────────────────────────
@@ -328,7 +328,7 @@ TEST_CASE("LineLP - quadratic losses with capacity expansion")
 
   // Demand is 100 MW, capacity starts at 100 MW with expansion available.
   // Quadratic losses require slightly more generation.
-  const auto obj = lp.get_obj_value();
+  const auto obj = lp.get_obj_value_raw();
   CHECK(obj > 0.9);
   CHECK(obj < 2.0);
 }
@@ -435,7 +435,7 @@ TEST_CASE("LineLP - linear losses (lossfactor) with capacity expansion")
   CHECK(result.value() == 0);
 
   // With 5% loss factor: gen ~105 MW for 100 MW demand, cost ~1.05 (scaled)
-  const auto obj = lp.get_obj_value();
+  const auto obj = lp.get_obj_value_raw();
   CHECK(obj > 1.0);
   CHECK(obj < 1.1);
 }

@@ -527,7 +527,7 @@ TEST_CASE(  // NOLINT
   CHECK(result.value() == 0);
 
   // Objective must be positive (demand × cost × duration)
-  CHECK(lp.get_obj_value() > 0.0);
+  CHECK(lp.get_obj_value_raw() > 0.0);
 }
 
 // -----------------------------------------------------------------------
@@ -673,7 +673,7 @@ TEST_CASE(  // NOLINT
   auto result = lp.resolve();
   REQUIRE(result.has_value());
   CHECK(result.value() == 0);
-  CHECK(lp.get_obj_value() >= 0.0);
+  CHECK(lp.get_obj_value_raw() >= 0.0);
 }
 
 // -----------------------------------------------------------------------
@@ -806,7 +806,7 @@ TEST_CASE("PumpLP — add_to_output via write_out")  // NOLINT
   CHECK(result.value() == 0);
 
   // Objective must be positive (thermal gen @ $50/MWh serves a 50 MW load)
-  CHECK(lp.get_obj_value() > 0.0);
+  CHECK(lp.get_obj_value_raw() > 0.0);
 
   // Verify conversion_rows exist for the pump and have non-trivial duals
   const auto& pump_lps = system_lp.elements<PumpLP>();

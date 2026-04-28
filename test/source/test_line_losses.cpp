@@ -395,7 +395,7 @@ static auto solve_with_mode(std::string_view mode_name, int loss_segments = 3)
   auto result = lp.resolve();
   REQUIRE(result.has_value());
   CHECK(result.value() == 0);
-  return lp.get_obj_value();
+  return lp.get_obj_value_raw();
 }
 
 TEST_CASE("line_losses engine - none mode produces zero-loss objective")
@@ -520,7 +520,7 @@ TEST_CASE("line_losses engine - global model_options.line_losses_mode")
     auto&& lp = sys_lp.linear_interface();
     auto result = lp.resolve();
     REQUIRE(result.has_value());
-    CHECK(lp.get_obj_value() == doctest::Approx(1.0).epsilon(0.001));
+    CHECK(lp.get_obj_value_raw() == doctest::Approx(1.0).epsilon(0.001));
   }
 }
 
@@ -1463,7 +1463,7 @@ TEST_CASE("line_losses - all modes cross-comparison matrix")
     auto result = li.resolve();
     REQUIRE(result.has_value());
     CHECK(result.value() == 0);
-    const double obj = li.get_obj_value();
+    const double obj = li.get_obj_value_raw();
     CHECK(obj > 0.0);
 
     // ── objective ordering: lossless ≤ lossy ──────────────────────
@@ -1658,7 +1658,7 @@ auto solve_ieee9b_with_mode(std::string_view mode_name)
 
   auto&& systems = planning_lp.systems();
   const auto& li = systems.front().front().linear_interface();
-  return {li.get_obj_value(), result.value()};
+  return {li.get_obj_value_raw(), result.value()};
 }
 
 TEST_CASE("IEEE 9-bus losses modes - all modes solve successfully")

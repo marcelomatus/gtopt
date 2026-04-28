@@ -141,7 +141,8 @@ TEST_CASE("IEEE 4-bus original - solution correctness")
   SUBCASE("objective value")
   {
     // Objective value: 250 MW × $20/MWh ÷ 1000 (scale_objective) = 5.0
-    CHECK(lp_interface.get_obj_value() == doctest::Approx(5.0).epsilon(1e-6));
+    CHECK(lp_interface.get_obj_value_raw()
+          == doctest::Approx(5.0).epsilon(1e-6));
   }
 
   SUBCASE("generator dispatch")

@@ -141,7 +141,7 @@ TEST_CASE(  // NOLINT
     REQUIRE(result.has_value());
     CHECK(result.value() == 0);
 
-    return li.get_obj_value();
+    return li.get_obj_value_raw();
   };
 
   const auto obj_without = solve(false);
@@ -334,7 +334,7 @@ TEST_CASE(  // NOLINT
     REQUIRE(result.has_value());
     CHECK(result.value() == 0);
 
-    return li.get_obj_value();
+    return li.get_obj_value_raw();
   };
 
   const auto obj_without = solve(false);

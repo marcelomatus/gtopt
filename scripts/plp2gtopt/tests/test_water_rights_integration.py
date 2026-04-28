@@ -251,9 +251,15 @@ class TestWaterRightsIntegration:
             assert uc_files or uc_file, "No user_constraint_array or file(s)"
 
     def test_total_flow_rights(self, converted_case):
-        """Total flow rights from both agreements."""
+        """Total flow rights from agreements + default ``pmin_as_flowright``.
+
+        Layout: 35 from the Laja + Maule water-rights agreements plus 6
+        from the bundled ``--pmin-as-flowright`` whitelist (MACHICURA,
+        PANGUE, PILMAIQUEN, ABANICO, ANTUCO, PALMUCHO) which is now ON
+        by default.  Pass ``--no-pmin-as-flowright`` to opt out.
+        """
         frs = converted_case["system"].get("flow_right_array", [])
-        assert len(frs) == 35, f"Expected 35 total flow rights, got {len(frs)}"
+        assert len(frs) == 41, f"Expected 41 total flow rights, got {len(frs)}"
 
     def test_total_volume_rights(self, converted_case):
         """Total volume rights = Laja (7) + Maule (7)."""

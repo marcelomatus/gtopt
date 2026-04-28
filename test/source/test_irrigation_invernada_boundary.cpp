@@ -544,7 +544,7 @@ TEST_CASE(  // NOLINT
 
   // Raw LP objective (after `scale_objective=1000` division).  See
   // the header comment above for the 864 × 600 = 518 400 derivation.
-  const auto obj = lp.get_obj_value();
+  const auto obj = lp.get_obj_value_raw();
   CHECK(obj == doctest::Approx(518'400.0).epsilon(1e-6));
 }
 

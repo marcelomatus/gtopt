@@ -16,6 +16,7 @@
 #include <gtopt/benders_cut.hpp>
 #include <gtopt/fmap.hpp>
 #include <gtopt/label_maker.hpp>
+#include <gtopt/sddp_types.hpp>
 #include <gtopt/utils.hpp>
 #include <gtopt/work_pool.hpp>
 
@@ -110,7 +111,7 @@ auto build_benders_cut_physical(ColIndex alpha_col,
   // equilibrated LP folds `col_scales[alpha]` automatically.  No
   // `scale_alpha` or `inv_scale_obj` arithmetic here — every input is
   // already in $ / physical-units, matching what `target_li.get_col_cost()`
-  // and `target_li.get_obj_value_physical()` return at the call site.
+  // and `target_li.get_obj_value()` return at the call site.
   auto row = SparseRow {
       .lowb = objective_value_physical,
       .uppb = LinearProblem::DblMax,
@@ -421,7 +422,6 @@ RelaxedVarInfo relax_fixed_state_variable(
   // default 1.0).  `link.scost` retained on the struct for non-SDDP
   // consumers that may use it as a true business-cost hint.
   (void)link.scost;  // intentionally unused here
-  const double slack_cost = penalty;
   // For the D3 slack-bound computation below we use the dep column's
   // *effective* LP-to-physical scale (reused in the ruiz case).  Under
   // `row_max` / `none` this equals `var_scale`; under `ruiz` it
@@ -431,6 +431,20 @@ RelaxedVarInfo relax_fixed_state_variable(
       (dep_scale_phys_raw > 0.0 && dep_scale_phys_raw != 1.0)
       ? dep_scale_phys_raw
       : link.var_scale;
+  // Slack cost is ``penalty × dep_scale_phys``.  ``penalty`` is the
+  // PLP Phase-1 unit cost (1.0 by default — see PLP's
+  // ``osicallsc.cpp:658``); the ``× dep_scale_phys`` factor makes the
+  // cost-per-PHYSICAL-unit-of-dep-relaxed invariant under col_scale.
+  // Without it the elastic clone over-relaxes by a factor of
+  // ``col_scale`` whenever ``col_scale > 1`` (1 LP-unit of slack
+  // moves dep by 1 LP-raw, which is ``col_scale`` physical units —
+  // so a unit slack cost prices each LP unit but each LP unit equals
+  // ``col_scale`` physical units, making the per-physical price
+  // ``1/col_scale`` of the unit price).  Pricing slacks at
+  // ``penalty × col_scale`` restores per-physical invariance — the
+  // elastic optimum activates the same physical-unit gap regardless
+  // of LP scaling.
+  const double slack_cost = penalty * dep_scale_phys;
 
   // D3 — finite slack upper bounds matching PLP's
   // `osicallsc.cpp::osi_lp_get_feasible_cut` convention.
@@ -494,26 +508,93 @@ RelaxedVarInfo relax_fixed_state_variable(
   // PLP-equivalent symmetric pricing so the elastic clone behaves
   // identically to PLP's ``osi_lp_get_feasible_cut`` modulo
   // gtopt's stricter row writer.
+  // Slack columns are LP-space variables with col_scale = 1 (PLP /
+  // Chinneck Phase-1 convention).  The fixing row goes through
+  // ``add_row_raw`` (below) which skips col_scale composition, so
+  // there is no scaling mismatch between dep and the slacks even
+  // when ``col_scale(dep) != 1``.  Crucially,
+  // ``build_feasibility_cut_physical`` reads ``sol_raw[sup/sdn]``
+  // (slack-col LP-raw) and lifts ``dx = sdn − sup`` to physical via
+  // ``dx × dep_scale_phys`` — that lift is correct ONLY when slack
+  // col_scale = 1 (giving slack-LP-raw values that equal dep-LP-raw
+  // values, since the fixing row sums them with unit coefficients).
+  // Setting ``slack.scale = dep_scale_phys`` here would double-lift
+  // and produce ``col_scale × col_scale``-too-large cut RHSs.
+  //
+  // Slack uppb / cost are expressed in dep's LP-raw basis:
+  // ``sup_uppb`` / ``sdn_uppb`` are computed from
+  // ``link.trial_value`` (already in dep-LP-raw units) and
+  // ``src_{low,upp}_lp = source_{low,upp} / dep_scale_phys``
+  // (also in dep-LP-raw).  ``slack_cost`` follows PLP's flat unit
+  // cost regardless of scaling.
+  //
+  // Per-link ``variable_uid`` uses the dep column index (unique
+  // within the clone) so multiple slacks don't trip the duplicate-
+  // metadata detector when the link's element uid is shared (or
+  // unknown_uid in test fixtures).
+  const auto slack_uid = static_cast<Uid>(static_cast<int>(dep));
   const auto sup = li.add_col(SparseCol {
       .uppb = sup_uppb,
       .cost = slack_cost,
+      .class_name = sddp_alpha_class_name,
+      .variable_name = "elastic_sup",
+      .variable_uid = slack_uid,
   });
 
   const auto sdn = li.add_col(SparseCol {
       .uppb = sdn_uppb,
       .cost = slack_cost,
+      .class_name = sddp_alpha_class_name,
+      .variable_name = "elastic_sdn",
+      .variable_uid = slack_uid,
   });
 
   // dep + sup − sdn = trial_value
+  //
+  // The fixing row is inherently in **LP-raw space**: ``trial_value``
+  // is the post-flatten LP-raw value of dep, and the unit coefficients
+  // refer directly to dep / sup / sdn LP-raw values (not physical).
+  // Inserting via ``add_row`` would route through the post-flatten
+  // physical-space transformation (col_scale × element, ÷scale_obj on
+  // RHS, then row-max equilibration), producing a row equivalent to
+  // ``col_scale × dep + col_scale × sup − col_scale × sdn =
+  // trial_value / scale_obj`` — silently inconsistent with the slack
+  // uppb computations (in dep-LP-raw units) whenever
+  // ``col_scale(dep) != 1`` or ``scale_objective != 1``.  Using
+  // ``add_row_raw`` skips those transforms so the LP solver sees the
+  // intended unit-coefficient fixing equation verbatim.
+  //
+  // Fixing row gets labelable metadata so ``write_lp`` can synthesise
+  // a name on the elastic clone (post-mortem dumps).  ``variable_uid``
+  // matches the slack's ``variable_uid`` (= dep col index) so the row
+  // is colocated with its slack pair in label output.
+  //
+  // NOTE on dual scaling: this row is intentionally LP-raw with unit
+  // coefficients on dep / sup / sdn and LP-raw RHS = trial_value.
+  // ``get_row_dual()[fixing_row]`` returns ``raw_dual × scale_obj``
+  // (since ``row_scale = 1``), which is ``∂obj_phys/∂trial_LP`` — the
+  // physical objective marginal w.r.t. an LP-raw change in dep.  To
+  // obtain the marginal w.r.t. a PHYSICAL change in dep (needed by
+  // ``build_feasibility_cut_physical`` since its ``dep_clone_phys``
+  // is in physical units), the consumer divides by
+  // ``col_scale(dep)``.  Setting ``row.scale = col_scale(dep)`` here
+  // would NOT help — the resulting LP form ``(1/col_scale) × dep + …
+  // = trial_LP/col_scale`` produces a solver dual ``col_scale`` times
+  // larger, and ``get_row_dual()``'s ``× scale_obj / row_scale``
+  // composition cancels exactly back to the same value.  The
+  // col_scale division must happen in the cut consumer.
   auto elastic = SparseRow {
       .lowb = link.trial_value,
       .uppb = link.trial_value,
+      .class_name = sddp_alpha_class_name,
+      .constraint_name = "elastic_fix",
+      .variable_uid = slack_uid,
   };
   elastic[dep] = 1.0;
   elastic[sup] = 1.0;
   elastic[sdn] = -1.0;
 
-  const auto fixing_row = li.add_row(elastic);
+  const auto fixing_row = li.add_row_raw(elastic);
 
   SPDLOG_TRACE(
       "SDDP elastic: phase {} col {} relaxed to [{:.2f}, {:.2f}] "
@@ -738,11 +819,8 @@ auto build_feasibility_cut(const LinearInterface& li,
   // the signature for source compatibility but are now unused — the
   // physical builder lets `add_row` fold col_scales + row-max on the
   // caller's LP.
-  auto cut =
-      build_benders_cut_physical(alpha_col,
-                                 links,
-                                 elastic->clone,
-                                 elastic->clone.get_obj_value_physical());
+  auto cut = build_benders_cut_physical(
+      alpha_col, links, elastic->clone, elastic->clone.get_obj_value());
 
   return FeasibilityCutResult {
       .cut = std::move(cut),
@@ -1227,7 +1305,16 @@ auto BendersCut::elastic_filter_solve(const LinearInterface& li,
     return result;
   }
 
-  return std::nullopt;
+  // Preserve the unsolved clone so the caller can persist it for
+  // post-mortem diagnostics — mirrors the free-function path which
+  // always returns ``result`` (with ``solved=false``) on failure.
+  // The earlier ``return std::nullopt`` here masked the elastic LP
+  // from the saved-error-LP machinery in
+  // ``sddp_forward_pass.cpp:641``, which made debugging
+  // ``relaxed clone infeasible`` warnings impossible.
+  result.solved = false;
+  result.clone = std::move(*cloned_sp);
+  return result;
 }
 
 auto BendersCut::build_feasibility_cut(const LinearInterface& li,
@@ -1245,11 +1332,8 @@ auto BendersCut::build_feasibility_cut(const LinearInterface& li,
   }
 
   // See the free-function `build_feasibility_cut` above for rationale.
-  auto cut =
-      build_benders_cut_physical(alpha_col,
-                                 links,
-                                 elastic->clone,
-                                 elastic->clone.get_obj_value_physical());
+  auto cut = build_benders_cut_physical(
+      alpha_col, links, elastic->clone, elastic->clone.get_obj_value());
 
   return FeasibilityCutResult {
       .cut = std::move(cut),

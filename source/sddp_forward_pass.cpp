@@ -705,9 +705,18 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
       // release_backend() which may discard cached solution vectors.
       // Store the objective in physical ($) space so the backward pass
       // can call `build_benders_cut_physical` without re-applying
-      // `scale_objective`.
-      const auto obj = li.get_obj_value();
-      state.forward_full_obj_physical = li.get_obj_value_physical();
+      // `scale_objective`.  We also use the physical view for the
+      // ``forward_objective`` accumulation below: the alpha column's
+      // physical contribution is ``alpha_col_LP * scale_alpha``
+      // (= ``alpha_val``), so subtracting it from a physical ``obj``
+      // produces a unit-consistent ``opex`` regardless of
+      // ``scale_objective``.  The earlier code subtracted a LP-raw
+      // ``obj`` (= physical / scale_objective) from a physical
+      // ``alpha_val``, which silently broke ``upper_bound`` whenever
+      // ``scale_objective != 1`` after the second SDDP iteration once
+      // alpha started carrying inherited-cut weight.
+      const auto obj_physical = li.get_obj_value();
+      state.forward_full_obj_physical = obj_physical;
 
       // Physical-space, optimal-only bound-clamped view (see
       // `LinearInterface::get_col_sol`) — scrubs at-bound solver noise
@@ -728,7 +737,7 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
           planning_lp().simulation(), scene_index, phase_index);
       const auto alpha_val =
           (alpha_svar != nullptr) ? alpha_svar->col_sol() * sa : 0.0;
-      state.forward_objective = obj - alpha_val;
+      state.forward_objective = obj_physical - alpha_val;
 
       // Release solver backend — no-op when low_memory is off.
       //
@@ -755,7 +764,7 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
             iteration_index,
             uid_of(scene_index),
             uid_of(phase_index),
-            obj,
+            obj_physical,
             alpha_val);
         return std::unexpected(Error {
             .code = ErrorCode::SolverError,
@@ -773,7 +782,7 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
           iteration_index,
           uid_of(scene_index),
           uid_of(phase_index),
-          obj,
+          obj_physical,
           alpha_val,
           state.forward_objective);
 

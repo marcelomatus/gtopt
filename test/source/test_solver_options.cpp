@@ -206,7 +206,7 @@ TEST_CASE("SolverOptions - Usage with LinearInterface")
   // Check that the solve worked
   CHECK(result);
   CHECK(lp.is_optimal() == true);
-  CHECK(lp.get_obj_value() == doctest::Approx(1.0));
+  CHECK(lp.get_obj_value_raw() == doctest::Approx(1.0));
 
   // Get solution and check it
   const auto sol = lp.get_col_sol();
@@ -557,7 +557,7 @@ TEST_CASE("SolverOptions - Algorithm selection with dual simplex")  // NOLINT
 
   CHECK(result);
   CHECK(lp.is_optimal() == true);
-  CHECK(lp.get_obj_value() == doctest::Approx(2.0));
+  CHECK(lp.get_obj_value_raw() == doctest::Approx(2.0));
   const auto sol = lp.get_col_sol();
   REQUIRE(sol.size() == 1);
   CHECK(sol[0] == doctest::Approx(2.0));
@@ -593,7 +593,7 @@ TEST_CASE("SolverOptions - Algorithm selection with primal simplex")  // NOLINT
 
   CHECK(result);
   CHECK(lp.is_optimal() == true);
-  CHECK(lp.get_obj_value() == doctest::Approx(3.0));
+  CHECK(lp.get_obj_value_raw() == doctest::Approx(3.0));
   const auto sol = lp.get_col_sol();
   REQUIRE(sol.size() == 1);
   CHECK(sol[0] == doctest::Approx(3.0));
@@ -635,7 +635,7 @@ TEST_CASE("SolverOptions - All algorithms solve correctly on 2x2 LP")  // NOLINT
     const auto result =
         lp.initial_solve(SolverOptions {.algorithm = LPAlgo::default_algo});
     CHECK(result);
-    CHECK(lp.get_obj_value() == doctest::Approx(4.0));
+    CHECK(lp.get_obj_value_raw() == doctest::Approx(4.0));
   }
 
   SUBCASE("primal simplex")
@@ -644,7 +644,7 @@ TEST_CASE("SolverOptions - All algorithms solve correctly on 2x2 LP")  // NOLINT
     const auto result =
         lp.initial_solve(SolverOptions {.algorithm = LPAlgo::primal});
     CHECK(result);
-    CHECK(lp.get_obj_value() == doctest::Approx(4.0));
+    CHECK(lp.get_obj_value_raw() == doctest::Approx(4.0));
   }
 
   SUBCASE("dual simplex")
@@ -653,7 +653,7 @@ TEST_CASE("SolverOptions - All algorithms solve correctly on 2x2 LP")  // NOLINT
     const auto result =
         lp.initial_solve(SolverOptions {.algorithm = LPAlgo::dual});
     CHECK(result);
-    CHECK(lp.get_obj_value() == doctest::Approx(4.0));
+    CHECK(lp.get_obj_value_raw() == doctest::Approx(4.0));
   }
 }
 
@@ -718,7 +718,7 @@ TEST_CASE("SolverOptions - barrier with threads on all solvers")  // NOLINT
 
       CHECK(result.has_value());
       CHECK(lp.is_optimal());
-      CHECK(lp.get_obj_value() == doctest::Approx(17.0));
+      CHECK(lp.get_obj_value_raw() == doctest::Approx(17.0));
 
       const auto sol = lp.get_col_sol();
       REQUIRE(sol.size() == 4);
@@ -755,7 +755,7 @@ TEST_CASE(
       };
       auto r1 = lp.initial_solve(barrier_opts);
       CHECK(r1.has_value());
-      CHECK(lp.get_obj_value() == doctest::Approx(17.0));
+      CHECK(lp.get_obj_value_raw() == doctest::Approx(17.0));
 
       // Step 2: modify a bound and resolve with dual simplex (warm start)
       lp.set_row_low(RowIndex {0}, 6.0);
@@ -767,7 +767,7 @@ TEST_CASE(
       CHECK(r2.has_value());
       CHECK(lp.is_optimal());
       // With x1+x2 >= 6 instead of >= 5, optimal obj increases by 1
-      CHECK(lp.get_obj_value() == doctest::Approx(18.0));
+      CHECK(lp.get_obj_value_raw() == doctest::Approx(18.0));
     }
   }
 }
@@ -837,7 +837,7 @@ TEST_CASE("SolverOptions - log_mode detailed writes log file")  // NOLINT
         const auto result = lp.resolve(resolve_opts);
         CHECK(result.has_value());
         CHECK(lp.is_optimal());
-        CHECK(lp.get_obj_value() == doctest::Approx(18.0));
+        CHECK(lp.get_obj_value_raw() == doctest::Approx(18.0));
 
         const auto log_path = std::format("{}.log", log_stem);
         REQUIRE(std::filesystem::exists(log_path));
@@ -860,7 +860,7 @@ TEST_CASE("SolverOptions - log_mode detailed writes log file")  // NOLINT
         const auto result = lp.initial_solve(opts);
         CHECK(result.has_value());
         CHECK(lp.is_optimal());
-        CHECK(lp.get_obj_value() == doctest::Approx(17.0));
+        CHECK(lp.get_obj_value_raw() == doctest::Approx(17.0));
 
         const auto log_path = std::format("{}.log", log_stem);
         CHECK_FALSE(std::filesystem::exists(log_path));

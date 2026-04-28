@@ -746,7 +746,7 @@ TEST_CASE(  // NOLINT
   CHECK(result.value() == 0);
 
   // Verify objective is non-negative: demand=50 MW served by hydro at gcost=5
-  CHECK(lp.get_obj_value() >= 0.0);
+  CHECK(lp.get_obj_value_raw() >= 0.0);
 
   // Verify the production factor element has stored coeff indices for the
   // (scenario, stage) pair — this confirms add_to_lp populated the

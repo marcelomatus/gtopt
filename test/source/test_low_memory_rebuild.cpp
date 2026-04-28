@@ -265,7 +265,7 @@ TEST_CASE(  // NOLINT
   REQUIRE(solve.has_value());
   REQUIRE(li.is_optimal());
   // 1 block × 100 MW demand × 50 $/MWh = 5000 (descaled by scale_objective).
-  CHECK(li.get_obj_value_physical() == doctest::Approx(5000.0));
+  CHECK(li.get_obj_value() == doctest::Approx(5000.0));
 }
 
 TEST_CASE(  // NOLINT
@@ -425,7 +425,7 @@ TEST_CASE(  // NOLINT
     sys.ensure_lp_built();
     auto r = sys.linear_interface().resolve();
     REQUIRE(r.has_value());
-    obj_snapshot = sys.linear_interface().get_obj_value_physical();
+    obj_snapshot = sys.linear_interface().get_obj_value();
   }
   {
     SimulationLP sim2(world.simulation, options);
@@ -435,7 +435,7 @@ TEST_CASE(  // NOLINT
     sys.ensure_lp_built();
     auto r = sys.linear_interface().resolve();
     REQUIRE(r.has_value());
-    obj_rebuild = sys.linear_interface().get_obj_value_physical();
+    obj_rebuild = sys.linear_interface().get_obj_value();
   }
 
   CHECK(obj_rebuild == doctest::Approx(obj_snapshot));

@@ -624,7 +624,7 @@ TEST_CASE("LineLP - inactive line is skipped")
 
   // With inactive line, bus 2 demand is served by local g2 at $20/MWh
   // cost = 100 * 20 / 1000 = 2.0
-  const auto obj = lp.get_obj_value();
+  const auto obj = lp.get_obj_value_raw();
   CHECK(obj == doctest::Approx(2.0));
 }
 
@@ -733,6 +733,6 @@ TEST_CASE("LineLP - transfer cost is applied to flow")
 
   // g1 at $10 + line tcost $5 = $15 effective; cheaper than g2 at $20.
   // Total cost = (10 + 5) * 100 / 1000 = 1.5
-  const auto obj = lp.get_obj_value();
+  const auto obj = lp.get_obj_value_raw();
   CHECK(obj == doctest::Approx(1.5));
 }
