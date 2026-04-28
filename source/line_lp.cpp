@@ -1,6 +1,7 @@
 #include <algorithm>
-#include <numbers>
+#include <stdexcept>
 
+#include <gtopt/kirchhoff_node_angle.hpp>
 #include <gtopt/line_losses.hpp>
 #include <gtopt/line_lp.hpp>
 #include <gtopt/linear_problem.hpp>
@@ -28,6 +29,13 @@ LineLP::LineLP(const Line& pline, const InputContext& ic)
 }
 
 // ── add_kirchhoff_rows ──────────────────────────────────────────────
+//
+// Thin dispatcher: selects the KVL row-assembly strategy based on
+// `model_options.kirchhoff_mode` and stores the resulting per-block
+// row-index map for output dual emission.  The actual row construction
+// lives in the strategy module — see `kirchhoff_node_angle.cpp` for
+// the B–θ implementation.  The `cycle_basis` strategy is enum-reserved
+// but not yet implemented.
 
 void LineLP::add_kirchhoff_rows(
     SystemContext& sc,
@@ -41,110 +49,46 @@ void LineLP::add_kirchhoff_rows(
     const BIndexHolder<std::vector<ColIndex>>& fpsegcols,
     const BIndexHolder<std::vector<ColIndex>>& fnsegcols)
 {
-  const auto& stage_reactance = sc.stage_reactance(stage, reactance);
-  // Skip Kirchhoff for lines without reactance (DC/HVDC lines).
-  // A zero-reactance line would create a degenerate constraint
-  // (θ_a = θ_b) that doesn't model DC power flow correctly.
-  if (!stage_reactance || stage_reactance.value() == 0.0) {
-    return;
-  }
+  const auto mode = sc.options().kirchhoff_mode();
 
-  const auto& blocks = stage.blocks();
-  const auto& theta_a_cols =
-      bus_a_lp.theta_cols_at(sc, scenario, stage, lp, blocks);
-  const auto& theta_b_cols =
-      bus_b_lp.theta_cols_at(sc, scenario, stage, lp, blocks);
+  switch (mode) {
+    case KirchhoffMode::node_angle: {
+      const kirchhoff::node_angle::LineKvlInputs inputs {
+          .line_uid = uid(),
+          .class_name = ClassName.full_name(),
+          .theta_constraint_name = ThetaName,
+          .reactance = sc.stage_reactance(stage, reactance),
+          .voltage = voltage.at(stage.uid()).value_or(1.0),
+          .tap_ratio = tap_ratio.at(stage.uid()).value_or(1.0),
+          .phase_shift_deg = phase_shift_deg.at(stage.uid()).value_or(0.0),
+      };
 
-  if (theta_a_cols.empty() || theta_b_cols.empty()) {
-    return;
-  }
-
-  const double X = stage_reactance.value();
-  // V defaults to 1.0 (per-unit mode).  When V is in kV, X must be in Ω
-  // so that B = V²/X yields consistent susceptance units.
-  const double V = voltage.at(stage.uid()).value_or(1);
-  // Physical susceptance term x = X / V² (reactance per V²).
-  const double x = X / (V * V);
-
-  // Off-nominal tap ratio: scales effective susceptance by τ.
-  const double tau = tap_ratio.at(stage.uid()).value_or(1.0);
-  const double x_tau = tau * x;
-  if (x_tau == 0.0) {
-    return;
-  }
-
-  // Phase-shift angle in radians; shifts the equality constraint RHS.
-  const double phi_deg = phase_shift_deg.at(stage.uid()).value_or(0.0);
-  const double phi_rad = phi_deg * std::numbers::pi / 180.0;
-
-  // Natural Kirchhoff form (no manual row pre-scaling):
-  //
-  //   -θ_a + θ_b + x_tau·f_p − x_tau·f_n = −φ_rad
-  //
-  // Prior versions divided the entire row by |x_tau| so that flow
-  // coefficients became ±1, but this required a dual back-scale factor
-  // (`theta_row_scale`) to recover physical units on output, and it
-  // defeated the LP layer's row-max equilibration (which already handles
-  // row norms internally).
-  //
-  // Writing the row in its natural form hands row scaling back to
-  // `linear_problem.cpp` row-max equilibration, which auto-unscales
-  // duals. The theta column is separately col-scaled by `scale_theta`
-  // (chosen as median(|x_tau|) in planning_lp.cpp:auto_scale_theta),
-  // so after equilibration the median line's row has near-unit
-  // coefficients both in the theta and flow directions.
-  const double kirchhoff_rhs = -phi_rad;
-
-  BIndexHolder<RowIndex> trows;
-  map_reserve(trows, blocks.size());
-
-  for (const auto& block : blocks) {
-    const auto buid = block.uid();
-    auto trow =
-        SparseRow {
-            .class_name = ClassName.full_name(),
-            .constraint_name = ThetaName,
-            .variable_uid = uid(),
-            .context =
-                make_block_context(scenario.uid(), stage.uid(), block.uid()),
-        }
-            .equal(kirchhoff_rhs);
-
-    // piecewise_direct mode stamps each segment column directly with
-    // ±x_τ (PLP genpdlin.f); other modes stamp the aggregator. Per
-    // block, exactly one of {segs, aggregator} is populated per
-    // direction.  Pre-reserve roughly: 2 thetas + segs + aggregator.
-    const auto fp_seg_it = fpsegcols.find(buid);
-    const auto fn_seg_it = fnsegcols.find(buid);
-    const auto fp_seg_n =
-        (fp_seg_it != fpsegcols.end()) ? fp_seg_it->second.size() : 0;
-    const auto fn_seg_n =
-        (fn_seg_it != fnsegcols.end()) ? fn_seg_it->second.size() : 0;
-    trow.reserve(2 + fp_seg_n + fn_seg_n + 2);
-
-    trow[theta_a_cols.at(buid)] = -1.0;
-    trow[theta_b_cols.at(buid)] = +1.0;
-
-    if (fp_seg_n != 0) {
-      for (const auto& col : fp_seg_it->second) {
-        trow[col] = +x_tau;
+      auto trows = kirchhoff::node_angle::add_line_kvl_rows(sc,
+                                                            scenario,
+                                                            stage,
+                                                            lp,
+                                                            bus_a_lp,
+                                                            bus_b_lp,
+                                                            inputs,
+                                                            fpcols,
+                                                            fncols,
+                                                            fpsegcols,
+                                                            fnsegcols);
+      if (trows.empty()) {
+        return;
       }
-    } else if (auto fit = fpcols.find(buid); fit != fpcols.end()) {
-      trow[fit->second] = +x_tau;
+      const auto st_key = std::tuple {scenario.uid(), stage.uid()};
+      theta_rows[st_key] = std::move(trows);
+      break;
     }
-    if (fn_seg_n != 0) {
-      for (const auto& col : fn_seg_it->second) {
-        trow[col] = -x_tau;
-      }
-    } else if (auto fit = fncols.find(buid); fit != fncols.end()) {
-      trow[fit->second] = -x_tau;
-    }
-
-    trows[buid] = lp.add_row(std::move(trow));
+    case KirchhoffMode::cycle_basis:
+      // Reserved for the loop-flow formulation (Hörsch et al., 2018;
+      // PyPSA `define_kirchhoff_voltage_constraints`).  Will be
+      // implemented as a system-level pass over fundamental cycles
+      // instead of per-line dispatch.
+      throw std::logic_error(
+          "kirchhoff_mode 'cycle_basis' is not yet implemented");
   }
-
-  const auto st_key = std::tuple {scenario.uid(), stage.uid()};
-  theta_rows[st_key] = std::move(trows);
 }
 
 // ── add_to_lp ───────────────────────────────────────────────────────
