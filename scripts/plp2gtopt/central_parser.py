@@ -278,9 +278,15 @@ class CentralParser(BaseParser):
         """
         fcost_by_bus: Dict[int, float] = {}
         for c in self.centrals:
-            if c.get("type") != "falla" or c.get("bus", 0) <= 0:
+            if c.get("type") != "falla":
                 continue
-            bus = int(c["bus"])
+            try:
+                bus_val = int(c.get("bus", 0))
+            except (TypeError, ValueError):
+                continue
+            if bus_val <= 0:
+                continue
+            bus = bus_val
             gcost = float(c.get("gcost", 0.0))
             if bus not in fcost_by_bus or gcost < fcost_by_bus[bus]:
                 fcost_by_bus[bus] = gcost

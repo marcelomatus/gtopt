@@ -129,15 +129,33 @@ def _merge_pf_curves_min(
     return merged
 
 
+class _SpillwayFields(TypedDict):
+    """Subset of ``Reservoir`` fields produced by ``_spillway_fields``.
+
+    Used as the return type for the helper so its result can be
+    ``**``-expanded into a ``Reservoir`` literal without mypy losing the
+    statically-known key names.
+    """
+
+    spillway_cost: float
+    spillway_capacity: float
+
+
 class Waterway(TypedDict, total=False):
-    """Represents a waterway connection between junctions in the hydro system."""
+    """Represents a waterway connection between junctions in the hydro system.
+
+    ``fmin`` / ``fmax`` accept either a numeric default (constant bound) or
+    a string parquet column reference (``"fmin"`` / ``"fmax"``) when the
+    bound is wired through a per-stage parquet schedule — see
+    ``write_transit_pmin_parquet`` for the upgrade path.
+    """
 
     uid: int
     name: str
     junction_a: str
     junction_b: str
-    fmin: float
-    fmax: float
+    fmin: float | str
+    fmax: float | str
     capacity: float
     fcost: float
 
@@ -200,6 +218,8 @@ class Reservoir(_ReservoirRequired, total=False):
     seepage: List[Dict[str, Any]]
     discharge_limit: List[Dict[str, Any]]
     production_factor: List[Dict[str, Any]]
+    daily_cycle: bool
+    efin_cost: float
 
 
 class Turbine(TypedDict):
@@ -1235,7 +1255,7 @@ class JunctionWriter(BaseWriter):
 
     def _spillway_fields(
         self, central_name: str, central: Dict[str, Any]
-    ) -> Dict[str, float]:
+    ) -> "_SpillwayFields":
         """Compute ``spillway_cost`` and ``spillway_capacity`` for one reservoir.
 
         Mapping to PLP:
@@ -2051,8 +2071,13 @@ class JunctionWriter(BaseWriter):
                 continue
 
             # Convert the raw Pmax(V) curve to production-factor units by
-            # dividing by `flow_ref` (MW → MW/(m³/s)).
-            cenpmax_pf_segments: List[ProductionFactorSegment] = [
+            # dividing by `flow_ref` (MW → MW/(m³/s)).  Type as
+            # ``List[Dict[str, float]]`` so the result composes with
+            # ``_merge_pf_curves_min`` (which is intentionally curve-shape-
+            # agnostic — the PLP / cenre / cenpmax curves all share the
+            # same ``volume / slope / constant`` keys but appear in code
+            # paths under different TypedDict aliases).
+            cenpmax_pf_segments: List[Dict[str, float]] = [
                 {
                     "volume": float(seg["volume"]),
                     "slope": float(seg["slope"]) / flow_ref,
