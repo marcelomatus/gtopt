@@ -23,6 +23,7 @@ struct json_data_contract<ModelOptions>
   using type =
       json_member_list<json_bool_null<"use_single_bus", OptBool>,
                        json_bool_null<"use_kirchhoff", OptBool>,
+                       json_string_null<"kirchhoff_mode", OptName>,
                        json_bool_null<"use_line_losses", OptBool>,
                        json_string_null<"line_losses_mode", OptName>,
                        json_number_null<"kirchhoff_threshold", OptReal>,
@@ -48,6 +49,7 @@ struct json_data_contract<ModelOptions>
   {
     return std::forward_as_tuple(opt.use_single_bus,
                                  opt.use_kirchhoff,
+                                 opt.kirchhoff_mode,
                                  opt.use_line_losses,
                                  opt.line_losses_mode,
                                  opt.kirchhoff_threshold,

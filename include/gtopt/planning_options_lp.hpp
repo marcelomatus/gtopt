@@ -54,6 +54,9 @@ public:
   static constexpr Int default_loss_segments = 1;
   /** @brief Default setting for Kirchhoff constraints */
   static constexpr Bool default_use_kirchhoff = true;
+  /** @brief Default Kirchhoff Voltage Law formulation */
+  static constexpr KirchhoffMode default_kirchhoff_mode =
+      KirchhoffMode::node_angle;
   /** @brief Default setting for single-bus modeling */
   static constexpr Bool default_use_single_bus = false;
   /** @brief Default setting for strict per-stage volume floor (`emin`)
@@ -228,6 +231,21 @@ public:
   {
     return m_options_.model_options.use_kirchhoff.value_or(
         default_use_kirchhoff);
+  }
+
+  /// @brief Gets the Kirchhoff Voltage Law formulation.
+  ///
+  /// Priority: model_options.kirchhoff_mode (string) →
+  ///           default_kirchhoff_mode (node_angle).
+  /// An unrecognised string falls back to the default.
+  [[nodiscard]] constexpr KirchhoffMode kirchhoff_mode() const
+  {
+    if (m_options_.model_options.kirchhoff_mode.has_value()) {
+      return enum_from_name<KirchhoffMode>(
+                 *m_options_.model_options.kirchhoff_mode)
+          .value_or(default_kirchhoff_mode);
+    }
+    return default_kirchhoff_mode;
   }
 
   /// @brief Gets the single-bus modeling flag.

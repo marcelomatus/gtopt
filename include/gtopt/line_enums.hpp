@@ -155,4 +155,47 @@ inline constexpr auto line_losses_mode_entries =
   return std::span {line_losses_mode_entries};
 }
 
+// ─── KirchhoffMode ──────────────────────────────────────────────────
+
+/**
+ * @brief Selects the Kirchhoff Voltage Law (KVL) formulation.
+ *
+ * - `node_angle` (0, default): the classical B–θ form.  One bus angle
+ *   (theta) variable per active bus, plus one KVL equality per active
+ *   line per block:
+ *     `−θ_a + θ_b + x_τ · f_p − x_τ · f_n = −φ`
+ *   where `x_τ = τ · X / V²`.  A reference bus per island has its
+ *   theta pinned at 0 to fix the gauge.  Suitable for monolithic LP,
+ *   SDDP / Benders, and line expansion (topology can change per stage
+ *   without rebuilding any extra structure).
+ *
+ * - `cycle_basis` (1): the loop-flow form — eliminates theta entirely
+ *   and replaces per-line KVL with one equality per fundamental cycle:
+ *     `Σ_{l∈C} ε_l · x_l · (f_p − f_n)  =  Σ_{l∈C} ε_l · φ_l`
+ *   with `ε_l ∈ {+1,−1}` the cycle direction sign.  No reference-bus
+ *   pin, no theta column scale to tune, typically `(|L| − |B| + #islands)`
+ *   rows per block instead of `|L|`.  PyPSA-style; reference:
+ *   Hörsch et al., "PyPSA: Python for Power System Analysis", 2018.
+ *
+ * Default: `node_angle`.  Selected via `model_options.kirchhoff_mode`
+ * (string) or the `--kirchhoff-mode` CLI flag.  See
+ * `kirchhoff_node_angle.hpp` for the row-assembly helper.
+ */
+enum class KirchhoffMode : uint8_t
+{
+  node_angle = 0,  ///< B–θ formulation (per-line KVL row, gauge-pinned)
+  cycle_basis = 1,  ///< Loop-flow formulation (per-cycle KVL row, no theta)
+};
+
+inline constexpr auto kirchhoff_mode_entries =
+    std::to_array<EnumEntry<KirchhoffMode>>({
+        {.name = "node_angle", .value = KirchhoffMode::node_angle},
+        {.name = "cycle_basis", .value = KirchhoffMode::cycle_basis},
+    });
+
+[[nodiscard]] constexpr auto enum_entries(KirchhoffMode /*tag*/) noexcept
+{
+  return std::span {kirchhoff_mode_entries};
+}
+
 }  // namespace gtopt

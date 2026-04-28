@@ -32,6 +32,10 @@ struct ModelOptions
   OptBool use_single_bus {};
   /// Apply DC Kirchhoff voltage-law constraints.
   OptBool use_kirchhoff {};
+  /// Kirchhoff Voltage Law formulation: `"node_angle"` (B–θ, default)
+  /// or `"cycle_basis"` (loop-flow).  See KirchhoffMode enum.
+  /// When unset, defaults to `"node_angle"`.
+  OptName kirchhoff_mode {};
   /// @deprecated Use `line_losses_mode` instead.
   OptBool use_line_losses {};
   /// Line losses model selection.  See LineLossesMode enum for values:
@@ -114,6 +118,7 @@ struct ModelOptions
   {
     merge_opt(use_single_bus, opts.use_single_bus);
     merge_opt(use_kirchhoff, opts.use_kirchhoff);
+    merge_opt(kirchhoff_mode, opts.kirchhoff_mode);
     merge_opt(use_line_losses, opts.use_line_losses);
     merge_opt(line_losses_mode, opts.line_losses_mode);
     merge_opt(kirchhoff_threshold, opts.kirchhoff_threshold);
@@ -136,14 +141,14 @@ struct ModelOptions
   [[nodiscard]] bool has_any() const noexcept
   {
     return use_single_bus.has_value() || use_kirchhoff.has_value()
-        || use_line_losses.has_value() || line_losses_mode.has_value()
-        || kirchhoff_threshold.has_value() || loss_segments.has_value()
-        || scale_objective.has_value() || scale_theta.has_value()
-        || demand_fail_cost.has_value() || reserve_fail_cost.has_value()
-        || hydro_fail_cost.has_value() || hydro_use_value.has_value()
-        || state_fail_cost.has_value() || emission_cost.has_value()
-        || emission_cap.has_value() || continuous_phases.has_value()
-        || strict_storage_emin.has_value();
+        || kirchhoff_mode.has_value() || use_line_losses.has_value()
+        || line_losses_mode.has_value() || kirchhoff_threshold.has_value()
+        || loss_segments.has_value() || scale_objective.has_value()
+        || scale_theta.has_value() || demand_fail_cost.has_value()
+        || reserve_fail_cost.has_value() || hydro_fail_cost.has_value()
+        || hydro_use_value.has_value() || state_fail_cost.has_value()
+        || emission_cost.has_value() || emission_cap.has_value()
+        || continuous_phases.has_value() || strict_storage_emin.has_value();
   }
 
   /// True iff every field set in `other` has an equal value in `*this`.
@@ -155,6 +160,7 @@ struct ModelOptions
     { return !override_val.has_value() || self == override_val; };
     return covers_opt(use_single_bus, other.use_single_bus)
         && covers_opt(use_kirchhoff, other.use_kirchhoff)
+        && covers_opt(kirchhoff_mode, other.kirchhoff_mode)
         && covers_opt(use_line_losses, other.use_line_losses)
         && covers_opt(line_losses_mode, other.line_losses_mode)
         && covers_opt(kirchhoff_threshold, other.kirchhoff_threshold)
