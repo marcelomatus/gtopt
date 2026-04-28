@@ -14,7 +14,7 @@ import signal
 import tempfile
 from base64 import b64decode
 from collections import deque
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import pandas as pd
 import requests as http_requests
@@ -64,8 +64,6 @@ except ImportError:
 #      discoverable.  Fall back to the bare module names which DO
 #      resolve in that mode.
 # pylint: disable=unused-import,wrong-import-position
-from typing import TYPE_CHECKING
-
 if TYPE_CHECKING:
     # mypy / IDEs use the package-form import; at runtime we wrap it in
     # a try/except so the script-mode launcher works too.  Hiding the

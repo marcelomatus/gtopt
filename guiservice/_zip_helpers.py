@@ -24,7 +24,7 @@ import math
 import os
 import zipfile
 from base64 import b64decode, b64encode
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pandas as pd
 
@@ -34,8 +34,6 @@ import pandas as pd
 # script with ``cwd=guiservice/`` by the ``gtopt_gui`` launcher.
 # The ``TYPE_CHECKING`` guard hides the fallback branch from mypy so the
 # symbol isn't flagged as ``no-redef``.
-from typing import TYPE_CHECKING
-
 if TYPE_CHECKING:
     from guiservice._schemas import ELEMENT_TO_ARRAY_KEY
 else:
