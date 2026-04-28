@@ -49,8 +49,9 @@ void LinearInterface::generate_labels_from_maps(
   // subsequent `generate_labels_from_maps` calls (after `add_col`
   // added new entries) hit the cache for already-formatted cols and
   // only format the tail.
-  if (m_col_index_to_name_.size() < ncols) {
-    m_col_index_to_name_.resize(ncols);
+  auto& cin = detach_for_write(m_col_index_to_name_);
+  if (cin.size() < ncols) {
+    cin.resize(ncols);
   }
 
   for (size_t i = 0; i < ncols; ++i) {
@@ -58,22 +59,40 @@ void LinearInterface::generate_labels_from_maps(
 
     // Cache hit: label was populated by a legacy `add_col(string, …)`
     // overload (user-supplied name) or by a prior call to this method.
-    if (!m_col_index_to_name_[ci].empty()) {
-      col_names[i] = m_col_index_to_name_[ci];
+    if (!cin[ci].empty()) {
+      col_names[i] = cin[ci];
       continue;
     }
 
     // Cache miss: synthesise from metadata and cache the result so
     // subsequent calls (repeat `write_lp`) avoid re-formatting.
-    if (i >= m_col_labels_meta_.size()) {
-      throw std::logic_error(std::format(
-          "LinearInterface::generate_labels_from_maps: col {} has no "
-          "entry in m_col_labels_meta_ (size {}) and no pre-formatted "
-          "name — col was added without metadata tracking.",
-          i,
-          m_col_labels_meta_.size()));
+    //
+    // Two-tier lookup: shared metadata first, then per-clone-local
+    // disposable extras (populated by `add_col_disposable` on a
+    // shallow clone).  The fall-through to disposable extras is what
+    // makes `write_lp` on an elastic-filter clone produce correct
+    // gtopt-style labels for the slack/fixing-row inserts.
+    SparseColLabel meta;
+    const auto& cm = *m_col_labels_meta_;
+    if (i < cm.size()) {
+      meta = cm[i];
+    } else {
+      // Linear scan over per-clone extras (≤ 20 entries in practice).
+      const auto target = ColIndex {i};
+      auto it = std::ranges::find(m_post_clone_col_metas_,
+                                  target,
+                                  &std::pair<ColIndex, SparseColLabel>::first);
+      if (it == m_post_clone_col_metas_.end()) {
+        throw std::logic_error(std::format(
+            "LinearInterface::generate_labels_from_maps: col {} has no "
+            "entry in m_col_labels_meta_ (size {}) or m_post_clone_col_"
+            "metas_ (size {}) — col was added without metadata tracking.",
+            i,
+            cm.size(),
+            m_post_clone_col_metas_.size()));
+      }
+      meta = it->second;
     }
-    const auto& meta = m_col_labels_meta_[i];
     SparseCol view {};
     view.class_name = meta.class_name;
     view.variable_name = meta.variable_name;
@@ -86,8 +105,9 @@ void LinearInterface::generate_labels_from_maps(
                       "metadata without a class_name (unlabelable).",
                       i));
     }
-    m_col_index_to_name_[ci] = label;  // cache in index→name
-    if (auto [it, inserted] = m_col_names_.try_emplace(label, ci); !inserted) {
+    cin[ci] = label;  // cache in index→name
+    auto& cn = detach_for_write(m_col_names_);
+    if (auto [it, inserted] = cn.try_emplace(label, ci); !inserted) {
       throw std::runtime_error(std::format(
           "LinearInterface: duplicate col metadata — label '{}' synthesised "
           "by col {} was already emitted by col {}.  Two cols share "
@@ -101,25 +121,40 @@ void LinearInterface::generate_labels_from_maps(
 
   const auto nrows = static_cast<size_t>(m_backend_->get_num_rows());
   row_names.assign(nrows, std::string {});
-  if (m_row_index_to_name_.size() < nrows) {
-    m_row_index_to_name_.resize(nrows);
+  auto& rin = detach_for_write(m_row_index_to_name_);
+  if (rin.size() < nrows) {
+    rin.resize(nrows);
   }
 
   for (size_t i = 0; i < nrows; ++i) {
     const RowIndex ri {i};
-    if (!m_row_index_to_name_[ri].empty()) {
-      row_names[i] = m_row_index_to_name_[ri];
+    if (!rin[ri].empty()) {
+      row_names[i] = rin[ri];
       continue;
     }
-    if (i >= m_row_labels_meta_.size()) {
-      throw std::logic_error(std::format(
-          "LinearInterface::generate_labels_from_maps: row {} has no "
-          "entry in m_row_labels_meta_ (size {}) and no pre-formatted "
-          "name — row was added without metadata tracking.",
-          i,
-          m_row_labels_meta_.size()));
+    // Two-tier lookup mirroring the col-side path above: shared
+    // metadata first, then per-clone-local disposable extras
+    // populated by `add_row_disposable` on a shallow clone.
+    SparseRowLabel meta;
+    const auto& rm = *m_row_labels_meta_;
+    if (i < rm.size()) {
+      meta = rm[i];
+    } else {
+      const auto target = RowIndex {i};
+      auto it = std::ranges::find(m_post_clone_row_metas_,
+                                  target,
+                                  &std::pair<RowIndex, SparseRowLabel>::first);
+      if (it == m_post_clone_row_metas_.end()) {
+        throw std::logic_error(std::format(
+            "LinearInterface::generate_labels_from_maps: row {} has no "
+            "entry in m_row_labels_meta_ (size {}) or m_post_clone_row_"
+            "metas_ (size {}) — row was added without metadata tracking.",
+            i,
+            rm.size(),
+            m_post_clone_row_metas_.size()));
+      }
+      meta = it->second;
     }
-    const auto& meta = m_row_labels_meta_[i];
     SparseRow view {};
     view.class_name = meta.class_name;
     view.constraint_name = meta.constraint_name;
@@ -132,8 +167,9 @@ void LinearInterface::generate_labels_from_maps(
                       "metadata without a class_name (unlabelable).",
                       i));
     }
-    m_row_index_to_name_[ri] = label;  // cache in index→name
-    if (auto [it, inserted] = m_row_names_.try_emplace(label, ri); !inserted) {
+    rin[ri] = label;  // cache in index→name
+    auto& rn = detach_for_write(m_row_names_);
+    if (auto [it, inserted] = rn.try_emplace(label, ri); !inserted) {
       throw std::runtime_error(std::format(
           "LinearInterface: duplicate row metadata — label '{}' synthesised "
           "by row {} was already emitted by row {}.  Two rows share "
@@ -169,33 +205,35 @@ void LinearInterface::compress_labels_meta_if_needed()
   // release cycles (cuts appended on iter N, α re-appended on
   // reload, etc.) is captured.  When live is empty (already
   // compressed and no post-reload mutations) this is a no-op.
-  if (!m_col_labels_meta_.empty()) {
-    m_col_labels_meta_count_ = m_col_labels_meta_.size();
-    const auto bytes = serialize_labels_meta(m_col_labels_meta_);
+  if (!m_col_labels_meta_->empty()) {
+    auto& cm = detach_for_write(m_col_labels_meta_);
+    m_col_labels_meta_count_ = cm.size();
+    const auto bytes = serialize_labels_meta(cm);
     const auto codec = select_codec(m_memory_codec_);
     m_col_labels_meta_compressed_ =
         compress_buffer({bytes.data(), bytes.size()}, codec);
     // Drop the live vector; `string_view`s in `m_col_labels_meta_`
     // are now invalidated.  The string pool stays alive until the
     // next decompression cycle reseeds it with fresh strings.
-    m_col_labels_meta_.clear();
-    m_col_labels_meta_.shrink_to_fit();
+    cm.clear();
+    cm.shrink_to_fit();
   }
-  if (!m_row_labels_meta_.empty()) {
-    m_row_labels_meta_count_ = m_row_labels_meta_.size();
-    const auto bytes = serialize_labels_meta(m_row_labels_meta_);
+  if (!m_row_labels_meta_->empty()) {
+    auto& rm = detach_for_write(m_row_labels_meta_);
+    m_row_labels_meta_count_ = rm.size();
+    const auto bytes = serialize_labels_meta(rm);
     const auto codec = select_codec(m_memory_codec_);
     m_row_labels_meta_compressed_ =
         compress_buffer({bytes.data(), bytes.size()}, codec);
-    m_row_labels_meta_.clear();
-    m_row_labels_meta_.shrink_to_fit();
+    rm.clear();
+    rm.shrink_to_fit();
   }
 
   // Duplicate-detection maps hold string_views into the live vectors
   // we just emptied; they'd dangle if left populated.  Rebuilt in
   // `ensure_labels_meta_decompressed` on the next read.
-  m_col_meta_index_.clear();
-  m_row_meta_index_.clear();
+  detach_for_write(m_col_meta_index_).clear();
+  detach_for_write(m_row_meta_index_).clear();
 }
 
 void LinearInterface::ensure_labels_meta_decompressed() const
@@ -204,7 +242,7 @@ void LinearInterface::ensure_labels_meta_decompressed() const
   // Decompress on first read / write after `compress_labels_meta_if_
   // needed` fired.  Idempotent: non-empty live vectors mean we've
   // already decompressed (or never compressed in the first place).
-  if (!m_col_labels_meta_compressed_.empty() && m_col_labels_meta_.empty()) {
+  if (!m_col_labels_meta_compressed_.empty() && m_col_labels_meta_->empty()) {
     const auto bytes = m_col_labels_meta_compressed_.decompress_data();
     // Reserve the pool to hold 2 string_views per entry (class_name
     // + variable_name) so `push_back` never reallocates and the
@@ -212,7 +250,7 @@ void LinearInterface::ensure_labels_meta_decompressed() const
     m_label_string_pool_.clear();
     m_label_string_pool_.reserve((m_col_labels_meta_count_ * 2)
                                  + (m_row_labels_meta_count_ * 2));
-    m_col_labels_meta_ =
+    detach_for_write(m_col_labels_meta_) =
         deserialize_col_labels_meta({bytes.data(), bytes.size()},
                                     m_col_labels_meta_count_,
                                     m_label_string_pool_);
@@ -220,7 +258,7 @@ void LinearInterface::ensure_labels_meta_decompressed() const
     m_col_labels_meta_count_ = 0;
     decompressed_any = true;
   }
-  if (!m_row_labels_meta_compressed_.empty() && m_row_labels_meta_.empty()) {
+  if (!m_row_labels_meta_compressed_.empty() && m_row_labels_meta_->empty()) {
     const auto bytes = m_row_labels_meta_compressed_.decompress_data();
     // Keep existing col-pool entries — if col was decompressed first
     // the string_views still point into their original pool slots.
@@ -228,7 +266,7 @@ void LinearInterface::ensure_labels_meta_decompressed() const
     if (m_label_string_pool_.capacity() == 0) {
       m_label_string_pool_.reserve(m_row_labels_meta_count_ * 2);
     }
-    m_row_labels_meta_ =
+    detach_for_write(m_row_labels_meta_) =
         deserialize_row_labels_meta({bytes.data(), bytes.size()},
                                     m_row_labels_meta_count_,
                                     m_label_string_pool_);
@@ -246,18 +284,22 @@ void LinearInterface::ensure_labels_meta_decompressed() const
 
 void LinearInterface::rebuild_meta_indexes() const
 {
-  m_col_meta_index_.clear();
-  m_col_meta_index_.reserve(m_col_labels_meta_.size());
-  for (const auto [i, label] : enumerate<ColIndex>(m_col_labels_meta_)) {
+  auto& cmi = detach_for_write(m_col_meta_index_);
+  cmi.clear();
+  const auto& cm = *m_col_labels_meta_;
+  cmi.reserve(cm.size());
+  for (const auto [i, label] : enumerate<ColIndex>(cm)) {
     if (!is_empty_col_label(label)) {
-      m_col_meta_index_.emplace(label, i);
+      cmi.emplace(label, i);
     }
   }
-  m_row_meta_index_.clear();
-  m_row_meta_index_.reserve(m_row_labels_meta_.size());
-  for (const auto [i, label] : enumerate<RowIndex>(m_row_labels_meta_)) {
+  auto& rmi = detach_for_write(m_row_meta_index_);
+  rmi.clear();
+  const auto& rm = *m_row_labels_meta_;
+  rmi.reserve(rm.size());
+  for (const auto [i, label] : enumerate<RowIndex>(rm)) {
     if (!is_empty_row_label(label)) {
-      m_row_meta_index_.emplace(label, i);
+      rmi.emplace(label, i);
     }
   }
 }

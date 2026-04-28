@@ -281,6 +281,8 @@ TEST_CASE("Linear problem advanced operations")
         .rowmp = {},
         .col_labels_meta = {},
         .row_labels_meta = {},
+        .col_meta_index = {},
+        .row_meta_index = {},
         .name = "SEN",
     };
 
@@ -330,6 +332,8 @@ TEST_CASE("Linear problem advanced operations")
         .rowmp = {},
         .col_labels_meta = {},
         .row_labels_meta = {},
+        .col_meta_index = {},
+        .row_meta_index = {},
         .name = "SEN",
     };
 

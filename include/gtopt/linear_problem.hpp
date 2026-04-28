@@ -84,6 +84,18 @@ struct FlatLinearProblem
   std::vector<SparseColLabel> col_labels_meta;
   std::vector<SparseRowLabel> row_labels_meta;
 
+  /// Eager dedup hash maps, copied from the LinearProblem during
+  /// `flatten()`.  `LinearInterface::load_flat()` moves these
+  /// directly into `m_col_meta_index_` / `m_row_meta_index_` instead
+  /// of calling `rebuild_meta_indexes()` — the LinearProblem already
+  /// did the hash work during `add_col` / `add_row` and there's no
+  /// reason to rehash.  ~50% of the post-`load_flat` setup cost on
+  /// large problems (500K cols / 300K rows ≈ 50–100 ms).
+  std::unordered_map<SparseColLabel, ColIndex, SparseColLabelHash>
+      col_meta_index;
+  std::unordered_map<SparseRowLabel, RowIndex, SparseRowLabelHash>
+      row_meta_index;
+
   std::string name;  ///< Problem name
 
   /// @name Coefficient statistics (populated when

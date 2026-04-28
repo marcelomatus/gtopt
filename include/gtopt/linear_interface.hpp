@@ -17,6 +17,7 @@
 #pragma once
 
 #include <concepts>
+#include <cstdint>
 #include <cstdio>
 #include <expected>
 #include <memory>
@@ -242,18 +243,88 @@ public:
 
   ~LinearInterface() = default;
 
+  /// Selects how `clone()` replicates the metadata (label vectors,
+  /// dedup maps, scale vectors).  The backend solver handle is always
+  /// cloned independently — solver internals (CPLEX env, HiGHS basis
+  /// factorisation) are non-reentrant, so each clone needs its own
+  /// independent backend regardless.
+  enum class CloneKind : std::uint8_t
+  {
+    /// Each metadata structure is value-copied into the clone — the
+    /// resulting clone owns an independent copy of every field.  Use
+    /// for bad-LP dumps where the dump must remain stable even if the
+    /// source mutates afterward.  Current default.
+    deep,
+
+    /// Metadata structures are shared with the source via
+    /// `std::shared_ptr`.  Cheap to construct (atomic incref per
+    /// field).  Mutating either side detaches its own shared_ptr
+    /// before mutating, so the other side stays unaffected — but the
+    /// hot paths (aperture solve, elastic filter slack inserts via
+    /// `add_*_disposable`) NEVER mutate the shared metadata, so the
+    /// detach branch is dormant in practice.
+    ///
+    /// Precondition: the source must not be concurrently mutated for
+    /// the lifetime of the shallow clone.  In gtopt's SDDP this is
+    /// enforced by `DecompressionGuard` around the aperture pass —
+    /// see `sddp_aperture_pass.cpp:390, 579`.
+    shallow,
+  };
+
   /**
-   * @brief Creates a deep copy of this LinearInterface via the backend's
+   * @brief Creates a copy of this LinearInterface via the backend's
    *        clone() method.
    *
    * The clone preserves the full LP state (variables, constraints, bounds,
-   * objective, warm-start basis).  Modifications to the clone do not affect
-   * the original — use this for tentative solves such as the SDDP elastic
-   * filter, where the original LP must remain unmodified.
+   * objective, warm-start basis).  Modifications to the clone's bounds /
+   * objective do not affect the original — use this for tentative solves
+   * such as the SDDP elastic filter or aperture sub-problems.
+   *
+   * `kind == CloneKind::deep` (default) replicates the historical
+   * behaviour: every metadata vector / map is value-copied.
+   * `kind == CloneKind::shallow` shares the metadata via shared_ptr;
+   * use for solve-and-discard clones (aperture, elastic) to save
+   * memory at peak concurrency.  See `CloneKind` for full contract.
    *
    * @return A new LinearInterface wrapping the cloned solver.
    */
-  [[nodiscard]] LinearInterface clone() const;
+  [[nodiscard]] LinearInterface clone(CloneKind kind = CloneKind::deep) const;
+
+  /// Test/diagnostic accessor: `shared_ptr::use_count()` of one of
+  /// the wrapped metadata members.  All of them are detached together
+  /// in `clone(deep)` and shared together in `clone(shallow)`, so any
+  /// one is representative.  Use cases:
+  ///
+  ///   - Unit tests verifying the sharing contract (after
+  ///     `clone(shallow)` it should be 2; after `clone(deep)` 1;
+  ///     after a mutation through `detach_for_write` it drops back
+  ///     to 1 on whichever member was touched).
+  ///   - Diagnostics logging memory-saving hit rate at peak aperture
+  ///     concurrency.
+  ///
+  /// Reads `m_col_labels_meta_` because that's the largest-footprint
+  /// member and the most useful to track, but any of the eleven
+  /// wrapped members would do.
+  [[nodiscard]] std::int64_t col_labels_meta_use_count() const noexcept
+  {
+    return static_cast<std::int64_t>(m_col_labels_meta_.use_count());
+  }
+  [[nodiscard]] std::int64_t col_scales_use_count() const noexcept
+  {
+    return static_cast<std::int64_t>(m_col_scales_.use_count());
+  }
+  [[nodiscard]] std::int64_t row_scales_use_count() const noexcept
+  {
+    return static_cast<std::int64_t>(m_row_scales_.use_count());
+  }
+  [[nodiscard]] std::int64_t col_meta_index_use_count() const noexcept
+  {
+    return static_cast<std::int64_t>(m_col_meta_index_.use_count());
+  }
+  [[nodiscard]] std::int64_t row_meta_index_use_count() const noexcept
+  {
+    return static_cast<std::int64_t>(m_row_meta_index_.use_count());
+  }
 
   /**
    * @brief Apply a saved solution as warm-start hint for the next resolve.
@@ -528,6 +599,26 @@ public:
    */
   ColIndex add_col(const SparseCol& col);
 
+  /**
+   * @brief Adds a new column WITHOUT extending `m_col_scales_`.
+   *
+   * Same as `add_col(SparseCol)` but **never** calls `set_col_scale`.
+   * Asserts `col.scale == 1.0` so the caller can't accidentally lose
+   * a non-unit scale.  Use this for post-flatten col adds that don't
+   * need per-col scale tracking — chiefly the α-column registration
+   * in `apply_post_load_replay`.
+   *
+   * Mirrors `add_row_raw`'s contract: emit + label-meta tracking +
+   * dedup, but no per-column / per-row scale-vector mutation.  This
+   * is the precondition for sharing `m_col_scales_` across aperture
+   * clones via `std::shared_ptr` — the scale vector is frozen once
+   * `load_flat` has populated it.
+   *
+   * @param col Sparse column with `scale == 1.0`.
+   * @return The index of the newly added column.
+   */
+  ColIndex add_col_raw(const SparseCol& col);
+
   /// Bulk-add columns (calls add_col for each).
   void add_cols(std::span<const SparseCol> cols);
 
@@ -591,6 +682,55 @@ public:
    * @param eps Epsilon for coefficient filtering.
    */
   RowIndex add_row_raw(const SparseRow& row, double eps = 0.0);
+
+  /**
+   * @brief Add a disposable column on a shallow clone.
+   *
+   * Goes DIRECTLY to the solver backend (`m_backend_->add_col`) —
+   * does not transit through `add_col`, `add_col_raw`, or
+   * `emit_col_to_backend`.  Captures only the label-meta fields of
+   * `col` (class_name, variable_name, variable_uid, context) into a
+   * per-clone-local extras vector + dedup map.  Never touches the
+   * shared `m_col_labels_meta_`, `m_col_meta_index_`, or
+   * `m_col_scales_` — designed for use on a `clone(CloneKind::shallow)`
+   * where those structures are shared read-only with the source.
+   *
+   * Asserts `col.scale == 1.0` (the elastic-filter slack convention)
+   * — non-unit scales would require extending `m_col_scales_`, which
+   * the disposable contract forbids.
+   *
+   * `generate_labels_from_maps` consults the per-clone extras when
+   * the col index is past the end of the shared metadata, so
+   * `write_lp` produces gtopt-formatted labels for disposable cols
+   * identical to what the production path would emit.
+   *
+   * Use case: SDDP elastic-filter slack cols on the cloned LP.
+   * Solve-and-discard pattern, ≤ 20 cols per call.
+   *
+   * @param col SparseCol with `scale == 1.0`.
+   * @return Index of the newly added column.
+   */
+  ColIndex add_col_disposable(const SparseCol& col);
+
+  /**
+   * @brief Add a disposable row on a shallow clone.
+   *
+   * Companion to `add_col_disposable`.  Goes DIRECTLY to
+   * `m_backend_->add_row`; captures only the label-meta fields of
+   * `row` into a per-clone-local extras vector + dedup map.  Never
+   * touches the shared `m_row_labels_meta_`, `m_row_meta_index_`,
+   * or `m_row_scales_`.
+   *
+   * Asserts `row.scale == 1.0` (the elastic-filter fixing-row
+   * convention).
+   *
+   * Use case: SDDP elastic-filter fixing rows on the cloned LP.
+   *
+   * @param row SparseRow with `scale == 1.0`.
+   * @param eps Epsilon for coefficient filtering.
+   * @return Index of the newly added row.
+   */
+  RowIndex add_row_disposable(const SparseRow& row, double eps = 0.0);
 
   /**
    * @brief Add a cut row AND record it for low-memory replay.
@@ -966,6 +1106,77 @@ public:
   void materialize_labels() const;
 
 private:
+  /// Deep-copy helper for `shared_ptr<T>` members.  Returns a fresh
+  /// `shared_ptr` owning a value-copy of the source's underlying T —
+  /// the deep-clone counterpart to the shallow-clone `shared_ptr`
+  /// copy-assignment.  Lazily handles the null source-pointer case
+  /// (returns a shared_ptr to a default-constructed T).
+  template<class T>
+  [[nodiscard]] static std::shared_ptr<T> deep_copy_ptr(
+      const std::shared_ptr<T>& src)
+  {
+    return src ? std::make_shared<T>(*src) : std::make_shared<T>();
+  }
+
+  /// Copy-on-write helper for `shared_ptr<T>` members.  Returns a
+  /// mutable reference to the underlying T, detaching first if the
+  /// pointer is shared (`use_count() > 1`).  Lazily creates the T if
+  /// the shared_ptr is null.
+  ///
+  /// Under the project's actual usage pattern this helper is always
+  /// the no-op branch:
+  ///
+  ///   - When the source is mutating (cut adds between aperture
+  ///     phases, α-col registration, post-load replay) every clone
+  ///     has already been destroyed → `use_count == 1`, no copy.
+  ///   - When clones are alive (aperture phase, elastic recovery)
+  ///     the source is frozen by `DecompressionGuard`, and clones
+  ///     use `add_*_disposable` which never touches shared state.
+  ///
+  /// The COW branch is therefore defensive only — guarantees
+  /// correctness if a future caller violates the freeze contract,
+  /// instead of producing a silent data race.
+  template<class T>
+  static T& detach_for_write(std::shared_ptr<T>& p)
+  {
+    if (!p) {
+      p = std::make_shared<T>();
+    } else if (p.use_count() > 1) {
+      p = std::make_shared<T>(*p);
+    }
+    return *p;
+  }
+
+  /// Pure backend emit: append a column to the solver's matrix with
+  /// normalised bounds and the obj-coeff already divided by
+  /// `m_scale_objective_`.  No metadata tracking, no `set_col_scale`,
+  /// no dedup.  Used as the shared core of `add_col(SparseCol)` and
+  /// (indirectly) `add_col_raw`.  The disposable APIs deliberately do
+  /// NOT route through this helper — they call `m_backend_->add_col`
+  /// directly to keep their mutation surface trivially auditable.
+  ColIndex emit_col_to_backend(const SparseCol& col);
+
+  /// Pure backend emit: append a row to the solver's matrix.  Composes
+  /// `SparseRow::scale` (mirroring `flatten()`'s static-row handling)
+  /// but applies no `col_scale` multiplication and no per-row
+  /// equilibration.  Used as the shared core of `add_row_raw`.  The
+  /// disposable APIs do NOT route through this helper.
+  RowIndex emit_row_to_backend(const SparseRow& row, double eps);
+
+  /// Append/update the col-label metadata for a freshly-added column.
+  /// Called by `add_col(SparseCol)` and `add_col_raw` after the col
+  /// index is known.  Resizes `m_col_labels_meta_` so `m[col_idx]`
+  /// carries the 4-tuple LabelMaker needs, and inserts into
+  /// `m_col_meta_index_` for eager duplicate detection.
+  ///
+  /// NOTE: the dedup throw at the bottom of this function has three
+  /// near-identical siblings (`track_row_label_meta`,
+  /// `add_col_disposable`, `add_row_disposable`).  They differ in
+  /// which dedup map(s) they consult and which "role" string the
+  /// error message uses ("col" / "cons" / "shared col" /
+  /// "first disposable").  Keep the wording in sync if you change one.
+  void track_col_label_meta(ColIndex col_idx, const SparseCol& col);
+
   /// Append/update the row-label metadata for a freshly-added row.
   /// Called by the `add_row(SparseRow)` entry points after the row
   /// index is known.  Resizes `m_row_labels_meta_` so `m[row_idx]`
@@ -1182,8 +1393,8 @@ public:
     const auto n = get_numrows();
     return {backend().row_lower(),
             n,
-            m_row_scales_.data(),
-            m_row_scales_.size(),
+            m_row_scales_->data(),
+            m_row_scales_->size(),
             ScaledView::Op::multiply};
   }
 
@@ -1197,8 +1408,8 @@ public:
     const auto n = get_numrows();
     return {backend().row_upper(),
             n,
-            m_row_scales_.data(),
-            m_row_scales_.size(),
+            m_row_scales_->data(),
+            m_row_scales_->size(),
             ScaledView::Op::multiply};
   }
 
@@ -1242,8 +1453,8 @@ public:
     const auto n = get_numcols();
     return {backend().col_lower(),
             n,
-            m_col_scales_.data(),
-            m_col_scales_.size(),
+            m_col_scales_->data(),
+            m_col_scales_->size(),
             ScaledView::Op::multiply};
   }
 
@@ -1260,8 +1471,8 @@ public:
     const auto n = get_numcols();
     return {backend().col_upper(),
             n,
-            m_col_scales_.data(),
-            m_col_scales_.size(),
+            m_col_scales_->data(),
+            m_col_scales_->size(),
             ScaledView::Op::multiply};
   }
 
@@ -1319,14 +1530,14 @@ public:
     if (m_backend_released_ || !m_cached_is_optimal_) {
       return {data,
               n,
-              m_col_scales_.data(),
-              m_col_scales_.size(),
+              m_col_scales_->data(),
+              m_col_scales_->size(),
               ScaledView::Op::multiply};
     }
     return {data,
             n,
-            m_col_scales_.data(),
-            m_col_scales_.size(),
+            m_col_scales_->data(),
+            m_col_scales_->size(),
             backend().col_lower(),
             n,
             backend().col_upper(),
@@ -1363,15 +1574,15 @@ public:
     if (m_backend_released_ && !m_cached_col_cost_.empty()) {
       return {m_cached_col_cost_.data(),
               n,
-              m_col_scales_.data(),
-              m_col_scales_.size(),
+              m_col_scales_->data(),
+              m_col_scales_->size(),
               ScaledView::Op::divide,
               m_scale_objective_};
     }
     return {backend().reduced_cost(),
             n,
-            m_col_scales_.data(),
-            m_col_scales_.size(),
+            m_col_scales_->data(),
+            m_col_scales_->size(),
             ScaledView::Op::divide,
             m_scale_objective_};
   }
@@ -1386,10 +1597,10 @@ public:
    * @param index Column index
    * @return Scale factor (1.0 if col_scales is empty or not populated)
    */
-  [[nodiscard]] constexpr double get_col_scale(ColIndex index) const noexcept
+  [[nodiscard]] double get_col_scale(ColIndex index) const noexcept
   {
-    if (static_cast<size_t>(index) < m_col_scales_.size()) {
-      return m_col_scales_[index];
+    if (static_cast<size_t>(index) < m_col_scales_->size()) {
+      return (*m_col_scales_)[index];
     }
     return 1.0;
   }
@@ -1403,13 +1614,14 @@ public:
    * @param index Column index
    * @param scale Physical-to-LP scale factor (physical = LP × scale)
    */
-  void set_col_scale(ColIndex index, double scale) noexcept
+  void set_col_scale(ColIndex index, double scale)
   {
+    auto& cs = detach_for_write(m_col_scales_);
     const auto sz = static_cast<size_t>(index) + 1;
-    if (sz > m_col_scales_.size()) {
-      m_col_scales_.resize(sz, 1.0);
+    if (sz > cs.size()) {
+      cs.resize(sz, 1.0);
     }
-    m_col_scales_[index] = scale;
+    cs[index] = scale;
   }
 
   /**
@@ -1417,9 +1629,9 @@ public:
    * @return Const reference to the column scale vector (empty if not
    * populated)
    */
-  [[nodiscard]] constexpr const auto& get_col_scales() const noexcept
+  [[nodiscard]] const auto& get_col_scales() const noexcept
   {
-    return m_col_scales_;
+    return *m_col_scales_;
   }
 
   /**
@@ -1431,10 +1643,10 @@ public:
    * @param index Row index
    * @return Scale factor (1.0 if row_scales is empty or not populated)
    */
-  [[nodiscard]] constexpr double get_row_scale(RowIndex index) const noexcept
+  [[nodiscard]] double get_row_scale(RowIndex index) const noexcept
   {
-    if (static_cast<size_t>(index) < m_row_scales_.size()) {
-      return m_row_scales_[index];
+    if (static_cast<size_t>(index) < m_row_scales_->size()) {
+      return (*m_row_scales_)[index];
     }
     return 1.0;
   }
@@ -1448,22 +1660,23 @@ public:
    * @param index Row index
    * @param scale Row scale factor (physical_rhs = LP_rhs × scale)
    */
-  void set_row_scale(RowIndex index, double scale) noexcept
+  void set_row_scale(RowIndex index, double scale)
   {
+    auto& rs = detach_for_write(m_row_scales_);
     const auto sz = static_cast<size_t>(index) + 1;
-    if (sz > m_row_scales_.size()) {
-      m_row_scales_.resize(sz, 1.0);
+    if (sz > rs.size()) {
+      rs.resize(sz, 1.0);
     }
-    m_row_scales_[index] = scale;
+    rs[index] = scale;
   }
 
   /**
    * @brief Gets all row equilibration scale factors.
    * @return Const reference to the row scale vector (empty if not populated)
    */
-  [[nodiscard]] constexpr const auto& get_row_scales() const noexcept
+  [[nodiscard]] const auto& get_row_scales() const noexcept
   {
-    return m_row_scales_;
+    return *m_row_scales_;
   }
 
   /// Equilibration method in effect for this LP (selected by
@@ -1503,7 +1716,7 @@ public:
   /// VariableScaleMap moved from FlatLinearProblem during load_flat().
   [[nodiscard]] const VariableScaleMap& variable_scale_map() const noexcept
   {
-    return m_variable_scale_map_;
+    return *m_variable_scale_map_;
   }
 
   /** @brief Lazily compute vertex duals via crossover if the backend
@@ -1548,16 +1761,16 @@ public:
     if (m_backend_released_ && !m_cached_row_dual_.empty()) {
       return {m_cached_row_dual_.data(),
               n,
-              m_row_scales_.data(),
-              m_row_scales_.size(),
+              m_row_scales_->data(),
+              m_row_scales_->size(),
               ScaledView::Op::divide,
               m_scale_objective_};
     }
     ensure_duals();
     return {backend().row_price(),
             n,
-            m_row_scales_.data(),
-            m_row_scales_.size(),
+            m_row_scales_->data(),
+            m_row_scales_->size(),
             ScaledView::Op::divide,
             m_scale_objective_};
   }
@@ -1614,28 +1827,28 @@ public:
   /// Row (constraint) name → strong row index map.
   using row_name_map_t = std::unordered_map<std::string, RowIndex>;
 
-  [[nodiscard]] constexpr const row_name_map_t& row_name_map() const noexcept
+  [[nodiscard]] const row_name_map_t& row_name_map() const noexcept
   {
-    return m_row_names_;
+    return *m_row_names_;
   }
 
-  [[nodiscard]] constexpr const col_name_map_t& col_name_map() const noexcept
+  [[nodiscard]] const col_name_map_t& col_name_map() const noexcept
   {
-    return m_col_names_;
+    return *m_col_names_;
   }
 
   /// Column index → name vector (empty string for unnamed columns).
   /// Populated alongside col_name_map when names are enabled.
-  [[nodiscard]] constexpr const auto& col_index_to_name() const noexcept
+  [[nodiscard]] const auto& col_index_to_name() const noexcept
   {
-    return m_col_index_to_name_;
+    return *m_col_index_to_name_;
   }
 
   /// Row index → name vector (empty string for unnamed rows).
   /// Populated alongside row_name_map when names are enabled.
-  [[nodiscard]] constexpr const auto& row_index_to_name() const noexcept
+  [[nodiscard]] const auto& row_index_to_name() const noexcept
   {
-    return m_row_index_to_name_;
+    return *m_row_index_to_name_;
   }
   /// @}
 
@@ -1811,13 +2024,19 @@ private:
   /// Populated when names are enabled.
   // Mutable for the lazy-materialisation path: caches populated by
   // `generate_labels_from_maps` (logically const) live here too.
-  mutable row_name_map_t m_row_names_;  ///< Row (constraint) name → row index
-  mutable col_name_map_t m_col_names_;  ///< Column (variable) name → col index
+  mutable std::shared_ptr<row_name_map_t> m_row_names_ {
+      std::make_shared<row_name_map_t>()};  ///< Row (constraint) name → idx
+  mutable std::shared_ptr<col_name_map_t> m_col_names_ {
+      std::make_shared<col_name_map_t>()};  ///< Column (variable) name → idx
   // Mutable so `generate_labels_from_maps` (logically const — it
   // returns new vectors; the state update is a caching detail) can
   // persist freshly-formatted labels for reuse on subsequent calls.
-  mutable StrongIndexVector<ColIndex, std::string> m_col_index_to_name_;
-  mutable StrongIndexVector<RowIndex, std::string> m_row_index_to_name_;
+  mutable std::shared_ptr<StrongIndexVector<ColIndex, std::string>>
+      m_col_index_to_name_ {
+          std::make_shared<StrongIndexVector<ColIndex, std::string>>()};
+  mutable std::shared_ptr<StrongIndexVector<RowIndex, std::string>>
+      m_row_index_to_name_ {
+          std::make_shared<StrongIndexVector<RowIndex, std::string>>()};
 
   size_t m_base_numrows_ {};  ///< Row count before any cuts were added
   /// True once `save_base_numrows()` has fired.  Distinct from
@@ -1829,15 +2048,30 @@ private:
   bool m_base_numrows_set_ {false};
 
   double m_scale_objective_ {1.0};  ///< Global objective divisor (from flatten)
-  StrongIndexVector<ColIndex, double> m_col_scales_;
-  StrongIndexVector<RowIndex, double> m_row_scales_;
+  /// Column / row scale vectors.  `shared_ptr` so shallow clones
+  /// can share with the source — see `CloneKind`.  The scale vectors
+  /// are populated in `load_flat` and only mutated post-flatten by
+  /// `set_col_scale` / `set_row_scale` (called when a non-unit
+  /// `col.scale` / `row.scale` is added via `add_col(SparseCol)` /
+  /// `add_row_raw`).  Disposable adds explicitly forbid non-unit
+  /// scales (see `add_col_disposable` / `add_row_disposable`) so
+  /// they never trigger the COW detach branch on the clone side.
+  mutable std::shared_ptr<StrongIndexVector<ColIndex, double>> m_col_scales_ {
+      std::make_shared<StrongIndexVector<ColIndex, double>>()};
+  mutable std::shared_ptr<StrongIndexVector<RowIndex, double>> m_row_scales_ {
+      std::make_shared<StrongIndexVector<RowIndex, double>>()};
   /// Equilibration method used at load_flat() time.  Persisted so that
   /// `add_row` / `add_rows` (the post-build cut path) apply the same
   /// per-row scaling the bulk build did, keeping kappa stable as cuts
   /// accumulate.  `none` means the caller opted out of equilibration
   /// at build time and we leave new rows alone.
   LpEquilibrationMethod m_equilibration_method_ {LpEquilibrationMethod::none};
-  VariableScaleMap m_variable_scale_map_ {};  ///< Moved from flatten
+  /// Moved from flatten.  `shared_ptr` so shallow clones can share
+  /// it with the source instead of value-copying — see `CloneKind`.
+  /// Mutated only via `load_flat` (source-side, before any clones)
+  /// so the COW detach in `detach_for_write` is dormant in practice.
+  mutable std::shared_ptr<VariableScaleMap> m_variable_scale_map_ {
+      std::make_shared<VariableScaleMap>()};
 
   /// Warm column solution loaded from a previous run's state file.
   /// Used by StorageLP::physical_eini/efin as fallback when
@@ -1890,6 +2124,11 @@ private:
   /// `add_row` time.  Used by `generate_labels_from_maps` to
   /// synthesise real gtopt labels on demand.
   ///
+  /// `shared_ptr<T>` so `clone(CloneKind::shallow)` can hand the
+  /// vector out to many aperture clones via atomic incref instead of
+  /// value-copying it.  All mutating call sites route through
+  /// `detach_for_write` to preserve correctness if `use_count > 1`.
+  ///
   /// Under `LowMemoryMode::compress`, `release_backend` compresses
   /// these vectors into `m_col_labels_meta_compressed_` /
   /// `m_row_labels_meta_compressed_` and clears the live copies.
@@ -1899,12 +2138,21 @@ private:
   /// live in `m_label_string_pool_` — the pool is never cleared
   /// while `m_col_labels_meta_` references it.  `mutable` because
   /// the lazy decompression flow is triggered from const methods.
-  mutable std::vector<SparseColLabel> m_col_labels_meta_ {};
-  mutable std::vector<SparseRowLabel> m_row_labels_meta_ {};
+  mutable std::shared_ptr<std::vector<SparseColLabel>> m_col_labels_meta_ {
+      std::make_shared<std::vector<SparseColLabel>>()};
+  mutable std::shared_ptr<std::vector<SparseRowLabel>> m_row_labels_meta_ {
+      std::make_shared<std::vector<SparseRowLabel>>()};
 
   /// Compressed backups of the metadata vectors — populated on
   /// `release_backend` under `compress` mode, drained on the first
   /// label-metadata read after reload.
+  ///
+  /// Intentionally NOT `shared_ptr`-wrapped: compression / decompression
+  /// only ever runs on the source LP (via `release_backend` and
+  /// `ensure_backend`); clones never compress.  The
+  /// `DecompressionGuard` around the aperture pass ensures the source
+  /// is in the decompressed state for the lifetime of any shallow
+  /// clone, so the source uniquely owns these buffers throughout.
   mutable CompressedBuffer m_col_labels_meta_compressed_ {};
   mutable CompressedBuffer m_row_labels_meta_compressed_ {};
   mutable std::size_t m_col_labels_meta_count_ {0};
@@ -1931,12 +2179,45 @@ private:
   /// post-flatten insertions (α column, Benders cut rows) that
   /// `LinearProblem` never sees.
   ///
-  /// `mutable` because `rebuild_meta_indexes` fires from the const
+  /// `shared_ptr<T>` so shallow clones share via atomic incref;
+  /// mutating sites use `detach_for_write`.  `mutable` because
+  /// `rebuild_meta_indexes` fires from the const
   /// `ensure_labels_meta_decompressed` path.
+  mutable std::shared_ptr<
+      std::unordered_map<SparseColLabel, ColIndex, SparseColLabelHash>>
+      m_col_meta_index_ {std::make_shared<
+          std::unordered_map<SparseColLabel, ColIndex, SparseColLabelHash>>()};
+  mutable std::shared_ptr<
+      std::unordered_map<SparseRowLabel, RowIndex, SparseRowLabelHash>>
+      m_row_meta_index_ {std::make_shared<
+          std::unordered_map<SparseRowLabel, RowIndex, SparseRowLabelHash>>()};
+
+  /// Per-clone-local label metadata for cols/rows added via
+  /// `add_col_disposable` / `add_row_disposable` after a shallow
+  /// clone.  Empty on the source LP and on freshly-constructed clones;
+  /// populated by the elastic-filter slack/fixing-row inserts on the
+  /// cloned LP.
+  ///
+  /// Mirror of the production path: `m_post_clone_*_metas_` is
+  /// indexed-by-insertion order (SparseColLabel / SparseRowLabel,
+  /// same shape as `m_col_labels_meta_` / `m_row_labels_meta_`),
+  /// while `m_post_clone_*_meta_index_` is the dedup hash map (same
+  /// role as `m_col_meta_index_` / `m_row_meta_index_`) — duplicate
+  /// insertions throw with both indices, just like the production
+  /// path.
+  ///
+  /// `generate_labels_from_maps` consults these vectors when a col
+  /// or row index is past the end of the shared metadata, so
+  /// `write_lp` produces gtopt-formatted labels for disposable cols
+  /// identical to what the production path would emit.
+  mutable std::vector<std::pair<ColIndex, SparseColLabel>>
+      m_post_clone_col_metas_ {};
+  mutable std::vector<std::pair<RowIndex, SparseRowLabel>>
+      m_post_clone_row_metas_ {};
   mutable std::unordered_map<SparseColLabel, ColIndex, SparseColLabelHash>
-      m_col_meta_index_ {};
+      m_post_clone_col_meta_index_ {};
   mutable std::unordered_map<SparseRowLabel, RowIndex, SparseRowLabelHash>
-      m_row_meta_index_ {};
+      m_post_clone_row_meta_index_ {};
 
   /// Whether the backend is currently released.
   bool m_backend_released_ {false};

@@ -533,7 +533,14 @@ RelaxedVarInfo relax_fixed_state_variable(
   // metadata detector when the link's element uid is shared (or
   // unknown_uid in test fixtures).
   const auto slack_uid = static_cast<Uid>(static_cast<int>(dep));
-  const auto sup = li.add_col(SparseCol {
+  // Disposable adds: the elastic clone is throw-away, so the slack
+  // cols / fixing row don't need to enter the shared metadata
+  // (`m_col_labels_meta_`, `m_col_meta_index_`).  Their label metadata
+  // is captured into a per-clone-local extras vector + dedup map and
+  // synthesised on demand by `generate_labels_from_maps` if a bad-LP
+  // dump is ever requested — gtopt-formatted output identical to the
+  // production path's.  See `LinearInterface::add_col_disposable`.
+  const auto sup = li.add_col_disposable(SparseCol {
       .uppb = sup_uppb,
       .cost = slack_cost,
       .class_name = sddp_alpha_class_name,
@@ -541,7 +548,7 @@ RelaxedVarInfo relax_fixed_state_variable(
       .variable_uid = slack_uid,
   });
 
-  const auto sdn = li.add_col(SparseCol {
+  const auto sdn = li.add_col_disposable(SparseCol {
       .uppb = sdn_uppb,
       .cost = slack_cost,
       .class_name = sddp_alpha_class_name,
@@ -594,7 +601,7 @@ RelaxedVarInfo relax_fixed_state_variable(
   elastic[sup] = 1.0;
   elastic[sdn] = -1.0;
 
-  const auto fixing_row = li.add_row_raw(elastic);
+  const auto fixing_row = li.add_row_disposable(elastic);
 
   SPDLOG_TRACE(
       "SDDP elastic: phase {} col {} relaxed to [{:.2f}, {:.2f}] "
@@ -619,8 +626,13 @@ auto elastic_filter_solve(const LinearInterface& li,
                           const SolverOptions& opts)
     -> std::optional<ElasticSolveResult>
 {
-  // Clone the LP; modifications don't touch the original.
-  auto cloned = li.clone();
+  // Shallow clone: the elastic path adds slacks and a fixing row via
+  // the disposable APIs (`add_col_disposable`, `add_row_disposable`),
+  // which write only per-clone-local extras and never touch the
+  // shared metadata.  Bound mutations and obj-coeff zeroing happen
+  // through the backend and don't touch shared state either.  COW
+  // detach therefore stays dormant.
+  auto cloned = li.clone(LinearInterface::CloneKind::shallow);
 
   // Chinneck Phase-1 feasibility LP: zero every original objective
   // coefficient so the relaxed LP becomes a pure feasibility problem.
@@ -1252,8 +1264,8 @@ auto BendersCut::elastic_filter_solve(const LinearInterface& li,
     return result;
   }
 
-  // Clone the LP; modifications don't touch the original.
-  auto cloned = li.clone();
+  // Shallow clone — same rationale as the free `elastic_filter_solve`.
+  auto cloned = li.clone(LinearInterface::CloneKind::shallow);
 
   ElasticSolveResult result;
   result.link_infos.reserve(links.size());

@@ -248,7 +248,17 @@ auto solve_apertures_for_phase(
           LinearInterface clone = [&]
           {
             const std::scoped_lock lock(*clone_mutex);
-            return phase_li.clone();
+            // Shallow clone: shared_ptr-share the source's frozen
+            // metadata (label vectors, dedup maps, scale vectors)
+            // instead of value-copying.  The aperture path only
+            // mutates bounds/objective on the backend; it never
+            // writes shared metadata, so the COW detach branch in
+            // `detach_for_write` stays dormant.  At up to ~100
+            // concurrent aperture clones (pool_cpu_factor=4.0 ×
+            // physical_concurrency()), this saves multi-GB of
+            // duplicated metadata at peak — see
+            // /home/marce/.claude/plans/federated-bouncing-simon.md.
+            return phase_li.clone(LinearInterface::CloneKind::shallow);
           }();
 
           // Update scenario-dependent bounds via a unified visitor.

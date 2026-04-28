@@ -751,6 +751,17 @@ auto LinearProblem::flatten(const LpMatrixOptions& opts) -> FlatLinearProblem
       .rowmp = std::move(rowmp),
       .col_labels_meta = std::move(col_labels_meta),
       .row_labels_meta = std::move(row_labels_meta),
+      // Hand the eager dedup maps off to LinearInterface.  These were
+      // built incrementally during `add_col` / `add_row`; copying
+      // them into FlatLinearProblem and then moving into
+      // `m_col_meta_index_` saves a full rehash pass at `load_flat`
+      // time (~50 ms on 500K cols / 300K rows).  Copy (not move)
+      // because LinearProblem may legitimately be reused after
+      // `flatten()` (e.g. in tests that call flatten() twice on the
+      // same problem to compare opts) and would lose its dedup
+      // invariant if we drained the map.
+      .col_meta_index = m_col_meta_index_,
+      .row_meta_index = m_row_meta_index_,
       .name = pname,  // always copy (trivially small, enables multiple flatten)
       .stats_nnz = stats_nnz,
       .stats_zeroed = stats_zeroed,
