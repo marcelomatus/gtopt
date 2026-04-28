@@ -622,6 +622,33 @@ def test_battery_cenbat_no_injection_no_source_generator(tmp_path):
     assert "bus" in b  # still unified
 
 
+def test_battery_cenbat_self_injection_no_source_generator(tmp_path):
+    """plpcenbat.dat self-injection (battery name == injection name) is standalone.
+
+    PLP cases such as plp_min_bess list the battery itself as its own
+    injection central (e.g. ``BESS1 → BESS1``).  This is the
+    standalone / unified auto-expand pattern, not generation coupling.
+    Setting ``source_generator = <battery_name>`` would dangle: the
+    discharge generator is created by ``System::expand_batteries`` at
+    LP time, not in the JSON, so gtopt_check_json's reference check
+    flags ``source_generator='BESS1'`` against the (absent) generator
+    array as a CRITICAL broken reference.  Drop the self-reference so
+    the unified path runs cleanly.
+    """
+    bp = _make_battery_parser(
+        tmp_path,
+        " 1     1\n 1     BESS1\n 1\n BESS1     0.95\n 3     0.95     0.0     200.0\n",
+    )
+    writer = BatteryWriter(battery_parser=bp)
+    bats = writer.to_battery_array()
+
+    assert len(bats) == 1
+    b = bats[0]
+    # Self-reference must be dropped → standalone unified battery.
+    assert b.get("source_generator") is None
+    assert "bus" in b
+
+
 def test_ess_dcmod1_sets_source_generator(tmp_path):
     """ESS with dcmod=1 and cenpc produces source_generator in battery.
 
@@ -650,6 +677,27 @@ def test_ess_dcmod0_no_source_generator(tmp_path):
     ep = _make_ess_parser(
         tmp_path,
         " 1\n  ESS1  0.90  0.90  1.0  200.0  100.0  0\n",
+    )
+    writer = BatteryWriter(ess_parser=ep)
+    bats = writer.to_battery_array()
+
+    assert len(bats) == 1
+    b = bats[0]
+    assert b.get("source_generator") is None
+
+
+def test_ess_dcmod1_self_cenpc_no_source_generator(tmp_path):
+    """ESS dcmod=1 with cenpc == battery name is treated as standalone.
+
+    Same self-reference pattern as ``plpcenbat`` self-injection: a
+    battery whose ``cenpc`` field points back at the battery itself
+    is not really generation-coupled — there is no external generator
+    in the JSON to reference, so dropping the source_generator avoids
+    the dangling-reference CRITICAL from gtopt_check_json.
+    """
+    ep = _make_ess_parser(
+        tmp_path,
+        " 1\n  ESS1  0.90  0.90  1.0  200.0  100.0  1  ESS1\n",
     )
     writer = BatteryWriter(ess_parser=ep)
     bats = writer.to_battery_array()
