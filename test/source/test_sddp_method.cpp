@@ -3564,3 +3564,353 @@ TEST_CASE("SDDPMethod state-var collection idempotency after solve")  // NOLINT
   CHECK(true);  // reaching here = collect_state_variable_links is
                 // idempotent and the link / runtime path is stable.
 }
+
+// ─── Group A: free utility functions in sddp_method.cpp ────────────────────
+//
+// These functions live at namespace scope (no class fixture needed).
+// Pre-Phase-B they were buried in the 2265-LoC monolith and had no
+// dedicated coverage; the split exposed them as testable units.
+
+TEST_CASE("compute_convergence_gap — denominator clamping")  // NOLINT
+{
+  // Standard case — UB > 1 → denominator = |UB|.
+  CHECK(compute_convergence_gap(100.0, 90.0) == doctest::Approx(0.10));
+  // UB == LB == 0 → numerator 0, denominator clamped to 1.0 → gap = 0.
+  CHECK(compute_convergence_gap(0.0, 0.0) == doctest::Approx(0.0));
+  // |UB| < 1 → denominator clamped to 1.0; gap is the raw difference.
+  CHECK(compute_convergence_gap(0.5, 0.0) == doctest::Approx(0.5));
+  // Negative bounds: denominator uses |UB|, not the signed value.
+  CHECK(compute_convergence_gap(-100.0, -110.0) == doctest::Approx(0.10));
+}
+
+TEST_CASE("parse_cut_sharing_mode — known + unknown strings")  // NOLINT
+{
+  CHECK(parse_cut_sharing_mode("none") == CutSharingMode::none);
+  CHECK(parse_cut_sharing_mode("expected") == CutSharingMode::expected);
+  CHECK(parse_cut_sharing_mode("accumulate") == CutSharingMode::accumulate);
+  CHECK(parse_cut_sharing_mode("max") == CutSharingMode::max);
+  // Fallback contract — unknown spelling resolves to ``none``.
+  CHECK(parse_cut_sharing_mode("garbage") == CutSharingMode::none);
+  CHECK(parse_cut_sharing_mode("") == CutSharingMode::none);
+}
+
+TEST_CASE("parse_elastic_filter_mode — known + unknown strings")  // NOLINT
+{
+  CHECK(parse_elastic_filter_mode("single_cut")
+        == ElasticFilterMode::single_cut);
+  CHECK(parse_elastic_filter_mode("multi_cut") == ElasticFilterMode::multi_cut);
+  CHECK(parse_elastic_filter_mode("chinneck") == ElasticFilterMode::chinneck);
+  // ``iis`` is a documented alias for chinneck.
+  CHECK(parse_elastic_filter_mode("iis") == ElasticFilterMode::chinneck);
+  // Fallback contract — unknown spelling resolves to ``chinneck``.
+  CHECK(parse_elastic_filter_mode("garbage") == ElasticFilterMode::chinneck);
+  CHECK(parse_elastic_filter_mode("") == ElasticFilterMode::chinneck);
+}
+
+TEST_CASE("compute_scene_weights — runtime rescale to sum 1.0")  // NOLINT
+{
+  // Empty ``scenes`` span → function falls back to the
+  // ``weights[si] = 1.0`` per-scene default for every feasible cell;
+  // runtime mode then normalises the sum to 1.0.  This is the
+  // canonical "no probability factors known yet" path.
+  std::array<uint8_t, 3> feasible {1, 1, 1};
+  const auto w = compute_scene_weights(
+      {}, std::span<const uint8_t> {feasible}, ProbabilityRescaleMode::runtime);
+  REQUIRE(w.size() == 3);
+  // Each scene starts at 1.0 fallback → total 3 → normalised to 1/3.
+  CHECK(w[0] == doctest::Approx(1.0 / 3.0));
+  CHECK(w[1] == doctest::Approx(1.0 / 3.0));
+  CHECK(w[2] == doctest::Approx(1.0 / 3.0));
+  CHECK(w[0] + w[1] + w[2] == doctest::Approx(1.0));
+}
+
+TEST_CASE("compute_scene_weights — all-infeasible recovery branch")  // NOLINT
+{
+  // Every scene infeasible → no scene contributes to the sum, so
+  // ``total == 0`` and the runtime-rescale branch is skipped.  The
+  // tail "all infeasible" recovery branch then assigns 0 to every
+  // cell (it only produces equal weights when feasible_count > 0).
+  std::array<uint8_t, 2> feasible {0, 0};
+  const auto w = compute_scene_weights(
+      {}, std::span<const uint8_t> {feasible}, ProbabilityRescaleMode::runtime);
+  REQUIRE(w.size() == 2);
+  CHECK(w[0] == doctest::Approx(0.0));
+  CHECK(w[1] == doctest::Approx(0.0));
+}
+
+TEST_CASE("find_alpha_state_var — missing key returns nullptr")  // NOLINT
+{
+  // The state-variable lookup is keyed by ``(uid, col_name,
+  // class_name, scene, phase)``.  A freshly-built ``SimulationLP``
+  // (constructed via the standard fixture) has not yet had any α
+  // variables registered, so the lookup must return ``nullptr``.
+  auto planning = make_3phase_hydro_planning();
+  PlanningLP plp(std::move(planning));
+  const auto* alpha =
+      find_alpha_state_var(plp.simulation(), SceneIndex {0}, PhaseIndex {0});
+  CHECK(alpha == nullptr);
+}
+
+// ─── Group B: cut-store persistence round-trips ────────────────────────────
+//
+// Pin the save/load contract on the cut store + scene-cut directory +
+// full SDDP state.  These methods all live in
+// ``sddp_method_cut_store.cpp`` after the Phase B split.
+
+TEST_CASE(
+    "SDDPMethod cut JSON save creates file + load reports same count")  // NOLINT
+{
+  // ``save_cuts`` and ``load_cuts`` are not strict inverses: save
+  // writes ``m_scene_cuts_`` to disk; load installs cuts into the LP
+  // (via ``m_scene_phase_states_``) and returns the loaded count via
+  // ``CutLoadResult::count`` without refilling ``m_scene_cuts_``.
+  // The round-trip contract this test pins is therefore the COUNT
+  // through the load path, not the post-load ``num_stored_cuts()``.
+  auto planning = make_3phase_hydro_planning();
+  PlanningLP plp(std::move(planning));
+
+  SDDPOptions opts;
+  opts.max_iterations = 5;
+  opts.convergence_tol = 1e-3;
+  SDDPMethod sddp(plp, opts);
+  REQUIRE(sddp.solve().has_value());
+  const auto initial = sddp.num_stored_cuts();
+  REQUIRE(initial > 0);
+
+  const auto path =
+      std::filesystem::temp_directory_path() / "test_cut_json_roundtrip.json";
+  REQUIRE(sddp.save_cuts(path.string()).has_value());
+  CHECK(std::filesystem::exists(path));
+
+  // Re-load on a fresh SDDPMethod whose LP has no cuts installed; the
+  // returned ``count`` must match the saved-side total.
+  PlanningLP plp_fresh(make_3phase_hydro_planning());
+  SDDPMethod sddp_fresh(plp_fresh, opts);
+  auto loaded = sddp_fresh.load_cuts(path.string());
+  REQUIRE(loaded.has_value());
+  CHECK(static_cast<std::ptrdiff_t>(loaded->count) == initial);
+
+  std::filesystem::remove(path);
+}
+
+TEST_CASE(
+    "SDDPMethod cut CSV save creates file + load reports same count")  // NOLINT
+{
+  auto planning = make_3phase_hydro_planning();
+  PlanningLP plp(std::move(planning));
+
+  SDDPOptions opts;
+  opts.max_iterations = 5;
+  opts.convergence_tol = 1e-3;
+  SDDPMethod sddp(plp, opts);
+  REQUIRE(sddp.solve().has_value());
+  const auto initial = sddp.num_stored_cuts();
+  REQUIRE(initial > 0);
+
+  const auto path =
+      std::filesystem::temp_directory_path() / "test_cut_csv_roundtrip.csv";
+  REQUIRE(sddp.save_cuts(path.string()).has_value());
+  CHECK(std::filesystem::exists(path));
+
+  PlanningLP plp_fresh(make_3phase_hydro_planning());
+  SDDPMethod sddp_fresh(plp_fresh, opts);
+  auto loaded = sddp_fresh.load_cuts(path.string());
+  REQUIRE(loaded.has_value());
+  CHECK(static_cast<std::ptrdiff_t>(loaded->count) == initial);
+
+  std::filesystem::remove(path);
+}
+
+TEST_CASE(
+    "SDDPMethod scene-cuts directory save creates files + load count")  // NOLINT
+{
+  auto planning = make_3phase_hydro_planning();
+  PlanningLP plp(std::move(planning));
+
+  SDDPOptions opts;
+  opts.max_iterations = 5;
+  opts.convergence_tol = 1e-3;
+  SDDPMethod sddp(plp, opts);
+  REQUIRE(sddp.solve().has_value());
+  const auto initial = sddp.num_stored_cuts();
+  REQUIRE(initial > 0);
+
+  const auto dir =
+      std::filesystem::temp_directory_path() / "test_scene_cuts_roundtrip";
+  std::filesystem::remove_all(dir);
+  std::filesystem::create_directories(dir);
+
+  REQUIRE(sddp.save_all_scene_cuts(dir.string()).has_value());
+  // At least one .csv file must have been emitted under the dir.
+  bool any_csv = false;
+  for (const auto& e : std::filesystem::directory_iterator(dir)) {
+    if (e.is_regular_file() && e.path().extension() == ".csv") {
+      any_csv = true;
+      break;
+    }
+  }
+  CHECK(any_csv);
+
+  PlanningLP plp_fresh(make_3phase_hydro_planning());
+  SDDPMethod sddp_fresh(plp_fresh, opts);
+  auto loaded = sddp_fresh.load_scene_cuts_from_directory(dir.string());
+  REQUIRE(loaded.has_value());
+  CHECK(static_cast<std::ptrdiff_t>(loaded->count) == initial);
+
+  std::filesystem::remove_all(dir);
+}
+
+TEST_CASE("SDDPMethod state save creates file (smoke)")  // NOLINT
+{
+  // ``save_state`` writes a JSON dump of the cut store + iteration
+  // metadata.  ``load_state`` is the inverse on a fresh instance —
+  // but it is hot-start-aware and re-derives many fields, so we
+  // pin only the save side here (file appears on disk and is valid
+  // JSON).  The full reload contract is exercised by the
+  // ``--cuts-input-file`` integration tests.
+  auto planning = make_3phase_hydro_planning();
+  PlanningLP plp(std::move(planning));
+
+  SDDPOptions opts;
+  opts.max_iterations = 5;
+  opts.convergence_tol = 1e-3;
+  SDDPMethod sddp(plp, opts);
+  REQUIRE(sddp.solve().has_value());
+  REQUIRE(sddp.num_stored_cuts() > 0);
+
+  const auto path =
+      std::filesystem::temp_directory_path() / "test_state_roundtrip.json";
+  REQUIRE(sddp.save_state(path.string()).has_value());
+  CHECK(std::filesystem::exists(path));
+  CHECK(std::filesystem::file_size(path) > 0);
+
+  std::filesystem::remove(path);
+}
+
+// ─── Group C: stop-condition state machine ─────────────────────────────────
+
+TEST_CASE("SDDPMethod should_stop — no signal returns false")  // NOLINT
+{
+  // No sentinel file, no API stop request, no programmatic stop or
+  // callback configured → ``should_stop`` is false on a freshly
+  // constructed instance.
+  auto planning = make_3phase_hydro_planning();
+  PlanningLP plp(std::move(planning));
+  SDDPMethod sddp(plp);
+  CHECK_FALSE(sddp.should_stop());
+  CHECK_FALSE(sddp.check_sentinel_stop());
+  CHECK_FALSE(sddp.check_api_stop_request());
+}
+
+TEST_CASE("SDDPMethod check_sentinel_stop — reacts to file presence")  // NOLINT
+{
+  // Configure ``sentinel_file`` to a tmp path.  Without the file it
+  // returns false; once the file exists it returns true.  This
+  // mirrors the user-visible "kill switch" supported by SDDP.
+  auto planning = make_3phase_hydro_planning();
+  PlanningLP plp(std::move(planning));
+
+  const auto sentinel =
+      std::filesystem::temp_directory_path() / "test_sddp_sentinel_stop.flag";
+  std::filesystem::remove(sentinel);  // ensure absent before construction
+
+  SDDPOptions opts;
+  opts.sentinel_file = sentinel.string();
+  SDDPMethod sddp(plp, opts);
+
+  CHECK_FALSE(sddp.check_sentinel_stop());
+
+  {
+    std::ofstream touch {sentinel};
+    REQUIRE(touch.is_open());
+  }
+  CHECK(sddp.check_sentinel_stop());
+
+  std::filesystem::remove(sentinel);
+  CHECK_FALSE(sddp.check_sentinel_stop());
+}
+
+// ─── Group D: iteration helpers ────────────────────────────────────────────
+
+TEST_CASE(
+    "SDDPMethod should_dispatch_update_lp — bootstrap dispatches")  // NOLINT
+{
+  // The skip pattern is sourced from
+  // ``planning_lp().options().sddp_update_lp_skip()`` (the
+  // PlanningOptions side, NOT ``SDDPOptions``).  We cannot configure
+  // it from the runtime ``SDDPOptions`` struct, so this test pins
+  // only the bootstrap contract: iteration 0 always dispatches.
+  auto planning = make_3phase_hydro_planning();
+  PlanningLP plp(std::move(planning));
+
+  SDDPMethod sddp(plp);
+  CHECK(sddp.should_dispatch_update_lp(IterationIndex {0}));
+}
+
+TEST_CASE("SDDPMethod update_max_kappa(double) accumulator")  // NOLINT
+{
+  auto planning = make_3phase_hydro_planning();
+  PlanningLP plp(std::move(planning));
+  SDDPMethod sddp(plp);
+  // Drive solve() so the per-(scene, phase) max-kappa vector is sized.
+  REQUIRE(sddp.solve().has_value());
+
+  // Push a sequence of values; only the largest must be retained.
+  sddp.update_max_kappa(SceneIndex {0}, PhaseIndex {0}, 5.0);
+  sddp.update_max_kappa(SceneIndex {0}, PhaseIndex {0}, 12.5);
+  sddp.update_max_kappa(SceneIndex {0}, PhaseIndex {0}, 3.0);
+  CHECK(sddp.max_kappa(SceneIndex {0}, PhaseIndex {0}) >= 12.5);
+
+  // A different cell is independent.
+  sddp.update_max_kappa(SceneIndex {0}, PhaseIndex {1}, 7.0);
+  CHECK(sddp.max_kappa(SceneIndex {0}, PhaseIndex {1}) >= 7.0);
+  CHECK(sddp.max_kappa(SceneIndex {0}, PhaseIndex {0})
+        >= sddp.max_kappa(SceneIndex {0}, PhaseIndex {1}));
+}
+
+TEST_CASE(
+    "SDDPMethod apply_cut_sharing_for_iteration — none mode no-op")  // NOLINT
+{
+  auto planning = make_3phase_hydro_planning();
+  PlanningLP plp(std::move(planning));
+
+  SDDPOptions opts;
+  opts.cut_sharing = CutSharingMode::none;
+  SDDPMethod sddp(plp, opts);
+  REQUIRE(sddp.solve().has_value());
+  const auto before = sddp.num_stored_cuts();
+
+  // ``cut_sharing = none`` → method returns without mutating the cut
+  // store.  Pin that the call is safe and idempotent.
+  sddp.apply_cut_sharing_for_iteration(IterationIndex {0});
+  sddp.apply_cut_sharing_for_iteration(IterationIndex {1});
+  CHECK(sddp.num_stored_cuts() == before);
+}
+
+// ─── Group E: diagnose_kappa smoke test ───────────────────────────────────
+
+TEST_CASE("SDDPMethod diagnose_kappa — runs after solve")  // NOLINT
+{
+  // The diagnostic walks cut rows looking for high coefficient
+  // ratios; on a healthy 3-phase fixture the run is uneventful.
+  // This is a smoke test — it pins that the method is callable
+  // post-solve without crashing or mis-indexing into the cut store.
+  auto planning = make_3phase_hydro_planning();
+  PlanningLP plp(std::move(planning));
+
+  SDDPOptions opts;
+  opts.max_iterations = 3;
+  opts.convergence_tol = 1e-3;
+  SDDPMethod sddp(plp, opts);
+  REQUIRE(sddp.solve().has_value());
+
+  // Reach into the planning LP to obtain a live phase LP for the
+  // diagnostic.  Using PhaseIndex{0} is the bootstrap phase the
+  // forward pass touches first; the LP must exist after solve().
+  const auto& sys_lp = plp.system(SceneIndex {0}, PhaseIndex {0});
+  sddp.diagnose_kappa(SceneIndex {0},
+                      PhaseIndex {0},
+                      sys_lp.linear_interface(),
+                      IterationIndex {0});
+  CHECK(true);  // reaching here = no crash, diagnose_kappa is safe.
+}

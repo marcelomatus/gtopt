@@ -508,6 +508,11 @@ private:
       const SolverOptions& opts,
       IterationIndex iteration_index = {}) -> std::expected<int, Error>;
 
+  // ─── Iteration helpers (public for testability) ──────────────────
+  // Promoted 2026-04-28 to support the Group D unit tests in
+  // ``test_sddp_method.cpp``; semantically still iteration internals.
+
+public:
   /// Update the per-(scene, phase) max kappa value after an LP solve.
   /// Also checks kappa against the threshold and emits a warning or
   /// saves the LP file depending on the kappa_warning mode.
@@ -543,6 +548,19 @@ private:
   [[nodiscard]] bool should_dispatch_update_lp(
       IterationIndex iteration_index) const;
 
+  /// Read-only view of the per-(scene, phase) max-kappa accumulator.
+  /// Returns the largest kappa observed across all
+  /// ``update_max_kappa`` calls for this cell, or a negative
+  /// sentinel if no LP has been solved on it yet.
+  /// (Added 2026-04-28 for testability — exposes the accumulator
+  /// driven by the ``update_max_kappa`` overloads.)
+  [[nodiscard]] double max_kappa(SceneIndex scene_index,
+                                 PhaseIndex phase_index) const noexcept
+  {
+    return m_max_kappa_[scene_index][phase_index];
+  }
+
+private:
   /// Run update_lp for a single phase, setting prev_phase_sys for
   /// cross-phase physical_eini lookup.  Returns the number of updated
   /// LP elements.
@@ -615,6 +633,13 @@ private:
   /// Build combined stored cuts from per-scene vectors (for persistence).
   [[nodiscard]] std::vector<StoredCut> build_combined_cuts() const;
 
+  // ─── Stop-condition helpers (public for testability) ──────────────
+  // Promoted 2026-04-28 to support the Group C unit tests in
+  // ``test_sddp_method.cpp``.  Production callers are still inside
+  // ``solve()`` / ``run_iteration()`` so the practical API surface
+  // is unchanged.
+
+public:
   /// Check whether the sentinel file exists (user-requested stop)
   [[nodiscard]] bool check_sentinel_stop() const;
 
@@ -625,6 +650,7 @@ private:
   /// stop, callback
   [[nodiscard]] bool should_stop() const;
 
+private:
   /// Apply cut sharing across scenes for a given phase
   void share_cuts_for_phase(
       PhaseIndex phase_index,
