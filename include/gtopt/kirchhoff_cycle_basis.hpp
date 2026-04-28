@@ -40,6 +40,24 @@
 #include <span>
 #include <vector>
 
+// BusLP / LineLP must be complete here so the `add_kvl_rows`
+// signature can instantiate `Collection<BusLP>` and
+// `Collection<LineLP>` (Collection's template constraints require
+// the type to be complete).
+#include <gtopt/bus_lp.hpp>
+#include <gtopt/collection.hpp>
+#include <gtopt/line_lp.hpp>
+#include <gtopt/sparse_col.hpp>
+#include <gtopt/sparse_row.hpp>
+
+namespace gtopt
+{
+class LinearProblem;
+class ScenarioLP;
+class StageLP;
+class SystemContext;
+}  // namespace gtopt
+
 namespace gtopt::kirchhoff::cycle_basis
 {
 
@@ -81,5 +99,31 @@ using Cycle = std::vector<CycleEdge>;
 ///         graph is a forest (no cycles).
 [[nodiscard]] std::vector<Cycle> build_fundamental_cycles(
     std::size_t num_buses, std::span<const Edge> edges);
+
+/// System-level KVL row assembler for the loop-flow formulation.
+///
+/// Called once per (scenario, stage) AFTER every `LineLP::add_to_lp`
+/// has finished creating its flow vars.  Builds the cycle basis from
+/// the active-line topology, then emits one KVL row per cycle per
+/// block in the form
+///
+///   Σ_{l ∈ C} ε_l · x_τ_l · row_scale · (f_p_l − f_n_l)
+///       =  Σ_{l ∈ C} ε_l · φ_l · row_scale
+///
+/// where `row_scale = 1 / scale_theta` (adaptive, mirrors PyPSA's
+/// hardcoded `× 1e5`).  Using the same `scale_theta` value as the
+/// `node_angle` strategy gives cross-mode coefficient consistency
+/// before LP-layer row-max equilibration.
+///
+/// Skips lines that are inactive at this stage, are self-loops
+/// (`bus_a == bus_b`), or have zero / missing `x_τ` (DC / HVDC).
+///
+/// @return The number of cycle KVL rows added.
+std::size_t add_kvl_rows(SystemContext& sc,
+                         const ScenarioLP& scenario,
+                         const StageLP& stage,
+                         LinearProblem& lp,
+                         const Collection<BusLP>& buses,
+                         const Collection<LineLP>& lines);
 
 }  // namespace gtopt::kirchhoff::cycle_basis

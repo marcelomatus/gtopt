@@ -69,8 +69,13 @@ auto detect_islands_and_fix_references(Array<Bus>& buses,
                                        const PlanningOptionsLP& options)
     -> std::size_t
 {
-  // Early-out: no Kirchhoff → no angle variables → no islands to detect
-  if (buses.size() <= 1 || options.use_single_bus() || !options.use_kirchhoff())
+  // Early-out: no Kirchhoff → no angle variables → no islands to detect.
+  // Also skip in `cycle_basis` mode — that formulation has no theta
+  // variables, so no per-island reference bus needs pinning; the
+  // gauge is fixed implicitly by the |B| − 1 spanning-tree edges per
+  // island (i.e. by NOT writing a KVL row for each tree edge).
+  if (buses.size() <= 1 || options.use_single_bus() || !options.use_kirchhoff()
+      || options.kirchhoff_mode() != KirchhoffMode::node_angle)
   {
     return 0;
   }
