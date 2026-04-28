@@ -53,21 +53,47 @@ except ImportError:
 # Re-exported here so existing call sites (`from guiservice.app import
 # OPTIONS_SCHEMA`, `from guiservice.app import _build_case_json`, …)
 # keep working unchanged.
-# pylint: disable=unused-import
-from guiservice._schemas import (  # noqa: F401
-    ELEMENT_SCHEMAS,
-    ELEMENT_TO_ARRAY_KEY,
-    OPTIONS_SCHEMA,
-)
-from guiservice._zip_helpers import (  # noqa: F401
-    _build_case_json,
-    _build_zip,
-    _df_to_rows,
-    _parse_results_zip,
-    _parse_uploaded_zip,
-    _sanitize_value,
-)
-# pylint: enable=unused-import
+#
+# We support TWO call patterns:
+#   1. ``from guiservice.app import …`` (tests, ``gtopt_results_summary``)
+#      — ``guiservice/`` is a package on ``sys.path``'s parent;
+#      ``guiservice._schemas`` resolves cleanly.
+#   2. ``python -u app.py`` from ``cwd=guiservice/`` (the
+#      ``gtopt_gui`` launcher path) — only the script's own directory
+#      is on ``sys.path``, so ``guiservice._schemas`` is NOT
+#      discoverable.  Fall back to the bare module names which DO
+#      resolve in that mode.
+# pylint: disable=unused-import,wrong-import-position
+try:
+    from guiservice._schemas import (  # noqa: F401
+        ELEMENT_SCHEMAS,
+        ELEMENT_TO_ARRAY_KEY,
+        OPTIONS_SCHEMA,
+    )
+    from guiservice._zip_helpers import (  # noqa: F401
+        _build_case_json,
+        _build_zip,
+        _df_to_rows,
+        _parse_results_zip,
+        _parse_uploaded_zip,
+        _sanitize_value,
+    )
+except ImportError:
+    # Script-mode import (cwd inside guiservice/ — gtopt_gui launcher).
+    from _schemas import (  # type: ignore[import-not-found]  # noqa: F401
+        ELEMENT_SCHEMAS,
+        ELEMENT_TO_ARRAY_KEY,
+        OPTIONS_SCHEMA,
+    )
+    from _zip_helpers import (  # type: ignore[import-not-found]  # noqa: F401
+        _build_case_json,
+        _build_zip,
+        _df_to_rows,
+        _parse_results_zip,
+        _parse_uploaded_zip,
+        _sanitize_value,
+    )
+# pylint: enable=unused-import,wrong-import-position
 
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 100 * 1024 * 1024  # 100 MB

@@ -28,7 +28,14 @@ from typing import Any
 
 import pandas as pd
 
-from guiservice._schemas import ELEMENT_TO_ARRAY_KEY
+# Dual-form import: ``from guiservice._schemas`` works when imported as a
+# package (tests, ``from guiservice.app import …`` callers); the bare
+# ``from _schemas`` fallback works when ``app.py`` is launched as a
+# script with ``cwd=guiservice/`` by the ``gtopt_gui`` launcher.
+try:
+    from guiservice._schemas import ELEMENT_TO_ARRAY_KEY
+except ImportError:
+    from _schemas import ELEMENT_TO_ARRAY_KEY  # type: ignore[import-not-found]
 
 logger = logging.getLogger(__name__)
 
