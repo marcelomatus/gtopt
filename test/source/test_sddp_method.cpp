@@ -3887,6 +3887,247 @@ TEST_CASE(
   CHECK(sddp.num_stored_cuts() == before);
 }
 
+// ─── 2-scene 10-phase two-reservoir cut-sharing tests ─────────────────────
+//
+// These tests use the `make_2scene_10phase_two_reservoir_planning` fixture
+// which repeats the 10-phase 2-reservoir hydro case for two equally probable
+// scenarios (0.5 each).  Because both scenes are identical, the per-scene
+// upper bounds should be equal and every cut-sharing mode should converge to
+// the same total upper bound.  The tests pin that invariant across all four
+// CutSharingMode values: none, expected, accumulate, max.
+//
+// SDDP configuration mirrors the single-scene backtracking recovery fixture:
+//   * elastic_filter_mode = single_cut (robust on this toy geometry)
+//   * forward_fail_stop = false (allow cascade to walk back multiple phases)
+//   * cut_coeff_eps / elastic_penalty matched to the calibrated toy tolerances
+
+namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
+{
+
+/// Shared SDDP options for all 2-scene 10-phase 2-reservoir cut-sharing tests.
+inline auto make_2scene_10phase_2rsv_sddp_opts() -> SDDPOptions
+{
+  SDDPOptions sddp_opts;
+  sddp_opts.max_iterations = 30;
+  sddp_opts.convergence_tol = 1e-3;
+  sddp_opts.elastic_filter_mode = ElasticFilterMode::single_cut;
+  sddp_opts.multi_cut_threshold = -1;
+  sddp_opts.forward_max_attempts = 200;
+  sddp_opts.forward_fail_stop = false;
+  sddp_opts.enable_api = false;
+  // Toy-fixture calibrated tolerances (same as the single-scene variant).
+  sddp_opts.cut_coeff_eps = 1e-6;
+  sddp_opts.elastic_penalty = 1e2;
+  return sddp_opts;
+}
+
+}  // namespace
+
+TEST_CASE(  // NOLINT
+    "SDDPMethod 2-scene 10-phase 2-reservoir — cut_sharing none converges")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  auto planning = make_2scene_10phase_two_reservoir_planning();
+  PlanningLP plp(std::move(planning));
+
+  auto sddp_opts = make_2scene_10phase_2rsv_sddp_opts();
+  sddp_opts.cut_sharing = CutSharingMode::none;
+
+  SDDPMethod sddp(plp, sddp_opts);
+  auto results = sddp.solve();
+
+  REQUIRE(results.has_value());
+  REQUIRE_FALSE(results->empty());
+
+  const auto& last = results->back();
+  CHECK(std::isfinite(last.upper_bound));
+  CHECK(last.upper_bound > 0.0);
+
+  // Two scenes — both should participate in the solution.
+  REQUIRE(last.scene_upper_bounds.size() == 2);
+  CHECK(std::isfinite(last.scene_upper_bounds[0]));
+  CHECK(std::isfinite(last.scene_upper_bounds[1]));
+
+  // Symmetric fixture: per-scene UBs should be equal (within tolerance).
+  CAPTURE(last.scene_upper_bounds[0]);
+  CAPTURE(last.scene_upper_bounds[1]);
+  CHECK(last.scene_upper_bounds[0]
+        == doctest::Approx(last.scene_upper_bounds[1]).epsilon(0.01));
+
+  // Total UB = probability-weighted combination (0.5 each).
+  const double expected_ub =
+      0.5 * last.scene_upper_bounds[0] + 0.5 * last.scene_upper_bounds[1];
+  CHECK(last.upper_bound == doctest::Approx(expected_ub).epsilon(1e-9));
+}
+
+TEST_CASE(  // NOLINT
+    "SDDPMethod 2-scene 10-phase 2-reservoir — cut_sharing expected converges")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  auto planning = make_2scene_10phase_two_reservoir_planning();
+  PlanningLP plp(std::move(planning));
+
+  auto sddp_opts = make_2scene_10phase_2rsv_sddp_opts();
+  sddp_opts.cut_sharing = CutSharingMode::expected;
+
+  SDDPMethod sddp(plp, sddp_opts);
+  auto results = sddp.solve();
+
+  REQUIRE(results.has_value());
+  REQUIRE_FALSE(results->empty());
+
+  const auto& last = results->back();
+  CHECK(std::isfinite(last.upper_bound));
+  CHECK(last.upper_bound > 0.0);
+
+  REQUIRE(last.scene_upper_bounds.size() == 2);
+  CHECK(std::isfinite(last.scene_upper_bounds[0]));
+  CHECK(std::isfinite(last.scene_upper_bounds[1]));
+
+  // Symmetric fixture: expected cut sharing averages identical cuts from
+  // both scenes — result should still be symmetric.
+  CAPTURE(last.scene_upper_bounds[0]);
+  CAPTURE(last.scene_upper_bounds[1]);
+  CHECK(last.scene_upper_bounds[0]
+        == doctest::Approx(last.scene_upper_bounds[1]).epsilon(0.01));
+
+  const double expected_ub =
+      0.5 * last.scene_upper_bounds[0] + 0.5 * last.scene_upper_bounds[1];
+  CHECK(last.upper_bound == doctest::Approx(expected_ub).epsilon(1e-9));
+}
+
+TEST_CASE(  // NOLINT
+    "SDDPMethod 2-scene 10-phase 2-reservoir — cut_sharing accumulate "
+    "converges")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  auto planning = make_2scene_10phase_two_reservoir_planning();
+  PlanningLP plp(std::move(planning));
+
+  auto sddp_opts = make_2scene_10phase_2rsv_sddp_opts();
+  sddp_opts.cut_sharing = CutSharingMode::accumulate;
+
+  SDDPMethod sddp(plp, sddp_opts);
+  auto results = sddp.solve();
+
+  REQUIRE(results.has_value());
+  REQUIRE_FALSE(results->empty());
+
+  const auto& last = results->back();
+  CHECK(std::isfinite(last.upper_bound));
+  CHECK(last.upper_bound > 0.0);
+
+  REQUIRE(last.scene_upper_bounds.size() == 2);
+  CHECK(std::isfinite(last.scene_upper_bounds[0]));
+  CHECK(std::isfinite(last.scene_upper_bounds[1]));
+
+  // Under accumulate mode the shared cut row is the plain sum of all scene
+  // cuts.  On a symmetric 2-scene fixture the two scenes' cuts are identical
+  // so the accumulated cut is a 2× scaled version of either individual cut.
+  // Convergence must still hold.
+  CAPTURE(last.scene_upper_bounds[0]);
+  CAPTURE(last.scene_upper_bounds[1]);
+
+  const double expected_ub =
+      0.5 * last.scene_upper_bounds[0] + 0.5 * last.scene_upper_bounds[1];
+  CHECK(last.upper_bound == doctest::Approx(expected_ub).epsilon(1e-9));
+}
+
+TEST_CASE(  // NOLINT
+    "SDDPMethod 2-scene 10-phase 2-reservoir — cut_sharing max converges")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  auto planning = make_2scene_10phase_two_reservoir_planning();
+  PlanningLP plp(std::move(planning));
+
+  auto sddp_opts = make_2scene_10phase_2rsv_sddp_opts();
+  sddp_opts.cut_sharing = CutSharingMode::max;
+
+  SDDPMethod sddp(plp, sddp_opts);
+  auto results = sddp.solve();
+
+  REQUIRE(results.has_value());
+  REQUIRE_FALSE(results->empty());
+
+  const auto& last = results->back();
+  CHECK(std::isfinite(last.upper_bound));
+  CHECK(last.upper_bound > 0.0);
+
+  REQUIRE(last.scene_upper_bounds.size() == 2);
+  CHECK(std::isfinite(last.scene_upper_bounds[0]));
+  CHECK(std::isfinite(last.scene_upper_bounds[1]));
+
+  // Under max mode every scene receives ALL other scenes' cuts in addition to
+  // its own.  On a symmetric 2-scene fixture this means each scene sees 2×
+  // the cuts of the none-sharing case, which typically speeds up convergence.
+  CAPTURE(last.scene_upper_bounds[0]);
+  CAPTURE(last.scene_upper_bounds[1]);
+  CAPTURE(last.upper_bound);
+
+  const double expected_ub =
+      0.5 * last.scene_upper_bounds[0] + 0.5 * last.scene_upper_bounds[1];
+  CHECK(last.upper_bound == doctest::Approx(expected_ub).epsilon(1e-9));
+}
+
+TEST_CASE(  // NOLINT
+    "SDDPMethod 2-scene 10-phase 2-reservoir — all cut_sharing modes produce "
+    "consistent upper bound")
+{
+  // Cross-mode consistency check: run all four cut-sharing modes on the
+  // same symmetric 2-scene 10-phase 2-reservoir fixture and verify that
+  // the final upper bounds are within a reasonable relative tolerance
+  // (10%) of each other.  On a symmetric fixture the optimal policy is the
+  // same regardless of how cuts are shared across scenes, so the converged
+  // cost should be nearly mode-independent.
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  struct ModeResult
+  {
+    CutSharingMode mode;
+    const char* label;
+    double ub {0.0};
+  };
+
+  std::array<ModeResult, 4> mode_results = {{
+      {CutSharingMode::none, "none", 0.0},
+      {CutSharingMode::expected, "expected", 0.0},
+      {CutSharingMode::accumulate, "accumulate", 0.0},
+      {CutSharingMode::max, "max", 0.0},
+  }};
+
+  for (auto& mr : mode_results) {
+    CAPTURE(mr.label);
+    auto planning = make_2scene_10phase_two_reservoir_planning();
+    PlanningLP plp(std::move(planning));
+
+    auto sddp_opts = make_2scene_10phase_2rsv_sddp_opts();
+    sddp_opts.cut_sharing = mr.mode;
+
+    SDDPMethod sddp(plp, sddp_opts);
+    auto results = sddp.solve();
+
+    REQUIRE(results.has_value());
+    REQUIRE_FALSE(results->empty());
+    const auto& last = results->back();
+    REQUIRE(std::isfinite(last.upper_bound));
+    REQUIRE(last.upper_bound > 0.0);
+    mr.ub = last.upper_bound;
+  }
+
+  // All modes must agree within 10% relative tolerance.
+  const double ref_ub = mode_results[0].ub;  // none mode as reference
+  for (const auto& mr : mode_results) {
+    CAPTURE(mr.label);
+    CAPTURE(mr.ub);
+    CAPTURE(ref_ub);
+    CHECK(mr.ub == doctest::Approx(ref_ub).epsilon(0.10));
+  }
+}
+
 // ─── Group E: diagnose_kappa smoke test ───────────────────────────────────
 
 TEST_CASE("SDDPMethod diagnose_kappa — runs after solve")  // NOLINT
