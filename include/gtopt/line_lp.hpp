@@ -170,6 +170,14 @@ public:
   {
     return phase_shift_deg.at(s);
   }
+  [[nodiscard]] auto param_lossfactor(StageUid s) const
+  {
+    return lossfactor.at(s);
+  }
+  [[nodiscard]] auto param_resistance(StageUid s) const
+  {
+    return resistance.at(s);
+  }
   /// @}
 
 private:
@@ -193,31 +201,6 @@ private:
   STBIndexHolder<RowIndex> capacityn_rows;
 
   STBIndexHolder<RowIndex> theta_rows;
-
-  /**
-   * @brief Add Kirchhoff (DC OPF) theta constraints for all blocks.
-   *
-   * Creates one equality row per block in the natural form:
-   *   -θ_a + θ_b + x_tau·fp − x_tau·fn = −φ_rad
-   * where x_tau = τ·X/V².  Row scaling is left to the LP layer's
-   * row-max equilibration (which auto-unscales duals on output).
-   *
-   * In `piecewise_direct` mode there is no flowp / flown aggregator; the
-   * caller passes the per-direction segment columns instead, and each
-   * segment is stamped into the KVL row with `±x_τ` (PLP `genpdlin.f`).
-   * The aggregator path (`fpcols` / `fncols`) and the segment path
-   * (`fpsegcols` / `fnsegcols`) are mutually exclusive per block.
-   */
-  void add_kirchhoff_rows(SystemContext& sc,
-                          const ScenarioLP& scenario,
-                          const StageLP& stage,
-                          LinearProblem& lp,
-                          const BusLP& bus_a_lp,
-                          const BusLP& bus_b_lp,
-                          const BIndexHolder<ColIndex>& fpcols,
-                          const BIndexHolder<ColIndex>& fncols,
-                          const BIndexHolder<std::vector<ColIndex>>& fpsegcols,
-                          const BIndexHolder<std::vector<ColIndex>>& fnsegcols);
 };
 
 }  // namespace gtopt

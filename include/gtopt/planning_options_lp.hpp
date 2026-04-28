@@ -14,6 +14,7 @@
 #pragma once
 
 #include <filesystem>
+#include <numbers>
 #include <string>
 #include <vector>
 
@@ -69,6 +70,12 @@ public:
   static constexpr Bool default_strict_storage_emin = true;
   /** @brief Default threshold for Kirchhoff constraints */
   static constexpr Real default_kirchhoff_threshold = 0;
+  /** @brief Default voltage-angle bound (`θ ∈ [−2π, +2π]`) used as
+   *  fallback when `auto_scale_theta` did not run (e.g.
+   *  `auto_scale=false`).  When auto-scaling is enabled the bound is
+   *  replaced by `Σ_l tmax_l · x_τ_l` so flows can reach their full
+   *  capacity. */
+  static constexpr Real default_theta_max = 2 * std::numbers::pi;
   /** @brief Default objective function scaling factor */
   static constexpr Real default_scale_objective = 1'000;
 
@@ -286,6 +293,22 @@ public:
   [[nodiscard]] constexpr auto scale_theta() const
   {
     return m_options_.model_options.scale_theta.value_or(1.0);
+  }
+
+  /// @brief Gets the bound for voltage-angle variables (`θ ∈
+  /// [−theta_max, +theta_max]`).
+  ///
+  /// Priority: model_options.theta_max (explicit) →
+  /// `default_theta_max` (`2π`).  `PlanningLP::auto_scale_theta`
+  /// computes a topology-aware override (`Σ_l tmax_l · x_τ_l`) and
+  /// stores it on `model_options.theta_max` before LP build, so the
+  /// `2π` fallback only applies under `auto_scale=false`.  Avoids the
+  /// historical `±2π` artifact that secretly capped flows below
+  /// `tmax` whenever `tmax · x_τ > 2π` (e.g., on IEEE 9-bus where
+  /// `250 MW · 0.0576 = 14.4 rad ≫ 2π`).
+  [[nodiscard]] constexpr auto theta_max() const
+  {
+    return m_options_.model_options.theta_max.value_or(default_theta_max);
   }
 
   /**

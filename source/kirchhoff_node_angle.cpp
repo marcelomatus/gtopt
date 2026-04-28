@@ -4,6 +4,7 @@
 
 #include <gtopt/bus_lp.hpp>
 #include <gtopt/kirchhoff_node_angle.hpp>
+#include <gtopt/line_lp.hpp>
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/system_context.hpp>
 #include <gtopt/utils.hpp>
@@ -128,3 +129,58 @@ BIndexHolder<RowIndex> add_line_kvl_rows(
 }
 
 }  // namespace gtopt::kirchhoff::node_angle
+
+namespace gtopt::kirchhoff
+{
+
+BIndexHolder<RowIndex> add_line_kvl_rows(
+    SystemContext& sc,
+    const ScenarioLP& scenario,
+    const StageLP& stage,
+    LinearProblem& lp,
+    const LineLP& line,
+    const BusLP& bus_a_lp,
+    const BusLP& bus_b_lp,
+    const BIndexHolder<ColIndex>& fpcols,
+    const BIndexHolder<ColIndex>& fncols,
+    const BIndexHolder<std::vector<ColIndex>>& fpsegcols,
+    const BIndexHolder<std::vector<ColIndex>>& fnsegcols)
+{
+  switch (sc.options().kirchhoff_mode()) {
+    case KirchhoffMode::node_angle: {
+      // The dispatcher only fires when `use_kirchhoff` is true, so
+      // `sc.stage_reactance` (which gates on `use_kirchhoff`) would
+      // be redundant — call `param_reactance` directly.
+      const node_angle::LineKvlInputs inputs {
+          .line_uid = line.uid(),
+          .class_name = LineLP::ClassName.full_name(),
+          .theta_constraint_name = LineLP::ThetaName,
+          .reactance = line.param_reactance(stage.uid()),
+          .voltage = line.param_voltage(stage.uid()).value_or(1.0),
+          .tap_ratio = line.param_tap_ratio(stage.uid()).value_or(1.0),
+          .phase_shift_deg =
+              line.param_phase_shift_deg(stage.uid()).value_or(0.0),
+      };
+      return node_angle::add_line_kvl_rows(sc,
+                                           scenario,
+                                           stage,
+                                           lp,
+                                           bus_a_lp,
+                                           bus_b_lp,
+                                           inputs,
+                                           fpcols,
+                                           fncols,
+                                           fpsegcols,
+                                           fnsegcols);
+    }
+    case KirchhoffMode::cycle_basis:
+      // Loop-flow formulation: KVL rows are emitted at the system
+      // level by `kirchhoff::cycle_basis::add_kvl_rows` after every
+      // line has finished creating its flow vars.  Per-line dispatch
+      // is therefore a no-op here.
+      return {};
+  }
+  return {};  // unreachable, silences -Wreturn-type on some compilers
+}
+
+}  // namespace gtopt::kirchhoff

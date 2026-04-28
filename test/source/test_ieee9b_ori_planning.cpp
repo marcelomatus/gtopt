@@ -113,9 +113,21 @@ TEST_CASE("IEEE 9-bus original - LP solve")
 
 TEST_CASE("IEEE 9-bus original - solution correctness")
 {
-  // DC OPF with Kirchhoff constraints creates line congestion at b4→b5.
-  // Load shedding occurs at d1 (bus b5): ≈ 46.9 MW unserved.
-  // Verified by running gtopt standalone binary.
+  // True DC-OPF optimum (with adaptive theta_max — see
+  // `PlanningLP::auto_scale_theta` and `model_options.theta_max`):
+  //
+  //   g1 = 250 MW (max, gcost=20),
+  //   g3 =  55 MW (gcost=30),
+  //   g2 =  10 MW (pmin, gcost=35).
+  //   total_gen = 315 MW = total_load (no shedding).
+  //   obj = (250·20 + 10·35 + 55·30) / 1000 = 7.0.
+  //
+  // Historical note (pre-adaptive-theta_max): the hardcoded ±2π bound
+  // on θ secretly capped flows below `tmax` whenever `tmax · x_τ > 2π`
+  // (`f_l1_4 = 250 MW · 0.0576 = 14.4 rad ≫ 2π`).  That artifact
+  // forced load shedding at b5 and pushed the objective to ~55.18.
+  // The adaptive bound `Σ_l tmax_l · x_τ_l` removes the artifact and
+  // the true unconstrained-by-θ optimum is recovered.
   const auto out_dir =
       std::filesystem::temp_directory_path() / "gtopt_ieee9b_correctness";
   std::filesystem::create_directories(out_dir);
@@ -136,14 +148,14 @@ TEST_CASE("IEEE 9-bus original - solution correctness")
 
   planning_lp.write_out();
 
-  SUBCASE("objective value")
+  SUBCASE("objective value — true DC-OPF optimum")
   {
-    // Obj (scaled) ≈ 55.184 (includes generation cost + fail cost)
+    // 250·$20 + 10·$35 + 55·$30 = $7000, scaled by 1000 → 7.0.
     CHECK(lp_interface.get_obj_value_raw()
-          == doctest::Approx(55.184).epsilon(1e-2));
+          == doctest::Approx(7.0).epsilon(1e-4));
   }
 
-  SUBCASE("generation balance equals served demand")
+  SUBCASE("generation balance equals served demand (no shedding)")
   {
     const auto gen =
         read_uid_values(out_dir / "Generator" / "generation_sol", 3);
@@ -154,48 +166,46 @@ TEST_CASE("IEEE 9-bus original - solution correctness")
     const double total_gen = gen[0] + gen[1] + gen[2];
     const double total_load = load[0] + load[1] + load[2];
 
-    // Energy balance: total generation = total served load
     CHECK(total_gen == doctest::Approx(total_load).epsilon(1e-4));
-    // Total served demand < total requested demand (315 MW)
-    CHECK(total_load < 315.0);
-    CHECK(total_load > 200.0);  // must serve a meaningful share
+    // All requested 315 MW served — no theta-bound artifact.
+    CHECK(total_load == doctest::Approx(315.0).epsilon(1e-4));
   }
 
-  SUBCASE("load shedding at congested bus b5")
+  SUBCASE("no load shedding at any bus")
   {
     const auto fail = read_uid_values(out_dir / "Demand" / "fail_sol", 3);
     REQUIRE(fail.size() == 3);
-
-    // d1 at b5 has load shedding (line congestion limits delivery)
-    CHECK(fail[0] > 1.0);  // d1: significant unserved load
-    // d2, d3 are fully served (no load shedding)
-    CHECK(fail[1] == doctest::Approx(0.0).epsilon(1e-4));
-    CHECK(fail[2] == doctest::Approx(0.0).epsilon(1e-4));
+    for (size_t i = 0; i < 3; ++i) {
+      CAPTURE(i);
+      CHECK(fail[i] == doctest::Approx(0.0).epsilon(1e-4));
+    }
   }
 
-  SUBCASE("demand d2 and d3 fully served")
+  SUBCASE("all three demands fully served")
   {
     const auto load = read_uid_values(out_dir / "Demand" / "load_sol", 3);
     REQUIRE(load.size() == 3);
+    CHECK(load[0] == doctest::Approx(125.0).epsilon(1e-4));  // d1 at b5
     CHECK(load[1] == doctest::Approx(100.0).epsilon(1e-4));  // d2 at b7
     CHECK(load[2] == doctest::Approx(90.0).epsilon(1e-4));  // d3 at b9
   }
 
-  SUBCASE("bus LMPs reflect congestion")
+  SUBCASE("bus LMPs reflect dispatch order, not artifact")
   {
     const auto lmp = read_uid_values(out_dir / "Bus" / "balance_dual", 9);
     REQUIRE(lmp.size() == 9);
 
-    // b1 (generator bus): LMP = marginal gen cost of g1
-    CHECK(lmp[0] == doctest::Approx(20.0).epsilon(1e-4));
-
-    // b5 (congested demand bus): LMP = demand_fail_cost
-    CHECK(lmp[4] == doctest::Approx(1000.0).epsilon(1e-2));
-
-    // All LMPs must be positive (power has value everywhere)
+    // All LMPs must be positive (power has value everywhere).
     for (size_t b = 0; b < 9; ++b) {
       CAPTURE(b);
       CHECK(lmp[b] > 0.0);
+    }
+    // No bus's LMP should be the demand_fail_cost penalty
+    // (1000 $/MWh) — that would indicate load shedding, which the
+    // adaptive theta_max removes on this fixture.
+    for (size_t b = 0; b < 9; ++b) {
+      CAPTURE(b);
+      CHECK(lmp[b] < 100.0);  // bounded by max gcost (45) + scale slack
     }
   }
 

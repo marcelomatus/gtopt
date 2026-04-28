@@ -173,7 +173,33 @@ void PlanningLP::auto_scale_theta(Planning& planning)
     return 0.0;
   };
 
+  // Extract a representative scalar from a (per-stage, per-block)
+  // tmax schedule.  Picks the maximum across all entries so the
+  // resulting `theta_max` covers the worst-case line capacity
+  // realisation (capacity-expansion bumps, peak-stage tmax, etc.).
+  const auto tb_sched_to_max = [](const auto& sched) -> double
+  {
+    if (std::holds_alternative<double>(sched)) {
+      return std::get<double>(sched);
+    }
+    if (std::holds_alternative<std::vector<std::vector<double>>>(sched)) {
+      double m = 0.0;
+      for (const auto& row : std::get<std::vector<std::vector<double>>>(sched))
+      {
+        for (const auto v : row) {
+          m = std::max(m, v);
+        }
+      }
+      return m;
+    }
+    return 0.0;
+  };
+
   std::vector<double> x_taus;
+  // Cumulative `Σ_l (tmax_l · x_τ_l)` — used as the topology-aware
+  // upper bound on `|θ_a − θ_b|` along any path.  See the `theta_max`
+  // assignment below for the rationale.
+  double theta_max_accum = 0.0;
   for (const auto& line : planning.system.line_array) {
     if (!line.reactance.has_value()) {
       continue;
@@ -194,6 +220,15 @@ void PlanningLP::auto_scale_theta(Planning& planning)
     const double x_tau = x / (v * v);
     if (x_tau > 0.0) {
       x_taus.push_back(x_tau);
+      // Per-line max capacity across both directions and all blocks.
+      double tmax = 0.0;
+      if (line.tmax_ab.has_value()) {
+        tmax = std::max(tmax, tb_sched_to_max(*line.tmax_ab));
+      }
+      if (line.tmax_ba.has_value()) {
+        tmax = std::max(tmax, tb_sched_to_max(*line.tmax_ba));
+      }
+      theta_max_accum += tmax * x_tau;
     }
   }
 
@@ -216,6 +251,29 @@ void PlanningLP::auto_scale_theta(Planning& planning)
       "  Auto scale_theta = {:.6g} (median of {} line x_tau = X/V² values)",
       median_x_tau,
       n);
+
+  // theta_max = Σ_l (tmax_l · x_τ_l) — a topology-aware upper bound on
+  // the largest possible θ-spread between any two buses in the
+  // network.  Each line `l` carrying `f_l = tmax_l` contributes
+  // `tmax_l · x_τ_l` to the angle drop along its endpoints; the
+  // worst-case θ_a − θ_b across the whole network is at most the sum
+  // of those drops along a single path, bounded above by the sum
+  // over all lines.  Using this as the bound on every theta column
+  // ensures `bus_lp.cpp::lazy_add_theta` never artificially caps line
+  // flows below `tmax` (the ±2π hardcoded default would have done so
+  // whenever `tmax · x_τ > 2π`, e.g. on IEEE 9-bus where
+  // `250 MW · 0.0576 = 14.4 rad ≫ 2π = 6.28 rad`).  Honour an
+  // explicit user override.
+  if (!opts.model_options.theta_max.has_value()) {
+    // Floor at default (`2π`) so very small networks don't end up
+    // with theta_max ≪ 1 and lose simplex / IPM headroom.
+    const double theta_max =
+        std::max(theta_max_accum, PlanningOptionsLP::default_theta_max);
+    opts.model_options.theta_max = theta_max;
+    spdlog::info("  Auto theta_max = {:.6g}  (Σ_l tmax_l · x_τ_l = {:.6g})",
+                 theta_max,
+                 theta_max_accum);
+  }
 
   // P0-3 — unit-consistency validation.
   //

@@ -252,8 +252,8 @@ void check_cross_mode_invariants(std::string_view json, std::string_view label)
   const auto na = solve_in_mode(json, "node_angle");
   const auto cb = solve_in_mode(json, "cycle_basis");
 
-  // Polytope-relaxation inequality.
-  CHECK(cb.objective <= doctest::Approx(na.objective).epsilon(1e-6));
+  // Objective equivalence — tight under adaptive `theta_max`.
+  CHECK(cb.objective == doctest::Approx(na.objective).epsilon(1e-6));
   CHECK(cb.objective > 0.0);
 
   // Row-count invariant.
