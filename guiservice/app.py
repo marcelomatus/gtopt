@@ -64,7 +64,13 @@ except ImportError:
 #      discoverable.  Fall back to the bare module names which DO
 #      resolve in that mode.
 # pylint: disable=unused-import,wrong-import-position
-try:
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    # mypy / IDEs use the package-form import; at runtime we wrap it in
+    # a try/except so the script-mode launcher works too.  Hiding the
+    # fallback branch from the type checker avoids spurious
+    # ``no-redef`` errors on the symbols.
     from guiservice._schemas import (  # noqa: F401
         ELEMENT_SCHEMAS,
         ELEMENT_TO_ARRAY_KEY,
@@ -78,21 +84,36 @@ try:
         _parse_uploaded_zip,
         _sanitize_value,
     )
-except ImportError:
-    # Script-mode import (cwd inside guiservice/ — gtopt_gui launcher).
-    from _schemas import (  # type: ignore[import-not-found]  # noqa: F401
-        ELEMENT_SCHEMAS,
-        ELEMENT_TO_ARRAY_KEY,
-        OPTIONS_SCHEMA,
-    )
-    from _zip_helpers import (  # type: ignore[import-not-found]  # noqa: F401
-        _build_case_json,
-        _build_zip,
-        _df_to_rows,
-        _parse_results_zip,
-        _parse_uploaded_zip,
-        _sanitize_value,
-    )
+else:
+    try:
+        from guiservice._schemas import (  # noqa: F401
+            ELEMENT_SCHEMAS,
+            ELEMENT_TO_ARRAY_KEY,
+            OPTIONS_SCHEMA,
+        )
+        from guiservice._zip_helpers import (  # noqa: F401
+            _build_case_json,
+            _build_zip,
+            _df_to_rows,
+            _parse_results_zip,
+            _parse_uploaded_zip,
+            _sanitize_value,
+        )
+    except ImportError:
+        # Script-mode import (cwd inside guiservice/ — gtopt_gui launcher).
+        from _schemas import (  # noqa: F401
+            ELEMENT_SCHEMAS,
+            ELEMENT_TO_ARRAY_KEY,
+            OPTIONS_SCHEMA,
+        )
+        from _zip_helpers import (  # noqa: F401
+            _build_case_json,
+            _build_zip,
+            _df_to_rows,
+            _parse_results_zip,
+            _parse_uploaded_zip,
+            _sanitize_value,
+        )
 # pylint: enable=unused-import,wrong-import-position
 
 app = Flask(__name__)

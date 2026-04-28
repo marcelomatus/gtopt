@@ -32,10 +32,17 @@ import pandas as pd
 # package (tests, ``from guiservice.app import …`` callers); the bare
 # ``from _schemas`` fallback works when ``app.py`` is launched as a
 # script with ``cwd=guiservice/`` by the ``gtopt_gui`` launcher.
-try:
+# The ``TYPE_CHECKING`` guard hides the fallback branch from mypy so the
+# symbol isn't flagged as ``no-redef``.
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
     from guiservice._schemas import ELEMENT_TO_ARRAY_KEY
-except ImportError:
-    from _schemas import ELEMENT_TO_ARRAY_KEY  # type: ignore[import-not-found]
+else:
+    try:
+        from guiservice._schemas import ELEMENT_TO_ARRAY_KEY
+    except ImportError:
+        from _schemas import ELEMENT_TO_ARRAY_KEY
 
 logger = logging.getLogger(__name__)
 
