@@ -320,6 +320,8 @@ BlockResult add_none(const ScenarioLP& scenario,
       .lossn_col = {},
       .capp_row = {},
       .capn_row = {},
+      .seg_p_cols = {},
+      .seg_n_cols = {},
   };
 }
 
@@ -717,6 +719,8 @@ BlockResult add_bidirectional(const LossConfig& config,
       .lossn_col = lsn,
       .capp_row = capp,
       .capn_row = capn,
+      .seg_p_cols = {},
+      .seg_n_cols = {},
   };
 }
 
@@ -728,10 +732,22 @@ BlockResult add_bidirectional(const LossConfig& config,
 /// with its per-segment loss factor λ_k baked into the coefficients
 /// (PLP `genpdlin.f:107-164`).
 ///
-/// Returns the aggregation column so the caller can expose it as
-/// `fp_col` / `fn_col` — preserving the downstream API used by
-/// Kirchhoff and the reporters.
-[[nodiscard]] std::optional<ColIndex> add_direct_direction(
+/// Returns the per-segment column list for one direction (PLP-faithful):
+///   - K segment columns, each bounded `[0, w = tmax/K]`
+///   - Per-segment bus-balance stamps with allocation-aware loss factor
+///     `λ_k = w · (2k−1) · R / V²` (PLP `genpdlin.f:107-114`).
+///
+/// **No aggregator column, no link row.**  The Kirchhoff (KVL) row stamps
+/// each segment with `±x_τ` so the algebraic identity `Σ seg_k = |f|` is
+/// recovered without an explicit equality row.  This is what halves the
+/// row count vs the older `piecewise` mode, and matches PLP exactly.
+///
+/// Per-segment transmission cost: split the line tcost across segments
+/// (`tcost_k = block_tcost / K`) so `Σ tcost_k · seg_k = tcost · |f|`
+/// after the segments saturate left-to-right.  At the optimum, segments
+/// fill in order of increasing loss factor, so the cost stays consistent
+/// with the legacy aggregator-based formulation.
+[[nodiscard]] std::vector<ColIndex> add_direct_direction(
     const LossConfig& config,
     const ScenarioLP& scenario,
     const StageLP& stage,
@@ -750,40 +766,12 @@ BlockResult add_bidirectional(const LossConfig& config,
 
   const int nseg = config.nseg;
   assert(nseg > 0 && "line_losses: nseg must be positive");
-  const auto reserve_sz = static_cast<size_t>(nseg) + 1;
   const double seg_width = block_tmax / nseg;
+  const double seg_tcost = block_tcost / nseg;
 
-  const auto block_ctx =
-      make_block_context(scenario.uid(), stage.uid(), block.uid());
+  std::vector<ColIndex> seg_cols;
+  seg_cols.reserve(static_cast<size_t>(nseg));
 
-  // Aggregation column: carries the transmission cost and is the single
-  // "flow" handle seen by Kirchhoff / reporters.  No bus-balance stamp
-  // (losses are baked into the per-segment coefficients).
-  const auto agg_col = lp.add_col({
-      .lowb = 0,
-      .uppb = block_tmax,
-      .cost = block_tcost,
-      .class_name = LineLP::ClassName.full_name(),
-      .variable_name = labels.flow,
-      .variable_uid = uid,
-      .context = block_ctx,
-  });
-
-  // Linking row: agg − Σ seg_k = 0
-  auto linkrow =
-      SparseRow {
-          .class_name = LineLP::ClassName.full_name(),
-          .constraint_name = labels.link,
-          .variable_uid = uid,
-          .context = block_ctx,
-      }
-          .equal(0);
-  linkrow.reserve(reserve_sz);
-  linkrow[agg_col] = +1.0;
-
-  // Per-segment cols + bus stamps with allocation-aware loss factor.
-  // Segment k (1-based) loss factor: λ_k = w · (2k−1) · R / V²
-  // (PLP `genpdlin.f:107-114`, `LinRImp = LinRes*(2*IFlu - 1)`).
   for (const auto k : iota_range(1, nseg + 1)) {
     const double lf_k = seg_width * config.resistance
         * static_cast<double>((2 * k) - 1) / config.V2;
@@ -791,6 +779,7 @@ BlockResult add_bidirectional(const LossConfig& config,
     const auto seg_col = lp.add_col({
         .lowb = 0,
         .uppb = seg_width,
+        .cost = seg_tcost,
         .class_name = LineLP::ClassName.full_name(),
         .variable_name = labels.seg,
         .variable_uid = uid,
@@ -798,14 +787,12 @@ BlockResult add_bidirectional(const LossConfig& config,
             make_block_context(scenario.uid(), stage.uid(), block.uid(), k),
     });
 
-    linkrow[seg_col] = -1.0;
     apply_linear_allocation(
         sending_brow, receiving_brow, seg_col, lf_k, config.allocation);
+    seg_cols.push_back(seg_col);
   }
 
-  [[maybe_unused]] auto linkrow_idx = lp.add_row(std::move(linkrow));
-
-  return agg_col;
+  return seg_cols;
 }
 
 /// PLP-direct piecewise-linear: no loss variables, no loss-tracking
@@ -828,37 +815,39 @@ BlockResult add_piecewise_direct(const LossConfig& config,
                                  double block_tcost,
                                  Uid uid)
 {
-  auto fp = add_direct_direction(config,
-                                 scenario,
-                                 stage,
-                                 block,
-                                 lp,
-                                 brow_a,
-                                 brow_b,
-                                 block_tmax_ab,
-                                 block_tcost,
-                                 uid,
-                                 positive_labels);
+  auto seg_p_cols = add_direct_direction(config,
+                                         scenario,
+                                         stage,
+                                         block,
+                                         lp,
+                                         brow_a,
+                                         brow_b,
+                                         block_tmax_ab,
+                                         block_tcost,
+                                         uid,
+                                         positive_labels);
 
-  auto fn = add_direct_direction(config,
-                                 scenario,
-                                 stage,
-                                 block,
-                                 lp,
-                                 brow_b,
-                                 brow_a,
-                                 block_tmax_ba,
-                                 block_tcost,
-                                 uid,
-                                 negative_labels);
+  auto seg_n_cols = add_direct_direction(config,
+                                         scenario,
+                                         stage,
+                                         block,
+                                         lp,
+                                         brow_b,
+                                         brow_a,
+                                         block_tmax_ba,
+                                         block_tcost,
+                                         uid,
+                                         negative_labels);
 
   return {
-      .fp_col = fp,
-      .fn_col = fn,
+      .fp_col = {},
+      .fn_col = {},
       .lossp_col = {},
       .lossn_col = {},
       .capp_row = {},
       .capn_row = {},
+      .seg_p_cols = std::move(seg_p_cols),
+      .seg_n_cols = std::move(seg_n_cols),
   };
 }
 

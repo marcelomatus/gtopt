@@ -111,14 +111,21 @@ inline constexpr auto loss_allocation_mode_entries =
  *   segment variables (bound `[0, tmax_dir/K]`) inject directly into
  *   the bus-balance rows with the per-segment loss factor
  *   `λ_k = (tmax_dir/K) · (2k−1) · R / V²` baked into the coefficients
- *   (PLP `genpdlin.f`).  There is no loss variable and no loss-tracking
- *   row — losses are implicit in the bus stamps.  A zero-cost
- *   aggregation column (`flowp`, `flown`) plus one linking row per
- *   direction preserves the downstream `fp_col` / `fn_col` API so the
- *   Kirchhoff (KVL) row and reporters require no changes.
+ *   (PLP `genpdlin.f`).  There is no loss variable, no loss-tracking
+ *   row, no aggregator column, and no flow-link row: each segment also
+ *   stamps directly into the Kirchhoff (KVL) row with `±x_τ`, so the
+ *   identity `Σ seg_k = |f|` is recovered without an explicit equality.
+ *   This produces the most compact LP (2K cols, 0 extra rows per block
+ *   per line) and matches the row count of PLP exactly.
+ *   Trade-off: the `line.flowp` / `line.flown` solution columns are
+ *   *not emitted* for piecewise_direct lines — the AMPL compound
+ *   `line.flow` is unavailable for these lines (use `piecewise` if you
+ *   need it).
  *   Activation: opt-in only — `adaptive` prefers `piecewise` (smaller
- *   LP).  Select explicitly for PLP-diff parity.  On expandable lines
- *   this mode falls back to `piecewise` with a warning.
+ *   LP per block, but more *rows*).  Select explicitly for PLP-diff
+ *   parity or to halve the LP size on transmission-heavy cases.  On
+ *   expandable lines this mode falls back to `piecewise` with a
+ *   warning.
  *   Ref: PLP Fortran `genpdlin.f` (GenPDLinA).
  */
 enum class LineLossesMode : uint8_t

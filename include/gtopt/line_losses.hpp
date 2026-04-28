@@ -19,7 +19,7 @@
  * | `bidirectional`     | 4                | 2(K+2) (per-dir segs)     |
  * | `adaptive`          | resolved at config time (piecewise/bidirectional) |
  * | `dynamic`           | placeholder → piecewise                           |
- * | `piecewise_direct`  | 2                | 2(K+1) (per-dir segs + fp/fn) |
+ * | `piecewise_direct`  | 0                | 2K  (per-dir segs only)       |
  *
  * ### Mathematical background
  *
@@ -44,6 +44,7 @@
 
 #include <optional>
 #include <string_view>
+#include <vector>
 
 #include <gtopt/line.hpp>
 #include <gtopt/linear_problem.hpp>
@@ -84,12 +85,21 @@ struct LossConfig
  */
 struct BlockResult
 {
-  std::optional<ColIndex> fp_col;  ///< A→B flow column
-  std::optional<ColIndex> fn_col;  ///< B→A flow column
+  std::optional<ColIndex> fp_col;  ///< A→B flow column (aggregator)
+  std::optional<ColIndex> fn_col;  ///< B→A flow column (aggregator)
   std::optional<ColIndex> lossp_col;  ///< A→B loss column (PWL modes)
   std::optional<ColIndex> lossn_col;  ///< B→A loss column (PWL modes)
   std::optional<RowIndex> capp_row;  ///< A→B capacity constraint
   std::optional<RowIndex> capn_row;  ///< B→A capacity constraint
+  /// Per-segment columns for the A→B direction.  Populated only by
+  /// `piecewise_direct` mode, which has no aggregator (`fp_col` is
+  /// empty).  Each segment carries its own bus-balance stamp with the
+  /// per-segment loss factor; the Kirchhoff (KVL) row sums them with
+  /// `+x_τ` per segment to recover `x_τ · f_p`.
+  std::vector<ColIndex> seg_p_cols;
+  /// Per-segment columns for the B→A direction.  Same semantics as
+  /// `seg_p_cols`; KVL stamps each with `−x_τ`.
+  std::vector<ColIndex> seg_n_cols;
 };
 
 // ─── Mode resolution ────────────────────────────────────────────────
