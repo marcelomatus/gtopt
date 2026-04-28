@@ -59,6 +59,12 @@ def _make_opts(
         "output_file": out_dir / f"{case_name}.json",
         "hydrologies": "1",
         "pasada_mode": pasada_mode,
+        # Pin legacy spillway-waterway shape so RoR drain assertions
+        # (e.g. ``drain=True`` only when no spillway exists) keep their
+        # PLP-faithful meaning.  The new default suppresses ``_ver``
+        # arcs and forces ``drain=True`` unconditionally for embalse /
+        # serie / pasada — covered by ``test_drop_spillway_waterway``.
+        "drop_spillway_waterway": False,
     }
     if ror_selection is not None:
         opts["ror_as_reservoirs"] = ror_selection

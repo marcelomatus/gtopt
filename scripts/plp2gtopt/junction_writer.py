@@ -396,6 +396,23 @@ class JunctionWriter(BaseWriter):
         self._embed_reservoir_constraints = bool(
             self.options.get("embed_reservoir_constraints", False)
         )
+        # ``--drop-spillway-waterway`` (default True): suppress every
+        # ``_ver`` (spillway / vert) waterway emission and instead mark
+        # the central's own junction as ``drain = True`` so excess water
+        # leaves the system as a junction-level loss to the ocean.  The
+        # tradeoff is physical accuracy: PLP routes spill to a downstream
+        # central when ``ser_ver > 0`` (the water can be re-used), and
+        # charges per-flow ``fcost`` (CVert / Costo de Rebalse) on the
+        # spill.  Dropping the arc loses the routing AND the cost — all
+        # spillover becomes a free leak — but in exchange every
+        # ``_ver`` arc and its associated ``fcost`` disappears from the
+        # LP, which improves scaling and removes a class of spurious
+        # binding-bound duals.  Disable with ``--no-drop-spillway-waterway``
+        # to restore the historical PLP-faithful spillway topology
+        # (``_ver`` waterway + per-flow cost).
+        self._drop_spillway_waterway = bool(
+            self.options.get("drop_spillway_waterway", True)
+        )
         self._waterway_counter = 0
         self._ocean_junction_counter = 0
         self._junction_names: dict[int, str] = {}
@@ -678,7 +695,18 @@ class JunctionWriter(BaseWriter):
         )
         # Spill arc (`_ver`) configuration.
         #
-        # Two regimes, mirroring PLP behaviour:
+        # Three regimes:
+        #
+        # 0. ``--drop-spillway-waterway`` (default True): the entire
+        #    ``_ver`` topology is suppressed — no waterway is created
+        #    in either the in-network or synthetic-ocean path, no
+        #    ``rebalse_cost``/``CVert`` fcost is attached, and the
+        #    central's own junction is marked ``drain = True`` further
+        #    down so the LP can shed any excess water through the
+        #    junction instead of an explicit arc.  All spillover
+        #    becomes a free loss to the ocean.  Set to False
+        #    (``--no-drop-spillway-waterway``) to fall through to one
+        #    of the two PLP-faithful regimes below.
         #
         # 1. Reservoir IS in plpvrebemb.dat (``Costo de Rebalse`` defined).
         #    PLP exposes a stage-level ``qrb`` rebalse var (uncapped,
@@ -754,14 +782,22 @@ class JunctionWriter(BaseWriter):
         else:
             vert_fmin = vert_min_raw
 
-        ver_waterway = self._create_waterway(
-            central_name + "_ver",
-            central_id,
-            central["ser_ver"],
-            vert_fmin,
-            vert_fmax,
-            fcost=vert_fcost,
-        )
+        # ``--drop-spillway-waterway`` (default True): when enabled, do
+        # not emit any ``_ver`` waterway — neither the in-network arc
+        # to ``ser_ver`` nor the synthetic-ocean fallback.  The
+        # ``drain = True`` flag set on the central's own junction
+        # below absorbs surplus water in place of the missing arc.
+        if self._drop_spillway_waterway:
+            ver_waterway: Optional[Waterway] = None
+        else:
+            ver_waterway = self._create_waterway(
+                central_name + "_ver",
+                central_id,
+                central["ser_ver"],
+                vert_fmin,
+                vert_fmax,
+                fcost=vert_fcost,
+            )
 
         # **Synthetic ocean drain** — shared between the spill (`_ver`)
         # and gen (`_gen`) ocean-fallback paths below.  When BOTH
@@ -790,7 +826,11 @@ class JunctionWriter(BaseWriter):
         # (``ser_ver = 0``, ``VertMax = 9967``, gen pmax = 0 at p1
         # via plpmance) had no spillway path → upstream affluent
         # 7.2 m³/s couldn't be discharged → infeasible.
-        if ver_waterway is None and central_type in ("embalse", "serie", "pasada"):
+        if (
+            ver_waterway is None
+            and not self._drop_spillway_waterway
+            and central_type in ("embalse", "serie", "pasada")
+        ):
             vert_max_for_spill = central.get("vert_max", 0.0) or 0.0
             # Two paths trigger the synthetic ``<central>_spill``
             # ocean junction + ``_ver`` waterway fallback when
@@ -996,7 +1036,22 @@ class JunctionWriter(BaseWriter):
         # That covers truly isolated centrals where the network would
         # otherwise be unbalanced; everything else relies on PLP-style
         # explicit balance through the gen / ver arcs.
-        drain = gen_waterway is None and ver_waterway is None
+        #
+        # ``--drop-spillway-waterway``: when on (default), the spillway
+        # arc has been suppressed above so the central's own junction
+        # must absorb any surplus water itself.  Force ``drain = True``
+        # for the embalse / serie / pasada types that previously got a
+        # ``_ver`` arc — the gen waterway alone can't always discharge
+        # the inflow + storage release.  Centrals of other types keep
+        # the standard "drain only when truly isolated" rule.
+        if self._drop_spillway_waterway and central_type in (
+            "embalse",
+            "serie",
+            "pasada",
+        ):
+            drain = True
+        else:
+            drain = gen_waterway is None and ver_waterway is None
         junction: Junction = {
             "uid": central_id,
             "name": central_name,

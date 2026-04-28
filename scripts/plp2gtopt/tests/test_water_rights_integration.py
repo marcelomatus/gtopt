@@ -72,6 +72,10 @@ class TestWaterRightsIntegration:
                 "1000",
                 "--scale-objective",
                 "1000",
+                # Pin the legacy spillway-waterway shape — the LP build
+                # checks below assume the historical ``_ver`` topology
+                # and counts.
+                "--no-drop-spillway-waterway",
             ],
             capture_output=True,
             text=True,

@@ -562,6 +562,36 @@ def add_model_arguments(parser: argparse.ArgumentParser, conf: dict[str, str]) -
             "default: %(default)s)"
         ),
     )
+    # ``--drop-spillway-waterway`` (default True): suppress every
+    # ``_ver`` (spillway / vert) waterway emission and instead let
+    # excess water leave the system through the central's own junction
+    # (``drain = True``).  The trade-off is physical accuracy: PLP
+    # routes spill water to the downstream central named in
+    # ``ser_ver`` (the water can be reused) and charges per-flow
+    # ``CVert`` / ``Costo de Rebalse``.  Dropping the arc loses the
+    # routing AND the cost — all spillover becomes a free leak — but
+    # in exchange every ``_ver`` arc and its associated ``fcost``
+    # disappears from the LP, which improves scaling and removes a
+    # class of spurious binding-bound duals.  Disable with
+    # ``--no-drop-spillway-waterway`` to restore the historical
+    # PLP-faithful spillway topology.
+    _default_drop_spillway = conf.get("drop_spillway_waterway")
+    parser.add_argument(
+        "--drop-spillway-waterway",
+        dest="drop_spillway_waterway",
+        action=argparse.BooleanOptionalAction,
+        default=(
+            _default_drop_spillway.lower() not in ("false", "0", "no")
+            if _default_drop_spillway is not None
+            else True
+        ),
+        help=(
+            "suppress ``_ver`` (spillway/vert) waterway emission and "
+            "rely on a junction-level drain to discharge surplus water "
+            "(default: %(default)s; disables ``fcost`` on spillways "
+            "and improves LP scaling at the cost of routing fidelity)"
+        ),
+    )
     parser.add_argument(
         "--reserve-fail-cost",
         dest="reserve_fail_cost",

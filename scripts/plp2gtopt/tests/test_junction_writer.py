@@ -12,6 +12,12 @@ from ..aflce_parser import AflceParser
 from ..cenre_parser import CenreParser
 from ..cenfi_parser import CenfiParser
 
+# Legacy options dict: opts back into the pre-default-suppress regime so
+# tests asserting the historical ``_ver`` waterway shape keep their meaning.
+# Tests covering the new default (``drop_spillway_waterway = True``) live
+# in ``test_drop_spillway_waterway.py``.
+_LEGACY_OPTS = {"drop_spillway_waterway": False}
+
 # Mocks for parsers
 
 
@@ -240,7 +246,7 @@ def test_to_json_array_single_plant():
         "type": "serie",
     }
     central_parser = MockCentralParser([central])
-    writer = JunctionWriter(central_parser=central_parser)
+    writer = JunctionWriter(central_parser=central_parser, options=_LEGACY_OPTS)
     result = writer.to_json_array()[0]
 
     assert len(result["junction_array"]) == 1
@@ -298,7 +304,7 @@ def test_drain_junction():
         "type": "serie",
     }
     central_parser = MockCentralParser([central])
-    writer = JunctionWriter(central_parser=central_parser)
+    writer = JunctionWriter(central_parser=central_parser, options=_LEGACY_OPTS)
     result = writer.to_json_array()[0]
 
     # Exactly two junctions: the source + ONE shared synthetic drain.
@@ -347,7 +353,7 @@ def test_no_turbine_creation():
         "type": "serie",
     }
     central_parser = MockCentralParser([central])
-    writer = JunctionWriter(central_parser=central_parser)
+    writer = JunctionWriter(central_parser=central_parser, options=_LEGACY_OPTS)
     result = writer.to_json_array()[0]
 
     assert len(result["turbine_array"]) == 0
@@ -404,7 +410,9 @@ def test_process_extractions(sample_extrac_parser):
     central_parser = MockCentralParser(centrals)
 
     writer = JunctionWriter(
-        central_parser=central_parser, extrac_parser=sample_extrac_parser
+        central_parser=central_parser,
+        extrac_parser=sample_extrac_parser,
+        options=_LEGACY_OPTS,
     )
     result = writer.to_json_array()[0]
 
@@ -452,7 +460,9 @@ def test_get_plant_flow_with_aflce(sample_aflce_parser):
 def test_multiple_plants_and_interactions(sample_central_parser, sample_extrac_parser):
     """Test a more complex scenario with multiple plants and extractions."""
     writer = JunctionWriter(
-        central_parser=sample_central_parser, extrac_parser=sample_extrac_parser
+        central_parser=sample_central_parser,
+        extrac_parser=sample_extrac_parser,
+        options=_LEGACY_OPTS,
     )
     result = writer.to_json_array()[0]
 
@@ -787,7 +797,7 @@ def test_embalse_ocean_junction_waterways_created():
     Post-refactor, an explicit ``_ver`` arc carries the rebalse fcost out of
     the system, and both arcs share the same synthetic ``_ocean`` drain.
     """
-    writer = JunctionWriter(central_parser=_rapel_parser())
+    writer = JunctionWriter(central_parser=_rapel_parser(), options=_LEGACY_OPTS)
     result = writer.to_json_array()[0]
 
     # Both gen and ver waterways now target the shared ocean drain.
@@ -903,7 +913,7 @@ def test_embalse_no_ver_waterway_junction_is_drain():
     """
     # RAPEL has ser_ver=0 → an explicit `_ver` arc to RAPEL_ocean exists,
     # and the RAPEL source junction is NOT marked drain.
-    writer = JunctionWriter(central_parser=_rapel_parser())
+    writer = JunctionWriter(central_parser=_rapel_parser(), options=_LEGACY_OPTS)
     result = writer.to_json_array()[0]
 
     rapel_junction = next(j for j in result["junction_array"] if j["name"] == "RAPEL")
@@ -935,7 +945,10 @@ def test_embalse_with_ver_waterway_junction_not_drain():
         "emin": 0.0,
         "emax": 500.0,
     }
-    writer = JunctionWriter(central_parser=MockCentralParser([central]))
+    writer = JunctionWriter(
+        central_parser=MockCentralParser([central]),
+        options=_LEGACY_OPTS,
+    )
     result = writer.to_json_array()[0]
 
     cipreses_junction = next(
@@ -1576,7 +1589,7 @@ def test_vert_max_sentinel_dropped_on_ver_waterway():
         "PlantVertSentinel", pmax=50.0, vert_max=9999.0
     )
     central_parser = MockCentralParser([central])
-    writer = JunctionWriter(central_parser=central_parser)
+    writer = JunctionWriter(central_parser=central_parser, options=_LEGACY_OPTS)
     result = writer.to_json_array()[0]
 
     ver_ww = next(
@@ -1600,7 +1613,7 @@ def test_real_bound_under_threshold_preserved():
         "PlantRealCap", pmax=8999.0, vert_max=8999.0
     )
     central_parser = MockCentralParser([central])
-    writer = JunctionWriter(central_parser=central_parser)
+    writer = JunctionWriter(central_parser=central_parser, options=_LEGACY_OPTS)
     result = writer.to_json_array()[0]
 
     gen_ww = next(

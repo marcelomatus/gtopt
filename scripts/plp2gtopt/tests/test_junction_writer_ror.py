@@ -384,6 +384,9 @@ def test_ror_promotion_drain_on_upper_junction_when_no_spillway(tmp_path: Path):
         options={
             "ror_as_reservoirs": "all",
             "ror_as_reservoirs_file": csv,
+            # Pin legacy spillway-on shape: drain=False is the legacy
+            # invariant under test, and the new default flips it.
+            "drop_spillway_waterway": False,
         },
     )
 
@@ -428,6 +431,7 @@ def test_ror_promotion_no_bypass_when_plp_spillway_exists(tmp_path: Path):
         options={
             "ror_as_reservoirs": "all",
             "ror_as_reservoirs_file": csv,
+            "drop_spillway_waterway": False,
         },
     )
 
@@ -454,6 +458,7 @@ def test_ror_promotion_does_not_affect_non_promoted_central(tmp_path: Path):
         options={
             "ror_as_reservoirs": "Other",
             "ror_as_reservoirs_file": csv,
+            "drop_spillway_waterway": False,
         },
     )
     # No synthetic bypass waterway anywhere.
@@ -488,6 +493,7 @@ def test_ror_promotion_serie_with_upstream_inflow_uses_drain(tmp_path: Path):
         options={
             "ror_as_reservoirs": "Mid",
             "ror_as_reservoirs_file": csv,
+            "drop_spillway_waterway": False,
         },
     )
 

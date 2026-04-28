@@ -58,6 +58,10 @@ def _make_opts_hydro_4b(tmp_path: Path, case_name: str = "gtopt_hydro_4b") -> di
         "pasada_mode": "flow-turbine",
         "pasada_hydro": True,
         "model_options": {"use_kirchhoff": False},
+        # Solver-result tests run against the PLP-faithful baseline LP;
+        # the new ``drop_spillway_waterway`` default reshapes the LP and
+        # would need re-baselined expected values, so pin legacy here.
+        "drop_spillway_waterway": False,
     }
 
 

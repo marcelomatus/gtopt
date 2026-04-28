@@ -30,6 +30,12 @@ def _make_opts(input_dir: Path, tmp_path: Path, case_name: str) -> dict:
         "output_dir": out_dir,
         "output_file": out_dir / f"{case_name}.json",
         "hydrologies": "1",
+        # Pin the legacy spillway-waterway shape so the existing JSON
+        # structure assertions (drain flags, ``_ver`` arcs, junction
+        # counts) keep their meaning.  The new default
+        # ``drop_spillway_waterway = True`` is exercised in
+        # ``test_drop_spillway_waterway.py``.
+        "drop_spillway_waterway": False,
     }
 
 

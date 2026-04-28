@@ -59,6 +59,11 @@ def _make_opts_2y(tmp_path: Path, case_name: str = "gtopt_case_2y") -> dict:
         "management_factor": 0.0,
         "max_iterations": 2,
         "model_options": {"use_kirchhoff": False},
+        # Pin the legacy spillway-waterway shape so downstream LP /
+        # boundary-cuts / SDDP assertions keep their meaning.  The new
+        # default (``drop_spillway_waterway = True``) is exercised in
+        # ``test_drop_spillway_waterway.py``.
+        "drop_spillway_waterway": False,
     }
 
 
@@ -962,23 +967,6 @@ def test_plp_case_2y_2h_4s_two_scenarios_partial(tmp_path):
 
 
 @pytest.mark.integration
-@pytest.mark.skip(
-    reason=(
-        "LP-level regression introduced by commit 86616b80 "
-        "(`refactor(waterway): physical fcost on _ver arcs replaces "
-        "drain teleport`).  On plp_case_2y data, LMAULE moves from the "
-        "old drain teleport (spillway_capacity > 0, no _ver arc) to the "
-        "new physical model (spillway_capacity=0, explicit _ver arc + "
-        "rebalse fcost).  Combined with hard `reservoir_efin >= eini` "
-        "rows + must-run waterway flows + capped inflow, the LP cell at "
-        "stage 51 phase 1 becomes structurally infeasible.  IIS minimal "
-        "conflict points at `reservoir_efin_1_51_1: ... >= 65.70569`.  "
-        "Same pattern as the support/juan/IPLP_uninodal investigation; "
-        "proper fix needs the per-reservoir soft `efin_cost` (option A) "
-        "or `pmin_as_flowright` on the case2y centrals.  Tracked as a "
-        "follow-up."
-    )
-)
 def test_plp_case_2y_aperture_cache_loading(tmp_path):
     """plp_case_2y: convert with 1 scenario + apertures, run gtopt for 1 SDDP iteration.
 
@@ -1010,6 +998,10 @@ def test_plp_case_2y_aperture_cache_loading(tmp_path):
     opts["max_iterations"] = 1
     opts["last_stage"] = 1
     opts["pasada_mode"] = "flow-turbine"
+    # Use the new default (suppress ``_ver`` arcs, drain on source) which
+    # relaxes the LMAULE structural infeasibility at stage 51 phase 1
+    # that previously blocked this test.
+    opts["drop_spillway_waterway"] = True
     convert_plp_case(opts)
 
     data = json.loads(Path(opts["output_file"]).read_text(encoding="utf-8"))
