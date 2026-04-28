@@ -393,8 +393,7 @@ auto solve_apertures_for_phase(
                                                 clone,
                                                 clone.get_obj_value(),
                                                 cut_coeff_eps);
-          cut.class_name = sddp_alpha_class_name;
-          cut.constraint_name = sddp_aperture_cut_constraint_name;
+          sddp_aperture_cut_tag.apply_to(cut);
           cut.variable_uid = phase_uid_val;
           cut.context = make_aperture_context(
               scene_uid_val, phase_uid_val, ap_uid, total_cuts);
@@ -493,8 +492,7 @@ auto solve_apertures_for_phase(
 
   // Compute the probability-weighted expected cut
   auto ecut = weighted_average_benders_cut(aperture_cuts, aperture_weights);
-  ecut.class_name = sddp_alpha_class_name;
-  ecut.constraint_name = sddp_ecut_constraint_name;
+  sddp_ecut_tag.apply_to(ecut);
   ecut.variable_uid = phase_uid_val;
   ecut.context = make_iteration_context(
       scene_uid_val, phase_uid_val, uid_of(iteration_index), total_cuts);

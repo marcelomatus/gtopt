@@ -404,10 +404,9 @@ using namespace gtopt::detail;  // helpers shared with sibling TUs
       auto row = SparseRow {
           .lowb = rhs,
           .uppb = LinearProblem::DblMax,
-          .class_name = sddp_loaded_cut_class_name,
-          .constraint_name = sddp_loaded_cut_constraint_name,
           .variable_uid = phase_uid,
       };
+      sddp_loaded_cut_tag.apply_to(row);
 
       // Resolve the phase UID to a PhaseIndex
       auto pit = phase_uid_to_index.find(phase_uid);

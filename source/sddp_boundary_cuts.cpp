@@ -361,8 +361,6 @@ using namespace gtopt::detail;
             .lowb = rc.rhs * bc_discount / scale_obj,
             .uppb = LinearProblem::DblMax,
             .scale = sa,
-            .class_name = sddp_boundary_cut_class_name,
-            .constraint_name = sddp_loaded_cut_constraint_name,
             .variable_uid = sim.uid_of(last_phase),
             .context = make_iteration_context(
                 sim.uid_of(scene_index),
@@ -370,6 +368,7 @@ using namespace gtopt::detail;
                 uid_of(extract_iteration_from_name(std::string_view {rc.name})),
                 cuts_loaded),
         };
+        sddp_boundary_cut_tag.apply_to(row);
         row[alpha_svar->col()] = sa;
 
         auto& li =

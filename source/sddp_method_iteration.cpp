@@ -425,8 +425,7 @@ auto SDDPMethod::backward_pass_single_phase(SceneIndex scene_index,
                                         target_state.forward_full_obj_physical,
                                         scale_obj,
                                         ceps);
-  cut.class_name = sddp_alpha_class_name;
-  cut.constraint_name = sddp_scut_constraint_name;
+  sddp_scut_tag.apply_to(cut);
   cut.variable_uid = uid_of(prev_phase_index);
   cut.context = make_iteration_context(uid_of(scene_index),
                                        uid_of(phase_index),
