@@ -433,14 +433,11 @@ public:
     return gmax;
   }
 
-private:
-  using scene_phase_states_t =
-      StrongIndexVector<SceneIndex,
-                        StrongIndexVector<PhaseIndex, PhaseStateInfo>>;
-
-  /// Type alias for backward compatibility — now uses the public
-  /// ElasticSolveResult from benders_cut.hpp.
-  using ElasticResult = ElasticSolveResult;
+  // ─── Alpha / state-variable lifecycle (public for testability) ────────
+  // Promoted from ``private:`` 2026-04-28 in support of the
+  // ``test_sddp_method.cpp::SDDPMethod alpha lifecycle`` and
+  // ``state-var capture round-trip`` test cases that pin behavior
+  // across the Phase B ``sddp_method.cpp`` split.
 
   void initialize_alpha_variables(SceneIndex scene_index);
   void collect_state_variable_links(SceneIndex scene_index);
@@ -466,6 +463,15 @@ private:
       PhaseIndex phase_index,
       const ScaledView& col_sol_phys,
       std::span<const double> reduced_costs) const noexcept;
+
+private:
+  using scene_phase_states_t =
+      StrongIndexVector<SceneIndex,
+                        StrongIndexVector<PhaseIndex, PhaseStateInfo>>;
+
+  /// Type alias for backward compatibility — now uses the public
+  /// ElasticSolveResult from benders_cut.hpp.
+  using ElasticResult = ElasticSolveResult;
 
   [[nodiscard]] auto forward_pass(SceneIndex scene_index,
                                   const SolverOptions& opts,
