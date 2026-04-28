@@ -29,14 +29,17 @@ LineLP::LineLP(const Line& pline, const InputContext& ic)
 
 // ── add_kirchhoff_rows ──────────────────────────────────────────────
 
-void LineLP::add_kirchhoff_rows(SystemContext& sc,
-                                const ScenarioLP& scenario,
-                                const StageLP& stage,
-                                LinearProblem& lp,
-                                const BusLP& bus_a_lp,
-                                const BusLP& bus_b_lp,
-                                const BIndexHolder<ColIndex>& fpcols,
-                                const BIndexHolder<ColIndex>& fncols)
+void LineLP::add_kirchhoff_rows(
+    SystemContext& sc,
+    const ScenarioLP& scenario,
+    const StageLP& stage,
+    LinearProblem& lp,
+    const BusLP& bus_a_lp,
+    const BusLP& bus_b_lp,
+    const BIndexHolder<ColIndex>& fpcols,
+    const BIndexHolder<ColIndex>& fncols,
+    const BIndexHolder<std::vector<ColIndex>>& fpsegcols,
+    const BIndexHolder<std::vector<ColIndex>>& fnsegcols)
 {
   const auto& stage_reactance = sc.stage_reactance(stage, reactance);
   // Skip Kirchhoff for lines without reactance (DC/HVDC lines).
@@ -107,15 +110,34 @@ void LineLP::add_kirchhoff_rows(SystemContext& sc,
         }
             .equal(kirchhoff_rhs);
 
-    trow.reserve(4);
+    // piecewise_direct mode stamps each segment column directly with
+    // ±x_τ (PLP genpdlin.f); other modes stamp the aggregator. Per
+    // block, exactly one of {segs, aggregator} is populated per
+    // direction.  Pre-reserve roughly: 2 thetas + segs + aggregator.
+    const auto fp_seg_it = fpsegcols.find(buid);
+    const auto fn_seg_it = fnsegcols.find(buid);
+    const auto fp_seg_n =
+        (fp_seg_it != fpsegcols.end()) ? fp_seg_it->second.size() : 0;
+    const auto fn_seg_n =
+        (fn_seg_it != fnsegcols.end()) ? fn_seg_it->second.size() : 0;
+    trow.reserve(2 + fp_seg_n + fn_seg_n + 2);
 
     trow[theta_a_cols.at(buid)] = -1.0;
     trow[theta_b_cols.at(buid)] = +1.0;
-    if (!fpcols.empty()) {
-      trow[fpcols.at(buid)] = +x_tau;
+
+    if (fp_seg_n != 0) {
+      for (const auto& col : fp_seg_it->second) {
+        trow[col] = +x_tau;
+      }
+    } else if (auto fit = fpcols.find(buid); fit != fpcols.end()) {
+      trow[fit->second] = +x_tau;
     }
-    if (!fncols.empty()) {
-      trow[fncols.at(buid)] = -x_tau;
+    if (fn_seg_n != 0) {
+      for (const auto& col : fn_seg_it->second) {
+        trow[col] = -x_tau;
+      }
+    } else if (auto fit = fncols.find(buid); fit != fncols.end()) {
+      trow[fit->second] = -x_tau;
     }
 
     trows[buid] = lp.add_row(std::move(trow));
@@ -212,6 +234,8 @@ bool LineLP::add_to_lp(SystemContext& sc,
   BIndexHolder<RowIndex> cnrows;
   BIndexHolder<ColIndex> lpcols;
   BIndexHolder<ColIndex> lncols;
+  BIndexHolder<std::vector<ColIndex>> fpsegcols;
+  BIndexHolder<std::vector<ColIndex>> fnsegcols;
   map_reserve(fpcols, blocks.size());
   map_reserve(cprows, blocks.size());
   map_reserve(fncols, blocks.size());
@@ -258,11 +282,25 @@ bool LineLP::add_to_lp(SystemContext& sc,
     if (result.capn_row) {
       cnrows[buid] = *result.capn_row;
     }
+    if (!result.seg_p_cols.empty()) {
+      fpsegcols[buid] = std::move(result.seg_p_cols);
+    }
+    if (!result.seg_n_cols.empty()) {
+      fnsegcols[buid] = std::move(result.seg_n_cols);
+    }
   }
 
   // ── Kirchhoff (DC OPF) constraints ────────────────────────────────
-  add_kirchhoff_rows(
-      sc, scenario, stage, lp, bus_a_lp, bus_b_lp, fpcols, fncols);
+  add_kirchhoff_rows(sc,
+                     scenario,
+                     stage,
+                     lp,
+                     bus_a_lp,
+                     bus_b_lp,
+                     fpcols,
+                     fncols,
+                     fpsegcols,
+                     fnsegcols);
 
   // Store all indices for this (scenario, stage)
   const auto st_key = std::tuple {scenario.uid(), stage.uid()};

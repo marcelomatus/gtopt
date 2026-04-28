@@ -440,6 +440,94 @@ TEST_CASE(
   CHECK(obj_pw == doctest::Approx(obj_bi).epsilon(0.01));
 }
 
+// ── Measured P_loss vs analytical ─────────────────────────────────
+//
+// `solve_with_mode` uses a 2-bus problem with demand D=100 MW at bus_b
+// and gen on bus_a (gcost=10).  With scale_objective=1000 and zero
+// transmission cost, the LP objective is `obj = gen·gcost/scale = gen/100`,
+// so `gen = 100·obj` and the *measured* loss is `P_loss = gen − D`.
+//
+// The closed-form expected losses (D=100, R=0.01, V²=10⁴, K=3) are:
+//
+//  - none:                  0
+//  - linear (auto λ=R·f_max/V²=2·10⁻⁴):
+//                           D · λ / (1−λ)               ≈ 0.020004
+//  - piecewise / bidirectional / piecewise_direct:
+//      seg_1 fills to w (=66.667 MW), bus_b receives w·(1−λ_1).  The
+//      remaining flow goes through partial seg_2, giving
+//      `gen = w + (D − w·(1−λ_1)) / (1−λ_2)`            ≈ 100.0115
+//      and P_loss ≈ 0.0115 MW.  All three PWL modes share this exact
+//      (non-quadratic) approximation because they share the same
+//      per-segment loss factor `λ_k = w·(2k−1)·R/V²` (PLP genpdlin.f).
+TEST_CASE("line_losses - measured P_loss vs analytical per mode")
+{
+  constexpr int K = 3;
+  constexpr double D = 100.0;
+  constexpr double scale = 1000.0;
+  constexpr double gcost = 10.0;
+  constexpr double R = 0.01;
+  constexpr double V2 = 10000.0;  // V=100kV
+  constexpr double w = 200.0 / K;  // seg width = 66.667 MW
+  constexpr double lambda_1 = w * R * 1.0 / V2;
+  constexpr double lambda_2 = w * R * 3.0 / V2;
+  constexpr double lambda_lin = R * 200.0 / V2;  // auto-linear lossfactor
+
+  const auto measured_loss = [](double obj)
+  { return ((obj * scale) / gcost) - D; };
+
+  // PWL modes (D=100, K=3): seg_1 saturates, seg_2 partial.
+  const double seg2 = (D - (w * (1.0 - lambda_1))) / (1.0 - lambda_2);
+  const double expected_pwl = (w + seg2) - D;
+  // Linear mode: gen = D/(1−λ), loss = D·λ/(1−λ).
+  const double expected_linear = (D * lambda_lin) / (1.0 - lambda_lin);
+
+  SUBCASE("none — zero measured loss")
+  {
+    const auto loss = measured_loss(solve_with_mode("none", K));
+    CHECK(loss == doctest::Approx(0.0).epsilon(1e-9));
+  }
+
+  SUBCASE("linear — D·λ/(1−λ) with auto λ = R·f_max/V²")
+  {
+    const auto loss = measured_loss(solve_with_mode("linear", K));
+    CHECK(loss == doctest::Approx(expected_linear).epsilon(1e-6));
+  }
+
+  SUBCASE("piecewise — PLP per-segment loss factor with partial seg_2")
+  {
+    const auto loss = measured_loss(solve_with_mode("piecewise", K));
+    CHECK(loss == doctest::Approx(expected_pwl).epsilon(1e-6));
+  }
+
+  SUBCASE("bidirectional — same PWL on the active direction")
+  {
+    const auto loss = measured_loss(solve_with_mode("bidirectional", K));
+    CHECK(loss == doctest::Approx(expected_pwl).epsilon(1e-6));
+  }
+
+  SUBCASE("piecewise_direct — PLP-faithful, segments stamp directly")
+  {
+    const auto loss = measured_loss(solve_with_mode("piecewise_direct", K));
+    CHECK(loss == doctest::Approx(expected_pwl).epsilon(1e-6));
+  }
+
+  SUBCASE("PWL approximation tracks the quadratic law within 1/(2K)")
+  {
+    // True quadratic loss at f ≈ gen: P_loss_q = R · f² / V².  The PWL
+    // approximation has truncation error bounded by the maximum slope
+    // gap across segment boundaries — empirically within 1/(2K) relative
+    // error of the integrated quadratic loss for partial fills.
+    for (const auto& mode : {"piecewise", "bidirectional", "piecewise_direct"})
+    {
+      CAPTURE(mode);
+      const auto loss_pw = measured_loss(solve_with_mode(mode, K));
+      const double f = D + loss_pw;
+      const double loss_q = (R * f * f) / V2;
+      CHECK(loss_pw == doctest::Approx(loss_q).epsilon(1.0 / (2.0 * K)));
+    }
+  }
+}
+
 TEST_CASE("line_losses engine - adaptive mode selects based on expansion")
 {
   // Without expansion → piecewise.  We can test this indirectly:
@@ -981,30 +1069,23 @@ TEST_CASE("line_losses LP structure - bidirectional mode")
 
 TEST_CASE("line_losses LP structure - piecewise_direct mode")
 {
-  // 3 segments per direction, R=0.01, V=100 → V²=10000
+  // 3 segments per direction, R=0.01, V=100 → V²=10000.
+  // PLP-faithful: no aggregator, no link row, segments stamp directly
+  // into the bus-balance row (and the KVL row when use_kirchhoff=true).
   LPFixture fix("piecewise_direct", /*loss_segments=*/3);
   auto& li = fix.lp();
 
-  SUBCASE("creates fp_agg, fn_agg + K=3 segments per direction; no loss cols")
+  SUBCASE("creates exactly K segments per direction; no aggregator, no loss")
   {
-    // flowp_ matches aggregation col + 3 segment cols = 4
-    CHECK(count_cols_containing(li, "line_flowp_") == 4);
-    CHECK(count_cols_containing(li, "line_flown_") == 4);
+    // Only segments — no aggregator column, so flowp_ count matches
+    // flowp_seg_ count exactly.
+    CHECK(count_cols_containing(li, "line_flowp_") == 3);
+    CHECK(count_cols_containing(li, "line_flown_") == 3);
     CHECK(count_cols_containing(li, "line_flowp_seg_") == 3);
     CHECK(count_cols_containing(li, "line_flown_seg_") == 3);
     // No loss variables — losses are baked into bus-balance coefficients
     CHECK(count_cols_containing(li, "line_lossp_") == 0);
     CHECK(count_cols_containing(li, "line_lossn_") == 0);
-  }
-
-  SUBCASE("aggregation col bounds are [0, tmax]")
-  {
-    const auto fp = find_col(li, "line_flowp_", "_seg_");
-    const auto fn = find_col(li, "line_flown_", "_seg_");
-    CHECK(li.get_col_low()[value_of(fp)] == doctest::Approx(0.0));
-    CHECK(li.get_col_upp()[value_of(fp)] == doctest::Approx(200.0));
-    CHECK(li.get_col_low()[value_of(fn)] == doctest::Approx(0.0));
-    CHECK(li.get_col_upp()[value_of(fn)] == doctest::Approx(200.0));
   }
 
   SUBCASE("segment bounds are [0, tmax/K]")
@@ -1019,48 +1100,13 @@ TEST_CASE("line_losses LP structure - piecewise_direct mode")
     }
   }
 
-  SUBCASE("two linking rows total (one per direction); no loss-tracking rows")
+  SUBCASE("no link rows, no loss-tracking rows (PLP-faithful)")
   {
-    CHECK(count_rows_containing(li, "line_flowp_link_") == 1);
-    CHECK(count_rows_containing(li, "line_flown_link_") == 1);
+    CHECK(count_rows_containing(li, "line_flowp_link_") == 0);
+    CHECK(count_rows_containing(li, "line_flown_link_") == 0);
     CHECK(count_rows_containing(li, "line_lossp_link_") == 0);
     CHECK(count_rows_containing(li, "line_lossn_link_") == 0);
     CHECK(count_rows_containing(li, "line_loss_link_") == 0);
-  }
-
-  SUBCASE("positive linking row: fp_agg − Σ seg_k = 0")
-  {
-    const auto lnk = find_row(li, "line_flowp_link_");
-    const auto fp = find_col(li, "line_flowp_", "_seg_");
-
-    CHECK(li.get_row_low()[value_of(lnk)] == doctest::Approx(0.0));
-    CHECK(li.get_row_upp()[value_of(lnk)] == doctest::Approx(0.0));
-    CHECK(li.get_coeff(lnk, fp) == doctest::Approx(1.0));
-
-    int seg_count = 0;
-    for (const auto& [name, idx] : li.col_name_map()) {
-      if (name.contains("line_flowp_seg_")) {
-        CHECK(li.get_coeff(lnk, idx) == doctest::Approx(-1.0));
-        ++seg_count;
-      }
-    }
-    CHECK(seg_count == 3);
-  }
-
-  SUBCASE("aggregation col has zero bus-balance coefficient")
-  {
-    // fp_agg / fn_agg are pure accounting; loss allocation lives on
-    // the segment cols.  This preserves the downstream fp_col API for
-    // Kirchhoff and reporters without double-counting.
-    const auto fp = find_col(li, "line_flowp_", "_seg_");
-    const auto fn = find_col(li, "line_flown_", "_seg_");
-    const auto bal_a = find_row(li, "bus_balance_1");
-    const auto bal_b = find_row(li, "bus_balance_2");
-
-    CHECK(li.get_coeff(bal_a, fp) == doctest::Approx(0.0));
-    CHECK(li.get_coeff(bal_b, fp) == doctest::Approx(0.0));
-    CHECK(li.get_coeff(bal_a, fn) == doctest::Approx(0.0));
-    CHECK(li.get_coeff(bal_b, fn) == doctest::Approx(0.0));
   }
 
   SUBCASE("positive segments stamp bus balance with per-segment loss factor")
@@ -1122,7 +1168,7 @@ TEST_CASE("line_losses LP structure - piecewise_direct mode")
     }
   }
 
-  SUBCASE("direct has same row count as piecewise but no loss cols")
+  SUBCASE("direct has zero line-loss-engine rows; piecewise has 2")
   {
     LPFixture fix_pw("piecewise", /*loss_segments=*/3);
     auto& li_pw = fix_pw.lp();
@@ -1130,15 +1176,15 @@ TEST_CASE("line_losses LP structure - piecewise_direct mode")
     // piecewise: 1 flow_link + 1 loss_link = 2 line-specific rows
     const int pw_rows = count_rows_containing(li_pw, "line_flow_link")
         + count_rows_containing(li_pw, "line_loss_link");
-    // direct: flowp_link + flown_link = 2 line-specific rows
+    // direct: zero — bus stamps and KVL stamps replace both.
     const int dir_rows = count_rows_containing(li, "line_flowp_link")
         + count_rows_containing(li, "line_flown_link")
         + count_rows_containing(li, "line_loss_link");
 
     CHECK(pw_rows == 2);
-    CHECK(dir_rows == 2);
+    CHECK(dir_rows == 0);
 
-    // But direct has zero loss variables
+    // direct has zero loss variables and zero aggregator columns
     CHECK(count_cols_containing(li, "line_lossp_")
               + count_cols_containing(li, "line_lossn_")
           == 0);
@@ -1258,13 +1304,14 @@ TEST_CASE("line_losses - all modes cross-comparison matrix")
   // | bidirectional        | 2·(K + 2)        | 4                |
   // | dynamic              | K + 3            | 2                |
   // | adaptive (→piecewise) | K + 3           | 2                |
-  // | piecewise_direct     | 2·(K + 1)        | 2                |
+  // | piecewise_direct     | 2·K              | 0                |
   //
-  // NOTE: piecewise_direct has MORE cols than piecewise (per-direction
-  // segments cannot be shared with direction-dependent loss allocation).
-  // Its win is PLP-semantic parity + zero loss cols/rows, not LP size.
-  // `adaptive` now picks the smallest-LP PWL model (`piecewise`), so
-  // `piecewise_direct` is an opt-in for PLP-diff parity only.
+  // NOTE: piecewise_direct is the only mode with **zero** line-loss-engine
+  // rows.  Per direction, K segments stamp directly into the bus-balance
+  // row (with allocation-aware loss factor) and into the KVL row (with
+  // ±x_τ).  No aggregator, no link, no loss column — the most compact
+  // formulation, matching PLP `genpdlin.f` exactly.  `adaptive` still
+  // picks `piecewise`; `piecewise_direct` remains opt-in.
   const std::array<ModeExpect, 7> expect = {{
       {.name = "none",
        .flowp_like_cols = 1,
@@ -1363,21 +1410,21 @@ TEST_CASE("line_losses - all modes cross-comparison matrix")
        .total_loss_cols = K + 3,
        .total_loss_rows = 2},
       {.name = "piecewise_direct",
-       .flowp_like_cols = 1 + K,
-       .flown_like_cols = 1 + K,
+       .flowp_like_cols = K,
+       .flown_like_cols = K,
        .seg_cols = 0,
        .flowp_seg_cols = K,
        .flown_seg_cols = K,
        .lossp_cols = 0,
        .lossn_cols = 0,
        .flow_link_rows = 0,
-       .flowp_link_rows = 1,
-       .flown_link_rows = 1,
+       .flowp_link_rows = 0,
+       .flown_link_rows = 0,
        .loss_link_rows = 0,
        .lossp_link_rows = 0,
        .lossn_link_rows = 0,
-       .total_loss_cols = 2 * (K + 1),
-       .total_loss_rows = 2},
+       .total_loss_cols = 2 * K,
+       .total_loss_rows = 0},
   }};
 
   // Count cols/rows whose name starts with `line_` but are NOT part of

@@ -16,6 +16,8 @@
 
 #pragma once
 
+#include <vector>
+
 #include <gtopt/bus_lp.hpp>
 #include <gtopt/capacity_object_lp.hpp>
 #include <gtopt/generator.hpp>
@@ -170,6 +172,12 @@ private:
    *   -θ_a + θ_b + x_tau·fp − x_tau·fn = −φ_rad
    * where x_tau = τ·X/V².  Row scaling is left to the LP layer's
    * row-max equilibration (which auto-unscales duals on output).
+   *
+   * In `piecewise_direct` mode there is no flowp / flown aggregator; the
+   * caller passes the per-direction segment columns instead, and each
+   * segment is stamped into the KVL row with `±x_τ` (PLP `genpdlin.f`).
+   * The aggregator path (`fpcols` / `fncols`) and the segment path
+   * (`fpsegcols` / `fnsegcols`) are mutually exclusive per block.
    */
   void add_kirchhoff_rows(SystemContext& sc,
                           const ScenarioLP& scenario,
@@ -178,7 +186,9 @@ private:
                           const BusLP& bus_a_lp,
                           const BusLP& bus_b_lp,
                           const BIndexHolder<ColIndex>& fpcols,
-                          const BIndexHolder<ColIndex>& fncols);
+                          const BIndexHolder<ColIndex>& fncols,
+                          const BIndexHolder<std::vector<ColIndex>>& fpsegcols,
+                          const BIndexHolder<std::vector<ColIndex>>& fnsegcols);
 };
 
 }  // namespace gtopt
