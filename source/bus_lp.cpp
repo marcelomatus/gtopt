@@ -23,7 +23,12 @@ namespace gtopt
 auto BusLP::needs_kirchhoff(const SystemContext& sc) const -> bool
 {
   const auto& opts = sc.options();
+  // Theta columns are needed only in the B–θ formulation.  In
+  // `cycle_basis` mode KVL is enforced by per-cycle sums of signed
+  // line flows (Σ ε · x_τ · f = Σ ε · φ) — there is no θ variable to
+  // create, so this returns false to short-circuit `lazy_add_theta`.
   return !opts.use_single_bus() && opts.use_kirchhoff()
+      && opts.kirchhoff_mode() == KirchhoffMode::node_angle
       && bus().needs_kirchhoff(opts.kirchhoff_threshold());
 }
 

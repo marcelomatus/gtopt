@@ -1,5 +1,4 @@
 #include <algorithm>
-#include <stdexcept>
 
 #include <gtopt/kirchhoff_node_angle.hpp>
 #include <gtopt/line_losses.hpp>
@@ -82,12 +81,13 @@ void LineLP::add_kirchhoff_rows(
       break;
     }
     case KirchhoffMode::cycle_basis:
-      // Reserved for the loop-flow formulation (Hörsch et al., 2018;
-      // PyPSA `define_kirchhoff_voltage_constraints`).  Will be
-      // implemented as a system-level pass over fundamental cycles
-      // instead of per-line dispatch.
-      throw std::logic_error(
-          "kirchhoff_mode 'cycle_basis' is not yet implemented");
+      // Loop-flow formulation: KVL rows are emitted at the system
+      // level by `kirchhoff::cycle_basis::add_kvl_rows` after every
+      // line has finished creating its flow vars.  Per-line dispatch
+      // is therefore a no-op here — the line's flow cols (fpcols,
+      // fncols, fpsegcols, fnsegcols) are persisted on `LineLP`
+      // so the post-pass can read them across all lines together.
+      break;
   }
 }
 
@@ -254,6 +254,13 @@ bool LineLP::add_to_lp(SystemContext& sc,
   flown_cols[st_key] = std::move(fncols);
   lossp_cols[st_key] = std::move(lpcols);
   lossn_cols[st_key] = std::move(lncols);
+  // Per-direction segment cols (only populated by `piecewise_direct`
+  // line-loss mode).  Persisted so the system-level
+  // `kirchhoff::cycle_basis::add_kvl_rows` pass can stamp them
+  // directly into per-cycle KVL rows after every line has finished
+  // creating its flow vars.
+  flowp_seg_cols[st_key] = std::move(fpsegcols);
+  flown_seg_cols[st_key] = std::move(fnsegcols);
 
   // Register PAMPL-visible columns.
   if (!flowp_cols.at(st_key).empty()) {

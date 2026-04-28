@@ -22,6 +22,7 @@
 #include <unordered_map>
 
 #include <gtopt/bus_island.hpp>
+#include <gtopt/kirchhoff_cycle_basis.hpp>
 #include <gtopt/linear_interface.hpp>
 #include <gtopt/lp_fingerprint.hpp>
 #include <gtopt/map_reserve.hpp>
@@ -421,8 +422,14 @@ constexpr auto flatten_from_collections(auto& collections,
     lp.reserve(est_cols, est_rows);
   }
 
-  const bool check_islands = !system_context.options().use_single_bus()
-      && system_context.options().use_kirchhoff();
+  const auto& sc_opts = system_context.options();
+  const bool kirchhoff_active =
+      !sc_opts.use_single_bus() && sc_opts.use_kirchhoff();
+  const bool is_cycle_basis = kirchhoff_active
+      && sc_opts.kirchhoff_mode() == KirchhoffMode::cycle_basis;
+  // Theta-pin sweep is needed only in node_angle mode — cycle_basis
+  // has no theta variables to pin.
+  const bool check_islands = kirchhoff_active && !is_cycle_basis;
 
   // Process all active stages in phase
   for (auto&& stage : phase.stages()) {
@@ -430,9 +437,21 @@ constexpr auto flatten_from_collections(auto& collections,
     for (auto&& scenario : scene.scenarios()) {
       add_to_lp(collections, system_context, scenario, stage, lp);
 
-      // After all elements are added for this (scenario, stage), check
-      // for disconnected bus islands created by inactive lines and pin
-      // an orphaned theta variable as a runtime reference if needed.
+      // cycle_basis: emit the per-cycle KVL rows now that every
+      // LineLP::add_to_lp has finished creating its flow vars.  The
+      // builder reads each line's flowp/flown/seg col maps and stamps
+      // them into one row per fundamental cycle per block.  Skips
+      // automatically when there are no cycles (radial network).
+      if (is_cycle_basis) {
+        const auto& buses = std::get<Collection<BusLP>>(collections);
+        const auto& lines = std::get<Collection<LineLP>>(collections);
+        kirchhoff::cycle_basis::add_kvl_rows(
+            system_context, scenario, stage, lp, buses, lines);
+      }
+
+      // node_angle: after all elements are added, check for
+      // disconnected bus islands created by inactive lines and pin an
+      // orphaned theta variable as a runtime reference if needed.
       if (check_islands) {
         fix_stage_islands(collections, scenario, stage, lp);
       }

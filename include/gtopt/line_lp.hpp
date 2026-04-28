@@ -96,6 +96,24 @@ public:
     return flown_cols.at({scenario.uid(), stage.uid()});
   }
 
+  /// Per-block segment columns for the A→B direction (only populated
+  /// in `piecewise_direct` line-loss mode; empty otherwise).  Returns
+  /// the per-block map; each block maps to a `std::vector<ColIndex>`
+  /// of segment cols.  Used by `kirchhoff::cycle_basis::add_kvl_rows`
+  /// to stamp segments directly into per-cycle KVL rows when the
+  /// flowp aggregator was elided.
+  [[nodiscard]] constexpr const auto& flowp_seg_cols_at(
+      const ScenarioLP& scenario, const StageLP& stage) const
+  {
+    return flowp_seg_cols.at({scenario.uid(), stage.uid()});
+  }
+
+  [[nodiscard]] constexpr const auto& flown_seg_cols_at(
+      const ScenarioLP& scenario, const StageLP& stage) const
+  {
+    return flown_seg_cols.at({scenario.uid(), stage.uid()});
+  }
+
   [[nodiscard]] constexpr const auto& lossp_cols_at(const ScenarioLP& scenario,
                                                     const StageLP& stage) const
   {
@@ -143,6 +161,15 @@ public:
   {
     return reactance.at(s);
   }
+  [[nodiscard]] auto param_voltage(StageUid s) const { return voltage.at(s); }
+  [[nodiscard]] auto param_tap_ratio(StageUid s) const
+  {
+    return tap_ratio.at(s);
+  }
+  [[nodiscard]] auto param_phase_shift_deg(StageUid s) const
+  {
+    return phase_shift_deg.at(s);
+  }
   /// @}
 
 private:
@@ -158,6 +185,8 @@ private:
 
   STBIndexHolder<ColIndex> flowp_cols;
   STBIndexHolder<ColIndex> flown_cols;
+  STBIndexHolder<std::vector<ColIndex>> flowp_seg_cols;
+  STBIndexHolder<std::vector<ColIndex>> flown_seg_cols;
   STBIndexHolder<ColIndex> lossp_cols;
   STBIndexHolder<ColIndex> lossn_cols;
   STBIndexHolder<RowIndex> capacityp_rows;
