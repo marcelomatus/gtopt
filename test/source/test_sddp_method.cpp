@@ -3904,6 +3904,10 @@ TEST_CASE(
 namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
 {
 
+/// Equal probability assigned to each scene in the 2-scene 10-phase
+/// 2-reservoir fixture (0.5 + 0.5 = 1.0).
+constexpr double k2scene10phaseProb = 0.5;
+
 /// Shared SDDP options for all 2-scene 10-phase 2-reservoir cut-sharing tests.
 inline auto make_2scene_10phase_2rsv_sddp_opts() -> SDDPOptions
 {
@@ -3956,8 +3960,8 @@ TEST_CASE(  // NOLINT
         == doctest::Approx(last.scene_upper_bounds[1]).epsilon(0.01));
 
   // Total UB = probability-weighted combination (0.5 each).
-  const double expected_ub =
-      0.5 * last.scene_upper_bounds[0] + 0.5 * last.scene_upper_bounds[1];
+  const double expected_ub = k2scene10phaseProb * last.scene_upper_bounds[0]
+      + k2scene10phaseProb * last.scene_upper_bounds[1];
   CHECK(last.upper_bound == doctest::Approx(expected_ub).epsilon(1e-9));
 }
 
@@ -3993,8 +3997,8 @@ TEST_CASE(  // NOLINT
   CHECK(last.scene_upper_bounds[0]
         == doctest::Approx(last.scene_upper_bounds[1]).epsilon(0.01));
 
-  const double expected_ub =
-      0.5 * last.scene_upper_bounds[0] + 0.5 * last.scene_upper_bounds[1];
+  const double expected_ub = k2scene10phaseProb * last.scene_upper_bounds[0]
+      + k2scene10phaseProb * last.scene_upper_bounds[1];
   CHECK(last.upper_bound == doctest::Approx(expected_ub).epsilon(1e-9));
 }
 
@@ -4031,8 +4035,8 @@ TEST_CASE(  // NOLINT
   CAPTURE(last.scene_upper_bounds[0]);
   CAPTURE(last.scene_upper_bounds[1]);
 
-  const double expected_ub =
-      0.5 * last.scene_upper_bounds[0] + 0.5 * last.scene_upper_bounds[1];
+  const double expected_ub = k2scene10phaseProb * last.scene_upper_bounds[0]
+      + k2scene10phaseProb * last.scene_upper_bounds[1];
   CHECK(last.upper_bound == doctest::Approx(expected_ub).epsilon(1e-9));
 }
 
@@ -4068,8 +4072,8 @@ TEST_CASE(  // NOLINT
   CAPTURE(last.scene_upper_bounds[1]);
   CAPTURE(last.upper_bound);
 
-  const double expected_ub =
-      0.5 * last.scene_upper_bounds[0] + 0.5 * last.scene_upper_bounds[1];
+  const double expected_ub = k2scene10phaseProb * last.scene_upper_bounds[0]
+      + k2scene10phaseProb * last.scene_upper_bounds[1];
   CHECK(last.upper_bound == doctest::Approx(expected_ub).epsilon(1e-9));
 }
 

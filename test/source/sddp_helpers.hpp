@@ -2376,10 +2376,10 @@ inline auto make_2scene_10phase_two_reservoir_planning() -> Planning
   // Inflow schedule: scenario × stage × block.
   // Both scenarios are identical (phase-0 boost of 80, then 20 hm³ each).
   // Cumulative inflow per reservoir per scenario = 80 + 9×20 = 260 hm³.
-  auto make_inflow_schedule_2scene = [&]
+  auto make_inflow_schedule_2scene = []
   {
     std::vector<std::vector<double>> inflow_2d;
-    inflow_2d.reserve(num_phases);
+    inflow_2d.reserve(static_cast<std::size_t>(num_phases));
     for (int st = 0; st < num_phases; ++st) {
       inflow_2d.push_back(std::vector<double> {st == 0 ? 80.0 : 20.0});
     }
