@@ -365,6 +365,22 @@ class TestBuildOptions:
         assert opts["method"] == "sddp"  # still bundled
         assert opts["model_options"]["line_losses_mode"] == "piecewise"
 
+    def test_plp_legacy_forces_pasada_mode_flow_turbine(self):
+        """--plp-legacy overrides the default `auto` pasada_mode."""
+        with patch.object(sys, "argv", ["plp2gtopt", "--plp-legacy"]):
+            args = self._make_args(plp_legacy=True, pasada_mode="auto")
+            opts = build_options(args)
+        assert opts["pasada_mode"] == "flow-turbine"
+
+    def test_plp_legacy_respects_explicit_pasada_mode(self):
+        """An explicit --pasada-mode wins over the legacy bundle."""
+        with patch.object(
+            sys, "argv", ["plp2gtopt", "--plp-legacy", "--pasada-mode", "hydro"]
+        ):
+            args = self._make_args(plp_legacy=True, pasada_mode="hydro")
+            opts = build_options(args)
+        assert opts["pasada_mode"] == "hydro"
+
     def test_plp_legacy_off_leaves_defaults(self):
         with patch.object(sys, "argv", ["plp2gtopt"]):
             args = self._make_args(plp_legacy=False)

@@ -246,13 +246,22 @@ def _apply_plp_legacy_bundle(args: argparse.Namespace) -> None:
       | method           | sddp                   | sddp (=)           |
       | line_losses_mode | unset (→adaptive)      | piecewise_direct   |
       | use_line_losses  | unset (→gtopt true)    | true (explicit)    |
-      | pasada_mode      | flow-turbine           | flow-turbine (=)   |
+      | pasada_mode      | auto                   | flow-turbine       |
       | use_kirchhoff    | true                   | true (=)           |
       | discount_rate    | 0.0                    | 0.0 (=)            |
 
     `=` marks no-op bundle entries: gtopt's normal default already
     matches PLP so no change is needed.  `reservoir_scale_mode` is
     intentionally left alone (user preference).
+
+    Why pasada_mode = flow-turbine under --plp-legacy: PLP models every
+    `pasada` (run-of-river) central as an independent turbine driven by
+    its own afluent — there is no per-RoR junction / waterway / reservoir
+    chain because `pasada` centrals have no upstream/downstream hydro
+    relations in PLP.  The `auto` default runs name-based tech detection
+    and may divert some pasadas to generator-profile mode (solar/wind
+    look-alikes); under PLP-compat we always want flow+turbine so the
+    LP topology matches PLP exactly.
     """
     if not args.plp_legacy:
         return
@@ -264,6 +273,9 @@ def _apply_plp_legacy_bundle(args: argparse.Namespace) -> None:
     explicit_method = {"-M", "--method"} & explicit_flags
     explicit_losses = {"--line-losses-mode"} & explicit_flags
     explicit_use_losses = {"-L", "--use-line-losses"} & explicit_flags
+    explicit_pasada = {"--pasada-mode", "--pasada-hydro", "--no-pasada-hydro"} & (
+        explicit_flags
+    )
 
     applied: list[str] = []
     if not explicit_method and args.method != "sddp":
@@ -277,6 +289,11 @@ def _apply_plp_legacy_bundle(args: argparse.Namespace) -> None:
         # self-documenting, even though the gtopt default is also true.
         args.use_line_losses = True
         applied.append("use_line_losses=true")
+    if not explicit_pasada and args.pasada_mode != "flow-turbine":
+        # PLP has no tech detection — every pasada is a hydro turbine
+        # driven by its afluent, regardless of the central's name.
+        args.pasada_mode = "flow-turbine"
+        applied.append("pasada_mode=flow-turbine")
 
     # PLP itself uses soft volume bounds (per-stage rebalse-cost slack on
     # vmin / vfin), so --plp-legacy ensures `soft_storage_bounds` is on.
