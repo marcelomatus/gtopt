@@ -1,6 +1,12 @@
 """Tests for the ``--drop-spillway-waterway`` mode.
 
-When the option is enabled (the default), JunctionWriter must:
+The flag is **opt-in** (default: False) — by default JunctionWriter
+emits PLP-faithful ``_ver`` (spillway / vert) waterways with their
+``CVert`` / ``Costo de Rebalse`` fcost, matching the historical
+PLP topology.
+
+When the option is explicitly enabled (``drop_spillway_waterway = True``),
+JunctionWriter must:
 
 * never emit a ``_ver`` (spillway / vert) waterway, regardless of
   ``ser_ver`` value or ``VertMax`` / ``Costo de Rebalse`` settings;
@@ -10,10 +16,11 @@ When the option is enabled (the default), JunctionWriter must:
 * mark the central's own junction as ``drain = True`` so excess water
   exits the system through the junction instead of the missing arc.
 
-When the option is explicitly disabled (``drop_spillway_waterway = False``),
-the legacy PLP-faithful spillway topology must come back in full —
-this is exercised by ``test_junction_writer.py`` and re-asserted here
-for one canonical case as a contrapositive sanity check.
+The default-off flip (2026-04-28) followed the gtopt_iplp investigation:
+suppress-mode topology was implicated in the SDDP elastic-cut degeneracy
+chain at LMAULE / ELTORO.  PLP-faithful spillway topology is the safer
+default; opt into suppress mode only when LP scaling outweighs routing
+fidelity for the case at hand.
 """
 
 from __future__ import annotations
@@ -107,14 +114,22 @@ def _run(centrals, *, drop: bool = True) -> Dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
-# Default = True: no _ver waterway, junction acts as drain
+# Default = False: _ver waterway emitted, source junction is not a drain
 # ---------------------------------------------------------------------------
 
 
-def test_default_is_drop_spillway_waterway():
-    """The default constructor (no options) must enable the suppress mode."""
+def test_default_keeps_spillway_waterway():
+    """The default constructor (no options) must NOT enable suppress mode.
+
+    Default flipped to False on 2026-04-28; suppress mode is now opt-in.
+    """
     writer = JunctionWriter(central_parser=MockCentralParser([]))
-    assert writer._drop_spillway_waterway is True
+    assert writer._drop_spillway_waterway is False
+
+
+# ---------------------------------------------------------------------------
+# Opt-in: drop_spillway_waterway=True suppresses every _ver arc
+# ---------------------------------------------------------------------------
 
 
 def test_serie_with_ser_ver_target_no_ver_arc():
@@ -236,16 +251,29 @@ def test_legacy_mode_emits_ver_waterway_and_no_drain():
 # ---------------------------------------------------------------------------
 
 
-def test_cli_flag_default_is_true():
-    """CLI default for ``--drop-spillway-waterway`` is True."""
+def test_cli_flag_default_is_false():
+    """CLI default for ``--drop-spillway-waterway`` is False (opt-in)."""
     from plp2gtopt.main import make_parser  # noqa: PLC0415
 
     args = make_parser().parse_args(["plp_case"])
+    assert args.drop_spillway_waterway is False
+
+
+def test_cli_flag_can_be_enabled():
+    """``--drop-spillway-waterway`` enables suppress mode explicitly."""
+    from plp2gtopt.main import make_parser  # noqa: PLC0415
+
+    args = make_parser().parse_args(["plp_case", "--drop-spillway-waterway"])
     assert args.drop_spillway_waterway is True
 
 
-def test_cli_flag_can_be_disabled():
-    """``--no-drop-spillway-waterway`` flips the option off."""
+def test_cli_flag_no_form_keeps_default():
+    """``--no-drop-spillway-waterway`` is accepted and pins the default off.
+
+    Useful for ``~/.gtopt.conf`` overrides where a config file might set
+    the flag on; the negative form lets the user force it back off on the
+    CLI without depending on the global default.
+    """
     from plp2gtopt.main import make_parser  # noqa: PLC0415
 
     args = make_parser().parse_args(["plp_case", "--no-drop-spillway-waterway"])
@@ -257,9 +285,9 @@ def test_cli_flag_passes_through_build_options():
     from plp2gtopt.main import build_options, make_parser  # noqa: PLC0415
 
     args_default = make_parser().parse_args(["plp_case"])
-    args_off = make_parser().parse_args(["plp_case", "--no-drop-spillway-waterway"])
-    assert build_options(args_default)["drop_spillway_waterway"] is True
-    assert build_options(args_off)["drop_spillway_waterway"] is False
+    args_on = make_parser().parse_args(["plp_case", "--drop-spillway-waterway"])
+    assert build_options(args_default)["drop_spillway_waterway"] is False
+    assert build_options(args_on)["drop_spillway_waterway"] is True
 
 
 # ---------------------------------------------------------------------------
@@ -285,15 +313,15 @@ def _make_int_opts(tmp_path: Path, case_name: str, *, drop: bool) -> dict:
 
 
 @pytest.mark.integration
-def test_integration_default_drops_ver_arcs(tmp_path):
-    """End-to-end: default conversion on plp_min_reservoir omits ``_ver`` arcs.
+def test_integration_drop_on_drops_ver_arcs(tmp_path):
+    """End-to-end: ``--drop-spillway-waterway`` (opt-in) omits ``_ver`` arcs.
 
-    The PLP case has Reservoir1 → TurbineGen → ocean.  With the new
-    default both centrals are embalse / serie; the suppress mode drops
-    every ``_ver`` arc (and the spill-side synthetic ocean junction)
-    while keeping the gen path and turbine intact.
+    The PLP case has Reservoir1 → TurbineGen → ocean.  Both centrals
+    are embalse / serie; the suppress mode drops every ``_ver`` arc
+    (and the spill-side synthetic ocean junction) while keeping the
+    gen path and turbine intact.
     """
-    opts = _make_int_opts(tmp_path, "drop_default", drop=True)
+    opts = _make_int_opts(tmp_path, "drop_on", drop=True)
     convert_plp_case(opts)
 
     data = json.loads(Path(opts["output_file"]).read_text(encoding="utf-8"))
@@ -318,16 +346,17 @@ def test_integration_default_drops_ver_arcs(tmp_path):
 
 
 @pytest.mark.integration
-def test_integration_legacy_off_no_drain_on_source(tmp_path):
-    """End-to-end: ``--no-drop-spillway-waterway`` reverts to legacy drain rule.
+def test_integration_default_no_drain_on_source(tmp_path):
+    """End-to-end: default (drop=False) keeps the legacy drain rule.
 
     The plp_min_reservoir case has ``VertMax = 0`` on every central so
     no ``_ver`` arc is emitted in either mode (the legacy spill ocean
     fallback is gated on ``VertMax > 0`` or ``in_vrebemb``).  The
     behavioural difference therefore shows up purely in the
-    ``drain`` flag: legacy mode does NOT mark the source junctions as
-    drains because the gen waterway still exists, while the new
-    default does (to absorb the missing spillway capacity).
+    ``drain`` flag: default mode (PLP-faithful) does NOT mark the
+    source junctions as drains because the gen waterway still exists,
+    while the opt-in suppress mode would (to absorb the missing
+    spillway capacity).
     """
     opts = _make_int_opts(tmp_path, "drop_off", drop=False)
     convert_plp_case(opts)

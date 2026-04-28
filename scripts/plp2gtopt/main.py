@@ -362,9 +362,9 @@ def build_options(args: argparse.Namespace) -> dict:
         # Caps the per-reservoir vrebemb / global CVert before it
         # becomes a slack price; 0 disables the cap.
         "vert_cost_cap": args.vert_cost_cap,
-        # ``--drop-spillway-waterway`` (default True): suppress every
-        # ``_ver`` waterway and rely on junction-level drain to shed
-        # surplus water.  See JunctionWriter._process_central.
+        # ``--drop-spillway-waterway`` (default False, opt-in): when on,
+        # suppress every ``_ver`` waterway and rely on junction-level
+        # drain to shed surplus water.  See JunctionWriter._process_central.
         "drop_spillway_waterway": args.drop_spillway_waterway,
     }
     # Model-specific options nested under model_options.

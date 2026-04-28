@@ -396,22 +396,27 @@ class JunctionWriter(BaseWriter):
         self._embed_reservoir_constraints = bool(
             self.options.get("embed_reservoir_constraints", False)
         )
-        # ``--drop-spillway-waterway`` (default True): suppress every
-        # ``_ver`` (spillway / vert) waterway emission and instead mark
-        # the central's own junction as ``drain = True`` so excess water
-        # leaves the system as a junction-level loss to the ocean.  The
-        # tradeoff is physical accuracy: PLP routes spill to a downstream
-        # central when ``ser_ver > 0`` (the water can be re-used), and
-        # charges per-flow ``fcost`` (CVert / Costo de Rebalse) on the
-        # spill.  Dropping the arc loses the routing AND the cost — all
-        # spillover becomes a free leak — but in exchange every
-        # ``_ver`` arc and its associated ``fcost`` disappears from the
-        # LP, which improves scaling and removes a class of spurious
-        # binding-bound duals.  Disable with ``--no-drop-spillway-waterway``
-        # to restore the historical PLP-faithful spillway topology
-        # (``_ver`` waterway + per-flow cost).
+        # ``--drop-spillway-waterway`` (default False, opt-in): when on,
+        # suppress every ``_ver`` (spillway / vert) waterway emission and
+        # mark the central's own junction as ``drain = True`` so excess
+        # water leaves the system as a junction-level loss to the ocean.
+        # The tradeoff is physical accuracy: PLP routes spill to a
+        # downstream central when ``ser_ver > 0`` (the water can be
+        # re-used), and charges per-flow ``fcost`` (CVert / Costo de
+        # Rebalse) on the spill.  Dropping the arc loses the routing AND
+        # the cost — all spillover becomes a free leak — but in exchange
+        # every ``_ver`` arc and its associated ``fcost`` disappears from
+        # the LP, which improves scaling and removes a class of spurious
+        # binding-bound duals.
+        #
+        # Default flipped to False after the gtopt_iplp investigation
+        # (2026-04-28) showed the suppress-mode topology was implicated
+        # in the SDDP elastic-cut degeneracy chain at LMAULE / ELTORO.
+        # PLP-faithful spillway topology (``_ver`` waterway + per-flow
+        # cost) is the safer default; opt into suppress mode only when
+        # LP scaling outweighs routing fidelity for the case at hand.
         self._drop_spillway_waterway = bool(
-            self.options.get("drop_spillway_waterway", True)
+            self.options.get("drop_spillway_waterway", False)
         )
         self._waterway_counter = 0
         self._ocean_junction_counter = 0
