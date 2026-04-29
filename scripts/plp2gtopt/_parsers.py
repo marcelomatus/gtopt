@@ -410,7 +410,7 @@ def add_solver_arguments(parser: argparse.ArgumentParser, conf: dict[str, str]) 
         help=(
             "Keep only boundary cuts from the last N SDDP iterations. "
             "0 means keep all iterations. "
-            "(default: 0 = all)"
+            "(default: not set; gtopt uses 0 = all)"
         ),
     )
     parser.add_argument(
@@ -477,7 +477,7 @@ def add_solver_arguments(parser: argparse.ArgumentParser, conf: dict[str, str]) 
         help=(
             "Number of iterations to look back when checking gap stationarity "
             "(secondary convergence criterion). "
-            "Default: 4."
+            "(default: not set; gtopt uses 4)"
         ),
     )
 
@@ -629,12 +629,13 @@ def add_model_arguments(parser: argparse.ArgumentParser, conf: dict[str, str]) -
         "-b",
         "--use-single-bus",
         dest="use_single_bus",
-        action="store_true",
+        action=argparse.BooleanOptionalAction,
         default=None,
         help=(
-            "use single-bus (copper-plate) mode "
-            "(default: auto — true when the parsed PLP case has 0 "
-            "transmission lines, false otherwise)"
+            "use single-bus (copper-plate) mode; pass --no-use-single-bus "
+            "to force the multi-bus network "
+            "(default: auto — single-bus when the parsed PLP case has 0 "
+            "transmission lines, multi-bus otherwise)"
         ),
     )
     parser.add_argument(
@@ -649,9 +650,12 @@ def add_model_arguments(parser: argparse.ArgumentParser, conf: dict[str, str]) -
         "-L",
         "--use-line-losses",
         dest="use_line_losses",
-        action="store_true",
+        action=argparse.BooleanOptionalAction,
         default=None,
-        help="model transmission line losses (omit to use gtopt default: true)",
+        help=(
+            "model transmission line losses; pass --no-use-line-losses to "
+            "explicitly disable (omit to inherit the gtopt default: true)"
+        ),
     )
     parser.add_argument(
         "--line-losses-mode",
@@ -896,7 +900,8 @@ def add_reservoir_battery_arguments(
         metavar="COST",
         default=0.1,
         help=(
-            "default penalty cost [$/dam3] for the soft minimum volume "
+            "default penalty cost ($/dam³ — note: --vert-cost-cap is "
+            "$/hm³, 1 hm³ = 1000 dam³) for the soft minimum volume "
             "constraint (plpminembh.dat).  Per-stage costs from the file "
             "override this default.  Set to 0 to disable soft emin. "
             "(default: %(default)s)"
@@ -1076,7 +1081,11 @@ def add_general_arguments(
         type=float,
         metavar="FACTOR",
         default=0.0,
-        help="demand management factor (default: %(default)s)",
+        help=(
+            "demand management fraction in [0, 1) — final demand is "
+            "scaled by (1 - factor); 0.05 ≈ 5%% demand reduction "
+            "(default: %(default)s)"
+        ),
     )
     add_log_level_argument(parser)
     parser.add_argument(

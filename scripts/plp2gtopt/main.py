@@ -181,13 +181,17 @@ def make_parser() -> argparse.ArgumentParser:
 
 
 # Keys and hard-coded defaults for the [plp2gtopt] config section.
+#
+# IMPORTANT: do NOT add ``demand_fail_cost`` here.  When unset (``None``)
+# the parser auto-derives the value from the average first-tier FALLA
+# gcost in plpcnfce.dat.  Writing ``demand_fail_cost = 0.0`` to the conf
+# disables that auto-detection silently — see _parsers.py:add_model_arguments.
 _SECTION_DEFAULTS: dict[str, str] = {
     "compression": "zstd",
     "compression_level": "1",
     "output_format": "parquet",
     "input_format": "parquet",
     "method": "sddp",
-    "demand_fail_cost": "0.0",
     "state_fail_cost": "1000.0",
     "scale_objective": "1000.0",
     "discount_rate": "0.0",
