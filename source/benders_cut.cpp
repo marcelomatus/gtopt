@@ -237,10 +237,10 @@ auto build_feasibility_cut_physical(std::span<const StateVarLink> links,
   // edge (= the cascade-infeasibility signature).
   BoxEdgeStats box_stats;
 
-  const auto n = std::min(links.size(), link_infos.size());
-  for (std::size_t i = 0; i < n; ++i) {
-    const auto& link = links[i];
-    const auto& info = link_infos[i];
+  // `views::zip` clamps to the shorter range automatically (same
+  // semantics as the previous `std::min(links.size(), link_infos.size())`
+  // loop bound), so no explicit `n` is needed.
+  for (const auto& [link, info] : std::views::zip(links, link_infos)) {
     if (!info.relaxed || info.fixing_row == RowIndex {unknown_index}) {
       continue;
     }
@@ -719,8 +719,7 @@ auto chinneck_filter_solve(const LinearInterface& li,
   std::vector<std::size_t> non_essential;
   non_essential.reserve(infos.size());
   std::size_t n_active = 0;
-  for (std::size_t i = 0; i < infos.size(); ++i) {
-    const auto& info = infos[i];
+  for (const auto& [i, info] : std::views::enumerate(infos)) {
     if (!info.relaxed) {
       continue;
     }
@@ -729,7 +728,7 @@ auto chinneck_filter_solve(const LinearInterface& li,
     const double sdn_val =
         (info.sdn_col != ColIndex {unknown_index}) ? sol[info.sdn_col] : 0.0;
     if (sup_val <= slack_tol && sdn_val <= slack_tol) {
-      non_essential.push_back(i);
+      non_essential.push_back(static_cast<std::size_t>(i));
     } else {
       ++n_active;
     }
