@@ -62,7 +62,7 @@ TEST_CASE(  // NOLINT
   auto planning = make_3phase_hydro_planning();
   planning.options.scale_objective = OptReal {1000.0};
   planning.options.variable_scales.push_back(VariableScale {
-      .class_name = "Junction",
+      .class_name = "Reservoir",
       .variable = "efin",
       .scale = 5.0,
   });
@@ -83,7 +83,9 @@ TEST_CASE(  // NOLINT
   constexpr double phys_coeff = 5.0;
   {
     std::ofstream ofs(tmp_file);
-    ofs << "name,iteration,scene,rhs,j_up\n";
+    // "rsv1" maps to ("Reservoir", 1) post-P2-2; class-aware inner
+    // match resolves to Reservoir:1:efin under R4.
+    ofs << "name,iteration,scene,rhs,rsv1\n";
     ofs << "rt_cut,1,0," << phys_rhs << "," << phys_coeff << "\n";
   }
 

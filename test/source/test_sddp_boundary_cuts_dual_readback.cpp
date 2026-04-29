@@ -60,7 +60,11 @@ TEST_CASE(  // NOLINT
   constexpr double phys_rhs = 100.0;
   {
     std::ofstream ofs(tmp_file);
-    ofs << "name,iteration,scene,rhs,j_up\n";
+    // "rsv1" maps to ("Reservoir", 1) post the P2-2 fix; the
+    // post-R4 class-aware inner match lands on Reservoir:1:efin.
+    // Coefficient is 0.0 so the cut is purely α >= phys_rhs at the
+    // optimum — keeps the dual analysis clean.
+    ofs << "name,iteration,scene,rhs,rsv1\n";
     ofs << "dual_cut,1,0," << phys_rhs << ",0.0\n";
   }
 

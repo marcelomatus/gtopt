@@ -90,8 +90,11 @@ void run_boundary_cut_round_trip(double scale_obj, double col_scale)
   // ``-coeff``.  Post-fix the assembly emits ``-coeff`` and
   // get_coeff returns ``-coeff`` after the single compose multiply.
   if (col_scale != 1.0) {
+    // Reservoir:efin is the only state-var column the 3-phase fixture
+    // registers — Junctions don't carry efin.  Scaling that column
+    // exercises compose_physical step 1 (the col_scale multiply).
     planning.options.variable_scales.push_back(VariableScale {
-        .class_name = "Junction",
+        .class_name = "Reservoir",
         .variable = "efin",
         .scale = col_scale,
     });
@@ -105,7 +108,13 @@ void run_boundary_cut_round_trip(double scale_obj, double col_scale)
   constexpr double phys_coeff = 5.0;
   {
     std::ofstream ofs(tmp_file);
-    ofs << "name,iteration,scene,rhs,j_up\n";
+    // Header: bare reservoir name "rsv1" — name_to_class_uid maps to
+    // ("Reservoir", 1) (the reservoir entry added by the P2-2 fix).
+    // The loader's class-aware inner match now lands on
+    // Reservoir:1:efin specifically.  Junction:1 has no efin state
+    // var, so a `j_up` header would correctly resolve to nothing
+    // under the post-R4 class-aware match.
+    ofs << "name,iteration,scene,rhs,rsv1\n";
     ofs << "rt_cut,1,0," << phys_rhs << "," << phys_coeff << "\n";
   }
 

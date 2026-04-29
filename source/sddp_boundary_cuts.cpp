@@ -174,8 +174,24 @@ using namespace gtopt::detail;
               element_name,
               cname);
         } else {
+          // Match (class, uid, col_name=='efin') — class is part of
+          // the key.  Without it, two classes with the same uid
+          // (e.g. Junction:j_up and Reservoir:rsv1 both at uid=1 in
+          // the 3-phase test fixture) would race for the first match
+          // by uid alone, silently substituting a column from the
+          // wrong class.  In particular, plain Junctions don't
+          // register `efin` state variables (only Reservoir/Battery
+          // do), so a header `j_up` would resolve to Reservoir:1's
+          // column under the bare-uid match — surprising the caller
+          // who asked for a junction.  Class-aware match makes the
+          // resolution intent-faithful: when the requested class has
+          // no state variable, found_col stays nullopt and the
+          // missing-coefficient handling (skip_coeff or skip_cut)
+          // takes over.
           for (const auto& [key, svar] : svar_map) {
-            if (key.uid == elem_uid && is_final_state_col(key.col_name)) {
+            if (key.uid == elem_uid && key.class_name == cname
+                && is_final_state_col(key.col_name))
+            {
               found_col = svar.col();
               break;
             }

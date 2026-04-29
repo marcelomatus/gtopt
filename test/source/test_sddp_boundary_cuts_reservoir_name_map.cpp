@@ -154,3 +154,72 @@ TEST_CASE(  // NOLINT
 
   std::filesystem::remove(tmp_file);
 }
+
+// ─── R4 — class-aware inner svar_map match ─────────────────────────────────
+//
+// Pre-R4 the loader's inner svar_map iteration matched by `uid` only,
+// so a CSV header that resolved to a class with no efin state
+// variable (e.g. `Junction:j_up` — junctions don't carry efin) would
+// silently fall through to the first svar with the same uid (the
+// reservoir's, in the 3-phase fixture where j_up and rsv1 share
+// uid=1).  That hid intent mismatches behind a coincidental
+// uid collision.
+//
+// Post-R4 the inner loop also matches `key.class_name == cname`, so
+// the resolution either lands on the requested-class state var or
+// stays nullopt — no class substitution.
+//
+// The skip_cut sub-case below demonstrates the discriminator: a cut
+// referencing `Junction:j_up` is now correctly skipped (Junction:1
+// has no efin state var), whereas pre-fix it loaded with the
+// reservoir's column substituted in.
+
+TEST_CASE(  // NOLINT
+    "load_boundary_cuts_csv — class-aware inner match: Junction:j_up "
+    "(no efin state var) does not silently substitute Reservoir:1")
+{
+  auto planning = make_3phase_hydro_planning();
+  planning.options.sddp_options.low_memory_mode = LowMemoryMode::off;
+  PlanningLP planning_lp(std::move(planning));
+
+  const auto tmp_file = (std::filesystem::temp_directory_path()
+                         / "gtopt_test_bdr_class_aware_match.csv")
+                            .string();
+
+  {
+    std::ofstream ofs(tmp_file);
+    // Junction:j_up — Junction class doesn't register efin state
+    // variables in the 3-phase fixture (only Reservoir does).
+    ofs << "name,iteration,scene,rhs,Junction:j_up\n";
+    ofs << "junc_cut,1,0,42.0,5.0\n";
+  }
+
+  SDDPOptions opts;
+  opts.boundary_cuts_mode = BoundaryCutsMode::separated;
+  // skip_cut surfaces the class-mismatch as count == 0 because the
+  // Junction:j_up state-var lookup misses → has_missing == true →
+  // skip_cut path.
+  opts.missing_cut_var_mode = MissingCutVarMode::skip_cut;
+
+  const LabelMaker label_maker {LpNamesLevel::none};
+  auto states = make_default_scene_phase_states(planning_lp);
+
+  register_alpha_variables(planning_lp, first_scene_index(), 1.0);
+
+  const auto& sim = planning_lp.simulation();
+  const auto last_phase = sim.last_phase_index();
+  auto& last_li =
+      planning_lp.system(first_scene_index(), last_phase).linear_interface();
+  const auto pre_load_numrows = last_li.get_numrows();
+
+  const auto result =
+      load_boundary_cuts_csv(planning_lp, tmp_file, opts, label_maker, states);
+  REQUIRE(result.has_value());
+
+  // Post-R4: count == 0 (no Junction:1:efin → skip_cut drops the row).
+  // Pre-R4: count == 1 (silent substitution onto Reservoir:1).
+  CHECK(result->count == 0);
+  CHECK(last_li.get_numrows() == pre_load_numrows);
+
+  std::filesystem::remove(tmp_file);
+}
