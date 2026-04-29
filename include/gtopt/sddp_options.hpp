@@ -222,12 +222,17 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   /// No cuts are saved.  Default: false.
   OptBool simulation_mode {};
 
-  /// Low memory mode: off (default), snapshot, compress, or rebuild.
+  /// Low memory mode: off, compress (default for SDDP/cascade), or rebuild.
   /// Trades CPU time (reconstruction + optional decompression, or full
   /// re-flatten under `rebuild`) for significant memory savings on large
   /// problems.  Under `rebuild`, the initial up-front build loop is
   /// skipped entirely and each per-(scene, phase) LP is built lazily
   /// inside the same task that solves or clones it.
+  ///
+  /// When unset, `PlanningOptionsLP::sddp_low_memory()` resolves to
+  /// `compress` for SDDP/cascade methods (the historical default was
+  /// `off`).  Pass `--memory-saving off` to restore the eager-resident
+  /// behaviour.
   std::optional<LowMemoryMode> low_memory_mode {};
 
   /// In-memory compression codec for low_memory level 2.

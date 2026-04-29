@@ -3236,6 +3236,227 @@ TEST_CASE(  // NOLINT
   }
 }
 
+// ─── low_memory_mode invariance on the 10-phase 2-reservoir fixture ──────
+//
+// Default flipped 2026-04-28: `PlanningOptionsLP::sddp_low_memory()`
+// resolves to `LowMemoryMode::compress` (was `off`).  The physical
+// observables of an SDDP solve — converged UB, terminal volumes,
+// efin-row dual, fcut count — must be invariant under
+// `LowMemoryMode` because the option only changes how the per-(scene,
+// phase) backend is kept around between solves: the LP itself and the
+// math are identical.  This regression check pins that property and
+// guards against future refactors of the snapshot / rebuild paths
+// from silently changing the answer.
+//
+// We reuse the 10-phase 2-reservoir fixture with the `dual ± 1`
+// threshold logic from the scaling-invariance test above: solve hard,
+// read the binding `vol_end >= efin` row dual, then solve the soft
+// variant at `dual_max - 1` (expect at least one reservoir to miss
+// the target) and at `dual_max + 1` (expect both reservoirs to reach
+// the target and UB ≈ hard).
+TEST_CASE(  // NOLINT
+    "SDDPMethod low_memory_mode invariance — "
+    "10-phase 2-reservoir hard + dual±1 soft")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  constexpr double efin_target = 150.0;
+  constexpr double feas_tol = 1e-3;
+
+  struct CaseResult
+  {
+    double ub {0.0};
+    std::array<double, 2> vols {};
+    std::array<std::optional<double>, 2> efin_duals {};
+    std::array<double, 2> efin_col_costs {};
+    int fcuts {0};
+  };
+
+  // run_case owns its PlanningLP so the LP stays alive while we read
+  // duals / solution columns.  Returns nullopt only on solver failure;
+  // every (mode, efin) configuration here must produce a feasible
+  // result on the unscaled fixture.
+  auto run_case = [&](LowMemoryMode mode,
+                      const OptReal& efin_cost_opt) -> std::optional<CaseResult>
+  {
+    auto planning = make_backtracking_recovery_two_reservoir_planning();
+    for (auto& r : planning.system.reservoir_array) {
+      r.efin_cost = efin_cost_opt;
+    }
+    // Push the low_memory_mode through the JSON-facing optional so the
+    // planning resolution path (the one we just flipped) is exercised.
+    planning.options.sddp_options.low_memory_mode = mode;
+    PlanningLP plp(std::move(planning));
+
+    SDDPOptions sddp_opts;
+    sddp_opts.max_iterations = 30;
+    sddp_opts.convergence_tol = 1e-3;
+    sddp_opts.elastic_filter_mode = ElasticFilterMode::single_cut;
+    sddp_opts.multi_cut_threshold = -1;
+    sddp_opts.forward_max_attempts = 200;
+    sddp_opts.forward_fail_stop = false;
+    sddp_opts.enable_api = false;
+    sddp_opts.cut_coeff_eps = 1e-6;
+    sddp_opts.elastic_penalty = 1e2;
+    sddp_opts.low_memory_mode = mode;
+
+    SDDPMethod sddp(plp, sddp_opts);
+    auto results = sddp.solve();
+    if (!results.has_value() || results->empty()) {
+      return std::nullopt;
+    }
+
+    // Under `compress` and `rebuild`, `release_backend()` clears each
+    // SystemLP's `m_collections_` after every solve.  The Phase-2a
+    // primal/dual cache survives at the LinearInterface level, but
+    // ReservoirLP's per-element col/row indices live in the dropped
+    // collections — so `elements<ReservoirLP>()` returns an empty
+    // vector.  The existing read helpers index into that vector, so
+    // we rebuild collections on the cell we are about to read.  The
+    // rebuild does a throw-away flatten that re-populates the XLP
+    // wrappers without touching the cached solution.  `off` mode
+    // never drops the collections; `rebuild_collections_if_needed`
+    // is a no-op there.
+    const auto last_phase = plp.simulation().last_phase_index();
+    auto& read_sys = plp.systems()[SceneIndex {0}][last_phase];
+    read_sys.rebuild_collections_if_needed();
+
+    CaseResult cr;
+    cr.ub = results->back().upper_bound;
+    cr.vols = {read_terminal_vol_end(plp, 0), read_terminal_vol_end(plp, 1)};
+    cr.efin_duals = {read_efin_row_dual(plp, 0), read_efin_row_dual(plp, 1)};
+    cr.efin_col_costs = {read_efin_col_cost(plp, 0),
+                         read_efin_col_cost(plp, 1)};
+    for (const auto& c : sddp.stored_cuts()) {
+      if (c.type == CutType::Feasibility) {
+        ++cr.fcuts;
+      }
+    }
+    return cr;
+  };
+
+  struct ModeProbe
+  {
+    LowMemoryMode mode;
+    const char* label;
+  };
+  // Cover the resolved-default (`compress`) plus the eager (`off`) and
+  // re-flatten (`rebuild`) extremes.  All three must give the same
+  // physical answer; only the steady-state memory profile differs.
+  const std::array<ModeProbe, 3> probes = {{
+      {.mode = LowMemoryMode::off, .label = "off"},
+      {.mode = LowMemoryMode::compress, .label = "compress (resolved default)"},
+      {.mode = LowMemoryMode::rebuild, .label = "rebuild"},
+  }};
+
+  // First mode acts as the reference; subsequent modes are compared
+  // against it so any drift introduced by the snapshot / rebuild
+  // pathway is detected without requiring an analytic ground truth.
+  std::optional<CaseResult> ref_hard;
+  std::optional<CaseResult> ref_under;
+  std::optional<CaseResult> ref_over;
+
+  for (const auto& probe : probes) {
+    CAPTURE(probe.label);
+    SUBCASE(probe.label)
+    {
+      // ── Hard variant: pin the converged dual_max + invariants ──
+      const auto hard_opt = run_case(probe.mode, OptReal {});
+      REQUIRE(hard_opt.has_value());
+      const auto& hard = *hard_opt;
+      CAPTURE(hard.ub);
+      CAPTURE(hard.vols[0]);
+      CAPTURE(hard.vols[1]);
+      CAPTURE(hard.fcuts);
+      REQUIRE(hard.efin_duals[0].has_value());
+      REQUIRE(hard.efin_duals[1].has_value());
+      const double dual0 = std::abs(*hard.efin_duals[0]);
+      const double dual1 = std::abs(*hard.efin_duals[1]);
+      const double dual_max = std::max(dual0, dual1);
+      CAPTURE(dual0);
+      CAPTURE(dual1);
+      CAPTURE(dual_max);
+
+      // Strict invariants — these are physical-space quantities and
+      // must hold under every low_memory_mode.
+      CHECK(std::isfinite(hard.ub));
+      CHECK(hard.ub > 0.0);
+      REQUIRE(hard.fcuts >= 1);
+      CHECK(hard.vols[0] >= efin_target - feas_tol);
+      CHECK(hard.vols[1] >= efin_target - feas_tol);
+      CHECK(dual_max > 0.0);
+
+      const double rc_tol = 1e-6 * std::max(1.0, dual_max);
+      CHECK(std::abs(hard.efin_col_costs[0]) <= rc_tol);
+      CHECK(std::abs(hard.efin_col_costs[1]) <= rc_tol);
+
+      // ── BELOW threshold: at least one reservoir misses efin ──
+      const double below = dual_max - 1.0;
+      CAPTURE(below);
+      const auto under_opt = run_case(probe.mode, OptReal {below});
+      REQUIRE(under_opt.has_value());
+      const auto& under = *under_opt;
+      CAPTURE(under.ub);
+      CAPTURE(under.vols[0]);
+      CAPTURE(under.vols[1]);
+      CAPTURE(under.fcuts);
+      CHECK(std::isfinite(under.ub));
+      CHECK(under.ub > 0.0);
+      CHECK((under.vols[0] < efin_target - feas_tol
+             || under.vols[1] < efin_target - feas_tol));
+      CHECK(under.fcuts <= hard.fcuts);
+
+      // ── ABOVE threshold: both reservoirs reach efin; UB ≈ hard ──
+      const double above = dual_max + 1.0;
+      CAPTURE(above);
+      const auto over_opt = run_case(probe.mode, OptReal {above});
+      REQUIRE(over_opt.has_value());
+      const auto& over = *over_opt;
+      CAPTURE(over.ub);
+      CAPTURE(over.vols[0]);
+      CAPTURE(over.vols[1]);
+      CAPTURE(over.fcuts);
+      CHECK(std::isfinite(over.ub));
+      CHECK(over.ub > 0.0);
+      CHECK(over.vols[0] >= efin_target - feas_tol);
+      CHECK(over.vols[1] >= efin_target - feas_tol);
+      CHECK(over.fcuts <= hard.fcuts);
+      CHECK(over.ub == doctest::Approx(hard.ub).epsilon(0.01));
+
+      // ── Cross-mode invariance: pin the first probe as reference,
+      // compare every subsequent probe against it.  All physical
+      // observables must match within a tight tolerance regardless
+      // of how the backend memory was managed between solves. ──
+      if (!ref_hard.has_value()) {
+        ref_hard = hard;
+        ref_under = under;
+        ref_over = over;
+      } else {
+        constexpr double cross_tol = 1e-4;
+        CAPTURE(ref_hard->ub);
+        CHECK(hard.ub == doctest::Approx(ref_hard->ub).epsilon(cross_tol));
+        CHECK(hard.vols[0]
+              == doctest::Approx(ref_hard->vols[0]).epsilon(cross_tol));
+        CHECK(hard.vols[1]
+              == doctest::Approx(ref_hard->vols[1]).epsilon(cross_tol));
+        CHECK(hard.fcuts == ref_hard->fcuts);
+        REQUIRE(ref_hard->efin_duals[0].has_value());
+        REQUIRE(ref_hard->efin_duals[1].has_value());
+        CHECK(*hard.efin_duals[0]
+              == doctest::Approx(*ref_hard->efin_duals[0]).epsilon(cross_tol));
+        CHECK(*hard.efin_duals[1]
+              == doctest::Approx(*ref_hard->efin_duals[1]).epsilon(cross_tol));
+
+        CAPTURE(ref_under->ub);
+        CHECK(under.ub == doctest::Approx(ref_under->ub).epsilon(cross_tol));
+
+        CAPTURE(ref_over->ub);
+        CHECK(over.ub == doctest::Approx(ref_over->ub).epsilon(cross_tol));
+      }
+    }
+  }
+}
+
 // ─── Stationary-gap ceiling guard (commit f466936f) ───────────────────────
 //
 // Invariant under test (commit f466936f / sddp_iteration.cpp):

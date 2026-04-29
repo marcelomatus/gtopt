@@ -213,7 +213,10 @@ TEST_CASE("make_planning_method SDDP wiring snapshot")  // NOLINT
     CHECK(so.prune_dual_threshold == doctest::Approx(1e-8));
     CHECK(so.single_cut_storage == false);
     CHECK(so.max_stored_cuts == 0);
-    CHECK(so.low_memory_mode == LowMemoryMode::off);
+    // Default flipped 2026-04-28: SDDP/cascade resolve to `compress` so
+    // the solver backend is released between solves.  Pass `--memory-saving
+    // off` to keep the backend resident.
+    CHECK(so.low_memory_mode == LowMemoryMode::compress);
     CHECK(so.memory_codec == CompressionCodec::auto_select);
     CHECK(so.scale_alpha == doctest::Approx(0.0));
 

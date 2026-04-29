@@ -270,7 +270,7 @@ See [SDDP Method](methods/sddp.md) for full documentation with examples.
 | `update_lp_skip` | int | `0` | Iterations to skip between LP coefficient updates (0 = every iteration) |
 | `state_variable_lookup_mode` | string | `"warm_start"` | Volume lookup for LP updates: `"warm_start"` or `"cross_phase"` |
 | `warm_start` | bool | `true` | Reuse previous solutions as warm-start for clone LP solves |
-| `low_memory_mode` | string | `"off"` | One of `off`, `snapshot`, `compress`, `rebuild` (see SDDP docs §7.6) |
+| `low_memory_mode` | string | `"compress"` (SDDP/cascade) / `"off"` (monolithic) | One of `off`, `compress`, `rebuild` (`snapshot` is a back-compat alias for `compress`; see SDDP docs §7.6) |
 | `memory_codec` | string | `"auto"` | Compression codec for `compress` mode (`auto`, `lz4`, `snappy`, `zstd`, `gzip`, `none`) |
 
 ### Monitoring and Control

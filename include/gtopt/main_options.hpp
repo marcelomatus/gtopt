@@ -204,7 +204,8 @@ template<typename T>
        "memory hint (solver_options.memory_emphasis, e.g. CPLEX "
        "CPX_PARAM_MEMORYEMPHASIS).  Values: off, "
        "compress (release solver, keep compressed flat LP — best "
-       "balance, default when flag is given without value), "
+       "balance, also the resolved default for SDDP/cascade and the "
+       "implicit value when the flag is given without an argument), "
        "rebuild (re-build base LP every solve — lowest RAM, highest "
        "CPU).  Overridden by direct JSON settings for either option.")  //
       // Deprecated alias for `--memory-saving` — hidden from help.
