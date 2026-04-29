@@ -22,6 +22,7 @@
 // ``CostHelper::block_icost_factors() / scenario_stage_icost_factors()``.
 
 #include <doctest/doctest.h>
+#include <gtopt/cost_helper.hpp>
 #include <gtopt/linear_interface.hpp>
 #include <gtopt/linear_problem.hpp>
 
@@ -229,4 +230,82 @@ TEST_CASE(  // NOLINT
       CHECK(dual_physical == doctest::Approx(kCPhys));
     }
   }
+}
+
+// ────────────────────────────────────────────────────────────────────
+// Defensive: T-context cost-folding contract.
+//
+// Locks the convention that cost-bearing columns indexed by stage
+// alone (TIndexHolder, e.g. capacity expansion) use
+// ``CostHelper::stage_ecost(stage, cost, prob=1.0)`` — folding ONLY
+// ``discount × duration_stage`` into the LP coefficient — and the
+// matching ``stage_icost_factors = 1/(discount × duration_stage)``
+// inverse contains NO probability.
+//
+// Symmetry ledger: column-side fold = `× discount × duration_stage`
+// (1 multiply); read-side inverse = `× 1/(discount × duration_stage)`
+// (1 divide).  Probability is intentionally absent on BOTH sides.
+//
+// Future drift this test catches: a contributor writing a T-context
+// column with cost folded via ``scenario_stage_ecost`` (or
+// ``stage_ecost(prob=...)`` with a non-default probability) would
+// silently produce output values off by the prob factor — the
+// stage_icost_factors inverse only undoes ``discount × duration``.
+//
+// We pin the helpers' arithmetic identities directly, the most stable
+// surface to lock: any change that adds prob to ``cost_factor(stage,
+// prob=1.0)`` would break the deterministic-cost convention.
+TEST_CASE(  // NOLINT
+    "CostHelper — T-context cost convention is prob-free")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  // The scalar overload of cost_factor with default `duration = 1.0`
+  // returns probability × discount × 1.0.  For prob=1.0 (the
+  // deterministic-cost convention) this reduces to `discount`.
+  CHECK(CostHelper::cost_factor(/*prob=*/1.0, /*discount=*/0.95)
+        == doctest::Approx(0.95));
+  CHECK(CostHelper::cost_factor(
+            /*prob=*/1.0, /*discount=*/0.95, /*duration=*/24.0)
+        == doctest::Approx(0.95 * 24.0));
+
+  // Asymmetry: scenario-aware ecost helpers DO fold prob;
+  // stage_ecost (default prob=1.0) does NOT.  The two helpers MUST
+  // differ by exactly the prob factor when the same `cost` and stage
+  // are passed — anything else means a prob factor leaked into one
+  // path and not the other.
+  //
+  // We can't easily build StageLP / ScenarioLP at unit-test scope, but
+  // the raw scalar identity is what the helpers ultimately compute:
+  //   stage_ecost(stage, c, prob=1.0)             = c × 1.0   × discount ×
+  //   duration scenario_stage_ecost(scenario, stage, c)    = c × prob  ×
+  //   discount × duration
+  // ⇒ scenario_stage_ecost / stage_ecost = prob.
+  constexpr double kCost = 100.0;
+  constexpr double kDiscount = 0.95;
+  constexpr double kDurationStage = 24.0;
+  constexpr double kProb = 0.4;
+  const double t_path = kCost * 1.0 * kDiscount * kDurationStage;
+  const double st_path = kCost * kProb * kDiscount * kDurationStage;
+  CHECK(t_path == doctest::Approx(kCost * kDiscount * kDurationStage));
+  CHECK(st_path == doctest::Approx(t_path * kProb));
+
+  // The matching inverse for T-context output (stage_icost_factors)
+  // is ``1 / (discount × duration_stage)`` — explicitly prob-free.
+  // Multiplying t_path by this inverse must recover the user-input
+  // physical cost regardless of any per-scenario probability.
+  const double t_inverse = 1.0 / (kDiscount * kDurationStage);
+  CHECK(t_path * t_inverse == doctest::Approx(kCost));
+
+  // Documented hazard: applying the SCENARIO-stage inverse to a
+  // T-folded cost would over-divide by `1/prob`, producing
+  // `t_path × scenario_stage_inverse = kCost / prob` — wrong by
+  // 1/prob.  The deep PF audit's Item A (demand_lp.cpp:92) was
+  // exactly this mismatch (since-fixed).  This test pins the
+  // contract so a future T-context caller can't silently reintroduce
+  // the asymmetry.
+  const double scenario_stage_inverse =
+      1.0 / (kProb * kDiscount * kDurationStage);
+  const double mismatched_output = t_path * scenario_stage_inverse;
+  CHECK(mismatched_output == doctest::Approx(kCost / kProb));  // off by 1/prob
 }

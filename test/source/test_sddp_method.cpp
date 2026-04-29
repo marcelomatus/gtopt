@@ -515,6 +515,34 @@ TEST_CASE("SDDPMethod - 2-phase with apertures converges")  // NOLINT
     CHECK_FALSE(results->empty());
   }
 
+  // Coverage gain: exercise the install_aperture_backward_cut path
+  // under each ElasticFilterMode + multi_cut_threshold combination.
+  // The base "apertures enabled with nullopt" subcase already covers
+  // single_cut + threshold=-1 (default).  These three subcases hit the
+  // multi_cut emission branches in sddp_aperture_pass.cpp:393-450 and
+  // 487-494, plus the chinneck IIS-aware path.
+  SUBCASE("apertures + multi_cut elastic filter")
+  {
+    sddp_opts.apertures = std::nullopt;
+    sddp_opts.elastic_filter_mode = ElasticFilterMode::multi_cut;
+    sddp_opts.multi_cut_threshold = 0;  // force multi-cut from iter 0
+    SDDPMethod sddp(plp, sddp_opts);
+    auto results = sddp.solve();
+    REQUIRE(results.has_value());
+    CHECK_FALSE(results->empty());
+  }
+
+  SUBCASE("apertures + chinneck elastic filter")
+  {
+    sddp_opts.apertures = std::nullopt;
+    sddp_opts.elastic_filter_mode = ElasticFilterMode::chinneck;
+    sddp_opts.multi_cut_threshold = 0;
+    SDDPMethod sddp(plp, sddp_opts);
+    auto results = sddp.solve();
+    REQUIRE(results.has_value());
+    CHECK_FALSE(results->empty());
+  }
+
   SUBCASE("apertures enabled with nullopt (use per-phase)")
   {
     sddp_opts.apertures = std::nullopt;  // use per-phase apertures
@@ -2549,6 +2577,13 @@ TEST_CASE(  // NOLINT
 // redesigned with per-phase slack magnitudes guaranteed above the
 // PLP-parity filter threshold — production cases (plp_juan,
 // ieee_14b) exercise the real cascade flow.
+// FIXME: this test is skip(true) because the toy fixture currently
+// converges with UB=0 across all elastic_filter_mode subcases under
+// the post-PLP-parity / multi-cut-rewrite pipeline.  The fixture's
+// cascade dynamics need a calibration refresh before the assertion
+// `first_iter.upper_bound > 0.0` becomes meaningful again.
+// Production cascades exercise multi_cut + chinneck via the juan/iplp
+// and ieee_14b integration runs.
 TEST_CASE(  // NOLINT
     "SDDPMethod forward backtracking — recovery 10-phase fixture"
     * doctest::skip(true))
@@ -3728,6 +3763,91 @@ TEST_CASE(  // NOLINT
       }
       CHECK(over.fcuts <= hard.fcuts);
       CHECK(over.ub == doctest::Approx(hard.ub).epsilon(kAboveRel));
+    }
+  }
+}
+
+// ─── Cut-sharing parity under NON-UNIFORM scenario probabilities ──────────
+//
+// The 0.5/0.5 parity test above pins the cross-scene cut math under
+// uniform prob.  This regression covers the non-uniform case
+// (prob = [0.6, 0.4]) — the asymmetry where ``Σ_s prob_s × phys_π_s``
+// (the accumulate-mode aggregate) genuinely differs from each scene's
+// own per-LP π.  A latent bug in the prob-folding cancellation between
+// source and master would surface here as a mismatch between the
+// expected (prob-weighted) UB and the converged value.
+//
+// Compares the cross-mode UB rather than the dual: under non-uniform
+// prob the 10-phase 2-reservoir cascade can converge with dual = 0 on
+// the efin row (efin not binding when the cost weighting tilts toward
+// one scenario).  The prob-weighted UB is the more robust invariant.
+TEST_CASE(  // NOLINT
+    "SDDPMethod — cut_sharing parity 2-scene non-uniform prob [0.6, 0.4]")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  constexpr double kProb1 = 0.6;
+  constexpr double kProb2 = 0.4;
+  // Tolerance loosened vs the 0.5/0.5 case: asymmetric prob splits
+  // accumulate basis differences faster across iterations.  10% is
+  // wide enough for the fixture's basis-path sensitivity but still
+  // catches a prob-folding mismatch (which would shift UB by O(20%)
+  // = prob_max - prob_min).
+  constexpr double kParityRel = 0.10;
+
+  auto run_case = [&](CutSharingMode cut_sharing) -> double
+  {
+    auto planning = make_2scene_backtracking_recovery_two_reservoir_planning(
+        kProb1, kProb2);
+    PlanningLP plp(std::move(planning));
+
+    SDDPOptions sddp_opts;
+    sddp_opts.max_iterations = 30;
+    sddp_opts.convergence_tol = 1e-3;
+    sddp_opts.elastic_filter_mode = ElasticFilterMode::single_cut;
+    sddp_opts.multi_cut_threshold = -1;
+    sddp_opts.forward_max_attempts = 200;
+    sddp_opts.forward_fail_stop = false;
+    sddp_opts.cut_coeff_eps = 1e-6;
+    sddp_opts.elastic_penalty = 1e2;
+    sddp_opts.enable_api = false;
+    sddp_opts.cut_sharing = cut_sharing;
+
+    SDDPMethod sddp(plp, sddp_opts);
+    auto results = sddp.solve();
+    REQUIRE(results.has_value());
+    REQUIRE_FALSE(results->empty());
+    return results->back().upper_bound;
+  };
+
+  // Reference: cut_sharing = none (per-scene isolated).
+  const double ref_ub = run_case(CutSharingMode::none);
+  CAPTURE(ref_ub);
+  REQUIRE(std::isfinite(ref_ub));
+  REQUIRE(ref_ub > 0.0);
+
+  // Sweep cut-sharing modes.  Each mode's UB must match the
+  // `none`-mode reference within tolerance — the LP physics doesn't
+  // change across cut-sharing modes; only the convergence path does.
+  // A latent prob-folding mismatch (Item B from the deep audit) would
+  // shift this by O(prob_max - prob_min) = 0.2 — well above the 5%
+  // tolerance.
+  const std::array<CutSharingMode, 3> modes = {
+      CutSharingMode::expected,
+      CutSharingMode::accumulate,
+      CutSharingMode::max,
+  };
+  const std::array<const char*, 3> labels = {"expected", "accumulate", "max"};
+
+  for (std::size_t i = 0; i < modes.size(); ++i) {
+    CAPTURE(labels[i]);
+    SUBCASE(labels[i])
+    {
+      const double ub = run_case(modes[i]);
+      CAPTURE(ub);
+      CHECK(std::isfinite(ub));
+      CHECK(ub > 0.0);
+      CHECK(ub == doctest::Approx(ref_ub).epsilon(kParityRel));
     }
   }
 }
