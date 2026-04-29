@@ -455,19 +455,18 @@ TEST_CASE(  // NOLINT
 // exactly the same — never decrease.
 
 TEST_CASE(  // NOLINT
-    "SDDP fcut audit — fcuts persist across iterations under lp_debug"
-    * doctest::skip())
+    "SDDP fcut audit — fcuts persist across iterations under lp_debug")
 {
-  // Skipped under PLP-style backtracking forward pass.  The
-  // `make_forced_infeasibility_planning` fixture is designed to produce
-  // permanent infeasibility at phase 1, so under backtracking the scene
-  // is declared infeasible in iter 0 after the cascade hits phase 0
-  // with no recovery — no cuts accumulate across iterations, which
-  // makes the "fcuts persist across iterations" assertion vacuously
-  // false.  The persistence invariant remains valid in principle but
-  // needs a fixture whose forward pass CAN reach a feasible state after
-  // one or more fcut installs (backtracking eventually succeeds) — a
-  // follow-up task to rewrite this test with such a fixture.
+  // Re-enabled 2026-04-29: switched fixture from
+  // ``make_forced_infeasibility_planning`` (which under PLP-style
+  // backtracking declares the scene infeasible at iter 0 with no cut
+  // accumulation) to ``make_backtracking_recovery_planning`` (10-phase,
+  // single reservoir) — the recovery fixture's cascade installs fcuts
+  // on multiple phases and the forward pass *recovers* after
+  // backtracking, so the same fcut rows persist across iterations.
+  // The "fcut count is monotonically non-decreasing" invariant is now
+  // exercised meaningfully.
+  //
   // Scratch directory for this test; clean it before + after to keep
   // the run hermetic under -j parallel ctest.
   const auto dbg_dir = std::filesystem::temp_directory_path()
@@ -476,7 +475,7 @@ TEST_CASE(  // NOLINT
   std::filesystem::remove_all(dbg_dir, ec);
   std::filesystem::create_directories(dbg_dir, ec);
 
-  auto planning = make_forced_infeasibility_planning();
+  auto planning = make_backtracking_recovery_planning();
 
   // Names must flow through every (scene, phase) cell so the dumped
   // LP files carry the "fcut" row-name substring.
@@ -491,6 +490,13 @@ TEST_CASE(  // NOLINT
   sddp_opts.max_iterations = 5;  // ≥ 2 iterations to exercise persistence
   sddp_opts.convergence_tol = 1e-6;  // tight so we actually run the budget
   sddp_opts.elastic_filter_mode = ElasticFilterMode::single_cut;
+  // Recovery fixture's calibration (mirrors test_sddp_method.cpp's
+  // 10-phase recovery TEST_CASE): tiny slack activations need looser
+  // cut_coeff_eps and higher elastic_penalty to survive PLP-parity
+  // defaults' filtering.
+  sddp_opts.cut_coeff_eps = 1e-6;
+  sddp_opts.elastic_penalty = 1e2;
+  sddp_opts.forward_max_attempts = 100;
   sddp_opts.lp_debug = true;
   sddp_opts.log_directory = dbg_dir.string();
   sddp_opts.lp_debug_compression = "uncompressed";
@@ -614,26 +620,30 @@ TEST_CASE(  // NOLINT
 
 TEST_CASE(  // NOLINT
     "SDDP fcut audit — per-row fcut persistence across iterations "
-    "(two-reservoir case)"
+    "(recovery fixture)"
     * doctest::skip())
 {
-  // Skipped under PLP-style backtracking (same rationale as test 7
-  // above).  Needs a fixture whose forward pass eventually recovers
-  // after backtracking so we observe fcut rows persisting across
-  // ≥ 2 iterations.  Follow-up task.
+  // Skipped: under the recovery fixture, the SDDP simulation pass
+  // discards simulation-only feasibility cuts at the end of each
+  // run (sddp_iteration.cpp:742 logs "SDDP: discarding N
+  // simulation feasibility cut(s)").  Some specific named fcut rows
+  // observed at iter K vanish from later-iter LP dumps because they
+  // were sim-pass-only cuts, not TRAINING cuts.  The per-row
+  // invariant "every named fcut at iter K is still present at every
+  // later iter" is therefore false on this fixture for the wrong
+  // reason — not because cuts were silently replaced (the bug class
+  // this test was meant to catch), but because the sim-pass discard
+  // is legitimate cleanup.  The aggregate-count persistence invariant
+  // (test 7 above) does hold and remains active.  A future
+  // refinement could filter the dump set to TRAINING-only iterations
+  // before checking per-row persistence; deferred as a follow-up.
   const auto dbg_dir = std::filesystem::temp_directory_path()
-      / "gtopt_fcut_persistence_two_reservoir";
+      / "gtopt_fcut_persistence_recovery";
   std::error_code ec;
   std::filesystem::remove_all(dbg_dir, ec);
   std::filesystem::create_directories(dbg_dir, ec);
 
-  // The single-reservoir forced-infeas fixture has the right shape:
-  // the scene stays feasible (phase 0 successfully pre-discharges
-  // enough water) while the fcut pool at phase 0 & phase 1 grows
-  // across iterations — gives us a timeline to observe persistence.
-  // The two-reservoir variant declares scene-infeasible at iter 1,
-  // which halts forward-pass LP dumps for subsequent iters.
-  auto planning = make_forced_infeasibility_planning();
+  auto planning = make_backtracking_recovery_planning();
 
   LpMatrixOptions flat_opts;
   flat_opts.col_with_names = true;
@@ -658,6 +668,11 @@ TEST_CASE(  // NOLINT
   // Row-label uniqueness for multi_cut is covered separately by the
   // "multi_cut + row names" regression test below.
   sddp_opts.elastic_filter_mode = ElasticFilterMode::single_cut;
+  // Recovery fixture's calibration: tiny slack activations need looser
+  // cut_coeff_eps and higher elastic_penalty.
+  sddp_opts.cut_coeff_eps = 1e-6;
+  sddp_opts.elastic_penalty = 1e2;
+  sddp_opts.forward_max_attempts = 100;
   sddp_opts.lp_debug = true;
   sddp_opts.log_directory = dbg_dir.string();
   sddp_opts.lp_debug_compression = "uncompressed";
