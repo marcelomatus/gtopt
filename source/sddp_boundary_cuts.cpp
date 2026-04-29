@@ -117,12 +117,24 @@ using namespace gtopt::detail;
     std::unordered_map<std::string, std::pair<std::string_view, Uid>>
         name_to_class_uid;
     map_reserve(name_to_class_uid,
-                sys.junction_array.size() + sys.battery_array.size());
+                sys.junction_array.size() + sys.battery_array.size()
+                    + sys.reservoir_array.size());
     for (const auto& junc : sys.junction_array) {
       name_to_class_uid[junc.name] = {"Junction", junc.uid};
     }
     for (const auto& bat : sys.battery_array) {
       name_to_class_uid[bat.name] = {"Battery", bat.uid};
+    }
+    // Hydro reservoirs are state variables in every CEN-style SDDP
+    // case (the dominant boundary-cut state column).  Without this
+    // entry, the lookup at lines below misses on ``Reservoir:<name>``
+    // headers, the loader reports "state variable not found", and
+    // either the row is skipped (``skip_cut``) or the coefficient is
+    // silently zeroed (``skip_coeff``) — both modes drop information
+    // that the upstream PLP solver intended to ship.  Captured by
+    // ``test_sddp_boundary_cuts_reservoir_name_map.cpp``.
+    for (const auto& rsv : sys.reservoir_array) {
+      name_to_class_uid[rsv.name] = {"Reservoir", rsv.uid};
     }
 
     // For each state-variable header column, find the
