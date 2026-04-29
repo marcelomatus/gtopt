@@ -278,12 +278,15 @@ using namespace gtopt::detail;
     //    install below calls `free_alpha(…, last_phase)` to
     //    release that pin — same contract as the backward-pass
     //    cut sites.  No separate add-α pass is needed here.
-    const auto sa = effective_scale_alpha(planning_lp, options.scale_alpha);
 
     // ── Add cuts to the LP ──────────────────────────────────────
-    const auto& bdr_li =
-        planning_lp.system(first_scene_index(), last_phase).linear_interface();
-    const auto scale_obj = bdr_li.scale_objective();
+    // Pre-fix this scope captured `sa = effective_scale_alpha(...)`
+    // and `scale_obj = bdr_li.scale_objective()` to pre-divide and
+    // pre-multiply the cut row's RHS / coefficients.  Both factors
+    // are now applied by `LinearInterface::compose_physical` itself
+    // (step 1: × col_scale, step 1b: ÷ scale_objective), so the
+    // assembly below emits pure physical-space rows and the locals
+    // are no longer needed.
 
     // When boundary_cuts_valuation == present_value, apply the
     // effective discount factor of the last phase's last stage to
@@ -369,10 +372,29 @@ using namespace gtopt::detail;
         // in `LinearInterface::add_row`.  The iteration is pulled
         // from the cut name; `cuts_loaded` breaks ties when the
         // same iteration emits multiple cuts.
+        // Build the row in PURE PHYSICAL units.  `add_cut_row`
+        // forwards through `LinearInterface::compose_physical`
+        // (`linear_interface.cpp:1118-1200`) which applies the
+        // `× col_scale` and `÷ scale_objective` exactly once.  The
+        // earlier form pre-divided by `scale_obj` and pre-multiplied
+        // by `col_scale` here, so `compose_physical` ended up applying
+        // both factors a second time → `get_row_low()` returned
+        // `phys_rhs / scale_obj` instead of `phys_rhs`, breaking the
+        // documented round-trip invariant
+        // (`compose_physical` block comment, lines 1142-1146) and
+        // making boundary cuts effectively non-binding under
+        // `scale_obj != 1`.  Captured by
+        // `test_sddp_boundary_cuts_round_trip.cpp` (audit P0-1).
+        //
+        // `row.scale = 1.0` (the `SparseRow` default) leaves
+        // `composite_scale` to be filled by `compose_physical`'s
+        // step 1b alone, matching the canonical SDDP optimality cut
+        // built by `build_benders_cut_physical` overload 1
+        // (`benders_cut.cpp:100-134`) — same row shape, same dual
+        // semantics.
         auto row = SparseRow {
-            .lowb = rc.rhs * bc_discount / scale_obj,
+            .lowb = rc.rhs * bc_discount,
             .uppb = LinearProblem::DblMax,
-            .scale = sa,
             .class_name = sddp_boundary_cut_class_name,
             .constraint_name = sddp_loaded_cut_constraint_name,
             .variable_uid = sim.uid_of(last_phase),
@@ -382,10 +404,13 @@ using namespace gtopt::detail;
                 uid_of(extract_iteration_from_name(std::string_view {rc.name})),
                 cuts_loaded),
         };
-        row[alpha_svar->col()] = sa;
+        // α physical coefficient = 1.0 (canonical optimality form
+        // ``α ≥ Σᵢ rcᵢ · xᵢ + b``).  ``compose_physical`` step 1
+        // multiplies by ``col_scales[α] = scale_alpha`` and step 1b
+        // divides by ``scale_obj``; the resulting LP-space coefficient
+        // matches the `build_benders_cut_physical` reference path.
+        row[alpha_svar->col()] = 1.0;
 
-        auto& li =
-            planning_lp.system(scene_index, last_phase).linear_interface();
         std::istringstream coeff_ss(rc.coeff_line);
         std::string token;
         for (const auto& col_opt : header_col_map) {
@@ -397,8 +422,9 @@ using namespace gtopt::detail;
           }
           const auto coeff = std::stod(token);
           if (coeff != 0.0) {
-            const auto scale = li.get_col_scale(*col_opt);
-            row[*col_opt] = -coeff * scale * bc_discount / scale_obj;
+            // State-variable physical coefficient in $/(physical-unit).
+            // `compose_physical` applies the column scale itself.
+            row[*col_opt] = -coeff * bc_discount;
           }
         }
 
@@ -406,7 +432,7 @@ using namespace gtopt::detail;
         // horizon (optimality-style: α ≥ state-dependent RHS on the
         // last phase).  Routed through the unified `add_cut_row`
         // helper: since the row always carries α (set above via
-        // `row[alpha_svar->col()] = sa`), the Optimality gate
+        // `row[alpha_svar->col()] = 1.0`), the Optimality gate
         // releases the bootstrap pin.
         std::ignore = add_cut_row(
             planning_lp, scene_index, last_phase, CutType::Optimality, row);
