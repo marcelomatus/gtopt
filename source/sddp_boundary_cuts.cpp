@@ -9,12 +9,8 @@
  */
 
 #include <algorithm>
-#include <charconv>
-#include <cmath>
-#include <filesystem>
 #include <format>
 #include <fstream>
-#include <ranges>
 #include <set>
 #include <sstream>
 
@@ -433,9 +429,18 @@ using namespace gtopt::detail;
         // last phase).  Routed through the unified `add_cut_row`
         // helper: since the row always carries α (set above via
         // `row[alpha_svar->col()] = 1.0`), the Optimality gate
-        // releases the bootstrap pin.
-        std::ignore = add_cut_row(
-            planning_lp, scene_index, last_phase, CutType::Optimality, row);
+        // releases the bootstrap pin.  Pass `cut_coeff_eps` so loaded
+        // cuts share the same numerical-noise filter that the SDDP
+        // backward-pass uses for generated cuts (audit P2-1) — without
+        // it, ``add_cut_row`` defaulted to ``eps=0`` and small
+        // physical coefficients (e.g., ill-conditioned PLP exports)
+        // could survive into the LP and degrade kappa.
+        std::ignore = add_cut_row(planning_lp,
+                                  scene_index,
+                                  last_phase,
+                                  CutType::Optimality,
+                                  row,
+                                  options.cut_coeff_eps);
       }
       max_iteration = std::max(max_iteration, rc.iteration_index);
       ++cuts_loaded;
