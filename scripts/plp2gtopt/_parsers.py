@@ -312,7 +312,9 @@ def add_scenario_arguments(
     )
     parser.add_argument(
         "-a",
-        "--num-apertures",
+        "--apertures",
+        "--num-apertures",  # deprecated alias — the `num-` prefix
+        # implied an integer but the flag accepts 'all', '1-5', '1,2,3'.
         dest="num_apertures",
         metavar="SPEC",
         type=str,
@@ -323,6 +325,7 @@ def add_scenario_arguments(
             "comma-separated list '1,2,3'. "
             "'all' auto-detects the count from plpidap2.dat; "
             "0 disables apertures; N > 0 uses the first N apertures. "
+            "(--num-apertures is kept as a deprecated alias) "
             "(default: %(default)s)"
         ),
     )
@@ -419,8 +422,11 @@ def add_solver_arguments(parser: argparse.ArgumentParser, conf: dict[str, str]) 
         action="store_true",
         default=False,
         help=(
-            "Disable boundary-cut export entirely "
-            "(equivalent to --boundary-cuts-mode=noload)."
+            "Disable boundary-cut export entirely: skip writing "
+            "boundary_cuts.csv AND force boundary_cuts_mode=noload "
+            "in the gtopt JSON.  Strictly stronger than "
+            "--boundary-cuts-mode=noload, which still emits the CSV "
+            "but tells gtopt to ignore it on load."
         ),
     )
     parser.add_argument(
@@ -1089,13 +1095,16 @@ def add_general_arguments(
     )
     add_log_level_argument(parser)
     parser.add_argument(
-        "--log",
+        "--log-file",
+        "--log",  # backward-compat alias; the bare `--log` was confusing
+        # because it sounded like `--log-level`.
         dest="log_file",
         metavar="FILE",
         default=None,
         help=(
-            "write detailed DEBUG-level log to FILE "
-            "(default: <output_dir>/logs/conversion.log)"
+            "write detailed DEBUG-level log to FILE; auto-redirects to "
+            "<output_dir>/logs/conversion.log when omitted "
+            "(--log is kept as a deprecated alias for --log-file)"
         ),
     )
     parser.add_argument(

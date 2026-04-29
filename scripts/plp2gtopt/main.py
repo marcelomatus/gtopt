@@ -397,6 +397,11 @@ def build_options(args: argparse.Namespace) -> dict:
         opts["boundary_max_iterations"] = args.boundary_max_iterations
     if args.no_boundary_cuts:
         opts["no_boundary_cuts"] = True
+        # Keep the gtopt JSON consistent with the missing CSV: an
+        # explicit user-set boundary_cuts_mode wins; otherwise force
+        # `noload` so the solver doesn't try to load a file we never
+        # wrote.
+        opts.setdefault("boundary_cuts_mode", "noload")
     if args.hot_start_cuts:
         opts["hot_start_cuts"] = True
     if args.alias_file is not None:
