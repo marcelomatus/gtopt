@@ -2336,3 +2336,62 @@ inline auto make_backtracking_recovery_two_reservoir_planning() -> Planning
           },
   };
 }
+
+/// 2-scene wrapper around `make_backtracking_recovery_two_reservoir_planning`.
+///
+/// Takes the 10-phase / 2-reservoir cascade fixture and inflates the
+/// simulation to **two scenarios** distributed across **two scenes**
+/// (one scenario per scene), with adjustable per-scenario probability
+/// weights.  Each scene's inflow trajectory is a copy of the original
+/// 1-scenario schedule, so both scenes converge to the same
+/// scene-local optimum — the cross-scene cut_sharing modes therefore
+/// share *redundant* cuts, but the SDDP-level invariants (scenario
+/// probability weighting, cut count ordering, dual_max economics)
+/// must still hold under each mode.
+///
+/// Used by the cut_sharing × low_memory parity tests in
+/// test_sddp_method.cpp.
+inline auto make_2scene_backtracking_recovery_two_reservoir_planning(
+    double prob1 = 0.5, double prob2 = 0.5) -> Planning
+{
+  auto planning = make_backtracking_recovery_two_reservoir_planning();
+
+  // Replace the single-scenario simulation with a 2-scenario / 2-scene
+  // structure (the rest of the simulation — block_array, stage_array,
+  // phase_array — is preserved).
+  planning.simulation.scenario_array = {
+      {.uid = Uid {1}, .probability_factor = prob1},
+      {.uid = Uid {2}, .probability_factor = prob2},
+  };
+  planning.simulation.scene_array = {
+      {.uid = Uid {1},
+       .name = "scene1",
+       .active = true,
+       .first_scenario = 0,
+       .count_scenario = 1},
+      {.uid = Uid {2},
+       .name = "scene2",
+       .active = true,
+       .first_scenario = 1,
+       .count_scenario = 1},
+  };
+
+  // Extend each Flow's 3D discharge schedule (scenario × stage ×
+  // block) by duplicating scenario 0 → scenario 1.  The 1-scenario
+  // helper builds the schedule as a single-element outer vector, so
+  // we always push_back a copy of the front entry; if the discharge
+  // is stored as a scalar / FileSched it is left untouched (those
+  // forms are scenario-agnostic by construction).
+  planning.system.name = "sddp_2scene_backtrack_10phase_2rsv";
+  for (auto& flow : planning.system.flow_array) {
+    if (auto* sched3d =
+            std::get_if<std::vector<std::vector<std::vector<double>>>>(
+                &flow.discharge);
+        sched3d != nullptr && sched3d->size() == 1)
+    {
+      sched3d->push_back(sched3d->front());
+    }
+  }
+
+  return planning;
+}

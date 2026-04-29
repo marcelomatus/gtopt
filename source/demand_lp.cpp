@@ -89,8 +89,16 @@ bool DemandLP::add_to_lp(SystemContext& sc,
     const auto emin_col = stage_ecost
         ? lp.add_col({
               .uppb = *stage_emin,
-              .cost = -CostHelper::stage_ecost(stage,
-                                               *stage_ecost / stage.duration()),
+              // Use scenario_stage_ecost (not stage_ecost) so the
+              // scenario probability_factor is folded into the LP
+              // cost coefficient — matches the inverse applied by
+              // OutputContext::add_col_cost on STIndexHolder columns
+              // (scenario_stage_icost_factors).  Without prob folded
+              // here the ledger is unbalanced for prob != 1 and the
+              // reduced cost is wrong by 1/prob.  Mirrors the
+              // storage_lp.hpp:787,822 pattern.
+              .cost = -CostHelper::scenario_stage_ecost(
+                  scenario, stage, *stage_ecost / stage.duration()),
               .class_name = ClassName.full_name(),
               .variable_name = EminName,
               .variable_uid = uid(),

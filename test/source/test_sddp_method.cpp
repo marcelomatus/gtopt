@@ -2818,7 +2818,20 @@ namespace
 
 /// Read the reservoir's last-phase last-stage `efin` column value
 /// (terminal volume) from the solved SDDP planning LP.
-inline auto read_terminal_vol_end(const PlanningLP& planning_lp,
+///
+/// Takes a non-const ``PlanningLP&`` so that under ``LowMemoryMode::compress``
+/// (where the per-cell ``m_collections_`` is wiped on every
+/// ``release_backend()``) the helper can call
+/// ``sys.rebuild_collections_if_needed()`` to rehydrate the XLP element
+/// wrappers before reading them.  Without this,
+/// ``elements<ReservoirLP>()`` returns an empty container and the
+/// subsequent index access aborts.  No-op under ``LowMemoryMode::off``.
+///
+/// Multi-scene: uses ``sys.scene().first_scenario()`` rather than the
+/// global ``sim.scenarios().front()`` so each scene reads from its own
+/// scenario column.  Under single-scene fixtures both resolve to
+/// scenario index 0 (backward-compatible).
+inline auto read_terminal_vol_end(PlanningLP& planning_lp,
                                   std::size_t reservoir_index,
                                   SceneIndex scene = SceneIndex {0}) -> double
 {
@@ -2828,24 +2841,41 @@ inline auto read_terminal_vol_end(const PlanningLP& planning_lp,
   const auto& phases_seq = sim.phases();
   const auto& last_phase_lp = phases_seq[last_phase];
   const auto& last_stage = last_phase_lp.stages().back();
-  const auto& last_scenario = sim.scenarios().front();
 
-  const auto& sys = planning_lp.systems()[scene][last_phase];
+  auto& sys = planning_lp.systems()[scene][last_phase];
+  // Under ``LowMemoryMode::compress`` (and ``rebuild``) the per-cell
+  // ``m_collections_`` is wiped on every ``release_backend()``.
+  // ``rebuild_collections_if_needed()`` repopulates the XLP element
+  // wrappers via a throw-away flatten without touching the solver
+  // backend, so the cached primal/dual from the last solve are still
+  // served by the getters below.  No-op under ``LowMemoryMode::off``.
+  sys.rebuild_collections_if_needed();
   const auto& rsv_lps = sys.template elements<ReservoirLP>();
   const auto& rsv = rsv_lps[reservoir_index];
 
+  const auto& last_scenario =
+      sim.scenarios()[static_cast<std::size_t>(sys.scene().first_scenario())];
   const auto col = rsv.efin_col_at(last_scenario, last_stage);
   const auto& li = sys.linear_interface();
   return li.get_col_sol()[col];
 }
 
-/// Read the dual (shadow price, $/[volume_unit]) of the hard
-/// ``vol_end >= efin`` row at the last phase / last stage.  This is
-/// the marginal cost of forcing the efin target to be reached and
-/// is the threshold for ``efin_cost``: ``efin_cost > dual`` ⇒ LP
+/// Read the truly-physical dual (shadow price, $/[volume_unit]) of
+/// the hard ``vol_end >= efin`` row at the last phase / last stage.
+/// This is the marginal cost of forcing the efin target to be reached
+/// and is the threshold for ``efin_cost``: ``efin_cost > dual`` ⇒ LP
 /// reaches efin (no slack); ``efin_cost < dual`` ⇒ LP pays slack
-/// instead.  Returns std::nullopt when the reservoir has no efin
-/// row (e.g. ``efin`` unset).
+/// instead.  Returns std::nullopt when the reservoir has no efin row
+/// (e.g. ``efin`` unset).
+///
+/// **Unit handling**: ``LinearInterface::get_row_dual()`` returns the
+/// dual with ``cost_factor = prob × discount × duration_stage`` still
+/// folded in (per its updated docstring).  This helper divides that
+/// out via ``CostHelper::cost_factor(scenario, stage)`` so the
+/// returned value is comparable to user-input physical quantities
+/// (e.g. ``Reservoir::efin_cost`` in $/hm³).  Mirrors what
+/// ``OutputContext::add_row_dual`` does for stage-indexed rows via
+/// ``scenario_stage_icost_factors()``.
 inline auto read_efin_row_dual(PlanningLP& planning_lp,
                                std::size_t reservoir_index,
                                SceneIndex scene = SceneIndex {0})
@@ -2857,25 +2887,42 @@ inline auto read_efin_row_dual(PlanningLP& planning_lp,
   const auto& phases_seq = sim.phases();
   const auto& last_phase_lp = phases_seq[last_phase];
   const auto& last_stage = last_phase_lp.stages().back();
-  const auto& last_scenario = sim.scenarios().front();
 
   auto& sys = planning_lp.systems()[scene][last_phase];
+  // Under ``LowMemoryMode::compress`` (and ``rebuild``) the per-cell
+  // ``m_collections_`` is wiped on every ``release_backend()``.
+  // ``rebuild_collections_if_needed()`` repopulates the XLP element
+  // wrappers via a throw-away flatten without touching the solver
+  // backend, so the cached primal/dual from the last solve are still
+  // served by the getters below.  No-op under ``LowMemoryMode::off``.
+  sys.rebuild_collections_if_needed();
   const auto& rsv_lps = sys.template elements<ReservoirLP>();
   const auto& rsv = rsv_lps[reservoir_index];
 
+  const auto& last_scenario =
+      sim.scenarios()[static_cast<std::size_t>(sys.scene().first_scenario())];
   const auto row = rsv.find_efin_row(last_scenario, last_stage);
   if (!row) {
     return std::nullopt;
   }
   auto& li = sys.linear_interface();
-  return li.get_row_dual()[*row];
+  const double dual_lp_folded = li.get_row_dual()[*row];
+  // Stage-indexed efin row: cost_factor = prob × discount × duration_stage.
+  const double cf = CostHelper::cost_factor(last_scenario, last_stage);
+  return dual_lp_folded / cf;
 }
 
-/// Read the reduced cost of the ``efin`` column at the last phase /
-/// last stage in physical units ($/[volume_unit]).  Complementary
-/// to ``read_efin_row_dual``: by LP duality, with the efin column's
+/// Read the truly-physical reduced cost of the ``efin`` column at
+/// the last phase / last stage in $/[volume_unit].  Complementary to
+/// ``read_efin_row_dual``: by LP duality, with the efin column's
 /// objective coefficient zero and a single +1 entry in the efin row,
 /// ``reduced_cost(efin_col) == −row_dual(efin_row)``.
+///
+/// **Unit handling**: same as ``read_efin_row_dual`` —
+/// ``get_col_cost()`` returns the rc with ``cost_factor`` folded in;
+/// this helper divides it out via
+/// ``CostHelper::cost_factor(scenario, stage)`` to produce
+/// physical-unit values.
 inline auto read_efin_col_cost(PlanningLP& planning_lp,
                                std::size_t reservoir_index,
                                SceneIndex scene = SceneIndex {0}) -> double
@@ -2886,15 +2933,25 @@ inline auto read_efin_col_cost(PlanningLP& planning_lp,
   const auto& phases_seq = sim.phases();
   const auto& last_phase_lp = phases_seq[last_phase];
   const auto& last_stage = last_phase_lp.stages().back();
-  const auto& last_scenario = sim.scenarios().front();
 
   auto& sys = planning_lp.systems()[scene][last_phase];
+  // Under ``LowMemoryMode::compress`` (and ``rebuild``) the per-cell
+  // ``m_collections_`` is wiped on every ``release_backend()``.
+  // ``rebuild_collections_if_needed()`` repopulates the XLP element
+  // wrappers via a throw-away flatten without touching the solver
+  // backend, so the cached primal/dual from the last solve are still
+  // served by the getters below.  No-op under ``LowMemoryMode::off``.
+  sys.rebuild_collections_if_needed();
   const auto& rsv_lps = sys.template elements<ReservoirLP>();
   const auto& rsv = rsv_lps[reservoir_index];
 
+  const auto& last_scenario =
+      sim.scenarios()[static_cast<std::size_t>(sys.scene().first_scenario())];
   const auto col = rsv.efin_col_at(last_scenario, last_stage);
   auto& li = sys.linear_interface();
-  return li.get_col_cost()[col];
+  const double rc_lp_folded = li.get_col_cost()[col];
+  const double cf = CostHelper::cost_factor(last_scenario, last_stage);
+  return rc_lp_folded / cf;
 }
 
 }  // namespace
@@ -3232,6 +3289,445 @@ TEST_CASE(  // NOLINT
       CHECK(over.vols[1] >= efin_target - feas_tol);
       CHECK(over.fcuts <= hard.fcuts);
       CHECK(over.ub == doctest::Approx(hard.ub).epsilon(0.01));
+    }
+  }
+}
+
+// ─── LowMemoryMode parity on the 10-phase 2-reservoir cascade ──────────────
+//
+// Reuses the L2975 hard-vs-soft + dual±1 pattern as the *base* test, but
+// the outer iteration is over `LowMemoryMode × memory_codec` instead of
+// over LP-scaling configs.  Every physical-space invariant of the L2975
+// test (vol_end ≥ efin, dual_max > 0, fcuts ≥ 1, soft.fcuts ≤ hard.fcuts,
+// above.ub ≈ hard.ub) must hold *under each low_memory configuration*,
+// and additionally the per-mode `dual_max` and `hard.ub` must match the
+// `off`-mode reference values within tolerance.
+//
+// What this exercises that the 3-phase 1-reservoir parity test does not:
+//   * 10 phases  → 10× more LP cells released and rehydrated per pass.
+//   * 2 reservoirs → each cut carries ≥ 2 state-var coefficients;
+//     replay under compress/rebuild must restore both source-col links.
+//   * Active fcut cascade → feasibility cuts mix with optimality cuts;
+//     both kinds must round-trip through the codec / re-flatten path.
+//   * `read_efin_row_dual` reads a per-cell row dual after the SDDP
+//     solve — the parity test verifies that low_memory release/rebuild
+//     does not corrupt the row metadata that maps Reservoir → efin row.
+TEST_CASE(  // NOLINT
+    "SDDPMethod — low_memory parity 10-phase 2-reservoir hard/soft duals")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  constexpr double efin_target = 150.0;
+  constexpr double feas_tol = 1e-3;
+
+  struct CaseResult
+  {
+    double ub {0.0};
+    std::array<double, 2> vols {};
+    std::array<std::optional<double>, 2> efin_duals {};
+    std::array<double, 2> efin_col_costs {};
+    int fcuts {0};
+  };
+
+  struct LMCfg
+  {
+    std::optional<LowMemoryMode> mode {};
+    std::optional<CompressionCodec> codec {};
+    const char* label {nullptr};
+  };
+
+  auto run_case = [&](const OptReal& efin_cost_opt,
+                      const LMCfg& cfg) -> CaseResult
+  {
+    auto planning = make_backtracking_recovery_two_reservoir_planning();
+    // For rebuild mode the SystemLP construction path must also defer
+    // load_flat (otherwise the per-cell rebuild callback is never set
+    // up).  See `SDDPMethod — rebuild mode: initialize_solver does not
+    // segfault` for the construction-time contract.
+    if (cfg.mode == LowMemoryMode::rebuild) {
+      planning.options.sddp_options =
+          SddpOptions {.low_memory_mode = LowMemoryMode::rebuild};
+    }
+    for (auto& r : planning.system.reservoir_array) {
+      r.efin_cost = efin_cost_opt;
+    }
+    PlanningLP plp(std::move(planning));
+
+    SDDPOptions sddp_opts;
+    sddp_opts.max_iterations = 30;
+    sddp_opts.convergence_tol = 1e-3;
+    sddp_opts.elastic_filter_mode = ElasticFilterMode::single_cut;
+    sddp_opts.multi_cut_threshold = -1;
+    sddp_opts.forward_max_attempts = 200;
+    sddp_opts.forward_fail_stop = false;
+    sddp_opts.cut_coeff_eps = 1e-6;
+    sddp_opts.elastic_penalty = 1e2;
+    sddp_opts.enable_api = false;
+    if (cfg.mode) {
+      sddp_opts.low_memory_mode = *cfg.mode;
+    }
+    if (cfg.codec) {
+      sddp_opts.memory_codec = *cfg.codec;
+    }
+
+    SDDPMethod sddp(plp, sddp_opts);
+    auto results = sddp.solve();
+    REQUIRE(results.has_value());
+    REQUIRE_FALSE(results->empty());
+
+    CaseResult cr;
+    cr.ub = results->back().upper_bound;
+    cr.vols = {read_terminal_vol_end(plp, 0), read_terminal_vol_end(plp, 1)};
+    cr.efin_duals = {read_efin_row_dual(plp, 0), read_efin_row_dual(plp, 1)};
+    cr.efin_col_costs = {read_efin_col_cost(plp, 0),
+                         read_efin_col_cost(plp, 1)};
+    for (const auto& c : sddp.stored_cuts()) {
+      if (c.type == CutType::Feasibility) {
+        ++cr.fcuts;
+      }
+    }
+    return cr;
+  };
+
+  // Reference: low_memory disabled.  Drives the dual_max / hard.ub /
+  // hard.vols values that every other mode must reproduce.
+  const LMCfg off_cfg {
+      .mode = std::nullopt, .codec = std::nullopt, .label = "off (reference)"};
+  const auto off_hard = run_case({}, off_cfg);
+  REQUIRE(off_hard.efin_duals[0].has_value());
+  REQUIRE(off_hard.efin_duals[1].has_value());
+  const double off_dual_max = std::max(std::abs(*off_hard.efin_duals[0]),
+                                       std::abs(*off_hard.efin_duals[1]));
+  CAPTURE(off_hard.ub);
+  CAPTURE(off_dual_max);
+  REQUIRE(std::isfinite(off_hard.ub));
+  REQUIRE(off_hard.ub > 0.0);
+  REQUIRE(off_dual_max > 0.0);
+
+  const std::array<LMCfg, 4> cfgs = {{
+      {.mode = LowMemoryMode::compress,
+       .codec = CompressionCodec::lz4,
+       .label = "compress + lz4"},
+      {.mode = LowMemoryMode::compress,
+       .codec = CompressionCodec::zstd,
+       .label = "compress + zstd"},
+      {.mode = LowMemoryMode::compress,
+       .codec = CompressionCodec::uncompressed,
+       .label = "compress + uncompressed"},
+      {.mode = LowMemoryMode::rebuild,
+       .codec = std::nullopt,
+       .label = "rebuild"},
+  }};
+
+  // Tolerance for cross-mode physical invariants.  The `compress` codecs
+  // serialise the live LP byte-for-byte and reproduce off mode within
+  // numerical noise; `rebuild` re-flattens from JSON and replays cuts —
+  // exactly the same physical solution but a slightly different basis
+  // path.  1e-3 (relative) is loose enough for the rebuild path while
+  // still catching real divergence (e.g., dropped cuts or missing
+  // state-var links would shift dual_max by O(10) on this fixture).
+  constexpr double kParityRel = 1e-3;
+  constexpr double kAboveRel = 0.01;  // matches the L2975 above-vs-hard tol
+
+  for (const auto& cfg : cfgs) {
+    CAPTURE(cfg.label);
+    SUBCASE(cfg.label)
+    {
+      // ─── Hard variant: efin row is hard `>=`.  Vol must reach efin. ───
+      const auto hard = run_case({}, cfg);
+      CAPTURE(hard.ub);
+      CAPTURE(hard.vols[0]);
+      CAPTURE(hard.vols[1]);
+      CAPTURE(hard.fcuts);
+      REQUIRE(hard.efin_duals[0].has_value());
+      REQUIRE(hard.efin_duals[1].has_value());
+      const double dual0 = std::abs(*hard.efin_duals[0]);
+      const double dual1 = std::abs(*hard.efin_duals[1]);
+      const double dual_max = std::max(dual0, dual1);
+      CAPTURE(dual_max);
+
+      // L2975-style invariants — must hold under every low_memory mode.
+      CHECK(std::isfinite(hard.ub));
+      CHECK(hard.ub > 0.0);
+      REQUIRE(hard.fcuts >= 1);
+      CHECK(hard.vols[0] >= efin_target - feas_tol);
+      CHECK(hard.vols[1] >= efin_target - feas_tol);
+      CHECK(dual_max > 0.0);
+
+      // Reduced cost on the efin column is zero by complementary
+      // slackness (the column sits in the interior of [emin, emax]).
+      const double rc_tol = 1e-6 * std::max(1.0, dual_max);
+      CHECK(std::abs(hard.efin_col_costs[0]) <= rc_tol);
+      CHECK(std::abs(hard.efin_col_costs[1]) <= rc_tol);
+
+      // Cross-mode parity: hard.ub and dual_max must match the off
+      // reference within tolerance.  This is the strongest guarantee
+      // that release/reconstruct preserved the cut + state-var graph.
+      CHECK(hard.ub == doctest::Approx(off_hard.ub).epsilon(kParityRel));
+      CHECK(dual_max == doctest::Approx(off_dual_max).epsilon(kParityRel));
+
+      // ─── Below threshold: efin_cost = dual_max - 1.  At least one ───
+      // reservoir must miss efin (LP pays slack instead of reaching).
+      const double below = dual_max - 1.0;
+      CAPTURE(below);
+      const auto under = run_case(OptReal {below}, cfg);
+      CAPTURE(under.ub);
+      CAPTURE(under.vols[0]);
+      CAPTURE(under.vols[1]);
+      CAPTURE(under.fcuts);
+      CHECK(std::isfinite(under.ub));
+      CHECK(under.ub > 0.0);
+      CHECK((under.vols[0] < efin_target - feas_tol
+             || under.vols[1] < efin_target - feas_tol));
+      CHECK(under.fcuts <= hard.fcuts);
+
+      // ─── Above threshold: efin_cost = dual_max + 1.  Both reservoirs ──
+      // reach efin; UB ≈ hard UB.
+      const double above = dual_max + 1.0;
+      CAPTURE(above);
+      const auto over = run_case(OptReal {above}, cfg);
+      CAPTURE(over.ub);
+      CAPTURE(over.vols[0]);
+      CAPTURE(over.vols[1]);
+      CAPTURE(over.fcuts);
+      CHECK(std::isfinite(over.ub));
+      CHECK(over.ub > 0.0);
+      CHECK(over.vols[0] >= efin_target - feas_tol);
+      CHECK(over.vols[1] >= efin_target - feas_tol);
+      CHECK(over.fcuts <= hard.fcuts);
+      CHECK(over.ub == doctest::Approx(hard.ub).epsilon(kAboveRel));
+    }
+  }
+}
+
+// ─── CutSharingMode parity on the 2-scene 10-phase 2-reservoir cascade ────
+//
+// Reuses the L2975 hard-vs-soft + dual±1 base test, extended to a
+// 2-scene fixture (each scene wraps one scenario of the same 10-phase
+// 2-reservoir cascade), with the outer iteration sweeping the four
+// supported ``CutSharingMode`` values: ``none``, ``expected``,
+// ``accumulate``, ``max``.
+//
+// What this exercises that the single-scene variants do not:
+//   * Every iteration the backward pass dispatches across both scenes;
+//     the cut-sharing dispatcher must distribute / aggregate the
+//     per-scene cuts according to the mode without losing state-var
+//     coefficients or violating per-scene cut indexing.
+//   * Probability-weighted UB aggregation across scenes — verifies the
+//     scene_weights × per-scene_ub formula holds under each mode.
+//   * Cross-mode invariants on the **physical** quantities (vol_end,
+//     dual_max, fcut counts) at the converged policy.  Different
+//     modes share cuts differently and may converge to different
+//     bases, but the LP physics of the binding ``efin`` row is
+//     mode-invariant.
+//
+// Reference run (``cut_sharing = none``) drives the threshold
+// (``dual_max``) for the dual±1 below/above probes; the other three
+// modes reuse the same threshold and must satisfy the same physical
+// invariants on each scene.
+TEST_CASE(  // NOLINT
+    "SDDPMethod — cut_sharing parity 2-scene 10-phase 2-reservoir "
+    "hard/soft duals")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  constexpr double efin_target = 150.0;
+  constexpr double feas_tol = 1e-3;
+
+  struct CaseResult
+  {
+    double ub {0.0};
+    // Per-scene (vol, dual, col_cost) for both reservoirs in scene.
+    std::array<std::array<double, 2>, 2> vols {};
+    std::array<std::array<std::optional<double>, 2>, 2> efin_duals {};
+    std::array<std::array<double, 2>, 2> efin_col_costs {};
+    int fcuts {0};
+  };
+
+  struct ShareCfg
+  {
+    CutSharingMode mode {CutSharingMode::none};
+    const char* label {nullptr};
+  };
+
+  auto run_case = [&](const OptReal& efin_cost_opt,
+                      const ShareCfg& cfg) -> CaseResult
+  {
+    auto planning = make_2scene_backtracking_recovery_two_reservoir_planning();
+    for (auto& r : planning.system.reservoir_array) {
+      r.efin_cost = efin_cost_opt;
+    }
+    PlanningLP plp(std::move(planning));
+
+    SDDPOptions sddp_opts;
+    sddp_opts.max_iterations = 30;
+    sddp_opts.convergence_tol = 1e-3;
+    sddp_opts.elastic_filter_mode = ElasticFilterMode::single_cut;
+    sddp_opts.multi_cut_threshold = -1;
+    sddp_opts.forward_max_attempts = 200;
+    sddp_opts.forward_fail_stop = false;
+    sddp_opts.cut_coeff_eps = 1e-6;
+    sddp_opts.elastic_penalty = 1e2;
+    sddp_opts.enable_api = false;
+    sddp_opts.cut_sharing = cfg.mode;
+
+    SDDPMethod sddp(plp, sddp_opts);
+    auto results = sddp.solve();
+    REQUIRE(results.has_value());
+    REQUIRE_FALSE(results->empty());
+
+    CaseResult cr;
+    cr.ub = results->back().upper_bound;
+    for (std::size_t s = 0; s < 2; ++s) {
+      const auto sc = SceneIndex {s};
+      cr.vols[s] = {read_terminal_vol_end(plp, 0, sc),
+                    read_terminal_vol_end(plp, 1, sc)};
+      cr.efin_duals[s] = {read_efin_row_dual(plp, 0, sc),
+                          read_efin_row_dual(plp, 1, sc)};
+      cr.efin_col_costs[s] = {read_efin_col_cost(plp, 0, sc),
+                              read_efin_col_cost(plp, 1, sc)};
+    }
+    for (const auto& c : sddp.stored_cuts()) {
+      if (c.type == CutType::Feasibility) {
+        ++cr.fcuts;
+      }
+    }
+    return cr;
+  };
+
+  // Reference: cut_sharing = none.
+  const ShareCfg none_cfg {.mode = CutSharingMode::none, .label = "none"};
+  const auto ref_hard = run_case({}, none_cfg);
+  CAPTURE(ref_hard.ub);
+  CAPTURE(ref_hard.fcuts);
+  for (std::size_t s = 0; s < 2; ++s) {
+    REQUIRE(ref_hard.efin_duals[s][0].has_value());
+    REQUIRE(ref_hard.efin_duals[s][1].has_value());
+  }
+  // ``read_efin_row_dual`` returns the truly-physical per-scene
+  // shadow price (it divides ``get_row_dual()`` by ``cost_factor``
+  // internally).  The cross-scene EXPECTED physical dual is the
+  // probability-weighted sum:
+  //
+  //     dual_expected = Σ_s pf_s × dual_s
+  //
+  // For this 2-scene fixture pf_1 = pf_2 = 0.5.  Picking the
+  // per-reservoir worst case across scenarios first, then sum-pf-weight
+  // across scenes, gives the threshold the LP would compare ``efin_cost``
+  // against in expectation.
+  constexpr double kSceneProb = 0.5;
+  double ref_dual_max = 0.0;
+  for (std::size_t r = 0; r < 2; ++r) {
+    double pf_weighted = 0.0;
+    for (std::size_t s = 0; s < 2; ++s) {
+      pf_weighted += kSceneProb * std::abs(*ref_hard.efin_duals[s][r]);
+    }
+    ref_dual_max = std::max(ref_dual_max, pf_weighted);
+  }
+  CAPTURE(ref_dual_max);
+  REQUIRE(std::isfinite(ref_hard.ub));
+  REQUIRE(ref_hard.ub > 0.0);
+  REQUIRE(ref_dual_max > 0.0);
+
+  // Cross-scene cut sharing introduces basis differences relative to
+  // the per-scene-isolated `none` mode; UB convergence may settle to
+  // a slightly different value at finite iterations.  3% relative
+  // tolerance catches real divergence (e.g., a missing state-var link
+  // that would shift `ub` by ≥ O(10%)) without flagging tractable
+  // basis-path noise on this hand-tuned 2-scene cascade.
+  constexpr double kParityRel = 0.03;
+  constexpr double kAboveRel = 0.01;  // matches the L2975 above-vs-hard tol
+
+  const std::array<ShareCfg, 3> cfgs = {{
+      {.mode = CutSharingMode::expected, .label = "expected"},
+      {.mode = CutSharingMode::accumulate, .label = "accumulate"},
+      {.mode = CutSharingMode::max, .label = "max"},
+  }};
+
+  for (const auto& cfg : cfgs) {
+    CAPTURE(cfg.label);
+    SUBCASE(cfg.label)
+    {
+      // Hard variant.
+      const auto hard = run_case({}, cfg);
+      CAPTURE(hard.ub);
+      CAPTURE(hard.fcuts);
+      for (std::size_t s = 0; s < 2; ++s) {
+        REQUIRE(hard.efin_duals[s][0].has_value());
+        REQUIRE(hard.efin_duals[s][1].has_value());
+        CAPTURE(s);
+        CAPTURE(hard.vols[s][0]);
+        CAPTURE(hard.vols[s][1]);
+        CHECK(hard.vols[s][0] >= efin_target - feas_tol);
+        CHECK(hard.vols[s][1] >= efin_target - feas_tol);
+      }
+
+      // Same prob-weighted aggregation as the reference run.
+      double dual_max = 0.0;
+      for (std::size_t r = 0; r < 2; ++r) {
+        double pf_weighted = 0.0;
+        for (std::size_t s = 0; s < 2; ++s) {
+          pf_weighted += kSceneProb * std::abs(*hard.efin_duals[s][r]);
+        }
+        dual_max = std::max(dual_max, pf_weighted);
+      }
+      CAPTURE(dual_max);
+      CHECK(dual_max > 0.0);
+      CHECK(std::isfinite(hard.ub));
+      CHECK(hard.ub > 0.0);
+      REQUIRE(hard.fcuts >= 1);
+
+      // Reduced cost on the efin column is zero by complementary
+      // slackness on every scene × reservoir.
+      const double rc_tol = 1e-6 * std::max(1.0, dual_max);
+      for (std::size_t s = 0; s < 2; ++s) {
+        CHECK(std::abs(hard.efin_col_costs[s][0]) <= rc_tol);
+        CHECK(std::abs(hard.efin_col_costs[s][1]) <= rc_tol);
+      }
+
+      // Cross-mode parity: hard.ub and dual_max must match the `none`
+      // reference within tolerance.
+      CHECK(hard.ub == doctest::Approx(ref_hard.ub).epsilon(kParityRel));
+      CHECK(dual_max == doctest::Approx(ref_dual_max).epsilon(kParityRel));
+
+      // Below threshold (slack paid; at least one reservoir misses
+      // efin in at least one scene).
+      const double below = ref_dual_max - 1.0;
+      CAPTURE(below);
+      const auto under = run_case(OptReal {below}, cfg);
+      CAPTURE(under.ub);
+      CAPTURE(under.fcuts);
+      CHECK(std::isfinite(under.ub));
+      CHECK(under.ub > 0.0);
+      bool any_below_efin = false;
+      for (std::size_t s = 0; s < 2 && !any_below_efin; ++s) {
+        if (under.vols[s][0] < efin_target - feas_tol
+            || under.vols[s][1] < efin_target - feas_tol)
+        {
+          any_below_efin = true;
+        }
+      }
+      CHECK(any_below_efin);
+      CHECK(under.fcuts <= hard.fcuts);
+
+      // Above threshold (slack price > dual_max ⇒ both reservoirs in
+      // every scene reach efin; UB ≈ hard UB).
+      const double above = ref_dual_max + 1.0;
+      CAPTURE(above);
+      const auto over = run_case(OptReal {above}, cfg);
+      CAPTURE(over.ub);
+      CAPTURE(over.fcuts);
+      CHECK(std::isfinite(over.ub));
+      CHECK(over.ub > 0.0);
+      for (std::size_t s = 0; s < 2; ++s) {
+        CAPTURE(s);
+        CAPTURE(over.vols[s][0]);
+        CAPTURE(over.vols[s][1]);
+        CHECK(over.vols[s][0] >= efin_target - feas_tol);
+        CHECK(over.vols[s][1] >= efin_target - feas_tol);
+      }
+      CHECK(over.fcuts <= hard.fcuts);
+      CHECK(over.ub == doctest::Approx(hard.ub).epsilon(kAboveRel));
     }
   }
 }

@@ -65,9 +65,15 @@ public:
   /**
    * @brief Gets a container of all elements of a specific type.
    * @return A const reference to the container of elements.
+   *
+   * @throws std::runtime_error — propagates from
+   * ``SystemLP::elements<X>()`` if the per-cell collections are empty
+   * (post-``release_backend()`` under non-``off`` low_memory without a
+   * preceding ``rebuild_collections_if_needed()``).  No longer
+   * declared ``noexcept`` so the runtime error reaches outer frames.
    */
   template<typename Element>
-  [[nodiscard]] constexpr auto&& elements() const noexcept
+  [[nodiscard]] constexpr auto&& elements() const
   {
     return system_lp().template elements<Element>();
   }
