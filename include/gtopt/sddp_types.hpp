@@ -414,7 +414,11 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   /// continues — bounded by `forward_max_attempts`.  Kept available
   /// for regression tests and academic fixtures that depend on the
   /// cascade dynamics.
-  bool forward_fail_stop {true};
+  // Default flipped 2026-04-29 — see planning_options_lp.hpp's
+  // ``default_sddp_forward_fail_stop`` for rationale.  PLP-style
+  // backtracking cascade is the natural-intuition default; the
+  // single-fcut-and-exit coordination strategy is opt-in.
+  bool forward_fail_stop {false};
 
   /// File format for cut and state variable I/O (csv or json).
   /// CSV uses structured keys (class:var:uid=coeff) and is backward

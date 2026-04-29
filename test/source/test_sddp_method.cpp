@@ -2456,46 +2456,35 @@ TEST_CASE(  // NOLINT
   // per-event bound, not a whole-run bound.
 }
 
-// ─── Regression guard for bc257d1d (elastic branch no-capture) ────────────
+// ─── Regression guard: state_var rc stays finite under chinneck cascade ──
 //
-// Invariant under test:
-//   In the Chinneck elastic branch of `sddp_forward_pass.cpp`, the
-//   clone's solution values MUST NOT leak into `StateVariable`
-//   reduced_cost / col_sol.  Pre-bc257d1d the branch unconditionally
-//   wrote `capture_state_variable_values(scene, phase, sol_phys, rc)`
-//   from the elastic clone; that clone carries a Chinneck Phase-1
-//   objective (all original coefficients zeroed + unit slack costs),
-//   so its duals are a feasibility gap — not economic dispatch —
-//   and contaminated downstream consumers.
+// Replaces the bc257d1d "rc == 0 after forced infeasibility" guard,
+// which was specific to the old "install-fcut-and-continue" forward
+// pass.  Under PLP-style backtracking the elastic branch on phase 1
+// installs an fcut on phase 0 and re-solves phase 0 with the new cut
+// — so phase 0's `state_var.reduced_cost` is *legitimately* updated
+// from its re-solve optimum, no longer 0.
 //
-// In the `make_two_reservoir_forced_infeasibility_planning` fixture
-// phase 1 is forced infeasible on every iteration, so no optimal
-// forward solve of phase 1 is ever performed.  After a single
-// iteration in `chinneck` mode, the physical state variables at
-// `(first_scene, phase=0)` must therefore retain their default
-// `reduced_cost == 0`.  Pre-bc257d1d code would have stamped them
-// with Chinneck Phase-1 shadow prices.  α itself (class_name =
-// `sddp_alpha_class_name`) is excluded — it has its own pin /
-// free_alpha lifecycle covered in test_sddp_alpha_relax.cpp.
+// What the original test guarded against: Chinneck Phase-1 clone
+// shadow prices (a feasibility-gap quantity, NOT economic dispatch)
+// leaking into the SHARED `StateVariable.reduced_cost` storage via
+// `capture_state_variable_values(scene, phase, sol_phys, rc)` called
+// directly from the clone.  Architecturally fixed in bc257d1d by
+// scoping state_var updates to the optimal forward LP solve only —
+// `build_feasibility_cut_physical` reads from the clone WITHOUT
+// touching shared state_var.
+//
+// Updated invariant (PLP-backtracking-compatible): after a chinneck
+// cascade on the forced-infeasibility fixture, every non-α
+// state_variable at phase 0 has a FINITE reduced cost (not NaN, not
+// Inf).  A clone-leak regression would either propagate
+// uninitialised memory or write a Chinneck-clone value of a magnitude
+// orders larger than economic-dispatch reduced costs (slack costs in
+// $/[slack-unit], typically 1000+).  Either failure mode would be
+// caught by the finiteness + bounded-magnitude check.
 TEST_CASE(  // NOLINT
-    "SDDP elastic branch leaves prev-phase state_var rc untouched"
-    * doctest::skip())
+    "SDDP elastic branch — state_var rc stays finite (clone-leak guard)")
 {
-  // Skipped under the PLP-style backtracking forward pass.  Under the
-  // old "install-fcut-and-continue" model the elastic branch at phase
-  // 1 did not trigger any re-solve of phase 0, so state_var[p0].rc
-  // stayed at the default 0.  Under backtracking, phase 1 infeasible
-  // → fcut on phase 0 → backtrack to phase 0 → re-solve phase 0 with
-  // the new fcut.  If phase 0 re-solves optimally, its reduced costs
-  // are captured onto state_var (per the user's directive "state_var
-  // updates only from optimal forward LP solves") — a legitimate,
-  // clean value.  The test's original invariant "rc == 0 after
-  // forced-infeasibility iteration" is no longer load-bearing: a
-  // non-zero rc now indicates a successful backtrack-induced re-solve
-  // of phase 0, which is the desired behaviour.  The bug the test
-  // was guarding against (Chinneck clone rc leaking into state_var)
-  // remains fixed via `build_feasibility_cut_physical` reading from
-  // the clone directly without touching state_var.
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
   auto planning = make_two_reservoir_forced_infeasibility_planning();
@@ -2509,33 +2498,37 @@ TEST_CASE(  // NOLINT
 
   SDDPMethod sddp(plp, sddp_opts);
   [[maybe_unused]] auto results = sddp.solve();
-  // `results.has_value()` is NOT required: under the PLP-style
-  // backtracking forward pass, a fixture whose phase 1 is
-  // permanently infeasible causes the scene to be declared
-  // infeasible after the cascade hits phase 0 without recovery.
-  // The purpose of this regression is solely to check the
-  // invariant on `state_var.reduced_cost` — whether solve()
-  // returned Ok or Err, the elastic branch on phase 1 ran and
-  // had the opportunity to stamp phase-0 state vars.  The check
-  // below confirms it did not.
+  // `results.has_value()` is NOT required: under PLP-style
+  // backtracking, a fixture whose phase 1 is permanently infeasible
+  // declares the scene infeasible after the cascade hits phase 0
+  // without recovery.  Whether solve() returned Ok or Err, the
+  // elastic branch on phase 1 ran and had the opportunity to stamp
+  // phase-0 state vars; the checks below confirm those stamps
+  // (whether 0 from no re-solve, or non-zero from a clean re-solve)
+  // are well-formed economic values, not Chinneck-clone leakage.
 
   const auto scene = first_scene_index();
   constexpr PhaseIndex phase {0};
   const auto& sim = plp.simulation();
 
-  // Every non-α StateVariable at phase 0 must still have rc == 0
-  // (the default).  Under pre-fix code, the elastic-branch
-  // `capture_state_variable_values` call would have stamped phase 0's
-  // state variables with the Chinneck Phase-1 LP's reduced costs.
+  // Bound: state-variable economic reduced costs in this fixture are
+  // capacity-limit shadow prices ≤ thermal_gcost = 100 $/MWh in
+  // physical units.  Chinneck Phase-1 clone duals (if leaked) would
+  // be slack-cost-magnitudes O(1000+).  Pin both finiteness AND a
+  // physical-bound sanity check.
+  constexpr double kSlackCostFloor = 500.0;
+
   std::size_t checked = 0;
   for (const auto& [key, svar] : sim.state_variables(scene, phase)) {
     if (key.class_name == sddp_alpha_class_name) {
       continue;
     }
+    const double rc = svar.reduced_cost();
     CAPTURE(key.class_name);
     CAPTURE(Index {key.uid});
-    CAPTURE(svar.reduced_cost());
-    CHECK(svar.reduced_cost() == doctest::Approx(0.0));
+    CAPTURE(rc);
+    CHECK(std::isfinite(rc));
+    CHECK(std::abs(rc) < kSlackCostFloor);
     ++checked;
   }
   // Sanity: the fixture registers physical state variables on phase 0.
@@ -2577,28 +2570,24 @@ TEST_CASE(  // NOLINT
 // redesigned with per-phase slack magnitudes guaranteed above the
 // PLP-parity filter threshold — production cases (plp_juan,
 // ieee_14b) exercise the real cascade flow.
-// FIXME: this test is skip(true) because the toy fixture currently
-// converges with UB=0 across all elastic_filter_mode subcases under
-// the post-PLP-parity / multi-cut-rewrite pipeline.  The fixture's
-// cascade dynamics need a calibration refresh before the assertion
-// `first_iter.upper_bound > 0.0` becomes meaningful again.
-// Production cascades exercise multi_cut + chinneck via the juan/iplp
-// and ieee_14b integration runs.
+// Cascade-style backtracking recovery on the 1-reservoir 10-phase
+// fixture.  Now that ``forward_fail_stop = false`` is the default
+// (2026-04-29), this test runs with the natural cascade dynamics.
+// Only ``single_cut`` is exercised: multi_cut / chinneck modes
+// degenerate on the 1-reservoir geometry — the elastic clone's
+// per-state Farkas dual coefficients |π| collapse below
+// ``cut_coeff_eps × slack_cost_max`` and the multi_cut family emits
+// 0 cuts (sddp_forward_pass.cpp:447 logs the symptom).  Both
+// multi_cut and chinneck hit this symmetrically — the chinneck IIS
+// filter is not at fault; the geometry itself is the limiter.
+// Production cascades on plp_juan / ieee_14b have richer geometry
+// and exercise multi_cut + chinneck end-to-end through the
+// integration test suite.
 TEST_CASE(  // NOLINT
-    "SDDPMethod forward backtracking — recovery 10-phase fixture"
-    * doctest::skip(true))
+    "SDDPMethod forward backtracking — recovery 10-phase fixture")
 {
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
-  // Exercise the recovery fixture under all three elastic-filter
-  // modes so we know the backtracking cascade works end-to-end with
-  // every fcut-generation path.  The mode only affects WHICH cut(s)
-  // are installed at each backtrack step (a single aggregate row
-  // under `single_cut`, one bound row per active slack under
-  // `multi_cut`, or the IIS-filtered variant under `chinneck`); the
-  // control-flow invariant — that the cascade reaches a
-  // re-solvable phase and then resumes forward to completion — must
-  // hold for all of them.
   struct ModeCase
   {
     ElasticFilterMode mode;
@@ -2608,8 +2597,6 @@ TEST_CASE(  // NOLINT
   const std::array cases = {
       ModeCase {
           ElasticFilterMode::single_cut, -1, "single_cut (PLP aggregate)"},
-      ModeCase {ElasticFilterMode::multi_cut, 0, "multi_cut (PLP per-bound)"},
-      ModeCase {ElasticFilterMode::chinneck, 0, "chinneck (IIS-filtered)"},
   };
 
   for (const auto& tc : cases) {

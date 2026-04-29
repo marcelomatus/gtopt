@@ -723,7 +723,19 @@ public:
    *  p-1 in the same forward pass, recursing back through phases
    *  until a feasible point is reached or `forward_max_attempts`
    *  is exhausted. */
-  static constexpr Bool default_sddp_forward_fail_stop = true;
+  // Default flipped 2026-04-29: every cascade-style test in the suite
+  // had to override the prior `true` default with `false`, indicating
+  // the option's `true` semantics ("install one fcut + exit scene
+  // for this iteration") was at odds with users' intuitive expectation
+  // that ``forward_fail_stop = true`` should mean "give up only when
+  // the scene is *truly* unrecoverable" — i.e., when the cascade
+  // reaches phase 0 / 1 with no recovery, or the elastic filter
+  // returns no cuts.  Defaulting to `false` (PLP-style backtracking
+  // cascade) aligns the most common use case with the natural
+  // intuition.  Production callers that wanted the per-iteration
+  // accumulation strategy can still opt in by setting
+  // ``forward_fail_stop = true`` explicitly.
+  static constexpr Bool default_sddp_forward_fail_stop = false;
 
   /**
    * @brief Gets the SDDP cut sharing mode as a string name
