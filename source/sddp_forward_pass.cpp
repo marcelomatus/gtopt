@@ -380,8 +380,7 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
               : SparseRow {};
 
           if (!use_multi_cut) {
-            feas_cut.class_name = sddp_alpha_class_name;
-            feas_cut.constraint_name = sddp_fcut_constraint_name;
+            sddp_fcut_tag.apply_to(feas_cut);
             // variable_uid = prev phase UID from master (#426) — without
             // this the row carries unknown_uid=-1 which serialises as
             // `sddp_fcut_-1_…`, rejected by CoinLpIO's row-name validator.
@@ -460,8 +459,7 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
                   elastic_result->clone,
                   m_options_.cut_coeff_eps,
                   static_cast<int>(infeas_count));
-              feas_cut.class_name = sddp_alpha_class_name;
-              feas_cut.constraint_name = sddp_fcut_constraint_name;
+              sddp_fcut_tag.apply_to(feas_cut);
               // Same uid invariant as the non-multi-cut path (master #426)
               // — avoids `sddp_fcut_-1_…` rows that CoinLpIO rejects.
               feas_cut.variable_uid = uid_of(prev_phase_index);

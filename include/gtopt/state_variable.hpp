@@ -269,15 +269,25 @@ public:
     m_reduced_cost_ = v;
   }
 
-  /// Physical-space reduced cost (`$/physical_unit`):
+  /// LP-space reduced cost scaled by `scale_objective / var_scale`:
   ///   `rc_LP × scale_objective / var_scale`.
   ///
-  /// This matches the `LinearInterface::get_col_cost()` convention
-  /// (`LP × scale_objective / col_scale`), so the physical-space
-  /// Benders cut builder (`build_benders_cut_physical`) can take
-  /// either source with identical semantics.  `scale_objective` is
-  /// passed as an argument because it's a global option, not a
-  /// per-state-variable property.
+  /// **Important**: despite the name, this is NOT a truly physical
+  /// reduced cost in $/[physical-unit]/hour.  The per-(scenario, stage,
+  /// block) `cost_factor = probability × discount × duration` baked
+  /// into the LP cost coefficient via `CostHelper::block_ecost` is
+  /// still folded in.  The naming matches the `LinearInterface::get_col_cost()`
+  /// convention (also LP-folded despite "physical" in its docstring),
+  /// so the Benders cut builder (`build_benders_cut_physical`) can
+  /// consume either source with identical semantics — both rely on
+  /// `cost_factor` cancelling at the destination master LP.
+  ///
+  /// To recover truly physical $/[unit]/hour, additionally divide by
+  /// `CostHelper::cost_factor(scenario, stage[, block])` for the
+  /// state-variable's source-column context.
+  ///
+  /// `scale_objective` is passed as an argument because it's a global
+  /// option, not a per-state-variable property.
   [[nodiscard]] constexpr double reduced_cost_physical(
       double scale_objective) const noexcept
   {

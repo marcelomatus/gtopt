@@ -296,8 +296,6 @@ using namespace gtopt::detail;
             .lowb = rhs / scale_obj,
             .uppb = LinearProblem::DblMax,
             .scale = sa,
-            .class_name = sddp_named_cut_class_name,
-            .constraint_name = sddp_loaded_cut_constraint_name,
             .variable_uid = sim.uid_of(phase_index),
             .context = make_iteration_context(
                 sim.uid_of(scene_index),
@@ -306,6 +304,7 @@ using namespace gtopt::detail;
                     extract_iteration_from_name(std::string_view {cut_name})),
                 result.count),
         };
+        sddp_named_cut_tag.apply_to(row);
         row[alpha_svar->col()] = sa;
 
         auto& li =

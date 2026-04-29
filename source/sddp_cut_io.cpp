@@ -170,9 +170,13 @@ namespace gtopt
 // semantics.
 auto extract_iteration_from_name(std::string_view name) -> IterationIndex
 {
-  // scut, fcut, and bcut encode the iteration; ecut does not.
-  if (!name.starts_with("sddp_scut_") && !name.starts_with("sddp_fcut_")
-      && !name.starts_with("sddp_bcut_"))
+  // scut, fcut, and bcut encode the iteration; ecut does not.  The
+  // prefix constants below mirror the runtime row label format and
+  // are pinned to (sddp_alpha_lp_class, sddp_<x>_constraint_name) by
+  // a static_assert in `sddp_types.hpp`.
+  if (!name.starts_with(sddp_scut_row_prefix)
+      && !name.starts_with(sddp_fcut_row_prefix)
+      && !name.starts_with(sddp_bcut_row_prefix))
   {
     return IterationIndex {0};
   }

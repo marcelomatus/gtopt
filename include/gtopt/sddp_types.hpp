@@ -153,13 +153,17 @@ constexpr std::string_view sddp_alpha_col_name = "alpha";
 /// `sddp_alpha_class_name` so the eager duplicate detector in
 /// `LinearInterface::add_row` keys SDDP cuts on
 /// `("Sddp", <tag>, uid, IterationContext)` — the tag distinguishes
-/// the pass that produced the cut.
+/// the pass that produced the cut.  Multi-cuts (`mcut`) are the only
+/// SDDP cut family tagged with the *source state-variable's* class
+/// name instead of `sddp_alpha_class_name`, since each multi-cut row
+/// is a per-link bound constraint on a single state variable.
 constexpr std::string_view sddp_scut_constraint_name = "scut";
 constexpr std::string_view sddp_aperture_cut_constraint_name = "aper_cut";
 constexpr std::string_view sddp_ecut_constraint_name = "ecut";
 constexpr std::string_view sddp_share_cut_constraint_name = "share";
 constexpr std::string_view sddp_bcut_constraint_name = "bcut";
 constexpr std::string_view sddp_fcut_constraint_name = "fcut";
+constexpr std::string_view sddp_mcut_constraint_name = "mcut";
 
 /// Class tags for cuts brought in by the CSV / JSON loaders.  Each
 /// loader path sets a distinct class_name so mixing loader sources
@@ -174,6 +178,113 @@ constexpr std::string_view sddp_loaded_cut_class_name = "Loaded";
 constexpr std::string_view sddp_boundary_cut_class_name = "Bdr";
 constexpr std::string_view sddp_named_cut_class_name = "NamedHs";
 constexpr std::string_view sddp_loaded_cut_constraint_name = "cut";
+
+/// A `(class_name, constraint_name)` pair that identifies the kind
+/// of cut a SparseRow represents.  Bundling the two metadata strings
+/// makes them move together at every cut-construction site —
+/// previously each builder hand-set the two fields independently,
+/// which produced subtle mismatches when one rename forgot the
+/// other.  All concrete tags are declared as namespace-scope
+/// `constexpr CutTag sddp_*_tag` constants below; call sites use
+/// `sddp_<x>_tag.apply_to(row)` instead of two assignments.
+struct CutTag
+{
+  std::string_view class_name {};
+  std::string_view constraint_name {};
+
+  /// Stamp this tag's identity onto a SparseRow.  Returns the row
+  /// reference for fluent chaining at call sites that also set
+  /// `variable_uid` / `context` immediately after.
+  constexpr auto apply_to(SparseRow& row) const noexcept -> SparseRow&
+  {
+    row.class_name = class_name;
+    row.constraint_name = constraint_name;
+    return row;
+  }
+};
+
+/// SDDP-class cut tags: every Benders cut produced by an SDDP pass
+/// is keyed under `(sddp_alpha_class_name, <pass-tag>)` so the eager
+/// duplicate detector in `LinearInterface::add_row` distinguishes
+/// the seven pass types at the row-metadata level.  These instances
+/// replace the `cut.class_name = …; cut.constraint_name = …;` pair
+/// at every cut-construction site.
+inline constexpr CutTag sddp_scut_tag {sddp_alpha_class_name,
+                                       sddp_scut_constraint_name};
+inline constexpr CutTag sddp_fcut_tag {sddp_alpha_class_name,
+                                       sddp_fcut_constraint_name};
+inline constexpr CutTag sddp_bcut_tag {sddp_alpha_class_name,
+                                       sddp_bcut_constraint_name};
+inline constexpr CutTag sddp_ecut_tag {sddp_alpha_class_name,
+                                       sddp_ecut_constraint_name};
+inline constexpr CutTag sddp_aperture_cut_tag {
+    sddp_alpha_class_name, sddp_aperture_cut_constraint_name};
+inline constexpr CutTag sddp_share_cut_tag {sddp_alpha_class_name,
+                                            sddp_share_cut_constraint_name};
+
+/// Loader-class cut tags: cuts loaded from CSV / JSON files use a
+/// distinct class_name per source so a hot-start that mixes loaders
+/// produces unique row-metadata keys for the duplicate detector,
+/// while sharing the single `sddp_loaded_cut_constraint_name`
+/// constraint name (they describe the same kind of optimality row).
+inline constexpr CutTag sddp_loaded_cut_tag {sddp_loaded_cut_class_name,
+                                             sddp_loaded_cut_constraint_name};
+inline constexpr CutTag sddp_boundary_cut_tag {sddp_boundary_cut_class_name,
+                                               sddp_loaded_cut_constraint_name};
+inline constexpr CutTag sddp_named_cut_tag {sddp_named_cut_class_name,
+                                            sddp_loaded_cut_constraint_name};
+
+namespace detail
+{
+/// Compile-time check: returns true iff @p prefix matches the
+/// runtime row label produced by `LabelMaker::make_row_label`,
+/// which emits `<lowercase(class_name)>_<constraint_name>_…`.  Used
+/// in the `static_assert`s below to pin every `sddp_*_row_prefix`
+/// to its `(class_short, constraint_name)` pair so a rename of
+/// either constant fails the build instead of silently de-syncing
+/// the cut-row dispatcher in `extract_iteration_from_name`.
+[[nodiscard]] consteval bool prefix_matches(
+    std::string_view prefix,
+    std::string_view class_short,
+    std::string_view constraint) noexcept
+{
+  if (prefix.size() != class_short.size() + 1 + constraint.size() + 1) {
+    return false;
+  }
+  if (!prefix.starts_with(class_short)) {
+    return false;
+  }
+  if (prefix[class_short.size()] != '_') {
+    return false;
+  }
+  const auto rest = prefix.substr(class_short.size() + 1);
+  return rest.starts_with(constraint) && rest[constraint.size()] == '_';
+}
+}  // namespace detail
+
+/// Row-name prefixes for the four SDDP pass-tagged cut types,
+/// consumed by `extract_iteration_from_name` (`sddp_cut_io.cpp`)
+/// to dispatch on row-name shape without re-parsing the
+/// (class, constraint) pair.  Each prefix is verified at compile
+/// time against the corresponding `sddp_alpha_lp_class.short_name()`
+/// + `sddp_<x>_constraint_name` pair via the `static_assert`s below.
+constexpr std::string_view sddp_scut_row_prefix {"sddp_scut_"};
+constexpr std::string_view sddp_fcut_row_prefix {"sddp_fcut_"};
+constexpr std::string_view sddp_bcut_row_prefix {"sddp_bcut_"};
+constexpr std::string_view sddp_ecut_row_prefix {"sddp_ecut_"};
+
+static_assert(detail::prefix_matches(sddp_scut_row_prefix,
+                                     sddp_alpha_lp_class.short_name(),
+                                     sddp_scut_constraint_name));
+static_assert(detail::prefix_matches(sddp_fcut_row_prefix,
+                                     sddp_alpha_lp_class.short_name(),
+                                     sddp_fcut_constraint_name));
+static_assert(detail::prefix_matches(sddp_bcut_row_prefix,
+                                     sddp_alpha_lp_class.short_name(),
+                                     sddp_bcut_constraint_name));
+static_assert(detail::prefix_matches(sddp_ecut_row_prefix,
+                                     sddp_alpha_lp_class.short_name(),
+                                     sddp_ecut_constraint_name));
 /// Fixed uid used in the alpha `StateVariable::Key`.  The state-variable
 /// map is partitioned by `(scene_index, phase_index)` and there is at
 /// most one alpha per cell, so any constant uid disambiguates the key.
@@ -303,7 +414,11 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   /// continues — bounded by `forward_max_attempts`.  Kept available
   /// for regression tests and academic fixtures that depend on the
   /// cascade dynamics.
-  bool forward_fail_stop {true};
+  // Default flipped 2026-04-29 — see planning_options_lp.hpp's
+  // ``default_sddp_forward_fail_stop`` for rationale.  PLP-style
+  // backtracking cascade is the natural-intuition default; the
+  // single-fcut-and-exit coordination strategy is opt-in.
+  bool forward_fail_stop {false};
 
   /// File format for cut and state variable I/O (csv or json).
   /// CSV uses structured keys (class:var:uid=coeff) and is backward

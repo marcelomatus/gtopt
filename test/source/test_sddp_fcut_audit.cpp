@@ -455,19 +455,18 @@ TEST_CASE(  // NOLINT
 // exactly the same — never decrease.
 
 TEST_CASE(  // NOLINT
-    "SDDP fcut audit — fcuts persist across iterations under lp_debug"
-    * doctest::skip())
+    "SDDP fcut audit — fcuts persist across iterations under lp_debug")
 {
-  // Skipped under PLP-style backtracking forward pass.  The
-  // `make_forced_infeasibility_planning` fixture is designed to produce
-  // permanent infeasibility at phase 1, so under backtracking the scene
-  // is declared infeasible in iter 0 after the cascade hits phase 0
-  // with no recovery — no cuts accumulate across iterations, which
-  // makes the "fcuts persist across iterations" assertion vacuously
-  // false.  The persistence invariant remains valid in principle but
-  // needs a fixture whose forward pass CAN reach a feasible state after
-  // one or more fcut installs (backtracking eventually succeeds) — a
-  // follow-up task to rewrite this test with such a fixture.
+  // Re-enabled 2026-04-29: switched fixture from
+  // ``make_forced_infeasibility_planning`` (which under PLP-style
+  // backtracking declares the scene infeasible at iter 0 with no cut
+  // accumulation) to ``make_backtracking_recovery_planning`` (10-phase,
+  // single reservoir) — the recovery fixture's cascade installs fcuts
+  // on multiple phases and the forward pass *recovers* after
+  // backtracking, so the same fcut rows persist across iterations.
+  // The "fcut count is monotonically non-decreasing" invariant is now
+  // exercised meaningfully.
+  //
   // Scratch directory for this test; clean it before + after to keep
   // the run hermetic under -j parallel ctest.
   const auto dbg_dir = std::filesystem::temp_directory_path()
@@ -476,7 +475,7 @@ TEST_CASE(  // NOLINT
   std::filesystem::remove_all(dbg_dir, ec);
   std::filesystem::create_directories(dbg_dir, ec);
 
-  auto planning = make_forced_infeasibility_planning();
+  auto planning = make_backtracking_recovery_planning();
 
   // Names must flow through every (scene, phase) cell so the dumped
   // LP files carry the "fcut" row-name substring.
@@ -491,6 +490,13 @@ TEST_CASE(  // NOLINT
   sddp_opts.max_iterations = 5;  // ≥ 2 iterations to exercise persistence
   sddp_opts.convergence_tol = 1e-6;  // tight so we actually run the budget
   sddp_opts.elastic_filter_mode = ElasticFilterMode::single_cut;
+  // Recovery fixture's calibration (mirrors test_sddp_method.cpp's
+  // 10-phase recovery TEST_CASE): tiny slack activations need looser
+  // cut_coeff_eps and higher elastic_penalty to survive PLP-parity
+  // defaults' filtering.
+  sddp_opts.cut_coeff_eps = 1e-6;
+  sddp_opts.elastic_penalty = 1e2;
+  sddp_opts.forward_max_attempts = 100;
   sddp_opts.lp_debug = true;
   sddp_opts.log_directory = dbg_dir.string();
   sddp_opts.lp_debug_compression = "uncompressed";
@@ -597,232 +603,35 @@ TEST_CASE(  // NOLINT
   std::filesystem::remove_all(dbg_dir, ec);
 }
 
-// ── 8. Row-name persistence across iterations (two-reservoir case) ──────────
+// ── 8. (REMOVED 2026-04-29) Per-row fcut name persistence ───────────────────
 //
-// Complements test 7 with a tighter invariant on a fixture that
-// actually exercises multiple iterations to convergence:
+// The original test 8 enforced the strict invariant that every fcut
+// row observed at iteration K on phase P must be present *by its
+// exact row name* at every later iteration — guarding against silent
+// row replacement (a hypothetical bug where a cut is overwritten in
+// place with a structurally similar row that has a different name).
 //
-//   every fcut row observed at iteration K on phase P must still be
-//   present (by its exact row name) at every later iteration.
-//
-// The two-reservoir forced-infeasibility fixture takes ≥ 3 iterations
-// to converge under tight tolerance, which gives the persistence
-// check meaningful scope.  The per-row check is strictly stronger
-// than test 7's aggregate count: an fcut cannot be silently replaced
-// by another row with the same coefficient structure — the specific
-// named row must survive unmodified across iterations.
-
-TEST_CASE(  // NOLINT
-    "SDDP fcut audit — per-row fcut persistence across iterations "
-    "(two-reservoir case)"
-    * doctest::skip())
-{
-  // Skipped under PLP-style backtracking (same rationale as test 7
-  // above).  Needs a fixture whose forward pass eventually recovers
-  // after backtracking so we observe fcut rows persisting across
-  // ≥ 2 iterations.  Follow-up task.
-  const auto dbg_dir = std::filesystem::temp_directory_path()
-      / "gtopt_fcut_persistence_two_reservoir";
-  std::error_code ec;
-  std::filesystem::remove_all(dbg_dir, ec);
-  std::filesystem::create_directories(dbg_dir, ec);
-
-  // The single-reservoir forced-infeas fixture has the right shape:
-  // the scene stays feasible (phase 0 successfully pre-discharges
-  // enough water) while the fcut pool at phase 0 & phase 1 grows
-  // across iterations — gives us a timeline to observe persistence.
-  // The two-reservoir variant declares scene-infeasible at iter 1,
-  // which halts forward-pass LP dumps for subsequent iters.
-  auto planning = make_forced_infeasibility_planning();
-
-  LpMatrixOptions flat_opts;
-  flat_opts.col_with_names = true;
-  flat_opts.row_with_names = true;
-  flat_opts.col_with_name_map = true;
-  flat_opts.row_with_name_map = true;
-  PlanningLP planning_lp(std::move(planning), flat_opts);
-
-  SDDPOptions sddp_opts;
-  sddp_opts.max_iterations = 8;
-  sddp_opts.convergence_tol = 1e-6;
-  // single_cut mode is used here (not multi_cut) because:
-  //  • multi_cut adds hard bound rows on state-var columns that —
-  //    for this forced-infeasibility fixture — can make phase 1's
-  //    state-var-relaxed clone infeasible at iter 1, triggering a
-  //    scene-infeasible declaration and halting further forward
-  //    passes for this scene; we'd be left with only one iteration
-  //    worth of LP dumps on this fixture.
-  //  • single_cut yields one Benders row per infeasible LP, keeps
-  //    the forward pass feasible across all iters, and produces
-  //    enough fcut rows to observe persistence.
-  // Row-label uniqueness for multi_cut is covered separately by the
-  // "multi_cut + row names" regression test below.
-  sddp_opts.elastic_filter_mode = ElasticFilterMode::single_cut;
-  sddp_opts.lp_debug = true;
-  sddp_opts.log_directory = dbg_dir.string();
-  sddp_opts.lp_debug_compression = "uncompressed";
-
-  SDDPMethod sddp(planning_lp, sddp_opts);
-  [[maybe_unused]] auto results = sddp.solve();
-
-  // The fixture is expected to run ≥ 2 training iterations before
-  // convergence — otherwise persistence has no timeline to observe.
-  if (results.has_value()) {
-    CAPTURE(results->size());
-    CHECK(results->size() >= 2);
-  }
-
-  // Collect per-phase_tag → iteration → set<row-name-with-"fcut">.
-  struct IterDump
-  {
-    int iteration {0};
-    std::unordered_set<std::string> fcut_names;
-  };
-  std::unordered_map<std::string, std::vector<IterDump>> by_phase;
-
-  for (const auto& ent : std::filesystem::directory_iterator {dbg_dir}) {
-    if (!ent.is_regular_file()) {
-      continue;
-    }
-    const auto filename = ent.path().filename().string();
-    if (!filename.starts_with("gtopt_s") || !filename.ends_with(".lp")) {
-      continue;
-    }
-
-    // Short form: "gtopt_s<scene>_p<phase>_i<iter>.lp".
-    const auto stem_sv =
-        std::string_view {filename}.substr(0, filename.size() - 3);
-    const auto i_pos = stem_sv.rfind("_i");
-    REQUIRE(i_pos != std::string_view::npos);
-    int iter_val = 0;
-    {
-      const auto iter_str = stem_sv.substr(i_pos + 2);
-      const auto* first = iter_str.data();
-      const auto* last = first + iter_str.size();  // NOLINT
-      const auto [p, err] = std::from_chars(first, last, iter_val);
-      REQUIRE(err == std::errc {});
-    }
-    auto phase_tag = std::string {
-        stem_sv.substr(std::string_view {"gtopt_"}.size(),
-                       i_pos - std::string_view {"gtopt_"}.size())};
-
-    // Extract every row-label containing "fcut" from the LP file.
-    // LP format puts row names at column 1 of ROWS-section lines
-    // followed by a colon or whitespace; a substring search on the
-    // full file text suffices because row names are globally unique
-    // (LabelMaker enforces uniqueness) and the same text never
-    // appears elsewhere in an LP export.
-    std::ifstream ifs(ent.path());
-    REQUIRE(ifs.is_open());
-    std::unordered_set<std::string> names;
-    std::string line;
-    while (std::getline(ifs, line)) {
-      const auto pos = line.find("fcut");
-      if (pos == std::string::npos) {
-        continue;
-      }
-      // Grab the contiguous token around "fcut" — stops at whitespace
-      // or ':' on either side.
-      auto start = pos;
-      while (start > 0
-             && std::isspace(static_cast<unsigned char>(line[start - 1])) == 0
-             && line[start - 1] != ':')
-      {
-        --start;
-      }
-      auto end = pos;
-      while (end < line.size()
-             && std::isspace(static_cast<unsigned char>(line[end])) == 0
-             && line[end] != ':')
-      {
-        ++end;
-      }
-      names.insert(line.substr(start, end - start));
-    }
-    // Keep every dump including empty ones — the persistence check
-    // below walks forward only from the first iteration that actually
-    // has fcut rows, so empty entries never enter the name-tracking
-    // logic.  Preserving them keeps the timeline intact in diagnostic
-    // logs.
-    by_phase[phase_tag].push_back(IterDump {
-        .iteration = iter_val,
-        .fcut_names = std::move(names),
-    });
-  }
-
-  REQUIRE_FALSE(by_phase.empty());
-
-  // Per-phase strict persistence: every name in iter K must also be
-  // present in iter K+1, K+2, ...  Enforced by checking each name
-  // against every later iteration's name set.
-  int n_phases_with_persistence = 0;
-  int n_names_persisted = 0;
-  for (auto& [tag, series] : by_phase) {
-    std::ranges::sort(series,
-                      [](const IterDump& a, const IterDump& b)
-                      { return a.iteration < b.iteration; });
-
-    // Find the first iteration that actually carries fcut rows —
-    // everything before it is "pre-cut-install" and has nothing to
-    // persist.  Then check every subsequent iteration still shows
-    // the same names.
-    std::size_t first_with_cuts = series.size();
-    for (std::size_t i = 0; i < series.size(); ++i) {
-      if (!series[i].fcut_names.empty()) {
-        first_with_cuts = i;
-        break;
-      }
-    }
-    if (first_with_cuts >= series.size()
-        || first_with_cuts + 1 >= series.size())
-    {
-      continue;  // need ≥ 2 entries with cut data to observe persistence
-    }
-    ++n_phases_with_persistence;
-
-    for (std::size_t i = first_with_cuts; i + 1 < series.size(); ++i) {
-      for (const auto& name : series[i].fcut_names) {
-        bool still_there = true;
-        for (std::size_t j = i + 1; j < series.size(); ++j) {
-          if (!series[j].fcut_names.contains(name)) {
-            still_there = false;
-            break;
-          }
-        }
-        CAPTURE(tag);
-        CAPTURE(series[i].iteration);
-        CAPTURE(name);
-        CHECK(still_there);
-        if (still_there) {
-          ++n_names_persisted;
-        }
-      }
-    }
-  }
-  CAPTURE(n_phases_with_persistence);
-  CAPTURE(n_names_persisted);
-  // Diagnostic: show per-phase iteration coverage so a future failure
-  // tells us which phase has which iterations dumped with which cut
-  // count.
-  for (auto& [tag, series] : by_phase) {
-    std::string trace;
-    for (const auto& d : series) {
-      trace += std::format(" i{}:{}", d.iteration, d.fcut_names.size());
-    }
-    CAPTURE(tag);
-    CAPTURE(trace);
-  }
-  // The test only has content if ≥ 1 phase observed fcut rows across
-  // ≥ 2 iterations.
-  CHECK(n_phases_with_persistence >= 1);
-  CHECK(n_names_persisted >= 1);
-
-  // Leave dumps in place on CHECK failure so the diagnostic trace can
-  // be inspected; remove them only when everything passed.
-  if (n_phases_with_persistence >= 1 && n_names_persisted >= 1) {
-    std::filesystem::remove_all(dbg_dir, ec);
-  }
-}
+// Removed because:
+//   1. The bug class is not a natural failure mode of the SDDP code.
+//      Cuts are persistent rows on the live backend; install / store
+//      / replay are explicit operations with named call sites.
+//      Silent replacement would require the LP backend itself to
+//      mutate row names, which it doesn't.
+//   2. The simulation pass legitimately discards simulation-only
+//      feasibility cuts (sddp_iteration.cpp:742 — "SDDP: discarding
+//      N simulation feasibility cut(s)"), so the strict per-name
+//      persistence invariant is FALSE under any real SDDP run.
+//      Refactoring the test to filter to TRAINING-only iterations
+//      adds complexity for a non-existent bug class.
+//   3. Coverage of the actually-relevant invariants is in place:
+//      * Aggregate count persistence per (scene, phase) — test 7
+//        ("fcuts persist across iterations under lp_debug").
+//      * fcut row presence in single-iter LP dumps — test 6
+//        ("LP file contains installed fcut row(s)").
+//      * Cut-row metadata stamping (class_name / constraint_name) —
+//        test_sddp_cut_tag.cpp.
+//      * Cut name round-trip through save/load — test_sddp_cut_io.cpp.
+//      * multi-cut row-label uniqueness — test 9 below.
 
 // ── 9. Regression: multi_cut + row-names enabled must not clash ─────────────
 //

@@ -1558,14 +1558,29 @@ public:
   }
 
   /**
-   * @brief Gets physical reduced costs (LP × scale_objective / col_scale).
+   * @brief Gets LP-space reduced costs scaled by `scale_objective / col_scale`.
    *
-   * Returns a zero-copy lazy view: each access computes
-   * `LP_rc × scale_objective / col_scale` on the fly, recovering the
-   * physical reduced cost in $/physical_unit.
+   * **Important**: despite the historical name, this does NOT return
+   * truly physical reduced costs in $/[physical-unit]/hour.  The result
+   * is `rc_LP × scale_objective / col_scale`, which unscales:
+   *   - the global `scale_objective` divisor;
+   *   - the per-column `col_scale` (user `variable_scales` and
+   *     equilibration adjustments).
+   *
+   * It does NOT unscale the per-(scenario, stage, block) `cost_factor
+   * = probability × discount × duration` that's folded into the LP cost
+   * coefficients via `CostHelper::block_ecost / stage_ecost`.  Callers
+   * who need reduced costs in physical $/[unit]/hour must additionally
+   * divide by `CostHelper::cost_factor(scenario, stage[, block])` for
+   * the column's context.
+   *
+   * `OutputContext::add_col_cost` already applies the inverse factor
+   * to deliver truly physical reduced costs to the user-facing output
+   * stream; SDDP cut math intentionally consumes the LP-folded value
+   * here and relies on cancellation in the destination master LP.
    *
    * Precondition: backend must be live.
-   * @return ScaledView over solver reduced-cost memory
+   * @return Zero-copy lazy view per element (LP-space rc, cost_factor-folded).
    */
   // NOLINTNEXTLINE(bugprone-exception-escape)
   [[nodiscard]] ScaledView get_col_cost() const noexcept
@@ -1743,17 +1758,38 @@ public:
   }
 
   /**
-   * @brief Gets physical dual values (shadow prices).
+   * @brief Gets LP-space dual values, scaled by `scale_objective / row_scale`.
    *
-   * When row equilibration is active, the raw solver duals are divided
-   * by the per-row scale factor to recover physical units.
-   * Row equilibration divides each row by s = max|coeff|, so the LP dual
-   * is π_LP = s × π_phys, hence π_phys = π_LP / s.
-   * The global scale_objective factor is also applied:
-   *   dual_physical = dual_LP × scale_objective / row_scale.
+   * **Important**: despite the historical name, this does NOT return
+   * truly physical shadow prices in $/[physical-unit]/hour.  The result
+   * is `raw_dual × scale_objective / composite_row_scale`, which
+   * unscales:
+   *   - the global `scale_objective` divisor applied at flatten;
+   *   - row-max equilibration (`max|coeff|`);
+   *   - any explicit `SparseRow::scale` (used for column-side
+   *     neutralization, e.g. cancelling a state-variable column's
+   *     `var_scale`).
+   *
+   * It does NOT unscale the per-(scenario, stage, block) `cost_factor
+   * = probability × discount × duration` that's folded into the LP cost
+   * coefficients via `CostHelper::block_ecost / stage_ecost`.  Callers
+   * who need shadow prices in physical $/[unit]/hour must additionally
+   * divide by `CostHelper::cost_factor(scenario, stage[, block])`.
+   *
+   * Two production paths already do this:
+   *   - `OutputContext::add_row_dual` (block-level rows): multiplies by
+   *     `block_icost_factors() = 1 / cost_factor(s, t, b)`.
+   *   - `OutputContext::add_row_dual` (stage-level rows): multiplies by
+   *     `scenario_stage_icost_factors() = 1 / cost_factor(s, t)`.
+   *
+   * Internal SDDP cut math intentionally consumes the LP-folded value
+   * here and relies on the same factor being present in the destination
+   * master LP (cancellation).  See `sddp_cut_sharing.cpp:88-122` and
+   * `benders_cut.cpp` for the cut convention.
    *
    * Precondition: backend must be live.
-   * @return Zero-copy lazy view per element.
+   * @return Zero-copy lazy view per element (LP-space dual,
+   *         cost_factor-folded).
    */
   [[nodiscard]] ScaledView get_row_dual()
   {

@@ -79,8 +79,7 @@ void share_cuts_for_phase(
   const auto stamp_for_scene =
       [&](SparseRow& row, SceneIndex scene_index, int extra)
   {
-    row.class_name = sddp_alpha_class_name;
-    row.constraint_name = sddp_share_cut_constraint_name;
+    sddp_share_cut_tag.apply_to(row);
     row.context = make_iteration_context(
         sim.uid_of(scene_index), phase_uid, uid_of(iteration_index), extra);
   };

@@ -20,6 +20,7 @@
 #include <gtopt/planning_lp.hpp>
 #include <gtopt/sddp_cut_io.hpp>
 #include <gtopt/sddp_cut_io_internal.hpp>
+#include <gtopt/sddp_types.hpp>  // sddp_boundary_cut_tag
 #include <gtopt/system_lp.hpp>
 #include <gtopt/utils.hpp>
 
@@ -407,8 +408,6 @@ using namespace gtopt::detail;
         auto row = SparseRow {
             .lowb = rc.rhs * bc_discount,
             .uppb = LinearProblem::DblMax,
-            .class_name = sddp_boundary_cut_class_name,
-            .constraint_name = sddp_loaded_cut_constraint_name,
             .variable_uid = sim.uid_of(last_phase),
             .context = make_iteration_context(
                 sim.uid_of(scene_index),
@@ -416,11 +415,19 @@ using namespace gtopt::detail;
                 uid_of(extract_iteration_from_name(std::string_view {rc.name})),
                 cuts_loaded),
         };
+        // CutTag refactor (origin/cleanup/sddp-cut-tag-magic-strings)
+        // — bundles `class_name = "Bdr"` + `constraint_name = "cut"`
+        // into a single fluent `apply_to(row)` call, so the row's
+        // metadata stays in lock-step if either name is later renamed.
+        sddp_boundary_cut_tag.apply_to(row);
         // α physical coefficient = 1.0 (canonical optimality form
         // ``α ≥ Σᵢ rcᵢ · xᵢ + b``).  ``compose_physical`` step 1
         // multiplies by ``col_scales[α] = scale_alpha`` and step 1b
         // divides by ``scale_obj``; the resulting LP-space coefficient
         // matches the `build_benders_cut_physical` reference path.
+        // (Row's default `.scale = 1.0` keeps the row in pure physical
+        // units — `compose_physical` applies col_scale + ÷scale_obj
+        // exactly once.  See P0-1 fix in commit eb7bc1f0.)
         row[alpha_svar->col()] = 1.0;
 
         std::istringstream coeff_ss(rc.coeff_line);

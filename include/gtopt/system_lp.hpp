@@ -14,6 +14,7 @@
 
 #include <functional>
 #include <optional>
+#include <stdexcept>
 
 #include <gtopt/battery_lp.hpp>
 #include <gtopt/bus_lp.hpp>
@@ -229,6 +230,15 @@ public:
                                    Collection<LngTerminalLP>,
                                    Collection<UserConstraintLP>>;
 
+  /// @return The full collections tuple.
+  ///
+  /// @note No built-collections assertion fires here because legitimate
+  /// callers (``SystemContext`` ctor, ``rebind_system``) capture
+  /// per-collection pointer addresses by reference at SystemLP
+  /// construction time — when the collections are still empty.
+  /// Element-reading callers should use ``elements<X>()`` /
+  /// ``element<X>(id)`` (asserts) or ``visit_elements(collections(),
+  /// ...)`` after explicit ``rebuild_collections_if_needed()``.
   template<typename Self>
   [[nodiscard]] constexpr auto&& collections(this Self&& self) noexcept
   {
@@ -290,10 +300,24 @@ public:
   /**
    * @brief Get all elements of specific type
    * @return Reference to elements container
+   *
+   * @throws std::runtime_error if ``m_collections_built_ == false`` —
+   * the caller forgot to invoke ``rebuild_collections_if_needed()``
+   * after a ``release_backend()`` under non-``off`` low_memory.
+   * Throwing (rather than asserting) lets test fixtures and outer
+   * frames catch the contract violation and shut down cleanly with a
+   * useful message; without the check the access silently returns an
+   * empty range and the next subscript triggers a vector OOB abort.
    */
   template<typename Element, typename Self>
-  [[nodiscard]] constexpr auto&& elements(this Self&& self) noexcept
+  [[nodiscard]] constexpr auto&& elements(this Self&& self)
   {
+    if (!std::forward<Self>(self).m_collections_built_) {
+      throw std::runtime_error(
+          "SystemLP::elements<X>() read with empty collections — call "
+          "rebuild_collections_if_needed() after release_backend() under "
+          "low_memory != off");
+    }
     return std::get<Collection<Element>>(
                std::forward<Self>(self).m_collections_)
         .elements();
@@ -304,11 +328,21 @@ public:
    * @param self     The object instance (deduced via explicit object parameter)
    * @param id       Element ID
    * @return Reference to the element
+   *
+   * @throws std::runtime_error — same low_memory caveat as
+   * ``elements()``.  Collections must be live
+   * (``m_collections_built_ == true``) at the point of access.
    */
   template<typename Element, typename Self, template<typename> class Id>
   [[nodiscard]] constexpr auto&& element(this Self&& self,
                                          const Id<Element>& id)
   {
+    if (!std::forward<Self>(self).m_collections_built_) {
+      throw std::runtime_error(
+          "SystemLP::element<X>() read with empty collections — call "
+          "rebuild_collections_if_needed() after release_backend() under "
+          "low_memory != off");
+    }
     return std::get<Collection<Element>>(
                std::forward<Self>(self).m_collections_)
         .element(id);
@@ -574,12 +608,24 @@ public:
   /// Release the solver backend and (under any non-`off` low-memory
   /// mode) drop the per-cell collection wrappers.  The memory ceiling
   /// under compress/rebuild becomes `active_workers × per-cell` instead
-  /// of `num_cells × per-cell` resident forever.  Rebuild paths:
-  ///  - `rebuild`: `rebuild_in_place()` (runs flatten on every reload).
-  ///  - `compress`: `ensure_lp_built()` transparently invokes
-  ///    `rebuild_collections_if_needed()` so any subsequent
-  ///    `sys.collections()` read (backward-pass aperture updates,
-  ///    `write_out`, etc.) sees the fully-populated XLP state.
+  /// of `num_cells × per-cell` resident forever.
+  ///
+  /// Post-release rehydration paths:
+  ///  - For LP solve / mutate (add_col, add_row, set_*): call
+  ///    ``ensure_lp_built()`` (or just call the mutator — it auto-fires
+  ///    ``ensure_backend()``).  Backend only; collections stay empty.
+  ///  - For element/collection READS (``elements<X>()``,
+  ///    ``collections()``, ``write_out``, backward-pass aperture
+  ///    bound updates): call ``rebuild_collections_if_needed()`` first.
+  ///    That repopulates ``m_collections_`` via a throw-away flatten
+  ///    and leaves the solver backend alone (so cached primal/dual
+  ///    from the last solve are still served by LinearInterface
+  ///    getters under compress).
+  ///
+  /// Debug builds assert in ``elements<X>()`` / ``element()`` /
+  /// ``collections()`` if the read is performed without a prior
+  /// rebuild — release builds silently see empty containers and
+  /// likely OOB on subsequent indexing.
   void release_backend()
   {
     m_linear_interface_.release_backend();
@@ -595,23 +641,32 @@ public:
     m_linear_interface_.reconstruct_backend(col_sol, row_dual);
   }
 
-  /// Ensure the LP is built and ready to solve — and, under compress,
-  /// ensure the per-element XLP state in `m_collections_` is populated
-  /// so callers can immediately read `sys.collections()`.  Handles all
-  /// four `low_memory_mode` paths uniformly:
-  ///  - `off`: no-op (backend + collections are always live).
+  /// Ensure the LP backend is live and ready to solve.  Pure backend
+  /// reconstruct — does NOT rebuild ``m_collections_``.  Callers that
+  /// need the XLP element wrappers populated (e.g. to read
+  /// ``elements<X>()`` / ``collections()`` after a prior
+  /// ``release_backend()`` under non-``off`` low-memory) must follow
+  /// up with ``rebuild_collections_if_needed()``.
+  ///
+  /// History: a previous version of this function ran a shadow flatten
+  /// to also populate ``m_collections_``, but that allocated hundreds
+  /// of MB per cell — under compress / rebuild it ballooned RSS by
+  /// ~40% on the juan case (tens of thousands of flattens per run via
+  /// the per-phase solve hot path).  Collections are now rehydrated
+  /// only at the explicit call sites that need them
+  /// (``rebuild_collections_if_needed()``).
+  ///
+  /// Per-mode behavior:
+  ///  - `off`: no-op (backend always live).
   ///  - `snapshot` / `compress`: reconstruct backend from snapshot if
-  ///    released; then, under compress, re-run the flatten pass for its
-  ///    `add_to_lp` side effects on the XLP wrappers (throw-away LP
-  ///    output; backend untouched).
-  ///  - `rebuild`: invoke the SystemLP-owned rebuild callback if
-  ///    released — that already refreshes collections.
+  ///    released.
+  ///  - `rebuild`: invoke the SystemLP-owned rebuild callback (which
+  ///    re-flattens; this path DOES refresh collections as a side
+  ///    effect because rebuild_in_place re-runs ``create_collections``).
   ///
   /// Callers that subsequently mutate the LP (add_col, add_row, set_*)
   /// can skip the explicit call — those mutations invoke ensure_backend
-  /// themselves.  Keep this entry point for code paths that read
-  /// `sys.collections()` or stale cached row/col counts after a prior
-  /// `release_backend()`.
+  /// themselves.
   void ensure_lp_built();
 
   /// Regenerate the flat LP from the live element collections and load

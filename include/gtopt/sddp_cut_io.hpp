@@ -50,7 +50,9 @@ class PlanningLP;
 /// Extract the iteration field from an SDDP cut row name.
 ///
 /// Format (the type-tag determines whether the iteration field is
-/// present):
+/// present; tag literals come from `sddp_<x>_row_prefix` in
+/// `<gtopt/sddp_types.hpp>`, which are pinned to
+/// `(sddp_alpha_lp_class, sddp_<x>_constraint_name)` at compile time):
 ///   sddp_scut_{uid}_{scene}_{phase}_{iteration}_{offset}  → field [5]
 ///   sddp_fcut_{uid}_{scene}_{phase}_{iteration}_{offset}  → field [5]
 ///   sddp_bcut_{uid}_{scene}_{phase}_{iteration}_{offset}  → field [5]

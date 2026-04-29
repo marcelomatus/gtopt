@@ -1073,7 +1073,7 @@ auto build_multi_cuts(ElasticSolveResult& elastic,
         .lowb = clamped_rhs,
         .uppb = LinearProblem::DblMax,
         .class_name = link.class_name,
-        .constraint_name = "mcut",
+        .constraint_name = sddp_mcut_constraint_name,
         .variable_uid = link.uid,
         .context = context,
     };

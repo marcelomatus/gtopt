@@ -217,10 +217,9 @@ using namespace gtopt::detail;
       auto row = SparseRow {
           .lowb = entry.rhs,
           .uppb = LinearProblem::DblMax,
-          .class_name = sddp_loaded_cut_class_name,
-          .constraint_name = sddp_loaded_cut_constraint_name,
           .variable_uid = sim.uid_of(phase_index),
       };
+      sddp_loaded_cut_tag.apply_to(row);
 
       // State variable map for structured key resolution
       const auto& sv_map =

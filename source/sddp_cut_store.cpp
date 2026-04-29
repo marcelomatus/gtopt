@@ -409,12 +409,11 @@ void SDDPCutStore::apply_cut_sharing_for_iteration(
         .lowb = sc.rhs,
         .uppb = LinearProblem::DblMax,
         .scale = sc.scale,
-        .class_name = sddp_loaded_cut_class_name,
-        .constraint_name = sddp_loaded_cut_constraint_name,
         .variable_uid = sc.phase_uid,
         .context = make_iteration_context(
             sc.scene_uid, sc.phase_uid, uid_of(iteration_index), extra),
     };
+    sddp_loaded_cut_tag.apply_to(row);
     for (const auto& [col, coeff] : sc.coefficients) {
       row[col] = coeff;
     }

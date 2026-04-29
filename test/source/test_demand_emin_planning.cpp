@@ -76,6 +76,101 @@ TEST_CASE("Demand emin - minimum energy constraint exercised")
 }
 
 // clang-format off
+//
+// Regression: demand emin path with non-unit scenario probability.
+//
+// Bug history: prior to the fix, ``demand_lp.cpp:92`` folded the
+// ``ecost`` column cost via ``CostHelper::stage_ecost(stage,
+// ecost/duration)`` (default probability=1.0).  But the column was
+// added with ``make_stage_context(scenario.uid(), stage.uid())`` →
+// STIndexHolder → ``OutputContext::add_col_cost`` divides by
+// ``scenario_stage_icost_factors = 1/(prob × discount × duration)``.
+// The asymmetry meant the LP cost coefficient lacked the
+// ``probability_factor`` factor that the read-side inverse expected,
+// silently leaving the reported reduced cost off by ``1/prob`` for
+// any scenario with prob != 1.0.
+//
+// This test exercises the path with prob = 0.5 so it would fail with
+// the buggy ``stage_ecost`` helper but pass with
+// ``scenario_stage_ecost``.
+static constexpr std::string_view demand_emin_2scene_json = R"({
+  "options": {
+    "annual_discount_rate": 0.0,
+    "output_format": "csv",
+    "output_compression": "uncompressed",
+    "use_single_bus": true,
+    "demand_fail_cost": 1000,
+    "scale_objective": 1
+  },
+  "simulation": {
+    "block_array": [{"uid": 1, "duration": 4}, {"uid": 2, "duration": 4}],
+    "stage_array": [{"uid": 1, "first_block": 0, "count_block": 2, "active": 1}],
+    "scenario_array": [
+      {"uid": 1, "probability_factor": 0.5},
+      {"uid": 2, "probability_factor": 0.5}
+    ]
+  },
+  "system": {
+    "name": "emin_2scene",
+    "bus_array": [{"uid": 1, "name": "b1"}],
+    "generator_array": [
+      {"uid": 1, "name": "g1", "bus": "b1",
+       "pmin": 0, "pmax": 200, "gcost": 20, "capacity": 200}
+    ],
+    "demand_array": [
+      {"uid": 1, "name": "d1", "bus": "b1",
+       "lmax": [[80.0, 80.0]],
+       "emin": 500,
+       "ecost": 500}
+    ]
+  }
+})";
+// clang-format on
+
+TEST_CASE(  // NOLINT
+    "Demand emin - probability factor folded correctly (regression)")
+{
+  using namespace gtopt;
+
+  // Strategy: compare the converged LP objective on two equivalent
+  // physical problems: (a) a single scenario with probability_factor
+  // = 1, and (b) two identical scenarios with probability_factor =
+  // 0.5 each.  Both encode the SAME expected-discounted-cost, so a
+  // correct LP must produce the same objective value.  The buggy
+  // ``stage_ecost`` path scales the emin slack column without
+  // applying the scenario probability_factor, doubling that
+  // column's contribution in the 2-scenario fixture and producing a
+  // detectably different objective.
+  auto planning_a =
+      parse_planning_json(demand_emin_json);  // 1-scenario, prob=1.0
+  PlanningLP plp_a(std::move(planning_a));
+  auto res_a = plp_a.resolve();
+  REQUIRE(res_a.has_value());
+  REQUIRE_FALSE(plp_a.systems().empty());
+  REQUIRE_FALSE(plp_a.systems().front().empty());
+  const double obj_a =
+      plp_a.systems().front().front().linear_interface().get_obj_value();
+
+  auto planning_b =
+      parse_planning_json(demand_emin_2scene_json);  // 2-scenario, prob=0.5
+  PlanningLP plp_b(std::move(planning_b));
+  auto res_b = plp_b.resolve();
+  REQUIRE(res_b.has_value());
+  REQUIRE_FALSE(plp_b.systems().empty());
+  REQUIRE_FALSE(plp_b.systems().front().empty());
+  const double obj_b =
+      plp_b.systems().front().front().linear_interface().get_obj_value();
+
+  CAPTURE(obj_a);
+  CAPTURE(obj_b);
+  // The two LP runs must produce the same expected-discounted-cost
+  // objective.  Pre-fix this assertion failed (off-by-prob on the
+  // emin slack column produced obj_b shifted by a fixed amount
+  // proportional to ecost × emin × (1 - prob) per scenario).
+  CHECK(obj_b == doctest::Approx(obj_a).epsilon(1e-6));
+}
+
+// clang-format off
 static constexpr std::string_view demand_lossfactor_json = R"({
   "options": {
     "annual_discount_rate": 0.0,
