@@ -2568,3 +2568,28 @@ inline auto make_2scene_10phase_two_reservoir_planning() -> Planning
           },
   };
 }
+
+// ─── Helper: default-constructed PhaseStateInfo grid ───────────────────────
+//
+// `load_boundary_cuts_csv` and similar SDDP cut-loading entry points
+// take a ``StrongIndexVector<SceneIndex, StrongIndexVector<PhaseIndex,
+// PhaseStateInfo>>`` that callers normally fill from
+// ``SDDPMethod::collect_state_variable_links``.  Tests that exercise
+// the loader without spinning up an SDDPMethod just need a default-
+// constructed grid sized to the planning's (scenes × phases).  Hoisted
+// here so multiple test files don't carry their own copy.
+[[nodiscard]] inline auto make_default_scene_phase_states(
+    const PlanningLP& planning_lp)
+    -> StrongIndexVector<SceneIndex,
+                         StrongIndexVector<PhaseIndex, PhaseStateInfo>>
+{
+  const auto& sim = planning_lp.simulation();
+  const auto num_scenes = static_cast<std::size_t>(sim.scenes().size());
+  const auto num_phases = static_cast<std::size_t>(sim.phases().size());
+
+  StrongIndexVector<SceneIndex, StrongIndexVector<PhaseIndex, PhaseStateInfo>>
+      result(num_scenes,
+             StrongIndexVector<PhaseIndex, PhaseStateInfo>(num_phases,
+                                                           PhaseStateInfo {}));
+  return result;
+}

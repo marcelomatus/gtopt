@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: BSD-3-Clause
 //
-// Regression test for the missing-`reservoir_array` entry in
+// Regression tests for the missing-`reservoir_array` entry in
 // `sddp_boundary_cuts.cpp`'s `name_to_class_uid` map.  The audit at
 // `support/lp_audit_fix_plan_2026-04-29.md` (P2-2) noted that the
 // element-name → (class, uid) lookup was built from `junction_array`
@@ -8,103 +8,149 @@
 // boundary cut whose state variables sit on hydro reservoirs — the
 // dominant CEN case.
 //
-// This test pins the contract:
+// Two subcases pin the contract under both
+// `MissingCutVarMode::skip_cut` (cut row skipped) and
+// `MissingCutVarMode::skip_coeff` (cut row loaded with the missing
+// coefficient zeroed) — the production default is `skip_coeff`, so
+// covering both modes is necessary to catch the silent-drop variant.
 //
-//   * Header references a reservoir by ``Reservoir:<name>``.
-//   * ``MissingCutVarMode::skip_cut`` makes a missing lookup
-//     observable as a dropped cut (cuts_loaded -> 0).
-//   * After the fix (reservoir_array added to the lookup map),
-//     ``cuts_loaded == 1``.
-//
-// The 3-phase fixture has a Junction "j_up" (uid=1) and a Reservoir
-// "rsv1" (uid=1).  The two share a uid intentionally — the lookup
-// must use the class prefix on the header to disambiguate, otherwise
-// a bare "rsv1" miss is a false discriminator (it's missing because
-// the *name* is absent, not because the *class* is absent).
-//
-// The test uses ``Reservoir:rsv1`` as the header so the class
-// prefix forces an exact lookup; that misses today, succeeds after
-// the fix.
+// Each subcase verifies the post-fix behaviour by reading back the
+// physical coefficient at the reservoir's LP column via
+// `LinearInterface::get_coeff(row, col)`.  Pre-fix the coefficient
+// is zero (skip_coeff path) or the row is absent (skip_cut path);
+// post-fix the coefficient lands at the requested physical value
+// modulo `cut_coeff_eps`.
 
 #include <filesystem>
 #include <fstream>
 
 #include <doctest/doctest.h>
 #include <gtopt/planning_lp.hpp>
+#include <gtopt/planning_options_lp.hpp>
 #include <gtopt/sddp_cut_io.hpp>
+#include <gtopt/sddp_types.hpp>  // register_alpha_variables
 
 #include "sddp_helpers.hpp"
 
 using namespace gtopt;  // NOLINT(google-global-names-in-headers)
 
-namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
-{
-
-[[nodiscard]] auto make_scene_phase_states_reservoir_map(
-    const PlanningLP& planning_lp)
-    -> StrongIndexVector<SceneIndex,
-                         StrongIndexVector<PhaseIndex, PhaseStateInfo>>
-{
-  const auto& sim = planning_lp.simulation();
-  const auto num_scenes = static_cast<Index>(sim.scenes().size());
-  const auto num_phases = static_cast<Index>(sim.phases().size());
-
-  StrongIndexVector<SceneIndex, StrongIndexVector<PhaseIndex, PhaseStateInfo>>
-      result(static_cast<std::size_t>(num_scenes),
-             StrongIndexVector<PhaseIndex, PhaseStateInfo>(
-                 static_cast<std::size_t>(num_phases), PhaseStateInfo {}));
-  return result;
-}
-
-}  // namespace
-
 TEST_CASE(  // NOLINT
-    "load_boundary_cuts_csv — reservoir state variables resolve via "
+    "load_boundary_cuts_csv — reservoir state vars resolve via "
     "name_to_class_uid")
 {
-  // Fixture: 3-phase hydro with Reservoir{uid=1, name=\"rsv1\"} and
-  // Junction{uid=1, name=\"j_up\"}.  Both register efin state vars at
-  // the last phase (uid=1 each, distinct class).
+  // Fixture: 3-phase hydro with Reservoir{uid=1, name="rsv1"} and
+  // Junction{uid=1, name="j_up"}.  Both register efin state vars at
+  // the last phase (uid=1 each, distinct class).  Force eager backend
+  // so coefficient readback via get_coeff doesn't race with low-memory
+  // release/reload.
   auto planning = make_3phase_hydro_planning();
+  planning.options.sddp_options.low_memory_mode = LowMemoryMode::off;
   PlanningLP planning_lp(std::move(planning));
 
   const auto tmp_file = (std::filesystem::temp_directory_path()
                          / "gtopt_test_bdr_reservoir_name_map.csv")
                             .string();
 
+  // Class-prefixed header — the lookup must walk through
+  // name_to_class_uid["rsv1"] which pre-fix doesn't exist.  Post-fix
+  // it does and resolves to ("Reservoir", 1).
+  constexpr double phys_rhs = 42.0;
+  constexpr double phys_coeff = 5.0;
   {
     std::ofstream ofs(tmp_file);
-    // Header column "Reservoir:rsv1" — class-prefixed so the lookup
-    // is unambiguous about which class we're asking for.  Pre-fix:
-    // name_to_class_uid only has Junction + Battery entries, so the
-    // ``rsv1`` name lookup MISSES regardless of the class prefix.
-    // Post-fix: the entry exists, the prefix matches the stored
-    // class, and the cut loads cleanly.
     ofs << "name,iteration,scene,rhs,Reservoir:rsv1\n";
-    ofs << "rsv_cut,1,0,42.0,5.0\n";
+    ofs << "rsv_cut,1,0," << phys_rhs << "," << phys_coeff << "\n";
   }
 
-  SDDPOptions opts;
-  opts.boundary_cuts_mode = BoundaryCutsMode::separated;
-  // skip_cut makes a missing state-var lookup with nonzero coefficient
-  // observable as a dropped row (count == 0).  Pre-fix: count == 0;
-  // post-fix: count == 1.  This is the smallest discriminator for the
-  // bug — under the default skip_coeff mode the loader silently zeros
-  // the coefficient and the cut still adds (count == 1 either way).
-  opts.missing_cut_var_mode = MissingCutVarMode::skip_cut;
+  // α has to be pre-registered (load_boundary_cuts_csv won't add α
+  // itself; production drives this from
+  // SDDPMethod::initialize_alpha_variables).
+  register_alpha_variables(planning_lp, first_scene_index(), 1.0);
 
-  const LabelMaker label_maker {LpNamesLevel::none};
-  auto states = make_scene_phase_states_reservoir_map(planning_lp);
+  const auto& sim = planning_lp.simulation();
+  const auto last_phase = sim.last_phase_index();
+  auto& last_li =
+      planning_lp.system(first_scene_index(), last_phase).linear_interface();
 
-  auto result =
-      load_boundary_cuts_csv(planning_lp, tmp_file, opts, label_maker, states);
+  // Locate the reservoir's LP column once via the registered state
+  // variables — same lookup pattern the loader itself uses, but here
+  // we resolve by `(class_name, uid, col_name=='efin')` so the rsv1
+  // state-var column is unambiguous regardless of which order
+  // svar_map iterates.
+  const auto& svar_map = sim.state_variables(first_scene_index(), last_phase);
+  std::optional<ColIndex> rsv_col;
+  for (const auto& [key, svar] : svar_map) {
+    if (key.class_name == std::string_view {"Reservoir"} && key.uid == Uid {1}
+        && key.col_name == std::string_view {"efin"})
+    {
+      rsv_col = svar.col();
+      break;
+    }
+  }
+  REQUIRE(rsv_col.has_value());
 
-  REQUIRE(result.has_value());
-  // Post-fix: the reservoir is found in name_to_class_uid → cut row
-  // assembled → count == 1.  Pre-fix: lookup miss → row treated as
-  // missing → skip_cut path increments cuts_skipped, leaving
-  // cuts_loaded at 0 → count == 0.
-  CHECK(result->count == 1);
+  SUBCASE("skip_cut — pre-fix drops the row entirely")
+  {
+    SDDPOptions opts;
+    opts.boundary_cuts_mode = BoundaryCutsMode::separated;
+    opts.missing_cut_var_mode = MissingCutVarMode::skip_cut;
+
+    const LabelMaker label_maker {LpNamesLevel::none};
+    auto states = make_default_scene_phase_states(planning_lp);
+
+    const auto pre_load_numrows = last_li.get_numrows();
+
+    auto result = load_boundary_cuts_csv(
+        planning_lp, tmp_file, opts, label_maker, states);
+
+    REQUIRE(result.has_value());
+    // Post-fix: cut loaded.  Pre-fix: skip_cut path drops the row,
+    // count == 0.
+    CHECK(result->count == 1);
+    CHECK(last_li.get_numrows() == pre_load_numrows + 1);
+
+    const auto cut_row = RowIndex {static_cast<Index>(pre_load_numrows)};
+    // Physical coefficient on the reservoir column should be -coeff
+    // (the cut is α >= rhs - Σ coeff×x, encoded as α + Σ -coeff×x >=
+    // rhs in row form).
+    const double phys_coeff_in_lp = last_li.get_coeff(cut_row, *rsv_col);
+    CAPTURE(phys_coeff_in_lp);
+    CHECK(phys_coeff_in_lp
+          == doctest::Approx(-phys_coeff)
+                 .epsilon(PlanningOptionsLP::default_sddp_cut_coeff_eps));
+  }
+
+  SUBCASE("skip_coeff — pre-fix loads the row but silently zeros the coeff")
+  {
+    SDDPOptions opts;
+    opts.boundary_cuts_mode = BoundaryCutsMode::separated;
+    opts.missing_cut_var_mode = MissingCutVarMode::skip_coeff;  // default
+
+    const LabelMaker label_maker {LpNamesLevel::none};
+    auto states = make_default_scene_phase_states(planning_lp);
+
+    const auto pre_load_numrows = last_li.get_numrows();
+
+    auto result = load_boundary_cuts_csv(
+        planning_lp, tmp_file, opts, label_maker, states);
+
+    REQUIRE(result.has_value());
+    // Both pre- and post-fix the row gets added under skip_coeff
+    // (count == 1).  The pre-fix bug is silent: the missing-name
+    // lookup zeros the coefficient on the reservoir column, while
+    // the row's RHS still carries the physical value.  Reading the
+    // matrix coefficient is the only way to discriminate.
+    CHECK(result->count == 1);
+    CHECK(last_li.get_numrows() == pre_load_numrows + 1);
+
+    const auto cut_row = RowIndex {static_cast<Index>(pre_load_numrows)};
+    const double phys_coeff_in_lp = last_li.get_coeff(cut_row, *rsv_col);
+    CAPTURE(phys_coeff_in_lp);
+    // Post-fix: -phys_coeff.  Pre-fix: 0.0 (silent drop).
+    CHECK(phys_coeff_in_lp
+          == doctest::Approx(-phys_coeff)
+                 .epsilon(PlanningOptionsLP::default_sddp_cut_coeff_eps));
+  }
 
   std::filesystem::remove(tmp_file);
 }
