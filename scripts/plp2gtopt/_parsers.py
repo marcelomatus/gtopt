@@ -358,15 +358,18 @@ def add_solver_arguments(parser: argparse.ArgumentParser, conf: dict[str, str]) 
         dest="method",
         metavar="METHOD",
         default=conf.get("method", "sddp"),
-        choices=["sddp", "mono", "monolithic", "cascade"],
+        # `mono` is kept as a deprecated alias for `monolithic` —
+        # simulation_writer.py:58 normalises it back to `monolithic`.
+        choices=["sddp", "monolithic", "mono", "cascade"],
         help=(
             "planning method controlling the simulation structure: "
             "'sddp' (default) produces one scene per scenario and one phase "
             "per stage (for Stochastic Dual Dynamic Programming); "
             "'cascade' uses a 3-level cascade: L0 uninodal, L1 transport "
             "(lines without losses/kirchhoff), L2 full network; "
-            "'mono'/'monolithic' produces a single scene with all scenarios "
-            "and a single phase with all stages (for the monolithic solver). "
+            "'monolithic' produces a single scene with all scenarios and a "
+            "single phase with all stages (for the monolithic solver; "
+            "'mono' is kept as a deprecated alias for 'monolithic'). "
             "(default: %(default)s)"
         ),
     )
@@ -557,12 +560,15 @@ def add_model_arguments(parser: argparse.ArgumentParser, conf: dict[str, str]) -
     # at or below it pass through unchanged.  Set to 0 to disable.
     _default_vcc = conf.get("vert_cost_cap")
     parser.add_argument(
-        "--vert-cost-cap",
+        "--spillway-cost-cap",
+        "--vert-cost-cap",  # deprecated alias — "vert" is the PLP
+        # Spanish abbreviation (vertimiento) and is opaque to users
+        # outside the CEN ecosystem.
         dest="vert_cost_cap",
         type=float,
         default=(float(_default_vcc) if _default_vcc is not None else 500.0),
         help=(
-            "cap (\\$/hm³) for the vrebemb / CVert spillage cost emitted as "
+            "cap ($/hm³) for the spillway / vrebemb / CVert cost emitted as "
             "Reservoir.efin_cost / soft_emin_cost (only effective when "
             "--soft-storage-bounds is on; 0 disables the cap; "
             "default: %(default)s)"
@@ -1065,11 +1071,16 @@ def add_general_arguments(
         ),
     )
     parser.add_argument(
-        "--sys-version",
+        "--case-version",
+        "--sys-version",  # deprecated alias — too easily confused with
+        # the global --version flag (which prints the tool's version).
         dest="sys_version",
         metavar="VERSION",
         default="",
-        help="version string for the system in the output JSON (default: empty)",
+        help=(
+            "version string for the planning case stored in the output JSON "
+            "(--sys-version is kept as a deprecated alias) (default: empty)"
+        ),
     )
     parser.add_argument(
         "-d",

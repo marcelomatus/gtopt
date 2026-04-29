@@ -48,6 +48,26 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   OptReal convergence_tol {};
 
   // ── Advanced tuning ────────────────────────────────────────────────────────
+  //
+  // Naming conventions for fields below — kept stable on purpose:
+  //
+  //   * ``scale_*``       -> mirrors ``scale_objective`` / ``scale_theta``
+  //                          in ``model_options`` and ``lp_matrix_options``
+  //                          (any ``scale_X`` is "divisor that keeps the
+  //                          LP coefficients of variable X near unity").
+  //   * ``*_eps``         -> mirrors ``optimal_eps``, ``feasible_eps``,
+  //                          ``barrier_eps``, ``stats_eps``, ``matrix_eps``
+  //                          (numerical-tolerance parameters).
+  //   * ``*_threshold``   -> trigger thresholds on derived metrics
+  //                          (e.g. ``lp_coeff_ratio_threshold``,
+  //                          ``prune_dual_threshold``).
+  //
+  // Renaming any of ``scale_alpha`` / ``multi_cut_threshold`` /
+  // ``cut_coeff_eps`` would break: existing JSON inputs, golden test
+  // fixtures, the formulation white paper, and external CI pipelines
+  // that pin these keys.  The names are kept as the canonical
+  // representation; the doxygen blocks below carry the
+  // expert-facing explanation.
   /** @brief Penalty for elastic slack variables in feasibility.
    *  Default: `PlanningOptionsLP::default_sddp_elastic_penalty`
    *  (see `planning_options_lp.hpp`). */
