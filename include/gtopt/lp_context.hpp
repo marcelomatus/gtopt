@@ -148,15 +148,15 @@ using LpContext = std::variant<std::monostate,
                                                  IterationUid iteration_uid,
                                                  int extra) -> IterationContext
 {
-  if (static_cast<Uid>(scene_uid) == unknown_uid) {
+  if (scene_uid.is_unknown()) {
     throw std::invalid_argument(
         "make_iteration_context: scene_uid must not be unknown_uid");
   }
-  if (static_cast<Uid>(phase_uid) == unknown_uid) {
+  if (phase_uid.is_unknown()) {
     throw std::invalid_argument(
         "make_iteration_context: phase_uid must not be unknown_uid");
   }
-  if (static_cast<Uid>(iteration_uid) == unknown_uid) {
+  if (iteration_uid.is_unknown()) {
     throw std::invalid_argument(
         "make_iteration_context: iteration_uid must not be unknown_uid");
   }

@@ -531,8 +531,9 @@ RelaxedVarInfo relax_fixed_state_variable(
   // Per-link ``variable_uid`` uses the dep column index (unique
   // within the clone) so multiple slacks don't trip the duplicate-
   // metadata detector when the link's element uid is shared (or
-  // unknown_uid in test fixtures).
-  const auto slack_uid = static_cast<Uid>(static_cast<int>(dep));
+  // unknown_uid in test fixtures).  ColIndex is implicitly
+  // convertible to Index (== Uid's underlying int32_t), so no cast.
+  const Uid slack_uid {dep};
   // Disposable adds: the elastic clone is throw-away, so the slack
   // cols / fixing row don't need to enter the shared metadata
   // (`m_col_labels_meta_`, `m_col_meta_index_`).  Their label metadata
