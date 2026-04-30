@@ -449,6 +449,36 @@ auto SDDPMethod::backward_pass_aperture_phase_impl(
                                               src_li,
                                               opts);
 
+  // ── Per-cell release: drop target_sys's backend now ──
+  //
+  // Aperture clones constructed inside `solve_apertures_for_phase`
+  // are destroyed when the per-aperture task lambdas return (the
+  // `LinearInterface` clones own their backends and free them on
+  // scope exit).  After `install_aperture_backward_cut` returns the
+  // aggregated cut has been added to `src_li = (scene, src_phase)`,
+  // a different cell.  `target_sys = (scene, phase_index)` is the
+  // last touch this loop iteration and is **not visited again** in
+  // the remainder of this backward pass:
+  //  - The next loop iteration uses `phase_index − 1`, with
+  //    `target = (s, phase_index − 1)` and `src = (s, phase_index − 2)`.
+  //  - `(s, phase_index)` would only be touched again if the loop
+  //    revisited a higher phase, which it does not (the loop is a
+  //    one-shot reverse pass from `N−1` down to `1`).
+  // The cell is reloaded from snapshot at the next SDDP iteration's
+  // forward pass — that is the natural reconstruction point.
+  //
+  // Phase 0 is never a target (the loop stops at `phase_index = 1`)
+  // and is released separately in `run_backward_pass_synchronized`
+  // after `share_cuts_for_phase` writes the last batch of peer
+  // cuts to it.
+  //
+  // No-op when `low_memory_mode == off`; idempotent across repeat
+  // calls (`linear_interface.cpp:144` early-return on
+  // `m_backend_released_`).
+  if (m_options_.low_memory_mode != LowMemoryMode::off) {
+    target_sys.release_backend();
+  }
+
   return cuts_added;
 }
 
@@ -636,6 +666,26 @@ auto SDDPMethod::backward_pass_with_apertures(SceneIndex scene_index,
                                                 std::move(expected_cut),
                                                 src_li,
                                                 opts);
+
+    // ── Per-cell release: drop target_sys's backend now ──
+    // Same rationale as `backward_pass_aperture_phase_impl` (sync path
+    // counterpart): apertures done, clones already destroyed, cut
+    // installed on `src_li` (different cell), `target_sys` not
+    // touched again in this scene's backward pass.
+    if (m_options_.low_memory_mode != LowMemoryMode::off) {
+      target_sys.release_backend();
+    }
+  }
+
+  // ── Per-cell release: phase 0 src cell ──
+  // The loop terminates at `phase_index = 1`, so phase 0 is never a
+  // target.  Its last touch is the resolve at the end of
+  // `install_aperture_backward_cut` for `phase_index = 1`.  Release
+  // it here so the bulk-loop safety net at the end of the iteration
+  // has nothing left to do (under cut_sharing == none — the only
+  // mode that reaches this non-synchronized loop).
+  if (m_options_.low_memory_mode != LowMemoryMode::off) {
+    planning_lp().system(scene_index, first_phase_index()).release_backend();
   }
 
   // Log a single summary for all phases with infeasible apertures

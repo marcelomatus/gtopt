@@ -552,6 +552,25 @@ auto SDDPMethod::backward_pass(SceneIndex scene_index,
       return std::unexpected(std::move(step_result.error()));
     }
     total_cuts += *step_result;
+
+    // ── Per-cell release: drop (scene, phase_index - 1) backend now ──
+    //
+    // `backward_pass_single_phase` operates on
+    // `prev_phase = phase_index - 1`: it `ensure_lp_built`s the cell,
+    // adds an optimality cut, and resolves it.  In this non-
+    // synchronized path (cut_sharing == none) there is no cross-scene
+    // share step that would re-touch the cell after the loop body
+    // returns, so the LP is no longer needed in this scene's
+    // backward pass — the next loop iteration's call uses
+    // `phase_index - 2`.  Release synchronously inside the worker
+    // (single-threaded per scene) and let the scheduler overlap the
+    // release with other scenes' tasks.  Mirrors the synchronised-
+    // path release after `share_cuts_for_phase` so both paths converge
+    // to the same end-state ahead of the bulk safety-net loop.
+    if (m_options_.low_memory_mode != LowMemoryMode::off) {
+      const auto prev_phase_index = previous(phase_index);
+      planning_lp().system(scene_index, prev_phase_index).release_backend();
+    }
   }
 
   SPDLOG_DEBUG("SDDP Backward [i{} s{}]: done, {} cuts added",
@@ -1025,6 +1044,39 @@ auto SDDPMethod::run_backward_pass_synchronized(
           - static_cast<std::ptrdiff_t>(rows_before_share[si_sz]);
       if (delta > 0) {
         per_scene_cuts_received[si_sz] += delta;
+      }
+    }
+
+    // ── Per-cell release for src_phase = first phase (last loop iter) ──
+    //
+    // Cells `(scene, k)` are touched twice in the backward pass: once
+    // at iter `phase_index = k+1` as `src` (cut added + resolved +
+    // peer cuts via share), and once at iter `phase_index = k` as
+    // `target` (apertures clone from it).  The optimal release point
+    // is the end of iter k's per-scene worker — handled inside
+    // `backward_pass_with_apertures_single_phase`.  The exception is
+    // `(scene, 0)`: phase 0 is never a target (the loop stops at
+    // `phase_index = 1`), so it must be released here, after
+    // `share_cuts_for_phase` writes the last batch of peer cuts.
+    if (m_options_.low_memory_mode != LowMemoryMode::off
+        && uid_of(src_phase_index) == uid_of(first_phase_index()))
+    {
+      std::vector<std::future<int>> rel_futures;
+      rel_futures.reserve(static_cast<std::size_t>(num_scenes));
+      for (const auto si : iota_range<SceneIndex>(0, num_scenes)) {
+        auto fut = pool.submit(
+            [this, si, src_phase_index]() -> int
+            {
+              planning_lp().system(si, src_phase_index).release_backend();
+              return 0;
+            },
+            bwd_req);
+        if (fut.has_value()) {
+          rel_futures.push_back(std::move(*fut));
+        }
+      }
+      for (auto& f : rel_futures) {
+        f.get();
       }
     }
 
