@@ -38,6 +38,7 @@ namespace gtopt
 class PlanningLP;
 struct SDDPOptions;
 struct PhaseStateInfo;
+class SDDPWorkPool;
 
 // ─── Stored cut types ──────────────────────────────────────────────────────
 
@@ -336,6 +337,14 @@ public:
                                        const LabelMaker& label_maker);
 
   /// Save cuts (combined + per-scene) after an iteration.
+  ///
+  /// When @p pool is non-null, the per-scene cut-file writes are
+  /// dispatched as parallel tasks (16 sequential writes → 16 in
+  /// parallel on a saturated pool, ~0.5–1 s saved per iteration on
+  /// the juan/gtopt_iplp scale).  When @p pool is null, falls back
+  /// to a sequential loop — used by code paths that do not have a
+  /// pool available (e.g. unit tests that exercise this method
+  /// directly without going through `SDDPMethod::solve`).
   void save_cuts_for_iteration(
       IterationIndex iteration_index,
       std::span<const uint8_t> scene_feasible,
@@ -345,7 +354,8 @@ public:
       const StrongIndexVector<SceneIndex,
                               StrongIndexVector<PhaseIndex, PhaseStateInfo>>&
           scene_phase_states,
-      IterationIndex current_iteration);
+      IterationIndex current_iteration,
+      SDDPWorkPool* pool = nullptr);
 
 private:
   /// Per-scene cut storage — the single source of truth for every

@@ -584,7 +584,8 @@ void SDDPCutManager::save_cuts_for_iteration(
     const StrongIndexVector<SceneIndex,
                             StrongIndexVector<PhaseIndex, PhaseStateInfo>>&
     /*scene_phase_states*/,
-    IterationIndex current_iteration)
+    IterationIndex current_iteration,
+    SDDPWorkPool* pool)
 {
   if (options.cuts_output_file.empty()) {
     return;
@@ -592,6 +593,18 @@ void SDDPCutManager::save_cuts_for_iteration(
 
   const auto cut_dir =
       std::filesystem::path(options.cuts_output_file).parent_path();
+
+  // Per-stage timing for the iter-end gap audit.  Each stage's
+  // duration is reported in a single INFO line at the end so
+  // operators can break down "post-iter housekeeping took X s" into
+  // its components without rebuilding with TRACE logging on.
+  using Clock = std::chrono::steady_clock;
+  const auto elapsed_s = [](Clock::time_point start) noexcept
+  { return std::chrono::duration<double>(Clock::now() - start).count(); };
+  double dt_combined = 0.0;
+  double dt_per_scene = 0.0;
+  double dt_state = 0.0;
+  double dt_rename = 0.0;
 
   // Helper: save all cuts to a file
   auto save_all = [&](const std::string& filepath) -> std::expected<void, Error>
@@ -607,8 +620,9 @@ void SDDPCutManager::save_cuts_for_iteration(
     return save_cuts_csv(combined, planning_lp, filepath);
   };
 
-  // Save to a versioned file: sddp_cuts_<iter>.csv
+  // ── Save to a versioned file: sddp_cuts_<iter>.csv ──
   if (!cut_dir.empty()) {
+    const auto t0 = Clock::now();
     const auto versioned_file =
         (cut_dir / std::format(sddp_file::versioned_cuts_fmt, iteration_index))
             .string();
@@ -618,29 +632,85 @@ void SDDPCutManager::save_cuts_for_iteration(
                   iteration_index,
                   result.error().message);
     }
+    dt_combined = elapsed_s(t0);
   }
 
-  // Save per-scene cuts
+  const auto num_scenes = planning_lp.simulation().scene_count();
+  const auto& scenes = planning_lp.simulation().scenes();
+
+  // ── Save per-scene cuts (parallelised when a pool is available) ──
+  //
+  // Sequential cost on the juan/gtopt_iplp case: ~16 sequential CSV
+  // writes, dominated by per-cut label formatting; profiled at
+  // 0.5–1 s/iter.  Dispatching them via the SDDP work pool overlaps
+  // formatting + I/O across workers (the pool is otherwise idle in
+  // this post-iter gap), reducing the wall to a single write's
+  // duration.
   if (!cut_dir.empty()) {
-    const auto num_scenes = planning_lp.simulation().scene_count();
-    const auto& scenes = planning_lp.simulation().scenes();
-    for (const auto scene_index : iota_range<SceneIndex>(0, num_scenes)) {
-      auto result = save_scene_cuts_csv(m_scene_cuts_[scene_index],
-                                        scene_index,
-                                        scenes[scene_index].uid(),
-                                        planning_lp,
-                                        cut_dir.string());
-      if (!result.has_value()) {
-        SPDLOG_WARN("SDDP: could not save per-scene cuts at iter {}: {}",
-                    iteration_index,
-                    result.error().message);
-        break;
+    const auto t0 = Clock::now();
+    if (pool != nullptr && num_scenes > Index {1}) {
+      std::vector<std::future<std::expected<void, Error>>> futures;
+      futures.reserve(static_cast<std::size_t>(num_scenes));
+      for (const auto scene_index : iota_range<SceneIndex>(0, num_scenes)) {
+        const auto scene_uid = scenes[scene_index].uid();
+        const auto cut_dir_str = cut_dir.string();
+        // Capture by value/reference appropriately: per-scene cut
+        // vectors are read-only here (no mutation by the writer);
+        // `planning_lp` is also read-only for `save_scene_cuts_csv`.
+        auto fut = pool->submit(
+            [this, scene_index, scene_uid, &planning_lp, cut_dir_str]
+            {
+              return save_scene_cuts_csv(m_scene_cuts_[scene_index],
+                                         scene_index,
+                                         scene_uid,
+                                         planning_lp,
+                                         cut_dir_str);
+            });
+        if (fut.has_value()) {
+          futures.push_back(std::move(*fut));
+        }
+      }
+      for (auto& f : futures) {
+        auto result = f.get();
+        if (!result.has_value()) {
+          SPDLOG_WARN("SDDP: could not save per-scene cuts at iter {}: {}",
+                      iteration_index,
+                      result.error().message);
+          // Continue draining other futures rather than break — we
+          // want every worker's result observed before we move on so
+          // the pool's accounting and the `f.get()` blocking
+          // semantics are honoured in order.
+        }
+      }
+    } else {
+      for (const auto scene_index : iota_range<SceneIndex>(0, num_scenes)) {
+        auto result = save_scene_cuts_csv(m_scene_cuts_[scene_index],
+                                          scene_index,
+                                          scenes[scene_index].uid(),
+                                          planning_lp,
+                                          cut_dir.string());
+        if (!result.has_value()) {
+          SPDLOG_WARN("SDDP: could not save per-scene cuts at iter {}: {}",
+                      iteration_index,
+                      result.error().message);
+          break;
+        }
       }
     }
+    dt_per_scene = elapsed_s(t0);
   }
 
-  // Save state variable column solutions (latest + versioned)
+  // ── Save state variable column solutions (latest only) ──
+  //
+  // Previous design wrote both `sddp_state.csv` (latest) and
+  // `sddp_state_<iter>.csv` (versioned).  The versioned file
+  // doubled the per-iter cost (~8 GB written cumulatively over a
+  // full juan run) for negligible benefit: the policy is encoded
+  // by the cuts, which ARE versioned, and re-running from cuts
+  // reconstructs state.  Keeping only the latest file is enough
+  // for real-time monitoring.
   if (!cut_dir.empty()) {
+    const auto t0 = Clock::now();
     const auto state_file = (cut_dir / sddp_file::state_cols).string();
     auto sr = save_state_csv(planning_lp, state_file, current_iteration);
     if (!sr.has_value()) {
@@ -648,42 +718,49 @@ void SDDPCutManager::save_cuts_for_iteration(
                   iteration_index,
                   sr.error().message);
     }
-    const auto versioned_state =
-        (cut_dir / std::format(sddp_file::versioned_state_fmt, iteration_index))
-            .string();
-    sr = save_state_csv(planning_lp, versioned_state, current_iteration);
-    if (!sr.has_value()) {
-      SPDLOG_WARN("SDDP: could not save versioned state at iter {}: {}",
-                  iteration_index,
-                  sr.error().message);
-    }
+    dt_state = elapsed_s(t0);
   }
 
-  // Rename cut files for infeasible scenes
-  const auto num_scenes = planning_lp.simulation().scene_count();
-  const auto& scenes = planning_lp.simulation().scenes();
-  for (const auto scene_index : iota_range<SceneIndex>(0, num_scenes)) {
-    if (scene_feasible[scene_index] != 0U) {
-      continue;
-    }
-    if (cut_dir.empty()) {
-      continue;
-    }
-    const auto suid = scenes[scene_index].uid();
-    const auto scene_file =
-        cut_dir / std::format(sddp_file::scene_cuts_fmt, suid);
-    const auto error_file =
-        cut_dir / std::format(sddp_file::error_scene_cuts_fmt, suid);
-    std::error_code ec;
-    if (std::filesystem::exists(scene_file, ec)) {
-      std::filesystem::rename(scene_file, error_file, ec);
-      if (!ec) {
-        SPDLOG_TRACE("SDDP: renamed cut file for infeasible scene {} to {}",
-                     scene_index,
-                     error_file.string());
+  // ── Rename cut files for infeasible scenes ──
+  {
+    const auto t0 = Clock::now();
+    for (const auto scene_index : iota_range<SceneIndex>(0, num_scenes)) {
+      if (scene_feasible[scene_index] != 0U) {
+        continue;
+      }
+      if (cut_dir.empty()) {
+        continue;
+      }
+      const auto suid = scenes[scene_index].uid();
+      const auto scene_file =
+          cut_dir / std::format(sddp_file::scene_cuts_fmt, suid);
+      const auto error_file =
+          cut_dir / std::format(sddp_file::error_scene_cuts_fmt, suid);
+      std::error_code ec;
+      if (std::filesystem::exists(scene_file, ec)) {
+        std::filesystem::rename(scene_file, error_file, ec);
+        if (!ec) {
+          SPDLOG_TRACE("SDDP: renamed cut file for infeasible scene {} to {}",
+                       scene_index,
+                       error_file.string());
+        }
       }
     }
+    dt_rename = elapsed_s(t0);
   }
+
+  const auto dt_total = dt_combined + dt_per_scene + dt_state + dt_rename;
+  SPDLOG_INFO(
+      "SDDP Iter [i{}]: save_cuts_for_iteration {:.2f}s "
+      "— combined={:.2f}s per_scene={:.2f}s state={:.2f}s rename={:.3f}s "
+      "(parallel={})",
+      iteration_index,
+      dt_total,
+      dt_combined,
+      dt_per_scene,
+      dt_state,
+      dt_rename,
+      pool != nullptr ? "yes" : "no");
 }
 
 }  // namespace gtopt
