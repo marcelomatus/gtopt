@@ -7,6 +7,8 @@
 
 #include <doctest/doctest.h>
 #include <gtopt/sddp_cut_sharing.hpp>
+#include <gtopt/sddp_method.hpp>
+#include <gtopt/sddp_types.hpp>
 
 #include "sddp_helpers.hpp"
 
@@ -1224,4 +1226,240 @@ TEST_CASE(  // NOLINT
         == doctest::Approx(avg.cmap.at(ColIndex {
             1,
         })));
+}
+
+// ---------------------------------------------------------------------------
+// share_cuts_for_phase routes through `add_cut_row` so optimality cuts that
+// reference α release the bootstrap pin (free_alpha_for_cut).
+//
+// Regression for juan/gtopt_iplp iter i1 p1 infeasibility (2026-04-30):
+// every scene declared "no predecessor phase to cut on" because
+// `sddp_share_m1_*` cuts demanded α ≈ 1.16e8 against a pinned α = 0.
+// Root cause: `share_cuts_for_phase` used the raw `add_row + record_cut_row`
+// pair instead of the unified `add_cut_row` free function, so
+// `free_alpha_for_cut` never fired and α stayed at `lowb = uppb = 0`.
+// ---------------------------------------------------------------------------
+
+namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
+{
+
+/// Threshold below which a lower bound is considered "effectively −∞".
+/// Mirrors `test_sddp_alpha_relax.cpp:53-54` — solver backends normalise
+/// gtopt's `LinearProblem::DblMax` sentinel (1.8e308) to their own
+/// infinity representation on read-back (CPLEX -1e20, HiGHS -1e30, CBC
+/// -1e30); any raw value past ±1e15 confirms α is unbounded in that
+/// direction.
+constexpr double kEffectivelyMinusInf = -1e15;
+constexpr double kEffectivelyPlusInf = 1e15;
+
+/// Read α's raw LP bounds at (scene, phase) — `std::nullopt` if α is
+/// not registered.  Same shape as the helper in test_sddp_alpha_relax.
+auto alpha_bounds_raw(const PlanningLP& plp,
+                      SceneIndex scene_index,
+                      PhaseIndex phase_index)
+    -> std::optional<std::pair<double, double>>
+{
+  const auto* svar =
+      find_alpha_state_var(plp.simulation(), scene_index, phase_index);
+  if (svar == nullptr) {
+    return std::nullopt;
+  }
+  const auto& li = plp.system(scene_index, phase_index).linear_interface();
+  return std::pair {
+      li.get_col_low_raw()[svar->col()],
+      li.get_col_upp_raw()[svar->col()],
+  };
+}
+
+/// Build an optimality-shaped Benders cut that references α at
+/// (scene, phase) with coefficient 1 and a single state-var coefficient
+/// on a structural reservoir column.  RHS is `>= rhs` (α + state·coeff
+/// >= rhs).  Mirrors the `sddp_share_m1_*` shape observed in juan's
+/// error LPs.
+SparseRow make_alpha_referring_cut(const PlanningLP& plp,
+                                   SceneIndex scene_index,
+                                   PhaseIndex phase_index,
+                                   double state_coeff,
+                                   double rhs)
+{
+  const auto* svar =
+      find_alpha_state_var(plp.simulation(), scene_index, phase_index);
+  REQUIRE(svar != nullptr);
+  SparseRow cut;
+  cut[svar->col()] = 1.0;
+  // Use col 0 as a stand-in for a reservoir energy state column.  Any
+  // structural col works; the cut just needs to be a well-formed
+  // Benders shape (linear in state + α >= rhs).
+  cut[ColIndex {0}] = state_coeff;
+  cut.lowb = rhs;
+  cut.uppb = LinearProblem::DblMax;
+  return cut;
+}
+
+}  // namespace
+
+TEST_CASE(  // NOLINT
+    "share_cuts_for_phase accumulate — optimality cut releases α^phase")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  auto planning = make_2scene_3phase_hydro_planning(0.6, 0.4);
+  PlanningLP plp(std::move(planning));
+
+  // Drive SDDP init so α is registered + pinned at lowb=uppb=0 on
+  // every (scene, phase).  max_iterations=0 skips the solve loop.
+  SDDPOptions sddp_opts;
+  sddp_opts.max_iterations = 0;
+  sddp_opts.enable_api = false;
+  SDDPMethod sddp(plp, sddp_opts);
+  REQUIRE(sddp.ensure_initialized().has_value());
+
+  constexpr PhaseIndex target_phase {0};
+  const auto num_scenes = static_cast<Index>(plp.simulation().scenes().size());
+
+  // Pre-condition: α is bootstrap-pinned at every scene of target_phase.
+  for (const auto si : iota_range<SceneIndex>(0, num_scenes)) {
+    const auto bounds = alpha_bounds_raw(plp, si, target_phase);
+    REQUIRE(bounds.has_value());
+    CHECK(bounds->first == doctest::Approx(0.0));
+    CHECK(bounds->second == doctest::Approx(0.0));
+  }
+
+  // Build an α-referring cut per scene and feed share_cuts_for_phase
+  // in `accumulate` mode (which broadcasts the summed cut to every
+  // scene's LP).
+  StrongIndexVector<SceneIndex, std::vector<SparseRow>> scene_cuts;
+  scene_cuts.resize(num_scenes);
+  for (const auto si : iota_range<SceneIndex>(0, num_scenes)) {
+    scene_cuts[si].push_back(
+        make_alpha_referring_cut(plp, si, target_phase, 0.5, 100.0));
+  }
+
+  share_cuts_for_phase(
+      target_phase, scene_cuts, CutSharingMode::accumulate, plp);
+
+  // Post-condition: α at target_phase is freed on every scene.
+  for (const auto si : iota_range<SceneIndex>(0, num_scenes)) {
+    CAPTURE(si);
+    const auto bounds = alpha_bounds_raw(plp, si, target_phase);
+    REQUIRE(bounds.has_value());
+    CHECK(bounds->first < kEffectivelyMinusInf);
+    CHECK(bounds->second > kEffectivelyPlusInf);
+  }
+}
+
+TEST_CASE(  // NOLINT
+    "share_cuts_for_phase expected — optimality cut releases α^phase")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  auto planning = make_2scene_3phase_hydro_planning(0.7, 0.3);
+  PlanningLP plp(std::move(planning));
+
+  SDDPOptions sddp_opts;
+  sddp_opts.max_iterations = 0;
+  sddp_opts.enable_api = false;
+  SDDPMethod sddp(plp, sddp_opts);
+  REQUIRE(sddp.ensure_initialized().has_value());
+
+  constexpr PhaseIndex target_phase {0};
+  const auto num_scenes = static_cast<Index>(plp.simulation().scenes().size());
+
+  StrongIndexVector<SceneIndex, std::vector<SparseRow>> scene_cuts;
+  scene_cuts.resize(num_scenes);
+  for (const auto si : iota_range<SceneIndex>(0, num_scenes)) {
+    scene_cuts[si].push_back(
+        make_alpha_referring_cut(plp, si, target_phase, 1.0, 50.0));
+  }
+
+  share_cuts_for_phase(target_phase, scene_cuts, CutSharingMode::expected, plp);
+
+  for (const auto si : iota_range<SceneIndex>(0, num_scenes)) {
+    CAPTURE(si);
+    const auto bounds = alpha_bounds_raw(plp, si, target_phase);
+    REQUIRE(bounds.has_value());
+    CHECK(bounds->first < kEffectivelyMinusInf);
+    CHECK(bounds->second > kEffectivelyPlusInf);
+  }
+}
+
+TEST_CASE(  // NOLINT
+    "share_cuts_for_phase max — optimality cut releases α^phase")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  auto planning = make_2scene_3phase_hydro_planning(0.5, 0.5);
+  PlanningLP plp(std::move(planning));
+
+  SDDPOptions sddp_opts;
+  sddp_opts.max_iterations = 0;
+  sddp_opts.enable_api = false;
+  SDDPMethod sddp(plp, sddp_opts);
+  REQUIRE(sddp.ensure_initialized().has_value());
+
+  constexpr PhaseIndex target_phase {0};
+  const auto num_scenes = static_cast<Index>(plp.simulation().scenes().size());
+
+  StrongIndexVector<SceneIndex, std::vector<SparseRow>> scene_cuts;
+  scene_cuts.resize(num_scenes);
+  for (const auto si : iota_range<SceneIndex>(0, num_scenes)) {
+    scene_cuts[si].push_back(
+        make_alpha_referring_cut(plp, si, target_phase, 0.25, 25.0));
+  }
+
+  share_cuts_for_phase(target_phase, scene_cuts, CutSharingMode::max, plp);
+
+  for (const auto si : iota_range<SceneIndex>(0, num_scenes)) {
+    CAPTURE(si);
+    const auto bounds = alpha_bounds_raw(plp, si, target_phase);
+    REQUIRE(bounds.has_value());
+    CHECK(bounds->first < kEffectivelyMinusInf);
+    CHECK(bounds->second > kEffectivelyPlusInf);
+  }
+}
+
+TEST_CASE(  // NOLINT
+    "share_cuts_for_phase — cut without α reference leaves bootstrap intact")
+{
+  // Negative control: `free_alpha_for_cut` is gated on the cut row
+  // actually referencing α (`cut.cmap.contains(alpha_svar->col())`),
+  // so a shared cut on pure state coefficients must NOT release the
+  // pin.  This pins the gate so a future regression that flips the
+  // policy ("always free on share") would surface here.
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  auto planning = make_2scene_3phase_hydro_planning(0.6, 0.4);
+  PlanningLP plp(std::move(planning));
+
+  SDDPOptions sddp_opts;
+  sddp_opts.max_iterations = 0;
+  sddp_opts.enable_api = false;
+  SDDPMethod sddp(plp, sddp_opts);
+  REQUIRE(sddp.ensure_initialized().has_value());
+
+  constexpr PhaseIndex target_phase {0};
+  const auto num_scenes = static_cast<Index>(plp.simulation().scenes().size());
+
+  // No α col in the cut.
+  StrongIndexVector<SceneIndex, std::vector<SparseRow>> scene_cuts;
+  scene_cuts.resize(num_scenes);
+  for (const auto si : iota_range<SceneIndex>(0, num_scenes)) {
+    SparseRow cut;
+    cut[ColIndex {0}] = 1.0;  // pure state coefficient, no α
+    cut.lowb = 10.0;
+    cut.uppb = LinearProblem::DblMax;
+    scene_cuts[si].push_back(cut);
+  }
+
+  share_cuts_for_phase(
+      target_phase, scene_cuts, CutSharingMode::accumulate, plp);
+
+  // α must stay pinned at the bootstrap (lowb = uppb = 0).
+  for (const auto si : iota_range<SceneIndex>(0, num_scenes)) {
+    CAPTURE(si);
+    const auto bounds = alpha_bounds_raw(plp, si, target_phase);
+    REQUIRE(bounds.has_value());
+    CHECK(bounds->first == doctest::Approx(0.0));
+    CHECK(bounds->second == doctest::Approx(0.0));
+  }
 }

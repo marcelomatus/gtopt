@@ -103,9 +103,26 @@ void share_cuts_for_phase(
       auto scene_local = accumulated;  // copy: per-scene metadata
       // Single accumulated cut per scene → ``extra = 0`` is unique.
       stamp_for_scene(scene_local, scene_index, /*extra=*/0);
-      auto& sys = planning.system(scene_index, phase_index);
-      sys.linear_interface().add_row(scene_local);
-      sys.record_cut_row(scene_local);
+      // Route through the unified `add_cut_row`: it gates on
+      // `CutType::Optimality` to call `free_alpha_for_cut`, releasing
+      // the α^phase_index bootstrap pin if (and only if) the cut row
+      // references α.  The previous raw `add_row + record_cut_row`
+      // pair skipped that step, so shared optimality cuts that
+      // reference α (every backward-pass cut does) left α frozen at
+      // `lowb = uppb = 0` — making the phase LP infeasible on the
+      // next iteration as soon as the cut required α > 0.  Observed
+      // on juan/gtopt_iplp iter i1 p1: every scene declared
+      // infeasible with "no predecessor phase to cut on" because
+      // sddp_share_m1_* cuts demanded α ≈ 1.16e8 against a pinned
+      // α = 0.  See `support/linear_interface_lifecycle_plan_2026-04-30.md`
+      // §2.2 — manual `add_row + record_cut_row` pair was flagged
+      // as a hazard; this is its first concrete victim.
+      std::ignore = add_cut_row(planning,
+                                scene_index,
+                                phase_index,
+                                CutType::Optimality,
+                                scene_local,
+                                /*eps=*/0.0);
     }
 
     SPDLOG_TRACE(
@@ -141,9 +158,26 @@ void share_cuts_for_phase(
       auto scene_local = accumulated;  // copy: per-scene metadata
       // Single expected cut per scene → ``extra = 0`` is unique.
       stamp_for_scene(scene_local, scene_index, /*extra=*/0);
-      auto& sys = planning.system(scene_index, phase_index);
-      sys.linear_interface().add_row(scene_local);
-      sys.record_cut_row(scene_local);
+      // Route through the unified `add_cut_row`: it gates on
+      // `CutType::Optimality` to call `free_alpha_for_cut`, releasing
+      // the α^phase_index bootstrap pin if (and only if) the cut row
+      // references α.  The previous raw `add_row + record_cut_row`
+      // pair skipped that step, so shared optimality cuts that
+      // reference α (every backward-pass cut does) left α frozen at
+      // `lowb = uppb = 0` — making the phase LP infeasible on the
+      // next iteration as soon as the cut required α > 0.  Observed
+      // on juan/gtopt_iplp iter i1 p1: every scene declared
+      // infeasible with "no predecessor phase to cut on" because
+      // sddp_share_m1_* cuts demanded α ≈ 1.16e8 against a pinned
+      // α = 0.  See `support/linear_interface_lifecycle_plan_2026-04-30.md`
+      // §2.2 — manual `add_row + record_cut_row` pair was flagged
+      // as a hazard; this is its first concrete victim.
+      std::ignore = add_cut_row(planning,
+                                scene_index,
+                                phase_index,
+                                CutType::Optimality,
+                                scene_local,
+                                /*eps=*/0.0);
     }
 
     SPDLOG_TRACE(
@@ -171,8 +205,6 @@ void share_cuts_for_phase(
     }
 
     for (const auto scene_index : iota_range<SceneIndex>(0, num_scenes)) {
-      auto& sys = planning.system(scene_index, phase_index);
-      auto& li = sys.linear_interface();
       // ``extra`` is the per-cut counter within this destination
       // scene's broadcast — unique within (scene, phase, iter) so
       // the metadata invariant holds even when N source cuts land
@@ -181,8 +213,18 @@ void share_cuts_for_phase(
       for (auto&& [extra, src_cut] : enumerate<int>(all_cuts)) {
         auto cut = src_cut;  // copy: per-scene/per-cut stamp below
         stamp_for_scene(cut, scene_index, extra);
-        li.add_row(cut);
-        sys.record_cut_row(cut);
+        // Same `add_cut_row` rationale as the accumulate / expected
+        // branches above — release α's bootstrap pin via
+        // `free_alpha_for_cut` whenever a shared optimality cut
+        // references α.  The cuts broadcast in `max` mode are still
+        // backward-pass optimality cuts (`SDDPCutStore::scene_cuts`),
+        // so `CutType::Optimality` is correct here too.
+        std::ignore = add_cut_row(planning,
+                                  scene_index,
+                                  phase_index,
+                                  CutType::Optimality,
+                                  cut,
+                                  /*eps=*/0.0);
       }
     }
 
