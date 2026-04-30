@@ -831,6 +831,25 @@ auto SDDPMethod::run_backward_pass_synchronized(
 {
   const auto num_scenes = planning_lp().simulation().scene_count();
   const auto num_phases = planning_lp().simulation().phase_count();
+  const auto feasible_scenes = static_cast<std::ptrdiff_t>(
+      std::ranges::count(scene_feasible, uint8_t {1}));
+
+  // INFO-level start log so users tailing trace logs see the
+  // backward pass kick off (the non-synchronized path has the
+  // matching log at line ~764).  Without this the log goes silent
+  // between "Forward [i0] rolled back N cuts" and the next
+  // iteration summary, which on juan-scale runs is several
+  // minutes of aperture solves.
+  SPDLOG_INFO(
+      "SDDP Backward [i{}]: dispatching {}/{} feasible scene(s) × "
+      "{} phase(s) (cut_sharing={}, apertures={})",
+      iteration_index,
+      feasible_scenes,
+      num_scenes,
+      num_phases - 1,
+      enum_name(m_options_.cut_sharing),
+      !m_options_.apertures || !m_options_.apertures->empty() ? "enabled"
+                                                              : "disabled");
 
   const auto bwd_start = std::chrono::steady_clock::now();
   BackwardPassOutcome out;
@@ -841,6 +860,16 @@ auto SDDPMethod::run_backward_pass_synchronized(
   // Apertures enabled unless explicitly set to empty array
   const bool use_apertures =
       !m_options_.apertures || !m_options_.apertures->empty();
+
+  // Aggregate per-scene cut-receive counts across the whole pass so
+  // we can tell, at end-of-pass, whether infeasible scenes (which
+  // were skipped at dispatch) actually receive shared cuts from
+  // their feasible peers via `share_cuts_for_phase`.  A scene with
+  // `feasible[s] == 0` should still see this counter grow under any
+  // `cut_sharing != none` mode — that's the evidence the rollback
+  // stall-stop guard reads next iteration.
+  std::vector<std::ptrdiff_t> per_scene_cuts_received(
+      static_cast<std::size_t>(num_scenes), 0);
 
   // Process phases backward: all scenes complete one phase before
   // sharing cuts and moving to the previous phase.
@@ -938,7 +967,56 @@ auto SDDPMethod::run_backward_pass_synchronized(
       }
     }
 
+    // Periodic INFO progress every 10 phases on long backward
+    // passes — juan-scale runs have 50 phases × ~80 cells per
+    // phase × 2-3s per aperture solve, so the synchronized loop
+    // can take many minutes silent.  10 phases ≈ once per minute
+    // on juan, frequent enough for users to see progress without
+    // flooding the log on smaller fixtures.
+    if (uid_of(phase_index) % 10 == 0) {
+      const auto elapsed = std::chrono::duration<double>(
+                               std::chrono::steady_clock::now() - bwd_start)
+                               .count();
+      SPDLOG_INFO(
+          "SDDP Backward [i{}]: phase p{} done — {} cut(s) so far, "
+          "{:.1f}s elapsed",
+          iteration_index,
+          uid_of(phase_index),
+          out.total_cuts,
+          elapsed);
+    }
+
+    // Snapshot post-share row counts on each scene's
+    // (scene, src_phase_index) cell so we can attribute newly-added
+    // rows to the share broadcast.  `share_cuts_for_phase` adds
+    // rows to every destination's LP via `add_cut_row`; the delta
+    // tells us how many cuts each scene received.
+    std::vector<std::size_t> rows_before_share(
+        static_cast<std::size_t>(num_scenes), 0);
+    for (const auto si : iota_range<SceneIndex>(0, num_scenes)) {
+      rows_before_share[static_cast<std::size_t>(si)] =
+          planning_lp()
+              .system(si, src_phase_index)
+              .linear_interface()
+              .get_numrows();
+    }
+
     share_cuts_for_phase(src_phase_index, scene_cuts, iteration_index);
+
+    // Per-scene receive count = post - pre on the destination
+    // (scene, src_phase_index) cell.
+    for (const auto si : iota_range<SceneIndex>(0, num_scenes)) {
+      const auto si_sz = static_cast<std::size_t>(si);
+      const auto rows_after = planning_lp()
+                                  .system(si, src_phase_index)
+                                  .linear_interface()
+                                  .get_numrows();
+      const auto delta = static_cast<std::ptrdiff_t>(rows_after)
+          - static_cast<std::ptrdiff_t>(rows_before_share[si_sz]);
+      if (delta > 0) {
+        per_scene_cuts_received[si_sz] += delta;
+      }
+    }
 
     SPDLOG_TRACE(
         "SDDP backward synchronized: phase {} cuts shared across {} scenes",
@@ -949,6 +1027,35 @@ auto SDDPMethod::run_backward_pass_synchronized(
   out.elapsed_s = std::chrono::duration<double>(std::chrono::steady_clock::now()
                                                 - bwd_start)
                       .count();
+
+  // INFO summary: per-scene cut-receive counts.  Distinguishes
+  // feasible (own cuts + peer broadcasts) from infeasible (peer
+  // broadcasts only) so the user can verify the rollback
+  // stall-stop guard's "global cuts grew" condition will be
+  // satisfied for the infeasible scenes at the next iteration.
+  if (m_options_.cut_sharing != CutSharingMode::none) {
+    std::ptrdiff_t infeas_total = 0;
+    std::ptrdiff_t infeas_count = 0;
+    std::ptrdiff_t feas_total = 0;
+    for (const auto si : iota_range<SceneIndex>(0, num_scenes)) {
+      const auto si_sz = static_cast<std::size_t>(si);
+      if (scene_feasible[si] == 0U) {
+        infeas_total += per_scene_cuts_received[si_sz];
+        ++infeas_count;
+      } else {
+        feas_total += per_scene_cuts_received[si_sz];
+      }
+    }
+    SPDLOG_INFO(
+        "SDDP Backward [i{}]: cut sharing — feasible scenes received "
+        "{} cut row(s), {} infeasible scene(s) received {} cut row(s) "
+        "(rollback stall-stop guard reads global count next iter)",
+        iteration_index,
+        feas_total,
+        infeas_count,
+        infeas_total);
+  }
+
   return out;
 }
 
