@@ -95,6 +95,21 @@ void SDDPCutManager::clear()
   }
 }
 
+// ── SceneCutStore::forget_first ────────────────────────────────────────────
+//
+// Per-scene erase used by the manager's `forget_first_cuts` cross-scene
+// loop.  Plain `m_cuts_.erase(begin, begin+take)` with the size clamp
+// hoisted into the helper so the manager loop reads naturally.
+
+void SceneCutStore::forget_first(std::ptrdiff_t count)
+{
+  if (count <= 0 || m_cuts_.empty()) {
+    return;
+  }
+  const auto take = std::min(count, std::ssize(m_cuts_));
+  m_cuts_.erase(m_cuts_.begin(), m_cuts_.begin() + take);
+}
+
 // ── forget_first_cuts ──────────────────────────────────────────────────────
 
 void SDDPCutManager::forget_first_cuts(std::ptrdiff_t count,
@@ -126,9 +141,9 @@ void SDDPCutManager::forget_first_cuts(std::ptrdiff_t count,
   // scene (covering inherited cuts transferred across cascade levels,
   // which are prepended to each per-scene vector in the same order).
   std::ptrdiff_t n = 0;
-  for (auto& cuts : m_scene_cuts_) {
-    const auto take = std::min(count, std::ssize(cuts));
-    for (const auto& cut : cuts | std::views::take(take)) {
+  for (auto& sc : m_scene_cuts_) {
+    const auto take = std::min(count, std::ssize(sc));
+    for (const auto& cut : sc | std::views::take(take)) {
       if (!cut.name.empty()) {
         names_to_forget.insert(cut.name);
       }
@@ -136,7 +151,7 @@ void SDDPCutManager::forget_first_cuts(std::ptrdiff_t count,
         rows_to_delete[*key].push_back(static_cast<int>(cut.row));
       }
     }
-    cuts.erase(cuts.begin(), cuts.begin() + take);
+    sc.forget_first(count);
     n = std::max(n, take);
   }
 

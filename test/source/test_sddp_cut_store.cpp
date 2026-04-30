@@ -365,6 +365,43 @@ TEST_CASE("SceneCutStore - cuts_before() persists across mutations")  // NOLINT
   CHECK(sc.cuts_before() == 0);
 }
 
+TEST_CASE("SceneCutStore - forget_first erases the leading N cuts")  // NOLINT
+{
+  // `forget_first(count)` is the per-scene piece extracted from
+  // `SDDPCutManager::forget_first_cuts` (plan step 2d).  Pure
+  // in-memory erase — the cross-scene name-set + row-shift
+  // bookkeeping stays on the manager.
+  SceneCutStore sc;
+  for (int i = 0; i < 5; ++i) {
+    sc.store(make_test_cut(static_cast<double>(i)),
+             CutType::Optimality,
+             RowIndex {i},
+             make_uid<Scene>(1),
+             make_uid<Phase>(1));
+  }
+  REQUIRE(sc.size() == 5);
+
+  // count=0 + count=-1 are no-ops.
+  sc.forget_first(0);
+  CHECK(sc.size() == 5);
+  sc.forget_first(-3);
+  CHECK(sc.size() == 5);
+
+  // Drop the first 2; survivors are rhs ∈ {2, 3, 4}.
+  sc.forget_first(2);
+  REQUIRE(sc.size() == 3);
+  CHECK(sc.front().rhs == doctest::Approx(2.0));
+  CHECK(sc.back().rhs == doctest::Approx(4.0));
+
+  // Drop more than remaining → store is fully drained, no UB.
+  sc.forget_first(100);
+  CHECK(sc.empty());
+
+  // forget_first on an empty store stays empty.
+  sc.forget_first(5);
+  CHECK(sc.empty());
+}
+
 TEST_CASE("SceneCutStore - cuts() returns underlying vector")  // NOLINT
 {
   // The `cuts()` accessor is the escape hatch for call sites that

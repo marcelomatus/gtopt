@@ -1,18 +1,22 @@
 /**
  * @file      sddp_cut_store.hpp
- * @brief     Thread-safe storage for SDDP Benders cuts
+ * @brief     Per-scene + manager-level storage for SDDP Benders cuts
  * @date      2026-03-30
  * @author    marcelo
  * @copyright BSD-3-Clause
  *
- * Owns the combined and per-scene cut vectors, the protecting mutex,
- * and the per-scene snapshot used by cut sharing.  Extracted from
- * SDDPMethod to separate cut bookkeeping from the solver orchestration.
+ * Provides the per-scene `SceneCutStore` (owns one scene's cut vector
+ * plus its `cuts_before` snapshot) and the cross-scene `SDDPCutManager`
+ * (cut sharing, persistence, combined view).  No mutex: per-scene
+ * vectors are single-writer during the forward/backward pass (phase
+ * access within a scene is serial), and cross-scene reads happen at
+ * synchronisation barriers.  Extracted from `SDDPMethod` to separate
+ * cut bookkeeping from the solver orchestration; split into the two
+ * classes by `support/sddp_cut_store_split_plan_2026-04-30.md`.
  */
 
 #pragma once
 
-#include <mutex>
 #include <optional>
 #include <span>
 #include <string>
@@ -134,6 +138,16 @@ public:
              RowIndex row,
              SceneUid scene_uid_val,
              PhaseUid phase_uid_val);
+
+  // ── Per-scene cap (forget the first N cuts) ─────────────────────────
+  /// Erase the first `count` cuts from this scene (clamped to the
+  /// current size).  Used by the manager-level `forget_first_cuts`
+  /// pass that walks every scene applying the same cap.  The
+  /// per-scene erase is the only piece of `forget_first_cuts` that
+  /// is naturally per-scene; the cross-scene name-set + row-shift
+  /// bookkeeping stays on the manager because it spans every
+  /// per-scene store.
+  void forget_first(std::ptrdiff_t count);
 
   // ── Per-scene rollback (LP-deleting variant) ────────────────────────
   /// Drop every cut this scene has accumulated, deleting matching LP
