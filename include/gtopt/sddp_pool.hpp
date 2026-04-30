@@ -182,14 +182,28 @@ public:
  * (iteration, is_backward, phase, is_nonlp) with the default
  * `std::less<SDDPTaskKey>` comparator (smaller tuple → higher priority).
  *
- * @param cpu_factor        Over-commit factor applied to hardware_concurrency.
- *                          Default 4.0 — aperture tasks block on clone mutex,
- *                          so extra threads keep CPUs busy while others wait.
+ * @param cpu_factor        Over-commit factor applied to
+ * physical_concurrency(). Default 2.0.  Was 4.0 in the previous, per-task
+ *                          `std::async` design where extra threads kept CPUs
+ *                          busy while others churned through pthread_create
+ *                          and the global clone mutex.  With persistent
+ *                          workers + the `load_factor` dispatch gate the
+ *                          pool self-regulates, so 2× over the physical
+ *                          core count is a better ceiling — large enough to
+ *                          absorb clone-mutex serialisation, small enough
+ *                          to keep idle worker memory bounded.
  * @param memory_limit_mb   Process RSS limit in MB (0 = no limit).
+ * @param load_factor       Soft load-average ceiling: dispatch is blocked
+ *                          while `loadavg > load_factor × would-be active
+ *                          workers` (and we are at ≥ 50 % of `max_threads`).
+ *                          Default 1.25 leaves 25 % "load room" over the
+ *                          worker count.  Set 0 to disable the gate.
  * @return A started SDDPWorkPool (heap-allocated, non-movable).
  */
 [[nodiscard]] inline std::unique_ptr<SDDPWorkPool> make_sddp_work_pool(
-    double cpu_factor = 4.0, double memory_limit_mb = 0.0)
+    double cpu_factor = 2.0,
+    double memory_limit_mb = 0.0,
+    double load_factor = 1.25)
 {
   WorkPoolConfig pool_config {};
   pool_config.name = "SDDPWorkPool";
@@ -198,14 +212,16 @@ public:
   pool_config.max_cpu_threshold = static_cast<int>(
       100.0 - (50.0 / static_cast<double>(pool_config.max_threads)));
   pool_config.max_process_rss_mb = memory_limit_mb;
+  pool_config.load_factor = load_factor;
 
   auto pool = std::make_unique<SDDPWorkPool>(pool_config);
   pool->start();
   SPDLOG_INFO(
-      "SDDP work pool started: max_threads={} cpu_threshold={:.0f}%{} "
-      "(physical_cores={} logical_cores={})",
+      "SDDP work pool started: max_threads={} cpu_threshold={:.0f}% "
+      "load_factor={:.2f}{} (physical_cores={} logical_cores={})",
       pool_config.max_threads,
       static_cast<double>(pool_config.max_cpu_threshold),
+      pool_config.load_factor,
       memory_limit_mb > 0
           ? std::format(" memory_limit={:.0f}MB", memory_limit_mb)
           : "",

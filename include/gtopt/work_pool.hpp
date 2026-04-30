@@ -30,6 +30,7 @@
 #pragma once
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
@@ -52,11 +53,32 @@
 #include <spdlog/spdlog.h>
 
 #ifdef __linux__
+#  include <cstdlib>  // getloadavg
+
 #  include <pthread.h>
 #endif
 
 namespace gtopt
 {
+
+namespace detail
+{
+/// Reads the 1-minute system load average via `getloadavg(3)`.  Returns
+/// 0.0 if unavailable (non-Linux, or kernel returned an error) so
+/// callers can treat that as "load gate disabled".  Cheap enough to
+/// call from `can_dispatch_top()` per scheduling tick: glibc reads
+/// `/proc/loadavg` once and returns a cached value.
+[[nodiscard]] inline double read_loadavg_1min() noexcept
+{
+#ifdef __linux__
+  std::array<double, 1> v {0.0};
+  return (::getloadavg(v.data(), 1) == 1) ? v[0] : 0.0;
+#else
+  return 0.0;
+#endif
+}
+}  // namespace detail
+
 struct WorkPoolConfig
 {
   int max_threads;
@@ -77,6 +99,21 @@ struct WorkPoolConfig
   /// Only evaluated near thread saturation so quiescent paging (e.g.
   /// init-time swap readahead) does not stall the pool.  0 = disabled.
   double max_swap_io_per_sec {0.0};
+  /// Target ratio between 1-min system load average and the pool's
+  /// would-be active worker count.  Acts as a soft over-commit ceiling:
+  /// dispatch is blocked while `loadavg > load_factor * (current_threads
+  /// + threads_needed)` and we are at ≥ 50 % of `max_threads`.  The
+  /// 50 % floor keeps the gate inactive at low utilisation, where
+  /// background system load (other processes) would otherwise prevent
+  /// the pool from ever starting.  Disabled (0.0) by default at this
+  /// layer because small pools running under high system-wide load
+  /// (e.g. unit tests under `ctest -j20`) would otherwise see the
+  /// gate fire on background load that has nothing to do with this
+  /// pool's own work.  The SDDP factory `make_sddp_work_pool()` sets
+  /// it to 1.25 — meaningful for an 80-worker production pool that is
+  /// the dominant CPU consumer.  Linux only (uses `getloadavg(3)`);
+  /// on other platforms the gate is a no-op.
+  double load_factor {0.0};
 
   explicit WorkPoolConfig(
       int max_threads_ = static_cast<int>(physical_concurrency()),
@@ -89,7 +126,8 @@ struct WorkPoolConfig
       std::string name_ = "WorkPool",
       bool enable_periodic_stats_ = true,
       double max_process_swap_mb_ = 2048.0,
-      double max_swap_io_per_sec_ = 0.0) noexcept
+      double max_swap_io_per_sec_ = 0.0,
+      double load_factor_ = 0.0) noexcept
       : max_threads(max_threads_)
       , max_cpu_threshold(max_cpu_threshold_)
       , min_free_memory_mb(min_free_memory_mb_)
@@ -100,6 +138,7 @@ struct WorkPoolConfig
       , enable_periodic_stats(enable_periodic_stats_)
       , max_process_swap_mb(max_process_swap_mb_)
       , max_swap_io_per_sec(max_swap_io_per_sec_)
+      , load_factor(load_factor_)
   {
   }
 };
@@ -313,6 +352,7 @@ private:
   double max_process_rss_mb_;
   double max_process_swap_mb_;
   double max_swap_io_per_sec_;
+  double load_factor_;
   std::chrono::milliseconds scheduler_interval_;
   std::string name_;
   bool enable_periodic_stats_;
@@ -340,6 +380,7 @@ private:
   mutable std::atomic<size_t> throttled_process_rss_ {0};
   mutable std::atomic<size_t> throttled_process_swap_ {0};
   mutable std::atomic<size_t> throttled_swap_io_ {0};
+  mutable std::atomic<size_t> throttled_load_ {0};
 
   // Stall detection: tracked across `log_periodic_stats()` calls to detect
   // when `tasks_completed` stops advancing while work is still queued.
@@ -360,13 +401,14 @@ public:
       , max_process_rss_mb_(config.max_process_rss_mb)
       , max_process_swap_mb_(config.max_process_swap_mb)
       , max_swap_io_per_sec_(config.max_swap_io_per_sec)
+      , load_factor_(config.load_factor)
       , scheduler_interval_(config.scheduler_interval)
       , name_(std::move(config.name))
       , enable_periodic_stats_(config.enable_periodic_stats)
   {
     spdlog::info(
         "  {} initialized: {} max threads, {:.0f}% CPU threshold, "
-        "{:.0f} MB min free mem, {:.0f}% max mem{}{}{}",
+        "{:.0f} MB min free mem, {:.0f}% max mem{}{}{}{}",
         name_,
         max_threads_,
         max_cpu_threshold_,
@@ -380,7 +422,9 @@ public:
             : "",
         max_swap_io_per_sec_ > 0
             ? std::format(", {:.0f} pg/s max swap I/O", max_swap_io_per_sec_)
-            : "");
+            : "",
+        load_factor_ > 0 ? std::format(", load_factor {:.2f}", load_factor_)
+                         : "");
   }
 
   ~BasicWorkPool() noexcept
@@ -632,6 +676,7 @@ public:
     double process_swap_mb;  ///< Process VmSwap in MB
     double swap_used_mb;  ///< System swap used in MB
     double swap_io_rate;  ///< Pages/sec (pswpin + pswpout)
+    double loadavg_1min;  ///< 1-minute system load average (0 if N/A)
     size_t lp_tasks_dispatched;  ///< Total LP tasks dispatched
     double avg_task_cpu_pct;  ///< Average CPU % per LP task
     double avg_task_rss_delta_mb;  ///< Average RSS delta per LP task
@@ -649,6 +694,7 @@ public:
     size_t throttled_process_rss;
     size_t throttled_process_swap;
     size_t throttled_swap_io;
+    size_t throttled_load;
     /// @}
   };
 
@@ -678,6 +724,7 @@ public:
         .process_swap_mb = memory_monitor_.get_process_swap_mb(),
         .swap_used_mb = memory_monitor_.get_swap_used_mb(),
         .swap_io_rate = memory_monitor_.get_swap_io_rate(),
+        .loadavg_1min = detail::read_loadavg_1min(),
         .lp_tasks_dispatched = dispatched,
         .avg_task_cpu_pct = avg_cpu,
         .avg_task_rss_delta_mb = avg_mem,
@@ -691,6 +738,7 @@ public:
         .throttled_process_swap =
             throttled_process_swap_.load(std::memory_order_relaxed),
         .throttled_swap_io = throttled_swap_io_.load(std::memory_order_relaxed),
+        .throttled_load = throttled_load_.load(std::memory_order_relaxed),
     };
   }
 
@@ -940,6 +988,37 @@ private:
       }
     }
 
+    // Load-average gate.  Keep loadavg ≤ load_factor × would-be active
+    // workers — i.e. allow at most `load_factor`× over-commit on top of
+    // the threads we'd be running.  Only applied at ≥ 50 % of
+    // `max_threads_` so the pool can start up under normal background
+    // system load.  Critical tasks get 1.5× headroom.
+    if (load_factor_ > 0.0
+        && current_threads + threads_needed
+            >= static_cast<int>(max_threads_ * 0.5))
+    {
+      const auto loadavg = detail::read_loadavg_1min();
+      if (loadavg > 0.0) {  // 0 means N/A — skip gate
+        const auto would_be_active = current_threads + threads_needed;
+        const auto effective_factor =
+            is_critical ? load_factor_ * 1.5 : load_factor_;
+        const auto load_target =
+            effective_factor * static_cast<double>(would_be_active);
+        if (loadavg > load_target) {
+          throttled_load_.fetch_add(1, std::memory_order_relaxed);
+          SPDLOG_DEBUG(
+              "{}: blocked by loadavg {:.2f} > {:.2f} (factor {:.2f} × "
+              "{} would-be active)",
+              name_,
+              loadavg,
+              load_target,
+              effective_factor,
+              would_be_active);
+          return false;
+        }
+      }
+    }
+
     return true;
   }
 
@@ -955,11 +1034,19 @@ private:
                         stats.process_swap_mb,
                         stats.swap_io_rate)
           : std::string {};
+      // Loadavg is only included when the load gate is active (so we
+      // log the metric the gate is actually using).  Side-by-side with
+      // `Active:` it makes the load_factor decision auditable from the
+      // log alone.
+      const auto load_tail = (load_factor_ > 0.0 && stats.loadavg_1min > 0.0)
+          ? std::format("  Load: {:.1f}", stats.loadavg_1min)
+          : std::string {};
       spdlog::info(
-          "[{}] CPU: {:.1f}%  MEM: {:.0f} MB free ({:.1f}%)  "
+          "[{}] CPU: {:.1f}%{}  MEM: {:.0f} MB free ({:.1f}%)  "
           "RSS: {:.0f} MB{}  Active: {}/{}  Pending: {}  Done: {}",
           name_,
           stats.current_cpu_load,
+          load_tail,
           stats.available_memory_mb,
           stats.current_memory_percent,
           stats.process_rss_mb,
@@ -1020,6 +1107,16 @@ private:
           reason = std::format("CPU load {:.1f}% >= {:.1f}%",
                                stats.current_cpu_load,
                                max_cpu_threshold_);
+        } else if (load_factor_ > 0.0 && stats.loadavg_1min > 0.0
+                   && stats.active_threads + 1
+                       >= static_cast<int>(max_threads_ * 0.5)
+                   && stats.loadavg_1min
+                       > load_factor_ * (stats.active_threads + 1))
+        {
+          reason = std::format("loadavg {:.1f} > {:.2f} × {} (load_factor)",
+                               stats.loadavg_1min,
+                               load_factor_,
+                               stats.active_threads + 1);
         } else if (stats.swap_io_rate > 0.0) {
           reason = std::format(
               "active task(s) not completing (kernel paging "
@@ -1075,11 +1172,11 @@ private:
       const auto total_throttle = stats.throttled_cpu
           + stats.throttled_memory_pct + stats.throttled_free_memory
           + stats.throttled_process_rss + stats.throttled_process_swap
-          + stats.throttled_swap_io;
+          + stats.throttled_swap_io + stats.throttled_load;
       if (total_throttle > 0) {
         spdlog::info(
             "[{}]   throttle events: cpu={} mem%={} free_mem={} rss={} "
-            "swap={} swap_io={} (total={})",
+            "swap={} swap_io={} load={} (total={})",
             name_,
             stats.throttled_cpu,
             stats.throttled_memory_pct,
@@ -1087,6 +1184,7 @@ private:
             stats.throttled_process_rss,
             stats.throttled_process_swap,
             stats.throttled_swap_io,
+            stats.throttled_load,
             total_throttle);
       }
     } catch (const std::exception& e) {

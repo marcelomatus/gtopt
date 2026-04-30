@@ -388,6 +388,14 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
    *  the clone mutex. */
   OptReal pool_cpu_factor {};
 
+  /** @brief SDDP work pool load-average ceiling factor.
+   *  Dispatch is blocked while
+   *  `loadavg > pool_load_factor × would-be active workers`
+   *  (and the pool is at ≥ 50 % of `max_threads`).
+   *  Default 1.25 — leaves 25 % "load room" over the active-worker
+   *  count.  Set 1.5 for a looser ceiling, 0.0 to disable the gate. */
+  OptReal pool_load_factor {};
+
   /** @brief Process memory limit in MB for the SDDP work pool.
    *  When non-zero, the pool blocks task dispatch if process RSS exceeds
    *  this value.  Accepts values parsed by parse_memory_size (e.g. 5G).
@@ -474,6 +482,7 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
     merge_opt(backward_max_fallbacks, opts.backward_max_fallbacks);
     merge_opt(max_async_spread, opts.max_async_spread);
     merge_opt(pool_cpu_factor, opts.pool_cpu_factor);
+    merge_opt(pool_load_factor, opts.pool_load_factor);
     merge_opt(pool_memory_limit_mb, opts.pool_memory_limit_mb);
     if (opts.forward_solver_options.has_value()) {
       if (forward_solver_options.has_value()) {

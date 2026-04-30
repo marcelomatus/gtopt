@@ -107,7 +107,8 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
   //               avoid idle threads.
   const auto pool_start = std::chrono::steady_clock::now();
   auto sddp_pool = make_sddp_work_pool(m_options_.pool_cpu_factor,
-                                       m_options_.pool_memory_limit_mb);
+                                       m_options_.pool_memory_limit_mb,
+                                       m_options_.pool_load_factor);
   const bool need_aux_pool =
       (!m_options_.apertures || !m_options_.apertures->empty())
       || !m_options_.log_directory.empty();

@@ -1051,6 +1051,24 @@ public:
     return m_options_.sddp_options.pool_cpu_factor.value_or(4.0);
   }
 
+  /** @brief SDDP work pool load-average ceiling factor (default: 1.25).
+   *
+   * Soft over-commit cap: dispatch is blocked while
+   * `loadavg > pool_load_factor × would-be active workers` and the
+   * pool is at ≥ 50 % of `max_threads`.  The 50 % floor keeps the gate
+   * inactive at low utilisation; otherwise unrelated background load
+   * would prevent the pool from ever starting.
+   *
+   * Set to 0.0 to disable the gate entirely (legacy unconstrained
+   * dispatch).  Higher values (e.g. 1.5) accept more oversubscription;
+   * lower values (e.g. 1.0) keep load tightly tracked to the worker
+   * count.
+   */
+  [[nodiscard]] constexpr auto sddp_pool_load_factor() const
+  {
+    return m_options_.sddp_options.pool_load_factor.value_or(1.25);
+  }
+
   /** @brief LP-build work-pool CPU over-commit factor (default: 2.0).
    *
    * Currently shares the `sddp_options.pool_cpu_factor` field with the
