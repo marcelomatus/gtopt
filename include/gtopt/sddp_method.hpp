@@ -350,6 +350,37 @@ public:
   /// Access the cut store (for cascade orchestration, etc.).
   [[nodiscard]] SDDPCutStore& cut_store() noexcept { return m_cut_store_; }
 
+  /// Per-scene rollback state for `SDDPOptions::forward_infeas_rollback`.
+  /// `global_cuts_at_last_failure` is set on the iteration where scene S
+  /// was declared infeasible (forward pass).  At the next iteration's
+  /// forward dispatch, S retries iff `m_cut_store_.num_stored_cuts()`
+  /// has grown since the snapshot (peers contributed cuts).  When every
+  /// previously-failed scene is "stalled" (no new cuts since failure),
+  /// the run aborts with `SolverError`/`no recovery path`.
+  struct SceneRetryState
+  {
+    std::optional<std::ptrdiff_t> global_cuts_at_last_failure {};
+  };
+
+  /// Mutable per-scene retry state (test-friendly accessor).  Promoted
+  /// to public so characterisation tests can synthesise the
+  /// "scene S failed last iteration" state without first forcing a
+  /// real LP infeasibility — set
+  /// `scene_retry_state(s).global_cuts_at_last_failure = current_count`
+  /// then drive `solve()` to exercise the stall-stop guard at the next
+  /// forward dispatch.  Production callers should not mutate this
+  /// vector directly; the rollback hook + stall guard in
+  /// `run_forward_pass_all_scenes` own the lifecycle.
+  [[nodiscard]] SceneRetryState& scene_retry_state(SceneIndex scene_index)
+  {
+    return m_scene_retry_state_[scene_index];
+  }
+  [[nodiscard]] const SceneRetryState& scene_retry_state(
+      SceneIndex scene_index) const
+  {
+    return m_scene_retry_state_[scene_index];
+  }
+
   /// Save accumulated cuts to a CSV file for hot-start
   [[nodiscard]] auto save_cuts(const std::string& filepath) const
       -> std::expected<void, Error>;
@@ -855,22 +886,13 @@ private:
       m_max_kappa_;
 
   /// Per-scene retry state for `SDDPOptions::forward_infeas_rollback`.
-  /// `global_cuts_at_last_failure` is set on the iteration where scene
-  /// S was declared infeasible (forward pass).  At the *next* iteration's
-  /// forward dispatch, S retries iff `m_cut_store_.num_stored_cuts()`
-  /// has grown since the snapshot (peers contributed cuts).  When every
-  /// previously-failed scene is "stalled" (no new cuts since failure),
-  /// the run aborts with `SolverError`/`no recovery path` to avoid an
-  /// infinite-loop on degenerate single-scene / no-progress runs.
-  ///
-  /// Empty (`std::nullopt`) until S has been declared infeasible at
-  /// least once.  Cleared back to `std::nullopt` when S retries
-  /// successfully (snapshot grew).  Sized once in
-  /// `initialize_solver`; reset on every fresh `solve()` call.
-  struct SceneRetryState
-  {
-    std::optional<std::ptrdiff_t> global_cuts_at_last_failure {};
-  };
+  /// Public struct definition lives in the upper public block so the
+  /// `scene_retry_state()` accessor (declared above) can return it.
+  /// `global_cuts_at_last_failure` is empty (`std::nullopt`) until S
+  /// has been declared infeasible at least once.  Cleared back to
+  /// `std::nullopt` when S retries successfully (snapshot grew).
+  /// Sized once in `initialize_solver`; reset on every fresh `solve()`
+  /// call.
   StrongIndexVector<SceneIndex, SceneRetryState> m_scene_retry_state_;
 
   bool m_initialized_ {false};

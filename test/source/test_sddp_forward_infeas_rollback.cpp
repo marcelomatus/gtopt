@@ -298,10 +298,119 @@ TEST_CASE(  // NOLINT
   //
   // We invoke the public `solve()` with max_iterations=0 to confirm
   // the guard never fires when no failure has been recorded.
-  // (The plan's full integration test — drive an actual scene
-  // failure and assert the rollback semantics — requires a
-  // force-infeasible fixture which is deferred to a follow-up
-  // commit; this test pins the *empty-state* invariant.)
+  auto result = sddp.solve();
+  REQUIRE(result.has_value());
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// S1 — stall-stop guard fires when previously-failed scene sees no progress
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// Synthesise the "scene 0 failed at the previous iteration" state via
+// the test-friendly public `scene_retry_state(s)` accessor instead of
+// forcing a real LP infeasibility (the latter requires a dedicated
+// fixture that's deferred).  Setting the snapshot equal to the
+// current global cut count guarantees the next forward dispatch sees
+// `current_global_cuts > snapshot` as false → the scene is "stalled"
+// → the guard returns `Error{SolverError, "no recovery path"}`.
+
+TEST_CASE(  // NOLINT
+    "SDDPMethod stall-stop fires when failed scene sees no new cuts")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  auto planning = make_2scene_3phase_hydro_planning(0.5, 0.5);
+  planning.options.sddp_options.forward_infeas_rollback = true;
+  PlanningLP plp(std::move(planning));
+
+  SDDPOptions sddp_opts;
+  sddp_opts.max_iterations = 1;
+  sddp_opts.enable_api = false;
+  sddp_opts.forward_infeas_rollback = true;
+  SDDPMethod sddp(plp, sddp_opts);
+  REQUIRE(sddp.ensure_initialized().has_value());
+
+  // Synthesise: scene 0 failed last iteration, snapshot of global cuts
+  // taken at the moment of failure equals the current count.  Scene 1
+  // has not failed.  Next forward dispatch must see "0 stalled scenes"
+  // would be wrong — `failed_last == 1` and `stalled == 1`, so the
+  // guard fires.
+  const auto current_cuts = sddp.num_stored_cuts();
+  sddp.scene_retry_state(SceneIndex {0}).global_cuts_at_last_failure =
+      current_cuts;
+
+  auto result = sddp.solve();
+  REQUIRE_FALSE(result.has_value());
+  CHECK(result.error().code == ErrorCode::SolverError);
+  CHECK(result.error().message.find("no recovery path") != std::string::npos);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// S2 — stall-stop guard clears the failure marker when progress detected
+// ═══════════════════════════════════════════════════════════════════════════
+
+TEST_CASE(  // NOLINT
+    "SDDPMethod stall-stop clears marker when peer cuts arrived")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  auto planning = make_2scene_3phase_hydro_planning(0.5, 0.5);
+  planning.options.sddp_options.forward_infeas_rollback = true;
+  PlanningLP plp(std::move(planning));
+
+  SDDPOptions sddp_opts;
+  sddp_opts.max_iterations = 1;
+  sddp_opts.enable_api = false;
+  sddp_opts.forward_infeas_rollback = true;
+  SDDPMethod sddp(plp, sddp_opts);
+  REQUIRE(sddp.ensure_initialized().has_value());
+
+  // Synthesise: scene 0 failed *before* any cuts existed (snapshot=0),
+  // then scene 1 contributed a cut (current=1).  At forward dispatch
+  // the guard sees `current(1) > snapshot(0)`, clears scene 0's marker,
+  // and the run continues.
+  std::ignore = inject_optcut(
+      sddp, plp, SceneIndex {1}, PhaseIndex {0}, /*rhs=*/100.0, /*extra=*/0);
+  REQUIRE(sddp.num_stored_cuts() == 1);
+
+  sddp.scene_retry_state(SceneIndex {0}).global_cuts_at_last_failure = 0;
+
+  auto result = sddp.solve();
+  REQUIRE(result.has_value());
+
+  // The guard cleared the marker — scene 0's snapshot is empty.
+  CHECK_FALSE(sddp.scene_retry_state(SceneIndex {0})
+                  .global_cuts_at_last_failure.has_value());
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// S3 — default-OFF preserves legacy behaviour (guard never fires)
+// ═══════════════════════════════════════════════════════════════════════════
+
+TEST_CASE(  // NOLINT
+    "SDDPMethod stall-stop is gated on forward_infeas_rollback option")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  auto planning = make_2scene_3phase_hydro_planning(0.5, 0.5);
+  // Flag deliberately omitted — defaults to false.
+  PlanningLP plp(std::move(planning));
+
+  SDDPOptions sddp_opts;
+  sddp_opts.max_iterations = 1;
+  sddp_opts.enable_api = false;
+  // sddp_opts.forward_infeas_rollback intentionally left at default false.
+  SDDPMethod sddp(plp, sddp_opts);
+  REQUIRE(sddp.ensure_initialized().has_value());
+
+  // Even if a snapshot is somehow present (e.g. from a previous
+  // forward_infeas_rollback=true cascade level), the guard must
+  // respect the *current* option value.  The synthetic state below
+  // would trip the guard if the flag were on; with the flag off the
+  // run completes normally.
+  sddp.scene_retry_state(SceneIndex {0}).global_cuts_at_last_failure =
+      sddp.num_stored_cuts();
+
   auto result = sddp.solve();
   REQUIRE(result.has_value());
 }
