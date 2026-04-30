@@ -182,14 +182,20 @@ public:
  * (iteration, is_backward, phase, is_nonlp) with the default
  * `std::less<SDDPTaskKey>` comparator (smaller tuple → higher priority).
  *
- * @param cpu_factor        Over-commit factor applied to hardware_concurrency.
- *                          Default 4.0 — aperture tasks block on clone mutex,
- *                          so extra threads keep CPUs busy while others wait.
+ * @param cpu_factor        Over-commit factor applied to
+ *                          `physical_concurrency()`.  Default 2.0.
+ *                          Was 4.0 under the previous per-task
+ *                          `std::async` design (where extra threads
+ *                          kept CPUs busy while others churned through
+ *                          pthread_create and the global clone mutex);
+ *                          with persistent lazy-spawned workers the
+ *                          pool self-regulates, so 2× over physical
+ *                          cores is a better ceiling.
  * @param memory_limit_mb   Process RSS limit in MB (0 = no limit).
  * @return A started SDDPWorkPool (heap-allocated, non-movable).
  */
 [[nodiscard]] inline std::unique_ptr<SDDPWorkPool> make_sddp_work_pool(
-    double cpu_factor = 4.0, double memory_limit_mb = 0.0)
+    double cpu_factor = 2.0, double memory_limit_mb = 0.0)
 {
   WorkPoolConfig pool_config {};
   pool_config.name = "SDDPWorkPool";
