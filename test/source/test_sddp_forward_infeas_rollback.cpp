@@ -126,6 +126,100 @@ TEST_CASE(  // NOLINT
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+// M1e — rollback preserves cuts shared from peers (not in m_scene_cuts_)
+// ═══════════════════════════════════════════════════════════════════════════
+
+TEST_CASE(  // NOLINT
+    "SDDPCutManager::clear_scene_cuts preserves cuts shared from peers")
+{
+  // Critical invariant for the `forward_infeas_rollback` design:
+  // shared cuts received by scene S from peers via
+  // `share_cuts_for_phase` are NOT in `m_scene_cuts_[S]` — they
+  // live as LP rows + replay-buffer entries on S's LinearInterface.
+  // When S is rolled back, only S's OWN cuts go (entries in
+  // `m_scene_cuts_[S]`); shared peer cuts on S's LP must survive
+  // because they encode peer progress that the stall-stop guard
+  // (next iteration's forward dispatch) reads as "global cut count
+  // grew, retry".
+  //
+  // This test simulates the situation directly:
+  //   1. Inject one S=0 OPT cut (lands in m_scene_cuts_[0]).
+  //   2. Inject one shared cut on S=0's LP via share_cuts_for_phase
+  //      (lands on S=0's LP rows but NOT in m_scene_cuts_[0]).
+  //   3. Roll back S=0.
+  //   4. Verify: m_scene_cuts_[0] is empty AND S=0's LP still has
+  //      the shared cut row (proven by row count delta = 1, not 2).
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  auto planning = make_2scene_3phase_hydro_planning(0.5, 0.5);
+  PlanningLP plp(std::move(planning));
+
+  SDDPOptions sddp_opts;
+  sddp_opts.max_iterations = 0;
+  sddp_opts.enable_api = false;
+  SDDPMethod sddp(plp, sddp_opts);
+  REQUIRE(sddp.ensure_initialized().has_value());
+
+  constexpr SceneIndex target_scene {0};
+  constexpr PhaseIndex target_phase {0};
+  auto& sys = plp.system(target_scene, target_phase);
+  auto& li = sys.linear_interface();
+
+  const auto rows_before = li.get_numrows();
+
+  // Step 1: scene-0 owns this optimality cut (goes into
+  // m_scene_cuts_[0]).
+  std::ignore = inject_optcut(
+      sddp, plp, target_scene, target_phase, /*rhs=*/100.0, /*extra=*/0);
+  REQUIRE(sddp.cut_manager().scene_cuts()[target_scene].size() == 1);
+  REQUIRE(li.get_numrows() == rows_before + 1);
+
+  // Step 2: simulate a peer-shared cut by adding a row directly
+  // through `add_cut_row` (without `cut_store().store_cut`).  This
+  // mirrors the actual `share_cuts_for_phase` path which goes
+  // through `add_cut_row` to release α but does NOT call
+  // `m_cut_store_.store_cut` — see `sddp_cut_sharing.cpp:62-65`
+  // comment "share_cuts_for_phase never calls store_cut".
+  const auto* alpha_svar =
+      find_alpha_state_var(plp.simulation(), target_scene, target_phase);
+  REQUIRE(alpha_svar != nullptr);
+  SparseRow shared_cut;
+  shared_cut[alpha_svar->col()] = 1.0;
+  shared_cut[ColIndex {0}] = 0.5;
+  shared_cut.lowb = 50.0;
+  shared_cut.uppb = LinearProblem::DblMax;
+  shared_cut.class_name = sddp_alpha_class_name;
+  shared_cut.constraint_name = sddp_share_cut_tag.constraint_name;
+  shared_cut.variable_uid = plp.simulation().uid_of(target_phase);
+  shared_cut.context =
+      make_iteration_context(plp.simulation().uid_of(target_scene),
+                             plp.simulation().uid_of(target_phase),
+                             gtopt::uid_of(IterationIndex {0}),
+                             /*extra=*/0);
+  std::ignore = add_cut_row(plp,
+                            target_scene,
+                            target_phase,
+                            CutType::Optimality,
+                            shared_cut,
+                            /*eps=*/0.0);
+
+  // Now S=0's LP has 2 cut rows; m_scene_cuts_[0] still has only 1
+  // (the shared cut wasn't recorded).
+  REQUIRE(li.get_numrows() == rows_before + 2);
+  REQUIRE(sddp.cut_manager().scene_cuts()[target_scene].size() == 1);
+
+  // Step 3: roll back S=0.  Only the 1 cut owned by S=0 goes;
+  // the shared cut survives.
+  const auto deleted = sddp.cut_manager().clear_scene_cuts(target_scene, plp);
+  CHECK(deleted == 1);
+  CHECK(sddp.cut_manager().scene_cuts()[target_scene].empty());
+
+  // Step 4: critical invariant — the shared cut is still on S=0's
+  // LP.  Row count dropped by 1 (the owned cut), not 2.
+  CHECK(li.get_numrows() == rows_before + 1);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // M1d — clear_scene_cuts deletes rows across MULTIPLE phases at once
 // ═══════════════════════════════════════════════════════════════════════════
 
