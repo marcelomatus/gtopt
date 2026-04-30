@@ -1168,6 +1168,15 @@ public:
   void materialize_labels() const;
 
 private:
+  /// Bulk-replay helper for `apply_post_load_replay`.  Wraps the
+  /// general-purpose `add_rows(span)` call against `m_active_cuts_`
+  /// so the cut-replay site reads as a verb rather than a generic
+  /// bulk-add — matches plan step 6 of the lifecycle refactor's
+  /// "make the single legitimate caller obvious" intent without
+  /// breaking the public `add_rows(span)` test that exercises the
+  /// cross-backend bulk dispatch.
+  void replay_active_cuts();
+
   /// Deep-copy helper for `shared_ptr<T>` members.  Returns a fresh
   /// `shared_ptr` owning a value-copy of the source's underlying T —
   /// the deep-clone counterpart to the shallow-clone `shared_ptr`

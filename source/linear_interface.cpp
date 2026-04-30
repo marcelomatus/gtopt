@@ -376,9 +376,7 @@ void LinearInterface::apply_post_load_replay(std::span<const double> col_sol,
   save_base_numrows();
 
   // 3. Bulk-add active cuts (single efficient call).
-  if (!m_active_cuts_.empty()) {
-    add_rows(m_active_cuts_);
-  }
+  replay_active_cuts();
 
   // 4. Warm-start from the caller-supplied primal/dual when available.
   if (!col_sol.empty() || !row_dual.empty()) {
@@ -419,6 +417,21 @@ bool LinearInterface::update_dynamic_col_bounds(std::string_view class_name,
     }
   }
   return false;
+}
+
+// Private helper for `apply_post_load_replay` (the sole legitimate
+// internal caller for the bulk cut-replay path).  Keeps the
+// `add_rows(m_active_cuts_)` call self-documenting and gives plan
+// step 6 of the lifecycle refactor a single audit point for the
+// metadata-tracking invariant fixed earlier (see commit 13a0dd55).
+// The general-purpose `add_rows(span)` API stays public for
+// `check_solvers - add_rows` (cross-backend bulk-add coverage).
+void LinearInterface::replay_active_cuts()
+{
+  if (m_active_cuts_.empty()) {
+    return;
+  }
+  add_rows(m_active_cuts_);
 }
 
 void LinearInterface::record_cut_row(SparseRow row)
