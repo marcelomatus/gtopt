@@ -172,6 +172,80 @@ TEST_CASE(
   CHECK(r2.error().message.find("fallback") != std::string::npos);
 }
 
+// Regression: a cell that was once optimal then becomes non-optimal
+// must report `is_optimal() == false` after release, not the stale
+// `true` from the prior optimal solve.  Prior to this fix
+// `release_backend` cleared the cached primal/dual/reduced-cost
+// vectors on a non-optimal release but did NOT flip
+// `m_cached_is_optimal_` back to false; subsequent reads through the
+// released-backend cache path then claimed the cell was still
+// optimal.  Under SDDP with `low_memory=compress` and a cleared
+// snapshot, the next `OutputContext` ctor read `get_col_sol()` →
+// `backend()` → `ensure_backend()` → silent-no-op (no snapshot to
+// rebuild from) → null `unique_ptr` deref crash.  Observed on
+// juan/gtopt_iplp iter i2 post-CONVERGED write_out for cells that
+// went optimal-→-non-optimal across iterations.
+TEST_CASE(  // NOLINT
+    "LinearInterface — non-optimal release flips cached is_optimal flag")
+{
+  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+
+  // Build a one-col / one-row LP via `LinearProblem` + `flatten` +
+  // `load_flat` so we have a snapshot to reconstruct from later
+  // (matches the existing `make_simple_li_lp` shape).
+  LinearProblem lp;
+  const auto c1 = lp.add_col(SparseCol {.uppb = 10.0, .cost = 1.0});
+  const auto r = lp.add_row(SparseRow {
+      .lowb = 1.0,
+      .uppb = SparseRow::DblMax,
+  });
+  lp.set_coeff(r, c1, 1.0);
+  auto flat = lp.flatten({});
+
+  LinearInterface li;
+  li.load_flat(flat);
+  li.save_base_numrows();
+
+  // First solve: feasible / optimal.
+  auto r1 = li.initial_solve(SolverOptions {
+      .algorithm = LPAlgo::dual,
+      .log_level = 0,
+  });
+  REQUIRE(r1.has_value());
+  REQUIRE(li.is_optimal());
+
+  // Now wire up compress + snapshot, then release.  `release_backend`
+  // caches the optimal-state scalars + primal/dual vectors and flips
+  // `m_cached_is_optimal_ = true`.
+  li.set_low_memory(LowMemoryMode::compress);
+  li.save_snapshot(FlatLinearProblem {flat});
+  li.release_backend();
+  REQUIRE(li.is_backend_released());
+  REQUIRE(li.is_optimal());  // cached true
+
+  // Bring the backend back from the snapshot, then make the LP
+  // infeasible and resolve.  The resolve fails (bounds contradict
+  // the row); `is_optimal()` reads false from the live backend.
+  li.reconstruct_backend();
+  li.set_col_upp_raw(ColIndex {0}, 0.0);  // infeasible: x1 <= 0 but x1 >= 1
+  auto r2 = li.resolve(SolverOptions {
+      .algorithm = LPAlgo::dual,
+      .log_level = 0,
+      .max_fallbacks = 0,
+  });
+  CHECK_FALSE(r2.has_value());
+  CHECK_FALSE(li.is_optimal());  // live backend reports non-optimal
+
+  // Release on a non-optimal backend.  Pre-fix: the non-optimal
+  // branch cleared cached primal/dual vectors but left
+  // `m_cached_is_optimal_` at its prior `true`, so the post-release
+  // `is_optimal()` lied about the cell.  Post-fix: it correctly
+  // returns false.
+  li.release_backend();
+  CHECK(li.is_backend_released());
+  CHECK_FALSE(li.is_optimal());
+}
+
 TEST_CASE("LinearInterface - max_fallbacks=0 disables fallback")  // NOLINT
 {
   using namespace gtopt;  // NOLINT(google-global-names-in-headers)
@@ -2183,4 +2257,97 @@ TEST_CASE(  // NOLINT
   li.load_flat(flat);
 
   CHECK_THROWS_AS(li.materialize_labels(), std::logic_error);
+}
+
+// Regression: under `LowMemoryMode::compress` the cell rebuild path
+// (`apply_post_load_replay`) re-adds `m_active_cuts_` through the bulk
+// `add_rows` API.  That path used to skip `track_row_label_meta`, leaving
+// `m_row_labels_meta_` shorter than the backend row count by exactly the
+// number of replayed cuts.  Any later `materialize_labels` /
+// `push_names_to_solver` / `write_lp` then threw
+// `std::logic_error("row N has no entry in m_row_labels_meta_")` — the
+// failure mode observed on `support/juan/gtopt_iplp` SDDP runs.  This
+// test exercises a single labeled cut across a compress→reconstruct
+// cycle and asserts that label synthesis no longer throws.
+TEST_CASE(  // NOLINT
+    "LinearInterface — bulk add_rows replay preserves row label metadata")
+{
+  // Build a fully-labeled LP so `generate_labels_from_maps` is exercised
+  // on every col + row (the simple unlabeled fixture short-circuits at
+  // the col-side check).  Mirrors the `make_simple_li_lp` shape but with
+  // `class_name` / `variable_name` / `variable_uid` populated.
+  LinearProblem lp;
+  const auto c1 = lp.add_col(SparseCol {
+      .lowb = 0.0,
+      .uppb = 10.0,
+      .cost = 2.0,
+      .class_name = "Gen",
+      .variable_name = "p",
+      .variable_uid = Uid {1},
+  });
+  const auto c2 = lp.add_col(SparseCol {
+      .lowb = 0.0,
+      .uppb = 10.0,
+      .cost = 3.0,
+      .class_name = "Gen",
+      .variable_name = "p",
+      .variable_uid = Uid {2},
+  });
+  const auto r = lp.add_row(SparseRow {
+      .lowb = 5.0,
+      .uppb = SparseRow::DblMax,
+      .class_name = "Bus",
+      .constraint_name = "balance",
+      .variable_uid = Uid {10},
+  });
+  lp.set_coeff(r, c1, 1.0);
+  lp.set_coeff(r, c2, 1.0);
+
+  LpMatrixOptions opts;
+  opts.col_with_names = true;
+  opts.row_with_names = true;
+  auto flat = lp.flatten(opts);
+
+  LinearInterface li;
+  li.load_flat(flat);
+  li.save_base_numrows();
+
+  auto res = li.initial_solve();
+  REQUIRE(res.has_value());
+
+  li.set_low_memory(LowMemoryMode::compress);
+  li.save_snapshot(FlatLinearProblem {flat});
+
+  const auto base_nrows = li.base_numrows();
+
+  // Labeled cut row — the metadata must survive the compress/replay
+  // round trip so `generate_labels_from_maps` can synthesise a label.
+  SparseRow cut;
+  cut[c1] = 1.0;
+  cut.lowb = -LinearProblem::DblMax;
+  cut.uppb = 3.0;
+  cut.class_name = "BendersCut";
+  cut.constraint_name = "fcut";
+  cut.variable_uid = Uid {42};
+  li.add_row(cut);
+  li.record_cut_row(cut);
+
+  REQUIRE(li.get_numrows() == base_nrows + 1);
+
+  // Force the bulk replay path: drop the live backend, then rebuild.
+  li.release_backend();
+  li.reconstruct_backend();
+
+  REQUIRE(li.get_numrows() == base_nrows + 1);
+
+  // Pre-fix this threw `std::logic_error: row N has no entry in
+  // m_row_labels_meta_`.  Post-fix it succeeds and caches a non-empty
+  // label for the replayed cut row.
+  CHECK_NOTHROW(li.materialize_labels());
+
+  std::vector<std::string> col_names;
+  std::vector<std::string> row_names;
+  li.generate_labels_from_maps(col_names, row_names);
+  REQUIRE(row_names.size() == base_nrows + 1);
+  CHECK_FALSE(row_names.back().empty());
 }

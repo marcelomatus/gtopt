@@ -190,6 +190,18 @@ void LinearInterface::release_backend() noexcept
       m_cached_col_cost_.shrink_to_fit();
       m_cached_row_dual_.clear();
       m_cached_row_dual_.shrink_to_fit();
+      // Also flip the cached optimality flag so consumers reading
+      // `is_optimal()` post-release see the *current* (non-optimal)
+      // status, not a stale `true` left from a prior optimal solve.
+      // Without this, `SystemLP::write_out` proceeded past its
+      // `if (!is_optimal()) return;` guard on a cell whose backend
+      // had been reset, then `OutputContext`'s ctor called
+      // `get_col_sol()` which fell through to `backend()` → null
+      // unique_ptr deref.  Observed on juan/gtopt_iplp iter i2
+      // post-CONVERGED write_out for cells that were optimal in iter
+      // i0/i1 but went non-optimal in i2 (status 2 / no-recovery
+      // forward failure → release_backend with `is_optimal()==false`).
+      m_cached_is_optimal_ = false;
     }
     // Snapshot/compress: first call compresses the flat LP (one-time,
     // creates a persistent buffer); subsequent calls free the decompressed
@@ -1359,13 +1371,23 @@ void LinearInterface::add_rows(const std::span<const SparseRow> rows,
                        rowlb.data(),
                        rowub.data());
 
-  // Update row scales and name maps for all new rows
+  // Update row scales, label metadata, and name maps for all new rows.
+  // `track_row_label_meta` is what keeps `m_row_labels_meta_` in sync with
+  // the backend row count — without it, a later `generate_labels_from_maps`
+  // call (e.g. through `write_lp` / `push_names_to_solver`) throws
+  // "row N has no entry in m_row_labels_meta_".  This bulk path is hit
+  // from `apply_post_load_replay` when a low-memory cell rebuilds and
+  // re-injects `m_active_cuts_`; the single-row `add_row_raw` path
+  // already calls `track_row_label_meta`, so mirroring it here keeps the
+  // size invariant across compress/replay cycles.
   for (const auto& [r, row] : enumerate(rows)) {
     const auto row_idx = RowIndex {first_row_index + static_cast<int>(r)};
 
     if (row.scale != 1.0) {
       set_row_scale(row_idx, row.scale);
     }
+
+    track_row_label_meta(row_idx, row);
 
     if (m_label_maker_.row_names_enabled()) {
       const auto name = m_label_maker_.make_row_label(row);
