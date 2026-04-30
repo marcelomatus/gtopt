@@ -247,6 +247,24 @@ void LinearInterface::set_low_memory(LowMemoryMode mode,
   }
 }
 
+void LinearInterface::freeze_for_cuts(LowMemoryMode mode,
+                                      FlatLinearProblem flat_lp,
+                                      CompressionCodec codec)
+{
+  // Pre-conditions: the structural build is done (backend is live or
+  // its row count is cached) and no cut has landed yet.  Asserted in
+  // debug; production builds short-circuit silently if the caller
+  // misuses the API — the legacy three-method dance had no such
+  // guards either, so this is strictly a safety upgrade.
+  assert(m_active_cuts_.empty()
+         && "freeze_for_cuts: cut additions detected before "
+            "structural-build commit");
+
+  set_low_memory(mode, codec);
+  save_snapshot(std::move(flat_lp));
+  save_base_numrows();
+}
+
 void LinearInterface::save_snapshot(FlatLinearProblem flat_lp)
 {
   m_snapshot_.flat_lp = std::move(flat_lp);

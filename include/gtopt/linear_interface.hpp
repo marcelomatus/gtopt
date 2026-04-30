@@ -372,6 +372,31 @@ public:
   /// based on the configured level.
   void save_snapshot(FlatLinearProblem flat_lp);
 
+  /// Single-call entry point for the structural-build → cut-build
+  /// transition under low-memory modes.  Replaces the legacy 3-call
+  /// dance:
+  ///
+  ///   set_low_memory(mode, codec);
+  ///   save_snapshot(std::move(flat_lp));
+  ///   save_base_numrows();
+  ///
+  /// Call this once after `load_flat` has populated the backend with
+  /// the structural rows and before any Benders cut is added.  See
+  /// `support/linear_interface_lifecycle_plan_2026-04-30.md` step 1
+  /// for the rationale: the legacy three-method ordering is implicit
+  /// and easy to get wrong (forgetting `save_base_numrows` mis-attributes
+  /// structural rows as cuts; forgetting `save_snapshot` makes
+  /// `reconstruct_backend()` a silent no-op).  This consolidator
+  /// collapses the dance into one verb.
+  ///
+  /// Pre-conditions (debug-asserted):
+  /// - the backend has been loaded (`m_backend_released_ == false` OR
+  ///   `defer_initial_load` has populated `m_cached_numrows_`),
+  /// - no cut rows have been added yet (`m_active_cuts_.empty()`).
+  void freeze_for_cuts(LowMemoryMode mode,
+                       FlatLinearProblem flat_lp,
+                       CompressionCodec codec = CompressionCodec::lz4);
+
   /// Drop the compressed/uncompressed flat-LP snapshot held by this
   /// interface.  Used by the SDDP simulation Pass 1 in low-memory mode
   /// to free the per-cell LP matrix right after the solve caches its

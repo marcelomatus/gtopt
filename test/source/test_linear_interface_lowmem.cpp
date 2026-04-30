@@ -2351,3 +2351,64 @@ TEST_CASE(  // NOLINT
   REQUIRE(row_names.size() == base_nrows + 1);
   CHECK_FALSE(row_names.back().empty());
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// freeze_for_cuts — single-call entry point that replaces the legacy
+// 3-call dance (set_low_memory + save_snapshot + save_base_numrows).
+// Step 1 of `support/linear_interface_lifecycle_plan_2026-04-30.md`.
+// ═══════════════════════════════════════════════════════════════════════════
+
+TEST_CASE(  // NOLINT
+    "LinearInterface::freeze_for_cuts equals legacy 3-call sequence")
+{
+  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+
+  // Build the same simple LP twice — once via the legacy 3-call
+  // dance, once via the new consolidator — and assert every
+  // observable post-condition matches.
+  auto build_legacy = []
+  {
+    auto [li, flat, x1, x2] = make_simple_li_lp();
+    auto res = li.initial_solve();
+    REQUIRE(res.has_value());
+    li.set_low_memory(LowMemoryMode::compress);
+    li.save_snapshot(FlatLinearProblem {flat});
+    li.save_base_numrows();
+    return std::tuple {std::move(li), x1, x2};
+  };
+
+  auto build_freeze = []
+  {
+    auto [li, flat, x1, x2] = make_simple_li_lp();
+    auto res = li.initial_solve();
+    REQUIRE(res.has_value());
+    li.freeze_for_cuts(LowMemoryMode::compress, FlatLinearProblem {flat});
+    return std::tuple {std::move(li), x1, x2};
+  };
+
+  auto [legacy_li, l_x1, l_x2] = build_legacy();
+  auto [frozen_li, f_x1, f_x2] = build_freeze();
+
+  CHECK(legacy_li.low_memory_mode() == frozen_li.low_memory_mode());
+  CHECK(legacy_li.has_snapshot_data() == frozen_li.has_snapshot_data());
+  CHECK(legacy_li.base_numrows() == frozen_li.base_numrows());
+  CHECK(legacy_li.get_numrows() == frozen_li.get_numrows());
+  CHECK(legacy_li.get_numcols() == frozen_li.get_numcols());
+
+  // Same cut-replay round-trip behaviour: add a labelled cut and
+  // verify both LIs reach identical post-replay state.
+  for (auto& li : {std::ref(legacy_li), std::ref(frozen_li)}) {
+    SparseRow cut;
+    cut[ColIndex {0}] = 1.0;
+    cut.lowb = -LinearProblem::DblMax;
+    cut.uppb = 3.0;
+    cut.class_name = "BendersCut";
+    cut.constraint_name = "fcut";
+    cut.variable_uid = Uid {99};
+    li.get().add_row(cut);
+    li.get().record_cut_row(cut);
+    li.get().release_backend();
+    li.get().reconstruct_backend();
+  }
+  CHECK(legacy_li.get_numrows() == frozen_li.get_numrows());
+}
