@@ -858,6 +858,13 @@ public:
     }
     m_base_numrows_ = get_numrows();
     m_base_numrows_set_ = true;
+    // Legacy callers reach the cut-build phase boundary here too.
+    // Advance the lifecycle observer (step 2 of the lifecycle plan)
+    // so the legacy three-call sequence and the new
+    // `freeze_for_cuts` consolidator both leave the LP in `Frozen`.
+    if (m_phase_ == LiPhase::Building) {
+      m_phase_ = LiPhase::Frozen;
+    }
   }
 
   /**
@@ -2316,8 +2323,10 @@ private:
   /// Lifecycle phase observer (step 2 of the lifecycle plan).
   /// Default-constructed in `Building`; advances through
   /// `Frozen`, `BackendReleased`, `Reconstructed` as the canonical
-  /// entry points fire.  Pure observation in step 2; step 4 will
-  /// add debug-asserted transitions.
+  /// entry points fire.  Pure observation; the plan's "step 4"
+  /// addition of debug-asserted transitions stays deferred —
+  /// existing tests bypass the canonical entry points so an
+  /// assertion would fire on legitimate paths.
   LiPhase m_phase_ {LiPhase::Building};
 
   /// Re-entry guard for rebuild.  `ensure_backend()` sets this true

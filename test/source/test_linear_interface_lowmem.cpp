@@ -2366,18 +2366,25 @@ TEST_CASE(  // NOLINT
 
   // Step 2 of `support/linear_interface_lifecycle_plan_2026-04-30.md`
   // adds the lifecycle observer.  This test pins each transition
-  // fired by the canonical entry points; step 4 will assert
-  // illegal transitions in debug builds, but step 2 is pure
-  // observation so the test verifies the happy path only.
+  // fired by the canonical entry points; step 4 (debug-asserted
+  // transitions) stays deferred because legitimate test paths
+  // bypass the canonical entry points.
+  //
+  // `make_simple_li_lp` calls `save_base_numrows` internally, which
+  // advances `Building → Frozen` as part of the legacy 3-call
+  // sequence's last step.  The LP returned by the helper is
+  // therefore already `Frozen`.  Adding `freeze_for_cuts` on top is
+  // a no-op for the phase observer (it stays `Frozen`).
   auto [li, flat, x1, x2] = make_simple_li_lp();
-  CHECK(li.phase() == LinearInterface::LiPhase::Building);
+  CHECK(li.phase() == LinearInterface::LiPhase::Frozen);
 
   auto res = li.initial_solve();
   REQUIRE(res.has_value());
-  // Solving alone does not advance the phase (the LP is still in
-  // "build" mode until cuts can be added).
-  CHECK(li.phase() == LinearInterface::LiPhase::Building);
+  CHECK(li.phase() == LinearInterface::LiPhase::Frozen);
 
+  // freeze_for_cuts on an already-frozen LP keeps it Frozen
+  // (idempotent observer, since the legacy save_base_numrows
+  // already advanced the phase).
   li.freeze_for_cuts(LowMemoryMode::compress, FlatLinearProblem {flat});
   CHECK(li.phase() == LinearInterface::LiPhase::Frozen);
 
