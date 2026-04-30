@@ -737,6 +737,11 @@ public:
   // ``forward_fail_stop = true`` explicitly.
   static constexpr Bool default_sddp_forward_fail_stop = false;
 
+  /// Per-scene rollback default — see `SDDPOptions::forward_infeas_rollback`
+  /// in `sddp_types.hpp` for full semantics.  Stays `false` until the
+  /// feature soaks on juan/gtopt_iplp + IEEE benchmarks (plan step 6).
+  static constexpr Bool default_sddp_forward_infeas_rollback = false;
+
   /**
    * @brief Gets the SDDP cut sharing mode as a string name
    * @return The cut sharing mode name
@@ -873,6 +878,16 @@ public:
   {
     return m_options_.sddp_options.forward_fail_stop.value_or(
         default_sddp_forward_fail_stop);
+  }
+
+  /**
+   * @brief Whether per-scene infeasibility rollback is enabled.
+   * @return true if forward_infeas_rollback is enabled (default: false).
+   */
+  [[nodiscard]] constexpr auto sddp_forward_infeas_rollback() const
+  {
+    return m_options_.sddp_options.forward_infeas_rollback.value_or(
+        default_sddp_forward_infeas_rollback);
   }
 
   /**

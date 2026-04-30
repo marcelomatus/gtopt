@@ -420,6 +420,30 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   // single-fcut-and-exit coordination strategy is opt-in.
   bool forward_fail_stop {false};
 
+  /// Per-scene rollback on forward-pass infeasibility (default: false).
+  ///
+  /// When `true` and a scene S is declared infeasible at iteration k's
+  /// forward pass (`scene_feasible[S] == 0`):
+  ///   1. Every cut S has accumulated in `m_cut_store_.scene_cuts()[S]`
+  ///      is deleted (rows removed from S's LP cells via
+  ///      `LinearInterface::delete_rows` + `record_cut_deletion`,
+  ///      vector cleared).  Both forward-pass fcuts and earlier
+  ///      backward-pass optcuts are dropped — the bad trajectory that
+  ///      produced any of them is no longer trusted.
+  ///   2. The global stored-cut count is snapshot in
+  ///      `m_scene_retry_state_[S].global_cuts_at_last_failure`.
+  ///   3. At iteration k+1's forward dispatch, S retries iff the
+  ///      global cut count grew (peers contributed cuts via cut sharing
+  ///      or their own backward pass).  Otherwise S is "stalled" — and
+  ///      if every previously-failed scene is stalled, the run aborts
+  ///      with `Error{SolverError, "no recovery path"}` to avoid an
+  ///      infinite-loop on degenerate single-scene / no-progress runs.
+  ///
+  /// When `false` (legacy default): cuts S installed on its own bad
+  /// trajectory persist across iterations, and the run loops until
+  /// `max_iterations` without rollback or stall detection.
+  bool forward_infeas_rollback {false};
+
   /// File format for cut and state variable I/O (csv or json).
   /// CSV uses structured keys (class:var:uid=coeff) and is backward
   /// compatible with legacy name-based CSV files on the load side.

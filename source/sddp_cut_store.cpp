@@ -158,6 +158,49 @@ void SDDPCutStore::forget_first_cuts(std::ptrdiff_t count,
       "SDDP: forgot {} inherited cuts ({} LP rows deleted)", n, total_deleted);
 }
 
+// ── clear_scene_cuts ───────────────────────────────────────────────────────
+//
+// Per-scene rollback for `SDDPOptions::forward_infeas_rollback`.
+// `scene_index` resolves to a cell row only by matching `phase_uid`
+// onto the local PhaseIndex via `build_phase_uid_map`; the
+// `cut.scene_uid` field is informational on the cut-store side
+// (it records *which* scene generated the cut) but the LP cell the
+// row lives on is always `(scene_index, resolved_phase)` because
+// `store_cut` is only ever called by the scene that owns the cell.
+
+std::ptrdiff_t SDDPCutStore::clear_scene_cuts(SceneIndex scene_index,
+                                              PlanningLP& planning_lp)
+{
+  if (scene_index >= std::ssize(m_scene_cuts_)
+      || m_scene_cuts_[scene_index].empty())
+  {
+    return 0;
+  }
+
+  const auto phase_map = build_phase_uid_map(planning_lp);
+  std::map<PhaseIndex, std::vector<int>> rows_to_delete;
+  for (const auto& cut : m_scene_cuts_[scene_index]) {
+    const auto pit = phase_map.find(cut.phase_uid);
+    if (pit == phase_map.end()) {
+      continue;
+    }
+    rows_to_delete[pit->second].push_back(static_cast<int>(cut.row));
+  }
+
+  std::ptrdiff_t total_deleted = 0;
+  for (auto& [phase_idx, rows] : rows_to_delete) {
+    auto& sys = planning_lp.system(scene_index, phase_idx);
+    auto& li = sys.linear_interface();
+    std::ranges::sort(rows);
+    li.delete_rows(rows);
+    sys.record_cut_deletion(rows);
+    total_deleted += std::ssize(rows);
+  }
+
+  m_scene_cuts_[scene_index].clear();
+  return total_deleted;
+}
+
 // ── update_stored_cut_duals ────────────────────────────────────────────────
 
 void SDDPCutStore::update_stored_cut_duals(PlanningLP& planning_lp)

@@ -128,6 +128,25 @@ public:
   /// Remove the first @p count cuts from stored cuts and from the LP.
   void forget_first_cuts(std::ptrdiff_t count, PlanningLP& planning_lp);
 
+  /// Discard every cut scene `scene_index` has accumulated.  Deletes
+  /// the corresponding rows from the scene's LP cells and clears
+  /// `m_scene_cuts_[scene_index]`.  Used by
+  /// `SDDPOptions::forward_infeas_rollback` to roll back a scene
+  /// declared infeasible in the forward pass — both forward-pass
+  /// feasibility cuts (PLP-style backtrack chain) and earlier
+  /// backward-pass optimality cuts go: the bad trajectory that
+  /// produced any of them is no longer trusted.  Returns the number
+  /// of LP rows actually deleted.
+  ///
+  /// Shared cuts received by `scene_index` from peers via
+  /// `share_cuts_for_phase` are NOT in `m_scene_cuts_[scene_index]`
+  /// (they live only as LP rows + `m_active_cuts_` replay entries),
+  /// so they survive this rollback — exactly the invariant that lets
+  /// the next iteration's stall check distinguish "made no progress"
+  /// from "received peer cuts and can retry".
+  std::ptrdiff_t clear_scene_cuts(SceneIndex scene_index,
+                                  PlanningLP& planning_lp);
+
   /// Update dual values of stored cuts from the current LP solution.
   void update_stored_cut_duals(PlanningLP& planning_lp);
 

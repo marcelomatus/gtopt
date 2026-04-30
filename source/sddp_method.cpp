@@ -260,6 +260,10 @@ auto SDDPMethod::initialize_solver() -> std::expected<void, Error>
   m_cut_store_.resize_scenes(num_scenes);
   m_infeasibility_counter_.resize(num_scenes);
   m_max_kappa_.resize(num_scenes);
+  // Reset on every solve() — `forward_infeas_rollback` semantics start
+  // fresh per call (`SceneRetryState{}` clears the
+  // global_cuts_at_last_failure optional).
+  m_scene_retry_state_.assign(num_scenes, SceneRetryState {});
   for (const auto scene_index : iota_range<SceneIndex>(0, num_scenes)) {
     m_infeasibility_counter_[scene_index].resize(num_phases, 0);
     m_max_kappa_[scene_index].resize(num_phases, -1.0);

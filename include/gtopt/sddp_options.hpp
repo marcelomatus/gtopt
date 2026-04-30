@@ -373,6 +373,32 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
    */
   OptBool forward_fail_stop {};
 
+  /** @brief Per-scene rollback on forward-pass infeasibility (default:
+   *  false).
+   *
+   *  When `true`, a scene declared infeasible in the forward pass has
+   *  every cut it has accumulated in the global cut store deleted from
+   *  its LP cells and from `m_cut_store_.scene_cuts()[scene]` — both
+   *  forward-pass feasibility cuts and earlier backward-pass
+   *  optimality cuts go.  The bad trajectory that produced any of
+   *  them is no longer trusted, and the scene starts fresh next
+   *  iteration with whatever cuts arrive from peers via cut sharing
+   *  or their own backward-pass.
+   *
+   *  Stall guard: at iteration k+1's forward dispatch, a scene that
+   *  failed at iteration k retries iff the global stored-cut count
+   *  has grown since the failure.  If every previously-failed scene
+   *  is "stalled" (no new cuts arrived), the run aborts with a
+   *  `SolverError`/`no recovery path` error to avoid an infinite loop
+   *  on degenerate single-scene runs or all-scenes-failed iterations.
+   *
+   *  When `false` (default): cuts persist across iterations even when
+   *  the scene that produced them was declared infeasible — legacy
+   *  behaviour, preserved as the safe default until the rollback
+   *  feature has soaked.
+   */
+  OptBool forward_infeas_rollback {};
+
   /** @brief Maximum algorithm fallback attempts for backward-pass and
    *  aperture solves.
    *
@@ -471,6 +497,7 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
     merge_opt(convergence_confidence, opts.convergence_confidence);
     merge_opt(forward_max_fallbacks, opts.forward_max_fallbacks);
     merge_opt(forward_fail_stop, opts.forward_fail_stop);
+    merge_opt(forward_infeas_rollback, opts.forward_infeas_rollback);
     merge_opt(backward_max_fallbacks, opts.backward_max_fallbacks);
     merge_opt(max_async_spread, opts.max_async_spread);
     merge_opt(pool_cpu_factor, opts.pool_cpu_factor);

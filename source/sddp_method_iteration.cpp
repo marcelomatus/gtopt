@@ -577,6 +577,50 @@ auto SDDPMethod::run_forward_pass_all_scenes(SDDPWorkPool& pool,
               iteration_index,
               num_scenes);
 
+  // Stall-stop guard for `forward_infeas_rollback` — see
+  // `support/scene_infeasibility_rollback_plan_2026-04-30.md` §2.4.
+  // For every scene that failed last iteration (and had its cuts
+  // rolled back), check whether the global stored-cut count has grown
+  // since the failure.  If it has (peers contributed cuts via cut
+  // sharing or their own backward pass), the scene retries this iter:
+  // clear the failure marker so the post-pass hook below can flag a
+  // *new* failure if it happens again.  If the global count has not
+  // grown, the scene is "stalled" — cuts that arrive only from
+  // peers via share_cuts_for_phase aren't tracked in
+  // m_cut_store_.scene_cuts (they live as LP rows + replay buffer
+  // only), so the global cut count is the right proxy: if zero new
+  // cuts have entered the cut store across every scene, no recovery
+  // path exists for this stalled scene and we abort cleanly to
+  // avoid an infinite-loop.
+  if (m_options_.forward_infeas_rollback) {
+    const auto current_global_cuts = m_cut_store_.num_stored_cuts();
+    std::ptrdiff_t failed_last = 0;
+    std::ptrdiff_t stalled = 0;
+    for (const auto si : iota_range<SceneIndex>(0, num_scenes)) {
+      auto& rs = m_scene_retry_state_[si];
+      if (!rs.global_cuts_at_last_failure.has_value()) {
+        continue;
+      }
+      ++failed_last;
+      if (current_global_cuts > *rs.global_cuts_at_last_failure) {
+        rs.global_cuts_at_last_failure.reset();  // scene retries
+      } else {
+        ++stalled;
+      }
+    }
+    if (failed_last > 0 && stalled == failed_last) {
+      return std::unexpected(Error {
+          .code = ErrorCode::SolverError,
+          .message =
+              std::format("SDDP: {} scene(s) infeasible at iter {} and "
+                          "zero new cuts since their last failure — no "
+                          "recovery path (forward_infeas_rollback stall)",
+                          stalled,
+                          iteration_index),
+      });
+    }
+  }
+
   const auto fwd_start = std::chrono::steady_clock::now();
   // Snapshot total stored cuts before the pass.  Forward passes only
   // install feasibility cuts (`store_cut(..., CutType::Feasibility, ...)`
@@ -621,13 +665,53 @@ auto SDDPMethod::run_forward_pass_all_scenes(SDDPWorkPool& pool,
     m_scenes_done_.fetch_add(1);
   }
 
+  // Per-scene rollback hook for `forward_infeas_rollback` — see
+  // `support/scene_infeasibility_rollback_plan_2026-04-30.md` §2.3.
+  // For every scene S declared infeasible this iteration, drop every
+  // cut S has accumulated in the global cut store (both forward-pass
+  // fcuts installed during PLP-style backtrack chains and earlier
+  // backward-pass optcuts).  Snapshot the global cut count *after*
+  // rollback so the next iteration's stall-stop guard measures only
+  // new cuts contributed by peers.
+  if (m_options_.forward_infeas_rollback) {
+    std::ptrdiff_t total_rollback_rows = 0;
+    int n_rolled_back = 0;
+    for (const auto scene_index : iota_range<SceneIndex>(0, num_scenes)) {
+      if (out.scene_feasible[scene_index] != 0) {
+        continue;
+      }
+      const auto deleted =
+          m_cut_store_.clear_scene_cuts(scene_index, planning_lp());
+      if (deleted > 0) {
+        ++n_rolled_back;
+        total_rollback_rows += deleted;
+      }
+      m_scene_retry_state_[scene_index].global_cuts_at_last_failure =
+          m_cut_store_.num_stored_cuts();
+    }
+    if (n_rolled_back > 0) {
+      SPDLOG_INFO(
+          "SDDP Forward [i{}]: rolled back {} cut row(s) across {} "
+          "infeasible scene(s) (forward_infeas_rollback)",
+          iteration_index,
+          total_rollback_rows,
+          n_rolled_back);
+    }
+  }
+
   out.elapsed_s = std::chrono::duration<double>(std::chrono::steady_clock::now()
                                                 - fwd_start)
                       .count();
 
   // Post-pass cut count - pre-pass snapshot = fcuts installed this pass.
   // Non-negative because cuts are only added (never removed) during a
-  // forward pass.
+  // forward pass under the legacy path; under
+  // `forward_infeas_rollback` the rollback hook above may also delete
+  // cuts, in which case `cuts_after_pass < cuts_before_pass` is
+  // possible — the `max(..., 0)` keeps `n_fcuts_installed` non-negative
+  // (the field is consumed only by the simulation retry loop's
+  // "no progress" check, where a negative delta should still register
+  // as zero progress).
   const auto cuts_after_pass = m_cut_store_.num_stored_cuts();
   out.n_fcuts_installed = static_cast<std::size_t>(
       std::max<std::ptrdiff_t>(0, cuts_after_pass - cuts_before_pass));
