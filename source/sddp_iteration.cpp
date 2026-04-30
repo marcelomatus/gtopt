@@ -358,8 +358,12 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
       // runs where the policy legitimately asymptotes at a high gap
       // because the cheapest feasible plan pays a near-fixed slack.
       const double stationary_gap_ceiling = m_options_.stationary_gap_ceiling;
+      // Same NEGATIVE-gap guard as the primary gap test in
+      // `finalize_iteration_result` — refuse to call a stationary
+      // run "converged" when LB > UB (cuts overshooting the
+      // optimum, an SDDP-theory violation).
       if (!ir.converged && past_min_iterations && gap_is_stationary
-          && ir.gap < stationary_gap_ceiling
+          && ir.gap >= 0.0 && ir.gap < stationary_gap_ceiling
           && mode != ConvergenceMode::gap_only)
       {
         ir.converged = true;
@@ -437,7 +441,11 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
         const auto ci_threshold = z_score * sigma;
 
         // (a) Gap within CI: LB inside the UB confidence interval.
-        if (gap_abs <= ci_threshold) {
+        // NEGATIVE-gap guard mirrors the primary gap test
+        // (`finalize_iteration_result`): a `gap_abs < 0` means
+        // LB > UB, which violates SDDP theory and indicates
+        // overshooting cuts — refuse to declare converged.
+        if (gap_abs >= 0.0 && gap_abs <= ci_threshold) {
           ir.converged = true;
           ir.statistical_converged = true;
           update_live_metrics_([](LiveMetrics& m) { m.converged = true; });
@@ -455,8 +463,10 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
         // (b) Gap exceeds CI but is no longer improving.
         // Same absolute-gap ceiling as the pure-stationary block above:
         // refuse to convert a frozen-LB pathology into a convergence
-        // signal just because gap_change is zero.
-        else if (gap_is_stationary && ir.gap < stationary_gap_ceiling)
+        // signal just because gap_change is zero.  NEGATIVE-gap guard
+        // mirrors the primary gap test (LB > UB violates SDDP theory).
+        else if (gap_is_stationary && ir.gap >= 0.0
+                 && ir.gap < stationary_gap_ceiling)
         {
           ir.converged = true;
           ir.statistical_converged = true;
@@ -1253,8 +1263,12 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
         ir.gap_change =
             std::abs(ir.gap - old_gap) / std::max(1e-10, std::abs(old_gap));
 
+        // NEGATIVE-gap guard: same as the primary test — LB > UB
+        // violates SDDP theory and must not register as converged
+        // even on a stationary lookback.
         if (!ir.converged && past_min_iterations && results.size() >= window
-            && ir.gap_change < m_options_.stationary_tol && ir.gap_change < 1.0
+            && ir.gap >= 0.0 && ir.gap_change < m_options_.stationary_tol
+            && ir.gap_change < 1.0
             && m_options_.convergence_mode != ConvergenceMode::gap_only)
         {
           ir.converged = true;

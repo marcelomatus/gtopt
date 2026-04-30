@@ -1194,11 +1194,34 @@ void SDDPMethod::finalize_iteration_result(
   // freely) by declaring "[CONVERGED]" at 99%+ absolute gap.  The
   // extended stationary-window / statistical convergence modes below
   // still consult gap_change, but only after min_iterations.
-  const bool gap_ok = ir.gap < m_options_.convergence_tol;
+  //
+  // Convergence requires `0 ≤ gap < tol`.  A NEGATIVE gap (LB > UB)
+  // violates SDDP theory — cuts are supposed to be valid lower
+  // bounds on α, so the master LB can never exceed the simulated
+  // UB at the optimum.  An LB > UB indicates a numerical or scaling
+  // bug in the cut construction (e.g. unit mismatch between LP-raw
+  // and physical $, see `compute_iteration_bounds` comment about
+  // commit dd5c88ee), and `[CONVERGED]` would silently accept the
+  // wrong answer.  Observed on juan/gtopt_iplp: iter 1 produced
+  // gap=-6.59 with LB ≈ 1.16B vs UB ≈ 153M; iter 2 sim pass
+  // produced gap=-73.68 with LB ≈ 11.4B.  The run wrote
+  // [CONVERGED] but the LB was wildly off.
+  const bool gap_in_range =
+      ir.gap >= 0.0 && ir.gap < m_options_.convergence_tol;
+  if (ir.gap < 0.0) {
+    SPDLOG_WARN(
+        "SDDP Iter [i{}]: NEGATIVE gap = {:.6f} (UB={:.4f}, LB={:.4f}) — "
+        "LB > UB violates SDDP theory; cuts likely overshoot the optimum. "
+        "Refusing to declare [CONVERGED] until the bound asymmetry resolves.",
+        iteration_index,
+        ir.gap,
+        ir.upper_bound,
+        ir.lower_bound);
+  }
   const bool past_min_iter =
       (iteration_index
        >= m_iteration_offset_ + IterationIndex {m_options_.min_iterations - 1});
-  ir.converged = gap_ok && past_min_iter;
+  ir.converged = gap_in_range && past_min_iter;
 
   publish_live_metrics_(LiveMetrics {
       .iteration = iteration_index,

@@ -4312,6 +4312,77 @@ TEST_CASE(  // NOLINT
 }
 
 TEST_CASE(  // NOLINT
+    "SDDPMethod::finalize_iteration_result — refuses to converge on negative "
+    "gap")
+{
+  // SDDP-theory guard: LB > UB (negative gap) violates the lower-
+  // bound contract of valid Benders cuts, and the convergence test
+  // must NOT silently accept it as "converged".  Observed in juan
+  // before this guard was added: iter 1 hit gap=-6.59 with LB ≈
+  // 1.16B vs UB ≈ 153M and the run wrote "[CONVERGED]" while the
+  // LB was wildly off — a numerical scaling bug masquerading as a
+  // converged answer.
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  auto planning = make_2scene_3phase_hydro_planning();
+  PlanningLP plp(std::move(planning));
+
+  SDDPOptions sddp_opts;
+  sddp_opts.max_iterations = 1;
+  sddp_opts.min_iterations = 1;
+  sddp_opts.convergence_tol = 0.01;  // tight tolerance
+  sddp_opts.enable_api = false;
+  sddp_opts.apertures = std::vector<Uid> {};
+  SDDPMethod sddp(plp, sddp_opts);
+
+  // Synthesise an iteration result with LB > UB → negative gap.
+  SDDPIterationResult ir;
+  ir.upper_bound = 100.0;
+  ir.lower_bound = 200.0;  // LB > UB → SDDP-theory violation
+
+  std::vector<SDDPIterationResult> results;
+  sddp.finalize_iteration_result(ir, IterationIndex {0}, results);
+
+  // gap = (100 - 200) / max(1, 100) = -1.0 — negative.
+  CHECK(ir.gap < 0.0);
+  CHECK(ir.gap == doctest::Approx(-1.0));
+
+  // Despite gap < tol (negative is < any positive tolerance), the
+  // run must NOT register as converged.
+  CHECK_FALSE(ir.converged);
+}
+
+TEST_CASE(  // NOLINT
+    "SDDPMethod::finalize_iteration_result — converges on tight positive gap")
+{
+  // Companion to the negative-gap test: positive gap below
+  // tolerance correctly registers as converged.
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  auto planning = make_2scene_3phase_hydro_planning();
+  PlanningLP plp(std::move(planning));
+
+  SDDPOptions sddp_opts;
+  sddp_opts.max_iterations = 1;
+  sddp_opts.min_iterations = 1;
+  sddp_opts.convergence_tol = 0.01;
+  sddp_opts.enable_api = false;
+  sddp_opts.apertures = std::vector<Uid> {};
+  SDDPMethod sddp(plp, sddp_opts);
+
+  SDDPIterationResult ir;
+  ir.upper_bound = 100.0;
+  ir.lower_bound = 99.5;  // small positive gap
+
+  std::vector<SDDPIterationResult> results;
+  sddp.finalize_iteration_result(ir, IterationIndex {0}, results);
+
+  CHECK(ir.gap > 0.0);
+  CHECK(ir.gap < 0.01);
+  CHECK(ir.converged);
+}
+
+TEST_CASE(  // NOLINT
     "SDDPMethod::compute_iteration_bounds — gap formula uses feasible-only "
     "UB / feasible-only LB")
 {
