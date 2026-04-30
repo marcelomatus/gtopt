@@ -233,30 +233,45 @@ std::ptrdiff_t SDDPCutStore::clear_scene_cuts(SceneIndex scene_index,
   return m_scene_cuts_[scene_index].clear_with_lp(planning_lp, scene_index);
 }
 
-// ── update_stored_cut_duals ────────────────────────────────────────────────
+// ── SceneCutStore::update_duals ────────────────────────────────────────────
+//
+// Migrated from `SDDPCutStore::update_stored_cut_duals` in step 2 of
+// `support/sddp_cut_store_split_plan_2026-04-30.md`.  Drops the
+// `build_scene_uid_map` lookup the legacy method did per-cut: every
+// cut in this store is owned by `scene_index` (single-writer
+// invariant), so the caller-supplied index is authoritative.  The
+// legacy outer method (below) is now a per-scene loop calling this
+// one, with the `phase_map` built once per call to amortise the
+// PhaseUid → PhaseIndex translation.
 
-void SDDPCutStore::update_stored_cut_duals(PlanningLP& planning_lp)
+void SceneCutStore::update_duals(PlanningLP& planning_lp,
+                                 SceneIndex scene_index)
 {
+  if (m_cuts_.empty()) {
+    return;
+  }
   const auto phase_map = build_phase_uid_map(planning_lp);
-  const auto scene_map = build_scene_uid_map(planning_lp);
-
-  auto update_dual = [&](StoredCut& cut)
-  {
-    auto pit = phase_map.find(cut.phase_uid);
-    auto sit = scene_map.find(cut.scene_uid);
-    if (pit == phase_map.end() || sit == scene_map.end()) {
-      return;
+  for (auto& cut : m_cuts_) {
+    const auto pit = phase_map.find(cut.phase_uid);
+    if (pit == phase_map.end()) {
+      continue;
     }
-    auto& li = planning_lp.system(sit->second, pit->second).linear_interface();
+    auto& li = planning_lp.system(scene_index, pit->second).linear_interface();
     const auto row_idx = static_cast<std::size_t>(cut.row);
     const auto duals = li.get_row_dual_raw();
     if (row_idx < duals.size()) {
       cut.dual = duals[row_idx];
     }
-  };
+  }
+}
 
-  for (auto& sc : m_scene_cuts_) {
-    std::ranges::for_each(sc, update_dual);
+void SDDPCutStore::update_stored_cut_duals(PlanningLP& planning_lp)
+{
+  // Forwarder — see `SceneCutStore::update_duals` above for the
+  // implementation.  Per-scene loop dispatches one call per scene;
+  // each call builds its own `phase_map` (cheap — O(num_phases)).
+  for (auto&& [si, sc] : enumerate<SceneIndex>(m_scene_cuts_)) {
+    sc.update_duals(planning_lp, si);
   }
 }
 

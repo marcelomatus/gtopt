@@ -150,6 +150,22 @@ public:
   /// The caller already has it in scope.
   std::ptrdiff_t clear_with_lp(PlanningLP& planning_lp, SceneIndex scene_index);
 
+  // ── Refresh stored cut duals from the live LP ───────────────────────
+  /// Update each stored cut's `dual` field by reading
+  /// `LinearInterface::get_row_dual_raw()` at `cut.row` on the
+  /// `(scene_index, phase)` cell.  Cuts whose `phase_uid` cannot be
+  /// resolved are left with their existing dual (no error).  Used by
+  /// `SDDPMethod::update_stored_cut_duals` to refresh duals after a
+  /// solve so subsequent cut-pruning decisions read up-to-date values.
+  ///
+  /// This method drops the `scene_uid` lookup the legacy
+  /// `SDDPCutStore::update_stored_cut_duals` did via
+  /// `build_scene_uid_map`: every cut in this store is owned by
+  /// `scene_index` by construction (the per-scene single-writer
+  /// invariant), so the caller-supplied index is the authoritative
+  /// scene for every cut here.
+  void update_duals(PlanningLP& planning_lp, SceneIndex scene_index);
+
   // ── Direct access to the underlying vector ──────────────────────────
   /// Mutable view; used by call sites that need
   /// `std::erase_if(cuts(), ...)` or other free algorithms specialised
