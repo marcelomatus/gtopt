@@ -215,6 +215,20 @@ ApertureDataCache::ApertureDataCache(const std::filesystem::path& aperture_dir)
     }
   }
 
+  // Phase 4: shrink bucket arrays to the actual entry count.  The
+  // per-file `data.reserve(num_rows * uid_col_count)` at line ~80
+  // over-allocates because `try_emplace` then dedups; the libstdc++
+  // unordered_map keeps the over-allocated bucket array.  Calling
+  // `rehash(0)` (== rehash to the minimum size that keeps the load
+  // factor below `max_load_factor()`) drops the slack.  On the
+  // juan/gtopt_iplp cache (170 k entries across 167 elements) this
+  // saves ~5–10 MB at zero lookup cost — the rehash itself is one-
+  // shot at startup, ~milliseconds, and is read-only thereafter.
+  m_elements_.rehash(0);
+  for (auto& [key, data] : m_elements_) {
+    data.rehash(0);
+  }
+
   const auto load_s = std::chrono::duration<double>(
                           std::chrono::steady_clock::now() - load_start)
                           .count();

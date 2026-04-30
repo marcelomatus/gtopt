@@ -352,6 +352,69 @@ public:
    */
   void release_backend() noexcept;
 
+  /// Drop the cached primal vectors (`col_sol`, `col_cost`) but keep
+  /// `row_dual` (and the scalar caches).
+  ///
+  /// `release_backend()` populates three primal/dual snapshots so that
+  /// post-release readers can keep accessing the solution:
+  ///   - `col_sol` and `col_cost` are read by `OutputContext`,
+  ///     `save_state_csv`, and the SDDP state-variable propagation
+  ///     paths during the iteration that produced the solve.
+  ///   - `row_dual` is read **across iterations** by
+  ///     `update_stored_cut_duals` and `prune_inactive_cuts`
+  ///     (`sddp_cut_store.cpp:177, 222`).
+  ///
+  /// On a juan/gtopt_iplp run the col_sol + col_cost vectors carry
+  /// 0.7–2.5 GB across all `(scene, phase)` cells between iterations.
+  /// Once the iteration's state CSV has been written and the backward
+  /// pass has consumed the per-state-variable values via
+  /// `capture_state_variable_values`, neither vector is read again
+  /// until the next solve overwrites it — making them the largest
+  /// "alive but unused" allocation in the SDDP loop.
+  ///
+  /// Call this after `save_cuts_for_iteration` (state CSV) returns
+  /// and before the next iteration's forward pass begins.  Safe under
+  /// `low_memory_mode == off` (no-op since the caches stay empty)
+  /// and idempotent.  Does NOT touch `m_cached_row_dual_`,
+  /// `m_cached_obj_value_`, `m_cached_kappa_`, `m_cached_numrows_`,
+  /// `m_cached_numcols_`, or `m_cached_is_optimal_` — those remain
+  /// available for inter-iteration consumers.
+  void drop_cached_primal_only() noexcept
+  {
+    m_cached_col_sol_.clear();
+    m_cached_col_sol_.shrink_to_fit();
+    m_cached_col_cost_.clear();
+    m_cached_col_cost_.shrink_to_fit();
+  }
+
+  /// Drop the label-metadata buffers (compressed col/row label vectors
+  /// and the string pool that backs the decompressed `string_view`s).
+  ///
+  /// `compress_labels_meta_if_needed()` populates these buffers on
+  /// every `release_backend()` so future readers — `write_lp` (debug
+  /// LP dump), cut JSON / CSV save, `OutputContext::write_out` —
+  /// can resolve LP row / column names without re-flattening from
+  /// `System` collections.  Once a run has completed all of those
+  /// operations, the buffers are dead weight: ~3 MB raw / ~1 MB
+  /// compressed per cell, so on a juan/gtopt_iplp scale (816 cells)
+  /// they total ~800 MB held until process exit.
+  ///
+  /// Call this after the final `PlanningLP::write_out` returns and
+  /// no further label-metadata reads will occur.  Idempotent and
+  /// safe to call on cells that never had label metadata (no-op).
+  /// **Do not call mid-run** — `generate_labels_from_maps` (used by
+  /// every cut JSON save and every `write_lp`) would then throw
+  /// "row N has metadata without a class_name" on the next call.
+  void drop_label_meta_buffers() noexcept
+  {
+    m_col_labels_meta_compressed_ = CompressedBuffer {};
+    m_row_labels_meta_compressed_ = CompressedBuffer {};
+    m_col_labels_meta_count_ = 0;
+    m_row_labels_meta_count_ = 0;
+    m_label_string_pool_.clear();
+    m_label_string_pool_.shrink_to_fit();
+  }
+
   /**
    * @brief Check whether the solver backend is loaded.
    * @return true if load_flat() has been called and release_backend() has not

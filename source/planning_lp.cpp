@@ -1178,11 +1178,18 @@ void PlanningLP::write_out()
       // Drop XLP collections rebuilt inside — the LinearInterface is
       // already released so this is a no-op on the backend side.
       system.release_backend();
+      // Drop label-metadata buffers: this cell's parquet output is
+      // emitted, no further consumer (cut JSON, debug write_lp,
+      // OutputContext) will need the col / row label metadata.  At
+      // ~1 MB compressed per cell × 816 cells = ~800 MB freed on
+      // juan-scale runs, just before the writer thread exits.
+      system.linear_interface().drop_label_meta_buffers();
       return;
     }
     system.ensure_lp_built();
     system.write_out();
     system.release_backend();
+    system.linear_interface().drop_label_meta_buffers();
   };
 
   for (auto&& [scene_num, phase_systems] : enumerate<SceneIndex>(m_systems_)) {
