@@ -348,12 +348,4 @@ private:
   StrongIndexVector<SceneIndex, SceneCutStore> m_scene_cuts_ {};
 };
 
-/// Backward-compatibility alias retained while step 5 of the cut-store
-/// split plan ripples through the codebase.  The non-deprecated form
-/// keeps `-Werror` builds green; once every caller is migrated to the
-/// new name (`SDDPCutManager`) and the internal-test path is settled,
-/// this alias gets a `[[deprecated]]` attribute (plan step 6) and is
-/// later removed.
-using SDDPCutStore = SDDPCutManager;
-
 }  // namespace gtopt

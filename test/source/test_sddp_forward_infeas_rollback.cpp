@@ -40,7 +40,7 @@ namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-
 /// shape of a real Benders cut).  Routes through the unified
 /// `add_cut_row` free function so `m_active_cuts_` and α-release
 /// bookkeeping stay consistent, then persists to `SDDPCutManager`
-/// via the public `cut_store()` accessor so the rollback primitive
+/// via the public `cut_manager()` accessor so the rollback primitive
 /// has something to delete.
 [[nodiscard]] RowIndex inject_optcut(SDDPMethod& sddp,
                                      PlanningLP& plp,
@@ -69,13 +69,13 @@ namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-
 
   const auto row = add_cut_row(
       plp, scene_index, phase_index, CutType::Optimality, cut, /*eps=*/0.0);
-  sddp.cut_store().store_cut(scene_index,
-                             phase_index,
-                             cut,
-                             CutType::Optimality,
-                             row,
-                             scene_uid,
-                             phase_uid);
+  sddp.cut_manager().store_cut(scene_index,
+                               phase_index,
+                               cut,
+                               CutType::Optimality,
+                               row,
+                               scene_uid,
+                               phase_uid);
   return row;
 }
 
@@ -115,13 +115,13 @@ TEST_CASE(  // NOLINT
       sddp, plp, target_scene, target_phase, /*rhs=*/200.0, /*extra=*/1);
 
   REQUIRE(sys.linear_interface().get_numrows() == rows_before + 2);
-  REQUIRE(sddp.cut_store().scene_cuts()[target_scene].size() == 2);
+  REQUIRE(sddp.cut_manager().scene_cuts()[target_scene].size() == 2);
 
   // Roll back every cut on the target scene.
-  const auto deleted = sddp.cut_store().clear_scene_cuts(target_scene, plp);
+  const auto deleted = sddp.cut_manager().clear_scene_cuts(target_scene, plp);
 
   CHECK(deleted == 2);
-  CHECK(sddp.cut_store().scene_cuts()[target_scene].empty());
+  CHECK(sddp.cut_manager().scene_cuts()[target_scene].empty());
   CHECK(sys.linear_interface().get_numrows() == rows_before);
 }
 
@@ -143,7 +143,7 @@ TEST_CASE(  // NOLINT
   SDDPMethod sddp(plp, sddp_opts);
   REQUIRE(sddp.ensure_initialized().has_value());
 
-  REQUIRE(sddp.cut_store().scene_cuts()[SceneIndex {0}].empty());
+  REQUIRE(sddp.cut_manager().scene_cuts()[SceneIndex {0}].empty());
 
   // Capture LP row count for both scenes' phase 0 cells before the
   // no-op clear.
@@ -154,7 +154,7 @@ TEST_CASE(  // NOLINT
                            .linear_interface()
                            .get_numrows();
 
-  const auto deleted = sddp.cut_store().clear_scene_cuts(SceneIndex {0}, plp);
+  const auto deleted = sddp.cut_manager().clear_scene_cuts(SceneIndex {0}, plp);
 
   CHECK(deleted == 0);
   CHECK(plp.system(SceneIndex {0}, PhaseIndex {0})
@@ -197,18 +197,18 @@ TEST_CASE(  // NOLINT
   std::ignore = inject_optcut(
       sddp, plp, SceneIndex {1}, target_phase, /*rhs=*/90.0, /*extra=*/1);
 
-  REQUIRE(sddp.cut_store().scene_cuts()[SceneIndex {0}].size() == 1);
-  REQUIRE(sddp.cut_store().scene_cuts()[SceneIndex {1}].size() == 2);
+  REQUIRE(sddp.cut_manager().scene_cuts()[SceneIndex {0}].size() == 1);
+  REQUIRE(sddp.cut_manager().scene_cuts()[SceneIndex {1}].size() == 2);
 
   const auto rows_s1_before =
       plp.system(SceneIndex {1}, target_phase).linear_interface().get_numrows();
 
   // Clear scene 0.  Scene 1's cuts must survive — both vector size
   // and LP row count.
-  std::ignore = sddp.cut_store().clear_scene_cuts(SceneIndex {0}, plp);
+  std::ignore = sddp.cut_manager().clear_scene_cuts(SceneIndex {0}, plp);
 
-  CHECK(sddp.cut_store().scene_cuts()[SceneIndex {0}].empty());
-  CHECK(sddp.cut_store().scene_cuts()[SceneIndex {1}].size() == 2);
+  CHECK(sddp.cut_manager().scene_cuts()[SceneIndex {0}].empty());
+  CHECK(sddp.cut_manager().scene_cuts()[SceneIndex {1}].size() == 2);
   CHECK(
       plp.system(SceneIndex {1}, target_phase).linear_interface().get_numrows()
       == rows_s1_before);

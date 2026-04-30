@@ -347,13 +347,7 @@ public:
     return m_cut_store_.num_stored_cuts();
   }
 
-  /// Access the cut store (for cascade orchestration, etc.).
-  [[nodiscard]] SDDPCutManager& cut_store() noexcept { return m_cut_store_; }
-
-  /// Preferred accessor name post-rename (split plan step 5).  Same
-  /// reference as `cut_store()`; the old name is kept as a
-  /// non-deprecated alias for now and gets `[[deprecated]]` once every
-  /// caller migrates (plan step 6).
+  /// Access the cut manager (for cascade orchestration, tests, etc.).
   [[nodiscard]] SDDPCutManager& cut_manager() noexcept { return m_cut_store_; }
 
   /// Per-scene rollback state for `SDDPOptions::forward_infeas_rollback`.
