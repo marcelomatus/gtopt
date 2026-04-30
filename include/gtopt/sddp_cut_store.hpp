@@ -59,6 +59,97 @@ struct StoredCut
   std::vector<std::pair<ColIndex, double>> coefficients {};
 };
 
+/// Per-scene container for SDDP Benders cuts (step 1 of the
+/// `support/sddp_cut_store_split_plan_2026-04-30.md` refactor).
+///
+/// Wraps the per-scene `std::vector<StoredCut>` plus the per-scene
+/// snapshot that cut-sharing reads to identify newly-added cuts.
+/// Single-writer during the forward/backward pass (phase access within
+/// a scene is serial), so no mutex is needed.
+///
+/// In step 1 the methods on `SDDPCutStore` continue to do all the
+/// per-scene work; this type just changes the layout of `m_scene_cuts_`
+/// from `vector<StoredCut>` to `SceneCutStore`.  Subsequent migration
+/// steps move per-scene operations onto this class proper.
+///
+/// The class exposes vector-like forwarders (`size`, `empty`,
+/// `begin/end`, `front/back`, `operator[]`, `push_back`, `clear`,
+/// `erase`, `resize`) so existing call sites that read or mutate the
+/// per-scene vector compile unchanged after the layout swap.  Direct
+/// access to the underlying vector is available via `cuts()` for the
+/// rare sites that need to call `std::erase_if` or other free
+/// algorithms specialised on `std::vector`.
+class SceneCutStore
+{
+public:
+  SceneCutStore() = default;
+
+  // ── Vector-like forwarders ──────────────────────────────────────────
+  [[nodiscard]] auto begin() noexcept { return m_cuts_.begin(); }
+  [[nodiscard]] auto end() noexcept { return m_cuts_.end(); }
+  [[nodiscard]] auto begin() const noexcept { return m_cuts_.begin(); }
+  [[nodiscard]] auto end() const noexcept { return m_cuts_.end(); }
+  [[nodiscard]] auto cbegin() const noexcept { return m_cuts_.cbegin(); }
+  [[nodiscard]] auto cend() const noexcept { return m_cuts_.cend(); }
+  [[nodiscard]] auto size() const noexcept { return m_cuts_.size(); }
+  [[nodiscard]] bool empty() const noexcept { return m_cuts_.empty(); }
+  [[nodiscard]] auto& front() noexcept { return m_cuts_.front(); }
+  [[nodiscard]] const auto& front() const noexcept { return m_cuts_.front(); }
+  [[nodiscard]] auto& back() noexcept { return m_cuts_.back(); }
+  [[nodiscard]] const auto& back() const noexcept { return m_cuts_.back(); }
+  [[nodiscard]] auto& operator[](std::size_t i) noexcept { return m_cuts_[i]; }
+  [[nodiscard]] const auto& operator[](std::size_t i) const noexcept
+  {
+    return m_cuts_[i];
+  }
+
+  void push_back(const StoredCut& c) { m_cuts_.push_back(c); }
+  void push_back(StoredCut&& c) { m_cuts_.push_back(std::move(c)); }
+  template<class... Args>
+  auto& emplace_back(Args&&... args)
+  {
+    return m_cuts_.emplace_back(std::forward<Args>(args)...);
+  }
+  void clear() noexcept { m_cuts_.clear(); }
+  void resize(std::size_t n) { m_cuts_.resize(n); }
+  template<class It>
+  auto erase(It first, It last)
+  {
+    return m_cuts_.erase(first, last);
+  }
+  template<class It>
+  auto erase(It it)
+  {
+    return m_cuts_.erase(it);
+  }
+
+  // ── Direct access to the underlying vector ──────────────────────────
+  /// Mutable view; used by call sites that need
+  /// `std::erase_if(cuts(), ...)` or other free algorithms specialised
+  /// on `std::vector<T>`.
+  [[nodiscard]] std::vector<StoredCut>& cuts() noexcept { return m_cuts_; }
+  [[nodiscard]] const std::vector<StoredCut>& cuts() const noexcept
+  {
+    return m_cuts_;
+  }
+
+  // ── Per-scene snapshot for cut sharing ──────────────────────────────
+  /// Cut count snapshot before the backward pass starts.  The cut-
+  /// sharing pass uses `cuts().size() - cuts_before()` to identify
+  /// newly-added cuts.  Stored per-scene here (replaces the parallel
+  /// `m_scene_cuts_before_` vector that the legacy class kept beside
+  /// `m_scene_cuts_`).
+  [[nodiscard]] std::size_t cuts_before() const noexcept
+  {
+    return m_cuts_before_;
+  }
+  void set_cuts_before(std::size_t n) noexcept { m_cuts_before_ = n; }
+
+private:
+  std::vector<StoredCut> m_cuts_ {};
+  std::size_t m_cuts_before_ {0};
+};
+
 /// Storage for SDDP Benders cuts.
 ///
 /// Single source of truth: per-scene vectors in `m_scene_cuts_`.
@@ -193,13 +284,21 @@ private:
   /// both live here; `build_combined_cuts` exposes a union view for
   /// save paths.  Phase access within a scene is serial in the SDDP
   /// forward/backward passes, so per-scene vectors are single-writer
-  /// and need no mutex.
-  StrongIndexVector<SceneIndex, std::vector<StoredCut>> m_scene_cuts_ {};
+  /// and need no mutex.  Each `SceneCutStore` wraps the per-scene
+  /// `vector<StoredCut>` plus a per-scene `cuts_before` snapshot —
+  /// the wrapper exposes vector-like forwarders so existing call sites
+  /// (`m_scene_cuts_[si].push_back/size/empty/clear`, range-for) keep
+  /// working unchanged.  See `SceneCutStore` doc for the migration
+  /// rationale.
+  StrongIndexVector<SceneIndex, SceneCutStore> m_scene_cuts_ {};
 
   /// Per-scene cut count snapshot before each backward pass.
   /// Populated by the caller right before dispatching the backward
   /// step so `apply_cut_sharing_for_iteration` can identify newly
-  /// added cuts by offset.
+  /// added cuts by offset.  Step 4 of
+  /// `support/sddp_cut_store_split_plan_2026-04-30.md` migrates this
+  /// parallel vector onto each `SceneCutStore`'s `cuts_before()`
+  /// member; until then it lives here unchanged.
   std::vector<std::size_t> m_scene_cuts_before_ {};
 };
 

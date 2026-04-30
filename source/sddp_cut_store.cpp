@@ -146,12 +146,12 @@ void SDDPCutStore::forget_first_cuts(std::ptrdiff_t count,
     }
   };
 
-  for (auto&& [si, cuts] : enumerate<SceneIndex>(m_scene_cuts_)) {
+  for (auto&& [si, sc] : enumerate<SceneIndex>(m_scene_cuts_)) {
     std::erase_if(
-        cuts,
+        sc.cuts(),
         [&](const StoredCut& c)
         { return !c.name.empty() && names_to_forget.contains(c.name); });
-    std::ranges::for_each(cuts, shift_row);
+    std::ranges::for_each(sc.cuts(), shift_row);
   }
 
   SPDLOG_INFO(
@@ -369,7 +369,7 @@ void SDDPCutStore::prune_inactive_cuts(
   };
 
   for (auto& sc : m_scene_cuts_) {
-    update_cuts(sc);
+    update_cuts(sc.cuts());
   }
 
   SPDLOG_INFO("SDDP: pruned {} inactive cuts across all LPs", total_pruned);
