@@ -38,6 +38,39 @@ using namespace gtopt;  // NOLINT(google-build-using-namespace)
   return std::string(reg.default_solver());
 }
 
+/// Run a `check_solvers` test against every available plugin (not just
+/// the default).  This is what `check_all_solvers` already does for the
+/// CLI, but the doctest layer historically ran only `default_solver()`
+/// per test.  Used by the new `add_rows` test to verify the bulk-add
+/// invariant on CPLEX / HiGHS / MindOpt / Gurobi / OSI in one go.
+void run_named_test_on_every_solver(const std::string& test_name)
+{
+  auto& reg = SolverRegistry::instance();
+  reg.load_all_plugins();
+  const auto avail = reg.available_solvers();
+  if (avail.empty()) {
+    MESSAGE("No solver plugins — skipping " << test_name);
+    return;
+  }
+  for (const auto& solver : avail) {
+    CAPTURE(solver);
+    const auto report = run_solver_tests(solver, /*verbose=*/false);
+    bool found = false;
+    for (const auto& r : report.results) {
+      if (r.name == test_name) {
+        INFO("solver: " << solver << "  detail: " << r.detail);
+        CHECK(r.passed);
+        found = true;
+        break;
+      }
+    }
+    if (!found) {
+      FAIL("test '" << test_name << "' not found in report for solver "
+                    << solver);
+    }
+  }
+}
+
 }  // namespace
 
 // ---------------------------------------------------------------------------
@@ -165,6 +198,18 @@ TEST_CASE("check_solvers - add_row")  // NOLINT
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
   run_named_test("add_row");
+}
+TEST_CASE("check_solvers - add_rows")  // NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  // Bulk-row addition uses a different per-backend code path than
+  // single-row `add_row`: CPLEX / HiGHS use native CSR APIs, while
+  // OSI/CLP+CBC, MindOpt, and Gurobi route through their own
+  // CSR-bulk APIs (added in the recent backend fix).  Exercise the
+  // full matrix of backends in one TEST_CASE so any bulk-path
+  // regression on any plugin shows up immediately.
+  run_named_test_on_every_solver("add_rows");
 }
 TEST_CASE("check_solvers - obj_coeff")  // NOLINT
 {

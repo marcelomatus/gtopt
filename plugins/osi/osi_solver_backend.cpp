@@ -8,6 +8,8 @@
 
 #include <format>
 #include <stdexcept>
+#include <type_traits>
+#include <vector>
 
 #include "osi_solver_backend.hpp"
 
@@ -317,7 +319,47 @@ void OsiSolverBackend::add_rows(int num_rows,
                                 const double* rowlb,
                                 const double* rowub)
 {
-  // OSI does not have a CSR bulk addRows, so dispatch per row.
+  if (num_rows == 0) {
+    return;
+  }
+
+  // The generic `OsiSolverInterface` exposes only single-row `addRow`,
+  // but the two backends gtopt actually loads (CLP via
+  // `OsiClpSolverInterface`, CBC via `OsiCbcSolverInterface` →
+  // `getRealSolverPtr()`) both wrap CLP, and CLP's `ClpModel::addRows`
+  // is a true CSR bulk API.  Reach for it via the OsiClp-specific
+  // CSR-extended `addRows` overload (declared at
+  // OsiClpSolverInterface.hpp:823); fall back to a per-row loop only
+  // when the underlying solver isn't OsiClp (third-party OSI shims).
+  //
+  // `OsiClpSolverInterface::addRows(numrows, rowStarts, columns,
+  // element, rowlb, rowub)` takes `const CoinBigIndex*` for
+  // rowStarts.  CoinBigIndex is `int` on standard builds but can be
+  // `long` / `long long` under config flags, so we build a typed copy
+  // when the types differ — cheap (`num_rows + 1` ints).
+  auto* osi_clp = dynamic_cast<OsiClpSolverInterface*>(m_solver_.get());
+#ifdef GTOPT_OSI_HAS_CBC
+  if (osi_clp == nullptr) {
+    if (auto* osi_cbc = dynamic_cast<OsiCbcSolverInterface*>(m_solver_.get())) {
+      osi_clp =
+          dynamic_cast<OsiClpSolverInterface*>(osi_cbc->getRealSolverPtr());
+    }
+  }
+#endif
+  if (osi_clp != nullptr) {
+    if constexpr (std::is_same_v<CoinBigIndex, int>) {
+      osi_clp->addRows(num_rows, rowbeg, rowind, rowval, rowlb, rowub);
+    } else {
+      // NOLINTBEGIN(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+      std::vector<CoinBigIndex> rowbeg_big(rowbeg, rowbeg + num_rows + 1);
+      // NOLINTEND(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+      osi_clp->addRows(
+          num_rows, rowbeg_big.data(), rowind, rowval, rowlb, rowub);
+    }
+    return;
+  }
+
+  // Generic OSI fallback — per-row dispatch.
   // NOLINTBEGIN(cppcoreguidelines-pro-bounds-pointer-arithmetic)
   for (const int r : iota_range(0, num_rows)) {
     const int start = rowbeg[r];

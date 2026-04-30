@@ -495,24 +495,37 @@ void GurobiSolverBackend::add_rows(int num_rows,
   m_prob_cached_ = false;
   m_sol_cached_ = false;
 
-  // Gurobi does not expose a CSR bulk addRows convenience wrapper that
-  // takes the same shape as OSI; dispatch per row.
-  // NOLINTBEGIN(cppcoreguidelines-pro-bounds-pointer-arithmetic)
-  for (const int r : iota_range(0, num_rows)) {
-    const int start = rowbeg[r];
-    const int count = rowbeg[r + 1] - start;
-    const int rc =
-        GRBaddrangeconstr(m_model_,
-                          count,
-                          const_cast<int*>(rowind + start),  // NOLINT
-                          const_cast<double*>(rowval + start),  // NOLINT
-                          rowlb[r],
-                          rowub[r],
-                          nullptr);
-    check_error(rc, "GRBaddrangeconstr");
-    m_rowlb_local_.push_back(rowlb[r]);
-    m_rowub_local_.push_back(rowub[r]);
+  if (num_rows == 0) {
+    return;
   }
+
+  // Gurobi's CSR bulk constraint API: same shape as the LinearInterface
+  // hands us.  Already used in `load_problem` for the structural build;
+  // reusing it here keeps cut replay (apply_post_load_replay) a single
+  // solver call instead of N.  Const-cast is safe — GRB's API is
+  // non-modifying despite the non-const pointer signature (mirrors the
+  // existing `GRBaddrangeconstrs` call site in `load_problem`).
+  // NOLINTBEGIN(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+  const int nnz = rowbeg[num_rows];
+  // NOLINTEND(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+  const int rc = GRBaddrangeconstrs(m_model_,
+                                    num_rows,
+                                    nnz,
+                                    const_cast<int*>(rowbeg),  // NOLINT
+                                    const_cast<int*>(rowind),  // NOLINT
+                                    const_cast<double*>(rowval),  // NOLINT
+                                    const_cast<double*>(rowlb),  // NOLINT
+                                    const_cast<double*>(rowub),  // NOLINT
+                                    nullptr);
+  check_error(rc, "GRBaddrangeconstrs");
+
+  // Append the new bounds to the local mirror so set_row_lower /
+  // set_row_upper / set_row_bounds keep returning correct values.
+  // The previous per-row loop appended one bound per iteration; the
+  // bulk path just appends in one chunk.
+  // NOLINTBEGIN(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+  m_rowlb_local_.insert(m_rowlb_local_.end(), rowlb, rowlb + num_rows);
+  m_rowub_local_.insert(m_rowub_local_.end(), rowub, rowub + num_rows);
   // NOLINTEND(cppcoreguidelines-pro-bounds-pointer-arithmetic)
   m_dirty_ = true;
 }

@@ -11,6 +11,7 @@
  * framework is required at runtime.
  */
 
+#include <array>
 #include <chrono>
 #include <filesystem>
 #include <format>
@@ -275,6 +276,66 @@ SolverTestResult test_add_row(std::string_view solver)
     return make_result("add_row", /*test_passed=*/false, ex.what());
   }
   return make_result("add_row", /*test_passed=*/ctx.ok(), ctx.failures);
+}
+
+// ---------------------------------------------------------------------------
+// 3b. add_rows (plural / bulk) — exercises the CSR bulk path that
+//     `LinearInterface::apply_post_load_replay` uses for cut replay
+//     under low-memory mode.  Verifies coefficient placement, bounds,
+//     and post-bulk solver mutability for every plugin (CPLEX / HiGHS
+//     hit native CSR; OSI/CLP, MindOpt, Gurobi reach their own bulk
+//     APIs after the recent backend fixes).
+// ---------------------------------------------------------------------------
+SolverTestResult test_add_rows(std::string_view solver)
+{
+  TestContext ctx;
+  try {
+    LinearInterface lp(solver);
+    const auto x1 = lp.add_col(SparseCol {.uppb = 10.0});
+    const auto x2 = lp.add_col(SparseCol {.uppb = 10.0});
+
+    SparseRow r0;
+    r0[x1] = 1.0;
+    r0[x2] = 2.0;
+    r0.lowb = 0.0;
+    r0.uppb = 20.0;
+
+    SparseRow r1;
+    r1[x1] = 3.0;
+    r1[x2] = 4.0;
+    r1.lowb = -SparseRow::DblMax;
+    r1.uppb = 7.0;
+
+    const std::array<SparseRow, 2> rows {r0, r1};
+    lp.add_rows(rows);
+
+    TC_CHECK(ctx, lp.get_numrows() == 2);
+
+    const auto row_low = lp.get_row_low();
+    const auto row_upp = lp.get_row_upp();
+    TC_CHECK_APPROX(ctx, row_low[RowIndex {0}], 0.0, 1e-12);
+    TC_CHECK_APPROX(ctx, row_upp[RowIndex {0}], 20.0, 1e-12);
+    TC_CHECK_APPROX(ctx, row_upp[RowIndex {1}], 7.0, 1e-12);
+    // Row 1's lowb is -infinity; just verify it's strictly less than the
+    // upper bound (the solver may store it as -infty or as a sentinel).
+    TC_CHECK(ctx, row_low[RowIndex {1}] < row_upp[RowIndex {1}]);
+
+    // Coefficients must be addressable post-bulk (matrix shape preserved).
+    TC_CHECK_APPROX(ctx, lp.get_coeff(RowIndex {0}, x1), 1.0, 1e-12);
+    TC_CHECK_APPROX(ctx, lp.get_coeff(RowIndex {0}, x2), 2.0, 1e-12);
+    TC_CHECK_APPROX(ctx, lp.get_coeff(RowIndex {1}, x1), 3.0, 1e-12);
+    TC_CHECK_APPROX(ctx, lp.get_coeff(RowIndex {1}, x2), 4.0, 1e-12);
+
+    // Post-bulk row mutation (set_row_low / set_row_upp) must continue
+    // to work on rows added through the bulk path.  This is the
+    // invariant that broke for Gurobi when its local row mirror lagged.
+    lp.set_row_upp_raw(RowIndex {0}, 30.0);
+    TC_CHECK_APPROX(ctx, lp.get_row_upp()[RowIndex {0}], 30.0, 1e-12);
+
+  } catch (const std::exception& ex) {
+    return make_result("add_rows", /*test_passed=*/false, ex.what());
+  }
+  return make_result("add_rows", /*test_passed=*/ctx.ok(), ctx.failures);
 }
 
 // ---------------------------------------------------------------------------
@@ -1067,6 +1128,7 @@ struct TestEntry
       {.name = "construction", .fn = test_construction},
       {.name = "add_col", .fn = test_add_col},
       {.name = "add_row", .fn = test_add_row},
+      {.name = "add_rows", .fn = test_add_rows},
       {.name = "obj_coeff", .fn = test_obj_coeff},
       {.name = "get_set_coeff", .fn = test_get_set_coeff},
       {.name = "variable_types", .fn = test_variable_types},

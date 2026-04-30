@@ -433,22 +433,30 @@ void MindOptSolverBackend::add_rows(int num_rows,
   m_prob_cached_ = false;
   m_sol_cached_ = false;
 
-  // MindOpt does not expose a CSR bulk addRows, dispatch per row.
-  // NOLINTBEGIN(cppcoreguidelines-pro-bounds-pointer-arithmetic)
-  for (const int r : iota_range(0, num_rows)) {
-    const int start = rowbeg[r];
-    const int count = rowbeg[r + 1] - start;
-    const int rc =
-        MDOaddrangeconstr(m_model_,
-                          count,
-                          const_cast<int*>(rowind + start),  // NOLINT
-                          const_cast<double*>(rowval + start),  // NOLINT
-                          rowlb[r],
-                          rowub[r],
-                          nullptr);
-    check_error(rc, "MDOaddrangeconstr");
+  if (num_rows == 0) {
+    return;
   }
+
+  // MindOpt's CSR bulk constraint API: same shape as the LinearInterface
+  // hands us (rowbeg/rowind/rowval/rowlb/rowub) — no transpose, no
+  // per-row loop.  Already used in `load_problem` for the structural
+  // build; reusing it here keeps cut replay (apply_post_load_replay)
+  // a single solver call instead of N.  Const-cast is safe: MDO's API
+  // is non-modifying despite the non-const pointer signature (mirrors
+  // the existing `MDOaddrangeconstrs` call site in `load_problem`).
+  // NOLINTBEGIN(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+  const int nnz = rowbeg[num_rows];
   // NOLINTEND(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+  const int rc = MDOaddrangeconstrs(m_model_,
+                                    num_rows,
+                                    nnz,
+                                    const_cast<int*>(rowbeg),  // NOLINT
+                                    const_cast<int*>(rowind),  // NOLINT
+                                    const_cast<double*>(rowval),  // NOLINT
+                                    const_cast<double*>(rowlb),  // NOLINT
+                                    const_cast<double*>(rowub),  // NOLINT
+                                    nullptr);
+  check_error(rc, "MDOaddrangeconstrs");
 }
 
 void MindOptSolverBackend::set_row_lower(int index, double value)
