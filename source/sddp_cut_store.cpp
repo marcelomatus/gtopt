@@ -39,13 +39,19 @@ namespace gtopt
 
 // ── store_cut ──────────────────────────────────────────────────────────────
 
-void SDDPCutStore::store_cut(SceneIndex scene_index,
-                             PhaseIndex /*src_phase_index*/,
-                             const SparseRow& cut,
-                             CutType type,
-                             RowIndex row,
-                             SceneUid scene_uid_val,
-                             PhaseUid phase_uid_val)
+// ── SceneCutStore::store ───────────────────────────────────────────────────
+//
+// Migrated from `SDDPCutStore::store_cut` in step 2 of
+// `support/sddp_cut_store_split_plan_2026-04-30.md`.  The legacy
+// `SDDPCutStore::store_cut` (below) is a 1-line forwarder that drops
+// the unused `src_phase_index` parameter (kept on the legacy
+// signature for backward compatibility).
+
+void SceneCutStore::store(const SparseRow& cut,
+                          CutType type,
+                          RowIndex row,
+                          SceneUid scene_uid_val,
+                          PhaseUid phase_uid_val)
 {
   auto cut_name = LabelMaker {LpNamesLevel::all}.make_row_label(cut);
 
@@ -62,12 +68,22 @@ void SDDPCutStore::store_cut(SceneIndex scene_index,
   for (const auto& [col, coeff] : cut.cmap) {
     stored.coefficients.emplace_back(col, coeff);
   }
-  // Single source of truth: per-scene vector.  Phase access within a
-  // scene is serial in the forward/backward pass, so this is a
-  // single-writer operation — no lock needed even though multiple
-  // scene workers may call store_cut concurrently (each touches its
-  // own scene's vector).
-  m_scene_cuts_[scene_index].push_back(std::move(stored));
+  m_cuts_.push_back(std::move(stored));
+}
+
+void SDDPCutStore::store_cut(SceneIndex scene_index,
+                             PhaseIndex /*src_phase_index*/,
+                             const SparseRow& cut,
+                             CutType type,
+                             RowIndex row,
+                             SceneUid scene_uid_val,
+                             PhaseUid phase_uid_val)
+{
+  // Forwarder — see `SceneCutStore::store` above for the
+  // implementation.  Single-writer during the forward/backward pass
+  // (phase access within a scene is serial), so no lock needed.
+  m_scene_cuts_[scene_index].store(
+      cut, type, row, scene_uid_val, phase_uid_val);
 }
 
 // ── clear ──────────────────────────────────────────────────────────────────

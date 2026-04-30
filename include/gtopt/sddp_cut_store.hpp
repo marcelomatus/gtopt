@@ -123,6 +123,18 @@ public:
     return m_cuts_.erase(it);
   }
 
+  // ── Append a stored cut ─────────────────────────────────────────────
+  /// Push one cut into this scene's per-scene vector.  Single-writer
+  /// during the forward/backward pass (phase access within a scene
+  /// is serial), so no mutex is needed even when multiple scene
+  /// workers call `store` concurrently — each touches its own
+  /// `SceneCutStore`.
+  void store(const SparseRow& cut,
+             CutType type,
+             RowIndex row,
+             SceneUid scene_uid_val,
+             PhaseUid phase_uid_val);
+
   // ── Per-scene rollback (LP-deleting variant) ────────────────────────
   /// Drop every cut this scene has accumulated, deleting matching LP
   /// rows from each `(scene_index, phase)` cell via
