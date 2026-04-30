@@ -221,10 +221,36 @@ by the `cut_sharing_mode` option:
 
 | Mode | Behaviour |
 |------|----------|
-| `none` (default) | Each scene uses only its own cuts; scenes are solved independently in parallel with no synchronization |
-| `expected` | Probability-weighted average cut across all scenes is shared |
-| `accumulate` | Sum of all scene cuts shared (correct when LP objectives include probability factors) |
-| `max` | All cuts from all scenes are shared to all scenes |
+| `none` (default, **only mathematically valid mode for production runs**) | Each scene uses only its own cuts; scenes are solved independently in parallel with no synchronization |
+| `expected` | Probability-weighted average cut across all scenes is shared (**KNOWN INVALID** for distinct-sample-path runs — see warning below) |
+| `accumulate` | Sum of all scene cuts shared (**KNOWN INVALID** for distinct-sample-path runs — see warning below) |
+| `max` | All cuts from all scenes are shared to all scenes (**KNOWN INVALID** for distinct-sample-path runs — see warning below) |
+
+> **⚠️ Cut-sharing validity warning** (audit 2026-04-30)
+>
+> gtopt implements **multi-cut SDDP**: each scene s has its own
+> `α^k_s` column at every phase k, bounding scene s's value
+> function `Q_s(x)` *along scene s's specific sample path*.  The
+> `expected` / `accumulate` / `max` modes broadcast a cut from
+> scene S to every other scene's α LP, which is mathematically
+> valid only when the broadcast cut bounds D's `Q_d` — i.e., when
+> S and D realized the IDENTICAL sample path (same inflows,
+> demands, capacities at every (phase, block)).  This is
+> typically only true for synthetic test fixtures.
+>
+> Distinct-sample-path runs (the standard Monte Carlo SDDP setup,
+> e.g. multi-hydrology workflows) violate the precondition.  The
+> broadcast cuts force `α^k_d ≥ prob_S · Q_S*(x_S)`, which over-
+> tightens whenever `Q_S ≠ Q_d`.  The result is `LB > UB`
+> ("negative gap") that compounds across iterations and can
+> grow by orders of magnitude.
+>
+> A runtime `WARN` is emitted at SDDP setup
+> (`source/sddp_method.cpp::initialize_solver`) when
+> `cut_sharing != none && num_scenes > 1`.  Use `cut_sharing=none`
+> for production multi-scenario runs.  See
+> `support/sddp_cut_sharing_fix_plan_2026-04-30.md` and the
+> regression test `test/source/test_sddp_bounds_sanity.cpp`.
 
 **Feasibility cuts** are never shared between scenes regardless of the cut
 sharing mode — they remain local to the originating scene.

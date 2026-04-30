@@ -256,6 +256,31 @@ auto SDDPMethod::initialize_solver() -> std::expected<void, Error>
 
   SPDLOG_INFO("SDDP: {} scene(s), {} phase(s)", num_scenes, num_phases);
 
+  // Loud warning when cross-scene cut sharing is requested on a
+  // multi-scene run.  gtopt implements multi-cut SDDP (one α per
+  // scene), so cuts from scene S only validly bound α^k_S; the
+  // `accumulate`/`expected`/`max` modes broadcast S's cut onto every
+  // other scene's α, which is mathematically valid only when the
+  // scenes literally share the same sample-path realization (same
+  // inflows, demands, etc. at every (phase, block)).  Production
+  // runs (e.g. juan/gtopt_iplp with 16 distinct hydrology samples)
+  // do not satisfy that condition; the broadcast cuts produce
+  // LB > UB that compounds across iterations.  See
+  // `support/sddp_cut_sharing_fix_plan_2026-04-30.md` and the
+  // regression guard at `test/source/test_sddp_bounds_sanity.cpp`.
+  if (m_options_.cut_sharing != CutSharingMode::none && num_scenes > 1) {
+    SPDLOG_WARN(
+        "SDDP: cut_sharing={} on {} scenes — cross-scene broadcasting "
+        "is mathematically valid only when scenes share IDENTICAL "
+        "sample-path realizations (same inflows / demands / capacities "
+        "at every phase and block).  Heterogeneous-realization runs "
+        "may produce LB > UB.  Use cut_sharing=none for production "
+        "multi-scenario runs.  See "
+        "support/sddp_cut_sharing_fix_plan_2026-04-30.md.",
+        enum_name(m_options_.cut_sharing),
+        num_scenes);
+  }
+
   m_scene_phase_states_.resize(num_scenes);
   m_cut_store_.resize_scenes(num_scenes);
   m_infeasibility_counter_.resize(num_scenes);

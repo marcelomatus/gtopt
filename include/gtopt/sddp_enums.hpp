@@ -57,13 +57,30 @@ inline constexpr auto boundary_cuts_mode_entries =
  * When a sharing mode other than `none` is selected, the backward pass is
  * synchronized per-phase: all scenes complete a phase before cuts are shared
  * and the next phase is processed.
+ *
+ * @warning Only `none` is mathematically valid for production multi-scenario
+ * runs.  gtopt implements multi-cut SDDP (one α^k_s column per scene).  The
+ * `expected` / `accumulate` / `max` modes broadcast a cut from scene S to
+ * every other scene's α LP, which is valid only when scenes share the
+ * IDENTICAL sample-path realization (same inflows, demands, capacities at
+ * every (phase, block)).  Distinct-sample-path runs (the typical case for
+ * Monte Carlo SDDP, e.g. juan/gtopt_iplp with 16 historical hydrology
+ * samples) violate that condition and produce LB > UB that compounds
+ * across iterations.  A runtime WARN is emitted at SDDP setup when
+ * `cut_sharing != none && num_scenes > 1`.  See
+ * `support/sddp_cut_sharing_fix_plan_2026-04-30.md` and the regression
+ * test `test/source/test_sddp_bounds_sanity.cpp`.
  */
 enum class CutSharingMode : uint8_t
 {
-  none = 0,  ///< No sharing; scenes solved independently (default)
+  none = 0,  ///< No sharing; scenes solved independently (default; only
+             ///< mathematically valid choice for production multi-scenario)
   expected = 1,  ///< Average cuts within each scene, then sum across scenes
-  accumulate = 2,  ///< Sum all cuts directly (LP objectives pre-weighted)
-  max = 3,  ///< All cuts from all scenes added to all scenes
+                 ///< (KNOWN INVALID for distinct sample paths — see warning)
+  accumulate = 2,  ///< Sum all cuts directly (KNOWN INVALID for distinct
+                   ///< sample paths — see warning)
+  max = 3,  ///< All cuts from all scenes added to all scenes (KNOWN INVALID
+            ///< for distinct sample paths — see warning)
 };
 
 inline constexpr auto cut_sharing_mode_entries =

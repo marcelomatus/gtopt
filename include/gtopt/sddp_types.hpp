@@ -359,7 +359,21 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   /// legitimately go negative (net-revenue phases, mid-convergence
   /// cuts that haven't yet tightened LB above zero).
   double scale_alpha {0};
-  CutSharingMode cut_sharing {CutSharingMode::none};  ///< Cut sharing mode
+  /// Cut sharing mode across scenes.  WARNING: only `none` is
+  /// mathematically valid for HETEROGENEOUS scenes (scenes with
+  /// different probabilities or different dynamics).  Modes
+  /// `accumulate`, `expected`, and `max` broadcast a cut from scene S
+  /// to every other scene's α LP, which is only valid when all scenes
+  /// are mathematically identical (cuts from any scene coincide).
+  /// Otherwise the broadcast cut over-tightens α at scenes whose
+  /// actual future cost is below the broadcast bound, producing
+  /// LB > UB ("LB overshoot") that compounds across iterations and
+  /// can grow by orders of magnitude (juan/gtopt_iplp regressed at
+  /// 7225× before this was diagnosed).  See
+  /// `test/source/test_sddp_bounds_sanity.cpp` for the regression
+  /// guard.  Default `none` is the only safe choice for production
+  /// runs with non-uniform hydrology / probability scenarios.
+  CutSharingMode cut_sharing {CutSharingMode::none};
 
   /// Elastic filter mode: how the FORWARD pass emits feasibility
   /// cuts when a phase LP is infeasible at the trial state.  Only

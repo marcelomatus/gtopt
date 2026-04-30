@@ -85,9 +85,37 @@ void share_cuts_for_phase(
   };
 
   if (mode == CutSharingMode::accumulate) {
-    // Accumulate mode: sum all scene cuts into one accumulated cut.
-    // When LP objectives already include probability factors, the correct
-    // expected cut is the sum of all individual scene cuts.
+    // Accumulate mode: sum all scene cuts into one accumulated cut, then
+    // broadcast to every scene's α^k LP.
+    //
+    // **VALIDITY WARNING** (2026-04-30 audit):
+    // gtopt is multi-cut SDDP — each scene s has its own α^k_s column
+    // bounding `Q_s(x)` (scene s's value function along scene s's
+    // SPECIFIC sample path).  Summing scene cuts gives a cut whose
+    // RHS is `Σ_s prob_s · Q_s*(x_s_trial)` — a quantity related to
+    // E[Q] but NOT a valid lower bound on any individual scene's
+    // α^k_d (which bounds Q_d, not E[Q]).  The earlier comment
+    // claimed "probability is already embedded in LP coefficients
+    // via block_ecost so summing gives the expected cut" — that
+    // reasoning is correct for SINGLE-CUT SDDP (one shared α
+    // bounding E[Q]) but NOT for the multi-cut formulation gtopt
+    // implements.  See `support/sddp_cut_sharing_fix_plan_2026-04-30.md`.
+    //
+    // Result: this mode produces LB > UB that compounds across
+    // iterations whenever scenes draw distinct sample-path
+    // realizations (the typical multi-scenario production case,
+    // e.g. juan/gtopt_iplp with 16 distinct hydrology samples).
+    // It is mathematically valid only when every scene literally
+    // realizes the same sample path (same inflows, demands,
+    // capacities at every (phase, block)) — typically only true
+    // for synthetic test fixtures.
+    //
+    // The shipping fix is `cut_sharing_mode: none` for production
+    // runs; a runtime WARN is emitted at SDDP setup
+    // (`sddp_method.cpp::initialize_solver`).  This branch is
+    // retained for backwards compatibility on identical-sample-
+    // path test fixtures (e.g. `test_sddp_bounds_sanity.cpp`'s
+    // 2s10p case).
     std::vector<SparseRow> all_cuts;
     for (auto&& [si, cuts] : enumerate<SceneIndex>(scene_cuts)) {
       all_cuts.insert(all_cuts.end(), cuts.begin(), cuts.end());
@@ -132,11 +160,18 @@ void share_cuts_for_phase(
         all_cuts.size());
 
   } else if (mode == CutSharingMode::expected) {
-    // Expected mode: average cuts within each scene, then sum across scenes.
-    // Probability is already embedded in the LP objective coefficients
-    // (via block_ecost = cost * probability * discount * duration / scale),
-    // so the Benders cut z* and reduced costs inherit that weighting.
-    // The correct expected-value cut is the sum of scene-averaged cuts.
+    // Expected mode: average cuts within each scene, then sum across
+    // scenes; broadcast the sum to every scene's α^k LP.
+    //
+    // **VALIDITY WARNING** — see the `accumulate` branch above for the
+    // full audit context.  In summary: the architecture mismatch is
+    // that this mode tries to compute a single-cut SDDP "expected
+    // value cut" but installs it on multi-cut SDDP per-scene α
+    // columns.  The result is a cut whose RHS is shifted relative to
+    // each scene's correct lower bound; LB > UB results whenever
+    // scenes draw distinct sample-path realizations.  Use
+    // `cut_sharing=none` for production multi-scenario runs.
+    // See `support/sddp_cut_sharing_fix_plan_2026-04-30.md`.
     std::vector<SparseRow> scene_avg_cuts;
     scene_avg_cuts.reserve(static_cast<std::size_t>(num_scenes));
 
@@ -187,7 +222,22 @@ void share_cuts_for_phase(
         scene_avg_cuts.size());
 
   } else if (mode == CutSharingMode::max) {
-    // Max mode: add ALL cuts from ALL scenes to ALL scenes.
+    // Max mode: add ALL cuts from ALL scenes to ALL scenes.  The LP
+    // solver will pick the tightest active cut on each scene's α^k.
+    //
+    // **VALIDITY WARNING** — see the `accumulate` branch above for
+    // the full audit context.  In summary: a cut from scene S
+    // broadcast onto scene D's α^k_D LP forces
+    //   α^k_D ≥ prob_S · Q_S*(x_S_trial)
+    // which is a valid bound on `Q_D(·)` only when S and D draw
+    // identical sample paths.  Empirical: `max` mode produces the
+    // largest LB-overshoot of the three sharing modes because the
+    // LP picks the TIGHTEST broadcast cut, which is precisely the
+    // scene with the highest (prob_S · Q_S*) — never the actual
+    // bound on D's Q.  `cut_sharing=none` is the only safe choice
+    // for production multi-scenario runs.  See
+    // `support/sddp_cut_sharing_fix_plan_2026-04-30.md`.
+    //
     // Each cut already carries its source-scene metadata from
     // ``apply_cut_sharing_for_iteration::to_sparse_row``, so we
     // stamp here only to overwrite with the DESTINATION scene's
