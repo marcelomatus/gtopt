@@ -676,11 +676,22 @@ public:
         try {
           auto ptask = std::make_shared<std::packaged_task<ReturnType()>>(
               std::move(func));
-          results.push_back(ptask->get_future());
+          // Build the future locally — only push to `results` after the
+          // queue-side operations succeed.  The previous order pushed
+          // the future first, so a `length_error` from `emplace_back`
+          // or a throwing comparator in `push_heap` would leave the
+          // caller with a "successful" `expected<future>` for a task
+          // that was never enqueued; the `packaged_task` destructs at
+          // scope exit and `.get()` raises `broken_promise` instead of
+          // surfacing the queue error.  Building the future locally
+          // first keeps `results.size() == tasks.size()` and ensures
+          // every entry matches the enqueue outcome.
+          auto fut = ptask->get_future();
           task_queue_.emplace_back([ptask]() { (*ptask)(); }, req);
           std::ranges::push_heap(task_queue_, std::less<> {});
           tasks_submitted_.fetch_add(1, std::memory_order_relaxed);
           tasks_pending_.fetch_add(1, std::memory_order_relaxed);
+          results.push_back(std::move(fut));
           maybe_spawn_worker_unlocked();
         } catch (const std::exception& e) {
           SPDLOG_ERROR("Failed to enqueue batch task: {}", e.what());
@@ -942,19 +953,31 @@ private:
                           std::chrono::steady_clock::now() - t_start)
                           .count();
 
-      // Account
+      // Account.  The dispatch-relevant counters (`active_threads_`,
+      // `tasks_active_`, `tasks_completed_`) are decremented under
+      // `queue_mutex_` so that any subsequent `can_dispatch_top()` /
+      // `maybe_spawn_worker_unlocked()` reading them sees the fresh
+      // value via mutex-acquire happens-before.  Previously the
+      // decrement was under `active_mutex_` only, leaving a small
+      // window where a dispatch decision could be stale by one task —
+      // self-correcting within one tick, but not auditable.
+      // `active_mutex_` now protects only the per-task accumulators.
       {
-        const std::scoped_lock alock(active_mutex_);
+        const std::scoped_lock<std::mutex> qlock(queue_mutex_);
         active_threads_.fetch_sub(threads_needed, std::memory_order_relaxed);
         tasks_active_.fetch_sub(1, std::memory_order_relaxed);
         tasks_completed_.fetch_add(1, std::memory_order_relaxed);
+      }
+      {
+        const std::scoped_lock alock(active_mutex_);
         ++lp_tasks_dispatched_;
         total_task_cpu_pct_ += (rs.cpu_load_before + rs.cpu_load_after) / 2.0;
         total_task_rss_delta_mb_ += (rs.rss_mb_after - rs.rss_mb_before);
       }
 
       // Wake any worker that was throttled by `current + threads_needed
-      // > max_threads_`: one of those checks may now pass.
+      // > max_threads_`: one of those checks may now pass against the
+      // freshly-decremented `active_threads_`.
       cv_.notify_all();
     }
   }

@@ -196,14 +196,26 @@ public:
  * @param load_factor       Soft load-average ceiling: dispatch is blocked
  *                          while `loadavg > load_factor × would-be active
  *                          workers` (and we are at ≥ 50 % of `max_threads`).
- *                          Default 1.25 leaves 25 % "load room" over the
- *                          worker count.  Set 0 to disable the gate.
+ *                          Default **0.0** (disabled).  `getloadavg(3)`
+ *                          is a system-wide 60-s EWMA — on shared hosts
+ *                          (e.g. `ctest -j20`) every concurrent pool
+ *                          sees the aggregated load and gates
+ *                          simultaneously, which is "collective
+ *                          deadlock" rather than back-pressure.  In a
+ *                          dedicated production single-process SDDP
+ *                          run, the existing CPU/RSS/swap gates already
+ *                          cover the contention case directly; the
+ *                          load gate's only unique signal is "external
+ *                          load you cannot see otherwise", which is
+ *                          rare on a dedicated solver host.  Set
+ *                          explicitly (1.25 was the historical default)
+ *                          if you want the gate.
  * @return A started SDDPWorkPool (heap-allocated, non-movable).
  */
 [[nodiscard]] inline std::unique_ptr<SDDPWorkPool> make_sddp_work_pool(
     double cpu_factor = 2.0,
     double memory_limit_mb = 0.0,
-    double load_factor = 1.25)
+    double load_factor = 0.0)
 {
   WorkPoolConfig pool_config {};
   pool_config.name = "SDDPWorkPool";
