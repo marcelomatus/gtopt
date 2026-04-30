@@ -532,19 +532,33 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
         dt_save = post_elapsed_s(t_save);
       }
 
-      // ── Low-memory: release solver backends (idempotent safety net) ──
+      // ── Low-memory: release solver backends + drop primal caches ──
       // After the per-cell release scheme most cells are already
       // released by the backward worker; this bulk loop is the
       // idempotent safety net.  `release_backend` is a no-op when
       // `m_backend_released_` is already set (`linear_interface.cpp:144`),
       // so the cost is dominated by the loop overhead (~µs total).
+      //
+      // `drop_cached_primal_only()` additionally clears the per-cell
+      // `col_sol` / `col_cost` snapshots (kept around since the
+      // forward-pass solve so the per-iteration `save_state_csv`
+      // could read them).  By the time we reach this point the state
+      // CSV has been written and the backward pass has consumed the
+      // per-state-variable values via `capture_state_variable_values`
+      // — both vectors sit unused until the next iteration's solve
+      // overwrites them.  On juan/gtopt_iplp this frees ~0.7–2.5 GB
+      // across the 816 cells between iterations.  The retained
+      // `row_dual` cache is still needed by `update_stored_cut_duals`
+      // and `prune_inactive_cuts` next iteration.
       const auto t_release = PostClock::now();
       if (m_options_.low_memory_mode != LowMemoryMode::off) {
         const auto ns = planning_lp().simulation().scene_count();
         const auto np = planning_lp().simulation().phase_count();
         for (const auto si : iota_range<SceneIndex>(0, ns)) {
           for (const auto pi : iota_range<PhaseIndex>(0, np)) {
-            planning_lp().system(si, pi).release_backend();
+            auto& sys = planning_lp().system(si, pi);
+            sys.release_backend();
+            sys.linear_interface().drop_cached_primal_only();
           }
         }
       }
