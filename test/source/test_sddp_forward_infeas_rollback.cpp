@@ -219,27 +219,28 @@ TEST_CASE(  // NOLINT
 // ═══════════════════════════════════════════════════════════════════════════
 
 TEST_CASE(  // NOLINT
-    "PlanningOptionsLP::sddp_forward_infeas_rollback defaults to false")
+    "PlanningOptionsLP::sddp_forward_infeas_rollback defaults to true")
 {
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
   auto planning = make_2scene_3phase_hydro_planning(0.5, 0.5);
-  // Default: planning.options.sddp_options.forward_infeas_rollback
-  // is std::nullopt → resolves to default_sddp_forward_infeas_rollback
-  // (false).
+  // Default flipped 2026-04-30 (plan step 6).
+  // planning.options.sddp_options.forward_infeas_rollback is
+  // std::nullopt → resolves to default_sddp_forward_infeas_rollback
+  // (true).
   PlanningLP plp(std::move(planning));
-  CHECK_FALSE(plp.options().sddp_forward_infeas_rollback());
+  CHECK(plp.options().sddp_forward_infeas_rollback());
 }
 
 TEST_CASE(  // NOLINT
-    "PlanningOptionsLP::sddp_forward_infeas_rollback respects explicit true")
+    "PlanningOptionsLP::sddp_forward_infeas_rollback respects explicit false")
 {
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
   auto planning = make_2scene_3phase_hydro_planning(0.5, 0.5);
-  planning.options.sddp_options.forward_infeas_rollback = true;
+  planning.options.sddp_options.forward_infeas_rollback = false;
   PlanningLP plp(std::move(planning));
-  CHECK(plp.options().sddp_forward_infeas_rollback());
+  CHECK_FALSE(plp.options().sddp_forward_infeas_rollback());
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

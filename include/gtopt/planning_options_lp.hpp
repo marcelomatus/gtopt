@@ -738,9 +738,18 @@ public:
   static constexpr Bool default_sddp_forward_fail_stop = false;
 
   /// Per-scene rollback default — see `SDDPOptions::forward_infeas_rollback`
-  /// in `sddp_types.hpp` for full semantics.  Stays `false` until the
-  /// feature soaks on juan/gtopt_iplp + IEEE benchmarks (plan step 6).
-  static constexpr Bool default_sddp_forward_infeas_rollback = false;
+  /// in `sddp_types.hpp` for full semantics.  Flipped to `true`
+  /// 2026-04-30 (plan step 6) after one full juan/gtopt_iplp run
+  /// confirmed the feature does not regress legacy paths: every
+  /// pre-existing test that doesn't produce a real
+  /// `scene_feasible[s] == 0` outcome stays a no-op under the
+  /// rollback hook + stall guard, and the stall guard's "no
+  /// recovery path" abort only fires when ALL previously-failed
+  /// scenes saw zero new cuts since their last failure (a strict
+  /// improvement over the legacy "spin until max_iterations" loop).
+  /// Callers that want the legacy behaviour can still opt out by
+  /// setting `sddp.forward_infeas_rollback: false` in JSON.
+  static constexpr Bool default_sddp_forward_infeas_rollback = true;
 
   /**
    * @brief Gets the SDDP cut sharing mode as a string name
