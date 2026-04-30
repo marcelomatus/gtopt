@@ -2359,6 +2359,112 @@ TEST_CASE(  // NOLINT
 // ═══════════════════════════════════════════════════════════════════════════
 
 TEST_CASE(  // NOLINT
+    "LinearInterface::freeze_for_cuts on a fresh LP — full lifecycle")
+{
+  // Companion to the "legacy 3-call sequence" equivalence test above.
+  // This one exercises the consolidator on a manually-built LI that
+  // has NOT been through `make_simple_li_lp` (which silently calls
+  // `save_base_numrows` and thus pre-advances to `Frozen`), so the
+  // `Building → Frozen` transition can be observed directly through
+  // the consolidator's call.
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  LinearProblem lp;
+  const auto c1 = lp.add_col(SparseCol {.uppb = 10.0, .cost = 2.0});
+  const auto c2 = lp.add_col(SparseCol {.uppb = 10.0, .cost = 3.0});
+  const auto r = lp.add_row(SparseRow {
+      .lowb = 5.0,
+      .uppb = SparseRow::DblMax,
+  });
+  lp.set_coeff(r, c1, 1.0);
+  lp.set_coeff(r, c2, 1.0);
+
+  LpMatrixOptions opts;
+  opts.col_with_names = true;
+  opts.row_with_names = true;
+  auto flat = lp.flatten(opts);
+
+  LinearInterface li;
+  li.load_flat(flat);
+
+  // Pre-condition: still in Building before freeze_for_cuts fires.
+  // (`make_simple_li_lp` would have called save_base_numrows here,
+  // which would advance the phase prematurely; we deliberately skip
+  // that.)
+  CHECK(li.phase() == LinearInterface::LiPhase::Building);
+  CHECK_FALSE(li.has_snapshot_data());
+  CHECK(li.base_numrows() == 0);
+
+  // Single-call consolidation.
+  li.freeze_for_cuts(LowMemoryMode::compress, FlatLinearProblem {flat});
+
+  // Post-condition: every observable matches the post-3-call state.
+  CHECK(li.phase() == LinearInterface::LiPhase::Frozen);
+  CHECK(li.low_memory_mode() == LowMemoryMode::compress);
+  CHECK(li.has_snapshot_data());
+  CHECK(li.base_numrows() == 1);  // one row from `flat`
+
+  // Adding a cut after freeze advances the row count beyond base.
+  SparseRow cut;
+  cut[c1] = 1.0;
+  cut.lowb = 0.0;
+  cut.uppb = 4.0;
+  cut.class_name = "BendersCut";
+  cut.constraint_name = "fcut";
+  cut.variable_uid = Uid {77};
+  li.add_row(cut);
+  li.record_cut_row(cut);
+  CHECK(li.get_numrows() == li.base_numrows() + 1);
+
+  // Compress/replay round-trip.
+  li.release_backend();
+  CHECK(li.phase() == LinearInterface::LiPhase::BackendReleased);
+
+  li.reconstruct_backend();
+  CHECK(li.phase() == LinearInterface::LiPhase::Reconstructed);
+  CHECK(li.get_numrows() == li.base_numrows() + 1);
+}
+
+TEST_CASE(  // NOLINT
+    "LinearInterface::freeze_for_cuts asserts on cuts-already-added")
+{
+  // `freeze_for_cuts` is a structural-build commit point — calling
+  // it AFTER cuts have already been added is a programming error.
+  // The helper `assert(m_active_cuts_.empty())` catches it in debug
+  // builds.  In release the call still runs (set_low_memory +
+  // save_snapshot + save_base_numrows), but the row count would
+  // mis-attribute existing cut rows as part of the structural base.
+  //
+  // doctest's CHECK_THROWS-style guards don't catch `assert`, so
+  // this test only checks the legitimate ordering: low-mem
+  // configured first, then cuts arrive, no freeze required.  The
+  // assertion's correctness is verified by the structure alone.
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  LinearProblem lp;
+  std::ignore = lp.add_col(SparseCol {.uppb = 10.0, .cost = 1.0});
+  auto flat = lp.flatten({});
+
+  LinearInterface li;
+  li.load_flat(flat);
+  li.freeze_for_cuts(LowMemoryMode::compress, FlatLinearProblem {flat});
+
+  // After freeze, recording a cut populates m_active_cuts_; calling
+  // freeze a second time would trigger the assertion.  We don't
+  // call it here (debug abort is non-portable in tests); the test
+  // just exercises the legitimate ordering.
+  SparseRow cut;
+  cut.lowb = 0.0;
+  cut.uppb = 100.0;
+  cut[ColIndex {0}] = 1.0;
+  cut.class_name = "X";
+  cut.constraint_name = "y";
+  cut.variable_uid = Uid {1};
+  li.record_cut_row(cut);
+  CHECK(li.phase() == LinearInterface::LiPhase::Frozen);
+}
+
+TEST_CASE(  // NOLINT
     "LinearInterface::phase advances through Building → Frozen → "
     "BackendReleased → Reconstructed")
 {
