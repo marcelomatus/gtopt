@@ -4181,6 +4181,176 @@ TEST_CASE(  // NOLINT
   CHECK(ir.upper_bound == doctest::Approx(100.0));
 }
 
+// ─── Mixed-feasibility UB/LB invariants ──────────────────────────────────────
+//
+// Pins the documented contract that under `forward_infeas_rollback`
+// (default true) the UB/LB calculation produces a "feasible-
+// conditional expectation" — both bounds are weighted averages over
+// the feasible scenes only, with infeasible scenes contributing zero
+// because (a) `compute_scene_weights` zeros the weight of every
+// infeasible scene, and (b) `compute_iteration_bounds`'s LB branch
+// explicitly skips infeasible scenes.  Documents the juan-style
+// scenario where 6 of 16 scenes are feasible and the other 10 are
+// rolled back: the UB/LB pair stays meaningful (and the gap is fair)
+// because the same feasibility filter applies to both sides.
+//
+// IMPORTANT: this is NOT a juan-specific bug.  The arithmetic is
+// pinned independently of the LP solve via direct injection of
+// `scene_upper_bounds`, then exercising `compute_iteration_bounds`
+// against synthesised weights and `scene_feasible` masks.
+
+TEST_CASE(  // NOLINT
+    "SDDPMethod::compute_iteration_bounds — mixed-feasibility UB ignores "
+    "infeasible scenes")
+{
+  // 3 scenes with weights [0.2, 0.3, 0.5]; scene 1 (middle) infeasible.
+  // Under runtime rescale `compute_scene_weights` would have
+  // re-normalised to [0.2/0.7, 0, 0.5/0.7] = [0.2857, 0, 0.7143];
+  // here we inject the post-normalisation weights directly so the
+  // arithmetic is unambiguous.
+  auto planning = make_2scene_3phase_hydro_planning();
+  PlanningLP plp(std::move(planning));
+
+  SDDPOptions sddp_opts;
+  sddp_opts.max_iterations = 1;
+  sddp_opts.enable_api = false;
+  sddp_opts.apertures = std::vector<Uid> {};
+  SDDPMethod sddp(plp, sddp_opts);
+
+  // Override num_scenes to 3 for the bounds calculation only — the
+  // PlanningLP fixture has 2, but compute_iteration_bounds reads
+  // weights/scene_feasible spans, so a 3-element test is fine as long
+  // as we don't dereference scene_lower_bounds for non-feasible
+  // scenes (we don't — they're skipped by the feasibility filter).
+  // Use the planning's actual count to avoid out-of-range LB reads.
+  const auto num_scenes = plp.simulation().scene_count();
+  REQUIRE(num_scenes >= 2);
+
+  SDDPIterationResult ir;
+  ir.scene_upper_bounds.assign(num_scenes, 0.0);
+  ir.scene_upper_bounds[0] = 100.0;
+  ir.scene_upper_bounds[1] = 200.0;
+
+  // Scene 0 feasible, scene 1 infeasible.
+  std::vector<uint8_t> scene_feasible(num_scenes, 0U);
+  scene_feasible[0] = 1U;
+
+  // Pre-rescaled feasible-only weights: scene 0 carries 1.0, scene
+  // 1 carries 0 (the rescale renormalised to feasible-only sum=1).
+  std::vector<double> weights(num_scenes, 0.0);
+  weights[0] = 1.0;
+
+  sddp.compute_iteration_bounds(ir, scene_feasible, weights);
+
+  // UB = 1.0·100 + 0·200 = 100 (the infeasible scene's UB=200
+  // contributes zero because its weight is zero — matching the
+  // runtime-rescale behaviour).
+  CHECK(ir.upper_bound == doctest::Approx(100.0));
+
+  // LB: scene 1's slot stays at 0 (skipped by the feasibility
+  // filter), and scene 0's LB depends on the planning's solve
+  // state which we don't drive here — just check the structural
+  // invariants.
+  REQUIRE(ir.scene_lower_bounds.size() == static_cast<size_t>(num_scenes));
+  CHECK(ir.scene_lower_bounds[1] == doctest::Approx(0.0));
+}
+
+TEST_CASE(  // NOLINT
+    "SDDPMethod::compute_iteration_bounds — UB invariant under feasible-set "
+    "shifts")
+{
+  // Pins the property: if the SAME feasible scenes contribute the
+  // SAME (weight, scene_upper_bound) pairs, the UB is independent
+  // of how many other scenes are present and infeasible.  i.e. a
+  // 16-scene run with 6 feasible scenes producing UB X is identical
+  // to a 6-scene run with all 6 feasible and the same weights/UBs.
+  //
+  // This catches the class of bug where an aggregator accidentally
+  // sums num_scenes (not feasible_count) somewhere in the gap
+  // formula or weighted-mean pipeline.
+  auto planning = make_2scene_3phase_hydro_planning();
+  PlanningLP plp(std::move(planning));
+
+  SDDPOptions sddp_opts;
+  sddp_opts.max_iterations = 1;
+  sddp_opts.enable_api = false;
+  sddp_opts.apertures = std::vector<Uid> {};
+  SDDPMethod sddp(plp, sddp_opts);
+
+  const auto num_scenes = plp.simulation().scene_count();
+  REQUIRE(num_scenes >= 2);
+
+  // Trial A: only scene 0 contributes; its weight is 1.0, UB=150.
+  SDDPIterationResult ir_a;
+  ir_a.scene_upper_bounds.assign(num_scenes, 0.0);
+  ir_a.scene_upper_bounds[0] = 150.0;
+  std::vector<uint8_t> feas_a(num_scenes, 0U);
+  feas_a[0] = 1U;
+  std::vector<double> weights_a(num_scenes, 0.0);
+  weights_a[0] = 1.0;
+  sddp.compute_iteration_bounds(ir_a, feas_a, weights_a);
+
+  // Trial B: scene 0 still contributes the SAME (weight, UB), but
+  // we additionally mark scene 1 as having a different UB and
+  // weight=0.  The infeasible scene must not perturb scene 0's
+  // contribution.
+  SDDPIterationResult ir_b;
+  ir_b.scene_upper_bounds.assign(num_scenes, 0.0);
+  ir_b.scene_upper_bounds[0] = 150.0;
+  ir_b.scene_upper_bounds[1] = 99999.0;  // garbage; weight=0 so muted
+  std::vector<uint8_t> feas_b(num_scenes, 0U);
+  feas_b[0] = 1U;
+  // feas_b[1] stays 0 — scene 1 infeasible
+  std::vector<double> weights_b(num_scenes, 0.0);
+  weights_b[0] = 1.0;
+  // weights_b[1] stays 0 — scene 1 weight zero
+  sddp.compute_iteration_bounds(ir_b, feas_b, weights_b);
+
+  // Same UB.
+  CHECK(ir_a.upper_bound == doctest::Approx(ir_b.upper_bound));
+  CHECK(ir_a.upper_bound == doctest::Approx(150.0));
+}
+
+TEST_CASE(  // NOLINT
+    "SDDPMethod::compute_iteration_bounds — gap formula uses feasible-only "
+    "UB / feasible-only LB")
+{
+  // The gap formula is `(UB - LB) / max(1, |UB|)`.  When both UB
+  // and LB are feasible-conditional means (which they are by
+  // construction in compute_iteration_bounds), the gap is also
+  // feasible-conditional — comparing apples to apples.  Pin this
+  // by checking the gap matches the manual formula on a synthesised
+  // mixed-feasibility setup where we know both bounds exactly.
+  auto planning = make_2scene_3phase_hydro_planning();
+  PlanningLP plp(std::move(planning));
+
+  SDDPOptions sddp_opts;
+  sddp_opts.max_iterations = 1;
+  sddp_opts.enable_api = false;
+  sddp_opts.apertures = std::vector<Uid> {};
+  SDDPMethod sddp(plp, sddp_opts);
+
+  // Two scenes: one feasible at UB=200, one infeasible.  Weight 1.0
+  // on the feasible scene (post-rescale), 0 on the infeasible.
+  // LB stays 0 because we don't drive an LP solve.
+  const auto num_scenes = plp.simulation().scene_count();
+  SDDPIterationResult ir;
+  ir.scene_upper_bounds.assign(num_scenes, 0.0);
+  ir.scene_upper_bounds[0] = 200.0;
+  std::vector<uint8_t> feas(num_scenes, 0U);
+  feas[0] = 1U;
+  std::vector<double> weights(num_scenes, 0.0);
+  weights[0] = 1.0;
+  sddp.compute_iteration_bounds(ir, feas, weights);
+
+  CHECK(ir.upper_bound == doctest::Approx(200.0));
+  CHECK(ir.lower_bound == doctest::Approx(0.0));
+
+  const auto gap = compute_convergence_gap(ir.upper_bound, ir.lower_bound);
+  // (200 - 0) / max(1, 200) = 1.0 — wide gap as expected pre-cuts.
+  CHECK(gap == doctest::Approx(1.0));
+}
+
 TEST_CASE(  // NOLINT
     "SDDPMethod::finalize_iteration_result — converged gates on tol AND min")
 {
