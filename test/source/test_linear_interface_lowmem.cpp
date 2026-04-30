@@ -2359,6 +2359,44 @@ TEST_CASE(  // NOLINT
 // ═══════════════════════════════════════════════════════════════════════════
 
 TEST_CASE(  // NOLINT
+    "LinearInterface::phase advances through Building → Frozen → "
+    "BackendReleased → Reconstructed")
+{
+  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+
+  // Step 2 of `support/linear_interface_lifecycle_plan_2026-04-30.md`
+  // adds the lifecycle observer.  This test pins each transition
+  // fired by the canonical entry points; step 4 will assert
+  // illegal transitions in debug builds, but step 2 is pure
+  // observation so the test verifies the happy path only.
+  auto [li, flat, x1, x2] = make_simple_li_lp();
+  CHECK(li.phase() == LinearInterface::LiPhase::Building);
+
+  auto res = li.initial_solve();
+  REQUIRE(res.has_value());
+  // Solving alone does not advance the phase (the LP is still in
+  // "build" mode until cuts can be added).
+  CHECK(li.phase() == LinearInterface::LiPhase::Building);
+
+  li.freeze_for_cuts(LowMemoryMode::compress, FlatLinearProblem {flat});
+  CHECK(li.phase() == LinearInterface::LiPhase::Frozen);
+
+  li.release_backend();
+  CHECK(li.phase() == LinearInterface::LiPhase::BackendReleased);
+
+  li.reconstruct_backend();
+  CHECK(li.phase() == LinearInterface::LiPhase::Reconstructed);
+
+  // Re-release after reconstruct goes back to BackendReleased.
+  li.release_backend();
+  CHECK(li.phase() == LinearInterface::LiPhase::BackendReleased);
+
+  // Re-reconstruct returns to Reconstructed.
+  li.reconstruct_backend();
+  CHECK(li.phase() == LinearInterface::LiPhase::Reconstructed);
+}
+
+TEST_CASE(  // NOLINT
     "LinearInterface::freeze_for_cuts equals legacy 3-call sequence")
 {
   using namespace gtopt;  // NOLINT(google-global-names-in-headers)

@@ -232,6 +232,7 @@ void LinearInterface::release_backend() noexcept
 
   m_backend_.reset();
   m_backend_released_ = true;
+  m_phase_ = LiPhase::BackendReleased;
 }
 
 // ── Low-memory mode ──
@@ -263,6 +264,7 @@ void LinearInterface::freeze_for_cuts(LowMemoryMode mode,
   set_low_memory(mode, codec);
   save_snapshot(std::move(flat_lp));
   save_base_numrows();
+  m_phase_ = LiPhase::Frozen;
 }
 
 void LinearInterface::save_snapshot(FlatLinearProblem flat_lp)
@@ -328,6 +330,7 @@ void LinearInterface::reconstruct_backend(std::span<const double> col_sol,
   if (m_snapshot_.is_compressed()) {
     clear_flat_lp_vectors(m_snapshot_.flat_lp);
   }
+  m_phase_ = LiPhase::Reconstructed;
 }
 
 // NOLINTNEXTLINE(misc-no-recursion)

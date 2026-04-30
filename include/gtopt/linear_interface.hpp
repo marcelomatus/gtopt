@@ -363,6 +363,36 @@ public:
 
   // ── Low-memory mode API ─────────────────────────────────────────────────
 
+  /// Lifecycle phase of the LinearInterface.  Advance on every
+  /// state-changing entry point so observers (debug logging, future
+  /// assertion guards in plan step 4) can see what stage the LP is
+  /// in.
+  ///
+  /// State transitions tracked:
+  ///   (default)        → Building          ctor
+  ///   Building         → Building          load_flat (still pre-freeze)
+  ///   Building         → Frozen            freeze_for_cuts
+  ///   Frozen           → BackendReleased   release_backend
+  ///   Reconstructed    → BackendReleased   release_backend
+  ///   BackendReleased  → Reconstructed     reconstruct_backend
+  ///
+  /// No transition assertions in this step — step 2 of the
+  /// `support/linear_interface_lifecycle_plan_2026-04-30.md` is pure
+  /// observation; step 4 layers debug-asserted transitions on top
+  /// once every call site has migrated to the canonical entry
+  /// points.
+  enum class LiPhase : uint8_t
+  {
+    Building,
+    Frozen,
+    BackendReleased,
+    Reconstructed,
+  };
+
+  /// Current lifecycle phase.  Mutates only through the public
+  /// methods listed in the `LiPhase` doc; never set externally.
+  [[nodiscard]] LiPhase phase() const noexcept { return m_phase_; }
+
   /// Configure low-memory mode (off, snapshot, compress, rebuild).
   void set_low_memory(LowMemoryMode mode,
                       CompressionCodec codec = CompressionCodec::lz4) noexcept;
@@ -2282,6 +2312,13 @@ private:
 
   /// Whether the backend is currently released.
   bool m_backend_released_ {false};
+
+  /// Lifecycle phase observer (step 2 of the lifecycle plan).
+  /// Default-constructed in `Building`; advances through
+  /// `Frozen`, `BackendReleased`, `Reconstructed` as the canonical
+  /// entry points fire.  Pure observation in step 2; step 4 will
+  /// add debug-asserted transitions.
+  LiPhase m_phase_ {LiPhase::Building};
 
   /// Re-entry guard for rebuild.  `ensure_backend()` sets this true
   /// before calling `m_rebuild_owner_->rebuild_in_place()`, which
