@@ -229,13 +229,14 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
       // ── Backward pass ──
       SPDLOG_DEBUG("SDDP Backward [i{}]: starting backward pass",
                    iteration_index);
-      // Save per-scene cut counts for cut sharing offset tracking
+      // Save per-scene cut counts for cut sharing offset tracking.
+      // Stored on each `SceneCutStore` (per-scene snapshot) post-step-4
+      // of `support/sddp_cut_store_split_plan_2026-04-30.md`; the
+      // legacy parallel `m_scene_cuts_before_` vector is gone.
       const auto num_scenes_bwd = planning_lp().simulation().scene_count();
-      m_cut_store_.scene_cuts_before().resize(
-          static_cast<std::size_t>(num_scenes_bwd));
       for (const auto scene_index : iota_range<SceneIndex>(0, num_scenes_bwd)) {
-        m_cut_store_.scene_cuts_before()[scene_index] =
-            m_cut_store_.at(scene_index).size();
+        auto& sc = m_cut_store_.at(scene_index);
+        sc.set_cuts_before(sc.size());
       }
       // Snapshot aggregate solver stats so the post-pass diff reveals
       // the six per-step backward-cut timers (rebuild/build/add_row/

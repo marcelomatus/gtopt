@@ -515,10 +515,11 @@ void SDDPCutStore::apply_cut_sharing_for_iteration(
   { return phases[pi].uid(); };
 
   // Iterate each phase step; for each scene, use its per-scene offset
-  // (captured by the caller in `m_scene_cuts_before_` before the
-  // backward pass) to find cuts newly added this iteration.  Only
-  // optimality cuts are shared across scenes (feasibility cuts are
-  // scene-local by construction).
+  // (captured by the caller in `SceneCutStore::cuts_before()` before
+  // the backward pass — replaces the parallel `m_scene_cuts_before_`
+  // vector retired in step 4 of the cut-store split plan) to find
+  // cuts newly added this iteration.  Only optimality cuts are shared
+  // across scenes (feasibility cuts are scene-local by construction).
   for (const auto pi : iota_range<PhaseIndex>(0, num_phases - 1)) {
     StrongIndexVector<SceneIndex, std::vector<SparseRow>> per_scene_cuts;
     per_scene_cuts.resize(num_scenes);
@@ -526,10 +527,9 @@ void SDDPCutStore::apply_cut_sharing_for_iteration(
     const auto pi_uid = phase_uid_fn(pi);
 
     for (const auto si : iota_range<SceneIndex>(0, num_scenes)) {
-      const auto& cuts = m_scene_cuts_[si];
-      const auto si_sz = static_cast<std::size_t>(si);
-      const auto offset =
-          si_sz < m_scene_cuts_before_.size() ? m_scene_cuts_before_[si_sz] : 0;
+      const auto& sc = m_scene_cuts_[si];
+      const auto& cuts = sc.cuts();
+      const auto offset = sc.cuts_before();
       // ``int`` matches ``make_iteration_context``'s ``extra`` slot, so
       // ``ci`` flows straight through ``to_sparse_row`` with no cast.
       // ``std::ssize(cuts)`` returns a signed type so the range-end

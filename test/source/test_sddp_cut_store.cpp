@@ -193,13 +193,19 @@ TEST_CASE("SDDPCutStore - clear() wipes per-scene containers")  // NOLINT
   CHECK(store.num_stored_cuts() == 0);
 }
 
-TEST_CASE("SDDPCutStore - scene_cuts_before snapshot is mutable")  // NOLINT
+TEST_CASE("SceneCutStore - cuts_before snapshot is per-scene")  // NOLINT
 {
+  // Migrated from the legacy "scene_cuts_before snapshot is mutable"
+  // test that exercised the parallel `m_scene_cuts_before_` vector.
+  // After plan step 4 the snapshot lives on each `SceneCutStore`'s
+  // `cuts_before()` member; the parallel global vector is gone.
   SDDPCutStore store;
   store.resize_scenes(3);
-  auto& before = store.scene_cuts_before();
-  before.assign(3, std::size_t {0});
-  CHECK(store.scene_cuts_before().size() == 3);
+
+  // Defaults to zero on each scene.
+  for (Index si = 0; si < 3; ++si) {
+    CHECK(store.at(SceneIndex {si}).cuts_before() == 0);
+  }
 
   store.store_cut(first_scene_index(),
                   first_phase_index(),
@@ -209,7 +215,11 @@ TEST_CASE("SDDPCutStore - scene_cuts_before snapshot is mutable")  // NOLINT
                   make_uid<Scene>(1),
                   make_uid<Phase>(1));
 
-  // Record a snapshot of how many cuts existed before an iteration.
-  before[0] = store.scene_cuts()[first_scene_index()].size();
-  CHECK(store.scene_cuts_before()[0] == 1);
+  // Record a snapshot of how many cuts existed before an iteration on
+  // scene 0; other scenes remain at zero.
+  store.at(first_scene_index())
+      .set_cuts_before(store.at(first_scene_index()).size());
+  CHECK(store.at(first_scene_index()).cuts_before() == 1);
+  CHECK(store.at(SceneIndex {1}).cuts_before() == 0);
+  CHECK(store.at(SceneIndex {2}).cuts_before() == 0);
 }

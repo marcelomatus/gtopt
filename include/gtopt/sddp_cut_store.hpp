@@ -215,15 +215,10 @@ public:
     return m_scene_cuts_;
   }
 
-  /// Per-scene cut count snapshot before backward pass.
-  [[nodiscard]] auto& scene_cuts_before() noexcept
-  {
-    return m_scene_cuts_before_;
-  }
-  [[nodiscard]] const auto& scene_cuts_before() const noexcept
-  {
-    return m_scene_cuts_before_;
-  }
+  // `scene_cuts_before` accessors retired in step 4 of the cut-store
+  // split plan: the per-scene snapshot now lives on each
+  // `SceneCutStore::cuts_before()` member.  Callers use
+  // `at(si).cuts_before()` / `at(si).set_cuts_before(n)`.
 
   /// Mutable per-scene cuts (for direct iteration access).
   [[nodiscard]] auto& scene_cuts() noexcept { return m_scene_cuts_; }
@@ -351,15 +346,6 @@ private:
   /// working unchanged.  See `SceneCutStore` doc for the migration
   /// rationale.
   StrongIndexVector<SceneIndex, SceneCutStore> m_scene_cuts_ {};
-
-  /// Per-scene cut count snapshot before each backward pass.
-  /// Populated by the caller right before dispatching the backward
-  /// step so `apply_cut_sharing_for_iteration` can identify newly
-  /// added cuts by offset.  Step 4 of
-  /// `support/sddp_cut_store_split_plan_2026-04-30.md` migrates this
-  /// parallel vector onto each `SceneCutStore`'s `cuts_before()`
-  /// member; until then it lives here unchanged.
-  std::vector<std::size_t> m_scene_cuts_before_ {};
 };
 
 }  // namespace gtopt
