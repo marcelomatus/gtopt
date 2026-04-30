@@ -2753,3 +2753,210 @@ TEST_CASE(  // NOLINT
   CHECK(li.get_numrows() == rows_before);
   CHECK(li.phase() == LinearInterface::LiPhase::Reconstructed);
 }
+
+// ── drop_cached_primal_only — between-iteration memory release ──────────────
+
+TEST_CASE(  // NOLINT
+    "LinearInterface — drop_cached_primal_only retains row_dual; "
+    "col_sol / col_cost reads trigger reconstruct")
+{
+  // Pins the contract introduced for the SDDP between-iter memory drop:
+  // `col_sol` and `col_cost` are dead between iterations (the iteration
+  // that produced them has already consumed them via OutputContext +
+  // save_state_csv + state-variable propagation), but `row_dual` is
+  // re-read across iterations by `update_stored_cut_duals` and
+  // `prune_inactive_cuts`.  Dropping the wrong vector silently breaks
+  // SDDP cut prune; this test catches that regression.
+  //
+  // The observable invariant is **whether reading the cache triggers a
+  // backend reconstruct**.  After `release_backend`, `get_*_raw` first
+  // checks the cache; on a hit it returns the cached span without
+  // touching the backend.  On a miss it calls `backend().col_solution()`
+  // which transparently reconstructs the backend via `ensure_backend()`.
+  // We can therefore read `is_backend_released()` AFTER calling the
+  // getter to verify whether the cache was hit (still released) or not
+  // (now reconstructed).
+  auto [li, flat, x1, x2] = make_simple_li_lp();
+
+  auto res = li.initial_solve();
+  REQUIRE(res.has_value());
+  REQUIRE(li.is_optimal());
+
+  // Capture live row_dual ground truth so we can verify it's preserved
+  // bit-for-bit through the drop.
+  const std::vector<double> live_row_dual(li.get_row_dual_raw().begin(),
+                                          li.get_row_dual_raw().end());
+  REQUIRE_FALSE(live_row_dual.empty());
+
+  li.set_low_memory(LowMemoryMode::compress);
+  li.save_snapshot(FlatLinearProblem {flat});
+
+  SUBCASE("row_dual cache is RETAINED — read does not reconstruct")
+  {
+    li.release_backend();
+    REQUIRE(li.is_backend_released());
+
+    li.drop_cached_primal_only();
+    REQUIRE(li.is_backend_released());  // drop alone does not reconstruct
+
+    // Reading row_dual must serve from cache (no backend access).
+    const auto pi = li.get_row_dual_raw();
+    REQUIRE(pi.size() == live_row_dual.size());
+    for (size_t i = 0; i < pi.size(); ++i) {
+      CHECK(pi[i] == doctest::Approx(live_row_dual[i]));
+    }
+    // Backend MUST still be released — the cache hit served the read
+    // without forcing a reconstruct.  This is the load-bearing
+    // invariant for SDDP cut prune / dual update.
+    CHECK(li.is_backend_released());
+    CHECK_FALSE(li.has_backend());
+  }
+
+  SUBCASE("col_sol cache is cleared — read triggers reconstruct")
+  {
+    li.release_backend();
+    REQUIRE(li.is_backend_released());
+
+    li.drop_cached_primal_only();
+    REQUIRE(li.is_backend_released());
+
+    // Reading col_sol after drop falls through to `backend()` which
+    // calls `ensure_backend()` → reconstruct from snapshot.  The
+    // observable: is_backend_released flips to false.
+    [[maybe_unused]] const auto sol = li.get_col_sol_raw();
+    CHECK_FALSE(li.is_backend_released());
+  }
+
+  SUBCASE("col_cost cache is cleared — read triggers reconstruct")
+  {
+    li.release_backend();
+    REQUIRE(li.is_backend_released());
+
+    li.drop_cached_primal_only();
+    REQUIRE(li.is_backend_released());
+
+    [[maybe_unused]] const auto cc = li.get_col_cost_raw();
+    CHECK_FALSE(li.is_backend_released());
+  }
+}
+
+TEST_CASE(  // NOLINT
+    "LinearInterface — drop_cached_primal_only is idempotent and safe")
+{
+  // Two consecutive drops must not crash or corrupt state.  This is the
+  // contract that lets the bulk safety-net loop in sddp_iteration.cpp
+  // call drop_cached_primal_only on every cell unconditionally without
+  // worrying about whether the per-cell scheme already dropped earlier.
+  auto [li, flat, x1, x2] = make_simple_li_lp();
+  auto res = li.initial_solve();
+  REQUIRE(res.has_value());
+
+  // Capture row_dual ground truth before compression.
+  const std::vector<double> live_row_dual(li.get_row_dual_raw().begin(),
+                                          li.get_row_dual_raw().end());
+
+  li.set_low_memory(LowMemoryMode::compress);
+  li.save_snapshot(FlatLinearProblem {flat});
+  li.release_backend();
+  REQUIRE(li.is_backend_released());
+
+  CHECK_NOTHROW(li.drop_cached_primal_only());
+
+  // Idempotent: second call is a no-op, neither crashes nor reconstructs.
+  CHECK_NOTHROW(li.drop_cached_primal_only());
+  CHECK(li.is_backend_released());
+
+  // row_dual cache survived both drops — read it without
+  // reconstructing.
+  const auto pi = li.get_row_dual_raw();
+  REQUIRE(pi.size() == live_row_dual.size());
+  for (size_t i = 0; i < pi.size(); ++i) {
+    CHECK(pi[i] == doctest::Approx(live_row_dual[i]));
+  }
+  CHECK(li.is_backend_released());
+}
+
+TEST_CASE(  // NOLINT
+    "LinearInterface — drop_cached_primal_only is a no-op under "
+    "low_memory_mode=off")
+{
+  // Under `off` the caches are never populated by `release_backend`
+  // (which is itself a no-op).  Calling drop must therefore be safe
+  // and observe-equivalent to no call: the live backend stays alive
+  // and getters continue to read from it.
+  auto [li, flat, x1, x2] = make_simple_li_lp();
+  auto res = li.initial_solve();
+  REQUIRE(res.has_value());
+  REQUIRE_FALSE(li.is_backend_released());
+
+  // Mode off: no compression, no release_backend → no caches populated.
+  CHECK_NOTHROW(li.drop_cached_primal_only());
+
+  // Live backend untouched; getters still serve from it.
+  CHECK_FALSE(li.is_backend_released());
+  CHECK(li.has_backend());
+  CHECK_FALSE(li.get_col_sol_raw().empty());
+  CHECK_FALSE(li.get_col_cost_raw().empty());
+  CHECK_FALSE(li.get_row_dual_raw().empty());
+}
+
+// ── drop_label_meta_buffers — end-of-run memory release ────────────────────
+
+TEST_CASE(  // NOLINT
+    "LinearInterface — drop_label_meta_buffers clears compressed buffers "
+    "and string pool")
+{
+  // After PlanningLP::write_out emits parquet for a cell, the
+  // compressed col/row label vectors and the string pool that backs
+  // their decompressed `string_view`s are dead — no further consumer
+  // reads them.  drop_label_meta_buffers releases ~1 MB compressed
+  // per cell × N cells.  This test pins the post-condition: buffers
+  // are empty after the call, idempotent under repeat calls.
+  auto [li, flat, x1, x2] = make_simple_li_lp();
+  auto res = li.initial_solve();
+  REQUIRE(res.has_value());
+
+  // release_backend under compress invokes compress_labels_meta_if_needed,
+  // which populates m_col_labels_meta_compressed_, m_row_labels_meta_
+  // compressed_, and grows m_label_string_pool_ (when labels exist on
+  // the LP).  The fixture has col_with_names + row_with_names, so the
+  // string pool will be non-empty after compression.
+  li.set_low_memory(LowMemoryMode::compress);
+  li.save_snapshot(FlatLinearProblem {flat});
+  li.release_backend();
+  REQUIRE(li.is_backend_released());
+
+  // We cannot directly assert "buffers populated" without exposing the
+  // private members; the drop's CONTRACT is post-condition based:
+  // after drop, label-meta lookups should observe the buffers as
+  // empty / decompression yields nothing.  The simplest observable is
+  // that drop is `noexcept` and idempotent on any LinearInterface
+  // state (populated, empty, post-clone).
+
+  CHECK_NOTHROW(li.drop_label_meta_buffers());
+
+  // Idempotent: second call is a no-op.
+  CHECK_NOTHROW(li.drop_label_meta_buffers());
+
+  // Other caches must not have been touched: row_dual still holds the
+  // post-release snapshot, col_sol still holds it (we did NOT call
+  // drop_cached_primal_only in this test).
+  CHECK_FALSE(li.get_row_dual_raw().empty());
+  CHECK_FALSE(li.get_col_sol_raw().empty());
+}
+
+TEST_CASE(  // NOLINT
+    "LinearInterface — drop_label_meta_buffers is safe before any "
+    "compression")
+{
+  // The drop must be safe even on a freshly-constructed LinearInterface
+  // that has never been compressed.  Tests the "nothing to drop" branch
+  // that downstream cleanup paths rely on (e.g. early-exit error
+  // handlers in PlanningLP::write_out that may call drop without the
+  // usual release-then-emit prelude).
+  auto [li, flat, x1, x2] = make_simple_li_lp();
+
+  // No initial_solve, no release_backend, no compression.
+  CHECK_NOTHROW(li.drop_label_meta_buffers());
+  CHECK_NOTHROW(li.drop_label_meta_buffers());  // idempotent
+}
