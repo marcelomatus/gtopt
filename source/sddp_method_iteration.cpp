@@ -1301,13 +1301,17 @@ void SDDPMethod::maybe_write_api_status(
 void SDDPMethod::save_cuts_for_iteration(
     IterationIndex iteration_index, std::span<const uint8_t> scene_feasible)
 {
+  // Pass `m_pool_` so the per-scene cut writes can be dispatched in
+  // parallel (sequential fallback when null — only happens before
+  // `solve()` has constructed the pool).
   m_cut_store_.save_cuts_for_iteration(iteration_index,
                                        scene_feasible,
                                        m_options_,
                                        planning_lp(),
                                        m_label_maker_,
                                        m_scene_phase_states_,
-                                       current_iteration());
+                                       current_iteration(),
+                                       m_pool_);
 }
 
 // ── solve() — now in sddp_iteration.cpp ─────────────────────────────────────

@@ -507,15 +507,38 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
           ir.infeasible_cuts_added,
           ir.converged ? "[CONVERGED]" : "");
 
-      // ── Monitoring API and cut persistence ──
+      // ── Post-iteration housekeeping (timed) ──
+      // Single INFO line at the end summarises the breakdown so the
+      // inter-iteration gap visible in operator logs (e.g. juan/
+      // gtopt_iplp's ~10 s gap) can be attributed to its components
+      // — api status write, cut persistence, idempotent backend
+      // release safety net, and the user-supplied iteration
+      // callback — without rebuilding with TRACE logs on.
+      using PostClock = std::chrono::steady_clock;
+      const auto post_iter_t0 = PostClock::now();
+      const auto post_elapsed_s = [](PostClock::time_point start) noexcept
+      {
+        return std::chrono::duration<double>(PostClock::now() - start).count();
+      };
+
+      const auto t_api = PostClock::now();
       maybe_write_api_status(status_file, results, solve_start, monitor);
+      const auto dt_api = post_elapsed_s(t_api);
+
+      double dt_save = 0.0;
       if (m_options_.save_per_iteration) {
+        const auto t_save = PostClock::now();
         save_cuts_for_iteration(iteration_index, fwd->scene_feasible);
+        dt_save = post_elapsed_s(t_save);
       }
 
-      // ── Low-memory: release solver backends ──
-      // Free solver memory after each iteration.  Backends are
-      // reconstructed on demand in the next forward/backward pass.
+      // ── Low-memory: release solver backends (idempotent safety net) ──
+      // After the per-cell release scheme most cells are already
+      // released by the backward worker; this bulk loop is the
+      // idempotent safety net.  `release_backend` is a no-op when
+      // `m_backend_released_` is already set (`linear_interface.cpp:144`),
+      // so the cost is dominated by the loop overhead (~µs total).
+      const auto t_release = PostClock::now();
       if (m_options_.low_memory_mode != LowMemoryMode::off) {
         const auto ns = planning_lp().simulation().scene_count();
         const auto np = planning_lp().simulation().phase_count();
@@ -525,9 +548,26 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
           }
         }
       }
+      const auto dt_release = post_elapsed_s(t_release);
 
       // ── Iteration callback ──
-      if (m_iteration_callback_ && m_iteration_callback_(ir)) {
+      const auto t_callback = PostClock::now();
+      const bool callback_requested_stop =
+          m_iteration_callback_ && m_iteration_callback_(ir);
+      const auto dt_callback = post_elapsed_s(t_callback);
+
+      const auto dt_post_iter = post_elapsed_s(post_iter_t0);
+      SPDLOG_INFO(
+          "SDDP Iter [i{}]: post-iter {:.2f}s — api={:.3f}s save={:.2f}s "
+          "release={:.3f}s callback={:.3f}s",
+          iteration_index,
+          dt_post_iter,
+          dt_api,
+          dt_save,
+          dt_release,
+          dt_callback);
+
+      if (callback_requested_stop) {
         SPDLOG_INFO("SDDP Iter [i{}]: callback requested stop",
                     iteration_index);
         break;
