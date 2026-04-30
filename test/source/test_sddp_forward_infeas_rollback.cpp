@@ -2,7 +2,7 @@
 /**
  * @file      test_sddp_forward_infeas_rollback.cpp
  * @brief     Tests for `SDDPOptions::forward_infeas_rollback` and the
- *            `SDDPCutStore::clear_scene_cuts` rollback primitive.
+ *            `SDDPCutManager::clear_scene_cuts` rollback primitive.
  * @date      2026-04-30
  *
  * Coverage axes (per
@@ -39,7 +39,7 @@ namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-
 /// with coefficient 1 and column 0 with coefficient 0.5 (mirrors the
 /// shape of a real Benders cut).  Routes through the unified
 /// `add_cut_row` free function so `m_active_cuts_` and α-release
-/// bookkeeping stay consistent, then persists to `SDDPCutStore`
+/// bookkeeping stay consistent, then persists to `SDDPCutManager`
 /// via the public `cut_store()` accessor so the rollback primitive
 /// has something to delete.
 [[nodiscard]] RowIndex inject_optcut(SDDPMethod& sddp,
@@ -86,7 +86,7 @@ namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-
 // ═══════════════════════════════════════════════════════════════════════════
 
 TEST_CASE(  // NOLINT
-    "SDDPCutStore::clear_scene_cuts deletes rows and clears scene's vector")
+    "SDDPCutManager::clear_scene_cuts deletes rows and clears scene's vector")
 {
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
@@ -130,7 +130,7 @@ TEST_CASE(  // NOLINT
 // ═══════════════════════════════════════════════════════════════════════════
 
 TEST_CASE(  // NOLINT
-    "SDDPCutStore::clear_scene_cuts on empty scene_cuts is a no-op")
+    "SDDPCutManager::clear_scene_cuts on empty scene_cuts is a no-op")
 {
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
@@ -172,7 +172,7 @@ TEST_CASE(  // NOLINT
 // ═══════════════════════════════════════════════════════════════════════════
 
 TEST_CASE(  // NOLINT
-    "SDDPCutStore::clear_scene_cuts is independent across scenes")
+    "SDDPCutManager::clear_scene_cuts is independent across scenes")
 {
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
 

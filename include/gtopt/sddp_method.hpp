@@ -348,7 +348,13 @@ public:
   }
 
   /// Access the cut store (for cascade orchestration, etc.).
-  [[nodiscard]] SDDPCutStore& cut_store() noexcept { return m_cut_store_; }
+  [[nodiscard]] SDDPCutManager& cut_store() noexcept { return m_cut_store_; }
+
+  /// Preferred accessor name post-rename (split plan step 5).  Same
+  /// reference as `cut_store()`; the old name is kept as a
+  /// non-deprecated alias for now and gets `[[deprecated]]` once every
+  /// caller migrates (plan step 6).
+  [[nodiscard]] SDDPCutManager& cut_manager() noexcept { return m_cut_store_; }
 
   /// Per-scene rollback state for `SDDPOptions::forward_infeas_rollback`.
   /// `global_cuts_at_last_failure` is set on the iteration where scene S
@@ -871,7 +877,7 @@ private:
   ApertureDataCache m_aperture_cache_;
   LabelMaker m_label_maker_;
   scene_phase_states_t m_scene_phase_states_;
-  SDDPCutStore m_cut_store_;
+  SDDPCutManager m_cut_store_;
 
   /// Per-(scene, phase) count of consecutive forward-pass infeasibilities.
   /// Incremented when the elastic filter is used in forward_pass at (scene,

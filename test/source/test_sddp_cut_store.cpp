@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: BSD-3-Clause
 /**
  * @file      test_sddp_cut_store.cpp
- * @brief     Direct unit tests for the SDDPCutStore public API
+ * @brief     Direct unit tests for the SDDPCutManager public API
  * @date      2026-04-10
  *
- * Targets the SDDPCutStore methods that were previously reachable only
+ * Targets the SDDPCutManager methods that were previously reachable only
  * through a full SDDP solve, exercising the pieces that don't require a
  * PlanningLP fixture:
  *   - store_cut() writes to per-scene storage
@@ -48,16 +48,16 @@ namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-
 
 }  // namespace
 
-TEST_CASE("SDDPCutStore - default state is empty")  // NOLINT
+TEST_CASE("SDDPCutManager - default state is empty")  // NOLINT
 {
-  const SDDPCutStore store;
+  const SDDPCutManager store;
   CHECK(store.scene_cuts().empty());
   CHECK(store.num_stored_cuts() == 0);
 }
 
-TEST_CASE("SDDPCutStore - resize_scenes sizes per-scene container")  // NOLINT
+TEST_CASE("SDDPCutManager - resize_scenes sizes per-scene container")  // NOLINT
 {
-  SDDPCutStore store;
+  SDDPCutManager store;
   store.resize_scenes(3);
   REQUIRE(store.scene_cuts().size() == 3);
   for (const auto& sc : store.scene_cuts()) {
@@ -65,9 +65,9 @@ TEST_CASE("SDDPCutStore - resize_scenes sizes per-scene container")  // NOLINT
   }
 }
 
-TEST_CASE("SDDPCutStore - store_cut writes to per-scene vector")  // NOLINT
+TEST_CASE("SDDPCutManager - store_cut writes to per-scene vector")  // NOLINT
 {
-  SDDPCutStore store;
+  SDDPCutManager store;
   store.resize_scenes(2);
 
   const auto cut = make_test_cut(/*rhs=*/10.5);
@@ -99,9 +99,9 @@ TEST_CASE("SDDPCutStore - store_cut writes to per-scene vector")  // NOLINT
 }
 
 TEST_CASE(
-    "SDDPCutStore - feasibility cut stored in the requesting scene")  // NOLINT
+    "SDDPCutManager - feasibility cut stored in the requesting scene")  // NOLINT
 {
-  SDDPCutStore store;
+  SDDPCutManager store;
   store.resize_scenes(2);
 
   store.store_cut(SceneIndex {1},
@@ -123,9 +123,9 @@ TEST_CASE(
   CHECK(stored.row == RowIndex {12});
 }
 
-TEST_CASE("SDDPCutStore - multiple cuts across scenes accumulate")  // NOLINT
+TEST_CASE("SDDPCutManager - multiple cuts across scenes accumulate")  // NOLINT
 {
-  SDDPCutStore store;
+  SDDPCutManager store;
   store.resize_scenes(3);
 
   store.store_cut(first_scene_index(),
@@ -163,9 +163,9 @@ TEST_CASE("SDDPCutStore - multiple cuts across scenes accumulate")  // NOLINT
   CHECK(store.scene_cuts()[SceneIndex {2}][0].type == CutType::Feasibility);
 }
 
-TEST_CASE("SDDPCutStore - clear() wipes per-scene containers")  // NOLINT
+TEST_CASE("SDDPCutManager - clear() wipes per-scene containers")  // NOLINT
 {
-  SDDPCutStore store;
+  SDDPCutManager store;
   store.resize_scenes(2);
 
   store.store_cut(first_scene_index(),
@@ -199,7 +199,7 @@ TEST_CASE("SceneCutStore - cuts_before snapshot is per-scene")  // NOLINT
   // test that exercised the parallel `m_scene_cuts_before_` vector.
   // After plan step 4 the snapshot lives on each `SceneCutStore`'s
   // `cuts_before()` member; the parallel global vector is gone.
-  SDDPCutStore store;
+  SDDPCutManager store;
   store.resize_scenes(3);
 
   // Defaults to zero on each scene.

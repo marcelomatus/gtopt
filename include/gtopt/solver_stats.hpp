@@ -91,7 +91,7 @@ struct SolverStats
   /// accompanies it.
   double bwd_add_row_s {0.0};
   /// Time spent pushing the new `StoredCut` onto the per-scene vector
-  /// (`SDDPCutStore::store_cut`).
+  /// (`SDDPCutManager::store_cut`).
   double bwd_store_cut_s {0.0};
   /// Time spent in the post-cut `LinearInterface::resolve()` (simplex
   /// warm-start after adding the new row).  Distinct from the existing

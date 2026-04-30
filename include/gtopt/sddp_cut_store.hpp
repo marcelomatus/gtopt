@@ -67,7 +67,7 @@ struct StoredCut
 /// Single-writer during the forward/backward pass (phase access within
 /// a scene is serial), so no mutex is needed.
 ///
-/// In step 1 the methods on `SDDPCutStore` continue to do all the
+/// In step 1 the methods on `SDDPCutManager` continue to do all the
 /// per-scene work; this type just changes the layout of `m_scene_cuts_`
 /// from `vector<StoredCut>` to `SceneCutStore`.  Subsequent migration
 /// steps move per-scene operations onto this class proper.
@@ -159,7 +159,7 @@ public:
   /// solve so subsequent cut-pruning decisions read up-to-date values.
   ///
   /// This method drops the `scene_uid` lookup the legacy
-  /// `SDDPCutStore::update_stored_cut_duals` did via
+  /// `SDDPCutManager::update_stored_cut_duals` did via
   /// `build_scene_uid_map`: every cut in this store is owned by
   /// `scene_index` by construction (the per-scene single-writer
   /// invariant), so the caller-supplied index is the authoritative
@@ -202,10 +202,10 @@ private:
 /// Cross-scene cut sharing reads from these vectors after the
 /// phase-step barrier in `run_backward_pass_synchronized`, so no lock
 /// is needed there either.
-class SDDPCutStore
+class SDDPCutManager
 {
 public:
-  SDDPCutStore() = default;
+  SDDPCutManager() = default;
 
   // ── Accessors ────────────────────────────────────────────────────────
 
@@ -347,5 +347,13 @@ private:
   /// rationale.
   StrongIndexVector<SceneIndex, SceneCutStore> m_scene_cuts_ {};
 };
+
+/// Backward-compatibility alias retained while step 5 of the cut-store
+/// split plan ripples through the codebase.  The non-deprecated form
+/// keeps `-Werror` builds green; once every caller is migrated to the
+/// new name (`SDDPCutManager`) and the internal-test path is settled,
+/// this alias gets a `[[deprecated]]` attribute (plan step 6) and is
+/// later removed.
+using SDDPCutStore = SDDPCutManager;
 
 }  // namespace gtopt

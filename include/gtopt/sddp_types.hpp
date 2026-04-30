@@ -881,7 +881,7 @@ void free_alpha_for_cut(PlanningLP& planning_lp,
 ///      optimality cuts with no α term, leave the pin intact.
 ///   2. Add the row to the live LP backend and record it for
 ///      low-memory replay via `LinearInterface::add_cut_row`.
-/// Callers that also persist the cut into `SDDPCutStore` should call
+/// Callers that also persist the cut into `SDDPCutManager` should call
 /// `SDDPMethod::store_cut(...)` afterwards using the returned
 /// `RowIndex` — `store_cut` no longer re-records the cut for replay
 /// (that now happens once inside this function).

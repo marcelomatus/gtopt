@@ -59,8 +59,8 @@ void share_cuts_for_phase(
   // the in-memory LP row label and the ``m_active_cuts_`` low-memory
   // replay buffer (``LinearInterface::record_cut_row``).  Saved cut
   // files (``save_cuts_csv``) iterate
-  // ``SDDPCutStore::m_scene_cuts_``, which is populated exclusively
-  // by ``SDDPCutStore::store_cut`` (backward-pass optimality and
+  // ``SDDPCutManager::m_scene_cuts_``, which is populated exclusively
+  // by ``SDDPCutManager::store_cut`` (backward-pass optimality and
   // feasibility cuts).  ``share_cuts_for_phase`` never calls
   // ``store_cut``, so the broadcast rows minted here — and their
   // ``extra`` discriminators — are never persisted to the cut CSV.
@@ -217,7 +217,7 @@ void share_cuts_for_phase(
         // branches above — release α's bootstrap pin via
         // `free_alpha_for_cut` whenever a shared optimality cut
         // references α.  The cuts broadcast in `max` mode are still
-        // backward-pass optimality cuts (`SDDPCutStore::scene_cuts`),
+        // backward-pass optimality cuts (`SDDPCutManager::scene_cuts`),
         // so `CutType::Optimality` is correct here too.
         std::ignore = add_cut_row(planning,
                                   scene_index,

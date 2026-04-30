@@ -17,7 +17,7 @@
  *
  *   3. Forward-pass fcut tracking: on a fixture that deterministically
  *      exercises the elastic filter, a single-iteration solve installs
- *      ≥ 1 feasibility cut, those cuts surface in `SDDPCutStore` with
+ *      ≥ 1 feasibility cut, those cuts surface in `SDDPCutManager` with
  *      `CutType::Feasibility`, and the stored-cut count matches the
  *      iteration-result `cuts_added` counter plus backward-pass cuts.
  *
@@ -169,7 +169,7 @@ TEST_CASE(  // NOLINT
 
 TEST_CASE(  // NOLINT
     "SDDP fcut audit — single-iter solve on forced-infeas "
-    "installs ≥1 feasibility cut that reaches SDDPCutStore")
+    "installs ≥1 feasibility cut that reaches SDDPCutManager")
 {
   // make_forced_infeasibility_planning's Waterway.fmin = 2 forces
   // mandatory discharge that phase 1's reservoir state (≈ 0 after
@@ -177,7 +177,7 @@ TEST_CASE(  // NOLINT
   // filter activates → at least one Benders feasibility cut is
   // installed on phase 0's outgoing state variable.  This test
   // verifies the tracking invariant: every fcut installed during the
-  // forward pass is visible in SDDPCutStore.
+  // forward pass is visible in SDDPCutManager.
   auto planning = make_forced_infeasibility_planning();
   PlanningLP planning_lp(std::move(planning));
 
@@ -210,7 +210,7 @@ TEST_CASE(  // NOLINT
 
   // Separate feasibility vs optimality contributions and verify the
   // feasibility cut count is ≥ 1, proving the forward-pass fcut
-  // lifecycle (build → add_row → store_cut → SDDPCutStore) works
+  // lifecycle (build → add_row → store_cut → SDDPCutManager) works
   // end-to-end.
   const auto combined = sddp.stored_cuts();
   int n_feas = 0;

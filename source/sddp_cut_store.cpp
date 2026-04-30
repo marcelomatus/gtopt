@@ -5,7 +5,7 @@
  * @author    marcelo
  * @copyright BSD-3-Clause
  *
- * Implements SDDPCutStore methods extracted from sddp_method.cpp.
+ * Implements SDDPCutManager methods extracted from sddp_method.cpp.
  */
 
 #include <algorithm>
@@ -41,9 +41,9 @@ namespace gtopt
 
 // ── SceneCutStore::store ───────────────────────────────────────────────────
 //
-// Migrated from `SDDPCutStore::store_cut` in step 2 of
+// Migrated from `SDDPCutManager::store_cut` in step 2 of
 // `support/sddp_cut_store_split_plan_2026-04-30.md`.  The legacy
-// `SDDPCutStore::store_cut` (below) is a 1-line forwarder that drops
+// `SDDPCutManager::store_cut` (below) is a 1-line forwarder that drops
 // the unused `src_phase_index` parameter (kept on the legacy
 // signature for backward compatibility).
 
@@ -71,13 +71,13 @@ void SceneCutStore::store(const SparseRow& cut,
   m_cuts_.push_back(std::move(stored));
 }
 
-void SDDPCutStore::store_cut(SceneIndex scene_index,
-                             PhaseIndex /*src_phase_index*/,
-                             const SparseRow& cut,
-                             CutType type,
-                             RowIndex row,
-                             SceneUid scene_uid_val,
-                             PhaseUid phase_uid_val)
+void SDDPCutManager::store_cut(SceneIndex scene_index,
+                               PhaseIndex /*src_phase_index*/,
+                               const SparseRow& cut,
+                               CutType type,
+                               RowIndex row,
+                               SceneUid scene_uid_val,
+                               PhaseUid phase_uid_val)
 {
   // Forwarder — see `SceneCutStore::store` above for the
   // implementation.  Single-writer during the forward/backward pass
@@ -88,7 +88,7 @@ void SDDPCutStore::store_cut(SceneIndex scene_index,
 
 // ── clear ──────────────────────────────────────────────────────────────────
 
-void SDDPCutStore::clear()
+void SDDPCutManager::clear()
 {
   for (auto& sc : m_scene_cuts_) {
     sc.clear();
@@ -97,8 +97,8 @@ void SDDPCutStore::clear()
 
 // ── forget_first_cuts ──────────────────────────────────────────────────────
 
-void SDDPCutStore::forget_first_cuts(std::ptrdiff_t count,
-                                     PlanningLP& planning_lp)
+void SDDPCutManager::forget_first_cuts(std::ptrdiff_t count,
+                                       PlanningLP& planning_lp)
 {
   if (count <= 0) {
     return;
@@ -184,9 +184,9 @@ void SDDPCutStore::forget_first_cuts(std::ptrdiff_t count,
 // row lives on is always `(scene_index, resolved_phase)` because
 // `store_cut` is only ever called by the scene that owns the cell.
 //
-// Migrated from `SDDPCutStore::clear_scene_cuts` to `SceneCutStore`
+// Migrated from `SDDPCutManager::clear_scene_cuts` to `SceneCutStore`
 // in step 2 of `support/sddp_cut_store_split_plan_2026-04-30.md`.
-// The legacy `SDDPCutStore::clear_scene_cuts` (below) becomes a thin
+// The legacy `SDDPCutManager::clear_scene_cuts` (below) becomes a thin
 // forwarder; future cleanup deprecates + removes it once every caller
 // is migrated to `at(s).clear_with_lp(...)`.
 
@@ -221,8 +221,8 @@ std::ptrdiff_t SceneCutStore::clear_with_lp(PlanningLP& planning_lp,
   return total_deleted;
 }
 
-std::ptrdiff_t SDDPCutStore::clear_scene_cuts(SceneIndex scene_index,
-                                              PlanningLP& planning_lp)
+std::ptrdiff_t SDDPCutManager::clear_scene_cuts(SceneIndex scene_index,
+                                                PlanningLP& planning_lp)
 {
   // Forwarder — see `SceneCutStore::clear_with_lp` above for the
   // implementation.  Bounds-check kept here because the forwarder must
@@ -235,7 +235,7 @@ std::ptrdiff_t SDDPCutStore::clear_scene_cuts(SceneIndex scene_index,
 
 // ── SceneCutStore::update_duals ────────────────────────────────────────────
 //
-// Migrated from `SDDPCutStore::update_stored_cut_duals` in step 2 of
+// Migrated from `SDDPCutManager::update_stored_cut_duals` in step 2 of
 // `support/sddp_cut_store_split_plan_2026-04-30.md`.  Drops the
 // `build_scene_uid_map` lookup the legacy method did per-cut: every
 // cut in this store is owned by `scene_index` (single-writer
@@ -265,7 +265,7 @@ void SceneCutStore::update_duals(PlanningLP& planning_lp,
   }
 }
 
-void SDDPCutStore::update_stored_cut_duals(PlanningLP& planning_lp)
+void SDDPCutManager::update_stored_cut_duals(PlanningLP& planning_lp)
 {
   // Forwarder — see `SceneCutStore::update_duals` above for the
   // implementation.  Per-scene loop dispatches one call per scene;
@@ -277,7 +277,7 @@ void SDDPCutStore::update_stored_cut_duals(PlanningLP& planning_lp)
 
 // ── prune_inactive_cuts ────────────────────────────────────────────────────
 
-void SDDPCutStore::prune_inactive_cuts(
+void SDDPCutManager::prune_inactive_cuts(
     const SDDPOptions& options,
     PlanningLP& planning_lp,
     const StrongIndexVector<SceneIndex,
@@ -424,8 +424,8 @@ void SDDPCutStore::prune_inactive_cuts(
 
 // ── cap_stored_cuts ────────────────────────────────────────────────────────
 
-void SDDPCutStore::cap_stored_cuts(const SDDPOptions& options,
-                                   const PlanningLP& planning_lp)
+void SDDPCutManager::cap_stored_cuts(const SDDPOptions& options,
+                                     const PlanningLP& planning_lp)
 {
   const auto max_cuts = options.max_stored_cuts;
   if (max_cuts <= 0) {
@@ -454,7 +454,7 @@ void SDDPCutStore::cap_stored_cuts(const SDDPOptions& options,
 
 // ── build_combined_cuts ────────────────────────────────────────────────────
 
-std::vector<StoredCut> SDDPCutStore::build_combined_cuts(
+std::vector<StoredCut> SDDPCutManager::build_combined_cuts(
     const PlanningLP& planning_lp) const
 {
   std::vector<StoredCut> combined;
@@ -468,7 +468,7 @@ std::vector<StoredCut> SDDPCutStore::build_combined_cuts(
 
 // ── apply_cut_sharing_for_iteration ────────────────────────────────────────
 
-void SDDPCutStore::apply_cut_sharing_for_iteration(
+void SDDPCutManager::apply_cut_sharing_for_iteration(
     IterationIndex iteration_index,
     const SDDPOptions& options,
     PlanningLP& planning_lp,
@@ -560,7 +560,7 @@ void SDDPCutStore::apply_cut_sharing_for_iteration(
 
 // ── save_cuts_for_iteration ────────────────────────────────────────────────
 
-void SDDPCutStore::save_cuts_for_iteration(
+void SDDPCutManager::save_cuts_for_iteration(
     IterationIndex iteration_index,
     std::span<const uint8_t> scene_feasible,
     const SDDPOptions& options,

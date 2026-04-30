@@ -81,7 +81,7 @@ using ColKeyMap = std::unordered_map<ColIndex, ColKeyInfo>;
 ///
 /// StoredCut already holds physical-space values: post-migration cuts are
 /// built by `build_benders_cut_physical`, which emits physical coefficients
-/// and a physical RHS; the SparseRow is captured in `SDDPCutStore::store_cut`
+/// and a physical RHS; the SparseRow is captured in `SDDPCutManager::store_cut`
 /// *before* `add_row` applies per-row equilibration, so `cut.coefficients`
 /// is what we need to serialise verbatim.  No `* scale_obj / col_scale`
 /// conversion is applied here — the file value IS the physical value.

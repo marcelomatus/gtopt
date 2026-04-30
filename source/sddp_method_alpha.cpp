@@ -206,7 +206,7 @@ void free_alpha_for_cut(PlanningLP& planning_lp,
 // One unified cut-install entry point: releases α iff optimality +
 // cut references α, then adds the row via LinearInterface::add_cut_row
 // (which also records the cut for low-memory replay).  Callers that
-// also persist into SDDPCutStore invoke `SDDPMethod::store_cut`
+// also persist into SDDPCutManager invoke `SDDPMethod::store_cut`
 // separately with the returned RowIndex — `store_cut` no longer
 // re-records for replay to avoid double-registering.
 RowIndex add_cut_row(PlanningLP& planning_lp,
