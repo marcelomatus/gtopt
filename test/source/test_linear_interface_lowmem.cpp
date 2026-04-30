@@ -2563,3 +2563,70 @@ TEST_CASE(  // NOLINT
   }
   CHECK(legacy_li.get_numrows() == frozen_li.get_numrows());
 }
+
+TEST_CASE(  // NOLINT
+    "LinearInterface::freeze_for_cuts with LowMemoryMode::off — no snapshot")
+{
+  // Edge case: freeze_for_cuts under `off` mode still advances the
+  // phase observer + sets base_numrows, but `set_low_memory(off)`
+  // explicitly drops the snapshot at line 245-247 of
+  // `linear_interface.cpp`.  Pin that behaviour so a future
+  // refactor can't accidentally make `off` mode start retaining
+  // snapshots.
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  auto [li, flat, x1, x2] = make_simple_li_lp();
+  // make_simple_li_lp already calls save_base_numrows, so phase is
+  // Frozen.  `freeze_for_cuts` is idempotent under that condition.
+
+  auto res = li.initial_solve();
+  REQUIRE(res.has_value());
+
+  li.freeze_for_cuts(LowMemoryMode::off, FlatLinearProblem {flat});
+
+  CHECK(li.phase() == LinearInterface::LiPhase::Frozen);
+  CHECK(li.low_memory_mode() == LowMemoryMode::off);
+  // `set_low_memory(off)` clears the snapshot via the
+  // `if (mode == LowMemoryMode::off) m_snapshot_ = {};` branch.
+  CHECK_FALSE(li.has_snapshot_data());
+  // base_numrows still reflects the frozen structural row count.
+  CHECK(li.base_numrows() > 0);
+
+  // `release_backend()` is a documented no-op under `off`
+  // (linear_interface.cpp:140-142).  The phase observer doesn't
+  // advance because there's no real release happening.
+  li.release_backend();
+  CHECK_FALSE(li.is_backend_released());
+  CHECK(li.phase() == LinearInterface::LiPhase::Frozen);
+}
+
+TEST_CASE(  // NOLINT
+    "LinearInterface — release_backend then reconstruct with no cuts")
+{
+  // Sanity check on the `replay_active_cuts()` no-op path: a
+  // cell that goes through release_backend → reconstruct_backend
+  // without having added ANY cuts must reach the second backend
+  // load with `m_active_cuts_.empty()` and skip the bulk replay.
+  // Pre-fix the bulk path tracked metadata; post-fix the no-op
+  // early return inside `replay_active_cuts` makes this trivially
+  // safe — but the test pins the contract.
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  auto [li, flat, x1, x2] = make_simple_li_lp();
+  auto res = li.initial_solve();
+  REQUIRE(res.has_value());
+
+  li.freeze_for_cuts(LowMemoryMode::compress, FlatLinearProblem {flat});
+
+  const auto rows_before = li.get_numrows();
+
+  li.release_backend();
+  REQUIRE(li.is_backend_released());
+
+  li.reconstruct_backend();
+  REQUIRE_FALSE(li.is_backend_released());
+
+  // No cuts were ever added → row count unchanged across the cycle.
+  CHECK(li.get_numrows() == rows_before);
+  CHECK(li.phase() == LinearInterface::LiPhase::Reconstructed);
+}

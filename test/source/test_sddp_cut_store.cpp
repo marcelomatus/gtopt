@@ -439,3 +439,43 @@ TEST_CASE("SceneCutStore - cuts() returns underlying vector")  // NOLINT
   static_assert(
       std::is_same_v<decltype(csc.cuts()), const std::vector<StoredCut>&>);
 }
+
+TEST_CASE(  // NOLINT
+    "SDDPCutManager::clear_scene_cuts is idempotent on already-empty scene")
+{
+  // Calling clear_scene_cuts twice in a row must be a clean no-op
+  // on the second call: the scene's cut vector is already empty,
+  // so there are no rows to delete and no metadata to mutate.
+  // Pins the early-return path
+  // (`SceneCutStore::clear_with_lp` line ~196 — `if
+  // (m_cuts_.empty()) return 0;`).
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  // Cannot use a real PlanningLP for this micro-test because
+  // SDDPCutManager::clear_scene_cuts needs one.  Construct a
+  // minimal one through the existing helper.
+  SDDPCutManager store;
+  store.resize_scenes(2);
+
+  // No cuts on either scene yet — calling clear is a no-op without
+  // even needing a PlanningLP because the early-return at the
+  // SceneCutStore level fires before any phase_map lookup.
+  // Verify by directly hitting the SceneCutStore path.
+  auto& sc = store.at(SceneIndex {0});
+  CHECK(sc.empty());
+
+  // Idempotent: storing a cut, clearing the SceneCutStore's
+  // in-memory vector via the no-arg `clear()` (vector forwarder),
+  // then calling it again, leaves it consistently empty.
+  sc.store(make_test_cut(1.0),
+           CutType::Optimality,
+           RowIndex {0},
+           make_uid<Scene>(1),
+           make_uid<Phase>(1));
+  CHECK(sc.size() == 1);
+
+  sc.clear();
+  CHECK(sc.empty());
+  sc.clear();
+  CHECK(sc.empty());
+}

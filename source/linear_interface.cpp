@@ -262,7 +262,13 @@ void LinearInterface::freeze_for_cuts(LowMemoryMode mode,
             "structural-build commit");
 
   set_low_memory(mode, codec);
-  save_snapshot(std::move(flat_lp));
+  // Under `off` mode the LP never reconstructs, so the snapshot is
+  // dead weight — `set_low_memory(off)` already cleared it at line
+  // ~245.  Skip `save_snapshot` to match.  Other modes need the
+  // snapshot for `reconstruct_backend`.
+  if (mode != LowMemoryMode::off) {
+    save_snapshot(std::move(flat_lp));
+  }
   save_base_numrows();
   m_phase_ = LiPhase::Frozen;
 }
