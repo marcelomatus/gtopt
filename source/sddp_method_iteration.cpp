@@ -676,6 +676,10 @@ auto SDDPMethod::run_forward_pass_all_scenes(SDDPWorkPool& pool,
   if (m_options_.forward_infeas_rollback) {
     std::ptrdiff_t total_rollback_rows = 0;
     int n_rolled_back = 0;
+    // Build a per-scene breakdown for the user-facing log so a 10-
+    // scene rollback shows exactly which scenes lost how many cut
+    // rows.  Format: "s1=8 s3=8 s6=8 …"
+    std::string per_scene_breakdown;
     for (const auto scene_index : iota_range<SceneIndex>(0, num_scenes)) {
       if (out.scene_feasible[scene_index] != 0) {
         continue;
@@ -685,6 +689,11 @@ auto SDDPMethod::run_forward_pass_all_scenes(SDDPWorkPool& pool,
       if (deleted > 0) {
         ++n_rolled_back;
         total_rollback_rows += deleted;
+        if (!per_scene_breakdown.empty()) {
+          per_scene_breakdown += ' ';
+        }
+        per_scene_breakdown +=
+            std::format("s{}={}", uid_of(scene_index), deleted);
       }
       m_scene_retry_state_[scene_index].global_cuts_at_last_failure =
           m_cut_store_.num_stored_cuts();
@@ -692,10 +701,11 @@ auto SDDPMethod::run_forward_pass_all_scenes(SDDPWorkPool& pool,
     if (n_rolled_back > 0) {
       SPDLOG_INFO(
           "SDDP Forward [i{}]: rolled back {} cut row(s) across {} "
-          "infeasible scene(s) (forward_infeas_rollback)",
+          "infeasible scene(s) [{}] (forward_infeas_rollback)",
           iteration_index,
           total_rollback_rows,
-          n_rolled_back);
+          n_rolled_back,
+          per_scene_breakdown);
     }
   }
 
