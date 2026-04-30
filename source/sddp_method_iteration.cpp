@@ -853,7 +853,7 @@ auto SDDPMethod::run_backward_pass_synchronized(
         static_cast<std::size_t>(num_scenes), 0);
     for (const auto si : iota_range<SceneIndex>(0, num_scenes)) {
       per_scene_before[static_cast<std::size_t>(si)] =
-          m_cut_store_.scene_cuts()[si].size();
+          m_cut_store_.at(si).size();
     }
 
     // Submit all feasible scenes for this phase step in parallel
@@ -917,7 +917,7 @@ auto SDDPMethod::run_backward_pass_synchronized(
     // snapshotted above.  No lock needed — the scene-step barrier
     // (fut.get() loop above) already synchronises.
     for (const auto si : iota_range<SceneIndex>(0, num_scenes)) {
-      const auto& cuts = m_cut_store_.scene_cuts()[si];
+      const auto& cuts = m_cut_store_.at(si);
       for (std::size_t ci = per_scene_before[si]; ci < cuts.size(); ++ci) {
         const auto& sc = cuts[ci];
         if (sc.type != CutType::Optimality) {

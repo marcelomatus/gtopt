@@ -142,7 +142,7 @@ auto SDDPMethod::save_scene_cuts(SceneIndex scene_index,
                                  const std::string& directory) const
     -> std::expected<void, Error>
 {
-  return save_scene_cuts_csv(m_cut_store_.scene_cuts()[scene_index],
+  return save_scene_cuts_csv(m_cut_store_.at(scene_index).cuts(),
                              scene_index,
                              uid_of(scene_index),
                              planning_lp(),

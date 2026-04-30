@@ -228,6 +228,23 @@ public:
   /// Mutable per-scene cuts (for direct iteration access).
   [[nodiscard]] auto& scene_cuts() noexcept { return m_scene_cuts_; }
 
+  /// Per-scene store accessor (step 3 of
+  /// `support/sddp_cut_store_split_plan_2026-04-30.md`).  Replaces
+  /// `scene_cuts()[si]` at call sites that touch one scene's cuts;
+  /// keeps the migration mechanical (the wrapper's vector-like
+  /// forwarders mean most reads compile unchanged after the
+  /// substitution).  Returns a `SceneCutStore&`; use `.cuts()` to
+  /// get the underlying `std::vector<StoredCut>&` for span-taking
+  /// APIs (e.g. `save_scene_cuts_csv`).
+  [[nodiscard]] SceneCutStore& at(SceneIndex scene_index) noexcept
+  {
+    return m_scene_cuts_[scene_index];
+  }
+  [[nodiscard]] const SceneCutStore& at(SceneIndex scene_index) const noexcept
+  {
+    return m_scene_cuts_[scene_index];
+  }
+
   /// Resize per-scene storage to the given number of scenes.
   void resize_scenes(Index num_scenes) { m_scene_cuts_.resize(num_scenes); }
 

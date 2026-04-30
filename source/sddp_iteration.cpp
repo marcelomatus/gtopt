@@ -235,7 +235,7 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
           static_cast<std::size_t>(num_scenes_bwd));
       for (const auto scene_index : iota_range<SceneIndex>(0, num_scenes_bwd)) {
         m_cut_store_.scene_cuts_before()[scene_index] =
-            m_cut_store_.scene_cuts()[scene_index].size();
+            m_cut_store_.at(scene_index).size();
       }
       // Snapshot aggregate solver stats so the post-pass diff reveals
       // the six per-step backward-cut timers (rebuild/build/add_row/
