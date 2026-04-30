@@ -106,8 +106,17 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
   //               Only created when apertures or lp_debug are active to
   //               avoid idle threads.
   const auto pool_start = std::chrono::steady_clock::now();
+  // Cell-task headroom = num_scenes: the synchronised backward pass
+  // dispatches one cell task per feasible scene; each blocks on its
+  // aperture futures while holding a worker slot.  Adding `num_scenes`
+  // headroom keeps `cpu_factor × physical_concurrency` slots free for
+  // aperture solves regardless of how many cell tasks are mid-wait.
+  // See `sddp_pool.hpp::make_sddp_work_pool` for the rationale.
+  const auto cell_task_headroom =
+      static_cast<int>(planning_lp().simulation().scene_count());
   auto sddp_pool = make_sddp_work_pool(m_options_.pool_cpu_factor,
-                                       m_options_.pool_memory_limit_mb);
+                                       m_options_.pool_memory_limit_mb,
+                                       cell_task_headroom);
   const bool need_aux_pool =
       (!m_options_.apertures || !m_options_.apertures->empty())
       || !m_options_.log_directory.empty();

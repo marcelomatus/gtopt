@@ -351,3 +351,57 @@ TEST_CASE("make_sddp_work_pool factory")  // NOLINT
     CHECK(stats.tasks_submitted >= 1);
   }
 }
+
+// ─── cell_task_headroom parameter ────────────────────────────────────────────
+
+TEST_CASE(  // NOLINT
+    "make_sddp_work_pool: cell_task_headroom adds slots over the base")
+{
+  // The synchronised backward pass dispatches one cell task per
+  // feasible scene; each blocks on its aperture sub-task futures
+  // while holding a worker slot.  `cell_task_headroom` reserves
+  // additional slots so aperture-parallelism is not silently capped
+  // at `(cpu_factor × physical_concurrency) − num_scenes`.  This
+  // test pins that the parameter actually adds to `max_threads`.
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  SUBCASE("zero headroom matches base size")
+  {
+    auto pool_no_headroom = make_sddp_work_pool(0.5,
+                                                /*memory_limit_mb=*/0.0,
+                                                /*cell_task_headroom=*/0);
+    REQUIRE(pool_no_headroom != nullptr);
+    const auto base = pool_no_headroom->max_threads();
+    pool_no_headroom->shutdown();
+
+    auto pool_with_headroom = make_sddp_work_pool(0.5,
+                                                  /*memory_limit_mb=*/0.0,
+                                                  /*cell_task_headroom=*/8);
+    REQUIRE(pool_with_headroom != nullptr);
+    CHECK(pool_with_headroom->max_threads() == base + 8);
+    pool_with_headroom->shutdown();
+  }
+
+  SUBCASE("negative headroom clamps to zero")
+  {
+    // Negative values must not shrink the pool below the base size.
+    auto pool = make_sddp_work_pool(0.5,
+                                    /*memory_limit_mb=*/0.0,
+                                    /*cell_task_headroom=*/-5);
+    REQUIRE(pool != nullptr);
+    const auto base = static_cast<int>(
+        std::lround(0.5 * static_cast<double>(physical_concurrency())));
+    CHECK(pool->max_threads() == base);
+  }
+
+  SUBCASE("default value preserves prior behaviour")
+  {
+    // Callers that do not pass the new param must see the same pool
+    // size they always saw — `cell_task_headroom` defaults to 0.
+    auto pool = make_sddp_work_pool(0.5);
+    REQUIRE(pool != nullptr);
+    const auto base = static_cast<int>(
+        std::lround(0.5 * static_cast<double>(physical_concurrency())));
+    CHECK(pool->max_threads() == base);
+  }
+}

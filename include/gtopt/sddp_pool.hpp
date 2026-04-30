@@ -182,25 +182,51 @@ public:
  * (iteration, is_backward, phase, is_nonlp) with the default
  * `std::less<SDDPTaskKey>` comparator (smaller tuple → higher priority).
  *
- * @param cpu_factor        Over-commit factor applied to
- *                          `physical_concurrency()`.  Default 2.0.
- *                          Was 4.0 under the previous per-task
- *                          `std::async` design (where extra threads
- *                          kept CPUs busy while others churned through
- *                          pthread_create and the global clone mutex);
- *                          with persistent lazy-spawned workers the
- *                          pool self-regulates, so 2× over physical
- *                          cores is a better ceiling.
- * @param memory_limit_mb   Process RSS limit in MB (0 = no limit).
+ * The pool sizes itself as
+ * `cpu_factor × physical_concurrency() + cell_task_headroom`.
+ * The headroom term compensates for a structural property of the
+ * synchronised backward pass: per-scene cell tasks block on their
+ * aperture sub-task futures while holding a worker slot.  With
+ * `cell_task_headroom = num_feasible_scenes` the pool always has
+ * `cpu_factor × physical_concurrency` slots free for aperture solves
+ * regardless of how many cell tasks are mid-wait.  Without the
+ * headroom, the cell-task block silently caps aperture parallelism
+ * at `(cpu_factor × physical_concurrency) − num_scenes` (typically
+ * ~80 % of the nominal cap on a 16-scene problem — observed on
+ * juan/gtopt_iplp as `Active 36-48/80, Pending 0`, where the gap
+ * between 80 and the active count is the cell-task block).
+ *
+ * The headroom workers are lazily spawned, so on iterations where the
+ * cell-task block is short (e.g. backward pass without apertures)
+ * they stay parked in `cv_.wait` and add no measurable overhead.
+ *
+ * @param cpu_factor          Over-commit factor applied to
+ *                            `physical_concurrency()`.  Default 2.0.
+ *                            Was 4.0 under the previous per-task
+ *                            `std::async` design; with persistent
+ *                            lazy-spawned workers the pool self-
+ *                            regulates, so 2× is a better ceiling.
+ * @param memory_limit_mb     Process RSS limit in MB (0 = no limit).
+ * @param cell_task_headroom  Extra slots reserved for the synchronised
+ *                            backward pass's per-scene cell tasks
+ *                            (which block on aperture futures and would
+ *                            otherwise reduce the aperture-parallelism
+ *                            ceiling).  Pass the number of feasible
+ *                            scenes for the run.  Default 0 preserves
+ *                            prior behaviour for callers that have not
+ *                            migrated.
  * @return A started SDDPWorkPool (heap-allocated, non-movable).
  */
 [[nodiscard]] inline std::unique_ptr<SDDPWorkPool> make_sddp_work_pool(
-    double cpu_factor = 2.0, double memory_limit_mb = 0.0)
+    double cpu_factor = 2.0,
+    double memory_limit_mb = 0.0,
+    int cell_task_headroom = 0)
 {
   WorkPoolConfig pool_config {};
   pool_config.name = "SDDPWorkPool";
-  pool_config.max_threads =
+  const auto base_threads =
       static_cast<int>(std::lround(cpu_factor * physical_concurrency()));
+  pool_config.max_threads = base_threads + std::max(0, cell_task_headroom);
   pool_config.max_cpu_threshold = static_cast<int>(
       100.0 - (50.0 / static_cast<double>(pool_config.max_threads)));
   pool_config.max_process_rss_mb = memory_limit_mb;
@@ -208,9 +234,11 @@ public:
   auto pool = std::make_unique<SDDPWorkPool>(pool_config);
   pool->start();
   SPDLOG_INFO(
-      "SDDP work pool started: max_threads={} cpu_threshold={:.0f}%{} "
-      "(physical_cores={} logical_cores={})",
+      "SDDP work pool started: max_threads={} (base={} + cell_headroom={}) "
+      "cpu_threshold={:.0f}%{} (physical_cores={} logical_cores={})",
       pool_config.max_threads,
+      base_threads,
+      cell_task_headroom,
       static_cast<double>(pool_config.max_cpu_threshold),
       memory_limit_mb > 0
           ? std::format(" memory_limit={:.0f}MB", memory_limit_mb)
