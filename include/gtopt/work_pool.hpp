@@ -453,24 +453,18 @@ public:
       memory_monitor_.set_interval(3 * scheduler_interval_);
       memory_monitor_.start();
 
-      // Spawn `max_threads_` persistent worker threads.  Each loops in
-      // `worker_loop()`, pulling tasks directly from the priority queue
-      // and accounting for resource limits.  No per-task `pthread_create`
-      // / teardown — the OS-thread count stays bounded for the pool's
-      // lifetime instead of churning with the task count.
+      // Workers are spawned **lazily** by `submit()` / `submit_batch()`
+      // (see `maybe_spawn_worker_unlocked()`).  Reserving up to
+      // `max_threads_` slots avoids reallocation as the pool grows;
+      // actual `std::jthread` construction defers until the first
+      // submission that needs new capacity.  This preserves the
+      // persistent-worker invariant (no per-task pthread_create churn,
+      // unlike the old `std::async` design) while keeping idle pools
+      // free of unused OS threads — important under heavy test
+      // parallelism (e.g. `ctest -j20`) where many short-lived pools
+      // with `max_threads = physical_concurrency()` would otherwise
+      // sum to hundreds of mostly-idle pthreads.
       workers_.reserve(static_cast<std::size_t>(max_threads_));
-      for (int i = 0; i < max_threads_; ++i) {
-        workers_.emplace_back(
-            [this, i](std::stop_token stoken)
-            {
-#ifdef __linux__
-              const auto thread_name = std::format("WP-{}-{}", name_, i);
-              pthread_setname_np(pthread_self(),
-                                 thread_name.substr(0, 15).c_str());
-#endif
-              worker_loop(stoken);
-            });
-      }
 
       // Periodic stats thread: replaces the old scheduler thread's
       // logging duty.  Sleeps on `cv_` with a 30 s timeout so it wakes
@@ -514,26 +508,42 @@ public:
 
   void shutdown()
   {
-    if (!running_) {
-      return;
+    // Phase 1: under queue_mutex_, atomically mark the pool not running
+    // and stop every spawned worker.  Holding the lock during this step
+    // prevents `submit()`/`submit_batch()`/`maybe_spawn_worker_unlocked`
+    // from racing with `workers_.clear()` later — a previous design that
+    // mutated `running_` outside the lock allowed a submit-spawn to
+    // emplace a new `jthread` while the destructor was iterating
+    // `workers_` for join, leaving an orphan worker on a freed `this`.
+    {
+      const std::scoped_lock<std::mutex> lock(queue_mutex_);
+      if (!running_.load(std::memory_order_relaxed)) {
+        return;
+      }
+      running_.store(false, std::memory_order_relaxed);
+      for (auto& w : workers_) {
+        w.request_stop();
+      }
     }
-
-    running_ = false;
     cv_.notify_all();
 
-    // Signal all workers and the stats thread, then join them.  Each
-    // worker finishes its current task (if any) before observing the
-    // stop token, so all in-flight futures resolve normally.
-    for (auto& w : workers_) {
-      w.request_stop();
-    }
-    cv_.notify_all();
+    // Phase 2: join with the lock released so workers can drain.
+    // Workers in `cv_.wait` see `!running_` via the predicate; workers
+    // in the gate-failure `cv_.wait_for` see it on the next iteration
+    // top after the timeout (≤ scheduler_interval_).
     for (auto& w : workers_) {
       if (w.joinable()) {
         w.join();
       }
     }
-    workers_.clear();
+
+    // Phase 3: now that no worker can run, it is safe to clear the
+    // vector.  No `submit()` can spawn into it because Phase 1 set
+    // `running_ = false` under the same lock that `submit()` takes.
+    {
+      const std::scoped_lock<std::mutex> lock(queue_mutex_);
+      workers_.clear();
+    }
 
     if (stats_thread_.joinable()) {
       stats_thread_.request_stop();
@@ -577,6 +587,13 @@ public:
 
       {
         const std::scoped_lock<std::mutex> lock(queue_mutex_);
+        // Reject post-shutdown submissions before touching the queue.
+        // `running_` is read inside the lock so it serialises against
+        // the matching write in `shutdown()`'s phase 1.
+        if (!running_.load(std::memory_order_relaxed)) {
+          return std::unexpected(
+              std::make_error_code(std::errc::operation_canceled));
+        }
         try {
           // Both emplace_back and push_heap are under queue_mutex_, so
           // no other thread can observe the intermediate state.
@@ -584,6 +601,10 @@ public:
           std::ranges::push_heap(task_queue_, std::less<> {});
           tasks_submitted_.fetch_add(1, std::memory_order_relaxed);
           tasks_pending_.fetch_add(1, std::memory_order_relaxed);
+          // Lazy spawn: if all current workers are busy and we haven't
+          // hit the cap, add another.  Must run under queue_mutex_ to
+          // serialise mutations of `workers_`.
+          maybe_spawn_worker_unlocked();
         } catch (const std::length_error&) {
           SPDLOG_ERROR("Task queue size limit exceeded");
           return std::unexpected(
@@ -595,7 +616,15 @@ public:
         }
       }
 
-      cv_.notify_one();
+      // notify_all (vs notify_one) is intentional: under high system
+      // load with many short-lived pools, a single notify_one can race
+      // a worker that just finished a task and is between
+      // `cv_.notify_all()` (its own end-of-task wake) and re-entering
+      // `cv_.wait`.  notify_all guarantees the wakeup reaches every
+      // current waiter; idle workers re-park immediately after the
+      // predicate check, so the cost is one re-wake per worker per
+      // submit — negligible compared to the cost of a missed wakeup.
+      cv_.notify_all();
       return future;
     } catch (const std::system_error& e) {
       SPDLOG_ERROR("System error submitting task: {}", e.what());
@@ -634,6 +663,15 @@ public:
 
     {
       const std::scoped_lock<std::mutex> lock(queue_mutex_);
+      if (!running_.load(std::memory_order_relaxed)) {
+        // Reject all batch entries with operation_canceled; the queue
+        // is sealed because shutdown() phase 1 ran.
+        for ([[maybe_unused]] const auto& _ : tasks) {
+          results.push_back(std::unexpected(
+              std::make_error_code(std::errc::operation_canceled)));
+        }
+        return results;
+      }
       for (auto& [func, req] : tasks) {
         try {
           auto ptask = std::make_shared<std::packaged_task<ReturnType()>>(
@@ -643,6 +681,7 @@ public:
           std::ranges::push_heap(task_queue_, std::less<> {});
           tasks_submitted_.fetch_add(1, std::memory_order_relaxed);
           tasks_pending_.fetch_add(1, std::memory_order_relaxed);
+          maybe_spawn_worker_unlocked();
         } catch (const std::exception& e) {
           SPDLOG_ERROR("Failed to enqueue batch task: {}", e.what());
           results.push_back(std::unexpected(
@@ -651,7 +690,7 @@ public:
       }
     }
 
-    cv_.notify_one();
+    cv_.notify_all();
     return results;
   }
 
@@ -780,6 +819,52 @@ public:
   void log_statistics() const { spdlog::info(format_statistics()); }
 
 private:
+  /// Lazy worker spawn.  Called from `submit()` / `submit_batch()`
+  /// with `queue_mutex_` held, after the new task has been pushed.
+  ///
+  /// Spawn decision is `pending > idle` rather than `active >= total`.
+  /// The earlier `active < total` heuristic had a race: when N tasks
+  /// were submitted in burst to a fresh pool, the first submit spawned
+  /// W1 but W1 had not yet incremented `active_threads_`, so the
+  /// second-through-Nth submits all observed `active(0) < total(1)`
+  /// and skipped spawning even though every additional task needed
+  /// its own worker.  The pool degenerated to one serial worker.
+  ///
+  /// `pending` is read directly from `task_queue_.size()` (we hold
+  /// `queue_mutex_`).  `idle` is bounded above by `total - active`;
+  /// using that upper bound is conservative — we may over-spawn by
+  /// one when an idle worker is about to wake, but the extra worker
+  /// just re-parks on `cv_.wait`.  The race that actually matters
+  /// (under-spawning) is gone.
+  void maybe_spawn_worker_unlocked()
+  {
+    if (!running_.load(std::memory_order_relaxed)) {
+      return;  // pool is shutting down — do not create new workers
+    }
+    const auto total = workers_.size();
+    if (total >= static_cast<std::size_t>(max_threads_)) {
+      return;
+    }
+    const auto active = active_threads_.load(std::memory_order_relaxed);
+    const auto idle =
+        active < static_cast<int>(total) ? static_cast<int>(total) - active : 0;
+    const auto pending = static_cast<int>(task_queue_.size());
+    if (pending <= idle) {
+      // Existing idle workers can absorb the queue — `notify_all()`
+      // from the caller will wake them.
+      return;
+    }
+    workers_.emplace_back(
+        [this, i = total](std::stop_token stoken)
+        {
+#ifdef __linux__
+          const auto thread_name = std::format("WP-{}-{}", name_, i);
+          pthread_setname_np(pthread_self(), thread_name.substr(0, 15).c_str());
+#endif
+          worker_loop(stoken);
+        });
+  }
+
   /// Worker loop: each persistent thread runs this until shutdown.
   ///
   /// Pulls the highest-priority dispatchable task from `task_queue_`,
@@ -811,10 +896,17 @@ private:
       }
 
       if (!can_dispatch_top()) {
-        // Gate blocked dispatch.  Drop the lock and back off briefly
-        // so we don't hot-spin all idle workers on the same condition.
-        lock.unlock();
-        std::this_thread::sleep_for(scheduler_interval_);
+        // Gate blocked dispatch.  Wait on `cv_` with a timeout AND a
+        // predicate that includes shutdown so `shutdown()` can break
+        // us out immediately rather than waiting up to
+        // scheduler_interval_ for the timeout.  Plain `sleep_for` (or
+        // a `wait_for` without predicate) would also miss
+        // submit-side notifies during the back-off and starve the
+        // queue under sustained back-pressure.
+        cv_.wait_for(lock,
+                     scheduler_interval_,
+                     [&]
+                     { return stoken.stop_requested() || !running_.load(); });
         continue;
       }
 
@@ -892,8 +984,17 @@ private:
     // CPU check — only apply when threads are near saturation.
     // Thread count is the primary concurrency limiter; CPU load is a
     // secondary guard that only matters when cores are already busy.
-    if (current_threads + threads_needed
-        >= static_cast<int>(max_threads_ * 0.8))
+    //
+    // For very small pools (max_threads < 4), `max_threads * 0.8`
+    // truncates to 0 or 1, making the saturation check a permanent
+    // true.  Combined with the per-pool-size threshold formula
+    // (e.g. 50 % for max_threads = 1) this would starve dispatch on
+    // any background-loaded host (`ctest -j20` consistently sits at
+    // 50 %+ system CPU).  Skip the gate entirely for small pools —
+    // they cannot meaningfully oversubscribe.
+    if (max_threads_ >= 4
+        && current_threads + threads_needed
+            >= static_cast<int>(max_threads_ * 0.8))
     {
       const auto cpu_load = cpu_monitor_.get_physical_load();
       auto cpu_threshold = max_cpu_threshold_;
@@ -970,8 +1071,10 @@ private:
 
     // Only enforce the swap I/O rate gate once threads are near saturation —
     // low-concurrency activity can benignly trigger a few pages/sec of
-    // swap-in as fresh code is faulted in.
-    if (max_swap_io_per_sec_ > 0.0
+    // swap-in as fresh code is faulted in.  Same small-pool guard as
+    // the CPU gate: with max_threads < 4 the saturation check would
+    // be a permanent true and starve dispatch.
+    if (max_swap_io_per_sec_ > 0.0 && max_threads_ >= 4
         && current_threads + threads_needed
             >= static_cast<int>(max_threads_ * 0.8))
     {
@@ -992,8 +1095,10 @@ private:
     // workers — i.e. allow at most `load_factor`× over-commit on top of
     // the threads we'd be running.  Only applied at ≥ 50 % of
     // `max_threads_` so the pool can start up under normal background
-    // system load.  Critical tasks get 1.5× headroom.
-    if (load_factor_ > 0.0
+    // system load.  Critical tasks get 1.5× headroom.  Same small-pool
+    // guard as the CPU gate (max_threads < 4 would otherwise have a
+    // permanent-true saturation check on a busy host).
+    if (load_factor_ > 0.0 && max_threads_ >= 4
         && current_threads + threads_needed
             >= static_cast<int>(max_threads_ * 0.5))
     {
