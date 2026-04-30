@@ -600,9 +600,16 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
         // may have dropped the solver object under low_memory; rebuild
         // it before writing.  Failure to write is non-fatal — we log a
         // warning and continue returning the original error.
+        //
+        // Gated on `lp_debug`: each LP is ~8 MB on a CEN-sized case and
+        // a stalled SDDP run can emit dozens of them per iteration.  The
+        // window filter (`lp_debug_*_min/max`) is intentionally NOT
+        // applied here — a fatal scene-infeasibility is by definition
+        // outside expected behavior and the user shouldn't have to know
+        // the right window in advance to capture it.
         std::string saved_error_lp;
         std::string saved_elastic_lp;
-        {
+        if (m_options_.lp_debug && !m_options_.log_directory.empty()) {
           std::error_code mkdir_ec;
           std::filesystem::create_directories(m_options_.log_directory,
                                               mkdir_ec);

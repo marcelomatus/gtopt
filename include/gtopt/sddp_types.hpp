@@ -85,7 +85,10 @@ constexpr auto error_scene_cuts_fmt = "error_scene_{}.csv";
 /// Error LP file pattern for unrecoverable-infeasibility dumps.
 /// Arguments, in order: scene UID, phase UID, iteration index.  Written
 /// under `SDDPOptions::log_directory` when the forward pass can produce
-/// no feasibility cut (phase 0, or relaxed clone still infeasible).
+/// no feasibility cut (phase 0, or relaxed clone still infeasible) AND
+/// `SDDPOptions::lp_debug` is true.  Without `lp_debug` the dump is
+/// suppressed (each LP can be ~10 MB on a CEN-sized case and a stalled
+/// run can emit dozens per iteration).
 /// `LinearInterface::write_lp` appends the `.lp` extension.
 constexpr auto error_lp_fmt = "error_s{}_p{}_i{}";
 /// Debug LP file pattern: scene UID, phase UID, iteration index,

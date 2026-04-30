@@ -185,7 +185,15 @@ bool FlowRightLP::add_to_lp(const SystemContext& sc,
     });
     fcols[buid] = fcol;
 
-    if (block_fail_cost > 0.0) {
+    // Only create the fail column when its coupling row would also be
+    // added.  `has_deficit` tightens `block_fail_cost > 0.0` with
+    // `block_discharge > 0.0`: a zero discharge means there is nothing
+    // to fail on, so a fail var would be uncoupled (dead) — appearing
+    // in the objective at +cost but in no constraint.  The optimizer
+    // would still drive it to zero, but post-mortem LP dumps and the
+    // PAMPL registry would carry phantom slacks.  Guarding both
+    // creations on `has_deficit` keeps them consistent.
+    if (has_deficit) {
       const auto fail_col = lp.add_col({
           .cost = block_fail_cost,
           .class_name = ClassName.full_name(),
@@ -196,22 +204,18 @@ bool FlowRightLP::add_to_lp(const SystemContext& sc,
       ffails[buid] = fail_col;
 
       // Deficit coupling: flow + fail >= discharge.
-      // Without this constraint the fail variable is uncoupled
-      // (dead) and the optimizer always sets it to 0.
-      if (has_deficit) {
-        auto demand_row =
-            SparseRow {
-                .class_name = ClassName.full_name(),
-                .constraint_name = DemandName,
-                .variable_uid = uid(),
-                .context = make_block_context(
-                    scenario.uid(), stage.uid(), block.uid()),
-            }
-                .greater_equal(block_discharge);
-        demand_row[fcol] = 1.0;
-        demand_row[fail_col] = 1.0;
-        [[maybe_unused]] const auto drow = lp.add_row(std::move(demand_row));
-      }
+      auto demand_row =
+          SparseRow {
+              .class_name = ClassName.full_name(),
+              .constraint_name = DemandName,
+              .variable_uid = uid(),
+              .context =
+                  make_block_context(scenario.uid(), stage.uid(), block.uid()),
+          }
+              .greater_equal(block_discharge);
+      demand_row[fcol] = 1.0;
+      demand_row[fail_col] = 1.0;
+      [[maybe_unused]] const auto drow = lp.add_row(std::move(demand_row));
     }
   }
 

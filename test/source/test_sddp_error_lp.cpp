@@ -169,6 +169,7 @@ TEST_CASE(  // NOLINT
   sddp_opts.max_iterations = 1;  // one iteration is all we need
   sddp_opts.log_directory = log_dir.string();
   sddp_opts.enable_api = false;  // keep the test hermetic
+  sddp_opts.lp_debug = true;  // gate for error-LP dump (sddp_forward_pass)
 
   gtopt::test::LogCapture logs;
 
