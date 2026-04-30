@@ -183,39 +183,19 @@ public:
  * `std::less<SDDPTaskKey>` comparator (smaller tuple → higher priority).
  *
  * @param cpu_factor        Over-commit factor applied to
- * physical_concurrency(). Default 2.0.  Was 4.0 in the previous, per-task
- *                          `std::async` design where extra threads kept CPUs
- *                          busy while others churned through pthread_create
- *                          and the global clone mutex.  With persistent
- *                          workers + the `load_factor` dispatch gate the
- *                          pool self-regulates, so 2× over the physical
- *                          core count is a better ceiling — large enough to
- *                          absorb clone-mutex serialisation, small enough
- *                          to keep idle worker memory bounded.
+ *                          `physical_concurrency()`.  Default 2.0.
+ *                          Was 4.0 under the previous per-task
+ *                          `std::async` design (where extra threads
+ *                          kept CPUs busy while others churned through
+ *                          pthread_create and the global clone mutex);
+ *                          with persistent lazy-spawned workers the
+ *                          pool self-regulates, so 2× over physical
+ *                          cores is a better ceiling.
  * @param memory_limit_mb   Process RSS limit in MB (0 = no limit).
- * @param load_factor       Soft load-average ceiling: dispatch is blocked
- *                          while `loadavg > load_factor × would-be active
- *                          workers` (and we are at ≥ 50 % of `max_threads`).
- *                          Default **0.0** (disabled).  `getloadavg(3)`
- *                          is a system-wide 60-s EWMA — on shared hosts
- *                          (e.g. `ctest -j20`) every concurrent pool
- *                          sees the aggregated load and gates
- *                          simultaneously, which is "collective
- *                          deadlock" rather than back-pressure.  In a
- *                          dedicated production single-process SDDP
- *                          run, the existing CPU/RSS/swap gates already
- *                          cover the contention case directly; the
- *                          load gate's only unique signal is "external
- *                          load you cannot see otherwise", which is
- *                          rare on a dedicated solver host.  Set
- *                          explicitly (1.25 was the historical default)
- *                          if you want the gate.
  * @return A started SDDPWorkPool (heap-allocated, non-movable).
  */
 [[nodiscard]] inline std::unique_ptr<SDDPWorkPool> make_sddp_work_pool(
-    double cpu_factor = 2.0,
-    double memory_limit_mb = 0.0,
-    double load_factor = 0.0)
+    double cpu_factor = 2.0, double memory_limit_mb = 0.0)
 {
   WorkPoolConfig pool_config {};
   pool_config.name = "SDDPWorkPool";
@@ -224,16 +204,14 @@ public:
   pool_config.max_cpu_threshold = static_cast<int>(
       100.0 - (50.0 / static_cast<double>(pool_config.max_threads)));
   pool_config.max_process_rss_mb = memory_limit_mb;
-  pool_config.load_factor = load_factor;
 
   auto pool = std::make_unique<SDDPWorkPool>(pool_config);
   pool->start();
   SPDLOG_INFO(
-      "SDDP work pool started: max_threads={} cpu_threshold={:.0f}% "
-      "load_factor={:.2f}{} (physical_cores={} logical_cores={})",
+      "SDDP work pool started: max_threads={} cpu_threshold={:.0f}%{} "
+      "(physical_cores={} logical_cores={})",
       pool_config.max_threads,
       static_cast<double>(pool_config.max_cpu_threshold),
-      pool_config.load_factor,
       memory_limit_mb > 0
           ? std::format(" memory_limit={:.0f}MB", memory_limit_mb)
           : "",

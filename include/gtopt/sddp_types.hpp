@@ -715,14 +715,6 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   /// threads keep CPUs busy while others block on the clone mutex.
   double pool_cpu_factor {4.0};
 
-  /// SDDP work pool load-average ceiling factor.  Dispatch is blocked
-  /// while `loadavg > pool_load_factor × would-be active workers` (and
-  /// the pool is at ≥ 50 % of `max_threads`).  Default 1.25 — leaves
-  /// 25 % "load room" over the active-worker count, absorbing brief
-  /// lock-contention spikes without runaway oversubscription.  Set
-  /// values like 1.5 for a looser ceiling or 0.0 to disable the gate.
-  double pool_load_factor {1.25};
-
   /// Process memory limit in MB for the SDDP work pool.
   /// When non-zero, the pool blocks task dispatch if process RSS exceeds
   /// this value.  0 = no limit (default).

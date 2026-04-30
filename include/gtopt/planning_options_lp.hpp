@@ -1051,26 +1051,6 @@ public:
     return m_options_.sddp_options.pool_cpu_factor.value_or(4.0);
   }
 
-  /** @brief SDDP work pool load-average ceiling factor (default: 0.0,
-   *  disabled).
-   *
-   * Soft over-commit cap: dispatch is blocked while
-   * `loadavg > pool_load_factor × would-be active workers` and the
-   * pool is at ≥ 50 % of `max_threads`.
-   *
-   * Disabled by default because `getloadavg(3)` is a system-wide
-   * 60-s EWMA: on shared hosts (CI under `ctest -j20`, multiple
-   * gtopt jobs on one box) every concurrent pool sees the same
-   * aggregated load and throttles simultaneously, which is
-   * "collective deadlock" rather than back-pressure.  Set 1.25
-   * (historical default) for dedicated single-process runs where
-   * external CPU pressure is a useful signal.
-   */
-  [[nodiscard]] constexpr auto sddp_pool_load_factor() const
-  {
-    return m_options_.sddp_options.pool_load_factor.value_or(0.0);
-  }
-
   /** @brief LP-build work-pool CPU over-commit factor (default: 2.0).
    *
    * Currently shares the `sddp_options.pool_cpu_factor` field with the
