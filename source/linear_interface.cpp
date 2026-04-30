@@ -262,11 +262,13 @@ void LinearInterface::freeze_for_cuts(LowMemoryMode mode,
             "structural-build commit");
 
   set_low_memory(mode, codec);
-  // Under `off` mode the LP never reconstructs, so the snapshot is
-  // dead weight — `set_low_memory(off)` already cleared it at line
-  // ~245.  Skip `save_snapshot` to match.  Other modes need the
-  // snapshot for `reconstruct_backend`.
-  if (mode != LowMemoryMode::off) {
+  // Skip the snapshot for modes that never use it: `off` (no
+  // reconstruct path) and `rebuild` (uses the rebuild callback,
+  // not the snapshot — see `reconstruct_backend` line ~315 which
+  // explicitly asserts `m_low_memory_mode_ != rebuild`).  Other
+  // modes (`compress`, `snapshot`) genuinely depend on the
+  // snapshot to rehydrate the backend.
+  if (mode != LowMemoryMode::off && mode != LowMemoryMode::rebuild) {
     save_snapshot(std::move(flat_lp));
   }
   save_base_numrows();

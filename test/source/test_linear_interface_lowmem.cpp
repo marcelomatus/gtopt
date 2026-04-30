@@ -2601,6 +2601,34 @@ TEST_CASE(  // NOLINT
 }
 
 TEST_CASE(  // NOLINT
+    "LinearInterface::freeze_for_cuts with LowMemoryMode::rebuild — no "
+    "snapshot")
+{
+  // Edge case: rebuild mode uses a per-cell callback to re-flatten
+  // from element collections, NOT the snapshot path.  In fact
+  // `reconstruct_backend` explicitly asserts
+  // `m_low_memory_mode_ != rebuild` (linear_interface.cpp:315),
+  // so a snapshot stored under rebuild would be dead weight.
+  // `freeze_for_cuts(rebuild, ...)` skips `save_snapshot` for this
+  // reason — pin the contract.
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  auto [li, flat, x1, x2] = make_simple_li_lp();
+  // Bare LinearInterface in this test — no rebuild callback owner
+  // is installed, but freeze_for_cuts still completes (set_low_memory,
+  // skip snapshot, save_base_numrows) without touching the
+  // reconstruct path.
+
+  li.freeze_for_cuts(LowMemoryMode::rebuild, FlatLinearProblem {flat});
+
+  CHECK(li.phase() == LinearInterface::LiPhase::Frozen);
+  CHECK(li.low_memory_mode() == LowMemoryMode::rebuild);
+  // Snapshot deliberately NOT saved under rebuild.
+  CHECK_FALSE(li.has_snapshot_data());
+  CHECK(li.base_numrows() > 0);
+}
+
+TEST_CASE(  // NOLINT
     "LinearInterface — release_backend then reconstruct with no cuts")
 {
   // Sanity check on the `replay_active_cuts()` no-op path: a
