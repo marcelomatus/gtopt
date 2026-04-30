@@ -158,7 +158,7 @@ void SDDPCutStore::forget_first_cuts(std::ptrdiff_t count,
       "SDDP: forgot {} inherited cuts ({} LP rows deleted)", n, total_deleted);
 }
 
-// ── clear_scene_cuts ───────────────────────────────────────────────────────
+// ── SceneCutStore::clear_with_lp ───────────────────────────────────────────
 //
 // Per-scene rollback for `SDDPOptions::forward_infeas_rollback`.
 // `scene_index` resolves to a cell row only by matching `phase_uid`
@@ -167,19 +167,23 @@ void SDDPCutStore::forget_first_cuts(std::ptrdiff_t count,
 // (it records *which* scene generated the cut) but the LP cell the
 // row lives on is always `(scene_index, resolved_phase)` because
 // `store_cut` is only ever called by the scene that owns the cell.
+//
+// Migrated from `SDDPCutStore::clear_scene_cuts` to `SceneCutStore`
+// in step 2 of `support/sddp_cut_store_split_plan_2026-04-30.md`.
+// The legacy `SDDPCutStore::clear_scene_cuts` (below) becomes a thin
+// forwarder; future cleanup deprecates + removes it once every caller
+// is migrated to `at(s).clear_with_lp(...)`.
 
-std::ptrdiff_t SDDPCutStore::clear_scene_cuts(SceneIndex scene_index,
-                                              PlanningLP& planning_lp)
+std::ptrdiff_t SceneCutStore::clear_with_lp(PlanningLP& planning_lp,
+                                            SceneIndex scene_index)
 {
-  if (scene_index >= std::ssize(m_scene_cuts_)
-      || m_scene_cuts_[scene_index].empty())
-  {
+  if (m_cuts_.empty()) {
     return 0;
   }
 
   const auto phase_map = build_phase_uid_map(planning_lp);
   std::map<PhaseIndex, std::vector<int>> rows_to_delete;
-  for (const auto& cut : m_scene_cuts_[scene_index]) {
+  for (const auto& cut : m_cuts_) {
     const auto pit = phase_map.find(cut.phase_uid);
     if (pit == phase_map.end()) {
       continue;
@@ -197,8 +201,20 @@ std::ptrdiff_t SDDPCutStore::clear_scene_cuts(SceneIndex scene_index,
     total_deleted += std::ssize(rows);
   }
 
-  m_scene_cuts_[scene_index].clear();
+  m_cuts_.clear();
   return total_deleted;
+}
+
+std::ptrdiff_t SDDPCutStore::clear_scene_cuts(SceneIndex scene_index,
+                                              PlanningLP& planning_lp)
+{
+  // Forwarder — see `SceneCutStore::clear_with_lp` above for the
+  // implementation.  Bounds-check kept here because the forwarder must
+  // tolerate an out-of-range `scene_index` from older callers.
+  if (scene_index >= std::ssize(m_scene_cuts_)) {
+    return 0;
+  }
+  return m_scene_cuts_[scene_index].clear_with_lp(planning_lp, scene_index);
 }
 
 // ── update_stored_cut_duals ────────────────────────────────────────────────

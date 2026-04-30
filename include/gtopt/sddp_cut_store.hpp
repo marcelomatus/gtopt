@@ -123,6 +123,21 @@ public:
     return m_cuts_.erase(it);
   }
 
+  // ── Per-scene rollback (LP-deleting variant) ────────────────────────
+  /// Drop every cut this scene has accumulated, deleting matching LP
+  /// rows from each `(scene_index, phase)` cell via
+  /// `LinearInterface::delete_rows` + `SystemLP::record_cut_deletion`.
+  /// Used by `SDDPOptions::forward_infeas_rollback` to roll back a
+  /// scene declared infeasible in the forward pass — both forward-pass
+  /// feasibility cuts and earlier backward-pass optimality cuts go.
+  /// Returns the number of LP rows actually deleted.
+  ///
+  /// `scene_index` is required: it identifies which
+  /// `PlanningLP::system(s, p)` cells own the rows (cuts in this
+  /// store live on `(scene_index, *)` cells by ownership invariant).
+  /// The caller already has it in scope.
+  std::ptrdiff_t clear_with_lp(PlanningLP& planning_lp, SceneIndex scene_index);
+
   // ── Direct access to the underlying vector ──────────────────────────
   /// Mutable view; used by call sites that need
   /// `std::erase_if(cuts(), ...)` or other free algorithms specialised
