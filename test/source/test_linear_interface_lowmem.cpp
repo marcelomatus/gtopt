@@ -2629,6 +2629,101 @@ TEST_CASE(  // NOLINT
 }
 
 TEST_CASE(  // NOLINT
+    "LinearInterface — multi-cycle release/reconstruct preserves cut metadata")
+{
+  // Stress test: a cell that goes through MANY release/reconstruct
+  // cycles must keep its label metadata + row count + cut ordering
+  // consistent across every cycle.  Pre-fix the bulk add_rows path
+  // dropped metadata, which manifested only after the FIRST replay
+  // and then accumulated; multi-cycle exercises the steady-state
+  // invariant.
+  //
+  // Build a fully-labelled LP inline (the `make_simple_li_lp` helper
+  // builds unlabelled cols, which would trip
+  // `generate_labels_from_maps` at the col side).
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  LinearProblem lp;
+  const auto c1 = lp.add_col(SparseCol {
+      .lowb = 0.0,
+      .uppb = 10.0,
+      .cost = 2.0,
+      .class_name = "Gen",
+      .variable_name = "p",
+      .variable_uid = Uid {1},
+  });
+  const auto c2 = lp.add_col(SparseCol {
+      .lowb = 0.0,
+      .uppb = 10.0,
+      .cost = 3.0,
+      .class_name = "Gen",
+      .variable_name = "p",
+      .variable_uid = Uid {2},
+  });
+  const auto r = lp.add_row(SparseRow {
+      .lowb = 5.0,
+      .uppb = SparseRow::DblMax,
+      .class_name = "Bus",
+      .constraint_name = "balance",
+      .variable_uid = Uid {10},
+  });
+  lp.set_coeff(r, c1, 1.0);
+  lp.set_coeff(r, c2, 1.0);
+
+  LpMatrixOptions opts;
+  opts.col_with_names = true;
+  opts.row_with_names = true;
+  auto flat = lp.flatten(opts);
+
+  LinearInterface li;
+  li.load_flat(flat);
+  auto res = li.initial_solve();
+  REQUIRE(res.has_value());
+  li.freeze_for_cuts(LowMemoryMode::compress, FlatLinearProblem {flat});
+
+  const auto base_rows = li.base_numrows();
+  const auto x1 = c1;
+
+  // Add 3 distinct labelled cuts.
+  for (int i = 0; i < 3; ++i) {
+    SparseRow cut;
+    cut[x1] = static_cast<double>(i + 1);
+    cut.lowb = -LinearProblem::DblMax;
+    cut.uppb = static_cast<double>(10 - i);
+    cut.class_name = "BendersCut";
+    cut.constraint_name = "fcut";
+    cut.variable_uid = Uid {static_cast<int32_t>(100 + i)};
+    li.add_row(cut);
+    li.record_cut_row(cut);
+  }
+  REQUIRE(li.get_numrows() == base_rows + 3);
+
+  // Five release/reconstruct cycles.  Row count + materialize_labels
+  // must succeed every time.  A regression that made the bulk
+  // replay path drop metadata would surface as either:
+  // (a) `materialize_labels()` throwing on an unlabeled row, or
+  // (b) `get_numrows()` drifting from `base_rows + 3`.
+  for (int cycle = 0; cycle < 5; ++cycle) {
+    CAPTURE(cycle);
+    li.release_backend();
+    REQUIRE(li.is_backend_released());
+    li.reconstruct_backend();
+    REQUIRE_FALSE(li.is_backend_released());
+    CHECK(li.get_numrows() == base_rows + 3);
+    CHECK_NOTHROW(li.materialize_labels());
+    std::vector<std::string> col_names;
+    std::vector<std::string> row_names;
+    li.generate_labels_from_maps(col_names, row_names);
+    CHECK(row_names.size() == base_rows + 3);
+    // Every cut row gets a non-empty label.
+    for (std::size_t i = base_rows; i < row_names.size(); ++i) {
+      CAPTURE(i);
+      CHECK_FALSE(row_names[i].empty());
+    }
+  }
+}
+
+TEST_CASE(  // NOLINT
     "LinearInterface — release_backend then reconstruct with no cuts")
 {
   // Sanity check on the `replay_active_cuts()` no-op path: a
