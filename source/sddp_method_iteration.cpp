@@ -1195,24 +1195,30 @@ void SDDPMethod::finalize_iteration_result(
   // extended stationary-window / statistical convergence modes below
   // still consult gap_change, but only after min_iterations.
   //
-  // Convergence requires `0 ≤ gap < tol`.  A NEGATIVE gap (LB > UB)
-  // violates SDDP theory — cuts are supposed to be valid lower
-  // bounds on α, so the master LB can never exceed the simulated
-  // UB at the optimum.  An LB > UB indicates a numerical or scaling
-  // bug in the cut construction (e.g. unit mismatch between LP-raw
-  // and physical $, see `compute_iteration_bounds` comment about
-  // commit dd5c88ee), and `[CONVERGED]` would silently accept the
-  // wrong answer.  Observed on juan/gtopt_iplp: iter 1 produced
-  // gap=-6.59 with LB ≈ 1.16B vs UB ≈ 153M; iter 2 sim pass
-  // produced gap=-73.68 with LB ≈ 11.4B.  The run wrote
-  // [CONVERGED] but the LB was wildly off.
-  const bool gap_in_range =
-      ir.gap >= 0.0 && ir.gap < m_options_.convergence_tol;
-  if (ir.gap < 0.0) {
+  // Convergence requires `|gap| < tol`.  A small POSITIVE gap below
+  // tolerance is the textbook convergence condition.  A small
+  // NEGATIVE gap (e.g. `-1e-15`) when UB = LB exactly is harmless
+  // floating-point precision — accept it.  Only a NEGATIVE gap whose
+  // magnitude EXCEEDS the tolerance is an SDDP-theory violation (LB
+  // > UB, cuts overshooting the optimum) — those are rejected and
+  // logged as a warning.  Observed on juan/gtopt_iplp pre-fix: iter
+  // 1 produced gap=-6.59 with LB ≈ 1.16B vs UB ≈ 153M; iter 2 sim
+  // pass produced gap=-73.68 with LB ≈ 11.4B.  The run wrote
+  // `[CONVERGED]` but the LB was wildly off.  Post-fix: those large
+  // negative gaps log a warning and `ir.converged` stays false.
+  // FP-noise band sourced from a single named constant in
+  // <gtopt/sddp_types.hpp>.  Distinct from `convergence_tol`
+  // (the user-facing knob, may be a negative sentinel like
+  // `-1.0` to disable the primary gap test in favour of the
+  // stationary criterion — see `test_sddp_method.cpp:1357`).
+  const auto tol = m_options_.convergence_tol;
+  const bool gap_in_range = ir.gap < tol && ir.gap > -kSddpGapFpEpsilon;
+  if (ir.gap < -kSddpGapFpEpsilon) {
     SPDLOG_WARN(
-        "SDDP Iter [i{}]: NEGATIVE gap = {:.6f} (UB={:.4f}, LB={:.4f}) — "
-        "LB > UB violates SDDP theory; cuts likely overshoot the optimum. "
-        "Refusing to declare [CONVERGED] until the bound asymmetry resolves.",
+        "SDDP Iter [i{}]: SIGNIFICANT negative gap = {:.6f} "
+        "(UB={:.4f}, LB={:.4f}) — LB > UB violates SDDP theory; "
+        "cuts likely overshoot the optimum. Refusing to declare "
+        "[CONVERGED] until the bound asymmetry resolves.",
         iteration_index,
         ir.gap,
         ir.upper_bound,

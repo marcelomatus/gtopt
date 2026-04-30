@@ -311,6 +311,26 @@ constexpr Uid sddp_alpha_uid {0};
 /// invalidation work.
 constexpr double sddp_alpha_bootstrap_min = 0.0;
 
+/// Floating-point noise floor for the convergence gap.
+///
+/// SDDP theory says `LB ≤ optimum ≤ UB`, so the gap `(UB-LB)/|UB|`
+/// is non-negative at the optimum.  A *tiny* negative gap (e.g.
+/// `-1e-16` when `UB ≈ LB` exactly) is just IEEE-754 rounding
+/// noise and must NOT trigger the "cuts overshoot the optimum"
+/// guard.  A *significant* negative gap (`gap < -kSddpGapFpEpsilon`)
+/// IS a real SDDP-theory violation that the convergence checks
+/// refuse to declare `[CONVERGED]` on.
+///
+/// Distinct from `SDDPOptions::convergence_tol` (the user-facing
+/// gap tolerance for declaring convergence): `convergence_tol`
+/// sets the upper bound of the converged band and may be set to a
+/// negative sentinel (e.g. `-1.0`) to disable the primary gap test
+/// in favour of the stationary criterion.  `kSddpGapFpEpsilon` is
+/// a fixed lower bound for the same band, expressed in absolute
+/// terms because IEEE-754 rounding noise on `(UB - LB)/|UB|` for
+/// values up to ~1e9 stays comfortably below `1e-9`.
+constexpr double kSddpGapFpEpsilon = 1.0e-9;
+
 // ─── Elastic filter mode ────────────────────────────────────────────────────
 // ElasticFilterMode is now defined in <gtopt/sddp_enums.hpp>.
 // The generic enum_from_name<ElasticFilterMode>() replaces the old
