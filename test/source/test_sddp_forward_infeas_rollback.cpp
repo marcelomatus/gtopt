@@ -126,6 +126,73 @@ TEST_CASE(  // NOLINT
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+// M1d — clear_scene_cuts deletes rows across MULTIPLE phases at once
+// ═══════════════════════════════════════════════════════════════════════════
+
+TEST_CASE(  // NOLINT
+    "SDDPCutManager::clear_scene_cuts handles cuts spread across phases")
+{
+  // Existing M1 covers cuts on a single phase; this one exercises
+  // the per-phase grouping inside `SceneCutStore::clear_with_lp`
+  // (the `std::map<PhaseIndex, std::vector<int>> rows_to_delete`
+  // collation step).  A real SDDP rollback typically has cuts
+  // across many phases (PLP-style backtrack chain installs fcuts
+  // on phases p, p-1, p-2, …) so this is the closer-to-production
+  // shape.
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  auto planning = make_2scene_3phase_hydro_planning(0.5, 0.5);
+  PlanningLP plp(std::move(planning));
+
+  SDDPOptions sddp_opts;
+  sddp_opts.max_iterations = 0;
+  sddp_opts.enable_api = false;
+  SDDPMethod sddp(plp, sddp_opts);
+  REQUIRE(sddp.ensure_initialized().has_value());
+
+  constexpr SceneIndex target_scene {0};
+
+  // Inject cuts on three different phases of scene 0.  Each cut
+  // gets a distinct `extra` discriminator since they share
+  // (class, constraint, scene_uid, iteration) — duplicate metadata
+  // would trip `track_row_label_meta`.
+  std::ignore = inject_optcut(
+      sddp, plp, target_scene, PhaseIndex {0}, /*rhs=*/100.0, /*extra=*/0);
+  std::ignore = inject_optcut(
+      sddp, plp, target_scene, PhaseIndex {1}, /*rhs=*/200.0, /*extra=*/0);
+  std::ignore = inject_optcut(
+      sddp, plp, target_scene, PhaseIndex {2}, /*rhs=*/300.0, /*extra=*/0);
+
+  REQUIRE(sddp.cut_manager().scene_cuts()[target_scene].size() == 3);
+
+  // Snapshot row counts on each cell BEFORE rollback.
+  const auto rows_p0 =
+      plp.system(target_scene, PhaseIndex {0}).linear_interface().get_numrows();
+  const auto rows_p1 =
+      plp.system(target_scene, PhaseIndex {1}).linear_interface().get_numrows();
+  const auto rows_p2 =
+      plp.system(target_scene, PhaseIndex {2}).linear_interface().get_numrows();
+
+  // Rollback every cut on scene 0 — three cells touched, three
+  // separate `delete_rows` + `record_cut_deletion` calls inside
+  // the per-phase loop.
+  const auto deleted = sddp.cut_manager().clear_scene_cuts(target_scene, plp);
+  CHECK(deleted == 3);
+  CHECK(sddp.cut_manager().scene_cuts()[target_scene].empty());
+
+  // Each cell drops by exactly one row.
+  CHECK(
+      plp.system(target_scene, PhaseIndex {0}).linear_interface().get_numrows()
+      == rows_p0 - 1);
+  CHECK(
+      plp.system(target_scene, PhaseIndex {1}).linear_interface().get_numrows()
+      == rows_p1 - 1);
+  CHECK(
+      plp.system(target_scene, PhaseIndex {2}).linear_interface().get_numrows()
+      == rows_p2 - 1);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // M1c — rollback clears the low-memory replay buffer too
 // ═══════════════════════════════════════════════════════════════════════════
 //
