@@ -126,6 +126,82 @@ TEST_CASE(  // NOLINT
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+// M1c — rollback clears the low-memory replay buffer too
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// Critical invariant: when `clear_scene_cuts` deletes rows from the
+// LP, the matching entries in `LinearInterface::m_active_cuts_` (the
+// low-memory replay buffer) must also go.  Otherwise the next
+// `release_backend → reconstruct_backend` cycle would re-add the
+// rolled-back cuts via `replay_active_cuts()`, defeating the whole
+// rollback semantic.  `record_cut_deletion` (called from inside
+// `clear_with_lp`) is what enforces this.
+
+TEST_CASE(  // NOLINT
+    "SDDPCutManager::clear_scene_cuts purges low-memory replay buffer")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  auto planning = make_2scene_3phase_hydro_planning(0.6, 0.4);
+  // Engage compress mode end-to-end so m_active_cuts_ is populated
+  // for every cut added (record_cut_row no-ops under off mode).
+  planning.options.sddp_options.low_memory_mode = LowMemoryMode::compress;
+  PlanningLP plp(std::move(planning));
+
+  SDDPOptions sddp_opts;
+  sddp_opts.max_iterations = 0;
+  sddp_opts.enable_api = false;
+  sddp_opts.low_memory_mode = LowMemoryMode::compress;
+  SDDPMethod sddp(plp, sddp_opts);
+  REQUIRE(sddp.ensure_initialized().has_value());
+
+  constexpr SceneIndex scene {0};
+  constexpr PhaseIndex phase {0};
+  auto& sys = plp.system(scene, phase);
+  auto& li = sys.linear_interface();
+
+  // Inject an α-referring cut.  inject_optcut routes through
+  // add_cut_row → record_cut_row, so m_active_cuts_ grows by 1.
+  std::ignore = inject_optcut(sddp,
+                              plp,
+                              scene,
+                              phase,
+                              /*rhs=*/100.0,
+                              /*extra=*/0);
+
+  // Verify m_active_cuts_ has the entry.  The public proxy is the
+  // count check on `take_active_cuts` — but that consumes them, so
+  // we use it on a local copy of the LinearInterface state via
+  // an indirect check: release + reconstruct cycle preserves row
+  // count iff the cut survives in the replay buffer.
+  const auto rows_post_inject = li.get_numrows();
+  REQUIRE(sddp.cut_manager().scene_cuts()[scene].size() == 1);
+
+  // Sanity: a release/reconstruct cycle preserves the cut row
+  // count (proves m_active_cuts_ has the entry).
+  li.release_backend();
+  li.reconstruct_backend();
+  REQUIRE(li.get_numrows() == rows_post_inject);
+
+  // Now roll back the scene's cuts.  This calls
+  // `LinearInterface::delete_rows` + `record_cut_deletion`, which
+  // both shrinks the LP rows AND prunes the replay buffer.
+  const auto deleted = sddp.cut_manager().clear_scene_cuts(scene, plp);
+  CHECK(deleted == 1);
+
+  // The cut row is gone from the LP.
+  CHECK(li.get_numrows() == rows_post_inject - 1);
+
+  // The critical invariant: after a release/reconstruct cycle, the
+  // replay buffer is empty so no cut comes back.  Pre-fix (or if
+  // record_cut_deletion ever stops firing inside clear_with_lp),
+  // the row count would jump back to `rows_post_inject`.
+  li.release_backend();
+  li.reconstruct_backend();
+  CHECK(li.get_numrows() == rows_post_inject - 1);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // M2 — clear_scene_cuts on an empty scene is a no-op
 // ═══════════════════════════════════════════════════════════════════════════
 
