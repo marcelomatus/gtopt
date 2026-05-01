@@ -118,7 +118,7 @@ jobs:
       # restored before install-clang/install-gcc so that the very first
       # compiler invocation can already benefit from the cache.
       - name: setup ccache
-        uses: hendrikmuhs/ccache-action@v1.2.22
+        uses: hendrikmuhs/ccache-action@v1.2.23
         with:
           key: gtopt-clang-${{ github.workflow }}-${{ env.ACTIVE_COMPILER }}
           # `gtopt-clang-` is a shared prefix across ubuntu.yml, coverage.yml,
@@ -385,7 +385,7 @@ jobs:
       - uses: actions/checkout@v6
 
       - name: setup ccache
-        uses: hendrikmuhs/ccache-action@v1.2.22
+        uses: hendrikmuhs/ccache-action@v1.2.23
         with:
           key: gtopt-clang-${{ github.workflow }}-clang-tidy
           # Fall back to the clang build cache (not the workflow-default gcc
