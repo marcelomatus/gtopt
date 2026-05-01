@@ -425,7 +425,7 @@ using namespace gtopt::detail;
                 cuts_loaded),
         };
         // CutTag refactor (origin/cleanup/sddp-cut-tag-magic-strings)
-        // — bundles `class_name = "Bdr"` + `constraint_name = "cut"`
+        // — bundles `class_name = "Boundary"` + `constraint_name = "cut"`
         // into a single fluent `apply_to(row)` call, so the row's
         // metadata stays in lock-step if either name is later renamed.
         sddp_boundary_cut_tag.apply_to(row);
