@@ -48,8 +48,17 @@ struct StateTarget
   LpContext context {};  ///< LP hierarchy context
   SceneIndex scene_index {};
   PhaseIndex phase_index {};
-  double target_value {};  ///< Value from previous level's forward pass
-  double var_scale {1.0};  ///< Physical-to-LP scale
+  double target_value {};  ///< Physical-space value from previous level's
+                           ///< forward pass (= `col_sol_physical()`).
+                           ///< Used directly as a row bound by
+                           ///< `add_elastic_targets`, where the row's
+                           ///< unit coefficient on the dependent column
+                           ///< is post-flatten composed with
+                           ///< `col_scale_target` so the row reads in
+                           ///< physical space.
+  double var_scale {1.0};  ///< Physical-to-LP scale of the source
+                           ///< variable (informational; bound math uses
+                           ///< the physical `target_value` directly).
 };
 
 // ─── Per-level statistics ────────────────────────────────────────────────────

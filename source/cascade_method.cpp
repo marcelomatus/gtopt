@@ -133,6 +133,19 @@ auto CascadePlanningMethod::collect_state_targets(const SDDPMethod& solver,
           continue;
         }
 
+        // PHYSICAL space target.  `svar.col_sol()` is the source phase's
+        // LP-raw value (`physical / var_scale_source`).  The cascade row
+        // installed below uses `set_col_low` / `set_col_upp` semantics:
+        // the row coefficient `1.0` on the target's dependent column
+        // gets multiplied by `col_scale_target` inside
+        // `LinearInterface::add_row` (post-flatten cut-phase compose),
+        // so the row reads in PHYSICAL space — therefore the bound
+        // `target_value ± atol` must also be physical.  Reading via
+        // `col_sol_physical()` (= `col_sol() × var_scale_source`) is
+        // scale-agnostic and matches the
+        // `propagate_trial_values(span, target_li)` overload's
+        // physical-bound-pin convention used elsewhere in the SDDP
+        // pipeline (benders_cut.cpp:90-94).
         targets.push_back({
             .class_name = std::string(key.class_name),
             .col_name = std::string(key.col_name),
@@ -140,7 +153,7 @@ auto CascadePlanningMethod::collect_state_targets(const SDDPMethod& solver,
             .context = svar.context(),
             .scene_index = scene,
             .phase_index = phase,
-            .target_value = svar.col_sol(),
+            .target_value = svar.col_sol_physical(),
             .var_scale = svar.var_scale(),
         });
       }
