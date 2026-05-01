@@ -44,6 +44,7 @@ gtopt_compress_lp     = "gtopt_compress_lp.gtopt_compress_lp:main"
 igtopt                = "igtopt.igtopt:main"
 plp2gtopt             = "plp2gtopt.main:main"
 pp2gtopt              = "pp2gtopt.main:main"
+sddp2gtopt            = "sddp2gtopt.main:main"
 gtopt2pp              = "gtopt2pp.main:main"
 gtopt_check_json      = "gtopt_check_json.gtopt_check_json:main"
 gtopt_monitor         = "gtopt_monitor:main"
@@ -79,7 +80,7 @@ include-package-data = true
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["gtopt_compare*", "cvs2parquet*", "gtopt_diagram*", "gtopt_field_extractor*", "gtopt_check_lp*", "gtopt_check_output*", "gtopt_check_pampl*", "gtopt_compress_lp*", "gtopt_check_json*", "gtopt_check_solvers*", "gtopt_config*", "gtopt_check_fingerprint*", "gtopt_expand*", "igtopt*", "plp2gtopt*", "plp_compress_case*", "pp2gtopt*", "gtopt2pp*", "run_gtopt*", "gtopt_monitor*", "ts2gtopt*", "cen_demanda*", "gtopt_results_summary*", "gtopt_timeseries_export*"]
+include = ["gtopt_compare*", "cvs2parquet*", "gtopt_diagram*", "gtopt_field_extractor*", "gtopt_check_lp*", "gtopt_check_output*", "gtopt_check_pampl*", "gtopt_compress_lp*", "gtopt_check_json*", "gtopt_check_solvers*", "gtopt_config*", "gtopt_check_fingerprint*", "gtopt_expand*", "igtopt*", "plp2gtopt*", "plp_compress_case*", "pp2gtopt*", "gtopt2pp*", "run_gtopt*", "gtopt_monitor*", "ts2gtopt*", "cen_demanda*", "gtopt_results_summary*", "gtopt_timeseries_export*", "sddp2gtopt*"]
 
 [tool.setuptools.package-data]
 # Non-Python assets that must ship in wheels (pip install ./scripts).
@@ -114,6 +115,7 @@ testpaths = [
     "igtopt/tests",
     "plp2gtopt/tests",
     "pp2gtopt/tests",
+    "sddp2gtopt/tests",
     "gtopt_monitor/tests",
     "gtopt_config/tests",
     "gtopt_check_output/tests",
@@ -128,7 +130,7 @@ markers = [
 ]
 
 [tool.coverage.run]
-source = ["gtopt_compare", "cvs2parquet", "gtopt_diagram", "gtopt_field_extractor", "gtopt2pp", "gtopt_expand", "gtopt_results_summary", "gtopt_timeseries_export", "igtopt", "plp2gtopt", "pp2gtopt", "gtopt_monitor", "ts2gtopt"]
+source = ["gtopt_compare", "cvs2parquet", "gtopt_diagram", "gtopt_field_extractor", "gtopt2pp", "gtopt_expand", "gtopt_results_summary", "gtopt_timeseries_export", "igtopt", "plp2gtopt", "pp2gtopt", "sddp2gtopt", "gtopt_monitor", "ts2gtopt"]
 omit = ["*/test*", "*/tests/*", "*/__pycache__/*", "*/venv/*"]
 
 [tool.coverage.report]
@@ -145,7 +147,7 @@ exclude_lines = [
 profile = "black"
 line_length = 88
 skip_gitignore = true
-known_first_party = ["cvs2parquet", "gtopt_compare", "gtopt_diagram", "gtopt_field_extractor", "gtopt2pp", "gtopt_check_json", "gtopt_check_lp", "gtopt_check_output", "gtopt_check_pampl", "gtopt_check_solvers", "gtopt_compress_lp", "gtopt_config", "gtopt_check_fingerprint", "gtopt_expand", "gtopt_results_summary", "gtopt_timeseries_export", "igtopt", "plp2gtopt", "plp_compress_case", "pp2gtopt", "run_gtopt", "gtopt_monitor", "ts2gtopt"]
+known_first_party = ["cvs2parquet", "gtopt_compare", "gtopt_diagram", "gtopt_field_extractor", "gtopt2pp", "gtopt_check_json", "gtopt_check_lp", "gtopt_check_output", "gtopt_check_pampl", "gtopt_check_solvers", "gtopt_compress_lp", "gtopt_config", "gtopt_check_fingerprint", "gtopt_expand", "gtopt_results_summary", "gtopt_timeseries_export", "igtopt", "plp2gtopt", "plp_compress_case", "pp2gtopt", "run_gtopt", "gtopt_monitor", "sddp2gtopt", "ts2gtopt"]
 
 [tool.ruff]
 line-length = 88

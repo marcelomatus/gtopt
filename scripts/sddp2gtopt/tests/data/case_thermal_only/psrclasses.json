@@ -1,0 +1,92 @@
+{
+  "PSRStudy": [
+    {
+      "reference_id": 1000,
+      "Ano_inicial": 2024,
+      "Etapa_inicial": 1,
+      "Tipo_Etapa": 2,
+      "NumeroEtapas": 3,
+      "NumeroSistemas": 1,
+      "NumeroBlocosDemanda": 2,
+      "Series_Forward": 1,
+      "Series_Backward": 1,
+      "DeficitCost": [800.0],
+      "TaxaDesconto": 0.05,
+      "CurrencyReference": "USD",
+      "MaximoIteracoes": 10
+    }
+  ],
+  "PSRSystem": [
+    {
+      "reference_id": 2000,
+      "code": 1,
+      "name": "ThermalOnly",
+      "UnM": "USD"
+    }
+  ],
+  "PSRFuel": [
+    {
+      "reference_id": 3000,
+      "code": 1,
+      "name": "Coal",
+      "Custo": [0.5],
+      "UE": "MWh",
+      "EmiCO2": 0.95,
+      "system": 2000
+    },
+    {
+      "reference_id": 3001,
+      "code": 2,
+      "name": "Gas",
+      "Custo": [2.0],
+      "UE": "MWh",
+      "EmiCO2": 0.45,
+      "system": 2000
+    }
+  ],
+  "PSRThermalPlant": [
+    {
+      "reference_id": 4000,
+      "code": 1,
+      "name": "Base",
+      "GerMin": [0.0],
+      "GerMax": [100.0],
+      "PotInst": [100.0],
+      "G(1)": [100.0],
+      "CEsp(1,1)": [10.0],
+      "CTransp": [0.0],
+      "fuels": [3000],
+      "system": 2000
+    },
+    {
+      "reference_id": 4001,
+      "code": 2,
+      "name": "Peaker",
+      "GerMin": [0.0],
+      "GerMax": [50.0],
+      "PotInst": [50.0],
+      "G(1)": [100.0],
+      "CEsp(1,1)": [12.0],
+      "CTransp": [0.0],
+      "fuels": [3001],
+      "system": 2000
+    }
+  ],
+  "PSRDemand": [
+    {
+      "reference_id": 5000,
+      "code": 1,
+      "name": "Load1",
+      "Duracao(1)": 100.0,
+      "system": 2000
+    }
+  ],
+  "PSRDemandSegment": [
+    {
+      "reference_id": 5001,
+      "demand": 5000,
+      "system": 2000,
+      "Demanda(1)": [40.0, 35.0, 30.0]
+    }
+  ]
+}
