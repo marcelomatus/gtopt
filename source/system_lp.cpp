@@ -491,6 +491,12 @@ constexpr auto create_linear_interface(auto& collections,
   // the flatten() pass.
   li.set_label_maker(label_maker);
 
+  // Install build-time LP validation thresholds.  When the option is
+  // unset/disabled at the consumer site the hooks are O(1) no-ops; the
+  // default behavior (enabled with the standard threshold envelope)
+  // means validation runs by default for every (scene, phase) LP.
+  li.set_validation_options(flat_opts.validation);
+
   // Branch on low_memory_mode:
   //
   //  * `off` (default): eagerly load the backend and stash the flat LP as

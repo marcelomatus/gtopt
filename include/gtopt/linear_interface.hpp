@@ -31,6 +31,7 @@
 #include <gtopt/fmap.hpp>
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/low_memory_snapshot.hpp>
+#include <gtopt/lp_validation.hpp>
 #include <gtopt/memory_compress.hpp>
 #include <gtopt/sddp_enums.hpp>
 #include <gtopt/solver_backend.hpp>
@@ -1582,6 +1583,50 @@ public:
   }
 
   /**
+   * @brief Read-only access to this LP's incremental validation stats.
+   *
+   * Stats are accumulated by every `add_col` / `add_row` / `set_*`
+   * write that lands on the LP after `set_validation_options(...)` is
+   * called.  The default-constructed `LpValidationOptions` has
+   * `enable.value_or(true)` → tracking is on out of the box.
+   */
+  [[nodiscard]] constexpr const LpValidationStats& lp_validation_stats()
+      const noexcept
+  {
+    return m_validation_stats_;
+  }
+
+  /**
+   * @brief Mutable accessor to the validation stats block.
+   */
+  [[nodiscard]] constexpr LpValidationStats&
+  mutable_lp_validation_stats() noexcept
+  {
+    return m_validation_stats_;
+  }
+
+  /**
+   * @brief Read-only access to the per-LP validation thresholds.
+   */
+  [[nodiscard]] constexpr const LpValidationOptions& lp_validation_options()
+      const noexcept
+  {
+    return m_validation_options_;
+  }
+
+  /**
+   * @brief Install or replace this LP's validation thresholds.
+   *
+   * Typically wired up at construction time from
+   * `LpMatrixOptions::validation`.  Mutates only `m_validation_options_`;
+   * existing accumulator state is preserved.
+   */
+  constexpr void set_validation_options(LpValidationOptions opts) noexcept
+  {
+    m_validation_options_ = std::move(opts);
+  }
+
+  /**
    * @brief Analyze coefficient range for a single row.
    *
    * Iterates over all columns to find non-zero coefficients and reports
@@ -2619,6 +2664,20 @@ private:
   /// Written only by the thread that owns this LP; aggregated across
   /// interfaces on the main thread at end of run.
   SolverStats m_solver_stats_ {};
+
+  /// Per-LP build-time validation thresholds.  Defaults installed at
+  /// construction (see `LpValidationOptions`); replaced at `load_flat`
+  /// time by the matching field in `LpMatrixOptions::validation` once
+  /// `SystemLP` plumbs it through, or directly via
+  /// `set_validation_options(...)`.
+  LpValidationOptions m_validation_options_ {};
+
+  /// Accumulator for incremental validation events.  Hooked into every
+  /// `add_col` / `add_row` / `set_*` write path; emits one
+  /// `spdlog::warn` per offending value (capped per kind), and is
+  /// available for end-of-build summarisation via
+  /// `LpValidationStats::log_summary`.
+  LpValidationStats m_validation_stats_ {};
 };
 
 /// RAII guard that decompresses a LinearInterface's flat LP on construction

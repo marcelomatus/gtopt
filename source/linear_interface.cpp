@@ -10,6 +10,7 @@
 #include <cassert>
 #include <chrono>
 #include <cstring>
+#include <format>
 #include <memory>
 #include <mutex>
 #include <ranges>
@@ -606,6 +607,9 @@ LinearInterface LinearInterface::clone(CloneKind kind) const
   cloned.m_base_numrows_ = m_base_numrows_;
   cloned.m_base_numrows_set_ = m_base_numrows_set_;
   cloned.m_log_tag_ = m_log_tag_;
+  // Propagate validation thresholds; stats are intentionally fresh on
+  // the clone so each LP tracks only the writes that land on it.
+  cloned.m_validation_options_ = m_validation_options_;
   // Carry the structural label metadata across so that
   // ``write_lp`` on the clone can synthesise column/row labels for
   // post-mortem diagnostics (e.g. SDDP elastic-clone dumps when the
@@ -680,6 +684,7 @@ LinearInterface LinearInterface::clone_from_flat(CloneKind kind) const
   cloned.m_base_numrows_ = m_base_numrows_;
   cloned.m_base_numrows_set_ = m_base_numrows_set_;
   cloned.m_log_tag_ = m_log_tag_;
+  cloned.m_validation_options_ = m_validation_options_;
 
   // CloneKind dispatch — the metadata side.
   //
@@ -892,6 +897,23 @@ ColIndex LinearInterface::add_col(const std::string& name,
   const auto index = m_backend_->get_num_cols();
   const auto col = ColIndex {index};
 
+  // Validation hooks (Phase 2): note each finite bound; sentinels
+  // (±solver_infinity) are skipped by `note_bound` itself via its
+  // `std::isfinite` guard, but the explicit `solver_infinity` cap
+  // also catches DblMax-style sentinels passed from CLI tests.
+  if (m_validation_options_.effective_enable()) {
+    const double infy = m_backend_->infinity();
+    const double infy_guard = infy * 0.999;
+    const auto loc =
+        !name.empty() ? name : std::format("col {}", static_cast<int>(col));
+    if (std::abs(collb) < infy_guard) {
+      m_validation_stats_.note_bound(collb, loc, m_validation_options_);
+    }
+    if (std::abs(colub) < infy_guard) {
+      m_validation_stats_.note_bound(colub, loc, m_validation_options_);
+    }
+  }
+
   m_backend_->add_col(normalize_bound(collb), normalize_bound(colub), 0.0);
 
   // Uniqueness is enforced on metadata (via m_col_meta_index_) in
@@ -926,6 +948,23 @@ ColIndex LinearInterface::emit_col_to_backend(const SparseCol& col)
 
   const auto [lowb, uppb] = normalize_bounds(col.lowb, col.uppb);
   const auto index = m_backend_->get_num_cols();
+
+  // Validation hooks (Phase 2): note bounds + objective coefficient.
+  // Use the column's variable_name when set, else "col <idx>".
+  if (m_validation_options_.effective_enable()) {
+    const double infy = m_backend_->infinity();
+    const double infy_guard = infy * 0.999;
+    const auto loc = !col.variable_name.empty()
+        ? std::string {col.variable_name}
+        : std::format("col {}", index);
+    if (std::abs(col.lowb) < infy_guard) {
+      m_validation_stats_.note_bound(col.lowb, loc, m_validation_options_);
+    }
+    if (std::abs(col.uppb) < infy_guard) {
+      m_validation_stats_.note_bound(col.uppb, loc, m_validation_options_);
+    }
+    m_validation_stats_.note_obj(col.cost, loc, m_validation_options_);
+  }
 
   // Apply the global objective scaling to the obj coefficient,
   // matching the per-column / scale_objective divide that
@@ -1203,6 +1242,9 @@ ColIndex LinearInterface::emit_cols_to_backend(std::span<const SparseCol> cols)
   std::vector<double> colobj(static_cast<size_t>(num_cols));
 
   const auto inv_so = 1.0 / m_scale_objective_;
+  const bool validate = m_validation_options_.effective_enable();
+  const double infy = m_backend_->infinity();
+  const double infy_guard = infy * 0.999;
   for (size_t c = 0; c < cols.size(); ++c) {
     const auto& col = cols[c];
     const auto [lowb, uppb] = normalize_bounds(col.lowb, col.uppb);
@@ -1210,6 +1252,24 @@ ColIndex LinearInterface::emit_cols_to_backend(std::span<const SparseCol> cols)
     colub[c] = uppb;
     colobj[c] = col.cost * inv_so;
     colbeg[c + 1] = static_cast<int>(colind.size());
+
+    // Validation hooks (Phase 2): note bounds + obj per column in
+    // the bulk path so bulk callers see the same warnings as
+    // singular `add_col(SparseCol)`.
+    if (validate) {
+      const auto col_idx =
+          static_cast<int>(first_col_index) + static_cast<int>(c);
+      const auto loc = !col.variable_name.empty()
+          ? std::string {col.variable_name}
+          : std::format("col {}", col_idx);
+      if (std::abs(col.lowb) < infy_guard) {
+        m_validation_stats_.note_bound(col.lowb, loc, m_validation_options_);
+      }
+      if (std::abs(col.uppb) < infy_guard) {
+        m_validation_stats_.note_bound(col.uppb, loc, m_validation_options_);
+      }
+      m_validation_stats_.note_obj(col.cost, loc, m_validation_options_);
+    }
   }
 
   m_backend_->add_cols(num_cols,
@@ -1337,6 +1397,34 @@ void LinearInterface::track_row_label_meta(RowIndex row_idx,
 RowIndex LinearInterface::add_row(const SparseRow& row, const double eps)
 {
   ensure_backend();
+
+  // Validation hooks (Phase 2): note each cmap coefficient + finite
+  // RHS, and detect coefficients that the caller's `eps` will silently
+  // drop.  Runs once per row at the public entry point so both the
+  // compose_physical branch and the add_row_raw fallback see the same
+  // accounting.  Costs one extra cmap pass per row when enabled.
+  if (m_validation_options_.effective_enable()) {
+    const double infy = m_backend_->infinity();
+    const double infy_guard = infy * 0.999;
+    const auto loc = !row.constraint_name.empty()
+        ? std::string {row.constraint_name}
+        : std::format("row {}", get_numrows());
+    for (const auto& [col, val] : row.cmap) {
+      if (eps > 0.0 && std::abs(val) > 0.0 && std::abs(val) < eps
+          && std::abs(val) >= 1e-30)
+      {
+        m_validation_stats_.note_filtered(val, eps, loc, m_validation_options_);
+      } else {
+        m_validation_stats_.note_coeff(val, loc, m_validation_options_);
+      }
+    }
+    if (std::abs(row.lowb) < infy_guard) {
+      m_validation_stats_.note_rhs(row.lowb, loc, m_validation_options_);
+    }
+    if (std::abs(row.uppb) < infy_guard) {
+      m_validation_stats_.note_rhs(row.uppb, loc, m_validation_options_);
+    }
+  }
 
   // Decide whether to treat `row` as physical (apply col_scale + per-
   // row row-max equilibration) or as LP-space (pass through unchanged
@@ -1620,6 +1708,8 @@ void LinearInterface::add_rows_raw(const std::span<const SparseRow> rows,
   rowval.reserve(total_nnz);
 
   const auto infy = m_backend_->infinity();
+  const double infy_guard = infy * 0.999;
+  const bool validate = m_validation_options_.effective_enable();
 
   // Second pass: fill CSR arrays with scaled coefficients and bounds.
   for (const auto& [r, row] : enumerate(rows)) {
@@ -1628,11 +1718,26 @@ void LinearInterface::add_rows_raw(const std::span<const SparseRow> rows,
     const auto rs = row.scale;
     const auto inv_rs = (rs != 1.0) ? 1.0 / rs : 1.0;
 
+    const std::string row_loc = validate
+        ? (!row.constraint_name.empty()
+               ? std::string {row.constraint_name}
+               : std::format("row {}", first_row_index + static_cast<int>(r)))
+        : std::string {};
+
     for (const auto& [col, val] : row.cmap) {
       const auto scaled = val * inv_rs;
       if (std::abs(scaled) > eps) {
         rowind.push_back(static_cast<int>(col));
         rowval.push_back(scaled);
+        if (validate) {
+          m_validation_stats_.note_coeff(
+              scaled, row_loc, m_validation_options_);
+        }
+      } else if (validate && eps > 0.0 && std::abs(scaled) > 0.0
+                 && std::abs(scaled) >= 1e-30)
+      {
+        m_validation_stats_.note_filtered(
+            scaled, eps, row_loc, m_validation_options_);
       }
     }
 
@@ -1649,6 +1754,14 @@ void LinearInterface::add_rows_raw(const std::span<const SparseRow> rows,
     }
     rowlb[r] = normalize_bound(lb);
     rowub[r] = normalize_bound(ub);
+    if (validate) {
+      if (std::abs(lb) < infy_guard) {
+        m_validation_stats_.note_rhs(lb, row_loc, m_validation_options_);
+      }
+      if (std::abs(ub) < infy_guard) {
+        m_validation_stats_.note_rhs(ub, row_loc, m_validation_options_);
+      }
+    }
   }
   rowbeg[static_cast<size_t>(num_rows)] = static_cast<int>(rowind.size());
 
@@ -1804,6 +1917,13 @@ void LinearInterface::set_coeff_raw(const RowIndex row,
                                     const double value)
 {
   ensure_backend();
+  if (m_validation_options_.effective_enable()) {
+    m_validation_stats_.note_coeff(
+        value,
+        std::format(
+            "row {} col {}", static_cast<int>(row), static_cast<int>(column)),
+        m_validation_options_);
+  }
   m_backend_->set_coeff(static_cast<int>(row), static_cast<int>(column), value);
 }
 
@@ -1873,6 +1993,11 @@ void LinearInterface::set_obj_coeff_raw(const ColIndex index,
                                         const double value)
 {
   ensure_backend();
+  if (m_validation_options_.effective_enable()) {
+    m_validation_stats_.note_obj(value,
+                                 std::format("col {}", static_cast<int>(index)),
+                                 m_validation_options_);
+  }
   m_backend_->set_obj_coeff(static_cast<int>(index), value);
 }
 
@@ -1896,6 +2021,15 @@ void LinearInterface::set_col_low_raw(const ColIndex index, const double value)
 {
   ensure_backend();
   assert(m_backend_ != nullptr);
+  if (m_validation_options_.effective_enable()) {
+    const double infy_guard = m_backend_->infinity() * 0.999;
+    if (std::abs(value) < infy_guard) {
+      m_validation_stats_.note_bound(
+          value,
+          std::format("col {}", static_cast<int>(index)),
+          m_validation_options_);
+    }
+  }
   m_backend_->set_col_lower(static_cast<int>(index), normalize_bound(value));
 }
 
@@ -1903,6 +2037,15 @@ void LinearInterface::set_col_upp_raw(const ColIndex index, const double value)
 {
   ensure_backend();
   assert(m_backend_ != nullptr);
+  if (m_validation_options_.effective_enable()) {
+    const double infy_guard = m_backend_->infinity() * 0.999;
+    if (std::abs(value) < infy_guard) {
+      m_validation_stats_.note_bound(
+          value,
+          std::format("col {}", static_cast<int>(index)),
+          m_validation_options_);
+    }
+  }
   m_backend_->set_col_upper(static_cast<int>(index), normalize_bound(value));
 }
 
@@ -1948,6 +2091,15 @@ void LinearInterface::set_row_low_raw(const RowIndex index, const double value)
 {
   ensure_backend();
   assert(m_backend_ != nullptr);
+  if (m_validation_options_.effective_enable()) {
+    const double infy_guard = m_backend_->infinity() * 0.999;
+    if (std::abs(value) < infy_guard) {
+      m_validation_stats_.note_rhs(
+          value,
+          std::format("row {}", static_cast<int>(index)),
+          m_validation_options_);
+    }
+  }
   m_backend_->set_row_lower(static_cast<int>(index), normalize_bound(value));
 }
 
@@ -1955,6 +2107,15 @@ void LinearInterface::set_row_upp_raw(const RowIndex index, const double value)
 {
   ensure_backend();
   assert(m_backend_ != nullptr);
+  if (m_validation_options_.effective_enable()) {
+    const double infy_guard = m_backend_->infinity() * 0.999;
+    if (std::abs(value) < infy_guard) {
+      m_validation_stats_.note_rhs(
+          value,
+          std::format("row {}", static_cast<int>(index)),
+          m_validation_options_);
+    }
+  }
   m_backend_->set_row_upper(static_cast<int>(index), normalize_bound(value));
 }
 
@@ -1965,6 +2126,14 @@ void LinearInterface::set_rhs_raw(const RowIndex row, const double rhs)
   // issued after `release_backend()` would null-deref `m_backend_`
   // (flagged by clang-analyzer-core.CallAndMessage).
   ensure_backend();
+  if (m_validation_options_.effective_enable()) {
+    const double infy_guard = m_backend_->infinity() * 0.999;
+    if (std::abs(rhs) < infy_guard) {
+      m_validation_stats_.note_rhs(rhs,
+                                   std::format("row {}", static_cast<int>(row)),
+                                   m_validation_options_);
+    }
+  }
   m_backend_->set_row_bounds(static_cast<int>(row), rhs, rhs);
 }
 
