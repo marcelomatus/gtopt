@@ -26,7 +26,7 @@
   "devDependencies": {
     "@types/archiver": "^7.0.0",
     "@types/jest": "^30.0.0",
-    "@types/node": "^25.5.2",
+    "@types/node": "^25.6.0",
     "@types/react": "^19.1.0",
     "@types/react-dom": "^19.1.0",
     "@types/uuid": "^10.0.0",
