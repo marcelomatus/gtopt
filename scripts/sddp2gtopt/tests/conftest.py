@@ -62,6 +62,32 @@ def case_bad_truncated_dir() -> Path:
     return _case_fixture("case_bad_truncated")
 
 
+# --- Upstream PSRClassesInterface.jl reference cases -----------------
+# These are the additional sample cases shipped by PSR's Julia
+# library (case1..case3 in `test/data/`), vendored to broaden our
+# coverage of real-world SDDP topologies.  They exceed v0's single-
+# bus, single-system scope and are used today as loader / parser
+# stress tests; v1+ converters will start running them end-to-end.
+
+
+@pytest.fixture(scope="session")
+def psri_case1_dir() -> Path:
+    """IEEE-123 — 129 buses, 130 lines, 9 gens, 3 batteries (v3+ target)."""
+    return _case_fixture("psri_case1")
+
+
+@pytest.fixture(scope="session")
+def psri_case2_dir() -> Path:
+    """Two-system hydrothermal with reserve & generation constraints."""
+    return _case_fixture("psri_case2")
+
+
+@pytest.fixture(scope="session")
+def psri_case3_dir() -> Path:
+    """Variant of case2 with the same multi-system topology."""
+    return _case_fixture("psri_case3")
+
+
 def _find_gtopt_binary() -> str | None:
     """Locate the gtopt binary for end-to-end LP-build smoke tests."""
     env_bin = os.environ.get("GTOPT_BIN")
