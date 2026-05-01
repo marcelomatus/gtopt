@@ -48,4 +48,14 @@ gtopt::SolverBackend* gtopt_create_backend(  // NOLINT
   }
   return nullptr;
 }
+
+// Plugin-level infinity query (no instance allocated).  Shares the
+// `kHighsInf = 1e+30` constant with `HighsSolverBackend::infinity()`.
+double gtopt_solver_infinity(const char* solver_name)  // NOLINT
+{
+  if (std::strcmp(solver_name, "highs") == 0) {
+    return gtopt::HighsSolverBackend::plugin_infinity();
+  }
+  return 0.0;
+}
 }

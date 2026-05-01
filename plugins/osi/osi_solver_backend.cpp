@@ -201,8 +201,20 @@ std::string OsiSolverBackend::solver_version() const
   return CLP_VERSION;
 }
 
+double OsiSolverBackend::plugin_infinity() noexcept
+{
+  // COIN-OR's OsiSolverInterface::getInfinity() returns 1e+30 for
+  // both OsiClpSolverInterface and OsiCbcSolverInterface (their
+  // shared base class hard-codes COIN_DBL_MAX = 1e+30).  We
+  // mirror it here as a constant so the plugin can answer
+  // `gtopt_solver_infinity` without instantiating a backend.
+  return 1.0e+30;
+}
+
 double OsiSolverBackend::infinity() const noexcept
 {
+  // Live solver's getInfinity() — kept for parity with the legacy
+  // path; equals plugin_infinity() for CLP/CBC by COIN-OR convention.
   return m_solver_->getInfinity();
 }
 

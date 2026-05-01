@@ -48,4 +48,14 @@ gtopt::SolverBackend* gtopt_create_backend(  // NOLINT
   }
   return nullptr;
 }
+
+// Plugin-level infinity query (no instance allocated).  Shares the
+// `GRB_INFINITY = 1e+30` constant with `GurobiSolverBackend::infinity()`.
+double gtopt_solver_infinity(const char* solver_name)  // NOLINT
+{
+  if (std::strcmp(solver_name, "gurobi") == 0) {
+    return gtopt::GurobiSolverBackend::plugin_infinity();
+  }
+  return 0.0;
+}
 }

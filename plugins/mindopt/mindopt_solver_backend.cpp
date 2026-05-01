@@ -219,9 +219,14 @@ std::string MindOptSolverBackend::solver_version() const
   return std::format("{}.{}.{}", major, minor, technical);
 }
 
-double MindOptSolverBackend::infinity() const noexcept
+double MindOptSolverBackend::plugin_infinity() noexcept
 {
   return MDO_INFINITY;
+}
+
+double MindOptSolverBackend::infinity() const noexcept
+{
+  return plugin_infinity();
 }
 
 bool MindOptSolverBackend::supports_mip() const noexcept

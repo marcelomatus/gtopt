@@ -64,6 +64,13 @@ public:
   [[nodiscard]] double infinity() const noexcept override;
   [[nodiscard]] bool supports_mip() const noexcept override;
 
+  /// Plugin-level infinity constant — single source of truth shared
+  /// with the instance method `infinity()` and the plugin entry
+  /// `gtopt_solver_infinity`.  COIN-OR (CLP / CBC) returns `1e+30`
+  /// from `OsiSolverInterface::getInfinity()` for both backends, so
+  /// we report the same value here without instantiating a solver.
+  static double plugin_infinity() noexcept;
+
   // ---- problem name ----
   void set_prob_name(const std::string& name) override;
   [[nodiscard]] std::string get_prob_name() const override;

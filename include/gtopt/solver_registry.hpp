@@ -20,6 +20,7 @@
 #include <filesystem>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -115,6 +116,29 @@ public:
    */
   [[nodiscard]] std::string_view default_solver();
 
+  /** @brief Return the solver's `+infinity` value WITHOUT instantiating a
+   *  `SolverBackend`.
+   *
+   * Loads the plugin if not already loaded, then queries its
+   * `gtopt_solver_infinity` entry point (introduced in this revision).
+   * Plugins built before that entry existed return `std::nullopt` —
+   * the caller must fall back to creating a backend instance and
+   * reading `infinity()` directly.  CPLEX returns 1e+20; HiGHS / OSI /
+   * MindOpt / Gurobi return 1e+30.
+   *
+   * Used by `PlanningLP::auto_scale_*` to skip "no bound" sentinel
+   * values (e.g. `Reservoir.fmax = 1e30`) without paying the cost of
+   * an extra backend allocation per planning construction.
+   *
+   * @param solver_name Solver to query (e.g. "cplex", "highs"). Empty
+   *                    string defaults to `default_solver()`.
+   * @return            Solver's `+infinity` value, or `std::nullopt`
+   *                    if the plugin doesn't export the entry point
+   *                    or no plugin provides this solver.
+   */
+  [[nodiscard]] std::optional<double> plugin_infinity(
+      std::string_view solver_name = {});
+
   /** @brief Return the directories that were searched for plugins. */
   [[nodiscard]] const std::vector<std::string>& searched_directories() const;
 
@@ -147,6 +171,13 @@ private:
   {
     void* dl_handle {};
     solver_backend_factory_fn create_fn {};
+    /// Optional plugin entry: returns the solver's infinity constant
+    /// without instantiating a `SolverBackend`.  Resolved via dlsym
+    /// at plugin load time (`load_plugin`).  Older plugins built
+    /// before this entry point existed report `nullptr`; callers
+    /// fall back to instance-level query (create-and-drop a backend
+    /// just to read `infinity()`).
+    solver_plugin_infinity_fn infinity_fn {};
     std::string plugin_name;
     std::vector<std::string> solver_names;
   };

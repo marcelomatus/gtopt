@@ -323,4 +323,18 @@ using solver_plugin_names_fn = const char* const* (*)();
 /// k_solver_abi_version.
 using solver_plugin_abi_version_fn = int (*)();
 
+/// Plugin infinity function type: returns the solver's representation of
+/// +infinity (CPLEX: `CPX_INFBOUND` = 1e20, HiGHS / OSI / Gurobi: 1e30,
+/// MindOpt: ~1e30).  Queryable WITHOUT instantiating a `SolverBackend`,
+/// so callers like `PlanningLP::auto_scale_*` can compare data values
+/// against the solver's infinity threshold to detect "no bound"
+/// sentinels (e.g. `Reservoir.fmax = 1e30`) without paying the cost
+/// of creating a throwaway backend instance.
+///
+/// Optional: plugins built before ABI version `k_solver_abi_version`
+/// added this symbol may not export it.  `SolverRegistry::load_plugin`
+/// treats absence as a soft error and falls back to instance-level
+/// query (creates a backend, calls `infinity()`, drops it).
+using solver_plugin_infinity_fn = double (*)(const char* solver_name);
+
 }  // namespace gtopt

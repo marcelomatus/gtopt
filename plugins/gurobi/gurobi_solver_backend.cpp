@@ -270,9 +270,14 @@ std::string GurobiSolverBackend::solver_version() const
   return std::format("{}.{}.{}", major, minor, technical);
 }
 
-double GurobiSolverBackend::infinity() const noexcept
+double GurobiSolverBackend::plugin_infinity() noexcept
 {
   return GRB_INFINITY;
+}
+
+double GurobiSolverBackend::infinity() const noexcept
+{
+  return plugin_infinity();
 }
 
 bool GurobiSolverBackend::supports_mip() const noexcept

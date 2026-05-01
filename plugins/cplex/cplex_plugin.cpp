@@ -48,4 +48,16 @@ gtopt::SolverBackend* gtopt_create_backend(  // NOLINT
   }
   return nullptr;
 }
+
+// Plugin-level infinity query (no SolverBackend instance allocated).
+// Delegates to `CplexSolverBackend::plugin_infinity()` so the value
+// is single-source-of-truth shared with the instance method
+// `CplexSolverBackend::infinity()`.  CPLEX uses CPX_INFBOUND = 1e+20.
+double gtopt_solver_infinity(const char* solver_name)  // NOLINT
+{
+  if (std::strcmp(solver_name, "cplex") == 0) {
+    return gtopt::CplexSolverBackend::plugin_infinity();
+  }
+  return 0.0;
+}
 }

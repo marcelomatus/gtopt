@@ -314,9 +314,14 @@ std::string CplexSolverBackend::solver_version() const
       "{}.{}.{}", ver / 1000000, (ver / 10000) % 100, (ver / 100) % 100);
 }
 
-double CplexSolverBackend::infinity() const noexcept
+double CplexSolverBackend::plugin_infinity() noexcept
 {
   return CPX_INFBOUND;
+}
+
+double CplexSolverBackend::infinity() const noexcept
+{
+  return plugin_infinity();
 }
 
 bool CplexSolverBackend::supports_mip() const noexcept

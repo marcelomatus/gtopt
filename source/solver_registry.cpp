@@ -172,6 +172,13 @@ bool SolverRegistry::load_plugin(const std::filesystem::path& path)
     return false;
   }
 
+  // Optional symbol: `gtopt_solver_infinity` lets the registry expose
+  // the solver's +infinity value without instantiating a backend.
+  // Plugins built before this entry existed report nullptr; callers
+  // fall back to instance-level query.
+  auto* infinity_fn = reinterpret_cast<solver_plugin_infinity_fn>(  // NOLINT
+      ::dlsym(handle, "gtopt_solver_infinity"));
+
   // Check ABI version compatibility.  Plugins built against a different
   // SolverBackend vtable layout would crash at runtime; reject them
   // early with a clear diagnostic instead.
@@ -221,11 +228,49 @@ bool SolverRegistry::load_plugin(const std::filesystem::path& path)
   m_plugins_.push_back(PluginHandle {
       .dl_handle = handle,
       .create_fn = factory_fn,
+      .infinity_fn = infinity_fn,  // may be nullptr (older plugins)
       .plugin_name = plugin_name,
       .solver_names = std::move(solver_names),
   });
 
   return true;
+}
+
+// ── Plugin-level infinity query ─────────────────────────────────────────────
+
+std::optional<double> SolverRegistry::plugin_infinity(
+    std::string_view solver_name)
+{
+  // Resolve empty solver_name to the default solver (loads its plugin
+  // as a side effect via default_solver()).  This matches the
+  // convention in `LinearInterface`'s default-solver constructor.
+  std::string resolved;
+  if (solver_name.empty()) {
+    resolved = std::string(default_solver());
+    solver_name = resolved;
+  } else {
+    // Ensure the plugin providing this solver is loaded.
+    const std::scoped_lock lock(m_mutex_);
+    if (!has_solver_unlocked(solver_name)) {
+      ensure_solver_loaded(solver_name);
+    }
+  }
+
+  const std::scoped_lock lock(m_mutex_);
+  for (const auto& plugin : m_plugins_) {
+    for (const auto& sn : plugin.solver_names) {
+      if (sn == solver_name) {
+        if (plugin.infinity_fn != nullptr) {
+          // Plugin built with the new entry point — fast path.
+          return plugin.infinity_fn(std::string(solver_name).c_str());
+        }
+        // Older plugin without the entry point.  Caller falls back
+        // to creating a backend instance and calling infinity().
+        return std::nullopt;
+      }
+    }
+  }
+  return std::nullopt;
 }
 
 bool SolverRegistry::validate_solver_subprocess(const PluginHandle& plugin,

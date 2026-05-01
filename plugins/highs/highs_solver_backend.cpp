@@ -150,9 +150,14 @@ std::string HighsSolverBackend::solver_version() const
                      HIGHS_VERSION_PATCH);
 }
 
-double HighsSolverBackend::infinity() const noexcept
+double HighsSolverBackend::plugin_infinity() noexcept
 {
   return kHighsInf;
+}
+
+double HighsSolverBackend::infinity() const noexcept
+{
+  return plugin_infinity();
 }
 
 bool HighsSolverBackend::supports_mip() const noexcept

@@ -87,6 +87,13 @@ public:
   [[nodiscard]] double infinity() const noexcept override;
   [[nodiscard]] bool supports_mip() const noexcept override;
 
+  /// Plugin-level infinity constant — exposed so the plugin's
+  /// `gtopt_solver_infinity` entry point can return the SAME value
+  /// without instantiating a `CplexSolverBackend`.  The instance
+  /// method `infinity()` returns this constant too, making it the
+  /// single source of truth.  CPLEX uses `CPX_INFBOUND = 1e+20`.
+  static double plugin_infinity() noexcept;
+
   // ---- problem name ----
   void set_prob_name(const std::string& name) override;
   [[nodiscard]] std::string get_prob_name() const override;
