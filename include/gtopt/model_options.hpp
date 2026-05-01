@@ -44,6 +44,18 @@ struct ModelOptions
   OptName line_losses_mode {};
   /// Minimum bus voltage [kV] below which Kirchhoff is not applied.
   OptReal kirchhoff_threshold {};
+  /// Per-unit reactance floor `|X/V²|` below which a transmission line
+  /// is auto-promoted to a "DC line" (no Kirchhoff coupling).  The
+  /// validation step in `PlanningLP::validate_line_reactance` rewrites
+  /// the line's reactance schedule to scalar `0.0` so the LP assembler
+  /// skips the θ-row, capping the spread of `x_τ = τ·X/V²` coefficients
+  /// in the Kirchhoff matrix and dropping kappa.  Default (when unset):
+  /// `1e-6` p.u. — conservative enough that real transmission lines
+  /// (`x_pu ≥ 1e-3`) and real distribution lines/cables (`x_pu ≥ 1e-4`)
+  /// are never falsely promoted, while V-vs-kV unit-typo lines
+  /// (`x_pu ≈ 1e-7…1e-9`) and HVDC/phase-shifter sentinels (`X = 0`)
+  /// are caught.  Set to `0.0` to disable promotion entirely.
+  OptReal dc_line_reactance_threshold {};
   /// Number of piecewise-linear segments for quadratic line losses.
   OptInt loss_segments {};
   /// Divisor for all objective coefficients (numerical stability).
@@ -130,6 +142,7 @@ struct ModelOptions
     merge_opt(use_line_losses, opts.use_line_losses);
     merge_opt(line_losses_mode, opts.line_losses_mode);
     merge_opt(kirchhoff_threshold, opts.kirchhoff_threshold);
+    merge_opt(dc_line_reactance_threshold, opts.dc_line_reactance_threshold);
     merge_opt(loss_segments, opts.loss_segments);
     merge_opt(scale_objective, opts.scale_objective);
     merge_opt(scale_theta, opts.scale_theta);
@@ -152,13 +165,13 @@ struct ModelOptions
     return use_single_bus.has_value() || use_kirchhoff.has_value()
         || kirchhoff_mode.has_value() || use_line_losses.has_value()
         || line_losses_mode.has_value() || kirchhoff_threshold.has_value()
-        || loss_segments.has_value() || scale_objective.has_value()
-        || scale_theta.has_value() || theta_max.has_value()
-        || demand_fail_cost.has_value() || reserve_fail_cost.has_value()
-        || hydro_fail_cost.has_value() || hydro_use_value.has_value()
-        || state_fail_cost.has_value() || emission_cost.has_value()
-        || emission_cap.has_value() || continuous_phases.has_value()
-        || strict_storage_emin.has_value();
+        || dc_line_reactance_threshold.has_value() || loss_segments.has_value()
+        || scale_objective.has_value() || scale_theta.has_value()
+        || theta_max.has_value() || demand_fail_cost.has_value()
+        || reserve_fail_cost.has_value() || hydro_fail_cost.has_value()
+        || hydro_use_value.has_value() || state_fail_cost.has_value()
+        || emission_cost.has_value() || emission_cap.has_value()
+        || continuous_phases.has_value() || strict_storage_emin.has_value();
   }
 
   /// True iff every field set in `other` has an equal value in `*this`.
@@ -174,6 +187,8 @@ struct ModelOptions
         && covers_opt(use_line_losses, other.use_line_losses)
         && covers_opt(line_losses_mode, other.line_losses_mode)
         && covers_opt(kirchhoff_threshold, other.kirchhoff_threshold)
+        && covers_opt(dc_line_reactance_threshold,
+                      other.dc_line_reactance_threshold)
         && covers_opt(loss_segments, other.loss_segments)
         && covers_opt(scale_objective, other.scale_objective)
         && covers_opt(scale_theta, other.scale_theta)

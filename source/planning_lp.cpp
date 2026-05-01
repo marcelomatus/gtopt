@@ -39,38 +39,106 @@ namespace gtopt
 
 void PlanningLP::validate_line_reactance(Planning& planning)
 {
-  // Real transmission lines have reactance X ≳ 1e-4 p.u.  Anything smaller
-  // is almost always a data-entry mistake (stray "0.0001" becoming 1e-7,
-  // missing unit conversion, zero-copy from an ideal-transformer model) and
-  // produces a Kirchhoff coefficient x_tau = X/V² orders of magnitude
-  // below the rest of the network.  Rather than poison LP conditioning, we
-  // warn and rewrite the reactance schedule to scalar 0.0 — line_lp.cpp
-  // then skips the theta constraint for that line (DC/HVDC branch).
+  // The Kirchhoff row coefficient is x_τ = τ · X / V² (per-unit
+  // susceptance), so the dimensionally-correct outlier check is
+  // |X/V²| < threshold rather than |X| < threshold (the previous
+  // hardcoded 1e-4 raw-X check missed V-vs-kV unit-typo lines on
+  // physical-unit inputs and was over-aggressive on per-unit inputs).
+  //
+  // Lines whose per-unit susceptance falls below the threshold are
+  // almost always one of:
+  //   1. data-entry mistakes (V entered in V instead of kV → V² 1e6×
+  //      too small → x_pu 1e6× too small),
+  //   2. HVDC links / phase-shifters / FACTS devices (X = 0 sentinel
+  //      or X ≈ ε, which power-system planners genuinely model
+  //      *without* a KVL coupling), or
+  //   3. very-low-X transformers / busbar segments (KVL technically
+  //      valid but contributes nothing — phase-angle drop is below
+  //      solver tolerance anyway).
+  // In every case the right action is to drop the line out of the
+  // Kirchhoff matrix.  We do this by rewriting the line's reactance
+  // schedule to scalar 0.0 — the LP assembler in
+  // `kirchhoff_node_angle.cpp` then skips the θ-row for that line.
+  //
+  // Default threshold is `default_dc_line_reactance_threshold` (1e-6
+  // p.u.).  Real transmission `x_pu ≥ 1e-3` (4 OOM above) and real
+  // distribution `x_pu ≥ 1e-4` (2 OOM above) so genuine lines are
+  // never falsely promoted.  Set
+  // `model_options.dc_line_reactance_threshold = 0` to disable.
   //
   // Mirrors the plp2gtopt battery_writer clamping of input/output_efficiency.
-  constexpr double kReactanceMin = 1e-4;
+  // Read the threshold directly from `model_options` — this pass runs
+  // before `PlanningOptionsLP` is constructed (so before flat-to-model
+  // migration), but the new option is only exposed via `model_options`
+  // and has no deprecated flat field, so direct lookup is safe.
+  const double threshold =
+      planning.options.model_options.dc_line_reactance_threshold.value_or(
+          PlanningOptionsLP::default_dc_line_reactance_threshold);
+  if (!(threshold > 0.0)) {
+    return;
+  }
 
   auto& sys = planning.system;
   size_t clamped = 0;
+
+  // Extract a representative scalar voltage for the line — mirrors the
+  // `line.param_voltage(stage.uid()).value_or(1.0)` resolution used in
+  // `kirchhoff_node_angle.cpp`.  When the schedule is a vector we use
+  // the maximum non-zero entry, which gives the *smallest* x_pu and is
+  // therefore the most conservative "is this line legitimate" probe.
+  // Schedules expressed as files cannot be validated statically; we
+  // skip them rather than risk a false positive from a missing default.
+  const auto extract_voltage = [](const Line& line) -> std::optional<double>
+  {
+    if (!line.voltage.has_value()) {
+      return 1.0;  // per-unit default
+    }
+    const auto& sched = *line.voltage;
+    if (std::holds_alternative<double>(sched)) {
+      return std::get<double>(sched);
+    }
+    if (std::holds_alternative<std::vector<double>>(sched)) {
+      const auto& vec = std::get<std::vector<double>>(sched);
+      double v_max = 0.0;
+      for (const double v : vec) {
+        v_max = std::max(v_max, std::abs(v));
+      }
+      if (v_max > 0.0) {
+        return v_max;
+      }
+      return std::nullopt;
+    }
+    return std::nullopt;  // FileSched — cannot validate statically.
+  };
 
   for (auto& line : sys.line_array) {
     if (!line.reactance.has_value()) {
       continue;
     }
+    const auto v_opt = extract_voltage(line);
+    if (!v_opt.has_value() || *v_opt == 0.0) {
+      continue;  // unable to compute x_pu — skip.
+    }
+    const double v = *v_opt;
+    const double v_sq = v * v;
     auto& sched = *line.reactance;
 
     // Scalar schedule.
     if (std::holds_alternative<double>(sched)) {
       const double x = std::get<double>(sched);
-      if (x != 0.0 && std::abs(x) < kReactanceMin) {
+      const double x_pu = x / v_sq;
+      if (x != 0.0 && std::abs(x_pu) < threshold) {
         spdlog::warn(
-            "(line_reactance) Line '{}' (uid={}): reactance X={:.3e} is "
-            "below {:.0e} — clamping to 0 (line will be treated as "
-            "DC/HVDC, no Kirchhoff constraint).",
+            "(line_reactance) Line '{}' (uid={}): per-unit reactance "
+            "x_pu=X/V²={:.3e} (X={:.3e}, V={:.3e}) is below {:.0e} — "
+            "clamping X to 0 (line will be treated as DC/HVDC, no "
+            "Kirchhoff constraint).",
             line.name,
             line.uid,
+            x_pu,
             x,
-            kReactanceMin);
+            v,
+            threshold);
         sched = 0.0;
         ++clamped;
       }
@@ -83,21 +151,23 @@ void PlanningLP::validate_line_reactance(Planning& planning)
       bool any_small = false;
       double min_bad = std::numeric_limits<double>::infinity();
       for (auto& x : vec) {
-        if (x != 0.0 && std::abs(x) < kReactanceMin) {
+        const double x_pu = x / v_sq;
+        if (x != 0.0 && std::abs(x_pu) < threshold) {
           any_small = true;
-          min_bad = std::min(min_bad, std::abs(x));
+          min_bad = std::min(min_bad, std::abs(x_pu));
           x = 0.0;
         }
       }
       if (any_small) {
         spdlog::warn(
             "(line_reactance) Line '{}' (uid={}): reactance schedule has "
-            "entries below {:.0e} (min={:.3e}) — clamped to 0 (DC/HVDC "
-            "for those stages).",
+            "per-unit entries below {:.0e} (min x_pu={:.3e}, V={:.3e}) "
+            "— clamped to 0 (DC/HVDC for those stages).",
             line.name,
             line.uid,
-            kReactanceMin,
-            min_bad);
+            threshold,
+            min_bad,
+            v);
         ++clamped;
       }
       continue;
@@ -108,10 +178,10 @@ void PlanningLP::validate_line_reactance(Planning& planning)
 
   if (clamped > 0) {
     spdlog::info(
-        "  Line reactance validation: clamped {} line(s) with X below "
-        "{:.0e} to zero.",
+        "  Line reactance validation: clamped {} line(s) with |x_pu|=|X/V²| "
+        "below {:.0e} to zero.",
         clamped,
-        kReactanceMin);
+        threshold);
   }
 }
 

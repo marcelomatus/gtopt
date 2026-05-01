@@ -67,19 +67,6 @@ private:
   static void tighten_scene_phase_links(phase_systems_t& phase_systems,
                                         SimulationLP& simulation);
 
-  /// Validate line reactance values and clamp tiny ones to zero.
-  ///
-  /// A transmission line with `0 < |X| < kReactanceMin` is physically
-  /// implausible (most real lines have X ≥ 1e-4 p.u.) and produces an
-  /// enormous Kirchhoff coefficient `x_tau = X/V²`, degrading LP
-  /// conditioning. This pass logs a warning per offending line and
-  /// rewrites its reactance schedule to a scalar 0.0 — which the LP
-  /// assembler then treats as a DC/HVDC line (no theta constraint).
-  ///
-  /// Mirrors the battery input/output_efficiency clamping performed at
-  /// `scripts/plp2gtopt/battery_writer.py`.
-  static void validate_line_reactance(Planning& planning);
-
   /// Compute adaptive scale_theta from median line reactance when not
   /// explicitly set.  Mutates `planning.options.scale_theta` in-place so
   /// that PlanningOptionsLP picks up the computed value.
@@ -112,6 +99,34 @@ private:
   }
 
 public:
+  /// Validate line reactance values and clamp tiny ones to zero.
+  ///
+  /// Promotes any line whose effective per-unit susceptance term
+  /// `|x_pu| = |X/V²|` falls below
+  /// `model_options.dc_line_reactance_threshold` (default `1e-6`) to a
+  /// "DC line" by rewriting its reactance schedule to scalar `0.0`.
+  /// The Kirchhoff assembler in `kirchhoff_node_angle.cpp` then skips
+  /// the θ-row for that line (no KVL coupling, only flow bounds).
+  ///
+  /// The check is dimensionally correct (susceptance, not raw `X`) so
+  /// it handles both per-unit and physical-unit (kV / Ω) inputs and
+  /// catches V-vs-kV unit-typo lines that a raw-`|X|` cutoff misses.
+  ///
+  /// Sources of `x_pu` below threshold are almost always: data-entry
+  /// mistakes (V/kV typo), HVDC links / phase-shifters (`X = 0`
+  /// sentinels), or short busbar segments whose KVL contribution is
+  /// below solver tolerance.  In every case dropping the KVL row is
+  /// the correct action — and avoids poisoning LP conditioning with
+  /// outlier `x_τ` coefficients.
+  ///
+  /// Set `model_options.dc_line_reactance_threshold = 0` to disable
+  /// the promotion entirely.  Static so it can be exercised by unit
+  /// tests without standing up a full PlanningLP.
+  ///
+  /// Mirrors the battery input/output_efficiency clamping performed at
+  /// `scripts/plp2gtopt/battery_writer.py`.
+  static void validate_line_reactance(Planning& planning);
+
   /**
    * @brief Constructs a PlanningLP instance from planning data
    * @param planning The power system planning data

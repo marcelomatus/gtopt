@@ -70,6 +70,21 @@ public:
   static constexpr Bool default_strict_storage_emin = true;
   /** @brief Default threshold for Kirchhoff constraints */
   static constexpr Real default_kirchhoff_threshold = 0;
+  /** @brief Default per-unit reactance floor for DC-line auto-promotion.
+   *
+   *  Lines whose effective per-unit susceptance term `|x_pu| = |X/V²|`
+   *  falls below this value are rewritten to `X = 0` by
+   *  `PlanningLP::validate_line_reactance` and skipped by the Kirchhoff
+   *  assembler — eliminating outlier `x_τ` coefficients that blow up
+   *  CPLEX/HiGHS kappa.
+   *
+   *  `1e-6` is conservative: real transmission `x_pu ≥ 1e-3` (4 OOM
+   *  above), real distribution `x_pu ≥ 1e-4` (2 OOM above), so genuine
+   *  lines are never falsely promoted.  V-vs-kV unit-typo lines
+   *  (`x_pu ≈ 1e-7…1e-9`) and HVDC/phase-shifters (`X = 0`) are caught.
+   *  Set to `0.0` via `--set model_options.dc_line_reactance_threshold=0`
+   *  to disable promotion entirely. */
+  static constexpr Real default_dc_line_reactance_threshold = 1e-6;
   /** @brief Default voltage-angle bound (`θ ∈ [−2π, +2π]`) used as
    *  fallback when `auto_scale_theta` did not run (e.g.
    *  `auto_scale=false`).  When auto-scaling is enabled the bound is
@@ -287,6 +302,18 @@ public:
   {
     return m_options_.model_options.kirchhoff_threshold.value_or(
         default_kirchhoff_threshold);
+  }
+
+  /// @brief Gets the per-unit reactance floor for DC-line auto-promotion.
+  ///
+  /// Returns the resolved threshold used by
+  /// `PlanningLP::validate_line_reactance` when deciding whether a
+  /// line's `|X/V²|` is small enough to warrant rewriting `X` to `0`
+  /// (and thus dropping the line out of the Kirchhoff matrix).
+  [[nodiscard]] constexpr auto dc_line_reactance_threshold() const
+  {
+    return m_options_.model_options.dc_line_reactance_threshold.value_or(
+        default_dc_line_reactance_threshold);
   }
 
   /// @brief Gets the voltage angle scaling factor.
