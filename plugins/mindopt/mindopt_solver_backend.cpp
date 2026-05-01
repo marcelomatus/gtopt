@@ -387,6 +387,44 @@ void MindOptSolverBackend::add_col(double lb, double ub, double obj)
   check_error(rc, "MDOaddvar");
 }
 
+void MindOptSolverBackend::add_cols(int num_cols,
+                                    const int* colbeg,
+                                    const int* colind,
+                                    const double* colval,
+                                    const double* collb,
+                                    const double* colub,
+                                    const double* colobj)
+{
+  m_prob_cached_ = false;
+  m_sol_cached_ = false;
+
+  if (num_cols == 0) {
+    return;
+  }
+
+  // MindOpt's CSC bulk variable API: MDOaddvars takes
+  // (vbeg, vind, vval, obj, lb, ub, vtype, varnames) — analogous to
+  // GRBaddvars and consumed in one call.  All new vars are continuous
+  // (vtype=nullptr defaults to MDO_CONTINUOUS).  Const-cast is safe:
+  // the API is non-modifying despite the non-const pointer signature
+  // (mirrors the existing `MDOaddrangeconstrs` call site).
+  // NOLINTBEGIN(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+  const int nnz = colbeg[num_cols];
+  // NOLINTEND(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+  const int rc = MDOaddvars(m_model_,
+                            num_cols,
+                            nnz,
+                            const_cast<int*>(colbeg),  // NOLINT
+                            const_cast<int*>(colind),  // NOLINT
+                            const_cast<double*>(colval),  // NOLINT
+                            const_cast<double*>(colobj),  // NOLINT
+                            const_cast<double*>(collb),  // NOLINT
+                            const_cast<double*>(colub),  // NOLINT
+                            nullptr,  // vtype: all continuous
+                            nullptr);  // varnames
+  check_error(rc, "MDOaddvars");
+}
+
 void MindOptSolverBackend::set_col_lower(int index, double value)
 {
   m_prob_cached_ = false;

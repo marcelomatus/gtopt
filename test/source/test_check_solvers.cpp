@@ -211,6 +211,20 @@ TEST_CASE("check_solvers - add_rows")  // NOLINT
   // regression on any plugin shows up immediately.
   run_named_test_on_every_solver("add_rows");
 }
+TEST_CASE("check_solvers - add_cols")  // NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  // Bulk-column addition mirrors `add_rows`: each plugin reaches a
+  // native CSC bulk API (CPXaddcols / GRBaddvars / Highs::addCols /
+  // OsiClp::addCols / MDOaddvars) instead of looping per-column.
+  // Run on every loaded plugin so a backend-specific bug shows up
+  // immediately.  The test itself is LP-semantic (compares solve
+  // outputs between per-column and bulk paths), so a regression that
+  // scales columns differently in the bulk path fails even when
+  // round-trip set/get-coeff is internally consistent.
+  run_named_test_on_every_solver("add_cols");
+}
 TEST_CASE("check_solvers - obj_coeff")  // NOLINT
 {
   using namespace gtopt;  // NOLINT(google-build-using-namespace)

@@ -32,7 +32,7 @@ namespace gtopt
  * SolverRegistry checks the plugin's reported ABI version at load time
  * and rejects incompatible plugins with a clear error instead of crashing.
  */
-inline constexpr int k_solver_abi_version = 6;
+inline constexpr int k_solver_abi_version = 7;
 
 /**
  * @brief Abstract interface for LP/MIP solver backends.
@@ -102,6 +102,31 @@ public:
   // ---- column operations ----
 
   virtual void add_col(double lb, double ub, double obj) = 0;
+
+  /// Bulk column addition in CSC (Compressed Sparse Column) format.
+  ///
+  /// Mirrors `add_rows` for columns: a single solver call replaces what
+  /// would otherwise be `num_cols` per-column `add_col` invocations,
+  /// avoiding repeated reallocation of the backend's internal column
+  /// metadata.  Columns added by this path are continuous LP variables;
+  /// callers needing integer columns should follow up with
+  /// `set_integer(idx)`.
+  ///
+  /// @param num_cols  Number of columns to add
+  /// @param colbeg    Column-start offsets into colind/colval
+  ///                  (size num_cols+1, colbeg[num_cols] == nnz)
+  /// @param colind    Row indices for non-zeros (size colbeg[num_cols])
+  /// @param colval    Non-zero coefficient values (size colbeg[num_cols])
+  /// @param collb     Column lower bounds (size num_cols)
+  /// @param colub     Column upper bounds (size num_cols)
+  /// @param colobj    Column objective coefficients (size num_cols)
+  virtual void add_cols(int num_cols,
+                        const int* colbeg,
+                        const int* colind,
+                        const double* colval,
+                        const double* collb,
+                        const double* colub,
+                        const double* colobj) = 0;
   virtual void set_col_lower(int index, double value) = 0;
   virtual void set_col_upper(int index, double value) = 0;
   virtual void set_obj_coeff(int index, double value) = 0;

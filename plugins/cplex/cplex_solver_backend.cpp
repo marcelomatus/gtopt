@@ -517,6 +517,46 @@ void CplexSolverBackend::add_col(double lb, double ub, double obj)
              nullptr);
 }
 
+void CplexSolverBackend::add_cols(int num_cols,
+                                  const int* colbeg,
+                                  const int* colind,
+                                  const double* colval,
+                                  const double* collb,
+                                  const double* colub,
+                                  const double* colobj)
+{
+  m_prob_cached_ = false;
+  m_sol_cached_ = false;
+
+  if (num_cols == 0) {
+    return;
+  }
+
+  // CPXaddcols takes the CSC format directly: ccnt, nzcnt, obj, cmatbeg,
+  // cmatind, cmatval, lb, ub.  Single call replaces what would be N
+  // per-column CPXaddcols invocations — each of those reallocates the
+  // internal column metadata array, so the bulk path is materially
+  // faster on cold-start LPs with thousands of columns.
+  // NOLINTBEGIN(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+  const int nzcnt = colbeg[num_cols];
+  // NOLINTEND(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+  const int status = CPXaddcols(m_env_lp_.env(),
+                                m_env_lp_.lp(),
+                                num_cols,
+                                nzcnt,
+                                colobj,
+                                colbeg,
+                                colind,
+                                colval,
+                                collb,
+                                colub,
+                                nullptr);
+  if (status != 0) {
+    throw std::runtime_error(
+        std::format("CPLEX: CPXaddcols failed with status {}", status));
+  }
+}
+
 void CplexSolverBackend::set_col_lower(int index, double value)
 {
   m_prob_cached_ = false;

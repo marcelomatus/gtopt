@@ -1174,30 +1174,95 @@ std::vector<RowIndex> LinearInterface::add_rows_disposable(
   return indices;
 }
 
+ColIndex LinearInterface::emit_cols_to_backend(std::span<const SparseCol> cols)
+{
+  // Bulk equivalent of `emit_col_to_backend`: assembles CSC buffers
+  // for the batch and dispatches a single `m_backend_->add_cols(...)`
+  // call.  Shared by `add_cols(span)` (physical) and `add_cols_raw`
+  // (raw) — both apply the same `cost / scale_objective` divisor and
+  // `normalize_bounds` clipping.  Returns the index of the first
+  // column added; callers compute per-element indices as
+  // `first_col_index + c`.
+  //
+  // `SparseCol` carries no coefficient map, so each column's CSC
+  // slice is empty (`colbeg[c+1] == colbeg[c]`).  The bulk-dispatch
+  // value is amortising N per-column allocator hits in the backend's
+  // internal column metadata array down to one.
+  ensure_backend();
+  const auto first_col_index = ColIndex {m_backend_->get_num_cols()};
+  if (cols.empty()) {
+    return first_col_index;
+  }
+
+  const auto num_cols = static_cast<int>(cols.size());
+  std::vector<int> colbeg(static_cast<size_t>(num_cols) + 1, 0);
+  std::vector<int> colind;
+  std::vector<double> colval;
+  std::vector<double> collb(static_cast<size_t>(num_cols));
+  std::vector<double> colub(static_cast<size_t>(num_cols));
+  std::vector<double> colobj(static_cast<size_t>(num_cols));
+
+  const auto inv_so = 1.0 / m_scale_objective_;
+  for (size_t c = 0; c < cols.size(); ++c) {
+    const auto& col = cols[c];
+    const auto [lowb, uppb] = normalize_bounds(col.lowb, col.uppb);
+    collb[c] = lowb;
+    colub[c] = uppb;
+    colobj[c] = col.cost * inv_so;
+    colbeg[c + 1] = static_cast<int>(colind.size());
+  }
+
+  m_backend_->add_cols(num_cols,
+                       colbeg.data(),
+                       colind.data(),
+                       colval.data(),
+                       collb.data(),
+                       colub.data(),
+                       colobj.data());
+
+  return first_col_index;
+}
+
+// NOLINTNEXTLINE(misc-no-recursion)
 void LinearInterface::add_cols(std::span<const SparseCol> cols)
 {
-  // Per-column dispatch: `add_col(SparseCol)` already composes the
-  // physical → LP transform (`cost / scale_objective`, plus an
-  // optional `set_col_scale` extension when `col.scale != 1.0`)
-  // identically to what `flatten()` does on the structural-build
-  // path.  No batched CSR insert exists for columns at the backend
-  // boundary (LP solvers expose `add_col` as a strictly per-column
-  // operation), so the loop here is the natural shape — bulkness
-  // gives the caller a single API to mirror `add_rows`, not a
-  // CSR-style speedup.
-  for (const auto& col : cols) {
-    add_col(col);
+  // Physical bulk path — mirrors `add_col(SparseCol)`'s shape:
+  //   1. dispatch the bulk backend insert via `emit_cols_to_backend`
+  //   2. register `col.scale` for any non-unity entries
+  //   3. capture label-meta for every column
+  //
+  // Order matches the singular path: scale first, then label meta.
+  const auto first_col_index = emit_cols_to_backend(cols);
+  for (size_t c = 0; c < cols.size(); ++c) {
+    const auto& col = cols[c];
+    const auto col_idx =
+        ColIndex {static_cast<int>(first_col_index) + static_cast<int>(c)};
+    if (col.scale != 1.0) {
+      set_col_scale(col_idx, col.scale);
+    }
+    track_col_label_meta(col_idx, col);
   }
 }
 
+// NOLINTNEXTLINE(misc-no-recursion)
 void LinearInterface::add_cols_raw(std::span<const SparseCol> cols)
 {
-  // Companion to `add_col_raw`: same physical-cost composition
-  // (`cost / scale_objective`) as `add_cols`, but `m_col_scales_`
-  // is never grown.  The `add_col_raw` invariant
-  // (`col.scale == 1.0`) is enforced per-element via assert.
+  // Raw bulk path — mirrors `add_col_raw(SparseCol)`'s shape:
+  // strict invariant that every entry carries `col.scale == 1.0`
+  // (callers pre-apply any scaling to `col.cost`), then dispatch via
+  // the shared `emit_cols_to_backend` helper, then capture label-meta.
+  // `m_col_scales_` stays frozen so it can be shared across aperture
+  // clones via `std::shared_ptr`.
   for (const auto& col : cols) {
-    add_col_raw(col);
+    assert(col.scale == 1.0
+           && "add_cols_raw: non-unit col.scale forbidden — use add_cols() "
+              "if you need m_col_scales_ to grow");
+  }
+  const auto first_col_index = emit_cols_to_backend(cols);
+  for (size_t c = 0; c < cols.size(); ++c) {
+    const auto col_idx =
+        ColIndex {static_cast<int>(first_col_index) + static_cast<int>(c)};
+    track_col_label_meta(col_idx, cols[c]);
   }
 }
 

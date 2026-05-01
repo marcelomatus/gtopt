@@ -300,6 +300,65 @@ void OsiSolverBackend::add_col(double lb, double ub, double obj)
   m_solver_->addCol(empty_vec, lb, ub, obj);
 }
 
+void OsiSolverBackend::add_cols(int num_cols,
+                                const int* colbeg,
+                                const int* colind,
+                                const double* colval,
+                                const double* collb,
+                                const double* colub,
+                                const double* colobj)
+{
+  if (num_cols == 0) {
+    return;
+  }
+
+  // The generic OsiSolverInterface exposes only single-column `addCol`,
+  // but the two backends gtopt actually loads (CLP via
+  // `OsiClpSolverInterface`, CBC via `OsiCbcSolverInterface` →
+  // `getRealSolverPtr()`) both wrap CLP, and CLP's
+  // `OsiClpSolverInterface::addCols(numcols, columnStarts, rows,
+  // elements, collb, colub, obj)` is a true CSC bulk API.  Reach for
+  // it via the OsiClp-specific overload and fall back to a per-column
+  // loop only when the underlying solver isn't OsiClp (third-party
+  // OSI shims).
+  //
+  // `addCols` takes `const CoinBigIndex*` for `columnStarts`.
+  // CoinBigIndex is `int` on standard builds but can be `long` /
+  // `long long` under config flags, so we build a typed copy when the
+  // types differ (cheap: num_cols + 1 ints).
+  auto* osi_clp = dynamic_cast<OsiClpSolverInterface*>(m_solver_.get());
+#ifdef GTOPT_OSI_HAS_CBC
+  if (osi_clp == nullptr) {
+    if (auto* osi_cbc = dynamic_cast<OsiCbcSolverInterface*>(m_solver_.get())) {
+      osi_clp =
+          dynamic_cast<OsiClpSolverInterface*>(osi_cbc->getRealSolverPtr());
+    }
+  }
+#endif
+  if (osi_clp != nullptr) {
+    if constexpr (std::is_same_v<CoinBigIndex, int>) {
+      osi_clp->addCols(num_cols, colbeg, colind, colval, collb, colub, colobj);
+    } else {
+      // NOLINTBEGIN(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+      std::vector<CoinBigIndex> colbeg_big(colbeg, colbeg + num_cols + 1);
+      // NOLINTEND(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+      osi_clp->addCols(
+          num_cols, colbeg_big.data(), colind, colval, collb, colub, colobj);
+    }
+    return;
+  }
+
+  // Generic OSI fallback — per-column dispatch.
+  // NOLINTBEGIN(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+  for (int c = 0; c < num_cols; ++c) {
+    const int start = colbeg[c];
+    const int count = colbeg[c + 1] - start;
+    const CoinPackedVector vec(count, colind + start, colval + start);
+    m_solver_->addCol(vec, collb[c], colub[c], colobj[c]);
+  }
+  // NOLINTEND(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+}
+
 void OsiSolverBackend::set_col_lower(int index, double value)
 {
   m_solver_->setColLower(index, value);

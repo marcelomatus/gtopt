@@ -778,17 +778,30 @@ public:
   ColIndex add_col_raw(const SparseCol& col);
 
   /**
-   * @brief Bulk-add columns (physical-space cost convention).
+   * @brief Bulk-add columns (much faster than repeated add_col calls).
    *
-   * Mirrors `add_col(SparseCol)`'s contract for batches: every column
-   * in the batch routes through the same `cost / scale_objective`
-   * composition that `add_col` applies, and any non-unit `col.scale`
-   * extends `m_col_scales_` via `set_col_scale` (just like the
-   * singular path).  Use this for batches of physical-space columns
-   * (the typical case).  For LP-raw batches that must skip
-   * `m_col_scales_` extension, use `add_cols_raw` instead.
+   * Builds a CSC (Compressed Sparse Column) buffer from the provided
+   * `SparseCol` objects, applies bound normalisation and the
+   * `scale_objective` divisor on each objective coefficient, dispatches
+   * a single `SolverBackend::add_cols(...)` call, and then performs the
+   * per-column post-bookkeeping (column-scale registration, label-meta
+   * tracking with dedup, and optional name generation) — mirroring how
+   * `add_rows(span<SparseRow>)` shapes the row-bulk path.
    *
-   * @param cols Sparse column specifications (physical-space cost).
+   * `SparseCol` carries no coefficient map, so each column's CSC slice
+   * is empty (`colbeg[c+1] == colbeg[c]`).  The bulk path's value is
+   * the single backend dispatch: each per-column call typically
+   * reallocates the backend's internal column metadata array.
+   *
+   * Mirrors `add_col(SparseCol)`'s contract: every column in the batch
+   * routes through the same `cost / scale_objective` composition, and
+   * any non-unit `col.scale` extends `m_col_scales_` via
+   * `set_col_scale` (just like the singular path).  Use this for
+   * batches of physical-space columns (the typical case).  For LP-raw
+   * batches that must skip `m_col_scales_` extension, use
+   * `add_cols_raw` instead.
+   *
+   * @param cols Sparse columns with physical-space cost / bounds.
    */
   void add_cols(std::span<const SparseCol> cols);
 
@@ -799,8 +812,9 @@ public:
    * scale_objective` composition as `add_cols` (i.e. `col.cost` is
    * still treated as physical and divided by `m_scale_objective_`),
    * but `m_col_scales_` is never grown — so every entry must satisfy
-   * `col.scale == 1.0`.  Use this on aperture clones where the
-   * shared scale vector must stay frozen.
+   * `col.scale == 1.0`.  Used by post-flatten cut paths that need the
+   * column scale vector to stay frozen so it can be shared across
+   * aperture clones via `std::shared_ptr`.
    *
    * @param cols Sparse column specifications with `scale == 1.0`.
    */
@@ -1440,6 +1454,15 @@ private:
   /// NOT route through this helper — they call `m_backend_->add_col`
   /// directly to keep their mutation surface trivially auditable.
   ColIndex emit_col_to_backend(const SparseCol& col);
+
+  /// Bulk variant of `emit_col_to_backend`.  Assembles CSC buffers
+  /// for the batch and dispatches a single `m_backend_->add_cols(...)`.
+  /// Shared by `add_cols(span)` (physical) and `add_cols_raw` (raw)
+  /// so neither path duplicates the buffer-building logic — mirrors
+  /// the `emit_col_to_backend` ↔ `add_col` / `add_col_raw` shape.
+  /// Returns the `ColIndex` of the FIRST added column; callers
+  /// compute per-element indices as `first + c`.
+  ColIndex emit_cols_to_backend(std::span<const SparseCol> cols);
 
   /// Pure backend emit: append a row to the solver's matrix.  Composes
   /// `SparseRow::scale` (mirroring `flatten()`'s static-row handling)

@@ -260,6 +260,28 @@ void HighsSolverBackend::add_col(double lb, double ub, double obj)
   m_highs_->addCol(obj, lb, ub, 0, nullptr, nullptr);
 }
 
+void HighsSolverBackend::add_cols(int num_cols,
+                                  const int* colbeg,
+                                  const int* colind,
+                                  const double* colval,
+                                  const double* collb,
+                                  const double* colub,
+                                  const double* colobj)
+{
+  m_solution_valid_ = false;
+  if (num_cols == 0) {
+    return;
+  }
+  // HiGHS's CSC bulk variable API: same shape as the LinearInterface
+  // hands us (colbeg/colind/colval/collb/colub/colobj).  Single call
+  // replaces a per-column add_col loop and the associated reallocations
+  // of HiGHS's column metadata vectors.
+  // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+  const int nnz = colbeg[num_cols];
+  m_highs_->addCols(
+      num_cols, colobj, collb, colub, nnz, colbeg, colind, colval);
+}
+
 void HighsSolverBackend::set_col_lower(int index, double value)
 {
   const auto& lp = m_highs_->getLp();

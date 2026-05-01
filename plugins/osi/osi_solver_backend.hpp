@@ -93,6 +93,13 @@ public:
 
   // ---- column ops ----
   void add_col(double lb, double ub, double obj) override;
+  void add_cols(int num_cols,
+                const int* colbeg,
+                const int* colind,
+                const double* colval,
+                const double* collb,
+                const double* colub,
+                const double* colobj) override;
   void set_col_lower(int index, double value) override;
   void set_col_upper(int index, double value) override;
   void set_obj_coeff(int index, double value) override;

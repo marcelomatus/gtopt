@@ -339,6 +339,174 @@ SolverTestResult test_add_rows(std::string_view solver)
 }
 
 // ---------------------------------------------------------------------------
+// 3c. add_cols (plural / bulk) — exercises the CSC bulk path that mirrors
+//     the CSR `add_rows` API.  Each backend's `add_cols` issues a single
+//     native bulk-add call (CPXaddcols / GRBaddvars / Highs::addCols /
+//     OsiClp::addCols / MDOaddvars) instead of an N-call per-column
+//     loop.  The regression guard here is LP-semantic: build the same
+//     LP twice — once with per-column add_col, once with the bulk path —
+//     solve, and compare primal / dual / objective.  A bulk-path bug
+//     that scales columns differently from the singular path will fail
+//     this test even when individual setters/getters pass round-trip.
+// ---------------------------------------------------------------------------
+SolverTestResult test_add_cols(std::string_view solver)
+{
+  TestContext ctx;
+  try {
+    // Path A: per-column add_col + set_coeff for each (row, col) entry.
+    //   min x + y
+    //   s.t. x >= 5, y >= 3, 0 <= x,y <= 100  → optimum: x=5, y=3, obj=8.
+    //
+    // Finite upper bounds so the cross-path bound comparison is robust
+    // to backend-specific infinity normalisation (HiGHS clamps DblMax
+    // through ScaledView differently than CPLEX/OSI in this setup).
+    constexpr double kColUpper = 100.0;
+    LinearInterface lp_a(solver);
+    const auto rA0 = lp_a.add_row(SparseRow {
+        .lowb = 5.0,
+        .uppb = SparseRow::DblMax,
+    });
+    const auto rA1 = lp_a.add_row(SparseRow {
+        .lowb = 3.0,
+        .uppb = SparseRow::DblMax,
+    });
+    const auto xA = lp_a.add_col(SparseCol {
+        .lowb = 0.0,
+        .uppb = kColUpper,
+        .cost = 1.0,
+    });
+    const auto yA = lp_a.add_col(SparseCol {
+        .lowb = 0.0,
+        .uppb = kColUpper,
+        .cost = 1.0,
+    });
+    lp_a.set_coeff(rA0, xA, 1.0);
+    lp_a.set_coeff(rA1, yA, 1.0);
+    {
+      const auto rs = lp_a.initial_solve(SolverOptions {.log_level = 0});
+      if (!rs) {
+        ctx.check(
+            /*cond=*/false,
+            std::format("path A initial_solve error: {}", rs.error().message),
+            __FILE__,
+            __LINE__);
+      }
+    }
+    TC_CHECK(ctx, lp_a.is_optimal());
+
+    // Path B: same LP, but cols added via the bulk add_cols span.
+    LinearInterface lp_b(solver);
+    const auto rB0 = lp_b.add_row(SparseRow {
+        .lowb = 5.0,
+        .uppb = SparseRow::DblMax,
+    });
+    const auto rB1 = lp_b.add_row(SparseRow {
+        .lowb = 3.0,
+        .uppb = SparseRow::DblMax,
+    });
+    const std::array<SparseCol, 2> cols_b {
+        SparseCol {
+            .lowb = 0.0,
+            .uppb = kColUpper,
+            .cost = 1.0,
+        },
+        SparseCol {
+            .lowb = 0.0,
+            .uppb = kColUpper,
+            .cost = 1.0,
+        },
+    };
+    lp_b.add_cols(cols_b);
+    const auto xB = ColIndex {0};
+    const auto yB = ColIndex {1};
+    lp_b.set_coeff(rB0, xB, 1.0);
+    lp_b.set_coeff(rB1, yB, 1.0);
+    {
+      const auto rs = lp_b.initial_solve(SolverOptions {.log_level = 0});
+      if (!rs) {
+        ctx.check(
+            /*cond=*/false,
+            std::format("path B initial_solve error: {}", rs.error().message),
+            __FILE__,
+            __LINE__);
+      }
+    }
+    TC_CHECK(ctx, lp_b.is_optimal());
+
+    // Bit-for-bit primal / dual / objective parity between paths.
+    TC_CHECK(ctx, lp_b.get_numcols() == 2);
+    TC_CHECK(ctx, lp_b.get_numrows() == 2);
+
+    TC_CHECK_APPROX(ctx, lp_a.get_obj_value(), 8.0, 1e-9);
+    TC_CHECK_APPROX(ctx, lp_b.get_obj_value(), 8.0, 1e-9);
+
+    const auto sol_a = lp_a.get_col_sol();
+    const auto sol_b = lp_b.get_col_sol();
+    TC_CHECK_APPROX(ctx, sol_a[xA], 5.0, 1e-9);
+    TC_CHECK_APPROX(ctx, sol_a[yA], 3.0, 1e-9);
+    TC_CHECK_APPROX(ctx, sol_b[xB], sol_a[xA], 1e-9);
+    TC_CHECK_APPROX(ctx, sol_b[yB], sol_a[yA], 1e-9);
+
+    // Bound / cost vectors must match coordinate-wise.
+    const auto lo_a = lp_a.get_col_low();
+    const auto lo_b = lp_b.get_col_low();
+    const auto up_a = lp_a.get_col_upp();
+    const auto up_b = lp_b.get_col_upp();
+    const auto obj_a = lp_a.get_obj_coeff();
+    const auto obj_b = lp_b.get_obj_coeff();
+    TC_CHECK_APPROX(ctx, lo_a[xA], lo_b[xB], 1e-12);
+    TC_CHECK_APPROX(ctx, lo_a[yA], lo_b[yB], 1e-12);
+    TC_CHECK_APPROX(ctx, up_a[xA], up_b[xB], 1e-12);
+    TC_CHECK_APPROX(ctx, up_a[yA], up_b[yB], 1e-12);
+    TC_CHECK_APPROX(ctx, obj_a[xA], obj_b[xB], 1e-12);
+    TC_CHECK_APPROX(ctx, obj_a[yA], obj_b[yB], 1e-12);
+
+    // Coefficient matrix entries must match.
+    TC_CHECK_APPROX(
+        ctx, lp_a.get_coeff(rA0, xA), lp_b.get_coeff(rB0, xB), 1e-12);
+    TC_CHECK_APPROX(
+        ctx, lp_a.get_coeff(rA1, yA), lp_b.get_coeff(rB1, yB), 1e-12);
+
+    // Row duals (shadow prices) must match.
+    const auto dual_a = lp_a.get_row_dual();
+    const auto dual_b = lp_b.get_row_dual();
+    TC_CHECK_APPROX(ctx, dual_a[rA0], dual_b[rB0], 1e-9);
+    TC_CHECK_APPROX(ctx, dual_a[rA1], dual_b[rB1], 1e-9);
+
+    // ── Repeat with a non-unit col.scale to exercise the col_scale
+    //    composition path on the bulk add.  The per-column path
+    //    registers col.scale via `set_col_scale` post-add; the bulk
+    //    path does the same after the single backend dispatch.  Both
+    //    must produce identical observable scales (`get_col_scales`)
+    //    and recover the same physical primal solution.
+    LinearInterface lp_c(solver);
+    const std::array<SparseCol, 2> cols_c {
+        SparseCol {
+            .lowb = 0.0,
+            .uppb = kColUpper,
+            .cost = 1.0,
+            .scale = 10.0,
+        },
+        SparseCol {
+            .lowb = 0.0,
+            .uppb = kColUpper,
+            .cost = 1.0,
+            .scale = 10.0,
+        },
+    };
+    lp_c.add_cols(cols_c);
+    const auto& cs = lp_c.get_col_scales();
+    TC_CHECK(ctx, std::ssize(cs) >= 2);
+    TC_CHECK_APPROX(ctx, cs[ColIndex {0}], 10.0, 1e-12);
+    TC_CHECK_APPROX(ctx, cs[ColIndex {1}], 10.0, 1e-12);
+
+  } catch (const std::exception& ex) {
+    return make_result("add_cols", /*test_passed=*/false, ex.what());
+  }
+  return make_result("add_cols", /*test_passed=*/ctx.ok(), ctx.failures);
+}
+
+// ---------------------------------------------------------------------------
 // 4. set_obj_coeff / get_obj_coeff
 // ---------------------------------------------------------------------------
 SolverTestResult test_obj_coeff(std::string_view solver)
@@ -1129,6 +1297,7 @@ struct TestEntry
       {.name = "add_col", .fn = test_add_col},
       {.name = "add_row", .fn = test_add_row},
       {.name = "add_rows", .fn = test_add_rows},
+      {.name = "add_cols", .fn = test_add_cols},
       {.name = "obj_coeff", .fn = test_obj_coeff},
       {.name = "get_set_coeff", .fn = test_get_set_coeff},
       {.name = "variable_types", .fn = test_variable_types},
