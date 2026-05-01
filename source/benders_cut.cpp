@@ -161,7 +161,35 @@ auto build_benders_cut_physical(ColIndex alpha_col,
     const auto v_hat_phys = link.state_var->col_sol_physical();
     row[link.source_col] = -rc_phys;
     row.lowb -= rc_phys * v_hat_phys;
+
+    // (DIAG 2026-04-30) Cut-math instrumentation for col_scale × cut
+    // interaction debugging.  Prints raw LP rc, the cached
+    // var_scale (post-A3-sync = LinearInterface::get_col_scale),
+    // and the derived rc_phys.  Compare across iterations to spot
+    // the source of the per-iter compounding observed on
+    // juan/gtopt_iplp.  TRACE level — invisible at default
+    // log_level=info.  Enable via spdlog::set_level(trace) or
+    // SPDLOG_ACTIVE_LEVEL build flag.
+    SPDLOG_TRACE(
+        "build_benders_cut_physical[ovld1]: src_col={} dep_col={} "
+        "rc_LP={:.6e} var_scale={:.4g} scale_obj={:.4g} "
+        "rc_phys={:.6e} v_hat_phys={:.6e}",
+        static_cast<int>(link.source_col),
+        static_cast<int>(link.dependent_col),
+        link.state_var->reduced_cost(),
+        link.state_var->var_scale(),
+        scale_objective,
+        rc_phys,
+        v_hat_phys);
   }
+
+  SPDLOG_TRACE(
+      "build_benders_cut_physical[ovld1]: alpha_col={} obj_phys={:.6e} "
+      "→ row.lowb={:.6e} ({} links)",
+      static_cast<int>(alpha_col),
+      objective_value_physical,
+      row.lowb,
+      links.size());
 
   return row;
 }
@@ -185,6 +213,7 @@ auto build_benders_cut_physical(ColIndex alpha_col,
   row[alpha_col] = 1.0;
 
   const auto rc_view = rc_source.get_col_cost();
+  const auto& col_scales = rc_source.get_col_scales();
   for (const auto& link : links) {
     const auto rc_phys = rc_view[link.dependent_col];
     if (std::abs(rc_phys) < cut_coeff_eps) {
@@ -194,7 +223,39 @@ auto build_benders_cut_physical(ColIndex alpha_col,
         (link.state_var != nullptr) ? link.state_var->col_sol_physical() : 0.0;
     row[link.source_col] = -rc_phys;
     row.lowb -= rc_phys * v_hat_phys;
+
+    // (DIAG 2026-04-30) Same cut-math instrumentation as overload 1.
+    // Overload 2 reads rc via LinearInterface's ScaledView (already
+    // unscaled), so the "rc_LP" reported here is the raw cached
+    // value before col_scale division.
+    [[maybe_unused]] const auto col_scale_dep =
+        (static_cast<size_t>(link.dependent_col) < col_scales.size())
+        ? col_scales[link.dependent_col]
+        : 1.0;
+    [[maybe_unused]] const auto rc_raw_view = rc_source.get_col_cost_raw();
+    [[maybe_unused]] const auto rc_LP =
+        (static_cast<size_t>(link.dependent_col) < rc_raw_view.size())
+        ? rc_raw_view[link.dependent_col]
+        : 0.0;
+    SPDLOG_TRACE(
+        "build_benders_cut_physical[ovld2]: src_col={} dep_col={} "
+        "rc_LP={:.6e} col_scale_dep={:.4g} rc_phys={:.6e} "
+        "v_hat_phys={:.6e}",
+        static_cast<int>(link.source_col),
+        static_cast<int>(link.dependent_col),
+        rc_LP,
+        col_scale_dep,
+        rc_phys,
+        v_hat_phys);
   }
+
+  SPDLOG_TRACE(
+      "build_benders_cut_physical[ovld2]: alpha_col={} obj_phys={:.6e} "
+      "→ row.lowb={:.6e} ({} links)",
+      static_cast<int>(alpha_col),
+      objective_value_physical,
+      row.lowb,
+      links.size());
 
   return row;
 }

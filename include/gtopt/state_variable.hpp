@@ -182,10 +182,29 @@ public:
   [[nodiscard]] constexpr auto scost() const noexcept { return m_scost_; }
 
   /// Physical-to-LP scale: physical = LP × var_scale.
+  ///
+  /// At construction, set from the user `var_scale` parameter (= the
+  /// pre-equilibration col_scale).  After LP flatten, ruiz
+  /// equilibration may have multiplied an additional `ruiz_factor`
+  /// into `LinearInterface::m_col_scales_[col()]`.  Call
+  /// `set_var_scale()` post-flatten to sync this cached value to the
+  /// authoritative `LinearInterface::get_col_scale(col())`, so that
+  /// `col_sol_physical()` and `reduced_cost_physical()` agree with
+  /// the LP's internal scaling.  See
+  /// `SDDPMethod::capture_state_variable_values` for the sync site.
   [[nodiscard]] constexpr auto var_scale() const noexcept
   {
     return m_var_scale_;
   }
+
+  /// Update the cached `var_scale` to match the post-equilibration
+  /// `col_scale` from the owning `LinearInterface`.  Called from
+  /// `capture_state_variable_values` so the value seen by
+  /// `col_sol_physical()` / `reduced_cost_physical()` is always the
+  /// authoritative LP-side scale.  Mutable through const because
+  /// `m_var_scale_` is a runtime cache, like `m_col_sol_` and
+  /// `m_reduced_cost_` already are.
+  constexpr void set_var_scale(double s) const noexcept { m_var_scale_ = s; }
 
   /// LP hierarchy context (scenario, stage, block, ...).
   [[nodiscard]] constexpr const auto& context() const noexcept
@@ -296,7 +315,9 @@ public:
 
 private:
   double m_scost_ {0.0};
-  double m_var_scale_ {1.0};
+  // mutable: synced post-flatten from `LinearInterface::get_col_scale`
+  // (see `set_var_scale`).
+  mutable double m_var_scale_ {1.0};
   LpContext m_context_ {};
   std::vector<DependentVariable> m_dependent_variables_;
 

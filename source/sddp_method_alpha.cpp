@@ -362,6 +362,29 @@ void SDDPMethod::capture_state_variable_values(
     std::span<const double> reduced_costs) const noexcept
 {
   const auto& sim = planning_lp().simulation();
+  const auto& li =
+      planning_lp().system(scene_index, phase_index).linear_interface();
+
+  // 0. (A3 sync 2026-04-30) Refresh each state-variable's cached
+  //    `m_var_scale_` from the authoritative
+  //    `LinearInterface::get_col_scale(col())`.  At StateVariable
+  //    construction time only the user-set var_scale is available
+  //    (LP not yet flattened), but ruiz equilibration may have
+  //    multiplied an additional `ruiz_factor` into m_col_scales_
+  //    later.  Without this sync, `state_var.var_scale()` returns
+  //    the pre-equilibration value while `LinearInterface::get_col_cost()`
+  //    divides by the post-equilibration value — the two cut
+  //    construction overloads (overload 1 reads via state_var,
+  //    overload 2 reads via LI's ScaledView) would then compute
+  //    different `rc_phys` for the same column under ruiz mode.
+  //    Cheap (one assignment per state variable per forward solve).
+  for (const auto& [key, svar] : sim.state_variables(scene_index, phase_index))
+  {
+    const auto col = svar.col();
+    if (col < li.numcols_as_index()) {
+      svar.set_var_scale(li.get_col_scale(col));
+    }
+  }
 
   // 1. Always write col_sol for every state variable in THIS phase.
   //    Consumed by the next phase's propagate_trial_values().
@@ -369,7 +392,7 @@ void SDDPMethod::capture_state_variable_values(
   //    the last solve was optimal).  Recover the clean raw value via
   //    `phys / var_scale` — one division on an already-clean number,
   //    so it can't re-introduce the bound violation that clamping at
-  //    physical removed.
+  //    physical removed.  Uses the post-step-0 sync'd var_scale.
   const auto ncols = col_index_size(col_sol_phys);
   for (const auto& [key, svar] : sim.state_variables(scene_index, phase_index))
   {
