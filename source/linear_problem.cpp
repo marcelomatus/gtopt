@@ -729,6 +729,36 @@ auto LinearProblem::flatten(const LpMatrixOptions& opts) -> FlatLinearProblem
     }
   }
 
+  // ── LP_QUALITY verdict (Phase 3) ──────────────────────────────────
+  // Once-per-flatten emission of the post-equilibration coefficient
+  // envelope.  Reads only the locally-tracked stats_* values populated
+  // during the pre/post-equilibration sweeps above (O(1)) — no extra
+  // matrix scan.  Skipped silently when the matrix is empty (stats
+  // would be the default 0/inf sentinels) or the validation option is
+  // explicitly disabled.
+  if (do_stats && stats_nnz > 0 && opts.validation.effective_enable()) {
+    const double effective_min =
+        (stats_min_col >= 0 && stats_min < std::numeric_limits<double>::max())
+        ? stats_min
+        : 0.0;
+    const double ratio = stats_max / std::max(effective_min, 1e-30);
+
+    spdlog::info("LP_QUALITY: nnz={} max={:.2e} min={:.2e} ratio={:.2e}",
+                 stats_nnz,
+                 stats_max,
+                 effective_min,
+                 ratio);
+
+    const double max_threshold = opts.validation.effective_coeff_warn_max();
+    if (stats_max > max_threshold || ratio > 1e10) {
+      spdlog::warn(
+          "LP_QUALITY: max |coeff|={:.2e} at col '{}' EXCEEDS threshold {:.2e}",
+          stats_max,
+          stats_max_col_name,
+          max_threshold);
+    }
+  }
+
   return {
       .ncols = static_cast<fp_index_t>(ncols),
       .nrows = static_cast<fp_index_t>(nrows),
