@@ -18,6 +18,8 @@
 #include <string>
 #include <vector>
 
+#include <gtopt/bus.hpp>
+#include <gtopt/constraint_names.hpp>
 #include <gtopt/enum_option.hpp>
 #include <gtopt/line_enums.hpp>
 #include <gtopt/phase_range_set.hpp>
@@ -1314,11 +1316,11 @@ private:
     };
 
     // Inject Bus.theta — scale_theta already follows physical = LP × scale
-    if (!has_entry("Bus", "theta")) {
+    if (!has_entry(Bus::class_name, "theta")) {
       const auto st =
           fallback_3(opts.scale_theta, opts.model_options.scale_theta, 1.0);
       opts.variable_scales.push_back(VariableScale {
-          .class_name = "Bus",
+          .class_name = Bus::class_name,
           .variable = "theta",
           .scale = st,
       });
@@ -1327,11 +1329,11 @@ private:
     // Inject Sddp.alpha — only when user provided an explicit scale_alpha.
     // When scale_alpha is unset (auto-scale), the SDDP method computes
     // it at runtime from max(var_scale) and sets col_scale directly.
-    if (!has_entry("Sddp", "alpha")
+    if (!has_entry(sddp_class_name, "alpha")
         && opts.sddp_options.scale_alpha.has_value())
     {
       opts.variable_scales.push_back(VariableScale {
-          .class_name = "Sddp",
+          .class_name = sddp_class_name,
           .variable = "alpha",
           .scale = *opts.sddp_options.scale_alpha,
       });

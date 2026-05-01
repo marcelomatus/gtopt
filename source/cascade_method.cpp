@@ -19,6 +19,7 @@
 
 #include <gtopt/as_label.hpp>
 #include <gtopt/cascade_method.hpp>
+#include <gtopt/constraint_names.hpp>
 #include <gtopt/label_maker.hpp>
 #include <gtopt/planning_lp.hpp>
 #include <gtopt/sddp_cut_io.hpp>
@@ -223,7 +224,7 @@ void CascadePlanningMethod::add_elastic_targets(
     const auto sup_col = li.add_col(SparseCol {
         .uppb = DblMax,
         .cost = penalty,
-        .class_name = "Cascade",
+        .class_name = cascade_class_name,
         .variable_name = "tgt_sup",
         .variable_uid = t.uid,
         .context = t.context,
@@ -231,7 +232,7 @@ void CascadePlanningMethod::add_elastic_targets(
     const auto sdn_col = li.add_col(SparseCol {
         .uppb = DblMax,
         .cost = penalty,
-        .class_name = "Cascade",
+        .class_name = cascade_class_name,
         .variable_name = "tgt_sdn",
         .variable_uid = t.uid,
         .context = t.context,
@@ -239,8 +240,8 @@ void CascadePlanningMethod::add_elastic_targets(
 
     // Add constraint: x - s⁺ + s⁻ ∈ [target - atol, target + atol]
     SparseRow row;
-    row.class_name = "Cascade";
-    row.constraint_name = "target";
+    row.class_name = cascade_class_name;
+    row.constraint_name = cascade_target_constraint_name;
     row.variable_uid = t.uid;
     row.context = t.context;
     row.lowb = t.target_value - atol;

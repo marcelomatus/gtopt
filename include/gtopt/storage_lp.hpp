@@ -14,6 +14,7 @@
 #include <limits>
 #include <span>
 
+#include <gtopt/constraint_names.hpp>
 #include <gtopt/cost_helper.hpp>
 #include <gtopt/index_holder.hpp>
 #include <gtopt/input_context.hpp>
@@ -872,7 +873,7 @@ public:
       auto close_row =
           SparseRow {
               .class_name = cname,
-              .constraint_name = "eclose",
+              .constraint_name = storage_close_constraint_name,
               .variable_uid = opts.variable_uid,
               .context = stg_ctx,
           }

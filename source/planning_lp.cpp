@@ -21,9 +21,12 @@
 #include <unordered_set>
 
 #include <gtopt/as_label.hpp>
+#include <gtopt/constraint_names.hpp>
+#include <gtopt/lng_terminal.hpp>
 #include <gtopt/memory_compress.hpp>
 #include <gtopt/planning_lp.hpp>
 #include <gtopt/planning_method.hpp>
+#include <gtopt/reservoir.hpp>
 #include <gtopt/solver_monitor.hpp>
 #include <gtopt/solver_options.hpp>
 #include <gtopt/solver_registry.hpp>
@@ -403,7 +406,7 @@ void PlanningLP::auto_scale_reservoirs(Planning& planning,
     return std::ranges::any_of(opts.variable_scales,
                                [uid](const VariableScale& vs)
                                {
-                                 return vs.class_name == "Reservoir"
+                                 return vs.class_name == Reservoir::class_name
                                      && vs.variable == "energy"
                                      && vs.uid == uid;
                                });
@@ -473,7 +476,7 @@ void PlanningLP::auto_scale_reservoirs(Planning& planning,
     const double energy_scale = scale_for(*emax / 1000.0);
     if (energy_scale > 1.0) {
       opts.variable_scales.push_back(VariableScale {
-          .class_name = "Reservoir",
+          .class_name = Reservoir::class_name,
           .variable = "energy",
           .uid = rsv.uid,
           .scale = energy_scale,
@@ -507,7 +510,7 @@ void PlanningLP::auto_scale_lng_terminals(Planning& planning,
     return std::ranges::any_of(opts.variable_scales,
                                [uid](const VariableScale& vs)
                                {
-                                 return vs.class_name == "LngTerminal"
+                                 return vs.class_name == LngTerminal::class_name
                                      && vs.variable == "energy"
                                      && vs.uid == uid;
                                });
@@ -549,7 +552,7 @@ void PlanningLP::auto_scale_lng_terminals(Planning& planning,
     const double energy_scale = std::pow(10.0, std::ceil(std::log10(raw)));
 
     opts.variable_scales.push_back(VariableScale {
-        .class_name = "LngTerminal",
+        .class_name = LngTerminal::class_name,
         .variable = "energy",
         .uid = lng.uid,
         .scale = energy_scale,

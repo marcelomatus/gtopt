@@ -10,6 +10,7 @@
 
 #include <gtopt/bus_lp.hpp>
 #include <gtopt/collection.hpp>
+#include <gtopt/constraint_names.hpp>
 #include <gtopt/kirchhoff_cycle_basis.hpp>
 #include <gtopt/line_lp.hpp>
 #include <gtopt/linear_problem.hpp>
@@ -331,8 +332,9 @@ std::size_t add_kvl_rows(const SystemContext& sc,
   // Pre-resolve `param_reactance` accessors are not invariant per
   // block, but `x_tau` IS (per stage), so the inner loop only varies
   // the per-block flow-col references.
-  static constexpr std::string_view class_name = "Kirchhoff";
-  static constexpr std::string_view constraint_name = "cycle";
+  static constexpr std::string_view class_name = kirchhoff_class_name;
+  static constexpr std::string_view constraint_name =
+      kirchhoff_cycle_constraint_name;
 
   std::size_t total_rows = 0;
   std::size_t cycle_idx = 0;

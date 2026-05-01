@@ -29,7 +29,7 @@ namespace gtopt
 class BusLP : public ObjectLP<Bus>
 {
 public:
-  static constexpr LPClassName ClassName {"Bus"};
+  static constexpr LPClassName ClassName {Bus::class_name};
   static constexpr std::string_view BalanceName {"balance"};
   static constexpr std::string_view ThetaName {"theta"};
   /// Metadata key published by `add_to_lp` so user-constraint filters

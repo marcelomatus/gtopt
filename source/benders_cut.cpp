@@ -22,6 +22,7 @@
 #include <ranges>
 
 #include <gtopt/benders_cut.hpp>
+#include <gtopt/constraint_names.hpp>
 #include <gtopt/fmap.hpp>
 #include <gtopt/label_maker.hpp>
 #include <gtopt/sddp_types.hpp>
@@ -657,7 +658,7 @@ RelaxedVarInfo relax_fixed_state_variable(
       .lowb = link.trial_value,
       .uppb = link.trial_value,
       .class_name = sddp_alpha_class_name,
-      .constraint_name = "elastic_fix",
+      .constraint_name = elastic_fix_constraint_name,
       .variable_uid = slack_uid,
   };
   elastic[dep] = 1.0;
@@ -818,7 +819,7 @@ struct RelaxationSpec
         .lowb = s.trial_value,
         .uppb = s.trial_value,
         .class_name = sddp_alpha_class_name,
-        .constraint_name = "elastic_fix",
+        .constraint_name = elastic_fix_constraint_name,
         .variable_uid = s.slack_uid,
     };
     elastic[s.dep] = 1.0;
