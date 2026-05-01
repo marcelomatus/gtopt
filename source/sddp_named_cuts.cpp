@@ -191,6 +191,16 @@ using namespace gtopt::detail;
     // Track which missing state variables have already been warned about.
     std::set<std::pair<PhaseIndex, std::size_t>> warned_missing_named;
 
+    // Per-cell accumulator: collect every (scene, phase) install in pass
+    // 1, then dispatch one bulk `add_rows` per cell in pass 2.  Named
+    // hot-start cuts are always Optimality (they carry α at coefficient
+    // `sa` by construction), so a single vector per cell suffices.  See
+    // the cut_csv loader for the same pattern + rationale.
+    using CellKey = std::pair<SceneIndex, PhaseIndex>;
+    flat_map<CellKey, std::vector<SparseRow>> accum;
+    map_reserve(accum,
+                static_cast<size_t>(num_scenes) * phase_uid_to_index.size());
+
     // ── Read all cut rows ───────────────────────────────────────
     CutLoadResult result {};
     std::string line;
@@ -326,15 +336,39 @@ using namespace gtopt::detail;
           }
         }
 
-        // Named hot-start cuts are optimality-style (they carry α at
-        // coefficient `sa` by construction above).  Routed through
-        // the unified `add_cut_row` so the α release, row addition,
-        // and low-memory replay registration happen in one call.
-        std::ignore = add_cut_row(
-            planning_lp, scene_index, phase_index, CutType::Optimality, row);
+        // Stage the cut into the per-cell accumulator; install happens
+        // in one bulk pass after the file is fully streamed (below).
+        // Named hot-start cuts are always Optimality (they carry α at
+        // coefficient `sa` by construction above) — α release happens
+        // in the bulk pass via `free_alpha_for_cut`.
+        accum[std::make_pair(scene_index, phase_index)].push_back(
+            std::move(row));
       }
       result.max_iteration = std::max(result.max_iteration, iteration_index);
       ++result.count;
+    }
+
+    // Pass 2: bulk-install per (scene, phase) cell.  All named cuts are
+    // Optimality, so every cell pays the α-release pass + bulk dispatch
+    // + per-cut record_cut_row.  `auto&&` because `gtopt::flat_map`
+    // iteration returns a proxy `pair<key&, value&>`.
+    for (auto&& [cell_key, cuts] : accum) {
+      if (cuts.empty()) {
+        continue;
+      }
+      const auto [scene_index, phase_index] = cell_key;
+      // Step 1: release α (idempotent across the batch).
+      for (const auto& cut : cuts) {
+        free_alpha_for_cut(planning_lp, scene_index, phase_index, cut);
+      }
+      // Step 2: bulk row dispatch.
+      auto& li =
+          planning_lp.system(scene_index, phase_index).linear_interface();
+      li.add_rows(cuts);
+      // Step 3: per-cut bookkeeping (no-op when low_memory_mode == off).
+      for (const auto& cut : cuts) {
+        li.record_cut_row(cut);
+      }
     }
 
     SPDLOG_INFO(

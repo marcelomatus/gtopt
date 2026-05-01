@@ -322,6 +322,15 @@ using namespace gtopt::detail;
     const auto missing_mode = options.missing_cut_var_mode;
     int cuts_loaded = 0;
     int cuts_skipped = 0;
+    // Per-scene accumulator: collect every (scene_index → SparseRow) install
+    // here, then dispatch one bulk `add_rows` per scene at the end of the
+    // outer loop.  Saves ~`raw_cuts.size()` backend round-trips per scene
+    // on the boundary-cut load path (which can be thousands of cuts in a
+    // production recovery run).  Row construction below is unchanged —
+    // only the install step moves from per-cut `add_cut_row` to the
+    // collect-then-bulk pattern below.
+    std::vector<std::vector<SparseRow>> scene_cuts(
+        static_cast<size_t>(num_scenes));
     for (const auto& rc : raw_cuts) {
       // Pre-scan: check for missing state variables with non-zero
       // coefficients.
@@ -449,24 +458,44 @@ using namespace gtopt::detail;
 
         // Boundary cuts encode the future-cost function at the
         // horizon (optimality-style: α ≥ state-dependent RHS on the
-        // last phase).  Routed through the unified `add_cut_row`
-        // helper: since the row always carries α (set above via
-        // `row[alpha_svar->col()] = 1.0`), the Optimality gate
-        // releases the bootstrap pin.  Pass `cut_coeff_eps` so loaded
+        // last phase).  Each row always carries α (set above via
+        // `row[alpha_svar->col()] = 1.0`), so the Optimality gate in
+        // `free_alpha_for_cut` releases the bootstrap pin during the
+        // batched install pass below.  Pass `cut_coeff_eps` so loaded
         // cuts share the same numerical-noise filter that the SDDP
         // backward-pass uses for generated cuts (audit P2-1) — without
-        // it, ``add_cut_row`` defaulted to ``eps=0`` and small
+        // it, the install path defaulted to ``eps=0`` and small
         // physical coefficients (e.g., ill-conditioned PLP exports)
         // could survive into the LP and degrade kappa.
-        std::ignore = add_cut_row(planning_lp,
-                                  scene_index,
-                                  last_phase,
-                                  CutType::Optimality,
-                                  row,
-                                  options.cut_coeff_eps);
+        scene_cuts[static_cast<size_t>(scene_index)].push_back(std::move(row));
       }
       max_iteration = std::max(max_iteration, rc.iteration_index);
       ++cuts_loaded;
+    }
+
+    // Per-scene bulk install — replicates the unified `add_cut_row`
+    // semantics (α-release for Optimality cuts, then row insert, then
+    // record_cut_row) but in three batched passes per scene.  Because
+    // every boundary-cut row references α (line `row[alpha_svar->col()]
+    // = 1.0` above), `free_alpha_for_cut` will release the bootstrap pin
+    // — and the call is idempotent across cuts (it's just a
+    // `set_col_low_raw / set_col_upp_raw` on the same α column),
+    // so a redundant release across N cuts is a cheap no-op.
+    for (auto&& [si, cuts] : enumerate<SceneIndex>(scene_cuts)) {
+      if (cuts.empty()) {
+        continue;
+      }
+      // Step 1: release α (idempotent across the batch).
+      for (const auto& cut : cuts) {
+        free_alpha_for_cut(planning_lp, si, last_phase, cut);
+      }
+      // Step 2: bulk row dispatch.
+      auto& li = planning_lp.system(si, last_phase).linear_interface();
+      li.add_rows(cuts, options.cut_coeff_eps);
+      // Step 3: per-cut bookkeeping (no-op when low_memory_mode == off).
+      for (const auto& cut : cuts) {
+        li.record_cut_row(cut);
+      }
     }
 
     if (cuts_skipped > 0) {
