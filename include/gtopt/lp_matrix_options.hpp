@@ -17,6 +17,7 @@
 
 #include <gtopt/basic_types.hpp>
 #include <gtopt/lp_matrix_enums.hpp>
+#include <gtopt/lp_validation.hpp>
 #include <gtopt/planning_enums.hpp>  // CompressionCodec
 #include <gtopt/sddp_enums.hpp>  // LowMemoryMode
 #include <gtopt/utils.hpp>
@@ -82,6 +83,13 @@ struct LpMatrixOptions
    * value, a per-scene/phase breakdown is printed.  (default: 1e7) */
   OptReal lp_coeff_ratio_threshold {};
 
+  /// Build-time LP validation thresholds and on/off flag.  When enabled
+  /// (default true at the consumer site), LinearInterface emits
+  /// spdlog::warn lines as bad coefficients / bounds / RHS / objective
+  /// values land in the LP, capped per-kind to avoid log-spam.  See
+  /// LpValidationOptions for individual thresholds.
+  LpValidationOptions validation {};
+
   /// Merge optional fields from another LpMatrixOptions.
   /// Non-optional fields (eps, col_with_names, etc.) are not merged —
   /// first-value-wins semantics like SolverOptions.
@@ -91,6 +99,7 @@ struct LpMatrixOptions
     merge_opt(equilibration_method, other.equilibration_method);
     merge_opt(fast_sqrt_method, other.fast_sqrt_method);
     merge_opt(compute_stats, other.compute_stats);
+    validation.merge(other.validation);
   }
 };
 
