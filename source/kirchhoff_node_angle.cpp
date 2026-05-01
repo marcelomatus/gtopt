@@ -13,7 +13,7 @@ namespace gtopt::kirchhoff::node_angle
 {
 
 BIndexHolder<RowIndex> add_line_kvl_rows(
-    SystemContext& sc,
+    const SystemContext& sc,
     const ScenarioLP& scenario,
     const StageLP& stage,
     LinearProblem& lp,
@@ -134,7 +134,7 @@ namespace gtopt::kirchhoff
 {
 
 BIndexHolder<RowIndex> add_line_kvl_rows(
-    SystemContext& sc,
+    const SystemContext& sc,
     const ScenarioLP& scenario,
     const StageLP& stage,
     LinearProblem& lp,

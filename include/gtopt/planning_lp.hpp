@@ -385,7 +385,11 @@ private:
 public:
   /// Out-of-line to allow `std::unique_ptr<PlanningLP>` as a member
   /// of `PlanningLP` itself — requires the type to be complete at the
-  /// destructor's definition point, which is the `.cpp`.
+  /// definition point of every special member, which is the `.cpp`.
+  PlanningLP(const PlanningLP&) = delete;
+  PlanningLP& operator=(const PlanningLP&) = delete;
+  PlanningLP(PlanningLP&&) = delete;
+  PlanningLP& operator=(PlanningLP&&) = delete;
   ~PlanningLP() noexcept;
 };
 

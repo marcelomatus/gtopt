@@ -64,7 +64,7 @@ namespace gtopt::kirchhoff
 /// `phase_shift_deg`) directly from the `LineLP` via its `param_*`
 /// accessors, so the dispatcher carries no per-line state.
 [[nodiscard]] BIndexHolder<RowIndex> add_line_kvl_rows(
-    SystemContext& sc,
+    const SystemContext& sc,
     const ScenarioLP& scenario,
     const StageLP& stage,
     LinearProblem& lp,
@@ -102,7 +102,7 @@ struct LineKvlInputs
 /// effective `x_τ = τ · X / V²` is zero, or when either bus has no
 /// theta column for this `(scenario, stage)`.
 [[nodiscard]] BIndexHolder<RowIndex> add_line_kvl_rows(
-    SystemContext& sc,
+    const SystemContext& sc,
     const ScenarioLP& scenario,
     const StageLP& stage,
     LinearProblem& lp,

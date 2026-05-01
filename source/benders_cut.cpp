@@ -899,8 +899,8 @@ auto elastic_filter_solve(const LinearInterface& li,
   auto r = cloned.resolve(opts);
   result.solved = r.has_value() && cloned.is_optimal();
   if (result.solved) {
-    SPDLOG_TRACE("elastic_filter_solve: solved clone (obj={:.4f})",
-                 cloned.get_obj_value());
+    spdlog::trace("elastic_filter_solve: solved clone (obj={:.4f})",
+                  cloned.get_obj_value());
   } else {
     SPDLOG_DEBUG(
         "elastic_filter_solve: clone did NOT reach optimal — "

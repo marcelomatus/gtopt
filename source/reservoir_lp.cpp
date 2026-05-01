@@ -146,9 +146,11 @@ bool ReservoirLP::add_to_lp(SystemContext& sc,
   // the downstream MACHICURA junction balance via SerVer).  When unset
   // the drain remains a pure storage sink — matching PLP behaviour for
   // reservoirs whose `SerVer = 0`.
-  if (reservoir().spill_junction.has_value()) {
+  if (const auto& spill_junction_uid = reservoir().spill_junction;
+      spill_junction_uid.has_value())
+  {
     const auto& spill_junction =
-        sc.element<JunctionLP>(JunctionLPSId {*reservoir().spill_junction});
+        sc.element<JunctionLP>(JunctionLPSId {*spill_junction_uid});
     if (spill_junction.is_active(stage)) {
       const auto& spill_balance_rows =
           spill_junction.balance_rows_at(scenario, stage);

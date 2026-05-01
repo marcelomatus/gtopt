@@ -119,7 +119,7 @@ using Cycle = std::vector<CycleEdge>;
 /// (`bus_a == bus_b`), or have zero / missing `x_τ` (DC / HVDC).
 ///
 /// @return The number of cycle KVL rows added.
-std::size_t add_kvl_rows(SystemContext& sc,
+std::size_t add_kvl_rows(const SystemContext& sc,
                          const ScenarioLP& scenario,
                          const StageLP& stage,
                          LinearProblem& lp,

@@ -455,6 +455,7 @@ bool LinearInterface::update_dynamic_col_bounds(std::string_view class_name,
 // teaching `add_rows` to dispatch through compose_physical (same gate
 // as `add_row`) and adding the new `add_rows_raw` companion for the
 // genuinely LP-raw bulk-insert callers.
+// NOLINTNEXTLINE(misc-no-recursion)
 void LinearInterface::replay_active_cuts()
 {
   if (m_active_cuts_.empty()) {

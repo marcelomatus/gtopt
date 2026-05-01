@@ -4,6 +4,7 @@
 #include <numbers>
 #include <optional>
 #include <queue>
+#include <ranges>
 #include <unordered_set>
 #include <utility>
 
@@ -123,8 +124,12 @@ std::vector<Cycle> build_fundamental_cycles(std::size_t num_buses,
     {
       auto cur = u;
       u_ancestors.insert(cur);
-      while (parent_bus[cur].has_value()) {
-        cur = *parent_bus[cur];
+      while (true) {
+        const auto& p = parent_bus[cur];
+        if (!p.has_value()) {
+          break;
+        }
+        cur = *p;
         u_ancestors.insert(cur);
       }
     }
@@ -155,20 +160,33 @@ std::vector<Cycle> build_fundamental_cycles(std::size_t num_buses,
     //     bus_a is the "from-bus" (i.e., we walk bus_a → bus_b),
     //     −1 otherwise.
     for (const auto from : u_to_lca) {
-      const auto e_idx = *parent_edge[from];
+      const auto& edge_idx_opt = parent_edge[from];
+      if (!edge_idx_opt.has_value()) {
+        continue;
+      }
+      const auto e_idx = *edge_idx_opt;
       const int sign = (edges[e_idx].bus_a == from) ? +1 : -1;
-      cycle.push_back({.line_index = edges[e_idx].line_index, .sign = sign});
+      cycle.push_back({
+          .line_index = edges[e_idx].line_index,
+          .sign = sign,
+      });
     }
 
     // 3b. Walk LCA → v (reverse of v's path-to-LCA).  Each edge is
     //     traversed FROM parent TO the "to-bus".  Sign: +1 if the
     //     edge's bus_a is the parent (we walk bus_a → bus_b),
     //     −1 otherwise.  Equivalent: +1 if edge.bus_a != to-bus.
-    for (auto it = v_to_lca.rbegin(); it != v_to_lca.rend(); ++it) {
-      const auto to_bus = *it;
-      const auto e_idx = *parent_edge[to_bus];
+    for (const auto to_bus : v_to_lca | std::views::reverse) {
+      const auto& edge_idx_opt = parent_edge[to_bus];
+      if (!edge_idx_opt.has_value()) {
+        continue;
+      }
+      const auto e_idx = *edge_idx_opt;
       const int sign = (edges[e_idx].bus_a == to_bus) ? -1 : +1;
-      cycle.push_back({.line_index = edges[e_idx].line_index, .sign = sign});
+      cycle.push_back({
+          .line_index = edges[e_idx].line_index,
+          .sign = sign,
+      });
     }
 
     // 3c. Closing edge: v → u (the non-tree edge `e`).  Sign: +1 if
@@ -200,7 +218,7 @@ struct ResolvedLine
 
 }  // namespace
 
-std::size_t add_kvl_rows(SystemContext& sc,
+std::size_t add_kvl_rows(const SystemContext& sc,
                          const ScenarioLP& scenario,
                          const StageLP& stage,
                          LinearProblem& lp,
@@ -243,7 +261,11 @@ std::size_t add_kvl_rows(SystemContext& sc,
   for (std::size_t li = 0; li < line_elements.size(); ++li) {
     const auto& line = line_elements[li];
     ResolvedLine rl {
-        .line = &line, .x_tau = 0.0, .phi_rad = 0.0, .active = false};
+        .line = &line,
+        .x_tau = 0.0,
+        .phi_rad = 0.0,
+        .active = false,
+    };
 
     if (!line.is_active(stage) || line.is_loop()) {
       resolved.push_back(rl);

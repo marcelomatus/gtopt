@@ -187,13 +187,15 @@ bool LineLP::add_to_lp(SystemContext& sc,
     // Compress the eight near-identical "if present, store" clauses.
     const auto store_opt = [&](auto& dst, const auto& src)
     {
-      if (src)
+      if (src) {
         dst[buid] = *src;
+      }
     };
-    const auto store_vec = [&](auto& dst, auto&& src)
+    const auto store_vec = [&](auto& dst, auto& src)
     {
-      if (!src.empty())
+      if (!src.empty()) {
         dst[buid] = std::move(src);
+      }
     };
     store_opt(fpcols, result.fp_col);
     store_opt(fncols, result.fn_col);
@@ -246,11 +248,12 @@ bool LineLP::add_to_lp(SystemContext& sc,
   // The `line.flow` compound (+1·flowp − 1·flown) is registered once
   // per SimulationLP by `system_lp.cpp::register_all_ampl_element_names`
   // (called via std::call_once from the SystemLP constructor).
-  const auto register_if_present = [&](std::string_view name, const auto& cols)
+  const auto register_if_present =
+      [&](std::string_view attribute, const auto& cols)
   {
     const auto& m = cols.at(st_key);
     if (!m.empty()) {
-      sc.add_ampl_variable(ampl_name, uid(), name, scenario, stage, m);
+      sc.add_ampl_variable(ampl_name, uid(), attribute, scenario, stage, m);
     }
   };
   register_if_present(FlowpName, flowp_cols);
