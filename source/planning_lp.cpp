@@ -315,7 +315,8 @@ void PlanningLP::auto_scale_theta(Planning& planning)
 
 // ── Adaptive reservoir energy scaling ────────────────────────────────────
 
-void PlanningLP::auto_scale_reservoirs(Planning& planning)
+void PlanningLP::auto_scale_reservoirs(Planning& planning,
+                                       double solver_infinity)
 {
   auto& opts = planning.options;
   auto& sys = planning.system;
@@ -356,85 +357,71 @@ void PlanningLP::auto_scale_reservoirs(Planning& planning)
     return std::nullopt;  // FileSched — can't resolve statically
   };
 
-  auto has_flow_entry = [&](Uid uid) -> bool
-  {
-    return std::ranges::any_of(opts.variable_scales,
-                               [uid](const VariableScale& vs)
-                               {
-                                 return vs.class_name == "Reservoir"
-                                     && vs.variable == "flow" && vs.uid == uid;
-                               });
-  };
-
   // Round v UP to the next power of 10 (clamped so v ≤ 1 yields 1.0).
-  // `physical = LP × scale` means LP = physical / scale; rounding up to
-  // the next decade puts LP in (0.1, 1.0] for well-conditioned simplex.
-  auto scale_for = [](double v) -> double
+  // `physical = LP × scale` means LP = physical / scale; rounding up
+  // to the next decade puts LP in (0.1, 1.0] for well-conditioned
+  // simplex.
+  //
+  // `is_infinity(v, solver_infinity)` rejects sentinel "no-bound"
+  // values (e.g. legacy `Reservoir.emax = 1e30` if it ever appears)
+  // so they are NOT folded into `col_scale`.  The threshold comes
+  // from the active solver's `infinity()` (CPLEX: 1e20, HiGHS / OSI
+  // / Gurobi: 1e30) so the same code is correct under every
+  // supported backend.
+  auto scale_for = [solver_infinity](double v) -> double
   {
-    if (!std::isfinite(v) || v <= 1.0) {
+    if (!std::isfinite(v) || v <= 1.0 || is_infinity(v, solver_infinity)) {
       return 1.0;
     }
     return std::pow(10.0, std::ceil(std::log10(v)));
   };
 
-  // Energy and flow are INDEPENDENT physical dimensions — don't couple
-  // them via a fixed ratio (the prior heuristic `flow_scale =
-  // energy_scale / 1000` silently tied a reservoir's flow LP var to
-  // its energy scale, with no physical basis, and broke SDDP cut
-  // numerics when the energy scale was raised).  Derive each scale
-  // from its own physical quantity: emax for energy, fmax for flow.
+  // ENERGY-ONLY auto-scaling.  Flow scales were intentionally REMOVED
+  // 2026-04-30: `Reservoir.fmax` is typically a sentinel "no bound"
+  // value (1e30) rather than a real physical magnitude, so deriving
+  // `flow_scale = scale_for(fmax)` produced absurd `col_scale = 1e30`
+  // entries that broke Benders cut numerics
+  // (juan/gtopt_iplp regression).  Energy scales are still derived
+  // from `emax / 1000` because emax is a real reservoir capacity
+  // (hm³) for which a power-of-ten LP rescale is meaningful.  Users
+  // who genuinely want a non-unit flow scale must declare it
+  // explicitly via `PlanningOptions::variable_scales`.
   size_t energy_count = 0;
-  size_t flow_count = 0;
   for (const auto& rsv : sys.reservoir_array) {
-    if (!has_entry(rsv.uid)) {
-      const auto emax = scalar_of(rsv.emax);
-      if (emax.has_value()) {
-        // /1000 divisor keeps energy_scale in the band where Benders
-        // cut state-var coefficients `rc * energy_scale / scale_obj`
-        // stay O(1e-2)..O(1) for water values rc ~ O(1-100) $/hm³.
-        // Without it, energy_scale = 10^ceil(log10(1453)) = 10^4 drives
-        // cut rows to κ ~ 10^10 once the cut pool accumulates.
-        const double energy_scale = scale_for(*emax / 1000.0);
-        if (energy_scale > 1.0) {
-          opts.variable_scales.push_back(VariableScale {
-              .class_name = "Reservoir",
-              .variable = "energy",
-              .uid = rsv.uid,
-              .scale = energy_scale,
-              .name = rsv.name,
-          });
-          ++energy_count;
-        }
-      }
+    if (has_entry(rsv.uid)) {
+      continue;
     }
-    if (!has_flow_entry(rsv.uid)) {
-      const auto fmax = scalar_of(rsv.fmax);
-      if (fmax.has_value()) {
-        const double flow_scale = scale_for(*fmax);
-        if (flow_scale > 1.0) {
-          opts.variable_scales.push_back(VariableScale {
-              .class_name = "Reservoir",
-              .variable = "flow",
-              .uid = rsv.uid,
-              .scale = flow_scale,
-              .name = rsv.name,
-          });
-          ++flow_count;
-        }
-      }
+    const auto emax = scalar_of(rsv.emax);
+    if (!emax.has_value()) {
+      continue;
+    }
+    // /1000 divisor keeps energy_scale in the band where Benders cut
+    // state-var coefficients `rc * energy_scale / scale_obj` stay
+    // O(1e-2)..O(1) for water values rc ~ O(1-100) $/hm³.  Without
+    // it, energy_scale = 10^ceil(log10(1453)) = 10^4 drives cut rows
+    // to κ ~ 10^10 once the cut pool accumulates.
+    const double energy_scale = scale_for(*emax / 1000.0);
+    if (energy_scale > 1.0) {
+      opts.variable_scales.push_back(VariableScale {
+          .class_name = "Reservoir",
+          .variable = "energy",
+          .uid = rsv.uid,
+          .scale = energy_scale,
+          .name = rsv.name,
+      });
+      ++energy_count;
     }
   }
 
-  if (energy_count > 0 || flow_count > 0) {
+  if (energy_count > 0) {
     spdlog::info(
-        "  Auto scale_reservoir: {} energy + {} flow per-element scale(s) "
-        "computed",
-        energy_count,
-        flow_count);
+        "  Auto scale_reservoir: {} energy per-element scale(s) computed",
+        energy_count);
   }
 }
 
-void PlanningLP::auto_scale_lng_terminals(Planning& planning)
+void PlanningLP::auto_scale_lng_terminals(Planning& planning,
+                                          double solver_infinity)
 {
   auto& opts = planning.options;
   auto& sys = planning.system;
@@ -479,7 +466,13 @@ void PlanningLP::auto_scale_lng_terminals(Planning& planning)
       continue;
     }
     const auto emax = scalar_of(lng.emax);
-    if (!emax.has_value() || *emax <= 1000.0) {
+    if (!emax.has_value() || *emax <= 1000.0
+        || is_infinity(*emax, solver_infinity))
+    {
+      // Skip unset, sub-threshold, AND sentinel-infinity values.  Same
+      // rationale as `auto_scale_reservoirs::scale_for` — folding a
+      // sentinel into col_scale propagates 1e30+ multipliers into LP
+      // coefs and corrupts Benders cut numerics.
       continue;
     }
     const double raw = *emax / 1000.0;

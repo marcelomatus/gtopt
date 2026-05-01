@@ -21,6 +21,7 @@
 #include <gtopt/planning_options_lp.hpp>
 #include <gtopt/simulation_lp.hpp>
 #include <gtopt/solver_options.hpp>
+#include <gtopt/solver_registry.hpp>
 #include <gtopt/strong_index_vector.hpp>
 #include <gtopt/system_lp.hpp>
 
@@ -84,15 +85,20 @@ private:
   /// that PlanningOptionsLP picks up the computed value.
   static void auto_scale_theta(Planning& planning);
 
-  /// Compute adaptive energy/flow scales for reservoirs from emax.
+  /// Compute adaptive energy/flow scales for reservoirs from emax/fmax.
   /// Injects VariableScale entries into `planning.options.variable_scales`
   /// for reservoirs that don't already have explicit entries.
-  static void auto_scale_reservoirs(Planning& planning);
+  /// @p solver_infinity is queried from `SolverBackend::infinity()` so
+  /// sentinel values like `fmax=1e30` (meaning "no bound") are not folded
+  /// into col_scale; otherwise they would propagate into Benders cut
+  /// numerics and produce LB compounding (juan/gtopt_iplp regression
+  /// 2026-04-30).
+  static void auto_scale_reservoirs(Planning& planning, double solver_infinity);
 
   /// Compute adaptive energy scales for LNG terminals from emax.
-  /// Injects VariableScale entries into `planning.options.variable_scales`
-  /// for terminals that don't already have explicit entries.
-  static void auto_scale_lng_terminals(Planning& planning);
+  /// Same `solver_infinity` semantics as `auto_scale_reservoirs`.
+  static void auto_scale_lng_terminals(Planning& planning,
+                                       double solver_infinity);
 
   /// State variable I/O uses the StateVariable map (ColIndex-based)
   /// directly — no column name strings are needed.  This method is
@@ -122,8 +128,30 @@ public:
                                 std::remove_reference_t<PlanningT>>) {
                 validate_line_reactance(planning);
                 auto_scale_theta(planning);
-                auto_scale_reservoirs(planning);
-                auto_scale_lng_terminals(planning);
+                // Query the default solver's `+infinity` value from the
+                // registry — fast path uses the plugin-level
+                // `gtopt_solver_infinity` entry (no backend allocated);
+                // older plugins without that entry fall back to a
+                // throwaway instance.  auto_scale_* need this BEFORE
+                // any LP is built to skip sentinel-valued bounds (e.g.
+                // `Reservoir.fmax = 1e30` meaning "no flow bound")
+                // that would otherwise be folded into `col_scale =
+                // 1e30` and break Benders cut numerics.  See
+                // juan/gtopt_iplp regression diagnosis 2026-04-30 (LB
+                // compounded ~10x per iter to 1.1B vs UB ~155M).
+                auto& reg = SolverRegistry::instance();
+                const double solver_infinity = [&]
+                {
+                  if (auto v = reg.plugin_infinity(); v.has_value()) {
+                    return *v;
+                  }
+                  // Fallback: older plugin without `gtopt_solver_infinity`
+                  // entry — instantiate a throwaway backend and query.
+                  auto backend = reg.create(reg.default_solver());
+                  return backend->infinity();
+                }();
+                auto_scale_reservoirs(planning, solver_infinity);
+                auto_scale_lng_terminals(planning, solver_infinity);
               }
               return std::forward<PlanningT>(planning);
             }())

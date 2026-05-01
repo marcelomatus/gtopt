@@ -24,6 +24,20 @@ namespace gtopt
 /// Maximum representable double value used for unbounded variable bounds.
 constexpr double DblMax = std::numeric_limits<double>::max();
 
+/// True iff @p v is an infinity-like sentinel relative to @p solver_infinity.
+/// Use to skip auto-scaling, equilibration division, etc. on values that
+/// represent "unbounded" rather than a real physical magnitude.
+/// @p solver_infinity MUST come from `SolverBackend::infinity()` (CPLEX:
+/// 1e20, HiGHS / OSI / Gurobi: 1e30) — never a magic number.  This is
+/// the free-function counterpart of `LinearInterface::is_pos_inf(value)`,
+/// usable in pre-LP code (e.g. `PlanningLP::auto_scale_*` once a
+/// throwaway `SolverBackend` has been instantiated to query its infinity).
+[[nodiscard]] constexpr bool is_infinity(double v,
+                                         double solver_infinity) noexcept
+{
+  return (v >= solver_infinity) || (v <= -solver_infinity);
+}
+
 /**
  * @class SparseCol
  * @brief Represents a variable column in a linear program
