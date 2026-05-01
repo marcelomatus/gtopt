@@ -578,6 +578,16 @@ public:
     return m_options_.sddp_options.save_aperture_lp.value_or(false);
   }
 
+  /** @brief Whether aperture clones bypass the backend's native `clone()`
+   *         and are built via `LinearInterface::clone_from_flat()` instead
+   *         (manual route, no global mutex).
+   * @return false by default (preserve legacy native-clone route).
+   */
+  [[nodiscard]] constexpr auto sddp_aperture_use_manual_clone() const
+  {
+    return m_options_.sddp_options.aperture_use_manual_clone.value_or(false);
+  }
+
   /**
    * @brief Gets the effective monolithic solver options.
    *

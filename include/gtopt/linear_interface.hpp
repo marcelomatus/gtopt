@@ -290,6 +290,46 @@ public:
    */
   [[nodiscard]] LinearInterface clone(CloneKind kind = CloneKind::deep) const;
 
+  /**
+   * @brief Manual clone — replays this LI's saved `FlatLinearProblem`
+   *        through `load_flat()` on a fresh `LinearInterface`, bypassing
+   *        the backend's native `clone()` entirely.
+   *
+   * Why two clone routes coexist:
+   *   - `clone(CloneKind)`        → calls `backend().clone()` (e.g.
+   *     `CPXcloneprob`).  Some backends (CPLEX 22.1 in particular)
+   *     have process-global side effects in this path that crashed
+   *     three threads at the same instruction pointer in juan/
+   *     gtopt_iplp (commit 1d7a05c1) — the call site in
+   *     `sddp_aperture.cpp` therefore serialises every `clone()`
+   *     invocation under `s_global_clone_mutex`.
+   *   - `clone_from_flat(kind)` → goes through `CPXcreateprob` +
+   *     `CPXaddrows` (or the equivalent on each backend).  Those
+   *     calls are env-local: every `CplexSolverBackend` ctor runs
+   *     them concurrently during plugin load with no mutex, so the
+   *     manual route is structurally safe to call without any lock.
+   *
+   * Pre-condition:
+   *   - `has_snapshot_data()` must be true — i.e. the LI has been
+   *     frozen with `LowMemoryMode::compress` (or `snapshot`) so
+   *     the flat representation is retained.  Throws
+   *     `std::runtime_error` otherwise.
+   *   - `m_snapshot_` must be decompressed.  In SDDP this is
+   *     enforced for the aperture window via the existing
+   *     `DecompressionGuard` at `sddp_aperture_pass.cpp:390, 579`.
+   *     Throws `std::runtime_error` if compressed.
+   *
+   * `kind == CloneKind::shallow` re-shares the source's metadata
+   * shared_ptrs into the freshly built clone after `load_flat`,
+   * matching the memory-saving semantics of the native shallow
+   * path.  `kind == CloneKind::deep` keeps the freshly-built
+   * metadata that `load_flat` produced.
+   *
+   * @return A new LinearInterface populated from the saved snapshot.
+   */
+  [[nodiscard]] LinearInterface clone_from_flat(
+      CloneKind kind = CloneKind::shallow) const;
+
   /// Test/diagnostic accessor: `shared_ptr::use_count()` of one of
   /// the wrapped metadata members.  All of them are detached together
   /// in `clone(deep)` and shared together in `clone(shallow)`, so any

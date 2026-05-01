@@ -154,6 +154,36 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
    */
   OptBool save_aperture_lp {};
 
+  /** @brief Use the manual (load_flat) clone route for aperture clones
+   *  instead of the backend's native `clone()` (`CPXcloneprob`).
+   *
+   * When true, `solve_apertures_for_phase` builds each aperture clone
+   * by replaying the source phase LP's stored `FlatLinearProblem`
+   * snapshot through `load_flat()` on a fresh `LinearInterface`.  The
+   * manual route uses only env-local solver calls and does NOT
+   * acquire `s_global_clone_mutex`, so 80 aperture clones can be
+   * built simultaneously instead of one-at-a-time under the lock.
+   *
+   * When false (default), the legacy native route is used —
+   * `phase_li.clone(CloneKind::shallow)` calls the backend's
+   * `clone()` (e.g. `CPXcloneprob`) under `s_global_clone_mutex`.
+   * That path is structurally serialised because the previous
+   * unguarded design crashed three CPLEX threads at the same
+   * instruction pointer (commit `1d7a05c1`).
+   *
+   * Pre-condition for `true`: the source phase LP must hold an
+   * uncompressed `FlatLinearProblem` snapshot — i.e.
+   * `low_memory_mode = compress` (or `snapshot`).  The aperture
+   * pass already decompresses the source via
+   * `DecompressionGuard` (sddp_aperture_pass.cpp:390, 579), so
+   * this is satisfied for typical SDDP runs.  When the
+   * pre-condition is not met, the call site falls back to the
+   * native route with a one-time WARN log.
+   *
+   * Default: false (preserve legacy behaviour).
+   */
+  OptBool aperture_use_manual_clone {};
+
   /** @brief CSV file with boundary (future-cost) cuts for the last phase.
    *
    * These are analogous to PLP's "planos de embalse" — external optimality
