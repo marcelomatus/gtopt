@@ -211,9 +211,9 @@ int ReservoirSeepageLP::update_lp(SystemLP& sys,
 
   SPDLOG_TRACE(
       "ReservoirSeepageLP uid={}: updated constraints "
-      "(vfin={:.1f}, slope={:.6f}, rhs={:.6f})",
+      "(vini={:.1f}, slope={:.6f}, rhs={:.6f})",
       uid(),
-      vfin,
+      vini,
       new_slope,
       new_rhs);
 

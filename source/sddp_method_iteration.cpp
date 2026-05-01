@@ -14,6 +14,14 @@
  * lifecycle helpers.
  */
 
+// SPDLOG_ACTIVE_LEVEL must be set BEFORE any header that transitively
+// includes <spdlog/spdlog.h> — otherwise the SPDLOG_TRACE macro is
+// baked to `(void)0` for this whole translation unit and runtime
+// `set_level(trace)` cannot recover the compiled-out calls.
+#ifndef SPDLOG_ACTIVE_LEVEL
+#  define SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_TRACE
+#endif
+
 #include <algorithm>
 #include <chrono>
 #include <cmath>
@@ -41,11 +49,6 @@
 #include <gtopt/solver_status.hpp>
 #include <gtopt/system_lp.hpp>
 #include <gtopt/utils.hpp>
-
-#ifndef SPDLOG_ACTIVE_LEVEL
-#  define SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_TRACE
-#endif
-
 #include <spdlog/spdlog.h>
 
 namespace gtopt
@@ -1082,7 +1085,7 @@ auto SDDPMethod::run_backward_pass_synchronized(
 
     SPDLOG_TRACE(
         "SDDP backward synchronized: phase {} cuts shared across {} scenes",
-        phase,
+        src_phase_index,
         num_scenes);
   }
 

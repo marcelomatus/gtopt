@@ -10,6 +10,14 @@
  * These methods are member functions of SDDPMethod defined in sddp_method.hpp.
  */
 
+// SPDLOG_ACTIVE_LEVEL must be set BEFORE any header that transitively
+// includes <spdlog/spdlog.h> — otherwise the SPDLOG_TRACE macro is
+// baked to `(void)0` for this whole translation unit and runtime
+// `set_level(trace)` cannot recover the compiled-out calls.
+#ifndef SPDLOG_ACTIVE_LEVEL
+#  define SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_TRACE
+#endif
+
 #include <algorithm>
 #include <chrono>
 #include <format>
@@ -24,11 +32,6 @@
 #include <gtopt/sddp_aperture.hpp>
 #include <gtopt/sddp_method.hpp>
 #include <gtopt/sddp_pool.hpp>
-
-#ifndef SPDLOG_ACTIVE_LEVEL
-#  define SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_TRACE
-#endif
-
 #include <spdlog/spdlog.h>
 
 namespace

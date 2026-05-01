@@ -9,6 +9,14 @@
  * Extracted from sddp_solver.cpp to reduce coupling and improve testability.
  */
 
+// SPDLOG_ACTIVE_LEVEL must be set BEFORE any header that transitively
+// includes <spdlog/spdlog.h> — otherwise the SPDLOG_TRACE macro is
+// baked to `(void)0` for this whole translation unit and runtime
+// `set_level(trace)` cannot recover the compiled-out calls.
+#ifndef SPDLOG_ACTIVE_LEVEL
+#  define SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_TRACE
+#endif
+
 #include <algorithm>
 #include <chrono>
 #include <filesystem>
@@ -26,11 +34,6 @@
 #include <gtopt/sddp_method.hpp>
 #include <gtopt/system_lp.hpp>
 #include <gtopt/utils.hpp>
-
-#ifndef SPDLOG_ACTIVE_LEVEL
-#  define SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_TRACE
-#endif
-
 #include <spdlog/spdlog.h>
 
 namespace gtopt

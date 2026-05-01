@@ -10,6 +10,14 @@
  * The BendersCut class implementation is also here.
  */
 
+// SPDLOG_ACTIVE_LEVEL must be set BEFORE any header that transitively
+// includes <spdlog/spdlog.h> — otherwise the SPDLOG_TRACE macro is
+// baked to `(void)0` for this whole translation unit and runtime
+// `set_level(trace)` cannot recover the compiled-out calls.
+#ifndef SPDLOG_ACTIVE_LEVEL
+#  define SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_TRACE
+#endif
+
 #include <cmath>
 #include <ranges>
 
@@ -19,11 +27,6 @@
 #include <gtopt/sddp_types.hpp>
 #include <gtopt/utils.hpp>
 #include <gtopt/work_pool.hpp>
-
-#ifndef SPDLOG_ACTIVE_LEVEL
-#  define SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_TRACE
-#endif
-
 #include <spdlog/spdlog.h>
 
 namespace gtopt
@@ -172,7 +175,14 @@ auto build_benders_cut_physical(ColIndex alpha_col,
     // came from `state_var->col_sol_physical()` which equals what
     // `source_li.get_col_sol()[source_col]` would return.  TRACE
     // level — invisible at default log_level=info.
-    SPDLOG_TRACE(
+    // Use `spdlog::trace(...)` (function call, runtime-gated) rather
+    // than `SPDLOG_TRACE(...)` (macro, compile-time gated).  The PCH
+    // bakes `<spdlog/spdlog.h>` at default `SPDLOG_ACTIVE_LEVEL=INFO`,
+    // so the macro form was preprocessed to `(void)0` regardless of
+    // any per-file `#define` block placed after the gtopt header
+    // includes.  The function form always compiles in and is gated
+    // only by `spdlog::default_logger()->level()`.
+    spdlog::trace(
         "build_benders_cut_physical[ovld1]: src_col={} dep_col={} "
         "rc_phys={:.6e} v_hat_phys={:.6e}",
         static_cast<int>(link.source_col),
@@ -181,7 +191,7 @@ auto build_benders_cut_physical(ColIndex alpha_col,
         v_hat_phys);
   }
 
-  SPDLOG_TRACE(
+  spdlog::trace(
       "build_benders_cut_physical[ovld1]: alpha_col={} obj_phys={:.6e} "
       "→ row.lowb={:.6e} ({} links)",
       static_cast<int>(alpha_col),
@@ -229,7 +239,9 @@ auto build_benders_cut_physical(ColIndex alpha_col,
     // v_hat_phys came from state_var cache which, after A3 sync,
     // equals what `source_li.get_col_sol()[source_col]` would
     // return.
-    SPDLOG_TRACE(
+    // See ovld1 above for the rationale on `spdlog::trace` vs
+    // `SPDLOG_TRACE` (PCH preprocesses the macro to `(void)0`).
+    spdlog::trace(
         "build_benders_cut_physical[ovld2]: src_col={} dep_col={} "
         "rc_phys={:.6e} v_hat_phys={:.6e}",
         static_cast<int>(link.source_col),
@@ -238,7 +250,7 @@ auto build_benders_cut_physical(ColIndex alpha_col,
         v_hat_phys);
   }
 
-  SPDLOG_TRACE(
+  spdlog::trace(
       "build_benders_cut_physical[ovld2]: alpha_col={} obj_phys={:.6e} "
       "→ row.lowb={:.6e} ({} links)",
       static_cast<int>(alpha_col),
