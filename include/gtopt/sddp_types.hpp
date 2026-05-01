@@ -614,6 +614,17 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   /// false).
   bool save_aperture_lp {false};
 
+  /// Use the manual `clone_from_flat` route for aperture clones instead
+  /// of the backend's native `clone()` (`CPXcloneprob`).  Manual route
+  /// uses only env-local solver calls and does NOT acquire
+  /// `s_global_clone_mutex`, so 80 aperture clones can be built in
+  /// parallel rather than one-at-a-time under the lock.  Pre-condition:
+  /// the source phase LP must hold a decompressed `FlatLinearProblem`
+  /// snapshot (typical for `low_memory_mode = compress` SDDP runs).
+  /// When the pre-condition is not met, the call site falls back to
+  /// the native route.  Default: false (preserve legacy behaviour).
+  bool aperture_use_manual_clone {false};
+
   /// Enable warm-start optimizations for SDDP resolves (forward pass,
   /// backward pass, apertures, elastic filter).  When true, resolves use
   /// dual simplex + no presolve, pivoting from the saved forward-pass

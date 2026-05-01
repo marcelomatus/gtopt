@@ -223,6 +223,19 @@ using ApertureSubmitFunc = std::function<std::future<ApertureCutResult>(
 ///                         applying the `lp_debug_scene/phase_min/max`
 ///                         filter window and passing nullptr when the
 ///                         current (scene, phase) is outside it.
+/// @param use_manual_clone If true, each aperture clone is built via
+///                         `LinearInterface::clone_from_flat()` (replays
+///                         the source's `FlatLinearProblem` snapshot through
+///                         `load_flat()` on a fresh backend env).  This
+///                         skips the backend's native `clone()` and the
+///                         `s_global_clone_mutex` — the manual route uses
+///                         only env-local solver calls, so 80 aperture
+///                         clones can be built in parallel rather than
+///                         serialised under the lock.  Pre-condition: the
+///                         source phase LP must hold a decompressed
+///                         `FlatLinearProblem` snapshot.  When false
+///                         (default), the legacy native route is used,
+///                         serialising every clone under the global mutex.
 [[nodiscard]] auto solve_apertures_for_phase(
     SceneIndex scene_index,
     PhaseIndex phase_index,
@@ -246,6 +259,7 @@ using ApertureSubmitFunc = std::function<std::future<ApertureCutResult>(
     const ApertureDataCache& aperture_cache = {},
     IterationIndex iteration_index = {},
     double cut_coeff_eps = 0.0,
-    LpDebugWriter* lp_debug_writer = nullptr) -> std::optional<SparseRow>;
+    LpDebugWriter* lp_debug_writer = nullptr,
+    bool use_manual_clone = false) -> std::optional<SparseRow>;
 
 }  // namespace gtopt

@@ -132,7 +132,8 @@ auto solve_apertures_for_phase(
     const ApertureDataCache& aperture_cache,
     IterationIndex iteration_index,
     double cut_coeff_eps,
-    LpDebugWriter* lp_debug_writer) -> std::optional<SparseRow>
+    LpDebugWriter* lp_debug_writer,
+    bool use_manual_clone) -> std::optional<SparseRow>
 {
   const auto& phase_li = sys.linear_interface();
 
@@ -174,23 +175,35 @@ auto solve_apertures_for_phase(
 
   // ── Per-task cloning from a shared source LP ─────────────────────────
   //
-  // Each aperture task creates its own clone inside the task, avoiding
-  // the need to batch-create all clones upfront (which holds N clones
-  // in memory simultaneously).  Clone() must be globally serialised —
-  // not just per-scene — because the underlying solver (e.g. CPLEX)
-  // has process-wide internal state (environment, allocator mutex,
-  // license manager) that is not reentrant across threads during
-  // cloneprob.  On the juan/gtopt_iplp compress run we observed 3
-  // threads GPF'ing at the same IP inside the solver's shared lib,
-  // which is the fingerprint of concurrent cloneprob without a
-  // process-global lock.
+  // Two clone routes coexist, selected by `use_manual_clone`:
   //
-  // `run_backward_pass_synchronized` dispatches up to 16 scenes'
-  // aperture phases concurrently.  A per-scene mutex (the previous
-  // design) serialises one scene's aperture clones but still allows
-  // 16 concurrent cross-scene clones.  The static mutex below fixes
-  // that.  Clone itself is short (a handful of ms); the serialisation
-  // cost is negligible against the per-aperture solve time.
+  //   * Native route (`use_manual_clone == false`, legacy default).
+  //     Each aperture task calls `phase_li.clone(CloneKind::shallow)`,
+  //     which goes through the backend's native `clone()` (e.g.
+  //     `CPXcloneprob`).  This must be globally serialised under
+  //     `s_global_clone_mutex` because the underlying solver has
+  //     process-wide internal state (environment, allocator mutex,
+  //     licence manager) that is not reentrant across threads during
+  //     `CPXcloneprob`.  On the juan/gtopt_iplp compress run we
+  //     observed 3 threads GPF'ing at the same IP inside the solver's
+  //     shared lib, which is the fingerprint of concurrent cloneprob
+  //     without a process-global lock (commit `1d7a05c1`).  The
+  //     previous per-scene mutex was insufficient: it serialised
+  //     within one scene's apertures but allowed 16 cross-scene
+  //     clones to race.
+  //
+  //   * Manual route (`use_manual_clone == true`).  Each aperture
+  //     task calls `phase_li.clone_from_flat(CloneKind::shallow)`,
+  //     which builds the clone via `CPXcreateprob` + `CPXaddrows`
+  //     into a freshly-opened CPLEX env.  Those calls are env-local
+  //     and have no process-global side effects, so the manual
+  //     route does NOT acquire the global mutex — 80 aperture
+  //     clones can be built in parallel.  Pre-condition: the
+  //     source `phase_li` must hold a decompressed
+  //     `FlatLinearProblem` snapshot (satisfied during the aperture
+  //     window by the `DecompressionGuard` at
+  //     `sddp_aperture_pass.cpp:390, 579`).  See
+  //     `LinearInterface::clone_from_flat` for full contract.
   static std::mutex s_global_clone_mutex;
   auto* clone_mutex = &s_global_clone_mutex;
 
@@ -238,26 +251,33 @@ auto solve_apertures_for_phase(
     // The clone is created inside the task from the shared source LP,
     // so only active_threads clones exist simultaneously (not all N).
     futures.push_back(submit_fn(
-        [&, ap_uid, weight, scen_it, clone_mutex]() mutable -> ApertureCutResult
+        [&, ap_uid, weight, scen_it, clone_mutex, use_manual_clone]() mutable
+            -> ApertureCutResult
         {
           const auto ap_start = std::chrono::steady_clock::now();
           const auto task_tid = std::this_thread::get_id();
 
-          // Create clone from source LP (serialized — backends not
-          // thread-safe for concurrent reads)
+          // Create the clone via the route selected by the caller.
+          // Manual route bypasses the global clone mutex; native
+          // route serialises under it.  Both produce a
+          // shallow-metadata clone (shared_ptr-share of the source's
+          // frozen label vectors / dedup maps / scale vectors) so
+          // peak metadata memory at ~80 concurrent clones stays at
+          // one shared copy regardless of which route is chosen.
           LinearInterface clone = [&]
           {
+            if (use_manual_clone && phase_li.has_snapshot_data()) {
+              // No mutex — `clone_from_flat` uses only env-local
+              // calls (`CPXcreateprob` + `CPXaddrows` on a freshly
+              // opened env), which run safely in parallel.
+              return phase_li.clone_from_flat(
+                  LinearInterface::CloneKind::shallow);
+            }
+            // Fallback or default: native clone under the global
+            // mutex.  The legacy aperture-clone path crashed three
+            // threads at the same instruction pointer when this
+            // mutex was missing — see commit `1d7a05c1`.
             const std::scoped_lock lock(*clone_mutex);
-            // Shallow clone: shared_ptr-share the source's frozen
-            // metadata (label vectors, dedup maps, scale vectors)
-            // instead of value-copying.  The aperture path only
-            // mutates bounds/objective on the backend; it never
-            // writes shared metadata, so the COW detach branch in
-            // `detach_for_write` stays dormant.  At up to ~100
-            // concurrent aperture clones (pool_cpu_factor=4.0 ×
-            // physical_concurrency()), this saves multi-GB of
-            // duplicated metadata at peak — see
-            // /home/marce/.claude/plans/federated-bouncing-simon.md.
             return phase_li.clone(LinearInterface::CloneKind::shallow);
           }();
 

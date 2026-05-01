@@ -624,6 +624,72 @@ LinearInterface LinearInterface::clone(CloneKind kind) const
   return cloned;
 }
 
+LinearInterface LinearInterface::clone_from_flat(CloneKind kind) const
+{
+  // Pre-conditions: the manual route reads from `m_snapshot_.flat_lp`,
+  // which is only populated when `freeze_for_cuts` ran with
+  // `LowMemoryMode::compress` (or `snapshot`).  Compressed snapshots
+  // are not directly readable here — the SDDP aperture path
+  // decompresses around the backward pass via `DecompressionGuard`
+  // (sddp_aperture_pass.cpp:390, 579), so callers reaching this
+  // method during the aperture window are guaranteed an
+  // uncompressed snapshot.
+  if (!m_snapshot_.has_data()) {
+    throw std::runtime_error(
+        "LinearInterface::clone_from_flat: source has no snapshot — call "
+        "freeze_for_cuts(LowMemoryMode::compress) on the source first, or "
+        "fall back to clone(kind) which uses the backend's native clone.");
+  }
+  if (m_snapshot_.is_compressed()) {
+    throw std::runtime_error(
+        "LinearInterface::clone_from_flat: source snapshot is compressed; "
+        "decompress first (DecompressionGuard) or fall back to "
+        "clone(kind).");
+  }
+
+  // Build the clone via load_flat — no backend.clone() call, no
+  // process-global solver side effects, no mutex needed.
+  LinearInterface cloned {m_solver_name_, m_log_file_};
+  cloned.load_flat(m_snapshot_.flat_lp);
+
+  // Copy the LI-side runtime fields that load_flat doesn't restore.
+  // These are normally inherited by the native clone() path on the
+  // line that does `cloned.m_scale_objective_ = m_scale_objective_`
+  // etc.  Mirror that block here so the two clone routes produce
+  // equivalent state for downstream consumers.
+  cloned.m_base_numrows_ = m_base_numrows_;
+  cloned.m_base_numrows_set_ = m_base_numrows_set_;
+  cloned.m_log_tag_ = m_log_tag_;
+
+  // CloneKind dispatch — the metadata side.
+  //
+  // After `load_flat` the clone owns a freshly-built, value-equal
+  // copy of every shared_ptr metadata field (rebuilt from the
+  // flat's own embedded copies).  That matches `CloneKind::deep`
+  // semantics already, so for `deep` we leave the freshly-loaded
+  // metadata in place.
+  //
+  // For `shallow` we re-link the clone's shared_ptrs to point at
+  // the source's pointees — same atomic-incref behaviour as the
+  // native shallow clone path — so peak-aperture metadata memory
+  // stays at one shared copy across N concurrent clones rather
+  // than N independent copies.
+  if (kind == CloneKind::shallow) {
+    cloned.m_variable_scale_map_ = m_variable_scale_map_;
+    cloned.m_col_scales_ = m_col_scales_;
+    cloned.m_row_scales_ = m_row_scales_;
+    cloned.m_col_labels_meta_ = m_col_labels_meta_;
+    cloned.m_row_labels_meta_ = m_row_labels_meta_;
+    cloned.m_col_meta_index_ = m_col_meta_index_;
+    cloned.m_row_meta_index_ = m_row_meta_index_;
+    cloned.m_col_names_ = m_col_names_;
+    cloned.m_row_names_ = m_row_names_;
+    cloned.m_col_index_to_name_ = m_col_index_to_name_;
+    cloned.m_row_index_to_name_ = m_row_index_to_name_;
+  }
+  return cloned;
+}
+
 void LinearInterface::set_warm_start_solution(
     const std::span<const double> col_sol,
     const std::span<const double> row_dual)
