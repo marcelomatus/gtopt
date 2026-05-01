@@ -683,6 +683,165 @@ RelaxedVarInfo relax_fixed_state_variable(
   };
 }
 
+namespace
+{
+// Per-link relaxation spec computed up-front so the cols / rows can be
+// inserted in batches via `add_cols_disposable` / `add_rows_disposable`.
+struct RelaxationSpec
+{
+  std::size_t link_idx {};  ///< Position in the original links span.
+  ColIndex dep {};  ///< Dependent column (already re-bounded).
+  Uid slack_uid {};  ///< Per-link unique id for slack metadata.
+  double slack_cost {};  ///< penalty × dep_scale_phys.
+  double sup_uppb {};  ///< Upper bound on the down-pull slack.
+  double sdn_uppb {};  ///< Upper bound on the up-lift slack.
+  double trial_value {};  ///< LP-raw RHS for the fixing row.
+};
+
+// Pre-pass: walk every link, run the singular relaxability check
+// (`abs(lo - hi) >= 1e-10`) plus the bound-pinning + slack-bound math
+// from `relax_fixed_state_variable`, and accumulate relaxation specs
+// for the relaxable subset.  No col / row mutations happen here —
+// only `set_col_low` / `set_col_upp` on the dependent column, which
+// is a backend bound write that doesn't touch shared metadata.
+//
+// Returns the per-link specs in iteration order; non-relaxable links
+// are silently skipped (the caller knows their link_idx because the
+// spec carries it).
+[[nodiscard]] std::vector<RelaxationSpec> compute_relaxation_specs(
+    LinearInterface& li, std::span<const StateVarLink> links, double penalty)
+{
+  std::vector<RelaxationSpec> specs;
+  specs.reserve(links.size());
+
+  for (const auto& [i, link] : enumerate(links)) {
+    const auto dep = link.dependent_col;
+    const auto lo = li.get_col_low_raw()[dep];
+    const auto hi = li.get_col_upp_raw()[dep];
+    if (std::abs(lo - hi) >= 1e-10) {
+      continue;
+    }
+
+    // Mirror `relax_fixed_state_variable`: pin the dependent column
+    // to the source-physical box first.  Physical setter is
+    // intentional — it descales by `col_scale(dep)` so cross-phase
+    // scale drift is absorbed.
+    li.set_col_low(dep, link.source_low);
+    li.set_col_upp(dep, link.source_upp);
+
+    const double dep_scale_phys_raw = li.get_col_scale(dep);
+    const double dep_scale_phys =
+        (dep_scale_phys_raw > 0.0 && dep_scale_phys_raw != 1.0)
+        ? dep_scale_phys_raw
+        : link.var_scale;
+    const double slack_cost = penalty * dep_scale_phys;
+
+    const bool have_finite_box =
+        (dep_scale_phys > 0.0) && (link.source_upp > link.source_low);
+    const double vs = have_finite_box ? dep_scale_phys : 1.0;
+    const double src_upp_lp =
+        have_finite_box ? link.source_upp / vs : LinearProblem::DblMax;
+    const double src_low_lp =
+        have_finite_box ? link.source_low / vs : -LinearProblem::DblMax;
+    const double sdn_uppb = have_finite_box
+        ? std::max(0.0, src_upp_lp - link.trial_value)
+        : LinearProblem::DblMax;
+    const double sup_uppb = have_finite_box
+        ? std::max(0.0, link.trial_value - src_low_lp)
+        : LinearProblem::DblMax;
+
+    specs.push_back(RelaxationSpec {
+        .link_idx = static_cast<std::size_t>(i),
+        .dep = dep,
+        .slack_uid = Uid {dep},
+        .slack_cost = slack_cost,
+        .sup_uppb = sup_uppb,
+        .sdn_uppb = sdn_uppb,
+        .trial_value = link.trial_value,
+    });
+  }
+
+  return specs;
+}
+
+// Bulk equivalent of the per-link `relax_fixed_state_variable` loop:
+// pre-compute specs, then issue exactly one `add_cols_disposable`
+// (slacks) and one `add_rows_disposable` (fixing rows) call,
+// regardless of the number of relaxable links.  On juan-scale
+// (~300 cuts × 8 links) this collapses 4800 backend round-trips per
+// elastic solve into 2.
+//
+// Returns one `RelaxedVarInfo` per input link, in order; non-
+// relaxable links get a default-constructed (`relaxed = false`)
+// entry so callers can index by link position.
+[[nodiscard]] std::vector<RelaxedVarInfo> apply_relaxations_bulk(
+    LinearInterface& li, std::span<const StateVarLink> links, double penalty)
+{
+  std::vector<RelaxedVarInfo> infos(links.size());
+
+  const auto specs = compute_relaxation_specs(li, links, penalty);
+  if (specs.empty()) {
+    return infos;
+  }
+
+  // Build slack column specs in stride-2 layout: [sup_0, sdn_0, sup_1,
+  // sdn_1, ...].  Bulk insert returns indices in the same order, so
+  // `cols_idx[2k]` is `sup` and `cols_idx[2k + 1]` is `sdn` for
+  // spec k.
+  std::vector<SparseCol> slack_cols;
+  slack_cols.reserve(specs.size() * 2);
+  for (const auto& s : specs) {
+    slack_cols.push_back(SparseCol {
+        .uppb = s.sup_uppb,
+        .cost = s.slack_cost,
+        .class_name = sddp_alpha_class_name,
+        .variable_name = "elastic_sup",
+        .variable_uid = s.slack_uid,
+    });
+    slack_cols.push_back(SparseCol {
+        .uppb = s.sdn_uppb,
+        .cost = s.slack_cost,
+        .class_name = sddp_alpha_class_name,
+        .variable_name = "elastic_sdn",
+        .variable_uid = s.slack_uid,
+    });
+  }
+  const auto slack_indices = li.add_cols_disposable(slack_cols);
+
+  // Build fixing rows now that slack indices are known.
+  std::vector<SparseRow> fixing_rows;
+  fixing_rows.reserve(specs.size());
+  for (const auto& [k, s] : enumerate(specs)) {
+    const auto sup = slack_indices[static_cast<std::size_t>(k) * 2];
+    const auto sdn = slack_indices[static_cast<std::size_t>(k) * 2 + 1];
+    auto elastic = SparseRow {
+        .lowb = s.trial_value,
+        .uppb = s.trial_value,
+        .class_name = sddp_alpha_class_name,
+        .constraint_name = "elastic_fix",
+        .variable_uid = s.slack_uid,
+    };
+    elastic[s.dep] = 1.0;
+    elastic[sup] = 1.0;
+    elastic[sdn] = -1.0;
+    fixing_rows.push_back(std::move(elastic));
+  }
+  const auto row_indices = li.add_rows_disposable(fixing_rows);
+
+  // Fan out into per-link RelaxedVarInfo by the recorded link_idx.
+  for (const auto& [k, s] : enumerate(specs)) {
+    const auto kk = static_cast<std::size_t>(k);
+    infos[s.link_idx] = RelaxedVarInfo {
+        .relaxed = true,
+        .sup_col = slack_indices[kk * 2],
+        .sdn_col = slack_indices[kk * 2 + 1],
+        .fixing_row = row_indices[kk],
+    };
+  }
+  return infos;
+}
+}  // namespace
+
 auto elastic_filter_solve(const LinearInterface& li,
                           std::span<const StateVarLink> links,
                           double penalty,
@@ -706,7 +865,10 @@ auto elastic_filter_solve(const LinearInterface& li,
   // the Benders feasibility-cut RHS and drive α to diverge under
   // SDDP iteration (observed on juan/gtopt_iplp).
   for (const auto c : iota_range<ColIndex>(0, cloned.numcols_as_index())) {
-    cloned.set_obj_coeff(c, 0.0);
+    // Phase-1 feasibility LP: zero LP-space obj coefficients directly
+    // (no col_scale / scale_objective composition needed for a write
+    // of 0.0 — explicitly raw to make intent obvious).
+    cloned.set_obj_coeff_raw(c, 0.0);
   }
 
   // α is intentionally NOT pinned / modified in the clone: leave it in
@@ -722,16 +884,13 @@ auto elastic_filter_solve(const LinearInterface& li,
   // that keeps whatever value satisfies the installed cuts.
 
   ElasticSolveResult result;
-  result.link_infos.reserve(links.size());
 
-  bool modified = false;
-  for (const auto& link : links) {
-    auto info = relax_fixed_state_variable(
-        cloned, link, link.target_phase_index, penalty);
-    modified |= info.relaxed;
-    result.link_infos.push_back(info);
-  }
+  // One bulk pass: slack cols + fixing rows are inserted in two
+  // backend calls total, instead of `2N + N` per-link calls.
+  result.link_infos = apply_relaxations_bulk(cloned, links, penalty);
 
+  const bool modified = std::ranges::any_of(
+      result.link_infos, [](const auto& info) { return info.relaxed; });
   if (!modified) {
     return std::nullopt;
   }
@@ -1330,16 +1489,13 @@ auto BendersCut::elastic_filter_solve(const LinearInterface& li,
   auto cloned = li.clone(LinearInterface::CloneKind::shallow);
 
   ElasticSolveResult result;
-  result.link_infos.reserve(links.size());
 
-  bool modified = false;
-  for (const auto& link : links) {
-    auto info = relax_fixed_state_variable(
-        cloned, link, link.target_phase_index, penalty);
-    modified |= info.relaxed;
-    result.link_infos.push_back(info);
-  }
+  // One bulk pass: see the free `elastic_filter_solve` for the
+  // backend-call-count rationale.
+  result.link_infos = apply_relaxations_bulk(cloned, links, penalty);
 
+  const bool modified = std::ranges::any_of(
+      result.link_infos, [](const auto& info) { return info.relaxed; });
   if (!modified) {
     return std::nullopt;
   }

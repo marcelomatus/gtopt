@@ -366,18 +366,21 @@ void LinearInterface::apply_post_load_replay(std::span<const double> col_sol,
 
   // 1. Replay dynamic columns (typically just alpha — very few).
   //
-  // Stays on `add_col(SparseCol)` because the α column is registered
-  // with `scale = scale_alpha` (non-unit; see
-  // `sddp_method.cpp:434-453`).  That legitimately extends
-  // `m_col_scales_`, but only on the source LP and only when no
-  // aperture clones are alive (initial registration + low_memory
-  // rebuild both run with `use_count == 1` on the shared metadata),
-  // so `detach_for_write` on `m_col_scales_` is a no-op in practice.
+  // Uses the bulk `add_cols(span)` so the API mirrors the bulk
+  // `add_rows` cut-replay below; semantically equivalent to a per-
+  // element `add_col(SparseCol)` loop because the bulk variant
+  // dispatches column-by-column (no batched CSR insert is exposed
+  // by LP backends for columns).  Each `add_col(SparseCol)` extends
+  // `m_col_scales_` when `col.scale != 1.0` — legitimate here
+  // because `α` is registered with `scale = scale_alpha`
+  // (`sddp_method.cpp:434-453`) and the replay path holds the
+  // unique reference to the shared metadata
+  // (`detach_for_write(m_col_scales_)` is a no-op).
   //
-  // `add_col_raw` is available as a sibling API for future callers
+  // `add_cols_raw` is available as a sibling API for future callers
   // that explicitly want to skip the scale-vector mutation.
-  for (const auto& col : m_dynamic_cols_) {
-    add_col(col);
+  if (!m_dynamic_cols_.empty()) {
+    add_cols(m_dynamic_cols_);
   }
 
   // 2. Mark the structural-vs-cuts boundary.
@@ -434,6 +437,23 @@ bool LinearInterface::update_dynamic_col_bounds(std::string_view class_name,
 // metadata-tracking invariant fixed earlier (see commit 13a0dd55).
 // The general-purpose `add_rows(span)` API stays public for
 // `check_solvers - add_rows` (cross-backend bulk-add coverage).
+//
+// `m_active_cuts_` stores PHYSICAL-SPACE rows (built by
+// `build_benders_cut_physical`, then captured by `record_cut_row`
+// BEFORE `add_row`'s compose_physical transform).  Bulk `add_rows`
+// correctly applies compose_physical (col_scale × elem /
+// scale_objective / row_max) when post-flatten + col_scales/equilibration
+// are active — matching `add_row`'s per-row behavior.  Under
+// `--no-scale` (no col_scales, no equilibration) it tail-calls into
+// the bulk `add_rows_raw` fast path instead.
+//
+// Earlier (commit pre-2026-05-01), `add_rows` was the bulk equivalent
+// of `add_row_raw` (no compose_physical), causing the juan/gtopt_iplp
+// 8.86×/iter LB compounding bug under low_memory_mode=compress because
+// every reconstruct replayed wrongly-scaled cut rows.  Fixed by
+// teaching `add_rows` to dispatch through compose_physical (same gate
+// as `add_row`) and adding the new `add_rows_raw` companion for the
+// genuinely LP-raw bulk-insert callers.
 void LinearInterface::replay_active_cuts()
 {
   if (m_active_cuts_.empty()) {
@@ -1123,10 +1143,61 @@ RowIndex LinearInterface::add_row_disposable(const SparseRow& row,
   return row_idx;
 }
 
+std::vector<ColIndex> LinearInterface::add_cols_disposable(
+    std::span<const SparseCol> cols)
+{
+  // Bulk mirror of `add_col_disposable`.  No backend-level CSR fast
+  // path exists for columns, so we simply iterate the singular
+  // disposable insert and collect the returned indices.  All the
+  // shared-metadata containment guarantees of the singular path
+  // carry over verbatim because we route through it.
+  std::vector<ColIndex> indices;
+  indices.reserve(cols.size());
+  for (const auto& col : cols) {
+    indices.push_back(add_col_disposable(col));
+  }
+  return indices;
+}
+
+std::vector<RowIndex> LinearInterface::add_rows_disposable(
+    std::span<const SparseRow> rows, const double eps)
+{
+  // Bulk mirror of `add_row_disposable`.  Same rationale as
+  // `add_cols_disposable`: route through the singular path so the
+  // per-row label-meta capture and disposable dedup stay confined
+  // to the per-clone-local extras.
+  std::vector<RowIndex> indices;
+  indices.reserve(rows.size());
+  for (const auto& row : rows) {
+    indices.push_back(add_row_disposable(row, eps));
+  }
+  return indices;
+}
+
 void LinearInterface::add_cols(std::span<const SparseCol> cols)
 {
+  // Per-column dispatch: `add_col(SparseCol)` already composes the
+  // physical → LP transform (`cost / scale_objective`, plus an
+  // optional `set_col_scale` extension when `col.scale != 1.0`)
+  // identically to what `flatten()` does on the structural-build
+  // path.  No batched CSR insert exists for columns at the backend
+  // boundary (LP solvers expose `add_col` as a strictly per-column
+  // operation), so the loop here is the natural shape — bulkness
+  // gives the caller a single API to mirror `add_rows`, not a
+  // CSR-style speedup.
   for (const auto& col : cols) {
     add_col(col);
+  }
+}
+
+void LinearInterface::add_cols_raw(std::span<const SparseCol> cols)
+{
+  // Companion to `add_col_raw`: same physical-cost composition
+  // (`cost / scale_objective`) as `add_cols`, but `m_col_scales_`
+  // is never grown.  The `add_col_raw` invariant
+  // (`col.scale == 1.0`) is enforced per-element via assert.
+  for (const auto& col : cols) {
+    add_col_raw(col);
   }
 }
 
@@ -1416,6 +1487,51 @@ void LinearInterface::add_rows(const std::span<const SparseRow> rows,
     return;
   }
 
+  // Dispatch through the same `compose_physical` gate as the singular
+  // `add_row` so bulk and per-row callers see the same physical ↔ LP
+  // semantics for batches of post-flatten cut rows.  The gate state
+  // (`m_base_numrows_set_`, `m_col_scales_`, `m_equilibration_method_`)
+  // is invariant across the batch, so it is checked once and applied
+  // uniformly to every row.
+  //
+  // Implementation note: when compose_physical is active we fall back
+  // to per-row `add_row` rather than duplicate the ~100-line
+  // compose_physical body here.  The bulk speedup is preserved for the
+  // common "no col_scales / no equilibration" path (the `add_rows_raw`
+  // tail call below); the equilibrated path pays a per-row cost that
+  // is fine for the only hot caller (`replay_active_cuts` runs once per
+  // cell-rebuild under low_memory_mode=compress, ≤ a few hundred cuts).
+  const bool is_cut_phase = m_base_numrows_set_;
+  const bool have_col_scales = !m_col_scales_->empty();
+  const bool have_equilibration =
+      m_equilibration_method_ != LpEquilibrationMethod::none;
+  const bool compose_physical =
+      is_cut_phase && (have_col_scales || have_equilibration);
+
+  if (compose_physical) {
+    for (const auto& row : rows) {
+      add_row(row, eps);
+    }
+    return;
+  }
+
+  add_rows_raw(rows, eps);
+}
+
+void LinearInterface::add_rows_raw(const std::span<const SparseRow> rows,
+                                   const double eps)
+{
+  // Bulk LP-raw insertion path — companion to `add_row_raw`.  Skips
+  // col_scale × elem, scale_objective divisor, and per-row row-max
+  // equilibration; only `SparseRow::scale` is composed (mirroring how
+  // `flatten()` handles static rows).  Use this when the caller already
+  // has LP-raw coefficients/bounds and wants the bulk speedup without
+  // compose_physical.
+  ensure_backend();
+  if (rows.empty()) {
+    return;
+  }
+
   const auto num_rows = static_cast<int>(rows.size());
   const auto first_row_index = m_backend_->get_num_rows();
 
@@ -1633,8 +1749,35 @@ double LinearInterface::get_coeff_raw(const RowIndex row,
 }
 
 // ── Physical coefficient accessors ──
-// physical_coeff = raw_coeff × col_scale × row_scale
-// raw_coeff = physical_coeff / col_scale / row_scale
+//
+// Source-of-truth for the physical ↔ LP coefficient transform is
+// `flatten()` in linear_problem.cpp:346-369:
+//
+//     physical_value = LP_value × col_scale
+//   → LP_coeff       = phys_coeff × col_scale
+//
+// and after row-scale composition (linear_problem.cpp:369):
+//
+//     LP_coeff       = phys_coeff × col_scale / row_scale
+//
+// `add_row` (linear_interface.cpp:1265-1270 cut-phase compose_physical
+// branch) multiplies elements by `col_scale_ref[col]` before insertion,
+// which is the same direction.
+//
+// Asymmetry vs. bound setters (set_col_low/set_col_upp):
+//
+//   - Bound: `lowb_LP   = lowb_phys / col_scale`
+//            (the bound applies to x_LP, and x_LP = x_phys / col_scale)
+//   - Coeff: `coef_LP   = coef_phys × col_scale`
+//            (compensates for x_LP = x_phys / col_scale so that the
+//             constraint Σ a × x evaluated in physical units is the same
+//             value evaluated in LP units)
+//   - RHS:   `rhs_LP    = rhs_phys / row_scale`
+//            (only row-scale; col_scale never enters the RHS)
+//
+// Prior to 2026-05 these helpers had the col_scale direction inverted,
+// which left juan/gtopt_iplp cuts off by `col_scale × col_scale` per
+// SDDP iteration and produced LB > UB after iter 1.
 
 void LinearInterface::set_coeff(const RowIndex row,
                                 const ColIndex column,
@@ -1642,7 +1785,7 @@ void LinearInterface::set_coeff(const RowIndex row,
 {
   const double cs = get_col_scale(column);
   const double rs = get_row_scale(row);
-  set_coeff_raw(row, column, physical_value / cs / rs);
+  set_coeff_raw(row, column, physical_value * cs / rs);
 }
 
 double LinearInterface::get_coeff(const RowIndex row,
@@ -1651,7 +1794,7 @@ double LinearInterface::get_coeff(const RowIndex row,
   const double raw = get_coeff_raw(row, column);
   const double cs = get_col_scale(column);
   const double rs = get_row_scale(row);
-  return raw * cs * rs;
+  return raw * rs / cs;
 }
 
 bool LinearInterface::supports_set_coeff() const noexcept
@@ -1661,10 +1804,25 @@ bool LinearInterface::supports_set_coeff() const noexcept
 
 // ── Simple delegations ──
 
-void LinearInterface::set_obj_coeff(const ColIndex index, const double value)
+void LinearInterface::set_obj_coeff_raw(const ColIndex index,
+                                        const double value)
 {
   ensure_backend();
   m_backend_->set_obj_coeff(static_cast<int>(index), value);
+}
+
+void LinearInterface::set_obj_coeff(const ColIndex index,
+                                    const double physical_value)
+{
+  // Mirrors flatten()'s objective composition (linear_problem.cpp):
+  //   objval[i] = col.cost * col_scale[i]   (physical → LP cost)
+  //   objval[i] /= scale_objective          (global scale_objective divisor)
+  // Using `get_col_scale(index)` matches the singular bound setter
+  // pattern (`set_col_low`, `set_col_upp`) and degrades to 1.0 when
+  // `m_col_scales_` is empty (bare LinearInterface / unflattened LP),
+  // making this a pure pass-through in the unscaled case.
+  const double cs = get_col_scale(index);
+  set_obj_coeff_raw(index, physical_value * cs / m_scale_objective_);
 }
 
 // ── Raw column bound setters (LP/solver units) ──

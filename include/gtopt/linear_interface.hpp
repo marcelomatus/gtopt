@@ -777,8 +777,34 @@ public:
    */
   ColIndex add_col_raw(const SparseCol& col);
 
-  /// Bulk-add columns (calls add_col for each).
+  /**
+   * @brief Bulk-add columns (physical-space cost convention).
+   *
+   * Mirrors `add_col(SparseCol)`'s contract for batches: every column
+   * in the batch routes through the same `cost / scale_objective`
+   * composition that `add_col` applies, and any non-unit `col.scale`
+   * extends `m_col_scales_` via `set_col_scale` (just like the
+   * singular path).  Use this for batches of physical-space columns
+   * (the typical case).  For LP-raw batches that must skip
+   * `m_col_scales_` extension, use `add_cols_raw` instead.
+   *
+   * @param cols Sparse column specifications (physical-space cost).
+   */
   void add_cols(std::span<const SparseCol> cols);
+
+  /**
+   * @brief Bulk-add columns WITHOUT extending `m_col_scales_`.
+   *
+   * Companion to `add_col_raw` for batches.  Same `cost /
+   * scale_objective` composition as `add_cols` (i.e. `col.cost` is
+   * still treated as physical and divided by `m_scale_objective_`),
+   * but `m_col_scales_` is never grown — so every entry must satisfy
+   * `col.scale == 1.0`.  Use this on aperture clones where the
+   * shared scale vector must stay frozen.
+   *
+   * @param cols Sparse column specifications with `scale == 1.0`.
+   */
+  void add_cols_raw(std::span<const SparseCol> cols);
 
   /**
    * @brief Adds a new constraint row to the problem
@@ -871,6 +897,21 @@ public:
   ColIndex add_col_disposable(const SparseCol& col);
 
   /**
+   * @brief Bulk-add disposable columns on a shallow clone.
+   *
+   * Mirrors `add_col_disposable` for batches: each column goes
+   * directly to the solver backend with `cost / scale_objective`
+   * composition; label-meta is captured into the per-clone-local
+   * extras (`m_post_clone_col_metas_*`).  Asserts every entry has
+   * `scale == 1.0`.  Returns the freshly assigned indices in the
+   * same order as `cols`.
+   *
+   * @param cols SparseCols with `scale == 1.0`.
+   * @return Vector of newly assigned column indices.
+   */
+  std::vector<ColIndex> add_cols_disposable(std::span<const SparseCol> cols);
+
+  /**
    * @brief Add a disposable row on a shallow clone.
    *
    * Companion to `add_col_disposable`.  Goes DIRECTLY to
@@ -889,6 +930,23 @@ public:
    * @return Index of the newly added row.
    */
   RowIndex add_row_disposable(const SparseRow& row, double eps = 0.0);
+
+  /**
+   * @brief Bulk-add disposable rows on a shallow clone.
+   *
+   * Mirrors `add_row_disposable` for batches: every row goes
+   * directly to the solver backend (LP-raw insertion, only
+   * `SparseRow::scale` composed); label-meta is captured into the
+   * per-clone-local extras (`m_post_clone_row_metas_*`).  Asserts
+   * every entry has `scale == 1.0`.  Returns the freshly assigned
+   * indices in the same order as `rows`.
+   *
+   * @param rows SparseRows with `scale == 1.0` (LP-raw coefficients).
+   * @param eps  Epsilon for coefficient filtering.
+   * @return Vector of newly assigned row indices.
+   */
+  std::vector<RowIndex> add_rows_disposable(std::span<const SparseRow> rows,
+                                            double eps = 0.0);
 
   /**
    * @brief Add a cut row AND record it for low-memory replay.
@@ -923,14 +981,40 @@ public:
   /**
    * @brief Bulk-add constraint rows (much faster than repeated add_row calls).
    *
-   * Converts SparseRows to CSR format, applies scaling and bound
-   * normalization, dispatches a single add_rows() call to the solver backend,
-   * and updates row scales and name maps.
+   * Mirrors `add_row`'s contract for batches: when the LP is in the
+   * post-flatten cut phase (`save_base_numrows()` has fired) AND
+   * `m_col_scales_` / equilibration are active, every row in the batch
+   * is treated as **physical-space** and routed through the per-row
+   * compose_physical transform (col_scale × elem / scale_objective /
+   * row-max).  Otherwise the bulk CSR fast path runs unchanged.
+   *
+   * Use this for batches of physical-space rows (cuts, post-flatten
+   * user-built rows).  For LP-raw batches that should bypass
+   * compose_physical, use `add_rows_raw` instead.
    *
    * @param rows The sparse row representations of the constraints
    * @param eps  Epsilon value for coefficient filtering
    */
   void add_rows(std::span<const SparseRow> rows, double eps = 0.0);
+
+  /**
+   * @brief Bulk-add constraint rows in LP-raw space (skip col_scale +
+   *        per-row row-max + scale_objective composition).
+   *
+   * Companion to `add_row_raw` but for batches.  Use when the caller
+   * already has LP-raw coefficients/bounds and wants the bulk speedup
+   * without compose_physical.  Typical use: snapshot replay paths that
+   * carry LP-raw rows.
+   *
+   * Only `SparseRow::scale` is composed (mirroring `flatten()`'s
+   * treatment of static rows).  No per-column col_scale, no per-row
+   * equilibration, no scale_objective divisor.
+   *
+   * @param rows The sparse row representations of the constraints
+   *             (LP-raw coefficients and LP-raw bounds).
+   * @param eps  Epsilon value for coefficient filtering.
+   */
+  void add_rows_raw(std::span<const SparseRow> rows, double eps = 0.0);
 
   /**
    * @brief Deletes rows by index from the constraint matrix.
@@ -1176,7 +1260,34 @@ public:
    */
   [[nodiscard]] bool supports_set_coeff() const noexcept;
 
-  void set_obj_coeff(ColIndex index, double value);
+  /**
+   * @brief Sets the objective coefficient for a column in physical units.
+   *
+   * Composes the same physical → LP transform that `flatten()` /
+   * `add_col(SparseCol)` apply to the cost field:
+   *   raw = physical_value × col_scale[index] / scale_objective
+   *
+   * When `col_scale[index] == 1` and `scale_objective == 1` (the
+   * common bare-LinearInterface / unflattened case), this is
+   * equivalent to writing `physical_value` to the backend directly.
+   *
+   * @param index           Column index.
+   * @param physical_value  Objective coefficient in physical units.
+   */
+  void set_obj_coeff(ColIndex index, double physical_value);
+
+  /**
+   * @brief Sets the objective coefficient for a column in LP-raw units.
+   *
+   * Writes `value` to the backend verbatim — no `col_scale` /
+   * `scale_objective` composition.  Companion to the raw bound
+   * setters (`set_col_low_raw`, `set_rhs_raw`) and the raw accessor
+   * `get_obj_coeff()` (which returns the backend's raw obj vector).
+   *
+   * @param index Column index.
+   * @param value LP-raw objective coefficient.
+   */
+  void set_obj_coeff_raw(ColIndex index, double value);
 
   [[nodiscard]] auto get_obj_coeff() const
   {

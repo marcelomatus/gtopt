@@ -334,15 +334,15 @@ TEST_CASE(  // NOLINT
       .lowb = 0.0,
       .uppb = 80.0,
   });
-  li.set_obj_coeff(x0, 10.0);
-  li.set_obj_coeff(x1, 20.0);
+  li.set_obj_coeff_raw(x0, 10.0);
+  li.set_obj_coeff_raw(x1, 20.0);
 
   // Alpha (future cost)
   const auto alpha_col = li.add_col(SparseCol {
       .lowb = 0.0,
       .uppb = 1e12,
   });
-  li.set_obj_coeff(alpha_col, 1.0);
+  li.set_obj_coeff_raw(alpha_col, 1.0);
 
   // Dependent (state variable from previous phase)
   const auto dep = li.add_col(SparseCol {
@@ -393,7 +393,7 @@ TEST_CASE(  // NOLINT
       .lowb = 0.0,
       .uppb = 200.0,
   });
-  li.set_obj_coeff(x0, 10.0);
+  li.set_obj_coeff_raw(x0, 10.0);
   const auto dep = li.add_col(SparseCol {
       .lowb = 50.0,
       .uppb = 50.0,
@@ -443,7 +443,7 @@ TEST_CASE(  // NOLINT
       .lowb = 0.0,
       .uppb = 100.0,
   });
-  li.set_obj_coeff(x0, 10.0);
+  li.set_obj_coeff_raw(x0, 10.0);
   const auto dep = li.add_col(SparseCol {
       .lowb = 0.0,
       .uppb = 100.0,
@@ -479,7 +479,7 @@ TEST_CASE(  // NOLINT
       .lowb = 0.0,
       .uppb = 200.0,
   });
-  li.set_obj_coeff(x0, 10.0);
+  li.set_obj_coeff_raw(x0, 10.0);
   const auto dep = li.add_col(SparseCol {
       .lowb = 50.0,
       .uppb = 50.0,
@@ -528,7 +528,7 @@ TEST_CASE(  // NOLINT
       .lowb = 0.0,
       .uppb = 100.0,
   });
-  li.set_obj_coeff(x0, 10.0);
+  li.set_obj_coeff_raw(x0, 10.0);
   const auto dep = li.add_col(SparseCol {
       .lowb = 0.0,
       .uppb = 100.0,
@@ -566,7 +566,7 @@ TEST_CASE(  // NOLINT
       .lowb = 0.0,
       .uppb = 80.0,
   });
-  li.set_obj_coeff(x0, 10.0);
+  li.set_obj_coeff_raw(x0, 10.0);
   const auto dep = li.add_col(SparseCol {
       .lowb = 50.0,
       .uppb = 50.0,
@@ -631,7 +631,7 @@ TEST_CASE(  // NOLINT
       .lowb = 0.0,
       .uppb = 200.0,
   });
-  li.set_obj_coeff(x0, 10.0);
+  li.set_obj_coeff_raw(x0, 10.0);
   const auto dep = li.add_col(SparseCol {
       .lowb = 50.0,
       .uppb = 50.0,
@@ -688,7 +688,7 @@ TEST_CASE(  // NOLINT
       .lowb = 0.0,
       .uppb = 1000.0,
   });
-  li.set_obj_coeff(x0, 1.0);
+  li.set_obj_coeff_raw(x0, 1.0);
   const auto dep = li.add_col(SparseCol {
       .lowb = 0.0,
       .uppb = 0.0,
@@ -747,7 +747,7 @@ TEST_CASE(  // NOLINT
       .lowb = 0.0,
       .uppb = 200.0,
   });
-  li.set_obj_coeff(x0, 1.0);
+  li.set_obj_coeff_raw(x0, 1.0);
   const auto dep = li.add_col(SparseCol {
       .lowb = 50.0,
       .uppb = 50.0,
@@ -806,7 +806,7 @@ TEST_CASE(  // NOLINT
       .lowb = 0.0,
       .uppb = 1000.0,
   });
-  li.set_obj_coeff(x0, 1.0);
+  li.set_obj_coeff_raw(x0, 1.0);
 
   // Emulate a ruiz-scaled dep column: col_scale = 10 (physical = 10 × LP).
   // User's link.var_scale = 1 (no user var_scale), so the scale we rely
@@ -881,12 +881,12 @@ TEST_CASE(  // NOLINT
       .lowb = 0.0,
       .uppb = 100.0,
   });
-  phase0.set_obj_coeff(x0, 10.0);
+  phase0.set_obj_coeff_raw(x0, 10.0);
   const auto alpha_col = phase0.add_col(SparseCol {
       .lowb = 0.0,
       .uppb = 1e12,
   });
-  phase0.set_obj_coeff(alpha_col, 1.0);
+  phase0.set_obj_coeff_raw(alpha_col, 1.0);
 
   auto constr0 = SparseRow {
       .lowb = 20.0,
@@ -901,7 +901,7 @@ TEST_CASE(  // NOLINT
       .lowb = 0.0,
       .uppb = 100.0,
   });
-  phase1.set_obj_coeff(x1, 50.0);
+  phase1.set_obj_coeff_raw(x1, 50.0);
   const auto dep = phase1.add_col(SparseCol {
       .lowb = 20.0,
       .uppb = 20.0,
@@ -975,7 +975,7 @@ TEST_CASE(
       .lowb = 0.0,
       .uppb = 200.0,
   });
-  li.set_obj_coeff(x0, 10.0);
+  li.set_obj_coeff_raw(x0, 10.0);
   const auto dep = li.add_col(SparseCol {
       .lowb = 50.0,
       .uppb = 50.0,
@@ -1034,7 +1034,7 @@ TEST_CASE("BendersCut - elastic_filter_solve with work pool")  // NOLINT
       .lowb = 0.0,
       .uppb = 200.0,
   });
-  li.set_obj_coeff(x0, 10.0);
+  li.set_obj_coeff_raw(x0, 10.0);
   const auto dep = li.add_col(SparseCol {
       .lowb = 50.0,
       .uppb = 50.0,
@@ -1079,7 +1079,7 @@ TEST_CASE("BendersCut - elastic_filter_solve with work pool")  // NOLINT
       .lowb = 0.0,
       .uppb = 100.0,
   });
-  li2.set_obj_coeff(x1, 5.0);
+  li2.set_obj_coeff_raw(x1, 5.0);
   const auto dep2 = li2.add_col(SparseCol {
       .lowb = 0.0,
       .uppb = 100.0,
@@ -1113,7 +1113,7 @@ TEST_CASE("BendersCut - build_feasibility_cut increments counter")  // NOLINT
       .lowb = 0.0,
       .uppb = 200.0,
   });
-  li.set_obj_coeff(x0, 10.0);
+  li.set_obj_coeff_raw(x0, 10.0);
   const auto dep = li.add_col(SparseCol {
       .lowb = 50.0,
       .uppb = 50.0,

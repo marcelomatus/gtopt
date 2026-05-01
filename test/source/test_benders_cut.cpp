@@ -1171,8 +1171,8 @@ TEST_CASE("elastic_filter_solve free function succeeds")  // NOLINT
       .lowb = 0.0,
       .uppb = LinearProblem::DblMax,
   });
-  li.set_obj_coeff(x1, 1.0);
-  li.set_obj_coeff(alpha, 0.0);
+  li.set_obj_coeff_raw(x1, 1.0);
+  li.set_obj_coeff_raw(alpha, 0.0);
 
   SparseRow row;
   row[x1] = 1.0;
@@ -1276,8 +1276,8 @@ TEST_CASE(  // NOLINT
   });
 
   // Objective: small coefficient on efin (normal LP scale)
-  li.set_obj_coeff(efin, 0.01);
-  li.set_obj_coeff(alpha, 1.0);
+  li.set_obj_coeff_raw(efin, 0.01);
+  li.set_obj_coeff_raw(alpha, 1.0);
 
   // Constraint: efin >= 0.5 (physical 500 hm³)
   auto row = SparseRow {};
@@ -1577,8 +1577,8 @@ struct ChinneckFixture
   {
     x1 = li.add_col(SparseCol {.lowb = 0.0, .uppb = ub1 + 1000.0});
     x2 = li.add_col(SparseCol {.lowb = 0.0, .uppb = ub2 + 1000.0});
-    li.set_obj_coeff(x1, 1.0);
-    li.set_obj_coeff(x2, 1.0);
+    li.set_obj_coeff_raw(x1, 1.0);
+    li.set_obj_coeff_raw(x2, 1.0);
 
     SparseRow r1;
     r1[x1] = 1.0;
@@ -2179,7 +2179,7 @@ struct PushUpLP
         .uppb = source_upp_lp,
         .scale = dep_scale,
     });
-    li.set_obj_coeff(dep, 1.0);
+    li.set_obj_coeff_raw(dep, 1.0);
 
     // Row constraint dep_LP >= lb_lp (LP lower bound).
     SparseRow r;
@@ -2322,8 +2322,8 @@ TEST_CASE(  // NOLINT
   const auto dep1 =
       li.add_col(SparseCol {.lowb = 0.0, .uppb = 200.0, .scale = 10.0});
   const auto dep2 = li.add_col(SparseCol {.lowb = 0.0, .uppb = 200.0});
-  li.set_obj_coeff(dep1, 1.0);
-  li.set_obj_coeff(dep2, 1.0);
+  li.set_obj_coeff_raw(dep1, 1.0);
+  li.set_obj_coeff_raw(dep2, 1.0);
 
   // dep1 >= 5 (LP)
   SparseRow r1;
@@ -2423,8 +2423,8 @@ struct ChinneckLBFixture
     x1 = li.add_col(SparseCol {.lowb = 0.0, .uppb = 2000.0});
     x2 = li.add_col(
         SparseCol {.lowb = 0.0, .uppb = 2000.0, .scale = dep_scale2});
-    li.set_obj_coeff(x1, 1.0);
-    li.set_obj_coeff(x2, 1.0);
+    li.set_obj_coeff_raw(x1, 1.0);
+    li.set_obj_coeff_raw(x2, 1.0);
 
     // x1 >= lb1_lp (LP)
     SparseRow r1;

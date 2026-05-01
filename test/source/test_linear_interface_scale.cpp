@@ -718,7 +718,10 @@ TEST_CASE(  // NOLINT
     "LinearInterface - set_coeff_raw and set_coeff scale round-trip")
 {
   // 2-var LP with col_scale=4.0 on c0 and row_max equilibration.
-  // physical_coeff = raw_coeff × col_scale × row_scale.
+  // Source-of-truth (linear_problem.cpp:346-369):
+  //   physical_value = LP_value × col_scale  →  LP_coeff = phys × col_scale
+  //   then row_scale divides:                  raw = phys × col_scale /
+  //   row_scale
   LinearProblem lp("coeff_scale");
   const auto c0 = lp.add_col(SparseCol {
       .uppb = 10.0,
@@ -755,12 +758,12 @@ TEST_CASE(  // NOLINT
     CHECK(li.get_coeff_raw(r0_idx, c0) == doctest::Approx(0.25));
   }
 
-  SUBCASE("set_coeff (physical) → get_coeff_raw applies /col_scale/row_scale")
+  SUBCASE("set_coeff (physical) → get_coeff_raw applies × col_scale/row_scale")
   {
     constexpr double kPhysCoeff = 8.0;
     li.set_coeff(r0_idx, c0, kPhysCoeff);
-    // Internal raw = phys / col_scale / row_scale = 8 / 4 / 100 = 0.02
-    const double expected_raw = kPhysCoeff / col_scale / row_scale;
+    // Internal raw = phys × col_scale / row_scale = 8 × 4 / 400 = 0.08
+    const double expected_raw = kPhysCoeff * col_scale / row_scale;
     CHECK(li.get_coeff_raw(r0_idx, c0) == doctest::Approx(expected_raw));
     CHECK(li.get_coeff(r0_idx, c0) == doctest::Approx(kPhysCoeff));
   }
@@ -854,10 +857,14 @@ TEST_CASE("LinearProblem - normalize_bound via set_infinity")  // NOLINT
 }
 
 // ────────────────────────────────────────────────────────────────────
-// Extra — obj_coeff setter/getter round-trip via set_obj_coeff.
+// Extra — obj_coeff setter/getter round-trip via set_obj_coeff_raw.
 // ────────────────────────────────────────────────────────────────────
+// `get_obj_coeff()` returns the backend's raw obj vector — so the
+// natural round-trip companion is `set_obj_coeff_raw`.  The
+// transforming `set_obj_coeff(physical)` is exercised by the
+// dedicated scale tests below.
 TEST_CASE(
-    "LinearInterface - set_obj_coeff / get_obj_coeff round-trip")  // NOLINT
+    "LinearInterface - set_obj_coeff_raw / get_obj_coeff round-trip")  // NOLINT
 {
   LinearProblem lp("obj_coeff");
   const auto c0 = lp.add_col(SparseCol {.uppb = 10.0, .cost = 1.0});
@@ -875,8 +882,756 @@ TEST_CASE(
   CHECK(obj_before[c0] == doctest::Approx(1.0));
   CHECK(obj_before[c1] == doctest::Approx(2.0));
 
-  li.set_obj_coeff(c0, 7.0);
+  li.set_obj_coeff_raw(c0, 7.0);
   const auto obj_after = li.get_obj_coeff();
   CHECK(obj_after[c0] == doctest::Approx(7.0));
   CHECK(obj_after[c1] == doctest::Approx(2.0));  // unchanged
+}
+
+// ────────────────────────────────────────────────────────────────────
+// LP-SEMANTIC TESTS
+//
+// All tests above verify *round-trip* consistency (set then get).
+// Round-trip tests are self-consistent regardless of whether the
+// transform is correct: a set_coeff that applies /col_scale twice and
+// a get_coeff that applies *col_scale twice would still round-trip.
+//
+// The tests below actually SOLVE the LP and verify the solver enforces
+// the correct physical constraint.  They would have caught the bug
+// where set_coeff stored physical_value / col_scale / col_scale instead
+// of physical_value / col_scale / row_scale — causing the LP solver to
+// enforce a constraint 100× weaker than intended (col_scale=10 case).
+//
+// Pattern: build LP with analytically-known optimal, mutate ONE
+// coefficient via the mutator under test, solve, assert x_opt.
+// ────────────────────────────────────────────────────────────────────
+
+// ────────────────────────────────────────────────────────────────────
+// LP-Semantic Test 1 — set_coeff LP-semantic correctness
+//
+// LP: min 1·x  s.t.  a·x = 50, 0 ≤ x ≤ 1000.
+// Analytical optimum: x = 50 / a.
+// We set a = 5.0 via set_coeff and expect x_opt = 10.0.
+//
+// The pre-fix bug: set_coeff with col_scale=10 stored 5/10/10 = 0.05
+// instead of 5/10/1 = 0.5 in LP-raw units (row_max equilibration case
+// has row_scale != 1 but plain eq=none has row_scale=1).  The solver
+// then saw 0.05·x_raw = 50·(1/row_scale), driving x_raw ≈ 1000 →
+// x_phys = 10000.  This test catches any regression where col_scale is
+// applied incorrectly in the write direction.
+// ────────────────────────────────────────────────────────────────────
+TEST_CASE(  // NOLINT
+    "LinearInterface - set_coeff LP-semantic: solver enforces physical "
+    "constraint")
+{
+  struct Params
+  {
+    double col_scale;
+    double scale_obj;
+    LpEquilibrationMethod eq;
+  };
+
+  constexpr double kRhs = 50.0;
+  constexpr double kPhysCoeff = 5.0;
+  constexpr double kExpectedX = kRhs / kPhysCoeff;  // 10.0
+
+  const auto run_subcase = [&](Params p)
+  {
+    LinearProblem lp("set_coeff_lp_semantic");
+    const auto c0 = lp.add_col(SparseCol {
+        .lowb = 0.0,
+        .uppb = 1000.0,
+        .cost = 1.0,
+        .scale = p.col_scale,
+    });
+
+    // Placeholder coefficient = 1 so the row is non-degenerate at build
+    // time; we will overwrite it via set_coeff before solving.
+    SparseRow row;
+    row[c0] = 1.0;
+    row.lowb = kRhs;
+    row.uppb = kRhs;
+    const auto r0 = lp.add_row(std::move(row));
+
+    LinearInterface li("",
+                       lp.flatten({
+                           .equilibration_method = p.eq,
+                           .scale_objective = p.scale_obj,
+                       }));
+
+    if (!li.supports_set_coeff()) {
+      return;
+    }
+
+    // Update the coefficient to the physical value under test.
+    li.set_coeff(r0, c0, kPhysCoeff);
+
+    const auto status = li.initial_solve({});
+    REQUIRE((status && *status == 0));
+    REQUIRE(li.is_optimal());
+
+    const auto sol_phys = li.get_col_sol();
+    CAPTURE(p.col_scale);
+    CAPTURE(p.scale_obj);
+    CHECK(sol_phys[c0] == doctest::Approx(kExpectedX).epsilon(1e-3));
+    CHECK(li.get_obj_value() == doctest::Approx(kExpectedX).epsilon(1e-3));
+  };
+
+  SUBCASE("trivial: col_scale=1, scale_obj=1, eq=none")
+  {
+    run_subcase({.col_scale = 1.0,
+                 .scale_obj = 1.0,
+                 .eq = LpEquilibrationMethod::none});
+  }
+
+  SUBCASE("var_scale: col_scale=10, scale_obj=1, eq=none")
+  {
+    // The bug-catching subcase: col_scale=10 triggers the double-divide
+    // path in pre-fix code.  x_opt must still be 10, not 1000.
+    run_subcase({.col_scale = 10.0,
+                 .scale_obj = 1.0,
+                 .eq = LpEquilibrationMethod::none});
+  }
+
+  SUBCASE("scale_obj: col_scale=1, scale_obj=1000, eq=none")
+  {
+    run_subcase({.col_scale = 1.0,
+                 .scale_obj = 1000.0,
+                 .eq = LpEquilibrationMethod::none});
+  }
+
+  SUBCASE("all: col_scale=10, scale_obj=1000, eq=row_max")
+  {
+    // Full juan-like scaling.  row_max equilibration divides the row by
+    // max|raw_col_elem|; the physical x_opt must still be 10.
+    run_subcase({.col_scale = 10.0,
+                 .scale_obj = 1000.0,
+                 .eq = LpEquilibrationMethod::row_max});
+  }
+}
+
+// ────────────────────────────────────────────────────────────────────
+// LP-Semantic Test 2 — set_rhs LP-semantic correctness
+//
+// LP: min 1·x  s.t.  2·x = b, 0 ≤ x ≤ 500.
+// Analytical optimum: x = b / 2.
+// We set b = 100 via set_rhs and expect x_opt = 50.
+// ────────────────────────────────────────────────────────────────────
+TEST_CASE(  // NOLINT
+    "LinearInterface - set_rhs LP-semantic: solver enforces physical RHS")
+{
+  struct Params
+  {
+    double col_scale;
+    double scale_obj;
+    LpEquilibrationMethod eq;
+  };
+
+  constexpr double kCoeff = 2.0;
+  constexpr double kPhysRhs = 100.0;
+  constexpr double kExpectedX = kPhysRhs / kCoeff;  // 50.0
+
+  const auto run_subcase = [&](Params p)
+  {
+    LinearProblem lp("set_rhs_lp_semantic");
+    const auto c0 = lp.add_col(SparseCol {
+        .lowb = 0.0,
+        .uppb = 500.0,
+        .cost = 1.0,
+        .scale = p.col_scale,
+    });
+
+    SparseRow row;
+    row[c0] = kCoeff;
+    // Placeholder RHS: will be overwritten by set_rhs.
+    row.lowb = 1.0;
+    row.uppb = 1.0;
+    const auto r0 = lp.add_row(std::move(row));
+
+    LinearInterface li("",
+                       lp.flatten({
+                           .equilibration_method = p.eq,
+                           .scale_objective = p.scale_obj,
+                       }));
+
+    // Update both bounds to the physical RHS.
+    li.set_rhs(r0, kPhysRhs);
+
+    const auto status = li.initial_solve({});
+    REQUIRE((status && *status == 0));
+    REQUIRE(li.is_optimal());
+
+    const auto sol_phys = li.get_col_sol();
+    CAPTURE(p.col_scale);
+    CAPTURE(p.scale_obj);
+    CHECK(sol_phys[c0] == doctest::Approx(kExpectedX).epsilon(1e-3));
+  };
+
+  SUBCASE("trivial: col_scale=1, scale_obj=1, eq=none")
+  {
+    run_subcase({.col_scale = 1.0,
+                 .scale_obj = 1.0,
+                 .eq = LpEquilibrationMethod::none});
+  }
+
+  SUBCASE("var_scale: col_scale=10, scale_obj=1, eq=none")
+  {
+    run_subcase({.col_scale = 10.0,
+                 .scale_obj = 1.0,
+                 .eq = LpEquilibrationMethod::none});
+  }
+
+  SUBCASE("scale_obj: col_scale=1, scale_obj=1000, eq=none")
+  {
+    run_subcase({.col_scale = 1.0,
+                 .scale_obj = 1000.0,
+                 .eq = LpEquilibrationMethod::none});
+  }
+
+  SUBCASE("all: col_scale=10, scale_obj=1000, eq=row_max")
+  {
+    run_subcase({.col_scale = 10.0,
+                 .scale_obj = 1000.0,
+                 .eq = LpEquilibrationMethod::row_max});
+  }
+}
+
+// ────────────────────────────────────────────────────────────────────
+// LP-Semantic Test 3 — set_obj_coeff LP-semantic correctness
+//
+// LP: min c·x  s.t.  5 ≤ x ≤ 100.
+// For c > 0: optimal x = 5 (lower bound), obj = 5·c (physical).
+// We set c via set_obj_coeff and verify the physical objective.
+// ────────────────────────────────────────────────────────────────────
+TEST_CASE(  // NOLINT
+    "LinearInterface - set_obj_coeff LP-semantic: solver minimizes with "
+    "correct physical cost")
+{
+  struct Params
+  {
+    double col_scale;
+    double scale_obj;
+  };
+
+  constexpr double kPhysCost = 3.0;
+  constexpr double kLb = 5.0;
+  constexpr double kExpectedObj = kPhysCost * kLb;  // 15.0
+
+  const auto run_subcase = [&](Params p)
+  {
+    LinearProblem lp("set_obj_coeff_lp_semantic");
+    const auto c0 = lp.add_col(SparseCol {
+        .lowb = kLb,
+        .uppb = 100.0,
+        .cost = 0.0,  // zero placeholder; will be set via set_obj_coeff
+        .scale = p.col_scale,
+    });
+    // Need at least one row for a valid LP.
+    SparseRow row;
+    row[c0] = 1.0;
+    row.lowb = 0.0;
+    row.uppb = 1000.0;
+    std::ignore = lp.add_row(std::move(row));
+
+    LinearInterface li("",
+                       lp.flatten({
+                           .equilibration_method = LpEquilibrationMethod::none,
+                           .scale_objective = p.scale_obj,
+                       }));
+
+    // Set the physical cost.
+    li.set_obj_coeff(c0, kPhysCost);
+
+    const auto status = li.initial_solve({});
+    REQUIRE((status && *status == 0));
+    REQUIRE(li.is_optimal());
+
+    CAPTURE(p.col_scale);
+    CAPTURE(p.scale_obj);
+    // x is pinned to lower bound kLb by the objective (c > 0).
+    const auto sol_phys = li.get_col_sol();
+    CHECK(sol_phys[c0] == doctest::Approx(kLb).epsilon(1e-3));
+    // Physical objective = kPhysCost × kLb regardless of scaling.
+    CHECK(li.get_obj_value() == doctest::Approx(kExpectedObj).epsilon(1e-3));
+  };
+
+  SUBCASE("trivial: col_scale=1, scale_obj=1")
+  {
+    run_subcase({.col_scale = 1.0, .scale_obj = 1.0});
+  }
+
+  SUBCASE("var_scale: col_scale=10, scale_obj=1")
+  {
+    run_subcase({.col_scale = 10.0, .scale_obj = 1.0});
+  }
+
+  SUBCASE("scale_obj: col_scale=1, scale_obj=1000")
+  {
+    run_subcase({.col_scale = 1.0, .scale_obj = 1000.0});
+  }
+
+  SUBCASE("all: col_scale=10, scale_obj=1000")
+  {
+    run_subcase({.col_scale = 10.0, .scale_obj = 1000.0});
+  }
+}
+
+// ────────────────────────────────────────────────────────────────────
+// LP-Semantic Test 4 — add_row post-flatten LP-semantic correctness
+//
+// After flatten + save_base_numrows (the cut-phase gate), add a row with
+// physical-space coefficients via add_row.  The compose_physical path
+// must translate physical → LP-raw correctly so the solver enforces the
+// intended constraint.
+//
+// LP structure:
+//   Structural: min 1·x  s.t.  x ≤ 1000, x ≥ 0  (unconstrained above 0)
+//   Cut row:    a·x = 50 (physical, inserted post-flatten)
+//   Analytical: x = 50/a = 10 (a=5.0)
+// ────────────────────────────────────────────────────────────────────
+TEST_CASE(  // NOLINT
+    "LinearInterface - add_row post-flatten LP-semantic: compose_physical "
+    "applied correctly")
+{
+  struct Params
+  {
+    double col_scale;
+    double scale_obj;
+    LpEquilibrationMethod eq;
+  };
+
+  constexpr double kPhysCoeff = 5.0;
+  constexpr double kPhysRhs = 50.0;
+  constexpr double kExpectedX = kPhysRhs / kPhysCoeff;  // 10.0
+
+  const auto run_subcase = [&](Params p)
+  {
+    LinearProblem lp("add_row_postflatten");
+    const auto c0 = lp.add_col(SparseCol {
+        .lowb = 0.0,
+        .uppb = 1000.0,
+        .cost = 1.0,
+        .scale = p.col_scale,
+    });
+    SparseRow structural;
+    structural[c0] = 1.0;
+    structural.lowb = 0.0;
+    structural.uppb = 1000.0;
+    std::ignore = lp.add_row(std::move(structural));
+
+    LinearInterface li("",
+                       lp.flatten({
+                           .equilibration_method = p.eq,
+                           .scale_objective = p.scale_obj,
+                       }));
+
+    // Activate the cut phase so compose_physical triggers.
+    li.save_base_numrows();
+
+    // Add a physical-space equality constraint: kPhysCoeff·x = kPhysRhs.
+    SparseRow cut_row;
+    cut_row[c0] = kPhysCoeff;
+    cut_row.lowb = kPhysRhs;
+    cut_row.uppb = kPhysRhs;
+    std::ignore = li.add_row(cut_row);
+
+    const auto status = li.initial_solve({});
+    REQUIRE((status && *status == 0));
+    REQUIRE(li.is_optimal());
+
+    const auto sol_phys = li.get_col_sol();
+    CAPTURE(p.col_scale);
+    CAPTURE(p.scale_obj);
+    CHECK(sol_phys[c0] == doctest::Approx(kExpectedX).epsilon(1e-3));
+  };
+
+  SUBCASE("trivial: col_scale=1, scale_obj=1, eq=none")
+  {
+    run_subcase({.col_scale = 1.0,
+                 .scale_obj = 1.0,
+                 .eq = LpEquilibrationMethod::none});
+  }
+
+  SUBCASE("var_scale: col_scale=10, scale_obj=1, eq=none")
+  {
+    run_subcase({.col_scale = 10.0,
+                 .scale_obj = 1.0,
+                 .eq = LpEquilibrationMethod::none});
+  }
+
+  SUBCASE("scale_obj: col_scale=1, scale_obj=1000, eq=none")
+  {
+    run_subcase({.col_scale = 1.0,
+                 .scale_obj = 1000.0,
+                 .eq = LpEquilibrationMethod::none});
+  }
+
+  SUBCASE("all: col_scale=10, scale_obj=1000, eq=row_max")
+  {
+    run_subcase({.col_scale = 10.0,
+                 .scale_obj = 1000.0,
+                 .eq = LpEquilibrationMethod::row_max});
+  }
+}
+
+// ────────────────────────────────────────────────────────────────────
+// LP-Semantic Test 5 — add_rows (bulk) == add_row (per-row) semantics
+//
+// Verify that add_rows dispatches through compose_physical identically
+// to a loop of add_row calls.  This catches the pre-2026-05-01 bug
+// where add_rows was the bulk equivalent of add_row_raw (no
+// compose_physical), so a col_scale=10 constraint was 10× too weak when
+// inserted via add_rows but correct via add_row.
+// ────────────────────────────────────────────────────────────────────
+TEST_CASE(  // NOLINT
+    "LinearInterface - add_rows bulk == add_row loop under col_scale != 1")
+{
+  constexpr double kPhysCoeff = 5.0;
+  constexpr double kPhysRhs = 50.0;
+  constexpr double kExpectedX = kPhysRhs / kPhysCoeff;  // 10.0
+  constexpr double kColScale = 10.0;
+  constexpr double kScaleObj = 1000.0;
+
+  const auto make_base_li = [&](ColIndex& c0_out) -> LinearInterface
+  {
+    LinearProblem lp("add_rows_bulk");
+    const auto c0 = lp.add_col(SparseCol {
+        .lowb = 0.0,
+        .uppb = 1000.0,
+        .cost = 1.0,
+        .scale = kColScale,
+    });
+    c0_out = c0;
+    SparseRow structural;
+    structural[c0] = 1.0;
+    structural.lowb = 0.0;
+    structural.uppb = 1000.0;
+    std::ignore = lp.add_row(std::move(structural));
+
+    LinearInterface li("",
+                       lp.flatten({
+                           .equilibration_method = LpEquilibrationMethod::none,
+                           .scale_objective = kScaleObj,
+                       }));
+    li.save_base_numrows();
+    return li;
+  };
+
+  // Build a cut row with physical coefficients.
+  ColIndex c0 {0};
+  // Use c0 index 0 (the only column); make_base_li updates c0_out.
+  SparseRow cut_row;
+  cut_row[ColIndex {0}] = kPhysCoeff;
+  cut_row.lowb = kPhysRhs;
+  cut_row.uppb = kPhysRhs;
+  const std::vector<SparseRow> cut_rows = {cut_row};
+
+  SUBCASE("add_rows bulk: x_opt == expected (compose_physical applied)")
+  {
+    ColIndex c0_bulk {0};
+    auto li = make_base_li(c0_bulk);
+    li.add_rows(cut_rows);
+
+    const auto status = li.initial_solve({});
+    REQUIRE((status && *status == 0));
+    REQUIRE(li.is_optimal());
+
+    const auto sol_phys = li.get_col_sol();
+    CHECK(sol_phys[c0_bulk] == doctest::Approx(kExpectedX).epsilon(1e-3));
+  }
+
+  SUBCASE("add_row per-row: x_opt == expected (reference path)")
+  {
+    ColIndex c0_single {0};
+    auto li = make_base_li(c0_single);
+    li.add_row(cut_row);
+
+    const auto status = li.initial_solve({});
+    REQUIRE((status && *status == 0));
+    REQUIRE(li.is_optimal());
+
+    const auto sol_phys = li.get_col_sol();
+    CHECK(sol_phys[c0_single] == doctest::Approx(kExpectedX).epsilon(1e-3));
+  }
+}
+
+// ────────────────────────────────────────────────────────────────────
+// LP-Semantic Test 6 — set_col_low / set_col_upp LP-semantic
+//
+// LP: min 1·x  (no equality constraints — x goes to lower bound).
+// Use set_col_low(physical) to update the bound and verify x_opt.
+// The existing scale test (Test 7 in original file) tests raw bounds;
+// this tests the physical-space setters across the subcase matrix.
+// ────────────────────────────────────────────────────────────────────
+TEST_CASE(  // NOLINT
+    "LinearInterface - set_col_low/upp LP-semantic: solver respects physical "
+    "bounds")
+{
+  struct Params
+  {
+    double col_scale;
+    double scale_obj;
+  };
+
+  constexpr double kPhysLow = 37.5;
+  constexpr double kPhysUpp = 200.0;
+
+  const auto run_subcase = [&](Params p)
+  {
+    LinearProblem lp("setcol_phys_bounds");
+    const auto c0 = lp.add_col(SparseCol {
+        .lowb = 0.0,
+        .uppb = 1000.0,
+        .cost = 1.0,
+        .scale = p.col_scale,
+    });
+    SparseRow row;
+    row[c0] = 1.0;
+    row.lowb = 0.0;
+    row.uppb = 1000.0;
+    std::ignore = lp.add_row(std::move(row));
+
+    LinearInterface li("",
+                       lp.flatten({
+                           .equilibration_method = LpEquilibrationMethod::none,
+                           .scale_objective = p.scale_obj,
+                       }));
+
+    // Pin to physical [kPhysLow, kPhysUpp] via the physical setters.
+    li.set_col_low(c0, kPhysLow);
+    li.set_col_upp(c0, kPhysUpp);
+
+    const auto status = li.initial_solve({});
+    REQUIRE((status && *status == 0));
+    REQUIRE(li.is_optimal());
+
+    CAPTURE(p.col_scale);
+    CAPTURE(p.scale_obj);
+    // Minimizing: x pins to lower bound.
+    const auto sol_phys = li.get_col_sol();
+    CHECK(sol_phys[c0] == doctest::Approx(kPhysLow).epsilon(1e-3));
+    CHECK(li.get_obj_value() == doctest::Approx(kPhysLow).epsilon(1e-3));
+  };
+
+  SUBCASE("trivial: col_scale=1, scale_obj=1")
+  {
+    run_subcase({.col_scale = 1.0, .scale_obj = 1.0});
+  }
+
+  SUBCASE("var_scale: col_scale=10, scale_obj=1")
+  {
+    run_subcase({.col_scale = 10.0, .scale_obj = 1.0});
+  }
+
+  SUBCASE("scale_obj: col_scale=1, scale_obj=1000")
+  {
+    run_subcase({.col_scale = 1.0, .scale_obj = 1000.0});
+  }
+
+  SUBCASE("all: col_scale=10, scale_obj=1000")
+  {
+    run_subcase({.col_scale = 10.0, .scale_obj = 1000.0});
+  }
+}
+
+// ────────────────────────────────────────────────────────────────────
+// LP-Semantic Test 7 — Regression guard: add_row vs set_coeff
+//
+// This is the definitive test that would have caught the set_coeff bug.
+//
+// Build two LP instances with col_scale=10:
+//   Path A: add_row with physical coeff=5 directly.
+//   Path B: add_row with placeholder coeff=1, then set_coeff(phys=5).
+//
+// Both must solve to x_opt=10 (physical).
+// Pre-fix: Path A → x=10, Path B → x=1000 (col_scale applied twice).
+//
+// This test FAILS on pre-fix code and PASSES on fixed code.
+// ────────────────────────────────────────────────────────────────────
+TEST_CASE(  // NOLINT
+    "LinearInterface - add_row + set_coeff equivalence under col_scale != 1 "
+    "[regression guard]")
+{
+  constexpr double kColScale = 10.0;
+  constexpr double kPhysCoeff = 5.0;
+  constexpr double kPhysRhs = 50.0;
+  constexpr double kExpectedX = kPhysRhs / kPhysCoeff;  // 10.0
+
+  for (const double scale_obj : {1.0, 1000.0}) {
+    CAPTURE(scale_obj);
+
+    const auto make_li = [&](ColIndex& c0_out) -> LinearInterface
+    {
+      LinearProblem lp("regression_guard");
+      const auto c0 = lp.add_col(SparseCol {
+          .lowb = 0.0,
+          .uppb = 10000.0,
+          .cost = 1.0,
+          .scale = kColScale,
+      });
+      c0_out = c0;
+      // Structural row: unconstrained above 0.
+      SparseRow structural;
+      structural[c0] = 1.0;
+      structural.lowb = 0.0;
+      structural.uppb = 10000.0;
+      std::ignore = lp.add_row(std::move(structural));
+
+      LinearInterface li(
+          "",
+          lp.flatten({
+              .equilibration_method = LpEquilibrationMethod::none,
+              .scale_objective = scale_obj,
+          }));
+      li.save_base_numrows();
+      return li;
+    };
+
+    // Path A: insert physical constraint directly via add_row.
+    double x_opt_a = 0.0;
+    {
+      ColIndex c0 {0};
+      auto li = make_li(c0);
+      SparseRow row;
+      row[c0] = kPhysCoeff;
+      row.lowb = kPhysRhs;
+      row.uppb = kPhysRhs;
+      std::ignore = li.add_row(row);
+
+      const auto st = li.initial_solve({});
+      REQUIRE((st && *st == 0));
+      REQUIRE(li.is_optimal());
+      x_opt_a = li.get_col_sol()[c0];
+    }
+
+    // Path B: placeholder coefficient, then update via set_coeff.
+    double x_opt_b = 0.0;
+    bool skip = false;
+    {
+      ColIndex c0 {0};
+      auto li = make_li(c0);
+      if (!li.supports_set_coeff()) {
+        skip = true;
+      } else {
+        // Insert with placeholder coefficient 1.0.
+        SparseRow row;
+        row[c0] = 1.0;
+        row.lowb = kPhysRhs;
+        row.uppb = kPhysRhs;
+        const auto r0 = li.add_row(row);
+
+        // Overwrite with the intended physical coefficient.
+        li.set_coeff(r0, c0, kPhysCoeff);
+
+        const auto st = li.initial_solve({});
+        REQUIRE((st && *st == 0));
+        REQUIRE(li.is_optimal());
+        x_opt_b = li.get_col_sol()[c0];
+      }
+    }
+
+    // Both paths must produce the same optimal x.
+    // Pre-fix: x_opt_a=10, x_opt_b=1000  → test fails.
+    // Post-fix: x_opt_a=10, x_opt_b=10   → test passes.
+    CHECK(x_opt_a == doctest::Approx(kExpectedX).epsilon(1e-3));
+    if (!skip) {
+      CHECK(x_opt_b == doctest::Approx(kExpectedX).epsilon(1e-3));
+      CHECK(x_opt_a == doctest::Approx(x_opt_b).epsilon(1e-3));
+    }
+  }
+}
+
+// ────────────────────────────────────────────────────────────────────
+// LP-Semantic Test 8 — get_coeff LP-semantic round-trip via solve
+//
+// After inserting a physical-space row via add_row (compose_physical
+// path), get_coeff must return the ORIGINAL physical value — regardless
+// of col_scale, row_scale, or scale_objective.
+//
+// This complements the existing round-trip test which only exercises
+// set_coeff ↔ get_coeff.  Here we verify the compose_physical path
+// of add_row followed by get_coeff.
+// ────────────────────────────────────────────────────────────────────
+TEST_CASE(  // NOLINT
+    "LinearInterface - get_coeff after add_row returns original physical value")
+{
+  struct Params
+  {
+    double col_scale;
+    double scale_obj;
+    LpEquilibrationMethod eq;
+  };
+
+  constexpr double kPhysCoeff = 7.0;
+  constexpr double kPhysRhs = 70.0;
+
+  const auto run_subcase = [&](Params p)
+  {
+    LinearProblem lp("get_coeff_semantic");
+    const auto c0 = lp.add_col(SparseCol {
+        .lowb = 0.0,
+        .uppb = 1000.0,
+        .cost = 1.0,
+        .scale = p.col_scale,
+    });
+    SparseRow structural;
+    structural[c0] = 1.0;
+    structural.lowb = 0.0;
+    structural.uppb = 1000.0;
+    std::ignore = lp.add_row(std::move(structural));
+
+    LinearInterface li("",
+                       lp.flatten({
+                           .equilibration_method = p.eq,
+                           .scale_objective = p.scale_obj,
+                       }));
+    li.save_base_numrows();
+
+    // Insert physical-space row.
+    SparseRow cut;
+    cut[c0] = kPhysCoeff;
+    cut.lowb = kPhysRhs;
+    cut.uppb = kPhysRhs;
+    const auto r_cut = li.add_row(cut);
+
+    // get_coeff must return the physical value regardless of scaling.
+    CAPTURE(p.col_scale);
+    CAPTURE(p.scale_obj);
+    CHECK(li.get_coeff(r_cut, c0) == doctest::Approx(kPhysCoeff).epsilon(1e-3));
+
+    // Also verify the constraint is enforced by the solver.
+    const auto status = li.initial_solve({});
+    REQUIRE((status && *status == 0));
+    REQUIRE(li.is_optimal());
+    const double expected_x = kPhysRhs / kPhysCoeff;  // 10.0
+    CHECK(li.get_col_sol()[c0] == doctest::Approx(expected_x).epsilon(1e-3));
+  };
+
+  SUBCASE("trivial: col_scale=1, scale_obj=1, eq=none")
+  {
+    run_subcase({.col_scale = 1.0,
+                 .scale_obj = 1.0,
+                 .eq = LpEquilibrationMethod::none});
+  }
+
+  SUBCASE("var_scale: col_scale=10, scale_obj=1, eq=none")
+  {
+    run_subcase({.col_scale = 10.0,
+                 .scale_obj = 1.0,
+                 .eq = LpEquilibrationMethod::none});
+  }
+
+  SUBCASE("scale_obj: col_scale=1, scale_obj=1000, eq=none")
+  {
+    run_subcase({.col_scale = 1.0,
+                 .scale_obj = 1000.0,
+                 .eq = LpEquilibrationMethod::none});
+  }
+
+  SUBCASE("all: col_scale=10, scale_obj=1000, eq=row_max")
+  {
+    run_subcase({.col_scale = 10.0,
+                 .scale_obj = 1000.0,
+                 .eq = LpEquilibrationMethod::row_max});
+  }
 }

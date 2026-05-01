@@ -1973,9 +1973,11 @@ TEST_CASE("LinearInterface::clone - mutating clone does not affect original")
     CHECK(cloned.get_col_upp()[orig.x1] == doctest::Approx(7.0));
   }
 
-  SUBCASE("set_obj_coeff on clone leaves original untouched")
+  SUBCASE("set_obj_coeff_raw on clone leaves original untouched")
   {
-    cloned.set_obj_coeff(orig.x1, 99.0);
+    // `get_obj_coeff()` returns the backend's raw obj vector, so the
+    // matching setter for raw round-trip is `set_obj_coeff_raw`.
+    cloned.set_obj_coeff_raw(orig.x1, 99.0);
 
     CHECK(orig.li.get_obj_coeff()[orig.x1] == doctest::Approx(orig_x1_cost));
     CHECK(cloned.get_obj_coeff()[orig.x1] == doctest::Approx(99.0));
@@ -2028,7 +2030,7 @@ TEST_CASE("LinearInterface::clone - mutating original does not affect clone")
 
   // Mutate original after the clone is taken.
   orig.li.set_col_low(orig.x1, 3.0);
-  orig.li.set_obj_coeff(orig.x1, 50.0);
+  orig.li.set_obj_coeff_raw(orig.x1, 50.0);
   [[maybe_unused]] const auto x3 = orig.li.add_col(SparseCol {
       .uppb = 1.0,
       .cost = 0.5,
