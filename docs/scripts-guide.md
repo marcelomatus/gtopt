@@ -13,6 +13,7 @@ preparing, converting, visualizing, and post-processing data for use with gtopt.
 - **Data Preparation & Conversion**
   - [gtopt_diagram](#gtopt_diagram) · [full docs](scripts/gtopt_diagram.md)
   - [plp2gtopt](#plp2gtopt) · [full docs](scripts/plp2gtopt.md)
+  - [sddp2gtopt](#sddp2gtopt) · [full docs](scripts/sddp2gtopt.md)
   - [pp2gtopt](#pp2gtopt) · [full docs](scripts/pp2gtopt.md)
   - [gtopt2pp](#gtopt2pp) — convert gtopt JSON back to pandapower
   - [igtopt](#igtopt) · [full docs](scripts/igtopt.md) · [Excel template](templates/gtopt_template.xlsx) · `igtopt --make-template` regenerates the template
@@ -47,9 +48,9 @@ Install all tools with a single `pip` command from the repository root:
 pip install ./scripts
 ```
 
-This registers all 21 command-line tools on your `PATH`:
-`gtopt_diagram`, `plp2gtopt`, `pp2gtopt`, `gtopt2pp`, `igtopt`,
-`cvs2parquet`, `ts2gtopt`, `gtopt_compare`, `run_gtopt`,
+This registers all 22 command-line tools on your `PATH`:
+`gtopt_diagram`, `plp2gtopt`, `sddp2gtopt`, `pp2gtopt`, `gtopt2pp`,
+`igtopt`, `cvs2parquet`, `ts2gtopt`, `gtopt_compare`, `run_gtopt`,
 `gtopt_monitor`, `gtopt_check_json`, `gtopt_check_lp`,
 `gtopt_check_output`, `gtopt_check_solvers`, `gtopt_compress_lp`,
 `gtopt_check_fingerprint`, `gtopt_field_extractor`, `gtopt_check_pampl`,
@@ -81,6 +82,7 @@ Each command-line tool lives in its own Python package directory under
 | `gtopt_field_extractor/` | `gtopt_field_extractor` | C++ header field metadata extractor |
 | `igtopt/` | `igtopt` | Excel → gtopt JSON converter |
 | `plp2gtopt/` | `plp2gtopt` | PLP → gtopt JSON converter |
+| `sddp2gtopt/` | `sddp2gtopt` | PSR SDDP → gtopt JSON converter |
 | `pp2gtopt/` | `pp2gtopt` | pandapower → gtopt JSON converter |
 | `gtopt2pp/` | `gtopt2pp` | gtopt JSON → pandapower converter |
 | `run_gtopt/` | `run_gtopt` | Smart solver wrapper with pre/post-flight checks |
@@ -495,6 +497,59 @@ centrals by name so the user can verify that they are genuinely unused.
 | Input directory missing | `Input directory does not exist: 'plp_case/'` |
 | Required `.dat` file missing | `Required file not found: …/plpblo.dat` |
 | Invalid data format | `Invalid data format: …` |
+
+---
+
+## sddp2gtopt
+
+> **[→ Full documentation](scripts/sddp2gtopt.md)**
+
+Converts a **PSR SDDP** (*Stochastic Dual Dynamic Programming*, by
+PSR Inc.) case directory to a gtopt JSON planning, mirroring the
+role `plp2gtopt` plays for PLP cases.  v0 is JSON-first: it reads
+the typed `psrclasses.json` snapshot the SDDP GUI saves alongside
+the Fortran-style `.dat` files, parses the standard PSR collections
+(`PSRStudy`, `PSRSystem`, `PSRDemand`, `PSRDemandSegment`, `PSRFuel`,
+`PSRThermalPlant`, `PSRHydroPlant`, `PSRGaugingStation`), and writes
+a single-bus monolithic gtopt planning that `gtopt --lp-only`
+ingests directly.
+
+> ⚠️  Targets the **PSR Inc. commercial** SDDP format only — *not*
+> the academic Julia [SDDP.jl](https://sddp.dev) package.
+
+### Basic usage
+
+```bash
+# Inspect a case (no conversion)
+sddp2gtopt --info  /path/to/sddp_case
+
+# Schema sanity check
+sddp2gtopt --validate /path/to/sddp_case
+
+# Convert (default: writes ./gtopt_<case>/<case>.json)
+sddp2gtopt /path/to/sddp_case
+
+# Explicit output dir
+sddp2gtopt -i /path/to/sddp_case -o gtopt_case
+```
+
+### What gets mapped
+
+| PSR collection                   | gtopt target                       | Status        |
+|----------------------------------|------------------------------------|---------------|
+| `PSRStudy`                       | `options` + `simulation`           | ✅            |
+| `PSRSystem`                      | synthesised single bus per system  | ✅ (single)   |
+| `PSRThermalPlant` + `PSRFuel`    | `generator_array` (`gcost = CEsp × Custo`) | ✅      |
+| `PSRHydroPlant`                  | `generator_array` (zero-cost, flat)| ⚠️ flattened  |
+| `PSRDemand` + `PSRDemandSegment` | `demand_array` with inline `lmax`  | ✅ (GWh→MW)   |
+| `PSRGaugingStation`              | inflow series                      | ⏳ deferred   |
+| Multi-system / multi-bus         | extra `bus_array` + `line_array`   | ⏳ deferred   |
+
+The converter's roadmap (hydro reservoir + waterway, multi-bus,
+multi-scenario, `.dat` fallback) is tracked in
+[`scripts/sddp2gtopt/DESIGN.md`](../scripts/sddp2gtopt/DESIGN.md);
+the per-element mapping rules and unit conversions are documented
+in detail in [`scripts/sddp2gtopt.md`](scripts/sddp2gtopt.md).
 
 ---
 
