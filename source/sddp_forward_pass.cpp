@@ -418,18 +418,31 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
                                        infeas_count),
                 m_options_.cut_coeff_eps,
                 static_cast<int>(infeas_count));
-            for (auto& mc : mc_cuts) {
-              const auto cut_row = add_cut_row(planning_lp(),
-                                               scene_index,
-                                               prev_phase_index,
-                                               CutType::Feasibility,
-                                               mc);
-              store_cut(scene_index,
-                        prev_phase_index,
-                        mc,
-                        CutType::Feasibility,
-                        cut_row);
-              ++mc_added;
+            // Bulk install — Feasibility cuts have no α-release coupling
+            // (only Optimality cuts trigger `free_alpha_for_cut` in the
+            // unified `add_cut_row`), so the per-cut path reduces to
+            // `add_row + record_cut_row`.  Replace the N-call loop with one
+            // `add_rows` dispatch + a tight bookkeeping loop, saving N-1
+            // backend round-trips.  Critical on the elastic-recovery path
+            // where multi-cut can install dozens of cuts per attempt.
+            if (!mc_cuts.empty()) {
+              auto& li = planning_lp()
+                             .system(scene_index, prev_phase_index)
+                             .linear_interface();
+              const auto first_row = static_cast<int>(li.get_numrows());
+              li.add_rows(mc_cuts, m_options_.cut_coeff_eps);
+              for (size_t k = 0; k < mc_cuts.size(); ++k) {
+                const auto cut_row = RowIndex {first_row + static_cast<int>(k)};
+                // Mirror `LinearInterface::add_cut_row`'s per-cut bookkeeping
+                // (no-op when low_memory_mode == off).
+                li.record_cut_row(mc_cuts[k]);
+                store_cut(scene_index,
+                          prev_phase_index,
+                          mc_cuts[k],
+                          CutType::Feasibility,
+                          cut_row);
+                ++mc_added;
+              }
             }
 
             // P0-B fallback (2026-04-23): if `build_multi_cuts`
