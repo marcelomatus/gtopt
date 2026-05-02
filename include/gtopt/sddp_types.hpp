@@ -890,6 +890,16 @@ struct SDDPIterationResult
   /// Per-scene lower bounds (phase-0 objective values).  Size =
   /// num_scenes.
   std::vector<double> scene_lower_bounds {};
+  /// Per-scene feasibility flag (1 = feasible, 0 = infeasible).
+  /// Mirror of ``ForwardPassOutcome::scene_feasible``.  Size =
+  /// num_scenes when populated, empty otherwise (e.g. async mode
+  /// where scenes complete out-of-order).  Surfaces in the
+  /// per-iteration headline as ``feasible=K/N`` so operators see
+  /// the fraction of the original problem the bounds actually
+  /// cover — UB / LB are computed *only over feasible scenes*
+  /// (renormalising probability weights), so a low K/N means the
+  /// gap reflects a sub-problem, not the original N-scene SDDP.
+  std::vector<uint8_t> scene_feasible {};
 
   /// Per-scene iteration at the time this result was computed.
   /// Populated only in async mode (max_async_spread > 0).  Shows the
