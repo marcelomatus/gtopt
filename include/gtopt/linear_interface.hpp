@@ -2512,6 +2512,17 @@ private:
   /// `rebuild` — the flat LP is regenerated from collections instead.
   LowMemorySnapshot m_snapshot_ {};
 
+  /// True while `apply_post_load_replay` is bulk-replaying
+  /// `m_dynamic_cols_` / `m_dynamic_rows_` / `m_active_cuts_` onto the
+  /// freshly loaded backend.  Used by the auto-record path in
+  /// `add_col(SparseCol)` / `add_row(SparseRow)` to skip recording on
+  /// the replay re-entry — without it, every reconstruct would push the
+  /// same SparseCol back into `m_dynamic_cols_`, growing it unboundedly.
+  /// The bulk variants `add_cols(span)` / `add_rows(span)` used by replay
+  /// also bypass the single-arg path, so this flag is a defence-in-depth
+  /// guard rather than the sole serialiser.
+  bool m_replaying_ {false};
+
   /// Columns added after initial load_flat() (typically just alpha).
   std::vector<SparseCol> m_dynamic_cols_ {};
 

@@ -584,12 +584,13 @@ TEST_CASE(
   li.set_low_memory(LowMemoryMode::compress);
   li.save_snapshot(FlatLinearProblem {flat});
 
-  // Add a dynamic column (simulating alpha variable)
+  // Add a dynamic column (simulating alpha variable).  `add_col`
+  // auto-records into `m_dynamic_cols_` post-snapshot, so no explicit
+  // `record_dynamic_col` is needed.
   SparseCol alpha_col;
   alpha_col.uppb = 1000.0;
   alpha_col.cost = 0.0;
   [[maybe_unused]] const auto alpha = li.add_col(alpha_col);
-  li.record_dynamic_col(alpha_col);
   li.save_base_numrows();
 
   CHECK(li.get_numcols() == 3);
@@ -610,10 +611,11 @@ TEST_CASE(
     "LinearInterface — low_memory reconstruct with dynamic rows")  // NOLINT
 {
   // Regression test for the bug fixed in the cascade method: a row added
-  // via `add_row` AFTER the snapshot was taken is silently dropped on the
-  // first `release_backend` → `reconstruct_backend` cycle UNLESS it is
-  // mirrored into `m_dynamic_rows_` via `record_dynamic_row`.  Symmetric
-  // to the col-side `record_dynamic_col` contract verified above.
+  // via `add_row` AFTER the snapshot was taken used to be silently
+  // dropped on the first `release_backend` → `reconstruct_backend`
+  // cycle.  After the auto-record refactor, `add_row(SparseRow)`
+  // mirrors into `m_dynamic_rows_` automatically — symmetric to the
+  // col-side auto-record verified above.
   auto [li, flat, x1, x2] = make_simple_li_lp();
 
   auto res = li.initial_solve();
@@ -626,7 +628,11 @@ TEST_CASE(
 
   // Add a structural row AFTER the snapshot was taken, simulating the
   // cascade `add_elastic_targets` path.  Constraint: x2 >= 3 (binding —
-  // baseline optimum was x1=5, x2=0).
+  // baseline optimum was x1=5, x2=0).  Auto-record is intentionally
+  // limited to `add_col(SparseCol)` (cols are unambiguously structural
+  // post-init); rows are ambiguous (cuts also use add_row + their own
+  // record_cut_row), so callers must explicitly call
+  // `record_dynamic_row` for structural rows.
   SparseRow extra;
   extra[x2] = 1.0;
   extra.lowb = 3.0;
@@ -636,8 +642,8 @@ TEST_CASE(
 
   CHECK(li.get_numrows() == base_nrows + 1);
 
-  // Release + reconstruct.  Without `record_dynamic_row` the extra row
-  // would be lost here and the LP would re-collapse to x1=5, x2=0.
+  // Release + reconstruct.  Pre-fix, the extra row would have been lost
+  // here and the LP would re-collapse to x1=5, x2=0.
   li.release_backend();
   li.reconstruct_backend();
 
@@ -671,14 +677,20 @@ TEST_CASE(
   li.save_base_numrows();
   const auto base_nrows = li.base_numrows();
 
-  // 2 slack columns (the same shape cascade uses for tgt_sup / tgt_sdn).
-  SparseCol sup {.uppb = LinearProblem::DblMax, .cost = 100.0};
-  const auto sup_col = li.add_col(sup);
-  li.record_dynamic_col(sup);
+  // 2 slack columns + elastic constraint row (same shape cascade uses
+  // for tgt_sup / tgt_sdn).  `add_col(SparseCol)` auto-records into
+  // `m_dynamic_cols_`; rows still need an explicit
+  // `record_dynamic_row` because `add_row(SparseRow)` is also used by
+  // cut callers (who route through `record_cut_row` instead).
+  const auto sup_col = li.add_col(SparseCol {
+      .uppb = LinearProblem::DblMax,
+      .cost = 100.0,
+  });
 
-  SparseCol sdn {.uppb = LinearProblem::DblMax, .cost = 100.0};
-  const auto sdn_col = li.add_col(sdn);
-  li.record_dynamic_col(sdn);
+  const auto sdn_col = li.add_col(SparseCol {
+      .uppb = LinearProblem::DblMax,
+      .cost = 100.0,
+  });
 
   // Elastic constraint: x1 - sup + sdn ∈ [3, 3]  (i.e. target value 3,
   // any deviation paid via slacks at penalty 100).
@@ -714,16 +726,21 @@ TEST_CASE(
 }
 
 TEST_CASE(
-    "LinearInterface — add_col without record_dynamic_col is LOST on "
-    "reconstruct (documents the contract)")  // NOLINT
+    "LinearInterface — add_col(SparseCol) auto-records post-snapshot "
+    "mutations (footgun removed)")  // NOLINT
 {
-  // Pins the current API contract: `add_col` after the snapshot only
-  // affects the live backend.  Under low_memory=compress, the column
-  // is silently discarded on the first reconstruct unless the caller
-  // also records it via `record_dynamic_col`.  This test documents the
-  // footgun so a future refactor that removes the requirement (e.g. by
-  // making `add_col` auto-record) flips this CHECK and forces the
-  // change to be deliberate, not accidental.
+  // After the auto-record refactor, `add_col(SparseCol)` automatically
+  // pushes into `m_dynamic_cols_` when the snapshot is populated and
+  // `low_memory != off`.  Callers no longer need to remember a
+  // follow-up `record_dynamic_col` to keep post-snapshot cols across
+  // reconstruct cycles — exercise the bare-add_col path and verify
+  // the column survives a release/reconstruct cycle.
+  //
+  // History: this test originally pinned the OPPOSITE invariant
+  // ("add_col without record_dynamic_col is LOST on reconstruct") to
+  // document the footgun that triggered the cascade SIGSEGV.  When
+  // `add_col` started auto-recording, the test was inverted to lock
+  // in the new safer contract.
   auto [li, flat, x1, x2] = make_simple_li_lp();
 
   auto res = li.initial_solve();
@@ -733,20 +750,25 @@ TEST_CASE(
   li.set_low_memory(LowMemoryMode::compress);
   li.save_snapshot(FlatLinearProblem {flat});
 
-  // Add a dynamic col but DELIBERATELY skip the `record_dynamic_col` step.
-  SparseCol dangling {.uppb = LinearProblem::DblMax};
-  [[maybe_unused]] const auto dangling_col = li.add_col(dangling);
+  // No explicit `record_dynamic_col` — the auto-record in
+  // `add_col(SparseCol)` should mirror this into `m_dynamic_cols_`.
+  SparseCol persistent {.uppb = LinearProblem::DblMax};
+  [[maybe_unused]] const auto col_idx = li.add_col(persistent);
   CHECK(li.get_numcols() == base_ncols + 1);
 
-  // First reconstruct cycle: the un-recorded column evaporates because
-  // the snapshot is frozen at flatten time and `m_dynamic_cols_` is
-  // empty.  This is the exact mechanism that broke cascade level 1
-  // (`add_elastic_targets` slack cols + elastic constraint row landed
-  // only on the live backend, then disappeared).
+  // Reconstruct: replay should re-apply the recorded col.
   li.release_backend();
   li.reconstruct_backend();
+  CHECK(li.get_numcols() == base_ncols + 1);
 
-  CHECK(li.get_numcols() == base_ncols);
+  // Multiple cycles must not double-record (the replay path itself
+  // calls `add_cols(span)` which bypasses the single-arg auto-record,
+  // and `m_replaying_` is set as defence-in-depth).
+  for (int i = 0; i < 3; ++i) {
+    li.release_backend();
+    li.reconstruct_backend();
+    CHECK(li.get_numcols() == base_ncols + 1);
+  }
 }
 
 TEST_CASE("LinearInterface — low_memory reconstruct with cuts")  // NOLINT
@@ -1785,6 +1807,8 @@ TEST_CASE(  // NOLINT
   li.save_snapshot(FlatLinearProblem {flat});
 
   // Record a dynamic column representing an alpha variable.
+  // `add_col(SparseCol)` auto-records into `m_dynamic_cols_`
+  // post-snapshot, so no explicit `record_dynamic_col` is needed.
   SparseCol alpha_col;
   alpha_col.lowb = 0.0;
   alpha_col.uppb = 1000.0;
@@ -1792,7 +1816,6 @@ TEST_CASE(  // NOLINT
   alpha_col.class_name = "Sddp";
   alpha_col.variable_name = "alpha";
   [[maybe_unused]] const auto alpha = li.add_col(alpha_col);
-  li.record_dynamic_col(alpha_col);
   li.save_base_numrows();
 
   SUBCASE("match by class_name + variable_name updates lowb, returns true")

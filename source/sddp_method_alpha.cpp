@@ -123,10 +123,11 @@ void register_alpha_variables(PlanningLP& planning_lp,
         .context =
             make_scene_phase_context(sim.uid_of(scene_index), phase.uid()),
     };
+    // `LinearInterface::add_col(SparseCol)` auto-records into
+    // `m_dynamic_cols_` whenever the snapshot is populated and
+    // `low_memory != off`, so no explicit `record_dynamic_col`
+    // mirror is needed here for the post-snapshot replay path.
     const auto alpha_col = li.add_col(alpha_sparse);
-
-    // Track dynamic column for low_memory reconstruction.
-    planning_lp.system(scene_index, pi).record_dynamic_col(alpha_sparse);
 
     // Register α as a regular state variable so all label-based
     // machinery (state CSV I/O, cut CSV I/O, cross-level resolution)

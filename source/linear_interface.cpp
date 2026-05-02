@@ -365,6 +365,28 @@ void LinearInterface::apply_post_load_replay(std::span<const double> col_sol,
   assert(!m_backend_released_
          && "apply_post_load_replay requires a live backend");
 
+  // Defence-in-depth flag: bulk `add_cols` / `add_rows` already bypass
+  // the single-arg auto-record path, but flipping `m_replaying_` here
+  // makes the invariant explicit ("replay never grows the persistent
+  // registries") and keeps the auto-record gate's failure mode safe
+  // even if a future refactor re-routes bulk replay through the
+  // single-arg API.
+  struct ReplayGuard
+  {
+    bool& flag;
+    explicit ReplayGuard(bool& f) noexcept
+        : flag(f)
+    {
+      flag = true;
+    }
+    ~ReplayGuard() noexcept { flag = false; }
+    ReplayGuard(const ReplayGuard&) = delete;
+    ReplayGuard(ReplayGuard&&) = delete;
+    ReplayGuard& operator=(const ReplayGuard&) = delete;
+    ReplayGuard& operator=(ReplayGuard&&) = delete;
+  };
+  ReplayGuard replay_guard {m_replaying_};
+
   // 1. Replay dynamic columns (typically just alpha — very few).
   //
   // Uses the bulk `add_cols(span)` so the API mirrors the bulk
@@ -1058,6 +1080,23 @@ ColIndex LinearInterface::add_col(const SparseCol& col)
 
   track_col_label_meta(col_idx, col);
 
+  // Auto-record post-snapshot mutations so they are replayed on the
+  // next `release_backend` → `reconstruct_backend` cycle in
+  // low_memory=compress mode.  Skips when `m_replaying_` is set
+  // (apply_post_load_replay's bulk re-entry — the bulk path bypasses
+  // this single-arg variant anyway, but the flag is a defence-in-depth
+  // guard).  Skips when `m_low_memory_mode_ == off` (no replay needed)
+  // and when `m_snapshot_` has no data (we are still building the
+  // initial structural LP that will become the snapshot).  Caller
+  // doesn't need to remember a follow-up `record_dynamic_col` —
+  // historically that was a hidden requirement that silently dropped
+  // post-init cols on the first reconstruct (juan/cascade SIGSEGV).
+  if (!m_replaying_ && m_low_memory_mode_ != LowMemoryMode::off
+      && m_snapshot_.has_data())
+  {
+    m_dynamic_cols_.push_back(col);
+  }
+
   return col_idx;
 }
 
@@ -1595,6 +1634,17 @@ RowIndex LinearInterface::add_row(const SparseRow& row, const double eps)
     set_row_scale(row_idx, composite_scale);
   }
   track_row_label_meta(row_idx, row);
+  // No auto-record for rows: the single-arg `add_row(SparseRow)` is
+  // used both for structural rows (cascade elastic targets, but those
+  // moved to bulk `add_rows` in 9fe35927) AND for cut rows (loaded
+  // singly in tests, in bulk via SDDP cut loaders).  Cut callers use
+  // `record_cut_row` to land the row in `m_active_cuts_` for the
+  // separate cut-replay path; auto-recording into `m_dynamic_rows_`
+  // here would double-record every cut on reconstruct.  Auto-record
+  // is therefore restricted to `add_col(SparseCol)` where the
+  // structural-vs-cut ambiguity does not arise (cuts add rows, not
+  // cols).  Structural-row callers continue to use
+  // `record_dynamic_row` explicitly.
   return row_idx;
 }
 
