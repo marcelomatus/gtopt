@@ -163,3 +163,178 @@ TEST_CASE(
   std::error_code ec;
   std::filesystem::remove(stem + ".lp", ec);
 }
+
+TEST_CASE("clone matrix: low-memory modes × clone routes × kinds")
+{
+  // Parametric coverage of the meaningful (mode, route, kind) cells:
+  //   - {off,      plugin, deep/shallow}  — no snapshot, no compression
+  //   - {compress, plugin, deep/shallow}  — snapshot retained, source can
+  //   release
+  //   - {compress, manual, deep/shallow}  — clone_from_flat path, requires
+  //   snapshot
+  //
+  // Skipped cells:
+  //   * {off, manual}: `clone_from_flat` requires a snapshot, but
+  //     `set_low_memory(off)` deliberately wipes m_snapshot_
+  //     (linear_interface.cpp:249-251) — the combination is by design
+  //     incoherent.  Verified separately below as an error case.
+  //   * {rebuild, *}: `LowMemoryMode::rebuild` requires a SystemLP-owned
+  //     rebuild callback to function — unit-test context (no callback)
+  //     short-circuits `release_backend` to a no-op (linear_interface.cpp:
+  //     117-122), so the clone behaviour collapses to the `off`-mode path.
+  //     Production rebuild semantics are covered by the SDDP integration
+  //     tests end-to-end.
+  //
+  // For each cell:
+  //   1. dimensions match the source,
+  //   2. clone is independent (bound mutation does not leak to source),
+  //   3. write_lp on the clone succeeds and emits the source's labels.
+  using Mode = LowMemoryMode;
+  using Kind = LinearInterface::CloneKind;
+
+  struct Cell
+  {
+    const char* mode_tag;
+    Mode mode;
+    const char* route_tag;
+    bool manual;
+  };
+
+  for (auto cell : {Cell {"off", Mode::off, "plugin", false},
+                    Cell {"compress", Mode::compress, "plugin", false},
+                    Cell {"compress", Mode::compress, "manual", true}})
+  {
+    for (auto kind : {Kind::deep, Kind::shallow}) {
+      CAPTURE(cell.mode_tag);
+      CAPTURE(cell.route_tag);
+      const char* kind_tag = (kind == Kind::deep ? "deep" : "shallow");
+      CAPTURE(kind_tag);
+
+      auto [src, flat] = make_lowmem_lp();
+      src.set_low_memory(cell.mode);
+      // The snapshot is needed by the `manual` route only.  `off` mode
+      // deliberately clears it via `set_low_memory(off)` (the code path
+      // that originally caused this test's REQUIRE to trip).  We only
+      // populate the snapshot when the test cell actually consumes it.
+      if (cell.manual) {
+        src.save_snapshot(FlatLinearProblem {flat});
+        REQUIRE(src.has_snapshot_data());
+      }
+
+      auto cloned = cell.manual ? src.clone_from_flat(kind) : src.clone(kind);
+
+      // 1. Dimensions match.
+      CHECK(cloned.get_numcols() == src.get_numcols());
+      CHECK(cloned.get_numrows() == src.get_numrows());
+
+      // 2. Bound mutation isolation.
+      const auto src_low_before = src.get_col_low_raw()[0];
+      cloned.set_col_low_raw(ColIndex {0}, 1.5);
+      CHECK(src.get_col_low_raw()[0] == doctest::Approx(src_low_before));
+      CHECK(cloned.get_col_low_raw()[0] == doctest::Approx(1.5));
+
+      // 3. write_lp on the clone — labels survive both COW paths
+      //    and the deep/shallow split.
+      const auto stem =
+          (std::filesystem::temp_directory_path()
+           / std::string {std::string {"test_clone_matrix_"} + cell.mode_tag
+                          + "_" + cell.route_tag + "_" + kind_tag})
+              .string();
+      REQUIRE(cloned.write_lp(stem).has_value());
+      const auto content = lowmem_clone_read_file(stem + ".lp");
+      CHECK(content.find("gen") != std::string::npos);
+      CHECK(content.find("bus") != std::string::npos);
+
+      std::error_code ec;
+      std::filesystem::remove(stem + ".lp", ec);
+    }
+  }
+}
+
+TEST_CASE("clone_from_flat throws when source is in off-mode (no snapshot)")
+{
+  // Documents the (off, manual) cell skipped in the matrix above:
+  // `set_low_memory(off)` clears m_snapshot_, so `clone_from_flat`
+  // hits its pre-condition guard at linear_interface.cpp:768 and
+  // throws "source has no snapshot".  Pinning this contract prevents
+  // accidental relaxation that would silently fall through to a
+  // load_flat with an empty FlatLinearProblem.
+  auto [src, flat] = make_lowmem_lp();
+  src.set_low_memory(LowMemoryMode::off);
+  REQUIRE_FALSE(src.has_snapshot_data());
+  CHECK_THROWS_AS(std::ignore = src.clone_from_flat(), std::runtime_error);
+}
+
+TEST_CASE(
+    "compress mode: deep clone + source release_backend — clone is "
+    "fully independent")
+{
+  // Sister to the existing shallow-clone-survives test, but for the
+  // DEEP path: a deep clone owns its own copy of the metadata at
+  // clone time, so the source's compression cycle CANNOT reach the
+  // clone's pointers.  Verifies the deep contract holds end-to-end
+  // under low-memory pressure, which the shallow-only tests above
+  // do not exercise.
+  auto [src, flat] = make_lowmem_lp();
+  src.set_low_memory(LowMemoryMode::compress);
+  src.save_snapshot(FlatLinearProblem {flat});
+
+  auto cloned = src.clone(LinearInterface::CloneKind::deep);
+  // Deep clones have use_count = 1 on every wrapped meta member
+  // immediately after the clone — no sharing with the source.
+  CHECK(src.col_labels_meta_use_count() == 1);
+  CHECK(cloned.col_labels_meta_use_count() == 1);
+
+  src.release_backend();
+  CHECK(src.is_backend_released());
+  // The clone is unaffected — its use counts didn't bump down.
+  CHECK(cloned.col_labels_meta_use_count() == 1);
+
+  const auto stem = (std::filesystem::temp_directory_path()
+                     / "test_clone_lowmem_deep_release")
+                        .string();
+  REQUIRE(cloned.write_lp(stem).has_value());
+  const auto content = lowmem_clone_read_file(stem + ".lp");
+  CHECK(content.find("gen") != std::string::npos);
+  CHECK(content.find("bus") != std::string::npos);
+
+  std::error_code ec;
+  std::filesystem::remove(stem + ".lp", ec);
+}
+
+TEST_CASE("compress mode: clone_from_flat survives source's release_backend")
+{
+  // The manual route (clone_from_flat) builds the clone via load_flat
+  // from the source's snapshot — bypassing backend.clone() entirely.
+  // Once built, the clone holds its own backend + metadata and is
+  // independent of the source's lifecycle.  Verify that the source's
+  // release_backend (which compresses & clears the source's metadata)
+  // does not perturb the clone.
+  auto [src, flat] = make_lowmem_lp();
+  src.set_low_memory(LowMemoryMode::compress);
+  src.save_snapshot(FlatLinearProblem {flat});
+
+  // Snapshot must be uncompressed for clone_from_flat to succeed.
+  REQUIRE(src.has_snapshot_data());
+  const auto cloned = src.clone_from_flat(LinearInterface::CloneKind::shallow);
+
+  // Trigger the source's compression cycle.
+  src.release_backend();
+  CHECK(src.is_backend_released());
+
+  // Clone is fully functional after the source's compression.
+  CHECK(cloned.get_numcols() == 2);
+  CHECK(cloned.get_numrows() == 1);
+  CHECK_FALSE(cloned.is_backend_released());
+
+  const auto stem = (std::filesystem::temp_directory_path()
+                     / "test_clone_lowmem_manual_release")
+                        .string();
+  REQUIRE(cloned.write_lp(stem).has_value());
+  const auto content = lowmem_clone_read_file(stem + ".lp");
+  CHECK(content.find("gen") != std::string::npos);
+  CHECK(content.find("bus") != std::string::npos);
+
+  std::error_code ec;
+  std::filesystem::remove(stem + ".lp", ec);
+}
