@@ -72,7 +72,6 @@ auto build_expected_sddp_opts(const PlanningOptionsLP& options) -> SDDPOptions
   sddp_opts.stationary_gap_ceiling = options.sddp_stationary_gap_ceiling();
   sddp_opts.terminal_failure_threshold =
       options.sddp_terminal_failure_threshold();
-  sddp_opts.infeasible_scene_penalty = options.sddp_infeasible_scene_penalty();
 
   // Simulation mode handling
   if (options.sddp_simulation_mode()) {
@@ -206,7 +205,6 @@ TEST_CASE("make_planning_method SDDP wiring snapshot")  // NOLINT
     CHECK(so.convergence_confidence == doctest::Approx(0.0));
     CHECK(so.stationary_gap_ceiling == doctest::Approx(0.05));
     CHECK(so.terminal_failure_threshold == 2);
-    CHECK(so.infeasible_scene_penalty == doctest::Approx(0.0));
 
     // ── Advanced tuning ──
     // PLP parity (2026-04-24): elastic_penalty default = 1.0 (matches
@@ -308,7 +306,6 @@ TEST_CASE("make_planning_method SDDP wiring snapshot")  // NOLINT
     popts.sddp_options.convergence_confidence = 0.77;
     popts.sddp_options.stationary_gap_ceiling = 0.123;
     popts.sddp_options.terminal_failure_threshold = 7;
-    popts.sddp_options.infeasible_scene_penalty = 9.876e7;
 
     // Advanced tuning
     popts.sddp_options.elastic_penalty = 3.14e3;
@@ -373,7 +370,6 @@ TEST_CASE("make_planning_method SDDP wiring snapshot")  // NOLINT
     CHECK(so.convergence_confidence == doctest::Approx(0.77));
     CHECK(so.stationary_gap_ceiling == doctest::Approx(0.123));
     CHECK(so.terminal_failure_threshold == 7);
-    CHECK(so.infeasible_scene_penalty == doctest::Approx(9.876e7));
 
     // ── Advanced tuning ──
     CHECK(so.elastic_penalty == doctest::Approx(3.14e3));
