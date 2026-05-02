@@ -18,7 +18,9 @@
 #include <gtopt/basic_types.hpp>
 #include <gtopt/lp_matrix_enums.hpp>
 #include <gtopt/lp_validation.hpp>
+#include <gtopt/phase.hpp>  // PhaseIndex
 #include <gtopt/planning_enums.hpp>  // CompressionCodec
+#include <gtopt/scene.hpp>  // SceneIndex
 #include <gtopt/sddp_enums.hpp>  // LowMemoryMode
 #include <gtopt/utils.hpp>
 
@@ -89,6 +91,18 @@ struct LpMatrixOptions
   /// values land in the LP, capped per-kind to avoid log-spam.  See
   /// LpValidationOptions for individual thresholds.
   LpValidationOptions validation {};
+
+  /// Optional (scene, phase) UIDs of the LP cell currently being
+  /// flattened.  Used to prepend `[s14 p46]` to per-cell LP_QUALITY
+  /// messages so they line up with `SDDP Forward / Backward` info
+  /// lines (which also print UIDs, not internal indices).  Set by
+  /// `system_lp.cpp::flatten_from_collections` and read by
+  /// `LinearProblem::flatten`.  Stored as strong-typed UIDs, not a
+  /// pre-formatted string, so consumers can also use them for
+  /// structured logging or per-cell stat aggregation.  Not merged
+  /// across LpMatrixOptions.
+  std::optional<SceneUid> flatten_scene_uid {};
+  std::optional<PhaseUid> flatten_phase_uid {};
 
   /// Merge optional fields from another LpMatrixOptions.
   /// Non-optional fields (eps, col_with_names, etc.) are not merged —

@@ -857,59 +857,120 @@ auto LinearProblem::flatten(const LpMatrixOptions& opts) -> FlatLinearProblem
     }
 
     const bool have_full = any_col_metadata && any_row_metadata;
-    if (have_full) {
-      spdlog::info(
-          "LP_QUALITY: nnz={} max={:.2e} [col={} {}[{}].{} row={} "
-          "{}[{}].{}] min={:.2e} [col={} {}[{}].{} row={} {}[{}].{}] "
-          "ratio={:.2e}",
-          stats_nnz,
-          stats_max,
-          stats_max_col_idx->value_of(),
-          cmax->class_name,
-          cmax->variable_uid,
-          cmax->variable_name,
-          stats_max_row_idx->value_of(),
-          rmax->class_name,
-          rmax->variable_uid,
-          rmax->constraint_name,
-          effective_min,
-          stats_min_col_idx->value_of(),
-          cmin->class_name,
-          cmin->variable_uid,
-          cmin->variable_name,
-          stats_min_row_idx->value_of(),
-          rmin->class_name,
-          rmin->variable_uid,
-          rmin->constraint_name,
-          ratio);
-    } else {
-      spdlog::info("LP_QUALITY: nnz={} max={:.2e} min={:.2e} ratio={:.2e}",
-                   stats_nnz,
-                   stats_max,
-                   effective_min,
-                   ratio);
-    }
 
     const double max_threshold = opts.validation.effective_coeff_warn_max();
-    if (stats_max > max_threshold || ratio > 1e10) {
+    const double ratio_threshold =
+        opts.lp_coeff_ratio_threshold.value_or(1.0e7);
+    const bool max_exceeds = stats_max > max_threshold;
+    const bool ratio_exceeds = ratio > ratio_threshold;
+    const bool any_threshold_hit = max_exceeds || ratio_exceeds;
+
+    // Per-cell LP_QUALITY is verbose (one line per scene × phase ×
+    // flatten), so the unconditional emission lives at debug level — at
+    // info level we only fire on a real conditioning issue.  Skip the
+    // entire block when neither path will produce output: no threshold
+    // hit AND debug logging disabled.  This is the common case in a
+    // healthy run.  Costs one virtual call (`should_log`) per flatten,
+    // vs. building `ctx_prefix` + invoking format machinery on every
+    // call.
+    auto* logger = spdlog::default_logger_raw();
+    const bool emit_anything = any_threshold_hit
+        || (logger != nullptr && logger->should_log(spdlog::level::debug));
+    if (!emit_anything) {
+      // nothing to log — leave fast
+    } else {
+      // Build `[s14 p46]` prefix only now that we know we'll log.
+      // spdlog formats the message lazily through fmt::format_to, so
+      // the args themselves cost nothing until the per-emission call.
+      const std::string ctx_prefix = (opts.flatten_scene_uid.has_value()
+                                      && opts.flatten_phase_uid.has_value())
+          ? std::format("[s{} p{}] ",
+                        opts.flatten_scene_uid->value(),
+                        opts.flatten_phase_uid->value())
+          : std::string {};
+
+      // Two emission paths share the same content; only the level
+      // differs.  spdlog::log itself short-circuits when the level is
+      // disabled, so passing `level::debug` for healthy runs incurs only
+      // a level check (no formatting) when debug logging is off.
+      const auto emit_full = [&](spdlog::level::level_enum lvl)
+      {
+        spdlog::log(lvl,
+                    "{}LP_QUALITY: nnz={} max={:.2e} [col={} {}[{}].{} row={} "
+                    "{}[{}].{}] min={:.2e} [col={} {}[{}].{} row={} {}[{}].{}] "
+                    "ratio={:.2e}",
+                    ctx_prefix,
+                    stats_nnz,
+                    stats_max,
+                    stats_max_col_idx->value_of(),
+                    cmax->class_name,
+                    cmax->variable_uid,
+                    cmax->variable_name,
+                    stats_max_row_idx->value_of(),
+                    rmax->class_name,
+                    rmax->variable_uid,
+                    rmax->constraint_name,
+                    effective_min,
+                    stats_min_col_idx->value_of(),
+                    cmin->class_name,
+                    cmin->variable_uid,
+                    cmin->variable_name,
+                    stats_min_row_idx->value_of(),
+                    rmin->class_name,
+                    rmin->variable_uid,
+                    rmin->constraint_name,
+                    ratio);
+      };
+      const auto emit_short = [&](spdlog::level::level_enum lvl)
+      {
+        spdlog::log(lvl,
+                    "{}LP_QUALITY: nnz={} max={:.2e} min={:.2e} ratio={:.2e}",
+                    ctx_prefix,
+                    stats_nnz,
+                    stats_max,
+                    effective_min,
+                    ratio);
+      };
+
+      const auto level =
+          any_threshold_hit ? spdlog::level::warn : spdlog::level::debug;
       if (have_full) {
-        spdlog::warn(
-            "LP_QUALITY: max |coeff|={:.2e} [col={} {}[{}].{} row={} "
-            "{}[{}].{}] EXCEEDS threshold {:.2e}",
-            stats_max,
-            stats_max_col_idx->value_of(),
-            cmax->class_name,
-            cmax->variable_uid,
-            cmax->variable_name,
-            stats_max_row_idx->value_of(),
-            rmax->class_name,
-            rmax->variable_uid,
-            rmax->constraint_name,
-            max_threshold);
+        emit_full(level);
       } else {
-        spdlog::warn("LP_QUALITY: max |coeff|={:.2e} EXCEEDS threshold {:.2e}",
-                     stats_max,
-                     max_threshold);
+        emit_short(level);
+      }
+      if (any_threshold_hit) {
+        // Spell out which threshold tripped on warn-level lines.
+        if (max_exceeds) {
+          if (have_full) {
+            spdlog::warn(
+                "{}LP_QUALITY: max |coeff|={:.2e} [col={} {}[{}].{} row={} "
+                "{}[{}].{}] EXCEEDS threshold {:.2e}",
+                ctx_prefix,
+                stats_max,
+                stats_max_col_idx->value_of(),
+                cmax->class_name,
+                cmax->variable_uid,
+                cmax->variable_name,
+                stats_max_row_idx->value_of(),
+                rmax->class_name,
+                rmax->variable_uid,
+                rmax->constraint_name,
+                max_threshold);
+          } else {
+            spdlog::warn(
+                "{}LP_QUALITY: max |coeff|={:.2e} EXCEEDS threshold {:.2e}",
+                ctx_prefix,
+                stats_max,
+                max_threshold);
+          }
+        }
+        if (ratio_exceeds) {
+          spdlog::warn("{}LP_QUALITY: ratio={:.2e} EXCEEDS threshold {:.2e}",
+                       ctx_prefix,
+                       ratio,
+                       ratio_threshold);
+        }
       }
     }
   }

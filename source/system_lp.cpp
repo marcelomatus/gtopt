@@ -272,7 +272,7 @@ void fix_stage_islands(const auto& collections,
       }
     }
 
-    spdlog::debug(
+    spdlog::info(
         "Stage {}: bus uid={} pinned as runtime reference "
         "(theta=0) for disconnected island",
         stage.uid(),
@@ -469,7 +469,14 @@ constexpr auto flatten_from_collections(auto& collections,
       ? compute_lp_fingerprint(lp.get_cols(), lp.get_rows())
       : LpFingerprint {};
 
-  auto flat_lp = lp.flatten(flat_opts);
+  // Inject scene/phase context so the per-cell LP_QUALITY message
+  // carries `[s14 p46]` like other SDDP info lines.  Local copy
+  // because the caller's flat_opts is const.
+  auto cell_flat_opts = flat_opts;
+  cell_flat_opts.flatten_scene_uid = scene.uid();
+  cell_flat_opts.flatten_phase_uid = phase.uid();
+
+  auto flat_lp = lp.flatten(cell_flat_opts);
   return std::tuple {std::move(flat_lp), std::move(fingerprint), label_maker};
 }
 
