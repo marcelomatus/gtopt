@@ -121,6 +121,10 @@ void log_pre_solve_stats(
   log_kv("scale_theta",
          mo.scale_theta.has_value() ? std::format("{:.6g}", *mo.scale_theta)
                                     : "auto (median reactance)");
+  log_kv("scale_loss_link",
+         mo.scale_loss_link.has_value()
+             ? std::format("{:.6g}", *mo.scale_loss_link)
+             : "auto (median R/V²)");
   log_kv(
       "equilibration",
       std::format("{}{}",

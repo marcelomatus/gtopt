@@ -7,6 +7,7 @@
  *
  */
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cmath>
@@ -384,6 +385,116 @@ void PlanningLP::auto_scale_theta(Planning& planning)
           n);
     }
   }
+}
+
+// ── Adaptive line-loss row scaling ───────────────────────────────────────
+
+void PlanningLP::auto_scale_loss_link(Planning& planning)
+{
+  auto& opts = planning.options;
+
+  // Global kill switch: respect `auto_scale = false` (`--no-scale`).
+  if (!opts.model_options.auto_scale.value_or(true)) {
+    return;
+  }
+  // Honour any explicit setting (model_options or top-level not exposed
+  // for this option — model_options is the only path).
+  if (opts.model_options.scale_loss_link.has_value()) {
+    return;
+  }
+
+  // Skip when single-bus or losses globally disabled.
+  if (opts.use_single_bus.value_or(false)
+      || opts.model_options.use_single_bus.value_or(false))
+  {
+    return;
+  }
+
+  const auto sched_to_scalar = [](const auto& sched) -> double
+  {
+    if (std::holds_alternative<double>(sched)) {
+      return std::get<double>(sched);
+    }
+    if (std::holds_alternative<std::vector<double>>(sched)) {
+      const auto& vec = std::get<std::vector<double>>(sched);
+      if (!vec.empty()) {
+        return vec.front();
+      }
+    }
+    return 0.0;
+  };
+
+  // Collect R/V² values across every line that contributes a PWL loss row.
+  // The loss-link row's smallest coefficient is loss_1 = seg_width · R / V²;
+  // for global row scaling we drop seg_width (per-line / per-block) and
+  // pick a power-of-10 multiplier from median(R/V²) so the per-unit factor
+  // is lifted symmetrically across the network.
+  std::vector<double> r_over_v2;
+  r_over_v2.reserve(planning.system.line_array.size());
+  for (const auto& line : planning.system.line_array) {
+    if (!line.resistance.has_value()) {
+      continue;
+    }
+    const double R = sched_to_scalar(*line.resistance);
+    if (R <= 0.0) {
+      continue;
+    }
+    double v = 1.0;
+    if (line.voltage.has_value()) {
+      const double vs = sched_to_scalar(*line.voltage);
+      if (vs > 0.0) {
+        v = vs;
+      }
+    }
+    const double V2 = v * v;
+    if (V2 <= 0.0) {
+      continue;
+    }
+    r_over_v2.push_back(R / V2);
+  }
+
+  if (r_over_v2.empty()) {
+    return;
+  }
+
+  std::ranges::sort(r_over_v2);
+  const auto n = r_over_v2.size();
+  const double median_rv2 = (n % 2 == 0)
+      ? (r_over_v2[(n / 2) - 1] + r_over_v2[n / 2]) / 2.0
+      : r_over_v2[n / 2];
+
+  if (median_rv2 <= 0.0) {
+    return;
+  }
+
+  // Power-of-10 lift: pick s = 10^round(−log10(median(R/V²))).  This puts
+  // the median line's seg_1 coefficient (≈ seg_width · median_rv2) within a
+  // factor of √10 of `seg_width`, which is in MW for typical PLP cases.
+  // Clamp to [1, 1e9] so we don't overscale a model that already has
+  // R/V² ≈ 1 (per-unit data).
+  const double exponent = std::round(-std::log10(median_rv2));
+  const double scale_raw = std::pow(10.0, exponent);
+  const double scale = std::clamp(scale_raw, 1.0, 1.0e9);
+
+  if (scale <= 1.0) {
+    // Already well-conditioned (per-unit input or large R/V²).  Don't set
+    // the option; downstream falls back to 1.0 (no-op).
+    spdlog::info(
+        "  Auto scale_loss_link skipped: median(R/V²) = {:.3e} across "
+        "{} line(s) — no lift needed",
+        median_rv2,
+        n);
+    return;
+  }
+
+  opts.model_options.scale_loss_link = scale;
+  spdlog::info(
+      "  Auto scale_loss_link = {:.3e} (median R/V² = {:.3e} across "
+      "{} line(s); seg_1 lifts to ~seg_width · {:.3e})",
+      scale,
+      median_rv2,
+      n,
+      median_rv2 * scale);
 }
 
 // ── Adaptive reservoir energy scaling ────────────────────────────────────

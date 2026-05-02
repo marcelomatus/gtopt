@@ -573,6 +573,7 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
     // off and set just that one value via `--set <path>=<value>`.
     planning.options.model_options.scale_objective = 1.0;
     planning.options.model_options.scale_theta = 1.0;
+    planning.options.model_options.scale_loss_link = 1.0;
     planning.options.lp_matrix_options.equilibration_method =
         LpEquilibrationMethod::none;
     // Kill switch for the per-element auto-scale heuristics in

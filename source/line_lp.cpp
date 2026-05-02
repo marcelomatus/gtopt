@@ -76,8 +76,15 @@ namespace
   }
 
   const auto allocation = raw_line.loss_allocation_mode_enum();
-  return line_losses::make_config(
-      loss_mode, raw_line, allocation, lf, R, V, nseg, fmax);
+  return line_losses::make_config(loss_mode,
+                                  raw_line,
+                                  allocation,
+                                  lf,
+                                  R,
+                                  V,
+                                  nseg,
+                                  fmax,
+                                  sc.options().scale_loss_link());
 }
 
 }  // namespace

@@ -62,6 +62,14 @@ struct ModelOptions
   OptReal scale_objective {};
   /// Scaling factor for voltage-angle variables.
   OptReal scale_theta {};
+  /// Row-scale factor for the line-loss linking constraint
+  /// (`loss − Σ loss_k · seg_k = 0`).  When unset, `auto_scale_loss_link`
+  /// computes a power-of-10 factor from `median(R/V²)` so the smallest
+  /// segment coefficient `seg_width · R · 1 / V²` is lifted into a
+  /// numerically tractable range.  Set explicitly to override; set to
+  /// `1.0` to disable row scaling.  Has no effect on `linear`,
+  /// `piecewise_direct`, or `none` loss modes.
+  OptReal scale_loss_link {};
   /// Bound for voltage-angle variables: `θ ∈ [−theta_max, +theta_max]`.
   /// When unset, `PlanningLP::auto_scale_theta` computes it as
   /// `Σ_l tmax_l · x_τ_l` (a topology-aware upper bound on the
@@ -146,6 +154,7 @@ struct ModelOptions
     merge_opt(loss_segments, opts.loss_segments);
     merge_opt(scale_objective, opts.scale_objective);
     merge_opt(scale_theta, opts.scale_theta);
+    merge_opt(scale_loss_link, opts.scale_loss_link);
     merge_opt(theta_max, opts.theta_max);
     merge_opt(auto_scale, opts.auto_scale);
     merge_opt(demand_fail_cost, opts.demand_fail_cost);
@@ -167,11 +176,12 @@ struct ModelOptions
         || line_losses_mode.has_value() || kirchhoff_threshold.has_value()
         || dc_line_reactance_threshold.has_value() || loss_segments.has_value()
         || scale_objective.has_value() || scale_theta.has_value()
-        || theta_max.has_value() || demand_fail_cost.has_value()
-        || reserve_fail_cost.has_value() || hydro_fail_cost.has_value()
-        || hydro_use_value.has_value() || state_fail_cost.has_value()
-        || emission_cost.has_value() || emission_cap.has_value()
-        || continuous_phases.has_value() || strict_storage_emin.has_value();
+        || scale_loss_link.has_value() || theta_max.has_value()
+        || demand_fail_cost.has_value() || reserve_fail_cost.has_value()
+        || hydro_fail_cost.has_value() || hydro_use_value.has_value()
+        || state_fail_cost.has_value() || emission_cost.has_value()
+        || emission_cap.has_value() || continuous_phases.has_value()
+        || strict_storage_emin.has_value();
   }
 
   /// True iff every field set in `other` has an equal value in `*this`.
@@ -192,6 +202,7 @@ struct ModelOptions
         && covers_opt(loss_segments, other.loss_segments)
         && covers_opt(scale_objective, other.scale_objective)
         && covers_opt(scale_theta, other.scale_theta)
+        && covers_opt(scale_loss_link, other.scale_loss_link)
         && covers_opt(theta_max, other.theta_max)
         && covers_opt(demand_fail_cost, other.demand_fail_cost)
         && covers_opt(reserve_fail_cost, other.reserve_fail_cost)

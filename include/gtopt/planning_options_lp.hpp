@@ -324,6 +324,20 @@ public:
     return m_options_.model_options.scale_theta.value_or(1.0);
   }
 
+  /// @brief Gets the row-scale factor for the line-loss linking row.
+  ///
+  /// Returns the resolved factor used by `line_losses` to multiply both
+  /// `lossrow[loss_col]` and `lossrow[seg_col]` so the smallest segment
+  /// coefficient `seg_width · R · 1 / V²` is lifted into a numerically
+  /// tractable range.  When `auto_scale=true` (default) and the option is
+  /// unset, `PlanningLP::auto_scale_loss_link` computes a power-of-10
+  /// multiplier from `median(R/V²)`; otherwise the fallback is `1.0`
+  /// (no scaling).
+  [[nodiscard]] constexpr auto scale_loss_link() const
+  {
+    return m_options_.model_options.scale_loss_link.value_or(1.0);
+  }
+
   /// @brief Gets the bound for voltage-angle variables (`θ ∈
   /// [−theta_max, +theta_max]`).
   ///

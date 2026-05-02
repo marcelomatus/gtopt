@@ -127,6 +127,17 @@ public:
   /// `scripts/plp2gtopt/battery_writer.py`.
   static void validate_line_reactance(Planning& planning);
 
+  /// Compute adaptive `scale_loss_link` from `median(R/V²)` when not
+  /// explicitly set.  Picks a power-of-10 multiplier `s = 10^round(
+  /// −log10(median(R/V²)))` so the smallest segment coefficient
+  /// `loss_1 = seg_width · R / V²` is lifted into the O(seg_width · 1)
+  /// range in the loss-link row.  Mutates
+  /// `planning.options.model_options.scale_loss_link` in-place.
+  ///
+  /// Static so unit tests can exercise it without standing up a full
+  /// PlanningLP, mirroring `validate_line_reactance`.
+  static void auto_scale_loss_link(Planning& planning);
+
   /**
    * @brief Constructs a PlanningLP instance from planning data
    * @param planning The power system planning data
@@ -143,6 +154,7 @@ public:
                                 std::remove_reference_t<PlanningT>>) {
                 validate_line_reactance(planning);
                 auto_scale_theta(planning);
+                auto_scale_loss_link(planning);
                 // Query the default solver's `+infinity` value from the
                 // registry — fast path uses the plugin-level
                 // `gtopt_solver_infinity` entry (no backend allocated);

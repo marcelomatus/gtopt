@@ -76,6 +76,14 @@ struct LossConfig
   double resistance {};  ///< R [Ω]
   double V2 {};  ///< V² [kV²]
   int nseg {1};  ///< Segment count for PWL modes
+  /// Row-scale multiplier for the loss-link constraint
+  /// (`s · loss − Σ s · loss_k · seg_k = 0`).  Default `1.0` (no
+  /// scaling).  Lifts the smallest segment coefficient
+  /// `seg_width · R / V²` (typically ~1e-6 for HV lines) toward O(1)
+  /// so simplex pivoting doesn't see microscopic nonzeros.  Set
+  /// globally via `model_options.scale_loss_link`; `PlanningLP`
+  /// auto-computes from `median(R/V²)` when unset.
+  double loss_row_scale {1.0};
 };
 
 // ─── Results ────────────────────────────────────────────────────────
@@ -150,7 +158,8 @@ struct BlockResult
                                      double resistance,
                                      double voltage,
                                      int loss_segments,
-                                     double fmax);
+                                     double fmax,
+                                     double loss_row_scale = 1.0);
 
 // ─── LP construction ────────────────────────────────────────────────
 

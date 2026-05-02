@@ -101,7 +101,8 @@ LossConfig make_config(LineLossesMode mode,
                        double resistance,
                        double voltage,
                        int loss_segments,
-                       double fmax)
+                       double fmax,
+                       double loss_row_scale)
 {
   const double V2 = voltage * voltage;
   const int nseg = std::max(1, loss_segments);
@@ -139,6 +140,7 @@ LossConfig make_config(LineLossesMode mode,
       .resistance = resistance,
       .V2 = V2,
       .nseg = nseg,
+      .loss_row_scale = (loss_row_scale > 0.0) ? loss_row_scale : 1.0,
   };
 }
 
@@ -226,6 +228,12 @@ auto add_capacity_row(LinearProblem& lp,
 ///   loss_coeff = seg_width · R · (2k−1) / V²   [1]
 ///
 /// This approximates P_loss = R · f² / V² via a piecewise affine function.
+///
+/// `loss_row_scale` multiplies the segment coefficients in `lossrow`
+/// only (the link row is untouched, so the bus-balance stamp on each
+/// seg variable is unaffected).  Caller must apply the same scale to
+/// `lossrow[loss_col]` so `s · loss − Σ s · loss_k · seg_k = 0` stays
+/// consistent.
 void add_segments(LinearProblem& lp,
                   const ScenarioLP& scenario,
                   const StageLP& stage,
@@ -237,7 +245,8 @@ void add_segments(LinearProblem& lp,
                   double V2,
                   int nseg,
                   SparseRow& linkrow,
-                  SparseRow& lossrow)
+                  SparseRow& lossrow,
+                  double loss_row_scale)
 {
   for (const auto k : iota_range(1, nseg + 1)) {
     const double loss_k =
@@ -254,7 +263,7 @@ void add_segments(LinearProblem& lp,
     });
 
     linkrow[seg_col] = -1.0;
-    lossrow[seg_col] = -loss_k;
+    lossrow[seg_col] = -loss_k * loss_row_scale;
   }
 }
 
@@ -500,7 +509,7 @@ BlockResult add_piecewise(const LossConfig& config,
     linkrow[*result.fn_col] = +1.0;
   }
 
-  // Loss tracking: loss − Σ loss_k · seg_k = 0
+  // Loss tracking: s · loss − Σ s · loss_k · seg_k = 0   (s = loss_row_scale)
   auto lossrow =
       SparseRow {
           .class_name = Line::class_name.full_name(),
@@ -511,7 +520,7 @@ BlockResult add_piecewise(const LossConfig& config,
       }
           .equal(0);
   lossrow.reserve(reserve_sz);
-  lossrow[loss_col] = +1.0;
+  lossrow[loss_col] = +config.loss_row_scale;
 
   add_segments(lp,
                scenario,
@@ -524,7 +533,8 @@ BlockResult add_piecewise(const LossConfig& config,
                config.V2,
                nseg,
                linkrow,
-               lossrow);
+               lossrow,
+               config.loss_row_scale);
 
   [[maybe_unused]] auto linkrow_idx = lp.add_row(std::move(linkrow));
   [[maybe_unused]] auto lossrow_idx = lp.add_row(std::move(lossrow));
@@ -629,7 +639,7 @@ DirResult add_direction(const LossConfig& config,
   linkrow.reserve(reserve_sz);
   linkrow[flow_col] = +1.0;
 
-  // Loss tracking: loss − Σ loss_k · f_seg_k = 0
+  // Loss tracking: s · loss − Σ s · loss_k · f_seg_k = 0   (s = loss_row_scale)
   auto lossrow =
       SparseRow {
           .class_name = Line::class_name.full_name(),
@@ -640,7 +650,7 @@ DirResult add_direction(const LossConfig& config,
       }
           .equal(0);
   lossrow.reserve(reserve_sz);
-  lossrow[loss_col] = +1.0;
+  lossrow[loss_col] = +config.loss_row_scale;
 
   add_segments(lp,
                scenario,
@@ -653,7 +663,8 @@ DirResult add_direction(const LossConfig& config,
                config.V2,
                nseg,
                linkrow,
-               lossrow);
+               lossrow,
+               config.loss_row_scale);
 
   [[maybe_unused]] auto linkrow_idx = lp.add_row(std::move(linkrow));
   [[maybe_unused]] auto lossrow_idx = lp.add_row(std::move(lossrow));
