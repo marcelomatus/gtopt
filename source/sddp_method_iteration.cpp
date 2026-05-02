@@ -1257,14 +1257,82 @@ void SDDPMethod::compute_iteration_bounds(
     std::span<const double> weights) const
 {
   const auto num_scenes = planning_lp().simulation().scene_count();
+  ir.scene_lower_bounds.resize(num_scenes, 0.0);
 
+  // ── Penalty mode (Layer 2: complete-recourse convention) ──
+  //
+  // When ``infeasible_scene_penalty > 0`` the bounds are computed
+  // over the **original** N-scene measure (un-renormalised
+  // probabilities) with each infeasible scene contributing
+  // ``p_orig × penalty`` to UB.  The gap then refuses to flat-line
+  // while scenes are infeasible — convergence requires either
+  // every scene feasible OR an explicit user-set tolerance
+  // accommodating the penalty floor.
+  //
+  // Reference: Birge & Louveaux §3.2 (complete recourse) and
+  // Shapiro et al. §3.3.3.  PLP and SDDP.jl follow the same
+  // convention; gtopt's legacy renormalise-feasible-only path
+  // (the ``else`` branch below) is a gtopt-specific shortcut
+  // documented as "feasible-subset gap" in feedback memory.
+  //
+  // LB does *not* receive the penalty (asymmetric on purpose):
+  // we want ``UB > LB`` to persist while infeasible scenes
+  // remain, surfacing the structural deficit in the gap.  If we
+  // charged the same penalty on LB, it would cancel in the gap
+  // numerator and the run would converge as if the infeasibility
+  // did not exist.
+  if (m_options_.infeasible_scene_penalty > 0.0) {
+    const auto& scenes = planning_lp().simulation().scenes();
+    double total_p = 0.0;
+    for (const auto& sc : scenes) {
+      total_p += sc.probability_factor();
+    }
+    if (total_p <= 0.0) {
+      total_p = 1.0;  // degenerate guard: equal-weight 0-prob scenes
+    }
+
+    double penalised_ub = 0.0;
+    double penalised_lb = 0.0;
+    double prob_lost = 0.0;
+    double penalty_contrib = 0.0;
+    for (const auto scene : iota_range<SceneIndex>(0, num_scenes)) {
+      const double p_orig = scenes[scene].probability_factor() / total_p;
+      if (scene_feasible[scene] != 0U) {
+        penalised_ub += p_orig * ir.scene_upper_bounds[scene];
+        const double lb_si = planning_lp()
+                                 .system(scene, first_phase_index())
+                                 .linear_interface()
+                                 .get_obj_value();
+        ir.scene_lower_bounds[scene] = lb_si;
+        penalised_lb += p_orig * lb_si;
+      } else {
+        const double pen = p_orig * m_options_.infeasible_scene_penalty;
+        penalised_ub += pen;
+        prob_lost += p_orig;
+        penalty_contrib += pen;
+      }
+    }
+    ir.upper_bound = penalised_ub;
+    ir.lower_bound = penalised_lb;
+    ir.scene_probability_lost = prob_lost;
+    ir.ub_penalty_contribution = penalty_contrib;
+    return;
+  }
+
+  // ── Legacy mode (renormalise-feasible-only) ──
+  //
+  // UB / LB are computed against the renormalised weights returned
+  // by ``compute_scene_weights``: weights sum to 1.0 over the
+  // feasible scenes only, so the bounds describe ``E[cost |
+  // feasible]`` rather than ``E[cost]``.  The missing probability
+  // mass is silently dropped; operators see this only via the
+  // ``feasible=K/N`` headline clause (Layer 1, commit 4dd87e17).
   double weighted_upper = 0.0;
   for (const auto scene : iota_range<SceneIndex>(0, num_scenes)) {
     weighted_upper += weights[scene] * ir.scene_upper_bounds[scene];
   }
   ir.upper_bound = weighted_upper;
 
-  ir.scene_lower_bounds.resize(num_scenes, 0.0);
   double weighted_lower = 0.0;
   for (const auto scene : iota_range<SceneIndex>(0, num_scenes)) {
     if (scene_feasible[scene] == 0U) {
@@ -1286,6 +1354,7 @@ void SDDPMethod::compute_iteration_bounds(
     weighted_lower += weights[scene] * lb_si;
   }
   ir.lower_bound = weighted_lower;
+  // Layer 3 fields stay at default 0 in legacy mode.
 }
 
 void SDDPMethod::apply_cut_sharing_for_iteration(IterationIndex iteration_index)

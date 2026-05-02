@@ -4335,6 +4335,203 @@ TEST_CASE(  // NOLINT
   CHECK(ir_a.upper_bound == doctest::Approx(150.0));
 }
 
+// ─── Layer 2: infeasible_scene_penalty (complete-recourse semantics) ────────
+//
+// When ``infeasible_scene_penalty > 0`` the bound aggregation switches
+// from the renormalise-feasible-only convention (``E[cost | feasible]``)
+// to the complete-recourse convention (``E[cost]`` over the original
+// N-scene measure with each infeasible scene contributing
+// ``p_orig × penalty`` to UB).  These tests pin:
+//   1. Penalty applied correctly to UB; LB unchanged on infeasible
+//      scenes (asymmetric on purpose — see the doc comment at
+//      ``compute_iteration_bounds``).
+//   2. Layer 3 fields ``scene_probability_lost`` and
+//      ``ub_penalty_contribution`` populated for solver-status JSON
+//      decomposition.
+//   3. ``infeasible_scene_penalty == 0`` preserves legacy behaviour
+//      bit-for-bit.
+//   4. Original probabilities (un-renormalised) drive the penalty
+//      contribution — a 9-of-16-infeasible run has 9/16 = 0.5625
+//      probability mass charged.
+
+TEST_CASE(  // NOLINT
+    "SDDPMethod::compute_iteration_bounds — Layer 2 penalty applied to UB, "
+    "LB unchanged on infeasible scenes")
+{
+  // Synthesise a 2-scene fixture where scene 0 is feasible (UB=100,
+  // LB driven by the LP solve state) and scene 1 is infeasible.
+  // With ``infeasible_scene_penalty = 500`` the expected UB is
+  //   p0 · 100 + p1 · 500
+  // where p0, p1 are the *original* (un-renormalised) probabilities.
+  // The fixture defaults to (prob1=0.7, prob2=0.3) — see
+  // ``sddp_helpers.hpp::make_2scene_3phase_hydro_planning``.
+  //   UB_expected = 0.7 × 100 + 0.3 × 500 = 70 + 150 = 220
+  auto planning = make_2scene_3phase_hydro_planning();
+  PlanningLP plp(std::move(planning));
+
+  SDDPOptions sddp_opts;
+  sddp_opts.max_iterations = 1;
+  sddp_opts.enable_api = false;
+  sddp_opts.apertures = std::vector<Uid> {};
+  sddp_opts.infeasible_scene_penalty = 500.0;
+  SDDPMethod sddp(plp, sddp_opts);
+
+  const auto num_scenes = plp.simulation().scene_count();
+  REQUIRE(num_scenes == 2);
+
+  SDDPIterationResult ir;
+  ir.scene_upper_bounds.assign(num_scenes, 0.0);
+  ir.scene_upper_bounds[0] = 100.0;
+  ir.scene_upper_bounds[1] = 99999.0;  // garbage — penalty mode replaces it
+
+  std::vector<uint8_t> scene_feasible(num_scenes, 0U);
+  scene_feasible[0] = 1U;  // scene 0 feasible
+  // scene_feasible[1] stays 0 — scene 1 infeasible
+
+  // Weights ignored in penalty mode (uses original probabilities).
+  std::vector<double> weights(num_scenes, 0.0);
+
+  sddp.compute_iteration_bounds(ir, scene_feasible, weights);
+
+  // UB = 0.7 · 100 + 0.3 · 500 = 220 — penalty mass replaces the
+  // garbage scene_upper_bounds[1] entirely.
+  CHECK(ir.upper_bound == doctest::Approx(220.0));
+
+  // Layer 3 fields populated:
+  //   probability_lost = 0.3 (scene 1's mass)
+  //   ub_penalty_contribution = 0.3 · 500 = 150
+  CHECK(ir.scene_probability_lost == doctest::Approx(0.3));
+  CHECK(ir.ub_penalty_contribution == doctest::Approx(150.0));
+
+  // LB is asymmetric: infeasible scenes do NOT receive the penalty.
+  // Scene 1's slot stays at 0; scene 0's slot is whatever the LP
+  // returned (depends on solve state — we only assert structural).
+  REQUIRE(ir.scene_lower_bounds.size() == static_cast<size_t>(num_scenes));
+  CHECK(ir.scene_lower_bounds[1] == doctest::Approx(0.0));
+}
+
+TEST_CASE(  // NOLINT
+    "SDDPMethod::compute_iteration_bounds — Layer 2 penalty applied even when "
+    "all scenes infeasible")
+{
+  // Pathological case: no scene completed forward.  UB is purely
+  // penalty mass; LB is 0.  Gap = 1.0 (won't converge).  Pins that
+  // the run does not silently report a misleading low gap.
+  auto planning = make_2scene_3phase_hydro_planning();
+  PlanningLP plp(std::move(planning));
+
+  SDDPOptions sddp_opts;
+  sddp_opts.max_iterations = 1;
+  sddp_opts.enable_api = false;
+  sddp_opts.apertures = std::vector<Uid> {};
+  sddp_opts.infeasible_scene_penalty = 1000.0;
+  SDDPMethod sddp(plp, sddp_opts);
+
+  const auto num_scenes = plp.simulation().scene_count();
+  REQUIRE(num_scenes == 2);
+
+  SDDPIterationResult ir;
+  ir.scene_upper_bounds.assign(num_scenes, 0.0);
+  std::vector<uint8_t> scene_feasible(num_scenes, 0U);  // all infeasible
+  std::vector<double> weights(num_scenes, 0.0);
+
+  sddp.compute_iteration_bounds(ir, scene_feasible, weights);
+
+  // UB = (0.7 + 0.3) × 1000 = 1000 (full mass charged at penalty).
+  // LB = 0 (no feasible LP solves).
+  CHECK(ir.upper_bound == doctest::Approx(1000.0));
+  CHECK(ir.lower_bound == doctest::Approx(0.0));
+  CHECK(ir.scene_probability_lost == doctest::Approx(1.0));
+  CHECK(ir.ub_penalty_contribution == doctest::Approx(1000.0));
+}
+
+TEST_CASE(  // NOLINT
+    "SDDPMethod::compute_iteration_bounds — Layer 2 disabled (penalty=0) "
+    "preserves legacy renormalise behaviour bit-for-bit")
+{
+  // Same fixture as the "weighted upper bound formula" test above
+  // (UB[0]=100, UB[1]=200, all infeasible, weights=[0.25, 0.75])
+  // — confirms that with ``infeasible_scene_penalty == 0`` the
+  // penalty branch is never entered and the UB computation matches
+  // the legacy weighted-average formula exactly.  Layer 3 fields
+  // stay at default 0.
+  auto planning = make_2scene_3phase_hydro_planning();
+  PlanningLP plp(std::move(planning));
+
+  SDDPOptions sddp_opts;
+  sddp_opts.max_iterations = 1;
+  sddp_opts.enable_api = false;
+  sddp_opts.apertures = std::vector<Uid> {};
+  sddp_opts.infeasible_scene_penalty = 0.0;  // legacy mode
+  SDDPMethod sddp(plp, sddp_opts);
+
+  const auto num_scenes = plp.simulation().scene_count();
+  REQUIRE(num_scenes >= 2);
+
+  SDDPIterationResult ir;
+  ir.scene_upper_bounds.assign(num_scenes, 0.0);
+  ir.scene_upper_bounds[0] = 100.0;
+  ir.scene_upper_bounds[1] = 200.0;
+
+  std::vector<uint8_t> scene_feasible(num_scenes, 0U);
+  std::vector<double> weights(num_scenes, 0.0);
+  weights[0] = 0.25;
+  weights[1] = 0.75;
+
+  sddp.compute_iteration_bounds(ir, scene_feasible, weights);
+
+  // Identical to the legacy formula test: UB = 0.25·100 + 0.75·200 = 175.
+  CHECK(ir.upper_bound == doctest::Approx(175.0));
+  // Layer 3 fields stay at default zero in legacy mode.
+  CHECK(ir.scene_probability_lost == doctest::Approx(0.0));
+  CHECK(ir.ub_penalty_contribution == doctest::Approx(0.0));
+}
+
+TEST_CASE(  // NOLINT
+    "SDDPMethod::compute_iteration_bounds — Layer 2 gap floor (penalty makes "
+    "UB > LB persist while scenes infeasible)")
+{
+  // The whole point of Layer 2: when scenes remain infeasible, the
+  // gap must stay positive (refuse to declare convergence).  This
+  // test pins the floor: with all feasible scenes converged
+  // (UB == LB on every feasible scene), the residual gap comes
+  // entirely from the penalty mass on infeasible scenes.
+  auto planning = make_2scene_3phase_hydro_planning();
+  PlanningLP plp(std::move(planning));
+
+  SDDPOptions sddp_opts;
+  sddp_opts.max_iterations = 1;
+  sddp_opts.enable_api = false;
+  sddp_opts.apertures = std::vector<Uid> {};
+  sddp_opts.infeasible_scene_penalty = 500.0;
+  SDDPMethod sddp(plp, sddp_opts);
+
+  const auto num_scenes = plp.simulation().scene_count();
+  REQUIRE(num_scenes == 2);
+
+  SDDPIterationResult ir;
+  ir.scene_upper_bounds.assign(num_scenes, 0.0);
+  ir.scene_upper_bounds[0] = 100.0;  // feasible scene's converged UB
+
+  std::vector<uint8_t> scene_feasible(num_scenes, 0U);
+  scene_feasible[0] = 1U;
+  std::vector<double> weights(num_scenes, 0.0);  // ignored in penalty mode
+
+  sddp.compute_iteration_bounds(ir, scene_feasible, weights);
+
+  // UB = 0.7 · 100 + 0.3 · 500 = 220.  LB depends on the LP solve
+  // state of scene 0 — but the gap = (UB - LB) / |UB| has at minimum
+  // a contribution of (penalty_mass / UB) ≈ 150/220 ≈ 0.682 from the
+  // infeasible 30 % of the probability measure, regardless of how
+  // tightly scene 0 has converged.  i.e. the gap floor is the
+  // ``ub_penalty_contribution / upper_bound`` ratio.
+  CHECK(ir.upper_bound == doctest::Approx(220.0));
+  CHECK(ir.ub_penalty_contribution == doctest::Approx(150.0));
+  // Floor: (UB - LB) ≥ ub_penalty_contribution because LB does not
+  // include the penalty.  Equivalently, gap ≥ penalty_contrib / UB.
+  CHECK((ir.upper_bound - ir.lower_bound) >= ir.ub_penalty_contribution);
+}
+
 TEST_CASE(  // NOLINT
     "SDDPMethod::finalize_iteration_result — refuses to converge on negative "
     "gap")

@@ -798,6 +798,14 @@ public:
    * ``SDDPMethod::SceneRetryState::terminal`` and
    * ``SDDPOptions::terminal_failure_threshold`` for the full story. */
   static constexpr Int default_sddp_terminal_failure_threshold = 2;
+  /** @brief Default per-infeasible-scene penalty for UB aggregation.
+   *
+   * 0 = legacy renormalise-feasible-only behaviour.  When set > 0,
+   * bounds are computed over the original N-scene measure and each
+   * infeasible scene contributes ``p_orig × penalty`` to UB.  Users
+   * who want the complete-recourse semantics must set this
+   * explicitly — there is no auto-default heuristic yet. */
+  static constexpr Real default_sddp_infeasible_scene_penalty = 0.0;
   /** @brief Default for the scene-level fail-stop forward pass.
    *
    *  true (the new default) — when an infeasible phase emits an fcut
@@ -1261,6 +1269,15 @@ public:
   {
     return m_options_.sddp_options.terminal_failure_threshold.value_or(
         default_sddp_terminal_failure_threshold);
+  }
+
+  /// Per-infeasible-scene penalty used by ``compute_iteration_bounds``
+  /// when computing UB over the original N-scene measure (Layer 2).
+  /// 0 = legacy renormalise-feasible-only behaviour.
+  [[nodiscard]] constexpr auto sddp_infeasible_scene_penalty() const
+  {
+    return m_options_.sddp_options.infeasible_scene_penalty.value_or(
+        default_sddp_infeasible_scene_penalty);
   }
 
   // ── Cascade options ─────────────────────────────────────────────────────
