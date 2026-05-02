@@ -606,6 +606,149 @@ TEST_CASE(
   CHECK(li.get_obj_value_raw() == doctest::Approx(orig_obj));
 }
 
+TEST_CASE(
+    "LinearInterface — low_memory reconstruct with dynamic rows")  // NOLINT
+{
+  // Regression test for the bug fixed in the cascade method: a row added
+  // via `add_row` AFTER the snapshot was taken is silently dropped on the
+  // first `release_backend` → `reconstruct_backend` cycle UNLESS it is
+  // mirrored into `m_dynamic_rows_` via `record_dynamic_row`.  Symmetric
+  // to the col-side `record_dynamic_col` contract verified above.
+  auto [li, flat, x1, x2] = make_simple_li_lp();
+
+  auto res = li.initial_solve();
+  REQUIRE(res.has_value());
+
+  li.set_low_memory(LowMemoryMode::compress);
+  li.save_snapshot(FlatLinearProblem {flat});
+  li.save_base_numrows();
+  const auto base_nrows = li.base_numrows();
+
+  // Add a structural row AFTER the snapshot was taken, simulating the
+  // cascade `add_elastic_targets` path.  Constraint: x2 >= 3 (binding —
+  // baseline optimum was x1=5, x2=0).
+  SparseRow extra;
+  extra[x2] = 1.0;
+  extra.lowb = 3.0;
+  extra.uppb = LinearProblem::DblMax;
+  li.add_row(extra);
+  li.record_dynamic_row(extra);
+
+  CHECK(li.get_numrows() == base_nrows + 1);
+
+  // Release + reconstruct.  Without `record_dynamic_row` the extra row
+  // would be lost here and the LP would re-collapse to x1=5, x2=0.
+  li.release_backend();
+  li.reconstruct_backend();
+
+  CHECK(li.get_numrows() == base_nrows + 1);
+
+  auto r = li.resolve();
+  REQUIRE(r.has_value());
+  // x1 + x2 >= 5  AND  x2 >= 3  →  x1=2, x2=3 → obj = 4 + 9 = 13.
+  CHECK(li.get_obj_value_raw() == doctest::Approx(13.0));
+}
+
+TEST_CASE(
+    "LinearInterface — cascade pattern: dynamic_col + dynamic_row "
+    "registered together survive reconstruct")  // NOLINT
+{
+  // End-to-end shape of the cascade `add_elastic_targets` call: add 2
+  // slack columns + 1 elastic constraint row that references both, then
+  // release_backend / reconstruct_backend in compress mode and verify
+  // the LP solves identically afterwards.  Reproduces the exact pattern
+  // that previously crashed `test_hydro_4b_cascade_gtopt_solve` with a
+  // CPLEX SIGSEGV — `set_col_low_raw(svar->col(), …)` ran with a stale
+  // `ColIndex` after the slacks were silently dropped on reload.
+  auto [li, flat, x1, x2] = make_simple_li_lp();
+
+  auto res = li.initial_solve();
+  REQUIRE(res.has_value());
+  const auto base_ncols = li.get_numcols();
+
+  li.set_low_memory(LowMemoryMode::compress);
+  li.save_snapshot(FlatLinearProblem {flat});
+  li.save_base_numrows();
+  const auto base_nrows = li.base_numrows();
+
+  // 2 slack columns (the same shape cascade uses for tgt_sup / tgt_sdn).
+  SparseCol sup {.uppb = LinearProblem::DblMax, .cost = 100.0};
+  const auto sup_col = li.add_col(sup);
+  li.record_dynamic_col(sup);
+
+  SparseCol sdn {.uppb = LinearProblem::DblMax, .cost = 100.0};
+  const auto sdn_col = li.add_col(sdn);
+  li.record_dynamic_col(sdn);
+
+  // Elastic constraint: x1 - sup + sdn ∈ [3, 3]  (i.e. target value 3,
+  // any deviation paid via slacks at penalty 100).
+  SparseRow row;
+  row[x1] = 1.0;
+  row[sup_col] = -1.0;
+  row[sdn_col] = 1.0;
+  row.lowb = 3.0;
+  row.uppb = 3.0;
+  li.add_row(row);
+  li.record_dynamic_row(row);
+
+  CHECK(li.get_numcols() == base_ncols + 2);
+  CHECK(li.get_numrows() == base_nrows + 1);
+
+  // Multiple release/reconstruct cycles must all preserve the slacks +
+  // constraint exactly — same shape that cascade level 1 hits between
+  // every SDDP forward/backward pass.
+  for (int i = 0; i < 3; ++i) {
+    li.release_backend();
+    li.reconstruct_backend();
+    CHECK(li.get_numcols() == base_ncols + 2);
+    CHECK(li.get_numrows() == base_nrows + 1);
+  }
+
+  // Solve and verify the elastic constraint binds correctly.  With
+  // x1 - sup + sdn = 3 and very large slack penalties, the optimum
+  // satisfies the target exactly: x1 = 3, x2 = 2, sup = sdn = 0.
+  // Objective = 2·3 + 3·2 + 100·0 + 100·0 = 12.
+  auto r = li.resolve();
+  REQUIRE(r.has_value());
+  CHECK(li.get_obj_value_raw() == doctest::Approx(12.0));
+}
+
+TEST_CASE(
+    "LinearInterface — add_col without record_dynamic_col is LOST on "
+    "reconstruct (documents the contract)")  // NOLINT
+{
+  // Pins the current API contract: `add_col` after the snapshot only
+  // affects the live backend.  Under low_memory=compress, the column
+  // is silently discarded on the first reconstruct unless the caller
+  // also records it via `record_dynamic_col`.  This test documents the
+  // footgun so a future refactor that removes the requirement (e.g. by
+  // making `add_col` auto-record) flips this CHECK and forces the
+  // change to be deliberate, not accidental.
+  auto [li, flat, x1, x2] = make_simple_li_lp();
+
+  auto res = li.initial_solve();
+  REQUIRE(res.has_value());
+  const auto base_ncols = li.get_numcols();
+
+  li.set_low_memory(LowMemoryMode::compress);
+  li.save_snapshot(FlatLinearProblem {flat});
+
+  // Add a dynamic col but DELIBERATELY skip the `record_dynamic_col` step.
+  SparseCol dangling {.uppb = LinearProblem::DblMax};
+  [[maybe_unused]] const auto dangling_col = li.add_col(dangling);
+  CHECK(li.get_numcols() == base_ncols + 1);
+
+  // First reconstruct cycle: the un-recorded column evaporates because
+  // the snapshot is frozen at flatten time and `m_dynamic_cols_` is
+  // empty.  This is the exact mechanism that broke cascade level 1
+  // (`add_elastic_targets` slack cols + elastic constraint row landed
+  // only on the live backend, then disappeared).
+  li.release_backend();
+  li.reconstruct_backend();
+
+  CHECK(li.get_numcols() == base_ncols);
+}
+
 TEST_CASE("LinearInterface — low_memory reconstruct with cuts")  // NOLINT
 {
   auto [li, flat, x1, x2] = make_simple_li_lp();

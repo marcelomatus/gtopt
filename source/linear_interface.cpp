@@ -384,10 +384,20 @@ void LinearInterface::apply_post_load_replay(std::span<const double> col_sol,
     add_cols(m_dynamic_cols_);
   }
 
-  // 2. Mark the structural-vs-cuts boundary.
+  // 2. Replay structural rows that were added after the snapshot was
+  //    taken (e.g. cascade elastic-target constraints).  These must
+  //    land BEFORE `save_base_numrows()` so that the structural-vs-
+  //    cut boundary counts them as structural — otherwise SDDP cut
+  //    accounting (m_base_numrows_) is off by `m_dynamic_rows_.size()`
+  //    and `record_cut_deletion` indexes the wrong rows.
+  if (!m_dynamic_rows_.empty()) {
+    add_rows(m_dynamic_rows_);
+  }
+
+  // 3. Mark the structural-vs-cuts boundary.
   save_base_numrows();
 
-  // 3. Bulk-add active cuts (single efficient call).
+  // 4. Bulk-add active cuts (single efficient call).
   replay_active_cuts();
 
   // 4. Warm-start from the caller-supplied primal/dual when available.
@@ -462,6 +472,13 @@ void LinearInterface::replay_active_cuts()
     return;
   }
   add_rows(m_active_cuts_);
+}
+
+void LinearInterface::record_dynamic_row(SparseRow row)
+{
+  if (m_low_memory_mode_ != LowMemoryMode::off) {
+    m_dynamic_rows_.push_back(std::move(row));
+  }
 }
 
 void LinearInterface::record_cut_row(SparseRow row)

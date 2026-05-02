@@ -221,22 +221,36 @@ void CascadePlanningMethod::add_elastic_targets(
     // all targets would collapse to the same key and trigger
     // "Duplicate LP column metadata" at the second addition.  Carry
     // the state variable's UID + original context to disambiguate.
-    const auto sup_col = li.add_col(SparseCol {
+    //
+    // The slack cols and the constraint row are added AFTER the
+    // initial `defer_initial_load` snapshot, so under low-memory
+    // compress mode they would be dropped on the first
+    // `release_backend()` → `reconstruct_backend()` cycle (snapshot
+    // is frozen at flatten time).  Mirror them into the persistent
+    // `m_dynamic_cols_` / `m_dynamic_rows_` registries via
+    // `record_dynamic_*` so `apply_post_load_replay` re-applies them
+    // on every reconstruct.
+    const SparseCol sup_sparse {
         .uppb = DblMax,
         .cost = penalty,
         .class_name = cascade_class_name,
         .variable_name = "tgt_sup",
         .variable_uid = t.uid,
         .context = t.context,
-    });
-    const auto sdn_col = li.add_col(SparseCol {
+    };
+    const auto sup_col = li.add_col(sup_sparse);
+    li.record_dynamic_col(sup_sparse);
+
+    const SparseCol sdn_sparse {
         .uppb = DblMax,
         .cost = penalty,
         .class_name = cascade_class_name,
         .variable_name = "tgt_sdn",
         .variable_uid = t.uid,
         .context = t.context,
-    });
+    };
+    const auto sdn_col = li.add_col(sdn_sparse);
+    li.record_dynamic_col(sdn_sparse);
 
     // Add constraint: x - s⁺ + s⁻ ∈ [target - atol, target + atol]
     SparseRow row;
@@ -250,6 +264,7 @@ void CascadePlanningMethod::add_elastic_targets(
     row[sup_col] = -1.0;
     row[sdn_col] = 1.0;
     li.add_row(row);
+    li.record_dynamic_row(row);
     ++added;
   }
 

@@ -605,6 +605,15 @@ public:
                                  double new_lowb,
                                  double new_uppb) noexcept;
 
+  /// Record a structural row added after the initial flatten/load_flat
+  /// (typically cascade elastic-target constraints).  No-op under
+  /// `LowMemoryMode::off`.  The recorded row is replayed in
+  /// `apply_post_load_replay` BEFORE `save_base_numrows()` so the
+  /// structural-vs-cut boundary correctly classifies it as structural —
+  /// this is what distinguishes it from `record_cut_row`, which records
+  /// post-baseline rows for the SDDP cut store.
+  void record_dynamic_row(SparseRow row);
+
   /// Record a Benders cut row addition.
   void record_cut_row(SparseRow row);
 
@@ -2505,6 +2514,15 @@ private:
 
   /// Columns added after initial load_flat() (typically just alpha).
   std::vector<SparseCol> m_dynamic_cols_ {};
+
+  /// Structural rows added after the initial flatten/load_flat (typically
+  /// cascade elastic-target constraints).  Distinct from `m_active_cuts_`
+  /// (SDDP optimality / feasibility cuts whose row count is mutated by
+  /// the cut store across iterations) — these are FIXED rows that exist
+  /// for the whole solve and must be replayed before `save_base_numrows`
+  /// so the structural-vs-cut boundary correctly counts them on the
+  /// "structural" side.
+  std::vector<SparseRow> m_dynamic_rows_ {};
 
   /// Net active Benders cuts (additions minus deletions).
   std::vector<SparseRow> m_active_cuts_ {};
