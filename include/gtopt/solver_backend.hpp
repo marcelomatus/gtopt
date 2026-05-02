@@ -131,6 +131,23 @@ public:
   virtual void set_col_upper(int index, double value) = 0;
   virtual void set_obj_coeff(int index, double value) = 0;
 
+  /// Bulk update of all objective coefficients.  `values` MUST have size
+  /// equal to the current number of columns; the implementation overwrites
+  /// every coefficient.  Default fallback is a per-column loop over
+  /// `set_obj_coeff(i, values[i])` so plugins that don't ship a native
+  /// bulk API (or where the native bulk call has the same per-element
+  /// cost) can opt out with one virtual.  Plugins SHOULD override when
+  /// the native API is genuinely batched (CPXchgobj, HighsLp::col_cost,
+  /// CoinPackedVector) — those drop the per-call dispatch overhead and
+  /// often skip per-element bookkeeping.
+  virtual void set_obj_coeffs(const double* values, int num_cols)
+  {
+    for (int i = 0; i < num_cols; ++i) {
+      // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+      set_obj_coeff(i, values[i]);
+    }
+  }
+
   // ---- row operations ----
 
   virtual void add_row(int num_elements,

@@ -870,12 +870,15 @@ auto elastic_filter_solve(const LinearInterface& li,
   // Keeping the original obj would leak state-dependent opex into
   // the Benders feasibility-cut RHS and drive α to diverge under
   // SDDP iteration (observed on juan/gtopt_iplp).
-  for (const auto c : iota_range<ColIndex>(0, cloned.numcols_as_index())) {
-    // Phase-1 feasibility LP: zero LP-space obj coefficients directly
-    // (no col_scale / scale_objective composition needed for a write
-    // of 0.0 — explicitly raw to make intent obvious).
-    cloned.set_obj_coeff_raw(c, 0.0);
-  }
+  //
+  // Bulk dispatch via `set_obj_coeffs_raw`: a single backend call
+  // replaces the per-column loop.  CPLEX / HiGHS / OSI / MindOpt /
+  // Gurobi all override the bulk virtual with their native batched
+  // attribute-array setter, so the elastic clone's Phase-1 reset
+  // becomes one C-API round-trip per infeasible cell instead of N.
+  const auto ncols = static_cast<size_t>(cloned.get_numcols());
+  const std::vector<double> zeros(ncols, 0.0);
+  cloned.set_obj_coeffs_raw(zeros);
 
   // α is intentionally NOT pinned / modified in the clone: leave it in
   // whatever bound state the original LP has (bootstrap `lowb=uppb=0`

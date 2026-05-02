@@ -504,6 +504,23 @@ void GurobiSolverBackend::set_obj_coeff(int index, double value)
   m_dirty_ = true;
 }
 
+void GurobiSolverBackend::set_obj_coeffs(const double* values, int num_cols)
+{
+  // `GRBsetdblattrarray(model, attr, first, len, values)` is range-based.
+  // The C API is not const-correct on the values pointer, so cast.
+  m_prob_cached_ = false;
+  if (num_cols <= 0) {
+    return;
+  }
+  GRBsetdblattrarray(m_model_,
+                     GRB_DBL_ATTR_OBJ,
+                     0,
+                     num_cols,
+                     // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast)
+                     const_cast<double*>(values));
+  m_dirty_ = true;
+}
+
 // ── row ops ──────────────────────────────────────────────────────────────
 
 void GurobiSolverBackend::add_row(int num_elements,
