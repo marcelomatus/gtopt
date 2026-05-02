@@ -272,7 +272,15 @@ void fix_stage_islands(const auto& collections,
       }
     }
 
-    spdlog::info(
+    // Per-stage runtime-island pin: emitted once per disconnected
+    // component on every (scenario, stage) build, so a 50-stage / 16-
+    // scene run produces hundreds of identical lines on cases with
+    // any inactive lines.  Demoted to TRACE — visible only when the
+    // user enables trace logging via `-T`/`--trace-log`.  Use the
+    // function form (`spdlog::trace`) rather than `SPDLOG_TRACE` so
+    // the call stays runtime-gated even though the PCH bakes spdlog
+    // at INFO (memory: `feedback_spdlog_trace_macro.md`).
+    spdlog::trace(
         "Stage {}: bus uid={} pinned as runtime reference "
         "(theta=0) for disconnected island",
         stage.uid(),
