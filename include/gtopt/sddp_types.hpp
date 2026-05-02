@@ -803,6 +803,20 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   /// CI test, or 0.50 for a much tighter narrow-CI variant.
   double convergence_confidence {0.0};
 
+  /// Number of consecutive iterations of structural infeasibility
+  /// (Chinneck filter produces no useful fcut at the same scene)
+  /// before the scene is marked terminal and skipped at dispatch
+  /// until fresh cuts arrive globally.  Set to 0 to disable the
+  /// terminal-skip mechanism entirely (legacy behaviour: every
+  /// failed scene is re-dispatched every iteration).  Default: 2 —
+  /// one bad iteration may be transient (state still settling), but
+  /// two identical structural failures in a row indicate an
+  /// LP-level issue that more iterations of the same forward-pass
+  /// cannot resolve.  Observed on juan/gtopt_iplp 2026-05-02
+  /// trace_29: 10 of 16 scenes wasted ~33 min before this guard
+  /// existed.
+  int terminal_failure_threshold {2};
+
   /// Optional LP solver options for the forward pass.
   /// When set, these override the global solver options for forward-pass
   /// solves.  The options are pre-merged with the global solver options

@@ -793,6 +793,11 @@ public:
    * stuck at 0, gap = 1 flat → gap_change = 0).  Set to 1.0 to
    * disable the ceiling (legacy behaviour). */
   static constexpr Real default_sddp_stationary_gap_ceiling = 0.05;
+  /** @brief Default consecutive-structural-failures threshold before a
+   * scene is marked terminal.  See
+   * ``SDDPMethod::SceneRetryState::terminal`` and
+   * ``SDDPOptions::terminal_failure_threshold`` for the full story. */
+  static constexpr Int default_sddp_terminal_failure_threshold = 2;
   /** @brief Default for the scene-level fail-stop forward pass.
    *
    *  true (the new default) — when an infeasible phase emits an fcut
@@ -1246,6 +1251,16 @@ public:
   {
     return m_options_.sddp_options.stationary_gap_ceiling.value_or(
         default_sddp_stationary_gap_ceiling);
+  }
+
+  /**
+   * @brief Gets the consecutive-structural-failure threshold for terminal-skip.
+   * @return Iter count; 0 disables the terminal-skip mechanism.
+   */
+  [[nodiscard]] constexpr auto sddp_terminal_failure_threshold() const
+  {
+    return m_options_.sddp_options.terminal_failure_threshold.value_or(
+        default_sddp_terminal_failure_threshold);
   }
 
   // ── Cascade options ─────────────────────────────────────────────────────

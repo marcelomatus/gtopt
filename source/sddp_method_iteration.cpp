@@ -614,12 +614,61 @@ auto SDDPMethod::run_forward_pass_all_scenes(SDDPWorkPool& pool,
   // cuts have entered the cut store across every scene, no recovery
   // path exists for this stalled scene and we abort cleanly to
   // avoid an infinite-loop.
+  // ── Pre-dispatch terminal-skip + restart hook ────────────────────────
+  //
+  // ``terminal`` is set after a configurable number of consecutive
+  // iterations of structurally-infeasible failures (Chinneck filter
+  // produces no useful fcut at the same (scene, phase) pair).  When
+  // set, the scene's forward pass is skipped this iteration UNLESS
+  // fresh cuts have arrived globally since the terminal declaration.
+  // This is the cheap proxy for "the LP changed enough to maybe
+  // unlock the previously infeasible phase":
+  //   * cut_sharing == none: only the failed scene's own backward
+  //     pass could change its master, but a terminal scene's backward
+  //     never runs — so global growth here ALWAYS means peers added
+  //     cuts (which don't help structurally, hence the skip stays
+  //     useful in the steady-state).
+  //   * cut_sharing != none: peer cuts ARE broadcast to this scene's
+  //     master via ``share_cuts_for_phase`` — those cuts can in
+  //     principle alter the trial state and unlock the structural
+  //     infeasibility.  Restart triggers immediately on global growth
+  //     so the scene gets a fresh attempt with the new cuts.
+  //
+  // ``skip_scene[i]`` controls both dispatch (we don't submit a task)
+  // and result-collection (we synthesise an infeasible result).
+  // Counts the skipped scenes for the headline log line.
+  std::vector<bool> skip_scene(num_scenes, false);
+  std::ptrdiff_t n_skipped_terminal = 0;
   if (m_options_.forward_infeas_rollback) {
     const auto current_global_cuts = m_cut_store_.num_stored_cuts();
     std::ptrdiff_t failed_last = 0;
     std::ptrdiff_t stalled = 0;
     for (const auto si : iota_range<SceneIndex>(0, num_scenes)) {
       auto& rs = m_scene_retry_state_[si];
+
+      // ── Terminal-skip restart trigger ──
+      if (rs.terminal) {
+        const auto snapshot =
+            rs.global_cuts_at_last_failure.value_or(std::ptrdiff_t {0});
+        if (current_global_cuts > snapshot) {
+          SPDLOG_INFO(
+              "SDDP Forward [i{} s{}]: un-terminal — {} new cut(s) since "
+              "last failure (was at {}, now {}); retrying forward pass",
+              iteration_index,
+              uid_of(si),
+              current_global_cuts - snapshot,
+              snapshot,
+              current_global_cuts);
+          rs.terminal = false;
+          rs.consecutive_structural_failures = 0;
+          rs.global_cuts_at_last_failure.reset();
+        } else {
+          skip_scene[si] = true;
+          ++n_skipped_terminal;
+        }
+      }
+
+      // ── Existing rollback stall-stop logic ──
       if (!rs.global_cuts_at_last_failure.has_value()) {
         continue;
       }
@@ -630,7 +679,12 @@ auto SDDPMethod::run_forward_pass_all_scenes(SDDPWorkPool& pool,
         ++stalled;
       }
     }
-    if (failed_last > 0 && stalled == failed_last) {
+    // Only abort if every failed-last-iter scene is *non-terminal* and
+    // stalled.  Terminal scenes contribute to the skip count instead;
+    // the abort path here is the original "no progress at all on any
+    // scene" guard, which only fires when we still expect retries to
+    // help.
+    if (failed_last > 0 && stalled == failed_last && n_skipped_terminal == 0) {
       return std::unexpected(Error {
           .code = ErrorCode::SolverError,
           .message =
@@ -640,6 +694,13 @@ auto SDDPMethod::run_forward_pass_all_scenes(SDDPWorkPool& pool,
                           stalled,
                           iteration_index),
       });
+    }
+    if (n_skipped_terminal > 0) {
+      SPDLOG_INFO(
+          "SDDP Forward [i{}]: skipping {} terminal-infeasible scene(s) "
+          "(structurally infeasible, no new cuts since last failure)",
+          iteration_index,
+          n_skipped_terminal);
     }
   }
 
@@ -659,6 +720,14 @@ auto SDDPMethod::run_forward_pass_all_scenes(SDDPWorkPool& pool,
       make_forward_lp_task_req(iteration_index, first_phase_index());
 
   for (const auto scene_index : iota_range<SceneIndex>(0, num_scenes)) {
+    if (skip_scene[scene_index]) {
+      // Terminal-skip: no task submitted; the result-collection loop
+      // below distinguishes this case via ``skip_scene[i]`` and
+      // synthesises an infeasible outcome without calling ``.get()``
+      // on the (default-constructed, invalid) future.
+      futures.emplace_back();
+      continue;
+    }
     auto fut = pool.submit(
         [this, scene_index, iteration_index, &opts]
         { return forward_pass(scene_index, opts, iteration_index); },
@@ -671,7 +740,19 @@ auto SDDPMethod::run_forward_pass_all_scenes(SDDPWorkPool& pool,
   out.scene_feasible.resize(num_scenes, 1);
 
   for (const auto scene_index : iota_range<SceneIndex>(0, num_scenes)) {
+    // Terminal-skip path: scene was declared structurally infeasible
+    // on a prior iteration and no fresh cuts have arrived since.  We
+    // synthesise an infeasible result without solving any LP — the
+    // future at this index is a default-constructed (invalid) one.
+    if (skip_scene[scene_index]) {
+      out.has_feasibility_issue = true;
+      out.scene_feasible[scene_index] = 0;
+      m_scenes_done_.fetch_add(1);
+      continue;
+    }
+
     auto fwd = futures[scene_index].get();
+    auto& rs = m_scene_retry_state_[scene_index];
     if (!fwd.has_value()) {
       // Demoted to DEBUG: the per-(scene, phase) elastic-filter WARN
       // already emitted by `forward_pass` carries the same message;
@@ -689,8 +770,45 @@ auto SDDPMethod::run_forward_pass_all_scenes(SDDPWorkPool& pool,
       out.has_feasibility_issue = true;
       out.scene_feasible[scene_index] = 0;
       m_scenes_done_.fetch_add(1);
+
+      // ── Terminal-skip detection ──
+      // Match on the marker phrase emitted by ``forward_pass`` when
+      // the Chinneck filter fails to produce any useful fcut.
+      // Substring search is robust to the trailing context (LP file
+      // saved markers etc.) and avoids leaking another error code
+      // through the public API.
+      const bool is_structural = fwd.error().message.contains(
+          "elastic filter produced no feasibility cut");
+      if (is_structural) {
+        ++rs.consecutive_structural_failures;
+        const int threshold = m_options_.terminal_failure_threshold > 0
+            ? m_options_.terminal_failure_threshold
+            : 2;
+        if (!rs.terminal && rs.consecutive_structural_failures >= threshold) {
+          rs.terminal = true;
+          SPDLOG_WARN(
+              "SDDP Forward [i{} s{}]: marking TERMINAL after {} consecutive "
+              "structural infeasibilities — will skip until new cuts arrive "
+              "globally (current cut store size: {})",
+              iteration_index,
+              uid_of(scene_index),
+              rs.consecutive_structural_failures,
+              m_cut_store_.num_stored_cuts());
+        }
+      } else {
+        // Non-structural failure (e.g. solver timeout, unrecoverable
+        // numerical error): reset the counter so a single transient
+        // event does not push the scene towards terminal.
+        rs.consecutive_structural_failures = 0;
+      }
       continue;
     }
+    // Success path: forward pass solved through to the last phase.
+    // Reset both the consecutive-structural counter (one good run
+    // erases the terminal credit) and the terminal flag itself —
+    // the scene is healthy.
+    rs.consecutive_structural_failures = 0;
+    rs.terminal = false;
     out.scene_upper_bounds[scene_index] = *fwd;
     ++out.scenes_solved;
     m_scenes_done_.fetch_add(1);

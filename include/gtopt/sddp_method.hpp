@@ -357,9 +357,47 @@ public:
   /// has grown since the snapshot (peers contributed cuts).  When every
   /// previously-failed scene is "stalled" (no new cuts since failure),
   /// the run aborts with `SolverError`/`no recovery path`.
+  ///
+  /// **Terminal-skip extension (2026-05-02)** — adds a heavier-weight
+  /// "stop re-dispatching" guard for scenes that fail forward with
+  /// `"elastic filter produced no feasibility cut"` (= relaxed clone
+  /// infeasible) on multiple consecutive iterations.  These scenes
+  /// have a structurally infeasible LP at some phase; re-running their
+  /// forward pass produces bit-identical failures and wastes ~50 s per
+  /// iter per scene (juan/gtopt_iplp 2026-05-02 trace_29: 10 of 16
+  /// scenes wasted ~33 min before being skipped).  Once the counter
+  /// crosses ``terminal_failure_threshold``, ``terminal = true`` is
+  /// set and the dispatch loop skips the scene until *new* cuts
+  /// arrive globally (peer backward-pass cuts under cut sharing, or
+  /// shared cuts via ``share_cuts_for_phase``) — at which point
+  /// ``terminal`` is cleared and the scene retries normally.
   struct SceneRetryState
   {
+    /// Snapshot of ``m_cut_store_.num_stored_cuts()`` at the iteration
+    /// where this scene was last declared infeasible.  Used both by
+    /// the existing rollback stall-stop guard and by the
+    /// terminal-skip restart trigger below.  ``nullopt`` = scene is
+    /// not currently in a failed-last-iter state.
     std::optional<std::ptrdiff_t> global_cuts_at_last_failure {};
+
+    /// Count of consecutive iterations in which this scene failed
+    /// forward with the structural-infeasibility signature
+    /// (Chinneck filter could not produce a useful fcut).  Reset to
+    /// zero on any forward-pass success, on any non-structural
+    /// failure, or when ``terminal`` is cleared by the restart hook.
+    int consecutive_structural_failures {0};
+
+    /// True after ``consecutive_structural_failures`` crosses
+    /// ``SDDPOptions::terminal_failure_threshold``.  When true, the
+    /// dispatch loop in ``run_forward_pass_all_scenes`` skips the
+    /// scene's forward pass and synthesises an infeasible result —
+    /// no LP solves run for the scene this iteration.  Cleared when
+    /// fresh cuts arrive globally (delta on
+    /// ``num_stored_cuts()`` since
+    /// ``global_cuts_at_last_failure``), since any new cut could in
+    /// principle alter the trial state and unlock the previously
+    /// infeasible phase.
+    bool terminal {false};
   };
 
   /// Mutable per-scene retry state (test-friendly accessor).  Promoted
