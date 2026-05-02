@@ -80,11 +80,26 @@ void check_iteration_invariants_strict(
     CHECK(ir.lower_bound >= prev_lb - bound_tol(ir.upper_bound));
     prev_lb = ir.lower_bound;
 
-    // Invariant 3: weighted UB lies in [min, max] of per-scene UBs.
+    // Invariant 3: ``upper_bound`` is the plain sum of per-scene UBs
+    // for feasible scenes (each entry already carries its scenario's
+    // probability_factor via ``CostHelper::block_ecost`` — see the
+    // doc comment at ``compute_iteration_bounds``).  We assert the
+    // sum equals ``ir.upper_bound`` to within the bound tolerance.
+    // (The old "convex combination" invariant —
+    // ``min_ub <= UB <= max_ub`` — was specific to the buggy
+    // double-counted weighted-average formula and is no longer
+    // meaningful: a sum of feasible UBs naturally exceeds any
+    // single per-scene maximum when there is more than one
+    // feasible scene.)
     if (!ir.scene_upper_bounds.empty()) {
-      const auto [min_ub, max_ub] = std::ranges::minmax(ir.scene_upper_bounds);
-      CHECK(ir.upper_bound >= min_ub - bound_tol(ir.upper_bound));
-      CHECK(ir.upper_bound <= max_ub + bound_tol(ir.upper_bound));
+      double sum_feasible_ub = 0.0;
+      for (const auto ub : ir.scene_upper_bounds) {
+        sum_feasible_ub += ub;
+      }
+      CHECK(ir.upper_bound
+            == doctest::Approx(sum_feasible_ub)
+                   .epsilon(bound_tol(ir.upper_bound)
+                            / std::max(1.0, std::abs(sum_feasible_ub))));
     }
   }
 }

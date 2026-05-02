@@ -472,23 +472,97 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
       //   epsilon = SQRT(ZSPFVar) * UmbIntConf
       //
       // Two sub-criteria:
-      //  (a) CI test:  UB - LB <= z_{α/2} * σ
-      //  (b) CI + stationarity:  gap > z*σ but gap_change < stationary_tol
+      //  (a) CI test:  UB - LB <= z_{α/2} · σ̂ / √N_feasible
+      //  (b) CI + stationarity:  gap > z·σ̂/√N but gap_change < stationary_tol
+      //
+      // **Layer 4 reformulation (2026-05-02)** — the original code
+      // had three statistical bugs that compounded to make the CI
+      // test fire on cases that hadn't actually converged:
+      //
+      //  1. Used the *uniform* sample mean and variance over all
+      //     ``scene_upper_bounds`` entries.  For heterogeneous-prob
+      //     runs (juan: 16 hydrology scenarios with non-uniform
+      //     ``probability_factor``) this gives the wrong σ̂ — the
+      //     correct estimator weights each scene by ``p_s``.
+      //  2. Included infeasible scenes (whose UB stayed at the
+      //     initialised 0.0) in both mean and variance.  This pulled
+      //     μ̂ low and inflated σ̂ artificially — exactly the wrong
+      //     direction (made the CI threshold ``z·σ̂`` *wider* than
+      //     it should be → easier-to-fire false convergence).
+      //  3. Threshold was ``z·σ̂`` instead of the textbook
+      //     ``z·σ̂/√N`` (standard error of the mean, e.g.
+      //     Birge & Louveaux §10.3).  At N=16 that's a 4× wider
+      //     threshold than canonical.
+      //
+      // Combined effect on juan/gtopt_iplp trace_28: declared
+      // statistical CI convergence at iter 2 with gap = 25 % because
+      // the inflated σ̂ ≈ 77 M and missing /√N let z·σ̂ ≈ 152 M
+      // dominate the actual 38 M absolute gap.  After this fix,
+      // probability-weighted feasible-only mean / variance computed
+      // over 7 of 16 scenes with proper /√N gives a much tighter
+      // threshold; the CI test fires only when the gap is genuinely
+      // within the standard error of the mean.
       if (!ir.converged && mode == ConvergenceMode::statistical
           && m_options_.convergence_confidence > 0.0
           && ir.scene_upper_bounds.size() > 1 && past_min_iterations)
       {
-        const auto n = static_cast<double>(ir.scene_upper_bounds.size());
+        // Probability-weighted feasible-only mean and variance.  Sum
+        // of probabilities is renormalised to the feasible subset so
+        // the weights inside the loop sum to 1.0 — equivalent to
+        // computing E[UB | feasible] under the conditional measure.
+        // (The Layer 2 ``infeasible_scene_penalty`` path lives in
+        // ``compute_iteration_bounds`` and adjusts UB / LB; here we
+        // are estimating the variance of the cost-distribution sample,
+        // which is unaffected by whether the user opts into a penalty
+        // mode for the bound aggregation.)
+        const auto& scenes = planning_lp().simulation().scenes();
+        double total_p_feasible = 0.0;
+        std::size_t n_feasible = 0;
+        for (const auto si :
+             iota_range<SceneIndex>(0, ir.scene_upper_bounds.size()))
+        {
+          if (!ir.scene_feasible.empty() && ir.scene_feasible[si] == 0U) {
+            continue;
+          }
+          total_p_feasible += scenes[si].probability_factor();
+          ++n_feasible;
+        }
+
+        // Need ≥ 2 feasible scenes for an unbiased variance estimator.
+        // When N_feasible ≤ 1 we can't compute a meaningful CI; skip
+        // the block and fall through to the legacy primary / stationary
+        // criteria.
+        if (n_feasible < 2 || total_p_feasible <= 0.0) {
+          // (the post-CI fallthrough still runs the (b) stationary
+          // branch via gap_is_stationary)
+          ;  // explicit empty branch — reads cleaner than nesting
+        }
+
         double mean = 0.0;
-        for (const auto ub : ir.scene_upper_bounds) {
-          mean += ub;
+        if (n_feasible >= 2 && total_p_feasible > 0.0) {
+          for (const auto si :
+               iota_range<SceneIndex>(0, ir.scene_upper_bounds.size()))
+          {
+            if (!ir.scene_feasible.empty() && ir.scene_feasible[si] == 0U) {
+              continue;
+            }
+            const double w = scenes[si].probability_factor() / total_p_feasible;
+            mean += w * ir.scene_upper_bounds[si];
+          }
         }
-        mean /= n;
         double var = 0.0;
-        for (const auto ub : ir.scene_upper_bounds) {
-          var += (ub - mean) * (ub - mean);
+        if (n_feasible >= 2 && total_p_feasible > 0.0) {
+          for (const auto si :
+               iota_range<SceneIndex>(0, ir.scene_upper_bounds.size()))
+          {
+            if (!ir.scene_feasible.empty() && ir.scene_feasible[si] == 0U) {
+              continue;
+            }
+            const double w = scenes[si].probability_factor() / total_p_feasible;
+            const auto d = ir.scene_upper_bounds[si] - mean;
+            var += w * d * d;
+          }
         }
-        var /= (n - 1.0);
         const auto sigma = std::sqrt(var);
 
         const auto alpha = 1.0 - m_options_.convergence_confidence;
@@ -502,7 +576,13 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
         const auto z_score = z_score_for_alpha(alpha);
 
         const auto gap_abs = ir.upper_bound - ir.lower_bound;
-        const auto ci_threshold = z_score * sigma;
+        // Standard error of the mean: σ̂ / √N_feasible (textbook
+        // CI of a sample mean).  Skip this branch entirely if
+        // N_feasible < 2 — the variance estimator is undefined and
+        // the CI test cannot fire.
+        const auto ci_threshold = (n_feasible >= 2)
+            ? z_score * sigma / std::sqrt(static_cast<double>(n_feasible))
+            : std::numeric_limits<double>::infinity();
 
         // (a) Gap within CI: LB inside the UB confidence interval.
         // Negative-gap guard mirrors the primary gap test — tiny
@@ -524,16 +604,21 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
           ir.converged = true;
           ir.statistical_converged = true;
           update_live_metrics_([](LiveMetrics& m) { m.converged = true; });
+          // Log shows N_feasible (not raw scene count) so an operator
+          // can match it against the ``feasible=K/N`` clause in the
+          // headline.  σ̂ is the probability-weighted feasible-only
+          // sample sd; threshold is z·σ̂/√N_feasible (textbook SE of
+          // the mean).
           SPDLOG_INFO(
               "SDDP Iter [i{}]: statistical CI convergence "
-              "(UB-LB={:.4f} <= z*σ={:.4f}, z={:.3f}, "
-              "σ={:.4f}, N={}) [CONVERGED]",
+              "(UB-LB={:.4f} <= z·σ̂/√N={:.4f}, z={:.3f}, "
+              "σ̂={:.4f}, N_feasible={}) [CONVERGED]",
               iteration_index,
               gap_abs,
               ci_threshold,
               z_score,
               sigma,
-              ir.scene_upper_bounds.size());
+              n_feasible);
         }
         // (b) Gap exceeds CI but is no longer improving.
         // Same absolute-gap ceiling as the pure-stationary block above:
@@ -1399,19 +1484,30 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
           .iteration_index = next_converge_iteration_index,
       };
 
-      // Fill per-scene bounds
+      // Fill per-scene bounds.  Aggregate UB / LB by plain SUM —
+      // each ``b.upper_bound`` already has its scenario probability
+      // baked in via ``CostHelper::block_ecost``, so the cross-scene
+      // aggregation must not multiply by ``weights[si]`` again
+      // (which would double-count probability).  See the comment at
+      // ``compute_iteration_bounds`` for the full derivation.  The
+      // ``weights`` span computed above stays available for cut-
+      // sharing aggregation; it is no longer consulted for bounds.
+      (void)weights;  // intentionally unused for bound aggregation
       ir.scene_upper_bounds.resize(static_cast<std::size_t>(num_scenes));
       ir.scene_lower_bounds.resize(static_cast<std::size_t>(num_scenes));
-      double weighted_upper = 0.0;
-      double weighted_lower = 0.0;
+      double sum_upper = 0.0;
+      double sum_lower = 0.0;
       for (const auto& [si, b] : enumerate(bounds)) {
+        if (scene_feasible[si] == 0U) {
+          continue;
+        }
         ir.scene_upper_bounds[si] = b.upper_bound;
         ir.scene_lower_bounds[si] = b.lower_bound;
-        weighted_upper += weights[si] * b.upper_bound;
-        weighted_lower += weights[si] * b.lower_bound;
+        sum_upper += b.upper_bound;
+        sum_lower += b.lower_bound;
       }
-      ir.upper_bound = weighted_upper;
-      ir.lower_bound = weighted_lower;
+      ir.upper_bound = sum_upper;
+      ir.lower_bound = sum_lower;
 
       // Async-specific: record per-scene iteration snapshot
       ir.scene_iterations = tracker.scene_iterations();

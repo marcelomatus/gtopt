@@ -333,8 +333,13 @@ TEST_CASE("SDDPMethod - multi_cut_threshold<0 disables auto-switch")  // NOLINT
 
 TEST_CASE("SDDPMethod 2-scene - probability-weighted bounds")  // NOLINT
 {
-  // Two scenes with probabilities 0.7 and 0.3.
-  // UB and LB should be probability-weighted expectations, not simple averages.
+  // Two scenes with probabilities 0.7 and 0.3.  Each per-scene UB/LB
+  // already has its scenario probability baked in via
+  // ``CostHelper::block_ecost`` (every LP cost coefficient is
+  // ``cost × prob × discount × duration``), so the cross-scene
+  // aggregation is a plain SUM, not a re-weighted average.  See the
+  // comment block at ``compute_iteration_bounds`` for the full
+  // derivation.
   auto planning = make_2scene_3phase_hydro_planning(0.7, 0.3);
   PlanningLP planning_lp(std::move(planning));
 
@@ -351,30 +356,34 @@ TEST_CASE("SDDPMethod 2-scene - probability-weighted bounds")  // NOLINT
   // The solver should converge
   CHECK(results->back().converged);
 
-  // Verify that the final upper bound is consistent with a
-  // probability-weighted combination (not a simple average):
-  // UB = 0.7 * ub_scene0 + 0.3 * ub_scene1
+  // Verify that the final upper bound is the sum of the per-scene
+  // UBs (each already prob-weighted internally by block_ecost).
   const auto& last = results->back();
   REQUIRE(last.scene_upper_bounds.size() == 2);
   const double expected_ub =
-      (0.7 * last.scene_upper_bounds[0]) + (0.3 * last.scene_upper_bounds[1]);
+      last.scene_upper_bounds[0] + last.scene_upper_bounds[1];
   CHECK(last.upper_bound == doctest::Approx(expected_ub).epsilon(1e-9));
-  SPDLOG_INFO("2-scene weighted UB: {:.4f} (scene0={:.4f}, scene1={:.4f})",
+  SPDLOG_INFO("2-scene UB (sum): {:.4f} (scene0={:.4f}, scene1={:.4f})",
               last.upper_bound,
               last.scene_upper_bounds[0],
               last.scene_upper_bounds[1]);
 
-  // Verify lower bound is also probability-weighted
+  // Verify lower bound is also a plain sum of the per-scene LBs.
   REQUIRE(last.scene_lower_bounds.size() == 2);
   const double expected_lb =
-      (0.7 * last.scene_lower_bounds[0]) + (0.3 * last.scene_lower_bounds[1]);
+      last.scene_lower_bounds[0] + last.scene_lower_bounds[1];
   CHECK(last.lower_bound == doctest::Approx(expected_lb).epsilon(1e-9));
 }
 
 TEST_CASE(
     "SDDPMethod 2-scene - equal weights same as simple average")  // NOLINT
 {
-  // Equal probability weights → result should match simple average
+  // Equal probability weights (0.5, 0.5) → per-scene UBs are equal
+  // and contain ``0.5 × cost`` each (block_ecost has ``prob`` baked
+  // in); the sum is ``cost = E[cost]``.  The "simple average" name
+  // is preserved for historic reasons but the math is now a plain
+  // sum; with equal scenes the sum equals the arithmetic mean of
+  // the (already prob-weighted) per-scene values × N.
   auto planning = make_2scene_3phase_hydro_planning(0.5, 0.5);
   PlanningLP planning_lp(std::move(planning));
 
@@ -390,10 +399,8 @@ TEST_CASE(
 
   const auto& last = results->back();
   REQUIRE(last.scene_upper_bounds.size() == 2);
-  // With equal weights 0.5/0.5 the weighted average = arithmetic mean
-  const double simple_avg =
-      0.5 * (last.scene_upper_bounds[0] + last.scene_upper_bounds[1]);
-  CHECK(last.upper_bound == doctest::Approx(simple_avg).epsilon(1e-9));
+  const double sum_ub = last.scene_upper_bounds[0] + last.scene_upper_bounds[1];
+  CHECK(last.upper_bound == doctest::Approx(sum_ub).epsilon(1e-9));
 }
 
 TEST_CASE(
@@ -426,12 +433,13 @@ TEST_CASE(
     REQUIRE(results.has_value());
     REQUIRE_FALSE(results->empty());
 
-    // Equal weights → UB is the simple average of the two scenes.
+    // UB is the plain sum of per-scene UBs (each already
+    // probability-weighted internally via block_ecost).
     const auto& last = results->back();
     REQUIRE(last.scene_upper_bounds.size() == 2);
-    const double simple_avg =
-        0.5 * (last.scene_upper_bounds[0] + last.scene_upper_bounds[1]);
-    CHECK(last.upper_bound == doctest::Approx(simple_avg).epsilon(1e-9));
+    const double sum_ub =
+        last.scene_upper_bounds[0] + last.scene_upper_bounds[1];
+    CHECK(last.upper_bound == doctest::Approx(sum_ub).epsilon(1e-9));
   }
 
   SUBCASE("unequal probabilities with Expected cut sharing")
@@ -450,12 +458,14 @@ TEST_CASE(
     REQUIRE(results.has_value());
     REQUIRE_FALSE(results->empty());
 
-    // Weighted UB matches the probability-weighted combination.
+    // UB is the plain sum: per-scene UBs already carry their
+    // probability_factor via block_ecost, so cross-scene aggregation
+    // is just summation.
     const auto& last = results->back();
     REQUIRE(last.scene_upper_bounds.size() == 2);
-    const double expected_ub =
-        (0.7 * last.scene_upper_bounds[0]) + (0.3 * last.scene_upper_bounds[1]);
-    CHECK(last.upper_bound == doctest::Approx(expected_ub).epsilon(1e-9));
+    const double sum_ub =
+        last.scene_upper_bounds[0] + last.scene_upper_bounds[1];
+    CHECK(last.upper_bound == doctest::Approx(sum_ub).epsilon(1e-9));
   }
 }
 
@@ -4137,8 +4147,27 @@ TEST_CASE(  // NOLINT
 // here as a one-line failure rather than an "iter50 doesn't converge"
 // mystery.
 
+// ─── Bound aggregation tests (post-2026-05-02 fix) ─────────────────────────
+//
+// Background: `scene_upper_bounds[s]` returned by the forward pass and
+// the per-scene LB read from the master LP at phase 0 BOTH already
+// have scenario probability baked in via `CostHelper::block_ecost`
+// (cost × probability_factor × discount × duration applied to every LP
+// cost coefficient — see include/gtopt/cost_helper.hpp).  The
+// cross-scene aggregation is therefore a plain SUM — multiplying by
+// another `weights[s]` (whether renormalised or not) double-counts
+// probability.  The reported gap `(UB-LB)/|UB|` is invariant to that
+// scaling (cancels in numerator and denominator), which is why the
+// double-count went undetected — but the absolute UB/LB printed in
+// the log were wrong.
+//
+// These tests pin the post-fix behaviour: the `weights` parameter is
+// ignored, infeasible scenes contribute 0, and `scene_probability_lost`
+// is populated with the missing-mass fraction.
+
 TEST_CASE(  // NOLINT
-    "SDDPMethod::compute_iteration_bounds — weighted upper bound formula")
+    "SDDPMethod::compute_iteration_bounds — UB is plain sum of feasible "
+    "scene UBs (weights ignored)")
 {
   auto planning = make_2scene_3phase_hydro_planning();
   PlanningLP plp(std::move(planning));
@@ -4157,28 +4186,24 @@ TEST_CASE(  // NOLINT
   ir.scene_upper_bounds[0] = 100.0;
   ir.scene_upper_bounds[1] = 200.0;
 
-  // All scenes infeasible → lower-bound branch contributes zero, so
-  // the test stays independent of any LP solve state.
-  std::vector<uint8_t> scene_feasible(num_scenes, 0U);
-
-  std::vector<double> weights(num_scenes, 0.0);
-  weights[0] = 0.25;
-  weights[1] = 0.75;
+  // Both scenes feasible.  ``weights`` is filled with garbage to
+  // prove it is ignored — the post-fix code does not consult it.
+  std::vector<uint8_t> scene_feasible(num_scenes, 1U);
+  std::vector<double> weights(num_scenes, 999.0);
 
   sddp.compute_iteration_bounds(ir, scene_feasible, weights);
 
-  // Expected: upper = 0.25·100 + 0.75·200 = 175.
-  CHECK(ir.upper_bound == doctest::Approx(175.0));
-  CHECK(ir.lower_bound == doctest::Approx(0.0));
-  REQUIRE(ir.scene_lower_bounds.size() == static_cast<size_t>(num_scenes));
-  for (const auto v : ir.scene_lower_bounds) {
-    CHECK(v == doctest::Approx(0.0));
-  }
+  // UB = 100 + 200 = 300 (plain sum, no extra weight multiplication).
+  CHECK(ir.upper_bound == doctest::Approx(300.0));
 }
 
 TEST_CASE(  // NOLINT
-    "SDDPMethod::compute_iteration_bounds — uniform weights average bounds")
+    "SDDPMethod::compute_iteration_bounds — UB ignores weights regardless "
+    "of their values")
 {
+  // Companion to the previous test: use a different set of "weights"
+  // and verify UB is unchanged.  Pins the contract that the
+  // ``weights`` parameter is vestigial.
   auto planning = make_2scene_3phase_hydro_planning();
   PlanningLP plp(std::move(planning));
 
@@ -4196,176 +4221,28 @@ TEST_CASE(  // NOLINT
   ir.scene_upper_bounds[0] = 80.0;
   ir.scene_upper_bounds[1] = 120.0;
 
-  std::vector<uint8_t> scene_feasible(num_scenes, 0U);
-  std::vector<double> weights(num_scenes,
-                              1.0 / static_cast<double>(num_scenes));
+  std::vector<uint8_t> scene_feasible(num_scenes, 1U);
 
-  sddp.compute_iteration_bounds(ir, scene_feasible, weights);
+  // Trial A: weights of 0.5 each (uniform).
+  std::vector<double> weights_a(num_scenes, 0.5);
+  SDDPIterationResult ir_a = ir;
+  sddp.compute_iteration_bounds(ir_a, scene_feasible, weights_a);
 
-  CHECK(ir.upper_bound == doctest::Approx(100.0));
-}
+  // Trial B: weights of 1e6 each (garbage).
+  std::vector<double> weights_b(num_scenes, 1e6);
+  SDDPIterationResult ir_b = ir;
+  sddp.compute_iteration_bounds(ir_b, scene_feasible, weights_b);
 
-// ─── Mixed-feasibility UB/LB invariants ──────────────────────────────────────
-//
-// Pins the documented contract that under `forward_infeas_rollback`
-// (default true) the UB/LB calculation produces a "feasible-
-// conditional expectation" — both bounds are weighted averages over
-// the feasible scenes only, with infeasible scenes contributing zero
-// because (a) `compute_scene_weights` zeros the weight of every
-// infeasible scene, and (b) `compute_iteration_bounds`'s LB branch
-// explicitly skips infeasible scenes.  Documents the juan-style
-// scenario where 6 of 16 scenes are feasible and the other 10 are
-// rolled back: the UB/LB pair stays meaningful (and the gap is fair)
-// because the same feasibility filter applies to both sides.
-//
-// IMPORTANT: this is NOT a juan-specific bug.  The arithmetic is
-// pinned independently of the LP solve via direct injection of
-// `scene_upper_bounds`, then exercising `compute_iteration_bounds`
-// against synthesised weights and `scene_feasible` masks.
-
-TEST_CASE(  // NOLINT
-    "SDDPMethod::compute_iteration_bounds — mixed-feasibility UB ignores "
-    "infeasible scenes")
-{
-  // 3 scenes with weights [0.2, 0.3, 0.5]; scene 1 (middle) infeasible.
-  // Under runtime rescale `compute_scene_weights` would have
-  // re-normalised to [0.2/0.7, 0, 0.5/0.7] = [0.2857, 0, 0.7143];
-  // here we inject the post-normalisation weights directly so the
-  // arithmetic is unambiguous.
-  auto planning = make_2scene_3phase_hydro_planning();
-  PlanningLP plp(std::move(planning));
-
-  SDDPOptions sddp_opts;
-  sddp_opts.max_iterations = 1;
-  sddp_opts.enable_api = false;
-  sddp_opts.apertures = std::vector<Uid> {};
-  SDDPMethod sddp(plp, sddp_opts);
-
-  // Override num_scenes to 3 for the bounds calculation only — the
-  // PlanningLP fixture has 2, but compute_iteration_bounds reads
-  // weights/scene_feasible spans, so a 3-element test is fine as long
-  // as we don't dereference scene_lower_bounds for non-feasible
-  // scenes (we don't — they're skipped by the feasibility filter).
-  // Use the planning's actual count to avoid out-of-range LB reads.
-  const auto num_scenes = plp.simulation().scene_count();
-  REQUIRE(num_scenes >= 2);
-
-  SDDPIterationResult ir;
-  ir.scene_upper_bounds.assign(num_scenes, 0.0);
-  ir.scene_upper_bounds[0] = 100.0;
-  ir.scene_upper_bounds[1] = 200.0;
-
-  // Scene 0 feasible, scene 1 infeasible.
-  std::vector<uint8_t> scene_feasible(num_scenes, 0U);
-  scene_feasible[0] = 1U;
-
-  // Pre-rescaled feasible-only weights: scene 0 carries 1.0, scene
-  // 1 carries 0 (the rescale renormalised to feasible-only sum=1).
-  std::vector<double> weights(num_scenes, 0.0);
-  weights[0] = 1.0;
-
-  sddp.compute_iteration_bounds(ir, scene_feasible, weights);
-
-  // UB = 1.0·100 + 0·200 = 100 (the infeasible scene's UB=200
-  // contributes zero because its weight is zero — matching the
-  // runtime-rescale behaviour).
-  CHECK(ir.upper_bound == doctest::Approx(100.0));
-
-  // LB: scene 1's slot stays at 0 (skipped by the feasibility
-  // filter), and scene 0's LB depends on the planning's solve
-  // state which we don't drive here — just check the structural
-  // invariants.
-  REQUIRE(ir.scene_lower_bounds.size() == static_cast<size_t>(num_scenes));
-  CHECK(ir.scene_lower_bounds[1] == doctest::Approx(0.0));
-}
-
-TEST_CASE(  // NOLINT
-    "SDDPMethod::compute_iteration_bounds — UB invariant under feasible-set "
-    "shifts")
-{
-  // Pins the property: if the SAME feasible scenes contribute the
-  // SAME (weight, scene_upper_bound) pairs, the UB is independent
-  // of how many other scenes are present and infeasible.  i.e. a
-  // 16-scene run with 6 feasible scenes producing UB X is identical
-  // to a 6-scene run with all 6 feasible and the same weights/UBs.
-  //
-  // This catches the class of bug where an aggregator accidentally
-  // sums num_scenes (not feasible_count) somewhere in the gap
-  // formula or weighted-mean pipeline.
-  auto planning = make_2scene_3phase_hydro_planning();
-  PlanningLP plp(std::move(planning));
-
-  SDDPOptions sddp_opts;
-  sddp_opts.max_iterations = 1;
-  sddp_opts.enable_api = false;
-  sddp_opts.apertures = std::vector<Uid> {};
-  SDDPMethod sddp(plp, sddp_opts);
-
-  const auto num_scenes = plp.simulation().scene_count();
-  REQUIRE(num_scenes >= 2);
-
-  // Trial A: only scene 0 contributes; its weight is 1.0, UB=150.
-  SDDPIterationResult ir_a;
-  ir_a.scene_upper_bounds.assign(num_scenes, 0.0);
-  ir_a.scene_upper_bounds[0] = 150.0;
-  std::vector<uint8_t> feas_a(num_scenes, 0U);
-  feas_a[0] = 1U;
-  std::vector<double> weights_a(num_scenes, 0.0);
-  weights_a[0] = 1.0;
-  sddp.compute_iteration_bounds(ir_a, feas_a, weights_a);
-
-  // Trial B: scene 0 still contributes the SAME (weight, UB), but
-  // we additionally mark scene 1 as having a different UB and
-  // weight=0.  The infeasible scene must not perturb scene 0's
-  // contribution.
-  SDDPIterationResult ir_b;
-  ir_b.scene_upper_bounds.assign(num_scenes, 0.0);
-  ir_b.scene_upper_bounds[0] = 150.0;
-  ir_b.scene_upper_bounds[1] = 99999.0;  // garbage; weight=0 so muted
-  std::vector<uint8_t> feas_b(num_scenes, 0U);
-  feas_b[0] = 1U;
-  // feas_b[1] stays 0 — scene 1 infeasible
-  std::vector<double> weights_b(num_scenes, 0.0);
-  weights_b[0] = 1.0;
-  // weights_b[1] stays 0 — scene 1 weight zero
-  sddp.compute_iteration_bounds(ir_b, feas_b, weights_b);
-
-  // Same UB.
+  // Same UB despite vastly different weights — proves weights
+  // parameter is ignored.
   CHECK(ir_a.upper_bound == doctest::Approx(ir_b.upper_bound));
-  CHECK(ir_a.upper_bound == doctest::Approx(150.0));
+  CHECK(ir_a.upper_bound == doctest::Approx(200.0));  // 80 + 120
 }
 
-// ─── Layer 2: infeasible_scene_penalty (complete-recourse semantics) ────────
-//
-// When ``infeasible_scene_penalty > 0`` the bound aggregation switches
-// from the renormalise-feasible-only convention (``E[cost | feasible]``)
-// to the complete-recourse convention (``E[cost]`` over the original
-// N-scene measure with each infeasible scene contributing
-// ``p_orig × penalty`` to UB).  These tests pin:
-//   1. Penalty applied correctly to UB; LB unchanged on infeasible
-//      scenes (asymmetric on purpose — see the doc comment at
-//      ``compute_iteration_bounds``).
-//   2. Layer 3 fields ``scene_probability_lost`` and
-//      ``ub_penalty_contribution`` populated for solver-status JSON
-//      decomposition.
-//   3. ``infeasible_scene_penalty == 0`` preserves legacy behaviour
-//      bit-for-bit.
-//   4. Original probabilities (un-renormalised) drive the penalty
-//      contribution — a 9-of-16-infeasible run has 9/16 = 0.5625
-//      probability mass charged.
-
 TEST_CASE(  // NOLINT
-    "SDDPMethod::compute_iteration_bounds — Layer 2 penalty applied to UB, "
-    "LB unchanged on infeasible scenes")
+    "SDDPMethod::compute_iteration_bounds — infeasible scenes contribute 0 "
+    "to UB / LB (no penalty, no renormalize)")
 {
-  // Synthesise a 2-scene fixture where scene 0 is feasible (UB=100,
-  // LB driven by the LP solve state) and scene 1 is infeasible.
-  // With ``infeasible_scene_penalty = 500`` the expected UB is
-  //   p0 · 100 + p1 · 500
-  // where p0, p1 are the *original* (un-renormalised) probabilities.
-  // The fixture defaults to (prob1=0.7, prob2=0.3) — see
-  // ``sddp_helpers.hpp::make_2scene_3phase_hydro_planning``.
-  //   UB_expected = 0.7 × 100 + 0.3 × 500 = 70 + 150 = 220
   auto planning = make_2scene_3phase_hydro_planning();
   PlanningLP plp(std::move(planning));
 
@@ -4373,96 +4250,6 @@ TEST_CASE(  // NOLINT
   sddp_opts.max_iterations = 1;
   sddp_opts.enable_api = false;
   sddp_opts.apertures = std::vector<Uid> {};
-  sddp_opts.infeasible_scene_penalty = 500.0;
-  SDDPMethod sddp(plp, sddp_opts);
-
-  const auto num_scenes = plp.simulation().scene_count();
-  REQUIRE(num_scenes == 2);
-
-  SDDPIterationResult ir;
-  ir.scene_upper_bounds.assign(num_scenes, 0.0);
-  ir.scene_upper_bounds[0] = 100.0;
-  ir.scene_upper_bounds[1] = 99999.0;  // garbage — penalty mode replaces it
-
-  std::vector<uint8_t> scene_feasible(num_scenes, 0U);
-  scene_feasible[0] = 1U;  // scene 0 feasible
-  // scene_feasible[1] stays 0 — scene 1 infeasible
-
-  // Weights ignored in penalty mode (uses original probabilities).
-  std::vector<double> weights(num_scenes, 0.0);
-
-  sddp.compute_iteration_bounds(ir, scene_feasible, weights);
-
-  // UB = 0.7 · 100 + 0.3 · 500 = 220 — penalty mass replaces the
-  // garbage scene_upper_bounds[1] entirely.
-  CHECK(ir.upper_bound == doctest::Approx(220.0));
-
-  // Layer 3 fields populated:
-  //   probability_lost = 0.3 (scene 1's mass)
-  //   ub_penalty_contribution = 0.3 · 500 = 150
-  CHECK(ir.scene_probability_lost == doctest::Approx(0.3));
-  CHECK(ir.ub_penalty_contribution == doctest::Approx(150.0));
-
-  // LB is asymmetric: infeasible scenes do NOT receive the penalty.
-  // Scene 1's slot stays at 0; scene 0's slot is whatever the LP
-  // returned (depends on solve state — we only assert structural).
-  REQUIRE(ir.scene_lower_bounds.size() == static_cast<size_t>(num_scenes));
-  CHECK(ir.scene_lower_bounds[1] == doctest::Approx(0.0));
-}
-
-TEST_CASE(  // NOLINT
-    "SDDPMethod::compute_iteration_bounds — Layer 2 penalty applied even when "
-    "all scenes infeasible")
-{
-  // Pathological case: no scene completed forward.  UB is purely
-  // penalty mass; LB is 0.  Gap = 1.0 (won't converge).  Pins that
-  // the run does not silently report a misleading low gap.
-  auto planning = make_2scene_3phase_hydro_planning();
-  PlanningLP plp(std::move(planning));
-
-  SDDPOptions sddp_opts;
-  sddp_opts.max_iterations = 1;
-  sddp_opts.enable_api = false;
-  sddp_opts.apertures = std::vector<Uid> {};
-  sddp_opts.infeasible_scene_penalty = 1000.0;
-  SDDPMethod sddp(plp, sddp_opts);
-
-  const auto num_scenes = plp.simulation().scene_count();
-  REQUIRE(num_scenes == 2);
-
-  SDDPIterationResult ir;
-  ir.scene_upper_bounds.assign(num_scenes, 0.0);
-  std::vector<uint8_t> scene_feasible(num_scenes, 0U);  // all infeasible
-  std::vector<double> weights(num_scenes, 0.0);
-
-  sddp.compute_iteration_bounds(ir, scene_feasible, weights);
-
-  // UB = (0.7 + 0.3) × 1000 = 1000 (full mass charged at penalty).
-  // LB = 0 (no feasible LP solves).
-  CHECK(ir.upper_bound == doctest::Approx(1000.0));
-  CHECK(ir.lower_bound == doctest::Approx(0.0));
-  CHECK(ir.scene_probability_lost == doctest::Approx(1.0));
-  CHECK(ir.ub_penalty_contribution == doctest::Approx(1000.0));
-}
-
-TEST_CASE(  // NOLINT
-    "SDDPMethod::compute_iteration_bounds — Layer 2 disabled (penalty=0) "
-    "preserves legacy renormalise behaviour bit-for-bit")
-{
-  // Same fixture as the "weighted upper bound formula" test above
-  // (UB[0]=100, UB[1]=200, all infeasible, weights=[0.25, 0.75])
-  // — confirms that with ``infeasible_scene_penalty == 0`` the
-  // penalty branch is never entered and the UB computation matches
-  // the legacy weighted-average formula exactly.  Layer 3 fields
-  // stay at default 0.
-  auto planning = make_2scene_3phase_hydro_planning();
-  PlanningLP plp(std::move(planning));
-
-  SDDPOptions sddp_opts;
-  sddp_opts.max_iterations = 1;
-  sddp_opts.enable_api = false;
-  sddp_opts.apertures = std::vector<Uid> {};
-  sddp_opts.infeasible_scene_penalty = 0.0;  // legacy mode
   SDDPMethod sddp(plp, sddp_opts);
 
   const auto num_scenes = plp.simulation().scene_count();
@@ -4471,65 +4258,76 @@ TEST_CASE(  // NOLINT
   SDDPIterationResult ir;
   ir.scene_upper_bounds.assign(num_scenes, 0.0);
   ir.scene_upper_bounds[0] = 100.0;
-  ir.scene_upper_bounds[1] = 200.0;
+  ir.scene_upper_bounds[1] = 99999.0;  // garbage; should be ignored
 
   std::vector<uint8_t> scene_feasible(num_scenes, 0U);
-  std::vector<double> weights(num_scenes, 0.0);
-  weights[0] = 0.25;
-  weights[1] = 0.75;
+  scene_feasible[0] = 1U;  // only scene 0 feasible
+
+  std::vector<double> weights(num_scenes, 0.0);  // ignored
 
   sddp.compute_iteration_bounds(ir, scene_feasible, weights);
 
-  // Identical to the legacy formula test: UB = 0.25·100 + 0.75·200 = 175.
-  CHECK(ir.upper_bound == doctest::Approx(175.0));
-  // Layer 3 fields stay at default zero in legacy mode.
-  CHECK(ir.scene_probability_lost == doctest::Approx(0.0));
-  CHECK(ir.ub_penalty_contribution == doctest::Approx(0.0));
+  // UB = sum over feasible only = 100.  Scene 1's garbage UB doesn't
+  // contribute even though it's listed in scene_upper_bounds.
+  CHECK(ir.upper_bound == doctest::Approx(100.0));
+
+  // LB: scene 0's slot gets the LP solve's get_obj_value() (depends
+  // on solve state — we just check the structural invariant that
+  // scene 1's slot stays at 0 because it was infeasible and skipped).
+  REQUIRE(ir.scene_lower_bounds.size() == static_cast<size_t>(num_scenes));
+  CHECK(ir.scene_lower_bounds[1] == doctest::Approx(0.0));
 }
 
 TEST_CASE(  // NOLINT
-    "SDDPMethod::compute_iteration_bounds — Layer 2 gap floor (penalty makes "
-    "UB > LB persist while scenes infeasible)")
+    "SDDPMethod::compute_iteration_bounds — scene_probability_lost reflects "
+    "missing mass fraction")
 {
-  // The whole point of Layer 2: when scenes remain infeasible, the
-  // gap must stay positive (refuse to declare convergence).  This
-  // test pins the floor: with all feasible scenes converged
-  // (UB == LB on every feasible scene), the residual gap comes
-  // entirely from the penalty mass on infeasible scenes.
-  auto planning = make_2scene_3phase_hydro_planning();
+  auto planning = make_2scene_3phase_hydro_planning();  // (0.7, 0.3)
   PlanningLP plp(std::move(planning));
 
   SDDPOptions sddp_opts;
   sddp_opts.max_iterations = 1;
   sddp_opts.enable_api = false;
   sddp_opts.apertures = std::vector<Uid> {};
-  sddp_opts.infeasible_scene_penalty = 500.0;
   SDDPMethod sddp(plp, sddp_opts);
 
   const auto num_scenes = plp.simulation().scene_count();
   REQUIRE(num_scenes == 2);
 
   SDDPIterationResult ir;
-  ir.scene_upper_bounds.assign(num_scenes, 0.0);
-  ir.scene_upper_bounds[0] = 100.0;  // feasible scene's converged UB
+  ir.scene_upper_bounds.assign(num_scenes, 100.0);
+  std::vector<double> weights(num_scenes, 0.0);
 
-  std::vector<uint8_t> scene_feasible(num_scenes, 0U);
-  scene_feasible[0] = 1U;
-  std::vector<double> weights(num_scenes, 0.0);  // ignored in penalty mode
+  SUBCASE("all feasible — probability_lost = 0")
+  {
+    std::vector<uint8_t> scene_feasible(num_scenes, 1U);
+    sddp.compute_iteration_bounds(ir, scene_feasible, weights);
+    CHECK(ir.scene_probability_lost == doctest::Approx(0.0));
+  }
 
-  sddp.compute_iteration_bounds(ir, scene_feasible, weights);
+  SUBCASE("only scene 0 (p=0.7) feasible — lost = 0.3")
+  {
+    std::vector<uint8_t> scene_feasible(num_scenes, 0U);
+    scene_feasible[0] = 1U;
+    sddp.compute_iteration_bounds(ir, scene_feasible, weights);
+    // total_p = 0.7 + 0.3 = 1.0, lost_p = 0.3 → fraction = 0.3
+    CHECK(ir.scene_probability_lost == doctest::Approx(0.3));
+  }
 
-  // UB = 0.7 · 100 + 0.3 · 500 = 220.  LB depends on the LP solve
-  // state of scene 0 — but the gap = (UB - LB) / |UB| has at minimum
-  // a contribution of (penalty_mass / UB) ≈ 150/220 ≈ 0.682 from the
-  // infeasible 30 % of the probability measure, regardless of how
-  // tightly scene 0 has converged.  i.e. the gap floor is the
-  // ``ub_penalty_contribution / upper_bound`` ratio.
-  CHECK(ir.upper_bound == doctest::Approx(220.0));
-  CHECK(ir.ub_penalty_contribution == doctest::Approx(150.0));
-  // Floor: (UB - LB) ≥ ub_penalty_contribution because LB does not
-  // include the penalty.  Equivalently, gap ≥ penalty_contrib / UB.
-  CHECK((ir.upper_bound - ir.lower_bound) >= ir.ub_penalty_contribution);
+  SUBCASE("only scene 1 (p=0.3) feasible — lost = 0.7")
+  {
+    std::vector<uint8_t> scene_feasible(num_scenes, 0U);
+    scene_feasible[1] = 1U;
+    sddp.compute_iteration_bounds(ir, scene_feasible, weights);
+    CHECK(ir.scene_probability_lost == doctest::Approx(0.7));
+  }
+
+  SUBCASE("none feasible — lost = 1.0")
+  {
+    std::vector<uint8_t> scene_feasible(num_scenes, 0U);
+    sddp.compute_iteration_bounds(ir, scene_feasible, weights);
+    CHECK(ir.scene_probability_lost == doctest::Approx(1.0));
+  }
 }
 
 TEST_CASE(  // NOLINT
@@ -5249,9 +5047,11 @@ TEST_CASE(  // NOLINT
   CHECK(last.scene_upper_bounds[0]
         == doctest::Approx(last.scene_upper_bounds[1]).epsilon(0.01));
 
-  // Total UB = probability-weighted combination (0.5 each).
-  const double expected_ub = k2scene10phaseProb * last.scene_upper_bounds[0]
-      + k2scene10phaseProb * last.scene_upper_bounds[1];
+  // Total UB = sum of per-scene UBs (each already prob-weighted via
+  // ``CostHelper::block_ecost``; the ``k2scene10phaseProb`` factor is
+  // already baked into both ``scene_upper_bounds[0]`` and ``[1]``).
+  const double expected_ub =
+      last.scene_upper_bounds[0] + last.scene_upper_bounds[1];
   CHECK(last.upper_bound == doctest::Approx(expected_ub).epsilon(1e-9));
 }
 
@@ -5287,8 +5087,9 @@ TEST_CASE(  // NOLINT
   CHECK(last.scene_upper_bounds[0]
         == doctest::Approx(last.scene_upper_bounds[1]).epsilon(0.01));
 
-  const double expected_ub = k2scene10phaseProb * last.scene_upper_bounds[0]
-      + k2scene10phaseProb * last.scene_upper_bounds[1];
+  // Sum of per-scene UBs (each already prob-weighted via block_ecost).
+  const double expected_ub =
+      last.scene_upper_bounds[0] + last.scene_upper_bounds[1];
   CHECK(last.upper_bound == doctest::Approx(expected_ub).epsilon(1e-9));
 }
 
@@ -5325,8 +5126,9 @@ TEST_CASE(  // NOLINT
   CAPTURE(last.scene_upper_bounds[0]);
   CAPTURE(last.scene_upper_bounds[1]);
 
-  const double expected_ub = k2scene10phaseProb * last.scene_upper_bounds[0]
-      + k2scene10phaseProb * last.scene_upper_bounds[1];
+  // Sum of per-scene UBs (each already prob-weighted via block_ecost).
+  const double expected_ub =
+      last.scene_upper_bounds[0] + last.scene_upper_bounds[1];
   CHECK(last.upper_bound == doctest::Approx(expected_ub).epsilon(1e-9));
 }
 
@@ -5362,8 +5164,9 @@ TEST_CASE(  // NOLINT
   CAPTURE(last.scene_upper_bounds[1]);
   CAPTURE(last.upper_bound);
 
-  const double expected_ub = k2scene10phaseProb * last.scene_upper_bounds[0]
-      + k2scene10phaseProb * last.scene_upper_bounds[1];
+  // Sum of per-scene UBs (each already prob-weighted via block_ecost).
+  const double expected_ub =
+      last.scene_upper_bounds[0] + last.scene_upper_bounds[1];
   CHECK(last.upper_bound == doctest::Approx(expected_ub).epsilon(1e-9));
 }
 

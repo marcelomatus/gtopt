@@ -817,35 +817,6 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   /// existed.
   int terminal_failure_threshold {2};
 
-  /// Per-infeasible-scene penalty (in $) used when computing the
-  /// iteration UB / LB.  When 0 (default, legacy) the bounds are
-  /// computed using the renormalised weights returned by
-  /// ``compute_scene_weights`` — i.e. ``E[cost | feasible]`` —
-  /// silently ignoring the missing probability mass.  When > 0 the
-  /// bounds switch to using the *original* (un-renormalised)
-  /// scenario probabilities and add ``p_i × penalty`` to UB for
-  /// each infeasible scene.  This implements the complete-recourse
-  /// convention of Birge & Louveaux §3.2 / Shapiro et al. §3.3.3
-  /// at the bound-aggregation level — the gap is then defined over
-  /// the original N-scene measure, not the feasible subset, and
-  /// the run cannot falsely declare convergence while scenes
-  /// remain infeasible.
-  ///
-  /// Recommended values:
-  ///   * ``2 × max(feasible_scene_UB)`` after the first iter has
-  ///     produced at least one feasible bound (auto-default
-  ///     heuristic; not yet wired — supply explicitly for now).
-  ///   * ``demand_fail_cost × peak_demand × num_phases`` as a
-  ///     physical sentinel before any feasible bound is available.
-  ///
-  /// Observed on juan/gtopt_iplp 2026-05-02 trace_30: with 9 of 16
-  /// scenes terminally infeasible, the legacy renormalised gap
-  /// flat-lined at 35.57 % — the 7 feasible scenes had converged
-  /// among themselves, but the 9 missing ones contributed nothing.
-  /// With this option, UB is inflated by the penalty mass and the
-  /// gap surfaces the true sub-problem structure.
-  double infeasible_scene_penalty {0.0};
-
   /// Optional LP solver options for the forward pass.
   /// When set, these override the global solver options for forward-pass
   /// solves.  The options are pre-merged with the global solver options
@@ -931,22 +902,14 @@ struct SDDPIterationResult
   std::vector<uint8_t> scene_feasible {};
 
   /// Total original probability mass of scenes that were marked
-  /// infeasible this iteration.  Computed from the un-renormalised
-  /// scenario probabilities, so a single infeasible scene at
-  /// ``probability_factor = 1/16`` contributes 0.0625 here.  Stays
-  /// 0 in the legacy bound mode (``infeasible_scene_penalty == 0``)
-  /// because that mode silently renormalises the missing mass
-  /// away.  Surfaces in the solver-status JSON for Layer 3
-  /// diagnostics — operators can see "47 % of probability mass is
-  /// missing" without having to compute it from scene_feasible.
+  /// infeasible this iteration.  Computed as
+  /// ``Σ_{infeasible i} p_orig_i / Σ_all p_orig_j`` so the value is
+  /// always in [0, 1] regardless of how the user normalised the
+  /// scenario probability_factors.  Lets downstream tooling and
+  /// solver-status JSON readers see "47 % of probability mass is
+  /// missing from this iteration's bounds" without recomputing
+  /// from scene_feasible.  Stays 0 when every scene is feasible.
   double scene_probability_lost {};
-
-  /// Penalty contribution to UB from infeasible scenes this
-  /// iteration: ``Σ_{infeasible i} p_orig_i × infeasible_scene_penalty``.
-  /// Lets downstream tooling (TUI, postmortem) decompose the
-  /// reported UB into "real cost from feasible scenes" vs "penalty
-  /// markup from missing mass".  0 in legacy mode.
-  double ub_penalty_contribution {};
 
   /// Per-scene iteration at the time this result was computed.
   /// Populated only in async mode (max_async_spread > 0).  Shows the
