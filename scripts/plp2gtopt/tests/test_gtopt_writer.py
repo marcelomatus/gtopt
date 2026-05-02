@@ -393,8 +393,7 @@ class TestGTOptWriterProcessMethods:
     def test_process_options_convergence_confidence_explicit_overrides(self):
         """Explicit convergence_confidence overrides the default of 0.99."""
         writer = GTOptWriter(MagicMock())
-        writer.process_options({"output_dir": "out",
-                                "convergence_confidence": 0.95})
+        writer.process_options({"output_dir": "out", "convergence_confidence": 0.95})
         sddp = writer.planning["options"]["sddp_options"]
         assert sddp["convergence_confidence"] == pytest.approx(0.95)
 
