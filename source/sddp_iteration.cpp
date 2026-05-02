@@ -266,6 +266,10 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
         return std::unexpected(std::move(fwd.error()));
       }
       ir.scene_upper_bounds = std::move(fwd->scene_upper_bounds);
+      // Copy (not move) — many downstream reads of ``fwd->scene_feasible``
+      // remain in this function (cut storage, save_cuts_for_iteration,
+      // backward dispatch).  A 1-byte-per-scene vector is cheap to copy.
+      ir.scene_feasible = fwd->scene_feasible;
       ir.forward_pass_s = fwd->elapsed_s;
       // No additional info-level "forward pass has feasibility issues"
       // log: when `forward_infeas_rollback` is on, the
@@ -563,9 +567,24 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
       // can read the convergence story at a glance.  `cuts/infeas` are
       // dropped from the headline when both are zero — they're noise on
       // the all-feasible iters.
+      //
+      // ``feasible=K/N`` exposes the fraction of the original N-scene
+      // problem the bounds actually cover.  UB and LB above are computed
+      // only over feasible scenes (probability weights renormalised to
+      // sum 1.0), so a low K/N means the printed gap is for a
+      // sub-problem and converging it does NOT certify a solution to
+      // the original N-scene SDDP — operators must see this directly,
+      // not have it hidden by silent renormalisation.  The clause is
+      // emitted only when K < N (the all-feasible case stays terse).
+      const auto n_total = ir.scene_feasible.size();
+      const auto n_feasible = static_cast<std::size_t>(
+          std::ranges::count(ir.scene_feasible, uint8_t {1}));
+      const auto feasibility_clause = (n_total > 0 && n_feasible < n_total)
+          ? std::format(" feasible={}/{}", n_feasible, n_total)
+          : std::string {};
       SPDLOG_INFO(
           "SDDP Iter [i{}]: done in {:.3f}s (fwd {:.2f}s + bwd {:.2f}s) — "
-          "UB={} LB={} gap={:.2f}% Δgap={:.2f}% cuts={}/{}{}",
+          "UB={} LB={} gap={:.2f}% Δgap={:.2f}% cuts={}/{}{}{}",
           iteration_index,
           ir.iteration_s,
           ir.forward_pass_s,
@@ -576,6 +595,7 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
           100.0 * ir.gap_change,
           ir.cuts_added,
           ir.infeasible_cuts_added,
+          feasibility_clause,
           ir.converged ? " [CONVERGED]" : "");
 
       // ── Post-iteration housekeeping (timed) ──
@@ -793,6 +813,10 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
     }
 
     ir.scene_upper_bounds = std::move(fwd->scene_upper_bounds);
+    // Copy — same reason as the training-pass move above; downstream
+    // sim-pass code (output_skipped marking, save_cuts) reads
+    // ``fwd->scene_feasible`` after this point.
+    ir.scene_feasible = fwd->scene_feasible;
     ir.forward_pass_s = p1_total_elapsed;
     if (fwd->has_feasibility_issue) {
       ir.feasibility_issue = true;
@@ -851,16 +875,28 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
 
     results.push_back(ir);
 
-    SPDLOG_INFO(
-        "SDDP Sim [i{}]: done in {:.3f}s — "
-        "UB={} LB={} gap={:.2f}% Δgap={:.2f}%{}",
-        final_iteration_index,
-        ir.iteration_s,
-        format_si(ir.upper_bound),
-        format_si(ir.lower_bound),
-        100.0 * ir.gap,
-        100.0 * ir.gap_change,
-        ir.converged ? " [CONVERGED]" : "");
+    {
+      // Same ``feasible=K/N`` clause as the per-iteration headline
+      // above — only emitted when the sim pass had infeasible scenes,
+      // so all-feasible runs stay terse.
+      const auto sim_total = ir.scene_feasible.size();
+      const auto sim_feasible = static_cast<std::size_t>(
+          std::ranges::count(ir.scene_feasible, uint8_t {1}));
+      const auto sim_clause = (sim_total > 0 && sim_feasible < sim_total)
+          ? std::format(" feasible={}/{}", sim_feasible, sim_total)
+          : std::string {};
+      SPDLOG_INFO(
+          "SDDP Sim [i{}]: done in {:.3f}s — "
+          "UB={} LB={} gap={:.2f}% Δgap={:.2f}%{}{}",
+          final_iteration_index,
+          ir.iteration_s,
+          format_si(ir.upper_bound),
+          format_si(ir.lower_bound),
+          100.0 * ir.gap,
+          100.0 * ir.gap_change,
+          sim_clause,
+          ir.converged ? " [CONVERGED]" : "");
+    }
 
     m_sim_write_enabled_ = false;
     m_in_simulation_ = false;
