@@ -9,10 +9,11 @@
  * literals at use sites.
  *
  *   * Per-element-class names (e.g. `"Bus"`, `"Reservoir"`,
- *     `"LngTerminal"`) live on each `*LP` class as
- *     `static constexpr LPClassName ClassName {"…"}`.  Reach them via
- *     `BusLP::ClassName.full_name()` etc. — already widely used in
- *     production code; not duplicated here.
+ *     `"LngTerminal"`) live on each data struct as
+ *     `static constexpr LPClassName class_name {"…"}`.  Reach them via
+ *     `Bus::class_name.full_name()` etc. (or
+ *     `BusLP::Element::class_name.full_name()` in generic contexts) —
+ *     single source of truth on the data struct; not duplicated here.
  *
  *   * Aggregator / coordinator names (`"System"`, `"Cascade"`, `"Sddp"`,
  *     `"Kirchhoff"`) describe LP rows that are NOT owned by a single
@@ -43,11 +44,11 @@ namespace gtopt
 // ─── class_name constants (aggregator / coordinator rows) ───────────────────
 //
 // Per-element class names (`Bus::class_name`, `Reservoir::class_name`,
-// `LngTerminal::class_name`) live on each data struct as a
-// `static constexpr std::string_view class_name`.  Reach them via
-// `Bus::class_name` etc. — single source of truth, also referenced by
-// the corresponding `*LP::ClassName{…}` constants on the LP wrapper
-// classes.
+// `LngTerminal::class_name`, …) live on each data struct as a
+// `static constexpr LPClassName class_name`.  Reach them via
+// `Bus::class_name` etc. directly — single source of truth.  The LP
+// wrappers (`BusLP`, …) expose no separate `ClassName` member; generic
+// code reaches the constant via `BusLP::Element::class_name`.
 //
 // The constants below describe LP rows that are NOT owned by a single
 // data struct (system-wide, cascade coordinator, SDDP coordinator,
@@ -61,8 +62,8 @@ inline constexpr std::string_view system_class_name = "System";
 inline constexpr std::string_view cascade_class_name = "Cascade";
 
 /// SDDP-method coordinator rows / columns (e.g. α future-cost
-/// variables).  Used in row labels where no per-element `*LP::ClassName`
-/// applies.
+/// variables).  Used in row labels where no per-element data-struct
+/// `class_name` applies.
 inline constexpr std::string_view sddp_class_name = "Sddp";
 
 /// Kirchhoff Voltage Law cycle rows on a meshed network.

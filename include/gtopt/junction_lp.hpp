@@ -45,7 +45,6 @@ namespace gtopt
 class JunctionLP : public ObjectLP<Junction>
 {
 public:
-  static constexpr LPClassName ClassName {"Junction"};
   static constexpr std::string_view BalanceName {"balance"};
   static constexpr std::string_view DrainName {"drain"};
 
@@ -124,5 +123,11 @@ private:
 
 using JunctionLPId = ObjectId<class JunctionLP>;
 using JunctionLPSId = ObjectSingleId<class JunctionLP>;
+
+// Pin the data-struct constant value so an accidental rename of the
+// `Junction::class_name` literal fails the build (LP row labels and
+// CSV outputs depend on the exact string `"Junction"`).
+static_assert(JunctionLP::Element::class_name == LPClassName {"Junction"},
+              "Junction::class_name must remain \"Junction\"");
 
 }  // namespace gtopt

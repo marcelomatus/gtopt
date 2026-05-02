@@ -37,6 +37,7 @@
 #pragma once
 
 #include <gtopt/field_sched.hpp>
+#include <gtopt/lp_class_name.hpp>
 #include <gtopt/object.hpp>
 #include <gtopt/right_bound_rule.hpp>
 
@@ -63,6 +64,13 @@ namespace gtopt
  */
 struct FlowRight
 {
+  /// Canonical class-name constant used in LP row labels and config
+  /// fields like `VariableScale::class_name`.  Single source of truth —
+  /// `FlowRightLP` exposes no separate `ClassName` member; callers reach
+  /// the constant via `FlowRight::class_name` directly (or
+  /// `FlowRightLP::Element::class_name` in generic contexts).
+  static constexpr LPClassName class_name {"FlowRight"};
+
   Uid uid {unknown_uid};  ///< Unique identifier
   Name name {};  ///< Human-readable name
   OptActive active {};  ///< Activation status (default: active)

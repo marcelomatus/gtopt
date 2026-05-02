@@ -50,6 +50,7 @@
 
 #include <gtopt/capacity.hpp>
 #include <gtopt/line_enums.hpp>
+#include <gtopt/lp_class_name.hpp>
 
 namespace gtopt
 {
@@ -71,6 +72,13 @@ namespace gtopt
  */
 struct Line
 {
+  /// Canonical class-name constant used in LP row labels and config
+  /// fields like `VariableScale::class_name`.  Single source of truth —
+  /// `LineLP` exposes no separate `ClassName` member; callers reach
+  /// the constant via `Line::class_name` directly (or
+  /// `LineLP::Element::class_name` in generic contexts).
+  static constexpr LPClassName class_name {"Line"};
+
   Uid uid {unknown_uid};  ///< Unique identifier
   Name name {};  ///< Line name
   OptActive active {};  ///< Activation status (default: active)

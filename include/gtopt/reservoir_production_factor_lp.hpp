@@ -42,8 +42,6 @@ class LinearInterface;
 class ReservoirProductionFactorLP : public ObjectLP<ReservoirProductionFactor>
 {
 public:
-  static constexpr LPClassName ClassName {"ReservoirProductionFactor"};
-
   explicit ReservoirProductionFactorLP(
       const ReservoirProductionFactor& pre,
       [[maybe_unused]] InputContext& ic) noexcept
@@ -158,5 +156,14 @@ private:
   /// Stored row/column indices indexed by (scenario, stage) → block
   IndexHolder2<ScenarioUid, StageUid, BCoeffMap> m_coeff_indices_;
 };
+
+// Pin the data-struct constant value so an accidental rename of the
+// `ReservoirProductionFactor::class_name` literal fails the build (LP row
+// labels and CSV outputs depend on the exact string
+// `"ReservoirProductionFactor"`).
+static_assert(ReservoirProductionFactorLP::Element::class_name
+                  == LPClassName {"ReservoirProductionFactor"},
+              "ReservoirProductionFactor::class_name must remain "
+              "\"ReservoirProductionFactor\"");
 
 }  // namespace gtopt

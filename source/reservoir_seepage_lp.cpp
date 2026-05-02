@@ -28,8 +28,9 @@ namespace gtopt
 ReservoirSeepageLP::ReservoirSeepageLP(const ReservoirSeepage& pseepage,
                                        InputContext& ic)
     : ObjectLP<ReservoirSeepage>(pseepage)
-    , m_slope_sched_(ic, ClassName, id(), std::move(seepage().slope))
-    , m_constant_sched_(ic, ClassName, id(), std::move(seepage().constant))
+    , m_slope_sched_(ic, Element::class_name, id(), std::move(seepage().slope))
+    , m_constant_sched_(
+          ic, Element::class_name, id(), std::move(seepage().constant))
 {
 }
 
@@ -39,11 +40,12 @@ bool ReservoirSeepageLP::add_to_lp(const SystemContext& sc,
                                    LinearProblem& lp)
 {
   // Intentional exception: the PAMPL class name here is SeepageName
-  // ("seepage") rather than ClassName.snake_case() ("reservoir_seepage").
-  // Matching the downstream PAMPL convention that names this element after
-  // the seepage constraint — not the ObjectLP wrapper — so `seepage.flow`
-  // remains the canonical variable path.  Element-name registration is
-  // hoisted into `system_lp.cpp::register_all_ampl_element_names`.
+  // ("seepage") rather than Element::class_name.snake_case()
+  // ("reservoir_seepage"). Matching the downstream PAMPL convention that names
+  // this element after the seepage constraint — not the ObjectLP wrapper — so
+  // `seepage.flow` remains the canonical variable path.  Element-name
+  // registration is hoisted into
+  // `system_lp.cpp::register_all_ampl_element_names`.
   static constexpr std::string_view ampl_name = SeepageName;
 
   if (!is_active(stage)) {
@@ -86,7 +88,7 @@ bool ReservoirSeepageLP::add_to_lp(const SystemContext& sc,
 
     auto frow =
         SparseRow {
-            .class_name = ClassName.full_name(),
+            .class_name = Element::class_name.full_name(),
             .constraint_name = SeepageName,
             .variable_uid = uid(),
             .context =
@@ -140,7 +142,7 @@ bool ReservoirSeepageLP::add_to_lp(const SystemContext& sc,
 
 bool ReservoirSeepageLP::add_to_output(OutputContext& out) const
 {
-  static constexpr std::string_view cname = ClassName.full_name();
+  static constexpr std::string_view cname = Element::class_name.full_name();
   const auto pid = id();
 
   out.add_col_sol(cname, SeepageName, pid, seepage_cols);

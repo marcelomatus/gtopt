@@ -24,7 +24,6 @@ namespace gtopt
 class ConverterLP : public CapacityObjectLP<Converter>
 {
 public:
-  static constexpr LPClassName ClassName {"Converter"};
   static constexpr std::string_view GenerationName {"generation"};
   static constexpr std::string_view DemandName {"demand"};
   static constexpr std::string_view CapacityName {"capacity"};
@@ -67,5 +66,11 @@ private:
   STBIndexHolder<RowIndex> demand_rows;
   STBIndexHolder<RowIndex> capacity_rows;
 };
+
+// Pin the data-struct constant value so an accidental rename of the
+// `Converter::class_name` literal fails the build (LP row labels and
+// CSV outputs depend on the exact string `"Converter"`).
+static_assert(ConverterLP::Element::class_name == LPClassName {"Converter"},
+              "Converter::class_name must remain \"Converter\"");
 
 }  // namespace gtopt

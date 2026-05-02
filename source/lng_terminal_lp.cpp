@@ -22,9 +22,9 @@ namespace gtopt
 
 LngTerminalLP::LngTerminalLP(const LngTerminal& pterminal,
                              const InputContext& ic)
-    : StorageBase(pterminal, ic, ClassName)
-    , delivery(ic, ClassName, id(), std::move(terminal().delivery))
-    , scost(ic, ClassName, id(), std::move(terminal().scost))
+    : StorageBase(pterminal, ic, Element::class_name)
+    , delivery(ic, Element::class_name, id(), std::move(terminal().delivery))
+    , scost(ic, Element::class_name, id(), std::move(terminal().scost))
 {
 }
 
@@ -44,8 +44,8 @@ bool LngTerminalLP::add_to_lp(SystemContext& sc,
                               const StageLP& stage,
                               LinearProblem& lp)
 {
-  static constexpr const auto& cname = ClassName;
-  static constexpr auto ampl_name = ClassName.snake_case();
+  static constexpr const auto& cname = Element::class_name;
+  static constexpr auto ampl_name = Element::class_name.snake_case();
 
   if (!is_active(stage)) {
     return true;
@@ -77,7 +77,7 @@ bool LngTerminalLP::add_to_lp(SystemContext& sc,
       const auto dc = lp.add_col(SparseCol {
           .lowb = delivery_rate,
           .uppb = delivery_rate,
-          .class_name = ClassName.full_name(),
+          .class_name = Element::class_name.full_name(),
           .variable_name = DeliveryName,
           .variable_uid = uid(),
           .context =
@@ -103,7 +103,7 @@ bool LngTerminalLP::add_to_lp(SystemContext& sc,
 
   const StorageOptions opts {
       .use_state_variable = terminal().use_state_variable.value_or(true),
-      .class_name = ClassName.full_name(),
+      .class_name = Element::class_name.full_name(),
       .variable_uid = uid(),
       .energy_scale = energy_scale,
       .scost = lng_scost,
@@ -183,12 +183,12 @@ bool LngTerminalLP::add_to_lp(SystemContext& sc,
  */
 bool LngTerminalLP::add_to_output(OutputContext& out) const
 {
-  static constexpr const auto& cname = ClassName;
+  static constexpr const auto& cname = Element::class_name;
 
   out.add_col_sol(cname, DeliveryName, id(), delivery_cols);
   out.add_col_cost(cname, DeliveryName, id(), delivery_cols);
 
-  return StorageBase::add_to_output(out, ClassName.full_name());
+  return StorageBase::add_to_output(out, Element::class_name.full_name());
 }
 
 }  // namespace gtopt

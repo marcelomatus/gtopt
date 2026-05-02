@@ -24,7 +24,6 @@ namespace gtopt
 class InertiaZoneLP : public ObjectLP<InertiaZone>
 {
 public:
-  static constexpr LPClassName ClassName {"InertiaZone"};
   static constexpr std::string_view RequirementName {"requirement"};
   /// PAMPL-visible alias for the requirement columns.
   static constexpr std::string_view ReqName {"req"};
@@ -81,5 +80,11 @@ private:
     STBIndexHolder<RowIndex> requirement_rows;
   } rr;
 };
+
+// Pin the data-struct constant value so an accidental rename of the
+// `InertiaZone::class_name` literal fails the build (LP row labels and
+// CSV outputs depend on the exact string `"InertiaZone"`).
+static_assert(InertiaZoneLP::Element::class_name == LPClassName {"InertiaZone"},
+              "InertiaZone::class_name must remain \"InertiaZone\"");
 
 }  // namespace gtopt

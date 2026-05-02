@@ -42,6 +42,7 @@
 #pragma once
 
 #include <gtopt/field_sched.hpp>
+#include <gtopt/lp_class_name.hpp>
 #include <gtopt/object.hpp>
 #include <gtopt/right_bound_rule.hpp>
 #include <gtopt/stage_enums.hpp>
@@ -71,6 +72,13 @@ namespace gtopt
  */
 struct VolumeRight
 {
+  /// Canonical class-name constant used in LP row labels and config
+  /// fields like `VariableScale::class_name`.  Single source of truth —
+  /// `VolumeRightLP` exposes no separate `ClassName` member; callers
+  /// reach the constant via `VolumeRight::class_name` directly (or
+  /// `VolumeRightLP::Element::class_name` in generic contexts).
+  static constexpr LPClassName class_name {"VolumeRight"};
+
   /// @name Default constants
   /// @{
   static constexpr Real default_flow_conversion_rate =

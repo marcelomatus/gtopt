@@ -24,6 +24,7 @@
 #pragma once
 
 #include <gtopt/basic_types.hpp>
+#include <gtopt/lp_class_name.hpp>
 #include <gtopt/user_constraint_enums.hpp>
 
 namespace gtopt
@@ -84,6 +85,13 @@ namespace gtopt
  */
 struct UserConstraint
 {
+  /// Canonical class-name constant used in LP row labels and config
+  /// fields like `VariableScale::class_name`.  Single source of truth —
+  /// `UserConstraintLP` exposes no separate `ClassName` member; callers
+  /// reach the constant via `UserConstraint::class_name` directly (or
+  /// `UserConstraintLP::Element::class_name` in generic contexts).
+  static constexpr LPClassName class_name {"UserConstraint"};
+
   Uid uid {unknown_uid};  ///< Unique identifier
   Name name {};  ///< Human-readable constraint name
   OptBool active {};  ///< Activation status (default: active)

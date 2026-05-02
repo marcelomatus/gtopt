@@ -49,7 +49,6 @@ class SystemLP;
 class ReservoirSeepageLP : public ObjectLP<ReservoirSeepage>
 {
 public:
-  static constexpr LPClassName ClassName {"ReservoirSeepage"};
   static constexpr std::string_view SeepageName {"seepage"};
 
   /// Constructs a ReservoirSeepageLP from a ReservoirSeepage and input context.
@@ -134,5 +133,12 @@ private:
   /// Per-(scenario, stage) state for coefficient tracking
   IndexHolder2<ScenarioUid, StageUid, ReservoirSeepageState> m_states_;
 };
+
+// Pin the data-struct constant value so an accidental rename of the
+// `ReservoirSeepage::class_name` literal fails the build (LP row labels and
+// CSV outputs depend on the exact string `"ReservoirSeepage"`).
+static_assert(ReservoirSeepageLP::Element::class_name
+                  == LPClassName {"ReservoirSeepage"},
+              "ReservoirSeepage::class_name must remain \"ReservoirSeepage\"");
 
 }  // namespace gtopt

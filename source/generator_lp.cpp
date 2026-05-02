@@ -32,12 +32,13 @@ namespace gtopt
  * parameters like minimum/maximum generation limits, loss factors, and costs.
  */
 GeneratorLP::GeneratorLP(const Generator& generator, const InputContext& ic)
-    : CapacityBase(generator, ic, ClassName)
-    , pmin(ic, ClassName, id(), std::move(object().pmin))
-    , pmax(ic, ClassName, id(), std::move(object().pmax))
-    , lossfactor(ic, ClassName, id(), std::move(object().lossfactor))
-    , gcost(ic, ClassName, id(), std::move(object().gcost))
-    , emission_factor(ic, ClassName, id(), std::move(object().emission_factor))
+    : CapacityBase(generator, ic, Element::class_name)
+    , pmin(ic, Element::class_name, id(), std::move(object().pmin))
+    , pmax(ic, Element::class_name, id(), std::move(object().pmax))
+    , lossfactor(ic, Element::class_name, id(), std::move(object().lossfactor))
+    , gcost(ic, Element::class_name, id(), std::move(object().gcost))
+    , emission_factor(
+          ic, Element::class_name, id(), std::move(object().emission_factor))
 {
   SPDLOG_DEBUG("GeneratorLP created for generator with uid {}", uid());
 }
@@ -64,7 +65,7 @@ bool GeneratorLP::add_to_lp(SystemContext& sc,
                             const StageLP& stage,
                             LinearProblem& lp)
 {
-  static constexpr auto ampl_name = ClassName.snake_case();
+  static constexpr auto ampl_name = Element::class_name.snake_case();
 
   if (!CapacityBase::add_to_lp(sc, ampl_name, scenario, stage, lp)) [[unlikely]]
   {
@@ -133,7 +134,7 @@ bool GeneratorLP::add_to_lp(SystemContext& sc,
         .lowb = block_pmin,
         .uppb = block_pmax,
         .cost = CostHelper::block_ecost(scenario, stage, block, stage_gcost),
-        .class_name = ClassName.full_name(),
+        .class_name = Element::class_name.full_name(),
         .variable_name = GenerationName,
         .variable_uid = guid,
         .context = make_block_context(scenario.uid(), stage.uid(), block.uid()),
@@ -150,7 +151,7 @@ bool GeneratorLP::add_to_lp(SystemContext& sc,
     if (capacity_col) {
       auto crow =
           SparseRow {
-              .class_name = ClassName.full_name(),
+              .class_name = Element::class_name.full_name(),
               .constraint_name = CapacityName,
               .variable_uid = guid,
               .context =
@@ -197,7 +198,7 @@ bool GeneratorLP::add_to_lp(SystemContext& sc,
  */
 bool GeneratorLP::add_to_output(OutputContext& out) const
 {
-  static constexpr std::string_view cname = ClassName.full_name();
+  static constexpr std::string_view cname = Element::class_name.full_name();
 
   const auto pid = id();
   out.add_col_sol(cname, GenerationName, pid, generation_cols);

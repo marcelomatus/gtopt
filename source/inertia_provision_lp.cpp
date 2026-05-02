@@ -72,11 +72,15 @@ InertiaProvisionLP::InertiaProvisionLP(const InertiaProvision& ip,
     , generator_index_(ic.element_index(generator_sid()))
     , inertia_zone_indexes_(
           make_izone_indexes(ic, inertia_provision().inertia_zones))
-    , provision_max_(
-          ic, ClassName, id(), std::move(inertia_provision().provision_max))
-    , provision_factor_(
-          ic, ClassName, id(), std::move(inertia_provision().provision_factor))
-    , cost_(ic, ClassName, id(), std::move(inertia_provision().cost))
+    , provision_max_(ic,
+                     Element::class_name,
+                     id(),
+                     std::move(inertia_provision().provision_max))
+    , provision_factor_(ic,
+                        Element::class_name,
+                        id(),
+                        std::move(inertia_provision().provision_factor))
+    , cost_(ic, Element::class_name, id(), std::move(inertia_provision().cost))
 {
 }
 
@@ -85,8 +89,8 @@ bool InertiaProvisionLP::add_to_lp(const SystemContext& sc,
                                    const StageLP& stage,
                                    LinearProblem& lp)
 {
-  static constexpr std::string_view cname = ClassName.full_name();
-  static constexpr auto ampl_name = ClassName.snake_case();
+  static constexpr std::string_view cname = Element::class_name.full_name();
+  static constexpr auto ampl_name = Element::class_name.snake_case();
 
   if (!is_active(stage)) {
     return true;
@@ -218,7 +222,7 @@ bool InertiaProvisionLP::add_to_lp(const SystemContext& sc,
 
 bool InertiaProvisionLP::add_to_output(OutputContext& out) const
 {
-  static constexpr std::string_view cname = ClassName.full_name();
+  static constexpr std::string_view cname = Element::class_name.full_name();
   const auto pid = id();
 
   out.add_col_sol(cname, ProvisionName, pid, provision_cols_);

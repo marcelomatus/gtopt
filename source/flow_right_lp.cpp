@@ -88,12 +88,15 @@ Real resolve_block_fail_cost(Real sched_fail_cost,
 }  // namespace
 
 FlowRightLP::FlowRightLP(const FlowRight& pflow, const InputContext& ic)
-    : ObjectLP<FlowRight>(pflow, ic, ClassName)
-    , discharge(ic, ClassName, id(), std::move(flow_right().discharge))
+    : ObjectLP<FlowRight>(pflow, ic, Element::class_name)
+    , discharge(
+          ic, Element::class_name, id(), std::move(flow_right().discharge))
     , direction(flow_right().direction.value_or(-1))
-    , fail_cost_sched(ic, ClassName, id(), std::move(flow_right().fail_cost))
-    , use_value_sched(ic, ClassName, id(), std::move(flow_right().use_value))
-    , fmax_sched(ic, ClassName, id(), std::move(flow_right().fmax))
+    , fail_cost_sched(
+          ic, Element::class_name, id(), std::move(flow_right().fail_cost))
+    , use_value_sched(
+          ic, Element::class_name, id(), std::move(flow_right().use_value))
+    , fmax_sched(ic, Element::class_name, id(), std::move(flow_right().fmax))
 {
 }
 
@@ -102,7 +105,7 @@ bool FlowRightLP::add_to_lp(const SystemContext& sc,
                             const StageLP& stage,
                             LinearProblem& lp)
 {
-  static constexpr auto ampl_name = ClassName.snake_case();
+  static constexpr auto ampl_name = Element::class_name.snake_case();
 
   if (!is_active(stage)) {
     return true;
@@ -178,7 +181,7 @@ bool FlowRightLP::add_to_lp(const SystemContext& sc,
         .lowb = lowb,
         .uppb = uppb,
         .cost = -block_use_value,
-        .class_name = ClassName.full_name(),
+        .class_name = Element::class_name.full_name(),
         .variable_name = FlowName,
         .variable_uid = uid(),
         .context = block_ctx,
@@ -196,7 +199,7 @@ bool FlowRightLP::add_to_lp(const SystemContext& sc,
     if (has_deficit) {
       const auto fail_col = lp.add_col({
           .cost = block_fail_cost,
-          .class_name = ClassName.full_name(),
+          .class_name = Element::class_name.full_name(),
           .variable_name = FailName,
           .variable_uid = uid(),
           .context = block_ctx,
@@ -206,7 +209,7 @@ bool FlowRightLP::add_to_lp(const SystemContext& sc,
       // Deficit coupling: flow + fail >= discharge.
       auto demand_row =
           SparseRow {
-              .class_name = ClassName.full_name(),
+              .class_name = Element::class_name.full_name(),
               .constraint_name = DemandName,
               .variable_uid = uid(),
               .context =
@@ -251,7 +254,7 @@ bool FlowRightLP::add_to_lp(const SystemContext& sc,
     const auto stage_dur = stage.duration();
 
     const auto qeh_col = lp.add_col(SparseCol {
-        .class_name = ClassName.full_name(),
+        .class_name = Element::class_name.full_name(),
         .variable_name = QehName,
         .variable_uid = uid(),
         .context = make_stage_context(scenario.uid(), stage.uid()),
@@ -260,7 +263,7 @@ bool FlowRightLP::add_to_lp(const SystemContext& sc,
 
     auto avg_row =
         SparseRow {
-            .class_name = ClassName.full_name(),
+            .class_name = Element::class_name.full_name(),
             .constraint_name = QavgName,
             .variable_uid = uid(),
             .context = make_stage_context(scenario.uid(), stage.uid()),
@@ -301,7 +304,7 @@ bool FlowRightLP::add_to_lp(const SystemContext& sc,
 
 bool FlowRightLP::add_to_output(OutputContext& out) const
 {
-  static constexpr std::string_view cname = ClassName.full_name();
+  static constexpr std::string_view cname = Element::class_name.full_name();
 
   out.add_col_sol(cname, FlowName, id(), flow_cols);
   out.add_col_cost(cname, FlowName, id(), flow_cols);

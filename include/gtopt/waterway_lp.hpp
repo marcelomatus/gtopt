@@ -20,7 +20,6 @@ namespace gtopt
 class WaterwayLP : public ObjectLP<Waterway>
 {
 public:
-  static constexpr LPClassName ClassName {"Waterway"};
   static constexpr std::string_view FlowName {"flow"};
 
   explicit WaterwayLP(const Waterway& pwaterway, const InputContext& ic);
@@ -64,5 +63,11 @@ private:
 
 using WaterwayLPId = ObjectId<class WaterwayLP>;
 using WaterwayLPSId = ObjectSingleId<class WaterwayLP>;
+
+// Pin the data-struct constant value so an accidental rename of the
+// `Waterway::class_name` literal fails the build (LP row labels and
+// CSV outputs depend on the exact string `"Waterway"`).
+static_assert(WaterwayLP::Element::class_name == LPClassName {"Waterway"},
+              "Waterway::class_name must remain \"Waterway\"");
 
 }  // namespace gtopt

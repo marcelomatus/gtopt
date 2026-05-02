@@ -30,6 +30,7 @@
 #pragma once
 
 #include <gtopt/demand.hpp>
+#include <gtopt/lp_class_name.hpp>
 
 namespace gtopt
 {
@@ -46,6 +47,13 @@ namespace gtopt
  */
 struct DemandProfile
 {
+  /// Canonical class-name constant used in LP row labels and config
+  /// fields like `VariableScale::class_name`.  Single source of truth —
+  /// `DemandProfileLP` exposes no separate `ClassName` member; callers
+  /// reach the constant via `DemandProfile::class_name` directly (or
+  /// `DemandProfileLP::Element::class_name` in generic contexts).
+  static constexpr LPClassName class_name {"DemandProfile"};
+
   Uid uid {unknown_uid};  ///< Unique identifier
   Name name {};  ///< Human-readable name
   OptActive active {};  ///< Activation status (default: active)

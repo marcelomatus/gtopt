@@ -41,18 +41,26 @@ class ObjectLP : public ObjectUtils
 public:
   using object_type = ObjectType;  ///< Type of the wrapped object
 
+  /// Alias for the wrapped data-struct type.  Lets generic code reach
+  /// the canonical `LPClassName` constant via `T::Element::class_name`
+  /// where `T` is any LP wrapper inheriting from `ObjectLP`.  Single
+  /// source of truth for the class-name constant lives on the data
+  /// struct (`Bus::class_name`, `Reservoir::class_name`, …); the LP
+  /// wrappers no longer carry a duplicate `ClassName` member.
+  using Element = ObjectType;
+
   template<typename Self>
   [[nodiscard]] constexpr auto class_name(
       [[maybe_unused]] this const Self& self) noexcept
   {
-    return Self::ClassName.full_name();
+    return Self::Element::class_name.full_name();
   }
 
   template<typename Self>
   [[nodiscard]] constexpr auto short_name(
       [[maybe_unused]] this const Self& self) noexcept
   {
-    return Self::ClassName.short_name();
+    return Self::Element::class_name.short_name();
   }
 
   /**

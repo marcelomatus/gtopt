@@ -22,7 +22,6 @@ namespace gtopt
 class ReserveProvisionLP : public ObjectLP<ReserveProvision>
 {
 public:
-  static constexpr LPClassName ClassName {"ReserveProvision"};
   static constexpr std::string_view UprovisionName {"uprovision"};
   static constexpr std::string_view DprovisionName {"dprovision"};
   static constexpr std::string_view UcapacityName {"ucapacity"};
@@ -151,5 +150,12 @@ private:
   ElementIndex<GeneratorLP> generator_index;
   std::vector<ElementIndex<ReserveZoneLP>> reserve_zone_indexes;
 };
+
+// Pin the data-struct constant value so an accidental rename of the
+// `ReserveProvision::class_name` literal fails the build (LP row labels and
+// CSV outputs depend on the exact string `"ReserveProvision"`).
+static_assert(ReserveProvisionLP::Element::class_name
+                  == LPClassName {"ReserveProvision"},
+              "ReserveProvision::class_name must remain \"ReserveProvision\"");
 
 }  // namespace gtopt

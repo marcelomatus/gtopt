@@ -20,11 +20,12 @@ namespace gtopt
 
 WaterwayLP::WaterwayLP(const Waterway& pwaterway, const InputContext& ic)
     : ObjectLP<Waterway>(pwaterway)
-    , fmin(ic, ClassName, id(), std::move(waterway().fmin))
-    , fmax(ic, ClassName, id(), std::move(waterway().fmax))
-    , capacity(ic, ClassName, id(), std::move(waterway().capacity))
-    , lossfactor(ic, ClassName, id(), std::move(waterway().lossfactor))
-    , fcost(ic, ClassName, id(), std::move(waterway().fcost))
+    , fmin(ic, Element::class_name, id(), std::move(waterway().fmin))
+    , fmax(ic, Element::class_name, id(), std::move(waterway().fmax))
+    , capacity(ic, Element::class_name, id(), std::move(waterway().capacity))
+    , lossfactor(
+          ic, Element::class_name, id(), std::move(waterway().lossfactor))
+    , fcost(ic, Element::class_name, id(), std::move(waterway().fcost))
 {
 }
 
@@ -33,7 +34,7 @@ bool WaterwayLP::add_to_lp(const SystemContext& sc,
                            const StageLP& stage,
                            LinearProblem& lp)
 {
-  static constexpr auto ampl_name = ClassName.snake_case();
+  static constexpr auto ampl_name = Element::class_name.snake_case();
 
   if (!is_active(stage)) {
     return true;
@@ -81,7 +82,7 @@ bool WaterwayLP::add_to_lp(const SystemContext& sc,
         .cost = stage_fcost
             ? CostHelper::block_ecost(scenario, stage, block, *stage_fcost)
             : 0.0,
-        .class_name = ClassName.full_name(),
+        .class_name = Element::class_name.full_name(),
         .variable_name = FlowName,
         .variable_uid = uid(),
         .context = make_block_context(scenario.uid(), stage.uid(), block.uid()),
@@ -109,7 +110,7 @@ bool WaterwayLP::add_to_lp(const SystemContext& sc,
 
 bool WaterwayLP::add_to_output(OutputContext& out) const
 {
-  static constexpr std::string_view cname = ClassName.full_name();
+  static constexpr std::string_view cname = Element::class_name.full_name();
   const auto pid = id();
 
   out.add_col_sol(cname, FlowName, pid, flow_cols);

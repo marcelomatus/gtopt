@@ -21,9 +21,9 @@ namespace gtopt
 TurbineLP::TurbineLP(const Turbine& pturbine, InputContext& ic)
     : ObjectLP<Turbine>(pturbine)
     , production_factor(
-          ic, ClassName, id(), std::move(turbine().production_factor))
-    , efficiency(ic, ClassName, id(), std::move(turbine().efficiency))
-    , capacity(ic, ClassName, id(), std::move(turbine().capacity))
+          ic, Element::class_name, id(), std::move(turbine().production_factor))
+    , efficiency(ic, Element::class_name, id(), std::move(turbine().efficiency))
+    , capacity(ic, Element::class_name, id(), std::move(turbine().capacity))
 {
 }
 
@@ -44,7 +44,7 @@ bool TurbineLP::add_to_lp(const SystemContext& sc,
                           const StageLP& stage,
                           LinearProblem& lp)
 {
-  static constexpr auto ampl_name = ClassName.snake_case();
+  static constexpr auto ampl_name = Element::class_name.snake_case();
 
   if (!is_active(stage)) {
     return true;
@@ -83,7 +83,7 @@ bool TurbineLP::add_to_lp(const SystemContext& sc,
       const auto dcol = discharge_cols.at(buid);
 
       auto rrow = SparseRow {
-          .class_name = ClassName.full_name(),
+          .class_name = Element::class_name.full_name(),
           .constraint_name = ConversionName,
           .variable_uid = uid(),
           .context =
@@ -106,7 +106,7 @@ bool TurbineLP::add_to_lp(const SystemContext& sc,
       const auto gcol = gen_cols.at(buid);
 
       auto rrow = SparseRow {
-          .class_name = ClassName.full_name(),
+          .class_name = Element::class_name.full_name(),
           .constraint_name = ConversionName,
           .variable_uid = uid(),
           .context =
@@ -121,7 +121,7 @@ bool TurbineLP::add_to_lp(const SystemContext& sc,
       if (stage_capacity) {
         auto crow =
             SparseRow {
-                .class_name = ClassName.full_name(),
+                .class_name = Element::class_name.full_name(),
                 .constraint_name = CapacityName,
                 .variable_uid = uid(),
                 .context = make_block_context(
@@ -169,7 +169,7 @@ bool TurbineLP::add_to_lp(const SystemContext& sc,
  */
 bool TurbineLP::add_to_output(OutputContext& out) const
 {
-  static constexpr std::string_view cname = ClassName.full_name();
+  static constexpr std::string_view cname = Element::class_name.full_name();
 
   out.add_row_dual(cname, ConversionName, id(), conversion_rows);
   out.add_row_dual(cname, CapacityName, id(), capacity_rows);

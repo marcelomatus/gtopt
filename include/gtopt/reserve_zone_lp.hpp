@@ -23,7 +23,6 @@ namespace gtopt
 class ReserveZoneLP : public ObjectLP<ReserveZone>
 {
 public:
-  static constexpr LPClassName ClassName {"ReserveZone"};
   static constexpr std::string_view UrequirementName {"urequirement"};
   static constexpr std::string_view DrequirementName {"drequirement"};
   /// PAMPL-visible aliases for the up/down requirement columns.
@@ -106,5 +105,11 @@ private:
     STBIndexHolder<RowIndex> requirement_rows;
   } ur, dr;
 };
+
+// Pin the data-struct constant value so an accidental rename of the
+// `ReserveZone::class_name` literal fails the build (LP row labels and
+// CSV outputs depend on the exact string `"ReserveZone"`).
+static_assert(ReserveZoneLP::Element::class_name == LPClassName {"ReserveZone"},
+              "ReserveZone::class_name must remain \"ReserveZone\"");
 
 }  // namespace gtopt

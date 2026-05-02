@@ -35,6 +35,7 @@
 #pragma once
 
 #include <gtopt/capacity.hpp>
+#include <gtopt/lp_class_name.hpp>
 
 namespace gtopt
 {
@@ -84,6 +85,13 @@ struct DemandAttrs
  */
 struct Demand
 {
+  /// Canonical class-name constant used in LP row labels and config
+  /// fields like `VariableScale::class_name`.  Single source of truth —
+  /// `DemandLP` exposes no separate `ClassName` member; callers reach
+  /// the constant via `Demand::class_name` directly (or
+  /// `DemandLP::Element::class_name` in generic contexts).
+  static constexpr LPClassName class_name {"Demand"};
+
   Uid uid {unknown_uid};  ///< Unique identifier
   Name name {};  ///< Descriptive name
   OptActive active {};  ///< Activation status (default: active)

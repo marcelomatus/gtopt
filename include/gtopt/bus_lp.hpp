@@ -29,7 +29,6 @@ namespace gtopt
 class BusLP : public ObjectLP<Bus>
 {
 public:
-  static constexpr LPClassName ClassName {Bus::class_name};
   static constexpr std::string_view BalanceName {"balance"};
   static constexpr std::string_view ThetaName {"theta"};
   /// Metadata key published by `add_to_lp` so user-constraint filters
@@ -136,5 +135,11 @@ private:
 
 using BusLPId = ObjectId<class BusLP>;
 using BusLPSId = ObjectSingleId<class BusLP>;
+
+// Pin the data-struct constant value so an accidental rename of the
+// `Bus::class_name` literal fails the build (LP row labels and CSV
+// outputs depend on the exact string `"Bus"`).
+static_assert(BusLP::Element::class_name == LPClassName {"Bus"},
+              "Bus::class_name must remain \"Bus\"");
 
 }  // namespace gtopt

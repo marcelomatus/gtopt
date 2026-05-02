@@ -153,7 +153,7 @@ BIndexHolder<RowIndex> add_line_kvl_rows(
       // be redundant — call `param_reactance` directly.
       const node_angle::LineKvlInputs inputs {
           .line_uid = line.uid(),
-          .class_name = LineLP::ClassName.full_name(),
+          .class_name = Line::class_name.full_name(),
           .theta_constraint_name = LineLP::ThetaName,
           .reactance = line.param_reactance(stage.uid()),
           .voltage = line.param_voltage(stage.uid()).value_or(1.0),

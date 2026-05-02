@@ -33,7 +33,6 @@ using BatteryLPSId = ObjectSingleId<class BatteryLP>;
 class BatteryLP : public StorageLP<CapacityObjectLP<Battery>>
 {
 public:
-  static constexpr LPClassName ClassName {"Battery"};
   static constexpr std::string_view FinpName {"finp"};
   static constexpr std::string_view FoutName {"fout"};
   // User-facing attribute aliases used by PAMPL expression resolution.
@@ -119,5 +118,11 @@ private:
   STBIndexHolder<ColIndex> finp_cols;
   STBIndexHolder<ColIndex> fout_cols;
 };
+
+// Pin the data-struct constant value so an accidental rename of the
+// `Battery::class_name` literal fails the build (LP row labels and
+// CSV outputs depend on the exact string `"Battery"`).
+static_assert(BatteryLP::Element::class_name == LPClassName {"Battery"},
+              "Battery::class_name must remain \"Battery\"");
 
 }  // namespace gtopt

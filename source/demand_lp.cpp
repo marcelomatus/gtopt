@@ -18,12 +18,12 @@ namespace gtopt
 {
 
 DemandLP::DemandLP(const Demand& pdemand, const InputContext& ic)
-    : CapacityBase(pdemand, ic, ClassName)
-    , lmax(ic, ClassName, id(), std::move(object().lmax))
-    , lossfactor(ic, ClassName, id(), std::move(object().lossfactor))
-    , fcost(ic, ClassName, id(), std::move(object().fcost))
-    , emin(ic, ClassName, id(), std::move(object().emin))
-    , ecost(ic, ClassName, id(), std::move(object().ecost))
+    : CapacityBase(pdemand, ic, Element::class_name)
+    , lmax(ic, Element::class_name, id(), std::move(object().lmax))
+    , lossfactor(ic, Element::class_name, id(), std::move(object().lossfactor))
+    , fcost(ic, Element::class_name, id(), std::move(object().fcost))
+    , emin(ic, Element::class_name, id(), std::move(object().emin))
+    , ecost(ic, Element::class_name, id(), std::move(object().ecost))
 {
   SPDLOG_DEBUG("DemandLP created: uid={} name='{}'", id().first, id().second);
 }
@@ -33,7 +33,7 @@ bool DemandLP::add_to_lp(SystemContext& sc,
                          const StageLP& stage,
                          LinearProblem& lp)
 {
-  static constexpr auto ampl_name = ClassName.snake_case();
+  static constexpr auto ampl_name = Element::class_name.snake_case();
 
   if (!CapacityBase::add_to_lp(sc, ampl_name, scenario, stage, lp)) {
     return false;
@@ -99,7 +99,7 @@ bool DemandLP::add_to_lp(SystemContext& sc,
               // storage_lp.hpp:787,822 pattern.
               .cost = -CostHelper::scenario_stage_ecost(
                   scenario, stage, *stage_ecost / stage.duration()),
-              .class_name = ClassName.full_name(),
+              .class_name = Element::class_name.full_name(),
               .variable_name = EminName,
               .variable_uid = uid(),
               .context = make_stage_context(scenario.uid(), stage.uid()),
@@ -107,7 +107,7 @@ bool DemandLP::add_to_lp(SystemContext& sc,
         : lp.add_col({
               .lowb = *stage_emin,
               .uppb = *stage_emin,
-              .class_name = ClassName.full_name(),
+              .class_name = Element::class_name.full_name(),
               .variable_name = EminName,
               .variable_uid = uid(),
               .context = make_stage_context(scenario.uid(), stage.uid()),
@@ -117,7 +117,7 @@ bool DemandLP::add_to_lp(SystemContext& sc,
 
     auto row =
         SparseRow {
-            .class_name = ClassName.full_name(),
+            .class_name = Element::class_name.full_name(),
             .constraint_name = EminName,
             .variable_uid = uid(),
             .context = make_stage_context(scenario.uid(), stage.uid()),
@@ -149,7 +149,7 @@ bool DemandLP::add_to_lp(SystemContext& sc,
     const auto lcol = lp.add_col({
         .lowb = load_lowb,
         .uppb = block_lmax,
-        .class_name = ClassName.full_name(),
+        .class_name = Element::class_name.full_name(),
         .variable_name = LoadName,
         .variable_uid = uid(),
         .context = make_block_context(scenario.uid(), stage.uid(), block.uid()),
@@ -158,7 +158,7 @@ bool DemandLP::add_to_lp(SystemContext& sc,
     if (stage_fcost && !is_forced) {
       const auto fcol = lp.add_col({
           .cost = CostHelper::block_ecost(scenario, stage, block, *stage_fcost),
-          .class_name = ClassName.full_name(),
+          .class_name = Element::class_name.full_name(),
           .variable_name = FailName,
           .variable_uid = uid(),
           .context =
@@ -168,7 +168,7 @@ bool DemandLP::add_to_lp(SystemContext& sc,
 
       auto frow =
           SparseRow {
-              .class_name = ClassName.full_name(),
+              .class_name = Element::class_name.full_name(),
               .constraint_name = BalanceName,
               .variable_uid = uid(),
               .context =
@@ -191,7 +191,7 @@ bool DemandLP::add_to_lp(SystemContext& sc,
     if (capacity_col) {
       auto crow =
           SparseRow {
-              .class_name = ClassName.full_name(),
+              .class_name = Element::class_name.full_name(),
               .constraint_name = CapacityName,
               .variable_uid = uid(),
               .context =
@@ -211,7 +211,7 @@ bool DemandLP::add_to_lp(SystemContext& sc,
 
       const auto mcol = lp.add_col({
           .uppb = *stage_emin / bdur,
-          .class_name = ClassName.full_name(),
+          .class_name = Element::class_name.full_name(),
           .variable_name = LmanName,
           .variable_uid = uid(),
           .context =
@@ -253,7 +253,7 @@ bool DemandLP::add_to_lp(SystemContext& sc,
 
 bool DemandLP::add_to_output(OutputContext& out) const
 {
-  static constexpr std::string_view cname = ClassName.full_name();
+  static constexpr std::string_view cname = Element::class_name.full_name();
   const auto pid = id();
 
   out.add_col_sol(cname, LoadName, pid, load_cols);

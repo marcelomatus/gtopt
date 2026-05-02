@@ -20,9 +20,9 @@ namespace gtopt
 {
 PumpLP::PumpLP(const Pump& ppump, InputContext& ic)
     : ObjectLP<Pump>(ppump)
-    , pump_factor(ic, ClassName, id(), std::move(pump().pump_factor))
-    , efficiency(ic, ClassName, id(), std::move(pump().efficiency))
-    , capacity(ic, ClassName, id(), std::move(pump().capacity))
+    , pump_factor(ic, Element::class_name, id(), std::move(pump().pump_factor))
+    , efficiency(ic, Element::class_name, id(), std::move(pump().efficiency))
+    , capacity(ic, Element::class_name, id(), std::move(pump().capacity))
 {
 }
 
@@ -86,7 +86,7 @@ bool PumpLP::add_to_lp(const SystemContext& sc,
     // Conversion constraint: pump_factor/efficiency × flow - load <= 0
     // Equivalently: load >= (pump_factor / efficiency) × flow
     auto rrow = SparseRow {
-        .class_name = ClassName.short_name(),
+        .class_name = Element::class_name.short_name(),
         .constraint_name = ConversionName,
         .variable_uid = uid(),
         .context = make_block_context(scenario.uid(), stage.uid(), block.uid()),
@@ -99,7 +99,7 @@ bool PumpLP::add_to_lp(const SystemContext& sc,
     if (stage_capacity) {
       auto crow =
           SparseRow {
-              .class_name = ClassName.short_name(),
+              .class_name = Element::class_name.short_name(),
               .constraint_name = CapacityName,
               .variable_uid = uid(),
               .context =
@@ -130,7 +130,7 @@ bool PumpLP::add_to_lp(const SystemContext& sc,
  */
 bool PumpLP::add_to_output(OutputContext& out) const
 {
-  static constexpr std::string_view cname = ClassName.short_name();
+  static constexpr std::string_view cname = Element::class_name.short_name();
 
   out.add_row_dual(cname, ConversionName, id(), conversion_rows);
   out.add_row_dual(cname, CapacityName, id(), capacity_rows);
