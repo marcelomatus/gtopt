@@ -11,6 +11,7 @@
 #include <limits>
 #include <unordered_map>
 
+#include <gtopt/fmap.hpp>
 #include <gtopt/lp_stats.hpp>
 #include <spdlog/spdlog.h>
 
@@ -153,7 +154,17 @@ void log_lp_stats_summary(const std::vector<ScenePhaseLPStats>& entries,
   // Collect per-type stats from the first entry that has them (all
   // scene/phase LPs share the same constraint structure, so any entry
   // suffices for type classification).
-  std::unordered_map<std::string, RowTypeStats> type_map;
+  //
+  // Key is `std::string_view` (not owning) —
+  // `entries[i].row_type_stats[j].type` outlives this function, so the views
+  // stay valid throughout the aggregate / sort / log walk.  Mirrors the cousin
+  // `type_map` in `linear_problem.cpp:680` and eliminates one heap allocation
+  // per distinct constraint type.
+  std::unordered_map<std::string_view, RowTypeStats> type_map;
+  // The LP has typically 20–50 distinct constraint types (Demand,
+  // Capacity, Kirchhoff, etc.) so 32 is a tight upper-bound that
+  // avoids rehash during accumulation.
+  map_reserve(type_map, 32);
   for (const auto& entry : entries) {
     for (const auto& rts : entry.row_type_stats) {
       auto& acc = type_map[rts.type];

@@ -35,7 +35,7 @@ using LngTerminalLPSId = ObjectSingleId<class LngTerminalLP>;
 class LngTerminalLP : public StorageLP<ObjectLP<LngTerminal>>
 {
 public:
-  static constexpr LPClassName ClassName {"LngTerminal"};
+  static constexpr LPClassName ClassName {LngTerminal::class_name};
   static constexpr std::string_view DeliveryName {"delivery"};
 
   using StorageBase = StorageLP<ObjectLP<LngTerminal>>;

@@ -255,26 +255,52 @@ void share_cuts_for_phase(
     }
 
     for (const auto scene_index : iota_range<SceneIndex>(0, num_scenes)) {
+      // Bulk-install path — `max` mode broadcasts ALL `all_cuts.size()`
+      // cuts onto every scene's α^k LP, so the inner loop below is a
+      // genuine within-cell bulk opportunity (multiple cuts landing on
+      // ONE LinearInterface).  Replaces the per-cut `add_cut_row` loop
+      // with: stamp + α-release pass, single `add_rows` dispatch, then
+      // per-cut `record_cut_row` for low-memory replay.  Saves
+      // N-1 backend round-trips per destination scene.
+      //
+      // `free_alpha_for_cut` is idempotent across the batch (it's just
+      // a `set_col_low_raw / set_col_upp_raw` to ±DblMax on the same α
+      // column, mirrored into `m_dynamic_cols_`).  The early-out on
+      // `cut.cmap.contains(α_col)` short-circuits cuts that don't
+      // reference α — same gating as the per-cut path.
+      //
       // ``extra`` is the per-cut counter within this destination
       // scene's broadcast — unique within (scene, phase, iter) so
       // the metadata invariant holds even when N source cuts land
       // on the same LP.  `iota_range` keeps the index strongly
       // typed (no raw int loop counter).
+      std::vector<SparseRow> stamped_cuts;
+      stamped_cuts.reserve(all_cuts.size());
       for (auto&& [extra, src_cut] : enumerate<int>(all_cuts)) {
         auto cut = src_cut;  // copy: per-scene/per-cut stamp below
         stamp_for_scene(cut, scene_index, extra);
-        // Same `add_cut_row` rationale as the accumulate / expected
-        // branches above — release α's bootstrap pin via
-        // `free_alpha_for_cut` whenever a shared optimality cut
-        // references α.  The cuts broadcast in `max` mode are still
-        // backward-pass optimality cuts (`SDDPCutManager::scene_cuts`),
-        // so `CutType::Optimality` is correct here too.
-        std::ignore = add_cut_row(planning,
-                                  scene_index,
-                                  phase_index,
-                                  CutType::Optimality,
-                                  cut,
-                                  /*eps=*/0.0);
+        stamped_cuts.push_back(std::move(cut));
+      }
+
+      // Step 1: release α (only fires for cuts that reference α; the
+      // call is idempotent across cuts, so a redundant release is a
+      // cheap no-op).  Same `CutType::Optimality` semantics as the
+      // accumulate / expected branches above — backward-pass
+      // optimality cuts that demand α > 0 require this release; the
+      // pre-fix raw `add_row + record_cut_row` pair skipped it and
+      // left α frozen at `lowb = uppb = 0`, observed on
+      // juan/gtopt_iplp iter i1 p1 as silent infeasibility.
+      for (const auto& cut : stamped_cuts) {
+        free_alpha_for_cut(planning, scene_index, phase_index, cut);
+      }
+
+      // Step 2: bulk row dispatch — single backend call.
+      auto& li = planning.system(scene_index, phase_index).linear_interface();
+      li.add_rows(stamped_cuts, /*eps=*/0.0);
+
+      // Step 3: per-cut bookkeeping (no-op when low_memory_mode == off).
+      for (const auto& cut : stamped_cuts) {
+        li.record_cut_row(cut);
       }
     }
 

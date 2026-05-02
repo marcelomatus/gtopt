@@ -22,6 +22,8 @@
 
 #pragma once
 
+#include <string_view>
+
 #include <gtopt/object.hpp>
 
 namespace gtopt
@@ -39,6 +41,11 @@ namespace gtopt
  */
 struct Bus
 {
+  /// Canonical class-name string used in LP row labels and config
+  /// fields like `VariableScale::class_name`.  Single source of truth;
+  /// `BusLP::ClassName` is constructed from this.
+  static constexpr std::string_view class_name = "Bus";
+
   Uid uid {unknown_uid};  ///< Unique identifier
   Name name {};  ///< Human-readable name
   OptActive active {};  ///< Operational status (default: active)

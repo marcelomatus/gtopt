@@ -59,11 +59,19 @@ namespace gtopt
  */
 struct VariableScale
 {
-  Name class_name {};  ///< Element class (e.g. "Bus", "Reservoir", "Battery")
-  Name variable {};  ///< Variable name (e.g. "theta", "volume", "energy")
+  /// Element class (e.g. `"Bus"`, `"Reservoir"`).  Stored as a
+  /// `std::string_view` so call sites can assign canonical constexpr
+  /// constants (e.g. `system_class_name`, `BusLP::ClassName.full_name()`)
+  /// without an intermediate string copy.  When populated by JSON
+  /// deserialisation, the underlying buffer is the parser's
+  /// daw::json owning string pool (kept alive by `Planning`'s
+  /// `m_json_strings_` arena).  `VariableScaleMap` copies the view
+  /// into an owning `std::string` key on construction.
+  std::string_view class_name {};
+  std::string_view variable {};  ///< Variable name (e.g. "theta", "energy")
   Uid uid {unknown_uid};  ///< Element UID (unknown_uid = all elements)
   Real scale {1.0};  ///< physical = LP × scale
-  Name name {};  ///< Element name (informational, not used for lookup)
+  std::string_view name {};  ///< Element name (informational)
 };
 
 /**
@@ -94,6 +102,12 @@ public:
         | std::views::filter([](const auto& vs)
                              { return vs.uid == unknown_uid; });
 
+    // ElementKey / ClassKey hold `std::string_view` keys backed by the
+    // source `VariableScale` objects (which in turn reference either
+    // static-lifetime constexpr constants or the JSON parser's stable
+    // string pool).  Caller must keep the source alive for the map's
+    // lifetime — same contract as `std::string_view` keys in
+    // `linear_problem.cpp:679`.
     for (const auto& vs : element_entries) {
       m_element_scales_.emplace(
           ElementKey {
@@ -122,7 +136,7 @@ public:
   {
     // 1. Per-element match
     if (uid != unknown_uid) {
-      const ElementKeyView kv {
+      const ElementKey kv {
           .class_name = class_name,
           .variable = variable,
           .uid = uid,
@@ -135,7 +149,7 @@ public:
     }
 
     // 2. Per-class match
-    const ClassKeyView kv {
+    const ClassKey kv {
         .class_name = class_name,
         .variable = variable,
     };
@@ -162,37 +176,21 @@ private:
 
   // ── Per-element key: (class_name, variable, uid) ────────────────────
 
-  /// Owning key stored in the map (holds std::string).
+  /// Map key (non-owning).  Backed by the source `VariableScale`'s
+  /// `string_view` fields — caller must keep the source alive for the
+  /// map's lifetime.
   struct ElementKey
   {
-    std::string class_name;
-    std::string variable;
+    std::string_view class_name;
+    std::string_view variable;
     Uid uid;
 
     bool operator==(const ElementKey&) const = default;
   };
 
-  /// Non-owning view key used for lookup (holds string_view).
-  struct ElementKeyView
-  {
-    std::string_view class_name;
-    std::string_view variable;
-    Uid uid;
-  };
-
   struct ElementHash
   {
-    using is_transparent = void;
-
     [[nodiscard]] size_t operator()(const ElementKey& k) const noexcept
-    {
-      auto h = std::hash<std::string_view> {}(k.class_name);
-      h = hash_combine(h, std::hash<std::string_view> {}(k.variable));
-      h = hash_combine(h, std::hash<Uid> {}(k.uid));
-      return h;
-    }
-
-    [[nodiscard]] size_t operator()(const ElementKeyView& k) const noexcept
     {
       auto h = std::hash<std::string_view> {}(k.class_name);
       h = hash_combine(h, std::hash<std::string_view> {}(k.variable));
@@ -203,59 +201,27 @@ private:
 
   struct ElementEqual
   {
-    using is_transparent = void;
-
     [[nodiscard]] bool operator()(const ElementKey& a,
                                   const ElementKey& b) const noexcept
     {
       return a == b;
     }
-
-    [[nodiscard]] bool operator()(const ElementKeyView& a,
-                                  const ElementKey& b) const noexcept
-    {
-      return a.class_name == b.class_name && a.variable == b.variable
-          && a.uid == b.uid;
-    }
-
-    [[nodiscard]] bool operator()(const ElementKey& a,
-                                  const ElementKeyView& b) const noexcept
-    {
-      return a.class_name == b.class_name && a.variable == b.variable
-          && a.uid == b.uid;
-    }
   };
 
   // ── Per-class key: (class_name, variable) ───────────────────────────
 
-  /// Owning key stored in the map.
+  /// Map key (non-owning).  Same lifetime contract as `ElementKey`.
   struct ClassKey
   {
-    std::string class_name;
-    std::string variable;
+    std::string_view class_name;
+    std::string_view variable;
 
     bool operator==(const ClassKey&) const = default;
   };
 
-  /// Non-owning view key used for lookup.
-  struct ClassKeyView
-  {
-    std::string_view class_name;
-    std::string_view variable;
-  };
-
   struct ClassHash
   {
-    using is_transparent = void;
-
     [[nodiscard]] size_t operator()(const ClassKey& k) const noexcept
-    {
-      auto h = std::hash<std::string_view> {}(k.class_name);
-      h = hash_combine(h, std::hash<std::string_view> {}(k.variable));
-      return h;
-    }
-
-    [[nodiscard]] size_t operator()(const ClassKeyView& k) const noexcept
     {
       auto h = std::hash<std::string_view> {}(k.class_name);
       h = hash_combine(h, std::hash<std::string_view> {}(k.variable));
@@ -265,24 +231,10 @@ private:
 
   struct ClassEqual
   {
-    using is_transparent = void;
-
     [[nodiscard]] bool operator()(const ClassKey& a,
                                   const ClassKey& b) const noexcept
     {
       return a == b;
-    }
-
-    [[nodiscard]] bool operator()(const ClassKeyView& a,
-                                  const ClassKey& b) const noexcept
-    {
-      return a.class_name == b.class_name && a.variable == b.variable;
-    }
-
-    [[nodiscard]] bool operator()(const ClassKey& a,
-                                  const ClassKeyView& b) const noexcept
-    {
-      return a.class_name == b.class_name && a.variable == b.variable;
     }
   };
 

@@ -51,6 +51,7 @@
 #pragma once
 
 #include <array>
+#include <string_view>
 
 #include <gtopt/field_sched.hpp>
 #include <gtopt/object.hpp>
@@ -80,6 +81,11 @@ namespace gtopt
  */
 struct Reservoir
 {
+  /// Canonical class-name string used in LP row labels and config
+  /// fields like `VariableScale::class_name`.  Single source of truth;
+  /// `ReservoirLP::ClassName` is constructed from this.
+  static constexpr std::string_view class_name = "Reservoir";
+
   /// @name Default physical constants
   /// @{
   static constexpr Real default_spillway_capacity = 6'000.0;  ///< [m³/s]

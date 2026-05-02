@@ -161,9 +161,9 @@ constexpr std::string_view sddp_alpha_col_name = "alpha";
 /// name instead of `sddp_alpha_class_name`, since each multi-cut row
 /// is a per-link bound constraint on a single state variable.
 constexpr std::string_view sddp_scut_constraint_name = "scut";
-constexpr std::string_view sddp_aperture_cut_constraint_name = "aper_cut";
+constexpr std::string_view sddp_aperture_cut_constraint_name = "aperture_cut";
 constexpr std::string_view sddp_ecut_constraint_name = "ecut";
-constexpr std::string_view sddp_share_cut_constraint_name = "share";
+constexpr std::string_view sddp_share_cut_constraint_name = "share_cut";
 constexpr std::string_view sddp_bcut_constraint_name = "bcut";
 constexpr std::string_view sddp_fcut_constraint_name = "fcut";
 constexpr std::string_view sddp_mcut_constraint_name = "mcut";
@@ -178,7 +178,7 @@ constexpr std::string_view sddp_mcut_constraint_name = "mcut";
 /// (`sddp_loaded_cut_constraint_name`) since they describe the
 /// same kind of Benders optimality row.
 constexpr std::string_view sddp_loaded_cut_class_name = "Loaded";
-constexpr std::string_view sddp_boundary_cut_class_name = "Bdr";
+constexpr std::string_view sddp_boundary_cut_class_name = "Boundary";
 constexpr std::string_view sddp_named_cut_class_name = "NamedHs";
 constexpr std::string_view sddp_loaded_cut_constraint_name = "cut";
 

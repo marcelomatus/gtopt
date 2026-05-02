@@ -57,6 +57,8 @@
 
 #pragma once
 
+#include <string_view>
+
 #include <gtopt/field_sched.hpp>
 #include <gtopt/object.hpp>
 
@@ -95,6 +97,11 @@ struct LngGeneratorLink
  */
 struct LngTerminal
 {
+  /// Canonical class-name string used in LP row labels and config
+  /// fields like `VariableScale::class_name`.  Single source of truth;
+  /// `LngTerminalLP::ClassName` is constructed from this.
+  static constexpr std::string_view class_name = "LngTerminal";
+
   /// @name Default physical constants
   /// @{
   static constexpr Real default_sendout_max = 10'000.0;  ///< [m³/h]

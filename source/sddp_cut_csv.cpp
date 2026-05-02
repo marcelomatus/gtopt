@@ -273,6 +273,32 @@ using namespace gtopt::detail;  // helpers shared with sibling TUs
     // the same cut for multiple scenes we must load it only once.
     std::set<std::pair<PhaseUid, std::string>> loaded_keys;
 
+    // Per-cell accumulator: collect every (scene, phase, cut_type) install
+    // in pass 1, then dispatch one bulk `add_rows` per (scene, phase, type)
+    // group in pass 2.  Saves O(num_scenes × num_cuts) backend round-trips
+    // on a recovery run that streams thousands of warm-start cuts.
+    //
+    // Key shape: `(SceneIndex, PhaseIndex)`; each cell holds two named
+    // vectors (Optimality cuts trigger `free_alpha_for_cut`, Feasibility
+    // cuts do not).  `gtopt::flat_map` is the project-standard sorted /
+    // contiguous map (cf. `feedback_no_views_iota.md` / `fmap.hpp`),
+    // chosen here for cache-friendly iteration over the small cell set
+    // (typically ≤ num_scenes × num_phases ~ a few hundred entries) and
+    // a deterministic install order across runs.
+    using CellKey = std::pair<SceneIndex, PhaseIndex>;
+    struct CellCuts
+    {
+      std::vector<SparseRow> opt;
+      std::vector<SparseRow> feas;
+    };
+    flat_map<CellKey, CellCuts> accum;
+    // Upper bound: every (scene, phase) cell receives at least one cut.
+    // `phase_uid_to_index.size()` is the count of phases known to the LP;
+    // the CSV may target any subset.  Reserving up-front avoids repeated
+    // reallocation of the underlying vector storage as cells are created.
+    map_reserve(accum,
+                static_cast<size_t>(num_scenes) * phase_uid_to_index.size());
+
     // Process data lines
     int line_num = 1;  // header was line 1
     while (std::getline(ifs, line)) {
@@ -574,13 +600,52 @@ using namespace gtopt::detail;  // helpers shared with sibling TUs
         for (const auto& [col, coeff] : resolved_coeffs) {
           scene_row[col] = coeff;
         }
-        // Unified `add_cut_row`: releases α iff cut_type is Optimality
-        // AND the row references α, then adds the row and records it
-        // for low-memory replay in a single call.
-        std::ignore = add_cut_row(
-            planning_lp, scene_index, phase_index, cut_type, scene_row);
+        // Stage the cut into the per-cell accumulator; install happens
+        // in one bulk pass after the file is fully streamed (below).
+        // Coefficients stay in physical space — `add_rows` applies
+        // col_scales + per-row row-max identically to the per-cut path.
+        auto& cell = accum[std::make_pair(scene_index, phase_index)];
+        if (cut_type == CutType::Optimality) {
+          cell.opt.push_back(std::move(scene_row));
+        } else {
+          cell.feas.push_back(std::move(scene_row));
+        }
       }
       ++result.count;
+    }
+
+    // Pass 2: bulk-install per (scene, phase, cut_type) cell.  Mirrors the
+    // unified `add_cut_row` semantics:
+    //   * Optimality cuts → release α (idempotent across the batch),
+    //     then bulk `add_rows`, then per-cut `record_cut_row`.
+    //   * Feasibility cuts → bulk `add_rows` + per-cut `record_cut_row`
+    //     (no α release, by `free_alpha_for_cut`'s gating contract).
+    // `auto&&` — iterating `gtopt::flat_map` (std::flat_map under GCC 15)
+    // yields a proxy `pair<key&, value&>` that is a temporary, so a plain
+    // `auto&` lvalue reference would not bind.
+    for (auto&& [cell_key, cell_cuts] : accum) {
+      const auto [scene_index, phase_index] = cell_key;
+
+      if (!cell_cuts.opt.empty()) {
+        for (const auto& cut : cell_cuts.opt) {
+          free_alpha_for_cut(planning_lp, scene_index, phase_index, cut);
+        }
+        auto& li =
+            planning_lp.system(scene_index, phase_index).linear_interface();
+        li.add_rows(cell_cuts.opt);
+        for (const auto& cut : cell_cuts.opt) {
+          li.record_cut_row(cut);
+        }
+      }
+
+      if (!cell_cuts.feas.empty()) {
+        auto& li =
+            planning_lp.system(scene_index, phase_index).linear_interface();
+        li.add_rows(cell_cuts.feas);
+        for (const auto& cut : cell_cuts.feas) {
+          li.record_cut_row(cut);
+        }
+      }
     }
 
     SPDLOG_TRACE("SDDP: loaded {} cuts from {}", result.count, filepath);

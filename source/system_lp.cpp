@@ -22,6 +22,7 @@
 #include <unordered_map>
 
 #include <gtopt/bus_island.hpp>
+#include <gtopt/constraint_names.hpp>
 #include <gtopt/kirchhoff_cycle_basis.hpp>
 #include <gtopt/linear_interface.hpp>
 #include <gtopt/lp_fingerprint.hpp>
@@ -334,8 +335,8 @@ void add_emission_cap(const auto& collections,
 
   auto row =
       SparseRow {
-          .class_name = "System",
-          .constraint_name = "emission_cap",
+          .class_name = system_class_name,
+          .constraint_name = emission_cap_constraint_name,
           .context = make_stage_context(scenario.uid(), stage.uid()),
       }
           .less_equal(stage_cap);

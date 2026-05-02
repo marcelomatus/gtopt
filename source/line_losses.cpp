@@ -4,6 +4,7 @@
 #include <cassert>
 #include <string>
 
+#include <gtopt/constraint_names.hpp>
 #include <gtopt/line_losses.hpp>
 #include <gtopt/line_lp.hpp>
 #include <gtopt/planning_options_lp.hpp>
@@ -485,7 +486,7 @@ BlockResult add_piecewise(const LossConfig& config,
   auto linkrow =
       SparseRow {
           .class_name = LineLP::ClassName.full_name(),
-          .constraint_name = "flow_link",
+          .constraint_name = flow_link_constraint_name,
           .variable_uid = uid,
           .context =
               make_block_context(scenario.uid(), stage.uid(), block.uid()),
@@ -503,7 +504,7 @@ BlockResult add_piecewise(const LossConfig& config,
   auto lossrow =
       SparseRow {
           .class_name = LineLP::ClassName.full_name(),
-          .constraint_name = "loss_link",
+          .constraint_name = loss_link_constraint_name,
           .variable_uid = uid,
           .context =
               make_block_context(scenario.uid(), stage.uid(), block.uid()),
