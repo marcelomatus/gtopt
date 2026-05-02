@@ -20,6 +20,7 @@
 #include <gtopt/as_label.hpp>
 #include <gtopt/cascade_method.hpp>
 #include <gtopt/constraint_names.hpp>
+#include <gtopt/fmap.hpp>
 #include <gtopt/label_maker.hpp>
 #include <gtopt/planning_lp.hpp>
 #include <gtopt/sddp_cut_io.hpp>
@@ -179,6 +180,27 @@ void CascadePlanningMethod::add_elastic_targets(
   int added = 0;
   int skipped = 0;
 
+  // Per-cell accumulator: collect every target's slack pair + row
+  // before installing.  Same shape as the SDDP cut loaders (commit
+  // 08f0202a / 1e9b6a9c) — saves O(N) backend round-trips per
+  // cascade transition by issuing one bulk `add_cols` (slacks) and
+  // one bulk `add_rows` (target rows) per (scene, phase) cell.
+  //
+  // The metadata-based duplicate detector keys columns on
+  // `(class, variable, uid, context)`; the per-target `(t.uid,
+  // t.context)` pair already disambiguates `tgt_sup` / `tgt_sdn`
+  // across targets, so no further keying is needed here.
+  using CellKey = std::pair<SceneIndex, PhaseIndex>;
+  struct PendingTarget
+  {
+    Uid uid {unknown_uid};  ///< target identity (carries through to row label)
+    LpContext context {};  ///< target context (idem)
+    ColIndex resolved_col {unknown_index};  ///< target's state-var column
+    double lowb {0.0};
+    double uppb {0.0};
+  };
+  flat_map<CellKey, std::vector<PendingTarget>> accum;
+
   for (const auto& t : targets) {
     // Look up by structured key (class_name, col_name, uid) in the
     // target level's state variable map — no LP name strings needed.
@@ -210,62 +232,93 @@ void CascadePlanningMethod::add_elastic_targets(
     }
 
     const double atol = std::max(rtol * std::abs(t.target_value), min_atol);
+    accum[std::make_pair(t.scene_index, t.phase_index)].push_back(
+        PendingTarget {
+            .uid = t.uid,
+            .context = t.context,
+            .resolved_col = resolved_col,
+            .lowb = t.target_value - atol,
+            .uppb = t.target_value + atol,
+        });
+  }
 
-    auto& li =
-        planning_lp.system(t.scene_index, t.phase_index).linear_interface();
+  // Per-cell bulk install.  `auto&&` because `gtopt::flat_map`
+  // (std::flat_map under GCC 15) yields a proxy `pair<key&, value&>`.
+  for (auto&& [cell_key, pendings] : accum) {
+    if (pendings.empty()) {
+      continue;
+    }
+    const auto [scene_index, phase_index] = cell_key;
+    auto& li = planning_lp.system(scene_index, phase_index).linear_interface();
 
-    // Add slack columns for elastic penalty.  The metadata-based
-    // duplicate detector (`f21641f9`) uses `(class, variable, uid,
-    // context)` as the dedup key; without an explicit `variable_uid`
-    // and `context` here every `tgt_sup` / `tgt_sdn` column across
-    // all targets would collapse to the same key and trigger
-    // "Duplicate LP column metadata" at the second addition.  Carry
-    // the state variable's UID + original context to disambiguate.
+    // Step 1: bulk-add 2N slack columns (sup / sdn pair per target).
+    // The metadata-based duplicate detector (`f21641f9`) uses
+    // `(class, variable, uid, context)` as the dedup key; the
+    // per-target `(p.uid, p.context)` already disambiguates each
+    // `tgt_sup` / `tgt_sdn` slack across targets.
+    std::vector<SparseCol> slack_cols;
+    slack_cols.reserve(pendings.size() * 2);
+    for (const auto& p : pendings) {
+      slack_cols.push_back(SparseCol {
+          .uppb = DblMax,
+          .cost = penalty,
+          .class_name = cascade_class_name,
+          .variable_name = "tgt_sup",
+          .variable_uid = p.uid,
+          .context = p.context,
+      });
+      slack_cols.push_back(SparseCol {
+          .uppb = DblMax,
+          .cost = penalty,
+          .class_name = cascade_class_name,
+          .variable_name = "tgt_sdn",
+          .variable_uid = p.uid,
+          .context = p.context,
+      });
+    }
+    const auto first_slack_col = static_cast<int>(li.get_numcols());
+    li.add_cols(slack_cols);
+
+    // Mirror the slacks into the persistent `m_dynamic_cols_` registry
+    // so `apply_post_load_replay` re-adds them on every
+    // `release_backend()` → `reconstruct_backend()` cycle under
+    // low-memory compress mode (commit a2b5a4fb).  The slacks are
+    // added AFTER the initial `defer_initial_load` snapshot, so
+    // without this mirror they would be dropped on the first reload.
+    for (const auto& col : slack_cols) {
+      li.record_dynamic_col(col);
+    }
+
+    // Step 2: build target rows referencing the freshly-allocated
+    // slack column indices, then bulk add_rows + record each row
+    // in the persistent dynamic-rows registry (same replay rationale).
     //
-    // The slack cols and the constraint row are added AFTER the
-    // initial `defer_initial_load` snapshot, so under low-memory
-    // compress mode they would be dropped on the first
-    // `release_backend()` → `reconstruct_backend()` cycle (snapshot
-    // is frozen at flatten time).  Mirror them into the persistent
-    // `m_dynamic_cols_` / `m_dynamic_rows_` registries via
-    // `record_dynamic_*` so `apply_post_load_replay` re-applies them
-    // on every reconstruct.
-    const SparseCol sup_sparse {
-        .uppb = DblMax,
-        .cost = penalty,
-        .class_name = cascade_class_name,
-        .variable_name = "tgt_sup",
-        .variable_uid = t.uid,
-        .context = t.context,
-    };
-    const auto sup_col = li.add_col(sup_sparse);
-    li.record_dynamic_col(sup_sparse);
+    // Constraint per target: `x − s⁺ + s⁻ ∈ [target − atol, target + atol]`.
+    std::vector<SparseRow> rows;
+    rows.reserve(pendings.size());
+    for (size_t i = 0; i < pendings.size(); ++i) {
+      const auto& p = pendings[i];
+      const auto sup_col = ColIndex {first_slack_col + static_cast<int>(2 * i)};
+      const auto sdn_col =
+          ColIndex {first_slack_col + static_cast<int>(2 * i) + 1};
 
-    const SparseCol sdn_sparse {
-        .uppb = DblMax,
-        .cost = penalty,
-        .class_name = cascade_class_name,
-        .variable_name = "tgt_sdn",
-        .variable_uid = t.uid,
-        .context = t.context,
-    };
-    const auto sdn_col = li.add_col(sdn_sparse);
-    li.record_dynamic_col(sdn_sparse);
-
-    // Add constraint: x - s⁺ + s⁻ ∈ [target - atol, target + atol]
-    SparseRow row;
-    row.class_name = cascade_class_name;
-    row.constraint_name = cascade_target_constraint_name;
-    row.variable_uid = t.uid;
-    row.context = t.context;
-    row.lowb = t.target_value - atol;
-    row.uppb = t.target_value + atol;
-    row[resolved_col] = 1.0;
-    row[sup_col] = -1.0;
-    row[sdn_col] = 1.0;
-    li.add_row(row);
-    li.record_dynamic_row(row);
-    ++added;
+      SparseRow row;
+      row.class_name = cascade_class_name;
+      row.constraint_name = cascade_target_constraint_name;
+      row.variable_uid = p.uid;
+      row.context = p.context;
+      row.lowb = p.lowb;
+      row.uppb = p.uppb;
+      row[p.resolved_col] = 1.0;
+      row[sup_col] = -1.0;
+      row[sdn_col] = 1.0;
+      rows.push_back(std::move(row));
+    }
+    li.add_rows(rows);
+    for (const auto& row : rows) {
+      li.record_dynamic_row(row);
+    }
+    added += static_cast<int>(pendings.size());
   }
 
   SPDLOG_INFO(
