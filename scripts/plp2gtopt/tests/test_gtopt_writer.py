@@ -404,7 +404,8 @@ class TestGTOptWriterProcessMethods:
     def test_process_options_stationary_gap_ceiling_explicit_overrides(self):
         """Explicit stationary_gap_ceiling is forwarded into the JSON."""
         writer = GTOptWriter(MagicMock())
-        writer.process_options({"output_dir": "out", "stationary_gap_ceiling": 0.10})
+        writer.process_options(
+            {"output_dir": "out", "stationary_gap_ceiling": 0.10})
         sddp = writer.planning["options"]["sddp_options"]
         assert sddp["stationary_gap_ceiling"] == pytest.approx(0.10)
 
