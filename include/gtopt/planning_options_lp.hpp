@@ -680,10 +680,20 @@ public:
   static constexpr Int default_sddp_update_lp_skip = 0;
   /** @brief Default maximum SDDP iterations */
   static constexpr Int default_sddp_max_iterations = 100;
-  /** @brief Default minimum iterations before declaring convergence */
-  static constexpr Int default_sddp_min_iterations = 2;
-  /** @brief Default relative convergence tolerance */
-  static constexpr Real default_sddp_convergence_tol = 1e-4;
+  /** @brief Default minimum iterations before declaring convergence.
+   *
+   * 3 iterations protect the bootstrap phase: at iter 0 the LB is
+   * usually a placeholder (single cut), at iter 1 the LB has just
+   * started moving — declaring convergence before iter 2 is almost
+   * always premature. */
+  static constexpr Int default_sddp_min_iterations = 3;
+  /** @brief Default relative convergence tolerance.
+   *
+   * 1 % is the industry-standard SDDP/Benders gap target.  Tighter
+   * (0.1 % or 0.01 %) is rarely achievable on production hydro/thermal
+   * problems and tends to leave the solver running to
+   * ``max_iterations``; looser (5 %) is fine for early prototyping. */
+  static constexpr Real default_sddp_convergence_tol = 0.01;
   /** @brief Default elastic slack penalty (per physical unit, scaled
    *         by `var_scale` per link inside `relax_fixed_state_variable`).
    *
@@ -752,18 +762,37 @@ public:
    *         phase), signalling that the fcut alone is not sufficient. */
   static constexpr int default_sddp_multi_cut_threshold = 100;
   /** @brief Default stationary-gap tolerance.
-   * When the relative gap change over the look-back window is below this
-   * value, the gap is considered stationary.  Used by the stationary and
-   * statistical+stationary convergence criteria.  Default: 0.01 (1%). */
-  static constexpr Real default_sddp_stationary_tol = 0.01;
-  /** @brief Default look-back window for stationary gap check */
+   *
+   * "Gap stopped moving" threshold — gap_change < tol means the gap is
+   * stationary.  Tighter than ``convergence_tol`` (0.5 % vs 1 %) so
+   * the safety net only fires when the gap has *clearly* stalled, not
+   * while it is still trending. */
+  static constexpr Real default_sddp_stationary_tol = 0.005;
+  /** @brief Default look-back window for stationary gap check (one
+   * season). */
   static constexpr Int default_sddp_stationary_window = 4;
   /** @brief Default confidence level for statistical convergence.
-   * Enables PLP-style CI-based convergence for multi-scene problems.
-   * Combined with stationary_tol, also handles the non-zero-gap case
-   * where the gap stabilises above the CI threshold.
-   * Default: 0.95 (95% confidence interval). */
-  static constexpr Real default_sddp_convergence_confidence = 0.95;
+   *
+   * 0.0 (DISABLED) — the statistical CI test (PLP-style ``UB - LB <=
+   * z·σ``) is opt-in.  Under heterogeneous-scene scatter (σ ≈ 50 % of
+   * mean on Maule/juan) z·σ trivially exceeds the absolute gap at
+   * 25 % relative, declaring premature convergence.  Set to 0.95 to
+   * enable the standard 95 % CI test, or 0.50 for a tighter narrow-CI
+   * variant. */
+  static constexpr Real default_sddp_convergence_confidence = 0.0;
+  /** @brief Default absolute gap ceiling for the secondary convergence
+   * tests (stationary + statistical CI).
+   *
+   * Refuse to declare convergence via stationarity or CI while the
+   * relative gap is at or above 5 % — only the primary
+   * ``convergence_tol`` test (1 %) can close the run at high gaps.
+   *
+   * Defends against heterogeneous-scene σ explosion (juan trace_28:
+   * gap = 25 % declared converged at iter 2 because σ ≈ 77 M
+   * dominated the 38 M absolute gap) and frozen-LB pathologies (LB
+   * stuck at 0, gap = 1 flat → gap_change = 0).  Set to 1.0 to
+   * disable the ceiling (legacy behaviour). */
+  static constexpr Real default_sddp_stationary_gap_ceiling = 0.05;
   /** @brief Default for the scene-level fail-stop forward pass.
    *
    *  true (the new default) — when an infeasible phase emits an fcut
@@ -1162,12 +1191,17 @@ public:
 
   /**
    * @brief Gets the SDDP convergence mode.
-   * @return ConvergenceMode enum (default: statistical)
+   * @return ConvergenceMode enum (default: gap_stationary).  The
+   *         statistical CI test (``ConvergenceMode::statistical``) is
+   *         opt-in — it relies on ``convergence_confidence > 0`` and
+   *         is too easily fooled by heterogeneous-scene σ scatter
+   *         (Maule/juan).  Gap + stationary safety net is the
+   *         right default for most users.
    */
   [[nodiscard]] constexpr auto sddp_convergence_mode() const
   {
     return m_options_.sddp_options.convergence_mode.value_or(
-        ConvergenceMode::statistical);
+        ConvergenceMode::gap_stationary);
   }
 
   /**
@@ -1202,6 +1236,16 @@ public:
   {
     return m_options_.sddp_options.convergence_confidence.value_or(
         default_sddp_convergence_confidence);
+  }
+
+  /**
+   * @brief Gets the absolute gap ceiling for the secondary convergence tests.
+   * @return Ceiling in [0, 1]; 1.0 disables the guard.
+   */
+  [[nodiscard]] constexpr auto sddp_stationary_gap_ceiling() const
+  {
+    return m_options_.sddp_options.stationary_gap_ceiling.value_or(
+        default_sddp_stationary_gap_ceiling);
   }
 
   // ── Cascade options ─────────────────────────────────────────────────────

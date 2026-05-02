@@ -99,7 +99,16 @@ _SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"
 # ---------------------------------------------------------------------------
 
 # Regex for the uniform "SDDP <Tag> [i<iter> s<scene> p<phase>]" format
-_SDDP_LOG_RE = re.compile(r"SDDP (\w+) \[i(\d+) s(\d+) p(\d+)(?:\s+a(\d+))?\]")
+_SDDP_LOG_RE = re.compile(
+    # Per-(scene, phase) activity lines from sddp_method_iteration / forward
+    # / backward.  ``p(\d+)`` is followed by an optional ``/<total>`` suffix
+    # since the per-phase Forward INFO log (sddp_forward_pass.cpp) emits
+    # ``p3/51`` — without the optional group the regex rejects the line and
+    # the TUI grid stops updating mid-run.  The aperture group ``a(\d+)``
+    # remains optional and exclusive (apertures don't co-emit a phase
+    # total).
+    r"SDDP (\w+) \[i(\d+) s(\d+) p(\d+)(?:/\d+)?(?:\s+a(\d+))?\]"
+)
 
 # Cell states (priority order: higher overwrites lower)
 _GRID_IDLE = 0
@@ -822,9 +831,13 @@ def _build_stats(data: dict) -> Panel:
         "Upper Bound",
         Text(_format_number(ub), style="cyan"),
     )
+    # Render gap as a percentage to match the per-iteration log format
+    # (sddp_iteration.cpp emits ``gap=25.00%``).  Six decimals on a
+    # fraction like ``0.250043`` is unintuitive for operators glancing
+    # at the dashboard.
     grid.add_row(
         "Gap",
-        Text(f"{gap:.6f}", style=gap_style),
+        Text(f"{100.0 * gap:.2f}%", style=gap_style),
         "Converged",
         conv_text,
     )
@@ -872,7 +885,7 @@ def _build_history(data: dict) -> Panel:
             str(rec.get("iteration", 0)),
             _format_number(rec.get("lower_bound", 0.0)),
             _format_number(rec.get("upper_bound", 0.0)),
-            f"[{gap_style}]{g:.6f}[/{gap_style}]",
+            f"[{gap_style}]{100.0 * g:.2f}%[/{gap_style}]",
             str(rec.get("cuts_added", 0)),
             f"{rec.get('forward_pass_s', 0.0):.1f}s",
             f"{rec.get('backward_pass_s', 0.0):.1f}s",
@@ -1333,7 +1346,7 @@ def _build_convergence(data: dict) -> Panel:
         if gap_val < 0.1
         else "bold red"
     )
-    text.append(f"  {gap_val:.6f}", style=gap_style)
+    text.append(f"  {100.0 * gap_val:.2f}%", style=gap_style)
     text.append("\n\n")
 
     # -- 2. Per-scene cost heatmap --

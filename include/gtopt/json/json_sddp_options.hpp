@@ -73,6 +73,7 @@ struct SddpOptionsConstructor
       OptReal stationary_tol,
       OptInt stationary_window,
       OptReal convergence_confidence,
+      OptReal stationary_gap_ceiling,
       OptInt forward_max_fallbacks,
       OptBool forward_fail_stop,
       OptBool forward_infeas_rollback,
@@ -153,6 +154,7 @@ struct SddpOptionsConstructor
     opts.stationary_tol = stationary_tol;
     opts.stationary_window = stationary_window;
     opts.convergence_confidence = convergence_confidence;
+    opts.stationary_gap_ceiling = stationary_gap_ceiling;
     opts.forward_max_fallbacks = forward_max_fallbacks;
     opts.forward_fail_stop = forward_fail_stop;
     opts.forward_infeas_rollback = forward_infeas_rollback;
@@ -212,6 +214,7 @@ struct json_data_contract<SddpOptions>
       json_number_null<"stationary_tol", OptReal>,
       json_number_null<"stationary_window", OptInt>,
       json_number_null<"convergence_confidence", OptReal>,
+      json_number_null<"stationary_gap_ceiling", OptReal>,
       json_number_null<"forward_max_fallbacks", OptInt>,
       json_bool_null<"forward_fail_stop", OptBool>,
       json_bool_null<"forward_infeas_rollback", OptBool>,
@@ -263,6 +266,7 @@ struct json_data_contract<SddpOptions>
         opt.stationary_tol,
         opt.stationary_window,
         opt.convergence_confidence,
+        opt.stationary_gap_ceiling,
         opt.forward_max_fallbacks,
         opt.forward_fail_stop,
         opt.forward_infeas_rollback,

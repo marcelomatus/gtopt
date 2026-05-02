@@ -244,9 +244,17 @@ auto SDDPMethod::initialize_solver() -> std::expected<void, Error>
 
   SPDLOG_INFO("SDDP: initializing solver (no initial solve pass)");
 
-  // Clamp min_iterations: max_iterations always wins
-  m_options_.min_iterations =
-      std::min(m_options_.min_iterations, m_options_.max_iterations);
+  // Clamp ``min_iterations`` to ``max_iterations`` so the new default
+  // ``min_iterations = 3`` cannot stretch a deliberately tiny run
+  // (e.g. ``max_iterations = 0`` for simulation-only mode, or
+  // ``max_iterations = 1`` for fast integration tests).  Silent in
+  // INFO; promoted to DEBUG so the `--trace` log records the clamp.
+  if (m_options_.min_iterations > m_options_.max_iterations) {
+    SPDLOG_DEBUG("SDDP: clamping min_iterations {} → {} (max_iterations cap)",
+                 m_options_.min_iterations,
+                 m_options_.max_iterations);
+    m_options_.min_iterations = m_options_.max_iterations;
+  }
 
   const auto init_start = std::chrono::steady_clock::now();
 
@@ -667,12 +675,12 @@ auto SDDPPlanningMethod::solve(PlanningLP& planning_lp,
   if (!m_last_results_.empty()) {
     const auto& last = m_last_results_.back();
     if (last.converged) {
-      SPDLOG_INFO("SDDP: converged (gap={:.6f})", last.gap);
+      SPDLOG_INFO("SDDP: converged (gap={:.2f}%)", 100.0 * last.gap);
     } else {
       SPDLOG_WARN(
           "SDDP: max_iterations reached without convergence "
-          "(gap={:.6f}), returning best solution",
-          last.gap);
+          "(gap={:.2f}%), returning best solution",
+          100.0 * last.gap);
     }
     return 0;
   }

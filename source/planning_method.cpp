@@ -44,6 +44,7 @@ namespace
   sddp_opts.stationary_tol = options.sddp_stationary_tol();
   sddp_opts.stationary_window = options.sddp_stationary_window();
   sddp_opts.convergence_confidence = options.sddp_convergence_confidence();
+  sddp_opts.stationary_gap_ceiling = options.sddp_stationary_gap_ceiling();
   sddp_opts.forward_fail_stop = options.sddp_forward_fail_stop();
   sddp_opts.forward_infeas_rollback = options.sddp_forward_infeas_rollback();
 

@@ -1214,17 +1214,30 @@ private:
           + stats.throttled_process_rss + stats.throttled_process_swap
           + stats.throttled_swap_io;
       if (total_throttle > 0) {
+        // Compact form: only emit gates that actually fired.  The juan
+        // run had every counter at 0 except cpu, producing the noisy
+        // ``cpu=35876 mem%=0 free_mem=0 rss=0 swap=0 swap_io=0`` line —
+        // an operator only needs to see that it was the CPU gate.  When
+        // multiple gates fire we still surface all of them so a swap-IO
+        // bottleneck is still distinguishable from a free-memory one.
+        std::string parts;
+        const auto add = [&](std::string_view label, std::size_t v)
+        {
+          if (v > 0) {
+            if (!parts.empty()) {
+              parts.append(" ");
+            }
+            parts.append(std::format("{}={}", label, v));
+          }
+        };
+        add("cpu", stats.throttled_cpu);
+        add("mem%", stats.throttled_memory_pct);
+        add("free_mem", stats.throttled_free_memory);
+        add("rss", stats.throttled_process_rss);
+        add("swap", stats.throttled_process_swap);
+        add("swap_io", stats.throttled_swap_io);
         spdlog::info(
-            "[{}]   throttle events: cpu={} mem%={} free_mem={} rss={} "
-            "swap={} swap_io={} (total={})",
-            name_,
-            stats.throttled_cpu,
-            stats.throttled_memory_pct,
-            stats.throttled_free_memory,
-            stats.throttled_process_rss,
-            stats.throttled_process_swap,
-            stats.throttled_swap_io,
-            total_throttle);
+            "[{}]   throttle: {} (total={})", name_, parts, total_throttle);
       }
     } catch (const std::exception& e) {
       SPDLOG_WARN("log_final_stats failed: {}", e.what());

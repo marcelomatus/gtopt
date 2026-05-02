@@ -197,4 +197,37 @@ private:
   std::map<Key, std::string> m_rows_;
 };
 
+// ─── Cost / bound formatting ────────────────────────────────────────────────
+//
+// Render a scalar with an SI-suffix so log lines stay readable at
+// planning-cost magnitude.  Examples:
+//   * 1.234       → ``"1.234"``
+//   * 1234.5      → ``"1.23K"``
+//   * 161127348.5 → ``"161.13M"``
+//   * 1.234e+09   → ``"1.234G"``
+//
+// Picks 2 / 3 decimal places depending on magnitude so the printed
+// string stays under 8 chars in typical use.  Negative values are
+// prefixed with ``-``; absolute value drives the suffix.  Used by the
+// per-scene "SDDP Forward […]: done, opex=…" line, the iteration-end
+// UB / LB / α summary, and the convergence headline.
+[[nodiscard]] inline auto format_si(double v) -> std::string
+{
+  const double a = std::abs(v);
+  const char* sign = (v < 0.0) ? "-" : "";
+  if (a >= 1e12) {
+    return std::format("{}{:.3f}T", sign, a / 1e12);
+  }
+  if (a >= 1e9) {
+    return std::format("{}{:.3f}G", sign, a / 1e9);
+  }
+  if (a >= 1e6) {
+    return std::format("{}{:.2f}M", sign, a / 1e6);
+  }
+  if (a >= 1e3) {
+    return std::format("{}{:.2f}K", sign, a / 1e3);
+  }
+  return std::format("{}{:.4f}", sign, a);
+}
+
 }  // namespace gtopt

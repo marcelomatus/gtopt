@@ -26,6 +26,7 @@
 #include <gtopt/main_options.hpp>
 #include <gtopt/output_context.hpp>
 #include <gtopt/planning_lp.hpp>
+#include <gtopt/sddp_common.hpp>  // format_si()
 #include <gtopt/solver_stats.hpp>
 #include <gtopt/utils.hpp>
 #include <spdlog/spdlog.h>
@@ -277,8 +278,13 @@ void log_post_solve_stats(const PlanningLP& planning_lp, bool optimal)
     const double obj_unscaled = lp_if.get_obj_value();
     spdlog::info("  LP variables    : {}", lp_if.get_numcols());
     spdlog::info("  LP constraints  : {}", lp_if.get_numrows());
-    spdlog::info("  Obj (scaled)    : {:.6g}", obj_scaled);
-    spdlog::info("  Obj (unscaled)  : {:.6g}", obj_unscaled);
+    // Render with SI suffix (`format_si` from sddp_common.hpp) so the
+    // operator can compare the scaled and unscaled magnitudes at a
+    // glance — `{:.6g}` produced unhelpful `1.41448e+06` on juan
+    // (trace_28).  Raw value is still recoverable from the planning
+    // JSON if a pricing audit needs full precision.
+    spdlog::info("  Obj (scaled)    : {}", format_si(obj_scaled));
+    spdlog::info("  Obj (unscaled)  : {}", format_si(obj_unscaled));
   }
 
   // Aggregated solver-activity counters.  Printed for every run (not
@@ -287,20 +293,43 @@ void log_post_solve_stats(const PlanningLP& planning_lp, bool optimal)
   // low-memory mode, fallback retries, etc.
   const auto agg = aggregate_solver_stats(planning_lp);
   spdlog::info("  load_problem    : {}", agg.load_problem_calls);
-  spdlog::info("  solves          : {} (initial={}, resolve={})",
-               agg.total_solve_calls(),
-               agg.initial_solve_calls,
-               agg.resolve_calls);
+  // Suppress the (initial=, resolve=) breakdown when one of them is
+  // zero — typical SDDP runs always have initial=0 (the first solve
+  // is recorded as a resolve under the resolve-on-cell pattern).  The
+  // bare ``solves: N`` line is then unambiguous.
+  if (agg.initial_solve_calls != 0 && agg.resolve_calls != 0) {
+    spdlog::info("  solves          : {} (initial={}, resolve={})",
+                 agg.total_solve_calls(),
+                 agg.initial_solve_calls,
+                 agg.resolve_calls);
+  } else {
+    spdlog::info("  solves          : {}", agg.total_solve_calls());
+  }
   if (agg.fallback_solves != 0 || agg.crossover_solves != 0) {
-    spdlog::info("  solve retries   : fallback={} crossover={}",
-                 agg.fallback_solves,
-                 agg.crossover_solves);
+    // Same compaction: only show the breakdown if both sub-counters
+    // are non-zero, otherwise the headline value plus its single
+    // contributor is enough.
+    if (agg.fallback_solves != 0 && agg.crossover_solves != 0) {
+      spdlog::info("  solve retries   : fallback={} crossover={}",
+                   agg.fallback_solves,
+                   agg.crossover_solves);
+    } else if (agg.fallback_solves != 0) {
+      spdlog::info("  solve retries   : fallback={}", agg.fallback_solves);
+    } else {
+      spdlog::info("  solve retries   : crossover={}", agg.crossover_solves);
+    }
   }
   if (agg.infeasible_count != 0) {
-    spdlog::info("  infeasible      : {} (primal={}, dual={})",
-                 agg.infeasible_count,
-                 agg.primal_infeasible,
-                 agg.dual_infeasible);
+    if (agg.primal_infeasible != 0 && agg.dual_infeasible != 0) {
+      spdlog::info("  infeasible      : {} (primal={}, dual={})",
+                   agg.infeasible_count,
+                   agg.primal_infeasible,
+                   agg.dual_infeasible);
+    } else if (agg.primal_infeasible != 0) {
+      spdlog::info("  infeasible      : {} (primal)", agg.infeasible_count);
+    } else {
+      spdlog::info("  infeasible      : {} (dual)", agg.infeasible_count);
+    }
   }
   if (agg.total_solve_calls() != 0) {
     spdlog::info("  avg LP size     : {:.0f} vars, {:.0f} rows",
