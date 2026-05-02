@@ -34,28 +34,31 @@ void log_stats_line(std::string_view label, const ScenePhaseLPStats& stats)
       stats.quality_label());
 
   // Print per-column details for max/min coefficients when available.
-  if (stats.stats_max_col >= 0) {
+  // ColIndex is `strong::formattable`; format its underlying value via
+  // `value_of()` so spdlog gets a plain int for the `col=...` slot
+  // without requiring a `std::formatter<std::optional<ColIndex>>`.
+  if (stats.stats_max_col) {
     if (!stats.stats_max_col_name.empty()) {
       spdlog::info("    max |coeff|={:.3e}  col={}  name={}",
                    stats.stats_max_abs,
-                   stats.stats_max_col,
+                   stats.stats_max_col->value_of(),
                    stats.stats_max_col_name);
     } else {
       spdlog::info("    max |coeff|={:.3e}  col={}",
                    stats.stats_max_abs,
-                   stats.stats_max_col);
+                   stats.stats_max_col->value_of());
     }
   }
-  if (stats.stats_min_col >= 0) {
+  if (stats.stats_min_col) {
     if (!stats.stats_min_col_name.empty()) {
       spdlog::info("    min |coeff|={:.3e}  col={}  name={}",
                    stats.stats_min_abs,
-                   stats.stats_min_col,
+                   stats.stats_min_col->value_of(),
                    stats.stats_min_col_name);
     } else {
       spdlog::info("    min |coeff|={:.3e}  col={}",
                    stats.stats_min_abs,
-                   stats.stats_min_col);
+                   stats.stats_min_col->value_of());
     }
   }
   if (stats.stats_zeroed > 0) {
@@ -81,14 +84,14 @@ void log_lp_stats_summary(const std::vector<ScenePhaseLPStats>& entries,
     global.stats_nnz += e.stats_nnz;
     global.stats_zeroed += e.stats_zeroed;
     global.stats_max_abs = std::max(global.stats_max_abs, e.stats_max_abs);
-    if (e.stats_nnz > 0 && e.stats_min_col >= 0) {
+    if (e.stats_nnz > 0 && e.stats_min_col) {
       if (e.stats_min_abs < global.stats_min_abs) {
         global.stats_min_abs = e.stats_min_abs;
         global.stats_min_col = e.stats_min_col;
         global.stats_min_col_name = e.stats_min_col_name;
       }
     }
-    if (e.stats_max_abs > global.stats_max_abs && e.stats_max_col >= 0) {
+    if (e.stats_max_abs > global.stats_max_abs && e.stats_max_col) {
       global.stats_max_col = e.stats_max_col;
       global.stats_max_col_name = e.stats_max_col_name;
     }

@@ -271,7 +271,7 @@ void fix_stage_islands(const auto& collections,
       }
     }
 
-    SPDLOG_WARN(
+    spdlog::debug(
         "Stage {}: bus uid={} pinned as runtime reference "
         "(theta=0) for disconnected island",
         stage.uid(),

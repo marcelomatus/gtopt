@@ -19,7 +19,9 @@
 
 #pragma once
 
+#include <cstddef>
 #include <limits>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -70,10 +72,10 @@ struct ScenePhaseLPStats
   double stats_max_abs {};
   double stats_min_abs {};
 
-  FlatLinearProblem::index_t stats_max_col {
-      -1};  ///< Column index with largest |coefficient|
-  FlatLinearProblem::index_t stats_min_col {
-      -1};  ///< Column index with smallest |coefficient|
+  /// Column index with largest / smallest |coefficient|.
+  /// Engaged only when `compute_stats` populated the sweep.
+  std::optional<ColIndex> stats_max_col {};
+  std::optional<ColIndex> stats_min_col {};
 
   std::string stats_max_col_name {};  ///< Name of column with largest |coeff|
   std::string stats_min_col_name {};  ///< Name of column with smallest |coeff|
@@ -83,7 +85,7 @@ struct ScenePhaseLPStats
 
   [[nodiscard]] constexpr double coeff_ratio() const noexcept
   {
-    if (stats_min_abs <= 0.0 || stats_min_col < 0
+    if (stats_min_abs <= 0.0 || !stats_min_col
         || stats_min_abs >= std::numeric_limits<double>::max()
         || stats_min_abs == stats_max_abs || stats_nnz == 0)
     {

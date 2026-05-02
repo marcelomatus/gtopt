@@ -21,8 +21,8 @@ TEST_CASE("ScenePhaseLPStats coeff_ratio")  // NOLINT
     ScenePhaseLPStats stats;
     stats.stats_max_abs = 1000.0;
     stats.stats_min_abs = 0.01;
-    stats.stats_max_col = 0;
-    stats.stats_min_col = 1;
+    stats.stats_max_col = ColIndex {0};
+    stats.stats_min_col = ColIndex {1};
     stats.stats_nnz = 10;
 
     CHECK(stats.coeff_ratio() == doctest::Approx(100000.0));
@@ -33,8 +33,8 @@ TEST_CASE("ScenePhaseLPStats coeff_ratio")  // NOLINT
     ScenePhaseLPStats stats;
     stats.stats_max_abs = 5.0;
     stats.stats_min_abs = 5.0;
-    stats.stats_max_col = 0;
-    stats.stats_min_col = 0;
+    stats.stats_max_col = ColIndex {0};
+    stats.stats_min_col = ColIndex {0};
     stats.stats_nnz = 10;
 
     CHECK(stats.coeff_ratio() == doctest::Approx(1.0));
@@ -45,8 +45,8 @@ TEST_CASE("ScenePhaseLPStats coeff_ratio")  // NOLINT
     ScenePhaseLPStats stats;
     stats.stats_max_abs = 100.0;
     stats.stats_min_abs = 0.0;
-    stats.stats_max_col = 0;
-    stats.stats_min_col = 1;
+    stats.stats_max_col = ColIndex {0};
+    stats.stats_min_col = ColIndex {1};
     stats.stats_nnz = 10;
 
     CHECK(stats.coeff_ratio() == doctest::Approx(1.0));
@@ -57,8 +57,8 @@ TEST_CASE("ScenePhaseLPStats coeff_ratio")  // NOLINT
     ScenePhaseLPStats stats;
     stats.stats_max_abs = 100.0;
     stats.stats_min_abs = 1.0;
-    stats.stats_max_col = 0;
-    stats.stats_min_col = -1;
+    stats.stats_max_col = ColIndex {0};
+    stats.stats_min_col = std::nullopt;
     stats.stats_nnz = 10;
 
     CHECK(stats.coeff_ratio() == doctest::Approx(1.0));
@@ -69,8 +69,8 @@ TEST_CASE("ScenePhaseLPStats coeff_ratio")  // NOLINT
     ScenePhaseLPStats stats;
     stats.stats_max_abs = 100.0;
     stats.stats_min_abs = 1.0;
-    stats.stats_max_col = 0;
-    stats.stats_min_col = 1;
+    stats.stats_max_col = ColIndex {0};
+    stats.stats_min_col = ColIndex {1};
     stats.stats_nnz = 0;
 
     CHECK(stats.coeff_ratio() == doctest::Approx(1.0));
@@ -81,8 +81,8 @@ TEST_CASE("ScenePhaseLPStats coeff_ratio")  // NOLINT
     ScenePhaseLPStats stats;
     stats.stats_max_abs = 100.0;
     stats.stats_min_abs = std::numeric_limits<double>::max();
-    stats.stats_max_col = 0;
-    stats.stats_min_col = 1;
+    stats.stats_max_col = ColIndex {0};
+    stats.stats_min_col = ColIndex {1};
     stats.stats_nnz = 10;
 
     CHECK(stats.coeff_ratio() == doctest::Approx(1.0));
@@ -96,8 +96,8 @@ TEST_CASE("ScenePhaseLPStats quality_label")  // NOLINT
     ScenePhaseLPStats stats;
     stats.stats_max_abs = 100.0;
     stats.stats_min_abs = 1.0;
-    stats.stats_max_col = 0;
-    stats.stats_min_col = 1;
+    stats.stats_max_col = ColIndex {0};
+    stats.stats_min_col = ColIndex {1};
     stats.stats_nnz = 10;
 
     CHECK(std::string_view(stats.quality_label()) == "excellent");
@@ -108,8 +108,8 @@ TEST_CASE("ScenePhaseLPStats quality_label")  // NOLINT
     ScenePhaseLPStats stats;
     stats.stats_max_abs = 10000.0;
     stats.stats_min_abs = 1.0;
-    stats.stats_max_col = 0;
-    stats.stats_min_col = 1;
+    stats.stats_max_col = ColIndex {0};
+    stats.stats_min_col = ColIndex {1};
     stats.stats_nnz = 10;
 
     CHECK(std::string_view(stats.quality_label()) == "good");
@@ -120,8 +120,8 @@ TEST_CASE("ScenePhaseLPStats quality_label")  // NOLINT
     ScenePhaseLPStats stats;
     stats.stats_max_abs = 1e6;
     stats.stats_min_abs = 1.0;
-    stats.stats_max_col = 0;
-    stats.stats_min_col = 1;
+    stats.stats_max_col = ColIndex {0};
+    stats.stats_min_col = ColIndex {1};
     stats.stats_nnz = 10;
 
     CHECK(std::string_view(stats.quality_label()) == "fair");
@@ -132,8 +132,8 @@ TEST_CASE("ScenePhaseLPStats quality_label")  // NOLINT
     ScenePhaseLPStats stats;
     stats.stats_max_abs = 1e9;
     stats.stats_min_abs = 1.0;
-    stats.stats_max_col = 0;
-    stats.stats_min_col = 1;
+    stats.stats_max_col = ColIndex {0};
+    stats.stats_min_col = ColIndex {1};
     stats.stats_nnz = 10;
 
     CHECK(std::string_view(stats.quality_label()) == "poor");
@@ -165,8 +165,8 @@ TEST_CASE("log_lp_stats_summary - single entry")  // NOLINT
       .stats_zeroed = 0,
       .stats_max_abs = 1000.0,
       .stats_min_abs = 1.0,
-      .stats_max_col = 10,
-      .stats_min_col = 20,
+      .stats_max_col = ColIndex {10},
+      .stats_min_col = ColIndex {20},
       .stats_max_col_name = "gen_p",
       .stats_min_col_name = "theta",
   });
@@ -186,8 +186,8 @@ TEST_CASE("log_lp_stats_summary - above threshold triggers detail")  // NOLINT
       .stats_zeroed = 5,
       .stats_max_abs = 1e9,
       .stats_min_abs = 0.001,
-      .stats_max_col = 10,
-      .stats_min_col = 20,
+      .stats_max_col = ColIndex {10},
+      .stats_min_col = ColIndex {20},
       .stats_max_col_name = "gen_p",
       .stats_min_col_name = "theta",
   });
@@ -208,8 +208,8 @@ TEST_CASE(  // NOLINT
       .stats_zeroed = 0,
       .stats_max_abs = 1e10,
       .stats_min_abs = 0.0001,
-      .stats_max_col = 5,
-      .stats_min_col = 15,
+      .stats_max_col = ColIndex {5},
+      .stats_min_col = ColIndex {15},
       // empty names — exercises the branch without column names
   });
   // Ratio = 1e14 > 1e7 → triggers detailed output with empty col names
@@ -229,8 +229,8 @@ TEST_CASE(  // NOLINT
       .stats_zeroed = 3,
       .stats_max_abs = 10.0,
       .stats_min_abs = 1.0,
-      .stats_max_col = 0,
-      .stats_min_col = 1,
+      .stats_max_col = ColIndex {0},
+      .stats_min_col = ColIndex {1},
       .stats_max_col_name = "x",
       .stats_min_col_name = "y",
   });
@@ -250,8 +250,8 @@ TEST_CASE(  // NOLINT
       .stats_nnz = 100,
       .stats_max_abs = 100.0,
       .stats_min_abs = 1.0,
-      .stats_max_col = 0,
-      .stats_min_col = 1,
+      .stats_max_col = ColIndex {0},
+      .stats_min_col = ColIndex {1},
       .stats_max_col_name = "a",
       .stats_min_col_name = "b",
   });
@@ -263,8 +263,8 @@ TEST_CASE(  // NOLINT
       .stats_nnz = 100,
       .stats_max_abs = 500.0,  // higher max
       .stats_min_abs = 0.5,  // lower min
-      .stats_max_col = 2,
-      .stats_min_col = 3,
+      .stats_max_col = ColIndex {2},
+      .stats_min_col = ColIndex {3},
       .stats_max_col_name = "c",
       .stats_min_col_name = "d",
   });
@@ -285,8 +285,8 @@ TEST_CASE(  // NOLINT
       .stats_zeroed = 2,
       .stats_max_abs = 1e9,
       .stats_min_abs = 0.001,
-      .stats_max_col = 0,
-      .stats_min_col = 1,
+      .stats_max_col = ColIndex {0},
+      .stats_min_col = ColIndex {1},
       .stats_max_col_name = "x",
       .stats_min_col_name = "y",
   });
@@ -299,8 +299,8 @@ TEST_CASE(  // NOLINT
       .stats_zeroed = 1,
       .stats_max_abs = 1e10,
       .stats_min_abs = 0.0001,
-      .stats_max_col = 2,
-      .stats_min_col = 3,
+      .stats_max_col = ColIndex {2},
+      .stats_min_col = ColIndex {3},
   });
   // Ratio > 1e7 → detail path, with global zeroed > 0
   log_lp_stats_summary(entries, 1e7);

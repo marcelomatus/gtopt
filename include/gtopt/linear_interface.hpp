@@ -21,6 +21,7 @@
 #include <cstdio>
 #include <expected>
 #include <memory>
+#include <optional>
 #include <span>
 #include <string_view>
 #include <unordered_map>
@@ -2277,12 +2278,12 @@ public:
   {
     return m_stats_min_abs_;
   }
-  [[nodiscard]] constexpr FlatLinearProblem::index_t lp_stats_max_col()
+  [[nodiscard]] constexpr std::optional<ColIndex> lp_stats_max_col()
       const noexcept
   {
     return m_stats_max_col_;
   }
-  [[nodiscard]] constexpr FlatLinearProblem::index_t lp_stats_min_col()
+  [[nodiscard]] constexpr std::optional<ColIndex> lp_stats_min_col()
       const noexcept
   {
     return m_stats_min_col_;
@@ -2472,8 +2473,8 @@ private:
   size_t m_stats_zeroed_ {};
   double m_stats_max_abs_ {};
   double m_stats_min_abs_ {};
-  FlatLinearProblem::index_t m_stats_max_col_ {-1};
-  FlatLinearProblem::index_t m_stats_min_col_ {-1};
+  std::optional<ColIndex> m_stats_max_col_ {};
+  std::optional<ColIndex> m_stats_min_col_ {};
   std::string m_stats_max_col_name_ {};
   std::string m_stats_min_col_name_ {};
   std::vector<FlatLinearProblem::RowTypeStatsEntry> m_row_type_stats_ {};

@@ -13,8 +13,10 @@
 
 #pragma once
 
+#include <cstddef>
 #include <format>
 #include <limits>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <unordered_map>
@@ -109,8 +111,10 @@ struct FlatLinearProblem
       std::numeric_limits<double>::max(),
   };
 
-  index_t stats_max_col {-1};  ///< Column index of the largest |coefficient|
-  index_t stats_min_col {-1};  ///< Column index of the smallest |coefficient|
+  /// Column index of the largest / smallest |coefficient| in A,
+  /// engaged only when `compute_stats` populated the sweep.
+  std::optional<ColIndex> stats_max_col {};
+  std::optional<ColIndex> stats_min_col {};
 
   std::string stats_max_col_name {};  ///< Name of column with largest |coeff|
   std::string stats_min_col_name {};  ///< Name of column with smallest |coeff|
@@ -130,7 +134,7 @@ struct FlatLinearProblem
   /// Coefficient ratio max/min (1.0 when empty, no valid min, or all equal).
   [[nodiscard]] constexpr double stats_coeff_ratio() const noexcept
   {
-    if (stats_min_abs <= 0.0 || stats_min_col < 0
+    if (stats_min_abs <= 0.0 || !stats_min_col
         || stats_min_abs >= std::numeric_limits<double>::max()
         || stats_min_abs == stats_max_abs || stats_nnz == 0)
     {

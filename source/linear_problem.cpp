@@ -33,6 +33,42 @@ namespace gtopt
 namespace
 {
 
+// ── Strong-typed std::vector lookup helpers ──────────────────────────
+// `ColIndex` / `RowIndex` are `strong::type<Index, ...>` (Index = int32_t).
+// `std::vector` indexes by `size_type` (unsigned), so the strong-type → vector
+// bridge here uses iterator arithmetic (`std::next` with the underlying
+// `Index` value): the iterator's `difference_type` is `ptrdiff_t` (signed,
+// wider than `Index`), so the conversion is widening — no narrowing /
+// `static_cast` / `-1` sentinel is involved.
+template<typename T>
+[[nodiscard]] inline auto try_at(const std::vector<T>& vec,
+                                 std::optional<ColIndex> idx) noexcept
+    -> const T*
+{
+  if (!idx) {
+    return nullptr;
+  }
+  const auto i = idx->value_of();
+  if (i < 0 || std::cmp_greater_equal(i, vec.size())) {
+    return nullptr;
+  }
+  return std::addressof(*std::next(vec.cbegin(), i));
+}
+template<typename T>
+[[nodiscard]] inline auto try_at(const std::vector<T>& vec,
+                                 std::optional<RowIndex> idx) noexcept
+    -> const T*
+{
+  if (!idx) {
+    return nullptr;
+  }
+  const auto i = idx->value_of();
+  if (i < 0 || std::cmp_greater_equal(i, vec.size())) {
+    return nullptr;
+  }
+  return std::addressof(*std::next(vec.cbegin(), i));
+}
+
 // ── Fast sqrt implementations ───────────────────────────────────────
 // Ruiz scaling is iterative and self-correcting, so approximate sqrt
 // only affects convergence speed, not final accuracy.
@@ -330,8 +366,10 @@ auto LinearProblem::flatten(const LpMatrixOptions& opts) -> FlatLinearProblem
   double stats_min = std::numeric_limits<double>::max();
   size_t stats_nnz = 0;
   size_t stats_zeroed = 0;
-  fp_index_t stats_max_col = -1;
-  fp_index_t stats_min_col = -1;
+  std::optional<ColIndex> stats_max_col_idx;
+  std::optional<ColIndex> stats_min_col_idx;
+  std::optional<RowIndex> stats_max_row_idx;
+  std::optional<RowIndex> stats_min_row_idx;
 
   // Effective minimum for stats min/max tracking:
   //   max(eps, stats_eps) — applied after the matrix eps filter.
@@ -353,13 +391,20 @@ auto LinearProblem::flatten(const LpMatrixOptions& opts) -> FlatLinearProblem
   std::vector<double> rowlb(nrows);
   std::vector<double> rowub(nrows);
 
-  for (const auto& [i, row] : enumerate(rows)) {
+  // `enumerate<RowIndex>` makes the loop counter a strong `RowIndex` so
+  // assignment into `stats_max_row_idx` is direct (no static_cast at the
+  // call site; the strong-type construction lives inside the factory).
+  for (const auto& [i, row] : enumerate<RowIndex>(rows)) {
+    const auto i_sz =
+        i.value_of();  // Index (int32_t) for legacy std::vector indexing
     const auto rs = row.scale;
     const auto inv_rs = (rs != 1.0) ? 1.0 / rs : 1.0;
-    rowlb[i] = (rs != 1.0 && row.lowb > -m_infinity_ && row.lowb < m_infinity_)
+    rowlb[i_sz] =
+        (rs != 1.0 && row.lowb > -m_infinity_ && row.lowb < m_infinity_)
         ? row.lowb * inv_rs
         : row.lowb;
-    rowub[i] = (rs != 1.0 && row.uppb > -m_infinity_ && row.uppb < m_infinity_)
+    rowub[i_sz] =
+        (rs != 1.0 && row.uppb > -m_infinity_ && row.uppb < m_infinity_)
         ? row.uppb * inv_rs
         : row.uppb;
 
@@ -370,7 +415,7 @@ auto LinearProblem::flatten(const LpMatrixOptions& opts) -> FlatLinearProblem
       if (eps < 0 || std::abs(v) > eps) [[likely]] {
         const auto c = static_cast<size_t>(j);
         const auto pos = static_cast<size_t>(colpos[c]);
-        matind[pos] = static_cast<fp_index_t>(i);
+        matind[pos] = i_sz;  // RowIndex → Index (int32_t) → fp_index_t (int)
         matval[pos] = v;
         ++colpos[c];
 
@@ -383,11 +428,13 @@ auto LinearProblem::flatten(const LpMatrixOptions& opts) -> FlatLinearProblem
           // tools that use LP-file precision (typically ~1e-10 floor).
           if (abs_v > stats_max) {
             stats_max = abs_v;
-            stats_max_col = static_cast<fp_index_t>(j);
+            stats_max_col_idx = j;  // j is ColIndex from row.cmap
+            stats_max_row_idx = i;  // i is RowIndex from enumerate<RowIndex>
           }
           if (abs_v >= eff_stats_eps && abs_v < stats_min) {
             stats_min = abs_v;
-            stats_min_col = static_cast<fp_index_t>(j);
+            stats_min_col_idx = j;
+            stats_min_row_idx = i;
           }
         }
       } else if (do_stats && eps >= 0 && v != 0.0) [[unlikely]] {
@@ -535,18 +582,16 @@ auto LinearProblem::flatten(const LpMatrixOptions& opts) -> FlatLinearProblem
     rowmp = build_name_map(rownm, "row");
   }
 
-  // Populate col name strings for stats from colnm (which may have been
-  // moved from cols, so we must read from colnm, not cols).
+  // `stats_*_col_name` are kept as default-empty: name material is now
+  // resolved at log-emission time directly from the always-populated
+  // `col_labels_meta` (`class_name` / `variable_name` / `variable_uid`).
+  // We deliberately do not consult `colnm` / `rownm` here: those vectors
+  // are empty under the default LpNamesLevel (production runs do not
+  // request them), so the legacy `colnm[stats_max_col]` materialisation
+  // both spent cycles producing empty strings and tied the stats path
+  // to a label vector that may never be built.
   std::string stats_max_col_name;
   std::string stats_min_col_name;
-  if (do_stats && !colnm.empty()) {
-    if (stats_max_col >= 0) {
-      stats_max_col_name = colnm[static_cast<size_t>(stats_max_col)];
-    }
-    if (stats_min_col >= 0) {
-      stats_min_col_name = colnm[static_cast<size_t>(stats_min_col)];
-    }
-  }
 
   // ── Matrix equilibration scaling ────────────────────────────────────
   // Dispatch to the selected equilibration method.  The row_scales
@@ -605,34 +650,46 @@ auto LinearProblem::flatten(const LpMatrixOptions& opts) -> FlatLinearProblem
   if (!row_scales_vec.empty() && do_stats) {
     // Recompute coefficient stats after equilibration so the reported
     // ratio reflects the actual matrix sent to the solver.
+    //
+    // The layout iteration stays in `size_t c` (matbeg/matval/matind are
+    // CSC-side std::vectors keyed by raw size_t); when a candidate min/max
+    // is found we build the strong-typed `ColIndex` / `RowIndex` directly
+    // from the matrix metadata: `matind[k]` is already `Index` (int32_t),
+    // the underlying type of RowIndex, so `RowIndex{matind[k]}` is a
+    // strong-type construction with no narrowing.  For the column we
+    // reuse the column iteration variable wrapped via the locally-scoped
+    // `iota_range<ColIndex>` factory, which hides the size_t→Index
+    // construction inside the factory itself.
     stats_max = 0.0;
     stats_min = std::numeric_limits<double>::max();
-    stats_max_col = -1;
-    stats_min_col = -1;
-    for (size_t c = 0; c < ncols; ++c) {
+    stats_max_col_idx.reset();
+    stats_min_col_idx.reset();
+    stats_max_row_idx.reset();
+    stats_min_row_idx.reset();
+    auto col_idx_view = iota_range<ColIndex>(0, ncols);
+    auto col_iter = col_idx_view.begin();
+    for (size_t c = 0; c < ncols; ++c, ++col_iter) {
+      const auto c_strong = *col_iter;  // ColIndex (constructed by iota_range)
       const auto beg = static_cast<size_t>(matbeg[c]);
       const auto end = static_cast<size_t>(matbeg[c + 1]);
       for (size_t k = beg; k < end; ++k) {
         const double abs_v = std::abs(matval[k]);
         if (abs_v > stats_max) {
           stats_max = abs_v;
-          stats_max_col = static_cast<fp_index_t>(c);
+          stats_max_col_idx = c_strong;
+          stats_max_row_idx = RowIndex {matind[k]};
         }
         if (abs_v >= eff_stats_eps && abs_v < stats_min) {
           stats_min = abs_v;
-          stats_min_col = static_cast<fp_index_t>(c);
+          stats_min_col_idx = c_strong;
+          stats_min_row_idx = RowIndex {matind[k]};
         }
       }
     }
-    // Update column name references for the new min/max columns.
-    stats_max_col_name = (stats_max_col >= 0
-                          && static_cast<size_t>(stats_max_col) < colnm.size())
-        ? colnm[static_cast<size_t>(stats_max_col)]
-        : "";
-    stats_min_col_name = (stats_min_col >= 0
-                          && static_cast<size_t>(stats_min_col) < colnm.size())
-        ? colnm[static_cast<size_t>(stats_min_col)]
-        : "";
+    // Stats names stay default-empty by design — the LP_QUALITY emission
+    // below resolves the offending element from `col_labels_meta` /
+    // `row_labels_meta`, which are always populated regardless of
+    // `LpNamesLevel`.
   }
 
   // ── Per-row-type coefficient statistics ──────────────────────────────
@@ -738,24 +795,122 @@ auto LinearProblem::flatten(const LpMatrixOptions& opts) -> FlatLinearProblem
   // explicitly disabled.
   if (do_stats && stats_nnz > 0 && opts.validation.effective_enable()) {
     const double effective_min =
-        (stats_min_col >= 0 && stats_min < std::numeric_limits<double>::max())
+        (stats_min_col_idx && stats_min < std::numeric_limits<double>::max())
         ? stats_min
         : 0.0;
     const double ratio = stats_max / std::max(effective_min, 1e-30);
 
-    spdlog::info("LP_QUALITY: nnz={} max={:.2e} min={:.2e} ratio={:.2e}",
-                 stats_nnz,
-                 stats_max,
-                 effective_min,
-                 ratio);
+    // Locate the offending col/row from the always-populated label-meta
+    // vectors.  Every SparseCol / SparseRow that reaches the LP through
+    // the per-element `*_lp.cpp` builders MUST set `class_name`; if any
+    // metadata at all has been populated in this LP we treat a missing
+    // `class_name` for a min/max coefficient as a programming error and
+    // throw — silently logging an anonymous coefficient hides the bug.
+    // Pure unit-test LPs that build raw `SparseCol{}` / `SparseRow{}`
+    // (no element pipeline) have all-empty metadata and are exempt:
+    // there is nothing to enforce.
+    const auto* cmax = try_at(col_labels_meta, stats_max_col_idx);
+    const auto* cmin = try_at(col_labels_meta, stats_min_col_idx);
+    const auto* rmax = try_at(row_labels_meta, stats_max_row_idx);
+    const auto* rmin = try_at(row_labels_meta, stats_min_row_idx);
+
+    const auto any_col_metadata = std::ranges::any_of(
+        col_labels_meta, [](const auto& l) { return !l.class_name.empty(); });
+    const auto any_row_metadata = std::ranges::any_of(
+        row_labels_meta, [](const auto& l) { return !l.class_name.empty(); });
+
+    if (any_col_metadata) {
+      if (cmax == nullptr || cmax->class_name.empty()) {
+        throw std::runtime_error(std::format(
+            "LP_QUALITY: max col index {} has missing or empty class_name "
+            "— every SparseCol added to the LP must set `.class_name`; "
+            "check the *_lp.cpp builder that produced col {}",
+            stats_max_col_idx ? stats_max_col_idx->value_of() : -1,
+            stats_max_col_idx ? stats_max_col_idx->value_of() : -1));
+      }
+      if (cmin == nullptr || cmin->class_name.empty()) {
+        throw std::runtime_error(std::format(
+            "LP_QUALITY: min col index {} has missing or empty class_name "
+            "— every SparseCol added to the LP must set `.class_name`; "
+            "check the *_lp.cpp builder that produced col {}",
+            stats_min_col_idx ? stats_min_col_idx->value_of() : -1,
+            stats_min_col_idx ? stats_min_col_idx->value_of() : -1));
+      }
+    }
+    if (any_row_metadata) {
+      if (rmax == nullptr || rmax->class_name.empty()) {
+        throw std::runtime_error(std::format(
+            "LP_QUALITY: max row index {} has missing or empty class_name "
+            "— every SparseRow added to the LP must set `.class_name`; "
+            "check the *_lp.cpp builder that produced row {}",
+            stats_max_row_idx ? stats_max_row_idx->value_of() : -1,
+            stats_max_row_idx ? stats_max_row_idx->value_of() : -1));
+      }
+      if (rmin == nullptr || rmin->class_name.empty()) {
+        throw std::runtime_error(std::format(
+            "LP_QUALITY: min row index {} has missing or empty class_name "
+            "— every SparseRow added to the LP must set `.class_name`; "
+            "check the *_lp.cpp builder that produced row {}",
+            stats_min_row_idx ? stats_min_row_idx->value_of() : -1,
+            stats_min_row_idx ? stats_min_row_idx->value_of() : -1));
+      }
+    }
+
+    const bool have_full = any_col_metadata && any_row_metadata;
+    if (have_full) {
+      spdlog::info(
+          "LP_QUALITY: nnz={} max={:.2e} [col={} {}[{}].{} row={} "
+          "{}[{}].{}] min={:.2e} [col={} {}[{}].{} row={} {}[{}].{}] "
+          "ratio={:.2e}",
+          stats_nnz,
+          stats_max,
+          stats_max_col_idx->value_of(),
+          cmax->class_name,
+          cmax->variable_uid,
+          cmax->variable_name,
+          stats_max_row_idx->value_of(),
+          rmax->class_name,
+          rmax->variable_uid,
+          rmax->constraint_name,
+          effective_min,
+          stats_min_col_idx->value_of(),
+          cmin->class_name,
+          cmin->variable_uid,
+          cmin->variable_name,
+          stats_min_row_idx->value_of(),
+          rmin->class_name,
+          rmin->variable_uid,
+          rmin->constraint_name,
+          ratio);
+    } else {
+      spdlog::info("LP_QUALITY: nnz={} max={:.2e} min={:.2e} ratio={:.2e}",
+                   stats_nnz,
+                   stats_max,
+                   effective_min,
+                   ratio);
+    }
 
     const double max_threshold = opts.validation.effective_coeff_warn_max();
     if (stats_max > max_threshold || ratio > 1e10) {
-      spdlog::warn(
-          "LP_QUALITY: max |coeff|={:.2e} at col '{}' EXCEEDS threshold {:.2e}",
-          stats_max,
-          stats_max_col_name,
-          max_threshold);
+      if (have_full) {
+        spdlog::warn(
+            "LP_QUALITY: max |coeff|={:.2e} [col={} {}[{}].{} row={} "
+            "{}[{}].{}] EXCEEDS threshold {:.2e}",
+            stats_max,
+            stats_max_col_idx->value_of(),
+            cmax->class_name,
+            cmax->variable_uid,
+            cmax->variable_name,
+            stats_max_row_idx->value_of(),
+            rmax->class_name,
+            rmax->variable_uid,
+            rmax->constraint_name,
+            max_threshold);
+      } else {
+        spdlog::warn("LP_QUALITY: max |coeff|={:.2e} EXCEEDS threshold {:.2e}",
+                     stats_max,
+                     max_threshold);
+      }
     }
   }
 
@@ -797,9 +952,9 @@ auto LinearProblem::flatten(const LpMatrixOptions& opts) -> FlatLinearProblem
       .stats_zeroed = stats_zeroed,
       .stats_max_abs = stats_max,
       .stats_min_abs =
-          stats_min_col >= 0 ? stats_min : std::numeric_limits<double>::max(),
-      .stats_max_col = stats_max_col,
-      .stats_min_col = stats_min_col,
+          stats_min_col_idx ? stats_min : std::numeric_limits<double>::max(),
+      .stats_max_col = stats_max_col_idx,
+      .stats_min_col = stats_min_col_idx,
       .stats_max_col_name = std::move(stats_max_col_name),
       .stats_min_col_name = std::move(stats_min_col_name),
       .row_type_stats = std::move(row_type_stats_vec),

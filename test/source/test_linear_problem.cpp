@@ -672,8 +672,8 @@ TEST_CASE(
 
     CHECK(flat.stats_nnz == 0);
     CHECK(flat.stats_zeroed == 0);
-    CHECK(flat.stats_max_col == -1);
-    CHECK(flat.stats_min_col == -1);
+    CHECK_FALSE(flat.stats_max_col.has_value());
+    CHECK_FALSE(flat.stats_min_col.has_value());
     CHECK(flat.stats_max_col_name.empty());
     CHECK(flat.stats_min_col_name.empty());
   }
