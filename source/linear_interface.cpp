@@ -696,6 +696,13 @@ LinearInterface LinearInterface::clone(CloneKind kind) const
   cloned.m_base_numrows_ = m_base_numrows_;
   cloned.m_base_numrows_set_ = m_base_numrows_set_;
   cloned.m_log_tag_ = m_log_tag_;
+  // Propagate label-maker configuration so clone-side `add_col` /
+  // `add_row` honour the source's `LpNamesLevel`.  Without this the
+  // default-constructed LabelMaker silently drops to `LpNamesLevel::none`
+  // on the clone, breaking name tracking for cuts / slacks added after
+  // cloning even when the source had `LpNamesLevel::all`.  The
+  // `clone_from_flat` route gets this for free via `load_flat`.
+  cloned.m_label_maker_ = m_label_maker_;
   // Propagate validation thresholds; stats are intentionally fresh on
   // the clone so each LP tracks only the writes that land on it.
   cloned.m_validation_options_ = m_validation_options_;
@@ -791,6 +798,10 @@ LinearInterface LinearInterface::clone_from_flat(CloneKind kind) const
   cloned.m_base_numrows_ = m_base_numrows_;
   cloned.m_base_numrows_set_ = m_base_numrows_set_;
   cloned.m_log_tag_ = m_log_tag_;
+  // `load_flat` already set `m_label_maker_` from the snapshot, but the
+  // source may have changed it via `set_label_maker` after load.  Reapply
+  // the source's CURRENT setting so both clone routes are symmetric.
+  cloned.m_label_maker_ = m_label_maker_;
   cloned.m_validation_options_ = m_validation_options_;
 
   // CloneKind dispatch — the metadata side.

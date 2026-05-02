@@ -35,7 +35,9 @@
 #include <string>
 
 #include <doctest/doctest.h>
+#include <gtopt/label_maker.hpp>
 #include <gtopt/linear_interface.hpp>
+#include <gtopt/lp_validation.hpp>
 #include <gtopt/sparse_col.hpp>
 #include <gtopt/sparse_row.hpp>
 
@@ -399,4 +401,100 @@ TEST_CASE(
   std::error_code ec;
   std::filesystem::remove(a_stem + ".lp", ec);
   std::filesystem::remove(b_stem + ".lp", ec);
+}
+
+TEST_CASE("clone propagates LabelMaker configuration to the clone")
+{
+  // Regression guard: prior to the fix, `clone()` left
+  // `cloned.m_label_maker_` default-constructed (LpNamesLevel::none).
+  // A source configured with `LpNamesLevel::all` would silently produce
+  // a clone where `col_names_enabled()` / `row_names_enabled()` flipped
+  // to false, breaking eager name tracking on subsequent clone-side
+  // adds and altering `write_lp`'s label-generation contract.
+  // `clone_from_flat()` was unaffected (load_flat repopulates from the
+  // snapshot's label_maker) — the two routes diverged.
+  using Kind = LinearInterface::CloneKind;
+
+  LinearInterface src;
+  src.set_label_maker(LabelMaker {LpNamesLevel::all});
+  REQUIRE(src.label_maker().names_level() == LpNamesLevel::all);
+
+  // Add a labelled production col so write_lp has something to format.
+  std::ignore = src.add_col(SparseCol {
+      .uppb = 5.0,
+      .cost = 1.0,
+      .class_name = "Gen",
+      .variable_name = "p",
+      .variable_uid = 42,
+  });
+
+  for (auto kind : {Kind::deep, Kind::shallow}) {
+    auto cloned = src.clone(kind);
+
+    // Direct check — label_maker MUST propagate.
+    CHECK(cloned.label_maker().names_level() == LpNamesLevel::all);
+    CHECK(cloned.label_maker().col_names_enabled());
+    CHECK(cloned.label_maker().row_names_enabled());
+
+    // Indirect check via write_lp on the clone: the source's label
+    // must round-trip into the dump even on the cloned LP.
+    const auto tmpdir = std::filesystem::temp_directory_path();
+    const auto stem =
+        (tmpdir
+         / std::string {kind == Kind::deep ? "test_clone_lm_deep"
+                                           : "test_clone_lm_shallow"})
+            .string();
+    REQUIRE(cloned.write_lp(stem).has_value());
+    const auto content = read_file(stem + ".lp");
+    CHECK(content.find("gen") != std::string::npos);  // class_name lowercased
+    CHECK(content.find("_42") != std::string::npos);  // variable_uid in label
+
+    std::error_code ec;
+    std::filesystem::remove(stem + ".lp", ec);
+  }
+}
+
+TEST_CASE("clone propagates LpValidationOptions and resets LpValidationStats")
+{
+  // Validation thresholds are part of the source's configuration and
+  // must travel with the clone.  Validation STATS, however, are
+  // counters — each clone tracks only the writes that land on it.
+  LinearInterface src;
+  LpValidationOptions opts;
+  opts.enable = true;
+  opts.bound_warn_max = 1.0e9;  // distinguishably-not-the-default 1e12
+  opts.coeff_warn_max = 1.0e8;
+  src.set_validation_options(opts);
+
+  // Trigger a stat on the source so we can verify the clone starts at zero.
+  std::ignore = src.add_col(SparseCol {
+      .uppb = 1.0e15,  // huge bound — fires note_bound on the source
+      .cost = 1.0,
+      .class_name = "T",
+      .variable_name = "trip_source",
+      .variable_uid = 1,
+  });
+  REQUIRE(src.lp_validation_stats().bound_huge_count > 0);
+
+  for (auto kind :
+       {LinearInterface::CloneKind::deep, LinearInterface::CloneKind::shallow})
+  {
+    const auto cloned = src.clone(kind);
+
+    // Options must match the source's — the deferred-format note_*
+    // overloads route through these thresholds before paying for any
+    // std::format on the cold path.
+    CHECK(cloned.lp_validation_options().enable.value_or(false) == true);
+    CHECK(cloned.lp_validation_options().bound_warn_max.value_or(0.0)
+          == doctest::Approx(1.0e9));
+    CHECK(cloned.lp_validation_options().coeff_warn_max.value_or(0.0)
+          == doctest::Approx(1.0e8));
+
+    // Stats must be fresh on the clone — only the source observed the
+    // huge bound, the clone has not seen it (the backend.clone() copy
+    // produces the row-bound directly into the solver, bypassing the
+    // hooks).
+    CHECK(cloned.lp_validation_stats().bound_huge_count == 0);
+    CHECK(cloned.lp_validation_stats().total_count() == 0);
+  }
 }
