@@ -1452,13 +1452,18 @@ private:
   /// Deep-copy helper for `shared_ptr<T>` members.  Returns a fresh
   /// `shared_ptr` owning a value-copy of the source's underlying T —
   /// the deep-clone counterpart to the shallow-clone `shared_ptr`
-  /// copy-assignment.  Lazily handles the null source-pointer case
-  /// (returns a shared_ptr to a default-constructed T).
+  /// Lazy null pass-through: a null source produces a null clone, NOT
+  /// a freshly-allocated default `T`.  Every mutating site funnels
+  /// through `detach_for_write` which lazily creates the `T` on first
+  /// write, so eager default-construction here only wastes an
+  /// allocation per null-metadata field per clone (up to 11 in the
+  /// minimal-LP case, multiplied by every aperture clone in the SDDP
+  /// hot loop).
   template<class T>
   [[nodiscard]] static std::shared_ptr<T> deep_copy_ptr(
       const std::shared_ptr<T>& src)
   {
-    return src ? std::make_shared<T>(*src) : std::make_shared<T>();
+    return src ? std::make_shared<T>(*src) : nullptr;
   }
 
   /// Copy-on-write helper for `shared_ptr<T>` members.  Returns a
