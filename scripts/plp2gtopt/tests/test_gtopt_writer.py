@@ -353,56 +353,61 @@ class TestGTOptWriterProcessMethods:
         sddp = writer.planning["options"]["sddp_options"]
         assert sddp["convergence_tol"] == pytest.approx(0.05)
 
-    def test_process_options_stationary_tol_defaults_to_one_percent(self):
-        """stationary_tol defaults to 0.01 (1 %) — independent of
-        convergence_tol so the gap-still-moving heuristic isn't pinned to
-        the (often much tighter) PDError-derived convergence_tol."""
+    def test_process_options_secondary_convergence_keys_omitted_by_default(self):
+        """The secondary convergence knobs are *not* emitted when no
+        explicit value is supplied — gtopt now ships coherent defaults
+        (1 % gap target, 0.5 % stationary tol, 5 % gap ceiling, CI test
+        disabled, 3-iter bootstrap), so plp2gtopt suppresses the
+        redundant emit and lets a future gtopt default change propagate
+        without re-running the converter.  Only ``convergence_tol``
+        survives — it is PLP-derived (plpmat.dat::PDError)."""
         mock_parser = self._make_plpmat_parser(pd_error=0.001)
         writer = GTOptWriter(mock_parser)
         writer.process_options({"output_dir": "out"})
         sddp = writer.planning["options"]["sddp_options"]
-        assert sddp["stationary_tol"] == pytest.approx(0.01)
-        # convergence_tol is still inherited from plpmat.dat (PDError = 0.001).
+        # convergence_tol stays — comes from plpmat.dat PDError.
         assert sddp["convergence_tol"] == pytest.approx(0.001)
-        assert sddp["stationary_window"] == 4
-
-    def test_process_options_min_iterations_default_three(self):
-        """min_iterations defaults to 3 when not specified — forces the
-        SDDP loop to train at least 3 iterations before any convergence
-        test fires (CI / gap / stationary)."""
-        writer = GTOptWriter(MagicMock())
-        writer.process_options({"output_dir": "out"})
-        sddp = writer.planning["options"]["sddp_options"]
-        assert sddp["min_iterations"] == 3
+        # All five secondary knobs absent unless user opts in.
+        for key in (
+            "stationary_tol",
+            "stationary_window",
+            "stationary_gap_ceiling",
+            "convergence_confidence",
+            "min_iterations",
+        ):
+            assert key not in sddp, (
+                f"secondary convergence key '{key}' should be omitted by "
+                f"default but was emitted as {sddp[key]!r}"
+            )
 
     def test_process_options_min_iterations_explicit_overrides(self):
-        """Explicit min_iterations overrides the default of 3."""
+        """Explicit min_iterations is forwarded into the JSON."""
         writer = GTOptWriter(MagicMock())
         writer.process_options({"output_dir": "out", "min_iterations": 10})
         sddp = writer.planning["options"]["sddp_options"]
         assert sddp["min_iterations"] == 10
 
-    def test_process_options_convergence_confidence_default_p99(self):
-        """convergence_confidence defaults to 0.99 (z=2.576) so the
-        statistical CI test fires only when σ is truly tight."""
-        writer = GTOptWriter(MagicMock())
-        writer.process_options({"output_dir": "out"})
-        sddp = writer.planning["options"]["sddp_options"]
-        assert sddp["convergence_confidence"] == pytest.approx(0.99)
-
     def test_process_options_convergence_confidence_explicit_overrides(self):
-        """Explicit convergence_confidence overrides the default of 0.99."""
+        """Explicit convergence_confidence is forwarded into the JSON."""
         writer = GTOptWriter(MagicMock())
         writer.process_options({"output_dir": "out", "convergence_confidence": 0.95})
         sddp = writer.planning["options"]["sddp_options"]
         assert sddp["convergence_confidence"] == pytest.approx(0.95)
 
     def test_process_options_stationary_tol_explicit_overrides(self):
-        """Explicit stationary_tol overrides the convergence_tol default."""
+        """Explicit stationary_tol is forwarded into the JSON."""
         writer = GTOptWriter(MagicMock())
         writer.process_options({"output_dir": "out", "stationary_tol": 0.005})
         sddp = writer.planning["options"]["sddp_options"]
         assert sddp["stationary_tol"] == pytest.approx(0.005)
+
+    def test_process_options_stationary_gap_ceiling_explicit_overrides(self):
+        """Explicit stationary_gap_ceiling is forwarded into the JSON."""
+        writer = GTOptWriter(MagicMock())
+        writer.process_options(
+            {"output_dir": "out", "stationary_gap_ceiling": 0.10})
+        sddp = writer.planning["options"]["sddp_options"]
+        assert sddp["stationary_gap_ceiling"] == pytest.approx(0.10)
 
     def test_process_options_demand_fail_cost_default(self):
         """demand_fail_cost defaults to 0 when not specified.

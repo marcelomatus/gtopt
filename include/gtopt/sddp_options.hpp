@@ -373,6 +373,22 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
    * Default: 0.95 (95% CI).  Set to 0.0 to disable. */
   OptReal convergence_confidence {};
 
+  /** @brief Absolute gap ceiling for the secondary convergence tests.
+   *
+   * Hard guard against premature convergence: when ``gap >=
+   * stationary_gap_ceiling`` (relative gap), neither the stationary nor
+   * the statistical CI test can fire — only the primary
+   * ``convergence_tol`` test is allowed to declare convergence.
+   *
+   * Defends against heterogeneous-scene σ explosion (juan run
+   * 2026-05-02 declared CI convergence at iter 2 with gap = 25 %
+   * because σ ≈ 77 M dominated the 38 M absolute gap).  Tightening
+   * this option to e.g. 0.05 forces the solver to keep iterating
+   * until the gap closes below 5 %.
+   *
+   * Default: 0.5 (50 %).  Set to 1.0 to disable the ceiling. */
+  OptReal stationary_gap_ceiling {};
+
   // ── LP solver options (per-pass override)
   // ───────────────────────────────────
 
@@ -526,6 +542,7 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
     merge_opt(stationary_tol, opts.stationary_tol);
     merge_opt(stationary_window, opts.stationary_window);
     merge_opt(convergence_confidence, opts.convergence_confidence);
+    merge_opt(stationary_gap_ceiling, opts.stationary_gap_ceiling);
     merge_opt(forward_max_fallbacks, opts.forward_max_fallbacks);
     merge_opt(forward_fail_stop, opts.forward_fail_stop);
     merge_opt(forward_infeas_rollback, opts.forward_infeas_rollback);

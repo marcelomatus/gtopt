@@ -417,6 +417,8 @@ def build_options(args: argparse.Namespace) -> dict:
         opts["min_iterations"] = args.min_iterations
     if getattr(args, "convergence_confidence", None) is not None:
         opts["convergence_confidence"] = args.convergence_confidence
+    if getattr(args, "stationary_gap_ceiling", None) is not None:
+        opts["stationary_gap_ceiling"] = args.stationary_gap_ceiling
     opts["reservoir_scale_mode"] = args.reservoir_scale_mode
     if args.reservoir_energy_scale is not None:
         opts["reservoir_energy_scale"] = _parse_name_value_pairs(

@@ -257,35 +257,26 @@ class GTOptWriter(
                 convergence_tol = 0.01
         sddp_opts["convergence_tol"] = convergence_tol
 
-        # Secondary (stationary gap) convergence criterion:
-        # When the gap stops improving over a window of iterations, declare
-        # convergence even if gap > convergence_tol.  Default stationary_tol
-        # to 1 % so SDDP keeps iterating while the gap is still moving by ≥1 %
-        # per window step, and stops only once progress genuinely stalls.
-        # Earlier defaulting to `convergence_tol` (often 0.001 from PLP's
-        # PDError) made stationary detection too tight — the C++ statistical
-        # CI test would fire first and end training prematurely (juan run
-        # 2026-05-02 stopped at iter 1 with gap=0.288).
-        stationary_tol = options.get("stationary_tol", 0.01)
-        sddp_opts["stationary_tol"] = stationary_tol
-
-        stationary_window = options.get("stationary_window", 4)
-        sddp_opts["stationary_window"] = stationary_window
-
-        # Statistical CI confidence for the secondary convergence test.
-        # Default 0.99 (z=2.576) — stricter than gtopt's own default
-        # (~0.90, z=1.645) so the CI test only fires when σ is truly
-        # tight, not on the first iter when scene-UB scatter is still
-        # high.  Set to 0 to disable the CI test entirely.
-        convergence_confidence = options.get("convergence_confidence", 0.99)
-        sddp_opts["convergence_confidence"] = convergence_confidence
-
-        # Minimum SDDP iterations before any convergence test fires.
-        # PLP has no equivalent setting; we emit 3 so that even a fast-
-        # converging case still trains a meaningful number of cuts before
-        # any stop test can trip.
-        min_iter = options.get("min_iterations", 3)
-        sddp_opts["min_iterations"] = min_iter
+        # Secondary convergence knobs (stationary_tol, stationary_window,
+        # stationary_gap_ceiling, convergence_confidence, min_iterations)
+        # are *not* emitted by default — gtopt now ships a coherent set of
+        # defaults (1 % gap target, 0.5 % stationary tol, 5 % gap ceiling,
+        # CI test disabled, 3-iter bootstrap) that match what plp2gtopt
+        # used to override field-by-field.  Suppressing the default emits
+        # keeps the JSON small and lets a future gtopt default change
+        # propagate without re-running plp2gtopt.  Pass --stationary-tol /
+        # --stationary-window / --stationary-gap-ceiling /
+        # --convergence-confidence / --min-iterations on the CLI to
+        # override on a case-by-case basis (each survives unchanged here).
+        for key in (
+            "stationary_tol",
+            "stationary_window",
+            "stationary_gap_ceiling",
+            "convergence_confidence",
+            "min_iterations",
+        ):
+            if key in options and options[key] is not None:
+                sddp_opts[key] = options[key]
 
         # Cut coefficient tolerance (PLP OptiEPS equivalent).
         # cut_coeff_eps: drop coefficients with |value| < eps (default 1e-8).

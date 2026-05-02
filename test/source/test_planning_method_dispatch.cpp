@@ -69,6 +69,7 @@ auto build_expected_sddp_opts(const PlanningOptionsLP& options) -> SDDPOptions
   sddp_opts.stationary_tol = options.sddp_stationary_tol();
   sddp_opts.stationary_window = options.sddp_stationary_window();
   sddp_opts.convergence_confidence = options.sddp_convergence_confidence();
+  sddp_opts.stationary_gap_ceiling = options.sddp_stationary_gap_ceiling();
 
   // Simulation mode handling
   if (options.sddp_simulation_mode()) {
@@ -189,13 +190,18 @@ TEST_CASE("make_planning_method SDDP wiring snapshot")  // NOLINT
     const auto so = build_expected_sddp_opts(options_lp);
 
     // ── Iteration control ──
+    // Defaults represent the consolidated "sensible defaults" story
+    // (see PlanningOptionsLP::default_sddp_* constants).  Aim for 1 %
+    // gap; if gap stops moving (<0.5 %) AND already <5 %, accept it;
+    // otherwise iterate to 100.  Statistical CI test is opt-in.
     CHECK(so.max_iterations == 100);
-    CHECK(so.min_iterations == 2);
-    CHECK(so.convergence_tol == doctest::Approx(1e-4));
-    CHECK(so.convergence_mode == ConvergenceMode::statistical);
-    CHECK(so.stationary_tol == doctest::Approx(0.01));
+    CHECK(so.min_iterations == 3);
+    CHECK(so.convergence_tol == doctest::Approx(0.01));
+    CHECK(so.convergence_mode == ConvergenceMode::gap_stationary);
+    CHECK(so.stationary_tol == doctest::Approx(0.005));
     CHECK(so.stationary_window == 4);  // PlanningOptionsLP default
-    CHECK(so.convergence_confidence == doctest::Approx(0.95));
+    CHECK(so.convergence_confidence == doctest::Approx(0.0));
+    CHECK(so.stationary_gap_ceiling == doctest::Approx(0.05));
 
     // ── Advanced tuning ──
     // PLP parity (2026-04-24): elastic_penalty default = 1.0 (matches
@@ -295,6 +301,7 @@ TEST_CASE("make_planning_method SDDP wiring snapshot")  // NOLINT
     popts.sddp_options.stationary_tol = 2.5e-3;
     popts.sddp_options.stationary_window = 19;
     popts.sddp_options.convergence_confidence = 0.77;
+    popts.sddp_options.stationary_gap_ceiling = 0.123;
 
     // Advanced tuning
     popts.sddp_options.elastic_penalty = 3.14e3;
@@ -357,6 +364,7 @@ TEST_CASE("make_planning_method SDDP wiring snapshot")  // NOLINT
     CHECK(so.stationary_tol == doctest::Approx(2.5e-3));
     CHECK(so.stationary_window == 19);
     CHECK(so.convergence_confidence == doctest::Approx(0.77));
+    CHECK(so.stationary_gap_ceiling == doctest::Approx(0.123));
 
     // ── Advanced tuning ──
     CHECK(so.elastic_penalty == doctest::Approx(3.14e3));

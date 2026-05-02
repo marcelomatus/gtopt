@@ -870,6 +870,24 @@ def test_grid_tracker_forward_pass():
     assert tracker.get_cell(0, 0, 3) == _GRID_IDLE  # not visited
 
 
+def test_grid_tracker_forward_pass_with_phase_total():
+    """Forward INFO lines emit ``p<idx>/<total>`` (e.g. ``p3/51``); the
+    grid tracker must accept the suffix without dropping the line.
+    Pinned after the suffix was added in sddp_forward_pass.cpp and the
+    regex initially rejected it, freezing the grid mid-run."""
+    tracker = SDDPGridTracker()
+    tracker.process_line("SDDP Forward [i0 s0 p0/3]: opex=1.23M")
+    tracker.process_line("SDDP Forward [i0 s0 p1/3]: opex=2.34M")
+    tracker.process_line("SDDP Forward [i0 s0 p2/3]: opex=3.45M")
+
+    assert tracker.has_data
+    assert tracker.scenes == [0]
+    assert tracker.max_phase == 2
+    assert tracker.get_cell(0, 0, 0) == _GRID_FORWARD
+    assert tracker.get_cell(0, 0, 1) == _GRID_FORWARD
+    assert tracker.get_cell(0, 0, 2) == _GRID_FORWARD
+
+
 def test_grid_tracker_backward_pass():
     """Backward pass lines create backward cells."""
     tracker = SDDPGridTracker()

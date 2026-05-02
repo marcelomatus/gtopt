@@ -512,9 +512,29 @@ def add_solver_arguments(parser: argparse.ArgumentParser, conf: dict[str, str]) 
             "Confidence level for the statistical CI convergence test (0-1).  "
             "When > 0 with multiple scenes, declare convergence when "
             "UB - LB <= z_{α/2} * σ where α = 1 - P.  P=0.95 → z=1.96, "
-            "P=0.99 → z=2.576 (stricter — harder to converge).  Set to 0 to "
-            "disable the CI test entirely.  "
+            "P=0.99 → z=2.576 — note higher P gives a *wider* CI, so the "
+            "test fires more easily (i.e. higher P = looser, lower P = "
+            "tighter).  Set to 0 to disable the CI test entirely.  "
+            "Also see --stationary-gap-ceiling for an absolute gap guard.  "
             "(default: emit 0.99 when not set)"
+        ),
+    )
+    parser.add_argument(
+        "--stationary-gap-ceiling",
+        dest="stationary_gap_ceiling",
+        metavar="G",
+        type=float,
+        default=None,
+        help=(
+            "Absolute gap ceiling (0-1) for the secondary convergence "
+            "tests (stationary + statistical CI).  When the relative gap "
+            "is at or above G, neither stationary nor CI convergence will "
+            "fire — only the primary `convergence_tol` test can declare "
+            "convergence.  Defends against heterogeneous-scene σ explosion "
+            "(juan run 2026-05-02 converged at iter 2 with gap=25 % via the "
+            "CI test because σ=77 M dominated the 38 M absolute gap).  "
+            "Use 1.0 to disable the ceiling.  "
+            "(default: emit 0.05 when not set; gtopt's own default is 0.5)"
         ),
     )
 

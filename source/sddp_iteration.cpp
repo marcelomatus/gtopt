@@ -10,12 +10,15 @@
  * cut sharing, monitoring, and persistence.
  */
 
+#include <array>
 #include <chrono>
+#include <limits>
 #include <thread>
 #include <vector>
 
 #include <gtopt/lp_debug_writer.hpp>
 #include <gtopt/planning_lp.hpp>
+#include <gtopt/sddp_common.hpp>
 #include <gtopt/sddp_cut_io.hpp>
 #include <gtopt/sddp_method.hpp>
 #include <gtopt/sddp_pool.hpp>
@@ -82,6 +85,53 @@ void log_backward_timing_breakdown(IterationIndex iteration_index,
       delta.bwd_store_cut_s,
       delta.bwd_resolve_s,
       delta.bwd_kappa_s);
+}
+
+/// Slack added to each ``alpha`` bucket boundary in
+/// ``kZScoreTable`` so that user-supplied round confidence levels —
+/// which round-trip through ``1.0 - p`` to e.g.
+/// ``alpha = 0.0100000000000000009`` instead of ``0.01`` exactly —
+/// land in the bucket the user actually meant.  Without this slack
+/// the JSON setting ``convergence_confidence: 0.99`` silently
+/// selected ``z = 1.960`` instead of ``2.576``.  ``1e-6`` is several
+/// orders of magnitude wider than typical IEEE-754 round-off (~1e-17)
+/// and well below any meaningful confidence-level resolution.
+inline constexpr double kAlphaBucketSlack = 1e-6;
+
+/// One row of the two-sided z-score lookup table used by the
+/// statistical CI convergence test.  ``alpha_max`` is the upper bound
+/// (inclusive, plus ``kAlphaBucketSlack``) on
+/// ``alpha = 1 - convergence_confidence`` for which ``z`` applies.
+struct ZScoreBucket
+{
+  double alpha_max;  ///< Maximum alpha that selects this bucket.
+  double z;  ///< Two-sided ``z_{α/2}`` for the bucket.
+};
+
+/// Two-sided z-scores for common confidence levels.  Buckets are
+/// scanned in order, so the first row whose ``alpha_max`` envelopes
+/// the supplied alpha wins.  The trailing ``infinity`` row is the
+/// 80 % fallback that catches every alpha not matched above.
+inline constexpr std::array<ZScoreBucket, 4> kZScoreTable {
+    ZScoreBucket {.alpha_max = 0.01 + kAlphaBucketSlack, .z = 2.576},  // 99 %
+    ZScoreBucket {.alpha_max = 0.05 + kAlphaBucketSlack, .z = 1.960},  // 95 %
+    ZScoreBucket {.alpha_max = 0.10 + kAlphaBucketSlack, .z = 1.645},  // 90 %
+    ZScoreBucket {.alpha_max = std::numeric_limits<double>::infinity(),
+                  .z = 1.282},  // 80 % fallback
+};
+
+/// Pick ``z_{α/2}`` for the supplied ``alpha`` from
+/// ``kZScoreTable``.  Stepwise resolution (99 / 95 / 90 / 80) — fine
+/// for SDDP convergence which only needs the bucketed values from the
+/// stats literature, not a continuous inverse-normal.
+[[nodiscard]] constexpr auto z_score_for_alpha(double alpha) noexcept -> double
+{
+  for (const auto& b : kZScoreTable) {
+    if (alpha <= b.alpha_max) {
+      return b.z;
+    }
+  }
+  return kZScoreTable.back().z;  // unreachable: ∞ row matches everything.
 }
 
 }  // namespace
@@ -438,19 +488,14 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
         const auto sigma = std::sqrt(var);
 
         const auto alpha = 1.0 - m_options_.convergence_confidence;
-        const auto z_score = [alpha]
-        {
-          if (alpha <= 0.01) {
-            return 2.576;
-          }
-          if (alpha <= 0.05) {
-            return 1.960;
-          }
-          if (alpha <= 0.10) {
-            return 1.645;
-          }
-          return 1.282;  // 80%
-        }();
+        // `z_score_for_alpha` (anonymous namespace above) bucketises
+        // alpha against `kZScoreTable` and applies `kAlphaBucketSlack`
+        // so user-supplied round confidence levels (0.99, 0.95, 0.90)
+        // land in the right bucket despite `1.0 - p` IEEE-754
+        // round-off.  Without the slack the JSON setting
+        // `convergence_confidence: 0.99` silently selected z = 1.960
+        // instead of 2.576 (juan run 2026-05-02 trace_28).
+        const auto z_score = z_score_for_alpha(alpha);
 
         const auto gap_abs = ir.upper_bound - ir.lower_bound;
         const auto ci_threshold = z_score * sigma;
@@ -461,7 +506,17 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
         // SDDP theory (reject).  Uses the shared
         // `kSddpGapFpEpsilon` (sddp_types.hpp) since
         // `convergence_tol` may be a negative sentinel here.
-        if (gap_abs > -kSddpGapFpEpsilon && gap_abs <= ci_threshold) {
+        //
+        // Absolute-gap ceiling matches the pure-stationary block above:
+        // when scene UBs are wildly heterogeneous (different cuts →
+        // different optima), σ inflates and z·σ becomes so wide that
+        // *any* sub-50%-of-mean gap qualifies as "noise."  The ceiling
+        // refuses to interpret that as convergence — same defensive
+        // posture as ``stationary_gap_ceiling`` (default 0.5).  Tighten
+        // the option (e.g. 0.05) for runs where σ explosion is expected.
+        if (gap_abs > -kSddpGapFpEpsilon && gap_abs <= ci_threshold
+            && ir.gap < stationary_gap_ceiling)
+        {
           ir.converged = true;
           ir.statistical_converged = true;
           update_live_metrics_([](LiveMetrics& m) { m.converged = true; });
@@ -503,21 +558,25 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
 
       results.push_back(ir);
 
+      // Bounds rendered with the SI helper (`format_si`, source-local in
+      // `sddp_forward_pass.cpp`) and gap as a percentage so operators
+      // can read the convergence story at a glance.  `cuts/infeas` are
+      // dropped from the headline when both are zero — they're noise on
+      // the all-feasible iters.
       SPDLOG_INFO(
           "SDDP Iter [i{}]: done in {:.3f}s (fwd {:.2f}s + bwd {:.2f}s) — "
-          "UB={:.4f} LB={:.4f} gap={:.6f} gap_change={:.6f} "
-          "cuts={} infeas_cuts={} {}",
+          "UB={} LB={} gap={:.2f}% Δgap={:.2f}% cuts={}/{}{}",
           iteration_index,
           ir.iteration_s,
           ir.forward_pass_s,
           ir.backward_pass_s,
-          ir.upper_bound,
-          ir.lower_bound,
-          ir.gap,
-          ir.gap_change,
+          format_si(ir.upper_bound),
+          format_si(ir.lower_bound),
+          100.0 * ir.gap,
+          100.0 * ir.gap_change,
           ir.cuts_added,
           ir.infeasible_cuts_added,
-          ir.converged ? "[CONVERGED]" : "");
+          ir.converged ? " [CONVERGED]" : "");
 
       // ── Post-iteration housekeeping (timed) ──
       // Single INFO line at the end summarises the breakdown so the
@@ -700,21 +759,27 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
       // The remaining infeasible cells are terminally infeasible;
       // leave them to be reported as status=-1 in the parquet output.
       if (fwd->n_fcuts_installed == 0) {
+        // No new fcuts means the LP state is unchanged across attempts;
+        // retrying would just reproduce the same infeasibilities.  The
+        // remaining infeasible cells are *terminal* — they will surface
+        // as status=-1 rows in the parquet output.  Wording avoids the
+        // misleading "attempt N/M … stopping retry loop" pairing of the
+        // earlier message.
+        const auto n_infeas =
+            std::ranges::count(fwd->scene_feasible, uint8_t {0});
         SPDLOG_INFO(
-            "SDDP Sim [i{}]: attempt {}/{} installed 0 feasibility cuts — "
-            "remaining infeasibilities are terminal, stopping retry loop",
+            "SDDP Sim [i{}]: no new fcuts after attempt {} — "
+            "{} infeasible scene(s) are terminal (status=-1 in output)",
             final_iteration_index,
             p1_attempts + 1,
-            kMaxSimP1Retries + 1);
+            n_infeas);
         break;
       }
     }
 
-    SPDLOG_INFO(
-        "SDDP Sim [i{}]: Pass 1 done ({} attempt(s)); Pass 2 (write_out) "
-        "dispatched by caller",
-        final_iteration_index,
-        p1_attempts + 1);
+    SPDLOG_INFO("SDDP Sim [i{}]: Pass 1 done after {} attempt(s)",
+                final_iteration_index,
+                p1_attempts + 1);
 
     // Aggressive post-Pass-1 memory release under low_memory: the
     // Phase-2a cache on each LinearInterface holds everything
@@ -788,14 +853,14 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
 
     SPDLOG_INFO(
         "SDDP Sim [i{}]: done in {:.3f}s — "
-        "UB={:.4f} LB={:.4f} gap={:.6f} gap_change={:.6f} {}",
+        "UB={} LB={} gap={:.2f}% Δgap={:.2f}%{}",
         final_iteration_index,
         ir.iteration_s,
-        ir.upper_bound,
-        ir.lower_bound,
-        ir.gap,
-        ir.gap_change,
-        ir.converged ? "[CONVERGED]" : "");
+        format_si(ir.upper_bound),
+        format_si(ir.lower_bound),
+        100.0 * ir.gap,
+        100.0 * ir.gap_change,
+        ir.converged ? " [CONVERGED]" : "");
 
     m_sim_write_enabled_ = false;
     m_in_simulation_ = false;
@@ -1363,14 +1428,14 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
         const auto pool_stats = pool.get_statistics();
         SPDLOG_INFO(
             "SDDP Iter [i{}]: async aggregate — "
-            "UB={:.4f} LB={:.4f} gap={:.6f} gap_change={:.6f} "
+            "UB={} LB={} gap={:.2f}% Δgap={:.2f}% "
             "spread=[{},{}] converged_scenes={}/{} "
-            "pool(active={} pending={} cpu={:.0f}%) {}",
+            "pool(active={} pending={} cpu={:.0f}%){}",
             next_converge_iteration_index,
-            ir.upper_bound,
-            ir.lower_bound,
-            ir.gap,
-            ir.gap_change,
+            format_si(ir.upper_bound),
+            format_si(ir.lower_bound),
+            100.0 * ir.gap,
+            100.0 * ir.gap_change,
             tracker.min_completed_iteration(),
             tracker.max_completed_iteration(),
             tracker.num_converged(),
@@ -1378,7 +1443,7 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
             pool_stats.tasks_active,
             pool_stats.tasks_pending,
             pool_stats.current_cpu_load,
-            ir.converged ? "[CONVERGED]" : "");
+            ir.converged ? " [CONVERGED]" : "");
       }
 
       // Monitoring API: build async-aware snapshot

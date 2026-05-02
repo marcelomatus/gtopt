@@ -358,9 +358,22 @@ constexpr double kSddpGapFpEpsilon = 1.0e-9;
 /// Configuration options for the SDDP iterative solver
 struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
 {
+  // ── Convergence policy (single coherent story) ────────────────────────
+  //
+  // Aim for a 1 % relative gap (``convergence_tol``).  If the gap stops
+  // moving (gap_change < ``stationary_tol`` = 0.5 %) AND the gap is
+  // already inside ``stationary_gap_ceiling`` (5 %), accept it as
+  // converged.  Otherwise keep iterating up to ``max_iterations``.
+  // The statistical CI test (``convergence_confidence``) is opt-in
+  // (default 0) because it is too easily fooled by σ scatter when scene
+  // UBs are heterogeneous (e.g. Maule/juan).  ``min_iterations`` = 3
+  // protects the bootstrap iter from declaring premature convergence.
+  //
+  // Override individually only when you know what you're doing — the
+  // defaults are deliberately consistent so most users never set them.
   int max_iterations {100};  ///< Maximum forward/backward iterations
-  int min_iterations {2};  ///< Minimum iterations before convergence
-  double convergence_tol {1e-4};  ///< Relative gap tolerance for convergence
+  int min_iterations {3};  ///< Minimum iterations before convergence
+  double convergence_tol {0.01};  ///< Relative gap tolerance for convergence
   double elastic_penalty {1e3};  ///< Penalty for elastic slack variables
   /// Scale for α (0 = auto: max state var_scale).  α itself is a free
   /// variable (no explicit bounds): per-row row-max equilibration on
@@ -742,42 +755,53 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   ///              / max(1e-10, gap[i - window])
   ///   gap_change < stationary_tol -> declare convergence
   ///
-  /// Convergence criterion mode.  Default: statistical (PLP-style).
-  ConvergenceMode convergence_mode {ConvergenceMode::statistical};
+  /// Convergence criterion mode.  Default: gap_stationary — the
+  /// primary gap test plus the stationary safety net are enough for
+  /// most users.  The statistical CI test (``ConvergenceMode::statistical``)
+  /// is opt-in because heterogeneous-scene σ scatter (Maule/juan) can
+  /// trivially fire it at large %gap.
+  ConvergenceMode convergence_mode {ConvergenceMode::gap_stationary};
 
-  /// Default: 0.01 (1%).  Set to 0.0 to disable.
-  double stationary_tol {0.01};
+  /// Tolerance for "gap stopped moving" detection (gap_change < tol).
+  /// Tighter than ``convergence_tol`` so the safety net only fires when
+  /// the gap has *clearly* stalled, not while it is still trending.
+  /// Default: 0.005 (0.5%).  Set to 0.0 to disable.
+  double stationary_tol {0.005};
 
   /// Number of iterations to look back when checking gap stationarity.
-  /// Only used when stationary_tol > 0.0.  Default: 10.
-  int stationary_window {10};
+  /// Only used when stationary_tol > 0.0.  Default: 4 (one season).
+  int stationary_window {4};
 
-  /// Absolute-gap ceiling above which the stationary-gap criterion is
-  /// SUPPRESSED — even when ``gap_change < stationary_tol``, we will
-  /// NOT declare convergence if ``gap >= stationary_gap_ceiling``.
+  /// Absolute gap ceiling above which the secondary tests (stationary +
+  /// statistical CI) are SUPPRESSED.  Even when ``gap_change <
+  /// stationary_tol`` or the CI bound passes, convergence will NOT be
+  /// declared while ``gap >= stationary_gap_ceiling`` — only the primary
+  /// ``convergence_tol`` test can close the run at high gaps.
   ///
-  /// Originally added to catch a specific Juan/gtopt_iplp pathology
-  /// where the LB stayed frozen at 0 while the UB stayed positive,
-  /// keeping ``gap = 1`` flat (gap_change = 0) — the stationary
-  /// criterion would have falsely declared convergence at 100 % gap.
-  /// After the per-physical-unit elastic-slack fix (commit ef25515b)
-  /// the LB no longer freezes on that case (it climbs slowly), but
-  /// some realistic SDDP runs DO legitimately asymptote at high gap
-  /// — e.g. when the cheapest feasible policy pays a near-fixed
-  /// slack cost that the cuts cannot reduce further.  Lowering this
-  /// ceiling (or setting it to 1.0 to effectively disable) allows
-  /// those runs to converge instead of running to ``max_iterations``.
+  /// Defends against two known pathologies:
+  ///  * Frozen-LB (LB stuck near 0, UB > 0 → gap = 1 flat) where
+  ///    gap_change = 0 used to spuriously declare convergence at 100 %.
+  ///  * Heterogeneous-scene σ explosion where the CI threshold z·σ
+  ///    swallows the absolute gap even at 25 % relative (juan run
+  ///    2026-05-02 trace_28 — see ``z_score_for_alpha`` doc).
   ///
-  /// Default 0.5 keeps the historical behaviour.
-  double stationary_gap_ceiling {0.5};
+  /// Default: 0.05 (5 %) — refuse to declare "converged via stationary
+  /// or CI" until we are at least within 5 %.  Set to 1.0 to disable
+  /// the ceiling (legacy behaviour).
+  double stationary_gap_ceiling {0.05};
 
   /// Confidence level for statistical convergence criterion (0-1).
-  /// When > 0 and multiple scenes exist, convergence is also checked via
-  /// confidence interval: UB - LB <= z_{a/2} * s (PLP-style).
-  /// Combined with stationary_tol, also declares convergence when the
-  /// gap stabilises above the CI threshold (non-zero gap case).
-  /// Default: 0.95 (95% CI).
-  double convergence_confidence {0.95};
+  /// When > 0 and multiple scenes exist, convergence is also checked
+  /// via confidence interval: UB - LB <= z_{α/2} · σ (PLP-style).
+  /// Combined with ``stationary_tol``, declares convergence when the
+  /// gap stabilises above the CI threshold (non-zero-gap case).
+  ///
+  /// Default: 0.0 (DISABLED) — the CI test is opt-in because under
+  /// heterogeneous-scene scatter (σ ≈ 50 % of mean on juan) z·σ
+  /// trivially exceeds the absolute gap at 25 % relative, declaring
+  /// premature convergence.  Set to 0.95 to enable the standard 95 %
+  /// CI test, or 0.50 for a much tighter narrow-CI variant.
+  double convergence_confidence {0.0};
 
   /// Optional LP solver options for the forward pass.
   /// When set, these override the global solver options for forward-pass
