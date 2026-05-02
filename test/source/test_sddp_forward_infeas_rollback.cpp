@@ -652,3 +652,143 @@ TEST_CASE(  // NOLINT
   auto result = sddp.solve();
   REQUIRE(result.has_value());
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// T1 — terminal-skip default + merge propagation
+// ═══════════════════════════════════════════════════════════════════════════
+
+TEST_CASE(  // NOLINT
+    "SddpOptions::merge propagates terminal_failure_threshold override")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  SddpOptions base;
+  REQUIRE_FALSE(base.terminal_failure_threshold.has_value());
+
+  SddpOptions override_opts;
+  override_opts.terminal_failure_threshold = 5;
+
+  base.merge(std::move(override_opts));
+  REQUIRE(base.terminal_failure_threshold.has_value());
+  CHECK(*base.terminal_failure_threshold == 5);
+}
+
+TEST_CASE(  // NOLINT
+    "SDDPMethod SceneRetryState defaults — terminal flag clean on init")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  // A fresh SDDPMethod must seed every per-scene retry slot with
+  // ``terminal = false`` and ``consecutive_structural_failures = 0``.
+  // The terminal-skip mechanism (``run_forward_pass_all_scenes`` head)
+  // depends on this invariant: a previously-terminal scene from a
+  // prior cascade level must not leak into a fresh solver instance.
+  auto planning = make_2scene_3phase_hydro_planning(0.5, 0.5);
+  PlanningLP plp(std::move(planning));
+
+  SDDPOptions sddp_opts;
+  sddp_opts.max_iterations = 0;
+  sddp_opts.enable_api = false;
+  SDDPMethod sddp(plp, sddp_opts);
+  REQUIRE(sddp.ensure_initialized().has_value());
+
+  for (auto si = 0; si < 2; ++si) {
+    const auto& rs = sddp.scene_retry_state(SceneIndex {si});
+    CHECK_FALSE(rs.terminal);
+    CHECK(rs.consecutive_structural_failures == 0);
+    CHECK_FALSE(rs.global_cuts_at_last_failure.has_value());
+  }
+}
+
+TEST_CASE(  // NOLINT
+    "SDDPMethod terminal-skip: scene with terminal=true and zero new cuts "
+    "is skipped at next dispatch")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  // Smoke test the dispatch-time skip path.  We synthesise the
+  // post-failure state by hand:
+  //   * ``terminal = true``
+  //   * ``global_cuts_at_last_failure = current``
+  // Then call ``solve()`` with ``forward_infeas_rollback = true`` and
+  // ``max_iterations = 1``.  The forward dispatch loop must skip the
+  // scene (no LP solve, no peer cut growth required) and still let
+  // the *other* scene complete normally.  The smoke signal is simply
+  // that ``solve()`` completes and the iteration result has the
+  // skipped scene marked infeasible without crashing on an invalid
+  // future.
+  auto planning = make_2scene_3phase_hydro_planning(0.5, 0.5);
+  PlanningLP plp(std::move(planning));
+
+  SDDPOptions sddp_opts;
+  sddp_opts.max_iterations = 1;
+  sddp_opts.min_iterations = 1;
+  sddp_opts.enable_api = false;
+  sddp_opts.forward_infeas_rollback = true;
+  sddp_opts.terminal_failure_threshold = 1;  // smallest non-disabling
+  SDDPMethod sddp(plp, sddp_opts);
+  REQUIRE(sddp.ensure_initialized().has_value());
+
+  auto& rs0 = sddp.scene_retry_state(SceneIndex {0});
+  rs0.terminal = true;
+  rs0.consecutive_structural_failures = 1;
+  rs0.global_cuts_at_last_failure = sddp.num_stored_cuts();
+
+  // The contract verified here is narrow: ``solve()`` MUST NOT crash
+  // when a scene's terminal flag is set + its synthesised
+  // ``global_cuts_at_last_failure`` matches the current cut count.
+  // The dispatch loop's pre-dispatch terminal-skip pre-emptively
+  // submits an empty future for the scene, and the result loop must
+  // distinguish "skipped" from "solved" via ``skip_scene[i]`` — not
+  // by calling ``.get()`` on an invalid future.
+  //
+  // Note: the post-training simulation pass runs scene 0 again
+  // through a different dispatch path (sim pass uses
+  // ``m_in_simulation_ = true``), so scene 0's final UB and
+  // ``rs0.terminal`` may be updated by that pass; we only assert
+  // the no-crash invariant here.  The dedicated coverage of
+  // "terminal=true skips dispatch" lives in the runtime warning
+  // log line emitted by the dispatch loop, exercisable in
+  // integration tests.
+  auto result = sddp.solve();
+  REQUIRE(result.has_value());
+  REQUIRE_FALSE(result->empty());
+  const auto& last = result->back();
+  REQUIRE(last.scene_upper_bounds.size() == 2);
+}
+
+TEST_CASE(  // NOLINT
+    "SDDPMethod terminal-skip: scene un-terminals when global cut count grows")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  // Companion to the previous test: when fresh cuts arrive globally
+  // (the snapshot stored at terminal-declaration is now stale), the
+  // dispatch loop clears the terminal flag and lets the scene retry
+  // its forward pass.  We synthesise a scene marked terminal at
+  // ``snapshot = num_stored_cuts() - 1`` so any current count
+  // exceeds it; the un-terminal log fires and the scene runs.
+  auto planning = make_2scene_3phase_hydro_planning(0.5, 0.5);
+  PlanningLP plp(std::move(planning));
+
+  SDDPOptions sddp_opts;
+  sddp_opts.max_iterations = 1;
+  sddp_opts.min_iterations = 1;
+  sddp_opts.enable_api = false;
+  sddp_opts.forward_infeas_rollback = true;
+  sddp_opts.terminal_failure_threshold = 1;
+  SDDPMethod sddp(plp, sddp_opts);
+  REQUIRE(sddp.ensure_initialized().has_value());
+
+  auto& rs0 = sddp.scene_retry_state(SceneIndex {0});
+  rs0.terminal = true;
+  rs0.consecutive_structural_failures = 1;
+  // Snapshot below current count → restart trigger fires immediately.
+  rs0.global_cuts_at_last_failure = std::ptrdiff_t {-1};
+
+  auto result = sddp.solve();
+  REQUIRE(result.has_value());
+
+  // Restart hook cleared the terminal flag before dispatch.
+  CHECK_FALSE(rs0.terminal);
+}

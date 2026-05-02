@@ -389,6 +389,14 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
    * Default: 0.5 (50 %).  Set to 1.0 to disable the ceiling. */
   OptReal stationary_gap_ceiling {};
 
+  /** @brief Consecutive structural failures before terminal-skip kicks in.
+   *
+   * After this many iterations of "elastic filter produced no
+   * feasibility cut" failures at the same scene, mark it terminal:
+   * skip its forward pass each iter until *new* cuts arrive
+   * globally.  Default: 2.  Set to 0 to disable. */
+  OptInt terminal_failure_threshold {};
+
   // ── LP solver options (per-pass override)
   // ───────────────────────────────────
 
@@ -543,6 +551,7 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
     merge_opt(stationary_window, opts.stationary_window);
     merge_opt(convergence_confidence, opts.convergence_confidence);
     merge_opt(stationary_gap_ceiling, opts.stationary_gap_ceiling);
+    merge_opt(terminal_failure_threshold, opts.terminal_failure_threshold);
     merge_opt(forward_max_fallbacks, opts.forward_max_fallbacks);
     merge_opt(forward_fail_stop, opts.forward_fail_stop);
     merge_opt(forward_infeas_rollback, opts.forward_infeas_rollback);
