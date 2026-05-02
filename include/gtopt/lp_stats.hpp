@@ -65,8 +65,8 @@ struct ScenePhaseLPStats
 {
   int scene_uid {};
   int phase_uid {};
-  size_t num_vars {};
-  size_t num_constraints {};
+  Index num_vars {};
+  Index num_constraints {};
   size_t stats_nnz {};
   size_t stats_zeroed {};  ///< Non-zero entries filtered to zero by eps
   double stats_max_abs {};

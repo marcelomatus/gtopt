@@ -2635,8 +2635,8 @@ TEST_CASE("continuous_phases via model_options relaxes UC binaries")  // NOLINT
   // Verify no integer variables (all binaries relaxed to continuous)
   const auto ncols = li.get_numcols();
   int num_ints = 0;
-  for (size_t i = 0; i < ncols; ++i) {
-    if (li.is_integer(ColIndex(static_cast<Index>(i)))) {
+  for (Index i = 0; i < ncols; ++i) {
+    if (li.is_integer(ColIndex {i})) {
       ++num_ints;
     }
   }
@@ -2678,8 +2678,8 @@ TEST_CASE("continuous_phases=none keeps integer UC binaries")  // NOLINT
   // 4 blocks × 3 (u, v, w) = 12 integers
   const auto ncols = li.get_numcols();
   int num_ints = 0;
-  for (size_t i = 0; i < ncols; ++i) {
-    if (li.is_integer(ColIndex(static_cast<Index>(i)))) {
+  for (Index i = 0; i < ncols; ++i) {
+    if (li.is_integer(ColIndex {i})) {
       ++num_ints;
     }
   }

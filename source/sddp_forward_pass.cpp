@@ -429,18 +429,18 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
               auto& li = planning_lp()
                              .system(scene_index, prev_phase_index)
                              .linear_interface();
-              const auto first_row = static_cast<int>(li.get_numrows());
+              auto cut_row = li.numrows_as_index();
               li.add_rows(mc_cuts, m_options_.cut_coeff_eps);
-              for (size_t k = 0; k < mc_cuts.size(); ++k) {
-                const auto cut_row = RowIndex {first_row + static_cast<int>(k)};
+              for (const auto& mc : mc_cuts) {
                 // Mirror `LinearInterface::add_cut_row`'s per-cut bookkeeping
                 // (no-op when low_memory_mode == off).
-                li.record_cut_row(mc_cuts[k]);
+                li.record_cut_row(mc);
                 store_cut(scene_index,
                           prev_phase_index,
-                          mc_cuts[k],
+                          mc,
                           CutType::Feasibility,
                           cut_row);
+                ++cut_row;
                 ++mc_added;
               }
             }

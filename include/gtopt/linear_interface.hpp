@@ -70,8 +70,14 @@ public:
 
   constexpr ScaledView() noexcept = default;
 
+  // `n` / `nlo` / `nup` use `Index` (signed int32) to match the LP layer
+  // (`LinearInterface::get_numrows()` / `get_numcols()` and the solver
+  // backends).  `ns` stays `size_t` to match `std::vector::size()` which
+  // is the natural source of the scales-vector length.  The narrowing
+  // happens implicitly inside the `std::span(ptr, n)` paren-init below
+  // — single point of conversion, no caller-side casts needed.
   constexpr ScaledView(const double* data,
-                       size_t n,
+                       Index n,
                        const double* scales,
                        size_t ns,
                        Op op = Op::multiply,
@@ -87,13 +93,13 @@ public:
   /// same raw-LP space as `data`; each element is descaled by `scales`
   /// before clamping).  When either span is empty, clamping is skipped.
   constexpr ScaledView(const double* data,
-                       size_t n,
+                       Index n,
                        const double* scales,
                        size_t ns,
                        const double* lower,
-                       size_t nlo,
+                       Index nlo,
                        const double* upper,
-                       size_t nup,
+                       Index nup,
                        Op op = Op::multiply,
                        double global_factor = 1.0) noexcept
       : data_(data, n)
@@ -347,25 +353,25 @@ public:
   /// Reads `m_col_labels_meta_` because that's the largest-footprint
   /// member and the most useful to track, but any of the eleven
   /// wrapped members would do.
-  [[nodiscard]] std::int64_t col_labels_meta_use_count() const noexcept
+  [[nodiscard]] auto col_labels_meta_use_count() const noexcept
   {
-    return static_cast<std::int64_t>(m_col_labels_meta_.use_count());
+    return m_col_labels_meta_.use_count();
   }
-  [[nodiscard]] std::int64_t col_scales_use_count() const noexcept
+  [[nodiscard]] auto col_scales_use_count() const noexcept
   {
-    return static_cast<std::int64_t>(m_col_scales_.use_count());
+    return m_col_scales_.use_count();
   }
-  [[nodiscard]] std::int64_t row_scales_use_count() const noexcept
+  [[nodiscard]] auto row_scales_use_count() const noexcept
   {
-    return static_cast<std::int64_t>(m_row_scales_.use_count());
+    return m_row_scales_.use_count();
   }
-  [[nodiscard]] std::int64_t col_meta_index_use_count() const noexcept
+  [[nodiscard]] auto col_meta_index_use_count() const noexcept
   {
-    return static_cast<std::int64_t>(m_col_meta_index_.use_count());
+    return m_col_meta_index_.use_count();
   }
-  [[nodiscard]] std::int64_t row_meta_index_use_count() const noexcept
+  [[nodiscard]] auto row_meta_index_use_count() const noexcept
   {
-    return static_cast<std::int64_t>(m_row_meta_index_.use_count());
+    return m_row_meta_index_.use_count();
   }
 
   /**
@@ -587,13 +593,13 @@ public:
   /// (alpha, cuts, cascade elastic slacks, …).  `m_col_labels_meta_`
   /// may be nullptr only on a default-constructed `LinearInterface`
   /// before `load_flat`; in that case the count is 0.
-  [[nodiscard]] std::size_t flatten_col_count() const noexcept
+  [[nodiscard]] auto flatten_col_count() const noexcept
   {
-    return m_col_labels_meta_ ? m_col_labels_meta_->size() : 0;
+    return m_col_labels_meta_ ? m_col_labels_meta_->size() : size_t {0};
   }
-  [[nodiscard]] std::size_t flatten_row_count() const noexcept
+  [[nodiscard]] auto flatten_row_count() const noexcept
   {
-    return m_row_labels_meta_ ? m_row_labels_meta_->size() : 0;
+    return m_row_labels_meta_ ? m_row_labels_meta_->size() : size_t {0};
   }
 
   /// Resolve a column / row index into the appropriate metadata bucket
@@ -692,7 +698,7 @@ public:
 
   /// Set the base row count explicitly (used after a rebuild restores
   /// state without re-querying the live backend).
-  void set_base_numrows(size_t n) noexcept
+  void set_base_numrows(Index n) noexcept
   {
     m_base_numrows_ = n;
     m_base_numrows_set_ = true;
@@ -1112,7 +1118,7 @@ public:
    * @brief Get the saved base row count.
    * @return Base row count (0 if save_base_numrows was never called)
    */
-  [[nodiscard]] constexpr size_t base_numrows() const noexcept
+  [[nodiscard]] constexpr auto base_numrows() const noexcept
   {
     return m_base_numrows_;
   }
@@ -1131,35 +1137,36 @@ public:
 
   /**
    * @brief Gets the number of constraint rows in the problem
-   * @return Number of rows
+   * @return Number of rows (signed `Index` to match `LinearProblem`'s
+   *         API and the solver backends — every solver C API uses `int`,
+   *         and the strong-index `RowIndex` constructor takes `Index`).
    */
-  [[nodiscard]] size_t get_numrows() const;
+  [[nodiscard]] Index get_numrows() const;
 
   /**
    * @brief Gets the number of variable columns in the problem
-   * @return Number of columns
+   * @return Number of columns (see `get_numrows` rationale).
    */
-  [[nodiscard]] size_t get_numcols() const;
+  [[nodiscard]] Index get_numcols() const;
 
   /**
-   * @brief Typed row count — use instead of `RowIndex{static_cast<Index>(
-   *        li.get_numrows())}` at every call site.
+   * @brief Typed row count — use instead of `RowIndex{li.get_numrows()}`
+   *        at every call site.
    *
-   * Narrows `size_t → Index` in exactly one place (here) so that we can
-   * later replace the conversion with a bounds-checked one without
-   * touching every caller.  Matches the typed API used across the rest
-   * of the LP layer (`add_row` → `RowIndex`, `delete_row` → `RowIndex`,
-   * …) so idiomatic call sites stay inside strong-index space.
+   * `get_numrows()` already returns `Index`, so this just wraps the
+   * strong-type ctor.  Matches the typed API used across the rest of
+   * the LP layer (`add_row` → `RowIndex`, `delete_row` → `RowIndex`, …)
+   * so idiomatic call sites stay inside strong-index space.
    */
   [[nodiscard]] RowIndex numrows_as_index() const
   {
-    return RowIndex {static_cast<Index>(get_numrows())};
+    return RowIndex {get_numrows()};
   }
 
   /// See `numrows_as_index`.
   [[nodiscard]] ColIndex numcols_as_index() const
   {
-    return ColIndex {static_cast<Index>(get_numcols())};
+    return ColIndex {get_numcols()};
   }
 
   /// Solver backend name (e.g. "clp", "cplex", "highs").
@@ -1186,19 +1193,16 @@ public:
   }
 
   /// Currently configured LP algorithm.
-  [[nodiscard]] LPAlgo get_algorithm() const
-  {
-    return backend().get_algorithm();
-  }
+  [[nodiscard]] auto get_algorithm() const { return backend().get_algorithm(); }
 
   /// Currently configured thread count (0 = solver default).
-  [[nodiscard]] int get_threads() const { return backend().get_threads(); }
+  [[nodiscard]] auto get_threads() const { return backend().get_threads(); }
 
   /// Whether presolve is currently enabled.
-  [[nodiscard]] bool get_presolve() const { return backend().get_presolve(); }
+  [[nodiscard]] auto get_presolve() const { return backend().get_presolve(); }
 
   /// Current solver log verbosity level (0 = off).
-  [[nodiscard]] int get_log_level() const { return backend().get_log_level(); }
+  [[nodiscard]] auto get_log_level() const { return backend().get_log_level(); }
 
   /// Solver's representation of +infinity for variable bounds.
   ///
@@ -1881,7 +1885,7 @@ public:
     if (m_backend_released_ && !m_cached_col_sol_.empty()) {
       return {m_cached_col_sol_.data(), m_cached_col_sol_.size()};
     }
-    return {backend().col_solution(), get_numcols()};
+    return {backend().col_solution(), static_cast<size_t>(get_numcols())};
   }
 
   /**
@@ -1946,7 +1950,7 @@ public:
     if (m_backend_released_ && !m_cached_col_cost_.empty()) {
       return {m_cached_col_cost_.data(), m_cached_col_cost_.size()};
     }
-    return {backend().reduced_cost(), get_numcols()};
+    return {backend().reduced_cost(), static_cast<size_t>(get_numcols())};
   }
 
   /**
@@ -2146,7 +2150,7 @@ public:
       return {m_cached_row_dual_.data(), m_cached_row_dual_.size()};
     }
     ensure_duals();
-    return {backend().row_price(), get_numrows()};
+    return {backend().row_price(), static_cast<size_t>(get_numrows())};
   }
 
   /**
@@ -2466,7 +2470,7 @@ private:
       m_row_index_to_name_ {
           std::make_shared<StrongIndexVector<RowIndex, std::string>>()};
 
-  size_t m_base_numrows_ {};  ///< Row count before any cuts were added
+  Index m_base_numrows_ {};  ///< Row count before any cuts were added
   /// True once `save_base_numrows()` has fired.  Distinct from
   /// `m_base_numrows_ > 0` because the structural build may legitimately
   /// end at zero rows (e.g. pure column LPs, or tests that call
@@ -2750,9 +2754,9 @@ private:
   /// reinterpret as 1.0.
   std::optional<double> m_cached_kappa_ {};
   /// Cached number of rows at time of release.
-  size_t m_cached_numrows_ {};
+  Index m_cached_numrows_ {};
   /// Cached number of columns at time of release.
-  size_t m_cached_numcols_ {};
+  Index m_cached_numcols_ {};
   /// Whether the cached state represents an optimal solution.
   bool m_cached_is_optimal_ {false};
 

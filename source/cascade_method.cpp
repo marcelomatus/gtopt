@@ -276,7 +276,7 @@ void CascadePlanningMethod::add_elastic_targets(
           .context = p.context,
       });
     }
-    const auto first_slack_col = static_cast<int>(li.get_numcols());
+    const auto first_slack_col = li.get_numcols();
     li.add_cols(slack_cols);
 
     // Mirror the slacks into the persistent `m_dynamic_cols_` registry
@@ -348,7 +348,7 @@ void CascadePlanningMethod::clear_all_cuts(PlanningLP& planning_lp,
     {
       auto& li = planning_lp.system(scene, phase).linear_interface();
       const auto base = static_cast<int>(states[phase].base_nrows);
-      const auto current = static_cast<int>(li.get_numrows());
+      const auto current = li.get_numrows();
 
       if (current > base) {
         auto indices = std::ranges::to<std::vector>(iota_range(base, current));

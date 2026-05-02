@@ -1239,7 +1239,7 @@ TEST_CASE(  // NOLINT
     // and positive cost (fail_cost → penalty)
     bool found_benefit = false;
     bool found_penalty = false;
-    for (size_t i = 0; i < lp.get_numcols(); ++i) {
+    for (Index i = 0; i < lp.get_numcols(); ++i) {
       const auto c = obj_coeffs[i];
       if (c < 0.0 && doctest::Approx(c).epsilon(1e-6) == -use_val / scale_obj) {
         found_benefit = true;
@@ -1254,7 +1254,7 @@ TEST_CASE(  // NOLINT
     // Verify flow lower bound is relaxed to 0 (deficit coupling)
     const auto col_low = lp.get_col_low();
     bool found_relaxed = false;
-    for (size_t i = 0; i < lp.get_numcols(); ++i) {
+    for (Index i = 0; i < lp.get_numcols(); ++i) {
       if (obj_coeffs[i] < 0.0
           && doctest::Approx(obj_coeffs[i]).epsilon(1e-6)
               == -use_val / scale_obj)
@@ -1272,7 +1272,7 @@ TEST_CASE(  // NOLINT
     // flow should equal discharge (10.0) when unconstrained,
     // fail should be 0 (no deficit)
     const auto sol = lp.get_col_sol();
-    for (size_t i = 0; i < lp.get_numcols(); ++i) {
+    for (Index i = 0; i < lp.get_numcols(); ++i) {
       if (obj_coeffs[i] > 0.0
           && doctest::Approx(obj_coeffs[i]).epsilon(1e-6)
               == fail_val / scale_obj)
@@ -1330,7 +1330,7 @@ TEST_CASE(  // NOLINT
     const auto obj_coeffs = lp.get_obj_coeff();
     const auto sol = lp.get_col_sol();
     double total_fail = 0.0;
-    for (size_t i = 0; i < lp.get_numcols(); ++i) {
+    for (Index i = 0; i < lp.get_numcols(); ++i) {
       if (obj_coeffs[i] > 0.0
           && doctest::Approx(obj_coeffs[i]).epsilon(1e-6)
               == fail_val / scale_obj)
@@ -1381,7 +1381,7 @@ TEST_CASE(  // NOLINT
 
     bool found_b1 = false;
     bool found_b2 = false;
-    for (size_t i = 0; i < lp.get_numcols(); ++i) {
+    for (Index i = 0; i < lp.get_numcols(); ++i) {
       const auto c = obj_coeffs[i];
       if (doctest::Approx(c).epsilon(1e-8) == expected_b1) {
         found_b1 = true;
@@ -1435,7 +1435,7 @@ TEST_CASE(  // NOLINT
 
     bool found_b1 = false;
     bool found_b2 = false;
-    for (size_t i = 0; i < lp.get_numcols(); ++i) {
+    for (Index i = 0; i < lp.get_numcols(); ++i) {
       const auto c = obj_coeffs[i];
       if (doctest::Approx(c).epsilon(1e-8) == expected_b1) {
         found_b1 = true;
@@ -1590,7 +1590,7 @@ TEST_CASE(  // NOLINT
     // (no duration multiplication for per-element, it's already in $/flow-unit)
     const auto expected = -per_elem_uv / scale_obj;
     bool found = false;
-    for (size_t i = 0; i < lp.get_numcols(); ++i) {
+    for (Index i = 0; i < lp.get_numcols(); ++i) {
       if (doctest::Approx(obj_coeffs[i]).epsilon(1e-8) == expected) {
         found = true;
         break;

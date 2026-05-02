@@ -538,9 +538,7 @@ using namespace gtopt::detail;  // helpers shared with sibling TUs
           const auto coeff = std::stod(token.substr(colon + 1));
 
           // Validate the column index against the current LP
-          if (file_col < 0
-              || static_cast<size_t>(file_col) >= li_ref.get_numcols())
-          {
+          if (file_col < 0 || file_col >= li_ref.get_numcols()) {
             SPDLOG_WARN(
                 "SDDP load_cuts: column index {} out of range "
                 "(LP has {} cols) in cut '{}'; skipping cut",

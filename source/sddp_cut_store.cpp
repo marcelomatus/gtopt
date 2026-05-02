@@ -317,7 +317,7 @@ void SDDPCutManager::prune_inactive_cuts(
       auto& sys = planning_lp.system(scene_index, phase_index);
       auto& li = sys.linear_interface();
 
-      const auto total_rows = static_cast<Index>(li.get_numrows());
+      const auto total_rows = li.get_numrows();
       const auto base = static_cast<Index>(psi.base_nrows);
       const auto num_cut_rows = total_rows - base;
       if (num_cut_rows <= max_cuts) {

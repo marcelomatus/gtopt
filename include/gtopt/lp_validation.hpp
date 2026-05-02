@@ -25,6 +25,8 @@
 #pragma once
 
 #include <cmath>
+#include <concepts>
+#include <format>
 #include <limits>
 #include <string>
 #include <string_view>
@@ -221,6 +223,125 @@ struct LpValidationStats
                      double eps,
                      std::string_view location,
                      const LpValidationOptions& cfg);
+
+  // ── Deferred-format overloads ─────────────────────────────────────
+  //
+  // When the caller has a strong index (ColIndex / RowIndex / a
+  // formattable struct) instead of an already-built name string,
+  // these overloads do the cheap threshold check FIRST and only
+  // pay for `std::format("{}", loc)` on the cold path (huge / tiny
+  // value, threshold exceeded).  The hot path — every well-conditioned
+  // bound, RHS, or coefficient — never allocates a string.
+  //
+  // The `Loc` parameter must NOT be convertible to `std::string_view`
+  // to avoid clashing with the existing string_view overloads above.
+  template<class Loc>
+    requires(!std::convertible_to<const Loc&, std::string_view>)
+  void note_bound(double v, const Loc& loc, const LpValidationOptions& cfg)
+  {
+    if (!cfg.effective_enable() || !std::isfinite(v)) {
+      return;
+    }
+    if (std::abs(v) <= cfg.effective_bound_warn_max()) {
+      return;
+    }
+    note_bound(v, std::format("{}", loc), cfg);
+  }
+
+  template<class Loc>
+    requires(!std::convertible_to<const Loc&, std::string_view>)
+  void note_rhs(double v, const Loc& loc, const LpValidationOptions& cfg)
+  {
+    if (!cfg.effective_enable() || !std::isfinite(v)) {
+      return;
+    }
+    if (std::abs(v) <= cfg.effective_rhs_warn_max()) {
+      return;
+    }
+    note_rhs(v, std::format("{}", loc), cfg);
+  }
+
+  template<class Loc>
+    requires(!std::convertible_to<const Loc&, std::string_view>)
+  void note_obj(double v, const Loc& loc, const LpValidationOptions& cfg)
+  {
+    if (!cfg.effective_enable()) {
+      return;
+    }
+    if (std::abs(v) <= cfg.effective_obj_warn_max()) {
+      return;
+    }
+    note_obj(v, std::format("{}", loc), cfg);
+  }
+
+  template<class Loc>
+    requires(!std::convertible_to<const Loc&, std::string_view>)
+  void note_coeff(double v, const Loc& loc, const LpValidationOptions& cfg)
+  {
+    // note_coeff updates min/max for every non-zero abs value; the
+    // location is only used in the warn / push_offender branches.
+    // Skip the format unless we're outside the tiny/huge band.
+    if (!cfg.effective_enable()) {
+      return;
+    }
+    const double abs_v = std::abs(v);
+    if (abs_v == 0.0) {
+      return;
+    }
+    if (abs_v <= cfg.effective_coeff_warn_max()
+        && abs_v >= cfg.effective_coeff_warn_min())
+    {
+      // In-band coefficient: update min/max via the impl with an
+      // empty location (the impl's hot path returns before touching it).
+      note_coeff(v, std::string_view {}, cfg);
+      return;
+    }
+    note_coeff(v, std::format("{}", loc), cfg);
+  }
+
+  template<class Loc>
+    requires(!std::convertible_to<const Loc&, std::string_view>)
+  void note_filtered(double original,
+                     double eps,
+                     const Loc& loc,
+                     const LpValidationOptions& cfg)
+  {
+    if (!cfg.effective_enable()) {
+      return;
+    }
+    if (std::abs(original) < 1e-15) {
+      return;
+    }
+    note_filtered(original, eps, std::format("{}", loc), cfg);
+  }
+
+  // (row, col) two-axis coefficient hook for `set_coeff_raw` etc.  The
+  // cold path formats "row R col C" so the offender list disambiguates
+  // the kind; the hot path (well-conditioned coefficient) just updates
+  // min/max with no allocation.
+  template<class RowLoc, class ColLoc>
+    requires(!std::convertible_to<const RowLoc&, std::string_view>
+             && !std::convertible_to<const ColLoc&, std::string_view>)
+  void note_coeff(double v,
+                  const RowLoc& row,
+                  const ColLoc& col,
+                  const LpValidationOptions& cfg)
+  {
+    if (!cfg.effective_enable()) {
+      return;
+    }
+    const double abs_v = std::abs(v);
+    if (abs_v == 0.0) {
+      return;
+    }
+    if (abs_v <= cfg.effective_coeff_warn_max()
+        && abs_v >= cfg.effective_coeff_warn_min())
+    {
+      note_coeff(v, std::string_view {}, cfg);
+      return;
+    }
+    note_coeff(v, std::format("row {} col {}", row, col), cfg);
+  }
 
   /// Emit one spdlog::info summary line covering all six counters.
   /// Stays silent when every count is zero (clean LP).

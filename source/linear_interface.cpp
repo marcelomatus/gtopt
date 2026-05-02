@@ -167,16 +167,18 @@ void LinearInterface::release_backend() noexcept
       const auto* col_sol_ptr = m_backend_->col_solution();
       const auto* col_cost_ptr = m_backend_->reduced_cost();
       const auto* row_dual_ptr = m_backend_->row_price();
+      const auto ncols_sz = static_cast<size_t>(m_cached_numcols_);
+      const auto nrows_sz = static_cast<size_t>(m_cached_numrows_);
       if (col_sol_ptr != nullptr) {
-        const std::span col_sol {col_sol_ptr, m_cached_numcols_};
+        const std::span col_sol {col_sol_ptr, ncols_sz};
         m_cached_col_sol_.assign(col_sol.begin(), col_sol.end());
       }
       if (col_cost_ptr != nullptr) {
-        const std::span col_cost {col_cost_ptr, m_cached_numcols_};
+        const std::span col_cost {col_cost_ptr, ncols_sz};
         m_cached_col_cost_.assign(col_cost.begin(), col_cost.end());
       }
       if (row_dual_ptr != nullptr) {
-        const std::span row_dual {row_dual_ptr, m_cached_numrows_};
+        const std::span row_dual {row_dual_ptr, nrows_sz};
         m_cached_row_dual_.assign(row_dual.begin(), row_dual.end());
       }
     } else {
@@ -292,8 +294,8 @@ void LinearInterface::defer_initial_load(FlatLinearProblem flat_lp)
   // that callers like `save_base_numrows()` (which read
   // `get_numrows()` while the backend is released) get correct
   // values without having to force a reconstruction.
-  m_cached_numrows_ = static_cast<size_t>(flat_lp.nrows);
-  m_cached_numcols_ = static_cast<size_t>(flat_lp.ncols);
+  m_cached_numrows_ = flat_lp.nrows;
+  m_cached_numcols_ = flat_lp.ncols;
 
   m_snapshot_.flat_lp = std::move(flat_lp);
 
@@ -563,7 +565,7 @@ void LinearInterface::record_cut_deletion(std::span<const int> deleted_indices)
     return;
   }
 
-  const auto base = static_cast<int>(m_base_numrows_);
+  const auto base = m_base_numrows_;
 
   std::vector<size_t> offsets;
   offsets.reserve(deleted_indices.size());
@@ -835,7 +837,7 @@ void LinearInterface::set_warm_start_solution(
     const std::span<const double> row_dual)
 {
   if (!col_sol.empty()) {
-    const auto ncols = get_numcols();
+    const size_t ncols = get_numcols();
     if (col_sol.size() >= ncols) {
       set_col_sol(col_sol.first(ncols));
     } else {
@@ -845,7 +847,7 @@ void LinearInterface::set_warm_start_solution(
     }
   }
   if (!row_dual.empty()) {
-    const auto nrows = get_numrows();
+    const size_t nrows = get_numrows();
     if (row_dual.size() >= nrows) {
       set_row_dual(row_dual.first(nrows));
     } else {
@@ -1031,16 +1033,16 @@ ColIndex LinearInterface::add_col(const std::string& name,
   // (±solver_infinity) are skipped by `note_bound` itself via its
   // `std::isfinite` guard, but the explicit `solver_infinity` cap
   // also catches DblMax-style sentinels passed from CLI tests.
+  // note_bound's deferred-format overload skips the std::format
+  // allocation entirely on the hot path: every well-conditioned bound
+  // returns at the threshold check before touching `col`.
   if (m_validation_options_.effective_enable()) {
-    const double infy = m_backend_->infinity();
-    const double infy_guard = infy * 0.999;
-    const auto loc =
-        !name.empty() ? name : std::format("col {}", static_cast<int>(col));
+    const double infy_guard = m_backend_->infinity() * 0.999;
     if (std::abs(collb) < infy_guard) {
-      m_validation_stats_.note_bound(collb, loc, m_validation_options_);
+      m_validation_stats_.note_bound(collb, col, m_validation_options_);
     }
     if (std::abs(colub) < infy_guard) {
-      m_validation_stats_.note_bound(colub, loc, m_validation_options_);
+      m_validation_stats_.note_bound(colub, col, m_validation_options_);
     }
   }
 
@@ -1080,20 +1082,18 @@ ColIndex LinearInterface::emit_col_to_backend(const SparseCol& col)
   const auto index = m_backend_->get_num_cols();
 
   // Validation hooks (Phase 2): note bounds + objective coefficient.
-  // Use the column's variable_name when set, else "col <idx>".
+  // Pass the strong column index directly — note_* overloads format
+  // it lazily (only on the cold "huge" / "tiny" branch).
   if (m_validation_options_.effective_enable()) {
-    const double infy = m_backend_->infinity();
-    const double infy_guard = infy * 0.999;
-    const auto loc = !col.variable_name.empty()
-        ? std::string {col.variable_name}
-        : std::format("col {}", index);
+    const double infy_guard = m_backend_->infinity() * 0.999;
+    const auto cidx = ColIndex {index};
     if (std::abs(col.lowb) < infy_guard) {
-      m_validation_stats_.note_bound(col.lowb, loc, m_validation_options_);
+      m_validation_stats_.note_bound(col.lowb, cidx, m_validation_options_);
     }
     if (std::abs(col.uppb) < infy_guard) {
-      m_validation_stats_.note_bound(col.uppb, loc, m_validation_options_);
+      m_validation_stats_.note_bound(col.uppb, cidx, m_validation_options_);
     }
-    m_validation_stats_.note_obj(col.cost, loc, m_validation_options_);
+    m_validation_stats_.note_obj(col.cost, cidx, m_validation_options_);
   }
 
   // Apply the global objective scaling to the obj coefficient,
@@ -1228,12 +1228,13 @@ ColIndex LinearInterface::add_col(const SparseCol& col)
 // NOLINTNEXTLINE(misc-no-recursion)
 ColIndex LinearInterface::add_col_raw(const SparseCol& col)
 {
-  // Strict invariant: callers must pre-apply any column scaling to
-  // col.cost themselves; m_col_scales_ stays frozen post-load_flat
-  // so it can be shared via shared_ptr across aperture clones.
-  assert(col.scale == 1.0
-         && "add_col_raw: non-unit col.scale forbidden — use add_col() "
-            "if you need m_col_scales_ to grow");
+  // Raw path: `m_col_scales_` stays frozen so it can be shared via
+  // shared_ptr across aperture clones.  `col.scale` is intentionally
+  // ignored here — callers either pre-apply any scaling to `col.cost`
+  // (replay path) or are passing back a SparseCol from a previous
+  // `add_col(...)` whose scale is already recorded in the persistent
+  // `m_col_scales_` snapshot from `load_flat`.  Either way, this path
+  // does not (and must not) re-grow the scale vector.
   const auto col_idx = emit_col_to_backend(col);
   track_col_label_meta(col_idx, col);
   return col_idx;
@@ -1454,7 +1455,8 @@ ColIndex LinearInterface::emit_cols_to_backend(std::span<const SparseCol> cols)
   const bool validate = m_validation_options_.effective_enable();
   const double infy = m_backend_->infinity();
   const double infy_guard = infy * 0.999;
-  for (size_t c = 0; c < cols.size(); ++c) {
+  auto col_idx = first_col_index;
+  for (size_t c = 0; c < cols.size(); ++c, ++col_idx) {
     const auto& col = cols[c];
     const auto [lowb, uppb] = normalize_bounds(col.lowb, col.uppb);
     collb[c] = lowb;
@@ -1464,20 +1466,17 @@ ColIndex LinearInterface::emit_cols_to_backend(std::span<const SparseCol> cols)
 
     // Validation hooks (Phase 2): note bounds + obj per column in
     // the bulk path so bulk callers see the same warnings as
-    // singular `add_col(SparseCol)`.
+    // singular `add_col(SparseCol)`.  Strong index → deferred format.
     if (validate) {
-      const auto col_idx =
-          static_cast<int>(first_col_index) + static_cast<int>(c);
-      const auto loc = !col.variable_name.empty()
-          ? std::string {col.variable_name}
-          : std::format("col {}", col_idx);
       if (std::abs(col.lowb) < infy_guard) {
-        m_validation_stats_.note_bound(col.lowb, loc, m_validation_options_);
+        m_validation_stats_.note_bound(
+            col.lowb, col_idx, m_validation_options_);
       }
       if (std::abs(col.uppb) < infy_guard) {
-        m_validation_stats_.note_bound(col.uppb, loc, m_validation_options_);
+        m_validation_stats_.note_bound(
+            col.uppb, col_idx, m_validation_options_);
       }
-      m_validation_stats_.note_obj(col.cost, loc, m_validation_options_);
+      m_validation_stats_.note_obj(col.cost, col_idx, m_validation_options_);
     }
   }
 
@@ -1493,6 +1492,22 @@ ColIndex LinearInterface::emit_cols_to_backend(std::span<const SparseCol> cols)
 }
 
 // NOLINTNEXTLINE(misc-no-recursion)
+void LinearInterface::add_cols_raw(std::span<const SparseCol> cols)
+{
+  // Raw bulk path — mirrors `add_col_raw(SparseCol)`'s shape:
+  // dispatch via the shared `emit_cols_to_backend` helper, then capture
+  // label-meta.  `m_col_scales_` stays frozen so it can be shared
+  // across aperture clones via `std::shared_ptr`.  `col.scale` is
+  // intentionally ignored on every entry — see `add_col_raw` for the
+  // rationale.
+  auto col_idx = emit_cols_to_backend(cols);
+  for (const auto& col : cols) {
+    track_col_label_meta(col_idx, col);
+    ++col_idx;
+  }
+}
+
+// NOLINTNEXTLINE(misc-no-recursion)
 void LinearInterface::add_cols(std::span<const SparseCol> cols)
 {
   // Physical bulk path — mirrors `add_col(SparseCol)`'s shape:
@@ -1501,36 +1516,13 @@ void LinearInterface::add_cols(std::span<const SparseCol> cols)
   //   3. capture label-meta for every column
   //
   // Order matches the singular path: scale first, then label meta.
-  const auto first_col_index = emit_cols_to_backend(cols);
-  for (size_t c = 0; c < cols.size(); ++c) {
-    const auto& col = cols[c];
-    const auto col_idx =
-        ColIndex {static_cast<int>(first_col_index) + static_cast<int>(c)};
+  auto col_idx = emit_cols_to_backend(cols);
+  for (const auto& col : cols) {
     if (col.scale != 1.0) {
       set_col_scale(col_idx, col.scale);
     }
     track_col_label_meta(col_idx, col);
-  }
-}
-
-// NOLINTNEXTLINE(misc-no-recursion)
-void LinearInterface::add_cols_raw(std::span<const SparseCol> cols)
-{
-  // Raw bulk path — mirrors `add_col_raw(SparseCol)`'s shape:
-  // strict invariant that every entry carries `col.scale == 1.0`
-  // (callers pre-apply any scaling to `col.cost`), then dispatch via
-  // the shared `emit_cols_to_backend` helper, then capture label-meta.
-  // `m_col_scales_` stays frozen so it can be shared across aperture
-  // clones via `std::shared_ptr`.
-  assert(std::ranges::all_of(cols,
-                             [](const auto& col) { return col.scale == 1.0; })
-         && "add_cols_raw: non-unit col.scale forbidden — use add_cols() "
-            "if you need m_col_scales_ to grow");
-  const auto first_col_index = emit_cols_to_backend(cols);
-  for (size_t c = 0; c < cols.size(); ++c) {
-    const auto col_idx =
-        ColIndex {static_cast<int>(first_col_index) + static_cast<int>(c)};
-    track_col_label_meta(col_idx, cols[c]);
+    ++col_idx;
   }
 }
 
@@ -1635,25 +1627,23 @@ RowIndex LinearInterface::add_row(const SparseRow& row, const double eps)
   // compose_physical branch and the add_row_raw fallback see the same
   // accounting.  Costs one extra cmap pass per row when enabled.
   if (m_validation_options_.effective_enable()) {
-    const double infy = m_backend_->infinity();
-    const double infy_guard = infy * 0.999;
-    const auto loc = !row.constraint_name.empty()
-        ? std::string {row.constraint_name}
-        : std::format("row {}", get_numrows());
+    const double infy_guard = m_backend_->infinity() * 0.999;
+    const auto ridx = RowIndex {get_numrows()};
     for (const auto& [col, val] : row.cmap) {
       if (eps > 0.0 && std::abs(val) > 0.0 && std::abs(val) < eps
           && std::abs(val) >= 1e-30)
       {
-        m_validation_stats_.note_filtered(val, eps, loc, m_validation_options_);
+        m_validation_stats_.note_filtered(
+            val, eps, ridx, m_validation_options_);
       } else {
-        m_validation_stats_.note_coeff(val, loc, m_validation_options_);
+        m_validation_stats_.note_coeff(val, ridx, m_validation_options_);
       }
     }
     if (std::abs(row.lowb) < infy_guard) {
-      m_validation_stats_.note_rhs(row.lowb, loc, m_validation_options_);
+      m_validation_stats_.note_rhs(row.lowb, ridx, m_validation_options_);
     }
     if (std::abs(row.uppb) < infy_guard) {
-      m_validation_stats_.note_rhs(row.uppb, loc, m_validation_options_);
+      m_validation_stats_.note_rhs(row.uppb, ridx, m_validation_options_);
     }
   }
 
@@ -1928,7 +1918,7 @@ void LinearInterface::add_rows_raw(const std::span<const SparseRow> rows,
   }
 
   const auto num_rows = static_cast<int>(rows.size());
-  const auto first_row_index = m_backend_->get_num_rows();
+  const auto first_row_index = RowIndex {m_backend_->get_num_rows()};
 
   // First pass: count total non-zeros to preallocate CSR arrays.
   size_t total_nnz = 0;
@@ -1954,32 +1944,27 @@ void LinearInterface::add_rows_raw(const std::span<const SparseRow> rows,
   const bool validate = m_validation_options_.effective_enable();
 
   // Second pass: fill CSR arrays with scaled coefficients and bounds.
+  auto row_idx = first_row_index;
   for (const auto& [r, row] : enumerate(rows)) {
     rowbeg[r] = static_cast<int>(rowind.size());
 
     const auto rs = row.scale;
     const auto inv_rs = (rs != 1.0) ? 1.0 / rs : 1.0;
 
-    const std::string row_loc = validate
-        ? (!row.constraint_name.empty()
-               ? std::string {row.constraint_name}
-               : std::format("row {}", first_row_index + static_cast<int>(r)))
-        : std::string {};
-
     for (const auto& [col, val] : row.cmap) {
       const auto scaled = val * inv_rs;
       if (std::abs(scaled) > eps) {
-        rowind.push_back(static_cast<int>(col));
+        rowind.push_back(col);
         rowval.push_back(scaled);
         if (validate) {
           m_validation_stats_.note_coeff(
-              scaled, row_loc, m_validation_options_);
+              scaled, row_idx, m_validation_options_);
         }
       } else if (validate && eps > 0.0 && std::abs(scaled) > 0.0
                  && std::abs(scaled) >= 1e-30)
       {
         m_validation_stats_.note_filtered(
-            scaled, eps, row_loc, m_validation_options_);
+            scaled, eps, row_idx, m_validation_options_);
       }
     }
 
@@ -1998,12 +1983,13 @@ void LinearInterface::add_rows_raw(const std::span<const SparseRow> rows,
     rowub[r] = normalize_bound(ub);
     if (validate) {
       if (std::abs(lb) < infy_guard) {
-        m_validation_stats_.note_rhs(lb, row_loc, m_validation_options_);
+        m_validation_stats_.note_rhs(lb, row_idx, m_validation_options_);
       }
       if (std::abs(ub) < infy_guard) {
-        m_validation_stats_.note_rhs(ub, row_loc, m_validation_options_);
+        m_validation_stats_.note_rhs(ub, row_idx, m_validation_options_);
       }
     }
+    ++row_idx;
   }
   rowbeg[static_cast<size_t>(num_rows)] = static_cast<int>(rowind.size());
 
@@ -2024,26 +2010,26 @@ void LinearInterface::add_rows_raw(const std::span<const SparseRow> rows,
   // re-injects `m_active_cuts_`; the single-row `add_row_raw` path
   // already calls `track_row_label_meta`, so mirroring it here keeps the
   // size invariant across compress/replay cycles.
-  for (const auto& [r, row] : enumerate(rows)) {
-    const auto row_idx = RowIndex {first_row_index + static_cast<int>(r)};
-
+  auto bookkeep_idx = first_row_index;
+  for (const auto& row : rows) {
     if (row.scale != 1.0) {
-      set_row_scale(row_idx, row.scale);
+      set_row_scale(bookkeep_idx, row.scale);
     }
 
-    track_row_label_meta(row_idx, row);
+    track_row_label_meta(bookkeep_idx, row);
 
     if (m_label_maker_.row_names_enabled()) {
       const auto name = m_label_maker_.make_row_label(row);
       if (!name.empty()) {
-        const auto i = static_cast<size_t>(row_idx);
+        const auto i = static_cast<size_t>(bookkeep_idx);
         auto& rin = detach_for_write(m_row_index_to_name_);
         if (rin.size() <= i) {
           rin.resize(i + 1);
         }
-        rin[row_idx] = name;
+        rin[bookkeep_idx] = name;
       }
     }
+    ++bookkeep_idx;
   }
 }
 
@@ -2142,8 +2128,8 @@ void LinearInterface::reset_from(const LinearInterface& source,
   for (const auto [c, lo] :
        enumerate<ColIndex>(src_col_lo | std::views::take(ncols)))
   {
-    m_backend_->set_col_lower(static_cast<int>(c), lo);
-    m_backend_->set_col_upper(static_cast<int>(c), src_col_hi[c]);
+    m_backend_->set_col_lower(c, lo);
+    m_backend_->set_col_upper(c, src_col_hi[c]);
   }
 
   const auto nrows = m_backend_->get_num_rows();
@@ -2152,8 +2138,8 @@ void LinearInterface::reset_from(const LinearInterface& source,
   for (const auto [r, lo] :
        enumerate<RowIndex>(src_row_lo | std::views::take(nrows)))
   {
-    m_backend_->set_row_lower(static_cast<int>(r), lo);
-    m_backend_->set_row_upper(static_cast<int>(r), src_row_hi[r]);
+    m_backend_->set_row_lower(r, lo);
+    m_backend_->set_row_upper(r, src_row_hi[r]);
   }
 
   if (m_label_maker_.row_names_enabled()) {
@@ -2172,19 +2158,15 @@ void LinearInterface::set_coeff_raw(const RowIndex row,
 {
   ensure_backend();
   if (m_validation_options_.effective_enable()) {
-    m_validation_stats_.note_coeff(
-        value,
-        std::format(
-            "row {} col {}", static_cast<int>(row), static_cast<int>(column)),
-        m_validation_options_);
+    m_validation_stats_.note_coeff(value, row, column, m_validation_options_);
   }
-  m_backend_->set_coeff(static_cast<int>(row), static_cast<int>(column), value);
+  m_backend_->set_coeff(row, column, value);
 }
 
 double LinearInterface::get_coeff_raw(const RowIndex row,
                                       const ColIndex column) const
 {
-  return m_backend_->get_coeff(static_cast<int>(row), static_cast<int>(column));
+  return m_backend_->get_coeff(row, column);
 }
 
 // ── Physical coefficient accessors ──
@@ -2248,11 +2230,9 @@ void LinearInterface::set_obj_coeff_raw(const ColIndex index,
 {
   ensure_backend();
   if (m_validation_options_.effective_enable()) {
-    m_validation_stats_.note_obj(value,
-                                 std::format("col {}", static_cast<int>(index)),
-                                 m_validation_options_);
+    m_validation_stats_.note_obj(value, index, m_validation_options_);
   }
-  m_backend_->set_obj_coeff(static_cast<int>(index), value);
+  m_backend_->set_obj_coeff(index, value);
 }
 
 void LinearInterface::set_obj_coeff(const ColIndex index,
@@ -2278,13 +2258,10 @@ void LinearInterface::set_col_low_raw(const ColIndex index, const double value)
   if (m_validation_options_.effective_enable()) {
     const double infy_guard = m_backend_->infinity() * 0.999;
     if (std::abs(value) < infy_guard) {
-      m_validation_stats_.note_bound(
-          value,
-          std::format("col {}", static_cast<int>(index)),
-          m_validation_options_);
+      m_validation_stats_.note_bound(value, index, m_validation_options_);
     }
   }
-  m_backend_->set_col_lower(static_cast<int>(index), normalize_bound(value));
+  m_backend_->set_col_lower(index, normalize_bound(value));
 }
 
 void LinearInterface::set_col_upp_raw(const ColIndex index, const double value)
@@ -2294,13 +2271,10 @@ void LinearInterface::set_col_upp_raw(const ColIndex index, const double value)
   if (m_validation_options_.effective_enable()) {
     const double infy_guard = m_backend_->infinity() * 0.999;
     if (std::abs(value) < infy_guard) {
-      m_validation_stats_.note_bound(
-          value,
-          std::format("col {}", static_cast<int>(index)),
-          m_validation_options_);
+      m_validation_stats_.note_bound(value, index, m_validation_options_);
     }
   }
-  m_backend_->set_col_upper(static_cast<int>(index), normalize_bound(value));
+  m_backend_->set_col_upper(index, normalize_bound(value));
 }
 
 void LinearInterface::set_col_raw(const ColIndex index, const double value)
@@ -2348,13 +2322,10 @@ void LinearInterface::set_row_low_raw(const RowIndex index, const double value)
   if (m_validation_options_.effective_enable()) {
     const double infy_guard = m_backend_->infinity() * 0.999;
     if (std::abs(value) < infy_guard) {
-      m_validation_stats_.note_rhs(
-          value,
-          std::format("row {}", static_cast<int>(index)),
-          m_validation_options_);
+      m_validation_stats_.note_rhs(value, index, m_validation_options_);
     }
   }
-  m_backend_->set_row_lower(static_cast<int>(index), normalize_bound(value));
+  m_backend_->set_row_lower(index, normalize_bound(value));
 }
 
 void LinearInterface::set_row_upp_raw(const RowIndex index, const double value)
@@ -2364,13 +2335,10 @@ void LinearInterface::set_row_upp_raw(const RowIndex index, const double value)
   if (m_validation_options_.effective_enable()) {
     const double infy_guard = m_backend_->infinity() * 0.999;
     if (std::abs(value) < infy_guard) {
-      m_validation_stats_.note_rhs(
-          value,
-          std::format("row {}", static_cast<int>(index)),
-          m_validation_options_);
+      m_validation_stats_.note_rhs(value, index, m_validation_options_);
     }
   }
-  m_backend_->set_row_upper(static_cast<int>(index), normalize_bound(value));
+  m_backend_->set_row_upper(index, normalize_bound(value));
 }
 
 void LinearInterface::set_rhs_raw(const RowIndex row, const double rhs)
@@ -2383,12 +2351,10 @@ void LinearInterface::set_rhs_raw(const RowIndex row, const double rhs)
   if (m_validation_options_.effective_enable()) {
     const double infy_guard = m_backend_->infinity() * 0.999;
     if (std::abs(rhs) < infy_guard) {
-      m_validation_stats_.note_rhs(rhs,
-                                   std::format("row {}", static_cast<int>(row)),
-                                   m_validation_options_);
+      m_validation_stats_.note_rhs(rhs, row, m_validation_options_);
     }
   }
-  m_backend_->set_row_bounds(static_cast<int>(row), rhs, rhs);
+  m_backend_->set_row_bounds(row, rhs, rhs);
 }
 
 // ── Physical row bound setters (physical × row_scale → LP) ──
@@ -2413,32 +2379,32 @@ void LinearInterface::set_rhs(const RowIndex row, const double physical_rhs)
   set_rhs_raw(row, physical_rhs / scale);
 }
 
-size_t LinearInterface::get_numrows() const
+Index LinearInterface::get_numrows() const
 {
   if (m_backend_released_) {
     return m_cached_numrows_;
   }
-  return static_cast<size_t>(m_backend_->get_num_rows());
+  return m_backend_->get_num_rows();
 }
 
-size_t LinearInterface::get_numcols() const
+Index LinearInterface::get_numcols() const
 {
   if (m_backend_released_) {
     return m_cached_numcols_;
   }
-  return static_cast<size_t>(m_backend_->get_num_cols());
+  return m_backend_->get_num_cols();
 }
 
 void LinearInterface::set_continuous(const ColIndex index)
 {
   ensure_backend();
-  m_backend_->set_continuous(static_cast<int>(index));
+  m_backend_->set_continuous(index);
 }
 
 void LinearInterface::set_integer(const ColIndex index)
 {
   ensure_backend();
-  m_backend_->set_integer(static_cast<int>(index));
+  m_backend_->set_integer(index);
 }
 
 void LinearInterface::set_binary(const ColIndex index)
@@ -2450,12 +2416,12 @@ void LinearInterface::set_binary(const ColIndex index)
 
 bool LinearInterface::is_continuous(const ColIndex index) const
 {
-  return m_backend_->is_continuous(static_cast<int>(index));
+  return m_backend_->is_continuous(index);
 }
 
 bool LinearInterface::is_integer(const ColIndex index) const
 {
-  return m_backend_->is_integer(static_cast<int>(index));
+  return m_backend_->is_integer(index);
 }
 
 // ── Names & LP file output ─ moved to linear_interface_labels.cpp
