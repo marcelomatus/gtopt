@@ -190,12 +190,23 @@ TEST_CASE("add_col_disposable on shallow clone leaves shared meta untouched")
 }
 
 TEST_CASE(
-    "add_col with non-empty meta on shallow clone detaches "
-    "m_col_labels_meta_ AND m_col_meta_index_")
+    "add_col with non-empty meta on shallow clone leaves the frozen "
+    "m_col_labels_meta_ / m_col_meta_index_ shared (post-flatten path)")
 {
-  // Production add_col(SparseCol) writes both the labels-meta vector
-  // and the dedup map.  On a shallow clone, BOTH must detach so the
-  // source isn't polluted with the clone's new entry.
+  // After the metadata-split refactor (b9eaa, follow-up), production
+  // `add_col(SparseCol)` writes into the per-instance
+  // `m_post_flatten_col_labels_meta_` / `m_post_flatten_col_meta_index_`
+  // — NOT the shared frozen `m_col_labels_meta_` / `m_col_meta_index_`.
+  // A shallow clone's first post-clone add therefore does NOT detach
+  // the frozen vectors: source and clone keep sharing the flatten-side
+  // metadata via shared_ptr forever.  The clone's new entry lands in
+  // its own per-instance post-flatten vector, invisible to the source.
+  //
+  // History: this test originally pinned the OPPOSITE invariant
+  // ("BOTH must detach…") to document the copy-on-first-add tax that
+  // the unified-vector design imposed on aperture clones.  The split
+  // eliminates that tax; the test was inverted to lock in the new
+  // shared-forever contract.
   auto src = make_use_count_lp();
   auto cloned = src.clone(LinearInterface::CloneKind::shallow);
   REQUIRE(src.col_labels_meta_use_count() == 2);
@@ -208,11 +219,11 @@ TEST_CASE(
       .variable_uid = 99,
   });
 
-  // Both meta-related members detached.
-  CHECK(src.col_labels_meta_use_count() == 1);
-  CHECK(src.col_meta_index_use_count() == 1);
-  CHECK(cloned.col_labels_meta_use_count() == 1);
-  CHECK(cloned.col_meta_index_use_count() == 1);
+  // Frozen meta + dedup index stay shared across source and clone.
+  CHECK(src.col_labels_meta_use_count() == 2);
+  CHECK(src.col_meta_index_use_count() == 2);
+  CHECK(cloned.col_labels_meta_use_count() == 2);
+  CHECK(cloned.col_meta_index_use_count() == 2);
   // Untouched members still shared.
   CHECK(src.col_scales_use_count() == 2);
   CHECK(src.row_scales_use_count() == 2);

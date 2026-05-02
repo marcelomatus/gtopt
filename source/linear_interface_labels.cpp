@@ -67,15 +67,18 @@ void LinearInterface::generate_labels_from_maps(
     // Cache miss: synthesise from metadata and cache the result so
     // subsequent calls (repeat `write_lp`) avoid re-formatting.
     //
-    // Two-tier lookup: shared metadata first, then per-clone-local
-    // disposable extras (populated by `add_col_disposable` on a
-    // shallow clone).  The fall-through to disposable extras is what
-    // makes `write_lp` on an elastic-filter clone produce correct
-    // gtopt-style labels for the slack/fixing-row inserts.
+    // Three-tier lookup:
+    //   1. Frozen flatten-side `m_col_labels_meta_`              (load_flat).
+    //   2. Per-instance `m_post_flatten_col_labels_meta_`        (cuts,
+    //      slacks, alpha, cascade elastic — every post-`load_flat`
+    //      add_col tracked here by `track_col_label_meta`).
+    //   3. Per-clone-local `m_post_clone_col_metas_`             (only
+    //      populated by `add_col_disposable` on a shallow clone — the
+    //      elastic-filter slack / fixing-row inserts).
     SparseColLabel meta;
-    const auto& cm = *m_col_labels_meta_;
-    if (i < cm.size()) {
-      meta = cm[i];
+    const auto* col_meta = col_label_at(ColIndex {i});
+    if (col_meta != nullptr) {
+      meta = *col_meta;
     } else {
       // Linear scan over per-clone extras (≤ 20 entries in practice).
       const auto target = ColIndex {i};
@@ -85,10 +88,13 @@ void LinearInterface::generate_labels_from_maps(
       if (it == m_post_clone_col_metas_.end()) {
         throw std::logic_error(std::format(
             "LinearInterface::generate_labels_from_maps: col {} has no "
-            "entry in m_col_labels_meta_ (size {}) or m_post_clone_col_"
-            "metas_ (size {}) — col was added without metadata tracking.",
+            "entry in m_col_labels_meta_ (frozen size {}) / "
+            "m_post_flatten_col_labels_meta_ (size {}) or "
+            "m_post_clone_col_metas_ (size {}) — col was added without "
+            "metadata tracking.",
             i,
-            cm.size(),
+            flatten_col_count(),
+            m_post_flatten_col_labels_meta_.size(),
             m_post_clone_col_metas_.size()));
       }
       meta = it->second;
@@ -132,13 +138,15 @@ void LinearInterface::generate_labels_from_maps(
       row_names[i] = rin[ri];
       continue;
     }
-    // Two-tier lookup mirroring the col-side path above: shared
-    // metadata first, then per-clone-local disposable extras
-    // populated by `add_row_disposable` on a shallow clone.
+    // Three-tier lookup (same shape as the col side above):
+    //   1. Frozen flatten-side `m_row_labels_meta_`.
+    //   2. Per-instance `m_post_flatten_row_labels_meta_` (cut rows,
+    //      cascade elastic constraints, …).
+    //   3. Per-clone-local `m_post_clone_row_metas_` (disposable inserts).
     SparseRowLabel meta;
-    const auto& rm = *m_row_labels_meta_;
-    if (i < rm.size()) {
-      meta = rm[i];
+    const auto* row_meta = row_label_at(RowIndex {i});
+    if (row_meta != nullptr) {
+      meta = *row_meta;
     } else {
       const auto target = RowIndex {i};
       auto it = std::ranges::find(m_post_clone_row_metas_,
@@ -147,10 +155,13 @@ void LinearInterface::generate_labels_from_maps(
       if (it == m_post_clone_row_metas_.end()) {
         throw std::logic_error(std::format(
             "LinearInterface::generate_labels_from_maps: row {} has no "
-            "entry in m_row_labels_meta_ (size {}) or m_post_clone_row_"
-            "metas_ (size {}) — row was added without metadata tracking.",
+            "entry in m_row_labels_meta_ (frozen size {}) / "
+            "m_post_flatten_row_labels_meta_ (size {}) or "
+            "m_post_clone_row_metas_ (size {}) — row was added without "
+            "metadata tracking.",
             i,
-            rm.size(),
+            flatten_row_count(),
+            m_post_flatten_row_labels_meta_.size(),
             m_post_clone_row_metas_.size()));
       }
       meta = it->second;
@@ -199,12 +210,18 @@ void LinearInterface::compress_labels_meta_if_needed()
   if (m_low_memory_mode_ == LowMemoryMode::off) {
     return;
   }
-  // Always re-compress whenever live data is present.  A stale
+  // Compress ONLY the frozen flatten-side vectors.  The post-flatten
+  // vectors (cuts, alpha, cascade elastic) stay uncompressed: they
+  // are small in practice (1 alpha + a bounded set of cut rows /
+  // slack pairs) and round-tripping them through the codec on every
+  // release/reconstruct cycle would dominate the work that flatten-
+  // side compression saves.
+  //
+  // Always re-compress whenever live frozen data is present.  A stale
   // compressed buffer may already exist from a previous release
-  // cycle; the recompressed buffer supersedes it so growth between
-  // release cycles (cuts appended on iter N, α re-appended on
-  // reload, etc.) is captured.  When live is empty (already
-  // compressed and no post-reload mutations) this is a no-op.
+  // cycle; the recompressed buffer supersedes it.  When live is
+  // empty (already compressed and no post-reload mutations) this is
+  // a no-op.
   if (!m_col_labels_meta_->empty()) {
     auto& cm = detach_for_write(m_col_labels_meta_);
     m_col_labels_meta_count_ = cm.size();
@@ -229,9 +246,11 @@ void LinearInterface::compress_labels_meta_if_needed()
     rm.shrink_to_fit();
   }
 
-  // Duplicate-detection maps hold string_views into the live vectors
-  // we just emptied; they'd dangle if left populated.  Rebuilt in
-  // `ensure_labels_meta_decompressed` on the next read.
+  // The frozen-side dedup maps hold string_views into the vectors we
+  // just emptied; they'd dangle if left populated.  Rebuilt in
+  // `ensure_labels_meta_decompressed` on the next `write_lp` read.
+  // The post-flatten dedup maps stay populated — they index per-
+  // instance vectors that never compressed.
   detach_for_write(m_col_meta_index_).clear();
   detach_for_write(m_row_meta_index_).clear();
 }

@@ -435,6 +435,53 @@ void LinearInterface::record_dynamic_col(SparseCol col)
   }
 }
 
+// NOLINTNEXTLINE(misc-no-recursion)
+const SparseColLabel* LinearInterface::col_label_at(ColIndex idx) const noexcept
+{
+  if (idx < 0) {
+    return nullptr;
+  }
+  const auto i = static_cast<std::size_t>(idx);
+  // Frozen flatten-side metadata, indexed in `[0, flatten_col_count())`.
+  // No decompression here — `track_col_label_meta` does not consult the
+  // formatted string form, only `generate_labels_from_maps` does.  Read
+  // the live (decompressed) shared vector if it is present; the
+  // compressed-only state is detected by an empty live vector with a
+  // non-empty `m_col_labels_meta_compressed_` buffer (which only the
+  // `generate_labels_from_maps` path needs to rehydrate).
+  if (m_col_labels_meta_) {
+    const auto& cm = *m_col_labels_meta_;
+    if (i < cm.size()) {
+      return &cm[i];
+    }
+    const auto post_offset = i - cm.size();
+    if (post_offset < m_post_flatten_col_labels_meta_.size()) {
+      return &m_post_flatten_col_labels_meta_[post_offset];
+    }
+  }
+  return nullptr;
+}
+
+// NOLINTNEXTLINE(misc-no-recursion)
+const SparseRowLabel* LinearInterface::row_label_at(RowIndex idx) const noexcept
+{
+  if (idx < 0) {
+    return nullptr;
+  }
+  const auto i = static_cast<std::size_t>(idx);
+  if (m_row_labels_meta_) {
+    const auto& rm = *m_row_labels_meta_;
+    if (i < rm.size()) {
+      return &rm[i];
+    }
+    const auto post_offset = i - rm.size();
+    if (post_offset < m_post_flatten_row_labels_meta_.size()) {
+      return &m_post_flatten_row_labels_meta_[post_offset];
+    }
+  }
+  return nullptr;
+}
+
 bool LinearInterface::update_dynamic_col_lowb(std::string_view class_name,
                                               std::string_view variable_name,
                                               double new_lowb) noexcept
@@ -685,6 +732,24 @@ LinearInterface LinearInterface::clone(CloneKind kind) const
     cloned.m_col_index_to_name_ = m_col_index_to_name_;
     cloned.m_row_index_to_name_ = m_row_index_to_name_;
   }
+
+  // Post-flatten metadata is per-instance (never shared via shared_ptr
+  // because each clone records its own disposable additions
+  // independently in `m_post_clone_*_metas_`).  But the structural
+  // post-flatten history that was already on the source at clone time
+  // (alpha, cut rows, cascade elastic constraints) MUST be visible to
+  // the clone's `write_lp` / `row_label_at`, otherwise label generation
+  // throws on those rows.  Value-copy is cheap: post-flatten size is
+  // typically O(handful) on aperture-clone paths (1 alpha + a few
+  // installed cuts).  Both deep and shallow clones share the same
+  // semantics here — the per-clone divergence happens later when the
+  // clone's own `add_col_disposable` / `add_row_disposable` writes
+  // land in `m_post_clone_*_metas_`, never back into these vectors.
+  cloned.m_post_flatten_col_labels_meta_ = m_post_flatten_col_labels_meta_;
+  cloned.m_post_flatten_row_labels_meta_ = m_post_flatten_row_labels_meta_;
+  cloned.m_post_flatten_col_meta_index_ = m_post_flatten_col_meta_index_;
+  cloned.m_post_flatten_row_meta_index_ = m_post_flatten_row_meta_index_;
+
   return cloned;
 }
 
@@ -752,6 +817,16 @@ LinearInterface LinearInterface::clone_from_flat(CloneKind kind) const
     cloned.m_col_index_to_name_ = m_col_index_to_name_;
     cloned.m_row_index_to_name_ = m_row_index_to_name_;
   }
+
+  // Mirror the post-flatten copy from `clone(kind)` — see that method
+  // for rationale.  Even on the manual route we want the clone's
+  // `write_lp` / `row_label_at` to see source's structural post-
+  // flatten history (alpha, installed cuts, …).
+  cloned.m_post_flatten_col_labels_meta_ = m_post_flatten_col_labels_meta_;
+  cloned.m_post_flatten_row_labels_meta_ = m_post_flatten_row_labels_meta_;
+  cloned.m_post_flatten_col_meta_index_ = m_post_flatten_col_meta_index_;
+  cloned.m_post_flatten_row_meta_index_ = m_post_flatten_row_meta_index_;
+
   return cloned;
 }
 
@@ -842,8 +917,23 @@ void LinearInterface::load_flat(const FlatLinearProblem& flat_lp)
   // been enabled at flatten.  The overhead is comparable to
   // `colnm`/`rownm` but carries structured fields rather than already-
   // formatted strings.
+  //
+  // `load_flat` is the SOLE writer of the frozen flatten-side metadata
+  // vectors.  Post-`load_flat`, every `add_col` / `add_row` writes into
+  // `m_post_flatten_*_labels_meta_` instead, leaving the frozen vectors
+  // structurally invariant for the lifetime of the LinearInterface (or
+  // until the next `load_flat` for a new structural build, e.g. on
+  // rebuild-mode reflatten).  Clear the post-flatten vectors here so a
+  // reload (compress reconstruct, rebuild reflatten) starts from a
+  // clean slate; `apply_post_load_replay` re-populates them from
+  // `m_dynamic_cols_` / `m_active_cuts_` immediately after load_flat
+  // returns.
   detach_for_write(m_col_labels_meta_) = flat_lp.col_labels_meta;
   detach_for_write(m_row_labels_meta_) = flat_lp.row_labels_meta;
+  m_post_flatten_col_labels_meta_.clear();
+  m_post_flatten_row_labels_meta_.clear();
+  m_post_flatten_col_meta_index_.clear();
+  m_post_flatten_row_meta_index_.clear();
 
   // The flat LP carries the authoritative structural labels.  Drop any
   // stale compressed buffer left over from a previous release_backend()
@@ -1025,21 +1115,39 @@ ColIndex LinearInterface::emit_col_to_backend(const SparseCol& col)
 void LinearInterface::track_col_label_meta(ColIndex col_idx,
                                            const SparseCol& col)
 {
-  // Rehydrate compressed metadata before mutating (compress mode).
-  ensure_labels_meta_decompressed();
-
   // Track label-only metadata so `generate_labels_from_maps` can
   // synthesise the label on demand at `write_lp` time.  No eager
   // `LabelMaker::make_col_label` call — the formatted string is
   // produced exclusively in `generate_labels_from_maps`, cached
   // there, and reused on subsequent `write_lp` invocations
   // (Option B: always lazy + cache on first compute).
+  //
+  // Post-flatten path: the frozen `m_col_labels_meta_` (set ONCE by
+  // `load_flat`) is intentionally left untouched here.  Every column
+  // added after `load_flat` lands in the per-instance
+  // `m_post_flatten_col_labels_meta_` vector; lookup via
+  // `col_label_at(idx)` walks `[frozen | post-flatten]` and resolves
+  // the right side based on `idx < flatten_col_count()`.  This skips
+  // the eager `ensure_labels_meta_decompressed` round-trip that the
+  // previous in-place-mutation path needed (training / SDDP never
+  // formats strings, so the frozen side stays compressed end-to-end
+  // unless `write_lp` actually consumes it).
   const auto i = static_cast<size_t>(col_idx);
-  auto& cm = detach_for_write(m_col_labels_meta_);
-  if (cm.size() <= i) {
-    cm.resize(i + 1);
+  const auto frozen_count = flatten_col_count();
+  if (i < frozen_count) {
+    // Re-tracking a frozen flatten-side column.  Should not happen on
+    // any production path (load_flat is the sole writer of frozen
+    // metadata and bypasses `track_col_label_meta` entirely), but a
+    // few tests / disposable paths still emit cols at indices < the
+    // frozen prefix; treat those as a no-op so the frozen invariant
+    // holds.
+    return;
   }
-  cm[i] = SparseColLabel {
+  const auto post_offset = i - frozen_count;
+  if (m_post_flatten_col_labels_meta_.size() <= post_offset) {
+    m_post_flatten_col_labels_meta_.resize(post_offset + 1);
+  }
+  m_post_flatten_col_labels_meta_[post_offset] = SparseColLabel {
       .class_name = col.class_name,
       .variable_name = col.variable_name,
       .variable_uid = col.variable_uid,
@@ -1047,14 +1155,31 @@ void LinearInterface::track_col_label_meta(ColIndex col_idx,
   };
 
   // Eager metadata-based duplicate detection.  Key is the metadata
-  // slot just written into `m_col_labels_meta_`; no separate label
-  // is constructed.  Unlabelled cols (no class_name / no
-  // variable_name / unknown uid / monostate context) are skipped so
-  // structural tests that build unnamed cells don't collide.
-  const auto& meta = cm[i];
+  // slot just written into `m_post_flatten_col_labels_meta_`; no
+  // separate label is constructed.  Unlabelled cols (no class_name
+  // / no variable_name / unknown uid / monostate context) are
+  // skipped so structural tests that build unnamed cells don't
+  // collide.  The check consults BOTH the frozen flatten-side
+  // `m_col_meta_index_` (set at `load_flat` time, never mutated
+  // post-load) and the per-instance `m_post_flatten_col_meta_index_`
+  // — duplicates against either are reported.
+  const auto& meta = m_post_flatten_col_labels_meta_[post_offset];
   if (!is_empty_col_label(meta)) {
-    auto& cmi = detach_for_write(m_col_meta_index_);
-    auto [it, inserted] = cmi.try_emplace(meta, col_idx);
+    if (m_col_meta_index_) {
+      const auto& flatten_index = *m_col_meta_index_;
+      if (auto it = flatten_index.find(meta); it != flatten_index.end()) {
+        throw std::runtime_error(
+            std::format("Duplicate LP column metadata: class='{}' var='{}' "
+                        "uid={} (first at col {}, duplicate at col {})",
+                        meta.class_name,
+                        meta.variable_name,
+                        meta.variable_uid,
+                        it->second,
+                        col_idx));
+      }
+    }
+    auto [it, inserted] =
+        m_post_flatten_col_meta_index_.try_emplace(meta, col_idx);
     if (!inserted) {
       throw std::runtime_error(
           std::format("Duplicate LP column metadata: class='{}' var='{}' "
@@ -1144,10 +1269,11 @@ ColIndex LinearInterface::add_col_disposable(const SparseCol& col)
       .context = col.context,
   };
 
-  // Eager dedup: check both shared (read-only) and per-clone (local)
-  // populations.  Mirrors the production path's
-  // `m_col_meta_index_.try_emplace` check, scoped to disposable
-  // adds.  Unlabelled cols (empty class/variable + unknown_uid +
+  // Eager dedup: check the frozen flatten-side index, the per-instance
+  // post-flatten index (cuts, alpha, cascade elastic), AND the per-
+  // clone disposable index.  All three layers must reject duplicates
+  // so a disposable add cannot silently shadow any earlier production
+  // entry.  Unlabelled cols (empty class/variable + unknown_uid +
   // monostate context) are skipped, matching the production path.
   if (!is_empty_col_label(meta)) {
     const auto& cmi = *m_col_meta_index_;
@@ -1160,6 +1286,19 @@ ColIndex LinearInterface::add_col_disposable(const SparseCol& col)
           meta.variable_name,
           meta.variable_uid,
           sit->second,
+          col_idx));
+    }
+    if (auto pit = m_post_flatten_col_meta_index_.find(meta);
+        pit != m_post_flatten_col_meta_index_.end())
+    {
+      throw std::runtime_error(std::format(
+          "Duplicate disposable LP column metadata: class='{}' var='{}' "
+          "uid={} (already present at post-flatten col {}, attempted "
+          "disposable at col {})",
+          meta.class_name,
+          meta.variable_name,
+          meta.variable_uid,
+          pit->second,
           col_idx));
     }
     auto [it, inserted] =
@@ -1220,6 +1359,19 @@ RowIndex LinearInterface::add_row_disposable(const SparseRow& row,
           meta.constraint_name,
           meta.variable_uid,
           sit->second,
+          row_idx));
+    }
+    if (auto pit = m_post_flatten_row_meta_index_.find(meta);
+        pit != m_post_flatten_row_meta_index_.end())
+    {
+      throw std::runtime_error(std::format(
+          "Duplicate disposable LP row metadata: class='{}' cons='{}' "
+          "uid={} (already present at post-flatten row {}, attempted "
+          "disposable at row {})",
+          meta.class_name,
+          meta.constraint_name,
+          meta.variable_uid,
+          pit->second,
           row_idx));
     }
     auto [it, inserted] =
@@ -1418,14 +1570,22 @@ RowIndex LinearInterface::add_row(const std::string& name,
 void LinearInterface::track_row_label_meta(RowIndex row_idx,
                                            const SparseRow& row)
 {
-  // Rehydrate compressed metadata before mutating (compress mode).
-  ensure_labels_meta_decompressed();
+  // Post-flatten path: see `track_col_label_meta` for full rationale.
+  // Frozen `m_row_labels_meta_` is left untouched here; per-instance
+  // `m_post_flatten_row_labels_meta_` absorbs every cut row, cascade
+  // elastic constraint, etc.  No `ensure_labels_meta_decompressed()`
+  // round-trip — the frozen side stays compressed unless `write_lp`
+  // explicitly needs strings.
   const auto i = static_cast<size_t>(row_idx);
-  auto& rm = detach_for_write(m_row_labels_meta_);
-  if (rm.size() <= i) {
-    rm.resize(i + 1);
+  const auto frozen_count = flatten_row_count();
+  if (i < frozen_count) {
+    return;  // frozen flatten-side row — load_flat is the sole writer
   }
-  rm[i] = SparseRowLabel {
+  const auto post_offset = i - frozen_count;
+  if (m_post_flatten_row_labels_meta_.size() <= post_offset) {
+    m_post_flatten_row_labels_meta_.resize(post_offset + 1);
+  }
+  m_post_flatten_row_labels_meta_[post_offset] = SparseRowLabel {
       .class_name = row.class_name,
       .constraint_name = row.constraint_name,
       .variable_uid = row.variable_uid,
@@ -1433,11 +1593,26 @@ void LinearInterface::track_row_label_meta(RowIndex row_idx,
   };
 
   // Eager metadata-based duplicate detection — see the `add_col`
-  // companion for rationale.
-  const auto& meta = rm[i];
+  // companion for rationale.  Consults both the frozen flatten-side
+  // `m_row_meta_index_` and the per-instance
+  // `m_post_flatten_row_meta_index_`.
+  const auto& meta = m_post_flatten_row_labels_meta_[post_offset];
   if (!is_empty_row_label(meta)) {
-    auto& rmi = detach_for_write(m_row_meta_index_);
-    auto [it, inserted] = rmi.try_emplace(meta, row_idx);
+    if (m_row_meta_index_) {
+      const auto& flatten_index = *m_row_meta_index_;
+      if (auto it = flatten_index.find(meta); it != flatten_index.end()) {
+        throw std::runtime_error(
+            std::format("Duplicate LP row metadata: class='{}' cons='{}' "
+                        "uid={} (first at row {}, duplicate at row {})",
+                        meta.class_name,
+                        meta.constraint_name,
+                        meta.variable_uid,
+                        it->second,
+                        row_idx));
+      }
+    }
+    auto [it, inserted] =
+        m_post_flatten_row_meta_index_.try_emplace(meta, row_idx);
     if (!inserted) {
       throw std::runtime_error(
           std::format("Duplicate LP row metadata: class='{}' cons='{}' "
@@ -1884,39 +2059,51 @@ void LinearInterface::delete_rows(const std::span<const int> indices)
 
   // Erase the deleted rows from both the formatted-name cache and
   // the label-metadata vector.  Iterate in reverse so positional
-  // indices stay valid as we shrink each container.  Touching these
-  // here (instead of letting `generate_labels_from_maps` rebuild)
-  // keeps `row_name_map()` callers in sync even when they skip the
-  // full materialise path.
-  // Detach both shared_ptr-wrapped containers once so the erase loop
-  // runs against clone-local copies if currently shared.
-  auto& rm = detach_for_write(m_row_labels_meta_);
+  // indices stay valid as we shrink each container.
+  //
+  // Frozen invariant: `m_row_labels_meta_` (set by `load_flat`) is
+  // never erased — only post-flatten rows (cuts, cascade elastic
+  // constraints, …) are subject to `delete_rows`.  In production the
+  // SDDP cut store only deletes indices `>= base_numrows()` which
+  // exactly matches `flatten_row_count()`, so any frozen-side
+  // deletion would be a programming error.  Defensive guard below
+  // skips frozen-side deletions silently rather than asserting, so
+  // `row_label_at(idx)` semantics remain consistent if the caller
+  // somehow passes a frozen index.
   auto& rin = detach_for_write(m_row_index_to_name_);
+  const auto frozen_count = flatten_row_count();
   for (const auto idx : indices | std::views::reverse) {
     const auto pos = static_cast<ptrdiff_t>(idx);
     if (pos < std::ssize(rin)) {
       rin.erase(rin.begin() + pos);
     }
-    if (pos < std::ssize(rm)) {
-      rm.erase(rm.begin() + pos);
+    if (idx < 0 || static_cast<std::size_t>(idx) < frozen_count) {
+      continue;
+    }
+    const auto post_pos = static_cast<std::size_t>(idx) - frozen_count;
+    if (post_pos < m_post_flatten_row_labels_meta_.size()) {
+      m_post_flatten_row_labels_meta_.erase(
+          m_post_flatten_row_labels_meta_.begin()
+          + static_cast<ptrdiff_t>(post_pos));
     }
   }
   rebuild_row_name_maps();
 
   // Row indices shifted on deletion, so every previously-registered
-  // `(metadata → RowIndex)` pair is now potentially stale.  Rebuild
-  // the map from the current `m_row_labels_meta_` (column indices
-  // are untouched by `delete_rows`, so `m_col_meta_index_` is
-  // preserved — we only regenerate the row side).
-  auto& rmi = detach_for_write(m_row_meta_index_);
-  rmi.clear();
-  rmi.reserve(rm.size());
-  for (const auto [i, label] : enumerate<RowIndex>(rm)) {
+  // `(metadata → RowIndex)` pair on the post-flatten side is now
+  // potentially stale.  Rebuild from the current
+  // `m_post_flatten_row_labels_meta_`; frozen `m_row_meta_index_`
+  // is unaffected because no frozen rows were touched.
+  m_post_flatten_row_meta_index_.clear();
+  m_post_flatten_row_meta_index_.reserve(
+      m_post_flatten_row_labels_meta_.size());
+  for (const auto [i, label] : enumerate(m_post_flatten_row_labels_meta_)) {
     if (!label.class_name.empty() || !label.constraint_name.empty()
         || label.variable_uid != unknown_uid
         || !std::holds_alternative<std::monostate>(label.context))
     {
-      rmi.emplace(label, i);
+      const auto global_idx = RowIndex {static_cast<Index>(frozen_count + i)};
+      m_post_flatten_row_meta_index_.emplace(label, global_idx);
     }
   }
 }

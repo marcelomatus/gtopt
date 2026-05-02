@@ -580,6 +580,35 @@ public:
     return m_low_memory_mode_;
   }
 
+  /// Number of structural columns / rows captured at `flatten` time
+  /// and still pinned in the frozen `m_col_labels_meta_` /
+  /// `m_row_labels_meta_` vector.  Indices in `[0, flatten_col_count())`
+  /// are flatten-side; higher indices are post-flatten additions
+  /// (alpha, cuts, cascade elastic slacks, …).  `m_col_labels_meta_`
+  /// may be nullptr only on a default-constructed `LinearInterface`
+  /// before `load_flat`; in that case the count is 0.
+  [[nodiscard]] std::size_t flatten_col_count() const noexcept
+  {
+    return m_col_labels_meta_ ? m_col_labels_meta_->size() : 0;
+  }
+  [[nodiscard]] std::size_t flatten_row_count() const noexcept
+  {
+    return m_row_labels_meta_ ? m_row_labels_meta_->size() : 0;
+  }
+
+  /// Resolve a column / row index into the appropriate metadata bucket
+  /// (frozen flatten or per-instance post-flatten).  Returns `nullptr`
+  /// when the index is past both buckets — which is only possible if
+  /// the caller is asking about a backend column that was never tracked
+  /// (e.g. `add_col(name, lb, ub)` paths that bypass label-meta capture).
+  ///
+  /// Cheap: a bounds check + a vector index per call, no decompression
+  /// on the post-flatten side.  The flatten side may be in compressed
+  /// form during training/SDDP; consult `ensure_labels_meta_decompressed`
+  /// before calling if formatted strings are needed.
+  [[nodiscard]] const SparseColLabel* col_label_at(ColIndex idx) const noexcept;
+  [[nodiscard]] const SparseRowLabel* row_label_at(RowIndex idx) const noexcept;
+
   /// Record a dynamically-added column (e.g. alpha variable).
   void record_dynamic_col(SparseCol col);
 
@@ -2538,29 +2567,77 @@ private:
   /// Net active Benders cuts (additions minus deletions).
   std::vector<SparseRow> m_active_cuts_ {};
 
-  /// Label-only metadata for every column and row populated at
-  /// flatten time (via `load_flat`) and extended at `add_col` /
-  /// `add_row` time.  Used by `generate_labels_from_maps` to
-  /// synthesise real gtopt labels on demand.
+  /// Label-only metadata for the **frozen** flatten-time portion of the
+  /// LP — set ONCE by `load_flat` from `flat_lp.col_labels_meta` /
+  /// `row_labels_meta`, then never resized.  Indexed by the structural
+  /// `[0, flatten_col_count())` / `[0, flatten_row_count())` half of
+  /// the LP.  Post-flatten additions (cuts, slacks, alpha, cascade
+  /// elastic constraints) live in `m_post_flatten_col_labels_meta_` /
+  /// `m_post_flatten_row_labels_meta_` instead — see those fields and
+  /// `col_label_at(ColIndex)` / `row_label_at(RowIndex)` for lookup.
   ///
-  /// `shared_ptr<T>` so `clone(CloneKind::shallow)` can hand the
-  /// vector out to many aperture clones via atomic incref instead of
-  /// value-copying it.  All mutating call sites route through
-  /// `detach_for_write` to preserve correctness if `use_count > 1`.
+  /// Sharing model:
+  ///   * `shared_ptr<T>` so `clone(CloneKind::shallow)` hands the
+  ///     vector out to aperture clones via atomic incref — zero copy.
+  ///   * Because the vector is never resized post-`load_flat`, no
+  ///     mutating site detaches it; clones and source share the same
+  ///     storage forever (no copy-on-write churn on the first
+  ///     post-flatten add).
   ///
   /// Under `LowMemoryMode::compress`, `release_backend` compresses
   /// these vectors into `m_col_labels_meta_compressed_` /
   /// `m_row_labels_meta_compressed_` and clears the live copies.
-  /// Decompression is lazy-lazy: it fires only when a code path
-  /// actually reads the metadata (e.g. `generate_labels_from_maps`,
-  /// `add_col` / `add_row` extensions).  The decompressed strings
-  /// live in `m_label_string_pool_` — the pool is never cleared
-  /// while `m_col_labels_meta_` references it.  `mutable` because
-  /// the lazy decompression flow is triggered from const methods.
+  /// Decompression is lazy-strict: it fires ONLY when
+  /// `generate_labels_from_maps` (the `write_lp` consumer) actually
+  /// needs to format strings — training / SDDP / simulation do not
+  /// touch the decompressed form.  The decompressed strings live in
+  /// `m_label_string_pool_` — the pool is never cleared while
+  /// `m_col_labels_meta_` references it.  `mutable` because the lazy
+  /// decompression flow is triggered from const methods.
   mutable std::shared_ptr<std::vector<SparseColLabel>> m_col_labels_meta_ {
       std::make_shared<std::vector<SparseColLabel>>()};
   mutable std::shared_ptr<std::vector<SparseRowLabel>> m_row_labels_meta_ {
       std::make_shared<std::vector<SparseRowLabel>>()};
+
+  /// Label-only metadata for the **post-flatten** portion of the LP —
+  /// extended by every `add_col(SparseCol)` / `add_row(SparseRow)`
+  /// that runs after `load_flat` has installed the structural matrix.
+  /// Hosts cut rows, alpha column, cascade elastic-target slacks +
+  /// constraints, and any other dynamic addition.
+  ///
+  /// Per-instance — never wrapped in `shared_ptr`, never shared with
+  /// clones.  A freshly-cloned `LinearInterface` starts with empty
+  /// post-flatten vectors regardless of the source's history; the
+  /// clone's own post-flatten additions land here independently of
+  /// the source's, which is the correct semantics for aperture clones
+  /// (each clone's elastic-filter slacks belong only to that clone).
+  ///
+  /// Lookup by index uses `col_label_at(ColIndex)` /
+  /// `row_label_at(RowIndex)`: indices in `[0, flatten_col_count())`
+  /// resolve against the frozen `m_col_labels_meta_`; indices in
+  /// `[flatten_col_count(), flatten_col_count() +
+  /// m_post_flatten_col_labels_meta_.size())` resolve against the
+  /// post-flatten vector with the offset subtracted.
+  ///
+  /// Not compressed: the post-flatten vector is small in practice
+  /// (alpha + a bounded set of cut rows / cascade elastic slacks) and
+  /// is mutated frequently — round-tripping it through the codec on
+  /// every release/reconstruct cycle would dominate the work that
+  /// flatten-side compression saves.  The frozen flatten-side vector
+  /// is the only one large enough to justify codec round-trips.
+  std::vector<SparseColLabel> m_post_flatten_col_labels_meta_ {};
+  std::vector<SparseRowLabel> m_post_flatten_row_labels_meta_ {};
+
+  /// Eager dedup index for post-flatten metadata.  Mirrors the role of
+  /// `m_col_meta_index_` (which now spans only the frozen flatten
+  /// portion), but for the per-instance post-flatten additions.  Each
+  /// post-flatten `add_col` / `add_row` consults BOTH maps to detect
+  /// duplicates against either the frozen flatten metadata or any
+  /// previously inserted post-flatten entry on this instance.
+  std::unordered_map<SparseColLabel, ColIndex, SparseColLabelHash>
+      m_post_flatten_col_meta_index_ {};
+  std::unordered_map<SparseRowLabel, RowIndex, SparseRowLabelHash>
+      m_post_flatten_row_meta_index_ {};
 
   /// Compressed backups of the metadata vectors — populated on
   /// `release_backend` under `compress` mode, drained on the first
