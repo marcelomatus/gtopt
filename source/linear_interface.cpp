@@ -1522,11 +1522,10 @@ void LinearInterface::add_cols_raw(std::span<const SparseCol> cols)
   // the shared `emit_cols_to_backend` helper, then capture label-meta.
   // `m_col_scales_` stays frozen so it can be shared across aperture
   // clones via `std::shared_ptr`.
-  for (const auto& col : cols) {
-    assert(col.scale == 1.0
-           && "add_cols_raw: non-unit col.scale forbidden — use add_cols() "
-              "if you need m_col_scales_ to grow");
-  }
+  assert(std::ranges::all_of(cols,
+                             [](const auto& col) { return col.scale == 1.0; })
+         && "add_cols_raw: non-unit col.scale forbidden — use add_cols() "
+            "if you need m_col_scales_ to grow");
   const auto first_col_index = emit_cols_to_backend(cols);
   for (size_t c = 0; c < cols.size(); ++c) {
     const auto col_idx =
