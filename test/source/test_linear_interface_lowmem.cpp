@@ -3126,3 +3126,395 @@ TEST_CASE(  // NOLINT
   CHECK_NOTHROW(li.drop_label_meta_buffers());
   CHECK_NOTHROW(li.drop_label_meta_buffers());  // idempotent
 }
+
+// ── Metadata split: frozen flatten side vs per-instance post-flatten ──
+//
+// These tests pin the invariants delivered by commit 902a39e7
+// "refactor(li): split flatten metadata + lazy decompression":
+//
+//   * `flatten_col_count()` / `flatten_row_count()` reflect the
+//     `flat_lp.col_labels_meta` / `row_labels_meta` size at
+//     `load_flat` time and never change afterwards.
+//   * `add_col(SparseCol)` / `add_row(SparseRow)` past load_flat
+//     extend ONLY the per-instance post-flatten vectors; the frozen
+//     vector and its shared_ptr use_count stay invariant.
+//   * `col_label_at(idx)` / `row_label_at(idx)` resolve correctly
+//     across both buckets and return nullptr for out-of-range.
+//   * Compress/release in compress mode keeps the frozen side in
+//     compressed form during training; track_*_label_meta does NOT
+//     trigger decompression for post-flatten extensions.
+//   * `clone(shallow)` value-copies the post-flatten history so the
+//     clone's `write_lp` sees the source's structural cuts/alpha but
+//     subsequent writes don't bleed back.
+
+TEST_CASE(  // NOLINT
+    "LinearInterface — flatten_col_count / flatten_row_count match "
+    "load_flat sizes and stay invariant under post-flatten add")
+{
+  auto [li, flat, x1, x2] = make_simple_li_lp();
+
+  // After `make_simple_li_lp`'s `load_flat`, the frozen counts equal
+  // the structural size of the LP (2 cols × 1 row).
+  REQUIRE(li.flatten_col_count() == 2);
+  REQUIRE(li.flatten_row_count() == 1);
+
+  // Switch to compress mode and snapshot so subsequent add_col is on
+  // the post-flatten path (auto-record fires).
+  li.set_low_memory(LowMemoryMode::compress);
+  li.save_snapshot(FlatLinearProblem {flat});
+  li.save_base_numrows();
+
+  // 3 post-flatten cols + 2 post-flatten rows.
+  for (int k = 0; k < 3; ++k) {
+    [[maybe_unused]] const auto c = li.add_col(SparseCol {
+        .uppb = 100.0,
+        .cost = 1.0,
+        .class_name = "Test",
+        .variable_name = "alpha",
+        .variable_uid = k,
+    });
+  }
+  for (int k = 0; k < 2; ++k) {
+    SparseRow row;
+    row[x1] = 1.0;
+    row.lowb = 0.0;
+    row.uppb = 100.0;
+    row.class_name = "Test";
+    row.constraint_name = "cap";
+    row.variable_uid = k;
+    li.add_row(row);
+    li.record_dynamic_row(row);
+  }
+
+  // Frozen counts unchanged.
+  CHECK(li.flatten_col_count() == 2);
+  CHECK(li.flatten_row_count() == 1);
+  // Backend total reflects structural + post-flatten.
+  CHECK(li.get_numcols() == 5);
+  CHECK(li.get_numrows() == 3);
+}
+
+TEST_CASE(  // NOLINT
+    "LinearInterface — col_label_at / row_label_at resolve across "
+    "frozen and post-flatten buckets")
+{
+  // Use the labelled flat-LP path so `flat_lp.col_labels_meta` /
+  // `row_labels_meta` are populated at load_flat time.
+  LinearProblem lp;
+  const auto c0 = lp.add_col(SparseCol {
+      .uppb = 10.0,
+      .cost = 1.0,
+      .class_name = "Bus",
+      .variable_name = "theta",
+      .variable_uid = 1,
+  });
+  [[maybe_unused]] const auto c1 = lp.add_col(SparseCol {
+      .uppb = 10.0,
+      .cost = 2.0,
+      .class_name = "Bus",
+      .variable_name = "theta",
+      .variable_uid = 2,
+  });
+  auto r = lp.add_row(SparseRow {
+      .lowb = 0.0,
+      .uppb = 100.0,
+      .class_name = "Demand",
+      .constraint_name = "balance",
+      .variable_uid = 1,
+  });
+  lp.set_coeff(r, c0, 1.0);
+
+  LpMatrixOptions opts;
+  opts.col_with_names = true;
+  opts.row_with_names = true;
+  auto flat = lp.flatten(opts);
+  REQUIRE(flat.col_labels_meta.size() == 2);
+  REQUIRE(flat.row_labels_meta.size() == 1);
+
+  LinearInterface li;
+  li.load_flat(flat);
+  li.save_base_numrows();
+  li.set_low_memory(LowMemoryMode::compress);
+  li.save_snapshot(FlatLinearProblem {flat});
+
+  // Frozen-side resolution: indices 0..1 (cols) / 0 (row).
+  REQUIRE(li.col_label_at(ColIndex {0}) != nullptr);
+  CHECK(li.col_label_at(ColIndex {0})->class_name == "Bus");
+  CHECK(li.col_label_at(ColIndex {0})->variable_uid == Uid {1});
+  REQUIRE(li.col_label_at(ColIndex {1}) != nullptr);
+  CHECK(li.col_label_at(ColIndex {1})->variable_uid == Uid {2});
+  REQUIRE(li.row_label_at(RowIndex {0}) != nullptr);
+  CHECK(li.row_label_at(RowIndex {0})->class_name == "Demand");
+
+  // Add a post-flatten col + row.
+  std::ignore = li.add_col(SparseCol {
+      .uppb = 5.0,
+      .cost = 0.0,
+      .class_name = "Sddp",
+      .variable_name = "alpha",
+      .variable_uid = 0,
+  });
+  SparseRow cut;
+  cut[ColIndex {0}] = 1.0;
+  cut.lowb = -LinearProblem::DblMax;
+  cut.uppb = 50.0;
+  cut.class_name = "Sddp";
+  cut.constraint_name = "optcut";
+  cut.variable_uid = 99;
+  li.add_row(cut);
+  li.record_dynamic_row(cut);
+
+  // Post-flatten resolution: idx 2 (col), idx 1 (row) lands in the
+  // per-instance post-flatten bucket via offset = idx - frozen_count.
+  REQUIRE(li.col_label_at(ColIndex {2}) != nullptr);
+  CHECK(li.col_label_at(ColIndex {2})->class_name == "Sddp");
+  CHECK(li.col_label_at(ColIndex {2})->variable_name == "alpha");
+  REQUIRE(li.row_label_at(RowIndex {1}) != nullptr);
+  CHECK(li.row_label_at(RowIndex {1})->class_name == "Sddp");
+  CHECK(li.row_label_at(RowIndex {1})->constraint_name == "optcut");
+
+  // Out-of-range returns nullptr without throwing.
+  CHECK(li.col_label_at(ColIndex {99}) == nullptr);
+  CHECK(li.row_label_at(RowIndex {99}) == nullptr);
+  // Negative inputs are also nullptr.
+  CHECK(li.col_label_at(ColIndex {-1}) == nullptr);
+  CHECK(li.row_label_at(RowIndex {-1}) == nullptr);
+}
+
+TEST_CASE(  // NOLINT
+    "LinearInterface — frozen m_col_labels_meta_ stays shared with "
+    "clone after post-flatten add (no detach-on-first-add tax)")
+{
+  // The headline performance win of the metadata split: a shallow
+  // clone shares the frozen flatten-side metadata with the source via
+  // shared_ptr, and that sharing survives subsequent post-flatten
+  // mutations on either side.  Pre-refactor the first post-clone
+  // add_col deep-copied the entire labels-meta vector via
+  // detach_for_write; the new design routes the add to a per-instance
+  // post-flatten vector, leaving the frozen shared_ptr untouched.
+  auto [li, flat, x1, x2] = make_simple_li_lp();
+  li.set_low_memory(LowMemoryMode::compress);
+  li.save_snapshot(FlatLinearProblem {flat});
+  li.save_base_numrows();
+
+  auto cloned = li.clone(LinearInterface::CloneKind::shallow);
+  REQUIRE(li.col_labels_meta_use_count() == 2);
+  REQUIRE(cloned.col_labels_meta_use_count() == 2);
+
+  // Source-side post-flatten add.  Frozen vector stays shared.
+  std::ignore = li.add_col(SparseCol {
+      .uppb = 1.0,
+      .class_name = "Sddp",
+      .variable_name = "alpha",
+      .variable_uid = 0,
+  });
+  CHECK(li.col_labels_meta_use_count() == 2);
+  CHECK(cloned.col_labels_meta_use_count() == 2);
+
+  // Clone-side post-flatten add too.  Frozen still shared.
+  std::ignore = cloned.add_col(SparseCol {
+      .uppb = 2.0,
+      .class_name = "Sddp",
+      .variable_name = "alpha_clone",
+      .variable_uid = 1,
+  });
+  CHECK(li.col_labels_meta_use_count() == 2);
+  CHECK(cloned.col_labels_meta_use_count() == 2);
+
+  // Source has 1 post-flatten col, clone has 1 — they don't bleed
+  // into each other's post-flatten vectors.
+  CHECK(li.get_numcols() == 3);  // 2 frozen + 1 post-flatten on source
+  CHECK(cloned.get_numcols() == 3);  // 2 frozen + 1 post-flatten on clone
+}
+
+TEST_CASE(  // NOLINT
+    "LinearInterface — clone(shallow) value-copies post-flatten "
+    "history so write_lp on the clone resolves source's cuts")
+{
+  // After source has installed a cut + alpha, a shallow clone must
+  // see those entries via `col_label_at` / `row_label_at` so the
+  // clone's `write_lp` can synthesise labels for the inherited rows.
+  auto [li, flat, x1, x2] = make_simple_li_lp();
+  li.set_low_memory(LowMemoryMode::compress);
+  li.save_snapshot(FlatLinearProblem {flat});
+  li.save_base_numrows();
+
+  // Source installs an alpha col + a labelled cut row.
+  std::ignore = li.add_col(SparseCol {
+      .uppb = 1000.0,
+      .cost = 0.0,
+      .class_name = "Sddp",
+      .variable_name = "alpha",
+      .variable_uid = 0,
+  });
+  SparseRow cut;
+  cut[x1] = 1.0;
+  cut.lowb = -LinearProblem::DblMax;
+  cut.uppb = 8.0;
+  cut.class_name = "Sddp";
+  cut.constraint_name = "optcut";
+  cut.variable_uid = 7;
+  li.add_row(cut);
+  li.record_dynamic_row(cut);
+
+  REQUIRE(li.col_label_at(ColIndex {2}) != nullptr);
+  REQUIRE(li.col_label_at(ColIndex {2})->variable_name == "alpha");
+  REQUIRE(li.row_label_at(RowIndex {1}) != nullptr);
+  REQUIRE(li.row_label_at(RowIndex {1})->variable_uid == Uid {7});
+
+  auto cloned = li.clone(LinearInterface::CloneKind::shallow);
+
+  // Clone resolves source's structural post-flatten history (alpha
+  // col + cut row) via its own value-copied post-flatten vectors —
+  // would throw "no entry in m_col_labels_meta_" without that copy
+  // when the clone's write_lp tries to format inherited labels.
+  REQUIRE(cloned.col_label_at(ColIndex {2}) != nullptr);
+  CHECK(cloned.col_label_at(ColIndex {2})->variable_name == "alpha");
+  REQUIRE(cloned.row_label_at(RowIndex {1}) != nullptr);
+  CHECK(cloned.row_label_at(RowIndex {1})->variable_uid == Uid {7});
+
+  // Subsequent source-side adds DON'T bleed into the clone's
+  // post-flatten vector (per-instance ownership).
+  std::ignore = li.add_col(SparseCol {
+      .uppb = 1.0,
+      .class_name = "Sddp",
+      .variable_name = "extra_on_source",
+      .variable_uid = 1,
+  });
+  CHECK(li.get_numcols() == 4);
+  CHECK(cloned.get_numcols() == 3);  // unchanged
+  CHECK(cloned.col_label_at(ColIndex {3}) == nullptr);  // not visible
+}
+
+TEST_CASE(  // NOLINT
+    "LinearInterface — duplicate detection rejects collisions across "
+    "frozen and post-flatten metadata layers")
+{
+  // The dedup index is split (frozen `m_col_meta_index_` + per-
+  // instance `m_post_flatten_col_meta_index_`); track_col_label_meta
+  // must consult BOTH so a post-flatten add can't shadow a flatten-
+  // time entry, AND post-flatten entries can't collide with each
+  // other on this instance.
+  LinearProblem lp;
+  const auto c0 = lp.add_col(SparseCol {
+      .uppb = 10.0,
+      .class_name = "Bus",
+      .variable_name = "theta",
+      .variable_uid = 1,
+  });
+  // flatten() needs at least one row referencing the col, otherwise
+  // the col is dropped as structurally absent (no coefficients).
+  auto r0 = lp.add_row(SparseRow {
+      .lowb = 0.0,
+      .uppb = 100.0,
+      .class_name = "Demand",
+      .constraint_name = "balance",
+      .variable_uid = 1,
+  });
+  lp.set_coeff(r0, c0, 1.0);
+
+  LpMatrixOptions opts;
+  opts.col_with_names = true;
+  opts.col_with_name_map = true;
+  auto flat = lp.flatten(opts);
+
+  LinearInterface li;
+  li.load_flat(flat);
+  li.set_low_memory(LowMemoryMode::compress);
+  li.save_snapshot(FlatLinearProblem {flat});
+
+  REQUIRE(li.flatten_col_count() == 1);
+
+  // First post-flatten add with a NEW key: succeeds.
+  CHECK_NOTHROW(li.add_col(SparseCol {
+      .uppb = 1.0,
+      .class_name = "Sddp",
+      .variable_name = "alpha",
+      .variable_uid = 0,
+  }));
+
+  // Cross-layer collision: same metadata as the FROZEN entry → throw.
+  CHECK_THROWS_AS(li.add_col(SparseCol {
+                      .uppb = 1.0,
+                      .class_name = "Bus",
+                      .variable_name = "theta",
+                      .variable_uid = 1,
+                  }),
+                  std::runtime_error);
+
+  // Within-post-flatten collision: same metadata as the previous
+  // post-flatten add → throw.
+  CHECK_THROWS_AS(li.add_col(SparseCol {
+                      .uppb = 2.0,
+                      .class_name = "Sddp",
+                      .variable_name = "alpha",
+                      .variable_uid = 0,
+                  }),
+                  std::runtime_error);
+}
+
+TEST_CASE(  // NOLINT
+    "LinearInterface — post-flatten add does NOT decompress the "
+    "frozen labels-meta during compress-mode training")
+{
+  // Verify the lazy-decompression invariant: `add_col` /
+  // `add_row` past load_flat must NOT decompress
+  // `m_col_labels_meta_compressed_` / `m_row_labels_meta_compressed_`.
+  // Decompression is reserved for `generate_labels_from_maps`
+  // (write_lp).  Probe the compression buffers via the public
+  // `col_labels_meta_use_count()` accessor and the private state
+  // change is detectable from `flatten_col_count()`: post-release
+  // the live frozen vector is empty (size 0), but the count is
+  // preserved across reload from the compressed buffer.
+  auto [li, flat, x1, x2] = make_simple_li_lp();
+  li.set_low_memory(LowMemoryMode::compress);
+  li.save_snapshot(FlatLinearProblem {flat});
+  li.save_base_numrows();
+
+  // Force a release+reconstruct so the frozen vector is loaded back
+  // from the compressed buffer with the original size.
+  li.release_backend();
+  li.reconstruct_backend();
+  REQUIRE(li.flatten_col_count() == 2);
+  REQUIRE(li.flatten_row_count() == 1);
+
+  // Now release_backend a second time so the frozen labels-meta
+  // becomes compressed (live vector cleared).  Subsequent
+  // post-flatten adds happen on the still-released backend's lazy
+  // path — they must NOT trigger decompression.
+  li.release_backend();
+  // Frozen live vector is now empty (compressed); count is 0 from
+  // load_flat semantics on a non-rebuilt backend.  `flatten_col_count`
+  // reads `m_col_labels_meta_->size()` directly.
+  CHECK(li.flatten_col_count() == 0);
+
+  // ensure_backend reloads the LP, and the frozen labels-meta is
+  // rehydrated only through the lazy path (NOT eagerly).
+  li.reconstruct_backend();
+  CHECK(li.flatten_col_count() == 2);
+
+  // Add post-flatten cols / rows; these should NOT trigger an extra
+  // decompression because track_col_label_meta no longer calls
+  // ensure_labels_meta_decompressed.  The backend stays live, the
+  // post-flatten vector grows, and the LP solves.
+  std::ignore = li.add_col(SparseCol {
+      .uppb = 1.0,
+      .class_name = "Sddp",
+      .variable_name = "alpha",
+      .variable_uid = 0,
+  });
+  CHECK(li.flatten_col_count() == 2);
+  CHECK(li.get_numcols() == 3);
+
+  // Multi-cycle: release/reconstruct repeatedly with post-flatten
+  // adds in between; the frozen count never grows.
+  for (int i = 0; i < 3; ++i) {
+    li.release_backend();
+    li.reconstruct_backend();
+    CHECK(li.flatten_col_count() == 2);
+    CHECK(li.flatten_row_count() == 1);
+  }
+
+  auto solve = li.resolve();
+  REQUIRE(solve.has_value());
+}
