@@ -604,11 +604,16 @@ RelaxedVarInfo relax_fixed_state_variable(
   // synthesised on demand by `generate_labels_from_maps` if a bad-LP
   // dump is ever requested — gtopt-formatted output identical to the
   // production path's.  See `LinearInterface::add_col_disposable`.
+  //
+  // The `variable_name` constants (`sddp_elastic_sup_col_name` /
+  // `sddp_elastic_sdn_col_name`) live in `sddp_types.hpp`; centralising
+  // them avoids the no-magic-strings rule and lets a future tooling
+  // pass grep for the exact label used by `CoinLpIO`.
   const auto sup = li.add_col_disposable(SparseCol {
       .uppb = sup_uppb,
       .cost = slack_cost,
       .class_name = sddp_alpha_class_name,
-      .variable_name = "elastic_sup",
+      .variable_name = sddp_elastic_sup_col_name,
       .variable_uid = slack_uid,
   });
 
@@ -616,7 +621,7 @@ RelaxedVarInfo relax_fixed_state_variable(
       .uppb = sdn_uppb,
       .cost = slack_cost,
       .class_name = sddp_alpha_class_name,
-      .variable_name = "elastic_sdn",
+      .variable_name = sddp_elastic_sdn_col_name,
       .variable_uid = slack_uid,
   });
 

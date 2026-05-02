@@ -151,6 +151,15 @@ constexpr std::string_view sddp_alpha_class_name =
     sddp_alpha_lp_class.full_name();
 constexpr std::string_view sddp_alpha_col_name = "alpha";
 
+/// Variable-name tags for the elastic filter's slack columns added
+/// by `relax_fixed_state_variable`.  Carried on `SparseCol` metadata
+/// so serialised LPs (`CoinLpIO`, `LinearInterface::write_lp`) emit
+/// distinct non-empty column labels — a hard requirement for the
+/// COIN LP writer, which replaces every row/col name with generic
+/// defaults when it encounters even one unnamed column.
+constexpr std::string_view sddp_elastic_sup_col_name = "elastic_sup";
+constexpr std::string_view sddp_elastic_sdn_col_name = "elastic_sdn";
+
 /// Constraint-name tags carried on LP row metadata for each kind
 /// of Benders cut emitted by SDDP.  Paired with
 /// `sddp_alpha_class_name` so the eager duplicate detector in
