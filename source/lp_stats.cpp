@@ -9,7 +9,6 @@
 #include <algorithm>
 #include <format>
 #include <limits>
-#include <unordered_map>
 
 #include <gtopt/fmap.hpp>
 #include <gtopt/lp_stats.hpp>
@@ -156,14 +155,20 @@ void log_lp_stats_summary(const std::vector<ScenePhaseLPStats>& entries,
   // suffices for type classification).
   //
   // Key is `std::string_view` (not owning) —
-  // `entries[i].row_type_stats[j].type` outlives this function, so the views
-  // stay valid throughout the aggregate / sort / log walk.  Mirrors the cousin
-  // `type_map` in `linear_problem.cpp:680` and eliminates one heap allocation
-  // per distinct constraint type.
-  std::unordered_map<std::string_view, RowTypeStats> type_map;
-  // The LP has typically 20–50 distinct constraint types (Demand,
-  // Capacity, Kirchhoff, etc.) so 32 is a tight upper-bound that
-  // avoids rehash during accumulation.
+  // `entries[i].row_type_stats[j].type` outlives this function, so the
+  // views stay valid throughout the aggregate / sort / log walk.
+  //
+  // `gtopt::flat_map` (sorted contiguous storage) is preferred over
+  // `std::unordered_map` here: the working set is small (~12-15 keys —
+  // see `extract_row_type` in `linear_problem.cpp` for the truncation
+  // behavior), iteration is hot (we walk the whole map to sort by
+  // ratio), and insertion is cold (called once per `--stats` summary).
+  // Cache locality + smaller per-entry overhead beats hash-table
+  // indirection at this size.
+  flat_map<std::string_view, RowTypeStats> type_map;
+  // 32 is a tight upper-bound on distinct constraint types
+  // (`extract_row_type` keys: balance/emission/cycle/flow/loss/target/
+  // storage/elastic/scut/fcut/bcut/ecut/mcut/aperture/share/cut/...).
   map_reserve(type_map, 32);
   for (const auto& entry : entries) {
     for (const auto& rts : entry.row_type_stats) {
@@ -184,7 +189,10 @@ void log_lp_stats_summary(const std::vector<ScenePhaseLPStats>& entries,
     // Sort by ratio descending.
     std::vector<RowTypeStats> sorted_types;
     sorted_types.reserve(type_map.size());
-    for (auto& [_, v] : type_map) {
+    // `auto&&` — `gtopt::flat_map` (std::flat_map under GCC 15) yields a
+    // proxy `pair<key&, value&>` temporary, so a plain `auto&` lvalue
+    // reference would not bind.
+    for (auto&& [_, v] : type_map) {
       sorted_types.push_back(std::move(v));
     }
     std::ranges::sort(sorted_types,
