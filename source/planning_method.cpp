@@ -47,6 +47,7 @@ namespace
   sddp_opts.stationary_gap_ceiling = options.sddp_stationary_gap_ceiling();
   sddp_opts.terminal_failure_threshold =
       options.sddp_terminal_failure_threshold();
+  sddp_opts.infeasible_scene_penalty = options.sddp_infeasible_scene_penalty();
   sddp_opts.forward_fail_stop = options.sddp_forward_fail_stop();
   sddp_opts.forward_infeas_rollback = options.sddp_forward_infeas_rollback();
 

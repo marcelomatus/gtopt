@@ -397,6 +397,17 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
    * globally.  Default: 2.  Set to 0 to disable. */
   OptInt terminal_failure_threshold {};
 
+  /** @brief Per-infeasible-scene penalty for UB aggregation (`$`).
+   *
+   * 0 (default) keeps legacy renormalise-feasible-only behaviour
+   * (gap reflects the feasible sub-problem).  > 0 switches the
+   * bound aggregation to the complete-recourse convention from
+   * Birge & Louveaux §3.2 / Shapiro et al. §3.3.3: bounds are
+   * computed over the original N-scene measure with each
+   * infeasible scene contributing ``p_orig_i × penalty`` to UB.
+   * The gap then refuses to flat-line while scenes are infeasible. */
+  OptReal infeasible_scene_penalty {};
+
   // ── LP solver options (per-pass override)
   // ───────────────────────────────────
 
@@ -552,6 +563,7 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
     merge_opt(convergence_confidence, opts.convergence_confidence);
     merge_opt(stationary_gap_ceiling, opts.stationary_gap_ceiling);
     merge_opt(terminal_failure_threshold, opts.terminal_failure_threshold);
+    merge_opt(infeasible_scene_penalty, opts.infeasible_scene_penalty);
     merge_opt(forward_max_fallbacks, opts.forward_max_fallbacks);
     merge_opt(forward_fail_stop, opts.forward_fail_stop);
     merge_opt(forward_infeas_rollback, opts.forward_infeas_rollback);
