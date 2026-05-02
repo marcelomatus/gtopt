@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <limits>
+#include <map>
 #include <numeric>
 #include <ranges>
 #include <set>
@@ -165,18 +166,58 @@ auto detect_islands_and_fix_references(Array<Bus>& buses,
 
       if (any_kirchhoff) {
         buses.front().reference_theta = 0.0;
-        SPDLOG_DEBUG(
-            "Island 0: setting bus '{}' as reference "
-            "(reference_theta=0)",
-            buses.front().name);
+        spdlog::trace("Island 0: setting bus '{}' as reference (theta=0)",
+                      buses.front().name);
       }
     }
     return num_islands;
   }
 
-  // Multiple islands detected — indent two spaces to match the surrounding
-  // "Building LP model" section hierarchy.
-  SPDLOG_INFO("  Network has {} islands", num_islands);
+  // ── Multi-island upfront audit ──────────────────────────────────────────
+  // Compute the per-island summary BEFORE auto-pinning so the user sees
+  // the topology as defined by the input (size distribution, where the
+  // user-set references live) plus a separate count of how many islands
+  // need auto-pinning.  All per-island detail is at TRACE; the audit
+  // header is the only INFO line on the default log level.
+  std::map<std::size_t, std::size_t> bus_count_per_island;
+  std::map<std::size_t, std::size_t> kirchhoff_count_per_island;
+  std::set<std::size_t> islands_with_user_reference;
+  for (const auto i : iota_range(std::size_t {0}, num_buses)) {
+    const auto root = dsu.find(i);
+    ++bus_count_per_island[root];
+    if (buses[i].needs_kirchhoff(kirchhoff_threshold)) {
+      ++kirchhoff_count_per_island[root];
+    }
+    if (buses[i].reference_theta.has_value()) {
+      islands_with_user_reference.insert(root);
+    }
+  }
+
+  std::size_t singleton_islands = 0;
+  std::size_t largest_island = 0;
+  std::size_t islands_without_kirchhoff = 0;
+  for (const auto& [root, count] : bus_count_per_island) {
+    if (count == 1) {
+      ++singleton_islands;
+    }
+    largest_island = std::max(largest_island, count);
+    if (kirchhoff_count_per_island[root] == 0) {
+      ++islands_without_kirchhoff;
+    }
+  }
+
+  // Indent two spaces to match the surrounding "Building LP model"
+  // section hierarchy.
+  spdlog::info(
+      "  Network has {} islands "
+      "(largest={} buses, singletons={}, no-kirchhoff={}, "
+      "user-referenced={}/{})",
+      num_islands,
+      largest_island,
+      singleton_islands,
+      islands_without_kirchhoff,
+      islands_with_user_reference.size(),
+      num_islands);
 
   // Sharper warning when the case has 0 transmission lines AND multi-bus
   // is enabled: every bus is structurally its own island, and any bus
@@ -194,6 +235,7 @@ auto detect_islands_and_fix_references(Array<Bus>& buses,
   }
 
   // For each island, ensure at least one reference bus
+  std::size_t auto_pinned_islands = 0;
   for (const auto root : island_roots) {
     // Collect bus indices in this island
     bool has_reference = false;
@@ -216,12 +258,18 @@ auto detect_islands_and_fix_references(Array<Bus>& buses,
 
     if (!has_reference && first_kirchhoff_idx < num_buses) {
       buses[first_kirchhoff_idx].reference_theta = 0.0;
-      SPDLOG_DEBUG(
-          "Island (root {}): setting bus '{}' as reference "
-          "(reference_theta=0)",
-          root,
-          buses[first_kirchhoff_idx].name);
+      ++auto_pinned_islands;
+      spdlog::trace("Island (root {}): setting bus '{}' as reference (theta=0)",
+                    root,
+                    buses[first_kirchhoff_idx].name);
     }
+  }
+
+  if (auto_pinned_islands > 0) {
+    spdlog::info(
+        "  Auto-pinned reference bus on {} island(s) "
+        "(no user-set reference_theta found)",
+        auto_pinned_islands);
   }
 
   return num_islands;
