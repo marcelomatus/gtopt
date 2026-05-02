@@ -153,11 +153,14 @@ auto sha256(std::string_view input) -> std::string
   }
   // NOLINTEND(cppcoreguidelines-pro-bounds-constant-array-index)
 
-  // Format as hex string
+  // Format as hex string — write each 8-char chunk directly into
+  // `result` via `format_to(back_inserter)`, avoiding the per-iteration
+  // temporary `std::string` that `result += std::format(...)` would
+  // create on every chunk.
   std::string result;
   result.reserve(64);
   for (auto val : h) {
-    result += std::format("{:08x}", val);
+    std::format_to(std::back_inserter(result), "{:08x}", val);
   }
   return result;
 }

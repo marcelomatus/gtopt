@@ -22,7 +22,6 @@
 #include <set>
 #include <sstream>
 
-#include <gtopt/as_label.hpp>
 #include <gtopt/fmap.hpp>
 #include <gtopt/lp_context.hpp>
 #include <gtopt/planning_lp.hpp>
@@ -93,10 +92,12 @@ using namespace gtopt::detail;  // helpers shared with sibling TUs
 
       // RHS in physical objective units (stored verbatim — the cut was
       // built by `build_benders_cut_physical` and captured in
-      // StoredCut pre-equilibration).
-      ofs << as_label<','>(
-          type_char, cut.phase_uid, cut.scene_uid, cut.name, cut.rhs)
-          << ",";
+      // StoredCut pre-equilibration).  Stream fields directly so the
+      // per-cut path does NOT allocate a transient `std::string` from
+      // `as_label`; runs once per cut, of which there can be tens of
+      // thousands per save.
+      ofs << type_char << ',' << cut.phase_uid << ',' << cut.scene_uid << ','
+          << cut.name << ',' << cut.rhs << ',';
       if (cut.dual.has_value()) {
         ofs << *cut.dual;
       }
@@ -180,10 +181,10 @@ using namespace gtopt::detail;  // helpers shared with sibling TUs
       const char type_char = (cut.type == CutType::Feasibility) ? 'f' : 'o';
 
       // RHS in physical objective units (stored verbatim — see
-      // save_cuts_csv above for rationale).
-      ofs << as_label<','>(
-          type_char, cut.phase_uid, cut.scene_uid, cut.name, cut.rhs)
-          << ",";
+      // save_cuts_csv above for rationale).  Stream fields directly to
+      // avoid the per-cut `std::string` from `as_label`.
+      ofs << type_char << ',' << cut.phase_uid << ',' << cut.scene_uid << ','
+          << cut.name << ',' << cut.rhs << ',';
       if (cut.dual.has_value()) {
         ofs << *cut.dual;
       }

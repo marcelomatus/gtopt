@@ -110,37 +110,61 @@ void log_lp_stats_summary(const std::vector<ScenePhaseLPStats>& entries,
   }
 
   // If the global ratio is within the threshold, emit a one-liner.
+  // Split into a (with-zeroed / without-zeroed) pair of `spdlog::info`
+  // calls so the format pattern + args reach spdlog directly — when
+  // info is filtered out (e.g. `--log-level=warn`) the format work is
+  // skipped entirely.  Pre-building the message via `std::format` and
+  // passing it as a `std::string` defeats spdlog's lazy formatting.
   if (global.coeff_ratio() <= ratio_threshold) {
-    auto line = std::format(
-        "  LP coefficient analysis: {} LP(s), "
-        "global |coeff| [{:.3e}, {:.3e}], ratio={:.2e} ({})",
-        entries.size(),
-        global.stats_min_abs,
-        global.stats_max_abs,
-        global.coeff_ratio(),
-        global.quality_label());
     if (global.stats_zeroed > 0) {
-      line += std::format(", zeroed={}", global.stats_zeroed);
+      spdlog::info(
+          "  LP coefficient analysis: {} LP(s), "
+          "global |coeff| [{:.3e}, {:.3e}], ratio={:.2e} ({}), zeroed={}",
+          entries.size(),
+          global.stats_min_abs,
+          global.stats_max_abs,
+          global.coeff_ratio(),
+          global.quality_label(),
+          global.stats_zeroed);
+    } else {
+      spdlog::info(
+          "  LP coefficient analysis: {} LP(s), "
+          "global |coeff| [{:.3e}, {:.3e}], ratio={:.2e} ({})",
+          entries.size(),
+          global.stats_min_abs,
+          global.stats_max_abs,
+          global.coeff_ratio(),
+          global.quality_label());
     }
-    spdlog::info(line);
     return;
   }
 
   // Show global summary + worst-case entry only (not all 51 phases).
-  auto header = std::format(
-      "  LP coefficient analysis: {} LP(s), "
-      "global |coeff| [{:.3e}, {:.3e}], ratio={:.2e} ({}) — "
-      "exceeds threshold {:.0e}",
-      entries.size(),
-      global.stats_min_abs,
-      global.stats_max_abs,
-      global.coeff_ratio(),
-      global.quality_label(),
-      ratio_threshold);
+  // Same lazy-format split as above.
   if (global.stats_zeroed > 0) {
-    header += std::format(", zeroed={}", global.stats_zeroed);
+    spdlog::info(
+        "  LP coefficient analysis: {} LP(s), "
+        "global |coeff| [{:.3e}, {:.3e}], ratio={:.2e} ({}) — "
+        "exceeds threshold {:.0e}, zeroed={}",
+        entries.size(),
+        global.stats_min_abs,
+        global.stats_max_abs,
+        global.coeff_ratio(),
+        global.quality_label(),
+        ratio_threshold,
+        global.stats_zeroed);
+  } else {
+    spdlog::info(
+        "  LP coefficient analysis: {} LP(s), "
+        "global |coeff| [{:.3e}, {:.3e}], ratio={:.2e} ({}) — "
+        "exceeds threshold {:.0e}",
+        entries.size(),
+        global.stats_min_abs,
+        global.stats_max_abs,
+        global.coeff_ratio(),
+        global.quality_label(),
+        ratio_threshold);
   }
-  spdlog::info(header);
 
   // Show only the worst-case scene/phase.
   const auto& worst =
