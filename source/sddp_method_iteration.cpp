@@ -673,10 +673,19 @@ auto SDDPMethod::run_forward_pass_all_scenes(SDDPWorkPool& pool,
   for (const auto scene_index : iota_range<SceneIndex>(0, num_scenes)) {
     auto fwd = futures[scene_index].get();
     if (!fwd.has_value()) {
-      SPDLOG_WARN("SDDP Forward [i{} s{}]: failed: {}",
-                  iteration_index,
-                  uid_of(scene_index),
-                  fwd.error().message);
+      // Demoted to DEBUG: the per-(scene, phase) elastic-filter WARN
+      // already emitted by `forward_pass` carries the same message;
+      // this outer wrapper used to repeat it once per failed scene
+      // for an extra 16 redundant lines per iteration on juan/iplp.
+      // The aggregated rollback summary in `run_backward_pass_*`
+      // (`SDDP Forward [iN]: rolled back M cut row(s) across K
+      // infeasible scene(s) [s1=8 s3=8 …]`) is the user-facing
+      // signal; this DEBUG line preserves the per-scene tag for
+      // post-mortem with `-T`/`spdlog::set_level(debug)`.
+      spdlog::debug("SDDP Forward [i{} s{}]: failed: {}",
+                    iteration_index,
+                    uid_of(scene_index),
+                    fwd.error().message);
       out.has_feasibility_issue = true;
       out.scene_feasible[scene_index] = 0;
       m_scenes_done_.fetch_add(1);

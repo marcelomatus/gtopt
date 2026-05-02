@@ -353,15 +353,50 @@ class TestGTOptWriterProcessMethods:
         sddp = writer.planning["options"]["sddp_options"]
         assert sddp["convergence_tol"] == pytest.approx(0.05)
 
-    def test_process_options_stationary_tol_default_matches_convergence_tol(self):
-        """stationary_tol defaults to convergence_tol (not convergence_tol/10)."""
+    def test_process_options_stationary_tol_defaults_to_one_percent(self):
+        """stationary_tol defaults to 0.01 (1 %) — independent of
+        convergence_tol so the gap-still-moving heuristic isn't pinned to
+        the (often much tighter) PDError-derived convergence_tol."""
         mock_parser = self._make_plpmat_parser(pd_error=0.001)
         writer = GTOptWriter(mock_parser)
         writer.process_options({"output_dir": "out"})
         sddp = writer.planning["options"]["sddp_options"]
-        assert sddp["stationary_tol"] == pytest.approx(sddp["convergence_tol"])
-        assert sddp["stationary_tol"] == pytest.approx(0.001)
+        assert sddp["stationary_tol"] == pytest.approx(0.01)
+        # convergence_tol is still inherited from plpmat.dat (PDError = 0.001).
+        assert sddp["convergence_tol"] == pytest.approx(0.001)
         assert sddp["stationary_window"] == 4
+
+    def test_process_options_min_iterations_default_three(self):
+        """min_iterations defaults to 3 when not specified — forces the
+        SDDP loop to train at least 3 iterations before any convergence
+        test fires (CI / gap / stationary)."""
+        writer = GTOptWriter(MagicMock())
+        writer.process_options({"output_dir": "out"})
+        sddp = writer.planning["options"]["sddp_options"]
+        assert sddp["min_iterations"] == 3
+
+    def test_process_options_min_iterations_explicit_overrides(self):
+        """Explicit min_iterations overrides the default of 3."""
+        writer = GTOptWriter(MagicMock())
+        writer.process_options({"output_dir": "out", "min_iterations": 10})
+        sddp = writer.planning["options"]["sddp_options"]
+        assert sddp["min_iterations"] == 10
+
+    def test_process_options_convergence_confidence_default_p99(self):
+        """convergence_confidence defaults to 0.99 (z=2.576) so the
+        statistical CI test fires only when σ is truly tight."""
+        writer = GTOptWriter(MagicMock())
+        writer.process_options({"output_dir": "out"})
+        sddp = writer.planning["options"]["sddp_options"]
+        assert sddp["convergence_confidence"] == pytest.approx(0.99)
+
+    def test_process_options_convergence_confidence_explicit_overrides(self):
+        """Explicit convergence_confidence overrides the default of 0.99."""
+        writer = GTOptWriter(MagicMock())
+        writer.process_options({"output_dir": "out",
+                                "convergence_confidence": 0.95})
+        sddp = writer.planning["options"]["sddp_options"]
+        assert sddp["convergence_confidence"] == pytest.approx(0.95)
 
     def test_process_options_stationary_tol_explicit_overrides(self):
         """Explicit stationary_tol overrides the convergence_tol default."""

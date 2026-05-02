@@ -36,6 +36,35 @@ namespace gtopt
 
 namespace
 {
+/// Format a scalar with an SI suffix (`K`, `M`, `G`, `T`) so log lines
+/// stay readable at planning-cost magnitude.  Examples:
+///   * 1.234       → `"1.234"`
+///   * 1234.5      → `"1.234K"`
+///   * 161127348.5 → `"161.13M"`
+///   * 1.234e+09   → `"1.234G"`
+/// Picks 2 / 3 decimal places depending on magnitude so the printed
+/// string stays under 8 chars in typical use.  Negative values are
+/// prefixed with `-`; absolute value drives the suffix.  Used by the
+/// per-scene "SDDP Forward [..]: done, opex=…" log line and by the
+/// iter-end UB / LB / gap summary.
+[[nodiscard]] inline auto format_si(double v) -> std::string
+{
+  const double a = std::abs(v);
+  const char* sign = (v < 0.0) ? "-" : "";
+  if (a >= 1e12) {
+    return std::format("{}{:.3f}T", sign, a / 1e12);
+  }
+  if (a >= 1e9) {
+    return std::format("{}{:.3f}G", sign, a / 1e9);
+  }
+  if (a >= 1e6) {
+    return std::format("{}{:.2f}M", sign, a / 1e6);
+  }
+  if (a >= 1e3) {
+    return std::format("{}{:.2f}K", sign, a / 1e3);
+  }
+  return std::format("{}{:.4f}", sign, a);
+}
 }  // namespace
 
 auto SDDPMethod::forward_pass(SceneIndex scene_index,
@@ -330,7 +359,16 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
         // multi_cut_threshold, additionally install one bound cut per
         // activated slack (`build_multi_cuts`).
         int mc_added = 0;
-        std::string state_elems;
+        // Count of state-variable elements that actually appeared in the
+        // installed fcut (survivors of cut_coeff_eps filtering).  Used as
+        // the compact `state(N)` suffix on the per-fcut log line — the
+        // full `Class:name:col` list is identical iteration after
+        // iteration once the cell topology is fixed (juan/gtopt_iplp
+        // shows the same 8 reservoirs for 100s of fcut events) so
+        // emitting the names on every line produced a wall of repeated
+        // text without diagnostic value.  Operators who want the names
+        // can read the iteration-init log line that prints them once.
+        int state_elem_count = 0;
         if (phase_index) {
           const auto prev_phase_index = previous(phase_index);
           auto& prev_sys = planning_lp().system(scene_index, prev_phase_index);
@@ -497,28 +535,17 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
             }
           }
 
-          // List the state-variable elements actually present in the
-          // installed cut (survivors of cut_coeff_eps filtering), so
-          // the diagnostic points at the elements driving the fcut.
-          // Format: "Class:uid:col_name, ..." (e.g. "Reservoir:8:efin").
+          // Count the state-variable elements that actually appeared in
+          // the installed cut (survivors of cut_coeff_eps filtering).
+          // The list of names is deterministic for a given (scene, phase)
+          // cell (it's just `prev_state.outgoing_links` filtered by the
+          // cut), so we no longer print them on every fcut line — the
+          // count alone is enough for at-a-glance health monitoring.
           for (const auto& link : prev_state.outgoing_links) {
             if (!use_multi_cut && !feas_cut.cmap.contains(link.source_col)) {
               continue;
             }
-            if (!state_elems.empty()) {
-              state_elems += ", ";
-            }
-            // Prefer the human-readable name (e.g. "Reservoir:LMAULE:efin")
-            // when resolvable via the AMPL element-name registry; fall back
-            // to numeric uid when the element has no registered name
-            // (test fixtures, PAMPL-less JSON input).
-            if (!link.name.empty()) {
-              state_elems += std::format(
-                  "{}:{}:{}", link.class_name, link.name, link.col_name);
-            } else {
-              state_elems += std::format(
-                  "{}:{}:{}", link.class_name, Index {link.uid}, link.col_name);
-            }
+            ++state_elem_count;
           }
 
           // One-line per infeasible LP, emitted *after* the fcut (and any
@@ -539,14 +566,14 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
           if (m_options_.forward_fail_stop) {
             SPDLOG_INFO(
                 "SDDP Forward [i{} s{} p{}]: elastic → fcut on p{} "
-                "(infeas_count={}{}) state=[{}] fail-stop scene",
+                "(infeas_count={}{}, state({})) fail-stop scene",
                 iteration_index,
                 uid_of(scene_index),
                 uid_of(phase_index),
                 uid_of(prev_phase_index),
                 infeas_count,
                 mc_added > 0 ? std::format(" +{}mc", mc_added) : "",
-                state_elems);
+                state_elem_count);
 
             // Scene-level fail-stop: the fcut on p-1 has been installed
             // and persists in the global cut store across iterations.
@@ -571,14 +598,14 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
 
           SPDLOG_INFO(
               "SDDP Forward [i{} s{} p{}]: elastic → fcut on p{} "
-              "(infeas_count={}{}) state=[{}] backtrack→p{}",
+              "(infeas_count={}{}, state({})) backtrack→p{}",
               iteration_index,
               uid_of(scene_index),
               uid_of(phase_index),
               uid_of(prev_phase_index),
               infeas_count,
               mc_added > 0 ? std::format(" +{}mc", mc_added) : "",
-              state_elems,
+              state_elem_count,
               uid_of(prev_phase_index));
 
           // PLP-style backtrack: step phase_idx back to p-1 and re-solve
@@ -794,15 +821,20 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
         });
       }
 
-      SPDLOG_TRACE(
-          "SDDP Forward [i{} s{} p{}]: obj={:.4f} alpha={:.4f}"
-          " opex={:.4f}",
-          iteration_index,
-          uid_of(scene_index),
-          uid_of(phase_index),
-          obj_physical,
-          alpha_val,
-          state.forward_objective);
+      // Per-(scene, phase) progress at INFO so operators can `tail -f`
+      // the log and watch each scene advance through its phase grid.
+      // Compact format (`opex=12.3M`) keeps the line short enough for
+      // a wide terminal even with N=16 scenes posting concurrently.
+      // The aggregate scene-end "opex=…" line still emits below.
+      const auto num_phases = phases.size();
+      spdlog::info("SDDP Forward [i{} s{} p{}/{}]: opex={} (obj={}, α={})",
+                   iteration_index,
+                   uid_of(scene_index),
+                   uid_of(phase_index),
+                   num_phases,
+                   format_si(state.forward_objective),
+                   format_si(obj_physical),
+                   format_si(alpha_val));
 
       // Advance: phase_idx moves forward to p+1.  Backtracking paths
       // decrement phase_idx instead (see elastic branch above).
@@ -842,13 +874,12 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
       std::chrono::duration<double>(std::chrono::steady_clock::now()
                                     - fwd_scene_start)
           .count();
-  SPDLOG_INFO(
-      "SDDP Forward [i{} s{}]: done, total_opex={:.4f} ({:.3f}s) [thread {}]",
-      iteration_index,
-      uid_of(scene_index),
-      total_opex,
-      fwd_scene_s,
-      std::hash<std::thread::id> {}(fwd_tid) % 10000);
+  SPDLOG_INFO("SDDP Forward [i{} s{}]: done, opex={} ({:.1f}s) [thread {}]",
+              iteration_index,
+              uid_of(scene_index),
+              format_si(total_opex),
+              fwd_scene_s,
+              std::hash<std::thread::id> {}(fwd_tid) % 10000);
   return total_opex;
 }
 

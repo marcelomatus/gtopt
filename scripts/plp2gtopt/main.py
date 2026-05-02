@@ -410,6 +410,13 @@ def build_options(args: argparse.Namespace) -> dict:
         opts["stationary_tol"] = args.stationary_tol
     if args.stationary_window is not None:
         opts["stationary_window"] = args.stationary_window
+    # `getattr` defensively — `test_main_coverage` builds Namespaces by
+    # hand and may not declare these attrs.  Defaults flow through the
+    # writer-side fallback (gtopt_writer.process_options).
+    if getattr(args, "min_iterations", None) is not None:
+        opts["min_iterations"] = args.min_iterations
+    if getattr(args, "convergence_confidence", None) is not None:
+        opts["convergence_confidence"] = args.convergence_confidence
     opts["reservoir_scale_mode"] = args.reservoir_scale_mode
     if args.reservoir_energy_scale is not None:
         opts["reservoir_energy_scale"] = _parse_name_value_pairs(

@@ -217,11 +217,14 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
       }
       ir.scene_upper_bounds = std::move(fwd->scene_upper_bounds);
       ir.forward_pass_s = fwd->elapsed_s;
-      if (fwd->has_feasibility_issue) {
-        ir.feasibility_issue = true;
-        SPDLOG_INFO("SDDP Forward [i{}]: forward pass has feasibility issues",
-                    iteration_index);
-      }
+      // No additional info-level "forward pass has feasibility issues"
+      // log: when `forward_infeas_rollback` is on, the
+      // `SDDP Forward [iN]: rolled back M cut row(s) across K
+      // infeasible scene(s) [s1=8 s3=8 …]` line emitted by
+      // `run_forward_pass_all_scenes` already conveys exactly the same
+      // signal plus the per-scene breakdown — re-stating "has issues"
+      // 2 ms later was pure noise.
+      ir.feasibility_issue = fwd->has_feasibility_issue;
       SPDLOG_DEBUG("SDDP Forward [i{}]: done in {:.3f}s",
                    iteration_index,
                    fwd->elapsed_s);

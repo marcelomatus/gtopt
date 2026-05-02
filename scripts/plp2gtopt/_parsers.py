@@ -489,6 +489,34 @@ def add_solver_arguments(parser: argparse.ArgumentParser, conf: dict[str, str]) 
             "(default: not set; gtopt uses 4)"
         ),
     )
+    parser.add_argument(
+        "--min-iterations",
+        dest="min_iterations",
+        metavar="N",
+        type=int,
+        default=None,
+        help=(
+            "Minimum SDDP iterations before any convergence test fires.  "
+            "Forces the solver to train at least N iterations regardless of "
+            "gap / CI / stationary criteria.  "
+            "(default: emit 3 when not set; gtopt's own default differs)"
+        ),
+    )
+    parser.add_argument(
+        "--convergence-confidence",
+        dest="convergence_confidence",
+        metavar="P",
+        type=float,
+        default=None,
+        help=(
+            "Confidence level for the statistical CI convergence test (0-1).  "
+            "When > 0 with multiple scenes, declare convergence when "
+            "UB - LB <= z_{α/2} * σ where α = 1 - P.  P=0.95 → z=1.96, "
+            "P=0.99 → z=2.576 (stricter — harder to converge).  Set to 0 to "
+            "disable the CI test entirely.  "
+            "(default: emit 0.99 when not set)"
+        ),
+    )
 
 
 # ---------------------------------------------------------------------------

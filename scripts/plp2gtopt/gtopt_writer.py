@@ -259,16 +259,33 @@ class GTOptWriter(
 
         # Secondary (stationary gap) convergence criterion:
         # When the gap stops improving over a window of iterations, declare
-        # convergence even if gap > convergence_tol.  Defaulting stationary_tol
-        # to convergence_tol (instead of convergence_tol / 10) lets SDDP stop
-        # as soon as LB is no longer moving by more than the primary tolerance
-        # — on the support/juan/gtopt_iplp case this cuts ~2 stagnating iters
-        # (~350 s of backward-pass time) without changing solution quality.
-        stationary_tol = options.get("stationary_tol", convergence_tol)
+        # convergence even if gap > convergence_tol.  Default stationary_tol
+        # to 1 % so SDDP keeps iterating while the gap is still moving by ≥1 %
+        # per window step, and stops only once progress genuinely stalls.
+        # Earlier defaulting to `convergence_tol` (often 0.001 from PLP's
+        # PDError) made stationary detection too tight — the C++ statistical
+        # CI test would fire first and end training prematurely (juan run
+        # 2026-05-02 stopped at iter 1 with gap=0.288).
+        stationary_tol = options.get("stationary_tol", 0.01)
         sddp_opts["stationary_tol"] = stationary_tol
 
         stationary_window = options.get("stationary_window", 4)
         sddp_opts["stationary_window"] = stationary_window
+
+        # Statistical CI confidence for the secondary convergence test.
+        # Default 0.99 (z=2.576) — stricter than gtopt's own default
+        # (~0.90, z=1.645) so the CI test only fires when σ is truly
+        # tight, not on the first iter when scene-UB scatter is still
+        # high.  Set to 0 to disable the CI test entirely.
+        convergence_confidence = options.get("convergence_confidence", 0.99)
+        sddp_opts["convergence_confidence"] = convergence_confidence
+
+        # Minimum SDDP iterations before any convergence test fires.
+        # PLP has no equivalent setting; we emit 3 so that even a fast-
+        # converging case still trains a meaningful number of cuts before
+        # any stop test can trip.
+        min_iter = options.get("min_iterations", 3)
+        sddp_opts["min_iterations"] = min_iter
 
         # Cut coefficient tolerance (PLP OptiEPS equivalent).
         # cut_coeff_eps: drop coefficients with |value| < eps (default 1e-8).
