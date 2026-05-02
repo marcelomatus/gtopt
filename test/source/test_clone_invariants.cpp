@@ -37,6 +37,7 @@
 #include <doctest/doctest.h>
 #include <gtopt/label_maker.hpp>
 #include <gtopt/linear_interface.hpp>
+#include <gtopt/linear_problem.hpp>
 #include <gtopt/lp_validation.hpp>
 #include <gtopt/sparse_col.hpp>
 #include <gtopt/sparse_row.hpp>
@@ -85,6 +86,56 @@ LinearInterface make_labelled_lp()
   r[ColIndex {0}] = 1.0;
   r[ColIndex {1}] = 1.0;
   std::ignore = li.add_row(r);
+  return li;
+}
+
+// Build a snapshotted, labelled LP — same shape as `make_labelled_lp`
+// but routed through `LinearProblem::flatten` + `load_flat` +
+// `save_snapshot` so BOTH clone routes are exercisable on the result:
+//
+//   - `src.clone(kind)`           — solver-plugin clone (backend.clone)
+//   - `src.clone_from_flat(kind)` — manual clone via `load_flat` replay
+//
+// Caller-supplied `level` propagates into the LinearProblem's
+// LabelMaker and hence into the source LinearInterface via load_flat.
+LinearInterface make_snapshotted_labelled_lp(LpNamesLevel level)
+{
+  LinearProblem lp {"clone_routes_test"};
+  lp.set_label_maker(LabelMaker {level});
+  std::ignore = lp.add_col(SparseCol {
+      .uppb = 10.0,
+      .cost = 1.0,
+      .class_name = "Gen",
+      .variable_name = "p",
+      .variable_uid = 1,
+  });
+  std::ignore = lp.add_col(SparseCol {
+      .uppb = 20.0,
+      .cost = 2.0,
+      .class_name = "Gen",
+      .variable_name = "p",
+      .variable_uid = 2,
+  });
+  SparseRow r {
+      .lowb = 0.0,
+      .uppb = 100.0,
+      .class_name = "Bus",
+      .constraint_name = "balance",
+      .variable_uid = 1,
+  };
+  r[ColIndex {0}] = 1.0;
+  r[ColIndex {1}] = 1.0;
+  std::ignore = lp.add_row(std::move(r));
+
+  auto flat = lp.flatten({});
+
+  LinearInterface li;
+  // Compress mode + save_snapshot is the same shape `freeze_for_cuts`
+  // produces in normal SDDP build flow — ensures `clone_from_flat`'s
+  // pre-condition (`m_snapshot_.has_data()`) holds.
+  li.set_low_memory(LowMemoryMode::compress);
+  li.load_flat(flat);
+  li.save_snapshot(std::move(flat));
   return li;
 }
 
@@ -403,7 +454,7 @@ TEST_CASE(
   std::filesystem::remove(b_stem + ".lp", ec);
 }
 
-TEST_CASE("clone propagates LabelMaker configuration to the clone")
+TEST_CASE("clone propagates LabelMaker — solver-plugin AND manual routes")
 {
   // Regression guard: prior to the fix, `clone()` left
   // `cloned.m_label_maker_` default-constructed (LpNamesLevel::none).
@@ -411,55 +462,73 @@ TEST_CASE("clone propagates LabelMaker configuration to the clone")
   // a clone where `col_names_enabled()` / `row_names_enabled()` flipped
   // to false, breaking eager name tracking on subsequent clone-side
   // adds and altering `write_lp`'s label-generation contract.
-  // `clone_from_flat()` was unaffected (load_flat repopulates from the
-  // snapshot's label_maker) — the two routes diverged.
+  //
+  // BOTH routes must propagate the source's CURRENT label_maker:
+  //   - `clone(kind)`            — solver-plugin route via backend.clone()
+  //   - `clone_from_flat(kind)`  — manual route via load_flat replay.
+  //
+  // The manual route was previously OK (load_flat picks up the snapshot's
+  // `flat_lp.label_maker`) but only as long as the source's label_maker
+  // matched the snapshot.  Callers that `set_label_maker` AFTER load_flat
+  // would observe stale config on the manual clone too.  The fix
+  // re-applies the source's CURRENT setting in both routes.
   using Kind = LinearInterface::CloneKind;
 
-  LinearInterface src;
-  src.set_label_maker(LabelMaker {LpNamesLevel::all});
+  // Build via flatten/load_flat/save_snapshot so BOTH routes are usable.
+  auto src = make_snapshotted_labelled_lp(LpNamesLevel::all);
   REQUIRE(src.label_maker().names_level() == LpNamesLevel::all);
+  REQUIRE(src.has_snapshot_data());
 
-  // Add a labelled production col so write_lp has something to format.
-  std::ignore = src.add_col(SparseCol {
-      .uppb = 5.0,
-      .cost = 1.0,
-      .class_name = "Gen",
-      .variable_name = "p",
-      .variable_uid = 42,
-  });
+  // Drive a post-load-flat `set_label_maker` to prove the FIX picks up
+  // the source's CURRENT level rather than the snapshot's stale one.
+  src.set_label_maker(LabelMaker {LpNamesLevel::all});
 
-  for (auto kind : {Kind::deep, Kind::shallow}) {
-    auto cloned = src.clone(kind);
+  struct Route
+  {
+    const char* tag;
+    bool manual;
+  };
+  for (auto route : {Route {"plugin", false}, Route {"manual", true}}) {
+    for (auto kind : {Kind::deep, Kind::shallow}) {
+      auto cloned = route.manual ? src.clone_from_flat(kind) : src.clone(kind);
 
-    // Direct check — label_maker MUST propagate.
-    CHECK(cloned.label_maker().names_level() == LpNamesLevel::all);
-    CHECK(cloned.label_maker().col_names_enabled());
-    CHECK(cloned.label_maker().row_names_enabled());
+      // Direct check — label_maker MUST propagate.
+      CAPTURE(route.tag);
+      CHECK(cloned.label_maker().names_level() == LpNamesLevel::all);
+      CHECK(cloned.label_maker().col_names_enabled());
+      CHECK(cloned.label_maker().row_names_enabled());
 
-    // Indirect check via write_lp on the clone: the source's label
-    // must round-trip into the dump even on the cloned LP.
-    const auto tmpdir = std::filesystem::temp_directory_path();
-    const auto stem =
-        (tmpdir
-         / std::string {kind == Kind::deep ? "test_clone_lm_deep"
-                                           : "test_clone_lm_shallow"})
-            .string();
-    REQUIRE(cloned.write_lp(stem).has_value());
-    const auto content = read_file(stem + ".lp");
-    CHECK(content.find("gen") != std::string::npos);  // class_name lowercased
-    CHECK(content.find("_42") != std::string::npos);  // variable_uid in label
+      // Indirect check via write_lp on the clone: the source's labels
+      // must round-trip into the dump on the cloned LP.
+      const auto tmpdir = std::filesystem::temp_directory_path();
+      const auto stem =
+          (tmpdir
+           / std::string {std::string {"test_clone_lm_"} + route.tag + "_"
+                          + (kind == Kind::deep ? "deep" : "shallow")})
+              .string();
+      REQUIRE(cloned.write_lp(stem).has_value());
+      const auto content = read_file(stem + ".lp");
+      CHECK(content.find("gen") != std::string::npos);
+      CHECK(content.find("bus") != std::string::npos);
 
-    std::error_code ec;
-    std::filesystem::remove(stem + ".lp", ec);
+      std::error_code ec;
+      std::filesystem::remove(stem + ".lp", ec);
+    }
   }
 }
 
-TEST_CASE("clone propagates LpValidationOptions and resets LpValidationStats")
+TEST_CASE("clone propagates LpValidationOptions and resets stats — both routes")
 {
   // Validation thresholds are part of the source's configuration and
-  // must travel with the clone.  Validation STATS, however, are
-  // counters — each clone tracks only the writes that land on it.
-  LinearInterface src;
+  // must travel with the clone via BOTH the solver-plugin route
+  // (`clone`) and the manual route (`clone_from_flat`).  Validation
+  // STATS, however, are counters — each clone tracks only the writes
+  // that land on it.
+  using Kind = LinearInterface::CloneKind;
+
+  auto src = make_snapshotted_labelled_lp(LpNamesLevel::all);
+  REQUIRE(src.has_snapshot_data());
+
   LpValidationOptions opts;
   opts.enable = true;
   opts.bound_warn_max = 1.0e9;  // distinguishably-not-the-default 1e12
@@ -476,25 +545,32 @@ TEST_CASE("clone propagates LpValidationOptions and resets LpValidationStats")
   });
   REQUIRE(src.lp_validation_stats().bound_huge_count > 0);
 
-  for (auto kind :
-       {LinearInterface::CloneKind::deep, LinearInterface::CloneKind::shallow})
+  struct Route
   {
-    const auto cloned = src.clone(kind);
+    const char* tag;
+    bool manual;
+  };
+  for (auto route : {Route {"plugin", false}, Route {"manual", true}}) {
+    for (auto kind : {Kind::deep, Kind::shallow}) {
+      const auto cloned =
+          route.manual ? src.clone_from_flat(kind) : src.clone(kind);
 
-    // Options must match the source's — the deferred-format note_*
-    // overloads route through these thresholds before paying for any
-    // std::format on the cold path.
-    CHECK(cloned.lp_validation_options().enable.value_or(false) == true);
-    CHECK(cloned.lp_validation_options().bound_warn_max.value_or(0.0)
-          == doctest::Approx(1.0e9));
-    CHECK(cloned.lp_validation_options().coeff_warn_max.value_or(0.0)
-          == doctest::Approx(1.0e8));
+      CAPTURE(route.tag);
+      // Options must match the source's — the deferred-format note_*
+      // overloads route through these thresholds before paying for any
+      // std::format on the cold path.
+      CHECK(cloned.lp_validation_options().enable.value_or(false) == true);
+      CHECK(cloned.lp_validation_options().bound_warn_max.value_or(0.0)
+            == doctest::Approx(1.0e9));
+      CHECK(cloned.lp_validation_options().coeff_warn_max.value_or(0.0)
+            == doctest::Approx(1.0e8));
 
-    // Stats must be fresh on the clone — only the source observed the
-    // huge bound, the clone has not seen it (the backend.clone() copy
-    // produces the row-bound directly into the solver, bypassing the
-    // hooks).
-    CHECK(cloned.lp_validation_stats().bound_huge_count == 0);
-    CHECK(cloned.lp_validation_stats().total_count() == 0);
+      // Stats must be fresh on the clone.  Note the manual route also
+      // does NOT replay the source's post-snapshot `add_col` — the
+      // snapshot was captured before that add — so neither route should
+      // see the huge bound on the clone's accumulator.
+      CHECK(cloned.lp_validation_stats().bound_huge_count == 0);
+      CHECK(cloned.lp_validation_stats().total_count() == 0);
+    }
   }
 }
