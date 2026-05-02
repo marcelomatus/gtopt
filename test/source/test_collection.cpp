@@ -5,6 +5,7 @@
 
 #include <doctest/doctest.h>
 #include <gtopt/collection.hpp>
+#include <gtopt/lp_class_name.hpp>
 
 using namespace gtopt;  // NOLINT(google-global-names-in-headers)
 
@@ -13,7 +14,10 @@ namespace  // NOLINT
 
 struct test_object
 {
-  static constexpr std::string_view ClassName = "test_object";
+  /// Self-alias so the templates in `Collection<>` (which read
+  /// `Type::Element::class_name`) work for this test stand-in too.
+  using Element = test_object;
+  static constexpr LPClassName class_name {"test_object"};
   Uid uid {unknown_uid};
   Name name {};
   int value {};

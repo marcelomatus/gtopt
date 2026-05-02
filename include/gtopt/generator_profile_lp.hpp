@@ -33,7 +33,6 @@ class GeneratorProfileLP : public ProfileObjectLP<GeneratorProfile, GeneratorLP>
 {
 public:
   /// Class name constant used for labeling LP elements
-  static constexpr LPClassName ClassName {"GeneratorProfile"};
   static constexpr std::string_view SpilloverName {"spillover"};
 
   explicit GeneratorProfileLP(const GeneratorProfile& pgenerator_profile,
@@ -63,5 +62,12 @@ public:
       const std::function<std::optional<double>(StageUid, BlockUid)>& value_fn,
       const StageLP& stage) const;
 };
+
+// Pin the data-struct constant value so an accidental rename of the
+// `GeneratorProfile::class_name` literal fails the build (LP row labels and
+// CSV outputs depend on the exact string `"GeneratorProfile"`).
+static_assert(GeneratorProfileLP::Element::class_name
+                  == LPClassName {"GeneratorProfile"},
+              "GeneratorProfile::class_name must remain \"GeneratorProfile\"");
 
 }  // namespace gtopt

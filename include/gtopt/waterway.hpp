@@ -34,6 +34,7 @@
 #pragma once
 
 #include <gtopt/field_sched.hpp>
+#include <gtopt/lp_class_name.hpp>
 #include <gtopt/single_id.hpp>
 
 namespace gtopt
@@ -54,6 +55,13 @@ namespace gtopt
  */
 struct Waterway
 {
+  /// Canonical class-name constant used in LP row labels and config
+  /// fields like `VariableScale::class_name`.  Single source of truth —
+  /// `WaterwayLP` exposes no separate `ClassName` member; callers reach
+  /// the constant via `Waterway::class_name` directly (or
+  /// `WaterwayLP::Element::class_name` in generic contexts).
+  static constexpr LPClassName class_name {"Waterway"};
+
   Uid uid {unknown_uid};  ///< Unique identifier
   Name name {};  ///< Human-readable waterway name
   OptActive active {};  ///< Activation status (default: active)

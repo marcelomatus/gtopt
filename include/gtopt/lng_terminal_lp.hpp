@@ -35,7 +35,6 @@ using LngTerminalLPSId = ObjectSingleId<class LngTerminalLP>;
 class LngTerminalLP : public StorageLP<ObjectLP<LngTerminal>>
 {
 public:
-  static constexpr LPClassName ClassName {LngTerminal::class_name};
   static constexpr std::string_view DeliveryName {"delivery"};
 
   using StorageBase = StorageLP<ObjectLP<LngTerminal>>;
@@ -76,5 +75,11 @@ private:
   OptTRealSched scost;
   STBIndexHolder<ColIndex> delivery_cols;
 };
+
+// Pin the data-struct constant value so an accidental rename of the
+// `LngTerminal::class_name` literal fails the build (LP row labels and
+// CSV outputs depend on the exact string `"LngTerminal"`).
+static_assert(LngTerminalLP::Element::class_name == LPClassName {"LngTerminal"},
+              "LngTerminal::class_name must remain \"LngTerminal\"");
 
 }  // namespace gtopt

@@ -178,7 +178,7 @@ public:
       if (!puid_map.emplace(uid, i).second) {
         const auto msg =
             std::format("in class {}, non-unique uid {} or name {}",
-                        Type::ClassName,
+                        Type::Element::class_name,
                         uid,
                         name);
         SPDLOG_CRITICAL(msg);
@@ -188,7 +188,7 @@ public:
       if (!pname_map.emplace(name_t {name}, i).second) {
         const auto msg =
             std::format("in class {}, non-unique name {} or uid {}",
-                        Type::ClassName,
+                        Type::Element::class_name,
                         name,
                         uid);
         SPDLOG_CRITICAL(msg);
@@ -241,7 +241,7 @@ public:
 
     if (!uid_map.emplace(uid, idx).second) {
       const auto msg = std::format("in class {}, non-unique uid {} or name {}",
-                                   Type::ClassName,
+                                   Type::Element::class_name,
                                    uid,
                                    name);
       SPDLOG_CRITICAL(msg);
@@ -250,7 +250,7 @@ public:
 
     if (!name_map.emplace(name_t {name}, idx).second) {
       const auto msg = std::format("in class {}, non-unique name {} or uid {}",
-                                   Type::ClassName,
+                                   Type::Element::class_name,
                                    name,
                                    uid);
       SPDLOG_CRITICAL(msg);

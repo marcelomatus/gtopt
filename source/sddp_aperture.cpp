@@ -316,11 +316,12 @@ auto solve_apertures_for_phase(
                                    StageUid st,
                                    BlockUid bl) -> std::optional<double>
                     {
-                      return aperture_cache.lookup(E::ClassName.full_name(),
-                                                   e.id().second,
-                                                   ap_uid_val,
-                                                   st,
-                                                   bl);
+                      return aperture_cache.lookup(
+                          E::Element::class_name.full_name(),
+                          e.id().second,
+                          ap_uid_val,
+                          st,
+                          bl);
                     };
                   }
                   [[maybe_unused]] const auto ok =

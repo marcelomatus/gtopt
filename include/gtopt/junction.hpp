@@ -22,6 +22,7 @@
 #pragma once
 
 #include <gtopt/field_sched.hpp>
+#include <gtopt/lp_class_name.hpp>
 
 namespace gtopt
 {
@@ -40,6 +41,13 @@ namespace gtopt
  */
 struct Junction
 {
+  /// Canonical class-name constant used in LP row labels and config
+  /// fields like `VariableScale::class_name`.  Single source of truth —
+  /// `JunctionLP` exposes no separate `ClassName` member; callers reach
+  /// the constant via `Junction::class_name` directly (or
+  /// `JunctionLP::Element::class_name` in generic contexts).
+  static constexpr LPClassName class_name {"Junction"};
+
   Uid uid {unknown_uid};  ///< Unique identifier
   Name name {};  ///< Human-readable junction name
   OptActive active {};  ///< Activation status (default: active)

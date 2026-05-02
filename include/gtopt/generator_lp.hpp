@@ -27,7 +27,6 @@ namespace gtopt
 class GeneratorLP : public CapacityObjectLP<Generator>
 {
 public:
-  static constexpr LPClassName ClassName {"Generator"};
   static constexpr std::string_view GenerationName {"generation"};
   static constexpr std::string_view CapacityName {"capacity"};
   /// Filter metadata keys published by `add_to_lp` for `sum(...)`
@@ -108,5 +107,11 @@ private:
 
 using GeneratorLPId = ObjectId<GeneratorLP>;
 using GeneratorLPSId = ObjectSingleId<GeneratorLP>;
+
+// Pin the data-struct constant value so an accidental rename of the
+// `Generator::class_name` literal fails the build (LP row labels and
+// CSV outputs depend on the exact string `"Generator"`).
+static_assert(GeneratorLP::Element::class_name == LPClassName {"Generator"},
+              "Generator::class_name must remain \"Generator\"");
 
 }  // namespace gtopt

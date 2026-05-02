@@ -121,7 +121,7 @@ constexpr auto add_to_lp(auto& collections,
         SPDLOG_ERROR(
             std::format("Error adding {} uid={} to LP "
                         "(scenario={}, stage={}): {}",
-                        T::ClassName,
+                        T::Element::class_name,
                         e.uid(),
                         scenario.uid(),
                         stage.uid(),
@@ -630,7 +630,7 @@ void create_collections(const auto& system_context,
 template<typename LP, typename Array>
 void register_element_names(SimulationLP& sim, const Array& arr)
 {
-  constexpr auto class_name = LP::ClassName.snake_case();
+  constexpr auto class_name = LP::Element::class_name.snake_case();
   for (const auto& obj : arr) {
     sim.register_ampl_element(class_name, obj.name, obj.uid);
   }
@@ -673,7 +673,7 @@ void register_all_ampl_element_names(SimulationLP& sim, const System& sys)
   // Class-level compound: `line.flow = +flowp − flown`.
   // Registered once globally; the resolver expands it per-(uid, block).
   {
-    constexpr auto line_class = LineLP::ClassName.snake_case();
+    constexpr auto line_class = Line::class_name.snake_case();
     sim.add_ampl_compound(line_class,
                           LineLP::FlowName,
                           {
@@ -730,8 +730,8 @@ void register_all_ampl_element_names(SimulationLP& sim, const System& sys)
   // `user_constraint_lp.cpp` will still throw.
   {
     const auto& opts = sim.options();
-    constexpr auto line_cls = LineLP::ClassName.snake_case();
-    constexpr auto bus_cls = BusLP::ClassName.snake_case();
+    constexpr auto line_cls = Line::class_name.snake_case();
+    constexpr auto bus_cls = Bus::class_name.snake_case();
 
     // The two flags are independent:
     //   * !use_kirchhoff suppresses `bus.theta` (theta columns are not
@@ -776,11 +776,11 @@ void register_all_ampl_element_names(SimulationLP& sim, const System& sys)
         "per-element: capacity expansion is opt-in";
     for (const auto cls :
          {
-             GeneratorLP::ClassName.snake_case(),
-             DemandLP::ClassName.snake_case(),
-             LineLP::ClassName.snake_case(),
-             ConverterLP::ClassName.snake_case(),
-             BatteryLP::ClassName.snake_case(),
+             Generator::class_name.snake_case(),
+             Demand::class_name.snake_case(),
+             Line::class_name.snake_case(),
+             Converter::class_name.snake_case(),
+             Battery::class_name.snake_case(),
          })
     {
       sim.suppress_ampl_attribute(

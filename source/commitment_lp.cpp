@@ -22,13 +22,17 @@ namespace gtopt
 {
 
 CommitmentLP::CommitmentLP(const Commitment& commitment, const InputContext& ic)
-    : Base(commitment, ic, ClassName)
+    : Base(commitment, ic, Element::class_name)
     , generator_index_(ic.element_index(generator_sid()))
-    , startup_cost_(ic, ClassName, id(), std::move(object().startup_cost))
-    , shutdown_cost_(ic, ClassName, id(), std::move(object().shutdown_cost))
-    , fuel_cost_(ic, ClassName, id(), std::move(object().fuel_cost))
-    , fuel_emission_factor_(
-          ic, ClassName, id(), std::move(object().fuel_emission_factor))
+    , startup_cost_(
+          ic, Element::class_name, id(), std::move(object().startup_cost))
+    , shutdown_cost_(
+          ic, Element::class_name, id(), std::move(object().shutdown_cost))
+    , fuel_cost_(ic, Element::class_name, id(), std::move(object().fuel_cost))
+    , fuel_emission_factor_(ic,
+                            Element::class_name,
+                            id(),
+                            std::move(object().fuel_emission_factor))
 {
 }
 
@@ -59,7 +63,7 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
     return true;
   }
 
-  static constexpr std::string_view cname = ClassName.full_name();
+  static constexpr std::string_view cname = Element::class_name.full_name();
   const auto cuid = uid();
 
   // Resolve commitment parameters
@@ -923,7 +927,7 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
 
 bool CommitmentLP::add_to_output(OutputContext& out) const
 {
-  static constexpr std::string_view cname = ClassName.full_name();
+  static constexpr std::string_view cname = Element::class_name.full_name();
   const auto pid = id();
 
   out.add_col_sol(cname, StatusName, pid, status_cols_);

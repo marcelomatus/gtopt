@@ -57,9 +57,8 @@
 
 #pragma once
 
-#include <string_view>
-
 #include <gtopt/field_sched.hpp>
+#include <gtopt/lp_class_name.hpp>
 #include <gtopt/object.hpp>
 
 namespace gtopt
@@ -97,10 +96,12 @@ struct LngGeneratorLink
  */
 struct LngTerminal
 {
-  /// Canonical class-name string used in LP row labels and config
-  /// fields like `VariableScale::class_name`.  Single source of truth;
-  /// `LngTerminalLP::ClassName` is constructed from this.
-  static constexpr std::string_view class_name = "LngTerminal";
+  /// Canonical class-name constant used in LP row labels and config
+  /// fields like `VariableScale::class_name`.  Single source of truth —
+  /// `LngTerminalLP` exposes no separate `ClassName` member; callers
+  /// reach the constant via `LngTerminal::class_name` directly (or
+  /// `LngTerminalLP::Element::class_name` in generic contexts).
+  static constexpr LPClassName class_name {"LngTerminal"};
 
   /// @name Default physical constants
   /// @{

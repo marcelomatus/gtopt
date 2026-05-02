@@ -21,9 +21,9 @@ namespace gtopt
 {
 
 ConverterLP::ConverterLP(const Converter& pconverter, InputContext& ic)
-    : CapacityBase(pconverter, ic, ClassName)
+    : CapacityBase(pconverter, ic, Element::class_name)
     , conversion_rate(
-          ic, ClassName, id(), std::move(converter().conversion_rate))
+          ic, Element::class_name, id(), std::move(converter().conversion_rate))
 {
 }
 
@@ -32,7 +32,7 @@ bool ConverterLP::add_to_lp(SystemContext& sc,
                             const StageLP& stage,
                             LinearProblem& lp)
 {
-  static constexpr auto ampl_name = ClassName.snake_case();
+  static constexpr auto ampl_name = Element::class_name.snake_case();
 
   if (!CapacityBase::add_to_lp(sc, ampl_name, scenario, stage, lp)) [[unlikely]]
   {
@@ -76,7 +76,7 @@ bool ConverterLP::add_to_lp(SystemContext& sc,
     {
       auto grow =
           SparseRow {
-              .class_name = ClassName.full_name(),
+              .class_name = Element::class_name.full_name(),
               .constraint_name = GenerationName,
               .variable_uid = uid(),
               .context = block_context,
@@ -94,7 +94,7 @@ bool ConverterLP::add_to_lp(SystemContext& sc,
       const auto icol = finp_cols.at(buid);
       auto drow =
           SparseRow {
-              .class_name = ClassName.full_name(),
+              .class_name = Element::class_name.full_name(),
               .constraint_name = DemandName,
               .variable_uid = uid(),
               .context = block_context,
@@ -109,7 +109,7 @@ bool ConverterLP::add_to_lp(SystemContext& sc,
     if (capacity_col) {
       auto crow =
           SparseRow {
-              .class_name = ClassName.full_name(),
+              .class_name = Element::class_name.full_name(),
               .constraint_name = CapacityName,
               .variable_uid = uid(),
               .context = block_context,
@@ -149,7 +149,7 @@ bool ConverterLP::add_to_lp(SystemContext& sc,
 
 bool ConverterLP::add_to_output(OutputContext& out) const
 {
-  static constexpr std::string_view cname = ClassName.full_name();
+  static constexpr std::string_view cname = Element::class_name.full_name();
 
   out.add_row_dual(cname, GenerationName, id(), generation_rows);
   out.add_row_dual(cname, DemandName, id(), demand_rows);

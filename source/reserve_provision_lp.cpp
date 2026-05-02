@@ -171,14 +171,14 @@ ReserveProvisionLP::ReserveProvisionLP(
     const ReserveProvision& preserve_provision, const InputContext& ic)
     : Base(preserve_provision)
     , up(ic,
-         ClassName,
+         Element::class_name,
          id(),
          std::move(reserve_provision().urmax),
          std::move(reserve_provision().urcost),
          std::move(reserve_provision().ur_capacity_factor),
          std::move(reserve_provision().ur_provision_factor))
     , dp(ic,
-         ClassName,
+         Element::class_name,
          id(),
          std::move(reserve_provision().drmax),
          std::move(reserve_provision().drcost),
@@ -195,8 +195,8 @@ bool ReserveProvisionLP::add_to_lp(const SystemContext& sc,
                                    const StageLP& stage,
                                    LinearProblem& lp)
 {
-  static constexpr std::string_view cname = ClassName.full_name();
-  static constexpr auto ampl_name = ClassName.snake_case();
+  static constexpr std::string_view cname = Element::class_name.full_name();
+  static constexpr auto ampl_name = Element::class_name.snake_case();
 
   if (!is_active(stage)) {
     return true;
@@ -323,7 +323,7 @@ bool ReserveProvisionLP::add_to_lp(const SystemContext& sc,
 
 bool ReserveProvisionLP::add_to_output(OutputContext& out) const
 {
-  static constexpr std::string_view cname = ClassName.full_name();
+  static constexpr std::string_view cname = Element::class_name.full_name();
   const auto pid = id();
 
   out.add_col_sol(cname, UprovisionName, pid, up.provision_cols);

@@ -23,6 +23,7 @@
 
 #pragma once
 
+#include <gtopt/lp_class_name.hpp>
 #include <gtopt/object.hpp>
 
 namespace gtopt
@@ -42,6 +43,13 @@ namespace gtopt
  */
 struct InertiaZone
 {
+  /// Canonical class-name constant used in LP row labels and config
+  /// fields like `VariableScale::class_name`.  Single source of truth —
+  /// `InertiaZoneLP` exposes no separate `ClassName` member; callers
+  /// reach the constant via `InertiaZone::class_name` directly (or
+  /// `InertiaZoneLP::Element::class_name` in generic contexts).
+  static constexpr LPClassName class_name {"InertiaZone"};
+
   Uid uid {unknown_uid};  ///< Unique identifier
   Name name {};  ///< Human-readable name
   OptActive active {};  ///< Activation status

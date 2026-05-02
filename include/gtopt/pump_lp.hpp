@@ -46,7 +46,6 @@ using PumpLPSId = ObjectSingleId<class PumpLP>;
 class PumpLP : public ObjectLP<Pump>
 {
 public:
-  static constexpr LPClassName ClassName {"Pump"};
   static constexpr std::string_view ConversionName {"conversion"};
   static constexpr std::string_view CapacityName {"capacity"};
 
@@ -101,5 +100,11 @@ private:
   STBIndexHolder<RowIndex> conversion_rows;
   STBIndexHolder<RowIndex> capacity_rows;
 };
+
+// Pin the data-struct constant value so an accidental rename of the
+// `Pump::class_name` literal fails the build (LP row labels and
+// CSV outputs depend on the exact string `"Pump"`).
+static_assert(PumpLP::Element::class_name == LPClassName {"Pump"},
+              "Pump::class_name must remain \"Pump\"");
 
 }  // namespace gtopt

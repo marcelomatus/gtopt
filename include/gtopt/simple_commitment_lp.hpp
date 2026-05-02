@@ -26,7 +26,6 @@ namespace gtopt
 class SimpleCommitmentLP : public ObjectLP<SimpleCommitment>
 {
 public:
-  static constexpr LPClassName ClassName {"SimpleCommitment"};
   static constexpr std::string_view StatusName {"status"};
   static constexpr std::string_view GenUpperName {"gen_upper"};
   static constexpr std::string_view GenLowerName {"gen_lower"};
@@ -78,5 +77,12 @@ private:
   STBIndexHolder<RowIndex> gen_upper_rows_;
   STBIndexHolder<RowIndex> gen_lower_rows_;
 };
+
+// Pin the data-struct constant value so an accidental rename of the
+// `SimpleCommitment::class_name` literal fails the build (LP row labels and
+// CSV outputs depend on the exact string `"SimpleCommitment"`).
+static_assert(SimpleCommitmentLP::Element::class_name
+                  == LPClassName {"SimpleCommitment"},
+              "SimpleCommitment::class_name must remain \"SimpleCommitment\"");
 
 }  // namespace gtopt

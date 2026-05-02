@@ -40,7 +40,6 @@ using TurbineLPSId = ObjectSingleId<class TurbineLP>;
 class TurbineLP : public ObjectLP<Turbine>
 {
 public:
-  static constexpr LPClassName ClassName {"Turbine"};
   static constexpr std::string_view ConversionName {"conversion"};
   static constexpr std::string_view CapacityName {"capacity"};
 
@@ -114,5 +113,11 @@ private:
   STBIndexHolder<RowIndex> conversion_rows;
   STBIndexHolder<RowIndex> capacity_rows;
 };
+
+// Pin the data-struct constant value so an accidental rename of the
+// `Turbine::class_name` literal fails the build (LP row labels and
+// CSV outputs depend on the exact string `"Turbine"`).
+static_assert(TurbineLP::Element::class_name == LPClassName {"Turbine"},
+              "Turbine::class_name must remain \"Turbine\"");
 
 }  // namespace gtopt

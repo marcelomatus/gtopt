@@ -51,9 +51,9 @@
 #pragma once
 
 #include <array>
-#include <string_view>
 
 #include <gtopt/field_sched.hpp>
+#include <gtopt/lp_class_name.hpp>
 #include <gtopt/object.hpp>
 #include <gtopt/reservoir_discharge_limit.hpp>
 #include <gtopt/reservoir_production_factor.hpp>
@@ -81,10 +81,12 @@ namespace gtopt
  */
 struct Reservoir
 {
-  /// Canonical class-name string used in LP row labels and config
-  /// fields like `VariableScale::class_name`.  Single source of truth;
-  /// `ReservoirLP::ClassName` is constructed from this.
-  static constexpr std::string_view class_name = "Reservoir";
+  /// Canonical class-name constant used in LP row labels and config
+  /// fields like `VariableScale::class_name`.  Single source of truth —
+  /// `ReservoirLP` exposes no separate `ClassName` member; callers
+  /// reach the constant via `Reservoir::class_name` directly (or
+  /// `ReservoirLP::Element::class_name` in generic contexts).
+  static constexpr LPClassName class_name {"Reservoir"};
 
   /// @name Default physical constants
   /// @{

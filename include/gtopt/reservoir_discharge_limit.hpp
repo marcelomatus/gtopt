@@ -45,6 +45,7 @@
 
 #include <vector>
 
+#include <gtopt/lp_class_name.hpp>
 #include <gtopt/object.hpp>
 #include <gtopt/single_id.hpp>
 
@@ -82,6 +83,14 @@ struct ReservoirDischargeLimitSegment
  */
 struct ReservoirDischargeLimit
 {
+  /// Canonical class-name constant used in LP row labels and config
+  /// fields like `VariableScale::class_name`.  Single source of truth —
+  /// `ReservoirDischargeLimitLP` exposes no separate `ClassName` member;
+  /// callers reach the constant via `ReservoirDischargeLimit::class_name`
+  /// directly (or `ReservoirDischargeLimitLP::Element::class_name` in
+  /// generic contexts).
+  static constexpr LPClassName class_name {"ReservoirDischargeLimit"};
+
   Uid uid {unknown_uid};  ///< Unique identifier
   Name name {};  ///< Human-readable name
   OptActive active {};  ///< Operational status (default: active)

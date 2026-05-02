@@ -66,7 +66,7 @@ bool ReservoirDischargeLimitLP::add_to_lp(const SystemContext& sc,
 
   // 1. Create qeh variable (free, stage-average hourly discharge)
   const auto qeh_col = lp.add_col(SparseCol {
-      .class_name = ClassName.full_name(),
+      .class_name = Element::class_name.full_name(),
       .variable_name = QehName,
       .variable_uid = uid(),
       .context = stage_context,
@@ -76,7 +76,7 @@ bool ReservoirDischargeLimitLP::add_to_lp(const SystemContext& sc,
   // 2. Single averaging constraint: qeh - Σ_b (dur_b / dur_stage) × flow_b = 0
   auto avg_row =
       SparseRow {
-          .class_name = ClassName.full_name(),
+          .class_name = Element::class_name.full_name(),
           .constraint_name = QavgName,
           .variable_uid = uid(),
           .context = stage_context,
@@ -95,7 +95,7 @@ bool ReservoirDischargeLimitLP::add_to_lp(const SystemContext& sc,
   //    qeh - slope × 0.5 × eini - slope × 0.5 × efin  ≤  intercept
   auto vol_row =
       SparseRow {
-          .class_name = ClassName.full_name(),
+          .class_name = Element::class_name.full_name(),
           .constraint_name = DvolName,
           .variable_uid = uid(),
           .context = stage_context,
@@ -121,7 +121,7 @@ bool ReservoirDischargeLimitLP::add_to_lp(const SystemContext& sc,
 
 bool ReservoirDischargeLimitLP::add_to_output(OutputContext& out) const
 {
-  static constexpr std::string_view cname = ClassName.full_name();
+  static constexpr std::string_view cname = Element::class_name.full_name();
   const auto pid = id();
 
   out.add_col_sol(cname, QehName, pid, qeh_cols);

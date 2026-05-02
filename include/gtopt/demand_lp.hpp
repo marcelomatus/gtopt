@@ -11,7 +11,6 @@ namespace gtopt
 class DemandLP : public CapacityObjectLP<Demand>
 {
 public:
-  static constexpr LPClassName ClassName {"Demand"};
   static constexpr std::string_view LoadName {"load"};
   static constexpr std::string_view FailName {"fail"};
   static constexpr std::string_view BalanceName {"balance"};
@@ -96,5 +95,11 @@ private:
 
 using DemandLPId = ObjectId<DemandLP>;
 using DemandLPSId = ObjectSingleId<DemandLP>;
+
+// Pin the data-struct constant value so an accidental rename of the
+// `Demand::class_name` literal fails the build (LP row labels and
+// CSV outputs depend on the exact string `"Demand"`).
+static_assert(DemandLP::Element::class_name == LPClassName {"Demand"},
+              "Demand::class_name must remain \"Demand\"");
 
 }  // namespace gtopt

@@ -20,9 +20,9 @@ namespace gtopt
 {
 
 ReservoirLP::ReservoirLP(const Reservoir& preservoir, const InputContext& ic)
-    : StorageBase(preservoir, ic, ClassName)
-    , capacity(ic, ClassName, id(), std::move(reservoir().capacity))
-    , scost(ic, ClassName, id(), std::move(reservoir().scost))
+    : StorageBase(preservoir, ic, Element::class_name)
+    , capacity(ic, Element::class_name, id(), std::move(reservoir().capacity))
+    , scost(ic, Element::class_name, id(), std::move(reservoir().scost))
 {
 }
 
@@ -45,8 +45,8 @@ bool ReservoirLP::add_to_lp(SystemContext& sc,
                             const StageLP& stage,
                             LinearProblem& lp)
 {
-  static constexpr const auto& cname = ClassName;
-  static constexpr auto ampl_name = ClassName.snake_case();
+  static constexpr const auto& cname = Element::class_name;
+  static constexpr auto ampl_name = Element::class_name.snake_case();
 
   if (!is_active(stage)) {
     return true;
@@ -87,7 +87,7 @@ bool ReservoirLP::add_to_lp(SystemContext& sc,
     const auto rc = lp.add_col(SparseCol {
         .lowb = fmin,
         .uppb = fmax,
-        .class_name = ClassName.full_name(),
+        .class_name = Element::class_name.full_name(),
         .variable_name = ExtractionName,
         .variable_uid = uid(),
         .context = make_block_context(scenario.uid(), stage.uid(), block.uid()),
@@ -110,7 +110,7 @@ bool ReservoirLP::add_to_lp(SystemContext& sc,
   const StorageOptions opts {
       .use_state_variable = reservoir().use_state_variable.value_or(true),
       .daily_cycle = reservoir().daily_cycle.value_or(false),
-      .class_name = ClassName.full_name(),
+      .class_name = Element::class_name.full_name(),
       .variable_uid = uid(),
       .energy_scale = energy_scale,
       .flow_scale = flow_scale,
@@ -194,14 +194,14 @@ bool ReservoirLP::add_to_lp(SystemContext& sc,
  */
 bool ReservoirLP::add_to_output(OutputContext& out) const
 {
-  static constexpr const auto& cname = ClassName;
+  static constexpr const auto& cname = Element::class_name;
 
   // Extraction columns have .scale = flow_scale; auto-descaled by
   // LinearInterface's get_col_sol() / get_col_cost().
   out.add_col_sol(cname, ExtractionName, id(), extraction_cols);
   out.add_col_cost(cname, ExtractionName, id(), extraction_cols);
 
-  return StorageBase::add_to_output(out, ClassName.full_name());
+  return StorageBase::add_to_output(out, Element::class_name.full_name());
 }
 
 }  // namespace gtopt

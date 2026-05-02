@@ -55,7 +55,6 @@ namespace gtopt
 class UserConstraintLP : public ObjectLP<UserConstraint>
 {
 public:
-  static constexpr LPClassName ClassName {"UserConstraint"};
   static constexpr std::string_view ConstraintName {"constraint"};
   /// Slack column emitted for one-sided soft constraints (`<=` / `>=`).
   static constexpr std::string_view SlackName {"slack"};
@@ -121,5 +120,12 @@ private:
   /// relaxation).  Empty for one-sided soft constraints.
   STBIndexHolder<ColIndex> m_slack_neg_cols_ {};
 };
+
+// Pin the data-struct constant value so an accidental rename of the
+// `UserConstraint::class_name` literal fails the build (LP row labels and
+// CSV outputs depend on the exact string `"UserConstraint"`).
+static_assert(UserConstraintLP::Element::class_name
+                  == LPClassName {"UserConstraint"},
+              "UserConstraint::class_name must remain \"UserConstraint\"");
 
 }  // namespace gtopt

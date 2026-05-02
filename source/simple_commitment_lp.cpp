@@ -21,9 +21,10 @@ namespace gtopt
 
 SimpleCommitmentLP::SimpleCommitmentLP(const SimpleCommitment& sc,
                                        const InputContext& ic)
-    : Base(sc, ic, ClassName)
+    : Base(sc, ic, Element::class_name)
     , generator_index_(ic.element_index(generator_sid()))
-    , dispatch_pmin_(ic, ClassName, id(), std::move(object().dispatch_pmin))
+    , dispatch_pmin_(
+          ic, Element::class_name, id(), std::move(object().dispatch_pmin))
 {
 }
 
@@ -49,8 +50,8 @@ bool SimpleCommitmentLP::add_to_lp(SystemContext& sc,
     return true;
   }
 
-  static constexpr std::string_view cname = ClassName.full_name();
-  static constexpr auto ampl_name = ClassName.snake_case();
+  static constexpr std::string_view cname = Element::class_name.full_name();
+  static constexpr auto ampl_name = Element::class_name.snake_case();
   const auto cuid = uid();
 
   const auto is_relax = simple_commitment().relax.value_or(false)
@@ -154,7 +155,7 @@ bool SimpleCommitmentLP::add_to_lp(SystemContext& sc,
 
 bool SimpleCommitmentLP::add_to_output(OutputContext& out) const
 {
-  static constexpr std::string_view cname = ClassName.full_name();
+  static constexpr std::string_view cname = Element::class_name.full_name();
   const auto pid = id();
 
   out.add_col_sol(cname, StatusName, pid, status_cols_);

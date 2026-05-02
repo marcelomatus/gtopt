@@ -25,7 +25,7 @@ namespace gtopt
 
 FlowLP::FlowLP(const Flow& pflow, const InputContext& ic)
     : ObjectLP<Flow>(pflow)
-    , discharge(ic, ClassName, id(), std::move(flow().discharge))
+    , discharge(ic, Element::class_name, id(), std::move(flow().discharge))
 {
 }
 
@@ -34,7 +34,7 @@ bool FlowLP::add_to_lp(const SystemContext& sc,
                        const StageLP& stage,
                        LinearProblem& lp)
 {
-  static constexpr auto ampl_name = ClassName.snake_case();
+  static constexpr auto ampl_name = Element::class_name.snake_case();
 
   if (!is_active(stage)) {
     return true;
@@ -64,7 +64,7 @@ bool FlowLP::add_to_lp(const SystemContext& sc,
     const auto fcol = lp.add_col({
         .lowb = block_discharge,
         .uppb = block_discharge,
-        .class_name = ClassName.full_name(),
+        .class_name = Element::class_name.full_name(),
         .variable_name = FlowName,
         .variable_uid = uid(),
         .context = make_block_context(scenario.uid(), stage.uid(), block.uid()),
@@ -94,7 +94,7 @@ bool FlowLP::add_to_lp(const SystemContext& sc,
 
 bool FlowLP::add_to_output(OutputContext& out) const
 {
-  static constexpr std::string_view cname = ClassName.full_name();
+  static constexpr std::string_view cname = Element::class_name.full_name();
 
   out.add_col_sol(cname, FlowName, id(), flow_cols);
   out.add_col_cost(cname, FlowName, id(), flow_cols);

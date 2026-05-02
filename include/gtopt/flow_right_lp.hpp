@@ -35,7 +35,6 @@ using FlowRightLPSId = ObjectSingleId<class FlowRightLP>;
 class FlowRightLP : public ObjectLP<FlowRight>
 {
 public:
-  static constexpr LPClassName ClassName {"FlowRight"};
   static constexpr std::string_view FlowName {"flow"};
   static constexpr std::string_view FailName {"fail"};
   static constexpr std::string_view QehName {"qeh"};
@@ -139,5 +138,11 @@ private:
   };
   IndexHolder2<ScenarioUid, StageUid, BoundState> m_bound_states_;
 };
+
+// Pin the data-struct constant value so an accidental rename of the
+// `FlowRight::class_name` literal fails the build (LP row labels and
+// CSV outputs depend on the exact string `"FlowRight"`).
+static_assert(FlowRightLP::Element::class_name == LPClassName {"FlowRight"},
+              "FlowRight::class_name must remain \"FlowRight\"");
 
 }  // namespace gtopt

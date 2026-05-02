@@ -22,7 +22,7 @@ bool JunctionLP::add_to_lp(const SystemContext& sc,
                            const StageLP& stage,
                            LinearProblem& lp)
 {
-  static constexpr auto ampl_name = ClassName.snake_case();
+  static constexpr auto ampl_name = Element::class_name.snake_case();
 
   // Skip inactive junctions for this stage
   if (!is_active(stage)) {
@@ -47,7 +47,7 @@ bool JunctionLP::add_to_lp(const SystemContext& sc,
 
     // Create balance row for this block
     auto brow = SparseRow {
-        .class_name = ClassName.full_name(),
+        .class_name = Element::class_name.full_name(),
         .constraint_name = BalanceName,
         .variable_uid = uid(),
         .context = make_block_context(scenario.uid(), stage.uid(), block.uid()),
@@ -56,7 +56,7 @@ bool JunctionLP::add_to_lp(const SystemContext& sc,
     // Add drain column if needed
     if (add_drain_col) {
       const auto dcol = lp.add_col({
-          .class_name = ClassName.full_name(),
+          .class_name = Element::class_name.full_name(),
           .variable_name = DrainName,
           .variable_uid = uid(),
           .context =
@@ -85,7 +85,7 @@ bool JunctionLP::add_to_lp(const SystemContext& sc,
 
 bool JunctionLP::add_to_output(OutputContext& out) const
 {
-  static constexpr std::string_view cname = ClassName.full_name();
+  static constexpr std::string_view cname = Element::class_name.full_name();
   const auto pid = id();
 
   // Add all solution components to output context

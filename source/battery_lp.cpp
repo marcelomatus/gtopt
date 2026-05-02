@@ -19,11 +19,11 @@ namespace gtopt
 {
 
 BatteryLP::BatteryLP(const Battery& pbattery, const InputContext& ic)
-    : StorageBase(pbattery, ic, ClassName)
+    : StorageBase(pbattery, ic, Element::class_name)
     , input_efficiency(
-          ic, ClassName, id(), std::move(object().input_efficiency))
+          ic, Element::class_name, id(), std::move(object().input_efficiency))
     , output_efficiency(
-          ic, ClassName, id(), std::move(object().output_efficiency))
+          ic, Element::class_name, id(), std::move(object().output_efficiency))
 {
 }
 
@@ -45,8 +45,8 @@ bool BatteryLP::add_to_lp(SystemContext& sc,
                           const StageLP& stage,
                           LinearProblem& lp)
 {
-  static constexpr const auto& cname = ClassName;
-  static constexpr auto ampl_name = ClassName.snake_case();
+  static constexpr const auto& cname = Element::class_name;
+  static constexpr auto ampl_name = Element::class_name.snake_case();
   static constexpr double flow_conversion_rate = 1.0;
 
   // Add capacity-related variables and constraints
@@ -92,13 +92,13 @@ bool BatteryLP::add_to_lp(SystemContext& sc,
   for (auto&& block : blocks) {
     const auto buid = block.uid();
     finps[buid] = lp.add_col(SparseCol {
-        .class_name = ClassName.full_name(),
+        .class_name = Element::class_name.full_name(),
         .variable_name = FinpName,
         .variable_uid = uid(),
         .context = make_block_context(scenario.uid(), stage.uid(), block.uid()),
     });
     fouts[buid] = lp.add_col(SparseCol {
-        .class_name = ClassName.full_name(),
+        .class_name = Element::class_name.full_name(),
         .variable_name = FoutName,
         .variable_uid = uid(),
         .context = make_block_context(scenario.uid(), stage.uid(), block.uid()),
@@ -108,7 +108,7 @@ bool BatteryLP::add_to_lp(SystemContext& sc,
   const StorageOptions opts {
       .use_state_variable = battery().use_state_variable.value_or(false),
       .daily_cycle = battery().daily_cycle.value_or(true),
-      .class_name = ClassName.full_name(),
+      .class_name = Element::class_name.full_name(),
       .variable_uid = uid(),
       .energy_scale = es,
       .flow_scale = fs,
@@ -163,7 +163,7 @@ bool BatteryLP::add_to_lp(SystemContext& sc,
  */
 bool BatteryLP::add_to_output(OutputContext& out) const
 {
-  static constexpr const auto& cname = ClassName;
+  static constexpr const auto& cname = Element::class_name;
 
   // Add finp variable solutions and costs to output
   out.add_col_sol(cname, FinpName, id(), finp_cols);

@@ -61,7 +61,7 @@ struct VariableScale
 {
   /// Element class (e.g. `"Bus"`, `"Reservoir"`).  Stored as a
   /// `std::string_view` so call sites can assign canonical constexpr
-  /// constants (e.g. `system_class_name`, `BusLP::ClassName.full_name()`)
+  /// constants (e.g. `system_class_name`, `Bus::class_name.full_name()`)
   /// without an intermediate string copy.  When populated by JSON
   /// deserialisation, the underlying buffer is the parser's
   /// daw::json owning string pool (kept alive by `Planning`'s

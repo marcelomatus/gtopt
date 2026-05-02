@@ -13,16 +13,17 @@ namespace gtopt
 {
 
 LineLP::LineLP(const Line& pline, const InputContext& ic)
-    : CapacityBase(pline, ic, ClassName)
-    , tmax_ba(ic, ClassName, id(), std::move(line().tmax_ba))
-    , tmax_ab(ic, ClassName, id(), std::move(line().tmax_ab))
-    , tcost(ic, ClassName, id(), std::move(line().tcost))
-    , lossfactor(ic, ClassName, id(), std::move(line().lossfactor))
-    , reactance(ic, ClassName, id(), std::move(line().reactance))
-    , voltage(ic, ClassName, id(), std::move(line().voltage))
-    , resistance(ic, ClassName, id(), std::move(line().resistance))
-    , tap_ratio(ic, ClassName, id(), std::move(line().tap_ratio))
-    , phase_shift_deg(ic, ClassName, id(), std::move(line().phase_shift_deg))
+    : CapacityBase(pline, ic, Element::class_name)
+    , tmax_ba(ic, Element::class_name, id(), std::move(line().tmax_ba))
+    , tmax_ab(ic, Element::class_name, id(), std::move(line().tmax_ab))
+    , tcost(ic, Element::class_name, id(), std::move(line().tcost))
+    , lossfactor(ic, Element::class_name, id(), std::move(line().lossfactor))
+    , reactance(ic, Element::class_name, id(), std::move(line().reactance))
+    , voltage(ic, Element::class_name, id(), std::move(line().voltage))
+    , resistance(ic, Element::class_name, id(), std::move(line().resistance))
+    , tap_ratio(ic, Element::class_name, id(), std::move(line().tap_ratio))
+    , phase_shift_deg(
+          ic, Element::class_name, id(), std::move(line().phase_shift_deg))
 {
   SPDLOG_DEBUG("LineLP created: uid={} name='{}'", id().first, id().second);
 }
@@ -88,7 +89,7 @@ bool LineLP::add_to_lp(SystemContext& sc,
                        const StageLP& stage,
                        LinearProblem& lp)
 {
-  static constexpr auto ampl_name = ClassName.snake_case();
+  static constexpr auto ampl_name = Element::class_name.snake_case();
 
   if (is_loop()) {
     return true;
@@ -268,7 +269,7 @@ bool LineLP::add_to_lp(SystemContext& sc,
 
 bool LineLP::add_to_output(OutputContext& out) const
 {
-  static constexpr std::string_view cname = ClassName.full_name();
+  static constexpr std::string_view cname = Element::class_name.full_name();
   if (is_loop()) {
     return true;
   }

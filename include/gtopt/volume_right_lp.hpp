@@ -43,7 +43,6 @@ using VolumeRightLPSId = ObjectSingleId<class VolumeRightLP>;
 class VolumeRightLP : public StorageLP<ObjectLP<VolumeRight>>
 {
 public:
-  static constexpr LPClassName ClassName {"VolumeRight"};
   static constexpr std::string_view ExtractionName {"extraction"};
   static constexpr std::string_view SavingName {"saving"};
   static constexpr std::string_view FailName {"fail"};
@@ -128,5 +127,11 @@ private:
   };
   IndexHolder2<ScenarioUid, StageUid, BoundState> m_bound_states_;
 };
+
+// Pin the data-struct constant value so an accidental rename of the
+// `VolumeRight::class_name` literal fails the build (LP row labels and
+// CSV outputs depend on the exact string `"VolumeRight"`).
+static_assert(VolumeRightLP::Element::class_name == LPClassName {"VolumeRight"},
+              "VolumeRight::class_name must remain \"VolumeRight\"");
 
 }  // namespace gtopt

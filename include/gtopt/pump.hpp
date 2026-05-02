@@ -65,6 +65,7 @@
 #pragma once
 
 #include <gtopt/field_sched.hpp>
+#include <gtopt/lp_class_name.hpp>
 #include <gtopt/single_id.hpp>
 
 namespace gtopt
@@ -89,6 +90,13 @@ namespace gtopt
  */
 struct Pump
 {
+  /// Canonical class-name constant used in LP row labels and config
+  /// fields like `VariableScale::class_name`.  Single source of truth —
+  /// `PumpLP` exposes no separate `ClassName` member; callers reach
+  /// the constant via `Pump::class_name` directly (or
+  /// `PumpLP::Element::class_name` in generic contexts).
+  static constexpr LPClassName class_name {"Pump"};
+
   Uid uid {unknown_uid};  ///< Unique identifier
   Name name {};  ///< Human-readable name
   OptActive active {};  ///< Activation status (default: active)

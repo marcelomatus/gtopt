@@ -42,7 +42,6 @@ class SystemLP;
 class ReservoirDischargeLimitLP : public ObjectLP<ReservoirDischargeLimit>
 {
 public:
-  static constexpr LPClassName ClassName {"ReservoirDischargeLimit"};
   static constexpr std::string_view QehName {"qeh"};
   static constexpr std::string_view QavgName {"qavg"};
   static constexpr std::string_view DvolName {"dvol"};
@@ -107,5 +106,13 @@ private:
   /// Per-(scenario, stage) state for coefficient tracking
   IndexHolder2<ScenarioUid, StageUid, RDLState> m_states_;
 };
+
+// Pin the data-struct constant value so an accidental rename of the
+// `ReservoirDischargeLimit::class_name` literal fails the build (LP row labels
+// and CSV outputs depend on the exact string `"ReservoirDischargeLimit"`).
+static_assert(ReservoirDischargeLimitLP::Element::class_name
+                  == LPClassName {"ReservoirDischargeLimit"},
+              "ReservoirDischargeLimit::class_name must remain "
+              "\"ReservoirDischargeLimit\"");
 
 }  // namespace gtopt

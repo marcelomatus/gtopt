@@ -34,7 +34,6 @@ using ReservoirLPSId = ObjectSingleId<class ReservoirLP>;
 class ReservoirLP : public StorageLP<ObjectLP<Reservoir>>
 {
 public:
-  static constexpr LPClassName ClassName {Reservoir::class_name};
   static constexpr std::string_view ExtractionName {"extraction"};
 
   using StorageBase = StorageLP<ObjectLP<Reservoir>>;
@@ -93,5 +92,11 @@ private:
   OptTRealSched scost;
   STBIndexHolder<ColIndex> extraction_cols;
 };
+
+// Pin the data-struct constant value so an accidental rename of the
+// `Reservoir::class_name` literal fails the build (LP row labels and
+// CSV outputs depend on the exact string `"Reservoir"`).
+static_assert(ReservoirLP::Element::class_name == LPClassName {"Reservoir"},
+              "Reservoir::class_name must remain \"Reservoir\"");
 
 }  // namespace gtopt

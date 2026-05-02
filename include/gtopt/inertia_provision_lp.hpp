@@ -26,7 +26,6 @@ namespace gtopt
 class InertiaProvisionLP : public ObjectLP<InertiaProvision>
 {
 public:
-  static constexpr LPClassName ClassName {"InertiaProvision"};
   static constexpr std::string_view ProvisionName {"provision"};
   static constexpr std::string_view CouplingName {"coupling"};
   /// PAMPL-visible alias for the provision columns.
@@ -82,5 +81,12 @@ private:
   STBIndexHolder<ColIndex> provision_cols_;
   STBIndexHolder<RowIndex> coupling_rows_;
 };
+
+// Pin the data-struct constant value so an accidental rename of the
+// `InertiaProvision::class_name` literal fails the build (LP row labels and
+// CSV outputs depend on the exact string `"InertiaProvision"`).
+static_assert(InertiaProvisionLP::Element::class_name
+                  == LPClassName {"InertiaProvision"},
+              "InertiaProvision::class_name must remain \"InertiaProvision\"");
 
 }  // namespace gtopt

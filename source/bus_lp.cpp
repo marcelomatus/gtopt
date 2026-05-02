@@ -55,7 +55,7 @@ auto BusLP::lazy_add_theta(const SystemContext& sc,
                               tblocks[buid] = lp.add_col(SparseCol {
                                   .lowb = *theta,
                                   .uppb = *theta,
-                                  .class_name = ClassName.full_name(),
+                                  .class_name = Element::class_name.full_name(),
                                   .variable_name = ThetaName,
                                   .variable_uid = uid(),
                                   .context = ctx,
@@ -80,7 +80,7 @@ auto BusLP::lazy_add_theta(const SystemContext& sc,
                               tblocks[buid] = lp.add_col(SparseCol {
                                   .lowb = -theta_bound,
                                   .uppb = +theta_bound,
-                                  .class_name = ClassName.full_name(),
+                                  .class_name = Element::class_name.full_name(),
                                   .variable_name = ThetaName,
                                   .variable_uid = uid(),
                                   .context = ctx,
@@ -99,7 +99,7 @@ bool BusLP::add_to_lp(const SystemContext& sc,
                       const StageLP& stage,
                       LinearProblem& lp)
 {
-  static constexpr auto ampl_name = ClassName.snake_case();
+  static constexpr auto ampl_name = Element::class_name.snake_case();
 
   // Theta columns are lazy-created by lines that need Kirchhoff; the
   // resolver retains a special-case fallback for `bus.theta`/`bus.angle`
@@ -129,7 +129,7 @@ bool BusLP::add_to_lp(const SystemContext& sc,
                         [&](const BlockLP& block)
                         {
                           brows[block.uid()] = lp.add_row({
-                              .class_name = ClassName.full_name(),
+                              .class_name = Element::class_name.full_name(),
                               .constraint_name = BalanceName,
                               .variable_uid = uid(),
                               .context = make_block_context(
@@ -145,7 +145,7 @@ bool BusLP::add_to_lp(const SystemContext& sc,
 
 bool BusLP::add_to_output(OutputContext& out) const
 {
-  static constexpr std::string_view cname = ClassName.full_name();
+  static constexpr std::string_view cname = Element::class_name.full_name();
   const auto pid = id();
 
   out.add_row_dual(cname, BalanceName, pid, balance_rows);

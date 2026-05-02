@@ -30,7 +30,6 @@ namespace gtopt
 class LineLP : public CapacityObjectLP<Line>
 {
 public:
-  static constexpr LPClassName ClassName {"Line"};
   static constexpr std::string_view FlowName {
       "flow"};  ///< compound: `flowp − flown`
   static constexpr std::string_view FlowpName {"flowp"};
@@ -202,5 +201,11 @@ private:
 
   STBIndexHolder<RowIndex> theta_rows;
 };
+
+// Pin the data-struct constant value so an accidental rename of the
+// `Line::class_name` literal fails the build (LP row labels and
+// CSV outputs depend on the exact string `"Line"`).
+static_assert(LineLP::Element::class_name == LPClassName {"Line"},
+              "Line::class_name must remain \"Line\"");
 
 }  // namespace gtopt

@@ -87,7 +87,7 @@ namespace gtopt::kirchhoff::node_angle
 struct LineKvlInputs
 {
   Uid line_uid;  ///< the line's strong-typed Uid
-  std::string_view class_name;  ///< `LineLP::ClassName.full_name()` ("Line")
+  std::string_view class_name;  ///< `Line::class_name.full_name()` ("Line")
   std::string_view theta_constraint_name;  ///< `LineLP::ThetaName` ("theta")
   std::optional<double> reactance;  ///< `sc.stage_reactance(stage, …)`
   double voltage;  ///< per-stage V (default 1.0 if unset)

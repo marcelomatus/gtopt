@@ -34,7 +34,6 @@ using FlowLPSId = ObjectSingleId<class FlowLP>;
 class FlowLP : public ObjectLP<Flow>
 {
 public:
-  static constexpr LPClassName ClassName {"Flow"};
   static constexpr std::string_view FlowName {"flow"};
 
   explicit FlowLP(const Flow& pflow, const InputContext& ic);
@@ -111,5 +110,11 @@ private:
   STBRealSched discharge;
   STBIndexHolder<ColIndex> flow_cols;
 };
+
+// Pin the data-struct constant value so an accidental rename of the
+// `Flow::class_name` literal fails the build (LP row labels and
+// CSV outputs depend on the exact string `"Flow"`).
+static_assert(FlowLP::Element::class_name == LPClassName {"Flow"},
+              "Flow::class_name must remain \"Flow\"");
 
 }  // namespace gtopt

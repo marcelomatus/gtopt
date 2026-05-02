@@ -44,10 +44,11 @@ namespace gtopt
 {
 
 VolumeRightLP::VolumeRightLP(const VolumeRight& pvol, const InputContext& ic)
-    : StorageBase(pvol, ic, ClassName)
-    , demand(ic, ClassName, id(), std::move(volume_right().demand))
-    , fmax(ic, ClassName, id(), std::move(volume_right().fmax))
-    , saving_rate(ic, ClassName, id(), std::move(volume_right().saving_rate))
+    : StorageBase(pvol, ic, Element::class_name)
+    , demand(ic, Element::class_name, id(), std::move(volume_right().demand))
+    , fmax(ic, Element::class_name, id(), std::move(volume_right().fmax))
+    , saving_rate(
+          ic, Element::class_name, id(), std::move(volume_right().saving_rate))
     , fail_cost(volume_right().fail_cost.value_or(0.0))
 {
 }
@@ -57,8 +58,8 @@ bool VolumeRightLP::add_to_lp(SystemContext& sc,
                               const StageLP& stage,
                               LinearProblem& lp)
 {
-  static constexpr const auto& cname = ClassName;
-  static constexpr auto ampl_name = ClassName.snake_case();
+  static constexpr const auto& cname = Element::class_name;
+  static constexpr auto ampl_name = Element::class_name.snake_case();
 
   if (!is_active(stage)) {
     return true;
@@ -126,7 +127,7 @@ bool VolumeRightLP::add_to_lp(SystemContext& sc,
 
     const auto fcol = lp.add_col(SparseCol {
         .uppb = uppb,
-        .class_name = ClassName.full_name(),
+        .class_name = Element::class_name.full_name(),
         .variable_name = ExtractionName,
         .variable_uid = uid(),
         .context = make_block_context(scenario.uid(), stage.uid(), block.uid()),
@@ -148,7 +149,7 @@ bool VolumeRightLP::add_to_lp(SystemContext& sc,
           saving_rate.at(stage.uid(), buid).value_or(LinearProblem::DblMax);
       const auto fcol = lp.add_col(SparseCol {
           .uppb = uppb,
-          .class_name = ClassName.full_name(),
+          .class_name = Element::class_name.full_name(),
           .variable_name = SavingName,
           .variable_uid = uid(),
           .context =
@@ -174,7 +175,7 @@ bool VolumeRightLP::add_to_lp(SystemContext& sc,
   // produce a wrong but feasible LP.  Fail fast instead.
   const bool is_reset_stage = rm.has_value()
       && require_stage_month(stage,
-                             ClassName.full_name(),
+                             Element::class_name.full_name(),
                              std::format("uid={}", uid()),
                              "reset_month")
           == *rm;
@@ -185,7 +186,7 @@ bool VolumeRightLP::add_to_lp(SystemContext& sc,
       .use_state_variable = volume_right().use_state_variable.value_or(true),
       .daily_cycle = false,
       .skip_state_link = is_reset_stage && is_cross_phase,
-      .class_name = ClassName.full_name(),
+      .class_name = Element::class_name.full_name(),
       .variable_uid = uid(),
       .energy_scale = energy_scale,
       .flow_scale = flow_scale,
@@ -317,7 +318,7 @@ bool VolumeRightLP::add_to_lp(SystemContext& sc,
     const auto fail_col = lp.add_col(SparseCol {
         .cost = fail_cost,
         .scale = energy_scale,
-        .class_name = ClassName.full_name(),
+        .class_name = Element::class_name.full_name(),
         .variable_name = FailName,
         .variable_uid = uid(),
         .context = stage_ctx,
@@ -326,7 +327,7 @@ bool VolumeRightLP::add_to_lp(SystemContext& sc,
     // Demand satisfaction constraint in physical units:
     // sum_b [fcr × duration × extraction(b)] + fail >= demand
     SparseRow drow {
-        .class_name = ClassName.full_name(),
+        .class_name = Element::class_name.full_name(),
         .constraint_name = DemandName,
         .variable_uid = uid(),
         .context = stage_ctx,
@@ -350,7 +351,7 @@ bool VolumeRightLP::add_to_lp(SystemContext& sc,
 
 bool VolumeRightLP::add_to_output(OutputContext& out) const
 {
-  static constexpr const auto& cname = ClassName;
+  static constexpr const auto& cname = Element::class_name;
 
   StorageBase::add_to_output(out, cname);
 
@@ -408,7 +409,7 @@ int VolumeRightLP::update_lp(SystemLP& sys,
   const auto& rm = volume_right().reset_month;
   const bool is_reset_stage_update = rm.has_value()
       && require_stage_month(stage,
-                             ClassName.full_name(),
+                             Element::class_name.full_name(),
                              std::format("uid={}", uid()),
                              "reset_month (update_lp)")
           == *rm;

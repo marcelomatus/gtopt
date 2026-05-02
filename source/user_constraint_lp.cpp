@@ -262,7 +262,7 @@ struct BuildResult
   SparseCol col;
   col.lowb = (sign == AuxSign::NonNegative) ? 0.0 : -LinearProblem::DblMax;
   col.uppb = LinearProblem::DblMax;
-  col.class_name = UserConstraintLP::ClassName.full_name();
+  col.class_name = UserConstraint::class_name.full_name();
   col.variable_name = var_name;
   col.variable_uid = row.variable_uid;
   col.context = row.context;
@@ -660,7 +660,7 @@ namespace
 }  // namespace
 
 UserConstraintLP::UserConstraintLP(const UserConstraint& uc, InputContext& ic)
-    : ObjectLP<UserConstraint>(uc, ic, ClassName)
+    : ObjectLP<UserConstraint>(uc, ic, Element::class_name)
     , m_scale_type_(enum_from_name<ConstraintScaleType>(
                         uc.constraint_type.value_or("power"))
                         .value_or(ConstraintScaleType::Power))
@@ -826,7 +826,7 @@ bool UserConstraintLP::add_to_lp(const SystemContext& sc,
           make_block_context(scenario.uid(), stage.uid(), block.uid());
       const auto slack_col = lp.add_col(SparseCol {
           .cost = block_penalty,
-          .class_name = ClassName.full_name(),
+          .class_name = Element::class_name.full_name(),
           .variable_name = soft_needs_neg ? SlackPosName : SlackName,
           .variable_uid = uid(),
           .context = block_ctx,
@@ -853,7 +853,7 @@ bool UserConstraintLP::add_to_lp(const SystemContext& sc,
       if (soft_needs_neg) {
         const auto slack_neg_col = lp.add_col(SparseCol {
             .cost = block_penalty,
-            .class_name = ClassName.full_name(),
+            .class_name = Element::class_name.full_name(),
             .variable_name = SlackNegName,
             .variable_uid = uid(),
             .context = block_ctx,
@@ -902,7 +902,7 @@ bool UserConstraintLP::add_to_lp(const SystemContext& sc,
   // user constraints / reports can reference them, and stash the per-
   // (scenario, stage) holders for `add_to_output`.
   if (is_soft && !block_slack_cols.empty()) {
-    static constexpr auto ampl_name = ClassName.snake_case();
+    static constexpr auto ampl_name = Element::class_name.snake_case();
     const auto st_key = std::tuple {scenario.uid(), stage.uid()};
     sc.add_ampl_variable(ampl_name,
                          uid(),
@@ -937,12 +937,14 @@ bool UserConstraintLP::add_to_output(OutputContext& out) const
   if (m_scale_type_ == ConstraintScaleType::Raw) {
     // Raw / unitless constraints: scale by discount factor only
     // (scale_obj / discount[t]), no probability and no block duration.
-    out.add_row_dual_raw(ClassName.full_name(), ConstraintName, pid, m_rows_);
+    out.add_row_dual_raw(
+        Element::class_name.full_name(), ConstraintName, pid, m_rows_);
   } else {
     // Power and Energy constraints: standard block_cost_factors scaling
     // (scale_obj / (prob × discount × Δt)).
     // "power"  → dual in $/MW;  "energy" → dual in $/MWh.
-    out.add_row_dual(ClassName.full_name(), ConstraintName, pid, m_rows_);
+    out.add_row_dual(
+        Element::class_name.full_name(), ConstraintName, pid, m_rows_);
   }
 
   // Auto-created slack columns from soft-constraint sugar.  The
@@ -950,14 +952,16 @@ bool UserConstraintLP::add_to_output(OutputContext& out) const
   // realized cost to land in the standard output stream.
   const auto slack_name = m_slack_neg_cols_.empty() ? SlackName : SlackPosName;
   if (!m_slack_cols_.empty()) {
-    out.add_col_sol(ClassName.full_name(), slack_name, pid, m_slack_cols_);
-    out.add_col_cost(ClassName.full_name(), slack_name, pid, m_slack_cols_);
+    out.add_col_sol(
+        Element::class_name.full_name(), slack_name, pid, m_slack_cols_);
+    out.add_col_cost(
+        Element::class_name.full_name(), slack_name, pid, m_slack_cols_);
   }
   if (!m_slack_neg_cols_.empty()) {
     out.add_col_sol(
-        ClassName.full_name(), SlackNegName, pid, m_slack_neg_cols_);
+        Element::class_name.full_name(), SlackNegName, pid, m_slack_neg_cols_);
     out.add_col_cost(
-        ClassName.full_name(), SlackNegName, pid, m_slack_neg_cols_);
+        Element::class_name.full_name(), SlackNegName, pid, m_slack_neg_cols_);
   }
 
   return true;
