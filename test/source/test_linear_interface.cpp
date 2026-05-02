@@ -2203,3 +2203,72 @@ TEST_CASE("LinearInterface::clone - clone outlives original")  // NOLINT
   REQUIRE(cloned.is_optimal());
   CHECK(cloned.get_obj_value_raw() == doctest::Approx(expected_obj));
 }
+
+TEST_CASE("LinearInterface - set_obj_coeffs_raw bulk overwrite")  // NOLINT
+{
+  // Verifies the bulk objective setter:
+  //   1. matches per-column writes byte-for-byte (every coefficient
+  //      ends up at the requested value);
+  //   2. zeroing the entire objective via one call works (the
+  //      benders_cut.cpp Phase-1 use case);
+  //   3. the no-op guard for empty input does not throw and does not
+  //      perturb anything.
+  LinearInterface li;
+  const auto a = li.add_col(SparseCol {.uppb = 10.0, .cost = 1.5});
+  const auto b = li.add_col(SparseCol {.uppb = 10.0, .cost = 2.5});
+  const auto c = li.add_col(SparseCol {.uppb = 10.0, .cost = 3.5});
+
+  // Sanity: the SparseCol values landed via add_col.
+  REQUIRE(li.get_obj_coeff()[a] == doctest::Approx(1.5));
+  REQUIRE(li.get_obj_coeff()[b] == doctest::Approx(2.5));
+  REQUIRE(li.get_obj_coeff()[c] == doctest::Approx(3.5));
+
+  SUBCASE("bulk overwrite with arbitrary values")
+  {
+    const std::array<double, 3> vals {7.0, 8.0, 9.0};
+    li.set_obj_coeffs_raw(vals);
+    CHECK(li.get_obj_coeff()[a] == doctest::Approx(7.0));
+    CHECK(li.get_obj_coeff()[b] == doctest::Approx(8.0));
+    CHECK(li.get_obj_coeff()[c] == doctest::Approx(9.0));
+  }
+
+  SUBCASE("bulk zero — Phase-1 elastic-clone use case")
+  {
+    const auto ncols = static_cast<size_t>(li.get_numcols());
+    const std::vector<double> zeros(ncols, 0.0);
+    li.set_obj_coeffs_raw(zeros);
+    CHECK(li.get_obj_coeff()[a] == doctest::Approx(0.0));
+    CHECK(li.get_obj_coeff()[b] == doctest::Approx(0.0));
+    CHECK(li.get_obj_coeff()[c] == doctest::Approx(0.0));
+  }
+
+  SUBCASE("empty input is a no-op")
+  {
+    const std::span<const double> empty;
+    li.set_obj_coeffs_raw(empty);
+    // Original values untouched.
+    CHECK(li.get_obj_coeff()[a] == doctest::Approx(1.5));
+    CHECK(li.get_obj_coeff()[b] == doctest::Approx(2.5));
+    CHECK(li.get_obj_coeff()[c] == doctest::Approx(3.5));
+  }
+
+  SUBCASE("equivalent to the per-column loop")
+  {
+    LinearInterface ref;
+    std::ignore = ref.add_col(SparseCol {.uppb = 10.0, .cost = 1.5});
+    std::ignore = ref.add_col(SparseCol {.uppb = 10.0, .cost = 2.5});
+    std::ignore = ref.add_col(SparseCol {.uppb = 10.0, .cost = 3.5});
+
+    const std::array<double, 3> vals {-1.0, 0.5, 4.25};
+    // Reference: per-column loop (the path replaced by set_obj_coeffs_raw).
+    for (size_t i = 0; i < vals.size(); ++i) {
+      ref.set_obj_coeff_raw(ColIndex {static_cast<int>(i)}, vals[i]);
+    }
+    li.set_obj_coeffs_raw(vals);
+    for (size_t i = 0; i < vals.size(); ++i) {
+      const auto idx = ColIndex {static_cast<int>(i)};
+      CHECK(li.get_obj_coeff()[idx]
+            == doctest::Approx(ref.get_obj_coeff()[idx]));
+    }
+  }
+}

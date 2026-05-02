@@ -374,6 +374,22 @@ void OsiSolverBackend::set_obj_coeff(int index, double value)
   m_solver_->setObjCoeff(index, value);
 }
 
+void OsiSolverBackend::set_obj_coeffs(const double* values, int num_cols)
+{
+  // OSI's `setObjective(const double*)` overwrites the entire objective
+  // vector — exactly what we want here.  No index array, no per-column
+  // dispatch.  CLP/CBC inherit OsiSolverInterface so this lands on both.
+  if (num_cols <= 0) {
+    return;
+  }
+  // The pointer-only OSI signature implies the caller-supplied buffer
+  // has size = current num_cols; the API doesn't take a length.
+  // `num_cols` is unused here other than the no-op guard but kept in
+  // the override signature for symmetry with other plugins.
+  (void)num_cols;
+  m_solver_->setObjective(values);
+}
+
 void OsiSolverBackend::add_row(int num_elements,
                                const int* columns,
                                const double* elements,

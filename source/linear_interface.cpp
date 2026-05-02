@@ -2260,6 +2260,24 @@ void LinearInterface::set_obj_coeff(const ColIndex index,
   set_obj_coeff_raw(index, physical_value * cs / m_scale_objective_);
 }
 
+void LinearInterface::set_obj_coeffs_raw(std::span<const double> values)
+{
+  ensure_backend();
+  assert(m_backend_ != nullptr);
+  // Validation hooks (Phase 2): bulk obj writes feed `note_obj` per
+  // value with a synthesised ColIndex location, mirroring the
+  // singular path's accounting.  The deferred-format overload only
+  // formats the location on the cold (huge-coefficient) branch.
+  if (m_validation_options_.effective_enable()) {
+    auto cidx = ColIndex {0};
+    for (const auto v : values) {
+      m_validation_stats_.note_obj(v, cidx, m_validation_options_);
+      ++cidx;
+    }
+  }
+  m_backend_->set_obj_coeffs(values.data(), static_cast<int>(values.size()));
+}
+
 // ── Raw column bound setters (LP/solver units) ──
 
 void LinearInterface::set_col_low_raw(const ColIndex index, const double value)

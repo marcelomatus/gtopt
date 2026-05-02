@@ -579,6 +579,22 @@ void CplexSolverBackend::set_obj_coeff(int index, double value)
   CPXchgobj(m_env_lp_.env(), m_env_lp_.lp(), 1, &index, &value);
 }
 
+void CplexSolverBackend::set_obj_coeffs(const double* values, int num_cols)
+{
+  // CPXchgobj takes parallel `indices` and `values` arrays; there is no
+  // "set all" form.  Build {0, 1, …, num_cols-1} once and dispatch a
+  // single bulk call.  Use `std::iota` for clarity; the allocation is
+  // amortised across `num_cols` per-element bookkeeping events that the
+  // loop variant would have triggered.
+  m_prob_cached_ = false;
+  if (num_cols <= 0) {
+    return;
+  }
+  std::vector<int> indices(static_cast<size_t>(num_cols));
+  std::iota(indices.begin(), indices.end(), 0);
+  CPXchgobj(m_env_lp_.env(), m_env_lp_.lp(), num_cols, indices.data(), values);
+}
+
 void CplexSolverBackend::add_row(int num_elements,
                                  const int* columns,
                                  const double* elements,

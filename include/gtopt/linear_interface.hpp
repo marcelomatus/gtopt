@@ -1347,6 +1347,24 @@ public:
    */
   void set_obj_coeff_raw(ColIndex index, double value);
 
+  /**
+   * @brief Bulk overwrite of every objective coefficient (LP-raw units).
+   *
+   * `values` MUST have size equal to the current `get_numcols()`; the
+   * implementation overwrites every coefficient in place.  Routes
+   * directly to `SolverBackend::set_obj_coeffs`, which most plugins
+   * implement via a single native bulk call (CPLEX `CPXchgobj`,
+   * HiGHS `changeColsCost`, OSI `setObjective`, MindOpt / Gurobi
+   * `*setdblattrarray`).  Plugins without a native bulk call fall back
+   * to the per-column loop in the base class — same wall-clock cost
+   * as the old per-column wrapper but expressed as a single call site.
+   *
+   * Use case: SDDP elastic-clone Phase-1 zero-objective override
+   * (`benders_cut.cpp`), which previously spun a `set_obj_coeff_raw`
+   * loop over all N cols of the clone for every infeasible cell.
+   */
+  void set_obj_coeffs_raw(std::span<const double> values);
+
   [[nodiscard]] auto get_obj_coeff() const
   {
     return std::span(backend().obj_coefficients(), get_numcols());

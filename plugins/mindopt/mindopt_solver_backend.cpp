@@ -445,6 +445,23 @@ void MindOptSolverBackend::set_obj_coeff(int index, double value)
   MDOsetdblattrelement(m_model_, MDO_DBL_ATTR_OBJ, index, value);
 }
 
+void MindOptSolverBackend::set_obj_coeffs(const double* values, int num_cols)
+{
+  // `MDOsetdblattrarray(model, attr, first, len, values)` takes a
+  // contiguous range — exactly the semantics we want here.  The C API
+  // is not const-correct on the values pointer, so cast.
+  m_prob_cached_ = false;
+  if (num_cols <= 0) {
+    return;
+  }
+  MDOsetdblattrarray(m_model_,
+                     MDO_DBL_ATTR_OBJ,
+                     0,
+                     num_cols,
+                     // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast)
+                     const_cast<double*>(values));
+}
+
 // ── row ops ──────────────────────────────────────────────────────────────
 
 void MindOptSolverBackend::add_row(int num_elements,

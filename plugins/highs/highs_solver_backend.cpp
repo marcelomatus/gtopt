@@ -305,6 +305,17 @@ void HighsSolverBackend::set_obj_coeff(int index, double value)
   m_highs_->changeColCost(index, value);
 }
 
+void HighsSolverBackend::set_obj_coeffs(const double* values, int num_cols)
+{
+  // `changeColsCost(from_col, to_col, values)` is range-based; one call
+  // updates [0, num_cols) verbatim.  No index array allocation needed
+  // (unlike CPLEX).
+  if (num_cols <= 0) {
+    return;
+  }
+  m_highs_->changeColsCost(0, num_cols - 1, values);
+}
+
 void HighsSolverBackend::add_row(int num_elements,
                                  const int* columns,
                                  const double* elements,
