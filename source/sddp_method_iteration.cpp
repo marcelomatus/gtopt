@@ -1012,8 +1012,19 @@ auto SDDPMethod::run_forward_pass_all_scenes(SDDPWorkPool& pool,
         per_scene_breakdown +=
             std::format("s{}={}", uid_of(scene_index), deleted);
       }
+      // Snapshot the cut count consumable by this scene's master at
+      // failure time, so the next iter's restart trigger measures the
+      // RIGHT delta (see the symmetric read site in
+      // `run_forward_pass_all_scenes`'s skip-pass).  Under
+      // `cut_sharing != none`, peer cuts ARE broadcast → snapshot the
+      // global count.  Under `cut_sharing == none`, only this scene's
+      // own backward cuts can change its master → snapshot its own
+      // store size (which after `clear_scene_cuts` is 0).
+      const bool peer_cuts_broadcast =
+          m_options_.cut_sharing != CutSharingMode::none;
       m_scene_retry_state_[scene_index].global_cuts_at_last_failure =
-          m_cut_store_.num_stored_cuts();
+          peer_cuts_broadcast ? m_cut_store_.num_stored_cuts()
+                              : std::ssize(m_cut_store_.at(scene_index));
     }
     if (n_rolled_back > 0) {
       SPDLOG_INFO(
