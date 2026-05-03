@@ -56,6 +56,17 @@ struct SparseRow
   double uppb {0};  ///< Physical upper bound (default: 0)
   cmap_t cmap {};  ///< Sparse coefficient map (physical values)
   double scale {1.0};  ///< Row scale: LP = physical / scale (default: 1.0)
+  /// Optional pivot column for cut-row equilibration.  When set
+  /// (`!= unknown_index`), `LinearInterface::add_row` will normalize
+  /// step-3 row equilibration by `elements[pivot_col]` instead of by
+  /// max-abs.  Used for SDDP optimality / feasibility cuts to keep the
+  /// α coefficient at 1.0 in LP-space — row-max would otherwise pick a
+  /// state-link coefficient (often O(10⁵-10⁸) once col_scale is
+  /// folded), driving α to O(10⁻⁹) and producing a basis-amplification
+  /// factor ≈ 10⁹ on every binding cut.  See `build_benders_cut_*`
+  /// callers.  Default `unknown_index` preserves legacy row-max
+  /// behavior.
+  ColIndex pivot_col {unknown_index};
   std::string_view class_name {};  ///< Class name (e.g. "Bus", "Reservoir")
   std::string_view
       constraint_name {};  ///< Constraint type (e.g. "bal", "cap", "kvl")

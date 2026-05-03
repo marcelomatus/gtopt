@@ -1618,16 +1618,40 @@ void SDDPMethod::finalize_iteration_result(
   // stationary criterion — see `test_sddp_method.cpp:1357`).
   const auto tol = m_options_.convergence_tol;
   const bool gap_in_range = ir.gap < tol && ir.gap > -kSddpGapFpEpsilon;
-  if (ir.gap < -kSddpGapFpEpsilon) {
+
+  // WARN threshold is more lenient than the convergence-decision
+  // threshold.  A negative gap of order 1e-3 to 1e-2 is typical
+  // dual-noise compounding from high-κ basis (cuts overshoot UB by
+  // ~0.1-1% relative on κ ≈ 10⁹ runs) and isn't actionable — the
+  // bounds are essentially co-incident.  Only WARN when the negative
+  // gap is large enough to indicate a genuine cut-construction
+  // pathology, not just numerical noise.  Threshold scales with
+  // convergence_tol so the warn matches the user's accuracy
+  // expectation: 5× tol means "out of normal numerical noise band
+  // by 5× the convergence target".  Falls back to kSddpGapFpEpsilon
+  // for users who set tol very small.
+  const auto neg_gap_warn_threshold =
+      std::max(kSddpGapFpEpsilon, 5.0 * std::abs(tol));
+  if (ir.gap < -neg_gap_warn_threshold) {
     SPDLOG_WARN(
         "SDDP Iter [i{}]: SIGNIFICANT negative gap = {:.6f} "
-        "(UB={:.4f}, LB={:.4f}) — LB > UB violates SDDP theory; "
+        "(UB={:.4f}, LB={:.4f}) — LB > UB by more than {:.4f} of UB; "
         "cuts likely overshoot the optimum. Refusing to declare "
         "[CONVERGED] until the bound asymmetry resolves.",
         iteration_index,
         ir.gap,
         ir.upper_bound,
-        ir.lower_bound);
+        ir.lower_bound,
+        neg_gap_warn_threshold);
+  } else if (ir.gap < -kSddpGapFpEpsilon) {
+    // Within the dual-noise band — log at DEBUG so post-mortem can
+    // see it but normal operators don't get woken up by it.
+    SPDLOG_DEBUG(
+        "SDDP Iter [i{}]: negative gap = {:.6f} within numerical noise "
+        "(threshold {:.4f}); treating as non-converging without WARN",
+        iteration_index,
+        ir.gap,
+        neg_gap_warn_threshold);
   }
   const bool past_min_iter =
       (iteration_index

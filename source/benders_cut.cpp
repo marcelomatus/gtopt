@@ -119,6 +119,7 @@ auto build_benders_cut_physical(ColIndex alpha_col,
   auto row = SparseRow {
       .lowb = objective_value_physical,
       .uppb = LinearProblem::DblMax,
+      .pivot_col = alpha_col,  // ← α-pivot equilibration in add_row step 3
   };
   row[alpha_col] = 1.0;
 
@@ -132,8 +133,10 @@ auto build_benders_cut_physical(ColIndex alpha_col,
     row.lowb -= rc_phys * v_hat_phys;
   }
 
-  // No `already_lp_space` flag: this row IS physical.  `add_row` on an
-  // equilibrated LP will apply col_scales + row-max composition.
+  // `pivot_col = alpha_col` tells `add_row`'s step-3 equilibration to
+  // normalize by α's coefficient instead of row-max.  Keeps α at 1.0
+  // in LP-space and pushes the dynamic range into the state-link
+  // coefficients (which don't drive κ when α is the basic pivot).
   return row;
 }
 
@@ -151,6 +154,7 @@ auto build_benders_cut_physical(ColIndex alpha_col,
   auto row = SparseRow {
       .lowb = objective_value_physical,
       .uppb = LinearProblem::DblMax,
+      .pivot_col = alpha_col,  // ← α-pivot equilibration in add_row step 3
   };
   row[alpha_col] = 1.0;
 
@@ -218,6 +222,7 @@ auto build_benders_cut_physical(ColIndex alpha_col,
   auto row = SparseRow {
       .lowb = objective_value_physical,
       .uppb = LinearProblem::DblMax,
+      .pivot_col = alpha_col,  // ← α-pivot equilibration in add_row step 3
   };
   row[alpha_col] = 1.0;
 

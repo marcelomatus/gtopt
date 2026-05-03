@@ -317,24 +317,59 @@ auto SDDPMethod::initialize_solver() -> std::expected<void, Error>
     }
   }
 
-  // Auto-scale alpha: when scale_alpha == 0, compute as the maximum
-  // state variable var_scale across all (scene, phase) cells.  This
-  // keeps the alpha column's LP coefficient O(1) relative to the
-  // largest state variable it is paired with in Benders cut rows.
+  // Auto-scale alpha: tie scale_alpha to the expected α magnitude at
+  // master optimum so that the LP-space α coefficient lands O(1)
+  // after the cut row's α-pivot equilibration (see
+  // ``LinearInterface::add_row`` step 3 + ``SparseRow::pivot_col``).
+  //
+  // Estimator:
+  //   α_phys at convergence ≈ Σ_t z_t = sum of per-phase block
+  //   costs at the master's optimal trajectory.  We don't have z_t
+  //   pre-solve, but a robust upper-bound proxy is
+  //
+  //     α_estimate = max_lp_coef × scale_objective × num_phases²
+  //
+  //   where:
+  //     - max_lp_coef = max ``lp_stats_max_abs`` across all cells
+  //       (pre-equilibration semantic max; post-equilibration would
+  //       be 1.0 — both work as a conservative size proxy)
+  //     - scale_objective folds back to physical
+  //     - num_phases² is the triangular weight (each later phase's
+  //       cost contributes to all earlier α's, so Σ α_t scales as
+  //       N(N+1)/2 of the per-phase magnitude)
+  //
+  // Rounded UP to the next power of 10 (mirrors
+  // ``auto_scale_reservoirs``'s ``scale_for()`` helper) so the LP
+  // coefficient log shows clean numbers (e.g. ``scale_alpha = 1e9``
+  // not ``2.6e9``) — easier to debug and compare across runs.
+  //
+  // The previous heuristic (`max state var_scale`, e.g. juan
+  // reservoir 1453) tied scale_alpha to the wrong axis: state
+  // variables drop out of cut-row LP coefficients (s_v cancels), so
+  // their magnitude doesn't drive cut-row κ.  α's magnitude does.
   if (m_options_.scale_alpha <= 0.0) {
-    double max_var_scale = 1.0;
+    double max_lp_coef = 1.0;
     for (const auto scene_index : iota_range<SceneIndex>(0, num_scenes)) {
       for (const auto phase_index : iota_range<PhaseIndex>(0, num_phases)) {
-        for (const auto& [key, svar] :
-             sim.state_variables(scene_index, phase_index))
-        {
-          max_var_scale = std::max(max_var_scale, svar.var_scale());
-        }
+        const auto& li =
+            planning_lp().system(scene_index, phase_index).linear_interface();
+        max_lp_coef = std::max(max_lp_coef, li.lp_stats_max_abs());
       }
     }
-    m_options_.scale_alpha = max_var_scale;
-    SPDLOG_INFO("SDDP: auto scale_alpha = {:.2e} (max state var_scale)",
-                m_options_.scale_alpha);
+    const auto scale_obj = planning_lp().options().scale_objective();
+    const auto num_phases_d = static_cast<double>(num_phases);
+    const auto raw_estimate =
+        max_lp_coef * scale_obj * num_phases_d * num_phases_d;
+    const auto raw_clamped = std::max(raw_estimate, 1.0);
+    m_options_.scale_alpha = std::pow(10.0, std::ceil(std::log10(raw_clamped)));
+    SPDLOG_INFO(
+        "SDDP: auto scale_alpha = {:.2e} (raw_estimate={:.3e} = "
+        "max_lp_coef={:.3e} × scale_obj={:.0f} × num_phases²={})",
+        m_options_.scale_alpha,
+        raw_estimate,
+        max_lp_coef,
+        scale_obj,
+        static_cast<int>(num_phases * num_phases));
   }
 
   // The setup steps below (add_col for alpha, get_col bounds for

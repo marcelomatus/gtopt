@@ -1820,18 +1820,47 @@ RowIndex LinearInterface::add_row(const SparseRow& row, const double eps)
     composite_scale *= m_scale_objective_;
   }
 
-  // 3. Per-row row-max equilibration, only when the LP was built with
+  // 3. Per-row equilibration, only when the LP was built with
   //    equilibration on.  When the build chose `none` but col_scales
   //    are non-trivial (semantic scales set in flatten()), column
   //    scaling still runs at step 1; the row-max pass is skipped to
   //    match the historical invariant for non-equilibrated LPs.
+  //
+  //  Two normalization choices:
+  //   - PIVOT-COLUMN normalization (when `row.pivot_col` is set):
+  //     divide by elements[pivot_col].  Used for SDDP optimality
+  //     cuts so that α's LP-space coefficient stays at 1.0 and
+  //     state-link coefs absorb the dynamic range (which is then
+  //     handled by the basis structure rather than being amplified
+  //     into κ when α enters the basis).  Without this, row-max
+  //     normalization would pick a state link as the divisor,
+  //     pushing α down to O(10⁻⁹) on juan-scale problems and
+  //     contributing κ ≈ 10⁹ per cut.
+  //   - ROW-MAX normalization (default): divide by max-abs.  Right
+  //     for structural rows where no single column carries the
+  //     row's defining magnitude.
   if (have_equilibration) {
-    double max_abs = 0.0;
-    for (const auto v : elements) {
-      max_abs = std::max(max_abs, std::abs(v));
+    double norm = 0.0;
+    if (row.pivot_col != unknown_index) {
+      // Find pivot_col's coefficient in the (already-step-1-and-1b-
+      // composed) elements.  If not present (e.g. dropped by `eps`
+      // filter in `to_flat`), fall back to row-max.
+      for (std::size_t k = 0; k < elements.size(); ++k) {
+        if (ColIndex {columns[k]} == row.pivot_col) {
+          norm = std::abs(elements[k]);
+          break;
+        }
+      }
     }
-    if (max_abs > 0.0 && max_abs != 1.0) {
-      const double inv = 1.0 / max_abs;
+    if (norm == 0.0) {
+      double max_abs = 0.0;
+      for (const auto v : elements) {
+        max_abs = std::max(max_abs, std::abs(v));
+      }
+      norm = max_abs;
+    }
+    if (norm > 0.0 && norm != 1.0) {
+      const double inv = 1.0 / norm;
       for (auto& v : elements) {
         v *= inv;
       }
@@ -1841,7 +1870,7 @@ RowIndex LinearInterface::add_row(const SparseRow& row, const double eps)
       if (ub > -infy && ub < infy) {
         ub *= inv;
       }
-      composite_scale *= max_abs;
+      composite_scale *= norm;
     }
   }
 
