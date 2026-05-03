@@ -595,9 +595,13 @@ auto SDDPMethod::run_forward_pass_all_scenes(SDDPWorkPool& pool,
   m_current_pass_.store(1);
   m_scenes_done_.store(0);
 
-  SPDLOG_INFO("SDDP Forward [i{}]: dispatching {} scene(s) to work pool",
-              iteration_index,
-              num_scenes);
+  // The user-facing INFO dispatch banner is emitted lower down, after
+  // the skip pass has computed how many scenes are terminal-skipped
+  // this iteration.  Keep a DEBUG marker here for trace-level tailers
+  // who want to see the function entry timestamp.
+  SPDLOG_DEBUG("SDDP Forward [i{}]: starting forward dispatch ({} scene(s))",
+               iteration_index,
+               num_scenes);
 
   // Stall-stop guard for `forward_infeas_rollback` — see
   // `support/scene_infeasibility_rollback_plan_2026-04-30.md` §2.4.
@@ -706,13 +710,33 @@ auto SDDPMethod::run_forward_pass_all_scenes(SDDPWorkPool& pool,
       });
     }
     if (n_skipped_terminal > 0) {
-      SPDLOG_INFO(
+      SPDLOG_DEBUG(
           "SDDP Forward [i{}]: skipping {} terminal-infeasible scene(s) "
           "(structurally infeasible, no new cuts since last failure)",
           iteration_index,
           n_skipped_terminal);
     }
   }
+
+  // Rich INFO dispatch banner that mirrors the backward-pass one
+  // (`SDDP Backward [iN]: dispatching K/N feasible scene(s) × P
+  // phase(s) (cut_sharing=…, apertures=…)`).  Rolling the
+  // terminal-skip count + cut_sharing/apertures flags into the same
+  // line lets a user tailing the trace immediately see the workload
+  // shape without scrolling for the matching backward banner.
+  const auto num_phases = planning_lp().simulation().phase_count();
+  const auto active_scenes_this_iter =
+      static_cast<std::ptrdiff_t>(num_scenes) - n_skipped_terminal;
+  SPDLOG_INFO(
+      "SDDP Forward [i{}]: dispatching {}/{} active scene(s) × {} phase(s) "
+      "(cut_sharing={}, apertures={})",
+      iteration_index,
+      active_scenes_this_iter,
+      num_scenes,
+      num_phases,
+      enum_name(m_options_.cut_sharing),
+      !m_options_.apertures || !m_options_.apertures->empty() ? "enabled"
+                                                              : "disabled");
 
   const auto fwd_start = std::chrono::steady_clock::now();
   // Snapshot total stored cuts before the pass.  Forward passes only
