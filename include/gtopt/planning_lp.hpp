@@ -138,6 +138,31 @@ public:
   /// PlanningLP, mirroring `validate_line_reactance`.
   static void auto_scale_loss_link(Planning& planning);
 
+  /// Renormalise ``Scenario::probability_factor`` so that the sum
+  /// over scenarios contained in *active* scenes (and themselves
+  /// active) equals 1.0.  Implements the long-standing contract
+  /// documented on ``Scenario`` itself ("when probability_factor
+  /// values across all scenarios do not sum to 1, the solver
+  /// normalises them internally").
+  ///
+  /// Called from the ``PlanningLP`` constructor's ``auto_scale_*``
+  /// block, *before* any LP cost coefficient is computed via
+  /// ``CostHelper::block_ecost``.  Mutates
+  /// ``planning.simulation.scenario_array`` in-place: only the
+  /// scenarios that are part of the active subproblem (active flag
+  /// AND parent scene active) are rescaled.  Scenarios in inactive
+  /// scenes keep their original (unused) probability_factor.
+  ///
+  /// Idempotent: a second call after the first leaves total
+  /// probability at 1.0 and is a no-op.  Skipped silently when the
+  /// total mass is already within ``1e-12`` of 1.0.  Logs INFO when
+  /// a non-trivial rescale happens; WARN when every active scenario
+  /// has zero / missing probability_factor (degenerate input).
+  ///
+  /// Static so unit tests can exercise it without standing up a
+  /// full PlanningLP — mirrors ``auto_scale_*``.
+  static void renormalize_scenario_probabilities(Planning& planning);
+
   /**
    * @brief Constructs a PlanningLP instance from planning data
    * @param planning The power system planning data
@@ -179,6 +204,18 @@ public:
                 }();
                 auto_scale_reservoirs(planning, solver_infinity);
                 auto_scale_lng_terminals(planning, solver_infinity);
+                // Honour the long-standing contract from Scenario.hpp:
+                // "when probability_factor values across all scenarios do
+                // not sum to 1, the solver normalises them internally."
+                // Runs after the auto_scale_* block so the rescale is
+                // computed from final scenario data; runs *before*
+                // ``SimulationLP`` construction so the per-cell LP cost
+                // coefficients (built via ``CostHelper::block_ecost``)
+                // see the renormalised probabilities directly — both
+                // ``SimulationLP::m_scenario_array_`` and each
+                // ``SceneLP::m_scenarios_`` copy from the same
+                // ``planning.simulation.scenario_array`` we mutate here.
+                renormalize_scenario_probabilities(planning);
               }
               return std::forward<PlanningT>(planning);
             }())
