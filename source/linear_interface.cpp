@@ -112,13 +112,29 @@ void LinearInterface::ensure_backend()
   // persistent state (dynamic cols + active cuts).  Mirrors compress
   // mode's transparent reconstruct, but sources the flat LP from the
   // element collections rather than a snapshot.
-  //
-  // Invariant: if no owner is installed, this is a bare
-  // `LinearInterface` without a parent SystemLP (unit tests).  Silent
-  // short-circuit keeps those tests working.
   if (m_low_memory_mode_ == LowMemoryMode::rebuild) {
-    if (m_rebuilding_ || m_rebuild_owner_ == nullptr) {
+    // Re-entrant call (we're already inside `invoke_rebuild_owner()`):
+    // returning is safe because the outer call will finish the
+    // rebuild before its caller deref's the backend.
+    if (m_rebuilding_) {
       return;
+    }
+    // No owner installed — this is a configuration error in rebuild
+    // mode.  Historically the function silently returned here for
+    // bare `LinearInterface` instances used in unit tests, but the
+    // caller then deref'd a null `m_backend_` (assertion compiled
+    // out in Release → SIGSEGV).  Convert to a loud, recoverable
+    // exception so a misconfigured ``low_memory_mode=rebuild`` run
+    // exits cleanly with an actionable error instead of crashing.
+    if (m_rebuild_owner_ == nullptr) {
+      throw std::runtime_error(std::format(
+          "LinearInterface::ensure_backend: backend is released and "
+          "no rebuild owner is installed (low_memory_mode=rebuild). "
+          "This indicates the LinearInterface was used after "
+          "release_backend() without `set_rebuild_owner(...)`.  "
+          "Either install a SystemLP owner before release, switch "
+          "low_memory_mode to off/compress, or rebuild the backend "
+          "manually via `reconstruct_backend(...)`."));
     }
     m_rebuilding_ = true;
     try {
@@ -128,12 +144,31 @@ void LinearInterface::ensure_backend()
       throw;
     }
     m_rebuilding_ = false;
+    // Post-condition: a successful rebuild must leave m_backend_ live.
+    // If invoke_rebuild_owner returned without populating it, that's
+    // a contract violation in the owner — turn it into a loud
+    // exception rather than an opaque downstream segfault.
+    if (m_backend_ == nullptr || m_backend_released_) {
+      throw std::runtime_error(
+          "LinearInterface::ensure_backend: rebuild owner returned "
+          "without restoring the backend (m_backend_ is null or still "
+          "marked released).  This is a contract violation in the "
+          "owner's invoke_rebuild_owner implementation.");
+    }
     return;
   }
   // Snapshot/compress: reconstruct from the saved flat LP snapshot.
   // No warm-start — callers that want primal/dual continuity must
   // pass their own vectors via `reconstruct_backend(col_sol, row_dual)`.
   reconstruct_backend();
+  // Post-condition mirrors the rebuild branch above.
+  if (m_backend_ == nullptr || m_backend_released_) {
+    throw std::runtime_error(
+        "LinearInterface::ensure_backend: snapshot reconstruct "
+        "returned without restoring the backend (m_backend_ is null "
+        "or still marked released).  This indicates the snapshot "
+        "data is missing or corrupted.");
+  }
 }
 
 void LinearInterface::release_backend() noexcept
@@ -1227,9 +1262,19 @@ ColIndex LinearInterface::add_col(const SparseCol& col)
   // doesn't need to remember a follow-up `record_dynamic_col` —
   // historically that was a hidden requirement that silently dropped
   // post-init cols on the first reconstruct (juan/cascade SIGSEGV).
-  if (!m_replaying_ && m_low_memory_mode_ != LowMemoryMode::off
-      && m_snapshot_.has_data())
-  {
+  //
+  // Rebuild mode is special-cased: there is no snapshot (rebuild
+  // re-flattens from live collections instead), so the
+  // `m_snapshot_.has_data()` gate would never fire and α/dynamic
+  // cols would be dropped on every rebuild — producing a stale
+  // ColIndex that pointed past `numcols` after the first rebuild
+  // (observed on sddp_hydro_3phase iter50_rebuild as
+  // `set_col_low_raw: col index N out of range [0, N)`).  Always
+  // record under rebuild so `apply_post_load_replay` can re-add the
+  // column on the next reconstruct.
+  const bool record_for_replay = m_low_memory_mode_ == LowMemoryMode::rebuild
+      || (m_low_memory_mode_ != LowMemoryMode::off && m_snapshot_.has_data());
+  if (!m_replaying_ && record_for_replay) {
     m_dynamic_cols_.push_back(col);
   }
 
@@ -2280,10 +2325,38 @@ void LinearInterface::set_obj_coeffs_raw(std::span<const double> values)
 
 // ── Raw column bound setters (LP/solver units) ──
 
+namespace
+{
+/// Validate a (possibly-stale) ColIndex against the live backend's
+/// numcols and throw a descriptive exception if out of range.  The
+/// historical failure mode was a segfault inside the solver plugin
+/// (CPXchgbds, similar) when a cached col index referenced a column
+/// that disappeared on a low-memory rebuild — converting that into a
+/// clean ``std::out_of_range`` lets the worker future propagate the
+/// error to ``run_*_pass_all_scenes`` and produces a useful exit
+/// message instead of an opaque SIGSEGV.
+[[gnu::noinline]]
+void check_col_index(const char* fn, ColIndex index, std::int64_t ncols)
+{
+  if (static_cast<std::int64_t>(index) < 0
+      || static_cast<std::int64_t>(index) >= ncols)
+  {
+    throw std::out_of_range(
+        std::format("LinearInterface::{}: col index {} out of range "
+                    "[0, {}) — likely a stale ColIndex captured before the "
+                    "backend was released and rebuilt with a different layout.",
+                    fn,
+                    static_cast<std::int64_t>(index),
+                    ncols));
+  }
+}
+}  // namespace
+
 void LinearInterface::set_col_low_raw(const ColIndex index, const double value)
 {
   ensure_backend();
   assert(m_backend_ != nullptr);
+  check_col_index("set_col_low_raw", index, m_backend_->get_num_cols());
   if (m_validation_options_.effective_enable()) {
     const double infy_guard = m_backend_->infinity() * 0.999;
     if (std::abs(value) < infy_guard) {
@@ -2297,6 +2370,7 @@ void LinearInterface::set_col_upp_raw(const ColIndex index, const double value)
 {
   ensure_backend();
   assert(m_backend_ != nullptr);
+  check_col_index("set_col_upp_raw", index, m_backend_->get_num_cols());
   if (m_validation_options_.effective_enable()) {
     const double infy_guard = m_backend_->infinity() * 0.999;
     if (std::abs(value) < infy_guard) {

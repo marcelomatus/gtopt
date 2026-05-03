@@ -3518,3 +3518,87 @@ TEST_CASE(  // NOLINT
   auto solve = li.resolve();
   REQUIRE(solve.has_value());
 }
+
+// ---------------------------------------------------------------------------
+// Hardening: silent NULL-deref → loud exception
+// ---------------------------------------------------------------------------
+//
+// Pre-2026-05-03 a misconfigured ``low_memory_mode=rebuild`` LinearInterface
+// could segfault inside the solver plugin when:
+//   (a) ``ensure_backend()`` silently early-returned because no rebuild
+//       owner was installed, leaving ``m_backend_`` null, or
+//   (b) a stale ``ColIndex`` captured before a rebuild referenced a
+//       column that the rebuilt LP no longer had.
+// Both paths now throw ``std::runtime_error`` / ``std::out_of_range``
+// with actionable messages.  These tests pin the hardened contract.
+
+TEST_CASE(  // NOLINT
+    "LinearInterface — ensure_backend throws when rebuild owner is missing")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  LinearInterface li;
+  // Add a column so the LP is non-trivial.
+  std::ignore = li.add_col(SparseCol {
+      .uppb = 10.0,
+      .cost = 1.0,
+  });
+
+  // Configure rebuild mode but leave the rebuild owner unset.  This is
+  // the historical "bare LinearInterface used as if it had an owner"
+  // misconfiguration — the silent early-return that allowed it to
+  // proceed produced a null-deref segfault on the next backend access.
+  li.set_low_memory(LowMemoryMode::rebuild, CompressionCodec::lz4);
+  li.mark_released();
+
+  // Any call that triggers ensure_backend() must now throw, with a
+  // message that names the misconfiguration.
+  CHECK_THROWS_WITH_AS(li.set_col_low_raw(ColIndex {0}, 0.0),
+                       doctest::Contains("rebuild owner"),
+                       std::runtime_error);
+}
+
+TEST_CASE(  // NOLINT
+    "LinearInterface — set_col_low_raw throws on out-of-range ColIndex")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  LinearInterface li;
+  const auto x0 = li.add_col(SparseCol {
+      .uppb = 10.0,
+      .cost = 1.0,
+  });
+  // Solve once so the backend is fully populated and `get_num_cols()`
+  // returns the live count.
+  auto r = li.initial_solve(SolverOptions {.log_level = 0});
+  REQUIRE(r.has_value());
+
+  // In-range index works as before.
+  CHECK_NOTHROW(li.set_col_low_raw(x0, 0.0));
+
+  // Stale index past `numcols` must throw rather than reach the
+  // solver plugin (where it would have been a NULL/range deref →
+  // SIGSEGV under the prior contract).
+  CHECK_THROWS_WITH_AS(li.set_col_low_raw(ColIndex {99}, 0.0),
+                       doctest::Contains("out of range"),
+                       std::out_of_range);
+  // Negative index path (ColIndex is signed-typed strong-int).
+  CHECK_THROWS_AS(li.set_col_low_raw(ColIndex {-1}, 0.0), std::out_of_range);
+}
+
+TEST_CASE(  // NOLINT
+    "LinearInterface — set_col_upp_raw throws on out-of-range ColIndex")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  LinearInterface li;
+  const auto x0 = li.add_col(SparseCol {
+      .uppb = 10.0,
+      .cost = 1.0,
+  });
+  auto r = li.initial_solve(SolverOptions {.log_level = 0});
+  REQUIRE(r.has_value());
+
+  CHECK_NOTHROW(li.set_col_upp_raw(x0, 5.0));
+  CHECK_THROWS_AS(li.set_col_upp_raw(ColIndex {42}, 5.0), std::out_of_range);
+}
