@@ -38,6 +38,7 @@
 #pragma once
 
 #include <functional>
+#include <ranges>
 #include <utility>
 #include <vector>
 
@@ -108,9 +109,27 @@ class FlatHelper
 public:
   explicit FlatHelper(const SimulationLP& simulation)
       : m_simulation_(simulation)
+      // Active scenarios = (a) the scenario's own ``is_active()`` is true
+      // AND (b) the scenario's parent scene is active.  The earlier
+      // implementation only checked (a) and silently included scenarios
+      // whose parent scene had ``"active": 0`` set, producing
+      // column-length mismatches at write time
+      // (``Column 3 ... expected length 3570 but got length 8160`` —
+      // ratio = N_total_scenarios / N_active_scenarios = 16/7 on
+      // juan/gtopt_iplp 2026-05-02 trace_34).  We walk the active
+      // scene list and pick up each active scene's scenarios; this
+      // produces the expected length consistently with the write
+      // path's per-scene iteration.
       , m_active_scenarios_(std::ranges::to<std::vector>(
-            simulation.scenarios() | std::views::filter(&ScenarioLP::is_active)
-            | std::views::transform(&ScenarioLP::uid)))
+            simulation.scenes() | std::views::filter(&SceneLP::is_active)
+            | std::views::transform(
+                [](const SceneLP& scene)
+                {
+                  return scene.scenarios()
+                      | std::views::filter(&ScenarioLP::is_active)
+                      | std::views::transform(&ScenarioLP::uid);
+                })
+            | std::views::join))
       , m_active_stages_(std::ranges::to<std::vector>(
             simulation.stages() | std::views::filter(&StageLP::is_active)
             | std::views::transform(&StageLP::uid)))
