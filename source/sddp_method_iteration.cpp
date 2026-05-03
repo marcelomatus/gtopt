@@ -403,7 +403,53 @@ auto SDDPMethod::backward_pass_single_phase(SceneIndex scene_index,
 
   auto& src_li = src_sys.linear_interface();
 
-  // Use cached forward-pass solution for cut generation.
+  // ── Optional: re-solve target LP_t before extracting cut data ──────
+  //
+  // When `backward_resolve_target` is on, refresh the cached forward-
+  // pass values used for cut construction by re-solving LP_t at the
+  // forward-pass trial state v̂_{t-1} (still pinned via the bound-fix
+  // on dep_col).  Cuts on α_t added earlier in this backward pass —
+  // when the loop processed phase t+1 — are now reflected in z_t and
+  // π_t, producing a one-iter-tight Benders cut on α_{t-1} (textbook
+  // SDDP), versus the looser forward-cached cut otherwise.
+  //
+  // Cost: one extra LP resolve per (scene, phase) per backward pass.
+  // Failure mode (rare): non-optimal re-solve falls through to the
+  // forward-cached values — a freshly-added Benders cut cannot make
+  // a previously-optimal LP infeasible, only numerics can.
+  double dt_tgt_resolve = 0.0;
+  if (m_options_.backward_resolve_target) {
+    auto& tgt_sys = planning_lp().system(scene_index, phase_index);
+    tgt_sys.ensure_lp_built();
+    auto& tgt_li = tgt_sys.linear_interface();
+
+    tgt_li.set_log_tag(sddp_log(
+        "Backward", iteration_index, uid_of(scene_index), uid_of(phase_index)));
+    const auto t_tgt_resolve = Clock::now();
+    auto r = tgt_li.resolve(opts);
+    dt_tgt_resolve = elapsed_s(t_tgt_resolve);
+
+    if (r.has_value() && tgt_li.is_optimal()) {
+      const auto obj_phys = tgt_li.get_obj_value();
+      const auto sol_phys = tgt_li.get_col_sol();
+      const auto rc = tgt_li.get_col_cost_raw();
+      capture_state_variable_values(scene_index, phase_index, sol_phys, rc);
+      phase_states[phase_index].forward_full_obj_physical = obj_phys;
+      update_max_kappa(scene_index, phase_index, tgt_li, iteration_index);
+    } else {
+      SPDLOG_DEBUG(
+          "{}: backward_resolve_target re-solve non-optimal "
+          "(status {}) — falling back to forward-cached cut data",
+          sddp_log("Backward",
+                   iteration_index,
+                   uid_of(scene_index),
+                   uid_of(phase_index)),
+          tgt_li.get_status());
+    }
+  }
+
+  // Use cached forward-pass solution for cut generation (refreshed
+  // above when ``backward_resolve_target`` is enabled).
   const auto& target_state = phase_states[phase_index];
 
   const auto ceps = m_options_.cut_coeff_eps;
@@ -513,7 +559,11 @@ auto SDDPMethod::backward_pass_single_phase(SceneIndex scene_index,
   sstats.bwd_cut_build_s += dt_build;
   sstats.bwd_add_row_s += dt_add_row;
   sstats.bwd_store_cut_s += dt_store;
-  sstats.bwd_resolve_s += dt_resolve;
+  // The optional ``backward_resolve_target`` re-solve at LP_t is
+  // accounted on the source LP's bwd_resolve_s for simplicity; a
+  // separate counter is also fine but adds noise to the per-iter
+  // step-avg log.
+  sstats.bwd_resolve_s += dt_resolve + dt_tgt_resolve;
   sstats.bwd_kappa_s += dt_kappa;
 
   return cuts_added;

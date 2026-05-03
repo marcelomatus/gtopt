@@ -838,6 +838,13 @@ public:
   /// setting `sddp.forward_infeas_rollback: false` in JSON.
   static constexpr Bool default_sddp_forward_infeas_rollback = true;
 
+  /// Re-solve target phase t LP at v̂_{t-1} before extracting cut data.
+  /// Default `false` (current behaviour: forward-cached cut data); flip
+  /// to `true` per case in JSON when needing textbook one-iter-tight
+  /// SDDP cuts that propagate through all phases in one pass.  See
+  /// `SDDPOptions::backward_resolve_target` for the cost trade-off.
+  static constexpr Bool default_sddp_backward_resolve_target = false;
+
   /**
    * @brief Gets the SDDP cut sharing mode as a string name
    * @return The cut sharing mode name
@@ -984,6 +991,17 @@ public:
   {
     return m_options_.sddp_options.forward_infeas_rollback.value_or(
         default_sddp_forward_infeas_rollback);
+  }
+
+  /**
+   * @brief Whether the backward pass re-solves the target phase LP
+   *        before extracting cut data.
+   * @return true if backward_resolve_target is enabled (default: false).
+   */
+  [[nodiscard]] constexpr auto sddp_backward_resolve_target() const
+  {
+    return m_options_.sddp_options.backward_resolve_target.value_or(
+        default_sddp_backward_resolve_target);
   }
 
   /**

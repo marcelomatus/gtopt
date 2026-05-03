@@ -503,6 +503,14 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   /// `max_iterations` without rollback or stall detection.
   bool forward_infeas_rollback {false};
 
+  /// Re-solve target phase t LP at v̂_{t-1} before extracting cut data
+  /// (default: false).  When true, cuts on α_t added earlier in this
+  /// backward pass (when the loop processed phase t+1) are reflected
+  /// in z_t and reduced costs, producing a one-iter-tight Benders
+  /// cut on α_{t-1}.  See `SDDPOptions::backward_resolve_target` for
+  /// the full rationale and cost analysis.
+  bool backward_resolve_target {false};
+
   /// File format for cut and state variable I/O (csv or json).
   /// CSV uses structured keys (class:var:uid=coeff) and is backward
   /// compatible with legacy name-based CSV files on the load side.
