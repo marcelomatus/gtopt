@@ -358,18 +358,26 @@ auto SDDPMethod::initialize_solver() -> std::expected<void, Error>
     }
     const auto scale_obj = planning_lp().options().scale_objective();
     const auto num_phases_d = static_cast<double>(num_phases);
-    const auto raw_estimate =
-        max_lp_coef * scale_obj * num_phases_d * num_phases_d;
+    // Linear-in-N heuristic:
+    //   scale_alpha ≈ scale_obj × num_phases × max_lp_coef
+    // Rationale: α_phys at master optimum ≈ Σ_t block_cost_t = O(N)
+    // per-phase magnitudes.  Going LARGER than necessary is also
+    // harmful: α_LP = α_phys / scale_alpha underflows, and α's obj
+    // coefficient (scale_alpha / scale_obj) balloons relative to
+    // other obj coefs — both hurt solver precision.  Per-case
+    // tuning via the explicit ``scale_alpha`` JSON option overrides
+    // this default.
+    const auto raw_estimate = max_lp_coef * scale_obj * num_phases_d;
     const auto raw_clamped = std::max(raw_estimate, 1.0);
     m_options_.scale_alpha = std::pow(10.0, std::ceil(std::log10(raw_clamped)));
     SPDLOG_INFO(
         "SDDP: auto scale_alpha = {:.2e} (raw_estimate={:.3e} = "
-        "max_lp_coef={:.3e} × scale_obj={:.0f} × num_phases²={})",
+        "max_lp_coef={:.3e} × scale_obj={:.0f} × num_phases={})",
         m_options_.scale_alpha,
         raw_estimate,
         max_lp_coef,
         scale_obj,
-        static_cast<int>(num_phases * num_phases));
+        num_phases);
   }
 
   // The setup steps below (add_col for alpha, get_col bounds for
