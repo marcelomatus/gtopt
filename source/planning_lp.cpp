@@ -387,6 +387,106 @@ void PlanningLP::auto_scale_theta(Planning& planning)
   }
 }
 
+// ── Scenario probability renormalisation ─────────────────────────────────
+
+void PlanningLP::renormalize_scenario_probabilities(Planning& planning)
+{
+  auto& scenario_array = planning.simulation.scenario_array;
+  auto& scene_array = planning.simulation.scene_array;
+
+  if (scenario_array.empty()) {
+    return;
+  }
+
+  // Build a per-scenario "is in an active scene" mask.  A scenario is
+  // part of the active subproblem iff (a) its parent scene is active
+  // (or scene_array is empty, in which case ``create_scene_array``
+  // synthesises a single default scene covering all scenarios) AND
+  // (b) the scenario itself has ``active`` not explicitly set to
+  // false.  We rescale only the scenarios in this set.
+  std::vector<bool> in_active_scene(scenario_array.size(), false);
+  if (scene_array.empty()) {
+    std::ranges::fill(in_active_scene, true);
+  } else {
+    for (const auto& scene : scene_array) {
+      if (!scene.is_active()) {
+        continue;
+      }
+      const auto first = scene.first_scenario;
+      const auto count = (scene.count_scenario == std::dynamic_extent)
+          ? (scenario_array.size() - first)
+          : scene.count_scenario;
+      const auto end = std::min(first + count, scenario_array.size());
+      for (auto i = first; i < end; ++i) {
+        in_active_scene[i] = true;
+      }
+    }
+  }
+
+  // Sum probability mass over the active subset.
+  double total = 0.0;
+  std::size_t n_active = 0;
+  for (std::size_t i = 0; i < scenario_array.size(); ++i) {
+    if (!in_active_scene[i]) {
+      continue;
+    }
+    const auto& sc = scenario_array[i];
+    if (!sc.is_active()) {
+      continue;
+    }
+    total += sc.probability_factor.value_or(1.0);
+    ++n_active;
+  }
+
+  // Three outcomes:
+  //  * total == 0 → degenerate input (every active scenario has
+  //    probability_factor == 0).  Cannot rescale; warn loudly.
+  //  * |total - 1| <= 1e-12 → already normalised; silent no-op
+  //    (this is the common path for fresh JSON whose authors put
+  //    in pre-computed probabilities that already sum to 1).
+  //  * otherwise → rescale.
+  constexpr double kTotalTol = 1e-12;
+  if (total <= 0.0) {
+    if (n_active > 0) {
+      SPDLOG_WARN(
+          "Scenario probabilities: every one of {} active scenario(s) has "
+          "probability_factor == 0; LP cost coefficients will be all-zero "
+          "for the cost-to-go objective.  Check the input JSON.",
+          n_active);
+    }
+    return;
+  }
+  if (std::abs(total - 1.0) <= kTotalTol) {
+    SPDLOG_DEBUG(
+        "Scenario probabilities: {} active scenario(s) already sum to 1.0",
+        n_active);
+    return;
+  }
+
+  // Rescale every in-scope scenario's probability_factor by 1/total.
+  // Out-of-scope scenarios (those in inactive scenes or themselves
+  // marked inactive) keep their original values — they don't enter
+  // any LP, so the values are inconsequential, but leaving them
+  // untouched preserves round-trip readability of the JSON.
+  const double scale = 1.0 / total;
+  for (std::size_t i = 0; i < scenario_array.size(); ++i) {
+    if (!in_active_scene[i]) {
+      continue;
+    }
+    auto& sc = scenario_array[i];
+    if (!sc.is_active()) {
+      continue;
+    }
+    sc.probability_factor = sc.probability_factor.value_or(1.0) * scale;
+  }
+  SPDLOG_INFO(
+      "Scenario probabilities: renormalised {} active scenario(s) — total "
+      "mass {:.6f} → 1.0 (scale = {:.6g})",
+      n_active,
+      total,
+      scale);
+}
+
 // ── Adaptive line-loss row scaling ───────────────────────────────────────
 
 void PlanningLP::auto_scale_loss_link(Planning& planning)

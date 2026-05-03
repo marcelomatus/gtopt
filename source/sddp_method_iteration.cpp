@@ -637,6 +637,16 @@ auto SDDPMethod::run_forward_pass_all_scenes(SDDPWorkPool& pool,
   // ``skip_scene[i]`` controls both dispatch (we don't submit a task)
   // and result-collection (we synthesise an infeasible result).
   // Counts the skipped scenes for the headline log line.
+  //
+  // Inactive scenes (``"active": 0`` in the JSON) are not skipped
+  // here because they have already been filtered out by
+  // ``enumerate_active`` in ``simulation_lp.cpp::create_scene_array``
+  // — they don't appear in ``m_scene_array_`` and therefore never
+  // enter ``iota_range<SceneIndex>(0, num_scenes)``.  The bound
+  // math sees only the active subset and the renormalised
+  // probabilities (see
+  // ``PlanningLP::renormalize_scenario_probabilities``) already
+  // sum to 1.0 over that subset.
   std::vector<bool> skip_scene(num_scenes, false);
   std::ptrdiff_t n_skipped_terminal = 0;
   if (m_options_.forward_infeas_rollback) {
