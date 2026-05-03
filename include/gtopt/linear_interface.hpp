@@ -657,6 +657,13 @@ public:
   /// `add_row` + `record_cut_row` loop to avoid log-N reallocations.
   void reserve_active_cuts(std::size_t n) { m_active_cuts_.reserve(n); }
 
+  /// Const-accessible cut count for diagnostic logging.  Read-only;
+  /// avoids the `take_active_cuts` round-trip that would mutate.
+  [[nodiscard]] std::size_t active_cuts_size() const noexcept
+  {
+    return m_active_cuts_.size();
+  }
+
   /// Record cut row deletions (pruning/forgetting).
   void record_cut_deletion(std::span<const int> deleted_indices);
 

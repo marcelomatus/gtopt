@@ -1272,8 +1272,11 @@ ColIndex LinearInterface::add_col(const SparseCol& col)
   // `set_col_low_raw: col index N out of range [0, N)`).  Always
   // record under rebuild so `apply_post_load_replay` can re-add the
   // column on the next reconstruct.
-  const bool record_for_replay = m_low_memory_mode_ == LowMemoryMode::rebuild
-      || (m_low_memory_mode_ != LowMemoryMode::off && m_snapshot_.has_data());
+  // Gate: record any post-structural add_col under low_memory != off.
+  // The structural flatten / load_flat path uses add_col_raw which
+  // bypasses this method, so any caller reaching here is by
+  // construction post-structural and must replay on every reconstruct.
+  const bool record_for_replay = m_low_memory_mode_ != LowMemoryMode::off;
   if (!m_replaying_ && record_for_replay) {
     m_dynamic_cols_.push_back(col);
   }
