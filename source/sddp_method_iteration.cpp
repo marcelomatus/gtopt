@@ -567,6 +567,61 @@ auto SDDPMethod::backward_pass_single_phase(SceneIndex scene_index,
       links_total,
       m_options_.backward_resolve_target ? "yes" : "no");
 
+  // Iter-0 diagnostic dump: the iter-0 backward sweep is where SDDP
+  // bootstraps the cut chain, and where any "α driven unbounded
+  // negative" pathology shows up first.  Dump the cut row's structure
+  // (α coeff in physical units, link coeffs and v̂ values, RHS) and
+  // every state column's bounds in src_li so we can spot a column with
+  // (-∞, +∞) and a non-zero cut coefficient — that's the kind of
+  // configuration that lets the master drive α arbitrarily negative.
+  // Gated on iter 0 only; with 50 phases this adds ~50 log lines per
+  // iter-0 backward and zero overhead afterwards.
+  if (iteration_index == IterationIndex {0}) {
+    const auto col_low_view = src_li.get_col_low();
+    const auto col_upp_view = src_li.get_col_upp();
+    const auto src_alpha_lb = col_low_view[src_alpha_col];
+    const auto src_alpha_ub = col_upp_view[src_alpha_col];
+    spdlog::info(
+        "SDDP Backward [i0 s{} p{}/{}]: dump α col={} bounds=[{:.3e}, {:.3e}] "
+        "cut.cmap.size={} cut.lowb={:.6e} cut.uppb={:.6e}",
+        uid_of(scene_index),
+        uid_of(phase_index),
+        bwd_total_phases,
+        static_cast<int>(src_alpha_col),
+        src_alpha_lb,
+        src_alpha_ub,
+        cut.cmap.size(),
+        cut.lowb,
+        cut.uppb);
+    for (const auto& [i, link] :
+         std::views::enumerate(src_state.outgoing_links))
+    {
+      if (link.state_var == nullptr) {
+        continue;
+      }
+      const auto col_idx = link.source_col;
+      const auto col_lb = col_low_view[col_idx];
+      const auto col_ub = col_upp_view[col_idx];
+      const auto coef_it = cut.cmap.find(col_idx);
+      const double coef = (coef_it != cut.cmap.end()) ? coef_it->second : 0.0;
+      const double v_hat = link.state_var->col_sol_physical();
+      const double rc_phys = link.state_var->reduced_cost_physical(scale_obj);
+      spdlog::info(
+          "SDDP Backward [i0 s{} p{}/{}]:   link[{}] col={} bounds=[{:.3e},"
+          " {:.3e}] coef={:.4e} rc_phys={:.4e} v_hat={:.4e}",
+          uid_of(scene_index),
+          uid_of(phase_index),
+          bwd_total_phases,
+          static_cast<int>(i),
+          static_cast<int>(col_idx),
+          col_lb,
+          col_ub,
+          coef,
+          rc_phys,
+          v_hat);
+    }
+  }
+
   // Re-solve src_li so downstream code (the async iteration's
   // per-scene LB read at sddp_iteration.cpp:929 — `lower_bound =
   // first_phase.linear_interface().get_obj_value()`) sees a fresh
