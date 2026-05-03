@@ -50,6 +50,20 @@ namespace gtopt
 namespace
 {
 
+/// Resolve the directory used for log/trace files.
+///
+/// Prefers `opts.log_directory` when set; otherwise falls back to
+/// `<output_directory>/logs` (with `output_directory` itself defaulting
+/// to "output").  Does *not* create the directory — callers do that.
+[[nodiscard]] std::filesystem::path resolve_log_dir(const MainOptions& opts)
+{
+  if (opts.log_directory.has_value()) {
+    return {opts.log_directory.value()};
+  }
+  return std::filesystem::path(opts.output_directory.value_or("output"))
+      / "logs";
+}
+
 /// Set up trace-level file sink for detailed SPDLOG_TRACE output.
 ///
 /// When --trace-log is given explicitly, uses that path; otherwise
@@ -57,12 +71,7 @@ namespace
 /// (e.g. logs/trace_1.log, logs/trace_2.log).
 void setup_trace_log(const MainOptions& opts)
 {
-  const auto log_dir = std::filesystem::path(
-      opts.log_directory.has_value()
-          ? opts.log_directory.value()
-          : (std::filesystem::path(opts.output_directory.value_or("output"))
-             / "logs")
-                .string());
+  const auto log_dir = resolve_log_dir(opts);
   std::string trace_path;
 
   if (opts.trace_log.has_value()) {
@@ -176,6 +185,37 @@ void setup_trace_log(const MainOptions& opts)
 }
 
 }  // namespace
+
+void setup_file_logging(const MainOptions& opts, bool suppress_stdout)
+{
+  const auto log_dir = resolve_log_dir(opts);
+  try {
+    std::filesystem::create_directories(log_dir);
+  } catch (const std::filesystem::filesystem_error& fe) {
+    spdlog::warn(
+        "could not create log directory '{}': {}", log_dir.string(), fe.what());
+    return;
+  }
+
+  const auto log_path = (log_dir / "gtopt.log").string();
+  try {
+    auto file_sink = std::make_shared<spdlog::sinks::basic_file_sink_mt>(
+        log_path, /*truncate=*/true);
+    // Inherit the default logger's level so --verbose / --quiet behave
+    // the same on the file as they did on stdout.
+    file_sink->set_level(spdlog::default_logger()->level());
+
+    auto& sinks = spdlog::default_logger()->sinks();
+    if (suppress_stdout) {
+      // Drop every existing sink (typically the auto-installed stdout
+      // colour sink) so log output only goes to the file.
+      sinks.clear();
+    }
+    sinks.push_back(std::move(file_sink));
+  } catch (const spdlog::spdlog_ex& ex) {
+    spdlog::warn("could not open log file '{}': {}", log_path, ex.what());
+  }
+}
 
 [[nodiscard]] std::expected<int, std::string> gtopt_main(
     const MainOptions& raw_opts)
