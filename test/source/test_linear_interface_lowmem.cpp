@@ -981,6 +981,68 @@ TEST_CASE(
   CHECK(li.get_coeff_raw(r0, x1) == doctest::Approx(1.0));
 }
 
+// ── Col-bound replay regression — the SDDP propagate_trial_values fix ──
+//
+// Pins the invariant that `set_col_low_raw` / `set_col_upp_raw`
+// mutations are tracked in `m_pending_col_bounds_` and re-applied by
+// `apply_post_load_replay` after `load_flat`.  Pre-fix (before commit
+// f8b1b54c), under `LowMemoryMode::compress` these mutations vanished
+// on every reconstruct because `load_flat` restores the snapshot's
+// construction-time bounds — and the SDDP forward pass relies on
+// `propagate_trial_values` pinning dep_col bounds to the previous
+// phase's solved state to constrain the backward LP.  Without the
+// replay, iter-0-backward saw construction-time bounds and produced
+// wrong cuts → juan/iplp compress-mode LB stalled at -454M.
+TEST_CASE(
+    "LinearInterface — col-bound mutations replayed on reconstruct")  // NOLINT
+{
+  auto [li, flat, x1, x2] = make_simple_li_lp();
+
+  REQUIRE(li.initial_solve().has_value());
+
+  // Construction-time bounds for x1/x2 are [0, 10] per the fixture.
+  REQUIRE(li.get_col_low_raw()[x1] == doctest::Approx(0.0));
+  REQUIRE(li.get_col_upp_raw()[x1] == doctest::Approx(10.0));
+
+  li.set_low_memory(LowMemoryMode::compress);
+  li.save_snapshot(FlatLinearProblem {flat});
+
+  // Pin x1 to a tighter bound — analogous to what
+  // propagate_trial_values does to dep_col during SDDP forward pass.
+  REQUIRE(li.supports_set_coeff());
+  li.set_col_low_raw(x1, 3.0);
+  li.set_col_upp_raw(x1, 7.0);
+  CHECK(li.get_col_low_raw()[x1] == doctest::Approx(3.0));
+  CHECK(li.get_col_upp_raw()[x1] == doctest::Approx(7.0));
+
+  // Release + reconstruct.  Pre-fix, the mutations vanished and the
+  // bounds reverted to [0, 10].  Post-fix they survive via
+  // `m_pending_col_bounds_` replay in `apply_post_load_replay`.
+  li.release_backend();
+  li.reconstruct_backend();
+  REQUIRE_FALSE(li.is_backend_released());
+
+  CHECK(li.get_col_low_raw()[x1] == doctest::Approx(3.0));
+  CHECK(li.get_col_upp_raw()[x1] == doctest::Approx(7.0));
+
+  // x2 wasn't mutated — stays at construction-time bounds.
+  CHECK(li.get_col_low_raw()[x2] == doctest::Approx(0.0));
+  CHECK(li.get_col_upp_raw()[x2] == doctest::Approx(10.0));
+
+  // Multiple cycles preserve the override too.
+  li.release_backend();
+  li.reconstruct_backend();
+  CHECK(li.get_col_low_raw()[x1] == doctest::Approx(3.0));
+  CHECK(li.get_col_upp_raw()[x1] == doctest::Approx(7.0));
+
+  // Subsequent mutation overwrites the cached value.
+  li.set_col_low_raw(x1, 5.0);
+  li.release_backend();
+  li.reconstruct_backend();
+  CHECK(li.get_col_low_raw()[x1] == doctest::Approx(5.0));
+  CHECK(li.get_col_upp_raw()[x1] == doctest::Approx(7.0));
+}
+
 TEST_CASE("LinearInterface — low_memory hot-start cut replay")  // NOLINT
 {
   // Cuts added via add_row + record_cut_row are replayed on reconstruct.
