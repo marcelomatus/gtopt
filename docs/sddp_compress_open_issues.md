@@ -134,6 +134,33 @@ variable at iter 0 forward p50 (off vs compress) — if the mirrored
 value differs, the bug is in the mirror population path, not the
 LinearInterface cache.
 
+#### Further finding — iter 0 forward p50 LPs are byte-identical
+
+Captured iter 0 forward p50 PRE-RESOLVE LP files from both modes
+(`/tmp/diag_fwd_off_i0_s4_p50_preresolve.lp` vs
+`/tmp/diag_fwd_compress_…`).  Both have MD5 `a7cb495d…` and size
+3,670,988 bytes — **byte-identical**.
+
+This narrows the bug significantly:
+
+* The LP itself is the same in both modes.
+* The solver may produce a different `col_solution` from the same
+  LP (multiple-optima case, or solver thread/randomization).
+* OR: between iter 0 forward p50's solve and iter 0 backward p51's
+  cross-phase read of p50, *something* mutates the col_solution
+  that's read back differently in off vs compress.
+
+The rsv6 efin trace showed off mode reading values up to ~174 Hm³
+at backward — *higher* than the construction-time eini of 95.5 Hm³.
+This is only physically possible if rsv6 has inflows that refill it
+in late phases.  Both modes should compute the same iter-0-forward
+trajectory; if they don't, that's the bug.
+
+A definitive next experiment: dump iter 0 forward p50 POST-RESOLVE
+LP under both modes (where col_solution is included in the LP file
+or via a separate solution dump) and compare the rsv6 efin column
+solution.
+
 ## Issue 2 — P4 (snapshot bake-in) iter 1 phase 10 infeasibility
 
 ### Symptom
