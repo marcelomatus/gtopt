@@ -324,14 +324,18 @@ _PHASE_TRIGGERS: list[tuple[re.Pattern[str], str, str]] = [
     (re.compile(r"=== Building LP model ==="), "build_lp", "start"),
     (re.compile(r"Build lp time"), "build_lp", "done"),
     (re.compile(r"=== System optimization ==="), "optimize", "start"),
-    (re.compile(r"SDDP: === iteration (\d+) / (\d+)"), "optimize", "detail"),
+    (
+        re.compile(r"SDDP Iter \[i\d+\]: === starting \((\d+) of (\d+)\) ==="),
+        "optimize",
+        "detail",
+    ),
     (
         re.compile(r"Monolithic(?:Method|Solver): scene (\d+) done.*\((\d+)/(\d+)\)"),
         "optimize",
         "detail",
     ),
-    (re.compile(r"SDDP: === simulation pass"), "sim_pass", "start"),
-    (re.compile(r"SDDP: simulation pass done"), "sim_pass", "done"),
+    (re.compile(r"SDDP Sim \[i\d+\]: === simulation pass"), "sim_pass", "start"),
+    (re.compile(r"SDDP Sim \[i\d+\]: done in"), "sim_pass", "done"),
     (re.compile(r"=== Solution statistics ==="), "solution", "done"),
     (re.compile(r"=== Output writing ==="), "write", "start"),
     (re.compile(r"Write output time"), "write", "done"),
@@ -1477,7 +1481,7 @@ class SolverDisplay:
 
     # Patterns to detect solver and method from gtopt log output
     _SOLVER_RE = re.compile(r"Solver:\s+(\S+)")
-    _SDDP_RE = re.compile(r"SDDP:")
+    _SDDP_RE = re.compile(r"SDDP[: ]")
     _MONO_RE = re.compile(r"Monolithic(?:Method|Solver):")
 
     def add_log_line(self, line: str) -> None:
