@@ -310,38 +310,42 @@ public:
     if (!stage.index() && !stage.phase_index()) {
       return default_eini;
     }
-    // Priority chain (revised 2026-04-25 — driven by seepage segment-
-    // selection requirements observed on juan/gtopt_iplp p27/p37):
+    // Priority chain (revised 2026-05-04 — symmetry between
+    // `LowMemoryMode::off` and `LowMemoryMode::compress`):
     //
-    //   1. Previous phase's *optimal* efin — the most physically accurate
-    //      value for our stage's start-of-stage volume, since the
-    //      state-link semantics define `eini[N] = efin[N-1]`.  Whenever
-    //      the predecessor has just been solved (forward-pass position
-    //      N > 0), this gives a freshly-propagated value that reflects
-    //      the actual reservoir trajectory rather than any stale or
-    //      JSON-default fallback.
+    //   1. Previous phase's *optimal* efin — the only "live" source.
+    //      Cross-phase reads the predecessor's freshly-propagated
+    //      reservoir trajectory.  Under `off` this is the live
+    //      backend's col_solution; under `compress` it's the cached
+    //      col_solution captured at the predecessor's last
+    //      `release_backend()`.  Both modes produce the *same* value
+    //      because the cache is populated post-solve and never
+    //      overwritten by subsequent reconstructs (see
+    //      `LinearInterface::release_backend` cache-refresh gate).
     //
-    //   2. Our phase's own optimal `eini_col` — used when the predecessor
-    //      was not solved (e.g. iter-0 backward pass at the FIRST phase),
-    //      but our own LP has been solved by a previous attempt in the
-    //      current iteration.  The `eini_col` value reflects the
-    //      state-link constraint applied to our LP at the time of solve.
+    //   2. Hot-start warm value — loaded from a prior-run state file
+    //      via `LinearInterface::warm_col_sol()`.  Used when no
+    //      predecessor exists (iter-0 first phase) and the current
+    //      run is restarting from saved state.
     //
-    //   3. Hot-start warm value — loaded from a prior-run state file via
-    //      `LinearInterface::warm_col_sol()`.  Falls through here when
-    //      this LP has never been solved and no predecessor exists in
-    //      the current run.
+    //   3. Global default `eini` from the JSON — last-resort
+    //      fallback.  Iter-0 first phase falls through to here when
+    //      no warm-start state file is loaded.
     //
-    //   4. Global default `eini` from the JSON — last-resort fallback.
-    //
-    // The previous order (own optimal → warm → cross-phase) caused
-    // ReservoirSeepage::update_lp to evaluate the linearised filtration
-    // curve at our own stale `eini_col` (which at iter-0 build time =
-    // JSON eini), pinning ELTORO to segment 2 (volume range [400, 2700])
-    // even when the predecessor's solved efin had drained ELTORO well
-    // below 400 Hm³.  At physical efin → 0 the segment-2 line
-    // structurally forces 15.09 m³/s of seepage from an empty reservoir,
-    // breaking the LP.  Cross-phase first eliminates this miscompute.
+    // The own-phase eini_col fallback was REMOVED to keep `off` and
+    // `compress` byte-identical.  Rationale: when a Benders cut is
+    // added to our cell mid-backward, the live backend's
+    // `is_proven_optimal()` returns false (CPLEX flags the
+    // post-add_row LP as no-longer-solved) → step 2 was skipped →
+    // step 4 default fired.  Under compress, the cached optimality
+    // flag stays `true` from the prior release, so step 2 fired and
+    // returned a now-stale `eini_col` that doesn't satisfy the new
+    // cut.  The two paths drift: off produces a default-driven LP
+    // for `update_lp`, compress produces a stale-cache-driven LP.
+    // Removing step 2 makes both modes agree on the cross-phase value
+    // (which is the only physically meaningful source anyway — our
+    // own phase's `eini_col` is just a copy of the predecessor's
+    // efin enforced by the state-link constraint).
     //
     // 1. Cross-phase: previous phase's optimal efin.
     if (const auto* prev_sys = sys.prev_phase_sys()) {
@@ -356,21 +360,14 @@ public:
         }
       }
     }
-    // 2. Our phase's optimal `eini_col` solution.
+    // 2. Hot-start warm value (no predecessor or predecessor not optimal).
     const auto& li = sys.linear_interface();
     const auto col = eini_col_at(scenario, stage);
-    if (li.is_optimal()) {
-      // Physical + optimal-only bound-clamped view: scrubs solver-
-      // tolerance noise at column bounds so a propagated eini never
-      // lands outside [emin, emax].
-      return li.get_col_sol()[col];
-    }
-    // 3. Hot-start warm value.
     const auto& warm = li.warm_col_sol();
     if (!warm.empty() && static_cast<size_t>(col) < warm.size()) {
       return physical_col_value(warm, col);
     }
-    // 4. Global default eini.
+    // 3. Global default eini.
     return default_eini;
   }
 

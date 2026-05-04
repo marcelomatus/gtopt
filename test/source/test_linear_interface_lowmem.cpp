@@ -3688,3 +3688,686 @@ TEST_CASE(  // NOLINT
   CHECK_NOTHROW(li.set_col_upp_raw(x0, 5.0));
   CHECK_THROWS_AS(li.set_col_upp_raw(ColIndex {42}, 5.0), std::out_of_range);
 }
+
+// ── Mutation-replay policy tests (Tasks 2a, 2b, 2c) ─────────────────────────
+//
+// Three tests that explicitly pin the architectural choice for each
+// mutation category that exists in the reconstruct path:
+//
+//   set_coeff_raw  → NOT replayed (caller re-executes via update_lp_for_phase)
+//   set_rhs_raw    → NOT replayed (same: caller-side re-execution)
+//   set_col_*_raw  → REPLAYED via m_pending_col_bounds_  (bb3d3f26 fix)
+//
+// If a future refactor changes the policy for coeff or rhs (e.g. by baking
+// mutations into the snapshot), these tests will fail and force an explicit
+// update — preventing silent semantic drift.
+
+// ── Task 2a: set_coeff_raw policy — mutation is NOT replayed ────────────────
+//
+// Distinct from the existing "snapshot frozen at construction (compress)"
+// test (which uses the physical `set_coeff` wrapper): this test calls
+// `set_coeff_raw` directly and verifies the same non-replay contract at
+// the raw-setter level.  The two are independent because a future refactor
+// could add raw-level tracking while leaving physical-level alone, or
+// vice versa.
+TEST_CASE(  // NOLINT
+    "LinearInterface — set_coeff_raw mutation NOT replayed on reconstruct")
+{
+  // min 2x1 + 3x2  s.t.  x1 + x2 >= 5,  0 <= x1,x2 <= 10
+  // Construction-time coefficient at (r0, x1) is 1.0.
+  auto [li, flat, x1, x2] = make_simple_li_lp();
+  const RowIndex r0 {0};
+
+  REQUIRE(li.initial_solve().has_value());
+  REQUIRE(li.get_coeff_raw(r0, x1) == doctest::Approx(1.0));
+
+  li.set_low_memory(LowMemoryMode::compress);
+  li.save_snapshot(FlatLinearProblem {flat});
+
+  // Mutate via the raw setter (bypasses col/row scale compensation).
+  REQUIRE(li.supports_set_coeff());
+  li.set_coeff_raw(r0, x1, 99.0);
+  CHECK(li.get_coeff_raw(r0, x1) == doctest::Approx(99.0));
+
+  // Release + reconstruct: `load_flat` reloads the frozen snapshot.
+  // The 99.0 raw mutation lives only on the volatile backend — it is
+  // lost because `m_pending_col_bounds_`-style replay does not exist
+  // for matrix coefficients (re-application is the caller's job via
+  // `update_lp_for_phase`).
+  li.release_backend();
+  li.reconstruct_backend();
+  REQUIRE_FALSE(li.is_backend_released());
+
+  // Must revert to construction-time value, NOT 99.0.
+  CHECK(li.get_coeff_raw(r0, x1) == doctest::Approx(1.0));
+
+  // Verify x2 coefficient untouched by the mutation above.
+  CHECK(li.get_coeff_raw(r0, x2) == doctest::Approx(1.0));
+}
+
+// ── Task 2b: set_rhs_raw policy — mutation is NOT replayed ──────────────────
+//
+// Pins the same non-replay contract for row-bound mutations.  The SDDP
+// element `update_lp` calls (`set_rhs`, `set_row_low`, `set_row_upp`) are
+// re-executed at every `update_lp_for_phase` call site, so direct replay
+// is intentionally absent for row bounds.  If a future change adds a
+// `m_pending_row_bounds_` map, this test will flip and signal the policy
+// change — preventing silent semantics drift.
+TEST_CASE(  // NOLINT
+    "LinearInterface — set_rhs_raw mutation NOT replayed on reconstruct")
+{
+  // Construction-time row bounds: lowb = 5.0, uppb = DblMax (from fixture).
+  auto [li, flat, x1, x2] = make_simple_li_lp();
+  const RowIndex r0 {0};
+
+  REQUIRE(li.initial_solve().has_value());
+
+  // Verify construction-time lower bound.
+  REQUIRE(li.get_row_low_raw()[static_cast<size_t>(r0)]
+          == doctest::Approx(5.0));
+
+  li.set_low_memory(LowMemoryMode::compress);
+  li.save_snapshot(FlatLinearProblem {flat});
+
+  SUBCASE("set_rhs_raw reverts after reconstruct")
+  {
+    // Pin the row to an equality constraint (rhs = 8.0).
+    li.set_rhs_raw(r0, 8.0);
+    CHECK(li.get_row_low_raw()[static_cast<size_t>(r0)]
+          == doctest::Approx(8.0));
+    CHECK(li.get_row_upp_raw()[static_cast<size_t>(r0)]
+          == doctest::Approx(8.0));
+
+    // Release + reconstruct: snapshot restores construction-time bounds.
+    li.release_backend();
+    li.reconstruct_backend();
+    REQUIRE_FALSE(li.is_backend_released());
+
+    // Both bounds must revert to construction-time values (5.0 / +inf).
+    const double inf_val = li.infinity();
+    CHECK(li.get_row_low_raw()[static_cast<size_t>(r0)]
+          == doctest::Approx(5.0));
+    CHECK(li.get_row_upp_raw()[static_cast<size_t>(r0)] >= inf_val * 0.9);
+  }
+
+  SUBCASE("set_row_low_raw / set_row_upp_raw revert after reconstruct")
+  {
+    // Tighten bounds individually.
+    li.set_row_low_raw(r0, 7.0);
+    li.set_row_upp_raw(r0, 9.0);
+    CHECK(li.get_row_low_raw()[static_cast<size_t>(r0)]
+          == doctest::Approx(7.0));
+    CHECK(li.get_row_upp_raw()[static_cast<size_t>(r0)]
+          == doctest::Approx(9.0));
+
+    li.release_backend();
+    li.reconstruct_backend();
+    REQUIRE_FALSE(li.is_backend_released());
+
+    const double inf_val = li.infinity();
+    CHECK(li.get_row_low_raw()[static_cast<size_t>(r0)]
+          == doctest::Approx(5.0));
+    CHECK(li.get_row_upp_raw()[static_cast<size_t>(r0)] >= inf_val * 0.9);
+  }
+}
+
+// ── Task 2c: combined round-trip — col-bound + cut + alpha ─────────────────
+//
+// Exercises ALL THREE persistent replay mechanisms in a single cycle,
+// matching the exact state that SDDP produces just before the backward
+// pass under LowMemoryMode::compress:
+//
+//   1. Alpha column (dynamic col) — auto-recorded into m_dynamic_cols_
+//   2. A Benders cut (dynamic row) — recorded via record_cut_row
+//   3. dep_col bound pins (propagate_trial_values) — m_pending_col_bounds_
+//
+// All three must survive release_backend → reconstruct_backend and produce
+// the correct optimal value when solved.
+TEST_CASE(  // NOLINT
+    "LinearInterface — combined col-bound + cut + alpha replay round-trip")
+{
+  // Base LP: min 2x1 + 3x2  s.t.  x1 + x2 >= 5,  0 <= x1,x2 <= 10
+  // Unconstrained optimum: x1=5, x2=0, obj=10.
+  auto [li, flat, x1, x2] = make_simple_li_lp();
+
+  REQUIRE(li.initial_solve().has_value());
+  REQUIRE(li.is_optimal());
+
+  li.set_low_memory(LowMemoryMode::compress);
+  li.save_snapshot(FlatLinearProblem {flat});
+  li.save_base_numrows();
+  const auto base_nrows = li.base_numrows();
+  const auto base_ncols = li.get_numcols();
+
+  // ── 1. Add alpha column (dynamic col, simulates SDDP cost-to-go) ──
+  // add_col auto-records into m_dynamic_cols_ post-snapshot.
+  SparseCol alpha_col;
+  alpha_col.lowb = -1000.0;
+  alpha_col.uppb = 0.0;
+  alpha_col.cost = 1.0;  // non-zero so it influences the objective
+  [[maybe_unused]] const auto alpha = li.add_col(alpha_col);
+  CHECK(li.get_numcols() == base_ncols + 1);
+
+  // ── 2. Add a Benders cut: x1 <= 4 (binding vs unconstrained opt) ──
+  SparseRow cut;
+  cut[x1] = 1.0;
+  cut.lowb = -LinearProblem::DblMax;
+  cut.uppb = 4.0;
+  li.add_row(cut);
+  li.record_cut_row(cut);
+  CHECK(li.get_numrows() == base_nrows + 1);
+
+  // ── 3. Pin x2 bounds (propagate_trial_values analogue) ──
+  // x2 construction bounds were [0, 10]; pin to [2, 6].
+  li.set_col_low_raw(x2, 2.0);
+  li.set_col_upp_raw(x2, 6.0);
+  CHECK(li.get_col_low_raw()[static_cast<size_t>(x2)] == doctest::Approx(2.0));
+  CHECK(li.get_col_upp_raw()[static_cast<size_t>(x2)] == doctest::Approx(6.0));
+
+  // ── Release + reconstruct ──
+  li.release_backend();
+  CHECK(li.is_backend_released());
+
+  li.reconstruct_backend();
+  CHECK_FALSE(li.is_backend_released());
+
+  // Mechanism 1: alpha col survived.
+  CHECK(li.get_numcols() == base_ncols + 1);
+
+  // Mechanism 2: cut survived.
+  CHECK(li.get_numrows() == base_nrows + 1);
+
+  // Mechanism 3: x2 bound pins survived.
+  CHECK(li.get_col_low_raw()[static_cast<size_t>(x2)] == doctest::Approx(2.0));
+  CHECK(li.get_col_upp_raw()[static_cast<size_t>(x2)] == doctest::Approx(6.0));
+
+  // x1 column bounds untouched (construction-time [0, 10]) — the x1 <= 4
+  // constraint is a row cut, not a column bound.
+  CHECK(li.get_col_low_raw()[static_cast<size_t>(x1)] == doctest::Approx(0.0));
+  CHECK(li.get_col_upp_raw()[static_cast<size_t>(x1)] == doctest::Approx(10.0));
+
+  // ── Solve and verify the combined constraints ──
+  // Active constraints:
+  //   x1 + x2 >= 5  (structural)
+  //   x1 <= 4       (cut)
+  //   2 <= x2 <= 6  (pinned bounds)
+  //   alpha ∈ [-1000, 0], cost 1  → alpha = -1000 (minimises at lower bound)
+  // Objective: 2x1 + 3x2 + alpha
+  //   Subject to x1 <= 4, x1 + x2 >= 5, x2 >= 2
+  //   At optimum: x1=3, x2=2 (satisfies x1+x2>=5, x1<=4, x2>=2)
+  //   alpha = -1000
+  //   obj = 6 + 6 - 1000 = -988
+  auto r = li.resolve();
+  REQUIRE(r.has_value());
+  CHECK(li.get_obj_value_raw() == doctest::Approx(-988.0));
+
+  // Multiple cycles must not corrupt any of the three mechanisms.
+  li.release_backend();
+  li.reconstruct_backend();
+  CHECK(li.get_numcols() == base_ncols + 1);
+  CHECK(li.get_numrows() == base_nrows + 1);
+  CHECK(li.get_col_low_raw()[static_cast<size_t>(x2)] == doctest::Approx(2.0));
+  CHECK(li.get_col_upp_raw()[static_cast<size_t>(x2)] == doctest::Approx(6.0));
+  auto r2 = li.resolve();
+  REQUIRE(r2.has_value());
+  CHECK(li.get_obj_value_raw() == doctest::Approx(-988.0));
+}
+
+// ── Task 3: post-snapshot set_col_scale NOT replayed (scale lost) ───────────
+//
+// m_col_scales_ is reset by load_flat() from flat_lp.col_scales.  A
+// post-snapshot call to set_col_scale(idx, 99.0) modifies the in-memory
+// m_col_scales_ but the snapshot was frozen before that call, so the
+// reconstructed backend will use construction-time scales (all 1.0 in the
+// simple fixture because no non-unit scales were set at flatten time).
+//
+// There is currently NO pending-replay mechanism for scale mutations
+// (unlike m_pending_col_bounds_ for bounds).  This test pins that
+// behaviour so a future change that adds scale-mutation replay must
+// explicitly update (flip) the assertion rather than silently change
+// semantics.
+TEST_CASE(  // NOLINT
+    "LinearInterface — post-snapshot set_col_scale NOT replayed on reconstruct")
+{
+  // Fixture: all col scales are 1.0 at flatten time.
+  auto [li, flat, x1, x2] = make_simple_li_lp();
+
+  REQUIRE(li.initial_solve().has_value());
+
+  // Confirm construction-time scale is 1.0.
+  CHECK(li.get_col_scale(x1) == doctest::Approx(1.0));
+
+  li.set_low_memory(LowMemoryMode::compress);
+  li.save_snapshot(FlatLinearProblem {flat});
+
+  // Mutate the in-memory scale post-snapshot.
+  li.set_col_scale(x1, 99.0);
+  CHECK(li.get_col_scale(x1) == doctest::Approx(99.0));
+
+  // Release + reconstruct: load_flat() reloads col_scales from the frozen
+  // snapshot, which had scale 1.0 at the time of save_snapshot.
+  li.release_backend();
+  li.reconstruct_backend();
+  REQUIRE_FALSE(li.is_backend_released());
+
+  // Scale reverts to 1.0 (construction-time).  If this CHECK starts
+  // failing it means scale-mutation replay was added — update the test
+  // to assert the new "survived" behaviour and remove the
+  // update_lp_for_phase workaround if applicable.
+  CHECK(li.get_col_scale(x1) == doctest::Approx(1.0));
+  CHECK(li.get_col_scale(x2) == doctest::Approx(1.0));
+}
+
+// ── Task 3: m_base_numrows_ is reset + re-set by apply_post_load_replay ─────
+//
+// save_base_numrows() is called inside apply_post_load_replay (step 3).
+// After reconstruct, base_numrows() must equal the number of structural
+// rows (2 + dynamic_rows replayed BEFORE the cut phase), not zero or the
+// pre-release value.
+TEST_CASE(  // NOLINT
+    "LinearInterface — base_numrows is correctly restored after reconstruct")
+{
+  auto [li, flat, x1, x2] = make_simple_li_lp();
+
+  REQUIRE(li.initial_solve().has_value());
+
+  li.set_low_memory(LowMemoryMode::compress);
+  li.save_snapshot(FlatLinearProblem {flat});
+  li.save_base_numrows();
+  const auto base_before = li.base_numrows();
+
+  // Add a cut, release, reconstruct.
+  SparseRow cut;
+  cut[x1] = 1.0;
+  cut.lowb = -LinearProblem::DblMax;
+  cut.uppb = 4.0;
+  li.add_row(cut);
+  li.record_cut_row(cut);
+
+  li.release_backend();
+  li.reconstruct_backend();
+
+  // base_numrows must be the same as before the cut was added —
+  // apply_post_load_replay calls save_base_numrows() AFTER replaying
+  // dynamic_rows but BEFORE replaying cuts.
+  CHECK(li.base_numrows() == base_before);
+
+  // Total rows = base + 1 cut.
+  CHECK(li.get_numrows() == base_before + 1);
+}
+
+// ── Task 3: col_scales shared_ptr survives multiple reconstruct cycles ───────
+//
+// col_scales_use_count() returns the shared_ptr use count for m_col_scales_.
+// Under compress mode, each reconstruct calls load_flat() which calls
+// detach_for_write(m_col_scales_).assign(...) — this replaces the vector
+// contents but the shared_ptr itself is retained by the LinearInterface.
+// The use count must stay at 1 (no leaked extra references) throughout.
+TEST_CASE(  // NOLINT
+    "LinearInterface — col_scales shared_ptr not leaked across reconstruct")
+{
+  auto [li, flat, x1, x2] = make_simple_li_lp();
+
+  REQUIRE(li.initial_solve().has_value());
+
+  li.set_low_memory(LowMemoryMode::compress);
+  li.save_snapshot(FlatLinearProblem {flat});
+
+  // Use count is 1: only li holds the shared_ptr (no clones yet).
+  REQUIRE(li.col_scales_use_count() == 1);
+
+  for (int i = 0; i < 3; ++i) {
+    li.release_backend();
+    li.reconstruct_backend();
+
+    // After each reconstruct, col_scales must still have use_count == 1.
+    // A leak would show as use_count > 1 and would indicate a dangling
+    // reference path introduced by a refactor.
+    CHECK(li.col_scales_use_count() == 1);
+  }
+}
+
+// ── Regression: release after reconstruct-without-resolve must NOT corrupt
+// cache.
+//
+// Models the SDDP backward-pass `src_phase` lifecycle:
+//   1. cell solves (forward pass) — cache populated with valid col_sol.
+//   2. cell released — backend freed.
+//   3. cell reconstructed for cross-phase read (e.g. `physical_eini`).
+//      Live backend's primal buffer is uninitialised post-`load_flat`.
+//   4. cell read via `get_col_sol_raw` — must return CACHED value (the
+//      `m_backend_solution_fresh_` gate routes the read to the cache).
+//   5. cell released AGAIN without an intervening resolve.
+//
+// Pre-fix: step 5 entered `release_backend`'s cache-refresh branch
+// because `is_optimal()` returns the cached `true`.  It then read
+// `m_backend_->col_solution()` from the live, never-solved backend
+// and OVERWROTE the previously valid cache with that buffer (zeros
+// or uninitialised).  Subsequent `get_col_sol_raw()` returned the
+// corrupted cache → SDDP forward-pass `propagate_trial_values`
+// pinned dep_col bounds to garbage → wrong LP solutions.
+//
+// Post-fix: `release_backend` skips the solution-vector refresh when
+// `!m_backend_solution_fresh_` and the previous cache survives.
+TEST_CASE(  // NOLINT
+    "LinearInterface — release after reconstruct-no-resolve preserves cache")
+{
+  auto [li, flat, x1, x2] = make_simple_li_lp();
+
+  // Solve once to produce a known-good optimal solution and cache it.
+  REQUIRE(li.initial_solve().has_value());
+  REQUIRE(li.is_optimal());
+
+  li.set_low_memory(LowMemoryMode::compress);
+  li.save_snapshot(FlatLinearProblem {flat});
+
+  // Step 2: release.  Cache populated from the live backend.
+  li.release_backend();
+  REQUIRE(li.is_optimal());  // cached true
+
+  // Snapshot the cached col_sol so we can assert it survives below.
+  const std::vector<double> cached_col_sol_after_first_release {
+      li.get_col_sol_raw().begin(),
+      li.get_col_sol_raw().end(),
+  };
+  REQUIRE(cached_col_sol_after_first_release.size() >= 2);
+
+  // Step 3: reconstruct without resolving.  Cache must still serve
+  // reads (m_backend_solution_fresh_ is false post-reconstruct).
+  li.reconstruct_backend();
+  REQUIRE_FALSE(li.is_backend_released());
+
+  // Step 4: read through the cache path.  Must match the snapshot.
+  {
+    const auto live_view = li.get_col_sol_raw();
+    REQUIRE(live_view.size() == cached_col_sol_after_first_release.size());
+    for (size_t i = 0; i < live_view.size(); ++i) {
+      CHECK(live_view[i]
+            == doctest::Approx(cached_col_sol_after_first_release[i]));
+    }
+  }
+
+  // Step 5: release AGAIN with no intervening resolve.  Pre-fix this
+  // overwrote the cache from the live (uninitialised) backend buffer.
+  // Post-fix: cache is preserved verbatim.
+  li.release_backend();
+  REQUIRE(li.is_backend_released());
+
+  const auto post_view = li.get_col_sol_raw();
+  REQUIRE(post_view.size() == cached_col_sol_after_first_release.size());
+  for (size_t i = 0; i < post_view.size(); ++i) {
+    CHECK(post_view[i]
+          == doctest::Approx(cached_col_sol_after_first_release[i]));
+  }
+
+  // Round-trip the cycle a few times to ensure idempotence.
+  for (int i = 0; i < 3; ++i) {
+    li.reconstruct_backend();
+    li.release_backend();
+    const auto v = li.get_col_sol_raw();
+    REQUIRE(v.size() == cached_col_sol_after_first_release.size());
+    for (size_t j = 0; j < v.size(); ++j) {
+      CHECK(v[j] == doctest::Approx(cached_col_sol_after_first_release[j]));
+    }
+  }
+}
+
+// ── Symmetry fix: invalidate-on-mutation under compress ─────────────────────
+//
+// Under `LowMemoryMode::off`, the live backend (CPLEX/HiGHS/...) flips
+// `is_proven_optimal()` to false the instant a row/col/coefficient
+// changes — readers gated on `is_optimal()` then correctly fall through
+// to default values until the next `resolve()`.  Under
+// `LowMemoryMode::compress`, the cached optimality flag would otherwise
+// outlive a mid-iteration `add_row` (Benders cut) and let downstream
+// consumers read a now-stale cached col_sol that doesn't satisfy the
+// new cut.  The fix: every public LP-mutation API now calls
+// `invalidate_cached_optimal_on_mutation()`, which under compress
+// flips `m_cached_is_optimal_=false` AND drops the cache vectors on
+// the spot.  This pins `is_optimal()` symmetric across modes after
+// any mutation.
+TEST_CASE(  // NOLINT
+    "LinearInterface — set_col_low_raw mutation drops cache under compress")
+{
+  auto [li, flat, x1, x2] = make_simple_li_lp();
+  REQUIRE(li.initial_solve().has_value());
+  REQUIRE(li.is_optimal());
+
+  li.set_low_memory(LowMemoryMode::compress);
+  li.save_snapshot(FlatLinearProblem {flat});
+  li.release_backend();
+  REQUIRE(li.is_optimal());  // cached true post-release
+
+  // Sanity: the cache holds a valid solution snapshot.
+  REQUIRE(li.cached_col_sol_size() > 0);
+
+  // Bring the backend back, mutate a column bound.  Under compress,
+  // the mutation MUST drop the cache (vectors empty, is_optimal false).
+  li.reconstruct_backend();
+  li.set_col_low_raw(x1, 0.5);
+
+  CHECK_FALSE(li.is_optimal());  // post-mutation: !optimal
+  CHECK(li.cached_col_sol_size() == 0);  // cache vectors dropped
+  CHECK(li.cached_col_cost_size() == 0);
+  CHECK(li.cached_row_dual_size() == 0);
+}
+
+TEST_CASE(  // NOLINT
+    "LinearInterface — set_col_upp_raw mutation drops cache under compress")
+{
+  auto [li, flat, x1, x2] = make_simple_li_lp();
+  REQUIRE(li.initial_solve().has_value());
+  li.set_low_memory(LowMemoryMode::compress);
+  li.save_snapshot(FlatLinearProblem {flat});
+  li.release_backend();
+  REQUIRE(li.is_optimal());
+  REQUIRE(li.cached_col_sol_size() > 0);
+
+  li.reconstruct_backend();
+  li.set_col_upp_raw(x1, 5.0);
+
+  CHECK_FALSE(li.is_optimal());
+  CHECK(li.cached_col_sol_size() == 0);
+}
+
+TEST_CASE(  // NOLINT
+    "LinearInterface — set_coeff_raw mutation drops cache under compress")
+{
+  auto [li, flat, x1, x2] = make_simple_li_lp();
+  REQUIRE(li.initial_solve().has_value());
+  li.set_low_memory(LowMemoryMode::compress);
+  li.save_snapshot(FlatLinearProblem {flat});
+  li.release_backend();
+  REQUIRE(li.is_optimal());
+  REQUIRE(li.cached_col_sol_size() > 0);
+
+  li.reconstruct_backend();
+  li.set_coeff_raw(RowIndex {0}, x1, 2.0);
+
+  CHECK_FALSE(li.is_optimal());
+  CHECK(li.cached_col_sol_size() == 0);
+}
+
+TEST_CASE(  // NOLINT
+    "LinearInterface — set_row_low_raw / set_row_upp_raw / set_rhs_raw "
+    "drop cache under compress")
+{
+  SUBCASE("set_row_low_raw")
+  {
+    auto [li, flat, x1, x2] = make_simple_li_lp();
+    REQUIRE(li.initial_solve().has_value());
+    li.set_low_memory(LowMemoryMode::compress);
+    li.save_snapshot(FlatLinearProblem {flat});
+    li.release_backend();
+    REQUIRE(li.is_optimal());
+    REQUIRE(li.cached_col_sol_size() > 0);
+
+    li.reconstruct_backend();
+    li.set_row_low_raw(RowIndex {0}, 0.5);
+
+    CHECK_FALSE(li.is_optimal());
+    CHECK(li.cached_col_sol_size() == 0);
+  }
+
+  SUBCASE("set_row_upp_raw")
+  {
+    auto [li, flat, x1, x2] = make_simple_li_lp();
+    REQUIRE(li.initial_solve().has_value());
+    li.set_low_memory(LowMemoryMode::compress);
+    li.save_snapshot(FlatLinearProblem {flat});
+    li.release_backend();
+    REQUIRE(li.is_optimal());
+
+    li.reconstruct_backend();
+    li.set_row_upp_raw(RowIndex {0}, 99.0);
+
+    CHECK_FALSE(li.is_optimal());
+    CHECK(li.cached_col_sol_size() == 0);
+  }
+
+  SUBCASE("set_rhs_raw")
+  {
+    auto [li, flat, x1, x2] = make_simple_li_lp();
+    REQUIRE(li.initial_solve().has_value());
+    li.set_low_memory(LowMemoryMode::compress);
+    li.save_snapshot(FlatLinearProblem {flat});
+    li.release_backend();
+    REQUIRE(li.is_optimal());
+
+    li.reconstruct_backend();
+    li.set_rhs_raw(RowIndex {0}, 7.0);
+
+    CHECK_FALSE(li.is_optimal());
+    CHECK(li.cached_col_sol_size() == 0);
+  }
+}
+
+TEST_CASE(  // NOLINT
+    "LinearInterface — add_row mutation drops cache under compress")
+{
+  auto [li, flat, x1, x2] = make_simple_li_lp();
+  REQUIRE(li.initial_solve().has_value());
+  li.set_low_memory(LowMemoryMode::compress);
+  li.save_snapshot(FlatLinearProblem {flat});
+  li.release_backend();
+  REQUIRE(li.is_optimal());
+  REQUIRE(li.cached_col_sol_size() > 0);
+
+  li.reconstruct_backend();
+  // Add a Benders-style cut (one-element row) via the public SparseRow
+  // API and verify cache drops.
+  SparseRow cut_row {.lowb = 0.0, .uppb = SparseRow::DblMax};
+  cut_row.cmap[x1] = 1.0;
+  li.add_row(cut_row);
+
+  CHECK_FALSE(li.is_optimal());
+  CHECK(li.cached_col_sol_size() == 0);
+}
+
+TEST_CASE(  // NOLINT
+    "LinearInterface — add_col mutation drops cache under compress")
+{
+  auto [li, flat, x1, x2] = make_simple_li_lp();
+  REQUIRE(li.initial_solve().has_value());
+  li.set_low_memory(LowMemoryMode::compress);
+  li.save_snapshot(FlatLinearProblem {flat});
+  li.release_backend();
+  REQUIRE(li.is_optimal());
+  REQUIRE(li.cached_col_sol_size() > 0);
+
+  li.reconstruct_backend();
+  // Add a fresh column (alpha-style) and verify cache drops.
+  li.add_col(SparseCol {.lowb = 0.0, .uppb = 100.0, .cost = 1.0});
+
+  CHECK_FALSE(li.is_optimal());
+  CHECK(li.cached_col_sol_size() == 0);
+}
+
+// Off mode never populates the LI cache, so invalidation is a no-op
+// — but the public API must remain a valid no-op (no exceptions, no
+// observable state change beyond what off semantics already provide).
+TEST_CASE(  // NOLINT
+    "LinearInterface — mutation hook is benign no-op under LowMemoryMode::off")
+{
+  auto [li, flat, x1, x2] = make_simple_li_lp();
+  REQUIRE(li.initial_solve().has_value());
+  REQUIRE(li.is_optimal());  // live backend reports optimal under off
+
+  // Off mode: cache is empty by construction (release_backend short-
+  // circuits at the off check), and stays empty across mutations.
+  REQUIRE(li.get_col_sol_raw().size()
+          == static_cast<size_t>(li.get_numcols()));  // live backend ptr
+
+  li.set_col_low_raw(x1, 0.5);
+  li.set_coeff_raw(RowIndex {0}, x1, 2.0);
+  li.set_row_low_raw(RowIndex {0}, 0.5);
+
+  // Live backend still answers reads (off has no LI cache to drop).
+  // Note: under off, is_optimal() reflects whatever the backend returns
+  // post-mutation — that's the off-mode invariant we preserve.
+  CHECK(li.get_col_sol_raw().size() == static_cast<size_t>(li.get_numcols()));
+}
+
+// Replay path (m_replaying_=true) must NOT trigger invalidation: bulk
+// replay is reapplying *recorded* state to a freshly loaded backend,
+// not introducing new mutations.  Without the m_replaying_ guard, every
+// `apply_post_load_replay` would self-corrupt the cache it just
+// finished restoring.
+TEST_CASE(  // NOLINT
+    "LinearInterface — apply_post_load_replay does NOT drop cache")
+{
+  auto [li, flat, x1, x2] = make_simple_li_lp();
+  REQUIRE(li.initial_solve().has_value());
+  li.set_low_memory(LowMemoryMode::compress);
+  li.save_snapshot(FlatLinearProblem {flat});
+  li.release_backend();
+  REQUIRE(li.is_optimal());
+  const auto cached_size_before = li.get_col_sol_raw().size();
+  REQUIRE(cached_size_before > 0);
+
+  // Reconstruct triggers apply_post_load_replay internally, which calls
+  // add_col / add_rows on dynamic_cols / active_cuts (none in this
+  // fixture) and set_col_lower / set_col_upper from
+  // `m_pending_col_bounds_` (also empty in this fixture).  Even when
+  // these registries ARE populated, the m_replaying_ guard keeps
+  // invalidation off — the cache must survive.
+  li.reconstruct_backend();
+
+  CHECK(li.is_optimal());  // cache still claims optimal after reconstruct
+  CHECK(li.get_col_sol_raw().size() == cached_size_before);
+}
+
+// Switching to off mode must drop any cache accumulated under a prior
+// compress configuration.  Without this clear, a subsequent
+// `release_backend()` (no-op under off) would leave a stale cache hanging
+// around forever, and a downstream read could pick it up via the
+// `m_backend_released_ || !m_backend_solution_fresh_` gate if either
+// flag flipped unexpectedly.
+TEST_CASE(  // NOLINT
+    "LinearInterface — set_low_memory(off) drops cache from prior compress")
+{
+  auto [li, flat, x1, x2] = make_simple_li_lp();
+  REQUIRE(li.initial_solve().has_value());
+
+  // Configure compress, populate cache via release.
+  li.set_low_memory(LowMemoryMode::compress);
+  li.save_snapshot(FlatLinearProblem {flat});
+  li.release_backend();
+  REQUIRE(li.is_optimal());
+  REQUIRE(li.cached_col_sol_size() > 0);
+  REQUIRE(li.cached_col_cost_size() > 0);
+  REQUIRE(li.cached_row_dual_size() > 0);
+
+  // Bring backend back, then switch to off.  `set_low_memory(off)`
+  // must clear cache vectors and the cached optimality flag — off mode
+  // owns no parallel solution cache, the live backend is the sole
+  // source of truth.
+  li.reconstruct_backend();
+  li.set_low_memory(LowMemoryMode::off);
+
+  // Off mode owns no parallel solution cache: vectors must be empty
+  // after the transition.
+  CHECK(li.cached_col_sol_size() == 0);
+  CHECK(li.cached_col_cost_size() == 0);
+  CHECK(li.cached_row_dual_size() == 0);
+}

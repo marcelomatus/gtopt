@@ -209,33 +209,49 @@ void LinearInterface::release_backend() noexcept
   // read before release or trigger ensure_backend() to reload.
   try {
     if (m_backend_ && is_optimal()) {
-      m_cached_obj_value_ = m_backend_->obj_value();
-      m_cached_kappa_ = m_backend_->get_kappa();
+      // Refresh cached structural counts (always valid post-load_flat,
+      // even without a resolve) and re-affirm cached optimality.
       m_cached_numrows_ = get_numrows();
       m_cached_numcols_ = get_numcols();
       m_cached_is_optimal_ = true;
 
-      // Snapshot primal + dual + reduced-cost vectors so that read-only
-      // consumers (OutputContext, Benders cut assembly, SDDP state
-      // propagation) can access the solution without forcing a backend
-      // reconstruct + re-solve.  The uncompressed cost is ~8 bytes per
-      // col/row per cell — negligible against the flat-LP snapshot.
-      const auto* col_sol_ptr = m_backend_->col_solution();
-      const auto* col_cost_ptr = m_backend_->reduced_cost();
-      const auto* row_dual_ptr = m_backend_->row_price();
-      const auto ncols_sz = static_cast<size_t>(m_cached_numcols_);
-      const auto nrows_sz = static_cast<size_t>(m_cached_numrows_);
-      if (col_sol_ptr != nullptr) {
-        const std::span col_sol {col_sol_ptr, ncols_sz};
-        m_cached_col_sol_.assign(col_sol.begin(), col_sol.end());
-      }
-      if (col_cost_ptr != nullptr) {
-        const std::span col_cost {col_cost_ptr, ncols_sz};
-        m_cached_col_cost_.assign(col_cost.begin(), col_cost.end());
-      }
-      if (row_dual_ptr != nullptr) {
-        const std::span row_dual {row_dual_ptr, nrows_sz};
-        m_cached_row_dual_.assign(row_dual.begin(), row_dual.end());
+      // Solution-vector refresh is conditional: only re-read the live
+      // backend's primal/dual/reduced-cost buffers when there has been
+      // a fresh solve since the last reconstruct.  Otherwise the live
+      // buffers are uninitialised (post-`load_flat`, pre-resolve) and
+      // overwriting the cache with them silently corrupts the SDDP
+      // forward/backward read surface — which is exactly the bug that
+      // caused juan/iplp compress mode to diverge from `off` mode at
+      // iter ≥1 (zero-padded `m_cached_col_sol_` propagated via
+      // `propagate_trial_values`).  When `!m_backend_solution_fresh_`
+      // the existing cache is the source of truth — leave it alone.
+      if (m_backend_solution_fresh_) {
+        m_cached_obj_value_ = m_backend_->obj_value();
+        m_cached_kappa_ = m_backend_->get_kappa();
+
+        // Snapshot primal + dual + reduced-cost vectors so that
+        // read-only consumers (OutputContext, Benders cut assembly,
+        // SDDP state propagation) can access the solution without
+        // forcing a backend reconstruct + re-solve.  The uncompressed
+        // cost is ~8 bytes per col/row per cell — negligible against
+        // the flat-LP snapshot.
+        const auto* col_sol_ptr = m_backend_->col_solution();
+        const auto* col_cost_ptr = m_backend_->reduced_cost();
+        const auto* row_dual_ptr = m_backend_->row_price();
+        const auto ncols_sz = static_cast<size_t>(m_cached_numcols_);
+        const auto nrows_sz = static_cast<size_t>(m_cached_numrows_);
+        if (col_sol_ptr != nullptr) {
+          const std::span col_sol {col_sol_ptr, ncols_sz};
+          m_cached_col_sol_.assign(col_sol.begin(), col_sol.end());
+        }
+        if (col_cost_ptr != nullptr) {
+          const std::span col_cost {col_cost_ptr, ncols_sz};
+          m_cached_col_cost_.assign(col_cost.begin(), col_cost.end());
+        }
+        if (row_dual_ptr != nullptr) {
+          const std::span row_dual {row_dual_ptr, nrows_sz};
+          m_cached_row_dual_.assign(row_dual.begin(), row_dual.end());
+        }
       }
     } else {
       // Non-optimal release: drop any stale primal/dual snapshot so
@@ -294,6 +310,50 @@ void LinearInterface::release_backend() noexcept
   m_phase_ = LiPhase::BackendReleased;
 }
 
+// ── Cache invalidation on LP mutation ──
+//
+// Called from every public LP-mutation API (add_row / add_col /
+// set_coeff / set_*_bound / set_obj_coeffs / reset_from / …) so the
+// cached optimality flag and cached primal/dual/reduced-cost vectors
+// are dropped the moment the LP structurally changes.  This restores
+// byte-symmetry between `LowMemoryMode::off` and `compress`:
+//
+//   * Under `off`, the live backend (CPLEX/HiGHS/...) flips
+//     `is_proven_optimal()` to false the instant a row/col or
+//     coefficient changes — `physical_eini` / `physical_efin` and
+//     other readers gated on `is_optimal()` then correctly fall
+//     through to default values until the next `resolve()`.
+//
+//   * Under `compress`, we'd otherwise carry `m_cached_is_optimal_`
+//     forward from the prior optimal solve, surviving a
+//     mid-iteration `add_row` (Benders cut), and downstream
+//     consumers would silently read a now-stale cached col_sol that
+//     doesn't satisfy the new cut.  The SDDP backward pass then
+//     produces inconsistent cuts vs off mode — exactly the juan/iplp
+//     LB divergence (compress LB ≈ 5× off LB).
+//
+// Skipped during `m_replaying_` (bulk replay restores recorded
+// state — not a new mutation) and under `LowMemoryMode::off` (off
+// uses the live backend's flag directly).  Memory is released via
+// `shrink_to_fit` so the per-cell footprint after invalidation
+// matches off mode's (no cached vectors held).
+void LinearInterface::invalidate_cached_optimal_on_mutation() noexcept
+{
+  if (m_replaying_) {
+    return;
+  }
+  if (m_low_memory_mode_ == LowMemoryMode::off) {
+    return;
+  }
+  m_cached_is_optimal_ = false;
+  m_cached_col_sol_.clear();
+  m_cached_col_sol_.shrink_to_fit();
+  m_cached_col_cost_.clear();
+  m_cached_col_cost_.shrink_to_fit();
+  m_cached_row_dual_.clear();
+  m_cached_row_dual_.shrink_to_fit();
+}
+
 // ── Low-memory mode ──
 
 void LinearInterface::set_low_memory(LowMemoryMode mode,
@@ -303,7 +363,22 @@ void LinearInterface::set_low_memory(LowMemoryMode mode,
   m_memory_codec_ = codec;
 
   if (mode == LowMemoryMode::off) {
+    // Off mode owns no parallel snapshot or solution cache: the live
+    // backend (CPLEX/HiGHS/...) is the sole source of truth for both
+    // the LP structure and the solution buffers.  Drop any state
+    // accumulated under a prior `compress`/`snapshot` configuration
+    // so a subsequent `release_backend()` no-op never hands a stale
+    // cached col_sol to a downstream reader, and reads route directly
+    // to the backend (which has its own per-solve cache anyway —
+    // duplicating buffers under off would be pure waste).
     m_snapshot_ = {};
+    m_cached_col_sol_.clear();
+    m_cached_col_sol_.shrink_to_fit();
+    m_cached_col_cost_.clear();
+    m_cached_col_cost_.shrink_to_fit();
+    m_cached_row_dual_.clear();
+    m_cached_row_dual_.shrink_to_fit();
+    m_cached_is_optimal_ = false;
   }
 }
 
@@ -1145,6 +1220,7 @@ ColIndex LinearInterface::add_col(const std::string& name,
   }
 
   m_backend_->add_col(normalize_bound(collb), normalize_bound(colub), 0.0);
+  invalidate_cached_optimal_on_mutation();
 
   // Uniqueness is enforced on metadata (via m_col_meta_index_) in
   // add_col(SparseCol).  The string path here just records the
@@ -1206,6 +1282,7 @@ ColIndex LinearInterface::emit_col_to_backend(const SparseCol& col)
   // to `col.cost` themselves; treating col.scale as a physical
   // multiplier would double-apply.
   m_backend_->add_col(lowb, uppb, col.cost / m_scale_objective_);
+  invalidate_cached_optimal_on_mutation();
 
   return ColIndex {index};
 }
@@ -1370,6 +1447,7 @@ ColIndex LinearInterface::add_col_disposable(const SparseCol& col)
   const auto [lowb, uppb] = normalize_bounds(col.lowb, col.uppb);
   const auto index = m_backend_->get_num_cols();
   m_backend_->add_col(lowb, uppb, col.cost / m_scale_objective_);
+  invalidate_cached_optimal_on_mutation();
   const auto col_idx = ColIndex {index};
 
   // Capture the label-meta fields — mirrors `track_col_label_meta`
@@ -1598,6 +1676,7 @@ ColIndex LinearInterface::emit_cols_to_backend(std::span<const SparseCol> cols)
                        collb.data(),
                        colub.data(),
                        colobj.data());
+  invalidate_cached_optimal_on_mutation();
 
   return first_col_index;
 }
@@ -1654,6 +1733,7 @@ RowIndex LinearInterface::add_row(const std::string& name,
                       elements.data(),
                       normalize_bound(rowlb),
                       normalize_bound(rowub));
+  invalidate_cached_optimal_on_mutation();
 
   // Uniqueness is enforced on metadata (via m_row_meta_index_) in
   // track_row_label_meta.  The string path here just records the
@@ -2140,6 +2220,7 @@ void LinearInterface::add_rows_raw(const std::span<const SparseRow> rows,
                        rowval.data(),
                        rowlb.data(),
                        rowub.data());
+  invalidate_cached_optimal_on_mutation();
 
   // Update row scales, label metadata, and name maps for all new rows.
   // `track_row_label_meta` is what keeps `m_row_labels_meta_` in sync with
@@ -2286,6 +2367,7 @@ void LinearInterface::reset_from(const LinearInterface& source,
     detach_for_write(m_row_index_to_name_).resize(static_cast<size_t>(nrows));
     rebuild_row_name_maps();
   }
+  invalidate_cached_optimal_on_mutation();
 }
 
 // ── Coefficients ──
@@ -2301,6 +2383,7 @@ void LinearInterface::set_coeff_raw(const RowIndex row,
     m_validation_stats_.note_coeff(value, row, column, m_validation_options_);
   }
   m_backend_->set_coeff(row, column, value);
+  invalidate_cached_optimal_on_mutation();
 }
 
 double LinearInterface::get_coeff_raw(const RowIndex row,
@@ -2405,6 +2488,7 @@ void LinearInterface::set_obj_coeffs_raw(std::span<const double> values)
     }
   }
   m_backend_->set_obj_coeffs(values.data(), static_cast<int>(values.size()));
+  invalidate_cached_optimal_on_mutation();
 }
 
 // ── Raw column bound setters (LP/solver units) ──
@@ -2464,6 +2548,7 @@ void LinearInterface::set_col_low_raw(const ColIndex index, const double value)
       it->second.first = value;
     }
   }
+  invalidate_cached_optimal_on_mutation();
 }
 
 void LinearInterface::set_col_upp_raw(const ColIndex index, const double value)
@@ -2490,6 +2575,7 @@ void LinearInterface::set_col_upp_raw(const ColIndex index, const double value)
       it->second.second = value;
     }
   }
+  invalidate_cached_optimal_on_mutation();
 }
 
 void LinearInterface::set_col_raw(const ColIndex index, const double value)
@@ -2541,6 +2627,7 @@ void LinearInterface::set_row_low_raw(const RowIndex index, const double value)
     }
   }
   m_backend_->set_row_lower(index, normalize_bound(value));
+  invalidate_cached_optimal_on_mutation();
 }
 
 void LinearInterface::set_row_upp_raw(const RowIndex index, const double value)
@@ -2554,6 +2641,7 @@ void LinearInterface::set_row_upp_raw(const RowIndex index, const double value)
     }
   }
   m_backend_->set_row_upper(index, normalize_bound(value));
+  invalidate_cached_optimal_on_mutation();
 }
 
 void LinearInterface::set_rhs_raw(const RowIndex row, const double rhs)
@@ -2570,6 +2658,7 @@ void LinearInterface::set_rhs_raw(const RowIndex row, const double rhs)
     }
   }
   m_backend_->set_row_bounds(row, rhs, rhs);
+  invalidate_cached_optimal_on_mutation();
 }
 
 // ── Physical row bound setters (physical × row_scale → LP) ──

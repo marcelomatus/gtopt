@@ -361,6 +361,25 @@ public:
   {
     return m_col_scales_.use_count();
   }
+
+  /// Test-only diagnostic: number of doubles currently held in the
+  /// LI-side post-solve solution-vector cache.  Returns 0 when the
+  /// cache is empty (off mode never populates, or compress mode after
+  /// `invalidate_cached_optimal_on_mutation` has fired).  Useful in
+  /// unit tests that need to distinguish "cache dropped" from
+  /// "get_col_sol_raw transparently routes to the live backend".
+  [[nodiscard]] std::size_t cached_col_sol_size() const noexcept
+  {
+    return m_cached_col_sol_.size();
+  }
+  [[nodiscard]] std::size_t cached_col_cost_size() const noexcept
+  {
+    return m_cached_col_cost_.size();
+  }
+  [[nodiscard]] std::size_t cached_row_dual_size() const noexcept
+  {
+    return m_cached_row_dual_.size();
+  }
   [[nodiscard]] auto row_scales_use_count() const noexcept
   {
     return m_row_scales_.use_count();
@@ -579,6 +598,16 @@ public:
   [[nodiscard]] bool is_backend_released() const noexcept
   {
     return m_backend_released_;
+  }
+
+  /// True iff the live backend's primal/dual buffers reflect a solve
+  /// performed since the last reconstruct (i.e. they are valid to
+  /// read directly).  False between `reconstruct_backend` and the
+  /// next successful `resolve` / `initial_solve`.  Exposed for
+  /// diagnostic instrumentation only.
+  [[nodiscard]] bool backend_solution_fresh() const noexcept
+  {
+    return m_backend_solution_fresh_;
   }
 
   /// Current low-memory mode.
@@ -2613,6 +2642,12 @@ private:
   /// also bypass the single-arg path, so this flag is a defence-in-depth
   /// guard rather than the sole serialiser.
   bool m_replaying_ {false};
+
+  /// Invalidate the cached optimality flag and drop the cached
+  /// primal/dual/reduced-cost vectors after a structural LP
+  /// mutation (add_row / add_col / set_coeff / set_*_bound / etc.).
+  /// Defined out-of-line in linear_interface.cpp.
+  void invalidate_cached_optimal_on_mutation() noexcept;
 
   /// Columns added after initial load_flat() (typically just alpha).
   std::vector<SparseCol> m_dynamic_cols_ {};
