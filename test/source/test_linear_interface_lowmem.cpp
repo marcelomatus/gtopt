@@ -931,22 +931,24 @@ TEST_CASE(
 // readers consume the cached vectors via the `m_backend_released_` gate
 // in `get_col_sol_raw` instead.
 
-// ── Plan §6 Test 1 — snapshot is frozen at construction time ──────────
+// ── Plan §6 Test 1 — `set_coeff` persists across reconstruct ─────────
 //
-// Pins the invariant: under `LowMemoryMode::compress`, the
-// `m_snapshot_.flat_lp` reflects matval at the moment of `save_snapshot`,
-// NOT post-solve `set_coeff` mutations.  Every `reconstruct_backend`
-// reloads the *original* coefficients, which is why the SDDP forward
-// pass must call `update_lp_for_phase` after every `ensure_lp_built()`
-// (and the backward pass must do the same — see commit 3e73f68c).
+// Pins the post-P4 invariant: under `LowMemoryMode::compress`, every
+// `set_coeff_raw` mutation is recorded in `m_pending_coeff_updates_`
+// and replayed by `apply_post_load_replay` after the snapshot's
+// construction-time matval is restored.  This means the live
+// backend's matval reflects the LATEST coefficient across
+// release/reconstruct cycles — the snapshot is no longer
+// "frozen at construction time" from the caller's perspective.
 //
-// If a future refactor (P4 in docs/sddp_compress_refactor_plan.md) bakes
-// `set_coeff` mutations into the snapshot, this test's assertion flips
-// and the SDDP fix's backward `update_lp_for_phase` call becomes
-// unnecessary — the test then becomes the explicit boundary marker
-// between the two policies.
+// Pre-P4 (commit 5e679f01 era) this test's expectation was the
+// opposite (coefficient reverted to 1.0): the SDDP backward pass had
+// to re-run `update_lp_for_phase` after every reload to recover the
+// mutation.  After P4, that doubling becomes unnecessary — the
+// reconstruct gives the latest matval directly, and the recorded fix
+// in `backward_pass_single_phase` is now a no-op safety net.
 TEST_CASE(
-    "LinearInterface — snapshot frozen at construction (compress)")  // NOLINT
+    "LinearInterface — set_coeff persists across reconstruct (compress)")  // NOLINT
 {
   auto [li, flat, x1, x2] = make_simple_li_lp();
   const RowIndex r0 {0};
@@ -961,24 +963,47 @@ TEST_CASE(
   li.set_low_memory(LowMemoryMode::compress);
   li.save_snapshot(FlatLinearProblem {flat});
 
-  // Mutate the live backend's coefficient.  Under off this would
-  // persist; under compress the mutation lives only on the volatile
-  // backend that is about to be released.
+  // Mutate the live backend's coefficient.  Under compress this is
+  // ALSO recorded in `m_pending_coeff_updates_` so a subsequent
+  // reconstruct can replay it — the live-backend write would otherwise
+  // be lost when the backend is dropped at `release_backend`.
   REQUIRE(li.supports_set_coeff());
-  li.set_coeff(r0, x1, 99.0);
+  li.set_coeff_raw(r0, x1, 99.0);
   CHECK(li.get_coeff_raw(r0, x1) == doctest::Approx(99.0));
 
-  // Release + reconstruct: the snapshot pre-dates the set_coeff above.
+  // Release + reconstruct: snapshot loads construction-time matval,
+  // then `apply_post_load_replay` re-applies the pending mutation.
   li.release_backend();
   li.reconstruct_backend();
   REQUIRE_FALSE(li.is_backend_released());
 
-  // The reconstructed backend reflects the snapshot's frozen matval —
-  // the 99.0 mutation is lost.  This is the documented behaviour and
-  // the reason `update_lp_for_phase` must run after every reload under
-  // non-`off` modes (see `sddp_method_iteration.cpp::backward_pass_`
-  // `single_phase` post-fix).
-  CHECK(li.get_coeff_raw(r0, x1) == doctest::Approx(1.0));
+  // The reconstructed backend reflects the LATEST mutation, not the
+  // construction-time value.  This is the P4 invariant — every reload
+  // restores the most recent coefficient automatically, removing the
+  // need for SDDP to re-run `update_lp_for_phase` after every
+  // backward `ensure_lp_built()`.
+  CHECK(li.get_coeff_raw(r0, x1) == doctest::Approx(99.0));
+
+  // A second release/reconstruct cycle preserves the value too — the
+  // pending-updates map is not cleared by release_backend.
+  li.release_backend();
+  li.reconstruct_backend();
+  CHECK(li.get_coeff_raw(r0, x1) == doctest::Approx(99.0));
+}
+
+// Sister test — under `LowMemoryMode::off` the live backend is never
+// released, so the pending-updates map is never consulted.  Verifies
+// that the new bookkeeping path doesn't accidentally regress the off-
+// mode behaviour (the value should persist trivially because the
+// backend is the same instance throughout).
+TEST_CASE("LinearInterface — set_coeff persists in off mode")  // NOLINT
+{
+  auto [li, flat, x1, x2] = make_simple_li_lp();
+  const RowIndex r0 {0};
+
+  REQUIRE(li.initial_solve().has_value());
+  li.set_coeff_raw(r0, x1, 42.0);
+  CHECK(li.get_coeff_raw(r0, x1) == doctest::Approx(42.0));
 }
 
 TEST_CASE("LinearInterface — low_memory hot-start cut replay")  // NOLINT
