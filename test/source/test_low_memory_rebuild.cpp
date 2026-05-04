@@ -296,13 +296,17 @@ TEST_CASE(  // NOLINT
 
   // Simulate SDDP wiring: add an alpha column and one Benders cut, then
   // mark them so the rebuild path re-applies them.
+  //
+  // `add_col(SparseCol)` auto-records into `m_dynamic_cols_` post-init
+  // in both compress and rebuild modes — no explicit
+  // `record_dynamic_col` mirror is needed; an extra one would
+  // double-register and the rebuild would replay alpha twice.
   const SparseCol alpha {
       .lowb = 0.0,
       .uppb = 1e9,
       .cost = 1.0,
   };
   const auto alpha_idx = li.add_col(alpha);
-  li.record_dynamic_col(alpha);
   li.save_base_numrows();
   const auto base_after_alpha = li.base_numrows();
 
