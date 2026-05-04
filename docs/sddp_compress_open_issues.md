@@ -161,6 +161,63 @@ LP under both modes (where col_solution is included in the LP file
 or via a separate solution dump) and compare the rsv6 efin column
 solution.
 
+#### Result of the post-resolve col_sol experiment
+
+Captured `/tmp/diag_fwd_colsol_off_i0_s4_p50.bin` and
+`/tmp/diag_fwd_colsol_compress_…` — **byte-identical** (MD5
+`6cc486f5…`, size 202,824 bytes = 25,353 doubles).
+
+Conclusion: solver IS deterministic.  Both modes have identical
+complete state at end of iter 0 forward p50.  The bug must enter
+the system between iter 0 forward p50 release and iter 0 backward
+p51's read.
+
+#### Attempted (and reverted) fix — `m_backend_solution_fresh_` flag
+
+Added a per-`LinearInterface` flag tracking "live backend has been
+re-solved since last reload".  Set `false` on `reconstruct_backend`
+/ `install_flat_as_rebuild`.  Set `true` immediately after
+`m_backend_->resolve()` / `m_backend_->initial_solve()` (so the
+fallback-cycle's `is_optimal()` check sees the live state).
+
+Gated `is_optimal()` to return `m_cached_is_optimal_` when
+`!m_backend_solution_fresh_` — under compress at iter 0 backward,
+this would let `physical_eini`'s cross-phase branch see the prior
+optimal-from-iter-0-forward state instead of the just-loaded-not-
+yet-resolved backend's `is_proven_optimal() == false`.
+
+Also gated `get_col_sol_raw()` similarly: prefer cache when
+`m_backend_released_ || !m_backend_solution_fresh_`.
+
+Made `cache_and_release` populate `m_cached_col_sol_` /
+`m_cached_col_cost_` / `m_cached_row_dual_` after every solve so
+the cache survives release/reconstruct cycles in both modes.
+
+Result: **all 18 SDDP unit tests pass**, but juan/iplp iter 1
+forward p51 fails with "degenerate cut family — all 8 contributing
+links clamp at source_upp".  The cache-based reads now agree with
+off mode at the LP-coefficient level, BUT the cuts built from
+that aligned state expose a deeper SDDP cut-construction issue
+where 8 reservoirs all simultaneously hit their physical maxima
+at iter 0 backward — a degenerate vertex that prevents any valid
+cut from being constructed.
+
+Reverted (no commit) until the cut-construction degeneracy is
+understood.  Most likely root cause: at iter 0 backward, with
+`α` unbounded below, the LP optimum drives ALL state variables
+to their upper bounds (because the reduced costs all push toward
+"more state is cheaper" in an unbounded objective).  The cuts
+built at this degenerate vertex are useless.
+
+#### Recommended definitive fix path
+
+The degeneracy at iter 0 backward suggests `α` needs a sensible
+lower bound at iter 0 backward time — even something as crude as
+`α ≥ 0` would prevent the unbounded-α path that produces
+all-upper-bound state vertices.  Implementing this *before*
+re-attempting the cache-alignment fix should produce a clean
+recovery trajectory under compress.
+
 ## Issue 2 — P4 (snapshot bake-in) iter 1 phase 10 infeasibility
 
 ### Symptom
