@@ -94,10 +94,44 @@ def _find_gtopt_binary():
     return None
 
 
+def _gather_gtopt_logs(case_dir: Path) -> str:
+    """Return the concatenated contents of every ``gtopt_*.log`` file
+    written by gtopt under ``case_dir``.
+
+    gtopt routes its `spdlog` INFO/WARN/ERROR records to rotating files
+    under ``<case_dir>/<output_directory>/logs/gtopt_*.log`` (the
+    default ``output_directory`` is ``output``).  Capturing those files
+    is the only way for callers to assert on log content — gtopt
+    leaves stdout/stderr empty when log files are configured (the
+    common case).  The set of candidate log directories is intentionally
+    narrow so this helper stays O(few-files).
+    """
+    chunks: list[str] = []
+    for log_dir in (
+        case_dir / "output" / "logs",  # default
+        case_dir / "logs",  # legacy / `--log-directory logs`
+        case_dir / "results" / "logs",  # `output_directory: results`
+    ):
+        if not log_dir.is_dir():
+            continue
+        for log_file in sorted(log_dir.glob("gtopt_*.log")):
+            try:
+                chunks.append(log_file.read_text(encoding="utf-8", errors="replace"))
+            except OSError:
+                continue
+    return "\n".join(chunks)
+
+
 def _run_gtopt(
     gtopt_bin: str, case_dir: Path, json_stem: str, timeout: int = 120
 ) -> tuple[int, str]:
-    """Run gtopt on json_stem.json inside case_dir. Returns (rc, combined output)."""
+    """Run gtopt on json_stem.json inside case_dir. Returns (rc, combined output).
+
+    The returned output concatenates ``stdout``, ``stderr``, and every
+    ``gtopt_*.log`` file gtopt produced under ``case_dir`` so callers
+    can assert on log strings without having to know whether spdlog was
+    routed to the file sink or the console sink.
+    """
     json_file = f"{json_stem}.json"
     result = subprocess.run(
         [gtopt_bin, json_file],
@@ -107,7 +141,7 @@ def _run_gtopt(
         timeout=timeout,
         check=False,
     )
-    return result.returncode, result.stdout + result.stderr
+    return result.returncode, result.stdout + result.stderr + _gather_gtopt_logs(case_dir)
 
 
 # ---------------------------------------------------------------------------
