@@ -1818,6 +1818,54 @@ TEST_CASE(  // NOLINT
   CHECK(results->back().converged);
 }
 
+// ── Plan §6 Test 4 — LB ≤ UB at every iteration under all modes ─────
+//
+// Pins the iteration-level invariant: at no point during convergence
+// should the lower bound exceed the upper bound (modulo a small
+// floating-point epsilon).  Regressions where the backward pass solves
+// on stale matval (the bug fixed in commit 3e73f68c) violate this:
+// pre-fix juan/iplp had iter 1 LB=-873M against UB=2.072G, gap=142.47%.
+// On a small fixture the violation pattern would be more subtle but
+// still detectable as transient inconsistencies between iter 0 (LB
+// computed with correct backward solve) and later iters (LB drifting
+// once cuts compound on stale-matval geometry).
+//
+// The 3-phase hydro fixture is small enough that LB and UB should
+// converge cleanly within a handful of iterations under both `off`
+// and `compress`.  This test asserts that NEVER does
+// LB > UB + kSddpGapFpEpsilon at any iteration, in either mode.
+TEST_CASE("SDDPMethod — LB ≤ UB invariant per iter (off + compress)")  // NOLINT
+{
+  constexpr double kIterTol = 1e-4;  // numerical slack for LB ≤ UB
+
+  auto check_lb_le_ub = [&](LowMemoryMode mode, std::string_view label)
+  {
+    auto planning = make_3phase_hydro_planning();
+    PlanningLP planning_lp(std::move(planning));
+
+    SDDPOptions sddp_opts;
+    sddp_opts.max_iterations = 8;
+    sddp_opts.convergence_tol = 1e-3;
+    sddp_opts.low_memory_mode = mode;
+    sddp_opts.enable_api = false;
+
+    SDDPMethod sddp(planning_lp, sddp_opts);
+    auto results = sddp.solve();
+    REQUIRE_MESSAGE(results.has_value(), "solve failed under ", label);
+    REQUIRE_FALSE(results->empty());
+
+    for (size_t i = 0; i < results->size(); ++i) {
+      const auto& r = (*results)[i];
+      INFO("mode=" << label << " iter=" << i << " LB=" << r.lower_bound
+                   << " UB=" << r.upper_bound);
+      CHECK(r.lower_bound <= r.upper_bound + kIterTol);
+    }
+  };
+
+  check_lb_le_ub(LowMemoryMode::off, "off");
+  check_lb_le_ub(LowMemoryMode::compress, "compress");
+}
+
 TEST_CASE(  // NOLINT
     "SDDPMethod — low_memory with cut pruning converges")
 {

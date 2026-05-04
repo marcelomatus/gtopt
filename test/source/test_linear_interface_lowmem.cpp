@@ -931,6 +931,56 @@ TEST_CASE(
 // readers consume the cached vectors via the `m_backend_released_` gate
 // in `get_col_sol_raw` instead.
 
+// ── Plan §6 Test 1 — snapshot is frozen at construction time ──────────
+//
+// Pins the invariant: under `LowMemoryMode::compress`, the
+// `m_snapshot_.flat_lp` reflects matval at the moment of `save_snapshot`,
+// NOT post-solve `set_coeff` mutations.  Every `reconstruct_backend`
+// reloads the *original* coefficients, which is why the SDDP forward
+// pass must call `update_lp_for_phase` after every `ensure_lp_built()`
+// (and the backward pass must do the same — see commit 3e73f68c).
+//
+// If a future refactor (P4 in docs/sddp_compress_refactor_plan.md) bakes
+// `set_coeff` mutations into the snapshot, this test's assertion flips
+// and the SDDP fix's backward `update_lp_for_phase` call becomes
+// unnecessary — the test then becomes the explicit boundary marker
+// between the two policies.
+TEST_CASE(
+    "LinearInterface — snapshot frozen at construction (compress)")  // NOLINT
+{
+  auto [li, flat, x1, x2] = make_simple_li_lp();
+  const RowIndex r0 {0};
+
+  // Solve once so a valid optimal solution exists for the cache path.
+  REQUIRE(li.initial_solve().has_value());
+  REQUIRE(li.is_optimal());
+
+  // Construction-time coefficient at (r0, x1) is 1.0 (per fixture).
+  REQUIRE(li.get_coeff_raw(r0, x1) == doctest::Approx(1.0));
+
+  li.set_low_memory(LowMemoryMode::compress);
+  li.save_snapshot(FlatLinearProblem {flat});
+
+  // Mutate the live backend's coefficient.  Under off this would
+  // persist; under compress the mutation lives only on the volatile
+  // backend that is about to be released.
+  REQUIRE(li.supports_set_coeff());
+  li.set_coeff(r0, x1, 99.0);
+  CHECK(li.get_coeff_raw(r0, x1) == doctest::Approx(99.0));
+
+  // Release + reconstruct: the snapshot pre-dates the set_coeff above.
+  li.release_backend();
+  li.reconstruct_backend();
+  REQUIRE_FALSE(li.is_backend_released());
+
+  // The reconstructed backend reflects the snapshot's frozen matval —
+  // the 99.0 mutation is lost.  This is the documented behaviour and
+  // the reason `update_lp_for_phase` must run after every reload under
+  // non-`off` modes (see `sddp_method_iteration.cpp::backward_pass_`
+  // `single_phase` post-fix).
+  CHECK(li.get_coeff_raw(r0, x1) == doctest::Approx(1.0));
+}
+
 TEST_CASE("LinearInterface — low_memory hot-start cut replay")  // NOLINT
 {
   // Cuts added via add_row + record_cut_row are replayed on reconstruct.

@@ -252,7 +252,7 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
                   m_options_.max_iterations);
 
       SDDPIterationResult ir {
-          .iteration_index = gtopt::uid_of(iteration_index),
+          .iteration_index = iteration_index,
       };
       m_benders_cut_.reset_infeasible_cut_count();
 
@@ -803,7 +803,7 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
     m_in_simulation_ = true;
 
     SDDPIterationResult ir {
-        .iteration_index = final_gtopt::uid_of(iteration_index),
+        .iteration_index = final_iteration_index,
     };
     m_benders_cut_.reset_infeasible_cut_count();
 
@@ -848,7 +848,7 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
     for (; p1_attempts <= kMaxSimP1Retries; ++p1_attempts) {
       SPDLOG_INFO(
           "SDDP Sim [i{}]: Pass 1 attempt {}/{} — solve + populate cache",
-          final_gtopt::uid_of(iteration_index),
+          final_iteration_index,
           p1_attempts + 1,
           kMaxSimP1Retries + 1);
       fwd = run_forward_pass_all_scenes(
@@ -877,7 +877,7 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
         SPDLOG_INFO(
             "SDDP Sim [i{}]: no new fcuts after attempt {} — "
             "{} infeasible scene(s) are terminal (status=-1 in output)",
-            final_gtopt::uid_of(iteration_index),
+            final_iteration_index,
             p1_attempts + 1,
             n_infeas);
         break;
@@ -885,7 +885,7 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
     }
 
     SPDLOG_INFO("SDDP Sim [i{}]: Pass 1 done after {} attempt(s)",
-                final_gtopt::uid_of(iteration_index),
+                final_iteration_index,
                 p1_attempts + 1);
 
     // Aggressive post-Pass-1 memory release under low_memory: the
@@ -940,7 +940,7 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
         SPDLOG_INFO(
             "SDDP Sim [i{}]: {} cell(s) marked output_skipped "
             "(infeasible scenes will not be written out)",
-            final_gtopt::uid_of(iteration_index),
+            final_iteration_index,
             n_cells_skipped);
       }
     }
@@ -975,7 +975,7 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
       SPDLOG_INFO(
           "SDDP Sim [i{}]: done in {:.3f}s — "
           "UB={} LB={} gap={:.2f}% Δgap={:.2f}%{}{}",
-          final_gtopt::uid_of(iteration_index),
+          final_iteration_index,
           ir.iteration_s,
           format_si(ir.upper_bound),
           format_si(ir.lower_bound),
@@ -1187,7 +1187,7 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
           IterationIndex sim_iteration_index) -> std::expected<double, Error>
   {
     SPDLOG_INFO("SDDP Sim [i{} s{}]: simulation pass for scene {}",
-                sim_gtopt::uid_of(iteration_index),
+                sim_iteration_index,
                 uid_of(scene_index),
                 uid_of(scene_index));
     auto result = forward_pass(scene_index, sim_opts, sim_iteration_index);
@@ -1201,7 +1201,7 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
     }
 
     SPDLOG_INFO("SDDP Sim [i{} s{}]: scene {} outputs written",
-                sim_gtopt::uid_of(iteration_index),
+                sim_iteration_index,
                 uid_of(scene_index),
                 uid_of(scene_index));
     return result;
@@ -1303,7 +1303,7 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
           auto fwd = sp.fwd_future.get();
           if (!fwd.has_value()) {
             SPDLOG_WARN("SDDP Forward [i{} s{}]: async forward failed: {}",
-                        sp.current_gtopt::uid_of(iteration_index),
+                        sp.current_iteration_index,
                         uid_of(scene),
                         fwd.error().message);
             sp.feasible = false;
@@ -1365,7 +1365,7 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
           auto bwd = sp.bwd_future.get();
           if (!bwd.has_value()) {
             SPDLOG_WARN("SDDP Backward [i{} s{}]: async backward failed: {}",
-                        sp.current_gtopt::uid_of(iteration_index),
+                        sp.current_iteration_index,
                         uid_of(scene),
                         bwd.error().message);
           }
@@ -1394,7 +1394,7 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
             SPDLOG_INFO(
                 "SDDP Async [i{} s{}]: completed (ub={:.4f} lb={:.4f}"
                 " gap={:.6f})",
-                sp.current_gtopt::uid_of(iteration_index),
+                sp.current_iteration_index,
                 uid_of(scene),
                 sp.upper_bound,
                 sp.lower_bound,
@@ -1427,7 +1427,7 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
           auto sim = sp.fwd_future.get();
           if (!sim.has_value()) {
             SPDLOG_WARN("SDDP Sim [i{} s{}]: simulation failed: {}",
-                        sp.current_gtopt::uid_of(iteration_index),
+                        sp.current_iteration_index,
                         uid_of(scene),
                         sim.error().message);
           } else {
@@ -1445,10 +1445,10 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
             SPDLOG_INFO(
                 "SDDP Async [i{} s{}]: scene done — converged={} iters={}"
                 " sim_ub={:.4f} active={}/{}",
-                sp.current_gtopt::uid_of(iteration_index),
+                sp.current_iteration_index,
                 uid_of(scene),
                 sp.scene_converged,
-                iteration_relative(sp.current_gtopt::uid_of(iteration_index),
+                iteration_relative(sp.current_iteration_index,
                                    m_iteration_offset_),
                 sp.upper_bound,
                 scenes_still_active,
@@ -1565,7 +1565,7 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
             "UB={} LB={} gap={:.2f}% Δgap={:.2f}% "
             "spread=[{},{}] converged_scenes={}/{} "
             "pool(active={} pending={} cpu={:.0f}%){}",
-            next_converge_gtopt::uid_of(iteration_index),
+            next_converge_iteration_index,
             format_si(ir.upper_bound),
             format_si(ir.lower_bound),
             100.0 * ir.gap,
