@@ -302,28 +302,6 @@ int SDDPMethod::update_lp_for_phase(SceneIndex scene_index,
   return updated;
 }
 
-void SDDPMethod::dispatch_update_lp(SceneIndex scene_index,
-                                    IterationIndex iteration_index)
-{
-  if (!should_dispatch_update_lp(iteration_index)) {
-    return;
-  }
-
-  const auto num_phases = planning_lp().simulation().phase_count();
-
-  for (const auto phase_index : iota_range<PhaseIndex>(0, num_phases)) {
-    const auto updated = update_lp_for_phase(scene_index, phase_index);
-
-    if (updated > 0) {
-      SPDLOG_TRACE("SDDP Update [i{} s{} p{}]: updated {} LP elements",
-                   gtopt::uid_of(iteration_index),
-                   uid_of(scene_index),
-                   uid_of(phase_index),
-                   updated);
-    }
-  }
-}
-
 // ── Forward pass ────────────────────────────────────────────────────────────
 
 // ── SDDP task priority helpers ───────────────────────────────────────────────
@@ -465,6 +443,37 @@ auto SDDPMethod::backward_pass_single_phase(SceneIndex scene_index,
     tgt_li.set_log_tag(sddp_log(
         "Backward", iteration_index, uid_of(scene_index), uid_of(phase_index)));
     const auto z_old = phase_states[phase_index].forward_full_obj_physical;
+
+    // Optional LP dump for off↔compress diff debugging.  Activated by
+    // env var `GTOPT_DUMP_BACKWARD_LP=<dir>` — writes
+    //   <dir>/bwd_pre-resolve_<mode>_i<iter>_s<scene>_p<phase>.lp
+    // immediately before `tgt_li.resolve(opts)`, capturing the LP
+    // exactly as the solver will see it (post-`update_lp_for_phase`,
+    // post-`apply_post_load_replay` under compress).  Diff'ing the
+    // off and compress dumps for the same `(iter, scene, phase)`
+    // localises any non-replayed mutation that survives off but
+    // gets dropped by compress's reconstruct.  Cost: one disk write
+    // per phase per backward step when active; zero overhead when
+    // the env var is unset.
+    if (const auto* dump_dir = std::getenv("GTOPT_DUMP_BACKWARD_LP");
+        dump_dir != nullptr && *dump_dir != '\0')
+    {
+      const auto mode_tag =
+          tgt_li.low_memory_mode() == LowMemoryMode::off ? "off" : "compress";
+      const auto stem = std::format("{}/bwd_pre-resolve_{}_i{}_s{}_p{}",
+                                    dump_dir,
+                                    mode_tag,
+                                    gtopt::uid_of(iteration_index),
+                                    uid_of(scene_index),
+                                    uid_of(phase_index));
+      auto write_result = tgt_li.write_lp(stem);
+      if (!write_result.has_value()) {
+        spdlog::warn("GTOPT_DUMP_BACKWARD_LP: write_lp({}) failed: {}",
+                     stem,
+                     write_result.error().message);
+      }
+    }
+
     const auto t_tgt_resolve = Clock::now();
     auto r = tgt_li.resolve(opts);
     dt_tgt_resolve = elapsed_s(t_tgt_resolve);
