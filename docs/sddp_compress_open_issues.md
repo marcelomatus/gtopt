@@ -106,6 +106,34 @@ explicitly read from `prev_li.cached_col_sol()` (a new accessor) and
 fall through to the live backend only when no cache exists.  Forces
 both modes to read the same surface.
 
+#### Attempted (and reverted) fix — 2026-05-03
+
+A unified-cache implementation was tried: `cache_and_release` populated
+`m_cached_col_sol_` / `m_cached_col_cost_` / `m_cached_row_dual_`
+unconditionally after every successful resolve, and `get_col_sol_raw`
+preferred the cache whenever populated (regardless of
+`m_backend_released_`).  Result: **no change in convergence
+trajectory** — juan still stalls at LB ≈ −454 M.
+
+This rules out the "live backend col_sol drift between solves"
+hypothesis.  The divergence must enter the system *earlier* than the
+read site — possibly in:
+
+* The state-variable mirror (`StateVariable::col_sol`) populated by
+  `capture_state_variable_values` — the SDDP state-link path uses
+  these mirrors, not the LP backend's col_sol directly.
+* Coefficient writes between iter 0 forward p50 release and iter 0
+  backward p51 read that touch p50's cached col_sol indirectly.
+* `cross-phase` vs `own-phase` selection logic in `physical_eini`
+  picking different branches between modes for reasons unrelated to
+  cache freshness.
+
+Next debug step: instrument `capture_state_variable_values` to log
+the col_sol value being mirrored for reservoir 6's efin state
+variable at iter 0 forward p50 (off vs compress) — if the mirrored
+value differs, the bug is in the mirror population path, not the
+LinearInterface cache.
+
 ## Issue 2 — P4 (snapshot bake-in) iter 1 phase 10 infeasibility
 
 ### Symptom
