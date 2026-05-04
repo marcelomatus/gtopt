@@ -68,7 +68,7 @@ def test_report_solution_optimal(tmp_path: Path, capsys):
 def test_run_gtopt_builds_command(tmp_path: Path):
     """run_gtopt builds a minimal command (threads/compression are in JSON)."""
     with patch("run_gtopt._runner.subprocess.run") as mock_run, patch(
-        "run_gtopt._runner._setup_log_file", return_value=None
+        "run_gtopt._runner._resolve_log_path", return_value=None
     ):
         mock_run.return_value.returncode = 0
         rc = run_gtopt("/usr/bin/gtopt", tmp_path, threads=4, compression="zstd")

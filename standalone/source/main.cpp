@@ -5,8 +5,10 @@
 #include <gtopt/check_solvers.hpp>
 #include <gtopt/gtopt_main.hpp>
 #include <gtopt/main_options.hpp>
+#include <gtopt/resolve_planning_args.hpp>
 #include <gtopt/solver_registry.hpp>
 #include <gtopt/version.hpp>
+#include <unistd.h>
 
 #ifndef SPDLOG_ACTIVE_LEVEL
 #  define SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_DEBUG
@@ -142,8 +144,23 @@ int main(int argc, char** argv)
     // dirname/dirname.json).
 
     //
+    // Exit codes:
+    //   0 = success (optimal solution)
+    //   1 = non-optimal solution (infeasible/abandoned but no critical error)
+    //   2 = input error (missing file, invalid JSON, bad options)
+    //   3 = internal error (unexpected exception, solver crash)
+    //
+    // Build MainOptions from CLI, then merge config-file defaults.  We
+    // need these *before* setting up logging so the file-sink redirect
+    // (when stdout is not a TTY) knows where the resolved
+    // output/log directory lives.
+    auto main_opts = parse_main_options(vm, std::move(system_files));
+    merge_config_defaults(main_opts, load_gtopt_config());
+
+    //
     // LOG system configuration
     //
+    const auto quiet = get_opt<bool>(vm, "quiet").value_or(false);
     {
       spdlog::cfg::load_env_levels();
 
@@ -151,8 +168,7 @@ int main(int argc, char** argv)
       spdlog::set_pattern("[%H:%M:%S.%e] %v");
 
       // Default: info.  --verbose: trace.  --quiet: off.
-      const auto quiet = get_opt<bool>(vm, "quiet");
-      if (quiet.value_or(false)) {
+      if (quiet) {
         spdlog::set_level(spdlog::level::off);
       } else if (vm.contains("verbose")) {
         spdlog::set_level(spdlog::level::trace);
@@ -161,22 +177,27 @@ int main(int argc, char** argv)
       }
 
       spdlog::cfg::load_argv_levels(argc, argv);
-
-      spdlog::info("starting gtopt {}", GTOPT_VERSION);
     }
 
     //
-    // Exit codes:
-    //   0 = success (optimal solution)
-    //   1 = non-optimal solution (infeasible/abandoned but no critical error)
-    //   2 = input error (missing file, invalid JSON, bad options)
-    //   3 = internal error (unexpected exception, solver crash)
+    // Non-interactive stdout (run via run_gtopt, CI, redirection, …):
+    // suppress every spdlog message on stdout and route them only to
+    // <output_directory>/logs/gtopt.log.  The calling process gets a
+    // clean stdout and a single canonical log file — no duplicate
+    // tee-ing required on the Python side.
     //
-    // dispatch the real main function
+    // We pre-resolve directory arguments here so the log file lands
+    // next to the rest of the output (e.g. case_dir/results/logs/...);
+    // gtopt_main() repeats resolve_planning_args() and is idempotent.
     //
-    // Build MainOptions from CLI, then merge config-file defaults
-    auto main_opts = parse_main_options(vm, std::move(system_files));
-    merge_config_defaults(main_opts, load_gtopt_config());
+    if (!quiet && ::isatty(STDOUT_FILENO) == 0) {
+      if (auto resolved = gtopt::resolve_planning_args(main_opts); resolved) {
+        main_opts = std::move(*resolved);
+      }
+      gtopt::setup_file_logging(main_opts, /*suppress_stdout=*/true);
+    }
+
+    spdlog::info("starting gtopt {}", GTOPT_VERSION);
 
     auto result = gtopt::gtopt_main(main_opts);
     if (result.has_value()) {

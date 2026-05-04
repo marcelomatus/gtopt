@@ -7,6 +7,8 @@ import logging
 import os
 import subprocess
 import sys
+import threading
+import time
 from pathlib import Path
 
 log = logging.getLogger(__name__)
@@ -111,8 +113,14 @@ def _build_gtopt_cmd(
     return cmd
 
 
-def _setup_log_file(case_dir: Path) -> Path | None:
-    """Create the log directory and return the log file path."""
+def _resolve_log_path(case_dir: Path) -> Path | None:
+    """Return the path where gtopt will write its log file.
+
+    Mirrors the resolution done by ``setup_file_logging`` on the C++
+    side: ``<case>/output/logs/gtopt.log`` (or ``<case_parent>/...`` if
+    a JSON file path was passed instead of a directory).  The directory
+    is created so the tail thread can wait on the file with confidence.
+    """
     base = case_dir.parent if case_dir.is_file() else case_dir
     log_dir = base / "output" / "logs"
     try:
@@ -122,40 +130,116 @@ def _setup_log_file(case_dir: Path) -> Path | None:
         return None
 
 
-def _run_batch(cmd: list[str], env: dict[str, str], case_dir: Path) -> int:
-    """Run gtopt as a plain subprocess (non-interactive / background).
+def _tail_log_to(
+    log_path: Path,
+    consume,
+    stop_event: threading.Event,
+    poll_interval: float = 0.1,
+) -> None:
+    """Tail @p log_path line-by-line, calling @p consume(line) for each.
 
-    Solver output is captured to ``<case>/output/logs/gtopt.log`` and
-    also forwarded to stdout.
+    Waits up to a few seconds for the file to appear (gtopt creates it
+    once spdlog opens the sink).  Re-opens the file if it disappears
+    (rare; e.g. truncated mid-run).  Returns when @p stop_event is set
+    AND the file has been fully drained.
+    """
+    # Wait for the file to exist.  If the C++ side never creates it
+    # (e.g. older binary, --quiet, write failure), we still exit cleanly
+    # once stop_event fires.
+    deadline = time.monotonic() + 5.0
+    while not log_path.exists() and not stop_event.is_set():
+        if time.monotonic() > deadline:
+            # Long-running process that simply hasn't started writing
+            # yet — keep waiting indefinitely until stop_event.
+            deadline = time.monotonic() + 5.0
+        time.sleep(poll_interval)
+
+    if not log_path.exists():
+        return
+
+    try:
+        with open(log_path, encoding="utf-8", errors="replace") as f:
+            while True:
+                line = f.readline()
+                if line:
+                    consume(line)
+                    continue
+                if stop_event.is_set():
+                    # Drain anything written between our last read and
+                    # now, then exit.
+                    for tail_line in f:
+                        consume(tail_line)
+                    return
+                time.sleep(poll_interval)
+    except OSError:
+        return
+
+
+def _run_batch(cmd: list[str], env: dict[str, str], case_dir: Path) -> int:
+    """Run gtopt and stream its log file to stdout.
+
+    The C++ binary detects non-TTY stdout (this Popen pipes nothing) and
+    writes its spdlog output directly to ``<case>/output/logs/gtopt.log``
+    via ``setup_file_logging`` — we no longer tee subprocess stdout to
+    avoid duplicating the same lines on disk and on the user's terminal.
+    A background thread tails the log file and forwards new lines to
+    stdout so an operator running ``run_gtopt`` from a CI / shell pipe
+    still sees progress in real time.
     """
     log.info("running: %s", " ".join(cmd))
-    log_path = _setup_log_file(case_dir)
-    if log_path:
-        with open(log_path, "w", encoding="utf-8") as log_f, subprocess.Popen(
-            cmd,
-            env=env,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            bufsize=1,
-        ) as proc:
-            assert proc.stdout is not None  # noqa: S101
-            for line in iter(proc.stdout.readline, ""):
-                sys.stdout.write(line)
-                log_f.write(line)
-            proc.wait()
-            return proc.returncode
-    result = subprocess.run(cmd, check=False, env=env)
-    return result.returncode
+    log_path = _resolve_log_path(case_dir)
+
+    if log_path is None:
+        # Couldn't even create the log directory — fall back to letting
+        # the subprocess inherit our stdout (gtopt's TTY check will then
+        # produce normal stdout output).
+        result = subprocess.run(cmd, check=False, env=env)
+        return result.returncode
+
+    # Truncate any stale log so the tail starts cleanly.  The C++ sink
+    # also opens the file with truncate=true, so this is belt-and-braces
+    # for the tiny window before gtopt itself opens the sink.
+    try:
+        log_path.write_text("", encoding="utf-8")
+    except OSError:
+        pass
+
+    stop_event = threading.Event()
+
+    def _emit(line: str) -> None:
+        sys.stdout.write(line)
+        sys.stdout.flush()
+
+    tail_thread = threading.Thread(
+        target=_tail_log_to,
+        args=(log_path, _emit, stop_event),
+        daemon=True,
+    )
+    tail_thread.start()
+
+    try:
+        # Let stderr pass through unchanged; nothing is captured on
+        # stdout because gtopt itself routes spdlog to the log file.
+        result = subprocess.run(  # noqa: S603
+            cmd, check=False, env=env, stdout=subprocess.DEVNULL
+        )
+        returncode = result.returncode
+    finally:
+        stop_event.set()
+        tail_thread.join(timeout=2.0)
+
+    return returncode
 
 
 def _run_interactive(cmd: list[str], env: dict[str, str], case_dir: Path) -> int:
     """Run gtopt with a live Rich terminal dashboard.
 
     The dashboard runs in a background thread while the solver
-    subprocess runs in the foreground.  Solver stdout/stderr is
-    captured line-by-line, displayed in the dashboard log panel, and
-    written to ``<case>/output/logs/gtopt.log``.
+    subprocess runs in the foreground.  The solver writes its log
+    directly to ``<case>/output/logs/gtopt.log`` (via the C++ file-only
+    sink that activates when stdout is not a TTY — Popen pipes nothing
+    here), and a tail thread forwards every new line into the
+    dashboard's log panel.
 
     Interactive commands (single-key):
       s  Graceful stop — create stop-request file (saves cuts)
@@ -163,13 +247,14 @@ def _run_interactive(cmd: list[str], env: dict[str, str], case_dir: Path) -> int
       h  Toggle help overlay
       q  Quit — terminate the solver process immediately
     """
+    import contextlib  # noqa: PLC0415
     import signal  # noqa: PLC0415
 
     from ._tui import SolverDisplay  # noqa: PLC0415
 
     case_path = Path(case_dir)
     case_name = case_path.stem if case_path.is_file() else case_path.name
-    log_path = _setup_log_file(case_path)
+    log_path = _resolve_log_path(case_path)
 
     # Extract --solver from command line for display
     solver_hint = ""
@@ -186,37 +271,50 @@ def _run_interactive(cmd: list[str], env: dict[str, str], case_dir: Path) -> int
     display.start()
 
     log.info("running (interactive): %s", " ".join(cmd))
-    import contextlib  # noqa: PLC0415
+
+    if log_path is not None:
+        # Truncate stale log; gtopt will reopen with truncate=true too.
+        try:
+            log_path.write_text("", encoding="utf-8")
+        except OSError:
+            pass
+
+    stop_event = threading.Event()
+    tail_thread: threading.Thread | None = None
+    if log_path is not None:
+        tail_thread = threading.Thread(
+            target=_tail_log_to,
+            args=(log_path, display.add_log_line, stop_event),
+            daemon=True,
+        )
+        tail_thread.start()
 
     with contextlib.ExitStack() as stack:
-        log_f = (
-            stack.enter_context(open(log_path, "w", encoding="utf-8"))  # noqa: SIM115
-            if log_path
-            else None
-        )
         proc = stack.enter_context(
-            subprocess.Popen(
+            subprocess.Popen(  # noqa: S603
                 cmd,
                 env=env,
-                stdout=subprocess.PIPE,
+                stdout=subprocess.DEVNULL,
                 stderr=subprocess.STDOUT,
-                text=True,
-                bufsize=1,
             )
         )
         try:
-            assert proc.stdout is not None  # noqa: S101
-            for line in iter(proc.stdout.readline, ""):
-                display.add_log_line(line)
-                if log_f:
-                    log_f.write(line)
-                # Check if the TUI requested a quit (user pressed 'q')
+            # Poll the TUI quit flag while the subprocess runs.  We
+            # don't read its stdout — the log is delivered via the tail
+            # thread reading the file gtopt writes.
+            while True:
+                if proc.poll() is not None:
+                    break
                 if display.quit_requested.is_set():
                     log.info("quit requested via TUI — terminating solver")
                     proc.send_signal(signal.SIGTERM)
                     break
-        finally:
+                time.sleep(0.1)
             proc.wait()
+        finally:
+            stop_event.set()
+            if tail_thread is not None:
+                tail_thread.join(timeout=2.0)
             display.stop()
             display.print_final(proc.returncode)
 

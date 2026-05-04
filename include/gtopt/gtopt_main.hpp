@@ -285,6 +285,22 @@ struct MainOptions
     const MainOptions& raw_opts);
 
 /**
+ * @brief Add a `<log_dir>/gtopt.log` file sink to spdlog's default logger.
+ *
+ * Resolves the log directory using @c opts.log_directory if set, else
+ * `<output_directory>/logs`.  Creates the directory if needed and
+ * attaches a `basic_file_sink_mt` (truncating) at the current default
+ * level so all subsequent `spdlog::info/warn/error` go to the file.
+ *
+ * When @p suppress_stdout is true, the existing console sinks are
+ * removed so log output appears only in the file — this is what the
+ * standalone binary uses when stdout is not a TTY (i.e. when piped to
+ * `run_gtopt`, redirected, or run from CI), keeping the calling
+ * process's stdout clean and avoiding duplicate-output overhead.
+ */
+void setup_file_logging(const MainOptions& opts, bool suppress_stdout);
+
+/**
  * @brief Classify an error string into an exit code.
  *
  * Examines @p error for keywords indicating input-related errors vs
