@@ -394,6 +394,10 @@ void LinearInterface::reconstruct_backend()
 
   // Mark as not released early to avoid recursion in add_col/add_rows
   m_backend_released_ = false;
+  // Backend's solution buffers are zero-padded by `load_flat` and
+  // `is_proven_optimal()` returns false until the next resolve.
+  // Tell `is_optimal()` / `get_col_sol_raw()` to consult the cache.
+  m_backend_solution_fresh_ = false;
 
   // 1. Reload the base structural LP
   load_flat(m_snapshot_.flat_lp);
@@ -419,6 +423,9 @@ void LinearInterface::install_flat_as_rebuild(const FlatLinearProblem& flat_lp)
   // the flag lets this method work outside the rebuild callback too
   // (e.g. future explicit callers).
   m_backend_released_ = false;
+  // Same gating as `reconstruct_backend` — backend reloaded but
+  // not solved.  Pre-solve readers prefer the cache.
+  m_backend_solution_fresh_ = false;
   load_flat(flat_lp);
   apply_post_load_replay();
 }
@@ -488,6 +495,21 @@ void LinearInterface::apply_post_load_replay()
 
   // 4. Bulk-add active cuts (single efficient call).
   replay_active_cuts();
+
+  // 5. Replay column-bound overrides.  `load_flat` restored the
+  //    snapshot's construction-time bounds, but the SDDP forward
+  //    pass had pinned dep_col bounds via `propagate_trial_values`
+  //    (`source/benders_cut.cpp:91-101`) on the live backend.
+  //    Without this replay, iter-0-backward would solve with
+  //    construction-time bounds while off mode (which never
+  //    reloads) keeps the propagated pins — producing different
+  //    cuts and ultimately the juan/iplp compress LB stall.
+  //    Calls `m_backend_->set_col_lower/upper` directly to bypass
+  //    the recording path in our own raw setters.
+  for (const auto& [col, bounds] : m_pending_col_bounds_) {
+    m_backend_->set_col_lower(col, bounds.first);
+    m_backend_->set_col_upper(col, bounds.second);
+  }
 
   // No warm-start step: the barrier method (default solver algorithm)
   // gains nothing from a starting solution.  Pre-solve readers of
@@ -2426,6 +2448,22 @@ void LinearInterface::set_col_low_raw(const ColIndex index, const double value)
     }
   }
   m_backend_->set_col_lower(index, normalize_bound(value));
+  // Persist the override so a `release_backend()` →
+  // `reconstruct_backend()` cycle re-applies it after `load_flat`
+  // restores the snapshot's bounds.  Skip during a bulk replay
+  // (we'd be writing the same value back into our own map).
+  if (!m_replaying_ && m_low_memory_mode_ != LowMemoryMode::off) {
+    auto it = m_pending_col_bounds_.find(index);
+    if (it == m_pending_col_bounds_.end()) {
+      // First time we see this column — capture the live upper
+      // bound so a single-sided lower update doesn't lose it.
+      const double upper_now = m_backend_->col_upper()[index];
+      m_pending_col_bounds_[index] =
+          std::pair<double, double> {value, upper_now};
+    } else {
+      it->second.first = value;
+    }
+  }
 }
 
 void LinearInterface::set_col_upp_raw(const ColIndex index, const double value)
@@ -2440,6 +2478,18 @@ void LinearInterface::set_col_upp_raw(const ColIndex index, const double value)
     }
   }
   m_backend_->set_col_upper(index, normalize_bound(value));
+  if (!m_replaying_ && m_low_memory_mode_ != LowMemoryMode::off) {
+    auto it = m_pending_col_bounds_.find(index);
+    if (it == m_pending_col_bounds_.end()) {
+      // Initialise lower from current live bound so a single-sided
+      // upper-bound update doesn't reset the lower to zero on replay.
+      const double lower_now = m_backend_->col_lower()[index];
+      m_pending_col_bounds_[index] =
+          std::pair<double, double> {lower_now, value};
+    } else {
+      it->second.second = value;
+    }
+  }
 }
 
 void LinearInterface::set_col_raw(const ColIndex index, const double value)
@@ -2725,6 +2775,19 @@ RowDiagnostics LinearInterface::diagnose_row(const RowIndex row) const
 bool LinearInterface::is_optimal() const
 {
   if (m_backend_released_) {
+    return m_cached_is_optimal_;
+  }
+  // Live backend that has been reloaded but not yet re-solved —
+  // `is_proven_optimal()` returns false even when the cell is
+  // legitimately optimal from a prior solve preserved in cache.
+  // Defer to the cached flag so pre-solve readers (notably
+  // `physical_eini` / `physical_efin` cross-phase reads inside
+  // `update_lp_for_phase`) see the prior optimal state instead
+  // of falling through to the JSON `eini` default.  Off mode
+  // never reloads, so `m_backend_solution_fresh_` stays `true`
+  // after the first solve and this branch reverts to the live
+  // backend query — preserving existing off-mode behaviour.
+  if (!m_backend_solution_fresh_) {
     return m_cached_is_optimal_;
   }
   return m_backend_->is_proven_optimal();

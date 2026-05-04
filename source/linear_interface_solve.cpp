@@ -58,6 +58,8 @@ std::expected<int, Error> LinearInterface::initial_solve(
         const HandlerGuard guard(*this, log_level);
         m_backend_->initial_solve();
       }
+      // See `resolve()` for the rationale.
+      m_backend_solution_fresh_ = true;
       m_solver_stats_.total_solve_time_s +=
           std::chrono::duration<double>(Clock::now() - t0).count();
     };
@@ -169,6 +171,10 @@ std::expected<int, Error> LinearInterface::resolve(
         const HandlerGuard guard(*this, log_level);
         m_backend_->resolve();
       }
+      // Live backend's `is_proven_optimal()` / `col_solution()` now
+      // reflect the just-completed solve.  Set BEFORE the
+      // `is_optimal()` check below drives the fallback cycle.
+      m_backend_solution_fresh_ = true;
       m_solver_stats_.total_solve_time_s +=
           std::chrono::duration<double>(Clock::now() - t0).count();
     };
