@@ -363,7 +363,6 @@ void CplexSolverBackend::load_problem(int ncols,
                                       const double* rowub)
 {
   m_prob_cached_ = false;
-  m_sol_cached_ = false;
   m_solve_status_ = 0;
 
   // Cycle the entire CPLEX env+lp pair so every byte of per-LP state that
@@ -502,7 +501,6 @@ int CplexSolverBackend::get_num_rows() const
 void CplexSolverBackend::add_col(double lb, double ub, double obj)
 {
   m_prob_cached_ = false;
-  m_sol_cached_ = false;
   const int matbeg = 0;
   CPXaddcols(m_env_lp_.env(),
              m_env_lp_.lp(),
@@ -526,7 +524,6 @@ void CplexSolverBackend::add_cols(int num_cols,
                                   const double* colobj)
 {
   m_prob_cached_ = false;
-  m_sol_cached_ = false;
 
   if (num_cols == 0) {
     return;
@@ -560,7 +557,6 @@ void CplexSolverBackend::add_cols(int num_cols,
 void CplexSolverBackend::set_col_lower(int index, double value)
 {
   m_prob_cached_ = false;
-  m_sol_cached_ = false;
   const char bound_type = 'L';
   CPXchgbds(m_env_lp_.env(), m_env_lp_.lp(), 1, &index, &bound_type, &value);
 }
@@ -568,7 +564,6 @@ void CplexSolverBackend::set_col_lower(int index, double value)
 void CplexSolverBackend::set_col_upper(int index, double value)
 {
   m_prob_cached_ = false;
-  m_sol_cached_ = false;
   const char bound_type = 'U';
   CPXchgbds(m_env_lp_.env(), m_env_lp_.lp(), 1, &index, &bound_type, &value);
 }
@@ -602,7 +597,6 @@ void CplexSolverBackend::add_row(int num_elements,
                                  double rowub)
 {
   m_prob_cached_ = false;
-  m_sol_cached_ = false;
 
   char sense {};
   double rhs {};
@@ -642,7 +636,6 @@ void CplexSolverBackend::add_rows(int num_rows,
                                   const double* rowub)
 {
   m_prob_cached_ = false;
-  m_sol_cached_ = false;
 
   // Convert lb/ub bounds to CPLEX sense/rhs/range vectors
   std::vector<char> senses(static_cast<size_t>(num_rows));
@@ -685,7 +678,6 @@ void CplexSolverBackend::add_rows(int num_rows,
 void CplexSolverBackend::set_row_lower(int index, double value)
 {
   m_prob_cached_ = false;
-  m_sol_cached_ = false;
 
   // Get current row upper bound to recompute sense/rhs/range
   char old_sense {};
@@ -717,7 +709,6 @@ void CplexSolverBackend::set_row_lower(int index, double value)
 void CplexSolverBackend::set_row_upper(int index, double value)
 {
   m_prob_cached_ = false;
-  m_sol_cached_ = false;
 
   char old_sense {};
   double old_rhs {};
@@ -742,7 +733,6 @@ void CplexSolverBackend::set_row_upper(int index, double value)
 void CplexSolverBackend::set_row_bounds(int index, double lb, double ub)
 {
   m_prob_cached_ = false;
-  m_sol_cached_ = false;
 
   char new_sense {};
   double new_rhs {};
@@ -757,7 +747,6 @@ void CplexSolverBackend::set_row_bounds(int index, double lb, double ub)
 void CplexSolverBackend::delete_rows(int num, const int* indices)
 {
   m_prob_cached_ = false;
-  m_sol_cached_ = false;
 
   // CPXdelrows expects a sorted range [begin, end].
   // We need to delete individual indices — use CPXdelsetrows with a delstat
@@ -784,7 +773,6 @@ double CplexSolverBackend::get_coeff(int row, int col) const
 void CplexSolverBackend::set_coeff(int row, int col, double value)
 {
   m_prob_cached_ = false;
-  m_sol_cached_ = false;
   CPXchgcoef(m_env_lp_.env(), m_env_lp_.lp(), row, col, value);
 }
 
@@ -795,7 +783,6 @@ bool CplexSolverBackend::supports_set_coeff() const noexcept
 
 void CplexSolverBackend::set_continuous(int index)
 {
-  m_sol_cached_ = false;
   // If problem is MIP, change column type to continuous
   const int cplex_type = CPXgetprobtype(m_env_lp_.env(), m_env_lp_.lp());
   if (cplex_type == CPXPROB_MILP || cplex_type == CPXPROB_MIQP) {
@@ -806,7 +793,6 @@ void CplexSolverBackend::set_continuous(int index)
 
 void CplexSolverBackend::set_integer(int index)
 {
-  m_sol_cached_ = false;
   // Promote to MIP if needed
   const int cplex_type = CPXgetprobtype(m_env_lp_.env(), m_env_lp_.lp());
   if (cplex_type != CPXPROB_MILP && cplex_type != CPXPROB_MIQP) {
@@ -874,12 +860,14 @@ void CplexSolverBackend::cache_problem_data() const
   m_prob_cached_ = true;
 }
 
-void CplexSolverBackend::cache_solution() const
+void CplexSolverBackend::fetch_solution() const
 {
-  if (m_sol_cached_) {
-    return;
-  }
-
+  // Always re-fetch from CPLEX into the storage vectors.  No
+  // backend-side validity flag: the LinearInterface
+  // (`populate_solution_cache_post_solve`) is the single source of
+  // truth post-solve and calls each accessor at most once per solve.
+  // Storage is retained so the returned raw pointer remains valid
+  // through the LI's `assign(...)` copy.
   const int ncols = CPXgetnumcols(m_env_lp_.env(), m_env_lp_.lp());
   const int nrows = CPXgetnumrows(m_env_lp_.env(), m_env_lp_.lp());
 
@@ -898,8 +886,6 @@ void CplexSolverBackend::cache_solution() const
     CPXgetpi(
         m_env_lp_.env(), m_env_lp_.lp(), m_row_price_.data(), 0, nrows - 1);
   }
-
-  m_sol_cached_ = true;
 }
 
 const double* CplexSolverBackend::col_lower() const
@@ -934,19 +920,19 @@ const double* CplexSolverBackend::row_upper() const
 
 const double* CplexSolverBackend::col_solution() const
 {
-  cache_solution();
+  fetch_solution();
   return m_col_solution_.data();
 }
 
 const double* CplexSolverBackend::reduced_cost() const
 {
-  cache_solution();
+  fetch_solution();
   return m_reduced_cost_.data();
 }
 
 const double* CplexSolverBackend::row_price() const
 {
-  cache_solution();
+  fetch_solution();
   return m_row_price_.data();
 }
 
@@ -962,15 +948,14 @@ void CplexSolverBackend::set_col_solution(const double* sol)
   if (sol == nullptr) {
     return;
   }
-  const auto ncols =
-      static_cast<size_t>(CPXgetnumcols(m_env_lp_.env(), m_env_lp_.lp()));
-  // Cache the provided solution so that col_solution() returns it
-  // immediately, without requiring a re-solve.
-  m_col_solution_.assign(
-      sol,
-      sol + ncols);  // NOLINT(cppcoreguidelines-pro-bounds-pointer-arithmetic)
-  m_sol_cached_ = true;
-  // Also provide it to CPLEX as a warm-start hint.
+  // Provide the solution to CPLEX as a warm-start hint.  The
+  // backend no longer maintains an internal solution cache; the next
+  // `col_solution()` call after a successful resolve will re-fetch
+  // via `CPXgetx`.  This was previously stuffed into m_col_solution_
+  // so a "read-without-solve" path could observe the hint, but no
+  // production caller actually reads the primal between
+  // set_col_solution and resolve — the test path is always
+  // set → solve → read.
   CPXcopystart(m_env_lp_.env(),
                m_env_lp_.lp(),
                nullptr,  // cstat (basis statuses for columns)
@@ -986,7 +971,6 @@ void CplexSolverBackend::set_row_price(const double* price)
   if (price == nullptr) {
     return;
   }
-  m_sol_cached_ = false;
   CPXcopystart(m_env_lp_.env(),
                m_env_lp_.lp(),
                nullptr,  // cstat
@@ -999,8 +983,6 @@ void CplexSolverBackend::set_row_price(const double* price)
 
 void CplexSolverBackend::initial_solve()
 {
-  m_sol_cached_ = false;
-
   const int cplex_type = CPXgetprobtype(m_env_lp_.env(), m_env_lp_.lp());
   if (cplex_type == CPXPROB_MILP || cplex_type == CPXPROB_MIQP) {
     m_solve_status_ = CPXmipopt(m_env_lp_.env(), m_env_lp_.lp());
@@ -1011,8 +993,6 @@ void CplexSolverBackend::initial_solve()
 
 void CplexSolverBackend::resolve()
 {
-  m_sol_cached_ = false;
-
   const int cplex_type = CPXgetprobtype(m_env_lp_.env(), m_env_lp_.lp());
   if (cplex_type == CPXPROB_MILP || cplex_type == CPXPROB_MIQP) {
     m_solve_status_ = CPXmipopt(m_env_lp_.env(), m_env_lp_.lp());

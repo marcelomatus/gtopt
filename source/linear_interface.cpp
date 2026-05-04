@@ -342,9 +342,15 @@ void LinearInterface::invalidate_cached_optimal_on_mutation() noexcept
   if (m_replaying_) {
     return;
   }
-  if (m_low_memory_mode_ == LowMemoryMode::off) {
-    return;
-  }
+  // Drop the cached optimality flag and primal/dual/reduced-cost
+  // vectors regardless of `low_memory_mode`.  Off mode used to skip
+  // this branch on the assumption that the live backend's
+  // `is_proven_optimal()` already flips false on mutation, but with
+  // the LI cache now serving as the single source of truth (post the
+  // plugin-cache removal), readers consult the LI cache exclusively
+  // when populated — letting it survive a mutation under off would
+  // hand stale solution data to downstream consumers (e.g. SDDP
+  // state propagation) on the next read after an `add_row`.
   m_cached_is_optimal_ = false;
   m_cached_col_sol_.clear();
   m_cached_col_sol_.shrink_to_fit();
@@ -352,6 +358,59 @@ void LinearInterface::invalidate_cached_optimal_on_mutation() noexcept
   m_cached_col_cost_.shrink_to_fit();
   m_cached_row_dual_.clear();
   m_cached_row_dual_.shrink_to_fit();
+}
+
+void LinearInterface::populate_solution_cache_post_solve() noexcept
+{
+  // Called from inside `initial_solve` / `resolve` after the backend
+  // reports a fresh solve.  Snapshots primal/dual/reduced-cost vectors
+  // into the LI cache so downstream readers (OutputContext, Benders
+  // cut assembly, SDDP state propagation, write_out, …) all consult
+  // the SAME buffer.  Plugin backends no longer maintain an internal
+  // solution cache (single source of truth post the plugin-cache
+  // removal refactor).
+  //
+  // **Off-mode invariant (I6):** under `LowMemoryMode::off` the LI
+  // cache MUST stay empty — the live backend is always available and
+  // is the sole source of truth; populating a parallel cache would
+  // be pure waste (extra alloc + memcpy on every solve, no read-side
+  // benefit since backend reads are cheap when the backend is live).
+  // Reads under off therefore route directly to `backend()` via the
+  // empty-cache fallback in `get_col_sol_raw` / `get_col_cost_raw` /
+  // `get_row_dual_raw`.
+  //
+  // Skip when no backend (defensive) or the just-completed solve was
+  // not optimal: in the latter case primal/dual values may be
+  // arbitrary and propagating them would corrupt readers that gate on
+  // `is_optimal()`.  Cache stays empty until a successful re-solve.
+  if (m_low_memory_mode_ == LowMemoryMode::off) {
+    return;  // I6: off owns no LI cache
+  }
+  try {
+    if (m_backend_ == nullptr || !m_backend_->is_proven_optimal()) {
+      return;
+    }
+    const auto ncols = static_cast<size_t>(get_numcols());
+    const auto nrows = static_cast<size_t>(get_numrows());
+    const auto* p_sol = m_backend_->col_solution();
+    const auto* p_cost = m_backend_->reduced_cost();
+    const auto* p_dual = m_backend_->row_price();
+    if (p_sol != nullptr) {
+      m_cached_col_sol_.assign(p_sol, p_sol + ncols);
+    }
+    if (p_cost != nullptr) {
+      m_cached_col_cost_.assign(p_cost, p_cost + ncols);
+    }
+    if (p_dual != nullptr) {
+      m_cached_row_dual_.assign(p_dual, p_dual + nrows);
+    }
+    m_cached_is_optimal_ = true;
+  } catch (...) {  // NOLINT(bugprone-empty-catch)
+    // Best-effort: any backend exception leaves the cache in
+    // whatever (possibly empty) state it was in.  Caller's
+    // `is_optimal()` check will then route through the cached flag
+    // and surface a non-optimal status.
+  }
 }
 
 // ── Low-memory mode ──
@@ -363,14 +422,15 @@ void LinearInterface::set_low_memory(LowMemoryMode mode,
   m_memory_codec_ = codec;
 
   if (mode == LowMemoryMode::off) {
-    // Off mode owns no parallel snapshot or solution cache: the live
-    // backend (CPLEX/HiGHS/...) is the sole source of truth for both
-    // the LP structure and the solution buffers.  Drop any state
-    // accumulated under a prior `compress`/`snapshot` configuration
-    // so a subsequent `release_backend()` no-op never hands a stale
-    // cached col_sol to a downstream reader, and reads route directly
-    // to the backend (which has its own per-solve cache anyway —
-    // duplicating buffers under off would be pure waste).
+    // Off mode owns no flat-LP snapshot — the live backend stays
+    // alive for the entire run.  Drop any snapshot accumulated under
+    // a prior `compress`/`snapshot` configuration.  The LI solution
+    // cache (m_cached_col_sol_/_cost_/_dual_) is also reset here so
+    // a mode flip from compress→off doesn't carry a stale cached
+    // solution forward; it will be re-populated on the next solve
+    // by `populate_solution_cache_post_solve` (the LI cache is the
+    // single source of truth across all modes after the plugin-cache
+    // removal).
     m_snapshot_ = {};
     m_cached_col_sol_.clear();
     m_cached_col_sol_.shrink_to_fit();
@@ -2863,23 +2923,20 @@ RowDiagnostics LinearInterface::diagnose_row(const RowIndex row) const
 
 bool LinearInterface::is_optimal() const
 {
-  if (m_backend_released_) {
-    return m_cached_is_optimal_;
+  // **Off-mode invariant (I6):** off owns no LI-side cache — query
+  // the live backend directly.  Under off the backend is always
+  // alive (release_backend is a no-op), so this is a single in-line
+  // CPLEX call (effectively free) and avoids carrying a parallel
+  // cached flag whose only purpose would be to mirror the backend.
+  if (m_low_memory_mode_ == LowMemoryMode::off) {
+    return m_backend_ != nullptr && m_backend_->is_proven_optimal();
   }
-  // Live backend that has been reloaded but not yet re-solved —
-  // `is_proven_optimal()` returns false even when the cell is
-  // legitimately optimal from a prior solve preserved in cache.
-  // Defer to the cached flag so pre-solve readers (notably
-  // `physical_eini` / `physical_efin` cross-phase reads inside
-  // `update_lp_for_phase`) see the prior optimal state instead
-  // of falling through to the JSON `eini` default.  Off mode
-  // never reloads, so `m_backend_solution_fresh_` stays `true`
-  // after the first solve and this branch reverts to the live
-  // backend query — preserving existing off-mode behaviour.
-  if (!m_backend_solution_fresh_) {
-    return m_cached_is_optimal_;
-  }
-  return m_backend_->is_proven_optimal();
+  // Compress/snapshot: the LI-side cached flag is the source of truth.
+  // Set inside `populate_solution_cache_post_solve` (eagerly post-solve)
+  // and cleared inside `invalidate_cached_optimal_on_mutation` on every
+  // structural mutation.  This survives `release_backend()` —
+  // critical for cross-phase reads in SDDP backward.
+  return m_cached_is_optimal_;
 }
 
 bool LinearInterface::is_dual_infeasible() const

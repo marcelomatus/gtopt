@@ -4371,3 +4371,51 @@ TEST_CASE(  // NOLINT
   CHECK(li.cached_col_cost_size() == 0);
   CHECK(li.cached_row_dual_size() == 0);
 }
+
+// Off-mode no-cache invariant (I6): under `LowMemoryMode::off` the LI
+// solution cache must NEVER be populated by
+// `populate_solution_cache_post_solve`. The live backend is the sole source of
+// truth — populating a parallel LI cache would be pure waste (extra alloc +
+// memcpy on every solve). Reads under off route directly to the backend via the
+// empty-cache fallback in `get_col_sol_raw` / `get_col_cost_raw` /
+// `get_row_dual_raw`.
+//
+// This test pins the contract: solve repeatedly under off, the cache
+// must stay empty after every call.
+TEST_CASE(  // NOLINT
+    "LinearInterface — off mode never populates LI cache (I6)")
+{
+  auto [li, flat, x1, x2] = make_simple_li_lp();
+
+  // Default low_memory_mode is `off`.  Repeated solves must NOT
+  // populate the cache.
+  REQUIRE(li.low_memory_mode() == LowMemoryMode::off);
+
+  REQUIRE(li.initial_solve().has_value());
+  REQUIRE(li.is_optimal());
+  CHECK(li.cached_col_sol_size() == 0);
+  CHECK(li.cached_col_cost_size() == 0);
+  CHECK(li.cached_row_dual_size() == 0);
+
+  // A second solve (resolve) must also leave the cache empty.
+  REQUIRE(li.resolve().has_value());
+  REQUIRE(li.is_optimal());
+  CHECK(li.cached_col_sol_size() == 0);
+  CHECK(li.cached_col_cost_size() == 0);
+  CHECK(li.cached_row_dual_size() == 0);
+
+  // `release_backend()` is a no-op under off — must NOT populate
+  // anything either.
+  li.release_backend();
+  CHECK_FALSE(li.is_backend_released());  // off no-op preserves backend
+  CHECK(li.cached_col_sol_size() == 0);
+  CHECK(li.cached_col_cost_size() == 0);
+  CHECK(li.cached_row_dual_size() == 0);
+
+  // Reads under off go directly to the live backend.  `get_col_sol_raw`
+  // must return a non-empty span (the live backend's buffer) without
+  // ever populating the LI cache.
+  const auto live_view = li.get_col_sol_raw();
+  CHECK(live_view.size() == static_cast<size_t>(li.get_numcols()));
+  CHECK(li.cached_col_sol_size() == 0);  // still empty after read
+}

@@ -211,7 +211,14 @@ public:
 
 private:
   void cache_problem_data() const;
-  void cache_solution() const;
+  /// Fetch the just-solved primal/dual/reduced-cost vectors from
+  /// CPLEX into the mutable storage members.  Always re-queries the
+  /// solver — there is no per-instance cache flag because the LI
+  /// (`linear_interface.hpp::populate_solution_cache_post_solve`)
+  /// is now the single source of truth and calls each accessor at
+  /// most once per solve.  Storage is retained so the returned
+  /// pointer remains valid for the LI's `assign(...)` consumer.
+  void fetch_solution() const;
 
   /// Re-open env+lp from scratch with all cached preparation applied.
   void reset_env_lp();
@@ -226,7 +233,13 @@ private:
   mutable std::vector<double> m_rowlb_;
   mutable std::vector<double> m_rowub_;
 
-  mutable bool m_sol_cached_ {false};
+  /// Storage for the primal/dual/reduced-cost pointers returned by
+  /// `col_solution()` / `reduced_cost()` / `row_price()`.  These
+  /// vectors are always re-filled from CPLEX inside `fetch_solution`;
+  /// there is no validity flag because the LinearInterface's eager
+  /// post-solve cache is the single source of truth (one fetch per
+  /// accessor per solve), and the storage just exists so the
+  /// returned raw pointer outlives the function call.
   mutable std::vector<double> m_col_solution_;
   mutable std::vector<double> m_reduced_cost_;
   mutable std::vector<double> m_row_price_;

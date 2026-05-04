@@ -129,7 +129,6 @@ void MindOptSolverBackend::reset_model_()
   check_error(rc, "MDOnewmodel");
   MDOsetintattr(m_model_, MDO_INT_ATTR_MODEL_SENSE, MDO_MINIMIZE);
   m_prob_cached_ = false;
-  m_sol_cached_ = false;
 }
 
 // ── ctor / dtor ──────────────────────────────────────────────────────────
@@ -381,7 +380,6 @@ int MindOptSolverBackend::get_num_rows() const
 void MindOptSolverBackend::add_col(double lb, double ub, double obj)
 {
   m_prob_cached_ = false;
-  m_sol_cached_ = false;
   const int rc = MDOaddvar(
       m_model_, 0, nullptr, nullptr, obj, lb, ub, MDO_CONTINUOUS, nullptr);
   check_error(rc, "MDOaddvar");
@@ -396,7 +394,6 @@ void MindOptSolverBackend::add_cols(int num_cols,
                                     const double* colobj)
 {
   m_prob_cached_ = false;
-  m_sol_cached_ = false;
 
   if (num_cols == 0) {
     return;
@@ -428,14 +425,12 @@ void MindOptSolverBackend::add_cols(int num_cols,
 void MindOptSolverBackend::set_col_lower(int index, double value)
 {
   m_prob_cached_ = false;
-  m_sol_cached_ = false;
   MDOsetdblattrelement(m_model_, MDO_DBL_ATTR_LB, index, value);
 }
 
 void MindOptSolverBackend::set_col_upper(int index, double value)
 {
   m_prob_cached_ = false;
-  m_sol_cached_ = false;
   MDOsetdblattrelement(m_model_, MDO_DBL_ATTR_UB, index, value);
 }
 
@@ -471,7 +466,6 @@ void MindOptSolverBackend::add_row(int num_elements,
                                    double rowub)
 {
   m_prob_cached_ = false;
-  m_sol_cached_ = false;
 
   const int rc = MDOaddrangeconstr(m_model_,
                                    num_elements,
@@ -491,7 +485,6 @@ void MindOptSolverBackend::add_rows(int num_rows,
                                     const double* rowub)
 {
   m_prob_cached_ = false;
-  m_sol_cached_ = false;
 
   if (num_rows == 0) {
     return;
@@ -522,21 +515,18 @@ void MindOptSolverBackend::add_rows(int num_rows,
 void MindOptSolverBackend::set_row_lower(int index, double value)
 {
   m_prob_cached_ = false;
-  m_sol_cached_ = false;
   MDOsetdblattrelement(m_model_, MDO_DBL_ATTR_LHS, index, value);
 }
 
 void MindOptSolverBackend::set_row_upper(int index, double value)
 {
   m_prob_cached_ = false;
-  m_sol_cached_ = false;
   MDOsetdblattrelement(m_model_, MDO_DBL_ATTR_RHS, index, value);
 }
 
 void MindOptSolverBackend::set_row_bounds(int index, double lb, double ub)
 {
   m_prob_cached_ = false;
-  m_sol_cached_ = false;
   MDOsetdblattrelement(m_model_, MDO_DBL_ATTR_LHS, index, lb);
   MDOsetdblattrelement(m_model_, MDO_DBL_ATTR_RHS, index, ub);
 }
@@ -544,7 +534,6 @@ void MindOptSolverBackend::set_row_bounds(int index, double lb, double ub)
 void MindOptSolverBackend::delete_rows(int num, const int* indices)
 {
   m_prob_cached_ = false;
-  m_sol_cached_ = false;
 
   // MDOdelconstrs takes a mutable int* and may modify the array in-place
   // (e.g. sorting).  Copy to protect the caller's data.
@@ -565,7 +554,6 @@ double MindOptSolverBackend::get_coeff(int row, int col) const
 void MindOptSolverBackend::set_coeff(int row, int col, double value)
 {
   m_prob_cached_ = false;
-  m_sol_cached_ = false;
   int cind = row;
   int vind = col;
   double val = value;
@@ -581,13 +569,11 @@ bool MindOptSolverBackend::supports_set_coeff() const noexcept
 
 void MindOptSolverBackend::set_continuous(int index)
 {
-  m_sol_cached_ = false;
   MDOsetcharattrelement(m_model_, MDO_CHAR_ATTR_VTYPE, index, MDO_CONTINUOUS);
 }
 
 void MindOptSolverBackend::set_integer(int index)
 {
-  m_sol_cached_ = false;
   MDOsetcharattrelement(m_model_, MDO_CHAR_ATTR_VTYPE, index, MDO_INTEGER);
 }
 
@@ -635,12 +621,14 @@ void MindOptSolverBackend::cache_problem_data() const
   m_prob_cached_ = true;
 }
 
-void MindOptSolverBackend::cache_solution() const
+void MindOptSolverBackend::fetch_solution() const
 {
-  if (m_sol_cached_) {
-    return;
-  }
-
+  // Always re-fetch from MindOpt into the storage vectors.  No
+  // backend-side validity flag: the LinearInterface
+  // (`populate_solution_cache_post_solve`) is the single source of
+  // truth post-solve and calls each accessor at most once per solve.
+  // Storage is retained so the returned raw pointer remains valid
+  // through the LI's `assign(...)` copy.
   const int ncols = get_num_cols();
   const int nrows = get_num_rows();
 
@@ -659,8 +647,6 @@ void MindOptSolverBackend::cache_solution() const
     MDOgetdblattrarray(
         m_model_, MDO_DBL_ATTR_DUAL_SOLN, 0, nrows, m_row_price_.data());
   }
-
-  m_sol_cached_ = true;
 }
 
 // ── solution access ──────────────────────────────────────────────────────
@@ -697,19 +683,19 @@ const double* MindOptSolverBackend::row_upper() const
 
 const double* MindOptSolverBackend::col_solution() const
 {
-  cache_solution();
+  fetch_solution();
   return m_col_solution_.data();
 }
 
 const double* MindOptSolverBackend::reduced_cost() const
 {
-  cache_solution();
+  fetch_solution();
   return m_reduced_cost_.data();
 }
 
 const double* MindOptSolverBackend::row_price() const
 {
-  cache_solution();
+  fetch_solution();
   return m_row_price_.data();
 }
 
@@ -728,12 +714,10 @@ void MindOptSolverBackend::set_col_solution(const double* sol)
     return;
   }
   const auto ncols = static_cast<size_t>(get_num_cols());
-  m_col_solution_.assign(
-      sol,
-      sol + ncols);  // NOLINT(cppcoreguidelines-pro-bounds-pointer-arithmetic)
-  m_sol_cached_ = true;
 
-  // Provide as warm-start hint via Start attribute
+  // Provide as warm-start hint via Start attribute.  No backend-side
+  // primal cache exists anymore; the next col_solution() after a
+  // successful resolve will re-fetch via MDO_DBL_ATTR_X.
   MDOsetdblattrarray(m_model_,
                      MDO_DBL_ATTR_START,
                      0,
@@ -746,7 +730,6 @@ void MindOptSolverBackend::set_row_price(const double* price)
   if (price == nullptr) {
     return;
   }
-  m_sol_cached_ = false;
   // MindOpt doesn't have a direct dual-start API; ignore silently.
 }
 
@@ -754,7 +737,6 @@ void MindOptSolverBackend::set_row_price(const double* price)
 
 void MindOptSolverBackend::initial_solve()
 {
-  m_sol_cached_ = false;
   const int rc = MDOoptimize(m_model_);
   if (rc != MDO_OKAY && rc != MDO_NO_SOLN) {
     check_error(rc, "MDOoptimize");
@@ -763,7 +745,6 @@ void MindOptSolverBackend::initial_solve()
 
 void MindOptSolverBackend::resolve()
 {
-  m_sol_cached_ = false;
   const int rc = MDOoptimize(m_model_);
   if (rc != MDO_OKAY && rc != MDO_NO_SOLN) {
     check_error(rc, "MDOoptimize");
