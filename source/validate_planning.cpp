@@ -437,12 +437,14 @@ void check_positivity(ValidationResult& result, const System& sys)
 
 namespace
 {
-// Try to extract a scalar emin from a reservoir's `OptTRealFieldSched`.
-// Returns nullopt for vector / file schedules — those are validated
-// per-stage at load time and can't be sanity-checked here.
-[[nodiscard]] std::optional<Real> try_scalar_emin(const Reservoir& res)
+// Try to extract a scalar value from an `OptTRealFieldSched` /
+// `OptTBRealFieldSched`-shaped field.  Returns nullopt for
+// vector / file schedules — those are validated per-stage at load
+// time and can't be sanity-checked here.
+template<typename OptField>
+[[nodiscard]] std::optional<Real> try_scalar_value(const OptField& field)
 {
-  if (!res.emin.has_value()) {
+  if (!field.has_value()) {
     return std::nullopt;
   }
   return std::visit(
@@ -455,7 +457,17 @@ namespace
           return std::nullopt;
         }
       },
-      *res.emin);
+      *field);
+}
+
+[[nodiscard]] std::optional<Real> try_scalar_emin(const Reservoir& res)
+{
+  return try_scalar_value(res.emin);
+}
+
+[[nodiscard]] std::optional<Real> try_scalar_emax(const Reservoir& res)
+{
+  return try_scalar_value(res.emax);
 }
 
 // Look up a reservoir struct by SingleId (Uid or Name).
@@ -483,12 +495,98 @@ namespace
       },
       sid);
 }
+
+// Look up a waterway struct by SingleId (Uid or Name).
+[[nodiscard]] const Waterway* find_waterway(
+    const std::vector<Waterway>& waterways, const SingleId& sid)
+{
+  return std::visit(
+      [&](const auto& v) -> const Waterway*
+      {
+        using T = std::remove_cvref_t<decltype(v)>;
+        if constexpr (std::is_same_v<T, Uid>) {
+          for (const auto& w : waterways) {
+            if (w.uid == static_cast<int>(v)) {
+              return &w;
+            }
+          }
+        } else if constexpr (std::is_same_v<T, Name>) {
+          for (const auto& w : waterways) {
+            if (w.name == v) {
+              return &w;
+            }
+          }
+        }
+        return nullptr;
+      },
+      sid);
+}
+
+// Compute the active volume range [V_low, V_high] for segment k of a
+// segments vector sorted ascending by `.volume`, clipped to the
+// reservoir's [emin, emax] envelope.  N is the segment count.
+struct SegmentRange
+{
+  Real v_low {0.0};
+  Real v_high {0.0};
+};
+
+template<typename SegmentT>
+[[nodiscard]] SegmentRange segment_range(const std::vector<SegmentT>& segments,
+                                         std::size_t k,
+                                         Real emin,
+                                         Real emax)
+{
+  const auto seg_lo = static_cast<Real>(segments[k].volume);
+  const auto v_low = std::max(seg_lo, emin);
+  const auto v_high = (k + 1 < segments.size())
+      ? static_cast<Real>(segments[k + 1].volume)
+      : emax;
+  return {.v_low = v_low, .v_high = v_high};
+}
+
+// Linear function value at endpoints (no interior extrema for linear).
+struct LinearRange
+{
+  Real f_low {0.0};
+  Real f_high {0.0};
+  [[nodiscard]] Real fmin() const { return std::min(f_low, f_high); }
+  [[nodiscard]] Real fmax() const { return std::max(f_low, f_high); }
+};
+
+[[nodiscard]] LinearRange evaluate_linear(Real slope,
+                                          Real constant,
+                                          const SegmentRange& r)
+{
+  return {.f_low = constant + slope * r.v_low,
+          .f_high = constant + slope * r.v_high};
+}
 }  // namespace
 
 void check_piecewise_feasibility(ValidationResult& result, const System& sys)
 {
-  // ReservoirSeepage: first segment evaluated at efin = emin must
-  // produce non-negative row RHS.
+  // **ReservoirSeepage** — per-segment range feasibility.
+  //
+  // The LP constraint per (block, stage) is the equality
+  //   `qfilt − slope_k · efin = constant_k`
+  // → `qfilt = constant_k + slope_k · efin`.
+  // The flow `qfilt` lives on the seepage's waterway and is bounded
+  // `qfilt ∈ [fmin, fmax]`.  For each segment k, while it's the
+  // active piecewise piece (i.e. `efin ∈ [V_low_k, V_high_k]`, where
+  // V_low_0 is clamped to the reservoir's emin and V_high_{N-1} is
+  // clamped to emax), we need:
+  //
+  //   fmin  ≤  constant_k + slope_k · efin  ≤  fmax,  ∀ efin ∈ [V_low_k,
+  //   V_high_k]
+  //
+  // The function is linear in efin, so the min and max over the
+  // range are attained at the endpoints.  Validation walks every
+  // segment and emits a warning whenever
+  //   min(f(V_low), f(V_high)) < fmin     OR
+  //   max(f(V_low), f(V_high)) > fmax
+  // — pointing the user at the offending segment so they can fix
+  // the input data.  Schedule-form `emin/emax/fmin/fmax` are
+  // deferred (skipped here) because they need per-stage resolution.
   for (const auto& seep : sys.reservoir_seepage_array) {
     if (seep.segments.empty()) {
       continue;
@@ -498,32 +596,80 @@ void check_piecewise_feasibility(ValidationResult& result, const System& sys)
       continue;  // referential integrity check elsewhere catches missing refs
     }
     const auto emin_opt = try_scalar_emin(*res);
-    if (!emin_opt.has_value()) {
+    const auto emax_opt = try_scalar_emax(*res);
+    if (!emin_opt.has_value() || !emax_opt.has_value()) {
       continue;  // schedule form — defer to load-time validation
     }
-    const auto& first_seg = seep.segments.front();
-    // Seepage segment names this `constant`; discharge_limit names it
-    // `intercept` (same role: row RHS in LP units).
-    const auto rhs_at_emin = first_seg.constant + first_seg.slope * *emin_opt;
-    if (rhs_at_emin < 0.0) {
-      result.warnings.push_back(std::format(
-          "ReservoirSeepage '{}' (reservoir '{}'): first segment "
-          "produces negative seepage upper bound at efin=emin "
-          "(slope={:.6g}, constant={:.6g}, emin={:.3g} → rhs={:.6g}); "
-          "the LP will become infeasible if the reservoir reaches its "
-          "minimum volume.  Adjust the lowest segment so that "
-          "`constant + slope * emin >= 0`.",
-          seep.name,
-          res->name,
-          first_seg.slope,
-          first_seg.constant,
-          *emin_opt,
-          rhs_at_emin));
+    const auto* ww = find_waterway(sys.waterway_array, seep.waterway);
+    if (ww == nullptr) {
+      continue;
+    }
+    const auto fmin_val = try_scalar_value(ww->fmin).value_or(0.0);
+    const auto fmax_val = try_scalar_value(ww->fmax).value_or(
+        std::numeric_limits<Real>::infinity());
+
+    for (std::size_t k = 0; k < seep.segments.size(); ++k) {
+      const auto& seg = seep.segments[k];
+      const auto range = segment_range(seep.segments, k, *emin_opt, *emax_opt);
+      if (range.v_high < range.v_low) {
+        continue;  // empty range (segment outside [emin, emax])
+      }
+      const auto fr = evaluate_linear(seg.slope, seg.constant, range);
+
+      if (fr.fmin() < fmin_val) {
+        result.warnings.push_back(std::format(
+            "ReservoirSeepage '{}' (reservoir '{}', waterway '{}'): "
+            "segment {} ({:.3g} ≤ efin ≤ {:.3g}) produces qfilt below "
+            "waterway fmin (slope={:.6g}, constant={:.6g} → qfilt range "
+            "[{:.6g}, {:.6g}] vs fmin={:.6g}); the LP will go "
+            "primal-infeasible whenever efin lands in the segment's "
+            "lower portion.  Adjust the segment data so that "
+            "`constant + slope * V ≥ fmin` for all V in [V_low, V_high].",
+            seep.name,
+            res->name,
+            ww->name,
+            k,
+            range.v_low,
+            range.v_high,
+            seg.slope,
+            seg.constant,
+            fr.fmin(),
+            fr.fmax(),
+            fmin_val));
+      }
+      if (fr.fmax() > fmax_val) {
+        result.warnings.push_back(std::format(
+            "ReservoirSeepage '{}' (reservoir '{}', waterway '{}'): "
+            "segment {} ({:.3g} ≤ efin ≤ {:.3g}) produces qfilt above "
+            "waterway fmax (slope={:.6g}, constant={:.6g} → qfilt range "
+            "[{:.6g}, {:.6g}] vs fmax={:.6g}); the LP will go "
+            "primal-infeasible whenever efin lands in the segment's "
+            "upper portion.",
+            seep.name,
+            res->name,
+            ww->name,
+            k,
+            range.v_low,
+            range.v_high,
+            seg.slope,
+            seg.constant,
+            fr.fmin(),
+            fr.fmax(),
+            fmax_val));
+      }
     }
   }
 
-  // ReservoirDischargeLimit: same first-segment efin=emin feasibility
-  // check.  The LP row is `qeh - slope · efin <= intercept`, qeh ≥ 0.
+  // **ReservoirDischargeLimit** — per-segment range feasibility.
+  //
+  // The LP row is `qeh − slope_k · efin ≤ intercept_k`, where qeh has
+  // lower bound 0 (default for a free non-negative col).  For each
+  // segment k active at efin ∈ [V_low_k, V_high_k]:
+  //
+  //   0 ≤ intercept_k + slope_k · efin   for all efin in the range.
+  //
+  // Linear in efin, so check the minimum over the range at the
+  // endpoints.  Warn when min < 0.
   for (const auto& ddl : sys.reservoir_discharge_limit_array) {
     if (ddl.segments.empty()) {
       continue;
@@ -533,25 +679,38 @@ void check_piecewise_feasibility(ValidationResult& result, const System& sys)
       continue;
     }
     const auto emin_opt = try_scalar_emin(*res);
-    if (!emin_opt.has_value()) {
+    const auto emax_opt = try_scalar_emax(*res);
+    if (!emin_opt.has_value() || !emax_opt.has_value()) {
       continue;
     }
-    const auto& first_seg = ddl.segments.front();
-    const auto rhs_at_emin = first_seg.intercept + first_seg.slope * *emin_opt;
-    if (rhs_at_emin < 0.0) {
-      result.warnings.push_back(std::format(
-          "ReservoirDischargeLimit '{}' (reservoir '{}'): first "
-          "segment produces negative discharge upper bound at "
-          "efin=emin (slope={:.6g}, intercept={:.6g}, emin={:.3g} → "
-          "rhs={:.6g}); the LP will become infeasible if the "
-          "reservoir reaches its minimum volume.  Adjust the lowest "
-          "segment so that `intercept + slope * emin >= 0`.",
-          ddl.name,
-          res->name,
-          first_seg.slope,
-          first_seg.intercept,
-          *emin_opt,
-          rhs_at_emin));
+
+    for (std::size_t k = 0; k < ddl.segments.size(); ++k) {
+      const auto& seg = ddl.segments[k];
+      const auto range = segment_range(ddl.segments, k, *emin_opt, *emax_opt);
+      if (range.v_high < range.v_low) {
+        continue;  // empty range
+      }
+      const auto fr = evaluate_linear(seg.slope, seg.intercept, range);
+
+      if (fr.fmin() < 0.0) {
+        result.warnings.push_back(std::format(
+            "ReservoirDischargeLimit '{}' (reservoir '{}'): segment {} "
+            "({:.3g} ≤ efin ≤ {:.3g}) produces a negative discharge "
+            "upper bound (slope={:.6g}, intercept={:.6g} → bound range "
+            "[{:.6g}, {:.6g}]); the LP will go primal-infeasible "
+            "whenever efin lands in the segment's lower portion.  "
+            "Adjust the segment so that `intercept + slope * V >= 0` "
+            "for all V in [V_low, V_high].",
+            ddl.name,
+            res->name,
+            k,
+            range.v_low,
+            range.v_high,
+            seg.slope,
+            seg.intercept,
+            fr.fmin(),
+            fr.fmax()));
+      }
     }
   }
 }
