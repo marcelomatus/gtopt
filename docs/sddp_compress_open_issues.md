@@ -202,21 +202,11 @@ where 8 reservoirs all simultaneously hit their physical maxima
 at iter 0 backward — a degenerate vertex that prevents any valid
 cut from being constructed.
 
-Reverted (no commit) until the cut-construction degeneracy is
-understood.  Most likely root cause: at iter 0 backward, with
-`α` unbounded below, the LP optimum drives ALL state variables
-to their upper bounds (because the reduced costs all push toward
-"more state is cheaper" in an unbounded objective).  The cuts
-built at this degenerate vertex are useless.
-
-#### Recommended definitive fix path
-
-The degeneracy at iter 0 backward suggests `α` needs a sensible
-lower bound at iter 0 backward time — even something as crude as
-`α ≥ 0` would prevent the unbounded-α path that produces
-all-upper-bound state vertices.  Implementing this *before*
-re-attempting the cache-alignment fix should produce a clean
-recovery trajectory under compress.
+Reverted (no commit).  Off mode does NOT exhibit this failure on
+the same fixture, so the SDDP machinery is itself correct.  The
+fix must therefore be entirely in the LinearInterface / backend
+lifecycle — making compress's reads align with off's without
+exposing any other side effect.
 
 #### Precise root-cause confirmation — 2026-05-04 deep trace
 
@@ -243,32 +233,53 @@ LP) is silently ignored on this branch.
 
 A fresh-flag fix (track "backend solved since last reload") makes
 `is_optimal()` defer to the cached flag in this window.  This yields
-correct `vini` reads under compress — but exposes the **independent
-SDDP-level degeneracy**: at iter 0 backward, with no cuts yet on
-α, the LP has multiple optima (any α ≤ -INF cap is "optimal").  Off
-and compress pick different vertices because their solver bases
-differ — off has the iter-0-forward p51 basis to start from, compress
-has a fresh basis from `load_flat`.
-
-This is **not** a backend bug or a flag-tracking bug — it's an
-SDDP-algorithm issue exposed by aligning compress's read path with
-off's.  Off's "correct" behaviour is itself a fragile coincidence
-of solver basis carry-over.
-
-**The architectural fix** is at the SDDP level: bound α from below
-at iter-0-backward time so the LP has a unique optimum independent
-of starting basis.  The `LinearInterface::is_optimal()` fresh-flag
-fix can then be re-applied without exposing the degeneracy.
+correct `vini` reads under compress, but iter-1 fails downstream
+in juan in a way that off mode does not — the failure mode requires
+further investigation but is **not** an SDDP / α-algorithm bug
+(SDDP works correctly under `LowMemoryMode::off`, so the
+machinery is correct as-is).  The fix must be **purely in the
+LinearInterface / backend lifecycle** to make compress's reads
+align with off's reads, without changing any SDDP semantics.
 
 Cache-related changes attempted in this session (all reverted):
 1. `m_backend_solution_fresh_` flag + `is_optimal()` gate +
-   `get_col_sol_raw()` gate — produces correct vini, exposes α
-   degeneracy.
+   `get_col_sol_raw()` gate — produces correct vini reads under
+   compress, but iter-1 fails at p51 with "degenerate cut family"
+   (8 reservoirs all clamp at source_upp).  This failure is NOT
+   reproducible under off, even though off and compress should
+   now have identical LP states post-fix.  Mechanism unclear:
+   LP coefficients should match (same vini → same update_lp
+   writes), solver is deterministic (verified at iter 0 forward
+   p50, byte-identical col_sol), yet iter-0-backward solves
+   produce different cuts.
 2. Unconditional `cache_and_release` populating col_sol/col_cost/
    row_dual — slow (~5x) and didn't change convergence.
 3. `CplexSolverBackend::cache_solution` checking `is_proven_optimal`
    first — defensive but didn't address the bug (which is in the
    higher-level `is_optimal` semantic).
+
+The remaining question: **why** does iter-0-backward p51 produce
+different cuts under compress (with the fresh-flag fix) vs off,
+when the LPs should be identical?  Hypotheses to investigate next:
+
+- Solver basis carry-over between forward and backward solves.
+  Off retains the iter-0-forward p51 basis; compress reconstructs
+  fresh basis from `load_flat`.  CPXgetx might be deterministic
+  on a fresh basis but the basis itself isn't carried over →
+  different starting vertex → different optimum if LP is even
+  marginally degenerate.  But the user noted SDDP is fine, so
+  this shouldn't matter.
+
+- Some `physical_eini` / `physical_efin` read takes a different
+  branch (not the cross-phase one).  E.g., own-phase, warm, or
+  default.  Need to verify all four branches give same value
+  in both modes post-fresh-flag-fix.
+
+- Some other LinearInterface state isn't preserved across
+  release/reconstruct that off has continuously.  E.g., col bound
+  pins set by `propagate_trial_values`, scale vectors, etc.
+  Audit each member that could be lost on reconstruct vs kept
+  on off's continuous backend.
 
 ## Issue 2 — P4 (snapshot bake-in) iter 1 phase 10 infeasibility
 
