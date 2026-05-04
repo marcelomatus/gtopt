@@ -799,4 +799,246 @@ TEST_CASE(
   CHECK(result.ok());
 }
 
+// ── Per-segment piecewise feasibility (seepage + DRL) ───────────────────────
+//
+// `check_piecewise_feasibility` walks every segment of every
+// `ReservoirSeepage` and `ReservoirDischargeLimit` element,
+// evaluates `f(efin) = constant + slope · efin` at the segment's
+// active `[V_low, V_high]` range (clipped to the reservoir's
+// `[emin, emax]` envelope), and emits a warning when the resulting
+// flow range violates the LP-row's bound.  Tests below pin the
+// warn-only contract: legal data → no warnings; infeasible
+// segments → exactly one warning with the right element name +
+// segment index.
+
+[[nodiscard]] Planning make_minimal_with_reservoir_and_waterway()
+{
+  auto p = make_minimal_planning();
+  p.system.junction_array = {
+      {.uid = Uid {1}, .name = "j1"},
+      {.uid = Uid {2}, .name = "j2"},
+  };
+  p.system.reservoir_array = {
+      {
+          .uid = Uid {1},
+          .name = "r1",
+          .junction = Uid {1},
+          .emin = Real {100.0},
+          .emax = Real {1000.0},
+          .eini = Real {500.0},
+      },
+  };
+  p.system.waterway_array = {
+      {
+          .uid = Uid {1},
+          .name = "w1",
+          .junction_a = Uid {1},
+          .junction_b = Uid {2},
+          .fmin = Real {0.0},
+          .fmax = Real {100.0},
+      },
+  };
+  return p;
+}
+
+TEST_CASE(  // NOLINT
+    "validate_planning - seepage with feasible segments emits no warning")
+{
+  auto p = make_minimal_with_reservoir_and_waterway();
+  // f(efin) over [100, 1000] = constant + slope·efin.
+  // segment 0: f(100)=0, f(500)=4 — qfilt range [0, 4] ∈ [0, 100] ✓
+  // segment 1: f(500)=4, f(1000)=29 — qfilt range [4, 29] ∈ [0, 100] ✓
+  p.system.reservoir_seepage_array = {
+      {
+          .uid = Uid {1},
+          .name = "seep1",
+          .waterway = Uid {1},
+          .reservoir = Uid {1},
+          .segments =
+              {
+                  {
+                      .volume = 100.0,
+                      .slope = 0.01,
+                      .constant = -1.0,
+                  },
+                  {
+                      .volume = 500.0,
+                      .slope = 0.05,
+                      .constant = -21.0,
+                  },
+              },
+      },
+  };
+  auto result = validate_planning(p);
+  CHECK(result.ok());
+  CHECK(result.warnings.empty());
+}
+
+TEST_CASE(  // NOLINT
+    "validate_planning - seepage segment below waterway fmin warns")
+{
+  auto p = make_minimal_with_reservoir_and_waterway();
+  // Segment 0: f(100) = -5 + 0.01·100 = -4 < fmin=0 — INFEASIBLE.
+  p.system.reservoir_seepage_array = {
+      {
+          .uid = Uid {1},
+          .name = "seep1",
+          .waterway = Uid {1},
+          .reservoir = Uid {1},
+          .segments =
+              {
+                  {
+                      .volume = 100.0,
+                      .slope = 0.01,
+                      .constant = -5.0,
+                  },
+              },
+      },
+  };
+  auto result = validate_planning(p);
+  // Warn-only — `result.ok()` still true (no errors).
+  CHECK(result.ok());
+  REQUIRE(result.warnings.size() >= 1);
+  // Confirm the warning message names the right element + bound.
+  const auto found =
+      std::ranges::any_of(result.warnings,
+                          [](const auto& w)
+                          {
+                            return w.find("seep1") != std::string::npos
+                                && w.find("fmin") != std::string::npos
+                                && w.find("segment 0") != std::string::npos;
+                          });
+  CHECK(found);
+}
+
+TEST_CASE(  // NOLINT
+    "validate_planning - seepage segment above waterway fmax warns")
+{
+  auto p = make_minimal_with_reservoir_and_waterway();
+  // Segment 0: f(1000) = -50 + 0.2·1000 = 150 > fmax=100 — exceeds upper.
+  p.system.reservoir_seepage_array = {
+      {
+          .uid = Uid {1},
+          .name = "seep1",
+          .waterway = Uid {1},
+          .reservoir = Uid {1},
+          .segments =
+              {
+                  {
+                      .volume = 100.0,
+                      .slope = 0.20,
+                      .constant = -50.0,
+                  },
+              },
+      },
+  };
+  auto result = validate_planning(p);
+  CHECK(result.ok());
+  REQUIRE(result.warnings.size() >= 1);
+  const auto found =
+      std::ranges::any_of(result.warnings,
+                          [](const auto& w)
+                          {
+                            return w.find("seep1") != std::string::npos
+                                && w.find("fmax") != std::string::npos;
+                          });
+  CHECK(found);
+}
+
+TEST_CASE(  // NOLINT
+    "validate_planning - discharge_limit feasible segments emit no warning")
+{
+  auto p = make_minimal_with_reservoir_and_waterway();
+  // f(efin) over [100, 1000] = intercept + slope·efin.
+  // segment 0: f(100)=0, f(1000)=900 — bound range [0, 900] all >= 0 ✓.
+  p.system.reservoir_discharge_limit_array = {
+      {
+          .uid = Uid {1},
+          .name = "ddl1",
+          .waterway = Uid {1},
+          .reservoir = Uid {1},
+          .segments =
+              {
+                  {
+                      .volume = 100.0,
+                      .slope = 1.0,
+                      .intercept = -100.0,
+                  },
+              },
+      },
+  };
+  auto result = validate_planning(p);
+  CHECK(result.ok());
+  CHECK(result.warnings.empty());
+}
+
+TEST_CASE(  // NOLINT
+    "validate_planning - discharge_limit segment going negative warns")
+{
+  auto p = make_minimal_with_reservoir_and_waterway();
+  // Segment 0: f(100) = -3 + 0.02·100 = -1 < 0 — INFEASIBLE.
+  p.system.reservoir_discharge_limit_array = {
+      {
+          .uid = Uid {1},
+          .name = "ddl1",
+          .waterway = Uid {1},
+          .reservoir = Uid {1},
+          .segments =
+              {
+                  {
+                      .volume = 100.0,
+                      .slope = 0.02,
+                      .intercept = -3.0,
+                  },
+              },
+      },
+  };
+  auto result = validate_planning(p);
+  CHECK(result.ok());
+  REQUIRE(result.warnings.size() >= 1);
+  const auto found =
+      std::ranges::any_of(result.warnings,
+                          [](const auto& w)
+                          {
+                            return w.find("ddl1") != std::string::npos
+                                && w.find("negative") != std::string::npos;
+                          });
+  CHECK(found);
+}
+
+TEST_CASE(  // NOLINT
+    "validate_planning - schedule-form emin defers segment validation")
+{
+  auto p = make_minimal_with_reservoir_and_waterway();
+  // Replace scalar emin with a vector schedule — validation must
+  // skip segment feasibility (deferred to per-stage load-time check).
+  p.system.reservoir_array.front().emin = std::vector<Real> {100.0, 200.0};
+  // Even an obviously infeasible segment now produces no warning,
+  // because we can't statically prove which efin value the schedule
+  // will resolve to at any given stage.
+  p.system.reservoir_seepage_array = {
+      {
+          .uid = Uid {1},
+          .name = "seep1",
+          .waterway = Uid {1},
+          .reservoir = Uid {1},
+          .segments =
+              {
+                  {
+                      .volume = 0.0,
+                      .slope = 0.01,
+                      .constant = -50.0,
+                  },
+              },
+      },
+  };
+  auto result = validate_planning(p);
+  CHECK(result.ok());
+  // No piecewise-feasibility warnings — deferred to load-time.
+  const auto piecewise_warns = std::ranges::count_if(
+      result.warnings,
+      [](const auto& w) { return w.find("seep1") != std::string::npos; });
+  CHECK(piecewise_warns == 0);
+}
+
 }  // namespace
