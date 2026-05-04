@@ -7,6 +7,7 @@
  */
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <format>
 #include <numeric>
@@ -444,24 +445,44 @@ void CplexSolverBackend::load_problem(int ncols,
   // NOLINTEND(cppcoreguidelines-pro-bounds-pointer-arithmetic)
 
   // CPLEX requires all pointers to be non-null, even for zero-element
-  // matrices.  Provide safe defaults when the caller passes nullptr.
+  // matrices.  Provide safe defaults when the caller passes nullptr —
+  // but only allocate the fallback buffer for the pointer that is
+  // actually missing, since in production every `load_problem` caller
+  // hands over real arrays for all six and unconditional allocations
+  // were pure waste (≈6 × ncols × 8 B per call).
   const auto ncols_sz = static_cast<size_t>(ncols);
 
-  std::vector<int> buf_matbeg(ncols_sz + 1, 0);
-  std::vector<int> buf_matind(1, 0);
-  std::vector<double> buf_matval(1, 0.0);
-  std::vector<double> buf_obj(ncols_sz, 0.0);
-  std::vector<double> buf_collb(ncols_sz, 0.0);
-  std::vector<double> buf_colub(ncols_sz, 0.0);
+  std::vector<int> buf_matbeg;
+  std::array<int, 1> buf_matind {0};
+  std::array<double, 1> buf_matval {0.0};
+  std::vector<double> buf_obj;
+  std::vector<double> buf_collb;
+  std::vector<double> buf_colub;
 
-  const int* safe_matbeg = matbeg != nullptr ? matbeg : buf_matbeg.data();
+  const int* safe_matbeg = matbeg;
+  if (safe_matbeg == nullptr) {
+    buf_matbeg.assign(ncols_sz + 1, 0);
+    safe_matbeg = buf_matbeg.data();
+  }
   const int* safe_matind =
       (matind != nullptr && nnz > 0) ? matind : buf_matind.data();
   const double* safe_matval =
       (matval != nullptr && nnz > 0) ? matval : buf_matval.data();
-  const double* safe_obj = obj != nullptr ? obj : buf_obj.data();
-  const double* safe_collb = collb != nullptr ? collb : buf_collb.data();
-  const double* safe_colub = colub != nullptr ? colub : buf_colub.data();
+  const double* safe_obj = obj;
+  if (safe_obj == nullptr) {
+    buf_obj.assign(ncols_sz, 0.0);
+    safe_obj = buf_obj.data();
+  }
+  const double* safe_collb = collb;
+  if (safe_collb == nullptr) {
+    buf_collb.assign(ncols_sz, 0.0);
+    safe_collb = buf_collb.data();
+  }
+  const double* safe_colub = colub;
+  if (safe_colub == nullptr) {
+    buf_colub.assign(ncols_sz, 0.0);
+    safe_colub = buf_colub.data();
+  }
 
   // Compute matcnt from matbeg differences (CPLEX 22.1 requires it).
   std::vector<int> matcnt(ncols_sz, 0);
