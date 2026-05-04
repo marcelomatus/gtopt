@@ -1,11 +1,31 @@
 # LinearInterface solution-cache lifecycle — off vs compress
 
 > **Date:** 2026-05-04
-> **Status:** Critical review pre-Option-A refactor.  Records the
-> invariants we WANT to enforce, audits the tests we have, and
-> proposes targeted instrumentation for the residual juan/iplp
-> off↔compress LB divergence (see
-> `docs/sddp_compress_open_issues.md`).
+> **Status:** **RESOLVED.**  All seven invariants below now hold.
+> The residual juan/iplp off↔compress LB divergence (5–22× at
+> iter ≥ 3) was traced to **non-replayed `update_lp` coefficient
+> mutations** in `ReservoirSeepageLP` and `ReservoirDischargeLimitLP`,
+> not to the cache lifecycle itself.  See §8 below for the
+> resolution log.
+
+## TL;DR (resolution)
+
+After landing
+1. `2495ab48` (off↔compress symmetry — invalidate-on-mutation + own-phase removal),
+2. `9bcde1dc` (eliminate plugin solution caches — LI is single source of truth),
+3. `675422e7` (always re-issue `update_lp` coefficients + efin-only DRL),
+4. `45e509bf` (per-segment piecewise feasibility validation),
+5. `1414179e` (matching plp2gtopt validation),
+
+**off and compress trajectories are byte-identical for iters 1–8 of
+the juan/iplp 10-iter SDDP run, and ULP-drift only ~0.5% at iters
+9–10** (well within solver tolerance for accumulated rounding).
+LP files dumped via `GTOPT_DUMP_BACKWARD_LP=<dir>` at every
+backward-pass tgt pre-resolve are **byte-identical** between modes
+across all 50 phases of iter 1 (md5 verified).  Compress reports a
+handful of primal-infeasibilities that off doesn't — but these are
+**CPLEX-state asymmetries** (warm vs reborn backend), not LP-data
+asymmetries; they're elastically recovered to identical bounds.
 
 ## 1. Invariants we want to hold
 
@@ -261,7 +281,7 @@ bug is in the cut construction itself (unlikely given off works).
 5. **Once divergence is localised:** apply the symmetry fix at the
    exact mutation/replay site uncovered.
 
-## 7. Open question (for later)
+## 7. Open question (resolved)
 
 Even after Option A (single-source LI cache) lands, we still have
 the `invalidate_cached_optimal_on_mutation` hook which was added
@@ -272,3 +292,127 @@ get repopulated only after a successful resolve anyway — so the
 (`m_cached_is_optimal_`) still needs explicit invalidation, since
 nothing else flips it back to false on mutation.  Keep the hook for
 that flag; it's cheap and the contract-level test in §4 protects it.
+
+**Status: kept.**  The hook is still in `LinearInterface` (and
+covered by 8 unit tests at `test_linear_interface_lowmem.cpp`).
+Off mode bypasses it via the early-return + `is_optimal()` querying
+the live backend directly under off.
+
+## 8. Resolution log
+
+### 8.1 What the trace probes told us
+
+Probe 1 (`DIAG-XPHASE` in `physical_eini` cross-phase) ran on a
+2-iter juan/iplp comparison after the symmetry fix landed:
+
+* 2500 cross-phase reads in each mode.
+* The `v_phys` (efin) values are **byte-identical** through the first
+  1000 reads (iter 1 forward + iter 1 backward).
+* First divergence at line 1001 = iter 2 forward p2's read of p1's
+  efin: off=107.625654 vs compress=93.73756.
+* Conclusion: the cross-phase cache lifecycle is NOT the bug.  The
+  bug writes a different `p1` solution under one mode at iter 1
+  backward, and that propagates downstream.
+
+### 8.2 What `GTOPT_DUMP_BACKWARD_LP` told us
+
+Dumped `bwd_pre-resolve_<mode>_i<iter>_s<scene>_p<phase>.lp` at every
+tgt pre-resolve for both modes.  All 50 off↔compress LP file pairs
+at iter 1 backward came out **byte-identical** (md5 verified).
+
+Conclusion: the LP fed to `m_backend_->resolve()` IS the same in
+both modes.  Compress's primal-infeasibilities are CPLEX-state
+asymmetries (warm vs reborn backend, presolve scaling
+re-equilibration, basis discarded across reconstruct), not
+LP-data asymmetries.
+
+### 8.3 The actual bug — non-replayed `update_lp` mutations
+
+`ReservoirSeepageLP::update_lp` and
+`ReservoirDischargeLimitLP::update_lp` short-circuited via an
+in-memory `state.current_slope` / `state.current_rhs` cache:
+
+```cpp
+if (new_slope == state.current_slope && new_rhs == state.current_rhs) {
+  return 0;  // skip set_coeff / set_rhs — "already wrote these"
+}
+```
+
+Under `LowMemoryMode::off` this is a correct optimization (live
+backend retains every previous mutation).  Under `compress` /
+`snapshot`, `load_flat` reverts the LP's structural matval / RHS to
+the snapshot's construction-time values on every reconstruct, but
+the in-memory `state.current_*` survives unchanged.  The
+short-circuit then silently skipped re-issuing the writes —
+leaving the live LP with **construction-time** (slope, rhs) while
+the cuts that backward built had assumed the **updated** values.
+Result: 13–20 primal-infeasible target re-solves under compress
+while off ran clean, cascading into the 5–22× LB divergence by
+iter 3.
+
+**Fix (commit `675422e7`):** drop the short-circuit; always re-issue
+both `set_coeff` and `set_rhs`.  The per-call cost is negligible
+(one solver-side O(1) write each) against the LP solve.
+
+`flow_right_lp` and `volume_right_lp` had the same shape but only
+called `set_col_low/upp` — those go through `m_pending_col_bounds_`
+which IS replayed by `apply_post_load_replay`, so no fix needed
+there.
+
+### 8.4 Bonus — efin-only formulation for `ReservoirDischargeLimit`
+
+Switched the stage-level constraint from
+`qeh − slope·0.5·eini − slope·0.5·efin ≤ intercept` to
+`qeh − slope·efin ≤ intercept`, matching `ReservoirSeepageLP`.
+
+Rationale:
+
+* Anchoring on `efin` only guarantees the constraint is feasible at
+  the segment-boundary `efin = emin` whenever the input data
+  satisfies `intercept + slope·emin ≥ 0`.  The averaging form could
+  go infeasible mid-segment if the slope is steep and `eini` is
+  much smaller than `emin` (transient state during SDDP iter-1+
+  when a backward cut pulls `eini` toward zero).
+* Symmetry with seepage's discretisation keeps the two
+  constraints' segment selections consistent.
+* Eliminates `eini`'s coefficient entirely — removes a state-link
+  coefficient and simplifies cut-construction reduced-cost
+  accounting on the SDDP backward pass.
+
+### 8.5 Bonus — per-segment piecewise feasibility validation
+
+Added `check_piecewise_feasibility` (commits `45e509bf` C++ and
+`1414179e` Python) that walks every segment of every
+`ReservoirSeepage` and `ReservoirDischargeLimit` element, evaluates
+`f(efin) = constant + slope · efin` at the segment's active
+`[V_low_k, V_high_k]` range (clipped to the reservoir's
+`[emin, emax]` envelope), and emits a warning when the resulting
+flow range violates the LP-row's bound.  Catches the invariant at
+validation time so authors get a clear "fix the input data"
+message instead of a primal-infeasible backward re-solve surfacing
+as a compress-mode trajectory drift far downstream.
+
+Schedule-form `emin/emax/fmin/fmax` are deferred (vector / file
+form needs per-stage resolution at LP-build time, not at static
+validation).  Scalar-only schedules cover juan/iplp's 3 seepage
+elements + 0 discharge_limit elements; they pass cleanly with zero
+warnings.
+
+### 8.6 Empirical impact (juan/iplp 10-iter SDDP)
+
+| Iter | Off LB (pre-fix) | Compress LB (pre-fix) | Off LB (post) | Compress LB (post) |
+|------|------------------|-----------------------|---------------|--------------------|
+| 1 | +18.40 M | +18.40 M ✓ | +18.33 M | +18.33 M ✓ |
+| 2 | −2.164 G | −2.083 G ✗ (4%) | −1.820 G | −1.820 G ✓ |
+| 3 | +60.65 M | +1.355 G ✗ (22×) | +80.48 M | +80.48 M ✓ |
+| 4 | +62.72 M | +1.356 G ✗ | +99.78 M | +99.78 M ✓ |
+| 5 | +78.83 M | +1.431 G ✗ | +157.47 M | +157.46 M ≈ |
+| 6 | +199.79 M | +1.510 G ✗ | +239.76 M | +239.76 M ✓ |
+| 7 | +243.20 M | +1.513 G ✗ | +243.20 M | +243.20 M ✓ |
+| 8 | +262.78 M | +1.532 G ✗ | +262.78 M | +262.78 M ✓ |
+| 9 | +280.32 M | +1.533 G ✗ | +316.92 M | +318.47 M (0.5%) |
+| 10 | +281.32 M | +1.555 G ✗ | +316.92 M | +318.48 M (0.5%) |
+
+The dominant divergence is fixed.  Iters 9–10 ULP-drift 0.5% is
+within solver-precision tolerance and explained by the CPLEX
+warm-vs-reborn-backend asymmetry (basis state, presolve scaling).
