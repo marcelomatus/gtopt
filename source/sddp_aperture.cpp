@@ -170,7 +170,7 @@ auto solve_apertures_for_phase(
 
   SPDLOG_TRACE(
       "SDDP Aperture [i{} s{} p{}]: starting {} aperture(s) [thread {}]",
-      iteration_index,
+      gtopt::uid_of(iteration_index),
       scene_uid_val,
       phase_uid_val,
       effective_apertures.size(),
@@ -222,7 +222,7 @@ auto solve_apertures_for_phase(
       SPDLOG_WARN(
           "SDDP Aperture [i{} s{} p{} a{}]: non-positive probability_factor "
           "{:.6f}, using 1.0 as fallback",
-          iteration_index,
+          gtopt::uid_of(iteration_index),
           scene_uid_val,
           phase_uid_val,
           ap_uid,
@@ -241,7 +241,7 @@ auto solve_apertures_for_phase(
       spdlog::info(
           "SDDP Aperture [i{} s{} p{} a{}]: source_scenario {} not found and "
           "no aperture cache, skipping",
-          iteration_index,
+          gtopt::uid_of(iteration_index),
           scene_uid_val,
           phase_uid_val,
           ap_uid,
@@ -343,7 +343,7 @@ auto solve_apertures_for_phase(
             SPDLOG_DEBUG(
                 "SDDP Aperture [i{} s{} p{} a{}]: source matches base "
                 "scenario, skipping bound update",
-                iteration_index,
+                gtopt::uid_of(iteration_index),
                 scene_uid_val,
                 phase_uid_val,
                 ap_uid);
@@ -393,7 +393,7 @@ auto solve_apertures_for_phase(
             spdlog::trace(
                 "SDDP Aperture [i{} s{} p{} a{}]: infeasible ({:.3f}s) "
                 "[thread {}]",
-                iteration_index,
+                gtopt::uid_of(iteration_index),
                 scene_uid_val,
                 phase_uid_val,
                 ap_uid,
@@ -427,7 +427,7 @@ auto solve_apertures_for_phase(
                                 .count();
           spdlog::trace(
               "SDDP Aperture [i{} s{} p{} a{}]: solved ({:.3f}s) [thread {}]",
-              iteration_index,
+              gtopt::uid_of(iteration_index),
               scene_uid_val,
               phase_uid_val,
               ap_uid,
@@ -461,7 +461,7 @@ auto solve_apertures_for_phase(
         spdlog::warn(
             "SDDP Aperture [i{} s{} p{} a{}]: timed out ({:.1f}s, status {}),"
             " treating as infeasible",
-            iteration_index,
+            gtopt::uid_of(iteration_index),
             scene_uid_val,
             phase_uid_val,
             result.ap_uid,
@@ -470,7 +470,7 @@ auto solve_apertures_for_phase(
       } else {
         spdlog::trace(
             "SDDP Aperture [i{} s{} p{} a{}]: infeasible (status {}), skipping",
-            iteration_index,
+            gtopt::uid_of(iteration_index),
             scene_uid_val,
             phase_uid_val,
             result.ap_uid,

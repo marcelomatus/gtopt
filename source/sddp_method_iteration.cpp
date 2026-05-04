@@ -816,7 +816,7 @@ auto SDDPMethod::run_forward_pass_all_scenes(SDDPWorkPool& pool,
   // this iteration.  Keep a DEBUG marker here for trace-level tailers
   // who want to see the function entry timestamp.
   SPDLOG_DEBUG("SDDP Forward [i{}]: starting forward dispatch ({} scene(s))",
-               iteration_index,
+               gtopt::uid_of(iteration_index),
                num_scenes);
 
   // Stall-stop guard for `forward_infeas_rollback` — see
@@ -909,7 +909,7 @@ auto SDDPMethod::run_forward_pass_all_scenes(SDDPWorkPool& pool,
           SPDLOG_INFO(
               "SDDP Forward [i{} s{}]: un-terminal — {} new {} cut(s) since "
               "last failure (was at {}, now {}); retrying forward pass",
-              iteration_index,
+              gtopt::uid_of(iteration_index),
               uid_of(si),
               current - snapshot,
               peer_cuts_broadcast ? "global" : "own-scene",
@@ -955,7 +955,7 @@ auto SDDPMethod::run_forward_pass_all_scenes(SDDPWorkPool& pool,
       SPDLOG_DEBUG(
           "SDDP Forward [i{}]: skipping {} terminal-infeasible scene(s) "
           "(structurally infeasible, no new cuts since last failure)",
-          iteration_index,
+          gtopt::uid_of(iteration_index),
           n_skipped_terminal);
     }
   }
@@ -972,7 +972,7 @@ auto SDDPMethod::run_forward_pass_all_scenes(SDDPWorkPool& pool,
   SPDLOG_INFO(
       "SDDP Forward [i{}]: dispatching {}/{} active scene(s) × {} phase(s) "
       "(cut_sharing={}, apertures={})",
-      iteration_index,
+      gtopt::uid_of(iteration_index),
       active_scenes_this_iter,
       num_scenes,
       num_phases,
@@ -1138,7 +1138,7 @@ auto SDDPMethod::run_forward_pass_all_scenes(SDDPWorkPool& pool,
       SPDLOG_INFO(
           "SDDP Forward [i{}]: rolled back {} cut row(s) across {} "
           "infeasible scene(s) [{}] (forward_infeas_rollback)",
-          iteration_index,
+          gtopt::uid_of(iteration_index),
           total_rollback_rows,
           n_rolled_back,
           per_scene_breakdown);
@@ -1210,7 +1210,7 @@ auto SDDPMethod::run_backward_pass_all_scenes(
   SPDLOG_INFO(
       "SDDP Backward [i{}]: dispatching {} scene(s) to work pool "
       "(cut_sharing=none, apertures={})",
-      iteration_index,
+      gtopt::uid_of(iteration_index),
       num_scenes,
       !m_options_.apertures || !m_options_.apertures->empty() ? "enabled"
                                                               : "disabled");
@@ -1249,7 +1249,7 @@ auto SDDPMethod::run_backward_pass_all_scenes(
     auto bwd = fut.get();
     if (!bwd.has_value()) {
       SPDLOG_WARN("SDDP Backward [i{}]: failed: {}",
-                  iteration_index,
+                  gtopt::uid_of(iteration_index),
                   bwd.error().message);
       out.has_feasibility_issue = true;
       m_scenes_done_.fetch_add(1);
@@ -1289,7 +1289,7 @@ auto SDDPMethod::run_backward_pass_synchronized(
   SPDLOG_INFO(
       "SDDP Backward [i{}]: dispatching {}/{} feasible scene(s) × "
       "{} phase(s) (cut_sharing={}, apertures={})",
-      iteration_index,
+      gtopt::uid_of(iteration_index),
       feasible_scenes,
       num_scenes,
       num_phases - 1,
@@ -1426,7 +1426,7 @@ auto SDDPMethod::run_backward_pass_synchronized(
       SPDLOG_INFO(
           "SDDP Backward [i{}]: phase p{} done — {} cut(s) so far, "
           "{:.1f}s elapsed",
-          iteration_index,
+          gtopt::uid_of(iteration_index),
           uid_of(phase_index),
           out.total_cuts,
           elapsed);
@@ -1529,7 +1529,7 @@ auto SDDPMethod::run_backward_pass_synchronized(
         "SDDP Backward [i{}]: cut sharing — feasible scenes received "
         "{} cut row(s), {} infeasible scene(s) received {} cut row(s) "
         "(rollback stall-stop guard reads global count next iter)",
-        iteration_index,
+        gtopt::uid_of(iteration_index),
         feas_total,
         infeas_count,
         infeas_total);
@@ -1691,7 +1691,7 @@ void SDDPMethod::finalize_iteration_result(
         "(UB={:.4f}, LB={:.4f}) — LB > UB by more than {:.4f} of UB; "
         "cuts likely overshoot the optimum. Refusing to declare "
         "[CONVERGED] until the bound asymmetry resolves.",
-        iteration_index,
+        gtopt::uid_of(iteration_index),
         ir.gap,
         ir.upper_bound,
         ir.lower_bound,
@@ -1702,7 +1702,7 @@ void SDDPMethod::finalize_iteration_result(
     SPDLOG_DEBUG(
         "SDDP Iter [i{}]: negative gap = {:.6f} within numerical noise "
         "(threshold {:.4f}); treating as non-converging without WARN",
-        iteration_index,
+        gtopt::uid_of(iteration_index),
         ir.gap,
         neg_gap_warn_threshold);
   }
