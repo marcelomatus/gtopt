@@ -924,32 +924,12 @@ TEST_CASE(
   }
 }
 
-TEST_CASE("LinearInterface — low_memory reconstruct with warm-start")  // NOLINT
-{
-  auto [li, flat, x1, x2] = make_simple_li_lp();
-
-  auto res = li.initial_solve();
-  REQUIRE(res.has_value());
-
-  // Capture solution for warm-start
-  std::vector<double> col_sol(li.get_col_sol_raw().begin(),
-                              li.get_col_sol_raw().end());
-  std::vector<double> row_dual(li.get_row_dual_raw().begin(),
-                               li.get_row_dual_raw().end());
-  const double orig_obj = li.get_obj_value_raw();
-
-  li.set_low_memory(LowMemoryMode::compress);
-  li.save_snapshot(FlatLinearProblem {flat});
-
-  li.release_backend();
-  li.reconstruct_backend(col_sol, row_dual);
-
-  // Warm-start should allow immediate optimal
-  SolverOptions ws_opts;
-  auto r = li.resolve(ws_opts);
-  REQUIRE(r.has_value());
-  CHECK(li.get_obj_value_raw() == doctest::Approx(orig_obj));
-}
+// `LinearInterface — low_memory reconstruct with warm-start` was deleted
+// when the warm-start machinery was removed: the barrier method (default
+// solver algorithm) gains nothing from a starting solution, so
+// `reconstruct_backend` no longer accepts col_sol / row_dual.  Pre-solve
+// readers consume the cached vectors via the `m_backend_released_` gate
+// in `get_col_sol_raw` instead.
 
 TEST_CASE("LinearInterface — low_memory hot-start cut replay")  // NOLINT
 {
@@ -993,22 +973,16 @@ TEST_CASE(
 
   auto res = li.initial_solve();
   REQUIRE(res.has_value());
-
-  // Capture solution
-  std::vector<double> col_sol(li.get_col_sol_raw().begin(),
-                              li.get_col_sol_raw().end());
-  std::vector<double> row_dual(li.get_row_dual_raw().begin(),
-                               li.get_row_dual_raw().end());
   const double orig_obj = li.get_obj_value_raw();
 
   li.set_low_memory(LowMemoryMode::compress);
   li.save_snapshot(FlatLinearProblem {flat});
 
-  // Release and reconstruct
+  // Release and reconstruct (cold-start: no warm-start vectors)
   li.release_backend();
-  li.reconstruct_backend(col_sol, row_dual);
+  li.reconstruct_backend();
 
-  // Clone from reconstructed backend with warm-start
+  // Clone from reconstructed backend
   auto cloned = li.clone();
 
   auto r = cloned.resolve();
