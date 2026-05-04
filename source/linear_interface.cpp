@@ -460,25 +460,6 @@ void LinearInterface::apply_post_load_replay()
   // 4. Bulk-add active cuts (single efficient call).
   replay_active_cuts();
 
-  // 5. Replay pending coefficient updates from prior `set_coeff_raw`
-  //    calls.  The snapshot's flat_lp carries construction-time matval
-  //    only — every `update_lp_for_phase` mutation lives only on the
-  //    volatile backend until baked back here.  Replaying after
-  //    `replay_active_cuts` (rather than before) lets a future caller
-  //    set_coeff into a cut row's structural columns if needed; for
-  //    the current callers the order is irrelevant because update_lp
-  //    only mutates structural rows that already exist post-load_flat.
-  //
-  //    The replay calls `m_backend_->set_coeff` directly to bypass
-  //    the recording path in `set_coeff_raw` — `m_replaying_=true`
-  //    would also gate it, but skipping the recursion is clearer and
-  //    cheaper (no map insertion per replayed cell).
-  if (!m_pending_coeff_updates_.empty()) {
-    for (const auto& [rc, val] : m_pending_coeff_updates_) {
-      m_backend_->set_coeff(rc.first, rc.second, val);
-    }
-  }
-
   // No warm-start step: the barrier method (default solver algorithm)
   // gains nothing from a starting solution.  Pre-solve readers of
   // `get_col_sol*()` / `get_row_dual*()` consume the cached vectors
@@ -2269,24 +2250,6 @@ void LinearInterface::set_coeff_raw(const RowIndex row,
     m_validation_stats_.note_coeff(value, row, column, m_validation_options_);
   }
   m_backend_->set_coeff(row, column, value);
-  // Under non-`off` low_memory modes, persist the mutation so a
-  // subsequent `reconstruct_backend()` can re-apply it after
-  // `load_flat()` restores the construction-time matval.  Without
-  // this, every reconstruct silently reverts post-flatten
-  // coefficient updates and the SDDP backward pass has to re-call
-  // `update_lp_for_phase` to recover them.  See
-  // `apply_post_load_replay` for the replay site.
-  //
-  // The map is also populated under `off` mode (it costs nothing —
-  // the replay branch in `apply_post_load_replay` only fires when
-  // there's an actual reconstruct).  Keeping the recording
-  // unconditional avoids subtle drift if `m_low_memory_mode_` is
-  // flipped between modes mid-life.  We do NOT record while a
-  // bulk replay is in progress (`m_replaying_ == true`) — that
-  // would double-count the same updates on the next reconstruct.
-  if (!m_replaying_ && m_low_memory_mode_ != LowMemoryMode::off) {
-    m_pending_coeff_updates_[{row, column}] = value;
-  }
 }
 
 double LinearInterface::get_coeff_raw(const RowIndex row,

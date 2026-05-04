@@ -20,7 +20,6 @@
 #include <cstdint>
 #include <cstdio>
 #include <expected>
-#include <map>
 #include <memory>
 #include <optional>
 #include <span>
@@ -2601,29 +2600,6 @@ private:
 
   /// Net active Benders cuts (additions minus deletions).
   std::vector<SparseRow> m_active_cuts_ {};
-
-  /// Pending `set_coeff` mutations that must be re-applied after a
-  /// `reconstruct_backend()` so the live backend's matval reflects the
-  /// LATEST coefficient (not the construction-time value pinned in the
-  /// snapshot).  Keyed by `(row, col)` so repeated set_coeff on the
-  /// same cell only stores the final value (the map naturally
-  /// deduplicates iterations of `update_lp_for_phase` that recompute
-  /// the same cell every iteration).  Empty under
-  /// `LowMemoryMode::off` (no reconstruct ever happens).
-  ///
-  /// **Correctness contract**: every `set_coeff_raw(r, c, v)` records
-  /// `(r, c) → v`.  `apply_post_load_replay` replays the map AFTER
-  /// `replay_active_cuts()` so dynamic rows / cuts are already in
-  /// place and the row index `r` is valid even when the original
-  /// caller wrote into a structural row that the snapshot reload
-  /// just restored.
-  ///
-  /// **Why this exists**: previously the backward SDDP pass had to
-  /// re-run `update_lp_for_phase` after every reconstruct to
-  /// reapply mutations.  With this delta replay, the reconstruct
-  /// leaves the live backend's matval already at the latest value
-  /// and the second `update_lp_for_phase` becomes a no-op cost.
-  std::map<std::pair<RowIndex, ColIndex>, double> m_pending_coeff_updates_ {};
 
   /// Label-only metadata for the **frozen** flatten-time portion of the
   /// LP — set ONCE by `load_flat` from `flat_lp.col_labels_meta` /
