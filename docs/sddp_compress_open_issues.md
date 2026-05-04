@@ -218,6 +218,58 @@ all-upper-bound state vertices.  Implementing this *before*
 re-attempting the cache-alignment fix should produce a clean
 recovery trajectory under compress.
 
+#### Precise root-cause confirmation — 2026-05-04 deep trace
+
+Detailed trace pinpoints the exact failure:
+
+* `LinearInterface::is_optimal()` returns `m_backend_->is_proven_optimal()`
+  when `!m_backend_released_`.
+* After `src_sys.ensure_lp_built()` at `backward_pass_single_phase:401`,
+  prev's `m_backend_released_=false` AND `m_backend_->is_proven_optimal()=false`
+  (just reloaded, no resolve yet).
+* `m_cached_is_optimal_=true` (from prior iter-0-forward solve) but
+  `is_optimal()` does NOT consult it on this branch.
+* `physical_eini`'s cross-phase `if (li.is_optimal()) {…}` SKIPS.
+* Falls through to step 4 (default) — `vini = default_eini = 95.543`.
+
+Off mode never reloads, so `is_proven_optimal()` continues to return
+true from the iter-0-forward solve.  Cross-phase fires, reads correct
+`vini`.
+
+So the `LinearInterface::is_optimal()` flag is **not lying about the
+cell** — it's reporting the LIVE BACKEND state (no solution loaded).
+The cached state (semantically still valid for the cell's structural
+LP) is silently ignored on this branch.
+
+A fresh-flag fix (track "backend solved since last reload") makes
+`is_optimal()` defer to the cached flag in this window.  This yields
+correct `vini` reads under compress — but exposes the **independent
+SDDP-level degeneracy**: at iter 0 backward, with no cuts yet on
+α, the LP has multiple optima (any α ≤ -INF cap is "optimal").  Off
+and compress pick different vertices because their solver bases
+differ — off has the iter-0-forward p51 basis to start from, compress
+has a fresh basis from `load_flat`.
+
+This is **not** a backend bug or a flag-tracking bug — it's an
+SDDP-algorithm issue exposed by aligning compress's read path with
+off's.  Off's "correct" behaviour is itself a fragile coincidence
+of solver basis carry-over.
+
+**The architectural fix** is at the SDDP level: bound α from below
+at iter-0-backward time so the LP has a unique optimum independent
+of starting basis.  The `LinearInterface::is_optimal()` fresh-flag
+fix can then be re-applied without exposing the degeneracy.
+
+Cache-related changes attempted in this session (all reverted):
+1. `m_backend_solution_fresh_` flag + `is_optimal()` gate +
+   `get_col_sol_raw()` gate — produces correct vini, exposes α
+   degeneracy.
+2. Unconditional `cache_and_release` populating col_sol/col_cost/
+   row_dual — slow (~5x) and didn't change convergence.
+3. `CplexSolverBackend::cache_solution` checking `is_proven_optimal`
+   first — defensive but didn't address the bug (which is in the
+   higher-level `is_optimal` semantic).
+
 ## Issue 2 — P4 (snapshot bake-in) iter 1 phase 10 infeasibility
 
 ### Symptom
