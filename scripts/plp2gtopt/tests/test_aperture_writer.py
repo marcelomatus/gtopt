@@ -47,11 +47,25 @@ def test_build_aperture_array_all_in_forward(idap2_parser: IdAp2Parser) -> None:
     assert res.extra_scenarios == []
 
 
-def test_build_aperture_array_extra_hydros(idap2_parser: IdAp2Parser) -> None:
-    """Some aperture hydros are NOT in the forward set."""
+def test_build_aperture_array_extra_hydros_with_directory(
+    idap2_parser: IdAp2Parser,
+) -> None:
+    """Aperture-only hydros are emitted WHEN ``aperture_directory`` is set.
+
+    The aperture solver loads per-hydrology affluent data from this
+    directory (populated by ``write_aperture_afluents``), so extra
+    apertures referencing scenario UIDs that won't be in
+    ``scenario_array`` are still resolvable at runtime.
+    """
     # Only hydros 50,51 (0-based) are in forward set → 52,53 are aperture-only
     scenario_hydro_map = {50: 1, 51: 2}
-    res = build_aperture_array(idap2_parser, scenario_hydro_map, 3, max_scenario_uid=2)
+    res = build_aperture_array(
+        idap2_parser,
+        scenario_hydro_map,
+        3,
+        max_scenario_uid=2,
+        aperture_directory="some/path/to/apertures",
+    )
     result = res.aperture_array
 
     assert len(result) == 4
@@ -62,12 +76,53 @@ def test_build_aperture_array_extra_hydros(idap2_parser: IdAp2Parser) -> None:
     # hydro 54 (0-based 53) not in forward → Fortran 1-based = 54
     assert result[3]["source_scenario"] == 54
 
+    # Equal probability across all 4 surviving apertures.
+    assert pytest.approx(result[0]["probability_factor"]) == 0.25
+    assert pytest.approx(result[3]["probability_factor"]) == 0.25
+
     # Extra scenarios created for aperture-only hydros
     assert len(res.extra_scenarios) == 2
     assert res.extra_scenarios[0]["uid"] == 53
     assert res.extra_scenarios[0]["hydrology"] == 52
     assert res.extra_scenarios[1]["uid"] == 54
     assert res.extra_scenarios[1]["hydrology"] == 53
+
+
+def test_build_aperture_array_extra_hydros_no_directory(
+    idap2_parser: IdAp2Parser,
+) -> None:
+    """Aperture-only hydros are DROPPED when ``aperture_directory`` is unset.
+
+    Without an aperture_directory the C++ aperture solver has nowhere
+    to load the per-hydrology affluent data from — at runtime it logs
+    "source_scenario X not found" and falls back to a plain Benders
+    cut.  Those silently-dropped apertures pollute every phase's
+    aperture list and now (per
+    ``check_aperture_references`` in validate_planning) would surface
+    as a hard validation error since the source_scenario UIDs aren't
+    in scenario_array.  Drop the aperture-only entries entirely
+    instead — the Benders cut path produces equivalent results
+    without the misleading warnings.
+    """
+    scenario_hydro_map = {50: 1, 51: 2}
+    res = build_aperture_array(
+        idap2_parser,
+        scenario_hydro_map,
+        3,
+        max_scenario_uid=2,
+        # aperture_directory left at default ""
+    )
+    result = res.aperture_array
+
+    # Only the 2 forward-set hydros survive.
+    assert len(result) == 2
+    assert result[0]["source_scenario"] == 1
+    assert result[1]["source_scenario"] == 2
+    # Probability re-normalised to 1/2 across the surviving apertures.
+    assert pytest.approx(result[0]["probability_factor"]) == 0.5
+    assert pytest.approx(result[1]["probability_factor"]) == 0.5
+    # No extra scenarios since no aperture-only entries were emitted.
+    assert res.extra_scenarios == []
 
 
 def test_build_aperture_array_no_parser() -> None:

@@ -752,9 +752,9 @@ def test_phase_tracker_sddp_sequence():
         "[00:00:10] Build lp time 8.000s",
         "[00:00:10] === System optimization ===",
         "[00:00:10] SDDPMethod: starting 1 scene(s)",
-        "[00:01:00] SDDP: === iteration 3 / 99 ===",
-        "[00:02:00] SDDP: === simulation pass (iter 4) ===",
-        "[00:02:30] SDDP: simulation pass done in 30.000s",
+        "[00:01:00] SDDP Iter [i3]: === starting (3 of 99) ===",
+        "[00:02:00] SDDP Sim [i4]: === simulation pass ===",
+        "[00:02:30] SDDP Sim [i4]: done in 30.000s — UB=1K LB=1K gap=0.00%",
         "[00:02:30] === Solution statistics ===",
         "[00:02:30] === Output writing ===",
         "[00:02:35] Write output time 5.000s",
@@ -784,7 +784,7 @@ def test_phase_tracker_detail_sddp_iteration():
     tracker = SolverPhaseTracker()
     tracker.process_line("=== System optimization ===")
     assert tracker.states["optimize"].status == "active"
-    tracker.process_line("SDDP: === iteration 5 / 99 ===")
+    tracker.process_line("SDDP Iter [i5]: === starting (5 of 99) ===")
     assert tracker.states["optimize"].detail == "iter 5/99"
 
 

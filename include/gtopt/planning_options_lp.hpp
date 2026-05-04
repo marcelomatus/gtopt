@@ -621,6 +621,19 @@ public:
     return m_options_.sddp_options.save_aperture_lp.value_or(false);
   }
 
+  /** @brief Comma-separated SDDP passes whose LP-debug dump is active
+   *         when `lp_debug=true`.  Empty / unset defaults to
+   *         `"forward,aperture"` (legacy).
+   *  @return empty string by default.
+   */
+  [[nodiscard]] constexpr auto sddp_lp_debug_passes() const -> std::string_view
+  {
+    if (m_options_.sddp_options.lp_debug_passes.has_value()) {
+      return *m_options_.sddp_options.lp_debug_passes;
+    }
+    return {};
+  }
+
   /** @brief Whether aperture clones bypass the backend's native `clone()`
    *         and are built via `LinearInterface::clone_from_flat()` instead
    *         (manual route, no global mutex).

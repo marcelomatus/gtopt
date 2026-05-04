@@ -108,6 +108,15 @@ constexpr auto debug_lp_fmt = "gtopt_s{}_p{}_i{}_a{}";
 /// falls inside the `lp_debug_*_min/max` filter window.  The aperture
 /// UID disambiguates the N clones built from the same target phase.
 constexpr auto debug_aperture_lp_fmt = "gtopt_aperture_s{}_p{}_a{}_i{}";
+/// Debug LP file pattern for backward-pass tgt LPs (one .lp file per
+/// `(iter, scene, phase)`) immediately before each
+/// `tgt_li.resolve(opts)`.  Captures the LP exactly as the solver
+/// sees it (post-`update_lp_for_phase`, post-`apply_post_load_replay`
+/// under compress).  Active when `lp_debug=true` AND `lp_debug_passes`
+/// includes `backward` (or `all`).  No mode tag in the filename —
+/// users that want to diff off↔compress dumps configure two
+/// separate `log_directory` paths and diff in bulk.
+constexpr auto debug_backward_lp_fmt = "gtopt_backward_s{}_p{}_i{}";
 /// Sentinel file name: if this file exists in the output directory, the
 /// SDDP solver stops gracefully after the current iteration and saves
 /// cuts.  Created externally (e.g. by the webservice stop endpoint).
@@ -569,9 +578,23 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   std::string log_directory {"logs"};
 
   /// When true, save a debug LP file for every (iteration, scene, phase)
-  /// during the forward pass to log_directory.
-  /// Files are named using sddp_file::debug_lp_fmt.
+  /// in the SDDP passes selected by `lp_debug_passes`.
+  /// Files land in `log_directory` and are named using
+  /// `sddp_file::debug_lp_fmt` (forward) /
+  /// `debug_backward_lp_fmt` (backward) /
+  /// `debug_aperture_lp_fmt` (aperture).
   bool lp_debug {false};
+
+  /// Comma-separated list of SDDP passes whose LP-debug dump is
+  /// active when `lp_debug=true`.  Empty / unset selects the legacy
+  /// default `"forward,aperture"`.  Tokens (case-insensitive,
+  /// comma-separated): `forward`, `backward`, `aperture`, `all`.
+  /// Inspected at debug-write time via
+  /// `lp_debug_passes_includes(...)` from `lp_debug_passes.hpp` —
+  /// kept as a string (rather than parsed enum bitmask) to mirror
+  /// the sister field `lp_debug_compression`, which is also a
+  /// pass-through JSON string.
+  std::string lp_debug_passes {};
 
   /// Compression format for LP debug files ("gzip" / "uncompressed" / "").
   /// Empty or "uncompressed" means no compression; any other value uses

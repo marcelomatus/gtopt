@@ -750,6 +750,58 @@ void check_ranges(ValidationResult& result, const Planning& planning)
   }
 }
 
+/// Validate that every UID listed in `phase.apertures` resolves to an
+/// entry in `simulation.aperture_array`.
+///
+/// Pre-fix history: silent fallback at runtime — phases with
+/// dangling aperture UIDs would emit
+/// `SDDP Aperture [...]: source_scenario X not found and no aperture
+/// cache, skipping` for each broken reference, then proceed with the
+/// remaining apertures.  Easy to misread as expected behaviour
+/// (see the original juan/gtopt_iplp configuration where 2 of 16
+/// per-phase aperture UIDs referenced uids 1 and 2 but the global
+/// `aperture_array` defined uids 51..66 only).  Surfacing this as a
+/// validation error catches the input-data bug at parse time, before
+/// the SDDP run silently quietly drops cuts.
+void check_aperture_references(ValidationResult& result,
+                               const Planning& planning)
+{
+  const auto& sim = planning.simulation;
+
+  // Build a set of aperture UIDs declared in the global array.
+  // Empty aperture_array is fine — it disables apertures globally.
+  if (sim.aperture_array.empty()) {
+    return;
+  }
+
+  std::vector<int> known_uids;
+  known_uids.reserve(sim.aperture_array.size());
+  for (const auto& ap : sim.aperture_array) {
+    known_uids.push_back(static_cast<int>(ap.uid));
+  }
+  std::ranges::sort(known_uids);
+
+  for (const auto& ph : sim.phase_array) {
+    if (ph.apertures.empty()) {
+      continue;
+    }
+    for (const auto& uid : ph.apertures) {
+      const auto u = static_cast<int>(uid);
+      if (!std::ranges::binary_search(known_uids, u)) {
+        result.errors.push_back(std::format(
+            "Phase uid={}: aperture uid={} listed in `apertures` does not "
+            "exist in `simulation.aperture_array` (declared uids range from "
+            "{} to {}).  Either add the aperture definition or remove the "
+            "uid from this phase's list.",
+            static_cast<int>(ph.uid),
+            u,
+            known_uids.front(),
+            known_uids.back()));
+      }
+    }
+  }
+}
+
 /// Validate structural completeness.
 void check_completeness(ValidationResult& result, const Planning& planning)
 {
@@ -913,6 +965,7 @@ void check_scenario_probabilities(ValidationResult& result, Planning& planning)
   check_ranges(result, planning);
   check_positivity(result, planning.system);
   check_piecewise_feasibility(result, planning.system);
+  check_aperture_references(result, planning);
   check_completeness(result, planning);
   check_scenario_probabilities(result, planning);
 

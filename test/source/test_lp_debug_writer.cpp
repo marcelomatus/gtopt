@@ -593,3 +593,57 @@ TEST_CASE("zstd_lp_file_inline compresses and removes source")  // NOLINT
   CHECK_FALSE(std::filesystem::exists(tmp.path));
   std::filesystem::remove(result);
 }
+
+TEST_CASE("lp_debug_passes_includes — pass-list selector")  // NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  SUBCASE("empty string → legacy default forward+aperture, NOT backward")
+  {
+    CHECK(lp_debug_passes_includes("", LpDebugPass::forward));
+    CHECK(lp_debug_passes_includes("", LpDebugPass::aperture));
+    CHECK_FALSE(lp_debug_passes_includes("", LpDebugPass::backward));
+    // Whitespace-only counts as empty.
+    CHECK(lp_debug_passes_includes(" \t ", LpDebugPass::forward));
+    CHECK_FALSE(lp_debug_passes_includes(" \t ", LpDebugPass::backward));
+  }
+
+  SUBCASE("single token matches only itself")
+  {
+    CHECK(lp_debug_passes_includes("backward", LpDebugPass::backward));
+    CHECK_FALSE(lp_debug_passes_includes("backward", LpDebugPass::forward));
+    CHECK_FALSE(lp_debug_passes_includes("backward", LpDebugPass::aperture));
+  }
+
+  SUBCASE("comma-separated list with spaces")
+  {
+    CHECK(lp_debug_passes_includes("forward, backward", LpDebugPass::forward));
+    CHECK(lp_debug_passes_includes("forward, backward", LpDebugPass::backward));
+    CHECK_FALSE(
+        lp_debug_passes_includes("forward, backward", LpDebugPass::aperture));
+  }
+
+  SUBCASE("'all' matches every pass")
+  {
+    CHECK(lp_debug_passes_includes("all", LpDebugPass::forward));
+    CHECK(lp_debug_passes_includes("all", LpDebugPass::backward));
+    CHECK(lp_debug_passes_includes("all", LpDebugPass::aperture));
+    // Mixed case
+    CHECK(lp_debug_passes_includes("ALL", LpDebugPass::backward));
+    CHECK(lp_debug_passes_includes("All", LpDebugPass::backward));
+  }
+
+  SUBCASE("unknown tokens are silently skipped")
+  {
+    CHECK_FALSE(lp_debug_passes_includes("nonsense", LpDebugPass::forward));
+    CHECK(
+        lp_debug_passes_includes("nonsense, backward", LpDebugPass::backward));
+  }
+
+  SUBCASE("case-insensitive token match")
+  {
+    CHECK(lp_debug_passes_includes("BACKWARD", LpDebugPass::backward));
+    CHECK(lp_debug_passes_includes("Backward", LpDebugPass::backward));
+    CHECK(lp_debug_passes_includes("APERTURE", LpDebugPass::aperture));
+  }
+}

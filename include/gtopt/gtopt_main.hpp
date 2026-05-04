@@ -103,6 +103,29 @@ struct MainOptions
    * all trace-level messages are captured for later review. */
   std::optional<std::string> trace_log {};
 
+  /** @brief Directory to dump backward-pass tgt LPs (one .lp file per
+   * `(iter, scene, phase)`) immediately before each `tgt_li.resolve(opts)`.
+   *
+   * When set, captures the LP exactly as the solver sees it
+   * (post-`update_lp_for_phase`, post-`apply_post_load_replay` under
+   * compress).  Diff'ing the off and compress dumps for the same
+   * `(iter, scene, phase)` localises any non-replayed mutation that
+   * survives off but is dropped by compress's reconstruct.  Zero
+   * overhead when unset.
+   *
+   * Translation shim over the unified LP-debug mechanism: setting
+   * this flag is equivalent to passing
+   *   `--lp-debug --set sddp_options.lp_debug_passes=backward
+   *    --log-directory <dir>`
+   * (any pre-existing `lp_debug_passes` is preserved when it already
+   * mentions `backward` or `all`).  The `GTOPT_DUMP_BACKWARD_LP=<dir>`
+   * env var is honoured as a fallback for scripts that pre-date the
+   * flag.  Used during the off↔compress symmetry investigation to
+   * confirm LP byte-identity (50/50 phases md5-equal at iter 1
+   * post-fix).
+   */
+  std::optional<std::string> lp_dump_backward {};
+
   // ---- SDDP-specific directories ----
   /** @brief Directory for Benders cut files (default: "cuts") */
   std::optional<std::string> cut_directory {};

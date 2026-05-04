@@ -163,8 +163,13 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
 
     // If lp_debug is enabled, write LP file (pre-solve state) then optionally
     // submit gzip compression as a fire-and-forget async task.
-    // Selective filters (scene/phase range) skip non-matching LPs.
-    if (m_options_.lp_debug) {
+    // Selective filters (scene/phase range, pass selector) skip non-matching
+    // LPs.  Forward writes are gated by the `forward` token in
+    // `lp_debug_passes` (default `forward,aperture`).
+    if (m_options_.lp_debug
+        && lp_debug_passes_includes(m_options_.lp_debug_passes,
+                                    LpDebugPass::forward))
+    {
       const bool in_range = in_lp_debug_range(uid_of(scene_index),
                                               uid_of(phase_index),
                                               m_options_.lp_debug_scene_min,
