@@ -874,27 +874,31 @@ void OsiSolverBackend::push_names(const std::vector<std::string>& col_names,
   // affects what OSI writes to `.lp` files; `LinearInterface`'s own
   // `m_row_index_to_name_` / `m_col_index_to_name_` maps keep the
   // original names verbatim.
-  m_safe_col_names_.clear();
-  m_safe_row_names_.clear();
-  m_safe_col_names_.reserve(col_names.size());
-  m_safe_row_names_.reserve(row_names.size());
+  // Sanitised names live only for the duration of this call: they are
+  // copied into both the CLP-internal store (`copyNames`) and the OSI
+  // base-class per-element store (`setColName`/`setRowName`), after
+  // which the local vectors can be released.
+  std::vector<std::string> safe_col_names;
+  std::vector<std::string> safe_row_names;
+  safe_col_names.reserve(col_names.size());
+  safe_row_names.reserve(row_names.size());
   for (std::size_t i = 0; i < col_names.size(); ++i) {
-    m_safe_col_names_.push_back(sanitise_lp_name(col_names[i], "c", i));
+    safe_col_names.push_back(sanitise_lp_name(col_names[i], "c", i));
   }
   for (std::size_t i = 0; i < row_names.size(); ++i) {
-    m_safe_row_names_.push_back(sanitise_lp_name(row_names[i], "r", i));
+    safe_row_names.push_back(sanitise_lp_name(row_names[i], "r", i));
   }
 
   if (auto* clp = as_clp(m_solver_.get(), m_type_); clp != nullptr) {
-    clp->getModelPtr()->copyNames(m_safe_row_names_, m_safe_col_names_);
+    clp->getModelPtr()->copyNames(safe_row_names, safe_col_names);
   }
 
   m_solver_->setIntParam(OsiNameDiscipline, 2);
-  for (std::size_t i = 0; i < m_safe_col_names_.size(); ++i) {
-    m_solver_->setColName(static_cast<int>(i), m_safe_col_names_[i]);
+  for (std::size_t i = 0; i < safe_col_names.size(); ++i) {
+    m_solver_->setColName(static_cast<int>(i), safe_col_names[i]);
   }
-  for (std::size_t i = 0; i < m_safe_row_names_.size(); ++i) {
-    m_solver_->setRowName(static_cast<int>(i), m_safe_row_names_[i]);
+  for (std::size_t i = 0; i < safe_row_names.size(); ++i) {
+    m_solver_->setRowName(static_cast<int>(i), safe_row_names[i]);
   }
 }
 
