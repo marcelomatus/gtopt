@@ -987,9 +987,17 @@ TEST_CASE("ReservoirDischargeLimitLP - update_lp with different eini segment")
   REQUIRE(result.has_value());
   CHECK(result.value() == 0);
 
-  // eini=1000 → seg1. update_lp iter=0/phase=0 uses eini → same → 0
+  // eini=1000 → seg1.  As of the always-re-issue fix (`fix(reservoir):
+  // always re-issue update_lp coefficients + efin-only DRL`),
+  // `update_lp` no longer short-circuits when the in-memory
+  // `state.current_*` matches the incoming values — under
+  // `LowMemoryMode::compress` that short-circuit silently skipped
+  // re-issuing writes after `load_flat` reverted the live LP, causing
+  // primal-infeasible backward re-solves.  Now `update_lp` always
+  // emits one `set_coeff(efin_col)` + one `set_rhs` (count = 2 here,
+  // since the efin-only formulation removed the eini coefficient).
   const auto updated = system_lp.update_lp();
-  CHECK(updated == 0);
+  CHECK(updated == 2);
 
   // Re-solve after update_lp
   auto result2 = lp.resolve();

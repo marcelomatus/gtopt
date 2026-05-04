@@ -402,6 +402,160 @@ void check_positivity(ValidationResult& result, const System& sys)
   }
 }
 
+// ── Piecewise-linear feasibility (Reservoir seepage / discharge_limit) ──
+//
+// Both `ReservoirSeepage` and `ReservoirDischargeLimit` produce a
+// stage-level LP constraint of the form
+//
+//     row(efin) − slope · efin  ≤  intercept
+//
+// where `(slope, intercept)` is selected by piecewise-linear segment
+// against the start-of-stage volume.  At the LOWEST volume boundary
+// (`efin = emin`) the constraint reduces to
+//
+//     row(efin)  ≤  intercept + slope · emin
+//
+// For `row(efin) ≥ 0` to be a feasible LP, the right-hand side must
+// be non-negative — which means the FIRST segment (lowest volume
+// breakpoint) must satisfy  `intercept + slope · emin ≥ 0`.  When
+// the input data violates this invariant the LP solves cleanly only
+// while the reservoir stays above the first segment's lower bound;
+// the moment a backward cut pulls efin to emin (which happens
+// regularly under SDDP iter-1+), the resolve goes primal-infeasible
+// and the trajectory diverges between off (which retains stale
+// state on the live backend) and compress (which reverts on
+// reconstruct).  Catching the invariant at validation time produces
+// a clear "fix the input data" message instead of opaque solver
+// fallbacks downstream.
+//
+// Implementation: walks `system.reservoir_seepage_array` and
+// `system.reservoir_discharge_limit_array`, looks up the owning
+// reservoir's `emin` (when scalar — vector/file schedules are
+// resolved at load time and skipped here), then evaluates the
+// first segment's `intercept + slope · emin` and emits a warning
+// when the result is negative.
+
+namespace
+{
+// Try to extract a scalar emin from a reservoir's `OptTRealFieldSched`.
+// Returns nullopt for vector / file schedules — those are validated
+// per-stage at load time and can't be sanity-checked here.
+[[nodiscard]] std::optional<Real> try_scalar_emin(const Reservoir& res)
+{
+  if (!res.emin.has_value()) {
+    return std::nullopt;
+  }
+  return std::visit(
+      [](const auto& v) -> std::optional<Real>
+      {
+        using T = std::remove_cvref_t<decltype(v)>;
+        if constexpr (std::is_same_v<T, Real>) {
+          return v;
+        } else {
+          return std::nullopt;
+        }
+      },
+      *res.emin);
+}
+
+// Look up a reservoir struct by SingleId (Uid or Name).
+[[nodiscard]] const Reservoir* find_reservoir(
+    const std::vector<Reservoir>& reservoirs, const SingleId& sid)
+{
+  return std::visit(
+      [&](const auto& v) -> const Reservoir*
+      {
+        using T = std::remove_cvref_t<decltype(v)>;
+        if constexpr (std::is_same_v<T, Uid>) {
+          for (const auto& r : reservoirs) {
+            if (r.uid == static_cast<int>(v)) {
+              return &r;
+            }
+          }
+        } else if constexpr (std::is_same_v<T, Name>) {
+          for (const auto& r : reservoirs) {
+            if (r.name == v) {
+              return &r;
+            }
+          }
+        }
+        return nullptr;
+      },
+      sid);
+}
+}  // namespace
+
+void check_piecewise_feasibility(ValidationResult& result, const System& sys)
+{
+  // ReservoirSeepage: first segment evaluated at efin = emin must
+  // produce non-negative row RHS.
+  for (const auto& seep : sys.reservoir_seepage_array) {
+    if (seep.segments.empty()) {
+      continue;
+    }
+    const auto* res = find_reservoir(sys.reservoir_array, seep.reservoir);
+    if (res == nullptr) {
+      continue;  // referential integrity check elsewhere catches missing refs
+    }
+    const auto emin_opt = try_scalar_emin(*res);
+    if (!emin_opt.has_value()) {
+      continue;  // schedule form — defer to load-time validation
+    }
+    const auto& first_seg = seep.segments.front();
+    // Seepage segment names this `constant`; discharge_limit names it
+    // `intercept` (same role: row RHS in LP units).
+    const auto rhs_at_emin = first_seg.constant + first_seg.slope * *emin_opt;
+    if (rhs_at_emin < 0.0) {
+      result.warnings.push_back(std::format(
+          "ReservoirSeepage '{}' (reservoir '{}'): first segment "
+          "produces negative seepage upper bound at efin=emin "
+          "(slope={:.6g}, constant={:.6g}, emin={:.3g} → rhs={:.6g}); "
+          "the LP will become infeasible if the reservoir reaches its "
+          "minimum volume.  Adjust the lowest segment so that "
+          "`constant + slope * emin >= 0`.",
+          seep.name,
+          res->name,
+          first_seg.slope,
+          first_seg.constant,
+          *emin_opt,
+          rhs_at_emin));
+    }
+  }
+
+  // ReservoirDischargeLimit: same first-segment efin=emin feasibility
+  // check.  The LP row is `qeh - slope · efin <= intercept`, qeh ≥ 0.
+  for (const auto& ddl : sys.reservoir_discharge_limit_array) {
+    if (ddl.segments.empty()) {
+      continue;
+    }
+    const auto* res = find_reservoir(sys.reservoir_array, ddl.reservoir);
+    if (res == nullptr) {
+      continue;
+    }
+    const auto emin_opt = try_scalar_emin(*res);
+    if (!emin_opt.has_value()) {
+      continue;
+    }
+    const auto& first_seg = ddl.segments.front();
+    const auto rhs_at_emin = first_seg.intercept + first_seg.slope * *emin_opt;
+    if (rhs_at_emin < 0.0) {
+      result.warnings.push_back(std::format(
+          "ReservoirDischargeLimit '{}' (reservoir '{}'): first "
+          "segment produces negative discharge upper bound at "
+          "efin=emin (slope={:.6g}, intercept={:.6g}, emin={:.3g} → "
+          "rhs={:.6g}); the LP will become infeasible if the "
+          "reservoir reaches its minimum volume.  Adjust the lowest "
+          "segment so that `intercept + slope * emin >= 0`.",
+          ddl.name,
+          res->name,
+          first_seg.slope,
+          first_seg.intercept,
+          *emin_opt,
+          rhs_at_emin));
+    }
+  }
+}
+
 /// Validate range constraints on simulation parameters.
 void check_ranges(ValidationResult& result, const Planning& planning)
 {
@@ -599,6 +753,7 @@ void check_scenario_probabilities(ValidationResult& result, Planning& planning)
   check_referential_integrity(result, planning.system);
   check_ranges(result, planning);
   check_positivity(result, planning.system);
+  check_piecewise_feasibility(result, planning.system);
   check_completeness(result, planning);
   check_scenario_probabilities(result, planning);
 

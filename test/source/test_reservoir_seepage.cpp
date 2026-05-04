@@ -1344,9 +1344,14 @@ TEST_CASE("ReservoirSeepageLP - update_lp with different eini segment")
   REQUIRE(result.has_value());
   CHECK(result.value() == 0);
 
-  // eini=1000 -> seg1. update_lp iter=0/phase=0 uses eini -> same -> 0
+  // eini=1000 -> seg1.  As of `fix(reservoir): always re-issue update_lp
+  // coefficients`, update_lp no longer short-circuits when the in-memory
+  // `state.current_*` matches: it always re-issues `set_coeff` +
+  // `set_rhs` to keep `LowMemoryMode::compress` consistent with `off`
+  // after `load_flat` reverts the live LP to construction-time values.
+  // Count is one row processed (this fixture has a single seepage row).
   const auto updated0 = system_lp.update_lp();
-  CHECK(updated0 == 0);
+  CHECK(updated0 == 1);
 
   // Re-solve remains feasible
   auto result2 = lp.resolve();
@@ -1504,9 +1509,19 @@ TEST_CASE("ReservoirSeepageLP - zero-slope segment edge case")
   REQUIRE(result.has_value());
   CHECK(result.value() == 0);
 
-  // update_lp with zero-slope segment is no-op (same coefficients)
+  // update_lp with zero-slope segment now always re-issues writes:
+  // see `fix(reservoir): always re-issue update_lp coefficients`.
+  // The single seepage row counts as 1 update.  The `set_coeff` /
+  // `set_rhs` calls invalidate the cached solution (per
+  // `invalidate_cached_optimal_on_mutation`), so a subsequent
+  // `lp.get_col_sol()` would return stale data — re-resolve to
+  // restore an optimal cached solution before reading.
   const auto updated = system_lp.update_lp();
-  CHECK(updated == 0);
+  CHECK(updated == 1);
+
+  auto result_after_update = lp.resolve();
+  REQUIRE(result_after_update.has_value());
+  REQUIRE(lp.is_optimal());
 
   // Verify the seepage flow equals the constant (3.0) with zero slope
   const auto col_sol = lp.get_col_sol();
