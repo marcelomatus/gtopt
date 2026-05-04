@@ -186,6 +186,24 @@ void LinearInterface::release_backend() noexcept
     return;
   }
 
+  // Plan §5 — permanent trace instrumentation for the
+  // release/reconstruct lifecycle.  `spdlog::trace` (function form
+  // — the SPDLOG_TRACE macro is compiled out by the PCH which bakes
+  // SPDLOG_ACTIVE_LEVEL=INFO; see feedback_spdlog_trace_macro).
+  // Cost is a single atomic level-load when trace is disabled, so
+  // this stays unconditional in INFO builds.
+  try {
+    spdlog::trace(
+        "LI release [mode={}]: backend numrows={} numcols={} optimal={} "
+        "active_cuts={} pending_coeff_updates_post_revert=0",
+        static_cast<int>(m_low_memory_mode_),
+        m_backend_ ? get_numrows() : 0,
+        m_backend_ ? get_numcols() : 0,
+        m_backend_ && is_optimal() ? 1 : 0,
+        m_active_cuts_.size());
+  } catch (...) {  // noexcept — swallow logging failures
+  }
+
   // Cache post-solve scalars for transparent read access.  Full
   // primal/dual vectors are not cached; callers that need them must
   // read before release or trigger ensure_backend() to reload.
@@ -359,6 +377,17 @@ void LinearInterface::reconstruct_backend()
   if (!m_backend_released_ || !m_snapshot_.has_data()) {
     return;
   }
+
+  // Plan §5 trace — record the reconstruct event with replay counts
+  // so a `--trace-log` capture can see whether dynamic cols / cuts /
+  // coefficient updates are being replayed correctly across cycles.
+  spdlog::trace(
+      "LI reconstruct [mode={}]: replaying dynamic_cols={} dynamic_rows={} "
+      "active_cuts={}",
+      static_cast<int>(m_low_memory_mode_),
+      m_dynamic_cols_.size(),
+      m_dynamic_rows_.size(),
+      m_active_cuts_.size());
 
   // Level 2: decompress the snapshot
   disable_compression();

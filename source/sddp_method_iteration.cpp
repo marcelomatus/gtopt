@@ -288,7 +288,18 @@ int SDDPMethod::update_lp_for_phase(SceneIndex scene_index,
     sys.set_prev_phase_sys(nullptr);
   }
 
-  return sys.update_lp();
+  const auto updated = sys.update_lp();
+  // Plan §5 trace — fires per (scene, phase, iter) when SDDP
+  // dispatches `update_lp_for_phase`.  Useful for tracing whether
+  // forward and backward agree on the coefficient updates under
+  // compress; a backward call that reports `updated=0` is the
+  // smoking gun for a missed `ensure_lp_built` reload.
+  spdlog::trace("SDDP UpdateLP [s{} p{}]: updated={} elements (prev_sys={})",
+                uid_of(scene_index),
+                uid_of(phase_index),
+                updated,
+                sys.prev_phase_sys() != nullptr ? 1 : 0);
+  return updated;
 }
 
 void SDDPMethod::dispatch_update_lp(SceneIndex scene_index,
