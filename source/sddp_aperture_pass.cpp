@@ -469,10 +469,13 @@ auto SDDPMethod::backward_pass_aperture_phase_impl(
 
   // Extend `lp_debug` to aperture clones: pass the debug writer only
   // when the current (scene, phase) falls inside the configured
-  // filter window.  Aperture clones are then dumped via
+  // filter window AND `aperture` is selected by `lp_debug_passes`.
+  // Aperture clones are then dumped via
   // `sddp_file::debug_aperture_lp_fmt` under `log_directory`.
   auto* const aperture_lp_debug =
       (m_options_.lp_debug
+       && lp_debug_passes_includes(m_options_.lp_debug_passes,
+                                   LpDebugPass::aperture)
        && in_lp_debug_range(uid_of(scene_index),
                             uid_of(phase_index),
                             m_options_.lp_debug_scene_min,
@@ -699,6 +702,8 @@ auto SDDPMethod::backward_pass_with_apertures(SceneIndex scene_index,
     // Extend `lp_debug` to aperture clones (see the loop-variant above).
     auto* const aperture_lp_debug =
         (m_options_.lp_debug
+         && lp_debug_passes_includes(m_options_.lp_debug_passes,
+                                     LpDebugPass::aperture)
          && in_lp_debug_range(uid_of(scene_index),
                               uid_of(phase_index),
                               m_options_.lp_debug_scene_min,

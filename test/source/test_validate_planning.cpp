@@ -1006,6 +1006,111 @@ TEST_CASE(  // NOLINT
   CHECK(found);
 }
 
+// ── Phase aperture UID validation ───────────────────────────────────────────
+//
+// `check_aperture_references` walks every `Phase::apertures` list and
+// ensures each UID resolves to an `Aperture` entry in
+// `simulation.aperture_array`.  Pre-fix, dangling UIDs silently
+// dropped at runtime — `SDDP Aperture [...]: source_scenario X not
+// found and no aperture cache, skipping` was emitted per broken
+// reference, easily misread as expected behaviour.  Validation now
+// promotes this to a hard error at parse time.
+
+TEST_CASE(  // NOLINT
+    "validate_planning - phase aperture UID references aperture_array")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  auto p = make_minimal_planning();
+
+  // Phases must exist to attach `apertures` to.  The minimal
+  // fixture has none, so add a single phase referencing the
+  // single stage.
+  p.simulation.phase_array = {
+      {
+          .uid = Uid {1},
+          .first_stage = Size {0},
+          .count_stage = Size {1},
+      },
+  };
+
+  // 2 apertures defined at simulation level.
+  p.simulation.aperture_array = {
+      {
+          .uid = Uid {51},
+          .source_scenario = Uid {51},
+          .probability_factor = 0.5,
+      },
+      {
+          .uid = Uid {52},
+          .source_scenario = Uid {52},
+          .probability_factor = 0.5,
+      },
+  };
+
+  // Add scenarios so referential checks pass.
+  p.simulation.scenario_array = {
+      {
+          .uid = Uid {51},
+      },
+      {
+          .uid = Uid {52},
+      },
+  };
+
+  SUBCASE("phase apertures all resolve → no error")
+  {
+    p.simulation.phase_array.front().apertures = {Uid {51}, Uid {52}};
+    auto result = validate_planning(p);
+    const auto aperture_errs = std::ranges::count_if(
+        result.errors,
+        [](const auto& e)
+        { return e.find("aperture uid=") != std::string::npos; });
+    CHECK(aperture_errs == 0);
+  }
+
+  SUBCASE("phase aperture UID missing from aperture_array → error")
+  {
+    // uid=99 is not in aperture_array → must surface as an error.
+    p.simulation.phase_array.front().apertures = {Uid {51}, Uid {99}};
+    auto result = validate_planning(p);
+    CHECK_FALSE(result.ok());
+    const auto found = std::ranges::any_of(
+        result.errors,
+        [](const auto& e)
+        {
+          return e.find("aperture uid=99") != std::string::npos
+              && e.find("aperture_array") != std::string::npos;
+        });
+    CHECK(found);
+  }
+
+  SUBCASE("empty aperture_array → check is a no-op")
+  {
+    p.simulation.aperture_array.clear();
+    p.simulation.phase_array.front().apertures = {Uid {51}};  // dangling
+    auto result = validate_planning(p);
+    // No error from check_aperture_references because the global
+    // array is empty (apertures are disabled altogether).
+    const auto aperture_errs = std::ranges::count_if(
+        result.errors,
+        [](const auto& e)
+        { return e.find("aperture uid=") != std::string::npos; });
+    CHECK(aperture_errs == 0);
+  }
+
+  SUBCASE("empty phase apertures → check is a no-op")
+  {
+    p.simulation.phase_array.front().apertures.clear();
+    auto result = validate_planning(p);
+    const auto aperture_errs = std::ranges::count_if(
+        result.errors,
+        [](const auto& e)
+        { return e.find("aperture uid=") != std::string::npos; });
+    CHECK(aperture_errs == 0);
+  }
+}
+
 TEST_CASE(  // NOLINT
     "validate_planning - schedule-form emin defers segment validation")
 {

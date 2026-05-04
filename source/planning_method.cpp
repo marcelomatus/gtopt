@@ -67,6 +67,7 @@ namespace
   sddp_opts.apertures = options.sddp_apertures();
   sddp_opts.aperture_timeout = options.sddp_aperture_timeout();
   sddp_opts.save_aperture_lp = options.sddp_save_aperture_lp();
+  sddp_opts.lp_debug_passes = std::string(options.sddp_lp_debug_passes());
   sddp_opts.aperture_use_manual_clone =
       options.sddp_aperture_use_manual_clone();
   sddp_opts.max_cuts_per_phase = options.sddp_max_cuts_per_phase();

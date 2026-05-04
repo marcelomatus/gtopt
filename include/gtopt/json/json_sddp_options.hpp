@@ -53,6 +53,7 @@ struct SddpOptionsConstructor
       OptName aperture_directory,
       OptReal aperture_timeout,
       OptBool save_aperture_lp,
+      OptName lp_debug_passes,
       OptBool aperture_use_manual_clone,
       OptName boundary_cuts_file,
       OptName boundary_cuts_mode_str,
@@ -117,6 +118,7 @@ struct SddpOptionsConstructor
     opts.aperture_directory = std::move(aperture_directory);
     opts.aperture_timeout = aperture_timeout;
     opts.save_aperture_lp = save_aperture_lp;
+    opts.lp_debug_passes = std::move(lp_debug_passes);
     opts.aperture_use_manual_clone = aperture_use_manual_clone;
     opts.boundary_cuts_file = std::move(boundary_cuts_file);
     if (boundary_cuts_mode_str) {
@@ -198,6 +200,7 @@ struct json_data_contract<SddpOptions>
       json_string_null<"aperture_directory", OptName>,
       json_number_null<"aperture_timeout", OptReal>,
       json_bool_null<"save_aperture_lp", OptBool>,
+      json_string_null<"lp_debug_passes", OptName>,
       json_bool_null<"aperture_use_manual_clone", OptBool>,
       json_string_null<"boundary_cuts_file", OptName>,
       json_string_null<"boundary_cuts_mode", OptName>,
@@ -252,6 +255,7 @@ struct json_data_contract<SddpOptions>
         opt.aperture_directory,
         opt.aperture_timeout,
         opt.save_aperture_lp,
+        opt.lp_debug_passes,
         opt.aperture_use_manual_clone,
         opt.boundary_cuts_file,
         detail::enum_to_opt_name(opt.boundary_cuts_mode),

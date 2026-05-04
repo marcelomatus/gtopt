@@ -154,6 +154,32 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
    */
   OptBool save_aperture_lp {};
 
+  /** @brief Comma-separated list of SDDP passes whose LP-debug dump
+   *  is active.  Honoured only when `PlanningOptions::lp_debug=true`
+   *  (the umbrella toggle).  Empty / unset defaults to
+   *  `"forward,aperture"` (legacy behaviour); set to
+   *  `"forward,backward,aperture"` (or simply `"all"`) to add the
+   *  backward-pass tgt LP dump used during the off↔compress
+   *  symmetry investigation.
+   *
+   *  Each pass writes via the shared `LpDebugWriter` to
+   *  `log_directory` and respects the
+   *  `lp_debug_scene_min/max` + `lp_debug_phase_min/max` filter
+   *  window.  Filenames follow `sddp_file::debug_lp_fmt` (forward),
+   *  `debug_backward_lp_fmt` (backward), and `debug_aperture_lp_fmt`
+   *  (aperture).
+   *
+   *  Recognised tokens (case-insensitive, comma-separated):
+   *  `forward`, `backward`, `aperture`, `all`.  Unknown tokens emit
+   *  a one-time warning and are skipped.
+   *
+   *  Replaces the old `--lp-dump-backward <dir>` CLI flag and
+   *  `GTOPT_DUMP_BACKWARD_LP=<dir>` env var (both still honoured as
+   *  translation shims that set `lp_debug=true`,
+   *  `lp_debug_passes=backward`, and `log_directory=<dir>`).
+   */
+  OptName lp_debug_passes {};
+
   /** @brief Use the manual (load_flat) clone route for aperture clones
    *  instead of the backend's native `clone()` (`CPXcloneprob`).
    *

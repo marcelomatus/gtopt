@@ -12,8 +12,10 @@
 
 #pragma once
 
+#include <cstdlib>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include <gtopt/cli_options.hpp>
@@ -188,6 +190,20 @@ template<typename T>
       ("trace-log,T",
        po::value<std::string>(),
        "write SPDLOG_TRACE messages to this file (enables trace-level logging)")
+      //
+      ("lp-dump-backward",
+       po::value<std::string>(),
+       "shim onto the unified LP-debug mechanism: directory to dump "
+       "backward-pass tgt LPs (one .lp file per (iter, scene, phase)) "
+       "immediately before each tgt_li.resolve(opts).  Equivalent to "
+       "passing --lp-debug --set sddp_options.lp_debug_passes=backward "
+       "--log-directory <dir> (any pre-existing lp_debug_passes that "
+       "already mentions backward or all is preserved).  Captures the "
+       "LP exactly as the solver sees it (post-update_lp_for_phase, "
+       "post-apply_post_load_replay under compress).  Used to localise "
+       "non-replayed mutations by diffing off vs compress dumps for "
+       "the same (iter, scene, phase).  Also honoured as the env var "
+       "GTOPT_DUMP_BACKWARD_LP.")
       //
       ("sddp-num-apertures",
        po::value<int>(),
@@ -548,6 +564,80 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
   if (opts.sddp_min_iterations) {
     planning.options.sddp_options.min_iterations = opts.sddp_min_iterations;
   }
+  // Translation shim: `--lp-dump-backward <dir>` (and the legacy
+  // `GTOPT_DUMP_BACKWARD_LP=<dir>` env var) map onto the unified
+  // `lp_debug` + `lp_debug_passes` mechanism.  Sets `lp_debug=true`,
+  // routes the dump under `<dir>` (overrides `log_directory`), and
+  // ensures the `backward` token is selected (or `all` is preserved
+  // if the user already configured a richer pass list).
+  std::optional<std::string> dump_dir = opts.lp_dump_backward;
+  if (!dump_dir) {
+    if (const auto* env = std::getenv(
+            "GTOPT_DUMP_BACKWARD_LP");  // NOLINT(concurrency-mt-unsafe)
+        env != nullptr && *env != '\0')
+    {
+      dump_dir = std::string(env);
+    }
+  }
+  if (dump_dir) {
+    planning.options.lp_debug = true;
+    planning.options.log_directory = *dump_dir;
+    auto& passes = planning.options.sddp_options.lp_debug_passes;
+    auto already_includes_backward = [&](std::string_view s) noexcept
+    {
+      // Tokens are case-insensitive, comma-separated.  Match
+      // `backward` or `all`.
+      std::string_view rest = s;
+      while (!rest.empty()) {
+        const auto comma = rest.find(',');
+        const auto raw =
+            (comma == std::string_view::npos) ? rest : rest.substr(0, comma);
+        // Trim surrounding whitespace.
+        std::size_t lo = 0;
+        std::size_t hi = raw.size();
+        while (lo < hi && (raw[lo] == ' ' || raw[lo] == '\t')) {
+          ++lo;
+        }
+        while (hi > lo && (raw[hi - 1] == ' ' || raw[hi - 1] == '\t')) {
+          --hi;
+        }
+        const auto tok = raw.substr(lo, hi - lo);
+        const auto eq_ci = [](std::string_view a, std::string_view b)
+        {
+          if (a.size() != b.size()) {
+            return false;
+          }
+          for (std::size_t i = 0; i < a.size(); ++i) {
+            const auto av = static_cast<unsigned char>(a[i]);
+            const auto bv = static_cast<unsigned char>(b[i]);
+            const auto al = (av >= 'A' && av <= 'Z')
+                ? static_cast<unsigned char>(av + 32U)
+                : av;
+            const auto bl = (bv >= 'A' && bv <= 'Z')
+                ? static_cast<unsigned char>(bv + 32U)
+                : bv;
+            if (al != bl) {
+              return false;
+            }
+          }
+          return true;
+        };
+        if (eq_ci(tok, "backward") || eq_ci(tok, "all")) {
+          return true;
+        }
+        if (comma == std::string_view::npos) {
+          break;
+        }
+        rest.remove_prefix(comma + 1);
+      }
+      return false;
+    };
+    if (!passes.has_value() || passes->empty()) {
+      passes = std::string("backward");
+    } else if (!already_includes_backward(*passes)) {
+      passes = *passes + ",backward";
+    }
+  }
   if (opts.sddp_hot_start) {
     planning.options.sddp_options.cut_recovery_mode =
         *opts.sddp_hot_start ? HotStartMode::replace : HotStartMode::none;
@@ -740,6 +830,7 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
       .json_file = get_opt<std::string>(vm, "json-file"),
       .print_stats = get_opt<bool>(vm, "stats"),
       .trace_log = get_opt<std::string>(vm, "trace-log"),
+      .lp_dump_backward = get_opt<std::string>(vm, "lp-dump-backward"),
       .cut_directory = get_opt<std::string>(vm, "cut-directory"),
       .log_directory = get_opt<std::string>(vm, "log-directory"),
       .sddp_max_iterations = get_opt<int>(vm, "sddp-max-iterations"),
@@ -880,6 +971,7 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
   opts.json_file = get_str("json-file");
   opts.print_stats = get_bool("stats");
   opts.trace_log = get_str("trace-log");
+  opts.lp_dump_backward = get_str("lp-dump-backward");
 
   // SDDP directories
   opts.cut_directory = get_str("cut-directory");
@@ -1040,6 +1132,7 @@ inline void merge_config_defaults(MainOptions& opts,
   merge(opts.json_file, defaults.json_file);
   merge(opts.print_stats, defaults.print_stats);
   merge(opts.trace_log, defaults.trace_log);
+  merge(opts.lp_dump_backward, defaults.lp_dump_backward);
   merge(opts.cut_directory, defaults.cut_directory);
   merge(opts.log_directory, defaults.log_directory);
   merge(opts.sddp_max_iterations, defaults.sddp_max_iterations);

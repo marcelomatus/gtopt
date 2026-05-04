@@ -145,11 +145,40 @@ def build_aperture_array(
     aperture_array: List[Dict[str, Any]] = []
     extra_scenarios: List[Dict[str, Any]] = []
 
+    # Only emit aperture-only entries when an `aperture_directory` is
+    # configured.  Without it the C++ aperture solver has nowhere to
+    # load the per-hydrology affluent data from — at runtime it logs
+    # `SDDP Aperture [...]: source_scenario X not found and no
+    # aperture cache, skipping` for every wrapped hydro and falls
+    # back to a Benders cut (which is what would happen without
+    # apertures at all, but with a misleading warning per cell per
+    # iteration).  Worse, the spurious entries break the
+    # `validate_planning::check_aperture_references` invariant added
+    # in this same change set: phase apertures that reference
+    # aperture uids whose source_scenario isn't in scenario_array.
+    #
+    # Observed on juan/gtopt_iplp: plpidap2.dat's late stages wrap to
+    # PLP hydros 01 and 02 (1-based hydros 1 and 2).  Those hydros'
+    # 0-based indices (0 and 1) are NOT in the forward scenario set
+    # (which uses 0-based hydros 50..65 → scenario uids 51..66), so
+    # the pre-fix code emitted apertures uid=1 and uid=2 with
+    # source_scenario=1 and =2 — neither of which exist as scenarios.
+    # With `aperture_directory` blank, those apertures are dead
+    # weight and pollute every phase's aperture list.  When it IS
+    # configured (and `write_aperture_afluents` populates the
+    # parquet directory), the legacy behaviour is preserved.
+    have_aperture_directory = bool(aperture_directory)
+
     for hydro_1based in unique_hydros:
         hydro_0based = hydro_1based - 1
         # Look up the gtopt scenario UID for this hydrology
         scenario_uid = scenario_hydro_map.get(hydro_0based)
         if scenario_uid is None:
+            if not have_aperture_directory:
+                # Skip entirely: no place to source the affluent data
+                # from, and the runtime would silently drop these
+                # apertures with a confusing source_scenario warning.
+                continue
             # Not in the forward set → use Fortran 1-based hydro index
             # as the scenario UID (PLP convention) and create an
             # aperture-only scenario entry.
@@ -171,6 +200,16 @@ def build_aperture_array(
                 "probability_factor": prob,
             }
         )
+
+    # Re-normalise probability_factor across the surviving apertures
+    # so the SDDP backward-pass aggregation stays a proper expectation
+    # (sum == 1).  Skipping this would leave the per-aperture weight at
+    # `1 / num_apertures` even after we dropped some — under-counting
+    # the recourse cost.
+    if aperture_array:
+        new_prob = 1.0 / len(aperture_array)
+        for ap in aperture_array:
+            ap["probability_factor"] = new_prob
 
     return ApertureResult(aperture_array, extra_scenarios)
 
@@ -225,9 +264,19 @@ def build_phase_apertures(
                 seen.add(h)
                 unique_hydros.append(h)
 
+    # Only consider hydros that actually have a matching entry in
+    # `aperture_array` — `build_aperture_array` drops aperture-only
+    # hydros when `aperture_directory` isn't configured (see the
+    # parallel comment block in that function).  Walking
+    # unique_hydros directly would re-introduce the dropped uids in
+    # phase apertures, breaking the invariant
+    # "every phase aperture uid is declared in the global array"
+    # that `validate_planning::check_aperture_references` asserts.
+    declared_aperture_uids = {a["uid"] for a in aperture_array}
     hydro_to_aperture_uid: Dict[int, int] = {}
     for hydro_1based in unique_hydros:
-        hydro_to_aperture_uid[hydro_1based] = hydro_1based
+        if hydro_1based in declared_aperture_uids:
+            hydro_to_aperture_uid[hydro_1based] = hydro_1based
 
     # For each phase, collect the aperture hydros across its stages.
     # Duplicates are preserved: if the same hydro index appears in multiple
