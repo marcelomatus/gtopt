@@ -380,6 +380,25 @@ public:
   {
     return m_cached_row_dual_.size();
   }
+
+  /// Span-out solution-fill wrappers — public API delegating to the
+  /// underlying `SolverBackend::fill_col_sol/fill_col_cost/fill_row_dual`.
+  /// Used by `populate_solution_cache_post_solve` to write directly
+  /// into the LI cache; also exposed here so tests can verify the
+  /// span-out contract without reaching for the private `backend()`
+  /// accessor.
+  void fill_col_sol(std::span<double> out) const
+  {
+    backend().fill_col_sol(out);
+  }
+  void fill_col_cost(std::span<double> out) const
+  {
+    backend().fill_col_cost(out);
+  }
+  void fill_row_dual(std::span<double> out) const
+  {
+    backend().fill_row_dual(out);
+  }
   [[nodiscard]] auto row_scales_use_count() const noexcept
   {
     return m_row_scales_.use_count();

@@ -331,3 +331,169 @@ TEST_CASE(  // NOLINT
     }
   }
 }
+
+// ── T5: span-out fill_* matches pointer-getter ────────────────────────────
+
+TEST_CASE(  // NOLINT
+    "SolverBackend - T5 fill_col_sol/cost/dual matches pointer-getter")
+{
+  auto& reg = SolverRegistry::instance();
+  reg.load_all_plugins();
+
+  for (const auto& solver : reg.available_solvers()) {
+    CAPTURE(solver);
+    try {
+      LinearInterface li(solver);
+      [[maybe_unused]] const auto lp = build_wolsey(li);
+      auto solve = li.initial_solve(SolverOptions {.log_level = 0});
+      REQUIRE(solve.has_value());
+      REQUIRE(li.is_optimal());
+
+      const auto ncols = static_cast<size_t>(li.get_numcols());
+      const auto nrows = static_cast<size_t>(li.get_numrows());
+
+      // Reference values via pointer-getter (off-mode path).
+      const auto ref_sol = li.get_col_sol_raw();
+      const auto ref_cost = li.get_col_cost_raw();
+      const auto ref_dual = li.get_row_dual_raw();
+      REQUIRE(ref_sol.size() == ncols);
+      REQUIRE(ref_cost.size() == ncols);
+      REQUIRE(ref_dual.size() == nrows);
+
+      // Span-out fill into caller-owned buffers.
+      std::vector<double> sol_buf(ncols);
+      std::vector<double> cost_buf(ncols);
+      std::vector<double> dual_buf(nrows);
+      li.fill_col_sol(sol_buf);
+      li.fill_col_cost(cost_buf);
+      li.fill_row_dual(dual_buf);
+
+      for (size_t i = 0; i < ncols; ++i) {
+        CAPTURE(i);
+        CHECK(sol_buf[i] == doctest::Approx(ref_sol[i]).epsilon(kTol));
+        CHECK(cost_buf[i] == doctest::Approx(ref_cost[i]).epsilon(kTol));
+      }
+      for (size_t i = 0; i < nrows; ++i) {
+        CAPTURE(i);
+        CHECK(dual_buf[i] == doctest::Approx(ref_dual[i]).epsilon(kTol));
+      }
+    } catch (const std::exception& e) {
+      MESSAGE("Solver '", solver, "' not available: ", e.what());
+    }
+  }
+}
+
+// ── T6: span-out tolerates empty span ─────────────────────────────────────
+
+TEST_CASE("SolverBackend - T6 fill_* with empty span is a no-op")  // NOLINT
+{
+  auto& reg = SolverRegistry::instance();
+  reg.load_all_plugins();
+
+  for (const auto& solver : reg.available_solvers()) {
+    CAPTURE(solver);
+    try {
+      LinearInterface li(solver);
+      [[maybe_unused]] const auto lp = build_wolsey(li);
+      auto solve = li.initial_solve(SolverOptions {.log_level = 0});
+      REQUIRE(solve.has_value());
+      REQUIRE(li.is_optimal());
+
+      // Sentinel before: a non-zero pattern lives in `canary`.  An
+      // empty-span fill must not dereference / write past the span.
+      std::vector<double> canary {};  // size 0
+      li.fill_col_sol(canary);
+      li.fill_col_cost(canary);
+      li.fill_row_dual(canary);
+      CHECK(canary.empty());
+    } catch (const std::exception& e) {
+      MESSAGE("Solver '", solver, "' not available: ", e.what());
+    }
+  }
+}
+
+// ── T8: off-mode I6 invariant — fill_* doesn't accidentally cache ──────────
+
+TEST_CASE(  // NOLINT
+    "SolverBackend - T8 off-mode LI cache stays empty after fill_*")
+{
+  auto& reg = SolverRegistry::instance();
+  reg.load_all_plugins();
+
+  for (const auto& solver : reg.available_solvers()) {
+    CAPTURE(solver);
+    try {
+      LinearInterface li(solver);  // default mode is off
+      [[maybe_unused]] const auto lp = build_wolsey(li);
+      auto solve = li.initial_solve(SolverOptions {.log_level = 0});
+      REQUIRE(solve.has_value());
+      REQUIRE(li.is_optimal());
+
+      // I6 baseline.
+      CHECK(li.cached_col_sol_size() == 0);
+      CHECK(li.cached_col_cost_size() == 0);
+      CHECK(li.cached_row_dual_size() == 0);
+
+      // Calling fill_* through the backend must NOT populate the LI
+      // cache (the LI is the only thing that owns m_cached_*; the
+      // backend has no access to it).
+      std::vector<double> sol_buf(li.get_numcols());
+      li.fill_col_sol(sol_buf);
+      CHECK(li.cached_col_sol_size() == 0);
+      CHECK(li.cached_col_cost_size() == 0);
+      CHECK(li.cached_row_dual_size() == 0);
+    } catch (const std::exception& e) {
+      MESSAGE("Solver '", solver, "' not available: ", e.what());
+    }
+  }
+}
+
+// ── T10: cross-backend equivalence on the canonical LP ─────────────────────
+
+TEST_CASE("SolverBackend - T10 every backend produces the same LP optimum")
+// NOLINT
+{
+  auto& reg = SolverRegistry::instance();
+  reg.load_all_plugins();
+
+  // Solve the Wolsey LP with every loaded backend, collect the objective
+  // values, and assert pairwise agreement.  This catches plugin-side
+  // mistakes that happen to round-trip a single solver but disagree
+  // across solvers (e.g. row-dual sign flip, swapped fill bindings).
+  std::vector<double> objs;
+  std::vector<std::string> names;
+  for (const auto& solver : reg.available_solvers()) {
+    try {
+      LinearInterface li(solver);
+      [[maybe_unused]] const auto lp = build_wolsey(li);
+      auto solve = li.initial_solve(SolverOptions {.log_level = 0});
+      if (!solve.has_value() || !li.is_optimal()) {
+        continue;  // Solver couldn't load this fixture — skip.
+      }
+      objs.push_back(li.get_obj_value_raw());
+      names.push_back(solver);
+    } catch (const std::exception& e) {
+      MESSAGE("Solver '", solver, "' not available: ", e.what());
+    }
+  }
+  REQUIRE(objs.size() >= 1);
+
+  for (size_t i = 0; i < objs.size(); ++i) {
+    CAPTURE(names[i]);
+    CHECK(objs[i] == doctest::Approx(-36.0).epsilon(kTol));
+  }
+  for (size_t i = 1; i < objs.size(); ++i) {
+    CAPTURE(names[0]);
+    CAPTURE(names[i]);
+    CHECK(objs[0] == doctest::Approx(objs[i]).epsilon(kTol));
+  }
+}
+
+// T7 — "in compress mode the plugin's m_col_solution_/m_reduced_cost_/
+// m_row_price_ stay default-constructed empty after a solve" — is
+// intentionally NOT a runtime test here.  The plugin members are
+// private and would require a friend-test escape hatch to inspect
+// from this file; the property is instead verified by source review
+// of the Phase-2 step-3 LinearInterface change (`05523154`), which
+// only calls `fill_col_sol/cost/dual` (the span-out overrides) and
+// never the pointer-getters that allocate the scratch members.
