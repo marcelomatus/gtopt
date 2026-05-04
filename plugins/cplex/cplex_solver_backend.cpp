@@ -395,48 +395,53 @@ void CplexSolverBackend::load_problem(int ncols,
   }
 
   // CPLEX requires sorted row indices within each column (CSC format).
-  // The LinearProblem::flatten() two-pass algorithm produces unsorted
-  // indices (rows are added to columns in row-enumeration order, not
-  // sorted order). Create sorted copies for CPLEX.
+  // `LinearProblem::flatten()` already produces sorted output: its
+  // outer loop iterates rows in ascending `RowIndex` order, and the
+  // per-column write cursor `colpos[c]` appends each entry as the
+  // outer loop visits row r — so each column's `matind` slice is
+  // automatically ascending in row index.
+  //
+  // Fast path: trust the caller and pass the buffers through to
+  // `CPXcopylp` directly with NO copy, NO sort.  Saves on every
+  // reconstruct under `LowMemoryMode::compress`:
+  //   * 2 vector copies of the full matind/matval buffers
+  //     (32k × (4+8) bytes ≈ 380 KB on juan/iplp).
+  //   * Per-column allocation of `perm` / `temp_ind` / `temp_val`
+  //     (3 small vectors × ~half of all cols ≈ 38k allocs per
+  //     call on juan/iplp), and the sort within each column.
+  //
+  // Defensive path: a `GTOPT_CPLEX_VERIFY_MATIND_SORTED=1` env var
+  // re-enables a debug-only verification pass that walks every
+  // column and asserts ascending row indices.  Use this on a new
+  // backend or after a flatten refactor to confirm the invariant
+  // before relying on the fast path.
   // NOLINTBEGIN(cppcoreguidelines-pro-bounds-pointer-arithmetic)
-  // matbeg/matind/matval are C-API raw pointers from caller
   const auto nnz =
       (ncols > 0) ? static_cast<size_t>(matbeg[ncols]) : size_t {0};
-  std::vector<int> sorted_matind(matind, matind + nnz);
-  std::vector<double> sorted_matval(matval, matval + nnz);
-  // NOLINTEND(cppcoreguidelines-pro-bounds-pointer-arithmetic)
 
-  // Sort each column's row indices and reorder values accordingly
-  for (int col = 0; col < ncols; ++col) {
-    // NOLINTBEGIN(cppcoreguidelines-pro-bounds-pointer-arithmetic)
-    const auto begin = static_cast<size_t>(matbeg[col]);
-    const auto end =
-        (col + 1 < ncols) ? static_cast<size_t>(matbeg[col + 1]) : nnz;
-    // NOLINTEND(cppcoreguidelines-pro-bounds-pointer-arithmetic)
-
-    if (end <= begin + 1) {
-      continue;  // Column has 0 or 1 entries — already sorted
+  if (const auto* verify = std::getenv(
+          "GTOPT_CPLEX_VERIFY_MATIND_SORTED");  // NOLINT(concurrency-mt-unsafe)
+      verify != nullptr && *verify == '1' && matind != nullptr)
+  {
+    for (int col = 0; col < ncols; ++col) {
+      const auto begin = static_cast<size_t>(matbeg[col]);
+      const auto end =
+          (col + 1 < ncols) ? static_cast<size_t>(matbeg[col + 1]) : nnz;
+      for (auto k = begin + 1; k < end; ++k) {
+        if (matind[k] < matind[k - 1]) {
+          throw std::runtime_error(
+              std::format("CPLEX: matind not sorted within column {} "
+                          "(matind[{}]={} < matind[{}]={})",
+                          col,
+                          k,
+                          matind[k],
+                          k - 1,
+                          matind[k - 1]));
+        }
+      }
     }
-
-    // Build index permutation that sorts row indices in this column
-    std::vector<size_t> perm(end - begin);
-    std::ranges::iota(perm, begin);
-    std::ranges::sort(perm,
-                      [&sorted_matind](size_t a, size_t b)
-                      { return sorted_matind[a] < sorted_matind[b]; });
-
-    // Apply permutation to both matind and matval for this column
-    std::vector<int> temp_ind(end - begin);
-    std::vector<double> temp_val(end - begin);
-    for (size_t i = 0; i < perm.size(); ++i) {
-      temp_ind[i] = sorted_matind[perm[i]];
-      temp_val[i] = sorted_matval[perm[i]];
-    }
-    std::ranges::copy(
-        temp_ind, sorted_matind.begin() + static_cast<std::ptrdiff_t>(begin));
-    std::ranges::copy(
-        temp_val, sorted_matval.begin() + static_cast<std::ptrdiff_t>(begin));
   }
+  // NOLINTEND(cppcoreguidelines-pro-bounds-pointer-arithmetic)
 
   // CPLEX requires all pointers to be non-null, even for zero-element
   // matrices.  Provide safe defaults when the caller passes nullptr.
@@ -451,9 +456,9 @@ void CplexSolverBackend::load_problem(int ncols,
 
   const int* safe_matbeg = matbeg != nullptr ? matbeg : buf_matbeg.data();
   const int* safe_matind =
-      sorted_matind.empty() ? buf_matind.data() : sorted_matind.data();
+      (matind != nullptr && nnz > 0) ? matind : buf_matind.data();
   const double* safe_matval =
-      sorted_matval.empty() ? buf_matval.data() : sorted_matval.data();
+      (matval != nullptr && nnz > 0) ? matval : buf_matval.data();
   const double* safe_obj = obj != nullptr ? obj : buf_obj.data();
   const double* safe_collb = collb != nullptr ? collb : buf_collb.data();
   const double* safe_colub = colub != nullptr ? colub : buf_colub.data();

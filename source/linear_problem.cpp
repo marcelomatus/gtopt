@@ -451,6 +451,49 @@ auto LinearProblem::flatten(const LpMatrixOptions& opts) -> FlatLinearProblem
   }
   matbeg[0] = 0;
 
+  // ── matind-sortedness invariant ──────────────────────────────────────
+  //
+  // CSC backends (CPLEX `CPXcopylp`, HiGHS `passLp`, …) require the row
+  // indices within each column to be ASCENDING.  Pass 2 above guarantees
+  // this STRUCTURALLY — without an explicit sort — because:
+  //
+  //   1. `for (const auto& [i, row] : enumerate<RowIndex>(rows))` walks
+  //      the rows vector by ascending vector index (and therefore by
+  //      ascending `RowIndex`, since rows are appended in
+  //      RowIndex-creation order).
+  //   2. For each row, the per-column write cursor `colpos[c]` advances
+  //      monotonically, so the entries appended to column c's slice of
+  //      `matind` are in row-ascending order by construction.
+  //
+  // The two ordered structures we rely on:
+  //   * `rows` (std::vector<SparseRow>) — index-order = RowIndex-order.
+  //   * `row.cmap` (`std::flat_map<ColIndex, double>`) — col-ascending.
+  //
+  // The CPLEX backend's `load_problem` previously sorted `matind` per
+  // column on every CPXcopylp call as a defensive measure.  That sort
+  // is redundant given this invariant; the backend's fast-path now
+  // passes the buffers through to CPXcopylp directly.  Setting
+  // `GTOPT_CPLEX_VERIFY_MATIND_SORTED=1` re-enables a debug-only pass
+  // that asserts ascending row indices column-by-column — use this
+  // after a flatten refactor to confirm the invariant before
+  // re-relying on the fast path.
+#ifndef NDEBUG
+  // Debug-build assertion: walks every column, verifies ascending
+  // matind within.  Fires once per `flatten()` call (cheap relative
+  // to the matrix scan above).  Catches a flatten regression at the
+  // source so the CPLEX backend's runtime-only fallback is never
+  // exercised in tests.
+  for (size_t c = 0; c < ncols; ++c) {
+    const auto beg = static_cast<size_t>(matbeg[c]);
+    const auto end = static_cast<size_t>(matbeg[c + 1]);
+    for (auto k = beg + 1; k < end; ++k) {
+      assert(matind[k] >= matind[k - 1]
+             && "flatten() matind-sortedness invariant violated: pass 2 "
+                "must produce ascending row indices within each column");
+    }
+  }
+#endif
+
   std::vector<double> collb(ncols);
   std::vector<double> colub(ncols);
   std::vector<double> objval(ncols);
