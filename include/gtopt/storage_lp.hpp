@@ -355,36 +355,8 @@ public:
             prev_sys->template element<typename SIdT::object_type>(sid);
         const auto& prev_stages = prev_sys->phase().stages();
         if (!prev_stages.empty()) {
-          const double v_phys = prev_rsv.physical_efin(
+          return prev_rsv.physical_efin(
               prev_li, scenario, prev_stages.back(), default_eini);
-          // DIAG-XPHASE — Probe 1 from
-          // `docs/sddp_compress_cache_lifecycle.md` §5.  Emit one
-          // grep-friendly line per cross-phase efin read so off-vs-
-          // compress trace logs can be diff'd to localise the first
-          // iteration / cell where the two modes return different
-          // values.  Cheap (one atomic level-load when trace is
-          // disabled — function form, not the macro: see
-          // `feedback_spdlog_trace_macro`).  No iteration index
-          // available at this layer; correlate via the surrounding
-          // `SDDP Iter [iN]` / `SDDP Backward [iN sM pK]` log
-          // markers when diff-ing two trace files.
-          // Note: `sid.uid()` would throw `std::bad_variant_access`
-          // when the SId carries a Name instead of a Uid (which
-          // happens when the JSON references the element by name);
-          // the trace omits elem_uid entirely.  Correlate
-          // DIAG-XPHASE lines via cur_phase_uid + src_phase_uid +
-          // line ordering — that's sufficient to spot off↔compress
-          // value drift.
-          spdlog::trace(
-              "DIAG-XPHASE cur_phase_uid={} src_phase_uid={} "
-              "prev_released={} prev_fresh={} prev_optimal={} v_phys={:.9g}",
-              static_cast<int>(sys.phase().uid()),
-              static_cast<int>(prev_sys->phase().uid()),
-              prev_li.is_backend_released() ? 1 : 0,
-              prev_li.backend_solution_fresh() ? 1 : 0,
-              prev_li.is_optimal() ? 1 : 0,
-              v_phys);
-          return v_phys;
         }
       }
     }

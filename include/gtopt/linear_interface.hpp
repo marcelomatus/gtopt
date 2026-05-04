@@ -600,16 +600,6 @@ public:
     return m_backend_released_;
   }
 
-  /// True iff the live backend's primal/dual buffers reflect a solve
-  /// performed since the last reconstruct (i.e. they are valid to
-  /// read directly).  False between `reconstruct_backend` and the
-  /// next successful `resolve` / `initial_solve`.  Exposed for
-  /// diagnostic instrumentation only.
-  [[nodiscard]] bool backend_solution_fresh() const noexcept
-  {
-    return m_backend_solution_fresh_;
-  }
-
   /// Current low-memory mode.
   [[nodiscard]] constexpr LowMemoryMode low_memory_mode() const noexcept
   {

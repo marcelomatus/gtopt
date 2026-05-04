@@ -401,23 +401,7 @@ void SDDPMethod::capture_state_variable_values(
     if (col < ncols) {
       const double phys = col_sol_phys[col];
       const double vs = svar.var_scale();
-      const double new_col_sol = (vs != 0.0) ? phys / vs : phys;
-      svar.set_col_sol(new_col_sol);
-      // DIAG-CAPTURE-SOL — Probe 1c from
-      // `docs/sddp_compress_cache_lifecycle.md` §5.  Trace every
-      // state-variable col_sol mirror update so the off↔compress
-      // diff can flag the first time a captured value differs.
-      // Source data is `col_sol_phys` which already routes through
-      // LI's get_col_sol (clamp + cache).
-      spdlog::trace(
-          "DIAG-CAPTURE-SOL scene={} phase={} col={} var_scale={:.6g} "
-          "phys={:.9g} col_sol_lp={:.9g}",
-          static_cast<int>(uid_of(scene_index)),
-          static_cast<int>(uid_of(phase_index)),
-          static_cast<int>(col),
-          vs,
-          phys,
-          new_col_sol);
+      svar.set_col_sol((vs != 0.0) ? phys / vs : phys);
     }
   }
 
@@ -436,21 +420,7 @@ void SDDPMethod::capture_state_variable_values(
     }
     const auto dep = link.dependent_col;
     if (dep < col_index_size(reduced_costs)) {
-      const double rc = reduced_costs[dep];
-      link.state_var->set_reduced_cost(rc);
-      // DIAG-CAPTURE-RC — companion to DIAG-CAPTURE-SOL: trace
-      // every reduced-cost mirror update on the *previous* phase's
-      // outgoing links.  These feed the next backward step's cut
-      // construction; if they differ between off and compress, the
-      // resulting cut differs.
-      spdlog::trace(
-          "DIAG-CAPTURE-RC scene={} phase={} prev_phase={} dep_col={} "
-          "rc_lp={:.9g}",
-          static_cast<int>(uid_of(scene_index)),
-          static_cast<int>(uid_of(phase_index)),
-          static_cast<int>(uid_of(prev_phase_index)),
-          static_cast<int>(dep),
-          rc);
+      link.state_var->set_reduced_cost(reduced_costs[dep]);
     }
   }
 }
