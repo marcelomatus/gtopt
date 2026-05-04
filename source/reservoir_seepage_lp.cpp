@@ -193,21 +193,27 @@ int ReservoirSeepageLP::update_lp(SystemLP& sys,
   const auto new_slope = coeffs.slope;
   const auto new_rhs = coeffs.intercept;
 
-  if (new_slope == state.current_slope && new_rhs == state.current_rhs) {
-    return 0;
-  }
-
+  // No in-memory short-circuit: under `LowMemoryMode::compress` /
+  // `snapshot`, `load_flat` reverts the LP's structural matval and
+  // RHS to the snapshot's construction-time values on every
+  // reconstruct, but `state.current_slope` / `state.current_rhs`
+  // (in-memory) survive the reconstruct unchanged.  A
+  // `new_slope == state.current_slope && new_rhs == state.current_rhs`
+  // early-return then skipped re-issuing the writes — leaving the
+  // live LP with construction-time (slope, rhs) while the cuts that
+  // backward built had assumed the updated (slope, rhs).  Result:
+  // primal-infeasible target re-solves under compress, while off
+  // (live backend retains every previous mutation) ran clean.
+  // Always re-issue both `set_coeff` and `set_rhs`; the per-call
+  // cost (one solver-side O(1) write each) is negligible against
+  // the LP solve, and correctness in both modes is restored.
   int total = 0;
   const auto& frows = seepage_rows.at(st_key);
 
   for (const auto& [buid, row] : frows) {
-    if (new_slope != state.current_slope) {
-      // Anchor on efin only — see add_to_lp() above for rationale.
-      li.set_coeff(row, state.efin_col, -new_slope);
-    }
-    if (new_rhs != state.current_rhs) {
-      li.set_rhs(row, new_rhs);
-    }
+    // Anchor on efin only — see add_to_lp() above for rationale.
+    li.set_coeff(row, state.efin_col, -new_slope);
+    li.set_rhs(row, new_rhs);
     ++total;
   }
 

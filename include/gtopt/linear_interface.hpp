@@ -1941,16 +1941,18 @@ public:
    */
   [[nodiscard]] auto get_col_sol_raw() const -> std::span<const double>
   {
-    // Single source of truth: the LI cache is populated eagerly
-    // post-solve by `populate_solution_cache_post_solve`, regardless
-    // of `low_memory_mode`.  Prefer it whenever populated; the
-    // backend fallback below only fires in pathological cases
-    // (cache cleared by `drop_cached_primal_only`, pre-solve
-    // reads, or when `invalidate_cached_optimal_on_mutation` has
-    // dropped the cache after a structural mutation).  In those
-    // fallback paths, `backend()` transparently triggers
-    // `ensure_backend()` which reconstructs from snapshot under
-    // compress/snapshot modes.
+    // Prefer the LI-side cache when populated.  Population happens
+    // post-solve via `populate_solution_cache_post_solve` for
+    // `compress`/`snapshot`/`rebuild` modes — under
+    // `LowMemoryMode::off` (I6 invariant) the cache stays empty
+    // and reads route directly to the live backend, since the
+    // backend never goes away under off and a parallel LI cache
+    // would be pure waste.  The fallback `backend()` call also
+    // covers pathological cases: pre-solve reads, post-mutation
+    // (cache dropped by `invalidate_cached_optimal_on_mutation`),
+    // and post-`drop_cached_primal_only` paths.  Under compress/
+    // snapshot, `backend()` transparently triggers
+    // `ensure_backend()` to reconstruct from the saved snapshot.
     if (!m_cached_col_sol_.empty()) {
       return {m_cached_col_sol_.data(), m_cached_col_sol_.size()};
     }

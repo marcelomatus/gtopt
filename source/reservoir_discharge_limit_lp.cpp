@@ -56,6 +56,11 @@ bool ReservoirDischargeLimitLP::add_to_lp(const SystemContext& sc,
 
   // Physical slope — flatten() applies col_scale to matrix coefficients.
   const Real lp_slope = coeffs.slope;
+  // First-segment feasibility (qeh ≥ 0 at efin = emin requires
+  // `intercept + slope · emin ≥ 0`) is validated in
+  // `validate_planning.cpp` against the raw input struct so the
+  // schedule-form `emin` can be resolved without dragging
+  // InputContext into add_to_lp.
 
   const auto& blocks = stage.blocks();
   const auto stage_dur = stage.duration();
@@ -91,8 +96,31 @@ bool ReservoirDischargeLimitLP::add_to_lp(const SystemContext& sc,
   }
   avg_rows[st_key] = lp.add_row(std::move(avg_row));
 
-  // 3. Stage-level volume constraint:
-  //    qeh - slope × 0.5 × eini - slope × 0.5 × efin  ≤  intercept
+  // 3. Stage-level volume constraint (efin-only formulation):
+  //    qeh − slope · efin  ≤  intercept
+  //
+  // Rationale (matches `ReservoirSeepageLP::add_to_lp`):
+  //
+  //   * Anchoring on `efin` only — instead of the prior
+  //     `0.5·(eini + efin)` average — guarantees the constraint
+  //     is feasible at the segment-boundary `efin = emin` whenever
+  //     the input data satisfies `intercept + slope·emin ≥ 0`
+  //     (see the warning emitted above).  The averaging form
+  //     could go infeasible mid-segment if the slope is steep
+  //     and `eini` is much smaller than `emin` (transient state
+  //     during SDDP iter-1+ when a backward cut pulls `eini`
+  //     toward zero).
+  //
+  //   * Symmetry with seepage's discretisation keeps the two
+  //     constraints' segment selections consistent: both pick
+  //     coefficients from the volume Vα the predecessor solved
+  //     to (via `physical_eini`), so they don't disagree on
+  //     which segment is active.
+  //
+  //   * Eliminates `eini`'s coefficient entirely from the row,
+  //     which removes a state-link coefficient and simplifies
+  //     the cut-construction reduced-cost accounting on the
+  //     SDDP backward pass.
   auto vol_row =
       SparseRow {
           .class_name = Element::class_name.full_name(),
@@ -103,8 +131,7 @@ bool ReservoirDischargeLimitLP::add_to_lp(const SystemContext& sc,
           .less_equal(coeffs.intercept);
 
   vol_row[qeh_col] = 1.0;
-  vol_row[eini_col] = -lp_slope * 0.5;
-  vol_row[efin_col] = -lp_slope * 0.5;
+  vol_row[efin_col] = -lp_slope;
 
   vol_rows[st_key] = lp.add_row(std::move(vol_row));
 
@@ -156,22 +183,26 @@ int ReservoirDischargeLimitLP::update_lp(SystemLP& sys,
   const auto new_slope = coeffs.slope;
   const auto new_rhs = coeffs.intercept;
 
-  if (new_slope == state.current_slope && new_rhs == state.current_rhs) {
-    return 0;
-  }
-
+  // No in-memory short-circuit: see the matching comment in
+  // `reservoir_seepage_lp.cpp::update_lp` for rationale.  Under
+  // `LowMemoryMode::compress` / `snapshot` the LP's matval / RHS
+  // revert to construction-time on every `load_flat`, but
+  // `state.current_slope` / `state.current_rhs` survive
+  // unchanged — an equality short-circuit silently skipped
+  // re-issuing the writes and produced primal-infeasible target
+  // re-solves under compress while off ran clean.
+  //
+  // efin-only formulation — see `add_to_lp` above for the
+  // feasibility rationale.  Only the `efin_col` coefficient is
+  // re-issued; `eini_col`'s coefficient is permanently 0 in this
+  // row.
   int total = 0;
   const auto row = vol_rows.at(st_key);
 
-  if (new_slope != state.current_slope) {
-    li.set_coeff(row, state.eini_col, -new_slope * 0.5);
-    li.set_coeff(row, state.efin_col, -new_slope * 0.5);
-    ++total;
-  }
-  if (new_rhs != state.current_rhs) {
-    li.set_rhs(row, new_rhs);
-    ++total;
-  }
+  li.set_coeff(row, state.efin_col, -new_slope);
+  ++total;
+  li.set_rhs(row, new_rhs);
+  ++total;
 
   SPDLOG_TRACE(
       "ReservoirDischargeLimitLP uid={}: updated constraints "

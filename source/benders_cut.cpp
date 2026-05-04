@@ -93,6 +93,19 @@ void propagate_trial_values(std::span<StateVarLink> links,
         (link.state_var != nullptr) ? link.state_var->col_sol_physical() : 0.0;
     target_li.set_col_low(link.dependent_col, v_phys);
     target_li.set_col_upp(link.dependent_col, v_phys);
+    // DIAG-PROPAGATE — Probe 1b from
+    // `docs/sddp_compress_cache_lifecycle.md` §5.  Trace each trial
+    // value the forward/backward path pins on the target's
+    // dependent column.  Source: the StateVariable mirror, written
+    // by `capture_state_variable_values` after the source phase's
+    // last solve.  Off and compress should be byte-identical here.
+    spdlog::trace(
+        "DIAG-PROPAGATE dep_col={} src_col={} v_phys={:.9g} "
+        "trial_value_lp={:.9g}",
+        static_cast<int>(link.dependent_col),
+        static_cast<int>(link.source_col),
+        v_phys,
+        v_phys / target_li.get_col_scale(link.dependent_col));
     // Keep `trial_value` in dependent-column raw LP units so
     // downstream cut-builders (which compare against the bound
     // snapshot in `StateVarLink::source_{low,upp}` also captured in
