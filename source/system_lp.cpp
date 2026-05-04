@@ -1096,12 +1096,6 @@ SystemLP::SystemLP(const System& system,
     create_collections(m_system_context_, system, m_collections_);
     m_collections_built_ = true;
     create_lp(m_flat_opts_);
-    // Under compress drop collections after the initial flatten — the
-    // ~30 MB of XLP wrappers per cell × num_cells would otherwise
-    // dominate memory under compress.  `ensure_lp_built()` rebuilds
-    // them lazily via `rebuild_collections_if_needed()` so any caller
-    // (sim-pass `write_out`, backward-pass aperture bound updates, …)
-    // sees populated XLP state transparently.
     if (m_flat_opts_.low_memory_mode == LowMemoryMode::compress) {
       m_collections_ = collections_t {};
       m_collections_built_ = false;
@@ -1310,6 +1304,16 @@ int SystemLP::update_lp()
   if (!linear_interface().supports_set_coeff()) {
     return 0;
   }
+
+  // Under `LowMemoryMode::compress` collections are dropped at the end
+  // of construction and at every `release_backend()` —
+  // `visit_elements(collections())` would iterate over nothing, so
+  // volume-dependent coefficient updates (seepage, production factor,
+  // discharge limit, …) would silently no-op and freeze the LP at
+  // construction-time matval.  Mirror the same rebuild pattern as
+  // `write_out` (~line 1232) so updates run on a populated XLP
+  // regardless of low_memory_mode.
+  rebuild_collections_if_needed();
 
   int total = 0;
 

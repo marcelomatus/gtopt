@@ -158,8 +158,11 @@ void LinearInterface::ensure_backend()
     return;
   }
   // Snapshot/compress: reconstruct from the saved flat LP snapshot.
-  // No warm-start — callers that want primal/dual continuity must
-  // pass their own vectors via `reconstruct_backend(col_sol, row_dual)`.
+  // No warm-start: the barrier method is the default solver algorithm
+  // and gains nothing from a starting solution.  The cached col_sol /
+  // row_dual remain the source of truth for any pre-solve reader (see
+  // `get_col_sol_raw` for the gating logic that prefers the cache
+  // until the next resolve refreshes the backend's solution buffer).
   reconstruct_backend();
   // Post-condition mirrors the rebuild branch above.
   if (m_backend_ == nullptr || m_backend_released_) {
@@ -346,8 +349,7 @@ void LinearInterface::defer_initial_load(FlatLinearProblem flat_lp)
 }
 
 // NOLINTNEXTLINE(misc-no-recursion)
-void LinearInterface::reconstruct_backend(std::span<const double> col_sol,
-                                          std::span<const double> row_dual)
+void LinearInterface::reconstruct_backend()
 {
   // Rebuild mode never installs a snapshot, so reconstructing from one
   // would be a logic error.  Catch it loudly in debug builds; in
@@ -368,7 +370,7 @@ void LinearInterface::reconstruct_backend(std::span<const double> col_sol,
   load_flat(m_snapshot_.flat_lp);
 
   // 2. Replay persistent SDDP state onto the live backend.
-  apply_post_load_replay(col_sol, row_dual);
+  apply_post_load_replay();
 
   // 3. Free decompressed flat LP vectors — the data is now in the backend.
   //    The compressed buffer stays valid as persistent cache for next
@@ -393,8 +395,7 @@ void LinearInterface::install_flat_as_rebuild(const FlatLinearProblem& flat_lp)
 }
 
 // NOLINTNEXTLINE(misc-no-recursion)
-void LinearInterface::apply_post_load_replay(std::span<const double> col_sol,
-                                             std::span<const double> row_dual)
+void LinearInterface::apply_post_load_replay()
 {
   // Pre-condition: caller has already run `load_flat` and cleared
   // `m_backend_released_` so the add_col/add_rows below don't re-enter
@@ -459,10 +460,10 @@ void LinearInterface::apply_post_load_replay(std::span<const double> col_sol,
   // 4. Bulk-add active cuts (single efficient call).
   replay_active_cuts();
 
-  // 4. Warm-start from the caller-supplied primal/dual when available.
-  if (!col_sol.empty() || !row_dual.empty()) {
-    set_warm_start_solution(col_sol, row_dual);
-  }
+  // No warm-start step: the barrier method (default solver algorithm)
+  // gains nothing from a starting solution.  Pre-solve readers of
+  // `get_col_sol*()` / `get_row_dual*()` consume the cached vectors
+  // via the `m_backend_released_` gate in `get_col_sol_raw`.
 }
 
 void LinearInterface::record_dynamic_col(SparseCol col)

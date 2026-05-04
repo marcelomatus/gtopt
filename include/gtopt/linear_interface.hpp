@@ -569,10 +569,11 @@ public:
   void defer_initial_load(FlatLinearProblem flat_lp);
 
   /// Reconstruct backend from saved flat LP + dynamic cols + active cuts.
-  /// @param col_sol  Previous primal solution for warm-start (empty = cold)
-  /// @param row_dual Previous dual solution for warm-start (empty = cold)
-  void reconstruct_backend(std::span<const double> col_sol = {},
-                           std::span<const double> row_dual = {});
+  /// Cold-start: the barrier method (default solver algorithm) gains
+  /// nothing from a starting solution, so no warm-start vectors are
+  /// accepted.  Pre-solve readers of `get_col_sol*()` consume the
+  /// cached vectors via the `m_backend_solution_fresh_` gate.
+  void reconstruct_backend();
 
   /// True if the solver backend has been released (low-memory mode).
   [[nodiscard]] bool is_backend_released() const noexcept
@@ -755,8 +756,7 @@ public:
   ///
   /// Pre-condition: the backend is live (post `load_flat`) and
   /// `m_backend_released_` has been cleared.
-  void apply_post_load_replay(std::span<const double> col_sol = {},
-                              std::span<const double> row_dual = {});
+  void apply_post_load_replay();
 
   /// Finalize a rebuild in place: clear the released flag, run
   /// `load_flat(flat_lp)` on the existing backend, and replay persistent

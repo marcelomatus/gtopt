@@ -635,11 +635,7 @@ public:
     }
   }
 
-  void reconstruct_backend(std::span<const double> col_sol = {},
-                           std::span<const double> row_dual = {})
-  {
-    m_linear_interface_.reconstruct_backend(col_sol, row_dual);
-  }
+  void reconstruct_backend() { m_linear_interface_.reconstruct_backend(); }
 
   /// Ensure the LP backend is live and ready to solve.  Pure backend
   /// reconstruct — does NOT rebuild ``m_collections_``.  Callers that

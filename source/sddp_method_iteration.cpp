@@ -275,8 +275,15 @@ int SDDPMethod::update_lp_for_phase(SceneIndex scene_index,
   // reservoir to zero.
   if (phase_index) {
     const auto prev_phase_index = previous(phase_index);
-    sys.set_prev_phase_sys(
-        &planning_lp().system(scene_index, prev_phase_index));
+    auto& prev_sys = planning_lp().system(scene_index, prev_phase_index);
+    sys.set_prev_phase_sys(&prev_sys);
+    // Under `LowMemoryMode::compress` collections are dropped at every
+    // `release_backend()`.  `physical_eini`'s cross-phase branch
+    // (storage_lp.hpp:347-358) reads `prev_sys->element<X>(sid)`,
+    // which throws if prev's collections are empty.  Rebuild them
+    // transparently so cross-phase reservoir efin lookup works under
+    // all low_memory modes.
+    prev_sys.rebuild_collections_if_needed();
   } else {
     sys.set_prev_phase_sys(nullptr);
   }
