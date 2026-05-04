@@ -77,8 +77,7 @@ SDDP_OPTION_KEYS: frozenset[str] = frozenset(
         "max_async_spread",
         "low_memory_mode",
         "memory_codec",
-        "stationary_gap_ceiling",
-        "terminal_failure_threshold",
+        "lp_debug_passes",
     }
 )
 
@@ -454,6 +453,12 @@ _OPTIONS_FIELDS: list[tuple[str, str, Any]] = [
         "terminal_failure_threshold",
         "[sddp] Consecutive elastic-filter failures before terminal-skip "
         "marks a scene (default: 2; 0 disables)",
+        None,
+    ),
+    (
+        "lp_debug_passes",
+        "[sddp] Comma-separated SDDP passes to dump LP files for "
+        "(e.g. 'forward,backward,aperture'; default: all when --lp-debug)",
         None,
     ),
     # NOTE: Cascade options now use a hierarchical ``levels`` array
