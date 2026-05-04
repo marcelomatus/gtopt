@@ -181,16 +181,6 @@ private:
   int m_threads_ {0};
   bool m_presolve_ {true};
   int m_log_level_ {0};
-  /// Storage for the primal/dual pointers returned by `col_solution()`
-  /// / `reduced_cost()` / `row_price()`.  These vectors are always
-  /// re-filled from HiGHS inside `fetch_solution`; there is no
-  /// validity flag because the LinearInterface's eager post-solve
-  /// cache is the single source of truth (one fetch per accessor per
-  /// solve), and the storage just exists so the returned raw pointer
-  /// outlives the function call.
-  mutable std::vector<double> m_col_solution_;
-  mutable std::vector<double> m_col_dual_;
-  mutable std::vector<double> m_row_dual_;
   bool m_load_failed_ {};
 
   /// Snapshot of HiGHS tolerances + presolve/scaling captured by
@@ -206,15 +196,6 @@ private:
     int engage_count {0};
   };
   std::optional<RobustState> m_saved_robust_state_;
-
-  /// Fetch the just-solved primal/dual vectors from HiGHS into the
-  /// mutable storage members.  Always re-queries the solver — there
-  /// is no per-instance cache flag because the LI
-  /// (`linear_interface.hpp::populate_solution_cache_post_solve`) is
-  /// now the single source of truth and calls each accessor at most
-  /// once per solve.  Storage is retained so the returned pointer
-  /// remains valid for the LI's `assign(...)` consumer.
-  void fetch_solution() const;
 };
 
 }  // namespace gtopt

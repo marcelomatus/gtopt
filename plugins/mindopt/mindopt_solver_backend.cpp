@@ -128,7 +128,7 @@ void MindOptSolverBackend::reset_model_()
       nullptr);
   check_error(rc, "MDOnewmodel");
   MDOsetintattr(m_model_, MDO_INT_ATTR_MODEL_SENSE, MDO_MINIMIZE);
-  m_prob_cached_ = false;
+  invalidate_problem_data();
 }
 
 // ── ctor / dtor ──────────────────────────────────────────────────────────
@@ -379,7 +379,7 @@ int MindOptSolverBackend::get_num_rows() const
 
 void MindOptSolverBackend::add_col(double lb, double ub, double obj)
 {
-  m_prob_cached_ = false;
+  invalidate_problem_data();
   const int rc = MDOaddvar(
       m_model_, 0, nullptr, nullptr, obj, lb, ub, MDO_CONTINUOUS, nullptr);
   check_error(rc, "MDOaddvar");
@@ -393,7 +393,7 @@ void MindOptSolverBackend::add_cols(int num_cols,
                                     const double* colub,
                                     const double* colobj)
 {
-  m_prob_cached_ = false;
+  invalidate_problem_data();
 
   if (num_cols == 0) {
     return;
@@ -424,19 +424,19 @@ void MindOptSolverBackend::add_cols(int num_cols,
 
 void MindOptSolverBackend::set_col_lower(int index, double value)
 {
-  m_prob_cached_ = false;
+  invalidate_problem_data();
   MDOsetdblattrelement(m_model_, MDO_DBL_ATTR_LB, index, value);
 }
 
 void MindOptSolverBackend::set_col_upper(int index, double value)
 {
-  m_prob_cached_ = false;
+  invalidate_problem_data();
   MDOsetdblattrelement(m_model_, MDO_DBL_ATTR_UB, index, value);
 }
 
 void MindOptSolverBackend::set_obj_coeff(int index, double value)
 {
-  m_prob_cached_ = false;
+  invalidate_problem_data();
   MDOsetdblattrelement(m_model_, MDO_DBL_ATTR_OBJ, index, value);
 }
 
@@ -445,7 +445,7 @@ void MindOptSolverBackend::set_obj_coeffs(const double* values, int num_cols)
   // `MDOsetdblattrarray(model, attr, first, len, values)` takes a
   // contiguous range — exactly the semantics we want here.  The C API
   // is not const-correct on the values pointer, so cast.
-  m_prob_cached_ = false;
+  invalidate_problem_data();
   if (num_cols <= 0) {
     return;
   }
@@ -465,7 +465,7 @@ void MindOptSolverBackend::add_row(int num_elements,
                                    double rowlb,
                                    double rowub)
 {
-  m_prob_cached_ = false;
+  invalidate_problem_data();
 
   const int rc = MDOaddrangeconstr(m_model_,
                                    num_elements,
@@ -484,7 +484,7 @@ void MindOptSolverBackend::add_rows(int num_rows,
                                     const double* rowlb,
                                     const double* rowub)
 {
-  m_prob_cached_ = false;
+  invalidate_problem_data();
 
   if (num_rows == 0) {
     return;
@@ -514,26 +514,26 @@ void MindOptSolverBackend::add_rows(int num_rows,
 
 void MindOptSolverBackend::set_row_lower(int index, double value)
 {
-  m_prob_cached_ = false;
+  invalidate_problem_data();
   MDOsetdblattrelement(m_model_, MDO_DBL_ATTR_LHS, index, value);
 }
 
 void MindOptSolverBackend::set_row_upper(int index, double value)
 {
-  m_prob_cached_ = false;
+  invalidate_problem_data();
   MDOsetdblattrelement(m_model_, MDO_DBL_ATTR_RHS, index, value);
 }
 
 void MindOptSolverBackend::set_row_bounds(int index, double lb, double ub)
 {
-  m_prob_cached_ = false;
+  invalidate_problem_data();
   MDOsetdblattrelement(m_model_, MDO_DBL_ATTR_LHS, index, lb);
   MDOsetdblattrelement(m_model_, MDO_DBL_ATTR_RHS, index, ub);
 }
 
 void MindOptSolverBackend::delete_rows(int num, const int* indices)
 {
-  m_prob_cached_ = false;
+  invalidate_problem_data();
 
   // MDOdelconstrs takes a mutable int* and may modify the array in-place
   // (e.g. sorting).  Copy to protect the caller's data.
@@ -553,7 +553,7 @@ double MindOptSolverBackend::get_coeff(int row, int col) const
 
 void MindOptSolverBackend::set_coeff(int row, int col, double value)
 {
-  m_prob_cached_ = false;
+  invalidate_problem_data();
   int cind = row;
   int vind = col;
   double val = value;
@@ -591,111 +591,135 @@ bool MindOptSolverBackend::is_integer(int index) const
 
 // ── cache helpers ────────────────────────────────────────────────────────
 
-void MindOptSolverBackend::cache_problem_data() const
+void MindOptSolverBackend::invalidate_problem_data() const noexcept
 {
-  if (m_prob_cached_) {
+  m_collb_cached_ = false;
+  m_colub_cached_ = false;
+  m_obj_cached_ = false;
+  m_rowbounds_cached_ = false;
+}
+
+void MindOptSolverBackend::fill_collb_if_needed() const
+{
+  if (m_collb_cached_) {
     return;
   }
-
   const int ncols = get_num_cols();
-  const int nrows = get_num_rows();
-
   m_collb_.resize(static_cast<size_t>(ncols));
-  m_colub_.resize(static_cast<size_t>(ncols));
-  m_obj_.resize(static_cast<size_t>(ncols));
-
   if (ncols > 0) {
     MDOgetdblattrarray(m_model_, MDO_DBL_ATTR_LB, 0, ncols, m_collb_.data());
+  }
+  m_collb_cached_ = true;
+}
+
+void MindOptSolverBackend::fill_colub_if_needed() const
+{
+  if (m_colub_cached_) {
+    return;
+  }
+  const int ncols = get_num_cols();
+  m_colub_.resize(static_cast<size_t>(ncols));
+  if (ncols > 0) {
     MDOgetdblattrarray(m_model_, MDO_DBL_ATTR_UB, 0, ncols, m_colub_.data());
+  }
+  m_colub_cached_ = true;
+}
+
+void MindOptSolverBackend::fill_obj_if_needed() const
+{
+  if (m_obj_cached_) {
+    return;
+  }
+  const int ncols = get_num_cols();
+  m_obj_.resize(static_cast<size_t>(ncols));
+  if (ncols > 0) {
     MDOgetdblattrarray(m_model_, MDO_DBL_ATTR_OBJ, 0, ncols, m_obj_.data());
   }
+  m_obj_cached_ = true;
+}
 
+void MindOptSolverBackend::fill_row_bounds_if_needed() const
+{
+  if (m_rowbounds_cached_) {
+    return;
+  }
+  const int nrows = get_num_rows();
   m_rowlb_.resize(static_cast<size_t>(nrows));
   m_rowub_.resize(static_cast<size_t>(nrows));
-
   if (nrows > 0) {
     MDOgetdblattrarray(m_model_, MDO_DBL_ATTR_LHS, 0, nrows, m_rowlb_.data());
     MDOgetdblattrarray(m_model_, MDO_DBL_ATTR_RHS, 0, nrows, m_rowub_.data());
   }
-
-  m_prob_cached_ = true;
-}
-
-void MindOptSolverBackend::fetch_solution() const
-{
-  // Always re-fetch from MindOpt into the storage vectors.  No
-  // backend-side validity flag: the LinearInterface
-  // (`populate_solution_cache_post_solve`) is the single source of
-  // truth post-solve and calls each accessor at most once per solve.
-  // Storage is retained so the returned raw pointer remains valid
-  // through the LI's `assign(...)` copy.
-  const int ncols = get_num_cols();
-  const int nrows = get_num_rows();
-
-  m_col_solution_.resize(static_cast<size_t>(ncols));
-  m_reduced_cost_.resize(static_cast<size_t>(ncols));
-  m_row_price_.resize(static_cast<size_t>(nrows));
-
-  if (ncols > 0) {
-    MDOgetdblattrarray(
-        m_model_, MDO_DBL_ATTR_X, 0, ncols, m_col_solution_.data());
-    MDOgetdblattrarray(
-        m_model_, MDO_DBL_ATTR_RC, 0, ncols, m_reduced_cost_.data());
-  }
-
-  if (nrows > 0) {
-    MDOgetdblattrarray(
-        m_model_, MDO_DBL_ATTR_DUAL_SOLN, 0, nrows, m_row_price_.data());
-  }
+  m_rowbounds_cached_ = true;
 }
 
 // ── solution access ──────────────────────────────────────────────────────
 
 const double* MindOptSolverBackend::col_lower() const
 {
-  cache_problem_data();
+  fill_collb_if_needed();
   return m_collb_.data();
 }
 
 const double* MindOptSolverBackend::col_upper() const
 {
-  cache_problem_data();
+  fill_colub_if_needed();
   return m_colub_.data();
 }
 
 const double* MindOptSolverBackend::obj_coefficients() const
 {
-  cache_problem_data();
+  fill_obj_if_needed();
   return m_obj_.data();
 }
 
 const double* MindOptSolverBackend::row_lower() const
 {
-  cache_problem_data();
+  fill_row_bounds_if_needed();
   return m_rowlb_.data();
 }
 
 const double* MindOptSolverBackend::row_upper() const
 {
-  cache_problem_data();
+  fill_row_bounds_if_needed();
   return m_rowub_.data();
 }
 
+// Solution accessors: each refills *only its own* buffer via the
+// matching MDOgetdblattrarray.  No cross-accessor work, no validity
+// flag, no caching semantics — the buffer is plain scratch storage
+// for the C-API write target.  The single caching layer is in
+// `LinearInterface::populate_solution_cache_post_solve`.
 const double* MindOptSolverBackend::col_solution() const
 {
-  fetch_solution();
+  const int ncols = get_num_cols();
+  m_col_solution_.resize(static_cast<size_t>(ncols));
+  if (ncols > 0) {
+    MDOgetdblattrarray(
+        m_model_, MDO_DBL_ATTR_X, 0, ncols, m_col_solution_.data());
+  }
   return m_col_solution_.data();
 }
 
 const double* MindOptSolverBackend::reduced_cost() const
 {
-  fetch_solution();
+  const int ncols = get_num_cols();
+  m_reduced_cost_.resize(static_cast<size_t>(ncols));
+  if (ncols > 0) {
+    MDOgetdblattrarray(
+        m_model_, MDO_DBL_ATTR_RC, 0, ncols, m_reduced_cost_.data());
+  }
   return m_reduced_cost_.data();
 }
 
 const double* MindOptSolverBackend::row_price() const
 {
-  fetch_solution();
+  const int nrows = get_num_rows();
+  m_row_price_.resize(static_cast<size_t>(nrows));
+  if (nrows > 0) {
+    MDOgetdblattrarray(
+        m_model_, MDO_DBL_ATTR_DUAL_SOLN, 0, nrows, m_row_price_.data());
+  }
   return m_row_price_.data();
 }
 

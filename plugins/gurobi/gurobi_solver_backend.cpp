@@ -219,7 +219,7 @@ void GurobiSolverBackend::reset_model_()
   GRBsetintattr(m_model_, GRB_INT_ATTR_MODELSENSE, GRB_MINIMIZE);
   m_rowlb_local_.clear();
   m_rowub_local_.clear();
-  m_prob_cached_ = false;
+  invalidate_problem_data();
   m_dirty_ = true;
 }
 
@@ -434,7 +434,7 @@ int GurobiSolverBackend::get_num_rows() const
 
 void GurobiSolverBackend::add_col(double lb, double ub, double obj)
 {
-  m_prob_cached_ = false;
+  invalidate_problem_data();
   const int rc = GRBaddvar(
       m_model_, 0, nullptr, nullptr, obj, lb, ub, GRB_CONTINUOUS, nullptr);
   check_error(rc, "GRBaddvar");
@@ -449,7 +449,7 @@ void GurobiSolverBackend::add_cols(int num_cols,
                                    const double* colub,
                                    const double* colobj)
 {
-  m_prob_cached_ = false;
+  invalidate_problem_data();
 
   if (num_cols == 0) {
     return;
@@ -480,21 +480,21 @@ void GurobiSolverBackend::add_cols(int num_cols,
 
 void GurobiSolverBackend::set_col_lower(int index, double value)
 {
-  m_prob_cached_ = false;
+  invalidate_problem_data();
   GRBsetdblattrelement(m_model_, GRB_DBL_ATTR_LB, index, value);
   m_dirty_ = true;
 }
 
 void GurobiSolverBackend::set_col_upper(int index, double value)
 {
-  m_prob_cached_ = false;
+  invalidate_problem_data();
   GRBsetdblattrelement(m_model_, GRB_DBL_ATTR_UB, index, value);
   m_dirty_ = true;
 }
 
 void GurobiSolverBackend::set_obj_coeff(int index, double value)
 {
-  m_prob_cached_ = false;
+  invalidate_problem_data();
   GRBsetdblattrelement(m_model_, GRB_DBL_ATTR_OBJ, index, value);
   m_dirty_ = true;
 }
@@ -503,7 +503,7 @@ void GurobiSolverBackend::set_obj_coeffs(const double* values, int num_cols)
 {
   // `GRBsetdblattrarray(model, attr, first, len, values)` is range-based.
   // The C API is not const-correct on the values pointer, so cast.
-  m_prob_cached_ = false;
+  invalidate_problem_data();
   if (num_cols <= 0) {
     return;
   }
@@ -524,7 +524,7 @@ void GurobiSolverBackend::add_row(int num_elements,
                                   double rowlb,
                                   double rowub)
 {
-  m_prob_cached_ = false;
+  invalidate_problem_data();
 
   const int rc = GRBaddrangeconstr(m_model_,
                                    num_elements,
@@ -546,7 +546,7 @@ void GurobiSolverBackend::add_rows(int num_rows,
                                    const double* rowlb,
                                    const double* rowub)
 {
-  m_prob_cached_ = false;
+  invalidate_problem_data();
 
   if (num_rows == 0) {
     return;
@@ -585,7 +585,7 @@ void GurobiSolverBackend::add_rows(int num_rows,
 
 void GurobiSolverBackend::set_row_lower(int index, double value)
 {
-  m_prob_cached_ = false;
+  invalidate_problem_data();
   const auto idx = static_cast<size_t>(index);
   if (idx < m_rowlb_local_.size()) {
     m_rowlb_local_[idx] = value;
@@ -601,7 +601,7 @@ void GurobiSolverBackend::set_row_lower(int index, double value)
 
 void GurobiSolverBackend::set_row_upper(int index, double value)
 {
-  m_prob_cached_ = false;
+  invalidate_problem_data();
   const auto idx = static_cast<size_t>(index);
   if (idx < m_rowub_local_.size()) {
     m_rowub_local_[idx] = value;
@@ -612,7 +612,7 @@ void GurobiSolverBackend::set_row_upper(int index, double value)
 
 void GurobiSolverBackend::set_row_bounds(int index, double lb, double ub)
 {
-  m_prob_cached_ = false;
+  invalidate_problem_data();
   const auto idx = static_cast<size_t>(index);
   if (idx < m_rowlb_local_.size()) {
     m_rowlb_local_[idx] = lb;
@@ -629,7 +629,7 @@ void GurobiSolverBackend::set_row_bounds(int index, double lb, double ub)
 
 void GurobiSolverBackend::delete_rows(int num, const int* indices)
 {
-  m_prob_cached_ = false;
+  invalidate_problem_data();
 
   // Gurobi mutates the index array in-place (sorts it); copy to protect
   // caller data.
@@ -666,7 +666,7 @@ double GurobiSolverBackend::get_coeff(int row, int col) const
 
 void GurobiSolverBackend::set_coeff(int row, int col, double value)
 {
-  m_prob_cached_ = false;
+  invalidate_problem_data();
   int cind = row;
   int vind = col;
   double val = value;
@@ -708,75 +708,72 @@ bool GurobiSolverBackend::is_integer(int index) const
 
 // ── cache helpers ────────────────────────────────────────────────────────
 
-void GurobiSolverBackend::cache_problem_data() const
+void GurobiSolverBackend::invalidate_problem_data() const noexcept
 {
-  if (m_prob_cached_) {
+  m_collb_cached_ = false;
+  m_colub_cached_ = false;
+  m_obj_cached_ = false;
+}
+
+void GurobiSolverBackend::fill_collb_if_needed() const
+{
+  if (m_collb_cached_) {
     return;
   }
   ensure_updated_();
-
   const int ncols = get_num_cols();
-
   m_collb_.resize(static_cast<size_t>(ncols));
-  m_colub_.resize(static_cast<size_t>(ncols));
-  m_obj_.resize(static_cast<size_t>(ncols));
-
   if (ncols > 0) {
     GRBgetdblattrarray(m_model_, GRB_DBL_ATTR_LB, 0, ncols, m_collb_.data());
-    GRBgetdblattrarray(m_model_, GRB_DBL_ATTR_UB, 0, ncols, m_colub_.data());
-    GRBgetdblattrarray(m_model_, GRB_DBL_ATTR_OBJ, 0, ncols, m_obj_.data());
   }
-
-  m_prob_cached_ = true;
+  m_collb_cached_ = true;
 }
 
-void GurobiSolverBackend::fetch_solution() const
+void GurobiSolverBackend::fill_colub_if_needed() const
 {
-  // Always re-fetch from Gurobi into the storage vectors.  No
-  // backend-side validity flag: the LinearInterface
-  // (`populate_solution_cache_post_solve`) is the single source of
-  // truth post-solve and calls each accessor at most once per solve.
-  // Storage is retained so the returned raw pointer remains valid
-  // through the LI's `assign(...)` copy.
+  if (m_colub_cached_) {
+    return;
+  }
   ensure_updated_();
-
   const int ncols = get_num_cols();
-  const int nrows = get_num_rows();
-
-  m_col_solution_.resize(static_cast<size_t>(ncols));
-  m_reduced_cost_.resize(static_cast<size_t>(ncols));
-  m_row_price_.resize(static_cast<size_t>(nrows));
-
+  m_colub_.resize(static_cast<size_t>(ncols));
   if (ncols > 0) {
-    GRBgetdblattrarray(
-        m_model_, GRB_DBL_ATTR_X, 0, ncols, m_col_solution_.data());
-    GRBgetdblattrarray(
-        m_model_, GRB_DBL_ATTR_RC, 0, ncols, m_reduced_cost_.data());
+    GRBgetdblattrarray(m_model_, GRB_DBL_ATTR_UB, 0, ncols, m_colub_.data());
   }
+  m_colub_cached_ = true;
+}
 
-  if (nrows > 0) {
-    GRBgetdblattrarray(
-        m_model_, GRB_DBL_ATTR_PI, 0, nrows, m_row_price_.data());
+void GurobiSolverBackend::fill_obj_if_needed() const
+{
+  if (m_obj_cached_) {
+    return;
   }
+  ensure_updated_();
+  const int ncols = get_num_cols();
+  m_obj_.resize(static_cast<size_t>(ncols));
+  if (ncols > 0) {
+    GRBgetdblattrarray(m_model_, GRB_DBL_ATTR_OBJ, 0, ncols, m_obj_.data());
+  }
+  m_obj_cached_ = true;
 }
 
 // ── solution access ──────────────────────────────────────────────────────
 
 const double* GurobiSolverBackend::col_lower() const
 {
-  cache_problem_data();
+  fill_collb_if_needed();
   return m_collb_.data();
 }
 
 const double* GurobiSolverBackend::col_upper() const
 {
-  cache_problem_data();
+  fill_colub_if_needed();
   return m_colub_.data();
 }
 
 const double* GurobiSolverBackend::obj_coefficients() const
 {
-  cache_problem_data();
+  fill_obj_if_needed();
   return m_obj_.data();
 }
 
@@ -790,21 +787,44 @@ const double* GurobiSolverBackend::row_upper() const
   return m_rowub_local_.data();
 }
 
+// Solution accessors: each refills *only its own* buffer via the
+// matching GRBgetdblattrarray.  No cross-accessor work, no validity
+// flag, no caching semantics — the buffer is plain scratch storage
+// for the C-API write target.  The single caching layer is in
+// `LinearInterface::populate_solution_cache_post_solve`.
 const double* GurobiSolverBackend::col_solution() const
 {
-  fetch_solution();
+  ensure_updated_();
+  const int ncols = get_num_cols();
+  m_col_solution_.resize(static_cast<size_t>(ncols));
+  if (ncols > 0) {
+    GRBgetdblattrarray(
+        m_model_, GRB_DBL_ATTR_X, 0, ncols, m_col_solution_.data());
+  }
   return m_col_solution_.data();
 }
 
 const double* GurobiSolverBackend::reduced_cost() const
 {
-  fetch_solution();
+  ensure_updated_();
+  const int ncols = get_num_cols();
+  m_reduced_cost_.resize(static_cast<size_t>(ncols));
+  if (ncols > 0) {
+    GRBgetdblattrarray(
+        m_model_, GRB_DBL_ATTR_RC, 0, ncols, m_reduced_cost_.data());
+  }
   return m_reduced_cost_.data();
 }
 
 const double* GurobiSolverBackend::row_price() const
 {
-  fetch_solution();
+  ensure_updated_();
+  const int nrows = get_num_rows();
+  m_row_price_.resize(static_cast<size_t>(nrows));
+  if (nrows > 0) {
+    GRBgetdblattrarray(
+        m_model_, GRB_DBL_ATTR_PI, 0, nrows, m_row_price_.data());
+  }
   return m_row_price_.data();
 }
 

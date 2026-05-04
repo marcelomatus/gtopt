@@ -407,20 +407,14 @@ bool HighsSolverBackend::is_integer(int index) const
   return !is_continuous(index);
 }
 
-void HighsSolverBackend::fetch_solution() const
-{
-  // Always re-fetch from HiGHS into the storage vectors.  No
-  // backend-side validity flag: the LinearInterface
-  // (`populate_solution_cache_post_solve`) is the single source of
-  // truth post-solve and calls each accessor at most once per solve.
-  // Storage is retained so the returned raw pointer remains valid
-  // through the LI's `assign(...)` copy.
-  const auto& solution = m_highs_->getSolution();
-  m_col_solution_ = solution.col_value;
-  m_col_dual_ = solution.col_dual;
-  m_row_dual_ = solution.row_dual;
-}
-
+// Problem-data and solution accessors all delegate directly to HiGHS
+// internal storage — no plugin-level buffer is needed.  HiGHS's
+// `getLp()` and `getSolution()` return `const HighsLp&` /
+// `const HighsSolution&` whose `col_lower_/col_upper_/.../col_value/...`
+// are `std::vector<double>` whose internal buffer is valid until the
+// next mutation through the `Highs` instance.  The pointer returned
+// here therefore satisfies the SolverBackend contract ("valid until
+// the next call that mutates the LP") without any copy.
 const double* HighsSolverBackend::col_lower() const
 {
   return m_highs_->getLp().col_lower_.data();
@@ -448,20 +442,17 @@ const double* HighsSolverBackend::row_upper() const
 
 const double* HighsSolverBackend::col_solution() const
 {
-  fetch_solution();
-  return m_col_solution_.data();
+  return m_highs_->getSolution().col_value.data();
 }
 
 const double* HighsSolverBackend::reduced_cost() const
 {
-  fetch_solution();
-  return m_col_dual_.data();
+  return m_highs_->getSolution().col_dual.data();
 }
 
 const double* HighsSolverBackend::row_price() const
 {
-  fetch_solution();
-  return m_row_dual_.data();
+  return m_highs_->getSolution().row_dual.data();
 }
 
 double HighsSolverBackend::obj_value() const

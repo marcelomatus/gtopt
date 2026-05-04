@@ -363,7 +363,7 @@ void CplexSolverBackend::load_problem(int ncols,
                                       const double* rowlb,
                                       const double* rowub)
 {
-  m_prob_cached_ = false;
+  invalidate_problem_data();
   m_solve_status_ = 0;
 
   // Cycle the entire CPLEX env+lp pair so every byte of per-LP state that
@@ -526,7 +526,7 @@ int CplexSolverBackend::get_num_rows() const
 
 void CplexSolverBackend::add_col(double lb, double ub, double obj)
 {
-  m_prob_cached_ = false;
+  invalidate_problem_data();
   const int matbeg = 0;
   CPXaddcols(m_env_lp_.env(),
              m_env_lp_.lp(),
@@ -549,7 +549,7 @@ void CplexSolverBackend::add_cols(int num_cols,
                                   const double* colub,
                                   const double* colobj)
 {
-  m_prob_cached_ = false;
+  invalidate_problem_data();
 
   if (num_cols == 0) {
     return;
@@ -582,21 +582,21 @@ void CplexSolverBackend::add_cols(int num_cols,
 
 void CplexSolverBackend::set_col_lower(int index, double value)
 {
-  m_prob_cached_ = false;
+  invalidate_problem_data();
   const char bound_type = 'L';
   CPXchgbds(m_env_lp_.env(), m_env_lp_.lp(), 1, &index, &bound_type, &value);
 }
 
 void CplexSolverBackend::set_col_upper(int index, double value)
 {
-  m_prob_cached_ = false;
+  invalidate_problem_data();
   const char bound_type = 'U';
   CPXchgbds(m_env_lp_.env(), m_env_lp_.lp(), 1, &index, &bound_type, &value);
 }
 
 void CplexSolverBackend::set_obj_coeff(int index, double value)
 {
-  m_prob_cached_ = false;
+  invalidate_problem_data();
   CPXchgobj(m_env_lp_.env(), m_env_lp_.lp(), 1, &index, &value);
 }
 
@@ -607,7 +607,7 @@ void CplexSolverBackend::set_obj_coeffs(const double* values, int num_cols)
   // single bulk call.  Use `std::iota` for clarity; the allocation is
   // amortised across `num_cols` per-element bookkeeping events that the
   // loop variant would have triggered.
-  m_prob_cached_ = false;
+  invalidate_problem_data();
   if (num_cols <= 0) {
     return;
   }
@@ -622,7 +622,7 @@ void CplexSolverBackend::add_row(int num_elements,
                                  double rowlb,
                                  double rowub)
 {
-  m_prob_cached_ = false;
+  invalidate_problem_data();
 
   char sense {};
   double rhs {};
@@ -661,7 +661,7 @@ void CplexSolverBackend::add_rows(int num_rows,
                                   const double* rowlb,
                                   const double* rowub)
 {
-  m_prob_cached_ = false;
+  invalidate_problem_data();
 
   // Convert lb/ub bounds to CPLEX sense/rhs/range vectors
   std::vector<char> senses(static_cast<size_t>(num_rows));
@@ -703,7 +703,7 @@ void CplexSolverBackend::add_rows(int num_rows,
 
 void CplexSolverBackend::set_row_lower(int index, double value)
 {
-  m_prob_cached_ = false;
+  invalidate_problem_data();
 
   // Get current row upper bound to recompute sense/rhs/range
   char old_sense {};
@@ -734,7 +734,7 @@ void CplexSolverBackend::set_row_lower(int index, double value)
 
 void CplexSolverBackend::set_row_upper(int index, double value)
 {
-  m_prob_cached_ = false;
+  invalidate_problem_data();
 
   char old_sense {};
   double old_rhs {};
@@ -758,7 +758,7 @@ void CplexSolverBackend::set_row_upper(int index, double value)
 
 void CplexSolverBackend::set_row_bounds(int index, double lb, double ub)
 {
-  m_prob_cached_ = false;
+  invalidate_problem_data();
 
   char new_sense {};
   double new_rhs {};
@@ -772,7 +772,7 @@ void CplexSolverBackend::set_row_bounds(int index, double lb, double ub)
 
 void CplexSolverBackend::delete_rows(int num, const int* indices)
 {
-  m_prob_cached_ = false;
+  invalidate_problem_data();
 
   // CPXdelrows expects a sorted range [begin, end].
   // We need to delete individual indices — use CPXdelsetrows with a delstat
@@ -798,7 +798,7 @@ double CplexSolverBackend::get_coeff(int row, int col) const
 
 void CplexSolverBackend::set_coeff(int row, int col, double value)
 {
-  m_prob_cached_ = false;
+  invalidate_problem_data();
   CPXchgcoef(m_env_lp_.env(), m_env_lp_.lp(), row, col, value);
 }
 
@@ -844,28 +844,61 @@ bool CplexSolverBackend::is_integer(int index) const
   return !is_continuous(index);
 }
 
-void CplexSolverBackend::cache_problem_data() const
+void CplexSolverBackend::invalidate_problem_data() const noexcept
 {
-  if (m_prob_cached_) {
+  m_collb_cached_ = false;
+  m_colub_cached_ = false;
+  m_obj_cached_ = false;
+  m_rowbounds_cached_ = false;
+}
+
+void CplexSolverBackend::fill_collb_if_needed() const
+{
+  if (m_collb_cached_) {
     return;
   }
-
   const int ncols = CPXgetnumcols(m_env_lp_.env(), m_env_lp_.lp());
-  const int nrows = CPXgetnumrows(m_env_lp_.env(), m_env_lp_.lp());
-
   m_collb_.resize(static_cast<size_t>(ncols));
-  m_colub_.resize(static_cast<size_t>(ncols));
-  m_obj_.resize(static_cast<size_t>(ncols));
-
   if (ncols > 0) {
     CPXgetlb(m_env_lp_.env(), m_env_lp_.lp(), m_collb_.data(), 0, ncols - 1);
+  }
+  m_collb_cached_ = true;
+}
+
+void CplexSolverBackend::fill_colub_if_needed() const
+{
+  if (m_colub_cached_) {
+    return;
+  }
+  const int ncols = CPXgetnumcols(m_env_lp_.env(), m_env_lp_.lp());
+  m_colub_.resize(static_cast<size_t>(ncols));
+  if (ncols > 0) {
     CPXgetub(m_env_lp_.env(), m_env_lp_.lp(), m_colub_.data(), 0, ncols - 1);
+  }
+  m_colub_cached_ = true;
+}
+
+void CplexSolverBackend::fill_obj_if_needed() const
+{
+  if (m_obj_cached_) {
+    return;
+  }
+  const int ncols = CPXgetnumcols(m_env_lp_.env(), m_env_lp_.lp());
+  m_obj_.resize(static_cast<size_t>(ncols));
+  if (ncols > 0) {
     CPXgetobj(m_env_lp_.env(), m_env_lp_.lp(), m_obj_.data(), 0, ncols - 1);
   }
+  m_obj_cached_ = true;
+}
 
+void CplexSolverBackend::fill_row_bounds_if_needed() const
+{
+  if (m_rowbounds_cached_) {
+    return;
+  }
+  const int nrows = CPXgetnumrows(m_env_lp_.env(), m_env_lp_.lp());
   m_rowlb_.resize(static_cast<size_t>(nrows));
   m_rowub_.resize(static_cast<size_t>(nrows));
-
   if (nrows > 0) {
     std::vector<char> sense(static_cast<size_t>(nrows));
     std::vector<double> rhs(static_cast<size_t>(nrows));
@@ -873,7 +906,6 @@ void CplexSolverBackend::cache_problem_data() const
     CPXgetsense(m_env_lp_.env(), m_env_lp_.lp(), sense.data(), 0, nrows - 1);
     CPXgetrhs(m_env_lp_.env(), m_env_lp_.lp(), rhs.data(), 0, nrows - 1);
     CPXgetrngval(m_env_lp_.env(), m_env_lp_.lp(), range.data(), 0, nrows - 1);
-
     for (int i = 0; i < nrows; ++i) {
       const auto idx = static_cast<size_t>(i);
       m_rowlb_[idx] =
@@ -882,83 +914,74 @@ void CplexSolverBackend::cache_problem_data() const
           cplex_row_ub(sense[idx], rhs[idx], range[idx], CPX_INFBOUND);
     }
   }
-
-  m_prob_cached_ = true;
-}
-
-void CplexSolverBackend::fetch_solution() const
-{
-  // Always re-fetch from CPLEX into the storage vectors.  No
-  // backend-side validity flag: the LinearInterface
-  // (`populate_solution_cache_post_solve`) is the single source of
-  // truth post-solve and calls each accessor at most once per solve.
-  // Storage is retained so the returned raw pointer remains valid
-  // through the LI's `assign(...)` copy.
-  const int ncols = CPXgetnumcols(m_env_lp_.env(), m_env_lp_.lp());
-  const int nrows = CPXgetnumrows(m_env_lp_.env(), m_env_lp_.lp());
-
-  m_col_solution_.resize(static_cast<size_t>(ncols));
-  m_reduced_cost_.resize(static_cast<size_t>(ncols));
-  m_row_price_.resize(static_cast<size_t>(nrows));
-
-  if (ncols > 0) {
-    CPXgetx(
-        m_env_lp_.env(), m_env_lp_.lp(), m_col_solution_.data(), 0, ncols - 1);
-    CPXgetdj(
-        m_env_lp_.env(), m_env_lp_.lp(), m_reduced_cost_.data(), 0, ncols - 1);
-  }
-
-  if (nrows > 0) {
-    CPXgetpi(
-        m_env_lp_.env(), m_env_lp_.lp(), m_row_price_.data(), 0, nrows - 1);
-  }
+  m_rowbounds_cached_ = true;
 }
 
 const double* CplexSolverBackend::col_lower() const
 {
-  cache_problem_data();
+  fill_collb_if_needed();
   return m_collb_.data();
 }
 
 const double* CplexSolverBackend::col_upper() const
 {
-  cache_problem_data();
+  fill_colub_if_needed();
   return m_colub_.data();
 }
 
 const double* CplexSolverBackend::obj_coefficients() const
 {
-  cache_problem_data();
+  fill_obj_if_needed();
   return m_obj_.data();
 }
 
 const double* CplexSolverBackend::row_lower() const
 {
-  cache_problem_data();
+  fill_row_bounds_if_needed();
   return m_rowlb_.data();
 }
 
 const double* CplexSolverBackend::row_upper() const
 {
-  cache_problem_data();
+  fill_row_bounds_if_needed();
   return m_rowub_.data();
 }
 
+// Solution accessors: each refills *only its own* buffer via the
+// matching CPXget* call.  No cross-accessor work, no validity flag,
+// no caching semantics — the buffer is plain scratch storage for the
+// C-API write target.  The single caching layer is in
+// `LinearInterface::populate_solution_cache_post_solve`.
 const double* CplexSolverBackend::col_solution() const
 {
-  fetch_solution();
+  const int ncols = CPXgetnumcols(m_env_lp_.env(), m_env_lp_.lp());
+  m_col_solution_.resize(static_cast<size_t>(ncols));
+  if (ncols > 0) {
+    CPXgetx(
+        m_env_lp_.env(), m_env_lp_.lp(), m_col_solution_.data(), 0, ncols - 1);
+  }
   return m_col_solution_.data();
 }
 
 const double* CplexSolverBackend::reduced_cost() const
 {
-  fetch_solution();
+  const int ncols = CPXgetnumcols(m_env_lp_.env(), m_env_lp_.lp());
+  m_reduced_cost_.resize(static_cast<size_t>(ncols));
+  if (ncols > 0) {
+    CPXgetdj(
+        m_env_lp_.env(), m_env_lp_.lp(), m_reduced_cost_.data(), 0, ncols - 1);
+  }
   return m_reduced_cost_.data();
 }
 
 const double* CplexSolverBackend::row_price() const
 {
-  fetch_solution();
+  const int nrows = CPXgetnumrows(m_env_lp_.env(), m_env_lp_.lp());
+  m_row_price_.resize(static_cast<size_t>(nrows));
+  if (nrows > 0) {
+    CPXgetpi(
+        m_env_lp_.env(), m_env_lp_.lp(), m_row_price_.data(), 0, nrows - 1);
+  }
   return m_row_price_.data();
 }
 

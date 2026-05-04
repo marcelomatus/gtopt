@@ -210,15 +210,19 @@ public:
   [[nodiscard]] std::unique_ptr<SolverBackend> clone() const override;
 
 private:
-  void cache_problem_data() const;
-  /// Fetch the just-solved primal/dual/reduced-cost vectors from
-  /// CPLEX into the mutable storage members.  Always re-queries the
-  /// solver — there is no per-instance cache flag because the LI
-  /// (`linear_interface.hpp::populate_solution_cache_post_solve`)
-  /// is now the single source of truth and calls each accessor at
-  /// most once per solve.  Storage is retained so the returned
-  /// pointer remains valid for the LI's `assign(...)` consumer.
-  void fetch_solution() const;
+  /// Per-member lazy fillers for the problem-data getters.  Each fills
+  /// its own buffer on demand and trips its own cached flag.  Mutations
+  /// invalidate every flag via `invalidate_problem_data()` so the next
+  /// read re-queries CPLEX — but only for the buffer the caller asks
+  /// for, sparing the unread members.  Production paths read only
+  /// `col_lower`/`col_upper` (via `LinearInterface::ScaledView`); the
+  /// other three (`obj_coefficients`, `row_lower`, `row_upper`) are
+  /// populated only when test paths request them.
+  void fill_collb_if_needed() const;
+  void fill_colub_if_needed() const;
+  void fill_obj_if_needed() const;
+  void fill_row_bounds_if_needed() const;
+  void invalidate_problem_data() const noexcept;
 
   /// Re-open env+lp from scratch with all cached preparation applied.
   void reset_env_lp();
@@ -226,20 +230,29 @@ private:
   CplexEnvLp m_env_lp_;
   CplexPrep m_prep_;
 
-  mutable bool m_prob_cached_ {false};
+  // Per-member problem-data caches.  `m_rowbounds_cached_` covers
+  // both `m_rowlb_` and `m_rowub_` — they share the CPXgetsense+
+  // CPXgetrhs+CPXgetrngval round-trip, so splitting them would
+  // duplicate work.
+  mutable bool m_collb_cached_ {false};
+  mutable bool m_colub_cached_ {false};
+  mutable bool m_obj_cached_ {false};
+  mutable bool m_rowbounds_cached_ {false};
   mutable std::vector<double> m_collb_;
   mutable std::vector<double> m_colub_;
   mutable std::vector<double> m_obj_;
   mutable std::vector<double> m_rowlb_;
   mutable std::vector<double> m_rowub_;
 
-  /// Storage for the primal/dual/reduced-cost pointers returned by
-  /// `col_solution()` / `reduced_cost()` / `row_price()`.  These
-  /// vectors are always re-filled from CPLEX inside `fetch_solution`;
-  /// there is no validity flag because the LinearInterface's eager
-  /// post-solve cache is the single source of truth (one fetch per
-  /// accessor per solve), and the storage just exists so the
-  /// returned raw pointer outlives the function call.
+  /// C-API write target for `col_solution()` / `reduced_cost()` /
+  /// `row_price()`.  Each accessor refills *only its own* buffer on
+  /// every call (via the matching CPXget*) — this is plain scratch
+  /// storage, not a cache: there is no validity flag, no caching
+  /// semantics, and no cross-accessor refill.  The storage exists
+  /// because CPLEX's C-API takes a caller-owned write buffer and the
+  /// returned pointer must outlive the function call.  The
+  /// LinearInterface's `populate_solution_cache_post_solve` is the
+  /// single caching layer in the architecture.
   mutable std::vector<double> m_col_solution_;
   mutable std::vector<double> m_reduced_cost_;
   mutable std::vector<double> m_row_price_;

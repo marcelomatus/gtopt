@@ -183,15 +183,19 @@ public:
   [[nodiscard]] std::unique_ptr<SolverBackend> clone() const override;
 
 private:
-  void cache_problem_data() const;
-  /// Fetch the just-solved primal/dual/reduced-cost vectors from
-  /// Gurobi into the mutable storage members.  Always re-queries the
-  /// solver — there is no per-instance cache flag because the LI
-  /// (`linear_interface.hpp::populate_solution_cache_post_solve`) is
-  /// now the single source of truth and calls each accessor at most
-  /// once per solve.  Storage is retained so the returned pointer
-  /// remains valid for the LI's `assign(...)` consumer.
-  void fetch_solution() const;
+  /// Per-member lazy fillers for the problem-data getters.  Each fills
+  /// its own buffer on demand and trips its own cached flag.  Mutations
+  /// invalidate every flag via `invalidate_problem_data()` so the next
+  /// read re-queries Gurobi — but only for the buffer the caller asks
+  /// for, sparing the unread members.  Production paths read only
+  /// `col_lower`/`col_upper` (via `LinearInterface::ScaledView`); the
+  /// `obj_coefficients` member is populated only when test paths
+  /// request it.  Row-bound members live in `m_rowlb_local_` /
+  /// `m_rowub_local_` and are maintained directly (no flag needed).
+  void fill_collb_if_needed() const;
+  void fill_colub_if_needed() const;
+  void fill_obj_if_needed() const;
+  void invalidate_problem_data() const noexcept;
   void check_error(int rc, const char* func) const;
 
   /// Flush any pending model changes via GRBupdatemodel if the dirty
@@ -215,7 +219,13 @@ private:
   /// issued, and call GRBupdatemodel before any read.
   mutable bool m_dirty_ {false};
 
-  mutable bool m_prob_cached_ {false};
+  // Per-member problem-data caches.  Only the three Gurobi-attribute-
+  // backed members need flags; row bounds live in m_rowlb_local_/
+  // m_rowub_local_ (we maintain them ourselves because Gurobi range
+  // constraints are awkward to read back via attributes).
+  mutable bool m_collb_cached_ {false};
+  mutable bool m_colub_cached_ {false};
+  mutable bool m_obj_cached_ {false};
   mutable std::vector<double> m_collb_;
   mutable std::vector<double> m_colub_;
   mutable std::vector<double> m_obj_;
@@ -226,13 +236,13 @@ private:
   std::vector<double> m_rowlb_local_;
   std::vector<double> m_rowub_local_;
 
-  /// Storage for the primal/dual/reduced-cost pointers returned by
-  /// `col_solution()` / `reduced_cost()` / `row_price()`.  These
-  /// vectors are always re-filled from Gurobi inside `fetch_solution`;
-  /// there is no validity flag because the LinearInterface's eager
-  /// post-solve cache is the single source of truth (one fetch per
-  /// accessor per solve), and the storage just exists so the
-  /// returned raw pointer outlives the function call.
+  /// C-API write target for `col_solution()` / `reduced_cost()` /
+  /// `row_price()`.  Each accessor refills *only its own* buffer on
+  /// every call (via the matching GRBgetdblattrarray) — this is plain
+  /// scratch storage, not a cache: there is no validity flag, no
+  /// caching semantics, and no cross-accessor refill.  The single
+  /// caching layer is in
+  /// `LinearInterface::populate_solution_cache_post_solve`.
   mutable std::vector<double> m_col_solution_;
   mutable std::vector<double> m_reduced_cost_;
   mutable std::vector<double> m_row_price_;

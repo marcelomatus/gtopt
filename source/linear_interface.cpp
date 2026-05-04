@@ -366,9 +366,16 @@ void LinearInterface::populate_solution_cache_post_solve() noexcept
   // reports a fresh solve.  Snapshots primal/dual/reduced-cost vectors
   // into the LI cache so downstream readers (OutputContext, Benders
   // cut assembly, SDDP state propagation, write_out, …) all consult
-  // the SAME buffer.  Plugin backends no longer maintain an internal
-  // solution cache (single source of truth post the plugin-cache
-  // removal refactor).
+  // the SAME buffer.
+  //
+  // Plugin-side state: each non-OSI/non-HiGHS backend (CPLEX, MindOpt,
+  // Gurobi) holds a small `mutable std::vector<double>` per solution
+  // accessor as the C-API write target — the buffer is plain scratch
+  // storage with no caching semantics (refilled on every call), and
+  // the LI cache below is the single layer that survives across the
+  // backend's lifetime.  OSI returns a pointer into the live solver
+  // (CLP) and HiGHS into `Highs::getSolution()` — no plugin storage
+  // at all in those two.
   //
   // **Off-mode invariant (I6):** under `LowMemoryMode::off` the LI
   // cache MUST stay empty — the live backend is always available and
