@@ -1357,6 +1357,39 @@ TEST_CASE("ReservoirSeepageLP - update_lp with different eini segment")
   auto result2 = lp.resolve();
   REQUIRE(result2.has_value());
   CHECK(result2.value() == 0);
+
+  // ── Regression: simulate the compress-mode `load_flat` revert ──
+  //
+  // Under `LowMemoryMode::compress`, `release_backend` →
+  // `reconstruct_backend` reloads matval/RHS from the snapshot —
+  // every `update_lp_for_phase` mutation is wiped.  In-memory
+  // `state.current_*` survives unchanged, so the previous bug was
+  // an early-return based on a stale memory predicate, leaving the
+  // live LP at construction-time values while cuts assumed updated
+  // values → primal-infeasible backward re-solves.
+  //
+  // Mirror the bug pattern via the public solve API: solve once
+  // (capture the solution that depends on the active seepage
+  // segment), then RESOLVE without re-issuing update_lp — the
+  // solution must remain consistent because update_lp is a no-op
+  // when the segment hasn't changed.  The post-fix `update_lp`
+  // ALWAYS issues the writes (to keep compress/off symmetric),
+  // which is observable via `updated >= 1` even on a no-segment-
+  // change call.  Two consecutive `update_lp` calls on the same
+  // state must each report >=1 (always-re-issue contract).
+  SUBCASE("update_lp always re-issues even when state is unchanged")
+  {
+    const auto updated_first = system_lp.update_lp();
+    CHECK(updated_first == 1);
+    // No state change since the previous call — pre-fix returned 0
+    // here; post-fix still re-issues.
+    const auto updated_second = system_lp.update_lp();
+    CHECK(updated_second == 1);
+    // Resolving after the no-op-state update_lp must remain feasible.
+    auto resolved = lp.resolve();
+    REQUIRE(resolved.has_value());
+    CHECK(resolved.value() == 0);
+  }
 }
 
 TEST_CASE("ReservoirSeepageLP - zero-slope segment edge case")
