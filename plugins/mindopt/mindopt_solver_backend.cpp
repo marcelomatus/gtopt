@@ -723,6 +723,39 @@ const double* MindOptSolverBackend::row_price() const
   return m_row_price_.data();
 }
 
+// Span-out fills: write directly into the caller's buffer via the
+// MindOpt C-API, never touching the per-instance scratch members.
+
+void MindOptSolverBackend::fill_col_sol(std::span<double> out) const
+{
+  if (out.empty()) {
+    return;
+  }
+  MDOgetdblattrarray(
+      m_model_, MDO_DBL_ATTR_X, 0, static_cast<int>(out.size()), out.data());
+}
+
+void MindOptSolverBackend::fill_col_cost(std::span<double> out) const
+{
+  if (out.empty()) {
+    return;
+  }
+  MDOgetdblattrarray(
+      m_model_, MDO_DBL_ATTR_RC, 0, static_cast<int>(out.size()), out.data());
+}
+
+void MindOptSolverBackend::fill_row_dual(std::span<double> out) const
+{
+  if (out.empty()) {
+    return;
+  }
+  MDOgetdblattrarray(m_model_,
+                     MDO_DBL_ATTR_DUAL_SOLN,
+                     0,
+                     static_cast<int>(out.size()),
+                     out.data());
+}
+
 double MindOptSolverBackend::obj_value() const
 {
   double val = 0.0;

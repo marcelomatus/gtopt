@@ -12,9 +12,11 @@
 
 #pragma once
 
+#include <algorithm>
 #include <cstdio>
 #include <memory>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -32,7 +34,7 @@ namespace gtopt
  * SolverRegistry checks the plugin's reported ABI version at load time
  * and rejects incompatible plugins with a clear error instead of crashing.
  */
-inline constexpr int k_solver_abi_version = 7;
+inline constexpr int k_solver_abi_version = 8;
 
 /**
  * @brief Abstract interface for LP/MIP solver backends.
@@ -200,6 +202,51 @@ public:
   [[nodiscard]] virtual const double* reduced_cost() const = 0;
   [[nodiscard]] virtual const double* row_price() const = 0;
   [[nodiscard]] virtual double obj_value() const = 0;
+
+  // ---- solution access (span-out: write into caller-owned buffer) ----
+  //
+  // Span-out variants used by `LinearInterface::populate_solution_cache_`
+  // `post_solve` in compress / rebuild mode so the LI's `m_cached_*`
+  // is the sole destination — no plugin scratch buffer is touched.
+  // The off-mode read path keeps using the pointer-getters above.
+  //
+  // Naming mirrors the LI side:
+  //   fill_col_sol  → m_cached_col_sol_   (primal solution)
+  //   fill_col_cost → m_cached_col_cost_  (reduced cost / col dual)
+  //   fill_row_dual → m_cached_row_dual_  (row price / row dual)
+  //
+  // Contract:
+  //   * Caller sizes `out` to exactly `get_num_cols()` (resp.
+  //     `get_num_rows()` for `fill_row_dual`); the plugin writes
+  //     `out.size()` elements without bounds-checking.
+  //   * Empty span → no-op (plugin must tolerate `out.size() == 0`).
+  //   * No caching: every call re-queries the solver.  The plugin
+  //     does not retain the buffer beyond the call.
+  //
+  // Default implementation (in this header) memcpy's from the
+  // matching pointer-getter, so OSI and HiGHS — whose pointer-
+  // getters return into solver-internal memory directly — need no
+  // override.  CPLEX / MindOpt / Gurobi override to call the
+  // C-API write-into-buffer entry points (CPXgetx/CPXgetdj/CPXgetpi,
+  // MDOgetdblattrarray, GRBgetdblattrarray) directly with `out.data()`.
+  virtual void fill_col_sol(std::span<double> out) const
+  {
+    if (const auto* p = col_solution(); p != nullptr) {
+      std::copy_n(p, out.size(), out.data());
+    }
+  }
+  virtual void fill_col_cost(std::span<double> out) const
+  {
+    if (const auto* p = reduced_cost(); p != nullptr) {
+      std::copy_n(p, out.size(), out.data());
+    }
+  }
+  virtual void fill_row_dual(std::span<double> out) const
+  {
+    if (const auto* p = row_price(); p != nullptr) {
+      std::copy_n(p, out.size(), out.data());
+    }
+  }
 
   // ---- solution hints (warm start) ----
 

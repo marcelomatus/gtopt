@@ -985,6 +985,48 @@ const double* CplexSolverBackend::row_price() const
   return m_row_price_.data();
 }
 
+// Span-out fills: write directly into the caller's buffer via the
+// CPLEX C-API, never touching the per-instance scratch members.
+// Used by `LinearInterface::populate_solution_cache_post_solve` in
+// compress / rebuild mode so the LI's `m_cached_*` is the sole
+// destination — no plugin-side allocation, no second copy.
+
+void CplexSolverBackend::fill_col_sol(std::span<double> out) const
+{
+  if (out.empty()) {
+    return;
+  }
+  CPXgetx(m_env_lp_.env(),
+          m_env_lp_.lp(),
+          out.data(),
+          0,
+          static_cast<int>(out.size()) - 1);
+}
+
+void CplexSolverBackend::fill_col_cost(std::span<double> out) const
+{
+  if (out.empty()) {
+    return;
+  }
+  CPXgetdj(m_env_lp_.env(),
+           m_env_lp_.lp(),
+           out.data(),
+           0,
+           static_cast<int>(out.size()) - 1);
+}
+
+void CplexSolverBackend::fill_row_dual(std::span<double> out) const
+{
+  if (out.empty()) {
+    return;
+  }
+  CPXgetpi(m_env_lp_.env(),
+           m_env_lp_.lp(),
+           out.data(),
+           0,
+           static_cast<int>(out.size()) - 1);
+}
+
 double CplexSolverBackend::obj_value() const
 {
   double val = 0.0;

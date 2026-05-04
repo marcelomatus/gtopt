@@ -828,6 +828,39 @@ const double* GurobiSolverBackend::row_price() const
   return m_row_price_.data();
 }
 
+// Span-out fills: write directly into the caller's buffer via the
+// Gurobi C-API, never touching the per-instance scratch members.
+
+void GurobiSolverBackend::fill_col_sol(std::span<double> out) const
+{
+  if (out.empty()) {
+    return;
+  }
+  ensure_updated_();
+  GRBgetdblattrarray(
+      m_model_, GRB_DBL_ATTR_X, 0, static_cast<int>(out.size()), out.data());
+}
+
+void GurobiSolverBackend::fill_col_cost(std::span<double> out) const
+{
+  if (out.empty()) {
+    return;
+  }
+  ensure_updated_();
+  GRBgetdblattrarray(
+      m_model_, GRB_DBL_ATTR_RC, 0, static_cast<int>(out.size()), out.data());
+}
+
+void GurobiSolverBackend::fill_row_dual(std::span<double> out) const
+{
+  if (out.empty()) {
+    return;
+  }
+  ensure_updated_();
+  GRBgetdblattrarray(
+      m_model_, GRB_DBL_ATTR_PI, 0, static_cast<int>(out.size()), out.data());
+}
+
 double GurobiSolverBackend::obj_value() const
 {
   ensure_updated_();

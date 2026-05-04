@@ -10,6 +10,7 @@
 
 #include <memory>
 #include <optional>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -132,6 +133,15 @@ public:
   [[nodiscard]] const double* reduced_cost() const override;
   [[nodiscard]] const double* row_price() const override;
   [[nodiscard]] double obj_value() const override;
+
+  // ---- solution access (span-out) ----
+  // Override to call MDOgetdblattrarray directly into the caller's
+  // buffer — bypasses the per-instance scratch members
+  // (`m_col_solution_/m_reduced_cost_/m_row_price_`), which are now
+  // off-mode-only.
+  void fill_col_sol(std::span<double> out) const override;
+  void fill_col_cost(std::span<double> out) const override;
+  void fill_row_dual(std::span<double> out) const override;
 
   // ---- solution hints ----
   void set_col_solution(const double* sol) override;
