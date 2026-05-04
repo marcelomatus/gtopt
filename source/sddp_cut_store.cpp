@@ -754,7 +754,7 @@ void SDDPCutManager::save_cuts_for_iteration(
       "SDDP Iter [i{}]: save_cuts_for_iteration {:.2f}s "
       "— combined={:.2f}s per_scene={:.2f}s state={:.2f}s rename={:.3f}s "
       "(parallel={})",
-      iteration_index,
+      gtopt::uid_of(iteration_index),
       dt_total,
       dt_combined,
       dt_per_scene,
