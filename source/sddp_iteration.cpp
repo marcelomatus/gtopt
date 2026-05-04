@@ -258,7 +258,7 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
 
       // ── Forward pass ──
       SPDLOG_DEBUG("SDDP Forward [i{}]: starting forward pass",
-                   iteration_index);
+                   gtopt::uid_of(iteration_index));
       auto fwd =
           run_forward_pass_all_scenes(*sddp_pool, fwd_opts, iteration_index);
       if (!fwd.has_value()) {
@@ -294,7 +294,7 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
 
       // ── Backward pass ──
       SPDLOG_DEBUG("SDDP Backward [i{}]: starting backward pass",
-                   iteration_index);
+                   gtopt::uid_of(iteration_index));
       // Save per-scene cut counts for cut sharing offset tracking.
       // Stored on each `SceneCutStore` (per-scene snapshot) post-step-4
       // of `support/sddp_cut_store_split_plan_2026-04-30.md`; the
@@ -327,7 +327,7 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
         SPDLOG_INFO(
             "SDDP Backward [i{}]: backward pass had LP-level "
             "infeasibility (aperture fallbacks used)",
-            iteration_index);
+            gtopt::uid_of(iteration_index));
       }
       ir.iteration_s =
           std::chrono::duration<double>(std::chrono::steady_clock::now()
@@ -761,7 +761,7 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
 
       if (callback_requested_stop) {
         SPDLOG_INFO("SDDP Iter [i{}]: callback requested stop",
-                    iteration_index);
+                    gtopt::uid_of(iteration_index));
         break;
       }
 
