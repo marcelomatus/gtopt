@@ -351,9 +351,32 @@ class TestGtoptLpBuild:
             cwd=str(output_dir),
             check=False,
         )
+        # gtopt routes spdlog records to rotating files under
+        # ``output/logs/gtopt_*.log`` rather than stdout/stderr in the
+        # common configuration, so collect those files into
+        # ``stdout`` for downstream assertions on log strings.  See
+        # ``test_integration_case2y._gather_gtopt_logs`` for the
+        # canonical helper — duplicated here to avoid a cross-test
+        # import.
+        log_chunks: list[str] = []
+        for log_dir in (
+            output_dir / "output" / "logs",
+            output_dir / "logs",
+            output_dir / "results" / "logs",
+        ):
+            if not log_dir.is_dir():
+                continue
+            for log_file in sorted(log_dir.glob("gtopt_*.log")):
+                try:
+                    log_chunks.append(
+                        log_file.read_text(encoding="utf-8", errors="replace")
+                    )
+                except OSError:
+                    continue
+        gtopt_logs = "\n".join(log_chunks)
         return {
             "returncode": gtopt_result.returncode,
-            "stdout": gtopt_result.stdout,
+            "stdout": gtopt_result.stdout + gtopt_logs,
             "stderr": gtopt_result.stderr,
             "output_dir": output_dir,
             "json_file": json_files[0],
