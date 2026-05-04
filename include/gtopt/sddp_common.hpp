@@ -46,7 +46,10 @@ struct PhaseStateInfo;
 //
 // Parameters accept any formattable type (int, SceneUid, PhaseUid, etc.).
 
-/// "SDDP Forward [i0 s1 p2]" — with phase tag and per-phase key.
+/// "SDDP Forward [i1 s1 p2]" — with phase tag and per-phase key.
+/// `iteration_index` is formatted as the matching `IterationUid` (1-based)
+/// so the iN segment uses the same UID convention as the sN/pN segments
+/// — keeping all three log keys consistent.
 template<typename S, typename P>
 [[nodiscard]] inline std::string sddp_log(std::string_view tag,
                                           IterationIndex iteration_index,
@@ -56,7 +59,7 @@ template<typename S, typename P>
   return as_label<void>("SDDP ",
                         tag,
                         " [i",
-                        iteration_index,
+                        uid_of(iteration_index),
                         ' ',
                         's',
                         scene,
@@ -66,7 +69,7 @@ template<typename S, typename P>
                         ']');
 }
 
-/// "SDDP Aperture [i0 s1 p2 a5]" — with aperture uid appended.
+/// "SDDP Aperture [i1 s1 p2 a5]" — with aperture uid appended.
 template<typename S, typename P, typename A>
 [[nodiscard]] inline std::string sddp_log(std::string_view tag,
                                           IterationIndex iteration_index,
@@ -77,7 +80,7 @@ template<typename S, typename P, typename A>
   return as_label<void>("SDDP ",
                         tag,
                         " [i",
-                        iteration_index,
+                        uid_of(iteration_index),
                         ' ',
                         's',
                         scene,
@@ -90,21 +93,21 @@ template<typename S, typename P, typename A>
                         ']');
 }
 
-/// "SDDP Forward [i0 s1]" — scene-level (no phase).
+/// "SDDP Forward [i1 s1]" — scene-level (no phase).
 template<typename S>
 [[nodiscard]] inline std::string sddp_log(std::string_view tag,
                                           IterationIndex iteration_index,
                                           S scene)
 {
   return as_label<void>(
-      "SDDP ", tag, " [i", iteration_index, ' ', 's', scene, ']');
+      "SDDP ", tag, " [i", uid_of(iteration_index), ' ', 's', scene, ']');
 }
 
-/// "SDDP Init [i0]" — iteration-level only.
+/// "SDDP Init [i1]" — iteration-level only.
 [[nodiscard]] inline std::string sddp_log(std::string_view tag,
                                           IterationIndex iteration_index)
 {
-  return as_label<void>("SDDP ", tag, " [i", iteration_index, ']');
+  return as_label<void>("SDDP ", tag, " [i", uid_of(iteration_index), ']');
 }
 
 // ─── Phase grid recorder ────────────────────────────────────────────────────
@@ -133,62 +136,27 @@ class PhaseGridRecorder
 {
 public:
   /// Record a phase activity.  Higher-priority states overwrite lower ones.
-  void record(IterationIndex iteration_index,
+  ///
+  /// All three identifiers are 1-based UIDs (the same convention used in
+  /// the `[iN sM pK]` log prefixes and the JSON output below).  Callers
+  /// convert from internal `IterationIndex` / `SceneIndex` / `PhaseIndex`
+  /// at the call site via `gtopt::uid_of(...)` / `sim.uid_of(...)`.
+  void record(IterationUid iteration_uid,
               SceneUid scene_uid,
-              PhaseIndex phase_index,
-              GridCell state)
-  {
-    const auto key = Key {
-        .iteration_index = iteration_index,
-        .scene_uid = scene_uid,
-    };
-    const std::scoped_lock lock(m_mutex_);
-    auto& row = m_rows_[key];
-    if (phase_index >= std::ssize(row)) {
-      row.resize(next(phase_index), '.');
-    }
-    const char ch = static_cast<char>(state);
-    auto& cell = row[phase_index];
-    cell = std::max(cell, ch);
-  }
+              PhaseUid phase_uid,
+              GridCell state);
 
   /// Return a snapshot of the grid as a JSON fragment (no trailing comma).
   /// Format: "phase_grid": {"rows": [{"i":0,"s":0,"cells":"FF.FB..."}, ...]}
-  [[nodiscard]] std::string to_json() const
-  {
-    const std::scoped_lock lock(m_mutex_);
-    std::string json;
-    json += R"(  "phase_grid": {)"
-            "\n";
-    json += R"(    "rows": [)"
-            "\n";
-    bool first = true;
-    for (const auto& [key, row] : m_rows_) {
-      if (!first) {
-        json += ",\n";
-      }
-      first = false;
-      json += std::format(R"(      {{"i": {}, "s": {}, "cells": "{}"}})",
-                          key.iteration_index,
-                          key.scene_uid,
-                          row);
-    }
-    json += "\n    ]\n";
-    json += "  }\n";
-    return json;
-  }
+  [[nodiscard]] std::string to_json() const;
 
   /// True when at least one cell has been recorded.
-  [[nodiscard]] bool empty() const
-  {
-    const std::scoped_lock lock(m_mutex_);
-    return m_rows_.empty();
-  }
+  [[nodiscard]] bool empty() const;
 
 private:
   struct Key
   {
-    IterationIndex iteration_index {};
+    IterationUid iteration_uid {};
     SceneUid scene_uid {};
     auto operator<=>(const Key&) const = default;
   };

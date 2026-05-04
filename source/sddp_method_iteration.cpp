@@ -88,7 +88,7 @@ void SDDPMethod::update_max_kappa(SceneIndex scene_index,
   }
 
   spdlog::warn("SDDP Kappa [i{} s{} p{}]: high kappa {:.2e} (threshold {:.2e})",
-               iteration_index,
+               gtopt::uid_of(iteration_index),
                uid_of(scene_index),
                uid_of(phase_index),
                kappa,
@@ -305,7 +305,7 @@ void SDDPMethod::dispatch_update_lp(SceneIndex scene_index,
 
     if (updated > 0) {
       SPDLOG_TRACE("SDDP Update [i{} s{} p{}]: updated {} LP elements",
-                   iteration_index,
+                   gtopt::uid_of(iteration_index),
                    uid_of(scene_index),
                    uid_of(phase_index),
                    updated);
@@ -434,6 +434,23 @@ auto SDDPMethod::backward_pass_single_phase(SceneIndex scene_index,
     tgt_sys.ensure_lp_built();
     auto& tgt_li = tgt_sys.linear_interface();
 
+    // Re-apply volume-dependent LP coefficient updates after the
+    // reconstruct.  Under `LowMemoryMode::compress` /
+    // `LowMemoryMode::rebuild`, `ensure_lp_built()` reloads the
+    // construction-time structural matval from the snapshot and the
+    // forward pass's `update_lp_for_phase` mutations (turbine
+    // production factor, seepage, discharge limit, …) are NOT in the
+    // snapshot — they live only on the volatile backend that was
+    // dropped at the previous `release_backend()`.  Without this call
+    // the backward re-solve runs on stale construction-time matval
+    // (e.g. juan/iplp `turbine_conversion_*_54_*` coefficient stayed
+    // pinned at 0.97522 vs the forward's 0.97612), producing cuts
+    // whose value-function geometry is inconsistent with the forward
+    // model.  Observed plateau: gap=133.78%, LB=-695M from iter 2.
+    // Under `LowMemoryMode::off` `update_lp_for_phase` is idempotent
+    // (same coefficient re-written), so this is a no-op cost.
+    update_lp_for_phase(scene_index, phase_index);
+
     tgt_li.set_log_tag(sddp_log(
         "Backward", iteration_index, uid_of(scene_index), uid_of(phase_index)));
     const auto z_old = phase_states[phase_index].forward_full_obj_physical;
@@ -458,7 +475,7 @@ auto SDDPMethod::backward_pass_single_phase(SceneIndex scene_index,
       spdlog::info(
           "SDDP Backward [i{} s{} p{}/{}]: tgt re-solve z={}->{} (delta={}, "
           "kappa={:.2e})",
-          iteration_index,
+          gtopt::uid_of(iteration_index),
           uid_of(scene_index),
           uid_of(phase_index),
           bwd_total_phases,
@@ -529,11 +546,13 @@ auto SDDPMethod::backward_pass_single_phase(SceneIndex scene_index,
   const auto dt_store = elapsed_s(t_store);
 
   ++cuts_added;
-  m_phase_grid_.record(
-      iteration_index, uid_of(scene_index), phase_index, GridCell::Backward);
+  m_phase_grid_.record(gtopt::uid_of(iteration_index),
+                       uid_of(scene_index),
+                       uid_of(phase_index),
+                       GridCell::Backward);
 
   SPDLOG_TRACE("SDDP Backward [i{} s{} p{}]: cut for phase {} rhs={:.4f}",
-               iteration_index,
+               gtopt::uid_of(iteration_index),
                uid_of(scene_index),
                uid_of(phase_index),
                uid_of(prev_phase_index),
@@ -564,7 +583,7 @@ auto SDDPMethod::backward_pass_single_phase(SceneIndex scene_index,
   spdlog::info(
       "SDDP Backward [i{} s{} p{}/{}]: cut z={} -> alpha>={} (links={}/{}, "
       "resolve={})",
-      iteration_index,
+      gtopt::uid_of(iteration_index),
       uid_of(scene_index),
       uid_of(phase_index),
       bwd_total_phases,
@@ -700,7 +719,7 @@ auto SDDPMethod::backward_pass(SceneIndex scene_index,
   int total_cuts = 0;
 
   SPDLOG_DEBUG("SDDP Backward [i{} s{}]: starting ({} phases)",
-               iteration_index,
+               gtopt::uid_of(iteration_index),
                uid_of(scene_index),
                num_phases);
 
@@ -747,7 +766,7 @@ auto SDDPMethod::backward_pass(SceneIndex scene_index,
   }
 
   SPDLOG_DEBUG("SDDP Backward [i{} s{}]: done, {} cuts added",
-               iteration_index,
+               gtopt::uid_of(iteration_index),
                uid_of(scene_index),
                total_cuts);
   return total_cuts;
@@ -994,7 +1013,7 @@ auto SDDPMethod::run_forward_pass_all_scenes(SDDPWorkPool& pool,
       // signal; this DEBUG line preserves the per-scene tag for
       // post-mortem with `-T`/`spdlog::set_level(debug)`.
       spdlog::debug("SDDP Forward [i{} s{}]: failed: {}",
-                    iteration_index,
+                    gtopt::uid_of(iteration_index),
                     uid_of(scene_index),
                     fwd.error().message);
       out.has_feasibility_issue = true;
@@ -1020,7 +1039,7 @@ auto SDDPMethod::run_forward_pass_all_scenes(SDDPWorkPool& pool,
               "SDDP Forward [i{} s{}]: marking TERMINAL after {} consecutive "
               "structural infeasibilities — will skip until new cuts arrive "
               "globally (current cut store size: {})",
-              iteration_index,
+              gtopt::uid_of(iteration_index),
               uid_of(scene_index),
               rs.consecutive_structural_failures,
               m_cut_store_.num_stored_cuts());
