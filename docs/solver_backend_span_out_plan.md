@@ -49,12 +49,21 @@ Concretely the plan is:
 
 ### 2.1 Add new `fill_*` virtuals on `SolverBackend`
 
+The new methods mirror the LI's `m_cached_col_sol_` / `m_cached_col_cost_`
+/ `m_cached_row_dual_` naming so the call sites read fluently as
+`fill_col_sol(m_cached_col_sol_)` etc., not `fill_col_solution(m_cached_col_sol_)`
+/ `fill_reduced_cost(m_cached_col_cost_)` / `fill_row_price(m_cached_row_dual_)`
+where the verb-noun pair changes between layers.
+
 ```cpp
 class SolverBackend {
 public:
   // Existing pointer-returning getters stay — used by off-mode reads
   // and by code paths that want a non-owning view into solver-internal
   // memory (OSI/HiGHS) or the plugin's per-call scratch (CPLEX/etc.).
+  // Keep their pre-existing names (matching the C-API of CPLEX,
+  // HiGHS, etc.) — only the new span-out variants follow the
+  // gtopt/LI naming convention.
   [[nodiscard]] virtual const double* col_solution() const = 0;
   [[nodiscard]] virtual const double* reduced_cost() const = 0;
   [[nodiscard]] virtual const double* row_price()    const = 0;
@@ -64,20 +73,33 @@ public:
   // in compress / rebuild mode so the LI's `m_cached_*` is the
   // sole destination.
   //
+  // Naming aligns with the LinearInterface side:
+  //   fill_col_sol(out)  → m_cached_col_sol_   (primal solution)
+  //   fill_col_cost(out) → m_cached_col_cost_  (reduced cost / col dual)
+  //   fill_row_dual(out) → m_cached_row_dual_  (row price / row dual)
+  //
   // Default implementation (in this header) memcpy's from the
-  // pointer-getter, so OSI and HiGHS don't need a dedicated override
-  // — the default already moves zero data through the plugin.
-  virtual void fill_col_solution(std::span<double> out) const;
-  virtual void fill_reduced_cost(std::span<double> out) const;
-  virtual void fill_row_price   (std::span<double> out) const;
+  // matching pointer-getter, so OSI and HiGHS don't need a dedicated
+  // override — the default already moves zero data through the plugin.
+  virtual void fill_col_sol (std::span<double> out) const;
+  virtual void fill_col_cost(std::span<double> out) const;
+  virtual void fill_row_dual(std::span<double> out) const;
 };
 ```
 
-The default in-header implementation:
+The default in-header implementations:
 
 ```cpp
-inline void SolverBackend::fill_col_solution(std::span<double> out) const {
+inline void SolverBackend::fill_col_sol(std::span<double> out) const {
   const auto* p = col_solution();          // OSI / HiGHS: live solver pointer
+  if (p != nullptr) std::copy_n(p, out.size(), out.data());
+}
+inline void SolverBackend::fill_col_cost(std::span<double> out) const {
+  const auto* p = reduced_cost();
+  if (p != nullptr) std::copy_n(p, out.size(), out.data());
+}
+inline void SolverBackend::fill_row_dual(std::span<double> out) const {
+  const auto* p = row_price();
   if (p != nullptr) std::copy_n(p, out.size(), out.data());
 }
 ```
@@ -86,10 +108,20 @@ inline void SolverBackend::fill_col_solution(std::span<double> out) const {
 
 ```cpp
 // CPLEX
-void CplexSolverBackend::fill_col_solution(std::span<double> out) const {
+void CplexSolverBackend::fill_col_sol(std::span<double> out) const {
   if (out.empty()) return;
   CPXgetx(m_env_lp_.env(), m_env_lp_.lp(),
           out.data(), 0, static_cast<int>(out.size()) - 1);
+}
+void CplexSolverBackend::fill_col_cost(std::span<double> out) const {
+  if (out.empty()) return;
+  CPXgetdj(m_env_lp_.env(), m_env_lp_.lp(),
+           out.data(), 0, static_cast<int>(out.size()) - 1);
+}
+void CplexSolverBackend::fill_row_dual(std::span<double> out) const {
+  if (out.empty()) return;
+  CPXgetpi(m_env_lp_.env(), m_env_lp_.lp(),
+           out.data(), 0, static_cast<int>(out.size()) - 1);
 }
 // (analogous for MindOpt MDOgetdblattrarray, Gurobi GRBgetdblattrarray)
 ```
@@ -111,9 +143,9 @@ void LinearInterface::populate_solution_cache_post_solve() noexcept {
   m_cached_col_sol_.resize(ncols);
   m_cached_col_cost_.resize(ncols);
   m_cached_row_dual_.resize(nrows);
-  m_backend_->fill_col_solution(m_cached_col_sol_);
-  m_backend_->fill_reduced_cost(m_cached_col_cost_);
-  m_backend_->fill_row_price   (m_cached_row_dual_);
+  m_backend_->fill_col_sol (m_cached_col_sol_);
+  m_backend_->fill_col_cost(m_cached_col_cost_);
+  m_backend_->fill_row_dual(m_cached_row_dual_);
   m_cached_is_optimal_ = true;
 }
 ```
@@ -193,18 +225,17 @@ the safety net for the API change.
 
 New cases in the same file:
 
-- **T5.  `fill_col_solution(span)` matches `col_solution()`.**
+- **T5.  `fill_col_sol(span)` matches `col_solution()`.**
   After a solve, allocate two same-sized vectors, fill one via the
   new span-out API and one via copy from the pointer-getter, assert
-  element-wise equality.  Same for `fill_reduced_cost` and
-  `fill_row_price`.
+  element-wise equality.  Same for `fill_col_cost` vs.
+  `reduced_cost()` and `fill_row_dual` vs. `row_price()`.
 
 - **T6.  Span-out tolerates short / empty spans.**
-  `fill_col_solution(std::span<double>{})` is a no-op; a span of
-  size `< get_numcols()` writes only the first `size()` entries
-  (the API contract is "fill exactly `out.size()` entries"; over-
-  reading is a caller bug — assert via `assert()` in debug, no-op
-  in release).
+  `fill_col_sol(std::span<double>{})` is a no-op; a span of size
+  `< get_numcols()` writes only the first `size()` entries (the API
+  contract is "fill exactly `out.size()` entries"; over-reading is
+  a caller bug — assert via `assert()` in debug, no-op in release).
 
 - **T7.  Compress-mode plugin scratch stays empty.**
   After a solve in compress mode, assert that the plugin's
@@ -236,7 +267,7 @@ New cases in the same file:
 
 1. **Add T1–T4 regression tests** on top of `522d4150`.  Confirm
    they pass.  Commit alone.
-2. **Add `fill_col_solution/reduced_cost/row_price` to
+2. **Add `fill_col_sol/fill_col_cost/fill_row_dual` to
    `SolverBackend`** with default impl that delegates to the
    pointer-getter.  Override on CPLEX / MindOpt / Gurobi (not OSI
    or HiGHS — defaults are zero-copy already).  Commit alone.
