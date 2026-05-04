@@ -60,6 +60,8 @@ SDDP_OPTION_KEYS: frozenset[str] = frozenset(
         "warm_start",
         "stationary_tol",
         "stationary_window",
+        "stationary_gap_ceiling",
+        "terminal_failure_threshold",
         "convergence_mode",
         "convergence_confidence",
         "cut_coeff_eps",
@@ -440,6 +442,18 @@ _OPTIONS_FIELDS: list[tuple[str, str, Any]] = [
     (
         "simulation_mode",
         "[sddp] Forward-only evaluation of loaded cuts, no training (true/false)",
+        None,
+    ),
+    (
+        "stationary_gap_ceiling",
+        "[sddp] Suppress stationary/CI convergence when gap >= this value "
+        "(default: 0.5 = 50 %; 1.0 disables)",
+        None,
+    ),
+    (
+        "terminal_failure_threshold",
+        "[sddp] Consecutive elastic-filter failures before terminal-skip "
+        "marks a scene (default: 2; 0 disables)",
         None,
     ),
     # NOTE: Cascade options now use a hierarchical ``levels`` array

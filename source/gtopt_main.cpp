@@ -27,6 +27,7 @@
  */
 
 #include <chrono>
+#include <cstdint>
 #include <cstdlib>
 #include <expected>
 #include <filesystem>
@@ -64,45 +65,72 @@ namespace
       / "logs";
 }
 
+/// Pick the run number `N` shared by every log file produced this run.
+///
+/// Scans @p log_dir for the smallest `N >= 1` such that neither
+/// `gtopt_N.log` nor `trace_N.log` already exists, so a single run
+/// pairs `gtopt_3.log` with `trace_3.log` (matching N — the user
+/// shouldn't have to cross-reference two different counters).
+///
+/// The result is cached in a function-local static so the second
+/// caller (typically `setup_trace_log` after `setup_file_logging`)
+/// reuses the same N even if the first caller has already created
+/// `gtopt_N.log` on disk.  Within one process @p log_dir is constant,
+/// so the cache is safe.
+///
+/// When every slot is taken, falls back to a timestamp-derived number.
+/// Failures creating the directory only emit a warning.
+[[nodiscard]] int pick_run_number(const std::filesystem::path& log_dir)
+{
+  static int cached = 0;
+  if (cached != 0) {
+    return cached;
+  }
+  try {
+    std::filesystem::create_directories(log_dir);
+  } catch (const std::filesystem::filesystem_error& fe) {
+    spdlog::warn(
+        "could not create log directory '{}': {}", log_dir.string(), fe.what());
+  }
+  constexpr int max_files = 10000;
+  for (int n = 1; n <= max_files; ++n) {
+    const auto gtopt_path = log_dir / std::format("gtopt_{}.log", n);
+    const auto trace_path = log_dir / std::format("trace_{}.log", n);
+    if (!std::filesystem::exists(gtopt_path)
+        && !std::filesystem::exists(trace_path))
+    {
+      cached = n;
+      return cached;
+    }
+  }
+  // All slots used — fall back to timestamp-derived run number.
+  const auto now = std::chrono::system_clock::now();
+  const auto ts = static_cast<std::uint64_t>(
+      std::chrono::duration_cast<std::chrono::seconds>(now.time_since_epoch())
+          .count());
+  cached = static_cast<int>(ts & 0x7fffffffULL);
+  return cached;
+}
+
+/// Build the path `<log_dir>/<stem>_<N>.log` for the current run.
+[[nodiscard]] std::string numbered_log_path(
+    const std::filesystem::path& log_dir, std::string_view stem)
+{
+  return (log_dir / std::format("{}_{}.log", stem, pick_run_number(log_dir)))
+      .string();
+}
+
 /// Set up trace-level file sink for detailed SPDLOG_TRACE output.
 ///
 /// When --trace-log is given explicitly, uses that path; otherwise
-/// auto-creates a numbered file inside the log directory
-/// (e.g. logs/trace_1.log, logs/trace_2.log).
+/// auto-creates a `trace_N.log` next to the matching `gtopt_N.log`
+/// (same `N`, picked once per run by `pick_run_number()`).
 void setup_trace_log(const MainOptions& opts)
 {
   const auto log_dir = resolve_log_dir(opts);
-  std::string trace_path;
-
-  if (opts.trace_log.has_value()) {
-    trace_path = opts.trace_log.value();
-  } else {
-    // Find the next available trace_N.log in log_dir
-    try {
-      std::filesystem::create_directories(log_dir);
-    } catch (const std::filesystem::filesystem_error& fe) {
-      spdlog::warn("could not create log directory '{}': {}",
-                   log_dir.string(),
-                   fe.what());
-    }
-    int n = 1;
-    constexpr int max_trace_files = 10000;
-    for (; n <= max_trace_files; ++n) {
-      auto candidate = log_dir / std::format("trace_{}.log", n);
-      if (!std::filesystem::exists(candidate)) {
-        trace_path = candidate.string();
-        break;
-      }
-    }
-    if (trace_path.empty()) {
-      // All slots used — fall back to timestamp-based name
-      const auto now = std::chrono::system_clock::now();
-      const auto ts = std::chrono::duration_cast<std::chrono::seconds>(
-                          now.time_since_epoch())
-                          .count();
-      trace_path = (log_dir / std::format("trace_{}.log", ts)).string();
-    }
-  }
+  const std::string trace_path = opts.trace_log.has_value()
+      ? opts.trace_log.value()
+      : numbered_log_path(log_dir, "trace");
 
   try {
     const auto parent = std::filesystem::path(trace_path).parent_path();
@@ -189,15 +217,11 @@ void setup_trace_log(const MainOptions& opts)
 void setup_file_logging(const MainOptions& opts, bool suppress_stdout)
 {
   const auto log_dir = resolve_log_dir(opts);
-  try {
-    std::filesystem::create_directories(log_dir);
-  } catch (const std::filesystem::filesystem_error& fe) {
-    spdlog::warn(
-        "could not create log directory '{}': {}", log_dir.string(), fe.what());
-    return;
-  }
 
-  const auto log_path = (log_dir / "gtopt.log").string();
+  // Pick `gtopt_N.log` with the same `N` that `setup_trace_log` will
+  // use for `trace_N.log` — so the user can pair the two by suffix.
+  const std::string log_path = numbered_log_path(log_dir, "gtopt");
+
   try {
     auto file_sink = std::make_shared<spdlog::sinks::basic_file_sink_mt>(
         log_path, /*truncate=*/true);

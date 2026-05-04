@@ -1440,33 +1440,36 @@ ColIndex LinearInterface::add_col(const SparseCol& col)
 
   track_col_label_meta(col_idx, col);
 
-  // Auto-record post-snapshot mutations so they are replayed on the
-  // next `release_backend` → `reconstruct_backend` cycle in
-  // low_memory=compress mode.  Skips when `m_replaying_` is set
-  // (apply_post_load_replay's bulk re-entry — the bulk path bypasses
-  // this single-arg variant anyway, but the flag is a defence-in-depth
-  // guard).  Skips when `m_low_memory_mode_ == off` (no replay needed)
-  // and when `m_snapshot_` has no data (we are still building the
-  // initial structural LP that will become the snapshot).  Caller
-  // doesn't need to remember a follow-up `record_dynamic_col` —
-  // historically that was a hidden requirement that silently dropped
-  // post-init cols on the first reconstruct (juan/cascade SIGSEGV).
+  // Auto-record post-init mutations so they are replayed on the next
+  // `release_backend` → `reconstruct_backend` (compress) or
+  // `release_backend` → rebuild-callback (rebuild) cycle.  Skips when
+  // `m_replaying_` is set (apply_post_load_replay's bulk re-entry —
+  // the bulk path bypasses this single-arg variant anyway, but the
+  // flag is a defence-in-depth guard).  Skips when
+  // `m_low_memory_mode_ == off` (no replay needed).
   //
-  // Rebuild mode is special-cased: there is no snapshot (rebuild
-  // re-flattens from live collections instead), so the
-  // `m_snapshot_.has_data()` gate would never fire and α/dynamic
-  // cols would be dropped on every rebuild — producing a stale
-  // ColIndex that pointed past `numcols` after the first rebuild
-  // (observed on sddp_hydro_3phase iter50_rebuild as
-  // `set_col_low_raw: col index N out of range [0, N)`).  Always
-  // record under rebuild so `apply_post_load_replay` can re-add the
-  // column on the next reconstruct.
-  // Gate: record any post-structural add_col under low_memory != off.
-  // The structural flatten / load_flat path uses add_col_raw which
-  // bypasses this method, so any caller reaching here is by
-  // construction post-structural and must replay on every reconstruct.
-  const bool record_for_replay = m_low_memory_mode_ != LowMemoryMode::off;
-  if (!m_replaying_ && record_for_replay) {
+  // The "post-init" gate differs by mode:
+  //   * compress / snapshot: `m_snapshot_.has_data()` flips true once
+  //     `defer_initial_load` (or `freeze_for_cuts`) installs the flat
+  //     LP, which is precisely the structural-build → cut-build
+  //     boundary.  Pre-snapshot structural builds still go straight
+  //     to the backend without growing `m_dynamic_cols_`.
+  //   * rebuild: there is no snapshot, but the structural rebuild
+  //     itself uses bulk `add_cols` (which never auto-records), and
+  //     the only single-arg `add_col` callers (e.g. SDDP α) run AFTER
+  //     `rebuild_in_place` completes — so unconditional auto-record
+  //     in rebuild mode is safe and is the only way to make
+  //     `m_dynamic_cols_` survive the next release/rebuild cycle.
+  //
+  // Caller doesn't need to remember a follow-up `record_dynamic_col`
+  // — historically that was a hidden requirement that silently
+  // dropped post-init cols on the first reconstruct (juan/cascade
+  // SIGSEGV) or on the first rebuild (juan/SDDP iter50_rebuild
+  // CPLEX SEGV in `set_col_lower` after α was lost).
+  if (!m_replaying_ && m_low_memory_mode_ != LowMemoryMode::off
+      && (m_snapshot_.has_data()
+          || m_low_memory_mode_ == LowMemoryMode::rebuild))
+  {
     m_dynamic_cols_.push_back(col);
   }
 

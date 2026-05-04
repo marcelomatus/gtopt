@@ -113,21 +113,60 @@ def _build_gtopt_cmd(
     return cmd
 
 
-def _resolve_log_path(case_dir: Path) -> Path | None:
-    """Return the path where gtopt will write its log file.
+def _resolve_log_dir(case_dir: Path) -> Path | None:
+    """Return the directory where gtopt will write its log files.
 
     Mirrors the resolution done by ``setup_file_logging`` on the C++
-    side: ``<case>/output/logs/gtopt.log`` (or ``<case_parent>/...`` if
-    a JSON file path was passed instead of a directory).  The directory
-    is created so the tail thread can wait on the file with confidence.
+    side: ``<case>/output/logs`` (or ``<case_parent>/...`` if a JSON
+    file path was passed instead of a directory).  The directory is
+    created so the tail thread can poll it for new files.
     """
     base = case_dir.parent if case_dir.is_file() else case_dir
     log_dir = base / "output" / "logs"
     try:
         log_dir.mkdir(parents=True, exist_ok=True)
-        return log_dir / "gtopt.log"
+        return log_dir
     except OSError:
         return None
+
+
+def _snapshot_gtopt_logs(log_dir: Path) -> set[Path]:
+    """Return the set of existing ``gtopt_*.log`` files in @p log_dir.
+
+    Used as a baseline so the tail thread knows which file is the *new*
+    one created by the run we're about to launch.
+    """
+    try:
+        return set(log_dir.glob("gtopt_*.log"))
+    except OSError:
+        return set()
+
+
+def _wait_for_new_log(
+    log_dir: Path,
+    baseline: set[Path],
+    stop_event: threading.Event,
+    poll_interval: float = 0.1,
+) -> Path | None:
+    """Wait until a new ``gtopt_*.log`` appears in @p log_dir; return it.
+
+    Compares the current directory listing against @p baseline; the
+    first novel file is the one the C++ side just opened via
+    ``next_numbered_log_path()``.  Returns ``None`` if @p stop_event
+    fires before any new file shows up.
+    """
+    while not stop_event.is_set():
+        try:
+            current = set(log_dir.glob("gtopt_*.log"))
+        except OSError:
+            current = set()
+        new = current - baseline
+        if new:
+            # If multiple appeared (very unlikely — only one writer per
+            # gtopt run), pick the most recently modified.
+            return max(new, key=lambda p: p.stat().st_mtime)
+        time.sleep(poll_interval)
+    return None
 
 
 def _tail_log_to(
@@ -138,25 +177,9 @@ def _tail_log_to(
 ) -> None:
     """Tail @p log_path line-by-line, calling @p consume(line) for each.
 
-    Waits up to a few seconds for the file to appear (gtopt creates it
-    once spdlog opens the sink).  Re-opens the file if it disappears
-    (rare; e.g. truncated mid-run).  Returns when @p stop_event is set
-    AND the file has been fully drained.
+    Returns when @p stop_event is set AND the file has been fully
+    drained.  Silently no-ops if the file vanishes or can't be opened.
     """
-    # Wait for the file to exist.  If the C++ side never creates it
-    # (e.g. older binary, --quiet, write failure), we still exit cleanly
-    # once stop_event fires.
-    deadline = time.monotonic() + 5.0
-    while not log_path.exists() and not stop_event.is_set():
-        if time.monotonic() > deadline:
-            # Long-running process that simply hasn't started writing
-            # yet — keep waiting indefinitely until stop_event.
-            deadline = time.monotonic() + 5.0
-        time.sleep(poll_interval)
-
-    if not log_path.exists():
-        return
-
     try:
         with open(log_path, encoding="utf-8", errors="replace") as f:
             while True:
@@ -175,35 +198,45 @@ def _tail_log_to(
         return
 
 
+def _watch_and_tail(
+    log_dir: Path,
+    baseline: set[Path],
+    consume,
+    stop_event: threading.Event,
+) -> None:
+    """Wait for a new gtopt_N.log to appear, then tail it.
+
+    Combines ``_wait_for_new_log`` and ``_tail_log_to`` for use as the
+    target of a background tail thread.
+    """
+    log_path = _wait_for_new_log(log_dir, baseline, stop_event)
+    if log_path is None:
+        return
+    _tail_log_to(log_path, consume, stop_event)
+
+
 def _run_batch(cmd: list[str], env: dict[str, str], case_dir: Path) -> int:
     """Run gtopt and stream its log file to stdout.
 
     The C++ binary detects non-TTY stdout (this Popen pipes nothing) and
-    writes its spdlog output directly to ``<case>/output/logs/gtopt.log``
-    via ``setup_file_logging`` — we no longer tee subprocess stdout to
-    avoid duplicating the same lines on disk and on the user's terminal.
-    A background thread tails the log file and forwards new lines to
-    stdout so an operator running ``run_gtopt`` from a CI / shell pipe
-    still sees progress in real time.
+    writes its spdlog output to ``<case>/output/logs/gtopt_N.log`` via
+    ``setup_file_logging`` (with the same ``N`` as the matching
+    ``trace_N.log``).  We snapshot the directory before launch, wait for
+    the new ``gtopt_N.log`` to appear, then tail it line-by-line and
+    forward every line to stdout so an operator running ``run_gtopt``
+    from a CI / shell pipe still sees progress in real time.
     """
     log.info("running: %s", " ".join(cmd))
-    log_path = _resolve_log_path(case_dir)
+    log_dir = _resolve_log_dir(case_dir)
 
-    if log_path is None:
+    if log_dir is None:
         # Couldn't even create the log directory — fall back to letting
         # the subprocess inherit our stdout (gtopt's TTY check will then
         # produce normal stdout output).
         result = subprocess.run(cmd, check=False, env=env)
         return result.returncode
 
-    # Truncate any stale log so the tail starts cleanly.  The C++ sink
-    # also opens the file with truncate=true, so this is belt-and-braces
-    # for the tiny window before gtopt itself opens the sink.
-    try:
-        log_path.write_text("", encoding="utf-8")
-    except OSError:
-        pass
-
+    baseline = _snapshot_gtopt_logs(log_dir)
     stop_event = threading.Event()
 
     def _emit(line: str) -> None:
@@ -211,8 +244,8 @@ def _run_batch(cmd: list[str], env: dict[str, str], case_dir: Path) -> int:
         sys.stdout.flush()
 
     tail_thread = threading.Thread(
-        target=_tail_log_to,
-        args=(log_path, _emit, stop_event),
+        target=_watch_and_tail,
+        args=(log_dir, baseline, _emit, stop_event),
         daemon=True,
     )
     tail_thread.start()
@@ -236,10 +269,11 @@ def _run_interactive(cmd: list[str], env: dict[str, str], case_dir: Path) -> int
 
     The dashboard runs in a background thread while the solver
     subprocess runs in the foreground.  The solver writes its log
-    directly to ``<case>/output/logs/gtopt.log`` (via the C++ file-only
-    sink that activates when stdout is not a TTY — Popen pipes nothing
-    here), and a tail thread forwards every new line into the
-    dashboard's log panel.
+    directly to ``<case>/output/logs/gtopt_N.log`` (via the C++
+    file-only sink that activates when stdout is not a TTY — Popen
+    pipes nothing here), and a tail thread discovers the new
+    ``gtopt_N.log`` and forwards every line into the dashboard's log
+    panel.
 
     Interactive commands (single-key):
       s  Graceful stop — create stop-request file (saves cuts)
@@ -254,7 +288,7 @@ def _run_interactive(cmd: list[str], env: dict[str, str], case_dir: Path) -> int
 
     case_path = Path(case_dir)
     case_name = case_path.stem if case_path.is_file() else case_path.name
-    log_path = _resolve_log_path(case_path)
+    log_dir = _resolve_log_dir(case_path)
 
     # Extract --solver from command line for display
     solver_hint = ""
@@ -272,19 +306,13 @@ def _run_interactive(cmd: list[str], env: dict[str, str], case_dir: Path) -> int
 
     log.info("running (interactive): %s", " ".join(cmd))
 
-    if log_path is not None:
-        # Truncate stale log; gtopt will reopen with truncate=true too.
-        try:
-            log_path.write_text("", encoding="utf-8")
-        except OSError:
-            pass
-
     stop_event = threading.Event()
     tail_thread: threading.Thread | None = None
-    if log_path is not None:
+    if log_dir is not None:
+        baseline = _snapshot_gtopt_logs(log_dir)
         tail_thread = threading.Thread(
-            target=_tail_log_to,
-            args=(log_path, display.add_log_line, stop_event),
+            target=_watch_and_tail,
+            args=(log_dir, baseline, display.add_log_line, stop_event),
             daemon=True,
         )
         tail_thread.start()
