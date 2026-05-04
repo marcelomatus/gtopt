@@ -423,6 +423,38 @@ auto SDDPMethod::backward_pass_aperture_phase_impl(
   // alive) and under `rebuild` (refreshed by rebuild_in_place).
   target_sys.rebuild_collections_if_needed();
 
+  // Re-apply volume-dependent LP coefficient updates on `target_sys`
+  // BEFORE aperture clones are created.  Under
+  // `LowMemoryMode::compress` / `rebuild`, `ensure_lp_built()` above
+  // reloads the construction-time matval/RHS from the snapshot — the
+  // forward / backward passes' `update_lp_for_phase` mutations
+  // (turbine production factor, seepage segment selection, discharge
+  // limit) are NOT in the snapshot; they live only on the live
+  // backend that was dropped at the previous `release_backend()`.
+  //
+  // Without this call the aperture clones inherit construction-time
+  // volume-dependent coefficients while their cuts are computed
+  // against the current iteration's physical_eini trial values —
+  // producing per-aperture LPs whose value-function geometry is
+  // inconsistent with the forward model.  Observed on juan/iplp
+  // (1 active scene + 14 feasible apertures, 5 iters):
+  //   * `all apertures infeasible at N phase(s)` warnings under
+  //     compress only — accumulating across iters (4→2→3→4→5 phases).
+  //   * `infeasible: 35 (primal)` total under compress vs 0 under off.
+  //   * UB exploding from 2.55 G to 3.35 × 10²⁹ T by iter 5 because
+  //     the Benders-fallback cuts derived from those infeasibilities
+  //     poison the SDDP recourse-cost estimator.
+  //
+  // Same root pattern as the main backward pass fix (commit
+  // `675422e7 fix(reservoir): always re-issue update_lp coefficients
+  // + efin-only DRL`) but on the aperture pass's source-LP
+  // refreshing path instead of the main `tgt_li.resolve` path
+  // (`sddp_method_iteration.cpp:463`).  Under `LowMemoryMode::off`
+  // `update_lp_for_phase` is idempotent (the always-re-issue change
+  // ensures both `set_coeff` and `set_rhs` fire even when memory
+  // state matches), so this is a no-op cost there.
+  update_lp_for_phase(scene_index, phase_index);
+
   // Keep the flat LP decompressed while aperture tasks create clones.
   // The guard re-compresses on scope exit (level 2 only).
   const DecompressionGuard dcomp_guard(target_sys.linear_interface());
@@ -643,6 +675,16 @@ auto SDDPMethod::backward_pass_with_apertures(SceneIndex scene_index,
     // dispatched (same rationale as in
     // `backward_pass_aperture_phase_impl`).
     target_sys.rebuild_collections_if_needed();
+
+    // Re-apply volume-dependent LP coefficient updates on `target_sys`
+    // BEFORE aperture clones are created.  See the matching call in
+    // `backward_pass_aperture_phase_impl` above for full rationale —
+    // without this the aperture clones inherit construction-time
+    // matval/RHS under `LowMemoryMode::compress` / `rebuild` while
+    // their per-aperture cuts assume current-iteration trial values,
+    // producing the `all apertures infeasible at N phase(s)`
+    // cascade and the UB-explosion-to-10²⁹ symptom on juan/iplp.
+    update_lp_for_phase(scene_index, phase_index);
 
     // Keep the flat LP decompressed while aperture tasks create clones.
     const DecompressionGuard dcomp_guard(target_sys.linear_interface());
