@@ -250,13 +250,47 @@ auto SDDPMethod::install_aperture_backward_cut(
   // optimality cuts and breaks the SDDP invariant that every
   // non-last phase receives an optimality cut per backward
   // iteration.
+
+  // ── Optional: re-solve LP_t before the bcut to pick up cuts on α_t
+  // added earlier in this backward pass.  See
+  // `SDDPOptions::backward_resolve_target` for full semantics.  The
+  // aperture-success path already sees these cuts because each clone
+  // is forked from LP_t at solve time; only the bcut fallback (which
+  // reads ``forward_full_obj_physical`` cached from the forward
+  // pass) needs the refresh.
+  double Z = target_state.forward_full_obj_physical;
+  if (m_options_.backward_resolve_target) {
+    auto& tgt_sys = planning_lp().system(scene_index, phase_index);
+    tgt_sys.ensure_lp_built();
+    auto& tgt_li = tgt_sys.linear_interface();
+    tgt_li.set_log_tag(sddp_log(
+        "Backward", iteration_index, uid_of(scene_index), uid_of(phase_index)));
+    const auto t_tgt_resolve = Clock::now();
+    auto r = tgt_li.resolve(opts);
+    dt_resolve += elapsed_s(t_tgt_resolve);
+    if (r.has_value() && tgt_li.is_optimal()) {
+      Z = tgt_li.get_obj_value();
+      const auto sol_phys = tgt_li.get_col_sol();
+      const auto rc = tgt_li.get_col_cost_raw();
+      capture_state_variable_values(scene_index, phase_index, sol_phys, rc);
+      m_scene_phase_states_[scene_index][phase_index]
+          .forward_full_obj_physical = Z;
+      update_max_kappa(scene_index, phase_index, tgt_li, iteration_index);
+    } else {
+      SPDLOG_DEBUG(
+          "{}: backward_resolve_target re-solve non-optimal "
+          "(status {}) — using forward-cached cut data for bcut",
+          sddp_log("Backward",
+                   iteration_index,
+                   uid_of(scene_index),
+                   uid_of(phase_index)),
+          tgt_li.get_status());
+    }
+  }
+
   const auto t_build = Clock::now();
-  auto fallback_cut =
-      build_benders_cut_physical(src_alpha_col,
-                                 src_state.outgoing_links,
-                                 target_state.forward_full_obj_physical,
-                                 scale_obj,
-                                 ceps);
+  auto fallback_cut = build_benders_cut_physical(
+      src_alpha_col, src_state.outgoing_links, Z, scale_obj, ceps);
   sddp_bcut_tag.apply_to(fallback_cut);
   fallback_cut.variable_uid = uid_of(src_phase_index);
   fallback_cut.context = make_iteration_context(uid_of(scene_index),
@@ -358,8 +392,10 @@ auto SDDPMethod::backward_pass_aperture_phase_impl(
 {
   auto& phase_states = m_scene_phase_states_[scene_index];
   int cuts_added = 0;
-  m_phase_grid_.record(
-      iteration_index, uid_of(scene_index), phase_index, GridCell::Aperture);
+  m_phase_grid_.record(gtopt::uid_of(iteration_index),
+                       uid_of(scene_index),
+                       uid_of(phase_index),
+                       GridCell::Aperture);
 
   const auto src_phase_index = previous(phase_index);
   auto& src_sys = planning_lp().system(scene_index, src_phase_index);

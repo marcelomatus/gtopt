@@ -58,6 +58,13 @@ std::expected<int, Error> LinearInterface::initial_solve(
         const HandlerGuard guard(*this, log_level);
         m_backend_->initial_solve();
       }
+      // See `resolve()` for the rationale.
+      m_backend_solution_fresh_ = true;
+      // Eagerly snapshot the just-solved primal/dual/reduced-cost
+      // vectors into the LI cache so all downstream readers go through
+      // the LI cache (single source of truth).  Plugin backends no
+      // longer maintain a parallel solution cache.
+      populate_solution_cache_post_solve();
       m_solver_stats_.total_solve_time_s +=
           std::chrono::duration<double>(Clock::now() - t0).count();
     };
@@ -169,6 +176,15 @@ std::expected<int, Error> LinearInterface::resolve(
         const HandlerGuard guard(*this, log_level);
         m_backend_->resolve();
       }
+      // Live backend's `is_proven_optimal()` / `col_solution()` now
+      // reflect the just-completed solve.  Set BEFORE the
+      // `is_optimal()` check below drives the fallback cycle.
+      m_backend_solution_fresh_ = true;
+      // Eagerly snapshot the just-solved primal/dual/reduced-cost
+      // vectors into the LI cache so all downstream readers go through
+      // the LI cache (single source of truth).  Plugin backends no
+      // longer maintain a parallel solution cache.
+      populate_solution_cache_post_solve();
       m_solver_stats_.total_solve_time_s +=
           std::chrono::duration<double>(Clock::now() - t0).count();
     };

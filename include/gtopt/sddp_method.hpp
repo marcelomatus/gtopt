@@ -635,13 +635,6 @@ private:
   /// LP elements.
   int update_lp_for_phase(SceneIndex scene_index, PhaseIndex phase_index);
 
-  /// Conditionally dispatch update_lp for all phases in a scene.
-  /// Checks the preallocated iteration vector for explicit skip/force
-  /// flags and the global skip count before calling SystemLP::update_lp()
-  /// on each phase.
-  void dispatch_update_lp(SceneIndex scene_index,
-                          IterationIndex iteration_index);
-
   /// Clone the LP, apply elastic filter on the clone, and solve it.
   /// Returns an ElasticResult (with solution data and per-link slack info)
   /// if feasible, nullopt otherwise.

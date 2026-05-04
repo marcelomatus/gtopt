@@ -465,3 +465,84 @@ TEST_CASE(
   CHECK(system_lp.output_written());
   CHECK_FALSE(std::filesystem::exists(tmp_dir));
 }
+
+// ── P3 invariant — collections persist across release_backend ────────
+//
+// Before P3 (commit 24fe1b99) `SystemLP::release_backend` would set
+// `m_collections_ = {}; m_collections_built_ = false;` under
+// non-`off` low_memory modes, forcing every subsequent
+// `update_lp_for_phase` to re-run the throw-away
+// `flatten_from_collections` inside `rebuild_collections_if_needed`.
+// On juan/iplp this added ~30-40 s/iter of overhead and was the
+// dominant compress-mode runtime cost.
+//
+// After P3, collections stay populated across release/reconstruct
+// cycles.  The test below verifies the invariant behaviorally:
+// `elements<DemandLP>()` (which throws under empty collections,
+// see `system_lp.hpp:312-348`) must succeed AFTER a release_backend.
+TEST_CASE(
+    "SystemLP — collections persist across release_backend (P3)")  // NOLINT
+{
+  const Array<Bus> bus_array = {{.uid = Uid {1}, .name = "b1"}};
+  const Array<Demand> demand_array = {
+      {.uid = Uid {1},
+       .name = "d1",
+       .bus = Uid {1},
+       .forced = true,
+       .capacity = 100.0},
+  };
+  const Array<Generator> generator_array = {
+      {.uid = Uid {1},
+       .name = "g1",
+       .bus = Uid {1},
+       .gcost = 50.0,
+       .capacity = 1000.0},
+  };
+  const Simulation simulation = {
+      .block_array = {{.uid = Uid {1}, .duration = 1}},
+      .stage_array = {{.uid = Uid {1}, .first_block = 0, .count_block = 1}},
+      .scenario_array = {{.uid = Uid {0}}},
+  };
+  const System system = {
+      .name = "SEN",
+      .bus_array = bus_array,
+      .demand_array = demand_array,
+      .generator_array = generator_array,
+  };
+
+  PlanningOptions popts;
+  popts.demand_fail_cost = 1000.0;
+  const PlanningOptionsLP options(popts);
+  SimulationLP simulation_lp(simulation, options);
+
+  // Build under compress.
+  LpMatrixOptions flat_opts;
+  flat_opts.low_memory_mode = LowMemoryMode::compress;
+  flat_opts.memory_codec = CompressionCodec::lz4;
+  SystemLP system_lp(system, simulation_lp, flat_opts);
+
+  // Solve (cell becomes optimal).
+  REQUIRE(system_lp.linear_interface().resolve({}).has_value());
+
+  // Bring collections live (the ctor drops them under compress).
+  system_lp.rebuild_collections_if_needed();
+
+  // First access — collections live, no throw.
+  CHECK_NOTHROW([[maybe_unused]] const auto& _ =
+                    system_lp.elements<DemandLP>());
+
+  // Release the backend.  Pre-P3 this also dropped collections; post-P3
+  // collections must stay live.
+  system_lp.release_backend();
+
+  // The element accessor must still succeed — this is the P3 invariant.
+  CHECK_NOTHROW([[maybe_unused]] const auto& _ =
+                    system_lp.elements<DemandLP>());
+
+  // Reconstruct and verify a subsequent release also preserves
+  // collections (the invariant must hold across multiple cycles).
+  system_lp.reconstruct_backend();
+  system_lp.release_backend();
+  CHECK_NOTHROW([[maybe_unused]] const auto& _ =
+                    system_lp.elements<DemandLP>());
+}

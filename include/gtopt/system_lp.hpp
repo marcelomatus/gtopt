@@ -629,17 +629,23 @@ public:
   void release_backend()
   {
     m_linear_interface_.release_backend();
-    if (m_flat_opts_.low_memory_mode != LowMemoryMode::off) {
-      m_collections_ = collections_t {};
-      m_collections_built_ = false;
-    }
+    // P3 — keep `m_collections_` alive across release_backend cycles.
+    // Previously dropped under non-`off` modes to save ~30 MB of XLP
+    // wrappers per cell; the saving was outweighed by the cost of
+    // re-running `flatten_from_collections` inside
+    // `rebuild_collections_if_needed` on every `update_lp_for_phase`
+    // call (forward AND backward — the latter added by the backward
+    // `update_lp_for_phase` fix in commit 3e73f68c).  The dominant
+    // memory saving comes from releasing the solver backend itself,
+    // which dwarfs the wrapper footprint by an order of magnitude.
+    // Collections are still dropped once at end of construction
+    // (system_lp.cpp ctor ~line 1099) under compress to avoid the
+    // initial-build memory peak; subsequent `update_lp_for_phase`
+    // rebuilds them lazily and they then persist for the rest of the
+    // solve.
   }
 
-  void reconstruct_backend(std::span<const double> col_sol = {},
-                           std::span<const double> row_dual = {})
-  {
-    m_linear_interface_.reconstruct_backend(col_sol, row_dual);
-  }
+  void reconstruct_backend() { m_linear_interface_.reconstruct_backend(); }
 
   /// Ensure the LP backend is live and ready to solve.  Pure backend
   /// reconstruct — does NOT rebuild ``m_collections_``.  Callers that

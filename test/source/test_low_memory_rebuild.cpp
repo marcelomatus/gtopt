@@ -444,3 +444,63 @@ TEST_CASE(  // NOLINT
 
   CHECK(obj_rebuild == doctest::Approx(obj_snapshot));
 }
+
+// Regression for the iter50_rebuild segfault on `sddp_hydro_3phase`
+// (and its juan/iplp analogue).  Pre-2026-05-03 ``add_col(SparseCol)``
+// only auto-recorded into ``m_dynamic_cols_`` when ``m_snapshot_``
+// already had data — true under ``compress`` but never under
+// ``rebuild`` (which doesn't keep a snapshot).  After the first
+// release/rebuild cycle, the dynamic α column was therefore missing
+// from the rebuilt LP, leaving any cached ``ColIndex`` past the
+// new ``numcols``.  The next ``set_col_low_raw(α_col, ...)`` then
+// SIGSEGV'd inside the solver plugin.
+//
+// Pin the contract: under rebuild, ``add_col(SparseCol)`` MUST grow
+// ``m_dynamic_cols_`` so ``apply_post_load_replay`` re-adds the
+// column on every reconstruct.
+TEST_CASE(  // NOLINT
+    "SystemLP — rebuild auto-records dynamic cols added via add_col")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  auto world = make_mini_world();
+  PlanningOptions popts;
+  popts.demand_fail_cost = 1000.0;
+  const PlanningOptionsLP options(popts);
+  SimulationLP simulation_lp(world.simulation, options);
+
+  LpMatrixOptions flat_opts;
+  flat_opts.low_memory_mode = LowMemoryMode::rebuild;
+
+  SystemLP system_lp(world.system, simulation_lp, flat_opts);
+  system_lp.ensure_lp_built();
+
+  auto& li = system_lp.linear_interface();
+  const auto base_cols = li.get_numcols();
+
+  // Add a dynamic column.  The auto-record contract says rebuild mode
+  // must push this into ``m_dynamic_cols_`` even though there is no
+  // snapshot — no follow-up ``record_dynamic_col`` is needed.
+  const SparseCol alpha {
+      .lowb = 0.0,
+      .uppb = 1e9,
+      .cost = 1.0,
+  };
+  std::ignore = li.add_col(alpha);
+  CHECK(li.get_numcols() == base_cols + 1);
+
+  // Cycle: release the backend (rebuild drops it), then ensure it's
+  // built again.  The auto-recorded dynamic column must come back.
+  system_lp.release_backend();
+  REQUIRE(system_lp.is_backend_released());
+  system_lp.ensure_lp_built();
+
+  CHECK_FALSE(system_lp.is_backend_released());
+  CHECK(system_lp.linear_interface().get_numcols() == base_cols + 1);
+
+  // Second cycle catches a regression where the rebuild-replay was
+  // idempotent only on the first cycle (e.g. a hidden one-shot flag).
+  system_lp.release_backend();
+  system_lp.ensure_lp_built();
+  CHECK(system_lp.linear_interface().get_numcols() == base_cols + 1);
+}

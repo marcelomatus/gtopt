@@ -363,7 +363,6 @@ void CplexSolverBackend::load_problem(int ncols,
                                       const double* rowub)
 {
   m_prob_cached_ = false;
-  m_sol_cached_ = false;
   m_solve_status_ = 0;
 
   // Cycle the entire CPLEX env+lp pair so every byte of per-LP state that
@@ -396,48 +395,53 @@ void CplexSolverBackend::load_problem(int ncols,
   }
 
   // CPLEX requires sorted row indices within each column (CSC format).
-  // The LinearProblem::flatten() two-pass algorithm produces unsorted
-  // indices (rows are added to columns in row-enumeration order, not
-  // sorted order). Create sorted copies for CPLEX.
+  // `LinearProblem::flatten()` already produces sorted output: its
+  // outer loop iterates rows in ascending `RowIndex` order, and the
+  // per-column write cursor `colpos[c]` appends each entry as the
+  // outer loop visits row r — so each column's `matind` slice is
+  // automatically ascending in row index.
+  //
+  // Fast path: trust the caller and pass the buffers through to
+  // `CPXcopylp` directly with NO copy, NO sort.  Saves on every
+  // reconstruct under `LowMemoryMode::compress`:
+  //   * 2 vector copies of the full matind/matval buffers
+  //     (32k × (4+8) bytes ≈ 380 KB on juan/iplp).
+  //   * Per-column allocation of `perm` / `temp_ind` / `temp_val`
+  //     (3 small vectors × ~half of all cols ≈ 38k allocs per
+  //     call on juan/iplp), and the sort within each column.
+  //
+  // Defensive path: a `GTOPT_CPLEX_VERIFY_MATIND_SORTED=1` env var
+  // re-enables a debug-only verification pass that walks every
+  // column and asserts ascending row indices.  Use this on a new
+  // backend or after a flatten refactor to confirm the invariant
+  // before relying on the fast path.
   // NOLINTBEGIN(cppcoreguidelines-pro-bounds-pointer-arithmetic)
-  // matbeg/matind/matval are C-API raw pointers from caller
   const auto nnz =
       (ncols > 0) ? static_cast<size_t>(matbeg[ncols]) : size_t {0};
-  std::vector<int> sorted_matind(matind, matind + nnz);
-  std::vector<double> sorted_matval(matval, matval + nnz);
-  // NOLINTEND(cppcoreguidelines-pro-bounds-pointer-arithmetic)
 
-  // Sort each column's row indices and reorder values accordingly
-  for (int col = 0; col < ncols; ++col) {
-    // NOLINTBEGIN(cppcoreguidelines-pro-bounds-pointer-arithmetic)
-    const auto begin = static_cast<size_t>(matbeg[col]);
-    const auto end =
-        (col + 1 < ncols) ? static_cast<size_t>(matbeg[col + 1]) : nnz;
-    // NOLINTEND(cppcoreguidelines-pro-bounds-pointer-arithmetic)
-
-    if (end <= begin + 1) {
-      continue;  // Column has 0 or 1 entries — already sorted
+  if (const auto* verify = std::getenv(
+          "GTOPT_CPLEX_VERIFY_MATIND_SORTED");  // NOLINT(concurrency-mt-unsafe)
+      verify != nullptr && *verify == '1' && matind != nullptr)
+  {
+    for (int col = 0; col < ncols; ++col) {
+      const auto begin = static_cast<size_t>(matbeg[col]);
+      const auto end =
+          (col + 1 < ncols) ? static_cast<size_t>(matbeg[col + 1]) : nnz;
+      for (auto k = begin + 1; k < end; ++k) {
+        if (matind[k] < matind[k - 1]) {
+          throw std::runtime_error(
+              std::format("CPLEX: matind not sorted within column {} "
+                          "(matind[{}]={} < matind[{}]={})",
+                          col,
+                          k,
+                          matind[k],
+                          k - 1,
+                          matind[k - 1]));
+        }
+      }
     }
-
-    // Build index permutation that sorts row indices in this column
-    std::vector<size_t> perm(end - begin);
-    std::ranges::iota(perm, begin);
-    std::ranges::sort(perm,
-                      [&sorted_matind](size_t a, size_t b)
-                      { return sorted_matind[a] < sorted_matind[b]; });
-
-    // Apply permutation to both matind and matval for this column
-    std::vector<int> temp_ind(end - begin);
-    std::vector<double> temp_val(end - begin);
-    for (size_t i = 0; i < perm.size(); ++i) {
-      temp_ind[i] = sorted_matind[perm[i]];
-      temp_val[i] = sorted_matval[perm[i]];
-    }
-    std::ranges::copy(
-        temp_ind, sorted_matind.begin() + static_cast<std::ptrdiff_t>(begin));
-    std::ranges::copy(
-        temp_val, sorted_matval.begin() + static_cast<std::ptrdiff_t>(begin));
   }
+  // NOLINTEND(cppcoreguidelines-pro-bounds-pointer-arithmetic)
 
   // CPLEX requires all pointers to be non-null, even for zero-element
   // matrices.  Provide safe defaults when the caller passes nullptr.
@@ -452,9 +456,9 @@ void CplexSolverBackend::load_problem(int ncols,
 
   const int* safe_matbeg = matbeg != nullptr ? matbeg : buf_matbeg.data();
   const int* safe_matind =
-      sorted_matind.empty() ? buf_matind.data() : sorted_matind.data();
+      (matind != nullptr && nnz > 0) ? matind : buf_matind.data();
   const double* safe_matval =
-      sorted_matval.empty() ? buf_matval.data() : sorted_matval.data();
+      (matval != nullptr && nnz > 0) ? matval : buf_matval.data();
   const double* safe_obj = obj != nullptr ? obj : buf_obj.data();
   const double* safe_collb = collb != nullptr ? collb : buf_collb.data();
   const double* safe_colub = colub != nullptr ? colub : buf_colub.data();
@@ -502,7 +506,6 @@ int CplexSolverBackend::get_num_rows() const
 void CplexSolverBackend::add_col(double lb, double ub, double obj)
 {
   m_prob_cached_ = false;
-  m_sol_cached_ = false;
   const int matbeg = 0;
   CPXaddcols(m_env_lp_.env(),
              m_env_lp_.lp(),
@@ -526,7 +529,6 @@ void CplexSolverBackend::add_cols(int num_cols,
                                   const double* colobj)
 {
   m_prob_cached_ = false;
-  m_sol_cached_ = false;
 
   if (num_cols == 0) {
     return;
@@ -560,7 +562,6 @@ void CplexSolverBackend::add_cols(int num_cols,
 void CplexSolverBackend::set_col_lower(int index, double value)
 {
   m_prob_cached_ = false;
-  m_sol_cached_ = false;
   const char bound_type = 'L';
   CPXchgbds(m_env_lp_.env(), m_env_lp_.lp(), 1, &index, &bound_type, &value);
 }
@@ -568,7 +569,6 @@ void CplexSolverBackend::set_col_lower(int index, double value)
 void CplexSolverBackend::set_col_upper(int index, double value)
 {
   m_prob_cached_ = false;
-  m_sol_cached_ = false;
   const char bound_type = 'U';
   CPXchgbds(m_env_lp_.env(), m_env_lp_.lp(), 1, &index, &bound_type, &value);
 }
@@ -602,7 +602,6 @@ void CplexSolverBackend::add_row(int num_elements,
                                  double rowub)
 {
   m_prob_cached_ = false;
-  m_sol_cached_ = false;
 
   char sense {};
   double rhs {};
@@ -642,7 +641,6 @@ void CplexSolverBackend::add_rows(int num_rows,
                                   const double* rowub)
 {
   m_prob_cached_ = false;
-  m_sol_cached_ = false;
 
   // Convert lb/ub bounds to CPLEX sense/rhs/range vectors
   std::vector<char> senses(static_cast<size_t>(num_rows));
@@ -685,7 +683,6 @@ void CplexSolverBackend::add_rows(int num_rows,
 void CplexSolverBackend::set_row_lower(int index, double value)
 {
   m_prob_cached_ = false;
-  m_sol_cached_ = false;
 
   // Get current row upper bound to recompute sense/rhs/range
   char old_sense {};
@@ -717,7 +714,6 @@ void CplexSolverBackend::set_row_lower(int index, double value)
 void CplexSolverBackend::set_row_upper(int index, double value)
 {
   m_prob_cached_ = false;
-  m_sol_cached_ = false;
 
   char old_sense {};
   double old_rhs {};
@@ -742,7 +738,6 @@ void CplexSolverBackend::set_row_upper(int index, double value)
 void CplexSolverBackend::set_row_bounds(int index, double lb, double ub)
 {
   m_prob_cached_ = false;
-  m_sol_cached_ = false;
 
   char new_sense {};
   double new_rhs {};
@@ -757,7 +752,6 @@ void CplexSolverBackend::set_row_bounds(int index, double lb, double ub)
 void CplexSolverBackend::delete_rows(int num, const int* indices)
 {
   m_prob_cached_ = false;
-  m_sol_cached_ = false;
 
   // CPXdelrows expects a sorted range [begin, end].
   // We need to delete individual indices — use CPXdelsetrows with a delstat
@@ -784,7 +778,6 @@ double CplexSolverBackend::get_coeff(int row, int col) const
 void CplexSolverBackend::set_coeff(int row, int col, double value)
 {
   m_prob_cached_ = false;
-  m_sol_cached_ = false;
   CPXchgcoef(m_env_lp_.env(), m_env_lp_.lp(), row, col, value);
 }
 
@@ -795,7 +788,6 @@ bool CplexSolverBackend::supports_set_coeff() const noexcept
 
 void CplexSolverBackend::set_continuous(int index)
 {
-  m_sol_cached_ = false;
   // If problem is MIP, change column type to continuous
   const int cplex_type = CPXgetprobtype(m_env_lp_.env(), m_env_lp_.lp());
   if (cplex_type == CPXPROB_MILP || cplex_type == CPXPROB_MIQP) {
@@ -806,7 +798,6 @@ void CplexSolverBackend::set_continuous(int index)
 
 void CplexSolverBackend::set_integer(int index)
 {
-  m_sol_cached_ = false;
   // Promote to MIP if needed
   const int cplex_type = CPXgetprobtype(m_env_lp_.env(), m_env_lp_.lp());
   if (cplex_type != CPXPROB_MILP && cplex_type != CPXPROB_MIQP) {
@@ -874,12 +865,14 @@ void CplexSolverBackend::cache_problem_data() const
   m_prob_cached_ = true;
 }
 
-void CplexSolverBackend::cache_solution() const
+void CplexSolverBackend::fetch_solution() const
 {
-  if (m_sol_cached_) {
-    return;
-  }
-
+  // Always re-fetch from CPLEX into the storage vectors.  No
+  // backend-side validity flag: the LinearInterface
+  // (`populate_solution_cache_post_solve`) is the single source of
+  // truth post-solve and calls each accessor at most once per solve.
+  // Storage is retained so the returned raw pointer remains valid
+  // through the LI's `assign(...)` copy.
   const int ncols = CPXgetnumcols(m_env_lp_.env(), m_env_lp_.lp());
   const int nrows = CPXgetnumrows(m_env_lp_.env(), m_env_lp_.lp());
 
@@ -898,8 +891,6 @@ void CplexSolverBackend::cache_solution() const
     CPXgetpi(
         m_env_lp_.env(), m_env_lp_.lp(), m_row_price_.data(), 0, nrows - 1);
   }
-
-  m_sol_cached_ = true;
 }
 
 const double* CplexSolverBackend::col_lower() const
@@ -934,19 +925,19 @@ const double* CplexSolverBackend::row_upper() const
 
 const double* CplexSolverBackend::col_solution() const
 {
-  cache_solution();
+  fetch_solution();
   return m_col_solution_.data();
 }
 
 const double* CplexSolverBackend::reduced_cost() const
 {
-  cache_solution();
+  fetch_solution();
   return m_reduced_cost_.data();
 }
 
 const double* CplexSolverBackend::row_price() const
 {
-  cache_solution();
+  fetch_solution();
   return m_row_price_.data();
 }
 
@@ -962,15 +953,14 @@ void CplexSolverBackend::set_col_solution(const double* sol)
   if (sol == nullptr) {
     return;
   }
-  const auto ncols =
-      static_cast<size_t>(CPXgetnumcols(m_env_lp_.env(), m_env_lp_.lp()));
-  // Cache the provided solution so that col_solution() returns it
-  // immediately, without requiring a re-solve.
-  m_col_solution_.assign(
-      sol,
-      sol + ncols);  // NOLINT(cppcoreguidelines-pro-bounds-pointer-arithmetic)
-  m_sol_cached_ = true;
-  // Also provide it to CPLEX as a warm-start hint.
+  // Provide the solution to CPLEX as a warm-start hint.  The
+  // backend no longer maintains an internal solution cache; the next
+  // `col_solution()` call after a successful resolve will re-fetch
+  // via `CPXgetx`.  This was previously stuffed into m_col_solution_
+  // so a "read-without-solve" path could observe the hint, but no
+  // production caller actually reads the primal between
+  // set_col_solution and resolve — the test path is always
+  // set → solve → read.
   CPXcopystart(m_env_lp_.env(),
                m_env_lp_.lp(),
                nullptr,  // cstat (basis statuses for columns)
@@ -986,7 +976,6 @@ void CplexSolverBackend::set_row_price(const double* price)
   if (price == nullptr) {
     return;
   }
-  m_sol_cached_ = false;
   CPXcopystart(m_env_lp_.env(),
                m_env_lp_.lp(),
                nullptr,  // cstat
@@ -999,8 +988,6 @@ void CplexSolverBackend::set_row_price(const double* price)
 
 void CplexSolverBackend::initial_solve()
 {
-  m_sol_cached_ = false;
-
   const int cplex_type = CPXgetprobtype(m_env_lp_.env(), m_env_lp_.lp());
   if (cplex_type == CPXPROB_MILP || cplex_type == CPXPROB_MIQP) {
     m_solve_status_ = CPXmipopt(m_env_lp_.env(), m_env_lp_.lp());
@@ -1011,8 +998,6 @@ void CplexSolverBackend::initial_solve()
 
 void CplexSolverBackend::resolve()
 {
-  m_sol_cached_ = false;
-
   const int cplex_type = CPXgetprobtype(m_env_lp_.env(), m_env_lp_.lp());
   if (cplex_type == CPXPROB_MILP || cplex_type == CPXPROB_MIQP) {
     m_solve_status_ = CPXmipopt(m_env_lp_.env(), m_env_lp_.lp());

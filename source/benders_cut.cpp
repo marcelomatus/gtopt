@@ -96,7 +96,10 @@ void propagate_trial_values(std::span<StateVarLink> links,
     // Keep `trial_value` in dependent-column raw LP units so
     // downstream cut-builders (which compare against the bound
     // snapshot in `StateVarLink::source_{low,upp}` also captured in
-    // raw) see a self-consistent value.
+    // raw) see a self-consistent value.  Hoist the descale once —
+    // `set_col_low/upp(physical)` above already paid the descale
+    // internally, so a second division here is unavoidable, but at
+    // least it's computed only once per link.
     link.trial_value = v_phys / target_li.get_col_scale(link.dependent_col);
   }
 }
@@ -119,6 +122,7 @@ auto build_benders_cut_physical(ColIndex alpha_col,
   auto row = SparseRow {
       .lowb = objective_value_physical,
       .uppb = LinearProblem::DblMax,
+      .pivot_col = alpha_col,  // ← α-pivot equilibration in add_row step 3
   };
   row[alpha_col] = 1.0;
 
@@ -132,8 +136,10 @@ auto build_benders_cut_physical(ColIndex alpha_col,
     row.lowb -= rc_phys * v_hat_phys;
   }
 
-  // No `already_lp_space` flag: this row IS physical.  `add_row` on an
-  // equilibrated LP will apply col_scales + row-max composition.
+  // `pivot_col = alpha_col` tells `add_row`'s step-3 equilibration to
+  // normalize by α's coefficient instead of row-max.  Keeps α at 1.0
+  // in LP-space and pushes the dynamic range into the state-link
+  // coefficients (which don't drive κ when α is the basic pivot).
   return row;
 }
 
@@ -151,6 +157,7 @@ auto build_benders_cut_physical(ColIndex alpha_col,
   auto row = SparseRow {
       .lowb = objective_value_physical,
       .uppb = LinearProblem::DblMax,
+      .pivot_col = alpha_col,  // ← α-pivot equilibration in add_row step 3
   };
   row[alpha_col] = 1.0;
 
@@ -218,6 +225,7 @@ auto build_benders_cut_physical(ColIndex alpha_col,
   auto row = SparseRow {
       .lowb = objective_value_physical,
       .uppb = LinearProblem::DblMax,
+      .pivot_col = alpha_col,  // ← α-pivot equilibration in add_row step 3
   };
   row[alpha_col] = 1.0;
 

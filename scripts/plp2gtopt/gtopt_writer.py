@@ -44,6 +44,172 @@ def _strip_internal_keys(planning: Dict) -> Dict:
     return {k: v for k, v in planning.items() if not k.startswith("_")}
 
 
+def _try_scalar(value: Any) -> float | None:
+    """Extract a scalar float from a JSON value if possible.
+
+    Mirrors the C++ side's ``try_scalar_value`` (validate_planning.cpp):
+    a scalar Real / int collapses to ``float``; vector / file / string
+    schedules return ``None`` (validation deferred to load time).
+    """
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return float(value)
+    return None
+
+
+def _find_by_uid_or_name(arr: list[Dict], ref: Any) -> Dict | None:
+    """Look up an element in ``arr`` by Uid (int) or Name (str)."""
+    if isinstance(ref, int):
+        for elem in arr:
+            if elem.get("uid") == ref:
+                return elem
+        return None
+    if isinstance(ref, str):
+        for elem in arr:
+            if elem.get("name") == ref:
+                return elem
+    return None
+
+
+def _validate_piecewise_segments(planning: Dict) -> list[str]:
+    """Per-segment range feasibility for seepage + discharge_limit.
+
+    Mirrors the C++ ``check_piecewise_feasibility`` in
+    ``source/validate_planning.cpp``.  For each piecewise segment k of a
+    seepage / discharge_limit element, evaluates the linear function
+    ``f(efin) = constant + slope · efin`` at the segment's active
+    range ``[V_low, V_high]`` (clipped to the reservoir's
+    ``[emin, emax]`` envelope) and returns a warning string when the
+    resulting range violates the LP-row's flow bound:
+
+    * ReservoirSeepage row is an equality
+      ``qfilt = constant + slope · efin`` with qfilt bounded by the
+      seepage's WATERWAY ``[fmin, fmax]``.  Warn when
+      ``min(f(V_low), f(V_high)) < fmin``  OR
+      ``max(f(V_low), f(V_high)) > fmax``.
+
+    * ReservoirDischargeLimit row is the inequality
+      ``qeh ≤ intercept + slope · efin`` with ``qeh ≥ 0``.  Warn when
+      ``min(f(V_low), f(V_high)) < 0``.
+
+    Schedule-form ``emin`` / ``emax`` / ``fmin`` / ``fmax`` are
+    skipped (they need per-stage resolution at LP-build time, not at
+    static validation).  Caller logs the returned warnings — does not
+    raise — to match the C++ side's "warn-only" semantics.
+    """
+    warnings: list[str] = []
+    system = planning.get("system", {})
+    reservoirs = system.get("reservoir_array", [])
+    waterways = system.get("waterway_array", [])
+    seepages = system.get("reservoir_seepage_array", [])
+    discharge_limits = system.get("reservoir_discharge_limit_array", [])
+
+    # ── Seepage ────────────────────────────────────────────────
+    for seep in seepages:
+        segments = seep.get("segments") or []
+        if not segments:
+            continue
+        rsv = _find_by_uid_or_name(reservoirs, seep.get("reservoir"))
+        if rsv is None:
+            continue
+        emin = _try_scalar(rsv.get("emin"))
+        emax = _try_scalar(rsv.get("emax"))
+        if emin is None or emax is None:
+            continue  # schedule form — defer
+        ww = _find_by_uid_or_name(waterways, seep.get("waterway"))
+        if ww is None:
+            continue
+        fmin_val = _try_scalar(ww.get("fmin"))
+        fmax_val = _try_scalar(ww.get("fmax"))
+        fmin_val = 0.0 if fmin_val is None else fmin_val
+        fmax_val = float("inf") if fmax_val is None else fmax_val
+
+        for k, seg in enumerate(segments):
+            slope = float(seg.get("slope", 0.0))
+            constant = float(seg.get("constant", 0.0))
+            seg_lo = float(seg.get("volume", 0.0))
+            v_low = max(seg_lo, emin)
+            v_high = (
+                float(segments[k + 1].get("volume", 0.0))
+                if k + 1 < len(segments)
+                else emax
+            )
+            if v_high < v_low:
+                continue  # empty range
+            f_low = constant + slope * v_low
+            f_high = constant + slope * v_high
+            f_min = min(f_low, f_high)
+            f_max = max(f_low, f_high)
+            if f_min < fmin_val:
+                warnings.append(
+                    f"ReservoirSeepage '{seep.get('name')}' "
+                    f"(reservoir '{rsv.get('name')}', waterway "
+                    f"'{ww.get('name')}'): segment {k} "
+                    f"({v_low:.3g} ≤ efin ≤ {v_high:.3g}) produces qfilt "
+                    f"below waterway fmin (slope={slope:.6g}, "
+                    f"constant={constant:.6g} → qfilt range "
+                    f"[{f_min:.6g}, {f_max:.6g}] vs fmin={fmin_val:.6g}); "
+                    "the LP will go primal-infeasible whenever efin lands "
+                    "in the segment's lower portion.  Adjust the segment "
+                    "data so that `constant + slope * V >= fmin` for all "
+                    "V in [V_low, V_high]."
+                )
+            if f_max > fmax_val:
+                warnings.append(
+                    f"ReservoirSeepage '{seep.get('name')}' "
+                    f"(reservoir '{rsv.get('name')}', waterway "
+                    f"'{ww.get('name')}'): segment {k} "
+                    f"({v_low:.3g} ≤ efin ≤ {v_high:.3g}) produces qfilt "
+                    f"above waterway fmax (slope={slope:.6g}, "
+                    f"constant={constant:.6g} → qfilt range "
+                    f"[{f_min:.6g}, {f_max:.6g}] vs fmax={fmax_val:.6g})."
+                )
+
+    # ── DischargeLimit ─────────────────────────────────────────
+    for ddl in discharge_limits:
+        segments = ddl.get("segments") or []
+        if not segments:
+            continue
+        rsv = _find_by_uid_or_name(reservoirs, ddl.get("reservoir"))
+        if rsv is None:
+            continue
+        emin = _try_scalar(rsv.get("emin"))
+        emax = _try_scalar(rsv.get("emax"))
+        if emin is None or emax is None:
+            continue
+
+        for k, seg in enumerate(segments):
+            slope = float(seg.get("slope", 0.0))
+            intercept = float(seg.get("intercept", 0.0))
+            seg_lo = float(seg.get("volume", 0.0))
+            v_low = max(seg_lo, emin)
+            v_high = (
+                float(segments[k + 1].get("volume", 0.0))
+                if k + 1 < len(segments)
+                else emax
+            )
+            if v_high < v_low:
+                continue
+            f_low = intercept + slope * v_low
+            f_high = intercept + slope * v_high
+            f_min = min(f_low, f_high)
+            f_max = max(f_low, f_high)
+            if f_min < 0.0:
+                warnings.append(
+                    f"ReservoirDischargeLimit '{ddl.get('name')}' "
+                    f"(reservoir '{rsv.get('name')}'): segment {k} "
+                    f"({v_low:.3g} ≤ efin ≤ {v_high:.3g}) produces a "
+                    f"negative discharge upper bound "
+                    f"(slope={slope:.6g}, intercept={intercept:.6g} → "
+                    f"bound range [{f_min:.6g}, {f_max:.6g}]); the LP "
+                    "will go primal-infeasible whenever efin lands in "
+                    "the segment's lower portion.  Adjust the segment so "
+                    "that `intercept + slope * V >= 0` for all V in "
+                    "[V_low, V_high]."
+                )
+
+    return warnings
+
+
 class GTOptWriter(
     TimeMixin,
     GenerationMixin,
@@ -468,6 +634,18 @@ class GTOptWriter(
         output_file.parent.mkdir(parents=True, exist_ok=True)
 
         planning = self.to_json(options)
+
+        # Per-segment piecewise feasibility check on the synthesised
+        # planning (mirrors `validate_planning.cpp::check_piecewise_feasibility`
+        # on the C++ side so authors get the same actionable warning
+        # whether they're writing JSON by hand or generating it from
+        # PLP).  Warn-only — does not abort the conversion, since the
+        # warning may be a known acceptable approximation in the source
+        # PLP data and the gtopt run will surface real infeasibilities
+        # downstream anyway.
+        for warn_msg in _validate_piecewise_segments(planning):
+            _logger.warning("%s", warn_msg)
+
         progress = options.get("_progress")
         if progress is not None:
             progress.step("write")

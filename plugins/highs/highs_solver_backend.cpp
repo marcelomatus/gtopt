@@ -191,7 +191,6 @@ void HighsSolverBackend::load_problem(int ncols,
   // output again before passModel() which prints the startup banner.
   m_highs_->setOptionValue("output_flag", false);
   m_highs_->setOptionValue("log_to_console", false);
-  m_solution_valid_ = false;
 
   if (ncols == 0 && nrows == 0) {
     return;  // Empty problem — nothing to load
@@ -256,7 +255,6 @@ int HighsSolverBackend::get_num_rows() const
 
 void HighsSolverBackend::add_col(double lb, double ub, double obj)
 {
-  m_solution_valid_ = false;
   m_highs_->addCol(obj, lb, ub, 0, nullptr, nullptr);
 }
 
@@ -268,7 +266,6 @@ void HighsSolverBackend::add_cols(int num_cols,
                                   const double* colub,
                                   const double* colobj)
 {
-  m_solution_valid_ = false;
   if (num_cols == 0) {
     return;
   }
@@ -322,7 +319,6 @@ void HighsSolverBackend::add_row(int num_elements,
                                  double rowlb,
                                  double rowub)
 {
-  m_solution_valid_ = false;
   m_highs_->addRow(rowlb, rowub, num_elements, columns, elements);
 }
 
@@ -333,7 +329,6 @@ void HighsSolverBackend::add_rows(int num_rows,
                                   const double* rowlb,
                                   const double* rowub)
 {
-  m_solution_valid_ = false;
   // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
   const int nnz = rowbeg[num_rows];
   m_highs_->addRows(num_rows, rowlb, rowub, nnz, rowbeg, rowind, rowval);
@@ -364,7 +359,6 @@ void HighsSolverBackend::set_row_bounds(int index, double lb, double ub)
 
 void HighsSolverBackend::delete_rows(int num, const int* indices)
 {
-  m_solution_valid_ = false;
   // HiGHS deleteRows takes a set of indices
   m_highs_->deleteRows(num, indices);
 }
@@ -413,17 +407,18 @@ bool HighsSolverBackend::is_integer(int index) const
   return !is_continuous(index);
 }
 
-void HighsSolverBackend::cache_solution() const
+void HighsSolverBackend::fetch_solution() const
 {
-  if (m_solution_valid_) {
-    return;
-  }
-
+  // Always re-fetch from HiGHS into the storage vectors.  No
+  // backend-side validity flag: the LinearInterface
+  // (`populate_solution_cache_post_solve`) is the single source of
+  // truth post-solve and calls each accessor at most once per solve.
+  // Storage is retained so the returned raw pointer remains valid
+  // through the LI's `assign(...)` copy.
   const auto& solution = m_highs_->getSolution();
   m_col_solution_ = solution.col_value;
   m_col_dual_ = solution.col_dual;
   m_row_dual_ = solution.row_dual;
-  m_solution_valid_ = true;
 }
 
 const double* HighsSolverBackend::col_lower() const
@@ -453,19 +448,19 @@ const double* HighsSolverBackend::row_upper() const
 
 const double* HighsSolverBackend::col_solution() const
 {
-  cache_solution();
+  fetch_solution();
   return m_col_solution_.data();
 }
 
 const double* HighsSolverBackend::reduced_cost() const
 {
-  cache_solution();
+  fetch_solution();
   return m_col_dual_.data();
 }
 
 const double* HighsSolverBackend::row_price() const
 {
-  cache_solution();
+  fetch_solution();
   return m_row_dual_.data();
 }
 
@@ -486,7 +481,6 @@ void HighsSolverBackend::set_col_solution(const double* sol)
       sol + ncols);  // NOLINT(cppcoreguidelines-pro-bounds-pointer-arithmetic)
   solution.value_valid = true;
   m_highs_->setSolution(solution);
-  m_solution_valid_ = false;
 }
 
 void HighsSolverBackend::set_row_price(const double* price)
@@ -503,12 +497,10 @@ void HighsSolverBackend::set_row_price(const double* price)
           + nrows);  // NOLINT(cppcoreguidelines-pro-bounds-pointer-arithmetic)
   solution.dual_valid = true;
   m_highs_->setSolution(solution);
-  m_solution_valid_ = false;
 }
 
 void HighsSolverBackend::initial_solve()
 {
-  m_solution_valid_ = false;
   if (m_load_failed_) {
     return;
   }
@@ -521,7 +513,6 @@ void HighsSolverBackend::initial_solve()
 void HighsSolverBackend::resolve()
 {
   // HiGHS automatically warm-starts from previous basis
-  m_solution_valid_ = false;
   if (m_load_failed_) {
     // passModel failed (e.g. contradictory bounds) — skip run so
     // is_proven_optimal() returns false and the caller reports

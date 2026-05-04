@@ -1095,3 +1095,192 @@ class TestWriteFcostParquet:
         assert "stage" in df.columns
         assert "block" not in df.columns
         assert df["stage"].dtype == "int32"
+
+
+# ── Per-segment seepage / discharge_limit feasibility validation ──────────
+
+
+class TestValidatePiecewiseSegments:
+    """Per-segment feasibility check on the synthesised planning dict.
+
+    Mirrors the C++ side's `validate_planning.cpp::check_piecewise_feasibility`
+    so PLP authors get the same actionable warning whether they're
+    hand-writing JSON or generating it from PLP.  Warn-only — does not
+    abort.  Schedule-form (vector / file) emin/emax/fmin/fmax are
+    skipped (deferred to load-time).
+    """
+
+    @staticmethod
+    def _planning_with(seepages=None, discharge_limits=None):
+        return {
+            "system": {
+                "reservoir_array": [
+                    {"uid": 1, "name": "r1", "emin": 100.0, "emax": 1000.0},
+                ],
+                "waterway_array": [
+                    {"uid": 10, "name": "w1", "fmin": 0.0, "fmax": 100.0},
+                ],
+                "reservoir_seepage_array": seepages or [],
+                "reservoir_discharge_limit_array": discharge_limits or [],
+            },
+        }
+
+    def test_clean_seepage_emits_no_warning(self):
+        from plp2gtopt.gtopt_writer import _validate_piecewise_segments
+
+        # f(efin) over [100, 1000] = constant + slope·efin.
+        # seg 0: f(100)=0, f(500)=4 ∈ [0, 100] ✓
+        # seg 1: f(500)=4, f(1000)=29 ∈ [0, 100] ✓
+        planning = self._planning_with(
+            seepages=[
+                {
+                    "name": "seep1",
+                    "reservoir": 1,
+                    "waterway": 10,
+                    "segments": [
+                        {"volume": 100, "slope": 0.01, "constant": -1.0},
+                        {"volume": 500, "slope": 0.05, "constant": -21.0},
+                    ],
+                },
+            ],
+        )
+        assert not _validate_piecewise_segments(planning)
+
+    def test_seepage_below_fmin_warns(self):
+        from plp2gtopt.gtopt_writer import _validate_piecewise_segments
+
+        # f(100) = -5 + 0.01·100 = -4 < fmin=0
+        planning = self._planning_with(
+            seepages=[
+                {
+                    "name": "seep1",
+                    "reservoir": 1,
+                    "waterway": 10,
+                    "segments": [
+                        {"volume": 100, "slope": 0.01, "constant": -5.0},
+                    ],
+                },
+            ],
+        )
+        warns = _validate_piecewise_segments(planning)
+        assert len(warns) == 1
+        assert "seep1" in warns[0]
+        assert "fmin" in warns[0]
+        assert "segment 0" in warns[0]
+
+    def test_seepage_above_fmax_warns(self):
+        from plp2gtopt.gtopt_writer import _validate_piecewise_segments
+
+        # f(100) = 10 + 0.2·100 = 30 ∈ [0, 100] ✓ (lower bound ok)
+        # f(1000) = 10 + 0.2·1000 = 210 > fmax=100 ✗
+        # Only the upper-bound violation fires; the lower endpoint
+        # is inside [fmin, fmax] so no fmin warning.
+        planning = self._planning_with(
+            seepages=[
+                {
+                    "name": "seep1",
+                    "reservoir": 1,
+                    "waterway": 10,
+                    "segments": [
+                        {"volume": 100, "slope": 0.20, "constant": 10.0},
+                    ],
+                },
+            ],
+        )
+        warns = _validate_piecewise_segments(planning)
+        assert len(warns) == 1
+        assert "seep1" in warns[0]
+        assert "fmax" in warns[0]
+
+    def test_clean_discharge_limit_emits_no_warning(self):
+        from plp2gtopt.gtopt_writer import _validate_piecewise_segments
+
+        # f(efin) over [100, 1000] = -100 + 1·efin → [0, 900] all ≥ 0 ✓
+        planning = self._planning_with(
+            discharge_limits=[
+                {
+                    "name": "ddl1",
+                    "reservoir": 1,
+                    "waterway": 10,
+                    "segments": [
+                        {"volume": 100, "slope": 1.0, "intercept": -100.0},
+                    ],
+                },
+            ],
+        )
+        assert not _validate_piecewise_segments(planning)
+
+    def test_discharge_limit_negative_warns(self):
+        from plp2gtopt.gtopt_writer import _validate_piecewise_segments
+
+        # f(100) = -3 + 0.02·100 = -1 < 0
+        planning = self._planning_with(
+            discharge_limits=[
+                {
+                    "name": "ddl1",
+                    "reservoir": 1,
+                    "waterway": 10,
+                    "segments": [
+                        {"volume": 100, "slope": 0.02, "intercept": -3.0},
+                    ],
+                },
+            ],
+        )
+        warns = _validate_piecewise_segments(planning)
+        assert len(warns) == 1
+        assert "ddl1" in warns[0]
+        assert "negative" in warns[0]
+
+    def test_schedule_form_emin_defers(self):
+        from plp2gtopt.gtopt_writer import _validate_piecewise_segments
+
+        # Replace scalar emin with a vector schedule — validation
+        # must skip segment feasibility (deferred to per-stage load).
+        planning = self._planning_with(
+            seepages=[
+                {
+                    "name": "seep1",
+                    "reservoir": 1,
+                    "waterway": 10,
+                    "segments": [
+                        # Obviously infeasible if emin were 0 — but
+                        # vector emin defers, so no warning.
+                        {"volume": 0, "slope": 0.01, "constant": -50.0},
+                    ],
+                },
+            ],
+        )
+        planning["system"]["reservoir_array"][0]["emin"] = [100.0, 200.0]
+        assert not _validate_piecewise_segments(planning)
+
+    def test_missing_reservoir_skips(self):
+        from plp2gtopt.gtopt_writer import _validate_piecewise_segments
+
+        # Seepage references a non-existent reservoir uid → skip
+        # (referential integrity is checked elsewhere).
+        planning = self._planning_with(
+            seepages=[
+                {
+                    "name": "seep1",
+                    "reservoir": 999,
+                    "waterway": 10,
+                    "segments": [{"volume": 0, "slope": 0.0, "constant": -5.0}],
+                },
+            ],
+        )
+        assert not _validate_piecewise_segments(planning)
+
+    def test_empty_segments_skips(self):
+        from plp2gtopt.gtopt_writer import _validate_piecewise_segments
+
+        planning = self._planning_with(
+            seepages=[
+                {
+                    "name": "seep1",
+                    "reservoir": 1,
+                    "waterway": 10,
+                    "segments": [],
+                },
+            ],
+        )
+        assert not _validate_piecewise_segments(planning)

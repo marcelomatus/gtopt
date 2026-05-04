@@ -71,7 +71,7 @@ void log_backward_timing_breakdown(IterationIndex iteration_index,
       "add_row={:.2f} store={:.2f} resolve={:.2f} kappa={:.2f} — "
       "{} step(s), total(s) rebuild={:.2f} build={:.2f} add_row={:.2f} "
       "store={:.2f} resolve={:.2f} kappa={:.2f}",
-      iteration_index,
+      gtopt::uid_of(iteration_index),
       to_ms(delta.bwd_lp_rebuild_s),
       to_ms(delta.bwd_cut_build_s),
       to_ms(delta.bwd_add_row_s),
@@ -239,7 +239,7 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
         SPDLOG_INFO(
             "SDDP Iter [i{}]: stop requested, halting after {}"
             " iterations",
-            iteration_index,
+            gtopt::uid_of(iteration_index),
             iteration_relative(iteration_index, m_iteration_offset_));
         break;
       }
@@ -247,7 +247,7 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
       // 1-based "N of M" reads naturally; the raw indices were
       // confusing (e.g. "=== 0/0 ===" for max_iterations=1).
       SPDLOG_INFO("SDDP Iter [i{}]: === starting ({} of {}) ===",
-                  iteration_index,
+                  gtopt::uid_of(iteration_index),
                   iteration_relative(iteration_index, m_iteration_offset_) + 1,
                   m_options_.max_iterations);
 
@@ -280,7 +280,7 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
       // 2 ms later was pure noise.
       ir.feasibility_issue = fwd->has_feasibility_issue;
       SPDLOG_DEBUG("SDDP Forward [i{}]: done in {:.3f}s",
-                   iteration_index,
+                   gtopt::uid_of(iteration_index),
                    fwd->elapsed_s);
 
       // ── Scene weights and bounds ──
@@ -334,7 +334,7 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
                                         - iteration_start_time)
               .count();
       SPDLOG_DEBUG("SDDP Backward [i{}]: done in {:.3f}s, {} cuts added",
-                   iteration_index,
+                   gtopt::uid_of(iteration_index),
                    bwd.elapsed_s,
                    bwd.total_cuts);
 
@@ -441,7 +441,7 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
         SPDLOG_INFO(
             "SDDP Iter [i{}]: stationary gap convergence "
             "(gap_change={:.6f} < stationary_tol={:.6f}) [CONVERGED]",
-            iteration_index,
+            gtopt::uid_of(iteration_index),
             ir.gap_change,
             m_options_.stationary_tol);
       } else if (!ir.converged && past_min_iterations && gap_is_stationary
@@ -454,7 +454,7 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
             "SDDP Iter [i{}]: stationary gap_change={:.6f} < tol={:.6f} "
             "but gap={:.4f} >= ceiling={:.2f} — NOT converging "
             "(LB likely frozen; continuing)",
-            iteration_index,
+            gtopt::uid_of(iteration_index),
             ir.gap_change,
             m_options_.stationary_tol,
             ir.gap,
@@ -613,7 +613,7 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
               "SDDP Iter [i{}]: statistical CI convergence "
               "(UB-LB={:.4f} <= z·σ̂/√N={:.4f}, z={:.3f}, "
               "σ̂={:.4f}, N_feasible={}) [CONVERGED]",
-              iteration_index,
+              gtopt::uid_of(iteration_index),
               gap_abs,
               ci_threshold,
               z_score,
@@ -637,7 +637,7 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
               "SDDP Iter [i{}]: statistical + stationary convergence "
               "(UB-LB={:.4f} > z*σ={:.4f} but gap_change={:.6f} "
               "< stationary_tol={:.6f}) [CONVERGED]",
-              iteration_index,
+              gtopt::uid_of(iteration_index),
               gap_abs,
               ci_threshold,
               ir.gap_change,
@@ -670,7 +670,7 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
       SPDLOG_INFO(
           "SDDP Iter [i{}]: done in {:.3f}s (fwd {:.2f}s + bwd {:.2f}s) — "
           "UB={} LB={} gap={:.2f}% Δgap={:.2f}% cuts={}/{}{}{}",
-          iteration_index,
+          gtopt::uid_of(iteration_index),
           ir.iteration_s,
           ir.forward_pass_s,
           ir.backward_pass_s,
@@ -708,24 +708,27 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
         dt_save = post_elapsed_s(t_save);
       }
 
-      // ── Low-memory: release solver backends + drop primal caches ──
+      // ── Low-memory: release solver backends ──
       // After the per-cell release scheme most cells are already
       // released by the backward worker; this bulk loop is the
       // idempotent safety net.  `release_backend` is a no-op when
       // `m_backend_released_` is already set (`linear_interface.cpp:144`),
       // so the cost is dominated by the loop overhead (~µs total).
       //
-      // `drop_cached_primal_only()` additionally clears the per-cell
-      // `col_sol` / `col_cost` snapshots (kept around since the
-      // forward-pass solve so the per-iteration `save_state_csv`
-      // could read them).  By the time we reach this point the state
-      // CSV has been written and the backward pass has consumed the
-      // per-state-variable values via `capture_state_variable_values`
-      // — both vectors sit unused until the next iteration's solve
-      // overwrites them.  On juan/gtopt_iplp this frees ~0.7–2.5 GB
-      // across the 816 cells between iterations.  The retained
-      // `row_dual` cache is still needed by `update_stored_cut_duals`
-      // and `prune_inactive_cuts` next iteration.
+      // Previously this loop also called `drop_cached_primal_only()`
+      // to free the per-cell col_sol/col_cost snapshots, but that
+      // broke `physical_eini` under compress: the next iteration's
+      // forward `update_lp_for_phase` reads `get_col_sol()` to evaluate
+      // turbine production factor / seepage / discharge limit at the
+      // previous solve's reservoir volume, and dropping the cache
+      // forced the read to fall through to the freshly reconstructed
+      // backend whose `col_solution()` is zero/undefined → coefficients
+      // pinned at construction-time default_volume → SDDP plateau at
+      // gap=133.78% on juan/gtopt_iplp.  The retained col_sol vector
+      // costs ~50 KB × num_cells (≈ 40 MB on juan, 2.5 GB on the 816-
+      // cell support cases).  ensure_backend now restores cached
+      // primal/dual onto the live backend so the read path stays
+      // valid across release_backend → ensure_backend cycles.
       const auto t_release = PostClock::now();
       if (m_options_.low_memory_mode != LowMemoryMode::off) {
         const auto ns = planning_lp().simulation().scene_count();
@@ -734,7 +737,6 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
           for (const auto pi : iota_range<PhaseIndex>(0, np)) {
             auto& sys = planning_lp().system(si, pi);
             sys.release_backend();
-            sys.linear_interface().drop_cached_primal_only();
           }
         }
       }
@@ -750,7 +752,7 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
       SPDLOG_INFO(
           "SDDP Iter [i{}]: post-iter {:.2f}s — api={:.3f}s save={:.2f}s "
           "release={:.3f}s callback={:.3f}s",
-          iteration_index,
+          gtopt::uid_of(iteration_index),
           dt_post_iter,
           dt_api,
           dt_save,
@@ -1162,10 +1164,10 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
         tracker.mark_converged(scene_index, iteration_index);
         SPDLOG_INFO(
             "SDDP Async [i{} s{}]: scene {} converged at iter {} (gap={:.6f})",
-            iteration_index,
+            gtopt::uid_of(iteration_index),
             uid_of(scene_index),
             uid_of(scene_index),
-            iteration_index,
+            gtopt::uid_of(iteration_index),
             scene_gap);
         return true;
       }

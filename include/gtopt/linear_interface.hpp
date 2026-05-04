@@ -361,6 +361,25 @@ public:
   {
     return m_col_scales_.use_count();
   }
+
+  /// Test-only diagnostic: number of doubles currently held in the
+  /// LI-side post-solve solution-vector cache.  Returns 0 when the
+  /// cache is empty (off mode never populates, or compress mode after
+  /// `invalidate_cached_optimal_on_mutation` has fired).  Useful in
+  /// unit tests that need to distinguish "cache dropped" from
+  /// "get_col_sol_raw transparently routes to the live backend".
+  [[nodiscard]] std::size_t cached_col_sol_size() const noexcept
+  {
+    return m_cached_col_sol_.size();
+  }
+  [[nodiscard]] std::size_t cached_col_cost_size() const noexcept
+  {
+    return m_cached_col_cost_.size();
+  }
+  [[nodiscard]] std::size_t cached_row_dual_size() const noexcept
+  {
+    return m_cached_row_dual_.size();
+  }
   [[nodiscard]] auto row_scales_use_count() const noexcept
   {
     return m_row_scales_.use_count();
@@ -569,10 +588,11 @@ public:
   void defer_initial_load(FlatLinearProblem flat_lp);
 
   /// Reconstruct backend from saved flat LP + dynamic cols + active cuts.
-  /// @param col_sol  Previous primal solution for warm-start (empty = cold)
-  /// @param row_dual Previous dual solution for warm-start (empty = cold)
-  void reconstruct_backend(std::span<const double> col_sol = {},
-                           std::span<const double> row_dual = {});
+  /// Cold-start: the barrier method (default solver algorithm) gains
+  /// nothing from a starting solution, so no warm-start vectors are
+  /// accepted.  Pre-solve readers of `get_col_sol*()` consume the
+  /// cached vectors via the `m_backend_solution_fresh_` gate.
+  void reconstruct_backend();
 
   /// True if the solver backend has been released (low-memory mode).
   [[nodiscard]] bool is_backend_released() const noexcept
@@ -656,6 +676,13 @@ public:
   /// expected row count ahead of time can call this before their
   /// `add_row` + `record_cut_row` loop to avoid log-N reallocations.
   void reserve_active_cuts(std::size_t n) { m_active_cuts_.reserve(n); }
+
+  /// Const-accessible cut count for diagnostic logging.  Read-only;
+  /// avoids the `take_active_cuts` round-trip that would mutate.
+  [[nodiscard]] std::size_t active_cuts_size() const noexcept
+  {
+    return m_active_cuts_.size();
+  }
 
   /// Record cut row deletions (pruning/forgetting).
   void record_cut_deletion(std::span<const int> deleted_indices);
@@ -748,8 +775,7 @@ public:
   ///
   /// Pre-condition: the backend is live (post `load_flat`) and
   /// `m_backend_released_` has been cleared.
-  void apply_post_load_replay(std::span<const double> col_sol = {},
-                              std::span<const double> row_dual = {});
+  void apply_post_load_replay();
 
   /// Finalize a rebuild in place: clear the released flag, run
   /// `load_flat(flat_lp)` on the existing backend, and replay persistent
@@ -1905,7 +1931,19 @@ public:
    */
   [[nodiscard]] auto get_col_sol_raw() const -> std::span<const double>
   {
-    if (m_backend_released_ && !m_cached_col_sol_.empty()) {
+    // Prefer the LI-side cache when populated.  Population happens
+    // post-solve via `populate_solution_cache_post_solve` for
+    // `compress`/`snapshot`/`rebuild` modes — under
+    // `LowMemoryMode::off` (I6 invariant) the cache stays empty
+    // and reads route directly to the live backend, since the
+    // backend never goes away under off and a parallel LI cache
+    // would be pure waste.  The fallback `backend()` call also
+    // covers pathological cases: pre-solve reads, post-mutation
+    // (cache dropped by `invalidate_cached_optimal_on_mutation`),
+    // and post-`drop_cached_primal_only` paths.  Under compress/
+    // snapshot, `backend()` transparently triggers
+    // `ensure_backend()` to reconstruct from the saved snapshot.
+    if (!m_cached_col_sol_.empty()) {
       return {m_cached_col_sol_.data(), m_cached_col_sol_.size()};
     }
     return {backend().col_solution(), static_cast<size_t>(get_numcols())};
@@ -1939,9 +1977,12 @@ public:
   [[nodiscard]] ScaledView get_col_sol() const noexcept
   {
     const auto n = get_numcols();
-    const double* data = (m_backend_released_ && !m_cached_col_sol_.empty())
-        ? m_cached_col_sol_.data()
-        : backend().col_solution();
+    // Same single-source-of-truth gating as `get_col_sol_raw` —
+    // see that site for the rationale.  LI cache is populated
+    // eagerly post-solve and is preferred when non-empty.
+    const bool prefer_cache = !m_cached_col_sol_.empty();
+    const double* data =
+        prefer_cache ? m_cached_col_sol_.data() : backend().col_solution();
     // Clamp path requires a live backend: col bounds are not cached on
     // `release_backend`, so we'd dereference a null `m_backend_` to
     // read them.  Also skip when the last solve wasn't optimal —
@@ -1970,7 +2011,9 @@ public:
    */
   [[nodiscard]] auto get_col_cost_raw() const -> std::span<const double>
   {
-    if (m_backend_released_ && !m_cached_col_cost_.empty()) {
+    // Single source of truth: prefer the LI cache when populated.
+    // See `get_col_sol_raw` for the design rationale.
+    if (!m_cached_col_cost_.empty()) {
       return {m_cached_col_cost_.data(), m_cached_col_cost_.size()};
     }
     return {backend().reduced_cost(), static_cast<size_t>(get_numcols())};
@@ -2005,7 +2048,9 @@ public:
   [[nodiscard]] ScaledView get_col_cost() const noexcept
   {
     const auto n = get_numcols();
-    if (m_backend_released_ && !m_cached_col_cost_.empty()) {
+    // Single source of truth: prefer the LI cache when populated.
+    // See `get_col_sol_raw` for the design rationale.
+    if (!m_cached_col_cost_.empty()) {
       return {m_cached_col_cost_.data(),
               n,
               m_col_scales_->data(),
@@ -2169,7 +2214,11 @@ public:
    */
   [[nodiscard]] auto get_row_dual_raw() -> std::span<const double>
   {
-    if (m_backend_released_ && !m_cached_row_dual_.empty()) {
+    // Single source of truth: prefer the LI cache when populated.
+    // `ensure_duals()` runs only when we're going to consult the
+    // live backend — the cached duals were already crossed-over at
+    // the time of solve so no further crossover is needed.
+    if (!m_cached_row_dual_.empty()) {
       return {m_cached_row_dual_.data(), m_cached_row_dual_.size()};
     }
     ensure_duals();
@@ -2213,7 +2262,8 @@ public:
   [[nodiscard]] ScaledView get_row_dual()
   {
     const auto n = get_numrows();
-    if (m_backend_released_ && !m_cached_row_dual_.empty()) {
+    // Single source of truth: prefer the LI cache when populated.
+    if (!m_cached_row_dual_.empty()) {
       return {m_cached_row_dual_.data(),
               n,
               m_row_scales_->data(),
@@ -2579,6 +2629,22 @@ private:
   /// guard rather than the sole serialiser.
   bool m_replaying_ {false};
 
+  /// Invalidate the cached optimality flag and drop the cached
+  /// primal/dual/reduced-cost vectors after a structural LP
+  /// mutation (add_row / add_col / set_coeff / set_*_bound / etc.).
+  /// Defined out-of-line in linear_interface.cpp.
+  void invalidate_cached_optimal_on_mutation() noexcept;
+
+  /// Eagerly populate the LI-side primal/dual/reduced-cost cache from
+  /// the live backend immediately after a successful solve.  Called
+  /// inside `initial_solve` / `resolve` so all downstream readers go
+  /// through the LI cache as the single source of truth — plugin
+  /// backends no longer maintain a parallel solution cache, and the
+  /// behaviour is identical across all `LowMemoryMode` configurations.
+  /// Best-effort: any backend exception is swallowed (caller will see
+  /// `is_optimal()==false` and treat it as a non-optimal solve).
+  void populate_solution_cache_post_solve() noexcept;
+
   /// Columns added after initial load_flat() (typically just alpha).
   std::vector<SparseCol> m_dynamic_cols_ {};
 
@@ -2593,6 +2659,21 @@ private:
 
   /// Net active Benders cuts (additions minus deletions).
   std::vector<SparseRow> m_active_cuts_ {};
+
+  /// Pending column-bound overrides, keyed by `ColIndex`.  Tracks
+  /// every `set_col_low_raw` / `set_col_upp_raw` call so the
+  /// mutation survives the `release_backend()` →
+  /// `reconstruct_backend()` → `load_flat()` cycle.  `load_flat`
+  /// restores every column bound to the snapshot's construction-
+  /// time value, but the SDDP forward pass pins dep_col bounds via
+  /// `propagate_trial_values()` (`source/benders_cut.cpp:91-101`)
+  /// after reading the previous phase's solved state.  Without
+  /// replay, those pins are lost when iter-0-backward reconstructs
+  /// the cell, and the backward LP runs with construction-time
+  /// (very wide) bounds — producing different cuts than off mode,
+  /// which never reloads.  `apply_post_load_replay` re-applies the
+  /// map after the structural backend is reloaded.
+  std::map<ColIndex, std::pair<double, double>> m_pending_col_bounds_ {};
 
   /// Label-only metadata for the **frozen** flatten-time portion of the
   /// LP — set ONCE by `load_flat` from `flat_lp.col_labels_meta` /
@@ -2782,6 +2863,23 @@ private:
   Index m_cached_numcols_ {};
   /// Whether the cached state represents an optimal solution.
   bool m_cached_is_optimal_ {false};
+
+  /// True iff the LIVE backend's `col_solution()` /
+  /// `is_proven_optimal()` reflect a fresh solve.
+  ///
+  /// Cleared on `reconstruct_backend()` / `install_flat_as_rebuild()`
+  /// (the live backend is loaded but not solved; its buffers are
+  /// zero-padded and `is_proven_optimal()` returns false).  Set on
+  /// successful `resolve()` / `initial_solve()` inside the
+  /// `timed_solve` lambda — BEFORE the `is_optimal()` check that
+  /// drives the fallback cycle.
+  ///
+  /// `is_optimal()` and `get_col_sol_raw()` consult this flag to
+  /// return the cached optimality flag / cached col_sol when the
+  /// backend has been reloaded but not yet re-solved.  Off mode
+  /// never reloads, so the flag stays `true` after the first solve
+  /// and these reads continue to go to the live backend unchanged.
+  bool m_backend_solution_fresh_ {false};
 
   /// Cached post-solve primal/dual vectors (valid when `m_backend_released_`
   /// is true AND `m_cached_is_optimal_` is true).  Populated by

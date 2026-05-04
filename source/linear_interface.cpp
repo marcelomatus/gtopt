@@ -112,13 +112,29 @@ void LinearInterface::ensure_backend()
   // persistent state (dynamic cols + active cuts).  Mirrors compress
   // mode's transparent reconstruct, but sources the flat LP from the
   // element collections rather than a snapshot.
-  //
-  // Invariant: if no owner is installed, this is a bare
-  // `LinearInterface` without a parent SystemLP (unit tests).  Silent
-  // short-circuit keeps those tests working.
   if (m_low_memory_mode_ == LowMemoryMode::rebuild) {
-    if (m_rebuilding_ || m_rebuild_owner_ == nullptr) {
+    // Re-entrant call (we're already inside `invoke_rebuild_owner()`):
+    // returning is safe because the outer call will finish the
+    // rebuild before its caller deref's the backend.
+    if (m_rebuilding_) {
       return;
+    }
+    // No owner installed — this is a configuration error in rebuild
+    // mode.  Historically the function silently returned here for
+    // bare `LinearInterface` instances used in unit tests, but the
+    // caller then deref'd a null `m_backend_` (assertion compiled
+    // out in Release → SIGSEGV).  Convert to a loud, recoverable
+    // exception so a misconfigured ``low_memory_mode=rebuild`` run
+    // exits cleanly with an actionable error instead of crashing.
+    if (m_rebuild_owner_ == nullptr) {
+      throw std::runtime_error(std::format(
+          "LinearInterface::ensure_backend: backend is released and "
+          "no rebuild owner is installed (low_memory_mode=rebuild). "
+          "This indicates the LinearInterface was used after "
+          "release_backend() without `set_rebuild_owner(...)`.  "
+          "Either install a SystemLP owner before release, switch "
+          "low_memory_mode to off/compress, or rebuild the backend "
+          "manually via `reconstruct_backend(...)`."));
     }
     m_rebuilding_ = true;
     try {
@@ -128,12 +144,34 @@ void LinearInterface::ensure_backend()
       throw;
     }
     m_rebuilding_ = false;
+    // Post-condition: a successful rebuild must leave m_backend_ live.
+    // If invoke_rebuild_owner returned without populating it, that's
+    // a contract violation in the owner — turn it into a loud
+    // exception rather than an opaque downstream segfault.
+    if (m_backend_ == nullptr || m_backend_released_) {
+      throw std::runtime_error(
+          "LinearInterface::ensure_backend: rebuild owner returned "
+          "without restoring the backend (m_backend_ is null or still "
+          "marked released).  This is a contract violation in the "
+          "owner's invoke_rebuild_owner implementation.");
+    }
     return;
   }
   // Snapshot/compress: reconstruct from the saved flat LP snapshot.
-  // No warm-start — callers that want primal/dual continuity must
-  // pass their own vectors via `reconstruct_backend(col_sol, row_dual)`.
+  // No warm-start: the barrier method is the default solver algorithm
+  // and gains nothing from a starting solution.  The cached col_sol /
+  // row_dual remain the source of truth for any pre-solve reader (see
+  // `get_col_sol_raw` for the gating logic that prefers the cache
+  // until the next resolve refreshes the backend's solution buffer).
   reconstruct_backend();
+  // Post-condition mirrors the rebuild branch above.
+  if (m_backend_ == nullptr || m_backend_released_) {
+    throw std::runtime_error(
+        "LinearInterface::ensure_backend: snapshot reconstruct "
+        "returned without restoring the backend (m_backend_ is null "
+        "or still marked released).  This indicates the snapshot "
+        "data is missing or corrupted.");
+  }
 }
 
 void LinearInterface::release_backend() noexcept
@@ -148,38 +186,72 @@ void LinearInterface::release_backend() noexcept
     return;
   }
 
+  // Plan §5 — permanent trace instrumentation for the
+  // release/reconstruct lifecycle.  `spdlog::trace` (function form
+  // — the SPDLOG_TRACE macro is compiled out by the PCH which bakes
+  // SPDLOG_ACTIVE_LEVEL=INFO; see feedback_spdlog_trace_macro).
+  // Cost is a single atomic level-load when trace is disabled, so
+  // this stays unconditional in INFO builds.
+  try {
+    spdlog::trace(
+        "LI release [mode={}]: backend numrows={} numcols={} optimal={} "
+        "active_cuts={} pending_coeff_updates_post_revert=0",
+        static_cast<int>(m_low_memory_mode_),
+        m_backend_ ? get_numrows() : 0,
+        m_backend_ ? get_numcols() : 0,
+        m_backend_ && is_optimal() ? 1 : 0,
+        m_active_cuts_.size());
+  } catch (...) {  // noexcept — swallow logging failures
+  }
+
   // Cache post-solve scalars for transparent read access.  Full
   // primal/dual vectors are not cached; callers that need them must
   // read before release or trigger ensure_backend() to reload.
   try {
     if (m_backend_ && is_optimal()) {
-      m_cached_obj_value_ = m_backend_->obj_value();
-      m_cached_kappa_ = m_backend_->get_kappa();
+      // Refresh cached structural counts (always valid post-load_flat,
+      // even without a resolve) and re-affirm cached optimality.
       m_cached_numrows_ = get_numrows();
       m_cached_numcols_ = get_numcols();
       m_cached_is_optimal_ = true;
 
-      // Snapshot primal + dual + reduced-cost vectors so that read-only
-      // consumers (OutputContext, Benders cut assembly, SDDP state
-      // propagation) can access the solution without forcing a backend
-      // reconstruct + re-solve.  The uncompressed cost is ~8 bytes per
-      // col/row per cell — negligible against the flat-LP snapshot.
-      const auto* col_sol_ptr = m_backend_->col_solution();
-      const auto* col_cost_ptr = m_backend_->reduced_cost();
-      const auto* row_dual_ptr = m_backend_->row_price();
-      const auto ncols_sz = static_cast<size_t>(m_cached_numcols_);
-      const auto nrows_sz = static_cast<size_t>(m_cached_numrows_);
-      if (col_sol_ptr != nullptr) {
-        const std::span col_sol {col_sol_ptr, ncols_sz};
-        m_cached_col_sol_.assign(col_sol.begin(), col_sol.end());
-      }
-      if (col_cost_ptr != nullptr) {
-        const std::span col_cost {col_cost_ptr, ncols_sz};
-        m_cached_col_cost_.assign(col_cost.begin(), col_cost.end());
-      }
-      if (row_dual_ptr != nullptr) {
-        const std::span row_dual {row_dual_ptr, nrows_sz};
-        m_cached_row_dual_.assign(row_dual.begin(), row_dual.end());
+      // Solution-vector refresh is conditional: only re-read the live
+      // backend's primal/dual/reduced-cost buffers when there has been
+      // a fresh solve since the last reconstruct.  Otherwise the live
+      // buffers are uninitialised (post-`load_flat`, pre-resolve) and
+      // overwriting the cache with them silently corrupts the SDDP
+      // forward/backward read surface — which is exactly the bug that
+      // caused juan/iplp compress mode to diverge from `off` mode at
+      // iter ≥1 (zero-padded `m_cached_col_sol_` propagated via
+      // `propagate_trial_values`).  When `!m_backend_solution_fresh_`
+      // the existing cache is the source of truth — leave it alone.
+      if (m_backend_solution_fresh_) {
+        m_cached_obj_value_ = m_backend_->obj_value();
+        m_cached_kappa_ = m_backend_->get_kappa();
+
+        // Snapshot primal + dual + reduced-cost vectors so that
+        // read-only consumers (OutputContext, Benders cut assembly,
+        // SDDP state propagation) can access the solution without
+        // forcing a backend reconstruct + re-solve.  The uncompressed
+        // cost is ~8 bytes per col/row per cell — negligible against
+        // the flat-LP snapshot.
+        const auto* col_sol_ptr = m_backend_->col_solution();
+        const auto* col_cost_ptr = m_backend_->reduced_cost();
+        const auto* row_dual_ptr = m_backend_->row_price();
+        const auto ncols_sz = static_cast<size_t>(m_cached_numcols_);
+        const auto nrows_sz = static_cast<size_t>(m_cached_numrows_);
+        if (col_sol_ptr != nullptr) {
+          const std::span col_sol {col_sol_ptr, ncols_sz};
+          m_cached_col_sol_.assign(col_sol.begin(), col_sol.end());
+        }
+        if (col_cost_ptr != nullptr) {
+          const std::span col_cost {col_cost_ptr, ncols_sz};
+          m_cached_col_cost_.assign(col_cost.begin(), col_cost.end());
+        }
+        if (row_dual_ptr != nullptr) {
+          const std::span row_dual {row_dual_ptr, nrows_sz};
+          m_cached_row_dual_.assign(row_dual.begin(), row_dual.end());
+        }
       }
     } else {
       // Non-optimal release: drop any stale primal/dual snapshot so
@@ -238,6 +310,109 @@ void LinearInterface::release_backend() noexcept
   m_phase_ = LiPhase::BackendReleased;
 }
 
+// ── Cache invalidation on LP mutation ──
+//
+// Called from every public LP-mutation API (add_row / add_col /
+// set_coeff / set_*_bound / set_obj_coeffs / reset_from / …) so the
+// cached optimality flag and cached primal/dual/reduced-cost vectors
+// are dropped the moment the LP structurally changes.  This restores
+// byte-symmetry between `LowMemoryMode::off` and `compress`:
+//
+//   * Under `off`, the live backend (CPLEX/HiGHS/...) flips
+//     `is_proven_optimal()` to false the instant a row/col or
+//     coefficient changes — `physical_eini` / `physical_efin` and
+//     other readers gated on `is_optimal()` then correctly fall
+//     through to default values until the next `resolve()`.
+//
+//   * Under `compress`, we'd otherwise carry `m_cached_is_optimal_`
+//     forward from the prior optimal solve, surviving a
+//     mid-iteration `add_row` (Benders cut), and downstream
+//     consumers would silently read a now-stale cached col_sol that
+//     doesn't satisfy the new cut.  The SDDP backward pass then
+//     produces inconsistent cuts vs off mode — exactly the juan/iplp
+//     LB divergence (compress LB ≈ 5× off LB).
+//
+// Skipped during `m_replaying_` (bulk replay restores recorded
+// state — not a new mutation) and under `LowMemoryMode::off` (off
+// uses the live backend's flag directly).  Memory is released via
+// `shrink_to_fit` so the per-cell footprint after invalidation
+// matches off mode's (no cached vectors held).
+void LinearInterface::invalidate_cached_optimal_on_mutation() noexcept
+{
+  if (m_replaying_) {
+    return;
+  }
+  // Drop the cached optimality flag and primal/dual/reduced-cost
+  // vectors regardless of `low_memory_mode`.  Off mode used to skip
+  // this branch on the assumption that the live backend's
+  // `is_proven_optimal()` already flips false on mutation, but with
+  // the LI cache now serving as the single source of truth (post the
+  // plugin-cache removal), readers consult the LI cache exclusively
+  // when populated — letting it survive a mutation under off would
+  // hand stale solution data to downstream consumers (e.g. SDDP
+  // state propagation) on the next read after an `add_row`.
+  m_cached_is_optimal_ = false;
+  m_cached_col_sol_.clear();
+  m_cached_col_sol_.shrink_to_fit();
+  m_cached_col_cost_.clear();
+  m_cached_col_cost_.shrink_to_fit();
+  m_cached_row_dual_.clear();
+  m_cached_row_dual_.shrink_to_fit();
+}
+
+void LinearInterface::populate_solution_cache_post_solve() noexcept
+{
+  // Called from inside `initial_solve` / `resolve` after the backend
+  // reports a fresh solve.  Snapshots primal/dual/reduced-cost vectors
+  // into the LI cache so downstream readers (OutputContext, Benders
+  // cut assembly, SDDP state propagation, write_out, …) all consult
+  // the SAME buffer.  Plugin backends no longer maintain an internal
+  // solution cache (single source of truth post the plugin-cache
+  // removal refactor).
+  //
+  // **Off-mode invariant (I6):** under `LowMemoryMode::off` the LI
+  // cache MUST stay empty — the live backend is always available and
+  // is the sole source of truth; populating a parallel cache would
+  // be pure waste (extra alloc + memcpy on every solve, no read-side
+  // benefit since backend reads are cheap when the backend is live).
+  // Reads under off therefore route directly to `backend()` via the
+  // empty-cache fallback in `get_col_sol_raw` / `get_col_cost_raw` /
+  // `get_row_dual_raw`.
+  //
+  // Skip when no backend (defensive) or the just-completed solve was
+  // not optimal: in the latter case primal/dual values may be
+  // arbitrary and propagating them would corrupt readers that gate on
+  // `is_optimal()`.  Cache stays empty until a successful re-solve.
+  if (m_low_memory_mode_ == LowMemoryMode::off) {
+    return;  // I6: off owns no LI cache
+  }
+  try {
+    if (m_backend_ == nullptr || !m_backend_->is_proven_optimal()) {
+      return;
+    }
+    const auto ncols = static_cast<size_t>(get_numcols());
+    const auto nrows = static_cast<size_t>(get_numrows());
+    const auto* p_sol = m_backend_->col_solution();
+    const auto* p_cost = m_backend_->reduced_cost();
+    const auto* p_dual = m_backend_->row_price();
+    if (p_sol != nullptr) {
+      m_cached_col_sol_.assign(p_sol, p_sol + ncols);
+    }
+    if (p_cost != nullptr) {
+      m_cached_col_cost_.assign(p_cost, p_cost + ncols);
+    }
+    if (p_dual != nullptr) {
+      m_cached_row_dual_.assign(p_dual, p_dual + nrows);
+    }
+    m_cached_is_optimal_ = true;
+  } catch (...) {  // NOLINT(bugprone-empty-catch)
+    // Best-effort: any backend exception leaves the cache in
+    // whatever (possibly empty) state it was in.  Caller's
+    // `is_optimal()` check will then route through the cached flag
+    // and surface a non-optimal status.
+  }
+}
+
 // ── Low-memory mode ──
 
 void LinearInterface::set_low_memory(LowMemoryMode mode,
@@ -247,7 +422,23 @@ void LinearInterface::set_low_memory(LowMemoryMode mode,
   m_memory_codec_ = codec;
 
   if (mode == LowMemoryMode::off) {
+    // Off mode owns no flat-LP snapshot — the live backend stays
+    // alive for the entire run.  Drop any snapshot accumulated under
+    // a prior `compress`/`snapshot` configuration.  The LI solution
+    // cache (m_cached_col_sol_/_cost_/_dual_) is also reset here so
+    // a mode flip from compress→off doesn't carry a stale cached
+    // solution forward; it will be re-populated on the next solve
+    // by `populate_solution_cache_post_solve` (the LI cache is the
+    // single source of truth across all modes after the plugin-cache
+    // removal).
     m_snapshot_ = {};
+    m_cached_col_sol_.clear();
+    m_cached_col_sol_.shrink_to_fit();
+    m_cached_col_cost_.clear();
+    m_cached_col_cost_.shrink_to_fit();
+    m_cached_row_dual_.clear();
+    m_cached_row_dual_.shrink_to_fit();
+    m_cached_is_optimal_ = false;
   }
 }
 
@@ -311,8 +502,7 @@ void LinearInterface::defer_initial_load(FlatLinearProblem flat_lp)
 }
 
 // NOLINTNEXTLINE(misc-no-recursion)
-void LinearInterface::reconstruct_backend(std::span<const double> col_sol,
-                                          std::span<const double> row_dual)
+void LinearInterface::reconstruct_backend()
 {
   // Rebuild mode never installs a snapshot, so reconstructing from one
   // would be a logic error.  Catch it loudly in debug builds; in
@@ -323,17 +513,32 @@ void LinearInterface::reconstruct_backend(std::span<const double> col_sol,
     return;
   }
 
+  // Plan §5 trace — record the reconstruct event with replay counts
+  // so a `--trace-log` capture can see whether dynamic cols / cuts /
+  // coefficient updates are being replayed correctly across cycles.
+  spdlog::trace(
+      "LI reconstruct [mode={}]: replaying dynamic_cols={} dynamic_rows={} "
+      "active_cuts={}",
+      static_cast<int>(m_low_memory_mode_),
+      m_dynamic_cols_.size(),
+      m_dynamic_rows_.size(),
+      m_active_cuts_.size());
+
   // Level 2: decompress the snapshot
   disable_compression();
 
   // Mark as not released early to avoid recursion in add_col/add_rows
   m_backend_released_ = false;
+  // Backend's solution buffers are zero-padded by `load_flat` and
+  // `is_proven_optimal()` returns false until the next resolve.
+  // Tell `is_optimal()` / `get_col_sol_raw()` to consult the cache.
+  m_backend_solution_fresh_ = false;
 
   // 1. Reload the base structural LP
   load_flat(m_snapshot_.flat_lp);
 
   // 2. Replay persistent SDDP state onto the live backend.
-  apply_post_load_replay(col_sol, row_dual);
+  apply_post_load_replay();
 
   // 3. Free decompressed flat LP vectors — the data is now in the backend.
   //    The compressed buffer stays valid as persistent cache for next
@@ -353,13 +558,15 @@ void LinearInterface::install_flat_as_rebuild(const FlatLinearProblem& flat_lp)
   // the flag lets this method work outside the rebuild callback too
   // (e.g. future explicit callers).
   m_backend_released_ = false;
+  // Same gating as `reconstruct_backend` — backend reloaded but
+  // not solved.  Pre-solve readers prefer the cache.
+  m_backend_solution_fresh_ = false;
   load_flat(flat_lp);
   apply_post_load_replay();
 }
 
 // NOLINTNEXTLINE(misc-no-recursion)
-void LinearInterface::apply_post_load_replay(std::span<const double> col_sol,
-                                             std::span<const double> row_dual)
+void LinearInterface::apply_post_load_replay()
 {
   // Pre-condition: caller has already run `load_flat` and cleared
   // `m_backend_released_` so the add_col/add_rows below don't re-enter
@@ -424,10 +631,25 @@ void LinearInterface::apply_post_load_replay(std::span<const double> col_sol,
   // 4. Bulk-add active cuts (single efficient call).
   replay_active_cuts();
 
-  // 4. Warm-start from the caller-supplied primal/dual when available.
-  if (!col_sol.empty() || !row_dual.empty()) {
-    set_warm_start_solution(col_sol, row_dual);
+  // 5. Replay column-bound overrides.  `load_flat` restored the
+  //    snapshot's construction-time bounds, but the SDDP forward
+  //    pass had pinned dep_col bounds via `propagate_trial_values`
+  //    (`source/benders_cut.cpp:91-101`) on the live backend.
+  //    Without this replay, iter-0-backward would solve with
+  //    construction-time bounds while off mode (which never
+  //    reloads) keeps the propagated pins — producing different
+  //    cuts and ultimately the juan/iplp compress LB stall.
+  //    Calls `m_backend_->set_col_lower/upper` directly to bypass
+  //    the recording path in our own raw setters.
+  for (const auto& [col, bounds] : m_pending_col_bounds_) {
+    m_backend_->set_col_lower(col, bounds.first);
+    m_backend_->set_col_upper(col, bounds.second);
   }
+
+  // No warm-start step: the barrier method (default solver algorithm)
+  // gains nothing from a starting solution.  Pre-solve readers of
+  // `get_col_sol*()` / `get_row_dual*()` consume the cached vectors
+  // via the `m_backend_released_` gate in `get_col_sol_raw`.
 }
 
 void LinearInterface::record_dynamic_col(SparseCol col)
@@ -1058,6 +1280,7 @@ ColIndex LinearInterface::add_col(const std::string& name,
   }
 
   m_backend_->add_col(normalize_bound(collb), normalize_bound(colub), 0.0);
+  invalidate_cached_optimal_on_mutation();
 
   // Uniqueness is enforced on metadata (via m_col_meta_index_) in
   // add_col(SparseCol).  The string path here just records the
@@ -1119,6 +1342,7 @@ ColIndex LinearInterface::emit_col_to_backend(const SparseCol& col)
   // to `col.cost` themselves; treating col.scale as a physical
   // multiplier would double-apply.
   m_backend_->add_col(lowb, uppb, col.cost / m_scale_objective_);
+  invalidate_cached_optimal_on_mutation();
 
   return ColIndex {index};
 }
@@ -1286,6 +1510,7 @@ ColIndex LinearInterface::add_col_disposable(const SparseCol& col)
   const auto [lowb, uppb] = normalize_bounds(col.lowb, col.uppb);
   const auto index = m_backend_->get_num_cols();
   m_backend_->add_col(lowb, uppb, col.cost / m_scale_objective_);
+  invalidate_cached_optimal_on_mutation();
   const auto col_idx = ColIndex {index};
 
   // Capture the label-meta fields — mirrors `track_col_label_meta`
@@ -1514,6 +1739,7 @@ ColIndex LinearInterface::emit_cols_to_backend(std::span<const SparseCol> cols)
                        collb.data(),
                        colub.data(),
                        colobj.data());
+  invalidate_cached_optimal_on_mutation();
 
   return first_col_index;
 }
@@ -1570,6 +1796,7 @@ RowIndex LinearInterface::add_row(const std::string& name,
                       elements.data(),
                       normalize_bound(rowlb),
                       normalize_bound(rowub));
+  invalidate_cached_optimal_on_mutation();
 
   // Uniqueness is enforced on metadata (via m_row_meta_index_) in
   // track_row_label_meta.  The string path here just records the
@@ -1791,18 +2018,47 @@ RowIndex LinearInterface::add_row(const SparseRow& row, const double eps)
     composite_scale *= m_scale_objective_;
   }
 
-  // 3. Per-row row-max equilibration, only when the LP was built with
+  // 3. Per-row equilibration, only when the LP was built with
   //    equilibration on.  When the build chose `none` but col_scales
   //    are non-trivial (semantic scales set in flatten()), column
   //    scaling still runs at step 1; the row-max pass is skipped to
   //    match the historical invariant for non-equilibrated LPs.
+  //
+  //  Two normalization choices:
+  //   - PIVOT-COLUMN normalization (when `row.pivot_col` is set):
+  //     divide by elements[pivot_col].  Used for SDDP optimality
+  //     cuts so that α's LP-space coefficient stays at 1.0 and
+  //     state-link coefs absorb the dynamic range (which is then
+  //     handled by the basis structure rather than being amplified
+  //     into κ when α enters the basis).  Without this, row-max
+  //     normalization would pick a state link as the divisor,
+  //     pushing α down to O(10⁻⁹) on juan-scale problems and
+  //     contributing κ ≈ 10⁹ per cut.
+  //   - ROW-MAX normalization (default): divide by max-abs.  Right
+  //     for structural rows where no single column carries the
+  //     row's defining magnitude.
   if (have_equilibration) {
-    double max_abs = 0.0;
-    for (const auto v : elements) {
-      max_abs = std::max(max_abs, std::abs(v));
+    double norm = 0.0;
+    if (row.pivot_col != unknown_index) {
+      // Find pivot_col's coefficient in the (already-step-1-and-1b-
+      // composed) elements.  If not present (e.g. dropped by `eps`
+      // filter in `to_flat`), fall back to row-max.
+      for (std::size_t k = 0; k < elements.size(); ++k) {
+        if (ColIndex {columns[k]} == row.pivot_col) {
+          norm = std::abs(elements[k]);
+          break;
+        }
+      }
     }
-    if (max_abs > 0.0 && max_abs != 1.0) {
-      const double inv = 1.0 / max_abs;
+    if (norm == 0.0) {
+      double max_abs = 0.0;
+      for (const auto v : elements) {
+        max_abs = std::max(max_abs, std::abs(v));
+      }
+      norm = max_abs;
+    }
+    if (norm > 0.0 && norm != 1.0) {
+      const double inv = 1.0 / norm;
       for (auto& v : elements) {
         v *= inv;
       }
@@ -1812,7 +2068,7 @@ RowIndex LinearInterface::add_row(const SparseRow& row, const double eps)
       if (ub > -infy && ub < infy) {
         ub *= inv;
       }
-      composite_scale *= max_abs;
+      composite_scale *= norm;
     }
   }
 
@@ -2027,6 +2283,7 @@ void LinearInterface::add_rows_raw(const std::span<const SparseRow> rows,
                        rowval.data(),
                        rowlb.data(),
                        rowub.data());
+  invalidate_cached_optimal_on_mutation();
 
   // Update row scales, label metadata, and name maps for all new rows.
   // `track_row_label_meta` is what keeps `m_row_labels_meta_` in sync with
@@ -2173,6 +2430,7 @@ void LinearInterface::reset_from(const LinearInterface& source,
     detach_for_write(m_row_index_to_name_).resize(static_cast<size_t>(nrows));
     rebuild_row_name_maps();
   }
+  invalidate_cached_optimal_on_mutation();
 }
 
 // ── Coefficients ──
@@ -2188,6 +2446,7 @@ void LinearInterface::set_coeff_raw(const RowIndex row,
     m_validation_stats_.note_coeff(value, row, column, m_validation_options_);
   }
   m_backend_->set_coeff(row, column, value);
+  invalidate_cached_optimal_on_mutation();
 }
 
 double LinearInterface::get_coeff_raw(const RowIndex row,
@@ -2292,14 +2551,43 @@ void LinearInterface::set_obj_coeffs_raw(std::span<const double> values)
     }
   }
   m_backend_->set_obj_coeffs(values.data(), static_cast<int>(values.size()));
+  invalidate_cached_optimal_on_mutation();
 }
 
 // ── Raw column bound setters (LP/solver units) ──
+
+namespace
+{
+/// Validate a (possibly-stale) ColIndex against the live backend's
+/// numcols and throw a descriptive exception if out of range.  The
+/// historical failure mode was a segfault inside the solver plugin
+/// (CPXchgbds, similar) when a cached col index referenced a column
+/// that disappeared on a low-memory rebuild — converting that into a
+/// clean ``std::out_of_range`` lets the worker future propagate the
+/// error to ``run_*_pass_all_scenes`` and produces a useful exit
+/// message instead of an opaque SIGSEGV.
+[[gnu::noinline]]
+void check_col_index(const char* fn, ColIndex index, std::int64_t ncols)
+{
+  if (static_cast<std::int64_t>(index) < 0
+      || static_cast<std::int64_t>(index) >= ncols)
+  {
+    throw std::out_of_range(
+        std::format("LinearInterface::{}: col index {} out of range "
+                    "[0, {}) — likely a stale ColIndex captured before the "
+                    "backend was released and rebuilt with a different layout.",
+                    fn,
+                    static_cast<std::int64_t>(index),
+                    ncols));
+  }
+}
+}  // namespace
 
 void LinearInterface::set_col_low_raw(const ColIndex index, const double value)
 {
   ensure_backend();
   assert(m_backend_ != nullptr);
+  check_col_index("set_col_low_raw", index, m_backend_->get_num_cols());
   if (m_validation_options_.effective_enable()) {
     const double infy_guard = m_backend_->infinity() * 0.999;
     if (std::abs(value) < infy_guard) {
@@ -2307,12 +2595,30 @@ void LinearInterface::set_col_low_raw(const ColIndex index, const double value)
     }
   }
   m_backend_->set_col_lower(index, normalize_bound(value));
+  // Persist the override so a `release_backend()` →
+  // `reconstruct_backend()` cycle re-applies it after `load_flat`
+  // restores the snapshot's bounds.  Skip during a bulk replay
+  // (we'd be writing the same value back into our own map).
+  if (!m_replaying_ && m_low_memory_mode_ != LowMemoryMode::off) {
+    auto it = m_pending_col_bounds_.find(index);
+    if (it == m_pending_col_bounds_.end()) {
+      // First time we see this column — capture the live upper
+      // bound so a single-sided lower update doesn't lose it.
+      const double upper_now = m_backend_->col_upper()[index];
+      m_pending_col_bounds_[index] =
+          std::pair<double, double> {value, upper_now};
+    } else {
+      it->second.first = value;
+    }
+  }
+  invalidate_cached_optimal_on_mutation();
 }
 
 void LinearInterface::set_col_upp_raw(const ColIndex index, const double value)
 {
   ensure_backend();
   assert(m_backend_ != nullptr);
+  check_col_index("set_col_upp_raw", index, m_backend_->get_num_cols());
   if (m_validation_options_.effective_enable()) {
     const double infy_guard = m_backend_->infinity() * 0.999;
     if (std::abs(value) < infy_guard) {
@@ -2320,6 +2626,19 @@ void LinearInterface::set_col_upp_raw(const ColIndex index, const double value)
     }
   }
   m_backend_->set_col_upper(index, normalize_bound(value));
+  if (!m_replaying_ && m_low_memory_mode_ != LowMemoryMode::off) {
+    auto it = m_pending_col_bounds_.find(index);
+    if (it == m_pending_col_bounds_.end()) {
+      // Initialise lower from current live bound so a single-sided
+      // upper-bound update doesn't reset the lower to zero on replay.
+      const double lower_now = m_backend_->col_lower()[index];
+      m_pending_col_bounds_[index] =
+          std::pair<double, double> {lower_now, value};
+    } else {
+      it->second.second = value;
+    }
+  }
+  invalidate_cached_optimal_on_mutation();
 }
 
 void LinearInterface::set_col_raw(const ColIndex index, const double value)
@@ -2371,6 +2690,7 @@ void LinearInterface::set_row_low_raw(const RowIndex index, const double value)
     }
   }
   m_backend_->set_row_lower(index, normalize_bound(value));
+  invalidate_cached_optimal_on_mutation();
 }
 
 void LinearInterface::set_row_upp_raw(const RowIndex index, const double value)
@@ -2384,6 +2704,7 @@ void LinearInterface::set_row_upp_raw(const RowIndex index, const double value)
     }
   }
   m_backend_->set_row_upper(index, normalize_bound(value));
+  invalidate_cached_optimal_on_mutation();
 }
 
 void LinearInterface::set_rhs_raw(const RowIndex row, const double rhs)
@@ -2400,6 +2721,7 @@ void LinearInterface::set_rhs_raw(const RowIndex row, const double rhs)
     }
   }
   m_backend_->set_row_bounds(row, rhs, rhs);
+  invalidate_cached_optimal_on_mutation();
 }
 
 // ── Physical row bound setters (physical × row_scale → LP) ──
@@ -2604,10 +2926,20 @@ RowDiagnostics LinearInterface::diagnose_row(const RowIndex row) const
 
 bool LinearInterface::is_optimal() const
 {
-  if (m_backend_released_) {
-    return m_cached_is_optimal_;
+  // **Off-mode invariant (I6):** off owns no LI-side cache — query
+  // the live backend directly.  Under off the backend is always
+  // alive (release_backend is a no-op), so this is a single in-line
+  // CPLEX call (effectively free) and avoids carrying a parallel
+  // cached flag whose only purpose would be to mirror the backend.
+  if (m_low_memory_mode_ == LowMemoryMode::off) {
+    return m_backend_ != nullptr && m_backend_->is_proven_optimal();
   }
-  return m_backend_->is_proven_optimal();
+  // Compress/snapshot: the LI-side cached flag is the source of truth.
+  // Set inside `populate_solution_cache_post_solve` (eagerly post-solve)
+  // and cleared inside `invalidate_cached_optimal_on_mutation` on every
+  // structural mutation.  This survives `release_backend()` —
+  // critical for cross-phase reads in SDDP backward.
+  return m_cached_is_optimal_;
 }
 
 bool LinearInterface::is_dual_infeasible() const

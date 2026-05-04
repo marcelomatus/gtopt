@@ -132,12 +132,20 @@ struct ReservoirDischargeLimit
 /**
  * @brief LP constraint coefficients for the drawdown limit
  *
- * The stage-level constraint is:
+ * The stage-level constraint (efin-only formulation since
+ * 2026-05-04 — see `reservoir_discharge_limit_lp.cpp::add_to_lp`
+ * for rationale) is:
  *
  * ```text
- * qeh - slope × ScaleVol × 0.5 × eini
- *     - slope × ScaleVol × 0.5 × efin ≤ intercept
+ * qeh − slope · efin  ≤  intercept
  * ```
+ *
+ * Equivalently `qeh ≤ intercept + slope · efin`.  At the segment
+ * boundary `efin = emin` the constraint reduces to
+ * `qeh ≤ intercept + slope · emin`, which is feasible (qeh has
+ * lb 0) iff the lowest segment satisfies
+ * `intercept + slope · emin ≥ 0`.  `add_to_lp` warns when the
+ * input data violates that invariant.
  */
 struct ReservoirDischargeLimitCoeffs
 {

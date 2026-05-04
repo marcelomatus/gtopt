@@ -220,7 +220,6 @@ void GurobiSolverBackend::reset_model_()
   m_rowlb_local_.clear();
   m_rowub_local_.clear();
   m_prob_cached_ = false;
-  m_sol_cached_ = false;
   m_dirty_ = true;
 }
 
@@ -436,7 +435,6 @@ int GurobiSolverBackend::get_num_rows() const
 void GurobiSolverBackend::add_col(double lb, double ub, double obj)
 {
   m_prob_cached_ = false;
-  m_sol_cached_ = false;
   const int rc = GRBaddvar(
       m_model_, 0, nullptr, nullptr, obj, lb, ub, GRB_CONTINUOUS, nullptr);
   check_error(rc, "GRBaddvar");
@@ -452,7 +450,6 @@ void GurobiSolverBackend::add_cols(int num_cols,
                                    const double* colobj)
 {
   m_prob_cached_ = false;
-  m_sol_cached_ = false;
 
   if (num_cols == 0) {
     return;
@@ -484,7 +481,6 @@ void GurobiSolverBackend::add_cols(int num_cols,
 void GurobiSolverBackend::set_col_lower(int index, double value)
 {
   m_prob_cached_ = false;
-  m_sol_cached_ = false;
   GRBsetdblattrelement(m_model_, GRB_DBL_ATTR_LB, index, value);
   m_dirty_ = true;
 }
@@ -492,7 +488,6 @@ void GurobiSolverBackend::set_col_lower(int index, double value)
 void GurobiSolverBackend::set_col_upper(int index, double value)
 {
   m_prob_cached_ = false;
-  m_sol_cached_ = false;
   GRBsetdblattrelement(m_model_, GRB_DBL_ATTR_UB, index, value);
   m_dirty_ = true;
 }
@@ -530,7 +525,6 @@ void GurobiSolverBackend::add_row(int num_elements,
                                   double rowub)
 {
   m_prob_cached_ = false;
-  m_sol_cached_ = false;
 
   const int rc = GRBaddrangeconstr(m_model_,
                                    num_elements,
@@ -553,7 +547,6 @@ void GurobiSolverBackend::add_rows(int num_rows,
                                    const double* rowub)
 {
   m_prob_cached_ = false;
-  m_sol_cached_ = false;
 
   if (num_rows == 0) {
     return;
@@ -593,7 +586,6 @@ void GurobiSolverBackend::add_rows(int num_rows,
 void GurobiSolverBackend::set_row_lower(int index, double value)
 {
   m_prob_cached_ = false;
-  m_sol_cached_ = false;
   const auto idx = static_cast<size_t>(index);
   if (idx < m_rowlb_local_.size()) {
     m_rowlb_local_[idx] = value;
@@ -610,7 +602,6 @@ void GurobiSolverBackend::set_row_lower(int index, double value)
 void GurobiSolverBackend::set_row_upper(int index, double value)
 {
   m_prob_cached_ = false;
-  m_sol_cached_ = false;
   const auto idx = static_cast<size_t>(index);
   if (idx < m_rowub_local_.size()) {
     m_rowub_local_[idx] = value;
@@ -622,7 +613,6 @@ void GurobiSolverBackend::set_row_upper(int index, double value)
 void GurobiSolverBackend::set_row_bounds(int index, double lb, double ub)
 {
   m_prob_cached_ = false;
-  m_sol_cached_ = false;
   const auto idx = static_cast<size_t>(index);
   if (idx < m_rowlb_local_.size()) {
     m_rowlb_local_[idx] = lb;
@@ -640,7 +630,6 @@ void GurobiSolverBackend::set_row_bounds(int index, double lb, double ub)
 void GurobiSolverBackend::delete_rows(int num, const int* indices)
 {
   m_prob_cached_ = false;
-  m_sol_cached_ = false;
 
   // Gurobi mutates the index array in-place (sorts it); copy to protect
   // caller data.
@@ -678,7 +667,6 @@ double GurobiSolverBackend::get_coeff(int row, int col) const
 void GurobiSolverBackend::set_coeff(int row, int col, double value)
 {
   m_prob_cached_ = false;
-  m_sol_cached_ = false;
   int cind = row;
   int vind = col;
   double val = value;
@@ -695,14 +683,12 @@ bool GurobiSolverBackend::supports_set_coeff() const noexcept
 
 void GurobiSolverBackend::set_continuous(int index)
 {
-  m_sol_cached_ = false;
   GRBsetcharattrelement(m_model_, GRB_CHAR_ATTR_VTYPE, index, GRB_CONTINUOUS);
   m_dirty_ = true;
 }
 
 void GurobiSolverBackend::set_integer(int index)
 {
-  m_sol_cached_ = false;
   GRBsetcharattrelement(m_model_, GRB_CHAR_ATTR_VTYPE, index, GRB_INTEGER);
   m_dirty_ = true;
 }
@@ -744,11 +730,14 @@ void GurobiSolverBackend::cache_problem_data() const
   m_prob_cached_ = true;
 }
 
-void GurobiSolverBackend::cache_solution() const
+void GurobiSolverBackend::fetch_solution() const
 {
-  if (m_sol_cached_) {
-    return;
-  }
+  // Always re-fetch from Gurobi into the storage vectors.  No
+  // backend-side validity flag: the LinearInterface
+  // (`populate_solution_cache_post_solve`) is the single source of
+  // truth post-solve and calls each accessor at most once per solve.
+  // Storage is retained so the returned raw pointer remains valid
+  // through the LI's `assign(...)` copy.
   ensure_updated_();
 
   const int ncols = get_num_cols();
@@ -769,8 +758,6 @@ void GurobiSolverBackend::cache_solution() const
     GRBgetdblattrarray(
         m_model_, GRB_DBL_ATTR_PI, 0, nrows, m_row_price_.data());
   }
-
-  m_sol_cached_ = true;
 }
 
 // ── solution access ──────────────────────────────────────────────────────
@@ -805,19 +792,19 @@ const double* GurobiSolverBackend::row_upper() const
 
 const double* GurobiSolverBackend::col_solution() const
 {
-  cache_solution();
+  fetch_solution();
   return m_col_solution_.data();
 }
 
 const double* GurobiSolverBackend::reduced_cost() const
 {
-  cache_solution();
+  fetch_solution();
   return m_reduced_cost_.data();
 }
 
 const double* GurobiSolverBackend::row_price() const
 {
-  cache_solution();
+  fetch_solution();
   return m_row_price_.data();
 }
 
@@ -838,11 +825,10 @@ void GurobiSolverBackend::set_col_solution(const double* sol)
   }
   ensure_updated_();
   const auto ncols = static_cast<size_t>(get_num_cols());
-  m_col_solution_.assign(
-      sol,
-      sol + ncols);  // NOLINT(cppcoreguidelines-pro-bounds-pointer-arithmetic)
-  m_sol_cached_ = true;
 
+  // Provide as warm-start hint via Start attribute.  No backend-side
+  // primal cache exists anymore; the next col_solution() after a
+  // successful resolve will re-fetch via GRB_DBL_ATTR_X.
   GRBsetdblattrarray(m_model_,
                      GRB_DBL_ATTR_START,
                      0,
@@ -856,7 +842,6 @@ void GurobiSolverBackend::set_row_price(const double* price)
   if (price == nullptr) {
     return;
   }
-  m_sol_cached_ = false;
   // Gurobi does not expose a dual-start API for LPs; the DStart attribute
   // exists but is advisory for warm-start.  Ignore silently for now.
 }
@@ -866,7 +851,6 @@ void GurobiSolverBackend::set_row_price(const double* price)
 void GurobiSolverBackend::initial_solve()
 {
   ensure_updated_();
-  m_sol_cached_ = false;
   const int rc = GRBoptimize(m_model_);
   if (rc != 0) {
     check_error(rc, "GRBoptimize");
@@ -876,7 +860,6 @@ void GurobiSolverBackend::initial_solve()
 void GurobiSolverBackend::resolve()
 {
   ensure_updated_();
-  m_sol_cached_ = false;
   const int rc = GRBoptimize(m_model_);
   if (rc != 0) {
     check_error(rc, "GRBoptimize");

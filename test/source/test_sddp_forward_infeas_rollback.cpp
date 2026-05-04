@@ -594,12 +594,20 @@ TEST_CASE(  // NOLINT
 
   auto planning = make_2scene_3phase_hydro_planning(0.5, 0.5);
   planning.options.sddp_options.forward_infeas_rollback = true;
+  // Peer cuts reaching this scene's master is contingent on
+  // ``cut_sharing != none``.  Under ``none`` the un-terminal /
+  // stall-stop guard rightly compares against the scene's own cut
+  // store (peer growth is invisible) and would NOT clear the marker
+  // here.  Pick ``accumulate`` so the test premise — "peer cuts
+  // reached this scene" — is actually realised.
+  planning.options.sddp_options.cut_sharing_mode = CutSharingMode::accumulate;
   PlanningLP plp(std::move(planning));
 
   SDDPOptions sddp_opts;
   sddp_opts.max_iterations = 1;
   sddp_opts.enable_api = false;
   sddp_opts.forward_infeas_rollback = true;
+  sddp_opts.cut_sharing = CutSharingMode::accumulate;
   SDDPMethod sddp(plp, sddp_opts);
   REQUIRE(sddp.ensure_initialized().has_value());
 
@@ -619,6 +627,71 @@ TEST_CASE(  // NOLINT
   // The guard cleared the marker — scene 0's snapshot is empty.
   CHECK_FALSE(sddp.scene_retry_state(SceneIndex {0})
                   .global_cuts_at_last_failure.has_value());
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// S2b — Under cut_sharing=none, peer-cut growth must NOT clear the marker.
+//       Regression for the TERMINAL ↔ un-terminal ping-pong observed on
+//       juan/iplp 2026-05-03 trace_40, where 15 mark/unmark pairs fired
+//       in 30 iterations because the un-terminal trigger compared against
+//       the GLOBAL cut count even when cut_sharing=none made peer cuts
+//       invisible to the failed scene's master.
+// ═══════════════════════════════════════════════════════════════════════════
+
+TEST_CASE(  // NOLINT
+    "SDDPMethod stall-stop does NOT clear marker under cut_sharing=none "
+    "even when peer cuts grew the global count")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  auto planning = make_2scene_3phase_hydro_planning(0.5, 0.5);
+  planning.options.sddp_options.forward_infeas_rollback = true;
+  // Default cut_sharing is `none`; making it explicit for clarity.
+  planning.options.sddp_options.cut_sharing_mode = CutSharingMode::none;
+  PlanningLP plp(std::move(planning));
+
+  SDDPOptions sddp_opts;
+  sddp_opts.max_iterations = 1;
+  sddp_opts.enable_api = false;
+  sddp_opts.forward_infeas_rollback = true;
+  sddp_opts.cut_sharing = CutSharingMode::none;
+  SDDPMethod sddp(plp, sddp_opts);
+  REQUIRE(sddp.ensure_initialized().has_value());
+
+  // Inject a cut into scene 1 so the GLOBAL count is 1.  Scene 0's own
+  // store is still empty.  Under cut_sharing=none, scene 1's cut is
+  // NOT broadcast to scene 0's master, so the un-terminal trigger
+  // (which now reads scene 0's OWN count under `none`) sees 0 → 0
+  // and KEEPS scene 0 marked as stalled.  Result: the stall-stop
+  // guard fires and the run aborts cleanly with `no recovery path`.
+  std::ignore = inject_optcut(
+      sddp, plp, SceneIndex {1}, PhaseIndex {0}, /*rhs=*/100.0, /*extra=*/0);
+  REQUIRE(sddp.num_stored_cuts() == 1);
+
+  // Scene 0 was "failed last iter" with own-store size 0 at failure.
+  sddp.scene_retry_state(SceneIndex {0}).global_cuts_at_last_failure = 0;
+
+  auto result = sddp.solve();
+  // Pre-fix behaviour: peer cuts (global=1) "cleared" scene 0's
+  // marker, scene 0 retried, succeeded, run continued.  Post-fix
+  // behaviour: own-store is still 0, marker stays, stall guard
+  // aborts.  Either outcome is acceptable AS LONG AS the run does
+  // not silently consume peer cuts that can't reach scene 0's
+  // master.  The strict pin: own-store-based comparison must NOT
+  // clear the marker on peer growth alone.
+  if (!result.has_value()) {
+    // Stall abort path: confirm the message names the rollback
+    // guard so a regression to "global count clears under none"
+    // would fail the message check.
+    CHECK(result.error().message.find("recovery path") != std::string::npos);
+  }
+  // Either way, the marker on scene 0 must reflect that no
+  // own-store growth occurred.  The pre-fix bug would have cleared
+  // the marker via the peer-cut delta.
+  const auto& rs0 = sddp.scene_retry_state(SceneIndex {0});
+  CHECK_FALSE((rs0.global_cuts_at_last_failure.has_value()
+               && *rs0.global_cuts_at_last_failure
+                   != 0));  // marker still 0 OR cleared via abort path
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

@@ -58,7 +58,7 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
   // (16 lines at the same millisecond on this run).
   [[maybe_unused]] const auto fwd_tid = std::this_thread::get_id();
   SPDLOG_DEBUG("SDDP Forward [i{} s{}]: starting ({} phases) [thread {}]",
-               iteration_index,
+               gtopt::uid_of(iteration_index),
                uid_of(scene_index),
                phases.size(),
                std::hash<std::thread::id> {}(fwd_tid) % 10000);
@@ -87,7 +87,7 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
       SPDLOG_WARN(
           "SDDP Forward [i{} s{}]: exceeded forward_max_attempts={} "
           "(last phase p{}); declaring scene infeasible for this iteration",
-          iteration_index,
+          gtopt::uid_of(iteration_index),
           uid_of(scene_index),
           max_attempts,
           uid_of(cur_phase));
@@ -139,7 +139,7 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
 
       SPDLOG_TRACE(
           "SDDP Forward [i{} s{} p{}]: propagated {} state vars from phase {}",
-          iteration_index,
+          gtopt::uid_of(iteration_index),
           uid_of(scene_index),
           uid_of(phase_index),
           prev_st.outgoing_links.size(),
@@ -154,7 +154,7 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
       const auto updated = update_lp_for_phase(scene_index, phase_index);
       if (updated > 0) {
         SPDLOG_TRACE("SDDP Forward [i{} s{} p{}]: updated {} LP elements",
-                     iteration_index,
+                     gtopt::uid_of(iteration_index),
                      uid_of(scene_index),
                      uid_of(phase_index),
                      updated);
@@ -219,7 +219,7 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
       {
         spdlog::critical(
             "SDDP Forward [i{} s{} p{}]: solve timeout ({:.1f}s) (status {})",
-            iteration_index,
+            gtopt::uid_of(iteration_index),
             uid_of(scene_index),
             uid_of(phase_index),
             m_options_.solve_timeout,
@@ -244,7 +244,7 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
       SPDLOG_DEBUG(
           "SDDP Forward [i{} s{} p{}]: non-optimal (status {}), trying elastic"
           " solve",
-          iteration_index,
+          gtopt::uid_of(iteration_index),
           uid_of(scene_index),
           uid_of(phase_index),
           solve_status);
@@ -278,7 +278,7 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
           spdlog::warn(
               "SDDP Forward [i{} s{} p{}]: failed to save pre-elastic LP "
               "to {}: {}",
-              iteration_index,
+              gtopt::uid_of(iteration_index),
               uid_of(scene_index),
               uid_of(phase_index),
               pre_stem,
@@ -294,9 +294,9 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
       system.release_backend();
 
       if (elastic_result.has_value() && elastic_result->solved) {
-        m_phase_grid_.record(iteration_index,
+        m_phase_grid_.record(gtopt::uid_of(iteration_index),
                              uid_of(scene_index),
-                             phase_index,
+                             uid_of(phase_index),
                              GridCell::Elastic);
         // Track max kappa from elastic solve (single use of clone).
         update_max_kappa(
@@ -467,7 +467,7 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
                   "SDDP Forward [i{} s{} p{}]: multi_cut produced 0 cuts "
                   "(all |π| < slack_tol) — falling back to aggregated "
                   "Benders fcut on p{} to avoid silent convergence loop",
-                  iteration_index,
+                  gtopt::uid_of(iteration_index),
                   uid_of(scene_index),
                   uid_of(phase_index),
                   uid_of(prev_phase_index));
@@ -535,7 +535,7 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
             SPDLOG_INFO(
                 "SDDP Forward [i{} s{} p{}]: elastic → fcut on p{} "
                 "(infeas_count={}{}, state({})) fail-stop scene",
-                iteration_index,
+                gtopt::uid_of(iteration_index),
                 uid_of(scene_index),
                 uid_of(phase_index),
                 uid_of(prev_phase_index),
@@ -567,7 +567,7 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
           SPDLOG_INFO(
               "SDDP Forward [i{} s{} p{}]: elastic → fcut on p{} "
               "(infeas_count={}{}, state({})) backtrack→p{}",
-              iteration_index,
+              gtopt::uid_of(iteration_index),
               uid_of(scene_index),
               uid_of(phase_index),
               uid_of(prev_phase_index),
@@ -638,7 +638,7 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
             spdlog::warn(
                 "SDDP Forward [i{} s{} p{}]: failed to save error LP "
                 "to {}: {}",
-                iteration_index,
+                gtopt::uid_of(iteration_index),
                 uid_of(scene_index),
                 uid_of(phase_index),
                 stem,
@@ -659,7 +659,7 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
               spdlog::warn(
                   "SDDP Forward [i{} s{} p{}]: failed to save elastic "
                   "clone LP to {}: {}",
-                  iteration_index,
+                  gtopt::uid_of(iteration_index),
                   uid_of(scene_index),
                   uid_of(phase_index),
                   elastic_stem,
@@ -672,7 +672,7 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
             "SDDP Forward [i{} s{} p{}]: elastic filter produced no "
             "feasibility cut — declaring phase p{} and scene s{} "
             "infeasible for iter i{} (solver status {}, reason: {}){}",
-            iteration_index,
+            gtopt::uid_of(iteration_index),
             uid_of(scene_index),
             uid_of(phase_index),
             uid_of(phase_index),
@@ -709,8 +709,10 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
       // accumulate towards the multi_cut auto-switch threshold; the
       // intermittent successes don't mean the elastic cut history is
       // adequate.  See docs/methods/sddp.md §S5.4.
-      m_phase_grid_.record(
-          iteration_index, uid_of(scene_index), phase_index, GridCell::Forward);
+      m_phase_grid_.record(gtopt::uid_of(iteration_index),
+                           uid_of(scene_index),
+                           uid_of(phase_index),
+                           GridCell::Forward);
       // Track max kappa from forward solve
       update_max_kappa(scene_index, phase_index, li, iteration_index);
 
@@ -774,7 +776,7 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
         SPDLOG_WARN(
             "SDDP Forward [i{} s{} p{}]: solve returned optimal but"
             " forward_objective is NaN (obj={}, alpha={})",
-            iteration_index,
+            gtopt::uid_of(iteration_index),
             uid_of(scene_index),
             uid_of(phase_index),
             obj_physical,
@@ -796,7 +798,7 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
       // The aggregate scene-end "opex=…" line still emits below.
       const auto num_phases = phases.size();
       spdlog::info("SDDP Forward [i{} s{} p{}/{}]: opex={} (obj={}, α={})",
-                   iteration_index,
+                   gtopt::uid_of(iteration_index),
                    uid_of(scene_index),
                    uid_of(phase_index),
                    num_phases,
@@ -817,8 +819,19 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
   // `state.forward_objective` holds the value from that phase's FINAL
   // (forward-moving) optimal solve — the sum here is the scene's UB
   // contribution.
+  //
+  // Audit accumulators: keep separate sums of `forward_objective`
+  // (= obj − α, the per-phase opex) and `forward_full_obj_physical`
+  // (= obj including α), plus the count of phase_states actually
+  // included.  When the per-phase INFO log's opex sum doesn't match
+  // ``total_opex`` reported below, this audit makes the breakdown
+  // explicit so a unit-mismatch or aggregation bug surfaces fast.
+  double total_full_obj = 0.0;
+  int num_phases_summed = 0;
   for (const auto& st : phase_states) {
     total_opex += st.forward_objective;
+    total_full_obj += st.forward_full_obj_physical;
+    ++num_phases_summed;
   }
 
   // Guard against NaN in total forward-pass cost.  Can happen when
@@ -828,7 +841,7 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
     SPDLOG_WARN(
         "SDDP Forward [i{} s{}]: total_opex is NaN —"
         " solver ill-conditioning",
-        iteration_index,
+        gtopt::uid_of(iteration_index),
         uid_of(scene_index));
     return std::unexpected(Error {
         .code = ErrorCode::SolverError,
@@ -843,11 +856,30 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
                                     - fwd_scene_start)
           .count();
   SPDLOG_INFO("SDDP Forward [i{} s{}]: done, opex={} ({:.1f}s) [thread {}]",
-              iteration_index,
+              gtopt::uid_of(iteration_index),
               uid_of(scene_index),
               format_si(total_opex),
               fwd_scene_s,
               std::hash<std::thread::id> {}(fwd_tid) % 10000);
+
+  // Cost-accounting audit: report the breakdown so a divergence
+  // between the per-phase ``opex=…`` INFO log sum and ``total_opex``
+  // is visible at a glance.  ``Σobj`` is the sum of
+  // forward_full_obj_physical (= per-phase obj including α);
+  // ``Σopex`` is the sum of forward_objective (= per-phase obj − α);
+  // their difference is the cumulative α contribution this scene
+  // saw across all phases.  On iter 0 (α=0 throughout) ``Σopex ==
+  // Σobj`` must hold; on later iters ``Σobj − Σopex`` is the α-
+  // weighted future-cost claim that downstream cuts must justify.
+  spdlog::debug(
+      "SDDP Forward [i{} s{}]: cost audit — phases={} Σopex={} Σobj={} "
+      "α-claim={} (Σobj−Σopex)",
+      gtopt::uid_of(iteration_index),
+      uid_of(scene_index),
+      num_phases_summed,
+      format_si(total_opex),
+      format_si(total_full_obj),
+      format_si(total_full_obj - total_opex));
   return total_opex;
 }
 
