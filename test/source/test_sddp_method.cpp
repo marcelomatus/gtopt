@@ -3322,7 +3322,7 @@ TEST_CASE(  // NOLINT
       REQUIRE(hard.efin_duals[1].has_value());
       const double dual0 = std::abs(*hard.efin_duals[0]);
       const double dual1 = std::abs(*hard.efin_duals[1]);
-      const double dual_max = dual0 + dual1;
+      const double dual_max = std::max(dual0, dual1);
       CAPTURE(dual0);
       CAPTURE(dual1);
       CAPTURE(dual_max);
@@ -3563,7 +3563,7 @@ TEST_CASE(  // NOLINT
       REQUIRE(hard.efin_duals[1].has_value());
       const double dual0 = std::abs(*hard.efin_duals[0]);
       const double dual1 = std::abs(*hard.efin_duals[1]);
-      const double dual_max = dual0 + dual1;
+      const double dual_max = std::max(dual0, dual1);
       CAPTURE(dual0);
       CAPTURE(dual1);
       CAPTURE(dual_max);
@@ -3758,8 +3758,8 @@ TEST_CASE(  // NOLINT
   const auto off_hard = run_case({}, off_cfg);
   REQUIRE(off_hard.efin_duals[0].has_value());
   REQUIRE(off_hard.efin_duals[1].has_value());
-  const double off_dual_max =
-      std::abs(*off_hard.efin_duals[0]) + std::abs(*off_hard.efin_duals[1]);
+  const double off_dual_max = std::max(std::abs(*off_hard.efin_duals[0]),
+                                       std::abs(*off_hard.efin_duals[1]));
   CAPTURE(off_hard.ub);
   CAPTURE(off_dual_max);
   REQUIRE(std::isfinite(off_hard.ub));
@@ -3805,7 +3805,7 @@ TEST_CASE(  // NOLINT
       REQUIRE(hard.efin_duals[1].has_value());
       const double dual0 = std::abs(*hard.efin_duals[0]);
       const double dual1 = std::abs(*hard.efin_duals[1]);
-      const double dual_max = dual0 + dual1;
+      const double dual_max = std::max(dual0, dual1);
       CAPTURE(dual_max);
 
       CHECK(std::isfinite(hard.ub));
@@ -4019,7 +4019,7 @@ TEST_CASE(  // NOLINT
       for (std::size_t r = 0; r < 2; ++r) {
         double pf_weighted = 0.0;
         for (std::size_t s = 0; s < 2; ++s) {
-          pf_weighted += std::abs(*hard.efin_duals[s][r]);
+          pf_weighted += kSceneProb * std::abs(*hard.efin_duals[s][r]);
         }
         dual_max = std::max(dual_max, pf_weighted);
       }
