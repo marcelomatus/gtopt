@@ -229,29 +229,23 @@ void LinearInterface::release_backend() noexcept
         m_cached_obj_value_ = m_backend_->obj_value();
         m_cached_kappa_ = m_backend_->get_kappa();
 
-        // Snapshot primal + dual + reduced-cost vectors so that
-        // read-only consumers (OutputContext, Benders cut assembly,
-        // SDDP state propagation) can access the solution without
-        // forcing a backend reconstruct + re-solve.  The uncompressed
-        // cost is ~8 bytes per col/row per cell — negligible against
-        // the flat-LP snapshot.
-        const auto* col_sol_ptr = m_backend_->col_solution();
-        const auto* col_cost_ptr = m_backend_->reduced_cost();
-        const auto* row_dual_ptr = m_backend_->row_price();
+        // Snapshot primal + dual + reduced-cost vectors directly via
+        // the SolverBackend span-out API so that read-only consumers
+        // (OutputContext, Benders cut assembly, SDDP state
+        // propagation) can access the solution without forcing a
+        // backend reconstruct + re-solve.  The fill_* path writes
+        // straight into our cache buffer — for CPLEX/MindOpt/Gurobi
+        // that's the C-API call into our `m_cached_*`, no plugin-
+        // side scratch touched; for OSI/HiGHS the default fill
+        // memcpy's from the live solver pointer.
         const auto ncols_sz = static_cast<size_t>(m_cached_numcols_);
         const auto nrows_sz = static_cast<size_t>(m_cached_numrows_);
-        if (col_sol_ptr != nullptr) {
-          const std::span col_sol {col_sol_ptr, ncols_sz};
-          m_cached_col_sol_.assign(col_sol.begin(), col_sol.end());
-        }
-        if (col_cost_ptr != nullptr) {
-          const std::span col_cost {col_cost_ptr, ncols_sz};
-          m_cached_col_cost_.assign(col_cost.begin(), col_cost.end());
-        }
-        if (row_dual_ptr != nullptr) {
-          const std::span row_dual {row_dual_ptr, nrows_sz};
-          m_cached_row_dual_.assign(row_dual.begin(), row_dual.end());
-        }
+        m_cached_col_sol_.resize(ncols_sz);
+        m_cached_col_cost_.resize(ncols_sz);
+        m_cached_row_dual_.resize(nrows_sz);
+        m_backend_->fill_col_sol(m_cached_col_sol_);
+        m_backend_->fill_col_cost(m_cached_col_cost_);
+        m_backend_->fill_row_dual(m_cached_row_dual_);
       }
     } else {
       // Non-optimal release: drop any stale primal/dual snapshot so
@@ -399,18 +393,17 @@ void LinearInterface::populate_solution_cache_post_solve() noexcept
     }
     const auto ncols = static_cast<size_t>(get_numcols());
     const auto nrows = static_cast<size_t>(get_numrows());
-    const auto* p_sol = m_backend_->col_solution();
-    const auto* p_cost = m_backend_->reduced_cost();
-    const auto* p_dual = m_backend_->row_price();
-    if (p_sol != nullptr) {
-      m_cached_col_sol_.assign(p_sol, p_sol + ncols);
-    }
-    if (p_cost != nullptr) {
-      m_cached_col_cost_.assign(p_cost, p_cost + ncols);
-    }
-    if (p_dual != nullptr) {
-      m_cached_row_dual_.assign(p_dual, p_dual + nrows);
-    }
+    // Span-out fills: backend writes directly into the LI cache
+    // buffer without ever touching a plugin scratch (CPLEX/MindOpt/
+    // Gurobi C-API call into m_cached_*) or, for OSI/HiGHS, memcpys
+    // from the live solver pointer via the default fill impl.  Either
+    // way the LI cache is the sole destination — no second copy.
+    m_cached_col_sol_.resize(ncols);
+    m_cached_col_cost_.resize(ncols);
+    m_cached_row_dual_.resize(nrows);
+    m_backend_->fill_col_sol(m_cached_col_sol_);
+    m_backend_->fill_col_cost(m_cached_col_cost_);
+    m_backend_->fill_row_dual(m_cached_row_dual_);
     m_cached_is_optimal_ = true;
   } catch (...) {  // NOLINT(bugprone-empty-catch)
     // Best-effort: any backend exception leaves the cache in
