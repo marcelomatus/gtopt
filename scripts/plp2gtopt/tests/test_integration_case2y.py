@@ -141,7 +141,9 @@ def _run_gtopt(
         timeout=timeout,
         check=False,
     )
-    return result.returncode, result.stdout + result.stderr + _gather_gtopt_logs(case_dir)
+    return result.returncode, result.stdout + result.stderr + _gather_gtopt_logs(
+        case_dir
+    )
 
 
 # ---------------------------------------------------------------------------
