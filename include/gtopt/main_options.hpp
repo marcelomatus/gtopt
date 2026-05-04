@@ -290,32 +290,91 @@ template<typename T>
       //   --sddp-convergence-tol  -> --set sddp_options.convergence_tol=...
       //   --sddp-elastic-penalty  -> --set sddp_options.elastic_penalty=...
       //   --sddp-elastic-mode     -> --set sddp_options.elastic_mode=...
-      ("sddp-cpu-factor", po::value<double>(), "")  //
-      ("input-directory,D", po::value<std::string>(), "")  //
-      ("input-format,F", po::value<std::string>(), "")  //
-      ("output-directory,d", po::value<std::string>(), "")  //
-      ("output-format,f", po::value<std::string>(), "")  //
-      ("output-compression,C", po::value<std::string>(), "")  //
+      ("sddp-cpu-factor",
+       po::value<double>(),
+       "deprecated alias for --cpu-factor (SDDP work-pool over-commit "
+       "factor); kept for backward compatibility")  //
+      ("input-directory,D",
+       po::value<std::string>(),
+       "directory holding input time-series files (default: 'input'); "
+       "shorthand for --set input_directory=<dir>")  //
+      ("input-format,F",
+       po::value<std::string>(),
+       "preferred input file format: parquet | csv (default: parquet); "
+       "shorthand for --set input_format=<fmt>")  //
+      ("output-directory,d",
+       po::value<std::string>(),
+       "directory for solution output files (default: 'output'); "
+       "shorthand for --set output_directory=<dir>")  //
+      ("output-format,f",
+       po::value<std::string>(),
+       "output file format: parquet | csv (default: parquet); "
+       "shorthand for --set output_format=<fmt>")  //
+      ("output-compression,C",
+       po::value<std::string>(),
+       "Parquet output compression codec: zstd | gzip | snappy | none "
+       "(default: zstd); shorthand for --set output_compression=<codec>")  //
       ("use-single-bus,b",
        po::value<bool>().implicit_value(/*v=*/true),
-       "")  //
+       "copper-plate (single-bus) mode: ignore network topology and line "
+       "limits; shorthand for --set model_options.use_single_bus=true")  //
       ("use-kirchhoff,k",
        po::value<bool>().implicit_value(/*v=*/true),
-       "")  //
+       "apply DC-OPF Kirchhoff voltage-angle constraints (default: true); "
+       "shorthand for --set model_options.use_kirchhoff=<bool>")  //
       ("lp-debug",
        po::value<bool>().implicit_value(/*v=*/true),
-       "")  //
-      ("lp-compression", po::value<std::string>(), "")  //
-      ("lp-coeff-ratio", po::value<double>(), "")  //
-      ("algorithm,a", po::value<std::string>(), "")  //
-      ("threads,t", po::value<int>(), "")  //
-      ("cut-directory", po::value<std::string>(), "")  //
-      ("log-directory", po::value<std::string>(), "")  //
-      ("sddp-max-iterations", po::value<int>(), "")  //
-      ("sddp-min-iterations", po::value<int>(), "")  //
-      ("sddp-convergence-tol", po::value<double>(), "")  //
-      ("sddp-elastic-penalty", po::value<double>(), "")  //
-      ("sddp-elastic-mode", po::value<std::string>(), "");
+       "save per-(scene, phase) LP files for every SDDP pass selected by "
+       "sddp_options.lp_debug_passes; shorthand for --set lp_debug=true")  //
+      ("lp-compression",
+       po::value<std::string>(),
+       "compression codec for LP debug files: gzip | zstd | none "
+       "(default: zstd); shorthand for --set lp_compression=<codec>")  //
+      ("lp-coeff-ratio",
+       po::value<double>(),
+       "warn when the LP max/min |coefficient| ratio exceeds this threshold "
+       "(default: 1e7); shorthand for --set "
+       "lp_matrix_options.lp_coeff_ratio_threshold=<ratio>")  //
+      ("algorithm,a",
+       po::value<std::string>(),
+       "LP algorithm: default | primal | dual | barrier (or 0..3); "
+       "shorthand for --set solver_options.algorithm=<algo>")  //
+      ("threads,t",
+       po::value<int>(),
+       "solver thread count (default: solver-specific); shorthand for "
+       "--set solver_options.threads=<n>")  //
+      ("cut-directory",
+       po::value<std::string>(),
+       "directory under output_directory for SDDP Benders cut files "
+       "(default: 'cuts'); shorthand for --set "
+       "sddp_options.cut_directory=<dir>")  //
+      ("log-directory",
+       po::value<std::string>(),
+       "directory for solver log + LP-debug files (default: 'logs'); "
+       "shorthand for --set log_directory=<dir>")  //
+      ("sddp-max-iterations",
+       po::value<int>(),
+       "maximum SDDP forward/backward iterations (default: 100); "
+       "shorthand for --set sddp_options.max_iterations=<n>")  //
+      ("sddp-min-iterations",
+       po::value<int>(),
+       "minimum SDDP iterations before convergence is considered "
+       "(default: 2); shorthand for --set "
+       "sddp_options.min_iterations=<n>")  //
+      ("sddp-convergence-tol",
+       po::value<double>(),
+       "relative gap tolerance for SDDP convergence (default: 1e-4); "
+       "shorthand for --set sddp_options.convergence_tol=<eps>")  //
+      ("sddp-elastic-penalty",
+       po::value<double>(),
+       "penalty coefficient for elastic slack variables in the SDDP "
+       "feasibility filter; shorthand for --set "
+       "sddp_options.elastic_penalty=<val>")  //
+      ("sddp-elastic-mode",
+       po::value<std::string>(),
+       "elastic-filter mode: chinneck | iis | single_cut | cut | multi_cut "
+       "(default: chinneck); shorthand for --set "
+       "sddp_options.elastic_mode=<mode>");
   return desc;
 }
 
