@@ -12,7 +12,8 @@
  * access within a scene is serial), and cross-scene reads happen at
  * synchronisation barriers.  Extracted from `SDDPMethod` to separate
  * cut bookkeeping from the solver orchestration; split into the two
- * classes by `support/sddp_cut_store_split_plan_2026-04-30.md`.
+ * classes by
+ * `docs/analysis/investigations/sddp/sddp_cut_store_split_plan_2026-04-30.md`.
  */
 
 #pragma once
@@ -65,7 +66,8 @@ struct StoredCut
 };
 
 /// Per-scene container for SDDP Benders cuts (step 1 of the
-/// `support/sddp_cut_store_split_plan_2026-04-30.md` refactor).
+/// `docs/analysis/investigations/sddp/sddp_cut_store_split_plan_2026-04-30.md`
+/// refactor).
 ///
 /// Wraps the per-scene `std::vector<StoredCut>` plus the per-scene
 /// snapshot that cut-sharing reads to identify newly-added cuts.
@@ -239,8 +241,8 @@ public:
   [[nodiscard]] auto& scene_cuts() noexcept { return m_scene_cuts_; }
 
   /// Per-scene store accessor (step 3 of
-  /// `support/sddp_cut_store_split_plan_2026-04-30.md`).  Replaces
-  /// `scene_cuts()[si]` at call sites that touch one scene's cuts;
+  /// `docs/analysis/investigations/sddp/sddp_cut_store_split_plan_2026-04-30.md`).
+  /// Replaces `scene_cuts()[si]` at call sites that touch one scene's cuts;
   /// keeps the migration mechanical (the wrapper's vector-like
   /// forwarders mean most reads compile unchanged after the
   /// substitution).  Returns a `SceneCutStore&`; use `.cuts()` to

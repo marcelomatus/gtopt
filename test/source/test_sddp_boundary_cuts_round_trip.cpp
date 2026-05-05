@@ -2,7 +2,8 @@
 //
 // Round-trip regression test for boundary-cut LP-row composition.
 //
-// Audit P0-1 from `support/lp_audit_fix_plan_2026-04-29.md`:
+// Audit P0-1 from
+// `docs/analysis/investigations/linear_interface/lp_audit_fix_plan_2026-04-29.md`:
 // `sddp_boundary_cuts.cpp` was pre-dividing the row's RHS and
 // coefficients by `scale_objective` (and pre-multiplying the
 // state-variable coefficient by `col_scale`).  The same row then

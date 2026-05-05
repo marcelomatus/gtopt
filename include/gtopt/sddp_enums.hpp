@@ -68,8 +68,8 @@ inline constexpr auto boundary_cuts_mode_entries =
  * samples) violate that condition and produce LB > UB that compounds
  * across iterations.  A runtime WARN is emitted at SDDP setup when
  * `cut_sharing != none && num_scenes > 1`.  See
- * `support/sddp_cut_sharing_fix_plan_2026-04-30.md` and the regression
- * test `test/source/test_sddp_bounds_sanity.cpp`.
+ * `docs/analysis/investigations/sddp/sddp_cut_sharing_fix_plan_2026-04-30.md`
+ * and the regression test `test/source/test_sddp_bounds_sanity.cpp`.
  */
 enum class CutSharingMode : uint8_t
 {

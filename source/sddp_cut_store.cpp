@@ -42,10 +42,10 @@ namespace gtopt
 // ── SceneCutStore::store ───────────────────────────────────────────────────
 //
 // Migrated from `SDDPCutManager::store_cut` in step 2 of
-// `support/sddp_cut_store_split_plan_2026-04-30.md`.  The legacy
-// `SDDPCutManager::store_cut` (below) is a 1-line forwarder that drops
-// the unused `src_phase_index` parameter (kept on the legacy
-// signature for backward compatibility).
+// `docs/analysis/investigations/sddp/sddp_cut_store_split_plan_2026-04-30.md`.
+// The legacy `SDDPCutManager::store_cut` (below) is a 1-line forwarder that
+// drops the unused `src_phase_index` parameter (kept on the legacy signature
+// for backward compatibility).
 
 void SceneCutStore::store(const SparseRow& cut,
                           CutType type,
@@ -200,7 +200,8 @@ void SDDPCutManager::forget_first_cuts(std::ptrdiff_t count,
 // `store_cut` is only ever called by the scene that owns the cell.
 //
 // Migrated from `SDDPCutManager::clear_scene_cuts` to `SceneCutStore`
-// in step 2 of `support/sddp_cut_store_split_plan_2026-04-30.md`.
+// in step 2 of
+// `docs/analysis/investigations/sddp/sddp_cut_store_split_plan_2026-04-30.md`.
 // The legacy `SDDPCutManager::clear_scene_cuts` (below) becomes a thin
 // forwarder; future cleanup deprecates + removes it once every caller
 // is migrated to `at(s).clear_with_lp(...)`.
@@ -251,8 +252,8 @@ std::ptrdiff_t SDDPCutManager::clear_scene_cuts(SceneIndex scene_index,
 // ── SceneCutStore::update_duals ────────────────────────────────────────────
 //
 // Migrated from `SDDPCutManager::update_stored_cut_duals` in step 2 of
-// `support/sddp_cut_store_split_plan_2026-04-30.md`.  Drops the
-// `build_scene_uid_map` lookup the legacy method did per-cut: every
+// `docs/analysis/investigations/sddp/sddp_cut_store_split_plan_2026-04-30.md`.
+// Drops the `build_scene_uid_map` lookup the legacy method did per-cut: every
 // cut in this store is owned by `scene_index` (single-writer
 // invariant), so the caller-supplied index is authoritative.  The
 // legacy outer method (below) is now a per-scene loop calling this

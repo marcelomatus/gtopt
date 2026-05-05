@@ -1,7 +1,7 @@
 # CPLEX clone-mutex thread-safety audit (Option B)
 
 **Author:** Claude / 2026-04-30
-**Companion to:** `support/sddp_dispatch_concurrency_proposal_2026-04-30.md`
+**Companion to:** `docs/analysis/investigations/sddp/sddp_dispatch_concurrency_proposal_2026-04-30.md`
 **Question:** Can we replace `s_global_clone_mutex` with a per-source-LP mutex?
 
 ## TL;DR
