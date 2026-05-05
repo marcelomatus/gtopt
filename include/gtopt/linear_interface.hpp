@@ -32,6 +32,7 @@
 #include <gtopt/fmap.hpp>
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/low_memory_snapshot.hpp>
+#include <gtopt/lp_cache.hpp>
 #include <gtopt/lp_validation.hpp>
 #include <gtopt/memory_compress.hpp>
 #include <gtopt/sddp_enums.hpp>
@@ -370,15 +371,15 @@ public:
   /// "get_col_sol_raw transparently routes to the live backend".
   [[nodiscard]] std::size_t cached_col_sol_size() const noexcept
   {
-    return m_cached_col_sol_.size();
+    return m_cache_.col_sol().size();
   }
   [[nodiscard]] std::size_t cached_col_cost_size() const noexcept
   {
-    return m_cached_col_cost_.size();
+    return m_cache_.col_cost().size();
   }
   [[nodiscard]] std::size_t cached_row_dual_size() const noexcept
   {
-    return m_cached_row_dual_.size();
+    return m_cache_.row_dual().size();
   }
 
   /// Span-out solution-fill wrappers — public API delegating to the
@@ -461,17 +462,10 @@ public:
   /// Call this after `save_cuts_for_iteration` (state CSV) returns
   /// and before the next iteration's forward pass begins.  Safe under
   /// `low_memory_mode == off` (no-op since the caches stay empty)
-  /// and idempotent.  Does NOT touch `m_cached_row_dual_`,
-  /// `m_cached_obj_value_`, `m_cached_kappa_`, `m_cached_numrows_`,
-  /// `m_cached_numcols_`, or `m_cached_is_optimal_` — those remain
+  /// and idempotent.  Does NOT touch the cached row dual, obj value,
+  /// kappa, numrows, numcols, or optimality flag — those remain
   /// available for inter-iteration consumers.
-  void drop_cached_primal_only() noexcept
-  {
-    m_cached_col_sol_.clear();
-    m_cached_col_sol_.shrink_to_fit();
-    m_cached_col_cost_.clear();
-    m_cached_col_cost_.shrink_to_fit();
-  }
+  void drop_cached_primal_only() noexcept { m_cache_.drop_solution_caches(); }
 
   /// Drop the label-metadata buffers (compressed col/row label vectors
   /// and the string pool that backs the decompressed `string_view`s).
@@ -1962,8 +1956,8 @@ public:
     // and post-`drop_cached_primal_only` paths.  Under compress/
     // snapshot, `backend()` transparently triggers
     // `ensure_backend()` to reconstruct from the saved snapshot.
-    if (!m_cached_col_sol_.empty()) {
-      return {m_cached_col_sol_.data(), m_cached_col_sol_.size()};
+    if (const auto sp = m_cache_.col_sol(); !sp.empty()) {
+      return sp;
     }
     return {backend().col_solution(), static_cast<size_t>(get_numcols())};
   }
@@ -1999,14 +1993,15 @@ public:
     // Same single-source-of-truth gating as `get_col_sol_raw` —
     // see that site for the rationale.  LI cache is populated
     // eagerly post-solve and is preferred when non-empty.
-    const bool prefer_cache = !m_cached_col_sol_.empty();
+    const auto cached_sol = m_cache_.col_sol();
+    const bool prefer_cache = !cached_sol.empty();
     const double* data =
-        prefer_cache ? m_cached_col_sol_.data() : backend().col_solution();
+        prefer_cache ? cached_sol.data() : backend().col_solution();
     // Clamp path requires a live backend: col bounds are not cached on
     // `release_backend`, so we'd dereference a null `m_backend_` to
     // read them.  Also skip when the last solve wasn't optimal —
     // solver values may then be arbitrary and clamping is misleading.
-    if (m_backend_released_ || !m_cached_is_optimal_) {
+    if (m_backend_released_ || !m_cache_.is_optimal()) {
       return {data,
               n,
               m_col_scales_->data(),
@@ -2032,8 +2027,8 @@ public:
   {
     // Single source of truth: prefer the LI cache when populated.
     // See `get_col_sol_raw` for the design rationale.
-    if (!m_cached_col_cost_.empty()) {
-      return {m_cached_col_cost_.data(), m_cached_col_cost_.size()};
+    if (const auto sp = m_cache_.col_cost(); !sp.empty()) {
+      return sp;
     }
     return {backend().reduced_cost(), static_cast<size_t>(get_numcols())};
   }
@@ -2069,8 +2064,8 @@ public:
     const auto n = get_numcols();
     // Single source of truth: prefer the LI cache when populated.
     // See `get_col_sol_raw` for the design rationale.
-    if (!m_cached_col_cost_.empty()) {
-      return {m_cached_col_cost_.data(),
+    if (const auto sp = m_cache_.col_cost(); !sp.empty()) {
+      return {sp.data(),
               n,
               m_col_scales_->data(),
               m_col_scales_->size(),
@@ -2237,8 +2232,8 @@ public:
     // `ensure_duals()` runs only when we're going to consult the
     // live backend — the cached duals were already crossed-over at
     // the time of solve so no further crossover is needed.
-    if (!m_cached_row_dual_.empty()) {
-      return {m_cached_row_dual_.data(), m_cached_row_dual_.size()};
+    if (const auto sp = m_cache_.row_dual(); !sp.empty()) {
+      return sp;
     }
     ensure_duals();
     return {backend().row_price(), static_cast<size_t>(get_numrows())};
@@ -2282,8 +2277,8 @@ public:
   {
     const auto n = get_numrows();
     // Single source of truth: prefer the LI cache when populated.
-    if (!m_cached_row_dual_.empty()) {
-      return {m_cached_row_dual_.data(),
+    if (const auto sp = m_cache_.row_dual(); !sp.empty()) {
+      return {sp.data(),
               n,
               m_row_scales_->data(),
               m_row_scales_->size(),
@@ -2868,48 +2863,23 @@ private:
   /// re-set after every SystemLP move.  Never owns the pointee.
   SystemLP* m_rebuild_owner_ {};
 
-  // ── Cached post-solve scalars (valid when backend is released) ─────
+  // ── Post-solve cache (valid when backend is released) ──────────────────
+  //
+  // Phase 1 of the LinearInterface split (B2 in
+  // ``docs/improvement_recommendations.md``): the 9 ``m_cached_*_`` and
+  // ``m_backend_solution_fresh_`` fields previously declared inline here
+  // now live behind ``LpCache``.  See ``include/gtopt/lp_cache.hpp`` for
+  // the C1–C8 invariants the cache enforces.
 
-  /// Cached objective value from last successful solve.
-  double m_cached_obj_value_ {};
-  /// Cached kappa (condition number) from last successful solve.
-  /// `std::nullopt` means "backend reported unavailable" — never silently
-  /// reinterpret as 1.0.
-  std::optional<double> m_cached_kappa_ {};
-  /// Cached number of rows at time of release.
-  Index m_cached_numrows_ {};
-  /// Cached number of columns at time of release.
-  Index m_cached_numcols_ {};
-  /// Whether the cached state represents an optimal solution.
-  bool m_cached_is_optimal_ {false};
-
-  /// True iff the LIVE backend's `col_solution()` /
-  /// `is_proven_optimal()` reflect a fresh solve.
-  ///
-  /// Cleared on `reconstruct_backend()` / `install_flat_as_rebuild()`
-  /// (the live backend is loaded but not solved; its buffers are
-  /// zero-padded and `is_proven_optimal()` returns false).  Set on
-  /// successful `resolve()` / `initial_solve()` inside the
-  /// `timed_solve` lambda — BEFORE the `is_optimal()` check that
-  /// drives the fallback cycle.
-  ///
-  /// `is_optimal()` and `get_col_sol_raw()` consult this flag to
-  /// return the cached optimality flag / cached col_sol when the
-  /// backend has been reloaded but not yet re-solved.  Off mode
-  /// never reloads, so the flag stays `true` after the first solve
-  /// and these reads continue to go to the live backend unchanged.
-  bool m_backend_solution_fresh_ {false};
-
-  /// Cached post-solve primal/dual vectors (valid when `m_backend_released_`
-  /// is true AND `m_cached_is_optimal_` is true).  Populated by
-  /// `release_backend()` so downstream readers — `OutputContext`, Benders
-  /// cut assembly, SDDP state propagation — can continue to access the
-  /// solution after the solver backend has been dropped, without paying
-  /// for a re-solve.  Empty when the backend was never released, never
-  /// solved to optimum, or `m_low_memory_mode_ == LowMemoryMode::off`.
-  std::vector<double> m_cached_col_sol_ {};
-  std::vector<double> m_cached_col_cost_ {};
-  std::vector<double> m_cached_row_dual_ {};
+  /// Post-solve cache: objective value, kappa, row/col counts,
+  /// optimality flag, primal/dual solution vectors, and the
+  /// ``backend_solution_fresh`` gate.  Populated by ``release_backend()``
+  /// so downstream readers — ``OutputContext``, Benders cut assembly,
+  /// SDDP state propagation — can access the solution after the solver
+  /// backend has been dropped, without paying for a re-solve.  Empty
+  /// when the backend was never released, never solved to optimum, or
+  /// ``m_low_memory_mode_ == LowMemoryMode::off``.
+  LpCache m_cache_ {};
 
   /// Cumulative solver-activity counters (see `solver_stats.hpp`).
   /// Written only by the thread that owns this LP; aggregated across

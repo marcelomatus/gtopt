@@ -94,11 +94,11 @@ void LinearInterface::cache_and_release()
   // query, which breaks `solution.csv` invariance between `off` and
   // `compress` modes (observed on CLP via OSI: `backend->get_kappa()`
   // returned 5e-18 at solve-time but 0 on a later re-query).
-  m_cached_obj_value_ = m_backend_->obj_value();
-  m_cached_kappa_ = m_backend_->get_kappa();
-  m_cached_numrows_ = get_numrows();
-  m_cached_numcols_ = get_numcols();
-  m_cached_is_optimal_ = true;
+  m_cache_.set_obj_value(m_backend_->obj_value());
+  m_cache_.set_kappa(m_backend_->get_kappa());
+  m_cache_.set_numrows(get_numrows());
+  m_cache_.set_numcols(get_numcols());
+  m_cache_.set_is_optimal(/*v=*/true);
 }
 
 // NOLINTNEXTLINE(misc-no-recursion)
@@ -211,9 +211,9 @@ void LinearInterface::release_backend() noexcept
     if (m_backend_ && is_optimal()) {
       // Refresh cached structural counts (always valid post-load_flat,
       // even without a resolve) and re-affirm cached optimality.
-      m_cached_numrows_ = get_numrows();
-      m_cached_numcols_ = get_numcols();
-      m_cached_is_optimal_ = true;
+      m_cache_.set_numrows(get_numrows());
+      m_cache_.set_numcols(get_numcols());
+      m_cache_.set_is_optimal(/*v=*/true);
 
       // Solution-vector refresh is conditional: only re-read the live
       // backend's primal/dual/reduced-cost buffers when there has been
@@ -222,12 +222,12 @@ void LinearInterface::release_backend() noexcept
       // overwriting the cache with them silently corrupts the SDDP
       // forward/backward read surface — which is exactly the bug that
       // caused juan/iplp compress mode to diverge from `off` mode at
-      // iter ≥1 (zero-padded `m_cached_col_sol_` propagated via
-      // `propagate_trial_values`).  When `!m_backend_solution_fresh_`
+      // iter ≥1 (zero-padded col_sol propagated via
+      // `propagate_trial_values`).  When `!backend_solution_fresh()`
       // the existing cache is the source of truth — leave it alone.
-      if (m_backend_solution_fresh_) {
-        m_cached_obj_value_ = m_backend_->obj_value();
-        m_cached_kappa_ = m_backend_->get_kappa();
+      if (m_cache_.backend_solution_fresh()) {
+        m_cache_.set_obj_value(m_backend_->obj_value());
+        m_cache_.set_kappa(m_backend_->get_kappa());
 
         // Snapshot primal + dual + reduced-cost vectors directly via
         // the SolverBackend span-out API so that read-only consumers
@@ -235,17 +235,14 @@ void LinearInterface::release_backend() noexcept
         // propagation) can access the solution without forcing a
         // backend reconstruct + re-solve.  The fill_* path writes
         // straight into our cache buffer — for CPLEX/MindOpt/Gurobi
-        // that's the C-API call into our `m_cached_*`, no plugin-
+        // that's the C-API call into LpCache's vectors, no plugin-
         // side scratch touched; for OSI/HiGHS the default fill
         // memcpy's from the live solver pointer.
-        const auto ncols_sz = static_cast<size_t>(m_cached_numcols_);
-        const auto nrows_sz = static_cast<size_t>(m_cached_numrows_);
-        m_cached_col_sol_.resize(ncols_sz);
-        m_cached_col_cost_.resize(ncols_sz);
-        m_cached_row_dual_.resize(nrows_sz);
-        m_backend_->fill_col_sol(m_cached_col_sol_);
-        m_backend_->fill_col_cost(m_cached_col_cost_);
-        m_backend_->fill_row_dual(m_cached_row_dual_);
+        const auto ncols_sz = static_cast<size_t>(m_cache_.numcols());
+        const auto nrows_sz = static_cast<size_t>(m_cache_.numrows());
+        m_backend_->fill_col_sol(m_cache_.col_sol_buffer(ncols_sz));
+        m_backend_->fill_col_cost(m_cache_.col_cost_buffer(ncols_sz));
+        m_backend_->fill_row_dual(m_cache_.row_dual_buffer(nrows_sz));
       }
     } else {
       // Non-optimal release: drop any stale primal/dual snapshot so
@@ -253,12 +250,7 @@ void LinearInterface::release_backend() noexcept
       // to a previous LP state (e.g. before `add_row` mutated the
       // system).  Keeps the getter invariant simple: cached vectors
       // are valid iff populated.
-      m_cached_col_sol_.clear();
-      m_cached_col_sol_.shrink_to_fit();
-      m_cached_col_cost_.clear();
-      m_cached_col_cost_.shrink_to_fit();
-      m_cached_row_dual_.clear();
-      m_cached_row_dual_.shrink_to_fit();
+      m_cache_.clear_all_solution_vectors();
       // Also flip the cached optimality flag so consumers reading
       // `is_optimal()` post-release see the *current* (non-optimal)
       // status, not a stale `true` left from a prior optimal solve.
@@ -270,7 +262,7 @@ void LinearInterface::release_backend() noexcept
       // post-CONVERGED write_out for cells that were optimal in iter
       // i0/i1 but went non-optimal in i2 (status 2 / no-recovery
       // forward failure → release_backend with `is_optimal()==false`).
-      m_cached_is_optimal_ = false;
+      m_cache_.invalidate_optimal_on_mutation();
     }
     // Snapshot/compress: first call compresses the flat LP (one-time,
     // creates a persistent buffer); subsequent calls free the decompressed
@@ -345,13 +337,8 @@ void LinearInterface::invalidate_cached_optimal_on_mutation() noexcept
   // when populated — letting it survive a mutation under off would
   // hand stale solution data to downstream consumers (e.g. SDDP
   // state propagation) on the next read after an `add_row`.
-  m_cached_is_optimal_ = false;
-  m_cached_col_sol_.clear();
-  m_cached_col_sol_.shrink_to_fit();
-  m_cached_col_cost_.clear();
-  m_cached_col_cost_.shrink_to_fit();
-  m_cached_row_dual_.clear();
-  m_cached_row_dual_.shrink_to_fit();
+  m_cache_.invalidate_optimal_on_mutation();
+  m_cache_.clear_all_solution_vectors();
 }
 
 void LinearInterface::populate_solution_cache_post_solve() noexcept
@@ -395,16 +382,13 @@ void LinearInterface::populate_solution_cache_post_solve() noexcept
     const auto nrows = static_cast<size_t>(get_numrows());
     // Span-out fills: backend writes directly into the LI cache
     // buffer without ever touching a plugin scratch (CPLEX/MindOpt/
-    // Gurobi C-API call into m_cached_*) or, for OSI/HiGHS, memcpys
-    // from the live solver pointer via the default fill impl.  Either
-    // way the LI cache is the sole destination — no second copy.
-    m_cached_col_sol_.resize(ncols);
-    m_cached_col_cost_.resize(ncols);
-    m_cached_row_dual_.resize(nrows);
-    m_backend_->fill_col_sol(m_cached_col_sol_);
-    m_backend_->fill_col_cost(m_cached_col_cost_);
-    m_backend_->fill_row_dual(m_cached_row_dual_);
-    m_cached_is_optimal_ = true;
+    // Gurobi C-API call into LpCache vectors) or, for OSI/HiGHS,
+    // memcpys from the live solver pointer via the default fill impl.
+    // Either way the LI cache is the sole destination — no second copy.
+    m_backend_->fill_col_sol(m_cache_.col_sol_buffer(ncols));
+    m_backend_->fill_col_cost(m_cache_.col_cost_buffer(ncols));
+    m_backend_->fill_row_dual(m_cache_.row_dual_buffer(nrows));
+    m_cache_.set_is_optimal(/*v=*/true);
   } catch (...) {  // NOLINT(bugprone-empty-catch)
     // Best-effort: any backend exception leaves the cache in
     // whatever (possibly empty) state it was in.  Caller's
@@ -432,13 +416,8 @@ void LinearInterface::set_low_memory(LowMemoryMode mode,
     // single source of truth across all modes after the plugin-cache
     // removal).
     m_snapshot_ = {};
-    m_cached_col_sol_.clear();
-    m_cached_col_sol_.shrink_to_fit();
-    m_cached_col_cost_.clear();
-    m_cached_col_cost_.shrink_to_fit();
-    m_cached_row_dual_.clear();
-    m_cached_row_dual_.shrink_to_fit();
-    m_cached_is_optimal_ = false;
+    m_cache_.clear_all_solution_vectors();
+    m_cache_.invalidate_optimal_on_mutation();
   }
 }
 
@@ -485,8 +464,8 @@ void LinearInterface::defer_initial_load(FlatLinearProblem flat_lp)
   // that callers like `save_base_numrows()` (which read
   // `get_numrows()` while the backend is released) get correct
   // values without having to force a reconstruction.
-  m_cached_numrows_ = flat_lp.nrows;
-  m_cached_numcols_ = flat_lp.ncols;
+  m_cache_.set_numrows(flat_lp.nrows);
+  m_cache_.set_numcols(flat_lp.ncols);
 
   m_snapshot_.flat_lp = std::move(flat_lp);
 
@@ -532,7 +511,7 @@ void LinearInterface::reconstruct_backend()
   // Backend's solution buffers are zero-padded by `load_flat` and
   // `is_proven_optimal()` returns false until the next resolve.
   // Tell `is_optimal()` / `get_col_sol_raw()` to consult the cache.
-  m_backend_solution_fresh_ = false;
+  m_cache_.mark_solution_fresh(/*v=*/false);
 
   // 1. Reload the base structural LP
   load_flat(m_snapshot_.flat_lp);
@@ -560,7 +539,7 @@ void LinearInterface::install_flat_as_rebuild(const FlatLinearProblem& flat_lp)
   m_backend_released_ = false;
   // Same gating as `reconstruct_backend` — backend reloaded but
   // not solved.  Pre-solve readers prefer the cache.
-  m_backend_solution_fresh_ = false;
+  m_cache_.mark_solution_fresh(/*v=*/false);
   load_flat(flat_lp);
   apply_post_load_replay();
 }
@@ -2749,7 +2728,7 @@ void LinearInterface::set_rhs(const RowIndex row, const double physical_rhs)
 Index LinearInterface::get_numrows() const
 {
   if (m_backend_released_) {
-    return m_cached_numrows_;
+    return m_cache_.numrows();
   }
   return m_backend_->get_num_rows();
 }
@@ -2757,7 +2736,7 @@ Index LinearInterface::get_numrows() const
 Index LinearInterface::get_numcols() const
 {
   if (m_backend_released_) {
-    return m_cached_numcols_;
+    return m_cache_.numcols();
   }
   return m_backend_->get_num_cols();
 }
@@ -2838,7 +2817,7 @@ void LinearInterface::ensure_duals()
 int LinearInterface::get_status() const
 {
   if (m_backend_released_) {
-    return m_cached_is_optimal_ ? 0 : -1;
+    return m_cache_.is_optimal() ? 0 : -1;
   }
   try {
     if (m_backend_->is_proven_optimal()) {
@@ -2865,8 +2844,8 @@ std::optional<double> LinearInterface::get_kappa() const
   // value) cannot perturb downstream readers.  Falls through to the
   // live backend only when the cache hasn't been populated yet
   // (pre-solve reads, LP under construction).
-  if (m_cached_kappa_.has_value()) {
-    return m_cached_kappa_;
+  if (const auto& cached = m_cache_.kappa(); cached.has_value()) {
+    return cached;
   }
   if (m_backend_released_) {
     return std::nullopt;
@@ -2939,7 +2918,7 @@ bool LinearInterface::is_optimal() const
   // and cleared inside `invalidate_cached_optimal_on_mutation` on every
   // structural mutation.  This survives `release_backend()` —
   // critical for cross-phase reads in SDDP backward.
-  return m_cached_is_optimal_;
+  return m_cache_.is_optimal();
 }
 
 bool LinearInterface::is_dual_infeasible() const
@@ -2961,7 +2940,7 @@ bool LinearInterface::is_prim_infeasible() const
 double LinearInterface::get_obj_value_raw() const
 {
   if (m_backend_released_) {
-    return m_cached_obj_value_;
+    return m_cache_.obj_value();
   }
   return m_backend_->obj_value();
 }
