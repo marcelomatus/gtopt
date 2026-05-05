@@ -20,38 +20,54 @@ TEST_CASE("SDDPTaskKey type and constants")  // NOLINT
 {
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
-  SUBCASE("SDDPTaskKey is a 4-tuple of strong types")
+  SUBCASE("SDDPTaskKey is a 3-tuple")
   {
     static_assert(std::same_as<SDDPTaskKey,
-                               std::tuple<IterationIndex,
-                                          SDDPPassDirection,
-                                          PhaseIndex,
-                                          SDDPTaskKind>>);
+                               std::tuple<IterationIndex, int, SDDPTaskKind>>);
     CHECK(true);
   }
 
-  SUBCASE("SDDPPassDirection and SDDPTaskKind have correct values")
+  SUBCASE("SDDPPassDirection enum values are sign multipliers")
   {
     CHECK(static_cast<int>(SDDPTaskKind::lp) == 0);
     CHECK(static_cast<int>(SDDPTaskKind::non_lp) == 1);
-    CHECK(static_cast<int>(SDDPPassDirection::forward) == 0);
-    CHECK(static_cast<int>(SDDPPassDirection::backward) == 1);
+    // forward = +1 and backward = -1 so the enum value can be used
+    // directly as the phase-sign multiplier in make_sddp_task_key.
+    CHECK(static_cast<int>(SDDPPassDirection::forward) == 1);
+    CHECK(static_cast<int>(SDDPPassDirection::backward) == -1);
   }
 
-  SUBCASE("BasicTaskRequirements with SDDPTaskKey")
+  SUBCASE("make_sddp_task_key encodes signed_phase = direction * phase")
   {
-    BasicTaskRequirements<SDDPTaskKey> req {
-        .priority = TaskPriority::Medium,
-        .priority_key = make_sddp_task_key(IterationIndex {1},
-                                           SDDPPassDirection::forward,
-                                           PhaseIndex {2},
-                                           SDDPTaskKind::lp),
-        .name = {},
-    };
-    CHECK(std::get<0>(req.priority_key) == IterationIndex {1});
-    CHECK(std::get<1>(req.priority_key) == SDDPPassDirection::forward);
-    CHECK(std::get<2>(req.priority_key) == PhaseIndex {2});
-    CHECK(std::get<3>(req.priority_key) == SDDPTaskKind::lp);
+    const auto fwd = make_sddp_task_key(IterationIndex {1},
+                                        SDDPPassDirection::forward,
+                                        PhaseIndex {2},
+                                        SDDPTaskKind::lp);
+    CHECK(std::get<0>(fwd) == IterationIndex {1});
+    CHECK(std::get<1>(fwd) == 2);  // +1 * 2
+    CHECK(std::get<2>(fwd) == SDDPTaskKind::lp);
+
+    const auto bwd = make_sddp_task_key(IterationIndex {1},
+                                        SDDPPassDirection::backward,
+                                        PhaseIndex {2},
+                                        SDDPTaskKind::lp);
+    CHECK(std::get<0>(bwd) == IterationIndex {1});
+    CHECK(std::get<1>(bwd) == -2);  // -1 * 2
+    CHECK(std::get<2>(bwd) == SDDPTaskKind::lp);
+
+    // Phase 0 collapses to 0 for both directions — direction information
+    // is lost at phase 0, which is fine because the SDDP scheduler never
+    // queues forward and backward phase 0 LP tasks at the same time.
+    const auto fwd0 = make_sddp_task_key(IterationIndex {0},
+                                         SDDPPassDirection::forward,
+                                         first_phase_index(),
+                                         SDDPTaskKind::lp);
+    const auto bwd0 = make_sddp_task_key(IterationIndex {0},
+                                         SDDPPassDirection::backward,
+                                         first_phase_index(),
+                                         SDDPTaskKind::lp);
+    CHECK(std::get<1>(fwd0) == 0);
+    CHECK(std::get<1>(bwd0) == 0);
   }
 }
 
@@ -88,14 +104,19 @@ TEST_CASE("Task<SDDPTaskKey> ordering is lexicographic")  // NOLINT
     CHECK(iter1 < iter0);  // iter1 has lower priority
   }
 
-  SUBCASE("forward (0) has higher priority than backward (1)")
+  SUBCASE("backward at phase N beats forward at phase N (signed_phase sign)")
   {
+    // signed_phase: forward(+1)*N = +N, backward(-1)*N = -N.
+    // In the queue, -N < +N → backward dequeues first.  In practice the
+    // SDDP scheduler never overlaps forward and backward within an
+    // iteration (synchronised via fut.wait()), so this is the degenerate
+    // cross-direction case the design intentionally accepts.
     STask fwd {
         [] {},
         SReq {
             .priority_key = make_sddp_task_key(IterationIndex {0},
                                                SDDPPassDirection::forward,
-                                               first_phase_index(),
+                                               PhaseIndex {3},
                                                SDDPTaskKind::lp),
             .name = {},
         }};
@@ -104,12 +125,38 @@ TEST_CASE("Task<SDDPTaskKey> ordering is lexicographic")  // NOLINT
         SReq {
             .priority_key = make_sddp_task_key(IterationIndex {0},
                                                SDDPPassDirection::backward,
+                                               PhaseIndex {3},
+                                               SDDPTaskKind::lp),
+            .name = {},
+        }};
+    CHECK(fwd < bwd);  // forward(+3) > backward(-3) in std::less
+    CHECK_FALSE(bwd < fwd);
+  }
+
+  SUBCASE("cross-direction at phase 0 collapses to a tie (submit-time wins)")
+  {
+    // signed_phase = 0 for both → tuples are equal → Task ordering falls
+    // through to submit time (older submission is greater in the heap).
+    STask fwd_first {
+        [] {},
+        SReq {
+            .priority_key = make_sddp_task_key(IterationIndex {0},
+                                               SDDPPassDirection::forward,
                                                first_phase_index(),
                                                SDDPTaskKind::lp),
             .name = {},
         }};
-    CHECK_FALSE(fwd < bwd);  // forward has higher priority
-    CHECK(bwd < fwd);  // backward has lower priority
+    STask bwd_later {
+        [] {},
+        SReq {
+            .priority_key = make_sddp_task_key(IterationIndex {0},
+                                               SDDPPassDirection::backward,
+                                               first_phase_index(),
+                                               SDDPTaskKind::lp),
+            .name = {},
+        }};
+    CHECK_FALSE(fwd_first < bwd_later);  // older = higher priority
+    CHECK(bwd_later < fwd_first);
   }
 
   SUBCASE("LP solve (0) has higher priority than non-LP (1)")
@@ -135,8 +182,9 @@ TEST_CASE("Task<SDDPTaskKey> ordering is lexicographic")  // NOLINT
     CHECK(nonlp < lp);  // non-LP has lower priority
   }
 
-  SUBCASE("lower phase index has higher priority")
+  SUBCASE("within forward, lower phase has higher priority")
   {
+    // signed_phase: forward(+1)*0 = 0 < forward(+1)*2 = +2.
     STask ph0 {
         [] {},
         SReq {
@@ -155,8 +203,34 @@ TEST_CASE("Task<SDDPTaskKey> ordering is lexicographic")  // NOLINT
                                                SDDPTaskKind::lp),
             .name = {},
         }};
-    CHECK_FALSE(ph0 < ph2);  // phase 0 has higher priority
-    CHECK(ph2 < ph0);  // phase 2 has lower priority
+    CHECK_FALSE(ph0 < ph2);  // forward phase 0 has higher priority
+    CHECK(ph2 < ph0);  // forward phase 2 has lower priority
+  }
+
+  SUBCASE("within backward, higher phase has higher priority")
+  {
+    // signed_phase: backward(-1)*5 = -5 < backward(-1)*1 = -1, so phase 5
+    // dequeues before phase 1 — matches the backward pass walking N → 0.
+    STask ph5 {
+        [] {},
+        SReq {
+            .priority_key = make_sddp_task_key(IterationIndex {0},
+                                               SDDPPassDirection::backward,
+                                               PhaseIndex {5},
+                                               SDDPTaskKind::lp),
+            .name = {},
+        }};
+    STask ph1 {
+        [] {},
+        SReq {
+            .priority_key = make_sddp_task_key(IterationIndex {0},
+                                               SDDPPassDirection::backward,
+                                               PhaseIndex {1},
+                                               SDDPTaskKind::lp),
+            .name = {},
+        }};
+    CHECK_FALSE(ph5 < ph1);  // backward phase 5 has higher priority
+    CHECK(ph1 < ph5);  // backward phase 1 has lower priority
   }
 }
 
@@ -213,8 +287,14 @@ TEST_CASE("SDDPWorkPool submit and execute")  // NOLINT
     pool.shutdown();
   }
 
-  SUBCASE("forward task runs before backward task")
+  SUBCASE("forward task runs before backward task at non-zero phase")
   {
+    // signed_phase: forward(+1)*3 = +3 vs backward(-1)*3 = -3.
+    // Tuple comparison: -3 < +3 so backward dequeues FIRST under
+    // std::less.  This documents the cross-direction sign-trick semantics
+    // — in normal SDDP runs the scheduler's fut.wait() barrier ensures
+    // forward and backward never coexist in the queue, so this ordering
+    // is observable only in standalone tests like this one.
     SDDPWorkPool pool;
     pool.start();
 
@@ -234,7 +314,7 @@ TEST_CASE("SDDPWorkPool submit and execute")  // NOLINT
         Req {
             .priority_key = make_sddp_task_key(IterationIndex {0},
                                                SDDPPassDirection::forward,
-                                               first_phase_index(),
+                                               PhaseIndex {3},
                                                SDDPTaskKind::lp),
             .name = {},
         });
@@ -249,7 +329,7 @@ TEST_CASE("SDDPWorkPool submit and execute")  // NOLINT
         Req {
             .priority_key = make_sddp_task_key(IterationIndex {0},
                                                SDDPPassDirection::backward,
-                                               first_phase_index(),
+                                               PhaseIndex {3},
                                                SDDPTaskKind::lp),
             .name = {},
         });
