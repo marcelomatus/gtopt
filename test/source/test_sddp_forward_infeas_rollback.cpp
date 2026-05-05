@@ -6,7 +6,8 @@
  * @date      2026-04-30
  *
  * Coverage axes (per
- * `support/scene_infeasibility_rollback_plan_2026-04-30.md` §4):
+ * `docs/analysis/investigations/scene_infeasibility/scene_infeasibility_rollback_plan_2026-04-30.md`
+ * §4):
  *
  *   M1: `clear_scene_cuts` deletes every row scene S has stored in
  *       `m_scene_cuts_[S]` from the matching LP cells and empties the

@@ -2607,7 +2607,8 @@ TEST_CASE(  // NOLINT
 // ═══════════════════════════════════════════════════════════════════════════
 // freeze_for_cuts — single-call entry point that replaces the legacy
 // 3-call dance (set_low_memory + save_snapshot + save_base_numrows).
-// Step 1 of `support/linear_interface_lifecycle_plan_2026-04-30.md`.
+// Step 1 of
+// `docs/analysis/investigations/linear_interface/linear_interface_lifecycle_plan_2026-04-30.md`.
 // ═══════════════════════════════════════════════════════════════════════════
 
 TEST_CASE(  // NOLINT
@@ -2722,7 +2723,8 @@ TEST_CASE(  // NOLINT
 {
   using namespace gtopt;  // NOLINT(google-global-names-in-headers)
 
-  // Step 2 of `support/linear_interface_lifecycle_plan_2026-04-30.md`
+  // Step 2 of
+  // `docs/analysis/investigations/linear_interface/linear_interface_lifecycle_plan_2026-04-30.md`
   // adds the lifecycle observer.  This test pins each transition
   // fired by the canonical entry points; step 4 (debug-asserted
   // transitions) stays deferred because legitimate test paths

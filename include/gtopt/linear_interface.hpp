@@ -522,10 +522,9 @@ public:
   ///   BackendReleased  → Reconstructed     reconstruct_backend
   ///
   /// No transition assertions in this step — step 2 of the
-  /// `support/linear_interface_lifecycle_plan_2026-04-30.md` is pure
-  /// observation; step 4 layers debug-asserted transitions on top
-  /// once every call site has migrated to the canonical entry
-  /// points.
+  /// `docs/analysis/investigations/linear_interface/linear_interface_lifecycle_plan_2026-04-30.md`
+  /// is pure observation; step 4 layers debug-asserted transitions on top once
+  /// every call site has migrated to the canonical entry points.
   enum class LiPhase : uint8_t
   {
     Building,
@@ -557,9 +556,9 @@ public:
   ///
   /// Call this once after `load_flat` has populated the backend with
   /// the structural rows and before any Benders cut is added.  See
-  /// `support/linear_interface_lifecycle_plan_2026-04-30.md` step 1
-  /// for the rationale: the legacy three-method ordering is implicit
-  /// and easy to get wrong (forgetting `save_base_numrows` mis-attributes
+  /// `docs/analysis/investigations/linear_interface/linear_interface_lifecycle_plan_2026-04-30.md`
+  /// step 1 for the rationale: the legacy three-method ordering is implicit and
+  /// easy to get wrong (forgetting `save_base_numrows` mis-attributes
   /// structural rows as cuts; forgetting `save_snapshot` makes
   /// `reconstruct_backend()` a silent no-op).  This consolidator
   /// collapses the dance into one verb.

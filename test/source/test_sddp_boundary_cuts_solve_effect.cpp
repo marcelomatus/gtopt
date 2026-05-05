@@ -2,7 +2,8 @@
 //
 // End-to-end integration test: a loaded boundary cut must produce
 // a clean, finite SDDP solve and propagate to the policy estimate.
-// Audit item F from `support/lp_audit_fix_plan_2026-04-29.md`.
+// Audit item F from
+// `docs/analysis/investigations/linear_interface/lp_audit_fix_plan_2026-04-29.md`.
 //
 // The earlier P0-1 / P2-2 / R4 tests verify loader correctness at the
 // LP-row level (RHS, coefficients, class disambiguation, replay).

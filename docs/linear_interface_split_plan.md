@@ -8,7 +8,7 @@
 * `docs/solver_backend_span_out_plan.md` — Phase 2 of the *plugin*-side
   split (already landed via commits `a64d9ecc`, `05523154`, `b90eb971`,
   `13cd3447`).  This plan is the matching *LinearInterface*-side split.
-* `support/linear_interface_lifecycle_plan_2026-04-30.md` — earlier
+* `docs/analysis/investigations/linear_interface/linear_interface_lifecycle_plan_2026-04-30.md` — earlier
   doc on the bulk-`add_rows` / label-meta failure mode that motivated
   the lifecycle subsystem boundary used here.
 

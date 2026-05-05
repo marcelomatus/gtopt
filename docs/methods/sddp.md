@@ -249,7 +249,7 @@ by the `cut_sharing_mode` option:
 > (`source/sddp_method.cpp::initialize_solver`) when
 > `cut_sharing != none && num_scenes > 1`.  Use `cut_sharing=none`
 > for production multi-scenario runs.  See
-> `support/sddp_cut_sharing_fix_plan_2026-04-30.md` and the
+> `docs/analysis/investigations/sddp/sddp_cut_sharing_fix_plan_2026-04-30.md` and the
 > regression test `test/source/test_sddp_bounds_sanity.cpp`.
 
 **Feasibility cuts** are never shared between scenes regardless of the cut

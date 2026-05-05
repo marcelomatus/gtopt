@@ -2,10 +2,10 @@
 //
 // Regression tests for the missing-`reservoir_array` entry in
 // `sddp_boundary_cuts.cpp`'s `name_to_class_uid` map.  The audit at
-// `support/lp_audit_fix_plan_2026-04-29.md` (P2-2) noted that the
-// element-name → (class, uid) lookup was built from `junction_array`
-// and `battery_array` only, silently dropping every PLP-sourced
-// boundary cut whose state variables sit on hydro reservoirs — the
+// `docs/analysis/investigations/linear_interface/lp_audit_fix_plan_2026-04-29.md`
+// (P2-2) noted that the element-name → (class, uid) lookup was built from
+// `junction_array` and `battery_array` only, silently dropping every
+// PLP-sourced boundary cut whose state variables sit on hydro reservoirs — the
 // dominant CEN case.
 //
 // Two subcases pin the contract under both

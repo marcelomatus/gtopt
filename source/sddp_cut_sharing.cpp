@@ -99,7 +99,8 @@ void share_cuts_for_phase(
     // via block_ecost so summing gives the expected cut" — that
     // reasoning is correct for SINGLE-CUT SDDP (one shared α
     // bounding E[Q]) but NOT for the multi-cut formulation gtopt
-    // implements.  See `support/sddp_cut_sharing_fix_plan_2026-04-30.md`.
+    // implements.  See
+    // `docs/analysis/investigations/sddp/sddp_cut_sharing_fix_plan_2026-04-30.md`.
     //
     // Result: this mode produces LB > UB that compounds across
     // iterations whenever scenes draw distinct sample-path
@@ -142,7 +143,8 @@ void share_cuts_for_phase(
       // on juan/gtopt_iplp iter i1 p1: every scene declared
       // infeasible with "no predecessor phase to cut on" because
       // sddp_share_m1_* cuts demanded α ≈ 1.16e8 against a pinned
-      // α = 0.  See `support/linear_interface_lifecycle_plan_2026-04-30.md`
+      // α = 0.  See
+      // `docs/analysis/investigations/linear_interface/linear_interface_lifecycle_plan_2026-04-30.md`
       // §2.2 — manual `add_row + record_cut_row` pair was flagged
       // as a hazard; this is its first concrete victim.
       std::ignore = add_cut_row(planning,
@@ -171,7 +173,8 @@ void share_cuts_for_phase(
     // each scene's correct lower bound; LB > UB results whenever
     // scenes draw distinct sample-path realizations.  Use
     // `cut_sharing=none` for production multi-scenario runs.
-    // See `support/sddp_cut_sharing_fix_plan_2026-04-30.md`.
+    // See
+    // `docs/analysis/investigations/sddp/sddp_cut_sharing_fix_plan_2026-04-30.md`.
     std::vector<SparseRow> scene_avg_cuts;
     scene_avg_cuts.reserve(static_cast<std::size_t>(num_scenes));
 
@@ -204,7 +207,8 @@ void share_cuts_for_phase(
       // on juan/gtopt_iplp iter i1 p1: every scene declared
       // infeasible with "no predecessor phase to cut on" because
       // sddp_share_m1_* cuts demanded α ≈ 1.16e8 against a pinned
-      // α = 0.  See `support/linear_interface_lifecycle_plan_2026-04-30.md`
+      // α = 0.  See
+      // `docs/analysis/investigations/linear_interface/linear_interface_lifecycle_plan_2026-04-30.md`
       // §2.2 — manual `add_row + record_cut_row` pair was flagged
       // as a hazard; this is its first concrete victim.
       std::ignore = add_cut_row(planning,
@@ -236,7 +240,7 @@ void share_cuts_for_phase(
     // scene with the highest (prob_S · Q_S*) — never the actual
     // bound on D's Q.  `cut_sharing=none` is the only safe choice
     // for production multi-scenario runs.  See
-    // `support/sddp_cut_sharing_fix_plan_2026-04-30.md`.
+    // `docs/analysis/investigations/sddp/sddp_cut_sharing_fix_plan_2026-04-30.md`.
     //
     // Each cut already carries its source-scene metadata from
     // ``apply_cut_sharing_for_iteration::to_sparse_row``, so we

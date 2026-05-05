@@ -820,15 +820,14 @@ auto SDDPMethod::run_forward_pass_all_scenes(SDDPWorkPool& pool,
                num_scenes);
 
   // Stall-stop guard for `forward_infeas_rollback` — see
-  // `support/scene_infeasibility_rollback_plan_2026-04-30.md` §2.4.
-  // For every scene that failed last iteration (and had its cuts
-  // rolled back), check whether the global stored-cut count has grown
-  // since the failure.  If it has (peers contributed cuts via cut
-  // sharing or their own backward pass), the scene retries this iter:
-  // clear the failure marker so the post-pass hook below can flag a
-  // *new* failure if it happens again.  If the global count has not
-  // grown, the scene is "stalled" — cuts that arrive only from
-  // peers via share_cuts_for_phase aren't tracked in
+  // `docs/analysis/investigations/scene_infeasibility/scene_infeasibility_rollback_plan_2026-04-30.md`
+  // §2.4. For every scene that failed last iteration (and had its cuts rolled
+  // back), check whether the global stored-cut count has grown since the
+  // failure.  If it has (peers contributed cuts via cut sharing or their own
+  // backward pass), the scene retries this iter: clear the failure marker so
+  // the post-pass hook below can flag a *new* failure if it happens again.  If
+  // the global count has not grown, the scene is "stalled" — cuts that arrive
+  // only from peers via share_cuts_for_phase aren't tracked in
   // m_cut_store_.scene_cuts (they live as LP rows + replay buffer
   // only), so the global cut count is the right proxy: if zero new
   // cuts have entered the cut store across every scene, no recovery
@@ -1091,13 +1090,12 @@ auto SDDPMethod::run_forward_pass_all_scenes(SDDPWorkPool& pool,
   }
 
   // Per-scene rollback hook for `forward_infeas_rollback` — see
-  // `support/scene_infeasibility_rollback_plan_2026-04-30.md` §2.3.
-  // For every scene S declared infeasible this iteration, drop every
-  // cut S has accumulated in the global cut store (both forward-pass
-  // fcuts installed during PLP-style backtrack chains and earlier
-  // backward-pass optcuts).  Snapshot the global cut count *after*
-  // rollback so the next iteration's stall-stop guard measures only
-  // new cuts contributed by peers.
+  // `docs/analysis/investigations/scene_infeasibility/scene_infeasibility_rollback_plan_2026-04-30.md`
+  // §2.3. For every scene S declared infeasible this iteration, drop every cut
+  // S has accumulated in the global cut store (both forward-pass fcuts
+  // installed during PLP-style backtrack chains and earlier backward-pass
+  // optcuts).  Snapshot the global cut count *after* rollback so the next
+  // iteration's stall-stop guard measures only new cuts contributed by peers.
   if (m_options_.forward_infeas_rollback) {
     std::ptrdiff_t total_rollback_rows = 0;
     int n_rolled_back = 0;

@@ -1,7 +1,7 @@
 # LP / SDDP audit — fix plan and test ladder
 **Date:** 2026-04-29
 **Source audit:** `lp-numerics-expert` agent, 2026-04-28
-**Companion doc:** `support/lp_scale_audit_2026-04-26.md`
+**Companion doc:** `docs/analysis/investigations/linear_interface/lp_scale_audit_2026-04-26.md`
 
 This plan formalises which findings to act on, in what order, and what
 unit/integration tests must exist **before** each fix lands so the bug
@@ -318,7 +318,7 @@ Schedule these as separate PRs after Phase 1-3 lands clean.
 
 **File:** `source/planning_lp.cpp:56-90`
 
-This is the unfinished fix from `support/lp_scale_audit_2026-04-26.md`
+This is the unfinished fix from `docs/analysis/investigations/linear_interface/lp_scale_audit_2026-04-26.md`
 (noted in `feedback_infinity_scaling` memory).  Adds a regression
 test on a mixed-voltage 66/220/500 kV fixture asserting kappa < 1e6
 post-fix (current ratio ≈ 3.75e7).
