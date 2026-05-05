@@ -805,12 +805,13 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
       // Compact format (`opex=12.3M`) keeps the line short enough for
       // a wide terminal even with N=16 scenes posting concurrently.
       // The aggregate scene-end "opex=…" line still emits below.
-      const auto num_phases = phases.size();
-      spdlog::info("SDDP Forward [i{} s{} p{}/{}]: opex={} (obj={}, α={})",
-                   gtopt::uid_of(iteration_index),
-                   uid_of(scene_index),
-                   uid_of(phase_index),
-                   num_phases,
+      // Routes through `sddp_log()` so the key matches the backward /
+      // aperture / forward-elastic call sites — `[iN sM pK]`, no `/T`.
+      spdlog::info("{}: opex={} (obj={}, α={})",
+                   sddp_log("Forward",
+                            gtopt::uid_of(iteration_index),
+                            uid_of(scene_index),
+                            uid_of(phase_index)),
                    format_si(state.forward_objective),
                    format_si(obj_physical),
                    format_si(alpha_val));
