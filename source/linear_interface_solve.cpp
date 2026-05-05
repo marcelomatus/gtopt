@@ -59,7 +59,7 @@ std::expected<int, Error> LinearInterface::initial_solve(
         m_backend_->initial_solve();
       }
       // See `resolve()` for the rationale.
-      m_backend_solution_fresh_ = true;
+      m_cache_.mark_solution_fresh(/*v=*/true);
       // Eagerly snapshot the just-solved primal/dual/reduced-cost
       // vectors into the LI cache so all downstream readers go through
       // the LI cache (single source of truth).  Plugin backends no
@@ -179,7 +179,7 @@ std::expected<int, Error> LinearInterface::resolve(
       // Live backend's `is_proven_optimal()` / `col_solution()` now
       // reflect the just-completed solve.  Set BEFORE the
       // `is_optimal()` check below drives the fallback cycle.
-      m_backend_solution_fresh_ = true;
+      m_cache_.mark_solution_fresh(/*v=*/true);
       // Eagerly snapshot the just-solved primal/dual/reduced-cost
       // vectors into the LI cache so all downstream readers go through
       // the LI cache (single source of truth).  Plugin backends no
