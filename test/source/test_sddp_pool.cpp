@@ -20,10 +20,11 @@ TEST_CASE("SDDPTaskKey type and constants")  // NOLINT
 {
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
-  SUBCASE("SDDPTaskKey is a 3-tuple")
+  SUBCASE("SDDPTaskKey is a 4-tuple (iter, is_backward, signed_phase, kind)")
   {
-    static_assert(std::same_as<SDDPTaskKey,
-                               std::tuple<IterationIndex, int, SDDPTaskKind>>);
+    static_assert(
+        std::same_as<SDDPTaskKey,
+                     std::tuple<IterationIndex, int, int, SDDPTaskKind>>);
     CHECK(true);
   }
 
@@ -37,27 +38,28 @@ TEST_CASE("SDDPTaskKey type and constants")  // NOLINT
     CHECK(static_cast<int>(SDDPPassDirection::backward) == -1);
   }
 
-  SUBCASE("make_sddp_task_key encodes signed_phase = direction * phase")
+  SUBCASE("make_sddp_task_key encodes is_backward + signed_phase")
   {
     const auto fwd = make_sddp_task_key(IterationIndex {1},
                                         SDDPPassDirection::forward,
                                         PhaseIndex {2},
                                         SDDPTaskKind::lp);
     CHECK(std::get<0>(fwd) == IterationIndex {1});
-    CHECK(std::get<1>(fwd) == 2);  // +1 * 2
-    CHECK(std::get<2>(fwd) == SDDPTaskKind::lp);
+    CHECK(std::get<1>(fwd) == 0);  // is_backward = 0 for forward
+    CHECK(std::get<2>(fwd) == 2);  // +1 * 2
+    CHECK(std::get<3>(fwd) == SDDPTaskKind::lp);
 
     const auto bwd = make_sddp_task_key(IterationIndex {1},
                                         SDDPPassDirection::backward,
                                         PhaseIndex {2},
                                         SDDPTaskKind::lp);
     CHECK(std::get<0>(bwd) == IterationIndex {1});
-    CHECK(std::get<1>(bwd) == -2);  // -1 * 2
-    CHECK(std::get<2>(bwd) == SDDPTaskKind::lp);
+    CHECK(std::get<1>(bwd) == 1);  // is_backward = 1 for backward
+    CHECK(std::get<2>(bwd) == -2);  // -1 * 2
+    CHECK(std::get<3>(bwd) == SDDPTaskKind::lp);
 
-    // Phase 0 collapses to 0 for both directions — direction information
-    // is lost at phase 0, which is fine because the SDDP scheduler never
-    // queues forward and backward phase 0 LP tasks at the same time.
+    // Phase 0 collapses signed_phase to 0 for both directions, but the
+    // is_backward field still distinguishes them — forward(0) wins.
     const auto fwd0 = make_sddp_task_key(IterationIndex {0},
                                          SDDPPassDirection::forward,
                                          first_phase_index(),
@@ -67,7 +69,9 @@ TEST_CASE("SDDPTaskKey type and constants")  // NOLINT
                                          first_phase_index(),
                                          SDDPTaskKind::lp);
     CHECK(std::get<1>(fwd0) == 0);
-    CHECK(std::get<1>(bwd0) == 0);
+    CHECK(std::get<1>(bwd0) == 1);
+    CHECK(std::get<2>(fwd0) == 0);
+    CHECK(std::get<2>(bwd0) == 0);
   }
 }
 
@@ -104,13 +108,11 @@ TEST_CASE("Task<SDDPTaskKey> ordering is lexicographic")  // NOLINT
     CHECK(iter1 < iter0);  // iter1 has lower priority
   }
 
-  SUBCASE("backward at phase N beats forward at phase N (signed_phase sign)")
+  SUBCASE("forward beats backward at the same iteration and phase (any phase)")
   {
-    // signed_phase: forward(+1)*N = +N, backward(-1)*N = -N.
-    // In the queue, -N < +N → backward dequeues first.  In practice the
-    // SDDP scheduler never overlaps forward and backward within an
-    // iteration (synchronised via fut.wait()), so this is the degenerate
-    // cross-direction case the design intentionally accepts.
+    // is_backward field: forward(0) < backward(1), so forward wins
+    // unconditionally — even at non-zero phase where the signed_phase
+    // encoding alone would otherwise let backward win (-N < +N).
     STask fwd {
         [] {},
         SReq {
@@ -129,15 +131,15 @@ TEST_CASE("Task<SDDPTaskKey> ordering is lexicographic")  // NOLINT
                                                SDDPTaskKind::lp),
             .name = {},
         }};
-    CHECK(fwd < bwd);  // forward(+3) > backward(-3) in std::less
-    CHECK_FALSE(bwd < fwd);
+    CHECK_FALSE(fwd < bwd);  // forward has higher priority
+    CHECK(bwd < fwd);  // backward has lower priority
   }
 
-  SUBCASE("cross-direction at phase 0 collapses to a tie (submit-time wins)")
+  SUBCASE("forward beats backward at phase 0 too (is_backward field)")
   {
-    // signed_phase = 0 for both → tuples are equal → Task ordering falls
-    // through to submit time (older submission is greater in the heap).
-    STask fwd_first {
+    // signed_phase ties at 0 for both, but is_backward 0 < 1 still
+    // gives forward priority — no submit-time-tiebreak ambiguity.
+    STask fwd {
         [] {},
         SReq {
             .priority_key = make_sddp_task_key(IterationIndex {0},
@@ -146,7 +148,7 @@ TEST_CASE("Task<SDDPTaskKey> ordering is lexicographic")  // NOLINT
                                                SDDPTaskKind::lp),
             .name = {},
         }};
-    STask bwd_later {
+    STask bwd {
         [] {},
         SReq {
             .priority_key = make_sddp_task_key(IterationIndex {0},
@@ -155,8 +157,8 @@ TEST_CASE("Task<SDDPTaskKey> ordering is lexicographic")  // NOLINT
                                                SDDPTaskKind::lp),
             .name = {},
         }};
-    CHECK_FALSE(fwd_first < bwd_later);  // older = higher priority
-    CHECK(bwd_later < fwd_first);
+    CHECK_FALSE(fwd < bwd);
+    CHECK(bwd < fwd);
   }
 
   SUBCASE("LP solve (0) has higher priority than non-LP (1)")
@@ -287,14 +289,13 @@ TEST_CASE("SDDPWorkPool submit and execute")  // NOLINT
     pool.shutdown();
   }
 
-  SUBCASE("forward task runs before backward task at non-zero phase")
+  SUBCASE("forward task runs before backward task")
   {
-    // signed_phase: forward(+1)*3 = +3 vs backward(-1)*3 = -3.
-    // Tuple comparison: -3 < +3 so backward dequeues FIRST under
-    // std::less.  This documents the cross-direction sign-trick semantics
-    // — in normal SDDP runs the scheduler's fut.wait() barrier ensures
-    // forward and backward never coexist in the queue, so this ordering
-    // is observable only in standalone tests like this one.
+    // is_backward 0 < 1 wins the cross-direction comparison
+    // unconditionally — even at the same |phase|, where the
+    // signed_phase encoding alone would let backward(-3) sort before
+    // forward(+3).  Matches the SDDP rule that the forward pass
+    // produces the trial points the backward pass needs.
     SDDPWorkPool pool;
     pool.start();
 
