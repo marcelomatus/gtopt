@@ -200,7 +200,7 @@ void LinearInterface::release_backend() noexcept
         m_backend_ ? get_numrows() : 0,
         m_backend_ ? get_numcols() : 0,
         m_backend_ && is_optimal() ? 1 : 0,
-        m_active_cuts_.size());
+        m_replay_.active_cuts_size());
   } catch (...) {  // noexcept — swallow logging failures
   }
 
@@ -325,7 +325,7 @@ void LinearInterface::release_backend() noexcept
 // matches off mode's (no cached vectors held).
 void LinearInterface::invalidate_cached_optimal_on_mutation() noexcept
 {
-  if (m_replaying_) {
+  if (m_replay_.replaying()) {
     return;
   }
   // Drop the cached optimality flag and primal/dual/reduced-cost
@@ -430,7 +430,7 @@ void LinearInterface::freeze_for_cuts(LowMemoryMode mode,
   // debug; production builds short-circuit silently if the caller
   // misuses the API — the legacy three-method dance had no such
   // guards either, so this is strictly a safety upgrade.
-  assert(m_active_cuts_.empty()
+  assert(m_replay_.active_cuts().empty()
          && "freeze_for_cuts: cut additions detected before "
             "structural-build commit");
 
@@ -499,9 +499,9 @@ void LinearInterface::reconstruct_backend()
       "LI reconstruct [mode={}]: replaying dynamic_cols={} dynamic_rows={} "
       "active_cuts={}",
       static_cast<int>(m_low_memory_mode_),
-      m_dynamic_cols_.size(),
-      m_dynamic_rows_.size(),
-      m_active_cuts_.size());
+      m_replay_.dynamic_cols_size(),
+      m_replay_.dynamic_rows_size(),
+      m_replay_.active_cuts_size());
 
   // Level 2: decompress the snapshot
   disable_compression();
@@ -554,26 +554,12 @@ void LinearInterface::apply_post_load_replay()
          && "apply_post_load_replay requires a live backend");
 
   // Defence-in-depth flag: bulk `add_cols` / `add_rows` already bypass
-  // the single-arg auto-record path, but flipping `m_replaying_` here
+  // the single-arg auto-record path, but flipping the replay flag here
   // makes the invariant explicit ("replay never grows the persistent
   // registries") and keeps the auto-record gate's failure mode safe
   // even if a future refactor re-routes bulk replay through the
   // single-arg API.
-  struct ReplayGuard
-  {
-    bool& flag;
-    explicit ReplayGuard(bool& f) noexcept
-        : flag(f)
-    {
-      flag = true;
-    }
-    ~ReplayGuard() noexcept { flag = false; }
-    ReplayGuard(const ReplayGuard&) = delete;
-    ReplayGuard(ReplayGuard&&) = delete;
-    ReplayGuard& operator=(const ReplayGuard&) = delete;
-    ReplayGuard& operator=(ReplayGuard&&) = delete;
-  };
-  ReplayGuard replay_guard {m_replaying_};
+  const LpReplayBuffer::ReplayGuard replay_guard {m_replay_};
 
   // 1. Replay dynamic columns (typically just alpha — very few).
   //
@@ -590,18 +576,18 @@ void LinearInterface::apply_post_load_replay()
   //
   // `add_cols_raw` is available as a sibling API for future callers
   // that explicitly want to skip the scale-vector mutation.
-  if (!m_dynamic_cols_.empty()) {
-    add_cols(m_dynamic_cols_);
+  if (!m_replay_.dynamic_cols().empty()) {
+    add_cols(m_replay_.dynamic_cols_mut());
   }
 
   // 2. Replay structural rows that were added after the snapshot was
   //    taken (e.g. cascade elastic-target constraints).  These must
   //    land BEFORE `save_base_numrows()` so that the structural-vs-
   //    cut boundary counts them as structural — otherwise SDDP cut
-  //    accounting (m_base_numrows_) is off by `m_dynamic_rows_.size()`
+  //    accounting (m_base_numrows_) is off by `dynamic_rows.size()`
   //    and `record_cut_deletion` indexes the wrong rows.
-  if (!m_dynamic_rows_.empty()) {
-    add_rows(m_dynamic_rows_);
+  if (!m_replay_.dynamic_rows().empty()) {
+    add_rows(m_replay_.dynamic_rows_mut());
   }
 
   // 3. Mark the structural-vs-cuts boundary.
@@ -620,7 +606,7 @@ void LinearInterface::apply_post_load_replay()
   //    cuts and ultimately the juan/iplp compress LB stall.
   //    Calls `m_backend_->set_col_lower/upper` directly to bypass
   //    the recording path in our own raw setters.
-  for (const auto& [col, bounds] : m_pending_col_bounds_) {
+  for (const auto& [col, bounds] : m_replay_.pending_col_bounds()) {
     m_backend_->set_col_lower(col, bounds.first);
     m_backend_->set_col_upper(col, bounds.second);
   }
@@ -633,9 +619,7 @@ void LinearInterface::apply_post_load_replay()
 
 void LinearInterface::record_dynamic_col(SparseCol col)
 {
-  if (m_low_memory_mode_ != LowMemoryMode::off) {
-    m_dynamic_cols_.push_back(std::move(col));
-  }
+  m_replay_.record_dynamic_col_if_tracked(std::move(col), m_low_memory_mode_);
 }
 
 // NOLINTNEXTLINE(misc-no-recursion)
@@ -689,13 +673,7 @@ bool LinearInterface::update_dynamic_col_lowb(std::string_view class_name,
                                               std::string_view variable_name,
                                               double new_lowb) noexcept
 {
-  for (auto& col : m_dynamic_cols_) {
-    if (col.class_name == class_name && col.variable_name == variable_name) {
-      col.lowb = new_lowb;
-      return true;
-    }
-  }
-  return false;
+  return m_replay_.update_dynamic_col_lowb(class_name, variable_name, new_lowb);
 }
 
 bool LinearInterface::update_dynamic_col_bounds(std::string_view class_name,
@@ -703,14 +681,8 @@ bool LinearInterface::update_dynamic_col_bounds(std::string_view class_name,
                                                 double new_lowb,
                                                 double new_uppb) noexcept
 {
-  for (auto& col : m_dynamic_cols_) {
-    if (col.class_name == class_name && col.variable_name == variable_name) {
-      col.lowb = new_lowb;
-      col.uppb = new_uppb;
-      return true;
-    }
-  }
-  return false;
+  return m_replay_.update_dynamic_col_bounds(
+      class_name, variable_name, new_lowb, new_uppb);
 }
 
 // Private helper for `apply_post_load_replay` (the sole legitimate
@@ -740,47 +712,26 @@ bool LinearInterface::update_dynamic_col_bounds(std::string_view class_name,
 // NOLINTNEXTLINE(misc-no-recursion)
 void LinearInterface::replay_active_cuts()
 {
-  if (m_active_cuts_.empty()) {
+  if (m_replay_.active_cuts().empty()) {
     return;
   }
-  add_rows(m_active_cuts_);
+  add_rows(m_replay_.active_cuts_mut());
 }
 
 void LinearInterface::record_dynamic_row(SparseRow row)
 {
-  if (m_low_memory_mode_ != LowMemoryMode::off) {
-    m_dynamic_rows_.push_back(std::move(row));
-  }
+  m_replay_.record_dynamic_row_if_tracked(std::move(row), m_low_memory_mode_);
 }
 
 void LinearInterface::record_cut_row(SparseRow row)
 {
-  if (m_low_memory_mode_ != LowMemoryMode::off) {
-    m_active_cuts_.push_back(std::move(row));
-  }
+  m_replay_.record_cut_row_if_tracked(std::move(row), m_low_memory_mode_);
 }
 
 void LinearInterface::record_cut_deletion(std::span<const int> deleted_indices)
 {
-  if (m_low_memory_mode_ == LowMemoryMode::off || m_active_cuts_.empty()) {
-    return;
-  }
-
-  const auto base = m_base_numrows_;
-
-  std::vector<size_t> offsets;
-  offsets.reserve(deleted_indices.size());
-  for (const auto idx : deleted_indices) {
-    const auto off = static_cast<size_t>(idx - base);
-    if (off < m_active_cuts_.size()) {
-      offsets.push_back(off);
-    }
-  }
-  std::ranges::sort(offsets, std::greater {});
-
-  for (const auto off : offsets) {
-    m_active_cuts_.erase(m_active_cuts_.begin() + static_cast<ptrdiff_t>(off));
-  }
+  m_replay_.record_cut_deletion(
+      deleted_indices, static_cast<int>(m_base_numrows_), m_low_memory_mode_);
 }
 
 // ── Compression control ──
@@ -1445,11 +1396,11 @@ ColIndex LinearInterface::add_col(const SparseCol& col)
   // dropped post-init cols on the first reconstruct (juan/cascade
   // SIGSEGV) or on the first rebuild (juan/SDDP iter50_rebuild
   // CPLEX SEGV in `set_col_lower` after α was lost).
-  if (!m_replaying_ && m_low_memory_mode_ != LowMemoryMode::off
+  if (!m_replay_.replaying() && m_low_memory_mode_ != LowMemoryMode::off
       && (m_snapshot_.has_data()
           || m_low_memory_mode_ == LowMemoryMode::rebuild))
   {
-    m_dynamic_cols_.push_back(col);
+    m_replay_.dynamic_cols_mut().push_back(col);
   }
 
   return col_idx;
@@ -2578,17 +2529,13 @@ void LinearInterface::set_col_low_raw(const ColIndex index, const double value)
   // `reconstruct_backend()` cycle re-applies it after `load_flat`
   // restores the snapshot's bounds.  Skip during a bulk replay
   // (we'd be writing the same value back into our own map).
-  if (!m_replaying_ && m_low_memory_mode_ != LowMemoryMode::off) {
-    auto it = m_pending_col_bounds_.find(index);
-    if (it == m_pending_col_bounds_.end()) {
-      // First time we see this column — capture the live upper
-      // bound so a single-sided lower update doesn't lose it.
-      const double upper_now = m_backend_->col_upper()[index];
-      m_pending_col_bounds_[index] =
-          std::pair<double, double> {value, upper_now};
-    } else {
-      it->second.first = value;
-    }
+  if (!m_replay_.replaying() && m_low_memory_mode_ != LowMemoryMode::off) {
+    // First time we see this column — capture the live upper bound so
+    // a single-sided lower update doesn't lose it.  Subsequent updates
+    // pass the live upper which `set_pending_col_lower` ignores when
+    // an entry already exists.
+    const double upper_now = m_backend_->col_upper()[index];
+    m_replay_.set_pending_col_lower(index, value, upper_now);
   }
   invalidate_cached_optimal_on_mutation();
 }
@@ -2605,17 +2552,13 @@ void LinearInterface::set_col_upp_raw(const ColIndex index, const double value)
     }
   }
   m_backend_->set_col_upper(index, normalize_bound(value));
-  if (!m_replaying_ && m_low_memory_mode_ != LowMemoryMode::off) {
-    auto it = m_pending_col_bounds_.find(index);
-    if (it == m_pending_col_bounds_.end()) {
-      // Initialise lower from current live bound so a single-sided
-      // upper-bound update doesn't reset the lower to zero on replay.
-      const double lower_now = m_backend_->col_lower()[index];
-      m_pending_col_bounds_[index] =
-          std::pair<double, double> {lower_now, value};
-    } else {
-      it->second.second = value;
-    }
+  if (!m_replay_.replaying() && m_low_memory_mode_ != LowMemoryMode::off) {
+    // Initialise lower from current live bound so a single-sided
+    // upper-bound update doesn't reset the lower to zero on replay.
+    // The current-lower value is ignored if an entry already exists
+    // (see `LpReplayBuffer::set_pending_col_upper`).
+    const double lower_now = m_backend_->col_lower()[index];
+    m_replay_.set_pending_col_upper(index, lower_now, value);
   }
   invalidate_cached_optimal_on_mutation();
 }
