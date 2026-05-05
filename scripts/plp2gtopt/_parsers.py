@@ -377,19 +377,23 @@ def add_solver_arguments(parser: argparse.ArgumentParser, conf: dict[str, str]) 
         "--cut-sharing-mode",
         dest="cut_sharing_mode",
         metavar="MODE",
-        default="max",
+        default="none",
         choices=["none", "expected", "accumulate", "max"],
         help=(
             "SDDP cut sharing mode: "
-            "'none' keeps cuts in their originating scene; "
+            "'none' keeps cuts in their originating scene "
+            "(default — the only mathematically safe mode for "
+            "heterogeneous-realisation runs; see "
+            "docs/analysis/investigations/sddp/sddp_cut_sharing_fix_plan_2026-04-30.md); "
             "'expected' computes a probability-weighted average cut; "
             "'accumulate' sums all cuts directly (correct when LP "
             "objectives include probability factors); "
             "'max' shares all cuts from all scenes to all scenes "
             "(PLP-legacy behaviour — every per-scenario cut is "
             "broadcast verbatim, matching `plp-agrespd.f::AgrResPD` "
-            "DO II=IBeg,IEnd). "
-            "(default: max)"
+            "DO II=IBeg,IEnd; valid only when scenes share IDENTICAL "
+            "sample-path realisations at every phase and block). "
+            "(default: none)"
         ),
     )
     parser.add_argument(
