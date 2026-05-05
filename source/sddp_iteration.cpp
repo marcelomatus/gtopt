@@ -1167,6 +1167,22 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
             sddp_log(
                 "Async", gtopt::uid_of(iteration_index), uid_of(scene_index)),
             scene_gap);
+        // Drop the compressed flat-LP snapshot for every phase of this
+        // (now-converged) scene.  The SDDP orchestrator will not run
+        // any further forward / backward solves on its cells — only
+        // the sim-pass `write_out` remains, and that path runs on
+        // cached scalars under the
+        // `is_backend_released() && is_optimal()` fast path in
+        // `planning_lp.cpp:1452` without ever calling
+        // `reconstruct_backend()`.  Mid-run snapshot drop frees
+        // ~3-5 MiB × num_phases per scene as scenes converge one-by-one,
+        // unlike Opportunity A's end-of-run drop after `write_out`.
+        if (m_options_.low_memory_mode != LowMemoryMode::off) {
+          for (const auto pi : iota_range<PhaseIndex>(0, num_phases)) {
+            auto& sys = planning_lp().system(scene_index, pi);
+            sys.linear_interface().clear_snapshot();
+          }
+        }
         return true;
       }
     }
