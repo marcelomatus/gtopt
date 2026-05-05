@@ -376,6 +376,45 @@ add_pytest_unit_test(
   FIXTURE_REQUIRED scripts-deps
 )
 
+# ── Consolidated unit-test runner ────────────────────────────────────────
+#
+# `scripts-all-unit` runs every package's unit tests in a SINGLE pytest
+# invocation with pytest-xdist (`-n auto`).  Compared with the per-package
+# `scripts-<pkg>-unit` cases above, it pays the Python interpreter +
+# pytest-collection startup cost ONCE instead of N times (≈ 5 s saved
+# wall, ≈ 1 GB peak RSS reduced under `ctest -j20`).  Same parallelism
+# (xdist forks one worker per CPU) but inside a single process tree.
+#
+# Trade-off: failure isolation is weaker — a regression buries all 3500+
+# results under one heading instead of a per-package summary.  Both
+# layouts coexist; pick whichever fits the use case:
+#
+#   * Local "did I break anything?"   → ctest -L aggregate
+#                                       (or: ctest -R '^scripts-all-unit$')
+#   * CI / per-package triage         → default ctest run (per-package
+#                                       tests labelled `unit`; this one
+#                                       is NOT labelled `unit`, so it
+#                                       does NOT double-run by default)
+#
+# Carries ONLY the `aggregate` label so default `ctest` / `ctest -L unit`
+# never picks it up — opt-in only.  This keeps CI from running every
+# Python test twice.
+add_test(
+  NAME scripts-all-unit
+  COMMAND "${PYTHON_EXECUTABLE}" -m pytest
+    "${SCRIPTS_DIR}"
+    -m "not integration"
+    -n auto
+    -q --tb=short
+    --ignore=${SCRIPTS_DIR}/plp2gtopt/tests/test_integration.py
+  WORKING_DIRECTORY "${SCRIPTS_DIR}"
+)
+set_tests_properties(scripts-all-unit PROPERTIES
+  COST 60
+  LABELS "aggregate"
+  FIXTURES_REQUIRED scripts-deps
+)
+
 # ---- plp2gtopt integration tests (one CTest test per case group) ----
 # Each test runs the subset of @pytest.mark.integration tests matching the
 # given -k keyword.  Tests are independent and run in parallel via CTest.
