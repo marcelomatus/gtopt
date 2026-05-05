@@ -1,6 +1,7 @@
 # `LinearInterface` split — implementation plan
 
-**Status:** in progress.  Phase 1 + Phase 2a landed (PR #461 + #462).
+**Status:** Phase 1, 2a, 2b landed.  Remaining phases re-evaluated (see
+"Stopping here" below).
 **Date:** 2026-05-04
 **Source:** B2 from `docs/improvement_recommendations.md` (~1.5 weeks).
 **Companion plans:**
@@ -17,16 +18,59 @@
 |-------|-------|--------|----|
 | 1     | `LpCache`         | ✅ landed | [#461](https://github.com/marcelomatus/gtopt/pull/461) |
 | 2a    | `LpReplayBuffer`  | ✅ landed | [#462](https://github.com/marcelomatus/gtopt/pull/462) |
-| 2b    | `LpSnapshotHolder` (snapshot + codec + compression) | ⏳ pending | — |
-| 2c    | `LpBackendOwner` (backend ptr + released + phase + ensure/reconstruct) | ⏳ pending | — |
-| 3     | `LpSolver` (initial_solve / resolve / fallback) | ⏳ pending | — |
-| 4     | `LpModel` (structural LP + label meta + scaling) | ⏳ pending | — |
+| 2b    | `LpSnapshotHolder` (snapshot + codec + compression) | ✅ landed | [#463](https://github.com/marcelomatus/gtopt/pull/463) |
+| 2c    | `LpBackendOwner` (backend ptr + released + phase + ensure/reconstruct) | 🛑 deferred — see "Stopping here" |
+| 3     | `LpSolver` (initial_solve / resolve / fallback) | 🛑 deferred — see "Stopping here" |
+| 4     | `LpModel` (structural LP + label meta + scaling) | 🛑 deferred — see "Stopping here" |
 
-After Phase 2a, `LinearInterface` is **5 868 → 5 631 lines** (~4 %
-shrink); the post-solve cache and the replay buffer each have their
-own header + isolated unit tests (10 + 8 cases, 78 + 57 assertions).
-Failure-mode boundaries are now self-documenting via the LpCache
-(C1–C8) and LpReplayBuffer (R1–R6) invariants.
+After Phase 2b, `LinearInterface` extracted **3 distinct
+subsystems**:
+
+* `LpCache` — post-solve scalars + col_sol/cost/row_dual.  Invariants C1–C8.
+* `LpReplayBuffer` — dynamic cols/rows, active cuts, pending col bounds, replay flag.  Invariants R1–R6.
+* `LpSnapshotHolder` — flat-LP snapshot + compression codec + compress/decompress lifecycle.  Invariants S1–S5.
+
+24 isolated unit tests (168 assertions) pin every invariant in
+isolation.  `LinearInterface` is ~6 fields lighter and the code
+formerly tangled in 5700 lines of mixed concerns now has 3 named
+subsystems with documented contracts.
+
+## Stopping here — and why
+
+Phase 1 + 2a + 2b extracted the **orthogonal** subsystems — each
+owns state that is not read or written by any other subsystem
+across the LinearInterface API.  The remaining state is genuinely
+*entangled*:
+
+* `m_backend_` (the live solver) is dereferenced at ~200 sites
+  inside `LinearInterface` methods.  Wrapping it in `LpBackendOwner`
+  would force every call to become `m_owner_.backend()->X()` (or
+  add forwarding macros) — pure churn, no semantic win.
+* `m_low_memory_mode_` is a gate-checked flag at ~30 scattered
+  sites.  Moving it into a holder forces the same forwarding
+  pattern.
+* `m_rebuilding_` / `m_rebuild_owner_` are tightly coupled to
+  `ensure_backend` — the rebuild logic *is* the lifecycle logic.
+  Extracting the hook into its own class would actually complicate
+  the API rather than simplify it (the rebuild path needs reentrant
+  access to backend + flag + replay buffer + cache, which are then
+  scattered across multiple holders).
+* The structural LP (`add_col` / `add_row` / `set_*` / label-meta /
+  scaling) lives across both `LinearInterface` and the
+  `SolverBackend` plugin layer — the natural split (B2's `LpModel`)
+  would mostly be a code move within the file, not a meaningful
+  re-architecture.
+
+The high-leverage extractions are done.  Continued slicing in
+the same style would be churn-without-payoff.  Future contributors
+should land further refinements only when they are driven by a
+concrete bug or perf concern rather than by aesthetic
+"shrink-the-class" pressure.
+
+If/when the remaining phases become worthwhile, they should
+probably be reconsidered with a fresh perspective — perhaps a
+true facade pattern with explicit policy parameters rather than
+an accumulation of holders.
 
 ---
 
