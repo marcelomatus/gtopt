@@ -365,6 +365,14 @@ class GTOptWriter(
                 "sddp_options": {
                     "max_iterations": l0_iter,
                     "convergence_tol": convergence_tol,
+                    # Level 0 (uninodal) is a pure-Benders relaxation:
+                    # the single-bus problem converges much faster
+                    # without the per-aperture solve overhead, and the
+                    # state-variable targets it inherits to level 1
+                    # are unaffected by aperture quality at level 0.
+                    # Empty array overrides the per-phase
+                    # ``Phase::apertures`` default.
+                    "apertures": [],
                 },
             },
             {
@@ -378,6 +386,19 @@ class GTOptWriter(
                 "sddp_options": {
                     "max_iterations": l1_iter,
                     "convergence_tol": convergence_tol,
+                    # ``apertures`` deliberately omitted from level 1
+                    # onward.  The C++ cascade-level merge in
+                    # ``cascade_method.cpp::build_level_sddp_opts``
+                    # only overrides ``opts.apertures`` when
+                    # ``level_solver->apertures.has_value()``; an
+                    # absent key serialises to ``nullopt`` which
+                    # resolves at runtime to "use per-phase
+                    # ``Phase::apertures`` (= the global
+                    # ``aperture_array`` when ``Phase.apertures`` is
+                    # empty)".  This re-enables apertures at level 1
+                    # without polluting the JSON with a
+                    # ``"apertures": null`` line that reads literally
+                    # as "no apertures".
                 },
                 "transition": transition,
             },
@@ -408,6 +429,7 @@ class GTOptWriter(
                 "sddp_options": {
                     "max_iterations": l2_iter,
                     "convergence_tol": convergence_tol,
+                    # ``apertures`` omitted (see level-1 comment).
                 },
                 "transition": transition,
             },
