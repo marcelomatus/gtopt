@@ -291,8 +291,19 @@ void LinearInterface::release_backend() noexcept
     // a failure to cache the solution must not break shutdown ordering.
   }
 
-  m_backend_.reset();
+  // Order matters under async iter-overlap: a concurrent reader
+  // (e.g. main-thread `save_state_csv` -> `get_numcols` -> ...) might
+  // see `m_backend_released_ == false` and then dereference
+  // `m_backend_`.  Setting the flag BEFORE resetting the pointer
+  // narrows the race window to the load of the flag (a CPU-visible
+  // store/load barrier moment) — readers who observe `released==false`
+  // can still see a non-null `m_backend_`, and readers who observe
+  // `released==true` short-circuit to the cache.  The defensive
+  // `!m_backend_` check in `get_numcols` covers the residual window
+  // where the flag store hasn't propagated to the reader's CPU but
+  // the reset has.
   m_backend_released_ = true;
+  m_backend_.reset();
   m_phase_ = LiPhase::BackendReleased;
 }
 
@@ -2683,7 +2694,17 @@ Index LinearInterface::get_numrows() const
 
 Index LinearInterface::get_numcols() const
 {
-  if (m_backend_released_) {
+  // Defensive against the async-iter-overlap race: a worker thread can
+  // call `release_backend()` on a cell whose state the main thread is
+  // simultaneously reading via `save_state_csv` -> `get_col_sol` ->
+  // `get_numcols()`.  `release_backend` resets the unique_ptr AFTER
+  // populating the cache (line ~214 sets `m_cache_.numcols`), so a
+  // reader that observes a null `m_backend_` is guaranteed the cache
+  // already carries the right value.  Without the null check this
+  // function null-derefed at `m_backend_->get_num_cols()` and crashed
+  // the run on juan/iplp at iter 4 with default `max_async_spread=2`
+  // (full stack trace + bisect: gdb session 2026-05-05).
+  if (m_backend_released_ || !m_backend_) {
     return m_cache_.numcols();
   }
   return m_backend_->get_num_cols();
