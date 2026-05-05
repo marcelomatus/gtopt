@@ -33,6 +33,7 @@
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/low_memory_snapshot.hpp>
 #include <gtopt/lp_cache.hpp>
+#include <gtopt/lp_replay_buffer.hpp>
 #include <gtopt/lp_validation.hpp>
 #include <gtopt/memory_compress.hpp>
 #include <gtopt/sddp_enums.hpp>
@@ -688,13 +689,13 @@ public:
   /// Pre-reserve capacity for active cuts.  Cut loaders that know the
   /// expected row count ahead of time can call this before their
   /// `add_row` + `record_cut_row` loop to avoid log-N reallocations.
-  void reserve_active_cuts(std::size_t n) { m_active_cuts_.reserve(n); }
+  void reserve_active_cuts(std::size_t n) { m_replay_.reserve_active_cuts(n); }
 
   /// Const-accessible cut count for diagnostic logging.  Read-only;
   /// avoids the `take_active_cuts` round-trip that would mutate.
   [[nodiscard]] std::size_t active_cuts_size() const noexcept
   {
-    return m_active_cuts_.size();
+    return m_replay_.active_cuts_size();
   }
 
   /// Record cut row deletions (pruning/forgetting).
@@ -712,28 +713,28 @@ public:
   /// `SystemLP::ensure_lp_built()` under `LowMemoryMode::rebuild`.
   [[nodiscard]] std::vector<SparseCol> take_dynamic_cols() noexcept
   {
-    return std::exchange(m_dynamic_cols_, {});
+    return m_replay_.take_dynamic_cols();
   }
 
   /// Move out the active Benders cuts so the caller can preserve them
   /// across a destructive rebuild.
   [[nodiscard]] std::vector<SparseRow> take_active_cuts() noexcept
   {
-    return std::exchange(m_active_cuts_, {});
+    return m_replay_.take_active_cuts();
   }
 
   /// Restore previously-taken dynamic columns (rollback path on rebuild
-  /// failure).  Replaces any current m_dynamic_cols_.
+  /// failure).  Replaces any current dynamic-cols buffer.
   void restore_dynamic_cols(std::vector<SparseCol> cols) noexcept
   {
-    m_dynamic_cols_ = std::move(cols);
+    m_replay_.restore_dynamic_cols(std::move(cols));
   }
 
   /// Restore previously-taken active cuts (rollback path on rebuild
-  /// failure).  Replaces any current m_active_cuts_.
+  /// failure).  Replaces any current active-cuts buffer.
   void restore_active_cuts(std::vector<SparseRow> cuts) noexcept
   {
-    m_active_cuts_ = std::move(cuts);
+    m_replay_.restore_active_cuts(std::move(cuts));
   }
 
   /// Set the base row count explicitly (used after a rebuild restores
@@ -2632,17 +2633,6 @@ private:
   /// `rebuild` — the flat LP is regenerated from collections instead.
   LowMemorySnapshot m_snapshot_ {};
 
-  /// True while `apply_post_load_replay` is bulk-replaying
-  /// `m_dynamic_cols_` / `m_dynamic_rows_` / `m_active_cuts_` onto the
-  /// freshly loaded backend.  Used by the auto-record path in
-  /// `add_col(SparseCol)` / `add_row(SparseRow)` to skip recording on
-  /// the replay re-entry — without it, every reconstruct would push the
-  /// same SparseCol back into `m_dynamic_cols_`, growing it unboundedly.
-  /// The bulk variants `add_cols(span)` / `add_rows(span)` used by replay
-  /// also bypass the single-arg path, so this flag is a defence-in-depth
-  /// guard rather than the sole serialiser.
-  bool m_replaying_ {false};
-
   /// Invalidate the cached optimality flag and drop the cached
   /// primal/dual/reduced-cost vectors after a structural LP
   /// mutation (add_row / add_col / set_coeff / set_*_bound / etc.).
@@ -2659,35 +2649,16 @@ private:
   /// `is_optimal()==false` and treat it as a non-optimal solve).
   void populate_solution_cache_post_solve() noexcept;
 
-  /// Columns added after initial load_flat() (typically just alpha).
-  std::vector<SparseCol> m_dynamic_cols_ {};
-
-  /// Structural rows added after the initial flatten/load_flat (typically
-  /// cascade elastic-target constraints).  Distinct from `m_active_cuts_`
-  /// (SDDP optimality / feasibility cuts whose row count is mutated by
-  /// the cut store across iterations) — these are FIXED rows that exist
-  /// for the whole solve and must be replayed before `save_base_numrows`
-  /// so the structural-vs-cut boundary correctly counts them on the
-  /// "structural" side.
-  std::vector<SparseRow> m_dynamic_rows_ {};
-
-  /// Net active Benders cuts (additions minus deletions).
-  std::vector<SparseRow> m_active_cuts_ {};
-
-  /// Pending column-bound overrides, keyed by `ColIndex`.  Tracks
-  /// every `set_col_low_raw` / `set_col_upp_raw` call so the
-  /// mutation survives the `release_backend()` →
-  /// `reconstruct_backend()` → `load_flat()` cycle.  `load_flat`
-  /// restores every column bound to the snapshot's construction-
-  /// time value, but the SDDP forward pass pins dep_col bounds via
-  /// `propagate_trial_values()` (`source/benders_cut.cpp:91-101`)
-  /// after reading the previous phase's solved state.  Without
-  /// replay, those pins are lost when iter-0-backward reconstructs
-  /// the cell, and the backward LP runs with construction-time
-  /// (very wide) bounds — producing different cuts than off mode,
-  /// which never reloads.  `apply_post_load_replay` re-applies the
-  /// map after the structural backend is reloaded.
-  std::map<ColIndex, std::pair<double, double>> m_pending_col_bounds_ {};
+  /// Replay-on-reconstruct buffer (Phase 2a of the LinearInterface
+  /// split — see ``docs/linear_interface_split_plan.md`` §4 and
+  /// ``include/gtopt/lp_replay_buffer.hpp``).
+  ///
+  /// Owns the dynamic-cols / dynamic-rows / active-cuts vectors, the
+  /// pending-col-bounds map, and the in-replay flag.  Empty under
+  /// ``LowMemoryMode::off``; populated and replayed onto the live
+  /// backend by ``apply_post_load_replay()`` under
+  /// ``compress`` / ``snapshot`` / ``rebuild``.
+  LpReplayBuffer m_replay_ {};
 
   /// Label-only metadata for the **frozen** flatten-time portion of the
   /// LP — set ONCE by `load_flat` from `flat_lp.col_labels_meta` /
