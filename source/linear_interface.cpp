@@ -268,10 +268,10 @@ void LinearInterface::release_backend() noexcept
     // creates a persistent buffer); subsequent calls free the decompressed
     // vectors.  Rebuild mode keeps no snapshot — nothing to compress.
     if (m_low_memory_mode_ != LowMemoryMode::rebuild) {
-      if (!m_snapshot_.is_compressed()) {
+      if (!m_snapshot_holder_.is_compressed()) {
         enable_compression();
       } else {
-        clear_flat_lp_vectors(m_snapshot_.flat_lp);
+        clear_flat_lp_vectors(m_snapshot_holder_.snapshot_mut().flat_lp);
       }
       // Also compress the label-metadata vectors.  `noexcept` contract
       // on `release_backend` means we swallow any compression error
@@ -403,7 +403,7 @@ void LinearInterface::set_low_memory(LowMemoryMode mode,
                                      CompressionCodec codec) noexcept
 {
   m_low_memory_mode_ = mode;
-  m_memory_codec_ = codec;
+  m_snapshot_holder_.set_codec(codec);
 
   if (mode == LowMemoryMode::off) {
     // Off mode owns no flat-LP snapshot — the live backend stays
@@ -415,7 +415,7 @@ void LinearInterface::set_low_memory(LowMemoryMode mode,
     // by `populate_solution_cache_post_solve` (the LI cache is the
     // single source of truth across all modes after the plugin-cache
     // removal).
-    m_snapshot_ = {};
+    m_snapshot_holder_.clear();
     m_cache_.clear_all_solution_vectors();
     m_cache_.invalidate_optimal_on_mutation();
   }
@@ -450,7 +450,7 @@ void LinearInterface::freeze_for_cuts(LowMemoryMode mode,
 
 void LinearInterface::save_snapshot(FlatLinearProblem flat_lp)
 {
-  m_snapshot_.flat_lp = std::move(flat_lp);
+  m_snapshot_holder_.snapshot_mut().flat_lp = std::move(flat_lp);
 }
 
 void LinearInterface::defer_initial_load(FlatLinearProblem flat_lp)
@@ -467,10 +467,10 @@ void LinearInterface::defer_initial_load(FlatLinearProblem flat_lp)
   m_cache_.set_numrows(flat_lp.nrows);
   m_cache_.set_numcols(flat_lp.ncols);
 
-  m_snapshot_.flat_lp = std::move(flat_lp);
+  m_snapshot_holder_.snapshot_mut().flat_lp = std::move(flat_lp);
 
   if (m_low_memory_mode_ == LowMemoryMode::compress
-      && !m_snapshot_.is_compressed())
+      && !m_snapshot_holder_.is_compressed())
   {
     enable_compression();
   }
@@ -488,7 +488,7 @@ void LinearInterface::reconstruct_backend()
   // release the !has_data() guard below still short-circuits cleanly.
   assert(m_low_memory_mode_ != LowMemoryMode::rebuild
          && "rebuild mode uses the rebuild callback, not reconstruct_backend");
-  if (!m_backend_released_ || !m_snapshot_.has_data()) {
+  if (!m_backend_released_ || !m_snapshot_holder_.has_data()) {
     return;
   }
 
@@ -514,7 +514,7 @@ void LinearInterface::reconstruct_backend()
   m_cache_.mark_solution_fresh(/*v=*/false);
 
   // 1. Reload the base structural LP
-  load_flat(m_snapshot_.flat_lp);
+  load_flat(m_snapshot_holder_.snapshot().flat_lp);
 
   // 2. Replay persistent SDDP state onto the live backend.
   apply_post_load_replay();
@@ -522,8 +522,8 @@ void LinearInterface::reconstruct_backend()
   // 3. Free decompressed flat LP vectors — the data is now in the backend.
   //    The compressed buffer stays valid as persistent cache for next
   //    reconstruction.  No re-compression needed.
-  if (m_snapshot_.is_compressed()) {
-    clear_flat_lp_vectors(m_snapshot_.flat_lp);
+  if (m_snapshot_holder_.is_compressed()) {
+    clear_flat_lp_vectors(m_snapshot_holder_.snapshot_mut().flat_lp);
   }
   m_phase_ = LiPhase::Reconstructed;
 }
@@ -741,7 +741,7 @@ void LinearInterface::disable_compression()
   if (m_low_memory_mode_ != LowMemoryMode::compress) {
     return;
   }
-  m_snapshot_.decompress();
+  m_snapshot_holder_.decompress_if_compressed();
 }
 
 void LinearInterface::enable_compression()
@@ -749,12 +749,11 @@ void LinearInterface::enable_compression()
   if (m_low_memory_mode_ != LowMemoryMode::compress) {
     return;
   }
-  const bool was_first_compress = !m_snapshot_.is_compressed();
-  m_snapshot_.compress(m_memory_codec_);
+  const bool was_first_compress = m_snapshot_holder_.compress_if_uncompressed();
 
-  if (was_first_compress && m_snapshot_.is_compressed()) {
-    const auto orig = m_snapshot_.compressed_lp.original_size;
-    const auto comp = m_snapshot_.compressed_lp.data.size();
+  if (was_first_compress) {
+    const auto orig = m_snapshot_holder_.snapshot().compressed_lp.original_size;
+    const auto comp = m_snapshot_holder_.snapshot().compressed_lp.data.size();
     const auto ratio =
         comp > 0 ? static_cast<double>(orig) / static_cast<double>(comp) : 0.0;
     SPDLOG_DEBUG(
@@ -762,19 +761,20 @@ void LinearInterface::enable_compression()
         orig,
         comp,
         ratio,
-        codec_name(m_snapshot_.compressed_lp.codec));
+        codec_name(m_snapshot_holder_.snapshot().compressed_lp.codec));
     static std::once_flag first_log_flag;
-    std::call_once(first_log_flag,
-                   [&]
-                   {
-                     SPDLOG_INFO(
-                         "  first snapshot compressed: {} -> {} bytes "
-                         "(ratio {:.2f}x, codec {})",
-                         orig,
-                         comp,
-                         ratio,
-                         codec_name(m_snapshot_.compressed_lp.codec));
-                   });
+    std::call_once(
+        first_log_flag,
+        [&]
+        {
+          SPDLOG_INFO(
+              "  first snapshot compressed: {} -> {} bytes "
+              "(ratio {:.2f}x, codec {})",
+              orig,
+              comp,
+              ratio,
+              codec_name(m_snapshot_holder_.snapshot().compressed_lp.codec));
+        });
   }
 }
 
@@ -916,21 +916,21 @@ LinearInterface LinearInterface::clone(CloneKind kind) const
 
 LinearInterface LinearInterface::clone_from_flat(CloneKind kind) const
 {
-  // Pre-conditions: the manual route reads from `m_snapshot_.flat_lp`,
-  // which is only populated when `freeze_for_cuts` ran with
-  // `LowMemoryMode::compress` (or `snapshot`).  Compressed snapshots
-  // are not directly readable here — the SDDP aperture path
-  // decompresses around the backward pass via `DecompressionGuard`
+  // Pre-conditions: the manual route reads from
+  // `m_snapshot_holder_.snapshot().flat_lp`, which is only populated when
+  // `freeze_for_cuts` ran with `LowMemoryMode::compress` (or `snapshot`).
+  // Compressed snapshots are not directly readable here — the SDDP aperture
+  // path decompresses around the backward pass via `DecompressionGuard`
   // (sddp_aperture_pass.cpp:390, 579), so callers reaching this
   // method during the aperture window are guaranteed an
   // uncompressed snapshot.
-  if (!m_snapshot_.has_data()) {
+  if (!m_snapshot_holder_.has_data()) {
     throw std::runtime_error(
         "LinearInterface::clone_from_flat: source has no snapshot — call "
         "freeze_for_cuts(LowMemoryMode::compress) on the source first, or "
         "fall back to clone(kind) which uses the backend's native clone.");
   }
-  if (m_snapshot_.is_compressed()) {
+  if (m_snapshot_holder_.is_compressed()) {
     throw std::runtime_error(
         "LinearInterface::clone_from_flat: source snapshot is compressed; "
         "decompress first (DecompressionGuard) or fall back to "
@@ -940,7 +940,7 @@ LinearInterface LinearInterface::clone_from_flat(CloneKind kind) const
   // Build the clone via load_flat — no backend.clone() call, no
   // process-global solver side effects, no mutex needed.
   LinearInterface cloned {m_solver_name_, m_log_file_};
-  cloned.load_flat(m_snapshot_.flat_lp);
+  cloned.load_flat(m_snapshot_holder_.snapshot().flat_lp);
 
   // Copy the LI-side runtime fields that load_flat doesn't restore.
   // These are normally inherited by the native clone() path on the
@@ -1379,7 +1379,7 @@ ColIndex LinearInterface::add_col(const SparseCol& col)
   // `m_low_memory_mode_ == off` (no replay needed).
   //
   // The "post-init" gate differs by mode:
-  //   * compress / snapshot: `m_snapshot_.has_data()` flips true once
+  //   * compress / snapshot: `m_snapshot_holder_.has_data()` flips true once
   //     `defer_initial_load` (or `freeze_for_cuts`) installs the flat
   //     LP, which is precisely the structural-build → cut-build
   //     boundary.  Pre-snapshot structural builds still go straight
@@ -1397,7 +1397,7 @@ ColIndex LinearInterface::add_col(const SparseCol& col)
   // SIGSEGV) or on the first rebuild (juan/SDDP iter50_rebuild
   // CPLEX SEGV in `set_col_lower` after α was lost).
   if (!m_replay_.replaying() && m_low_memory_mode_ != LowMemoryMode::off
-      && (m_snapshot_.has_data()
+      && (m_snapshot_holder_.has_data()
           || m_low_memory_mode_ == LowMemoryMode::rebuild))
   {
     m_replay_.dynamic_cols_mut().push_back(col);
