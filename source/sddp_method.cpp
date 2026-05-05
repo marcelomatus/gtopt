@@ -450,14 +450,36 @@ auto SDDPMethod::initialize_solver() -> std::expected<void, Error>
   std::size_t named_count = 0;
   bool state_loaded = false;
 
+  // Resolve relative SDDP file paths against `input_directory` (mirrors the
+  // aperture-directory resolution at sddp_method.cpp:179-186).  Without
+  // this, gtopt invoked from a cwd other than the case dir silently skips
+  // boundary / named / hot-start cut files even when the JSON wires them
+  // up correctly — observed on `support/juan/gtopt_iplp_plain` as
+  // `boundary=none` in the HotStart summary and α=0 throughout the last
+  // phase.  Absolute paths pass through unchanged.
+  const auto resolve_input = [&](const std::string& path) -> std::string
+  {
+    if (path.empty()) {
+      return path;
+    }
+    std::filesystem::path p {path};
+    if (p.is_absolute()) {
+      return path;
+    }
+    return (std::filesystem::path {planning_lp().options().input_directory()}
+            / p)
+        .string();
+  };
+
   if (m_options_.recovery_mode >= RecoveryMode::cuts) {
     if (!m_options_.cuts_input_file.empty()) {
-      auto result = load_cuts(m_options_.cuts_input_file);
+      const auto cuts_path = resolve_input(m_options_.cuts_input_file);
+      auto result = load_cuts(cuts_path);
       if (result.has_value()) {
         // load_cuts() already updated m_iteration_offset_ via next() so
         // the first new iteration is strictly past result->max_iteration.
         cuts_count = result->count;
-        cuts_source = m_options_.cuts_input_file;
+        cuts_source = cuts_path;
         SPDLOG_DEBUG("SDDP hot-start: loaded {} cuts (max_iter={})",
                      result->count,
                      result->max_iteration);
@@ -503,37 +525,50 @@ auto SDDPMethod::initialize_solver() -> std::expected<void, Error>
   // PLP's "planos de embalse"), NOT recovery state.  They do NOT
   // affect the iteration offset — the solver always starts from
   // iteration 0 (or from the recovery offset if recovery cuts exist).
-  // Missing file = cold-start (silent); parse error = WARN.
-  if (!m_options_.boundary_cuts_file.empty()
-      && std::filesystem::exists(m_options_.boundary_cuts_file))
-  {
-    auto result = load_boundary_cuts(m_options_.boundary_cuts_file);
-    if (result.has_value()) {
-      boundary_count = result->count;
-      SPDLOG_DEBUG("SDDP: loaded {} boundary cuts from {}",
-                   result->count,
-                   m_options_.boundary_cuts_file);
+  // Missing file with a non-empty config path = WARN (silent skip used
+  // to mask common "cwd ≠ case dir" mistakes).
+  if (!m_options_.boundary_cuts_file.empty()) {
+    const auto bc_path = resolve_input(m_options_.boundary_cuts_file);
+    if (std::filesystem::exists(bc_path)) {
+      auto result = load_boundary_cuts(bc_path);
+      if (result.has_value()) {
+        boundary_count = result->count;
+        SPDLOG_DEBUG(
+            "SDDP: loaded {} boundary cuts from {}", result->count, bc_path);
+      } else {
+        SPDLOG_WARN("SDDP: could not load boundary cuts: {}",
+                    result.error().message);
+      }
     } else {
-      SPDLOG_WARN("SDDP: could not load boundary cuts: {}",
-                  result.error().message);
+      SPDLOG_WARN(
+          "SDDP: boundary_cuts_file '{}' not found (resolved to '{}') — "
+          "α at the last phase will stay pinned at 0",
+          m_options_.boundary_cuts_file,
+          bc_path);
     }
   }
 
   // ── Load named cuts (all phases, named state variables) ────────────────
   // Named cuts are also part of the problem specification — always load,
   // but do NOT affect the iteration offset.
-  if (!m_options_.named_cuts_file.empty()
-      && std::filesystem::exists(m_options_.named_cuts_file))
-  {
-    auto result = load_named_cuts(m_options_.named_cuts_file);
-    if (result.has_value()) {
-      named_count = result->count;
-      SPDLOG_DEBUG("SDDP: loaded {} named cuts from {}",
-                   result->count,
-                   m_options_.named_cuts_file);
+  if (!m_options_.named_cuts_file.empty()) {
+    const auto nc_path = resolve_input(m_options_.named_cuts_file);
+    if (std::filesystem::exists(nc_path)) {
+      auto result = load_named_cuts(nc_path);
+      if (result.has_value()) {
+        named_count = result->count;
+        SPDLOG_DEBUG(
+            "SDDP: loaded {} named cuts from {}", result->count, nc_path);
+      } else {
+        SPDLOG_WARN("SDDP: could not load named cuts: {}",
+                    result.error().message);
+      }
     } else {
-      SPDLOG_WARN("SDDP: could not load named cuts: {}",
-                  result.error().message);
+      SPDLOG_WARN(
+          "SDDP: named_cuts_file '{}' not found (resolved to '{}') — "
+          "no named hot-start cuts will be installed",
+          m_options_.named_cuts_file,
+          nc_path);
     }
   }
 
