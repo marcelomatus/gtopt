@@ -27,15 +27,18 @@ def planos_files(tmp_path: Path):
         "2 'Colbun'\n"
     )
 
-    # plpplaem2.dat — 3 cuts, boundary stage = 5
+    # plpplaem2.dat — 3 cuts, boundary stage = 5.
     # Fields: IPDNumIte  IEtapa  ISimul  LDPhiPrv  GradX(1)  GradX(2)
+    # LDPhiPrv values are POSITIVE (real PLP output), matching
+    # `plp-espercnd.f:54` (`LDPhiPrv = PromedioZ` — averaged LP obj
+    # across apertures, always positive for cost-minimization SDDP).
     plaem2.write_text(
         "5\n"  # boundary stage
-        "1  5  1  -1000.5  0.25  0.75\n"
-        "1  5  2  -2000.3  0.50  0.60\n"
-        "2  5  1  -1500.0  0.35  0.80\n"
+        "1  5  1  1000.5  0.25  0.75\n"
+        "1  5  2  2000.3  0.50  0.60\n"
+        "2  5  1  1500.0  0.35  0.80\n"
         # This cut is for stage 3 (not boundary stage 5) — should be skipped
-        "2  3  1  -9999.0  0.99  0.99\n"
+        "2  3  1  9999.0  0.99  0.99\n"
     )
 
     return plaem1, plaem2

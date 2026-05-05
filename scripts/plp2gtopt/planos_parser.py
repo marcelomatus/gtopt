@@ -40,9 +40,19 @@ intermediate stages.
 The gradient coefficients ``GradX`` correspond to the reservoir volumes
 (state variables) identified by the name mapping in file 1.
 
-The resulting ``varphi`` (φ) variable satisfies::
+The resulting ``varphi`` (φ) variable satisfies the PLP-canonical cut::
 
-    φ ≥ -LDPhiPrv + Σ_i GradX_i · Vol_i
+    φ ≥ +LDPhiPrv + Σ_i GradX_i · Vol_i
+
+where ``LDPhiPrv = E[Z(v_trial)]`` is the **positive** expected future
+operating cost from the next stage onwards (verified against real PLP
+``plpplem2.dat`` output: every row has ``LDPhiPrv > 0``), and
+``GradX_i = ∂E[Z]/∂v_i`` is the **negative** marginal water value (more
+water → less future cost).  The CSV ``rhs`` column carries
+``+LDPhiPrv`` directly, with no sign flip — matching PLP's
+``plp-agrespd.f::AgrResPDi`` which builds the LP row as
+``rowlb = +LDPhiPrv/ScalePhi`` for the constraint
+``α + Σ(-GradX/ScalePhi)·v ≥ +LDPhiPrv/ScalePhi``.
 """
 
 import logging
@@ -228,7 +238,11 @@ class PlanosParser(BaseParser):
             iter_num = int(fields[0])  # IPDNumIte
             stage = int(fields[1])  # IEtapa (1-based)
             scenario = int(fields[2])  # ISimul (1-based)
-            ld_phi_prv = float(fields[3])  # LDPhiPrv (intercept, negated)
+            # LDPhiPrv = E[Z(v_trial)] from PLP backward pass — positive
+            # expected future operating cost (set by `plp-espercnd.f:54`
+            # as `LDPhiPrv = PromedioZ`).  Written verbatim by
+            # `plp-gdbdple.f:42` and `plp-gdbdple2.f:93`.
+            ld_phi_prv = float(fields[3])
 
             coefficients: Dict[str, float] = {}
             for ri, rname in enumerate(self.reservoir_names):
@@ -241,7 +255,17 @@ class PlanosParser(BaseParser):
                 "iteration": iter_num,
                 "stage": stage,
                 "scene": scenario,  # PLP ISimul maps to scene UID
-                "rhs": -ld_phi_prv,  # PLP stores negative intercept
+                # rhs = +LDPhiPrv (no sign flip).  PLP's LP cut at row
+                # construction time (`plp-agrespd.f:194,203`) sets
+                # rowlb = +LDPhiPrv/ScalePhi for the row
+                # `α + Σ(-GradX/ScalePhi)·v ≥ rowlb`.  gtopt's loader at
+                # `source/sddp_boundary_cuts.cpp:418` consumes
+                # `rc.rhs` directly as `lowb`, so the CSV must carry
+                # the positive intercept.  An earlier version negated
+                # this on emit, producing α ≈ -LDPhiPrv at the last
+                # phase — verified against PLP source 2026-05-05 and
+                # corrected.
+                "rhs": ld_phi_prv,
                 "coefficients": coefficients,
             }
             self.all_cuts.append(cut)
