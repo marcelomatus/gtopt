@@ -188,6 +188,7 @@ def check_json(
         enabled_checks=enabled,
         ai_options=ai_options,
         base_dir=_case_dir,
+        json_paths=json_paths,
     )
 
     # Connectivity table (replaces verbose bus_connectivity findings)

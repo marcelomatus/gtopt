@@ -60,6 +60,11 @@ from gtopt_check_json._reference_checks import (
     check_element_references,
 )
 
+# -- Re-export engine-side validation (delegates to gtopt --lp-only) --------
+from gtopt_check_json._engine_validate import (
+    check_engine_validate,
+)
+
 # -- Re-export topology checks ----------------------------------------------
 from gtopt_check_json._topology_checks import (
     IslandInfo,
@@ -91,6 +96,7 @@ _CHECK_REGISTRY: list[tuple[str, Any, bool]] = [
     ("sddp_options", check_sddp_options, False),
     ("cascade_solver_type", check_cascade_solver_type, False),
     ("boundary_cuts", check_boundary_cuts, False),
+    ("engine_validate", check_engine_validate, False),
     ("ai_system_analysis", check_ai_system_analysis, True),
 ]
 
@@ -100,6 +106,7 @@ def run_all_checks(
     enabled_checks: set[str] | None = None,
     ai_options: Any = None,
     base_dir: str = "",
+    json_paths: list[str] | None = None,
 ) -> list[Finding]:
     """Run all enabled checks and return combined findings.
 
@@ -113,17 +120,26 @@ def run_all_checks(
         AI options for the AI system analysis check.  ``None`` disables it.
     base_dir:
         Case directory for resolving relative file paths.
+    json_paths:
+        Original JSON paths the user passed; needed by ``engine_validate``
+        to invoke the gtopt binary on the same inputs.
     """
     findings: list[Finding] = []
 
     # Checks that accept a base_dir keyword argument.
     _NEEDS_BASE_DIR = {"boundary_cuts"}
+    # Checks that accept a json_paths keyword argument.
+    _NEEDS_JSON_PATHS = {"engine_validate"}
 
     for check_id, check_fn, needs_ai in _CHECK_REGISTRY:
         if enabled_checks is not None and check_id not in enabled_checks:
             continue
         if needs_ai:
             findings.extend(check_fn(planning, ai_options=ai_options))
+        elif check_id in _NEEDS_JSON_PATHS:
+            findings.extend(
+                check_fn(planning, json_paths=json_paths, base_dir=base_dir)
+            )
         elif check_id in _NEEDS_BASE_DIR:
             findings.extend(check_fn(planning, base_dir=base_dir))
         else:
@@ -161,6 +177,7 @@ __all__ = [
     "check_cascade_solver_type",
     "check_demand_lmax_nonneg",
     "check_element_references",
+    "check_engine_validate",
     "check_name_uniqueness",
     "check_sddp_options",
     "check_seepage_at_vmin",
