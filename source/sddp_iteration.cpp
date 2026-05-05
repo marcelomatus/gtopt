@@ -796,8 +796,8 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
         : next(results.back().iteration_index);
     const auto final_start = std::chrono::steady_clock::now();
 
-    SPDLOG_INFO("SDDP Sim [i{}]: === simulation pass ===",
-                final_iteration_index);
+    SPDLOG_INFO("{}: === simulation pass ===",
+                sddp_log("Sim", gtopt::uid_of(final_iteration_index)));
 
     // Suppress stop checks so the simulation pass always completes.
     // The stop was already honoured by exiting the iteration loop.
@@ -847,11 +847,10 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
     std::expected<ForwardPassOutcome, Error> fwd;
     int p1_attempts = 0;
     for (; p1_attempts <= kMaxSimP1Retries; ++p1_attempts) {
-      SPDLOG_INFO(
-          "SDDP Sim [i{}]: Pass 1 attempt {}/{} — solve + populate cache",
-          final_iteration_index,
-          p1_attempts + 1,
-          kMaxSimP1Retries + 1);
+      SPDLOG_INFO("{}: Pass 1 attempt {}/{} — solve + populate cache",
+                  sddp_log("Sim", gtopt::uid_of(final_iteration_index)),
+                  p1_attempts + 1,
+                  kMaxSimP1Retries + 1);
       fwd = run_forward_pass_all_scenes(
           *sddp_pool, sim_opts, final_iteration_index);
       if (!fwd.has_value()) {
@@ -876,17 +875,17 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
         const auto n_infeas =
             std::ranges::count(fwd->scene_feasible, uint8_t {0});
         SPDLOG_INFO(
-            "SDDP Sim [i{}]: no new fcuts after attempt {} — "
+            "{}: no new fcuts after attempt {} — "
             "{} infeasible scene(s) are terminal (status=-1 in output)",
-            final_iteration_index,
+            sddp_log("Sim", gtopt::uid_of(final_iteration_index)),
             p1_attempts + 1,
             n_infeas);
         break;
       }
     }
 
-    SPDLOG_INFO("SDDP Sim [i{}]: Pass 1 done after {} attempt(s)",
-                final_iteration_index,
+    SPDLOG_INFO("{}: Pass 1 done after {} attempt(s)",
+                sddp_log("Sim", gtopt::uid_of(final_iteration_index)),
                 p1_attempts + 1);
 
     // Aggressive post-Pass-1 memory release under low_memory: the
@@ -909,9 +908,9 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
     if (fwd->has_feasibility_issue) {
       ir.feasibility_issue = true;
       SPDLOG_WARN(
-          "SDDP Sim [i{}]: residual feasibility issue — affected cells "
+          "{}: residual feasibility issue — affected cells "
           "left unsolved in output",
-          final_iteration_index);
+          sddp_log("Sim", gtopt::uid_of(final_iteration_index)));
 
       // Mark every (scene, phase) cell of an infeasible scene as
       // output_skipped so PlanningLP::write_out bypasses the
@@ -939,9 +938,9 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
       }
       if (n_cells_skipped > 0) {
         SPDLOG_INFO(
-            "SDDP Sim [i{}]: {} cell(s) marked output_skipped "
+            "{}: {} cell(s) marked output_skipped "
             "(infeasible scenes will not be written out)",
-            final_iteration_index,
+            sddp_log("Sim", gtopt::uid_of(final_iteration_index)),
             n_cells_skipped);
       }
     }
@@ -974,9 +973,9 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
           ? std::format(" feasible={}/{}", sim_feasible, sim_total)
           : std::string {};
       SPDLOG_INFO(
-          "SDDP Sim [i{}]: done in {:.3f}s — "
+          "{}: done in {:.3f}s — "
           "UB={} LB={} gap={:.2f}% Δgap={:.2f}%{}{}",
-          final_iteration_index,
+          sddp_log("Sim", gtopt::uid_of(final_iteration_index)),
           ir.iteration_s,
           format_si(ir.upper_bound),
           format_si(ir.lower_bound),
@@ -1164,11 +1163,9 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
       if (scene_gap < m_options_.convergence_tol && past_min) {
         tracker.mark_converged(scene_index, iteration_index);
         SPDLOG_INFO(
-            "SDDP Async [i{} s{}]: scene {} converged at iter {} (gap={:.6f})",
-            gtopt::uid_of(iteration_index),
-            uid_of(scene_index),
-            uid_of(scene_index),
-            gtopt::uid_of(iteration_index),
+            "{}: converged (gap={:.6f})",
+            sddp_log(
+                "Async", gtopt::uid_of(iteration_index), uid_of(scene_index)),
             scene_gap);
         return true;
       }
@@ -1187,10 +1184,10 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
       [&](SceneIndex scene_index,
           IterationIndex sim_iteration_index) -> std::expected<double, Error>
   {
-    SPDLOG_INFO("SDDP Sim [i{} s{}]: simulation pass for scene {}",
-                sim_iteration_index,
-                uid_of(scene_index),
-                uid_of(scene_index));
+    SPDLOG_INFO(
+        "{}: simulation pass",
+        sddp_log(
+            "Sim", gtopt::uid_of(sim_iteration_index), uid_of(scene_index)));
     auto result = forward_pass(scene_index, sim_opts, sim_iteration_index);
     if (!result.has_value()) {
       return result;
@@ -1201,10 +1198,10 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
       planning_lp().system(scene_index, phase_index).write_out();
     }
 
-    SPDLOG_INFO("SDDP Sim [i{} s{}]: scene {} outputs written",
-                sim_iteration_index,
-                uid_of(scene_index),
-                uid_of(scene_index));
+    SPDLOG_INFO(
+        "{}: outputs written",
+        sddp_log(
+            "Sim", gtopt::uid_of(sim_iteration_index), uid_of(scene_index)));
     return result;
   };
 
@@ -1392,14 +1389,13 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
           {
             const double scene_gap =
                 compute_convergence_gap(sp.upper_bound, sp.lower_bound);
-            SPDLOG_INFO(
-                "SDDP Async [i{} s{}]: completed (ub={:.4f} lb={:.4f}"
-                " gap={:.6f})",
-                sp.current_iteration_index,
-                uid_of(scene),
-                sp.upper_bound,
-                sp.lower_bound,
-                scene_gap);
+            SPDLOG_INFO("{}: completed (ub={:.4f} lb={:.4f} gap={:.6f})",
+                        sddp_log("Async",
+                                 gtopt::uid_of(sp.current_iteration_index),
+                                 uid_of(scene)),
+                        sp.upper_bound,
+                        sp.lower_bound,
+                        scene_gap);
           }
 
           // Per-scene convergence check
@@ -1427,9 +1423,10 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
           }
           auto sim = sp.fwd_future.get();
           if (!sim.has_value()) {
-            SPDLOG_WARN("SDDP Sim [i{} s{}]: simulation failed: {}",
-                        sp.current_iteration_index,
-                        uid_of(scene),
+            SPDLOG_WARN("{}: simulation failed: {}",
+                        sddp_log("Sim",
+                                 gtopt::uid_of(sp.current_iteration_index),
+                                 uid_of(scene)),
                         sim.error().message);
           } else {
             sp.upper_bound = *sim;
@@ -1444,10 +1441,11 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
               }
             }
             SPDLOG_INFO(
-                "SDDP Async [i{} s{}]: scene done — converged={} iters={}"
-                " sim_ub={:.4f} active={}/{}",
-                sp.current_iteration_index,
-                uid_of(scene),
+                "{}: scene done — converged={} iters={} sim_ub={:.4f}"
+                " active={}/{}",
+                sddp_log("Async",
+                         gtopt::uid_of(sp.current_iteration_index),
+                         uid_of(scene)),
                 sp.scene_converged,
                 iteration_relative(sp.current_iteration_index,
                                    m_iteration_offset_),
