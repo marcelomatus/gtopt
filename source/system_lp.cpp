@@ -533,6 +533,28 @@ constexpr auto create_linear_interface(auto& collections,
     li.set_low_memory(flat_opts.low_memory_mode,
                       select_codec(flat_opts.memory_codec));
     li.defer_initial_load(std::move(flat_lp));
+    // Eagerly compress the snapshot at build time under
+    // ``compress`` so the build phase steady-state memory is the
+    // compressed snapshot, not the uncompressed flat LP.  Without
+    // this, every cell carries an uncompressed
+    // ``FlatLinearProblem`` (matval / matind / collb / objval /
+    // …) until the first iteration's ``release_backend`` fires —
+    // which under ``compress`` on a juan-scale case is hundreds
+    // of MB per cell × N cells = a multi-GB peak that the build
+    // work pool's ``max_process_rss_mb`` cannot bound (the limit
+    // throttles dispatch, not in-flight allocation).
+    //
+    // After this call the per-cell footprint is ~10× smaller (lz4
+    // ratio).  The first SDDP-pool visit decompresses + loads
+    // into the live backend via the existing
+    // ``ensure_backend`` → ``reconstruct_backend`` →
+    // ``apply_post_load_replay`` path; subsequent visits hit the
+    // same compressed snapshot.  ``snapshot`` mode keeps its
+    // legacy uncompressed-snapshot behaviour (no compression
+    // until release).
+    if (flat_opts.low_memory_mode == LowMemoryMode::compress) {
+      li.enable_compression();
+    }
   } else {
     li.load_flat(flat_lp);
     li.save_snapshot(std::move(flat_lp));
