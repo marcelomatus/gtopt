@@ -1190,10 +1190,24 @@ public:
         CompressionCodec::auto_select);
   }
 
-  /** @brief Maximum async iteration spread (0 = synchronous, default). */
+  /** @brief Maximum async iteration spread (default: 2).
+   *
+   * When > 0 and ``cut_sharing == none``, the SDDP solver runs scenes
+   * asynchronously: each scene progresses through its own
+   * forward / backward iteration loop, the work pool's
+   * ``SDDPTaskKey`` priority schedules the slowest-iter scenes first,
+   * and the spread between the fastest and slowest scene is bounded
+   * by this value.  Eliminates the inter-iteration synchronisation
+   * barrier that otherwise blocks every scene from starting iter
+   * ``i+1`` until all scenes have finished iter ``i``.
+   *
+   * Default 2 (lightly async) trades determinism for ~10-20%
+   * fewer barrier-wait stalls on heterogeneous-runtime fixtures.
+   * Set to 0 to restore the legacy fully-synchronous behaviour.
+   */
   [[nodiscard]] constexpr auto sddp_max_async_spread() const
   {
-    return m_options_.sddp_options.max_async_spread.value_or(0);
+    return m_options_.sddp_options.max_async_spread.value_or(2);
   }
 
   /** @brief SDDP work pool CPU over-commit factor (default: 4.0). */

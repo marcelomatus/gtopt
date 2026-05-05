@@ -47,67 +47,70 @@ struct PhaseStateInfo;
 // Parameters accept any formattable type (int, SceneUid, PhaseUid, etc.).
 
 /// "SDDP Forward [i1 s1 p2]" — with phase tag and per-phase key.
-/// `iteration_index` is formatted as the matching `IterationUid` (1-based)
-/// so the iN segment uses the same UID convention as the sN/pN segments
-/// — keeping all three log keys consistent.
-template<typename S, typename P>
+/// Strict-typed UID-only signature: callers pass ``IterationUid`` /
+/// ``SceneUid`` / ``PhaseUid`` (1-based, matching the printed
+/// ``[iN sM pK]`` format).  Passing the matching ``*Index`` (0-based,
+/// internal) is a compile error — the caller must convert via
+/// ``gtopt::uid_of(...)`` at the call site, mirroring the
+/// ``SPDLOG_*("...[i{}]…", gtopt::uid_of(iteration_index), ...)``
+/// pattern used everywhere else in the SDDP code (see PR #459).
 [[nodiscard]] inline std::string sddp_log(std::string_view tag,
-                                          IterationIndex iteration_index,
-                                          S scene,
-                                          P phase)
+                                          IterationUid iteration_uid,
+                                          SceneUid scene_uid,
+                                          PhaseUid phase_uid)
 {
   return as_label<void>("SDDP ",
                         tag,
                         " [i",
-                        uid_of(iteration_index),
+                        iteration_uid,
                         ' ',
                         's',
-                        scene,
+                        scene_uid,
                         ' ',
                         'p',
-                        phase,
+                        phase_uid,
                         ']');
 }
 
 /// "SDDP Aperture [i1 s1 p2 a5]" — with aperture uid appended.
-template<typename S, typename P, typename A>
+/// ``Uid`` for aperture (no strong typedef yet).  Same UID-only
+/// contract as the 4-arg overload.
 [[nodiscard]] inline std::string sddp_log(std::string_view tag,
-                                          IterationIndex iteration_index,
-                                          S scene,
-                                          P phase,
-                                          A aperture)
+                                          IterationUid iteration_uid,
+                                          SceneUid scene_uid,
+                                          PhaseUid phase_uid,
+                                          Uid aperture_uid)
 {
   return as_label<void>("SDDP ",
                         tag,
                         " [i",
-                        uid_of(iteration_index),
+                        iteration_uid,
                         ' ',
                         's',
-                        scene,
+                        scene_uid,
                         ' ',
                         'p',
-                        phase,
+                        phase_uid,
                         ' ',
                         'a',
-                        aperture,
+                        aperture_uid,
                         ']');
 }
 
 /// "SDDP Forward [i1 s1]" — scene-level (no phase).
-template<typename S>
 [[nodiscard]] inline std::string sddp_log(std::string_view tag,
-                                          IterationIndex iteration_index,
-                                          S scene)
+                                          IterationUid iteration_uid,
+                                          SceneUid scene_uid)
 {
   return as_label<void>(
-      "SDDP ", tag, " [i", uid_of(iteration_index), ' ', 's', scene, ']');
+      "SDDP ", tag, " [i", iteration_uid, ' ', 's', scene_uid, ']');
 }
 
 /// "SDDP Init [i1]" — iteration-level only.
 [[nodiscard]] inline std::string sddp_log(std::string_view tag,
-                                          IterationIndex iteration_index)
+                                          IterationUid iteration_uid)
 {
-  return as_label<void>("SDDP ", tag, " [i", uid_of(iteration_index), ']');
+  return as_label<void>("SDDP ", tag, " [i", iteration_uid, ']');
 }
 
 // ─── Phase grid recorder ────────────────────────────────────────────────────

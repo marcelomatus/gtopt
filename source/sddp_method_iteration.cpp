@@ -119,8 +119,10 @@ void SDDPMethod::diagnose_kappa(SceneIndex scene_index,
                                 const LinearInterface& li,
                                 IterationIndex iteration_index)
 {
-  const auto prefix = sddp_log(
-      "Kappa", iteration_index, uid_of(scene_index), uid_of(phase_index));
+  const auto prefix = sddp_log("Kappa",
+                               gtopt::uid_of(iteration_index),
+                               uid_of(scene_index),
+                               uid_of(phase_index));
 
   // Collect cut rows for this (scene, phase) from the cut store
   const auto& scene_cuts = m_cut_store_.scene_cuts();
@@ -440,8 +442,10 @@ auto SDDPMethod::backward_pass_single_phase(SceneIndex scene_index,
     // (same coefficient re-written), so this is a no-op cost.
     update_lp_for_phase(scene_index, phase_index);
 
-    tgt_li.set_log_tag(sddp_log(
-        "Backward", iteration_index, uid_of(scene_index), uid_of(phase_index)));
+    tgt_li.set_log_tag(sddp_log("Backward",
+                                gtopt::uid_of(iteration_index),
+                                uid_of(scene_index),
+                                uid_of(phase_index)));
     const auto z_old = phase_states[phase_index].forward_full_obj_physical;
 
     // Optional LP dump for off↔compress diff debugging.  Activated by
@@ -515,7 +519,7 @@ auto SDDPMethod::backward_pass_single_phase(SceneIndex scene_index,
           "{}: backward_resolve_target re-solve non-optimal "
           "(status {}) — falling back to forward-cached cut data",
           sddp_log("Backward",
-                   iteration_index,
+                   gtopt::uid_of(iteration_index),
                    uid_of(scene_index),
                    uid_of(phase_index)),
           tgt_li.get_status());
@@ -693,7 +697,7 @@ auto SDDPMethod::backward_pass_single_phase(SceneIndex scene_index,
   double dt_kappa = 0.0;
   if (phase_index) {
     src_li.set_log_tag(sddp_log("Backward",
-                                iteration_index,
+                                gtopt::uid_of(iteration_index),
                                 uid_of(scene_index),
                                 uid_of(prev_phase_index)));
     const auto t_resolve = Clock::now();
@@ -708,7 +712,7 @@ auto SDDPMethod::backward_pass_single_phase(SceneIndex scene_index,
           "{}: post-cut resolve non-optimal (status {}) — keeping "
           "cut, next forward pass will re-solve",
           sddp_log("Backward",
-                   iteration_index,
+                   gtopt::uid_of(iteration_index),
                    uid_of(scene_index),
                    uid_of(prev_phase_index)),
           src_li.get_status());
@@ -759,7 +763,7 @@ auto SDDPMethod::backward_pass(SceneIndex scene_index,
           .code = ErrorCode::SolverError,
           .message = std::format("{}: cancelled",
                                  sddp_log("Backward",
-                                          iteration_index,
+                                          gtopt::uid_of(iteration_index),
                                           uid_of(scene_index),
                                           uid_of(phase_index))),
       });
