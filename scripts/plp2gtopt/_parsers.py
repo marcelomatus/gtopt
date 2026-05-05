@@ -535,7 +535,7 @@ def add_solver_arguments(parser: argparse.ArgumentParser, conf: dict[str, str]) 
             "is at or above G, neither stationary nor CI convergence will "
             "fire — only the primary `convergence_tol` test can declare "
             "convergence.  Defends against heterogeneous-scene σ explosion "
-            "(juan run 2026-05-02 converged at iter 2 with gap=25 % via the "
+            "(juan run 2026-05-02 converged at iter 2 with gap=25%% via the "
             "CI test because σ=77 M dominated the 38 M absolute gap).  "
             "Use 1.0 to disable the ceiling.  "
             "(default: emit 0.05 when not set; gtopt's own default is 0.5)"
