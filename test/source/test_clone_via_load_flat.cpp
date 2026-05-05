@@ -484,6 +484,40 @@ TEST_CASE(  // NOLINT
   CHECK_THROWS_AS(std::ignore = src.clone_from_flat(), std::runtime_error);
 }
 
+TEST_CASE(  // NOLINT
+    "LinearInterface::clone_from_flat — succeeds after DecompressionGuard "
+    "even when persistent compressed buffer is present")
+{
+  // Pin the bug fix where ``clone_from_flat`` previously rejected a
+  // source whose persistent compressed buffer was non-empty, even if
+  // the flat LP itself had been re-hydrated by ``DecompressionGuard``.
+  // The aperture path under ``low_memory_mode=compress`` after PR #465
+  // (eager build-time compression) hits exactly this case: the source
+  // LP is built, compressed, then the aperture pass wraps it in a
+  // ``DecompressionGuard`` before calling ``clone_from_flat`` for each
+  // aperture.  The persistent compressed cache stays alive through the
+  // guard, but the flat LP is fully accessible.
+  auto problem = build_feature_problem();
+  auto flat_for_src = problem.flatten({});
+
+  LinearInterface src;
+  src.set_low_memory(LowMemoryMode::compress);
+  src.load_flat(flat_for_src);
+  src.save_snapshot(std::move(flat_for_src));
+  REQUIRE(src.has_snapshot_data());
+
+  // Compress the snapshot, then decompress (mimicking the
+  // build → release → DecompressionGuard sequence in production).
+  src.enable_compression();
+  src.disable_compression();
+
+  // Even though the persistent compressed cache is still non-empty
+  // (kept by ``LowMemorySnapshot::decompress`` as a one-time-only cache
+  // for future reload cycles), ``clone_from_flat`` must succeed because
+  // ``flat_lp.matbeg`` is now populated.
+  CHECK_NOTHROW(std::ignore = src.clone_from_flat());
+}
+
 // ─── 7. Timing comparison (informational) ───────────────────────────
 
 TEST_CASE(  // NOLINT
