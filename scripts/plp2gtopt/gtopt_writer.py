@@ -448,6 +448,18 @@ class GTOptWriter(
         # cut_coeff_eps: drop coefficients with |value| < eps (default 1e-8).
         sddp_opts["cut_coeff_eps"] = options.get("cut_coeff_eps", 1e-8)
 
+        # Pin the SDDP backward-pass solver to a single thread.  Per-stage
+        # backward LPs are small (hundreds-to-thousands of vars) and the
+        # parallel-simplex / parallel-barrier overhead in CPLEX/HiGHS hurts
+        # more than it helps; one-thread-per-LP also avoids oversubscribing
+        # the host when the SDDP scheduler already runs many backward LPs
+        # concurrently across (scene × phase) cells.  C++ default is 2; this
+        # block keeps the JSON intentional and CLI-overridable via
+        # `--set sddp_options.backward_solver_options.threads=N`.
+        sddp_opts["backward_solver_options"] = {
+            "threads": options.get("backward_solver_threads", 1),
+        }
+
         # When the JSON file lives inside the output directory (the default),
         # input_directory is "." so paths are relative to the JSON location.
         # When -f places the JSON elsewhere, use the full output_dir path.
