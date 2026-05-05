@@ -1461,12 +1461,22 @@ void PlanningLP::write_out()
       // ~1 MB compressed per cell × 816 cells = ~800 MB freed on
       // juan-scale runs, just before the writer thread exits.
       system.linear_interface().drop_label_meta_buffers();
+      // Opportunity A — drop the compressed flat-LP snapshot now that
+      // the cell's parquet output is written.  `PlanningLP::resolve()`
+      // is the last LP-touching step in the run, so no future caller
+      // will reconstruct this cell.  At ~3-5 MB compressed × 816 cells
+      // on Juan-scale this frees ~3-4 GB of RSS just before the writer
+      // thread exits.  Safe because the only remaining consumers
+      // (status JSON, post-resolve aggregations) read cached scalars
+      // from `m_cache_`, not the flat-LP snapshot.
+      system.linear_interface().clear_snapshot();
       return;
     }
     system.ensure_lp_built();
     system.write_out();
     system.release_backend();
     system.linear_interface().drop_label_meta_buffers();
+    system.linear_interface().clear_snapshot();
   };
 
   for (auto&& [scene_num, phase_systems] : enumerate<SceneIndex>(m_systems_)) {

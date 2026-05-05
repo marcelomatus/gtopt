@@ -19,16 +19,25 @@
 #include <utility>
 #include <vector>
 
+#include <gtopt/battery.hpp>
+#include <gtopt/demand.hpp>
 #include <gtopt/error.hpp>
+#include <gtopt/field_sched.hpp>
+#include <gtopt/flow.hpp>
+#include <gtopt/generator.hpp>
 #include <gtopt/gtopt_json_io.hpp>
 #include <gtopt/gtopt_lp_runner.hpp>
+#include <gtopt/line.hpp>
 #include <gtopt/lp_stats.hpp>
 #include <gtopt/main_options.hpp>
+#include <gtopt/memory_monitor.hpp>
 #include <gtopt/output_context.hpp>
 #include <gtopt/planning_lp.hpp>
+#include <gtopt/reservoir.hpp>
 #include <gtopt/sddp_common.hpp>  // format_si()
 #include <gtopt/solver_stats.hpp>
 #include <gtopt/utils.hpp>
+#include <gtopt/waterway.hpp>
 #include <spdlog/spdlog.h>
 #include <spdlog/stopwatch.h>
 
@@ -37,6 +46,99 @@ namespace gtopt
 
 namespace
 {
+
+// ── FieldSched footprint diagnostics ────────────────────────────────────────
+//
+// Aggregate the dynamic bytes held by every parquet-loaded `OptT*FieldSched`
+// across the System's major element arrays.  Used at LP-build time to
+// answer "how much RSS is the parquet → variant materialisation actually
+// taking?" without needing to enumerate every element-class field at the
+// call site.  Not exhaustive: only counts the high-volume classes
+// (generator, demand, line, reservoir, waterway, flow, battery, turbine);
+// small ones (bus, junction, etc.) are excluded since their FieldSched
+// footprint is negligible (<1 MiB total in production cases).
+
+[[nodiscard]] inline std::size_t sum_field_sched_bytes(const Generator& g)
+{
+  return field_sched_dynamic_bytes(g.pmin) + field_sched_dynamic_bytes(g.pmax)
+      + field_sched_dynamic_bytes(g.gcost)
+      + field_sched_dynamic_bytes(g.capacity)
+      + field_sched_dynamic_bytes(g.expcap)
+      + field_sched_dynamic_bytes(g.lossfactor)
+      + field_sched_dynamic_bytes(g.emission_factor);
+}
+
+[[nodiscard]] inline std::size_t sum_field_sched_bytes(const Demand& d)
+{
+  return field_sched_dynamic_bytes(d.lmax) + field_sched_dynamic_bytes(d.fcost)
+      + field_sched_dynamic_bytes(d.ecost)
+      + field_sched_dynamic_bytes(d.capacity)
+      + field_sched_dynamic_bytes(d.expcap)
+      + field_sched_dynamic_bytes(d.lossfactor);
+}
+
+[[nodiscard]] inline std::size_t sum_field_sched_bytes(const Line& l)
+{
+  return field_sched_dynamic_bytes(l.tmax_ab)
+      + field_sched_dynamic_bytes(l.tmax_ba)
+      + field_sched_dynamic_bytes(l.capacity)
+      + field_sched_dynamic_bytes(l.expcap) + field_sched_dynamic_bytes(l.tcost)
+      + field_sched_dynamic_bytes(l.lossfactor)
+      + field_sched_dynamic_bytes(l.reactance)
+      + field_sched_dynamic_bytes(l.resistance)
+      + field_sched_dynamic_bytes(l.voltage)
+      + field_sched_dynamic_bytes(l.tap_ratio)
+      + field_sched_dynamic_bytes(l.phase_shift_deg);
+}
+
+[[nodiscard]] inline std::size_t sum_field_sched_bytes(const Reservoir& r)
+{
+  return field_sched_dynamic_bytes(r.emin) + field_sched_dynamic_bytes(r.emax)
+      + field_sched_dynamic_bytes(r.capacity)
+      + field_sched_dynamic_bytes(r.annual_loss);
+}
+
+[[nodiscard]] inline std::size_t sum_field_sched_bytes(const Waterway& w)
+{
+  return field_sched_dynamic_bytes(w.fmin) + field_sched_dynamic_bytes(w.fmax)
+      + field_sched_dynamic_bytes(w.fcost)
+      + field_sched_dynamic_bytes(w.capacity)
+      + field_sched_dynamic_bytes(w.lossfactor);
+}
+
+[[nodiscard]] inline std::size_t sum_field_sched_bytes(const Battery& b)
+{
+  return field_sched_dynamic_bytes(b.emin) + field_sched_dynamic_bytes(b.capmax)
+      + field_sched_dynamic_bytes(b.capacity)
+      + field_sched_dynamic_bytes(b.expcap)
+      + field_sched_dynamic_bytes(b.input_efficiency)
+      + field_sched_dynamic_bytes(b.output_efficiency)
+      + field_sched_dynamic_bytes(b.soft_emin_cost);
+}
+
+template<typename Elem>
+[[nodiscard]] std::size_t sum_array_field_sched_bytes(
+    const std::vector<Elem>& arr)
+{
+  std::size_t total = 0;
+  for (const auto& elem : arr) {
+    total += sum_field_sched_bytes(elem);
+  }
+  return total;
+}
+
+[[nodiscard]] std::size_t total_input_schedule_bytes(const System& sys)
+{
+  // Note: Turbine and Flow have minimal/no FieldSched fields and are
+  // skipped.  Add them here if a future case starts loading sizable
+  // schedules into them.
+  return sum_array_field_sched_bytes(sys.generator_array)
+      + sum_array_field_sched_bytes(sys.demand_array)
+      + sum_array_field_sched_bytes(sys.line_array)
+      + sum_array_field_sched_bytes(sys.reservoir_array)
+      + sum_array_field_sched_bytes(sys.waterway_array)
+      + sum_array_field_sched_bytes(sys.battery_array);
+}
 
 /// Compute the effective equilibration method when none is set by the user.
 ///
@@ -539,6 +641,28 @@ std::expected<int, std::string> build_solve_and_output(Planning&& planning,
       }
     }
 
+    // Snapshot RSS at the parsing/build boundary so we can attribute
+    // memory growth to the LP-build phase specifically (the JSON+parquet
+    // input materialisation already happened inside Planning's ctor; the
+    // delta from here through the next sample isolates the LP-flatten
+    // and snapshot-compress cost).  Companion sample after `Build lp
+    // time` reports the delta.  Diagnostic only — no behaviour change.
+    const auto rss_pre_build = MemoryMonitor::get_system_memory_snapshot();
+    const auto sched_bytes = total_input_schedule_bytes(planning.system);
+    spdlog::info(
+        "  Memory before LP build: rss={:.0f} MiB, available={:.1f} GiB, "
+        "input schedules ≈ {:.1f} MiB ({} generators / {} demands / "
+        "{} lines / {} reservoirs / {} waterways / {} batteries)",
+        rss_pre_build.process_rss_mb,
+        rss_pre_build.available_mb / 1024.0,
+        static_cast<double>(sched_bytes) / (1024.0 * 1024.0),
+        planning.system.generator_array.size(),
+        planning.system.demand_array.size(),
+        planning.system.line_array.size(),
+        planning.system.reservoir_array.size(),
+        planning.system.waterway_array.size(),
+        planning.system.battery_array.size());
+
     spdlog::info("=== Building LP model ===");
     const spdlog::stopwatch build_sw;
     PlanningLP planning_lp {std::move(planning),  // NOLINT
@@ -558,6 +682,16 @@ std::expected<int, std::string> build_solve_and_output(Planning&& planning,
     } else {
       spdlog::info("  Build lp time {:.3f}s", build_sw.elapsed().count());
     }
+    const auto rss_post_build = MemoryMonitor::get_system_memory_snapshot();
+    const auto build_delta_mib =
+        rss_post_build.process_rss_mb - rss_pre_build.process_rss_mb;
+    spdlog::info(
+        "  Memory after LP build:  rss={:.2f} GiB ({:+.0f} MiB build delta — "
+        "flat-LP arrays + lz4-compressed snapshots; original parquet input "
+        "is dropped after each cell's flatten so System retains only "
+        "scalars + file references)",
+        rss_post_build.process_rss_mb / 1024.0,
+        build_delta_mib);
 
     const bool want_lp_only =
         opts.lp_only.value_or(false) || planning_lp.options().lp_only();

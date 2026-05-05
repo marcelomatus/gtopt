@@ -10,7 +10,9 @@
 
 #pragma once
 
+#include <cstddef>
 #include <variant>
+#include <vector>
 
 #include <gtopt/basic_types.hpp>
 
@@ -58,5 +60,69 @@ using OptTRealFieldSched = OptRealFieldSched;
 using OptTBRealFieldSched = OptRealFieldSched2;
 using OptSTRealFieldSched = OptRealFieldSched2;
 using OptSTBRealFieldSched = OptRealFieldSched3;
+
+// ─── Diagnostics: in-memory footprint of a FieldSched ───────────────────────
+//
+// Walks the variant of an OptT*FieldSched and returns the dynamic bytes
+// reachable from it (vector capacities × element size).  Used by the
+// memory-attribution log around `PlanningLP` construction to estimate
+// the parquet → vector materialisation cost without enumerating every
+// element-class field by name.  Pure inspection — no allocation.
+//
+// Limitations:
+//  * Reports `std::vector<T>::capacity()` not `size()`, since capacity
+//    is what holds the heap allocation.  In practice plp2gtopt-emitted
+//    cases populate vectors by `reserve()` + `push_back()`, so capacity
+//    closely tracks size.
+//  * `FileSched` (string variant) is reported as `s.capacity()` only —
+//    the on-disk parquet weight is not counted (it's not in this
+//    process's RSS).
+//  * Only counts the dynamic spillover; the inline `sizeof(variant)`
+//    overhead is reported separately by sizeof on the parent struct.
+template<typename T, typename Vector>
+[[nodiscard]] constexpr std::size_t field_sched_dynamic_bytes(
+    const FieldSched<T, Vector>& fs) noexcept
+{
+  return std::visit(
+      []<typename U>(const U& v) -> std::size_t
+      {
+        if constexpr (std::is_same_v<U, T>) {
+          return 0;  // Inline scalar — already counted by sizeof(parent).
+        } else if constexpr (std::is_same_v<U, std::vector<T>>) {
+          return v.capacity() * sizeof(T);
+        } else if constexpr (std::is_same_v<U, std::vector<std::vector<T>>>) {
+          std::size_t bytes = v.capacity() * sizeof(std::vector<T>);
+          for (const auto& inner : v) {
+            bytes += inner.capacity() * sizeof(T);
+          }
+          return bytes;
+        } else if constexpr (std::is_same_v<
+                                 U,
+                                 std::vector<std::vector<std::vector<T>>>>)
+        {
+          std::size_t bytes =
+              v.capacity() * sizeof(std::vector<std::vector<T>>);
+          for (const auto& mid : v) {
+            bytes += mid.capacity() * sizeof(std::vector<T>);
+            for (const auto& inner : mid) {
+              bytes += inner.capacity() * sizeof(T);
+            }
+          }
+          return bytes;
+        } else if constexpr (std::is_same_v<U, FileSched>) {
+          return v.capacity();  // string capacity in bytes
+        } else {
+          return 0;  // Unknown variant — be conservative.
+        }
+      },
+      fs);
+}
+
+template<typename T, typename Vector>
+[[nodiscard]] constexpr std::size_t field_sched_dynamic_bytes(
+    const std::optional<FieldSched<T, Vector>>& opt_fs) noexcept
+{
+  return opt_fs.has_value() ? field_sched_dynamic_bytes(*opt_fs) : 0;
+}
 
 }  // namespace gtopt
