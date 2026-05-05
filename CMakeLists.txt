@@ -138,17 +138,48 @@ include(cmake_local/Solver.cmake)
 
 find_package(Arrow REQUIRED)
 find_package(Parquet REQUIRED)
+
+# Hard-require snappy support in the Arrow build that gtopt links to.
+# Snappy is the parquet spec default codec — any parquet file produced
+# by pyarrow / pandas / plp2gtopt / external pipelines without an
+# explicit codec override is snappy-compressed, and an Arrow built
+# without snappy fails to read those files at runtime with the cryptic
+# "Arrow can't open file …" path-fallback message.  ArrowOptions.cmake
+# (shipped by Arrow under <prefix>/lib/cmake/Arrow/) records each
+# `ARROW_WITH_<CODEC>` boolean from Arrow's own configure step, so we
+# can check it directly here.
+if(NOT ARROW_WITH_SNAPPY)
+  message(FATAL_ERROR
+    "The Arrow library at '${ARROW_INSTALL_PREFIX}' was built WITHOUT "
+    "snappy support (ARROW_WITH_SNAPPY=OFF in ArrowOptions.cmake).  "
+    "gtopt requires it because snappy is the parquet spec default and "
+    "is what pyarrow / plp2gtopt / external pipelines produce by "
+    "default.  Rebuild Arrow with `-DARROW_WITH_SNAPPY=ON` after "
+    "installing libsnappy-dev (Ubuntu/Debian: "
+    "`apt install libsnappy-dev`), then re-install Arrow.")
+endif()
 find_package(Boost REQUIRED COMPONENTS container)
 find_package(ZLIB REQUIRED)
 find_package(zstd REQUIRED)
 
-# In-memory compression codecs for low_memory mode
+# In-memory compression codecs for low_memory mode AND parquet I/O.
 # LZ4 is required (preferred codec for in-memory LP snapshots).
-# Snappy is optional.
+# Snappy is required:
+#   * It's the parquet spec default (apache/parquet-format), so any
+#     parquet file produced by the wider ecosystem (pyarrow, pandas,
+#     plp2gtopt without an explicit `-c <codec>` override on a snappy-
+#     enabled build) is snappy-compressed.  gtopt MUST be able to
+#     read those files.
+#   * Apache Arrow's parquet reader links snappy at build time only
+#     when libsnappy-dev is present at Arrow's configure step; the
+#     check here ensures the Arrow build that gtopt links against
+#     was itself built with snappy support (otherwise reads of any
+#     snappy parquet fail with "Arrow can't open file …").
+# Install: `apt install libsnappy-dev` (Ubuntu/Debian).
 find_package(PkgConfig QUIET)
 if(PkgConfig_FOUND)
   pkg_check_modules(LZ4 REQUIRED IMPORTED_TARGET liblz4)
-  pkg_check_modules(SNAPPY IMPORTED_TARGET snappy)
+  pkg_check_modules(SNAPPY REQUIRED IMPORTED_TARGET snappy)
 else()
   find_library(LZ4_LIBRARY NAMES lz4)
   find_path(LZ4_INCLUDE_DIR NAMES lz4.h)
@@ -161,6 +192,11 @@ else()
   find_path(SNAPPY_INCLUDE_DIR NAMES snappy.h)
   if(SNAPPY_LIBRARY AND SNAPPY_INCLUDE_DIR)
     set(SNAPPY_FOUND TRUE)
+  else()
+    message(FATAL_ERROR
+      "Snappy not found.  Install libsnappy-dev (required: parquet "
+      "spec default codec; gtopt must read snappy parquet files "
+      "produced by pyarrow / plp2gtopt / external pipelines).")
   endif()
 endif()
 
