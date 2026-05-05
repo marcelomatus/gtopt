@@ -1112,15 +1112,61 @@ TEST_CASE(  // NOLINT
 }
 
 TEST_CASE(  // NOLINT
-    "validate_planning - schedule-form emin defers segment validation")
+    "validate_planning - vector-schedule emin validates per stage")
 {
   auto p = make_minimal_with_reservoir_and_waterway();
-  // Replace scalar emin with a vector schedule — validation must
-  // skip segment feasibility (deferred to per-stage load-time check).
+  // Replace scalar emin with a vector schedule.  The validator now
+  // walks every stage and emits ONE summary warning per (element,
+  // segment, direction) listing how many stages fail and the worst
+  // offender — replaces the earlier "skip on schedule form" behavior
+  // that hid real feasibility bugs in PLP-converted cases.
   p.system.reservoir_array.front().emin = std::vector<Real> {100.0, 200.0};
-  // Even an obviously infeasible segment now produces no warning,
-  // because we can't statically prove which efin value the schedule
-  // will resolve to at any given stage.
+  p.system.reservoir_seepage_array = {
+      {
+          .uid = Uid {1},
+          .name = "seep1",
+          .waterway = Uid {1},
+          .reservoir = Uid {1},
+          .segments =
+              {
+                  // f(100) = -50 + 0.01·100 = -49 < fmin=0 — INFEASIBLE.
+                  {
+                      .volume = 0.0,
+                      .slope = 0.01,
+                      .constant = -50.0,
+                  },
+              },
+      },
+  };
+  auto result = validate_planning(p);
+  // Warn-only — `result.ok()` still true (no errors).
+  CHECK(result.ok());
+  const auto seep_warns = std::ranges::count_if(
+      result.warnings,
+      [](const auto& w) { return w.find("seep1") != std::string::npos; });
+  CHECK(seep_warns == 1);
+  // The summary message names the failure count and points at the
+  // worst stage.
+  const auto found =
+      std::ranges::any_of(result.warnings,
+                          [](const auto& w)
+                          {
+                            return w.find("seep1") != std::string::npos
+                                && w.find("fmin") != std::string::npos
+                                && w.find("of 1 stages") != std::string::npos;
+                          });
+  CHECK(found);
+}
+
+TEST_CASE(  // NOLINT
+    "validate_planning - file-schedule emin defers segment validation")
+{
+  auto p = make_minimal_with_reservoir_and_waterway();
+  // File-schedule (string path) is the ONLY remaining "deferred" path
+  // — we don't load arbitrary CSV/parquet at validation time, so the
+  // segment feasibility check truly cannot evaluate.  Vector schedule
+  // (covered above) now validates per-stage.
+  p.system.reservoir_array.front().emin = std::string {"input/emin.csv"};
   p.system.reservoir_seepage_array = {
       {
           .uid = Uid {1},
@@ -1139,7 +1185,8 @@ TEST_CASE(  // NOLINT
   };
   auto result = validate_planning(p);
   CHECK(result.ok());
-  // No piecewise-feasibility warnings — deferred to load-time.
+  // No warning: the file path can't be resolved at validation time,
+  // so the segment check is genuinely deferred to the LP-build stage.
   const auto piecewise_warns = std::ranges::count_if(
       result.warnings,
       [](const auto& w) { return w.find("seep1") != std::string::npos; });

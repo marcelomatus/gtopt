@@ -460,16 +460,6 @@ template<typename OptField>
       *field);
 }
 
-[[nodiscard]] std::optional<Real> try_scalar_emin(const Reservoir& res)
-{
-  return try_scalar_value(res.emin);
-}
-
-[[nodiscard]] std::optional<Real> try_scalar_emax(const Reservoir& res)
-{
-  return try_scalar_value(res.emax);
-}
-
 // Look up a reservoir struct by SingleId (Uid or Name).
 [[nodiscard]] const Reservoir* find_reservoir(
     const std::vector<Reservoir>& reservoirs, const SingleId& sid)
@@ -558,13 +548,321 @@ struct LinearRange
                                           Real constant,
                                           const SegmentRange& r)
 {
-  return {.f_low = constant + slope * r.v_low,
-          .f_high = constant + slope * r.v_high};
+  return {
+      .f_low = constant + (slope * r.v_low),
+      .f_high = constant + (slope * r.v_high),
+  };
 }
+
+/// Extract one Real per stage from a 1D `OptTRealFieldSched`-shaped
+/// field.  Scalar broadcasts to every stage; vector indexes by stage
+/// (truncated/padded to `num_stages` with `default_value`); file-
+/// schedule returns `nullopt` (truly deferred to load-time).
+template<typename OptField>
+[[nodiscard]] std::optional<std::vector<Real>> per_stage_values(
+    const OptField& field, std::size_t num_stages, Real default_value)
+{
+  if (!field.has_value()) {
+    return std::vector<Real>(num_stages, default_value);
+  }
+  return std::visit(
+      [&](const auto& v) -> std::optional<std::vector<Real>>
+      {
+        using T = std::remove_cvref_t<decltype(v)>;
+        if constexpr (std::is_same_v<T, Real>) {
+          return std::vector<Real>(num_stages, v);
+        } else if constexpr (std::is_same_v<T, std::vector<Real>>) {
+          std::vector<Real> out(num_stages, default_value);
+          for (std::size_t s = 0; s < num_stages && s < v.size(); ++s) {
+            out[s] = v[s];
+          }
+          return out;
+        } else {
+          // FileSched (string) — truly deferred.
+          return std::nullopt;
+        }
+      },
+      *field);
+}
+
+/// 2D variant for `OptTBRealFieldSched` (per-stage, per-block).
+/// Reduces each stage's block vector to a single scalar via
+/// `reducer` (use `std::ranges::min` for upper-bound fields where the
+/// strictest stage-level value is the smallest, `std::ranges::max`
+/// for lower-bound fields where the strictest is the largest).
+template<typename OptField, typename Reducer>
+[[nodiscard]] std::optional<std::vector<Real>> per_stage_values_2d(
+    const OptField& field,
+    std::size_t num_stages,
+    Real default_value,
+    Reducer reducer)
+{
+  if (!field.has_value()) {
+    return std::vector<Real>(num_stages, default_value);
+  }
+  return std::visit(
+      [&](const auto& v) -> std::optional<std::vector<Real>>
+      {
+        using T = std::remove_cvref_t<decltype(v)>;
+        if constexpr (std::is_same_v<T, Real>) {
+          return std::vector<Real>(num_stages, v);
+        } else if constexpr (std::is_same_v<T,
+                                            std::vector<std::vector<Real>>>) {
+          std::vector<Real> out(num_stages, default_value);
+          for (std::size_t s = 0; s < num_stages && s < v.size(); ++s) {
+            if (!v[s].empty()) {
+              out[s] = reducer(v[s]);
+            }
+          }
+          return out;
+        } else {
+          return std::nullopt;
+        }
+      },
+      *field);
+}
+
+/// Per-stage scan summary for one piecewise segment in one direction
+/// (below the lower bound or above the upper bound).  Aggregated
+/// across all stages so the validator emits exactly ONE warning per
+/// (element, segment, direction) instead of one per stage.
+struct StageViolation
+{
+  std::size_t count {0};  ///< Number of stages where the bound is violated.
+  Real worst_diff {0.0};  ///< Largest |bound − f| across the failing stages.
+  std::size_t worst_stage {0};  ///< Stage index achieving `worst_diff`.
+  LinearRange worst_fr {};  ///< Linear range at the worst stage.
+  SegmentRange worst_range {};  ///< Active [V_low, V_high] at the worst stage.
+  Real worst_bound {0.0};  ///< Bound value at the worst stage.
+};
+
+/// Walk every stage and accumulate the worst lower-bound violation
+/// (`fr.fmin() < lower_bounds[s]`) and worst upper-bound violation
+/// (`fr.fmax() > upper_bounds[s]`) for the given segment.  Returns a
+/// pair `{below, above}`; either may have `count == 0` for "no
+/// violation in that direction".
+template<typename Segment>
+[[nodiscard]] std::pair<StageViolation, StageViolation> scan_segment_per_stage(
+    const std::vector<Segment>& segments,
+    std::size_t k,
+    Real slope,
+    Real constant,
+    std::span<const Real> emins,
+    std::span<const Real> emaxs,
+    std::span<const Real> lower_bounds,
+    std::span<const Real> upper_bounds)
+{
+  StageViolation below;
+  StageViolation above;
+  const std::size_t num_stages = emins.size();
+  for (std::size_t s = 0; s < num_stages; ++s) {
+    const auto range = segment_range(segments, k, emins[s], emaxs[s]);
+    if (range.v_high < range.v_low) {
+      continue;  // segment outside this stage's [emin, emax] envelope
+    }
+    const auto fr = evaluate_linear(slope, constant, range);
+
+    if (fr.fmin() < lower_bounds[s]) {
+      ++below.count;
+      const Real diff = lower_bounds[s] - fr.fmin();
+      if (diff > below.worst_diff) {
+        below.worst_diff = diff;
+        below.worst_stage = s;
+        below.worst_fr = fr;
+        below.worst_range = range;
+        below.worst_bound = lower_bounds[s];
+      }
+    }
+    if (fr.fmax() > upper_bounds[s]) {
+      ++above.count;
+      const Real diff = fr.fmax() - upper_bounds[s];
+      if (diff > above.worst_diff) {
+        above.worst_diff = diff;
+        above.worst_stage = s;
+        above.worst_fr = fr;
+        above.worst_range = range;
+        above.worst_bound = upper_bounds[s];
+      }
+    }
+  }
+  return {below, above};
+}
+
+/// Per-stage seepage envelopes.  Returns `nullopt` for any field that
+/// is file-schedule (truly deferred to load-time validation).
+struct SeepageEnvelopes
+{
+  std::vector<Real> emins;  ///< Reservoir per-stage emin.
+  std::vector<Real> emaxs;  ///< Reservoir per-stage emax.
+  std::vector<Real>
+      fmins;  ///< Strictest per-stage waterway floor (max-reduced).
+  std::vector<Real>
+      fmaxs;  ///< Strictest per-stage waterway ceiling (min-reduced).
+};
+
+[[nodiscard]] std::optional<SeepageEnvelopes> resolve_seepage_envelopes(
+    const Reservoir& res, const Waterway& ww, std::size_t num_stages)
+{
+  using std::ranges::max;
+  using std::ranges::min;
+
+  auto emins = per_stage_values(res.emin, num_stages, 0.0);
+  auto emaxs = per_stage_values(
+      res.emax, num_stages, std::numeric_limits<Real>::infinity());
+  // Reduce per-stage block vectors to the strictest stage-level
+  // value: max(fmin) (highest required floor), min(fmax) (lowest
+  // allowed ceiling).
+  auto fmins =
+      per_stage_values_2d(ww.fmin,
+                          num_stages,
+                          0.0,
+                          [](const std::vector<Real>& v) { return max(v); });
+  auto fmaxs =
+      per_stage_values_2d(ww.fmax,
+                          num_stages,
+                          std::numeric_limits<Real>::infinity(),
+                          [](const std::vector<Real>& v) { return min(v); });
+  if (!emins.has_value() || !emaxs.has_value() || !fmins.has_value()
+      || !fmaxs.has_value())
+  {
+    return std::nullopt;
+  }
+  return SeepageEnvelopes {
+      .emins = std::move(*emins),
+      .emaxs = std::move(*emaxs),
+      .fmins = std::move(*fmins),
+      .fmaxs = std::move(*fmaxs),
+  };
+}
+
+/// Per-stage discharge-limit envelopes (only the reservoir
+/// [emin, emax] matter; the LP constrains the discharge col bound to
+/// `intercept + slope·V ≥ 0`).
+struct DischargeLimitEnvelopes
+{
+  std::vector<Real> emins;
+  std::vector<Real> emaxs;
+};
+
+[[nodiscard]] std::optional<DischargeLimitEnvelopes>
+resolve_discharge_limit_envelopes(const Reservoir& res, std::size_t num_stages)
+{
+  auto emins = per_stage_values(res.emin, num_stages, 0.0);
+  auto emaxs = per_stage_values(
+      res.emax, num_stages, std::numeric_limits<Real>::infinity());
+  if (!emins.has_value() || !emaxs.has_value()) {
+    return std::nullopt;
+  }
+  return DischargeLimitEnvelopes {
+      .emins = std::move(*emins),
+      .emaxs = std::move(*emaxs),
+  };
+}
+
+/// Format the standard "below fmin" warning for a seepage segment.
+[[nodiscard]] std::string format_seepage_below_warning(
+    const ReservoirSeepage& seep,
+    const Reservoir& res,
+    const Waterway& ww,
+    std::size_t k,
+    std::size_t num_stages,
+    const StageViolation& v)
+{
+  return std::format(
+      "ReservoirSeepage '{}' (reservoir '{}', waterway '{}'): "
+      "segment {} produces qfilt below waterway fmin in {} of {} "
+      "stages (worst at stage {}: {:.3g} ≤ efin ≤ {:.3g} → qfilt "
+      "range [{:.6g}, {:.6g}] vs fmin={:.6g}, slope={:.6g}, "
+      "constant={:.6g}); the LP will go primal-infeasible whenever "
+      "efin lands in the segment's lower portion.  Adjust the "
+      "segment data so that `constant + slope * V ≥ fmin` for all "
+      "V in [V_low, V_high].",
+      seep.name,
+      res.name,
+      ww.name,
+      k,
+      v.count,
+      num_stages,
+      v.worst_stage,
+      v.worst_range.v_low,
+      v.worst_range.v_high,
+      v.worst_fr.fmin(),
+      v.worst_fr.fmax(),
+      v.worst_bound,
+      seep.segments[k].slope,
+      seep.segments[k].constant);
+}
+
+/// Format the standard "above fmax" warning for a seepage segment.
+[[nodiscard]] std::string format_seepage_above_warning(
+    const ReservoirSeepage& seep,
+    const Reservoir& res,
+    const Waterway& ww,
+    std::size_t k,
+    std::size_t num_stages,
+    const StageViolation& v)
+{
+  return std::format(
+      "ReservoirSeepage '{}' (reservoir '{}', waterway '{}'): "
+      "segment {} produces qfilt above waterway fmax in {} of {} "
+      "stages (worst at stage {}: {:.3g} ≤ efin ≤ {:.3g} → qfilt "
+      "range [{:.6g}, {:.6g}] vs fmax={:.6g}, slope={:.6g}, "
+      "constant={:.6g}); the LP will go primal-infeasible whenever "
+      "efin lands in the segment's upper portion.",
+      seep.name,
+      res.name,
+      ww.name,
+      k,
+      v.count,
+      num_stages,
+      v.worst_stage,
+      v.worst_range.v_low,
+      v.worst_range.v_high,
+      v.worst_fr.fmin(),
+      v.worst_fr.fmax(),
+      v.worst_bound,
+      seep.segments[k].slope,
+      seep.segments[k].constant);
+}
+
+/// Format the standard "negative discharge bound" warning for a
+/// discharge-limit segment.
+[[nodiscard]] std::string format_discharge_limit_warning(
+    const ReservoirDischargeLimit& ddl,
+    const Reservoir& res,
+    std::size_t k,
+    std::size_t num_stages,
+    const StageViolation& v)
+{
+  return std::format(
+      "ReservoirDischargeLimit '{}' (reservoir '{}'): segment {} "
+      "produces a negative discharge upper bound in {} of {} "
+      "stages (worst at stage {}: {:.3g} ≤ efin ≤ {:.3g} → bound "
+      "range [{:.6g}, {:.6g}], slope={:.6g}, intercept={:.6g}); "
+      "the LP will go primal-infeasible whenever efin lands in "
+      "the segment's lower portion.  Adjust the segment so that "
+      "`intercept + slope * V >= 0` for all V in [V_low, V_high].",
+      ddl.name,
+      res.name,
+      k,
+      v.count,
+      num_stages,
+      v.worst_stage,
+      v.worst_range.v_low,
+      v.worst_range.v_high,
+      v.worst_fr.fmin(),
+      v.worst_fr.fmax(),
+      ddl.segments[k].slope,
+      ddl.segments[k].intercept);
+}
+
 }  // namespace
 
-void check_piecewise_feasibility(ValidationResult& result, const System& sys)
+void check_piecewise_feasibility(ValidationResult& result,
+                                 const Planning& planning)
 {
+  const auto& sys = planning.system;
+  const auto num_stages = planning.simulation.stage_array.size();
   // **ReservoirSeepage** — per-segment range feasibility.
   //
   // The LP constraint per (block, stage) is the equality
@@ -579,14 +877,11 @@ void check_piecewise_feasibility(ValidationResult& result, const System& sys)
   //   fmin  ≤  constant_k + slope_k · efin  ≤  fmax,  ∀ efin ∈ [V_low_k,
   //   V_high_k]
   //
-  // The function is linear in efin, so the min and max over the
-  // range are attained at the endpoints.  Validation walks every
-  // segment and emits a warning whenever
-  //   min(f(V_low), f(V_high)) < fmin     OR
-  //   max(f(V_low), f(V_high)) > fmax
-  // — pointing the user at the offending segment so they can fix
-  // the input data.  Schedule-form `emin/emax/fmin/fmax` are
-  // deferred (skipped here) because they need per-stage resolution.
+  // For schedule-form `emin/emax/fmin/fmax` (vector-per-stage), the
+  // check fires per-stage and is summarised: ONE warning per
+  // (element, segment, direction) listing how many stages fail and
+  // pointing at the worst offender.  File-schedules (string paths)
+  // are still deferred — we don't load them here.
   for (const auto& seep : sys.reservoir_seepage_array) {
     if (seep.segments.empty()) {
       continue;
@@ -595,67 +890,32 @@ void check_piecewise_feasibility(ValidationResult& result, const System& sys)
     if (res == nullptr) {
       continue;  // referential integrity check elsewhere catches missing refs
     }
-    const auto emin_opt = try_scalar_emin(*res);
-    const auto emax_opt = try_scalar_emax(*res);
-    if (!emin_opt.has_value() || !emax_opt.has_value()) {
-      continue;  // schedule form — defer to load-time validation
-    }
     const auto* ww = find_waterway(sys.waterway_array, seep.waterway);
     if (ww == nullptr) {
       continue;
     }
-    const auto fmin_val = try_scalar_value(ww->fmin).value_or(0.0);
-    const auto fmax_val = try_scalar_value(ww->fmax).value_or(
-        std::numeric_limits<Real>::infinity());
+    const auto envs = resolve_seepage_envelopes(*res, *ww, num_stages);
+    if (!envs.has_value()) {
+      continue;  // some field is file-schedule — truly deferred
+    }
 
     for (std::size_t k = 0; k < seep.segments.size(); ++k) {
       const auto& seg = seep.segments[k];
-      const auto range = segment_range(seep.segments, k, *emin_opt, *emax_opt);
-      if (range.v_high < range.v_low) {
-        continue;  // empty range (segment outside [emin, emax])
+      const auto [below, above] = scan_segment_per_stage(seep.segments,
+                                                         k,
+                                                         seg.slope,
+                                                         seg.constant,
+                                                         envs->emins,
+                                                         envs->emaxs,
+                                                         envs->fmins,
+                                                         envs->fmaxs);
+      if (below.count > 0) {
+        result.warnings.push_back(format_seepage_below_warning(
+            seep, *res, *ww, k, num_stages, below));
       }
-      const auto fr = evaluate_linear(seg.slope, seg.constant, range);
-
-      if (fr.fmin() < fmin_val) {
-        result.warnings.push_back(std::format(
-            "ReservoirSeepage '{}' (reservoir '{}', waterway '{}'): "
-            "segment {} ({:.3g} ≤ efin ≤ {:.3g}) produces qfilt below "
-            "waterway fmin (slope={:.6g}, constant={:.6g} → qfilt range "
-            "[{:.6g}, {:.6g}] vs fmin={:.6g}); the LP will go "
-            "primal-infeasible whenever efin lands in the segment's "
-            "lower portion.  Adjust the segment data so that "
-            "`constant + slope * V ≥ fmin` for all V in [V_low, V_high].",
-            seep.name,
-            res->name,
-            ww->name,
-            k,
-            range.v_low,
-            range.v_high,
-            seg.slope,
-            seg.constant,
-            fr.fmin(),
-            fr.fmax(),
-            fmin_val));
-      }
-      if (fr.fmax() > fmax_val) {
-        result.warnings.push_back(std::format(
-            "ReservoirSeepage '{}' (reservoir '{}', waterway '{}'): "
-            "segment {} ({:.3g} ≤ efin ≤ {:.3g}) produces qfilt above "
-            "waterway fmax (slope={:.6g}, constant={:.6g} → qfilt range "
-            "[{:.6g}, {:.6g}] vs fmax={:.6g}); the LP will go "
-            "primal-infeasible whenever efin lands in the segment's "
-            "upper portion.",
-            seep.name,
-            res->name,
-            ww->name,
-            k,
-            range.v_low,
-            range.v_high,
-            seg.slope,
-            seg.constant,
-            fr.fmin(),
-            fr.fmax(),
-            fmax_val));
+      if (above.count > 0) {
+        result.warnings.push_back(format_seepage_above_warning(
+            seep, *res, *ww, k, num_stages, above));
       }
     }
   }
@@ -664,12 +924,18 @@ void check_piecewise_feasibility(ValidationResult& result, const System& sys)
   //
   // The LP row is `qeh − slope_k · efin ≤ intercept_k`, where qeh has
   // lower bound 0 (default for a free non-negative col).  For each
-  // segment k active at efin ∈ [V_low_k, V_high_k]:
+  // segment k active at efin ∈ [V_low_k, V_high_k] at stage s:
   //
   //   0 ≤ intercept_k + slope_k · efin   for all efin in the range.
   //
-  // Linear in efin, so check the minimum over the range at the
-  // endpoints.  Warn when min < 0.
+  // Per-stage scan with the same dedup semantics as the seepage
+  // check above: ONE warning per (DDL, segment) summarising the
+  // count of failing stages plus the worst case.  Only the lower
+  // bound (≥ 0) matters; upper-bound is +∞ so the "above" branch of
+  // `scan_segment_per_stage` never fires.
+  const std::vector<Real> ddl_lower(num_stages, 0.0);
+  const std::vector<Real> ddl_upper(num_stages,
+                                    std::numeric_limits<Real>::infinity());
   for (const auto& ddl : sys.reservoir_discharge_limit_array) {
     if (ddl.segments.empty()) {
       continue;
@@ -678,38 +944,24 @@ void check_piecewise_feasibility(ValidationResult& result, const System& sys)
     if (res == nullptr) {
       continue;
     }
-    const auto emin_opt = try_scalar_emin(*res);
-    const auto emax_opt = try_scalar_emax(*res);
-    if (!emin_opt.has_value() || !emax_opt.has_value()) {
+    const auto envs = resolve_discharge_limit_envelopes(*res, num_stages);
+    if (!envs.has_value()) {
       continue;
     }
 
     for (std::size_t k = 0; k < ddl.segments.size(); ++k) {
       const auto& seg = ddl.segments[k];
-      const auto range = segment_range(ddl.segments, k, *emin_opt, *emax_opt);
-      if (range.v_high < range.v_low) {
-        continue;  // empty range
-      }
-      const auto fr = evaluate_linear(seg.slope, seg.intercept, range);
-
-      if (fr.fmin() < 0.0) {
-        result.warnings.push_back(std::format(
-            "ReservoirDischargeLimit '{}' (reservoir '{}'): segment {} "
-            "({:.3g} ≤ efin ≤ {:.3g}) produces a negative discharge "
-            "upper bound (slope={:.6g}, intercept={:.6g} → bound range "
-            "[{:.6g}, {:.6g}]); the LP will go primal-infeasible "
-            "whenever efin lands in the segment's lower portion.  "
-            "Adjust the segment so that `intercept + slope * V >= 0` "
-            "for all V in [V_low, V_high].",
-            ddl.name,
-            res->name,
-            k,
-            range.v_low,
-            range.v_high,
-            seg.slope,
-            seg.intercept,
-            fr.fmin(),
-            fr.fmax()));
+      const auto [below, _above] = scan_segment_per_stage(ddl.segments,
+                                                          k,
+                                                          seg.slope,
+                                                          seg.intercept,
+                                                          envs->emins,
+                                                          envs->emaxs,
+                                                          ddl_lower,
+                                                          ddl_upper);
+      if (below.count > 0) {
+        result.warnings.push_back(
+            format_discharge_limit_warning(ddl, *res, k, num_stages, below));
       }
     }
   }
@@ -964,7 +1216,7 @@ void check_scenario_probabilities(ValidationResult& result, Planning& planning)
   check_referential_integrity(result, planning.system);
   check_ranges(result, planning);
   check_positivity(result, planning.system);
-  check_piecewise_feasibility(result, planning.system);
+  check_piecewise_feasibility(result, planning);
   check_aperture_references(result, planning);
   check_completeness(result, planning);
   check_scenario_probabilities(result, planning);
