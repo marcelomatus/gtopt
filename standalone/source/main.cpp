@@ -51,6 +51,90 @@ int main(int argc, char** argv)
 
     if (vm.contains("help")) {
       std::cout << desc << '\n';
+      std::cout << R"(Examples
+========
+
+  Run a planning JSON file (default: monolithic, multi-bus, all auto):
+    gtopt case.json
+
+  Run on a directory ('case_dir/case_dir.json' is auto-detected):
+    gtopt case_dir/
+
+  SDDP with the compressed memory mode (releases solver between phases,
+  keeps a compressed flat-LP snapshot for fast reconstruct):
+    gtopt case.json --memory-saving compress
+
+  Same with the in-place rebuild mode (lowest steady-state RAM,
+  re-flattens from collections on every solve):
+    gtopt case.json --memory-saving rebuild
+
+  Single-bus (copper-plate) mode — ignores all line limits:
+    gtopt case.json --set model_options.use_single_bus=true
+
+  Skip Kirchhoff voltage-law constraints (DC OPF only):
+    gtopt case.json --set model_options.use_kirchhoff=false
+
+  Pick a specific LP/MIP backend:
+    gtopt case.json --solver cplex
+    gtopt case.json --solver highs
+
+  Validate input + build the LP without solving (fast schema /
+  feasibility check; emits 'Validation: …' warnings + errors):
+    gtopt case.json --lp-only
+
+  Suppress all log output to stdout (logs still land in the per-run
+  '<output>/logs/gtopt_N.log' file when stdout is non-interactive):
+    gtopt case.json --quiet
+
+  Override scalar fields via --set (dotted path, repeatable; values
+  are auto-typed bool/int/double/string).  Example: pin SDDP threads
+  and disable Kirchhoff in one shot:
+    gtopt case.json --set sddp_options.forward_solver_options.threads=8 \
+                    --set model_options.use_kirchhoff=false
+
+  Save the merged planning JSON for inspection:
+    gtopt case.json --json-file merged_case.json
+
+  Save the assembled LP for solver-side inspection:
+    gtopt case.json --lp-file model
+
+  Tighten / loosen SDDP convergence:
+    gtopt case.json --set sddp_options.max_iterations=200 \
+                    --set sddp_options.convergence_tol=1e-5
+
+Outputs
+=======
+
+By default gtopt writes its results, logs, and traces under the
+configured output directory (CLI: --set output_directory=<dir>;
+default: 'output' relative to the case file's parent).  The layout
+is:
+
+  <output_directory>/                 results: per-element parquet/csv
+                    /solution.csv     scalar solve summary (status,
+                                      objective, kappa, per-(scene,
+                                      phase) breakdown)
+                    /Generator/       generation_sol.parquet, etc.
+                    /Bus/             balance_dual.parquet (LMPs), etc.
+                    /Reservoir/       efin_sol, …
+                    /cuts/            saved Benders cuts (SDDP only)
+                    /logs/            per-run log files (see below)
+
+  <output_directory>/logs/gtopt_N.log     INFO/WARN log of run #N
+                        /trace_N.log      trace-level log of run #N
+                        /error_*.lp[.zst] LP debug files when a
+                                          solve goes infeasible
+
+The 'N' suffix is shared between gtopt_N.log and trace_N.log of the
+same run (next free integer not present in the directory), so you
+can pair the two by suffix when investigating an issue across runs.
+
+When stdout is interactive (a TTY), spdlog also prints INFO+ to the
+terminal in addition to writing the log file.  When stdout is
+non-interactive (piped, redirected, or run via run_gtopt / CI),
+stdout is suppressed entirely and the log file is the canonical
+record — `--quiet` further silences the log file too.
+)";
       return 0;
     }
 
