@@ -2,10 +2,14 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
 /**
- * Middleware that logs every incoming request for diagnostics.
+ * Proxy that logs every incoming request for diagnostics.
  * Helps pinpoint routing issues (e.g. API routes returning 404).
+ *
+ * Renamed from `middleware()` to `proxy()` per Next.js 16+ convention
+ * (the `middleware` file/export name was deprecated — see
+ * https://nextjs.org/docs/messages/middleware-to-proxy).
  */
-export function middleware(request: NextRequest) {
+export function proxy(request: NextRequest) {
   const response = NextResponse.next();
 
   // Log request path, method, and user-agent on every request.
@@ -16,13 +20,13 @@ export function middleware(request: NextRequest) {
   const shortUa = ua.length > 60 ? ua.slice(0, 60) + "…" : ua;
 
   console.log(
-    `[${new Date().toISOString()}] [INFO] [middleware] ${method} ${path} (ua=${shortUa})`
+    `[${new Date().toISOString()}] [INFO] [proxy] ${method} ${path} (ua=${shortUa})`
   );
 
   return response;
 }
 
-// Run the middleware on API routes and the landing page.
+// Run the proxy on API routes and the landing page.
 // Excludes static assets (_next/static, favicon, etc.) to reduce noise.
 export const config = {
   matcher: ["/", "/api/:path*"],

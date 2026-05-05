@@ -29,10 +29,17 @@ export async function GET() {
     log.warn(`GET /api/ping: could not get gtopt version: ${err}`);
   }
 
-  // Read build ID for diagnostics
+  // Read build ID for diagnostics.  The /*turbopackIgnore: true*/ on
+  // process.cwd() prevents Turbopack from tracing the entire project
+  // into the NFT (Node File Trace) bundle just because we touch the
+  // cwd at request time — see https://nextjs.org/docs/app/api-reference/config/turbopack#turbopackignore
   let buildId = "";
   try {
-    const buildIdPath = path.join(process.cwd(), ".next", "BUILD_ID");
+    const buildIdPath = path.join(
+      /*turbopackIgnore: true*/ process.cwd(),
+      ".next",
+      "BUILD_ID"
+    );
     if (existsSync(buildIdPath)) {
       buildId = readFileSync(buildIdPath, "utf-8").trim();
     }
