@@ -226,7 +226,7 @@ void LinearInterface::compress_labels_meta_if_needed()
     auto& cm = detach_for_write(m_col_labels_meta_);
     m_col_labels_meta_count_ = cm.size();
     const auto bytes = serialize_labels_meta(cm);
-    const auto codec = select_codec(m_memory_codec_);
+    const auto codec = select_codec(m_snapshot_holder_.codec());
     m_col_labels_meta_compressed_ =
         compress_buffer({bytes.data(), bytes.size()}, codec);
     // Drop the live vector; `string_view`s in `m_col_labels_meta_`
@@ -239,7 +239,7 @@ void LinearInterface::compress_labels_meta_if_needed()
     auto& rm = detach_for_write(m_row_labels_meta_);
     m_row_labels_meta_count_ = rm.size();
     const auto bytes = serialize_labels_meta(rm);
-    const auto codec = select_codec(m_memory_codec_);
+    const auto codec = select_codec(m_snapshot_holder_.codec());
     m_row_labels_meta_compressed_ =
         compress_buffer({bytes.data(), bytes.size()}, codec);
     rm.clear();

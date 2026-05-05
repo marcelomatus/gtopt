@@ -34,6 +34,7 @@
 #include <gtopt/low_memory_snapshot.hpp>
 #include <gtopt/lp_cache.hpp>
 #include <gtopt/lp_replay_buffer.hpp>
+#include <gtopt/lp_snapshot_holder.hpp>
 #include <gtopt/lp_validation.hpp>
 #include <gtopt/memory_compress.hpp>
 #include <gtopt/sddp_enums.hpp>
@@ -584,7 +585,7 @@ public:
   /// and vectors stay intact.  After this, a subsequent
   /// `reconstruct_backend()` would have nothing to reload from — only
   /// call when the LP is truly done.
-  void clear_snapshot() noexcept { m_snapshot_ = LowMemorySnapshot {}; }
+  void clear_snapshot() noexcept { m_snapshot_holder_.clear(); }
 
   /// Install a flat LP snapshot **without** loading the backend.
   ///
@@ -705,7 +706,7 @@ public:
   /// Always false in `LowMemoryMode::rebuild` after release_backend.
   [[nodiscard]] bool has_snapshot_data() const noexcept
   {
-    return m_snapshot_.has_data();
+    return m_snapshot_holder_.has_data();
   }
 
   /// Move out the recorded dynamic columns (alpha) so the caller can
@@ -2626,12 +2627,13 @@ private:
   // ── Low-memory state ──────────────────────────────────────────────────
 
   LowMemoryMode m_low_memory_mode_ {LowMemoryMode::off};
-  CompressionCodec m_memory_codec_ {CompressionCodec::lz4};
 
-  /// Snapshot: flat LP (uncompressed or compressed), used by the
-  /// `snapshot` / `compress` reconstruct path.  Always empty under
-  /// `rebuild` — the flat LP is regenerated from collections instead.
-  LowMemorySnapshot m_snapshot_ {};
+  /// Snapshot + codec holder (Phase 2b of the LinearInterface split —
+  /// see ``include/gtopt/lp_snapshot_holder.hpp``).  Owns the flat LP
+  /// snapshot used by the `compress`/`snapshot` reconstruct path and
+  /// the compression codec.  Always empty under `rebuild` (the flat
+  /// LP is regenerated from collections instead).
+  LpSnapshotHolder m_snapshot_holder_ {};
 
   /// Invalidate the cached optimality flag and drop the cached
   /// primal/dual/reduced-cost vectors after a structural LP
