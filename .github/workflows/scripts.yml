@@ -44,10 +44,15 @@ jobs:
         run: uv pip install --system -e "./scripts[dev]" graphviz
 
       - name: Run unit tests with coverage
+        # Mirrors the `scripts-all-unit` ctest target — single pytest
+        # invocation with pytest-xdist (`-n auto`), one fork per CPU,
+        # so collection startup is paid once.  pytest-cov merges per-
+        # worker coverage data automatically.
         working-directory: scripts
         run: |
           pytest \
             --ignore=plp2gtopt/tests/test_integration.py \
+            -n auto \
             -q --tb=short -m "not integration" \
             --cov=cvs2parquet \
             --cov=igtopt \
