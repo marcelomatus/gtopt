@@ -194,3 +194,69 @@ def test_read_result_table_csv_shards(tmp_path: Path):
 def test_read_result_table_missing(tmp_path: Path):
     """Missing stem returns None."""
     assert _read_result_table(tmp_path, "Nope/missing") is None
+
+
+# ---------------------------------------------------------------------------
+# _resolve_log_dir — must follow output_directory / log_directory from JSON
+# ---------------------------------------------------------------------------
+
+
+def _write_case_json(tmp_path: Path, options: dict) -> Path:
+    """Helper: write a minimal case JSON with the given options."""
+    import json as _json
+
+    case_dir = tmp_path / "case"
+    case_dir.mkdir()
+    json_path = case_dir / "case.json"
+    json_path.write_text(_json.dumps({"options": options}, indent=2))
+    return case_dir
+
+
+def test_resolve_log_dir_default_output_directory(tmp_path: Path):
+    """Without output_directory in JSON, falls back to ``output/logs``."""
+    from run_gtopt._runner import _resolve_log_dir  # noqa: PLC0415
+
+    case_dir = _write_case_json(tmp_path, {})
+    log_dir = _resolve_log_dir(case_dir)
+    assert log_dir is not None
+    assert log_dir == (case_dir / "output" / "logs").resolve()
+    assert log_dir.is_dir()
+
+
+def test_resolve_log_dir_honours_output_directory(tmp_path: Path):
+    """When the JSON sets output_directory='results' (the plp2gtopt
+    convention) the runner must poll <case>/results/logs — not the
+    hard-coded <case>/output/logs.  Regression for the "Waiting for
+    solver output…" hang seen on Juan's iplp case."""
+    from run_gtopt._runner import _resolve_log_dir  # noqa: PLC0415
+
+    case_dir = _write_case_json(tmp_path, {"output_directory": "results"})
+    log_dir = _resolve_log_dir(case_dir)
+    assert log_dir is not None
+    assert log_dir == (case_dir / "results" / "logs").resolve()
+    assert log_dir.is_dir()
+
+
+def test_resolve_log_dir_honours_explicit_log_directory(tmp_path: Path):
+    """An explicit log_directory wins over output_directory (matches the
+    C++ setup_file_logging precedence)."""
+    from run_gtopt._runner import _resolve_log_dir  # noqa: PLC0415
+
+    case_dir = _write_case_json(
+        tmp_path,
+        {"output_directory": "results", "log_directory": "custom/logs"},
+    )
+    log_dir = _resolve_log_dir(case_dir)
+    assert log_dir is not None
+    assert log_dir == (case_dir / "custom" / "logs").resolve()
+
+
+def test_resolve_log_dir_no_json_falls_back_to_default(tmp_path: Path):
+    """No JSON in the case dir → keep the legacy default."""
+    from run_gtopt._runner import _resolve_log_dir  # noqa: PLC0415
+
+    case_dir = tmp_path / "no-json-here"
+    case_dir.mkdir()
+    log_dir = _resolve_log_dir(case_dir)
+    assert log_dir is not None
+    assert log_dir == (case_dir / "output" / "logs").resolve()

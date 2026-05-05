@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import subprocess
@@ -113,16 +114,65 @@ def _build_gtopt_cmd(
     return cmd
 
 
+def _find_case_json(case_dir: Path) -> Path | None:
+    """Return the planning JSON inside @p case_dir (or @p case_dir itself
+    if it already points at a JSON file).  Returns ``None`` when no JSON
+    file is found.
+
+    Used to discover the case's ``output_directory`` / ``log_directory``
+    so the tail thread polls the right place for new gtopt logs.
+    """
+    if case_dir.is_file():
+        return case_dir if case_dir.suffix == ".json" else None
+    if not case_dir.is_dir():
+        return None
+    # Prefer a JSON file matching the dir name (the plp2gtopt convention).
+    canonical = case_dir / f"{case_dir.name}.json"
+    if canonical.is_file():
+        return canonical
+    candidates = sorted(case_dir.glob("*.json"))
+    return candidates[0] if candidates else None
+
+
 def _resolve_log_dir(case_dir: Path) -> Path | None:
     """Return the directory where gtopt will write its log files.
 
     Mirrors the resolution done by ``setup_file_logging`` on the C++
-    side: ``<case>/output/logs`` (or ``<case_parent>/...`` if a JSON
-    file path was passed instead of a directory).  The directory is
-    created so the tail thread can poll it for new files.
+    side: gtopt picks ``log_directory`` if set in the planning JSON,
+    otherwise falls back to ``<output_directory>/logs``.  Both paths
+    are resolved relative to the case directory (the JSON's location).
+    The directory is created so the tail thread can poll it for new
+    files.
+
+    The previous implementation hard-coded ``<case>/output/logs``,
+    which silently desynced from cases configured with a non-default
+    ``output_directory`` (e.g. plp2gtopt-emitted JSONs use
+    ``output_directory = "results"``).  When that desync happened the
+    tail thread polled an empty directory forever and the TUI sat at
+    "Waiting for solver output…" while gtopt happily wrote to the
+    real log dir somewhere else.
     """
     base = case_dir.parent if case_dir.is_file() else case_dir
-    log_dir = base / "output" / "logs"
+    output_dir = "output"
+    log_subdir: str | None = None
+    json_path = _find_case_json(case_dir)
+    if json_path is not None:
+        try:
+            with open(json_path, encoding="utf-8") as fh:
+                data = json.load(fh)
+            opts = data.get("options") or {}
+            if isinstance(opts.get("output_directory"), str):
+                output_dir = opts["output_directory"]
+            if isinstance(opts.get("log_directory"), str):
+                log_subdir = opts["log_directory"]
+        except (OSError, json.JSONDecodeError):
+            pass
+
+    if log_subdir is not None:
+        log_dir = (base / log_subdir).resolve()
+    else:
+        log_dir = (base / output_dir / "logs").resolve()
+
     try:
         log_dir.mkdir(parents=True, exist_ok=True)
         return log_dir
