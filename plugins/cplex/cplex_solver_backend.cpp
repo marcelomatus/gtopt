@@ -117,6 +117,19 @@ void apply_options_to_env(cpxenv* env, const SolverOptions& opts)
     CPXsetintparam(env, CPX_PARAM_THREADS, opts.threads);
   }
 
+  // Force opportunistic parallel mode (-1, ``CPX_PARALLEL_OPPORTUNISTIC``)
+  // by default.  Per the GTEP LP benchmark
+  // (``docs/analysis/cplex-benchmark-results.md``) this is "the single
+  // best option: 733ms median, tightest range (718-805ms), lowest ticks
+  // (1,150).  Free ~3% speedup."  CPLEX's own default is deterministic
+  // (``+1``) which serialises some internal phases for run-to-run
+  // reproducibility — opportunistic relaxes that and can produce
+  // slightly different floating-point results between runs but
+  // converges to the same optimum within tolerance.  Acceptable for
+  // SDDP because individual cell solves are themselves wrapped in a
+  // tolerance-based convergence test, not a bit-exact compare.
+  CPXsetintparam(env, CPX_PARAM_PARALLELMODE, -1);
+
   CPXsetintparam(env, CPX_PARAM_PREIND, opts.presolve ? CPX_ON : CPX_OFF);
 
   if (opts.scaling.has_value()) {
