@@ -919,22 +919,27 @@ LinearInterface LinearInterface::clone_from_flat(CloneKind kind) const
   // Pre-conditions: the manual route reads from
   // `m_snapshot_holder_.snapshot().flat_lp`, which is only populated when
   // `freeze_for_cuts` ran with `LowMemoryMode::compress` (or `snapshot`).
-  // Compressed snapshots are not directly readable here — the SDDP aperture
-  // path decompresses around the backward pass via `DecompressionGuard`
-  // (sddp_aperture_pass.cpp:390, 579), so callers reaching this
-  // method during the aperture window are guaranteed an
-  // uncompressed snapshot.
+  // The SDDP aperture path decompresses around the backward pass via
+  // `DecompressionGuard` (sddp_aperture_pass.cpp:460 / 693), so callers
+  // reaching this method during the aperture window are guaranteed a
+  // hydrated `flat_lp.matbeg` even though the persistent compressed
+  // buffer (`m_snapshot_holder_.is_compressed()`) may still report
+  // ``true`` — the buffer is kept alive as a cache by
+  // `LowMemorySnapshot::decompress` and survives the rehydrate.  The
+  // check below is therefore on the *accessibility* of the flat LP
+  // (matbeg populated), not on the secondary compressed cache.
   if (!m_snapshot_holder_.has_data()) {
     throw std::runtime_error(
         "LinearInterface::clone_from_flat: source has no snapshot — call "
         "freeze_for_cuts(LowMemoryMode::compress) on the source first, or "
         "fall back to clone(kind) which uses the backend's native clone.");
   }
-  if (m_snapshot_holder_.is_compressed()) {
+  if (m_snapshot_holder_.snapshot().flat_lp.matbeg.empty()) {
     throw std::runtime_error(
-        "LinearInterface::clone_from_flat: source snapshot is compressed; "
-        "decompress first (DecompressionGuard) or fall back to "
-        "clone(kind).");
+        "LinearInterface::clone_from_flat: source flat LP is not "
+        "decompressed (matbeg is empty while compressed cache may be "
+        "present); decompress first (DecompressionGuard) or fall back "
+        "to clone(kind).");
   }
 
   // Build the clone via load_flat — no backend.clone() call, no
