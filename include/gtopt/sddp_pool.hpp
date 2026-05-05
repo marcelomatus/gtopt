@@ -7,16 +7,20 @@
  *
  * This header provides the work-pool specialisation used by the SDDP solver:
  *
- *  - `SDDPTaskKey` – a 3-tuple `(iteration, signed_phase, kind)` used as the
- *    secondary sort key so that LP solves in the earliest iteration, with
- *    correct per-direction phase ordering, are always scheduled first.
+ *  - `SDDPTaskKey` – a 4-tuple `(iteration, is_backward, signed_phase, kind)`
+ *    used as the secondary sort key so that LP solves in the earliest
+ *    iteration, with the forward pass strictly ahead of the backward
+ *    pass and correct per-direction phase ordering, are always
+ *    scheduled first.
  *  - `SDDPPassDirection` – enum class with values `forward = +1` and
  *    `backward = -1` so the enum value itself acts as the phase-sign
- *    multiplier when computing the priority key.
+ *    multiplier when computing the priority key.  The 0/1 sort field
+ *    `is_backward` (also derived in the factory) gives forward
+ *    cross-direction priority.
  *  - `SDDPTaskKind` – enum class (lp / non_lp) for task kind.
  *  - `make_sddp_task_key()` – factory from strong types to SDDPTaskKey tuple.
- *    Computes `signed_phase = direction * phase`, encoding both direction
- *    and per-direction phase order in a single signed int.
+ *    Computes `signed_phase = direction * phase` and
+ *    `is_backward = direction == backward ? 1 : 0`.
  *  - `SDDPWorkPool` – a concrete `BasicWorkPool<SDDPTaskKey>` subclass that
  *    can be forward-declared as `class SDDPWorkPool;` in other headers.
  *  - `make_sddp_work_pool()` – a factory that creates, configures, and starts
@@ -24,26 +28,27 @@
  *
  * ## SDDPTaskKey semantics
  *
- * The tuple `(iteration_index, signed_phase, kind)`:
+ * The tuple `(iteration_index, is_backward, signed_phase, kind)`:
  *  - `iteration_index`: SDDP iteration number (0, 1, …)
+ *  - `is_backward`:     0 = forward pass, 1 = backward pass
  *  - `signed_phase`:    `direction * phase` (`forward(+1) * phase = +phase`,
- *                       `backward(-1) * phase = -phase`)
+ *                       `backward(-1) * phase = -phase`) — encodes the
+ *                       within-direction phase order
  *  - `kind`:            `lp` (0) = LP solve/resolve, `non_lp` (1) = other
  *
  * With the default `std::less<SDDPTaskKey>` lexicographic comparison
  * (smaller tuple → higher dequeue priority):
  *  - **Lower iteration** wins (iter 0 before iter 1, …).
+ *  - **Forward (0) beats backward (1)** at the same iteration,
+ *    unconditionally — even at the same `|phase|`.  Matches the SDDP
+ *    rule that the forward pass produces the trial points the backward
+ *    pass needs.
  *  - **Within forward**: smaller `signed_phase` wins, so phase 0 dequeues
  *    before phase N — earlier phase first, matching how the forward pass
  *    walks 0 → N.
  *  - **Within backward**: `signed_phase = -phase`, so `-N < … < -1 < 0` —
  *    phase N dequeues before phase 0, matching how the backward pass walks
  *    N → 0.
- *  - **Cross-direction collisions** at the same iteration are degenerate
- *    and resolved by `kind` / submit time.  In practice the SDDP scheduler
- *    runs the forward and backward passes serially within one iteration
- *    (`sddp_method_iteration.cpp` blocks on `fut.wait()` between them),
- *    so the queue never contains both directions at once.
  *  - **`lp` (0) wins over `non_lp` (1)** so write_lp / dump tasks never
  *    block a solve worker.
  */
@@ -95,28 +100,43 @@ enum class SDDPTaskKind : int
 
 /// @brief SDDP solver task priority key.
 ///
-/// A 3-tuple `(iteration_index, signed_phase, kind)`:
+/// A 4-tuple `(iteration_index, is_backward, signed_phase, kind)`:
 ///  - `IterationIndex`: SDDP iteration number (0, 1, …)
+///  - `int is_backward`: `0` for forward, `1` for backward.  Lexicographic
+///    comparison keeps the forward pass strictly ahead of the backward
+///    pass within the same iteration — even at the same `|phase|`,
+///    where the per-direction `signed_phase` encoding alone would
+///    otherwise let backward win the tie.
 ///  - `int signed_phase`: `direction * phase` (positive for forward,
-///    non-positive for backward) — encodes both pass direction and the
-///    correct per-direction phase ordering in a single signed value.
+///    non-positive for backward) — encodes the *within-direction* phase
+///    ordering in a single signed value.
 ///  - `SDDPTaskKind`: `lp` (0) or `non_lp` (1)
 ///
 /// Tuple comparison with `std::less<SDDPTaskKey>` (lexicographic, smaller
 /// → higher dequeue priority):
 ///   - lower iteration  → higher priority
+///   - forward (0)      → higher priority than backward (1) — applies
+///     unconditionally at the same iteration, regardless of phase
 ///   - within forward   (signed_phase ≥ 0): phase 0 < phase 1 < …
 ///   - within backward  (signed_phase ≤ 0): -N < … < -1 < 0
 ///   - lp (0) < non_lp (1)
-using SDDPTaskKey =
-    std::tuple<IterationIndex, int /*signed_phase*/, SDDPTaskKind>;
+using SDDPTaskKey = std::tuple<IterationIndex,
+                               int /*is_backward*/,
+                               int /*signed_phase*/,
+                               SDDPTaskKind>;
 
 /// @brief Build an SDDPTaskKey from strongly-typed SDDP parameters.
 ///
-/// Computes `signed_phase = direction * phase`.  The
+/// Computes `signed_phase = direction * phase` and an
+/// `is_backward` int (0 for forward, 1 for backward).  The
 /// `SDDPPassDirection::{forward = +1, backward = -1}` enum values are
-/// chosen so they multiply directly with `phase_index` to encode the
-/// correct per-direction priority ordering.
+/// chosen so they multiply directly with `phase_index` for the
+/// signed-phase trick; `is_backward` is a separate sort field so the
+/// forward pass strictly precedes the backward pass at the same
+/// iteration even when the per-direction phase encodings would tie or
+/// invert (e.g. forward phase 0 vs backward phase 0 both encode to 0;
+/// forward phase 5 (+5) vs backward phase 5 (-5) would otherwise let
+/// backward win).
 ///
 /// @param iteration_index SDDP iteration index
 /// @param direction       Forward or backward pass
@@ -130,7 +150,8 @@ using SDDPTaskKey =
 {
   const int signed_phase =
       static_cast<int>(direction) * static_cast<int>(phase_index.value_of());
-  return {iteration_index, signed_phase, kind};
+  const int is_backward = (direction == SDDPPassDirection::backward) ? 1 : 0;
+  return {iteration_index, is_backward, signed_phase, kind};
 }
 
 // ─── Task-requirement builders (LP solves) ───────────────────────────────────
@@ -138,13 +159,15 @@ using SDDPTaskKey =
 /// Build a `BasicTaskRequirements<SDDPTaskKey>` for a forward-pass LP solve.
 ///
 /// Centralises the (priority, priority_key) tuple so the SDDP solver never
-/// spells out the three-element key inline, and so the lexicographic
+/// spells out the four-element key inline, and so the lexicographic
 /// ordering invariant stays in one place:
 ///
 ///   iter N LP        < iter N+1 LP                (same direction, phase)
+///   forward LP       < backward LP                (same iter, any phase)
 ///   forward phase 0  < forward phase 1 < …        (within forward)
 ///   backward phase N < … < backward phase 0       (within backward)
-///   any LP           < any non-LP                 (same iter, signed_phase)
+///   any LP           < any non-LP                 (same iter, direction,
+///                                                  signed_phase)
 ///
 /// Both forward and backward solves share `TaskPriority::Medium`; the
 /// tuple key alone provides full SDDP ordering.  Exposed for unit
@@ -186,7 +209,8 @@ using SDDPTaskKey =
 
 /// @brief Work pool specialised for the SDDP solver with tuple priority key.
 ///
-/// Uses `SDDPTaskKey = std::tuple<IterationIndex, int, SDDPTaskKind>` as the
+/// Uses `SDDPTaskKey = std::tuple<IterationIndex, int, int, SDDPTaskKind>`
+/// (iteration, is_backward, signed_phase, kind) as the
 /// secondary sort key with the default `std::less<SDDPTaskKey>` comparator
 /// (lexicographic).  A concrete derived class so that `class SDDPWorkPool;`
 /// can be forward-declared in headers that only need the pointer type.
@@ -204,7 +228,7 @@ public:
  *
  * Uses `SDDPTaskKey` (tuple) as the secondary priority key so that the
  * SDDP forward/backward LP solves are ordered by
- * (iteration, signed_phase, kind) with the default
+ * (iteration, is_backward, signed_phase, kind) with the default
  * `std::less<SDDPTaskKey>` comparator (smaller tuple → higher priority).
  *
  * The pool sizes itself as
