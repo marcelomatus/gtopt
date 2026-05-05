@@ -1,6 +1,6 @@
 # `LinearInterface` split — implementation plan
 
-**Status:** design draft, not yet implemented.
+**Status:** in progress.  Phase 1 + Phase 2a landed (PR #461 + #462).
 **Date:** 2026-05-04
 **Source:** B2 from `docs/improvement_recommendations.md` (~1.5 weeks).
 **Companion plans:**
@@ -10,6 +10,23 @@
 * `support/linear_interface_lifecycle_plan_2026-04-30.md` — earlier
   doc on the bulk-`add_rows` / label-meta failure mode that motivated
   the lifecycle subsystem boundary used here.
+
+## Progress tracker
+
+| Phase | Class | Status | PR |
+|-------|-------|--------|----|
+| 1     | `LpCache`         | ✅ landed | [#461](https://github.com/marcelomatus/gtopt/pull/461) |
+| 2a    | `LpReplayBuffer`  | ✅ landed | [#462](https://github.com/marcelomatus/gtopt/pull/462) |
+| 2b    | `LpSnapshotHolder` (snapshot + codec + compression) | ⏳ pending | — |
+| 2c    | `LpBackendOwner` (backend ptr + released + phase + ensure/reconstruct) | ⏳ pending | — |
+| 3     | `LpSolver` (initial_solve / resolve / fallback) | ⏳ pending | — |
+| 4     | `LpModel` (structural LP + label meta + scaling) | ⏳ pending | — |
+
+After Phase 2a, `LinearInterface` is **5 868 → 5 631 lines** (~4 %
+shrink); the post-solve cache and the replay buffer each have their
+own header + isolated unit tests (10 + 8 cases, 78 + 57 assertions).
+Failure-mode boundaries are now self-documenting via the LpCache
+(C1–C8) and LpReplayBuffer (R1–R6) invariants.
 
 ---
 
