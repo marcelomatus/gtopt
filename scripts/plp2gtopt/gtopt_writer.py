@@ -87,6 +87,15 @@ def _validate_piecewise_segments(planning: Dict) -> list[str]:
       ``min(f(V_low), f(V_high)) < fmin``  OR
       ``max(f(V_low), f(V_high)) > fmax``.
 
+      Also warn when the **first segment** evaluated at ``efin = emin``
+      gives a non-zero qfilt (tolerance 1e-3 m³/s).  PLP filtration
+      curves are physically expected to drop to zero at the lower
+      operating volume; ``junction_writer._fix_first_seepage_segment``
+      anchors q(vmin)=0 by default, so a violation here means the
+      input bypassed that fix (``--plp-legacy``, single-segment
+      curves, or hand-edited JSON) — the LP will be forced to
+      discharge water that isn't physically in storage near vmin.
+
     * ReservoirDischargeLimit row is the inequality
       ``qeh ≤ intercept + slope · efin`` with ``qeh ≥ 0``.  Warn when
       ``min(f(V_low), f(V_high)) < 0``.
@@ -122,6 +131,66 @@ def _validate_piecewise_segments(planning: Dict) -> list[str]:
         fmax_val = _try_scalar(ww.get("fmax"))
         fmin_val = 0.0 if fmin_val is None else fmin_val
         fmax_val = float("inf") if fmax_val is None else fmax_val
+
+        # First-segment q(emin) physical-zero check + auto-fix.  Mirrors
+        # `junction_writer._fix_first_seepage_segment` (which runs on
+        # the way OUT of plp2gtopt for the standard path) so cases that
+        # bypassed it — hand-edited JSON, --plp-legacy, single-segment
+        # curves — still get anchored at q(emin)=0 with the same
+        # 2-point algorithm: anchor (emin, 0) plus continuity at
+        # segment-2's start volume.  A warning fires unconditionally
+        # so the operator sees the (auto-)correction in the log.
+        first = segments[0]
+        first_slope = float(first.get("slope", 0.0))
+        first_constant = float(first.get("constant", 0.0))
+        q_at_emin = first_constant + first_slope * emin
+        if abs(q_at_emin) > 1e-3:
+            seep_name = seep.get("name")
+            rsv_name = rsv.get("name")
+            ww_name = ww.get("name")
+            if len(segments) >= 2:
+                seg2_vol = float(segments[1].get("volume", 0.0))
+            else:
+                seg2_vol = float("nan")
+            if len(segments) >= 2 and seg2_vol > emin:
+                # Anchor: q(emin)=0 and q(seg2_vol) preserved
+                # (continuity with the rest of the curve).
+                q_at_seg2 = first_constant + first_slope * seg2_vol
+                new_slope = q_at_seg2 / (seg2_vol - emin)
+                new_constant = -new_slope * emin
+                # In-place mutation of the planning dict — caller's
+                # reference sees the corrected coefficients.
+                segments[0]["slope"] = new_slope
+                segments[0]["constant"] = new_constant
+                warnings.append(
+                    f"ReservoirSeepage '{seep_name}' (reservoir "
+                    f"'{rsv_name}', waterway '{ww_name}'): first "
+                    f"segment qfilt(efin=emin={emin:.4g}) = "
+                    f"{q_at_emin:.4g} → 0 (auto-anchored: slope "
+                    f"{first_slope:.6g}→{new_slope:.6g}, constant "
+                    f"{first_constant:.6g}→{new_constant:.6g}, "
+                    f"continuity at vol={seg2_vol:.4g} with "
+                    f"q={q_at_seg2:.4g})."
+                )
+            else:
+                # Single segment, or seg2 starts at/below emin —
+                # cannot anchor cleanly without losing physical
+                # meaning; warn only.
+                reason = (
+                    "single segment"
+                    if len(segments) < 2
+                    else f"second segment vol={seg2_vol:.4g} ≤ emin={emin:.4g}"
+                )
+                warnings.append(
+                    f"ReservoirSeepage '{seep_name}' (reservoir "
+                    f"'{rsv_name}', waterway '{ww_name}'): first "
+                    f"segment qfilt(efin=emin={emin:.4g}) = "
+                    f"{q_at_emin:.4g} (slope={first_slope:.6g}, "
+                    f"constant={first_constant:.6g}); cannot "
+                    f"auto-anchor ({reason}) — fix the segment "
+                    f"data manually so that constant + slope * emin "
+                    f"= 0."
+                )
 
         for k, seg in enumerate(segments):
             slope = float(seg.get("slope", 0.0))

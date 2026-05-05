@@ -1149,7 +1149,9 @@ class TestValidatePiecewiseSegments:
     def test_seepage_below_fmin_warns(self):
         from plp2gtopt.gtopt_writer import _validate_piecewise_segments
 
-        # f(100) = -5 + 0.01·100 = -4 < fmin=0
+        # f(100) = -5 + 0.01·100 = -4 < fmin=0.  The same input also
+        # fails the q(emin)=0 check (q(100) = -4 ≠ 0), so two warnings
+        # fire; assert that the fmin one is among them.
         planning = self._planning_with(
             seepages=[
                 {
@@ -1163,18 +1165,18 @@ class TestValidatePiecewiseSegments:
             ],
         )
         warns = _validate_piecewise_segments(planning)
-        assert len(warns) == 1
-        assert "seep1" in warns[0]
-        assert "fmin" in warns[0]
-        assert "segment 0" in warns[0]
+        fmin_warns = [w for w in warns if "fmin" in w and "segment 0" in w]
+        assert len(fmin_warns) == 1
+        assert "seep1" in fmin_warns[0]
 
     def test_seepage_above_fmax_warns(self):
         from plp2gtopt.gtopt_writer import _validate_piecewise_segments
 
         # f(100) = 10 + 0.2·100 = 30 ∈ [0, 100] ✓ (lower bound ok)
         # f(1000) = 10 + 0.2·1000 = 210 > fmax=100 ✗
-        # Only the upper-bound violation fires; the lower endpoint
-        # is inside [fmin, fmax] so no fmin warning.
+        # The same input also fails the q(emin)=0 check (q(100) = 30 ≠
+        # 0), so two warnings fire; assert that the fmax one is among
+        # them.
         planning = self._planning_with(
             seepages=[
                 {
@@ -1188,9 +1190,91 @@ class TestValidatePiecewiseSegments:
             ],
         )
         warns = _validate_piecewise_segments(planning)
-        assert len(warns) == 1
-        assert "seep1" in warns[0]
-        assert "fmax" in warns[0]
+        fmax_warns = [w for w in warns if "fmax" in w]
+        assert len(fmax_warns) == 1
+        assert "seep1" in fmax_warns[0]
+
+    def test_seepage_q_at_emin_nonzero_single_segment_warns_no_fix(self):
+        from plp2gtopt.gtopt_writer import _validate_piecewise_segments
+
+        # Single segment with q(efin=100) = -0.5 + 0.01·100 = 0.5 m³/s.
+        # The validator can't auto-anchor (no second segment to preserve
+        # continuity with), so it emits a "cannot auto-anchor (single
+        # segment)" warning and leaves the data unchanged.
+        planning = self._planning_with(
+            seepages=[
+                {
+                    "name": "seep1",
+                    "reservoir": 1,
+                    "waterway": 10,
+                    "segments": [
+                        {"volume": 100, "slope": 0.01, "constant": -0.5},
+                    ],
+                },
+            ],
+        )
+        warns = _validate_piecewise_segments(planning)
+        anchor_warns = [w for w in warns if "qfilt(efin=emin" in w]
+        assert len(anchor_warns) == 1
+        assert "single segment" in anchor_warns[0]
+        # Coefficients are NOT mutated when auto-anchor is impossible.
+        seg = planning["system"]["reservoir_seepage_array"][0]["segments"][0]
+        assert seg["slope"] == 0.01
+        assert seg["constant"] == -0.5
+
+    def test_seepage_q_at_emin_nonzero_two_segments_auto_anchored(self):
+        from plp2gtopt.gtopt_writer import _validate_piecewise_segments
+
+        # First segment: q(emin=100) = 2 + 0.05·100 = 7 m³/s ≠ 0.
+        # Second segment starts at vol=500 → continuity anchor point.
+        # Auto-anchor target:
+        #   q_at_seg2 = 2 + 0.05·500 = 27
+        #   new_slope = 27 / (500 - 100) = 0.0675
+        #   new_constant = -0.0675 · 100 = -6.75
+        planning = self._planning_with(
+            seepages=[
+                {
+                    "name": "seep1",
+                    "reservoir": 1,
+                    "waterway": 10,
+                    "segments": [
+                        {"volume": 100, "slope": 0.05, "constant": 2.0},
+                        {"volume": 500, "slope": 0.10, "constant": -20.0},
+                    ],
+                },
+            ],
+        )
+        warns = _validate_piecewise_segments(planning)
+        anchor_warns = [w for w in warns if "auto-anchored" in w]
+        assert len(anchor_warns) == 1
+        assert "seep1" in anchor_warns[0]
+        # Segments mutated in place — verify the fixed coefficients.
+        seg0 = planning["system"]["reservoir_seepage_array"][0]["segments"][0]
+        assert seg0["slope"] == pytest.approx(0.0675)
+        assert seg0["constant"] == pytest.approx(-6.75)
+        # Sanity: the rebuilt curve now yields q(emin=100) ≈ 0
+        assert seg0["constant"] + seg0["slope"] * 100 == pytest.approx(0.0, abs=1e-12)
+
+    def test_seepage_q_at_emin_zero_emits_no_warning(self):
+        from plp2gtopt.gtopt_writer import _validate_piecewise_segments
+
+        # First segment perfectly anchored at q(emin=100) = 0:
+        # constant + slope·100 = -1 + 0.01·100 = 0.0 ✓
+        # No warnings should fire (this also exercises the path that
+        # CIPRESES auto-rebuild produces).
+        planning = self._planning_with(
+            seepages=[
+                {
+                    "name": "seep1",
+                    "reservoir": 1,
+                    "waterway": 10,
+                    "segments": [
+                        {"volume": 100, "slope": 0.01, "constant": -1.0},
+                    ],
+                },
+            ],
+        )
+        assert not _validate_piecewise_segments(planning)
 
     def test_clean_discharge_limit_emits_no_warning(self):
         from plp2gtopt.gtopt_writer import _validate_piecewise_segments
