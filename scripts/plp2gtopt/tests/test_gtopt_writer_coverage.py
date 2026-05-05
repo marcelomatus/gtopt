@@ -54,6 +54,26 @@ class TestProcessOptions:
         sddp = writer.planning["options"].get("sddp_options", {})
         assert sddp.get("cut_sharing_mode") == "shared"
 
+    def test_process_options_backward_solver_threads_default(self, tmp_path):
+        """process_options always emits backward_solver_options.threads=1."""
+        parser = PLPParser({"input_dir": _PLPMin1Bus})
+        parser.parse_all()
+        writer = GTOptWriter(parser)
+        writer.process_options(_make_opts(tmp_path))
+        sddp = writer.planning["options"]["sddp_options"]
+        assert sddp["backward_solver_options"] == {"threads": 1}
+
+    def test_process_options_backward_solver_threads_override(self, tmp_path):
+        """`backward_solver_threads` option overrides the default."""
+        parser = PLPParser({"input_dir": _PLPMin1Bus})
+        parser.parse_all()
+        writer = GTOptWriter(parser)
+        opts = _make_opts(tmp_path)
+        opts["backward_solver_threads"] = 4
+        writer.process_options(opts)
+        sddp = writer.planning["options"]["sddp_options"]
+        assert sddp["backward_solver_options"] == {"threads": 4}
+
 
 # ---------------------------------------------------------------------------
 # _load_variable_scales_file (lines 1119-1156)
