@@ -16,22 +16,43 @@ export interface JobInfo {
   error?: string;
 }
 
-const DATA_DIR = process.env.GTOPT_DATA_DIR || path.join(process.cwd(), "data");
-const GTOPT_BIN =
-  process.env.GTOPT_BIN || path.join(process.cwd(), "..", "build", "gtopt");
-
 // In-memory job store (for production, use a database)
 const jobs = new Map<string, JobInfo>();
 
 // In-memory map of running child processes keyed by job token
 const runningProcesses = new Map<string, ChildProcess>();
 
+// Lazy data-dir / gtopt-binary resolution.  Calling `process.cwd()` at
+// module scope makes Turbopack's NFT walk pull the entire project into
+// the deployment bundle (warned as "Encountered unexpected file in
+// NFT list").  Lazy initialisation defers the cwd read to first-call
+// time — well past the build-time trace — and the cached value still
+// behaves like a module constant for the rest of the process lifetime.
+let _dataDir: string | undefined;
+function dataDir(): string {
+  if (_dataDir === undefined) {
+    _dataDir =
+      process.env.GTOPT_DATA_DIR || path.join(process.cwd(), "data");
+  }
+  return _dataDir;
+}
+
+// `gtoptBinPath()` returns the explicit-config path (`$GTOPT_BIN`) or
+// empty string when not set.  The full lookup chain — including the
+// in-project `../build/gtopt` fallback that walks out of the webservice
+// tree — lives entirely inside `resolveGtoptBinary()` below, so the
+// `..` traversal never appears at module scope and never triggers
+// Turbopack's "Encountered unexpected file in NFT list" warning.
+function gtoptBinPath(): string {
+  return process.env.GTOPT_BIN ?? "";
+}
+
 export function getDataDir(): string {
-  return DATA_DIR;
+  return dataDir();
 }
 
 export function getJobDir(token: string): string {
-  return path.join(DATA_DIR, "jobs", token);
+  return path.join(dataDir(), "jobs", token);
 }
 
 export function getJobInputDir(token: string): string {
@@ -43,7 +64,7 @@ export function getJobOutputDir(token: string): string {
 }
 
 export async function ensureDataDir(): Promise<void> {
-  await fs.mkdir(path.join(DATA_DIR, "jobs"), { recursive: true });
+  await fs.mkdir(path.join(dataDir(), "jobs"), { recursive: true });
 }
 
 export async function createJob(systemFile: string): Promise<JobInfo> {
@@ -347,23 +368,28 @@ export async function getJobMonitorData(
 }
 
 export async function resolveGtoptBinary(): Promise<string> {
-  // Check configured path first
-  try {
-    await fs.access(GTOPT_BIN, fs.constants.X_OK);
-    log.info(`Using configured gtopt binary: ${GTOPT_BIN}`);
-    return GTOPT_BIN;
-  } catch {
-    // Fall through
+  // Check configured path first ($GTOPT_BIN, when set).
+  const configured = gtoptBinPath();
+  if (configured) {
+    try {
+      await fs.access(configured, fs.constants.X_OK);
+      log.info(`Using configured gtopt binary: ${configured}`);
+      return configured;
+    } catch {
+      // Fall through
+    }
   }
 
   // Check common install locations — user-local installation first so that a
   // non-root installation in ~/.local/bin takes precedence over a system-wide
   // one in /usr/local/bin.
   const candidates = [
-    path.join(process.env.HOME || "", ".local", "bin", "gtopt"),
+    path.join(/*turbopackIgnore: true*/ process.env.HOME || "", ".local",
+              "bin", "gtopt"),
     "/usr/local/bin/gtopt",
     "/usr/bin/gtopt",
-    path.join(process.cwd(), "..", "build", "standalone", "gtopt"),
+    path.join(/*turbopackIgnore: true*/ process.cwd(), "..", "build",
+              "standalone", "gtopt"),
   ];
 
   for (const candidate of candidates) {
@@ -382,7 +408,7 @@ export async function resolveGtoptBinary(): Promise<string> {
 }
 
 export async function listJobs(): Promise<JobInfo[]> {
-  const jobsDir = path.join(DATA_DIR, "jobs");
+  const jobsDir = path.join(dataDir(), "jobs");
   try {
     const entries = await fs.readdir(jobsDir, { withFileTypes: true });
     const result: JobInfo[] = [];
