@@ -495,7 +495,10 @@ auto solve_apertures_for_phase(
   spdlog::info(
       "{}: {}/{} feasible, {} infeasible, {} skipped ({:.3f}s) "
       "[thread {}]",
-      sddp_log("Aperture", iteration_index, scene_uid_val, phase_uid_val),
+      sddp_log("Aperture",
+               gtopt::uid_of(iteration_index),
+               scene_uid_val,
+               phase_uid_val),
       n_feasible,
       n_total,
       n_infeasible,

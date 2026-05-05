@@ -93,12 +93,14 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
           uid_of(cur_phase));
       return std::unexpected(Error {
           .code = ErrorCode::SolverError,
-          .message = std::format(
-              "{}: forward pass exceeded forward_max_attempts={} "
-              "(last phase p{})",
-              sddp_log("Forward", iteration_index, uid_of(scene_index)),
-              max_attempts,
-              uid_of(cur_phase)),
+          .message =
+              std::format("{}: forward pass exceeded forward_max_attempts={} "
+                          "(last phase p{})",
+                          sddp_log("Forward",
+                                   gtopt::uid_of(iteration_index),
+                                   uid_of(scene_index)),
+                          max_attempts,
+                          uid_of(cur_phase)),
       });
     }
 
@@ -108,7 +110,7 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
           .code = ErrorCode::SolverError,
           .message = std::format("{}: cancelled",
                                  sddp_log("Forward",
-                                          iteration_index,
+                                          gtopt::uid_of(iteration_index),
                                           uid_of(scene_index),
                                           uid_of(phase_index))),
       });
@@ -209,8 +211,10 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
     // Tag the LP with the SDDP Forward key so fallback warnings emitted
     // by LinearInterface::resolve() carry the same context as the
     // surrounding SDDP info logs.
-    li.set_log_tag(sddp_log(
-        "Forward", iteration_index, uid_of(scene_index), uid_of(phase_index)));
+    li.set_log_tag(sddp_log("Forward",
+                            gtopt::uid_of(iteration_index),
+                            uid_of(scene_index),
+                            uid_of(phase_index)));
 
     // Solve directly — already running in a pool thread.
     auto result = li.resolve(effective_opts);
@@ -233,7 +237,7 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
             .code = ErrorCode::SolverError,
             .message = std::format("{}: solve timeout ({:.1f}s) (status {})",
                                    sddp_log("Forward",
-                                            iteration_index,
+                                            gtopt::uid_of(iteration_index),
                                             uid_of(scene_index),
                                             uid_of(phase_index)),
                                    m_options_.solve_timeout,
@@ -561,7 +565,7 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
                     std::format("{}: fail-stop after elastic fcut on p{} "
                                 "(infeas_count={})",
                                 sddp_log("Forward",
-                                         iteration_index,
+                                         gtopt::uid_of(iteration_index),
                                          uid_of(scene_index),
                                          uid_of(phase_index)),
                                 uid_of(prev_phase_index),
@@ -701,7 +705,7 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
             .message = std::format("{}: elastic filter produced no "
                                    "feasibility cut (status {})",
                                    sddp_log("Forward",
-                                            iteration_index,
+                                            gtopt::uid_of(iteration_index),
                                             uid_of(scene_index),
                                             uid_of(phase_index)),
                                    solve_status),
@@ -790,7 +794,7 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
             .code = ErrorCode::SolverError,
             .message = std::format("{}: optimal status but NaN in solution",
                                    sddp_log("Forward",
-                                            iteration_index,
+                                            gtopt::uid_of(iteration_index),
                                             uid_of(scene_index),
                                             uid_of(phase_index))),
         });
@@ -850,9 +854,10 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
         uid_of(scene_index));
     return std::unexpected(Error {
         .code = ErrorCode::SolverError,
-        .message = std::format(
-            "{}: forward pass total cost is NaN",
-            sddp_log("Forward", iteration_index, uid_of(scene_index))),
+        .message = std::format("{}: forward pass total cost is NaN",
+                               sddp_log("Forward",
+                                        gtopt::uid_of(iteration_index),
+                                        uid_of(scene_index))),
     });
   }
 

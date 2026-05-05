@@ -267,7 +267,8 @@ TEST_CASE("make_planning_method SDDP wiring snapshot")  // NOLINT
     CHECK(so.api_stop_request_file == expected_api_stop);
 
     // ── Pool / async ──
-    CHECK(so.max_async_spread == 0);
+    CHECK(so.max_async_spread
+          == 2);  // default flipped from 0 to 2 — async by default
     CHECK(so.pool_cpu_factor == doctest::Approx(4.0));
     CHECK(so.pool_memory_limit_mb == doctest::Approx(0.0));
 
