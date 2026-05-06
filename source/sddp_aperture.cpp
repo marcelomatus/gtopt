@@ -486,25 +486,33 @@ auto solve_apertures_for_phase(
     }
   }
 
-  // Log summary
+  // Log summary.  Emit at INFO level only when the result is
+  // anomalous (some aperture infeasible/skipped) so the common
+  // all-feasible case stops dominating the log under
+  // ``num_apertures == all`` on production cases (16 scen × 51
+  // phases × 30 iters ≈ 24K per-(scene, phase) lines, almost
+  // always "16/16 feasible").  All-feasible all-not-skipped lines
+  // demote to debug — turn on with --verbose if needed.
   const auto n_total = effective_apertures.size();
   const auto n_feasible = aperture_cuts.size();
   const auto phase_elapsed = std::chrono::duration<double>(
                                  std::chrono::steady_clock::now() - phase_start)
                                  .count();
-  spdlog::info(
-      "{}: {}/{} feasible, {} infeasible, {} skipped ({:.3f}s) "
-      "[thread {}]",
-      sddp_log("Aperture",
-               gtopt::uid_of(iteration_index),
-               scene_uid_val,
-               phase_uid_val),
-      n_feasible,
-      n_total,
-      n_infeasible,
-      n_skipped,
-      phase_elapsed,
-      std::hash<std::thread::id> {}(caller_tid) % 10000);
+  const bool anomalous = (n_infeasible > 0) || (n_skipped > 0);
+  const auto level = anomalous ? spdlog::level::info : spdlog::level::debug;
+  spdlog::log(level,
+              "{}: {}/{} feasible, {} infeasible, {} skipped ({:.3f}s) "
+              "[thread {}]",
+              sddp_log("Aperture",
+                       gtopt::uid_of(iteration_index),
+                       scene_uid_val,
+                       phase_uid_val),
+              n_feasible,
+              n_total,
+              n_infeasible,
+              n_skipped,
+              phase_elapsed,
+              std::hash<std::thread::id> {}(caller_tid) % 10000);
 
   if (aperture_cuts.empty()) {
     return std::nullopt;
