@@ -745,22 +745,6 @@ public:
   /// after the drop must first call `rebuild_collections_if_needed()`.
   void clear_disposable_collections();
 
-  /// Walk every HasUpdateLP element in this SystemLP and set its
-  /// per-(scen, stg) `ReservoirRefCache` predecessor locator
-  /// (`prev_phase_index`, `prev_phase_last_stage_uid`) against
-  /// `prev_sys`'s phase index and last-stage uid.  Invoked once per
-  /// (scene, phase) pair from `PlanningLP::tighten_scene_phase_links`.
-  ///
-  /// The locator is consumed at every `update_lp` call as a key into
-  /// the simulation-wide state-variable registry — no `StateVariable*`
-  /// is cached, so the binding is robust under
-  /// `LowMemoryMode::rebuild` (which may reallocate the registry's
-  /// flat_map and would dangle a cached pointer).
-  ///
-  /// Idempotent: re-binding against the same `prev_sys` yields the
-  /// same locator.  No-op for phase 0 (caller skips it).
-  void bind_reservoir_caches(const SystemLP& prev_sys);
-
 private:
   /// Install the rebuild callback on `m_linear_interface_` so that any
   /// access to a released backend lazily regenerates the LP from

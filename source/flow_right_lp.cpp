@@ -248,9 +248,7 @@ bool FlowRightLP::add_to_lp(const SystemContext& sc,
     if (axis_uses_reservoir(opt_rule->axis)) {
       const auto rsv_sid = ReservoirLPSId(opt_rule->reservoir);
       const auto& rsv = sc.element<ReservoirLP>(rsv_sid);
-      bs.reservoir_cache =
-          make_reservoir_ref_cache(rsv, rsv_sid, scenario, stage);
-      bs.has_reservoir_cache = true;
+      bs.reservoir_cache = make_reservoir_ref_cache(rsv, scenario, stage);
     }
     m_bound_states_[st_key] = std::move(bs);
   }
@@ -328,33 +326,6 @@ bool FlowRightLP::add_to_output(OutputContext& out) const
   }
 
   return true;
-}
-
-void FlowRightLP::bind_reservoir_caches(const SimulationLP& sim,
-                                        const SystemLP& prev_sys)
-{
-  const auto& prev_stages = prev_sys.phase().stages();
-  if (prev_stages.empty()) {
-    return;
-  }
-  const auto prev_phase_index = prev_sys.phase().index();
-  const auto prev_last_stage_uid = prev_stages.back().uid();
-  const auto scene_index = prev_sys.scene().index();
-  // `auto&&` is required: `flat_map`'s value_type may be a proxy when
-  // backed by `std::flat_map<…>` (C++23), which stores keys and values
-  // in separate vectors and yields a synthesized pair from `iterator*`.
-  // `state` still binds to the live value in the values vector.
-  for (auto&& [stkey, state] : m_bound_states_) {
-    if (!state.has_reservoir_cache) {
-      continue;
-    }
-    bind_prev_phase_state_var(state.reservoir_cache,
-                              sim,
-                              scene_index,
-                              prev_phase_index,
-                              std::get<0>(stkey),
-                              prev_last_stage_uid);
-  }
 }
 
 int FlowRightLP::update_lp(SystemLP& sys,

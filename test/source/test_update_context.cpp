@@ -7,28 +7,34 @@
  * The contract under test:
  *
  *   physical_eini_from_cache(sys, scenario, stage, cache)
- *     ==  rsv.physical_eini(sys, scenario, stage, default, rsv_sid)
+ *     ==  sys.linear_interface().get_col_sol()[cache.eini_col]
+ *           (when sys.linear_interface().is_optimal())
  *
  *   physical_efin_from_cache(sys, cache)
- *     ==  rsv.physical_efin(li, scenario, stage, default)
+ *     ==  sys.linear_interface().get_col_sol()[cache.efin_col]
+ *           (when sys.linear_interface().is_optimal())
  *
- * The cache must reproduce these values byte-for-byte regardless of which
- * cross-phase resolution path is active:
- *   * fallback path  — `prev_sys->element<ReservoirLP>(rsv_sid)` lookup.
- *   * StateVariable path — bound predecessor locator triggers a
- *     `sim.state_variable(key)` lookup that reads `col_sol_physical()`
- *     from the simulation's state-variable registry.
+ * Both helpers fall through to a warm-vector or default value when
+ * the current sys's LP has not been solved yet.  Neither traverses
+ * `prev_phase_sys`, looks up a `StateVariable` by key, or accesses
+ * `sys.element<ReservoirLP>(...)`.  The LP's structural constraints
+ * make this sufficient:
+ *   * Non-daily_cycle storage — `eini_col == prev_phase_efin_col` via
+ *     the state-link constraint, so reading current `eini_col` yields
+ *     the predecessor's solved efin.
+ *   * Daily-cycle storage — `efin_col == eini_col` via the in-phase
+ *     close constraint, so reading current `eini_col` yields the
+ *     current phase's optimised volume.
  *
- * Background: a previous regression that propagated a wrong efin value to
- * the next phase took roughly a week to debug.  These tests pin the
- * value-channel against the existing `physical_eini` / `physical_efin`
- * oracle so any future divergence is caught at unit-test time.
+ * Background: a previous regression that propagated a wrong eini value
+ * to the next phase took roughly a week to debug.  These tests pin
+ * the cache helpers against the LP's solved column values so any
+ * future divergence is caught at unit-test time.
  */
 
 #include <doctest/doctest.h>
 #include <gtopt/planning_lp.hpp>
 #include <gtopt/reservoir_lp.hpp>
-#include <gtopt/state_variable.hpp>
 #include <gtopt/system_lp.hpp>
 #include <gtopt/update_context.hpp>
 
@@ -46,7 +52,7 @@ namespace
 /// Same shape as `make_3phase_hydro_planning` in `sddp_helpers.hpp` but
 /// trimmed to what these tests need.  The reservoir uses
 /// `use_state_variable=true` so `efin` is registered as a StateVariable
-/// in every phase — this is the fixture invariant the tests rely on.
+/// in every phase.  Daily_cycle is left at its default (false).
 inline auto make_two_phase_reservoir_planning(double eini_value = 100.0)
     -> Planning
 {
@@ -195,18 +201,16 @@ TEST_CASE(  // NOLINT
 
   auto& sys0 = planning_lp.system(first_scene_index(), first_phase_index());
   const auto& rsv = sys0.elements<ReservoirLP>().front();
-  const ReservoirLPSId rsv_sid {Uid {1}};
   const auto& scenario = sys0.scene().scenarios().front();
   const auto& stage = sys0.phase().stages().front();
 
-  const auto cache = make_reservoir_ref_cache(rsv, rsv_sid, scenario, stage);
+  const auto cache = make_reservoir_ref_cache(rsv, scenario, stage);
 
   CHECK(cache.rsv_uid == Uid {1});
   CHECK(cache.default_volume == doctest::Approx(250.0));
   CHECK(cache.eini_col == rsv.eini_col_at(scenario, stage));
   CHECK(cache.efin_col == rsv.efin_col_at(scenario, stage));
   CHECK(cache.energy_scale == doctest::Approx(rsv.energy_scale()));
-  CHECK_FALSE(cache.has_prev_phase);
 }
 
 // ─── 2. physical_eini_from_cache: first-phase first-stage default fallback ──
@@ -219,34 +223,25 @@ TEST_CASE(  // NOLINT
 
   auto& sys0 = planning_lp.system(first_scene_index(), first_phase_index());
   const auto& rsv = sys0.elements<ReservoirLP>().front();
-  const ReservoirLPSId rsv_sid {Uid {1}};
   const auto& scenario = sys0.scene().scenarios().front();
   const auto& stage = sys0.phase().stages().front();
 
-  const auto cache = make_reservoir_ref_cache(rsv, rsv_sid, scenario, stage);
+  const auto cache = make_reservoir_ref_cache(rsv, scenario, stage);
 
-  // Phase 0, stage 0: physical_eini hard-codes the default fallback;
-  // the cache helper must agree.
+  // Phase 0, stage 0: helper hard-codes the default fallback.
   const auto via_cache = physical_eini_from_cache(sys0, scenario, stage, cache);
   CHECK(via_cache == doctest::Approx(333.0));
-
-  const auto via_rsv = rsv.physical_eini(sys0, scenario, stage, 333.0, rsv_sid);
-  CHECK(via_cache == doctest::Approx(via_rsv));
 }
 
-// ─── 3. physical_efin_from_cache: matches rsv.physical_efin after solve ─────
+// ─── 3. physical_efin_from_cache: matches li.get_col_sol()[efin_col] ────────
 
 TEST_CASE(  // NOLINT
-    "physical_efin_from_cache: equals rsv.physical_efin after solve")
+    "physical_efin_from_cache: equals li.get_col_sol()[efin_col] after solve")
 {
   auto planning = make_two_phase_reservoir_planning(/*eini=*/250.0);
   PlanningLP planning_lp(std::move(planning));
 
   auto& sys0 = planning_lp.system(first_scene_index(), first_phase_index());
-
-  // Solve phase 0's LP so `is_optimal()` flips and `get_col_sol()` is
-  // populated.  The cache helper and `rsv.physical_efin(li, ...)` must
-  // both consume the same physical-space, bound-clamped view.
   auto& li0 = sys0.linear_interface();
   const auto result = li0.resolve();
   REQUIRE(result.has_value());
@@ -254,216 +249,475 @@ TEST_CASE(  // NOLINT
   REQUIRE(li0.is_optimal());
 
   const auto& rsv = sys0.elements<ReservoirLP>().front();
-  const ReservoirLPSId rsv_sid {Uid {1}};
   const auto& scenario = sys0.scene().scenarios().front();
   const auto& stage = sys0.phase().stages().front();
 
-  const auto cache = make_reservoir_ref_cache(rsv, rsv_sid, scenario, stage);
+  const auto cache = make_reservoir_ref_cache(rsv, scenario, stage);
 
   const auto via_cache = physical_efin_from_cache(sys0, cache);
-  const auto via_rsv = rsv.physical_efin(li0, scenario, stage, 250.0);
+  const auto direct = li0.get_col_sol()[cache.efin_col];
 
-  CHECK(via_cache == doctest::Approx(via_rsv));
-
-  // Sanity: hydro is cheap so it dispatches.  efin must drop strictly
-  // below the initial 250 dam³ — pinning a known direction protects
-  // against a false-positive cache==rsv match where both could read
-  // an uninitialized 0 from a stalled solver.
-  CHECK(via_cache < doctest::Approx(250.0));
-  CHECK(via_cache >= doctest::Approx(0.0));
+  CHECK(via_cache == doctest::Approx(direct));
 }
 
-// ─── 4. physical_eini_from_cache: cross-phase fallback path ─────────────────
+// ─── 4. physical_eini_from_cache: reads eini_col from current sys ───────────
 
 TEST_CASE(  // NOLINT
-    "physical_eini_from_cache: cross-phase fallback equals rsv.physical_efin "
-    "of predecessor")
+    "physical_eini_from_cache: reads li.get_col_sol()[eini_col] from current "
+    "sys at phase>0")
 {
-  // Phase 1's update_lp reads the predecessor's solved efin via
-  // `physical_eini`'s cross-phase branch.  When the cache is unbound
-  // (no `bind_prev_phase_state_var` call), the helper falls back to
-  // `prev_sys->element<ReservoirLP>(rsv_sid).physical_efin(prev_li, ...)`.
-  // The fallback value must equal `prev_rsv.physical_efin` directly.
+  // After phase 0 solves, phase 1 hasn't been solved yet but its LP
+  // has structural state from construction (eini bounds, etc.).  At
+  // phase 1's update_lp time, the helper reads phase 1's own
+  // `eini_col` from its current LinearInterface — NOT phase 0's
+  // efin via prev_sys.  This is the contract: read eini directly.
   auto planning = make_two_phase_reservoir_planning(/*eini=*/250.0);
   PlanningLP planning_lp(std::move(planning));
 
-  auto& sys0 = planning_lp.system(first_scene_index(), first_phase_index());
   auto& sys1 = planning_lp.system(first_scene_index(), PhaseIndex {1});
-
-  // Solve phase 0 so the predecessor has an optimal value.
-  auto& li0 = sys0.linear_interface();
-  REQUIRE(li0.resolve().has_value());
-  REQUIRE(li0.is_optimal());
-
-  // Wire the cross-phase pointer the way the SDDP iteration would.
-  sys1.set_prev_phase_sys(&sys0);
+  auto& li1 = sys1.linear_interface();
+  const auto result = li1.resolve();
+  REQUIRE(result.has_value());
+  REQUIRE(li1.is_optimal());
 
   const auto& rsv1 = sys1.elements<ReservoirLP>().front();
-  const ReservoirLPSId rsv_sid {Uid {1}};
-  const auto& scenario1 = sys1.scene().scenarios().front();
-  const auto& stage1 = sys1.phase().stages().front();
-  ReservoirRefCache cache =
-      make_reservoir_ref_cache(rsv1, rsv_sid, scenario1, stage1);
-  // Intentionally leave the predecessor locator unbound — exercise the
-  // element-lookup fallback branch.
-  REQUIRE_FALSE(cache.has_prev_phase);
-
-  const auto via_cache_fallback =
-      physical_eini_from_cache(sys1, scenario1, stage1, cache);
-
-  // Oracle: the same value `rsv.physical_eini(sys1, ...)` would compute.
-  const auto via_rsv =
-      rsv1.physical_eini(sys1, scenario1, stage1, 250.0, rsv_sid);
-
-  CHECK(via_cache_fallback == doctest::Approx(via_rsv));
-
-  // Direct sanity on the predecessor — must equal phase 0's solved efin.
-  const auto& rsv0 = sys0.elements<ReservoirLP>().front();
-  const auto prev_efin =
-      rsv0.physical_efin(li0, scenario1, sys0.phase().stages().back(), 250.0);
-  CHECK(via_cache_fallback == doctest::Approx(prev_efin));
-}
-
-// ─── 5. CRITICAL: StateVariable channel correctness ─────────────────────────
-
-TEST_CASE(  // NOLINT
-    "physical_eini_from_cache: bound StateVariable equals fallback path")
-{
-  // The user's regression scenario:
-  //
-  //   * The cross-phase cache is bound to a StateVariable.
-  //   * The forward pass writes a value via `set_col_sol`.
-  //   * `physical_eini_from_cache` reads `col_sol_physical()`.
-  //
-  // The bound path MUST produce the exact same numeric result as the
-  // fallback path.  A drift here is the failure mode that took a week
-  // to debug — pin both paths against each other so any future skew
-  // (wrong reservoir, wrong stage, wrong scenario, stale value) fires
-  // an immediate test failure.
-  auto planning = make_two_phase_reservoir_planning(/*eini=*/250.0);
-  PlanningLP planning_lp(std::move(planning));
-
-  auto& sim = planning_lp.simulation();
-  auto& sys0 = planning_lp.system(first_scene_index(), first_phase_index());
-  auto& sys1 = planning_lp.system(first_scene_index(), PhaseIndex {1});
-
-  // Solve phase 0 so the predecessor has an optimal value.
-  auto& li0 = sys0.linear_interface();
-  REQUIRE(li0.resolve().has_value());
-  REQUIRE(li0.is_optimal());
-
-  // Replicate `capture_state_variable_values`'s post-solve write so the
-  // StateVariable.col_sol_physical() returns the live efin value.  In
-  // production this fires automatically inside the SDDP forward pass;
-  // calling it manually here keeps the test free of SDDP machinery.
-  const auto& rsv0 = sys0.elements<ReservoirLP>().front();
-  const auto& scenario = sys0.scene().scenarios().front();
-  const auto& stage0 = sys0.phase().stages().front();
-  const auto efin_col = rsv0.efin_col_at(scenario, stage0);
-  const auto efin_phys = li0.get_col_sol()[efin_col];
-
-  const auto sv_key0 =
-      StateVariable::key(scenario,
-                         stage0,
-                         ReservoirLP::Element::class_name,
-                         Uid {1},
-                         StorageLP<ObjectLP<Reservoir>>::EfinName);
-  auto sv0 = sim.state_variable(sv_key0);
-  REQUIRE(sv0.has_value());
-  // capture_state_variable_values does `phys / var_scale`; reproduce
-  // that here so col_sol_physical() returns `phys` again.
-  const auto vs = sv0->get().var_scale();
-  sv0->get().set_col_sol((vs != 0.0) ? efin_phys / vs : efin_phys);
-
-  // Wire the cross-phase pointer the way the SDDP iteration would.
-  sys1.set_prev_phase_sys(&sys0);
-
-  const auto& rsv1 = sys1.elements<ReservoirLP>().front();
-  const ReservoirLPSId rsv_sid {Uid {1}};
   const auto& scenario1 = sys1.scene().scenarios().front();
   const auto& stage1 = sys1.phase().stages().front();
 
-  // Two caches: one unbound (fallback path), one bound (StateVariable).
-  ReservoirRefCache cache_fallback =
-      make_reservoir_ref_cache(rsv1, rsv_sid, scenario1, stage1);
-  ReservoirRefCache cache_bound = cache_fallback;
-  bind_prev_phase_state_var(cache_bound, sim, scenario1, stage0);
-  REQUIRE(cache_bound.has_prev_phase);
-  CHECK(cache_bound.prev_phase_index == stage0.phase_index());
-  CHECK(cache_bound.prev_phase_last_stage_uid == stage0.uid());
+  const auto cache = make_reservoir_ref_cache(rsv1, scenario1, stage1);
 
-  const auto via_fallback =
-      physical_eini_from_cache(sys1, scenario1, stage1, cache_fallback);
-  const auto via_bound =
-      physical_eini_from_cache(sys1, scenario1, stage1, cache_bound);
-
-  // Both paths must agree on the value, and both must equal the
-  // physical efin solved at phase 0.
-  CHECK(via_fallback == doctest::Approx(efin_phys));
-  CHECK(via_bound == doctest::Approx(efin_phys));
-  CHECK(via_bound == doctest::Approx(via_fallback));
-}
-
-// ─── 6. CRITICAL: bound but predecessor NOT yet solved ──────────────────────
-
-TEST_CASE(  // NOLINT
-    "physical_eini_from_cache: bound StateVariable with non-optimal "
-    "predecessor falls back to default")
-{
-  // Before phase 0's first solve, `prev_li.is_optimal()` is false even
-  // though the StateVariable's `col_sol` defaults to 0.0.  The helper
-  // must NOT return that 0 — it must fall through to the
-  // warm/default branch.  This is the test that catches a "always read
-  // col_sol blindly" bug, which otherwise produces "previous phase
-  // ran with reservoir at 0 dam³" failures on iter 0.
-  auto planning = make_two_phase_reservoir_planning(/*eini=*/175.0);
-  PlanningLP planning_lp(std::move(planning));
-
-  auto& sim = planning_lp.simulation();
-  auto& sys0 = planning_lp.system(first_scene_index(), first_phase_index());
-  auto& sys1 = planning_lp.system(first_scene_index(), PhaseIndex {1});
-
-  // Deliberately do NOT solve phase 0.
-  REQUIRE_FALSE(sys0.linear_interface().is_optimal());
-
-  sys1.set_prev_phase_sys(&sys0);
-
-  const auto& rsv1 = sys1.elements<ReservoirLP>().front();
-  const ReservoirLPSId rsv_sid {Uid {1}};
-  const auto& scenario1 = sys1.scene().scenarios().front();
-  const auto& stage1 = sys1.phase().stages().front();
-  const auto& stage0 = sys0.phase().stages().front();
-
-  ReservoirRefCache cache =
-      make_reservoir_ref_cache(rsv1, rsv_sid, scenario1, stage1);
-  bind_prev_phase_state_var(cache, sim, scenario1, stage0);
-  REQUIRE(cache.has_prev_phase);
-
-  // The StateVariable for phase 0's reservoir efin exists and its
-  // col_sol is 0 (no capture has fired).  Looking it up by key
-  // confirms the publisher exists; the helper must still NOT read
-  // that 0 because `prev_li.is_optimal()` is false.
-  static constexpr auto reservoir_class_name = ReservoirLP::Element::class_name;
-  auto sv_phase0 = sim.state_variable(
-      StateVariable::key(reservoir_class_name,
-                         cache.rsv_uid,
-                         StorageLP<ObjectLP<Reservoir>>::EfinName,
-                         cache.prev_phase_index,
-                         cache.prev_phase_last_stage_uid,
-                         scenario1.scene_index(),
-                         scenario1.uid()));
-  REQUIRE(sv_phase0.has_value());
-  CHECK(sv_phase0->get().col_sol_physical() == doctest::Approx(0.0));
-
-  // Helper must NOT return 0 — the `prev_li.is_optimal()` gate skips
-  // the cross-phase branch and falls through to warm/default.  No
-  // warm vector is loaded in this fixture, so we land on default.
   const auto via_cache =
       physical_eini_from_cache(sys1, scenario1, stage1, cache);
-  CHECK(via_cache == doctest::Approx(175.0));
+  const auto direct = li1.get_col_sol()[cache.eini_col];
 
-  // Oracle: rsv.physical_eini agrees.
-  const auto via_rsv =
-      rsv1.physical_eini(sys1, scenario1, stage1, 175.0, rsv_sid);
-  CHECK(via_cache == doctest::Approx(via_rsv));
+  CHECK(via_cache == doctest::Approx(direct));
+}
+
+// ─── 5. average_volume_from_cache: (vini + vfin) / 2 ────────────────────────
+
+TEST_CASE(  // NOLINT
+    "average_volume_from_cache: averages physical_eini and physical_efin")
+{
+  auto planning = make_two_phase_reservoir_planning(/*eini=*/200.0);
+  PlanningLP planning_lp(std::move(planning));
+
+  auto& sys1 = planning_lp.system(first_scene_index(), PhaseIndex {1});
+  auto& li1 = sys1.linear_interface();
+  REQUIRE(li1.resolve().has_value());
+  REQUIRE(li1.is_optimal());
+
+  const auto& rsv1 = sys1.elements<ReservoirLP>().front();
+  const auto& scenario1 = sys1.scene().scenarios().front();
+  const auto& stage1 = sys1.phase().stages().front();
+
+  const auto cache = make_reservoir_ref_cache(rsv1, scenario1, stage1);
+
+  const auto avg = average_volume_from_cache(sys1, scenario1, stage1, cache);
+  const auto vini = li1.get_col_sol()[cache.eini_col];
+  const auto vfin = li1.get_col_sol()[cache.efin_col];
+  CHECK(avg == doctest::Approx((vini + vfin) / 2.0));
+}
+
+// ─── 6. CRITICAL: helpers do NOT depend on prev_phase_sys() ─────────────────
+
+TEST_CASE(  // NOLINT
+    "physical_eini_from_cache: ignores prev_phase_sys (no cross-phase access)")
+{
+  // Regression test for the latent daily_cycle bug + the user-flagged
+  // "wrong eini" propagation footgun.  The helper must read the current
+  // sys's `eini_col` regardless of whether prev_phase_sys is set or
+  // what its LP says.  Even if we deliberately point prev_phase_sys
+  // at a different SystemLP (e.g. a different scene's phase 0 with a
+  // different solved efin), the result must NOT change.
+  auto planning_a = make_two_phase_reservoir_planning(/*eini=*/100.0);
+  PlanningLP planning_a_lp(std::move(planning_a));
+
+  auto& sys1 = planning_a_lp.system(first_scene_index(), PhaseIndex {1});
+  REQUIRE(sys1.linear_interface().resolve().has_value());
+  REQUIRE(sys1.linear_interface().is_optimal());
+
+  const auto& rsv1 = sys1.elements<ReservoirLP>().front();
+  const auto& scenario1 = sys1.scene().scenarios().front();
+  const auto& stage1 = sys1.phase().stages().front();
+
+  const auto cache = make_reservoir_ref_cache(rsv1, scenario1, stage1);
+
+  // Baseline read with prev_phase_sys explicitly nullptr.
+  sys1.set_prev_phase_sys(nullptr);
+  const auto with_null_prev =
+      physical_eini_from_cache(sys1, scenario1, stage1, cache);
+
+  // Re-read with prev_phase_sys pointed back at sys0 (still same scene).
+  // Result MUST match — the helper does not consult prev_phase_sys.
+  auto& sys0 = planning_a_lp.system(first_scene_index(), first_phase_index());
+  REQUIRE(sys0.linear_interface().resolve().has_value());
+  sys1.set_prev_phase_sys(&sys0);
+  const auto with_prev =
+      physical_eini_from_cache(sys1, scenario1, stage1, cache);
+
+  CHECK(with_null_prev == doctest::Approx(with_prev));
+
+  // Reset for cleanup
+  sys1.set_prev_phase_sys(nullptr);
+}
+
+// ─── 7. Daily-cycle reservoir uses the SAME code path ──────────────────────
+
+namespace
+{
+inline auto make_two_phase_daily_cycle_planning(double eini_value = 100.0)
+    -> Planning
+{
+  Array<Block> block_array = make_uniform_blocks(48, 1.0);
+  Array<Stage> stage_array = make_uniform_stages(2, 24);
+  Array<Phase> phase_array = make_single_stage_phases(2);
+
+  const Array<Bus> bus_array = {{
+      .uid = Uid {1},
+      .name = "bus1",
+  }};
+  const Array<Generator> generator_array = {
+      {
+          .uid = Uid {1},
+          .name = "hydro_gen",
+          .bus = Uid {1},
+          .gcost = 5.0,
+          .capacity = 50.0,
+      },
+      {
+          .uid = Uid {2},
+          .name = "thermal_gen",
+          .bus = Uid {1},
+          .gcost = 50.0,
+          .capacity = 500.0,
+      },
+  };
+  const Array<Demand> demand_array = {{
+      .uid = Uid {1},
+      .name = "load1",
+      .bus = Uid {1},
+      .capacity = 100.0,
+  }};
+  const Array<Junction> junction_array = {
+      {
+          .uid = Uid {1},
+          .name = "j_up",
+      },
+      {
+          .uid = Uid {2},
+          .name = "j_down",
+          .drain = true,
+      },
+  };
+  const Array<Waterway> waterway_array = {{
+      .uid = Uid {1},
+      .name = "ww1",
+      .junction_a = Uid {1},
+      .junction_b = Uid {2},
+      .fmin = 0.0,
+      .fmax = 100.0,
+  }};
+  // KEY DIFFERENCE: daily_cycle = true.  No state-link constraint
+  // across phases; in-phase efin == eini close constraint instead.
+  const Array<Reservoir> reservoir_array = {{
+      .uid = Uid {1},
+      .name = "rsv_dc",
+      .junction = Uid {1},
+      .capacity = 500.0,
+      .emin = 0.0,
+      .emax = 500.0,
+      .eini = eini_value,
+      .fmin = -1000.0,
+      .fmax = +1000.0,
+      .flow_conversion_rate = 1.0,
+      .use_state_variable = false,
+      .daily_cycle = true,
+  }};
+  const Array<Flow> flow_array = {{
+      .uid = Uid {1},
+      .name = "inflow",
+      .direction = 1,
+      .junction = Uid {1},
+      .discharge = 10.0,
+  }};
+  const Array<Turbine> turbine_array = {{
+      .uid = Uid {1},
+      .name = "tur1",
+      .waterway = Uid {1},
+      .generator = Uid {1},
+      .production_factor = 1.0,
+  }};
+
+  Simulation simulation = {
+      .block_array = std::move(block_array),
+      .stage_array = std::move(stage_array),
+      .scenario_array = {{{.uid = Uid {1}}}},
+      .phase_array = std::move(phase_array),
+  };
+
+  PlanningOptions options;
+  options.demand_fail_cost = 1000.0;
+  options.use_single_bus = OptBool {true};
+  options.scale_objective = OptReal {1.0};
+
+  System system = {
+      .name = "two_phase_daily_cycle",
+      .bus_array = bus_array,
+      .demand_array = demand_array,
+      .generator_array = generator_array,
+      .junction_array = junction_array,
+      .waterway_array = waterway_array,
+      .flow_array = flow_array,
+      .reservoir_array = reservoir_array,
+      .turbine_array = turbine_array,
+  };
+  return Planning {
+      .options = std::move(options),
+      .simulation = std::move(simulation),
+      .system = std::move(system),
+  };
+}
+}  // namespace
+
+TEST_CASE(  // NOLINT
+    "physical_eini_from_cache: daily_cycle reservoir uses same code path")
+{
+  // Lockguard: the cache helpers must NOT special-case daily_cycle.
+  // Both daily_cycle and non-daily_cycle reservoirs go through the
+  // same `li.get_col_sol()[eini_col]` read.  For daily_cycle, the
+  // in-phase `efin == eini` close constraint guarantees that value
+  // equals `efin_col` post-solve.
+  auto planning = make_two_phase_daily_cycle_planning(/*eini=*/200.0);
+  PlanningLP planning_lp(std::move(planning));
+
+  auto& sys1 = planning_lp.system(first_scene_index(), PhaseIndex {1});
+  auto& li1 = sys1.linear_interface();
+  REQUIRE(li1.resolve().has_value());
+  REQUIRE(li1.is_optimal());
+
+  const auto& rsv1 = sys1.elements<ReservoirLP>().front();
+  const auto& scenario1 = sys1.scene().scenarios().front();
+  const auto& stage1 = sys1.phase().stages().front();
+
+  const auto cache = make_reservoir_ref_cache(rsv1, scenario1, stage1);
+
+  const auto via_cache =
+      physical_eini_from_cache(sys1, scenario1, stage1, cache);
+  const auto direct_eini = li1.get_col_sol()[cache.eini_col];
+  const auto direct_efin = li1.get_col_sol()[cache.efin_col];
+
+  // physical_eini_from_cache reads eini_col directly.
+  CHECK(via_cache == doctest::Approx(direct_eini));
+
+  // Daily-cycle close constraint: efin == eini post-solve.  Both
+  // columns hold the same physical value.
+  CHECK(direct_eini == doctest::Approx(direct_efin));
+}
+
+// ─── 8. Multi-reservoir routing: cache for A doesn't read B's value ─────────
+
+namespace
+{
+inline auto make_two_reservoir_planning() -> Planning
+{
+  Array<Block> block_array = make_uniform_blocks(24, 1.0);
+  Array<Stage> stage_array = make_uniform_stages(1, 24);
+  Array<Phase> phase_array = make_single_stage_phases(1);
+
+  const Array<Bus> bus_array = {{
+      .uid = Uid {1},
+      .name = "bus1",
+  }};
+  const Array<Generator> generator_array = {
+      {
+          .uid = Uid {1},
+          .name = "h1",
+          .bus = Uid {1},
+          .gcost = 5.0,
+          .capacity = 50.0,
+      },
+      {
+          .uid = Uid {2},
+          .name = "h2",
+          .bus = Uid {1},
+          .gcost = 5.0,
+          .capacity = 50.0,
+      },
+      {
+          .uid = Uid {3},
+          .name = "thermal",
+          .bus = Uid {1},
+          .gcost = 50.0,
+          .capacity = 500.0,
+      },
+  };
+  const Array<Demand> demand_array = {{
+      .uid = Uid {1},
+      .name = "load1",
+      .bus = Uid {1},
+      .capacity = 100.0,
+  }};
+  const Array<Junction> junction_array = {
+      {
+          .uid = Uid {1},
+          .name = "j_a",
+      },
+      {
+          .uid = Uid {2},
+          .name = "j_b",
+      },
+      {
+          .uid = Uid {3},
+          .name = "j_drain",
+          .drain = true,
+      },
+  };
+  const Array<Waterway> waterway_array = {
+      {
+          .uid = Uid {1},
+          .name = "ww_a",
+          .junction_a = Uid {1},
+          .junction_b = Uid {3},
+          .fmin = 0.0,
+          .fmax = 100.0,
+      },
+      {
+          .uid = Uid {2},
+          .name = "ww_b",
+          .junction_a = Uid {2},
+          .junction_b = Uid {3},
+          .fmin = 0.0,
+          .fmax = 100.0,
+      },
+  };
+  // Two reservoirs with DIFFERENT eini values so the test can detect
+  // a cross-routing bug by inspecting which value the cache returns.
+  const Array<Reservoir> reservoir_array = {
+      {
+          .uid = Uid {10},
+          .name = "rsv_A",
+          .junction = Uid {1},
+          .capacity = 500.0,
+          .emin = 0.0,
+          .emax = 500.0,
+          .eini = 111.0,
+          .fmin = -1000.0,
+          .fmax = +1000.0,
+          .flow_conversion_rate = 1.0,
+          .use_state_variable = true,
+      },
+      {
+          .uid = Uid {20},
+          .name = "rsv_B",
+          .junction = Uid {2},
+          .capacity = 500.0,
+          .emin = 0.0,
+          .emax = 500.0,
+          .eini = 222.0,
+          .fmin = -1000.0,
+          .fmax = +1000.0,
+          .flow_conversion_rate = 1.0,
+          .use_state_variable = true,
+      },
+  };
+  const Array<Turbine> turbine_array = {
+      {
+          .uid = Uid {1},
+          .name = "tur_a",
+          .waterway = Uid {1},
+          .generator = Uid {1},
+          .production_factor = 1.0,
+      },
+      {
+          .uid = Uid {2},
+          .name = "tur_b",
+          .waterway = Uid {2},
+          .generator = Uid {2},
+          .production_factor = 1.0,
+      },
+  };
+
+  Simulation simulation = {
+      .block_array = std::move(block_array),
+      .stage_array = std::move(stage_array),
+      .scenario_array = {{{.uid = Uid {1}}}},
+      .phase_array = std::move(phase_array),
+  };
+
+  PlanningOptions options;
+  options.demand_fail_cost = 1000.0;
+  options.use_single_bus = OptBool {true};
+  options.scale_objective = OptReal {1.0};
+
+  System system = {
+      .name = "two_reservoir",
+      .bus_array = bus_array,
+      .demand_array = demand_array,
+      .generator_array = generator_array,
+      .junction_array = junction_array,
+      .waterway_array = waterway_array,
+      .reservoir_array = reservoir_array,
+      .turbine_array = turbine_array,
+  };
+  return Planning {
+      .options = std::move(options),
+      .simulation = std::move(simulation),
+      .system = std::move(system),
+  };
+}
+}  // namespace
+
+TEST_CASE(  // NOLINT
+    "make_reservoir_ref_cache: two reservoirs route to distinct eini_col")
+{
+  // Regression test for a wrong-uid cache wiring bug: cache for
+  // reservoir A must hold A's `eini_col`, NOT B's.  At phase 0
+  // stage 0 (no solve required), `physical_eini_from_cache`
+  // returns the cached `default_volume`, which differs between
+  // the two reservoirs (111.0 vs 222.0).
+  auto planning = make_two_reservoir_planning();
+  PlanningLP planning_lp(std::move(planning));
+
+  auto& sys = planning_lp.system(first_scene_index(), first_phase_index());
+  const auto& reservoirs = sys.elements<ReservoirLP>();
+  REQUIRE(reservoirs.size() == 2);
+
+  const auto& scenario = sys.scene().scenarios().front();
+  const auto& stage = sys.phase().stages().front();
+
+  const ReservoirLP* rsv_a = nullptr;
+  const ReservoirLP* rsv_b = nullptr;
+  for (const auto& r : reservoirs) {
+    if (r.uid() == Uid {10}) {
+      rsv_a = &r;
+    } else if (r.uid() == Uid {20}) {
+      rsv_b = &r;
+    }
+  }
+  REQUIRE(rsv_a != nullptr);
+  REQUIRE(rsv_b != nullptr);
+
+  const auto cache_a = make_reservoir_ref_cache(*rsv_a, scenario, stage);
+  const auto cache_b = make_reservoir_ref_cache(*rsv_b, scenario, stage);
+
+  // 1. Distinct identity.
+  CHECK(cache_a.rsv_uid == Uid {10});
+  CHECK(cache_b.rsv_uid == Uid {20});
+
+  // 2. Distinct default_volume — the JSON eini differs (111.0 vs 222.0).
+  CHECK(cache_a.default_volume == doctest::Approx(111.0));
+  CHECK(cache_b.default_volume == doctest::Approx(222.0));
+
+  // 3. Distinct column indices.  A wrong-uid bug would either share
+  //    an index (CHECK fires) or end up off the LP entirely.
+  CHECK(cache_a.eini_col != cache_b.eini_col);
+  CHECK(cache_a.efin_col != cache_b.efin_col);
+
+  // 4. The actual physical_eini reads at phase-0/stage-0 return each
+  //    reservoir's distinct default_volume — proves the per-cache
+  //    helper routes to the right element.
+  CHECK(physical_eini_from_cache(sys, scenario, stage, cache_a)
+        == doctest::Approx(111.0));
+  CHECK(physical_eini_from_cache(sys, scenario, stage, cache_b)
+        == doctest::Approx(222.0));
 }

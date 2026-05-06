@@ -813,36 +813,14 @@ void PlanningLP::tighten_scene_phase_links(phase_systems_t& phase_systems,
     links.shrink_to_fit();
   }
 
-  // Bind every HasUpdateLP element's `ReservoirRefCache` to the
-  // predecessor phase's efin StateVariable.  Routing prev-phase efin
-  // through the StateVariable channel decouples `update_lp` from
-  // `prev_sys->element<ReservoirLP>(...)` lookups under
-  // `LowMemoryMode::compress`, where the predecessor's collections may
-  // already have been released.  Phase 0 has no predecessor — start at
-  // phase 1.
-  //
-  // The cache stores a locator (`prev_phase_index`,
-  // `prev_phase_last_stage_uid`), not a `StateVariable*`, so the
-  // binding is robust under `LowMemoryMode::rebuild` (which may
-  // re-register state variables and reallocate the underlying
-  // `flat_map`).  Each `update_lp` call performs an O(log N) lookup
-  // by key against the simulation-wide registry.
-  const auto n_phases = phase_systems.size();
-  for (std::size_t i = 1; i < n_phases; ++i) {
-    const auto cur_pi = PhaseIndex {static_cast<int>(i)};
-    const auto prev_pi = PhaseIndex {static_cast<int>(i - 1)};
-    phase_systems[cur_pi].bind_reservoir_caches(phase_systems[prev_pi]);
-  }
-
   // Drop write-out-only collections under compress / rebuild modes.
-  // Now that `update_lp` no longer touches non-resident element
-  // collections (Phase 2a + the reservoir cache binding above),
-  // ~21 of the 27 Collection<X> types are pure dead weight after
-  // `add_to_lp` + `flatten`.  Keep the 5 HasUpdateLP types (state
-  // map persistence) and ReservoirLP (daily_cycle fallback in
-  // `physical_eini_from_cache`); drop the rest.  `write_out` calls
-  // `rebuild_collections_if_needed()` which re-creates everything
-  // from the parsed `System` data.
+  // After Phase 2a's cache + Phase 2c's daily_cycle fix,
+  // `physical_eini_from_cache` reads `li.get_col_sol()[eini_col]`
+  // directly from the current sys — no element lookup, no
+  // cross-phase traversal.  All 22 non-HasUpdateLP `Collection<X>`
+  // types are therefore dead weight after `add_to_lp` + `flatten`.
+  // `write_out` calls `rebuild_collections_if_needed()` to revive
+  // every type from the parsed `System` data when needed.
   for (auto&& sys : phase_systems) {
     sys.clear_disposable_collections();
   }

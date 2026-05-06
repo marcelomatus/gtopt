@@ -81,11 +81,6 @@ public:
                               const ScenarioLP& scenario,
                               const StageLP& stage);
 
-  /// Bind every reservoir-driven `BoundState`'s `reservoir_cache` to the
-  /// predecessor phase's efin StateVariable.  See
-  /// FlowRightLP::bind_reservoir_caches for invocation timing.
-  void bind_reservoir_caches(const SimulationLP& sim, const SystemLP& prev_sys);
-
   /// Return the extraction flow column indices for (scenario, stage).
   /// These are the decision variables for how much right volume is
   /// extracted per block.  External entities can reference these
@@ -135,7 +130,6 @@ private:
   {
     Real current_bound {0.0};
     ReservoirRefCache reservoir_cache {};
-    bool has_reservoir_cache {false};
   };
   IndexHolder2<ScenarioUid, StageUid, BoundState> m_bound_states_;
 };

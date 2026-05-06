@@ -951,17 +951,6 @@ void SystemLP::rebuild_in_place()
   // flat data.  The guard flips rebuild_pass back to false on exit.
 }
 
-// Concept satisfied by element classes that publish `bind_reservoir_caches`
-// (i.e. the HasUpdateLP elements that hold a `ReservoirRefCache`).  Used
-// by `SystemLP::bind_reservoir_caches` to discover the right collections
-// at compile time so a new HasUpdateLP element with a matching method
-// is picked up automatically — no hand-maintained dispatch list to drift.
-template<typename T>
-concept HasBindReservoirCaches =
-    requires(T& obj, const SimulationLP& sim, const SystemLP& prev_sys) {
-      { obj.bind_reservoir_caches(sim, prev_sys) } -> std::same_as<void>;
-    };
-
 void SystemLP::clear_disposable_collections()
 {
   // No-op under `LowMemoryMode::off` — collections must stay live so
@@ -1005,41 +994,6 @@ void SystemLP::clear_disposable_collections()
   // the drop without rebuilding first, they will see an empty range,
   // not crash — `element<X>(uid)` would throw out-of-range and surface
   // the bug.
-}
-
-void SystemLP::bind_reservoir_caches(const SystemLP& prev_sys)
-{
-  // Collections must be live to walk the elements.  Under
-  // `LowMemoryMode::compress` / `rebuild` they were just populated by
-  // `add_to_lp`, and `tighten_scene_phase_links` runs before any
-  // `release_backend()` would drop them.  Calling `rebuild_*` here is
-  // therefore a guard against unexpected ordering — it is a no-op when
-  // collections are already live.
-  rebuild_collections_if_needed();
-
-  const auto& sim = system_context().simulation();
-
-  // Apply across the tuple; the `if constexpr` guard auto-discovers
-  // every Collection<X> whose element type satisfies
-  // `HasBindReservoirCaches`.  Adding a new HasUpdateLP element with a
-  // matching `bind_reservoir_caches` method is therefore picked up
-  // without touching this site — no hand-maintained dispatch list to
-  // drift when new HasUpdateLP types appear.
-  std::apply(
-      [&](auto&... colls)
-      {
-        const auto bind_one = [&](auto& coll)
-        {
-          using ElementT = std::remove_cvref_t<decltype(coll)>::value_type;
-          if constexpr (HasBindReservoirCaches<ElementT>) {
-            for (auto& el : coll.elements()) {
-              el.bind_reservoir_caches(sim, prev_sys);
-            }
-          }
-        };
-        (bind_one(colls), ...);
-      },
-      m_collections_);
 }
 
 void SystemLP::rebuild_collections_if_needed()

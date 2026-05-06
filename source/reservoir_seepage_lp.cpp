@@ -137,8 +137,7 @@ bool ReservoirSeepageLP::add_to_lp(const SystemContext& sc,
       .efin_col = efin_col,
       .current_slope = effective_slope,
       .current_rhs = effective_rhs,
-      .reservoir_cache =
-          make_reservoir_ref_cache(reservoir, reservoir_sid(), scenario, stage),
+      .reservoir_cache = make_reservoir_ref_cache(reservoir, scenario, stage),
   };
 
   return true;
@@ -154,26 +153,6 @@ bool ReservoirSeepageLP::add_to_output(OutputContext& out) const
   out.add_row_dual(cname, SeepageName, pid, seepage_rows);
 
   return true;
-}
-
-void ReservoirSeepageLP::bind_reservoir_caches(const SimulationLP& sim,
-                                               const SystemLP& prev_sys)
-{
-  const auto& prev_stages = prev_sys.phase().stages();
-  if (prev_stages.empty()) {
-    return;
-  }
-  const auto prev_phase_index = prev_sys.phase().index();
-  const auto prev_last_stage_uid = prev_stages.back().uid();
-  const auto scene_index = prev_sys.scene().index();
-  for (auto&& [stkey, state] : m_states_) {
-    bind_prev_phase_state_var(state.reservoir_cache,
-                              sim,
-                              scene_index,
-                              prev_phase_index,
-                              std::get<0>(stkey),
-                              prev_last_stage_uid);
-  }
 }
 
 int ReservoirSeepageLP::update_lp(SystemLP& sys,

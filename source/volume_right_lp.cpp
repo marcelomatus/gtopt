@@ -277,9 +277,7 @@ bool VolumeRightLP::add_to_lp(SystemContext& sc,
     if (axis_uses_reservoir(opt_rule->axis)) {
       const auto rsv_sid = ReservoirLPSId(opt_rule->reservoir);
       const auto& rsv = sc.element<ReservoirLP>(rsv_sid);
-      bs.reservoir_cache =
-          make_reservoir_ref_cache(rsv, rsv_sid, scenario, stage);
-      bs.has_reservoir_cache = true;
+      bs.reservoir_cache = make_reservoir_ref_cache(rsv, scenario, stage);
     }
     m_bound_states_[st_key] = std::move(bs);
   }
@@ -364,29 +362,6 @@ bool VolumeRightLP::add_to_output(OutputContext& out) const
   StorageBase::add_to_output(out, cname);
 
   return true;
-}
-
-void VolumeRightLP::bind_reservoir_caches(const SimulationLP& sim,
-                                          const SystemLP& prev_sys)
-{
-  const auto& prev_stages = prev_sys.phase().stages();
-  if (prev_stages.empty()) {
-    return;
-  }
-  const auto prev_phase_index = prev_sys.phase().index();
-  const auto prev_last_stage_uid = prev_stages.back().uid();
-  const auto scene_index = prev_sys.scene().index();
-  for (auto&& [stkey, state] : m_bound_states_) {
-    if (!state.has_reservoir_cache) {
-      continue;
-    }
-    bind_prev_phase_state_var(state.reservoir_cache,
-                              sim,
-                              scene_index,
-                              prev_phase_index,
-                              std::get<0>(stkey),
-                              prev_last_stage_uid);
-  }
 }
 
 int VolumeRightLP::update_lp(SystemLP& sys,

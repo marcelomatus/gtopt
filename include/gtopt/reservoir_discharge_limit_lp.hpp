@@ -86,11 +86,6 @@ public:
                               const ScenarioLP& scenario,
                               const StageLP& stage);
 
-  /// Bind every entry's `reservoir_cache` to the predecessor phase's
-  /// efin StateVariable.  See FlowRightLP::bind_reservoir_caches for
-  /// invocation timing and idempotency notes.
-  void bind_reservoir_caches(const SimulationLP& sim, const SystemLP& prev_sys);
-
   /// Tracks current LP state for coefficient updates
   struct RDLState
   {

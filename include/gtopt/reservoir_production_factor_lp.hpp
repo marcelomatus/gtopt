@@ -111,11 +111,6 @@ public:
                               const ScenarioLP& scenario,
                               const StageLP& stage) const;
 
-  /// Bind every entry in `m_reservoir_caches_` to the predecessor
-  /// phase's efin StateVariable.  See FlowRightLP::bind_reservoir_caches
-  /// for invocation timing and idempotency notes.
-  void bind_reservoir_caches(const SimulationLP& sim, const SystemLP& prev_sys);
-
   /**
    * @brief Update the conversion-rate LP coefficient for a given volume
    *
