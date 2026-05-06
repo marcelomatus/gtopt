@@ -639,7 +639,6 @@ def _compute_energy_indicators(
     """
     indicators: dict[str, float] = {}
     try:
-        import json as _json  # noqa: PLC0415
         import numpy as np  # noqa: PLC0415
 
         import math  # noqa: PLC0415
@@ -656,7 +655,7 @@ def _compute_energy_indicators(
         scale_obj = 1000.0
         if planning_json and planning_json.is_file():
             with open(planning_json, encoding="utf-8") as f:
-                data = _json.load(f)
+                data = json.load(f)
             blocks = data.get("simulation", {}).get("block_array", [])
             for b in blocks:
                 durations[b["uid"]] = b.get("duration", 1.0)
