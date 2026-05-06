@@ -126,6 +126,32 @@ concept HasUpdateLP = requires(T& obj,
   { obj.update_lp(system_lp, scenario, stage) } -> std::same_as<int>;
 };
 
+/// Element types that must remain alive after `add_to_lp` completes.
+///
+/// Two reasons an element type is on this list:
+///
+///   1. **`HasUpdateLP`** — the element holds per-(scen, stg) state
+///      (e.g. `m_bound_states_`, `m_states_`, `m_coeff_indices_`) that
+///      must persist across SDDP iterations.  Dropping the collection
+///      would lose the state.
+///
+///   2. **`ReservoirLP`** — `physical_eini_from_cache` falls back to
+///      `prev_sys->element<ReservoirLP>(rsv_sid).physical_efin(...)`
+///      whenever the predecessor's efin StateVariable is unregistered
+///      (daily_cycle reservoirs).  Dropping `Collection<ReservoirLP>`
+///      on prev_sys would break that fallback.  ReservoirLP is small
+///      (~10 elements per phase on real cases), so the cost is
+///      negligible vs the segfault risk of removing it.
+///
+/// All other 21 collection types are pure `add_to_lp`-time consumers:
+/// after `add_to_lp` populates each element's column / row indices,
+/// the collection itself is never read again until `write_out` calls
+/// `rebuild_collections_if_needed()` to revive every type from the
+/// parsed `System` data.
+template<typename T>
+inline constexpr bool is_post_add_to_lp_resident_v =
+    HasUpdateLP<T> || std::is_same_v<T, ReservoirLP>;
+
 /**
  * @class SystemLP
  * @brief Central coordinator for power system LP formulation
@@ -696,6 +722,27 @@ public:
   /// from `ensure_lp_built()` so any caller that does
   /// `ensure_lp_built → read collections` works transparently.
   void rebuild_collections_if_needed();
+
+  /// Move-assign empty every `Collection<X>` whose element type does
+  /// NOT satisfy `is_post_add_to_lp_resident_v<X>`.  After
+  /// `add_to_lp`/`flatten`/`tighten_scene_phase_links` complete, those
+  /// collections are pure dead weight: their data has already been
+  /// flattened into the LP snapshot, the only remaining readers (write_out)
+  /// rehydrate via `rebuild_collections_if_needed()`, and `update_lp` does
+  /// not touch them.
+  ///
+  /// No-op outside `LowMemoryMode::compress` / `rebuild` — under `off`
+  /// the collections must stay live for `release_backend` to be a no-op
+  /// on the existing live LP.
+  ///
+  /// Collection objects' addresses inside `m_collections_` stay valid
+  /// (the tuple slot doesn't move); only their internal element vectors
+  /// are emptied.  `SystemContext::m_collection_ptrs_` therefore keeps
+  /// pointing at valid (now-empty) Collection objects.  Any subsequent
+  /// `elements<X>()` call returns an empty range; `element<X>(uid)`
+  /// would throw out-of-range — production paths that reach this code
+  /// after the drop must first call `rebuild_collections_if_needed()`.
+  void clear_disposable_collections();
 
   /// Walk every HasUpdateLP element in this SystemLP and set its
   /// per-(scen, stg) `ReservoirRefCache` predecessor locator

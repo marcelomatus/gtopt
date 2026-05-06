@@ -962,6 +962,51 @@ concept HasBindReservoirCaches =
       { obj.bind_reservoir_caches(sim, prev_sys) } -> std::same_as<void>;
     };
 
+void SystemLP::clear_disposable_collections()
+{
+  // No-op under `LowMemoryMode::off` — collections must stay live so
+  // `release_backend` (also a no-op under off) leaves the live LP
+  // self-sufficient for read-back from any element accessor.
+  if (m_flat_opts_.low_memory_mode == LowMemoryMode::off) {
+    return;
+  }
+  // No-op when collections are already empty (e.g. rebuild path that
+  // hasn't repopulated yet) — guards against silently signalling
+  // "built" when the move-assign is a no-no-op.
+  if (!m_collections_built_) {
+    return;
+  }
+
+  std::apply(
+      [](auto&... colls)
+      {
+        const auto try_clear = [](auto& coll) noexcept
+        {
+          using ElementT = std::remove_cvref_t<decltype(coll)>::value_type;
+          if constexpr (!is_post_add_to_lp_resident_v<ElementT>) {
+            using CollT = std::remove_cvref_t<decltype(coll)>;
+            coll = CollT {};
+          }
+        };
+        (try_clear(colls), ...);
+      },
+      m_collections_);
+
+  // The drop deliberately keeps `m_collections_built_` = true.  Reasoning:
+  //  - The resident collections (HasUpdateLP + ReservoirLP) ARE still
+  //    fully populated; production paths that walk only those types
+  //    (every update_lp call) must NOT trigger a rebuild.
+  //  - Code paths that need the disposable types alive (write_out)
+  //    must call `rebuild_collections_if_needed()` themselves before
+  //    accessing.  This is what they already do today under
+  //    `LowMemoryMode::compress`.
+  //
+  // If a future caller starts doing `elements<DisposableType>()` after
+  // the drop without rebuilding first, they will see an empty range,
+  // not crash — `element<X>(uid)` would throw out-of-range and surface
+  // the bug.
+}
+
 void SystemLP::bind_reservoir_caches(const SystemLP& prev_sys)
 {
   // Collections must be live to walk the elements.  Under

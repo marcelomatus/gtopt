@@ -833,6 +833,19 @@ void PlanningLP::tighten_scene_phase_links(phase_systems_t& phase_systems,
     const auto prev_pi = PhaseIndex {static_cast<int>(i - 1)};
     phase_systems[cur_pi].bind_reservoir_caches(phase_systems[prev_pi]);
   }
+
+  // Drop write-out-only collections under compress / rebuild modes.
+  // Now that `update_lp` no longer touches non-resident element
+  // collections (Phase 2a + the reservoir cache binding above),
+  // ~21 of the 27 Collection<X> types are pure dead weight after
+  // `add_to_lp` + `flatten`.  Keep the 5 HasUpdateLP types (state
+  // map persistence) and ReservoirLP (daily_cycle fallback in
+  // `physical_eini_from_cache`); drop the rest.  `write_out` calls
+  // `rebuild_collections_if_needed()` which re-creates everything
+  // from the parsed `System` data.
+  for (auto&& sys : phase_systems) {
+    sys.clear_disposable_collections();
+  }
 }
 
 auto PlanningLP::create_systems(System& system,
