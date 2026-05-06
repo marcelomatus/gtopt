@@ -486,33 +486,38 @@ auto solve_apertures_for_phase(
     }
   }
 
-  // Log summary.  Emit at INFO level only when the result is
-  // anomalous (some aperture infeasible/skipped) so the common
-  // all-feasible case stops dominating the log under
-  // ``num_apertures == all`` on production cases (16 scen × 51
-  // phases × 30 iters ≈ 24K per-(scene, phase) lines, almost
-  // always "16/16 feasible").  All-feasible all-not-skipped lines
-  // demote to debug — turn on with --verbose if needed.
+  // Log summary — ONE line per (iter, scene, phase) at INFO so it
+  // pairs symmetrically with the forward-pass per-phase line.
+  // Together they form the canonical "one line per (scene, phase)"
+  // backward visibility under the default aperture-enabled path:
+  // forward emits its opex line, aperture emits this feasibility
+  // line.  Removing this line removes per-phase backward visibility
+  // entirely (the in-phase no-aperture `cut z=` line only fires
+  // when apertures are explicitly disabled).
+  //
+  // Argument-formatting cost is paid only when the runtime log
+  // level admits INFO: `sddp_log(...)` returns a lightweight
+  // `SDDPLogTag` aggregate (string_view + uids, no alloc) and the
+  // formatter that materialises the string is invoked by spdlog /
+  // std::format AFTER the level filter.
   const auto n_total = effective_apertures.size();
   const auto n_feasible = aperture_cuts.size();
   const auto phase_elapsed = std::chrono::duration<double>(
                                  std::chrono::steady_clock::now() - phase_start)
                                  .count();
-  const bool anomalous = (n_infeasible > 0) || (n_skipped > 0);
-  const auto level = anomalous ? spdlog::level::info : spdlog::level::debug;
-  spdlog::log(level,
-              "{}: {}/{} feasible, {} infeasible, {} skipped ({:.3f}s) "
-              "[thread {}]",
-              sddp_log("Aperture",
-                       gtopt::uid_of(iteration_index),
-                       scene_uid_val,
-                       phase_uid_val),
-              n_feasible,
-              n_total,
-              n_infeasible,
-              n_skipped,
-              phase_elapsed,
-              std::hash<std::thread::id> {}(caller_tid) % 10000);
+  spdlog::info(
+      "{}: {}/{} feasible, {} infeasible, {} skipped ({:.3f}s) "
+      "[thread {}]",
+      sddp_log("Aperture",
+               gtopt::uid_of(iteration_index),
+               scene_uid_val,
+               phase_uid_val),
+      n_feasible,
+      n_total,
+      n_infeasible,
+      n_skipped,
+      phase_elapsed,
+      std::hash<std::thread::id> {}(caller_tid) % 10000);
 
   if (aperture_cuts.empty()) {
     return std::nullopt;

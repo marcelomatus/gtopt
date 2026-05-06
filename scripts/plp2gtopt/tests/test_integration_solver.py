@@ -6,6 +6,7 @@ These tests require the gtopt binary and are skipped when it is not found.
 """
 
 import json
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -874,3 +875,114 @@ def test_hydro_4b_cascade_gtopt_solve(tmp_path, gtopt_bin):
     assert (results_dir / "Generator").exists(), "No Generator output dir"
     assert (results_dir / "Demand").exists(), "No Demand output dir"
     assert (results_dir / "solution.csv").exists(), "No solution.csv"
+
+
+# ---------------------------------------------------------------------------
+# SDDP log-format regression guard
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.integration
+def test_hydro_4b_sddp_log_format(tmp_path, gtopt_bin):
+    """SDDP emits ONE forward + ONE backward-visibility line per (iter, scene, phase).
+
+    Regression guard against accidentally demoting / removing the
+    canonical per-(scene, phase) log lines that operators rely on for
+    `tail -f` progress monitoring.  A previous change demoted the
+    aperture summary to debug-level, which silently removed the
+    backward log line under default (aperture-enabled) configuration.
+
+    The contract this test pins:
+      * Forward pass — exactly one ``SDDP Forward [iN sN pN]: opex=...``
+        INFO line per (iter, scene, phase) that runs.
+      * Backward visibility — at least one of the per-(iter, scene,
+        phase) channels emits a line:
+          - aperture path (default): ``SDDP Aperture [iN sN pN]: …
+            feasible …`` (one per phase ≥ 1)
+          - no-aperture path: ``SDDP Backward [iN sN pN/M]: cut z=…``
+            (one per phase ≥ 1)
+        Without this, a `tail -f` shows only forward lines and the
+        backward pass appears to disappear.
+    """
+    opts = _make_opts_hydro_4b(tmp_path, "gtopt_hydro_4b_log_format")
+    convert_plp_case(opts)
+
+    json_file = Path(opts["output_file"])
+    case_dir = json_file.parent
+    log_dir = tmp_path / "log_format_log"
+    log_dir.mkdir(exist_ok=True)
+
+    # Run with --memory-saving=compress to exercise the production
+    # path that previously broke the per-phase backward visibility.
+    # Cap at 2 training iters for speed; the contract is per-iter.
+    proc = subprocess.run(
+        [
+            gtopt_bin,
+            json_file.name,
+            "--log-directory",
+            str(log_dir),
+            "--memory-saving=compress",
+            "--set",
+            "sddp_options.max_iterations=2",
+        ],
+        cwd=str(case_dir),
+        capture_output=True,
+        text=True,
+        timeout=180,
+        check=False,
+    )
+    assert proc.returncode == 0, (
+        f"gtopt failed: rc={proc.returncode}\nstderr:\n{proc.stderr}"
+    )
+
+    log_files = sorted(log_dir.glob("gtopt_*.log"))
+    assert log_files, f"no gtopt log files found in {log_dir}"
+    text = log_files[-1].read_text(encoding="utf-8")
+
+    # Canonical per-(iter, scene, phase) line patterns.
+    fwd_re = re.compile(r"SDDP Forward \[i\d+ s\d+ p\d+\]: opex=")
+    aperture_re = re.compile(r"SDDP Aperture \[i\d+ s\d+ p\d+\]: \d+/\d+ feasible")
+    backward_re = re.compile(r"SDDP Backward \[i\d+ s\d+ p\d+/\d+\]: cut z=")
+
+    lines = text.splitlines()
+    fwd_count = sum(1 for ln in lines if fwd_re.search(ln))
+    aperture_count = sum(1 for ln in lines if aperture_re.search(ln))
+    backward_count = sum(1 for ln in lines if backward_re.search(ln))
+
+    # Forward must emit per (iter, scene, phase).  Hydro_4b SDDP is
+    # 3 scenes × 3 phases.  Cap at 2 training iters + 1 simulation
+    # pass = 27 forward lines.  Allow some slack for early
+    # convergence — assert at least 1 forward line per (scene, phase)
+    # so the test remains stable across SDDP convergence behavior
+    # changes.
+    assert fwd_count >= 9, (
+        f"forward log undercounted: {fwd_count} "
+        f"(expected ≥ 9 = 3 scenes × 3 phases for at least one iter)"
+    )
+
+    # Backward visibility — at least one channel must emit per-phase
+    # lines.  This catches the "demoted aperture summary" regression
+    # which left only forward lines in the log.
+    backward_visibility = aperture_count + backward_count
+    assert backward_visibility > 0, (
+        f"NO per-(scene, phase) backward visibility lines found.  "
+        f"Forward count={fwd_count}, "
+        f"Aperture count={aperture_count}, "
+        f"Backward 'cut z=' count={backward_count}.  "
+        f"Either the SDDP Aperture INFO line was demoted to debug, "
+        f"or the no-aperture SDDP Backward INFO line was removed.  "
+        f"At least one channel must emit per-(iter, scene, phase) "
+        f"backward log lines."
+    )
+
+    # Forward and backward visibility should be roughly comparable
+    # (forward emits on every phase including phase 0; aperture/
+    # backward only on phases ≥ 1, so backward count is fwd_count
+    # minus the per-(iter, scene) phase-0 entries).  Use a generous
+    # ratio (≥ 25%) to accommodate scenes that converge early or
+    # disable apertures.
+    assert backward_visibility >= fwd_count // 4, (
+        f"backward log is suspiciously sparse vs forward: "
+        f"forward={fwd_count}, backward_visibility={backward_visibility}.  "
+        f"Expected at least 1 backward line per ~3 forward lines."
+    )

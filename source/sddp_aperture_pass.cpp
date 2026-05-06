@@ -168,10 +168,10 @@ auto SDDPMethod::install_aperture_backward_cut(
     // solve) and skip the resolve.
     bool keep_expected_cut = true;
     if (src_phase_index) {
-      src_li.set_log_tag(sddp_log("Backward",
-                                  gtopt::uid_of(iteration_index),
-                                  uid_of(scene_index),
-                                  uid_of(src_phase_index)));
+      src_li.set_log_tag(std::string(sddp_log("Backward",
+                                              gtopt::uid_of(iteration_index),
+                                              uid_of(scene_index),
+                                              uid_of(src_phase_index))));
       const auto t_resolve = Clock::now();
       auto r = src_li.resolve(opts);
       dt_resolve += elapsed_s(t_resolve);
@@ -264,10 +264,10 @@ auto SDDPMethod::install_aperture_backward_cut(
     auto& tgt_sys = planning_lp().system(scene_index, phase_index);
     tgt_sys.ensure_lp_built();
     auto& tgt_li = tgt_sys.linear_interface();
-    tgt_li.set_log_tag(sddp_log("Backward",
-                                gtopt::uid_of(iteration_index),
-                                uid_of(scene_index),
-                                uid_of(phase_index)));
+    tgt_li.set_log_tag(std::string(sddp_log("Backward",
+                                            gtopt::uid_of(iteration_index),
+                                            uid_of(scene_index),
+                                            uid_of(phase_index))));
     const auto t_tgt_resolve = Clock::now();
     auto r = tgt_li.resolve(opts);
     dt_resolve += elapsed_s(t_tgt_resolve);
@@ -586,8 +586,8 @@ auto SDDPMethod::backward_pass_with_apertures_single_phase(
       all_scenarios,
       m_options_.apertures,
       owned,
-      sddp_log(
-          "Aperture", gtopt::uid_of(iteration_index), uid_of(scene_index)));
+      std::string(sddp_log(
+          "Aperture", gtopt::uid_of(iteration_index), uid_of(scene_index))));
   if (!effective.has_value()) {
     return backward_pass_single_phase(
         scene_index, phase_index, cut_offset, opts, iteration_index);
@@ -620,8 +620,8 @@ auto SDDPMethod::backward_pass_with_apertures(SceneIndex scene_index,
       all_scenarios,
       m_options_.apertures,
       owned,
-      sddp_log(
-          "Aperture", gtopt::uid_of(iteration_index), uid_of(scene_index)));
+      std::string(sddp_log(
+          "Aperture", gtopt::uid_of(iteration_index), uid_of(scene_index))));
   if (!effective.has_value()) {
     return backward_pass(scene_index, opts, iteration_index);
   }

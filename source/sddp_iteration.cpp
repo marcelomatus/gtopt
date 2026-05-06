@@ -1167,22 +1167,27 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
             sddp_log(
                 "Async", gtopt::uid_of(iteration_index), uid_of(scene_index)),
             scene_gap);
-        // Drop the compressed flat-LP snapshot for every phase of this
-        // (now-converged) scene.  The SDDP orchestrator will not run
-        // any further forward / backward solves on its cells — only
-        // the sim-pass `write_out` remains, and that path runs on
-        // cached scalars under the
-        // `is_backend_released() && is_optimal()` fast path in
-        // `planning_lp.cpp:1452` without ever calling
-        // `reconstruct_backend()`.  Mid-run snapshot drop frees
-        // ~3-5 MiB × num_phases per scene as scenes converge one-by-one,
-        // unlike Opportunity A's end-of-run drop after `write_out`.
-        if (m_options_.low_memory_mode != LowMemoryMode::off) {
-          for (const auto pi : iota_range<PhaseIndex>(0, num_phases)) {
-            auto& sys = planning_lp().system(scene_index, pi);
-            sys.linear_interface().clear_snapshot();
-          }
-        }
+        // NOTE: do NOT drop the per-phase compressed flat-LP
+        // snapshots here.  The original (reverted) version of this
+        // block did so on the assumption that "the sim-pass write_out
+        // runs on cached scalars without reconstruct_backend()" — but
+        // `run_scene_simulation` first calls `forward_pass`
+        // (sddp_iteration.cpp:1207) which requires a live backend
+        // (a real crossover solve, with row duals for output).  Under
+        // `LowMemoryMode::compress` that solve goes through
+        // `ensure_backend()` → `reconstruct_backend()`, which would
+        // throw with "snapshot reconstruct returned without restoring
+        // the backend" if we had dropped the snapshot at convergence
+        // time.  This is the cascade-method test failure mode (see
+        // `test_hydro_4b_cascade_gtopt_solve`).
+        //
+        // The snapshot is dropped later anyway by
+        // `PlanningLP::write_out`'s per-cell `clear_snapshot()` after
+        // each cell's parquet output is emitted (see planning_lp.cpp
+        // ~line 1484), so total run-end RSS is unchanged.  We only
+        // lose the brief mid-run window of "scene converged but other
+        // scenes still iterating" — typically a small fraction of
+        // total wall time, and never the peak.
         return true;
       }
     }

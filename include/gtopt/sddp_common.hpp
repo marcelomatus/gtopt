@@ -16,7 +16,9 @@
 #include <format>
 #include <map>
 #include <mutex>
+#include <optional>
 #include <string>
+#include <string_view>
 
 #include <gtopt/as_label.hpp>
 #include <gtopt/basic_types.hpp>
@@ -44,7 +46,73 @@ struct PhaseStateInfo;
 // The bracketed key is easy to parse in run_gtopt:
 //   re.compile(r"SDDP (\w+) \[i(\d+) s(\d+) p(\d+)(?:\s+a(\d+))?\]")
 //
-// Parameters accept any formattable type (int, SceneUid, PhaseUid, etc.).
+// `sddp_log(...)` returns a lightweight `SDDPLogTag` aggregate (string_view
+// + a few uids — no heap alloc).  When passed to `spdlog::info("{}: …", …)`
+// or `std::format("{}: …", …)`, the `std::formatter<SDDPLogTag>`
+// specialization at the bottom of this header materialises the
+// `"SDDP Forward [i1 s1 p2]"` string ONLY when the formatter is actually
+// invoked — i.e. AFTER spdlog's runtime level filter has decided to emit.
+// Under `--quiet` or any sub-INFO level, no string is built.
+//
+// Implicit conversion to `std::string` is provided so legacy call sites
+// like `li.set_log_tag(sddp_log(...))` keep working unchanged.
+
+/// Lazy SDDP log-prefix tag.  Holds string_view + uids; materialises into
+/// "SDDP Forward [i1 s1 p2]" form only when formatted.
+struct SDDPLogTag
+{
+  std::string_view tag;
+  IterationUid iteration_uid;
+  std::optional<SceneUid> scene_uid;
+  std::optional<PhaseUid> phase_uid;
+  std::optional<Uid> aperture_uid;
+
+  /// Eager materialisation for legacy callers (`set_log_tag(sddp_log(…))`,
+  /// `auto prefix = sddp_log(…)`).  Format-arg consumers go through
+  /// `std::formatter<SDDPLogTag>` instead and never hit this conversion.
+  ///
+  /// Implicit conversion (no `explicit`) keeps existing call sites
+  /// compiling without changes.  The formatter takes precedence over
+  /// the implicit conversion in `std::format` overload resolution.
+  // NOLINTNEXTLINE(google-explicit-constructor,hicpp-explicit-conversions)
+  [[nodiscard]] operator std::string() const
+  {
+    if (aperture_uid.has_value()) {
+      return as_label<void>("SDDP ",
+                            tag,
+                            " [i",
+                            iteration_uid,
+                            ' ',
+                            's',
+                            *scene_uid,
+                            ' ',
+                            'p',
+                            *phase_uid,
+                            ' ',
+                            'a',
+                            *aperture_uid,
+                            ']');
+    }
+    if (phase_uid.has_value()) {
+      return as_label<void>("SDDP ",
+                            tag,
+                            " [i",
+                            iteration_uid,
+                            ' ',
+                            's',
+                            *scene_uid,
+                            ' ',
+                            'p',
+                            *phase_uid,
+                            ']');
+    }
+    if (scene_uid.has_value()) {
+      return as_label<void>(
+          "SDDP ", tag, " [i", iteration_uid, ' ', 's', *scene_uid, ']');
+    }
+    return as_label<void>("SDDP ", tag, " [i", iteration_uid, ']');
+  }
+};
 
 /// "SDDP Forward [i1 s1 p2]" — with phase tag and per-phase key.
 /// Strict-typed UID-only signature: callers pass ``IterationUid`` /
@@ -54,63 +122,61 @@ struct PhaseStateInfo;
 /// ``gtopt::uid_of(...)`` at the call site, mirroring the
 /// ``SPDLOG_*("...[i{}]…", gtopt::uid_of(iteration_index), ...)``
 /// pattern used everywhere else in the SDDP code (see PR #459).
-[[nodiscard]] inline std::string sddp_log(std::string_view tag,
-                                          IterationUid iteration_uid,
-                                          SceneUid scene_uid,
-                                          PhaseUid phase_uid)
+[[nodiscard]] inline SDDPLogTag sddp_log(std::string_view tag,
+                                         IterationUid iteration_uid,
+                                         SceneUid scene_uid,
+                                         PhaseUid phase_uid) noexcept
 {
-  return as_label<void>("SDDP ",
-                        tag,
-                        " [i",
-                        iteration_uid,
-                        ' ',
-                        's',
-                        scene_uid,
-                        ' ',
-                        'p',
-                        phase_uid,
-                        ']');
+  return SDDPLogTag {
+      .tag = tag,
+      .iteration_uid = iteration_uid,
+      .scene_uid = scene_uid,
+      .phase_uid = phase_uid,
+      .aperture_uid = std::nullopt,
+  };
 }
 
 /// "SDDP Aperture [i1 s1 p2 a5]" — with aperture uid appended.
-/// ``Uid`` for aperture (no strong typedef yet).  Same UID-only
-/// contract as the 4-arg overload.
-[[nodiscard]] inline std::string sddp_log(std::string_view tag,
-                                          IterationUid iteration_uid,
-                                          SceneUid scene_uid,
-                                          PhaseUid phase_uid,
-                                          Uid aperture_uid)
+[[nodiscard]] inline SDDPLogTag sddp_log(std::string_view tag,
+                                         IterationUid iteration_uid,
+                                         SceneUid scene_uid,
+                                         PhaseUid phase_uid,
+                                         Uid aperture_uid) noexcept
 {
-  return as_label<void>("SDDP ",
-                        tag,
-                        " [i",
-                        iteration_uid,
-                        ' ',
-                        's',
-                        scene_uid,
-                        ' ',
-                        'p',
-                        phase_uid,
-                        ' ',
-                        'a',
-                        aperture_uid,
-                        ']');
+  return SDDPLogTag {
+      .tag = tag,
+      .iteration_uid = iteration_uid,
+      .scene_uid = scene_uid,
+      .phase_uid = phase_uid,
+      .aperture_uid = aperture_uid,
+  };
 }
 
 /// "SDDP Forward [i1 s1]" — scene-level (no phase).
-[[nodiscard]] inline std::string sddp_log(std::string_view tag,
-                                          IterationUid iteration_uid,
-                                          SceneUid scene_uid)
+[[nodiscard]] inline SDDPLogTag sddp_log(std::string_view tag,
+                                         IterationUid iteration_uid,
+                                         SceneUid scene_uid) noexcept
 {
-  return as_label<void>(
-      "SDDP ", tag, " [i", iteration_uid, ' ', 's', scene_uid, ']');
+  return SDDPLogTag {
+      .tag = tag,
+      .iteration_uid = iteration_uid,
+      .scene_uid = scene_uid,
+      .phase_uid = std::nullopt,
+      .aperture_uid = std::nullopt,
+  };
 }
 
 /// "SDDP Init [i1]" — iteration-level only.
-[[nodiscard]] inline std::string sddp_log(std::string_view tag,
-                                          IterationUid iteration_uid)
+[[nodiscard]] inline SDDPLogTag sddp_log(std::string_view tag,
+                                         IterationUid iteration_uid) noexcept
 {
-  return as_label<void>("SDDP ", tag, " [i", iteration_uid, ']');
+  return SDDPLogTag {
+      .tag = tag,
+      .iteration_uid = iteration_uid,
+      .scene_uid = std::nullopt,
+      .phase_uid = std::nullopt,
+      .aperture_uid = std::nullopt,
+  };
 }
 
 // ─── Phase grid recorder ────────────────────────────────────────────────────
@@ -202,3 +268,34 @@ private:
 }
 
 }  // namespace gtopt
+
+// ─── std::formatter<SDDPLogTag> ─────────────────────────────────────────────
+//
+// The formatter is invoked by `std::format` / spdlog ONLY after the
+// runtime level filter has decided to emit the line — i.e. under
+// `--quiet` no formatter call is made and no string is built.  The
+// `sddp_log(...)` factory at the top of this header returns this
+// aggregate by value (no heap), so the only allocations on the
+// log path happen here, lazily.
+template<class CharT>
+struct std::formatter<gtopt::SDDPLogTag, CharT>  // NOLINT(cert-dcl58-cpp)
+    : std::formatter<std::basic_string_view<CharT>, CharT>
+{
+  template<class FormatContext>
+  auto format(const gtopt::SDDPLogTag& t, FormatContext& ctx) const
+  {
+    auto out = ctx.out();
+    out = std::format_to(out, "SDDP {} [i{}", t.tag, t.iteration_uid);
+    if (t.scene_uid.has_value()) {
+      out = std::format_to(out, " s{}", *t.scene_uid);
+    }
+    if (t.phase_uid.has_value()) {
+      out = std::format_to(out, " p{}", *t.phase_uid);
+    }
+    if (t.aperture_uid.has_value()) {
+      out = std::format_to(out, " a{}", *t.aperture_uid);
+    }
+    *out++ = ']';
+    return out;
+  }
+};
