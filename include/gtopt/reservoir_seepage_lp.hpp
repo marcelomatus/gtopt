@@ -24,6 +24,7 @@
 #include <gtopt/reservoir_seepage.hpp>
 #include <gtopt/schedule.hpp>
 #include <gtopt/sddp_common.hpp>
+#include <gtopt/update_context.hpp>
 #include <gtopt/waterway_lp.hpp>
 
 namespace gtopt
@@ -32,6 +33,7 @@ namespace gtopt
 // Forward declaration to avoid circular includes (system_lp.hpp includes
 // reservoir_seepage_lp.hpp).
 class SystemLP;
+class SimulationLP;
 
 /**
  * @brief LP wrapper for ReservoirSeepage systems
@@ -112,6 +114,11 @@ public:
                               const ScenarioLP& scenario,
                               const StageLP& stage);
 
+  /// Bind every entry's `reservoir_cache` to the predecessor phase's
+  /// efin StateVariable.  See FlowRightLP::bind_reservoir_caches for
+  /// invocation timing and idempotency notes.
+  void bind_reservoir_caches(const SimulationLP& sim, const SystemLP& prev_sys);
+
   /// Tracks the volume columns and current LP state for coefficient updates
   struct ReservoirSeepageState
   {
@@ -119,6 +126,9 @@ public:
     ColIndex efin_col {};  ///< Stage efin column
     Real current_slope {0.0};  ///< Current physical slope in the LP constraint
     Real current_rhs {0.0};  ///< Current RHS in the LP constraint
+    /// Cached reservoir refs so `update_lp` doesn't need
+    /// `sys.element<ReservoirLP>(reservoir_sid())` on the current sys.
+    ReservoirRefCache reservoir_cache {};
   };
 
 private:

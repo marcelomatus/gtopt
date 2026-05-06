@@ -161,6 +161,12 @@ class Collection
   }
 
 public:
+  /// Public alias of the element type — used by tuple-iterating helpers
+  /// (e.g. `SystemLP::bind_reservoir_caches`) that need to detect, at
+  /// compile time, which collections hold elements that satisfy a
+  /// concept (HasUpdateLP, HasBindReservoirCaches).
+  using value_type = element_type;
+
   /**
    * Builds the mapping structures for efficient element lookup by name or UID.
    * Uses move semantics to efficiently transfer ownership from temporary maps

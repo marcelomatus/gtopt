@@ -240,11 +240,19 @@ bool FlowRightLP::add_to_lp(const SystemContext& sc,
         ampl_name, uid(), FailName, scenario, stage, it->second);
   }
 
-  // Store bound rule state for update_lp
+  // Store bound rule state for update_lp.  When the rule's axis consumes
+  // reservoir state, capture the static reservoir refs here so update_lp
+  // doesn't need `sys.element<ReservoirLP>(...)` on the current sys.
   if (opt_rule.has_value()) {
-    m_bound_states_[st_key] = BoundState {
-        .current_bound = initial_rule_bound,
-    };
+    BoundState bs {.current_bound = initial_rule_bound};
+    if (axis_uses_reservoir(opt_rule->axis)) {
+      const auto rsv_sid = ReservoirLPSId(opt_rule->reservoir);
+      const auto& rsv = sc.element<ReservoirLP>(rsv_sid);
+      bs.reservoir_cache =
+          make_reservoir_ref_cache(rsv, rsv_sid, scenario, stage);
+      bs.has_reservoir_cache = true;
+    }
+    m_bound_states_[st_key] = std::move(bs);
   }
 
   // Create stage-average hourly flow variable (qeh) if requested.
@@ -322,6 +330,33 @@ bool FlowRightLP::add_to_output(OutputContext& out) const
   return true;
 }
 
+void FlowRightLP::bind_reservoir_caches(const SimulationLP& sim,
+                                        const SystemLP& prev_sys)
+{
+  const auto& prev_stages = prev_sys.phase().stages();
+  if (prev_stages.empty()) {
+    return;
+  }
+  const auto prev_phase_index = prev_sys.phase().index();
+  const auto prev_last_stage_uid = prev_stages.back().uid();
+  const auto scene_index = prev_sys.scene().index();
+  // `auto&&` is required: `flat_map`'s value_type may be a proxy when
+  // backed by `std::flat_map<…>` (C++23), which stores keys and values
+  // in separate vectors and yields a synthesized pair from `iterator*`.
+  // `state` still binds to the live value in the values vector.
+  for (auto&& [stkey, state] : m_bound_states_) {
+    if (!state.has_reservoir_cache) {
+      continue;
+    }
+    bind_prev_phase_state_var(state.reservoir_cache,
+                              sim,
+                              scene_index,
+                              prev_phase_index,
+                              std::get<0>(stkey),
+                              prev_last_stage_uid);
+  }
+}
+
 int FlowRightLP::update_lp(SystemLP& sys,
                            const ScenarioLP& scenario,
                            const StageLP& stage)
@@ -338,21 +373,17 @@ int FlowRightLP::update_lp(SystemLP& sys,
   auto& state = m_bound_states_.at(st_key);
 
   // Resolve the rule's input value via the axis dispatcher.  Reservoir
-  // lookups are skipped entirely when the axis is not reservoir-driven,
-  // so a stage-month rule is allowed to leave `reservoir` unset.
+  // axes route through `state.reservoir_cache` (populated in add_to_lp)
+  // so this path no longer touches the current SystemLP's
+  // `Collection<ReservoirLP>`.  Stage-month axes never invoke the
+  // callback, so the cache stays untouched there.
   const auto axis_value = resolve_bound_rule_axis_value(
       *opt_rule,
       stage.month(),
       [&]() -> Real
       {
-        const auto rsv_sid = ReservoirLPSId(opt_rule->reservoir);
-        const auto& rsv = sys.element<ReservoirLP>(rsv_sid);
-        const auto default_volume = rsv.reservoir().eini.value_or(0.0);
-        const auto vini =
-            rsv.physical_eini(sys, scenario, stage, default_volume, rsv_sid);
-        const auto vfin =
-            rsv.physical_efin(sys, scenario, stage, default_volume);
-        return (vini + vfin) / 2.0;
+        return average_volume_from_cache(
+            sys, scenario, stage, state.reservoir_cache);
       });
 
   const auto new_bound = evaluate_bound_rule(*opt_rule, axis_value);

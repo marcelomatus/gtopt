@@ -78,6 +78,16 @@ bool ReservoirProductionFactorLP::add_to_lp(const SystemContext& sc,
   const auto st_key = std::tuple {scenario.uid(), stage.uid()};
   m_coeff_indices_[st_key] = std::move(bmap);
 
+  // Capture the reservoir refs needed by `update_lp`, gated on the same
+  // `eini.has_value()` guard the original `update_lp` used as an early exit.
+  // Storing the cache only when `eini` is set means a missing entry in
+  // `update_lp` is the no-op signal — no separate flag needed.
+  const auto& reservoir = sc.element<ReservoirLP>(reservoir_sid());
+  if (reservoir.reservoir().eini.has_value()) {
+    m_reservoir_caches_[st_key] =
+        make_reservoir_ref_cache(reservoir, reservoir_sid(), scenario, stage);
+  }
+
   return true;
 }
 
@@ -93,21 +103,39 @@ bool ReservoirProductionFactorLP::add_to_output(
 
 // ── update_lp ──────────────────────────────────────────────────────────────
 
+void ReservoirProductionFactorLP::bind_reservoir_caches(
+    const SimulationLP& sim, const SystemLP& prev_sys)
+{
+  const auto& prev_stages = prev_sys.phase().stages();
+  if (prev_stages.empty()) {
+    return;
+  }
+  const auto prev_phase_index = prev_sys.phase().index();
+  const auto prev_last_stage_uid = prev_stages.back().uid();
+  const auto scene_index = prev_sys.scene().index();
+  for (auto&& [stkey, cache] : m_reservoir_caches_) {
+    bind_prev_phase_state_var(cache,
+                              sim,
+                              scene_index,
+                              prev_phase_index,
+                              std::get<0>(stkey),
+                              prev_last_stage_uid);
+  }
+}
+
 int ReservoirProductionFactorLP::update_lp(SystemLP& sys,
                                            const ScenarioLP& scenario,
                                            const StageLP& stage) const
 {
-  const auto& rsv = sys.element<ReservoirLP>(reservoir_sid());
-
-  if (!rsv.reservoir().eini.has_value()) {
+  // Cache absence is the no-op signal — `add_to_lp` only inserts when
+  // `reservoir().eini.has_value()` (matches the prior early-return guard).
+  const auto cache_it = m_reservoir_caches_.find({scenario.uid(), stage.uid()});
+  if (cache_it == m_reservoir_caches_.end()) {
     return 0;
   }
-  const auto default_volume = rsv.reservoir().eini.value_or(0.0);
 
-  const auto vini =
-      rsv.physical_eini(sys, scenario, stage, default_volume, reservoir_sid());
-  const auto vfin = rsv.physical_efin(sys, scenario, stage, default_volume);
-  const Real volume = (vini + vfin) / 2.0;
+  const Real volume =
+      average_volume_from_cache(sys, scenario, stage, cache_it->second);
 
   return update_conversion_coeff(
       sys.linear_interface(), scenario.uid(), stage.uid(), volume);

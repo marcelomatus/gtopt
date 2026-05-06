@@ -20,6 +20,7 @@
 
 #include <gtopt/right_bound_rule.hpp>
 #include <gtopt/storage_lp.hpp>
+#include <gtopt/update_context.hpp>
 #include <gtopt/volume_right.hpp>
 
 namespace gtopt
@@ -27,6 +28,7 @@ namespace gtopt
 
 // Forward declaration to avoid circular includes
 class SystemLP;
+class SimulationLP;
 using VolumeRightLPId = ObjectId<class VolumeRightLP>;
 using VolumeRightLPSId = ObjectSingleId<class VolumeRightLP>;
 
@@ -79,6 +81,11 @@ public:
                               const ScenarioLP& scenario,
                               const StageLP& stage);
 
+  /// Bind every reservoir-driven `BoundState`'s `reservoir_cache` to the
+  /// predecessor phase's efin StateVariable.  See
+  /// FlowRightLP::bind_reservoir_caches for invocation timing.
+  void bind_reservoir_caches(const SimulationLP& sim, const SystemLP& prev_sys);
+
   /// Return the extraction flow column indices for (scenario, stage).
   /// These are the decision variables for how much right volume is
   /// extracted per block.  External entities can reference these
@@ -121,9 +128,14 @@ private:
   STBIndexHolder<ColIndex> saving_cols_;
 
   /// Cached bound rule evaluation per (scenario, stage).
+  ///
+  /// `reservoir_cache` is populated only when the bound rule's axis
+  /// consumes reservoir state (`axis_uses_reservoir(rule.axis)`).
   struct BoundState
   {
     Real current_bound {0.0};
+    ReservoirRefCache reservoir_cache {};
+    bool has_reservoir_cache {false};
   };
   IndexHolder2<ScenarioUid, StageUid, BoundState> m_bound_states_;
 };

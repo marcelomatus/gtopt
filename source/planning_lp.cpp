@@ -812,6 +812,27 @@ void PlanningLP::tighten_scene_phase_links(phase_systems_t& phase_systems,
     links.clear();
     links.shrink_to_fit();
   }
+
+  // Bind every HasUpdateLP element's `ReservoirRefCache` to the
+  // predecessor phase's efin StateVariable.  Routing prev-phase efin
+  // through the StateVariable channel decouples `update_lp` from
+  // `prev_sys->element<ReservoirLP>(...)` lookups under
+  // `LowMemoryMode::compress`, where the predecessor's collections may
+  // already have been released.  Phase 0 has no predecessor — start at
+  // phase 1.
+  //
+  // The cache stores a locator (`prev_phase_index`,
+  // `prev_phase_last_stage_uid`), not a `StateVariable*`, so the
+  // binding is robust under `LowMemoryMode::rebuild` (which may
+  // re-register state variables and reallocate the underlying
+  // `flat_map`).  Each `update_lp` call performs an O(log N) lookup
+  // by key against the simulation-wide registry.
+  const auto n_phases = phase_systems.size();
+  for (std::size_t i = 1; i < n_phases; ++i) {
+    const auto cur_pi = PhaseIndex {static_cast<int>(i)};
+    const auto prev_pi = PhaseIndex {static_cast<int>(i - 1)};
+    phase_systems[cur_pi].bind_reservoir_caches(phase_systems[prev_pi]);
+  }
 }
 
 auto PlanningLP::create_systems(System& system,

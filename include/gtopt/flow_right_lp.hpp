@@ -23,12 +23,14 @@
 #include <gtopt/object_lp.hpp>
 #include <gtopt/right_bound_rule.hpp>
 #include <gtopt/scenario.hpp>
+#include <gtopt/update_context.hpp>
 
 namespace gtopt
 {
 
 // Forward declaration to avoid circular includes
 class SystemLP;
+class SimulationLP;
 
 using FlowRightLPSId = ObjectSingleId<class FlowRightLP>;
 
@@ -63,6 +65,13 @@ public:
   [[nodiscard]] int update_lp(SystemLP& sys,
                               const ScenarioLP& scenario,
                               const StageLP& stage);
+
+  /// Bind every reservoir-driven `BoundState`'s `reservoir_cache` to the
+  /// predecessor phase's efin StateVariable.  Invoked once per
+  /// (scene, phase) pair from `PlanningLP::tighten_scene_phase_links`,
+  /// after every phase of the scene has finished `add_to_lp` so the
+  /// simulation-wide state-variable registry is final.  Idempotent.
+  void bind_reservoir_caches(const SimulationLP& sim, const SystemLP& prev_sys);
 
   [[nodiscard]] auto&& flow_cols_at(const ScenarioLP& scenario,
                                     const StageLP& stage) const
@@ -132,9 +141,16 @@ private:
 
   /// Cached bound rule evaluation per (scenario, stage).
   /// Only populated when flow_right().bound_rule is set.
+  ///
+  /// `reservoir_cache` is populated only when the bound rule's axis
+  /// consumes reservoir state (`axis_uses_reservoir(rule.axis)`); for
+  /// stage-month rules the cache stays default-constructed and
+  /// `update_lp` skips the volume lookup entirely.
   struct BoundState
   {
     Real current_bound {0.0};
+    ReservoirRefCache reservoir_cache {};
+    bool has_reservoir_cache {false};
   };
   IndexHolder2<ScenarioUid, StageUid, BoundState> m_bound_states_;
 };
