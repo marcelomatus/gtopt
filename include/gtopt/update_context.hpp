@@ -87,6 +87,15 @@ struct ReservoirRefCache
   Real energy_scale {1.0};
   ColIndex eini_col {};
   ColIndex efin_col {};
+  /// PLP daily-cycle mode: efin == eini constraint within the phase,
+  /// no cross-phase state propagation.  When true,
+  /// `physical_eini_from_cache` reads the *current* phase's efin (=
+  /// eini after solve, by the daily-cycle constraint) instead of
+  /// chasing the predecessor's solved efin — which is unrelated to
+  /// the current phase's eini for daily-cycle reservoirs and was a
+  /// latent bug in `StorageLP::physical_eini` (segments selected
+  /// against a stale neighboring-phase volume).
+  bool daily_cycle {false};
   /// Locator for the predecessor's efin `StateVariable`.  Set once per
   /// (sys, prev_sys) pair by `bind_prev_phase_state_var`; consumed at
   /// every `physical_eini_from_cache` call as a key into the
@@ -127,6 +136,7 @@ struct ReservoirRefCache
       .energy_scale = rsv.energy_scale(),
       .eini_col = rsv.eini_col_at(scenario, stage),
       .efin_col = rsv.efin_col_at(scenario, stage),
+      .daily_cycle = rsv.reservoir().daily_cycle.value_or(false),
   };
 }
 
@@ -235,6 +245,22 @@ template<typename SystemLPT>
 {
   if (!stage.index() && !stage.phase_index()) {
     return rc.default_volume;
+  }
+
+  // 0. Daily-cycle short-circuit.  For `daily_cycle = true` reservoirs
+  //    `effective_usv` is forced false (storage_lp.hpp:455-456): no
+  //    cross-phase state propagates; the current phase's `sini` column
+  //    is free in `[emin, emax]` and the in-phase `efin == eini`
+  //    constraint pins efin to it.  Both eini and efin are decision
+  //    variables of the *current* phase's LP, so the value to use for
+  //    segment selection is `sys.linear_interface().get_col_sol()[efin_col]`
+  //    (which equals `eini_col` post-solve by the close constraint),
+  //    NOT the predecessor's solved efin.  The predecessor-efin reading
+  //    used by `StorageLP::physical_eini` for daily-cycle reservoirs is
+  //    a latent bug (segment selection drifts to a stale neighboring-
+  //    phase volume); the cache helper deliberately diverges to fix it.
+  if (rc.daily_cycle) {
+    return physical_efin_from_cache(sys, rc);
   }
 
   // 1. Cross-phase: predecessor's optimal efin (storage_lp.hpp:351-362).

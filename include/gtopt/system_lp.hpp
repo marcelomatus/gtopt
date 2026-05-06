@@ -128,29 +128,30 @@ concept HasUpdateLP = requires(T& obj,
 
 /// Element types that must remain alive after `add_to_lp` completes.
 ///
-/// Two reasons an element type is on this list:
+/// Only one reason an element type is on this list:
 ///
-///   1. **`HasUpdateLP`** — the element holds per-(scen, stg) state
-///      (e.g. `m_bound_states_`, `m_states_`, `m_coeff_indices_`) that
-///      must persist across SDDP iterations.  Dropping the collection
-///      would lose the state.
+///   * **`HasUpdateLP`** — the element holds per-(scen, stg) state
+///     (e.g. `m_bound_states_`, `m_states_`, `m_coeff_indices_`) that
+///     must persist across SDDP iterations.  Dropping the collection
+///     would lose the state.
 ///
-///   2. **`ReservoirLP`** — `physical_eini_from_cache` falls back to
-///      `prev_sys->element<ReservoirLP>(rsv_sid).physical_efin(...)`
-///      whenever the predecessor's efin StateVariable is unregistered
-///      (daily_cycle reservoirs).  Dropping `Collection<ReservoirLP>`
-///      on prev_sys would break that fallback.  ReservoirLP is small
-///      (~10 elements per phase on real cases), so the cost is
-///      negligible vs the segfault risk of removing it.
+/// Notably absent: `ReservoirLP`.  After Phase 2a's StateVariable
+/// channel and the daily-cycle short-circuit in
+/// `physical_eini_from_cache` (reads current-phase efin, not
+/// predecessor's), `update_lp` no longer accesses
+/// `prev_sys->element<ReservoirLP>` on any production code path.
+/// Tests that bypass `tighten_scene_phase_links` still hit the
+/// element-lookup fallback for non-daily_cycle reservoirs, but they
+/// run with `LowMemoryMode::off` (collections always live), so the
+/// fallback is harmless.
 ///
-/// All other 21 collection types are pure `add_to_lp`-time consumers:
+/// All other 22 collection types are pure `add_to_lp`-time consumers:
 /// after `add_to_lp` populates each element's column / row indices,
 /// the collection itself is never read again until `write_out` calls
 /// `rebuild_collections_if_needed()` to revive every type from the
 /// parsed `System` data.
 template<typename T>
-inline constexpr bool is_post_add_to_lp_resident_v =
-    HasUpdateLP<T> || std::is_same_v<T, ReservoirLP>;
+inline constexpr bool is_post_add_to_lp_resident_v = HasUpdateLP<T>;
 
 /**
  * @class SystemLP
