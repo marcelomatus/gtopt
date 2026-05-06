@@ -248,23 +248,44 @@ private:
 // prefixed with ``-``; absolute value drives the suffix.  Used by the
 // per-scene "SDDP Forward […]: done, opex=…" line, the iteration-end
 // UB / LB / α summary, and the convergence headline.
-[[nodiscard]] inline auto format_si(double v) -> std::string
+/// Lazy SI-suffix wrapper.  Holds a double; materialises into the
+/// formatted string only when consumed by `{}` (which fires AFTER
+/// spdlog's runtime level filter) or via the implicit
+/// `operator std::string()` for non-format-arg callers.
+///
+/// Used at ~5 sites per (iter, scene, phase) of an SDDP run: forward
+/// `opex=…`, backward `cut z=…→α≥…`, tgt re-solve `z=…`.  On
+/// CEN-scale (16 scen × 51 phases × 30 iter) that's ~120 K
+/// `format_si` evaluations per run; at INFO+ level filter every one
+/// of those allocs is wasted.
+struct FormatSI
 {
-  const double a = std::abs(v);
-  const char* sign = (v < 0.0) ? "-" : "";
-  if (a >= 1e12) {
-    return std::format("{}{:.3f}T", sign, a / 1e12);
+  double value;
+
+  // NOLINTNEXTLINE(google-explicit-constructor,hicpp-explicit-conversions)
+  [[nodiscard]] operator std::string() const
+  {
+    const double a = std::abs(value);
+    const char* sign = (value < 0.0) ? "-" : "";
+    if (a >= 1e12) {
+      return std::format("{}{:.3f}T", sign, a / 1e12);
+    }
+    if (a >= 1e9) {
+      return std::format("{}{:.3f}G", sign, a / 1e9);
+    }
+    if (a >= 1e6) {
+      return std::format("{}{:.2f}M", sign, a / 1e6);
+    }
+    if (a >= 1e3) {
+      return std::format("{}{:.2f}K", sign, a / 1e3);
+    }
+    return std::format("{}{:.4f}", sign, a);
   }
-  if (a >= 1e9) {
-    return std::format("{}{:.3f}G", sign, a / 1e9);
-  }
-  if (a >= 1e6) {
-    return std::format("{}{:.2f}M", sign, a / 1e6);
-  }
-  if (a >= 1e3) {
-    return std::format("{}{:.2f}K", sign, a / 1e3);
-  }
-  return std::format("{}{:.4f}", sign, a);
+};
+
+[[nodiscard]] inline FormatSI format_si(double v) noexcept
+{
+  return FormatSI {v};
 }
 
 }  // namespace gtopt
@@ -297,5 +318,38 @@ struct std::formatter<gtopt::SDDPLogTag, CharT>  // NOLINT(cert-dcl58-cpp)
     }
     *out++ = ']';
     return out;
+  }
+};
+
+// ─── std::formatter<FormatSI> ──────────────────────────────────────────────
+//
+// Same lazy-formatter pattern as SDDPLogTag.  Materialises the
+// SI-suffix string only when spdlog's runtime level filter admits the
+// line — at INFO+ filter / `--quiet` mode every per-(iter, scene,
+// phase) `format_si` call site (~5/cell × ~24K cells on Juan-scale)
+// stops paying the alloc cost.
+template<class CharT>
+struct std::formatter<gtopt::FormatSI, CharT>  // NOLINT(cert-dcl58-cpp)
+    : std::formatter<std::basic_string_view<CharT>, CharT>
+{
+  template<class FormatContext>
+  auto format(const gtopt::FormatSI& f, FormatContext& ctx) const
+  {
+    auto out = ctx.out();
+    const double a = std::abs(f.value);
+    const char* sign = (f.value < 0.0) ? "-" : "";
+    if (a >= 1e12) {
+      return std::format_to(out, "{}{:.3f}T", sign, a / 1e12);
+    }
+    if (a >= 1e9) {
+      return std::format_to(out, "{}{:.3f}G", sign, a / 1e9);
+    }
+    if (a >= 1e6) {
+      return std::format_to(out, "{}{:.2f}M", sign, a / 1e6);
+    }
+    if (a >= 1e3) {
+      return std::format_to(out, "{}{:.2f}K", sign, a / 1e3);
+    }
+    return std::format_to(out, "{}{:.4f}", sign, a);
   }
 };

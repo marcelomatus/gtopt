@@ -1448,7 +1448,19 @@ void PlanningLP::write_out()
     // Fast path A: sim-pass cells already wrote output — skip
     // ensure_lp_built entirely so we don't needlessly rehydrate the
     // backend just to find m_output_written_ == true.
+    //
+    // Drop the per-cell scratch (label metadata + flat-LP snapshot)
+    // here too: the sim-pass write_out path doesn't drop them, and
+    // PlanningLP::resolve() is the last LP-touching step in the run,
+    // so no future caller will reconstruct.  This mirrors the slow
+    // path / Fast Path B drops below — without it, sim-pass cells
+    // would leak ~1 MB compressed label-meta + ~3-5 MB compressed
+    // snapshot per cell to end-of-run.  Both calls are idempotent
+    // (the snapshot was already dropped by the sim-pass mid-run
+    // hook in `sddp_iteration.cpp::run_scene_simulation` cleanup).
     if (system.output_written()) {
+      system.linear_interface().drop_label_meta_buffers();
+      system.linear_interface().clear_snapshot();
       return;
     }
     // Fast path B: under any non-`off` low_memory mode, Phase 2a
