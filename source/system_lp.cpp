@@ -973,7 +973,7 @@ void SystemLP::clear_disposable_collections()
         const auto try_clear = [](auto& coll) noexcept
         {
           using ElementT = std::remove_cvref_t<decltype(coll)>::value_type;
-          if constexpr (!is_post_add_to_lp_resident_v<ElementT>) {
+          if constexpr (!HasUpdateLP<ElementT>) {
             using CollT = std::remove_cvref_t<decltype(coll)>;
             coll = CollT {};
           }

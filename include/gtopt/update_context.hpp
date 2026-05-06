@@ -18,13 +18,12 @@
  *   * `default_volume` — fallback value for un-solved phases.
  *   * `energy_scale`  — scale factor for warm-solution reads.
  *   * `eini_col` / `efin_col` — current-stage column indices.
- *   * `rsv_sid` / `rsv_uid` — kept for diagnostics and identity.
+ *   * `rsv_uid` — kept for diagnostics and identity.
  *
  * `physical_eini_from_cache` and `physical_efin_from_cache` read the
  * cached column indices directly from `sys.linear_interface()`.  They
- * never call `sys.element<ReservoirLP>`, never look up a
- * `StateVariable` by key, never traverse `prev_phase_sys`.  This is
- * sufficient because:
+ * never call `sys.element<ReservoirLP>` and never traverse
+ * `prev_phase_sys`.  This is sufficient because:
  *
  *   * **Non-daily_cycle reservoir** — the LP's state-link constraint
  *     pins `eini_col == prev_phase_efin_col`, so reading current
@@ -59,6 +58,26 @@ struct ReservoirRefCache
   Real energy_scale {1.0};
   ColIndex eini_col {};
   ColIndex efin_col {};
+};
+
+/// Per-(scenario, stage) cached state for elements whose `update_lp`
+/// evaluates a `RightBoundRule` axis to refresh a column bound.
+///
+/// Shared by `FlowRightLP` and `VolumeRightLP` — both elements drive
+/// `update_lp` from a single `right_bound_rule` and need exactly:
+///   * `current_bound`    — last evaluated rule output (axis -> bound)
+///                          to skip redundant `set_col_lowb/uppb` calls.
+///   * `reservoir_cache`  — cached column indices for reservoir-axis
+///                          rules; default-constructed for axes that
+///                          do not consume reservoir state.
+///
+/// The struct is intentionally aggregate-trivial so that
+/// `IndexHolder2<ScenarioUid, StageUid, RuleBoundState>` benefits from
+/// trivial copy/move during collection rebuilds.
+struct RuleBoundState
+{
+  Real current_bound {0.0};
+  ReservoirRefCache reservoir_cache {};
 };
 
 /// Populate a `ReservoirRefCache` from a `ReservoirLP` reference.

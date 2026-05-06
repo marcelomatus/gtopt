@@ -117,6 +117,22 @@ static_assert(AddToLP<UserConstraintLP>);
  *
  * Used by SystemLP::update_lp() to iterate over the LP element collection
  * and dispatch `update_lp()` only to types that implement it.
+ *
+ * `HasUpdateLP` also identifies the elements that must remain alive after
+ * `add_to_lp` completes: those types hold per-(scen, stg) state
+ * (e.g. `m_bound_states_`, `m_states_`, `m_coeff_indices_`) that must
+ * persist across SDDP iterations — dropping their collection would lose
+ * that state.
+ *
+ * All other 22 collection types are pure `add_to_lp`-time consumers:
+ * after `add_to_lp` populates each element's column / row indices, the
+ * collection itself is never read again until `write_out` calls
+ * `rebuild_collections_if_needed()` to revive every type from the parsed
+ * `System` data.  In particular `ReservoirLP` is disposable: the
+ * predecessor's final-volume is read directly from the previous phase's
+ * solver via `li.get_col_sol()[eini_col]` and cached in
+ * `ReservoirRefCache`, so `update_lp` never traverses
+ * `prev_sys->element<ReservoirLP>` on any production code path.
  */
 template<typename T>
 concept HasUpdateLP = requires(T& obj,
@@ -126,30 +142,11 @@ concept HasUpdateLP = requires(T& obj,
   { obj.update_lp(system_lp, scenario, stage) } -> std::same_as<int>;
 };
 
-/// Element types that must remain alive after `add_to_lp` completes.
-///
-/// Only one reason an element type is on this list:
-///
-///   * **`HasUpdateLP`** — the element holds per-(scen, stg) state
-///     (e.g. `m_bound_states_`, `m_states_`, `m_coeff_indices_`) that
-///     must persist across SDDP iterations.  Dropping the collection
-///     would lose the state.
-///
-/// Notably absent: `ReservoirLP`.  After Phase 2a's StateVariable
-/// channel and the daily-cycle short-circuit in
-/// `physical_eini_from_cache` (reads current-phase efin, not
-/// predecessor's), `update_lp` no longer accesses
-/// `prev_sys->element<ReservoirLP>` on any production code path.
-/// Tests that bypass `tighten_scene_phase_links` still hit the
-/// element-lookup fallback for non-daily_cycle reservoirs, but they
-/// run with `LowMemoryMode::off` (collections always live), so the
-/// fallback is harmless.
-///
-/// All other 22 collection types are pure `add_to_lp`-time consumers:
-/// after `add_to_lp` populates each element's column / row indices,
-/// the collection itself is never read again until `write_out` calls
-/// `rebuild_collections_if_needed()` to revive every type from the
-/// parsed `System` data.
+/// Transitional alias — `HasUpdateLP<T>` is the canonical spelling for
+/// "post-`add_to_lp` resident".  This alias is preserved only for the
+/// parallel test-suite work in flight (`test_system_lp_lazy_rebuild`)
+/// and SHOULD be inlined to `HasUpdateLP<T>` at every call site once
+/// that integration lands.
 template<typename T>
 inline constexpr bool is_post_add_to_lp_resident_v = HasUpdateLP<T>;
 
@@ -741,7 +738,7 @@ public:
   void rebuild_collections_if_needed();
 
   /// Move-assign empty every `Collection<X>` whose element type does
-  /// NOT satisfy `is_post_add_to_lp_resident_v<X>`.  After
+  /// NOT satisfy `HasUpdateLP<X>`.  After
   /// `add_to_lp`/`flatten`/`tighten_scene_phase_links` complete, those
   /// collections are pure dead weight: their data has already been
   /// flattened into the LP snapshot, the only remaining readers (write_out)

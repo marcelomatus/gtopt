@@ -139,11 +139,7 @@ private:
   /// consumes reservoir state (`axis_uses_reservoir(rule.axis)`); for
   /// stage-month rules the cache stays default-constructed and the
   /// `update_lp` lambda that reads the volume never fires.
-  struct BoundState
-  {
-    Real current_bound {0.0};
-    ReservoirRefCache reservoir_cache {};
-  };
+  using BoundState = RuleBoundState;
   IndexHolder2<ScenarioUid, StageUid, BoundState> m_bound_states_;
 };
 

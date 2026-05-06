@@ -126,11 +126,7 @@ private:
   ///
   /// `reservoir_cache` is populated only when the bound rule's axis
   /// consumes reservoir state (`axis_uses_reservoir(rule.axis)`).
-  struct BoundState
-  {
-    Real current_bound {0.0};
-    ReservoirRefCache reservoir_cache {};
-  };
+  using BoundState = RuleBoundState;
   IndexHolder2<ScenarioUid, StageUid, BoundState> m_bound_states_;
 };
 

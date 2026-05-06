@@ -814,13 +814,13 @@ void PlanningLP::tighten_scene_phase_links(phase_systems_t& phase_systems,
   }
 
   // Drop write-out-only collections under compress / rebuild modes.
-  // After Phase 2a's cache + Phase 2c's daily_cycle fix,
   // `physical_eini_from_cache` reads `li.get_col_sol()[eini_col]`
   // directly from the current sys — no element lookup, no
-  // cross-phase traversal.  All 22 non-HasUpdateLP `Collection<X>`
-  // types are therefore dead weight after `add_to_lp` + `flatten`.
-  // `write_out` calls `rebuild_collections_if_needed()` to revive
-  // every type from the parsed `System` data when needed.
+  // cross-phase traversal, no StateVariable lookup.  All 22
+  // non-HasUpdateLP `Collection<X>` types are therefore dead weight
+  // after `add_to_lp` + `flatten`.  `write_out` calls
+  // `rebuild_collections_if_needed()` to revive every type from the
+  // parsed `System` data when needed.
   for (auto&& sys : phase_systems) {
     sys.clear_disposable_collections();
   }
