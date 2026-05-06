@@ -868,6 +868,7 @@ void SystemLP::rebuild_in_place()
   if (!m_collections_built_) {
     create_collections(m_system_context_, system(), m_collections_);
     m_collections_built_ = true;
+    m_disposable_collections_built_ = true;
   }
 
   auto flat_opts = m_flat_opts_;
@@ -982,18 +983,13 @@ void SystemLP::clear_disposable_collections()
       m_collections_);
 
   // The drop deliberately keeps `m_collections_built_` = true.  Reasoning:
-  //  - The resident collections (HasUpdateLP + ReservoirLP) ARE still
-  //    fully populated; production paths that walk only those types
-  //    (every update_lp call) must NOT trigger a rebuild.
-  //  - Code paths that need the disposable types alive (write_out)
-  //    must call `rebuild_collections_if_needed()` themselves before
-  //    accessing.  This is what they already do today under
-  //    `LowMemoryMode::compress`.
-  //
-  // If a future caller starts doing `elements<DisposableType>()` after
-  // the drop without rebuilding first, they will see an empty range,
-  // not crash — `element<X>(uid)` would throw out-of-range and surface
-  // the bug.
+  //  - The resident collections (HasUpdateLP) ARE still fully populated;
+  //    production paths that walk only those types (every update_lp call)
+  //    must NOT trigger a rebuild.
+  //  - Code paths that need the disposable types alive (write_out) check
+  //    `m_disposable_collections_built_` and trigger a full rebuild via
+  //    `rebuild_collections_if_needed()` if false.
+  m_disposable_collections_built_ = false;
 }
 
 void SystemLP::rebuild_collections_if_needed()
@@ -1006,15 +1002,25 @@ void SystemLP::rebuild_collections_if_needed()
   // the solver backend untouched so the Phase-2a cached primal/dual
   // still serves `OutputContext`'s value reads, without losing
   // `is_optimal()` to a freshly-loaded-but-unsolved backend.
+  //
+  // Two-flag gate: triggers if either the full collection set is
+  // unbuilt (cold start under rebuild mode) OR the disposable types
+  // are dropped (compress mode after `clear_disposable_collections`).
+  // In the latter case the flatten replays add_to_lp on the freshly-
+  // recreated disposable elements; the HasUpdateLP types' state is
+  // overwritten too but they receive identical content from the same
+  // System data, so `update_lp`'s post-rebuild iteration sees the
+  // same indices.
   if (m_flat_opts_.low_memory_mode == LowMemoryMode::off) {
     return;
   }
-  if (m_collections_built_) {
+  if (m_collections_built_ && m_disposable_collections_built_) {
     return;
   }
 
   create_collections(m_system_context_, system(), m_collections_);
   m_collections_built_ = true;
+  m_disposable_collections_built_ = true;
   m_system_context_.rebind_system(*this);
 
   auto flat_opts = m_flat_opts_;
@@ -1162,10 +1168,23 @@ SystemLP::SystemLP(const System& system,
   } else {
     create_collections(m_system_context_, system, m_collections_);
     m_collections_built_ = true;
+    m_disposable_collections_built_ = true;
     create_lp(m_flat_opts_);
     if (m_flat_opts_.low_memory_mode == LowMemoryMode::compress) {
-      m_collections_ = collections_t {};
-      m_collections_built_ = false;
+      // Per-element drop: keep HasUpdateLP collections alive (their
+      // per-(scen, stg) state — `m_bound_states_`, `m_states_`,
+      // `m_coeff_indices_` — must persist across SDDP iterations);
+      // free the 22 disposable element types whose only role was
+      // to be visited during `add_to_lp` / `flatten`.  This replaces
+      // the previous full `m_collections_ = collections_t{}` drop
+      // that forced every cell to pay a full-rebuild cost on its
+      // first `update_lp` call.
+      //
+      // `update_lp` no longer triggers `rebuild_collections_if_needed`
+      // because its iteration only touches HasUpdateLP types, which
+      // are alive.  `write_out` triggers the full rebuild via the
+      // two-flag gate when it needs the disposable types.
+      clear_disposable_collections();
     }
   }
 }
@@ -1182,6 +1201,7 @@ SystemLP::SystemLP(SystemLP&& other) noexcept
     , m_flat_opts_(std::move(other.m_flat_opts_))
     , m_fingerprint_was_set_(other.m_fingerprint_was_set_)
     , m_collections_built_(other.m_collections_built_)
+    , m_disposable_collections_built_(other.m_disposable_collections_built_)
     , m_last_flat_ncols_(other.m_last_flat_ncols_)
     , m_last_flat_nrows_(other.m_last_flat_nrows_)
     , m_pending_state_links_(std::move(other.m_pending_state_links_))
@@ -1226,6 +1246,7 @@ SystemLP& SystemLP::operator=(SystemLP&& other) noexcept
   m_flat_opts_ = std::move(other.m_flat_opts_);
   m_fingerprint_was_set_ = other.m_fingerprint_was_set_;
   m_collections_built_ = other.m_collections_built_;
+  m_disposable_collections_built_ = other.m_disposable_collections_built_;
   m_last_flat_ncols_ = other.m_last_flat_ncols_;
   m_last_flat_nrows_ = other.m_last_flat_nrows_;
   m_pending_state_links_ = std::move(other.m_pending_state_links_);
@@ -1372,15 +1393,17 @@ int SystemLP::update_lp()
     return 0;
   }
 
-  // Under `LowMemoryMode::compress` collections are dropped at the end
-  // of construction and at every `release_backend()` —
-  // `visit_elements(collections())` would iterate over nothing, so
-  // volume-dependent coefficient updates (seepage, production factor,
-  // discharge limit, …) would silently no-op and freeze the LP at
-  // construction-time matval.  Mirror the same rebuild pattern as
-  // `write_out` (~line 1232) so updates run on a populated XLP
-  // regardless of low_memory_mode.
-  rebuild_collections_if_needed();
+  // No `rebuild_collections_if_needed()` here: the constructor's
+  // `clear_disposable_collections()` keeps HasUpdateLP types alive
+  // (their per-(scen, stg) update state must persist across SDDP
+  // iterations), and `visit_elements` below only acts on those types.
+  // Iterating empty disposable Collection<X>'s is a fast no-op.
+  // Triggering a full rebuild here would re-create those disposable
+  // types on every iter for nothing.
+  //
+  // Under `LowMemoryMode::rebuild` the rebuild path runs through
+  // `ensure_backend()` above which calls `rebuild_in_place()` →
+  // `create_collections` if needed.
 
   int total = 0;
 

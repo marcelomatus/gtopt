@@ -529,6 +529,22 @@ private:
   /// allocated for this cell.
   bool m_collections_built_ {false};
 
+  /// True once the *full* collection set (HasUpdateLP + disposable
+  /// element types) has been populated.  Goes false after
+  /// `clear_disposable_collections()` empties the 22 non-resident
+  /// types — at that point `m_collections_built_` STAYS true (the
+  /// HasUpdateLP types are still alive, with their per-(scen, stg)
+  /// `update_lp` state preserved across SDDP iterations).
+  ///
+  /// `rebuild_collections_if_needed()` triggers if either flag is
+  /// false: a full rebuild (create_collections + flatten) re-populates
+  /// both the disposable types and the HasUpdateLP types' XLP indices.
+  /// `update_lp` deliberately skips `rebuild_collections_if_needed`
+  /// because its `visit_elements` only acts on HasUpdateLP types,
+  /// which are always alive — iterating empty disposable collections
+  /// is a fast no-op.
+  bool m_disposable_collections_built_ {false};
+
   /// True once `write_out()` has emitted this cell's element tables.
   /// Set by the SDDP simulation pass, which calls `write_out()` right
   /// after the final per-cell solve while the backend (and hence
