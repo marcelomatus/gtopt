@@ -15,6 +15,7 @@
 #include <mutex>
 #include <ranges>
 #include <span>
+#include <utility>
 
 #include <gtopt/error.hpp>
 #include <gtopt/linear_interface.hpp>
@@ -201,7 +202,7 @@ void LinearInterface::release_backend() noexcept
         m_backend_ ? get_numcols() : 0,
         m_backend_ && is_optimal() ? 1 : 0,
         m_replay_.active_cuts_size());
-  } catch (...) {  // noexcept — swallow logging failures
+  } catch (...) {  // NOLINT(bugprone-empty-catch) — noexcept logging path
   }
 
   // Cache post-solve scalars for transparent read access.  Full
@@ -1630,6 +1631,7 @@ std::vector<RowIndex> LinearInterface::add_rows_disposable(
   return indices;
 }
 
+// NOLINTNEXTLINE(misc-no-recursion)
 ColIndex LinearInterface::emit_cols_to_backend(std::span<const SparseCol> cols)
 {
   // Bulk equivalent of `emit_col_to_backend`: assembles CSC buffers
@@ -1826,6 +1828,7 @@ void LinearInterface::track_row_label_meta(RowIndex row_idx,
   }
 }
 
+// NOLINTNEXTLINE(misc-no-recursion)
 RowIndex LinearInterface::add_row(const SparseRow& row, const double eps)
 {
   ensure_backend();
@@ -2050,6 +2053,7 @@ RowIndex LinearInterface::add_row(const SparseRow& row, const double eps)
   return row_idx;
 }
 
+// NOLINTNEXTLINE(misc-no-recursion)
 RowIndex LinearInterface::emit_row_to_backend(const SparseRow& row,
                                               const double eps)
 {
@@ -2084,6 +2088,7 @@ RowIndex LinearInterface::emit_row_to_backend(const SparseRow& row,
   return add_row(name, columns.size(), columns, elements, row.lowb, row.uppb);
 }
 
+// NOLINTNEXTLINE(misc-no-recursion)
 RowIndex LinearInterface::add_row_raw(const SparseRow& row, const double eps)
 {
   // Internal raw-insertion path — called by the public `add_row` after
@@ -2141,6 +2146,7 @@ void LinearInterface::add_rows(const std::span<const SparseRow> rows,
   add_rows_raw(rows, eps);
 }
 
+// NOLINTNEXTLINE(misc-no-recursion)
 void LinearInterface::add_rows_raw(const std::span<const SparseRow> rows,
                                    const double eps)
 {
@@ -2301,7 +2307,7 @@ void LinearInterface::delete_rows(const std::span<const int> indices)
     if (pos < std::ssize(rin)) {
       rin.erase(rin.begin() + pos);
     }
-    if (idx < 0 || static_cast<std::size_t>(idx) < frozen_count) {
+    if (std::cmp_less(idx, frozen_count)) {
       continue;
     }
     const auto post_pos = static_cast<std::size_t>(idx) - frozen_count;
@@ -2559,7 +2565,7 @@ void LinearInterface::set_col_low_raw(const ColIndex index, const double value)
     // a single-sided lower update doesn't lose it.  Subsequent updates
     // pass the live upper which `set_pending_col_lower` ignores when
     // an entry already exists.
-    const double upper_now = m_backend_->col_upper()[index];
+    const double upper_now = get_col_upp_raw()[index];
     m_replay_.set_pending_col_lower(index, value, upper_now);
   }
   invalidate_cached_optimal_on_mutation();
@@ -2582,7 +2588,7 @@ void LinearInterface::set_col_upp_raw(const ColIndex index, const double value)
     // upper-bound update doesn't reset the lower to zero on replay.
     // The current-lower value is ignored if an entry already exists
     // (see `LpReplayBuffer::set_pending_col_upper`).
-    const double lower_now = m_backend_->col_lower()[index];
+    const double lower_now = get_col_low_raw()[index];
     m_replay_.set_pending_col_upper(index, lower_now, value);
   }
   invalidate_cached_optimal_on_mutation();
@@ -2848,8 +2854,8 @@ RowDiagnostics LinearInterface::diagnose_row(const RowIndex row) const
   // Row bounds (raw LP units)
   const auto row_lb = std::span(m_backend_->row_lower(), get_numrows());
   const auto row_ub = std::span(m_backend_->row_upper(), get_numrows());
-  diag.rhs_lb = row_lb[static_cast<size_t>(row)];
-  diag.rhs_ub = row_ub[static_cast<size_t>(row)];
+  diag.rhs_lb = row_lb[row];
+  diag.rhs_ub = row_ub[row];
 
   // Scan all columns for non-zero coefficients in this row
   const auto& cin = *m_col_index_to_name_;

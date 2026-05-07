@@ -116,8 +116,10 @@ inline constexpr std::array<ZScoreBucket, 4> kZScoreTable {
     ZScoreBucket {.alpha_max = 0.01 + kAlphaBucketSlack, .z = 2.576},  // 99 %
     ZScoreBucket {.alpha_max = 0.05 + kAlphaBucketSlack, .z = 1.960},  // 95 %
     ZScoreBucket {.alpha_max = 0.10 + kAlphaBucketSlack, .z = 1.645},  // 90 %
-    ZScoreBucket {.alpha_max = std::numeric_limits<double>::infinity(),
-                  .z = 1.282},  // 80 % fallback
+    ZScoreBucket {
+        .alpha_max = std::numeric_limits<double>::infinity(),
+        .z = 1.282,
+    },  // 80 % fallback
 };
 
 /// Pick ``z_{α/2}`` for the supplied ``alpha`` from

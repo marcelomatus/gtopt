@@ -6,6 +6,7 @@
  * @copyright BSD-3-Clause
  */
 
+#include <algorithm>
 #include <cmath>
 #include <format>
 #include <string_view>
@@ -46,12 +47,8 @@ void LpValidationStats::note_coeff(double v,
   }
 
   // Track running min/max for the summary verdict.
-  if (abs_v > max_abs_coeff) {
-    max_abs_coeff = abs_v;
-  }
-  if (abs_v < min_abs_coeff) {
-    min_abs_coeff = abs_v;
-  }
+  max_abs_coeff = std::max(abs_v, max_abs_coeff);
+  min_abs_coeff = std::min(abs_v, min_abs_coeff);
 
   const auto cap = static_cast<size_t>(cfg.effective_max_warnings_per_kind());
 

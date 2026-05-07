@@ -462,7 +462,7 @@ auto SDDPMethod::initialize_solver() -> std::expected<void, Error>
     if (path.empty()) {
       return path;
     }
-    std::filesystem::path p {path};
+    const std::filesystem::path p {path};
     if (p.is_absolute()) {
       return path;
     }

@@ -250,7 +250,7 @@ bool FlowRightLP::add_to_lp(const SystemContext& sc,
       const auto& rsv = sc.element<ReservoirLP>(rsv_sid);
       bs.reservoir_cache = make_reservoir_ref_cache(rsv, scenario, stage);
     }
-    m_bound_states_[st_key] = std::move(bs);
+    m_bound_states_[st_key] = bs;
   }
 
   // Create stage-average hourly flow variable (qeh) if requested.

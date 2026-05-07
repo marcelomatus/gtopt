@@ -610,7 +610,7 @@ auto SDDPMethod::backward_pass_single_phase(SceneIndex scene_index,
       src_state.outgoing_links,
       [](const auto& link) noexcept { return link.state_var != nullptr; }));
   const auto links_used =
-      cut.cmap.size() > 0 ? cut.cmap.size() - 1 : std::size_t {0};
+      !cut.cmap.empty() ? cut.cmap.size() - 1 : std::size_t {0};
   spdlog::info(
       "SDDP Backward [i{} s{} p{}/{}]: cut z={} -> alpha>={} (links={}/{}, "
       "resolve={})",

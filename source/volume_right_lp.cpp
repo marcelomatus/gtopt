@@ -279,7 +279,7 @@ bool VolumeRightLP::add_to_lp(SystemContext& sc,
       const auto& rsv = sc.element<ReservoirLP>(rsv_sid);
       bs.reservoir_cache = make_reservoir_ref_cache(rsv, scenario, stage);
     }
-    m_bound_states_[st_key] = std::move(bs);
+    m_bound_states_[st_key] = bs;
   }
 
   // Couple to parent VolumeRight's energy balance if linked
