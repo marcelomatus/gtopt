@@ -241,3 +241,126 @@ TEST_CASE("SDDPLogTag: rendered string matches run_gtopt regex")  // NOLINT
     CHECK(m[5].str() == "44");
   }
 }
+
+// ─── PhaseGridRecorder ────────────────────────────────────────────────────
+//
+// Tests added 2026-05-07 alongside `bb05693b fix(phase_grid)` which
+// switched the recorder's storage from a positional packed
+// `std::string` (indexed by `value_of(phase_uid) - 1`, a UID-arithmetic
+// category error) to a `std::map<PhaseUid, char>` keyed on the UID
+// itself.  The cells string in the JSON output is now a UID-keyed
+// object, not a positional string.
+
+TEST_CASE("PhaseGridRecorder: empty by default")  // NOLINT
+{
+  PhaseGridRecorder recorder {};
+  CHECK(recorder.empty());
+
+  recorder.record(i_uid(1), s_uid(1), p_uid(1), GridCell::Forward);
+  CHECK_FALSE(recorder.empty());
+}
+
+TEST_CASE("PhaseGridRecorder: priority semantics — std::max wins")  // NOLINT
+{
+  // The recorder applies `std::max` on the underlying char value of
+  // `GridCell`.  The enum's char values determine the priority order:
+  //   Idle ('.', 0x2E) < Aperture ('A', 0x41) < Backward ('B', 0x42)
+  //   < Elastic ('E', 0x45) < Forward ('F', 0x46) < Infeasible ('X', 0x58)
+  // So `Infeasible` is the absolute highest, `Forward` is higher than
+  // `Backward`, and `Idle` is lowest.  Test the three branches:
+  //   * higher-priority state wins on overwrite
+  //   * lower-priority state does NOT overwrite a higher one
+  //   * idle never wins
+  PhaseGridRecorder recorder {};
+  const auto iu = i_uid(1);
+  const auto su = s_uid(1);
+  const auto pu = p_uid(1);
+
+  // Idle → Backward: higher wins.
+  recorder.record(iu, su, pu, GridCell::Idle);
+  recorder.record(iu, su, pu, GridCell::Backward);
+  CHECK(recorder.to_json().contains(R"("1": "B")"));
+
+  // Backward → Forward: 'F' > 'B' so Forward wins.
+  recorder.record(iu, su, pu, GridCell::Forward);
+  CHECK(recorder.to_json().contains(R"("1": "F")"));
+
+  // Forward → Backward: 'B' < 'F' so Forward holds.
+  recorder.record(iu, su, pu, GridCell::Backward);
+  CHECK(recorder.to_json().contains(R"("1": "F")"));
+
+  // Forward → Infeasible: 'X' is highest, must overwrite.
+  recorder.record(iu, su, pu, GridCell::Infeasible);
+  CHECK(recorder.to_json().contains(R"("1": "X")"));
+
+  // Infeasible → Forward / Backward / Aperture / Elastic / Idle: none
+  // overwrite — `Infeasible` is the absorbing state.
+  recorder.record(iu, su, pu, GridCell::Forward);
+  recorder.record(iu, su, pu, GridCell::Aperture);
+  recorder.record(iu, su, pu, GridCell::Elastic);
+  recorder.record(iu, su, pu, GridCell::Idle);
+  CHECK(recorder.to_json().contains(R"("1": "X")"));
+}
+
+TEST_CASE(
+    "PhaseGridRecorder: sparse PhaseUid layout emits only "
+    "recorded UIDs (regression for bb05693b)")  // NOLINT
+{
+  // Pre-fix bug: `value_of(phase_uid) - 1` was used as a slot offset
+  // into a packed cells string, so a sparse UID set silently produced
+  // a positional string with '.' fillers in the unrecorded slots.
+  // Post-fix storage is `std::map<PhaseUid, char>` and JSON emits
+  // ONLY the UIDs actually recorded.
+  PhaseGridRecorder recorder {};
+  const auto iu = i_uid(1);
+  const auto su = s_uid(1);
+
+  recorder.record(iu, su, p_uid(3), GridCell::Forward);
+  recorder.record(iu, su, p_uid(7), GridCell::Backward);
+
+  const auto json = recorder.to_json();
+  // Recorded UIDs present, ordered ascending by integer key.
+  CHECK(json.contains(R"("3": "F")"));
+  CHECK(json.contains(R"("7": "B")"));
+  // Phantom slots between 3 and 7 must NOT appear (pre-fix would have
+  // emitted "..F...B" with '.' fillers).
+  CHECK_FALSE(json.contains(R"("4": ".")"));
+  CHECK_FALSE(json.contains(R"("5": ".")"));
+  CHECK_FALSE(json.contains(R"("6": ".")"));
+  // No UID 1 / 2 either.
+  CHECK_FALSE(json.contains(R"("1": ".")"));
+  CHECK_FALSE(json.contains(R"("2": ".")"));
+
+  // Sort order — "3" precedes "7" in the emitted JSON.
+  const auto pos3 = json.find(R"("3": "F")");
+  const auto pos7 = json.find(R"("7": "B")");
+  REQUIRE(pos3 != std::string::npos);
+  REQUIRE(pos7 != std::string::npos);
+  CHECK(pos3 < pos7);
+}
+
+TEST_CASE(
+    "PhaseGridRecorder: multiple (iter, scene) rows emit one "
+    "JSON entry each")  // NOLINT
+{
+  PhaseGridRecorder recorder {};
+  recorder.record(i_uid(1), s_uid(0), p_uid(1), GridCell::Forward);
+  recorder.record(i_uid(1), s_uid(1), p_uid(1), GridCell::Forward);
+  recorder.record(i_uid(2), s_uid(0), p_uid(1), GridCell::Backward);
+
+  const auto json = recorder.to_json();
+  // Three (iter, scene) keys → three row objects.
+  std::size_t count = 0;
+  for (std::size_t pos = 0;
+       (pos = json.find(R"("i":)", pos)) != std::string::npos;
+       ++pos)
+  {
+    ++count;
+  }
+  CHECK(count == 3);
+  // Each row's iter/scene values are present.
+  CHECK(json.contains(R"("i": 1)"));
+  CHECK(json.contains(R"("i": 2)"));
+  CHECK(json.contains(R"("s": 0)"));
+  CHECK(json.contains(R"("s": 1)"));
+}
