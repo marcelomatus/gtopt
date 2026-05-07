@@ -1,0 +1,114 @@
+% ===========================================================
+% results.tex
+% ===========================================================
+\section{Results and Validation}
+\label{sec:results}
+
+This section consolidates the quantitative validation of the
+pipeline against two independent references: the published
+$\lambda^{\mathrm{CEN}}$ feed and the PLEXOS solution
+\texttt{.accdb} oracle.  The headline operating day is
+2026-04-22; multi-day trends are summarised at the end.
+
+\subsection{Aggregate accuracy}
+Across the \num{2494} cells of 2026-04-22, the
+\textit{uncorrected} pipeline output (using the empirical
+$\lambda_b/\lambda_{\mathrm{ref}}$ loss factor) yields a mean
+absolute error of $\$0.170$/MWh, a P90 of $\$0.492$/MWh, and a
+maximum of $\$2.533$/MWh.  Filtering to non-wedge-flagged cells
+(\num{2152} of \num{2494}) tightens these to $\$0.137$,
+$\$0.385$, and $\$1.34$/MWh respectively.  The
+\textit{PID-corrected} estimator that uses
+$\mathrm{LF}^{\mathrm{PID}}_{b,t}$ from the PLEXOS \texttt{.accdb}
+yields a mean of $\$0.294$/MWh and a max of $\$4.31$/MWh — slightly
+worse on aggregate than the empirical estimator, because the
+empirical estimator is mathematically self-consistent at $\lambda$
+by construction.  The PID estimator is nonetheless preferred when
+the use case requires a counterfactual interpretation
+(e.g.\ what would $\hat\lambda$ have been at a candidate new
+bus?), since the empirical estimator collapses on any new bus
+without published $\lambda^{\mathrm{CEN}}$.
+
+\subsection{Regime distribution}
+Across the \num{2494} cells the regime distribution is
+\texttt{renewable\_curtailment} \num{1073} (\SI{43.0}{\percent}),
+\texttt{matched\_interior} \num{878} (\SI{35.2}{\percent}),
+\texttt{matched\_capped\_pmax} \num{449} (\SI{18.0}{\percent}),
+\texttt{matched\_above} \num{71} (\SI{2.8}{\percent}), and
+\texttt{matched\_near\_pmin} \num{23} (\SI{0.9}{\percent}).  No
+cells fall in the \texttt{no\_candidates}, \texttt{no\_cv\_match},
+or \texttt{demand\_fail} regimes for this day.  The dominance of
+\texttt{renewable\_curtailment} reflects the high mid-day solar
+penetration of the SEN: across the four hours
+\num{11}{:}\num{00}{-}\num{15}{:}\num{00} the
+$\lambda^{\mathrm{CEN}}$ falls below $\$0.5$/MWh on most non-coastal
+buses.
+
+\subsection{Marginal-unit coherence}
+By construction every bus in the same island shares the same
+marginal-unit assignment.  A regression test reports
+\num{0}/\num{474} islands where two buses disagree on the
+marginal-unit name; this is the maximum-coherence outcome and
+validates the clustering+picker composition.
+
+\subsection{Per-bus MLF cross-check}
+The PLEXOS-published per-bus MLFs read from the
+2026-04-22 PID \texttt{.accdb} cover \num{247} buses
+($\mathrm{LF}\in[0.92,1.05]$, mean $\approx0.99$, dominated by the
+\SI{500}{\kV} centre-Santiago corridor).  After bridging by
+\texttt{id\_info}, \num{26} of the \num{29} pipeline buses receive
+a per-period MLF; the remaining \num{3} buses fall back to the
+empirical estimator.  The mean cross-bus MLF spread on this day
+is \num{0.072} (max $-$ min), in line with the typical $\pm$\SI{4}{\percent}
+loss penalty observed in the SEN backbone.
+
+\subsection{Pipeline runtime}
+Table~\ref{tab:runtime} reports the runtime breakdown on a
+warm cache (all CEN/SCVIC parquet present on disk) and on a cold
+cache (no parquet, full network fetch).  The warm-cache run
+completes in under \SI{6}{\second} dominated by the parallel
+discovery of bar\_transfs and the per-island marginal-unit
+identification loop.  The cold-cache run is dominated by
+network rate-limiting on the per-bus cmg-real fetch, with
+parallel \num{8}-thread fetch achieving an effective throughput of
+roughly \num{0.4}~bus per second; one cold day for the full
+\num{29}-bus catalogue requires approximately \SI{75}{\second}.
+
+\begin{table}[t]
+  \centering
+  \caption{Pipeline runtime breakdown for 2026-04-22, on a
+  warm cache (all parquet on disk) and on a cold cache (no parquet,
+  full network fetch).}
+  \label{tab:runtime}
+  \input{tables/tab_runtime.tex}
+\end{table}
+
+\subsection{Cross-validation against the PLEXOS oracle}
+Table~\ref{tab:oracle} summarises the agreement between the
+pipeline-published quantities and the PLEXOS \texttt{.accdb} oracle
+on 2026-04-22.  Three quantities are compared: the per-bus
+$\lambda$ (the same quantity is published by both CEN SIP and the
+PLEXOS solver, providing a publication-chain integrity check), the
+per-unit dispatch (compared between SIP \texttt{generaci\'on-real}
+and the PLEXOS per-unit dispatch), and the per-bus MLF (the only
+quantity not in the SIP feed).  All three agree to within
+publication noise, confirming that the methodology's reliance on
+SIP feeds does not introduce a systematic bias relative to the
+solver-side values.
+
+\begin{table}[h]
+  \centering
+  \caption{Cross-validation against the PLEXOS PCP/PID
+  \texttt{.accdb} oracle for 2026-04-22.  All three quantities
+  agree to within publication noise.}
+  \label{tab:oracle}
+  \begin{tabular}{lrrr}
+    \toprule
+    Quantity & mean $|\Delta|$ & P90 & max \\
+    \midrule
+    $\lambda_b$ (USD/MWh) & 0.04 & 0.18 & 0.92 \\
+    $p_{g,h}$ (MW)        & 0.6  & 2.7  & 14.3 \\
+    $\mathrm{LF}_b$ (\%)  & 0.21 & 0.78 & 1.94 \\
+    \bottomrule
+  \end{tabular}
+\end{table}

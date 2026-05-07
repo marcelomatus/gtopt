@@ -1,0 +1,14 @@
+% Local font-definition file: substitutes Adobe Courier (`pcr` OT1)
+% with Computer Modern Typewriter for sandbox builds.
+\ProvidesFile{ot1pcr.fd}
+  [2026/05/07 v1.0 local Courier -> CM Typewriter sandbox fallback]
+\DeclareFontFamily{OT1}{pcr}{\hyphenchar\font=-1}
+\DeclareFontShape{OT1}{pcr}{m}{n}{<-> ssub * cmtt/m/n}{}
+\DeclareFontShape{OT1}{pcr}{m}{it}{<-> ssub * cmtt/m/it}{}
+\DeclareFontShape{OT1}{pcr}{m}{sl}{<-> ssub * cmtt/m/sl}{}
+\DeclareFontShape{OT1}{pcr}{m}{sc}{<-> ssub * cmtt/m/sc}{}
+\DeclareFontShape{OT1}{pcr}{b}{n}{<-> ssub * cmtt/m/n}{}
+\DeclareFontShape{OT1}{pcr}{b}{it}{<-> ssub * cmtt/m/it}{}
+\DeclareFontShape{OT1}{pcr}{bx}{n}{<-> ssub * cmtt/m/n}{}
+\DeclareFontShape{OT1}{pcr}{bx}{it}{<-> ssub * cmtt/m/it}{}
+\endinput

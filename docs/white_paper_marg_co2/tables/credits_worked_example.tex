@@ -1,0 +1,33 @@
+% credits_worked_example.tex
+% Worked-example table: 100 MW hypothetical PV at CRUCERO 220 kV on
+% 2026-04-22.  Daily figures are computed from
+% /tmp/wp_marg_co2_figures/data_2026-04-22.parquet via the helper script
+% figures/make_credits_curves.py; annual figures are the daily figures
+% multiplied by 365 (no seasonal adjustment is applied — see
+% Sec.~\ref{sec:credits-limits}).
+\setlength{\tabcolsep}{4pt}
+\renewcommand{\arraystretch}{1.10}
+\begin{tabular}{@{}lrrr@{}}
+\toprule
+Accounting variant
+  & $\bar\varepsilon$
+  & Daily credit
+  & Annual credit \\
+  & [tCO$_2$/MWh]
+  & [tCO$_2$/d]
+  & [tCO$_2$/yr] \\
+\midrule
+$\varepsilon_t$, hourly-marginal (Art.~6.4 / EnergyTag) & 0.032$^{\dagger}$ & 19.9 & 7\,270 \\
+$\varepsilon_{\mathrm{OM\text{-}DDA}}$, CDM Tool~07 OM       & 0.440 & 270.6 & 98\,785 \\
+$\varepsilon_{\mathrm{simp\text{-}OM}}$, simplified OM (29-bus mean) & 0.241 & 148.4 & 54\,167 \\
+$\varepsilon_{\mathrm{avg}}$, national grid (Inv. Nac.\ 2024) & 0.420 & 258.4 & 94\,306 \\
+\midrule
+$\Delta$ (OM-DDA $-$ hourly)        & --- &  +250.7 & +91\,515 \\
+$\Delta$ (avg-grid $-$ OM-DDA)      & --- &  $-12.3$  & $-4\,479$  \\
+\bottomrule
+\end{tabular}
+
+% $^\dagger$ effective time-matched mean for the chosen PV profile, computed
+% as $\sum_h \mathrm{MWh}_h \cdot \varepsilon_h / \sum_h \mathrm{MWh}_h$;
+% the per-quarter $\varepsilon_t$ itself ranges from 0 to
+% 1.04~tCO$_2$/MWh (see Fig.~\ref{fig:credits-curves}).

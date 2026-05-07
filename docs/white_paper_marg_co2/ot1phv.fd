@@ -1,0 +1,13 @@
+% Local: Adobe Helvetica (`phv` OT1) -> Computer Modern Sans Serif.
+\ProvidesFile{ot1phv.fd}
+  [2026/05/07 v1.0 local Helvetica -> CM Sans sandbox fallback]
+\DeclareFontFamily{OT1}{phv}{}
+\DeclareFontShape{OT1}{phv}{m}{n}{<-> ssub * cmss/m/n}{}
+\DeclareFontShape{OT1}{phv}{m}{it}{<-> ssub * cmss/m/it}{}
+\DeclareFontShape{OT1}{phv}{m}{sl}{<-> ssub * cmss/m/sl}{}
+\DeclareFontShape{OT1}{phv}{m}{sc}{<-> ssub * cmss/m/n}{}
+\DeclareFontShape{OT1}{phv}{b}{n}{<-> ssub * cmss/bx/n}{}
+\DeclareFontShape{OT1}{phv}{b}{it}{<-> ssub * cmss/bx/it}{}
+\DeclareFontShape{OT1}{phv}{bx}{n}{<-> ssub * cmss/bx/n}{}
+\DeclareFontShape{OT1}{phv}{bx}{it}{<-> ssub * cmss/bx/it}{}
+\endinput

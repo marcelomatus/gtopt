@@ -1,0 +1,72 @@
+% =====================================================================
+% pipeline_blocks.tex --- block diagram of the cen2gtopt 9-step pipeline
+% Standalone-compilable; also \input-able from the white paper.
+% =====================================================================
+\begin{tikzpicture}[
+  node distance=4.5mm and 6mm,
+  font=\scriptsize,
+  every node/.style={align=center},
+  block/.style ={draw, rounded corners=2pt, fill=blue!8,
+                 minimum width=44mm, minimum height=6.5mm,
+                 inner sep=2pt},
+  data/.style  ={draw, rounded corners=10pt, fill=orange!10,
+                 minimum width=44mm, minimum height=6.5mm,
+                 inner sep=2pt},
+  oracle/.style={draw, rounded corners=2pt, fill=green!10,
+                 dashed,
+                 minimum width=44mm, minimum height=6.5mm,
+                 inner sep=2pt},
+  arr/.style   ={draw, -{Stealth[length=4pt]}, thick},
+]
+
+  \node[data]   (api)   {\textbf{1. CEN public APIs}\\
+                          \texttt{cmg-real}, SCVIC, \texttt{infotecnica},
+                          PCP archive};
+  \node[block]  (cache) [below=of api]
+                         {\textbf{2. Cached extractor}\\
+                          per-call SHA-256 keyed parquet cache,
+                          TTL-invalidated};
+  \node[block]  (mlf)   [below=of cache]
+                         {\textbf{3. MLF correction}\\
+                          $\lambda_b = \lambda_{\mathrm{ref}}\!\cdot\!
+                           \mathrm{MLF}_b$ (PID \texttt{.accdb} or
+                           empirical ratio)};
+  \node[block]  (scvic) [below=of mlf]
+                         {\textbf{4. SCVIC ladder}\\
+                          per-fuel CV stack assembled from
+                          \texttt{scvic\_consolidado}};
+  \node[block]  (isl)   [below=of scvic]
+                         {\textbf{5. Island clustering}\\
+                          coherent buses grouped by
+                          $|\Delta\lambda|\!\le\!\tau$ \&
+                          cumulative-spread cap};
+  \node[block]  (mar)   [below=of isl]
+                         {\textbf{6. \texttt{identify\_marginal}}\\
+                          closest-CV picker over
+                          dispatched--non-forced pool};
+  \node[block]  (eps)   [below=of mar]
+                         {\textbf{7. $\varepsilon$ mapping}\\
+                          fuel $\to$ tCO\textsubscript{2}/MWh
+                          (IPCC Tier-1 + CEN combustion table)};
+  \node[data]   (out)   [below=of eps]
+                         {\textbf{8. Output}\\
+                          parquet, \texttt{laja.json},
+                          per-bus \texttt{epsilon} timeseries};
+  \node[oracle] (oracle)[below=of out]
+                         {\textbf{9. PLEXOS oracle (optional)}\\
+                          PCP \texttt{.accdb} cross-check,
+                          $|\Delta\lambda|<0.5\,\$/\text{MWh}$};
+
+  \foreach \a/\b in {api/cache, cache/mlf, mlf/scvic, scvic/isl,
+                     isl/mar, mar/eps, eps/out, out/oracle}
+    \draw[arr] (\a) -- (\b);
+
+  % side annotations
+  \node[anchor=west, font=\scriptsize\itshape, text=black!55]
+        at ($(api.east)+(2mm,0)$)   {raw};
+  \node[anchor=west, font=\scriptsize\itshape, text=black!55]
+        at ($(cache.east)+(2mm,0)$) {persistent};
+  \node[anchor=west, font=\scriptsize\itshape, text=black!55]
+        at ($(out.east)+(2mm,0)$)   {downstream};
+
+\end{tikzpicture}

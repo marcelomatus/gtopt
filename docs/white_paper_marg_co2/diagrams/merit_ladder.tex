@@ -1,0 +1,50 @@
+% =====================================================================
+% merit_ladder.tex --- merit-order ladder + closest-CV picker
+% =====================================================================
+\begin{tikzpicture}[
+  font=\scriptsize,
+  >={Stealth[length=4pt]},
+]
+  % axes
+  \draw[->] (0,0) -- (8.4,0) node[anchor=west] {Cumulative dispatch [GW]};
+  \draw[->] (0,0) -- (0,5.2) node[anchor=south] {Cost CV [USD/MWh]};
+
+  % tier rectangles --- (xlow,ylow) (xhigh,yhigh)
+  \draw[fill=green!18, draw=green!50!black]
+        (0,0)   rectangle (2.4,0.8) node[midway,font=\scriptsize]
+        {hydro / biomass};
+  \draw[fill=blue!15, draw=blue!50!black]
+        (2.4,0) rectangle (4.6,2.4) node[midway,font=\scriptsize]
+        {GNL CCGT};
+  \draw[fill=orange!25, draw=orange!60!black]
+        (4.6,0) rectangle (6.4,3.6) node[midway,font=\scriptsize]
+        {diesel};
+  \draw[fill=gray!30, draw=gray!60!black]
+        (6.4,0) rectangle (8.0,4.6) node[midway,font=\scriptsize]
+        {coal};
+
+  % demand line (dashed vertical)
+  \draw[dashed, very thick, red!70!black] (5.4,0) -- (5.4,4.9)
+        node[anchor=south, font=\scriptsize] {$D_t$};
+
+  % lambda target (dashed horizontal)
+  \draw[dashed, thick, blue!60!black] (0,3.05) -- (8.4,3.05);
+  \node[anchor=west, font=\scriptsize, text=blue!60!black]
+        at (8.0,3.05) {$\lambda_t^{\mathrm{CEN}}$};
+
+  % closest-above and closest-below candidates
+  \fill[blue!80!black]   (5.4,3.6) circle (1.8pt)
+        node[anchor=west, font=\tiny] {\;CV$_+$ = 96.0};
+  \fill[orange!80!black] (5.4,2.4) circle (1.8pt)
+        node[anchor=west, font=\tiny, yshift=-3pt] {\;CV$_-$ = 78.5};
+  \fill[red!80!black]    (5.4,3.05) circle (2.2pt);
+  \node[font=\scriptsize, text=red!80!black, anchor=west]
+        at (5.5,3.32) {marginal: closest$|\text{CV}-\lambda_t|$};
+
+  % brace explaining the picker
+  \draw[decorate,decoration={brace,amplitude=4pt,mirror},thick]
+        (4.6,-0.15) -- (6.4,-0.15)
+        node[midway,below=4pt,font=\scriptsize]
+        {dispatched non-forced pool};
+
+\end{tikzpicture}

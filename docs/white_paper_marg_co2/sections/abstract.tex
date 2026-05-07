@@ -1,0 +1,45 @@
+% ===========================================================
+% abstract.tex — IEEEtran abstract + keywords
+% ===========================================================
+\begin{abstract}
+The decarbonisation of the Chilean power sector and the country's
+commitment to a carbon-tax escalation under Law~20.780 require
+operational signals that are both \emph{spatially} resolved
+(per-bus) and \emph{marginally} attributed (per-unit) — the natural
+analogue of a Locational Marginal Emission factor.  At present the
+Coordinador El\'ectrico Nacional (CEN) publishes only a 15-minute
+nodal marginal cost $\lambda^{\mathrm{CEN}}$ and an annual system
+average emission factor; no per-bus, per-quarter marginal CO$_2$
+intensity $\varepsilon$ is released.  This paper presents
+\texttt{cen2gtopt}, a novel reconstruction methodology that
+re-engineers $\varepsilon$ for the \num{29} CEN-published 220/500\,kV
+buses at 15-minute resolution from public data alone.  The procedure
+combines the SCVIC merit-ladder of declared variable costs, the
+``generaci\'on real'' hourly dispatch, the ``instrucciones
+operacionales'' price-taker classification, and the Marginal Loss
+Factors (MLFs) extracted from the PLEXOS PCP/PID solution
+\texttt{.accdb} oracle.  A chained-tolerance plus cumulative-spread
+clustering rule separates the \num{29} buses into electrically
+coherent islands per quarter; for each island the marginal unit is
+identified as the dispatched non-forced generator whose declared CV
+is closest to the median bus marginal price.  The methodology is
+applied to the operating day 2026-04-22.  Across \num{2494}
+(bus, quarter) cells, the reconstructed marginal cost $\hat\lambda$
+agrees with $\lambda^{\mathrm{CEN}}$ to a mean absolute error of
+\SI{0.170}{\USD\per\MWh}, a 90$^{\mathrm{th}}$ percentile of
+\SI{0.492}{\USD\per\MWh} and a maximum of
+\SI{2.533}{\USD\per\MWh}; after excluding the \SI{13.7}{\percent} of
+cells flagged as \texttt{tier\_uncertainty}, the mean drops to
+\SI{0.137}{\USD\per\MWh} and the maximum to
+\SI{1.34}{\USD\per\MWh}.  Per-island marginal-unit coherence is
+exact (\num{0} of \num{474} islands disagree).  The pipeline runs
+in approximately \SI{6}{\second} on a warm cache and is published
+as part of the \texttt{gtopt} project.
+\end{abstract}
+
+\begin{IEEEkeywords}
+Locational marginal emissions, marginal CO$_2$ factor, locational
+marginal price, Coordinador El\'ectrico Nacional, SCVIC, marginal
+loss factor, merit ladder, public-data reconstruction,
+short-run-marginal emissions, Chilean power system.
+\end{IEEEkeywords}

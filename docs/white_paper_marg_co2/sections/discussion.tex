@@ -1,0 +1,90 @@
+% ===========================================================
+% discussion.tex
+% ===========================================================
+\section{Discussion}
+\label{sec:discussion}
+
+The pipeline's strengths are also the source of its limitations:
+its dependence on public CEN, SCVIC, and PLEXOS feeds confers
+auditability and reproducibility but also exposes it to the
+cadence, completeness, and rate-limit policies of the publishing
+agency.  Six structural limitations deserve explicit attention.
+
+\subsection{Rate-limit dependency}
+The CEN SIP API enforces a soft rate limit
+(\SI{8}{requests\per\second} on the documented anonymous-read key)
+and intermittently returns HTTP~502 on heavy-fetch endpoints such
+as \texttt{cmg-programado-pcp} and the per-bar\_transf
+\texttt{cmg-real} fan-out.  The pipeline mitigates this through
+parallel fetching with bounded concurrency and an aggressive
+parquet cache, but a cold-cache day requires roughly \SI{75}{\second}
+of wall time and an active CEN session.  Days with API outages
+(observed twice in the cached \num{2024}--\num{2026} archive)
+require a manual re-fetch the following day.
+
+\subsection{Hand-curated bus aliases}
+The bus-name bridge of Section~\ref{sec:bridge} relies on
+\num{29} hand-curated overrides in
+\texttt{prepopulate\_cache.py} to reconcile PLEXOS node names
+that the heuristic alias generator cannot match unambiguously.
+Maintenance burden grows linearly with the catalogue: extending
+the pipeline to the full \num{1300}+ CEN-published bus list would
+require either an expanded overrides table or a more aggressive
+fuzzy-matching strategy (e.g.\ Levenshtein distance with substation
+catalogue lookup).  The current overrides table is small enough to
+be manually audited but is the single largest accumulator of
+``soft'' technical debt in the codebase.
+
+\subsection{SCVIC tier-segmentation wedge}
+The \texttt{tier\_uncertainty} flag of Section~\ref{sec:eps}
+identifies cells where the picker has selected a CV tier whose
+next-up neighbour is more than $\$2$/MWh away — i.e.\ where the
+true marginal CV is structurally bounded between the two tiers but
+the discretisation forces a single value.  These cells account for
+\SI{13.7}{\percent} of the 2026-04-22 sample and contribute most
+of the worst-case error.  Mitigation requires either a finer
+SCVIC ladder (out of the pipeline's control: the ladder is what
+the generator declares) or a within-tier interpolation rule (e.g.\
+linear in the cumulative dispatch within the tier band).  Within-tier
+interpolation is on the roadmap but introduces its own
+identifiability problem: the pipeline does not have access to the
+PLEXOS-internal piecewise-linear cost segment that was binding at
+the LP solve.
+
+\subsection{Loss-factor decomposition}
+The per-bus loss correction is not a proper PJM-style
+energy/loss/congestion decomposition: the pipeline does not have
+access to the per-unit Power Transfer Distribution Factor (PTDF)
+matrix, which CEN does not publish.  The MLF read from the
+PLEXOS \texttt{.accdb} approximates the loss component but does
+not isolate the congestion component.  As a consequence the
+pipeline cannot answer counterfactual questions of the form ``how
+would $\hat\lambda$ at bus $b$ change if line $\ell$ were
+de-rated?'' — a question that the gtopt SDDP solver
+(Section~\ref{sec:conclusions}) is well-equipped to answer.
+
+\subsection{Reservoir-hydro as marginal}
+The current pipeline excludes reservoir-hydro plants from the
+candidate pool, on the rationale that the published feeds do not
+expose the implicit water value at which the LP cleared.  Empirically,
+this exclusion costs accuracy on hours when a reservoir hydro is
+genuinely interior-marginal — typically the late-evening peak when
+neither GNL CCGT nor coal is on the merit margin and the published
+$\lambda^{\mathrm{CEN}}$ reflects the hydro shadow price on the
+Bellman value function.  The natural mitigation is to import the
+implicit water value from the \texttt{cmg-programado-pcp} median
+and seed reservoir-hydros into the pool with this value as their
+synthetic CV; the pipeline is structurally ready for this
+extension, blocked only on stable availability of the
+\texttt{cmg-programado-pcp} endpoint (which routinely returns
+HTTP~502 on the anonymous-read key tier).
+
+\subsection{Single-pollutant scope}
+The current emission factor is CO$_2$ only.  Multi-pollutant
+extension (NO$_x$, SO$_2$, PM$_{2.5}$) requires per-unit declared
+factors from the Registro de Emisiones y Transferencias de
+Contaminantes (RETC); the integration is straightforward
+(\texttt{FUEL\_EF} becomes \texttt{POLLUTANT\_EF[fuel][pollutant]})
+but is not yet implemented.  When implemented it would close the
+last remaining methodological gap relative to the
+PJM~LME feed~\cite{PJMLME2024}.

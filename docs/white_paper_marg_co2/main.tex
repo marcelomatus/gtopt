@@ -1,0 +1,243 @@
+% ============================================================================
+% A Reconstruction Methodology for Marginal Cost and Marginal CO2 Emissions
+% in the Chilean Power System Using CEN Public Data
+%
+% Target journal: IEEE Transactions on Power Systems
+% Template:       IEEEtran (journal mode)
+%
+% To compile locally:  latexmk -pdf main.tex
+% Overleaf-compatible: upload this entire directory as a project.
+% ============================================================================
+
+\documentclass[journal]{IEEEtran}
+
+% ---- Encoding ----
+\usepackage[utf8]{inputenc}
+% Note: T1 fontenc and Times fonts are intentionally NOT loaded — the
+% sandbox build environment lacks `texlive-fonts-recommended` (no
+% Times .tfm/.pfb).  IEEEtran nevertheless requests \fontfamily{ptm}
+% inside its title block; the NFSS substitutions below silently
+% fallback Times Roman onto Computer Modern Roman so the document
+% compiles end-to-end.  Production builds for IEEE submission should
+% delete this fallback block and add `\usepackage[T1]{fontenc}` —
+% the standard IEEEtran Times typesetting will then take over.
+\makeatletter
+\DeclareFontFamily{OT1}{ptm}{}
+\DeclareFontShape{OT1}{ptm}{m}{n}{<-> ssub * cmr/m/n}{}
+\DeclareFontShape{OT1}{ptm}{m}{it}{<-> ssub * cmr/m/it}{}
+\DeclareFontShape{OT1}{ptm}{m}{sl}{<-> ssub * cmr/m/sl}{}
+\DeclareFontShape{OT1}{ptm}{m}{sc}{<-> ssub * cmr/m/sc}{}
+\DeclareFontShape{OT1}{ptm}{b}{n}{<-> ssub * cmr/bx/n}{}
+\DeclareFontShape{OT1}{ptm}{b}{it}{<-> ssub * cmr/bx/it}{}
+\DeclareFontShape{OT1}{ptm}{bx}{n}{<-> ssub * cmr/bx/n}{}
+\DeclareFontShape{OT1}{ptm}{bx}{it}{<-> ssub * cmr/bx/it}{}
+\makeatother
+
+% ---- Math ----
+\usepackage{amsmath,amssymb,amsfonts}
+
+% ---- Graphics and tables ----
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{multirow}
+\usepackage{tabularx}
+\usepackage{subcaption}
+
+% ---- Typography ----
+\usepackage{textcomp}
+\usepackage{xcolor}
+% Use siunitx v2 (legacy API) — the user's local siunitx 3.5.4 is too
+% new for the system's expl3 (2025-01-18) and fails with internal
+% \l__siunitx_number_exponent_mode_str undefined.  v2 is bundled in the
+% same package and is fully compatible with the \num{} / \SI{}{} usage
+% throughout the paper.
+\usepackage{siunitx-v2}
+\DeclareSIUnit{\USD}{USD}
+\DeclareSIUnit{\MWh}{MWh}
+\DeclareSIUnit{\kWh}{kWh}
+\DeclareSIUnit{\GWh}{GWh}
+\DeclareSIUnit{\TWh}{TWh}
+\DeclareSIUnit{\tonne}{tonne}
+\DeclareSIUnit{\tco}{tCO_{2}}
+
+% ---- Code listings ----
+\usepackage{listings}
+\lstset{
+  basicstyle=\ttfamily\footnotesize,
+  breaklines=true,
+  frame=single,
+  captionpos=b,
+  numbers=left,
+  numberstyle=\tiny\color{gray},
+  xleftmargin=2em,
+  framexleftmargin=1.5em,
+}
+
+% ---- Hyperlinks (load last among standard packages) ----
+\usepackage[hidelinks,colorlinks=true,citecolor=blue,urlcolor=blue]{hyperref}
+\usepackage{cite}
+
+% ---- TikZ ----
+\usepackage{tikz}
+\usetikzlibrary{positioning,arrows.meta,shapes.geometric,fit,calc,patterns,decorations.pathreplacing,chains}
+
+% ---- Custom commands (mirror existing white paper, plus new ones) ----
+\newcommand{\gtopt}{\texttt{gtopt}}
+\newcommand{\cenpipe}{\texttt{cen2gtopt}}      % the new tool
+\newcommand{\fesop}{FESOP}
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\Z}{\mathbb{Z}}
+\newcommand{\setS}{\mathcal{S}}
+\newcommand{\setT}{\mathcal{T}}
+\newcommand{\setB}{\mathcal{B}}
+\newcommand{\setN}{\mathcal{N}}
+\newcommand{\setG}{\mathcal{G}}
+\newcommand{\setD}{\mathcal{D}}
+\newcommand{\setL}{\mathcal{L}}
+\newcommand{\setE}{\mathcal{E}}
+\newcommand{\setJ}{\mathcal{J}}
+\newcommand{\setR}{\mathcal{R}}
+\newcommand{\setW}{\mathcal{W}}
+\newcommand{\setH}{\mathcal{H}}
+\newcommand{\setZ}{\mathcal{Z}}
+\newcommand{\setFR}{\mathcal{F\!R}}
+\newcommand{\setVR}{\mathcal{V\!R}}
+\newcommand{\setHP}{\mathcal{H}_P}
+\newcommand{\setLNG}{\mathcal{LNG}}
+\newcommand{\setUC}{\mathcal{UC}}
+\newcommand{\setIZ}{\mathcal{IZ}}
+\newcommand{\setIP}{\mathcal{IP}}
+% Marginal-cost / marginal-emission specific symbols
+\newcommand{\lmp}{\lambda}                     % locational marginal price
+\newcommand{\efac}{\varepsilon}                % marginal emission factor
+\newcommand{\fuelEF}{e}                        % fuel emission factor (tCO2/MWh)
+
+% ---- Graphics path ----
+\graphicspath{{figures/}{diagrams/}}
+
+% ============================================================================
+\begin{document}
+
+\title{%
+  A Reconstruction Methodology for Marginal Cost and\\
+  Marginal CO\textsubscript{2} Emissions in the Chilean Power System\\
+  Using CEN Public Data%
+}
+
+\author{%
+  Marcelo~Matus~A.,~\IEEEmembership{Member,~IEEE,}
+  Mar\'ia~del~Pilar~Buitrago~Villada,
+  Erick~Sierra~Baeza,
+  Carlos~Enrique~Garc\'ia~Bujanda,
+  Marcos~Falcone~Salazar,
+  and~Gonzalo~Bustos~Turu%
+  \thanks{Manuscript received MONTH DAY, 2026; revised MONTH DAY, 2026.}%
+  \thanks{M.~Matus~A. is with Black Bear Engineering SpA, Santiago,
+    Chile, and the Centro Nacional de Inteligencia Artificial
+    (CENIA, FB210017), Santiago, Chile
+    (e-mail: marcelo.matus@blackbear.cl).}%
+  \thanks{M.~P.~Buitrago~Villada is with the Department of Electrical
+    Energy and Automation, Universidad Nacional de Colombia,
+    Medell\'in, Colombia.}%
+  \thanks{E.~Sierra~Baeza is with Black Bear Engineering SpA, Santiago,
+    Chile, and CENIA.}%
+  \thanks{C.~E.~Garc\'ia~Bujanda is with Black Bear Engineering SpA,
+    Santiago, Chile.}%
+  \thanks{M.~Falcone~Salazar is with the School of Engineering,
+    Universidad Adolfo Ib\'a\~nez, Santiago, Chile, and formerly with
+    Colb\'un~S.A., Santiago, Chile.}%
+  \thanks{G.~Bustos~Turu is with the Department of Chemical Engineering,
+    Imperial College London, London, UK, and the Centre for Energy,
+    Universidad de Chile, Santiago, Chile.}%
+}
+
+\markboth{IEEE Transactions on Power Systems}%
+  {Matus~A. \MakeLowercase{\textit{et al.}}: Marginal Cost and CO\textsubscript{2} Emission Reconstruction from CEN Public Data}
+
+\maketitle
+
+% ========== Abstract + Keywords ==========
+\input{sections/abstract}
+
+% ========== Sections ==========
+\input{sections/introduction}
+\input{sections/literature_review}
+\input{sections/methodology}
+\input{sections/case_studies}
+\input{sections/results}
+\input{sections/discussion}
+\input{sections/co2_credits}
+\input{sections/conclusions}
+
+% ========== References ==========
+\bibliographystyle{IEEEtran}
+\bibliography{references}
+
+% ========== Biographies ==========
+\begin{IEEEbiography}{Marcelo Matus~A.}
+  received the Electrical Engineer degree from Pontificia Universidad
+  Cat\'olica de Chile and the Ph.D. degree in electrical and computer
+  engineering from the University of Arizona, Tucson, AZ, USA.  He is
+  currently a Senior Researcher at Black Bear Engineering SpA and at
+  the Centro Nacional de Inteligencia Artificial (CENIA), Santiago,
+  Chile.  He was formerly Subdirector of the Centre for Energy (Centro
+  de Energ\'ia), Universidad de Chile.  His research interests include
+  power system optimization, mathematical programming, and
+  high-performance computing applied to energy systems.  He is the
+  lead developer of \gtopt{} and the \fesop{} framework.
+\end{IEEEbiography}
+
+\begin{IEEEbiography}{Mar\'ia del Pilar Buitrago Villada}
+  received the B.Sc. and M.Sc. degrees in electrical engineering from
+  Universidad Nacional de Colombia, Medell\'in, and the Ph.D. degree in
+  engineering from the same university.  Her research focuses on power
+  system expansion planning, renewable energy integration, and
+  optimization under uncertainty.  She is a co-developer of the \fesop{}
+  framework and has contributed to its application in long-term planning
+  of the Colombian and Chilean power systems.
+\end{IEEEbiography}
+
+\begin{IEEEbiography}{Erick Sierra Baeza}
+  received the Civil Electrical Engineer degree from Universidad de Chile.
+  He is currently with Black Bear Engineering SpA, Santiago, Chile, and
+  affiliated with CENIA.  He previously worked at the Centre for Energy,
+  Universidad de Chile.  His professional experience spans wind energy
+  integration, capacity expansion planning, hydrological modeling, and
+  development of optimization tools for energy market analysis.
+\end{IEEEbiography}
+
+\begin{IEEEbiography}{Carlos Enrique Garc\'ia Bujanda}
+  is a Researcher at Black Bear Engineering SpA and affiliated with the
+  Department of Informatics, Universidad de Santiago de Chile.  His
+  research interests include power systems optimization, renewable energy
+  integration planning, and development of computational tools for
+  long-term electricity system expansion.  He is a co-developer of the
+  \fesop{} framework.
+\end{IEEEbiography}
+
+\begin{IEEEbiography}{Marcos Falcone Salazar}
+  received the Electrical Engineer and M.Sc. degrees in electrical
+  engineering from Universidad de Chile and the MBA degree from
+  Universidad Adolfo Ib\'a\~nez, Santiago, Chile.  He held management
+  positions at Colb\'un~S.A. including Sub-manager of Planning and
+  Development, where he directed an R\&D initiative between Colb\'un,
+  Universidad de Chile, Fondecyt, and CORFO that led to the development
+  of a novel electricity market planning and operation model.  He is
+  currently a Professor at the School of Engineering, Universidad Adolfo
+  Ib\'a\~nez.  His professional interests include power system expansion
+  planning, energy project valuation, and electricity market design.
+\end{IEEEbiography}
+
+\begin{IEEEbiography}{Gonzalo Bustos Turu}
+  received the B.Sc. and M.Sc. degrees in electrical engineering from
+  Universidad de Chile in 2009, the M.Sc. degree in sustainable energy
+  futures from Imperial College London in 2013, and the Ph.D. degree
+  from Imperial College London in 2018, working on smart urban energy
+  systems under the supervision of Prof.~Nilay Shah.  He is currently
+  a Research Associate at Imperial College London and affiliated with
+  the Centre for Energy, Universidad de Chile.  His research interests
+  include urban energy system modeling, demand response, electric vehicle
+  integration, and district-level predictive control.
+\end{IEEEbiography}
+
+\end{document}

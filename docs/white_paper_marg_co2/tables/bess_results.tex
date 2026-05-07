@@ -1,0 +1,38 @@
+% =====================================================================
+% bess_results.tex --- D5 supporting table.  Headline P&L for the
+% three-policy BESS dispatch on 2026-04-22 at the Crucero 220 kV bus.
+% Numbers populated from /tmp/wp_marg_co2_extensions/bess/bess_summary.json.
+% =====================================================================
+\begin{table}[t]
+  \centering
+  \caption{Headline P\&L of the 100\,MW / 400\,MWh BESS dispatch
+    at the Crucero 220\,kV bus on 2026-04-22 (86 quarter-hour blocks,
+    $\eta_c\!=\!\eta_d\!=\!0.95$, $\mathrm{SoC}\!\in\![0.05,0.95]\!\cdot\!E_{\max}$,
+    cycle closure imposed).  All currency in USD/day, abated
+    emissions in tCO$_2$/day.  Carbon credit valued at the joint-LP
+    reference price $p_{\mathrm{CO}_2}\!=\!\SI{50}{\dollar/tCO_2}$.}
+  \label{tab:bess-results}
+  \footnotesize
+  \begin{tabular}{@{}lrrrr@{}}
+    \toprule
+    \textbf{Policy} &
+    \textbf{Energy rev.} &
+    \textbf{Avoided} &
+    \textbf{Carbon rev.} &
+    \textbf{Total} \\
+        & [USD] & [tCO$_2$] & [USD] & [USD] \\
+    \midrule
+    LP1 -- energy only         & 29\,167 & 118.58 & 5\,929  & 35\,096 \\
+    LP2 -- carbon only         & 19\,572 & 186.24 & 9\,312  & 28\,883 \\
+    LP3 -- joint, $p_{\mathrm{CO}_2}\!=\!\$50$
+                                & 28\,237 & 179.15 & 8\,958  & 37\,195 \\
+    \midrule
+    \multicolumn{2}{@{}l}{\textbf{Uplift LP3 vs LP1 (total)}}
+        & \multicolumn{3}{r}{$+\$2{,}099$ \quad ($+5.98\%$)} \\
+    \multicolumn{2}{@{}l}{Equivalent full cycles, LP3}
+        & \multicolumn{3}{r}{1.33} \\
+    \multicolumn{2}{@{}l}{Switching $p^\star$, coal vs gas (Eq.~\ref{eq:switching-price})}
+        & \multicolumn{3}{r}{$\approx\$56/\text{tCO}_2$} \\
+    \bottomrule
+  \end{tabular}
+\end{table}

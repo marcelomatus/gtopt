@@ -1,0 +1,29 @@
+% Pipeline runtime breakdown (Section 6.5)
+\begin{tabular}{l r r}
+  \toprule
+  Stage                                       & Warm cache [s] & Cold cache [s] \\
+  \midrule
+  Bus catalogue + bar\_transf discovery       & 0.10           &  3.5 \\
+  Per-bus parallel \texttt{cmg-real} fetch (29 buses, 8 threads) & 0.20 & 64.0 \\
+  \texttt{generaci\'on-real}                  & 0.05           &  1.8 \\
+  \texttt{instrucciones-operacionales-cmg}    & 0.04           &  1.6 \\
+  \texttt{unidades-generadoras}               & 0.05           &  1.4 \\
+  \texttt{cv\_rpt} SCVIC parquet              & 0.03           &  0.8 \\
+  PID \texttt{.accdb} MLF extraction (\texttt{mdbtools}) & 0.50 & 0.5 \\
+  Alias index + per-id metadata               & 0.30           &  0.3 \\
+  Island clustering ($96\!\times\!29$ cells)  & 0.40           &  0.4 \\
+  Per-island marginal-unit picker (\num{474} keys) & 1.10      &  1.1 \\
+  Output assembly (vectorised merge, \num{2494} rows) & 0.10   &  0.1 \\
+  Loss-factor + $\varepsilon$ corrections     & 0.05           &  0.1 \\
+  Parquet write                               & 0.05           &  0.1 \\
+  \midrule
+  \textbf{Total}                              & \textbf{$\approx$\,3.0–6.0\,s} & \textbf{$\approx$\,75\,s} \\
+  \bottomrule
+\end{tabular}
+\\[3pt]
+{\footnotesize Wall-clock measurements on a Linux x86\_64 laptop
+(Ryzen 7~5800X, \SI{32}{GiB} RAM), single CPU thread except where
+noted.  The cold-cache time is dominated by network rate-limiting
+on the per-bar\_transf \texttt{cmg-real} fetch; with the
+\texttt{cmg-online} bulk-paginated endpoint instead, the cold
+total drops to roughly \SI{45}{\second} for the same \num{29} buses.}

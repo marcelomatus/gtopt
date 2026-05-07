@@ -1,0 +1,272 @@
+% ===========================================================
+% literature_review.tex
+% ===========================================================
+\section{Background and Related Work}
+\label{sec:related}
+
+\subsection{Spot pricing and locational marginal pricing}
+The theoretical underpinnings of locational marginal pricing trace
+back to the spot-pricing framework of Schweppe~\textit{et
+al.}~\cite{Schweppe1988}, which derived per-bus marginal energy
+prices as the dual variables of a network-constrained dispatch
+model.  Hogan~\cite{Hogan1992} formalised the LMP decomposition
+\begin{equation}
+\lambda_b = \lambda_{\mathrm{ref}} +
+            \mathrm{LMC}_b + \mathrm{LCC}_b
+\label{eq:lmp-decomp}
+\end{equation}
+into reference energy, marginal-loss component (LMC), and
+marginal-congestion component (LCC).  This is the canonical
+template that the present marginal-emission reconstruction adapts:
+$\lambda_{\mathrm{ref}}$ is approximated by the
+median-$\lambda$ of the electrically coherent island and the LMC
+absorbs into a per-bus loss factor, while LCC is absorbed into the
+island partition itself.
+
+\subsection{Average versus marginal emission factors}
+The distinction between average and marginal emission factors has
+been debated since Hawkes~\cite{Hawkes2010} demonstrated that
+marginal factors can differ by an order of magnitude from system
+averages and that the choice materially affects build/no-build
+decisions for energy-efficiency interventions.  Siler-Evans~\textit{et
+al.}~\cite{SilerEvans2012} regressed historical EPA generator-level
+data to fit MEFs at the regional Reliability Council level and
+showed strong diurnal and seasonal variability.
+Callaway~\textit{et al.}~\cite{Callaway2018} formalised the
+distinction between \emph{operational} and \emph{decision-relevant}
+emission factors, arguing that long-run capacity-induced effects
+should be modelled separately from dispatch-time substitution
+effects.  The present paper sits firmly in the operational /
+short-run camp: the emission factor is computed against the
+\emph{realised} dispatch published by CEN, not against a
+counterfactual capacity scenario.
+
+\subsection{ISO production tools}
+PJM Interconnection's Locational Marginal Emissions
+feed~\cite{PJMLME2024,PJMPrimer} publishes five-minute per-node
+emission rates for CO$_2$, NO$_x$, and SO$_2$, decomposed using the
+same energy/loss/congestion structure of the LMP itself.  CAISO's
+\emph{Today's Outlook}~\cite{CAISOOutlook} surfaces a system-level
+emission curve at five-minute resolution but is not nodal.
+WattTime~\cite{WattTime2024} ships a balancing-area Marginal
+Operating Emission Rate with a 72-hour forecast trained from
+EIA-930 dispatch and EPA eGRID per-unit factors, but its output is
+neither nodal nor unit-attributed.  NREL's
+Cambium~\cite{NRELCambium} publishes \emph{long-run} marginal
+factors projected through 2050 across \num{134} US balancing
+zones — the natural counterpart for capacity-expansion studies as
+opposed to operational dispatch.  Electricity
+Maps~\cite{ElectricityMaps2024} publishes hourly per-zone
+\emph{consumption-based} factors using flow-tracing and, since
+2024, has discontinued its marginal feed citing fundamental
+limitations of marginal accounting in scope-2
+contexts~\cite{ElectricityMapsCritique}.
+
+\subsection{Counterfactual / implicit-differentiation marginals}
+A research-grade improvement on empirical correlation is the
+counterfactual evaluation pioneered by
+Valenzuela~\textit{et al.}~\cite{ValenzuelaASL2022}, who exploit
+implicit differentiation of the QP/LP optimality conditions to
+recover an exact dynamic locational marginal emission factor from a
+solved dispatch.  A 2025 follow-up~\cite{Hong2025} argues that
+counterfactual co-simulation should replace correlation-based MEFs
+entirely.  The present pipeline is not yet counterfactual — it
+remains an empirical reverse-engineering of the published
+$\lambda^{\mathrm{CEN}}$ — but the open-source structure with the
+PLEXOS \texttt{.accdb} oracle is designed so that the same
+input set could be fed into the \texttt{gtopt} SDDP solver to
+produce a counterfactual companion in future work.
+
+\subsection{Prior CEN-specific work}
+For Chile, Bonvallet~\textit{et al.}~\cite{Bonvallet2016}
+co-optimised hydrothermal scheduling under non-convex irrigation
+constraints and discussed the interpretation of dual variables on
+hydraulic constraints as implicit water values.
+Moreno~\textit{et al.}~\cite{Moreno2014} treat distributed-generation
+deployment under uncertainty and quantify its abatement value
+against a marginal-fuel benchmark.  The Coordinador's annual
+\textit{Reporte Art.~72}~\cite{CENArt722024} aggregates emissions at
+the system level, and the 4eChile guide~\cite{FourEChileGuide}
+documents a manual marginal-emission reduction estimation tool for
+Clean Development Mechanism (CDM) projects but neither delivers a
+per-bus, per-quarter signal.  To the best of our knowledge no prior
+work reconstructs $\varepsilon$ at locational and per-quarter
+granularity for CEN strictly from the public CEN/SCVIC/PLEXOS
+data triplet.
+
+\subsection{Synthesis and methodological choice points}
+Three choice points dominate the design space.  First, the
+\emph{merit-stack picker}: should the marginal unit be the
+last-dispatched cleared at $\lambda_{\mathrm{ref}}$
+(``maximum CV~$\le \lambda$'')~\cite{SilerEvans2012}, or the
+absolute-closest CV?  The pipeline picks the absolute-closest CV
+because the closest-above is sometimes nearer than the
+closest-below, particularly at low-CMG hours when biogas tiers sit
+well below the gas tier.  Second, the \emph{forced-unit treatment}:
+units flagged with \texttt{consigna}$\in$\{CI, MT, PMT, PP, PS,
+PC\} are price-takers when at technical minimum, but when
+operating interior they remain valid merit-margin candidates.
+Third, the \emph{loss-factor decomposition}: a proper
+PJM-style~\cite{PJMPrimer} decomposition would require the full
+per-unit Power Transfer Distribution Factor matrix, which CEN does
+not publish.  Instead the pipeline uses CEN's published
+PLEXOS-solver-output MLF when available (extracted from the PID
+\texttt{.accdb}) and falls back to the empirical
+$\lambda_b/\lambda_{\mathrm{ref}}$ ratio when it is not.
+
+
+% =====================================================================
+% sota_extended.tex --- D1 --- extended state-of-the-art and standards
+% review.  Appended at the END of sections/literature_review.tex by D6.
+% =====================================================================
+
+\subsection{Extended Review: Foundations, Standards, and Software}
+\label{sec:literature-extended}
+
+The reconstruction methodology presented in this paper sits at the
+intersection of four research traditions: (i)~classical spot-pricing
+theory, (ii)~the marginal-versus-average emission-factor literature,
+(iii)~the recent industrialisation of hourly and locational
+emission-rate datasets, and (iv)~the corresponding standardisation
+landscape (ISO, GHG~Protocol, IEC, IEEE).  The remainder of this
+subsection reviews each of these four threads, together with the
+Latin-American institutional context and the open-source software prior
+art.
+
+\paragraph{Spot-pricing foundations.}
+The locational marginal price (LMP) construct on which the present
+work depends was developed in a sequence of papers by Caramanis, Bohn
+and Schweppe.  Caramanis~\textit{et al.}~\cite{CaramanisBohn1982}
+introduced optimal spot pricing as the dual of a generation-cost
+minimisation, demonstrating that the per-bus shadow price internalises
+losses, congestion, and reserve scarcity.  Bohn~\textit{et al.}~\cite{BohnCaramanis1984}
+extended the construction to a continuous space-time setting and
+proved the no-arbitrage equivalence with bilateral contract networks.
+The textbook treatment of Schweppe~\textit{et al.}~\cite{SchweppeBook1988}
+remains the canonical reference and was the basis for the Northeast
+ISO market designs of the late 1990s.  Hogan~\cite{Hogan1992}
+crystallised the contract-network formulation and the
+energy/loss/congestion decomposition that
+\cenpipe{} adopts as the structural template for its
+$\lambda_b = \lambda_{\mathrm{ref}}\!\cdot\!\mathrm{MLF}_b$
+correction.  None of these works contemplated emissions, but the
+duality argument they articulate carries through verbatim once the
+cost coefficient~$c_g$ in the primal is replaced by a fuel-emission
+coefficient~$e_g$ (cf.~Section~\ref{sec:dual-formulation}).
+
+\paragraph{Marginal versus average emission factors.}
+The empirical-economics literature on marginal emission factors (MEFs)
+opened with Hawkes~\cite{HawkesMEF2010}, who showed that for the GB
+system the marginal $\mathrm{CO}_2$ rate exceeds the system average by
+\SI{30}{\percent}--\SI{200}{\percent} depending on the demand level
+and that abatement policies built on average factors systematically
+under-credit demand-side measures.  Siler-Evans~\textit{et
+al.}~\cite{SilerEvansMEF2012} regressed five years of EPA
+continuous-emissions-monitoring data against ISO-level demand
+fluctuations to obtain region-specific MEFs and exposed strong
+diurnal and seasonal cycles.  Callaway~\textit{et
+al.}~\cite{CallawayJAERE2018} formalised the operational vs.\
+build-margin distinction and provided a welfare-theoretic argument
+for using location-specific MEFs in policy design.  Holland~\textit{et
+al.}~\cite{HollandMansurMuller2020} applied the same framework to the
+post-2007 retirement of US coal capacity and quantified the resulting
+shift of the marginal stack from coal to gas.  The present pipeline
+contributes a new artefact to this body of work: a
+counterfactual-free, per-bus, sub-hourly MEF reconstruction that uses
+only the operator-published
+$\lambda^{\mathrm{CEN}}$ and a static fuel-emission table.
+
+\paragraph{Hourly and locational emission datasets.}
+Three production-grade datasets dominate the hourly-emission space.
+Hawkins~\cite{HawkinsPJM2024} reports on the operational
+characteristics of PJM Interconnection's locational marginal emissions
+feed after one full year of operation and confirms that hourly nodal
+factors track the marginal-fuel composition with sub-\SI{5}{\percent}
+median residuals.  The Tomorrow / Electricity Maps open
+dataset~\cite{ElectricityMapDataset} publishes hourly per-zone
+consumption-based factors using flow-tracing across European,
+American, and Australasian balancing areas.  WattTime's Marginal
+Operating Emission Rate~\cite{WattTimeMOER} is balancing-area
+resolved and explicitly marginal but not nodal.  Singularity
+Energy~\cite{SingularityHourly} delivers an hourly attribution layer
+oriented towards corporate Scope-2 disclosure.  None of these vendors
+publishes Chilean coverage, which motivates the present work.
+
+\paragraph{Standards.}
+The relevant standardisation environment spans three families:
+\begin{itemize}
+  \item ISO greenhouse-gas accounting:
+        ISO~14064-1~\cite{ISO14064_1} (organisation-level inventory),
+        ISO~14064-2~\cite{ISO14064_2} (project-level emission
+        reductions),
+        ISO~14064-3~\cite{ISO14064_3} (verification),
+        and
+        ISO~14067~\cite{ISO14067} (product carbon footprint).  The
+        \cenpipe{} pipeline supplies the
+        location-and-time-resolved emission factor required by
+        clauses 7.2.2 and 8.2.3 of ISO~14064-1 for indirect
+        emission inventory at sub-annual granularity.
+  \item Corporate accounting: the WRI/WBCSD GHG~Protocol Scope-2
+        Guidance~\cite{GHGPScope2} mandates a dual reporting
+        framework (location-based + market-based).  RE100~\cite{RE100Hourly}
+        and the 24/7 Carbon-Free Energy
+        Compact~\cite{CFE247Compact} represent the strict end of the
+        spectrum, requiring hour-by-hour matching of consumption and
+        contracted carbon-free supply.  The
+        \cenpipe{} 15-minute output natively satisfies the
+        granularity requirement of both schemes.
+  \item Power-system data exchange: IEC~61968-13~\cite{IEC61968_13}
+        defines the Common Information Model (CIM) profile for
+        electricity-market data, and IEC~61970/CGMES~\cite{IEC61970_CGMES}
+        is the European common-grid-model serialisation that ENTSO-E
+        ISOs use for cross-border data exchange.  IEEE~Std
+        1547-2018~\cite{IEEE1547_2018} governs distributed energy
+        resource interconnection and is directly relevant to the BESS
+        case study of Section~\ref{sec:bess-case}, while
+        IEEE~Std~2030.5~\cite{IEEE2030_5} specifies the smart-energy
+        application protocol.  The Coordinador El\'ectrico Nacional
+        Norma T\'ecnica de Servicios
+        Complementarios~\cite{CENNT_SSCC2024} is the Chilean
+        equivalent that frames the storage-and-reserve products under
+        which a battery operator would monetise the dispatch
+        trajectories computed in
+        Section~\ref{sec:bess-case}.
+\end{itemize}
+
+\paragraph{Latin-American context.}
+The Chilean academic literature on dispatch optimisation is
+relatively recent and centred on a small number of groups.
+Bonvallet~\textit{et al.}~\cite{Bonvallet2016} treated hydrothermal
+scheduling with non-convex irrigation constraints and quantified the
+implicit water values that drive marginal-cost rotation in the
+Maule and Laja basins.  Mocarquer and Sauma~\cite{MocarquerSauma2018}
+documented the post-2014 market reforms and their effect on
+investment incentives.  At the policy level, the Chilean Ministry
+of Energy roadmap to carbon neutrality
+2050~\cite{ChileMinEnergia2050} sets the macroscopic abatement
+trajectory, and the 2024 CEN dispatch-decarbonisation
+roadmap~\cite{CENRoadmap2024} translates that target into operational
+milestones for coal phase-out, storage build-out, and ancillary
+services reform.  None of these documents publishes the
+per-bus per-quarter marginal-emission signal that
+\cenpipe{} provides; they all rely on annual or
+monthly aggregates derived from PLEXOS post-processing.
+
+\paragraph{Software prior art.}
+Three open-source projects implement related capabilities, although
+none operates on Chilean data.  PyPSA-Eur~\cite{PyPSAEurEmissions} ships
+an emissions module that integrates IPCC AR6 fuel factors with the
+solved dispatch to produce per-snapshot per-node emission rates;
+unlike \cenpipe{} it requires the LP to be re-solved
+rather than reconstructing $\varepsilon$ from a published $\lambda$.
+GenX~\cite{GenXCarbon} provides a cap-and-trade extension that
+endogenises the carbon price as the dual of an aggregate emission
+constraint, conceptually parallel to the joint LP of
+Section~\ref{sec:dual-formulation}.  SDDP.jl~\cite{SDDPjlCarbon}
+includes a tutorial on adding a carbon constraint to a multi-stage
+hydrothermal stochastic program; \texttt{gtopt} aims to support the
+same construction natively in C++.  Operationally, the Electricity
+Maps dataset~\cite{ElectricityMapDataset} is the closest commercial
+analogue: hourly consumption-based factors from real-time data
+ingestion, but with continental rather than sub-system-level
+resolution and with no Chilean coverage.

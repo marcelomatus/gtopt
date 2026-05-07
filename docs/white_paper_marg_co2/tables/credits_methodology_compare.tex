@@ -1,0 +1,36 @@
+% credits_methodology_compare.tex
+% Comparison of carbon-credit methodologies that consume an electric-grid
+% emission factor.  Granularity: A = annual, M = monthly, H = hourly,
+% Q = 15-minute.  Dispatch-data?: whether the methodology requires
+% per-unit dispatch (vs.\ system aggregates).  Hourly?: whether the
+% methodology supports time-matched crediting.  Locational?: whether the
+% methodology supports per-bus differentiation.  Chile?: applicability
+% under the current SEN regulatory framework.
+\setlength{\tabcolsep}{4pt}
+\renewcommand{\arraystretch}{1.05}
+\footnotesize
+\begin{tabular}{@{}p{0.34\linewidth}cccccc@{}}
+\toprule
+Methodology / standard & Year &
+  Gran. & Disp.\ data & Hourly & Loc.\ & Chile \\
+\midrule
+CDM Tool~07 v07.0 — OM/BM/CM             & 2018 & A & no  & no  & no  & yes\\
+CDM Tool~07 OM-DDA variant               & 2018 & H & yes & yes & no  & yes\\
+CDM AMS-I.D./AMS-I.F.\ (small-scale RE)  & 2022 & A & no  & no  & no  & yes\\
+CDM AM0103 (RE for grid $>$15 MW)        & 2018 & A & no  & no  & no  & yes\\
+CDM ACM0002 (large-scale grid RE)        & 2020 & A & no  & no  & no  & yes\\
+Verra VCS v4.5 / VMR0007 (RECs revised)  & 2024 & A & no  & no  & no  & yes\\
+Gold Standard RE-AR (LDC simplified-OM)  & 2023 & A & no  & no  & no  & yes\\
+Article~6.4 SBM draft (4DM hourly)       & 2024 & H & yes & yes & opt & yes$^\ast$\\
+GHG-Protocol Scope~2 Quality Criteria    & 2015 & A & no  & no  & no  & yes\\
+EnergyTag GC Standard v2                 & 2024 & H & yes & yes & yes & yes$^\ast$\\
+24/7 CFE Compact (UN-Energy)             & 2021 & H & yes & yes & yes & yes$^\ast$\\
+RE100 Hourly Matching (2024 update)      & 2024 & H & yes & yes & yes & yes$^\ast$\\
+EU CBAM Reg.\ 2023/956 (embedded elec.)  & 2023 & A & no  & no  & no  & exp.\\
+\bottomrule
+\end{tabular}
+
+% $^\ast$ Article 6.4, EnergyTag, 24/7 CFE, and RE100 Hourly are all
+% applicable in principle to Chile but do not yet have a designated
+% national operator for issuance and tracking; the present pipeline
+% would furnish their hourly/locational emission-factor input.
