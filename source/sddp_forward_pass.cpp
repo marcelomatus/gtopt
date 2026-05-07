@@ -124,7 +124,15 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
     // from snapshot (snapshot/compress) or re-flattens from collections
     // (rebuild).  dispatch_update_lp() runs after this point, so
     // coefficient updates are replayed naturally.
+    spdlog::trace("SDDP Forward [i{} s{} p{}]: ensure_lp_built begin",
+                  gtopt::uid_of(iteration_index),
+                  uid_of(scene_index),
+                  uid_of(phase_index));
     system.ensure_lp_built();
+    spdlog::trace("SDDP Forward [i{} s{} p{}]: ensure_lp_built end",
+                  gtopt::uid_of(iteration_index),
+                  uid_of(scene_index),
+                  uid_of(phase_index));
 
     auto& li = system.linear_interface();
 
@@ -217,7 +225,16 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
                                         uid_of(phase_index))));
 
     // Solve directly — already running in a pool thread.
+    spdlog::trace("SDDP Forward [i{} s{} p{}]: resolve begin",
+                  gtopt::uid_of(iteration_index),
+                  uid_of(scene_index),
+                  uid_of(phase_index));
     auto result = li.resolve(effective_opts);
+    spdlog::trace("SDDP Forward [i{} s{} p{}]: resolve end status={}",
+                  gtopt::uid_of(iteration_index),
+                  uid_of(scene_index),
+                  uid_of(phase_index),
+                  li.get_status());
 
     // Capture status before any release — release loses specific codes.
     const auto solve_status = li.get_status();
