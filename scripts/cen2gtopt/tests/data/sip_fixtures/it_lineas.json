@@ -1,0 +1,44 @@
+[
+  {
+    "id": 3,
+    "id_propietario": 2092,
+    "propietario_nombre": "ALFA TRANSMISORA DE ENERGÍA S.A.",
+    "id_coordinado": 2050,
+    "coordinado_nombre": "ALFA TRANSMISORA DE ENERGÍA S.A.",
+    "id_centro_control": 4,
+    "centro_control_nombre": "COLBÚN S.A.",
+    "numero": 13,
+    "codigo": "LT013",
+    "nemotecnico": "LT013---------T0061",
+    "nombre": "ESPERANZA - LAS VEGAS 110kV",
+    "descripcion": ""
+  },
+  {
+    "id": 4,
+    "id_propietario": 2092,
+    "propietario_nombre": "ALFA TRANSMISORA DE ENERGÍA S.A.",
+    "id_coordinado": 2050,
+    "coordinado_nombre": "ALFA TRANSMISORA DE ENERGÍA S.A.",
+    "id_centro_control": 2092,
+    "centro_control_nombre": "ALFA TRANSMISORA DE ENERGÍA S.A.",
+    "numero": 6,
+    "codigo": "LT006",
+    "nemotecnico": "LT006---------T0061",
+    "nombre": "ALTO JAHUEL - MAIPO 220KV",
+    "descripcion": ""
+  },
+  {
+    "id": 6,
+    "id_propietario": 2092,
+    "propietario_nombre": "ALFA TRANSMISORA DE ENERGÍA S.A.",
+    "id_coordinado": 2050,
+    "coordinado_nombre": "ALFA TRANSMISORA DE ENERGÍA S.A.",
+    "id_centro_control": 2092,
+    "centro_control_nombre": "ALFA TRANSMISORA DE ENERGÍA S.A.",
+    "numero": 9,
+    "codigo": "LT009",
+    "nemotecnico": "LT009---------T0061",
+    "nombre": "CANDELARIA - CENTRAL CANDELARIA 220KV",
+    "descripcion": ""
+  }
+]

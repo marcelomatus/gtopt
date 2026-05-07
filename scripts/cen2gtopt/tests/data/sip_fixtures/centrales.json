@@ -1,0 +1,28 @@
+{
+  "data": [
+    {
+      "central": "PMGD BESS LAS VIOLETAS",
+      "propietario": "PSF LAS VIOLETAS SPA",
+      "tipo_central": "Solares",
+      "id_central": 2436,
+      "instalacion": "CE02G1090",
+      "coordinado": "PSF LAS VIOLETAS SPA"
+    },
+    {
+      "central": "BOCAMINA II",
+      "propietario": "ENEL GENERACION CHILE S.A.",
+      "tipo_central": "Carbon",
+      "id_central": 47,
+      "instalacion": "BC02G2",
+      "coordinado": "ENEL GENERACION CHILE S.A."
+    },
+    {
+      "central": "Ventanas N°1",
+      "propietario": "AES GENER S.A.",
+      "tipo_central": "Carbon",
+      "id_central": 21,
+      "instalacion": "VT01G1",
+      "coordinado": "AES GENER S.A."
+    }
+  ]
+}

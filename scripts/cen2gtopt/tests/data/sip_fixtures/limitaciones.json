@@ -1,0 +1,20 @@
+{
+  "data": [
+    {
+      "id_linea": 142,
+      "linea": "L. CHARRUA - ANCOA 220KV",
+      "fecha_inicio": "2025-12-01 00:00:00",
+      "fecha_fin": "2025-12-01 06:00:00",
+      "flujo_max_mw": 800.0,
+      "motivo": "Restriccion N-1 por mantenimiento"
+    },
+    {
+      "id_linea": 198,
+      "linea": "L. ALTO MELIPILLA - LO ESPEJO 220KV",
+      "fecha_inicio": "2025-12-01 17:00:00",
+      "fecha_fin": "2025-12-01 22:00:00",
+      "flujo_max_mw": 350.0,
+      "motivo": "Sobrecarga"
+    }
+  ]
+}

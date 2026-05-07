@@ -48,7 +48,8 @@ sudo apt-get update && sudo apt-get install -y --no-install-recommends \
   ccache coinor-libcbc-dev libarrow-dev libparquet-dev \
   libboost-container-dev libspdlog-dev liblapack-dev libblas-dev \
   libjemalloc-dev \
-  zlib1g-dev libzstd-dev zstd liblz4-dev lcov
+  zlib1g-dev libzstd-dev zstd liblz4-dev lcov \
+  mdbtools         # required by scripts/cen2gtopt.pcp_solution
 
 cmake -S all -B build -G Ninja -DCMAKE_BUILD_TYPE=CIFast \
   -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ \
