@@ -465,6 +465,9 @@ public:
 
   void shutdown()
   {
+    using Clock = std::chrono::steady_clock;
+    const auto t_shutdown_begin = Clock::now();
+
     // Phase 1: under queue_mutex_, atomically mark the pool not running
     // and stop every spawned worker.  Holding the lock during this step
     // prevents `submit()`/`submit_batch()`/`maybe_spawn_worker_unlocked`
@@ -481,8 +484,30 @@ public:
       for (auto& w : workers_) {
         w.request_stop();
       }
+      // Signal helper threads (stats, cpu_monitor, memory_monitor) to
+      // begin their own teardown in parallel with the worker drain
+      // below.  Each helper sleeps on its own CV with a `wait_for`
+      // capped at the helper's interval (stats=30 s, memory=500 ms,
+      // cpu=100 ms); waking them now lets their `wait_for` predicate
+      // observe the stop request immediately, so by the time the
+      // monitor `.stop()` calls below are reached the helpers are
+      // already winding down — `.stop()`'s subsequent `join()` is
+      // near-instant rather than blocking up to `monitor_interval_`.
+      // Pre-fix, the helpers' shutdown was strictly sequential after
+      // the workers' drain, adding the helper interval to total
+      // teardown latency on every short run.
+      if (stats_thread_.joinable()) {
+        stats_thread_.request_stop();
+      }
+      cpu_monitor_.request_stop();
+      memory_monitor_.request_stop();
     }
     cv_.notify_all();
+    stats_cv_.notify_all();
+    cpu_monitor_.notify_stop();
+    memory_monitor_.notify_stop();
+
+    const auto t_phase1 = Clock::now();
 
     // Phase 2: join with the lock released so workers can drain.
     // Workers in `cv_.wait` see `!running_` via the predicate; workers
@@ -493,6 +518,7 @@ public:
         w.join();
       }
     }
+    const auto t_phase2 = Clock::now();
 
     // Phase 3: now that no worker can run, it is safe to clear the
     // vector.  No `submit()` can spawn into it because Phase 1 set
@@ -503,8 +529,7 @@ public:
     }
 
     if (stats_thread_.joinable()) {
-      stats_thread_.request_stop();
-      stats_cv_.notify_all();
+      // request_stop + notify already sent in Phase 1 — just join.
       stats_thread_.join();
     }
 
@@ -512,6 +537,23 @@ public:
 
     cpu_monitor_.stop();
     memory_monitor_.stop();
+    const auto t_helpers = Clock::now();
+
+    // Trace the per-phase timing so a `tail -f` of the trace log
+    // makes the eager-wake win visible (and any future regression
+    // localisable to a specific phase).  Cost is one trace line at
+    // shutdown — emitted on the cold pool-teardown path, never in
+    // the inner loop.
+    spdlog::trace(
+        "[{}] shutdown timing: phase1={:.1f}ms (stop+notify), "
+        "phase2={:.1f}ms (worker join), helpers={:.1f}ms "
+        "(stats+cpu+mem stop)",
+        name_,
+        std::chrono::duration<double, std::milli>(t_phase1 - t_shutdown_begin)
+            .count(),
+        std::chrono::duration<double, std::milli>(t_phase2 - t_phase1).count(),
+        std::chrono::duration<double, std::milli>(t_helpers - t_phase2)
+            .count());
 
     // Log final summary
     log_final_stats();
