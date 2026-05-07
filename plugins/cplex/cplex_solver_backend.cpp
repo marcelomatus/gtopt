@@ -1040,6 +1040,30 @@ void CplexSolverBackend::fill_row_dual(std::span<double> out) const
            static_cast<int>(out.size()) - 1);
 }
 
+void CplexSolverBackend::fill_col_lower(std::span<double> out) const
+{
+  if (out.empty()) {
+    return;
+  }
+  CPXgetlb(m_env_lp_.env(),
+           m_env_lp_.lp(),
+           out.data(),
+           0,
+           static_cast<int>(out.size()) - 1);
+}
+
+void CplexSolverBackend::fill_col_upper(std::span<double> out) const
+{
+  if (out.empty()) {
+    return;
+  }
+  CPXgetub(m_env_lp_.env(),
+           m_env_lp_.lp(),
+           out.data(),
+           0,
+           static_cast<int>(out.size()) - 1);
+}
+
 double CplexSolverBackend::obj_value() const
 {
   double val = 0.0;

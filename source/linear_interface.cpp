@@ -399,6 +399,15 @@ void LinearInterface::populate_solution_cache_post_solve() noexcept
     m_backend_->fill_col_sol(m_cache_.col_sol_buffer(ncols));
     m_backend_->fill_col_cost(m_cache_.col_cost_buffer(ncols));
     m_backend_->fill_row_dual(m_cache_.row_dual_buffer(nrows));
+    // Snapshot column bounds too so subsequent `get_col_low_raw` /
+    // `get_col_upp_raw` and the `get_col_sol()` clamp path can serve
+    // them from the LI cache instead of triggering the backend's
+    // pointer-getters (which under CPLEX/MindOpt/Gurobi force
+    // allocation of `numcols`-sized scratch vectors `m_collb_` /
+    // `m_colub_`).  Same span-out contract as the three solution
+    // fillers above — the backend writes directly into the LI buffer.
+    m_backend_->fill_col_lower(m_cache_.col_low_buffer(ncols));
+    m_backend_->fill_col_upper(m_cache_.col_upp_buffer(ncols));
     m_cache_.set_is_optimal(/*v=*/true);
   } catch (...) {  // NOLINT(bugprone-empty-catch)
     // Best-effort: any backend exception leaves the cache in

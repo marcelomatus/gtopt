@@ -176,6 +176,13 @@ public:
   void fill_col_sol(std::span<double> out) const override;
   void fill_col_cost(std::span<double> out) const override;
   void fill_row_dual(std::span<double> out) const override;
+  // Override to call CPXgetlb/CPXgetub directly into the caller's
+  // buffer — avoids growing the per-instance lazy bound caches
+  // `m_collb_` / `m_colub_` (allocated by `fill_collb_if_needed` /
+  // `fill_colub_if_needed`) when the LinearInterface only wants to
+  // snapshot the bounds into its own LpCache post-solve.
+  void fill_col_lower(std::span<double> out) const override;
+  void fill_col_upper(std::span<double> out) const override;
 
   // ---- solution hints ----
   void set_col_solution(const double* sol) override;

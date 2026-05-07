@@ -247,6 +247,31 @@ public:
       std::copy_n(p, out.size(), out.data());
     }
   }
+  // Span-out variants for column-bound vectors.  Mirrors fill_col_sol /
+  // fill_col_cost / fill_row_dual but for the construction-time bounds
+  // that `LinearInterface::populate_solution_cache_post_solve` snapshots
+  // into `m_cache_.col_low()` / `m_cache_.col_upp()` post-solve under
+  // compress / rebuild modes.  Without these, the LI's
+  // `get_col_low_raw` / `get_col_upp_raw` always called
+  // `backend().col_lower() / col_upper()` directly — forcing every
+  // CPLEX/MindOpt/Gurobi backend to allocate a `numcols`-sized
+  // `m_collb_` / `m_colub_` scratch on every read.  Default impl
+  // memcpy's from the matching pointer-getter (OSI/HiGHS); CPLEX
+  // overrides with `CPXgetlb` / `CPXgetub` directly into the caller's
+  // buffer for the same memory invariant the solution fillers already
+  // satisfy.
+  virtual void fill_col_lower(std::span<double> out) const
+  {
+    if (const auto* p = col_lower(); p != nullptr) {
+      std::copy_n(p, out.size(), out.data());
+    }
+  }
+  virtual void fill_col_upper(std::span<double> out) const
+  {
+    if (const auto* p = col_upper(); p != nullptr) {
+      std::copy_n(p, out.size(), out.data());
+    }
+  }
 
   // ---- solution hints (warm start) ----
 
