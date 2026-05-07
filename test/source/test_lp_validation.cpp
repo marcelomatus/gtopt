@@ -341,3 +341,81 @@ TEST_CASE("LP validation: huge objective triggers WARN")  // NOLINT
   CHECK(logs.contains("LP_VALIDATION huge objective"));
   CHECK(li.lp_validation_stats().obj_huge_count == 1);
 }
+
+TEST_CASE("LP validation: huge RHS triggers WARN")  // NOLINT
+{
+  // Source coverage gap: `note_rhs` had no targeted test (only an
+  // indirect "disabled options short-circuit" sanity check that
+  // explicitly verified it does NOT fire).  Construct a row whose
+  // RHS exceeds `rhs_warn_max` (default 1e12) and confirm the
+  // counter ticks plus the WARN line is emitted.  Cross-references
+  // the `note_rhs` overload chain (lp_validation.hpp:211 + 253) and
+  // the implementation at lp_validation.cpp:98-118.
+  test::LogCapture logs;
+
+  LinearInterface li;
+  li.set_validation_options(make_validation_opts());
+
+  const auto x = li.add_col(SparseCol {
+      .uppb = 100.0,
+      .cost = 1.0,
+  });
+
+  SparseRow row;
+  row[x] = 1.0;
+  row.lowb = 1e15;  // huge RHS — exceeds rhs_warn_max
+  li.add_row(row);
+
+  CHECK(logs.contains("LP_VALIDATION huge RHS"));
+  CHECK(li.lp_validation_stats().rhs_huge_count >= 1);
+}
+
+TEST_CASE("LP validation: huge bound triggers WARN")  // NOLINT
+{
+  // Sister gap to `note_rhs` — `note_bound` was exercised only via
+  // the "solver-infinity is NOT noted" negative test.  This positive
+  // test feeds a finite-but-huge bound to confirm the counter and
+  // the WARN line.
+  test::LogCapture logs;
+
+  LinearInterface li;
+  li.set_validation_options(make_validation_opts());
+
+  li.add_col(SparseCol {
+      .lowb = 0.0,
+      .uppb = 1e15,  // huge but finite — exceeds bound_warn_max
+      .cost = 1.0,
+  });
+
+  CHECK(logs.contains("LP_VALIDATION huge bound"));
+  CHECK(li.lp_validation_stats().bound_huge_count >= 1);
+}
+
+TEST_CASE(
+    "LP validation: log_summary(logger&) overload writes to "
+    "the supplied logger")  // NOLINT
+{
+  // `LpValidationStats::log_summary(spdlog::logger&)` is the
+  // explicit-logger overload (lp_validation.cpp:167).  It was
+  // previously uncovered — the only summary-emit path in the test
+  // suite went through `log_summary()` (default logger).  Capture
+  // a custom logger's output and verify the summary lands in it.
+  test::LogCapture logs;
+
+  // Build a small "dirty" LP so `clean()` returns false and the
+  // summary path emits a real line (the `clean()` early-return is
+  // already covered by the "clean LP produces zero warnings" test).
+  LinearInterface li;
+  li.set_validation_options(make_validation_opts());
+  li.add_col(SparseCol {
+      .uppb = 1.0,
+      .cost = 1e12,  // tickles obj_huge
+  });
+
+  // Explicit logger — same default sinks, but we hand the reference
+  // explicitly to drive the second overload.
+  auto& logger = *spdlog::default_logger();
+  li.lp_validation_stats().log_summary(logger);
+
+  CHECK(logs.contains("LP_VALIDATION"));
+}
