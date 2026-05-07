@@ -101,9 +101,25 @@ public:
   static constexpr auto default_output_directory = "output";
   /** @brief Default output file format */
   static constexpr DataFormat default_output_format = DataFormat::parquet;
-  /** @brief Default compression codec for output files */
+  /** @brief Default compression codec for Parquet output files.
+   *
+   *  `snappy` trades a few percent of compression ratio for ~3-5×
+   *  faster encode + decode vs `zstd` and is the de-facto Parquet
+   *  default in the broader Arrow / Spark / Athena ecosystem.  For
+   *  the per-(scene, phase) solution Parquet files gtopt emits, the
+   *  encode-time savings dominate any size difference because the
+   *  files are small, frequently re-read by downstream tooling, and
+   *  the user is typically on a local disk where the extra zstd
+   *  compute outweighs the I/O savings.  Set
+   *  `output_compression: zstd` in the JSON (or `--output-compression
+   *  zstd`) when archival ratio matters.
+   *
+   *  `lp_compression` (LP debug files) keeps `zstd` as its default —
+   *  those files are large textual dumps where the ratio matters and
+   *  decode speed does not.
+   */
   static constexpr CompressionCodec default_output_compression =
-      CompressionCodec::zstd;
+      CompressionCodec::snappy;
   /** @brief Default setting for using UIDs in filenames */
   static constexpr Bool default_use_uid_fname = true;
   /** @brief Default annual discount rate for multi-year planning */

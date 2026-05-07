@@ -145,7 +145,9 @@ namespace
                gz_filename,
                maybe_gz_stream.status().ToString());
 
-  // Try .csv.zst as second fallback (default output compression is zstd)
+  // Try .csv.zst as second fallback (zstd remains a popular explicit
+  // override of the default `snappy` Parquet codec for archival ratio,
+  // and legacy outputs landed there before the default flip).
   SPDLOG_DEBUG("csv_read_table: trying zstd file '{}'", zst_filename);
   auto maybe_zst_stream =
       open_compressed_stream(zst_filename, arrow::Compression::ZSTD);

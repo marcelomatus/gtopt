@@ -15,7 +15,7 @@ def test_parser_defaults():
     args = parser.parse_args([])
     assert args.case is None
     assert args.threads is None
-    assert args.compression == "zstd"
+    assert args.compression == "snappy"
     assert args.check is True
 
 
