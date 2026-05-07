@@ -158,3 +158,118 @@ def test_mixed_offending_and_clean_lines():
     )
     hits = _scan_uid_arithmetic(src)
     assert len(hits) == 2
+
+
+# ─── Rule 14 — redundant [static_cast<size_t>(strong_index)] ─────────────────
+
+
+def _scan_redundant_size_t_subscript(
+    src: str,
+) -> list[lint_strong_types.Hit]:
+    """Run `scan_redundant_size_t_subscript` on a synthetic snippet."""
+    rule = lint_strong_types.Rule(
+        name="r14",
+        description="",
+        fix="",
+    )
+    with tempfile.NamedTemporaryFile(suffix=".cpp", mode="w", delete=False) as f:
+        f.write(src)
+        tmp = pathlib.Path(f.name)
+    try:
+        lint_strong_types.scan_redundant_size_t_subscript(rule, [tmp])
+    finally:
+        tmp.unlink()
+    return rule.hits
+
+
+def test_subscript_size_t_cast_on_index_fires():
+    """`vec[static_cast<size_t>(index)]` — the canonical form."""
+    hits = _scan_redundant_size_t_subscript(
+        "auto x = vec[static_cast<size_t>(index)];\n"
+    )
+    assert len(hits) == 1
+
+
+def test_subscript_size_t_cast_on_row_idx_fires():
+    """`rin[static_cast<size_t>(row_idx)]` — common LP-assembly shape."""
+    hits = _scan_redundant_size_t_subscript(
+        "auto x = rin[static_cast<size_t>(row_idx)];\n"
+    )
+    assert len(hits) == 1
+
+
+def test_subscript_size_t_cast_on_col_idx_fires():
+    """`cin[static_cast<size_t>(col_idx)]` — column counterpart."""
+    hits = _scan_redundant_size_t_subscript(
+        "auto x = cin[static_cast<size_t>(col_idx)];\n"
+    )
+    assert len(hits) == 1
+
+
+def test_subscript_std_size_t_cast_fires():
+    """`vec[static_cast<std::size_t>(index)]` — qualified spelling."""
+    hits = _scan_redundant_size_t_subscript(
+        "auto x = vec[static_cast<std::size_t>(index)];\n"
+    )
+    assert len(hits) == 1
+
+
+def test_subscript_size_t_cast_on_row_fires():
+    """The exact form found in linear_interface.cpp:2857–2858."""
+    hits = _scan_redundant_size_t_subscript(
+        "diag.rhs_lb = row_lb[static_cast<size_t>(row)];\n"
+    )
+    assert len(hits) == 1
+
+
+# ─── Rule 14 — must NOT fire ─────────────────────────────────────────────────
+
+
+def test_size_t_cast_outside_subscript_clean():
+    """`static_cast<size_t>(idx) + 1` for resize-arith — keep the cast."""
+    hits = _scan_redundant_size_t_subscript(
+        "vec.resize(static_cast<size_t>(idx) + 1);\n"
+    )
+    assert hits == []
+
+
+def test_size_t_cast_on_loop_counter_clean():
+    """`vec[static_cast<size_t>(i)]` — `i` is a generic int counter."""
+    hits = _scan_redundant_size_t_subscript("auto x = vec[static_cast<size_t>(i)];\n")
+    assert hits == []
+
+
+def test_size_t_cast_on_size_call_clean():
+    """`static_cast<size_t>(count)` — `count` is in the non-strong list."""
+    hits = _scan_redundant_size_t_subscript(
+        "auto x = vec[static_cast<size_t>(count)];\n"
+    )
+    assert hits == []
+
+
+def test_subscript_no_cast_clean():
+    """`rin[row_idx]` — already idiomatic, must stay clean."""
+    hits = _scan_redundant_size_t_subscript("auto x = rin[row_idx];\n")
+    assert hits == []
+
+
+def test_subscript_int_cast_clean_for_rule_14():
+    """`vec[static_cast<int>(idx)]` is Rule 8's domain, not Rule 14."""
+    hits = _scan_redundant_size_t_subscript("auto x = vec[static_cast<int>(idx)];\n")
+    assert hits == []
+
+
+def test_size_t_cast_subscript_nolint_clean():
+    """`// NOLINT` opts the line out."""
+    hits = _scan_redundant_size_t_subscript(
+        "auto x = vec[static_cast<size_t>(index)];  // NOLINT\n"
+    )
+    assert hits == []
+
+
+def test_size_t_cast_subscript_in_comment_clean():
+    """Pattern only inside a comment is ignored."""
+    hits = _scan_redundant_size_t_subscript(
+        "// vec[static_cast<size_t>(index)] is the bad pattern\n"
+    )
+    assert hits == []

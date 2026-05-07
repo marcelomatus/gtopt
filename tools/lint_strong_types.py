@@ -530,7 +530,52 @@ def scan_uid_arithmetic(rule: Rule, files: list[Path]) -> None:
             rule.hits.append(Hit(f, n, line))
 
 
-# Rule 14 — `std::string{string_view_var}` round-trip when the surrounding
+# Rule 14 — redundant `static_cast<size_t>(strong_index)` when used as a
+# subscript.  Strong indices ship with `strong::implicitly_convertible_to
+# <Index>` and `Index = int32_t` widens implicitly to `size_t` for
+# `std::vector::operator[]` / `std::span::operator[]`.  The project
+# already relies on this — see `linear_interface.cpp:1766` (`rin[row_idx]
+# = name;`) — so a `[static_cast<size_t>(IDENT)]` when IDENT looks like
+# a strong index is noise.  We restrict to the subscript pattern so we
+# don't flip legitimate `static_cast<size_t>(idx) + 1` cases where
+# size_t arithmetic is the actual intent.
+
+_REDUNDANT_SIZE_T_SUBSCRIPT_RX = re.compile(
+    r"\[\s*static_cast<(?:size_t|std::size_t)>\(\s*"
+    r"([a-zA-Z_][a-zA-Z0-9_]*)\s*\)\s*\]"
+)
+
+
+def scan_redundant_size_t_subscript(rule: Rule, files: list[Path]) -> None:
+    """Rule 14: redundant `[static_cast<size_t>(strong_index)]` subscript.
+
+    Strong indices (ColIndex, RowIndex, …) are
+    `implicitly_convertible_to<Index>` (int32_t), and int32_t widens
+    implicitly to size_t for vector/span operator[].  The cast is
+    therefore noise inside `[...]`.  Flags only the subscript shape so
+    `static_cast<size_t>(idx) + 1` for resize-arithmetic still passes.
+    """
+    skip_substr = ("// NOLINT", "/*", "@brief", "* @")
+    for f in files:
+        text = f.read_text()
+        clean = strip_comments(text)
+        raw_lines = text.split("\n")
+        for n, line in enumerate(clean.split("\n"), 1):
+            for m in _REDUNDANT_SIZE_T_SUBSCRIPT_RX.finditer(line):
+                ident = m.group(1)
+                if _NON_STRONG_NAME_RX.match(ident):
+                    continue
+                if not _STRONG_NAME_RX.match(ident):
+                    continue
+                raw_line = raw_lines[n - 1] if n - 1 < len(raw_lines) else ""
+                if any(s in raw_line for s in skip_substr):
+                    continue
+                if "NOLINT" in raw_line:
+                    continue
+                rule.hits.append(Hit(f, n, line))
+
+
+# Rule 15 — `std::string{string_view_var}` round-trip when the surrounding
 # call accepts `std::string_view`.  Hard to detect type-wise without
 # semantic info, but a conservative pattern: `std::string{IDENT}` /
 # `std::string(IDENT)` immediately followed by feeding the result into a
@@ -539,7 +584,7 @@ def scan_uid_arithmetic(rule: Rule, files: list[Path]) -> None:
 # future when we introduce a clang-AST-based linter.
 
 
-# Rule 15 — `std::format("constant string {}", X)` whose constant prefix
+# Rule 16 — `std::format("constant string {}", X)` whose constant prefix
 # is repeated across many call sites could be hoisted to a `static
 # constexpr std::string_view`.  Too cosmetic, skip.
 
@@ -666,6 +711,18 @@ RULES: list[tuple[str, str, str, callable]] = [
         "use uid as map key, or convert via simulation's uid-to-index "
         "helper — never `value_of(uid) ± N`.",
         scan_uid_arithmetic,
+    ),
+    (
+        "redundant [static_cast<size_t>(strong_index)] subscript",
+        "Strong indices (ColIndex / RowIndex / SceneIndex / …) ship with "
+        "`strong::implicitly_convertible_to<Index>` (int32_t), and int32_t "
+        "widens implicitly to size_t for `std::vector::operator[]` / "
+        "`std::span::operator[]`.  The cast inside `[...]` is therefore "
+        "noise — see `linear_interface.cpp:1766` (`rin[row_idx] = name;`) "
+        "for the canonical pattern.",
+        "drop the cast — vec[idx] / span[idx] works directly for strong "
+        "indices via the implicit Index→size_t conversion chain.",
+        scan_redundant_size_t_subscript,
     ),
 ]
 
