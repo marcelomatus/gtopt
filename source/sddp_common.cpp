@@ -28,15 +28,19 @@ void PhaseGridRecorder::record(IterationUid iteration_uid,
       .iteration_uid = iteration_uid,
       .scene_uid = scene_uid,
   };
-  // 1-based UID → 0-based slot in the per-row cells vector.
-  const auto phase_slot = static_cast<std::ptrdiff_t>(value_of(phase_uid)) - 1;
+  // 1-based UID → 0-based slot in the per-row cells vector.  PhaseUid is
+  // 1-based by invariant (allocated by `Simulation::phase_array.uid`),
+  // so the subtraction stays non-negative and `phase_slot` is a natural
+  // `size_t`.  Keeping it unsigned removes two redundant casts at the
+  // resize / index sites below.
+  const auto phase_slot = static_cast<size_t>(value_of(phase_uid)) - 1;
   const std::scoped_lock lock(m_mutex_);
   auto& row = m_rows_[key];
-  if (phase_slot >= std::ssize(row)) {
-    row.resize(static_cast<size_t>(phase_slot + 1), '.');
+  if (phase_slot >= row.size()) {
+    row.resize(phase_slot + 1, '.');
   }
   const char ch = static_cast<char>(state);
-  auto& cell = row[static_cast<size_t>(phase_slot)];
+  auto& cell = row[phase_slot];
   cell = std::max(cell, ch);
 }
 
