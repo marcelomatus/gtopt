@@ -865,10 +865,22 @@ void SystemLP::rebuild_in_place()
   // upfront "Building LP" phase only constructs SystemLP shells.
   // Collections are built in-place on first rebuild and kept alive
   // for subsequent rebuilds (amortised across SDDP iterations).
-  if (!m_collections_built_) {
+  // Two-flag gate: also recreate collections when only the
+  // disposable types were dropped (e.g. by
+  // `tighten_scene_phase_links` -> `clear_disposable_collections()`
+  // at the end of construction).  Under `LowMemoryMode::rebuild`
+  // every `rebuild_in_place` call MUST re-flatten from a fully-
+  // populated `m_collections_` because there is no snapshot to
+  // fall back to; if `m_disposable_collections_built_` is false
+  // the flatten produces an empty LP (`count_all_elements ==
+  // 0`) and downstream readers (e.g. `collect_state_variable_links`,
+  // `set_col_low_raw`) crash with stale ColIndex out-of-range.
+  // Mirrors the gate in `rebuild_collections_if_needed`.
+  if (!m_collections_built_ || !m_disposable_collections_built_) {
     create_collections(m_system_context_, system(), m_collections_);
     m_collections_built_ = true;
     m_disposable_collections_built_ = true;
+    m_system_context_.rebind_system(*this);
   }
 
   auto flat_opts = m_flat_opts_;
