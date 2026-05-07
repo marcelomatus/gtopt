@@ -1013,6 +1013,21 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
     }
   }
 
+  // Per-step timing trace for the solve() tail.  Profile on
+  // `cases/sddp_hydro_3phase` showed a ~298 ms gap between the last
+  // SDDP iteration log line and `Optimization time` on a 0.5-s wall
+  // run — almost none of it inside the work-pool's shutdown
+  // (verified at <2 ms via the per-pool shutdown trace landed in
+  // d2e1a364).  These traces partition that gap into
+  // cut-persistence / monitor.stop / lp_debug drain / pool reset
+  // + planning_lp tail so a future profiler can localise where
+  // the time actually goes.
+  using TailClock = std::chrono::steady_clock;
+  const auto t_tail_begin = TailClock::now();
+  const auto tail_elapsed_ms =
+      [](TailClock::time_point a, TailClock::time_point b)
+  { return std::chrono::duration<double, std::milli>(b - a).count(); };
+
   // ── Cut persistence ──
   if (!m_options_.cuts_output_file.empty() && !results.empty()) {
     const auto num_scenes_final = planning_lp().simulation().scene_count();
@@ -1047,13 +1062,27 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
       SPDLOG_INFO("SDDP: cut_recovery_mode=keep — combined file not modified");
     }
   }
+  const auto t_after_cuts = TailClock::now();
 
   monitor.stop();
+  const auto t_after_monitor = TailClock::now();
+
   m_lp_debug_writer_.drain();
+  const auto t_after_drain = TailClock::now();
+
   m_benders_cut_.set_pool(nullptr);
   m_pool_ = nullptr;
   m_aux_pool_ = nullptr;
   m_lp_debug_writer_ = {};
+  const auto t_after_reset = TailClock::now();
+
+  spdlog::trace(
+      "SDDP solve() tail: cuts_persistence={:.1f}ms monitor.stop={:.1f}ms "
+      "lp_debug.drain={:.1f}ms pool_reset+lp_debug_dtor={:.1f}ms",
+      tail_elapsed_ms(t_tail_begin, t_after_cuts),
+      tail_elapsed_ms(t_after_cuts, t_after_monitor),
+      tail_elapsed_ms(t_after_monitor, t_after_drain),
+      tail_elapsed_ms(t_after_drain, t_after_reset));
 
   // Advance `m_iteration_offset_` past the last iteration executed
   // (including the trailing simulation pass) so a subsequent call
@@ -1754,6 +1783,21 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
     }
   }
 
+  // Per-step timing trace for the iterate() tail.  Profile on
+  // `cases/sddp_hydro_3phase` showed a ~296 ms gap between the last
+  // SDDP iteration log line and the pool destructor on a 0.5-s wall
+  // run — most of the wall, none of it inside the work-pool's
+  // shutdown (verified at <2 ms via the per-pool shutdown trace
+  // landed in d2e1a364).  These traces partition that gap into
+  // cut-persistence / monitor.stop / lp_debug drain / pool reset
+  // / planning_lp tail so a future profiler can localise where
+  // the time actually goes.
+  using TailClock = std::chrono::steady_clock;
+  const auto t_tail_begin = TailClock::now();
+  const auto tail_elapsed_ms =
+      [](TailClock::time_point a, TailClock::time_point b)
+  { return std::chrono::duration<double, std::milli>(b - a).count(); };
+
   // ── Cut persistence ──
   if (!m_options_.cuts_output_file.empty() && !results.empty()) {
     const auto num_scenes_final = planning_lp().simulation().scene_count();
@@ -1782,13 +1826,27 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
       SPDLOG_INFO("SDDP: cut_recovery_mode=keep — combined file not modified");
     }
   }
+  const auto t_after_cuts = TailClock::now();
 
   monitor.stop();
+  const auto t_after_monitor = TailClock::now();
+
   m_lp_debug_writer_.drain();
+  const auto t_after_drain = TailClock::now();
+
   m_benders_cut_.set_pool(nullptr);
   m_pool_ = nullptr;
   m_aux_pool_ = nullptr;
   m_lp_debug_writer_ = {};
+  const auto t_after_reset = TailClock::now();
+
+  spdlog::trace(
+      "SDDP iterate() tail: cuts_persistence={:.1f}ms monitor.stop={:.1f}ms "
+      "lp_debug.drain={:.1f}ms pool_reset+lp_debug_dtor={:.1f}ms",
+      tail_elapsed_ms(t_tail_begin, t_after_cuts),
+      tail_elapsed_ms(t_after_cuts, t_after_monitor),
+      tail_elapsed_ms(t_after_monitor, t_after_drain),
+      tail_elapsed_ms(t_after_drain, t_after_reset));
 
   return results;
 }
