@@ -1027,13 +1027,31 @@ def test_grid_tracker_display_integration(tmp_path: Path):
 
 
 def test_grid_load_from_status_basic():
-    """Grid can be populated from status JSON phase_grid data."""
+    """Grid can be populated from status JSON phase_grid data (UID-keyed)."""
     tracker = SDDPGridTracker()
     status = {
         "phase_grid": {
             "rows": [
-                {"i": 0, "s": 0, "cells": "FF.FEB"},
-                {"i": 1, "s": 0, "cells": "FFFFFF"},
+                # PhaseUid-keyed cells: "1" first, sorted by integer UID.
+                # Position 0 in the column axis = first PhaseUid (1).
+                # PhaseUid 3 is missing → position 2 stays idle.
+                {
+                    "i": 0,
+                    "s": 0,
+                    "cells": {"1": "F", "2": "F", "4": "F", "5": "E", "6": "B"},
+                },
+                {
+                    "i": 1,
+                    "s": 0,
+                    "cells": {
+                        "1": "F",
+                        "2": "F",
+                        "3": "F",
+                        "4": "F",
+                        "5": "F",
+                        "6": "F",
+                    },
+                },
             ],
         },
     }
@@ -1042,24 +1060,26 @@ def test_grid_load_from_status_basic():
     assert tracker.has_data
     assert tracker.scenes == [0]
     assert tracker.max_iter == 1
+    # Iter 0 row covers UIDs 1,2,4,5,6 → ordinal width = 5 → max_phase = 4.
+    # Iter 1 row covers UIDs 1..6 → ordinal width = 6 → max_phase = 5.
     assert tracker.max_phase == 5
     assert tracker.get_cell(0, 0, 0) == _GRID_FORWARD
     assert tracker.get_cell(0, 0, 1) == _GRID_FORWARD
-    assert tracker.get_cell(0, 0, 2) == _GRID_IDLE  # '.' = idle
-    assert tracker.get_cell(0, 0, 3) == _GRID_FORWARD
-    assert tracker.get_cell(0, 0, 4) == _GRID_ELASTIC
-    assert tracker.get_cell(0, 0, 5) == _GRID_BACKWARD
+    # PhaseUid 4 is the third recorded UID → ordinal index 2.
+    assert tracker.get_cell(0, 0, 2) == _GRID_FORWARD
+    assert tracker.get_cell(0, 0, 3) == _GRID_ELASTIC
+    assert tracker.get_cell(0, 0, 4) == _GRID_BACKWARD
     assert tracker.get_cell(0, 1, 0) == _GRID_FORWARD
 
 
 def test_grid_load_from_status_multi_scene():
-    """Multiple scenes from status JSON."""
+    """Multiple scenes from status JSON (UID-keyed)."""
     tracker = SDDPGridTracker()
     status = {
         "phase_grid": {
             "rows": [
-                {"i": 0, "s": 0, "cells": "FB"},
-                {"i": 0, "s": 1, "cells": "FA"},
+                {"i": 0, "s": 0, "cells": {"1": "F", "2": "B"}},
+                {"i": 0, "s": 1, "cells": {"1": "F", "2": "A"}},
             ],
         },
     }
@@ -1080,7 +1100,7 @@ def test_grid_load_from_status_merges_with_log():
     assert tracker.get_cell(0, 0, 0) == _GRID_FORWARD
 
     # Status JSON has backward (higher priority) for same cell
-    status = {"phase_grid": {"rows": [{"i": 0, "s": 0, "cells": "B"}]}}
+    status = {"phase_grid": {"rows": [{"i": 0, "s": 0, "cells": {"1": "B"}}]}}
     tracker.load_from_status(status)
     assert tracker.get_cell(0, 0, 0) == _GRID_BACKWARD
 
@@ -1097,9 +1117,32 @@ def test_grid_load_from_status_empty():
 
 
 def test_grid_load_infeasible_from_status():
-    """Infeasible cells from status JSON."""
+    """Infeasible cells from status JSON (UID-keyed)."""
     tracker = SDDPGridTracker()
-    status = {"phase_grid": {"rows": [{"i": 2, "s": 1, "cells": "FXF"}]}}
+    status = {
+        "phase_grid": {
+            "rows": [{"i": 2, "s": 1, "cells": {"1": "F", "2": "X", "3": "F"}}]
+        }
+    }
     tracker.load_from_status(status)
     assert tracker.get_cell(1, 2, 1) == _GRID_INFEASIBLE
     assert tracker.get_cell(1, 2, 0) == _GRID_FORWARD
+
+
+def test_grid_load_from_status_legacy_string():
+    """Legacy positional-string cells are still accepted for backward compat."""
+    tracker = SDDPGridTracker()
+    status = {
+        "phase_grid": {
+            "rows": [
+                {"i": 0, "s": 0, "cells": "FF.FEB"},
+            ],
+        },
+    }
+    tracker.load_from_status(status)
+    assert tracker.has_data
+    assert tracker.max_phase == 5
+    assert tracker.get_cell(0, 0, 0) == _GRID_FORWARD
+    assert tracker.get_cell(0, 0, 2) == _GRID_IDLE
+    assert tracker.get_cell(0, 0, 4) == _GRID_ELASTIC
+    assert tracker.get_cell(0, 0, 5) == _GRID_BACKWARD

@@ -206,10 +206,15 @@ class PhaseGridRecorder
 public:
   /// Record a phase activity.  Higher-priority states overwrite lower ones.
   ///
-  /// All three identifiers are 1-based UIDs (the same convention used in
-  /// the `[iN sM pK]` log prefixes and the JSON output below).  Callers
-  /// convert from internal `IterationIndex` / `SceneIndex` / `PhaseIndex`
-  /// at the call site via `gtopt::uid_of(...)` / `sim.uid_of(...)`.
+  /// All three identifiers are stored as UIDs — the recorder never
+  /// performs arithmetic on them and never assumes a particular
+  /// numeric layout.  Internally, per-row activity is held in a
+  /// `std::map<PhaseUid, char>` keyed by `PhaseUid`; `to_json()` emits
+  /// the inner map in sorted-UID order, so the resulting `"cells"`
+  /// string positions correspond to the natural PhaseUid ordering
+  /// (typically 1-based contiguous, but the recorder no longer
+  /// depends on that — it only requires that `PhaseUid::operator<`
+  /// gives the desired column order).
   void record(IterationUid iteration_uid,
               SceneUid scene_uid,
               PhaseUid phase_uid,
@@ -217,6 +222,10 @@ public:
 
   /// Return a snapshot of the grid as a JSON fragment (no trailing comma).
   /// Format: "phase_grid": {"rows": [{"i":0,"s":0,"cells":"FF.FB..."}, ...]}
+  /// Cells are emitted in PhaseUid-sorted order, with '.' filling any
+  /// missing UID slot in `[first_uid, last_uid]` so the position of
+  /// each character corresponds to its PhaseUid offset from the
+  /// minimum UID seen for the row.
   [[nodiscard]] std::string to_json() const;
 
   /// True when at least one cell has been recorded.
@@ -230,8 +239,13 @@ private:
     auto operator<=>(const Key&) const = default;
   };
 
+  /// Per-row activity, keyed by PhaseUid.  `std::map` (not `flat_map`)
+  /// because the recorder is debug telemetry — neither write rate nor
+  /// memory footprint warrants the cache-friendlier flat variant.
+  using PhaseCells = std::map<PhaseUid, char>;
+
   mutable std::mutex m_mutex_;
-  std::map<Key, std::string> m_rows_;
+  std::map<Key, PhaseCells> m_rows_;
 };
 
 // ─── Cost / bound formatting ────────────────────────────────────────────────
