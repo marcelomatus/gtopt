@@ -129,12 +129,15 @@ bool ReservoirSeepageLP::add_to_lp(const SystemContext& sc,
                          seepage_cols.at(st_key));
   }
 
-  // Store the coefficient state for later updates
+  // Store the coefficient state for later updates.  The reservoir cache
+  // captures everything `update_lp` reads from `ReservoirLP` so that
+  // path no longer needs `sys.element<ReservoirLP>(reservoir_sid())`.
   m_states_[st_key] = ReservoirSeepageState {
       .eini_col = eini_col,
       .efin_col = efin_col,
       .current_slope = effective_slope,
       .current_rhs = effective_rhs,
+      .reservoir_cache = make_reservoir_ref_cache(reservoir, scenario, stage),
   };
 
   return true;
@@ -161,8 +164,6 @@ int ReservoirSeepageLP::update_lp(SystemLP& sys,
   }
 
   auto& li = sys.linear_interface();
-  const auto& rsv = sys.element<ReservoirLP>(reservoir_sid());
-  const auto default_volume = rsv.reservoir().eini.value_or(0.0);
 
   const auto st_key = std::tuple {scenario.uid(), stage.uid()};
   auto& state = m_states_.at(st_key);
@@ -177,17 +178,13 @@ int ReservoirSeepageLP::update_lp(SystemLP& sys,
   // at the moment we build / update the stage's LP, since the
   // current-stage `efin` is still a free variable awaiting solve.
   //
-  // The previous form anchored on `physical_efin(sys, stage, ...)` at the
-  // CURRENT stage, which at iter-0 first attempt has no prior solve and
-  // therefore returns the default `eini` fallback (= the JSON-level
-  // initial volume, e.g. 1731 Hm³ for ELTORO).  That pinned segment 2
-  // (covering [400, 2700]) for every stage of every scenario, even when
-  // the predecessor's efin had already drained ELTORO well below 400 Hm³
-  // in the forward pass.  At efin → 0 the segment-2 line forces a
-  // 15.09 m³/s seepage from an empty reservoir, structurally breaking
-  // the LP — observed on juan/gtopt_iplp p27/p37 cascade.
+  // Routed through `physical_eini_from_cache` against `state.reservoir_cache`
+  // (populated in `add_to_lp`) so this path no longer touches the current
+  // SystemLP's `Collection<ReservoirLP>`.  Cross-phase predecessor lookup
+  // continues to work either via the pre-bound `prev_phase_efin_col`
+  // (production path) or the element-lookup fallback (test paths).
   const auto vini =
-      rsv.physical_eini(sys, scenario, stage, default_volume, reservoir_sid());
+      physical_eini_from_cache(sys, scenario, stage, state.reservoir_cache);
   const auto coeffs = select_seepage_coeffs(seepage().segments, vini);
 
   const auto new_slope = coeffs.slope;

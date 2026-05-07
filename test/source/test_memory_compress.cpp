@@ -36,6 +36,28 @@ TEST_CASE("is_codec_available — uncompressed is always true")  // NOLINT
   CHECK(is_codec_available(CompressionCodec::uncompressed));
 }
 
+TEST_CASE("is_codec_available — every enum value classified")  // NOLINT
+{
+  // The dispatcher's switch covers every `CompressionCodec` value;
+  // exhaustive enum coverage prevents a future addition from
+  // silently falling through the default `return false`.
+  // Always-available codecs:
+  CHECK(is_codec_available(CompressionCodec::auto_select));
+  CHECK(is_codec_available(CompressionCodec::uncompressed));
+  CHECK(is_codec_available(CompressionCodec::zstd));
+  CHECK(is_codec_available(CompressionCodec::gzip));
+  // Optional codecs (compile-time gated): just assert the call is
+  // total — true or false depending on `GTOPT_HAS_LZ4` /
+  // `GTOPT_HAS_SNAPPY`, but the call must not throw or assert.
+  (void)is_codec_available(CompressionCodec::lz4);
+  (void)is_codec_available(CompressionCodec::snappy);
+  // File-only codecs (not for in-memory use):
+  CHECK_FALSE(is_codec_available(CompressionCodec::bzip2));
+  CHECK_FALSE(is_codec_available(CompressionCodec::xz));
+  CHECK_FALSE(is_codec_available(CompressionCodec::brotli));
+  CHECK_FALSE(is_codec_available(CompressionCodec::lzo));
+}
+
 TEST_CASE("codec_name returns non-empty string for known codecs")  // NOLINT
 {
   CHECK_FALSE(codec_name(CompressionCodec::uncompressed).empty());
@@ -43,10 +65,56 @@ TEST_CASE("codec_name returns non-empty string for known codecs")  // NOLINT
   CHECK_FALSE(codec_name(CompressionCodec::lz4).empty());
 }
 
+TEST_CASE("codec_name — exact spellings for every enum value")  // NOLINT
+{
+  // Lock the canonical lower-case names.  Downstream tools (logs,
+  // JSON output, the planning JSON parser's `memory_codec` /
+  // `output_compression` field) consume these strings verbatim, so a
+  // typo here would silently break configuration round-trip.
+  CHECK(codec_name(CompressionCodec::auto_select) == "auto");
+  CHECK(codec_name(CompressionCodec::uncompressed) == "none");
+  CHECK(codec_name(CompressionCodec::lz4) == "lz4");
+  CHECK(codec_name(CompressionCodec::snappy) == "snappy");
+  CHECK(codec_name(CompressionCodec::zstd) == "zstd");
+  CHECK(codec_name(CompressionCodec::gzip) == "gzip");
+  CHECK(codec_name(CompressionCodec::bzip2) == "bzip2");
+  CHECK(codec_name(CompressionCodec::xz) == "xz");
+  CHECK(codec_name(CompressionCodec::brotli) == "brotli");
+  CHECK(codec_name(CompressionCodec::lzo) == "lzo");
+}
+
 TEST_CASE("select_codec falls back to an available codec")  // NOLINT
 {
   const auto c = select_codec(CompressionCodec::zstd);
   CHECK(is_codec_available(c));
+}
+
+TEST_CASE("select_codec — auto_select picks fastest available")  // NOLINT
+{
+  // Priority order in source: lz4 > snappy > zstd.  On a build with
+  // lz4 we expect lz4; without lz4 but with snappy we expect snappy;
+  // otherwise zstd (always available).  Test the actual policy
+  // expressed by the source by chaining the priority check.
+  const auto c = select_codec(CompressionCodec::auto_select);
+  CHECK(is_codec_available(c));
+  if (is_codec_available(CompressionCodec::lz4)) {
+    CHECK(c == CompressionCodec::lz4);
+  } else if (is_codec_available(CompressionCodec::snappy)) {
+    CHECK(c == CompressionCodec::snappy);
+  } else {
+    CHECK(c == CompressionCodec::zstd);
+  }
+}
+
+TEST_CASE("select_codec — file-only codec falls back to zstd")  // NOLINT
+{
+  // Asking for a file-only codec (bzip2/xz/brotli/lzo) for in-memory
+  // use must downgrade to the always-available zstd so the caller
+  // never gets a non-functional codec.
+  CHECK(select_codec(CompressionCodec::bzip2) == CompressionCodec::zstd);
+  CHECK(select_codec(CompressionCodec::xz) == CompressionCodec::zstd);
+  CHECK(select_codec(CompressionCodec::brotli) == CompressionCodec::zstd);
+  CHECK(select_codec(CompressionCodec::lzo) == CompressionCodec::zstd);
 }
 
 TEST_CASE(

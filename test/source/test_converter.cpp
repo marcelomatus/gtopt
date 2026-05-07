@@ -185,10 +185,12 @@ TEST_CASE("ConverterLP - capainst column primal at lower bound")
   //     (1) by the expansion-module formulation, so `capainst = 40 * 1
   //     = 40.0`.  This still demonstrates the lookup + LP-solve pattern
   //     for ConverterLP and pins capainst to a deterministic value.
-  const Array<Bus> bus_array = {{
-      .uid = Uid {1},
-      .name = "b1",
-  }};
+  const Array<Bus> bus_array = {
+      {
+          .uid = Uid {1},
+          .name = "b1",
+      },
+  };
 
   const Array<Generator> generator_array = {
       {
@@ -253,18 +255,27 @@ TEST_CASE("ConverterLP - capainst column primal at lower bound")
   };
 
   const Simulation simulation = {
-      .block_array = {{
-          .uid = Uid {1},
-          .duration = 1,
-      }},
-      .stage_array = {{
-          .uid = Uid {1},
-          .first_block = 0,
-          .count_block = 1,
-      }},
-      .scenario_array = {{
-          .uid = Uid {0},
-      }},
+      .block_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .duration = 1,
+              },
+          },
+      .stage_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .first_block = 0,
+                  .count_block = 1,
+              },
+          },
+      .scenario_array =
+          {
+              {
+                  .uid = Uid {0},
+              },
+          },
   };
 
   PlanningOptions opts;

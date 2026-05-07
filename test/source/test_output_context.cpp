@@ -498,17 +498,26 @@ auto make_csv_system()
 }
 }  // namespace
 
-TEST_CASE("OutputContext - CSV zstd compression (default)")  // NOLINT
+TEST_CASE(
+    "OutputContext - CSV with default codec (snappy) writes plain "
+    ".csv")  // NOLINT
 {
+  // The default `output_compression` is `snappy` (chosen for Parquet
+  // encode/decode speed).  Snappy is not a streaming codec the
+  // `csv_write_table` path supports, so for CSV format the writer
+  // falls back to uncompressed and produces plain `.csv` files.
+  // Users who want compressed CSV must explicitly opt in to a CSV-
+  // compatible codec (`zstd`, `gzip`).
   auto [system, simulation] = make_csv_system();
   const auto tmpdir =
-      std::filesystem::temp_directory_path() / "gtopt_csv_default_zst";
+      std::filesystem::temp_directory_path() / "gtopt_csv_default_snappy";
   std::filesystem::create_directories(tmpdir);
 
   PlanningOptions opts;
   opts.output_directory = tmpdir.string();
   opts.output_format = DataFormat::csv;
-  // output_compression not set → default "zstd" → produces .csv.zst files
+  // output_compression not set → default `snappy` → for CSV format
+  // this falls through `csv_write_table` to the uncompressed path.
 
   const PlanningOptionsLP options(opts);
   SimulationLP simulation_lp(simulation, options);
@@ -518,7 +527,47 @@ TEST_CASE("OutputContext - CSV zstd compression (default)")  // NOLINT
   REQUIRE(lp.resolve().has_value());
   system_lp.write_out();
 
-  // .csv.zst files must exist (zstd is now the default)
+  bool found_plain_csv = false;
+  bool found_zst = false;
+  for (const auto& entry :
+       std::filesystem::recursive_directory_iterator(tmpdir))
+  {
+    const auto p = entry.path().string();
+    if (p.ends_with(".csv")) {
+      found_plain_csv = true;
+    }
+    if (p.ends_with(".csv.zst")) {
+      found_zst = true;
+    }
+  }
+  CHECK(found_plain_csv);
+  CHECK_FALSE(found_zst);
+
+  std::filesystem::remove_all(tmpdir);
+}
+
+TEST_CASE("OutputContext - CSV explicit zstd compression")  // NOLINT
+{
+  // Users who want compressed CSV opt in explicitly.  Verifies the
+  // CSV writer's `zstd` branch still produces `.csv.zst` files.
+  auto [system, simulation] = make_csv_system();
+  const auto tmpdir =
+      std::filesystem::temp_directory_path() / "gtopt_csv_explicit_zst";
+  std::filesystem::create_directories(tmpdir);
+
+  PlanningOptions opts;
+  opts.output_directory = tmpdir.string();
+  opts.output_format = DataFormat::csv;
+  opts.output_compression = CompressionCodec::zstd;
+
+  const PlanningOptionsLP options(opts);
+  SimulationLP simulation_lp(simulation, options);
+  SystemLP system_lp(system, simulation_lp);
+
+  auto&& lp = system_lp.linear_interface();
+  REQUIRE(lp.resolve().has_value());
+  system_lp.write_out();
+
   bool found_zst = false;
   for (const auto& entry :
        std::filesystem::recursive_directory_iterator(tmpdir))

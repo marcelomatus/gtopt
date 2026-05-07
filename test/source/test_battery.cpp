@@ -788,9 +788,11 @@ TEST_CASE(  // NOLINT
     // Multiple energy columns (eini + per-block) should carry the scale
     REQUIRE(n_scaled > 0);
 
-    return {.objective = li.get_obj_value_raw(),
-            .max_col_upper = max_upp,
-            .max_col_upper_raw = max_upp_raw};
+    return {
+        .objective = li.get_obj_value_raw(),
+        .max_col_upper = max_upp,
+        .max_col_upper_raw = max_upp_raw,
+    };
   };
 
   // Use scales != 1.0 to distinguish energy columns from unscaled columns

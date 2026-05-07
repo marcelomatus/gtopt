@@ -270,9 +270,14 @@ class SDDPGridTracker:
     def load_from_status(self, status: dict) -> None:
         """Merge phase_grid data from the status JSON into the grid.
 
-        The C++ solver writes a ``phase_grid`` section with compact
-        per-row strings: ``{"i": 0, "s": 0, "cells": "FF.FEB..."}``.
-        This allows remote monitoring without parsing log lines.
+        The C++ solver writes a ``phase_grid`` section keyed by PhaseUid:
+        ``{"i": 0, "s": 0, "cells": {"1": "F", "2": ".", "3": "B"}}``.
+        Iterating in sorted-UID order gives the natural column ordering
+        without any UID-as-index arithmetic on either side.  This
+        format also tolerates legacy positional strings (``"FF.FEB"``)
+        for backward compatibility with status files captured before
+        the format change — the legacy branch treats each character
+        position as a 0-based phase column.
         """
         grid_data = status.get("phase_grid")
         if not grid_data:
@@ -280,15 +285,30 @@ class SDDPGridTracker:
         for row in grid_data.get("rows", []):
             it = row.get("i", 0)
             sc = row.get("s", 0)
-            cells = row.get("cells", "")
+            cells = row.get("cells")
             if not cells:
+                continue
+            if isinstance(cells, dict):
+                # New format: UID-keyed.  Sort by integer UID so the
+                # column ordering is stable; the TUI's `ph` axis is
+                # 0-based ordinal-within-sorted-UIDs (the natural
+                # phase column index for the dense 1-based PhaseUid
+                # layout the simulation framework allocates).
+                cells_sorted = sorted(cells.items(), key=lambda kv: int(kv[0]))
+                cells_iter = enumerate(ch for _uid, ch in cells_sorted)
+                width = len(cells_sorted)
+            else:
+                # Legacy format: positional packed string.
+                cells_iter = enumerate(cells)
+                width = len(cells)
+            if width == 0:
                 continue
             self._scenes.add(sc)
             self._max_iter = max(self._max_iter, it)
-            self._max_phase = max(self._max_phase, len(cells) - 1)
+            self._max_phase = max(self._max_phase, width - 1)
             if sc not in self._grid:
                 self._grid[sc] = {}
-            for ph, ch in enumerate(cells):
+            for ph, ch in cells_iter:
                 state = self._CELL_CHAR_MAP.get(ch, _GRID_IDLE)
                 if state == _GRID_IDLE:
                     continue

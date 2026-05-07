@@ -52,6 +52,29 @@ public:
   void start();
   void stop() noexcept;
 
+  /**
+   * @brief Signal the monitor thread to wind down without joining.
+   *
+   * Phase-1 helper used by `BasicWorkPool::shutdown()`.  See the
+   * matching docstring on `CPUMonitor::request_stop` / `notify_stop`
+   * for the rationale: signalling these monitors before joining the
+   * worker pool lets their `wait_for(monitor_interval_, ...)` predicate
+   * observe the stop request immediately, so the later `.stop()` call's
+   * `join()` is near-instant rather than blocking up to 500 ms.
+   */
+  void request_stop() noexcept
+  {
+    running_.store(false, std::memory_order_relaxed);
+    if (monitor_thread_.joinable()) {
+      monitor_thread_.request_stop();
+    }
+  }
+  void notify_stop() noexcept
+  {
+    const std::scoped_lock<std::mutex> lock(stop_mutex_);
+    stop_cv_.notify_all();
+  }
+
   void set_interval(std::chrono::milliseconds interval) noexcept
   {
     monitor_interval_ = interval;

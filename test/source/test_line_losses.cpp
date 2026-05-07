@@ -324,7 +324,7 @@ TEST_CASE("line_losses::make_config validates and auto-computes")
 /// Helper: build a 2-bus system with one line configured for the given
 /// losses mode and solve it.  Generator on bus 1 (cost 10), demand 100
 /// on bus 2, line capacity 200, R=0.01Ω, V=100kV.
-static auto solve_with_mode(std::string_view mode_name, int loss_segments = 3)
+auto solve_with_mode(std::string_view mode_name, int loss_segments = 3)
     -> double
 {
   const Array<Bus> bus_array = {
@@ -717,12 +717,12 @@ private:
 };
 
 /// Count columns whose name contains the given substring.
-static auto count_cols_containing(const LinearInterface& li,
-                                  std::string_view substr) -> int
+auto count_cols_containing(const LinearInterface& li, std::string_view substr)
+    -> int
 {
   int count = 0;
   for (const auto& [name, _idx] : li.col_name_map()) {
-    if (name.find(substr) != std::string::npos) {
+    if (name.contains(substr)) {
       ++count;
     }
   }
@@ -730,12 +730,12 @@ static auto count_cols_containing(const LinearInterface& li,
 }
 
 /// Count rows whose name contains the given substring.
-static auto count_rows_containing(const LinearInterface& li,
-                                  std::string_view substr) -> int
+auto count_rows_containing(const LinearInterface& li, std::string_view substr)
+    -> int
 {
   int count = 0;
   for (const auto& [name, _idx] : li.row_name_map()) {
-    if (name.find(substr) != std::string::npos) {
+    if (name.contains(substr)) {
       ++count;
     }
   }
@@ -743,13 +743,12 @@ static auto count_rows_containing(const LinearInterface& li,
 }
 
 /// Find the single column whose name contains `substr`; require exactly one.
-static auto find_col(const LinearInterface& li, std::string_view substr)
-    -> ColIndex
+auto find_col(const LinearInterface& li, std::string_view substr) -> ColIndex
 {
   ColIndex found {-1};
   int count = 0;
   for (const auto& [name, idx] : li.col_name_map()) {
-    if (name.find(substr) != std::string::npos) {
+    if (name.contains(substr)) {
       found = idx;
       ++count;
     }
@@ -759,16 +758,14 @@ static auto find_col(const LinearInterface& li, std::string_view substr)
 }
 
 /// Find column containing `substr` but NOT `exclude`; require exactly one.
-static auto find_col(const LinearInterface& li,
-                     std::string_view substr,
-                     std::string_view exclude) -> ColIndex
+auto find_col(const LinearInterface& li,
+              std::string_view substr,
+              std::string_view exclude) -> ColIndex
 {
   ColIndex found {-1};
   int count = 0;
   for (const auto& [name, idx] : li.col_name_map()) {
-    if (name.find(substr) != std::string::npos
-        && name.find(exclude) == std::string::npos)
-    {
+    if (name.contains(substr) && !name.contains(exclude)) {
       found = idx;
       ++count;
     }
@@ -778,13 +775,12 @@ static auto find_col(const LinearInterface& li,
 }
 
 /// Find the single row whose name contains `substr`; require exactly one.
-static auto find_row(const LinearInterface& li, std::string_view substr)
-    -> RowIndex
+auto find_row(const LinearInterface& li, std::string_view substr) -> RowIndex
 {
   RowIndex found {-1};
   int count = 0;
   for (const auto& [name, idx] : li.row_name_map()) {
-    if (name.find(substr) != std::string::npos) {
+    if (name.contains(substr)) {
       found = idx;
       ++count;
     }

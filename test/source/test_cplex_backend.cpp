@@ -86,9 +86,7 @@ struct CplexTrivialLP2
       1.0,
       1.0,
   };
-  std::array<double, 1> rowlb {
-      2.0,
-  };
+  std::array<double, 1> rowlb {2.0};
   std::array<double, 1> rowub {};
 
   explicit CplexTrivialLP2(double inf)
@@ -145,9 +143,7 @@ struct CplexTrivialLP3
       1.0,
       1.0,
   };
-  std::array<double, 1> rowlb {
-      3.0,
-  };
+  std::array<double, 1> rowlb {3.0};
   std::array<double, 1> rowub {};
 
   explicit CplexTrivialLP3(double inf)

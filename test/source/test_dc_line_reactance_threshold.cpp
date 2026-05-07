@@ -79,15 +79,17 @@ TEST_CASE(
     "to DC")
 {
   // V = 1 (per-unit default).  x_pu = X / 1 = 1e-7 < 1e-6 → clamp.
-  Array<Line> lines = {{
-      .uid = Uid {1},
-      .name = "tiny_x",
-      .bus_a = Uid {1},
-      .bus_b = Uid {2},
-      .reactance = 1e-7,
-      .tmax_ba = 100.0,
-      .tmax_ab = 100.0,
-  }};
+  Array<Line> lines = {
+      {
+          .uid = Uid {1},
+          .name = "tiny_x",
+          .bus_a = Uid {1},
+          .bus_b = Uid {2},
+          .reactance = 1e-7,
+          .tmax_ba = 100.0,
+          .tmax_ab = 100.0,
+      },
+  };
   auto planning = make_planning_with_lines(std::move(lines));
   PlanningLP::validate_line_reactance(planning);
   CHECK(reactance_scalar(planning.system.line_array[0]) == 0.0);
@@ -96,15 +98,17 @@ TEST_CASE(
 TEST_CASE("validate_line_reactance leaves a normal x_pu line untouched")
 {
   // V = 1, X = 0.01 → x_pu = 0.01.  Well above 1e-6 default — keep.
-  Array<Line> lines = {{
-      .uid = Uid {1},
-      .name = "normal",
-      .bus_a = Uid {1},
-      .bus_b = Uid {2},
-      .reactance = 0.01,
-      .tmax_ba = 100.0,
-      .tmax_ab = 100.0,
-  }};
+  Array<Line> lines = {
+      {
+          .uid = Uid {1},
+          .name = "normal",
+          .bus_a = Uid {1},
+          .bus_b = Uid {2},
+          .reactance = 0.01,
+          .tmax_ba = 100.0,
+          .tmax_ab = 100.0,
+      },
+  };
   auto planning = make_planning_with_lines(std::move(lines));
   PlanningLP::validate_line_reactance(planning);
   CHECK(reactance_scalar(planning.system.line_array[0])
@@ -116,16 +120,18 @@ TEST_CASE("validate_line_reactance accounts for V — high-V line stays in KVL")
   // V = 220 kV, X = 0.1 Ω → x_pu = 0.1 / 48400 ≈ 2.07e-6  > 1e-6 → keep.
   // (The legacy raw-|X| ≥ 1e-4 check would have kept it too, but for the
   // wrong reason — this test pins the dimensionally-correct behaviour.)
-  Array<Line> lines = {{
-      .uid = Uid {1},
-      .name = "hv_line",
-      .bus_a = Uid {1},
-      .bus_b = Uid {2},
-      .voltage = 220.0,
-      .reactance = 0.1,
-      .tmax_ba = 100.0,
-      .tmax_ab = 100.0,
-  }};
+  Array<Line> lines = {
+      {
+          .uid = Uid {1},
+          .name = "hv_line",
+          .bus_a = Uid {1},
+          .bus_b = Uid {2},
+          .voltage = 220.0,
+          .reactance = 0.1,
+          .tmax_ba = 100.0,
+          .tmax_ab = 100.0,
+      },
+  };
   auto planning = make_planning_with_lines(std::move(lines));
   PlanningLP::validate_line_reactance(planning);
   CHECK(reactance_scalar(planning.system.line_array[0])
@@ -138,16 +144,18 @@ TEST_CASE("validate_line_reactance catches V-vs-kV unit-typo lines via x_pu")
   // V = 220 000, X = 0.1 → x_pu ≈ 2.07e-12  ≪ 1e-6 → clamp.
   // The legacy raw-X ≥ 1e-4 check would NOT have caught this (X = 0.1
   // is "large"), demonstrating why the threshold belongs on x_pu.
-  Array<Line> lines = {{
-      .uid = Uid {1},
-      .name = "typo_v_in_volts",
-      .bus_a = Uid {1},
-      .bus_b = Uid {2},
-      .voltage = 220'000.0,
-      .reactance = 0.1,
-      .tmax_ba = 100.0,
-      .tmax_ab = 100.0,
-  }};
+  Array<Line> lines = {
+      {
+          .uid = Uid {1},
+          .name = "typo_v_in_volts",
+          .bus_a = Uid {1},
+          .bus_b = Uid {2},
+          .voltage = 220'000.0,
+          .reactance = 0.1,
+          .tmax_ba = 100.0,
+          .tmax_ab = 100.0,
+      },
+  };
   auto planning = make_planning_with_lines(std::move(lines));
   PlanningLP::validate_line_reactance(planning);
   CHECK(reactance_scalar(planning.system.line_array[0]) == 0.0);
@@ -157,15 +165,17 @@ TEST_CASE(
     "validate_line_reactance clamps offending entries in vector schedules")
 {
   // Three-stage schedule, only the middle stage is below threshold.
-  Array<Line> lines = {{
-      .uid = Uid {1},
-      .name = "mixed",
-      .bus_a = Uid {1},
-      .bus_b = Uid {2},
-      .reactance = std::vector<Real> {0.01, 1e-9, 0.02},
-      .tmax_ba = 100.0,
-      .tmax_ab = 100.0,
-  }};
+  Array<Line> lines = {
+      {
+          .uid = Uid {1},
+          .name = "mixed",
+          .bus_a = Uid {1},
+          .bus_b = Uid {2},
+          .reactance = std::vector<Real> {0.01, 1e-9, 0.02},
+          .tmax_ba = 100.0,
+          .tmax_ab = 100.0,
+      },
+  };
   auto planning = make_planning_with_lines(std::move(lines));
   PlanningLP::validate_line_reactance(planning);
   const auto vec = reactance_vector(planning.system.line_array[0]);
@@ -181,15 +191,17 @@ TEST_CASE("validate_line_reactance honours user-tightened threshold")
   // 1e-8 so this line stays in KVL.
   PlanningOptions opts;
   opts.model_options.dc_line_reactance_threshold = 1e-8;
-  Array<Line> lines = {{
-      .uid = Uid {1},
-      .name = "small_legit",
-      .bus_a = Uid {1},
-      .bus_b = Uid {2},
-      .reactance = 1e-7,
-      .tmax_ba = 100.0,
-      .tmax_ab = 100.0,
-  }};
+  Array<Line> lines = {
+      {
+          .uid = Uid {1},
+          .name = "small_legit",
+          .bus_a = Uid {1},
+          .bus_b = Uid {2},
+          .reactance = 1e-7,
+          .tmax_ba = 100.0,
+          .tmax_ab = 100.0,
+      },
+  };
   auto planning = make_planning_with_lines(std::move(lines), std::move(opts));
   PlanningLP::validate_line_reactance(planning);
   CHECK(reactance_scalar(planning.system.line_array[0])
@@ -202,15 +214,17 @@ TEST_CASE("validate_line_reactance with threshold=0 disables promotion")
   // This is the documented kill-switch.
   PlanningOptions opts;
   opts.model_options.dc_line_reactance_threshold = 0.0;
-  Array<Line> lines = {{
-      .uid = Uid {1},
-      .name = "kept",
-      .bus_a = Uid {1},
-      .bus_b = Uid {2},
-      .reactance = 1e-30,
-      .tmax_ba = 100.0,
-      .tmax_ab = 100.0,
-  }};
+  Array<Line> lines = {
+      {
+          .uid = Uid {1},
+          .name = "kept",
+          .bus_a = Uid {1},
+          .bus_b = Uid {2},
+          .reactance = 1e-30,
+          .tmax_ba = 100.0,
+          .tmax_ab = 100.0,
+      },
+  };
   auto planning = make_planning_with_lines(std::move(lines), std::move(opts));
   PlanningLP::validate_line_reactance(planning);
   CHECK(reactance_scalar(planning.system.line_array[0])

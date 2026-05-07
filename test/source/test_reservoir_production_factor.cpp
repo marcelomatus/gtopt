@@ -369,25 +369,31 @@ TEST_CASE("ReservoirProductionFactorLP - update_lp with different eini segment")
   // eini=100 → seg1 (volume < 800). update_lp iter=0/phase=0 uses eini.
   // The initial production_factor=1.0 from Turbine will be overwritten by
   // the production factor evaluated at eini=100.
-  const Array<Bus> bus_array = {{
-      .uid = Uid {1},
-      .name = "b1",
-  }};
+  const Array<Bus> bus_array = {
+      {
+          .uid = Uid {1},
+          .name = "b1",
+      },
+  };
 
-  const Array<Generator> generator_array = {{
-      .uid = Uid {1},
-      .name = "hydro_gen",
-      .bus = Uid {1},
-      .gcost = 5.0,
-      .capacity = 200.0,
-  }};
+  const Array<Generator> generator_array = {
+      {
+          .uid = Uid {1},
+          .name = "hydro_gen",
+          .bus = Uid {1},
+          .gcost = 5.0,
+          .capacity = 200.0,
+      },
+  };
 
-  const Array<Demand> demand_array = {{
-      .uid = Uid {1},
-      .name = "d1",
-      .bus = Uid {1},
-      .capacity = 50.0,
-  }};
+  const Array<Demand> demand_array = {
+      {
+          .uid = Uid {1},
+          .name = "d1",
+          .bus = Uid {1},
+          .capacity = 50.0,
+      },
+  };
 
   const Array<Junction> junction_array = {
       {
@@ -401,60 +407,77 @@ TEST_CASE("ReservoirProductionFactorLP - update_lp with different eini segment")
       },
   };
 
-  const Array<Waterway> waterway_array = {{
-      .uid = Uid {1},
-      .name = "ww1",
-      .junction_a = Uid {1},
-      .junction_b = Uid {2},
-      .fmin = 0.0,
-      .fmax = 100.0,
-  }};
+  const Array<Waterway> waterway_array = {
+      {
+          .uid = Uid {1},
+          .name = "ww1",
+          .junction_a = Uid {1},
+          .junction_b = Uid {2},
+          .fmin = 0.0,
+          .fmax = 100.0,
+      },
+  };
 
-  const Array<Reservoir> reservoir_array = {{
-      .uid = Uid {1},
-      .name = "rsv1",
-      .junction = Uid {1},
-      .capacity = 1000.0,
-      .emin = 0.0,
-      .emax = 1000.0,
-      .eini = 100.0,
-  }};
+  const Array<Reservoir> reservoir_array = {
+      {
+          .uid = Uid {1},
+          .name = "rsv1",
+          .junction = Uid {1},
+          .capacity = 1000.0,
+          .emin = 0.0,
+          .emax = 1000.0,
+          .eini = 100.0,
+      },
+  };
 
-  const Array<Turbine> turbine_array = {{
-      .uid = Uid {1},
-      .name = "tur1",
-      .waterway = Uid {1},
-      .generator = Uid {1},
-      .production_factor = 1.0,
-      .main_reservoir = Uid {1},
-  }};
+  const Array<Turbine> turbine_array = {
+      {
+          .uid = Uid {1},
+          .name = "tur1",
+          .waterway = Uid {1},
+          .generator = Uid {1},
+          .production_factor = 1.0,
+          .main_reservoir = Uid {1},
+      },
+  };
 
-  const Array<ReservoirProductionFactor> reservoir_production_factor_array = {{
-      .uid = Uid {1},
-      .name = "eff1",
-      .turbine = Uid {1},
-      .reservoir = Uid {1},
-      .mean_production_factor = 1.5,
-      .segments =
-          {
-              {.volume = 0.0, .slope = 0.001, .constant = 1.0},
-              {.volume = 800.0, .slope = 0.0001, .constant = 1.5},
-          },
-  }};
+  const Array<ReservoirProductionFactor> reservoir_production_factor_array = {
+      {
+          .uid = Uid {1},
+          .name = "eff1",
+          .turbine = Uid {1},
+          .reservoir = Uid {1},
+          .mean_production_factor = 1.5,
+          .segments =
+              {
+                  {.volume = 0.0, .slope = 0.001, .constant = 1.0},
+                  {.volume = 800.0, .slope = 0.0001, .constant = 1.5},
+              },
+      },
+  };
 
   const Simulation simulation = {
-      .block_array = {{
-          .uid = Uid {1},
-          .duration = 1,
-      }},
-      .stage_array = {{
-          .uid = Uid {1},
-          .first_block = 0,
-          .count_block = 1,
-      }},
-      .scenario_array = {{
-          .uid = Uid {0},
-      }},
+      .block_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .duration = 1,
+              },
+          },
+      .stage_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .first_block = 0,
+                  .count_block = 1,
+              },
+          },
+      .scenario_array =
+          {
+              {
+                  .uid = Uid {0},
+              },
+          },
   };
 
   const System system = {
@@ -511,25 +534,31 @@ TEST_CASE(
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
   // Empty segments → mean_production_factor is used directly, no update_lp
-  const Array<Bus> bus_array = {{
-      .uid = Uid {1},
-      .name = "b1",
-  }};
+  const Array<Bus> bus_array = {
+      {
+          .uid = Uid {1},
+          .name = "b1",
+      },
+  };
 
-  const Array<Generator> generator_array = {{
-      .uid = Uid {1},
-      .name = "hydro_gen",
-      .bus = Uid {1},
-      .gcost = 5.0,
-      .capacity = 200.0,
-  }};
+  const Array<Generator> generator_array = {
+      {
+          .uid = Uid {1},
+          .name = "hydro_gen",
+          .bus = Uid {1},
+          .gcost = 5.0,
+          .capacity = 200.0,
+      },
+  };
 
-  const Array<Demand> demand_array = {{
-      .uid = Uid {1},
-      .name = "d1",
-      .bus = Uid {1},
-      .capacity = 50.0,
-  }};
+  const Array<Demand> demand_array = {
+      {
+          .uid = Uid {1},
+          .name = "d1",
+          .bus = Uid {1},
+          .capacity = 50.0,
+      },
+  };
 
   const Array<Junction> junction_array = {
       {
@@ -543,57 +572,74 @@ TEST_CASE(
       },
   };
 
-  const Array<Waterway> waterway_array = {{
-      .uid = Uid {1},
-      .name = "ww1",
-      .junction_a = Uid {1},
-      .junction_b = Uid {2},
-      .fmin = 0.0,
-      .fmax = 100.0,
-  }};
+  const Array<Waterway> waterway_array = {
+      {
+          .uid = Uid {1},
+          .name = "ww1",
+          .junction_a = Uid {1},
+          .junction_b = Uid {2},
+          .fmin = 0.0,
+          .fmax = 100.0,
+      },
+  };
 
-  const Array<Reservoir> reservoir_array = {{
-      .uid = Uid {1},
-      .name = "rsv1",
-      .junction = Uid {1},
-      .capacity = 1000.0,
-      .emin = 0.0,
-      .emax = 1000.0,
-      .eini = 500.0,
-  }};
+  const Array<Reservoir> reservoir_array = {
+      {
+          .uid = Uid {1},
+          .name = "rsv1",
+          .junction = Uid {1},
+          .capacity = 1000.0,
+          .emin = 0.0,
+          .emax = 1000.0,
+          .eini = 500.0,
+      },
+  };
 
-  const Array<Turbine> turbine_array = {{
-      .uid = Uid {1},
-      .name = "tur1",
-      .waterway = Uid {1},
-      .generator = Uid {1},
-      .production_factor = 1.0,
-      .main_reservoir = Uid {1},
-  }};
+  const Array<Turbine> turbine_array = {
+      {
+          .uid = Uid {1},
+          .name = "tur1",
+          .waterway = Uid {1},
+          .generator = Uid {1},
+          .production_factor = 1.0,
+          .main_reservoir = Uid {1},
+      },
+  };
 
   // No segments → update_lp should not change coefficients
-  const Array<ReservoirProductionFactor> reservoir_production_factor_array = {{
-      .uid = Uid {1},
-      .name = "eff_noseg",
-      .turbine = Uid {1},
-      .reservoir = Uid {1},
-      .mean_production_factor = 2.0,
-      .segments = {},
-  }};
+  const Array<ReservoirProductionFactor> reservoir_production_factor_array = {
+      {
+          .uid = Uid {1},
+          .name = "eff_noseg",
+          .turbine = Uid {1},
+          .reservoir = Uid {1},
+          .mean_production_factor = 2.0,
+          .segments = {},
+      },
+  };
 
   const Simulation simulation = {
-      .block_array = {{
-          .uid = Uid {1},
-          .duration = 1,
-      }},
-      .stage_array = {{
-          .uid = Uid {1},
-          .first_block = 0,
-          .count_block = 1,
-      }},
-      .scenario_array = {{
-          .uid = Uid {0},
-      }},
+      .block_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .duration = 1,
+              },
+          },
+      .stage_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .first_block = 0,
+                  .count_block = 1,
+              },
+          },
+      .scenario_array =
+          {
+              {
+                  .uid = Uid {0},
+              },
+          },
   };
 
   const System system = {
@@ -786,25 +832,31 @@ TEST_CASE(
   // Turbine conversion row: generation − pf × flow = 0  ⇒  gen = 2 × flow.
   // Demand = 50 MW, hydro is the only generator ⇒ generation = 50 MW and
   // flow = 50 / 2 = 25 hm³/h.  Ratio generation/flow must equal pf = 2.0.
-  const Array<Bus> bus_array = {{
-      .uid = Uid {1},
-      .name = "b1",
-  }};
+  const Array<Bus> bus_array = {
+      {
+          .uid = Uid {1},
+          .name = "b1",
+      },
+  };
 
-  const Array<Generator> generator_array = {{
-      .uid = Uid {1},
-      .name = "hydro_gen",
-      .bus = Uid {1},
-      .gcost = 5.0,
-      .capacity = 200.0,
-  }};
+  const Array<Generator> generator_array = {
+      {
+          .uid = Uid {1},
+          .name = "hydro_gen",
+          .bus = Uid {1},
+          .gcost = 5.0,
+          .capacity = 200.0,
+      },
+  };
 
-  const Array<Demand> demand_array = {{
-      .uid = Uid {1},
-      .name = "d1",
-      .bus = Uid {1},
-      .capacity = 50.0,
-  }};
+  const Array<Demand> demand_array = {
+      {
+          .uid = Uid {1},
+          .name = "d1",
+          .bus = Uid {1},
+          .capacity = 50.0,
+      },
+  };
 
   const Array<Junction> junction_array = {
       {
@@ -818,59 +870,76 @@ TEST_CASE(
       },
   };
 
-  const Array<Waterway> waterway_array = {{
-      .uid = Uid {1},
-      .name = "ww1",
-      .junction_a = Uid {1},
-      .junction_b = Uid {2},
-      .fmin = 0.0,
-      .fmax = 100.0,
-  }};
+  const Array<Waterway> waterway_array = {
+      {
+          .uid = Uid {1},
+          .name = "ww1",
+          .junction_a = Uid {1},
+          .junction_b = Uid {2},
+          .fmin = 0.0,
+          .fmax = 100.0,
+      },
+  };
 
-  const Array<Reservoir> reservoir_array = {{
-      .uid = Uid {1},
-      .name = "rsv1",
-      .junction = Uid {1},
-      .capacity = 1000.0,
-      .emin = 0.0,
-      .emax = 1000.0,
-      .eini = 500.0,
-  }};
+  const Array<Reservoir> reservoir_array = {
+      {
+          .uid = Uid {1},
+          .name = "rsv1",
+          .junction = Uid {1},
+          .capacity = 1000.0,
+          .emin = 0.0,
+          .emax = 1000.0,
+          .eini = 500.0,
+      },
+  };
 
-  const Array<Turbine> turbine_array = {{
-      .uid = Uid {1},
-      .name = "tur1",
-      .waterway = Uid {1},
-      .generator = Uid {1},
-      .production_factor = 1.0,
-      .main_reservoir = Uid {1},
-  }};
+  const Array<Turbine> turbine_array = {
+      {
+          .uid = Uid {1},
+          .name = "tur1",
+          .waterway = Uid {1},
+          .generator = Uid {1},
+          .production_factor = 1.0,
+          .main_reservoir = Uid {1},
+      },
+  };
 
-  const Array<ReservoirProductionFactor> reservoir_production_factor_array = {{
-      .uid = Uid {1},
-      .name = "eff_const",
-      .turbine = Uid {1},
-      .reservoir = Uid {1},
-      .mean_production_factor = 2.0,
-      .segments =
-          {
-              {.volume = 0.0, .slope = 0.0, .constant = 2.0},
-          },
-  }};
+  const Array<ReservoirProductionFactor> reservoir_production_factor_array = {
+      {
+          .uid = Uid {1},
+          .name = "eff_const",
+          .turbine = Uid {1},
+          .reservoir = Uid {1},
+          .mean_production_factor = 2.0,
+          .segments =
+              {
+                  {.volume = 0.0, .slope = 0.0, .constant = 2.0},
+              },
+      },
+  };
 
   const Simulation simulation = {
-      .block_array = {{
-          .uid = Uid {1},
-          .duration = 1,
-      }},
-      .stage_array = {{
-          .uid = Uid {1},
-          .first_block = 0,
-          .count_block = 1,
-      }},
-      .scenario_array = {{
-          .uid = Uid {0},
-      }},
+      .block_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .duration = 1,
+              },
+          },
+      .stage_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .first_block = 0,
+                  .count_block = 1,
+              },
+          },
+      .scenario_array =
+          {
+              {
+                  .uid = Uid {0},
+              },
+          },
   };
 
   const System system = {
@@ -961,68 +1030,82 @@ TEST_CASE(
   // = 1.47.  With our fix, the initial LP coef must remain 2.0
   // (turbine.production_factor) — i.e. it must NOT have been
   // overwritten to 1.47 by an eager update_lp pass.
-  const Array<Bus> bus_array = {{
-      .uid = Uid {1},
-      .name = "b1",
-  }};
-  const Array<Generator> generator_array = {{
-      .uid = Uid {1},
-      .name = "hydro_gen",
-      .bus = Uid {1},
-      .gcost = 5.0,
-      .capacity = 200.0,
-  }};
-  const Array<Demand> demand_array = {{
-      .uid = Uid {1},
-      .name = "d1",
-      .bus = Uid {1},
-      .capacity = 50.0,
-  }};
+  const Array<Bus> bus_array = {
+      {
+          .uid = Uid {1},
+          .name = "b1",
+      },
+  };
+  const Array<Generator> generator_array = {
+      {
+          .uid = Uid {1},
+          .name = "hydro_gen",
+          .bus = Uid {1},
+          .gcost = 5.0,
+          .capacity = 200.0,
+      },
+  };
+  const Array<Demand> demand_array = {
+      {
+          .uid = Uid {1},
+          .name = "d1",
+          .bus = Uid {1},
+          .capacity = 50.0,
+      },
+  };
   const Array<Junction> junction_array = {
       {.uid = Uid {1}, .name = "j_up"},
       {.uid = Uid {2}, .name = "j_dn", .drain = true},
   };
-  const Array<Waterway> waterway_array = {{
-      .uid = Uid {1},
-      .name = "ww1",
-      .junction_a = Uid {1},
-      .junction_b = Uid {2},
-      .fmin = 0.0,
-      .fmax = 100.0,
-  }};
-  const Array<Reservoir> reservoir_array = {{
-      .uid = Uid {1},
-      .name = "rsv1",
-      .junction = Uid {1},
-      .capacity = 1000.0,
-      .emin = 0.0,
-      .eini = 500.0,
-  }};
-  const Array<Turbine> turbine_array = {{
-      .uid = Uid {1},
-      .name = "tur1",
-      .waterway = Uid {1},
-      .generator = Uid {1},
-      // Mean PF = 2.0 (from cenre).  This is what the LP must use until
-      // a real solve produces a volume that update_lp can re-evaluate.
-      .production_factor = 2.0,
-      .main_reservoir = Uid {1},
-  }};
-  const Array<ReservoirProductionFactor> reservoir_production_factor_array = {{
-      .uid = Uid {1},
-      .name = "eff1",
-      .turbine = Uid {1},
-      .reservoir = Uid {1},
-      .mean_production_factor = 2.0,
-      .segments =
-          {
-              // Curve evaluates to ~1.47 at eini=500 (intentionally
-              // distinct from mean=2.0) so we can see if update_lp got
-              // called eagerly.
-              {.volume = 0.0, .slope = 0.001, .constant = 1.0},
-              {.volume = 800.0, .slope = 0.0001, .constant = 1.5},
-          },
-  }};
+  const Array<Waterway> waterway_array = {
+      {
+          .uid = Uid {1},
+          .name = "ww1",
+          .junction_a = Uid {1},
+          .junction_b = Uid {2},
+          .fmin = 0.0,
+          .fmax = 100.0,
+      },
+  };
+  const Array<Reservoir> reservoir_array = {
+      {
+          .uid = Uid {1},
+          .name = "rsv1",
+          .junction = Uid {1},
+          .capacity = 1000.0,
+          .emin = 0.0,
+          .eini = 500.0,
+      },
+  };
+  const Array<Turbine> turbine_array = {
+      {
+          .uid = Uid {1},
+          .name = "tur1",
+          .waterway = Uid {1},
+          .generator = Uid {1},
+          // Mean PF = 2.0 (from cenre).  This is what the LP must use until
+          // a real solve produces a volume that update_lp can re-evaluate.
+          .production_factor = 2.0,
+          .main_reservoir = Uid {1},
+      },
+  };
+  const Array<ReservoirProductionFactor> reservoir_production_factor_array = {
+      {
+          .uid = Uid {1},
+          .name = "eff1",
+          .turbine = Uid {1},
+          .reservoir = Uid {1},
+          .mean_production_factor = 2.0,
+          .segments =
+              {
+                  // Curve evaluates to ~1.47 at eini=500 (intentionally
+                  // distinct from mean=2.0) so we can see if update_lp got
+                  // called eagerly.
+                  {.volume = 0.0, .slope = 0.001, .constant = 1.0},
+                  {.volume = 800.0, .slope = 0.0001, .constant = 1.5},
+              },
+      },
+  };
   const Simulation simulation = {
       .block_array = {{.uid = Uid {1}, .duration = 1}},
       .stage_array = {{.uid = Uid {1}, .first_block = 0, .count_block = 1}},

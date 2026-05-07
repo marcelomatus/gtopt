@@ -827,7 +827,7 @@ struct RelaxationSpec
   fixing_rows.reserve(specs.size());
   for (const auto& [k, s] : enumerate(specs)) {
     const auto sup = slack_indices[static_cast<std::size_t>(k) * 2];
-    const auto sdn = slack_indices[static_cast<std::size_t>(k) * 2 + 1];
+    const auto sdn = slack_indices[(static_cast<std::size_t>(k) * 2) + 1];
     auto elastic = SparseRow {
         .lowb = s.trial_value,
         .uppb = s.trial_value,
@@ -848,7 +848,7 @@ struct RelaxationSpec
     infos[s.link_idx] = RelaxedVarInfo {
         .relaxed = true,
         .sup_col = slack_indices[kk * 2],
-        .sdn_col = slack_indices[kk * 2 + 1],
+        .sdn_col = slack_indices[(kk * 2) + 1],
         .fixing_row = row_indices[kk],
     };
   }

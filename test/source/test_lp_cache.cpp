@@ -192,6 +192,38 @@ TEST_CASE("LpCache C7 — col_sol_buffer / col_cost_buffer / row_dual_buffer")
   CHECK(sp_dual.size() == 7);
   CHECK(cache.col_cost().size() == 4);
   CHECK(cache.row_dual().size() == 7);
+
+  // col_low_buffer / col_upp_buffer (added 2026-05-07 via eaa70b4a so
+  // that `populate_solution_cache_post_solve` snapshots the
+  // construction-time column bounds via the new
+  // `SolverBackend::fill_col_lower` / `fill_col_upper` span-out APIs
+  // — without these the LI's `get_col_low_raw` / `get_col_upp_raw` and
+  // the `get_col_sol()` clamp path force the CPLEX/MindOpt/Gurobi
+  // backend to allocate a per-instance `numcols`-sized scratch on
+  // every read).  Same C7 contract as the three solution buffers.
+  auto sp_lo = cache.col_low_buffer(3);
+  CHECK(sp_lo.size() == 3);
+  for (std::size_t i = 0; i < sp_lo.size(); ++i) {
+    sp_lo[i] = -static_cast<double>(i);  // arbitrary negative pattern
+  }
+  for (std::size_t i = 0; i < cache.col_low().size(); ++i) {
+    CHECK(cache.col_low()[i] == doctest::Approx(-static_cast<double>(i)));
+  }
+
+  auto sp_up = cache.col_upp_buffer(3);
+  CHECK(sp_up.size() == 3);
+  for (std::size_t i = 0; i < sp_up.size(); ++i) {
+    sp_up[i] = 1000.0 + static_cast<double>(i);
+  }
+  for (std::size_t i = 0; i < cache.col_upp().size(); ++i) {
+    CHECK(cache.col_upp()[i]
+          == doctest::Approx(1000.0 + static_cast<double>(i)));
+  }
+
+  // Empty buffer is allowed (mirror of col_sol_buffer(0) above).
+  auto sp_lo_empty = cache.col_low_buffer(0);
+  CHECK(sp_lo_empty.empty());
+  CHECK(cache.col_low().empty());
 }
 
 // ── C5: mark_solution_fresh tracks live backend ──────────────────────────
@@ -231,9 +263,21 @@ TEST_CASE("LpCache C6 — size_bytes accurate")  // NOLINT
   (void)cache.row_dual_buffer(5);
   CHECK(cache.size_bytes() == (3 + 2 + 5) * sizeof(double));
 
+  // col_low / col_upp added by eaa70b4a — must be reflected in
+  // `size_bytes()` so the TUI memory dashboard accounts for them.
+  (void)cache.col_low_buffer(3);
+  CHECK(cache.size_bytes() == (3 + 2 + 5 + 3) * sizeof(double));
+
+  (void)cache.col_upp_buffer(3);
+  CHECK(cache.size_bytes() == (3 + 2 + 5 + 3 + 3) * sizeof(double));
+
   cache.drop_solution_caches();
-  // col_sol + col_cost cleared, row_dual remains (5 doubles).
-  CHECK(cache.size_bytes() == 5 * sizeof(double));
+  // col_sol + col_cost cleared by `drop_solution_caches`; row_dual,
+  // col_low, and col_upp remain.  This is the "drop the largest
+  // primal/cost cache, keep duals + bounds" contract — duals are
+  // still needed for output writing and bounds are still needed for
+  // any subsequent `get_col_sol()` clamp.
+  CHECK(cache.size_bytes() == (5 + 3 + 3) * sizeof(double));
 
   cache.clear_all_solution_vectors();
   CHECK(cache.size_bytes() == 0);
@@ -284,6 +328,13 @@ TEST_CASE("LpCache clear_all_solution_vectors")  // NOLINT
   (void)cache.col_sol_buffer(2);
   (void)cache.col_cost_buffer(2);
   (void)cache.row_dual_buffer(3);
+  // Bound caches added by eaa70b4a — `clear_all_solution_vectors`
+  // MUST clear them too, otherwise a `release_backend` cycle that
+  // intends to drop the entire cached solve would silently retain
+  // stale bounds and the next-cycle `get_col_low_raw()` reader would
+  // see pre-mutation bounds.
+  (void)cache.col_low_buffer(2);
+  (void)cache.col_upp_buffer(2);
   cache.set_obj_value(7.0);
   cache.set_is_optimal(/*v=*/true);
 
@@ -292,6 +343,8 @@ TEST_CASE("LpCache clear_all_solution_vectors")  // NOLINT
   CHECK(cache.col_sol().empty());
   CHECK(cache.col_cost().empty());
   CHECK(cache.row_dual().empty());
+  CHECK(cache.col_low().empty());
+  CHECK(cache.col_upp().empty());
   // Scalars + optimality flag survive — caller must invalidate them
   // separately if desired.
   CHECK(cache.obj_value() == doctest::Approx(7.0));

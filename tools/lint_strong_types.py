@@ -478,7 +478,104 @@ def scan_redundant_size_t_cast(rule: Rule, files: list[Path]) -> None:
                 rule.hits.append(Hit(f, n, line))
 
 
-# Rule 13 — `std::string{string_view_var}` round-trip when the surrounding
+# Rule 13 — UID arithmetic.  `Uid` / `UidOf<Tag>` are opaque identifiers,
+# not arithmetic indices.  Any code that does `value_of(some_uid) ± N`
+# (or `static_cast<int>(some_uid) ± N`) is conflating identity with
+# position — a category error that fires on any case whose JSON
+# `*_array` doesn't happen to start at uid=1 with a contiguous +1
+# stride.  See memory `uids-not-indexable` and the 2026-05-06 fix
+# `bb05693b fix(phase_grid)`.  The recurrence the human caught: the
+# `PhaseGridRecorder` decoded `value_of(phase_uid) - 1` to a slot,
+# silently broke for sparse UID layouts, and slipped past every other
+# rule because positional-index arithmetic (Rule 3) doesn't apply to
+# UidOf<Tag>.
+
+_UID_VALUE_OF_ARITH_RX = re.compile(
+    r"value_of\(\s*[a-zA-Z_][a-zA-Z0-9_]*(?:[Uu]id|UID)\s*\)\s*[+\-]\s*\d+"
+)
+# Direct cast unwrap then add/subtract: `static_cast<int>(some_uid) - 1`
+# (less common but the same category error).
+_UID_STATIC_CAST_ARITH_RX = re.compile(
+    r"static_cast<(?:int|long|long\s+long|size_t|std::size_t|"
+    r"std::ptrdiff_t|Uid|UidValue|std::int64_t|std::int32_t)>"
+    r"\(\s*[a-zA-Z_][a-zA-Z0-9_]*(?:[Uu]id|UID)\s*\)\s*[+\-]\s*\d+"
+)
+
+
+def scan_uid_arithmetic(rule: Rule, files: list[Path]) -> None:
+    """Rule 13: arithmetic on a Uid (`value_of(*_uid) ± literal`).
+
+    UIDs are opaque identifiers; treating `uid - 1` as a "0-based slot"
+    is a category error that breaks for any UID layout other than the
+    accidental 1-based contiguous case.  Flag the pattern wherever it
+    appears so the conversion to a real index (or to a UID-keyed map)
+    is enforced at lint time, not after a runtime stack trace.
+    """
+    skip_substr = ("// NOLINT", "/*", "@brief", "* @")
+    for f in files:
+        text = f.read_text()
+        clean = strip_comments(text)
+        raw_lines = text.split("\n")
+        for n, line in enumerate(clean.split("\n"), 1):
+            if not (
+                _UID_VALUE_OF_ARITH_RX.search(line)
+                or _UID_STATIC_CAST_ARITH_RX.search(line)
+            ):
+                continue
+            raw_line = raw_lines[n - 1] if n - 1 < len(raw_lines) else ""
+            if any(s in raw_line for s in skip_substr):
+                continue
+            if "NOLINT" in raw_line:
+                continue
+            rule.hits.append(Hit(f, n, line))
+
+
+# Rule 14 — redundant `static_cast<size_t>(strong_index)` when used as a
+# subscript.  Strong indices ship with `strong::implicitly_convertible_to
+# <Index>` and `Index = int32_t` widens implicitly to `size_t` for
+# `std::vector::operator[]` / `std::span::operator[]`.  The project
+# already relies on this — see `linear_interface.cpp:1766` (`rin[row_idx]
+# = name;`) — so a `[static_cast<size_t>(IDENT)]` when IDENT looks like
+# a strong index is noise.  We restrict to the subscript pattern so we
+# don't flip legitimate `static_cast<size_t>(idx) + 1` cases where
+# size_t arithmetic is the actual intent.
+
+_REDUNDANT_SIZE_T_SUBSCRIPT_RX = re.compile(
+    r"\[\s*static_cast<(?:size_t|std::size_t)>\(\s*"
+    r"([a-zA-Z_][a-zA-Z0-9_]*)\s*\)\s*\]"
+)
+
+
+def scan_redundant_size_t_subscript(rule: Rule, files: list[Path]) -> None:
+    """Rule 14: redundant `[static_cast<size_t>(strong_index)]` subscript.
+
+    Strong indices (ColIndex, RowIndex, …) are
+    `implicitly_convertible_to<Index>` (int32_t), and int32_t widens
+    implicitly to size_t for vector/span operator[].  The cast is
+    therefore noise inside `[...]`.  Flags only the subscript shape so
+    `static_cast<size_t>(idx) + 1` for resize-arithmetic still passes.
+    """
+    skip_substr = ("// NOLINT", "/*", "@brief", "* @")
+    for f in files:
+        text = f.read_text()
+        clean = strip_comments(text)
+        raw_lines = text.split("\n")
+        for n, line in enumerate(clean.split("\n"), 1):
+            for m in _REDUNDANT_SIZE_T_SUBSCRIPT_RX.finditer(line):
+                ident = m.group(1)
+                if _NON_STRONG_NAME_RX.match(ident):
+                    continue
+                if not _STRONG_NAME_RX.match(ident):
+                    continue
+                raw_line = raw_lines[n - 1] if n - 1 < len(raw_lines) else ""
+                if any(s in raw_line for s in skip_substr):
+                    continue
+                if "NOLINT" in raw_line:
+                    continue
+                rule.hits.append(Hit(f, n, line))
+
+
+# Rule 15 — `std::string{string_view_var}` round-trip when the surrounding
 # call accepts `std::string_view`.  Hard to detect type-wise without
 # semantic info, but a conservative pattern: `std::string{IDENT}` /
 # `std::string(IDENT)` immediately followed by feeding the result into a
@@ -487,7 +584,7 @@ def scan_redundant_size_t_cast(rule: Rule, files: list[Path]) -> None:
 # future when we introduce a clang-AST-based linter.
 
 
-# Rule 14 — `std::format("constant string {}", X)` whose constant prefix
+# Rule 16 — `std::format("constant string {}", X)` whose constant prefix
 # is repeated across many call sites could be hoisted to a `static
 # constexpr std::string_view`.  Too cosmetic, skip.
 
@@ -600,6 +697,32 @@ RULES: list[tuple[str, str, str, callable]] = [
         "container and view.  The cast is noise.",
         "drop the cast — container.size() is already size_t.",
         scan_redundant_size_t_cast,
+    ),
+    (
+        "UID arithmetic (value_of(*_uid) ± literal)",
+        "UidOf<Tag> is an opaque identifier, never an index.  Adding or "
+        "subtracting a literal from `value_of(some_uid)` (or "
+        "`static_cast<int>(some_uid)`) is a category error: it conflates "
+        "identity with position and silently breaks for any UID layout "
+        "other than the accidental 1-based-contiguous default.  Use the "
+        "UID directly as a key (e.g. `std::map<PhaseUid, T>`) or convert "
+        "to the corresponding strong index via the simulation's uid-to-"
+        "index helper.",
+        "use uid as map key, or convert via simulation's uid-to-index "
+        "helper — never `value_of(uid) ± N`.",
+        scan_uid_arithmetic,
+    ),
+    (
+        "redundant [static_cast<size_t>(strong_index)] subscript",
+        "Strong indices (ColIndex / RowIndex / SceneIndex / …) ship with "
+        "`strong::implicitly_convertible_to<Index>` (int32_t), and int32_t "
+        "widens implicitly to size_t for `std::vector::operator[]` / "
+        "`std::span::operator[]`.  The cast inside `[...]` is therefore "
+        "noise — see `linear_interface.cpp:1766` (`rin[row_idx] = name;`) "
+        "for the canonical pattern.",
+        "drop the cast — vec[idx] / span[idx] works directly for strong "
+        "indices via the implicit Index→size_t conversion chain.",
+        scan_redundant_size_t_subscript,
     ),
 ]
 

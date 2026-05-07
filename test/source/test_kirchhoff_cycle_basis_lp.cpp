@@ -39,55 +39,65 @@ struct TriangleFixture
       {.uid = Uid {3}, .name = "b3"},
   };
   const Array<Generator> generator_array = {
-      {.uid = Uid {1},
-       .name = "g1",
-       .bus = Uid {1},
-       .gcost = gen_cost,
-       .capacity = 500.0},
+      {
+          .uid = Uid {1},
+          .name = "g1",
+          .bus = Uid {1},
+          .gcost = gen_cost,
+          .capacity = 500.0,
+      },
   };
   const Array<Demand> demand_array = {
       {.uid = Uid {1}, .name = "d1", .bus = Uid {3}, .capacity = demand_mw},
   };
   const Array<Line> line_array = {
       // l12: bus 1 ↔ bus 2
-      {.uid = Uid {1},
-       .name = "l12",
-       .bus_a = Uid {1},
-       .bus_b = Uid {2},
-       .voltage = 220.0,
-       .reactance = 0.1,
-       .tmax_ba = 200.0,
-       .tmax_ab = 200.0,
-       .capacity = 200.0},
+      {
+          .uid = Uid {1},
+          .name = "l12",
+          .bus_a = Uid {1},
+          .bus_b = Uid {2},
+          .voltage = 220.0,
+          .reactance = 0.1,
+          .tmax_ba = 200.0,
+          .tmax_ab = 200.0,
+          .capacity = 200.0,
+      },
       // l23: bus 2 ↔ bus 3
-      {.uid = Uid {2},
-       .name = "l23",
-       .bus_a = Uid {2},
-       .bus_b = Uid {3},
-       .voltage = 220.0,
-       .reactance = 0.1,
-       .tmax_ba = 200.0,
-       .tmax_ab = 200.0,
-       .capacity = 200.0},
+      {
+          .uid = Uid {2},
+          .name = "l23",
+          .bus_a = Uid {2},
+          .bus_b = Uid {3},
+          .voltage = 220.0,
+          .reactance = 0.1,
+          .tmax_ba = 200.0,
+          .tmax_ab = 200.0,
+          .capacity = 200.0,
+      },
       // l13: bus 1 ↔ bus 3 (closes the triangle)
-      {.uid = Uid {3},
-       .name = "l13",
-       .bus_a = Uid {1},
-       .bus_b = Uid {3},
-       .voltage = 220.0,
-       .reactance = 0.1,
-       .tmax_ba = 200.0,
-       .tmax_ab = 200.0,
-       .capacity = 200.0},
+      {
+          .uid = Uid {3},
+          .name = "l13",
+          .bus_a = Uid {1},
+          .bus_b = Uid {3},
+          .voltage = 220.0,
+          .reactance = 0.1,
+          .tmax_ba = 200.0,
+          .tmax_ab = 200.0,
+          .capacity = 200.0,
+      },
   };
 
   [[nodiscard]] System make_system() const
   {
-    return System {.name = "Triangle",
-                   .bus_array = bus_array,
-                   .demand_array = demand_array,
-                   .generator_array = generator_array,
-                   .line_array = line_array};
+    return System {
+        .name = "Triangle",
+        .bus_array = bus_array,
+        .demand_array = demand_array,
+        .generator_array = generator_array,
+        .line_array = line_array,
+    };
   }
 };
 
@@ -158,62 +168,74 @@ TEST_CASE(
       {.uid = Uid {4}, .name = "b4"},
   };
   const Array<Generator> generator_array = {
-      {.uid = Uid {1},
-       .name = "g1",
-       .bus = Uid {1},
-       .gcost = 10.0,
-       .capacity = 500.0},
+      {
+          .uid = Uid {1},
+          .name = "g1",
+          .bus = Uid {1},
+          .gcost = 10.0,
+          .capacity = 500.0,
+      },
   };
   const Array<Demand> demand_array = {
       {.uid = Uid {1}, .name = "d1", .bus = Uid {3}, .capacity = 100.0},
   };
   const Array<Line> line_array = {
-      {.uid = Uid {1},
-       .name = "l12",
-       .bus_a = Uid {1},
-       .bus_b = Uid {2},
-       .voltage = 220.0,
-       .reactance = 0.1,
-       .tmax_ba = 200.0,
-       .tmax_ab = 200.0,
-       .capacity = 200.0},
-      {.uid = Uid {2},
-       .name = "l23",
-       .bus_a = Uid {2},
-       .bus_b = Uid {3},
-       .voltage = 220.0,
-       .reactance = 0.1,
-       .tmax_ba = 200.0,
-       .tmax_ab = 200.0,
-       .capacity = 200.0},
-      {.uid = Uid {3},
-       .name = "l34",
-       .bus_a = Uid {3},
-       .bus_b = Uid {4},
-       .voltage = 220.0,
-       .reactance = 0.1,
-       .tmax_ba = 200.0,
-       .tmax_ab = 200.0,
-       .capacity = 200.0},
-      {.uid = Uid {4},
-       .name = "l41",
-       .bus_a = Uid {4},
-       .bus_b = Uid {1},
-       .voltage = 220.0,
-       .reactance = 0.1,
-       .tmax_ba = 200.0,
-       .tmax_ab = 200.0,
-       .capacity = 200.0},
+      {
+          .uid = Uid {1},
+          .name = "l12",
+          .bus_a = Uid {1},
+          .bus_b = Uid {2},
+          .voltage = 220.0,
+          .reactance = 0.1,
+          .tmax_ba = 200.0,
+          .tmax_ab = 200.0,
+          .capacity = 200.0,
+      },
+      {
+          .uid = Uid {2},
+          .name = "l23",
+          .bus_a = Uid {2},
+          .bus_b = Uid {3},
+          .voltage = 220.0,
+          .reactance = 0.1,
+          .tmax_ba = 200.0,
+          .tmax_ab = 200.0,
+          .capacity = 200.0,
+      },
+      {
+          .uid = Uid {3},
+          .name = "l34",
+          .bus_a = Uid {3},
+          .bus_b = Uid {4},
+          .voltage = 220.0,
+          .reactance = 0.1,
+          .tmax_ba = 200.0,
+          .tmax_ab = 200.0,
+          .capacity = 200.0,
+      },
+      {
+          .uid = Uid {4},
+          .name = "l41",
+          .bus_a = Uid {4},
+          .bus_b = Uid {1},
+          .voltage = 220.0,
+          .reactance = 0.1,
+          .tmax_ba = 200.0,
+          .tmax_ab = 200.0,
+          .capacity = 200.0,
+      },
       // Diagonal — closes a second cycle.
-      {.uid = Uid {5},
-       .name = "l13",
-       .bus_a = Uid {1},
-       .bus_b = Uid {3},
-       .voltage = 220.0,
-       .reactance = 0.1,
-       .tmax_ba = 200.0,
-       .tmax_ab = 200.0,
-       .capacity = 200.0},
+      {
+          .uid = Uid {5},
+          .name = "l13",
+          .bus_a = Uid {1},
+          .bus_b = Uid {3},
+          .voltage = 220.0,
+          .reactance = 0.1,
+          .tmax_ba = 200.0,
+          .tmax_ab = 200.0,
+          .capacity = 200.0,
+      },
   };
 
   const Simulation simulation = {
@@ -229,11 +251,13 @@ TEST_CASE(
     opts.use_single_bus = false;
     opts.model_options.kirchhoff_mode = OptName {std::string {mode_name}};
     opts.model_options.demand_fail_cost = 1000.0;
-    const System system = {.name = "Square",
-                           .bus_array = bus_array,
-                           .demand_array = demand_array,
-                           .generator_array = generator_array,
-                           .line_array = line_array};
+    const System system = {
+        .name = "Square",
+        .bus_array = bus_array,
+        .demand_array = demand_array,
+        .generator_array = generator_array,
+        .line_array = line_array,
+    };
     const PlanningOptionsLP options(opts);
     SimulationLP simulation_lp(simulation, options);
     SystemLP system_lp(system, simulation_lp);
@@ -260,34 +284,40 @@ TEST_CASE("cycle_basis - radial network (no cycles) still solves")
       {.uid = Uid {3}, .name = "b3"},
   };
   const Array<Generator> generator_array = {
-      {.uid = Uid {1},
-       .name = "g1",
-       .bus = Uid {1},
-       .gcost = 10.0,
-       .capacity = 500.0},
+      {
+          .uid = Uid {1},
+          .name = "g1",
+          .bus = Uid {1},
+          .gcost = 10.0,
+          .capacity = 500.0,
+      },
   };
   const Array<Demand> demand_array = {
       {.uid = Uid {1}, .name = "d1", .bus = Uid {3}, .capacity = 100.0},
   };
   const Array<Line> line_array = {
-      {.uid = Uid {1},
-       .name = "l12",
-       .bus_a = Uid {1},
-       .bus_b = Uid {2},
-       .voltage = 220.0,
-       .reactance = 0.1,
-       .tmax_ba = 200.0,
-       .tmax_ab = 200.0,
-       .capacity = 200.0},
-      {.uid = Uid {2},
-       .name = "l23",
-       .bus_a = Uid {2},
-       .bus_b = Uid {3},
-       .voltage = 220.0,
-       .reactance = 0.1,
-       .tmax_ba = 200.0,
-       .tmax_ab = 200.0,
-       .capacity = 200.0},
+      {
+          .uid = Uid {1},
+          .name = "l12",
+          .bus_a = Uid {1},
+          .bus_b = Uid {2},
+          .voltage = 220.0,
+          .reactance = 0.1,
+          .tmax_ba = 200.0,
+          .tmax_ab = 200.0,
+          .capacity = 200.0,
+      },
+      {
+          .uid = Uid {2},
+          .name = "l23",
+          .bus_a = Uid {2},
+          .bus_b = Uid {3},
+          .voltage = 220.0,
+          .reactance = 0.1,
+          .tmax_ba = 200.0,
+          .tmax_ab = 200.0,
+          .capacity = 200.0,
+      },
   };
 
   const Simulation simulation = {
@@ -303,11 +333,13 @@ TEST_CASE("cycle_basis - radial network (no cycles) still solves")
     opts.use_single_bus = false;
     opts.model_options.kirchhoff_mode = OptName {std::string {mode_name}};
     opts.model_options.demand_fail_cost = 1000.0;
-    const System system = {.name = "Radial",
-                           .bus_array = bus_array,
-                           .demand_array = demand_array,
-                           .generator_array = generator_array,
-                           .line_array = line_array};
+    const System system = {
+        .name = "Radial",
+        .bus_array = bus_array,
+        .demand_array = demand_array,
+        .generator_array = generator_array,
+        .line_array = line_array,
+    };
     const PlanningOptionsLP options(opts);
     SimulationLP simulation_lp(simulation, options);
     SystemLP system_lp(system, simulation_lp);

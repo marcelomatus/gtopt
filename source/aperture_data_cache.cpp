@@ -8,7 +8,11 @@
 
 #include <charconv>
 #include <chrono>
+#include <cstdint>
+#include <fstream>
+#include <limits>
 #include <set>
+#include <string>
 #include <thread>
 
 #include <arrow/api.h>
@@ -22,6 +26,31 @@ namespace gtopt
 
 namespace
 {
+
+/// Read this process's current resident-set size in KiB from
+/// ``/proc/self/status``.  Returns 0 on platforms or runtimes where
+/// the file is unavailable (procfs not mounted, sandboxed Docker,
+/// non-Linux).  Used for one-shot diagnostic deltas around large
+/// load operations — not a hot path, so the file open/parse cost
+/// is irrelevant.
+[[nodiscard]] std::int64_t read_process_vmrss_kib() noexcept
+{
+  try {
+    std::ifstream f("/proc/self/status");
+    std::string label;
+    while (f >> label) {
+      if (label == "VmRSS:") {
+        std::int64_t kib {};
+        f >> kib;
+        return kib;
+      }
+      f.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+    }
+  } catch (...) {  // NOLINT(bugprone-empty-catch)
+    // Best-effort diagnostic — never let a failed read break the load.
+  }
+  return 0;
+}
 
 /// Info needed to load one parquet file.
 struct FileInfo
@@ -133,6 +162,12 @@ ApertureDataCache::ApertureDataCache(const std::filesystem::path& aperture_dir)
   spdlog::info("ApertureDataCache: scanning '{}'", aperture_dir.string());
 
   const auto load_start = std::chrono::steady_clock::now();
+  // Capture process RSS before the load so we can report the delta in
+  // the completion line — answers "how much in-memory footprint does
+  // the cache actually take?" with a single grep on the gtopt log.
+  // Returns 0 on platforms without procfs; the delta line is then
+  // suppressed.
+  const auto rss_before_kib = read_process_vmrss_kib();
 
   // Phase 1: collect all file paths (fast, single-threaded)
   std::vector<FileInfo> file_list;
@@ -232,14 +267,34 @@ ApertureDataCache::ApertureDataCache(const std::filesystem::path& aperture_dir)
   const auto load_s = std::chrono::duration<double>(
                           std::chrono::steady_clock::now() - load_start)
                           .count();
-  spdlog::info(
-      "ApertureDataCache: loaded {} entries across {} elements from {} "
-      "({:.2f}s, {} threads)",
-      total_entries,
-      m_elements_.size(),
-      aperture_dir.string(),
-      load_s,
-      num_threads);
+  const auto rss_after_kib = read_process_vmrss_kib();
+  if (rss_before_kib > 0 && rss_after_kib > 0) {
+    const auto delta_mib =
+        static_cast<double>(rss_after_kib - rss_before_kib) / 1024.0;
+    const auto bytes_per_entry = total_entries > 0
+        ? static_cast<double>(rss_after_kib - rss_before_kib) * 1024.0
+            / static_cast<double>(total_entries)
+        : 0.0;
+    spdlog::info(
+        "ApertureDataCache: loaded {} entries across {} elements from {} "
+        "({:.2f}s, {} threads, ΔRSS={:+.1f} MiB ≈ {:.0f} B/entry)",
+        total_entries,
+        m_elements_.size(),
+        aperture_dir.string(),
+        load_s,
+        num_threads,
+        delta_mib,
+        bytes_per_entry);
+  } else {
+    spdlog::info(
+        "ApertureDataCache: loaded {} entries across {} elements from {} "
+        "({:.2f}s, {} threads)",
+        total_entries,
+        m_elements_.size(),
+        aperture_dir.string(),
+        load_s,
+        num_threads);
+  }
 }
 
 auto ApertureDataCache::lookup(std::string_view class_name,

@@ -255,7 +255,9 @@ Minimize total discounted cost (OPEX + CAPEX) over scenarios, stages, blocks.
 
 ### Compression codecs
 
-- **File I/O** (Parquet output): **zstd** (default `output_compression`)
+- **File I/O** (Parquet output): **snappy** (default `output_compression`)
+  — fast encode/decode for the per-(scene, phase) solution files;
+  set `output_compression: zstd` for archival ratio.
 - **In-memory** (LP snapshots in `low_memory` / SDDP): **lz4** (fast
   compress/decompress, preferred for transient data)
 - `liblz4-dev` is a required build dependency; `libzstd-dev` likewise

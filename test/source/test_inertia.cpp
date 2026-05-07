@@ -17,10 +17,12 @@ using namespace gtopt;  // NOLINT(google-global-names-in-headers)
 namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
 {
 
-const Array<Bus> bus_array = {{
-    .uid = Uid {1},
-    .name = "b1",
-}};
+const Array<Bus> bus_array = {
+    {
+        .uid = Uid {1},
+        .name = "b1",
+    },
+};
 
 const Array<Demand> demand_array = {
     {
@@ -32,18 +34,27 @@ const Array<Demand> demand_array = {
 };
 
 const Simulation simulation = {
-    .block_array = {{
-        .uid = Uid {1},
-        .duration = 1,
-    }},
-    .stage_array = {{
-        .uid = Uid {1},
-        .first_block = 0,
-        .count_block = 1,
-    }},
-    .scenario_array = {{
-        .uid = Uid {0},
-    }},
+    .block_array =
+        {
+            {
+                .uid = Uid {1},
+                .duration = 1,
+            },
+        },
+    .stage_array =
+        {
+            {
+                .uid = Uid {1},
+                .first_block = 0,
+                .count_block = 1,
+            },
+        },
+    .scenario_array =
+        {
+            {
+                .uid = Uid {0},
+            },
+        },
 };
 
 }  // namespace

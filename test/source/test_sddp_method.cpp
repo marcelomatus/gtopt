@@ -2678,7 +2678,10 @@ TEST_CASE(  // NOLINT
   };
   const std::array cases = {
       ModeCase {
-          ElasticFilterMode::single_cut, -1, "single_cut (PLP aggregate)"},
+          ElasticFilterMode::single_cut,
+          -1,
+          "single_cut (PLP aggregate)",
+      },
   };
 
   for (const auto& tc : cases) {
@@ -2785,9 +2788,11 @@ TEST_CASE(  // NOLINT
   // through the integration tests; this single_cut sub-fixture pins
   // the invariant for the simpler case.
   const std::array cases = {
-      ModeCase {.mode = ElasticFilterMode::single_cut,
-                .multi_cut_threshold = -1,
-                .label = "single_cut (2 reservoirs, aggregate)"},
+      ModeCase {
+          .mode = ElasticFilterMode::single_cut,
+          .multi_cut_threshold = -1,
+          .label = "single_cut (2 reservoirs, aggregate)",
+      },
   };
 
   for (const auto& tc : cases) {
@@ -3216,8 +3221,10 @@ TEST_CASE(  // NOLINT
     cr.ub = results->back().upper_bound;
     cr.vols = {read_terminal_vol_end(plp, 0), read_terminal_vol_end(plp, 1)};
     cr.efin_duals = {read_efin_row_dual(plp, 0), read_efin_row_dual(plp, 1)};
-    cr.efin_col_costs = {read_efin_col_cost(plp, 0),
-                         read_efin_col_cost(plp, 1)};
+    cr.efin_col_costs = {
+        read_efin_col_cost(plp, 0),
+        read_efin_col_cost(plp, 1),
+    };
     for (const auto& c : sddp.stored_cuts()) {
       if (c.type == CutType::Feasibility) {
         ++cr.fcuts;
@@ -3516,8 +3523,10 @@ TEST_CASE(  // NOLINT
     cr.ub = results->back().upper_bound;
     cr.vols = {read_terminal_vol_end(plp, 0), read_terminal_vol_end(plp, 1)};
     cr.efin_duals = {read_efin_row_dual(plp, 0), read_efin_row_dual(plp, 1)};
-    cr.efin_col_costs = {read_efin_col_cost(plp, 0),
-                         read_efin_col_cost(plp, 1)};
+    cr.efin_col_costs = {
+        read_efin_col_cost(plp, 0),
+        read_efin_col_cost(plp, 1),
+    };
     for (const auto& c : sddp.stored_cuts()) {
       if (c.type == CutType::Feasibility) {
         ++cr.fcuts;
@@ -3741,8 +3750,10 @@ TEST_CASE(  // NOLINT
     cr.ub = results->back().upper_bound;
     cr.vols = {read_terminal_vol_end(plp, 0), read_terminal_vol_end(plp, 1)};
     cr.efin_duals = {read_efin_row_dual(plp, 0), read_efin_row_dual(plp, 1)};
-    cr.efin_col_costs = {read_efin_col_cost(plp, 0),
-                         read_efin_col_cost(plp, 1)};
+    cr.efin_col_costs = {
+        read_efin_col_cost(plp, 0),
+        read_efin_col_cost(plp, 1),
+    };
     for (const auto& c : sddp.stored_cuts()) {
       if (c.type == CutType::Feasibility) {
         ++cr.fcuts;
@@ -3754,7 +3765,10 @@ TEST_CASE(  // NOLINT
   // Reference: low_memory disabled.  Drives the dual_max / hard.ub /
   // hard.vols values that every other mode must reproduce.
   const LMCfg off_cfg {
-      .mode = std::nullopt, .codec = std::nullopt, .label = "off (reference)"};
+      .mode = std::nullopt,
+      .codec = std::nullopt,
+      .label = "off (reference)",
+  };
   const auto off_hard = run_case({}, off_cfg);
   REQUIRE(off_hard.efin_duals[0].has_value());
   REQUIRE(off_hard.efin_duals[1].has_value());
@@ -3932,12 +3946,18 @@ TEST_CASE(  // NOLINT
     cr.ub = results->back().upper_bound;
     for (std::size_t s = 0; s < 2; ++s) {
       const auto sc = SceneIndex {s};
-      cr.vols[s] = {read_terminal_vol_end(plp, 0, sc),
-                    read_terminal_vol_end(plp, 1, sc)};
-      cr.efin_duals[s] = {read_efin_row_dual(plp, 0, sc),
-                          read_efin_row_dual(plp, 1, sc)};
-      cr.efin_col_costs[s] = {read_efin_col_cost(plp, 0, sc),
-                              read_efin_col_cost(plp, 1, sc)};
+      cr.vols[s] = {
+          read_terminal_vol_end(plp, 0, sc),
+          read_terminal_vol_end(plp, 1, sc),
+      };
+      cr.efin_duals[s] = {
+          read_efin_row_dual(plp, 0, sc),
+          read_efin_row_dual(plp, 1, sc),
+      };
+      cr.efin_col_costs[s] = {
+          read_efin_col_cost(plp, 0, sc),
+          read_efin_col_cost(plp, 1, sc),
+      };
     }
     for (const auto& c : sddp.stored_cuts()) {
       if (c.type == CutType::Feasibility) {

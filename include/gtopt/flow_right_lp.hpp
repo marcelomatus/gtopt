@@ -23,12 +23,14 @@
 #include <gtopt/object_lp.hpp>
 #include <gtopt/right_bound_rule.hpp>
 #include <gtopt/scenario.hpp>
+#include <gtopt/update_context.hpp>
 
 namespace gtopt
 {
 
 // Forward declaration to avoid circular includes
 class SystemLP;
+class SimulationLP;
 
 using FlowRightLPSId = ObjectSingleId<class FlowRightLP>;
 
@@ -132,10 +134,12 @@ private:
 
   /// Cached bound rule evaluation per (scenario, stage).
   /// Only populated when flow_right().bound_rule is set.
-  struct BoundState
-  {
-    Real current_bound {0.0};
-  };
+  ///
+  /// `reservoir_cache` is populated only when the bound rule's axis
+  /// consumes reservoir state (`axis_uses_reservoir(rule.axis)`); for
+  /// stage-month rules the cache stays default-constructed and the
+  /// `update_lp` lambda that reads the volume never fires.
+  using BoundState = RuleBoundState;
   IndexHolder2<ScenarioUid, StageUid, BoundState> m_bound_states_;
 };
 

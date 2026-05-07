@@ -1981,20 +1981,20 @@ TEST_CASE(  // NOLINT
 
   SUBCASE("scale = 1")
   {
-    const double dep_clone_phys = v_hat + dx * 1.0;
+    const double dep_clone_phys = v_hat + (dx * 1.0);
     CHECK(dep_clone_phys == doctest::Approx(5.0));
   }
 
   SUBCASE("scale = sqrt(10) ≈ 3.162")
   {
     const double scale = std::sqrt(10.0);
-    const double dep_clone_phys = v_hat + dx * scale;
+    const double dep_clone_phys = v_hat + (dx * scale);
     CHECK(dep_clone_phys == doctest::Approx(5.0 * scale));
   }
 
   SUBCASE("scale = 10")
   {
-    const double dep_clone_phys = v_hat + dx * 10.0;
+    const double dep_clone_phys = v_hat + (dx * 10.0);
     CHECK(dep_clone_phys == doctest::Approx(50.0));
   }
 }
@@ -2052,7 +2052,7 @@ TEST_CASE(  // NOLINT
   constexpr double dx = -40.0;  // sdn=0 - sup=40 = -40
   constexpr double dep_scale_phys = 1.0;
 
-  const double dep_clone_phys = v_hat_phys + dx * dep_scale_phys;  // = 10
+  const double dep_clone_phys = v_hat_phys + (dx * dep_scale_phys);  // = 10
   CHECK(dep_clone_phys == doctest::Approx(10.0));
 
   constexpr double kFactEps = 0.0;  // niter=0
@@ -2142,7 +2142,7 @@ TEST_CASE(  // NOLINT
 
   // Physical implied_bound DOES scale with K:
   for (const double K : {1.0, 10.0, 100.0}) {
-    const double dep_clone_phys = 0.0 + sdn_lp * K;  // v_hat=0
+    const double dep_clone_phys = 0.0 + (sdn_lp * K);  // v_hat=0
     CHECK(dep_clone_phys == doctest::Approx(47.0 * K));
   }
 }

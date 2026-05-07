@@ -356,9 +356,12 @@ TEST_CASE("GeneratorProfileLP - per-block profile clamps dispatch col_sol")
                   .count_block = 2,
               },
           },
-      .scenario_array = {{
-          .uid = Uid {0},
-      }},
+      .scenario_array =
+          {
+              {
+                  .uid = Uid {0},
+              },
+          },
   };
 
   const System system = {

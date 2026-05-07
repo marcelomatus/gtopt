@@ -129,7 +129,7 @@ TEST_CASE("ApertureDataCache many scenarios bulk loading")  // NOLINT
     for (int s = 0; s < 5; ++s) {
       for (int b = 0; b < 2; ++b) {
         // Unique value: sc * 1000 + s * 10 + b
-        values.push_back(static_cast<double>(sc * 1000 + s * 10 + b));
+        values.push_back(static_cast<double>((sc * 1000) + (s * 10) + b));
       }
     }
     uid_cols.emplace_back(sc, std::move(values));

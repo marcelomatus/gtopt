@@ -14,6 +14,7 @@
  */
 
 #include <cmath>
+#include <numbers>
 #include <string>
 #include <string_view>
 
@@ -165,10 +166,10 @@ TEST_CASE(  // NOLINT
     // Theta column physical bounds should be ±2π (invariant of scale).
     // Raw LP bounds should be ±2π / scale_theta.
     const auto& col_map = li.col_name_map();
-    constexpr double two_pi = 2.0 * 3.14159265358979323846;
+    constexpr double two_pi = 2.0 * std::numbers::pi;
 
     for (const auto& [name, idx] : col_map) {
-      if (name.find("theta") != std::string::npos) {
+      if (name.contains("theta")) {
         const auto col_low = li.get_col_low();
         const auto col_upp = li.get_col_upp();
         const auto col_low_raw = li.get_col_low_raw();
@@ -318,7 +319,7 @@ TEST_CASE(  // NOLINT
 
     const CostHelper helper(options, scenarios, stages);
 
-    auto stage_factors = helper.stage_icost_factors();
+    const auto& stage_factors = helper.stage_icost_factors();
     REQUIRE(!stage_factors.empty());
     CHECK(stage_factors[0] == doctest::Approx(1.0 / (1.0 * 0.9 * 2.0)));
 

@@ -100,11 +100,6 @@ using namespace gtopt::detail;
     const auto& sim = planning_lp.simulation();
     const auto num_scenes = sim.scene_count();
     const auto& sys = planning_lp.planning().system;
-    const auto& named_rep_li =
-        planning_lp.system(first_scene_index(), first_phase_index())
-            .linear_interface();
-    const auto scale_obj = named_rep_li.scale_objective();
-    const auto sa = effective_scale_alpha(planning_lp, options.scale_alpha);
 
     std::unordered_map<std::string, std::pair<std::string_view, Uid>>
         name_to_class_uid;
@@ -302,10 +297,23 @@ using namespace gtopt::detail;
         // IterationContext with `(iter, cut_offset)` so each loaded
         // named hot-start cut has a unique metadata signature —
         // see the CSV loader comment above for rationale.
+        //
+        // Pure physical-space row: `lowb = rhs`, `row[α] = 1.0`,
+        // `row[state_col] = -coeff`, `row.scale = 1.0` (default).
+        // `add_rows` (below) applies `compose_physical` exactly once
+        // — multiplying coefficients by `col_scale` and dividing
+        // bounds by `(row_max × scale_obj)`.  The previous code
+        // pre-divided RHS by `scale_obj`, set `row.scale = sa`, set
+        // `row[α] = sa`, and pre-multiplied state coeffs by
+        // `col_scale / scale_obj` — `add_rows` then applied the same
+        // transformation a second time, so cuts landed at
+        // `1/scale_obj` of their correct LP magnitude (typically
+        // `1/1000` at `scale_obj=1000`), making named hot-start cuts
+        // non-binding in the LP regardless of solver progress.
+        // Mirrors the boundary-cut and CSV/JSON loader contracts.
         auto row = SparseRow {
-            .lowb = rhs / scale_obj,
+            .lowb = rhs,
             .uppb = LinearProblem::DblMax,
-            .scale = sa,
             .variable_uid = sim.uid_of(phase_index),
             .context = make_iteration_context(
                 sim.uid_of(scene_index),
@@ -315,10 +323,8 @@ using namespace gtopt::detail;
                 result.count),
         };
         sddp_named_cut_tag.apply_to(row);
-        row[alpha_svar->col()] = sa;
+        row[alpha_svar->col()] = 1.0;
 
-        auto& li =
-            planning_lp.system(scene_index, phase_index).linear_interface();
         std::istringstream coeff_ss(remainder);
         std::string ctok;
         for (const auto& col_opt : col_map) {
@@ -330,9 +336,7 @@ using namespace gtopt::detail;
           }
           const auto coeff = std::stod(ctok);
           if (coeff != 0.0) {
-            const auto scale = li.get_col_scale(*col_opt);
-            row[*col_opt] =
-                -coeff * scale / scale_obj;  // physical cut coefficient
+            row[*col_opt] = -coeff;  // physical cut coefficient
           }
         }
 

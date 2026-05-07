@@ -117,6 +117,22 @@ static_assert(AddToLP<UserConstraintLP>);
  *
  * Used by SystemLP::update_lp() to iterate over the LP element collection
  * and dispatch `update_lp()` only to types that implement it.
+ *
+ * `HasUpdateLP` also identifies the elements that must remain alive after
+ * `add_to_lp` completes: those types hold per-(scen, stg) state
+ * (e.g. `m_bound_states_`, `m_states_`, `m_coeff_indices_`) that must
+ * persist across SDDP iterations — dropping their collection would lose
+ * that state.
+ *
+ * All other 22 collection types are pure `add_to_lp`-time consumers:
+ * after `add_to_lp` populates each element's column / row indices, the
+ * collection itself is never read again until `write_out` calls
+ * `rebuild_collections_if_needed()` to revive every type from the parsed
+ * `System` data.  In particular `ReservoirLP` is disposable: the
+ * predecessor's final-volume is read directly from the previous phase's
+ * solver via `li.get_col_sol()[eini_col]` and cached in
+ * `ReservoirRefCache`, so `update_lp` never traverses
+ * `prev_sys->element<ReservoirLP>` on any production code path.
  */
 template<typename T>
 concept HasUpdateLP = requires(T& obj,
@@ -125,6 +141,14 @@ concept HasUpdateLP = requires(T& obj,
                                const StageLP& stage) {
   { obj.update_lp(system_lp, scenario, stage) } -> std::same_as<int>;
 };
+
+/// Transitional alias — `HasUpdateLP<T>` is the canonical spelling for
+/// "post-`add_to_lp` resident".  This alias is preserved only for the
+/// parallel test-suite work in flight (`test_system_lp_lazy_rebuild`)
+/// and SHOULD be inlined to `HasUpdateLP<T>` at every call site once
+/// that integration lands.
+template<typename T>
+inline constexpr bool is_post_add_to_lp_resident_v = HasUpdateLP<T>;
 
 /**
  * @class SystemLP
@@ -502,6 +526,22 @@ private:
   /// allocated for this cell.
   bool m_collections_built_ {false};
 
+  /// True once the *full* collection set (HasUpdateLP + disposable
+  /// element types) has been populated.  Goes false after
+  /// `clear_disposable_collections()` empties the 22 non-resident
+  /// types — at that point `m_collections_built_` STAYS true (the
+  /// HasUpdateLP types are still alive, with their per-(scen, stg)
+  /// `update_lp` state preserved across SDDP iterations).
+  ///
+  /// `rebuild_collections_if_needed()` triggers if either flag is
+  /// false: a full rebuild (create_collections + flatten) re-populates
+  /// both the disposable types and the HasUpdateLP types' XLP indices.
+  /// `update_lp` deliberately skips `rebuild_collections_if_needed`
+  /// because its `visit_elements` only acts on HasUpdateLP types,
+  /// which are always alive — iterating empty disposable collections
+  /// is a fast no-op.
+  bool m_disposable_collections_built_ {false};
+
   /// True once `write_out()` has emitted this cell's element tables.
   /// Set by the SDDP simulation pass, which calls `write_out()` right
   /// after the final per-cell solve while the backend (and hence
@@ -696,6 +736,27 @@ public:
   /// from `ensure_lp_built()` so any caller that does
   /// `ensure_lp_built → read collections` works transparently.
   void rebuild_collections_if_needed();
+
+  /// Move-assign empty every `Collection<X>` whose element type does
+  /// NOT satisfy `HasUpdateLP<X>`.  After
+  /// `add_to_lp`/`flatten`/`tighten_scene_phase_links` complete, those
+  /// collections are pure dead weight: their data has already been
+  /// flattened into the LP snapshot, the only remaining readers (write_out)
+  /// rehydrate via `rebuild_collections_if_needed()`, and `update_lp` does
+  /// not touch them.
+  ///
+  /// No-op outside `LowMemoryMode::compress` / `rebuild` — under `off`
+  /// the collections must stay live for `release_backend` to be a no-op
+  /// on the existing live LP.
+  ///
+  /// Collection objects' addresses inside `m_collections_` stay valid
+  /// (the tuple slot doesn't move); only their internal element vectors
+  /// are emptied.  `SystemContext::m_collection_ptrs_` therefore keeps
+  /// pointing at valid (now-empty) Collection objects.  Any subsequent
+  /// `elements<X>()` call returns an empty range; `element<X>(uid)`
+  /// would throw out-of-range — production paths that reach this code
+  /// after the drop must first call `rebuild_collections_if_needed()`.
+  void clear_disposable_collections();
 
 private:
   /// Install the rebuild callback on `m_linear_interface_` so that any

@@ -83,7 +83,7 @@ def make_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "-C",
         "--compression",
-        default="zstd",
+        default="snappy",
         metavar="CODEC",
         help="output compression codec (default: %(default)s)",
     )

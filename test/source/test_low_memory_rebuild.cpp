@@ -504,3 +504,80 @@ TEST_CASE(  // NOLINT
   system_lp.ensure_lp_built();
   CHECK(system_lp.linear_interface().get_numcols() == base_cols + 1);
 }
+
+TEST_CASE(  // NOLINT
+    "SystemLP — rebuild mode: clear_disposable_collections does not break "
+    "subsequent rebuild_in_place")
+{
+  // Regression test for the rebuild-mode bug introduced by 01618a9b
+  // ("perf(compress): per-element lazy rebuild of disposable collections").
+  // That commit added an unconditional call to
+  // `clear_disposable_collections()` at the end of
+  // `tighten_scene_phase_links` (`planning_lp.cpp:825`).  Under
+  // `LowMemoryMode::compress` the snapshot holds the flat LP so
+  // disposing the 22 non-resident `Collection<X>` types (Bus, Demand,
+  // Generator, …) saves ~30 MB/cell with no consequences.  But under
+  // `LowMemoryMode::rebuild` there is no snapshot — every backend
+  // reconstruct goes through `SystemLP::rebuild_in_place()` which
+  // re-flattens from `m_collections_`.  The pre-fix `rebuild_in_place`
+  // only checked the single flag `m_collections_built_` (which stayed
+  // `true` across `clear_disposable_collections`), so it skipped the
+  // `create_collections` rehydration and flattened over only the
+  // resident HasUpdateLP types.  Result: a 0-column flat LP, the next
+  // `add_col(alpha)` produced a 1-column LP, and downstream readers
+  // (`set_col_low_raw`, `collect_state_variable_links`) crashed with
+  // stale-ColIndex out-of-range.
+  //
+  // The fix extends the gate to `!m_collections_built_ ||
+  // !m_disposable_collections_built_` so the second rebuild rehydrates
+  // every Collection<X> before flattening.  This test exercises that
+  // exact sequence in isolation: build → clear disposables → release →
+  // ensure_lp_built must produce the FULL LP, not an empty one.
+  auto world = make_mini_world();
+
+  PlanningOptions popts;
+  popts.demand_fail_cost = 1000.0;
+  const PlanningOptionsLP options(popts);
+  SimulationLP simulation_lp(world.simulation, options);
+
+  LpMatrixOptions flat_opts;
+  flat_opts.low_memory_mode = LowMemoryMode::rebuild;
+
+  SystemLP system_lp(world.system, simulation_lp, flat_opts);
+  system_lp.ensure_lp_built();
+  const auto base_cols = system_lp.linear_interface().get_numcols();
+  const auto base_rows = system_lp.linear_interface().get_numrows();
+  REQUIRE(base_cols > 0);
+  REQUIRE(base_rows > 0);
+
+  // Drop disposables — mirrors what tighten_scene_phase_links does at
+  // the end of construction in production code.  Resident HasUpdateLP
+  // collections are kept; the 22 disposables (Bus, Demand, Generator,
+  // …) are move-assigned empty.  After this, m_collections_built_ is
+  // still true but m_disposable_collections_built_ is false.
+  system_lp.clear_disposable_collections();
+
+  // Force a full rebuild cycle: release the backend, then trigger the
+  // rebuild callback via ensure_lp_built (or any LP mutation that
+  // routes through ensure_backend → invoke_rebuild_owner).  The
+  // rebuilt LP MUST have the same shape as the initial build.
+  system_lp.release_backend();
+  REQUIRE(system_lp.is_backend_released());
+  system_lp.ensure_lp_built();
+
+  CHECK_FALSE(system_lp.is_backend_released());
+  CHECK(system_lp.linear_interface().get_numcols() == base_cols);
+  CHECK(system_lp.linear_interface().get_numrows() == base_rows);
+
+  // Belt-and-suspenders: solve the rebuilt LP to confirm it is
+  // structurally complete, not just sized correctly.  A 0-column LP
+  // would also report numcols=0 but solve(0 cols) is a no-op that
+  // returns optimal with obj=0 — this CHECK on the actual obj value
+  // (1 block × 100 MW × 50 $/MWh = 5000) catches a "rebuild produced
+  // an empty LP" regression even if numcols matched by accident.
+  auto& li = system_lp.linear_interface();
+  const auto solve = li.resolve();
+  REQUIRE(solve.has_value());
+  REQUIRE(li.is_optimal());
+  CHECK(li.get_obj_value() == doctest::Approx(5000.0));
+}

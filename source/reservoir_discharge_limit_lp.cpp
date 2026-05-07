@@ -135,12 +135,14 @@ bool ReservoirDischargeLimitLP::add_to_lp(const SystemContext& sc,
 
   vol_rows[st_key] = lp.add_row(std::move(vol_row));
 
-  // Store state for update_lp
+  // Store state for update_lp.  The reservoir cache eliminates
+  // `sys.element<ReservoirLP>(reservoir_sid())` from the update_lp path.
   m_states_[st_key] = RDLState {
       .eini_col = eini_col,
       .efin_col = efin_col,
       .current_slope = coeffs.slope,
       .current_rhs = coeffs.intercept,
+      .reservoir_cache = make_reservoir_ref_cache(reservoir, scenario, stage),
   };
 
   return true;
@@ -166,16 +168,16 @@ int ReservoirDischargeLimitLP::update_lp(SystemLP& sys,
   }
 
   auto& li = sys.linear_interface();
-  const auto& rsv = sys.element<ReservoirLP>(reservoir_sid());
-  const auto default_volume = rsv.reservoir().eini.value_or(0.0);
 
   const auto st_key = std::tuple {scenario.uid(), stage.uid()};
   auto& state = m_states_.at(st_key);
 
-  const auto vini =
-      rsv.physical_eini(sys, scenario, stage, default_volume, reservoir_sid());
-  const auto vfin = rsv.physical_efin(sys, scenario, stage, default_volume);
-  const Real volume = (vini + vfin) / 2.0;
+  // Volume derived from `state.reservoir_cache` — no `sys.element<ReservoirLP>`
+  // on the current sys.  Cross-phase efin lookup goes through the
+  // pre-bound `prev_phase_efin_col` (production) or the element-lookup
+  // fallback (test paths) — both routes return identical numerics.
+  const Real volume =
+      average_volume_from_cache(sys, scenario, stage, state.reservoir_cache);
 
   const auto coeffs =
       select_rdl_coeffs(reservoir_discharge_limit().segments, volume);

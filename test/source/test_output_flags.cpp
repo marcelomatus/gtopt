@@ -115,13 +115,15 @@ namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-
 auto make_single_gen_system()
 {
   const Array<Bus> bus_array = {{.uid = Uid {1}, .name = "b1"}};
-  const Array<Generator> generator_array = {{
-      .uid = Uid {1},
-      .name = "g1",
-      .bus = Uid {1},
-      .gcost = 50.0,
-      .capacity = 300.0,
-  }};
+  const Array<Generator> generator_array = {
+      {
+          .uid = Uid {1},
+          .name = "g1",
+          .bus = Uid {1},
+          .gcost = 50.0,
+          .capacity = 300.0,
+      },
+  };
   const Array<Demand> demand_array = {
       {.uid = Uid {1}, .name = "d1", .bus = Uid {1}, .capacity = 100.0},
   };

@@ -111,8 +111,10 @@ struct PlanningOptions
   OptName output_directory {};
   /** @brief Format for output files: parquet (default) or csv */
   std::optional<DataFormat> output_format {};
-  /** @brief Compression codec for Parquet output: gzip (default), zstd,
-   * uncompressed */
+  /** @brief Compression codec for Parquet output (default: snappy).
+   *  Supported: snappy, zstd, gzip, uncompressed.  See
+   *  `PlanningOptionsLP::default_output_compression` for the
+   *  rationale behind the default. */
   std::optional<CompressionCodec> output_compression {};
   /** @brief Use element UIDs instead of names in output filenames */
   OptBool use_uid_fname {};

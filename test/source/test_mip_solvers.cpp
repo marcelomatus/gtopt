@@ -47,24 +47,35 @@ namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-
 
 // ── Shared fixtures ─────────────────────────────────────────────────────────
 
-const Array<Bus> single_bus = {{
-    .uid = Uid {1},
-    .name = "b1",
-}};
+const Array<Bus> single_bus = {
+    {
+        .uid = Uid {1},
+        .name = "b1",
+    },
+};
 
 const Simulation single_block_simulation = {
-    .block_array = {{
-        .uid = Uid {1},
-        .duration = 1,
-    }},
-    .stage_array = {{
-        .uid = Uid {1},
-        .first_block = 0,
-        .count_block = 1,
-    }},
-    .scenario_array = {{
-        .uid = Uid {0},
-    }},
+    .block_array =
+        {
+            {
+                .uid = Uid {1},
+                .duration = 1,
+            },
+        },
+    .stage_array =
+        {
+            {
+                .uid = Uid {1},
+                .first_block = 0,
+                .count_block = 1,
+            },
+        },
+    .scenario_array =
+        {
+            {
+                .uid = Uid {0},
+            },
+        },
 };
 
 const Simulation three_block_simulation = {
@@ -83,15 +94,21 @@ const Simulation three_block_simulation = {
                 .duration = 1.0,
             },
         },
-    .stage_array = {{
-        .uid = Uid {0},
-        .first_block = 0,
-        .count_block = 3,
-        .chronological = true,
-    }},
-    .scenario_array = {{
-        .uid = Uid {0},
-    }},
+    .stage_array =
+        {
+            {
+                .uid = Uid {0},
+                .first_block = 0,
+                .count_block = 3,
+                .chronological = true,
+            },
+        },
+    .scenario_array =
+        {
+            {
+                .uid = Uid {0},
+            },
+        },
 };
 
 }  // namespace
@@ -113,24 +130,28 @@ TEST_CASE("MIP solvers — integer_expmod gives integer expansion modules")
 
     SUBCASE(solver_name.c_str())
     {
-      const Array<Generator> generator_array = {{
-          .uid = Uid {1},
-          .name = "g_int",
-          .bus = Uid {1},
-          .gcost = 10.0,
-          .capacity = 0.0,
-          .expcap = 30.0,
-          .expmod = 10.0,
-          .annual_capcost = 1000.0,
-          .integer_expmod = true,
-      }};
+      const Array<Generator> generator_array = {
+          {
+              .uid = Uid {1},
+              .name = "g_int",
+              .bus = Uid {1},
+              .gcost = 10.0,
+              .capacity = 0.0,
+              .expcap = 30.0,
+              .expmod = 10.0,
+              .annual_capcost = 1000.0,
+              .integer_expmod = true,
+          },
+      };
 
-      const Array<Demand> demand_array = {{
-          .uid = Uid {1},
-          .name = "d1",
-          .bus = Uid {1},
-          .capacity = 75.0,
-      }};
+      const Array<Demand> demand_array = {
+          {
+              .uid = Uid {1},
+              .name = "d1",
+              .bus = Uid {1},
+              .capacity = 75.0,
+          },
+      };
 
       const System system = {
           .name = "MipExpmod_" + solver_name,
@@ -194,34 +215,42 @@ TEST_CASE(  // NOLINT
       System system;
       system.name = "MipCommitment_" + solver_name;
       system.bus_array = single_bus;
-      system.demand_array = {{
-          .uid = Uid {1},
-          .name = "d1",
-          .bus = Uid {1},
-          .lmax = TBRealFieldSched {std::vector<std::vector<Real>> {{
-              0.0,
-              60.0,
-              60.0,
-          }}},
-          .capacity = 100.0,
-      }};
-      system.generator_array = {{
-          .uid = Uid {1},
-          .name = "g1",
-          .bus = Uid {1},
-          .pmin = 30.0,
-          .pmax = 100.0,
-          .gcost = 50.0,
-          .capacity = 100.0,
-      }};
-      system.commitment_array = {{
-          .uid = Uid {1},
-          .name = "cmt1",
-          .generator = Uid {1},
-          .startup_cost = 100.0,
-          .shutdown_cost = 50.0,
-          .initial_status = 0.0,
-      }};
+      system.demand_array = {
+          {
+              .uid = Uid {1},
+              .name = "d1",
+              .bus = Uid {1},
+              .lmax = TBRealFieldSched {std::vector<std::vector<Real>> {
+                  {
+                      0.0,
+                      60.0,
+                      60.0,
+                  },
+              }},
+              .capacity = 100.0,
+          },
+      };
+      system.generator_array = {
+          {
+              .uid = Uid {1},
+              .name = "g1",
+              .bus = Uid {1},
+              .pmin = 30.0,
+              .pmax = 100.0,
+              .gcost = 50.0,
+              .capacity = 100.0,
+          },
+      };
+      system.commitment_array = {
+          {
+              .uid = Uid {1},
+              .name = "cmt1",
+              .generator = Uid {1},
+              .startup_cost = 100.0,
+              .shutdown_cost = 50.0,
+              .initial_status = 0.0,
+          },
+      };
 
       PlanningOptions poptions;
       poptions.model_options.demand_fail_cost = 1000.0;
@@ -252,9 +281,8 @@ TEST_CASE(  // NOLINT
                           Uid block_uid) -> std::optional<ColIndex>
       {
         for (const auto& [name, idx] : col_map) {
-          if (name.find("commitment_") == 0
-              && name.find(std::string(variable) + "_") != std::string::npos
-              && name.size() >= 2
+          if (name.starts_with("commitment_")
+              && name.contains(std::string(variable) + "_") && name.size() >= 2
               && name.substr(name.size() - 2)
                   == std::string("_") + std::to_string(block_uid))
           {
@@ -313,29 +341,35 @@ TEST_CASE(  // NOLINT
 
     SUBCASE(solver_name.c_str())
     {
-      const Array<Demand> small_demand_array = {{
-          .uid = Uid {1},
-          .name = "d1",
-          .bus = Uid {1},
-          .capacity = 20.0,
-      }};
+      const Array<Demand> small_demand_array = {
+          {
+              .uid = Uid {1},
+              .name = "d1",
+              .bus = Uid {1},
+              .capacity = 20.0,
+          },
+      };
 
-      const Array<Generator> generator_array = {{
-          .uid = Uid {1},
-          .name = "g1",
-          .bus = Uid {1},
-          .pmin = 40.0,
-          .gcost = 50.0,
-          .capacity = 100.0,
-      }};
+      const Array<Generator> generator_array = {
+          {
+              .uid = Uid {1},
+              .name = "g1",
+              .bus = Uid {1},
+              .pmin = 40.0,
+              .gcost = 50.0,
+              .capacity = 100.0,
+          },
+      };
 
-      const Array<SimpleCommitment> simple_commitment_array = {{
-          .uid = Uid {1},
-          .name = "sc1",
-          .generator = Uid {1},
-          .dispatch_pmin = 40.0,
-          .relax = false,
-      }};
+      const Array<SimpleCommitment> simple_commitment_array = {
+          {
+              .uid = Uid {1},
+              .name = "sc1",
+              .generator = Uid {1},
+              .dispatch_pmin = 40.0,
+              .relax = false,
+          },
+      };
 
       PlanningOptions opts;
       opts.demand_fail_cost = 1000.0;

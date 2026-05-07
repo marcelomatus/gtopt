@@ -704,7 +704,7 @@ TEST_CASE("SolverOptions - barrier with threads on all solvers")  // NOLINT
   for (const auto& solver_name : solvers) {
     CAPTURE(solver_name);
 
-    SUBCASE(std::string(solver_name).c_str())
+    SUBCASE(solver_name.c_str())
     {
       auto lp = make_barrier_test_lp(solver_name);
 
@@ -744,7 +744,7 @@ TEST_CASE(
   for (const auto& solver_name : solvers) {
     CAPTURE(solver_name);
 
-    SUBCASE(std::string(solver_name).c_str())
+    SUBCASE(solver_name.c_str())
     {
       auto lp = make_barrier_test_lp(solver_name);
 
@@ -784,7 +784,7 @@ TEST_CASE("SolverOptions - log_mode detailed writes log file")  // NOLINT
   for (const auto& solver_name : solvers) {
     CAPTURE(solver_name);
 
-    SUBCASE(std::string(solver_name).c_str())
+    SUBCASE(solver_name.c_str())
     {
       const auto log_dir = std::filesystem::temp_directory_path()
           / as_label("gtopt_test_solver_logs", solver_name);
@@ -883,7 +883,7 @@ TEST_CASE("SolverOptions - query methods reflect applied options")  // NOLINT
   for (const auto& solver_name : solvers) {
     CAPTURE(solver_name);
 
-    SUBCASE(std::string(solver_name).c_str())
+    SUBCASE(solver_name.c_str())
     {
       SUBCASE("barrier algorithm with custom settings")
       {

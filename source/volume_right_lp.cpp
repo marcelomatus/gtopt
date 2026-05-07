@@ -269,11 +269,17 @@ bool VolumeRightLP::add_to_lp(SystemContext& sc,
         ampl_name, uid(), SavingName, scenario, stage, it->second);
   }
 
-  // Store bound rule state for update_lp
+  // Store bound rule state for update_lp.  When the rule's axis consumes
+  // reservoir state, capture the static reservoir refs here so update_lp
+  // doesn't need `sys.element<ReservoirLP>(...)` on the current sys.
   if (opt_rule.has_value()) {
-    m_bound_states_[st_key] = BoundState {
-        .current_bound = initial_rule_bound,
-    };
+    BoundState bs {.current_bound = initial_rule_bound};
+    if (axis_uses_reservoir(opt_rule->axis)) {
+      const auto rsv_sid = ReservoirLPSId(opt_rule->reservoir);
+      const auto& rsv = sc.element<ReservoirLP>(rsv_sid);
+      bs.reservoir_cache = make_reservoir_ref_cache(rsv, scenario, stage);
+    }
+    m_bound_states_[st_key] = bs;
   }
 
   // Couple to parent VolumeRight's energy balance if linked
@@ -372,22 +378,17 @@ int VolumeRightLP::update_lp(SystemLP& sys,
   const auto st_key = std::tuple {scenario.uid(), stage.uid()};
   auto& state = m_bound_states_.at(st_key);
 
-  // Resolve the rule's axis input via the dispatcher.  Reservoir
-  // lookups are deferred to the lambda body so axes that don't consume
-  // reservoir state never touch SystemLP::element<ReservoirLP>().
+  // Resolve the rule's axis input via the dispatcher.  Reservoir axes
+  // route through `state.reservoir_cache` (populated in add_to_lp);
+  // axes that don't consume reservoir state never invoke the callback,
+  // so the cache stays untouched.
   const auto axis_value = resolve_bound_rule_axis_value(
       *opt_rule,
       stage.month(),
       [&]() -> Real
       {
-        const auto rsv_sid = ReservoirLPSId(opt_rule->reservoir);
-        const auto& rsv = sys.element<ReservoirLP>(rsv_sid);
-        const auto default_volume = rsv.reservoir().eini.value_or(0.0);
-        const auto vini =
-            rsv.physical_eini(sys, scenario, stage, default_volume, rsv_sid);
-        const auto vfin =
-            rsv.physical_efin(sys, scenario, stage, default_volume);
-        return (vini + vfin) / 2.0;
+        return average_volume_from_cache(
+            sys, scenario, stage, state.reservoir_cache);
       });
 
   const auto new_bound = evaluate_bound_rule(*opt_rule, axis_value);

@@ -121,6 +121,23 @@ public:
   {
     return m_row_dual_;
   }
+  /// Cached column-bound vectors snapshotted post-solve via
+  /// `SolverBackend::fill_col_lower` / `fill_col_upper`.  When
+  /// non-empty these are the source of truth for `get_col_low_raw` /
+  /// `get_col_upp_raw` and the `get_col_sol()` clamp path under
+  /// compress / rebuild — preventing each read from forcing the
+  /// CPLEX/MindOpt/Gurobi backend to allocate a full
+  /// `numcols`-sized scratch on its own (`m_collb_` / `m_colub_`).
+  /// Empty under `LowMemoryMode::off` (live backend serves bounds
+  /// directly).
+  [[nodiscard]] auto col_low() const noexcept -> std::span<const double>
+  {
+    return m_col_low_;
+  }
+  [[nodiscard]] auto col_upp() const noexcept -> std::span<const double>
+  {
+    return m_col_upp_;
+  }
 
   // ── Scalar write helpers ────────────────────────────────────────────────
 
@@ -164,6 +181,16 @@ public:
     m_row_dual_.resize(n);
     return {m_row_dual_.data(), m_row_dual_.size()};
   }
+  [[nodiscard]] auto col_low_buffer(std::size_t n) -> std::span<double>
+  {
+    m_col_low_.resize(n);
+    return {m_col_low_.data(), m_col_low_.size()};
+  }
+  [[nodiscard]] auto col_upp_buffer(std::size_t n) -> std::span<double>
+  {
+    m_col_upp_.resize(n);
+    return {m_col_upp_.data(), m_col_upp_.size()};
+  }
 
   // ── Higher-level mutation hooks ─────────────────────────────────────────
 
@@ -201,16 +228,22 @@ public:
     m_col_cost_.shrink_to_fit();
     m_row_dual_.clear();
     m_row_dual_.shrink_to_fit();
+    m_col_low_.clear();
+    m_col_low_.shrink_to_fit();
+    m_col_upp_.clear();
+    m_col_upp_.shrink_to_fit();
   }
 
   // ── Diagnostic ──────────────────────────────────────────────────────────
 
-  /// **C6** — total bytes held by the three solution vectors.
-  /// Used by `LinearInterface::cache_size_bytes()` for memory-usage
-  /// reporting / TUI dashboards.
+  /// **C6** — total bytes held by the cached vectors.  Used by
+  /// `LinearInterface::cache_size_bytes()` for memory-usage reporting
+  /// / TUI dashboards.  Includes the three solution vectors plus the
+  /// two column-bound vectors snapshotted post-solve.
   [[nodiscard]] auto size_bytes() const noexcept -> std::size_t
   {
-    return (m_col_sol_.size() + m_col_cost_.size() + m_row_dual_.size())
+    return (m_col_sol_.size() + m_col_cost_.size() + m_row_dual_.size()
+            + m_col_low_.size() + m_col_upp_.size())
         * sizeof(double);
   }
 
@@ -251,6 +284,13 @@ private:
   std::vector<double> m_col_sol_ {};
   std::vector<double> m_col_cost_ {};
   std::vector<double> m_row_dual_ {};
+  /// Cached construction-time column bounds — see `col_low()` /
+  /// `col_upp()` getters for the contract.  Populated via
+  /// `col_low_buffer` / `col_upp_buffer` from
+  /// `LinearInterface::populate_solution_cache_post_solve` under
+  /// non-`off` modes.
+  std::vector<double> m_col_low_ {};
+  std::vector<double> m_col_upp_ {};
 };
 
 }  // namespace gtopt

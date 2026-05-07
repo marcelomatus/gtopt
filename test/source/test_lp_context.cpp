@@ -122,7 +122,10 @@ TEST_CASE("LpContext variant")
   SUBCASE("holds BlockContext")
   {
     const LpContext ctx = BlockContext {
-        make_uid<Scenario>(0), make_uid<Stage>(1), make_uid<Block>(2)};
+        make_uid<Scenario>(0),
+        make_uid<Stage>(1),
+        make_uid<Block>(2),
+    };
     CHECK(std::holds_alternative<BlockContext>(ctx));
   }
 }

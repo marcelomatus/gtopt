@@ -15,6 +15,7 @@
 #include <mutex>
 #include <ranges>
 #include <span>
+#include <utility>
 
 #include <gtopt/error.hpp>
 #include <gtopt/linear_interface.hpp>
@@ -201,7 +202,7 @@ void LinearInterface::release_backend() noexcept
         m_backend_ ? get_numcols() : 0,
         m_backend_ && is_optimal() ? 1 : 0,
         m_replay_.active_cuts_size());
-  } catch (...) {  // noexcept — swallow logging failures
+  } catch (...) {  // NOLINT(bugprone-empty-catch) — noexcept logging path
   }
 
   // Cache post-solve scalars for transparent read access.  Full
@@ -291,8 +292,19 @@ void LinearInterface::release_backend() noexcept
     // a failure to cache the solution must not break shutdown ordering.
   }
 
-  m_backend_.reset();
+  // Order matters under async iter-overlap: a concurrent reader
+  // (e.g. main-thread `save_state_csv` -> `get_numcols` -> ...) might
+  // see `m_backend_released_ == false` and then dereference
+  // `m_backend_`.  Setting the flag BEFORE resetting the pointer
+  // narrows the race window to the load of the flag (a CPU-visible
+  // store/load barrier moment) — readers who observe `released==false`
+  // can still see a non-null `m_backend_`, and readers who observe
+  // `released==true` short-circuit to the cache.  The defensive
+  // `!m_backend_` check in `get_numcols` covers the residual window
+  // where the flag store hasn't propagated to the reader's CPU but
+  // the reset has.
   m_backend_released_ = true;
+  m_backend_.reset();
   m_phase_ = LiPhase::BackendReleased;
 }
 
@@ -388,6 +400,15 @@ void LinearInterface::populate_solution_cache_post_solve() noexcept
     m_backend_->fill_col_sol(m_cache_.col_sol_buffer(ncols));
     m_backend_->fill_col_cost(m_cache_.col_cost_buffer(ncols));
     m_backend_->fill_row_dual(m_cache_.row_dual_buffer(nrows));
+    // Snapshot column bounds too so subsequent `get_col_low_raw` /
+    // `get_col_upp_raw` and the `get_col_sol()` clamp path can serve
+    // them from the LI cache instead of triggering the backend's
+    // pointer-getters (which under CPLEX/MindOpt/Gurobi force
+    // allocation of `numcols`-sized scratch vectors `m_collb_` /
+    // `m_colub_`).  Same span-out contract as the three solution
+    // fillers above — the backend writes directly into the LI buffer.
+    m_backend_->fill_col_lower(m_cache_.col_low_buffer(ncols));
+    m_backend_->fill_col_upper(m_cache_.col_upp_buffer(ncols));
     m_cache_.set_is_optimal(/*v=*/true);
   } catch (...) {  // NOLINT(bugprone-empty-catch)
     // Best-effort: any backend exception leaves the cache in
@@ -1610,6 +1631,7 @@ std::vector<RowIndex> LinearInterface::add_rows_disposable(
   return indices;
 }
 
+// NOLINTNEXTLINE(misc-no-recursion)
 ColIndex LinearInterface::emit_cols_to_backend(std::span<const SparseCol> cols)
 {
   // Bulk equivalent of `emit_col_to_backend`: assembles CSC buffers
@@ -1806,6 +1828,7 @@ void LinearInterface::track_row_label_meta(RowIndex row_idx,
   }
 }
 
+// NOLINTNEXTLINE(misc-no-recursion)
 RowIndex LinearInterface::add_row(const SparseRow& row, const double eps)
 {
   ensure_backend();
@@ -2030,6 +2053,7 @@ RowIndex LinearInterface::add_row(const SparseRow& row, const double eps)
   return row_idx;
 }
 
+// NOLINTNEXTLINE(misc-no-recursion)
 RowIndex LinearInterface::emit_row_to_backend(const SparseRow& row,
                                               const double eps)
 {
@@ -2064,6 +2088,7 @@ RowIndex LinearInterface::emit_row_to_backend(const SparseRow& row,
   return add_row(name, columns.size(), columns, elements, row.lowb, row.uppb);
 }
 
+// NOLINTNEXTLINE(misc-no-recursion)
 RowIndex LinearInterface::add_row_raw(const SparseRow& row, const double eps)
 {
   // Internal raw-insertion path — called by the public `add_row` after
@@ -2121,6 +2146,7 @@ void LinearInterface::add_rows(const std::span<const SparseRow> rows,
   add_rows_raw(rows, eps);
 }
 
+// NOLINTNEXTLINE(misc-no-recursion)
 void LinearInterface::add_rows_raw(const std::span<const SparseRow> rows,
                                    const double eps)
 {
@@ -2281,7 +2307,7 @@ void LinearInterface::delete_rows(const std::span<const int> indices)
     if (pos < std::ssize(rin)) {
       rin.erase(rin.begin() + pos);
     }
-    if (idx < 0 || static_cast<std::size_t>(idx) < frozen_count) {
+    if (std::cmp_less(idx, frozen_count)) {
       continue;
     }
     const auto post_pos = static_cast<std::size_t>(idx) - frozen_count;
@@ -2539,7 +2565,7 @@ void LinearInterface::set_col_low_raw(const ColIndex index, const double value)
     // a single-sided lower update doesn't lose it.  Subsequent updates
     // pass the live upper which `set_pending_col_lower` ignores when
     // an entry already exists.
-    const double upper_now = m_backend_->col_upper()[index];
+    const double upper_now = get_col_upp_raw()[index];
     m_replay_.set_pending_col_lower(index, value, upper_now);
   }
   invalidate_cached_optimal_on_mutation();
@@ -2562,7 +2588,7 @@ void LinearInterface::set_col_upp_raw(const ColIndex index, const double value)
     // upper-bound update doesn't reset the lower to zero on replay.
     // The current-lower value is ignored if an entry already exists
     // (see `LpReplayBuffer::set_pending_col_upper`).
-    const double lower_now = m_backend_->col_lower()[index];
+    const double lower_now = get_col_low_raw()[index];
     m_replay_.set_pending_col_upper(index, lower_now, value);
   }
   invalidate_cached_optimal_on_mutation();
@@ -2683,7 +2709,17 @@ Index LinearInterface::get_numrows() const
 
 Index LinearInterface::get_numcols() const
 {
-  if (m_backend_released_) {
+  // Defensive against the async-iter-overlap race: a worker thread can
+  // call `release_backend()` on a cell whose state the main thread is
+  // simultaneously reading via `save_state_csv` -> `get_col_sol` ->
+  // `get_numcols()`.  `release_backend` resets the unique_ptr AFTER
+  // populating the cache (line ~214 sets `m_cache_.numcols`), so a
+  // reader that observes a null `m_backend_` is guaranteed the cache
+  // already carries the right value.  Without the null check this
+  // function null-derefed at `m_backend_->get_num_cols()` and crashed
+  // the run on juan/iplp at iter 4 with default `max_async_spread=2`
+  // (full stack trace + bisect: gdb session 2026-05-05).
+  if (m_backend_released_ || !m_backend_) {
     return m_cache_.numcols();
   }
   return m_backend_->get_num_cols();
@@ -2818,8 +2854,8 @@ RowDiagnostics LinearInterface::diagnose_row(const RowIndex row) const
   // Row bounds (raw LP units)
   const auto row_lb = std::span(m_backend_->row_lower(), get_numrows());
   const auto row_ub = std::span(m_backend_->row_upper(), get_numrows());
-  diag.rhs_lb = row_lb[static_cast<size_t>(row)];
-  diag.rhs_ub = row_ub[static_cast<size_t>(row)];
+  diag.rhs_lb = row_lb[row];
+  diag.rhs_ub = row_ub[row];
 
   // Scan all columns for non-zero coefficients in this row
   const auto& cin = *m_col_index_to_name_;

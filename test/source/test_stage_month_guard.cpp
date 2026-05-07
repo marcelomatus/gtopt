@@ -40,18 +40,21 @@ TEST_CASE("require_stage_month returns month when set")  // NOLINT
 TEST_CASE(
     "require_stage_month returns correct month for each MonthType")  // NOLINT
 {
-  for (const auto month : {MonthType::january,
-                           MonthType::february,
-                           MonthType::march,
-                           MonthType::april,
-                           MonthType::may,
-                           MonthType::june,
-                           MonthType::july,
-                           MonthType::august,
-                           MonthType::september,
-                           MonthType::october,
-                           MonthType::november,
-                           MonthType::december})
+  for (const auto month :
+       {
+           MonthType::january,
+           MonthType::february,
+           MonthType::march,
+           MonthType::april,
+           MonthType::may,
+           MonthType::june,
+           MonthType::july,
+           MonthType::august,
+           MonthType::september,
+           MonthType::october,
+           MonthType::november,
+           MonthType::december,
+       })
   {
     const auto slp = make_stage_lp(month);
     const auto m =

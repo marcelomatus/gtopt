@@ -20,6 +20,7 @@
 
 #include <gtopt/right_bound_rule.hpp>
 #include <gtopt/storage_lp.hpp>
+#include <gtopt/update_context.hpp>
 #include <gtopt/volume_right.hpp>
 
 namespace gtopt
@@ -27,6 +28,7 @@ namespace gtopt
 
 // Forward declaration to avoid circular includes
 class SystemLP;
+class SimulationLP;
 using VolumeRightLPId = ObjectId<class VolumeRightLP>;
 using VolumeRightLPSId = ObjectSingleId<class VolumeRightLP>;
 
@@ -121,10 +123,10 @@ private:
   STBIndexHolder<ColIndex> saving_cols_;
 
   /// Cached bound rule evaluation per (scenario, stage).
-  struct BoundState
-  {
-    Real current_bound {0.0};
-  };
+  ///
+  /// `reservoir_cache` is populated only when the bound rule's axis
+  /// consumes reservoir state (`axis_uses_reservoir(rule.axis)`).
+  using BoundState = RuleBoundState;
   IndexHolder2<ScenarioUid, StageUid, BoundState> m_bound_states_;
 };
 

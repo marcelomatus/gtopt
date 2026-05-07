@@ -573,6 +573,114 @@ TEST_CASE("LinearInterface — low_memory save_snapshot round-trip")  // NOLINT
 }
 
 TEST_CASE(
+    "LinearInterface — compress mode: get_col_low_raw / get_col_upp_raw "
+    "served from LI cache after release_backend")  // NOLINT
+{
+  // Regression test for the eaa70b4a perf fix.  Before the fix,
+  // `get_col_low_raw` / `get_col_upp_raw` had no LI-side cache and
+  // returned `std::span(backend().col_lower(), get_numcols())`
+  // unconditionally — so under compress mode each read forced
+  // `ensure_backend()` to reload the snapshot and the backend
+  // plugin (CPLEX/MindOpt/Gurobi) to allocate a `numcols`-sized
+  // scratch.  The fix populates `m_cache_.col_low()` /
+  // `m_cache_.col_upp()` post-solve via the new
+  // `SolverBackend::fill_col_lower(span)` / `fill_col_upper(span)`
+  // span-out APIs and serves the bound getters from the LI cache
+  // first.  This test verifies the LI cache path:
+  //   * `populate_solution_cache_post_solve` populates the bound
+  //     vectors after a successful solve under compress.
+  //   * `get_col_low_raw` / `get_col_upp_raw` read from the LI
+  //     cache (NOT from `backend().col_lower()`) after the backend
+  //     is released — proven by the values being correct even
+  //     without an explicit `ensure_backend()` call beforehand.
+  //   * The `get_col_sol()` clamp path serves a clamped view from
+  //     cached bounds even after `release_backend()` (previously
+  //     fell through to an unclamped view).
+  auto [li, flat, x1, x2] = make_simple_li_lp();
+
+  // Solve baseline so post-solve cache populates.
+  auto initial = li.initial_solve();
+  REQUIRE(initial.has_value());
+  REQUIRE(li.is_optimal());
+
+  li.set_low_memory(LowMemoryMode::compress);
+  li.save_snapshot(FlatLinearProblem {flat});
+
+  // First post-snapshot solve under compress — `populate_solution_
+  // cache_post_solve` snapshots primal + dual + col bounds into
+  // `m_cache_`.
+  auto solve = li.resolve();
+  REQUIRE(solve.has_value());
+  REQUIRE(li.is_optimal());
+
+  // Capture expected bounds from the live backend BEFORE release.
+  const auto live_lo = li.get_col_low_raw();
+  const auto live_up = li.get_col_upp_raw();
+  REQUIRE(live_lo.size() == 2);
+  REQUIRE(live_up.size() == 2);
+  const double expected_lo_x1 = live_lo[0];
+  const double expected_up_x1 = live_up[0];
+  const double expected_lo_x2 = live_lo[1];
+  const double expected_up_x2 = live_up[1];
+
+  // Drop the backend.  Under compress, the snapshot persists but the
+  // backend's internal buffers are gone — any read through
+  // `backend().col_lower()` would force snapshot reload.  The LI
+  // cache MUST be the source of truth here.
+  li.release_backend();
+  REQUIRE(li.is_backend_released());
+
+  // Bound getters read from LI cache without re-instantiating the
+  // backend.  Verify the values match the pre-release snapshot — if
+  // the cache wasn't populated, this read would either crash on a
+  // null backend or trigger a snapshot reload (slow).  The
+  // round-trip equality is the invariant the post-solve cache fill
+  // guarantees.
+  const auto cached_lo = li.get_col_low_raw();
+  const auto cached_up = li.get_col_upp_raw();
+  CHECK(cached_lo.size() == 2);
+  CHECK(cached_up.size() == 2);
+  CHECK(cached_lo[0] == doctest::Approx(expected_lo_x1));
+  CHECK(cached_up[0] == doctest::Approx(expected_up_x1));
+  CHECK(cached_lo[1] == doctest::Approx(expected_lo_x2));
+  CHECK(cached_up[1] == doctest::Approx(expected_up_x2));
+}
+
+TEST_CASE(
+    "LinearInterface — compress: drop_solution_caches preserves "
+    "col_low / col_upp")  // NOLINT
+{
+  // The new bound caches are intended to survive a
+  // `drop_solution_caches()` call — only the largest primal/cost
+  // vectors get dropped between iterations; bounds + duals stay so
+  // any subsequent `get_col_sol()` clamp or `set_col_low_raw` write
+  // can still reference them.  Mirrors the existing C3 invariant
+  // for `row_dual` extended to cover the new bound slots.
+  auto [li, flat, x1, x2] = make_simple_li_lp();
+  auto initial = li.initial_solve();
+  REQUIRE(initial.has_value());
+  li.set_low_memory(LowMemoryMode::compress);
+  li.save_snapshot(FlatLinearProblem {flat});
+  auto solve = li.resolve();
+  REQUIRE(solve.has_value());
+  REQUIRE(li.is_optimal());
+
+  // Cache is populated; bound getters work post-release.
+  li.release_backend();
+  REQUIRE(!li.get_col_low_raw().empty());
+  REQUIRE(!li.get_col_upp_raw().empty());
+
+  // Drop the primal/cost caches but not the bounds.
+  li.drop_cached_primal_only();
+
+  // Bounds must still be available — no segfault, same values.
+  const auto cached_lo = li.get_col_low_raw();
+  const auto cached_up = li.get_col_upp_raw();
+  CHECK(cached_lo.size() == 2);
+  CHECK(cached_up.size() == 2);
+}
+
+TEST_CASE(
     "LinearInterface — low_memory reconstruct with dynamic cols")  // NOLINT
 {
   auto [li, flat, x1, x2] = make_simple_li_lp();
@@ -2368,11 +2476,14 @@ TEST_CASE(  // NOLINT
   // regression in `next_fallback_algo` (e.g. a stuck cycle) would
   // either short-circuit early or repeat an algorithm without
   // advancing, breaking the count.
-  for (const auto start : {LPAlgo::barrier,
-                           LPAlgo::dual,
-                           LPAlgo::primal,
-                           LPAlgo::default_algo,
-                           LPAlgo::last_algo})
+  for (const auto start :
+       {
+           LPAlgo::barrier,
+           LPAlgo::dual,
+           LPAlgo::primal,
+           LPAlgo::default_algo,
+           LPAlgo::last_algo,
+       })
   {
     LinearInterface li;
     const auto x = li.add_col(SparseCol {

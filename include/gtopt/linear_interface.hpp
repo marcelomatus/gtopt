@@ -1882,8 +1882,19 @@ public:
    * get_col_low() for physical (unscaled) bounds.
    * @return Span view of raw column lower bounds
    */
-  [[nodiscard]] auto get_col_low_raw() const
+  [[nodiscard]] auto get_col_low_raw() const -> std::span<const double>
   {
+    // Single source of truth: prefer the LI cache when populated.
+    // Mirrors `get_col_sol_raw`'s pattern — under compress / rebuild
+    // the cache is populated post-solve via
+    // `SolverBackend::fill_col_lower(span)`, so subsequent reads
+    // never call `backend().col_lower()` and therefore never force
+    // the CPLEX/MindOpt/Gurobi backend to allocate a
+    // `numcols`-sized scratch vector `m_collb_`.  Under `off` mode
+    // the cache stays empty and reads route to the live backend.
+    if (const auto sp = m_cache_.col_low(); !sp.empty()) {
+      return sp;
+    }
     return std::span(backend().col_lower(), get_numcols());
   }
 
@@ -1891,8 +1902,12 @@ public:
    * @brief Gets raw upper bounds for all variable columns (LP units).
    * @return Span view of raw column upper bounds
    */
-  [[nodiscard]] auto get_col_upp_raw() const
+  [[nodiscard]] auto get_col_upp_raw() const -> std::span<const double>
   {
+    // Mirrors `get_col_low_raw`'s LI-cache-first pattern.
+    if (const auto sp = m_cache_.col_upp(); !sp.empty()) {
+      return sp;
+    }
     return std::span(backend().col_upper(), get_numcols());
   }
 
@@ -1998,11 +2013,43 @@ public:
     const bool prefer_cache = !cached_sol.empty();
     const double* data =
         prefer_cache ? cached_sol.data() : backend().col_solution();
-    // Clamp path requires a live backend: col bounds are not cached on
-    // `release_backend`, so we'd dereference a null `m_backend_` to
-    // read them.  Also skip when the last solve wasn't optimal —
-    // solver values may then be arbitrary and clamping is misleading.
-    if (m_backend_released_ || !m_cache_.is_optimal()) {
+    // Skip the clamp when the last solve wasn't optimal — solver
+    // values may then be arbitrary and clamping is misleading.
+    if (!m_cache_.is_optimal()) {
+      return {data,
+              n,
+              m_col_scales_->data(),
+              m_col_scales_->size(),
+              ScaledView::Op::multiply};
+    }
+    // Source the col-bound vectors from the LI cache when populated
+    // (compress / rebuild post-solve path) and only fall through to
+    // `backend().col_lower() / col_upper()` when the cache is empty.
+    // The cache hit lets us serve a clamped view even after
+    // `release_backend()` and avoids forcing the
+    // CPLEX/MindOpt/Gurobi backend to allocate `m_collb_` / `m_colub_`
+    // on every read under compress.  Under `off` the cache stays
+    // empty and the live-backend pointer-getters serve directly.
+    const auto cached_low = m_cache_.col_low();
+    const auto cached_upp = m_cache_.col_upp();
+    if (!cached_low.empty() && !cached_upp.empty()) {
+      // Sizes invariantly equal `n` here: the cache populator sized
+      // each buffer to `numcols` and `is_optimal` (already gated above)
+      // is cleared by `invalidate_cached_optimal_on_mutation()` on any
+      // structural mutation, so reaching this branch means no add_col
+      // has run since the post-solve snapshot.
+      return {data,
+              n,
+              m_col_scales_->data(),
+              m_col_scales_->size(),
+              cached_low.data(),
+              n,
+              cached_upp.data(),
+              n,
+              ScaledView::Op::multiply};
+    }
+    if (m_backend_released_) {
+      // No live backend, no cache — degraded path: return unclamped.
       return {data,
               n,
               m_col_scales_->data(),

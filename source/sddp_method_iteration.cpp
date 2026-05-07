@@ -442,10 +442,10 @@ auto SDDPMethod::backward_pass_single_phase(SceneIndex scene_index,
     // (same coefficient re-written), so this is a no-op cost.
     update_lp_for_phase(scene_index, phase_index);
 
-    tgt_li.set_log_tag(sddp_log("Backward",
-                                gtopt::uid_of(iteration_index),
-                                uid_of(scene_index),
-                                uid_of(phase_index)));
+    tgt_li.set_log_tag(std::string(sddp_log("Backward",
+                                            gtopt::uid_of(iteration_index),
+                                            uid_of(scene_index),
+                                            uid_of(phase_index))));
     const auto z_old = phase_states[phase_index].forward_full_obj_physical;
 
     // Optional LP dump for off↔compress diff debugging.  Activated by
@@ -610,7 +610,7 @@ auto SDDPMethod::backward_pass_single_phase(SceneIndex scene_index,
       src_state.outgoing_links,
       [](const auto& link) noexcept { return link.state_var != nullptr; }));
   const auto links_used =
-      cut.cmap.size() > 0 ? cut.cmap.size() - 1 : std::size_t {0};
+      !cut.cmap.empty() ? cut.cmap.size() - 1 : std::size_t {0};
   spdlog::info(
       "SDDP Backward [i{} s{} p{}/{}]: cut z={} -> alpha>={} (links={}/{}, "
       "resolve={})",
@@ -669,8 +669,8 @@ auto SDDPMethod::backward_pass_single_phase(SceneIndex scene_index,
           uid_of(scene_index),
           uid_of(phase_index),
           bwd_total_phases,
-          static_cast<int>(i),
-          static_cast<int>(col_idx),
+          i,
+          col_idx,
           col_lb,
           col_ub,
           coef,
@@ -696,10 +696,10 @@ auto SDDPMethod::backward_pass_single_phase(SceneIndex scene_index,
   double dt_resolve = 0.0;
   double dt_kappa = 0.0;
   if (phase_index) {
-    src_li.set_log_tag(sddp_log("Backward",
-                                gtopt::uid_of(iteration_index),
-                                uid_of(scene_index),
-                                uid_of(prev_phase_index)));
+    src_li.set_log_tag(std::string(sddp_log("Backward",
+                                            gtopt::uid_of(iteration_index),
+                                            uid_of(scene_index),
+                                            uid_of(prev_phase_index))));
     const auto t_resolve = Clock::now();
     auto r = src_li.resolve(opts);
     dt_resolve = elapsed_s(t_resolve);

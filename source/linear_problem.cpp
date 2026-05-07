@@ -567,6 +567,32 @@ auto LinearProblem::flatten(const LpMatrixOptions& opts) -> FlatLinearProblem
   // generate_labels_from_maps` synthesise real gtopt labels on demand
   // at `write_lp` time (e.g. the SDDP error-LP dump path) without
   // requiring the user to pre-enable `--lp-debug` at build time.
+  //
+  // TODO(lazy-label-meta): defer this materialisation until the first
+  // `OutputContext` col/row name lookup in `write_out` (or the SDDP
+  // error-LP dump in `write_lp`).  Memory budget — see
+  // `LinearInterface::drop_label_meta_buffers()`: ~1 MB compressed per
+  // cell, ~3 MB live; on a Juan-scale 816-cell run that is ~800 MB
+  // held until process exit (already freed by
+  // `drop_label_meta_buffers()` post-`write_out`, but lazy
+  // construction would also save the *peak* during planning, when all
+  // cells flatten before any cell writes out).
+  //
+  // The lazy point is here in `flatten()`: replace the eager fill
+  // below with a deferred builder that captures `cols` / `rows` by
+  // shared_ptr (or recomputes from the SystemLP via a lambda) and
+  // materialises on first read.  Blockers:
+  //   * `LinearInterface::add_col` / `add_row` build their dedup
+  //     `m_col_meta_index_` / `m_row_meta_index_` from the labels;
+  //     post-flatten path must keep these eagerly populated for
+  //     duplicate-detection to work.  A split (lazy frozen labels,
+  //     eager dedup index) is feasible — the index can be built from
+  //     the SparseCol fields directly without going through
+  //     SparseColLabel — but requires care in `load_flat`.
+  //   * `LinearProblem::flatten` returns the FlatLinearProblem by
+  //     value; lazy holders inside it must survive the move into
+  //     `LinearInterface::load_flat`.  Trivial, but worth verifying
+  //     no one captures `flat_lp.col_labels_meta` by reference.
   std::vector<SparseColLabel> col_labels_meta;
   col_labels_meta.reserve(cols.size());
   for (const auto& col : cols) {

@@ -617,40 +617,48 @@ TEST_CASE("PlanningLP - auto_scale_theta computes median reactance")
       {.uid = Uid {4}, .name = "b4"},
   };
   const Array<Generator> gen_array = {
-      {.uid = Uid {1},
-       .name = "g1",
-       .bus = Uid {1},
-       .gcost = 50.0,
-       .capacity = 200.0},
+      {
+          .uid = Uid {1},
+          .name = "g1",
+          .bus = Uid {1},
+          .gcost = 50.0,
+          .capacity = 200.0,
+      },
   };
   const Array<Demand> dem_array = {
       {.uid = Uid {1}, .name = "d1", .bus = Uid {4}, .capacity = 80.0},
   };
   const Array<Line> line_array = {
-      {.uid = Uid {1},
-       .name = "l1",
-       .bus_a = Uid {1},
-       .bus_b = Uid {2},
-       .reactance = 0.05,
-       .tmax_ba = 200.0,
-       .tmax_ab = 200.0,
-       .capacity = 200.0},
-      {.uid = Uid {2},
-       .name = "l2",
-       .bus_a = Uid {2},
-       .bus_b = Uid {3},
-       .reactance = 0.10,
-       .tmax_ba = 200.0,
-       .tmax_ab = 200.0,
-       .capacity = 200.0},
-      {.uid = Uid {3},
-       .name = "l3",
-       .bus_a = Uid {3},
-       .bus_b = Uid {4},
-       .reactance = 0.20,
-       .tmax_ba = 200.0,
-       .tmax_ab = 200.0,
-       .capacity = 200.0},
+      {
+          .uid = Uid {1},
+          .name = "l1",
+          .bus_a = Uid {1},
+          .bus_b = Uid {2},
+          .reactance = 0.05,
+          .tmax_ba = 200.0,
+          .tmax_ab = 200.0,
+          .capacity = 200.0,
+      },
+      {
+          .uid = Uid {2},
+          .name = "l2",
+          .bus_a = Uid {2},
+          .bus_b = Uid {3},
+          .reactance = 0.10,
+          .tmax_ba = 200.0,
+          .tmax_ab = 200.0,
+          .capacity = 200.0,
+      },
+      {
+          .uid = Uid {3},
+          .name = "l3",
+          .bus_a = Uid {3},
+          .bus_b = Uid {4},
+          .reactance = 0.20,
+          .tmax_ba = 200.0,
+          .tmax_ab = 200.0,
+          .capacity = 200.0,
+      },
   };
 
   const System system {
@@ -689,24 +697,28 @@ TEST_CASE("PlanningLP - auto_scale_theta skips when explicitly set")
       {.uid = Uid {2}, .name = "b2"},
   };
   const Array<Generator> gen_array = {
-      {.uid = Uid {1},
-       .name = "g1",
-       .bus = Uid {1},
-       .gcost = 50.0,
-       .capacity = 200.0},
+      {
+          .uid = Uid {1},
+          .name = "g1",
+          .bus = Uid {1},
+          .gcost = 50.0,
+          .capacity = 200.0,
+      },
   };
   const Array<Demand> dem_array = {
       {.uid = Uid {1}, .name = "d1", .bus = Uid {2}, .capacity = 80.0},
   };
   const Array<Line> line_array = {
-      {.uid = Uid {1},
-       .name = "l1",
-       .bus_a = Uid {1},
-       .bus_b = Uid {2},
-       .reactance = 0.05,
-       .tmax_ba = 200.0,
-       .tmax_ab = 200.0,
-       .capacity = 200.0},
+      {
+          .uid = Uid {1},
+          .name = "l1",
+          .bus_a = Uid {1},
+          .bus_b = Uid {2},
+          .reactance = 0.05,
+          .tmax_ba = 200.0,
+          .tmax_ab = 200.0,
+          .capacity = 200.0,
+      },
   };
 
   const System system {
@@ -744,24 +756,28 @@ TEST_CASE("PlanningLP - auto_scale_theta skips when Kirchhoff disabled")
       {.uid = Uid {2}, .name = "b2"},
   };
   const Array<Generator> gen_array = {
-      {.uid = Uid {1},
-       .name = "g1",
-       .bus = Uid {1},
-       .gcost = 50.0,
-       .capacity = 200.0},
+      {
+          .uid = Uid {1},
+          .name = "g1",
+          .bus = Uid {1},
+          .gcost = 50.0,
+          .capacity = 200.0,
+      },
   };
   const Array<Demand> dem_array = {
       {.uid = Uid {1}, .name = "d1", .bus = Uid {2}, .capacity = 80.0},
   };
   const Array<Line> line_array = {
-      {.uid = Uid {1},
-       .name = "l1",
-       .bus_a = Uid {1},
-       .bus_b = Uid {2},
-       .reactance = 0.05,
-       .tmax_ba = 200.0,
-       .tmax_ab = 200.0,
-       .capacity = 200.0},
+      {
+          .uid = Uid {1},
+          .name = "l1",
+          .bus_a = Uid {1},
+          .bus_b = Uid {2},
+          .reactance = 0.05,
+          .tmax_ba = 200.0,
+          .tmax_ab = 200.0,
+          .capacity = 200.0,
+      },
   };
 
   const System system {
@@ -796,24 +812,28 @@ TEST_CASE("PlanningLP - auto_scale_theta skips when single_bus enabled")
 
   const Array<Bus> bus_array = {{.uid = Uid {1}, .name = "b1"}};
   const Array<Generator> gen_array = {
-      {.uid = Uid {1},
-       .name = "g1",
-       .bus = Uid {1},
-       .gcost = 50.0,
-       .capacity = 200.0},
+      {
+          .uid = Uid {1},
+          .name = "g1",
+          .bus = Uid {1},
+          .gcost = 50.0,
+          .capacity = 200.0,
+      },
   };
   const Array<Demand> dem_array = {
       {.uid = Uid {1}, .name = "d1", .bus = Uid {1}, .capacity = 80.0},
   };
   const Array<Line> line_array = {
-      {.uid = Uid {1},
-       .name = "l1",
-       .bus_a = Uid {1},
-       .bus_b = Uid {1},
-       .reactance = 0.05,
-       .tmax_ba = 200.0,
-       .tmax_ab = 200.0,
-       .capacity = 200.0},
+      {
+          .uid = Uid {1},
+          .name = "l1",
+          .bus_a = Uid {1},
+          .bus_b = Uid {1},
+          .reactance = 0.05,
+          .tmax_ba = 200.0,
+          .tmax_ab = 200.0,
+          .capacity = 200.0,
+      },
   };
 
   const System system {
@@ -855,48 +875,58 @@ TEST_CASE("PlanningLP - auto_scale_theta with even number of lines")
       {.uid = Uid {5}, .name = "b5"},
   };
   const Array<Generator> gen_array = {
-      {.uid = Uid {1},
-       .name = "g1",
-       .bus = Uid {1},
-       .gcost = 50.0,
-       .capacity = 200.0},
+      {
+          .uid = Uid {1},
+          .name = "g1",
+          .bus = Uid {1},
+          .gcost = 50.0,
+          .capacity = 200.0,
+      },
   };
   const Array<Demand> dem_array = {
       {.uid = Uid {1}, .name = "d1", .bus = Uid {5}, .capacity = 80.0},
   };
   const Array<Line> line_array = {
-      {.uid = Uid {1},
-       .name = "l1",
-       .bus_a = Uid {1},
-       .bus_b = Uid {2},
-       .reactance = 0.04,
-       .tmax_ba = 200.0,
-       .tmax_ab = 200.0,
-       .capacity = 200.0},
-      {.uid = Uid {2},
-       .name = "l2",
-       .bus_a = Uid {2},
-       .bus_b = Uid {3},
-       .reactance = 0.06,
-       .tmax_ba = 200.0,
-       .tmax_ab = 200.0,
-       .capacity = 200.0},
-      {.uid = Uid {3},
-       .name = "l3",
-       .bus_a = Uid {3},
-       .bus_b = Uid {4},
-       .reactance = 0.08,
-       .tmax_ba = 200.0,
-       .tmax_ab = 200.0,
-       .capacity = 200.0},
-      {.uid = Uid {4},
-       .name = "l4",
-       .bus_a = Uid {4},
-       .bus_b = Uid {5},
-       .reactance = 0.12,
-       .tmax_ba = 200.0,
-       .tmax_ab = 200.0,
-       .capacity = 200.0},
+      {
+          .uid = Uid {1},
+          .name = "l1",
+          .bus_a = Uid {1},
+          .bus_b = Uid {2},
+          .reactance = 0.04,
+          .tmax_ba = 200.0,
+          .tmax_ab = 200.0,
+          .capacity = 200.0,
+      },
+      {
+          .uid = Uid {2},
+          .name = "l2",
+          .bus_a = Uid {2},
+          .bus_b = Uid {3},
+          .reactance = 0.06,
+          .tmax_ba = 200.0,
+          .tmax_ab = 200.0,
+          .capacity = 200.0,
+      },
+      {
+          .uid = Uid {3},
+          .name = "l3",
+          .bus_a = Uid {3},
+          .bus_b = Uid {4},
+          .reactance = 0.08,
+          .tmax_ba = 200.0,
+          .tmax_ab = 200.0,
+          .capacity = 200.0,
+      },
+      {
+          .uid = Uid {4},
+          .name = "l4",
+          .bus_a = Uid {4},
+          .bus_b = Uid {5},
+          .reactance = 0.12,
+          .tmax_ba = 200.0,
+          .tmax_ab = 200.0,
+          .capacity = 200.0,
+      },
   };
 
   const System system {
@@ -946,43 +976,51 @@ TEST_CASE("PlanningLP - auto_scale_theta uses median X/V² on mixed voltages")
       {.uid = Uid {4}, .name = "b4"},
   };
   const Array<Generator> gen_array = {
-      {.uid = Uid {1},
-       .name = "g1",
-       .bus = Uid {1},
-       .gcost = 50.0,
-       .capacity = 200.0},
+      {
+          .uid = Uid {1},
+          .name = "g1",
+          .bus = Uid {1},
+          .gcost = 50.0,
+          .capacity = 200.0,
+      },
   };
   const Array<Demand> dem_array = {
       {.uid = Uid {1}, .name = "d1", .bus = Uid {4}, .capacity = 80.0},
   };
   const Array<Line> line_array = {
-      {.uid = Uid {1},
-       .name = "l1_110kV",
-       .bus_a = Uid {1},
-       .bus_b = Uid {2},
-       .voltage = 110.0,
-       .reactance = 12.0,
-       .tmax_ba = 200.0,
-       .tmax_ab = 200.0,
-       .capacity = 200.0},
-      {.uid = Uid {2},
-       .name = "l2_220kV",
-       .bus_a = Uid {2},
-       .bus_b = Uid {3},
-       .voltage = 220.0,
-       .reactance = 10.0,
-       .tmax_ba = 200.0,
-       .tmax_ab = 200.0,
-       .capacity = 200.0},
-      {.uid = Uid {3},
-       .name = "l3_500kV",
-       .bus_a = Uid {3},
-       .bus_b = Uid {4},
-       .voltage = 500.0,
-       .reactance = 0.1,
-       .tmax_ba = 200.0,
-       .tmax_ab = 200.0,
-       .capacity = 200.0},
+      {
+          .uid = Uid {1},
+          .name = "l1_110kV",
+          .bus_a = Uid {1},
+          .bus_b = Uid {2},
+          .voltage = 110.0,
+          .reactance = 12.0,
+          .tmax_ba = 200.0,
+          .tmax_ab = 200.0,
+          .capacity = 200.0,
+      },
+      {
+          .uid = Uid {2},
+          .name = "l2_220kV",
+          .bus_a = Uid {2},
+          .bus_b = Uid {3},
+          .voltage = 220.0,
+          .reactance = 10.0,
+          .tmax_ba = 200.0,
+          .tmax_ab = 200.0,
+          .capacity = 200.0,
+      },
+      {
+          .uid = Uid {3},
+          .name = "l3_500kV",
+          .bus_a = Uid {3},
+          .bus_b = Uid {4},
+          .voltage = 500.0,
+          .reactance = 0.1,
+          .tmax_ba = 200.0,
+          .tmax_ab = 200.0,
+          .capacity = 200.0,
+      },
   };
 
   const System system {
@@ -1032,11 +1070,13 @@ TEST_CASE("PlanningLP - auto_scale_theta with const Planning")
 
   const Array<Bus> bus_array = {{.uid = Uid {1}, .name = "b1"}};
   const Array<Generator> gen_array = {
-      {.uid = Uid {1},
-       .name = "g1",
-       .bus = Uid {1},
-       .gcost = 50.0,
-       .capacity = 200.0},
+      {
+          .uid = Uid {1},
+          .name = "g1",
+          .bus = Uid {1},
+          .gcost = 50.0,
+          .capacity = 200.0,
+      },
   };
   const Array<Demand> dem_array = {
       {.uid = Uid {1}, .name = "d1", .bus = Uid {1}, .capacity = 80.0},

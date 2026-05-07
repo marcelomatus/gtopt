@@ -28,16 +28,17 @@ void PhaseGridRecorder::record(IterationUid iteration_uid,
       .iteration_uid = iteration_uid,
       .scene_uid = scene_uid,
   };
-  // 1-based UID → 0-based slot in the per-row cells vector.
-  const auto phase_slot = static_cast<std::ptrdiff_t>(value_of(phase_uid)) - 1;
-  const std::scoped_lock lock(m_mutex_);
-  auto& row = m_rows_[key];
-  if (phase_slot >= std::ssize(row)) {
-    row.resize(static_cast<size_t>(phase_slot + 1), '.');
-  }
   const char ch = static_cast<char>(state);
-  auto& cell = row[static_cast<size_t>(phase_slot)];
-  cell = std::max(cell, ch);
+  const std::scoped_lock lock(m_mutex_);
+  auto& cells = m_rows_[key];
+  // No arithmetic on the UID — the inner map is keyed on PhaseUid
+  // directly.  Higher-priority states win on subsequent writes
+  // (`std::max` on the underlying char which is ordered by GridCell
+  // priority).
+  auto [it, inserted] = cells.try_emplace(phase_uid, ch);
+  if (!inserted) {
+    it->second = std::max(it->second, ch);
+  }
 }
 
 std::string PhaseGridRecorder::to_json() const
@@ -49,15 +50,33 @@ std::string PhaseGridRecorder::to_json() const
   json += R"(    "rows": [)"
           "\n";
   bool first = true;
-  for (const auto& [key, row] : m_rows_) {
+  for (const auto& [key, cells] : m_rows_) {
     if (!first) {
       json += ",\n";
     }
     first = false;
-    json += std::format(R"(      {{"i": {}, "s": {}, "cells": "{}"}})",
+    // Emit `cells` as a UID-keyed JSON object — one entry per recorded
+    // PhaseUid, no UID arithmetic anywhere.  The inner `std::map<
+    // PhaseUid, char>` already iterates in sorted-UID order, so the
+    // resulting JSON object preserves a stable column ordering for
+    // any downstream consumer that wants to render the row positionally.
+    // The TUI consumer (`scripts/run_gtopt/_tui.py::load_from_status`)
+    // is updated in lock-step to read this object form.  Treating the
+    // cells as a map (rather than a packed positional string) is what
+    // a `PhaseUid` is meant for: an opaque identifier you look up,
+    // never index-arithmetic into.
+    json += std::format(R"(      {{"i": {}, "s": {}, "cells": {{)",
                         key.iteration_uid,
-                        key.scene_uid,
-                        row);
+                        key.scene_uid);
+    bool first_cell = true;
+    for (const auto& [uid, ch] : cells) {
+      if (!first_cell) {
+        json += ", ";
+      }
+      first_cell = false;
+      json += std::format(R"("{}": "{}")", value_of(uid), std::string(1, ch));
+    }
+    json += "}}";
   }
   json += "\n    ]\n";
   json += "  }\n";

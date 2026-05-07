@@ -1247,12 +1247,15 @@ Scenario (probability)
 | `input_format` | `"parquet"` (default) | Preferred input format; falls back to the other format |
 | `output_directory` | `"output"` (default) | Root directory for solution output files |
 | `output_format` | `"parquet"` (default) | Output file format (`"parquet"` or `"csv"`) |
-| `output_compression` | `"zstd"` (default) | Parquet/CSV compression codec (`"zstd"`, `"gzip"`, `"lzo"`, `"uncompressed"`) |
+| `output_compression` | `"snappy"` (default) | Parquet/CSV compression codec (`"snappy"`, `"zstd"`, `"gzip"`, `"lzo"`, `"uncompressed"`) |
 | `memory_codec` | `"lz4"` (default) | In-memory compression for LP snapshots in low-memory/SDDP mode (`"lz4"`, `"zstd"`, `"snappy"`, `"none"`) |
 
-> **Codec policy**: use **zstd** for file I/O (best ratio) and **lz4** for
-> in-memory compression (fastest round-trip). Both `libzstd-dev` and
-> `liblz4-dev` are required build dependencies.
+> **Codec policy**: use **snappy** for Parquet output (fast
+> encode/decode, broadly-supported Arrow default), **zstd** for LP
+> debug dumps (`lp_compression`, ratio matters), and **lz4** for
+> in-memory snapshots (`memory_codec`, fastest round-trip).
+> `libsnappy1v5` ships with Arrow; `libzstd-dev` and `liblz4-dev`
+> are required build dependencies.
 
 ### Simulation-Level Fields
 

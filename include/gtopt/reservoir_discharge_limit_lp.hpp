@@ -29,12 +29,14 @@
 #include <gtopt/reservoir_discharge_limit.hpp>
 #include <gtopt/reservoir_lp.hpp>
 #include <gtopt/sddp_common.hpp>
+#include <gtopt/update_context.hpp>
 #include <gtopt/waterway_lp.hpp>
 
 namespace gtopt
 {
 
 class SystemLP;
+class SimulationLP;
 
 /**
  * @brief LP wrapper for ReservoirDischargeLimit constraints
@@ -91,6 +93,9 @@ public:
     ColIndex efin_col {};
     Real current_slope {0.0};
     Real current_rhs {0.0};
+    /// Cached reservoir refs so `update_lp` doesn't need
+    /// `sys.element<ReservoirLP>(reservoir_sid())` on the current sys.
+    ReservoirRefCache reservoir_cache {};
   };
 
 private:

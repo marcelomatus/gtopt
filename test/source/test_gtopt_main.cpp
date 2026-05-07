@@ -1115,7 +1115,7 @@ TEST_CASE(  // NOLINT
   for (const auto& solver_name : solvers) {
     CAPTURE(solver_name);
 
-    SUBCASE(std::string(solver_name).c_str())
+    SUBCASE(solver_name.c_str())
     {
       const auto stem = write_tmp_json(
           as_label("gtopt_main_solver_log", solver_name), minimal_json);
@@ -1141,9 +1141,7 @@ TEST_CASE(  // NOLINT
       if (std::filesystem::exists(log_dir)) {
         for (const auto& entry : std::filesystem::directory_iterator(log_dir)) {
           const auto name = entry.path().filename().string();
-          if (name.starts_with(std::string(solver_name))
-              && name.ends_with(".log"))
-          {
+          if (name.starts_with(solver_name) && name.ends_with(".log")) {
             found_log = true;
             CHECK(std::filesystem::file_size(entry.path()) > 0);
             break;

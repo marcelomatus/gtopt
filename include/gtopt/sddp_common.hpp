@@ -16,7 +16,9 @@
 #include <format>
 #include <map>
 #include <mutex>
+#include <optional>
 #include <string>
+#include <string_view>
 
 #include <gtopt/as_label.hpp>
 #include <gtopt/basic_types.hpp>
@@ -44,7 +46,73 @@ struct PhaseStateInfo;
 // The bracketed key is easy to parse in run_gtopt:
 //   re.compile(r"SDDP (\w+) \[i(\d+) s(\d+) p(\d+)(?:\s+a(\d+))?\]")
 //
-// Parameters accept any formattable type (int, SceneUid, PhaseUid, etc.).
+// `sddp_log(...)` returns a lightweight `SDDPLogTag` aggregate (string_view
+// + a few uids — no heap alloc).  When passed to `spdlog::info("{}: …", …)`
+// or `std::format("{}: …", …)`, the `std::formatter<SDDPLogTag>`
+// specialization at the bottom of this header materialises the
+// `"SDDP Forward [i1 s1 p2]"` string ONLY when the formatter is actually
+// invoked — i.e. AFTER spdlog's runtime level filter has decided to emit.
+// Under `--quiet` or any sub-INFO level, no string is built.
+//
+// Implicit conversion to `std::string` is provided so legacy call sites
+// like `li.set_log_tag(sddp_log(...))` keep working unchanged.
+
+/// Lazy SDDP log-prefix tag.  Holds string_view + uids; materialises into
+/// "SDDP Forward [i1 s1 p2]" form only when formatted.
+struct SDDPLogTag
+{
+  std::string_view tag;
+  IterationUid iteration_uid;
+  std::optional<SceneUid> scene_uid;
+  std::optional<PhaseUid> phase_uid;
+  std::optional<Uid> aperture_uid;
+
+  /// Eager materialisation for legacy callers (`set_log_tag(sddp_log(…))`,
+  /// `auto prefix = sddp_log(…)`).  Format-arg consumers go through
+  /// `std::formatter<SDDPLogTag>` instead and never hit this conversion.
+  ///
+  /// Implicit conversion (no `explicit`) keeps existing call sites
+  /// compiling without changes.  The formatter takes precedence over
+  /// the implicit conversion in `std::format` overload resolution.
+  // NOLINTNEXTLINE(google-explicit-constructor,hicpp-explicit-conversions)
+  [[nodiscard]] operator std::string() const
+  {
+    if (aperture_uid.has_value()) {
+      return as_label<void>("SDDP ",
+                            tag,
+                            " [i",
+                            iteration_uid,
+                            ' ',
+                            's',
+                            *scene_uid,
+                            ' ',
+                            'p',
+                            *phase_uid,
+                            ' ',
+                            'a',
+                            *aperture_uid,
+                            ']');
+    }
+    if (phase_uid.has_value()) {
+      return as_label<void>("SDDP ",
+                            tag,
+                            " [i",
+                            iteration_uid,
+                            ' ',
+                            's',
+                            *scene_uid,
+                            ' ',
+                            'p',
+                            *phase_uid,
+                            ']');
+    }
+    if (scene_uid.has_value()) {
+      return as_label<void>(
+          "SDDP ", tag, " [i", iteration_uid, ' ', 's', *scene_uid, ']');
+    }
+    return as_label<void>("SDDP ", tag, " [i", iteration_uid, ']');
+  }
+};
 
 /// "SDDP Forward [i1 s1 p2]" — with phase tag and per-phase key.
 /// Strict-typed UID-only signature: callers pass ``IterationUid`` /
@@ -54,63 +122,61 @@ struct PhaseStateInfo;
 /// ``gtopt::uid_of(...)`` at the call site, mirroring the
 /// ``SPDLOG_*("...[i{}]…", gtopt::uid_of(iteration_index), ...)``
 /// pattern used everywhere else in the SDDP code (see PR #459).
-[[nodiscard]] inline std::string sddp_log(std::string_view tag,
-                                          IterationUid iteration_uid,
-                                          SceneUid scene_uid,
-                                          PhaseUid phase_uid)
+[[nodiscard]] inline SDDPLogTag sddp_log(std::string_view tag,
+                                         IterationUid iteration_uid,
+                                         SceneUid scene_uid,
+                                         PhaseUid phase_uid) noexcept
 {
-  return as_label<void>("SDDP ",
-                        tag,
-                        " [i",
-                        iteration_uid,
-                        ' ',
-                        's',
-                        scene_uid,
-                        ' ',
-                        'p',
-                        phase_uid,
-                        ']');
+  return SDDPLogTag {
+      .tag = tag,
+      .iteration_uid = iteration_uid,
+      .scene_uid = scene_uid,
+      .phase_uid = phase_uid,
+      .aperture_uid = std::nullopt,
+  };
 }
 
 /// "SDDP Aperture [i1 s1 p2 a5]" — with aperture uid appended.
-/// ``Uid`` for aperture (no strong typedef yet).  Same UID-only
-/// contract as the 4-arg overload.
-[[nodiscard]] inline std::string sddp_log(std::string_view tag,
-                                          IterationUid iteration_uid,
-                                          SceneUid scene_uid,
-                                          PhaseUid phase_uid,
-                                          Uid aperture_uid)
+[[nodiscard]] inline SDDPLogTag sddp_log(std::string_view tag,
+                                         IterationUid iteration_uid,
+                                         SceneUid scene_uid,
+                                         PhaseUid phase_uid,
+                                         Uid aperture_uid) noexcept
 {
-  return as_label<void>("SDDP ",
-                        tag,
-                        " [i",
-                        iteration_uid,
-                        ' ',
-                        's',
-                        scene_uid,
-                        ' ',
-                        'p',
-                        phase_uid,
-                        ' ',
-                        'a',
-                        aperture_uid,
-                        ']');
+  return SDDPLogTag {
+      .tag = tag,
+      .iteration_uid = iteration_uid,
+      .scene_uid = scene_uid,
+      .phase_uid = phase_uid,
+      .aperture_uid = aperture_uid,
+  };
 }
 
 /// "SDDP Forward [i1 s1]" — scene-level (no phase).
-[[nodiscard]] inline std::string sddp_log(std::string_view tag,
-                                          IterationUid iteration_uid,
-                                          SceneUid scene_uid)
+[[nodiscard]] inline SDDPLogTag sddp_log(std::string_view tag,
+                                         IterationUid iteration_uid,
+                                         SceneUid scene_uid) noexcept
 {
-  return as_label<void>(
-      "SDDP ", tag, " [i", iteration_uid, ' ', 's', scene_uid, ']');
+  return SDDPLogTag {
+      .tag = tag,
+      .iteration_uid = iteration_uid,
+      .scene_uid = scene_uid,
+      .phase_uid = std::nullopt,
+      .aperture_uid = std::nullopt,
+  };
 }
 
 /// "SDDP Init [i1]" — iteration-level only.
-[[nodiscard]] inline std::string sddp_log(std::string_view tag,
-                                          IterationUid iteration_uid)
+[[nodiscard]] inline SDDPLogTag sddp_log(std::string_view tag,
+                                         IterationUid iteration_uid) noexcept
 {
-  return as_label<void>("SDDP ", tag, " [i", iteration_uid, ']');
+  return SDDPLogTag {
+      .tag = tag,
+      .iteration_uid = iteration_uid,
+      .scene_uid = std::nullopt,
+      .phase_uid = std::nullopt,
+      .aperture_uid = std::nullopt,
+  };
 }
 
 // ─── Phase grid recorder ────────────────────────────────────────────────────
@@ -140,10 +206,15 @@ class PhaseGridRecorder
 public:
   /// Record a phase activity.  Higher-priority states overwrite lower ones.
   ///
-  /// All three identifiers are 1-based UIDs (the same convention used in
-  /// the `[iN sM pK]` log prefixes and the JSON output below).  Callers
-  /// convert from internal `IterationIndex` / `SceneIndex` / `PhaseIndex`
-  /// at the call site via `gtopt::uid_of(...)` / `sim.uid_of(...)`.
+  /// All three identifiers are stored as UIDs — the recorder never
+  /// performs arithmetic on them and never assumes a particular
+  /// numeric layout.  Internally, per-row activity is held in a
+  /// `std::map<PhaseUid, char>` keyed by `PhaseUid`; `to_json()` emits
+  /// the inner map in sorted-UID order, so the resulting `"cells"`
+  /// string positions correspond to the natural PhaseUid ordering
+  /// (typically 1-based contiguous, but the recorder no longer
+  /// depends on that — it only requires that `PhaseUid::operator<`
+  /// gives the desired column order).
   void record(IterationUid iteration_uid,
               SceneUid scene_uid,
               PhaseUid phase_uid,
@@ -151,6 +222,10 @@ public:
 
   /// Return a snapshot of the grid as a JSON fragment (no trailing comma).
   /// Format: "phase_grid": {"rows": [{"i":0,"s":0,"cells":"FF.FB..."}, ...]}
+  /// Cells are emitted in PhaseUid-sorted order, with '.' filling any
+  /// missing UID slot in `[first_uid, last_uid]` so the position of
+  /// each character corresponds to its PhaseUid offset from the
+  /// minimum UID seen for the row.
   [[nodiscard]] std::string to_json() const;
 
   /// True when at least one cell has been recorded.
@@ -164,8 +239,13 @@ private:
     auto operator<=>(const Key&) const = default;
   };
 
+  /// Per-row activity, keyed by PhaseUid.  `std::map` (not `flat_map`)
+  /// because the recorder is debug telemetry — neither write rate nor
+  /// memory footprint warrants the cache-friendlier flat variant.
+  using PhaseCells = std::map<PhaseUid, char>;
+
   mutable std::mutex m_mutex_;
-  std::map<Key, std::string> m_rows_;
+  std::map<Key, PhaseCells> m_rows_;
 };
 
 // ─── Cost / bound formatting ────────────────────────────────────────────────
@@ -182,23 +262,108 @@ private:
 // prefixed with ``-``; absolute value drives the suffix.  Used by the
 // per-scene "SDDP Forward […]: done, opex=…" line, the iteration-end
 // UB / LB / α summary, and the convergence headline.
-[[nodiscard]] inline auto format_si(double v) -> std::string
+/// Lazy SI-suffix wrapper.  Holds a double; materialises into the
+/// formatted string only when consumed by `{}` (which fires AFTER
+/// spdlog's runtime level filter) or via the implicit
+/// `operator std::string()` for non-format-arg callers.
+///
+/// Used at ~5 sites per (iter, scene, phase) of an SDDP run: forward
+/// `opex=…`, backward `cut z=…→α≥…`, tgt re-solve `z=…`.  On
+/// CEN-scale (16 scen × 51 phases × 30 iter) that's ~120 K
+/// `format_si` evaluations per run; at INFO+ level filter every one
+/// of those allocs is wasted.
+struct FormatSI
 {
-  const double a = std::abs(v);
-  const char* sign = (v < 0.0) ? "-" : "";
-  if (a >= 1e12) {
-    return std::format("{}{:.3f}T", sign, a / 1e12);
+  double value;
+
+  // NOLINTNEXTLINE(google-explicit-constructor,hicpp-explicit-conversions)
+  [[nodiscard]] operator std::string() const
+  {
+    const double a = std::abs(value);
+    const char* sign = (value < 0.0) ? "-" : "";
+    if (a >= 1e12) {
+      return std::format("{}{:.3f}T", sign, a / 1e12);
+    }
+    if (a >= 1e9) {
+      return std::format("{}{:.3f}G", sign, a / 1e9);
+    }
+    if (a >= 1e6) {
+      return std::format("{}{:.2f}M", sign, a / 1e6);
+    }
+    if (a >= 1e3) {
+      return std::format("{}{:.2f}K", sign, a / 1e3);
+    }
+    return std::format("{}{:.4f}", sign, a);
   }
-  if (a >= 1e9) {
-    return std::format("{}{:.3f}G", sign, a / 1e9);
-  }
-  if (a >= 1e6) {
-    return std::format("{}{:.2f}M", sign, a / 1e6);
-  }
-  if (a >= 1e3) {
-    return std::format("{}{:.2f}K", sign, a / 1e3);
-  }
-  return std::format("{}{:.4f}", sign, a);
+};
+
+[[nodiscard]] inline FormatSI format_si(double v) noexcept
+{
+  return FormatSI {v};
 }
 
 }  // namespace gtopt
+
+// ─── std::formatter<SDDPLogTag> ─────────────────────────────────────────────
+//
+// The formatter is invoked by `std::format` / spdlog ONLY after the
+// runtime level filter has decided to emit the line — i.e. under
+// `--quiet` no formatter call is made and no string is built.  The
+// `sddp_log(...)` factory at the top of this header returns this
+// aggregate by value (no heap), so the only allocations on the
+// log path happen here, lazily.
+template<class CharT>
+struct std::formatter<gtopt::SDDPLogTag, CharT>  // NOLINT(cert-dcl58-cpp)
+    : std::formatter<std::basic_string_view<CharT>, CharT>
+{
+  template<class FormatContext>
+  auto format(const gtopt::SDDPLogTag& t, FormatContext& ctx) const
+  {
+    auto out = ctx.out();
+    out = std::format_to(out, "SDDP {} [i{}", t.tag, t.iteration_uid);
+    if (t.scene_uid.has_value()) {
+      out = std::format_to(out, " s{}", *t.scene_uid);
+    }
+    if (t.phase_uid.has_value()) {
+      out = std::format_to(out, " p{}", *t.phase_uid);
+    }
+    if (t.aperture_uid.has_value()) {
+      out = std::format_to(out, " a{}", *t.aperture_uid);
+    }
+    *out++ = ']';
+    return out;
+  }
+};
+
+// ─── std::formatter<FormatSI> ──────────────────────────────────────────────
+//
+// Same lazy-formatter pattern as SDDPLogTag.  Materialises the
+// SI-suffix string only when spdlog's runtime level filter admits the
+// line — at INFO+ filter / `--quiet` mode every per-(iter, scene,
+// phase) `format_si` call site (~5/cell × ~24K cells on Juan-scale)
+// stops paying the alloc cost.
+template<class CharT>
+struct std::formatter<gtopt::FormatSI, CharT>  // NOLINT(cert-dcl58-cpp)
+    : std::formatter<std::basic_string_view<CharT>, CharT>
+{
+  template<class FormatContext>
+  auto format(const gtopt::FormatSI& f, FormatContext& ctx) const
+  {
+    auto out = ctx.out();
+    const double a = std::abs(f.value);
+    const char* sign = (f.value < 0.0) ? "-" : "";
+    if (a >= 1e12) {
+      return std::format_to(out, "{}{:.3f}T", sign, a / 1e12);
+    }
+    if (a >= 1e9) {
+      return std::format_to(out, "{}{:.3f}G", sign, a / 1e9);
+    }
+    if (a >= 1e6) {
+      return std::format_to(out, "{}{:.2f}M", sign, a / 1e6);
+    }
+    if (a >= 1e3) {
+      return std::format_to(out, "{}{:.2f}K", sign, a / 1e3);
+    }
+    return std::format_to(out, "{}{:.4f}", sign, a);
+  }
+};

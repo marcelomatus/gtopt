@@ -28,11 +28,13 @@ TEST_CASE("SystemLP 1")
   using Uid = Uid;
   const Array<Bus> bus_array = {{.uid = Uid {1}, .name = "b1"}};
   const Array<Demand> demand_array = {
-      {.uid = Uid {1},
-       .name = "b1",
-       .bus = Uid {1},
-       .forced = true,
-       .capacity = 100.0},
+      {
+          .uid = Uid {1},
+          .name = "b1",
+          .bus = Uid {1},
+          .forced = true,
+          .capacity = 100.0,
+      },
   };
   const Array<Generator> generator_array = {
       {
@@ -485,18 +487,22 @@ TEST_CASE(
 {
   const Array<Bus> bus_array = {{.uid = Uid {1}, .name = "b1"}};
   const Array<Demand> demand_array = {
-      {.uid = Uid {1},
-       .name = "d1",
-       .bus = Uid {1},
-       .forced = true,
-       .capacity = 100.0},
+      {
+          .uid = Uid {1},
+          .name = "d1",
+          .bus = Uid {1},
+          .forced = true,
+          .capacity = 100.0,
+      },
   };
   const Array<Generator> generator_array = {
-      {.uid = Uid {1},
-       .name = "g1",
-       .bus = Uid {1},
-       .gcost = 50.0,
-       .capacity = 1000.0},
+      {
+          .uid = Uid {1},
+          .name = "g1",
+          .bus = Uid {1},
+          .gcost = 50.0,
+          .capacity = 1000.0,
+      },
   };
   const Simulation simulation = {
       .block_array = {{.uid = Uid {1}, .duration = 1}},

@@ -812,6 +812,18 @@ void PlanningLP::tighten_scene_phase_links(phase_systems_t& phase_systems,
     links.clear();
     links.shrink_to_fit();
   }
+
+  // Drop write-out-only collections under compress / rebuild modes.
+  // `physical_eini_from_cache` reads `li.get_col_sol()[eini_col]`
+  // directly from the current sys — no element lookup, no
+  // cross-phase traversal, no StateVariable lookup.  All 22
+  // non-HasUpdateLP `Collection<X>` types are therefore dead weight
+  // after `add_to_lp` + `flatten`.  `write_out` calls
+  // `rebuild_collections_if_needed()` to revive every type from the
+  // parsed `System` data when needed.
+  for (auto&& sys : phase_systems) {
+    sys.clear_disposable_collections();
+  }
 }
 
 auto PlanningLP::create_systems(System& system,
@@ -1436,7 +1448,19 @@ void PlanningLP::write_out()
     // Fast path A: sim-pass cells already wrote output — skip
     // ensure_lp_built entirely so we don't needlessly rehydrate the
     // backend just to find m_output_written_ == true.
+    //
+    // Drop the per-cell scratch (label metadata + flat-LP snapshot)
+    // here too: the sim-pass write_out path doesn't drop them, and
+    // PlanningLP::resolve() is the last LP-touching step in the run,
+    // so no future caller will reconstruct.  This mirrors the slow
+    // path / Fast Path B drops below — without it, sim-pass cells
+    // would leak ~1 MB compressed label-meta + ~3-5 MB compressed
+    // snapshot per cell to end-of-run.  Both calls are idempotent
+    // (the snapshot was already dropped by the sim-pass mid-run
+    // hook in `sddp_iteration.cpp::run_scene_simulation` cleanup).
     if (system.output_written()) {
+      system.linear_interface().drop_label_meta_buffers();
+      system.linear_interface().clear_snapshot();
       return;
     }
     // Fast path B: under any non-`off` low_memory mode, Phase 2a
@@ -1461,12 +1485,22 @@ void PlanningLP::write_out()
       // ~1 MB compressed per cell × 816 cells = ~800 MB freed on
       // juan-scale runs, just before the writer thread exits.
       system.linear_interface().drop_label_meta_buffers();
+      // Opportunity A — drop the compressed flat-LP snapshot now that
+      // the cell's parquet output is written.  `PlanningLP::resolve()`
+      // is the last LP-touching step in the run, so no future caller
+      // will reconstruct this cell.  At ~3-5 MB compressed × 816 cells
+      // on Juan-scale this frees ~3-4 GB of RSS just before the writer
+      // thread exits.  Safe because the only remaining consumers
+      // (status JSON, post-resolve aggregations) read cached scalars
+      // from `m_cache_`, not the flat-LP snapshot.
+      system.linear_interface().clear_snapshot();
       return;
     }
     system.ensure_lp_built();
     system.write_out();
     system.release_backend();
     system.linear_interface().drop_label_meta_buffers();
+    system.linear_interface().clear_snapshot();
   };
 
   for (auto&& [scene_num, phase_systems] : enumerate<SceneIndex>(m_systems_)) {

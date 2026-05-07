@@ -311,7 +311,7 @@ TEST_CASE(
   // of the backend doesn't matter.
   const auto solvers = reg.available_solvers();
   REQUIRE_FALSE(solvers.empty());
-  const std::string solver_name = solvers.front();
+  const auto& solver_name = solvers.front();
 
   constexpr int num_threads = 16;
   constexpr int creates_per_thread = 4;

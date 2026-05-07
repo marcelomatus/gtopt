@@ -312,8 +312,8 @@ template<typename T>
        "shorthand for --set output_format=<fmt>")  //
       ("output-compression,C",
        po::value<std::string>(),
-       "Parquet output compression codec: zstd | gzip | snappy | none "
-       "(default: zstd); shorthand for --set output_compression=<codec>")  //
+       "Parquet output compression codec: snappy | zstd | gzip | none "
+       "(default: snappy); shorthand for --set output_compression=<codec>")  //
       ("use-single-bus,b",
        po::value<bool>().implicit_value(/*v=*/true),
        "copper-plate (single-bus) mode: ignore network topology and line "

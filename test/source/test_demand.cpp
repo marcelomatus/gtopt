@@ -1168,10 +1168,12 @@ TEST_CASE("DemandProfileLP - load bound by profile times capacity")
   // The profile constraint is:   unserved + load = capacity * profile
   // With a cheap generator and a large demand_fail_cost, the optimiser
   // prefers to serve rather than shed, so unserved = 0 and load = 50.
-  const Array<Bus> bus_array = {{
-      .uid = Uid {1},
-      .name = "b1",
-  }};
+  const Array<Bus> bus_array = {
+      {
+          .uid = Uid {1},
+          .name = "b1",
+      },
+  };
 
   const Array<Generator> generator_array = {
       {
@@ -1202,18 +1204,27 @@ TEST_CASE("DemandProfileLP - load bound by profile times capacity")
   };
 
   const Simulation simulation = {
-      .block_array = {{
-          .uid = Uid {1},
-          .duration = 1,
-      }},
-      .stage_array = {{
-          .uid = Uid {1},
-          .first_block = 0,
-          .count_block = 1,
-      }},
-      .scenario_array = {{
-          .uid = Uid {0},
-      }},
+      .block_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .duration = 1,
+              },
+          },
+      .stage_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .first_block = 0,
+                  .count_block = 1,
+              },
+          },
+      .scenario_array =
+          {
+              {
+                  .uid = Uid {0},
+              },
+          },
   };
 
   const System system = {
@@ -1271,10 +1282,12 @@ TEST_CASE("DemandLP — capainst primal col_sol pinned by expmod module count")
   //     `capainst = expcap * expmod_col`, and the expansion-module
   //     formulation pins `expmod_col = 1`, so `capainst = 40`.
   //   - `demand_fail_cost = 1000` so the balance row is emitted.
-  const Array<Bus> bus_array = {{
-      .uid = Uid {1},
-      .name = "b1",
-  }};
+  const Array<Bus> bus_array = {
+      {
+          .uid = Uid {1},
+          .name = "b1",
+      },
+  };
 
   const Array<Generator> generator_array = {
       {
@@ -1299,18 +1312,27 @@ TEST_CASE("DemandLP — capainst primal col_sol pinned by expmod module count")
   };
 
   const Simulation simulation = {
-      .block_array = {{
-          .uid = Uid {1},
-          .duration = 1,
-      }},
-      .stage_array = {{
-          .uid = Uid {1},
-          .first_block = 0,
-          .count_block = 1,
-      }},
-      .scenario_array = {{
-          .uid = Uid {0},
-      }},
+      .block_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .duration = 1,
+              },
+          },
+      .stage_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .first_block = 0,
+                  .count_block = 1,
+              },
+          },
+      .scenario_array =
+          {
+              {
+                  .uid = Uid {0},
+              },
+          },
   };
 
   PlanningOptions opts;

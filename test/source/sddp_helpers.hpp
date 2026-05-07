@@ -1379,10 +1379,12 @@ inline auto make_tight_reservoir_3phase_planning() -> Planning
   auto phase_array =
       make_single_stage_phases(static_cast<std::size_t>(num_phases));
 
-  const Array<Bus> bus_array = {{
-      .uid = Uid {1},
-      .name = "b1",
-  }};
+  const Array<Bus> bus_array = {
+      {
+          .uid = Uid {1},
+          .name = "b1",
+      },
+  };
   const Array<Generator> generator_array = {
       {
           .uid = Uid {1},
@@ -1399,12 +1401,14 @@ inline auto make_tight_reservoir_3phase_planning() -> Planning
           .capacity = 500.0,
       },
   };
-  const Array<Demand> demand_array = {{
-      .uid = Uid {1},
-      .name = "load1",
-      .bus = Uid {1},
-      .capacity = 80.0,
-  }};
+  const Array<Demand> demand_array = {
+      {
+          .uid = Uid {1},
+          .name = "load1",
+          .bus = Uid {1},
+          .capacity = 80.0,
+      },
+  };
   const Array<Junction> junction_array = {
       {
           .uid = Uid {1},
@@ -1416,47 +1420,58 @@ inline auto make_tight_reservoir_3phase_planning() -> Planning
           .drain = true,
       },
   };
-  const Array<Waterway> waterway_array = {{
-      .uid = Uid {1},
-      .name = "ww1",
-      .junction_a = Uid {1},
-      .junction_b = Uid {2},
-      .fmin = 0.0,
-      .fmax = 100.0,
-  }};
-  const Array<Reservoir> reservoir_array = {{
-      .uid = Uid {1},
-      .name = "rsv1",
-      .junction = Uid {1},
-      .capacity = 15.0,
-      .emin = 0.0,
-      .emax = 15.0,
-      .eini = 5.0,
-      .fmin = -1000.0,
-      .fmax = +1000.0,
-      .flow_conversion_rate = 1.0,
-  }};
-  const Array<Flow> flow_array = {{
-      .uid = Uid {1},
-      .name = "inflow",
-      .direction = 1,
-      .junction = Uid {1},
-      .discharge = 10.0,
-  }};
-  const Array<Turbine> turbine_array = {{
-      .uid = Uid {1},
-      .name = "tur1",
-      .waterway = Uid {1},
-      .generator = Uid {1},
-      .production_factor = 1.0,
-  }};
+  const Array<Waterway> waterway_array = {
+      {
+          .uid = Uid {1},
+          .name = "ww1",
+          .junction_a = Uid {1},
+          .junction_b = Uid {2},
+          .fmin = 0.0,
+          .fmax = 100.0,
+      },
+  };
+  const Array<Reservoir> reservoir_array = {
+      {
+          .uid = Uid {1},
+          .name = "rsv1",
+          .junction = Uid {1},
+          .capacity = 15.0,
+          .emin = 0.0,
+          .emax = 15.0,
+          .eini = 5.0,
+          .fmin = -1000.0,
+          .fmax = +1000.0,
+          .flow_conversion_rate = 1.0,
+      },
+  };
+  const Array<Flow> flow_array = {
+      {
+          .uid = Uid {1},
+          .name = "inflow",
+          .direction = 1,
+          .junction = Uid {1},
+          .discharge = 10.0,
+      },
+  };
+  const Array<Turbine> turbine_array = {
+      {
+          .uid = Uid {1},
+          .name = "tur1",
+          .waterway = Uid {1},
+          .generator = Uid {1},
+          .production_factor = 1.0,
+      },
+  };
 
   Simulation simulation = {
       .block_array = std::move(block_array),
       .stage_array = std::move(stage_array),
-      .scenario_array = {{
-          .uid = Uid {1},
-      }},
+      .scenario_array =
+          {
+              {
+                  .uid = Uid {1},
+              },
+          },
       .phase_array = std::move(phase_array),
   };
 
@@ -1521,10 +1536,12 @@ inline auto make_forced_infeasibility_planning() -> Planning
   auto phase_array =
       make_single_stage_phases(static_cast<std::size_t>(num_phases));
 
-  const Array<Bus> bus_array = {{
-      .uid = Uid {1},
-      .name = "b1",
-  }};
+  const Array<Bus> bus_array = {
+      {
+          .uid = Uid {1},
+          .name = "b1",
+      },
+  };
   const Array<Generator> generator_array = {
       {
           .uid = Uid {1},
@@ -1541,12 +1558,14 @@ inline auto make_forced_infeasibility_planning() -> Planning
           .capacity = 500.0,
       },
   };
-  const Array<Demand> demand_array = {{
-      .uid = Uid {1},
-      .name = "load1",
-      .bus = Uid {1},
-      .capacity = 80.0,
-  }};
+  const Array<Demand> demand_array = {
+      {
+          .uid = Uid {1},
+          .name = "load1",
+          .bus = Uid {1},
+          .capacity = 80.0,
+      },
+  };
   const Array<Junction> junction_array = {
       {
           .uid = Uid {1},
@@ -1565,50 +1584,61 @@ inline auto make_forced_infeasibility_planning() -> Planning
   // phases 1+2 is 16 hm³; with eini0 = 60 the converged solution leaves
   // ≥ 16 hm³ for downstream phases, well within the reservoir's
   // 100 hm³ capacity.
-  const Array<Waterway> waterway_array = {{
-      .uid = Uid {1},
-      .name = "ww1",
-      .junction_a = Uid {1},
-      .junction_b = Uid {2},
-      .fmin = 2.0,
-      .fmax = 100.0,
-  }};
-  const Array<Reservoir> reservoir_array = {{
-      .uid = Uid {1},
-      .name = "rsv1",
-      .junction = Uid {1},
-      .capacity = 100.0,
-      .emin = 0.0,
-      .emax = 100.0,
-      .eini = 60.0,
-      .fmin = -1000.0,
-      .fmax = +1000.0,
-      .flow_conversion_rate = 1.0,
-  }};
+  const Array<Waterway> waterway_array = {
+      {
+          .uid = Uid {1},
+          .name = "ww1",
+          .junction_a = Uid {1},
+          .junction_b = Uid {2},
+          .fmin = 2.0,
+          .fmax = 100.0,
+      },
+  };
+  const Array<Reservoir> reservoir_array = {
+      {
+          .uid = Uid {1},
+          .name = "rsv1",
+          .junction = Uid {1},
+          .capacity = 100.0,
+          .emin = 0.0,
+          .emax = 100.0,
+          .eini = 60.0,
+          .fmin = -1000.0,
+          .fmax = +1000.0,
+          .flow_conversion_rate = 1.0,
+      },
+  };
   // Small natural inflow keeps the problem solvable on iter 1+:
   // 1 hm³/h × 4h = 4 hm³ per phase, enough that phase 2 can satisfy
   // its own fmin (8 hm³) once phase 1 leaves ≥ 4 hm³ as state.
-  const Array<Flow> flow_array = {{
-      .uid = Uid {1},
-      .name = "inflow",
-      .direction = 1,
-      .junction = Uid {1},
-      .discharge = 1.0,
-  }};
-  const Array<Turbine> turbine_array = {{
-      .uid = Uid {1},
-      .name = "tur1",
-      .waterway = Uid {1},
-      .generator = Uid {1},
-      .production_factor = 1.0,
-  }};
+  const Array<Flow> flow_array = {
+      {
+          .uid = Uid {1},
+          .name = "inflow",
+          .direction = 1,
+          .junction = Uid {1},
+          .discharge = 1.0,
+      },
+  };
+  const Array<Turbine> turbine_array = {
+      {
+          .uid = Uid {1},
+          .name = "tur1",
+          .waterway = Uid {1},
+          .generator = Uid {1},
+          .production_factor = 1.0,
+      },
+  };
 
   Simulation simulation = {
       .block_array = std::move(block_array),
       .stage_array = std::move(stage_array),
-      .scenario_array = {{
-          .uid = Uid {1},
-      }},
+      .scenario_array =
+          {
+              {
+                  .uid = Uid {1},
+              },
+          },
       .phase_array = std::move(phase_array),
   };
 
@@ -1685,10 +1715,12 @@ inline auto make_two_reservoir_forced_infeasibility_planning() -> Planning
   auto phase_array =
       make_single_stage_phases(static_cast<std::size_t>(num_phases));
 
-  const Array<Bus> bus_array = {{
-      .uid = Uid {1},
-      .name = "b1",
-  }};
+  const Array<Bus> bus_array = {
+      {
+          .uid = Uid {1},
+          .name = "b1",
+      },
+  };
   const Array<Generator> generator_array = {
       {
           .uid = Uid {1},
@@ -1712,12 +1744,14 @@ inline auto make_two_reservoir_forced_infeasibility_planning() -> Planning
           .capacity = 500.0,
       },
   };
-  const Array<Demand> demand_array = {{
-      .uid = Uid {1},
-      .name = "load1",
-      .bus = Uid {1},
-      .capacity = 80.0,
-  }};
+  const Array<Demand> demand_array = {
+      {
+          .uid = Uid {1},
+          .name = "load1",
+          .bus = Uid {1},
+          .capacity = 80.0,
+      },
+  };
 
   // Two parallel hydro systems sharing a common downstream drain.
   // Each reservoir has its own upstream junction; both discharge
@@ -1829,9 +1863,12 @@ inline auto make_two_reservoir_forced_infeasibility_planning() -> Planning
   Simulation simulation = {
       .block_array = std::move(block_array),
       .stage_array = std::move(stage_array),
-      .scenario_array = {{
-          .uid = Uid {1},
-      }},
+      .scenario_array =
+          {
+              {
+                  .uid = Uid {1},
+              },
+          },
       .phase_array = std::move(phase_array),
   };
 
@@ -1942,10 +1979,12 @@ inline auto make_backtracking_recovery_planning() -> Planning
   std::vector<std::vector<std::vector<double>>> inflow_schedule_3d;
   inflow_schedule_3d.push_back(std::move(inflow_schedule_2d));
 
-  const Array<Bus> bus_array = {{
-      .uid = Uid {1},
-      .name = "b1",
-  }};
+  const Array<Bus> bus_array = {
+      {
+          .uid = Uid {1},
+          .name = "b1",
+      },
+  };
   const Array<Generator> generator_array = {
       {
           .uid = Uid {1},
@@ -1962,36 +2001,42 @@ inline auto make_backtracking_recovery_planning() -> Planning
           .capacity = 30.0,
       },
   };
-  const Array<Demand> demand_array = {{
-      .uid = Uid {1},
-      .name = "load1",
-      .bus = Uid {1},
-      .capacity = 20.0,
-  }};
+  const Array<Demand> demand_array = {
+      {
+          .uid = Uid {1},
+          .name = "load1",
+          .bus = Uid {1},
+          .capacity = 20.0,
+      },
+  };
   const Array<Junction> junction_array = {
       {.uid = Uid {1}, .name = "j_up"},
       {.uid = Uid {2}, .name = "j_down", .drain = true},
   };
-  const Array<Waterway> waterway_array = {{
-      .uid = Uid {1},
-      .name = "ww1",
-      .junction_a = Uid {1},
-      .junction_b = Uid {2},
-      .fmin = 0.0,
-      .fmax = 100.0,
-  }};
-  const Array<Reservoir> reservoir_array = {{
-      .uid = Uid {1},
-      .name = "rsv1",
-      .junction = Uid {1},
-      .capacity = 200.0,
-      .emin = emin_per_stage,
-      .emax = 200.0,
-      .eini = 120.0,
-      .fmin = -1000.0,
-      .fmax = +1000.0,
-      .flow_conversion_rate = 1.0,
-  }};
+  const Array<Waterway> waterway_array = {
+      {
+          .uid = Uid {1},
+          .name = "ww1",
+          .junction_a = Uid {1},
+          .junction_b = Uid {2},
+          .fmin = 0.0,
+          .fmax = 100.0,
+      },
+  };
+  const Array<Reservoir> reservoir_array = {
+      {
+          .uid = Uid {1},
+          .name = "rsv1",
+          .junction = Uid {1},
+          .capacity = 200.0,
+          .emin = emin_per_stage,
+          .emax = 200.0,
+          .eini = 120.0,
+          .fmin = -1000.0,
+          .fmax = +1000.0,
+          .flow_conversion_rate = 1.0,
+      },
+  };
   Array<Flow> flow_array;
   {
     Flow flow_obj;
@@ -2002,13 +2047,15 @@ inline auto make_backtracking_recovery_planning() -> Planning
     flow_obj.discharge = STBRealFieldSched {inflow_schedule_3d};
     flow_array.push_back(std::move(flow_obj));
   }
-  const Array<Turbine> turbine_array = {{
-      .uid = Uid {1},
-      .name = "tur1",
-      .waterway = Uid {1},
-      .generator = Uid {1},
-      .production_factor = 1.0,
-  }};
+  const Array<Turbine> turbine_array = {
+      {
+          .uid = Uid {1},
+          .name = "tur1",
+          .waterway = Uid {1},
+          .generator = Uid {1},
+          .production_factor = 1.0,
+      },
+  };
 
   Simulation simulation = {
       .block_array = std::move(block_array),
@@ -2166,10 +2213,12 @@ inline auto make_backtracking_recovery_two_reservoir_planning() -> Planning
   auto inflow_schedule_3d_1 = make_inflow_schedule();
   auto inflow_schedule_3d_2 = make_inflow_schedule();
 
-  const Array<Bus> bus_array = {{
-      .uid = Uid {1},
-      .name = "b1",
-  }};
+  const Array<Bus> bus_array = {
+      {
+          .uid = Uid {1},
+          .name = "b1",
+      },
+  };
   const Array<Generator> generator_array = {
       {
           .uid = Uid {1},
@@ -2197,12 +2246,14 @@ inline auto make_backtracking_recovery_two_reservoir_planning() -> Planning
   // Bigger demand (40 MW per block) so both hydro generators get
   // exercised — otherwise one alone would cover demand and the
   // second reservoir wouldn't participate in the cascade.
-  const Array<Demand> demand_array = {{
-      .uid = Uid {1},
-      .name = "load1",
-      .bus = Uid {1},
-      .capacity = 40.0,
-  }};
+  const Array<Demand> demand_array = {
+      {
+          .uid = Uid {1},
+          .name = "load1",
+          .bus = Uid {1},
+          .capacity = 40.0,
+      },
+  };
   const Array<Junction> junction_array = {
       {.uid = Uid {1}, .name = "j_up1"},
       {.uid = Uid {2}, .name = "j_up2"},
@@ -2389,10 +2440,12 @@ inline auto make_2scene_10phase_two_reservoir_planning() -> Planning
   auto inflow_3d_1 = make_inflow_schedule_2scene();
   auto inflow_3d_2 = make_inflow_schedule_2scene();
 
-  const Array<Bus> bus_array = {{
-      .uid = Uid {1},
-      .name = "b1",
-  }};
+  const Array<Bus> bus_array = {
+      {
+          .uid = Uid {1},
+          .name = "b1",
+      },
+  };
   const Array<Generator> generator_array = {
       {
           .uid = Uid {1},
@@ -2416,12 +2469,14 @@ inline auto make_2scene_10phase_two_reservoir_planning() -> Planning
           .capacity = 30.0,
       },
   };
-  const Array<Demand> demand_array = {{
-      .uid = Uid {1},
-      .name = "load1",
-      .bus = Uid {1},
-      .capacity = 40.0,
-  }};
+  const Array<Demand> demand_array = {
+      {
+          .uid = Uid {1},
+          .name = "load1",
+          .bus = Uid {1},
+          .capacity = 40.0,
+      },
+  };
   const Array<Junction> junction_array = {
       {.uid = Uid {1}, .name = "j_up1"},
       {.uid = Uid {2}, .name = "j_up2"},
@@ -2627,16 +2682,20 @@ inline auto make_2scene_backtracking_recovery_two_reservoir_planning(
       {.uid = Uid {2}, .probability_factor = prob2},
   };
   planning.simulation.scene_array = {
-      {.uid = Uid {1},
-       .name = "scene1",
-       .active = true,
-       .first_scenario = 0,
-       .count_scenario = 1},
-      {.uid = Uid {2},
-       .name = "scene2",
-       .active = true,
-       .first_scenario = 1,
-       .count_scenario = 1},
+      {
+          .uid = Uid {1},
+          .name = "scene1",
+          .active = true,
+          .first_scenario = 0,
+          .count_scenario = 1,
+      },
+      {
+          .uid = Uid {2},
+          .name = "scene2",
+          .active = true,
+          .first_scenario = 1,
+          .count_scenario = 1,
+      },
   };
 
   // Extend each Flow's 3D discharge schedule (scenario × stage ×

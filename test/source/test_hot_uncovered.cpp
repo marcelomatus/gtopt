@@ -117,18 +117,27 @@ TEST_CASE("LineLP inactive bus early return")  // NOLINT
   };
 
   const Simulation simulation = {
-      .block_array = {{
-          .uid = Uid {1},
-          .duration = 1,
-      }},
-      .stage_array = {{
-          .uid = Uid {1},
-          .first_block = 0,
-          .count_block = 1,
-      }},
-      .scenario_array = {{
-          .uid = Uid {0},
-      }},
+      .block_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .duration = 1,
+              },
+          },
+      .stage_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .first_block = 0,
+                  .count_block = 1,
+              },
+          },
+      .scenario_array =
+          {
+              {
+                  .uid = Uid {0},
+              },
+          },
   };
 
   const System system = {
@@ -172,46 +181,67 @@ TEST_CASE("LineLP loop line exercises add_to_output early return")  // NOLINT
           },
       .simulation =
           {
-              .block_array = {{
-                  .uid = Uid {1},
-                  .duration = 1,
-              }},
-              .stage_array = {{
-                  .uid = Uid {1},
-                  .first_block = 0,
-                  .count_block = 1,
-              }},
-              .scenario_array = {{
-                  .uid = Uid {0},
-              }},
+              .block_array =
+                  {
+                      {
+                          .uid = Uid {1},
+                          .duration = 1,
+                      },
+                  },
+              .stage_array =
+                  {
+                      {
+                          .uid = Uid {1},
+                          .first_block = 0,
+                          .count_block = 1,
+                      },
+                  },
+              .scenario_array =
+                  {
+                      {
+                          .uid = Uid {0},
+                      },
+                  },
           },
       .system =
           {
               .name = "LoopLineOutputTest",
-              .bus_array = {{
-                  .uid = Uid {1},
-                  .name = "b1",
-              }},
-              .demand_array = {{
-                  .uid = Uid {1},
-                  .name = "d1",
-                  .bus = Uid {1},
-                  .capacity = 100.0,
-              }},
-              .generator_array = {{
-                  .uid = Uid {1},
-                  .name = "g1",
-                  .bus = Uid {1},
-                  .gcost = 50.0,
-                  .capacity = 200.0,
-              }},
-              .line_array = {{
-                  .uid = Uid {1},
-                  .name = "loop",
-                  .bus_a = Uid {1},
-                  .bus_b = Uid {1},
-                  .capacity = 100.0,
-              }},
+              .bus_array =
+                  {
+                      {
+                          .uid = Uid {1},
+                          .name = "b1",
+                      },
+                  },
+              .demand_array =
+                  {
+                      {
+                          .uid = Uid {1},
+                          .name = "d1",
+                          .bus = Uid {1},
+                          .capacity = 100.0,
+                      },
+                  },
+              .generator_array =
+                  {
+                      {
+                          .uid = Uid {1},
+                          .name = "g1",
+                          .bus = Uid {1},
+                          .gcost = 50.0,
+                          .capacity = 200.0,
+                      },
+                  },
+              .line_array =
+                  {
+                      {
+                          .uid = Uid {1},
+                          .name = "loop",
+                          .bus_a = Uid {1},
+                          .bus_b = Uid {1},
+                          .capacity = 100.0,
+                      },
+                  },
           },
   };
 
@@ -239,18 +269,27 @@ TEST_CASE("LineLP piecewise mode with sender loss allocation")  // NOLINT
           },
       .simulation =
           {
-              .block_array = {{
-                  .uid = Uid {1},
-                  .duration = 1,
-              }},
-              .stage_array = {{
-                  .uid = Uid {1},
-                  .first_block = 0,
-                  .count_block = 1,
-              }},
-              .scenario_array = {{
-                  .uid = Uid {0},
-              }},
+              .block_array =
+                  {
+                      {
+                          .uid = Uid {1},
+                          .duration = 1,
+                      },
+                  },
+              .stage_array =
+                  {
+                      {
+                          .uid = Uid {1},
+                          .first_block = 0,
+                          .count_block = 1,
+                      },
+                  },
+              .scenario_array =
+                  {
+                      {
+                          .uid = Uid {0},
+                      },
+                  },
           },
       .system =
           {
@@ -266,34 +305,43 @@ TEST_CASE("LineLP piecewise mode with sender loss allocation")  // NOLINT
                           .name = "b2",
                       },
                   },
-              .demand_array = {{
-                  .uid = Uid {1},
-                  .name = "d1",
-                  .bus = Uid {2},
-                  .lmax = 100.0,
-                  .capacity = 100.0,
-              }},
-              .generator_array = {{
-                  .uid = Uid {1},
-                  .name = "g1",
-                  .bus = Uid {1},
-                  .gcost = 10.0,
-                  .capacity = 500.0,
-              }},
-              .line_array = {{
-                  .uid = Uid {1},
-                  .name = "l1",
-                  .bus_a = Uid {1},
-                  .bus_b = Uid {2},
-                  .voltage = 100.0,
-                  .resistance = 0.01,
-                  .line_losses_mode = OptName {"piecewise"},
-                  .loss_segments = 3,
-                  .loss_allocation_mode = Name {"sender"},
-                  .tmax_ba = 200.0,
-                  .tmax_ab = 200.0,
-                  .capacity = 200.0,
-              }},
+              .demand_array =
+                  {
+                      {
+                          .uid = Uid {1},
+                          .name = "d1",
+                          .bus = Uid {2},
+                          .lmax = 100.0,
+                          .capacity = 100.0,
+                      },
+                  },
+              .generator_array =
+                  {
+                      {
+                          .uid = Uid {1},
+                          .name = "g1",
+                          .bus = Uid {1},
+                          .gcost = 10.0,
+                          .capacity = 500.0,
+                      },
+                  },
+              .line_array =
+                  {
+                      {
+                          .uid = Uid {1},
+                          .name = "l1",
+                          .bus_a = Uid {1},
+                          .bus_b = Uid {2},
+                          .voltage = 100.0,
+                          .resistance = 0.01,
+                          .line_losses_mode = OptName {"piecewise"},
+                          .loss_segments = 3,
+                          .loss_allocation_mode = Name {"sender"},
+                          .tmax_ba = 200.0,
+                          .tmax_ab = 200.0,
+                          .capacity = 200.0,
+                      },
+                  },
           },
   };
 
@@ -326,18 +374,27 @@ TEST_CASE("LineLP bidirectional mode with sender loss allocation")  // NOLINT
           },
       .simulation =
           {
-              .block_array = {{
-                  .uid = Uid {1},
-                  .duration = 1,
-              }},
-              .stage_array = {{
-                  .uid = Uid {1},
-                  .first_block = 0,
-                  .count_block = 1,
-              }},
-              .scenario_array = {{
-                  .uid = Uid {0},
-              }},
+              .block_array =
+                  {
+                      {
+                          .uid = Uid {1},
+                          .duration = 1,
+                      },
+                  },
+              .stage_array =
+                  {
+                      {
+                          .uid = Uid {1},
+                          .first_block = 0,
+                          .count_block = 1,
+                      },
+                  },
+              .scenario_array =
+                  {
+                      {
+                          .uid = Uid {0},
+                      },
+                  },
           },
       .system =
           {
@@ -353,34 +410,43 @@ TEST_CASE("LineLP bidirectional mode with sender loss allocation")  // NOLINT
                           .name = "b2",
                       },
                   },
-              .demand_array = {{
-                  .uid = Uid {1},
-                  .name = "d1",
-                  .bus = Uid {2},
-                  .lmax = 100.0,
-                  .capacity = 100.0,
-              }},
-              .generator_array = {{
-                  .uid = Uid {1},
-                  .name = "g1",
-                  .bus = Uid {1},
-                  .gcost = 10.0,
-                  .capacity = 500.0,
-              }},
-              .line_array = {{
-                  .uid = Uid {1},
-                  .name = "l1",
-                  .bus_a = Uid {1},
-                  .bus_b = Uid {2},
-                  .voltage = 100.0,
-                  .resistance = 0.01,
-                  .line_losses_mode = OptName {"bidirectional"},
-                  .loss_segments = 3,
-                  .loss_allocation_mode = Name {"sender"},
-                  .tmax_ba = 200.0,
-                  .tmax_ab = 200.0,
-                  .capacity = 200.0,
-              }},
+              .demand_array =
+                  {
+                      {
+                          .uid = Uid {1},
+                          .name = "d1",
+                          .bus = Uid {2},
+                          .lmax = 100.0,
+                          .capacity = 100.0,
+                      },
+                  },
+              .generator_array =
+                  {
+                      {
+                          .uid = Uid {1},
+                          .name = "g1",
+                          .bus = Uid {1},
+                          .gcost = 10.0,
+                          .capacity = 500.0,
+                      },
+                  },
+              .line_array =
+                  {
+                      {
+                          .uid = Uid {1},
+                          .name = "l1",
+                          .bus_a = Uid {1},
+                          .bus_b = Uid {2},
+                          .voltage = 100.0,
+                          .resistance = 0.01,
+                          .line_losses_mode = OptName {"bidirectional"},
+                          .loss_segments = 3,
+                          .loss_allocation_mode = Name {"sender"},
+                          .tmax_ba = 200.0,
+                          .tmax_ab = 200.0,
+                          .capacity = 200.0,
+                      },
+                  },
           },
   };
 
@@ -465,18 +531,27 @@ TEST_CASE("Bare UID column name lookup in Parquet schedule")  // NOLINT
   write_bare_uid_parquet(input_dir, "Generator", "gcost", 1, 42.0);
 
   const Simulation sim = {
-      .block_array = {{
-          .uid = Uid {1},
-          .duration = 1,
-      }},
-      .stage_array = {{
-          .uid = Uid {1},
-          .first_block = 0,
-          .count_block = 1,
-      }},
-      .scenario_array = {{
-          .uid = Uid {0},
-      }},
+      .block_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .duration = 1,
+              },
+          },
+      .stage_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .first_block = 0,
+                  .count_block = 1,
+              },
+          },
+      .scenario_array =
+          {
+              {
+                  .uid = Uid {0},
+              },
+          },
   };
 
   Planning planning = {
@@ -491,24 +566,33 @@ TEST_CASE("Bare UID column name lookup in Parquet schedule")  // NOLINT
       .system =
           {
               .name = "BareUidTest",
-              .bus_array = {{
-                  .uid = Uid {1},
-                  .name = "b1",
-              }},
-              .demand_array = {{
-                  .uid = Uid {1},
-                  .name = "d1",
-                  .bus = Uid {1},
-                  .capacity = 50.0,
-              }},
-              .generator_array = {{
-                  .uid = Uid {1},
-                  .name = "g1",
-                  .bus = Uid {1},
-                  // gcost comes from Parquet file with bare "1" column
-                  .gcost = std::string("gcost"),
-                  .capacity = 100.0,
-              }},
+              .bus_array =
+                  {
+                      {
+                          .uid = Uid {1},
+                          .name = "b1",
+                      },
+                  },
+              .demand_array =
+                  {
+                      {
+                          .uid = Uid {1},
+                          .name = "d1",
+                          .bus = Uid {1},
+                          .capacity = 50.0,
+                      },
+                  },
+              .generator_array =
+                  {
+                      {
+                          .uid = Uid {1},
+                          .name = "g1",
+                          .bus = Uid {1},
+                          // gcost comes from Parquet file with bare "1" column
+                          .gcost = std::string("gcost"),
+                          .capacity = 100.0,
+                      },
+                  },
           },
   };
 
