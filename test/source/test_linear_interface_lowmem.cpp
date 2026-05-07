@@ -2476,11 +2476,14 @@ TEST_CASE(  // NOLINT
   // regression in `next_fallback_algo` (e.g. a stuck cycle) would
   // either short-circuit early or repeat an algorithm without
   // advancing, breaking the count.
-  for (const auto start : {LPAlgo::barrier,
-                           LPAlgo::dual,
-                           LPAlgo::primal,
-                           LPAlgo::default_algo,
-                           LPAlgo::last_algo})
+  for (const auto start :
+       {
+           LPAlgo::barrier,
+           LPAlgo::dual,
+           LPAlgo::primal,
+           LPAlgo::default_algo,
+           LPAlgo::last_algo,
+       })
   {
     LinearInterface li;
     const auto x = li.add_col(SparseCol {

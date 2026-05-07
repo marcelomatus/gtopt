@@ -817,18 +817,27 @@ TEST_CASE(  // NOLINT
   };
 
   const Simulation simulation = {
-      .block_array = {{
-          .uid = Uid {1},
-          .duration = 1,
-      }},
-      .stage_array = {{
-          .uid = Uid {1},
-          .first_block = 0,
-          .count_block = 1,
-      }},
-      .scenario_array = {{
-          .uid = Uid {0},
-      }},
+      .block_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .duration = 1,
+              },
+          },
+      .stage_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .first_block = 0,
+                  .count_block = 1,
+              },
+          },
+      .scenario_array =
+          {
+              {
+                  .uid = Uid {0},
+              },
+          },
   };
 
   const System system = {
@@ -998,18 +1007,27 @@ TEST_CASE(  // NOLINT
   };
 
   const Simulation simulation = {
-      .block_array = {{
-          .uid = Uid {1},
-          .duration = 1,
-      }},
-      .stage_array = {{
-          .uid = Uid {1},
-          .first_block = 0,
-          .count_block = 1,
-      }},
-      .scenario_array = {{
-          .uid = Uid {0},
-      }},
+      .block_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .duration = 1,
+              },
+          },
+      .stage_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .first_block = 0,
+                  .count_block = 1,
+              },
+          },
+      .scenario_array =
+          {
+              {
+                  .uid = Uid {0},
+              },
+          },
   };
 
   const System system = {

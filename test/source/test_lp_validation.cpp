@@ -185,7 +185,7 @@ TEST_CASE("LP validation: warning cap respected")  // NOLINT
 
   size_t warn_lines = 0;
   for (const auto& msg : logs.messages()) {
-    if (msg.find("LP_VALIDATION huge coefficient") != std::string::npos) {
+    if (msg.contains("LP_VALIDATION huge coefficient")) {
       ++warn_lines;
     }
   }

@@ -694,9 +694,11 @@ TEST_CASE(  // NOLINT
     // Multiple volume columns (eini + per-block + sini) should carry scale
     REQUIRE(n_scaled > 0);
 
-    return {.objective = li.get_obj_value_raw(),
-            .max_col_upper = max_upp,
-            .max_col_upper_raw = max_upp_raw};
+    return {
+        .objective = li.get_obj_value_raw(),
+        .max_col_upper = max_upp,
+        .max_col_upper_raw = max_upp_raw,
+    };
   };
 
   // Use scales != 1.0 to distinguish volume columns from unscaled columns
@@ -1295,18 +1297,27 @@ TEST_CASE("JunctionLP drain col primal absorbs flow surplus")  // NOLINT
   };
 
   const Simulation simulation = {
-      .block_array = {{
-          .uid = Uid {1},
-          .duration = 1,
-      }},
-      .stage_array = {{
-          .uid = Uid {1},
-          .first_block = 0,
-          .count_block = 1,
-      }},
-      .scenario_array = {{
-          .uid = Uid {0},
-      }},
+      .block_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .duration = 1,
+              },
+          },
+      .stage_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .first_block = 0,
+                  .count_block = 1,
+              },
+          },
+      .scenario_array =
+          {
+              {
+                  .uid = Uid {0},
+              },
+          },
   };
 
   const System system = {

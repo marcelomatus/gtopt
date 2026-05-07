@@ -504,7 +504,7 @@ TEST_CASE("clone propagates LabelMaker — solver-plugin AND manual routes")
       const auto stem =
           (tmpdir
            / std::string {std::string {"test_clone_lm_"} + route.tag + "_"
-                          + (kind == Kind::deep ? "deep" : "shallow")})
+                          + (kind == Kind::deep ? "deep" : "shallow"),})
               .string();
       REQUIRE(cloned.write_lp(stem).has_value());
       const auto content = read_file(stem + ".lp");

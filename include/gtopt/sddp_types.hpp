@@ -230,30 +230,48 @@ struct CutTag
 /// the seven pass types at the row-metadata level.  These instances
 /// replace the `cut.class_name = …; cut.constraint_name = …;` pair
 /// at every cut-construction site.
-inline constexpr CutTag sddp_scut_tag {sddp_alpha_class_name,
-                                       sddp_scut_constraint_name};
-inline constexpr CutTag sddp_fcut_tag {sddp_alpha_class_name,
-                                       sddp_fcut_constraint_name};
-inline constexpr CutTag sddp_bcut_tag {sddp_alpha_class_name,
-                                       sddp_bcut_constraint_name};
-inline constexpr CutTag sddp_ecut_tag {sddp_alpha_class_name,
-                                       sddp_ecut_constraint_name};
+inline constexpr CutTag sddp_scut_tag {
+    .class_name = sddp_alpha_class_name,
+    .constraint_name = sddp_scut_constraint_name,
+};
+inline constexpr CutTag sddp_fcut_tag {
+    .class_name = sddp_alpha_class_name,
+    .constraint_name = sddp_fcut_constraint_name,
+};
+inline constexpr CutTag sddp_bcut_tag {
+    .class_name = sddp_alpha_class_name,
+    .constraint_name = sddp_bcut_constraint_name,
+};
+inline constexpr CutTag sddp_ecut_tag {
+    .class_name = sddp_alpha_class_name,
+    .constraint_name = sddp_ecut_constraint_name,
+};
 inline constexpr CutTag sddp_aperture_cut_tag {
-    sddp_alpha_class_name, sddp_aperture_cut_constraint_name};
-inline constexpr CutTag sddp_share_cut_tag {sddp_alpha_class_name,
-                                            sddp_share_cut_constraint_name};
+    .class_name = sddp_alpha_class_name,
+    .constraint_name = sddp_aperture_cut_constraint_name,
+};
+inline constexpr CutTag sddp_share_cut_tag {
+    .class_name = sddp_alpha_class_name,
+    .constraint_name = sddp_share_cut_constraint_name,
+};
 
 /// Loader-class cut tags: cuts loaded from CSV / JSON files use a
 /// distinct class_name per source so a hot-start that mixes loaders
 /// produces unique row-metadata keys for the duplicate detector,
 /// while sharing the single `sddp_loaded_cut_constraint_name`
 /// constraint name (they describe the same kind of optimality row).
-inline constexpr CutTag sddp_loaded_cut_tag {sddp_loaded_cut_class_name,
-                                             sddp_loaded_cut_constraint_name};
-inline constexpr CutTag sddp_boundary_cut_tag {sddp_boundary_cut_class_name,
-                                               sddp_loaded_cut_constraint_name};
-inline constexpr CutTag sddp_named_cut_tag {sddp_named_cut_class_name,
-                                            sddp_loaded_cut_constraint_name};
+inline constexpr CutTag sddp_loaded_cut_tag {
+    .class_name = sddp_loaded_cut_class_name,
+    .constraint_name = sddp_loaded_cut_constraint_name,
+};
+inline constexpr CutTag sddp_boundary_cut_tag {
+    .class_name = sddp_boundary_cut_class_name,
+    .constraint_name = sddp_loaded_cut_constraint_name,
+};
+inline constexpr CutTag sddp_named_cut_tag {
+    .class_name = sddp_named_cut_class_name,
+    .constraint_name = sddp_loaded_cut_constraint_name,
+};
 
 namespace detail
 {

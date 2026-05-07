@@ -391,18 +391,27 @@ TEST_CASE("BusLP - DC OPF solve, theta col_sol")
   };
 
   const Simulation simu = {
-      .block_array = {{
-          .uid = Uid {1},
-          .duration = 1,
-      }},
-      .stage_array = {{
-          .uid = Uid {1},
-          .first_block = 0,
-          .count_block = 1,
-      }},
-      .scenario_array = {{
-          .uid = Uid {0},
-      }},
+      .block_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .duration = 1,
+              },
+          },
+      .stage_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .first_block = 0,
+                  .count_block = 1,
+              },
+          },
+      .scenario_array =
+          {
+              {
+                  .uid = Uid {0},
+              },
+          },
   };
 
   PlanningOptions opts;

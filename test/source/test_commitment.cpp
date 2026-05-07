@@ -2885,9 +2885,8 @@ TEST_CASE(  // NOLINT
                       Uid block_uid) -> std::optional<ColIndex>
   {
     for (const auto& [name, idx] : col_map) {
-      if (name.find("commitment_") == 0
-          && name.find(std::string(variable) + "_") != std::string::npos
-          && name.size() >= 2
+      if (name.starts_with("commitment_")
+          && name.contains(std::string(variable) + "_") && name.size() >= 2
           && name.substr(name.size() - 2)
               == std::string("_") + std::to_string(block_uid))
       {

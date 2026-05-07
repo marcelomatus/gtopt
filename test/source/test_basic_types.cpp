@@ -58,8 +58,10 @@ inline auto my_enumerate(const Range& range)  // NOLINT
       | std::views::transform(
              [](auto&& pair)
              {
-               return std::pair {static_cast<IndexType>(std::get<0>(pair)),
-                                 std::get<1>(pair)};
+               return std::pair {
+                   static_cast<IndexType>(std::get<0>(pair)),
+                   std::get<1>(pair),
+               };
              });
 }
 

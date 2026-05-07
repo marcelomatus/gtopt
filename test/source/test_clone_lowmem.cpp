@@ -200,9 +200,12 @@ TEST_CASE("clone matrix: low-memory modes × clone routes × kinds")
     bool manual;
   };
 
-  for (auto cell : {Cell {"off", Mode::off, "plugin", false},
-                    Cell {"compress", Mode::compress, "plugin", false},
-                    Cell {"compress", Mode::compress, "manual", true}})
+  for (auto cell :
+       {
+           Cell {"off", Mode::off, "plugin", false},
+           Cell {"compress", Mode::compress, "plugin", false},
+           Cell {"compress", Mode::compress, "manual", true},
+       })
   {
     for (auto kind : {Kind::deep, Kind::shallow}) {
       CAPTURE(cell.mode_tag);
@@ -238,7 +241,7 @@ TEST_CASE("clone matrix: low-memory modes × clone routes × kinds")
       const auto stem =
           (std::filesystem::temp_directory_path()
            / std::string {std::string {"test_clone_matrix_"} + cell.mode_tag
-                          + "_" + cell.route_tag + "_" + kind_tag})
+                          + "_" + cell.route_tag + "_" + kind_tag,})
               .string();
       REQUIRE(cloned.write_lp(stem).has_value());
       const auto content = lowmem_clone_read_file(stem + ".lp");

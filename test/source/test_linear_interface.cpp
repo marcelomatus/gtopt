@@ -1788,15 +1788,17 @@ TEST_CASE("ScaledView - clamps to physical bounds when provided")  // NOLINT
 
   SUBCASE("with clamp bounds — values pulled into physical box")
   {
-    const ScaledView view {raw_sol.data(),
-                           raw_sol.size(),
-                           scales.data(),
-                           scales.size(),
-                           raw_lo.data(),
-                           raw_lo.size(),
-                           raw_hi.data(),
-                           raw_hi.size(),
-                           ScaledView::Op::multiply};
+    const ScaledView view {
+        raw_sol.data(),
+        raw_sol.size(),
+        scales.data(),
+        scales.size(),
+        raw_lo.data(),
+        raw_lo.size(),
+        raw_hi.data(),
+        raw_hi.size(),
+        ScaledView::Op::multiply,
+    };
     // -0.1 * 2 = -0.2  → clamps up to 0.0
     CHECK(view[0] == doctest::Approx(0.0));
     // 4.0 * 2 = 8.0   → inside [0, 20], unchanged
@@ -1807,11 +1809,13 @@ TEST_CASE("ScaledView - clamps to physical bounds when provided")  // NOLINT
 
   SUBCASE("without clamp bounds — returns raw * scale unchanged")
   {
-    const ScaledView view {raw_sol.data(),
-                           raw_sol.size(),
-                           scales.data(),
-                           scales.size(),
-                           ScaledView::Op::multiply};
+    const ScaledView view {
+        raw_sol.data(),
+        raw_sol.size(),
+        scales.data(),
+        scales.size(),
+        ScaledView::Op::multiply,
+    };
     CHECK(view[0] == doctest::Approx(-0.2));
     CHECK(view[1] == doctest::Approx(8.0));
     CHECK(view[2] == doctest::Approx(20.02));
@@ -1823,15 +1827,17 @@ TEST_CASE("ScaledView - clamps to physical bounds when provided")  // NOLINT
     const std::array<double, 1> s_sc {1.0};
     const std::array<double, 1> s_lo {10.0};  // lb > ub (invalid)
     const std::array<double, 1> s_hi {0.0};
-    const ScaledView view {s_raw.data(),
-                           1,
-                           s_sc.data(),
-                           1,
-                           s_lo.data(),
-                           1,
-                           s_hi.data(),
-                           1,
-                           ScaledView::Op::multiply};
+    const ScaledView view {
+        s_raw.data(),
+        1,
+        s_sc.data(),
+        1,
+        s_lo.data(),
+        1,
+        s_hi.data(),
+        1,
+        ScaledView::Op::multiply,
+    };
     // std::clamp with lb > ub is UB; guard prevents that — value
     // passes through.
     CHECK(view[0] == doctest::Approx(5.0));

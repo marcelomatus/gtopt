@@ -220,7 +220,9 @@ TEST_CASE("equilibrate_row_ruiz_in_place preserves dual invariance via divisor")
 
   // Snapshot the physical-space state before equilibration.
   const std::vector<double> expected_after_col_scale {
-      300.0 * 2.0, -150.0 * 5.0};  // {600, -750}
+      300.0 * 2.0,
+      -150.0 * 5.0,
+  };  // {600, -750}
   const double expected_divisor = 750.0;
 
   const auto divisor = equilibrate_row_ruiz_in_place(

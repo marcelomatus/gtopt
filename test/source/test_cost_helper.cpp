@@ -212,7 +212,7 @@ TEST_CASE("Factor matrix generation")
 
   SUBCASE("stage_icost_factors")
   {
-    auto factors = helper.stage_icost_factors();
+    const auto& factors = helper.stage_icost_factors();
     REQUIRE(factors.size() == 2);  // stages
     CHECK(factors[0] == doctest::Approx(1.0 / 0.9));
     CHECK(factors[1] == doctest::Approx(1.0 / 0.8));

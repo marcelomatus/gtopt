@@ -343,7 +343,7 @@ TEST_CASE(  // NOLINT
 {
   // Physical cost = 80 MW × 20 $/MWh + 20 MW × 500 $/MWh = 11600 $
   // The LP objective = physical_cost / scale_objective
-  constexpr double expected = 80.0 * 20.0 + 20.0 * 500.0;
+  constexpr double expected = (80.0 * 20.0) + (20.0 * 500.0);
 
   for (const auto so : {1.0, 1'000.0, 1'000'000.0}) {
     auto json = make_scale_obj_uc_json(so);
@@ -700,7 +700,7 @@ TEST_CASE(  // NOLINT
   // g2 (expensive, 50$/MWh) at b2 must cover the remaining 50 MW.
   // Physical cost = 100*10 + 50*50 = 3500 $
 
-  constexpr double expected = 100.0 * 10.0 + 50.0 * 50.0;
+  constexpr double expected = (100.0 * 10.0) + (50.0 * 50.0);
 
   for (const auto st : {1.0, 0.001, 0.0001}) {
     for (const auto so : {1.0, 1'000.0}) {
@@ -727,7 +727,7 @@ TEST_CASE(  // NOLINT
 
 // clang-format off
 
-static constexpr std::string_view multi_scale_uc_json = R"json({
+constexpr std::string_view multi_scale_uc_json = R"json({
   "options": {
     "annual_discount_rate": 0.0,
     "output_format": "csv",

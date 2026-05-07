@@ -128,10 +128,12 @@ auto build_nphase_mscenario_planning(int n_phases,
       .scene_array = std::move(scene_array),
   };
 
-  const Array<Bus> bus_array = {{
-      .uid = Uid {1},
-      .name = "b1",
-  }};
+  const Array<Bus> bus_array = {
+      {
+          .uid = Uid {1},
+          .name = "b1",
+      },
+  };
 
   const Array<Generator> generator_array = {
       {
@@ -150,39 +152,45 @@ auto build_nphase_mscenario_planning(int n_phases,
       },
   };
 
-  const Array<Demand> demand_array = {{
-      .uid = Uid {1},
-      .name = "d1",
-      .bus = Uid {1},
-      .capacity = 30.0,
-  }};
+  const Array<Demand> demand_array = {
+      {
+          .uid = Uid {1},
+          .name = "d1",
+          .bus = Uid {1},
+          .capacity = 30.0,
+      },
+  };
 
   const Array<Junction> junction_array = {
       {.uid = Uid {1}, .name = "j_up"},
       {.uid = Uid {2}, .name = "j_down", .drain = true},
   };
 
-  const Array<Waterway> waterway_array = {{
-      .uid = Uid {1},
-      .name = "ww1",
-      .junction_a = Uid {1},
-      .junction_b = Uid {2},
-      .fmin = 0.0,
-      .fmax = 50.0,
-  }};
+  const Array<Waterway> waterway_array = {
+      {
+          .uid = Uid {1},
+          .name = "ww1",
+          .junction_a = Uid {1},
+          .junction_b = Uid {2},
+          .fmin = 0.0,
+          .fmax = 50.0,
+      },
+  };
 
-  const Array<Reservoir> reservoir_array = {{
-      .uid = Uid {1},
-      .name = "rsv1",
-      .junction = Uid {1},
-      .capacity = 100.0,
-      .emin = 0.0,
-      .emax = 100.0,
-      .eini = 50.0,
-      .fmin = -500.0,
-      .fmax = +500.0,
-      .flow_conversion_rate = 1.0,
-  }};
+  const Array<Reservoir> reservoir_array = {
+      {
+          .uid = Uid {1},
+          .name = "rsv1",
+          .junction = Uid {1},
+          .capacity = 100.0,
+          .emin = 0.0,
+          .emax = 100.0,
+          .eini = 50.0,
+          .fmin = -500.0,
+          .fmax = +500.0,
+          .flow_conversion_rate = 1.0,
+      },
+  };
 
   // SHARED Flow across all scenarios (matches the layout used by
   // `make_2scene_3phase_hydro_planning` in
@@ -192,21 +200,25 @@ auto build_nphase_mscenario_planning(int n_phases,
   // not from per-scenario inflow data.  Per-scenario flow arrays
   // (one Flow per scenario) made the cut_sharing modes degenerate
   // to the same answer at this small scale and hid the regression.
-  Array<Flow> flow_array = {{
-      .uid = Uid {1},
-      .name = "inflow",
-      .direction = 1,
-      .junction = Uid {1},
-      .discharge = 5.0,
-  }};
+  Array<Flow> flow_array = {
+      {
+          .uid = Uid {1},
+          .name = "inflow",
+          .direction = 1,
+          .junction = Uid {1},
+          .discharge = 5.0,
+      },
+  };
 
-  const Array<Turbine> turbine_array = {{
-      .uid = Uid {1},
-      .name = "tur1",
-      .waterway = Uid {1},
-      .generator = Uid {1},
-      .production_factor = 1.0,
-  }};
+  const Array<Turbine> turbine_array = {
+      {
+          .uid = Uid {1},
+          .name = "tur1",
+          .waterway = Uid {1},
+          .generator = Uid {1},
+          .production_factor = 1.0,
+      },
+  };
 
   PlanningOptions options;
   options.demand_fail_cost = 1000.0;
@@ -407,9 +419,12 @@ TEST_CASE("SDDPMethod - LB-overshoot probe @ multi-scene")  // NOLINT
   // stays visible in test output and the test PASSES while the bug
   // is unfixed.  Flip both checks (≤ 1.0 + tol) once the cut_sharing
   // implementation is corrected for heterogeneous-scene weights.
-  for (const auto mode : {CutSharingMode::expected,
-                          CutSharingMode::accumulate,
-                          CutSharingMode::max})
+  for (const auto mode :
+       {
+           CutSharingMode::expected,
+           CutSharingMode::accumulate,
+           CutSharingMode::max,
+       })
   {
     SUBCASE((std::string {"3p × 2sc × 2sn uneq-prob 0.7/0.3 cut_sharing="}
              + std::string {enum_name(mode)})

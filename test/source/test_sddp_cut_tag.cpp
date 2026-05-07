@@ -49,8 +49,10 @@ TEST_CASE("CutTag::apply_to stamps class_name and constraint_name atomically")
 {
   SparseRow row {.lowb = -1.0, .uppb = 2.0, .scale = 0.5};
   row[ColIndex {3}] = 7.0;
-  const CutTag tag {.class_name = "FooClass",
-                    .constraint_name = "bar_constraint"};
+  const CutTag tag {
+      .class_name = "FooClass",
+      .constraint_name = "bar_constraint",
+  };
 
   auto& ret = tag.apply_to(row);
 

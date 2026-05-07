@@ -94,9 +94,7 @@ struct OsiTrivialLP2
       1.0,
       1.0,
   };
-  std::array<double, 1> rowlb {
-      2.0,
-  };
+  std::array<double, 1> rowlb {2.0};
   std::array<double, 1> rowub {};
 
   explicit OsiTrivialLP2(double inf)
@@ -153,9 +151,7 @@ struct OsiTrivialLP3
       1.0,
       1.0,
   };
-  std::array<double, 1> rowlb {
-      3.0,
-  };
+  std::array<double, 1> rowlb {3.0};
   std::array<double, 1> rowub {};
 
   explicit OsiTrivialLP3(double inf)

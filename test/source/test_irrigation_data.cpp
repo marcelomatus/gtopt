@@ -66,18 +66,20 @@ TEST_CASE("FlowRight with seasonal discharge schedule")
 
   // Discharge schedule [scenario][stage][block] — 3D vector
   std::vector<std::vector<std::vector<Real>>> seasonal = {
-      {{0},
-       {0},
-       {0},
-       {0},
-       {19.5},
-       {42.25},
-       {55.25},
-       {65},
-       {65},
-       {52},
-       {32.5},
-       {13}},
+      {
+          {0},
+          {0},
+          {0},
+          {0},
+          {19.5},
+          {42.25},
+          {55.25},
+          {65},
+          {65},
+          {52},
+          {32.5},
+          {13},
+      },
   };
   fr.discharge = seasonal;
 

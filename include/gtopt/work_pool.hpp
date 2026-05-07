@@ -453,7 +453,8 @@ public:
                   // dies on a transient logging failure.
                 }
               }
-            }};
+            },
+        };
       }
     } catch (const std::exception& e) {
       running_ = false;

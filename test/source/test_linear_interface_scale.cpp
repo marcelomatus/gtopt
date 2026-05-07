@@ -979,34 +979,42 @@ TEST_CASE(  // NOLINT
 
   SUBCASE("trivial: col_scale=1, scale_obj=1, eq=none")
   {
-    run_subcase({.col_scale = 1.0,
-                 .scale_obj = 1.0,
-                 .eq = LpEquilibrationMethod::none});
+    run_subcase({
+        .col_scale = 1.0,
+        .scale_obj = 1.0,
+        .eq = LpEquilibrationMethod::none,
+    });
   }
 
   SUBCASE("var_scale: col_scale=10, scale_obj=1, eq=none")
   {
     // The bug-catching subcase: col_scale=10 triggers the double-divide
     // path in pre-fix code.  x_opt must still be 10, not 1000.
-    run_subcase({.col_scale = 10.0,
-                 .scale_obj = 1.0,
-                 .eq = LpEquilibrationMethod::none});
+    run_subcase({
+        .col_scale = 10.0,
+        .scale_obj = 1.0,
+        .eq = LpEquilibrationMethod::none,
+    });
   }
 
   SUBCASE("scale_obj: col_scale=1, scale_obj=1000, eq=none")
   {
-    run_subcase({.col_scale = 1.0,
-                 .scale_obj = 1000.0,
-                 .eq = LpEquilibrationMethod::none});
+    run_subcase({
+        .col_scale = 1.0,
+        .scale_obj = 1000.0,
+        .eq = LpEquilibrationMethod::none,
+    });
   }
 
   SUBCASE("all: col_scale=10, scale_obj=1000, eq=row_max")
   {
     // Full juan-like scaling.  row_max equilibration divides the row by
     // max|raw_col_elem|; the physical x_opt must still be 10.
-    run_subcase({.col_scale = 10.0,
-                 .scale_obj = 1000.0,
-                 .eq = LpEquilibrationMethod::row_max});
+    run_subcase({
+        .col_scale = 10.0,
+        .scale_obj = 1000.0,
+        .eq = LpEquilibrationMethod::row_max,
+    });
   }
 }
 
@@ -1069,30 +1077,38 @@ TEST_CASE(  // NOLINT
 
   SUBCASE("trivial: col_scale=1, scale_obj=1, eq=none")
   {
-    run_subcase({.col_scale = 1.0,
-                 .scale_obj = 1.0,
-                 .eq = LpEquilibrationMethod::none});
+    run_subcase({
+        .col_scale = 1.0,
+        .scale_obj = 1.0,
+        .eq = LpEquilibrationMethod::none,
+    });
   }
 
   SUBCASE("var_scale: col_scale=10, scale_obj=1, eq=none")
   {
-    run_subcase({.col_scale = 10.0,
-                 .scale_obj = 1.0,
-                 .eq = LpEquilibrationMethod::none});
+    run_subcase({
+        .col_scale = 10.0,
+        .scale_obj = 1.0,
+        .eq = LpEquilibrationMethod::none,
+    });
   }
 
   SUBCASE("scale_obj: col_scale=1, scale_obj=1000, eq=none")
   {
-    run_subcase({.col_scale = 1.0,
-                 .scale_obj = 1000.0,
-                 .eq = LpEquilibrationMethod::none});
+    run_subcase({
+        .col_scale = 1.0,
+        .scale_obj = 1000.0,
+        .eq = LpEquilibrationMethod::none,
+    });
   }
 
   SUBCASE("all: col_scale=10, scale_obj=1000, eq=row_max")
   {
-    run_subcase({.col_scale = 10.0,
-                 .scale_obj = 1000.0,
-                 .eq = LpEquilibrationMethod::row_max});
+    run_subcase({
+        .col_scale = 10.0,
+        .scale_obj = 1000.0,
+        .eq = LpEquilibrationMethod::row_max,
+    });
   }
 }
 
@@ -1247,30 +1263,38 @@ TEST_CASE(  // NOLINT
 
   SUBCASE("trivial: col_scale=1, scale_obj=1, eq=none")
   {
-    run_subcase({.col_scale = 1.0,
-                 .scale_obj = 1.0,
-                 .eq = LpEquilibrationMethod::none});
+    run_subcase({
+        .col_scale = 1.0,
+        .scale_obj = 1.0,
+        .eq = LpEquilibrationMethod::none,
+    });
   }
 
   SUBCASE("var_scale: col_scale=10, scale_obj=1, eq=none")
   {
-    run_subcase({.col_scale = 10.0,
-                 .scale_obj = 1.0,
-                 .eq = LpEquilibrationMethod::none});
+    run_subcase({
+        .col_scale = 10.0,
+        .scale_obj = 1.0,
+        .eq = LpEquilibrationMethod::none,
+    });
   }
 
   SUBCASE("scale_obj: col_scale=1, scale_obj=1000, eq=none")
   {
-    run_subcase({.col_scale = 1.0,
-                 .scale_obj = 1000.0,
-                 .eq = LpEquilibrationMethod::none});
+    run_subcase({
+        .col_scale = 1.0,
+        .scale_obj = 1000.0,
+        .eq = LpEquilibrationMethod::none,
+    });
   }
 
   SUBCASE("all: col_scale=10, scale_obj=1000, eq=row_max")
   {
-    run_subcase({.col_scale = 10.0,
-                 .scale_obj = 1000.0,
-                 .eq = LpEquilibrationMethod::row_max});
+    run_subcase({
+        .col_scale = 10.0,
+        .scale_obj = 1000.0,
+        .eq = LpEquilibrationMethod::row_max,
+    });
   }
 }
 
@@ -1609,29 +1633,37 @@ TEST_CASE(  // NOLINT
 
   SUBCASE("trivial: col_scale=1, scale_obj=1, eq=none")
   {
-    run_subcase({.col_scale = 1.0,
-                 .scale_obj = 1.0,
-                 .eq = LpEquilibrationMethod::none});
+    run_subcase({
+        .col_scale = 1.0,
+        .scale_obj = 1.0,
+        .eq = LpEquilibrationMethod::none,
+    });
   }
 
   SUBCASE("var_scale: col_scale=10, scale_obj=1, eq=none")
   {
-    run_subcase({.col_scale = 10.0,
-                 .scale_obj = 1.0,
-                 .eq = LpEquilibrationMethod::none});
+    run_subcase({
+        .col_scale = 10.0,
+        .scale_obj = 1.0,
+        .eq = LpEquilibrationMethod::none,
+    });
   }
 
   SUBCASE("scale_obj: col_scale=1, scale_obj=1000, eq=none")
   {
-    run_subcase({.col_scale = 1.0,
-                 .scale_obj = 1000.0,
-                 .eq = LpEquilibrationMethod::none});
+    run_subcase({
+        .col_scale = 1.0,
+        .scale_obj = 1000.0,
+        .eq = LpEquilibrationMethod::none,
+    });
   }
 
   SUBCASE("all: col_scale=10, scale_obj=1000, eq=row_max")
   {
-    run_subcase({.col_scale = 10.0,
-                 .scale_obj = 1000.0,
-                 .eq = LpEquilibrationMethod::row_max});
+    run_subcase({
+        .col_scale = 10.0,
+        .scale_obj = 1000.0,
+        .eq = LpEquilibrationMethod::row_max,
+    });
   }
 }

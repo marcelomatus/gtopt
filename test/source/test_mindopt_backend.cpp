@@ -98,9 +98,7 @@ struct MindoptTrivialLP2
       1.0,
       1.0,
   };
-  std::array<double, 1> rowlb {
-      2.0,
-  };
+  std::array<double, 1> rowlb {2.0};
   std::array<double, 1> rowub {};
 
   explicit MindoptTrivialLP2(double inf)
@@ -157,9 +155,7 @@ struct MindoptTrivialLP3
       1.0,
       1.0,
   };
-  std::array<double, 1> rowlb {
-      3.0,
-  };
+  std::array<double, 1> rowlb {3.0};
   std::array<double, 1> rowub {};
 
   explicit MindoptTrivialLP3(double inf)

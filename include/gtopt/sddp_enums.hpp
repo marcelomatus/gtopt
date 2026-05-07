@@ -133,9 +133,11 @@ enum class ElasticFilterMode : uint8_t
 inline constexpr auto elastic_filter_mode_entries =
     std::to_array<EnumEntry<ElasticFilterMode>>({
         {.name = "single_cut", .value = ElasticFilterMode::single_cut},
-        {.name = "cut",
-         .value = ElasticFilterMode::single_cut,
-         .is_alias = true},
+        {
+            .name = "cut",
+            .value = ElasticFilterMode::single_cut,
+            .is_alias = true,
+        },
         {.name = "multi_cut", .value = ElasticFilterMode::multi_cut},
         {.name = "chinneck", .value = ElasticFilterMode::chinneck},
         {.name = "iis", .value = ElasticFilterMode::chinneck, .is_alias = true},
@@ -329,9 +331,11 @@ inline constexpr auto low_memory_mode_entries =
         // Back-compat alias: "snapshot" parses to `compress`.  Callers
         // that want the old snapshot semantics (uncompressed flat LP)
         // set `memory_codec = uncompressed` explicitly.
-        {.name = "snapshot",
-         .value = LowMemoryMode::compress,
-         .is_alias = true},
+        {
+            .name = "snapshot",
+            .value = LowMemoryMode::compress,
+            .is_alias = true,
+        },
     });
 
 [[nodiscard]] constexpr auto enum_entries(LowMemoryMode /*tag*/) noexcept

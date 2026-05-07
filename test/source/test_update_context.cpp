@@ -372,10 +372,12 @@ inline auto make_two_phase_daily_cycle_planning(double eini_value = 100.0)
   Array<Stage> stage_array = make_uniform_stages(2, 24);
   Array<Phase> phase_array = make_single_stage_phases(2);
 
-  const Array<Bus> bus_array = {{
-      .uid = Uid {1},
-      .name = "bus1",
-  }};
+  const Array<Bus> bus_array = {
+      {
+          .uid = Uid {1},
+          .name = "bus1",
+      },
+  };
   const Array<Generator> generator_array = {
       {
           .uid = Uid {1},
@@ -392,12 +394,14 @@ inline auto make_two_phase_daily_cycle_planning(double eini_value = 100.0)
           .capacity = 500.0,
       },
   };
-  const Array<Demand> demand_array = {{
-      .uid = Uid {1},
-      .name = "load1",
-      .bus = Uid {1},
-      .capacity = 100.0,
-  }};
+  const Array<Demand> demand_array = {
+      {
+          .uid = Uid {1},
+          .name = "load1",
+          .bus = Uid {1},
+          .capacity = 100.0,
+      },
+  };
   const Array<Junction> junction_array = {
       {
           .uid = Uid {1},
@@ -409,44 +413,52 @@ inline auto make_two_phase_daily_cycle_planning(double eini_value = 100.0)
           .drain = true,
       },
   };
-  const Array<Waterway> waterway_array = {{
-      .uid = Uid {1},
-      .name = "ww1",
-      .junction_a = Uid {1},
-      .junction_b = Uid {2},
-      .fmin = 0.0,
-      .fmax = 100.0,
-  }};
+  const Array<Waterway> waterway_array = {
+      {
+          .uid = Uid {1},
+          .name = "ww1",
+          .junction_a = Uid {1},
+          .junction_b = Uid {2},
+          .fmin = 0.0,
+          .fmax = 100.0,
+      },
+  };
   // KEY DIFFERENCE: daily_cycle = true.  No state-link constraint
   // across phases; in-phase efin == eini close constraint instead.
-  const Array<Reservoir> reservoir_array = {{
-      .uid = Uid {1},
-      .name = "rsv_dc",
-      .junction = Uid {1},
-      .capacity = 500.0,
-      .emin = 0.0,
-      .emax = 500.0,
-      .eini = eini_value,
-      .fmin = -1000.0,
-      .fmax = +1000.0,
-      .flow_conversion_rate = 1.0,
-      .use_state_variable = false,
-      .daily_cycle = true,
-  }};
-  const Array<Flow> flow_array = {{
-      .uid = Uid {1},
-      .name = "inflow",
-      .direction = 1,
-      .junction = Uid {1},
-      .discharge = 10.0,
-  }};
-  const Array<Turbine> turbine_array = {{
-      .uid = Uid {1},
-      .name = "tur1",
-      .waterway = Uid {1},
-      .generator = Uid {1},
-      .production_factor = 1.0,
-  }};
+  const Array<Reservoir> reservoir_array = {
+      {
+          .uid = Uid {1},
+          .name = "rsv_dc",
+          .junction = Uid {1},
+          .capacity = 500.0,
+          .emin = 0.0,
+          .emax = 500.0,
+          .eini = eini_value,
+          .fmin = -1000.0,
+          .fmax = +1000.0,
+          .flow_conversion_rate = 1.0,
+          .use_state_variable = false,
+          .daily_cycle = true,
+      },
+  };
+  const Array<Flow> flow_array = {
+      {
+          .uid = Uid {1},
+          .name = "inflow",
+          .direction = 1,
+          .junction = Uid {1},
+          .discharge = 10.0,
+      },
+  };
+  const Array<Turbine> turbine_array = {
+      {
+          .uid = Uid {1},
+          .name = "tur1",
+          .waterway = Uid {1},
+          .generator = Uid {1},
+          .production_factor = 1.0,
+      },
+  };
 
   Simulation simulation = {
       .block_array = std::move(block_array),
@@ -524,10 +536,12 @@ inline auto make_two_reservoir_planning() -> Planning
   Array<Stage> stage_array = make_uniform_stages(1, 24);
   Array<Phase> phase_array = make_single_stage_phases(1);
 
-  const Array<Bus> bus_array = {{
-      .uid = Uid {1},
-      .name = "bus1",
-  }};
+  const Array<Bus> bus_array = {
+      {
+          .uid = Uid {1},
+          .name = "bus1",
+      },
+  };
   const Array<Generator> generator_array = {
       {
           .uid = Uid {1},
@@ -551,12 +565,14 @@ inline auto make_two_reservoir_planning() -> Planning
           .capacity = 500.0,
       },
   };
-  const Array<Demand> demand_array = {{
-      .uid = Uid {1},
-      .name = "load1",
-      .bus = Uid {1},
-      .capacity = 100.0,
-  }};
+  const Array<Demand> demand_array = {
+      {
+          .uid = Uid {1},
+          .name = "load1",
+          .bus = Uid {1},
+          .capacity = 100.0,
+      },
+  };
   const Array<Junction> junction_array = {
       {
           .uid = Uid {1},

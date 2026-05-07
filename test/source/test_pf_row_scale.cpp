@@ -121,22 +121,30 @@ TEST_CASE(  // NOLINT
     double duration;
     const char* label;
   };
-  const std::array<Case, 5> cases = {{
-      {.prob = 1.0,
-       .discount = 1.0,
-       .duration = 1.0,
-       .label = "unit cost_factor"},
-      {.prob = 0.5, .discount = 1.0, .duration = 1.0, .label = "prob=0.5"},
-      {.prob = 0.3, .discount = 1.0, .duration = 1.0, .label = "prob=0.3"},
-      {.prob = 1.0,
-       .discount = 0.95,
-       .duration = 24.0,
-       .label = "discount + duration"},
-      {.prob = 0.5,
-       .discount = 0.95,
-       .duration = 24.0,
-       .label = "full block-level cost_factor"},
-  }};
+  const std::array<Case, 5> cases = {
+      {
+          {
+              .prob = 1.0,
+              .discount = 1.0,
+              .duration = 1.0,
+              .label = "unit cost_factor",
+          },
+          {.prob = 0.5, .discount = 1.0, .duration = 1.0, .label = "prob=0.5"},
+          {.prob = 0.3, .discount = 1.0, .duration = 1.0, .label = "prob=0.3"},
+          {
+              .prob = 1.0,
+              .discount = 0.95,
+              .duration = 24.0,
+              .label = "discount + duration",
+          },
+          {
+              .prob = 0.5,
+              .discount = 0.95,
+              .duration = 24.0,
+              .label = "full block-level cost_factor",
+          },
+      },
+  };
 
   for (const auto& tc : cases) {
     CAPTURE(tc.label);

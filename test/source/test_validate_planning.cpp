@@ -648,8 +648,7 @@ TEST_CASE("validate_planning - negative FlowRight fmax is an error")  // NOLINT
   auto result = validate_planning(p);
   CHECK_FALSE(result.ok());
   const bool found = std::ranges::any_of(
-      result.errors,
-      [](const auto& e) { return e.find("fmax") != std::string::npos; });
+      result.errors, [](const auto& e) { return e.contains("fmax"); });
   CHECK(found);
 }
 
@@ -667,8 +666,7 @@ TEST_CASE(
   auto result = validate_planning(p);
   CHECK_FALSE(result.ok());
   const bool found = std::ranges::any_of(
-      result.errors,
-      [](const auto& e) { return e.find("emax") != std::string::npos; });
+      result.errors, [](const auto& e) { return e.contains("emax"); });
   CHECK(found);
 }
 
@@ -686,8 +684,7 @@ TEST_CASE(
   auto result = validate_planning(p);
   CHECK_FALSE(result.ok());
   const bool found = std::ranges::any_of(
-      result.errors,
-      [](const auto& e) { return e.find("eini") != std::string::npos; });
+      result.errors, [](const auto& e) { return e.contains("eini"); });
   CHECK(found);
 }
 
@@ -711,8 +708,7 @@ TEST_CASE("validate_planning - negative Line tmax_ab is an error")  // NOLINT
   auto result = validate_planning(p);
   CHECK_FALSE(result.ok());
   const bool found = std::ranges::any_of(
-      result.errors,
-      [](const auto& e) { return e.find("tmax_ab") != std::string::npos; });
+      result.errors, [](const auto& e) { return e.contains("tmax_ab"); });
   CHECK(found);
 }
 
@@ -764,8 +760,7 @@ TEST_CASE("validate_planning - Waterway fmax negative is rejected")  // NOLINT
   auto result = validate_planning(p);
   CHECK_FALSE(result.ok());
   const bool found = std::ranges::any_of(
-      result.errors,
-      [](const auto& e) { return e.find("fmax") != std::string::npos; });
+      result.errors, [](const auto& e) { return e.contains("fmax"); });
   CHECK(found);
 }
 
@@ -900,14 +895,13 @@ TEST_CASE(  // NOLINT
   CHECK(result.ok());
   REQUIRE(result.warnings.size() >= 1);
   // Confirm the warning message names the right element + bound.
-  const auto found =
-      std::ranges::any_of(result.warnings,
-                          [](const auto& w)
-                          {
-                            return w.find("seep1") != std::string::npos
-                                && w.find("fmin") != std::string::npos
-                                && w.find("segment 0") != std::string::npos;
-                          });
+  const auto found = std::ranges::any_of(result.warnings,
+                                         [](const auto& w)
+                                         {
+                                           return w.contains("seep1")
+                                               && w.contains("fmin")
+                                               && w.contains("segment 0");
+                                         });
   CHECK(found);
 }
 
@@ -935,13 +929,9 @@ TEST_CASE(  // NOLINT
   auto result = validate_planning(p);
   CHECK(result.ok());
   REQUIRE(result.warnings.size() >= 1);
-  const auto found =
-      std::ranges::any_of(result.warnings,
-                          [](const auto& w)
-                          {
-                            return w.find("seep1") != std::string::npos
-                                && w.find("fmax") != std::string::npos;
-                          });
+  const auto found = std::ranges::any_of(
+      result.warnings,
+      [](const auto& w) { return w.contains("seep1") && w.contains("fmax"); });
   CHECK(found);
 }
 
@@ -996,13 +986,10 @@ TEST_CASE(  // NOLINT
   auto result = validate_planning(p);
   CHECK(result.ok());
   REQUIRE(result.warnings.size() >= 1);
-  const auto found =
-      std::ranges::any_of(result.warnings,
-                          [](const auto& w)
-                          {
-                            return w.find("ddl1") != std::string::npos
-                                && w.find("negative") != std::string::npos;
-                          });
+  const auto found = std::ranges::any_of(
+      result.warnings,
+      [](const auto& w)
+      { return w.contains("ddl1") && w.contains("negative"); });
   CHECK(found);
 }
 
@@ -1064,8 +1051,7 @@ TEST_CASE(  // NOLINT
     auto result = validate_planning(p);
     const auto aperture_errs = std::ranges::count_if(
         result.errors,
-        [](const auto& e)
-        { return e.find("aperture uid=") != std::string::npos; });
+        [](const auto& e) { return e.contains("aperture uid="); });
     CHECK(aperture_errs == 0);
   }
 
@@ -1079,8 +1065,7 @@ TEST_CASE(  // NOLINT
         result.errors,
         [](const auto& e)
         {
-          return e.find("aperture uid=99") != std::string::npos
-              && e.find("aperture_array") != std::string::npos;
+          return e.contains("aperture uid=99") && e.contains("aperture_array");
         });
     CHECK(found);
   }
@@ -1094,8 +1079,7 @@ TEST_CASE(  // NOLINT
     // array is empty (apertures are disabled altogether).
     const auto aperture_errs = std::ranges::count_if(
         result.errors,
-        [](const auto& e)
-        { return e.find("aperture uid=") != std::string::npos; });
+        [](const auto& e) { return e.contains("aperture uid="); });
     CHECK(aperture_errs == 0);
   }
 
@@ -1105,8 +1089,7 @@ TEST_CASE(  // NOLINT
     auto result = validate_planning(p);
     const auto aperture_errs = std::ranges::count_if(
         result.errors,
-        [](const auto& e)
-        { return e.find("aperture uid=") != std::string::npos; });
+        [](const auto& e) { return e.contains("aperture uid="); });
     CHECK(aperture_errs == 0);
   }
 }
@@ -1142,19 +1125,17 @@ TEST_CASE(  // NOLINT
   // Warn-only — `result.ok()` still true (no errors).
   CHECK(result.ok());
   const auto seep_warns = std::ranges::count_if(
-      result.warnings,
-      [](const auto& w) { return w.find("seep1") != std::string::npos; });
+      result.warnings, [](const auto& w) { return w.contains("seep1"); });
   CHECK(seep_warns == 1);
   // The summary message names the failure count and points at the
   // worst stage.
-  const auto found =
-      std::ranges::any_of(result.warnings,
-                          [](const auto& w)
-                          {
-                            return w.find("seep1") != std::string::npos
-                                && w.find("fmin") != std::string::npos
-                                && w.find("of 1 stages") != std::string::npos;
-                          });
+  const auto found = std::ranges::any_of(result.warnings,
+                                         [](const auto& w)
+                                         {
+                                           return w.contains("seep1")
+                                               && w.contains("fmin")
+                                               && w.contains("of 1 stages");
+                                         });
   CHECK(found);
 }
 
@@ -1188,8 +1169,7 @@ TEST_CASE(  // NOLINT
   // No warning: the file path can't be resolved at validation time,
   // so the segment check is genuinely deferred to the LP-build stage.
   const auto piecewise_warns = std::ranges::count_if(
-      result.warnings,
-      [](const auto& w) { return w.find("seep1") != std::string::npos; });
+      result.warnings, [](const auto& w) { return w.contains("seep1"); });
   CHECK(piecewise_warns == 0);
 }
 
