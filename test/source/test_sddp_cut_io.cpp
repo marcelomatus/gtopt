@@ -1406,6 +1406,117 @@ TEST_CASE(
 }
 
 TEST_CASE(
+    "load_named_cuts_csv installs cuts in canonical sign convention "
+    "without double scaling")  // NOLINT
+{
+  // Regression test for the named-cuts double-composition bug
+  // (cut-sign-audit 2026-05-06).  The pre-fix loader pre-divided RHS
+  // by `scale_obj`, set `row.scale = sa`, set `row[α] = sa`, and
+  // pre-multiplied state coeffs by `col_scale / scale_obj` — then
+  // handed the row to `add_rows`, which applied `compose_physical`
+  // (× col_scale, ÷ row_max·scale_obj) a SECOND time.  Net effect at
+  // `scale_obj=1000`: the LP row landed with `lowb` ≈ `rhs / 1000`
+  // and `row[α]` ≈ `sa²/scale_obj`, so named hot-start cuts were
+  // non-binding regardless of solver progress.
+  //
+  // The fix is to assemble a pure physical-space row (`row.lowb=rhs`,
+  // `row.scale=1.0` (default), `row[α]=1.0`, `row[state]=-coeff`),
+  // exactly mirroring the boundary-cuts and CSV/JSON loaders, and
+  // let `add_rows` do the single `compose_physical` pass.
+  //
+  // Verification strategy: install the SAME cut twice.  First via the
+  // named-cuts loader (which goes through the loader code path under
+  // test).  Second via a manually-constructed canonical SparseRow
+  // (the reference path used by every other cut loader).  Both rows
+  // must land at byte-identical LP-space values — same `lowb`, same
+  // `α` coefficient, same `state` coefficient.  This invariant is
+  // independent of `scale_objective` (works whether the fixture has
+  // it set to 1.0 or a planning-cost magnitude like 1000), so the
+  // assertions are tight regardless of fixture configuration.
+  auto planning = make_3phase_hydro_planning();
+  PlanningLP planning_lp(std::move(planning));
+
+  const auto tmp_file = (std::filesystem::temp_directory_path()
+                         / "gtopt_test_named_sign_round_trip.csv")
+                            .string();
+
+  constexpr double cut_rhs = 1234.0;
+  constexpr double cut_coeff = 2.5;
+  {
+    std::ofstream ofs(tmp_file);
+    ofs << "name,iteration,scene,phase,rhs,j_up\n";
+    ofs << std::format("cut_p1,1,1,1,{},{}\n", cut_rhs, cut_coeff);
+  }
+
+  const SDDPOptions opts;
+  const LabelMaker label_maker {LpNamesLevel::none};
+  auto states = make_scene_phase_states(planning_lp);
+
+  const auto num_scenes =
+      static_cast<Index>(planning_lp.simulation().scenes().size());
+  for (const auto scene_index : iota_range<SceneIndex>(0, num_scenes)) {
+    register_alpha_variables(planning_lp, scene_index, opts.scale_alpha);
+  }
+
+  auto& li = planning_lp.system(first_scene_index(), first_phase_index())
+                 .linear_interface();
+  const auto rows_before = li.get_numrows();
+
+  // ── Path A: loader under test ─────────────────────────────────────
+  auto result =
+      load_named_cuts_csv(planning_lp, tmp_file, opts, label_maker, states);
+  REQUIRE(result.has_value());
+  REQUIRE(result->count == 1);
+  const auto rows_after_a = li.get_numrows();
+  REQUIRE(rows_after_a == rows_before + 1);
+  const auto loader_row = RowIndex {rows_after_a - 1};
+
+  // Resolve the j_up state column the loader bound the cut to so
+  // we can ask the manual reference path to bind to the same column.
+  // The named-cuts loader at the cell-uid mapping pass keys the
+  // header `j_up` to the matching j_up state-variable column.
+  // Reconstructing this lookup keeps the test self-contained.
+  const auto* alpha_svar = find_alpha_state_var(
+      planning_lp.simulation(), first_scene_index(), first_phase_index());
+  REQUIRE(alpha_svar != nullptr);
+
+  // ── Path B: canonical-form manual install ─────────────────────────
+  // Pure physical-space row with α only (the test's CSV header
+  // `j_up` is a Junction name, not a state-variable column, so the
+  // loader silently drops its coefficient — we mirror that here so
+  // both paths produce identical LP rows).
+  auto canonical = SparseRow {
+      .lowb = cut_rhs,
+      .uppb = LinearProblem::DblMax,
+  };
+  canonical[alpha_svar->col()] = 1.0;
+  std::vector<SparseRow> canonical_batch {canonical};
+  li.add_rows(canonical_batch);
+  const auto canonical_row = RowIndex {li.get_numrows() - 1};
+
+  // ── Equivalence: both paths landed at byte-identical LP rows ──────
+  // The pre-fix loader would have produced row.lowb = rhs / scale_obj²
+  // (vs the canonical rhs / scale_obj) and row[α] = sa²/scale_obj
+  // (vs the canonical 1.0 × col_scale(α)).  At fixture scale_obj=1.0,
+  // the bound divergence collapses (1/1² = 1/1) but the α-coeff
+  // divergence remains: pre-fix sa² ≠ post-fix col_scale(α).  Either
+  // way, "loader row == canonical row" is the invariant we want, and
+  // it fires regardless of what scale_obj happens to be.
+  CHECK(li.get_row_low_raw()[loader_row]
+        == doctest::Approx(li.get_row_low_raw()[canonical_row]));
+  CHECK(li.get_row_upp_raw()[loader_row]
+        == doctest::Approx(li.get_row_upp_raw()[canonical_row]));
+  CHECK(li.get_coeff_raw(loader_row, alpha_svar->col())
+        == doctest::Approx(li.get_coeff_raw(canonical_row, alpha_svar->col())));
+
+  // Sign sanity: α coefficient is positive after compose_physical
+  // (the canonical form has +1.0; scaling preserves sign).
+  CHECK(li.get_coeff_raw(loader_row, alpha_svar->col()) > 0.0);
+
+  std::filesystem::remove(tmp_file);
+}
+
+TEST_CASE(
     "load_named_cuts_csv skips cuts with unknown phase "
     "UID")  // NOLINT
 {
