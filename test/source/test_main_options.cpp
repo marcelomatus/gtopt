@@ -801,3 +801,66 @@ TEST_CASE("--build-mode routes into PlanningOptions::build_mode")  // NOLINT
           == BuildMode::scene_parallel);
   }
 }
+
+// ---- Tests for parse_memory_size ----
+//
+// `parse_memory_size` is the CLI helper that converts strings like "300M"
+// or "5G" into megabytes for `--memory-limit` and SDDP pool sizing.  All
+// numeric paths feed straight into solver memory bounds, so silent
+// mis-parsing would yield wildly wrong limits — hence we cover every
+// suffix variant plus the error path.
+
+TEST_CASE("parse_memory_size - empty string returns zero")
+{
+  CHECK(parse_memory_size("") == doctest::Approx(0.0));
+}
+
+TEST_CASE("parse_memory_size - bare number is interpreted as MB")
+{
+  CHECK(parse_memory_size("4096") == doctest::Approx(4096.0));
+  CHECK(parse_memory_size("0") == doctest::Approx(0.0));
+  CHECK(parse_memory_size("1.5") == doctest::Approx(1.5));
+}
+
+TEST_CASE("parse_memory_size - M and MB suffixes are megabytes")
+{
+  CHECK(parse_memory_size("300M") == doctest::Approx(300.0));
+  CHECK(parse_memory_size("300MB") == doctest::Approx(300.0));
+  CHECK(parse_memory_size("300m") == doctest::Approx(300.0));
+  CHECK(parse_memory_size("300mb") == doctest::Approx(300.0));
+}
+
+TEST_CASE("parse_memory_size - G and GB suffixes are gigabytes (×1024 MB)")
+{
+  CHECK(parse_memory_size("5G") == doctest::Approx(5.0 * 1024.0));
+  CHECK(parse_memory_size("5GB") == doctest::Approx(5.0 * 1024.0));
+  CHECK(parse_memory_size("5g") == doctest::Approx(5.0 * 1024.0));
+  CHECK(parse_memory_size("5gb") == doctest::Approx(5.0 * 1024.0));
+  CHECK(parse_memory_size("1.5GB") == doctest::Approx(1536.0));
+}
+
+TEST_CASE("parse_memory_size - whitespace before suffix is tolerated")
+{
+  // The implementation strips leading spaces between the number and
+  // the suffix so values like "300 M" round-trip cleanly.
+  CHECK(parse_memory_size("300 M") == doctest::Approx(300.0));
+  CHECK(parse_memory_size("2 GB") == doctest::Approx(2048.0));
+}
+
+TEST_CASE("parse_memory_size - invalid input throws cli::parse_error")
+{
+  CHECK_THROWS_AS([[maybe_unused]] auto v = parse_memory_size("abc"),
+                  cli::parse_error);
+}
+
+TEST_CASE("parse_memory_size - unknown suffix throws cli::parse_error")
+{
+  // Only M/MB/G/GB (any case) are recognised; other unit letters must be
+  // rejected so a typo does not silently get treated as megabytes.
+  CHECK_THROWS_AS([[maybe_unused]] auto v = parse_memory_size("100K"),
+                  cli::parse_error);
+  CHECK_THROWS_AS([[maybe_unused]] auto v = parse_memory_size("100T"),
+                  cli::parse_error);
+  CHECK_THROWS_AS([[maybe_unused]] auto v = parse_memory_size("100kb"),
+                  cli::parse_error);
+}
