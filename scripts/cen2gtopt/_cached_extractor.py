@@ -194,7 +194,12 @@ def cached_paginated_fetch(
                             else v
                         )
                     )
-        df.to_parquet(cpath, index=False)
+        # Atomic write: write to a sibling temp file, then rename.
+        # Prevents a half-written .parquet from being read on the next
+        # cache lookup if the process is interrupted mid-flush.
+        tmp = cpath.with_suffix(cpath.suffix + ".tmp")
+        df.to_parquet(tmp, index=False)
+        tmp.replace(cpath)
         _LOG.info("wrote %d rows → %s", len(df), cpath)
     return df
 

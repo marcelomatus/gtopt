@@ -50,7 +50,6 @@ import logging
 import re
 import sys
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 
@@ -259,37 +258,59 @@ def main(argv: list[str] | None = None) -> int:
         print("nothing to do — cache already populated.")
         return 0
 
-    # Throttled parallel populate
+    # Sequential populate with adaptive throttle.  Per-bus fetches
+    # against the same gateway used to be parallel via
+    # ``ThreadPoolExecutor``; in practice that triggered the 3scale
+    # rate-limiter and lost buses silently on 429 storms.  A
+    # sequential pass is slower but deterministic and observable;
+    # the inter-request delay backs off on 429 / 5xx and decays back
+    # toward ``--delay-ms`` after sustained successes.
     cfg = CenApiConfig(user_keys={"sip": SIP_KEY}, verify_tls=False)
     n_ok = n_empty = 0
     rows_total = 0
-    with CenApiClient(cfg) as client, ThreadPoolExecutor(
-        max_workers=args.max_workers
-    ) as pool:
-        futures = {}
-        for bt in todo:
-            f = pool.submit(populate_one, client, date=args.date, bar_transf=bt)
-            futures[f] = bt
-            time.sleep(args.delay_ms / 1000.0)
-        n_done = 0
-        for fut in as_completed(futures):
-            bt = futures[fut]
-            n_done += 1
+    failed: list[str] = []
+    base_delay = max(50.0, float(args.delay_ms))
+    max_delay = max(base_delay * 16, 4000.0)
+    delay_ms = base_delay
+    consecutive_ok = 0
+    with CenApiClient(cfg) as client:
+        for n_done, bt in enumerate(todo, 1):
             try:
-                n_rows = fut.result()
+                n_rows = populate_one(client, date=args.date, bar_transf=bt)
             except Exception as exc:  # noqa: BLE001  # pylint: disable=broad-except
                 _LOG.warning("%s: %s", bt, exc)
                 n_rows = 0
-            if n_rows > 0:
-                n_ok += 1
-                rows_total += n_rows
+                failed.append(bt)
+                consecutive_ok = 0
+                delay_ms = min(max_delay, delay_ms * 2.0)
             else:
-                n_empty += 1
+                if n_rows > 0:
+                    n_ok += 1
+                    rows_total += n_rows
+                    consecutive_ok += 1
+                    if consecutive_ok >= 5 and delay_ms > base_delay:
+                        delay_ms = max(base_delay, delay_ms * 0.7)
+                else:
+                    n_empty += 1
+                    consecutive_ok = 0
             if n_done % 25 == 0 or n_done == len(todo):
                 print(
                     f"  [{n_done}/{len(todo)}]  ok={n_ok} empty={n_empty} "
-                    f"total_rows={rows_total:,}"
+                    f"failed={len(failed)} total_rows={rows_total:,} "
+                    f"delay={delay_ms:.0f}ms"
                 )
+            time.sleep(delay_ms / 1000.0)
+        if failed:
+            print(f"  retry pass: {len(failed)} bus(es) at ceiling delay")
+            for bt in failed:
+                try:
+                    n_rows = populate_one(client, date=args.date, bar_transf=bt)
+                    if n_rows > 0:
+                        n_ok += 1
+                        rows_total += n_rows
+                except Exception as exc:  # noqa: BLE001  # pylint: disable=broad-except
+                    _LOG.warning("retry %s: %s", bt, exc)
+                time.sleep(max_delay / 1000.0)
 
     # Refresh the catalogue from the now-richer cmg-real cache
     print()

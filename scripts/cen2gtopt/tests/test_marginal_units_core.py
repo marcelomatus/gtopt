@@ -233,6 +233,68 @@ def test_to_float_es_returns_nan_on_unparseable(raw):
 
 
 # ---------------------------------------------------------------------------
+# 7. fetch_cmg_bulk — sequential / adaptive throttle
+# ---------------------------------------------------------------------------
+
+
+def test_fetch_cmg_bulk_is_sequential_with_adaptive_throttle(monkeypatch):
+    """``fetch_cmg_bulk`` must (a) call ``fetch_by_name`` ONE bus at a
+    time in input order — never in parallel — and (b) widen the
+    inter-request delay on a simulated 429 / failure cascade."""
+    from cen2gtopt import marginal_units as mu
+
+    call_order: list[str] = []
+    sleep_log: list[float] = []
+
+    # Intercept fetch_by_name: succeed for 'A', fail for 'B', succeed for 'C'.
+    def fake_fetch_by_name(_client, _endpoint, *, start, extra_params):  # noqa: ARG001
+        bt = extra_params["bar_transf"]
+        call_order.append(bt)
+        if bt == "B":
+            raise RuntimeError("simulated 429 cascade")
+        return pd.DataFrame(
+            [
+                {
+                    "id_info": 1,
+                    "barra_transf": bt,
+                    "barra_info": "X",
+                    "fecha": "2026-04-22",
+                    "hra": 0,
+                    "min": 0,
+                    "cmg_usd_mwh_": 50.0,
+                }
+            ]
+        )
+
+    monkeypatch.setattr(mu, "fetch_by_name", fake_fetch_by_name)
+    monkeypatch.setattr(mu.time, "sleep", lambda s: sleep_log.append(s))
+
+    out = mu.fetch_cmg_bulk(
+        client=None,  # unused by the fake
+        date="2026-04-22",
+        endpoint="cmg_real",
+        bar_transfs=["A", "B", "C"],
+        verbose=False,
+        base_delay_ms=10.0,
+        max_delay_ms=80.0,
+        retry_failed=True,
+    )
+
+    # Sequential ordering: A, B, C, then a retry of B.
+    assert call_order == ["A", "B", "C", "B"]
+
+    # Adaptive throttle: after the failure on B, the next sleep
+    # (between B and C) must be larger than the initial base delay.
+    assert sleep_log[0] == pytest.approx(0.010)  # after A success
+    assert sleep_log[1] > sleep_log[0]  # after B failure → bumped
+    # The retry-pass sleep is at the ceiling delay.
+    assert sleep_log[-1] == pytest.approx(0.080)
+
+    # Result frame has the 2 successful buses (A and C).
+    assert sorted(out["bar_transf"].unique()) == ["A", "C"]
+
+
+# ---------------------------------------------------------------------------
 # 5. resolve_solution(auto_download=False) does not consult the network
 # ---------------------------------------------------------------------------
 
