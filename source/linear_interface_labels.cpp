@@ -217,6 +217,17 @@ void LinearInterface::compress_labels_meta_if_needed()
   // release/reconstruct cycle would dominate the work that flatten-
   // side compression saves.
   //
+  // Codec choice is **zstd**, not the snapshot's codec (typically
+  // lz4): label metadata is decompressed only when `write_lp` runs
+  // (rare — debug dumps + SDDP error-LP capture path only — see
+  // `ensure_labels_meta_decompressed` callers), so the lz4
+  // decompression-speed advantage doesn't apply here, and zstd's
+  // 2-3× better compression ratio on label-string data (lots of
+  // repeated `class_name` / `variable_name` substrings) is a
+  // strict win.  The flat-LP snapshot keeps lz4 because it gets
+  // decompressed every release/reconstruct cycle (could be 1000s
+  // of times in SDDP) and decode speed dominates total cost there.
+  static constexpr auto kMetadataCodec = CompressionCodec::zstd;
   // Always re-compress whenever live frozen data is present.  A stale
   // compressed buffer may already exist from a previous release
   // cycle; the recompressed buffer supersedes it.  When live is
@@ -226,9 +237,8 @@ void LinearInterface::compress_labels_meta_if_needed()
     auto& cm = detach_for_write(m_col_labels_meta_);
     m_col_labels_meta_count_ = cm.size();
     const auto bytes = serialize_labels_meta(cm);
-    const auto codec = select_codec(m_snapshot_holder_.codec());
     m_col_labels_meta_compressed_ =
-        compress_buffer({bytes.data(), bytes.size()}, codec);
+        compress_buffer({bytes.data(), bytes.size()}, kMetadataCodec);
     // Drop the live vector; `string_view`s in `m_col_labels_meta_`
     // are now invalidated.  The string pool stays alive until the
     // next decompression cycle reseeds it with fresh strings.
@@ -239,9 +249,8 @@ void LinearInterface::compress_labels_meta_if_needed()
     auto& rm = detach_for_write(m_row_labels_meta_);
     m_row_labels_meta_count_ = rm.size();
     const auto bytes = serialize_labels_meta(rm);
-    const auto codec = select_codec(m_snapshot_holder_.codec());
     m_row_labels_meta_compressed_ =
-        compress_buffer({bytes.data(), bytes.size()}, codec);
+        compress_buffer({bytes.data(), bytes.size()}, kMetadataCodec);
     rm.clear();
     rm.shrink_to_fit();
   }
