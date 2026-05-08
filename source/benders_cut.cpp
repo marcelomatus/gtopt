@@ -869,29 +869,38 @@ auto elastic_filter_solve(const LinearInterface& li,
   // through the backend and don't touch shared state either.  COW
   // detach therefore stays dormant.
   //
-  // Clone route: native `LinearInterface::clone()` is itself
-  // serialised inside the LI under a process-global mutex (added
-  // 2026-05-07 after a CPLEX env-mutex deadlock froze 10/122
-  // SDDPWorkPool threads on juan/gtopt_iplp).  That keeps elastic
-  // safe under concurrent dispatch but serialises N parallel
-  // clones into one-at-a-time.
+  // Clone route — pick the parallel-safe manual+replay path when
+  // both pre-conditions are met:
   //
-  // A faster parallel path exists in principle —
-  // `clone_from_flat(shallow, with_replay=true)` builds the LP via
-  // `CPXcreateprob` + `CPXaddrows` on a freshly-opened env (env-
-  // local, no global state) and replays the source's post-snapshot
-  // dynamic_cols / dynamic_rows / active_cuts / pending_col_bounds
-  // onto the clone.  In practice the chinneck filter mode
-  // (`elastic_filter_mode = chinneck`) reports infeasible relaxed
-  // clones via that path on the forced-infeasibility test fixture —
-  // some interaction between source's m_replay_ state replayed
-  // onto the clone and the Phase-1 zero-objective LP that
-  // `set_obj_coeffs_raw(zeros)` produces below.  Until that
-  // interaction is tracked down, elastic stays on the proven-safe
-  // mutex-serialised native clone.  The infrastructure
-  // (`with_replay` parameter on `clone_from_flat`) stays in place
-  // so a follow-up fix only has to change this one call site.
-  auto cloned = li.clone(LinearInterface::CloneKind::shallow);
+  //   1. `has_snapshot_data()`: an uncompressed FlatLinearProblem
+  //      snapshot is available for `load_flat` to rebuild from.
+  //
+  //   2. `low_memory_mode() != off`: the replay buffer
+  //      (m_dynamic_cols_, m_dynamic_rows_, m_active_cuts_,
+  //      m_pending_col_bounds_) has been populated by add_col /
+  //      add_row / set_col_low_raw / set_col_upp_raw.  Those
+  //      auto-record gates are CLOSED in off mode (see
+  //      `linear_interface.cpp` line 1456 and the bound setters at
+  //      2630/2653 — `m_low_memory_mode_ != LowMemoryMode::off` is
+  //      the precondition for recording).  Off mode still saves a
+  //      snapshot at build time (`system_lp.cpp:560`) for
+  //      fingerprinting / future use, so `has_snapshot_data()` is
+  //      true even there — but `m_replay_` is empty, and the
+  //      manual+replay clone would silently miss α + cuts +
+  //      forward-pass-pinned bounds (verified 2026-05-08 against the
+  //      ElasticFilterMode comparison fixture: missing α col,
+  //      missing α=0 bootstrap pin, missing reservoir trial-pin).
+  //
+  // When either gate fails we fall back to the native `clone()`,
+  // which is itself serialised by a process-global mutex inside the
+  // LinearInterface — correctness-safe even though it serialises N
+  // concurrent elastic clones.
+  const bool can_use_manual =
+      li.has_snapshot_data() && li.low_memory_mode() != LowMemoryMode::off;
+  auto cloned = can_use_manual
+      ? li.clone_from_flat(LinearInterface::CloneKind::shallow,
+                           /*with_replay=*/true)
+      : li.clone(LinearInterface::CloneKind::shallow);
 
   // Chinneck Phase-1 feasibility LP: zero every original objective
   // coefficient so the relaxed LP becomes a pure feasibility problem.

@@ -360,6 +360,15 @@ auto LinearInterface::write_lp(const std::string& filename) const
   // SDDP error-LP dump path.
   push_names_to_solver();
   m_backend_->write_lp(filename.c_str());
+
+  // Drop the formatted-label caches now that write_lp has consumed
+  // them.  Memoization is unhelpful here: in production SDDP
+  // write_lp runs at most a few times per cell (debug dumps /
+  // error-LP capture), and on long runs the caches accumulate ~50k
+  // strings × ncells of dead weight.  Next write_lp regenerates
+  // from the still-compressed label metadata — ~milliseconds per
+  // cell, paid only when actually requested.
+  drop_formatted_label_caches();
   return {};
 }
 

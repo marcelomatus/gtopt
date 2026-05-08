@@ -45,6 +45,9 @@
  */
 
 #include <chrono>
+#include <optional>
+#include <thread>
+#include <vector>
 
 #include <doctest/doctest.h>
 #include <gtopt/linear_interface.hpp>
@@ -573,4 +576,552 @@ TEST_CASE(  // NOLINT
   // assertion — the absolute numbers depend on backend, hardware,
   // and CI noise.
   CHECK(n_iters > 0);
+}
+
+// ─── 8. with_replay equivalence — clone(shallow) vs.
+//        clone_from_flat(shallow, with_replay=true) on a
+//        SDDP-like LP that has post-snapshot α + cuts + bound pins. ──
+//
+// This is the elastic_filter_solve scenario: source LP has been
+// frozen (snapshot saved), THEN α col added, THEN one or more cut
+// rows added, THEN dep_col bounds pinned via set_col_lower/upper.
+// Both clones should produce a structurally-identical LP that solves
+// to the same optimum.
+//
+// A divergence here would explain the chinneck-mode "relaxed clone
+// infeasible" failure — and the diff between the two LPs tells us
+// exactly where the bug is.
+TEST_CASE(  // NOLINT
+    "clone_from_flat(with_replay) — SDDP-like LP with α + cut + pin")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  // --- 1. Build the structural LP and freeze.
+  auto problem = build_feature_problem();
+  auto flat = problem.flatten({});
+
+  LinearInterface src;
+  src.set_low_memory(LowMemoryMode::compress);
+  src.load_flat(flat);
+  src.save_snapshot(std::move(flat));
+  src.save_base_numrows();
+  REQUIRE(src.has_snapshot_data());
+  const auto rows_after_freeze = src.get_numrows();
+  const auto cols_after_freeze = src.get_numcols();
+
+  // --- 2. Add α col post-snapshot (auto-records into m_replay_).
+  const auto alpha_col = src.add_col(SparseCol {
+      .lowb = 0.0,
+      .uppb = 1.0e30,
+      .cost = 0.0,
+      .class_name = "Sddp",
+      .variable_name = "alpha",
+      .variable_uid = 0,
+  });
+  REQUIRE(src.get_numcols() == cols_after_freeze + 1);
+
+  // --- 3. Add an optimality cut row that references α + col 1.
+  SparseRow cut;
+  cut[alpha_col] = 1.0;
+  cut[ColIndex {1}] = 0.5;
+  cut.lowb = 1.0;
+  cut.uppb = LinearProblem::DblMax;
+  cut.class_name = "Sddp";
+  cut.constraint_name = "optcut";
+  cut.variable_uid = 7;
+  src.add_row(cut);
+  src.record_dynamic_row(cut);  // simulate active_cuts replay path
+  REQUIRE(src.get_numrows() == rows_after_freeze + 1);
+
+  // --- 4. Pin a dep_col bound (forward-pass-style propagation).
+  src.set_col_low_raw(ColIndex {1}, 4.0);
+  src.set_col_upp_raw(ColIndex {1}, 4.0);
+
+  // --- 5. Clone via both routes.
+  const auto native = src.clone(LinearInterface::CloneKind::shallow);
+  const auto manual = src.clone_from_flat(LinearInterface::CloneKind::shallow,
+                                          /*with_replay=*/true);
+
+  // --- 6. Structural equivalence.
+  CAPTURE(native.get_numcols());
+  CAPTURE(manual.get_numcols());
+  CAPTURE(src.get_numcols());
+  CAPTURE(native.get_numrows());
+  CAPTURE(manual.get_numrows());
+  CAPTURE(src.get_numrows());
+  REQUIRE(manual.get_numcols() == native.get_numcols());
+  REQUIRE(manual.get_numrows() == native.get_numrows());
+
+  CHECK(spans_equal_approx(native.get_col_low(), manual.get_col_low()));
+  CHECK(spans_equal_approx(native.get_col_upp(), manual.get_col_upp()));
+  CHECK(spans_equal_approx(native.get_col_cost(), manual.get_col_cost()));
+  CHECK(spans_equal_approx(native.get_row_low(), manual.get_row_low()));
+  CHECK(spans_equal_approx(native.get_row_upp(), manual.get_row_upp()));
+
+  // --- 7. Solve equivalence.
+  auto native_solve = src.clone(LinearInterface::CloneKind::shallow);
+  auto manual_solve = src.clone_from_flat(LinearInterface::CloneKind::shallow,
+                                          /*with_replay=*/true);
+  const SolverOptions opts {};
+  const auto rn = native_solve.resolve(opts);
+  const auto rm = manual_solve.resolve(opts);
+  CAPTURE(rn.has_value());
+  CAPTURE(rm.has_value());
+  CAPTURE(native_solve.is_optimal());
+  CAPTURE(manual_solve.is_optimal());
+  CAPTURE(native_solve.get_status());
+  CAPTURE(manual_solve.get_status());
+  REQUIRE(rn.has_value());
+  REQUIRE(rm.has_value());
+  REQUIRE(native_solve.is_optimal());
+  REQUIRE(manual_solve.is_optimal());
+  CHECK(native_solve.get_obj_value()
+        == doctest::Approx(manual_solve.get_obj_value()).epsilon(1e-9));
+}
+
+// ─── 9. Reproduce chinneck mode's "Phase-1 zero-obj + slacks" pattern
+//        on both clone routes — the failing path. ──
+//
+// Mimics elastic_filter_solve's exact sequence on the cloned LP:
+//   1. Zero every original objective coefficient (Phase-1 feasibility).
+//   2. Free the dep_col (lowb=-DblMax, uppb=+DblMax).
+//   3. Add slack cols sup, sdn with cost = penalty.
+//   4. Add fixing row: dep + sup - sdn = trial_value.
+//   5. Resolve.
+//
+// Both clones must produce a feasible LP (slacks make it always
+// feasible) and converge to the same optimum.
+TEST_CASE(  // NOLINT
+    "clone_from_flat(with_replay) — chinneck Phase-1 + slacks "
+    "equivalence with native clone")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  // --- Same SDDP-like setup as the previous test.
+  auto problem = build_feature_problem();
+  auto flat = problem.flatten({});
+
+  LinearInterface src;
+  src.set_low_memory(LowMemoryMode::compress);
+  src.load_flat(flat);
+  src.save_snapshot(std::move(flat));
+  src.save_base_numrows();
+  REQUIRE(src.has_snapshot_data());
+
+  const auto alpha_col = src.add_col(SparseCol {
+      .lowb = 0.0,
+      .uppb = 1.0e30,
+      .cost = 0.0,
+      .class_name = "Sddp",
+      .variable_name = "alpha",
+      .variable_uid = 0,
+  });
+  SparseRow cut;
+  cut[alpha_col] = 1.0;
+  cut[ColIndex {1}] = 0.5;
+  cut.lowb = 1.0;
+  cut.uppb = LinearProblem::DblMax;
+  cut.class_name = "Sddp";
+  cut.constraint_name = "optcut";
+  cut.variable_uid = 7;
+  src.add_row(cut);
+  src.record_dynamic_row(cut);
+
+  // Forward-pass-style trial pin: ColIndex{1} pinned to 4.
+  src.set_col_low_raw(ColIndex {1}, 4.0);
+  src.set_col_upp_raw(ColIndex {1}, 4.0);
+
+  // Clone the LP via both routes — these are the two LPs that
+  // elastic_filter_solve would receive at the "auto cloned = ..." line.
+  auto clone_native = src.clone(LinearInterface::CloneKind::shallow);
+  auto clone_manual = src.clone_from_flat(LinearInterface::CloneKind::shallow,
+                                          /*with_replay=*/true);
+
+  // --- Apply the same elastic transformation to BOTH clones. ---
+  auto apply_elastic = [&](LinearInterface& clone)
+  {
+    // Step 1: zero original obj.
+    const auto ncols = static_cast<size_t>(clone.get_numcols());
+    const std::vector<double> zeros(ncols, 0.0);
+    clone.set_obj_coeffs_raw(zeros);
+
+    // Step 2: free the pinned dep_col (was lowb=uppb=4).
+    clone.set_col_low_raw(ColIndex {1}, -1.0e30);
+    clone.set_col_upp_raw(ColIndex {1}, 1.0e30);
+
+    // Step 3: add slack cols sup, sdn with cost = penalty.
+    constexpr double penalty = 1000.0;
+    const auto sup_col = clone.add_col(SparseCol {
+        .lowb = 0.0,
+        .uppb = 1.0e30,
+        .cost = penalty,
+        .class_name = "Slack",
+        .variable_name = "sup",
+        .variable_uid = 1001,
+    });
+    const auto sdn_col = clone.add_col(SparseCol {
+        .lowb = 0.0,
+        .uppb = 1.0e30,
+        .cost = penalty,
+        .class_name = "Slack",
+        .variable_name = "sdn",
+        .variable_uid = 1002,
+    });
+
+    // Step 4: fixing row: ColIndex{1} + sup - sdn = trial_value (4.0).
+    SparseRow fix;
+    fix[ColIndex {1}] = 1.0;
+    fix[sup_col] = 1.0;
+    fix[sdn_col] = -1.0;
+    fix.lowb = 4.0;
+    fix.uppb = 4.0;
+    fix.class_name = "Slack";
+    fix.constraint_name = "fix";
+    fix.variable_uid = 1003;
+    clone.add_row(fix);
+  };
+
+  apply_elastic(clone_native);
+  apply_elastic(clone_manual);
+
+  // --- Solve both. ---
+  const SolverOptions opts {};
+  const auto rn = clone_native.resolve(opts);
+  const auto rm = clone_manual.resolve(opts);
+
+  CAPTURE(rn.has_value());
+  CAPTURE(rm.has_value());
+  CAPTURE(clone_native.is_optimal());
+  CAPTURE(clone_manual.is_optimal());
+  CAPTURE(clone_native.get_status());
+  CAPTURE(clone_manual.get_status());
+  CAPTURE(clone_native.get_numrows());
+  CAPTURE(clone_manual.get_numrows());
+  CAPTURE(clone_native.get_numcols());
+  CAPTURE(clone_manual.get_numcols());
+
+  // Both must reach optimal — slacks are unbounded, so the LP is
+  // always feasible.  If the manual+replay clone fails to reach
+  // optimal, this is the chinneck-mode failure reproduced in
+  // isolation.
+  REQUIRE(rn.has_value());
+  REQUIRE(rm.has_value());
+  REQUIRE(clone_native.is_optimal());
+  REQUIRE(clone_manual.is_optimal());
+  CHECK(clone_native.get_obj_value()
+        == doctest::Approx(clone_manual.get_obj_value()).epsilon(1e-9));
+}
+
+// ─── 10. Cloning correctness across every LowMemoryMode ─────────────
+//
+// Pins down the routing rule the SDDP forward-pass elastic filter
+// depends on:
+//
+//   * `off`:      `m_replay_` is NEVER populated (auto-record gates
+//                 require `m_low_memory_mode_ != off`).  A snapshot
+//                 may still be present for fingerprinting (see
+//                 `system_lp.cpp:560`), but `clone_from_flat(with_replay)`
+//                 would silently miss α + cuts + bound pins.  Native
+//                 `clone()` (CPXcloneprob) is the only correct route.
+//
+//   * `compress`: `m_replay_` is populated by add_col / set_col_low /
+//                 etc.  Both routes (native and manual+replay)
+//                 produce equivalent LPs.
+//
+//   * `rebuild`:  No snapshot exists (`has_snapshot_data() == false`)
+//                 — only the rebuild callback can reconstruct.
+//                 `clone_from_flat` is unavailable; native is the
+//                 only route.
+namespace
+{
+struct ModeFixture
+{
+  LinearInterface src;
+  ColIndex alpha_col {};
+  size_t cols_after_freeze {};
+  size_t rows_after_freeze {};
+};
+
+ModeFixture make_sddp_like_source(LowMemoryMode mode)
+{
+  ModeFixture out;
+  auto problem = build_feature_problem();
+  auto flat = problem.flatten({});
+
+  out.src.set_low_memory(mode, CompressionCodec::lz4);
+  out.src.load_flat(flat);
+  // off + compress save the snapshot; rebuild has no snapshot but
+  // installs a rebuild owner via SystemLP in production — for this
+  // unit test we just save a snapshot under all modes for
+  // consistency, then check the API behaviour.
+  if (mode != LowMemoryMode::rebuild) {
+    out.src.save_snapshot(std::move(flat));
+  }
+  out.src.save_base_numrows();
+  out.cols_after_freeze = static_cast<size_t>(out.src.get_numcols());
+  out.rows_after_freeze = static_cast<size_t>(out.src.get_numrows());
+
+  // Add α col post-freeze (auto-records when mode != off).
+  out.alpha_col = out.src.add_col(SparseCol {
+      .lowb = 0.0,
+      .uppb = 1.0e30,
+      .cost = 10.0,
+      .class_name = "Sddp",
+      .variable_name = "alpha",
+      .variable_uid = 0,
+  });
+
+  // Add an optimality cut row (auto-records when mode != off).
+  SparseRow cut;
+  cut[out.alpha_col] = 1.0;
+  cut[ColIndex {1}] = 0.5;
+  cut.lowb = 1.0;
+  cut.uppb = LinearProblem::DblMax;
+  cut.class_name = "Sddp";
+  cut.constraint_name = "optcut";
+  cut.variable_uid = 7;
+  out.src.add_row(cut);
+  out.src.record_dynamic_row(cut);
+
+  // Pin a dep_col bound (forward-pass-style trial).  Auto-records
+  // into `pending_col_bounds` only when mode != off.
+  out.src.set_col_low_raw(ColIndex {1}, 4.0);
+  out.src.set_col_upp_raw(ColIndex {1}, 4.0);
+  return out;
+}
+}  // namespace
+
+TEST_CASE(  // NOLINT
+    "clone() equivalence — every LowMemoryMode reaches the same "
+    "live-backend state")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  // Native clone() must produce a clone whose live backend state
+  // matches the source's live backend state in every mode — that's
+  // the contract callers (elastic, aperture, ad-hoc) rely on.
+
+  for (const auto mode :
+       {LowMemoryMode::off, LowMemoryMode::compress, LowMemoryMode::rebuild})
+  {
+    CAPTURE(static_cast<int>(mode));
+    auto fix = make_sddp_like_source(mode);
+    auto& src = fix.src;
+    CAPTURE(src.has_snapshot_data());
+    CAPTURE(static_cast<int>(src.low_memory_mode()));
+
+    const auto cloned = src.clone(LinearInterface::CloneKind::shallow);
+
+    REQUIRE(cloned.get_numcols() == src.get_numcols());
+    REQUIRE(cloned.get_numrows() == src.get_numrows());
+    CHECK(spans_equal_approx(src.get_col_low(), cloned.get_col_low()));
+    CHECK(spans_equal_approx(src.get_col_upp(), cloned.get_col_upp()));
+    CHECK(spans_equal_approx(src.get_col_cost(), cloned.get_col_cost()));
+    CHECK(spans_equal_approx(src.get_row_low(), cloned.get_row_low()));
+    CHECK(spans_equal_approx(src.get_row_upp(), cloned.get_row_upp()));
+  }
+}
+
+TEST_CASE(  // NOLINT
+    "clone_from_flat(with_replay) — equivalence with native clone "
+    "in compress mode (where m_replay_ is populated)")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  auto fix = make_sddp_like_source(LowMemoryMode::compress);
+  auto& src = fix.src;
+  REQUIRE(src.has_snapshot_data());
+  REQUIRE(src.low_memory_mode() == LowMemoryMode::compress);
+
+  const auto native = src.clone(LinearInterface::CloneKind::shallow);
+  const auto manual = src.clone_from_flat(LinearInterface::CloneKind::shallow,
+                                          /*with_replay=*/true);
+
+  // Structural equivalence: same dims, same bounds, same costs.
+  REQUIRE(manual.get_numcols() == native.get_numcols());
+  REQUIRE(manual.get_numrows() == native.get_numrows());
+  CHECK(spans_equal_approx(native.get_col_low(), manual.get_col_low()));
+  CHECK(spans_equal_approx(native.get_col_upp(), manual.get_col_upp()));
+  CHECK(spans_equal_approx(native.get_col_cost(), manual.get_col_cost()));
+  CHECK(spans_equal_approx(native.get_row_low(), manual.get_row_low()));
+  CHECK(spans_equal_approx(native.get_row_upp(), manual.get_row_upp()));
+
+  // Solve equivalence.
+  auto native_s = src.clone(LinearInterface::CloneKind::shallow);
+  auto manual_s = src.clone_from_flat(LinearInterface::CloneKind::shallow,
+                                      /*with_replay=*/true);
+  const SolverOptions opts {};
+  REQUIRE(native_s.resolve(opts).has_value());
+  REQUIRE(manual_s.resolve(opts).has_value());
+  REQUIRE(native_s.is_optimal());
+  REQUIRE(manual_s.is_optimal());
+  CHECK(native_s.get_obj_value()
+        == doctest::Approx(manual_s.get_obj_value()).epsilon(1e-9));
+}
+
+TEST_CASE(  // NOLINT
+    "clone_from_flat(with_replay) — silently produces snapshot-only "
+    "LP under off mode (m_replay_ empty)")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  // This test PINS the surprising-but-correct behaviour: in off
+  // mode, m_replay_ is empty so apply_post_load_replay adds nothing;
+  // the manual+replay clone is structurally equal to the snapshot,
+  // NOT to the source's live backend.  The bug fix in
+  // `elastic_filter_solve` is to gate against this case and use
+  // native clone() instead.
+
+  auto fix = make_sddp_like_source(LowMemoryMode::off);
+  auto& src = fix.src;
+  REQUIRE(src.has_snapshot_data());  // snapshot exists in off mode too
+  REQUIRE(src.low_memory_mode() == LowMemoryMode::off);
+
+  const auto native = src.clone(LinearInterface::CloneKind::shallow);
+  const auto manual = src.clone_from_flat(LinearInterface::CloneKind::shallow,
+                                          /*with_replay=*/true);
+
+  // Native clone() reflects the source's full live backend state
+  // (α col + cut row + pinned bounds present).
+  CHECK(native.get_numcols() == src.get_numcols());
+  CHECK(native.get_numrows() == src.get_numrows());
+
+  // Manual clone (with_replay=true) only has the snapshot —
+  // post-snapshot mutations were NEVER recorded into m_replay_ in
+  // off mode, so apply_post_load_replay was a no-op.
+  CHECK(manual.get_numcols() == fix.cols_after_freeze);  // No α
+  CHECK(manual.get_numrows() == fix.rows_after_freeze);  // No cut
+  CHECK(manual.get_numcols() < native.get_numcols());
+  CHECK(manual.get_numrows() < native.get_numrows());
+}
+
+TEST_CASE(  // NOLINT
+    "clone_from_flat — throws under rebuild mode (no snapshot)")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  // Rebuild mode never installs a snapshot — clone_from_flat must
+  // reject the call rather than silently producing a degenerate
+  // clone.
+
+  auto fix = make_sddp_like_source(LowMemoryMode::rebuild);
+  auto& src = fix.src;
+  REQUIRE(src.low_memory_mode() == LowMemoryMode::rebuild);
+  REQUIRE_FALSE(src.has_snapshot_data());
+
+  CHECK_THROWS_AS(
+      std::ignore = src.clone_from_flat(LinearInterface::CloneKind::shallow,
+                                        /*with_replay=*/true),
+      std::runtime_error);
+}
+
+// ─── 11. Critical SDDP paths exercised by the elastic filter ────────
+//
+// Drill into the specific behaviours `elastic_filter_solve` depends
+// on: zeroing original objective coefficients, freeing pinned
+// dep_cols, adding slack cols, adding fixing rows.  Both clone
+// routes (when applicable) must support these mutations identically.
+TEST_CASE(  // NOLINT
+    "Critical SDDP path: zero-obj + slack relaxation produces "
+    "feasible LP in compress mode via both clone routes")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  auto fix = make_sddp_like_source(LowMemoryMode::compress);
+  auto& src = fix.src;
+
+  auto apply_elastic = [&](LinearInterface& clone)
+  {
+    const auto ncols = static_cast<size_t>(clone.get_numcols());
+    const std::vector<double> zeros(ncols, 0.0);
+    clone.set_obj_coeffs_raw(zeros);
+    clone.set_col_low_raw(ColIndex {1}, -1.0e30);
+    clone.set_col_upp_raw(ColIndex {1}, 1.0e30);
+    constexpr double penalty = 1000.0;
+    const auto sup = clone.add_col(SparseCol {
+        .lowb = 0.0,
+        .uppb = 1.0e30,
+        .cost = penalty,
+        .class_name = "Slack",
+        .variable_name = "sup",
+        .variable_uid = 1001,
+    });
+    const auto sdn = clone.add_col(SparseCol {
+        .lowb = 0.0,
+        .uppb = 1.0e30,
+        .cost = penalty,
+        .class_name = "Slack",
+        .variable_name = "sdn",
+        .variable_uid = 1002,
+    });
+    SparseRow fix_row;
+    fix_row[ColIndex {1}] = 1.0;
+    fix_row[sup] = 1.0;
+    fix_row[sdn] = -1.0;
+    fix_row.lowb = 4.0;
+    fix_row.uppb = 4.0;
+    fix_row.class_name = "Slack";
+    fix_row.constraint_name = "fix";
+    fix_row.variable_uid = 1003;
+    clone.add_row(fix_row);
+  };
+
+  auto cn = src.clone(LinearInterface::CloneKind::shallow);
+  auto cm = src.clone_from_flat(LinearInterface::CloneKind::shallow,
+                                /*with_replay=*/true);
+  apply_elastic(cn);
+  apply_elastic(cm);
+
+  const SolverOptions opts {};
+  REQUIRE(cn.resolve(opts).has_value());
+  REQUIRE(cm.resolve(opts).has_value());
+  REQUIRE(cn.is_optimal());
+  REQUIRE(cm.is_optimal());
+  CHECK(cn.get_obj_value()
+        == doctest::Approx(cm.get_obj_value()).epsilon(1e-9));
+}
+
+TEST_CASE(  // NOLINT
+    "Critical SDDP path: parallel cloning under compress mode "
+    "produces equivalent results across N threads")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  // The deadlock fix in commit fe2ed42d serialises native clone()
+  // under a process-global mutex.  This test verifies the manual+
+  // replay path also runs correctly across N parallel threads
+  // (without the mutex) and produces identical results to the
+  // native single-threaded clone.
+  auto fix = make_sddp_like_source(LowMemoryMode::compress);
+  auto& src = fix.src;
+
+  const auto reference = src.clone(LinearInterface::CloneKind::shallow);
+
+  constexpr int n_threads = 8;
+  std::vector<std::thread> threads;
+  std::vector<std::optional<double>> obj_values(n_threads);
+  threads.reserve(n_threads);
+  for (int i = 0; i < n_threads; ++i) {
+    threads.emplace_back(
+        [&src, &obj_values, i]
+        {
+          auto clone = src.clone_from_flat(LinearInterface::CloneKind::shallow,
+                                           /*with_replay=*/true);
+          const SolverOptions opts {};
+          if (clone.resolve(opts).has_value() && clone.is_optimal()) {
+            obj_values[static_cast<size_t>(i)] = clone.get_obj_value();
+          }
+        });
+  }
+  for (auto& t : threads) {
+    t.join();
+  }
+
+  auto ref_solve = src.clone(LinearInterface::CloneKind::shallow);
+  const SolverOptions opts {};
+  REQUIRE(ref_solve.resolve(opts).has_value());
+  REQUIRE(ref_solve.is_optimal());
+  const double expected = ref_solve.get_obj_value();
+
+  for (int i = 0; i < n_threads; ++i) {
+    CAPTURE(i);
+    REQUIRE(obj_values[static_cast<size_t>(i)].has_value());
+    CHECK(*obj_values[static_cast<size_t>(i)]
+          == doctest::Approx(expected).epsilon(1e-9));
+  }
 }

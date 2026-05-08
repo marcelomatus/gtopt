@@ -487,6 +487,43 @@ public:
   /// available for inter-iteration consumers.
   void drop_cached_primal_only() noexcept { m_cache_.drop_solution_caches(); }
 
+  /// Drop the formatted-label caches that `write_lp` populated.
+  ///
+  /// `generate_labels_from_maps` (the one path that turns label
+  /// metadata into formatted strings) writes its results into
+  /// `m_col_index_to_name_` / `m_row_index_to_name_` (and the
+  /// underlying `m_col_names_` / `m_row_names_` dedup maps) as a
+  /// memoization layer for repeat `write_lp` calls — but in
+  /// production SDDP `write_lp` runs at most once per cell (debug
+  /// `--lp-debug`, error-LP capture).  After the dump returns the
+  /// caches are dead weight: ~50k strings × ~30 bytes per LP × N
+  /// cells is hundreds of MB on juan-class cases, persisting until
+  /// process exit unless we drop them.
+  ///
+  /// Safe to call after every `write_lp` because:
+  ///   * The metadata source (compressed `m_*_labels_meta_compressed_`)
+  ///     is unchanged — the next `generate_labels_from_maps` /
+  ///     `write_lp` rebuilds the formatted cache from scratch.
+  ///   * Production SDDP (no `--lp-debug`) never populates these
+  ///     caches outside `write_lp`, so the drop is a no-op.
+  ///   * Paths that read the cache outside `write_lp`
+  ///     (`diagnose_row`, `rebuild_row_name_maps`, `delete_rows`)
+  ///     are size-guarded and tolerate an empty cache (un-named
+  ///     diagnostics vs. crash).
+  ///
+  /// Idempotent and `noexcept`.
+  void drop_formatted_label_caches() const noexcept
+  {
+    detach_for_write(m_col_index_to_name_).clear();
+    detach_for_write(m_col_index_to_name_).shrink_to_fit();
+    detach_for_write(m_row_index_to_name_).clear();
+    detach_for_write(m_row_index_to_name_).shrink_to_fit();
+    detach_for_write(m_col_names_).clear();
+    detach_for_write(m_row_names_).clear();
+    m_label_string_pool_.clear();
+    m_label_string_pool_.shrink_to_fit();
+  }
+
   /// Drop the label-metadata buffers (compressed col/row label vectors
   /// and the string pool that backs the decompressed `string_view`s).
   ///
