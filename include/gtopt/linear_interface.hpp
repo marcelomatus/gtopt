@@ -509,24 +509,22 @@ public:
     m_label_string_pool_.shrink_to_fit();
   }
 
-  /// Drop the label-metadata buffers (compressed col/row label vectors
-  /// and the string pool that backs the decompressed `string_view`s).
+  /// Drop the legacy label-metadata buffers (compressed col/row label
+  /// vectors and the string pool that backed the decompressed
+  /// `string_view`s).
   ///
-  /// `compress_labels_meta_if_needed()` populates these buffers on
-  /// every `release_backend()` so future readers — `write_lp` (debug
-  /// LP dump), cut JSON / CSV save, `OutputContext::write_out` —
-  /// can resolve LP row / column names without re-flattening from
-  /// `System` collections.  Once a run has completed all of those
-  /// operations, the buffers are dead weight: ~3 MB raw / ~1 MB
-  /// compressed per cell, so on a juan/gtopt_iplp scale (816 cells)
-  /// they total ~800 MB held until process exit.
-  ///
-  /// Call this after the final `PlanningLP::write_out` returns and
-  /// no further label-metadata reads will occur.  Idempotent and
-  /// safe to call on cells that never had label metadata (no-op).
-  /// **Do not call mid-run** — `generate_labels_from_maps` (used by
-  /// every cut JSON save and every `write_lp`) would then throw
-  /// "row N has metadata without a class_name" on the next call.
+  /// **Historical note**: prior to the `release_backend` cleanup these
+  /// buffers held a zstd-compressed copy of the frozen flatten-side
+  /// label metadata, populated by `compress_labels_meta_if_needed()`
+  /// and decompressed on demand by `ensure_labels_meta_decompressed()`
+  /// for `write_lp` / cut JSON save / `OutputContext::write_out`.  The
+  /// snapshot's `flat_lp.col_labels_meta` already owns the canonical
+  /// copy and `load_flat` repopulates the live vectors before any
+  /// consumer reads them, so the secondary compressed buffers are
+  /// always empty in current code.  This accessor stays for
+  /// idempotent end-of-run cleanup and for callers that may have
+  /// stashed compressed buffers via custom paths.  Safe to remove in
+  /// a follow-up once all in-tree callers are confirmed redundant.
   void drop_label_meta_buffers() noexcept
   {
     m_col_labels_meta_compressed_ = CompressedBuffer {};
@@ -746,6 +744,21 @@ public:
   [[nodiscard]] bool has_snapshot_data() const noexcept
   {
     return m_snapshot_holder_.has_data();
+  }
+
+  /// True iff the snapshot's flat_lp vectors are currently decompressed
+  /// (i.e. `matbeg` is populated).  This is a stronger condition than
+  /// `has_snapshot_data()` — under `LowMemoryMode::compress` the
+  /// snapshot may be present but compressed, in which case
+  /// `clone_from_flat` will throw.  Callers that want to dispatch on
+  /// the parallel-safe `clone_from_flat` route must check this first
+  /// and either fall back to `clone()` (mutex-serialised) or wrap the
+  /// call in a `DecompressionGuard` (`linear_interface_decompress_guard.hpp`)
+  /// to re-hydrate the flat_lp for the duration of the clone.
+  [[nodiscard]] bool has_decompressed_snapshot() const noexcept
+  {
+    return m_snapshot_holder_.has_data()
+        && !m_snapshot_holder_.snapshot().flat_lp.matbeg.empty();
   }
 
   /// Move out the recorded dynamic columns (alpha) so the caller can
