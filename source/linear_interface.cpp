@@ -854,6 +854,40 @@ void LinearInterface::open_log_handler(const int log_level)
 
 LinearInterface LinearInterface::clone(CloneKind kind) const
 {
+  // Process-global serialisation of `backend().clone()`.
+  //
+  // The native clone route (this method) calls into the solver's
+  // own `clone()` — `CPXcloneprob` on CPLEX, equivalent on every
+  // other backend — which has process-global side effects (env,
+  // licence manager, internal allocator) that are not reentrant
+  // across threads.  Two failure modes have been observed in
+  // production with concurrent calls and no mutex:
+  //
+  //   * Crashes — three SDDPWorkPool threads GPF'd at the same
+  //     instruction pointer inside CPLEX on juan/gtopt_iplp
+  //     (commit `1d7a05c1` added a per-callsite mutex on the
+  //     aperture path).
+  //
+  //   * Deadlocks — 10/122 SDDPWorkPool threads parked in
+  //     `_M_futex_wait_until` two frames below
+  //     `BendersCut::elastic_filter_solve`, the SDDP forward pass
+  //     wedged for >7 min (juan thread dump, 2026-05-07).
+  //
+  // The aperture path's per-callsite mutex was insufficient: it
+  // only serialised within one entry-point.  Concurrent elastic
+  // clones in the forward pass had no protection at all.  Putting
+  // the mutex here, inside `LinearInterface::clone()` itself,
+  // guarantees every native-clone caller (elastic, aperture,
+  // future paths) is automatically safe with no per-call boiler-
+  // plate.  Callers that want the parallel-safe manual route
+  // (no mutex, builds via `CPXcreateprob` + `CPXaddrows` on a
+  // freshly-opened env) call `clone_from_flat()` explicitly when
+  // they want **snapshot-state** semantics — that path is for
+  // callers who don't need the post-snapshot dynamic state
+  // (alpha, installed cuts) replayed into the clone.
+  static std::mutex s_native_clone_mutex;
+  const std::scoped_lock native_clone_lock(s_native_clone_mutex);
+
   // Route through the centralized `backend()` accessor so the source
   // auto-resurrects if released (low_memory_mode != off).  Prior to
   // this, direct `m_backend_->clone()` null-deref segfaulted when the

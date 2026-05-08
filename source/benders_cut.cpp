@@ -868,6 +868,14 @@ auto elastic_filter_solve(const LinearInterface& li,
   // shared metadata.  Bound mutations and obj-coeff zeroing happen
   // through the backend and don't touch shared state either.  COW
   // detach therefore stays dormant.
+  //
+  // `LinearInterface::clone()` itself picks the parallel-safe route
+  // (`clone_from_flat` when a snapshot is available, native
+  // `backend().clone()` under a process-global mutex otherwise),
+  // so callers never see the unguarded `CPXcloneprob` race that
+  // froze 10/122 SDDPWorkPool threads on juan/gtopt_iplp (forward-
+  // pass elastic deadlocked on CPLEX's internal env mutex,
+  // 2026-05-07 thread dump).
   auto cloned = li.clone(LinearInterface::CloneKind::shallow);
 
   // Chinneck Phase-1 feasibility LP: zero every original objective
