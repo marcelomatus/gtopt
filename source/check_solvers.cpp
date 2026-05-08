@@ -882,46 +882,7 @@ SolverTestResult test_clone(std::string_view solver)
 }
 
 // ---------------------------------------------------------------------------
-// 13. set_warm_start_solution — hot start hint survives a resolve
-// ---------------------------------------------------------------------------
-SolverTestResult test_warm_start(std::string_view solver)
-{
-  TestContext ctx;
-  const double kEps = 1e-6;
-  try {
-    const auto flat = make_2x2_flat(1.0, 1.0, 4.0);
-    LinearInterface lp(solver, flat);
-    const auto ri2 = lp.initial_solve(SolverOptions {
-        .log_level = 0,
-    });
-    TC_REQUIRE(ctx, ri2.has_value());
-    TC_REQUIRE(ctx, lp.is_optimal());
-
-    // Capture solution and use it as a warm start.
-    const auto col_sol_vec = std::vector<double>(lp.get_col_sol_raw().begin(),
-                                                 lp.get_col_sol_raw().end());
-    const auto row_dual_vec = std::vector<double>(lp.get_row_dual_raw().begin(),
-                                                  lp.get_row_dual_raw().end());
-
-    lp.set_warm_start_solution(col_sol_vec, row_dual_vec);
-
-    // Modify bound and re-solve — warm start should be used.
-    lp.set_row_low(RowIndex {0}, 5.0);
-    const auto r = lp.resolve(SolverOptions {
-        .log_level = 0,
-    });
-    TC_REQUIRE(ctx, r.has_value());
-    TC_CHECK(ctx, lp.is_optimal());
-    TC_CHECK_APPROX(ctx, lp.get_obj_value(), 5.0, kEps);
-
-  } catch (const std::exception& ex) {
-    return make_result("warm_start", /*test_passed=*/false, ex.what());
-  }
-  return make_result("warm_start", /*test_passed=*/ctx.ok(), ctx.failures);
-}
-
-// ---------------------------------------------------------------------------
-// 14. save_base_numrows / delete_rows / reset_from
+// 13. save_base_numrows / delete_rows / reset_from
 // ---------------------------------------------------------------------------
 SolverTestResult test_base_numrows_reset(std::string_view solver)
 {
@@ -1061,31 +1022,7 @@ SolverTestResult test_maximisation(std::string_view solver)
 }
 
 // ---------------------------------------------------------------------------
-// 17. set_warm_col_sol / warm_col_sol accessors
-// ---------------------------------------------------------------------------
-SolverTestResult test_warm_col_sol_accessors(std::string_view solver)
-{
-  TestContext ctx;
-  try {
-    LinearInterface lp(solver);
-    lp.add_col(SparseCol {
-        .uppb = 10.0,
-    });
-
-    lp.set_warm_col_sol(StrongIndexVector<ColIndex, double> {5.0});
-    TC_CHECK(ctx, lp.warm_col_sol().size() == 1);
-    TC_CHECK_APPROX(ctx, lp.warm_col_sol()[ColIndex {0}], 5.0, 1e-12);
-
-  } catch (const std::exception& ex) {
-    return make_result(
-        "warm_col_sol_accessors", /*test_passed=*/false, ex.what());
-  }
-  return make_result(
-      "warm_col_sol_accessors", /*test_passed=*/ctx.ok(), ctx.failures);
-}
-
-// ---------------------------------------------------------------------------
-// 18. LP stats: col scale round-trip
+// 17. LP stats: col scale round-trip
 // ---------------------------------------------------------------------------
 SolverTestResult test_col_scales(std::string_view solver)
 {
@@ -1307,11 +1244,9 @@ struct TestEntry
       {.name = "primal_infeasible", .fn = test_primal_infeasible},
       {.name = "resolve", .fn = test_resolve},
       {.name = "clone", .fn = test_clone},
-      {.name = "warm_start", .fn = test_warm_start},
       {.name = "base_numrows_reset", .fn = test_base_numrows_reset},
       {.name = "write_lp", .fn = test_write_lp},
       {.name = "maximisation", .fn = test_maximisation},
-      {.name = "warm_col_sol_accessors", .fn = test_warm_col_sol_accessors},
       {.name = "col_scales", .fn = test_col_scales},
       {.name = "barrier_threads", .fn = test_barrier_threads},
       {.name = "barrier_resolve", .fn = test_barrier_resolve},

@@ -434,21 +434,6 @@ public:
   }
 
   /**
-   * @brief Apply a saved solution as warm-start hint for the next resolve.
-   *
-   * Handles dimension mismatches gracefully: if the LP has gained extra
-   * columns (e.g. elastic slack variables) or extra rows (e.g. Benders cuts)
-   * since the solution was captured, the vectors are zero-padded to match.
-   * If the saved vector is larger than the current LP dimension it is
-   * silently ignored (stale snapshot).
-   *
-   * @param col_sol  Primal solution to set (empty = skip)
-   * @param row_dual Dual solution to set (empty = skip)
-   */
-  void set_warm_start_solution(std::span<const double> col_sol,
-                               std::span<const double> row_dual);
-
-  /**
    * @brief Release the solver backend, freeing its memory.
    *
    * All LinearInterface metadata (scales, name maps, variable_scale_map,
@@ -2474,22 +2459,6 @@ public:
   }
   /// @}
 
-  /// @name Warm column solution (hot-start state)
-  /// @{
-
-  /// Return the warm column solution vector (empty if no state loaded).
-  [[nodiscard]] constexpr const auto& warm_col_sol() const noexcept
-  {
-    return m_warm_col_sol_;
-  }
-
-  /// Set the warm column solution from a loaded state file.
-  void set_warm_col_sol(StrongIndexVector<ColIndex, double> sol) noexcept
-  {
-    m_warm_col_sol_ = std::move(sol);
-  }
-  /// @}
-
   /// @name LP coefficient statistics (populated during load_flat from
   ///       FlatLinearProblem::stats_* fields, which are computed in
   ///       LinearProblem::flatten when LpMatrixOptions::compute_stats is true).
@@ -2694,12 +2663,6 @@ private:
   /// so the COW detach in `detach_for_write` is dormant in practice.
   mutable std::shared_ptr<VariableScaleMap> m_variable_scale_map_ {
       std::make_shared<VariableScaleMap>()};
-
-  /// Warm column solution loaded from a previous run's state file.
-  /// Used by StorageLP::physical_eini/efin as fallback when
-  /// !is_optimal() (hot start before first solve).  Empty if no
-  /// state was loaded.
-  StrongIndexVector<ColIndex, double> m_warm_col_sol_;
 
   size_t m_stats_nnz_ {};
   size_t m_stats_zeroed_ {};

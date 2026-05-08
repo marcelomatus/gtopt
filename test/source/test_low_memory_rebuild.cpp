@@ -163,9 +163,8 @@ TEST_CASE(  // NOLINT
   REQUIRE(li.is_backend_released());
   CHECK_FALSE(li.has_rebuild_callback());
 
-  // Must not crash and must not flip the released flag — no callback
-  // means no rebuild happens; snapshot/compress path is not taken either.
-  li.set_warm_start_solution({}, {});  // routes through ensure_backend
+  // Must not flip the released flag — no callback means no rebuild
+  // happens; snapshot/compress path is not taken either.
   CHECK(li.is_backend_released());
   CHECK_FALSE(li.has_snapshot_data());
 }
@@ -365,8 +364,7 @@ TEST_CASE(  // NOLINT
   }
 
   // Every rebuild calls load_flat once.  Expect at least n_cycles calls;
-  // the implementation is free to do more (e.g. one extra during the
-  // initial set_warm_start_solution path), but never fewer.
+  // the implementation is free to do more, but never fewer.
   CHECK(system_lp.solver_stats().load_problem_calls >= n_cycles);
 }
 

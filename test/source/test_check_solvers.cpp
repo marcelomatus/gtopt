@@ -279,12 +279,6 @@ TEST_CASE("check_solvers - clone")  // NOLINT
 
   run_named_test("clone");
 }
-TEST_CASE("check_solvers - warm_start")  // NOLINT
-{
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
-  run_named_test("warm_start");
-}
 TEST_CASE("check_solvers - base_numrows_reset")  // NOLINT
 {
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
@@ -302,12 +296,6 @@ TEST_CASE("check_solvers - maximisation")  // NOLINT
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
   run_named_test("maximisation");
-}
-TEST_CASE("check_solvers - warm_col_sol_accessors")  // NOLINT
-{
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
-  run_named_test("warm_col_sol_accessors");
 }
 TEST_CASE("check_solvers - col_scales")  // NOLINT
 {

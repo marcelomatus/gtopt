@@ -218,12 +218,6 @@ auto SDDPMethod::save_state(const std::string& filepath)
   return save_state_csv(planning_lp(), filepath, current_iteration());
 }
 
-auto SDDPMethod::load_state(const std::string& filepath)
-    -> std::expected<void, Error>
-{
-  return load_state_csv(planning_lp(), filepath);
-}
-
 // ── Monitoring API ───────────────────────────────────────────────────────────
 // Implementation moved to sddp_monitor.cpp (write_solver_status free fn).
 // maybe_write_api_status below builds the snapshot and delegates.

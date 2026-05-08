@@ -528,30 +528,6 @@ auto CascadePlanningMethod::solve(PlanningLP& planning_lp,
       m_prev_cuts_file_.clear();
     }
 
-    // ── Load previous level's state variable solutions ──
-    // When a previous level saved state to a temp file, load it into the
-    // new level's PlanningLP via name-based resolution.  This seeds the
-    // warm column solutions so that update_lp elements (e.g.
-    // ReservoirProductionFactorLP) use physical volumes from the previous
-    // level rather than falling back to default JSON values.
-    if (level_idx > 0 && !m_prev_state_file_.empty()
-        && std::filesystem::exists(m_prev_state_file_))
-    {
-      auto state_load = load_state_csv(*current_lp, m_prev_state_file_);
-      if (state_load.has_value()) {
-        SPDLOG_INFO("Cascade [{}]: loaded state from previous level",
-                    level_name);
-      } else {
-        SPDLOG_WARN("Cascade [{}]: could not load state: {}",
-                    level_name,
-                    state_load.error().message);
-      }
-      // Clean up temp file
-      std::error_code ec;
-      std::filesystem::remove(m_prev_state_file_, ec);
-      m_prev_state_file_.clear();
-    }
-
     // ── Cut forgetting: iteration-aware inherited cut lifecycle ──
     // inherit_optimality_cuts semantics:
     //   0 or absent: do not inherit
@@ -718,27 +694,6 @@ auto CascadePlanningMethod::solve(PlanningLP& planning_lp,
         && has_active_successor)
     {
       prev_targets = collect_state_targets(*current_solver, *current_lp);
-
-      // Save state variable solutions to a temp file for inter-level
-      // transfer.  The next level loads these via name-based resolution,
-      // which handles different LP column layouts between levels.
-      const auto state_tmp = std::filesystem::temp_directory_path()
-          / std::format("cascade_state_{}_{}.csv",
-                        static_cast<std::int64_t>(::getpid()),
-                        level_idx);
-      auto state_save =
-          save_state_csv(*current_lp, state_tmp.string(), IterationIndex {0});
-      if (state_save.has_value()) {
-        m_prev_state_file_ = state_tmp.string();
-        SPDLOG_INFO("Cascade [{}]: saved state for next level to {}",
-                    level_name,
-                    state_tmp.string());
-      } else {
-        m_prev_state_file_.clear();
-        SPDLOG_WARN("Cascade [{}]: could not save state: {}",
-                    level_name,
-                    state_save.error().message);
-      }
 
       // Pre-filter and serialize cuts to disk while the current LP is
       // still alive.  Doing this here (not at next-level start) lets us

@@ -1088,32 +1088,6 @@ LinearInterface LinearInterface::clone_from_flat(CloneKind kind,
   return cloned;
 }
 
-void LinearInterface::set_warm_start_solution(
-    const std::span<const double> col_sol,
-    const std::span<const double> row_dual)
-{
-  if (!col_sol.empty()) {
-    const size_t ncols = get_numcols();
-    if (col_sol.size() >= ncols) {
-      set_col_sol(col_sol.first(ncols));
-    } else {
-      std::vector<double> padded(ncols, 0.0);
-      std::ranges::copy(col_sol, padded.begin());
-      set_col_sol(padded);
-    }
-  }
-  if (!row_dual.empty()) {
-    const size_t nrows = get_numrows();
-    if (row_dual.size() >= nrows) {
-      set_row_dual(row_dual.first(nrows));
-    } else {
-      std::vector<double> padded(nrows, 0.0);
-      std::ranges::copy(row_dual, padded.begin());
-      set_row_dual(padded);
-    }
-  }
-}
-
 // ── Load ──
 
 void LinearInterface::load_flat(const FlatLinearProblem& flat_lp)

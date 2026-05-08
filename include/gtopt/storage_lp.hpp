@@ -268,16 +268,6 @@ public:
     return lp_value * m_energy_scale_;
   }
 
-  /// Retrieve a physical energy/volume value from an LP column vector.
-  /// @param col_values  LP solution (or bounds) vector indexed by ColIndex
-  /// @param col         Column index of the energy/volume variable
-  /// @return The column value converted to physical units
-  [[nodiscard]] constexpr double physical_col_value(
-      std::span<const double> col_values, ColIndex col) const noexcept
-  {
-    return col_values[col] * m_energy_scale_;
-  }
-
   /// Retrieve the physical eini (initial energy/volume) for a given
   /// scenario and stage.
   ///
@@ -285,8 +275,8 @@ public:
   /// initial condition, so @p default_eini is returned directly.
   ///
   /// For cross-phase boundaries (phase > 0), eini corresponds to the
-  /// previous phase's efin.  When the current LP hasn't been solved and
-  /// no warm solution is available, the method looks up the previous
+  /// previous phase's efin.  When the current LP hasn't been solved, the
+  /// method looks up the previous
   /// phase's efin from sys.prev_phase_sys().  Fallback chain:
   ///   1. Current LP optimal solution (eini/sini column)
   ///   2. Current LP warm column solution (from hot-start state file)
@@ -310,44 +300,18 @@ public:
     if (!stage.index() && !stage.phase_index()) {
       return default_eini;
     }
-    // Priority chain (revised 2026-05-04 — symmetry between
-    // `LowMemoryMode::off` and `LowMemoryMode::compress`):
-    //
-    //   1. Previous phase's *optimal* efin — the only "live" source.
+    // Priority chain:
+    //   1. Previous phase's optimal efin — the only "live" source.
     //      Cross-phase reads the predecessor's freshly-propagated
     //      reservoir trajectory.  Under `off` this is the live
     //      backend's col_solution; under `compress` it's the cached
     //      col_solution captured at the predecessor's last
-    //      `release_backend()`.  Both modes produce the *same* value
+    //      `release_backend()`.  Both modes produce the same value
     //      because the cache is populated post-solve and never
-    //      overwritten by subsequent reconstructs (see
-    //      `LinearInterface::release_backend` cache-refresh gate).
+    //      overwritten by subsequent reconstructs.
     //
-    //   2. Hot-start warm value — loaded from a prior-run state file
-    //      via `LinearInterface::warm_col_sol()`.  Used when no
-    //      predecessor exists (iter-0 first phase) and the current
-    //      run is restarting from saved state.
-    //
-    //   3. Global default `eini` from the JSON — last-resort
-    //      fallback.  Iter-0 first phase falls through to here when
-    //      no warm-start state file is loaded.
-    //
-    // The own-phase eini_col fallback was REMOVED to keep `off` and
-    // `compress` byte-identical.  Rationale: when a Benders cut is
-    // added to our cell mid-backward, the live backend's
-    // `is_proven_optimal()` returns false (CPLEX flags the
-    // post-add_row LP as no-longer-solved) → step 2 was skipped →
-    // step 4 default fired.  Under compress, the cached optimality
-    // flag stays `true` from the prior release, so step 2 fired and
-    // returned a now-stale `eini_col` that doesn't satisfy the new
-    // cut.  The two paths drift: off produces a default-driven LP
-    // for `update_lp`, compress produces a stale-cache-driven LP.
-    // Removing step 2 makes both modes agree on the cross-phase value
-    // (which is the only physically meaningful source anyway — our
-    // own phase's `eini_col` is just a copy of the predecessor's
-    // efin enforced by the state-link constraint).
-    //
-    // 1. Cross-phase: previous phase's optimal efin.
+    //   2. Global default `eini` from the JSON — last-resort
+    //      fallback.  Iter-0 first phase falls through here.
     if (const auto* prev_sys = sys.prev_phase_sys()) {
       const auto& prev_li = prev_sys->linear_interface();
       if (prev_li.is_optimal()) {
@@ -360,21 +324,13 @@ public:
         }
       }
     }
-    // 2. Hot-start warm value (no predecessor or predecessor not optimal).
-    const auto& li = sys.linear_interface();
-    const auto col = eini_col_at(scenario, stage);
-    const auto& warm = li.warm_col_sol();
-    if (!warm.empty() && static_cast<size_t>(col) < warm.size()) {
-      return physical_col_value(warm, col);
-    }
-    // 3. Global default eini.
     return default_eini;
   }
 
   /// Retrieve the physical eini without cross-phase lookup.
   ///
   /// Used by callers that only have a LinearInterface (e.g. tests, non-SDDP
-  /// code).  Fallback chain: optimal solution → warm solution → default_eini.
+  /// code).  Fallback chain: optimal solution → default_eini.
   [[nodiscard]] double physical_eini(const LinearInterface& li,
                                      const ScenarioLP& scenario,
                                      const StageLP& stage,
@@ -389,18 +345,13 @@ public:
       // overload above).
       return li.get_col_sol()[col];
     }
-    const auto& warm = li.warm_col_sol();
-    if (!warm.empty() && static_cast<size_t>(col) < warm.size()) {
-      return physical_col_value(warm, col);
-    }
     return default_eini;
   }
 
   /// Retrieve the physical efin (final energy/volume) for a given
   /// scenario and stage.  Fallback chain:
   ///   1. LP optimal solution
-  ///   2. Warm column solution (loaded from hot-start state file)
-  ///   3. default_efin
+  ///   2. default_efin
   [[nodiscard]] double physical_efin(const LinearInterface& li,
                                      const ScenarioLP& scenario,
                                      const StageLP& stage,
@@ -412,10 +363,6 @@ public:
       // tolerance noise so a propagated efin never lands outside
       // the reservoir's physical envelope.
       return li.get_col_sol()[col];
-    }
-    const auto& warm = li.warm_col_sol();
-    if (!warm.empty() && static_cast<size_t>(col) < warm.size()) {
-      return physical_col_value(warm, col);
     }
     return default_efin;
   }

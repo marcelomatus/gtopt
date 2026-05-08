@@ -448,7 +448,6 @@ auto SDDPMethod::initialize_solver() -> std::expected<void, Error>
   std::string cuts_source;  // "" → cold; otherwise file or dir path
   std::size_t boundary_count = 0;
   std::size_t named_count = 0;
-  bool state_loaded = false;
 
   // Resolve relative SDDP file paths against `input_directory` (mirrors the
   // aperture-directory resolution at sddp_method.cpp:179-186).  Without
@@ -572,38 +571,15 @@ auto SDDPMethod::initialize_solver() -> std::expected<void, Error>
     }
   }
 
-  // ── Load state variable column solutions ──────────────────────────────────
-  // Recover state when recovery_mode is "full" and cuts were loaded.
-  if (m_options_.recovery_mode == RecoveryMode::full
-      && (m_options_.cut_recovery_mode != HotStartMode::none
-          || m_iteration_offset_ > 0)
-      && !m_options_.cuts_output_file.empty())
-  {
-    const auto cut_dir =
-        std::filesystem::path(m_options_.cuts_output_file).parent_path();
-    const auto state_file = (cut_dir / sddp_file::state_cols).string();
-    if (std::filesystem::exists(state_file)) {
-      auto result = load_state(state_file);
-      if (result.has_value()) {
-        state_loaded = true;
-        SPDLOG_DEBUG("SDDP: loaded state variables from {}", state_file);
-      } else {
-        SPDLOG_WARN("SDDP: could not load state variables: {}",
-                    result.error().message);
-      }
-    }
-  }
-
   // ── One-line hot-start summary so cold-vs-warm is visible at a glance ──
   {
     const auto fmt_count = [](std::size_t n) -> std::string
     { return n == 0 ? std::string {"none"} : std::to_string(n); };
     SPDLOG_INFO(
-        "SDDP HotStart: cuts={} boundary={} named={} state={} iter_offset={}",
+        "SDDP HotStart: cuts={} boundary={} named={} iter_offset={}",
         cuts_source.empty() ? std::string {"cold"} : fmt_count(cuts_count),
         fmt_count(boundary_count),
         fmt_count(named_count),
-        state_loaded ? "loaded" : "none",
         m_iteration_offset_);
   }
 
