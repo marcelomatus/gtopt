@@ -135,7 +135,7 @@ def _find_case_json(case_dir: Path) -> Path | None:
 
 
 def _resolve_log_dir(case_dir: Path) -> Path | None:
-    """Return the directory where gtopt will write its log files.
+    """Return the primary directory where gtopt will write its log files.
 
     Mirrors the resolution done by ``setup_file_logging`` on the C++
     side: gtopt picks ``log_directory`` if set in the planning JSON,
@@ -144,16 +144,55 @@ def _resolve_log_dir(case_dir: Path) -> Path | None:
     The directory is created so the tail thread can poll it for new
     files.
 
-    The previous implementation hard-coded ``<case>/output/logs``,
-    which silently desynced from cases configured with a non-default
-    ``output_directory`` (e.g. plp2gtopt-emitted JSONs use
-    ``output_directory = "results"``).  When that desync happened the
-    tail thread polled an empty directory forever and the TUI sat at
-    "Waiting for solver output…" while gtopt happily wrote to the
-    real log dir somewhere else.
+    Use :func:`_resolve_log_dir_candidates` instead when the caller
+    needs a *complete* set of paths to watch — the primary path can
+    desync from the actual gtopt output dir if the JSON's
+    ``output_directory`` is ambiguous about its base (CWD vs JSON
+    location), and that desync silently broke the TUI tail thread on
+    runs where the sanitized JSON's resolved output_directory and
+    gtopt's actual write target diverged (observed 2026-05-07: TUI
+    polled ``<case>/results/logs/`` while gtopt wrote to
+    ``<cwd>/output/logs/``).
+    """
+    candidates = _resolve_log_dir_candidates(case_dir)
+    return candidates[0] if candidates else None
+
+
+def _resolve_log_dir_candidates(case_dir: Path) -> list[Path]:
+    """Return every directory the tail thread should monitor for new
+    ``gtopt_*.log`` files.
+
+    The C++ side resolves ``output_directory`` / ``log_directory``
+    relative to gtopt's CWD, which is **not always** the JSON file's
+    parent directory: when ``run_gtopt`` is invoked from a sibling
+    shell (``cd support/juan && run_gtopt gtopt_iplp_plain``), the
+    JSON ends up parsed from ``gtopt_iplp_plain/`` while gtopt itself
+    runs with CWD=``support/juan/``, so a JSON-relative
+    ``output_directory: "results"`` resolves to ``support/juan/results``
+    on the C++ side but ``support/juan/gtopt_iplp_plain/results`` on
+    the Python side.  The two diverge silently and the TUI sits at
+    "Waiting for solver output…" forever.
+
+    To bridge this, the watcher walks every plausible candidate:
+
+      1. ``<json_parent>/<json.options.log_directory>`` if set
+         (explicit log_directory wins).
+      2. ``<json_parent>/<json.options.output_directory>/logs`` —
+         the primary path (matches gtopt under most CWDs).
+      3. ``<json_parent>/output/logs`` — fallback for the C++
+         compiled-in default output_directory.
+      4. ``<cwd>/output/logs`` — what gtopt writes to when launched
+         from a working dir different from the JSON's parent.
+      5. ``<cwd>/results/logs`` — same as #4 but for the common
+         plp2gtopt-emitted ``output_directory: "results"`` value.
+
+    Returns the primary path first (so callers that pick `[0]` retain
+    the prior behaviour), followed by the additional fallbacks in
+    discovery order.  Duplicates are removed; missing directories are
+    *created* so the tail-snapshot baseline can populate empty.
     """
     base = case_dir.parent if case_dir.is_file() else case_dir
-    output_dir = "output"
+    output_dir: str | None = None
     log_subdir: str | None = None
     json_path = _find_case_json(case_dir)
     if json_path is not None:
@@ -168,16 +207,32 @@ def _resolve_log_dir(case_dir: Path) -> Path | None:
         except (OSError, json.JSONDecodeError):
             pass
 
+    raw_candidates: list[Path] = []
     if log_subdir is not None:
-        log_dir = (base / log_subdir).resolve()
-    else:
-        log_dir = (base / output_dir / "logs").resolve()
+        raw_candidates.append(base / log_subdir)
+    if output_dir is not None:
+        raw_candidates.append(base / output_dir / "logs")
+    raw_candidates.append(base / "output" / "logs")
+    cwd = Path.cwd()
+    raw_candidates.append(cwd / "output" / "logs")
+    raw_candidates.append(cwd / "results" / "logs")
 
-    try:
-        log_dir.mkdir(parents=True, exist_ok=True)
-        return log_dir
-    except OSError:
-        return None
+    seen: set[Path] = set()
+    out: list[Path] = []
+    for raw in raw_candidates:
+        try:
+            resolved = raw.resolve()
+        except (OSError, RuntimeError):
+            continue
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        try:
+            resolved.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            continue
+        out.append(resolved)
+    return out
 
 
 def _snapshot_gtopt_logs(log_dir: Path) -> set[Path]:
@@ -200,10 +255,11 @@ def _wait_for_new_log(
 ) -> Path | None:
     """Wait until a new ``gtopt_*.log`` appears in @p log_dir; return it.
 
-    Compares the current directory listing against @p baseline; the
-    first novel file is the one the C++ side just opened via
-    ``next_numbered_log_path()``.  Returns ``None`` if @p stop_event
-    fires before any new file shows up.
+    Single-directory variant — see :func:`_wait_for_new_log_multi` for
+    the variant the TUI tail thread uses, which polls every plausible
+    log-dir candidate so the watcher does not silently desync from
+    the actual C++ write target on layouts where the JSON's
+    ``output_directory`` resolves differently on each side.
     """
     while not stop_event.is_set():
         try:
@@ -215,6 +271,40 @@ def _wait_for_new_log(
             # If multiple appeared (very unlikely — only one writer per
             # gtopt run), pick the most recently modified.
             return max(new, key=lambda p: p.stat().st_mtime)
+        time.sleep(poll_interval)
+    return None
+
+
+def _wait_for_new_log_multi(
+    candidate_dirs: list[Path],
+    baselines: dict[Path, set[Path]],
+    stop_event: threading.Event,
+    poll_interval: float = 0.1,
+) -> Path | None:
+    """Wait until a new ``gtopt_*.log`` appears in ANY @p candidate_dirs.
+
+    Polls each candidate concurrently in a single round-robin loop.
+    Returns the first novel file seen across all candidates.  When
+    multiple candidates resolve to the same directory the per-dir
+    baseline is shared, so we never double-count the same file.
+
+    @p baselines maps each candidate dir to the set of pre-existing
+    ``gtopt_*.log`` files at watch start.  Files outside that
+    baseline are considered new.
+
+    Returns ``None`` if @p stop_event fires before any new file
+    appears in any candidate.
+    """
+    while not stop_event.is_set():
+        for cand in candidate_dirs:
+            try:
+                current = set(cand.glob("gtopt_*.log"))
+            except OSError:
+                continue
+            baseline = baselines.get(cand, set())
+            new = current - baseline
+            if new:
+                return max(new, key=lambda p: p.stat().st_mtime)
         time.sleep(poll_interval)
     return None
 
@@ -256,10 +346,29 @@ def _watch_and_tail(
 ) -> None:
     """Wait for a new gtopt_N.log to appear, then tail it.
 
-    Combines ``_wait_for_new_log`` and ``_tail_log_to`` for use as the
-    target of a background tail thread.
+    Single-directory variant — see :func:`_watch_and_tail_multi` for
+    the multi-candidate version the TUI tail thread uses.
     """
     log_path = _wait_for_new_log(log_dir, baseline, stop_event)
+    if log_path is None:
+        return
+    _tail_log_to(log_path, consume, stop_event)
+
+
+def _watch_and_tail_multi(
+    candidate_dirs: list[Path],
+    baselines: dict[Path, set[Path]],
+    consume,
+    stop_event: threading.Event,
+) -> None:
+    """Wait for a new ``gtopt_*.log`` in any candidate dir, then tail it.
+
+    Combines :func:`_wait_for_new_log_multi` and :func:`_tail_log_to`
+    for use as the target of a background tail thread that doesn't
+    know in advance which of several plausible directories the C++
+    side will actually open its log in.
+    """
+    log_path = _wait_for_new_log_multi(candidate_dirs, baselines, stop_event)
     if log_path is None:
         return
     _tail_log_to(log_path, consume, stop_event)
@@ -277,16 +386,16 @@ def _run_batch(cmd: list[str], env: dict[str, str], case_dir: Path) -> int:
     from a CI / shell pipe still sees progress in real time.
     """
     log.info("running: %s", " ".join(cmd))
-    log_dir = _resolve_log_dir(case_dir)
+    candidate_dirs = _resolve_log_dir_candidates(case_dir)
 
-    if log_dir is None:
-        # Couldn't even create the log directory — fall back to letting
+    if not candidate_dirs:
+        # Couldn't even create any log directory — fall back to letting
         # the subprocess inherit our stdout (gtopt's TTY check will then
         # produce normal stdout output).
         result = subprocess.run(cmd, check=False, env=env)
         return result.returncode
 
-    baseline = _snapshot_gtopt_logs(log_dir)
+    baselines = {d: _snapshot_gtopt_logs(d) for d in candidate_dirs}
     stop_event = threading.Event()
 
     def _emit(line: str) -> None:
@@ -294,8 +403,8 @@ def _run_batch(cmd: list[str], env: dict[str, str], case_dir: Path) -> int:
         sys.stdout.flush()
 
     tail_thread = threading.Thread(
-        target=_watch_and_tail,
-        args=(log_dir, baseline, _emit, stop_event),
+        target=_watch_and_tail_multi,
+        args=(candidate_dirs, baselines, _emit, stop_event),
         daemon=True,
     )
     tail_thread.start()
@@ -338,7 +447,7 @@ def _run_interactive(cmd: list[str], env: dict[str, str], case_dir: Path) -> int
 
     case_path = Path(case_dir)
     case_name = case_path.stem if case_path.is_file() else case_path.name
-    log_dir = _resolve_log_dir(case_path)
+    candidate_dirs = _resolve_log_dir_candidates(case_path)
 
     # Extract --solver from command line for display
     solver_hint = ""
@@ -358,11 +467,11 @@ def _run_interactive(cmd: list[str], env: dict[str, str], case_dir: Path) -> int
 
     stop_event = threading.Event()
     tail_thread: threading.Thread | None = None
-    if log_dir is not None:
-        baseline = _snapshot_gtopt_logs(log_dir)
+    if candidate_dirs:
+        baselines = {d: _snapshot_gtopt_logs(d) for d in candidate_dirs}
         tail_thread = threading.Thread(
-            target=_watch_and_tail,
-            args=(log_dir, baseline, display.add_log_line, stop_event),
+            target=_watch_and_tail_multi,
+            args=(candidate_dirs, baselines, display.add_log_line, stop_event),
             daemon=True,
         )
         tail_thread.start()
