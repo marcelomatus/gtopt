@@ -210,104 +210,52 @@ void LinearInterface::compress_labels_meta_if_needed()
   if (m_low_memory_mode_ == LowMemoryMode::off) {
     return;
   }
-  // Compress ONLY the frozen flatten-side vectors.  The post-flatten
-  // vectors (cuts, alpha, cascade elastic) stay uncompressed: they
-  // are small in practice (1 alpha + a bounded set of cut rows /
-  // slack pairs) and round-tripping them through the codec on every
-  // release/reconstruct cycle would dominate the work that flatten-
-  // side compression saves.
+  // Drop the frozen flatten-side label metadata vectors and dedup
+  // maps to free memory between release_backend and the next
+  // load_flat.  Both are repopulated unconditionally by load_flat
+  // from the snapshot's `flat_lp.col_labels_meta` / `col_meta_index`
+  // (linear_interface.cpp:1163, 1186), so there is no need to
+  // serialise the labels into a separate compressed buffer here:
+  // the snapshot already owns the canonical copy and write_lp can
+  // only fire when the backend is loaded — which means load_flat
+  // just ran and the live vectors are populated.
   //
-  // Codec choice is **zstd**, not the snapshot's codec (typically
-  // lz4): label metadata is decompressed only when `write_lp` runs
-  // (rare — debug dumps + SDDP error-LP capture path only — see
-  // `ensure_labels_meta_decompressed` callers), so the lz4
-  // decompression-speed advantage doesn't apply here, and zstd's
-  // 2-3× better compression ratio on label-string data (lots of
-  // repeated `class_name` / `variable_name` substrings) is a
-  // strict win.  The flat-LP snapshot keeps lz4 because it gets
-  // decompressed every release/reconstruct cycle (could be 1000s
-  // of times in SDDP) and decode speed dominates total cost there.
-  static constexpr auto kMetadataCodec = CompressionCodec::zstd;
-  // Always re-compress whenever live frozen data is present.  A stale
-  // compressed buffer may already exist from a previous release
-  // cycle; the recompressed buffer supersedes it.  When live is
-  // empty (already compressed and no post-reload mutations) this is
-  // a no-op.
+  // Post-flatten vectors (cuts, alpha, cascade elastic) stay
+  // populated: they are tiny and survive across cycles in
+  // m_post_flatten_*_meta_index_, which is per-instance and not
+  // reseeded by load_flat.
   if (!m_col_labels_meta_->empty()) {
     auto& cm = detach_for_write(m_col_labels_meta_);
-    m_col_labels_meta_count_ = cm.size();
-    const auto bytes = serialize_labels_meta(cm);
-    m_col_labels_meta_compressed_ =
-        compress_buffer({bytes.data(), bytes.size()}, kMetadataCodec);
-    // Drop the live vector; `string_view`s in `m_col_labels_meta_`
-    // are now invalidated.  The string pool stays alive until the
-    // next decompression cycle reseeds it with fresh strings.
     cm.clear();
     cm.shrink_to_fit();
   }
   if (!m_row_labels_meta_->empty()) {
     auto& rm = detach_for_write(m_row_labels_meta_);
-    m_row_labels_meta_count_ = rm.size();
-    const auto bytes = serialize_labels_meta(rm);
-    m_row_labels_meta_compressed_ =
-        compress_buffer({bytes.data(), bytes.size()}, kMetadataCodec);
     rm.clear();
     rm.shrink_to_fit();
   }
 
   // The frozen-side dedup maps hold string_views into the vectors we
-  // just emptied; they'd dangle if left populated.  Rebuilt in
-  // `ensure_labels_meta_decompressed` on the next `write_lp` read.
-  // The post-flatten dedup maps stay populated — they index per-
-  // instance vectors that never compressed.
+  // just emptied; they'd dangle if left populated.  load_flat
+  // rebuilds them from the snapshot in the same step that repopulates
+  // the live vectors (linear_interface.cpp:1186).  The post-flatten
+  // dedup maps stay populated — they index per-instance vectors that
+  // were never compressed.
   detach_for_write(m_col_meta_index_).clear();
   detach_for_write(m_row_meta_index_).clear();
 }
 
 void LinearInterface::ensure_labels_meta_decompressed() const
 {
-  bool decompressed_any = false;
-  // Decompress on first read / write after `compress_labels_meta_if_
-  // needed` fired.  Idempotent: non-empty live vectors mean we've
-  // already decompressed (or never compressed in the first place).
-  if (!m_col_labels_meta_compressed_.empty() && m_col_labels_meta_->empty()) {
-    const auto bytes = m_col_labels_meta_compressed_.decompress_data();
-    // Reserve the pool to hold 2 string_views per entry (class_name
-    // + variable_name) so `push_back` never reallocates and the
-    // revived `string_view`s stay valid.
-    m_label_string_pool_.clear();
-    m_label_string_pool_.reserve((m_col_labels_meta_count_ * 2)
-                                 + (m_row_labels_meta_count_ * 2));
-    detach_for_write(m_col_labels_meta_) =
-        deserialize_col_labels_meta({bytes.data(), bytes.size()},
-                                    m_col_labels_meta_count_,
-                                    m_label_string_pool_);
-    m_col_labels_meta_compressed_ = {};
-    m_col_labels_meta_count_ = 0;
-    decompressed_any = true;
-  }
-  if (!m_row_labels_meta_compressed_.empty() && m_row_labels_meta_->empty()) {
-    const auto bytes = m_row_labels_meta_compressed_.decompress_data();
-    // Keep existing col-pool entries — if col was decompressed first
-    // the string_views still point into their original pool slots.
-    // The row pass just appends.
-    if (m_label_string_pool_.capacity() == 0) {
-      m_label_string_pool_.reserve(m_row_labels_meta_count_ * 2);
-    }
-    detach_for_write(m_row_labels_meta_) =
-        deserialize_row_labels_meta({bytes.data(), bytes.size()},
-                                    m_row_labels_meta_count_,
-                                    m_label_string_pool_);
-    m_row_labels_meta_compressed_ = {};
-    m_row_labels_meta_count_ = 0;
-    decompressed_any = true;
-  }
-  // Rehydrate the duplicate-detection maps so add_col / add_row
-  // after a reload keep enforcing uniqueness against the whole
-  // history, not just post-reload additions.
-  if (decompressed_any) {
-    rebuild_meta_indexes();
-  }
+  // No-op now that compress_labels_meta_if_needed() no longer
+  // serialises into m_col_labels_meta_compressed_ / m_row_labels_
+  // meta_compressed_.  The live vectors are repopulated directly by
+  // load_flat from the snapshot, which is the only path that
+  // produces a loaded backend — and write_lp (the only consumer of
+  // generate_labels_from_maps) requires a loaded backend.  Kept as
+  // a deliberate no-op to preserve the call site in
+  // generate_labels_from_maps in case a future change reintroduces
+  // a compressed-buffer fallback for some reason.
 }
 
 void LinearInterface::rebuild_meta_indexes() const

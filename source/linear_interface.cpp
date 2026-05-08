@@ -651,12 +651,11 @@ const SparseColLabel* LinearInterface::col_label_at(ColIndex idx) const noexcept
   }
   const auto i = static_cast<std::size_t>(idx);
   // Frozen flatten-side metadata, indexed in `[0, flatten_col_count())`.
-  // No decompression here — `track_col_label_meta` does not consult the
-  // formatted string form, only `generate_labels_from_maps` does.  Read
-  // the live (decompressed) shared vector if it is present; the
-  // compressed-only state is detected by an empty live vector with a
-  // non-empty `m_col_labels_meta_compressed_` buffer (which only the
-  // `generate_labels_from_maps` path needs to rehydrate).
+  // Read the live shared vector when populated; an empty live vector
+  // means we are between `release_backend` (which clears it) and the
+  // next `load_flat` (which repopulates it from the snapshot).  In
+  // that window no consumer reads label metadata: `write_lp` requires
+  // a loaded backend, which implies `load_flat` already ran.
   if (m_col_labels_meta_) {
     const auto& cm = *m_col_labels_meta_;
     if (i < cm.size()) {
