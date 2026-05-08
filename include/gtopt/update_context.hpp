@@ -103,10 +103,6 @@ template<typename SystemLPT>
   if (li.is_optimal()) {
     return li.get_col_sol()[rc.efin_col];
   }
-  const auto& warm = li.warm_col_sol();
-  if (!warm.empty() && static_cast<std::size_t>(rc.efin_col) < warm.size()) {
-    return warm[rc.efin_col] * rc.energy_scale;
-  }
   return rc.default_volume;
 }
 
@@ -132,10 +128,6 @@ template<typename SystemLPT>
   const auto& li = sys.linear_interface();
   if (li.is_optimal()) {
     return li.get_col_sol()[rc.eini_col];
-  }
-  const auto& warm = li.warm_col_sol();
-  if (!warm.empty() && static_cast<std::size_t>(rc.eini_col) < warm.size()) {
-    return warm[rc.eini_col] * rc.energy_scale;
   }
   return rc.default_volume;
 }

@@ -868,7 +868,48 @@ auto elastic_filter_solve(const LinearInterface& li,
   // shared metadata.  Bound mutations and obj-coeff zeroing happen
   // through the backend and don't touch shared state either.  COW
   // detach therefore stays dormant.
-  auto cloned = li.clone(LinearInterface::CloneKind::shallow);
+  //
+  // Clone route — pick the parallel-safe manual+replay path when
+  // both pre-conditions are met:
+  //
+  //   1. `has_snapshot_data()`: an uncompressed FlatLinearProblem
+  //      snapshot is available for `load_flat` to rebuild from.
+  //
+  //   2. `low_memory_mode() != off`: the replay buffer
+  //      (m_dynamic_cols_, m_dynamic_rows_, m_active_cuts_,
+  //      m_pending_col_bounds_) has been populated by add_col /
+  //      add_row / set_col_low_raw / set_col_upp_raw.  Those
+  //      auto-record gates are CLOSED in off mode (see
+  //      `linear_interface.cpp` line 1456 and the bound setters at
+  //      2630/2653 — `m_low_memory_mode_ != LowMemoryMode::off` is
+  //      the precondition for recording).  Off mode still saves a
+  //      snapshot at build time (`system_lp.cpp:560`) for
+  //      fingerprinting / future use, so `has_snapshot_data()` is
+  //      true even there — but `m_replay_` is empty, and the
+  //      manual+replay clone would silently miss α + cuts +
+  //      forward-pass-pinned bounds (verified 2026-05-08 against the
+  //      ElasticFilterMode comparison fixture: missing α col,
+  //      missing α=0 bootstrap pin, missing reservoir trial-pin).
+  //
+  // When either gate fails we fall back to the native `clone()`,
+  // which is itself serialised by a process-global mutex inside the
+  // LinearInterface — correctness-safe even though it serialises N
+  // concurrent elastic clones.
+  // `has_decompressed_snapshot()` is the right gate (not just
+  // `has_snapshot_data()`): under `LowMemoryMode::compress` the
+  // snapshot is held compressed between iterations.  After
+  // `reconstruct_backend` runs (lazy on first solve), the flat_lp
+  // vectors are cleared and only the compressed buffer remains —
+  // `clone_from_flat` would throw "source flat LP is not decompressed".
+  // Falling back to native `clone()` here is correct: it reads from the
+  // live backend, which has the full LP regardless of snapshot
+  // compression state.
+  const bool can_use_manual = li.has_decompressed_snapshot()
+      && li.low_memory_mode() != LowMemoryMode::off;
+  auto cloned = can_use_manual
+      ? li.clone_from_flat(LinearInterface::CloneKind::shallow,
+                           /*with_replay=*/true)
+      : li.clone(LinearInterface::CloneKind::shallow);
 
   // Chinneck Phase-1 feasibility LP: zero every original objective
   // coefficient so the relaxed LP becomes a pure feasibility problem.
@@ -1502,8 +1543,33 @@ auto BendersCut::elastic_filter_solve(const LinearInterface& li,
     return result;
   }
 
-  // Shallow clone — same rationale as the free `elastic_filter_solve`.
-  auto cloned = li.clone(LinearInterface::CloneKind::shallow);
+  // Clone route — mirror the free `elastic_filter_solve` gating so
+  // both elastic paths (single/multi via this method, chinneck via
+  // the free function) pick up the parallel-safe manual+replay route
+  // under the same conditions.  See the free function for the full
+  // rationale; in short: when a snapshot is hydrated AND the replay
+  // buffer is being populated (low_memory != off), `clone_from_flat`
+  // builds the clone via `CPXcreateprob` + `CPXaddrows` on a freshly-
+  // opened solver env (no `CPXcloneprob`, no global mutex, parallel-
+  // safe across N forward-pass workers), then replays α + cuts +
+  // pinned bounds onto the clone.  Falls back to native `clone()` —
+  // itself process-globally serialised since `fe2ed42d` — when
+  // either pre-condition fails.
+  // `has_decompressed_snapshot()` is the right gate (not just
+  // `has_snapshot_data()`): under `LowMemoryMode::compress` the
+  // snapshot is held compressed between iterations.  After
+  // `reconstruct_backend` runs (lazy on first solve), the flat_lp
+  // vectors are cleared and only the compressed buffer remains —
+  // `clone_from_flat` would throw "source flat LP is not decompressed".
+  // Falling back to native `clone()` here is correct: it reads from the
+  // live backend, which has the full LP regardless of snapshot
+  // compression state.
+  const bool can_use_manual = li.has_decompressed_snapshot()
+      && li.low_memory_mode() != LowMemoryMode::off;
+  auto cloned = can_use_manual
+      ? li.clone_from_flat(LinearInterface::CloneKind::shallow,
+                           /*with_replay=*/true)
+      : li.clone(LinearInterface::CloneKind::shallow);
 
   ElasticSolveResult result;
 
@@ -1517,38 +1583,37 @@ auto BendersCut::elastic_filter_solve(const LinearInterface& li,
     return std::nullopt;
   }
 
-  // Transfer ownership of the cloned LP to a shared_ptr captured by value
-  // in the pool task lambda.  This guarantees the clone's lifetime extends
-  // until after pool.get() returns, regardless of when the task is scheduled.
-  auto cloned_sp = std::make_shared<LinearInterface>(std::move(cloned));
-
-  // Submit the LP solve to the work pool so that the pool's scheduling and
-  // monitoring infrastructure (CPU load, active workers) observe the solve.
-  // The calling thread blocks on the future until the solve completes.
-  auto fut = m_pool_->submit([cloned_sp, opts]() -> std::expected<int, Error>
-                             { return cloned_sp->resolve(opts); });
-
-  bool solved = false;
-  if (fut.has_value()) {
-    auto r = fut.value().get();
-    solved = r.has_value() && cloned_sp->is_optimal();
-  } else {
-    // Pool submission failed (e.g. pool shut down): fall back to direct solve.
-    SPDLOG_WARN(
-        "BendersCut::elastic_filter_solve: pool submit failed, "
-        "falling back to direct solve");
-    auto r = cloned_sp->resolve(opts);
-    solved = r.has_value() && cloned_sp->is_optimal();
-  }
+  // Resolve the clone IN-THREAD — this method is itself called from a
+  // forward-pass pool task (`sddp_forward_pass.cpp` → `elastic_solve` →
+  // here), so submitting the clone-resolve back into the same pool would
+  // create a recursive-submit deadlock: the parent forward-pass worker
+  // would block on `fut.get()` for a child the pool's memory-throttle
+  // gate cannot dispatch, so all parent workers wedge on their nested
+  // futures, no `tasks_active_` decrement ever happens, and the pool
+  // never recovers (juan/iplp_plain hang fingerprint, gdb thread dump
+  // 2026-05-08: 13/96 workers parked in `__atomic_futex_wait_until` two
+  // frames below `BendersCut::elastic_filter_solve`).
+  //
+  // Running the resolve in-thread costs nothing in parallelism — the
+  // forward-pass worker would have been blocked on `fut.get()` for the
+  // duration of the solve anyway.  It removes the deadlock class
+  // entirely: the parent task simply executes the LP solve as part of
+  // its own body and returns normally, decrementing `tasks_active_` as
+  // expected, freeing the slot for other work, releasing memory.  Pool-
+  // level CPU/active-worker monitoring no longer sees the elastic solve
+  // as a discrete task — that's an acceptable trade-off (the elastic
+  // path is rare, ~1 in 100+ forward solves on convergent runs).
+  auto r = cloned.resolve(opts);
+  const bool solved = r.has_value() && cloned.is_optimal();
 
   if (solved) {
     m_infeasible_cut_count_.fetch_add(1, std::memory_order_relaxed);
     SPDLOG_TRACE(
-        "BendersCut::elastic_filter_solve: solved clone via pool "
+        "BendersCut::elastic_filter_solve: solved clone in-thread "
         "(obj={:.4f}), total_infeasible_cuts={}",
-        cloned_sp->get_obj_value(),
+        cloned.get_obj_value(),
         m_infeasible_cut_count_.load(std::memory_order_relaxed));
-    result.clone = std::move(*cloned_sp);
+    result.clone = std::move(cloned);
     return result;
   }
 
@@ -1560,7 +1625,7 @@ auto BendersCut::elastic_filter_solve(const LinearInterface& li,
   // ``sddp_forward_pass.cpp:641``, which made debugging
   // ``relaxed clone infeasible`` warnings impossible.
   result.solved = false;
-  result.clone = std::move(*cloned_sp);
+  result.clone = std::move(cloned);
   return result;
 }
 

@@ -477,15 +477,8 @@ public:
 
   /// Save state variable column solutions and reduced costs to a CSV file.
   /// Writes one row per column with its name, phase, scene, value, and
-  /// reduced cost.  Saved alongside cuts for hot-start state restoration.
+  /// reduced cost.
   [[nodiscard]] auto save_state(const std::string& filepath)
-      -> std::expected<void, Error>;
-
-  /// Load state variable column solutions from a CSV file.
-  /// Sets the warm column solution on each phase's LinearInterface so
-  /// that physical_eini/physical_efin return loaded values before the
-  /// first solve.
-  [[nodiscard]] auto load_state(const std::string& filepath)
       -> std::expected<void, Error>;
 
   /// Get the global max kappa across all (scene, phase) LP solves.

@@ -103,4 +103,51 @@ void decompress_flat_lp(FlatLinearProblem& flp, const CompressedBuffer& buf);
 /// preserving metadata (ncols, nrows, nnz, names, stats, etc.).
 void clear_flat_lp_vectors(FlatLinearProblem& flp);
 
+// ── Aggregate compression statistics ────────────────────────────────────────
+//
+// `compress()` and `decompress()` silently accumulate per-codec counters
+// (number of operations, wall time, uncompressed and compressed bytes) into
+// process-global atomics — no per-call logging.  Call
+// `log_compression_stats()` once at end-of-run to emit a single INFO line per
+// codec actually used, e.g.:
+//
+//   compression[zstd]: 1234 ops compressed 5.4 GB → 421 MB (12.8x ratio)
+//                      in 18.2s  (304 MB/s); 567 ops decompressed 421 MB →
+//                      5.4 GB in 1.1s (4.9 GB/s).
+//
+// Use this to compare lz4 vs. zstd trade-offs (decompress-throughput vs.
+// compression-ratio) on a real workload by running the same case twice with
+// different `memory_codec` settings and diffing the two summary lines.
+
+/// Snapshot of per-codec compression / decompression accumulators.
+/// Returned by `get_compression_stats()` for programmatic inspection.
+struct CompressionStatsSample
+{
+  CompressionCodec codec {CompressionCodec::uncompressed};
+
+  std::uint64_t n_compress {0};
+  std::uint64_t compress_us {0};
+  std::uint64_t compress_in_bytes {0};
+  std::uint64_t compress_out_bytes {0};
+
+  std::uint64_t n_decompress {0};
+  std::uint64_t decompress_us {0};
+  std::uint64_t decompress_in_bytes {0};
+  std::uint64_t decompress_out_bytes {0};
+};
+
+/// Read out the per-codec accumulators (snapshot, no clear).  Codecs with
+/// zero ops in both directions are omitted.
+[[nodiscard]] std::vector<CompressionStatsSample>
+get_compression_stats() noexcept;
+
+/// Reset all per-codec accumulators to zero.  Useful between runs in a
+/// long-lived process (e.g. cascade levels) to attribute stats per level.
+void reset_compression_stats() noexcept;
+
+/// Emit one INFO log line per codec that has been used since startup or
+/// since the last `reset_compression_stats()`.  Idempotent and cheap when
+/// no codec was used (no log lines emitted).
+void log_compression_stats() noexcept;
+
 }  // namespace gtopt

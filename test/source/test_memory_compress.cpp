@@ -191,3 +191,97 @@ TEST_CASE("compress_buffer with small payload")  // NOLINT
   const auto restored = cbuf.decompress_data();
   CHECK(restored == payload);
 }
+
+// ── Compression-stats accumulators ──────────────────────────────────────────
+
+TEST_CASE(  // NOLINT
+    "compression stats — empty after reset, populated after one round-trip")
+{
+  reset_compression_stats();
+  const auto fresh = get_compression_stats();
+  CHECK(fresh.empty());
+
+  // One zstd compress + decompress round-trip.
+  const std::vector<char> payload(4096, 'a');
+  const auto comp =
+      compress({payload.data(), payload.size()}, CompressionCodec::zstd);
+  const auto decomp = decompress(
+      {comp.data(), comp.size()}, payload.size(), CompressionCodec::zstd);
+  CHECK(decomp == payload);
+
+  const auto stats = get_compression_stats();
+  REQUIRE(stats.size() == 1);
+  CHECK(stats[0].codec == CompressionCodec::zstd);
+  CHECK(stats[0].n_compress == 1);
+  CHECK(stats[0].n_decompress == 1);
+  CHECK(stats[0].compress_in_bytes == payload.size());
+  CHECK(stats[0].compress_out_bytes == comp.size());
+  CHECK(stats[0].decompress_in_bytes == comp.size());
+  CHECK(stats[0].decompress_out_bytes == payload.size());
+
+  // Cleanup so subsequent test cases don't see leftover counters.
+  reset_compression_stats();
+}
+
+TEST_CASE(  // NOLINT
+    "compression stats — separate codecs accumulate independently")
+{
+  reset_compression_stats();
+  const std::vector<char> payload(2048, 'x');
+
+  // zstd round-trip
+  const auto cz =
+      compress({payload.data(), payload.size()}, CompressionCodec::zstd);
+  std::ignore = decompress(
+      {cz.data(), cz.size()}, payload.size(), CompressionCodec::zstd);
+
+  // Uncompressed round-trip (always available)
+  const auto cu = compress({payload.data(), payload.size()},
+                           CompressionCodec::uncompressed);
+  std::ignore = decompress(
+      {cu.data(), cu.size()}, payload.size(), CompressionCodec::uncompressed);
+
+  const auto stats = get_compression_stats();
+  REQUIRE(stats.size() == 2);
+  bool saw_zstd = false;
+  bool saw_uncomp = false;
+  for (const auto& s : stats) {
+    if (s.codec == CompressionCodec::zstd) {
+      saw_zstd = true;
+      CHECK(s.n_compress == 1);
+      CHECK(s.n_decompress == 1);
+    } else if (s.codec == CompressionCodec::uncompressed) {
+      saw_uncomp = true;
+      CHECK(s.n_compress == 1);
+      CHECK(s.n_decompress == 1);
+    }
+  }
+  CHECK(saw_zstd);
+  CHECK(saw_uncomp);
+
+  reset_compression_stats();
+}
+
+TEST_CASE(  // NOLINT
+    "compression stats — log_compression_stats is silent when nothing used")
+{
+  reset_compression_stats();
+  // Must not throw and must not segfault on empty state.
+  log_compression_stats();
+  CHECK(get_compression_stats().empty());
+}
+
+TEST_CASE(  // NOLINT
+    "compression stats — reset clears counters back to zero")
+{
+  reset_compression_stats();
+  const std::vector<char> payload(1024, 'q');
+  const auto c =
+      compress({payload.data(), payload.size()}, CompressionCodec::zstd);
+  std::ignore =
+      decompress({c.data(), c.size()}, payload.size(), CompressionCodec::zstd);
+  REQUIRE_FALSE(get_compression_stats().empty());
+
+  reset_compression_stats();
+  CHECK(get_compression_stats().empty());
+}

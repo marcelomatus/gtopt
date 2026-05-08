@@ -40,16 +40,4 @@ class PlanningLP;
                                   IterationIndex iteration_index)
     -> std::expected<void, Error>;
 
-/// Load state variable column solutions from a CSV file.
-///
-/// Reads the CSV and builds a warm column solution vector per (scene, phase)
-/// LinearInterface.  After loading, physical_eini/physical_efin will use
-/// these warm values as fallback when the LP has not been solved yet.
-///
-/// @param planning_lp  The PlanningLP to inject warm solutions into
-/// @param filepath     Input CSV file path
-[[nodiscard]] auto load_state_csv(PlanningLP& planning_lp,
-                                  const std::string& filepath)
-    -> std::expected<void, Error>;
-
 }  // namespace gtopt

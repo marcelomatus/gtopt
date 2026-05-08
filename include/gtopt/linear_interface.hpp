@@ -336,10 +336,28 @@ public:
    * path.  `kind == CloneKind::deep` keeps the freshly-built
    * metadata that `load_flat` produced.
    *
+   * `with_replay == false` (default) clones **snapshot state only**
+   * — the resulting LP has no post-snapshot α col, no installed
+   * cuts, and no forward-pass-pinned bounds.  This is what the
+   * SDDP aperture path wants (the aperture solves the structural
+   * LP with bound updates, no cuts).
+   *
+   * `with_replay == true` additionally replays the source's
+   * `m_replay_` state (dynamic_cols, dynamic_rows, active_cuts,
+   * pending_col_bounds) onto the freshly-built clone — yielding a
+   * **current-state** clone equivalent to what `clone()` would
+   * produce, but built via the parallel-safe `CPXcreateprob`
+   * path instead of the serialised `CPXcloneprob`.  This is what
+   * the SDDP forward-pass elastic filter needs: it must clone the
+   * full current LP (with α + all cuts) and solve concurrently
+   * across many SDDPWorkPool threads, which is exactly the
+   * scenario where the native `clone()` mutex serialised 13+
+   * threads on juan/gtopt_iplp (2026-05-07 deadlock).
+   *
    * @return A new LinearInterface populated from the saved snapshot.
    */
   [[nodiscard]] LinearInterface clone_from_flat(
-      CloneKind kind = CloneKind::shallow) const;
+      CloneKind kind = CloneKind::shallow, bool with_replay = false) const;
 
   /// Test/diagnostic accessor: `shared_ptr::use_count()` of one of
   /// the wrapped metadata members.  All of them are detached together
@@ -416,21 +434,6 @@ public:
   }
 
   /**
-   * @brief Apply a saved solution as warm-start hint for the next resolve.
-   *
-   * Handles dimension mismatches gracefully: if the LP has gained extra
-   * columns (e.g. elastic slack variables) or extra rows (e.g. Benders cuts)
-   * since the solution was captured, the vectors are zero-padded to match.
-   * If the saved vector is larger than the current LP dimension it is
-   * silently ignored (stale snapshot).
-   *
-   * @param col_sol  Primal solution to set (empty = skip)
-   * @param row_dual Dual solution to set (empty = skip)
-   */
-  void set_warm_start_solution(std::span<const double> col_sol,
-                               std::span<const double> row_dual);
-
-  /**
    * @brief Release the solver backend, freeing its memory.
    *
    * All LinearInterface metadata (scales, name maps, variable_scale_map,
@@ -469,24 +472,59 @@ public:
   /// available for inter-iteration consumers.
   void drop_cached_primal_only() noexcept { m_cache_.drop_solution_caches(); }
 
-  /// Drop the label-metadata buffers (compressed col/row label vectors
-  /// and the string pool that backs the decompressed `string_view`s).
+  /// Drop the formatted-label caches that `write_lp` populated.
   ///
-  /// `compress_labels_meta_if_needed()` populates these buffers on
-  /// every `release_backend()` so future readers — `write_lp` (debug
-  /// LP dump), cut JSON / CSV save, `OutputContext::write_out` —
-  /// can resolve LP row / column names without re-flattening from
-  /// `System` collections.  Once a run has completed all of those
-  /// operations, the buffers are dead weight: ~3 MB raw / ~1 MB
-  /// compressed per cell, so on a juan/gtopt_iplp scale (816 cells)
-  /// they total ~800 MB held until process exit.
+  /// `generate_labels_from_maps` (the one path that turns label
+  /// metadata into formatted strings) writes its results into
+  /// `m_col_index_to_name_` / `m_row_index_to_name_` (and the
+  /// underlying `m_col_names_` / `m_row_names_` dedup maps) as a
+  /// memoization layer for repeat `write_lp` calls — but in
+  /// production SDDP `write_lp` runs at most once per cell (debug
+  /// `--lp-debug`, error-LP capture).  After the dump returns the
+  /// caches are dead weight: ~50k strings × ~30 bytes per LP × N
+  /// cells is hundreds of MB on juan-class cases, persisting until
+  /// process exit unless we drop them.
   ///
-  /// Call this after the final `PlanningLP::write_out` returns and
-  /// no further label-metadata reads will occur.  Idempotent and
-  /// safe to call on cells that never had label metadata (no-op).
-  /// **Do not call mid-run** — `generate_labels_from_maps` (used by
-  /// every cut JSON save and every `write_lp`) would then throw
-  /// "row N has metadata without a class_name" on the next call.
+  /// Safe to call after every `write_lp` because:
+  ///   * The metadata source (compressed `m_*_labels_meta_compressed_`)
+  ///     is unchanged — the next `generate_labels_from_maps` /
+  ///     `write_lp` rebuilds the formatted cache from scratch.
+  ///   * Production SDDP (no `--lp-debug`) never populates these
+  ///     caches outside `write_lp`, so the drop is a no-op.
+  ///   * Paths that read the cache outside `write_lp`
+  ///     (`diagnose_row`, `rebuild_row_name_maps`, `delete_rows`)
+  ///     are size-guarded and tolerate an empty cache (un-named
+  ///     diagnostics vs. crash).
+  ///
+  /// Idempotent and `noexcept`.
+  void drop_formatted_label_caches() const noexcept
+  {
+    detach_for_write(m_col_index_to_name_).clear();
+    detach_for_write(m_col_index_to_name_).shrink_to_fit();
+    detach_for_write(m_row_index_to_name_).clear();
+    detach_for_write(m_row_index_to_name_).shrink_to_fit();
+    detach_for_write(m_col_names_).clear();
+    detach_for_write(m_row_names_).clear();
+    m_label_string_pool_.clear();
+    m_label_string_pool_.shrink_to_fit();
+  }
+
+  /// Drop the legacy label-metadata buffers (compressed col/row label
+  /// vectors and the string pool that backed the decompressed
+  /// `string_view`s).
+  ///
+  /// **Historical note**: prior to the `release_backend` cleanup these
+  /// buffers held a zstd-compressed copy of the frozen flatten-side
+  /// label metadata, populated by `compress_labels_meta_if_needed()`
+  /// and decompressed on demand by `ensure_labels_meta_decompressed()`
+  /// for `write_lp` / cut JSON save / `OutputContext::write_out`.  The
+  /// snapshot's `flat_lp.col_labels_meta` already owns the canonical
+  /// copy and `load_flat` repopulates the live vectors before any
+  /// consumer reads them, so the secondary compressed buffers are
+  /// always empty in current code.  This accessor stays for
+  /// idempotent end-of-run cleanup and for callers that may have
+  /// stashed compressed buffers via custom paths.  Safe to remove in
+  /// a follow-up once all in-tree callers are confirmed redundant.
   void drop_label_meta_buffers() noexcept
   {
     m_col_labels_meta_compressed_ = CompressedBuffer {};
@@ -706,6 +744,21 @@ public:
   [[nodiscard]] bool has_snapshot_data() const noexcept
   {
     return m_snapshot_holder_.has_data();
+  }
+
+  /// True iff the snapshot's flat_lp vectors are currently decompressed
+  /// (i.e. `matbeg` is populated).  This is a stronger condition than
+  /// `has_snapshot_data()` — under `LowMemoryMode::compress` the
+  /// snapshot may be present but compressed, in which case
+  /// `clone_from_flat` will throw.  Callers that want to dispatch on
+  /// the parallel-safe `clone_from_flat` route must check this first
+  /// and either fall back to `clone()` (mutex-serialised) or wrap the
+  /// call in a `DecompressionGuard` (`linear_interface_decompress_guard.hpp`)
+  /// to re-hydrate the flat_lp for the duration of the clone.
+  [[nodiscard]] bool has_decompressed_snapshot() const noexcept
+  {
+    return m_snapshot_holder_.has_data()
+        && !m_snapshot_holder_.snapshot().flat_lp.matbeg.empty();
   }
 
   /// Move out the recorded dynamic columns (alpha) so the caller can
@@ -2419,22 +2472,6 @@ public:
   }
   /// @}
 
-  /// @name Warm column solution (hot-start state)
-  /// @{
-
-  /// Return the warm column solution vector (empty if no state loaded).
-  [[nodiscard]] constexpr const auto& warm_col_sol() const noexcept
-  {
-    return m_warm_col_sol_;
-  }
-
-  /// Set the warm column solution from a loaded state file.
-  void set_warm_col_sol(StrongIndexVector<ColIndex, double> sol) noexcept
-  {
-    m_warm_col_sol_ = std::move(sol);
-  }
-  /// @}
-
   /// @name LP coefficient statistics (populated during load_flat from
   ///       FlatLinearProblem::stats_* fields, which are computed in
   ///       LinearProblem::flatten when LpMatrixOptions::compute_stats is true).
@@ -2639,12 +2676,6 @@ private:
   /// so the COW detach in `detach_for_write` is dormant in practice.
   mutable std::shared_ptr<VariableScaleMap> m_variable_scale_map_ {
       std::make_shared<VariableScaleMap>()};
-
-  /// Warm column solution loaded from a previous run's state file.
-  /// Used by StorageLP::physical_eini/efin as fallback when
-  /// !is_optimal() (hot start before first solve).  Empty if no
-  /// state was loaded.
-  StrongIndexVector<ColIndex, double> m_warm_col_sol_;
 
   size_t m_stats_nnz_ {};
   size_t m_stats_zeroed_ {};

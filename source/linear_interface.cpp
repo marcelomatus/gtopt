@@ -651,12 +651,11 @@ const SparseColLabel* LinearInterface::col_label_at(ColIndex idx) const noexcept
   }
   const auto i = static_cast<std::size_t>(idx);
   // Frozen flatten-side metadata, indexed in `[0, flatten_col_count())`.
-  // No decompression here — `track_col_label_meta` does not consult the
-  // formatted string form, only `generate_labels_from_maps` does.  Read
-  // the live (decompressed) shared vector if it is present; the
-  // compressed-only state is detected by an empty live vector with a
-  // non-empty `m_col_labels_meta_compressed_` buffer (which only the
-  // `generate_labels_from_maps` path needs to rehydrate).
+  // Read the live shared vector when populated; an empty live vector
+  // means we are between `release_backend` (which clears it) and the
+  // next `load_flat` (which repopulates it from the snapshot).  In
+  // that window no consumer reads label metadata: `write_lp` requires
+  // a loaded backend, which implies `load_flat` already ran.
   if (m_col_labels_meta_) {
     const auto& cm = *m_col_labels_meta_;
     if (i < cm.size()) {
@@ -854,6 +853,40 @@ void LinearInterface::open_log_handler(const int log_level)
 
 LinearInterface LinearInterface::clone(CloneKind kind) const
 {
+  // Process-global serialisation of `backend().clone()`.
+  //
+  // The native clone route (this method) calls into the solver's
+  // own `clone()` — `CPXcloneprob` on CPLEX, equivalent on every
+  // other backend — which has process-global side effects (env,
+  // licence manager, internal allocator) that are not reentrant
+  // across threads.  Two failure modes have been observed in
+  // production with concurrent calls and no mutex:
+  //
+  //   * Crashes — three SDDPWorkPool threads GPF'd at the same
+  //     instruction pointer inside CPLEX on juan/gtopt_iplp
+  //     (commit `1d7a05c1` added a per-callsite mutex on the
+  //     aperture path).
+  //
+  //   * Deadlocks — 10/122 SDDPWorkPool threads parked in
+  //     `_M_futex_wait_until` two frames below
+  //     `BendersCut::elastic_filter_solve`, the SDDP forward pass
+  //     wedged for >7 min (juan thread dump, 2026-05-07).
+  //
+  // The aperture path's per-callsite mutex was insufficient: it
+  // only serialised within one entry-point.  Concurrent elastic
+  // clones in the forward pass had no protection at all.  Putting
+  // the mutex here, inside `LinearInterface::clone()` itself,
+  // guarantees every native-clone caller (elastic, aperture,
+  // future paths) is automatically safe with no per-call boiler-
+  // plate.  Callers that want the parallel-safe manual route
+  // (no mutex, builds via `CPXcreateprob` + `CPXaddrows` on a
+  // freshly-opened env) call `clone_from_flat()` explicitly when
+  // they want **snapshot-state** semantics — that path is for
+  // callers who don't need the post-snapshot dynamic state
+  // (alpha, installed cuts) replayed into the clone.
+  static std::mutex s_native_clone_mutex;
+  const std::scoped_lock native_clone_lock(s_native_clone_mutex);
+
   // Route through the centralized `backend()` accessor so the source
   // auto-resurrects if released (low_memory_mode != off).  Prior to
   // this, direct `m_backend_->clone()` null-deref segfaulted when the
@@ -935,7 +968,8 @@ LinearInterface LinearInterface::clone(CloneKind kind) const
   return cloned;
 }
 
-LinearInterface LinearInterface::clone_from_flat(CloneKind kind) const
+LinearInterface LinearInterface::clone_from_flat(CloneKind kind,
+                                                 bool with_replay) const
 {
   // Pre-conditions: the manual route reads from
   // `m_snapshot_holder_.snapshot().flat_lp`, which is only populated when
@@ -1009,42 +1043,48 @@ LinearInterface LinearInterface::clone_from_flat(CloneKind kind) const
     cloned.m_row_index_to_name_ = m_row_index_to_name_;
   }
 
-  // Mirror the post-flatten copy from `clone(kind)` — see that method
-  // for rationale.  Even on the manual route we want the clone's
-  // `write_lp` / `row_label_at` to see source's structural post-
-  // flatten history (alpha, installed cuts, …).
-  cloned.m_post_flatten_col_labels_meta_ = m_post_flatten_col_labels_meta_;
-  cloned.m_post_flatten_row_labels_meta_ = m_post_flatten_row_labels_meta_;
-  cloned.m_post_flatten_col_meta_index_ = m_post_flatten_col_meta_index_;
-  cloned.m_post_flatten_row_meta_index_ = m_post_flatten_row_meta_index_;
+  // Post-flatten metadata handling depends on the replay mode:
+  //
+  //   * `with_replay == false`: snapshot-state clone (aperture path).
+  //     Copy source's `m_post_flatten_*_metas_` so the clone's
+  //     `write_lp` / `row_label_at` can resolve labels for inherited
+  //     rows (α, installed cuts) even though the clone's backend
+  //     itself doesn't carry those rows.  Matches `clone(kind)`'s
+  //     contract.
+  //
+  //   * `with_replay == true`: current-state clone (elastic path).
+  //     `apply_post_load_replay` (below) will re-add the α col and
+  //     cut rows to the clone's backend via `add_cols` / `add_rows`,
+  //     and those calls themselves register the post-flatten
+  //     metadata.  Copying source's metadata first would
+  //     double-register every entry: `track_col_label_meta` would
+  //     find a pre-existing entry at the same col index and either
+  //     throw on duplicate detection or silently corrupt the
+  //     dedup→index map (observed: ElasticFilterMode comparison
+  //     tests reported "relaxed clone infeasible" because the
+  //     backend ended up with two α columns).
+  if (!with_replay) {
+    cloned.m_post_flatten_col_labels_meta_ = m_post_flatten_col_labels_meta_;
+    cloned.m_post_flatten_row_labels_meta_ = m_post_flatten_row_labels_meta_;
+    cloned.m_post_flatten_col_meta_index_ = m_post_flatten_col_meta_index_;
+    cloned.m_post_flatten_row_meta_index_ = m_post_flatten_row_meta_index_;
+  }
+
+  // Optional current-state replay: copy source's replay buffer onto
+  // the clone and re-apply it so the clone matches the SOURCE's live
+  // backend state (post-snapshot α col, installed cuts, forward-
+  // pass-pinned bounds), instead of the snapshot-frozen state.  This
+  // gives elastic / forward-pass callers a parallel-safe equivalent
+  // of `clone()` without needing the native CPXcloneprob mutex.  The
+  // copy is intentionally a value-copy (not a move) — the source's
+  // `m_replay_` must stay intact for its own future replays (e.g.
+  // the next `release_backend` → `reconstruct_backend` cycle).
+  if (with_replay) {
+    cloned.m_replay_ = m_replay_;
+    cloned.apply_post_load_replay();
+  }
 
   return cloned;
-}
-
-void LinearInterface::set_warm_start_solution(
-    const std::span<const double> col_sol,
-    const std::span<const double> row_dual)
-{
-  if (!col_sol.empty()) {
-    const size_t ncols = get_numcols();
-    if (col_sol.size() >= ncols) {
-      set_col_sol(col_sol.first(ncols));
-    } else {
-      std::vector<double> padded(ncols, 0.0);
-      std::ranges::copy(col_sol, padded.begin());
-      set_col_sol(padded);
-    }
-  }
-  if (!row_dual.empty()) {
-    const size_t nrows = get_numrows();
-    if (row_dual.size() >= nrows) {
-      set_row_dual(row_dual.first(nrows));
-    } else {
-      std::vector<double> padded(nrows, 0.0);
-      std::ranges::copy(row_dual, padded.begin());
-      set_row_dual(padded);
-    }
-  }
 }
 
 // ── Load ──

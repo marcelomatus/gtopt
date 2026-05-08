@@ -133,6 +133,11 @@ _GRID_MAX_PHASES = 52
 # Maximum number of iterations shown (most recent)
 _GRID_MAX_ITERS = 12
 
+# Aggregate ("all scenes") cell shape — density of scene coverage at this
+# (iter, phase) cell.  Index = floor(coverage * 5), clamped to [0, 4].
+# Coverage 0 → "·"; coverage > 0 always renders something visible.
+_GRID_AGG_SHAPES: tuple[str, ...] = ("·", "░", "▒", "▓", "█")
+
 
 class SDDPGridTracker:
     """Tracks SDDP forward/backward/elastic/aperture activity per (scene, iter, phase).
@@ -237,6 +242,33 @@ class SDDPGridTracker:
         if sg is None:
             return _GRID_IDLE
         return sg.get((iteration, phase), _GRID_IDLE)
+
+    def aggregate_cell(self, iteration: int, phase: int) -> tuple[int, float]:
+        """Return ``(dominant_state, coverage_fraction)`` across all scenes.
+
+        ``dominant_state`` is the highest-priority state seen at this
+        ``(iteration, phase)`` in any scene — using the same priority
+        order as :meth:`get_cell` (forward < backward < elastic <
+        aperture < infeasible).  ``coverage_fraction`` is the share of
+        registered scenes that have visited this cell at all (state >
+        idle), in [0, 1].
+
+        Used by :func:`_build_sddp_grid` to render the pinned
+        "all scenes" summary row at the top of Grid mode.
+        """
+        if not self._scenes:
+            return _GRID_IDLE, 0.0
+        worst = _GRID_IDLE
+        visited = 0
+        for sc in self._scenes:
+            sg = self._grid.get(sc)
+            if sg is None:
+                continue
+            cell = sg.get((iteration, phase), _GRID_IDLE)
+            if cell != _GRID_IDLE:
+                visited += 1
+                worst = max(worst, cell)
+        return worst, visited / len(self._scenes)
 
     @property
     def active_cell(self) -> tuple[int, int, int] | None:
@@ -1126,6 +1158,9 @@ def _build_help_overlay() -> Panel:
         ("h", "Toggle this help overlay"),
         ("q", "Quit — terminate the solver immediately"),
         ("Ctrl+C", "Same as quit"),
+        ("j / k", "Grid mode: scroll scenes down / up by 1"),
+        ("J / K", "Grid mode: scroll scenes down / up by 5 (page)"),
+        ("g / G", "Grid mode: jump to first / last scene"),
     ]
     for key, desc in commands:
         table.add_row(Text(key, style="bold cyan"), desc)
@@ -1221,11 +1256,35 @@ def _build_stats_overlay(stats: dict[str, Any]) -> Panel:
     )
 
 
-def _build_sddp_grid(tracker: SDDPGridTracker) -> Panel:
+def _build_sddp_grid(
+    tracker: SDDPGridTracker,
+    scroll_offset: int = 0,
+    max_visible_scenes: int | None = None,
+    active_scene_hint: int | None = None,
+) -> Panel:
     """Render the SDDP phase/iteration activity grid.
 
-    One matrix per scene.  X-axis = phases, Y-axis = iterations (most recent).
-    Each cell is a colored character showing the activity type.
+    Layout (top → bottom):
+      1. Legend + diagnostic-indicator lights (always visible).
+      2. Pinned **aggregate ("all scenes") row** — one (iter, phase)
+         matrix where each cell encodes coverage as a density block
+         (``·░▒▓█``) and color as the highest-priority state seen
+         across all scenes.  This is what makes the panel *useful*
+         when there are many scenes; without it you see at most the
+         first N that fit in the terminal.
+      3. Visible per-scene matrices, starting at ``scroll_offset``,
+         clipped to ``max_visible_scenes``.  Above/below ribbons
+         indicate how many scenes are off-screen.
+
+    @p scroll_offset is the index into ``tracker.scenes`` of the first
+    scene to render.
+    @p max_visible_scenes caps the number of per-scene blocks emitted
+    (a budget computed from the live console height in
+    :meth:`SolverDisplay._build_display` so the panel never overflows
+    the terminal — fixing the "can't scroll" hang).
+    @p active_scene_hint is the scene id of the current active cell;
+    used purely for the visible-range header so users with many
+    scenes see *which* scene the SDDP solver is currently inside.
     """
     from rich.panel import Panel  # noqa: PLC0415
     from rich.text import Text  # noqa: PLC0415
@@ -1234,6 +1293,7 @@ def _build_sddp_grid(tracker: SDDPGridTracker) -> Panel:
 
     max_ph = min(tracker.max_phase, _GRID_MAX_PHASES)
     scenes = tracker.scenes
+    n_scenes = len(scenes)
 
     # Legend
     text.append("  ")
@@ -1267,32 +1327,96 @@ def _build_sddp_grid(tracker: SDDPGridTracker) -> Panel:
             text.append(count, style=ind_style)
     text.append("\n")
 
-    for sc in scenes:
-        # Scene header (compact — only show if multiple scenes)
-        if len(scenes) > 1:
-            text.append(f"  s{sc}", style="bold")
-            text.append("\n")
-
-        # Phase header row
-        text.append("     ")  # indent for iter label
+    # Phase header row reused for the aggregate block AND each per-scene
+    # block.  Inlined as a closure to keep the layout tweaks local.
+    def _emit_phase_header() -> None:
+        text.append("     ")  # indent matches the "  ##  " iter label width
         for ph in range(max_ph + 1):
             if ph % 5 == 0:
                 label = str(ph)
                 text.append(label, style="dim")
-                # Pad remaining chars of this label
                 text.append(" " * max(0, 1 - len(label)))
             else:
                 text.append(" ", style="dim")
         text.append("\n")
 
-        # Iteration rows (most recent _GRID_MAX_ITERS)
+    # ------------------------------------------------------------------
+    # Pinned aggregate row — "all scenes" coverage + dominant state.
+    # ------------------------------------------------------------------
+    if n_scenes > 0:
+        text.append(
+            f"  all  ({n_scenes} scenes)",
+            style="bold cyan",
+        )
+        text.append("\n")
+        _emit_phase_header()
+        first_iter = max(0, tracker.max_iter - _GRID_MAX_ITERS + 1)
+        for it in range(first_iter, tracker.max_iter + 1):
+            text.append(f"  {it:>2} ", style="dim")
+            for ph in range(max_ph + 1):
+                state, coverage = tracker.aggregate_cell(it, ph)
+                if state == _GRID_IDLE:
+                    text.append(" ", style="dim")
+                    continue
+                # Density char from coverage; color from dominant state.
+                # Coverage > 0 always renders at least a "░" so the user
+                # sees that *some* scene visited even sparse cells.
+                shape_idx = min(
+                    len(_GRID_AGG_SHAPES) - 1,
+                    max(1, int(coverage * len(_GRID_AGG_SHAPES))),
+                )
+                _, base_style = _GRID_CELL_STYLES[state]
+                text.append(_GRID_AGG_SHAPES[shape_idx], style=base_style)
+            text.append("\n")
+        # Visual divider before the per-scene blocks.
+        text.append("\n")
+
+    # ------------------------------------------------------------------
+    # Per-scene blocks — windowed by scroll_offset + max_visible_scenes.
+    # ------------------------------------------------------------------
+    if n_scenes == 0:
+        return Panel(
+            text,
+            title="[bold]SDDP Phase Grid[/bold]",
+            border_style="dim cyan",
+            padding=(0, 0),
+        )
+
+    if max_visible_scenes is None or max_visible_scenes >= n_scenes:
+        visible_count = n_scenes
+        offset = 0
+    else:
+        visible_count = max(1, max_visible_scenes)
+        offset = max(0, min(scroll_offset, n_scenes - visible_count))
+
+    visible_scenes = scenes[offset : offset + visible_count]
+    above_hidden = offset
+    below_hidden = n_scenes - (offset + visible_count)
+
+    if above_hidden > 0 or below_hidden > 0:
+        # Range header so operators know which scenes are on-screen.
+        active_tag = ""
+        if active_scene_hint is not None:
+            active_tag = f"   active: s{active_scene_hint}"
+        text.append(
+            f"  scenes {visible_scenes[0]}–{visible_scenes[-1]} of {n_scenes}"
+            f"   (j/k scroll, J/K page, g/G top/bottom){active_tag}",
+            style="dim",
+        )
+        text.append("\n")
+    if above_hidden > 0:
+        text.append(f"  ▲ {above_hidden} scene(s) above\n", style="dim")
+
+    for sc in visible_scenes:
+        text.append(f"  s{sc}", style="bold")
+        text.append("\n")
+        _emit_phase_header()
         first_iter = max(0, tracker.max_iter - _GRID_MAX_ITERS + 1)
         for it in range(first_iter, tracker.max_iter + 1):
             text.append(f"  {it:>2} ", style="dim")
             for ph in range(max_ph + 1):
                 state = tracker.get_cell(sc, it, ph)
                 char, style = _GRID_CELL_STYLES[state]
-                # Highlight current active cell with a blink-like effect
                 if (
                     tracker.active_cell is not None
                     and tracker.active_cell == (sc, it, ph)
@@ -1302,6 +1426,9 @@ def _build_sddp_grid(tracker: SDDPGridTracker) -> Panel:
                 else:
                     text.append(char, style=style)
             text.append("\n")
+
+    if below_hidden > 0:
+        text.append(f"  ▼ {below_hidden} scene(s) below\n", style="dim")
 
     return Panel(
         text,
@@ -1497,6 +1624,14 @@ class SolverDisplay:
         self._system_stats: dict[str, Any] = {}
         self.quit_requested = threading.Event()
 
+        # Grid-mode scroll state (vim-style j/k/J/K/g/G).  Tracks the
+        # offset into the scene list rendered below the pinned
+        # aggregate row.  Reset to 0 whenever the scene set changes
+        # so a freshly-discovered scene scrolls back into view.
+        self._grid_scroll_offset: int = 0
+        self._grid_user_scrolled: bool = False
+        self._grid_last_scene_count: int = 0
+
     # -- public API --------------------------------------------------------
 
     # Patterns to detect solver and method from gtopt log output
@@ -1636,6 +1771,110 @@ class SolverDisplay:
             self._show_stats = False
         elif key in ("q", "Q"):
             self.quit_requested.set()
+        elif self._display_mode == _MODE_GRID and key in (
+            "j",
+            "k",
+            "J",
+            "K",
+            "g",
+            "G",
+        ):
+            self._scroll_grid(key)
+
+    def _scroll_grid(self, key: str) -> None:
+        """Adjust the per-scene scroll offset in Grid mode (vim keys).
+
+        Page sizes are intentionally fixed (1 line / 5 lines) rather
+        than read from the live console height — the render path
+        clamps the offset to the visible window anyway, and using a
+        fixed step keeps the user's mental model stable across
+        terminal resizes.  ``g``/``G`` jump to top/bottom; both also
+        latch ``_grid_user_scrolled`` so the auto-follow logic in
+        :func:`_build_sddp_grid` stops yanking the viewport away from
+        what the user explicitly asked for.
+        """
+        n_scenes = len(self._grid_tracker.scenes)
+        if n_scenes == 0:
+            return
+        self._grid_user_scrolled = True
+        if key == "j":
+            self._grid_scroll_offset += 1
+        elif key == "k":
+            self._grid_scroll_offset -= 1
+        elif key == "J":
+            self._grid_scroll_offset += 5
+        elif key == "K":
+            self._grid_scroll_offset -= 5
+        elif key == "g":
+            self._grid_scroll_offset = 0
+            self._grid_user_scrolled = False  # re-enable auto-follow
+        elif key == "G":
+            self._grid_scroll_offset = max(0, n_scenes - 1)
+        # Clamp; final clamping against the dynamic visible-window
+        # size happens in the renderer.
+        self._grid_scroll_offset = max(
+            0, min(self._grid_scroll_offset, max(0, n_scenes - 1))
+        )
+
+    def _grid_visible_window(self) -> tuple[int | None, int | None]:
+        """Return ``(max_visible_scenes, active_scene_hint)`` for the
+        Grid panel renderer.
+
+        The visible scene count is derived from the live console height
+        minus a fixed budget for the surrounding panels (header, plan,
+        progress, command bar, log) plus the legend, the pinned
+        aggregate row, and the per-scene phase header.  Scenes that
+        wouldn't fit are scrolled off-screen and surfaced as
+        "▲ N above / ▼ N below" ribbons.
+
+        Auto-follow: if the user hasn't manually scrolled (i.e. used
+        j/k/J/K/G — but ``g`` resets the latch) and the active scene
+        falls outside the current window, the offset is yanked so it
+        stays visible.  This matches what an SDDP operator wants —
+        watch the scene currently being solved without having to keep
+        pressing j.
+        """
+        from rich.console import Console  # noqa: PLC0415
+
+        scenes = self._grid_tracker.scenes
+        n = len(scenes)
+        if n == 0:
+            return None, None
+
+        # Console height — fall back to a sane default if Rich can't
+        # detect the terminal (e.g. piped stdout).
+        try:
+            height = Console().size.height
+        except Exception:  # noqa: BLE001  # pylint: disable=broad-exception-caught
+            height = 40
+        # Per-scene block height = scene header (1) + phase axis (1)
+        # + iter rows (_GRID_MAX_ITERS).  Aggregate row + legend +
+        # other panels eat ~20 lines of fixed overhead.
+        per_block = _GRID_MAX_ITERS + 2
+        budget = max(1, (height - 22) // per_block)
+
+        # Reset scroll if scene list shrank below the offset.
+        if self._grid_scroll_offset >= n:
+            self._grid_scroll_offset = 0
+
+        # Auto-follow active scene when the user hasn't scrolled.
+        active = self._grid_tracker.active_cell
+        active_scene = active[0] if active is not None else None
+        if (
+            not self._grid_user_scrolled
+            and active_scene is not None
+            and active_scene in scenes
+        ):
+            idx = scenes.index(active_scene)
+            if idx < self._grid_scroll_offset:
+                self._grid_scroll_offset = idx
+            elif idx >= self._grid_scroll_offset + budget:
+                self._grid_scroll_offset = max(0, idx - budget + 1)
+
+        # Reset latch if scene set changed (new scenes appeared).
+        if n != self._grid_last_scene_count:
+            self._grid_last_scene_count = n
+        return budget, active_scene
 
     def _cmd_stop(self) -> None:
         """Create the stop-request file for a graceful solver stop."""
@@ -1717,7 +1956,15 @@ class SolverDisplay:
             if has_sddp:
                 panels.append(_build_progress(data))
             if self._grid_tracker.has_data:
-                panels.append(_build_sddp_grid(self._grid_tracker))
+                visible_budget, active_hint = self._grid_visible_window()
+                panels.append(
+                    _build_sddp_grid(
+                        self._grid_tracker,
+                        scroll_offset=self._grid_scroll_offset,
+                        max_visible_scenes=visible_budget,
+                        active_scene_hint=active_hint,
+                    )
+                )
             panels.append(_build_log(log_lines))
 
         elif mode == _MODE_CONVERGENCE:

@@ -30,6 +30,7 @@
 #include <gtopt/line.hpp>
 #include <gtopt/lp_stats.hpp>
 #include <gtopt/main_options.hpp>
+#include <gtopt/memory_compress.hpp>
 #include <gtopt/memory_monitor.hpp>
 #include <gtopt/output_context.hpp>
 #include <gtopt/planning_lp.hpp>
@@ -548,6 +549,11 @@ void log_lp_coefficient_stats(const PlanningLP& planning_lp)
   const auto solve_elapsed =
       std::chrono::duration<double>(solve_sw.elapsed()).count();
   spdlog::info("  Optimization time {:.3f}s", solve_elapsed);
+
+  // Per-codec compression stats (silent during the run; one INFO line
+  // per codec used).  Lets the operator compare lz4 vs zstd ratio /
+  // throughput trade-offs across runs without enabling per-op TRACE logs.
+  log_compression_stats();
 
   if (result.has_value()) {
     return true;

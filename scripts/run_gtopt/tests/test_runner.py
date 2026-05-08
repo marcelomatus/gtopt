@@ -68,7 +68,7 @@ def test_report_solution_optimal(tmp_path: Path, capsys):
 def test_run_gtopt_builds_command(tmp_path: Path):
     """run_gtopt builds a minimal command (threads/compression are in JSON)."""
     with patch("run_gtopt._runner.subprocess.run") as mock_run, patch(
-        "run_gtopt._runner._resolve_log_dir", return_value=None
+        "run_gtopt._runner._resolve_log_dir_candidates", return_value=[]
     ):
         mock_run.return_value.returncode = 0
         rc = run_gtopt("/usr/bin/gtopt", tmp_path, threads=4, compression="zstd")
@@ -260,3 +260,50 @@ def test_resolve_log_dir_no_json_falls_back_to_default(tmp_path: Path):
     log_dir = _resolve_log_dir(case_dir)
     assert log_dir is not None
     assert log_dir == (case_dir / "output" / "logs").resolve()
+
+
+def test_resolve_log_dir_candidates_includes_jsonpath_and_fallbacks(
+    tmp_path: Path,
+):
+    """The multi-candidate resolver returns the JSON-resolved path
+    plus the legacy ``output/logs`` fallback (and CWD-relative ones),
+    so the TUI watcher sees gtopt's actual log file regardless of
+    which side resolved ``output_directory`` first."""
+    from run_gtopt._runner import _resolve_log_dir_candidates  # noqa: PLC0415
+
+    case_dir = _write_case_json(tmp_path, {"output_directory": "results"})
+    candidates = _resolve_log_dir_candidates(case_dir)
+    # First candidate: the JSON-honoured path (primary).
+    assert candidates[0] == (case_dir / "results" / "logs").resolve()
+    # Legacy default must also be in the list — that's the bug this
+    # fix addresses.
+    assert (case_dir / "output" / "logs").resolve() in candidates
+
+
+def test_wait_for_new_log_multi_picks_first_dir_to_get_a_file(
+    tmp_path: Path,
+):
+    """The TUI watcher must accept new files in any candidate dir.
+    Regression for the silent hang seen when JSON-resolved dir and
+    gtopt's actual write target diverged."""
+    import threading as _threading  # noqa: PLC0415
+    from run_gtopt._runner import _wait_for_new_log_multi  # noqa: PLC0415
+
+    dir_a = tmp_path / "a"
+    dir_b = tmp_path / "b"
+    dir_a.mkdir()
+    dir_b.mkdir()
+    baselines = {dir_a: set(), dir_b: set()}
+    stop = _threading.Event()
+    expected = dir_b / "gtopt_42.log"
+    timer = _threading.Timer(0.05, lambda: expected.write_text(""))
+    timer.start()
+    try:
+        result = _wait_for_new_log_multi(
+            [dir_a, dir_b], baselines, stop, poll_interval=0.01
+        )
+    finally:
+        timer.cancel()
+        stop.set()
+    assert result is not None
+    assert result.resolve() == expected.resolve()
