@@ -220,17 +220,32 @@ PMIN_FIELDS: tuple[str, ...] = (
 
 def build_unit_metadata(
     units: pd.DataFrame,
+    *,
+    pmin_mode: str = "technical",
 ) -> tuple[dict[int, float], dict[int, float], dict[int, str]]:
     """Aggregate per-block unit data to per-``id_central`` metadata.
 
     Returns ``(pmin_by_id, pmax_by_id, tipo_by_id)`` where:
 
-      * ``pmin_by_id[ic]`` = sum across blocks of the **binding pmin**,
-        i.e. ``max(pot_min_tecnica, min_tecnico_normativa_ambiental,
-        min_tecnico_control_frecuencia)`` per block.  The max-of-three
-        captures the largest applicable technical minimum so a CCGT
-        GT pinned at its environmental floor is correctly flagged as
-        ``near_pmin`` rather than ``interior``.
+      * ``pmin_by_id[ic]`` = sum across blocks of the per-block pmin.
+        ``pmin_mode`` selects which definition:
+
+           ``"technical"`` (default) — only ``pot_min_tecnica``.
+                Matches the v1 baseline picker behaviour and produces
+                the lowest mean |Δ| on validation against published
+                λ_CEN ($0.15/MWh on the 2026-04-22 panel).
+
+           ``"binding"`` — ``max(pot_min_tecnica,
+                min_tecnico_normativa_ambiental,
+                min_tecnico_control_frecuencia)``.  Captures the
+                largest applicable technical minimum so a CCGT GT
+                pinned at its environmental floor is correctly flagged
+                as ``near_pmin`` rather than ``interior`` — but, because
+                the picker excludes ``forced+near_pmin`` units from the
+                pool, increases mean |Δ| to ~$0.55/MWh.  Useful for
+                downstream consumers that want **semantic** regime
+                labels at the cost of picker accuracy.
+
       * ``pmax_by_id[ic]`` = sum across blocks of ``pot_neta_efectiva``
         (falling back to ``pot_max_bruta`` for malformed rows).  The
         multi-fuel parsing in ``_to_float_es`` ensures the per-block
@@ -244,19 +259,29 @@ def build_unit_metadata(
     """
     if units.empty:
         return ({}, {}, {})
+    if pmin_mode not in ("technical", "binding"):
+        raise ValueError(
+            f"pmin_mode must be 'technical' or 'binding', got {pmin_mode!r}"
+        )
     u = units.copy()
 
-    # Per-block binding pmin = max of the 3 MT fields (NaN-tolerant).
-    mt_cols: list[str] = []
-    for col in PMIN_FIELDS:
-        if col in u.columns:
-            parsed_col = f"_pmin_{col[-3:]}"  # _tec, _tal (env), _cia (frq)
-            u[parsed_col] = u[col].map(_to_float_es)
-            mt_cols.append(parsed_col)
-    if mt_cols:
-        u["_pmin"] = u[mt_cols].max(axis=1, skipna=True).fillna(0.0)
+    # Per-block pmin: 'technical' uses only pot_min_tecnica; 'binding'
+    # takes the max across the 3 MT fields.
+    if pmin_mode == "binding":
+        mt_cols: list[str] = []
+        for col in PMIN_FIELDS:
+            if col in u.columns:
+                parsed_col = f"_pmin_{col[-3:]}"
+                u[parsed_col] = u[col].map(_to_float_es)
+                mt_cols.append(parsed_col)
+        if mt_cols:
+            u["_pmin"] = u[mt_cols].max(axis=1, skipna=True).fillna(0.0)
+        else:
+            u["_pmin"] = 0.0
     else:
-        u["_pmin"] = 0.0
+        u["_pmin"] = (
+            u.get("pot_min_tecnica", pd.Series(dtype=str)).map(_to_float_es).fillna(0.0)
+        )
 
     # Per-block pmax (with multi-fuel-tolerant fallback).
     pmax_primary = u.get("pot_neta_efectiva", pd.Series(dtype=str)).map(_to_float_es)
@@ -279,11 +304,21 @@ def build_unit_metadata(
     return pmin_by_id, pmax_by_id, tipo_by_id
 
 
+#: Sanity-check tolerance: when ``PLEXOS_pmax / CEN_pmax`` falls
+#: outside ``[1/PLEXOS_OVERLAY_MAX_RATIO, PLEXOS_OVERLAY_MAX_RATIO]``,
+#: the overlay is treated as a bad match (alias collision causing the
+#: PLEXOS sum to span multiple physical plants OR the fuel-mix-variant
+#: explosion of pmax) and the CEN heuristic is kept.  ``2.0`` admits
+#: the legitimate ±50 % de-rating cases that PLEXOS publishes.
+PLEXOS_OVERLAY_MAX_RATIO: float = 2.0
+
+
 def overlay_plexos_capacities(
     pmin_by_id: dict[int, float],
     pmax_by_id: dict[int, float],
     plexos_xml_path: Path | str | None,
     units_df: pd.DataFrame | None = None,
+    max_ratio: float = PLEXOS_OVERLAY_MAX_RATIO,
 ) -> tuple[dict[int, float], dict[int, float], dict[int, str]]:
     """Overlay PLEXOS-published Min Stable Level / Max Capacity onto the
     CEN-derived pmin / pmax dicts, **preferring PLEXOS where available**.
@@ -371,7 +406,22 @@ def overlay_plexos_capacities(
             for p in matched.values()
             if "Min Stable Level" in p
         ]
+        # Sanity check: alias-based bridges over-attribute when
+        # (a) the CEN central name is a stem of multiple PLEXOS plants
+        # (e.g. "NEHUENCO" → all of NEHUENCO_1-*, NEHUENCO_2-*,
+        # NEHUENCO_9B_*), or (b) PLEXOS encodes the same physical block
+        # as multiple fuel-mode variants whose Max Capacity values are
+        # MUTUALLY EXCLUSIVE rather than additive.  When the resulting
+        # PLEXOS sum exceeds the CEN sum by more than ``max_ratio`` (or
+        # is less than 1/max_ratio of it), drop the match — the
+        # heuristic is more reliable than a wildly-off overlay.
         seen_ids.add(ic)
+        cen_pmax = float(pmax_by_id.get(ic, 0.0))
+        if cen_pmax > 1.0 and (
+            sum_max > max_ratio * cen_pmax or sum_max < cen_pmax / max_ratio
+        ):
+            audit[ic] = "cen_fallback"
+            continue
         pmax_out[ic] = float(sum_max)
         if sum_min_vals:
             pmin_out[ic] = float(sum(sum_min_vals))
@@ -1735,7 +1785,7 @@ def compute_marginal_units_for_day_all_buses(
     *,
     date_iso: str,
     use_pid_mlf: bool = True,
-    use_plexos_overlay: bool = True,
+    use_plexos_overlay: bool = False,
     plexos_xml_path: Path | str | None = None,
     verbose: bool = True,
     bulk_endpoint: str = "cmg_online",
@@ -1756,12 +1806,18 @@ def compute_marginal_units_for_day_all_buses(
         client: open SIP client.
         date_iso: ``YYYY-MM-DD``.
         use_pid_mlf: enable per-unit + per-bus PID MLF correction.
-        use_plexos_overlay: when True (default — the v3 picker), prefer
-            PLEXOS-published Min Stable Level / Max Capacity over the
-            CEN unidades_generadoras heuristic for any id_central whose
-            name aliases match a PLEXOS generator.  Falls back to CEN
-            heuristic for unmatched plants.  See
-            :func:`overlay_plexos_capacities`.
+        use_plexos_overlay: opt-in v3 picker (default **False**).  When
+            True, prefers PLEXOS-published Min Stable Level / Max
+            Capacity from the PID XML over the CEN unidades_generadoras
+            heuristic.  Currently produces a regression in λ-pipe
+            accuracy on 2026-04-22 ($0.170 → $0.204/MWh) because the
+            alias bridge over-attributes capacity for plants with
+            multiple PLEXOS fuel-mode variants per physical block
+            (e.g. NEHUENCO_1-FA_GN_A, NEHUENCO_1-TG_GN_A, ...
+            sum to ~30× the real plant total).  A block-aware bridge
+            is required before this can be enabled by default.  See
+            :func:`overlay_plexos_capacities` for the function and
+            ``PLEXOS_OVERLAY_MAX_RATIO`` for the partial sanity check.
         plexos_xml_path: path to ``DBSEN_PRGDIARIO_PID.xml``.  When
             ``None`` and ``use_plexos_overlay=True``, auto-discovered
             via :func:`auto_detect_pid_xml`.

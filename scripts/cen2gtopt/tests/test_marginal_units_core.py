@@ -357,18 +357,26 @@ def test_build_unit_metadata_pmin_uses_max_of_three_mts():
         ]
     )
 
+    # Default 'technical' pmin uses only pot_min_tecnica.
     pmin_by_id, pmax_by_id, tipo_by_id = build_unit_metadata(units)
-
-    # CCGT 197: per-block max = (145, 80) → sum 225 MW
-    assert pmin_by_id[197] == pytest.approx(225.0)
+    # CCGT 197: per-block tech_min sum = 14 + 70 = 84 MW
+    assert pmin_by_id[197] == pytest.approx(84.0)
     # CCGT 197 pmax: 214.99 + 111.98 = 326.97
     assert pmax_by_id[197] == pytest.approx(326.97)
     assert tipo_by_id[197] == "CCGT-TG"
+    # Steam 300: tech_min only = 60
+    assert pmin_by_id[300] == pytest.approx(60.0)
+    # PMG 400: tech_min unparseable → 0
+    assert pmin_by_id[400] == pytest.approx(0.0)
+
+    # Opt-in 'binding' pmin = MAX of the 3 MT fields per block.
+    pmin_b, _pmax_b, _ = build_unit_metadata(units, pmin_mode="binding")
+    # CCGT 197: per-block max = (145, 80) → sum 225 MW
+    assert pmin_b[197] == pytest.approx(225.0)
     # Steam 300: max(60, 60, 90) = 90
-    assert pmin_by_id[300] == pytest.approx(90.0)
-    assert pmax_by_id[300] == pytest.approx(250.622)
+    assert pmin_b[300] == pytest.approx(90.0)
     # PMG 400: only env / frq parseable → max(0.1, 0.1) = 0.1
-    assert pmin_by_id[400] == pytest.approx(0.1)
+    assert pmin_b[400] == pytest.approx(0.1)
 
 
 def test_build_unit_metadata_handles_empty_input():
