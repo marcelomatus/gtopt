@@ -220,9 +220,113 @@ def summary(xml_path: Path | str) -> pd.DataFrame:
     )
 
 
+#: Generator-class properties on the ``input`` side of the PLEXOS XML
+#: that the marginal-emission picker can consume.  Names match the
+#: PLEXOS canonical property names (case-sensitive).
+INPUT_PROPERTIES_OF_INTEREST: tuple[str, ...] = (
+    "Max Capacity",  # MW — pmax  (preferred over CEN pot_neta_efectiva)
+    "Min Stable Level",  # MW — pmin  (preferred over CEN max(tech, env, freq))
+    "Heat Rate",  # kJ/kWh — single-block heat rate when present
+    "Heat Rate Base",  # kJ — fixed-load heat consumption
+    "Heat Rate Incr",  # kJ/kWh — marginal heat rate (rare in CEN exports)
+    "Min Up Time",  # h
+    "Min Down Time",  # h
+    "Start Cost",  # $
+    "VO&M Charge",  # $/MWh
+    "Fuel Price",  # $/MMBtu (or fuel-specific unit)
+)
+
+
+@lru_cache(maxsize=4)
+def parse_generator_input_properties(
+    xml_path: str,
+    properties: tuple[str, ...] = INPUT_PROPERTIES_OF_INTEREST,
+) -> dict[str, dict[str, float]]:
+    """Extract per-generator input properties from a PLEXOS PID/PCP XML.
+
+    Returns ``{generator_name → {property_name → numeric value}}``.
+
+    PLEXOS stores input data in ``t_data`` (membership_id, property_id,
+    value).  A row's generator is resolved by following:
+
+        membership_id → t_membership.child_object_id → t_object.name
+
+    Multi-band properties (heat-rate curves with breakpoints) are
+    summarised to a single value here; full per-band recovery is a
+    separate concern (see ``parse_generator_band_data``).
+
+    Properties absent for a unit simply don't appear in its dict.
+    Non-numeric values are silently skipped.
+
+    The result is cached (LRU=4) so re-querying a parsed XML costs
+    a dict lookup rather than re-parsing the 36 MB document.
+    """
+    root = _load_root(xml_path)
+
+    # 1. Resolve property names → property_ids (Generator collection_id=1).
+    name_to_pid: dict[str, int] = {}
+    pid_to_name: dict[int, str] = {}
+    for p in root.findall(f"{NS}t_property"):
+        name = p.findtext(f"{NS}name")
+        cid = p.findtext(f"{NS}collection_id")
+        if not name or cid != "1" or name not in properties:
+            continue
+        try:
+            pid = int(p.findtext(f"{NS}property_id") or 0)
+        except ValueError:
+            continue
+        name_to_pid[name] = pid
+        pid_to_name[pid] = name
+    if not name_to_pid:
+        return {}
+
+    # 2. Generator object_id → name.
+    objects = _parse_objects(root)
+    gen_names = objects.names_of_class(CLASS_GENERATOR)
+
+    # 3. membership_id → child_object_id (Generator-collection membership).
+    mem_to_obj: dict[int, int] = {}
+    for m in root.findall(f"{NS}t_membership"):
+        cid = m.findtext(f"{NS}collection_id")
+        if cid != "1":
+            continue
+        try:
+            mid = int(m.findtext(f"{NS}membership_id") or 0)
+            cobj = int(m.findtext(f"{NS}child_object_id") or 0)
+        except ValueError:
+            continue
+        mem_to_obj[mid] = cobj
+
+    # 4. Walk t_data rows and project property values per generator.
+    out: dict[str, dict[str, float]] = {}
+    for d in root.findall(f"{NS}t_data"):
+        try:
+            pid = int(d.findtext(f"{NS}property_id") or 0)
+        except ValueError:
+            continue
+        prop_name = pid_to_name.get(pid)
+        if prop_name is None:
+            continue
+        try:
+            mid = int(d.findtext(f"{NS}membership_id") or 0)
+        except ValueError:
+            continue
+        gen_name = gen_names.get(mem_to_obj.get(mid, -1))
+        if not gen_name:
+            continue
+        try:
+            val = float(d.findtext(f"{NS}value") or "")
+        except ValueError:
+            continue
+        out.setdefault(gen_name, {})[prop_name] = val
+    return out
+
+
 __all__ = [
     "PlexosObjects",
+    "INPUT_PROPERTIES_OF_INTEREST",
     "parse_unit_fuel_map",
     "parse_unit_node_map",
+    "parse_generator_input_properties",
     "summary",
 ]

@@ -279,6 +279,107 @@ def build_unit_metadata(
     return pmin_by_id, pmax_by_id, tipo_by_id
 
 
+def overlay_plexos_capacities(
+    pmin_by_id: dict[int, float],
+    pmax_by_id: dict[int, float],
+    plexos_xml_path: Path | str | None,
+    units_df: pd.DataFrame | None = None,
+) -> tuple[dict[int, float], dict[int, float], dict[int, str]]:
+    """Overlay PLEXOS-published Min Stable Level / Max Capacity onto the
+    CEN-derived pmin / pmax dicts, **preferring PLEXOS where available**.
+
+    Per the rule "even if PLEXOS produces the same result as our
+    heuristic, prefer the data source": the operator's published
+    Min Stable Level / Max Capacity are the authoritative values used
+    by PLEXOS itself when clearing the published λ_CEN, so they should
+    take precedence over the CEN unidades_generadoras heuristic.
+
+    Bridge: PLEXOS represents each plant as MULTIPLE generator objects
+    (one per block, plus per-fuel-variant synthetic 0.01 MW
+    placeholders).  The function therefore SUMS Max Capacity and Min
+    Stable Level across all PLEXOS generators whose normalised name
+    aliases match a given CEN ``id_central``, after dropping
+    placeholders (max-capacity < 1 MW).
+
+    Args:
+        pmin_by_id, pmax_by_id: Heuristic dicts from
+            :func:`build_unit_metadata`.  Used as fallback when PLEXOS
+            has no entry for a given id_central.
+        plexos_xml_path: Path to ``DBSEN_PRGDIARIO_PID.xml`` (preferred)
+            or ``DBSEN_PRGDIARIO.xml``.  ``None`` = no overlay.
+        units_df: The ``unidades_generadoras`` frame.  Required for
+            the alias bridge: each row's ``central`` / ``nombre_central``
+            are normalised and matched against PLEXOS object names.
+            ``None`` returns the inputs unchanged.
+
+    Returns ``(pmin_overlaid, pmax_overlaid, audit)`` where ``audit``
+    maps ``id_central`` → ``"plexos"`` (PLEXOS sum used) /
+    ``"cen_fallback"`` (no PLEXOS match — heuristic kept).
+    """
+    if plexos_xml_path is None or units_df is None or units_df.empty:
+        return dict(pmin_by_id), dict(pmax_by_id), {}
+
+    # pylint: disable=import-outside-toplevel
+    from cen2gtopt._id_bridge import _aliases
+    from cen2gtopt._plexos_xml import parse_generator_input_properties
+
+    plexos_props = parse_generator_input_properties(str(plexos_xml_path))
+    if not plexos_props:
+        return dict(pmin_by_id), dict(pmax_by_id), {}
+
+    # 1. Index every meaningful PLEXOS generator by its alias keys.
+    #    ``alias → list[(plexos_name, props_dict)]`` — PLEXOS may have
+    #    several blocks of the same plant.  We dedupe by plexos_name
+    #    when summing per id_central below.
+    plexos_by_alias: dict[str, list[tuple[str, dict[str, float]]]] = {}
+    for plexos_name, props in plexos_props.items():
+        max_cap = props.get("Max Capacity")
+        if max_cap is None or max_cap < 1.0:
+            continue  # skip 0.01 MW fuel-mix synthetic placeholders
+        for a in _aliases(plexos_name):
+            plexos_by_alias.setdefault(a, []).append((plexos_name, props))
+
+    # 2. For each id_central, find PLEXOS blocks whose aliases overlap
+    #    with the CEN central name's aliases, then SUM Max Capacity /
+    #    Min Stable Level across the matched blocks (deduped by name).
+    pmin_out = dict(pmin_by_id)
+    pmax_out = dict(pmax_by_id)
+    audit: dict[int, str] = {ic: "cen_fallback" for ic in pmin_out}
+    seen_ids: set[int] = set()
+    for _, row in units_df.iterrows():
+        try:
+            ic = int(row["id_central"])
+        except (TypeError, ValueError):
+            continue
+        if ic in seen_ids:
+            continue
+        candidate_names = {
+            str(row.get(c))
+            for c in ("central", "nombre_central")
+            if pd.notna(row.get(c)) and str(row.get(c))
+        }
+        matched: dict[str, dict[str, float]] = {}
+        for name in candidate_names:
+            for a in _aliases(name):
+                for plexos_name, props in plexos_by_alias.get(a, []):
+                    matched.setdefault(plexos_name, props)
+        if not matched:
+            continue
+        sum_max = sum(p["Max Capacity"] for p in matched.values())
+        sum_min_vals = [
+            float(p["Min Stable Level"])
+            for p in matched.values()
+            if "Min Stable Level" in p
+        ]
+        seen_ids.add(ic)
+        pmax_out[ic] = float(sum_max)
+        if sum_min_vals:
+            pmin_out[ic] = float(sum(sum_min_vals))
+        audit[ic] = "plexos"
+
+    return pmin_out, pmax_out, audit
+
+
 def _normalize_cmg_15min(raw: pd.DataFrame) -> pd.DataFrame:
     out = pd.DataFrame()
     out["date_utc"] = raw["fecha"].astype(str).str.slice(0, 10)

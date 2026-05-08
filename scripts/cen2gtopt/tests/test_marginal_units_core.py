@@ -460,6 +460,84 @@ def test_system_zonas_desaclope_per_hour_empty_input():
 
 
 # ---------------------------------------------------------------------------
+# 10. overlay_plexos_capacities — PLEXOS-published overlay
+# ---------------------------------------------------------------------------
+
+
+def test_overlay_plexos_capacities_no_xml_returns_inputs_unchanged():
+    """When ``plexos_xml_path=None`` the overlay must be a no-op."""
+    from cen2gtopt.marginal_units import overlay_plexos_capacities
+
+    pmin_in = {1: 50.0, 2: 100.0}
+    pmax_in = {1: 150.0, 2: 250.0}
+    pmin_out, pmax_out, audit = overlay_plexos_capacities(
+        pmin_in, pmax_in, plexos_xml_path=None, units_df=pd.DataFrame()
+    )
+    assert pmin_out == pmin_in
+    assert pmax_out == pmax_in
+    assert audit == {}
+
+
+def test_overlay_plexos_capacities_no_units_df_returns_inputs_unchanged():
+    from cen2gtopt.marginal_units import overlay_plexos_capacities
+
+    out_pmin, out_pmax, audit = overlay_plexos_capacities(
+        {1: 50.0}, {1: 150.0}, plexos_xml_path="/nonexistent.xml", units_df=None
+    )
+    assert out_pmin == {1: 50.0}
+    assert out_pmax == {1: 150.0}
+    assert audit == {}
+
+
+def test_overlay_plexos_capacities_sums_blocks_per_id_central(monkeypatch, tmp_path):
+    """Synthetic test: PLEXOS publishes 2 blocks (TER X_1, TER X_2) for
+    a CEN id_central=42 with sum-of-blocks pmax=400, pmin=200; the
+    overlay must return those sums (NOT the heuristic CEN value).
+    Dropouts: a 0.01 MW fuel-mix variant must be skipped."""
+    from cen2gtopt import marginal_units as mu
+
+    def fake_parse(_xml_path):
+        return {
+            "TER_X_1": {"Max Capacity": 200.0, "Min Stable Level": 100.0},
+            "TER_X_2": {"Max Capacity": 200.0, "Min Stable Level": 100.0},
+            "TER_X_1_FUELMIX": {
+                "Max Capacity": 0.01,
+            },  # placeholder
+            "OTHER_PLANT": {"Max Capacity": 100.0, "Min Stable Level": 20.0},
+        }
+
+    monkeypatch.setattr(
+        "cen2gtopt._plexos_xml.parse_generator_input_properties", fake_parse
+    )
+    units_df = pd.DataFrame(
+        [
+            {"id_central": 42, "central": "TER X", "nombre_central": "TER X"},
+            {"id_central": 99, "central": "OTHER PLANT", "nombre_central": ""},
+        ]
+    )
+    pmin_cen = {42: 50.0, 99: 30.0, 100: 40.0}  # 100 has no PLEXOS match
+    pmax_cen = {42: 350.0, 99: 95.0, 100: 90.0}
+
+    pmin_out, pmax_out, audit = mu.overlay_plexos_capacities(
+        pmin_cen, pmax_cen, plexos_xml_path=str(tmp_path / "any.xml"), units_df=units_df
+    )
+
+    # id 42: PLEXOS sum overrides CEN
+    assert pmax_out[42] == pytest.approx(400.0)
+    assert pmin_out[42] == pytest.approx(200.0)
+    # id 99: PLEXOS overrides CEN with single-block value
+    assert pmax_out[99] == pytest.approx(100.0)
+    assert pmin_out[99] == pytest.approx(20.0)
+    # id 100: no match, CEN fallback retained
+    assert pmax_out[100] == 90.0
+    assert pmin_out[100] == 40.0
+
+    assert audit[42] == "plexos"
+    assert audit[99] == "plexos"
+    assert audit[100] == "cen_fallback"
+
+
+# ---------------------------------------------------------------------------
 # 5. resolve_solution(auto_download=False) does not consult the network
 # ---------------------------------------------------------------------------
 

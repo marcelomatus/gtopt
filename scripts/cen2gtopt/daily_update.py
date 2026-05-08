@@ -313,15 +313,22 @@ def refresh_pcp_archive(
     today: date,
     *,
     lookback_days: int = 7,
-    include_pcp: bool = True,
+    include_pcp: bool = False,
     include_pid: bool = True,
     pid_period_filter: int | None = None,
     force: bool = False,
     dry_run: bool = False,
 ) -> dict[str, int]:
-    """Download PCP / PID bundles for the lookback window.
+    """Download PID (and optionally PCP) bundles for the lookback window.
 
-    Caches presigned URLs are minted on demand by
+    PID supersedes PCP for any given operating day — it is the
+    intra-day re-solve and reflects post-dispatch outage / topology
+    updates.  Defaults therefore download **PID only** (~38 MB per
+    period, typically 4–8 periods/day) and skip the PCP day-ahead
+    bundle entirely.  Set ``include_pcp=True`` only for back-tests
+    that explicitly require the day-ahead pre-dispatch state.
+
+    Caches are minted on demand by
     :func:`cen2gtopt.pcp_archive.fetch_index`; only files not already
     on disk are downloaded.  Returns ``{status → count}``.
 
@@ -329,8 +336,10 @@ def refresh_pcp_archive(
         today: Reference operating day.
         lookback_days: How many days back to scan (D-1 .. D-N).
         include_pcp: Fetch ``PLEXOS{date}.zip`` per day (~33 MB each).
+            **Default False** — PID is preferred and contains the same
+            input schema plus the intra-day updates.
         include_pid: Fetch every ``PID_{date}_{period}.zip`` per day
-            (~38 MB each, multiple per day).
+            (~38 MB each).  Default True.
         pid_period_filter: Restrict PID downloads to one period
             (e.g. 20 = the late-evening re-solve).  ``None`` = all.
         force: Re-download even if the file is already cached.

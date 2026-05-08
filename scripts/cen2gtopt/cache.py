@@ -200,17 +200,27 @@ def main(argv: list[str] | None = None) -> int:
     d.add_argument(
         "--include-pcp",
         action="store_true",
-        help="Also download PLEXOS{date}.zip (PCP day-ahead bundle, "
-        "~33 MB/day) into the pcp_archive cache for the lookback "
-        "window. Required by `cen2gtopt.pcp_inputs --source pcp`.",
+        default=False,
+        help="ALSO download PLEXOS{date}.zip (PCP day-ahead bundle, "
+        "~33 MB/day).  Default OFF: PID supersedes PCP for any given "
+        "operating day (it is the intra-day re-solve and contains the "
+        "same input schema plus post-dispatch updates).  Set this only "
+        "for back-tests that explicitly need the day-ahead pre-dispatch "
+        "state.",
     )
     d.add_argument(
         "--include-pid",
         action="store_true",
-        help="Also download every PID_{date}_{period}.zip "
-        "(intra-day re-solve, ~38 MB each, multiple per day) for "
-        "the lookback window. Use --pid-period to restrict to one. "
-        "Required by `cen2gtopt.pcp_inputs --source pid`.",
+        default=True,
+        help="Download every PID_{date}_{period}.zip (intra-day re-solve, "
+        "~38 MB each, multiple per day).  Default ON.  Use --pid-period "
+        "to restrict to one period.",
+    )
+    d.add_argument(
+        "--no-include-pid",
+        dest="include_pid",
+        action="store_false",
+        help="Disable PID download (e.g. for an offline-only run).",
     )
     d.add_argument(
         "--pid-period",
