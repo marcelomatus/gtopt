@@ -183,6 +183,56 @@ def test_heuristic_bar_transf_returns_none_when_unparseable():
 
 
 # ---------------------------------------------------------------------------
+# 6. _to_float_es multi-fuel capacity parser
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        # Plain number forms
+        ("145.334", 145.334),
+        ("145,334", 145.334),
+        ("145", 145.0),
+        (145.5, 145.5),
+        (200, 200.0),
+        # Spanish-locale thousands separator
+        ("1.234,56", 1234.56),
+        # Multi-fuel CCGT format from CEN unidades_generadoras
+        # ("primary (fuel) / fallback (fuel)" — return primary)
+        ("214,99 (GN) / 203,74 (Diésel)", 214.99),
+        ("117,72", 117.72),
+        # Bracketed annotation only
+        ("250 (GN)", 250.0),
+        # Single fallback fuel only
+        ("203,74 (Diésel)", 203.74),
+    ],
+)
+def test_to_float_es_handles_multifuel(raw, expected):
+    """``_to_float_es`` must accept the multi-fuel CCGT capacity format
+    used in the CEN unidades_generadoras catalogue, returning the
+    primary-fuel value.  Regression for the per-block pmax-lumping bug
+    that mis-flagged ~96 % of NEHUENCO / COLBUN / ATACAMA quarters as
+    ``matched_capped_pmax`` (PR follow-up to white-paper v1)."""
+    from cen2gtopt.marginal_units import _to_float_es
+
+    assert _to_float_es(raw) == pytest.approx(expected)
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [None, "", "   ", "no number here", float("nan")],
+)
+def test_to_float_es_returns_nan_on_unparseable(raw):
+    import math
+
+    from cen2gtopt.marginal_units import _to_float_es
+
+    out = _to_float_es(raw)
+    assert math.isnan(out)
+
+
+# ---------------------------------------------------------------------------
 # 5. resolve_solution(auto_download=False) does not consult the network
 # ---------------------------------------------------------------------------
 

@@ -56,6 +56,7 @@ Outputs
 from __future__ import annotations
 
 import os
+import re
 import sys
 import warnings
 from pathlib import Path
@@ -152,7 +153,19 @@ FUEL_EF: dict[str, float] = {
 }
 
 
+_NUMBER_ES_RE = re.compile(r"-?\d+(?:[.,]\d+)?")
+
+
 def _to_float_es(s: object) -> float:
+    """Parse a Spanish-locale number, with multi-fuel fallback.
+
+    Plain forms accepted: "145.334", "145,334", "145".  When the input
+    embeds annotations (typical for the CEN ``unidades_generadoras``
+    catalogue, e.g. ``"214,99 (GN) / 203,74 (Diésel)"`` for a
+    dual-fuel CCGT block), the FIRST numeric token is returned —
+    convention is that the primary fuel (gas) figure leads.
+    Returns ``NaN`` on empty / malformed input.
+    """
     if s is None or (isinstance(s, float) and pd.isna(s)):
         return float("nan")
     if isinstance(s, (int, float)):
@@ -160,14 +173,22 @@ def _to_float_es(s: object) -> float:
     txt = str(s).strip()
     if not txt:
         return float("nan")
+    # Fast path: plain number with es-locale handling.
     if "," in txt and "." in txt:
-        txt = txt.replace(".", "").replace(",", ".")
+        candidate = txt.replace(".", "").replace(",", ".")
     elif "," in txt:
-        txt = txt.replace(",", ".")
+        candidate = txt.replace(",", ".")
+    else:
+        candidate = txt
     try:
-        return float(txt)
+        return float(candidate)
     except ValueError:
+        pass
+    # Slow path: multi-fuel / annotated string — pick first numeric.
+    m = _NUMBER_ES_RE.search(txt)
+    if m is None:
         return float("nan")
+    return float(m.group(0).replace(",", "."))
 
 
 def _normalize_cmg_15min(raw: pd.DataFrame) -> pd.DataFrame:
