@@ -509,3 +509,54 @@ TEST_CASE("make_planning_method SDDP wiring snapshot")  // NOLINT
     CHECK(dynamic_cast<CascadePlanningMethod*>(mono.get()) == nullptr);
   }
 }
+
+// ─── SDDP single-phase fallback to monolithic ───────────────────────────────
+//
+// Mirrors the explicit cascade-fallback guard above, but for the SDDP
+// branch (`source/planning_method.cpp:181-188`).  When `method=sddp` is
+// requested and the planning has fewer than 2 phases, the factory must
+// silently fall back to a `MonolithicMethod` instead of constructing an
+// `SDDPPlanningMethod` (which is undefined for a single-phase problem).
+TEST_CASE("make_planning_method SDDP single-phase falls back to monolithic")
+// NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  PlanningOptions popts;
+  popts.method = MethodType::sddp;
+  // Even with non-default SDDP options set, the fallback must still trigger
+  // for num_phases<2 — these overrides are intentionally ignored.
+  popts.sddp_options.max_iterations = 99;
+  popts.sddp_options.elastic_penalty = 7.5;
+  const PlanningOptionsLP options_lp(std::move(popts));
+
+  SUBCASE("num_phases=1 falls back to monolithic")
+  {
+    auto solver = make_planning_method(options_lp, /*num_phases=*/1);
+    REQUIRE(solver != nullptr);
+    CHECK(dynamic_cast<MonolithicMethod*>(solver.get()) != nullptr);
+    CHECK(dynamic_cast<SDDPPlanningMethod*>(solver.get()) == nullptr);
+    CHECK(dynamic_cast<CascadePlanningMethod*>(solver.get()) == nullptr);
+  }
+
+  SUBCASE("num_phases=2 dispatches to SDDP")
+  {
+    // Sanity-check the boundary: the fallback applies strictly to <2 phases.
+    auto solver = make_planning_method(options_lp, /*num_phases=*/2);
+    REQUIRE(solver != nullptr);
+    CHECK(dynamic_cast<SDDPPlanningMethod*>(solver.get()) != nullptr);
+    CHECK(dynamic_cast<MonolithicMethod*>(solver.get()) == nullptr);
+  }
+
+  SUBCASE("num_phases=0 (unknown) still dispatches to SDDP")
+  {
+    // The guard at planning_method.cpp:181 is `num_phases > 0 && num_phases <
+    // 2`. num_phases=0 (the "unknown" sentinel callers use when the phase count
+    // is not yet resolved) intentionally bypasses the fallback so the SDDP
+    // adapter is always returned by default.
+    auto solver = make_planning_method(options_lp, /*num_phases=*/0);
+    REQUIRE(solver != nullptr);
+    CHECK(dynamic_cast<SDDPPlanningMethod*>(solver.get()) != nullptr);
+    CHECK(dynamic_cast<MonolithicMethod*>(solver.get()) == nullptr);
+  }
+}
