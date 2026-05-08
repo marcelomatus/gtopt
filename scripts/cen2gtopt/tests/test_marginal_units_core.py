@@ -267,7 +267,7 @@ def test_fetch_cmg_bulk_is_sequential_with_adaptive_throttle(monkeypatch):
         )
 
     monkeypatch.setattr(mu, "fetch_by_name", fake_fetch_by_name)
-    monkeypatch.setattr(mu.time, "sleep", lambda s: sleep_log.append(s))
+    monkeypatch.setattr(mu.time, "sleep", sleep_log.append)
 
     out = mu.fetch_cmg_bulk(
         client=None,  # unused by the fake
@@ -292,6 +292,171 @@ def test_fetch_cmg_bulk_is_sequential_with_adaptive_throttle(monkeypatch):
 
     # Result frame has the 2 successful buses (A and C).
     assert sorted(out["bar_transf"].unique()) == ["A", "C"]
+
+
+# ---------------------------------------------------------------------------
+# 8. build_unit_metadata — binding pmin = max of 3 MT fields
+# ---------------------------------------------------------------------------
+
+
+def test_build_unit_metadata_pmin_uses_max_of_three_mts():
+    """pmin per id_central must be the SUM (across blocks) of the
+    per-block ``max(pot_min_tecnica, min_tecnico_normativa_ambiental,
+    min_tecnico_control_frecuencia)``.  Captures the binding minimum
+    given the unit's operational mode — e.g. CCGT GT pinned at its
+    environmental NOx-control floor, or coal at its AGC-roster MT."""
+    from cen2gtopt.marginal_units import build_unit_metadata
+
+    # Two id_centrales: one CCGT (env-MT binds), one steam unit
+    # (freq-MT binds), one PMG-eolic (no MT data — skipped).
+    units = pd.DataFrame(
+        [
+            # CCGT id=197 with 2 blocks (TG / TV)
+            {
+                "id_central": 197,
+                "central": "TER X",
+                "tipo_tecnologia_unidad": "CCGT-TG",
+                "pot_min_tecnica": "14",
+                "min_tecnico_normativa_ambiental": "145",  # binds
+                "min_tecnico_control_frecuencia": "14",
+                "pot_neta_efectiva": "214,99 (GN) / 203,74 (Diésel)",
+                "pot_max_bruta": "217,65",
+            },
+            {
+                "id_central": 197,
+                "central": "TER X",
+                "tipo_tecnologia_unidad": "CCGT-TV",
+                "pot_min_tecnica": "70",
+                "min_tecnico_normativa_ambiental": "80",  # binds
+                "min_tecnico_control_frecuencia": "70",
+                "pot_neta_efectiva": "111,98",
+                "pot_max_bruta": "117,72",
+            },
+            # Steam id=300 with freq-MT binding
+            {
+                "id_central": 300,
+                "central": "TER COCHRANE",
+                "tipo_tecnologia_unidad": "Steam",
+                "pot_min_tecnica": "60",
+                "min_tecnico_normativa_ambiental": "60",
+                "min_tecnico_control_frecuencia": "90",  # binds
+                "pot_neta_efectiva": "250,622",
+                "pot_max_bruta": "260",
+            },
+            # PMG eolic id=400 with no parseable MT data
+            {
+                "id_central": 400,
+                "central": "PE PMG",
+                "tipo_tecnologia_unidad": "Wind",
+                "pot_min_tecnica": "no aplica",
+                "min_tecnico_normativa_ambiental": "0,1",
+                "min_tecnico_control_frecuencia": "0,1",
+                "pot_neta_efectiva": "1,9998",
+                "pot_max_bruta": "2",
+            },
+        ]
+    )
+
+    pmin_by_id, pmax_by_id, tipo_by_id = build_unit_metadata(units)
+
+    # CCGT 197: per-block max = (145, 80) → sum 225 MW
+    assert pmin_by_id[197] == pytest.approx(225.0)
+    # CCGT 197 pmax: 214.99 + 111.98 = 326.97
+    assert pmax_by_id[197] == pytest.approx(326.97)
+    assert tipo_by_id[197] == "CCGT-TG"
+    # Steam 300: max(60, 60, 90) = 90
+    assert pmin_by_id[300] == pytest.approx(90.0)
+    assert pmax_by_id[300] == pytest.approx(250.622)
+    # PMG 400: only env / frq parseable → max(0.1, 0.1) = 0.1
+    assert pmin_by_id[400] == pytest.approx(0.1)
+
+
+def test_build_unit_metadata_handles_empty_input():
+    from cen2gtopt.marginal_units import build_unit_metadata
+
+    pmin, pmax, tipo = build_unit_metadata(pd.DataFrame())
+    assert not pmin
+    assert not pmax
+    assert not tipo
+
+
+# ---------------------------------------------------------------------------
+# 9. Instrucciones lookup helpers — surfacing zona_desaclope, motivo,
+# control_tension that were previously unused
+# ---------------------------------------------------------------------------
+
+
+def test_build_instrucciones_lookup_surfaces_all_fields():
+    from cen2gtopt.marginal_units import build_instrucciones_lookup
+
+    instr = pd.DataFrame(
+        [
+            {
+                "id_central": 100,
+                "hour": 6,
+                "consigna": "MT",
+                "estado": "RO",
+                "motivo": "Activación CTF (+)",
+                "zona_desaclope": "1",
+                "control_tension": "S",
+            },
+            {
+                "id_central": 100,
+                "hour": 7,
+                "consigna": "N",
+                "estado": "N",
+                "motivo": "",
+                "zona_desaclope": "1",
+                "control_tension": "",
+            },
+            {
+                "id_central": 200,
+                "hour": 6,
+                "consigna": "PP",
+                "estado": "N",
+                "motivo": "Con SSCC",
+                "zona_desaclope": "2",
+                "control_tension": "S",
+            },
+        ]
+    )
+    look = build_instrucciones_lookup(instr)
+    assert look[(6, 100)]["consigna"] == "MT"
+    assert look[(6, 100)]["motivo"] == "Activación CTF (+)"
+    assert look[(6, 100)]["zona_desaclope"] == "1"
+    assert look[(7, 100)]["consigna"] == "N"
+    assert look[(6, 200)]["motivo"] == "Con SSCC"
+    assert look[(6, 200)]["zona_desaclope"] == "2"
+
+
+def test_system_zonas_desaclope_per_hour():
+    """Per-hour count of distinct operator-published zones — when > 1,
+    the SEN was split, independent confirmation for our heuristic
+    island clustering."""
+    from cen2gtopt.marginal_units import system_zonas_desaclope_per_hour
+
+    instr = pd.DataFrame(
+        [
+            {"id_central": 1, "hour": 0, "zona_desaclope": "1"},
+            {"id_central": 2, "hour": 0, "zona_desaclope": "1"},
+            {"id_central": 3, "hour": 6, "zona_desaclope": "1"},
+            {"id_central": 4, "hour": 6, "zona_desaclope": "2"},
+            {"id_central": 5, "hour": 6, "zona_desaclope": "3"},
+            # Empty / NaN zonas should be skipped, not counted.
+            {"id_central": 6, "hour": 12, "zona_desaclope": ""},
+            {"id_central": 7, "hour": 12, "zona_desaclope": "1"},
+        ]
+    )
+    out = system_zonas_desaclope_per_hour(instr)
+    assert out[0] == 1  # one synchronous merit clearing at midnight
+    assert out[6] == 3  # 3-way split during morning ramp
+    assert out[12] == 1  # blank rows ignored
+
+
+def test_system_zonas_desaclope_per_hour_empty_input():
+    from cen2gtopt.marginal_units import system_zonas_desaclope_per_hour
+
+    assert system_zonas_desaclope_per_hour(pd.DataFrame()) == {}
 
 
 # ---------------------------------------------------------------------------

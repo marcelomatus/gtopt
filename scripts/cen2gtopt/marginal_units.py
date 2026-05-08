@@ -192,6 +192,93 @@ def _to_float_es(s: object) -> float:
     return float(m.group(0).replace(",", "."))
 
 
+#: ``unidades_generadoras`` ships THREE distinct technical-minimum
+#: fields, any of which can bind depending on the operating mode:
+#:
+#:   ``pot_min_tecnica``                — strict design minimum (boiler
+#:                                        stable-fire, turbine cool-flow)
+#:   ``min_tecnico_normativa_ambiental``— environmental minimum imposed
+#:                                        by NOx / SO₂ / CO scrubber
+#:                                        residence-time requirements
+#:                                        (often 5–15× the design min
+#:                                        on CCGT GTs and coal units)
+#:   ``min_tecnico_control_frecuencia`` — frequency-control minimum
+#:                                        the AGC roster requires the
+#:                                        unit to hold while providing
+#:                                        primary / secondary reserve
+#:
+#: The BINDING pmin in steady state is the MAX of the three (whichever
+#: limits the operator from ramping further down).  The picker uses
+#: this max-of-three to classify ``status = near_pmin`` correctly for
+#: CCGTs locked at their environmental MT.
+PMIN_FIELDS: tuple[str, ...] = (
+    "pot_min_tecnica",
+    "min_tecnico_normativa_ambiental",
+    "min_tecnico_control_frecuencia",
+)
+
+
+def build_unit_metadata(
+    units: pd.DataFrame,
+) -> tuple[dict[int, float], dict[int, float], dict[int, str]]:
+    """Aggregate per-block unit data to per-``id_central`` metadata.
+
+    Returns ``(pmin_by_id, pmax_by_id, tipo_by_id)`` where:
+
+      * ``pmin_by_id[ic]`` = sum across blocks of the **binding pmin**,
+        i.e. ``max(pot_min_tecnica, min_tecnico_normativa_ambiental,
+        min_tecnico_control_frecuencia)`` per block.  The max-of-three
+        captures the largest applicable technical minimum so a CCGT
+        GT pinned at its environmental floor is correctly flagged as
+        ``near_pmin`` rather than ``interior``.
+      * ``pmax_by_id[ic]`` = sum across blocks of ``pot_neta_efectiva``
+        (falling back to ``pot_max_bruta`` for malformed rows).  The
+        multi-fuel parsing in ``_to_float_es`` ensures the per-block
+        value reflects primary-fuel capacity.
+      * ``tipo_by_id[ic]``  = first ``tipo_tecnologia_unidad`` in the
+        group (used downstream for hydro / solar / wind detection).
+
+    A block whose alternate-MT field is non-numeric (``"No Aplica"``,
+    ``"Sin información"``, blank) contributes only its parseable MTs
+    to the max — so we never lose information by widening to env / frq.
+    """
+    if units.empty:
+        return ({}, {}, {})
+    u = units.copy()
+
+    # Per-block binding pmin = max of the 3 MT fields (NaN-tolerant).
+    mt_cols: list[str] = []
+    for col in PMIN_FIELDS:
+        if col in u.columns:
+            parsed_col = f"_pmin_{col[-3:]}"  # _tec, _tal (env), _cia (frq)
+            u[parsed_col] = u[col].map(_to_float_es)
+            mt_cols.append(parsed_col)
+    if mt_cols:
+        u["_pmin"] = u[mt_cols].max(axis=1, skipna=True).fillna(0.0)
+    else:
+        u["_pmin"] = 0.0
+
+    # Per-block pmax (with multi-fuel-tolerant fallback).
+    pmax_primary = u.get("pot_neta_efectiva", pd.Series(dtype=str)).map(_to_float_es)
+    pmax_fallback = u.get("pot_max_bruta", pd.Series(dtype=str)).map(_to_float_es)
+    u["_pmax"] = pmax_primary.fillna(pmax_fallback).fillna(0.0)
+
+    u["_id"] = pd.to_numeric(u["id_central"], errors="coerce").astype("Int64")
+    u = u.dropna(subset=["_id"])
+
+    pmin_by_id: dict[int, float] = {}
+    pmax_by_id: dict[int, float] = {}
+    tipo_by_id: dict[int, str] = {}
+    has_tipo = "tipo_tecnologia_unidad" in u.columns
+    for ic, grp in u.groupby("_id"):
+        pmin_by_id[int(ic)] = float(grp["_pmin"].sum())
+        pmax_by_id[int(ic)] = float(grp["_pmax"].sum())
+        tipo_by_id[int(ic)] = (
+            str(grp["tipo_tecnologia_unidad"].iloc[0]) if has_tipo else ""
+        )
+    return pmin_by_id, pmax_by_id, tipo_by_id
+
+
 def _normalize_cmg_15min(raw: pd.DataFrame) -> pd.DataFrame:
     out = pd.DataFrame()
     out["date_utc"] = raw["fecha"].astype(str).str.slice(0, 10)
@@ -611,6 +698,71 @@ def fetch_instrucciones(
         return df
     df["hour"] = df["hora"].astype(str).str.split(":").str[0].astype(int)
     return df
+
+
+def build_instrucciones_lookup(
+    instr: pd.DataFrame,
+) -> dict[tuple[int, int], dict[str, object]]:
+    """Index the instrucciones-CMG roster by ``(hour, id_central)``.
+
+    Returns a dict with one entry per (hour, id_central) carrying the
+    full operational state the operator published for that unit at
+    that hour:
+
+      ``consigna``         : ``CI``/``MT``/``PMT``/``PP``/``PS``/``PC``/``N``/...
+      ``estado``           : ``N``/``RO``/``LF``/``DN``/``DRO``/``PO``/``PDO``/
+                             ``DF``/``MM``/``DLF``/``DP``/``CSE``
+      ``motivo``           : free-text reason — e.g. ``"Activación CTF (+)"``,
+                             ``"Con SSCC"``, ``"Subida anticipadamente por
+                             retiro de generación ERV Fotovoltaica"``.
+                             Distinguishes contractual TOP from reserve
+                             provision from preventive ramp-up.
+      ``zona_desaclope``   : the **operator's own** island/zone id —
+                             when the SEN splits, units in the same
+                             zona_desaclope share a clearing price.
+                             Authoritative cross-check for the
+                             heuristic ``cluster_buses_into_islands``.
+      ``control_tension``  : flag — voltage-support obligation (units
+                             held at a setpoint to provide reactive
+                             support are price-takers in addition to
+                             any consigna/estado flag).
+
+    Downstream consumers (the picker, the per-cell output writer, the
+    diagnostic dashboards) can join this lookup on ``(hour, id_central)``
+    to enrich their output without re-fetching ``instrucciones_cmg``.
+    """
+    out: dict[tuple[int, int], dict[str, object]] = {}
+    if instr.empty or "hour" not in instr.columns or "id_central" not in instr.columns:
+        return out
+    keep_cols = ("consigna", "estado", "motivo", "zona_desaclope", "control_tension")
+    for _, row in instr.iterrows():
+        try:
+            ic = int(row["id_central"])
+            h = int(row["hour"])
+        except (TypeError, ValueError):
+            continue
+        out[(h, ic)] = {c: row.get(c) for c in keep_cols if c in instr.columns}
+    return out
+
+
+def system_zonas_desaclope_per_hour(instr: pd.DataFrame) -> dict[int, int]:
+    """Return ``{hour → number of distinct operator-published zones}``.
+
+    A value > 1 means the SEN was split into multiple price islands at
+    that hour, by the **operator's own dispatch declaration** —
+    independent confirmation for our heuristic island clustering.
+    Value 1 = single synchronous merit clearing.
+    """
+    if instr.empty or "zona_desaclope" not in instr.columns:
+        return {}
+    zd = (
+        instr.dropna(subset=["zona_desaclope"])
+        .assign(z=lambda d: d["zona_desaclope"].astype(str).str.strip())
+        .query("z != '' and z.str.lower() != 'nan'", engine="python")
+    )
+    if zd.empty:
+        return {}
+    return zd.groupby("hour")["z"].nunique().astype(int).to_dict()
 
 
 def fetch_unidades_generadoras(
@@ -1242,25 +1394,10 @@ def compute_marginal_units_for_day(
     if bus_mlf and verbose:
         print(f"  PID per-bus MLF loaded for {len({k[0] for k in bus_mlf})} buses")
 
-    # Per-id metadata
-    units2 = units.copy()
-    units2["_pmin"] = units2.get("pot_min_tecnica", 0).map(_to_float_es)
-    units2["_pmax"] = units2.get(
-        "pot_neta_efectiva", units2.get("pot_max_bruta", 0)
-    ).map(_to_float_es)
-    units2["_id"] = pd.to_numeric(units2["id_central"], errors="coerce").astype("Int64")
-    units2 = units2.dropna(subset=["_id"])
-    pmin_by_id: dict[int, float] = {}
-    pmax_by_id: dict[int, float] = {}
-    tipo_by_id: dict[int, str] = {}
-    for ic, grp in units2.groupby("_id"):
-        pmin_by_id[int(ic)] = float(grp["_pmin"].sum())
-        pmax_by_id[int(ic)] = float(grp["_pmax"].sum())
-        tipo_by_id[int(ic)] = str(
-            grp["tipo_tecnologia_unidad"].iloc[0]
-            if "tipo_tecnologia_unidad" in grp.columns
-            else ""
-        )
+    # Per-id metadata: pmin uses MAX of (technical, environmental,
+    # frequency-control) MTs to capture the binding minimum given
+    # the unit's operational mode — see build_unit_metadata().
+    pmin_by_id, pmax_by_id, tipo_by_id = build_unit_metadata(units)
 
     # SCVIC ladder
     scvic = cv_rpt_for_date(date_iso)
@@ -1569,19 +1706,10 @@ def compute_marginal_units_for_day_all_buses(
             f"{len(bus_mlf_by_id_info)} id_info-bridged"
         )
 
-    # Per-id metadata
-    units2 = units.copy()
-    units2["_pmin"] = units2.get("pot_min_tecnica", 0).map(_to_float_es)
-    units2["_pmax"] = units2.get(
-        "pot_neta_efectiva", units2.get("pot_max_bruta", 0)
-    ).map(_to_float_es)
-    units2["_id"] = pd.to_numeric(units2["id_central"], errors="coerce").astype("Int64")
-    units2 = units2.dropna(subset=["_id"])
-    pmin_by_id: dict[int, float] = {}
-    pmax_by_id: dict[int, float] = {}
-    for ic, grp in units2.groupby("_id"):
-        pmin_by_id[int(ic)] = float(grp["_pmin"].sum())
-        pmax_by_id[int(ic)] = float(grp["_pmax"].sum())
+    # Per-id metadata: pmin uses MAX of (technical, environmental,
+    # frequency-control) MTs to capture the binding minimum given
+    # the unit's operational mode — see build_unit_metadata().
+    pmin_by_id, pmax_by_id, _ = build_unit_metadata(units)
 
     # SCVIC ladder
     scvic = cv_rpt_for_date(date_iso)
@@ -2000,19 +2128,10 @@ def main() -> int:
     print(f"  {index_stats(alias_index)}")
 
     # --- Build per-id metadata ---
-    # pmin per id_central
-    units2 = units.copy()
-    units2["_pmin"] = units2.get("pot_min_tecnica", 0).map(_to_float_es)
-    units2["_pmax"] = units2.get(
-        "pot_neta_efectiva", units2.get("pot_max_bruta", 0)
-    ).map(_to_float_es)
-    units2["_id"] = pd.to_numeric(units2["id_central"], errors="coerce").astype("Int64")
-    units2 = units2.dropna(subset=["_id"])
-    pmin_by_id: dict[int, float] = {}
-    pmax_by_id: dict[int, float] = {}
-    for ic, grp in units2.groupby("_id"):
-        pmin_by_id[int(ic)] = float(grp["_pmin"].sum())
-        pmax_by_id[int(ic)] = float(grp["_pmax"].sum())
+    # pmin uses MAX of (technical, environmental, frequency-control)
+    # MTs to capture the binding minimum given the unit's operational
+    # mode — see build_unit_metadata().
+    pmin_by_id, pmax_by_id, _ = build_unit_metadata(units)
 
     # ---- Water value per hour from cmg-programado-pcp ----
     # The PLP/PCP LP embeds water values as the marginal CV of hydro
