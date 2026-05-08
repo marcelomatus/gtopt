@@ -1557,8 +1557,29 @@ auto BendersCut::elastic_filter_solve(const LinearInterface& li,
   // Submit the LP solve to the work pool so that the pool's scheduling and
   // monitoring infrastructure (CPU load, active workers) observe the solve.
   // The calling thread blocks on the future until the solve completes.
+  //
+  // **Priority::Critical** — this submit is nested inside an already-running
+  // pool task (the SDDP forward-pass worker that is calling us).  The
+  // forward-pass thread will block on `fut.get()` below and cannot release
+  // its slot until this task completes.  If we submit at the default
+  // `Medium` priority, `can_dispatch_top()` gates dispatch at
+  // ``current_memory_percent_ >= 90 %`` — but the parent task already
+  // holds memory near that threshold, so the gate frequently closes and
+  // this nested task never dispatches → all forward workers wedge on
+  // `get()` waiting for a sub-task that the gate refuses to release →
+  // pool-wide deadlock (juan/iplp_plain hang fingerprint, gdb thread dump
+  // 2026-05-08: 13/96 workers in `__atomic_futex_wait_until` two frames
+  // below `BendersCut::elastic_filter_solve`).  `Critical` raises the
+  // dispatch ceiling to 98 %, giving this nested clone-solve enough
+  // headroom to run even when the parent has consumed most of the
+  // work-pool's memory budget.  See `work_pool.hpp::can_dispatch_top` for
+  // the priority → threshold mapping.
   auto fut = m_pool_->submit([cloned_sp, opts]() -> std::expected<int, Error>
-                             { return cloned_sp->resolve(opts); });
+                             { return cloned_sp->resolve(opts); },
+                             TaskRequirements {
+                                 .priority = TaskPriority::Critical,
+                                 .name = "elastic_clone_resolve",
+                             });
 
   bool solved = false;
   if (fut.has_value()) {
