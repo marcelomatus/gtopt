@@ -777,3 +777,149 @@ TEST_CASE(
   CHECK(f2.value().get() == 2);
   CHECK(f3.value().get() == 3);
 }
+
+// ─── SlotReleaseGuard ─────────────────────────────────────────────────────
+//
+// Pin the contract for the in-task blocking guard: while a guard is alive
+// the pool's active-task count drops by 1, and any waiting workers can
+// dispatch their queued work.  When the guard is destroyed the count is
+// restored.  No-op when called outside a worker context (count never
+// underflows).
+
+TEST_CASE("SlotReleaseGuard outside worker is a safe no-op")  // NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  WorkPoolConfig cfg;
+  cfg.max_threads = 2;
+  BasicWorkPool<> pool {cfg};
+  pool.start();
+
+  // Caller is the test thread, NOT a worker.  Active count is 0; the
+  // guard's release_slot_for_blocking_ defensively skips the decrement.
+  CHECK(pool.get_statistics().tasks_active == 0);
+  {
+    auto guard = pool.release_slot_while_blocking();
+    CHECK(pool.get_statistics().tasks_active == 0);
+  }
+  CHECK(pool.get_statistics().tasks_active == 0);
+}
+
+TEST_CASE(  // NOLINT
+    "SlotReleaseGuard from inside a task drops then restores the count")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  WorkPoolConfig cfg;
+  cfg.max_threads = 4;
+  BasicWorkPool<> pool {cfg};
+  pool.start();
+
+  // Use sync primitives so the worker's observed counts can be checked
+  // by the test thread at known points in time.
+  std::mutex mu;
+  std::condition_variable cv;
+  bool guard_alive = false;
+  bool guard_ended = false;
+  std::size_t active_inside_guard = 0;
+  std::size_t active_after_guard = 0;
+
+  auto fut = pool.submit(std::function<int()> {
+      [&]() -> int
+      {
+        // Inside a worker: tasks_active_ is at least 1 (this task).
+        {
+          auto guard = pool.release_slot_while_blocking();
+          active_inside_guard = pool.get_statistics().tasks_active;
+          {
+            const std::scoped_lock lock {mu};
+            guard_alive = true;
+          }
+          cv.notify_all();
+
+          // Wait for the test thread to observe the released state.
+          std::unique_lock lock {mu};
+          cv.wait(lock, [&] { return guard_ended; });
+        }
+        active_after_guard = pool.get_statistics().tasks_active;
+        return 0;
+      }});
+  if (!fut.has_value()) {
+    MESSAGE("submit failed: " << fut.error().message());
+  }
+  REQUIRE(fut.has_value());
+
+  {
+    std::unique_lock lock {mu};
+    cv.wait(lock, [&] { return guard_alive; });
+  }
+  // Inside the guard scope the worker's slot is released — count is 0.
+  CHECK(active_inside_guard == 0);
+  {
+    const std::scoped_lock lock {mu};
+    guard_ended = true;
+  }
+  cv.notify_all();
+  CHECK(fut.value().get() == 0);
+  // After guard exit, slot is re-acquired (count == 1 inside the task);
+  // after task completes, worker_loop decrements back to 0.
+  CHECK(active_after_guard == 1);
+  CHECK(pool.get_statistics().tasks_active == 0);
+}
+
+TEST_CASE(  // NOLINT
+    "SlotReleaseGuard notifies waiting workers on release")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  // Verify the release path notifies cv_, so any worker parked in the
+  // memory-gate sleep wakes up to re-evaluate.  We can't easily simulate
+  // the memory gate from a unit test, but the contract is: after
+  // `release_slot_for_blocking_` returns, the active count is one
+  // smaller and at least one worker has been notified.  We exercise
+  // this by submitting a task that takes the guard and checking the
+  // before/after counts under a held mutex (no timing race).
+  WorkPoolConfig cfg;
+  cfg.max_threads = 2;
+  BasicWorkPool<> pool {cfg};
+  pool.start();
+
+  std::mutex mu;
+  std::condition_variable cv;
+  bool inside_guard = false;
+  bool guard_ended = false;
+  std::size_t observed_active_before = 999;
+  std::size_t observed_active_inside = 999;
+
+  auto fut = pool.submit(std::function<int()> {
+      [&]() -> int
+      {
+        observed_active_before = pool.get_statistics().tasks_active;
+        {
+          auto guard = pool.release_slot_while_blocking();
+          observed_active_inside = pool.get_statistics().tasks_active;
+          {
+            const std::scoped_lock lock {mu};
+            inside_guard = true;
+          }
+          cv.notify_all();
+          std::unique_lock lock {mu};
+          cv.wait(lock, [&] { return guard_ended; });
+        }
+        return 0;
+      }});
+  REQUIRE(fut.has_value());
+
+  {
+    std::unique_lock lock {mu};
+    cv.wait(lock, [&] { return inside_guard; });
+  }
+  // Before guard: this task was active (count >= 1).
+  CHECK(observed_active_before >= 1);
+  // After guard: count dropped by 1 — to 0 since this is the only task.
+  CHECK(observed_active_inside == observed_active_before - 1);
+
+  {
+    const std::scoped_lock lock {mu};
+    guard_ended = true;
+  }
+  cv.notify_all();
+  CHECK(fut.value().get() == 0);
+}

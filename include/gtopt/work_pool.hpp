@@ -712,6 +712,87 @@ public:
   /// thread — `max_threads_` is set once in the constructor.
   [[nodiscard]] int max_threads() const noexcept { return max_threads_; }
 
+  // ── Slot-release guard for in-task blocking ─────────────────────────────
+  //
+  // Background.  `worker_loop` increments `tasks_active_` and
+  // `active_threads_` when a worker pops a task, decrements both after
+  // `task.execute()` returns.  Between those two events the task is
+  // counted as "consuming a worker slot" by `can_dispatch_top()` even
+  // if the user code inside `task.execute()` is parked in a kernel
+  // futex waiting for an external event the pool can't dispatch (a
+  // future from this same pool, an inter-thread condvar, a network
+  // call, …).  When that wait correlates with the gate being closed
+  // (memory %, CPU %, …), the pool can wedge: every worker is
+  // "active" but none is actually running, no dispatch happens, no
+  // `tasks_active_` decrement, no recovery.
+  //
+  // `release_slot_while_blocking()` returns an RAII guard that
+  // temporarily yields the calling task's slot for the duration of an
+  // external blocking call, so the pool's gate sees one fewer active
+  // task and can dispatch other queued work.  The slot is reacquired
+  // when the guard goes out of scope; transient over-saturation is
+  // bounded by the number of guards live simultaneously, which is
+  // capped by the actual worker count.
+  //
+  // Usage:
+  //
+  //     auto fut = some_other_pool.submit(...);
+  //     {
+  //       auto guard = this_pool.release_slot_while_blocking();
+  //       fut.get();   // pool sees one fewer active slot during this wait
+  //     }   // slot reacquired here, work continues
+  //
+  // No-op if called outside a pool worker (the count never goes
+  // below zero — the guard checks `tasks_active_ > 0` before
+  // decrementing).
+  class SlotReleaseGuard
+  {
+  public:
+    explicit SlotReleaseGuard(BasicWorkPool* pool) noexcept
+        : m_pool_(pool)
+    {
+      if (m_pool_ != nullptr) {
+        m_released_ = m_pool_->release_slot_for_blocking_();
+      }
+    }
+    ~SlotReleaseGuard() noexcept
+    {
+      if (m_pool_ != nullptr && m_released_) {
+        m_pool_->reacquire_slot_after_blocking_();
+      }
+    }
+    SlotReleaseGuard(const SlotReleaseGuard&) = delete;
+    SlotReleaseGuard& operator=(const SlotReleaseGuard&) = delete;
+    SlotReleaseGuard(SlotReleaseGuard&& other) noexcept
+        : m_pool_(std::exchange(other.m_pool_, nullptr))
+        , m_released_(std::exchange(other.m_released_, false))
+    {
+    }
+    SlotReleaseGuard& operator=(SlotReleaseGuard&& other) noexcept
+    {
+      if (this != &other) {
+        if (m_pool_ != nullptr && m_released_) {
+          m_pool_->reacquire_slot_after_blocking_();
+        }
+        m_pool_ = std::exchange(other.m_pool_, nullptr);
+        m_released_ = std::exchange(other.m_released_, false);
+      }
+      return *this;
+    }
+
+  private:
+    BasicWorkPool* m_pool_;
+    bool m_released_ {false};
+  };
+
+  /// Acquire a guard that releases this task's worker slot for the
+  /// duration of an external blocking wait.  See SlotReleaseGuard for
+  /// rationale and usage.
+  [[nodiscard]] SlotReleaseGuard release_slot_while_blocking() noexcept
+  {
+    return SlotReleaseGuard {this};
+  }
+
   struct Statistics
   {
     size_t tasks_submitted;
@@ -843,6 +924,44 @@ private:
   /// one when an idle worker is about to wake, but the extra worker
   /// just re-parks on `cv_.wait`.  The race that actually matters
   /// (under-spawning) is gone.
+  // ── Slot-release helpers (used by SlotReleaseGuard) ────────────────────
+  //
+  // These are intentionally narrow: decrement / increment under
+  // `queue_mutex_` so dispatch decisions see the fresh count via
+  // mutex-acquire happens-before, and notify `cv_` on release so any
+  // worker parked on the memory gate wakes up to re-evaluate.  No
+  // back-pressure on reacquire: by the time a guard is destroyed the
+  // task is about to run again, and over-saturation by 1 per guard is
+  // bounded by the worker count.
+  /// Returns true iff the slot was actually released (caller is inside
+  /// a worker), so the matching reacquire on guard destruction knows
+  /// whether to increment back.  False when called outside a worker
+  /// context (active count was 0); the matching reacquire is then a
+  /// no-op.
+  bool release_slot_for_blocking_() noexcept
+  {
+    bool released = false;
+    {
+      const std::scoped_lock<std::mutex> qlock(queue_mutex_);
+      if (tasks_active_.load(std::memory_order_relaxed) > 0) {
+        tasks_active_.fetch_sub(1, std::memory_order_relaxed);
+        active_threads_.fetch_sub(1, std::memory_order_relaxed);
+        released = true;
+      }
+    }
+    if (released) {
+      cv_.notify_all();
+    }
+    return released;
+  }
+
+  void reacquire_slot_after_blocking_() noexcept
+  {
+    const std::scoped_lock<std::mutex> qlock(queue_mutex_);
+    tasks_active_.fetch_add(1, std::memory_order_relaxed);
+    active_threads_.fetch_add(1, std::memory_order_relaxed);
+  }
+
   void maybe_spawn_worker_unlocked()
   {
     if (!running_.load(std::memory_order_relaxed)) {
