@@ -10,6 +10,8 @@
 #  define SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_TRACE
 #endif
 
+#include <array>
+#include <atomic>
 #include <chrono>
 #include <cstring>
 #include <stdexcept>
@@ -251,6 +253,102 @@ std::vector<char> decompress_snappy(std::span<const char> compressed,
 
 }  // namespace
 
+// ── Per-codec aggregate statistics ──────────────────────────────────────────
+//
+// Process-global atomic counters per codec.  Updated silently on every
+// `compress()` / `decompress()` call — no per-op logging.  Read out at
+// end-of-run via `log_compression_stats()` (one INFO line per used codec).
+namespace
+{
+struct CodecAccum
+{
+  std::atomic<std::uint64_t> n_compress {0};
+  std::atomic<std::uint64_t> compress_us {0};
+  std::atomic<std::uint64_t> compress_in_bytes {0};
+  std::atomic<std::uint64_t> compress_out_bytes {0};
+  std::atomic<std::uint64_t> n_decompress {0};
+  std::atomic<std::uint64_t> decompress_us {0};
+  std::atomic<std::uint64_t> decompress_in_bytes {0};
+  std::atomic<std::uint64_t> decompress_out_bytes {0};
+};
+
+// One slot per CompressionCodec value.  10 slots covers all currently
+// defined codec values; out-of-range falls into the last slot harmlessly.
+constexpr std::size_t kCodecSlots = 10;
+
+// Static-local so the array's destructor never runs during a static-dtor
+// race with late stats reads.
+CodecAccum& accum_for(CompressionCodec c) noexcept
+{
+  static std::array<CodecAccum, kCodecSlots> slots;
+  const auto idx = std::min(static_cast<std::size_t>(c), kCodecSlots - 1);
+  return slots[idx];
+}
+
+// Iterate every codec slot.  Used by get/log/reset.
+template<typename F>
+void for_each_codec(F&& f) noexcept
+{
+  // Codec values are sparse-ish — iterate the named values explicitly.
+  static constexpr std::array all_codecs {
+      CompressionCodec::uncompressed,
+      CompressionCodec::lz4,
+      CompressionCodec::snappy,
+      CompressionCodec::zstd,
+      CompressionCodec::gzip,
+      CompressionCodec::bzip2,
+      CompressionCodec::xz,
+      CompressionCodec::brotli,
+      CompressionCodec::lzo,
+  };
+  for (auto c : all_codecs) {
+    f(c, accum_for(c));
+  }
+}
+
+// Time + record one compression.  Single point of measurement so
+// every backend codec gets timed identically.
+template<typename Fn>
+std::vector<char> timed_compress(CompressionCodec codec,
+                                 std::span<const char> data,
+                                 Fn&& fn)
+{
+  const auto t0 = std::chrono::steady_clock::now();
+  auto result = std::forward<Fn>(fn)();
+  const auto us = static_cast<std::uint64_t>(
+      std::chrono::duration_cast<std::chrono::microseconds>(
+          std::chrono::steady_clock::now() - t0)
+          .count());
+  auto& acc = accum_for(codec);
+  acc.n_compress.fetch_add(1, std::memory_order_relaxed);
+  acc.compress_us.fetch_add(us, std::memory_order_relaxed);
+  acc.compress_in_bytes.fetch_add(data.size(), std::memory_order_relaxed);
+  acc.compress_out_bytes.fetch_add(result.size(), std::memory_order_relaxed);
+  return result;
+}
+
+template<typename Fn>
+std::vector<char> timed_decompress(CompressionCodec codec,
+                                   std::span<const char> compressed,
+                                   std::size_t original_size,
+                                   Fn&& fn)
+{
+  const auto t0 = std::chrono::steady_clock::now();
+  auto result = std::forward<Fn>(fn)();
+  const auto us = static_cast<std::uint64_t>(
+      std::chrono::duration_cast<std::chrono::microseconds>(
+          std::chrono::steady_clock::now() - t0)
+          .count());
+  auto& acc = accum_for(codec);
+  acc.n_decompress.fetch_add(1, std::memory_order_relaxed);
+  acc.decompress_us.fetch_add(us, std::memory_order_relaxed);
+  acc.decompress_in_bytes.fetch_add(compressed.size(),
+                                    std::memory_order_relaxed);
+  acc.decompress_out_bytes.fetch_add(original_size, std::memory_order_relaxed);
+  return result;
+}
+}  // namespace
+
 std::vector<char> compress(std::span<const char> data, CompressionCodec codec)
 {
   // Resolve auto_select before dispatching (avoids recursion).
@@ -261,20 +359,23 @@ std::vector<char> compress(std::span<const char> data, CompressionCodec codec)
     case CompressionCodec::auto_select:
       break;  // already resolved above
     case CompressionCodec::uncompressed:
-      return {data.begin(), data.end()};
+      return timed_compress(
+          codec,
+          data,
+          [&] { return std::vector<char> {data.begin(), data.end()}; });
     case CompressionCodec::zstd:
-      return compress_zstd(data);
+      return timed_compress(codec, data, [&] { return compress_zstd(data); });
     case CompressionCodec::gzip:
-      return compress_gzip(data);
+      return timed_compress(codec, data, [&] { return compress_gzip(data); });
     case CompressionCodec::lz4:
 #ifdef GTOPT_HAS_LZ4
-      return compress_lz4(data);
+      return timed_compress(codec, data, [&] { return compress_lz4(data); });
 #else
       throw std::runtime_error("lz4 codec not available (liblz4 not found)");
 #endif
     case CompressionCodec::snappy:
 #ifdef GTOPT_HAS_SNAPPY
-      return compress_snappy(data);
+      return timed_compress(codec, data, [&] { return compress_snappy(data); });
 #else
       throw std::runtime_error(
           "snappy codec not available (libsnappy not found)");
@@ -302,20 +403,41 @@ std::vector<char> decompress(std::span<const char> compressed,
     case CompressionCodec::auto_select:
       break;  // already resolved above
     case CompressionCodec::uncompressed:
-      return {compressed.begin(), compressed.end()};
+      return timed_decompress(
+          codec,
+          compressed,
+          original_size,
+          [&]
+          { return std::vector<char> {compressed.begin(), compressed.end()}; });
     case CompressionCodec::zstd:
-      return decompress_zstd(compressed, original_size);
+      return timed_decompress(
+          codec,
+          compressed,
+          original_size,
+          [&] { return decompress_zstd(compressed, original_size); });
     case CompressionCodec::gzip:
-      return decompress_gzip(compressed, original_size);
+      return timed_decompress(
+          codec,
+          compressed,
+          original_size,
+          [&] { return decompress_gzip(compressed, original_size); });
     case CompressionCodec::lz4:
 #ifdef GTOPT_HAS_LZ4
-      return decompress_lz4(compressed, original_size);
+      return timed_decompress(
+          codec,
+          compressed,
+          original_size,
+          [&] { return decompress_lz4(compressed, original_size); });
 #else
       throw std::runtime_error("lz4 codec not available (liblz4 not found)");
 #endif
     case CompressionCodec::snappy:
 #ifdef GTOPT_HAS_SNAPPY
-      return decompress_snappy(compressed, original_size);
+      return timed_decompress(
+          codec,
+          compressed,
+          original_size,
+          [&] { return decompress_snappy(compressed, original_size); });
 #else
       throw std::runtime_error(
           "snappy codec not available (libsnappy not found)");
@@ -506,6 +628,131 @@ void LowMemorySnapshot::decompress()
   if (flat_lp.matbeg.empty() && !compressed_lp.empty()) {
     decompress_flat_lp(flat_lp, compressed_lp);
     // Keep compressed_lp intact
+  }
+}
+
+// ── Public stats API ────────────────────────────────────────────────────────
+
+std::vector<CompressionStatsSample> get_compression_stats() noexcept
+{
+  std::vector<CompressionStatsSample> out;
+  for_each_codec(
+      [&](CompressionCodec c, CodecAccum& acc)
+      {
+        const auto nc = acc.n_compress.load(std::memory_order_relaxed);
+        const auto nd = acc.n_decompress.load(std::memory_order_relaxed);
+        if (nc == 0 && nd == 0) {
+          return;  // skip codecs that were never used
+        }
+        out.push_back(CompressionStatsSample {
+            .codec = c,
+            .n_compress = nc,
+            .compress_us = acc.compress_us.load(std::memory_order_relaxed),
+            .compress_in_bytes =
+                acc.compress_in_bytes.load(std::memory_order_relaxed),
+            .compress_out_bytes =
+                acc.compress_out_bytes.load(std::memory_order_relaxed),
+            .n_decompress = nd,
+            .decompress_us = acc.decompress_us.load(std::memory_order_relaxed),
+            .decompress_in_bytes =
+                acc.decompress_in_bytes.load(std::memory_order_relaxed),
+            .decompress_out_bytes =
+                acc.decompress_out_bytes.load(std::memory_order_relaxed),
+        });
+      });
+  return out;
+}
+
+void reset_compression_stats() noexcept
+{
+  for_each_codec(
+      [](CompressionCodec /*c*/, CodecAccum& acc)
+      {
+        acc.n_compress.store(0, std::memory_order_relaxed);
+        acc.compress_us.store(0, std::memory_order_relaxed);
+        acc.compress_in_bytes.store(0, std::memory_order_relaxed);
+        acc.compress_out_bytes.store(0, std::memory_order_relaxed);
+        acc.n_decompress.store(0, std::memory_order_relaxed);
+        acc.decompress_us.store(0, std::memory_order_relaxed);
+        acc.decompress_in_bytes.store(0, std::memory_order_relaxed);
+        acc.decompress_out_bytes.store(0, std::memory_order_relaxed);
+      });
+}
+
+namespace
+{
+// Pretty-print a byte count: "1.23 GB", "421 MB", "5 KB", "789 B".
+std::string human_bytes(std::uint64_t bytes) noexcept
+{
+  static constexpr std::array<std::string_view, 5> units {
+      "B", "KB", "MB", "GB", "TB"};
+  double v = static_cast<double>(bytes);
+  std::size_t u = 0;
+  while (v >= 1024.0 && u + 1 < units.size()) {
+    v /= 1024.0;
+    ++u;
+  }
+  // Fewer decimals at the higher end for readability.
+  if (u == 0) {
+    return std::format("{} {}", bytes, units[0]);
+  }
+  return std::format("{:.1f} {}", v, units[u]);
+}
+
+// Throughput in MB/s for a (bytes, microseconds) pair.  Returns 0 when
+// either is zero (avoids div-by-zero and meaningless infinity).
+double throughput_mb_per_s(std::uint64_t bytes, std::uint64_t us) noexcept
+{
+  if (bytes == 0 || us == 0) {
+    return 0.0;
+  }
+  // bytes / s = (bytes / (us * 1e-6)).  In MB/s: divide by 1024^2.
+  return static_cast<double>(bytes)
+      / (static_cast<double>(us) * 1.048576);  // == 1e-6 * 1024 * 1024
+}
+}  // namespace
+
+void log_compression_stats() noexcept
+{
+  try {
+    const auto samples = get_compression_stats();
+    if (samples.empty()) {
+      return;  // nothing to report — silent
+    }
+    for (const auto& s : samples) {
+      const double ratio = (s.compress_out_bytes > 0)
+          ? static_cast<double>(s.compress_in_bytes)
+              / static_cast<double>(s.compress_out_bytes)
+          : 0.0;
+      const double comp_s = static_cast<double>(s.compress_us) / 1e6;
+      const double decomp_s = static_cast<double>(s.decompress_us) / 1e6;
+      const double comp_mbs =
+          throughput_mb_per_s(s.compress_in_bytes, s.compress_us);
+      const double decomp_mbs =
+          throughput_mb_per_s(s.decompress_out_bytes, s.decompress_us);
+
+      // One line per codec.  Trade-off readout: ratio + compress speed
+      // (`comp_mbs`) for sustained-write workloads, decompress speed
+      // (`decomp_mbs`) for sustained-read workloads (SDDP reconstruct).
+      spdlog::info(
+          "compression[{}]: {} ops compressed {} -> {} (ratio {:.2f}x) "
+          "in {:.2f}s ({:.0f} MB/s); {} ops decompressed {} -> {} in "
+          "{:.2f}s ({:.0f} MB/s)",
+          codec_name(s.codec),
+          s.n_compress,
+          human_bytes(s.compress_in_bytes),
+          human_bytes(s.compress_out_bytes),
+          ratio,
+          comp_s,
+          comp_mbs,
+          s.n_decompress,
+          human_bytes(s.decompress_in_bytes),
+          human_bytes(s.decompress_out_bytes),
+          decomp_s,
+          decomp_mbs);
+    }
+  } catch (...) {  // NOLINT(bugprone-empty-catch)
+    // noexcept contract — best effort, swallow formatting / logger errors.
   }
 }
 
