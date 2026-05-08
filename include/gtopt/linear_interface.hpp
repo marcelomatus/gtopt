@@ -336,10 +336,28 @@ public:
    * path.  `kind == CloneKind::deep` keeps the freshly-built
    * metadata that `load_flat` produced.
    *
+   * `with_replay == false` (default) clones **snapshot state only**
+   * — the resulting LP has no post-snapshot α col, no installed
+   * cuts, and no forward-pass-pinned bounds.  This is what the
+   * SDDP aperture path wants (the aperture solves the structural
+   * LP with bound updates, no cuts).
+   *
+   * `with_replay == true` additionally replays the source's
+   * `m_replay_` state (dynamic_cols, dynamic_rows, active_cuts,
+   * pending_col_bounds) onto the freshly-built clone — yielding a
+   * **current-state** clone equivalent to what `clone()` would
+   * produce, but built via the parallel-safe `CPXcreateprob`
+   * path instead of the serialised `CPXcloneprob`.  This is what
+   * the SDDP forward-pass elastic filter needs: it must clone the
+   * full current LP (with α + all cuts) and solve concurrently
+   * across many SDDPWorkPool threads, which is exactly the
+   * scenario where the native `clone()` mutex serialised 13+
+   * threads on juan/gtopt_iplp (2026-05-07 deadlock).
+   *
    * @return A new LinearInterface populated from the saved snapshot.
    */
   [[nodiscard]] LinearInterface clone_from_flat(
-      CloneKind kind = CloneKind::shallow) const;
+      CloneKind kind = CloneKind::shallow, bool with_replay = false) const;
 
   /// Test/diagnostic accessor: `shared_ptr::use_count()` of one of
   /// the wrapped metadata members.  All of them are detached together

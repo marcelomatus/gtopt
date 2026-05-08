@@ -869,13 +869,28 @@ auto elastic_filter_solve(const LinearInterface& li,
   // through the backend and don't touch shared state either.  COW
   // detach therefore stays dormant.
   //
-  // `LinearInterface::clone()` itself picks the parallel-safe route
-  // (`clone_from_flat` when a snapshot is available, native
-  // `backend().clone()` under a process-global mutex otherwise),
-  // so callers never see the unguarded `CPXcloneprob` race that
-  // froze 10/122 SDDPWorkPool threads on juan/gtopt_iplp (forward-
-  // pass elastic deadlocked on CPLEX's internal env mutex,
-  // 2026-05-07 thread dump).
+  // Clone route: native `LinearInterface::clone()` is itself
+  // serialised inside the LI under a process-global mutex (added
+  // 2026-05-07 after a CPLEX env-mutex deadlock froze 10/122
+  // SDDPWorkPool threads on juan/gtopt_iplp).  That keeps elastic
+  // safe under concurrent dispatch but serialises N parallel
+  // clones into one-at-a-time.
+  //
+  // A faster parallel path exists in principle —
+  // `clone_from_flat(shallow, with_replay=true)` builds the LP via
+  // `CPXcreateprob` + `CPXaddrows` on a freshly-opened env (env-
+  // local, no global state) and replays the source's post-snapshot
+  // dynamic_cols / dynamic_rows / active_cuts / pending_col_bounds
+  // onto the clone.  In practice the chinneck filter mode
+  // (`elastic_filter_mode = chinneck`) reports infeasible relaxed
+  // clones via that path on the forced-infeasibility test fixture —
+  // some interaction between source's m_replay_ state replayed
+  // onto the clone and the Phase-1 zero-objective LP that
+  // `set_obj_coeffs_raw(zeros)` produces below.  Until that
+  // interaction is tracked down, elastic stays on the proven-safe
+  // mutex-serialised native clone.  The infrastructure
+  // (`with_replay` parameter on `clone_from_flat`) stays in place
+  // so a follow-up fix only has to change this one call site.
   auto cloned = li.clone(LinearInterface::CloneKind::shallow);
 
   // Chinneck Phase-1 feasibility LP: zero every original objective
