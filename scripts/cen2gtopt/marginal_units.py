@@ -1703,11 +1703,40 @@ def compute_marginal_units_for_day(
     )
 
 
+def auto_detect_pid_xml(date_iso: str) -> Path | None:
+    """Locate a ``DBSEN_PRGDIARIO_PID.xml`` for ``date_iso`` in the
+    local PCP/PID archive cache, preferring the latest re-solve period.
+
+    Returns ``None`` when no PID bundle is unpacked for that date —
+    the caller (the v3 picker) then falls back to CEN-only metadata.
+    """
+    extract_root = (
+        Path.home() / ".cache" / "gtopt" / "cen2gtopt" / "pcp_archive" / "_unpacked"
+    )
+    if not extract_root.exists():
+        return None
+    ymd = date_iso.replace("-", "")
+    candidates: list[Path] = []
+    for outer in sorted(extract_root.glob(f"PID_{ymd}_*")):
+        for inner in (outer / outer.name, outer):
+            xml = inner / "Modelos" / "DBSEN_PRGDIARIO_PID.xml"
+            if xml.exists():
+                candidates.append(xml)
+                break
+    if not candidates:
+        return None
+    # Prefer the latest re-solve period (highest PP suffix).
+    candidates.sort(key=lambda p: p.parents[2].name, reverse=True)
+    return candidates[0]
+
+
 def compute_marginal_units_for_day_all_buses(
     client: CenApiClient,
     *,
     date_iso: str,
     use_pid_mlf: bool = True,
+    use_plexos_overlay: bool = True,
+    plexos_xml_path: Path | str | None = None,
     verbose: bool = True,
     bulk_endpoint: str = "cmg_online",
     max_buses: int | None = None,
@@ -1727,6 +1756,15 @@ def compute_marginal_units_for_day_all_buses(
         client: open SIP client.
         date_iso: ``YYYY-MM-DD``.
         use_pid_mlf: enable per-unit + per-bus PID MLF correction.
+        use_plexos_overlay: when True (default — the v3 picker), prefer
+            PLEXOS-published Min Stable Level / Max Capacity over the
+            CEN unidades_generadoras heuristic for any id_central whose
+            name aliases match a PLEXOS generator.  Falls back to CEN
+            heuristic for unmatched plants.  See
+            :func:`overlay_plexos_capacities`.
+        plexos_xml_path: path to ``DBSEN_PRGDIARIO_PID.xml``.  When
+            ``None`` and ``use_plexos_overlay=True``, auto-discovered
+            via :func:`auto_detect_pid_xml`.
         verbose: print progress for each pipeline step.
         bulk_endpoint: ``"cmg_online"`` (default — paginated, fast)
             or ``"cmg_real"`` (settled but rate-limited).
@@ -1735,7 +1773,9 @@ def compute_marginal_units_for_day_all_buses(
 
     Returns the same long-form DataFrame as
     :func:`compute_marginal_units_for_day` but with per-(bus,
-    quarter) rows for every published bus.
+    quarter) rows for every published bus.  When the v3 overlay
+    fires, the per-cell output gains a ``pmin_pmax_source`` column
+    with values ``"plexos"`` or ``"cen_fallback"``.
     """
     if verbose:
         print(f"[1] bulk fetching {bulk_endpoint} for {date_iso} …")
@@ -1811,6 +1851,35 @@ def compute_marginal_units_for_day_all_buses(
     # frequency-control) MTs to capture the binding minimum given
     # the unit's operational mode — see build_unit_metadata().
     pmin_by_id, pmax_by_id, _ = build_unit_metadata(units)
+
+    # v3 picker: overlay PLEXOS-published Min Stable Level / Max
+    # Capacity from the PID XML on top of the CEN heuristic dicts.
+    # Operator-published bounds are authoritative — the same numbers
+    # PLEXOS used to clear the published λ_CEN.
+    plexos_audit: dict[int, str] = {}
+    if use_plexos_overlay:
+        if plexos_xml_path is None:
+            plexos_xml_path = auto_detect_pid_xml(date_iso)
+        if plexos_xml_path is not None:
+            pmin_by_id, pmax_by_id, plexos_audit = overlay_plexos_capacities(
+                pmin_by_id,
+                pmax_by_id,
+                plexos_xml_path=plexos_xml_path,
+                units_df=units,
+            )
+            n_plexos = sum(1 for v in plexos_audit.values() if v == "plexos")
+            if verbose:
+                print(
+                    f"  PLEXOS PID overlay: {n_plexos}/{len(plexos_audit)} "
+                    f"id_centrales use PLEXOS-published bounds "
+                    f"({100 * n_plexos / max(len(plexos_audit), 1):.1f}%); "
+                    f"source={Path(plexos_xml_path).name}"
+                )
+        elif verbose:
+            print(
+                "  PLEXOS PID overlay: no PID XML found in cache — "
+                "falling back to CEN heuristic for all id_centrales"
+            )
 
     # SCVIC ladder
     scvic = cv_rpt_for_date(date_iso)
@@ -1991,6 +2060,7 @@ def compute_marginal_units_for_day_all_buses(
         island_marginals=island_marginals,
         island_size=island_size,
         mlf_by_id=mlf_by_id,
+        plexos_audit=plexos_audit,
     )
     if out.empty:
         return out
@@ -2003,6 +2073,7 @@ def _reconstruct_output(
     island_marginals: dict[tuple[int, str], dict],
     island_size: pd.Series,
     mlf_by_id: dict[int, float],
+    plexos_audit: dict[int, str] | None = None,
 ) -> pd.DataFrame:
     """Vectorised assembly of the per-(bus, quarter) output (P1-A).
 
@@ -2054,6 +2125,20 @@ def _reconstruct_output(
     out["marginal_id_central"] = out["_marg_id"].astype("Int64")
     out["lambda_pipe"] = out["marginal_cv_"].astype(float)
     out["marginal_cv"] = out["marginal_cv_"].astype(float)
+    # v3 audit: which source supplied the picked unit's pmin/pmax —
+    # ``plexos`` (operator-published bounds) or ``cen_fallback`` (CEN
+    # heuristic from unidades_generadoras).  Empty when the v3 overlay
+    # was disabled or no PID XML was available for the day.
+    audit_lookup = plexos_audit or {}
+    out["pmin_pmax_source"] = (
+        out["_marg_id"]
+        .map(
+            lambda i, _au=audit_lookup: (
+                _au.get(int(i), "cen_fallback") if pd.notna(i) else ""
+            )
+        )
+        .astype(str)
+    )
     out["marginal_unit_mlf"] = out["_marg_id"].map(
         lambda i: (
             float(mlf_by_id.get(int(i), float("nan"))) if pd.notna(i) else float("nan")

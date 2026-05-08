@@ -29,9 +29,26 @@ pmin, dispatch) happen on ``id_central`` — no fuzzy matching.
 
 from __future__ import annotations
 
+import re
 import unicodedata
 
 import pandas as pd
+
+#: Common prefixes that should be stripped before extracting the
+#: first-alpha-token alias. Keep ordered longest-first so longer
+#: prefixes (e.g. ``CENTRAL``) shadow shorter ones (``CE``).
+_PLANT_PREFIXES: tuple[str, ...] = (
+    "CENTRAL ",
+    "TER ",
+    "CT ",
+    "CC ",
+    "CE ",
+    "HE ",  # Hidroeléctrica de embalse
+    "HP ",  # Hidroeléctrica de pasada
+    "PE ",  # Parque eólico
+    "PFV ",  # Planta fotovoltaica
+    "PMGD ",  # PMGD
+)
 
 
 def norm(s: object) -> str:
@@ -118,6 +135,31 @@ def _aliases(name: str) -> list[str]:
     for a in list(out):
         if not a.startswith("ter") and len(a) >= 3:
             out.add("ter" + a)
+
+    # First-alpha-token alias — handles PLEXOS-style names that
+    # cannot be reduced via the SUFFIXES list because their suffixes
+    # carry multi-segment fuel-mix annotations:
+    #
+    #   "NEHUENCO_1-FA_GN_A"   → first contiguous letters "NEHUENCO"
+    #   "NEHUENCO_2-TG+TV_GNL" → first contiguous letters "NEHUENCO"
+    #   "TER NEHUENCO"         → strip "TER " → first letters "NEHUENCO"
+    #   "HE LAJA"              → strip "HE "  → first letters "LAJA"
+    #
+    # Strips the leading plant-class prefix (TER / HE / HP / PE / PFV / PMGD /
+    # CENTRAL) BEFORE tokenising so the canonical stem is captured.
+    raw = str(name).strip()
+    upper_raw = raw.upper()
+    for pfx in _PLANT_PREFIXES:
+        if upper_raw.startswith(pfx):
+            raw = raw[len(pfx) :].lstrip()
+            break
+    m = re.match(r"[A-Za-zÁÉÍÓÚÑÜáéíóúñü]+", raw)
+    if m:
+        first_token = norm(m.group(0))
+        if len(first_token) >= 4:  # avoid trivial 2-3-letter collisions
+            out.add(first_token)
+            if not first_token.startswith("ter"):
+                out.add("ter" + first_token)
 
     return [a for a in out if a and len(a) >= 2]
 
