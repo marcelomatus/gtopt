@@ -7,6 +7,8 @@ import time
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
+
 from run_gtopt._tui import (
     SDDPGridTracker,
     SolverDisplay,
@@ -1011,6 +1013,127 @@ def test_build_sddp_grid_panel():
     tracker.process_line("SDDP Forward [i1 s0 p1]: ok")
     panel = _build_sddp_grid(tracker)
     assert panel is not None
+
+
+def test_grid_tracker_aggregate_cell_coverage_and_dominance():
+    """Aggregate cell summarizes both coverage and dominant state.
+
+    With three scenes where only two visited (iter=0, phase=2) and
+    one of those hit elastic, the aggregate cell must report:
+      - coverage = 2/3 (visited fraction)
+      - dominant = elastic (highest priority across scenes)
+    """
+    tracker = SDDPGridTracker()
+    # Scene 0 — forward
+    tracker.process_line("SDDP Forward [i0 s0 p2]: ok")
+    # Scene 1 — elastic forward (highest priority among visited)
+    tracker.process_line("SDDP Forward [i0 s1 p2]: elastic mode")
+    # Scene 2 — never visited cell (still tracked because process_line
+    # registered it on a different cell).
+    tracker.process_line("SDDP Forward [i0 s2 p0]: ok")
+
+    state, coverage = tracker.aggregate_cell(0, 2)
+    assert state == _GRID_ELASTIC, (
+        f"Dominant must be highest-priority state across scenes, not {state}"
+    )
+    assert coverage == pytest.approx(2 / 3), (
+        f"Two of three scenes visited (iter=0, phase=2); got {coverage}"
+    )
+    # Scene 2's untouched cell shows up as state=forward (lowest)
+    # because at least one scene visited it.
+    state2, cov2 = tracker.aggregate_cell(0, 0)
+    assert state2 == _GRID_FORWARD
+    assert cov2 == pytest.approx(1 / 3)
+
+
+def test_grid_tracker_aggregate_cell_no_scenes():
+    """Aggregate of an empty tracker returns idle + zero coverage."""
+    tracker = SDDPGridTracker()
+    state, coverage = tracker.aggregate_cell(0, 0)
+    assert state == _GRID_IDLE
+    assert coverage == 0.0
+
+
+def test_build_sddp_grid_with_scroll_window_clips_scenes():
+    """When max_visible_scenes < n_scenes, the renderer must clip.
+
+    Regression for the original bug: with 50 scenes and a small
+    terminal, the panel rendered all 50 and the bottom rows were
+    invisible (no scroll).  After the fix, the renderer only emits
+    the windowed slice and adds 'N scene(s) above/below' ribbons.
+    """
+    tracker = SDDPGridTracker()
+    for sc in range(20):
+        tracker.process_line(f"SDDP Forward [i0 s{sc} p1]: ok")
+    panel = _build_sddp_grid(
+        tracker,
+        scroll_offset=5,
+        max_visible_scenes=3,
+        active_scene_hint=10,
+    )
+    # Render to plain text and inspect.
+    from rich.console import Console  # noqa: PLC0415
+
+    console = Console(width=120, record=True)
+    console.print(panel)
+    out = console.export_text()
+    # Visible scenes should be s5, s6, s7 (offset=5, count=3).
+    assert "s5" in out
+    assert "s6" in out
+    assert "s7" in out
+    # And explicitly NOT scenes outside the window.
+    assert "s10\n" not in out  # active_scene_hint is reported in header,
+    #                            # not as a per-scene block here.
+    # Range header must show context.
+    assert "of 20" in out
+    # Above/below ribbons must surface the hidden counts.
+    assert "above" in out
+    assert "below" in out
+
+
+def test_solver_display_grid_scroll_keys(tmp_path: Path):
+    """j/k/J/K/g/G must move the grid scroll offset and latch
+    user-scrolled state so auto-follow stops yanking the viewport."""
+    display = SolverDisplay(case_name="t", case_dir=tmp_path)
+    # Populate enough scenes to allow scrolling.
+    for sc in range(10):
+        display.add_log_line(f"SDDP Forward [i0 s{sc} p0]: ok")
+    display._display_mode = 1  # _MODE_GRID
+    assert display._grid_scroll_offset == 0
+    assert not display._grid_user_scrolled
+
+    display._handle_key("j")
+    assert display._grid_scroll_offset == 1
+    assert display._grid_user_scrolled, "j must latch user-scrolled"
+
+    display._handle_key("J")
+    assert display._grid_scroll_offset == 6  # +5 page
+
+    display._handle_key("k")
+    assert display._grid_scroll_offset == 5
+
+    display._handle_key("G")
+    assert display._grid_scroll_offset == 9  # n_scenes-1 = 9
+
+    display._handle_key("g")
+    assert display._grid_scroll_offset == 0
+    assert not display._grid_user_scrolled, "g resets the latch"
+
+
+def test_solver_display_grid_scroll_keys_ignored_in_other_modes(
+    tmp_path: Path,
+):
+    """j/k must NOT move the scroll offset outside Grid mode — they
+    might be useful for other modes later, so we don't want a silent
+    side-effect now."""
+    display = SolverDisplay(case_name="t", case_dir=tmp_path)
+    for sc in range(5):
+        display.add_log_line(f"SDDP Forward [i0 s{sc} p0]: ok")
+    display._display_mode = 0  # _MODE_DASHBOARD
+    display._handle_key("j")
+    display._handle_key("J")
+    assert display._grid_scroll_offset == 0
+    assert not display._grid_user_scrolled
 
 
 def test_grid_tracker_display_integration(tmp_path: Path):
