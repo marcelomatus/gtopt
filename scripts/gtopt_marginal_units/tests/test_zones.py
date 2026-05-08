@@ -19,6 +19,7 @@ from gtopt_marginal_units._zones import (
     build_ptdf,
     estimate_flows,
     partition_zones,
+    zones_to_components,
 )
 from gtopt_marginal_units.errors import InputValidationError
 
@@ -197,3 +198,71 @@ def test_ptdf_non_positive_reactance_raises():
     )
     with pytest.raises(InputValidationError, match="reactance"):
         build_ptdf(topo)
+
+
+# ---------------------------------------------------------------------------
+# zones_to_components — deterministic per-component bus listing.
+# ---------------------------------------------------------------------------
+
+
+def test_zones_to_components_returns_sorted_lists():
+    # Three buses split across two zones.
+    zone_of = {3: 1, 1: 0, 2: 0}
+    comps = zones_to_components(zone_of)
+    # Outer order = sorted by zone_id; inner = sorted by bus_uid.
+    assert comps == [[1, 2], [3]]
+
+
+def test_zones_to_components_empty_input():
+    assert zones_to_components({}) == []
+
+
+def test_zones_to_components_single_bus_per_zone():
+    # Three isolated buses → three single-element zones.
+    comps = zones_to_components({10: 0, 20: 1, 30: 2})
+    assert comps == [[10], [20], [30]]
+
+
+# ---------------------------------------------------------------------------
+# estimate_flows — sanity checks on the wrapper around build_ptdf.
+# ---------------------------------------------------------------------------
+
+
+def test_estimate_flows_zero_injection_yields_zero_flows():
+    topo = _chain_topology(3)
+    flows = estimate_flows(topo, bus_net_injection={1: 0.0, 2: 0.0, 3: 0.0})
+    assert sorted(flows.keys()) == [101, 102]
+    for v in flows.values():
+        assert v == pytest.approx(0.0, abs=1e-12)
+
+
+def test_estimate_flows_missing_bus_keys_treated_as_zero():
+    """Buses absent from the injection dict default to 0 — a common
+    pattern when only the slack and one source bus are specified."""
+    topo = _chain_topology(3)
+    # Only specify bus 3 and the implicit slack at bus 1; bus 2 omitted.
+    flows = estimate_flows(topo, bus_net_injection={3: 50.0, 1: -50.0})
+    # Same physics as test_ptdf_chain_injection_at_b3_flows_through_both_lines
+    # but with bus 2 missing from the dict.
+    assert flows[101] == pytest.approx(-50.0, abs=1e-9)
+    assert flows[102] == pytest.approx(-50.0, abs=1e-9)
+
+
+# ---------------------------------------------------------------------------
+# build_ptdf — single-bus connected component must skip the linear-algebra
+# block (no transfer paths). Locks in the early-return branch in _zones.py.
+# ---------------------------------------------------------------------------
+
+
+def test_build_ptdf_isolated_bus_component_yields_no_rows():
+    """A topology with one isolated bus produces an empty active-line
+    list; PTDF must return cleanly with shape (0, 1) and no exception."""
+    topo = Topology(
+        buses=[Bus(uid=42, name="iso")],
+        generators=[],
+        lines=[],
+    )
+    ptdf, line_uids, bus_uids = build_ptdf(topo)
+    assert ptdf.shape == (0, 1)
+    assert line_uids == []
+    assert bus_uids == [42]
