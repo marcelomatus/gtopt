@@ -641,3 +641,80 @@ def test_resolve_solution_raises_when_local_cache_empty_no_network(tmp_path):
                 download_root=download_root,
                 extract_root=download_root / "_unpacked",
             )
+
+
+# ---------------------------------------------------------------------------
+# upstream_basis flag — TTW + WTT scaling on identify_marginal
+# ---------------------------------------------------------------------------
+
+
+def _coal_pick_candidates() -> tuple[pd.DataFrame, dict, dict]:
+    """Three diesel/coal candidates against λ=50 USD/MWh (UnitB picked)."""
+    candidates = pd.DataFrame(
+        {
+            "id_central": [10, 20, 30],
+            "central": ["UnitA", "UnitB", "UnitC"],
+            "mw": [50.0, 50.0, 50.0],
+            "pmin": [0.0, 0.0, 0.0],
+            "pmax": [100.0, 100.0, 100.0],
+            "forced": [False, False, False],
+        },
+    )
+    fuel_by_id = {10: "Carbón", 20: "Carbón", 30: "Diesel"}
+    cv_options_by_id = {10: [30.0], 20: [60.0], 30: [100.0]}
+    return candidates, fuel_by_id, cv_options_by_id
+
+
+def test_identify_marginal_upstream_basis_default_preserves_legacy_epsilon():
+    """``upstream_basis=NONE`` must reproduce the legacy ``FUEL_EF`` value
+    bit-for-bit — guarantees zero behaviour change for callers that
+    don't opt into the WTT correction."""
+    from cen2gtopt._emission_factors import UpstreamBasis
+    from cen2gtopt.marginal_units import FUEL_EF, identify_marginal
+
+    candidates, fuel_by_id, cv_options_by_id = _coal_pick_candidates()
+
+    out = identify_marginal(
+        lambda_target=50.0,
+        candidates=candidates,
+        fuel_by_id=fuel_by_id,
+        cv_options_by_id=cv_options_by_id,
+    )
+    assert out["epsilon"] == pytest.approx(FUEL_EF["Carbón"])
+
+    out_explicit_none = identify_marginal(
+        lambda_target=50.0,
+        candidates=candidates,
+        fuel_by_id=fuel_by_id,
+        cv_options_by_id=cv_options_by_id,
+        upstream_basis=UpstreamBasis.NONE,
+    )
+    assert out_explicit_none["epsilon"] == pytest.approx(FUEL_EF["Carbón"])
+
+
+def test_identify_marginal_upstream_basis_mixed_scales_epsilon_up():
+    """``upstream_basis=MIXED`` must scale ε by ``(TTW+WTT)/TTW`` for the
+    selected fuel.  For coal, the SEN-typical scaling factor is
+    ~1.067 (TTW=96.1, WTT≈6.5)."""
+    from cen2gtopt._emission_factors import UpstreamBasis, lookup_scvic
+    from cen2gtopt.marginal_units import FUEL_EF, identify_marginal
+
+    candidates, fuel_by_id, cv_options_by_id = _coal_pick_candidates()
+
+    out_wtw = identify_marginal(
+        lambda_target=50.0,
+        candidates=candidates,
+        fuel_by_id=fuel_by_id,
+        cv_options_by_id=cv_options_by_id,
+        upstream_basis=UpstreamBasis.MIXED,
+    )
+
+    ef = lookup_scvic("Carbón", UpstreamBasis.MIXED)
+    assert ef is not None
+    expected_ratio = ef.total_kg_per_gj / ef.ttw_kg_per_gj
+    expected_eps = FUEL_EF["Carbón"] * expected_ratio
+
+    assert out_wtw["epsilon"] == pytest.approx(expected_eps)
+    assert out_wtw["epsilon"] > FUEL_EF["Carbón"]
+    # Sanity — the bump must be modest (5–20 %), not a doubling.
+    assert 1.04 < out_wtw["epsilon"] / FUEL_EF["Carbón"] < 1.20

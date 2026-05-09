@@ -67,6 +67,7 @@ import pandas as pd
 
 from cen2gtopt._cached_extractor import fetch_by_name
 from cen2gtopt._cen_client import CenApiClient, CenApiConfig
+from cen2gtopt._emission_factors import UpstreamBasis, lookup_scvic
 from cen2gtopt._id_bridge import (
     build_alias_index,
     index_stats,
@@ -152,6 +153,28 @@ FUEL_EF: dict[str, float] = {
     "Eólica": 0.0,
     "": 0.0,
 }
+
+
+def _resolve_epsilon(fuel: str, basis: UpstreamBasis) -> float:
+    """ε at the marginal unit, in kg CO₂eq / MWh, scaled for upstream basis.
+
+    Behaviour:
+      * ``basis = NONE`` returns ``FUEL_EF[fuel]`` unchanged — preserves
+        the legacy (Scope-1, combustion-only) ε values used since v1.
+      * ``basis ≠ NONE`` scales by ``(TTW + WTT) / TTW`` so the implicit
+        per-fuel heat-rate baked into ``FUEL_EF`` is preserved while
+        the upstream Scope-3 contribution is added on top.
+
+    Returns 0.0 for non-fossil / unknown labels — matches legacy
+    behaviour to avoid surprise NaN propagation downstream.
+    """
+    base = FUEL_EF.get(fuel, 0.0)
+    if base <= 0.0 or basis == UpstreamBasis.NONE:
+        return base
+    ef = lookup_scvic(fuel, basis)
+    if ef is None or ef.ttw_kg_per_gj <= 0.0:
+        return base
+    return base * (1.0 + ef.wtt_kg_per_gj / ef.ttw_kg_per_gj)
 
 
 _NUMBER_ES_RE = re.compile(r"-?\d+(?:[.,]\d+)?")
@@ -1005,6 +1028,7 @@ def identify_marginal(
     cv_options_by_id: dict[int, list[float]],
     hydro_id_set: set[int] | None = None,
     water_value: float = 0.0,
+    upstream_basis: UpstreamBasis = UpstreamBasis.NONE,
 ) -> dict:
     """Pick the marginal unit from the candidate dispatched-interior set.
 
@@ -1161,7 +1185,7 @@ def identify_marginal(
         "marginal_central": str(chosen["central"]),
         "marginal_cv": float(chosen["cv"]),
         "marginal_fuel": str(chosen["fuel"]),
-        "epsilon": FUEL_EF.get(str(chosen["fuel"]), 0.0),
+        "epsilon": _resolve_epsilon(str(chosen["fuel"]), upstream_basis),
         "n_candidates": len(pool),
         "n_dispatched_unmapped": len(candidates) - len(pool),
         "top_below_lambda": top_below,
@@ -1460,6 +1484,7 @@ def compute_marginal_units_for_day(
     cmg_source: str = "best_real",
     verbose: bool = False,
     use_pid_mlf: bool = True,
+    upstream_basis: UpstreamBasis = UpstreamBasis.NONE,
 ) -> pd.DataFrame:
     """Compute the per-(bus, quarter) marginal-unit dataset for one day.
 
@@ -1680,6 +1705,7 @@ def compute_marginal_units_for_day(
             candidates=candidates,
             fuel_by_id=fuel_by_id,
             cv_options_by_id=cv_options_by_id,
+            upstream_basis=upstream_basis,
         )
         # Tier-1 enrichment from the candidate set
         if marg.get("marginal_id") is not None:
@@ -1790,6 +1816,7 @@ def compute_marginal_units_for_day_all_buses(
     verbose: bool = True,
     bulk_endpoint: str = "cmg_online",
     max_buses: int | None = None,
+    upstream_basis: UpstreamBasis = UpstreamBasis.NONE,
 ) -> pd.DataFrame:
     """Run the marginal-emission pipeline over **every CEN bus** for
     one day.
@@ -2088,6 +2115,7 @@ def compute_marginal_units_for_day_all_buses(
             candidates=candidates,
             fuel_by_id=fuel_by_id,
             cv_options_by_id=cv_options_by_id,
+            upstream_basis=upstream_basis,
         )
         if marg.get("marginal_id") is not None:
             mid = int(marg["marginal_id"])

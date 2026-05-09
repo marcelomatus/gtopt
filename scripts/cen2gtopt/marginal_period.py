@@ -125,6 +125,11 @@ from cen2gtopt._bus_catalogue import (
     to_ref_buses,
 )
 from cen2gtopt._cen_client import CenApiClient, CenApiConfig
+from cen2gtopt._emission_factors import (
+    UpstreamBasis,
+    add_upstream_basis_arg,
+    parse_upstream_basis,
+)
 from cen2gtopt.marginal_units import (
     REF_BUSES,
     SIP_KEY,
@@ -328,10 +333,17 @@ class DayResult:
 
 
 def _process_one_day(
-    job: tuple[str, list[tuple[str, int, str]], str, str],
+    job: tuple[str, list[tuple[str, int, str]], str, str, str],
 ) -> DayResult:
-    """Worker function — one date.  Pickling-safe (top-level)."""
-    date_iso, ref_buses, cmg_source, out_root_str = job
+    """Worker function — one date.  Pickling-safe (top-level).
+
+    Job tuple layout: ``(date_iso, ref_buses, cmg_source, out_root_str,
+    upstream_basis_value)`` where ``upstream_basis_value`` is the
+    string form of an :class:`UpstreamBasis` (passed as a string for
+    ProcessPool pickle compatibility).
+    """
+    date_iso, ref_buses, cmg_source, out_root_str, basis_value = job
+    upstream_basis = parse_upstream_basis(basis_value)
     out_root = Path(out_root_str)
     res = DayResult(date_iso=date_iso, status="?", n_buses=len(ref_buses))
     t0 = time.monotonic()
@@ -347,6 +359,7 @@ def _process_one_day(
                 ref_buses=ref_buses,
                 cmg_source=cmg_source,
                 verbose=False,
+                upstream_basis=upstream_basis,
             )
         if df.empty:
             res.status = "empty"
@@ -388,6 +401,7 @@ class PeriodManifest:
     n_rows_total: int = 0
     workers: int = 0
     cmg_source: str = ""
+    upstream_basis: str = UpstreamBasis.NONE.value
     ref_bus_uids: list[int] = field(default_factory=list)
     days: list[dict] = field(default_factory=list)
 
@@ -515,6 +529,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "-V", "--version", action="version", version="cen2gtopt.marginal_period 0.2.0"
     )
+    add_upstream_basis_arg(p)
     return p
 
 
@@ -615,10 +630,21 @@ def main(argv: list[str] | None = None) -> int:
         n_days_skipped=len(skipped),
         workers=args.workers,
         cmg_source=args.cmg_source,
+        upstream_basis=parse_upstream_basis(args.upstream_basis).value,
         ref_bus_uids=[b[1] for b in ref_buses],
     )
 
-    jobs = [(d.isoformat(), ref_buses, args.cmg_source, str(out_root)) for d in todo]
+    upstream_basis = parse_upstream_basis(args.upstream_basis)
+    jobs = [
+        (
+            d.isoformat(),
+            ref_buses,
+            args.cmg_source,
+            str(out_root),
+            upstream_basis.value,
+        )
+        for d in todo
+    ]
 
     n_failures = 0
     n_done = 0
