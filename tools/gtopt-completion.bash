@@ -772,4 +772,322 @@ _gtopt_config()
 }
 complete -F _gtopt_config gtopt_config 2>/dev/null
 
+# ---------------------------------------------------------------------------
+# sddp2gtopt
+# ---------------------------------------------------------------------------
+_sddp2gtopt()
+{
+    local cur prev
+    _init_completion || return
+
+    case "$prev" in
+        -i|--input-dir|-o|--output-dir)
+            _filedir -d
+            return ;;
+        -l|--log-level)
+            COMPREPLY=( $(compgen -W "DEBUG INFO WARNING ERROR CRITICAL" -- "$cur") )
+            return ;;
+    esac
+
+    if [[ "$cur" == -* ]]; then
+        COMPREPLY=( $(compgen -W "--input-dir -i --output-dir -o
+            --info --validate --log-level -l
+            --version -V --help -h" -- "$cur") )
+    else
+        _filedir -d
+    fi
+}
+complete -F _sddp2gtopt sddp2gtopt
+
+# ---------------------------------------------------------------------------
+# gtopt_check_pampl
+# ---------------------------------------------------------------------------
+_gtopt_check_pampl()
+{
+    local cur prev
+    _init_completion || return
+
+    case "$prev" in
+        --config)
+            _filedir
+            return ;;
+        -l|--log-level)
+            COMPREPLY=( $(compgen -W "DEBUG INFO WARNING ERROR" -- "$cur") )
+            return ;;
+        --ai-provider|--ai-model)
+            return ;;
+    esac
+
+    if [[ "$cur" == -* ]]; then
+        COMPREPLY=( $(compgen -W "--info --config --init-config --no-color
+            --show-config --quiet -q --log-level -l
+            --ai --no-ai --ai-provider --ai-model
+            --version -V --help -h" -- "$cur") )
+    else
+        _gtopt_filedir_ext "pampl|tampl"
+    fi
+}
+complete -F _gtopt_check_pampl gtopt_check_pampl
+
+# ---------------------------------------------------------------------------
+# gtopt_check_fingerprint  (subcommands: compute / verify / compare)
+# ---------------------------------------------------------------------------
+_gtopt_check_fingerprint()
+{
+    local cur prev sub
+    _init_completion || return
+
+    sub="${COMP_WORDS[1]}"
+
+    case "$prev" in
+        -o|--output|--actual|--golden|--lp-file)
+            _filedir
+            return ;;
+    esac
+
+    if [[ $COMP_CWORD -eq 1 ]]; then
+        COMPREPLY=( $(compgen -W "compute verify compare --help -h --version -V" -- "$cur") )
+        return
+    fi
+
+    case "$sub" in
+        compute)
+            if [[ "$cur" == -* ]]; then
+                COMPREPLY=( $(compgen -W "--output -o --help -h" -- "$cur") )
+            else
+                _gtopt_filedir_ext "lp|lp.gz|lp.zst|lp.lz4"
+            fi
+            ;;
+        verify)
+            if [[ "$cur" == -* ]]; then
+                COMPREPLY=( $(compgen -W "--lp-file --golden --help -h" -- "$cur") )
+            fi
+            ;;
+        compare)
+            if [[ "$cur" == -* ]]; then
+                COMPREPLY=( $(compgen -W "--actual --golden --help -h" -- "$cur") )
+            fi
+            ;;
+    esac
+}
+complete -F _gtopt_check_fingerprint gtopt_check_fingerprint
+
+# ---------------------------------------------------------------------------
+# gtopt_expand  (subcommands: laja maule lng ror pmin_as_flowright pumped_storage)
+# ---------------------------------------------------------------------------
+_gtopt_expand()
+{
+    local cur prev sub
+    _init_completion || return
+
+    sub="${COMP_WORDS[1]}"
+
+    case "$prev" in
+        --in|--input|--out|--output|--csv|--planning|--stages)
+            _filedir
+            return ;;
+        --last-stage|--blocks-per-stage|--num-stages|--uid-start|--bus|--selection)
+            return ;;
+    esac
+
+    if [[ $COMP_CWORD -eq 1 ]]; then
+        COMPREPLY=( $(compgen -W "laja maule lng ror pmin_as_flowright pumped_storage
+            --version --help -h" -- "$cur") )
+        return
+    fi
+
+    if [[ "$cur" == -* ]]; then
+        case "$sub" in
+            laja|maule)
+                COMPREPLY=( $(compgen -W "--input --in --output --out
+                    --stages --last-stage --blocks-per-stage
+                    --planning --no-auto-detect-machicura --help -h" -- "$cur") )
+                ;;
+            lng)
+                COMPREPLY=( $(compgen -W "--input --in --output --out
+                    --num-stages --uid-start --help -h" -- "$cur") )
+                ;;
+            ror)
+                COMPREPLY=( $(compgen -W "--input --in --output --out
+                    --planning --selection --help -h" -- "$cur") )
+                ;;
+            pmin_as_flowright)
+                COMPREPLY=( $(compgen -W "--input --in --output --out
+                    --csv --uid-start --help -h" -- "$cur") )
+                ;;
+            pumped_storage)
+                COMPREPLY=( $(compgen -W "--input --in --output --out
+                    --planning --bus --uid-start --help -h" -- "$cur") )
+                ;;
+        esac
+    fi
+}
+complete -F _gtopt_expand gtopt_expand
+complete -F _gtopt_expand gtopt_irrigation  # deprecated alias
+
+# ---------------------------------------------------------------------------
+# cen_demanda
+# ---------------------------------------------------------------------------
+_cen_demanda()
+{
+    local cur prev
+    _init_completion || return
+
+    case "$prev" in
+        --output-dir)
+            _filedir -d
+            return ;;
+        --start|--end|--user-key|--base-url|--rate-per-hour|--endpoint)
+            return ;;
+    esac
+
+    if [[ "$cur" == -* ]]; then
+        COMPREPLY=( $(compgen -W "--start --end --output-dir
+            --user-key --base-url --endpoint --rate-per-hour
+            --no-resume --verbose -v --help -h" -- "$cur") )
+    fi
+}
+complete -F _cen_demanda cen_demanda
+
+# ---------------------------------------------------------------------------
+# gtopt_results_summary
+# ---------------------------------------------------------------------------
+_gtopt_results_summary()
+{
+    local cur prev
+    _init_completion || return
+
+    case "$prev" in
+        --tech-map)
+            _gtopt_filedir_ext "json"
+            return ;;
+        --scale-objective)
+            return ;;
+    esac
+
+    if [[ "$cur" == -* ]]; then
+        COMPREPLY=( $(compgen -W "--scale-objective --tech-map --pretty
+            --help -h" -- "$cur") )
+    else
+        _filedir
+    fi
+}
+complete -F _gtopt_results_summary gtopt_results_summary
+
+# ---------------------------------------------------------------------------
+# gtopt_timeseries_export
+# ---------------------------------------------------------------------------
+_gtopt_timeseries_export()
+{
+    local cur prev
+    _init_completion || return
+
+    case "$prev" in
+        -o|--output)
+            _gtopt_filedir_ext "xlsx"
+            return ;;
+        --tech-map)
+            _gtopt_filedir_ext "json"
+            return ;;
+        --scale-objective)
+            return ;;
+    esac
+
+    if [[ "$cur" == -* ]]; then
+        COMPREPLY=( $(compgen -W "--output -o --scale-objective --tech-map
+            --help -h" -- "$cur") )
+    else
+        _filedir
+    fi
+}
+complete -F _gtopt_timeseries_export gtopt_timeseries_export
+
+# ---------------------------------------------------------------------------
+# gtopt_marginal_units (also exposed as gtopt-marginal-units)
+# ---------------------------------------------------------------------------
+_gtopt_marginal_units()
+{
+    local cur prev
+    _init_completion || return
+
+    case "$prev" in
+        --planning|--feed|--report)
+            _filedir
+            return ;;
+        --output|--out)
+            _filedir -d
+            return ;;
+        --input-kind)
+            COMPREPLY=( $(compgen -W "gtopt-dir feed-parquet auto" -- "$cur") )
+            return ;;
+        --mode)
+            COMPREPLY=( $(compgen -W "simulated real real-reconstruct compare" -- "$cur") )
+            return ;;
+        --moer-compare)
+            COMPREPLY=( $(compgen -W "congestion physical both" -- "$cur") )
+            return ;;
+        --emission-attribute)
+            return ;;
+        --scenes|--stages|--blocks|--zone-mode)
+            return ;;
+        --tol-price|--tol-flow|--tol-mu|--tol-load-mw|--eps|--demand-fail-cost|\
+        --merit-ladder-depth)
+            return ;;
+    esac
+
+    if [[ "$cur" == -* ]]; then
+        COMPREPLY=( $(compgen -W "--input-kind --mode --planning --output --out
+            --feed --csv --scenes --stages --blocks
+            --tol-price --tol-flow --tol-mu --tol-load-mw --eps
+            --single-bus --report --moer-compare --merit-ladder-depth
+            --emission-attribute --demand-fail-cost --zone-mode
+            --require-cdc-restriction --require-regime-data
+            --quiet -q --verbose -v --help -h" -- "$cur") )
+    fi
+}
+complete -F _gtopt_marginal_units gtopt_marginal_units
+complete -F _gtopt_marginal_units gtopt-marginal-units 2>/dev/null
+
+# ---------------------------------------------------------------------------
+# cen2gtopt and its sibling commands (cen2gtopt-{marginal-units,marginal-period,
+#                                              buses,cache,pcp-{archive,inputs,
+#                                              validate,solution}})
+# ---------------------------------------------------------------------------
+_cen2gtopt()
+{
+    local cur prev
+    _init_completion || return
+
+    case "$prev" in
+        --out|--cache|--topology)
+            _filedir
+            return ;;
+        --source)
+            COMPREPLY=( $(compgen -W "sip csv auto" -- "$cur") )
+            return ;;
+        --include)
+            COMPREPLY=( $(compgen -W "demand generation lines reservoirs
+                hydrology costs all" -- "$cur") )
+            return ;;
+        --start|--end|--bus|--unit|--api-key|--source-tz)
+            return ;;
+    esac
+
+    if [[ "$cur" == -* ]]; then
+        COMPREPLY=( $(compgen -W "--start --end --out --bus --unit
+            --source --source-tz --include --topology --manifest-only
+            --api-key --cache --no-cache
+            --quiet -q --verbose -v --help -h" -- "$cur") )
+    fi
+}
+complete -F _cen2gtopt cen2gtopt
+complete -F _cen2gtopt cen2gtopt-marginal-units 2>/dev/null
+complete -F _cen2gtopt cen2gtopt-marginal-period 2>/dev/null
+complete -F _cen2gtopt cen2gtopt-buses 2>/dev/null
+complete -F _cen2gtopt cen2gtopt-cache 2>/dev/null
+complete -F _cen2gtopt cen2gtopt-pcp-archive 2>/dev/null
+complete -F _cen2gtopt cen2gtopt-pcp-inputs 2>/dev/null
+complete -F _cen2gtopt cen2gtopt-pcp-validate 2>/dev/null
+complete -F _cen2gtopt cen2gtopt-pcp-solution 2>/dev/null
+
 # vim: ft=bash

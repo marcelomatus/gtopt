@@ -52,7 +52,7 @@ All fields are `std::optional` -- absent fields inherit built-in defaults
 | `input_format` | string | `"parquet"` | Input format: `"parquet"` or `"csv"` |
 | `output_directory` | string | `"output"` | Root directory for result files |
 | `output_format` | string | `"parquet"` | Output format: `"parquet"` or `"csv"` |
-| `output_compression` | string | `"zstd"` | Compression codec for output files |
+| `output_compression` | string | `"snappy"` | Compression codec for output files |
 | `use_uid_fname` | bool | `true` | Use UIDs instead of names in filenames |
 
 ### Model Parameters (deprecated flat fields)

@@ -213,3 +213,86 @@ def test_just_outside_tol_price_falls_off_marginal(gap_sign):
     gap = gap_sign * 1.5e-3
     expected = Status.EXTRAMARGINAL_INTERIOR if gap_sign > 0 else Status.INFRAMARGINAL
     assert _classify(dispatch=50.0, marginal_cost=lmp + gap, lmp=lmp) == expected
+
+
+# ---------------------------------------------------------------------------
+# Bound-priority over hydro/battery rule (Row 4 must lose to Rows 2 and 3).
+#
+# The review's "Priority order" subsection only enumerates thermal cases. A
+# hydro unit at exactly pmin should still classify as ``forced_pmin`` and at
+# exactly pmax as ``capped_pmax`` — the kind-driven Row 4 rule only fires
+# for *interior* dispatch. Without these tests the implementation could
+# silently route an at-bound hydro unit through ``hydro_marginal`` and
+# corrupt the per-bus recipe table.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "kind", [GeneratorKind.HYDRO.value, GeneratorKind.BATTERY.value]
+)
+def test_hydro_at_pmin_is_forced_pmin_not_hydro_marginal(kind):
+    assert (
+        _classify(dispatch=10.0, pmin=10.0, pmax=100.0, kind=kind) == Status.FORCED_PMIN
+    )
+
+
+@pytest.mark.parametrize(
+    "kind", [GeneratorKind.HYDRO.value, GeneratorKind.BATTERY.value]
+)
+def test_hydro_at_pmax_is_capped_pmax_not_hydro_marginal(kind):
+    assert (
+        _classify(dispatch=100.0, pmin=0.0, pmax=100.0, kind=kind) == Status.CAPPED_PMAX
+    )
+
+
+# ---------------------------------------------------------------------------
+# Interior thermal with no declared MC — Rows 5–7 require a numeric MC; the
+# fallback branch in ``_classify`` must classify the unit as ``inframarginal``
+# rather than crashing on the gap arithmetic.
+# ---------------------------------------------------------------------------
+
+
+def test_thermal_interior_with_null_mc_is_inframarginal():
+    assert (
+        _classify(
+            dispatch=50.0,
+            pmin=0.0,
+            pmax=100.0,
+            marginal_cost=None,
+            lmp=20.0,
+            kind=GeneratorKind.THERMAL.value,
+        )
+        == Status.INFRAMARGINAL
+    )
+
+
+# ---------------------------------------------------------------------------
+# Profile-unit boundary: at exactly ``dispatch == tol.eps`` the profile
+# special-case (``dispatch > tol.eps``) does NOT fire and Row 1 (off) wins.
+# This locks in the strict-greater-than semantics of the implementation.
+# ---------------------------------------------------------------------------
+
+
+def test_profile_at_exactly_eps_classifies_as_off():
+    # Default tol.eps = 1e-4. Pass dispatch == eps (boundary).
+    assert (
+        _classify(
+            dispatch=_TOL.eps,
+            pmin=0.0,
+            pmax=100.0,
+            kind=GeneratorKind.PROFILE.value,
+        )
+        == Status.OFF
+    )
+
+
+def test_profile_just_above_eps_classifies_as_profile_dispatched():
+    assert (
+        _classify(
+            dispatch=_TOL.eps * 10.0,  # comfortably above eps
+            pmin=0.0,
+            pmax=100.0,
+            kind=GeneratorKind.PROFILE.value,
+        )
+        == Status.PROFILE_DISPATCHED
+    )
