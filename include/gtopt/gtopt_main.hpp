@@ -147,6 +147,15 @@ struct MainOptions
   std::optional<std::string> sddp_elastic_mode {};
   /** @brief Number of SDDP backward-pass apertures (0=disabled, -1=all) */
   std::optional<int> sddp_num_apertures {};
+  /** @brief Per-task aperture chunk size (chunked backward pass).
+   *
+   * Sentinel-encoded:
+   *   *  unset (nullopt) / 0 → auto (formula based on A_max × scenes / cores).
+   *   *  1  → legacy 1-task-per-aperture path.
+   *   *  >1 → exactly K apertures per task, serial within (warm-start reuse
+   *          on the shared LP clone).
+   *   *  -1 → cap at A_max per phase (single task per scene, fully serial). */
+  std::optional<int> sddp_aperture_chunk_size {};
   /** @brief Enable SDDP hot-start from previously saved cuts */
   std::optional<bool> sddp_hot_start {};
 
