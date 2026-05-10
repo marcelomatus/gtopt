@@ -140,6 +140,16 @@ def _build_parser() -> argparse.ArgumentParser:
         default=1000.0,
         help="Rationing cap [$/MWh] used by §4.7 R3.",
     )
+    p.add_argument(
+        "--carbon-price",
+        type=float,
+        default=0.0,
+        help=(
+            "Carbon price [USD per tCO2eq]. Persisted to the manifest and "
+            "applied at consumer-API read time (bus_lmp, recompute_lmp, "
+            "bus_lmp_and_emission); does NOT alter the saved recipes."
+        ),
+    )
     p.add_argument("--report", type=Path, help="Path to write a Markdown report.")
     p.add_argument("-v", "--verbose", action="count", default=0)
     p.add_argument("-q", "--quiet", action="store_true")
@@ -215,6 +225,11 @@ def _run(args: argparse.Namespace) -> int:
         tol_load_mw=args.tol_load_mw,
     )
 
+    if args.carbon_price < 0.0:
+        raise InputValidationError(
+            f"--carbon-price must be non-negative; got {args.carbon_price}"
+        )
+
     # 4. Per-cell driver (single-bus collapse if asked).
     summary = _process_cells(
         topology=topology,
@@ -225,6 +240,7 @@ def _run(args: argparse.Namespace) -> int:
         zone_mode=args.zone_mode,
         demand_fail_cost=float(args.demand_fail_cost),
         out_root=args.out,
+        carbon_price=float(args.carbon_price),
     )
 
     # 5. Optional Markdown report.
@@ -295,6 +311,7 @@ def _process_cells(
     zone_mode: str,
     demand_fail_cost: float,
     out_root: Path,
+    carbon_price: float = 0.0,
 ):
     """Execute the per-cell loop and write the dataset.
 
@@ -495,6 +512,9 @@ def _process_cells(
                 )
 
     # Write dataset.
+    extras: dict[str, object] = {}
+    if carbon_price > 0.0:
+        extras["carbon_price_usd_per_ton"] = float(carbon_price)
     summary = write_dataset(
         out_root,
         per_bus=pd.DataFrame(per_bus_rows),
@@ -503,6 +523,7 @@ def _process_cells(
         price_recipe=price_recipe,
         emission_recipe=emission_recipe,
         unattributed=(pd.DataFrame(audit_unattributed) if audit_unattributed else None),
+        extras=extras or None,
     )
     _LOG.info("dataset written: %s", out_root)
     _LOG.info(
