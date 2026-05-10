@@ -294,13 +294,34 @@ auto solve_apertures_for_phase(
               // No mutex — `clone_from_flat` uses only env-local
               // calls (`CPXcreateprob` + `CPXaddrows` on a freshly
               // opened env), which run safely in parallel.
+              //
+              // `with_replay=true` is **load-bearing** for SDDP
+              // correctness: the source `phase_li`'s stored
+              // `FlatLinearProblem` snapshot was captured at
+              // construction time, BEFORE any cuts were installed.
+              // Without replay, the aperture clone would solve the
+              // structural LP without the cut(s) on α_p — most
+              // importantly the cut just installed by the previous
+              // backward iteration (phase p+1) on src=phase p,
+              // which is exactly the cut this aperture solve must
+              // see to produce a valid Benders cut on α_{p-1}.
+              // The replay re-applies `m_replay_.active_cuts()` onto
+              // the freshly-opened backend, yielding a
+              // current-state clone equivalent to what the native
+              // `clone()` route would produce — but built via
+              // env-local calls and so still parallel-safe.  See
+              // `LinearInterface::clone_from_flat` doxygen.
               return phase_li.clone_from_flat(
-                  LinearInterface::CloneKind::shallow);
+                  LinearInterface::CloneKind::shallow,
+                  /*with_replay=*/true);
             }
             // Fallback or default: native clone under the global
             // mutex.  The legacy aperture-clone path crashed three
             // threads at the same instruction pointer when this
-            // mutex was missing — see commit `1d7a05c1`.
+            // mutex was missing — see commit `1d7a05c1`.  Native
+            // `clone()` (`CPXcloneprob`) copies the live backend
+            // including all installed cuts, so cut visibility is
+            // free on this route.
             const std::scoped_lock lock(*clone_mutex);
             return phase_li.clone(LinearInterface::CloneKind::shallow);
           }();
