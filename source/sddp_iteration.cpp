@@ -1199,7 +1199,31 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
       const bool past_min =
           (iteration_index >= m_iteration_offset_
                + IterationIndex {m_options_.min_iterations - 1});
-      if (scene_gap < m_options_.convergence_tol && past_min) {
+      // Two-sided window: ``scene_gap`` is computed as
+      // ``(UB - LB) / max(1, |UB|)`` and goes strongly negative
+      // (e.g. ``-11.84``) when the per-scene LB transiently
+      // overshoots its UB — a routine SDDP behaviour while the
+      // phase-0 LP objective floats above the realised rollout
+      // cost.  Without the lower-bound guard, ``scene_gap < tol``
+      // evaluates to ``true`` for every negative gap (since
+      // ``-11.84 < 1e-3``), silently declaring an unconverged
+      // scene "converged".  Observed on juan/IPLP hs9: 9 dry
+      // scenarios (s1, s3, s7, s10-13, s15-16) marked converged
+      // at iter 54 with gaps in [-11.84, -0.077] while their
+      // aggregate gap was 12.22 % — far above the 1e-3
+      // convergence_tol.  The downstream effect was the SDDP
+      // outer loop terminating after 3 aggregate iterations
+      // because every "completed" scene short-circuits the
+      // ``tracker.all_complete()`` gate (sddp_iteration.cpp:1553).
+      //
+      // Every other convergence site (aggregate stationary at
+      // line 438, statistical CI at 594/604/632/1622, synchronous
+      // gap at sddp_method_iteration.cpp:1675/1701) already
+      // carries the same ``> -kSddpGapFpEpsilon`` guard; the
+      // async per-scene path was added later and missed it.
+      const bool gap_in_window = scene_gap < m_options_.convergence_tol
+          && scene_gap > -kSddpGapFpEpsilon;
+      if (gap_in_window && past_min) {
         tracker.mark_converged(scene_index, iteration_index);
         SPDLOG_INFO(
             "{}: converged (gap={:.6f})",
@@ -1319,7 +1343,21 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
           // Spread limit: don't advance too far ahead of slowest
           // non-converged scene.  When max_spread >= max_iterations this
           // is effectively unlimited — scenes never wait.
-          const auto min_iteration_index = tracker.min_completed_iteration();
+          //
+          // Use ``min_completed_iteration_among_active()`` (NOT the
+          // global ``min_completed_iteration()``) because converged
+          // scenes have their ``m_scene_completed_iter_`` frozen at
+          // the convergence iteration.  Including them in the min
+          // pinned the gate at the convergence iter (e.g. 51) and
+          // permanently blocked active scenes from advancing past
+          // ``min + max_spread`` (= 53 with default spread=2).  The
+          // active scenes then ``break`` out of the dispatch loop
+          // forever, leaving the outer ``while(!all_done)`` spinning
+          // with no work in flight.  Observed on juan/IPLP hs8: 6
+          // wettest scenes converged at iter 51, 9 dry scenes wedged
+          // at iter 54 against a frozen ``min=51``.
+          const auto min_iteration_index =
+              tracker.min_completed_iteration_among_active();
           if (min_iteration_index >= m_iteration_offset_
               && sp.current_iteration_index
                   > min_iteration_index + IterationIndex {max_spread})

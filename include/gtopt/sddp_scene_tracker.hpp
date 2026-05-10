@@ -122,6 +122,43 @@ public:
     return *std::ranges::min_element(m_scene_completed_iter_);
   }
 
+  /// Minimum completed iteration across **non-converged (active)**
+  /// scenes only.  Once a scene converges its
+  /// ``m_scene_completed_iter_`` entry is frozen at the convergence
+  /// iteration and never advances again; without excluding those
+  /// scenes here, the global minimum stays pinned and the
+  /// ``solve_async`` ``max_spread`` gate at
+  /// ``sddp_iteration.cpp:1322-1328`` permanently blocks every still-
+  /// active scene from advancing past ``min + max_spread``.
+  ///
+  /// Result: the outer ``while(!all_done)`` loop in ``solve_async``
+  /// (sddp_iteration.cpp:1758) keeps spinning because some scenes are
+  /// stuck in ``idle`` with no work scheduled — observed on
+  /// juan/IPLP hs8 where 6 wettest scenes converged at iter 51 and
+  /// the 9 dry scenes wedged at iter 54 against ``min=51 + 2 = 53``.
+  ///
+  /// Returns the same value as ``min_completed_iteration()`` when no
+  /// scene has converged yet.  Returns ``IterationIndex::max()`` when
+  /// all scenes have converged (caller should treat as "no spread
+  /// constraint").
+  [[nodiscard]] auto min_completed_iteration_among_active() const
+      -> IterationIndex
+  {
+    auto active_min = IterationIndex {std::numeric_limits<int>::max()};
+    bool any_active = false;
+    for (const auto si :
+         iota_range<SceneIndex>(0, std::ssize(m_scene_converged_)))
+    {
+      if (m_scene_converged_[si]) {
+        continue;
+      }
+      any_active = true;
+      active_min = std::min(active_min, m_scene_completed_iter_[si]);
+    }
+    return any_active ? active_min
+                      : IterationIndex {std::numeric_limits<int>::max()};
+  }
+
   /// Maximum completed iteration across all scenes.
   [[nodiscard]] auto max_completed_iteration() const -> IterationIndex
   {
