@@ -14,11 +14,10 @@
 
 #include <algorithm>
 #include <charconv>
-#include <cmath>
 #include <filesystem>
 #include <format>
 #include <fstream>
-#include <ranges>
+#include <iterator>
 #include <set>
 #include <sstream>
 
@@ -69,8 +68,13 @@ using namespace gtopt::detail;  // helpers shared with sibling TUs
             .linear_interface();
     const auto scale_obj = rep_li.scale_objective();
 
+    auto out = std::ostreambuf_iterator<char>(ofs);
     if (!append_mode) {
-      ofs << "# scale_objective=" << scale_obj << "\n";
+      // Bit-exact mantissa via {:.17g} (std::to_chars-backed). Default
+      // ostream precision is 6 sig digits, which silently truncated cut
+      // RHS / dual / coef in the 1e9-1e11 range, the root cause of the
+      // SDDP "LB overshoot at iter 50" pattern under hot-start.
+      std::format_to(out, "# scale_objective={:.17g}\n", scale_obj);
       ofs << "type,phase,scene,name,rhs,dual,coefficients\n";
     }
 
@@ -95,11 +99,15 @@ using namespace gtopt::detail;  // helpers shared with sibling TUs
       // StoredCut pre-equilibration).  Stream fields directly so the
       // per-cut path does NOT allocate a transient `std::string` from
       // `as_label`; runs once per cut, of which there can be tens of
-      // thousands per save.
+      // thousands per save.  Doubles go through `std::format_to` with
+      // `{:.17g}` for bit-exact round-trip (~2-5x faster than ostream
+      // `<<` and replaces a setprecision band-aid).
       ofs << type_char << ',' << cut.phase_uid << ',' << cut.scene_uid << ','
-          << cut.name << ',' << cut.rhs << ',';
+          << cut.name << ',';
+      std::format_to(out, "{:.17g}", cut.rhs);
+      ofs << ',';
       if (cut.dual.has_value()) {
-        ofs << *cut.dual;
+        std::format_to(out, "{:.17g}", *cut.dual);
       }
 
       // Look up the LinearInterface to retrieve column scales.
@@ -162,7 +170,9 @@ using namespace gtopt::detail;  // helpers shared with sibling TUs
         planning_lp.system(scene_index, first_phase_index()).linear_interface();
     const auto scale_obj = rep_li.scale_objective();
 
-    ofs << "# scale_objective=" << scale_obj << "\n";
+    auto out = std::ostreambuf_iterator<char>(ofs);
+    // Bit-exact mantissa — see save_cuts_csv for rationale.
+    std::format_to(out, "# scale_objective={:.17g}\n", scale_obj);
     ofs << "type,phase,scene,name,rhs,dual,coefficients\n";
 
     // Build phase UID -> PhaseIndex lookup
@@ -182,11 +192,14 @@ using namespace gtopt::detail;  // helpers shared with sibling TUs
 
       // RHS in physical objective units (stored verbatim — see
       // save_cuts_csv above for rationale).  Stream fields directly to
-      // avoid the per-cut `std::string` from `as_label`.
+      // avoid the per-cut `std::string` from `as_label`; doubles go
+      // through `std::format_to` with `{:.17g}` for bit-exact round-trip.
       ofs << type_char << ',' << cut.phase_uid << ',' << cut.scene_uid << ','
-          << cut.name << ',' << cut.rhs << ',';
+          << cut.name << ',';
+      std::format_to(out, "{:.17g}", cut.rhs);
+      ofs << ',';
       if (cut.dual.has_value()) {
-        ofs << *cut.dual;
+        std::format_to(out, "{:.17g}", *cut.dual);
       }
 
       auto pit = phase_map.find(cut.phase_uid);
@@ -572,6 +585,31 @@ using namespace gtopt::detail;  // helpers shared with sibling TUs
 
       if (!cut_valid) {
         continue;
+      }
+
+      // Loader-side noise filter — drop coefficients below a relative
+      // threshold of the row's max-absolute coef.  Cuts saved with a
+      // lenient `cut_coeff_eps` (e.g. the historical 1e-8 default) can
+      // contain near-noise coefficients in the 1e-7 range that drive
+      // basis kappa to ~10⁷ when the cut row enters the simplex basis.
+      // Applying the same filter on load ensures the runtime
+      // `cut_coeff_eps` is honored regardless of what eps was active
+      // when the cuts were originally written.  Threshold form is
+      // **relative to row-max** so the filter scales naturally with
+      // cut magnitude (a row with max=1.0 drops |coef| < eps; a row
+      // with max=1e6 drops |coef| < eps × 1e6).
+      if (!resolved_coeffs.empty()) {
+        const auto cut_coeff_eps = planning_lp.options().sddp_cut_coeff_eps();
+        double row_max = 0.0;
+        for (const auto& rc : resolved_coeffs) {
+          row_max = std::max(row_max, std::abs(rc.coeff));
+        }
+        const double drop_threshold = cut_coeff_eps * row_max;
+        if (drop_threshold > 0.0) {
+          std::erase_if(resolved_coeffs,
+                        [drop_threshold](const ResolvedCoeff& rc)
+                        { return std::abs(rc.coeff) < drop_threshold; });
+        }
       }
 
       // Add the resolved cut to all scenes for this phase.

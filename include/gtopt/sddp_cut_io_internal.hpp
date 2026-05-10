@@ -25,6 +25,8 @@
 
 #pragma once
 
+#include <format>
+#include <iterator>
 #include <ostream>
 #include <stdexcept>
 #include <string_view>
@@ -90,6 +92,11 @@ inline void write_cut_coefficients(std::ostream& ofs,
                                    const LinearInterface& /*li*/,
                                    const ColKeyMap& col_keys)
 {
+  // `{:.17g}` via `std::format_to` writes coefficients with bit-exact
+  // mantissa (std::to_chars-backed) — required so cut RHS / coefs in
+  // the 1e9-1e11 range survive the save/load round-trip without the
+  // ostream-default 6-significant-digit truncation.
+  auto out = std::ostreambuf_iterator<char>(ofs);
   for (const auto& [col, coeff] : cut.coefficients) {
     const auto it = col_keys.find(col);
     if (it == col_keys.end()) {
@@ -100,7 +107,8 @@ inline void write_cut_coefficients(std::ostream& ofs,
           col));
     }
     const auto& [cls, var, uid] = it->second;
-    ofs << "," << as_label<':'>(cls, var, uid) << "=" << coeff;
+    ofs << "," << as_label<':'>(cls, var, uid) << "=";
+    std::format_to(out, "{:.17g}", coeff);
   }
 }
 
@@ -110,8 +118,10 @@ inline void write_cut_coefficients_unscaled(std::ostream& ofs,
                                             const StoredCut& cut,
                                             double /*scale_obj*/)
 {
+  auto out = std::ostreambuf_iterator<char>(ofs);
   for (const auto& [col, coeff] : cut.coefficients) {
-    ofs << "," << col << ":" << coeff;
+    ofs << "," << col << ":";
+    std::format_to(out, "{:.17g}", coeff);
   }
 }
 

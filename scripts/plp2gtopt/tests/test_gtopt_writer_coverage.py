@@ -55,13 +55,13 @@ class TestProcessOptions:
         assert sddp.get("cut_sharing_mode") == "shared"
 
     def test_process_options_backward_solver_threads_default(self, tmp_path):
-        """process_options always emits backward_solver_options.threads=1."""
+        """No backward_solver_options block by default — defer to C++ default."""
         parser = PLPParser({"input_dir": _PLPMin1Bus})
         parser.parse_all()
         writer = GTOptWriter(parser)
         writer.process_options(_make_opts(tmp_path))
         sddp = writer.planning["options"]["sddp_options"]
-        assert sddp["backward_solver_options"] == {"threads": 1}
+        assert "backward_solver_options" not in sddp
 
     def test_process_options_backward_solver_threads_override(self, tmp_path):
         """`backward_solver_threads` option overrides the default."""

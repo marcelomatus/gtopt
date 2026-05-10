@@ -638,17 +638,18 @@ class GTOptWriter(
         # cut_coeff_eps: drop coefficients with |value| < eps (default 1e-8).
         sddp_opts["cut_coeff_eps"] = options.get("cut_coeff_eps", 1e-8)
 
-        # Pin the SDDP backward-pass solver to a single thread.  Per-stage
-        # backward LPs are small (hundreds-to-thousands of vars) and the
-        # parallel-simplex / parallel-barrier overhead in CPLEX/HiGHS hurts
-        # more than it helps; one-thread-per-LP also avoids oversubscribing
-        # the host when the SDDP scheduler already runs many backward LPs
-        # concurrently across (scene × phase) cells.  C++ default is 2; this
-        # block keeps the JSON intentional and CLI-overridable via
-        # `--set sddp_options.backward_solver_options.threads=N`.
-        sddp_opts["backward_solver_options"] = {
-            "threads": options.get("backward_solver_threads", 1),
-        }
+        # Backward-solver threads: defer to the C++ default (2).  The
+        # historical override pinning to 1 was based on per-cell solve
+        # being parallel-simplex-overhead-bound, but the post-2026-05
+        # acceleration work (Option B + bulk add_rows + presolve OFF in
+        # the CPLEX plugin) collapsed cut-replay overhead enough that
+        # parallel-simplex on the cell pays off.  Override via
+        # `--set sddp_options.backward_solver_options.threads=N` if
+        # needed; do NOT pin to 1 by default any more.
+        if options.get("backward_solver_threads") is not None:
+            sddp_opts["backward_solver_options"] = {
+                "threads": options["backward_solver_threads"],
+            }
 
         # When the JSON file lives inside the output directory (the default),
         # input_directory is "." so paths are relative to the JSON location.

@@ -32,9 +32,15 @@
  * 23. load_named_cuts_csv skips unknown phase UIDs
  */
 
+#include <bit>
+#include <charconv>
+#include <cstdint>
 #include <filesystem>
 #include <fstream>
+#include <sstream>
 #include <string>
+#include <string_view>
+#include <vector>
 
 #include <doctest/doctest.h>
 #include <gtopt/planning_lp.hpp>
@@ -279,6 +285,93 @@ TEST_CASE(
 
   // The line should contain "o,999,1,bad_phase_cut" and coefficient data
   CHECK(line.starts_with("o,999,1,bad_phase_cut,"));
+
+  std::filesystem::remove(cuts_file);
+}
+
+TEST_CASE(
+    "save_cuts_csv preserves full mantissa precision "
+    "(LB-overshoot regression)")  // NOLINT
+{
+  // Default ostream precision (6 significant digits) silently truncated
+  // cut RHS / dual / coef values in the 1e9-1e11 range — root cause of
+  // the SDDP "LB overshoot at iter 50" pattern under hot-start (see
+  // support/juan/sddp_lb_overshoot_iter01_2026-05-01.md).  The writer
+  // now uses `std::format_to(... "{:.17g}" ...)` for bit-exact mantissa.
+  // This test pins that contract: every double in a saved cut must
+  // round-trip exactly via std::bit_cast.
+
+  auto planning = make_3phase_hydro_planning();
+  const PlanningLP planning_lp(std::move(planning));
+
+  const auto tmp_dir = std::filesystem::temp_directory_path();
+  const auto cuts_file = (tmp_dir / "gtopt_test_cut_io_precision.csv").string();
+
+  // Pick deliberately ugly doubles that require all 17 mantissa digits
+  // to survive a serialise/parse round trip.
+  const double rhs_phys = 1234567890123.4567;  // ~1.2 trillion
+  const double dual_phys = -9.876543210987654e-7;  // small magnitude
+  const double coef_a = 3.141592653589793e9;  // π × 1e9
+  const double coef_b = -2.718281828459045e10;  // -e × 1e10
+
+  // Use unknown phase UID so coefficients hit the unscaled writer path
+  // (still goes through the same `format_to` plumbing).
+  std::vector<StoredCut> cuts = {
+      StoredCut {
+          .phase_uid = make_uid<Phase>(999),
+          .scene_uid = make_uid<Scene>(1),
+          .name = "precision_cut",
+          .rhs = rhs_phys,
+          .dual = dual_phys,
+          .coefficients =
+              {
+                  {ColIndex {0}, coef_a},
+                  {ColIndex {1}, coef_b},
+              },
+      },
+  };
+
+  auto save_result =
+      save_cuts_csv(std::span<const StoredCut>(cuts), planning_lp, cuts_file);
+  REQUIRE(save_result.has_value());
+
+  std::ifstream ifs(cuts_file);
+  std::string line;
+  std::getline(ifs, line);  // metadata
+  std::getline(ifs, line);  // header
+  std::getline(ifs, line);  // data line
+
+  // Layout: o,999,1,precision_cut,RHS,DUAL,0:COEF_A,1:COEF_B
+  std::vector<std::string> tokens;
+  {
+    std::stringstream ss(line);
+    std::string tok;
+    while (std::getline(ss, tok, ',')) {
+      tokens.push_back(tok);
+    }
+  }
+  REQUIRE(tokens.size() == 8);
+
+  const auto parse_double = [](std::string_view s) -> double
+  {
+    double v = 0.0;
+    auto [ptr, ec] = std::from_chars(s.data(), s.data() + s.size(), v);
+    REQUIRE(ec == std::errc {});
+    return v;
+  };
+  const auto bits = [](double d) -> std::uint64_t
+  { return std::bit_cast<std::uint64_t>(d); };
+  const auto coef_value = [&](std::string_view t) -> double
+  {
+    const auto pos = t.find(':');
+    REQUIRE(pos != std::string_view::npos);
+    return parse_double(t.substr(pos + 1));
+  };
+
+  CHECK(bits(parse_double(tokens[4])) == bits(rhs_phys));
+  CHECK(bits(parse_double(tokens[5])) == bits(dual_phys));
+  CHECK(bits(coef_value(tokens[6])) == bits(coef_a));
+  CHECK(bits(coef_value(tokens[7])) == bits(coef_b));
 
   std::filesystem::remove(cuts_file);
 }

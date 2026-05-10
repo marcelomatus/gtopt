@@ -333,9 +333,7 @@ auto SDDPMethod::initialize_solver() -> std::expected<void, Error>
       const auto& per_phase = plp.apertures();
       const int n = !per_phase.empty() ? static_cast<int>(per_phase.size())
                                        : static_cast<int>(global_aps.size());
-      if (n > max_aps_per_phase) {
-        max_aps_per_phase = n;
-      }
+      max_aps_per_phase = std::max(n, max_aps_per_phase);
     }
     const int requested = m_options_.aperture_chunk_size;
     int resolved = 1;
