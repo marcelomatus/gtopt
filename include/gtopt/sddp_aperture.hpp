@@ -20,6 +20,7 @@
 
 #pragma once
 
+#include <algorithm>
 #include <concepts>
 #include <cstddef>
 #include <functional>
@@ -109,6 +110,82 @@ struct ApertureEntry
 [[nodiscard]] auto build_synthetic_apertures(
     std::span<const ScenarioLP> all_scenarios, std::ptrdiff_t n_apertures)
     -> Array<Aperture>;
+
+// ─── Auto-tuned aperture chunk size ────────────────────────────────────────
+
+/// Compute a default `aperture_chunk_size` from problem dimensions.
+///
+/// Sizes the per-phase aperture chunks so that the resulting task count
+/// (`N_scenes × ⌈A/K⌉`) roughly equals the work pool's target
+/// concurrency (`parallel_factor × N_cores`).  The intuition:
+///
+///   * If `N_scenes × A` ≤ `parallel_factor × N_cores`, the pool can
+///     run every (scene, aperture) task concurrently — no point in
+///     chunking, return 1.
+///
+///   * If `N_scenes × A` ≫ `parallel_factor × N_cores`, the pool is
+///     oversubscribed at K=1.  Chunking K>1 reduces the queue depth
+///     (one task per chunk instead of one per aperture) and gives each
+///     chunk warm-start reuse on its inner solves — the bound-only
+///     deltas between successive apertures keep the dual basis valid,
+///     so the second-and-later resolves typically converge in a
+///     fraction of a cold barrier.
+///
+/// Closed form:
+///
+///   K_auto = clamp(⌈(N_scenes × A) / (parallel_factor × N_cores)⌉,
+///                  1,
+///                  A)
+///
+/// All inputs are clamped to non-negative; degenerate inputs (any of
+/// `n_apertures`, `n_active_scenes`, `n_physical_cores` == 0, or
+/// `parallel_factor` ≤ 0) collapse to 1 — a safe no-chunking default
+/// that callers can detect and fall back to the legacy 1-task-per-
+/// aperture path.
+///
+/// `parallel_factor` defaults to 2.0 to match `make_sddp_work_pool`'s
+/// default `cpu_factor = 2.0` (`sddp_pool.hpp`): the pool sizes itself
+/// at `2 × N_cores` workers, so the auto-K target tracks the same
+/// over-subscription ratio.
+///
+/// @param max_apertures_per_phase Largest A across phases (use the max,
+///        not the average — smaller phases will simply under-chunk,
+///        which is harmless; larger phases would otherwise over-chunk
+///        and grow the queue).
+/// @param n_active_scenes         Number of scenes the SDDP solver
+///        will process per iteration (`simulation.scene_count()`
+///        minus inactive scenes).
+/// @param n_physical_cores        Output of
+///        `gtopt::physical_concurrency()` (CPU-quota-aware).
+/// @param parallel_factor         Over-subscription factor matching
+///        the work pool's `cpu_factor`.  Default 2.0.
+/// @return The chunk size to use, in `[1, max_apertures_per_phase]`.
+[[nodiscard]] constexpr int compute_auto_aperture_chunk_size(
+    int max_apertures_per_phase,
+    int n_active_scenes,
+    int n_physical_cores,
+    double parallel_factor = 2.0) noexcept
+{
+  if (max_apertures_per_phase <= 0 || n_active_scenes <= 0
+      || n_physical_cores <= 0 || !(parallel_factor > 0.0))
+  {
+    return 1;
+  }
+  // Floating-point ceil to avoid integer overflow on very large inputs.
+  const double total_work = static_cast<double>(max_apertures_per_phase)
+      * static_cast<double>(n_active_scenes);
+  const double target_tasks =
+      parallel_factor * static_cast<double>(n_physical_cores);
+  const double k_real = total_work / target_tasks;
+  // ceil via integer arithmetic on the cast — k_real ≥ 0, so adding
+  // a tiny epsilon would only matter at the integer boundary, where
+  // taking the next-higher chunk is the safe choice.
+  int k = static_cast<int>(k_real);
+  if (static_cast<double>(k) < k_real) {
+    ++k;
+  }
+  return std::min(std::max(k, 1), max_apertures_per_phase);
+}
 
 // ─── Effective aperture resolution (filter / synthetic / fallback) ──────────
 

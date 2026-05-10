@@ -656,3 +656,81 @@ TEST_CASE(  // NOLINT
   CHECK_FALSE(results->empty());
   CHECK(results->back().converged);
 }
+
+// ─── compute_auto_aperture_chunk_size ──────────────────────────────────────
+
+TEST_CASE(  // NOLINT
+    "compute_auto_aperture_chunk_size — single-scene under-saturated → 1")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  // 14 apertures × 1 scene = 14 work units; pool target = 2 × 16 = 32.
+  // Under-saturated → chunk_size 1 (no warm-start chunking needed).
+  CHECK(compute_auto_aperture_chunk_size(
+            /*n_aps=*/14, /*n_scenes=*/1, /*n_cores=*/16, /*pf=*/2.0)
+        == 1);
+}
+
+TEST_CASE(  // NOLINT
+    "compute_auto_aperture_chunk_size — multi-scene saturated picks "
+    "K=⌈A·S/(pf·C)⌉")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  // 14 apertures × 16 scenes = 224 work units; target = 32 → K = ⌈224/32⌉ = 7.
+  CHECK(compute_auto_aperture_chunk_size(14, 16, 16, 2.0) == 7);
+  // Exactly-at-target with no remainder: 8×16/32 = 4.
+  CHECK(compute_auto_aperture_chunk_size(8, 16, 16, 2.0) == 4);
+  // One unit over a clean divisor → ceil bumps K by 1: 9×16/32 = 4.5 → 5.
+  CHECK(compute_auto_aperture_chunk_size(9, 16, 16, 2.0) == 5);
+}
+
+TEST_CASE(  // NOLINT
+    "compute_auto_aperture_chunk_size — heavy oversubscription caps at A")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  // 80 apertures × 32 scenes = 2560 work units; target = 32 →
+  // K_real = 80, exactly the cap.
+  CHECK(compute_auto_aperture_chunk_size(80, 32, 16, 2.0) == 80);
+  // Push past A: 80 apertures × 64 scenes = 5120; K_real = 160 → capped at 80.
+  CHECK(compute_auto_aperture_chunk_size(80, 64, 16, 2.0) == 80);
+}
+
+TEST_CASE(  // NOLINT
+    "compute_auto_aperture_chunk_size — degenerate inputs collapse to 1")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  // Any zero/negative dimension → safe no-chunking default.
+  CHECK(compute_auto_aperture_chunk_size(0, 16, 16, 2.0) == 1);
+  CHECK(compute_auto_aperture_chunk_size(14, 0, 16, 2.0) == 1);
+  CHECK(compute_auto_aperture_chunk_size(14, 16, 0, 2.0) == 1);
+  CHECK(compute_auto_aperture_chunk_size(14, 16, 16, 0.0) == 1);
+  CHECK(compute_auto_aperture_chunk_size(14, 16, 16, -1.0) == 1);
+  CHECK(compute_auto_aperture_chunk_size(-1, 16, 16, 2.0) == 1);
+}
+
+TEST_CASE(  // NOLINT
+    "compute_auto_aperture_chunk_size — single core stretches K to A")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  // 1 core, target = 2.  14×1 / 2 = 7; 14×16 / 2 = 112 → capped at 14.
+  CHECK(compute_auto_aperture_chunk_size(14, 1, 1, 2.0) == 7);
+  CHECK(compute_auto_aperture_chunk_size(14, 16, 1, 2.0) == 14);
+}
+
+TEST_CASE(  // NOLINT
+    "compute_auto_aperture_chunk_size — parallel_factor scales target "
+    "inversely")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  // pf=1 halves the target → doubles K vs pf=2 (modulo ceil rounding).
+  // 14×16 / (1·16) = 14, 14×16 / (4·16) = 3.5 → 4.
+  CHECK(compute_auto_aperture_chunk_size(14, 16, 16, 1.0) == 14);
+  CHECK(compute_auto_aperture_chunk_size(14, 16, 16, 4.0) == 4);
+}
+
+// `constexpr`-evaluation regression: the helper is `constexpr`, so
+// any of the assertions above are also evaluated at compile time.
+// One static_assert here is enough to lock the contract — a future
+// edit that makes the body non-constexpr would fail to build.
+static_assert(compute_auto_aperture_chunk_size(14, 16, 16, 2.0) == 7);
+static_assert(compute_auto_aperture_chunk_size(0, 16, 16, 2.0) == 1);
+static_assert(compute_auto_aperture_chunk_size(80, 64, 16, 2.0) == 80);
