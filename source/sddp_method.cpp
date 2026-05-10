@@ -303,6 +303,71 @@ auto SDDPMethod::initialize_solver() -> std::expected<void, Error>
     m_max_kappa_[scene_index].resize(num_phases, -1.0);
   }
 
+  // ── Resolve aperture_chunk_size (sentinel → concrete K) ────────────────
+  //
+  // Sentinel encoding (from `SddpOptions::aperture_chunk_size`):
+  //   *  0 → auto: pick K so that the resulting per-phase task count
+  //         (`scenes × ⌈A/K⌉`) tracks the work pool's target
+  //         concurrency (`parallel_factor × physical_concurrency`).
+  //   *  1 → legacy 1-aperture-per-task path.
+  //   * >1 → use this K verbatim.
+  //   * -1 → cap at A_max per phase (one task per scene, fully serial
+  //         inside).
+  //
+  // Computed once at setup time and stored back into
+  // `m_options_.aperture_chunk_size` so every per-phase call site
+  // (`solve_apertures_for_phase`) reads the same resolved value.
+  // A_max uses the per-phase aperture override when present
+  // (`PhaseLP::apertures()`), otherwise falls back to the global
+  // `simulation.aperture_array` size — matches the runtime resolution
+  // in `solve_apertures_for_phase`.
+  {
+    const auto& global_aps = sim.apertures();
+    int max_aps_per_phase = 0;
+    for (const auto& plp : sim.phases()) {
+      // PhaseLP::apertures() returns a vector<Uid> by reference;
+      // empty means "use the global aperture_array", non-empty
+      // overrides per phase (and may include duplicates which carry
+      // weight semantics).  Either way, the chunk-size budget tracks
+      // the count the runtime will actually iterate.
+      const auto& per_phase = plp.apertures();
+      const int n = !per_phase.empty() ? static_cast<int>(per_phase.size())
+                                       : static_cast<int>(global_aps.size());
+      if (n > max_aps_per_phase) {
+        max_aps_per_phase = n;
+      }
+    }
+    const int requested = m_options_.aperture_chunk_size;
+    int resolved = 1;
+    std::string_view source = "user";
+    if (max_aps_per_phase <= 0) {
+      // No apertures anywhere — chunk_size doesn't matter; pick 1 for safety.
+      resolved = 1;
+      source = "no-apertures";
+    } else if (requested == 0) {
+      resolved = compute_auto_aperture_chunk_size(
+          max_aps_per_phase,
+          static_cast<int>(num_scenes),
+          static_cast<int>(physical_concurrency()),
+          /*parallel_factor=*/2.0);
+      source = "auto";
+    } else if (requested == -1) {
+      resolved = max_aps_per_phase;
+      source = "fully-serial";
+    } else {
+      resolved = std::min(std::max(requested, 1), max_aps_per_phase);
+      source = "user";
+    }
+    SPDLOG_INFO(
+        "SDDP Aperture: chunk_size={} ({}: A_max={} S={} cores={} pf=2.0)",
+        resolved,
+        source,
+        max_aps_per_phase,
+        num_scenes,
+        physical_concurrency());
+    m_options_.aperture_chunk_size = resolved;
+  }
+
   // ── Low-memory mode: configure all SystemLPs ──────────────────────────────
   if (m_options_.low_memory_mode != LowMemoryMode::off) {
     const auto codec = select_codec(m_options_.memory_codec);

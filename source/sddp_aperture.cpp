@@ -150,14 +150,15 @@ auto solve_apertures_for_phase(
     [[maybe_unused]] const std::string& log_directory,
     SceneUid scene_uid_val,
     PhaseUid phase_uid_val,
-    const ApertureSubmitFunc& submit_fn,
+    const ApertureChunkSubmitFunc& submit_fn,
     double aperture_timeout,
     [[maybe_unused]] bool save_aperture_lp,
     const ApertureDataCache& aperture_cache,
     IterationIndex iteration_index,
     double cut_coeff_eps,
     LpDebugWriter* lp_debug_writer,
-    bool use_manual_clone) -> std::optional<SparseRow>
+    bool use_manual_clone,
+    int chunk_size) -> std::optional<SparseRow>
 {
   const auto& phase_li = sys.linear_interface();
 
@@ -231,33 +232,30 @@ auto solve_apertures_for_phase(
   static std::mutex s_global_clone_mutex;
   auto* clone_mutex = &s_global_clone_mutex;
 
-  std::vector<std::future<ApertureCutResult>> futures;
-  futures.reserve(effective_apertures.size());
+  // ── Pre-filter: drop apertures with no resolvable source ────────────
+  //
+  // An aperture whose ``source_scenario`` is neither in the forward
+  // ``all_scenarios`` set nor backed by an ``aperture_cache`` cannot
+  // be solved.  Filtering happens here (not inside the chunk task)
+  // so the chunk-shape fed to ``partition_apertures`` already
+  // excludes unsolvable entries — the inner serial loop never has
+  // to early-out, and the per-chunk UID memo stays consistent.
+  struct PreparedAperture
+  {
+    std::reference_wrapper<const Aperture> aperture;
+    int count {};
+    std::ptrdiff_t scenario_idx {-1};  // -1 = use aperture_cache fallback
+  };
+  std::vector<PreparedAperture> prepared;
+  prepared.reserve(effective_apertures.size());
   int n_skipped = 0;
-
   for (const auto& [ap_ref, ap_count] : effective_apertures) {
     const auto& aperture = ap_ref.get();
     const ApertureUid ap_uid = make_uid<Scenario>(aperture.uid);
-    const double pf = aperture.probability_factor.value_or(1.0);
-    if (pf <= 0.0) {
-      SPDLOG_WARN(
-          "SDDP Aperture [i{} s{} p{} a{}]: non-positive probability_factor "
-          "{:.6f}, using 1.0 as fallback",
-          gtopt::uid_of(iteration_index),
-          scene_uid_val,
-          phase_uid_val,
-          ap_uid,
-          pf);
-    }
-    const double effective_pf = pf > 0.0 ? pf : 1.0;
-    const double weight = static_cast<double>(ap_count) * effective_pf;
-
-    // Find the scenario corresponding to this aperture's source_scenario
-    auto scen_it = std::ranges::find_if(
+    const auto scen_it = std::ranges::find_if(
         all_scenarios,
         [&aperture](const auto& scen)
         { return Uid {scen.uid()} == aperture.source_scenario; });
-
     if (scen_it == all_scenarios.end() && aperture_cache.empty()) {
       spdlog::info(
           "SDDP Aperture [i{} s{} p{} a{}]: source_scenario {} not found and "
@@ -270,83 +268,148 @@ auto solve_apertures_for_phase(
       ++n_skipped;
       continue;
     }
+    const auto idx = (scen_it == all_scenarios.end())
+        ? std::ptrdiff_t {-1}
+        : std::distance(all_scenarios.begin(), scen_it);
+    prepared.push_back({ap_ref, ap_count, idx});
+  }
 
-    // Submit the entire aperture task (clone → update → solve → cut).
-    // The clone is created inside the task from the shared source LP,
-    // so only active_threads clones exist simultaneously (not all N).
+  // ── Wrap prepared entries as ApertureEntry spans for partitioning ──
+  //
+  // ``partition_apertures`` operates on ``ApertureEntry`` (which holds
+  // the same {aperture, count} pair, minus the resolved scenario_idx).
+  // Build a parallel ``ApertureEntry`` view so the partition helper
+  // can be reused unchanged; the chunk task indexes into ``prepared``
+  // for the resolved scenario_idx.
+  std::vector<ApertureEntry> prepared_view;
+  prepared_view.reserve(prepared.size());
+  for (const auto& p : prepared) {
+    prepared_view.push_back({.aperture = p.aperture, .count = p.count});
+  }
+  const auto chunks = partition_apertures(prepared_view, chunk_size);
+
+  // ── Submit one task per chunk ──────────────────────────────────────
+  //
+  // Each chunk task body:
+  //   1. Clones the phase LP **once** (manual `clone_from_flat` w/
+  //      replay if available, else mutex-serialised native `clone()`).
+  //   2. Iterates its assigned apertures serially, for each:
+  //      a. Per-chunk UID memo — adjacent (or in-chunk) duplicates
+  //         reuse the previous cut + status, replacing only the
+  //         per-instance weight.  Saves the full visitor traversal
+  //         and the LP resolve.
+  //      b. Always runs the visitor (no `is_base_scenario` short-
+  //         circuit — in chunked mode the clone already carries the
+  //         previous aperture's bounds, so the base-scenario aperture
+  //         must re-overwrite to base values explicitly).  The
+  //         per-element ``update_aperture`` writes flow col bounds
+  //         densely, so apertures fully overwrite each other — no
+  //         snapshot/restore needed.
+  //      c. Solves; build cut from reduced costs.
+  //   3. Returns one ``ApertureCutResult`` per inner aperture in
+  //      input order.
+  std::vector<std::future<ApertureChunkResult>> futures;
+  futures.reserve(chunks.size());
+  for (const auto chunk : chunks) {
     futures.push_back(submit_fn(
-        [&, ap_uid, weight, scen_it, clone_mutex, use_manual_clone]() mutable
-            -> ApertureCutResult
+        [&, chunk, clone_mutex, use_manual_clone]() -> ApertureChunkResult
         {
-          const auto ap_start = std::chrono::steady_clock::now();
+          const auto chunk_start = std::chrono::steady_clock::now();
           const auto task_tid = std::this_thread::get_id();
 
-          // Create the clone via the route selected by the caller.
-          // Manual route bypasses the global clone mutex; native
-          // route serialises under it.  Both produce a
-          // shallow-metadata clone (shared_ptr-share of the source's
-          // frozen label vectors / dedup maps / scale vectors) so
-          // peak metadata memory at ~80 concurrent clones stays at
-          // one shared copy regardless of which route is chosen.
+          // ── Single LP clone per chunk ────────────────────────────
+          //
+          // Manual route (parallel-safe, no global mutex): builds the
+          // clone via `CPXcreateprob` + `CPXaddrows` on a fresh env,
+          // then replays `m_replay_.active_cuts()` so cuts on α_p
+          // installed by the previous backward iteration (phase p+1)
+          // are visible to every aperture in this chunk.
+          // Native route: `CPXcloneprob` copies the live backend
+          // (cuts included) under the process-global clone mutex.
           LinearInterface clone = [&]
           {
             if (use_manual_clone && phase_li.has_snapshot_data()) {
-              // No mutex — `clone_from_flat` uses only env-local
-              // calls (`CPXcreateprob` + `CPXaddrows` on a freshly
-              // opened env), which run safely in parallel.
-              //
-              // `with_replay=true` is **load-bearing** for SDDP
-              // correctness: the source `phase_li`'s stored
-              // `FlatLinearProblem` snapshot was captured at
-              // construction time, BEFORE any cuts were installed.
-              // Without replay, the aperture clone would solve the
-              // structural LP without the cut(s) on α_p — most
-              // importantly the cut just installed by the previous
-              // backward iteration (phase p+1) on src=phase p,
-              // which is exactly the cut this aperture solve must
-              // see to produce a valid Benders cut on α_{p-1}.
-              // The replay re-applies `m_replay_.active_cuts()` onto
-              // the freshly-opened backend, yielding a
-              // current-state clone equivalent to what the native
-              // `clone()` route would produce — but built via
-              // env-local calls and so still parallel-safe.  See
-              // `LinearInterface::clone_from_flat` doxygen.
               return phase_li.clone_from_flat(
                   LinearInterface::CloneKind::shallow,
                   /*with_replay=*/true);
             }
-            // Fallback or default: native clone under the global
-            // mutex.  The legacy aperture-clone path crashed three
-            // threads at the same instruction pointer when this
-            // mutex was missing — see commit `1d7a05c1`.  Native
-            // `clone()` (`CPXcloneprob`) copies the live backend
-            // including all installed cuts, so cut visibility is
-            // free on this route.
             const std::scoped_lock lock(*clone_mutex);
             return phase_li.clone(LinearInterface::CloneKind::shallow);
           }();
 
-          // Update scenario-dependent bounds via a unified visitor.
-          // Build a value-provider that reads from the scenario LP
-          // arrays when the scenario is in the forward set, or from
-          // the aperture data cache otherwise.
-          // If the aperture's source scenario matches the forward-pass
-          // base scenario, the clone already has the correct bounds —
-          // skip the visitor update entirely.
-          const bool is_base_scenario =
-              (scen_it != all_scenarios.end()
-               && Uid {scen_it->uid()} == Uid {base_scenario.uid()});
+          ApertureChunkResult results;
+          results.reserve(chunk.size());
 
-          if (!is_base_scenario) {
+          // Per-chunk UID memo (linear search — chunk_size is small,
+          // K ≈ 4..16 in production).  Maps an already-solved
+          // aperture UID to its index inside `results` so duplicates
+          // copy the cut + feasibility but use this instance's
+          // weight = ap_count × probability_factor.
+          struct MemoEntry
+          {
+            ApertureUid uid;
+            std::size_t idx;
+          };
+          std::vector<MemoEntry> seen;
+          seen.reserve(chunk.size());
+
+          for (std::size_t ci = 0; ci < chunk.size(); ++ci) {
+            // Each chunk_view entry indexes into `prepared` at the
+            // same offset of its own contiguous range.  Because
+            // `partition_apertures` returns contiguous subspans of
+            // `prepared_view`, address-distance gives us the original
+            // index into `prepared`.
+            const auto prep_idx =
+                static_cast<std::size_t>(&chunk[ci] - prepared_view.data());
+            const auto& prep = prepared[prep_idx];
+            const auto& aperture = prep.aperture.get();
+            const ApertureUid ap_uid = make_uid<Scenario>(aperture.uid);
+            const double pf = aperture.probability_factor.value_or(1.0);
+            if (pf <= 0.0) {
+              SPDLOG_WARN(
+                  "SDDP Aperture [i{} s{} p{} a{}]: non-positive "
+                  "probability_factor {:.6f}, using 1.0 as fallback",
+                  gtopt::uid_of(iteration_index),
+                  scene_uid_val,
+                  phase_uid_val,
+                  ap_uid,
+                  pf);
+            }
+            const double effective_pf = pf > 0.0 ? pf : 1.0;
+            const double weight =
+                static_cast<double>(prep.count) * effective_pf;
+
+            // Per-chunk UID memo hit.
+            if (auto it = std::ranges::find_if(
+                    seen, [ap_uid](const auto& e) { return e.uid == ap_uid; });
+                it != seen.end())
+            {
+              ApertureCutResult dup = results[it->idx];
+              dup.weight = weight;  // use this instance's weight
+              results.push_back(std::move(dup));
+              continue;
+            }
+
+            const auto ap_start = std::chrono::steady_clock::now();
+            const bool has_scen = prep.scenario_idx >= 0;
+            const ScenarioLP* scen_ptr = has_scen
+                ? &all_scenarios[static_cast<std::size_t>(prep.scenario_idx)]
+                : nullptr;
+
+            // Always run the visitor (no is_base_scenario short-
+            // circuit): in chunked mode the clone may carry the
+            // previous aperture's bounds, so the base-scenario
+            // aperture must re-overwrite to base values explicitly.
+            // Per-element `update_aperture` writes flow col bounds
+            // densely → full overwrite → no snapshot/restore needed.
             auto visitor = [&](auto& e) -> bool
             {
               using E = std::remove_cvref_t<decltype(e)>;
               if constexpr (HasUpdateAperture<E>) {
                 for (const auto& stage : phase_lp.stages()) {
-                  // Build value_fn for this element
                   ApertureValueFn value_fn;
-                  if (scen_it != all_scenarios.end()) {
-                    const auto& ap_scen = *scen_it;
+                  if (scen_ptr != nullptr) {
+                    const auto& ap_scen = *scen_ptr;
                     value_fn = [&e, &ap_scen](
                                    StageUid st,
                                    BlockUid bl) -> std::optional<double>
@@ -372,68 +435,85 @@ auto solve_apertures_for_phase(
               }
               return true;
             };
-            // `sys.collections()` was populated on the main thread
-            // BEFORE aperture tasks were dispatched (see
-            // `backward_pass_aperture_phase_impl`).  Calling
-            // `rebuild_collections_if_needed` here would be a data
-            // race — multiple aperture tasks run concurrently on the
-            // SAME `sys` (target_sys) and all of them would mutate
-            // `m_collections_` simultaneously.  Read-only access from
-            // many threads is safe.
+            // `sys.collections()` is populated on the main thread
+            // BEFORE chunk tasks are dispatched.  Read-only access
+            // from many threads is safe; mutating it here would race.
             visit_elements(sys.collections(), visitor);
-          } else {
-            SPDLOG_DEBUG(
-                "SDDP Aperture [i{} s{} p{} a{}]: source matches base "
-                "scenario, skipping bound update",
-                gtopt::uid_of(iteration_index),
-                scene_uid_val,
-                phase_uid_val,
-                ap_uid);
-          }
 
-          // Configure solver log file for aperture clone
-          const auto log_mode =
-              aperture_opts.log_mode.value_or(SolverLogMode::nolog);
-          if (log_mode == SolverLogMode::detailed && !log_directory.empty()) {
-            clone.set_log_file(
-                (std::filesystem::path(log_directory)
-                 / as_label(
-                     clone.solver_name(), scene_uid_val, phase_uid_val, ap_uid))
-                    .string());
-          }
+            // Configure solver log file for this aperture solve.
+            const auto log_mode =
+                aperture_opts.log_mode.value_or(SolverLogMode::nolog);
+            if (log_mode == SolverLogMode::detailed && !log_directory.empty()) {
+              clone.set_log_file((std::filesystem::path(log_directory)
+                                  / as_label(clone.solver_name(),
+                                             scene_uid_val,
+                                             phase_uid_val,
+                                             ap_uid))
+                                     .string());
+            }
 
-          // lp_debug extension for apertures: dump the clone's LP
-          // (post-update, pre-solve) when the caller provided a
-          // writer.  Caller is responsible for applying the
-          // `lp_debug_scene/phase_min/max` filter window and passing
-          // nullptr when out of range — so the writer is either
-          // inactive or unconditionally writes every aperture in
-          // range.  Each aperture task is a separate LinearInterface
-          // clone and lambda, so the writer's async compression is
-          // already thread-safe per its own future-vector.
-          if (lp_debug_writer != nullptr && lp_debug_writer->is_active()) {
-            const auto dbg_stem =
-                (std::filesystem::path(log_directory)
-                 / std::format(sddp_file::debug_aperture_lp_fmt,
-                               scene_uid_val,
-                               phase_uid_val,
-                               ap_uid,
-                               iteration_index))
-                    .string();
-            lp_debug_writer->write(clone, dbg_stem);
-          }
+            // lp_debug for apertures: dump the clone's LP (post-bound-
+            // apply, pre-solve).  Caller applies the filter window.
+            if (lp_debug_writer != nullptr && lp_debug_writer->is_active()) {
+              const auto dbg_stem =
+                  (std::filesystem::path(log_directory)
+                   / std::format(sddp_file::debug_aperture_lp_fmt,
+                                 scene_uid_val,
+                                 phase_uid_val,
+                                 ap_uid,
+                                 iteration_index))
+                      .string();
+              lp_debug_writer->write(clone, dbg_stem);
+            }
 
-          // Solve
-          [[maybe_unused]] auto solve_result = clone.resolve(aperture_opts);
-          const bool feasible = clone.is_optimal();
+            // Solve.  After the first aperture in the chunk, every
+            // subsequent solve warm-starts from the previous one's
+            // basis on the shared clone — bound-only deltas keep
+            // the dual basis valid → typically converges in a
+            // fraction of a cold barrier.
+            [[maybe_unused]] auto solve_result = clone.resolve(aperture_opts);
+            const bool feasible = clone.is_optimal();
+            if (!feasible) {
+              const auto status = clone.get_status();
+              const auto ap_s = std::chrono::duration<double>(
+                                    std::chrono::steady_clock::now() - ap_start)
+                                    .count();
+              spdlog::trace(
+                  "SDDP Aperture [i{} s{} p{} a{}]: infeasible ({:.3f}s) "
+                  "[thread {}]",
+                  gtopt::uid_of(iteration_index),
+                  scene_uid_val,
+                  phase_uid_val,
+                  ap_uid,
+                  ap_s,
+                  std::hash<std::thread::id> {}(task_tid) % 10000);
+              results.push_back(ApertureCutResult {
+                  .ap_uid = ap_uid,
+                  .weight = weight,
+                  .feasible = false,
+                  .status = status,
+              });
+              // Memo: future duplicates inside the chunk inherit the
+              // infeasible status (and don't pay the resolve cost).
+              seen.push_back({.uid = ap_uid, .idx = results.size() - 1});
+              continue;
+            }
 
-          if (!feasible) {
-            const auto status = clone.get_status();
+            auto cut = build_benders_cut_physical(src_alpha_col,
+                                                  src_state.outgoing_links,
+                                                  clone,
+                                                  clone.get_obj_value(),
+                                                  cut_coeff_eps);
+            sddp_aperture_cut_tag.apply_to(cut);
+            cut.variable_uid = phase_uid_val;
+            cut.context = make_aperture_context(
+                scene_uid_val, phase_uid_val, ap_uid, total_cuts);
+
             const auto ap_s = std::chrono::duration<double>(
                                   std::chrono::steady_clock::now() - ap_start)
                                   .count();
             spdlog::trace(
-                "SDDP Aperture [i{} s{} p{} a{}]: infeasible ({:.3f}s) "
+                "SDDP Aperture [i{} s{} p{} a{}]: solved ({:.3f}s) "
                 "[thread {}]",
                 gtopt::uid_of(iteration_index),
                 scene_uid_val,
@@ -441,48 +521,35 @@ auto solve_apertures_for_phase(
                 ap_uid,
                 ap_s,
                 std::hash<std::thread::id> {}(task_tid) % 10000);
-            return ApertureCutResult {
+
+            results.push_back(ApertureCutResult {
                 .ap_uid = ap_uid,
                 .weight = weight,
-                .feasible = false,
-                .status = status,
-            };
+                .feasible = true,
+                .status = 0,
+                .cut = std::move(cut),
+            });
+            seen.push_back({.uid = ap_uid, .idx = results.size() - 1});
           }
 
-          // Physical-space per-aperture cut: rc from this aperture's
-          // clone (ScaledView: LP × scale_objective / col_scale),
-          // trial from each link's source StateVariable.  `add_row` on
-          // src_li folds col_scales + row-max on insertion, so the
-          // legacy `rescale_benders_cut` pass is no longer needed.
-          auto cut = build_benders_cut_physical(src_alpha_col,
-                                                src_state.outgoing_links,
-                                                clone,
-                                                clone.get_obj_value(),
-                                                cut_coeff_eps);
-          sddp_aperture_cut_tag.apply_to(cut);
-          cut.variable_uid = phase_uid_val;
-          cut.context = make_aperture_context(
-              scene_uid_val, phase_uid_val, ap_uid, total_cuts);
-
-          const auto ap_s = std::chrono::duration<double>(
-                                std::chrono::steady_clock::now() - ap_start)
-                                .count();
+          const auto chunk_s =
+              std::chrono::duration<double>(std::chrono::steady_clock::now()
+                                            - chunk_start)
+                  .count();
+          // spdlog::trace function form — SPDLOG_TRACE macro is baked
+          // to `(void)0` in this build (PCH compiles spdlog at INFO),
+          // which would also leave `chunk_s` unused → compile error.
           spdlog::trace(
-              "SDDP Aperture [i{} s{} p{} a{}]: solved ({:.3f}s) [thread {}]",
+              "SDDP Aperture [i{} s{} p{}]: chunk of {} done ({:.3f}s) "
+              "[thread {}]",
               gtopt::uid_of(iteration_index),
               scene_uid_val,
               phase_uid_val,
-              ap_uid,
-              ap_s,
+              chunk.size(),
+              chunk_s,
               std::hash<std::thread::id> {}(task_tid) % 10000);
 
-          return ApertureCutResult {
-              .ap_uid = ap_uid,
-              .weight = weight,
-              .feasible = true,
-              .status = 0,
-              .cut = std::move(cut),
-          };
+          return results;
         }));
   }
 
@@ -493,38 +560,43 @@ auto solve_apertures_for_phase(
   double total_weight = 0.0;
   int n_infeasible = 0;
 
+  // Each future yields a chunk's worth of per-aperture results
+  // (1..K elements depending on chunk_size).  Flatten as we collect.
   for (auto& fut : futures) {
-    auto result = fut.get();
-
-    if (!result.feasible) {
-      ++n_infeasible;
-      if (aperture_timeout > 0.0 && (result.status == 1 || result.status == 3))
-      {
-        spdlog::warn(
-            "SDDP Aperture [i{} s{} p{} a{}]: timed out ({:.1f}s, status {}),"
-            " treating as infeasible",
-            gtopt::uid_of(iteration_index),
-            scene_uid_val,
-            phase_uid_val,
-            result.ap_uid,
-            aperture_timeout,
-            result.status);
-      } else {
-        spdlog::trace(
-            "SDDP Aperture [i{} s{} p{} a{}]: infeasible (status {}), skipping",
-            gtopt::uid_of(iteration_index),
-            scene_uid_val,
-            phase_uid_val,
-            result.ap_uid,
-            result.status);
+    auto chunk_results = fut.get();
+    for (auto& result : chunk_results) {
+      if (!result.feasible) {
+        ++n_infeasible;
+        if (aperture_timeout > 0.0
+            && (result.status == 1 || result.status == 3))
+        {
+          spdlog::warn(
+              "SDDP Aperture [i{} s{} p{} a{}]: timed out ({:.1f}s, "
+              "status {}), treating as infeasible",
+              gtopt::uid_of(iteration_index),
+              scene_uid_val,
+              phase_uid_val,
+              result.ap_uid,
+              aperture_timeout,
+              result.status);
+        } else {
+          spdlog::trace(
+              "SDDP Aperture [i{} s{} p{} a{}]: infeasible (status {}), "
+              "skipping",
+              gtopt::uid_of(iteration_index),
+              scene_uid_val,
+              phase_uid_val,
+              result.ap_uid,
+              result.status);
+        }
+        continue;
       }
-      continue;
-    }
 
-    if (result.cut.has_value()) {
-      aperture_cuts.push_back(std::move(*result.cut));
-      aperture_weights.push_back(result.weight);
-      total_weight += result.weight;
+      if (result.cut.has_value()) {
+        aperture_cuts.push_back(std::move(*result.cut));
+        aperture_weights.push_back(result.weight);
+        total_weight += result.weight;
+      }
     }
   }
 

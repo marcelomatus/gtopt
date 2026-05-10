@@ -582,6 +582,44 @@ TEST_CASE("SDDPMethod - 2-phase with apertures converges")  // NOLINT
     }
     CHECK(total_cuts > 0);
   }
+
+  // Chunked aperture pass: K=1 (legacy 1-task-per-aperture),
+  // K=2 (one chunk holds both apertures, exercises shared-clone +
+  // memo path), and K=-1 (fully serial cap).  All three must
+  // converge to the same final UB on this 2-aperture case modulo
+  // solver tolerance.
+  SUBCASE("apertures + chunk_size=1 (legacy path)")
+  {
+    sddp_opts.apertures = std::nullopt;
+    sddp_opts.aperture_chunk_size = 1;
+    SDDPMethod sddp(plp, sddp_opts);
+    auto results = sddp.solve();
+    REQUIRE(results.has_value());
+    CHECK_FALSE(results->empty());
+    CHECK(results->back().converged);
+  }
+
+  SUBCASE("apertures + chunk_size=2 (single-chunk shared clone)")
+  {
+    sddp_opts.apertures = std::nullopt;
+    sddp_opts.aperture_chunk_size = 2;
+    SDDPMethod sddp(plp, sddp_opts);
+    auto results = sddp.solve();
+    REQUIRE(results.has_value());
+    CHECK_FALSE(results->empty());
+    CHECK(results->back().converged);
+  }
+
+  SUBCASE("apertures + chunk_size=-1 (fully serial per scene)")
+  {
+    sddp_opts.apertures = std::nullopt;
+    sddp_opts.aperture_chunk_size = -1;
+    SDDPMethod sddp(plp, sddp_opts);
+    auto results = sddp.solve();
+    REQUIRE(results.has_value());
+    CHECK_FALSE(results->empty());
+    CHECK(results->back().converged);
+  }
 }
 
 // ─── Unit tests for free utility functions ─────────────────────────────────

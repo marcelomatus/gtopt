@@ -707,6 +707,25 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   /// the native route.  Default: false (preserve legacy behaviour).
   bool aperture_use_manual_clone {false};
 
+  /// Apertures solved serially per backward-pass task (chunked aperture
+  /// pass).  Each chunk is one work-pool task that clones the phase LP
+  /// once and solves its inner apertures in series with warm-start
+  /// reuse on the shared clone.
+  ///
+  /// Sentinel values (resolved at SDDPMethod setup):
+  ///
+  ///   *  0 → auto.  Picked by
+  ///         `compute_auto_aperture_chunk_size(A_max, S, C,
+  ///         parallel_factor=2.0)`.
+  ///   *  1 → legacy: one task per aperture (no chunking).
+  ///   * >1 → use exactly this many apertures per task.
+  ///   * -1 → cap at A_max per phase (single task per scene, fully
+  ///         serial inside).
+  ///
+  /// Default 0 (auto).  See `sddp_options.hpp::aperture_chunk_size` for
+  /// the JSON-facing field documentation.
+  int aperture_chunk_size {0};
+
   /// Enable warm-start optimizations for SDDP resolves (forward pass,
   /// backward pass, apertures, elastic filter).  When true, resolves use
   /// dual simplex + no presolve, pivoting from the saved forward-pass

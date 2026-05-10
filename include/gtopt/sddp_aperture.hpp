@@ -265,7 +265,7 @@ struct ApertureEntry
 
 // ─── Aperture task submission ────────────────────────────────────────────────
 
-/// Result of a single aperture task (clone + update + solve + cut).
+/// Result of a single aperture's clone + update + solve + cut.
 struct ApertureCutResult
 {
   ApertureUid ap_uid {};
@@ -275,14 +275,22 @@ struct ApertureCutResult
   std::optional<SparseRow> cut {};
 };
 
-/// Callback for submitting a complete aperture task to the work pool.
+/// Result of a chunked task (one task can hold N aperture solves under
+/// the chunked aperture pass).  At chunk_size=1 each chunk is a 1-element
+/// vector — equivalent to the legacy 1-task-per-aperture path.
+using ApertureChunkResult = std::vector<ApertureCutResult>;
+
+/// Callback for submitting a chunk task (1..K aperture solves on a
+/// shared LP clone) to the SDDP work pool.
 ///
-/// Accepts a task function that returns an ApertureCutResult and submits
-/// it to the SDDP work pool.  Returns a future for the result.
-/// The caller submits all apertures first, then collects all futures,
-/// enabling parallel execution.
-using ApertureSubmitFunc = std::function<std::future<ApertureCutResult>(
-    const std::function<ApertureCutResult()>& task)>;
+/// The task body itself is responsible for cloning the phase LP once,
+/// iterating its assigned apertures serially with warm-start reuse on
+/// the shared clone, and producing one ``ApertureCutResult`` per
+/// aperture (in input order, including memo-hit duplicates).  The
+/// caller submits all chunks first, then collects every future,
+/// enabling parallel execution across chunks.
+using ApertureChunkSubmitFunc = std::function<std::future<ApertureChunkResult>(
+    const std::function<ApertureChunkResult()>& task)>;
 
 // ─── Core aperture solver ───────────────────────────────────────────────────
 
@@ -340,6 +348,23 @@ using ApertureSubmitFunc = std::function<std::future<ApertureCutResult>(
 ///                         `FlatLinearProblem` snapshot.  When false
 ///                         (default), the legacy native route is used,
 ///                         serialising every clone under the global mutex.
+/// @param chunk_size       Apertures per submitted task (chunked
+///                         backward pass).  >=2 enables the chunked
+///                         path: every chunk becomes ONE work-pool task
+///                         that clones the phase LP **once** and solves
+///                         its inner apertures sequentially with warm-
+///                         start reuse on the shared clone.  Bound-only
+///                         deltas keep the dual basis valid, so the
+///                         second-and-later resolves typically converge
+///                         in a fraction of a cold barrier.  A per-chunk
+///                         UID memo collapses adjacent duplicate
+///                         apertures (the wetness sort applied in
+///                         plp2gtopt keeps duplicates adjacent) to a
+///                         single solve + N-fold weight.  ``<=1``
+///                         falls back to the legacy 1-aperture-per-
+///                         task path (each chunk is a 1-element
+///                         vector); the call site sees identical
+///                         externally-observable behaviour.
 [[nodiscard]] auto solve_apertures_for_phase(
     SceneIndex scene_index,
     PhaseIndex phase_index,
@@ -357,13 +382,14 @@ using ApertureSubmitFunc = std::function<std::future<ApertureCutResult>(
     const std::string& log_directory,
     SceneUid scene_uid_val,
     PhaseUid phase_uid_val,
-    const ApertureSubmitFunc& submit_fn,
+    const ApertureChunkSubmitFunc& submit_fn,
     double aperture_timeout = 0.0,
     bool save_aperture_lp = false,
     const ApertureDataCache& aperture_cache = {},
     IterationIndex iteration_index = {},
     double cut_coeff_eps = 0.0,
     LpDebugWriter* lp_debug_writer = nullptr,
-    bool use_manual_clone = false) -> std::optional<SparseRow>;
+    bool use_manual_clone = false,
+    int chunk_size = 1) -> std::optional<SparseRow>;
 
 }  // namespace gtopt
