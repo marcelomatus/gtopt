@@ -74,6 +74,16 @@ scripts/*.log
 cases/*/logs/
 cases/*/results/
 
+# Local error/log scratch dir at repo root
+/logs/
+
+# Large local PLP test data and per-developer notes under support/juan/
+support/juan/IPLP/
+support/juan/IPLP-small/
+support/juan/Testing/
+support/juan/run_*.sh
+support/juan/sddp_*.md
+
 # LaTeX build artifacts
 *.aux
 *.bbl
