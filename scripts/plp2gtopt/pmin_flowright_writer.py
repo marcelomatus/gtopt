@@ -45,6 +45,7 @@ import numpy as np
 import pandas as pd
 
 from .base_writer import BaseWriter
+from ._water_value import WaterValueResolver
 
 _logger = logging.getLogger(__name__)
 
@@ -52,6 +53,15 @@ _logger = logging.getLogger(__name__)
 #: parquet stem.  Must agree with
 #: :data:`gtopt_expand.pmin_flowright_expand._FLOW_RIGHT_SUFFIX`.
 _FLOW_RIGHT_SUFFIX: str = "_pmin_as_flow_right"
+
+#: Suffix appended to the waterway name for the FlowRight name and
+#: parquet stem produced by the waterway-fmin → FlowRight transform.
+_WATERWAY_FLOW_RIGHT_SUFFIX: str = "_fmin_as_flow_right"
+
+#: First UID assigned to FlowRights emitted by the waterway-fmin path.
+#: Sits above :data:`_FLOW_RIGHT_UID_START` so the two paths do not
+#: collide when both run in the same plp2gtopt invocation.
+_WATERWAY_FLOW_RIGHT_UID_START: int = 5500
 
 #: ``purpose`` field used on the emitted FlowRight (metadata only).
 _FLOW_RIGHT_PURPOSE: str = "environmental"
@@ -151,7 +161,9 @@ class PminFlowRightWriter(BaseWriter):
         scenarios: Optional[List[Dict[str, Any]]] = None,
         vrebemb_parser: Optional[Any] = None,
         plpmat_parser: Optional[Any] = None,
+        cenre_parser: Optional[Any] = None,
         options: Optional[Dict[str, Any]] = None,
+        water_value_resolver: Optional[WaterValueResolver] = None,
     ) -> None:
         super().__init__(parser=None, options=options)
         self.whitelist = list(whitelist)
@@ -162,6 +174,33 @@ class PminFlowRightWriter(BaseWriter):
         self.scenarios = list(scenarios) if scenarios else []
         self.vrebemb_parser = vrebemb_parser
         self.plpmat_parser = plpmat_parser
+        self.cenre_parser = cenre_parser
+        # Auto water-shortfall pricing helper.  When the resolver is
+        # active (``is_active`` True — set by either ``--auto-water-
+        # fail-cost`` or the explicit ``--water-fail-cost`` override),
+        # ``fail_cost`` is resolved per-central via
+        # :meth:`junction_lost_pf`; otherwise the legacy uniform
+        # ``_resolve_fail_cost`` cascade is used.
+        _opts = self.options or {}
+        _wvr_gate = bool(_opts.get("auto_water_fail_cost")) or (
+            _opts.get("water_fail_cost") is not None
+        )
+        self._water_value_resolver: Optional[WaterValueResolver] = (
+            water_value_resolver
+            if water_value_resolver is not None or not _wvr_gate
+            else WaterValueResolver(
+                central_parser=central_parser,
+                cenre_parser=cenre_parser,
+                options=self.options,
+            )
+        )
+        # Generator UIDs whose pmin was zeroed in the JSON by this
+        # transform.  Used by :meth:`_drop_generator_pmin_columns` to
+        # also strip the corresponding columns from
+        # ``Generator/pmin.parquet`` so the per-stage trajectory does
+        # not silently re-enforce a hard pmin alongside the new soft
+        # FlowRight.
+        self._converted_generator_uids: set[int] = set()
 
     def _scenario_uids(self) -> List[int]:
         """Return the list of scenario UIDs used for the parquet rows.
@@ -201,18 +240,21 @@ class PminFlowRightWriter(BaseWriter):
            * Zero the matching generator's ``pmin``.
            * Append the FlowRight JSON.
         """
-        if not self.whitelist:
-            return []
-
-        gen_junctions = self._build_gen_junction_map(planning_system)
-        if not gen_junctions:
-            _logger.warning(
-                "pmin_as_flowright: no gen waterways found in planning;"
-                " nothing to convert."
-            )
-            return []
-
+        # Uniform fallback fail_cost — used when the auto-water-fail-cost
+        # resolver is inactive, AND as the floor for the waterway-fmin
+        # transform which has no per-central anchor.  When the resolver
+        # is active each gen-pmin FR receives its own per-central cost
+        # via :meth:`_resolve_fail_cost_for`.
         fail_cost = self._resolve_fail_cost()
+
+        gen_junctions: Dict[str, str] = {}
+        if self.whitelist:
+            gen_junctions = self._build_gen_junction_map(planning_system)
+            if not gen_junctions:
+                _logger.warning(
+                    "pmin_as_flowright: no gen waterways found in planning;"
+                    " whitelist transform will be skipped."
+                )
         generators: List[Dict[str, Any]] = list(
             planning_system.get("generator_array", []) or []
         )
@@ -222,12 +264,13 @@ class PminFlowRightWriter(BaseWriter):
 
         next_uid = _FLOW_RIGHT_UID_START
         for name in self.whitelist:
+            fc = self._resolve_fail_cost_for(name, default=fail_cost)
             entry, flow_values = self._build_flow_right(
                 central_name=name,
                 uid=next_uid,
                 gen_junctions=gen_junctions,
                 generators=generators,
-                fail_cost=fail_cost,
+                fail_cost=fc,
                 block_index=block_index,
             )
             if entry is None:
@@ -236,35 +279,51 @@ class PminFlowRightWriter(BaseWriter):
             rows_by_uid[next_uid] = flow_values
             next_uid += 1
 
-        if not flow_rights:
-            return []
+        if flow_rights:
+            # Persist generator pmin overrides.
+            planning_system["generator_array"] = generators
 
-        # Persist generator pmin overrides.
-        planning_system["generator_array"] = generators
+            # Append FlowRights to planning system.
+            fr_array = planning_system.setdefault("flow_right_array", [])
+            if not isinstance(fr_array, list):
+                raise ValueError("planning system 'flow_right_array' must be a list")
+            fr_array.extend(flow_rights)
 
-        # Append FlowRights to planning system.
-        fr_array = planning_system.setdefault("flow_right_array", [])
-        if not isinstance(fr_array, list):
-            raise ValueError("planning system 'flow_right_array' must be a list")
-        fr_array.extend(flow_rights)
+            # Write the parquet file(s) — one per FlowRight to match the
+            # JSON ``discharge`` string ref format expected by gtopt.
+            self._write_parquets(flow_rights, rows_by_uid, block_index, stage_index)
 
-        # Write the parquet file(s) — one per FlowRight to match the
-        # JSON ``discharge`` string ref format expected by gtopt.
-        self._write_parquets(flow_rights, rows_by_uid, block_index, stage_index)
+            # Drop the converted generators' columns from
+            # Generator/pmin.parquet so the original per-stage pmin
+            # trajectory does not silently re-enforce a hard pmin
+            # alongside the new soft FlowRight.
+            self._drop_generator_pmin_columns()
 
-        # ``fail_cost`` is the gtopt-internal $/(m³/s·h) coefficient; the
-        # user-facing PLP-native equivalent is /3.6 ($/Hm³).  Show both so
-        # the operator can cross-check against plpmat.dat directly.
-        plp_to_gtopt_units: float = 3.6
-        fail_cost_plp = fail_cost / plp_to_gtopt_units
-        _logger.info(
-            "pmin_as_flowright: emitted %d FlowRight(s)"
-            " (fail_cost = %g $/Hm³ ≡ %g $/(m³/s·h) internal)",
-            len(flow_rights),
-            fail_cost_plp,
-            fail_cost,
+            # ``fail_cost`` is the gtopt-internal $/(m³/s·h) coefficient;
+            # the user-facing PLP-native equivalent is /3.6 ($/Hm³).
+            plp_to_gtopt_units: float = 3.6
+            fail_cost_plp = fail_cost / plp_to_gtopt_units
+            _logger.info(
+                "pmin_as_flowright: emitted %d FlowRight(s)"
+                " (fail_cost = %g $/Hm³ ≡ %g $/(m³/s·h) internal)",
+                len(flow_rights),
+                fail_cost_plp,
+                fail_cost,
+            )
+
+        # Second transform: waterway fmin → FlowRight.  Auto-detected
+        # from ``Waterway/fmin.parquet`` (no whitelist; every non-zero
+        # column is converted).  This catches transit centrals
+        # (``bus = 0``, e.g. LMAULE, B_LaMina) whose minimum-flow
+        # obligation lives on the gen waterway directly because they
+        # have no Generator entity to carry it.  Without this transform
+        # the hard ``waterway_flow >= fmin`` row can drive an SDDP
+        # phase infeasible when the upstream reservoir is empty.
+        waterway_rights = self._process_waterway_fmin(
+            planning_system, fail_cost=fail_cost
         )
-        return flow_rights
+
+        return flow_rights + waterway_rights
 
     # ------------------------------------------------------------------
     # Internals
@@ -369,6 +428,45 @@ class PminFlowRightWriter(BaseWriter):
 
         return _DEFAULT_FAIL_COST
 
+    def _resolve_fail_cost_for(self, central_name: str, *, default: float) -> float:
+        """Per-central FlowRight ``fail_cost`` (gtopt-internal $/(m³/s·h)).
+
+        When the auto helper is inactive (no resolver, or resolver's
+        ``is_active`` is False) we return *default* — the uniform
+        legacy value resolved by :meth:`_resolve_fail_cost`.
+
+        When the helper is active:
+
+        * Resolve the central's number from ``central_parser``.
+        * If unknown → fall back to *default* (defensive; preserves
+          historical behaviour for centrals not in the parser).
+        * Else use ``junction_lost_pf(number)``: the central's own
+          ``max_rendi`` if it has a generator (``bus > 0``), else 0.
+        * If ``lost_pf == 0`` (transit-only / bus=0 central) the FR
+          has no energy-equivalent cost — return ``0.0``.
+        * Otherwise scale by the anchor: ``anchor × lost_pf``.
+        """
+        resolver = self._water_value_resolver
+        if resolver is None or not resolver.is_active:
+            return default
+        central_number: Optional[int] = None
+        if self.central_parser is not None:
+            central_number = next(
+                (
+                    c.get("number")
+                    for c in getattr(self.central_parser, "centrals", []) or []
+                    if c.get("name") == central_name
+                ),
+                None,
+            )
+        if central_number is None:
+            return default
+        lost_pf = resolver.junction_lost_pf(int(central_number))
+        if lost_pf <= 0.0:
+            # Transit-only central (bus=0) — FR has no energy-equivalent cost.
+            return 0.0
+        return resolver.fail_cost(lost_pf)
+
     def _block_stage_indices(self) -> tuple[np.ndarray, np.ndarray]:
         """Return parallel ``(block, stage)`` int32 arrays for the parquet.
 
@@ -453,10 +551,16 @@ class PminFlowRightWriter(BaseWriter):
 
         # Zero the matching generator's pmin so the LP doesn't double-
         # count the obligation.  Generators in plp2gtopt are keyed by
-        # name (matching central_name).
+        # name (matching central_name).  Also record the generator's
+        # uid so we can later drop its column from Generator/pmin.parquet
+        # (otherwise the per-stage trajectory persists as dead data
+        # alongside the new FlowRight obligation).
         for gen in generators:
             if isinstance(gen, dict) and gen.get("name") == central_name:
                 gen["pmin"] = 0.0
+                gen_uid = gen.get("uid")
+                if gen_uid is not None:
+                    self._converted_generator_uids.add(int(gen_uid))
                 break
 
         column_name = f"{central_name}{_FLOW_RIGHT_SUFFIX}"
@@ -514,6 +618,253 @@ class PminFlowRightWriter(BaseWriter):
         for i, blk in enumerate(block_index.tolist()):
             out[i] = pmin_by_block.get(int(blk), static_pmin) / rendi
         return out
+
+    def _drop_generator_pmin_columns(self) -> None:
+        """Strip converted generators' columns from ``Generator/pmin.parquet``.
+
+        The pmin-as-flowright transform sets ``Generator.pmin = 0.0`` in
+        the JSON for each converted central, but ``Generator/pmin.parquet``
+        is written by ``mance_writer`` BEFORE this transform runs.  If the
+        gtopt parser ever consults the parquet for a generator whose JSON
+        scalar pmin is 0, the original mance trajectory would silently
+        re-enforce the hard must-run alongside the new soft FlowRight —
+        defeating the entire transform.
+
+        This cleanup pass removes the ``uid:N`` column for each converted
+        generator from the parquet so the conversion is unambiguous: the
+        only pmin obligation surviving is the soft FlowRight.
+        """
+        if not self._converted_generator_uids:
+            return
+        if "output_dir" not in self.options:
+            return
+        gen_dir = Path(self.options["output_dir"]) / "Generator"
+        # File extension follows the case's output_format (default parquet
+        # → ``pmin.parquet``; CSV mode → ``pmin.csv``).
+        candidates = [gen_dir / "pmin.parquet", gen_dir / "pmin.csv"]
+        path = next((p for p in candidates if p.exists()), None)
+        if path is None:
+            return
+
+        is_parquet = path.suffix == ".parquet"
+        try:
+            df = pd.read_parquet(path) if is_parquet else pd.read_csv(path)
+        except (OSError, ValueError) as exc:
+            _logger.warning(
+                "pmin_as_flowright: could not open %s for cleanup (%s); "
+                "the converted generators' pmin trajectories may persist "
+                "as dead data alongside the new FlowRights.",
+                path,
+                exc,
+            )
+            return
+
+        drop_cols = [f"uid:{uid}" for uid in self._converted_generator_uids]
+        present = [c for c in drop_cols if c in df.columns]
+        if not present:
+            return  # nothing to drop — not all converted gens had a mance schedule
+
+        df = df.drop(columns=present)
+        try:
+            if is_parquet:
+                df.to_parquet(path, index=False)
+            else:
+                df.to_csv(path, index=False)
+        except (OSError, ValueError) as exc:
+            _logger.warning(
+                "pmin_as_flowright: could not rewrite %s after column "
+                "drop (%s); the original trajectories remain on disk.",
+                path,
+                exc,
+            )
+            return
+        _logger.info(
+            "pmin_as_flowright: dropped %d converted-generator pmin column(s) "
+            "from %s (%s)",
+            len(present),
+            path.name,
+            ", ".join(present),
+        )
+
+    # ------------------------------------------------------------------
+    # Waterway fmin → FlowRight transform
+    # ------------------------------------------------------------------
+    def _process_waterway_fmin(
+        self,
+        planning_system: Dict[str, Any],
+        *,
+        fail_cost: float,
+    ) -> List[Dict[str, Any]]:
+        """Convert hard waterway ``fmin`` floors into soft FlowRights.
+
+        Scans the planning system's ``waterway_array`` for waterways
+        whose ``fmin`` is either:
+
+        * a parquet schedule reference (``"fmin"``) — the per-stage
+          envelope lives in ``Waterway/fmin.parquet`` keyed by waterway
+          uid, OR
+        * a positive scalar value.
+
+        For each such waterway:
+
+        1. Build a per-block flow vector (m³/s).  No Rendi conversion
+           — fmin is already in flow units.
+        2. Append a FlowRight to ``flow_right_array`` with
+           ``junction = waterway.junction_b``,
+           ``direction = -1`` (consumptive — same convention as the
+           pmin-as-flowright transform).
+        3. Write a single-column parquet under
+           ``FlowRight/<waterway_name>_fmin_as_flow_right.parquet``.
+        4. Zero the waterway's ``fmin`` so the LP no longer enforces
+           the hard floor.
+        5. Drop the column from ``Waterway/fmin.parquet`` so the
+           per-stage trajectory does not silently re-enforce a hard
+           fmin alongside the new soft FlowRight.
+
+        Returns the list of emitted FlowRight entries.  When no
+        waterway carries a non-zero fmin, returns ``[]`` and the
+        parquet file is left untouched.
+        """
+        waterways = planning_system.get("waterway_array", []) or []
+        if not waterways:
+            return []
+        block_index, stage_index = self._block_stage_indices()
+        if block_index.size == 0:
+            return []
+
+        # Read the parquet column for waterway uids whose ``fmin`` is
+        # a string ref.  Centrals with scalar fmin are handled inline.
+        fmin_parquet_path: Optional[Path] = None
+        fmin_df: Optional[pd.DataFrame] = None
+        if "output_dir" in self.options:
+            cand = Path(self.options["output_dir"]) / "Waterway" / "fmin.parquet"
+            if cand.exists():
+                fmin_parquet_path = cand
+                try:
+                    fmin_df = pd.read_parquet(cand)
+                except (OSError, ValueError) as exc:
+                    _logger.warning(
+                        "soft_min_flows (waterway): could not read %s (%s); "
+                        "waterway-fmin → FlowRight conversion skipped.",
+                        cand,
+                        exc,
+                    )
+                    return []
+
+        flow_rights: List[Dict[str, Any]] = []
+        rows_by_uid: Dict[int, np.ndarray] = {}
+        next_uid = _WATERWAY_FLOW_RIGHT_UID_START
+        dropped_uid_cols: List[str] = []
+        zeroed_waterways: List[str] = []
+
+        for ww in waterways:
+            if not isinstance(ww, dict):
+                continue
+            ww_uid = ww.get("uid")
+            ww_name = ww.get("name")
+            junction_b = ww.get("junction_b")
+            fmin = ww.get("fmin")
+            if ww_uid is None or not isinstance(ww_name, str):
+                continue
+            if not isinstance(junction_b, str) or not junction_b:
+                continue
+
+            flow_values: Optional[np.ndarray] = None
+            uid_col = f"uid:{ww_uid}"
+
+            if isinstance(fmin, str):
+                # Parquet schedule ref — pull the column matching this
+                # waterway uid.
+                if fmin_df is None or uid_col not in fmin_df.columns:
+                    continue
+                col = fmin_df[uid_col].to_numpy(dtype=np.float64, copy=True)
+                if col.size != block_index.size:
+                    # Unexpected shape — skip this waterway rather than
+                    # mis-broadcast.
+                    _logger.warning(
+                        "soft_min_flows (waterway): %s column '%s' has %d "
+                        "rows but the case has %d block-rows; skipping.",
+                        fmin_parquet_path,
+                        uid_col,
+                        col.size,
+                        block_index.size,
+                    )
+                    continue
+                if not (col > 0).any():
+                    # All-zero column: nothing to convert; just drop the
+                    # parquet ref so the JSON does not carry a dangling
+                    # filename reference.
+                    ww["fmin"] = 0.0
+                    dropped_uid_cols.append(uid_col)
+                    continue
+                flow_values = col
+            elif isinstance(fmin, (int, float)) and float(fmin) > 0.0:
+                flow_values = np.full(block_index.size, float(fmin), dtype=np.float64)
+            else:
+                continue
+
+            entry: Dict[str, Any] = {
+                "uid": next_uid,
+                "name": f"{ww_name}{_WATERWAY_FLOW_RIGHT_SUFFIX}",
+                "purpose": _FLOW_RIGHT_PURPOSE,
+                "junction": junction_b,
+                "direction": _FLOW_RIGHT_DIRECTION,
+                "discharge": f"{ww_name}{_WATERWAY_FLOW_RIGHT_SUFFIX}",
+                "fail_cost": fail_cost,
+            }
+            flow_rights.append(entry)
+            rows_by_uid[next_uid] = flow_values
+            next_uid += 1
+
+            # Disable the hard floor — the FlowRight slack now carries
+            # the obligation.
+            ww["fmin"] = 0.0
+            zeroed_waterways.append(ww_name)
+            if isinstance(fmin, str):
+                dropped_uid_cols.append(uid_col)
+
+        if not flow_rights:
+            return []
+
+        fr_array = planning_system.setdefault("flow_right_array", [])
+        if not isinstance(fr_array, list):
+            raise ValueError("planning system 'flow_right_array' must be a list")
+        fr_array.extend(flow_rights)
+
+        self._write_parquets(flow_rights, rows_by_uid, block_index, stage_index)
+
+        # Drop converted columns from Waterway/fmin.parquet so the
+        # original trajectory cannot silently re-enforce the hard
+        # floor alongside the new soft FlowRight.
+        if fmin_parquet_path is not None and fmin_df is not None and dropped_uid_cols:
+            present = [c for c in dropped_uid_cols if c in fmin_df.columns]
+            if present:
+                survivors = fmin_df.drop(columns=present)
+                # If only schema columns (block, stage) remain, remove
+                # the file entirely so the JSON ref points to nothing.
+                payload_cols = [c for c in survivors.columns if c.startswith("uid:")]
+                try:
+                    if not payload_cols:
+                        fmin_parquet_path.unlink()
+                    else:
+                        survivors.to_parquet(fmin_parquet_path, index=False)
+                except (OSError, ValueError) as exc:
+                    _logger.warning(
+                        "soft_min_flows (waterway): could not rewrite %s "
+                        "after column drop (%s); the original trajectories "
+                        "remain on disk.",
+                        fmin_parquet_path,
+                        exc,
+                    )
+
+        _logger.info(
+            "soft_min_flows (waterway): emitted %d FlowRight(s) for "
+            "waterway-fmin floors on %s (fail_cost = %g $/(m³/s·h))",
+            len(flow_rights),
+            ", ".join(zeroed_waterways),
+            fail_cost,
+        )
+        return flow_rights
 
     def _write_parquets(
         self,

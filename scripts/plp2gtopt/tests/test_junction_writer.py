@@ -1234,6 +1234,62 @@ def test_spillway_vrebemb_takes_precedence_over_plpmat():
     assert fields["spillway_cost"] == 5000.0
 
 
+# ── --auto-water-fail-cost gating on spillway_cost ───────────────────────────
+# When the unified water-shortfall resolver is active, the drain-teleport
+# spillway_cost becomes redundant overhead — pricing now lives on
+# Reservoir.efin_cost / soft_emin_cost.  The gating zeros it out.
+
+
+class _MockWaterValueResolver:
+    """Mock the small subset of WaterValueResolver consumed by spillway gating."""
+
+    def __init__(self, *, is_active: bool):
+        self.is_active = is_active
+
+
+def test_spillway_cost_gated_to_zero_for_vrebemb_when_resolver_active():
+    """vrebemb central + resolver active → spillway_cost = 0 (was rebalse_cost)."""
+    jw = _make_jw(vrebemb=_MockVrebembParser({"LMAULE": 5000.0}))
+    jw._water_value_resolver = _MockWaterValueResolver(is_active=True)
+    fields = jw._spillway_fields("LMAULE", {"vert_max": 0.0})
+    assert fields == {"spillway_cost": 0.0, "spillway_capacity": 0.0}
+
+
+def test_spillway_cost_gated_to_zero_for_non_vrebemb_when_resolver_active():
+    """non-vrebemb central + resolver active → spillway_cost = 0 (was CVert)."""
+    jw = _make_jw(plpmat=_MockPlpmatParser(vert_cost=0.01))
+    jw._water_value_resolver = _MockWaterValueResolver(is_active=True)
+    fields = jw._spillway_fields("RUNOFRIVER", {"vert_max": 5.0})
+    assert fields == {"spillway_cost": 0.0, "spillway_capacity": 1.0e30}
+
+
+def test_spillway_cost_unchanged_when_resolver_inactive():
+    """resolver present but inactive → legacy cost path preserved exactly."""
+    jw = _make_jw(vrebemb=_MockVrebembParser({"LMAULE": 5000.0}))
+    jw._water_value_resolver = _MockWaterValueResolver(is_active=False)
+    fields = jw._spillway_fields("LMAULE", {"vert_max": 0.0})
+    assert fields["spillway_cost"] == 5000.0
+
+
+def test_spillway_cost_gated_to_zero_for_vrebemb_when_vrebemb_as_sink_only():
+    """--vrebemb-as-sink alone (without --auto-water-fail-cost) also zeros
+    the drain-teleport spillway_cost for vrebemb centrals.  Aligns with
+    the flag's design intent of dropping every vrebemb-derived cost."""
+    jw = _make_jw(vrebemb=_MockVrebembParser({"LMAULE": 5000.0}))
+    jw._vrebemb_as_sink = True
+    fields = jw._spillway_fields("LMAULE", {"vert_max": 0.0})
+    assert fields["spillway_cost"] == 0.0
+    assert fields["spillway_capacity"] == 0.0
+
+
+def test_spillway_cost_unchanged_for_non_vrebemb_under_vrebemb_as_sink():
+    """--vrebemb-as-sink does not affect non-vrebemb centrals (CVert path)."""
+    jw = _make_jw(plpmat=_MockPlpmatParser(vert_cost=0.01))
+    jw._vrebemb_as_sink = True
+    fields = jw._spillway_fields("RUNOFRIVER", {"vert_max": 5.0})
+    assert fields["spillway_cost"] == 0.01  # CVert preserved
+
+
 # ── _process_cenpmax tests (plpcenpmax.dat → ReservoirProductionFactor) ──────
 
 

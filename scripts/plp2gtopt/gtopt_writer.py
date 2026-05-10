@@ -18,6 +18,8 @@ focused on orchestration:
 
 import json
 import logging
+import math
+import sys
 from pathlib import Path
 from typing import Any, Dict
 
@@ -42,6 +44,103 @@ def _strip_internal_keys(planning: Dict) -> Dict:
     instance but excluded from the emitted JSON.
     """
     return {k: v for k, v in planning.items() if not k.startswith("_")}
+
+
+# Fallback sentinel for ``math.inf`` inside lists/arrays where the key
+# itself can't be omitted (omitting an element would shift the indices
+# of the surrounding list).
+#
+# Two acceptable JSON-safe forms:
+#
+#   • ``sys.float_info.max`` (= gtopt's C++ ``DblMax``) — the LP flatten
+#     code clamps any bound ``>= DblMax`` to the solver's true infinity,
+#     so the LP behaves exactly as if the bound were ``+inf``.  Works
+#     unconditionally with the existing daw-json-link bindings.
+#   • ``"Infinity"`` (quoted string) — daw-json-link parses this as
+#     ``+inf`` ONLY when the consuming field is annotated with
+#     ``gtopt::NumberOptsWithInf`` (``LiteralAsStringOpt::Maybe`` +
+#     ``JsonNumberErrors::AllowNanInf``).  See
+#     ``include/gtopt/json/json_parse_policy.hpp`` for the recipe.
+#
+# We use the quoted-string form so the JSON literally carries the
+# semantic ``Infinity`` (which round-trips back to ``math.inf`` in any
+# downstream consumer that supports the AllowNanInf option).  Fields
+# that have NOT been annotated with ``NumberOptsWithInf`` would reject
+# this — but our writer's PRIMARY path is to OMIT ``math.inf`` keys
+# entirely (see ``_sanitize_inf`` below); the fallback fires only for
+# inf values inside lists, which our schemas don't currently emit.
+_INF_JSON_SENTINEL = "Infinity"
+_NEG_INF_JSON_SENTINEL = "-Infinity"
+
+
+# Keys whose ``math.inf`` value should be OMITTED from the JSON
+# (instead of being serialised as ``"Infinity"``).  For these fields
+# the gtopt C++ struct already defaults to an empty optional that the
+# LP flatten code reads as ``±DblMax`` → solver ±infinity, so omitting
+# the key is the cleanest representation: smaller JSON, no parser-side
+# inf handling needed.
+#
+# Other numeric fields are serialised as ``"Infinity"`` / ``"-Infinity"``
+# (quoted strings) so daw-json-link's ``AllowNanInf`` parser accepts
+# them — the consuming field must be annotated with
+# ``gtopt::NumberOptsWithInf`` (see
+# ``include/gtopt/json/json_parse_policy.hpp``) to round-trip.
+_INF_OMIT_KEYS = frozenset(
+    {
+        "fmax",  # Waterway.fmax / FlowRight.fmax / VolumeRight.fmax
+    }
+)
+
+
+def _sanitize_inf(obj: Any) -> Any:
+    """Recursively make ``math.inf`` / ``-math.inf`` JSON-safe.
+
+    Default rule: serialise as the quoted-string sentinels ``"Infinity"``
+    / ``"-Infinity"`` so daw-json-link's ``AllowNanInf`` can parse them
+    on the C++ side.
+
+    Exception (preferred for select keys — listed in ``_INF_OMIT_KEYS``):
+    omit the key entirely from its containing dict.  gtopt's struct
+    defaults treat absent optional numeric fields as unbounded after
+    the LP flatten clamp (e.g. ``Waterway.fmax`` defaults to an empty
+    optional, which the flatten code reads as ``DblMax`` → ``+inf``),
+    so omitting is the cleanest representation for those fields.
+
+    Walks dicts and lists in place; returns the (possibly mutated)
+    object so callers can chain with ``json.dump``.
+
+    Note: ``-math.inf`` is rare in practice (gtopt uses ``-DblMax``
+    sentinels for "no lower bound" elsewhere); both signs are handled
+    symmetrically here.
+    """
+    if isinstance(obj, dict):
+        # Two-pass.  Pass 1 identifies keys whose value is ``math.inf``
+        # AND the key is in the omit-set — those get dropped entirely.
+        # Other inf values fall through to the per-value sanitisation
+        # in pass 2 (which serialises them as the "Infinity" sentinel).
+        drops: list[Any] = []
+        for k, v in obj.items():
+            if (
+                k in _INF_OMIT_KEYS
+                and isinstance(v, float)
+                and (v == math.inf or v == -math.inf)
+            ):
+                drops.append(k)
+        for k in drops:
+            del obj[k]
+        for k, v in obj.items():
+            obj[k] = _sanitize_inf(v)
+        return obj
+    if isinstance(obj, list):
+        for i, v in enumerate(obj):
+            obj[i] = _sanitize_inf(v)
+        return obj
+    if isinstance(obj, float):
+        if obj == math.inf:
+            return _INF_JSON_SENTINEL
+        if obj == -math.inf:
+            return _NEG_INF_JSON_SENTINEL
+    return obj
 
 
 def _try_scalar(value: Any) -> float | None:
@@ -753,4 +852,8 @@ class GTOptWriter(
         if progress is not None:
             progress.step("write")
         with open(output_file, "w", encoding="utf-8") as f:
-            json.dump(_strip_internal_keys(planning), f, indent=4)
+            json.dump(
+                _sanitize_inf(_strip_internal_keys(planning)),
+                f,
+                indent=4,
+            )

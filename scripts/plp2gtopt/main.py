@@ -370,6 +370,10 @@ def build_options(args: argparse.Namespace) -> dict:
         # suppress every ``_ver`` waterway and rely on junction-level
         # drain to shed surplus water.  See JunctionWriter._process_central.
         "drop_spillway_waterway": args.drop_spillway_waterway,
+        # ``--vrebemb-as-sink`` (default False, opt-in): for centrals in
+        # plpvrebemb.dat, route ``_ver`` to a synthetic ocean drain and drop
+        # ``fmax``/``fcost``.  See JunctionWriter._process_central.
+        "vrebemb_as_sink": args.vrebemb_as_sink,
     }
     # Model-specific options nested under model_options.
     model_opts: dict = {
@@ -435,6 +439,9 @@ def build_options(args: argparse.Namespace) -> dict:
     opts["soft_emin_cost"] = args.soft_emin_cost
     opts["embed_reservoir_constraints"] = args.embed_reservoir_constraints
     opts["plp_legacy"] = args.plp_legacy
+    # Auto water-shortfall pricing (see plp2gtopt._water_value).
+    opts["auto_water_fail_cost"] = getattr(args, "auto_water_fail_cost", False)
+    opts["water_fail_cost"] = getattr(args, "water_fail_cost", None)
     if getattr(args, "disable_discharge_limit_for", None):
         opts["disable_discharge_limit_for"] = args.disable_discharge_limit_for
     # ``--pmin-as-flowright`` may be:

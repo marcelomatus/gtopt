@@ -13,6 +13,7 @@ Converts central plant data into:
 """
 
 import logging
+import math
 from pathlib import Path
 from typing import Any, Dict, List, Optional, cast, TypedDict
 
@@ -34,6 +35,7 @@ from .stage_parser import StageParser
 from .mance_parser import ManceParser
 from .block_parser import BlockParser
 from .mance_writer import ManceWriter
+from ._water_value import WaterValueResolver
 
 _logger = logging.getLogger(__name__)
 
@@ -354,6 +356,7 @@ class JunctionWriter(BaseWriter):
         mance_parser: Optional[ManceParser] = None,
         block_parser: Optional[BlockParser] = None,
         options: Optional[Dict[str, Any]] = None,
+        water_value_resolver: Optional[WaterValueResolver] = None,
     ) -> None:
         """Initialize hydro system writer.
 
@@ -393,6 +396,26 @@ class JunctionWriter(BaseWriter):
         self.cenpmax_parser = cenpmax_parser
         self.mance_parser = mance_parser
         self.block_parser = block_parser
+        # Optional auto water-shortfall pricing helper.  When the
+        # resolver's ``is_active`` is True, ``_apply_soft_storage_bounds``
+        # consults it instead of ``_resolve_storage_bound_cost``.  The
+        # canonical caller (``_writer_hydro``) always passes an
+        # instance, but for direct callers we self-construct one when
+        # the unified-pricing pipeline is gated on (auto flag set or an
+        # explicit ``--water-fail-cost`` override is present).
+        opts = self.options or {}
+        _wvr_gate = bool(opts.get("auto_water_fail_cost")) or (
+            opts.get("water_fail_cost") is not None
+        )
+        self._water_value_resolver: Optional[WaterValueResolver] = (
+            water_value_resolver
+            if water_value_resolver is not None or not _wvr_gate
+            else WaterValueResolver(
+                central_parser=central_parser,
+                cenre_parser=cenre_parser,
+                options=self.options,
+            )
+        )
         self._embed_reservoir_constraints = bool(
             self.options.get("embed_reservoir_constraints", False)
         )
@@ -418,6 +441,21 @@ class JunctionWriter(BaseWriter):
         self._drop_spillway_waterway = bool(
             self.options.get("drop_spillway_waterway", False)
         )
+        # ``--vrebemb-as-sink`` (default False, opt-in): for centrals in
+        # plpvrebemb.dat, route ``_ver`` to a synthetic ``<name>_ocean``
+        # drain and drop ``fmax``/``fcost``.  Restores PLP's qrb
+        # (sink-bound, costed) rebalse semantics — PLP subtracts qrb from
+        # end-of-stage storage WITHOUT adding it back at any downstream
+        # junction, so the parallel-pipe ``_ver → ser_ver`` model gtopt
+        # used previously can generate "fictitious water" feeding
+        # downstream demand via cap arbitrage.  Non-vrebemb centrals are
+        # untouched.  ``--drop-spillway-waterway`` still wins (early
+        # return), see ``_process_central``.
+        self._vrebemb_as_sink = bool(self.options.get("vrebemb_as_sink", False))
+        # Number of vrebemb centrals whose ``_ver`` waterway was redirected
+        # to a synthetic ``<name>_ocean`` drain by ``--vrebemb-as-sink``.
+        # Reported via ``_logger.info`` at the end of ``to_json_array``.
+        self._vrebemb_as_sink_count: int = 0
         self._waterway_counter = 0
         self._ocean_junction_counter = 0
         self._junction_names: dict[int, str] = {}
@@ -554,6 +592,17 @@ class JunctionWriter(BaseWriter):
         self._skipped_isolated = []
         # Reset PLP no-limit sentinel counter for this conversion run.
         self._plp_no_limit_count = 0
+        # Reset vrebemb-as-sink counter for this conversion run.
+        self._vrebemb_as_sink_count = 0
+        # Log precedence interaction once: ``--drop-spillway-waterway``
+        # suppresses every ``_ver`` arc, so ``--vrebemb-as-sink`` is a
+        # no-op when both flags are on.
+        if self._drop_spillway_waterway and self._vrebemb_as_sink:
+            _logger.info(
+                "--vrebemb-as-sink is a no-op when "
+                "--drop-spillway-waterway is on; the spillway-suppress "
+                "mode takes precedence (no ``_ver`` arcs are emitted)."
+            )
 
         # Build set of junction numbers referenced as downstream targets by
         # other centrals.  A central with ser_hid=0/ser_ver=0 that IS referenced
@@ -610,6 +659,13 @@ class JunctionWriter(BaseWriter):
                 "waterway bounds — improves LP scaling.",
                 self._plp_no_limit_count,
                 _PLP_NO_LIMIT_SENTINEL,
+            )
+
+        if self._vrebemb_as_sink and self._vrebemb_as_sink_count > 0:
+            _logger.info(
+                "--vrebemb-as-sink: routed %d vrebemb-listed centrals' "
+                "_ver to synthetic ocean drain (fcost dropped)",
+                self._vrebemb_as_sink_count,
             )
 
         return [cast(Dict[str, Any], system)]
@@ -758,8 +814,28 @@ class JunctionWriter(BaseWriter):
             # it; tightening to ``VertMax = 0`` makes p2 infeasible
             # because ELTORO needs SOMEWHERE for excess water to go
             # and gtopt has no separate stage-rebalse mechanism.
-            vert_fmax: Optional[float] = None
+            #
+            # ``--vrebemb-as-sink`` (opt-in): redirect ``_ver`` to a
+            # synthetic ``<name>_ocean`` drain and drop the per-flow
+            # ``fcost``.  Applied uniformly to every vrebemb central —
+            # downstream pmin obligations are now soft FlowRights
+            # (per-block trajectory, see pmin_flowright_writer), and
+            # downstream Reservoir efin/soft_emin are soft slacks
+            # (priced via the auto water-shortfall resolver), so the
+            # ELTORO/PEHUENCHE asymmetric-routing concern that used to
+            # require keeping the legacy topology is fully covered by
+            # the soft constraints downstream.
+            #
+            # Use ``math.inf`` for the unbounded ``fmax``.  At JSON
+            # write time ``gtopt_writer._sanitize_inf`` converts it to
+            # the codebase's effective-infinity sentinel ``1e30``
+            # (clamped to solver infinity at flatten time) — daw-json-link
+            # rejects the non-standard ``Infinity`` token Python's json
+            # module would otherwise emit.
+            vert_fmax: Optional[float] = math.inf
             vert_fcost: Optional[float] = rebalse_cost
+            if self._vrebemb_as_sink:
+                vert_fcost = None  # drop the redundant vrebemb cost
         else:
             # PLP "no limit" sentinel — VertMax values ≥ 9000 m³/s mean
             # "unbounded" (often 9000 + central index, or 99999);
@@ -787,23 +863,6 @@ class JunctionWriter(BaseWriter):
         else:
             vert_fmin = vert_min_raw
 
-        # ``--drop-spillway-waterway`` (default True): when enabled, do
-        # not emit any ``_ver`` waterway — neither the in-network arc
-        # to ``ser_ver`` nor the synthetic-ocean fallback.  The
-        # ``drain = True`` flag set on the central's own junction
-        # below absorbs surplus water in place of the missing arc.
-        if self._drop_spillway_waterway:
-            ver_waterway: Optional[Waterway] = None
-        else:
-            ver_waterway = self._create_waterway(
-                central_name + "_ver",
-                central_id,
-                central["ser_ver"],
-                vert_fmin,
-                vert_fmax,
-                fcost=vert_fcost,
-            )
-
         # **Synthetic ocean drain** — shared between the spill (`_ver`)
         # and gen (`_gen`) ocean-fallback paths below.  When BOTH
         # ``ser_hid == 0`` AND ``ser_ver == 0``, the two arcs would
@@ -814,6 +873,65 @@ class JunctionWriter(BaseWriter):
         # ``<central>_ocean`` drain.  When only one path is terminal,
         # this still creates exactly one drain — same as before.
         synthetic_drain_uid: Optional[int] = None
+
+        # ``--drop-spillway-waterway`` (default True): when enabled, do
+        # not emit any ``_ver`` waterway — neither the in-network arc
+        # to ``ser_ver`` nor the synthetic-ocean fallback.  The
+        # ``drain = True`` flag set on the central's own junction
+        # below absorbs surplus water in place of the missing arc.
+        if self._drop_spillway_waterway:
+            ver_waterway: Optional[Waterway] = None
+        elif self._vrebemb_as_sink and in_vrebemb and central.get("ser_ver", 0) > 0:
+            # ``--vrebemb-as-sink`` (opt-in): for every vrebemb-listed
+            # central whose PLP topology routes ``_ver`` to a real
+            # downstream central (``ser_ver > 0``), redirect the arc to a
+            # synthetic ``<name>_ocean`` drain instead.  This restores
+            # PLP's qrb-to-sink semantics: PLP subtracts qrb from
+            # end-of-stage storage WITHOUT adding it back at any
+            # downstream junction.  Applied uniformly — downstream pmin
+            # obligations are now per-block soft FlowRights (see
+            # pmin_flowright_writer with the trajectory carried over
+            # from plpmance.dat) and downstream Reservoir efin/soft_emin
+            # are soft slacks priced by the auto water-shortfall
+            # resolver, so the asymmetric-routing concern that previously
+            # required a tier-2 skip on ELTORO/PEHUENCHE is fully covered
+            # by the soft constraints downstream.
+            self._ocean_junction_counter += 1
+            synthetic_drain_uid = _OCEAN_UID_OFFSET + self._ocean_junction_counter
+            drain_name = f"{central_name}_ocean"
+            drain_junction: Junction = {
+                "uid": synthetic_drain_uid,
+                "name": drain_name,
+                "drain": True,
+            }
+            system["junction_array"].append(drain_junction)
+            self._junction_names[synthetic_drain_uid] = drain_name
+            _logger.debug(
+                "Created vrebemb-as-sink ocean drain '%s' (uid=%d) for "
+                "central '%s' — _ver redirected from ser_ver=%d",
+                drain_name,
+                synthetic_drain_uid,
+                central_name,
+                central["ser_ver"],
+            )
+            ver_waterway = self._create_waterway(
+                central_name + "_ver",
+                central_id,
+                synthetic_drain_uid,
+                vert_fmin,
+                math.inf,  # explicitly unbounded; sanitised to 1e30 at JSON write
+                fcost=None,  # drop fcost
+            )
+            self._vrebemb_as_sink_count += 1
+        else:
+            ver_waterway = self._create_waterway(
+                central_name + "_ver",
+                central_id,
+                central["ser_ver"],
+                vert_fmin,
+                vert_fmax,
+                fcost=vert_fcost,
+            )
 
         # **Spillway ocean fallback** — when ``ser_ver = 0`` AND the
         # central has a positive ``VertMax``, PLP routes excess water
@@ -859,33 +977,53 @@ class JunctionWriter(BaseWriter):
             spill_fmax: Optional[float] = None
             spill_fcost: Optional[float] = None
             if in_vrebemb:
-                spill_fmax = 1.0e30
+                spill_fmax = math.inf
                 spill_fcost = rebalse_cost
+                if self._vrebemb_as_sink:
+                    # ``--vrebemb-as-sink`` (opt-in): even on the
+                    # ``ser_ver = 0`` synthetic-ocean fallback path
+                    # (LMAULE / RAPEL / CANUTILLAR / COLBUN —
+                    # already ocean-routed today), keep fmax at
+                    # +Infinity (sink-bound, no physical cap) and
+                    # drop the per-flow rebalse cost.  Matches PLP's
+                    # qrb-to-sink semantics without introducing the
+                    # cap-arbitrage fictitious-water path the legacy
+                    # ``ser_ver > 0`` mode exposed.
+                    spill_fmax = math.inf
+                    spill_fcost = None
+                    self._vrebemb_as_sink_count += 1
             elif vert_max_for_spill > 0.0:
                 # Same PLP "no limit" sentinel handling as the gen+ver
                 # paths above: VertMax >= 9000 m³/s means "unbounded",
-                # so use gtopt's 1e30 effective-infinity sentinel
-                # (clamped to solver infinity at flatten-time) instead of
-                # baking the literal sentinel into the LP upper bound.
+                # so use ``math.inf`` (sanitised to 1e30 at JSON write
+                # time) instead of baking the literal sentinel into the
+                # LP upper bound.
                 if _is_plp_no_limit(float(vert_max_for_spill)):
                     self._plp_no_limit_count += 1
-                    spill_fmax = 1.0e30
+                    spill_fmax = math.inf
                 else:
                     spill_fmax = float(vert_max_for_spill)
                 spill_fcost = cvert_default
-            if spill_fmax is not None:
+            # Emit the spill arc to the synthetic ocean drain when we
+            # have either a capped fmax (legacy paths) OR the
+            # ``--vrebemb-as-sink`` redirect (which intentionally drops
+            # both fmax and fcost on vrebemb-listed centrals).
+            emit_spill = spill_fmax is not None or (
+                self._vrebemb_as_sink and in_vrebemb
+            )
+            if emit_spill:
                 if synthetic_drain_uid is None:
                     self._ocean_junction_counter += 1
                     synthetic_drain_uid = (
                         _OCEAN_UID_OFFSET + self._ocean_junction_counter
                     )
                     drain_name = f"{central_name}_ocean"
-                    drain_junction: Junction = {
+                    drain_junction = {
                         "uid": synthetic_drain_uid,
                         "name": drain_name,
                         "drain": True,
                     }
-                    system["junction_array"].append(drain_junction)
+                    system["junction_array"].append(cast(Junction, drain_junction))
                     self._junction_names[synthetic_drain_uid] = drain_name
                     _logger.debug(
                         "Created shared ocean drain junction '%s' (uid=%d) "
@@ -1337,6 +1475,15 @@ class JunctionWriter(BaseWriter):
           is absent — and the capacity follows the per-block ``VertMax``
           from ``plpcnfce.dat`` (an explicit 0.0 is preserved; a missing
           field falls back to the legacy 6000 sentinel).
+
+        When ``--auto-water-fail-cost`` is on (resolver active),
+        ``spillway_cost = 0`` for both vrebemb and non-vrebemb cases.
+        Aligns with PLP's "qe* always Free" semantics: the per-block
+        spillway variable is purely a feasibility valve, not a priced
+        decision.  The unified water-shortfall pricing is now carried
+        by ``Reservoir.efin_cost`` / ``soft_emin_cost`` (storage-side)
+        and ``Waterway._ver.fcost`` (flow-side, which is itself dropped
+        under ``--vrebemb-as-sink``).
         """
         rebalse_cost: Optional[float] = (
             self.vrebemb_parser.get_cost(central_name)
@@ -1344,11 +1491,27 @@ class JunctionWriter(BaseWriter):
             else None
         )
 
+        # When the new resolver is active, surface #2 (drain-teleport
+        # spillway_cost) becomes redundant overhead — the unified
+        # pricing already lives on efin_cost / soft_emin_cost.
+        wvr_active = (
+            self._water_value_resolver is not None
+            and self._water_value_resolver.is_active
+        )
+        # ``--vrebemb-as-sink`` zeros the drain-teleport spillway_cost on
+        # vrebemb-listed centrals as well — the flag's design intent is
+        # "drop every vrebemb-derived cost from the LP", and the
+        # spillway_cost field on the (capacity=0) drain teleport is one
+        # of those vrebemb-derived costs (dead-code in the LP, but
+        # cosmetically inconsistent with the other surfaces the flag
+        # zeros out).  Non-vrebemb centrals are untouched by this flag.
+        zero_vrebemb_spillway = wvr_active or self._vrebemb_as_sink
+
         if rebalse_cost is not None:
             # Drain teleport is disabled — the physical ``_ver`` arc
             # (open + costed) carries the spill in its place.
             return {
-                "spillway_cost": rebalse_cost,
+                "spillway_cost": 0.0 if zero_vrebemb_spillway else rebalse_cost,
                 "spillway_capacity": 0.0,
             }
 
@@ -1381,7 +1544,7 @@ class JunctionWriter(BaseWriter):
                 default_cost = cvert
 
         return {
-            "spillway_cost": default_cost,
+            "spillway_cost": 0.0 if wvr_active else default_cost,
             "spillway_capacity": 1.0e30,
         }
 
@@ -1499,7 +1662,33 @@ class JunctionWriter(BaseWriter):
         ):
             return
 
-        cost = self._resolve_storage_bound_cost(central_name)
+        # Resolve the per-reservoir slack price.  When the auto helper
+        # is enabled, derive the price from the central's cascade lost
+        # production factor (energy-equivalent of stored water) so the
+        # slack is strictly above any electric demand-fail price.
+        # Otherwise fall back to the legacy vrebemb / CVert / CLI
+        # cascade.  ``central_number`` is needed both for the auto
+        # helper and the manem reroute below; resolve it once.
+        central_number: Optional[int] = None
+        if self.central_parser is not None:
+            central_number = next(
+                (
+                    c["number"]
+                    for c in self.central_parser.centrals_of_type.get("embalse", [])
+                    if c["name"] == central_name
+                ),
+                None,
+            )
+
+        if (
+            self._water_value_resolver is not None
+            and self._water_value_resolver.is_active
+            and central_number is not None
+        ):
+            lost_pf = self._water_value_resolver.cascade_lost_pf(central_number)
+            cost = self._water_value_resolver.efin_cost(lost_pf)
+        else:
+            cost = self._resolve_storage_bound_cost(central_name)
 
         # ─── efin → soft via efin_cost ──────────────────────────────────
         efin = reservoir.get("efin")
@@ -1521,14 +1710,7 @@ class JunctionWriter(BaseWriter):
         ):
             return
 
-        central_number = next(
-            (
-                c["number"]
-                for c in self.central_parser.centrals_of_type.get("embalse", [])
-                if c["name"] == central_name
-            ),
-            None,
-        )
+        # ``central_number`` was resolved at the top of this method.
         if central_number is None:
             return
         pcol_name = self.pcol_name(central_name, central_number)

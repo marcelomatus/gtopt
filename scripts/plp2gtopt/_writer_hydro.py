@@ -16,6 +16,7 @@ from typing import Any, Dict, Mapping
 
 from .aflce_writer import AflceWriter
 from .junction_writer import JunctionWriter
+from ._water_value import WaterValueResolver
 
 _logger = logging.getLogger(__name__)
 
@@ -173,6 +174,18 @@ class HydroMixin:
         cenpmax = self.parser.parsed_data.get("cenpmax_parser", None)
         mance = self.parser.parsed_data.get("mance_parser", None)
         block = self.parser.parsed_data.get("block_parser", None)
+        # Build the water-shortfall pricing resolver once and share it
+        # with downstream writers (JunctionWriter, PminFlowRightWriter).
+        # Construction is cheap (just builds lookup tables); whether it
+        # actually drives prices depends on ``resolver.is_active``.
+        water_value_resolver = WaterValueResolver(
+            central_parser=centrals,
+            cenre_parser=cenre,
+            options=options,
+        )
+        # Stash on self so other hydro phases (pmin_as_flowright) can
+        # pick up the same instance instead of rebuilding.
+        self._water_value_resolver = water_value_resolver
         jw = JunctionWriter(
             central_parser=centrals,
             stage_parser=stages,
@@ -190,6 +203,7 @@ class HydroMixin:
             mance_parser=mance,
             block_parser=block,
             options=options,
+            water_value_resolver=water_value_resolver,
         )
         json_junctions = jw.to_json_array()
         # Store names of isolated centrals that were skipped (for reporting)
@@ -243,6 +257,18 @@ class HydroMixin:
             return
 
         stage_parser = self.parser.parsed_data.get("stage_parser")
+
+        # When ``process_junctions`` was skipped (e.g. no hydro topology
+        # but Laja/Maule agreements still requested) the
+        # ``_water_value_resolver`` attribute is unset.  Build a fresh
+        # one here so the auto-water-fail-cost path still works.  Same
+        # pattern as ``process_pmin_flowright``.
+        if getattr(self, "_water_value_resolver", None) is None:
+            self._water_value_resolver = WaterValueResolver(
+                central_parser=self.parser.parsed_data.get("central_parser"),
+                cenre_parser=self.parser.parsed_data.get("cenre_parser"),
+                options=options,
+            )
 
         laja_parser = self.parser.parsed_data.get("laja_parser")
         if laja_parser is not None:
@@ -481,7 +507,11 @@ class HydroMixin:
         """Run the Stage-2 Laja transform, merge entities, return them."""
         from gtopt_expand.laja_agreement import LajaAgreement  # noqa: PLC0415
 
-        agreement = LajaAgreement(dict(cfg), stage_parser=stage_parser)
+        agreement = LajaAgreement(
+            dict(cfg),
+            stage_parser=stage_parser,
+            water_value_resolver=getattr(self, "_water_value_resolver", None),
+        )
         entities = agreement.to_json_dict(output_dir=output_dir)
         self._merge_entities(entities)
         self._dump_water_rights_fragment("laja", entities, output_dir)
@@ -507,6 +537,7 @@ class HydroMixin:
             dict(cfg),
             stage_parser=stage_parser,
             options={"reservoir_names": self._reservoir_names(output_dir)},
+            water_value_resolver=getattr(self, "_water_value_resolver", None),
         )
         entities = agreement.to_json_dict(output_dir=output_dir)
         self._merge_entities(entities)
@@ -587,6 +618,17 @@ class HydroMixin:
         if not whitelist:
             return
 
+        # Reuse the water-shortfall resolver constructed during junction
+        # processing when available; otherwise build a fresh one (e.g.
+        # when ``process_junctions`` was skipped because the case has no
+        # hydro topology but pmin_as_flowright is still requested).
+        wvr = getattr(self, "_water_value_resolver", None)
+        if wvr is None:
+            wvr = WaterValueResolver(
+                central_parser=self.parser.parsed_data.get("central_parser"),
+                cenre_parser=self.parser.parsed_data.get("cenre_parser"),
+                options=options,
+            )
         writer = PminFlowRightWriter(
             whitelist=whitelist,
             central_parser=self.parser.parsed_data.get("central_parser"),
@@ -596,7 +638,9 @@ class HydroMixin:
             scenarios=self.planning["simulation"].get("scenario_array", []),
             vrebemb_parser=self.parser.parsed_data.get("vrebemb_parser"),
             plpmat_parser=self.parser.parsed_data.get("plpmat_parser"),
+            cenre_parser=self.parser.parsed_data.get("cenre_parser"),
             options=options,
+            water_value_resolver=wvr,
         )
         writer.process(self.planning["system"])
 

@@ -623,6 +623,7 @@ def add_model_arguments(parser: argparse.ArgumentParser, conf: dict[str, str]) -
             "cap ($/hm³) for the spillway / vrebemb / CVert cost emitted as "
             "Reservoir.efin_cost / soft_emin_cost (only effective when "
             "--soft-storage-bounds is on; 0 disables the cap; "
+            "obsolete when --auto-water-fail-cost is on; "
             "default: %(default)s)"
         ),
     )
@@ -659,6 +660,33 @@ def add_model_arguments(parser: argparse.ArgumentParser, conf: dict[str, str]) -
             "(default: %(default)s; opt-in — disables ``fcost`` on "
             "spillways and improves LP scaling at the cost of routing "
             "fidelity)"
+        ),
+    )
+    # ``--vrebemb-as-sink`` (default False, opt-in): for centrals listed in
+    # ``plpvrebemb.dat``, route their ``_ver`` waterway to the synthetic
+    # ``<name>_ocean`` drain (rather than to ``ser_ver`` central) and drop
+    # both ``fmax`` and ``fcost`` on the arc.  This restores PLP semantics
+    # for the qrb (sink-bound, costed) rebalse mechanism that gtopt
+    # previously translated as a parallel-pipe `_ver` to `ser_ver`,
+    # producing "fictitious water" feeding downstream demand via cap
+    # arbitrage.  Non-vrebemb centrals are untouched.  See
+    # JunctionWriter._process_central.
+    _default_vas = conf.get("vrebemb_as_sink")
+    parser.add_argument(
+        "--vrebemb-as-sink",
+        dest="vrebemb_as_sink",
+        action=argparse.BooleanOptionalAction,
+        default=(
+            _default_vas.lower() not in ("false", "0", "no")
+            if _default_vas is not None
+            else False
+        ),
+        help=(
+            "for centrals in plpvrebemb.dat, route the ``_ver`` waterway to a "
+            "synthetic ``<name>_ocean`` drain and drop ``fmax``/``fcost``. "
+            "Restores PLP qrb-to-sink semantics; eliminates cap-arbitrage "
+            "fictitious-water generation through the spillway arc. "
+            "(default: %(default)s)"
         ),
     )
     parser.add_argument(
@@ -779,14 +807,31 @@ def add_model_arguments(parser: argparse.ArgumentParser, conf: dict[str, str]) -
             "the offending reservoirs. (default: emit all)"
         ),
     )
-    # ``--pmin-as-flowright`` is ON by default (uses the bundled
+    # ``--soft-min-flows`` is ON by default (uses the bundled
     # whitelist) because PLP-faithful runs need MACHICURA / PANGUE /
     # PILMAIQUEN / ABANICO / ANTUCO / PALMUCHO routed as FlowRight
     # discharge obligations to keep ``reservoir_efin >= eini`` rows
     # feasible at iter-0 of the SDDP cascade (same root cause as the
     # plp_case_2y aperture regression and the support/juan/IPLP_uninodal
-    # investigation).  Pass ``--no-pmin-as-flowright`` to opt out.
-    _default_pmf = conf.get("pmin_as_flowright")
+    # investigation).  Pass ``--no-soft-min-flows`` to opt out.
+    #
+    # The flag covers BOTH conversions:
+    #   * generator pmin → FlowRight (whitelist-driven; flow = pmin/Rendi)
+    #   * waterway fmin → FlowRight (auto-detected from
+    #     ``Waterway/fmin.parquet``; flow = fmin in m³/s)
+    # Both are minimum-flow obligations that, left as hard variable
+    # bounds, can render an SDDP phase infeasible when the predecessor
+    # trial leaves the upstream reservoir empty.  Routing them through
+    # ``FlowRight.fail_cost`` slack converts the hard floor into a
+    # priced soft constraint.
+    #
+    # The internal options key remains ``pmin_as_flowright`` for legacy
+    # compatibility (config files, tests, programmatic callers).
+    # ``--pmin-as-flowright`` / ``--no-pmin-as-flowright`` continue to
+    # work as deprecated aliases of the new flag.
+    _default_pmf = conf.get("soft_min_flows")
+    if _default_pmf is None:
+        _default_pmf = conf.get("pmin_as_flowright")  # legacy key fallback
     if _default_pmf is None:
         _default_pmf_value = ""  # use bundled CSV
     elif _default_pmf.lower() in ("false", "0", "no"):
@@ -795,31 +840,52 @@ def add_model_arguments(parser: argparse.ArgumentParser, conf: dict[str, str]) -
         _default_pmf_value = _default_pmf
     pmf_group = parser.add_mutually_exclusive_group()
     pmf_group.add_argument(
-        "--pmin-as-flowright",
+        "--soft-min-flows",
         dest="pmin_as_flowright",
         metavar="PATH_OR_NAMES",
         nargs="?",
         const="",  # sentinel: flag passed without value -> use bundled CSV
         default=_default_pmf_value,
         help=(
-            "Convert specific hydro generators' must-run pmin into "
-            "FlowRight discharge obligations.  The argument is either a "
-            "CSV path (same schema as gtopt_expand/templates/"
-            "pmin_as_flowright.csv) or a comma-separated list of central "
-            "names.  Without an argument, uses the bundled default "
-            "whitelist (MACHICURA, PANGUE, PILMAIQUEN, ABANICO, ANTUCO, "
-            "PALMUCHO).  Per-stage discharge values are written as "
-            "FlowRight/<central>_pmin_as_flow_right.parquet using the "
-            "central's plpmance pmin / Rendi.  ON by default; pass "
-            "--no-pmin-as-flowright to disable."
+            "Convert minimum-flow obligations into soft FlowRight "
+            "rights.  Covers generator pmin (whitelist-driven; "
+            "flow = pmin/Rendi) and waterway fmin (auto-detected from "
+            "Waterway/fmin.parquet; flow = fmin m³/s).  The optional "
+            "argument is either a CSV path (same schema as "
+            "gtopt_expand/templates/pmin_as_flowright.csv) or a "
+            "comma-separated list of central names; it filters the "
+            "generator-pmin path only — the waterway-fmin path is "
+            "all-or-nothing.  Without an argument, uses the bundled "
+            "default whitelist (MACHICURA, PANGUE, PILMAIQUEN, ABANICO, "
+            "ANTUCO, PALMUCHO).  ON by default; pass "
+            "--no-soft-min-flows to disable both transforms."
         ),
+    )
+    pmf_group.add_argument(
+        "--no-soft-min-flows",
+        dest="pmin_as_flowright",
+        action="store_const",
+        const=None,
+        help="disable the minimum-flow → FlowRight conversion.",
+    )
+    # Deprecated aliases — kept for backwards compatibility with existing
+    # config files, scripts, and CI invocations.  Same semantics as the
+    # ``--soft-min-flows`` form above (and the same internal options key
+    # ``pmin_as_flowright``).
+    pmf_group.add_argument(
+        "--pmin-as-flowright",
+        dest="pmin_as_flowright",
+        metavar="PATH_OR_NAMES",
+        nargs="?",
+        const="",
+        help="deprecated alias of --soft-min-flows.",
     )
     pmf_group.add_argument(
         "--no-pmin-as-flowright",
         dest="pmin_as_flowright",
         action="store_const",
         const=None,
-        help="disable the must-run pmin → FlowRight conversion.",
+        help="deprecated alias of --no-soft-min-flows.",
     )
     parser.add_argument(
         "--flow-right-fail-cost",
@@ -968,6 +1034,55 @@ def add_reservoir_battery_arguments(
             "$/hm³, 1 hm³ = 1000 dam³) for the soft minimum volume "
             "constraint (plpminembh.dat).  Per-stage costs from the file "
             "override this default.  Set to 0 to disable soft emin. "
+            "(default: %(default)s)"
+        ),
+    )
+    # ``--auto-water-fail-cost`` (default False, opt-in for the first
+    # ship): replace the legacy vrebemb/CVert cascade and the
+    # ``2 × max(rebalse_cost)`` heuristic with a single principled
+    # formula derived from the case's own demand-failure prices.  See
+    # ``plp2gtopt._water_value`` for the formula and rationale.  When
+    # enabled, ``--vert-cost-cap`` becomes obsolete (the new helper does
+    # not consult vrebemb cost); leave it in place for backward compat
+    # but it has no effect on the soft-storage / FlowRight pricing path.
+    parser.add_argument(
+        "--auto-water-fail-cost",
+        dest="auto_water_fail_cost",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help=(
+            "auto-derive Reservoir.efin_cost / soft_emin_cost and "
+            "FlowRight.fail_cost from the case's own demand-failure "
+            "prices instead of vrebemb / CVert / hard-coded fallbacks.  "
+            "When on, the anchor is max(falla.gcost) + 1 ($/MWh) so "
+            "water obligations strictly dominate energy obligations in "
+            "the LP objective.  Use --water-fail-cost to override the "
+            "anchor by hand (e.g. 500 instead of the auto value).  Note: "
+            "--vert-cost-cap becomes obsolete when this is on. "
+            "(default: %(default)s)"
+        ),
+    )
+    # ``--water-fail-cost`` (manual override in $/MWh): when set, use
+    # this value directly as the water-shortfall anchor and enable the
+    # unified pricing pipeline (taking priority over
+    # ``--auto-water-fail-cost``).  When ``None`` (default), the value
+    # is auto-derived from ``max(falla.gcost) × (1 + losses) + 1`` if
+    # ``--auto-water-fail-cost`` is on, else legacy paths are used.
+    # Mirrors ``--demand-fail-cost``; intended for users who want
+    # explicit control or to compare the auto-derived value against a
+    # hand-tuned one.
+    parser.add_argument(
+        "--water-fail-cost",
+        dest="water_fail_cost",
+        type=float,
+        metavar="$/MWh",
+        default=None,
+        help=(
+            "manual override in $/MWh for the unified water-shortfall "
+            "anchor.  When set, drives Reservoir.efin_cost / "
+            "soft_emin_cost (path B) and FlowRight.fail_cost via "
+            "lost_pf scaling.  Implicitly enables the new pipeline "
+            "(takes priority over --auto-water-fail-cost). "
             "(default: %(default)s)"
         ),
     )
