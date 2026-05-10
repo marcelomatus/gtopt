@@ -510,6 +510,11 @@ CompressedBuffer compress_flat_lp(FlatLinearProblem& flp,
   auto result = compress_buffer(buf, effective);
   result.flp_nnz = nnz;
   result.flp_colint_count = colint_count;
+  // Preserve col_scales / row_scales sizes so decompress reads
+  // exactly the bytes that were written.  These can be 0 when
+  // ``--no-scale`` leaves the scaling vectors empty.
+  result.flp_col_scales_size = flp.col_scales.size();
+  result.flp_row_scales_size = flp.row_scales.size();
 
   // Free the large numeric vectors (metadata is preserved)
   flp.matbeg = {};
@@ -556,8 +561,14 @@ void decompress_flat_lp(FlatLinearProblem& flp, const CompressedBuffer& buf)
   flp.objval.resize(ncols);
   flp.rowlb.resize(nrows);
   flp.rowub.resize(nrows);
-  flp.col_scales.resize(ncols);
-  flp.row_scales.resize(nrows);
+  // col_scales / row_scales may have been EMPTY at compress time
+  // (``--no-scale`` with equilibration=none).  Resize to the actual
+  // compress-time size — NOT to ``ncols`` / ``nrows`` unconditionally.
+  // The previous code resized to ncols/nrows and read that many bytes
+  // from the buffer, overreading by ``ncols × 8`` past the end and
+  // segfaulting in the next backend reconstruction step.
+  flp.col_scales.resize(buf.flp_col_scales_size);
+  flp.row_scales.resize(buf.flp_row_scales_size);
 
   auto raw = buf.decompress_data();
   const auto* src = raw.data();

@@ -64,6 +64,17 @@ struct CompressedBuffer
   /// without byte-arithmetic inference.  Zero for non-FLP buffers.
   size_t flp_nnz {0};  ///< matbeg[ncols] — total non-zeros
   size_t flp_colint_count {0};  ///< colint.size() — integer variable count
+  /// col_scales / row_scales actual sizes at compress time.  May be 0
+  /// (empty) when ``--no-scale`` forces ``equilibration=none`` and no
+  /// per-column/row scaling is in effect — under those conditions
+  /// ``flatten()`` leaves the col_scales/row_scales vectors empty and
+  /// ``compress_flat_lp`` appends 0 bytes for them.  Decompress must
+  /// not unconditionally resize to ``ncols``/``nrows`` and ``memcpy``
+  /// ``ncols``/``nrows × sizeof(double)`` bytes — that would overread
+  /// (segfault).  Storing the actual compress-time sizes here keeps
+  /// decompress byte-symmetric with compress.
+  size_t flp_col_scales_size {0};
+  size_t flp_row_scales_size {0};
 
   [[nodiscard]] bool empty() const noexcept { return data.empty(); }
 
