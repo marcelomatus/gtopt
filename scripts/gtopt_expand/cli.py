@@ -219,6 +219,68 @@ def _load_reservoir_names(
     return _extract_reservoir_names(data)
 
 
+def _maybe_build_water_value_resolver(
+    args: argparse.Namespace,
+) -> Any:
+    """Construct a :class:`WaterValueResolver` from CLI flags, or ``None``.
+
+    Returns ``None`` when neither ``--auto-water-fail-cost`` nor
+    ``--water-fail-cost`` is set (legacy path).  When set but
+    ``--plp-case-dir`` is missing, logs a warning to stderr and returns
+    ``None`` so the agreement falls back to the legacy PLP cost fields
+    rather than silently emitting zero-anchored prices.
+
+    The PLP ``plpcnfce.dat`` parser is the only source of central /
+    falla data on this side; we lazily import it so callers that don't
+    use the auto-water-fail-cost flow don't pay the import cost.
+    """
+    auto_flag = bool(getattr(args, "auto_water_fail_cost", False))
+    explicit = getattr(args, "water_fail_cost", None)
+    if not auto_flag and explicit is None:
+        return None
+    case_dir = getattr(args, "plp_case_dir", None)
+    if case_dir is None:
+        print(
+            "WARNING: --auto-water-fail-cost / --water-fail-cost ignored:"
+            " --plp-case-dir not provided; agreements keep legacy costs.",
+            file=sys.stderr,
+        )
+        return None
+    case_path = Path(case_dir)
+    if not case_path.is_dir():
+        raise FileNotFoundError(f"--plp-case-dir not a directory: {case_dir}")
+    # Lazy-import to keep the gtopt_expand CLI light when the flag is off.
+    from plp2gtopt._water_value import WaterValueResolver  # noqa: PLC0415
+    from plp2gtopt.central_parser import CentralParser  # noqa: PLC0415
+    from plp2gtopt.cenre_parser import CenreParser  # noqa: PLC0415
+    from plp2gtopt.compressed_open import find_compressed_path  # noqa: PLC0415
+
+    cnfce = find_compressed_path(case_path / "plpcnfce.dat")
+    if cnfce is None:
+        raise FileNotFoundError(
+            f"--plp-case-dir {case_dir}: plpcnfce.dat (or .xz) not found"
+        )
+    central_parser = CentralParser(cnfce)
+    central_parser.parse()
+
+    cenre = find_compressed_path(case_path / "plpcenre.dat")
+    cenre_parser: Any = None
+    if cenre is not None:
+        cenre_parser = CenreParser(cenre)
+        cenre_parser.parse()
+
+    resolver_options: dict[str, Any] = {
+        "auto_water_fail_cost": auto_flag,
+    }
+    if explicit is not None:
+        resolver_options["water_fail_cost"] = float(explicit)
+    return WaterValueResolver(
+        central_parser=central_parser,
+        cenre_parser=cenre_parser,
+        options=resolver_options,
+    )
+
+
 def _load_stages(path: str | None) -> _StageList | None:
     if path is None:
         return None
@@ -340,6 +402,44 @@ def _build_parser() -> argparse.ArgumentParser:
             type=int,
             default=1,
             help="number of blocks per stage (default: 1)",
+        )
+        # ── Auto water-fail-cost flags (mirror plp2gtopt) ──────────────
+        # Active only when ``--plp-case-dir`` is also supplied so we have
+        # the central / cenre parsers needed to construct the resolver.
+        # Without ``--plp-case-dir`` these flags are accepted but logged
+        # as ignored — keeps the CLI surface stable for callers that
+        # always pass them through.
+        sp.add_argument(
+            "--auto-water-fail-cost",
+            dest="auto_water_fail_cost",
+            action=argparse.BooleanOptionalAction,
+            default=False,
+            help=(
+                "when set, compute water-shortfall fail_costs from the"
+                " case's max(falla.gcost) anchor scaled by per-central"
+                " cascade lost_pf (requires --plp-case-dir)"
+            ),
+        )
+        sp.add_argument(
+            "--water-fail-cost",
+            dest="water_fail_cost",
+            type=float,
+            default=None,
+            help=(
+                "explicit water-fail-cost anchor in $/MWh; overrides the"
+                " auto-derived value when set (requires --plp-case-dir)"
+            ),
+        )
+        sp.add_argument(
+            "--plp-case-dir",
+            dest="plp_case_dir",
+            default=None,
+            help=(
+                "path to a PLP case directory (containing plpcnfce.dat /"
+                " plpcenre.dat); enables --auto-water-fail-cost /"
+                " --water-fail-cost.  When omitted, the auto-water-fail"
+                " flags are no-ops (legacy PLP costs preserved)."
+            ),
         )
         if name == "maule":
             sp.add_argument(
@@ -644,9 +744,18 @@ def _run(args: argparse.Namespace) -> Path:
         "blocks_per_stage": args.blocks_per_stage,
     }
 
+    # Build the WaterValueResolver once (laja + maule both consume it).
+    # Returns ``None`` when the auto-water-fail-cost flags are off OR
+    # ``--plp-case-dir`` is missing (warning logged in the latter case);
+    # the agreement classes treat ``None`` as "preserve legacy costs".
+    water_value_resolver = _maybe_build_water_value_resolver(args)
+
     if args.subcommand == "laja":
         agreement: Any = LajaAgreement.from_json(
-            args.input_path, stage_parser=stages, options=options
+            args.input_path,
+            stage_parser=stages,
+            options=options,
+            water_value_resolver=water_value_resolver,
         )
         artifact = "laja"
     else:
@@ -664,7 +773,10 @@ def _run(args: argparse.Namespace) -> Path:
             if reservoir_names:
                 options["reservoir_names"] = reservoir_names
         agreement = MauleAgreement.from_json(
-            args.input_path, stage_parser=stages, options=options
+            args.input_path,
+            stage_parser=stages,
+            options=options,
+            water_value_resolver=water_value_resolver,
         )
         artifact = "maule"
 

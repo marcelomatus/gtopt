@@ -44,9 +44,12 @@ stage_parser is given the schedules stay in raw hydro-year form.
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from gtopt_expand._base import _RightsAgreementBase
+
+_logger = logging.getLogger(__name__)
 
 
 # Hydrological year mapping: PLP uses Apr=1..Mar=12
@@ -138,8 +141,87 @@ class LajaAgreement(_RightsAgreementBase):
         laja_config: dict[str, Any],
         stage_parser: Any = None,
         options: dict[str, Any] | None = None,
+        water_value_resolver: Any = None,
     ):
-        super().__init__(laja_config, stage_parser=stage_parser, options=options)
+        super().__init__(
+            laja_config,
+            stage_parser=stage_parser,
+            options=options,
+            water_value_resolver=water_value_resolver,
+        )
+
+    # ----------------------------------------------------- water-value helpers
+    def _resolved_central_number(self, central_name: str) -> int | None:
+        """Look up *central_name* in the resolver's by-name index.
+
+        Returns the central's PLP ``number`` field or ``None`` when the
+        resolver is not configured or the name is unknown.  Used both for
+        the main Laja central and for per-district injection lookups.
+        """
+        resolver = self._water_value_resolver
+        if resolver is None:
+            return None
+        # ``WaterValueResolver`` exposes ``_by_name``: a private dict of
+        # ``{name: central}``.  We could expose a public accessor on the
+        # resolver, but the current API uses ``cascade_lost_pf(number)``
+        # — so we must look up the number ourselves here.  Keep the
+        # lookup defensive: the dict is built from parsed PLP data which
+        # may legitimately omit names this agreement references.
+        by_name = getattr(resolver, "_by_name", None) or {}
+        central = by_name.get(central_name)
+        if central is None:
+            return None
+        try:
+            return int(central.get("number", -1))
+        except (TypeError, ValueError):
+            return None
+
+    def _override_main_costs(
+        self,
+        cfg: dict[str, Any],
+        legacy_irr_ns: float,
+        legacy_elec_ns: float,
+    ) -> tuple[float, float]:
+        """Return (cost_irr_ns, cost_elec_ns) after resolver substitution.
+
+        When the resolver is active and the Laja main central is known,
+        both fields are replaced by ``resolver.fail_cost(cascade_pf)``
+        (units: ``$/(m³/s·h)``).  Logs the substitution at INFO so the
+        change is auditable in juan/IPLP-style end-to-end runs.
+
+        Falls through to the legacy PLP values otherwise.
+        """
+        resolver = self._water_value_resolver
+        if resolver is None or not resolver.is_active:
+            return legacy_irr_ns, legacy_elec_ns
+        central_name = cfg["central_laja"]
+        number = self._resolved_central_number(central_name)
+        if number is None:
+            _logger.info(
+                "auto-water-fail-cost: laja central %r not found in"
+                " WaterValueResolver index; keeping legacy costs.",
+                central_name,
+            )
+            return legacy_irr_ns, legacy_elec_ns
+        cascade_pf = resolver.cascade_lost_pf(number)
+        new_value = resolver.fail_cost(cascade_pf)
+        _logger.info(
+            "auto-water-fail-cost: laja %s = %g (was %g, cascade_pf=%g at %s)",
+            "cost_irr_ns",
+            new_value,
+            legacy_irr_ns,
+            cascade_pf,
+            central_name,
+        )
+        _logger.info(
+            "auto-water-fail-cost: laja %s = %g (was %g, cascade_pf=%g at %s)",
+            "cost_elec_ns",
+            new_value,
+            legacy_elec_ns,
+            cascade_pf,
+            central_name,
+        )
+        return new_value, new_value
 
     def _hydro_to_stage_schedule(self, hydro_monthly: list[float]) -> list[float]:
         """Convert 12-element hydrological-year array to per-stage schedule.
@@ -187,6 +269,20 @@ class LajaAgreement(_RightsAgreementBase):
         central = cfg["central_laja"]
         vol_muerto = cfg["vol_muerto"]
 
+        # ── Auto water-fail-cost overrides ─────────────────────────────
+        # When a WaterValueResolver is wired and active, replace the
+        # legacy PLP penalty fields with energy-equivalent prices derived
+        # from max(falla.gcost) × cascade_lost_pf at the Laja main central.
+        # ``cost_irr_uso`` / ``cost_elec_uso`` / ``cost_mixed`` are NOT
+        # touched here — those are *use_value* benefits, not penalty
+        # costs, and their semantics are not compatible with the
+        # energy-equivalent auto-derive.
+        cost_irr_ns, cost_elec_ns = self._override_main_costs(
+            cfg,
+            legacy_irr_ns=float(cfg["cost_irr_ns"]),
+            legacy_elec_ns=float(cfg["cost_elec_ns"]),
+        )
+
         # --- Bound_rule segments for each rights category ---
         irr_segments = _zones_to_bound_rule_segments(
             cfg["irr_base"], cfg["irr_factors"], cfg["zone_widths"], vol_muerto
@@ -211,9 +307,9 @@ class LajaAgreement(_RightsAgreementBase):
         fmax_antic = self._fmax_schedule(cfg["qmax_anticipated"], usage_antic)
 
         # --- Monthly cost modulation ---
-        # Irrigation costs
+        # Irrigation costs (cost_irr_ns may be auto-derived; see above)
         fail_cost_irr = self._monthly_cost_schedule(
-            cfg["cost_irr_ns"], cfg["monthly_cost_irr_ns"]
+            cost_irr_ns, cfg["monthly_cost_irr_ns"]
         )
         use_value_irr = (
             self._monthly_cost_schedule(cfg["cost_irr_uso"], cfg["monthly_cost_irr"])
@@ -221,9 +317,9 @@ class LajaAgreement(_RightsAgreementBase):
             else None
         )
 
-        # Electric costs
+        # Electric costs (cost_elec_ns may be auto-derived; see above)
         fail_cost_elec = self._monthly_cost_schedule(
-            cfg["cost_elec_ns"], cfg["monthly_cost_elec"]
+            cost_elec_ns, cfg["monthly_cost_elec"]
         )
         use_value_elec = (
             self._monthly_cost_schedule(cfg["cost_elec_uso"], cfg["monthly_cost_elec"])
@@ -238,13 +334,13 @@ class LajaAgreement(_RightsAgreementBase):
             else None
         )
 
-        # Anticipated costs
+        # Anticipated costs (anchored to the same auto-derived irr_ns)
         fail_cost_antic = self._monthly_cost_schedule(
-            cfg.get("cost_irr_ns", 0), cfg["monthly_cost_anticipated"]
+            cost_irr_ns, cfg["monthly_cost_anticipated"]
         )
 
         # --- District flow rights (pre-computed) ---
-        district_flow_rights = self._compute_district_flow_rights()
+        district_flow_rights = self._compute_district_flow_rights(cost_irr_ns)
 
         # --- User constraint expressions ---
         expression_partition = (
@@ -304,13 +400,31 @@ class LajaAgreement(_RightsAgreementBase):
             "description_partition": description_partition,
         }
 
-    def _compute_district_flow_rights(self) -> list[dict[str, Any]]:
+    def _compute_district_flow_rights(
+        self,
+        cost_irr_ns: float,
+    ) -> list[dict[str, Any]]:
         """Pre-compute district withdrawal FlowRight entities.
 
         Returns a list of dicts ready for JSON serialization.
         Districts × categories, skipping zero-allocation entries.
+
+        ``cost_irr_ns`` is the (possibly auto-derived) Laja-main fail
+        cost in ``$/(m³/s·h)``.  Per-district fail costs are then
+        computed as either:
+
+        * ``resolver.fail_cost(cascade_pf(district_injection))`` when the
+          resolver is active and the district has an explicit
+          ``injection`` central, or
+        * the legacy ``cost_irr_ns × district["cost_factor"]`` fallback
+          (which under the resolver still uses the auto-derived
+          ``cost_irr_ns`` value rather than the PLP one — so the
+          per-district scaling composes coherently with the energy
+          anchor).
         """
         cfg = self._cfg
+        resolver = self._water_value_resolver
+        resolver_active = resolver is not None and resolver.is_active
         demands = {
             "1o_reg": cfg["demand_1o_reg"],
             "2o_reg": cfg["demand_2o_reg"],
@@ -342,16 +456,72 @@ class LajaAgreement(_RightsAgreementBase):
                 discharge_sched = self._to_stb_sched(discharge_values)
 
                 fr_name = f"{district['name']}_{category}"
+                injection = district.get("injection")
+                fail_cost = self._district_fail_cost(
+                    cost_irr_ns=cost_irr_ns,
+                    cost_factor=district["cost_factor"],
+                    injection=injection,
+                    resolver_active=resolver_active,
+                    fr_name=fr_name,
+                )
                 fr_district: dict[str, Any] = {
                     "name": fr_name,
                     "purpose": "irrigation",
                     "direction": -1,
                     "discharge": discharge_sched,
-                    "fail_cost": cfg["cost_irr_ns"] * district["cost_factor"],
+                    "fail_cost": fail_cost,
                 }
-                injection = district.get("injection")
                 if injection:
                     fr_district["junction"] = injection
                 result.append(fr_district)
 
         return result
+
+    def _district_fail_cost(
+        self,
+        *,
+        cost_irr_ns: float,
+        cost_factor: float,
+        injection: Any,
+        resolver_active: bool,
+        fr_name: str,
+    ) -> float:
+        """Compute the fail_cost for one district FlowRight.
+
+        Resolution order:
+
+        1. **Resolver active + injection set** — look up the injection
+           central by name.  When found, return
+           ``resolver.fail_cost(cascade_pf(injection_number))``.
+        2. **Resolver active + no injection** — fall back to the
+           ``cost_irr_ns × cost_factor`` formula (where ``cost_irr_ns``
+           was already auto-derived from the Laja main cascade).
+        3. **Resolver inactive / unset** — pure legacy
+           ``cost_irr_ns × cost_factor`` (PLP value × per-district factor).
+        """
+        legacy = float(cost_irr_ns) * float(cost_factor)
+        if not resolver_active or not injection:
+            return legacy
+        resolver = self._water_value_resolver
+        number = self._resolved_central_number(str(injection))
+        if number is None:
+            _logger.info(
+                "auto-water-fail-cost: laja district %s injection %r"
+                " not in resolver index; falling back to factor=%g.",
+                fr_name,
+                injection,
+                cost_factor,
+            )
+            return legacy
+        cascade_pf = resolver.cascade_lost_pf(number)
+        new_value = float(resolver.fail_cost(cascade_pf))
+        _logger.info(
+            "auto-water-fail-cost: laja district %s fail_cost = %g"
+            " (was %g, cascade_pf=%g at %s)",
+            fr_name,
+            new_value,
+            legacy,
+            cascade_pf,
+            injection,
+        )
+        return new_value

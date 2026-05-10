@@ -26,6 +26,21 @@ The FlowRight is a soft constraint — unmet flow incurs the system-wide
 ``hydro_fail_cost``, so the LP can choose to dispatch less when reservoir
 headroom is not available.
 
+Auto water-fail-cost integration
+--------------------------------
+
+This module does NOT interact with the ``WaterValueResolver`` /
+``--auto-water-fail-cost`` pipeline directly.  It emits FlowRights
+*without* an explicit ``fail_cost`` field, so the LP defaults to the
+system-wide ``hydro_fail_cost`` for unmet flow.  Per-FlowRight
+auto-derived prices for the pmin-as-flowright path are produced by
+:mod:`plp2gtopt.pmin_flowright_writer` (which uses
+``junction_lost_pf`` to scale the resolver's anchor at the central's
+own turbine), so any case routed through plp2gtopt already gets the
+correct calibration.  The Stage-2 ``gtopt_expand`` shim here is for
+hand-authored / non-PLP planning JSONs where there is no resolver to
+consult.
+
 Design notes
 ------------
 

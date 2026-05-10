@@ -86,9 +86,12 @@ modulation arrays (``mod_elec_reserva``, ``pct_riego_mensual``,
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from gtopt_expand._base import _RightsAgreementBase
+
+_logger = logging.getLogger(__name__)
 
 
 class MauleAgreement(_RightsAgreementBase):
@@ -132,8 +135,67 @@ class MauleAgreement(_RightsAgreementBase):
         maule_config: dict[str, Any],
         stage_parser: Any = None,
         options: dict[str, Any] | None = None,
+        water_value_resolver: Any = None,
     ):
-        super().__init__(maule_config, stage_parser=stage_parser, options=options)
+        super().__init__(
+            maule_config,
+            stage_parser=stage_parser,
+            options=options,
+            water_value_resolver=water_value_resolver,
+        )
+
+    # ------------------------------------------------------ water-value helper
+    def _override_penalty_invernada(self, legacy_value: float) -> float:
+        """Return the (possibly auto-derived) ``penalty_invernada`` value.
+
+        ``penalty_invernada`` is in ``$/m³``.  When the resolver is
+        active and ``central_invernada`` is in its index, returns
+        ``resolver.efin_cost(cascade_pf) / 1e6`` — divides $/hm³ by
+        10⁶ m³/hm³ to get $/m³.  Equivalent to the canonical
+        ``ANCHOR × cascade_pf / 3600`` definition; we route through
+        :meth:`WaterValueResolver.efin_cost` for API consistency with
+        :class:`plp2gtopt.junction_writer.JunctionWriter` so any future
+        change to the resolver's helper composes through here too.
+
+        Falls through to ``legacy_value`` otherwise (no resolver, not
+        active, central_invernada missing from the resolver index, or
+        cascade_pf is zero).
+        """
+        resolver = self._water_value_resolver
+        if resolver is None or not resolver.is_active:
+            return legacy_value
+        central_name = self._cfg.get("central_invernada")
+        if not central_name:
+            return legacy_value
+        by_name = getattr(resolver, "_by_name", None) or {}
+        central = by_name.get(str(central_name))
+        if central is None:
+            _logger.info(
+                "auto-water-fail-cost: maule central_invernada %r not in"
+                " WaterValueResolver index; keeping legacy"
+                " penalty_invernada=%g.",
+                central_name,
+                legacy_value,
+            )
+            return legacy_value
+        try:
+            number = int(central.get("number", -1))
+        except (TypeError, ValueError):
+            return legacy_value
+        cascade_pf = resolver.cascade_lost_pf(number)
+        # ``efin_cost`` returns $/hm³; divide by 1e6 to get $/m³ (the
+        # unit ``penalty_invernada`` carries through to the LP as a
+        # ``hydro_flow``-class soft-constraint penalty).
+        new_value = float(resolver.efin_cost(cascade_pf)) / 1.0e6
+        _logger.info(
+            "auto-water-fail-cost: maule penalty_invernada = %g $/m³"
+            " (was %g, cascade_pf=%g at %s)",
+            new_value,
+            legacy_value,
+            cascade_pf,
+            central_name,
+        )
+        return new_value
 
     # ----------------------------------------------------------- variant
     def _machicura_model(self) -> str:
@@ -365,8 +427,8 @@ class MauleAgreement(_RightsAgreementBase):
             # `× duration[h] × 3600`, mirroring FlowRight.fail_cost.  Defaults
             # to the global `hydro_fail_cost` so the soft relaxation composes
             # with element-level pricing without a separate tuning knob.
-            "penalty_invernada": cfg.get(
-                "penalty_invernada", cfg.get("hydro_fail_cost", 10.0)
+            "penalty_invernada": self._override_penalty_invernada(
+                float(cfg.get("penalty_invernada", cfg.get("hydro_fail_cost", 10.0)))
             ),
             # UserConstraint expressions
             "expression_invernada": expression_invernada,

@@ -52,12 +52,21 @@ class _RightsAgreementBase:
         config: dict[str, Any],
         stage_parser: Any = None,
         options: dict[str, Any] | None = None,
+        water_value_resolver: Any = None,
     ):
         if not self._ARTIFACT:
             raise TypeError(f"{type(self).__name__} must set _ARTIFACT class attribute")
         self._cfg = config
         self._stage_parser = stage_parser
         self._options = options or {}
+        # Optional :class:`plp2gtopt._water_value.WaterValueResolver`.  When
+        # set and ``resolver.is_active`` is true, derived water-shortfall
+        # prices replace the legacy PLP cost fields in the rendered
+        # template context (``cost_irr_ns``, ``cost_elec_ns`` for Laja and
+        # ``penalty_invernada`` for Maule).  ``cost_irr_uso`` /
+        # ``cost_elec_uso`` / ``cost_mixed`` are *use_value* fields and are
+        # never overridden — see ``laja_agreement._prepare_context``.
+        self._water_value_resolver = water_value_resolver
         self._uid_counter = self._UID_START
 
         self.flow_rights: list[dict[str, Any]] = []
@@ -83,11 +92,23 @@ class _RightsAgreementBase:
         json_path: Path | str,
         stage_parser: Any = None,
         options: dict[str, Any] | None = None,
+        water_value_resolver: Any = None,
     ) -> _RightsAgreementBase:
-        """Load the canonical JSON file and construct an agreement instance."""
+        """Load the canonical JSON file and construct an agreement instance.
+
+        ``water_value_resolver`` (when supplied and ``is_active``) wires the
+        auto water-fail-cost pipeline into the rendered template context —
+        legacy PLP cost fields stay untouched when the resolver is ``None``
+        or inactive, mirroring the constructor contract.
+        """
         with open(json_path, "r", encoding="utf-8") as fh:
             cfg = json.load(fh)
-        return cls(cfg, stage_parser=stage_parser, options=options)
+        return cls(
+            cfg,
+            stage_parser=stage_parser,
+            options=options,
+            water_value_resolver=water_value_resolver,
+        )
 
     # ------------------------------------------------------------------ core
 
