@@ -341,13 +341,19 @@ class TimeMixin:
         # SddpOptions JSON contract has no such field.  The aperture count is
         # fully determined by aperture_array and per-phase apertures.
 
-        # Populate per-phase apertures from stage-indexed PLP data
+        # Populate per-phase apertures from stage-indexed PLP data.
+        # Pass aflce + block parsers so each phase's aperture list is
+        # sorted from driest to wettest (total flow × duration over the
+        # phase's blocks), grouping similar bounds adjacently for
+        # warm-start reuse under gtopt's chunked SDDP backward pass.
         phase_array = self.planning["simulation"].get("phase_array", [])
         build_phase_apertures(
             idap2_parser=idap2_parser,
             aperture_array=result.aperture_array,
             phase_array=phase_array,
             num_stages=num_stages,
+            aflce_parser=self.parser.parsed_data.get("aflce_parser", None),
+            block_parser=self.parser.parsed_data.get("block_parser", None),
         )
 
     def process_indhor(self, options):
