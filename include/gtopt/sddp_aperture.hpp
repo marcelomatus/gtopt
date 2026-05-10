@@ -95,6 +95,33 @@ struct ApertureEntry
     std::span<const Aperture> aperture_defs,
     std::span<const Uid> phase_apertures) -> std::vector<ApertureEntry>;
 
+// ─── Aperture partitioning (chunked backward pass) ──────────────────────────
+
+/// Partition a span of @p ApertureEntry into contiguous chunks of size
+/// @p chunk_size (the last chunk may be shorter).
+///
+/// Each returned span aliases the input — the caller must keep the
+/// backing storage alive for the lifetime of the returned vector.
+///
+/// Used by the chunked aperture backward pass: every chunk becomes a
+/// single SDDP work-pool task that clones the phase LP once and solves
+/// its inner apertures serially with warm-start reuse on the shared
+/// clone.  Order is preserved end-to-end so the wetness sort applied
+/// in `plp2gtopt` (driest → wettest within a phase) keeps similar
+/// bounds adjacent within each chunk.
+///
+/// Edge cases:
+///   * `apertures` empty                → empty vector.
+///   * `chunk_size <= 0`                → one chunk per aperture (K=1).
+///   * `chunk_size >= apertures.size()` → exactly one chunk.
+///
+/// @param apertures   Effective (deduplicated) aperture list for the phase.
+/// @param chunk_size  Apertures per task (`<=0` collapses to 1).
+/// @return Vector of non-overlapping spans whose union covers @p apertures.
+[[nodiscard]] auto partition_apertures(std::span<const ApertureEntry> apertures,
+                                       int chunk_size)
+    -> std::vector<std::span<const ApertureEntry>>;
+
 // ─── Synthetic aperture builder ─────────────────────────────────────────────
 
 /// Build synthetic aperture definitions from the first N scenarios.

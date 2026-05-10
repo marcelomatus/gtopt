@@ -89,6 +89,27 @@ auto build_effective_apertures(std::span<const Aperture> aperture_defs,
   return result;
 }
 
+// ─── partition_apertures ────────────────────────────────────────────────────
+
+auto partition_apertures(std::span<const ApertureEntry> apertures,
+                         int chunk_size)
+    -> std::vector<std::span<const ApertureEntry>>
+{
+  std::vector<std::span<const ApertureEntry>> chunks;
+  const auto n = apertures.size();
+  if (n == 0) {
+    return chunks;
+  }
+  const auto step =
+      (chunk_size > 0) ? static_cast<std::size_t>(chunk_size) : std::size_t {1};
+  chunks.reserve((n + step - 1) / step);
+  for (std::size_t off = 0; off < n; off += step) {
+    const auto take = std::min(step, n - off);
+    chunks.push_back(apertures.subspan(off, take));
+  }
+  return chunks;
+}
+
 // ─── build_synthetic_apertures ──────────────────────────────────────────────
 
 auto build_synthetic_apertures(std::span<const ScenarioLP> all_scenarios,
