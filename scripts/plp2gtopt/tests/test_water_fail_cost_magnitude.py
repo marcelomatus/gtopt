@@ -29,44 +29,44 @@ import pytest
 
 from plp2gtopt._water_value import WaterValueResolver
 
-# Reference values for the simplified anchor formula
-#   ANCHOR = max(falla.gcost) + 1
-# For juan/IPLP: max(falla.gcost) = 568.4 → ANCHOR = 569.4 $/MWh.  Each
-# value below has been computed analytically from the cascade rule
-# (reservoirs) or the single-junction rule (FlowRights):
+# Reference ``lost_pf`` values — these are intrinsic to the juan/IPLP
+# topology (cascade walks, cenre lifts) and remain stable across
+# changes to the anchor formula.  The expected magnitudes are
+# computed at runtime as ``anchor × lost_pf`` (FR) or
+# ``anchor × lost_pf × 1e6/3600`` (reservoir efin), where ``anchor``
+# is whatever the resolver returns from the case data.
 #
-#   efin_cost = ANCHOR × cascade_pf × 1e6 / 3600   [$/hm³]
-#   fail_cost = ANCHOR × own_pf                    [$/(m³/s·h)]
-_REFERENCE_RESERVOIRS_HM3 = {
-    "LMAULE": 1_589_575.00,  # cascade_pf=10.050
-    "CIPRESES": 1_093_564.33,  #          6.914
-    "ELTORO": 1_048_317.58,  #            6.627930  (cenre lift)
-    "RALCO": 470_665.44,  #               2.975756  (cenre lift)
-    "CANUTILLAR": 328_144.54,  #          2.074676  (cenre lift)
-    "COLBUN": 307_177.79,  #              1.942115  (cenre lift)
-    "PEHUENCHE": 281_536.67,  #           1.780
-    "PANGUE": 194_545.00,  #              1.230
-    "PILMAIQUEN": 143_140.83,  #          0.905
-    "RAPEL": 101_226.67,  #               0.640
+# Under the current ``ANCHOR = (max_unit_gcost + min_falla_gcost) / 2``
+# formula the absolute magnitudes are smaller than under the prior
+# ``max(falla.gcost) + 1`` formula by the ratio of the two anchors,
+# but the *proportionality* between reservoirs is unchanged because
+# every cost surface scales linearly in the anchor.
+_REFERENCE_RESERVOIRS_LOST_PF = {
+    "LMAULE": 10.050,
+    "CIPRESES": 6.914,
+    "ELTORO": 6.627930,  # cenre lift
+    "RALCO": 2.975756,  # cenre lift
+    "CANUTILLAR": 2.074676,  # cenre lift
+    "COLBUN": 1.942115,  # cenre lift
+    "PEHUENCHE": 1.780,
+    "PANGUE": 1.230,
+    "PILMAIQUEN": 0.905,
+    "RAPEL": 0.640,
 }
 
-_REFERENCE_FLOW_RIGHTS_PER_M3SH = {
-    "ANTUCO": 911.04,  #     own_pf=1.6
-    "ABANICO": 683.28,  #            1.2
-    "PALMUCHO": 650.8242,  #          1.143
-    "PANGUE": 455.52,  #             0.8
-    "MACHICURA": 187.902,  #          0.33
-    "PILMAIQUEN": 153.738,  #         0.27
+_REFERENCE_FLOW_RIGHTS_LOST_PF = {
+    "ANTUCO": 1.6,
+    "ABANICO": 1.2,
+    "PALMUCHO": 1.143,
+    "PANGUE": 0.8,
+    "MACHICURA": 0.33,
+    "PILMAIQUEN": 0.27,
 }
 
-# juan/IPLP anchor: 568.4 + 1 = 569.4 $/MWh.
-_JUAN_ANCHOR = 569.4
-
-# Tolerance (PLP units): efin_cost is in $/hm³, FR fail_cost is in
-# $/(m³/s·h); ±1.0 absolute is enough to absorb FP rounding (the
-# largest reference value is ~1.7M $/hm³ so 1.0 is well below 1ppm).
-_TOL_EFIN = 2.0  # $/hm³
-_TOL_FAIL = 0.5  # $/(m³/s·h)
+# Tight relative tolerance (1 ppm) — absorbs FP rounding without
+# letting silent regressions in the cascade / cenre-lift logic slip
+# through.
+_TOL_REL = 1e-6
 
 
 def _juan_iplp_dir() -> Path | None:
@@ -170,34 +170,61 @@ class TestAutoWaterFailCostMagnitude:
             extra_flags=["--no-auto-water-fail-cost"],
         )
 
+    @staticmethod
+    def _resolved_anchor(planning_auto) -> float:
+        """Recover the anchor (in ``$/MWh``) from the emitted JSON.
+
+        Picks the reservoir with the highest ``lost_pf`` whose
+        reference is in the table, then back-solves ``efin_cost =
+        anchor × lost_pf × 1e6 / 3600``.  This avoids hard-coding the
+        anchor magnitude (which depends on the case's
+        ``max(non-falla.gcost)`` and ``min(falla.gcost)``) while still
+        validating the rest of the pipeline.
+        """
+        reservoirs = planning_auto.get("system", {}).get("reservoir_array", [])
+        # Use LMAULE (cascade_pf=10.05) as the calibration probe.
+        lmaule = next((r for r in reservoirs if r.get("name") == "LMAULE"), None)
+        assert lmaule is not None and lmaule.get("efin_cost") is not None
+        lost_pf = _REFERENCE_RESERVOIRS_LOST_PF["LMAULE"]
+        return lmaule["efin_cost"] / lost_pf * 3600.0 / 1e6
+
     # ------------------------------------------------------------------
-    # Auto pipeline — exact match against reference table
+    # Auto pipeline — proportionality across reservoirs
     # ------------------------------------------------------------------
     @pytest.mark.parametrize(
-        "name,expected_efin",
-        list(_REFERENCE_RESERVOIRS_HM3.items()),
+        "name,lost_pf",
+        list(_REFERENCE_RESERVOIRS_LOST_PF.items()),
     )
-    def test_reservoir_efin_cost_matches_reference(
-        self, planning_auto, name, expected_efin
-    ):
-        """``efin_cost`` per reservoir matches the design-note value (±2)."""
+    def test_reservoir_efin_cost_matches_reference(self, planning_auto, name, lost_pf):
+        """``efin_cost = anchor × lost_pf × 1e6/3600`` for each reservoir.
+
+        Validates the cascade / cenre-lift chain that produces
+        ``lost_pf`` while remaining anchor-formula-agnostic — the
+        absolute magnitude depends only on the case's electricity
+        prices, but every reservoir must scale by the same anchor.
+        """
+        anchor = self._resolved_anchor(planning_auto)
+        expected_efin = anchor * lost_pf * 1e6 / 3600.0
         reservoirs = planning_auto.get("system", {}).get("reservoir_array", [])
         match = next((r for r in reservoirs if r.get("name") == name), None)
         assert match is not None, f"Reservoir {name} not found in planning"
         actual = match.get("efin_cost")
         assert actual is not None, f"Reservoir {name} has no efin_cost"
-        assert actual == pytest.approx(expected_efin, abs=_TOL_EFIN), (
-            f"{name}: efin_cost={actual} vs reference {expected_efin}"
+        assert actual == pytest.approx(expected_efin, rel=_TOL_REL), (
+            f"{name}: efin_cost={actual} vs anchor*lost_pf*1e6/3600="
+            f"{expected_efin} (anchor={anchor:.2f}, lost_pf={lost_pf})"
         )
 
     @pytest.mark.parametrize(
-        "central,expected_fail_cost",
-        list(_REFERENCE_FLOW_RIGHTS_PER_M3SH.items()),
+        "central,lost_pf",
+        list(_REFERENCE_FLOW_RIGHTS_LOST_PF.items()),
     )
     def test_flow_right_fail_cost_matches_reference(
-        self, planning_auto, central, expected_fail_cost
+        self, planning_auto, central, lost_pf
     ):
-        """Per-FR ``fail_cost`` matches anchor × own ``max_rendi`` (±0.5)."""
+        """Per-FR ``fail_cost = anchor × own_max_rendi`` (anchor-agnostic)."""
+        anchor = self._resolved_anchor(planning_auto)
+        expected_fail_cost = anchor * lost_pf
         frs = planning_auto.get("system", {}).get("flow_right_array", [])
         # FR names follow the pattern ``<CENTRAL>_pmin_as_flow_right`` in
         # the bundled --pmin-as-flowright whitelist.
@@ -212,8 +239,9 @@ class TestAutoWaterFailCostMagnitude:
         assert match is not None, f"FlowRight for {central} not found"
         actual = match.get("fail_cost")
         assert actual is not None, f"FR {central} has no fail_cost"
-        assert actual == pytest.approx(expected_fail_cost, abs=_TOL_FAIL), (
-            f"{central}: fail_cost={actual} vs reference {expected_fail_cost}"
+        assert actual == pytest.approx(expected_fail_cost, rel=_TOL_REL), (
+            f"{central}: fail_cost={actual} vs anchor*own_pf="
+            f"{expected_fail_cost} (anchor={anchor:.2f}, lost_pf={lost_pf})"
         )
 
     def test_flow_right_fail_costs_are_heterogeneous(self, planning_auto):
@@ -248,7 +276,16 @@ class TestAutoWaterFailCostMagnitude:
             f"Legacy max efin_cost {max_legacy} unexpectedly large; "
             "auto-pipeline magnitude justification may be invalid"
         )
-        ratio = _REFERENCE_RESERVOIRS_HM3["LMAULE"] / max(max_legacy, 1e-9)
+        # The auto-pipeline magnitude is anchor × LMAULE.lost_pf × 1e6/3600.
+        # Even with a conservative anchor of 100 $/MWh (well below any
+        # juan/IPLP electricity price), LMAULE's cascade_pf=10.05 gives
+        # an auto efin_cost of ~280 k $/hm³ — orders of magnitude above
+        # the legacy cap.
+        conservative_anchor = 100.0  # $/MWh — lower bound for any case
+        auto_lower_bound = (
+            conservative_anchor * _REFERENCE_RESERVOIRS_LOST_PF["LMAULE"] * 1e6 / 3600.0
+        )
+        ratio = auto_lower_bound / max(max_legacy, 1e-9)
         assert ratio > 100.0, (
             f"auto/legacy ratio = {ratio:.1f}× — expected >100× discount"
         )

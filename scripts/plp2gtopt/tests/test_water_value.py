@@ -47,8 +47,20 @@ class _FakeCenreParser:
 # tier-4 falla rung (568.4 $/MWh) and a small LMAULE-like cascade so we can
 # spot-check the documented numbers without needing the full PLP case on
 # disk.
+# Reference juan/IPLP-style magnitudes for the new
+# ``ANCHOR = (max_unit_gcost + min_falla_gcost) / 2`` formula:
+#
+#   * cheapest curtailment rung   = 100 $/MWh  (FALLA_T1)
+#   * most expensive supply unit  = 200 $/MWh  (PEAKER thermal)
+#   * anchor                       = (200 + 100) / 2 = 150 $/MWh
+#
+# ``_FALLA_GCOST_MAX`` is retained for the higher tier-4 rung so the
+# fixture still exercises the "min reduction over falla" path
+# (T1=100 must win over T4=568.4).
+_FALLA_GCOST_MIN = 100.0
 _FALLA_GCOST_MAX = 568.4
-_ANCHOR_AUTO = _FALLA_GCOST_MAX + 1.0  # 569.4 — strictly above max(falla.gcost)
+_PEAKER_GCOST = 200.0  # most expensive non-falla unit
+_ANCHOR_AUTO = (_PEAKER_GCOST + _FALLA_GCOST_MIN) / 2.0  # 150.0
 
 
 def _make_centrals() -> List[Dict[str, Any]]:
@@ -150,7 +162,31 @@ def _make_centrals() -> List[Dict[str, Any]]:
             "efficiency": 0.5,
             "emax": 0.0,
         },
-        # tier-4 falla — drives the anchor.
+        # PEAKER — most expensive thermal generator (drives
+        # ``max_unit_gcost`` in the new anchor formula).
+        {
+            "number": 300,
+            "name": "PEAKER",
+            "type": "termica",
+            "bus": 60,
+            "ser_hid": 0,
+            "efficiency": 0.0,
+            "emax": 0.0,
+            "gcost": _PEAKER_GCOST,
+        },
+        # Lower-cost thermal — must be ignored by the max() reduction.
+        {
+            "number": 301,
+            "name": "BASE_THERMAL",
+            "type": "termica",
+            "bus": 61,
+            "ser_hid": 0,
+            "efficiency": 0.0,
+            "emax": 0.0,
+            "gcost": 50.0,
+        },
+        # tier-4 falla — kept for fixture richness; the new formula
+        # reduces over min(), so this should be IGNORED.
         {
             "number": 999,
             "name": "FALLA_T4",
@@ -161,7 +197,8 @@ def _make_centrals() -> List[Dict[str, Any]]:
             "emax": 0.0,
             "gcost": _FALLA_GCOST_MAX,
         },
-        # Lower-tier falla — must be ignored by the max() reduction.
+        # tier-1 falla — cheapest curtailment rung; drives
+        # ``min_falla_gcost`` in the new anchor formula.
         {
             "number": 998,
             "name": "FALLA_T1",
@@ -170,7 +207,7 @@ def _make_centrals() -> List[Dict[str, Any]]:
             "ser_hid": 0,
             "efficiency": 0.0,
             "emax": 0.0,
-            "gcost": 100.0,
+            "gcost": _FALLA_GCOST_MIN,
         },
     ]
 
@@ -200,7 +237,14 @@ def _make_centrals_with_eltoro() -> List[Dict[str, Any]]:
 
 
 def test_water_fail_cost_auto_formula() -> None:
-    """Anchor = max(falla.gcost) + 1; juan/IPLP-like → 569.4."""
+    """Anchor = (max_unit_gcost + min_falla_gcost) / 2 = (200 + 100) / 2 = 150.
+
+    Pins the new "midpoint between most-expensive supply unit and
+    cheapest curtailment rung" formula and the directional reductions:
+    ``max(non-falla.gcost)`` selects the PEAKER (200) over BASE_THERMAL
+    (50); ``min(falla.gcost)`` selects FALLA_T1 (100) over FALLA_T4
+    (568.4).
+    """
     cp = _FakeCentralParser(_make_centrals())
     resolver = WaterValueResolver(
         central_parser=cp,
@@ -408,7 +452,12 @@ def test_junction_lost_pf_unknown_number() -> None:
 
 
 def test_efin_cost_formula() -> None:
-    """anchor × lost_pf × 1e6 / 3600 [$/hm³].  LMAULE: 569.4 × 10.05 ≈ 1,589,575."""
+    """anchor × lost_pf × 1e6 / 3600 [$/hm³].
+
+    LMAULE cascade lost_pf = 10.05 → 150 × 10.05 × 1e6 / 3600 ≈ 418,750
+    under the new ``ANCHOR = (max_unit_gcost + min_falla_gcost) / 2``
+    formula (= 150 from the PEAKER 200 + FALLA_T1 100 fixture).
+    """
     cp = _FakeCentralParser(_make_centrals())
     resolver = WaterValueResolver(
         central_parser=cp,
@@ -416,20 +465,24 @@ def test_efin_cost_formula() -> None:
         options={"auto_water_fail_cost": True},
     )
     cost = resolver.efin_cost(10.05)
-    assert cost == pytest.approx(1_589_575.0, abs=2.0)
+    expected = _ANCHOR_AUTO * 10.05 * 1e6 / 3600.0
+    assert cost == pytest.approx(expected, rel=1e-6)
 
 
 def test_fail_cost_formula() -> None:
-    """anchor × lost_pf [$/(m³/s·h)].  ABANICO: 569.4 × 1.2 = 683.28."""
+    """anchor × lost_pf [$/(m³/s·h)].
+
+    ABANICO own rendi 1.2 → 150 × 1.2 = 180 under the new anchor.
+    ANTUCO own rendi 1.6 → 150 × 1.6 = 240.
+    """
     cp = _FakeCentralParser(_make_centrals())
     resolver = WaterValueResolver(
         central_parser=cp,
         cenre_parser=None,
         options={"auto_water_fail_cost": True},
     )
-    assert resolver.fail_cost(1.2) == pytest.approx(683.28, abs=0.5)
-    # ANTUCO own rendi 1.6 → 569.4 × 1.6 = 911.04
-    assert resolver.fail_cost(1.6) == pytest.approx(911.04, abs=0.5)
+    assert resolver.fail_cost(1.2) == pytest.approx(_ANCHOR_AUTO * 1.2, rel=1e-6)
+    assert resolver.fail_cost(1.6) == pytest.approx(_ANCHOR_AUTO * 1.6, rel=1e-6)
 
 
 def test_resolver_is_inactive_by_default() -> None:

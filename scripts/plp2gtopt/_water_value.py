@@ -10,14 +10,21 @@ formula derived from the case's own demand-failure prices.
 
 The construction:
 
-``ANCHOR = max(falla.gcost) × (1 + electric_losses_upper) + 1``
+``ANCHOR = (max_unit_gcost + min_falla_gcost) / 2``
 
-is by design **strictly above** any electric demand-failure price
-(``max(falla.gcost) × (1 + losses)`` is the *break-even* electric price
-once losses are accounted for, and the ``+1`` strictly dominates it).
-This makes water obligations price-dominate energy obligations in the
-LP objective, so the solver never spills water to satisfy demand at
-the cost of failing a downstream water right or maintenance bound.
+is the **midpoint** between the most expensive supply unit's marginal
+cost (``max(non-falla.gcost)``) and the cheapest curtailment rung
+(``min(falla.gcost)``).  Economically: water shortage is priced
+between "the priciest dispatchable thermal" and "the easiest
+electric demand to curtail", so the LP neither over-fills reservoirs
+to displace cheap dispatch nor leaves water rights unserved when
+electric curtailment is much cheaper.
+
+Replaces the earlier ``max(falla.gcost) × (1 + losses) + 1`` form
+which clipped the anchor to the *most expensive* curtailment rung
+and produced over-pricing of water (juan/IPLP scale: ~1.6 M $/hm³)
+that drove the LP to over-fill at iter-0 and triggered cascade
+infeasibilities through the SDDP pass.
 
 Per-element pricing is then proportional to the **lost production
 factor** ``lost_pf`` — the energy-equivalent value of the water in
@@ -144,17 +151,35 @@ class WaterValueResolver:
     # ------------------------------------------------------------------
     @cached_property
     def anchor(self) -> float:
-        """``ANCHOR = max(falla.gcost) + 1`` (in ``$/MWh``).
+        """``ANCHOR = (max_unit_gcost + min_falla_gcost) / 2`` (in ``$/MWh``).
 
-        ``falla`` centrals are PLP's per-bus tiered curtailment rungs;
-        ``gcost`` carries their unserved-energy price (``$/MWh``).  The
-        ``+1`` ensures the anchor is strictly above any electric demand-
-        fail price so water obligations dominate energy obligations in
-        the LP objective.
+        Economic interpretation: water shortage is priced midway
+        between
 
-        Falls back to ``0`` when no falla centrals exist (degenerate
-        cases / unit-test fixtures); callers should treat the resulting
-        zero anchor as a no-op.
+          * the **most expensive supply unit** still in the merit order
+            — the marginal cost of the priciest non-``falla`` generator
+            that the LP would dispatch to avoid curtailment, and
+          * the **cheapest curtailment rung** — the lowest-tier
+            ``falla`` price (PLP's per-bus tiered unserved-energy cost).
+
+        This is the natural break-even: any time the system would
+        rather pay a thermal unit at ``max_unit_gcost`` than curtail
+        at ``min_falla_gcost``, the water value sits halfway between
+        — strictly above the most expensive unit (so water doesn't
+        force-displace dispatchable thermal) and strictly below the
+        cheapest unserved-energy tier (so water shortage isn't
+        priced like demand shortage).
+
+        Replaces the previous formula ``max(falla.gcost) + 1`` which
+        clipped the anchor to the *most expensive* curtailment rung
+        and produced over-pricing of water (e.g. juan/IPLP: 1,589,575
+        $/hm³ for LMAULE) that drove the LP to over-fill reservoirs
+        and triggered cascade infeasibilities at iter-0 forward
+        passes.
+
+        Falls back to ``0`` when either side is missing (degenerate
+        cases / unit-test fixtures); callers should treat the
+        resulting zero anchor as a no-op.
 
         Resolution order:
 
@@ -164,7 +189,7 @@ class WaterValueResolver:
            knob users reach for when they want to set the entire anchor
            by hand (e.g. 500 $/MWh) instead of letting it derive from
            the case data.
-        2. Auto-derive from ``max(falla.gcost) + 1``.
+        2. Auto-derive from ``(max_unit_gcost + min_falla_gcost) / 2``.
         """
         explicit = self.options.get("water_fail_cost")
         if explicit is not None:
@@ -172,18 +197,28 @@ class WaterValueResolver:
                 return float(explicit)
             except (TypeError, ValueError):
                 pass
-        max_gcost = 0.0
+
+        max_unit_gcost = 0.0  # most expensive non-falla generator
+        min_falla_gcost = float("inf")  # cheapest curtailment rung
         for c in getattr(self.central_parser, "centrals", []) or []:
-            if c.get("type") != "falla":
-                continue
+            ctype = c.get("type")
             try:
                 gcost = float(c.get("gcost", 0.0) or 0.0)
             except (TypeError, ValueError):
                 continue
-            max_gcost = max(max_gcost, gcost)
-        if max_gcost <= 0.0:
+            if ctype == "falla":
+                if gcost > 0.0:
+                    min_falla_gcost = min(min_falla_gcost, gcost)
+            else:
+                # Skip generators with no marginal cost (renewables /
+                # zero-fuel hydros) — they don't define a meaningful
+                # "most expensive unit" floor for the water anchor.
+                if gcost > 0.0:
+                    max_unit_gcost = max(max_unit_gcost, gcost)
+
+        if max_unit_gcost <= 0.0 or min_falla_gcost == float("inf"):
             return 0.0
-        return max_gcost + 1.0
+        return (max_unit_gcost + min_falla_gcost) / 2.0
 
     @property
     def water_fail_cost(self) -> float:
