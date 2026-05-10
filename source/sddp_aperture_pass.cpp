@@ -338,17 +338,18 @@ auto SDDPMethod::install_aperture_backward_cut(
   return 1;
 }
 
-// ── Helper: build the ApertureSubmitFunc callback ───────────────────────────
+// ── Helper: build the ApertureChunkSubmitFunc callback ─────────────────────
 
 auto SDDPMethod::make_aperture_submit_fn(PhaseIndex phase_index,
                                          IterationIndex iteration_index)
-    -> ApertureSubmitFunc
+    -> ApertureChunkSubmitFunc
 {
-  // Submit aperture tasks to the SDDP work pool for parallel execution.
-  // Each aperture task operates on its own LP clone, so they are
-  // independent and can safely execute concurrently.  The calling scene
-  // thread blocks on the returned futures while pool threads process
-  // the aperture solves.
+  // Submit aperture chunk tasks to the SDDP work pool.  Each chunk
+  // task operates on its OWN LP clone — clones are independent and
+  // execute concurrently across chunks; apertures WITHIN a chunk
+  // run serially on the shared clone (warm-start reuse).  The
+  // calling scene thread blocks on the returned futures while pool
+  // threads process the chunks.
   //
   // Fallback to synchronous execution when no pool is available (e.g.
   // during unit tests).
@@ -364,8 +365,8 @@ auto SDDPMethod::make_aperture_submit_fn(PhaseIndex phase_index,
       .name = {},
   };
 
-  return [pool, req](const std::function<ApertureCutResult()>& task)
-             -> std::future<ApertureCutResult>
+  return [pool, req](const std::function<ApertureChunkResult()>& task)
+             -> std::future<ApertureChunkResult>
   {
     if (pool != nullptr) {
       auto fut = pool->submit(task, req);
@@ -375,7 +376,7 @@ auto SDDPMethod::make_aperture_submit_fn(PhaseIndex phase_index,
       SPDLOG_WARN("SDDP Aperture: pool submit failed, running synchronously");
     }
     // Fallback: run synchronously
-    std::promise<ApertureCutResult> p;
+    std::promise<ApertureChunkResult> p;
     p.set_value(task());
     return p.get_future();
   };
@@ -512,7 +513,8 @@ auto SDDPMethod::backward_pass_aperture_phase_impl(
       iteration_index,
       m_options_.cut_coeff_eps,
       aperture_lp_debug,
-      m_options_.aperture_use_manual_clone);
+      m_options_.aperture_use_manual_clone,
+      m_options_.aperture_chunk_size);
 
   const auto& target_state = phase_states[phase_index];
   cuts_added += install_aperture_backward_cut(scene_index,
@@ -744,7 +746,8 @@ auto SDDPMethod::backward_pass_with_apertures(SceneIndex scene_index,
         iteration_index,
         m_options_.cut_coeff_eps,
         aperture_lp_debug,
-        m_options_.aperture_use_manual_clone);
+        m_options_.aperture_use_manual_clone,
+        m_options_.aperture_chunk_size);
 
     if (!expected_cut.has_value()) {
       infeasible_phases.push_back(uid_of(phase_index));

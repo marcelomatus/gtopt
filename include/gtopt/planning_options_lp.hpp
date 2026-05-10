@@ -669,6 +669,20 @@ public:
     return m_options_.sddp_options.aperture_use_manual_clone.value_or(true);
   }
 
+  /// Resolved per-task aperture chunk size (sentinel-encoded).
+  ///
+  ///   *  0 → auto (compute_auto_aperture_chunk_size at SDDPMethod setup).
+  ///   *  1 → legacy 1-task-per-aperture.
+  ///   * >1 → exactly K apertures per task, serial within.
+  ///   * -1 → cap at A_max per phase (single task per scene).
+  ///
+  /// Default: 0 (auto).  See `SddpOptions::aperture_chunk_size` for
+  /// the JSON-facing documentation.
+  [[nodiscard]] constexpr auto sddp_aperture_chunk_size() const noexcept
+  {
+    return m_options_.sddp_options.aperture_chunk_size.value_or(0);
+  }
+
   /**
    * @brief Gets the effective monolithic solver options.
    *

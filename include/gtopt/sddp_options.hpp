@@ -210,6 +210,38 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
    */
   OptBool aperture_use_manual_clone {};
 
+  /** @brief Number of apertures solved serially per backward-pass task.
+   *
+   * Controls the chunked aperture pass.  Each chunk is submitted as
+   * **one** SDDP work-pool task that clones the phase LP **once**
+   * and solves its inner apertures sequentially — every aperture
+   * after the first warms-starts from the previous one's basis on
+   * the shared clone.  Bound-only deltas keep the dual basis valid,
+   * so warm resolves typically converge in a small fraction of a
+   * cold barrier.
+   *
+   * Pairs with the per-phase aperture wetness sort applied by
+   * `plp2gtopt` (driest → wettest within each phase): consecutive
+   * apertures in a chunk have similar bounds, maximising warm-
+   * start reuse.
+   *
+   * Sentinel encoding (resolved at SDDPMethod setup):
+   *
+   *   * absent / `nullopt` / `0` → **auto** — chosen by
+   *     `compute_auto_aperture_chunk_size(A_max, S, C, parallel_factor=2.0)`
+   *     so the resulting task count (`S × ⌈A/K⌉`) tracks the work
+   *     pool's target concurrency (`2 × N_cores`).
+   *   * `1`  → legacy behaviour: one task per aperture, one clone
+   *     per task, no inner serial loop.  Disables the chunked path.
+   *   * `K > 1` → use exactly `K` apertures per task.
+   *   * `-1` → cap at `A_max` per phase: a single task per scene that
+   *     iterates every aperture in series.  Useful for licence-
+   *     constrained or memory-tight runs.
+   *
+   * Default: `nullopt` (auto).
+   */
+  OptInt aperture_chunk_size {};
+
   /** @brief CSV file with boundary (future-cost) cuts for the last phase.
    *
    * These are analogous to PLP's "planos de embalse" — external optimality
@@ -578,6 +610,7 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
     merge_opt(aperture_timeout, opts.aperture_timeout);
     merge_opt(save_aperture_lp, opts.save_aperture_lp);
     merge_opt(aperture_use_manual_clone, opts.aperture_use_manual_clone);
+    merge_opt(aperture_chunk_size, opts.aperture_chunk_size);
     merge_opt(boundary_cuts_file, std::move(opts.boundary_cuts_file));
     merge_opt(boundary_cuts_mode, opts.boundary_cuts_mode);
     merge_opt(boundary_max_iterations, opts.boundary_max_iterations);

@@ -39,7 +39,20 @@ struct SolverOptions
   /** @brief Number of parallel threads to use (0 = use backend optimal) */
   int threads {0};
 
-  /** @brief Whether to apply presolve optimizations (default: true) */
+  /** @brief Whether to apply presolve optimizations (default: true).
+   *
+   * Pass `--no-presolve` on the CLI to disable for SDDP cell-replay
+   * runs (the cuts being re-installed were already vetted on first
+   * insertion, so presolve has no real reductions to find — only
+   * fixed-cost setup overhead per call).  Default kept at `true`
+   * because:
+   *   - HiGHS benchmark regresses 2.5x with presolve off
+   *     (`docs/analysis/highs-benchmark-results.md:18, 27`).
+   *   - Several SDDP unit tests depend on the presolve-induced LP
+   *     basis for their analytical-dual / KKT-prediction checks; these
+   *     would need fixture-level opt-in if the default flipped.
+   * For Juan/IPLP-style hot-start runs, set `--no-presolve` explicitly.
+   */
   bool presolve {true};
 
   /** @brief Optimality tolerance for solution (nullopt = use solver default)

@@ -45,6 +45,7 @@ SDDP_OPTION_KEYS: frozenset[str] = frozenset(
         "aperture_timeout",
         "save_aperture_lp",
         "aperture_use_manual_clone",
+        "aperture_chunk_size",
         "boundary_cuts_file",
         "boundary_cuts_mode",
         "boundary_max_iterations",

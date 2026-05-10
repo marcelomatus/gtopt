@@ -656,3 +656,192 @@ TEST_CASE(  // NOLINT
   CHECK_FALSE(results->empty());
   CHECK(results->back().converged);
 }
+
+// ─── compute_auto_aperture_chunk_size ──────────────────────────────────────
+
+TEST_CASE(  // NOLINT
+    "compute_auto_aperture_chunk_size — single-scene under-saturated → 1")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  // 14 apertures × 1 scene = 14 work units; pool target = 2 × 16 = 32.
+  // Under-saturated → chunk_size 1 (no warm-start chunking needed).
+  CHECK(compute_auto_aperture_chunk_size(
+            /*n_aps=*/14, /*n_scenes=*/1, /*n_cores=*/16, /*pf=*/2.0)
+        == 1);
+}
+
+TEST_CASE(  // NOLINT
+    "compute_auto_aperture_chunk_size — multi-scene saturated picks "
+    "K=⌈A·S/(pf·C)⌉")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  // 14 apertures × 16 scenes = 224 work units; target = 32 → K = ⌈224/32⌉ = 7.
+  CHECK(compute_auto_aperture_chunk_size(14, 16, 16, 2.0) == 7);
+  // Exactly-at-target with no remainder: 8×16/32 = 4.
+  CHECK(compute_auto_aperture_chunk_size(8, 16, 16, 2.0) == 4);
+  // One unit over a clean divisor → ceil bumps K by 1: 9×16/32 = 4.5 → 5.
+  CHECK(compute_auto_aperture_chunk_size(9, 16, 16, 2.0) == 5);
+}
+
+TEST_CASE(  // NOLINT
+    "compute_auto_aperture_chunk_size — heavy oversubscription caps at A")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  // 80 apertures × 32 scenes = 2560 work units; target = 32 →
+  // K_real = 80, exactly the cap.
+  CHECK(compute_auto_aperture_chunk_size(80, 32, 16, 2.0) == 80);
+  // Push past A: 80 apertures × 64 scenes = 5120; K_real = 160 → capped at 80.
+  CHECK(compute_auto_aperture_chunk_size(80, 64, 16, 2.0) == 80);
+}
+
+TEST_CASE(  // NOLINT
+    "compute_auto_aperture_chunk_size — degenerate inputs collapse to 1")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  // Any zero/negative dimension → safe no-chunking default.
+  CHECK(compute_auto_aperture_chunk_size(0, 16, 16, 2.0) == 1);
+  CHECK(compute_auto_aperture_chunk_size(14, 0, 16, 2.0) == 1);
+  CHECK(compute_auto_aperture_chunk_size(14, 16, 0, 2.0) == 1);
+  CHECK(compute_auto_aperture_chunk_size(14, 16, 16, 0.0) == 1);
+  CHECK(compute_auto_aperture_chunk_size(14, 16, 16, -1.0) == 1);
+  CHECK(compute_auto_aperture_chunk_size(-1, 16, 16, 2.0) == 1);
+}
+
+TEST_CASE(  // NOLINT
+    "compute_auto_aperture_chunk_size — single core stretches K to A")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  // 1 core, target = 2.  14×1 / 2 = 7; 14×16 / 2 = 112 → capped at 14.
+  CHECK(compute_auto_aperture_chunk_size(14, 1, 1, 2.0) == 7);
+  CHECK(compute_auto_aperture_chunk_size(14, 16, 1, 2.0) == 14);
+}
+
+TEST_CASE(  // NOLINT
+    "compute_auto_aperture_chunk_size — parallel_factor scales target "
+    "inversely")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  // pf=1 halves the target → doubles K vs pf=2 (modulo ceil rounding).
+  // 14×16 / (1·16) = 14, 14×16 / (4·16) = 3.5 → 4.
+  CHECK(compute_auto_aperture_chunk_size(14, 16, 16, 1.0) == 14);
+  CHECK(compute_auto_aperture_chunk_size(14, 16, 16, 4.0) == 4);
+}
+
+// `constexpr`-evaluation regression: the helper is `constexpr`, so
+// any of the assertions above are also evaluated at compile time.
+// One static_assert here is enough to lock the contract — a future
+// edit that makes the body non-constexpr would fail to build.
+static_assert(compute_auto_aperture_chunk_size(14, 16, 16, 2.0) == 7);
+static_assert(compute_auto_aperture_chunk_size(0, 16, 16, 2.0) == 1);
+static_assert(compute_auto_aperture_chunk_size(80, 64, 16, 2.0) == 80);
+
+// ─── partition_apertures ───────────────────────────────────────────────────
+
+namespace
+{
+// Helper: build a small ApertureEntry vector backed by stable Aperture
+// storage so the returned spans alias something whose lifetime exceeds
+// the partition_apertures call.
+struct ApertureBag
+{
+  std::vector<Aperture> defs;
+  std::vector<ApertureEntry> entries;
+
+  explicit ApertureBag(int n)
+  {
+    defs.reserve(static_cast<std::size_t>(n));
+    entries.reserve(static_cast<std::size_t>(n));
+    for (int i = 0; i < n; ++i) {
+      defs.push_back(Aperture {
+          .uid = Uid {i + 1},
+          .source_scenario = Uid {(i + 1) * 10},
+      });
+    }
+    for (auto& d : defs) {
+      entries.push_back(ApertureEntry {.aperture = std::cref(d), .count = 1});
+    }
+  }
+};
+}  // namespace
+
+TEST_CASE("partition_apertures — empty input → empty output")  // NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  std::vector<ApertureEntry> empty;
+  CHECK(partition_apertures(empty, 4).empty());
+  CHECK(partition_apertures(empty, 1).empty());
+  CHECK(partition_apertures(empty, 0).empty());
+}
+
+TEST_CASE("partition_apertures — K=1 yields one chunk per aperture")  // NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  ApertureBag bag {5};
+  const auto chunks = partition_apertures(bag.entries, 1);
+  REQUIRE(chunks.size() == 5);
+  for (std::size_t i = 0; i < chunks.size(); ++i) {
+    REQUIRE(chunks[i].size() == 1);
+    CHECK(chunks[i][0].aperture.get().uid == Uid {static_cast<int>(i) + 1});
+  }
+}
+
+TEST_CASE("partition_apertures — K>=N yields exactly one chunk")  // NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  ApertureBag bag {7};
+  for (int k : {7, 8, 100}) {
+    const auto chunks = partition_apertures(bag.entries, k);
+    REQUIRE(chunks.size() == 1);
+    CHECK(chunks[0].size() == 7);
+    CHECK(chunks[0].front().aperture.get().uid == Uid {1});
+    CHECK(chunks[0].back().aperture.get().uid == Uid {7});
+  }
+}
+
+TEST_CASE("partition_apertures — K=0 or K<0 collapse to K=1")  // NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  ApertureBag bag {3};
+  for (int k : {0, -1, -100}) {
+    const auto chunks = partition_apertures(bag.entries, k);
+    REQUIRE(chunks.size() == 3);
+    for (const auto& c : chunks) {
+      CHECK(c.size() == 1);
+    }
+  }
+}
+
+TEST_CASE(  // NOLINT
+    "partition_apertures — N=10, K=3 yields chunks of sizes [3,3,3,1]")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  ApertureBag bag {10};
+  const auto chunks = partition_apertures(bag.entries, 3);
+  REQUIRE(chunks.size() == 4);
+  CHECK(chunks[0].size() == 3);
+  CHECK(chunks[1].size() == 3);
+  CHECK(chunks[2].size() == 3);
+  CHECK(chunks[3].size() == 1);
+  // Order preserved end-to-end (UIDs 1..10 in their original sequence).
+  std::vector<int> seen;
+  for (const auto& c : chunks) {
+    for (const auto& e : c) {
+      seen.push_back(static_cast<int>(e.aperture.get().uid));
+    }
+  }
+  CHECK(seen == std::vector<int> {1, 2, 3, 4, 5, 6, 7, 8, 9, 10});
+}
+
+TEST_CASE(
+    "partition_apertures — N=4, K=2 yields two chunks of size 2")  // NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  ApertureBag bag {4};
+  const auto chunks = partition_apertures(bag.entries, 2);
+  REQUIRE(chunks.size() == 2);
+  CHECK(chunks[0].size() == 2);
+  CHECK(chunks[1].size() == 2);
+  // Spans alias the input — verify by pointer equality on the first element.
+  CHECK(&chunks[0].front() == &bag.entries.front());
+  CHECK(&chunks[1].front() == &bag.entries[2]);
+}

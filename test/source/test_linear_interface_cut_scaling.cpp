@@ -747,3 +747,137 @@ TEST_CASE(
 
   CHECK(li.get_row_low_raw()[row_idx] == doctest::Approx(7.0));
 }
+
+// ─── Bulk add_rows compose_physical parity ─────────────────────────────────
+//
+// Pin the contract that `add_rows(span)` and N×`add_row(SparseRow)`
+// produce the SAME backend rows (raw lb/ub, raw element values,
+// composite_scale stored via set_row_scale, physical readback) under
+// the compose_physical regime: cut-phase + col_scale ≠ 1 + row-max
+// equilibration.  The 2026-05 refactor changed `add_rows` from a
+// per-row `add_row` fallback to a batched compose-then-`add_rows_raw`
+// dispatch (collapsing N CPXaddrows calls into 1); this test catches
+// any future regression of the bulk path that would silently break
+// the singular invariants pinned by the SUBCASEs above.
+
+TEST_CASE(
+    "LinearInterface add_rows bulk == N×add_row under compose_physical")  // NOLINT
+{
+  using gtopt::LpEquilibrationMethod;
+
+  // Build TWO LPs side-by-side with identical structural state.  One
+  // adds three cuts via singular `add_row`, the other adds the same
+  // three cuts in a single bulk `add_rows` call.  The backend rows
+  // must match bit-equally.
+  auto build_lp = [](LpEquilibrationMethod equil) -> LinearInterface
+  {
+    LinearProblem lp;
+    const auto c0 = lp.add_col({
+        .lowb = 0.0,
+        .uppb = 100.0,
+        .cost = 1.0,
+    });
+    const auto c1 = lp.add_col({
+        .lowb = 0.0,
+        .uppb = 100.0,
+        .cost = 0.0,
+        .scale = 3.0,
+    });
+    const auto c2 = lp.add_col({
+        .lowb = 0.0,
+        .uppb = 100.0,
+        .cost = 0.0,
+        .scale = 5.0,
+    });
+    SparseRow base;
+    base[c0] = 1.0;
+    base[c1] = 1.0;
+    base[c2] = 1.0;
+    base.lowb = 0.0;
+    base.uppb = 300.0;
+    std::ignore = lp.add_row(std::move(base));
+
+    LinearInterface li;
+    LpMatrixOptions opts;
+    opts.scale_objective = 1000.0;
+    opts.equilibration_method = equil;
+    li.load_flat(lp.flatten(opts));
+    li.save_base_numrows();
+    return li;
+  };
+
+  auto make_cut_batch = []() -> std::vector<SparseRow>
+  {
+    auto mk = [](double a, double b, double c, double rhs)
+    {
+      SparseRow r;
+      r[ColIndex {0}] = a;
+      r[ColIndex {1}] = b;
+      r[ColIndex {2}] = c;
+      r.lowb = rhs;
+      r.uppb = LinearProblem::DblMax;
+      return r;
+    };
+    return std::vector<SparseRow> {
+        mk(1.0, 2.0, 3.0, 7.0),
+        mk(0.5, 1.5, 2.5, 11.0),
+        mk(2.0, 4.0, 6.0, 13.0),
+    };
+  };
+
+  for (const auto equil :
+       {LpEquilibrationMethod::none, LpEquilibrationMethod::row_max})
+  {
+    SUBCASE(equil == LpEquilibrationMethod::none ? "no-equilibration"
+                                                 : "row-max-equilibration")
+    {
+      auto li_singular = build_lp(equil);
+      auto li_bulk = build_lp(equil);
+
+      const auto cuts_s = make_cut_batch();
+      auto cuts_b = make_cut_batch();
+
+      // Singular path: N×add_row
+      std::vector<RowIndex> idx_s;
+      idx_s.reserve(cuts_s.size());
+      for (const auto& c : cuts_s) {
+        idx_s.push_back(li_singular.add_row(c));
+      }
+
+      // Bulk path: one add_rows
+      const auto first_idx = RowIndex {li_bulk.get_numrows()};
+      li_bulk.add_rows(cuts_b);
+
+      REQUIRE(li_singular.get_numrows() == li_bulk.get_numrows());
+      REQUIRE(idx_s.size() == cuts_b.size());
+
+      for (std::size_t k = 0; k < cuts_b.size(); ++k) {
+        const auto rs = idx_s[k];
+        const auto rb = RowIndex {static_cast<Index>(first_idx) + k};
+
+        // Raw stored bounds must match (~1 ulp tolerance).
+        CHECK(li_singular.get_row_low_raw()[rs]
+              == doctest::Approx(li_bulk.get_row_low_raw()[rb]));
+        CHECK(li_singular.get_row_upp_raw()[rs]
+              == doctest::Approx(li_bulk.get_row_upp_raw()[rb]));
+
+        // Composite row_scale must match — that's how
+        // `get_row_low()` / `get_row_dual()` recover physical units.
+        CHECK(li_singular.get_row_scale(rs)
+              == doctest::Approx(li_bulk.get_row_scale(rb)));
+
+        // Per-element raw coefficients must match for every column
+        // referenced.
+        for (const auto& col : {ColIndex {0}, ColIndex {1}, ColIndex {2}}) {
+          CHECK(li_singular.get_coeff_raw(rs, col)
+                == doctest::Approx(li_bulk.get_coeff_raw(rb, col)));
+        }
+
+        // Physical readback round-trip must match (driven by
+        // raw_lb × composite_scale invariant).
+        CHECK(li_singular.get_row_low()[rs]
+              == doctest::Approx(li_bulk.get_row_low()[rb]));
+      }
+    }
+  }
+}

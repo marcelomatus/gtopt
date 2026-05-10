@@ -1838,9 +1838,22 @@ void LinearInterface::track_row_label_meta(RowIndex row_idx,
   // companion for rationale.  Consults both the frozen flatten-side
   // `m_row_meta_index_` and the per-instance
   // `m_post_flatten_row_meta_index_`.
+  //
+  // Replay fast-path: when `m_replay_.replaying()` is true, the row
+  // being installed was already vetted against `m_row_meta_index_` on
+  // its first insertion (it lives in `m_active_cuts_` precisely
+  // because it passed dedup then).  The frozen index is invariant
+  // across `release_backend()` → `reconstruct_backend()` cycles, so
+  // re-probing it on every replay is pure waste — under
+  // `LowMemoryMode::compress` the cost is `cuts × cells × hash` which
+  // dominates the per-iter cut-replay overhead on Juan/IPLP at high
+  // cut counts.  The post-flatten `try_emplace` is preserved on the
+  // replay path so subsequent non-replay readers (`add_row_disposable`,
+  // `delete_rows` rebuild, `clone()`) see a coherent dedup map.
   const auto& meta = m_post_flatten_row_labels_meta_[post_offset];
   if (!is_empty_row_label(meta)) {
-    if (m_row_meta_index_) {
+    const bool is_replay = m_replay_.replaying();
+    if (!is_replay && m_row_meta_index_) {
       const auto& flatten_index = *m_row_meta_index_;
       if (auto it = flatten_index.find(meta); it != flatten_index.end()) {
         throw std::runtime_error(
@@ -2161,14 +2174,6 @@ void LinearInterface::add_rows(const std::span<const SparseRow> rows,
   // (`m_base_numrows_set_`, `m_col_scales_`, `m_equilibration_method_`)
   // is invariant across the batch, so it is checked once and applied
   // uniformly to every row.
-  //
-  // Implementation note: when compose_physical is active we fall back
-  // to per-row `add_row` rather than duplicate the ~100-line
-  // compose_physical body here.  The bulk speedup is preserved for the
-  // common "no col_scales / no equilibration" path (the `add_rows_raw`
-  // tail call below); the equilibrated path pays a per-row cost that
-  // is fine for the only hot caller (`replay_active_cuts` runs once per
-  // cell-rebuild under low_memory_mode=compress, ≤ a few hundred cuts).
   const bool is_cut_phase = m_base_numrows_set_;
   const bool have_col_scales = !m_col_scales_->empty();
   const bool have_equilibration =
@@ -2176,14 +2181,103 @@ void LinearInterface::add_rows(const std::span<const SparseRow> rows,
   const bool compose_physical =
       is_cut_phase && (have_col_scales || have_equilibration);
 
-  if (compose_physical) {
-    for (const auto& row : rows) {
-      add_row(row, eps);
-    }
+  if (!compose_physical) {
+    add_rows_raw(rows, eps);
     return;
   }
 
-  add_rows_raw(rows, eps);
+  // Compose every row's physical → LP transform once across the batch
+  // and delegate to `add_rows_raw` with already-composed values.  This
+  // collapses N CPXaddrows calls into one and N×3 element walks into
+  // N×1 (the previous fallback was per-row `add_row`, which dominated
+  // the cut-replay cost under `LowMemoryMode::compress` — see the
+  // 2026-05 LB-overshoot investigation in support/juan/).
+  //
+  // Composition contract (matches the singular `add_row(SparseRow)`
+  // compose_physical body at :1929-2071):
+  //
+  //   composed.cmap[col]  = phys[col] × col_scale[col]
+  //   composed.scale      = row.scale × scale_objective × equil_norm
+  //   composed.lowb/.uppb = phys (unchanged; `add_rows_raw` divides
+  //                         finite bounds by `composed.scale`)
+  //   composed.pivot_col, labels, context: copied from `row`
+  //
+  // `add_rows_raw` then divides cmap and finite bounds by
+  // `composed.scale` and stores `composed.scale` via `set_row_scale`,
+  // so accessor views (`get_row_low`, `get_row_dual`) recover physical
+  // values verbatim — same invariant as the singular path:
+  //
+  //   raw_lb_stored          = phys_lb / composite_scale
+  //   composite_scale_stored = composite_scale
+  //   get_row_low[i]         = raw_lb × composite_scale = phys_lb ✓
+  //   get_row_dual[i]        = raw_dual × scale_obj / composite_scale
+  //                          = π_phys ✓
+  std::vector<SparseRow> composed;
+  composed.reserve(rows.size());
+
+  const auto& col_scales_ref = *m_col_scales_;
+  const auto n_col_scales = std::ssize(col_scales_ref);
+
+  for (const auto& row : rows) {
+    SparseRow c {
+        .lowb = row.lowb,
+        .uppb = row.uppb,
+        .cmap = {},
+        .scale = row.scale,
+        .pivot_col = row.pivot_col,
+        .class_name = row.class_name,
+        .constraint_name = row.constraint_name,
+        .variable_uid = row.variable_uid,
+        .context = row.context,
+    };
+    c.reserve(row.cmap.size());
+
+    // 1. Apply per-column physical → LP scaling to cmap values while
+    //    cloning the input row's coefficient map.  Built from scratch
+    //    rather than copy + in-place mutate so the loop also works
+    //    against `std::flat_map`'s proxy iterator (which yields
+    //    temporaries that cannot bind to a non-const reference).
+    if (have_col_scales) {
+      for (const auto& kv : row.cmap) {
+        const auto col = kv.first;
+        double val = kv.second;
+        if (col < n_col_scales) {
+          val *= col_scales_ref[col];
+        }
+        c.cmap.emplace(col, val);
+      }
+    } else {
+      c.cmap = row.cmap;
+    }
+
+    // 2. Per-row equilibration norm — computed from post-col-scale,
+    //    post-row.scale, post-scale_obj values to match the singular
+    //    path's step-3 normalisation (linear_interface.cpp:2038-2071).
+    //    Pivot-column normalisation when set; row-max otherwise.
+    double composite_scale = row.scale * m_scale_objective_;
+    if (have_equilibration) {
+      const double inv_rs_so = 1.0 / composite_scale;
+      double norm = 0.0;
+      if (row.pivot_col != unknown_index) {
+        if (auto it = c.cmap.find(row.pivot_col); it != c.cmap.end()) {
+          norm = std::abs(it->second * inv_rs_so);
+        }
+      }
+      if (norm == 0.0) {
+        for (const auto& kv : c.cmap) {
+          norm = std::max(norm, std::abs(kv.second * inv_rs_so));
+        }
+      }
+      if (norm > 0.0 && norm != 1.0) {
+        composite_scale *= norm;
+      }
+    }
+
+    c.scale = composite_scale;
+    composed.push_back(std::move(c));
+  }
+
+  add_rows_raw(composed, eps);
 }
 
 // NOLINTNEXTLINE(misc-no-recursion)
@@ -2204,14 +2298,14 @@ void LinearInterface::add_rows_raw(const std::span<const SparseRow> rows,
   const auto num_rows = static_cast<int>(rows.size());
   const auto first_row_index = RowIndex {m_backend_->get_num_rows()};
 
-  // First pass: count total non-zeros to preallocate CSR arrays.
+  // Sum cmap sizes for the CSR reserve hint.  When `eps > 0` this
+  // over-reserves slightly (rows whose abs(val) ≤ eps are dropped at
+  // fill time), but `reserve()` is a hint and the over-allocation is
+  // harmless — strictly cheaper than the prior count-pass which walked
+  // every cmap value once just for sizing.
   size_t total_nnz = 0;
   for (const auto& row : rows) {
-    for (const auto& [col, val] : row.cmap) {
-      if (std::abs(val) > eps) {
-        ++total_nnz;
-      }
-    }
+    total_nnz += row.cmap.size();
   }
 
   // Allocate CSR arrays
@@ -2225,7 +2319,16 @@ void LinearInterface::add_rows_raw(const std::span<const SparseRow> rows,
 
   const auto infy = m_backend_->infinity();
   const double infy_guard = infy * 0.999;
-  const bool validate = m_validation_options_.effective_enable();
+  // Skip per-element validation hooks during a cut-replay reconstruct.
+  // The cuts in `m_active_cuts_` were already validated when first
+  // inserted, and replay re-injects the SAME values back into the
+  // backend after a `release_backend()` → `reconstruct_backend()`
+  // cycle.  Re-running `note_coeff` / `note_filtered` per-element on
+  // every replay dominates the cut-replay cost under
+  // `LowMemoryMode::compress` (1.2M coefs/cell × ~1670 cells × ~10ns/
+  // call ≈ 20s/iter at high cut counts on Juan/IPLP).
+  const bool validate =
+      !m_replay_.replaying() && m_validation_options_.effective_enable();
 
   // Second pass: fill CSR arrays with scaled coefficients and bounds.
   auto row_idx = first_row_index;
@@ -2295,6 +2398,25 @@ void LinearInterface::add_rows_raw(const std::span<const SparseRow> rows,
   // re-injects `m_active_cuts_`; the single-row `add_row_raw` path
   // already calls `track_row_label_meta`, so mirroring it here keeps the
   // size invariant across compress/replay cycles.
+  //
+  // Bulk-grow `m_post_flatten_row_labels_meta_` and reserve the dedup
+  // map up front: per-cut growth would resize-by-1 N times and rehash
+  // the unordered_map several times across the batch, which dominates
+  // the `track_row_label_meta` cost on the cut-replay hot path.
+  {
+    const auto frozen_count = flatten_row_count();
+    const auto first_post_offset =
+        static_cast<size_t>(first_row_index) >= frozen_count
+        ? static_cast<size_t>(first_row_index) - frozen_count
+        : 0U;
+    const auto needed_size = first_post_offset + static_cast<size_t>(num_rows);
+    if (m_post_flatten_row_labels_meta_.size() < needed_size) {
+      m_post_flatten_row_labels_meta_.resize(needed_size);
+    }
+    m_post_flatten_row_meta_index_.reserve(m_post_flatten_row_meta_index_.size()
+                                           + static_cast<size_t>(num_rows));
+  }
+
   auto bookkeep_idx = first_row_index;
   for (const auto& row : rows) {
     if (row.scale != 1.0) {

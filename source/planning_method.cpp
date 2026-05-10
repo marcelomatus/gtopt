@@ -70,6 +70,7 @@ namespace
   sddp_opts.lp_debug_passes = std::string(options.sddp_lp_debug_passes());
   sddp_opts.aperture_use_manual_clone =
       options.sddp_aperture_use_manual_clone();
+  sddp_opts.aperture_chunk_size = options.sddp_aperture_chunk_size();
   sddp_opts.max_cuts_per_phase = options.sddp_max_cuts_per_phase();
   sddp_opts.cut_prune_interval = options.sddp_cut_prune_interval();
   sddp_opts.prune_dual_threshold = options.sddp_prune_dual_threshold();

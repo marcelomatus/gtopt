@@ -582,6 +582,178 @@ TEST_CASE("SDDPMethod - 2-phase with apertures converges")  // NOLINT
     }
     CHECK(total_cuts > 0);
   }
+
+  // Chunked aperture pass: K=1 (legacy 1-task-per-aperture),
+  // K=2 (one chunk holds both apertures, exercises shared-clone +
+  // memo path), and K=-1 (fully serial cap).  All three must
+  // converge to the same final UB on this 2-aperture case modulo
+  // solver tolerance.
+  SUBCASE("apertures + chunk_size=1 (legacy path)")
+  {
+    sddp_opts.apertures = std::nullopt;
+    sddp_opts.aperture_chunk_size = 1;
+    SDDPMethod sddp(plp, sddp_opts);
+    auto results = sddp.solve();
+    REQUIRE(results.has_value());
+    CHECK_FALSE(results->empty());
+    CHECK(results->back().converged);
+  }
+
+  SUBCASE("apertures + chunk_size=2 (single-chunk shared clone)")
+  {
+    sddp_opts.apertures = std::nullopt;
+    sddp_opts.aperture_chunk_size = 2;
+    SDDPMethod sddp(plp, sddp_opts);
+    auto results = sddp.solve();
+    REQUIRE(results.has_value());
+    CHECK_FALSE(results->empty());
+    CHECK(results->back().converged);
+  }
+
+  SUBCASE("apertures + chunk_size=-1 (fully serial per scene)")
+  {
+    sddp_opts.apertures = std::nullopt;
+    sddp_opts.aperture_chunk_size = -1;
+    SDDPMethod sddp(plp, sddp_opts);
+    auto results = sddp.solve();
+    REQUIRE(results.has_value());
+    CHECK_FALSE(results->empty());
+    CHECK(results->back().converged);
+  }
+}
+
+// ── Chunked aperture equivalence on the 10-phase 2-reservoir fixture ───────
+//
+// Builds a 4-aperture variant of the existing
+// ``make_2scene_10phase_two_reservoir_planning`` fixture by attaching
+// an explicit ``aperture_array`` of 4 entries (each pointing to one of
+// 4 distinct hydrology scenarios with progressively wetter inflows).
+// The 10-phase backward pass then walks 9 phase transitions × 4
+// apertures each = 36 aperture LP solves per iteration, giving the
+// chunked path real work to do.
+//
+// The chunked path is a pure scheduling/clone optimisation — the
+// expected Benders cut at each phase is the probability-weighted
+// average of the per-aperture cuts regardless of K.  So K=1 (current
+// 1-task-per-aperture, fully parallel across the pool) and K=4
+// (one task per scene per phase, all 4 apertures serial inside
+// the chunk on a shared clone) MUST produce equivalent final UBs
+// modulo solver tolerance.
+TEST_CASE(  // NOLINT
+    "SDDPMethod - 10-phase 2-rsv 4-aperture: K=1 (full parallel) ≡ "
+    "K=4 (full serial)")
+{
+  auto build_planning = []
+  {
+    auto planning = make_2scene_10phase_two_reservoir_planning();
+
+    // The base fixture already has two identical-hydrology scenarios
+    // {uid 1, uid 2}.  Add two more with progressively wetter flows
+    // so the 4 apertures span a real range (drier → wetter).
+    constexpr int num_phases = 10;
+    auto make_inflow = [&](double base, double phase0_boost)
+    {
+      std::vector<std::vector<double>> inflow_2d;
+      inflow_2d.reserve(static_cast<std::size_t>(num_phases));
+      for (int st = 0; st < num_phases; ++st) {
+        inflow_2d.push_back(
+            std::vector<double> {st == 0 ? phase0_boost : base});
+      }
+      return inflow_2d;
+    };
+
+    // Add scenarios 3 and 4 (already-existing 1, 2 are kept).
+    planning.simulation.scenario_array.push_back(Scenario {
+        .uid = Uid {3},
+        .probability_factor = 0.25,
+    });
+    planning.simulation.scenario_array.push_back(Scenario {
+        .uid = Uid {4},
+        .probability_factor = 0.25,
+    });
+    // Re-balance the existing two so all four sum to 1.
+    planning.simulation.scenario_array[0].probability_factor = OptReal {0.25};
+    planning.simulation.scenario_array[1].probability_factor = OptReal {0.25};
+
+    // Extend the discharge of each inflow Flow (uids 1 and 2) to
+    // cover scenarios 3 and 4 with distinct inflows: scenario 3 is
+    // ~25 % drier, scenario 4 is ~25 % wetter than the base.
+    auto& flow_array = planning.system.flow_array;
+    REQUIRE(flow_array.size() == 2);
+    for (auto& flow : flow_array) {
+      // discharge is STBRealFieldSched = std::variant<double, vec3d,
+      // FileSched>; the base fixture stores the 3-D form (scenario × stage ×
+      // block). Append two more scenarios.
+      using Vec3D = std::vector<std::vector<std::vector<double>>>;
+      auto& vec3d = std::get<Vec3D>(flow.discharge);
+      vec3d.push_back(make_inflow(/*base=*/15.0, /*phase0_boost=*/60.0));
+      vec3d.push_back(make_inflow(/*base=*/25.0, /*phase0_boost=*/100.0));
+    }
+
+    // Explicit aperture_array: 4 apertures, one per scenario, equal weight.
+    planning.simulation.aperture_array = Array<Aperture> {
+        Aperture {
+            .uid = Uid {1},
+            .source_scenario = Uid {1},
+            .probability_factor = 0.25,
+        },
+        Aperture {
+            .uid = Uid {2},
+            .source_scenario = Uid {2},
+            .probability_factor = 0.25,
+        },
+        Aperture {
+            .uid = Uid {3},
+            .source_scenario = Uid {3},
+            .probability_factor = 0.25,
+        },
+        Aperture {
+            .uid = Uid {4},
+            .source_scenario = Uid {4},
+            .probability_factor = 0.25,
+        },
+    };
+    // Each phase references all 4 apertures so the backward pass
+    // iterates the full set on every (scene, phase) cell.
+    for (auto& phase : planning.simulation.phase_array) {
+      phase.apertures = {Uid {1}, Uid {2}, Uid {3}, Uid {4}};
+    }
+
+    return planning;
+  };
+
+  auto run_at = [&](int chunk_size) -> double
+  {
+    auto planning = build_planning();
+    PlanningLP plp(std::move(planning));
+    SDDPOptions sddp_opts;
+    // Fixed iteration budget so K=1 and K=4 walk the same number of
+    // SDDP iterations.  The test asserts UB equivalence at the SAME
+    // iteration count — convergence per se is not the property under
+    // test (the chunked path is a scheduling/clone optimisation, not
+    // a numerical reformulation).
+    sddp_opts.max_iterations = 25;
+    sddp_opts.min_iterations = 25;
+    sddp_opts.convergence_tol = 0.0;  // disable early termination
+    sddp_opts.enable_api = false;
+    sddp_opts.apertures = std::nullopt;  // use per-phase apertures
+    sddp_opts.aperture_chunk_size = chunk_size;
+    SDDPMethod sddp(plp, sddp_opts);
+    auto results = sddp.solve();
+    REQUIRE(results.has_value());
+    REQUIRE_FALSE(results->empty());
+    return results->back().upper_bound;
+  };
+
+  // K=1: legacy 1-task-per-aperture, fully parallel across the work pool.
+  const double ub_k1 = run_at(1);
+  // K=4: a single task per (scene, phase) holds all 4 apertures and
+  // solves them serially on a shared LP clone — full warm-start reuse.
+  const double ub_k4 = run_at(4);
+
+  // Equivalence within solver tolerance: chunked path is a pure
+  // scheduling optimisation, expected cut geometry is unchanged.
+  CHECK(ub_k4 == doctest::Approx(ub_k1).epsilon(1e-3));
 }
 
 // ─── Unit tests for free utility functions ─────────────────────────────────

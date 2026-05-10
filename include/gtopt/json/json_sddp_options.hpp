@@ -55,6 +55,7 @@ struct SddpOptionsConstructor
       OptBool save_aperture_lp,
       OptName lp_debug_passes,
       OptBool aperture_use_manual_clone,
+      OptInt aperture_chunk_size,
       OptName boundary_cuts_file,
       OptName boundary_cuts_mode_str,
       OptInt boundary_max_iterations,
@@ -120,6 +121,7 @@ struct SddpOptionsConstructor
     opts.save_aperture_lp = save_aperture_lp;
     opts.lp_debug_passes = std::move(lp_debug_passes);
     opts.aperture_use_manual_clone = aperture_use_manual_clone;
+    opts.aperture_chunk_size = aperture_chunk_size;
     opts.boundary_cuts_file = std::move(boundary_cuts_file);
     if (boundary_cuts_mode_str) {
       opts.boundary_cuts_mode = gtopt::require_enum<BoundaryCutsMode>(
@@ -202,6 +204,7 @@ struct json_data_contract<SddpOptions>
       json_bool_null<"save_aperture_lp", OptBool>,
       json_string_null<"lp_debug_passes", OptName>,
       json_bool_null<"aperture_use_manual_clone", OptBool>,
+      json_number_null<"aperture_chunk_size", OptInt>,
       json_string_null<"boundary_cuts_file", OptName>,
       json_string_null<"boundary_cuts_mode", OptName>,
       json_number_null<"boundary_max_iterations", OptInt>,
@@ -257,6 +260,7 @@ struct json_data_contract<SddpOptions>
         opt.save_aperture_lp,
         opt.lp_debug_passes,
         opt.aperture_use_manual_clone,
+        opt.aperture_chunk_size,
         opt.boundary_cuts_file,
         detail::enum_to_opt_name(opt.boundary_cuts_mode),
         opt.boundary_max_iterations,

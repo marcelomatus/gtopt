@@ -674,7 +674,7 @@ private:
   /// @param iteration  SDDP iteration index (for pool priority ordering)
   [[nodiscard]] auto make_aperture_submit_fn(PhaseIndex phase_index,
                                              IterationIndex iteration_index)
-      -> ApertureSubmitFunc;
+      -> ApertureChunkSubmitFunc;
 
   /// Prune inactive cuts from all (scene, phase) LPs.
   /// Removes cuts whose |dual| < prune_dual_threshold, keeping at most

@@ -2,11 +2,17 @@
 
 from pathlib import Path
 import textwrap
+from types import SimpleNamespace
 
+import numpy as np
 import pytest
 
 from plp2gtopt.idap2_parser import IdAp2Parser
-from plp2gtopt.aperture_writer import build_aperture_array, build_phase_apertures
+from plp2gtopt.aperture_writer import (
+    build_aperture_array,
+    build_phase_apertures,
+    compute_phase_wetness,
+)
 
 
 @pytest.fixture()
@@ -284,3 +290,174 @@ def test_phase_aperturess_multistage_duplicates(
     # Phase 2 (stage 3): [1,51,52,53] → 4 unique aperture UIDs, no duplicates
     ap_set_2 = phase_array[1]["apertures"]
     assert len(ap_set_2) == len(set(ap_set_2))
+
+
+# ---------------------------------------------------------------------------
+# Tests for the wetness sort (driest → wettest aperture ordering)
+# ---------------------------------------------------------------------------
+
+
+def _make_aflce(centrals):
+    """Build a SimpleNamespace mimicking AflceParser.items.
+
+    Each ``centrals`` entry is ``(name, block_numbers, flow_matrix)``.
+    """
+    items = []
+    for name, block_nums, flow in centrals:
+        items.append(
+            {
+                "name": name,
+                "block": np.asarray(block_nums, dtype=np.int32),
+                "flow": np.asarray(flow, dtype=np.float64),
+            }
+        )
+    return SimpleNamespace(items=items)
+
+
+def _make_block_parser(blocks):
+    """Build a SimpleNamespace mimicking BlockParser.items.
+
+    Each ``blocks`` entry is ``(number, stage, duration)``.
+    """
+    items = [
+        {"number": int(n), "stage": int(s), "duration": float(d)}
+        for (n, s, d) in blocks
+    ]
+    return SimpleNamespace(items=items)
+
+
+def _make_idap2_uniform(tmp_path: Path, hydros, num_stages=3) -> IdAp2Parser:
+    """Single-stage-per-line idap2 file where every stage references ``hydros``."""
+    header = textwrap.dedent("""\
+        # Archivo de caudales
+        # Numero de etapas
+              {ns}
+        # Mes  Etapa  NApert  ApertInd
+    """).format(ns=num_stages)
+    rows = []
+    for s in range(1, num_stages + 1):
+        # Mes column doesn't matter for parsing logic here; reuse stage value.
+        idx_str = "  ".join(f"{h:>3}" for h in hydros)
+        rows.append(f"   {s:03d}   {s:03d}   {len(hydros):2d}  {idx_str}")
+    p = tmp_path / "plpidap2.dat"
+    p.write_text(header + "\n".join(rows) + "\n")
+    parser = IdAp2Parser(p)
+    parser.parse()
+    return parser
+
+
+def test_wetness_sort_driest_first(tmp_path: Path) -> None:
+    """3 hydros with known totals sort driest → wettest (uid tiebreak unused)."""
+    # Two blocks: durations [1, 2].  One central with flows:
+    #   h0 (uid 1) = [10, 10] → total = 10*1 + 10*2 = 30
+    #   h1 (uid 2) = [ 1,  1] → total =  1*1 +  1*2 =  3
+    #   h2 (uid 3) = [ 5,  5] → total =  5*1 +  5*2 = 15
+    # Expected order (driest → wettest): [2, 3, 1]
+    aflce = _make_aflce([("c1", [1, 2], [[10.0, 1.0, 5.0], [10.0, 1.0, 5.0]])])
+    block_parser = _make_block_parser([(1, 1, 1.0), (2, 1, 2.0)])
+    idap2 = _make_idap2_uniform(tmp_path, hydros=[1, 2, 3], num_stages=1)
+    scenario_hydro_map = {0: 1, 1: 2, 2: 3}
+    aperture_array = build_aperture_array(
+        idap2, scenario_hydro_map, num_stages=1
+    ).aperture_array
+    phase_array = [{"uid": 1, "first_stage": 0, "count_stage": 1}]
+    build_phase_apertures(
+        idap2,
+        aperture_array,
+        phase_array,
+        1,
+        aflce_parser=aflce,
+        block_parser=block_parser,
+    )
+    # Single phase but the JSON-compaction path skips because `all_same`
+    # over a 1-element list is trivially True — we re-emit anyway only
+    # when phases differ or there are duplicates.  So check the wetness
+    # helper directly to assert ordering correctness.
+    w = compute_phase_wetness(aflce, block_parser, phase_array[0], 1)
+    assert w[1] == pytest.approx(30.0)
+    assert w[2] == pytest.approx(3.0)
+    assert w[3] == pytest.approx(15.0)
+    # Confirm sort key produces the expected ordering.
+    ordered = sorted([1, 2, 3], key=lambda uid: (w.get(uid, 0.0), uid))
+    assert ordered == [2, 3, 1]
+
+
+def test_wetness_sort_stable_tiebreak_by_uid(tmp_path: Path) -> None:
+    """Equal wetness → ascending UID."""
+    # Two hydros with identical flows → identical totals.  Tiebreak on uid.
+    aflce = _make_aflce([("c1", [1], [[7.0, 7.0]])])
+    block_parser = _make_block_parser([(1, 1, 1.0)])
+    w = compute_phase_wetness(
+        aflce,
+        block_parser,
+        {"first_stage": 0, "count_stage": 1},
+        num_stages=1,
+    )
+    assert w[1] == w[2]
+    ordered = sorted([2, 1], key=lambda uid: (w.get(uid, 0.0), uid))
+    assert ordered == [1, 2]
+
+
+def test_wetness_sort_duplicates_adjacent(tmp_path: Path) -> None:
+    """Stable sort places duplicate UIDs adjacent (no interleaving)."""
+    # h1 (uid 1) wetness 100, h2 (uid 2) wetness 1.
+    aflce = _make_aflce([("c1", [1], [[100.0, 1.0]])])
+    block_parser = _make_block_parser([(1, 1, 1.0)])
+    w = compute_phase_wetness(
+        aflce,
+        block_parser,
+        {"first_stage": 0, "count_stage": 1},
+        num_stages=1,
+    )
+    multiset = [1, 2, 1, 2, 2]  # mixed-order input with duplicates
+    ordered = sorted(multiset, key=lambda uid: (w.get(uid, 0.0), uid))
+    # Driest first (uid 2 ×3), then wettest (uid 1 ×2), all adjacent.
+    assert ordered == [2, 2, 2, 1, 1]
+
+
+def test_wetness_sort_no_aflce_falls_back_to_uid(tmp_path: Path) -> None:
+    """Missing aflce_parser → empty wetness → sort key reduces to (0, uid)."""
+    w_none = compute_phase_wetness(
+        None,
+        None,
+        {"first_stage": 0, "count_stage": 1},
+        num_stages=1,
+    )
+    assert not w_none
+    # Sort key falls back to uid order.
+    ordered = sorted([3, 1, 2], key=lambda uid: (w_none.get(uid, 0.0), uid))
+    assert ordered == [1, 2, 3]
+
+
+def test_wetness_sort_nan_treated_as_zero(tmp_path: Path) -> None:
+    """A single NaN flow value contributes 0; other hydros rank correctly."""
+    aflce = _make_aflce([("c1", [1, 2], [[float("nan"), 4.0], [3.0, 5.0]])])
+    block_parser = _make_block_parser([(1, 1, 1.0), (2, 1, 1.0)])
+    w = compute_phase_wetness(
+        aflce,
+        block_parser,
+        {"first_stage": 0, "count_stage": 1},
+        num_stages=1,
+    )
+    # h1 (uid 1): NaN → 0, plus 3 → total 3.
+    # h2 (uid 2): 4 + 5 = 9.
+    assert w[1] == pytest.approx(3.0)
+    assert w[2] == pytest.approx(9.0)
+
+
+def test_wetness_sort_per_phase_ranking_can_flip(tmp_path: Path) -> None:
+    """Two phases with disjoint stage windows can rank hydros differently."""
+    # Stage 1 block: h1 wet (10), h2 dry (1).
+    # Stage 2 block: h1 dry (1), h2 wet (10).
+    aflce = _make_aflce([("c1", [1, 2], [[10.0, 1.0], [1.0, 10.0]])])
+    block_parser = _make_block_parser([(1, 1, 1.0), (2, 2, 1.0)])
+    phase_a = {"first_stage": 0, "count_stage": 1}  # PLP stage 1 only
+    phase_b = {"first_stage": 1, "count_stage": 1}  # PLP stage 2 only
+    w_a = compute_phase_wetness(aflce, block_parser, phase_a, num_stages=2)
+    w_b = compute_phase_wetness(aflce, block_parser, phase_b, num_stages=2)
+    # Phase A: h1 wetter than h2.  Phase B: flipped.
+    assert w_a[1] > w_a[2]
+    assert w_b[2] > w_b[1]
+    # Sort orderings flip accordingly.
+    assert sorted([1, 2], key=lambda u: (w_a.get(u, 0.0), u)) == [2, 1]
+    assert sorted([1, 2], key=lambda u: (w_b.get(u, 0.0), u)) == [1, 2]
