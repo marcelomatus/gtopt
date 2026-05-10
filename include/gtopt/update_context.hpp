@@ -47,6 +47,7 @@
 #include <gtopt/scenario_lp.hpp>
 #include <gtopt/sparse_col.hpp>
 #include <gtopt/stage_lp.hpp>
+#include <gtopt/state_variable.hpp>
 
 namespace gtopt
 {
@@ -106,29 +107,93 @@ template<typename SystemLPT>
   return rc.default_volume;
 }
 
-/// Read the physical eini of the current stage from
-/// `sys.linear_interface()` using the cached `eini_col`.
+/// Read the physical eini of the current stage — the predecessor
+/// phase's solved efin propagated via gtopt's existing
+/// ``StateVariable`` channel.
 ///
-/// This is intentionally symmetric with `physical_efin_from_cache`:
-/// for any storage element (reservoir, battery, volume_right) the
-/// LP's structural constraints (state-link or daily-cycle close)
-/// guarantee that `li.get_col_sol()[eini_col]` is the right value
-/// for segment selection in `update_lp`, in both daily_cycle and
-/// non-daily_cycle modes.  See file docstring.
+/// Resolution order:
+///
+///   1. **Predecessor's efin StateVariable** (cross-phase).  When
+///      ``sys.prev_phase_sys()`` is set (production path —
+///      ``SDDPMethod::update_lp_for_phase`` wires it at
+///      ``sddp_method_iteration.cpp:281``), look up the predecessor's
+///      ``efin`` ``StateVariable`` by key in the simulation registry
+///      and return ``col_sol_physical()``.  ``set_col_sol`` is called
+///      on every ``StateVariable`` immediately after the predecessor's
+///      forward solve, so by the time this phase's ``update_lp`` runs
+///      the value is already correct — no LI query, no
+///      ``is_optimal()`` check on the current phase's still-unsolved
+///      LP.  Daily-cycle reservoirs have no state link and are not
+///      reached here (their predecessor lookup returns no match).
+///   2. **Current LI's eini_col solution** (in-phase).  Daily-cycle
+///      reservoirs pin ``eini == efin`` via the close constraint, so
+///      reading the current ``eini_col`` after the LP is solved is the
+///      right answer.  Also covers test paths that don't set
+///      ``prev_phase_sys``.
+///   3. **Default volume**.  Iter-0 first phase, before any solve.
+///
+/// **Why the StateVariable channel** (and not the propagated col
+/// bound, or ``prev_li.get_col_sol()`` directly):
+///   * The current LI's ``eini_col`` solution is unavailable when
+///     ``update_lp`` runs — that's BEFORE the solve.  The pre-existing
+///     fallback to ``rc.default_volume`` (= JSON ``eini``) selected the
+///     wrong piecewise segment for ReservoirSeepage/RDL/ProductionFactor
+///     /FlowRight/VolumeRight whenever the predecessor's actual trial
+///     differed from the JSON ``eini``.  On juan/IPLP scen 51 phase 38
+///     ELTORO ``eini = 1731 hm³`` (segment 2 ``constant = 15.09 m³/s``)
+///     vs predecessor's drained-to-0 trial → row forced 15.09 m³/s
+///     seepage at empty storage → cascade infeasibility through
+///     p38→p1.
+///   * ``StateVariable::col_sol_physical()`` is gtopt's canonical
+///     cross-phase value channel: it's updated post-solve and consumed
+///     by ``propagate_trial_values`` and ``BendersCut`` exactly the
+///     same way.  Reading it here makes the segment-selection axis
+///     consistent with the rest of the SDDP machinery.
+///   * Restores the design from commit ``7a446444 refactor(update_lp):
+///     cache reservoir refs + use StateVariable channel`` that
+///     ``aeeb1c98 simplify(update_context): read eini_col directly,
+///     drop StateVariable detour`` removed under the (incorrect)
+///     assumption that ``current_eini_col == prev_phase_efin_col``
+///     algebraically when ``update_lp`` runs.
 template<typename SystemLPT>
-[[nodiscard]] Real physical_eini_from_cache(
-    [[maybe_unused]] const SystemLPT& sys,
-    [[maybe_unused]] const ScenarioLP& scenario,
-    const StageLP& stage,
-    const ReservoirRefCache& rc) noexcept
+[[nodiscard]] Real physical_eini_from_cache(const SystemLPT& sys,
+                                            const ScenarioLP& scenario,
+                                            const StageLP& stage,
+                                            const ReservoirRefCache& rc)
 {
   if (!stage.index() && !stage.phase_index()) {
     return rc.default_volume;
   }
+
+  // 1. Cross-phase via the StateVariable channel.
+  if (const auto* prev_sys = sys.prev_phase_sys()) {
+    const auto& prev_phase = prev_sys->phase();
+    const auto& prev_stages = prev_phase.stages();
+    if (!prev_stages.empty()) {
+      const auto& prev_last = prev_stages.back();
+      static constexpr auto reservoir_class_name =
+          ReservoirLP::Element::class_name;
+      // Predecessor's last-stage ``efin`` StateVariable.  The
+      // ``"efin"`` literal matches ``StorageLP<>::EfinName``; using the
+      // literal here avoids dragging in storage_lp.hpp from this
+      // generic helper.
+      auto svar_opt =
+          sys.system_context().simulation().state_variable(StateVariable::key(
+              scenario, prev_last, reservoir_class_name, rc.rsv_uid, "efin"));
+      if (svar_opt.has_value()) {
+        return svar_opt->get().col_sol_physical();
+      }
+    }
+  }
+
+  // 2. In-phase fallback (daily-cycle reservoirs, test paths without
+  //    `prev_phase_sys`).
   const auto& li = sys.linear_interface();
   if (li.is_optimal()) {
     return li.get_col_sol()[rc.eini_col];
   }
+
+  // 3. Default volume — iter-0 first phase before any solve.
   return rc.default_volume;
 }
 

@@ -318,46 +318,138 @@ TEST_CASE(  // NOLINT
   CHECK(avg == doctest::Approx((vini + vfin) / 2.0));
 }
 
-// ─── 6. CRITICAL: helpers do NOT depend on prev_phase_sys() ─────────────────
+// ─── 6. CRITICAL: helpers DO route through prev_phase_sys via the
+//     StateVariable channel — regression guard against the
+//     "simplification" that pinned ``physical_eini_from_cache`` to
+//     ``rc.default_volume`` (= JSON eini) whenever the current LP
+//     wasn't optimal yet.  Observed on juan/IPLP scen 51 phase 38:
+//     ELTORO ``eini = 1731 hm³`` (segment 2 ``constant = 15.09 m³/s``)
+//     but predecessor's actual trial drained it to 0; without
+//     cross-phase routing the seepage row used segment 2's intercept
+//     at empty storage → 15.09 m³/s seepage > 12.18 m³/s afluent →
+//     cascade infeasibility through p38 → p1.
+//
+//     The fix re-introduces the StateVariable channel removed by
+//     ``aeeb1c98 simplify(update_context): drop StateVariable detour``.
+//     The previous test-of-this-name PINNED THE WRONG BEHAVIOUR
+//     (asserted ``ignores prev_phase_sys``); the inverted check
+//     below is what the codebase needs to keep enforcing so the
+//     cross-phase channel cannot be silently removed again.
 
 TEST_CASE(  // NOLINT
-    "physical_eini_from_cache: ignores prev_phase_sys (no cross-phase access)")
+    "physical_eini_from_cache: reads predecessor's efin StateVariable "
+    "via prev_phase_sys (cross-phase channel)")
 {
-  // Regression test for the latent daily_cycle bug + the user-flagged
-  // "wrong eini" propagation footgun.  The helper must read the current
-  // sys's `eini_col` regardless of whether prev_phase_sys is set or
-  // what its LP says.  Even if we deliberately point prev_phase_sys
-  // at a different SystemLP (e.g. a different scene's phase 0 with a
-  // different solved efin), the result must NOT change.
-  auto planning_a = make_two_phase_reservoir_planning(/*eini=*/100.0);
-  PlanningLP planning_a_lp(std::move(planning_a));
+  auto planning = make_two_phase_reservoir_planning(/*eini=*/100.0);
+  PlanningLP planning_lp(std::move(planning));
 
-  auto& sys1 = planning_a_lp.system(first_scene_index(), PhaseIndex {1});
-  REQUIRE(sys1.linear_interface().resolve().has_value());
-  REQUIRE(sys1.linear_interface().is_optimal());
+  // Solve phase 0 first so we have a non-default solved efin to hand
+  // to the predecessor's StateVariable.
+  auto& sys0 = planning_lp.system(first_scene_index(), first_phase_index());
+  REQUIRE(sys0.linear_interface().resolve().has_value());
+  REQUIRE(sys0.linear_interface().is_optimal());
+
+  auto& sys1 = planning_lp.system(first_scene_index(), PhaseIndex {1});
+  sys1.set_prev_phase_sys(&sys0);
 
   const auto& rsv1 = sys1.elements<ReservoirLP>().front();
+  const auto& rsv0 = sys0.elements<ReservoirLP>().front();
   const auto& scenario1 = sys1.scene().scenarios().front();
   const auto& stage1 = sys1.phase().stages().front();
+  const auto& stage0_last = sys0.phase().stages().back();
 
   const auto cache = make_reservoir_ref_cache(rsv1, scenario1, stage1);
 
-  // Baseline read with prev_phase_sys explicitly nullptr.
-  sys1.set_prev_phase_sys(nullptr);
-  const auto with_null_prev =
-      physical_eini_from_cache(sys1, scenario1, stage1, cache);
+  // Mimic what ``SDDPMethod::capture_state_variable_values`` does
+  // after a successful phase solve: write the freshly-solved efin
+  // into the predecessor's ``efin`` StateVariable so
+  // ``col_sol_physical()`` returns it on read.
+  const auto efin0_col = rsv0.efin_col_at(scenario1, stage0_last);
+  const auto prev_solved_efin =
+      sys0.linear_interface().get_col_sol()[efin0_col];
+  // The fallback default_volume in our two-phase fixture is set to
+  // ``eini = 100.0``; the LP normally drives efin away from that
+  // value, but if it didn't the assertion below would be
+  // uninformative.  We require a meaningful difference.
+  REQUIRE(prev_solved_efin != doctest::Approx(cache.default_volume));
 
-  // Re-read with prev_phase_sys pointed back at sys0 (still same scene).
-  // Result MUST match — the helper does not consult prev_phase_sys.
-  auto& sys0 = planning_a_lp.system(first_scene_index(), first_phase_index());
-  REQUIRE(sys0.linear_interface().resolve().has_value());
-  sys1.set_prev_phase_sys(&sys0);
-  const auto with_prev =
-      physical_eini_from_cache(sys1, scenario1, stage1, cache);
+  static constexpr auto reservoir_class_name = ReservoirLP::Element::class_name;
+  auto svar_opt = planning_lp.simulation().state_variable(StateVariable::key(
+      scenario1, stage0_last, reservoir_class_name, rsv0.uid(), "efin"));
+  REQUIRE(svar_opt.has_value());
+  // Set the predecessor's StateVariable col_sol to the raw
+  // (LP-space) value — col_sol_physical() multiplies by var_scale
+  // internally.
+  const auto var_scale = svar_opt->get().var_scale();
+  svar_opt->get().set_col_sol(prev_solved_efin / var_scale);
 
-  CHECK(with_null_prev == doctest::Approx(with_prev));
+  // physical_eini_from_cache MUST return the predecessor's
+  // StateVariable ``col_sol_physical()`` — i.e. the actual phase-0
+  // solved efin, NOT the JSON-default ``eini``.
+  const auto vini = physical_eini_from_cache(sys1, scenario1, stage1, cache);
+  CHECK(vini == doctest::Approx(prev_solved_efin));
+  // And critically NOT the default volume (the failure mode from
+  // juan/IPLP p38: defaulting to JSON eini).
+  CHECK(vini != doctest::Approx(cache.default_volume));
 
   // Reset for cleanup
+  sys1.set_prev_phase_sys(nullptr);
+}
+
+TEST_CASE(  // NOLINT
+    "physical_eini_from_cache: regression — does NOT fall back to "
+    "default_volume when current LP is unsolved but predecessor is")
+{
+  // The exact regression introduced by ``aeeb1c98``: when ``update_lp``
+  // runs at phase p+1 BEFORE the current LP is solved, the cache helper
+  // used to fall through to ``rc.default_volume``.  This pins the
+  // forward-pass ``update_lp`` behaviour where the predecessor IS
+  // solved (so the StateVariable channel can supply the value) but
+  // the current phase isn't.
+  auto planning = make_two_phase_reservoir_planning(/*eini=*/100.0);
+  PlanningLP planning_lp(std::move(planning));
+
+  auto& sys0 = planning_lp.system(first_scene_index(), first_phase_index());
+  REQUIRE(sys0.linear_interface().resolve().has_value());
+  REQUIRE(sys0.linear_interface().is_optimal());
+
+  auto& sys1 = planning_lp.system(first_scene_index(), PhaseIndex {1});
+  sys1.set_prev_phase_sys(&sys0);
+
+  // Deliberately do NOT solve sys1 — emulating the moment in the
+  // forward pass when ``update_lp_for_phase(p+1)`` runs *before* the
+  // p+1 solve.
+  REQUIRE_FALSE(sys1.linear_interface().is_optimal());
+
+  const auto& rsv1 = sys1.elements<ReservoirLP>().front();
+  const auto& rsv0 = sys0.elements<ReservoirLP>().front();
+  const auto& scenario1 = sys1.scene().scenarios().front();
+  const auto& stage1 = sys1.phase().stages().front();
+  const auto& stage0_last = sys0.phase().stages().back();
+  const auto cache = make_reservoir_ref_cache(rsv1, scenario1, stage1);
+
+  // Set the predecessor's efin StateVariable col_sol manually
+  // (mimicking what ``SDDPMethod::capture_state_variable_values``
+  // does after a successful forward solve at phase 0).
+  const auto efin0_col = rsv0.efin_col_at(scenario1, stage0_last);
+  const auto prev_solved_efin =
+      sys0.linear_interface().get_col_sol()[efin0_col];
+  REQUIRE(prev_solved_efin != doctest::Approx(cache.default_volume));
+
+  static constexpr auto reservoir_class_name = ReservoirLP::Element::class_name;
+  auto svar_opt = planning_lp.simulation().state_variable(StateVariable::key(
+      scenario1, stage0_last, reservoir_class_name, rsv0.uid(), "efin"));
+  REQUIRE(svar_opt.has_value());
+  const auto var_scale = svar_opt->get().var_scale();
+  svar_opt->get().set_col_sol(prev_solved_efin / var_scale);
+
+  const auto vini = physical_eini_from_cache(sys1, scenario1, stage1, cache);
+  // The killer assertion: even though current LP isn't optimal yet,
+  // the helper must NOT return ``default_volume`` — it must read
+  // the predecessor's StateVariable.
+  CHECK(vini != doctest::Approx(cache.default_volume));
+  CHECK(vini == doctest::Approx(prev_solved_efin));
+
   sys1.set_prev_phase_sys(nullptr);
 }
 
