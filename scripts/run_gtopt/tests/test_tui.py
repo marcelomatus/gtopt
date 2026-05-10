@@ -251,6 +251,48 @@ def test_find_status_file_fallback(tmp_path: Path):
     assert result.name == "solver_status.json"
 
 
+def test_find_status_file_results_dir(tmp_path: Path):
+    """Falls back to <case>/results/ when output/ is absent.
+
+    Regression: the cascade method's planning JSON commonly sets
+    options.output_directory='results', which the C++ side honors.
+    The TUI must look there too.
+    """
+    results = tmp_path / "results"
+    results.mkdir()
+    status = results / "solver_status.json"
+    status.write_text("{}")
+    # No JSON in case_dir → discovery uses conventional fallbacks only.
+    result = _find_status_file(tmp_path)
+    assert result == status
+
+
+def test_find_status_file_honors_planning_output_directory(tmp_path: Path):
+    """Reads options.output_directory from the case's planning JSON."""
+    custom = tmp_path / "my_solver_out"
+    custom.mkdir()
+    status = custom / "solver_status.json"
+    status.write_text("{}")
+    json_path = tmp_path / f"{tmp_path.name}.json"
+    json_path.write_text('{"options": {"output_directory": "my_solver_out"}}')
+    result = _find_status_file(tmp_path)
+    assert result == status
+
+
+def test_find_status_file_planning_output_directory_absolute(tmp_path: Path):
+    """Absolute options.output_directory is honored as-is."""
+    custom = tmp_path / "abs_out"
+    custom.mkdir()
+    status = custom / "solver_status.json"
+    status.write_text("{}")
+    json_path = tmp_path / f"{tmp_path.name}.json"
+    import json as _json  # noqa: PLC0415
+
+    json_path.write_text(_json.dumps({"options": {"output_directory": str(custom)}}))
+    result = _find_status_file(tmp_path)
+    assert result == status
+
+
 # ---------------------------------------------------------------------------
 # Planning JSON discovery and stats loading
 # ---------------------------------------------------------------------------
@@ -874,9 +916,11 @@ def test_grid_tracker_forward_pass():
 
 def test_grid_tracker_forward_pass_with_phase_total():
     """Forward INFO lines emit ``p<idx>/<total>`` (e.g. ``p3/51``); the
-    grid tracker must accept the suffix without dropping the line.
-    Pinned after the suffix was added in sddp_forward_pass.cpp and the
-    regex initially rejected it, freezing the grid mid-run."""
+    grid tracker must (a) accept the suffix without dropping the line
+    and (b) widen the grid to the declared total immediately, instead
+    of waiting for the solver to actually reach the highest phase.
+    Pinned after the IPLP run displayed ~40 of 51 phases because the
+    high-numbered columns hadn't been visited yet."""
     tracker = SDDPGridTracker()
     tracker.process_line("SDDP Forward [i0 s0 p0/3]: opex=1.23M")
     tracker.process_line("SDDP Forward [i0 s0 p1/3]: opex=2.34M")
@@ -884,10 +928,45 @@ def test_grid_tracker_forward_pass_with_phase_total():
 
     assert tracker.has_data
     assert tracker.scenes == [0]
-    assert tracker.max_phase == 2
+    # max_phase reflects the declared total (3), not just the highest
+    # observed phase (2) — so the grid pre-allocates all columns.
+    assert tracker.max_phase == 3
     assert tracker.get_cell(0, 0, 0) == _GRID_FORWARD
     assert tracker.get_cell(0, 0, 1) == _GRID_FORWARD
     assert tracker.get_cell(0, 0, 2) == _GRID_FORWARD
+
+
+def test_grid_tracker_phase_total_pre_expands_grid():
+    """The /<total> suffix on the very first observed log line widens
+    max_phase to the declared total, even when only the first phase
+    has been seen so far.  Regression for the IPLP case where 51
+    phases existed but only ~40 columns rendered until the solver
+    reached phase 50+."""
+    tracker = SDDPGridTracker()
+    tracker.process_line("SDDP Forward [i0 s0 p3/51]: opex=1M")
+    assert tracker.max_phase == 51
+    # The aperture group is now group 6 (after the new total group);
+    # ensure the regex still recognises an aperture suffix.
+    tracker2 = SDDPGridTracker()
+    tracker2.process_line("SDDP Aperture [i0 s0 p3/51 a7]: bound=1.0")
+    assert tracker2.aperture_count == 1
+    assert tracker2.max_phase == 51
+
+
+def test_grid_tracker_kappa_records_max_value():
+    """Kappa warnings record both count and the worst observed value."""
+    tracker = SDDPGridTracker()
+    tracker.process_line(
+        "SDDP Kappa [i1 s0 p3]: high kappa 1.50e+04 (threshold 1.00e+04)"
+    )
+    tracker.process_line(
+        "SDDP Kappa [i1 s0 p4]: high kappa 7.20e+05 (threshold 1.00e+04)"
+    )
+    tracker.process_line(
+        "SDDP Kappa [i2 s1 p1]: high kappa 3.10e+02 (threshold 1.00e+04)"
+    )
+    assert tracker.kappa_warnings == 3
+    assert tracker.max_kappa == 7.20e5
 
 
 def test_grid_tracker_backward_pass():

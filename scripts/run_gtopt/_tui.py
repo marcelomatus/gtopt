@@ -53,10 +53,14 @@ log = logging.getLogger(__name__)
 # Constants
 # ---------------------------------------------------------------------------
 
-_POLL_INTERVAL = 0.5  # seconds between status file polls
+_POLL_INTERVAL = 1.0  # seconds between status file polls
 _MAX_LOG_LINES = 16  # rolling log buffer size
 _MAX_HISTORY_ROWS = 8  # iteration rows shown in the table
-_REFRESH_PER_SECOND = 4  # Rich Live refresh rate
+# Rich Live refresh rate.  At 4 Hz the dashboard noticeably flickered and
+# pegged a CPU core — 2 Hz is plenty for human feedback (Rich coalesces
+# multiple updates per frame anyway) and roughly halves the TUI thread's
+# CPU footprint.
+_REFRESH_PER_SECOND = 2
 _SPARKLINE_WIDTH = 24
 _PROGRESS_BAR_WIDTH = 40
 
@@ -103,12 +107,16 @@ _SDDP_LOG_RE = re.compile(
     # Per-(scene, phase) activity lines from sddp_method_iteration / forward
     # / backward.  ``p(\d+)`` is followed by an optional ``/<total>`` suffix
     # since the per-phase Forward INFO log (sddp_forward_pass.cpp) emits
-    # ``p3/51`` — without the optional group the regex rejects the line and
-    # the TUI grid stops updating mid-run.  The aperture group ``a(\d+)``
-    # remains optional and exclusive (apertures don't co-emit a phase
-    # total).
-    r"SDDP (\w+) \[i(\d+) s(\d+) p(\d+)(?:/\d+)?(?:\s+a(\d+))?\]"
+    # ``p3/51`` — capturing the ``<total>`` lets the grid pre-allocate
+    # all phase columns from the very first log line, instead of waiting
+    # until the solver actually reaches the highest phase to discover the
+    # true width.  The aperture group ``a(\d+)`` remains optional and
+    # exclusive (apertures don't co-emit a phase total).
+    r"SDDP (\w+) \[i(\d+) s(\d+) p(\d+)(?:/(\d+))?(?:\s+a(\d+))?\]"
 )
+# Optional kappa magnitude trailing the "SDDP Kappa [...]" prefix; used
+# to surface the worst observed conditioning, not just the warning count.
+_SDDP_KAPPA_VALUE_RE = re.compile(r"high kappa\s+([0-9eE+\-.]+)")
 
 # Cell states (priority order: higher overwrites lower)
 _GRID_IDLE = 0
@@ -158,6 +166,7 @@ class SDDPGridTracker:
         self._active_cell: tuple[int, int, int] | None = None  # (scene, iter, phase)
         # Diagnostic counters for indicator lights
         self._kappa_warnings: int = 0
+        self._max_kappa: float = 0.0
         self._elastic_count: int = 0
         self._infeasible_count: int = 0
         self._aperture_count: int = 0
@@ -172,7 +181,12 @@ class SDDPGridTracker:
         it = int(m.group(2))
         sc = int(m.group(3))
         ph = int(m.group(4))
-        has_aperture = m.group(5) is not None
+        # Group 5 = total phase count (e.g. "/51"); group 6 = aperture uid.
+        total_phases_str = m.group(5)
+        if total_phases_str is not None:
+            # PhaseUid is 1-based; total=51 → highest valid ph index is 51.
+            self._max_phase = max(self._max_phase, int(total_phases_str))
+        has_aperture = m.group(6) is not None
 
         # Determine cell state from tag + context
         if tag == "Forward":
@@ -195,6 +209,16 @@ class SDDPGridTracker:
             self._elastic_count += 1
         elif tag == "Kappa":
             self._kappa_warnings += 1
+            # Capture the actual kappa magnitude so the indicator strip
+            # can show worst-conditioning instead of just a count of
+            # warnings — the count alone tells you nothing about how
+            # bad the LP is.
+            kv = _SDDP_KAPPA_VALUE_RE.search(line)
+            if kv is not None:
+                try:
+                    self._max_kappa = max(self._max_kappa, float(kv.group(1)))
+                except ValueError:
+                    pass
             return
         else:
             # Iter, Sim, Update, Init — no phase-level grid info
@@ -277,6 +301,10 @@ class SDDPGridTracker:
     @property
     def kappa_warnings(self) -> int:
         return self._kappa_warnings
+
+    @property
+    def max_kappa(self) -> float:
+        return self._max_kappa
 
     @property
     def elastic_count(self) -> int:
@@ -550,19 +578,50 @@ def _load_status(path: Path | None) -> dict[str, Any]:
 def _find_status_file(case_dir: Path) -> Path:
     """Derive the expected status-file path from *case_dir*.
 
-    The C++ solver writes ``solver_status.json`` under the output
-    directory — which defaults to ``<case>/output/``.
-    Falls back to legacy names for backward compatibility.
+    The C++ solver writes ``solver_status.json`` under
+    ``options.output_directory`` (resolved relative to the planning
+    JSON's parent).  We honor that value when readable, and otherwise
+    fall back to common conventional dirs (``output/``, ``results/``).
+    Legacy file names are also probed for older gtopt builds.
     """
     base = case_dir.parent if case_dir.is_file() else case_dir
-    output_dir = base / "output"
-    status = output_dir / "solver_status.json"
-    if status.is_file():
-        return status
-    # Legacy fallback for older gtopt builds
-    sddp = output_dir / "sddp_status.json"
-    mono = output_dir / "monolithic_status.json"
-    return sddp if sddp.is_file() else mono if mono.is_file() else status
+
+    # Build an ordered list of candidate output directories.  Prefer the
+    # one declared in the planning JSON (when discoverable) so we follow
+    # what the solver actually wrote.
+    candidate_dirs: list[Path] = []
+    json_path = _find_planning_json(case_dir)
+    if json_path is not None:
+        try:
+            with open(json_path, encoding="utf-8") as f:
+                planning = json.load(f)
+            out_opt = planning.get("options", {}).get("output_directory", "")
+            if isinstance(out_opt, str) and out_opt:
+                p = Path(out_opt)
+                candidate_dirs.append(p if p.is_absolute() else json_path.parent / p)
+        except (OSError, json.JSONDecodeError):
+            pass
+
+    # Conventional fallbacks: gtopt cases historically used either
+    # "output/" or "results/" depending on vintage.
+    for sub in ("output", "results"):
+        candidate_dirs.append(base / sub)
+
+    for output_dir in candidate_dirs:
+        status = output_dir / "solver_status.json"
+        if status.is_file():
+            return status
+        # Legacy fallback for older gtopt builds
+        sddp = output_dir / "sddp_status.json"
+        mono = output_dir / "monolithic_status.json"
+        if sddp.is_file():
+            return sddp
+        if mono.is_file():
+            return mono
+
+    # Nothing found yet — return the canonical expected path so the
+    # caller can keep polling for it to appear.
+    return candidate_dirs[0] / "solver_status.json"
 
 
 def _find_planning_json(case_dir: Path) -> Path | None:
@@ -746,6 +805,37 @@ def _build_header(
         Text(_format_elapsed(elapsed), style="bold cyan"),
     )
     grid.add_row(Text(status_str, style=status_style), "", "")
+
+    # Always-visible LB / UB / gap line so operators see convergence
+    # progress regardless of which display mode is active (Dashboard,
+    # Grid, or Convergence).  Skipped before any iteration data exists.
+    lb = data.get("lower_bound")
+    ub = data.get("upper_bound")
+    gap = data.get("gap")
+    if lb is not None or ub is not None:
+        from rich.text import Text as _T  # noqa: PLC0415
+
+        bounds = _T()
+        bounds.append("LB ", style="bold cyan")
+        bounds.append(_format_number(lb or 0.0), style="cyan")
+        bounds.append("   UB ", style="bold magenta")
+        bounds.append(_format_number(ub or 0.0), style="magenta")
+        if gap is not None:
+            gap_style = (
+                "bold green"
+                if gap < 0.01
+                else "bold yellow"
+                if gap < 0.1
+                else "bold red"
+            )
+            bounds.append("   Gap ", style="bold")
+            bounds.append(f"{100.0 * gap:.2f}%", style=gap_style)
+        # Iteration counter, when SDDP-style data is present
+        it = data.get("iteration")
+        max_it = data.get("max_iterations")
+        if it is not None and max_it:
+            bounds.append(f"   iter {it}/{max_it}", style="dim")
+        grid.add_row(bounds, "", "")
 
     return Panel(
         grid,
@@ -960,6 +1050,28 @@ def _build_history(data: dict) -> Panel:
     )
 
 
+def _format_mb(mb: float) -> str:
+    """Render a megabyte count as MB or GB depending on magnitude."""
+    if mb >= 1024.0:
+        return f"{mb / 1024.0:.1f} GB"
+    return f"{mb:.0f} MB"
+
+
+def _has_resource_telemetry(data: dict) -> bool:
+    """True when *data* carries any CPU/memory observation worth showing."""
+    rt = data.get("realtime") or {}
+    if rt.get("cpu_loads") or rt.get("active_workers"):
+        return True
+    return any(
+        data.get(k) is not None
+        for k in (
+            "pool_process_rss_mb",
+            "pool_available_memory_mb",
+            "pool_memory_percent",
+        )
+    )
+
+
 def _build_system(data: dict) -> Panel:
     from rich.panel import Panel  # noqa: PLC0415
     from rich.table import Table  # noqa: PLC0415
@@ -971,10 +1083,24 @@ def _build_system(data: dict) -> Panel:
     mem_pcts = rt.get("memory_percent", [])
     rss_vals = rt.get("process_rss_mb", [])
 
+    # Pool-level snapshot (top-level JSON, not realtime).  Prefer these
+    # for the headline numbers — they reflect the full process and the
+    # OS' free memory at the last poll, not just the realtime ring.
+    pool_rss = data.get("pool_process_rss_mb")
+    pool_free = data.get("pool_available_memory_mb")
+    pool_pct = data.get("pool_memory_percent")
+    async_data = data.get("async") or {}
+    pool_active = async_data.get("pool_tasks_active")
+    pool_pending = async_data.get("pool_tasks_pending")
+
     cpu_val = cpus[-1] if cpus else 0.0
     worker_val = workers[-1] if workers else 0
-    mem_val = mem_pcts[-1] if mem_pcts else 0.0
-    rss_val = rss_vals[-1] if rss_vals else 0.0
+    mem_val = (
+        float(pool_pct) if pool_pct is not None else (mem_pcts[-1] if mem_pcts else 0.0)
+    )
+    rss_val = (
+        float(pool_rss) if pool_rss is not None else (rss_vals[-1] if rss_vals else 0.0)
+    )
 
     bar_width = 30
     cpu_filled = int(cpu_val * bar_width / 100)
@@ -990,15 +1116,36 @@ def _build_system(data: dict) -> Panel:
     grid.add_column(min_width=6)
     grid.add_column(min_width=40)
     grid.add_column(min_width=20)
+
+    # Right-column annotations: CPU row reports active workers; MEM row
+    # reports gtopt's RSS plus system free memory (the user-visible
+    # "headroom" before the OS starts pressuring the process).
+    cpu_right = Text(f"Workers: {worker_val}", style="cyan")
+    if pool_active is not None or pool_pending is not None:
+        a = pool_active if pool_active is not None else 0
+        p = pool_pending if pool_pending is not None else 0
+        cpu_right = Text(
+            f"Workers: {worker_val}  Pool: {a} active  {p} pending",
+            style="cyan",
+        )
+
+    if pool_free is not None:
+        mem_right = Text(
+            f"gtopt: {_format_mb(rss_val)}   Free: {_format_mb(float(pool_free))}",
+            style="blue",
+        )
+    else:
+        mem_right = Text(f"RSS: {_format_mb(rss_val)}", style="blue")
+
     grid.add_row(
         Text("CPU", style="bold"),
         Text.from_markup(f"{cpu_bar} {cpu_val:.0f}%"),
-        Text(f"Workers: {worker_val}", style="cyan"),
+        cpu_right,
     )
     grid.add_row(
         Text("MEM", style="bold"),
         Text.from_markup(f"{mem_bar} {mem_val:.0f}%"),
-        Text(f"RSS: {rss_val:.0f} MB", style="blue"),
+        mem_right,
     )
 
     cpu_spark = _sparkline(cpus) if cpus else ""
@@ -1026,7 +1173,7 @@ def _build_system(data: dict) -> Panel:
             Text("LP", style="dim"),
             Text(
                 f"{dispatched} tasks  avg CPU {avg_cpu:.0f}%  "
-                f"avg mem Δ{avg_mem:.0f} MB",
+                f"avg mem Δ{_format_mb(avg_mem)}",
                 style="dim",
             ),
             "",
@@ -1310,14 +1457,21 @@ def _build_sddp_grid(
         text.append(char, style=style)
         text.append(f" {labels.get(state, '?')}  ", style="dim")
 
-    # Indicator lights for diagnostics
+    # Indicator lights for diagnostics.
+    # ``kappa`` shows the worst observed conditioning value alongside the
+    # warning count — the count alone tells the user nothing about how
+    # ill-conditioned the LP got.  Aperture is intentionally omitted
+    # here: it is already visible via the ▣ cells in the grid and per-
+    # aperture counts are noise during a normal run.
     indicators: list[tuple[str, str, str]] = []
     if tracker.kappa_warnings > 0:
-        indicators.append(("kappa", str(tracker.kappa_warnings), "bold red"))
+        if tracker.max_kappa > 0:
+            kappa_val = f"{tracker.kappa_warnings} (max {tracker.max_kappa:.1e})"
+        else:
+            kappa_val = str(tracker.kappa_warnings)
+        indicators.append(("kappa", kappa_val, "bold red"))
     if tracker.elastic_count > 0:
         indicators.append(("elastic", str(tracker.elastic_count), "bold yellow"))
-    if tracker.aperture_count > 0:
-        indicators.append(("aperture", str(tracker.aperture_count), "bold blue"))
     if tracker.infeasible_count > 0:
         indicators.append(("infeas", str(tracker.infeasible_count), "bold red"))
     if indicators:
@@ -1877,11 +2031,27 @@ class SolverDisplay:
         return budget, active_scene
 
     def _cmd_stop(self) -> None:
-        """Create the stop-request file for a graceful solver stop."""
+        """Create the stop-request file for a graceful solver stop.
+
+        The stop file must be written into whichever directory the
+        solver is reading — that is, ``options.output_directory`` from
+        the planning JSON (canonical "results/" for cascade cases,
+        "output/" for the older convention).  Falling back to
+        "<case>/output/" silently broke graceful stop on every cascade
+        run.  We mirror :func:`_find_status_file`'s discovery logic so
+        stop and status always agree.
+        """
         if self._stop_sent:
             return
-        base = self._case_dir.parent if self._case_dir.is_file() else self._case_dir
-        stop_file = base / "output" / _STOP_REQUEST_FILE
+        # Already-discovered status file is the highest-confidence
+        # signal of where the solver writes — drop the stop request
+        # next to it.  Falling back to the same candidate-directory
+        # search keeps the behavior consistent for early stops issued
+        # before the first status JSON appears.
+        if self._status_file is not None:
+            stop_file = self._status_file.with_name(_STOP_REQUEST_FILE)
+        else:
+            stop_file = _find_status_file(self._case_dir).with_name(_STOP_REQUEST_FILE)
         try:
             stop_file.parent.mkdir(parents=True, exist_ok=True)
             payload = {
@@ -1941,13 +2111,11 @@ class SolverDisplay:
                     panels.append(async_panel)
                 if data.get("history"):
                     panels.append(_build_history(data))
-                rt = data.get("realtime", {})
-                if rt.get("cpu_loads") or rt.get("active_workers"):
+                if _has_resource_telemetry(data):
                     panels.append(_build_system(data))
             elif has_monolithic:
                 panels.append(_build_progress(data))
-                rt = data.get("realtime", {})
-                if rt.get("cpu_loads") or rt.get("active_workers"):
+                if _has_resource_telemetry(data):
                     panels.append(_build_system(data))
             panels.append(_build_log(log_lines))
 
@@ -1996,17 +2164,41 @@ class SolverDisplay:
                 refresh_per_second=_REFRESH_PER_SECOND,
                 transient=True,
             ) as live:
-                while not self._stop.wait(self.poll_interval):
+                # Decouple keyboard polling from status-file polling.
+                # Status reads are expensive (full JSON parse + JSON
+                # file may be tens of KB) so we keep their cadence at
+                # ``poll_interval`` (default 1 s).  But waking only
+                # once per poll_interval makes 'q', 's' and the mode
+                # keys feel laggy — at 1 s the user releases the key
+                # before we even see it.  Run an inner loop at ~50 ms
+                # for keys, and only refresh the status when the
+                # accumulated time crosses ``poll_interval``.
+                key_interval = 0.05
+                last_status_refresh = 0.0
+                last_render = 0.0
+                # Render at most ``_REFRESH_PER_SECOND`` Hz to avoid
+                # flicker; key handlers force an immediate redraw so
+                # mode switches still feel snappy.
+                render_interval = 1.0 / max(1, _REFRESH_PER_SECOND)
+                while not self._stop.wait(key_interval):
+                    now = time.monotonic()
+                    needs_render = False
                     # Poll keyboard for interactive commands
                     key = _poll_key(cbreak_active)
                     if key is not None:
                         self._handle_key(key)
-                    # Lazily discover the status file once it appears
-                    if self._status_file is None or not self._status_file.is_file():
-                        self._status_file = _find_status_file(self._case_dir)
-                    self._status = _load_status(self._status_file)
-                    self._sync_stats_from_status()
-                    live.update(self._build_display())
+                        needs_render = True
+                    # Refresh status no faster than poll_interval
+                    if now - last_status_refresh >= self.poll_interval:
+                        if self._status_file is None or not self._status_file.is_file():
+                            self._status_file = _find_status_file(self._case_dir)
+                        self._status = _load_status(self._status_file)
+                        self._sync_stats_from_status()
+                        last_status_refresh = now
+                        needs_render = True
+                    if needs_render and (now - last_render) >= render_interval:
+                        live.update(self._build_display())
+                        last_render = now
 
                 # One final render
                 self._status = _load_status(self._status_file)

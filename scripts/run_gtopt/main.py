@@ -11,6 +11,12 @@ from pathlib import Path
 
 from gtopt_config import get_version
 
+from ._attach import (
+    list_runs,
+    print_run_list,
+    resolve_target,
+    run_attach_loop,
+)
 from ._binary import find_gtopt_binary, find_plp2gtopt
 from ._checks import (
     available_checks,
@@ -146,6 +152,32 @@ def make_parser() -> argparse.ArgumentParser:
         default=False,
         help="list available checks and exit",
     )
+    # ── Attach / discovery (no subprocess; observer-mode TUI) ──
+    # The C++ solver writes ``$XDG_CACHE_HOME/gtopt/runs/<pid>`` on its
+    # first status flush.  These flags let users see which runs are
+    # live and attach the same Rich TUI without launching gtopt.
+    parser.add_argument(
+        "--list",
+        dest="list_runs",
+        action="store_true",
+        default=False,
+        help=(
+            "list live gtopt runs (PID, case, status, gap, elapsed) and exit. "
+            "Reads $XDG_CACHE_HOME/gtopt/runs/."
+        ),
+    )
+    parser.add_argument(
+        "--attach",
+        default=None,
+        metavar="PID|PATH",
+        help=(
+            "attach the dashboard to an already-running gtopt instance. "
+            "Argument is a PID from --list, or a path to the case directory "
+            "/ output directory / solver_status.json. The TUI runs in "
+            "observer mode: 'q' detaches without killing the solver, 's' "
+            "still requests a graceful stop."
+        ),
+    )
     parser.add_argument(
         "--convert-only",
         action="store_true",
@@ -241,6 +273,26 @@ def main(argv: list[str] | None = None) -> None:
         for name in checks["post"]:
             print(f"  {name}")
         return
+
+    # ── List live gtopt runs (no subprocess) ──
+    if args.list_runs:
+        print_run_list(list_runs())
+        return
+
+    # ── Attach to a running gtopt (no subprocess) ──
+    # Observer mode: the same Rich TUI, but no gtopt is launched.
+    # 'q' detaches without killing; 's' still writes the stop file.
+    if args.attach is not None:
+        info = resolve_target(args.attach)
+        if info is None:
+            print(
+                f"error: could not resolve --attach target '{args.attach}'.\n"
+                "  Try a numeric PID from `run_gtopt --list`, or a path "
+                "to the case directory.",
+                file=sys.stderr,
+            )
+            sys.exit(2)
+        sys.exit(run_attach_loop(info))
 
     # ── Build enabled check set ──
     # check_json is disabled by default (slow — invokes gtopt_check_json).

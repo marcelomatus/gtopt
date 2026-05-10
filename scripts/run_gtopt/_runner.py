@@ -692,6 +692,88 @@ def _format_size(nbytes: int) -> str:
     return f"{size:.1f} TB"
 
 
+def _format_mb(mb: float) -> str:
+    """Render a megabyte count as MB or GB depending on magnitude."""
+    if mb >= 1024.0:
+        return f"{mb / 1024.0:.1f} GB"
+    return f"{mb:.0f} MB"
+
+
+def _resource_summary_rows(results_dir: Path) -> list[tuple[str, str]]:
+    """Pull resource-usage rows from the solver's status JSON.
+
+    Reads ``solver_status.json`` next to *results_dir* and returns a
+    short list of (label, value) pairs to append to the post-run
+    summary.  Returns ``[]`` when no status file is available so that
+    older / dry-run / aborted runs don't add empty placeholders.
+
+    Surfaced fields:
+      * **gtopt RSS**          — final + peak process resident size
+      * **System free memory** — last poll of host available memory
+      * **CPU**                — last load + average over the run
+      * **LP pool**            — task count, avg per-task CPU and ΔRSS
+    """
+    status_path = results_dir / "solver_status.json"
+    if not status_path.is_file():
+        return []
+    try:
+        with open(status_path, encoding="utf-8") as f:
+            status = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return []
+
+    rows: list[tuple[str, str]] = []
+
+    rss_now = status.get("pool_process_rss_mb")
+    free_now = status.get("pool_available_memory_mb")
+    pct_now = status.get("pool_memory_percent")
+
+    rt = status.get("realtime") or {}
+    rss_series = rt.get("process_rss_mb") or []
+    cpu_series = rt.get("cpu_loads") or []
+
+    rss_peak = max(rss_series) if rss_series else None
+    if rss_now is None and rss_series:
+        rss_now = rss_series[-1]
+
+    if rss_now is not None:
+        if rss_peak is not None and abs(rss_peak - float(rss_now)) > 1.0:
+            rows.append(
+                (
+                    "gtopt memory (RSS)",
+                    f"{_format_mb(float(rss_now))}  (peak {_format_mb(float(rss_peak))})",
+                )
+            )
+        else:
+            rows.append(("gtopt memory (RSS)", _format_mb(float(rss_now))))
+
+    if free_now is not None:
+        free_str = _format_mb(float(free_now))
+        if pct_now is not None:
+            free_str = f"{free_str}  ({float(pct_now):.0f}% used)"
+        rows.append(("System free memory", free_str))
+
+    if cpu_series:
+        cpu_last = float(cpu_series[-1])
+        cpu_avg = sum(float(c) for c in cpu_series) / len(cpu_series)
+        rows.append(("CPU utilization", f"{cpu_last:.0f}%  (avg {cpu_avg:.0f}%)"))
+
+    lp_stats = status.get("lp_task_stats") or {}
+    dispatched = lp_stats.get("dispatched") or 0
+    if dispatched:
+        avg_cpu = float(lp_stats.get("avg_cpu_pct", 0.0))
+        avg_mem = float(lp_stats.get("avg_rss_delta_mb", 0.0))
+        rows.append(
+            (
+                "LP pool",
+                f"{dispatched} tasks  avg CPU {avg_cpu:.0f}%  "
+                f"avg ΔRSS {_format_mb(avg_mem)}",
+            )
+        )
+
+    return rows
+
+
 def _total_dir_size(path: Path) -> int:
     """Sum of all file sizes under *path*."""
     total = 0
@@ -949,6 +1031,10 @@ def report_solution(
     classes = _count_output_classes(results_dir)
     if classes:
         rows.append(("Element classes", ", ".join(classes)))
+
+    # ── Resources (gtopt RSS / system free / CPU / LP-pool) ──
+    for label, value in _resource_summary_rows(results_dir):
+        rows.append((label, value))
 
     # ── Paths ──
     rows.append(("Results", str(results_dir)))
