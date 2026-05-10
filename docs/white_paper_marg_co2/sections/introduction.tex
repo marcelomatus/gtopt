@@ -90,17 +90,19 @@ contributions are:
   orchestrator with Hive-partitioned output for back-testing.
 \end{enumerate}
 
-The remainder of this paper is organised as follows.
-Section~\ref{sec:related} reviews the international state of the
-art on marginal-emission accounting and identifies the methodological
-choice points specific to a public-data reconstruction.
-Section~\ref{sec:methodology} develops the model and the
-nine-step pipeline.  Section~\ref{sec:cases} reports on a
-pedagogical IEEE 9-bus example, the production application to the
+The remainder of the paper is organised as follows.
+Section~\ref{sec:related} reviews the state of the art and the
+methodological choice points specific to a public-data
+reconstruction.  Section~\ref{sec:methodology} develops the
+\texttt{cen2gtopt} pipeline (with its three operating modes
+\texttt{simulated}, \texttt{real}, \texttt{real-reconstruct}) and
+the LP-duality justification of the closest-CV picker under the
+PLEXOS PID overlay.  Section~\ref{sec:cases} reports a pedagogical
+IEEE 9-bus example, the production application to the
 \num{29}-bus CEN system on 2026-04-22, and a sensitivity analysis.
 Section~\ref{sec:results} consolidates the validation numbers
-against $\lambda^{\mathrm{CEN}}$ and against the PLEXOS oracle.
-Section~\ref{sec:discussion} surveys the methodology's structural
-limitations.  Section~\ref{sec:conclusions} closes with a
-forward-looking integration into the \texttt{gtopt} stochastic
-expansion-planning solver.
+against $\lambda^{\mathrm{CEN}}$ and the PLEXOS oracle.
+Section~\ref{sec:discussion} surveys structural limitations and
+the carbon-credit implications of a per-bus per-quarter
+$\varepsilon$ signal.  Section~\ref{sec:conclusions} closes with the
+forward-looking integration into the \texttt{gtopt} SDDP solver.

@@ -4,236 +4,169 @@
 \section{Methodology}
 \label{sec:methodology}
 
-The pipeline is structured as a directed acyclic graph of nine
-stages (Fig.~\ref{fig:pipeline}); each stage is a pure function of
-its predecessors, allowing the parquet cache to short-circuit any
-upstream change.
+The pipeline is a directed acyclic graph of stages whose final two
+nodes are the \texttt{cen2gtopt} canonical-feed builder
+(\texttt{gtopt\_canonical\_feed}) and the marginal-unit identifier
+(\texttt{gtopt\_marginal\_units}); every CEN/SCVIC/PLEXOS
+extractor is wrapped by a hash-keyed parquet cache so that any
+upstream change short-circuits at the first byte that has changed
+(Fig.~\ref{fig:pipeline}).  Three operating modes are exposed:
+\texttt{simulated} (re-solve a reduced LP), \texttt{real} (use the
+published cleared dispatch), and \texttt{real-reconstruct} (the
+default — the closest-CV picker over the SCVIC merit ladder); a
+\texttt{compare} mode runs all three side-by-side for cross-checking.
 
 \begin{figure}[t]
   \centering
   \includegraphics[width=\columnwidth]{figures/fig_pipeline_flow.pdf}
-  \caption{The nine-step \texttt{cen2gtopt.marginal\_units}
-  pipeline.  Hash-keyed parquet caching wraps every CEN/SCVIC/
-  PLEXOS extractor; each downstream stage is a pure function of its
-  inputs.}
+  \caption{The \texttt{cen2gtopt} pipeline with hash-keyed parquet
+  caching at every CEN/SCVIC/PLEXOS extractor.
+  \texttt{gtopt\_canonical\_feed} produces the per-block parquet feed
+  consumed by \texttt{gtopt\_marginal\_units} in
+  \texttt{real-reconstruct} mode (default).}
   \label{fig:pipeline}
 \end{figure}
 
-\subsection{System Model and Notation}
+\subsection{Notation}
 \label{sec:notation}
 
-Time is partitioned into a hierarchy of \emph{operating days},
-\emph{hours}, and \emph{quarters} (\SI{15}{\minute} blocks).  Within
-one operating day let $\setT=\{0,\ldots,95\}$ index quarters and
-$\setH=\{0,\ldots,23\}$ index hours so that each $h\in\setH$
-contains the four quarters $\{4h,4h{+}1,4h{+}2,4h{+}3\}$.  The
-network exposes a set of buses $\setN$ at which CEN publishes a
-nodal marginal cost $\lambda^{\mathrm{CEN}}_{b,t}$ for $b\in\setN,
-t\in\setT$.  The dispatchable generator set $\setG$ is indexed by
-the canonical CEN identifier $g\equiv\texttt{id\_central}$; each
-generator has a fuel label $f(g)$, a technical minimum
-$\underline{p}_g$, an effective maximum $\overline{p}_g$, and a
-piecewise SCVIC ladder $\Phi_g=\{\phi\}$ of declared variable
-costs $c_{g,\phi}$.  Per-hour realised dispatch is denoted
-$p_{g,h}\in\R_+$.
+Time is partitioned into operating days, hours, and quarters
+(\SI{15}{\minute} blocks).  $\setT=\{0,\ldots,95\}$ indexes
+quarters; the network exposes a bus set $\setN$ at which CEN
+publishes a nodal marginal cost $\lambda^{\mathrm{CEN}}_{b,t}$.
+Each generator $g\in\setG$ has a fuel label $f(g)$, a technical
+minimum $\underline{p}_g$, an effective maximum $\overline{p}_g$,
+and a piecewise SCVIC ladder $\Phi_g=\{\phi\}$ of declared variable
+costs $c_{g,\phi}$.  Per-hour realised dispatch is $p_{g,h}\in\R_+$.
 
-The pipeline produces, per (bus, quarter), the seven primary
-quantities
-\[
-\lambda^{\mathrm{CEN}}_{b,t},\quad
-\hat\lambda_{b,t},\quad
-m_{b,t}\in\setG,\quad
-c_{m,\phi^\star},\quad
-\varepsilon_{m},\quad
-\mathrm{LF}_{b,t},\quad
-\varepsilon^{\mathrm{bus}}_{b,t},
-\]
-where $\hat\lambda_{b,t}$ is the reconstructed marginal price,
-$m_{b,t}$ is the marginal unit, $c_{m,\phi^\star}$ its picked CV,
-$\varepsilon_m$ its fuel-default emission factor (in
-$\si{\tonne\mathrm{CO}_2\per\MWh}$), $\mathrm{LF}_{b,t}$ the bus
-loss factor, and $\varepsilon^{\mathrm{bus}}_{b,t} =
-\varepsilon_m \cdot \mathrm{LF}_{b,t}$ the bus-level marginal
-emission factor at the quarter.
+The pipeline emits per (bus, quarter):
+$\hat\lambda_{b,t}$ (reconstructed marginal price), $m_{b,t}\in\setG$
+(marginal unit), $c_{m,\phi^\star}$ (its picked CV),
+$\varepsilon_{m}$ (its fuel-default emission factor in
+$\si{\tonne\mathrm{CO}_2\per\MWh}$), $\mathrm{LF}_{b,t}$ (bus loss
+factor), and
+$\varepsilon^{\mathrm{bus}}_{b,t}=\varepsilon_m\!\cdot\!\mathrm{LF}_{b,t}$.
 
-\subsection{CEN Public-Data Inputs}
+\subsection{Inputs and bus catalogue}
 \label{sec:inputs}
 
 Table~\ref{tab:inputs} catalogues the CEN, SCVIC, and PLEXOS feeds
-consumed by the pipeline together with their settlement/forecast
-status and refresh cadence.  All feeds are mediated through the
-hash-keyed parquet cache implemented in
-\texttt{\_cached\_extractor.py}, ensuring that every byte read from
-the wire is durable on disk.
+consumed by the pipeline.  All feeds are hash-keyed in the on-disk
+parquet cache (\texttt{\_cached\_extractor.py}).  The CEN data
+triplet uses three different bus identifiers (\texttt{id\_info},
+17-character \texttt{bar\_transf}, and PLEXOS CamelCase node names);
+\texttt{\_id\_bridge.py} reconciles them via Unicode-folding plus a
+generator-of-aliases pass, with a hand-curated overrides table for
+the residual cases.  The current catalogue contains \num{29}
+reconciled \SI{220}{\kV}/\SI{500}{\kV} backbone buses; lower-voltage
+buses share the nodal price of their backbone parent in CEN's PLEXOS
+topology.
 
-\begin{table*}[t]
+\begin{table}[t]
   \centering
   \caption{Public-data inventory consumed by \texttt{cen2gtopt}.
-  Each feed is hash-keyed in the on-disk parquet cache; type
-  ``settled'' is post-closeout, ``intra-day'' is the PID re-clear,
-  ``day-ahead'' is the PCP forecast.}
+  Every feed is hash-keyed in the on-disk parquet cache; ``settled''
+  is post-closeout, ``intra-day'' is the PID re-clear, ``day-ahead''
+  is the PCP forecast.}
   \label{tab:inputs}
   \input{tables/tab_inputs.tex}
-\end{table*}
+\end{table}
 
-\subsection{Bus Catalogue and UID Bridging}
-\label{sec:bridge}
-
-The CEN data triplet uses three different bus identifiers.  The SIP
-APIs publish a stable integer \texttt{id\_info} together with a
-17-character canonical key (\texttt{bar\_transf}, e.g.\
-\texttt{CRUCERO\_\_\_\_\_\_\_220}) and a free-text human label
-(\texttt{barra\_info}, e.g.\ \texttt{BA S/E CRUCERO 220KV BP1}).
-The SCVIC parquet exposes a numeric power-station ID and free-text
-plant/configuration names; the PLEXOS XML/\texttt{.accdb} bundle
-uses CamelCase node names like \texttt{Crucero220}.
-
-The \texttt{\_id\_bridge.py} module reconciles these via a
-two-stage process.  A normalisation step folds Unicode
-diacritics, strips punctuation, and lower-cases each name.  A
-generator function then produces up to six aliases per name by
-stripping common Chilean prefixes (\texttt{TER},
-\texttt{TERMOEL\'ECTRICA}, \texttt{CENTRAL}) and unit suffixes
-(\texttt{BL1}-\texttt{BL9}, \texttt{TG}, \texttt{TV},
-\texttt{CCGT}); two passes converge on multi-suffix names.  A
-hand-curated overrides table (\texttt{PLEXOS\_TO\_BAR\_TRANSF} in
-\texttt{prepopulate\_cache.py}) reconciles the residual cases that
-the heuristic cannot resolve, predominantly buses where the
-PLEXOS topology aggregates two physical substations into one
-node.  The cache contains \num{29} reconciled production buses
-out of the \num{1300}+ CEN-published buses; only the
-\SI{220}{\kV} and \SI{500}{\kV} backbone is included by default
-because the lower-voltage buses share the same nodal price as their
-backbone parent in CEN's PLEXOS topology.
-
-\subsection{Operational-State Classification}
+\subsection{Operational-state classification}
 \label{sec:classifier}
 
 Each generator at each hour falls into one of eight mutually
-exclusive operational states; the priority-ordered rule table is
-documented in Table~\ref{tab:classifier}.  The classification
-matters because price-taker units (those held at a
-technical-minimum or operator-imposed setpoint) cannot supply the
-\textit{next} \SI{1}{\MWh} of energy and therefore cannot set the
-marginal price even when their declared CV is closest to
-$\lambda$.  The classifier reads the
-\texttt{instrucciones-operacionales-cmg} feed and flags as forced
-any unit with \texttt{estado}$\ne$\texttt{N} or
+exclusive operational states (Table~\ref{tab:classifier}).
+Price-taker units (those held at a technical minimum or
+operator-imposed setpoint) cannot supply the next \SI{1}{\MWh} of
+energy and so cannot set the marginal price.  The classifier reads
+\texttt{instrucciones-operacionales-cmg} and flags as forced any
+unit with \texttt{estado}$\ne$\texttt{N} or
 \texttt{consigna}$\in$\{\texttt{CI}, \texttt{MT}, \texttt{PMT},
-\texttt{PP}, \texttt{PS}, \texttt{PC}\}.
+\texttt{PP}, \texttt{PS}, \texttt{PC}\}.  A subtle extension of the
+classical PJM treatment: forced units \emph{at interior dispatch}
+($\underline{p}_g+\delta<p_g<\overline{p}_g-\delta$ with
+$\delta=0.05(\overline{p}_g-\underline{p}_g)$) remain valid
+marginal-unit candidates because the next \SI{1}{\MWh} can come from
+them.  Only forced-at-pmin units are excluded.
 
 \begin{table}[t]
   \centering
   \caption{Operational-state classification.  Priority is evaluated
-  top-down: the first matching row determines the unit's status at
-  the hour.}
+  top-down: the first matching row determines the unit's status.}
   \label{tab:classifier}
   \input{tables/tab_classifier.tex}
 \end{table}
 
-A subtle rule extends the classical PJM treatment: forced units
-\emph{at interior dispatch} ($\underline{p}_g + \delta < p_g <
-\overline{p}_g - \delta$ with $\delta=0.05(\overline{p}_g -
-\underline{p}_g)$) remain valid marginal-unit candidates because
-the next \SI{1}{\MWh} can physically come from them; only forced
-units \emph{at} or \emph{near} pmin are excluded.  This rule
-is implemented vectorially in \texttt{identify\_marginal} and
-typically retains \SIrange{20}{50}{\percent} of the forced units in
-the candidate pool at gas-marginal hours.
-
-\subsection{Island Clustering}
+\subsection{Island clustering}
 \label{sec:island}
 
-Buses that share the same nodal marginal price in a given quarter
-are electrically coherent in the merit-clearing sense.  The naive
-approach of grouping buses with $|\lambda_b - \lambda_{b'}| \le
-\Delta_{\mathrm{tol}}$ exhibits a chained-clustering pathology: a
-sequence such as $(\$41.5, \$41.7, \$41.9, \$42.1, \$42.3, \$42.7)$
-with $\Delta_{\mathrm{tol}}=\$0.5$ collapses to a single island
-despite the endpoints differing by \$1.20.  Without correction,
-this lumps congested zones together with the system price and
-defeats the marginal-unit picker.
-
-The pipeline uses a chained-tolerance walk with a \emph{cumulative
-spread cap}.  After sorting the buses in a quarter by ascending
-$\lambda$, a new island is started whenever
+Buses sharing a nodal marginal price in a given quarter are
+electrically coherent in the merit-clearing sense.  Pure pairwise
+$\lambda$-grouping exhibits a chained-clustering pathology: a
+sequence such as
+$(\$41.5,\$41.7,\$41.9,\$42.1,\$42.3,\$42.7)$ with
+$\Delta_{\mathrm{tol}}=\$0.5$ collapses to a single island despite
+the \$1.20 endpoint spread.  After sorting buses ascending by
+$\lambda$, the pipeline starts a new island whenever
 \begin{equation}
 \lambda_b - \lambda_{b-1} > \Delta_{\mathrm{tol}}
 \quad\lor\quad
 \lambda_b - \lambda^{\mathrm{isl,min}} > S_{\max},
 \label{eq:island}
 \end{equation}
-with $\Delta_{\mathrm{tol}} = \$0.5$/MWh and $S_{\max} = \$0.8$/MWh
-in production.  Fig.~\ref{fig:island} contrasts the pure pairwise
-walk (left, one island) with the cumulative-spread walk (right,
-two islands).
+with $\Delta_{\mathrm{tol}}=\$0.5$/MWh and $S_{\max}=\$0.8$/MWh in
+production.  Fig.~\ref{fig:island} contrasts the pure pairwise walk
+with the cumulative-spread walk.
 
 \begin{figure}[t]
   \centering
   \includegraphics[width=\columnwidth]{figures/fig_island_clustering_demo.pdf}
-  \caption{Island clustering — chained tolerance only (\textit{left})
-  vs.\ chained tolerance with cumulative-spread cap $S_{\max}=\$0.8$
-  (\textit{right}).  Six synthetic buses with monotonically
-  increasing $\lambda$ separated by $\$0.2$ each are otherwise
-  collapsed into a single island despite the end-to-end spread of
-  $\$1.20$.}
+  \caption{Island clustering with chained tolerance only
+  (\textit{left}) vs.\ chained tolerance with cumulative-spread cap
+  $S_{\max}=\$0.8$ (\textit{right}).}
   \label{fig:island}
 \end{figure}
 
-\subsection{Per-bus Marginal Loss Factor Correction}
+\subsection{Per-bus loss-factor correction}
 \label{sec:mlf}
 
-The reconstructed price $\hat\lambda_{b,t}$ at the bus is the
-product of the marginal-unit CV at the system reference price and
+The reconstructed price is the product of the marginal-unit CV and
 the bus loss factor:
 \begin{equation}
 \hat\lambda_{b,t} = c_{m_{b,t}, \phi^\star} \cdot \mathrm{LF}_{b,t}.
 \label{eq:lambda-bus}
 \end{equation}
-The pipeline supports two estimators of $\mathrm{LF}_{b,t}$ in
-priority order.  The \emph{primary} estimator reads the
-PLEXOS-solver-output Marginal Loss Factor from the PID solution
-\texttt{.accdb} for the day, attached to the
-\texttt{System.Nodes} collection at \texttt{collection\_id=281}.
-This is the exact value used at LP clearing; the
-\texttt{pcp\_solution.py} module extracts it via
-\texttt{mdbtools} and the bus-name bridge of
-Section~\ref{sec:bridge} translates the PLEXOS node names to
-\texttt{id\_info}.  The \emph{fallback} estimator is a per-quarter
-empirical ratio
+The pipeline supports two estimators in priority order.  The
+\emph{primary} estimator reads the PLEXOS-solver-output Marginal
+Loss Factor from the PID solution \texttt{.accdb} for the day,
+attached to \texttt{System.Nodes} at \texttt{collection\_id=281};
+this is the exact value used at LP clearing, extracted by
+\texttt{pcp\_solution.py} via \texttt{mdbtools}.  The \emph{fallback}
+is a per-quarter empirical ratio
 \begin{equation}
-\mathrm{LF}^{\mathrm{emp}}_{b,t} = \frac{\lambda^{\mathrm{CEN}}_{b,t}}{\lambda^{\mathrm{CEN}}_{r,t}},
+\mathrm{LF}^{\mathrm{emp}}_{b,t} =
+  \frac{\lambda^{\mathrm{CEN}}_{b,t}}
+       {\lambda^{\mathrm{CEN}}_{r,t}},
 \label{eq:lf-emp}
 \end{equation}
 where the reference bus $r$ is the lowest-\texttt{id\_info} bus
-present in the quarter (typically a centre-Santiago backbone bus
-with the lowest losses).  The empirical estimator is
-self-consistent at $\lambda$ but does not generalise to a
-counterfactual; it is used only when the PID accdb is missing for
-the day.  When both estimators are available, the ratio is
-constructed as $\mathrm{LF}^{\mathrm{PID}}_{b,t} =
-\mathrm{LF}^{\mathrm{bus}}/\mathrm{LF}^{\mathrm{unit}}$ so that
-generator-side losses cancel and only the bus-relative loss
-penalty remains.  The choice of median bus $\lambda$ (rather than
-any single bus) as the picker target ensures that
-loss factors of the islanded buses average to approximately unity,
-addressing the inverse-MLF concern raised in
-\cite{ValenzuelaASL2022}.
+present in the quarter.  When both are available the ratio
+$\mathrm{LF}^{\mathrm{PID}}_{b,t} =
+\mathrm{LF}^{\mathrm{bus}}/\mathrm{LF}^{\mathrm{unit}}$ cancels
+generator-side losses.
 
-\subsection{SCVIC Merit-Ladder Construction}
+\subsection{SCVIC merit ladder and PLEXOS PID overlay}
 \label{sec:scvic}
 
 Each generator declares to the Coordinador a piecewise variable
-cost $c_{g,\phi}$ as a function of configuration $\phi$ (fuel,
-load tier, ambient).  Fig.~\ref{fig:ladder} illustrates two
-representative ladders: a multi-tier GNL CCGT and a coal-fired
-unit.  The pipeline filters tiers below a per-fuel CV floor to
-exclude take-or-pay ``startup'' tiers
-($c_{g,\phi}^{\min}=\SI{30}{\USD\per\MWh}$ for GNL, GLP, gas
-propano; $\SI{15}{\USD\per\MWh}$ for all others) and tiers above
-\SI{1000}{\USD\per\MWh} (PLEXOS sentinels for ``out of economic
-order'').  All retained tiers per generator are stored as a sorted
-list $\{c_{g,\phi}\}_\phi$ and used at picker time.
+cost $c_{g,\phi}$ as a function of configuration (fuel, load tier,
+ambient).  The pipeline filters tiers below a per-fuel CV floor
+(\SI{30}{\USD\per\MWh} for GNL/GLP/gas-propano,
+\SI{15}{\USD\per\MWh} otherwise) and tiers above
+\SI{1000}{\USD\per\MWh} (PLEXOS sentinels).
+Fig.~\ref{fig:ladder} illustrates a multi-tier GNL CCGT and a
+coal-fired unit.
 
 \begin{figure}[t]
   \centering
@@ -245,20 +178,31 @@ list $\{c_{g,\phi}\}_\phi$ and used at picker time.
   \label{fig:ladder}
 \end{figure}
 
-\subsection{Marginal-Unit Identification}
+\paragraph{PLEXOS PID overlay (v3 picker).}
+SCVIC declares price tiers but not the binding technical-minimum
+that the LP actually clears against.  The v3 picker overlays the
+PLEXOS PID-extracted $\underline{p}_g$ and $\overline{p}_g$ from the
+\texttt{.accdb} on top of the SCVIC ladder, taking the maximum of
+the three declared MTs (master-table) values as the binding
+$\underline{p}_g$.  This eliminates ``forced-at-pmin'' false
+negatives in the candidate pool that arise when the SCVIC-declared
+$\underline{p}_g$ is lower than the operator-imposed value.  The
+overlay is opt-in to preserve compatibility with cases where the
+PID archive is unavailable.
+
+\subsection{Marginal-unit identification}
 \label{sec:identify}
 
-The picker is summarised in Algorithm~\ref{alg:identify}.  It
-treats the candidate pool as the dispatched non-forced (or
-forced-but-interior) units with at least one SCVIC tier, and picks
-the unit whose nearest tier minimises $|c_{g,\phi}-\lambda|$.  The
-returned record carries the regime label, which classifies the
-output into one of seven values: \texttt{matched\_interior},
+The picker (Algorithm~\ref{alg:identify}) treats the candidate pool
+as the dispatched non-forced (or forced-but-interior) units with at
+least one SCVIC tier and selects the unit whose nearest tier
+minimises $|c_{g,\phi}-\lambda|$.  The returned record carries a
+regime label drawn from \texttt{matched\_interior},
 \texttt{matched\_capped\_pmax}, \texttt{matched\_near\_pmin},
 \texttt{matched\_above}, \texttt{no\_candidates},
 \texttt{no\_cv\_match}, \texttt{renewable\_curtailment}, or
-\texttt{demand\_fail}.  These labels propagate to the output
-parquet and are aggregated in the per-day diagnostic report.
+\texttt{demand\_fail}; these labels propagate to the output parquet
+and the per-day diagnostic report.
 
 \begin{algorithm}[t]
 \caption{Marginal-unit identification per island}
@@ -275,9 +219,7 @@ parquet and are aggregated in the per-day diagnostic report.
            $\varepsilon=0$
   \ENDIF
   \STATE pool $\leftarrow \{g\in\setC : \Phi_g \ne \emptyset\}$
-  \STATE annotate each $g$ with status\,$\in$\,
-         \{\texttt{interior}, \texttt{capped\_pmax},
-         \texttt{near\_pmin}\} via $\delta=0.05(\overline{p}_g-\underline{p}_g)$
+  \STATE annotate each $g$ via $\delta=0.05(\overline{p}_g-\underline{p}_g)$
   \STATE drop $\{g : F_g=1 \land \mathrm{status}=\texttt{near\_pmin}\}$
   \IF{pool empty}
     \STATE \RETURN regime $=$ \texttt{no\_cv\_match}
@@ -285,25 +227,40 @@ parquet and are aggregated in the per-day diagnostic report.
   \FOR{$g\in\mathrm{pool}$}
     \STATE $c_g \leftarrow$ tier in $\Phi_g$ closest to
            $\lambda_{\mathrm{tgt}}$
-    \STATE prefer the largest $c\le\lambda_{\mathrm{tgt}}$ when one exists
   \ENDFOR
   \STATE $m \leftarrow \arg\min_{g\in\mathrm{pool}}
            |c_g - \lambda_{\mathrm{tgt}}|$
-  \STATE \RETURN $m$, $c_m$, $f(m)$, regime $\in
-           \{\texttt{matched\_interior},$ \texttt{matched\_capped\_pmax},
-           \texttt{matched\_above},\ldots$\}$
+  \STATE \RETURN $m$, $c_m$, $f(m)$, regime
 \end{algorithmic}
 \end{algorithm}
 
-\input{sections/dual_formulation_inserted}
+\paragraph{LP-duality justification.}
+The picker is the empirical realisation of the merit-order
+identity $\lambda_t^\star = c_{m(t)}$ for any generator $m(t)$
+strictly interior to its bounds in the cost-minimising dispatch.
+Replacing the cost coefficient $c_g$ by an emission coefficient
+$e_g$ leaves the constraint structure intact and produces the
+emission-marginal value $\varepsilon_t^\star = e_{m'(t)}$ at the
+optimum.  The pipeline relies on the assumption $m(t)=m'(t)$ — that
+the cost-marginal and emission-marginal units coincide — which holds
+whenever the picked unit is the unique strictly-interior generator
+at block $t$.  Two pathologies break the assumption: degenerate cost
+ties between fuels with distinct $e_g$, and forced-interior units
+(by construction excluded).  Both are flagged in
+\texttt{tier\_uncertainty} and surface in the audit oracle.  A
+joint primal $\min_p\sum_g(c_g+p_{\mathrm{CO}_2}e_g)p_g$ reads off
+the gas-vs-coal switching price
+$p^\star=(c_2-c_1)/(e_1-e_2)\!\approx\!\SI{56}{\USD\per\tonne CO_2}$
+for the representative Chilean coal-vs-gas pair, squarely inside the
+EU~ETS~2025 trading range.
 
-\subsection{Marginal Emission Factor}
+\subsection{Marginal emission factor}
 \label{sec:eps}
 
-The fuel-default emission factor table $\varepsilon_f$
-(Table~\ref{tab:fuelef}) is derived from
-IPCC~2006~GL Vol.~2 Tab.~1.4 multiplied by typical SEN heat rates.
-The bus-level marginal emission factor is
+The fuel-default emission table $\varepsilon_f$
+(Table~\ref{tab:fuelef}) is derived from IPCC~2006~GL Vol.~2 Tab.~1.4
+multiplied by typical SEN heat rates.  The bus-level marginal
+emission factor is
 \begin{equation}
 \varepsilon^{\mathrm{bus}}_{b,t} = \varepsilon_{f(m_{b,t})}
                                    \cdot \mathrm{LF}_{b,t},
@@ -311,95 +268,36 @@ The bus-level marginal emission factor is
 \end{equation}
 and the embedded carbon-tax cost is
 $\tau_{\mathrm{CO}_2}\varepsilon^{\mathrm{bus}}_{b,t}/1000$ in
-$\si{\USD\per\MWh}$ with
-$\tau_{\mathrm{CO}_2}=\SI{5}{\USD\per\tonne\mathrm{CO}_2}$ under
-Law~20.780.
+\si{\USD\per\MWh} with $\tau_{\mathrm{CO}_2}=\SI{5}{\USD\per\tonne CO_2}$
+under Law~20.780.
 
 \begin{table}[t]
   \centering
-  \caption{Fuel-default emission factor table $\varepsilon_f$
-  (\si{\kg\mathrm{CO}_2\per\MWh}).  IPCC 2006 GL Vol.~2 Tab.~1.4
-  multiplied by typical SEN heat rates.  Biomass and biogas are
-  classified as IPCC biogenic-zero; cogeneration is a mixed
-  fossil/biogenic estimate.}
+  \caption{Fuel-default emission factors $\varepsilon_f$
+  (\si{\kg\mathrm{CO}_2\per\MWh}).  IPCC 2006 GL Vol.~2 Tab.~1.4 ×
+  typical SEN heat rates; biomass and biogas are biogenic-zero.}
   \label{tab:fuelef}
   \input{tables/tab_fuel_ef.tex}
 \end{table}
 
-A per-cell \texttt{tier\_uncertainty} flag is set to true whenever
-the picked tier is more than \$2/MWh below the next-up CV in the
-same unit's ladder (the $\$2$ threshold is consistent with typical
-SCVIC discrete-tier gaps such as biomass$\to$gas).  The flag
-identifies cells where the structural reconstruction error is
-bounded by the wedge to the next tier; downstream consumers can
-treat $\hat\lambda$ as a lower bound for the wedge-flagged cells.
-On 2026-04-22 \SI{13.7}{\percent} of cells are wedge-flagged.
+A per-cell \texttt{tier\_uncertainty} flag is set when the picked
+tier is more than \$2/MWh below the next-up CV in the same unit's
+ladder; \SI{13.7}{\percent} of cells are wedge-flagged on
+2026-04-22.  Downstream consumers can treat $\hat\lambda$ as a lower
+bound on these cells.
 
-\subsection{Cross-Validation Against the PLEXOS Solution Oracle}
+\subsection{Cross-validation against the PLEXOS oracle}
 \label{sec:oracle}
 
-The CEN PCP/PID solution \texttt{.accdb} is parsed via
-\texttt{pcp\_solution.py}, exposing per-period system shadow
-prices, per-unit dispatch, and per-bus MLFs as Pandas DataFrames.
-Three quantities are read for cross-validation: the per-bus
-$\lambda$ from the PLEXOS solver (compared against
-$\lambda^{\mathrm{CEN}}$ to validate the publication chain), the
-per-unit dispatch $p_{g,h}^{\mathrm{PLEXOS}}$ (compared against
-the SIP \texttt{generaci\'on-real} feed), and the per-bus
-\texttt{Marginal Loss Factor} read from
-\texttt{collection\_id=281} on the \texttt{System.Nodes}
-collection.  When the same day has both a PCP and a PID bundle
-on disk, both are loaded and the PID values take precedence —
-the intra-day re-clear is the binding settlement reference.  The
-oracle also yields the post-hoc $\hat\lambda^{\mathrm{PID}}_{b,t}$
-column in the output parquet, computed using
-$\mathrm{LF}^{\mathrm{PID}}_{b,t}$ in
-\eqref{eq:lambda-bus} instead of the empirical ratio of
-\eqref{eq:lf-emp}.
-
-
-% =====================================================================
-% best_practices.tex --- D2 --- standards-alignment audit subsection.
-% Inserted at the END of sections/methodology.tex by D6.
-% =====================================================================
-
-\subsection{Standards-Alignment Audit}
-\label{sec:best-practices}
-
-To clarify how the reconstruction methodology positions itself with
-respect to the standards landscape reviewed in
-Section~\ref{sec:literature-extended}, an explicit alignment audit is
-presented in Table~\ref{tab:best-practices}.  Three status symbols are
-used: a check mark (\checkmark) signals an explicit implementation,
-a cross ($\times$) flags a known limitation that is not yet
-addressed, and an asterisk ({\circledast}) denotes a partial or
-informal alignment in which the underlying intent of the standard is
-honoured but no formal compliance claim is made.
-
-\input{tables/best_practices}
-
-Three observations are warranted.  First, the granularity criteria
-imposed by the corporate-accounting standards (GHG~Protocol Scope~2
-location-based, RE100, 24/7~CFE) are met by construction: the
-\cenpipe{} pipeline emits a per-bus per-quarter
-$\varepsilon_{b,t}$ trajectory whose temporal resolution is finer than
-any of the three schemes mandates.  Second, the market-based reporting
-mode of the GHG~Protocol cannot yet be supported because the pipeline
-does not ingest a Guarantees-of-Origin or I-REC ledger; the absence is
-a deliberate scope choice and is flagged as future work in the
-conclusions.  Third, the data-exchange standards (IEC~CIM/CGMES) are
-not honoured at the schema level because the upstream PCP file is a
-PLEXOS-specific XML dialect; a CIM serialisation of the reconstructed
-network is a tractable extension whose design has been sketched but
-not implemented.  In the verification dimension (ISO~14064-3) the
-pipeline is auditable in the sense that every reconstructed
-$\hat\lambda$ can be cross-checked against the PLEXOS PCP oracle
-when the corresponding \texttt{.accdb} archive is available, and the
-audit harness reports a median absolute discrepancy of less than
-\SI{0.5}{\dollar/\mega\watt\hour} on
-\SI{99}{\percent} of the cells in the validation window.  Compliance
-with the operational ancillary-services rulebook (CEN
-NT~SSCC~2024~\cite{CENNT_SSCC2024}) is direct: the SCVIC ladder
-consumes the same per-fuel CV tariff structure defined in
-NT~SSCC, which is what permits the closest-CV picker to operate on a
-common cost basis.
+The PCP/PID solution \texttt{.accdb} is parsed by
+\texttt{pcp\_solution.py}, exposing per-period system shadow prices,
+per-unit dispatch, and per-bus MLFs.  Three quantities are read for
+cross-validation: per-bus $\lambda$ (compared against
+$\lambda^{\mathrm{CEN}}$ to validate the publication chain), per-unit
+dispatch $p_{g,h}^{\mathrm{PLEXOS}}$ (compared against SIP
+\texttt{generaci\'on-real}), and the per-bus MLF.  When both PCP and
+PID bundles are on disk, PID values take precedence — the intra-day
+re-clear is the binding settlement reference.  The oracle also yields
+the post-hoc $\hat\lambda^{\mathrm{PID}}_{b,t}$ column in the output
+parquet, computed using $\mathrm{LF}^{\mathrm{PID}}_{b,t}$ in
+\eqref{eq:lambda-bus}.
