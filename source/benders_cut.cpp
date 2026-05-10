@@ -1348,6 +1348,91 @@ auto build_multi_cuts(ElasticSolveResult& elastic,
         std::clamp(implied_bound, link.source_low, link.source_upp);
     const double clamped_rhs = pi * clamped_bound;
 
+    // Per-cut saturation drop.  When the clamp had to bite — i.e.
+    // ``implied_bound`` exited the source column's physical
+    // ``[source_low, source_upp]`` box — the resulting cut is
+    // mathematically equivalent to ``state >= source_upp`` (or
+    // ``state <= source_low``).  Cascading that bound through the
+    // master LP at the previous phase usually pins storage at emax,
+    // which the upstream forward pass cannot reach with a single
+    // stage of inflows + the predecessor trial — guaranteed
+    // cascade-infeasibility on the next master retry.
+    //
+    // Drop the individual saturated cut here (not just the whole
+    // family at the end of the loop).  The family-level guard
+    // ``box_stats.all_upper_degenerate()`` below remains as a
+    // diagnostic + cleanup for the rare case where *every* link
+    // saturates; this per-cut filter handles the *partial* degeneracy
+    // that currently leaks through (e.g. juan/IPLP single-bus run
+    // with multi_cut elastic mode: 5 of 8 links saturate at emax,
+    // 3 at inside-box, family kept, 5 emax-pins force infeasibility).
+    //
+    // Tolerance is relative to the box width to absorb LP solver
+    // ULP drift on the elastic side without false-dropping legitimate
+    // cuts that happen to sit close to (but inside) the box edge.
+    //
+    // **Unbounded side handling**: ``source_upp`` and ``source_low``
+    // can carry sentinel values for "no bound" — typically
+    // ``+DblMax`` / ``-DblMax`` (= 1e308 in this build's solver
+    // infinity) or smaller-but-still-huge numbers like ``1e30`` that
+    // bypass the LP scaler.  A naive ``box_width = source_upp -
+    // source_low`` then evaluates to ~2e308, and ``1e-9 × box_width``
+    // dwarfs every realistic ``implied_bound``, so the saturation
+    // check would fire on *every* cut and silently disable the entire
+    // multi-cut path.  Two guards:
+    //
+    //   1. ``kInfThreshold = 0.5 × DblMax`` — anything past this on
+    //      either side is effectively unbounded; skip the saturation
+    //      check on that side (a cut with ``implied_bound`` headed to
+    //      ±inf is genuinely degenerate, but the clamp-then-rebuild
+    //      path already produces nonsense for it; the family-level
+    //      diagnostic still catches the all-degenerate case).
+    //   2. ``box_width`` is capped at 1e15 before scaling so the
+    //      tolerance stays sensible even when one side is bounded
+    //      and the other is at ±DblMax (one-sided box).
+    constexpr double kInfThreshold = 0.5 * LinearProblem::DblMax;
+    const bool upper_bounded = link.source_upp < kInfThreshold;
+    const bool lower_bounded = link.source_low > -kInfThreshold;
+    const double raw_width = link.source_upp - link.source_low;
+    const double bounded_width = std::min(raw_width, 1e15);
+    const double box_width = std::max(1.0, bounded_width);
+    // Tolerance kept very tight — first-backtrack cuts (niter=1, the
+    // common case) carry FactEps perturbation
+    // ``eps_factor = 1e-10`` so ``implied_bound`` exceeds
+    // ``source_upp`` by ``eps_factor × source_upp ≈ 1e-7`` for
+    // typical LP-space values (~1e3).  A 1e-9 relative tolerance was
+    // too lax and missed those near-saturation cases — observed on
+    // juan/IPLP single-bus where the multi_cut path emitted 7/8 cuts
+    // pinning ELTORO/RAPEL/CIPRESES/PEHUENCHE/PANGUE/RALCO/COLBUN at
+    // their LP-space ``source_upp`` exactly post-clamp, but pre-clamp
+    // ``implied_bound`` only edged past the bound by 1e-7 — below
+    // ``box_eps = 1.766e-6`` for a 1766-wide ELTORO box.  1e-12 keeps
+    // the filter firmly above LP solver ULP drift (~1e-15) without
+    // letting saturated cuts through.
+    const double box_eps = 1e-12 * box_width;
+    // Only drop when the clamp *actually bit* — i.e.
+    // ``implied_bound`` was STRICTLY outside the box.  An
+    // ``implied_bound`` that lands exactly on (or within ``box_eps``
+    // of) ``source_upp`` is a legitimate signal that the elastic
+    // optimum walked the source up to its physical max without
+    // pushing past it; that cut still contributes useful information
+    // (regression test
+    // ``test_sddp_benders_cut.cpp::"cut RHS is not clamped to
+    // source_upp"`` enforces this).  The cascade-infeasibility we
+    // want to suppress is the case where ``rhs/pi`` was, say,
+    // ``2 × source_upp`` pre-clamp and got pulled in by ``std::clamp``
+    // — the resulting cut is mathematically equivalent to fixing
+    // ``state = source_upp`` even though the elastic clone only said
+    // "the LP would have liked state to grow further".  Strict ``>``
+    // (not ``>=``) preserves the regression test while still cutting
+    // off saturated cuts on juan/IPLP single-bus.
+    if ((upper_bounded && implied_bound > link.source_upp + box_eps)
+        || (lower_bounded && implied_bound < link.source_low - box_eps))
+    {
+      box_stats.tally(clamped_bound, link);
+      continue;
+    }
+
     auto cut = SparseRow {
         .lowb = clamped_rhs,
         .uppb = LinearProblem::DblMax,

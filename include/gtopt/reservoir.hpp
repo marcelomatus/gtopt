@@ -90,9 +90,6 @@ struct Reservoir
 
   /// @name Default physical constants
   /// @{
-  static constexpr Real default_spillway_capacity = 6'000.0;  ///< [m³/s]
-  static constexpr Real default_fmin = -10'000.0;  ///< [m³/s]
-  static constexpr Real default_fmax = +10'000.0;  ///< [m³/s]
   static constexpr Real default_flow_conversion_rate =
       0.0036;  ///< [hm³/(m³/s·h)]
   static constexpr Real default_mean_production_factor =
@@ -115,9 +112,11 @@ struct Reservoir
   /// matches the behaviour for reservoirs whose `SerVer = 0` (spill to sea).
   OptSingleId spill_junction {};
 
-  OptReal spillway_capacity {
-      default_spillway_capacity};  ///< Maximum uncontrolled spill capacity
-                                   ///< [m³/s]
+  OptReal spillway_capacity {};  ///< Maximum uncontrolled spill capacity
+                                 ///< [m³/s].  When unset, ``StorageLP``
+                                 ///< falls back to ``+DblMax`` (clamped to
+                                 ///< solver +inf at flatten time), so the
+                                 ///< drain teleport is unbounded.
   OptReal spillway_cost {};  ///< Penalty cost per unit of spilled water [$/hm³]
 
   OptTRealFieldSched capacity {};  ///< Total usable storage capacity [hm³]
@@ -171,10 +170,12 @@ struct Reservoir
                           ///< variable that relaxes the soft_emin constraint.
                           ///< Must be > 0 for the constraint to be active.
 
-  OptReal fmin {
-      default_fmin};  ///< Minimum net flow into the reservoir junction [m³/s]
-  OptReal fmax {
-      default_fmax};  ///< Maximum net flow into the reservoir junction [m³/s]
+  OptReal fmin {};  ///< Minimum net flow into the reservoir junction [m³/s].
+                    ///< When unset, ``ReservoirLP::add_to_lp`` falls back to
+                    ///< ``-DblMax`` (clamped to solver -inf at flatten time).
+  OptReal fmax {};  ///< Maximum net flow into the reservoir junction [m³/s].
+                    ///< When unset, ``ReservoirLP::add_to_lp`` falls back to
+                    ///< ``+DblMax`` (clamped to solver +inf at flatten time).
 
   OptReal flow_conversion_rate {
       default_flow_conversion_rate};  ///< Converts m³/s × hours into hm³

@@ -244,6 +244,25 @@ public:
     return std::nullopt;
   }
 
+  /// Return the soft-`efin` slack column for (scenario, stage), if it
+  /// exists.
+  ///
+  /// The slack is created only when ``Reservoir.efin`` is set AND
+  /// ``Reservoir.efin_cost`` is > 0 AND the stage is the last stage of the
+  /// last phase.  Returns `std::nullopt` when the column was not
+  /// created (i.e., the hard ``vol_end >= efin`` row is in effect, or no
+  /// efin target exists for this storage element).
+  [[nodiscard]] std::optional<ColIndex> efin_slack_col_at(
+      const ScenarioLP& scenario, const StageLP& stage) const
+  {
+    const auto key = std::tuple {scenario.uid(), stage.uid()};
+    if (const auto it = efin_slack_cols.find(key); it != efin_slack_cols.end())
+    {
+      return it->second;
+    }
+    return std::nullopt;
+  }
+
   /// Energy/volume scale factor used in the LP: LP_var = physical / scale.
   /// For batteries this is Battery::energy_scale; for reservoirs it is
   /// Reservoir::energy_scale.  Use to convert between LP and physical units.
@@ -742,6 +761,7 @@ public:
               .context = stg_ctx,
           });
           efin_row[efin_slack_col] = 1.0;
+          efin_slack_cols[stg_ctx] = efin_slack_col;
         }
         efin_rows[stg_ctx] = lp.add_row(std::move(efin_row));
       }
@@ -953,6 +973,10 @@ private:
                                       ///< used by SDDP StateVariable linking.
   STIndexHolder<RowIndex> efin_rows;  ///< Explicit >= efin constraint rows;
                                       ///< only for last stage when efin set.
+  STIndexHolder<ColIndex>
+      efin_slack_cols;  ///< Soft-`efin` slack variable per
+                        ///< (scenario, stage); only present when
+                        ///< ``Reservoir.efin_cost`` is > 0.
 
   STIndexHolder<ColIndex> soft_emin_slack_cols;  ///< Soft emin slack variable
                                                  ///< per (scenario, stage).

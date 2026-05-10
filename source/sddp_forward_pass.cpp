@@ -175,10 +175,15 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
     // submit gzip compression as a fire-and-forget async task.
     // Selective filters (scene/phase range, pass selector) skip non-matching
     // LPs.  Forward writes are gated by the `forward` token in
-    // `lp_debug_passes` (default `forward,aperture`).
+    // `lp_debug_passes` (default `forward,aperture`).  Optional
+    // ``lp_debug_simulation_only`` further restricts dumps to the
+    // simulation pass — useful for diagnosing residual infeasibilities
+    // surfacing only after training cuts have matured, without
+    // flooding the log directory with iter-N transients.
     if (m_options_.lp_debug
         && lp_debug_passes_includes(m_options_.lp_debug_passes,
-                                    LpDebugPass::forward))
+                                    LpDebugPass::forward)
+        && (!m_options_.lp_debug_simulation_only || m_in_simulation_))
     {
       const bool in_range = in_lp_debug_range(uid_of(scene_index),
                                               uid_of(phase_index),
@@ -285,6 +290,7 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
       // recovery gives up at the deepest backtrack).  Filename:
       //   <log_directory>/preelastic_s<scene>_p<phase>_i<iter>.lp
       if (m_options_.lp_debug && !m_options_.log_directory.empty()
+          && (!m_options_.lp_debug_simulation_only || m_in_simulation_)
           && in_lp_debug_range(uid_of(scene_index),
                                uid_of(phase_index),
                                m_options_.lp_debug_scene_min,

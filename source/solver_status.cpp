@@ -14,15 +14,92 @@
 
 #include <chrono>
 #include <cstddef>
+#include <cstdlib>
+#include <filesystem>
 #include <format>
+#include <fstream>
+#include <mutex>
 #include <string>
 
 #include <gtopt/solver_monitor.hpp>
 #include <gtopt/solver_status.hpp>
 #include <gtopt/utils.hpp>
+#include <unistd.h>
 
 namespace gtopt
 {
+
+namespace
+{
+
+/// Lightweight discovery registry: write
+/// ``$XDG_CACHE_HOME/gtopt/runs/<pid>`` (or ``~/.cache/gtopt/runs/<pid>``)
+/// containing the absolute path of the output directory the solver is
+/// writing to.  This lets ``run_gtopt --list`` enumerate live runs and
+/// ``run_gtopt --attach <pid>`` resolve the case dir without scanning
+/// the filesystem.  Stale entries (process gone) are skipped by the
+/// reader via ``kill(pid, 0)``; we also delete our own entry on
+/// graceful exit via std::atexit.  No-op on any I/O error — monitoring
+/// must never affect solve correctness.
+[[nodiscard]] std::filesystem::path runs_registry_dir()
+{
+  const char* xdg = std::getenv("XDG_CACHE_HOME");
+  std::filesystem::path base;
+  if (xdg != nullptr && xdg[0] != '\0') {
+    base = xdg;
+  } else if (const char* home = std::getenv("HOME"); home != nullptr) {
+    base = std::filesystem::path {home} / ".cache";
+  } else {
+    return {};  // Unsupported environment; skip registry.
+  }
+  return base / "gtopt" / "runs";
+}
+
+void register_run_once(const std::string& filepath)
+{
+  static std::once_flag once;
+  std::call_once(once,
+                 [&filepath]() noexcept
+                 {
+                   try {
+                     const auto dir = runs_registry_dir();
+                     if (dir.empty()) {
+                       return;
+                     }
+                     std::error_code ec;
+                     std::filesystem::create_directories(dir, ec);
+                     if (ec) {
+                       return;
+                     }
+                     const auto entry = dir / std::to_string(::getpid());
+                     std::ofstream out(entry, std::ios::trunc);
+                     if (!out) {
+                       return;
+                     }
+                     // Absolute path to the output directory (parent of the
+                     // status file) — readers attach to the case via this
+                     // directory.
+                     const auto out_dir = std::filesystem::absolute(
+                                              std::filesystem::path {filepath})
+                                              .parent_path();
+                     out << out_dir.string() << '\n';
+                     out.close();
+                     // Best-effort cleanup on normal exit.
+                     static std::filesystem::path entry_to_remove;
+                     entry_to_remove = entry;
+                     std::atexit(
+                         []() noexcept
+                         {
+                           std::error_code ec;
+                           std::filesystem::remove(entry_to_remove, ec);
+                         });
+                   } catch (...) {  // NOLINT(bugprone-empty-catch)
+                     // Registry is monitoring-only; never propagate.
+                   }
+                 });
+}
+
+}  // namespace
 
 void write_solver_status(const std::string& filepath,
                          const std::vector<SDDPIterationResult>& results,
@@ -30,6 +107,10 @@ void write_solver_status(const std::string& filepath,
                          const SolverStatusSnapshot& snapshot,
                          const SolverMonitor& monitor)
 {
+  // Register this run in the discovery registry on the very first
+  // call.  Idempotent (std::call_once); cleaned up at process exit.
+  register_run_once(filepath);
+
   // Build JSON manually using std::format to avoid adding a new
   // dependency.  This is monitoring output only — correctness over
   // aesthetics.
@@ -55,6 +136,10 @@ void write_solver_status(const std::string& filepath,
   json += std::format("  \"version\": 1,\n");
   json += std::format("  \"timestamp\": {:.3f},\n", now_ts);
   json += std::format("  \"elapsed_s\": {:.3f},\n", elapsed_seconds);
+  // PID lets external tools (run_gtopt --attach, --list) verify the
+  // owning process is still alive via `kill(pid, 0)` before trusting
+  // any of the bounds / iteration counters below.  Cheap; no I/O.
+  json += std::format("  \"pid\": {},\n", static_cast<long>(::getpid()));
   json += std::format("  \"status\": \"{}\",\n", status_str);
   json += std::format("  \"iteration\": {},\n", snapshot.iteration_index);
   json += std::format("  \"lower_bound\": {:.6f},\n", snapshot.lower_bound);

@@ -73,7 +73,11 @@ struct Waterway
   OptTRealFieldSched lossfactor {0.0};  ///< Transit loss coefficient [p.u.]
 
   OptTBRealFieldSched fmin {0.0};  ///< Minimum required water flow [m³/s]
-  OptTBRealFieldSched fmax {300'000.0};  ///< Maximum allowed water flow [m³/s]
+  OptTBRealFieldSched fmax {};  ///< Maximum allowed water flow [m³/s]
+                                ///< — when unset, the LP treats the column
+                                ///< as having no upper bound (+inf), same
+                                ///< semantics as ``fmax = DblMax`` after
+                                ///< the flatten-time clamp.
 
   OptTRealFieldSched fcost {};  ///< Per-flow cost on `waterway_flow` column
                                 ///< [$/(m³/s)/h] — applied via

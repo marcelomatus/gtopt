@@ -8,7 +8,6 @@
 
 #include <algorithm>
 #include <array>
-#include <cstdio>
 #include <filesystem>
 #include <fstream>
 #include <string>

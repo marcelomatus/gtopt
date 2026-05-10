@@ -36,4 +36,34 @@ constexpr auto StrictParsePolicy = daw::json::options::parse_flags<
     daw::json::options::ExcludeSpecialEscapes::yes,
     daw::json::options::UseExactMappingsByDefault::yes>;
 
+/// Per-member number options that allow ``Infinity`` / ``-Infinity``
+/// (and ``NaN``) to round-trip through JSON as quoted strings.
+///
+/// daw-json-link's ``AllowNanInf`` mode requires ``LiteralAsStringOpt``
+/// to be ``Maybe`` (or ``Always``), so the value is read as a quoted
+/// literal like ``"Infinity"`` / ``"-Infinity"`` / ``"NaN"`` — see the
+/// cookbook for details:
+///   https://github.com/beached/daw_json_link/blob/release/docs/cookbook/member_options.md
+///
+/// **Usage** (per-field opt-in — daw-json-link does not provide a
+/// global "allow inf" flag on the parse policy; the option is on the
+/// member's number-options template parameter):
+///
+/// @code
+/// json_number_null<"x", OptReal, gtopt::NumberOptsWithInf>
+/// @endcode
+///
+/// **When this is needed**: only when a user-edited or third-party
+/// JSON might carry a literal ``"Infinity"`` token.  plp2gtopt's own
+/// writer prefers to *omit* unbounded fields entirely (see
+/// ``gtopt_writer._sanitize_inf``), which gtopt's struct defaults treat
+/// as ``+inf`` after the flatten-time clamp — so the round-trip is
+/// already complete for our own outputs without this option being
+/// applied.  The constant is here so adding inf-tolerance to a specific
+/// field is one local edit, not a multi-file refactor.
+[[maybe_unused]] constexpr auto NumberOptsWithInf =
+    daw::json::number_opts_t::options(
+        daw::json::options::LiteralAsStringOpt::Maybe,
+        daw::json::options::JsonNumberErrors::AllowNanInf);
+
 }  // namespace gtopt

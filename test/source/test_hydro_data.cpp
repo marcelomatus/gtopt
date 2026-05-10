@@ -149,9 +149,13 @@ TEST_CASE("Waterway construction and default values")
   REQUIRE(waterway.fmin.has_value());
   CHECK(std::get<Real>(waterway.fmin.value_or(Real {-1.0})) == 0.0);
 
-  // fmax has a default of 300000.0
-  REQUIRE(waterway.fmax.has_value());
-  CHECK(std::get<Real>(waterway.fmax.value_or(Real {0.0})) == 300'000.0);
+  // Waterway.fmax now defaults to an empty optional.  WaterwayLP
+  // (via system_context::block_maxmin_at) reads ``value_or(capacity_max)``
+  // so an absent fmax falls back to ``capacity.value_or(DblMax)`` →
+  // clamped to solver +inf at flatten time.  The previous ``300'000.0``
+  // finite default was a magic-cap that silently restricted any
+  // waterway whose fmax was not explicitly set in the JSON.
+  CHECK_FALSE(waterway.fmax.has_value());
 }
 
 TEST_CASE("Waterway attribute assignment")
@@ -233,9 +237,12 @@ TEST_CASE("Reservoir construction and default values")
 
   CHECK(reservoir.junction == SingleId {unknown_uid});
 
-  // Check defaults with values
-  REQUIRE(reservoir.spillway_capacity.has_value());
-  CHECK(reservoir.spillway_capacity.value_or(0.0) == doctest::Approx(6000.0));
+  // Reservoir.spillway_capacity now defaults to an empty optional —
+  // ``StorageLP`` falls back to ``+DblMax`` (clamped to solver +inf at
+  // flatten time), so the drain teleport is genuinely unbounded.  The
+  // previous ``6000`` finite default was a magic-cap that silently
+  // restricted the drain on reservoirs with no explicit value.
+  CHECK_FALSE(reservoir.spillway_capacity.has_value());
 
   CHECK_FALSE(reservoir.spillway_cost.has_value());
 
@@ -247,13 +254,15 @@ TEST_CASE("Reservoir construction and default values")
   CHECK_FALSE(reservoir.eini.has_value());
   CHECK_FALSE(reservoir.efin.has_value());
 
-  REQUIRE(reservoir.fmin.has_value());
-  CHECK(reservoir.fmin.value_or(0.0)
-        == doctest::Approx(Reservoir::default_fmin));
-
-  REQUIRE(reservoir.fmax.has_value());
-  CHECK(reservoir.fmax.value_or(0.0)
-        == doctest::Approx(Reservoir::default_fmax));
+  // Reservoir.fmin / fmax now default to an empty optional — the
+  // LP consumer (``ReservoirLP::add_to_lp``) falls back to
+  // ``±DblMax`` which the flatten code clamps to the solver's true
+  // infinity, so an unset bound is genuinely unbounded.  The previous
+  // ``±10'000`` finite defaults were a magic-cap that silently
+  // restricted reservoirs whose ``Reservoir.fmin/fmax`` was not set
+  // explicitly in the JSON.
+  CHECK_FALSE(reservoir.fmin.has_value());
+  CHECK_FALSE(reservoir.fmax.has_value());
 
   REQUIRE(reservoir.flow_conversion_rate.has_value());
   CHECK(reservoir.flow_conversion_rate.value_or(0.0)

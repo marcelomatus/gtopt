@@ -670,9 +670,16 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
       const auto feasibility_clause = (n_total > 0 && n_feasible < n_total)
           ? std::format(" feasible={}/{}", n_feasible, n_total)
           : std::string {};
+      // Surface the cumulative worst LP conditioning observed so far so
+      // operators see kappa alongside the bounds without having to grep
+      // for the `SDDP Kappa` warning lines.  -1 sentinel = no LP solve
+      // has reported a kappa yet (e.g. solver backend lacks the API).
+      const auto gk = global_max_kappa();
+      const auto kappa_clause =
+          (gk >= 0.0) ? std::format(" kappa={:.2e}", gk) : std::string {};
       SPDLOG_INFO(
           "SDDP Iter [i{}]: done in {:.3f}s (fwd {:.2f}s + bwd {:.2f}s) — "
-          "UB={} LB={} gap={:.2f}% Δgap={:.2f}% cuts={}/{}{}{}",
+          "UB={} LB={} gap={:.2f}% Δgap={:.2f}%{} cuts={}/{}{}{}",
           gtopt::uid_of(iteration_index),
           ir.iteration_s,
           ir.forward_pass_s,
@@ -681,6 +688,7 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
           format_si(ir.lower_bound),
           100.0 * ir.gap,
           100.0 * ir.gap_change,
+          kappa_clause,
           ir.cuts_added,
           ir.infeasible_cuts_added,
           feasibility_clause,
@@ -1632,12 +1640,18 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
           .converged = ir.converged || was_converged,
       });
 
-      // Log aggregate with pool stats
+      // Log aggregate with pool stats.  Append the cumulative worst
+      // kappa so the async-mode iteration headline carries the same
+      // conditioning telemetry as the synchronous path above.
       {
         const auto pool_stats = pool.get_statistics();
+        const auto gk_async = global_max_kappa();
+        const auto kappa_clause_async = (gk_async >= 0.0)
+            ? std::format(" kappa={:.2e}", gk_async)
+            : std::string {};
         SPDLOG_INFO(
             "SDDP Iter [i{}]: async aggregate — "
-            "UB={} LB={} gap={:.2f}% Δgap={:.2f}% "
+            "UB={} LB={} gap={:.2f}% Δgap={:.2f}%{} "
             "spread=[{},{}] converged_scenes={}/{} "
             "pool(active={} pending={} cpu={:.0f}%){}",
             next_converge_iteration_index,
@@ -1645,6 +1659,7 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
             format_si(ir.lower_bound),
             100.0 * ir.gap,
             100.0 * ir.gap_change,
+            kappa_clause_async,
             tracker.min_completed_iteration(),
             tracker.max_completed_iteration(),
             tracker.num_converged(),

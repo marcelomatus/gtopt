@@ -1268,14 +1268,35 @@ private:
           stats.tasks_pending,
           stats.tasks_completed);
 
-      // Stall detection: when `tasks_completed` has not advanced since the
-      // previous periodic log yet work is still queued or running, surface
-      // the dispatch gate that is blocking progress.  Mirrors the checks in
-      // `can_dispatch_next()` so the user sees the same condition the
-      // scheduler sees.
-      const bool has_work = stats.tasks_pending > 0 || stats.tasks_active > 0;
+      // Stall detection: when `tasks_completed` has not advanced since
+      // the previous periodic log AND there is *pending* work that
+      // could dispatch but isn't, surface the gate that is blocking
+      // progress.  Mirrors the checks in `can_dispatch_next()` so the
+      // user sees the same condition the scheduler sees.
+      //
+      // **Why the criterion requires ``pending > 0``** (not ``active >
+      // 0``).  Tasks in this pool are coarse-grained — e.g. a per-scene
+      // SDDP simulation pass that walks 51 phases × 14 s each ≈ 12 min
+      // per scene.  With pool granularity at the *scene* level,
+      // ``tasks_completed`` only advances every 12 min even when each
+      // scene is making steady internal progress (visible in trace logs
+      // as ``SystemLP::write_out [scene=N phase=M]`` lines).  The old
+      // criterion ``has_work = pending > 0 || active > 0`` fired the
+      // warning every 30 s × 2 intervals during that healthy 12 min
+      // window — false positives on juan/IPLP single-bus runs.
+      //
+      // Restricting the stall signal to ``pending > 0`` only flags the
+      // case where work is *queued* but the scheduler isn't picking it
+      // up — i.e. a true dispatch deadlock or a throttle gate that
+      // should be visible in the diagnostic ``reason`` block below.
+      // Trade-off: the rare case where every active task simultaneously
+      // wedges in a futex with nothing pending will no longer trigger
+      // the warning.  That scenario is covered by gdb thread dumps when
+      // it surfaces; the more common false positive on long
+      // monolithic tasks is what users actually see.
+      const bool dispatch_blocked = stats.tasks_pending > 0;
       const bool no_progress = stats.tasks_completed == last_logged_completed_;
-      if (has_work && no_progress) {
+      if (dispatch_blocked && no_progress) {
         ++stall_intervals_;
       } else {
         stall_intervals_ = 0;

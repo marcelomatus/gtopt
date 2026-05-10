@@ -626,6 +626,17 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   OptInt lp_debug_phase_min {};
   OptInt lp_debug_phase_max {};
 
+  /// When true, every LP-debug dump is gated on the SDDP method being
+  /// in its simulation pass (``m_in_simulation_ == true``).  Training
+  /// iterations produce no LP files.  Useful for diagnosing residual
+  /// infeasibilities that surface only on the simulation pass after
+  /// the training cuts have matured — without flooding the log
+  /// directory with hundreds of intermediate iter-N forward LPs that
+  /// the training loop already considered "transient" and recovered
+  /// from.  Combine with `lp_debug_scene_min/max` and
+  /// `lp_debug_phase_min/max` for a tightly scoped capture.
+  bool lp_debug_simulation_only {false};
+
   /// Enable the monitoring API: write a JSON status file after each
   /// iteration and periodically update real-time workpool statistics.
   /// Consumers (e.g. sddp_monitor.py) can poll this file to display

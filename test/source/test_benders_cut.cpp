@@ -2752,3 +2752,204 @@ TEST_CASE("BoxEdgeStats — negative-range box (unusual but legal)")  // NOLINT
   CHECK(stats.lower == 1);
   CHECK(stats.inside == 1);
 }
+
+// ===========================================================================
+// build_multi_cuts — per-cut saturation drop
+// ===========================================================================
+//
+// The cascade-infeasibility regression on juan/IPLP single-bus ran
+// elastic_mode = multi_cut and saw `reservoir_mcut_*` rows whose RHS
+// equalled the source column's `source_upp` exactly (e.g. ELTORO
+// `energy >= 1766.41 = emax_LP`).  These come from
+// `std::clamp(implied_bound, source_low, source_upp)` pulling an
+// out-of-box `implied_bound` to the upper edge — the cut becomes
+// `pi · state >= pi · source_upp` ⇔ `state >= source_upp`, which the
+// upstream forward pass cannot satisfy with one stage of inflows
+// after a low-storage trial from the predecessor.  The previous
+// guard `box_stats.all_upper_degenerate()` only fires when *every*
+// active link saturates; partial degeneracy (5/8 saturated, 3/8
+// inside-box) leaked through.
+//
+// The fix at `build_multi_cuts` adds a per-cut filter: when the
+// pre-clamp `implied_bound` was outside the box (within a relative
+// tolerance), drop just that link.  Saturated cuts contribute
+// nothing to convexification; non-saturated cuts in the same family
+// still get installed.
+//
+// The tests below construct a 2-link elastic clone where one link's
+// optimal slack pushes `dep_clone_phys` to the box edge (saturated)
+// and the other lands mid-box (inside).  Result: one cut, not two.
+
+TEST_CASE(  // NOLINT
+    "build_multi_cuts — strict ``> source_upp`` filter drops the "
+    "FactEps-amplified saturated cut while ``niter=0`` keeps it")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  // Two parallel scenarios on the same elastic clone:
+  //
+  //   1. ``niter = 0`` ⇒ ``kFactEps = 0`` ⇒ no outward perturbation
+  //      ⇒ ``implied_bound == source_upp`` exactly ⇒ KEEP (the
+  //      regression test in `test_sddp_benders_cut.cpp` enforces
+  //      this).
+  //   2. ``niter = 10, cut_coeff_eps = 1e-6`` ⇒ ``kFactEps = 1e-7``
+  //      ⇒ outward perturbation pushes ``implied_bound`` past
+  //      ``source_upp + box_eps`` ⇒ DROP.
+  //
+  // Same elastic clone, only the cut-build parameters change between
+  // calls.  This isolates the strict-``>`` behaviour from any other
+  // filter (activation eps, slack-cost ratio, …).
+  LinearInterface li;
+  const auto dep = li.add_col(SparseCol {
+      .lowb = 0.0,
+      .uppb = 1.0,
+  });
+
+  // Pin dep at trial = 0 (will be relaxed); force constraint dep = 1.0
+  // = source_upp via the elastic clone so the slack must activate to
+  // satisfy the (now-soft) fixing equation, producing
+  // ``dep_clone_phys = trial + dx · dep_scale_phys = 0 + 1 = 1.0``
+  // which exactly equals source_upp.
+  li.set_col_low_raw(dep, 0.0);
+  li.set_col_upp_raw(dep, 0.0);
+
+  const StateVarLink link {
+      .source_col =
+          ColIndex {
+              99,
+          },
+      .dependent_col = dep,
+      .target_phase_index =
+          PhaseIndex {
+              1,
+          },
+      .trial_value = 0.0,
+      .source_low = 0.0,
+      .source_upp = 1.0,
+      .name = "edge_link",
+  };
+
+  auto info = relax_fixed_state_variable(li,
+                                         link,
+                                         PhaseIndex {
+                                             1,
+                                         },
+                                         /*penalty=*/1e6);
+  REQUIRE(info.relaxed);
+
+  SparseRow push;
+  push[dep] = 1.0;
+  push.lowb = 1.0;
+  push.uppb = LinearProblem::DblMax;
+  li.add_row(push);
+
+  auto solve_res = li.initial_solve();
+  REQUIRE(solve_res.has_value());
+  REQUIRE(li.is_optimal());
+
+  ElasticSolveResult elastic;
+  elastic.clone = std::move(li);
+  elastic.link_infos.push_back(std::move(info));
+
+  const std::vector<StateVarLink> links = {
+      link,
+  };
+
+  // niter=0 — no FactEps perturbation → cut at exactly source_upp →
+  // KEEP (preserves the at-edge regression contract).
+  auto cuts_keep = build_multi_cuts(elastic,
+                                    links,
+                                    {},
+                                    /*cut_coeff_eps=*/1e-6,
+                                    /*niter=*/0);
+  REQUIRE_FALSE(cuts_keep.empty());
+  CHECK(cuts_keep.front().cmap.contains(link.source_col));
+
+  // niter=10 — outward FactEps perturbation pushes implied_bound past
+  // source_upp + box_eps → DROP.
+  auto cuts_drop = build_multi_cuts(elastic,
+                                    links,
+                                    {},
+                                    /*cut_coeff_eps=*/1e-6,
+                                    /*niter=*/10);
+  CHECK(cuts_drop.empty());
+}
+
+TEST_CASE(  // NOLINT
+    "build_multi_cuts — unbounded source_upp sentinel does not "
+    "false-trigger saturation drop")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  // Regression for the ±DblMax sentinel handling on `source_upp` /
+  // `source_low`.  Naïve relative tolerance `1e-9 * (source_upp -
+  // source_low)` evaluates to ~2e21 when `source_upp = +DblMax` and
+  // would dwarf any realistic `implied_bound`, silently dropping
+  // every cut.  The fix gates the saturation check on whether the
+  // bound is "essentially infinite" (≥ 0.5 × DblMax).
+  //
+  // This test sets one link's `source_upp = DblMax` and verifies the
+  // cut still emits when the slack moves dep into a finite box.
+  LinearInterface li;
+  const auto x = li.add_col(SparseCol {
+      .lowb = 0.0,
+      .uppb = 100.0,
+  });
+
+  li.set_col_low_raw(x, 50.0);
+  li.set_col_upp_raw(x, 50.0);
+
+  const StateVarLink link {
+      .source_col =
+          ColIndex {
+              77,
+          },
+      .dependent_col = x,
+      .target_phase_index =
+          PhaseIndex {
+              1,
+          },
+      .trial_value = 50.0,
+      .source_low = 0.0,
+      .source_upp = LinearProblem::DblMax,  // ← sentinel
+      .name = "unbounded_link",
+  };
+
+  auto info = relax_fixed_state_variable(li,
+                                         link,
+                                         PhaseIndex {
+                                             1,
+                                         },
+                                         /*penalty=*/1e6);
+  REQUIRE(info.relaxed);
+
+  // Force x = 75 — slack must activate (sdn = 25), implied_bound =
+  // 75 (well below the DblMax cap and well above the 0 floor).
+  SparseRow row;
+  row[x] = 1.0;
+  row.lowb = 75.0;
+  row.uppb = 75.0;
+  li.add_row(row);
+
+  auto solve_res = li.initial_solve();
+  REQUIRE(solve_res.has_value());
+  REQUIRE(li.is_optimal());
+
+  ElasticSolveResult elastic;
+  elastic.clone = std::move(li);
+  elastic.link_infos.push_back(std::move(info));
+
+  const std::vector<StateVarLink> links = {
+      link,
+  };
+  auto cuts = build_multi_cuts(elastic,
+                               links,
+                               {},
+                               /*cut_coeff_eps=*/0.0,
+                               /*niter=*/0);
+
+  // Cut should NOT be falsely dropped: `source_upp = DblMax` → upper
+  // bound treated as unbounded, so `implied_bound = 75` is inside.
+  REQUIRE(cuts.size() == 1);
+  CHECK(cuts[0].cmap.contains(link.source_col));
+}
