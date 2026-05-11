@@ -108,6 +108,24 @@ bool BusLP::add_to_lp(const SystemContext& sc,
   // sequence.  The element-name registration is hoisted into
   // `system_lp.cpp::register_all_ampl_element_names` (runs once per
   // SimulationLP via std::call_once from the SystemLP constructor).
+  //
+  // 2026-05-11 fix: `theta_cols` is `mutable` and lazy — populated on
+  // first cache-miss in `theta_cols_at` (called from
+  // `kirchhoff::add_line_kvl_rows` via LineLP).  Under
+  // `LowMemoryMode::rebuild`, `SystemLP::rebuild_in_place` re-uses
+  // the existing `BusLP` instance across re-flattens (the gate at
+  // `system_lp.cpp:879` skips `create_collections` once disposable
+  // collections are built), so the entries left in `theta_cols` from
+  // the previous flatten reference `ColIndex` values for the OLD
+  // `LinearProblem`'s columns.  A `theta_cols_at` cache hit then
+  // returns those stale indices and `lazy_add_theta` is never called
+  // — the new LP loses every bus_theta column, the Kirchhoff rows
+  // reference whatever variable happens to live at those indices in
+  // the new LP, and the resulting flat LP is infeasible (observed on
+  // juan/IPLP multi-bus rebuild: all scenes infeasible at iter 1 p1).
+  // Erase any stale entry for this (scenario, stage) so the lazy
+  // populator fires fresh.
+  theta_cols.erase(std::tuple {scenario.uid(), stage.uid()});
 
   // F9: register filter metadata for sum(...) predicates.
   if (const auto& t = bus().type) {
