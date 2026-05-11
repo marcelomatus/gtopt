@@ -1342,7 +1342,7 @@ TEST_CASE(  // NOLINT
   };
 
   // Build a cut row with physical coefficients.
-  ColIndex c0 {0};
+  [[maybe_unused]] ColIndex c0 {0};
   // Use c0 index 0 (the only column); make_base_li updates c0_out.
   SparseRow cut_row;
   cut_row[ColIndex {0}] = kPhysCoeff;

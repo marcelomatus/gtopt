@@ -326,6 +326,27 @@ auto LinearProblem::flatten(const LpMatrixOptions& opts) -> FlatLinearProblem
   // Two-pass approach avoids creating an intermediate SparseMatrix
   // of ncols flat_maps, reducing memory allocations and sort overhead.
 
+  // KNOWN ISSUE — 2026-05-11 line-losses SEGFAULT under g++-15 Release
+  // ---------------------------------------------------------------
+  // The 6 ``Kirchhoff × line-losses`` / ``IEEE 9-bus losses`` tests in
+  // ``test_kirchhoff_modes_ieee.cpp`` and ``test_ieee9b_losses.cpp``
+  // SEGFAULT at this Pass 1 inner loop under g++-15 ``-O3 -DNDEBUG``
+  // (CMake ``CIFast`` / ``Release``).  gdb pins the crash at:
+  //   ``movslq (%rsi, %rax, 4), %rdx``  → ``j = sign_extend(keys[rax])``
+  //   ``addl  $0x1, (%rbx, %rdx, 4)``    → ``++matbeg[j]``
+  // with ``%rdx = 0xffffffffbff00000`` — bit-for-bit the high half of
+  // double ``-1.0`` as written into the per-segment ``linkrow[seg] =
+  // -1.0`` step in ``line_losses::add_segments``.  Same source under:
+  //   * g++-15 -O0 (Debug):  PASSES.
+  //   * clang++23 -O3 Release: PASSES (all 6, 50/50 assertions).
+  // The bug is therefore a g++-15-specific codegen pathology at -O3,
+  // not a real correctness defect in our LP-build path.  Working
+  // around with ``-fno-strict-aliasing`` on g++ Release is the
+  // suggested short-term mitigation (under evaluation as of this
+  // comment); the longer-term fix is to bisect the specific GCC
+  // optimization pass and either narrow it down or upstream a GCC
+  // bug report.
+
   // Pass 1: count non-zeros per column to build matbeg
   const auto eps = opts.eps;
   for (const auto& row : rows) {
