@@ -26,20 +26,26 @@
  *
  * Lifecycle:
  *   * Default-constructed: all empty / false.
- *   * Under `LowMemoryMode::off` the buffer stays empty (the live
- *     backend is the source of truth).  All `record_*_if_tracked`
- *     methods take the current `LowMemoryMode` so they can short-
- *     circuit cleanly without forcing the caller to gate.
- *   * Under `compress`/`snapshot`/`rebuild`, every dynamic addition is
- *     mirrored here and replayed onto the freshly-loaded backend by
- *     `LinearInterface::apply_post_load_replay()`.
+ *   * Every dynamic addition is mirrored here regardless of mode —
+ *     including under `off`, because `system_lp.cpp:560` saves a
+ *     snapshot for every cell and `sddp_aperture.cpp` uses
+ *     `clone_from_flat(with_replay=true)` to build the per-aperture
+ *     clones.  That path needs the buffer as the SOLE source of
+ *     post-snapshot cuts and dynamic cols (without it, aperture
+ *     clones drop every Benders cut — juan/IPLP regression
+ *     2026-05-11).  Under `compress`/`snapshot`/`rebuild` the buffer
+ *     additionally feeds `LinearInterface::apply_post_load_replay()`
+ *     when the backend is reloaded.
  *
  * Invariants (asserted in debug, see `validate_consistency()`):
  *   * **R1.**  Default-constructed `LpReplayBuffer{}` reports all
  *              vectors empty, `replaying() == false`, and zero
  *              pending col bounds.
- *   * **R2.**  `record_*_if_tracked(..., mode)` is a no-op when
- *              `mode == LowMemoryMode::off`.
+ *   * **R2.**  `record_*_if_tracked(..., mode)` always records.
+ *              The `mode` parameter is retained for API stability
+ *              but no longer gates the record (was: no-op under
+ *              `off` — fixed 2026-05-11 after the aperture-clone
+ *              regression).
  *   * **R3.**  `take_dynamic_cols()` / `take_active_cuts()` move-out
  *              the internal vector and leave the buffer in the
  *              default-constructed state for that field.
@@ -146,39 +152,44 @@ public:
     return m_active_cuts_;
   }
 
-  // ── Conditional record (R2) — no-op under LowMemoryMode::off ────────────
-
-  void record_dynamic_col_if_tracked(SparseCol col, LowMemoryMode mode)
+  // ── Unconditional record (R2) ───────────────────────────────────────────
+  //
+  // 2026-05-11 fix — buffer is always populated regardless of mode.
+  // `clone_from_flat(with_replay=true)` (used by the aperture path
+  // whenever `has_snapshot_data() == true`) consumes the buffer as
+  // the SOLE source of cuts and dynamic columns.  Under `off`,
+  // `system_lp.cpp:560` still saves a snapshot, so the buffer
+  // must mirror every dynamic addition to keep aperture clones
+  // consistent with the live backend.  The `mode` parameter is
+  // retained for API stability but no longer gates the record.
+  void record_dynamic_col_if_tracked(SparseCol col,
+                                     [[maybe_unused]] LowMemoryMode mode)
   {
-    if (mode != LowMemoryMode::off) {
-      m_dynamic_cols_.push_back(std::move(col));
-    }
+    m_dynamic_cols_.push_back(std::move(col));
   }
 
-  void record_dynamic_row_if_tracked(SparseRow row, LowMemoryMode mode)
+  void record_dynamic_row_if_tracked(SparseRow row,
+                                     [[maybe_unused]] LowMemoryMode mode)
   {
-    if (mode != LowMemoryMode::off) {
-      m_dynamic_rows_.push_back(std::move(row));
-    }
+    m_dynamic_rows_.push_back(std::move(row));
   }
 
-  void record_cut_row_if_tracked(SparseRow row, LowMemoryMode mode)
+  void record_cut_row_if_tracked(SparseRow row,
+                                 [[maybe_unused]] LowMemoryMode mode)
   {
-    if (mode != LowMemoryMode::off) {
-      m_active_cuts_.push_back(std::move(row));
-    }
+    m_active_cuts_.push_back(std::move(row));
   }
 
   /// **R5** — drop cut entries at global row indices `deleted_indices`,
   /// offset by `base_numrows` to get the `active_cuts` index.  Indices
   /// outside `[base_numrows, base_numrows + active_cuts.size())` are
-  /// silently skipped (defence against caller bugs).  No-op under
-  /// `LowMemoryMode::off` or when `active_cuts` is empty.
+  /// silently skipped (defence against caller bugs).  No-op when
+  /// `active_cuts` is empty.
   void record_cut_deletion(std::span<const int> deleted_indices,
                            int base_numrows,
-                           LowMemoryMode mode)
+                           [[maybe_unused]] LowMemoryMode mode)
   {
-    if (mode == LowMemoryMode::off || m_active_cuts_.empty()) {
+    if (m_active_cuts_.empty()) {
       return;
     }
     std::vector<std::size_t> offsets;

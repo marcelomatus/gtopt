@@ -1462,7 +1462,13 @@ ColIndex LinearInterface::add_col(const SparseCol& col)
   // dropped post-init cols on the first reconstruct (juan/cascade
   // SIGSEGV) or on the first rebuild (juan/SDDP iter50_rebuild
   // CPLEX SEGV in `set_col_lower` after α was lost).
-  if (!m_replay_.replaying() && m_low_memory_mode_ != LowMemoryMode::off
+  // 2026-05-11 fix — drop the `mode != off` gate.  Under `off`,
+  // `system_lp.cpp:560` still saves a snapshot, so the aperture-path
+  // `clone_from_flat(with_replay=true)` consumes this buffer.  Without
+  // recording α cols here, `apply_post_load_replay` re-installs cuts
+  // that reference an α column index past the snapshot's numcols —
+  // silently corrupt at best, segfault at worst (juan/IPLP 2026-05-11).
+  if (!m_replay_.replaying()
       && (m_snapshot_holder_.has_data()
           || m_low_memory_mode_ == LowMemoryMode::rebuild))
   {
@@ -2720,9 +2726,11 @@ void LinearInterface::set_col_low_raw(const ColIndex index, const double value)
   m_backend_->set_col_lower(index, normalize_bound(value));
   // Persist the override so a `release_backend()` →
   // `reconstruct_backend()` cycle re-applies it after `load_flat`
-  // restores the snapshot's bounds.  Skip during a bulk replay
-  // (we'd be writing the same value back into our own map).
-  if (!m_replay_.replaying() && m_low_memory_mode_ != LowMemoryMode::off) {
+  // restores the snapshot's bounds.  Also persisted under `off` so
+  // `clone_from_flat(with_replay=true)` (used by aperture clones)
+  // sees the updated bound (2026-05-11 fix).  Skip during a bulk
+  // replay (we'd be writing the same value back into our own map).
+  if (!m_replay_.replaying()) {
     // First time we see this column — capture the live upper bound so
     // a single-sided lower update doesn't lose it.  Subsequent updates
     // pass the live upper which `set_pending_col_lower` ignores when
@@ -2745,7 +2753,8 @@ void LinearInterface::set_col_upp_raw(const ColIndex index, const double value)
     }
   }
   m_backend_->set_col_upper(index, normalize_bound(value));
-  if (!m_replay_.replaying() && m_low_memory_mode_ != LowMemoryMode::off) {
+  // 2026-05-11 fix — drop `mode != off` gate (see `set_col_low_raw`).
+  if (!m_replay_.replaying()) {
     // Initialise lower from current live bound so a single-sided
     // upper-bound update doesn't reset the lower to zero on replay.
     // The current-lower value is ignored if an entry already exists

@@ -959,16 +959,30 @@ TEST_CASE(  // NOLINT
 }
 
 TEST_CASE(  // NOLINT
-    "clone_from_flat(with_replay) — silently produces snapshot-only "
-    "LP under off mode (m_replay_ empty)")
+    "clone_from_flat(with_replay) — reproduces live backend including "
+    "α and cuts under off mode (2026-05-11 fix regression guard)")
 {
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
-  // This test PINS the surprising-but-correct behaviour: in off
-  // mode, m_replay_ is empty so apply_post_load_replay adds nothing;
-  // the manual+replay clone is structurally equal to the snapshot,
-  // NOT to the source's live backend.  The bug fix in
-  // `elastic_filter_solve` is to gate against this case and use
-  // native clone() instead.
+  // Regression guard for the 2026-05-11 fix to the aperture-clone
+  // path on juan/IPLP: under `LowMemoryMode::off` the replay buffer
+  // (`m_replay_`) used to be gated off — `record_*_if_tracked` was
+  // a no-op — so `clone_from_flat(with_replay=true)` produced a
+  // snapshot-only clone (no α col, no cut rows, no pinned bounds)
+  // even though the live backend HAD these.  The aperture path,
+  // which always took `clone_from_flat` because `aperture_use_manual_clone`
+  // defaults to true AND `system_lp.cpp:560` always saves a snapshot
+  // under off, then silently solved the construction-time LP at
+  // every iteration — LB stuck at 50 M for 30 iters on IPLP.
+  //
+  // The fix: drop the `mode != off` gate in
+  //   * `lp_replay_buffer.hpp:record_*_if_tracked` (cut + dynamic row/col)
+  //   * `linear_interface.cpp:add_col` (replay-buffer push for α)
+  //   * `linear_interface.cpp:set_col_low_raw / set_col_upp_raw`
+  //     (pending-bound push for `free_alpha`)
+  //
+  // The buffer is now populated regardless of mode, so the manual
+  // clone reproduces the live backend.  Pinned here so a future
+  // refactor that re-introduces the gate fails this test.
 
   auto fix = make_sddp_like_source(LowMemoryMode::off);
   auto& src = fix.src;
@@ -979,18 +993,76 @@ TEST_CASE(  // NOLINT
   const auto manual = src.clone_from_flat(LinearInterface::CloneKind::shallow,
                                           /*with_replay=*/true);
 
-  // Native clone() reflects the source's full live backend state
-  // (α col + cut row + pinned bounds present).
+  // Native and manual clones must now be structurally identical.
   CHECK(native.get_numcols() == src.get_numcols());
   CHECK(native.get_numrows() == src.get_numrows());
+  CHECK(manual.get_numcols() == src.get_numcols());
+  CHECK(manual.get_numrows() == src.get_numrows());
+  CHECK(manual.get_numcols() == native.get_numcols());
+  CHECK(manual.get_numrows() == native.get_numrows());
 
-  // Manual clone (with_replay=true) only has the snapshot —
-  // post-snapshot mutations were NEVER recorded into m_replay_ in
-  // off mode, so apply_post_load_replay was a no-op.
-  CHECK(manual.get_numcols() == fix.cols_after_freeze);  // No α
-  CHECK(manual.get_numrows() == fix.rows_after_freeze);  // No cut
-  CHECK(manual.get_numcols() < native.get_numcols());
-  CHECK(manual.get_numrows() < native.get_numrows());
+  // Solving both must produce the same objective (the cut on α
+  // and the freed α-col bounds must be present in both).
+  auto native_s = src.clone(LinearInterface::CloneKind::shallow);
+  auto manual_s = src.clone_from_flat(LinearInterface::CloneKind::shallow,
+                                      /*with_replay=*/true);
+  const SolverOptions opts {};
+  REQUIRE(native_s.resolve(opts).has_value());
+  REQUIRE(manual_s.resolve(opts).has_value());
+  REQUIRE(native_s.is_optimal());
+  REQUIRE(manual_s.is_optimal());
+  CHECK(native_s.get_obj_value()
+        == doctest::Approx(manual_s.get_obj_value()).epsilon(1e-9));
+}
+
+TEST_CASE(  // NOLINT
+    "clone equivalence — native vs clone_from_flat across "
+    "all LowMemoryMode values (off, compress, rebuild)")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  // Cross-mode invariance: regardless of low_memory_mode, the
+  // manual clone (`clone_from_flat(with_replay=true)`) and the
+  // native clone (`clone(shallow)` → CPXcloneprob) must produce
+  // structurally identical LPs that solve to the same obj.
+  //
+  // Pre-2026-05-11 this held under compress and rebuild (where
+  // `m_replay_` was populated) but FAILED under off — see the
+  // regression-guard test above.
+
+  const std::array modes = {
+      LowMemoryMode::off, LowMemoryMode::compress, LowMemoryMode::rebuild};
+
+  for (const auto mode : modes) {
+    CAPTURE(static_cast<int>(mode));
+
+    auto fix = make_sddp_like_source(mode);
+    auto& src = fix.src;
+
+    // Native always works (CPXcloneprob copies the live backend).
+    auto native = src.clone(LinearInterface::CloneKind::shallow);
+    CHECK(native.get_numcols() == src.get_numcols());
+    CHECK(native.get_numrows() == src.get_numrows());
+
+    // Manual route is only viable when has_snapshot_data() is true.
+    // Under rebuild the snapshot is intentionally absent — the
+    // rebuild callback owns the reload — so manual clone throws.
+    // Skip the comparison there and only assert native works.
+    if (!src.has_snapshot_data()) {
+      continue;
+    }
+    auto manual = src.clone_from_flat(LinearInterface::CloneKind::shallow,
+                                      /*with_replay=*/true);
+    CHECK(manual.get_numcols() == native.get_numcols());
+    CHECK(manual.get_numrows() == native.get_numrows());
+
+    const SolverOptions opts {};
+    REQUIRE(native.resolve(opts).has_value());
+    REQUIRE(manual.resolve(opts).has_value());
+    REQUIRE(native.is_optimal());
+    REQUIRE(manual.is_optimal());
+    CHECK(native.get_obj_value()
+          == doctest::Approx(manual.get_obj_value()).epsilon(1e-9));
+  }
 }
 
 TEST_CASE(  // NOLINT

@@ -43,35 +43,45 @@ TEST_CASE("LpReplayBuffer R1 — default-constructed state")  // NOLINT
   CHECK(buf.pending_col_bounds_size() == 0);
 }
 
-// ── R2: record_*_if_tracked is no-op under LowMemoryMode::off ────────────
+// ── R2: record_*_if_tracked always records regardless of mode ────────────
+//
+// 2026-05-11 fix: previously the methods skipped under
+// `LowMemoryMode::off`, which broke `clone_from_flat(with_replay=true)`
+// on the aperture path (the snapshot+replay clone is silently
+// stripped of every post-snapshot cut and dynamic col).  The buffer
+// now records every dynamic addition regardless of mode; the `mode`
+// parameter is retained for API stability.
 
-TEST_CASE("LpReplayBuffer R2 — off mode short-circuit")  // NOLINT
+TEST_CASE("LpReplayBuffer R2 — records under every mode (post-fix)")  // NOLINT
 {
   LpReplayBuffer buf {};
   SparseCol col {};
   col.cost = 1.0;
-  buf.record_dynamic_col_if_tracked(col, LowMemoryMode::off);
-  CHECK(buf.dynamic_cols().empty());
-
   SparseRow row {};
   row.lowb = 0.0;
   row.uppb = 1.0;
-  buf.record_dynamic_row_if_tracked(row, LowMemoryMode::off);
-  CHECK(buf.dynamic_rows().empty());
 
-  buf.record_cut_row_if_tracked(row, LowMemoryMode::off);
-  CHECK(buf.active_cuts().empty());
-
-  // Tracked modes do append.
-  buf.record_dynamic_col_if_tracked(col, LowMemoryMode::compress);
+  // Under `off`: now records (regression guard for 2026-05-11 fix).
+  buf.record_dynamic_col_if_tracked(col, LowMemoryMode::off);
   CHECK(buf.dynamic_cols_size() == 1);
-  buf.record_dynamic_row_if_tracked(row, LowMemoryMode::compress);
+  buf.record_dynamic_row_if_tracked(row, LowMemoryMode::off);
   CHECK(buf.dynamic_rows_size() == 1);
-  buf.record_cut_row_if_tracked(row, LowMemoryMode::compress);
+  buf.record_cut_row_if_tracked(row, LowMemoryMode::off);
   CHECK(buf.active_cuts_size() == 1);
 
-  buf.record_dynamic_col_if_tracked(col, LowMemoryMode::rebuild);
+  // Compress and rebuild also record (was the only working path before
+  // the fix; still works after the fix).
+  buf.record_dynamic_col_if_tracked(col, LowMemoryMode::compress);
   CHECK(buf.dynamic_cols_size() == 2);
+  buf.record_dynamic_row_if_tracked(row, LowMemoryMode::compress);
+  CHECK(buf.dynamic_rows_size() == 2);
+  buf.record_cut_row_if_tracked(row, LowMemoryMode::compress);
+  CHECK(buf.active_cuts_size() == 2);
+
+  buf.record_dynamic_col_if_tracked(col, LowMemoryMode::rebuild);
+  CHECK(buf.dynamic_cols_size() == 3);
+  buf.record_cut_row_if_tracked(row, LowMemoryMode::rebuild);
+  CHECK(buf.active_cuts_size() == 3);
 }
 
 // ── R3: take_* moves out and leaves empty ────────────────────────────────
@@ -155,22 +165,28 @@ TEST_CASE("LpReplayBuffer R5 — record_cut_deletion")  // NOLINT
   REQUIRE(buf.active_cuts_size() == 5);
 
   // Delete cuts at global indices 12 and 14 with base_numrows=10
-  // (offsets 2 and 4 in the active_cuts vector).
+  // (offsets 2 and 4 in the active_cuts vector — both in range,
+  // size=5 before this call).
   const std::array<int, 2> deleted = {12, 14};
   buf.record_cut_deletion(
       deleted, /*base_numrows=*/10, LowMemoryMode::compress);
   CHECK(buf.active_cuts_size() == 3);
 
-  // Off mode: no-op.
-  buf.record_cut_deletion(deleted, /*base_numrows=*/10, LowMemoryMode::off);
-  CHECK(buf.active_cuts_size() == 3);
+  // 2026-05-11 fix: under `off`, `record_cut_deletion` is no longer
+  // gated — it must fire because cuts are now recorded under off too.
+  // Verify by deleting offset 0 (global index 10) under off mode.
+  const std::array<int, 1> off_in_range = {10};
+  buf.record_cut_deletion(
+      off_in_range, /*base_numrows=*/10, LowMemoryMode::off);
+  CHECK(buf.active_cuts_size() == 2);
 
-  // Out-of-range indices silently skipped.
+  // Out-of-range global index — silently skipped by the bounds guard,
+  // size stays at 2.
   const std::array<int, 1> oob = {999};
   buf.record_cut_deletion(oob, /*base_numrows=*/10, LowMemoryMode::compress);
-  CHECK(buf.active_cuts_size() == 3);
+  CHECK(buf.active_cuts_size() == 2);
 
-  // Empty active_cuts: also no-op.
+  // Empty active_cuts: also no-op (early-return).
   (void)buf.take_active_cuts();
   CHECK(buf.active_cuts_size() == 0);
   buf.record_cut_deletion(
