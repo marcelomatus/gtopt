@@ -174,3 +174,163 @@ TEST_CASE(  // NOLINT
   // dependent); we only require the row is installed and accessible.
   CHECK(static_cast<int>(bcut_row) >= 0);
 }
+
+// ─── Gap C1 — recovery branch consistency under compress mode ───────
+//
+// Pins the contract from commit 6cf57176: when
+// `install_aperture_backward_cut` falls into the recovery branch it
+// must call `delete_rows(to_delete)` followed by
+// `record_cut_deletion(to_delete)`.  A subsequent
+// `clone_from_flat(with_replay=true)` must NOT re-inject the deleted
+// cut into the throwaway aperture clone — i.e. the replay buffer must
+// reflect the deletion, otherwise the next backward-pass aperture
+// would see a stale cut and produce inconsistent reduced costs.
+TEST_CASE(  // NOLINT
+    "bcut recovery: delete_rows + record_cut_deletion drops cut from "
+    "subsequent clone_from_flat(with_replay)")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  auto& reg = SolverRegistry::instance();
+  reg.load_all_plugins();
+
+  // Build a small 3-col / 3-row LP source.  Use feature-style mixed
+  // bounds so the LP is genuinely solvable after the recovery
+  // sequence (a no-op LP would hide many failure modes).
+  LinearProblem lp {
+      "bcut_recovery_compress",
+  };
+  std::ignore = lp.add_col(SparseCol {
+      .lowb = 0.0,
+      .uppb = 10.0,
+      .cost = 1.0,
+      .class_name = "Gen",
+      .variable_name = "g0",
+      .variable_uid = 0,
+  });
+  std::ignore = lp.add_col(SparseCol {
+      .lowb = 0.0,
+      .uppb = 10.0,
+      .cost = 2.0,
+      .class_name = "Gen",
+      .variable_name = "g1",
+      .variable_uid = 1,
+  });
+  std::ignore = lp.add_col(SparseCol {
+      .lowb = 0.0,
+      .uppb = 10.0,
+      .cost = 3.0,
+      .class_name = "Gen",
+      .variable_name = "g2",
+      .variable_uid = 2,
+  });
+  SparseRow bal {
+      .lowb = 5.0,
+      .uppb = 5.0,
+      .class_name = "Bus",
+      .constraint_name = "bal",
+      .variable_uid = 0,
+  };
+  bal[ColIndex {0}] = 1.0;
+  bal[ColIndex {1}] = 1.0;
+  bal[ColIndex {2}] = 1.0;
+  std::ignore = lp.add_row(std::move(bal));
+  SparseRow lim {
+      .lowb = -LinearProblem::DblMax,
+      .uppb = 8.0,
+      .class_name = "Lim",
+      .constraint_name = "cap",
+      .variable_uid = 0,
+  };
+  lim[ColIndex {0}] = 1.0;
+  lim[ColIndex {1}] = 1.0;
+  std::ignore = lp.add_row(std::move(lim));
+  SparseRow lim2 {
+      .lowb = -LinearProblem::DblMax,
+      .uppb = 8.0,
+      .class_name = "Lim",
+      .constraint_name = "cap",
+      .variable_uid = 1,
+  };
+  lim2[ColIndex {1}] = 1.0;
+  lim2[ColIndex {2}] = 1.0;
+  std::ignore = lp.add_row(std::move(lim2));
+  auto flat = lp.flatten({});
+
+  LinearInterface src(reg.default_solver());
+  src.set_low_memory(LowMemoryMode::compress, CompressionCodec::lz4);
+  src.load_flat(flat);
+  src.save_snapshot(std::move(flat));
+  src.save_base_numrows();
+  const auto base = static_cast<int>(src.get_numrows());
+
+  // Add α col post-freeze (auto-records into m_replay_ since mode !=
+  // off).  The α col itself is dynamic, not a cut — it must survive
+  // the cut-deletion path.
+  const auto alpha = src.add_col(SparseCol {
+      .lowb = 0.0,
+      .uppb = 1.0e30,
+      .cost = 10.0,
+      .class_name = "Sddp",
+      .variable_name = "alpha",
+      .variable_uid = 0,
+  });
+
+  // Add two cut rows via add_row + record_cut_row (the canonical pair
+  // the install_aperture_backward_cut path uses).
+  SparseRow cut0;
+  cut0[alpha] = 1.0;
+  cut0[ColIndex {1}] = 0.5;
+  cut0.lowb = 1.0;
+  cut0.uppb = LinearProblem::DblMax;
+  cut0.class_name = "Sddp";
+  cut0.constraint_name = "optcut";
+  cut0.variable_uid = 100;
+  const auto cut0_row = src.add_row(cut0);
+  src.record_cut_row(cut0);
+
+  SparseRow cut1;
+  cut1[alpha] = 1.0;
+  cut1[ColIndex {2}] = 0.25;
+  cut1.lowb = 2.0;
+  cut1.uppb = LinearProblem::DblMax;
+  cut1.class_name = "Sddp";
+  cut1.constraint_name = "optcut";
+  cut1.variable_uid = 101;
+  std::ignore = src.add_row(cut1);
+  src.record_cut_row(cut1);
+
+  REQUIRE(src.replay_buf().active_cuts_size() == 2);
+  REQUIRE(src.replay_buf().dynamic_cols_size() == 1);
+
+  // Pre-condition: clone_from_flat(with_replay=true) must show both
+  // cuts (base + alpha-col is structural; cuts add 2 rows).
+  {
+    auto pre_clone = src.clone_from_flat(LinearInterface::CloneKind::shallow,
+                                         /*with_replay=*/true);
+    CHECK(pre_clone.get_numrows() == base + 2);
+  }
+
+  // Simulate the recovery branch: delete cut0, record the deletion.
+  // The combined call sequence is what
+  // `install_aperture_backward_cut` does after a non-optimal solve.
+  const std::array<int, 1> to_delete {static_cast<int>(cut0_row)};
+  src.delete_rows(to_delete);
+  src.record_cut_deletion(to_delete);
+
+  // Source's replay buffer now lists exactly 1 active cut (cut1).
+  CHECK(src.replay_buf().active_cuts_size() == 1);
+  CHECK(src.replay_buf().dynamic_cols_size() == 1);
+
+  // Post-condition: a fresh clone_from_flat(with_replay=true) must
+  // show ONLY cut1 (base + 1 cut, no re-injection of cut0).
+  auto post_clone = src.clone_from_flat(LinearInterface::CloneKind::shallow,
+                                        /*with_replay=*/true);
+  CHECK(post_clone.get_numrows() == base + 1);
+
+  // And the clone must remain solvable — the recovery sequence
+  // mustn't corrupt the LP structure.
+  const SolverOptions opts {};
+  REQUIRE(post_clone.resolve(opts).has_value());
+  CHECK(post_clone.is_optimal());
+}

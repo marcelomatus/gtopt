@@ -1197,3 +1197,95 @@ TEST_CASE(  // NOLINT
           == doctest::Approx(expected).epsilon(1e-9));
   }
 }
+
+// ─── 12. Gap C2 — throwaway-clone short-circuit on bound writes ─────
+//
+// Pins the `m_is_throwaway_clone_` short-circuit added in commit
+// 8e08b1c4: after `clone_from_flat(with_replay=true)`, the clone is
+// flagged as a throwaway and subsequent `set_col_low_raw` /
+// `set_col_upp_raw` calls must NOT grow `pending_col_bounds`.  Also
+// asserts that those writes don't leak into the source's replay
+// buffer (borrow-from-source preserves source-side invariants).
+TEST_CASE(  // NOLINT
+    "Throwaway clone short-circuit: bound writes don't grow "
+    "pending_col_bounds on clone or source")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  auto fix = make_sddp_like_source(LowMemoryMode::compress);
+  auto& src = fix.src;
+
+  // Snapshot source state before the clone.  make_sddp_like_source
+  // already pinned ColIndex{1} via set_col_low_raw/upp_raw, so the
+  // source's pending_col_bounds map has at least one entry.
+  const auto pending_before = src.replay_buf().pending_col_bounds_size();
+
+  auto clone = src.clone_from_flat(LinearInterface::CloneKind::shallow,
+                                   /*with_replay=*/true);
+
+  // The clone starts with the SAME pending_col_bounds (its replay
+  // buffer was deep-copied from src in apply_post_load_replay).
+  const auto clone_pending_after_clone =
+      clone.replay_buf().pending_col_bounds_size();
+
+  // Drive a representative number of bound writes on the throwaway
+  // clone — these would normally grow pending_col_bounds, but the
+  // short-circuit must drop them on the floor.
+  // Use cols 0..2 (the LP has 3 cols from build_feature_problem),
+  // writing each repeatedly to exercise both new-key and update paths.
+  constexpr int n_writes = 50;
+  for (int i = 0; i < n_writes; ++i) {
+    const auto col = ColIndex {i % 3};
+    clone.set_col_low_raw(col, -1.0e30);
+    clone.set_col_upp_raw(col, 1.0e30);
+  }
+
+  // Throwaway short-circuit: clone's pending_col_bounds did not grow.
+  CHECK(clone.replay_buf().pending_col_bounds_size()
+        == clone_pending_after_clone);
+
+  // Borrow-from-source preserved invariants: source untouched.
+  CHECK(src.replay_buf().pending_col_bounds_size() == pending_before);
+}
+
+// ─── 13. Gap C3 — apply_post_load_replay(source) source-immutability ─
+//
+// Pins the borrow-from-source contract: when `clone_from_flat` runs
+// `apply_post_load_replay(m_replay_)` on the clone (which uses the
+// source's buffer as the data source), the clone's OWN replay flag
+// is flipped via the ReplayGuard but the source's flag and contents
+// stay untouched.  This guarantees concurrent throwaway clones from
+// the same source don't race on the source's `replaying()` flag.
+TEST_CASE(  // NOLINT
+    "Borrow-from-source replay leaves source's replay buffer untouched")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  auto fix = make_sddp_like_source(LowMemoryMode::compress);
+  auto& src = fix.src;
+
+  // Capture source-side state before the clone fires its replay.
+  const auto cuts_before = src.replay_buf().active_cuts_size();
+  const auto cols_before = src.replay_buf().dynamic_cols_size();
+  const auto rows_before = src.replay_buf().dynamic_rows_size();
+  const auto pending_before = src.replay_buf().pending_col_bounds_size();
+  const bool replay_before = src.replay_buf().replaying();
+  REQUIRE_FALSE(replay_before);  // Idle source: flag is always false.
+
+  {
+    auto clone = src.clone_from_flat(LinearInterface::CloneKind::shallow,
+                                     /*with_replay=*/true);
+
+    // Replay flag flipped on OWN buffer, then released by the
+    // ReplayGuard's dtor; at this point both source and clone show
+    // replaying() == false.
+    CHECK_FALSE(clone.replay_buf().replaying());
+  }  // Clone destroyed.
+
+  // Source unchanged across the entire clone+replay sequence.
+  CHECK(src.replay_buf().replaying() == replay_before);
+  CHECK(src.replay_buf().active_cuts_size() == cuts_before);
+  CHECK(src.replay_buf().dynamic_cols_size() == cols_before);
+  CHECK(src.replay_buf().dynamic_rows_size() == rows_before);
+  CHECK(src.replay_buf().pending_col_bounds_size() == pending_before);
+}

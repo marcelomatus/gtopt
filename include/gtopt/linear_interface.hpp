@@ -1276,6 +1276,16 @@ public:
     return m_solver_name_;
   }
 
+  /// Const accessor for the embedded LP replay buffer.
+  ///
+  /// Used by regression tests to assert on replay-buffer state
+  /// (dynamic cols/rows, active cuts, pending col bounds) without
+  /// granting mutable access to the buffer.
+  [[nodiscard]] const LpReplayBuffer& replay_buf() const noexcept
+  {
+    return m_replay_;
+  }
+
   /// Solver library version string (e.g. "1.17.3").
   /// Safe to call even when the backend has been released.
   [[nodiscard]] std::string solver_version() const
