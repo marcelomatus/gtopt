@@ -736,6 +736,18 @@ public:
     return m_replay_.active_cuts_size();
   }
 
+  /// Const view of the live active-cut rows tracked by the replay
+  /// buffer.  Used by post-install passes (e.g. the terminal-α floor
+  /// helper in `sddp_method_alpha.cpp`) that need to walk every cut on
+  /// this LP without taking it out via `take_active_cuts`.  The
+  /// returned span aliases the replay buffer's vector; the caller must
+  /// not retain references across mutating operations
+  /// (`add_cut_row` / `record_cut_deletion` / `take_active_cuts`).
+  [[nodiscard]] std::span<const SparseRow> active_cuts() const noexcept
+  {
+    return m_replay_.active_cuts();
+  }
+
   /// Record cut row deletions (pruning/forgetting).
   void record_cut_deletion(std::span<const int> deleted_indices);
 

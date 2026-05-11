@@ -510,6 +510,17 @@ using namespace gtopt::detail;
                                  cut,
                                  options.cut_coeff_eps);
       }
+      // After every boundary cut on this scene's α_T is installed,
+      // derive a universal lower-bound floor on α from the cuts'
+      // RHS + coefficients projected onto the state-variable bound
+      // box (see `apply_terminal_alpha_floor` in
+      // sddp_method_alpha.cpp).  This pins α_T's column at the
+      // tightest cut-derived floor (clamped at 0), so aperture
+      // clones with perturbed trial states that fall outside the
+      // cuts' polyhedral region still see a finite α_T — closing the
+      // `CPX_STAT_UNBOUNDED` window observed at the terminal phase
+      // on juan/gtopt_iplp_plain.
+      apply_terminal_alpha_floor(planning_lp, si);
     }
 
     if (cuts_skipped > 0) {

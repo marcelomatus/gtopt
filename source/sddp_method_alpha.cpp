@@ -155,6 +155,33 @@ void SDDPMethod::free_alpha(SceneIndex scene_index, PhaseIndex phase_index)
 // Provides the shared free-α primitive used by both `SDDPMethod`
 // (backward / feasibility / aperture cut paths) and
 // `load_boundary_cuts_csv` (last-phase boundary-cut install).
+//
+// ── Terminal α≥0 floor ────────────────────────────────────────────
+// At the SDDP horizon's last phase, α represents the future cost
+// beyond the planning horizon.  Under the gtopt convention every
+// stage cost is non-negative (dispatch cost, demand-failure penalty,
+// CAPEX annualisation, slack penalties), so the true value function
+// is non-negative and α_T ≥ 0 is always a valid weak lower bound.
+//
+// Boundary cuts (`load_boundary_cuts_csv`) impose α + Σ coef·v ≥ rhs
+// at the last phase to ENCODE the value-function support points from
+// PLP's planos data, but the cuts only cover the trial-state regions
+// they were generated at.  Aperture-perturbed trial states can land
+// outside the cuts' polyhedral approximation, leaving α effectively
+// unbounded below on those branches.  The juan/gtopt_iplp_plain
+// iter-20 LB collapse (every aperture at p51 returning
+// `CPX_STAT_UNBOUNDED`) is the visible symptom.
+//
+// Pinning α's column lower bound at `0` instead of `-∞` at the last
+// phase gives an unconditional safety net.  When boundary cuts
+// produce a tighter (positive) bound, they dominate via the cut row;
+// when they don't, the column bound prevents the unbounded behaviour.
+// Both paths are mathematically correct.
+//
+// Non-terminal phases keep the `-∞` release: cuts on α_t for
+// intermediate phases accumulate during the SDDP backward sweep, and
+// the bootstrap pin at iter-0 (`uppb = lowb = 0`) is preserved until
+// the first cut row arrives.
 void free_alpha(PlanningLP& planning_lp,
                 SceneIndex scene_index,
                 PhaseIndex phase_index)
@@ -201,6 +228,114 @@ void free_alpha_for_cut(PlanningLP& planning_lp,
     return;  // cut does not reference α — leave the bootstrap pin.
   }
   free_alpha(planning_lp, scene_index, phase_index);
+}
+
+// Free-function implementation declared in <gtopt/sddp_types.hpp>.
+// Derives a universal lower-bound floor on α_T from the cuts already
+// installed at (scene, last_phase) and pins α's column lower bound at
+// it.  Closes the "aperture clone returns CPX_STAT_UNBOUNDED at the
+// terminal phase" hole observed on juan/gtopt_iplp_plain at iter 20+:
+// boundary cuts cover only the trial-state regions they were generated
+// at, and aperture-perturbed states can fall outside that polyhedral
+// approximation.  The cut-derived floor is mathematically tighter than
+// a flat `α ≥ 0` because it folds in the per-cut RHS and coefficients;
+// it is also strictly above `−∞` whenever at least one cut is
+// installed, so the column is never left unbounded below.
+//
+// Per-cut floor formula (derived from `α + Σⱼ coefⱼ · vⱼ ≥ rhs`):
+//
+//     floor_cut = rhs − Σⱼ max(coefⱼ · vⱼ_max, coefⱼ · vⱼ_min)
+//
+// The ``max(...)`` picks the SUBTRAHEND that makes the floor smallest
+// (worst case over the feasible v box): for ``coefⱼ > 0`` it's
+// ``coefⱼ · vⱼ_max``, for ``coefⱼ < 0`` it's ``coefⱼ · vⱼ_min``.  This
+// preserves the universal-lower-bound contract — the floor must hold
+// for ANY feasible state, not just the cut's generating trial point.
+// Taking the ``max`` across all cuts then clamping at ``0`` gives a
+// floor that's tighter than any individual cut and never weaker than
+// the non-negative cost-to-go bound.
+void apply_terminal_alpha_floor(PlanningLP& planning_lp, SceneIndex scene_index)
+{
+  const auto& sim = planning_lp.simulation();
+  const auto last_phase = sim.last_phase_index();
+  const auto* alpha_svar = find_alpha_state_var(sim, scene_index, last_phase);
+  if (alpha_svar == nullptr) {
+    return;  // α not registered on this (scene, last_phase) cell.
+  }
+  const auto alpha_col = alpha_svar->col();
+
+  auto& sys = planning_lp.system(scene_index, last_phase);
+  sys.ensure_lp_built();
+  auto& li = sys.linear_interface();
+
+  // No cuts installed → no cut-derived floor; leave the column bound
+  // at whatever the cut-install path set it to (`-∞` after free_alpha,
+  // or `0` if no cut ever fired).
+  const auto cuts = li.active_cuts();
+  if (cuts.empty()) {
+    return;
+  }
+
+  // Column bounds in *raw LP space*.  The cut coefficients we read
+  // from `SparseRow::cmap` are also LP-space (`compose_physical` ran
+  // at add_row time), so the multiplication `coef · v_bound` lands
+  // in the same space as `row.lowb` — no scale_obj / col_scale fiddly
+  // arithmetic needed.
+  const auto col_low = li.get_col_low_raw();
+  const auto col_upp = li.get_col_upp_raw();
+
+  // Clamp the floor at `0` from below: cost-to-go is non-negative
+  // under non-negative stage costs, so this is a valid weak universal
+  // floor that survives even when every cut produces a negative
+  // floor_cut.
+  double tightest_floor = 0.0;
+  std::size_t cuts_with_alpha = 0;
+  for (const auto& cut : cuts) {
+    // Skip non-α cuts (pure state-coupling rows from feasibility
+    // cuts).  Boundary cuts always carry `row[α] = 1.0`.
+    const auto alpha_it = cut.cmap.find(alpha_col);
+    if (alpha_it == cut.cmap.end()) {
+      continue;
+    }
+    ++cuts_with_alpha;
+
+    double cut_floor = cut.lowb;
+    for (const auto& [col, coef] : cut.cmap) {
+      if (col == alpha_col) {
+        continue;
+      }
+      // ``coef · v_max`` vs ``coef · v_min`` — pick whichever is
+      // larger so the subtraction yields the smallest (most
+      // conservative) floor.
+      const double low_b = col_low[col];
+      const double upp_b = col_upp[col];
+      const double term_max = coef * upp_b;
+      const double term_min = coef * low_b;
+      cut_floor -= std::max(term_max, term_min);
+    }
+    tightest_floor = std::max(tightest_floor, cut_floor);
+  }
+
+  if (cuts_with_alpha == 0) {
+    return;  // No α-cuts to derive a floor from.
+  }
+
+  // Apply on the live backend AND mirror into m_dynamic_cols_ so the
+  // floor survives a release_backend + ensure_backend cycle under
+  // `LowMemoryMode::compress` (the snapshot's pre-cut col bound would
+  // otherwise replace it on reload).  Upper bound stays at +∞ to keep
+  // α unconstrained from above; only the lower bound is tightened.
+  li.set_col_low_raw(alpha_col, tightest_floor);
+  sys.update_dynamic_col_bounds(sddp_alpha_class_name,
+                                sddp_alpha_col_name,
+                                tightest_floor,
+                                LinearProblem::DblMax);
+
+  SPDLOG_DEBUG("SDDP: α_T floor at (s{} p{}) → {:.6e} from {} cut(s)",
+               sim.uid_of(scene_index),
+               sim.uid_of(last_phase),
+               tightest_floor,
+               cuts_with_alpha);
 }
 
 // Free-function implementation declared in <gtopt/sddp_types.hpp>.

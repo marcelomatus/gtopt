@@ -1103,6 +1103,42 @@ void register_alpha_variables(PlanningLP& planning_lp,
                               SceneIndex scene_index,
                               double scale_alpha);
 
+/// Apply a derived lower-bound floor on α_T at the last phase by
+/// projecting every installed boundary cut onto the worst-case
+/// trial-state box.  For each cut
+///
+///     α + Σⱼ coefⱼ · vⱼ ≥ rhs
+///
+/// the universal floor over the feasible state-variable box
+/// ``[vⱼ_min, vⱼ_max]`` is
+///
+///     floor_cut = rhs − Σⱼ max(coefⱼ · vⱼ_max, coefⱼ · vⱼ_min)
+///
+/// (when ``coefⱼ > 0`` the maximiser is ``vⱼ_max``; when ``coefⱼ < 0``
+/// it is ``vⱼ_min``).  Taking the ``max`` of ``floor_cut`` across every
+/// cut and clamping at ``0`` (cost-to-go is non-negative under
+/// non-negative stage costs) gives the tightest universal lower bound
+/// on α_T implied by the cuts alone, independent of which trial state
+/// the master / aperture clones pick.
+///
+/// The motivation is the juan/gtopt_iplp_plain pathology: boundary
+/// cuts cover only the trial-state regions they were generated at,
+/// and aperture-perturbed trial states can fall outside that
+/// polyhedral approximation, leaving α_T effectively unbounded below
+/// in the aperture clone (CPLEX returns ``CPX_STAT_UNBOUNDED``,
+/// logged as "infeasible (status 2)" by the aperture pass).  Pinning
+/// the column at the cut-derived floor closes that hole without
+/// over-tightening (boundary cuts that produce a tighter row-based
+/// bound still dominate).
+///
+/// No-op when no cuts on α_T are installed or when α is not
+/// registered at the last phase on @p scene_index.  The mirror
+/// `update_dynamic_col_bounds` is called so the floor survives a
+/// `release_backend` + `ensure_backend` cycle under
+/// `LowMemoryMode::compress`.
+void apply_terminal_alpha_floor(PlanningLP& planning_lp,
+                                SceneIndex scene_index);
+
 // ─── Per-phase tracking ─────────────────────────────────────────────────────
 
 /// Per-phase SDDP state: a variable, outgoing links, forward-pass cost.
