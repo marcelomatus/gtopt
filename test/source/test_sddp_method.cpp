@@ -5537,7 +5537,8 @@ namespace
 [[nodiscard]] inline auto sweep_efin_cost_for_flip(
     double efin_cost,
     std::optional<double> demand_fail_cost = std::nullopt,
-    std::optional<double> thermal_gcost = std::nullopt)
+    std::optional<double> thermal_gcost = std::nullopt,
+    std::optional<double> production_factor = std::nullopt)
     -> std::tuple<double, double, double>
 {
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
@@ -5557,6 +5558,11 @@ namespace
       if (g.name == "thermal_gen") {
         g.gcost = *thermal_gcost;
       }
+    }
+  }
+  if (production_factor) {
+    for (auto& t : planning.system.turbine_array) {
+      t.production_factor = *production_factor;
     }
   }
   PlanningLP plp(std::move(planning));
@@ -5774,10 +5780,11 @@ TEST_CASE(  // NOLINT
   // is the driver.
   auto find_threshold = [](double dfc,
                            double tgc,
+                           double pf,
                            const std::vector<double>& test_costs) -> double
   {
     for (const double ec : test_costs) {
-      const auto [_, __, min_lb] = sweep_efin_cost_for_flip(ec, dfc, tgc);
+      const auto [_, __, min_lb] = sweep_efin_cost_for_flip(ec, dfc, tgc, pf);
       if (min_lb < 0.0) {
         return ec;  // first overshoot value
       }
@@ -5785,28 +5792,36 @@ TEST_CASE(  // NOLINT
     return -1.0;  // never overshoots
   };
 
-  // Coarse sweep around expected thresholds.  We include 50, 100, 150,
-  // 200, 300 so the threshold lands inside the grid for each (dfc, tgc).
-  const std::vector<double> test_costs = {50, 100, 150, 200, 300, 500, 1000};
+  // Coarse sweep around expected thresholds.
+  const std::vector<double> test_costs = {
+      25, 50, 75, 100, 150, 200, 300, 400, 500, 800};
 
   struct Config
   {
     std::string label;
     double demand_fail_cost;
     double thermal_gcost;
+    double production_factor;
   };
 
   const std::vector<Config> configs = {
-      // Baseline (fixture defaults)
-      {"dfc=10000 tgc=100 (baseline)", 10000.0, 100.0},
-      // Vary demand_fail only — keeps thermal at 100
-      {"dfc= 1000 tgc=100 (dfc/10)", 1000.0, 100.0},
-      {"dfc=  500 tgc=100 (dfc/20)", 500.0, 100.0},
-      {"dfc=  100 tgc=100 (dfc==tgc)", 100.0, 100.0},
-      // Vary thermal only — keeps dfc at 10000
-      {"dfc=10000 tgc= 50 (tgc/2)", 10000.0, 50.0},
-      {"dfc=10000 tgc= 25 (tgc/4)", 10000.0, 25.0},
-      {"dfc=10000 tgc=200 (tgc×2)", 10000.0, 200.0},
+      // Baseline (fixture defaults: dfc=10000, tgc=100, pf=1.0)
+      {"dfc=10000 tgc=100 pf=1.0 (baseline)", 10000.0, 100.0, 1.0},
+      // Vary demand_fail only
+      {"dfc= 1000 tgc=100 pf=1.0", 1000.0, 100.0, 1.0},
+      {"dfc=  500 tgc=100 pf=1.0", 500.0, 100.0, 1.0},
+      {"dfc=  100 tgc=100 pf=1.0 (dfc==tgc)", 100.0, 100.0, 1.0},
+      // Vary thermal only
+      {"dfc=10000 tgc= 50 pf=1.0", 10000.0, 50.0, 1.0},
+      {"dfc=10000 tgc= 25 pf=1.0", 10000.0, 25.0, 1.0},
+      {"dfc=10000 tgc=200 pf=1.0", 10000.0, 200.0, 1.0},
+      // Vary production_factor (this is what the user asked about)
+      {"dfc=10000 tgc=100 pf=0.5 (pf/2)", 10000.0, 100.0, 0.5},
+      {"dfc=10000 tgc=100 pf=0.25 (pf/4)", 10000.0, 100.0, 0.25},
+      {"dfc=10000 tgc=100 pf=2.0 (pf×2)", 10000.0, 100.0, 2.0},
+      // Note: pf=4 makes the system infeasible from very high
+      // hydro-side capacity (each hm³ → 4 MWh > demand of 40 MW
+      // can't be drained), so we omit it.
   };
 
   MESSAGE("");
@@ -5817,8 +5832,8 @@ TEST_CASE(  // NOLINT
       "---------------------------------------+------------------------------"
       "-");
   for (const auto& c : configs) {
-    const double thr =
-        find_threshold(c.demand_fail_cost, c.thermal_gcost, test_costs);
+    const double thr = find_threshold(
+        c.demand_fail_cost, c.thermal_gcost, c.production_factor, test_costs);
     std::ostringstream os;
     os << std::left << std::setw(38) << c.label << " | " << std::right
        << (thr > 0.0 ? std::to_string(static_cast<int>(thr))
