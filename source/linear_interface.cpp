@@ -568,6 +568,12 @@ void LinearInterface::install_flat_as_rebuild(const FlatLinearProblem& flat_lp)
 // NOLINTNEXTLINE(misc-no-recursion)
 void LinearInterface::apply_post_load_replay()
 {
+  apply_post_load_replay(m_replay_);
+}
+
+// NOLINTNEXTLINE(misc-no-recursion)
+void LinearInterface::apply_post_load_replay(const LpReplayBuffer& source)
+{
   // Pre-condition: caller has already run `load_flat` and cleared
   // `m_backend_released_` so the add_col/add_rows below don't re-enter
   // `ensure_backend`.
@@ -575,11 +581,13 @@ void LinearInterface::apply_post_load_replay()
          && "apply_post_load_replay requires a live backend");
 
   // Defence-in-depth flag: bulk `add_cols` / `add_rows` already bypass
-  // the single-arg auto-record path, but flipping the replay flag here
-  // makes the invariant explicit ("replay never grows the persistent
-  // registries") and keeps the auto-record gate's failure mode safe
-  // even if a future refactor re-routes bulk replay through the
-  // single-arg API.
+  // the single-arg auto-record path, but flipping the replay flag on
+  // the OWN buffer here makes the invariant explicit ("replay never
+  // grows the persistent registries") and keeps the auto-record
+  // gate's failure mode safe even if a future refactor re-routes bulk
+  // replay through the single-arg API.  We flip OWN, not source's,
+  // so concurrent throwaway clones from the same source don't race
+  // on the source's flag.
   const LpReplayBuffer::ReplayGuard replay_guard {m_replay_};
 
   // 1. Replay dynamic columns (typically just alpha — very few).
@@ -594,11 +602,8 @@ void LinearInterface::apply_post_load_replay()
   // (`sddp_method.cpp:434-453`) and the replay path holds the
   // unique reference to the shared metadata
   // (`detach_for_write(m_col_scales_)` is a no-op).
-  //
-  // `add_cols_raw` is available as a sibling API for future callers
-  // that explicitly want to skip the scale-vector mutation.
-  if (!m_replay_.dynamic_cols().empty()) {
-    add_cols(m_replay_.dynamic_cols_mut());
+  if (!source.dynamic_cols().empty()) {
+    add_cols(source.dynamic_cols());
   }
 
   // 2. Replay structural rows that were added after the snapshot was
@@ -607,15 +612,17 @@ void LinearInterface::apply_post_load_replay()
   //    cut boundary counts them as structural — otherwise SDDP cut
   //    accounting (m_base_numrows_) is off by `dynamic_rows.size()`
   //    and `record_cut_deletion` indexes the wrong rows.
-  if (!m_replay_.dynamic_rows().empty()) {
-    add_rows(m_replay_.dynamic_rows_mut());
+  if (!source.dynamic_rows().empty()) {
+    add_rows(source.dynamic_rows());
   }
 
   // 3. Mark the structural-vs-cuts boundary.
   save_base_numrows();
 
   // 4. Bulk-add active cuts (single efficient call).
-  replay_active_cuts();
+  if (!source.active_cuts().empty()) {
+    add_rows(source.active_cuts());
+  }
 
   // 5. Replay column-bound overrides.  `load_flat` restored the
   //    snapshot's construction-time bounds, but the SDDP forward
@@ -627,7 +634,7 @@ void LinearInterface::apply_post_load_replay()
   //    cuts and ultimately the juan/iplp compress LB stall.
   //    Calls `m_backend_->set_col_lower/upper` directly to bypass
   //    the recording path in our own raw setters.
-  for (const auto& [col, bounds] : m_replay_.pending_col_bounds()) {
+  for (const auto& [col, bounds] : source.pending_col_bounds()) {
     m_backend_->set_col_lower(col, bounds.first);
     m_backend_->set_col_upper(col, bounds.second);
   }
@@ -1080,8 +1087,20 @@ LinearInterface LinearInterface::clone_from_flat(CloneKind kind,
   // `m_replay_` must stay intact for its own future replays (e.g.
   // the next `release_backend` → `reconstruct_backend` cycle).
   if (with_replay) {
-    cloned.m_replay_ = m_replay_;
-    cloned.apply_post_load_replay();
+    // Borrow-from-source replay: the clone reads dynamic_cols / cuts /
+    // pending bounds from the SOURCE's `m_replay_` (no value copy onto
+    // `cloned.m_replay_`).  At late SDDP iterations the source's
+    // active_cuts vector grows to several MB, and N concurrent chunk
+    // tasks would each pay that copy cost — eliminated here.
+    cloned.apply_post_load_replay(m_replay_);
+    // After the initial replay, the clone is a "throwaway" instance: it
+    // is owned by one chunk task and destroyed at end-of-task; its
+    // replay buffer is never re-applied to any backend.  Subsequent
+    // mutations (e.g. dense `update_aperture` bound writes in the
+    // aperture inner loop) don't need to be recorded.  Flipping this
+    // flag short-circuits the per-mutation recording in
+    // `set_col_low/upp_raw`, `add_col`, etc.
+    cloned.m_is_throwaway_clone_ = true;
   }
 
   return cloned;
@@ -1468,7 +1487,9 @@ ColIndex LinearInterface::add_col(const SparseCol& col)
   // recording α cols here, `apply_post_load_replay` re-installs cuts
   // that reference an α column index past the snapshot's numcols —
   // silently corrupt at best, segfault at worst (juan/IPLP 2026-05-11).
-  if (!m_replay_.replaying()
+  // Throwaway clones (SDDP aperture chunk LP) skip recording — their
+  // replay buffer is never re-applied to any backend.
+  if (!m_replay_.replaying() && !m_is_throwaway_clone_
       && (m_snapshot_holder_.has_data()
           || m_low_memory_mode_ == LowMemoryMode::rebuild))
   {
@@ -2729,8 +2750,9 @@ void LinearInterface::set_col_low_raw(const ColIndex index, const double value)
   // restores the snapshot's bounds.  Also persisted under `off` so
   // `clone_from_flat(with_replay=true)` (used by aperture clones)
   // sees the updated bound (2026-05-11 fix).  Skip during a bulk
-  // replay (we'd be writing the same value back into our own map).
-  if (!m_replay_.replaying()) {
+  // replay (we'd be writing the same value back into our own map),
+  // and on throwaway clones (their replay buffer is never re-applied).
+  if (!m_replay_.replaying() && !m_is_throwaway_clone_) {
     // First time we see this column — capture the live upper bound so
     // a single-sided lower update doesn't lose it.  Subsequent updates
     // pass the live upper which `set_pending_col_lower` ignores when
@@ -2754,7 +2776,8 @@ void LinearInterface::set_col_upp_raw(const ColIndex index, const double value)
   }
   m_backend_->set_col_upper(index, normalize_bound(value));
   // 2026-05-11 fix — drop `mode != off` gate (see `set_col_low_raw`).
-  if (!m_replay_.replaying()) {
+  // Throwaway clones skip recording (see `m_is_throwaway_clone_`).
+  if (!m_replay_.replaying() && !m_is_throwaway_clone_) {
     // Initialise lower from current live bound so a single-sided
     // upper-bound update doesn't reset the lower to zero on replay.
     // The current-lower value is ignored if an entry already exists

@@ -227,18 +227,23 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
    *
    * Sentinel encoding (resolved at SDDPMethod setup):
    *
-   *   * absent / `nullopt` / `0` → **auto** — chosen by
-   *     `compute_auto_aperture_chunk_size(A_max, S, C, parallel_factor=2.0)`
-   *     so the resulting task count (`S × ⌈A/K⌉`) tracks the work
-   *     pool's target concurrency (`2 × N_cores`).
+   *   * absent / `nullopt` / `0` → **auto** — currently resolves to
+   *     `1` (the legacy 1-task-per-aperture path).  Measured on the
+   *     juan/IPLP 16-scene × 16-aperture × 51-phase case under the
+   *     parallel-safe manual-clone route, K=1 is consistently fastest
+   *     because per-aperture solves are small (≪ 100 ms) and the
+   *     work-pool fan-out wins over chunked warm-start reuse.  The
+   *     `compute_auto_aperture_chunk_size` formula is retained for
+   *     future workloads where clone setup dominates per-aperture
+   *     solve cost.
    *   * `1`  → legacy behaviour: one task per aperture, one clone
-   *     per task, no inner serial loop.  Disables the chunked path.
+   *     per task, no inner serial loop.
    *   * `K > 1` → use exactly `K` apertures per task.
    *   * `-1` → cap at `A_max` per phase: a single task per scene that
    *     iterates every aperture in series.  Useful for licence-
    *     constrained or memory-tight runs.
    *
-   * Default: `nullopt` (auto).
+   * Default: `nullopt` (auto = 1).
    */
   OptInt aperture_chunk_size {};
 

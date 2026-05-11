@@ -844,6 +844,14 @@ public:
   /// `m_backend_released_` has been cleared.
   void apply_post_load_replay();
 
+  /// Borrow-from-source overload: replay onto the OWN backend using
+  /// `source` as the data source, NOT `m_replay_`.  Used by
+  /// `clone_from_flat(with_replay=true)` to avoid value-copying the
+  /// source's entire replay buffer onto the throwaway clone.
+  /// The ReplayGuard still flips the OWN buffer's flag so nested
+  /// add_cols/add_rows skip auto-recording.
+  void apply_post_load_replay(const LpReplayBuffer& source);
+
   /// Finalize a rebuild in place: clear the released flag, run
   /// `load_flat(flat_lp)` on the existing backend, and replay persistent
   /// state (dynamic cols + base_numrows + active cuts).  Used exclusively
@@ -2704,6 +2712,16 @@ private:
   // ── Low-memory state ──────────────────────────────────────────────────
 
   LowMemoryMode m_low_memory_mode_ {LowMemoryMode::off};
+
+  /// Set by `clone_from_flat(with_replay=true)` after the initial replay
+  /// completes.  A throwaway clone is owned by a single chunk task (SDDP
+  /// aperture pass) and destroyed at end-of-task; its replay buffer is
+  /// never re-applied to any backend.  Mutations on a throwaway clone
+  /// (e.g. the dense `update_aperture` bound writes per inner aperture)
+  /// therefore don't need to be recorded into `m_replay_`.  Short-
+  /// circuiting the per-mutation recording saves ~10⁵ vector pushes per
+  /// chunk task on production-size SDDP cases.
+  bool m_is_throwaway_clone_ {false};
 
   /// Snapshot + codec holder (Phase 2b of the LinearInterface split —
   /// see ``include/gtopt/lp_snapshot_holder.hpp``).  Owns the flat LP

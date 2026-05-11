@@ -213,7 +213,8 @@ template<typename T>
        po::value<int>(),
        "SDDP chunked aperture pass: apertures solved serially per task, "
        "sharing one LP clone with warm-start reuse. "
-       "0/unset=auto (formula based on A_max × scenes / cores), "
+       "0/unset=auto (default: K=1 — empirically fastest on the "
+       "parallel-safe manual-clone path), "
        "1=legacy 1-task-per-aperture, "
        ">1=exactly K apertures per task, "
        "-1=fully serial (one task per scene, all apertures inside)")  //

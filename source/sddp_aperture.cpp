@@ -163,12 +163,16 @@ auto solve_apertures_for_phase(
   const auto& phase_li = sys.linear_interface();
 
   // Apply aperture timeout to solver options if configured.
-  // Disable crossover: the aperture cut is built from reduced costs
-  // (get_col_cost_raw below), not row duals, so vertex duals are not
-  // needed.  Barrier-without-crossover RC noise is at solver tolerance
-  // and already filtered by cut_coeff_eps.
+  // Crossover policy:
+  //   - simplex (primal/dual/default): crossover is a no-op for the
+  //     simplex solution path, leave whatever the user set.
+  //   - barrier: aperture cuts are built from reduced costs
+  //     (`get_col_cost_raw`); barrier-without-crossover RC noise is
+  //     at solver tolerance and filtered by `cut_coeff_eps`.  We
+  //     used to hard-clear crossover here, but that prevented users
+  //     from explicitly requesting vertex duals (e.g. for diagnosis
+  //     or for stricter cut precision).  Honour the user's setting.
   auto aperture_opts = opts;
-  aperture_opts.crossover = false;
   if (aperture_timeout > 0.0) {
     aperture_opts.time_limit = aperture_timeout;
   }

@@ -273,7 +273,7 @@ Minimize total discounted cost (OPEX + CAPEX) over scenarios, stages, blocks.
 | `scale_objective` | 1000 | Divides obj coefficients for numerics |
 | `input_format` / `output_format` | `"parquet"` | I/O format |
 | `method` | `"monolithic"` | Planning method: `monolithic`, `sddp`, `cascade` |
-| `aperture_chunk_size` | `0` (auto) | SDDP chunked aperture pass: K apertures solved serially per task on a shared LP clone (warm-start reuse). `0`/unset = auto, `1` = legacy 1-task-per-aperture, `>1` = K per task, `-1` = fully serial per scene. Pairs with the wetness sort applied in `plp2gtopt` (driest → wettest within each phase). CLI: `--aperture-chunk-size`. |
+| `aperture_chunk_size` | `0` (auto = 1) | SDDP chunked aperture pass: K apertures solved serially per task on a shared LP clone (warm-start reuse). `0`/unset = auto (currently resolves to `1`, empirically fastest under the parallel-safe manual-clone path on juan/IPLP-scale workloads), `1` = legacy 1-task-per-aperture, `>1` = K per task, `-1` = fully serial per scene. Pairs with the wetness sort applied in `plp2gtopt`. CLI: `--aperture-chunk-size`. |
 
 ### LP solver backends
 
