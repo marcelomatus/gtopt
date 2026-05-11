@@ -8,6 +8,7 @@
 #include <cmath>
 #include <filesystem>
 #include <fstream>
+#include <map>
 
 #include <doctest/doctest.h>
 #include <gtopt/cascade_method.hpp>
@@ -5514,4 +5515,199 @@ TEST_CASE("SDDPMethod diagnose_kappa — runs after solve")  // NOLINT
                       sys_lp.linear_interface(),
                       IterationIndex {0});
   CHECK(true);  // reaching here = no crash, diagnose_kappa is safe.
+}
+
+// ─── DIAG: dual±1 + backward_resolve_target=true LP dump + cut trace ──────
+//
+// 2026-05-10: focused analysis of the LB-overshoot under
+// `backward_resolve_target=true` on the small dual±1 fixture
+// (`make_backtracking_recovery_two_reservoir_planning` + soft efin_cost
+// on both reservoirs).  Activates `lp_debug=true` +
+// `lp_debug_passes="backward"` so every backward re-solve dumps the
+// LP_t about to be solved.  Captures the per-iter cut row evolution
+// via the iteration callback so we can see *how the cuts go bad*
+// without re-running the 5-min IPLP case.
+
+// Helper for the efin-sweep below — same options as the main DIAG case,
+// just with the efin_cost parameter swept and the LP-dump path off.
+namespace
+{
+[[nodiscard]] inline auto sweep_efin_cost_for_flip(double efin_cost)
+    -> std::tuple<double, double, double>
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  auto planning = make_backtracking_recovery_two_reservoir_planning();
+  for (auto& r : planning.system.reservoir_array) {
+    r.efin_cost = OptReal {efin_cost};
+  }
+  PlanningLP plp(std::move(planning));
+
+  SDDPOptions sddp_opts;
+  sddp_opts.max_iterations = 3;
+  sddp_opts.min_iterations = 3;
+  sddp_opts.convergence_tol = 0.0;
+  sddp_opts.elastic_filter_mode = ElasticFilterMode::single_cut;
+  sddp_opts.multi_cut_threshold = -1;
+  sddp_opts.forward_max_attempts = 200;
+  sddp_opts.forward_fail_stop = false;
+  sddp_opts.cut_coeff_eps = 1e-6;
+  sddp_opts.elastic_penalty = 1e2;
+  sddp_opts.enable_api = false;
+  sddp_opts.backward_resolve_target = true;
+
+  SDDPMethod sddp(plp, sddp_opts);
+  auto results = sddp.solve();
+  REQUIRE(results.has_value());
+
+  // Inspect all stored optimality cuts; report min RHS overall (signal
+  // for the "iter 2 sign flip" the trace surfaced at efin_cost=100).
+  double min_rhs = 1e30;
+  double max_rhs = -1e30;
+  double min_lb = 1e30;
+  for (const auto& c : sddp.stored_cuts()) {
+    if (c.type != CutType::Optimality) {
+      continue;
+    }
+    min_rhs = std::min(min_rhs, c.rhs);
+    max_rhs = std::max(max_rhs, c.rhs);
+  }
+  for (const auto& r : *results) {
+    min_lb = std::min(min_lb, r.lower_bound);
+  }
+  return {min_rhs, max_rhs, min_lb};
+}
+}  // namespace
+
+TEST_CASE(  // NOLINT
+    "DIAG: dual±1 efin_cost sweep — at what cost does the rc sign flip "
+    "and the cut RHS go negative")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  // Sweep efin_cost from 0 (hard constraint) through orders of
+  // magnitude.  Report:
+  //   * min cut RHS across all iters/phases — negative means the
+  //     state-dual on the efin row flipped sign between iter 1 and 2.
+  //   * min LB — negative LB confirms the overshoot.
+  const std::array efin_costs = {0.0,
+                                 0.01,
+                                 0.1,
+                                 1.0,
+                                 10.0,
+                                 50.0,
+                                 90.0,
+                                 99.0,
+                                 99.9,
+                                 99.99,
+                                 100.0,
+                                 100.01,
+                                 101.0,
+                                 110.0,
+                                 500.0};
+  for (const double ec : efin_costs) {
+    const auto [min_rhs, max_rhs, min_lb] = sweep_efin_cost_for_flip(ec);
+    const std::string flip = (min_rhs < 0.0) ? "YES" : " no";
+    MESSAGE("efin_cost=" << ec << "  min_rhs=" << min_rhs
+                         << "  max_rhs=" << max_rhs << "  min_LB=" << min_lb
+                         << "  FLIP=" << flip);
+  }
+  // Sanity invariants documented by the sweep:
+  //   * efin_cost = 0 (hard constraint): flip occurs (min_rhs < 0)
+  //   * efin_cost in [0.01, 90]:        no flip (min_rhs > 0)
+  //   * efin_cost ≥ 99 ≈ thermal_cost−hydro_cost: flip occurs
+  //   * efin_cost = 500: LB overshoots negative as well
+  const auto [hard_min_rhs, _, hard_lb] = sweep_efin_cost_for_flip(0.0);
+  CHECK(hard_min_rhs < 0.0);
+  const auto [soft_safe_min_rhs, __, ___] = sweep_efin_cost_for_flip(50.0);
+  CHECK(soft_safe_min_rhs > 0.0);
+  const auto [soft_flip_min_rhs, ____, _____] = sweep_efin_cost_for_flip(99.0);
+  CHECK(soft_flip_min_rhs < 0.0);
+}
+
+TEST_CASE(  // NOLINT
+    "DIAG: dual±1 + backward_resolve_target=true — LP dump + cut trace")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  const auto log_dir =
+      std::filesystem::temp_directory_path() / "gtopt_dual1_bwd_resolve_diag";
+  std::filesystem::remove_all(log_dir);
+  std::filesystem::create_directories(log_dir);
+
+  auto planning = make_backtracking_recovery_two_reservoir_planning();
+  for (auto& r : planning.system.reservoir_array) {
+    r.efin_cost = OptReal {100.0};  // soft, IPLP-magnitude
+  }
+  PlanningLP plp(std::move(planning));
+
+  SDDPOptions sddp_opts;
+  sddp_opts.max_iterations = 4;
+  sddp_opts.min_iterations = 4;
+  sddp_opts.convergence_tol = 0.0;
+  sddp_opts.elastic_filter_mode = ElasticFilterMode::single_cut;
+  sddp_opts.multi_cut_threshold = -1;
+  sddp_opts.forward_max_attempts = 200;
+  sddp_opts.forward_fail_stop = false;
+  sddp_opts.cut_coeff_eps = 1e-6;
+  sddp_opts.elastic_penalty = 1e2;
+  sddp_opts.enable_api = false;
+  sddp_opts.backward_resolve_target = true;
+  // LP dump: every backward LP, every (scene, phase) — no filter range.
+  sddp_opts.lp_debug = true;
+  sddp_opts.lp_debug_passes = "backward,forward";
+  sddp_opts.log_directory = log_dir.string();
+
+  SDDPMethod sddp(plp, sddp_opts);
+
+  // Per-iter callback prints cut RHS evolution.
+  sddp.set_iteration_callback(
+      [&sddp](const SDDPIterationResult& r) -> bool
+      {
+        const auto cuts = sddp.stored_cuts();
+        double min_rhs = 1e30;
+        double max_rhs = -1e30;
+        std::size_t opt_count = 0;
+        for (const auto& c : cuts) {
+          if (c.type != CutType::Optimality) {
+            continue;
+          }
+          ++opt_count;
+          min_rhs = std::min(min_rhs, c.rhs);
+          max_rhs = std::max(max_rhs, c.rhs);
+        }
+        MESSAGE("iter " << static_cast<int>(r.iteration_index)
+                        << ": LB=" << r.lower_bound << " UB=" << r.upper_bound
+                        << " cuts=" << opt_count << " min_rhs=" << min_rhs
+                        << " max_rhs=" << max_rhs);
+        return false;  // keep going
+      });
+
+  auto results = sddp.solve();
+  REQUIRE(results.has_value());
+
+  // Verify LP files were written for the re-solve path.
+  std::size_t backward_lp_count = 0;
+  std::size_t forward_lp_count = 0;
+  std::size_t total_files = 0;
+  if (std::filesystem::exists(log_dir)) {
+    for (const auto& entry : std::filesystem::directory_iterator(log_dir)) {
+      const auto name = entry.path().filename().string();
+      ++total_files;
+      const bool is_lp = name.ends_with(".lp") || name.ends_with(".lp.zst")
+          || name.ends_with(".lp.gz") || name.ends_with(".lp.lz4");
+      if (name.find("backward") != std::string::npos && is_lp) {
+        ++backward_lp_count;
+      } else if (name.find("forward") != std::string::npos && is_lp) {
+        ++forward_lp_count;
+      }
+    }
+  }
+  MESSAGE("LP files in " << log_dir.string() << ": backward="
+                         << backward_lp_count << " forward=" << forward_lp_count
+                         << " total=" << total_files);
+
+  // The user's hypothesis: backward LP for the re-solve is NOT being saved.
+  // If this CHECK fires we confirm a missing dump site.
+  CHECK(backward_lp_count > 0);
 }
