@@ -412,6 +412,54 @@ class GTOptWriter(
             return "cascade"
         return "sddp"
 
+    def _finalize_cascade_aperture_subsets(self) -> None:
+        """Rewrite cascade L0 / L1 ``apertures`` lists after the
+        global ``aperture_array`` has been built.
+
+        :meth:`process_options` runs before :meth:`process_apertures`,
+        so when ``_build_default_cascade_options`` first executes the
+        ``aperture_array`` is empty and
+        :meth:`_pick_wettest_aperture_uids` returns ``[]`` for both
+        levels — collapsing L0 to the legacy empty-list override and
+        L1 to "use per-phase Phase.apertures = all".  This hook is
+        called from :meth:`to_json` AFTER ``process_apertures``,
+        re-picks the top-4 / top-8 globally-wettest UIDs, and writes
+        them into ``cascade_options.level_array[0,1]["sddp_options"]
+        ["apertures"]``.
+
+        No-op when the case is not in cascade mode or when the
+        aperture_array is still empty (thermal-only / aperture-free
+        cases).  L2 (full network) is intentionally left untouched —
+        absent ``apertures`` key means "no override → fall through to
+        the per-phase Phase.apertures list" at the C++ side.
+        """
+        casc = self.planning.get("options", {}).get("cascade_options")
+        if not casc:
+            return
+        sim = self.planning.get("simulation", {})
+        if not sim.get("aperture_array"):
+            return
+
+        level_array = casc.get("level_array", [])
+        if len(level_array) < 2:
+            return
+
+        l0_uids = self._pick_wettest_aperture_uids(4)
+        l1_uids = self._pick_wettest_aperture_uids(8)
+
+        # Level 0 always keeps the ``apertures`` key (empty list means
+        # "no apertures at uninodal" — the legacy default).  Replace
+        # only when we have a non-empty pick.
+        if l0_uids:
+            level_array[0].setdefault("sddp_options", {})["apertures"] = l0_uids
+
+        # Level 1 only adds the key when we have a pick.  If
+        # `l1_uids` is empty we leave the key absent so the C++ side
+        # falls back to the per-phase Phase.apertures list (= all
+        # apertures).
+        if l1_uids:
+            level_array[1].setdefault("sddp_options", {})["apertures"] = l1_uids
+
     def _pick_wettest_aperture_uids(self, n: int) -> list[int]:
         """Pick the ``n`` globally-wettest aperture UIDs across all phases.
 
@@ -816,6 +864,19 @@ class GTOptWriter(
         }
 
         if method == "cascade":
+            # The cascade level_array's per-level aperture subsets
+            # (`sddp_options.apertures` at L0 / L1) are populated by
+            # :meth:`_pick_wettest_aperture_uids`, which reads from
+            # ``self.planning["simulation"]["aperture_array"]``.  That
+            # array is built by ``process_apertures``, which runs AFTER
+            # ``process_options`` in :meth:`to_json` (it depends on the
+            # scenario / scene structure that ``process_scenarios`` lays
+            # down).  At this point the aperture_array is empty, so the
+            # helper would return ``[]`` for both levels.  We emit a
+            # cascade_options *placeholder* now so the JSON has the key,
+            # and :meth:`_finalize_cascade_aperture_subsets` rewrites
+            # the L0 / L1 ``apertures`` lists once the aperture_array
+            # is in place.
             planning_opts["cascade_options"] = self._build_default_cascade_options(
                 model_opts, sddp_opts
             )
@@ -844,6 +905,14 @@ class GTOptWriter(
         _step("scenarios")
         self.process_scenarios(options)
         self.process_apertures(options)
+        # cascade_options was built earlier inside `process_options`
+        # with placeholder aperture lists (the aperture_array is
+        # populated by `process_apertures`, which runs AFTER
+        # `process_options`).  Now that the aperture_array is in
+        # place, fold the L0 / L1 wettest-aperture subsets into the
+        # level_array.  No-op for non-cascade methods or aperture-free
+        # cases.
+        self._finalize_cascade_aperture_subsets()
         _step("buses")
         self.process_buses()
         self.process_lines(options)
