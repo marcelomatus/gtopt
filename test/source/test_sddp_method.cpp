@@ -5534,7 +5534,10 @@ TEST_CASE("SDDPMethod diagnose_kappa — runs after solve")  // NOLINT
 // just with the efin_cost parameter swept and the LP-dump path off.
 namespace
 {
-[[nodiscard]] inline auto sweep_efin_cost_for_flip(double efin_cost)
+[[nodiscard]] inline auto sweep_efin_cost_for_flip(
+    double efin_cost,
+    std::optional<double> demand_fail_cost = std::nullopt,
+    std::optional<double> thermal_gcost = std::nullopt)
     -> std::tuple<double, double, double>
 {
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
@@ -5542,6 +5545,19 @@ namespace
   auto planning = make_backtracking_recovery_two_reservoir_planning();
   for (auto& r : planning.system.reservoir_array) {
     r.efin_cost = OptReal {efin_cost};
+  }
+  if (demand_fail_cost) {
+    planning.options.demand_fail_cost = *demand_fail_cost;
+  }
+  if (thermal_gcost) {
+    // The fixture's thermal generator is at index 1 (uid 2), see
+    // sddp_helpers.hpp:2185-2200.  Lower its gcost to probe the
+    // dependence of the LB-overshoot threshold on thermal cost.
+    for (auto& g : planning.system.generator_array) {
+      if (g.name == "thermal_gen") {
+        g.gcost = *thermal_gcost;
+      }
+    }
   }
   PlanningLP plp(std::move(planning));
 
@@ -5744,6 +5760,73 @@ struct ExtraSolver
   return cr;
 }
 }  // namespace
+
+TEST_CASE(  // NOLINT
+    "DIAG: dual±1 — does LB-overshoot threshold scale with thermal_cost "
+    "or demand_fail_cost?")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  // Find the efin_cost threshold where min_LB first goes negative, for
+  // different (demand_fail_cost, thermal_gcost) combinations.  If the
+  // threshold tracks (2 × thermal_cost), then thermal cost is the
+  // driver.  If it tracks (demand_fail_cost / 50), then demand_fail
+  // is the driver.
+  auto find_threshold = [](double dfc,
+                           double tgc,
+                           const std::vector<double>& test_costs) -> double
+  {
+    for (const double ec : test_costs) {
+      const auto [_, __, min_lb] = sweep_efin_cost_for_flip(ec, dfc, tgc);
+      if (min_lb < 0.0) {
+        return ec;  // first overshoot value
+      }
+    }
+    return -1.0;  // never overshoots
+  };
+
+  // Coarse sweep around expected thresholds.  We include 50, 100, 150,
+  // 200, 300 so the threshold lands inside the grid for each (dfc, tgc).
+  const std::vector<double> test_costs = {50, 100, 150, 200, 300, 500, 1000};
+
+  struct Config
+  {
+    std::string label;
+    double demand_fail_cost;
+    double thermal_gcost;
+  };
+
+  const std::vector<Config> configs = {
+      // Baseline (fixture defaults)
+      {"dfc=10000 tgc=100 (baseline)", 10000.0, 100.0},
+      // Vary demand_fail only — keeps thermal at 100
+      {"dfc= 1000 tgc=100 (dfc/10)", 1000.0, 100.0},
+      {"dfc=  500 tgc=100 (dfc/20)", 500.0, 100.0},
+      {"dfc=  100 tgc=100 (dfc==tgc)", 100.0, 100.0},
+      // Vary thermal only — keeps dfc at 10000
+      {"dfc=10000 tgc= 50 (tgc/2)", 10000.0, 50.0},
+      {"dfc=10000 tgc= 25 (tgc/4)", 10000.0, 25.0},
+      {"dfc=10000 tgc=200 (tgc×2)", 10000.0, 200.0},
+  };
+
+  MESSAGE("");
+  MESSAGE(
+      "config                                 | first efin_cost with "
+      "overshoot");
+  MESSAGE(
+      "---------------------------------------+------------------------------"
+      "-");
+  for (const auto& c : configs) {
+    const double thr =
+        find_threshold(c.demand_fail_cost, c.thermal_gcost, test_costs);
+    std::ostringstream os;
+    os << std::left << std::setw(38) << c.label << " | " << std::right
+       << (thr > 0.0 ? std::to_string(static_cast<int>(thr))
+                     : std::string {"none in test range"});
+    MESSAGE(os.str());
+  }
+  CHECK(true);
+}
 
 TEST_CASE(  // NOLINT
     "DIAG: dual±1 efin_cost=500 — sweep mitigations for LB overshoot")
