@@ -5606,6 +5606,14 @@ TEST_CASE(  // NOLINT
                                  100.01,
                                  101.0,
                                  110.0,
+                                 // Finer scan for LB-overshoot threshold:
+                                 // efin_cost=110 LB stayed at +40,
+                                 // efin_cost=500 LB dropped to −70 000.
+                                 120.0,
+                                 150.0,
+                                 200.0,
+                                 300.0,
+                                 400.0,
                                  500.0};
   for (const double ec : efin_costs) {
     const auto [min_rhs, max_rhs, min_lb] = sweep_efin_cost_for_flip(ec);
