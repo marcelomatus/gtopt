@@ -94,7 +94,10 @@ struct SolverOptions
    */
   std::optional<SolverScaling> scaling {};
 
-  /** @brief Controls barrier crossover (internal, not user-visible).
+  /** @brief Controls barrier crossover.
+   *
+   *  Exposed via JSON (`solver_options.crossover`) since dbeb01cb —
+   *  the previous "internal, not user-visible" caveat is obsolete.
    *
    *  Crossover converts the interior-point solution into a basic feasible
    *  solution, producing exact dual values (row prices / reduced costs).

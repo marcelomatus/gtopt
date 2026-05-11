@@ -140,6 +140,17 @@ struct ApertureEntry
 
 // ─── Auto-tuned aperture chunk size ────────────────────────────────────────
 
+/// @note As of commit 8e08b1c4, `SDDPMethod::initialize_solver` resolves
+///       the `auto` sentinel (requested == 0) directly to K=1 (the
+///       empirically-fastest setting on juan/IPLP), bypassing this
+///       formula entirely.  The function is RETAINED — and exercised
+///       by the six boundary-behaviour unit tests in
+///       `test_sddp_aperture_functions.cpp` — as a documented helper
+///       for future workloads where the chunked path may win again,
+///       e.g. very large per-aperture LPs (≫ 100 ms each) where the
+///       deflat+replay amortisation and dual-basis warm-start savings
+///       outweigh the loss of work-pool fan-out.
+///
 /// Compute a default `aperture_chunk_size` from problem dimensions.
 ///
 /// Sizes the per-phase aperture chunks so that the resulting task count
