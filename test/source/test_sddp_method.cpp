@@ -8,7 +8,9 @@
 #include <cmath>
 #include <filesystem>
 #include <fstream>
+#include <iomanip>
 #include <map>
+#include <sstream>
 
 #include <doctest/doctest.h>
 #include <gtopt/cascade_method.hpp>
@@ -5623,6 +5625,179 @@ TEST_CASE(  // NOLINT
   CHECK(soft_safe_min_rhs > 0.0);
   const auto [soft_flip_min_rhs, ____, _____] = sweep_efin_cost_for_flip(99.0);
   CHECK(soft_flip_min_rhs < 0.0);
+}
+
+// ─── DIAG: explore mitigations for the efin_cost=500 LB-overshoot ─────────
+//
+// At `efin_cost=500` the small dual±1 fixture exhibits the same LB-
+// overshoot pattern as juan/IPLP: iter-1 LB drops below 0 before
+// recovering.  This sweep probes which SDDP / LP-solver knobs change
+// the picture, so we can answer "what mitigation actually helps".
+//
+// Each subcase reports `iters_to_close_gap` and `min_LB` across 30
+// iterations.  If a row shows `min_LB ≥ 0` with `gap < 1%` by iter
+// 30, that combination *prevents* the overshoot.
+
+namespace
+{
+struct ConfigResult
+{
+  std::string label;
+  double final_ub {0.0};
+  double final_lb {0.0};
+  double final_gap {0.0};
+  double min_lb {0.0};
+  int iters {0};
+};
+
+[[nodiscard]] inline ConfigResult run_efin500_config(
+    const std::string& label,
+    bool backward_resolve_target,
+    LpEquilibrationMethod equil,
+    std::optional<gtopt::CutSharingMode> cut_share,
+    std::optional<double> scale_alpha_override,
+    std::optional<bool> bwd_crossover)
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  auto planning = make_backtracking_recovery_two_reservoir_planning();
+  for (auto& r : planning.system.reservoir_array) {
+    r.efin_cost = OptReal {500.0};
+  }
+  planning.options.lp_matrix_options.equilibration_method = equil;
+  PlanningLP plp(std::move(planning));
+
+  SDDPOptions sddp_opts;
+  sddp_opts.max_iterations = 30;
+  sddp_opts.min_iterations = 30;
+  sddp_opts.convergence_tol = 0.0;
+  sddp_opts.elastic_filter_mode = ElasticFilterMode::single_cut;
+  sddp_opts.multi_cut_threshold = -1;
+  sddp_opts.forward_max_attempts = 200;
+  sddp_opts.forward_fail_stop = false;
+  sddp_opts.cut_coeff_eps = 1e-6;
+  sddp_opts.elastic_penalty = 1e2;
+  sddp_opts.enable_api = false;
+  sddp_opts.backward_resolve_target = backward_resolve_target;
+  if (cut_share) {
+    sddp_opts.cut_sharing = *cut_share;
+  }
+  if (scale_alpha_override) {
+    sddp_opts.scale_alpha = *scale_alpha_override;
+  }
+  if (bwd_crossover) {
+    SolverOptions bwd_so;
+    bwd_so.crossover = *bwd_crossover;
+    sddp_opts.backward_solver_options = bwd_so;
+  }
+
+  SDDPMethod sddp(plp, sddp_opts);
+  auto results = sddp.solve();
+  REQUIRE(results.has_value());
+
+  ConfigResult cr {.label = label};
+  double min_lb = 1e30;
+  int iters_to_1pct = -1;
+  for (std::size_t i = 0; i < results->size(); ++i) {
+    const auto& r = (*results)[i];
+    min_lb = std::min(min_lb, r.lower_bound);
+    if (iters_to_1pct < 0 && r.upper_bound > 0.0
+        && std::abs(r.upper_bound - r.lower_bound) / r.upper_bound < 0.01)
+    {
+      iters_to_1pct = static_cast<int>(i + 1);
+    }
+  }
+  const auto& last = results->back();
+  cr.final_ub = last.upper_bound;
+  cr.final_lb = last.lower_bound;
+  cr.final_gap = (last.upper_bound > 0.0)
+      ? std::abs(last.upper_bound - last.lower_bound) / last.upper_bound
+      : 1.0;
+  cr.min_lb = min_lb;
+  cr.iters = iters_to_1pct;  // -1 if never reached 1%
+  return cr;
+}
+}  // namespace
+
+TEST_CASE(  // NOLINT
+    "DIAG: dual±1 efin_cost=500 — sweep mitigations for LB overshoot")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  const std::vector<ConfigResult> results = {
+      run_efin500_config("baseline (resolve=true, default)",
+                         true,
+                         LpEquilibrationMethod::row_max,
+                         std::nullopt,
+                         std::nullopt,
+                         std::nullopt),
+      run_efin500_config("resolve=false (forward-cached cuts)",
+                         false,
+                         LpEquilibrationMethod::row_max,
+                         std::nullopt,
+                         std::nullopt,
+                         std::nullopt),
+      run_efin500_config("resolve=true + equilibration=none",
+                         true,
+                         LpEquilibrationMethod::none,
+                         std::nullopt,
+                         std::nullopt,
+                         std::nullopt),
+      run_efin500_config("resolve=true + equilibration=ruiz",
+                         true,
+                         LpEquilibrationMethod::ruiz,
+                         std::nullopt,
+                         std::nullopt,
+                         std::nullopt),
+      run_efin500_config("resolve=true + cut_sharing=expected (2 scenes)",
+                         true,
+                         LpEquilibrationMethod::row_max,
+                         CutSharingMode::expected,
+                         std::nullopt,
+                         std::nullopt),
+      run_efin500_config("resolve=true + scale_alpha=1.0",
+                         true,
+                         LpEquilibrationMethod::row_max,
+                         std::nullopt,
+                         1.0,
+                         std::nullopt),
+      run_efin500_config("resolve=true + scale_alpha=100",
+                         true,
+                         LpEquilibrationMethod::row_max,
+                         std::nullopt,
+                         100.0,
+                         std::nullopt),
+      run_efin500_config("resolve=true + backward crossover=true",
+                         true,
+                         LpEquilibrationMethod::row_max,
+                         std::nullopt,
+                         std::nullopt,
+                         true),
+      run_efin500_config("resolve=true + backward crossover=false",
+                         true,
+                         LpEquilibrationMethod::row_max,
+                         std::nullopt,
+                         std::nullopt,
+                         false),
+  };
+
+  MESSAGE("");
+  MESSAGE(
+      "config                                              |  gap@30 |  "
+      "min_LB | iters→<1%");
+  MESSAGE(
+      "----------------------------------------------------+---------+---"
+      "------+----------");
+  for (const auto& r : results) {
+    std::ostringstream os;
+    os << std::left << std::setw(52) << r.label << "|" << std::right
+       << std::setw(7) << std::fixed << std::setprecision(2)
+       << 100.0 * r.final_gap << "% |" << std::setw(8) << std::defaultfloat
+       << r.min_lb << " |" << std::setw(9)
+       << (r.iters > 0 ? std::to_string(r.iters) : std::string {"never"});
+    MESSAGE(os.str());
+  }
+  CHECK(true);
 }
 
 TEST_CASE(  // NOLINT
