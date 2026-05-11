@@ -403,9 +403,16 @@ class WaterValueResolver:
     # Cost surfaces
     # ------------------------------------------------------------------
     def fail_cost(self, lost_pf: float) -> float:
-        """``ANCHOR × lost_pf``  [units: $/(m³/s·h)]."""
-        return self.anchor * float(lost_pf)
+        """``ANCHOR × lost_pf``  [units: $/(m³/s·h)], rounded to 2 d.p.
+
+        The 2-decimal rounding keeps PLP-equivalent output stable to
+        cosmetic anchor / cenre-lift FP jitter and matches the
+        precision of PLP's native ``$/Hm³`` quantity widths.
+        """
+        return round(self.anchor * float(lost_pf), 2)
 
     def efin_cost(self, lost_pf: float) -> float:
-        """``ANCHOR × lost_pf × 1e6 / 3600``  [units: $/hm³]."""
-        return self.anchor * float(lost_pf) * _HM3_PER_M3 / _SECONDS_PER_HOUR
+        """``ANCHOR × lost_pf × 1e6 / 3600``  [units: $/hm³], rounded
+        to 2 d.p.  See :meth:`fail_cost` for the rounding rationale.
+        """
+        return round(self.anchor * float(lost_pf) * _HM3_PER_M3 / _SECONDS_PER_HOUR, 2)

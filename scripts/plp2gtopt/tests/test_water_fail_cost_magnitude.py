@@ -87,10 +87,11 @@ _REFERENCE_FLOW_RIGHTS_LOST_PF = {
     "PILMAIQUEN": 0.27,
 }
 
-# Tight relative tolerance (1 ppm) — absorbs FP rounding without
-# letting silent regressions in the cascade / cenre-lift logic slip
-# through.
-_TOL_REL = 1e-6
+# Relative tolerance — set to 1e-3 to absorb the 2-d.p. round
+# applied by `fail_cost` / `efin_cost`.  Tight enough to catch
+# material logic regressions in the cascade / cenre-lift logic
+# while accepting the rounding noise on small-magnitude outputs.
+_TOL_REL = 1e-3
 
 
 def _juan_iplp_dir() -> Path | None:
