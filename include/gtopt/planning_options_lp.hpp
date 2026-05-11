@@ -93,7 +93,33 @@ public:
    *  replaced by `Σ_l tmax_l · x_τ_l` so flows can reach their full
    *  capacity. */
   static constexpr Real default_theta_max = 2 * std::numbers::pi;
-  /** @brief Default objective function scaling factor */
+  /** @brief Default objective function scaling factor for MONOLITHIC method.
+   *
+   * For SDDP / cascade methods, ``scale_objective()`` returns ``1.0``
+   * unconditionally (see accessor doc).  This constant is the default
+   * for the legacy monolithic LP path only — kept at ``1000`` so the
+   * (large) set of monolithic-MIP unit-test fixtures continue to read
+   * obj values in LP-space units as historically.
+   *
+   * Why SDDP defaults to 1.0: 2026-05 benchmark on juan/IPLP showed
+   * ``scale_objective=1000`` is the dominant numerical-conditioning
+   * contributor to basis kappa.  Measured at iter 15 of a 16-scene,
+   * 51-phase, 7,431-cut hot-start:
+   *
+   *   - ``scale_objective=1000`` (old default) : kappa = 1.27e+08
+   *   - ``scale_objective=1``    (new SDDP)    : kappa = 3.97e+07 (3.2× lower)
+   *   - All layers off (``--no-scale``)        : kappa = 2.01e+07 (6.3× lower)
+   *
+   * Solution quality (gap, LB, UB) is bit-identical across all
+   * scaling configurations.  The 1000× division of obj coefficients
+   * was intended to normalise cost magnitudes from $/MWh into LP-
+   * friendly range, but together with per-element ``auto_scale`` and
+   * Ruiz equilibration it widens the matrix dynamic range, hurting
+   * basis-condition.
+   *
+   * See also: ``equilibration_method()`` (defaults to ``none`` for
+   * single-bus; ``ruiz`` only for multi-bus Kirchhoff).
+   */
   static constexpr Real default_scale_objective = 1'000;
 
   // Default values for output settings
@@ -309,10 +335,23 @@ public:
   }
 
   /// @brief Gets the objective function scaling factor.
+  ///
+  /// Default depends on planning method:
+  ///   - SDDP / cascade : ``1.0``  (numerical-conditioning win per
+  ///     the juan/IPLP benchmark — see ``default_scale_objective`` doc).
+  ///   - Monolithic     : ``1000`` (legacy default; preserves existing
+  ///     test fixtures and single-shot LP behaviour).
+  ///
+  /// User-supplied ``model_options.scale_objective`` always takes
+  /// precedence.
   [[nodiscard]] constexpr auto scale_objective() const
   {
-    return m_options_.model_options.scale_objective.value_or(
-        default_scale_objective);
+    if (m_options_.model_options.scale_objective.has_value()) {
+      return *m_options_.model_options.scale_objective;
+    }
+    return method_type_enum() == MethodType::monolithic
+        ? default_scale_objective
+        : Real {1.0};
   }
 
   /// @brief Gets the Kirchhoff threshold.
@@ -553,10 +592,31 @@ public:
 
   /// The matrix equilibration method to use.
   ///
-  /// Default is `ruiz` when Kirchhoff constraints are active on a multi-bus
-  /// network (heterogeneous row/column scales from reactances and loss
-  /// segments produce high coefficient ratios), otherwise `row_max`.
-  /// A user-supplied value always takes precedence.
+  /// Equilibration default depends on network topology:
+  ///   - Single-bus mode  → ``none``  (no row/column scaling needed —
+  ///     all flows live on one bus, the constraint matrix has uniform
+  ///     scales by construction).
+  ///   - Multi-bus Kirchhoff → ``ruiz`` (heterogeneous reactance × tmax
+  ///     ratios across lines create wide row/column magnitude spread
+  ///     that ruiz iteration tames).
+  ///   - Multi-bus copper-plate → ``none`` (no Kirchhoff coupling).
+  ///
+  /// **Single-bus default changed to ``none`` in 2026-05** after the
+  /// juan/IPLP scaling benchmark (16-scene, 51-phase, 7,431-cut
+  /// hot-start; ``-b 1`` single-bus mode) showed equilibration on
+  /// top of ``scale_objective`` and per-element ``auto_scale``
+  /// widens basis kappa rather than improving it.  iter-15 kappa:
+  ///
+  ///   - ``row_max`` (old single-bus default) : 1.27e+08
+  ///   - ``none``    (new single-bus default) : 8.10e+07 (1.6× lower)
+  ///
+  /// Solution quality (gap, LB, UB) is invariant across choices.
+  /// Multi-bus Kirchhoff cases (IEEE-9/14/57/118-bus benchmarks)
+  /// still benefit from ruiz — the reactance disparity across the
+  /// network drives that need — so the multi-bus default is unchanged.
+  ///
+  /// User-supplied JSON ``options.lp_matrix_options.equilibration_method``
+  /// = ``"ruiz" | "row_max" | "none"`` always takes precedence.
   [[nodiscard]] constexpr auto equilibration_method() const noexcept
   {
     if (m_options_.lp_matrix_options.equilibration_method.has_value()) {
@@ -564,7 +624,7 @@ public:
     }
     const bool kirchhoff_multi_bus = use_kirchhoff() && !use_single_bus();
     return kirchhoff_multi_bus ? LpEquilibrationMethod::ruiz
-                               : LpEquilibrationMethod::row_max;
+                               : LpEquilibrationMethod::none;
   }
 
   /// Controls error handling for user constraint resolution.

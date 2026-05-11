@@ -400,7 +400,9 @@ TEST_CASE(  // NOLINT
   const PlanningOptions empty_opts {};
   const PlanningOptionsLP lp_opts {empty_opts};
 
-  // Default scale_objective = 1000
+  // Default scale_objective is 1000 for the monolithic method (which
+  // is the default when no method is set in PlanningOptions).  SDDP /
+  // cascade methods default to 1.0 — see `scale_objective()` accessor.
   CHECK(lp_opts.scale_objective() == doctest::Approx(1'000.0));
   // Default scale_theta = 1.0 (neutral; auto_scale_theta overrides).
   CHECK(lp_opts.scale_theta() == doctest::Approx(1.0));
