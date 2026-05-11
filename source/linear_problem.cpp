@@ -332,7 +332,7 @@ auto LinearProblem::flatten(const LpMatrixOptions& opts) -> FlatLinearProblem
     for (const auto& [j, v] : row.cmap) {
       assert(j >= 0 && "column index in row.cmap must be non-negative");
       if (eps < 0 || std::abs(v) > eps) [[likely]] {
-        ++matbeg[static_cast<size_t>(j)];
+        ++matbeg[j];
       }
     }
   }
