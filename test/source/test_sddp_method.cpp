@@ -5614,17 +5614,22 @@ TEST_CASE(  // NOLINT
                          << "  max_rhs=" << max_rhs << "  min_LB=" << min_lb
                          << "  FLIP=" << flip);
   }
-  // Sanity invariants documented by the sweep:
-  //   * efin_cost = 0 (hard constraint): flip occurs (min_rhs < 0)
-  //   * efin_cost in [0.01, 90]:        no flip (min_rhs > 0)
-  //   * efin_cost ≥ 99 ≈ thermal_cost−hydro_cost: flip occurs
-  //   * efin_cost = 500: LB overshoots negative as well
-  const auto [hard_min_rhs, _, hard_lb] = sweep_efin_cost_for_flip(0.0);
-  CHECK(hard_min_rhs < 0.0);
-  const auto [soft_safe_min_rhs, __, ___] = sweep_efin_cost_for_flip(50.0);
-  CHECK(soft_safe_min_rhs > 0.0);
-  const auto [soft_flip_min_rhs, ____, _____] = sweep_efin_cost_for_flip(99.0);
-  CHECK(soft_flip_min_rhs < 0.0);
+  // Solver-agnostic invariants (the cut-RHS sign at the degenerate
+  // crossover depends on which LP vertex the backend picks, which
+  // differs between CLP simplex and CPLEX barrier — see the CLP run
+  // in 2026-05-10 investigation notes).  What is universal:
+  //
+  //   * efin_cost in [0.01, 50] (well below degeneracy):
+  //       min cut RHS > 0 AND min LB stays at the iter-0 baseline.
+  //
+  //   * efin_cost = 500 (well above degeneracy):
+  //       min LB drops well below 0 regardless of solver — the
+  //       LB-overshoot is structural, not a per-solver artifact.
+  const auto [safe_min_rhs, _, safe_lb] = sweep_efin_cost_for_flip(50.0);
+  CHECK(safe_min_rhs > 0.0);
+  CHECK(safe_lb > 0.0);
+  const auto [__, ___, big_lb] = sweep_efin_cost_for_flip(500.0);
+  CHECK(big_lb < -1000.0);  // observed −70 000 on both CLP and CPLEX
 }
 
 // ─── DIAG: explore mitigations for the efin_cost=500 LB-overshoot ─────────
