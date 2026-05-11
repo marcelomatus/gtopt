@@ -47,13 +47,13 @@ TEST_CASE("SddpOptions JSON - Full deserialization")
     "stationary_tol": 0.01,
     "stationary_window": 15,
     "forward_solver_options": {
-      "algorithm": 3,
+      "algorithm": "barrier",
       "threads": 4,
       "presolve": true,
       "log_level": 0
     },
     "backward_solver_options": {
-      "algorithm": 2,
+      "algorithm": "dual",
       "threads": 1,
       "presolve": false,
       "log_level": 0

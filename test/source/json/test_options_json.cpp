@@ -227,7 +227,7 @@ TEST_CASE(
   using namespace gtopt;
   const std::string json_string = R"({
     "solver_options": {
-      "algorithm": 1,
+      "algorithm": "primal",
       "threads": 2,
       "presolve": true,
       "log_level": 0

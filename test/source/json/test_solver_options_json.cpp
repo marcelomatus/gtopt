@@ -15,7 +15,7 @@ using namespace gtopt;  // NOLINT(google-global-names-in-headers)
 TEST_CASE("SolverOptions JSON basic parsing")
 {
   const std::string_view json_data = R"({
-    "algorithm": 3,
+    "algorithm": "barrier",
     "threads": 4,
     "presolve": true,
     "log_level": 1
@@ -35,7 +35,7 @@ TEST_CASE("SolverOptions JSON basic parsing")
 TEST_CASE("SolverOptions JSON with tolerances")
 {
   const std::string_view json_data = R"({
-    "algorithm": 2,
+    "algorithm": "dual",
     "threads": 0,
     "presolve": false,
     "optimal_eps": 1e-8,
@@ -148,7 +148,7 @@ TEST_CASE("SolverOptions JSON scaling explicit values")
 TEST_CASE("SolverOptions JSON partial object uses defaults for missing")
 {
   const std::string_view json_data = R"({
-    "algorithm": 1,
+    "algorithm": "primal",
     "threads": 16
   })";
 

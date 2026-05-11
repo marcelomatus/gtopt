@@ -16,18 +16,19 @@
 #pragma once
 
 #include <daw/json/daw_json_link.h>
+#include <gtopt/enum_option.hpp>
 #include <gtopt/json/json_basic_types.hpp>
 #include <gtopt/solver_options.hpp>
 
 namespace daw::json
 {
 using gtopt::LPAlgo;
+using gtopt::OptName;
 using gtopt::OptReal;
 using gtopt::SolverLogMode;
 using gtopt::SolverOptions;
 using gtopt::SolverScaling;
 
-using OptLPAlgo = std::optional<LPAlgo>;
 using OptSolverLogMode = std::optional<SolverLogMode>;
 using OptSolverScaling = std::optional<SolverScaling>;
 using OptInt = std::optional<int>;
@@ -36,7 +37,7 @@ using OptBool = std::optional<bool>;
 /// Constructs SolverOptions from nullable JSON fields, applying defaults.
 struct SolverOptionsConstructor
 {
-  SolverOptions operator()(OptLPAlgo algorithm,
+  SolverOptions operator()(OptName algorithm_str,
                            OptInt threads,
                            OptBool presolve,
                            OptReal optimal_eps,
@@ -46,11 +47,16 @@ struct SolverOptionsConstructor
                            OptSolverLogMode log_mode,
                            OptReal time_limit,
                            OptSolverScaling scaling,
+                           OptBool crossover,
                            OptInt max_fallbacks,
                            OptBool memory_emphasis) const
   {
+    LPAlgo algorithm = LPAlgo::barrier;
+    if (algorithm_str.has_value()) {
+      algorithm = gtopt::require_enum<LPAlgo>("algorithm", *algorithm_str);
+    }
     return SolverOptions {
-        .algorithm = algorithm.value_or(LPAlgo::barrier),
+        .algorithm = algorithm,
         .threads = threads.value_or(2),
         .presolve = presolve.value_or(true),
         .optimal_eps = optimal_eps,
@@ -62,6 +68,7 @@ struct SolverOptionsConstructor
         .scaling = scaling.has_value()
             ? scaling
             : OptSolverScaling {SolverScaling::automatic},
+        .crossover = crossover.value_or(true),
         .max_fallbacks = max_fallbacks.value_or(2),
         .memory_emphasis = memory_emphasis,
     };
@@ -73,7 +80,7 @@ struct json_data_contract<SolverOptions>
 {
   using constructor_t = SolverOptionsConstructor;
 
-  using type = json_member_list<json_number_null<"algorithm", OptLPAlgo>,
+  using type = json_member_list<json_string_null<"algorithm", OptName>,
                                 json_number_null<"threads", OptInt>,
                                 json_bool_null<"presolve", OptBool>,
                                 json_number_null<"optimal_eps", OptReal>,
@@ -83,23 +90,26 @@ struct json_data_contract<SolverOptions>
                                 json_number_null<"log_mode", OptSolverLogMode>,
                                 json_number_null<"time_limit", OptReal>,
                                 json_number_null<"scaling", OptSolverScaling>,
+                                json_bool_null<"crossover", OptBool>,
                                 json_number_null<"max_fallbacks", OptInt>,
                                 json_bool_null<"memory_emphasis", OptBool>>;
 
   static constexpr auto to_json_data(SolverOptions const& opt)
   {
-    return std::make_tuple(OptLPAlgo {opt.algorithm},
-                           OptInt {opt.threads},
-                           OptBool {opt.presolve},
-                           opt.optimal_eps,
-                           opt.feasible_eps,
-                           opt.barrier_eps,
-                           OptInt {opt.log_level},
-                           opt.log_mode,
-                           opt.time_limit,
-                           opt.scaling,
-                           OptInt {opt.max_fallbacks},
-                           opt.memory_emphasis);
+    return std::make_tuple(
+        OptName {std::string {gtopt::enum_name(opt.algorithm)}},
+        OptInt {opt.threads},
+        OptBool {opt.presolve},
+        opt.optimal_eps,
+        opt.feasible_eps,
+        opt.barrier_eps,
+        OptInt {opt.log_level},
+        opt.log_mode,
+        opt.time_limit,
+        opt.scaling,
+        OptBool {opt.crossover},
+        OptInt {opt.max_fallbacks},
+        opt.memory_emphasis);
   }
 };
 

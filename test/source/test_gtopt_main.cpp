@@ -468,7 +468,7 @@ TEST_CASE("gtopt_main - lp_algorithm from JSON options")  // NOLINT
     "options": {
       "demand_fail_cost": 1000,
       "output_compression": "uncompressed",
-      "solver_options": {"algorithm": 1}
+      "solver_options": {"algorithm": "primal"}
     },
     "simulation": {
       "block_array": [{"uid": 1, "duration": 1}],
