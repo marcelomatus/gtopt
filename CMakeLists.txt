@@ -231,6 +231,33 @@ target_compile_options(
   ${PROJECT_NAME} PUBLIC "$<$<COMPILE_LANG_AND_ID:CXX,MSVC>:/permissive->"
 )
 
+# Work around g++-15 tree-DSE bug exposed by the LP build path
+# (`source/linear_problem.cpp::flatten` and `source/line_losses.cpp`):
+# under `-O3` the SSA-level Dead Store Elimination pass eliminates a
+# live store and the IEEE 9-bus line-losses tests SEGFAULT at every
+# optimisation level >= -O1.  Bisect localised the trigger to
+# `-ftree-dse` only (not the RTL-level `-fdse`).  Same source compiles
+# and passes under g++-15 `-Og` and clang++23 `-O3`, so the work-
+# around is gcc-specific.  Tree-DSE removal costs ~0–1% on this
+# workload — well worth the correctness recovery.
+#
+# Scope: g++ 15.x ONLY, and only on the optimised build configs
+# (Release, RelWithDebInfo, MinSizeRel).  Pinning to the 15.x major
+# lets g++-14 builds still exercise tree-DSE (useful for cross-
+# version validation), and lets a future g++ 16+ build skip the
+# work-around entirely so we discover whether upstream has fixed
+# the underlying issue.  Debug / CIFast use `-O0` where
+# `-ftree-dse` is a no-op anyway, so they remain unaffected.
+if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU"
+   AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL 15
+   AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS 16)
+  target_compile_options(
+    ${PROJECT_NAME}
+    PUBLIC
+      "$<$<CONFIG:Release,RelWithDebInfo,MinSizeRel>:-fno-tree-dse>"
+  )
+endif()
+
 target_include_directories(
   ${PROJECT_NAME} PUBLIC $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
 )
