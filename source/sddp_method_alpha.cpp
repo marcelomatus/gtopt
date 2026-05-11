@@ -193,6 +193,24 @@ void free_alpha(PlanningLP& planning_lp,
   }
   auto& sys = planning_lp.system(scene_index, phase_index);
   sys.ensure_lp_built();
+
+  // Terminal-phase α gets a universal `≥ 0` floor (cost-to-go is
+  // non-negative under non-negative stage costs), refined upward by
+  // `apply_terminal_alpha_floor` when cuts on α_T are present.
+  // Other phases release to `-∞` and rely on accumulated Benders
+  // cuts to bound α from below.  Pinning α_T ≥ 0 closes the
+  // `CPX_STAT_UNBOUNDED` window observed on juan/gtopt_iplp_plain at
+  // the terminal phase under aperture-perturbed trial states.
+  const bool is_last_phase =
+      phase_index == planning_lp.simulation().last_phase_index();
+  if (is_last_phase) {
+    // Defer to the floor helper, which seeds at `0` and ratchets up
+    // based on any installed cuts.  Mirrors `update_dynamic_col_bounds`
+    // internally so the floor survives release+reload under compress.
+    apply_terminal_alpha_floor(planning_lp, scene_index);
+    return;
+  }
+
   sys.linear_interface().set_col_low_raw(svar->col(), -LinearProblem::DblMax);
   sys.linear_interface().set_col_upp_raw(svar->col(), LinearProblem::DblMax);
   // Mirror the release into the persistent `m_dynamic_cols_` entry so
@@ -268,14 +286,6 @@ void apply_terminal_alpha_floor(PlanningLP& planning_lp, SceneIndex scene_index)
   sys.ensure_lp_built();
   auto& li = sys.linear_interface();
 
-  // No cuts installed → no cut-derived floor; leave the column bound
-  // at whatever the cut-install path set it to (`-∞` after free_alpha,
-  // or `0` if no cut ever fired).
-  const auto cuts = li.active_cuts();
-  if (cuts.empty()) {
-    return;
-  }
-
   // Column bounds in *raw LP space*.  The cut coefficients we read
   // from `SparseRow::cmap` are also LP-space (`compose_physical` ran
   // at add_row time), so the multiplication `coef · v_bound` lands
@@ -284,13 +294,21 @@ void apply_terminal_alpha_floor(PlanningLP& planning_lp, SceneIndex scene_index)
   const auto col_low = li.get_col_low_raw();
   const auto col_upp = li.get_col_upp_raw();
 
-  // Clamp the floor at `0` from below: cost-to-go is non-negative
-  // under non-negative stage costs, so this is a valid weak universal
-  // floor that survives even when every cut produces a negative
-  // floor_cut.
+  // Seed at `0` — the weak universal floor that ALWAYS holds:
+  // cost-to-go is non-negative under non-negative stage costs.  Every
+  // cut-derived `floor_cut` is then folded in via `max(..., 0)`, so
+  // the final floor is at least `0` even when:
+  //   - no cuts are installed (the loop below executes 0 times),
+  //   - no installed cut references α (e.g. only pure state-coupling
+  //     feasibility cuts at the last phase),
+  //   - every α-cut produces a negative `floor_cut` (loose support
+  //     point relative to the state box).
+  // This closes the "α_T unbounded below in aperture clones" hole
+  // observed on juan/gtopt_iplp_plain regardless of whether boundary
+  // cuts were loaded for the current scene.
   double tightest_floor = 0.0;
   std::size_t cuts_with_alpha = 0;
-  for (const auto& cut : cuts) {
+  for (const auto& cut : li.active_cuts()) {
     // Skip non-α cuts (pure state-coupling rows from feasibility
     // cuts).  Boundary cuts always carry `row[α] = 1.0`.
     const auto alpha_it = cut.cmap.find(alpha_col);
@@ -316,16 +334,17 @@ void apply_terminal_alpha_floor(PlanningLP& planning_lp, SceneIndex scene_index)
     tightest_floor = std::max(tightest_floor, cut_floor);
   }
 
-  if (cuts_with_alpha == 0) {
-    return;  // No α-cuts to derive a floor from.
-  }
-
   // Apply on the live backend AND mirror into m_dynamic_cols_ so the
   // floor survives a release_backend + ensure_backend cycle under
   // `LowMemoryMode::compress` (the snapshot's pre-cut col bound would
-  // otherwise replace it on reload).  Upper bound stays at +∞ to keep
-  // α unconstrained from above; only the lower bound is tightened.
+  // otherwise replace it on reload).  Both bounds are written: the
+  // lower bound to `tightest_floor` (the cut-derived universal floor,
+  // clamped at 0), the upper bound to `+∞` so α stays unconstrained
+  // from above.  Writing uppb explicitly is required when called from
+  // `free_alpha` against the bootstrap pin `(0, 0)` — otherwise the
+  // pin's `uppb = 0` survives and clips α to exactly the floor value.
   li.set_col_low_raw(alpha_col, tightest_floor);
+  li.set_col_upp_raw(alpha_col, LinearProblem::DblMax);
   sys.update_dynamic_col_bounds(sddp_alpha_class_name,
                                 sddp_alpha_col_name,
                                 tightest_floor,

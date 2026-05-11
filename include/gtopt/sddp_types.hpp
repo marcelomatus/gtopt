@@ -1131,8 +1131,14 @@ void register_alpha_variables(PlanningLP& planning_lp,
 /// over-tightening (boundary cuts that produce a tighter row-based
 /// bound still dominate).
 ///
-/// No-op when no cuts on α_T are installed or when α is not
-/// registered at the last phase on @p scene_index.  The mirror
+/// The floor is seeded at ``0`` before any cut is examined and only
+/// ratchets UP from there, so the function is safe to call even when
+/// no cuts (or no α-referencing cuts) are installed at the last phase
+/// — the result in that case is the weak universal floor ``α_T ≥ 0``,
+/// which always holds under non-negative stage costs and prevents
+/// α_T from going unbounded below in aperture clones.  No-op only
+/// when α is not registered at the last phase on @p scene_index (a
+/// pre-`register_alpha_variables` call site).  The mirror
 /// `update_dynamic_col_bounds` is called so the floor survives a
 /// `release_backend` + `ensure_backend` cycle under
 /// `LowMemoryMode::compress`.

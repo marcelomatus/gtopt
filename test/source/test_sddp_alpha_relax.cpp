@@ -165,11 +165,33 @@ TEST_CASE("SDDPMethod::free_alpha — last phase has α and can be freed")
     CHECK(bounds->uppb == doctest::Approx(sddp_alpha_bootstrap_min));
   }
 
-  SUBCASE("free_alpha on the last phase releases the pin")
+  SUBCASE("free_alpha on the last phase releases the pin with α≥0 floor")
   {
+    // Terminal-phase α gets a universal `≥ 0` floor instead of the
+    // `-∞` release applied to intermediate phases.  See the inline
+    // rationale block in `sddp_method_alpha.cpp::free_alpha` — α_T's
+    // cost-to-go is non-negative under non-negative stage costs, so
+    // pinning the column at `0` (refined upward by
+    // `apply_terminal_alpha_floor` when cuts are present) is
+    // mathematically correct and closes the `CPX_STAT_UNBOUNDED`
+    // aperture-clone failures seen on juan/gtopt_iplp_plain.
     sddp.free_alpha(scene, last);
 
     const auto bounds = alpha_bounds_raw(plp, scene, last);
+    REQUIRE(bounds.has_value());
+    CHECK(bounds->lowb == doctest::Approx(0.0));
+    CHECK(bounds->uppb > kEffectivelyPlusInf);
+  }
+
+  SUBCASE("free_alpha on an intermediate phase releases lowb to -∞")
+  {
+    // Non-terminal phases keep the legacy unbounded release; cuts on
+    // α_t accumulate during the SDDP backward sweep and bound α from
+    // below once the first cut row lands.
+    const auto mid_phase = PhaseIndex {1};
+    sddp.free_alpha(scene, mid_phase);
+
+    const auto bounds = alpha_bounds_raw(plp, scene, mid_phase);
     REQUIRE(bounds.has_value());
     CHECK(bounds->lowb < kEffectivelyMinusInf);
     CHECK(bounds->uppb > kEffectivelyPlusInf);
