@@ -595,6 +595,74 @@ TEST_CASE("parse_lp_algorithm - accepts mixed-case names")  // NOLINT
   CHECK(parse_lp_algorithm("Default") == parse_lp_algorithm("default"));
 }
 
+// ---- Tests for parse_aperture_chunk_size ----
+
+TEST_CASE("parse_aperture_chunk_size — 'auto' maps to 0")  // NOLINT
+{
+  // "auto" is the user-friendly alias for the JSON sentinel 0; the
+  // downstream `SDDPMethod::initialize_solver` resolves 0 via
+  // `compute_auto_aperture_chunk_size` (formula + power-of-2 round).
+  CHECK(parse_aperture_chunk_size("auto") == 0);
+  // Case-insensitive.
+  CHECK(parse_aperture_chunk_size("AUTO") == 0);
+  CHECK(parse_aperture_chunk_size("Auto") == 0);
+  CHECK(parse_aperture_chunk_size("aUtO") == 0);
+}
+
+TEST_CASE("parse_aperture_chunk_size — integer literals")  // NOLINT
+{
+  CHECK(parse_aperture_chunk_size("0") == 0);
+  CHECK(parse_aperture_chunk_size("1") == 1);
+  CHECK(parse_aperture_chunk_size("4") == 4);
+  CHECK(parse_aperture_chunk_size("16") == 16);
+  // Negative sentinel for "fully serial".
+  CHECK(parse_aperture_chunk_size("-1") == -1);
+}
+
+TEST_CASE("parse_aperture_chunk_size — invalid input → nullopt")  // NOLINT
+{
+  CHECK_FALSE(parse_aperture_chunk_size("").has_value());
+  CHECK_FALSE(parse_aperture_chunk_size("bogus").has_value());
+  CHECK_FALSE(parse_aperture_chunk_size("auto7").has_value());
+  CHECK_FALSE(parse_aperture_chunk_size("7auto").has_value());
+}
+
+// ---- Tests for --aperture-chunk-size CLI option ----
+
+TEST_CASE(
+    "--aperture-chunk-size — 'auto' string parses to sentinel 0")  // NOLINT
+{
+  auto desc = make_options_description();
+  auto vm = parse_args({"--aperture-chunk-size", "auto"}, desc);
+  REQUIRE(vm.contains("aperture-chunk-size"));
+  const auto opts = parse_main_options(vm, {});
+  REQUIRE(opts.sddp_aperture_chunk_size.has_value());
+  CHECK(*opts.sddp_aperture_chunk_size == 0);
+}
+
+TEST_CASE("--aperture-chunk-size — integer literal parses directly")  // NOLINT
+{
+  auto desc = make_options_description();
+
+  SUBCASE("K=4")
+  {
+    auto vm = parse_args({"--aperture-chunk-size", "4"}, desc);
+    REQUIRE(vm.contains("aperture-chunk-size"));
+    const auto opts = parse_main_options(vm, {});
+    REQUIRE(opts.sddp_aperture_chunk_size.has_value());
+    CHECK(*opts.sddp_aperture_chunk_size == 4);
+  }
+
+  SUBCASE("K=-1 (fully serial)")
+  {
+    auto vm = parse_args({"--aperture-chunk-size", "-1"}, desc);
+    REQUIRE(vm.contains("aperture-chunk-size"));
+    const auto opts = parse_main_options(vm, {});
+    REQUIRE(opts.sddp_aperture_chunk_size.has_value());
+    CHECK(*opts.sddp_aperture_chunk_size == -1);
+  }
+}
+
 // ---- Tests for --algorithm CLI option ----
 
 TEST_CASE("--algorithm - accepts name via CLI")  // NOLINT

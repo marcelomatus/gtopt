@@ -21,6 +21,7 @@
 #pragma once
 
 #include <algorithm>
+#include <bit>
 #include <concepts>
 #include <cstddef>
 #include <functional>
@@ -222,6 +223,17 @@ struct ApertureEntry
   if (static_cast<double>(k) < k_real) {
     ++k;
   }
+  // Round DOWN to the nearest power of two so K lands on the cache-
+  // and partition-friendly ladder {1, 2, 4, 8, 16, …}.  Empirically
+  // the chunked-aperture path benefits from balanced chunks; non-pow-2
+  // K values (e.g. raw formula → 7 on a 16-scene × 16-aperture × 20-
+  // core box) produce unbalanced chunk shapes (⌈16/7⌉ = 3 chunks of
+  // 7+7+2) that stall on the short tail chunk.  Rounding to 4 yields
+  // 4 balanced chunks of 4 each — measured 142.6s vs 145.7s for the
+  // raw value on juan/IPLP barrier+split-crossover.  Inputs that
+  // already land on a power of two (e.g. raw 16 from very-many-
+  // scenes inputs) are passthrough.
+  k = static_cast<int>(std::bit_floor(static_cast<unsigned>(std::max(k, 1))));
   return std::min(std::max(k, 1), max_apertures_per_phase);
 }
 

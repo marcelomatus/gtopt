@@ -92,6 +92,52 @@ template<typename T>
 }
 
 /**
+ * @brief Parse an aperture-chunk-size value from a string.
+ *
+ * Accepts either an integer literal (parsed via @c std::stoi) or the
+ * case-insensitive string @c "auto" — mapped to the JSON sentinel 0,
+ * which @c SDDPMethod::initialize_solver resolves to a concrete K via
+ * @c compute_auto_aperture_chunk_size (power-of-2 rounded).
+ *
+ * Used by both the boost::program_options CLI parse (where the flag
+ * is declared as a @c std::string) and the INI-file parser (where the
+ * value is read as a string from the section map).  Single source of
+ * truth for the "auto" alias keeps the two parse paths in sync.
+ *
+ * @param s The string to parse.
+ * @return The resolved integer, or @c std::nullopt on parse failure
+ *         (e.g. an empty string or non-numeric non-"auto" input).
+ */
+[[nodiscard]] inline std::optional<int> parse_aperture_chunk_size(
+    std::string_view s) noexcept
+{
+  if (s.empty()) {
+    return std::nullopt;
+  }
+  std::string lower;
+  lower.reserve(s.size());
+  for (char c : s) {
+    lower.push_back(static_cast<char>(std::tolower(c)));
+  }
+  if (lower == "auto") {
+    return 0;
+  }
+  // Strict integer parse: require the WHOLE string be consumed so
+  // "7auto" / "1.5" / "4 " do not silently truncate to 7 / 1 / 4.
+  try {
+    const std::string str(s);
+    std::size_t consumed = 0;
+    const int v = std::stoi(str, &consumed);
+    if (consumed != str.size()) {
+      return std::nullopt;
+    }
+    return v;
+  } catch (...) {  // NOLINT(bugprone-empty-catch)
+    return std::nullopt;
+  }
+}
+
+/**
  * @brief Parse a memory size string into megabytes.
  *
  * Accepts a plain number (interpreted as MB) or a number with suffix:
@@ -210,11 +256,12 @@ template<typename T>
        "SDDP backward-pass aperture count: 0=disabled (default), -1=all, "
        "N=first N scenarios")  //
       ("aperture-chunk-size",
-       po::value<int>(),
+       po::value<std::string>(),
        "SDDP chunked aperture pass: apertures solved serially per task, "
-       "sharing one LP clone with warm-start reuse. "
-       "0/unset=auto (default: K=1 — empirically fastest on the "
-       "parallel-safe manual-clone path), "
+       "sharing one LP clone with warm-start reuse.  Accepts either an "
+       "integer or the literal 'auto'. "
+       "auto/0/unset=auto (formula `A_max × S / (2 × cores)` rounded "
+       "down to nearest power of 2), "
        "1=legacy 1-task-per-aperture, "
        ">1=exactly K apertures per task, "
        "-1=fully serial (one task per scene, all apertures inside)")  //
@@ -911,7 +958,10 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
       .sddp_elastic_penalty = get_opt<double>(vm, "sddp-elastic-penalty"),
       .sddp_elastic_mode = get_opt<std::string>(vm, "sddp-elastic-mode"),
       .sddp_num_apertures = get_opt<int>(vm, "sddp-num-apertures"),
-      .sddp_aperture_chunk_size = get_opt<int>(vm, "aperture-chunk-size"),
+      .sddp_aperture_chunk_size =
+          get_opt<std::string>(vm, "aperture-chunk-size")
+              .and_then([](const std::string& s)
+                        { return parse_aperture_chunk_size(s); }),
       .recover = get_opt<bool>(vm, "recover"),
       // Prefer the new `--memory-saving` name; fall back to the
       // deprecated `--low-memory` alias for backward compatibility.
@@ -1057,7 +1107,10 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
   opts.sddp_elastic_penalty = get_dbl("sddp-elastic-penalty");
   opts.sddp_elastic_mode = get_str("sddp-elastic-mode");
   opts.sddp_num_apertures = get_int("sddp-num-apertures");
-  opts.sddp_aperture_chunk_size = get_int("aperture-chunk-size");
+  // aperture-chunk-size accepts "auto" (→0) or an integer literal.
+  if (const auto s = get_str("aperture-chunk-size")) {
+    opts.sddp_aperture_chunk_size = parse_aperture_chunk_size(*s);
+  }
   // Prefer the new key; fall back to the deprecated `low-memory` alias.
   opts.memory_saving = get_str("memory-saving");
   if (!opts.memory_saving) {

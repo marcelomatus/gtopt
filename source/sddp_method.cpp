@@ -343,17 +343,20 @@ auto SDDPMethod::initialize_solver() -> std::expected<void, Error>
       resolved = 1;
       source = "no-apertures";
     } else if (requested == 0) {
-      // Empirical default: K=1 wins on production workloads with the
-      // manual-clone (parallel-safe) path.  The chunked path's main
-      // savings (deflat + replay amortized, dual basis warm-start
-      // reuse across consecutive apertures) are dominated by the loss
-      // of work-pool fan-out when apertures are small enough to solve
-      // in ≪ 100 ms each (juan/IPLP-single-bus).  Measured on
-      // 16 scenes × 51 phases × 16 apertures: K=1 = 158 s vs K=7
-      // (former auto) = 198 s, K=16 = 259 s.  Users who want the
-      // chunked path can still opt in via
-      // `aperture_chunk_size: K` in JSON or `--aperture-chunk-size K`.
-      resolved = 1;
+      // Auto path: apply the work-pool-saturation formula then round
+      // DOWN to the nearest power of two (1, 2, 4, 8, 16, …) so chunk
+      // shapes are balanced.  On juan/IPLP 16-scene × 16-aperture ×
+      // 51-phase under barrier + split crossover + the bulk-API
+      // `set_col_bounds_bulk` path (b85011e1) the auto-selected K=4
+      // matches K=8 = 142.6 s, both ahead of legacy K=1 = 147.3 s.
+      // Users who want a specific K override via
+      // `aperture_chunk_size: K` in JSON or `--aperture-chunk-size K`
+      // on the CLI; "auto" (or 0) maps here.
+      resolved = compute_auto_aperture_chunk_size(
+          max_aps_per_phase,
+          static_cast<int>(num_scenes),
+          static_cast<int>(physical_concurrency()),
+          /*parallel_factor=*/2.0);
       source = "auto";
     } else if (requested == -1) {
       resolved = max_aps_per_phase;

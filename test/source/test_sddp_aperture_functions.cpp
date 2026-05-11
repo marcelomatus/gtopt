@@ -709,27 +709,67 @@ TEST_CASE(  // NOLINT
 }
 
 TEST_CASE(  // NOLINT
-    "compute_auto_aperture_chunk_size — multi-scene saturated picks "
-    "K=⌈A·S/(pf·C)⌉")
+    "compute_auto_aperture_chunk_size — multi-scene saturated, raw value "
+    "rounded DOWN to nearest power of 2")
 {
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
-  // 14 apertures × 16 scenes = 224 work units; target = 32 → K = ⌈224/32⌉ = 7.
-  CHECK(compute_auto_aperture_chunk_size(14, 16, 16, 2.0) == 7);
-  // Exactly-at-target with no remainder: 8×16/32 = 4.
+  // 14 apertures × 16 scenes = 224 work units; target = 32 →
+  // K_raw = ⌈224/32⌉ = 7 → bit_floor(7) = 4.
+  CHECK(compute_auto_aperture_chunk_size(14, 16, 16, 2.0) == 4);
+  // Exactly-at-pow-2: 8×16/32 = 4 → bit_floor(4) = 4 (passthrough).
   CHECK(compute_auto_aperture_chunk_size(8, 16, 16, 2.0) == 4);
-  // One unit over a clean divisor → ceil bumps K by 1: 9×16/32 = 4.5 → 5.
-  CHECK(compute_auto_aperture_chunk_size(9, 16, 16, 2.0) == 5);
+  // One unit over a clean divisor → ceil bumps K_raw by 1: 9×16/32 =
+  // 4.5 → 5 → bit_floor(5) = 4.
+  CHECK(compute_auto_aperture_chunk_size(9, 16, 16, 2.0) == 4);
 }
 
 TEST_CASE(  // NOLINT
-    "compute_auto_aperture_chunk_size — heavy oversubscription caps at A")
+    "compute_auto_aperture_chunk_size — heavy oversubscription caps at A "
+    "AFTER pow-2 rounding")
 {
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
   // 80 apertures × 32 scenes = 2560 work units; target = 32 →
-  // K_real = 80, exactly the cap.
-  CHECK(compute_auto_aperture_chunk_size(80, 32, 16, 2.0) == 80);
-  // Push past A: 80 apertures × 64 scenes = 5120; K_real = 160 → capped at 80.
+  // K_raw = 80, bit_floor(80) = 64, min(64, 80) = 64.
+  CHECK(compute_auto_aperture_chunk_size(80, 32, 16, 2.0) == 64);
+  // Push past A: 80 apertures × 64 scenes = 5120; K_raw = 160 →
+  // bit_floor(160) = 128, min(128, 80) = 80 (the cap wins).
   CHECK(compute_auto_aperture_chunk_size(80, 64, 16, 2.0) == 80);
+}
+
+TEST_CASE(  // NOLINT
+    "compute_auto_aperture_chunk_size — power-of-two rounding ladder")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  // Sweep every K_raw ∈ [1, 17] under a single-scene fixture chosen so
+  // K_raw = max_apertures_per_phase exactly (pf=1, cores=1 collapses
+  // the target to 1, so K_raw = A · S = A · 1 = A).  Each cell pins
+  // the bit_floor mapping {1→1, 2→2, 3→2, 4→4, 5→4, 6→4, 7→4, 8→8,
+  // 9-15→8, 16→16, 17→16 (capped at A=17)}.
+  CHECK(compute_auto_aperture_chunk_size(1, 1, 1, 1.0) == 1);
+  CHECK(compute_auto_aperture_chunk_size(2, 1, 1, 1.0) == 2);
+  CHECK(compute_auto_aperture_chunk_size(3, 1, 1, 1.0) == 2);
+  CHECK(compute_auto_aperture_chunk_size(4, 1, 1, 1.0) == 4);
+  CHECK(compute_auto_aperture_chunk_size(5, 1, 1, 1.0) == 4);
+  CHECK(compute_auto_aperture_chunk_size(6, 1, 1, 1.0) == 4);
+  CHECK(compute_auto_aperture_chunk_size(7, 1, 1, 1.0) == 4);
+  CHECK(compute_auto_aperture_chunk_size(8, 1, 1, 1.0) == 8);
+  CHECK(compute_auto_aperture_chunk_size(9, 1, 1, 1.0) == 8);
+  CHECK(compute_auto_aperture_chunk_size(15, 1, 1, 1.0) == 8);
+  CHECK(compute_auto_aperture_chunk_size(16, 1, 1, 1.0) == 16);
+  // K_raw = 17 → bit_floor(17) = 16 → capped at A_max = 17 → 16.
+  CHECK(compute_auto_aperture_chunk_size(17, 1, 1, 1.0) == 16);
+}
+
+TEST_CASE(  // NOLINT
+    "compute_auto_aperture_chunk_size — production juan/IPLP shape "
+    "16 × 16 × 20-core → K=4")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  // The juan/IPLP production case: 16 apertures per phase × 16 scenes,
+  // pf=2 on a 20-physical-core box.  K_raw = ⌈16·16 / (2·20)⌉ =
+  // ⌈6.4⌉ = 7 → bit_floor(7) = 4.  Empirically the fastest auto K
+  // on this workload (matches K=8 wall but with 2× fewer chunks).
+  CHECK(compute_auto_aperture_chunk_size(16, 16, 20, 2.0) == 4);
 }
 
 TEST_CASE(  // NOLINT
@@ -746,32 +786,37 @@ TEST_CASE(  // NOLINT
 }
 
 TEST_CASE(  // NOLINT
-    "compute_auto_aperture_chunk_size — single core stretches K to A")
+    "compute_auto_aperture_chunk_size — single core stretches K to A "
+    "AFTER pow-2 rounding")
 {
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
-  // 1 core, target = 2.  14×1 / 2 = 7; 14×16 / 2 = 112 → capped at 14.
-  CHECK(compute_auto_aperture_chunk_size(14, 1, 1, 2.0) == 7);
+  // 1 core, target = 2.  14×1 / 2 = 7 → bit_floor(7) = 4.
+  CHECK(compute_auto_aperture_chunk_size(14, 1, 1, 2.0) == 4);
+  // 14×16 / 2 = 112 → bit_floor(112) = 64 → capped at A=14.
   CHECK(compute_auto_aperture_chunk_size(14, 16, 1, 2.0) == 14);
 }
 
 TEST_CASE(  // NOLINT
     "compute_auto_aperture_chunk_size — parallel_factor scales target "
-    "inversely")
+    "inversely (then pow-2 round)")
 {
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
-  // pf=1 halves the target → doubles K vs pf=2 (modulo ceil rounding).
-  // 14×16 / (1·16) = 14, 14×16 / (4·16) = 3.5 → 4.
-  CHECK(compute_auto_aperture_chunk_size(14, 16, 16, 1.0) == 14);
+  // pf=1 halves the target → doubles K_raw vs pf=2 (modulo ceil).
+  // 14×16 / (1·16) = 14 → bit_floor(14) = 8.
+  CHECK(compute_auto_aperture_chunk_size(14, 16, 16, 1.0) == 8);
+  // 14×16 / (4·16) = 3.5 → ceil 4 → bit_floor(4) = 4.
   CHECK(compute_auto_aperture_chunk_size(14, 16, 16, 4.0) == 4);
 }
 
 // `constexpr`-evaluation regression: the helper is `constexpr`, so
-// any of the assertions above are also evaluated at compile time.
-// One static_assert here is enough to lock the contract — a future
-// edit that makes the body non-constexpr would fail to build.
-static_assert(compute_auto_aperture_chunk_size(14, 16, 16, 2.0) == 7);
+// the assertions above are also evaluated at compile time.  These
+// static_asserts lock the post-pow-2 contract — a future edit that
+// makes the body non-constexpr would fail to build, and any
+// regression of the bit_floor rounding would fail at compile time.
+static_assert(compute_auto_aperture_chunk_size(14, 16, 16, 2.0) == 4);
 static_assert(compute_auto_aperture_chunk_size(0, 16, 16, 2.0) == 1);
 static_assert(compute_auto_aperture_chunk_size(80, 64, 16, 2.0) == 80);
+static_assert(compute_auto_aperture_chunk_size(16, 16, 20, 2.0) == 4);
 
 // ─── partition_apertures ───────────────────────────────────────────────────
 
