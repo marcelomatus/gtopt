@@ -20,7 +20,7 @@ TEST_CASE("MonolithicOptions JSON - Full deserialization")
     "boundary_cuts_mode": "combined",
     "boundary_max_iterations": 10,
     "solver_options": {
-      "algorithm": 1,
+      "algorithm": "primal",
       "threads": 4,
       "presolve": true,
       "log_level": 0,
