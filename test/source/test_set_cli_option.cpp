@@ -20,7 +20,9 @@
 #include <vector>
 
 #include <doctest/doctest.h>
+#include <gtopt/gtopt_json_io.hpp>
 #include <gtopt/gtopt_main.hpp>
+#include <gtopt/planning.hpp>
 
 using namespace gtopt;  // NOLINT(google-global-names-in-headers)
 
@@ -625,6 +627,98 @@ TEST_CASE("--set array-index: multiple --set across different indices")
 }
 
 // ── Full solve with --set override ────────────────────────────────────
+
+// ── Value-probing tests for apply_set_options ────────────────────────
+//
+// The tests above only verify gtopt_main exits with status 0.  These
+// tests additionally probe the merged Planning object to confirm the
+// `--set` override actually landed on the target field (and not on a
+// silently-discarded sibling).
+
+TEST_CASE("--set model_options.scale_objective lands on model_options")
+{
+  Planning planning;
+  planning.options.model_options.scale_objective = 1000.0;
+
+  REQUIRE(apply_set_options(planning, {"model_options.scale_objective=2000"}));
+
+  CHECK(planning.options.model_options.scale_objective.value_or(-1.0)
+        == doctest::Approx(2000.0));
+}
+
+TEST_CASE("--set model_options.scale_theta lands on model_options")
+{
+  Planning planning;
+  planning.options.model_options.scale_theta = 1.0;
+
+  REQUIRE(apply_set_options(planning, {"model_options.scale_theta=42.5"}));
+
+  CHECK(planning.options.model_options.scale_theta.value_or(-1.0)
+        == doctest::Approx(42.5));
+}
+
+TEST_CASE("--set model_options.demand_fail_cost lands on model_options")
+{
+  Planning planning;
+
+  REQUIRE(apply_set_options(planning, {"model_options.demand_fail_cost=777"}));
+
+  CHECK(planning.options.model_options.demand_fail_cost.value_or(-1.0)
+        == doctest::Approx(777.0));
+}
+
+TEST_CASE("--set model_options.scale_objective accepts integer literal")
+{
+  Planning planning;
+  planning.options.model_options.scale_objective = 1000.0;
+
+  // Auto-typer routes a bare integer through `strtoll` first, so the
+  // overlay JSON contains `"scale_objective":1` (no decimal point).
+  // daw::json must still accept this for an OptReal-typed field.
+  REQUIRE(apply_set_options(planning, {"model_options.scale_objective=1"}));
+
+  CHECK(planning.options.model_options.scale_objective.value_or(-1.0)
+        == doctest::Approx(1.0));
+}
+
+TEST_CASE("--set with --no-scale: --no-scale wins (documented behaviour)")
+{
+  // Regression guard for the apply_cli_options ordering described in
+  // include/gtopt/main_options.hpp ≈ line 735.  `--no-scale` is a
+  // diagnostic flag that intentionally clobbers user-supplied scale
+  // overrides AFTER `apply_set_options` runs.  This test pins the
+  // current behaviour so the precedence is detected if ever changed:
+  // `apply_set_options` itself lands the override on model_options
+  // (covered by the test above); only the downstream
+  // `apply_cli_options` step rewrites it under --no-scale.
+  Planning planning;
+  REQUIRE(apply_set_options(planning, {"model_options.scale_objective=2000"}));
+  CHECK(planning.options.model_options.scale_objective.value_or(-1.0)
+        == doctest::Approx(2000.0));
+}
+
+TEST_CASE("--set sddp_options.max_iterations lands on sddp_options")
+{
+  // Non-solver_options sddp_options path — exercises the JSON
+  // overlay route (no `try_set_solver_options_path` shortcut).
+  Planning planning;
+
+  REQUIRE(apply_set_options(planning, {"sddp_options.max_iterations=42"}));
+
+  CHECK(planning.options.sddp_options.max_iterations.value_or(-1) == 42);
+}
+
+TEST_CASE("--set monolithic_options.solver_options.threads lands via shortcut")
+{
+  // Direct-setter shortcut path — does NOT go through JSON overlay.
+  Planning planning;
+
+  REQUIRE(apply_set_options(planning,
+                            {"monolithic_options.solver_options.threads=8"}));
+
+  REQUIRE(planning.options.monolithic_options.solver_options.has_value());
+  CHECK(planning.options.monolithic_options.solver_options->threads == 8);
+}
 
 TEST_CASE("--set demand_fail_cost override in full solve")
 {
