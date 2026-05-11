@@ -5655,13 +5655,20 @@ struct ConfigResult
   int iters {0};
 };
 
+struct ExtraSolver
+{
+  LPAlgo algo {gtopt::LPAlgo::default_algo};
+  std::optional<bool> presolve {};
+  std::optional<bool> crossover {};
+};
+
 [[nodiscard]] inline ConfigResult run_efin500_config(
     const std::string& label,
     bool backward_resolve_target,
     LpEquilibrationMethod equil,
     std::optional<gtopt::CutSharingMode> cut_share,
     std::optional<double> scale_alpha_override,
-    std::optional<bool> bwd_crossover)
+    std::optional<ExtraSolver> bwd_solver)
 {
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
@@ -5690,9 +5697,15 @@ struct ConfigResult
   if (scale_alpha_override) {
     sddp_opts.scale_alpha = *scale_alpha_override;
   }
-  if (bwd_crossover) {
+  if (bwd_solver) {
     SolverOptions bwd_so;
-    bwd_so.crossover = *bwd_crossover;
+    bwd_so.algorithm = bwd_solver->algo;
+    if (bwd_solver->presolve) {
+      bwd_so.presolve = *bwd_solver->presolve;
+    }
+    if (bwd_solver->crossover) {
+      bwd_so.crossover = *bwd_solver->crossover;
+    }
     sddp_opts.backward_solver_options = bwd_so;
   }
 
@@ -5772,18 +5785,79 @@ TEST_CASE(  // NOLINT
                          std::nullopt,
                          100.0,
                          std::nullopt),
-      run_efin500_config("resolve=true + backward crossover=true",
+      run_efin500_config("resolve=true + bwd algo=primal",
                          true,
                          LpEquilibrationMethod::row_max,
                          std::nullopt,
                          std::nullopt,
-                         true),
-      run_efin500_config("resolve=true + backward crossover=false",
+                         ExtraSolver {.algo = LPAlgo::primal}),
+      run_efin500_config("resolve=true + bwd algo=dual",
                          true,
                          LpEquilibrationMethod::row_max,
                          std::nullopt,
                          std::nullopt,
-                         false),
+                         ExtraSolver {.algo = LPAlgo::dual}),
+      run_efin500_config(
+          "resolve=true + bwd algo=barrier (crossover on)",
+          true,
+          LpEquilibrationMethod::row_max,
+          std::nullopt,
+          std::nullopt,
+          ExtraSolver {.algo = LPAlgo::barrier, .crossover = true}),
+      run_efin500_config(
+          "resolve=true + bwd algo=barrier (crossover off)",
+          true,
+          LpEquilibrationMethod::row_max,
+          std::nullopt,
+          std::nullopt,
+          ExtraSolver {.algo = LPAlgo::barrier, .crossover = false}),
+      run_efin500_config(
+          "resolve=true + bwd presolve=true",
+          true,
+          LpEquilibrationMethod::row_max,
+          std::nullopt,
+          std::nullopt,
+          ExtraSolver {.algo = LPAlgo::default_algo, .presolve = true}),
+      run_efin500_config(
+          "resolve=true + bwd presolve=false",
+          true,
+          LpEquilibrationMethod::row_max,
+          std::nullopt,
+          std::nullopt,
+          ExtraSolver {.algo = LPAlgo::default_algo, .presolve = false}),
+      run_efin500_config("resolve=true + bwd algo=dual + presolve=false",
+                         true,
+                         LpEquilibrationMethod::row_max,
+                         std::nullopt,
+                         std::nullopt,
+                         ExtraSolver {.algo = LPAlgo::dual, .presolve = false}),
+      run_efin500_config(
+          "resolve=true + bwd algo=primal + crossover=true",
+          true,
+          LpEquilibrationMethod::row_max,
+          std::nullopt,
+          std::nullopt,
+          ExtraSolver {.algo = LPAlgo::primal, .crossover = true}),
+      run_efin500_config(
+          "resolve=true + bwd algo=primal + crossover=false",
+          true,
+          LpEquilibrationMethod::row_max,
+          std::nullopt,
+          std::nullopt,
+          ExtraSolver {.algo = LPAlgo::primal, .crossover = false}),
+      run_efin500_config("resolve=true + bwd algo=dual + crossover=true",
+                         true,
+                         LpEquilibrationMethod::row_max,
+                         std::nullopt,
+                         std::nullopt,
+                         ExtraSolver {.algo = LPAlgo::dual, .crossover = true}),
+      run_efin500_config(
+          "resolve=true + bwd algo=dual + crossover=false",
+          true,
+          LpEquilibrationMethod::row_max,
+          std::nullopt,
+          std::nullopt,
+          ExtraSolver {.algo = LPAlgo::dual, .crossover = false}),
   };
 
   MESSAGE("");
