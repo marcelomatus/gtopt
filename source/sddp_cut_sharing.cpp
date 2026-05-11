@@ -58,12 +58,12 @@ void share_cuts_for_phase(
   // Hot-start / cascade safety: this ``extra`` only travels through
   // the in-memory LP row label and the ``m_active_cuts_`` low-memory
   // replay buffer (``LinearInterface::record_cut_row``).  Saved cut
-  // files (``save_cuts_csv``) iterate
+  // files (``save_cuts_parquet``) iterate
   // ``SDDPCutManager::m_scene_cuts_``, which is populated exclusively
   // by ``SDDPCutManager::store_cut`` (backward-pass optimality and
   // feasibility cuts).  ``share_cuts_for_phase`` never calls
   // ``store_cut``, so the broadcast rows minted here — and their
-  // ``extra`` discriminators — are never persisted to the cut CSV.
+  // ``extra`` discriminators — are never persisted to the cut file.
   //
   // Cascade level handoff (``cascade_method.cpp``): each level
   // saves only ``current_solver->stored_cuts()`` (=

@@ -336,6 +336,7 @@ add_test(
 set_tests_properties(scripts-install-deps PROPERTIES
   FIXTURES_SETUP scripts-deps
   SKIP_RETURN_CODE 77
+  LABELS "script"
 )
 
 # ---- Unit tests (one CTest entry per package) ----
@@ -411,8 +412,8 @@ add_test(
 )
 set_tests_properties(scripts-all-unit PROPERTIES
   COST 60
-  LABELS "aggregate"
   FIXTURES_REQUIRED scripts-deps
+  LABELS "aggregate;script"
 )
 
 # ---- plp2gtopt integration tests (one CTest test per case group) ----
@@ -573,7 +574,9 @@ if(ENABLE_SCRIPTS_STATIC_ANALYSIS)
   set_tests_properties(
     scripts-lint
     scripts-mypy
-    PROPERTIES FIXTURES_REQUIRED scripts-deps
+    PROPERTIES
+      FIXTURES_REQUIRED scripts-deps
+      LABELS "script"
   )
 endif() # ENABLE_SCRIPTS_STATIC_ANALYSIS
 

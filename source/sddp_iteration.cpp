@@ -1053,10 +1053,10 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
     if (mode == HotStartMode::append) {
       // Append mode: add newly generated cuts to the existing file.
       const auto cuts_to_append = build_combined_cuts();
-      auto result = save_cuts_csv(cuts_to_append,
-                                  planning_lp(),
-                                  m_options_.cuts_output_file,
-                                  /*append_mode=*/true);
+      auto result = save_cuts_parquet(cuts_to_append,
+                                      planning_lp(),
+                                      m_options_.cuts_output_file,
+                                      /*append_mode=*/true);
       if (!result.has_value()) {
         SPDLOG_WARN("SDDP: could not append cuts to combined file: {}",
                     result.error().message);
@@ -1863,10 +1863,10 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
     const auto mode = m_options_.cut_recovery_mode;
     if (mode == HotStartMode::append) {
       const auto cuts_to_append = build_combined_cuts();
-      auto result = save_cuts_csv(cuts_to_append,
-                                  planning_lp(),
-                                  m_options_.cuts_output_file,
-                                  /*append_mode=*/true);
+      auto result = save_cuts_parquet(cuts_to_append,
+                                      planning_lp(),
+                                      m_options_.cuts_output_file,
+                                      /*append_mode=*/true);
       if (!result.has_value()) {
         SPDLOG_WARN("SDDP: could not append cuts to combined file: {}",
                     result.error().message);

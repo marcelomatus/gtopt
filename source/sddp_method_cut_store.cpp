@@ -135,18 +135,18 @@ auto SDDPMethod::save_cuts(const std::string& filepath) const
   // bearing for storage (only per-scene vectors exist); kept in the
   // options struct for backward compatibility.
   const auto combined = m_cut_store_.build_combined_cuts(planning_lp());
-  return save_cuts_csv(combined, planning_lp(), filepath);
+  return save_cuts_parquet(combined, planning_lp(), filepath);
 }
 
 auto SDDPMethod::save_scene_cuts(SceneIndex scene_index,
                                  const std::string& directory) const
     -> std::expected<void, Error>
 {
-  return save_scene_cuts_csv(m_cut_store_.at(scene_index).cuts(),
-                             scene_index,
-                             uid_of(scene_index),
-                             planning_lp(),
-                             directory);
+  return save_scene_cuts_parquet(m_cut_store_.at(scene_index).cuts(),
+                                 scene_index,
+                                 uid_of(scene_index),
+                                 planning_lp(),
+                                 directory);
 }
 
 auto SDDPMethod::save_all_scene_cuts(const std::string& directory) const
@@ -166,11 +166,11 @@ auto SDDPMethod::save_all_scene_cuts(const std::string& directory) const
 auto SDDPMethod::load_cuts(const std::string& filepath)
     -> std::expected<CutLoadResult, Error>
 {
-  auto result = load_cuts_csv(planning_lp(),
-                              filepath,
-                              m_options_.scale_alpha,
-                              m_label_maker_,
-                              &m_scene_phase_states_);
+  auto result = load_cuts_parquet(planning_lp(),
+                                  filepath,
+                                  m_options_.scale_alpha,
+                                  m_label_maker_,
+                                  &m_scene_phase_states_);
   // Keep m_iteration_offset_ coherent with whatever was just loaded: the
   // first newly-generated cut must have an iteration_index strictly
   // greater than every loaded one, otherwise save_cuts_for_iteration
@@ -185,11 +185,11 @@ auto SDDPMethod::load_cuts(const std::string& filepath)
 auto SDDPMethod::load_scene_cuts_from_directory(const std::string& directory)
     -> std::expected<CutLoadResult, Error>
 {
-  return gtopt::load_scene_cuts_from_directory(planning_lp(),
-                                               directory,
-                                               m_options_.scale_alpha,
-                                               m_label_maker_,
-                                               &m_scene_phase_states_);
+  return gtopt::load_scene_cuts_from_directory_parquet(planning_lp(),
+                                                       directory,
+                                                       m_options_.scale_alpha,
+                                                       m_label_maker_,
+                                                       &m_scene_phase_states_);
 }
 
 auto SDDPMethod::load_boundary_cuts(const std::string& filepath)
@@ -215,7 +215,7 @@ auto SDDPMethod::load_named_cuts(const std::string& filepath)
 auto SDDPMethod::save_state(const std::string& filepath)
     -> std::expected<void, Error>
 {
-  return save_state_csv(planning_lp(), filepath, current_iteration());
+  return save_state_csv(planning_lp(), filepath);
 }
 
 // ── Monitoring API ───────────────────────────────────────────────────────────

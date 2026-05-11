@@ -96,6 +96,11 @@ cmake -S all -B build -G Ninja -DGTOPT_BUILD_INTEGRATION_TESTS=ON -DCMAKE_BUILD_
 cmake --build build -j$(nproc) && cd build && ctest --output-on-failure
 ```
 
+> **C++ only**: pytest entries carry the `script` label, so
+> `ctest -LE script -j20` skips them entirely (~45 s on the full
+> superbuild vs ~150 s with Python tests included).  Use `ctest -L script`
+> to run only the Python side.
+
 ## Obtaining the gtopt Binary
 
 Use `tools/get_gtopt_binary.py` — checks `GTOPT_BIN` env, `PATH`, build dirs,

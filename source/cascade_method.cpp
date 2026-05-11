@@ -737,11 +737,11 @@ auto CascadePlanningMethod::solve(PlanningLP& planning_lp,
           }
           if (!filtered.empty()) {
             const auto cuts_tmp = std::filesystem::temp_directory_path()
-                / std::format("cascade_cuts_{}_{}.csv",
+                / std::format("cascade_cuts_{}_{}.parquet",
                               static_cast<std::int64_t>(::getpid()),
                               level_idx + 1);
             auto save_result =
-                save_cuts_csv(filtered, *current_lp, cuts_tmp.string());
+                save_cuts_parquet(filtered, *current_lp, cuts_tmp.string());
             if (save_result.has_value()) {
               m_prev_cuts_file_ = cuts_tmp.string();
               SPDLOG_INFO("Cascade [{}]: serialized {} cuts for next level",

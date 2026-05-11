@@ -5095,15 +5095,16 @@ TEST_CASE(
   std::filesystem::create_directories(dir);
 
   REQUIRE(sddp.save_all_scene_cuts(dir.string()).has_value());
-  // At least one .csv file must have been emitted under the dir.
-  bool any_csv = false;
+  // At least one .parquet file must have been emitted under the dir.
+  // (Scene cuts moved from CSV to Parquet in the Phase 1.3 cleanup.)
+  bool any_parquet = false;
   for (const auto& e : std::filesystem::directory_iterator(dir)) {
-    if (e.is_regular_file() && e.path().extension() == ".csv") {
-      any_csv = true;
+    if (e.is_regular_file() && e.path().extension() == ".parquet") {
+      any_parquet = true;
       break;
     }
   }
-  CHECK(any_csv);
+  CHECK(any_parquet);
 
   PlanningLP plp_fresh(make_3phase_hydro_planning());
   SDDPMethod sddp_fresh(plp_fresh, opts);

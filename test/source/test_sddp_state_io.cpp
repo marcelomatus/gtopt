@@ -7,6 +7,10 @@
  * Tests:
  *  1. save_state_csv writes a valid CSV with header and data
  *  2. save_state_csv with unsolved LP writes header only (no data rows)
+ *
+ * The CSV is a pure tabular file written via Arrow's CSV writer; the
+ * producing iteration is identified by the surrounding log and on-disk
+ * mtime, not by an in-file marker.
  */
 
 #include <filesystem>
@@ -56,7 +60,7 @@ TEST_CASE("save_state_csv writes valid CSV after SDDP solve")  // NOLINT
   const auto dir = make_state_test_dir("save_csv");
   const auto filepath = (dir / "state.csv").string();
 
-  auto save_result = save_state_csv(planning_lp, filepath, IterationIndex {2});
+  auto save_result = save_state_csv(planning_lp, filepath);
   REQUIRE(save_result.has_value());
   CHECK(std::filesystem::exists(filepath));
 
@@ -64,13 +68,9 @@ TEST_CASE("save_state_csv writes valid CSV after SDDP solve")  // NOLINT
   std::ifstream ifs(filepath);
   std::string line;
 
-  // First line: iteration comment
+  // First line: CSV header (pure tabular CSV — no leading comment).
   std::getline(ifs, line);
-  CHECK(line.starts_with("# iteration="));
-
-  // Second line: CSV header
-  std::getline(ifs, line);
-  CHECK(line == "name,phase,scene,value,rcost");
+  CHECK(line == R"("name","phase","scene","value","rcost")");
 
   // Should have at least one data line (efin, eini, sini columns)
   std::getline(ifs, line);
@@ -90,15 +90,16 @@ TEST_CASE(  // NOLINT
   const auto dir = make_state_test_dir("unsolved");
   const auto filepath = (dir / "state_unsolved.csv").string();
 
-  auto save_result = save_state_csv(planning_lp, filepath, IterationIndex {0});
+  auto save_result = save_state_csv(planning_lp, filepath);
   REQUIRE(save_result.has_value());
 
-  // Count data lines (skip comment and header)
+  // Count data lines (skip header).  Arrow quotes column names, so the
+  // header begins with a double-quote.
   std::ifstream ifs(filepath);
   std::string line;
   int data_lines = 0;
   while (std::getline(ifs, line)) {
-    if (!line.empty() && !line.starts_with('#') && !line.starts_with("name,")) {
+    if (!line.empty() && !line.starts_with('"')) {
       ++data_lines;
     }
   }

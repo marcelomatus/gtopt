@@ -1794,7 +1794,6 @@ void SDDPMethod::save_cuts_for_iteration(
                                        planning_lp(),
                                        m_label_maker_,
                                        m_scene_phase_states_,
-                                       current_iteration(),
                                        m_pool_);
 }
 

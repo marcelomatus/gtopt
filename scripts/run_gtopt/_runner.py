@@ -614,48 +614,44 @@ def run_check_lp(lp_files: list[Path]) -> None:
 
 
 def check_solution(results_dir: Path) -> dict:
-    """Parse solution.csv from the results directory.
+    """Parse solution.csv (or solution.parquet) from the results directory.
 
     Returns a dict with keys: ``status``, ``objective`` (or empty if
-    the file is not found).
+    the file is not found / unparseable).  Both the CSV and Parquet
+    paths now route through PyArrow so quoted CSV fields and
+    Arrow-written headers are handled uniformly — the previous
+    manual ``str.split(",")`` parser would mishandle quoted values.
     """
-    sol_path = results_dir / "solution.csv"
-    if not sol_path.is_file():
-        sol_parquet = results_dir / "solution.parquet"
-        if sol_parquet.is_file():
-            try:
-                import pyarrow.parquet as pq  # noqa: PLC0415
-
-                table = pq.read_table(sol_parquet)
-                df = table.to_pandas()
-                if "status" in df.columns:
-                    status = int(df["status"].iloc[0])
-                    obj = (
-                        float(df["objective"].iloc[0])
-                        if "objective" in df.columns
-                        else None
-                    )
-                    return {"status": status, "objective": obj}
-            except Exception:  # noqa: BLE001  # pylint: disable=broad-exception-caught
-                pass
+    sol_csv = results_dir / "solution.csv"
+    sol_parquet = results_dir / "solution.parquet"
+    if sol_csv.is_file():
+        src = sol_csv
+    elif sol_parquet.is_file():
+        src = sol_parquet
+    else:
         return {}
 
     try:
-        with open(sol_path, encoding="utf-8") as f:
-            lines = f.readlines()
-        if len(lines) >= 2:
-            header = [h.strip() for h in lines[0].split(",")]
-            values = [v.strip() for v in lines[1].split(",")]
-            record = dict(zip(header, values))
-            result: dict = {}
-            if "status" in record:
-                result["status"] = int(record["status"])
-            if "objective" in record:
-                result["objective"] = float(record["objective"])
-            return result
-    except (OSError, ValueError) as exc:
-        log.warning("failed to parse %s: %s", sol_path, exc)
-    return {}
+        if src.suffix == ".csv":
+            import pyarrow.csv as pa_csv  # noqa: PLC0415
+
+            table = pa_csv.read_csv(src)
+        else:
+            import pyarrow.parquet as pq  # noqa: PLC0415
+
+            table = pq.read_table(src)
+
+        if table.num_rows == 0 or "status" not in table.column_names:
+            return {}
+
+        df = table.to_pandas()
+        result: dict = {"status": int(df["status"].iloc[0])}
+        if "objective" in df.columns:
+            result["objective"] = float(df["objective"].iloc[0])
+        return result
+    except Exception as exc:  # noqa: BLE001  # pylint: disable=broad-exception-caught
+        log.warning("failed to parse %s: %s", src, exc)
+        return {}
 
 
 def _count_output_files(results_dir: Path) -> dict[str, int]:

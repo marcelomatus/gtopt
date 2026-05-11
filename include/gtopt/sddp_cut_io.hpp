@@ -115,88 +115,13 @@ inline constexpr std::string_view EfinColName {"efin"};
 [[nodiscard]] auto effective_scale_alpha(const PlanningLP& planning_lp,
                                          double option_scale_alpha) -> double;
 
-// ─── Save functions ─────────────────────────────────────────────────────────
-
-/// Save accumulated cuts to a CSV file for hot-start.
-///
-/// Both RHS and coefficients are stored in fully physical space so that
-/// cuts are portable across runs with different scale_objective or
-/// variable scaling configurations.
-///
-/// @param cuts         All stored cuts to save
-/// @param planning_lp  The PlanningLP (for scale and column names)
-/// @param filepath     Output CSV file path
-/// @param append_mode  When true, append rows without header
-///                     (file must already exist with correct header)
-[[nodiscard]] auto save_cuts_csv(std::span<const StoredCut> cuts,
-                                 const PlanningLP& planning_lp,
-                                 const std::string& filepath,
-                                 bool append_mode = false)
-    -> std::expected<void, Error>;
-
-/// Save cuts for a single scene to a per-scene CSV file.
-///
-/// @param cuts             The scene's stored cuts
-/// @param scene_index      Scene index (for column name lookup)
-/// @param scene_uid        Scene UID (for file naming)
-/// @param planning_lp      The PlanningLP (for scale and column names)
-/// @param directory        Output directory (file: scene_<UID>.csv)
-[[nodiscard]] auto save_scene_cuts_csv(std::span<const StoredCut> cuts,
-                                       SceneIndex scene_index,
-                                       SceneUid scene_uid,
-                                       const PlanningLP& planning_lp,
-                                       const std::string& directory)
-    -> std::expected<void, Error>;
-
-// ─── Load functions ─────────────────────────────────────────────────────────
-
-/// Load cuts from a CSV file and add to all scenes' phase LPs.
-///
-/// Cuts are broadcast to all scenes regardless of originating scene,
-/// since loaded cuts serve as warm-start approximations for the entire
-/// problem (analogous to PLP's cut sharing across scenarios).
-///
-/// Supports three coefficient formats:
-///   - `class:var:uid=coeff`  (structured key — preferred, no LP names)
-///   - `name=coeff`           (legacy name-based — resolve by column name)
-///   - `index:coeff`          (legacy index-based — validate column index)
-///
-/// @param planning_lp        The PlanningLP to add cuts to
-/// @param filepath           Input CSV file path
-/// @param scale_alpha        Scale for alpha variable
-/// @param label_maker        Label maker for LP row names
-/// @param scene_phase_states Unused (kept for API compatibility).
-/// @return CutLoadResult with count and max iteration, or an error
-[[nodiscard]] auto load_cuts_csv(
-    PlanningLP& planning_lp,
-    const std::string& filepath,
-    double scale_alpha,
-    const LabelMaker& label_maker,
-    const StrongIndexVector<SceneIndex,
-                            StrongIndexVector<PhaseIndex, PhaseStateInfo>>*
-        scene_phase_states = nullptr) -> std::expected<CutLoadResult, Error>;
-
-/// Load all per-scene cut files from a directory.
-///
-/// Files matching `scene_<N>.csv` and `sddp_cuts.csv` are loaded.
-/// Files with the `error_` prefix (from infeasible scenes in a
-/// previous run) are skipped to prevent loading invalid cuts.
-///
-/// @param planning_lp        The PlanningLP to add cuts to
-/// @param directory          Directory containing cut CSV files
-/// @param scale_alpha        Actual scale_alpha (computed from state var
-/// scales)
-/// @param label_maker        Label maker for LP row names
-/// @param scene_phase_states Unused (kept for API compatibility).
-/// @return CutLoadResult with total count and max iteration, or an error
-[[nodiscard]] auto load_scene_cuts_from_directory(
-    PlanningLP& planning_lp,
-    const std::string& directory,
-    double scale_alpha,
-    const LabelMaker& label_maker,
-    const StrongIndexVector<SceneIndex,
-                            StrongIndexVector<PhaseIndex, PhaseStateInfo>>*
-        scene_phase_states = nullptr) -> std::expected<CutLoadResult, Error>;
+// ─── Boundary / named-cut CSV loaders ──────────────────────────────────────
+//
+// The combined SDDP cut path (save_cuts / load_cuts) is now Parquet-only —
+// see `save_cuts_parquet` and `load_cuts_parquet` below.  The legacy CSV
+// save/load functions were removed in the Phase 1.3 cleanup; the only
+// remaining CSV readers are for **externally-produced** boundary and
+// named-cut files (e.g. PLP-generated input).
 
 /// Load boundary (future-cost) cuts from a named-variable CSV file.
 ///
@@ -277,6 +202,59 @@ inline constexpr std::string_view EfinColName {"efin"};
     PlanningLP& planning_lp,
     const std::string& filepath,
     double scale_alpha,
+    const StrongIndexVector<SceneIndex,
+                            StrongIndexVector<PhaseIndex, PhaseStateInfo>>*
+        scene_phase_states = nullptr) -> std::expected<CutLoadResult, Error>;
+
+// ─── Parquet save/load functions ────────────────────────────────────────────
+//
+// Parquet schema:
+//   {type:utf8, phase:int32, scene:int32, name:utf8, iteration:int32,
+//    rhs:float64, dual:float64?, coeffs:list<struct<key:utf8, val:float64>>}
+// File-level KeyValueMetadata: {version: "2", scale_objective: "<.17g>"}
+//
+// `append_mode = true` writes a sibling file with a unique suffix
+// (`<stem>.append-<stamp>.parquet`) in the same directory.  The loader
+// globs all sibling parquet files to reconstruct the full cut set, since
+// Parquet has no row-level append primitive.
+
+/// Save accumulated cuts to a Parquet file with typed schema.
+[[nodiscard]] auto save_cuts_parquet(std::span<const StoredCut> cuts,
+                                     const PlanningLP& planning_lp,
+                                     const std::string& filepath,
+                                     bool append_mode = false)
+    -> std::expected<void, Error>;
+
+/// Save cuts for a single scene to a per-scene Parquet file.
+[[nodiscard]] auto save_scene_cuts_parquet(std::span<const StoredCut> cuts,
+                                           SceneIndex scene_index,
+                                           SceneUid scene_uid,
+                                           const PlanningLP& planning_lp,
+                                           const std::string& directory)
+    -> std::expected<void, Error>;
+
+/// Load cuts from a Parquet file (plus any sibling `*.append-*.parquet`
+/// files) and add to all scenes' phase LPs.  Coefficient keys must be
+/// structured `class:var:uid`.
+[[nodiscard]] auto load_cuts_parquet(
+    PlanningLP& planning_lp,
+    const std::string& filepath,
+    double scale_alpha,
+    const LabelMaker& label_maker,
+    const StrongIndexVector<SceneIndex,
+                            StrongIndexVector<PhaseIndex, PhaseStateInfo>>*
+        scene_phase_states = nullptr) -> std::expected<CutLoadResult, Error>;
+
+/// Load all per-scene Parquet cut files from a directory.
+///
+/// Files matching `scene_<N>.parquet` and the combined
+/// `sddp_cuts.parquet` are loaded.  Files with the `error_` prefix
+/// (from infeasible scenes in a previous run) are skipped.
+[[nodiscard]] auto load_scene_cuts_from_directory_parquet(
+    PlanningLP& planning_lp,
+    const std::string& directory,
+    double scale_alpha,
+    const LabelMaker& label_maker,
     const StrongIndexVector<SceneIndex,
                             StrongIndexVector<PhaseIndex, PhaseStateInfo>>*
         scene_phase_states = nullptr) -> std::expected<CutLoadResult, Error>;

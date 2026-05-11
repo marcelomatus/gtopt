@@ -358,13 +358,15 @@ inline constexpr auto low_memory_mode_entries =
  */
 enum class CutIOFormat : uint8_t
 {
-  csv = 0,  ///< CSV with structured keys (default)
-  json = 1,  ///< Compact JSON via daw::json
+  parquet = 0,  ///< Apache Parquet with typed schema + list<struct> coeffs
+                ///< (default).
+  json = 1,  ///< Compact JSON via daw::json (still supported for human-
+             ///< readable export / external tool interop).
 };
 
 inline constexpr auto cut_io_format_entries =
     std::to_array<EnumEntry<CutIOFormat>>({
-        {.name = "csv", .value = CutIOFormat::csv},
+        {.name = "parquet", .value = CutIOFormat::parquet},
         {.name = "json", .value = CutIOFormat::json},
     });
 

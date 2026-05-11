@@ -103,7 +103,8 @@ namespace gtopt
     // JSON does not support append mode — always overwrites
     return save_cuts_json(cuts, planning_lp, filepath);
   }
-  return save_cuts_csv(cuts, planning_lp, filepath, append_mode);
+  // CutIOFormat::parquet (default and only other variant).
+  return save_cuts_parquet(cuts, planning_lp, filepath, append_mode);
 }
 
 [[nodiscard]] auto load_cuts(
@@ -116,46 +117,78 @@ namespace gtopt
                             StrongIndexVector<PhaseIndex, PhaseStateInfo>>*
         scene_phase_states) -> std::expected<CutLoadResult, Error>
 {
-  // Determine file paths for both formats based on the given filepath
+  // Determine file paths for both supported formats based on the given
+  // filepath stem.  The dispatcher routes to parquet (default) or json;
+  // the legacy CSV reader was removed in the Phase 1.3 cleanup.
   const auto path = std::filesystem::path(filepath);
   const auto stem = path.stem().string();
   const auto parent = path.parent_path();
 
-  const auto csv_path = (parent / (stem + ".csv")).string();
   const auto json_path = (parent / (stem + ".json")).string();
+  const auto parquet_path = (parent / (stem + ".parquet")).string();
 
-  // Try preferred format first, fall back to the other
+  const auto try_parquet = [&]() -> std::expected<CutLoadResult, Error>
+  {
+    return load_cuts_parquet(planning_lp,
+                             parquet_path,
+                             scale_alpha,
+                             label_maker,
+                             scene_phase_states);
+  };
+  const auto try_json = [&]() -> std::expected<CutLoadResult, Error>
+  {
+    return load_cuts_json(
+        planning_lp, json_path, scale_alpha, scene_phase_states);
+  };
+
+  // For Parquet, "exists" must account for split-file append: a directory
+  // with only `<stem>.append-*.parquet` is a valid Parquet cut set even
+  // if `<stem>.parquet` itself is missing.
+  const auto parquet_present = [&]
+  {
+    if (std::filesystem::exists(parquet_path)) {
+      return true;
+    }
+    if (!std::filesystem::exists(parent)) {
+      return false;
+    }
+    const auto prefix = stem + ".append-";
+    for (const auto& entry : std::filesystem::directory_iterator(parent)) {
+      const auto name = entry.path().filename().string();
+      if (name.starts_with(prefix) && name.ends_with(".parquet")) {
+        return true;
+      }
+    }
+    return false;
+  };
+
   if (format == CutIOFormat::json) {
     if (std::filesystem::exists(json_path)) {
-      return load_cuts_json(
-          planning_lp, json_path, scale_alpha, scene_phase_states);
+      return try_json();
     }
-    if (std::filesystem::exists(csv_path)) {
+    if (parquet_present()) {
       SPDLOG_INFO(
-          "SDDP load_cuts: JSON file not found, falling back to CSV: {}",
-          csv_path);
-      return load_cuts_csv(
-          planning_lp, csv_path, scale_alpha, label_maker, scene_phase_states);
+          "SDDP load_cuts: JSON file not found, falling back to Parquet: {}",
+          parquet_path);
+      return try_parquet();
     }
-  } else {
-    if (std::filesystem::exists(csv_path)) {
-      return load_cuts_csv(
-          planning_lp, csv_path, scale_alpha, label_maker, scene_phase_states);
+  } else {  // parquet (default and only other variant)
+    if (parquet_present()) {
+      return try_parquet();
     }
     if (std::filesystem::exists(json_path)) {
       SPDLOG_INFO(
-          "SDDP load_cuts: CSV file not found, falling back to JSON: {}",
+          "SDDP load_cuts: Parquet file not found, falling back to JSON: {}",
           json_path);
-      return load_cuts_json(
-          planning_lp, json_path, scale_alpha, scene_phase_states);
+      return try_json();
     }
   }
 
-  // Neither format exists
   return std::unexpected(Error {
       .code = ErrorCode::FileIOError,
-      .message = std::format(
-          "Cannot find cut file in any format: {} or {}", csv_path, json_path),
+      .message = std::format("Cannot find cut file in any format: {} or {}",
+                             parquet_path,
+                             json_path),
   });
 }
 

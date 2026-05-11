@@ -58,10 +58,10 @@ TEST_CASE(  // NOLINT
   // latest `sddp_state.csv` (PR #442 deleted that write).  This test
   // pins the deletion: walk the cut directory after a 2-iter solve
   // and assert no file matches `sddp_state_*.csv` — only the latest.
-  // The versioned cuts file (`sddp_cuts_<iter>.csv`) is unaffected
-  // and SHOULD be present.
+  // The versioned cuts file (`sddp_cuts_<iter>.parquet` since C-2) is
+  // unaffected and SHOULD be present.
   const auto tmp_dir = make_tmp_subdir("no_versioned_state");
-  const auto cuts_file = (tmp_dir / "sddp_cuts.csv").string();
+  const auto cuts_file = (tmp_dir / "sddp_cuts.parquet").string();
 
   auto planning = make_2scene_3phase_hydro_planning(0.5, 0.5);
   PlanningLP plp(std::move(planning));
@@ -99,9 +99,9 @@ TEST_CASE(  // NOLINT
 
   // Versioned CUT files (the other family that DOES still get written)
   // must exist — this confirms our regex isn't accidentally matching
-  // the wrong files.
-  CHECK(std::filesystem::exists(tmp_dir / "sddp_cuts_0.csv"));
-  CHECK(std::filesystem::exists(tmp_dir / "sddp_cuts_1.csv"));
+  // the wrong files.  Cuts moved from CSV to Parquet in C-2.
+  CHECK(std::filesystem::exists(tmp_dir / "sddp_cuts_0.parquet"));
+  CHECK(std::filesystem::exists(tmp_dir / "sddp_cuts_1.parquet"));
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -118,7 +118,7 @@ TEST_CASE(  // NOLINT
   // Any divergence between parallel and sequential would surface as
   // a missing file or empty content here.
   const auto tmp_dir = make_tmp_subdir("seq_fallback_1scene");
-  const auto cuts_file = (tmp_dir / "sddp_cuts.csv").string();
+  const auto cuts_file = (tmp_dir / "sddp_cuts.parquet").string();
 
   auto planning = make_3phase_hydro_planning();  // 1 scene
   PlanningLP plp(std::move(planning));
@@ -135,18 +135,18 @@ TEST_CASE(  // NOLINT
   auto results = sddp.solve();
   REQUIRE(results.has_value());
 
-  // Combined cuts file (latest).
-  CHECK(std::filesystem::exists(tmp_dir / "sddp_cuts.csv"));
+  // Combined cuts file (latest).  Cuts moved from CSV to Parquet in C-2.
+  CHECK(std::filesystem::exists(tmp_dir / "sddp_cuts.parquet"));
 
   // Versioned cuts file for iter 0.
-  CHECK(std::filesystem::exists(tmp_dir / "sddp_cuts_0.csv"));
+  CHECK(std::filesystem::exists(tmp_dir / "sddp_cuts_0.parquet"));
 
   // At least one per-scene cuts file (UID-named, fixture-dependent).
   // Globbed instead of hardcoded — `make_3phase_hydro_planning` does
   // not declare an explicit `scene_array` so the auto-generated UID
   // may not be 1.
   std::vector<std::string> scene_files;
-  const std::regex scene_re {R"(^scene_\d+\.csv$)"};
+  const std::regex scene_re {R"(^scene_\d+\.parquet$)"};
   for (const auto& entry : std::filesystem::directory_iterator(tmp_dir)) {
     const auto name = entry.path().filename().string();
     if (std::regex_match(name, scene_re)) {
@@ -175,7 +175,7 @@ TEST_CASE(  // NOLINT
   // branch (pool != nullptr AND num_scenes > 1).  Same expected file
   // set, larger per-scene fan-out.
   const auto tmp_dir = make_tmp_subdir("parallel_2scene");
-  const auto cuts_file = (tmp_dir / "sddp_cuts.csv").string();
+  const auto cuts_file = (tmp_dir / "sddp_cuts.parquet").string();
 
   auto planning = make_2scene_3phase_hydro_planning(0.5, 0.5);
   PlanningLP plp(std::move(planning));
@@ -192,13 +192,13 @@ TEST_CASE(  // NOLINT
   auto results = sddp.solve();
   REQUIRE(results.has_value());
 
-  CHECK(std::filesystem::exists(tmp_dir / "sddp_cuts.csv"));
-  CHECK(std::filesystem::exists(tmp_dir / "sddp_cuts_0.csv"));
+  CHECK(std::filesystem::exists(tmp_dir / "sddp_cuts.parquet"));
+  CHECK(std::filesystem::exists(tmp_dir / "sddp_cuts_0.parquet"));
   CHECK(std::filesystem::exists(tmp_dir / "sddp_state.csv"));
 
   // Both per-scene files (UID-named, globbed for fixture independence).
   std::vector<std::string> scene_files;
-  const std::regex scene_re {R"(^scene_\d+\.csv$)"};
+  const std::regex scene_re {R"(^scene_\d+\.parquet$)"};
   for (const auto& entry : std::filesystem::directory_iterator(tmp_dir)) {
     const auto name = entry.path().filename().string();
     if (std::regex_match(name, scene_re)) {

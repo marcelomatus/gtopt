@@ -218,7 +218,6 @@ function(add_pytest_integration_test name)
 
   set(_props
     COST "${ARG_COST}"
-    LABELS integration
   )
 
   if(ARG_FIXTURE_REQUIRED)
@@ -229,7 +228,11 @@ function(add_pytest_integration_test name)
     list(APPEND _props ENVIRONMENT "${ARG_ENVIRONMENT}")
   endif()
 
-  set_tests_properties("${name}" PROPERTIES ${_props})
+  # `LABELS` is passed outside `${_props}` so the embedded `;` is preserved
+  # as the list separator inside the LABEL value rather than getting split
+  # into a phantom property name when CMake expands `${_props}`.
+  set_tests_properties("${name}" PROPERTIES ${_props}
+    LABELS "integration;script")
 endfunction()
 
 # ---------------------------------------------------------------------------
@@ -287,7 +290,6 @@ function(add_pytest_unit_test name)
 
   set(_props
     COST "${ARG_COST}"
-    LABELS unit
   )
 
   if(ARG_FIXTURE_REQUIRED)
@@ -298,5 +300,9 @@ function(add_pytest_unit_test name)
     list(APPEND _props ENVIRONMENT "${ARG_ENVIRONMENT}")
   endif()
 
-  set_tests_properties("${name}" PROPERTIES ${_props})
+  # `LABELS` is passed outside `${_props}` so the embedded `;` is preserved
+  # as the list separator inside the LABEL value rather than getting split
+  # into a phantom property name when CMake expands `${_props}`.
+  set_tests_properties("${name}" PROPERTIES ${_props}
+    LABELS "unit;script")
 endfunction()

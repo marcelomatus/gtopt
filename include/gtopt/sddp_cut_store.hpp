@@ -356,7 +356,6 @@ public:
       const StrongIndexVector<SceneIndex,
                               StrongIndexVector<PhaseIndex, PhaseStateInfo>>&
           scene_phase_states,
-      IterationIndex current_iteration,
       SDDPWorkPool* pool = nullptr);
 
 private:

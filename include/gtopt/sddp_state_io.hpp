@@ -15,7 +15,6 @@
 #include <string>
 
 #include <gtopt/error.hpp>
-#include <gtopt/iteration.hpp>
 
 namespace gtopt
 {
@@ -30,14 +29,14 @@ class PlanningLP;
 /// Writes one row per state-variable column (efin, eini, sini, etc.) with
 /// name, phase UID, scene UID, LP value (in physical units), and reduced
 /// cost.  The file is self-describing via column names, so it is portable
-/// across LP structure changes.
+/// across LP structure changes.  The file is overwritten each iteration;
+/// the producing iteration is identified by the surrounding log line at
+/// `sddp_cut_store.cpp` and the on-disk mtime, not by an in-file marker.
 ///
 /// @param planning_lp  The PlanningLP (for LP access and scaling)
 /// @param filepath     Output CSV file path
-/// @param iteration    Current iteration index (written as comment)
 [[nodiscard]] auto save_state_csv(PlanningLP& planning_lp,
-                                  const std::string& filepath,
-                                  IterationIndex iteration_index)
+                                  const std::string& filepath)
     -> std::expected<void, Error>;
 
 }  // namespace gtopt

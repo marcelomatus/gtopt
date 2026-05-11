@@ -585,7 +585,6 @@ void SDDPCutManager::save_cuts_for_iteration(
     const StrongIndexVector<SceneIndex,
                             StrongIndexVector<PhaseIndex, PhaseStateInfo>>&
     /*scene_phase_states*/,
-    IterationIndex current_iteration,
     SDDPWorkPool* pool)
 {
   if (options.cuts_output_file.empty()) {
@@ -618,7 +617,7 @@ void SDDPCutManager::save_cuts_for_iteration(
     // combined vector, so the union view via `build_combined_cuts`
     // contains both types without duplication.
     const auto combined = build_combined_cuts(planning_lp);
-    return save_cuts_csv(combined, planning_lp, filepath);
+    return save_cuts_parquet(combined, planning_lp, filepath);
   };
 
   // ── Save to a versioned file: sddp_cuts_<iter>.csv ──
@@ -657,15 +656,15 @@ void SDDPCutManager::save_cuts_for_iteration(
         const auto cut_dir_str = cut_dir.string();
         // Capture by value/reference appropriately: per-scene cut
         // vectors are read-only here (no mutation by the writer);
-        // `planning_lp` is also read-only for `save_scene_cuts_csv`.
+        // `planning_lp` is also read-only for `save_scene_cuts_parquet`.
         auto fut = pool->submit(
             [this, scene_index, scene_uid, &planning_lp, cut_dir_str]
             {
-              return save_scene_cuts_csv(m_scene_cuts_[scene_index],
-                                         scene_index,
-                                         scene_uid,
-                                         planning_lp,
-                                         cut_dir_str);
+              return save_scene_cuts_parquet(m_scene_cuts_[scene_index],
+                                             scene_index,
+                                             scene_uid,
+                                             planning_lp,
+                                             cut_dir_str);
             });
         if (fut.has_value()) {
           futures.push_back(std::move(*fut));
@@ -685,11 +684,11 @@ void SDDPCutManager::save_cuts_for_iteration(
       }
     } else {
       for (const auto scene_index : iota_range<SceneIndex>(0, num_scenes)) {
-        auto result = save_scene_cuts_csv(m_scene_cuts_[scene_index],
-                                          scene_index,
-                                          scenes[scene_index].uid(),
-                                          planning_lp,
-                                          cut_dir.string());
+        auto result = save_scene_cuts_parquet(m_scene_cuts_[scene_index],
+                                              scene_index,
+                                              scenes[scene_index].uid(),
+                                              planning_lp,
+                                              cut_dir.string());
         if (!result.has_value()) {
           SPDLOG_WARN("SDDP: could not save per-scene cuts at iter {}: {}",
                       iteration_index,
@@ -713,7 +712,7 @@ void SDDPCutManager::save_cuts_for_iteration(
   if (!cut_dir.empty()) {
     const auto t0 = Clock::now();
     const auto state_file = (cut_dir / sddp_file::state_cols).string();
-    auto sr = save_state_csv(planning_lp, state_file, current_iteration);
+    auto sr = save_state_csv(planning_lp, state_file);
     if (!sr.has_value()) {
       SPDLOG_WARN("SDDP: could not save state at iter {}: {}",
                   iteration_index,
