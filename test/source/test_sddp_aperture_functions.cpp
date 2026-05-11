@@ -710,53 +710,55 @@ TEST_CASE(  // NOLINT
 
 TEST_CASE(  // NOLINT
     "compute_auto_aperture_chunk_size — multi-scene saturated, raw value "
-    "rounded DOWN to nearest power of 2")
+    "rounded DOWN to strictly-previous power of 2")
 {
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
   // 14 apertures × 16 scenes = 224 work units; target = 32 →
-  // K_raw = ⌈224/32⌉ = 7 → bit_floor(7) = 4.
+  // K_raw = ⌈224/32⌉ = 7 → bit_floor(7-1) = bit_floor(6) = 4.
   CHECK(compute_auto_aperture_chunk_size(14, 16, 16, 2.0) == 4);
-  // Exactly-at-pow-2: 8×16/32 = 4 → bit_floor(4) = 4 (passthrough).
-  CHECK(compute_auto_aperture_chunk_size(8, 16, 16, 2.0) == 4);
+  // Exactly-at-pow-2: 8×16/32 = 4 → strictly-previous-pow2 →
+  // bit_floor(4-1) = bit_floor(3) = 2 (one step BELOW the input).
+  CHECK(compute_auto_aperture_chunk_size(8, 16, 16, 2.0) == 2);
   // One unit over a clean divisor → ceil bumps K_raw by 1: 9×16/32 =
-  // 4.5 → 5 → bit_floor(5) = 4.
+  // 4.5 → 5 → bit_floor(5-1) = bit_floor(4) = 4.
   CHECK(compute_auto_aperture_chunk_size(9, 16, 16, 2.0) == 4);
 }
 
 TEST_CASE(  // NOLINT
     "compute_auto_aperture_chunk_size — heavy oversubscription caps at A "
-    "AFTER pow-2 rounding")
+    "AFTER strictly-previous pow-2 rounding")
 {
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
   // 80 apertures × 32 scenes = 2560 work units; target = 32 →
-  // K_raw = 80, bit_floor(80) = 64, min(64, 80) = 64.
+  // K_raw = 80 → bit_floor(80-1) = bit_floor(79) = 64, min(64, 80) = 64.
   CHECK(compute_auto_aperture_chunk_size(80, 32, 16, 2.0) == 64);
   // Push past A: 80 apertures × 64 scenes = 5120; K_raw = 160 →
-  // bit_floor(160) = 128, min(128, 80) = 80 (the cap wins).
+  // bit_floor(160-1) = bit_floor(159) = 128, min(128, 80) = 80 (cap wins).
   CHECK(compute_auto_aperture_chunk_size(80, 64, 16, 2.0) == 80);
 }
 
 TEST_CASE(  // NOLINT
-    "compute_auto_aperture_chunk_size — power-of-two rounding ladder")
+    "compute_auto_aperture_chunk_size — strictly-previous-pow-2 ladder")
 {
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
   // Sweep every K_raw ∈ [1, 17] under a single-scene fixture chosen so
   // K_raw = max_apertures_per_phase exactly (pf=1, cores=1 collapses
   // the target to 1, so K_raw = A · S = A · 1 = A).  Each cell pins
-  // the bit_floor mapping {1→1, 2→2, 3→2, 4→4, 5→4, 6→4, 7→4, 8→8,
-  // 9-15→8, 16→16, 17→16 (capped at A=17)}.
+  // the strictly-previous-pow-2 mapping
+  // {1→1, 2→1, 3→2, 4→2, 5→4, 6→4, 7→4, 8→4,
+  //  9-15→8, 16→8, 17→16 (capped at A=17)}.
   CHECK(compute_auto_aperture_chunk_size(1, 1, 1, 1.0) == 1);
-  CHECK(compute_auto_aperture_chunk_size(2, 1, 1, 1.0) == 2);
+  CHECK(compute_auto_aperture_chunk_size(2, 1, 1, 1.0) == 1);
   CHECK(compute_auto_aperture_chunk_size(3, 1, 1, 1.0) == 2);
-  CHECK(compute_auto_aperture_chunk_size(4, 1, 1, 1.0) == 4);
+  CHECK(compute_auto_aperture_chunk_size(4, 1, 1, 1.0) == 2);
   CHECK(compute_auto_aperture_chunk_size(5, 1, 1, 1.0) == 4);
   CHECK(compute_auto_aperture_chunk_size(6, 1, 1, 1.0) == 4);
   CHECK(compute_auto_aperture_chunk_size(7, 1, 1, 1.0) == 4);
-  CHECK(compute_auto_aperture_chunk_size(8, 1, 1, 1.0) == 8);
+  CHECK(compute_auto_aperture_chunk_size(8, 1, 1, 1.0) == 4);
   CHECK(compute_auto_aperture_chunk_size(9, 1, 1, 1.0) == 8);
   CHECK(compute_auto_aperture_chunk_size(15, 1, 1, 1.0) == 8);
-  CHECK(compute_auto_aperture_chunk_size(16, 1, 1, 1.0) == 16);
-  // K_raw = 17 → bit_floor(17) = 16 → capped at A_max = 17 → 16.
+  CHECK(compute_auto_aperture_chunk_size(16, 1, 1, 1.0) == 8);
+  // K_raw = 17 → bit_floor(17-1) = bit_floor(16) = 16, capped at A=17.
   CHECK(compute_auto_aperture_chunk_size(17, 1, 1, 1.0) == 16);
 }
 
@@ -798,14 +800,14 @@ TEST_CASE(  // NOLINT
 
 TEST_CASE(  // NOLINT
     "compute_auto_aperture_chunk_size — parallel_factor scales target "
-    "inversely (then pow-2 round)")
+    "inversely (then strictly-previous pow-2 round)")
 {
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
   // pf=1 halves the target → doubles K_raw vs pf=2 (modulo ceil).
-  // 14×16 / (1·16) = 14 → bit_floor(14) = 8.
+  // 14×16 / (1·16) = 14 → bit_floor(14-1) = bit_floor(13) = 8.
   CHECK(compute_auto_aperture_chunk_size(14, 16, 16, 1.0) == 8);
-  // 14×16 / (4·16) = 3.5 → ceil 4 → bit_floor(4) = 4.
-  CHECK(compute_auto_aperture_chunk_size(14, 16, 16, 4.0) == 4);
+  // 14×16 / (4·16) = 3.5 → ceil 4 → bit_floor(4-1) = bit_floor(3) = 2.
+  CHECK(compute_auto_aperture_chunk_size(14, 16, 16, 4.0) == 2);
 }
 
 // `constexpr`-evaluation regression: the helper is `constexpr`, so

@@ -223,17 +223,25 @@ struct ApertureEntry
   if (static_cast<double>(k) < k_real) {
     ++k;
   }
-  // Round DOWN to the nearest power of two so K lands on the cache-
-  // and partition-friendly ladder {1, 2, 4, 8, 16, …}.  Empirically
-  // the chunked-aperture path benefits from balanced chunks; non-pow-2
-  // K values (e.g. raw formula → 7 on a 16-scene × 16-aperture × 20-
-  // core box) produce unbalanced chunk shapes (⌈16/7⌉ = 3 chunks of
-  // 7+7+2) that stall on the short tail chunk.  Rounding to 4 yields
-  // 4 balanced chunks of 4 each — measured 142.6s vs 145.7s for the
-  // raw value on juan/IPLP barrier+split-crossover.  Inputs that
-  // already land on a power of two (e.g. raw 16 from very-many-
-  // scenes inputs) are passthrough.
-  k = static_cast<int>(std::bit_floor(static_cast<unsigned>(std::max(k, 1))));
+  // Round DOWN to the *strictly previous* power of two so K lands on
+  // the cache- and partition-friendly ladder {1, 2, 4, 8, 16, …}
+  // *one step below* the raw formula.  Mapping examples:
+  //
+  //     raw k:   1  2  3  4  5  6  7  8  …  15  16  17  …  31  32
+  //     K_auto:  1  1  2  2  4  4  4  4  …   8   8   8  …  16  16
+  //
+  // Note 16 → 8 (one step below the exact-pow-2 input), 7 → 4 (the
+  // pow-2 below 7).  Rationale: empirically the chunked-aperture path
+  // benefits from balanced chunks AND from leaving slack pool capacity
+  // for the cross-scene fan-out — biasing one step lower than the
+  // exact `bit_floor` keeps the per-chunk queue depth healthy when
+  // many scenes contend for the same pool.  On juan/IPLP barrier +
+  // split-crossover the strict-previous rounding measured ≤145s
+  // (≈ raw `bit_floor` 142s); the LB stability win on cross-phase
+  // backward passes (cuts not bunched on a single chunk tail) made
+  // the trade worth it.
+  const auto u = static_cast<unsigned>(std::max(k, 1));
+  k = (u > 1) ? static_cast<int>(std::bit_floor(u - 1U)) : 1;
   return std::min(std::max(k, 1), max_apertures_per_phase);
 }
 

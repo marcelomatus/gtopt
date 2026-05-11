@@ -413,11 +413,13 @@ def _build_parser() -> argparse.ArgumentParser:
             "--auto-water-fail-cost",
             dest="auto_water_fail_cost",
             action=argparse.BooleanOptionalAction,
-            default=False,
+            default=True,
             help=(
-                "when set, compute water-shortfall fail_costs from the"
-                " case's max(falla.gcost) anchor scaled by per-central"
-                " cascade lost_pf (requires --plp-case-dir)"
+                "when set (default since 2026-05-11), compute"
+                " water-shortfall fail_costs from the case's"
+                " max(falla.gcost) anchor scaled by per-central cascade"
+                " lost_pf (requires --plp-case-dir; pass"
+                " --no-auto-water-fail-cost to disable)"
             ),
         )
         sp.add_argument(

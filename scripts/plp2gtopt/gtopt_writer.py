@@ -412,8 +412,52 @@ class GTOptWriter(
             return "cascade"
         return "sddp"
 
-    @staticmethod
+    def _pick_wettest_aperture_uids(self, n: int) -> list[int]:
+        """Pick the ``n`` globally-wettest aperture UIDs across all phases.
+
+        Per-phase aperture lists (``phase["apertures"]``) are sorted
+        ascending by phase wetness (driest first → wettest last) by
+        :func:`aperture_writer.build_phase_apertures`.  This helper folds
+        those per-phase orders into a single global ranking by summing
+        each aperture's *position fraction* across the phases it appears
+        in (``0.0`` at the driest end, ``1.0`` at the wettest end), then
+        returns the top ``n`` UIDs by score.
+
+        When phases share the same aperture list (the JSON-compaction
+        case where per-phase ``apertures`` are omitted), every phase
+        falls back to the global ``aperture_array`` order — which is
+        insertion order from ``plpidap2.dat``, NOT wetness order — so
+        the ranking degenerates to that fallback order.  Callers that
+        care about wetness selection at cascade L0 / L1 should keep
+        per-phase aperture emission enabled.
+
+        Returns an empty list when no apertures are declared (the
+        cascade level then inherits ``apertures: []`` which disables
+        apertures for that level).
+        """
+        sim = self.planning.get("simulation", {})
+        all_aps = sim.get("aperture_array", [])
+        if not all_aps:
+            return []
+        global_uids = [int(a["uid"]) for a in all_aps]
+        phases = sim.get("phase_array", [])
+
+        rank: dict[int, float] = {}
+        for phase in phases:
+            ap_list = phase.get("apertures") or global_uids
+            if not ap_list:
+                continue
+            denom = max(1, len(ap_list) - 1)
+            for i, uid in enumerate(ap_list):
+                score = i / denom if denom > 0 else 1.0
+                rank[int(uid)] = rank.get(int(uid), 0.0) + score
+        # Sort by score descending (wetter = higher); tie-break on UID
+        # ascending for determinism.
+        ranked = sorted(rank.items(), key=lambda kv: (-kv[1], kv[0]))
+        return [uid for uid, _ in ranked[: max(n, 0)]]
+
     def _build_default_cascade_options(
+        self,
         model_opts: dict[str, Any],
         sddp_opts: dict[str, Any],
     ) -> dict[str, Any]:
@@ -426,6 +470,18 @@ class GTOptWriter(
             losses, no kirchhoff (pure transport model)
           - Level 2 (full):      1/4 of max_iterations — full network with the
             user's original model_options
+
+        Aperture budget split (only when ``aperture_array`` is populated):
+          - Level 0: top **4** globally-wettest apertures
+          - Level 1: top **8** globally-wettest apertures
+          - Level 2: all apertures (no override → C++ falls back to
+            per-phase ``Phase.apertures`` = full list)
+
+        Wetness ranking is computed by :meth:`_pick_wettest_aperture_uids`;
+        the cascade-level ``sddp_options.apertures`` array acts as a
+        global UID whitelist intersected with each phase's
+        ``Phase.apertures`` at SDDP setup time
+        (``sddp_aperture_pass.cpp::resolve_effective_apertures``).
 
         Each level inherits state-variable targets from the previous level
         via elastic constraints (``inherit_targets = -1``).
@@ -454,6 +510,41 @@ class GTOptWriter(
             "target_penalty": 500.0,
         }
 
+        # Per-level aperture subsets (top-N globally-wettest, sorted by
+        # the per-phase position-fraction ranking in
+        # :meth:`_pick_wettest_aperture_uids`).  When the case carries no
+        # apertures, both lists collapse to ``[]`` and the cascade
+        # behaves exactly as before.
+        l0_aperture_uids = self._pick_wettest_aperture_uids(4)
+        l1_aperture_uids = self._pick_wettest_aperture_uids(8)
+
+        # Level-0 ``sddp_options.apertures`` block.  When at least one
+        # aperture is selected we ship the L0 subset; otherwise we keep
+        # the legacy empty-list override so the uninodal level stays
+        # aperture-free.  An empty list serialises as
+        # ``"apertures": []`` and overrides the per-phase
+        # ``Phase.apertures`` default at runtime.
+        l0_sddp_options: dict[str, Any] = {
+            "max_iterations": l0_iter,
+            "convergence_tol": convergence_tol,
+            "apertures": l0_aperture_uids,
+        }
+
+        # Level-1 ``sddp_options.apertures`` block.  When at least one
+        # aperture is selected we emit the L1 subset; otherwise we omit
+        # the key so the C++ cascade-level merge in
+        # ``cascade_method.cpp::build_level_sddp_opts`` falls back to
+        # the per-phase ``Phase.apertures`` default (= full list).  An
+        # absent key serialises to ``nullopt``, which is semantically
+        # "no override"; a JSON ``"apertures": null`` line would be
+        # misread as "no apertures", so we use key-omission instead.
+        l1_sddp_options: dict[str, Any] = {
+            "max_iterations": l1_iter,
+            "convergence_tol": convergence_tol,
+        }
+        if l1_aperture_uids:
+            l1_sddp_options["apertures"] = l1_aperture_uids
+
         level_array = [
             {
                 "uid": 1,
@@ -461,18 +552,7 @@ class GTOptWriter(
                 "model_options": {
                     "use_single_bus": True,
                 },
-                "sddp_options": {
-                    "max_iterations": l0_iter,
-                    "convergence_tol": convergence_tol,
-                    # Level 0 (uninodal) is a pure-Benders relaxation:
-                    # the single-bus problem converges much faster
-                    # without the per-aperture solve overhead, and the
-                    # state-variable targets it inherits to level 1
-                    # are unaffected by aperture quality at level 0.
-                    # Empty array overrides the per-phase
-                    # ``Phase::apertures`` default.
-                    "apertures": [],
-                },
+                "sddp_options": l0_sddp_options,
             },
             {
                 "uid": 2,
@@ -482,23 +562,7 @@ class GTOptWriter(
                     "use_kirchhoff": False,
                     "use_line_losses": False,
                 },
-                "sddp_options": {
-                    "max_iterations": l1_iter,
-                    "convergence_tol": convergence_tol,
-                    # ``apertures`` deliberately omitted from level 1
-                    # onward.  The C++ cascade-level merge in
-                    # ``cascade_method.cpp::build_level_sddp_opts``
-                    # only overrides ``opts.apertures`` when
-                    # ``level_solver->apertures.has_value()``; an
-                    # absent key serialises to ``nullopt`` which
-                    # resolves at runtime to "use per-phase
-                    # ``Phase::apertures`` (= the global
-                    # ``aperture_array`` when ``Phase.apertures`` is
-                    # empty)".  This re-enables apertures at level 1
-                    # without polluting the JSON with a
-                    # ``"apertures": null`` line that reads literally
-                    # as "no apertures".
-                },
+                "sddp_options": l1_sddp_options,
                 "transition": transition,
             },
             {

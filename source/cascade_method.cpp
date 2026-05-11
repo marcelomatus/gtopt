@@ -640,14 +640,25 @@ auto CascadePlanningMethod::solve(PlanningLP& planning_lp,
         .cuts_added = total_cuts,
     });
 
+    // `gap0` = first training iteration's gap (initial level gap).
+    // `Δgap` = last - first (signed; negative = gap closed).  When the
+    // level produced no training iterations (size <= 1), gap0 and Δ are
+    // suppressed to avoid log noise on degenerate cases.
+    // `new_cuts` is the total Benders cuts *added this level* (summed
+    // `bwd.total_cuts` across iterations), not the cumulative store.
+    const bool have_gap0 = result->size() >= 2;
+    const double gap0 = have_gap0 ? result->front().gap : last.gap;
+    const double dgap = last.gap - gap0;
     SPDLOG_INFO(
         "Cascade [{}]: {} iters, LB={:.6g}, UB={:.6g}, "
-        "gap={:.4g}, cuts={}, {:.3f}s{}",
+        "gap={:.4g}{}, new_cuts={}, {:.3f}s{}",
         level_name,
         level_iterations,
         last.lower_bound,
         last.upper_bound,
         last.gap,
+        have_gap0 ? std::format(" (gap0={:.4g}, Δ={:+.2e})", gap0, dgap)
+                  : std::string {},
         total_cuts,
         level_elapsed,
         last.converged ? " (converged)" : "");

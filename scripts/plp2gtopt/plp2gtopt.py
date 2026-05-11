@@ -51,8 +51,106 @@ from ._comparison import (  # noqa: F401  — re-exported for backward compat
 logger = logging.getLogger(__name__)
 
 
-def _log_stats(planning: dict, elapsed: float) -> None:
-    """Print conversion statistics using styled terminal tables."""
+def _features_rows(options: dict | None) -> list[tuple[str, str]]:
+    """Return ``(name, value)`` rows for the active plp2gtopt feature toggles.
+
+    ``options`` is the CLI-derived opts dict assembled in ``main.build_opts``
+    (passed through to writers and reachable here verbatim).  The output
+    captures the user-visible *features* — soft-constraint toggles,
+    auto-water-fail-cost pricing, topology rewrites, expansion modes —
+    not numeric scales (those live in their own arrays).  ``None`` /
+    legacy callers that don't pass options yield no rows so the table
+    section is silently omitted.
+    """
+    if not options:
+        return []
+
+    o = options  # alias
+    rows: list[tuple[str, str]] = []
+
+    # --- Soft constraints / water-shortfall pricing ---
+    rows.append(
+        ("auto_water_fail_cost", "on" if o.get("auto_water_fail_cost") else "off")
+    )
+    if o.get("water_fail_cost") is not None:
+        rows.append(("water_fail_cost", f"{o['water_fail_cost']} $/MWh (manual)"))
+    rows.append(
+        ("soft_storage_bounds", "on" if o.get("soft_storage_bounds") else "off")
+    )
+    # ``pmin_as_flowright`` is the internal opts key for the
+    # ``--soft-min-flows`` CLI flag (kept for legacy reasons).  Only show
+    # the bool toggle here; the whitelist source (bundled CSV vs. path)
+    # is logged elsewhere by the writer.
+    pmf = o.get("pmin_as_flowright")
+    rows.append(("soft_min_flows", "off" if pmf in (None, False) else "on"))
+    if o.get("flow_right_fail_cost") is not None:
+        rows.append(("flow_right_fail_cost", f"{o['flow_right_fail_cost']} $/MWh"))
+    if (sec := o.get("soft_emin_cost")) is not None:
+        rows.append(("soft_emin_cost", f"{sec} $/dam³"))
+
+    # --- Topology / spillway rewrites ---
+    rows.append(
+        (
+            "drop_spillway_waterway",
+            "on" if o.get("drop_spillway_waterway") else "off",
+        )
+    )
+    rows.append(("vrebemb_as_sink", "on" if o.get("vrebemb_as_sink") else "off"))
+    # ``vert_cost_cap`` is only consulted by
+    # ``junction_writer._resolve_storage_bound_cost`` on the legacy
+    # (vrebemb → CVert → CLI default) cascade.  When
+    # ``auto_water_fail_cost`` is on the WaterValueResolver branch is
+    # taken instead and the cap is dead code — don't show a stale row
+    # that suggests it's active.  Mirrors the CLI help text for
+    # ``--spillway-cost-cap`` which warns it's "obsolete when
+    # --auto-water-fail-cost is on".
+    if (vcc := o.get("vert_cost_cap")) is not None and not o.get(
+        "auto_water_fail_cost"
+    ):
+        rows.append(("spillway_cost_cap", f"{vcc} $/hm³"))
+
+    # --- Hydro modelling ---
+    if (rar := o.get("ror_as_reservoirs")) is not None:
+        rows.append(
+            (
+                "ror_as_reservoirs",
+                "all" if rar is True else (f"{len(rar)} named" if rar else "none"),
+            )
+        )
+    rows.append(
+        (
+            "embed_reservoir_constraints",
+            "on" if o.get("embed_reservoir_constraints") else "off",
+        )
+    )
+    pasada = o.get("pasada_mode")
+    if pasada and pasada != "flow-turbine":
+        rows.append(("pasada_mode", str(pasada)))
+
+    # --- Expansion ---
+    if o.get("expand_water_rights"):
+        rows.append(("expand_water_rights", "on"))
+    if o.get("expand_lng"):
+        rows.append(("expand_lng", "on"))
+    if o.get("expand_ror"):
+        rows.append(("expand_ror", "on"))
+
+    # --- Legacy compat ---
+    if o.get("plp_legacy"):
+        rows.append(("plp_legacy", "on"))
+
+    return rows
+
+
+def _log_stats(planning: dict, elapsed: float, options: dict | None = None) -> None:
+    """Print conversion statistics using styled terminal tables.
+
+    When ``options`` is supplied (the CLI-derived opts dict from
+    ``main.build_opts``), the table includes a "Features" group listing
+    every active plp2gtopt feature toggle so users can verify which
+    soft-constraint / topology / pricing rewrites were applied to the
+    case at a glance.
+    """
     from gtopt_check_json._terminal import print_table  # noqa: PLC0415
 
     sys_data = planning.get("system", {})
@@ -140,6 +238,16 @@ def _log_stats(planning: dict, elapsed: float) -> None:
     rows.append(("use_single_bus", str(mo.get("use_single_bus", False))))
     rows.append(("scale_objective", str(mo.get("scale_objective", 1_000))))
     rows.append(("demand_fail_cost", str(mo.get("demand_fail_cost", 0))))
+
+    # Features — plp2gtopt-level conversion toggles (soft constraints,
+    # auto water-fail-cost, topology rewrites, expansion modes).  Only
+    # appears when callers pass ``options`` to ``_log_stats``.  Wrapped
+    # in a visible separator row so it stands apart from the system /
+    # model-options block above.
+    feat_rows = _features_rows(options)
+    if feat_rows:
+        rows.append(("── Features ──", ""))
+        rows.extend(feat_rows)
 
     # Skipped centrals
     skipped = planning.get("_skipped_isolated", [])
@@ -479,7 +587,7 @@ def validate_plp_case(options: dict[str, Any]) -> bool:
         writer = GTOptWriter(parser)
         planning = writer.to_json(options)
 
-        _log_stats(planning, 0.0)
+        _log_stats(planning, 0.0, options)
         logger.info("Validation passed.")
         return True
     except (RuntimeError, FileNotFoundError, ValueError, OSError) as exc:
@@ -625,7 +733,7 @@ def convert_plp_case(options: dict[str, Any]) -> int:
             progress.done()
 
         # --- Outside the progress context: print tables ---
-        _log_stats(writer.planning, elapsed)
+        _log_stats(writer.planning, elapsed, options)
 
         if options.get("show_simulation", False):
             show_simulation_summary(writer.planning)

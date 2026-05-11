@@ -1037,19 +1037,20 @@ def add_reservoir_battery_arguments(
             "(default: %(default)s)"
         ),
     )
-    # ``--auto-water-fail-cost`` (default False, opt-in for the first
-    # ship): replace the legacy vrebemb/CVert cascade and the
-    # ``2 × max(rebalse_cost)`` heuristic with a single principled
-    # formula derived from the case's own demand-failure prices.  See
-    # ``plp2gtopt._water_value`` for the formula and rationale.  When
-    # enabled, ``--vert-cost-cap`` becomes obsolete (the new helper does
-    # not consult vrebemb cost); leave it in place for backward compat
-    # but it has no effect on the soft-storage / FlowRight pricing path.
+    # ``--auto-water-fail-cost`` (default True since 2026-05-11): replace
+    # the legacy vrebemb/CVert cascade and the ``2 × max(rebalse_cost)``
+    # heuristic with a single principled formula derived from the case's
+    # own demand-failure prices.  See ``plp2gtopt._water_value`` for the
+    # formula and rationale.  When enabled, ``--vert-cost-cap`` becomes
+    # obsolete (the new helper does not consult vrebemb cost); leave it
+    # in place for backward compat but it has no effect on the
+    # soft-storage / FlowRight pricing path.  Disable with
+    # ``--no-auto-water-fail-cost`` to fall back to legacy paths.
     parser.add_argument(
         "--auto-water-fail-cost",
         dest="auto_water_fail_cost",
         action=argparse.BooleanOptionalAction,
-        default=False,
+        default=True,
         help=(
             "auto-derive Reservoir.efin_cost / soft_emin_cost and "
             "FlowRight.fail_cost from the case's own demand-failure "
@@ -1058,7 +1059,8 @@ def add_reservoir_battery_arguments(
             "water obligations strictly dominate energy obligations in "
             "the LP objective.  Use --water-fail-cost to override the "
             "anchor by hand (e.g. 500 instead of the auto value).  Note: "
-            "--vert-cost-cap becomes obsolete when this is on. "
+            "--vert-cost-cap becomes obsolete when this is on.  Pass "
+            "--no-auto-water-fail-cost to disable. "
             "(default: %(default)s)"
         ),
     )

@@ -473,28 +473,42 @@ using namespace gtopt::detail;
       ++cuts_loaded;
     }
 
-    // Per-scene bulk install — replicates the unified `add_cut_row`
-    // semantics (α-release for Optimality cuts, then row insert, then
-    // record_cut_row) but in three batched passes per scene.  Because
-    // every boundary-cut row references α (line `row[alpha_svar->col()]
-    // = 1.0` above), `free_alpha_for_cut` will release the bootstrap pin
-    // — and the call is idempotent across cuts (it's just a
-    // `set_col_low_raw / set_col_upp_raw` on the same α column),
-    // so a redundant release across N cuts is a cheap no-op.
+    // Per-scene install through the unified `gtopt::add_cut_row` entry
+    // (sddp_types.hpp) — same path that runtime-generated optimality
+    // cuts take in `SDDPMethod::backward_pass_single_phase`.  That
+    // single call handles, per cut, in this order:
+    //
+    //   1. α-release via `free_alpha_for_cut` when the cut references
+    //      α (boundary cuts always do — `row[alpha_svar->col()] = 1.0`
+    //      is set in the build loop above).  Idempotent across the
+    //      batch, so a redundant release across N cuts is a cheap
+    //      `set_col_low_raw / set_col_upp_raw` no-op.
+    //   2. `LinearInterface::add_cut_row` which `add_row`s the cut
+    //      AND `record_cut_row`s it.  Post the `6cf57176` fix this
+    //      tracks under every `LowMemoryMode` (including `off`), so
+    //      every `clone_from_flat(with_replay=true)` produced AFTER
+    //      `freeze_for_cuts` will see the boundary cuts re-applied
+    //      from `m_replay_.active_cuts()` — load_flat alone would
+    //      load only the pre-snapshot structural rows.
+    //
+    // Using the unified path here (rather than the previous bulk
+    // add_rows + manual record_cut_row split) keeps the boundary-cut
+    // install semantically identical to the runtime cut install, so a
+    // future change to `add_cut_row` propagates here automatically and
+    // there is one canonical sequence of "release → add → record" that
+    // every cut on α follows.  The N≈1k per-cut calls at startup are
+    // dwarfed by even one SDDP iteration's solve time.
     for (auto&& [si, cuts] : enumerate<SceneIndex>(scene_cuts)) {
       if (cuts.empty()) {
         continue;
       }
-      // Step 1: release α (idempotent across the batch).
       for (const auto& cut : cuts) {
-        free_alpha_for_cut(planning_lp, si, last_phase, cut);
-      }
-      // Step 2: bulk row dispatch.
-      auto& li = planning_lp.system(si, last_phase).linear_interface();
-      li.add_rows(cuts, options.cut_coeff_eps);
-      // Step 3: per-cut bookkeeping (no-op when low_memory_mode == off).
-      for (const auto& cut : cuts) {
-        li.record_cut_row(cut);
+        (void)gtopt::add_cut_row(planning_lp,
+                                 si,
+                                 last_phase,
+                                 CutType::Optimality,
+                                 cut,
+                                 options.cut_coeff_eps);
       }
     }
 

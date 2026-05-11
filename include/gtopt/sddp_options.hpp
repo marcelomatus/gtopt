@@ -517,16 +517,19 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   OptBool forward_infeas_rollback {};
 
   /** @brief Re-solve target phase t LP before extracting cut data
-   *  (default: false).
+   *  (default: true).
    *
-   *  When ``true``, the backward pass at phase t re-solves LP_t at the
-   *  forward-pass trial state v̂_{t-1} **before** building the cut for
-   *  α_{t-1}.  Cuts on α_t added earlier in the same backward pass —
-   *  when this loop processed phase t+1 — are now reflected in z_t and
-   *  the reduced costs, producing a textbook one-iter-tight Benders
-   *  cut on α_{t-1}.
+   *  When ``true`` (default), the backward pass at phase t re-solves
+   *  LP_t at the forward-pass trial state v̂_{t-1} **before** building
+   *  the cut for α_{t-1}.  Cuts on α_t added earlier in the same
+   *  backward pass — when this loop processed phase t+1 — are now
+   *  reflected in z_t and the reduced costs, producing a textbook
+   *  one-iter-tight Benders cut on α_{t-1}.  The aperture-success
+   *  path picks up the same in-pass cuts automatically because each
+   *  aperture clone is forked from LP_t (with cut replay under both
+   *  native ``CPXcloneprob`` and manual ``clone_from_flat`` routes).
    *
-   *  When ``false`` (default), cuts use the forward-pass cached
+   *  When ``false``, cuts use the forward-pass cached
    *  ``forward_full_obj_physical`` and StateVariable-mirrored reduced
    *  costs.  Cheaper per iteration, but a fresh cut at phase T takes
    *  ≈ T iterations to fully ripple to phase 1.

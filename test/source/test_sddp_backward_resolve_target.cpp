@@ -7,7 +7,7 @@
  * Coverage axes:
  *   B1: ``SddpOptions::backward_resolve_target`` defaults to nullopt.
  *   B2: ``PlanningOptionsLP::sddp_backward_resolve_target()`` returns the
- *       documented default ``false`` when the option is absent.
+ *       documented default ``true`` when the option is absent.
  *   B3: An explicit JSON ``"backward_resolve_target": true`` round-trips
  *       through the option struct unchanged.
  *   B4: ``SddpOptions::merge`` propagates the override.
@@ -38,13 +38,13 @@ TEST_CASE(  // NOLINT
 }
 
 TEST_CASE(  // NOLINT
-    "PlanningOptionsLP::sddp_backward_resolve_target defaults to false")
+    "PlanningOptionsLP::sddp_backward_resolve_target defaults to true")
 {
   auto planning = make_2scene_3phase_hydro_planning(0.5, 0.5);
   // No explicit setter call → resolves to
-  // default_sddp_backward_resolve_target which is `false`.
+  // default_sddp_backward_resolve_target which is `true`.
   PlanningLP plp(std::move(planning));
-  CHECK_FALSE(plp.options().sddp_backward_resolve_target());
+  CHECK(plp.options().sddp_backward_resolve_target());
 }
 
 TEST_CASE(  // NOLINT

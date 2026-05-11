@@ -1134,7 +1134,9 @@ public:
   RowIndex add_cut_row(const SparseRow& row, double eps = 0.0)
   {
     const auto idx = add_row(row, eps);
-    // `record_cut_row` no-ops when `m_low_memory_mode_ == off`.
+    // `record_cut_row` always tracks under every `LowMemoryMode`
+    // (the `mode != off` gate was dropped in commit `6cf57176` so
+    // that aperture clones under `off` see post-snapshot cuts).
     record_cut_row(row);
     return idx;
   }

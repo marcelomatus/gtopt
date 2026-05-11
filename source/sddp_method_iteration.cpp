@@ -503,7 +503,7 @@ auto SDDPMethod::backward_pass_single_phase(SceneIndex scene_index,
       // Per-(scene, phase) INFO log mirroring the forward pass's
       // `[iN sM pK/T]` prefix; fires only when the optional re-solve
       // succeeds (the failure branch already logs at DEBUG below).
-      spdlog::info(
+      spdlog::debug(
           "SDDP Backward [i{} s{} p{}/{}]: tgt re-solve z={}->{} (delta={}, "
           "kappa={:.2e})",
           gtopt::uid_of(iteration_index),
@@ -611,7 +611,31 @@ auto SDDPMethod::backward_pass_single_phase(SceneIndex scene_index,
       [](const auto& link) noexcept { return link.state_var != nullptr; }));
   const auto links_used =
       !cut.cmap.empty() ? cut.cmap.size() - 1 : std::size_t {0};
-  spdlog::info(
+  // Compact INFO line — one per (scene, phase) backward step,
+  // formatted to mirror the forward per-phase line at
+  // `sddp_forward_pass.cpp:833`:
+  //
+  //    SDDP Forward  [iN sM pK]:    opex=A  (obj=B,  α=C)
+  //    SDDP Backward [iN sM pK/T]:  cut z=B (α≥X,    links=K/L)
+  //
+  // `z` and `obj` carry the same physical quantity (the target
+  // phase's full optimum incl. α), so the two key-value cells line
+  // up vertically when grepped.  The trailing `/T` is preserved so
+  // run_gtopt's TUI grid parser can pre-allocate phase columns from
+  // the first backward line (see `_tui.py::_SDDP_LOG_RE`).
+  // `(resolve=yes/no)` is no longer in this INFO line — it's
+  // constant within a run once `backward_resolve_target` is fixed;
+  // the DEBUG line below preserves it for diagnostics.
+  spdlog::info("SDDP Backward [i{} s{} p{}/{}]: cut z={} (α≥{}, links={}/{})",
+               gtopt::uid_of(iteration_index),
+               uid_of(scene_index),
+               uid_of(phase_index),
+               bwd_total_phases,
+               format_si(target_state.forward_full_obj_physical),
+               format_si(cut.lowb),
+               links_used,
+               links_total);
+  spdlog::debug(
       "SDDP Backward [i{} s{} p{}/{}]: cut z={} -> alpha>={} (links={}/{}, "
       "resolve={})",
       gtopt::uid_of(iteration_index),
@@ -638,7 +662,7 @@ auto SDDPMethod::backward_pass_single_phase(SceneIndex scene_index,
     const auto col_upp_view = src_li.get_col_upp();
     const auto src_alpha_lb = col_low_view[src_alpha_col];
     const auto src_alpha_ub = col_upp_view[src_alpha_col];
-    spdlog::info(
+    spdlog::debug(
         "SDDP Backward [i0 s{} p{}/{}]: dump α col={} bounds=[{:.3e}, {:.3e}] "
         "cut.cmap.size={} cut.lowb={:.6e} cut.uppb={:.6e}",
         uid_of(scene_index),
@@ -663,7 +687,7 @@ auto SDDPMethod::backward_pass_single_phase(SceneIndex scene_index,
       const double coef = (coef_it != cut.cmap.end()) ? coef_it->second : 0.0;
       const double v_hat = link.state_var->col_sol_physical();
       const double rc_phys = link.state_var->reduced_cost_physical(scale_obj);
-      spdlog::info(
+      spdlog::debug(
           "SDDP Backward [i0 s{} p{}/{}]:   link[{}] col={} bounds=[{:.3e},"
           " {:.3e}] coef={:.4e} rc_phys={:.4e} v_hat={:.4e}",
           uid_of(scene_index),
