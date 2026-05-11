@@ -1,0 +1,213 @@
+// SPDX-License-Identifier: BSD-3-Clause
+/**
+ * @file      test_solver_backend_bulk.cpp
+ * @brief     Tests for SolverBackend::set_col_bounds_bulk (commit b85011e1)
+ * @date      2026-05-11
+ * @copyright BSD-3-Clause
+ *
+ * Pins the bulk-bound-update contract: `set_col_bounds_bulk(num, idx, lu,
+ * vals)` must produce identical backend state to the per-element
+ * `set_col_lower` / `set_col_upper` loop.  Both the default fallback in
+ * SolverBackend (used by CLP/HiGHS/OSI/CBC) and the CPXchgbds-based
+ * override on CPLEX must satisfy this property — the test exercises
+ * whatever backend `SolverRegistry::default_solver()` selects.
+ *
+ * Hot path: this is the API
+ * `LinearInterface::apply_post_load_replay`'s `pending_col_bounds`
+ * loop dispatches into for every clone-from-flat aperture replay.
+ */
+
+#include <array>
+#include <vector>
+
+#include <doctest/doctest.h>
+#include <gtopt/solver_backend.hpp>
+#include <gtopt/solver_registry.hpp>
+
+using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+
+namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
+{
+
+using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+// Tiny 4-col / 2-row LP loaded directly via SolverBackend::load_problem.
+// Mirrors the structure used in test_osi_backend.cpp's OsiTrivialLP2 but
+// sized to four columns so we have enough cells to exercise both single-
+// sided ('L', 'U') and symmetric ('B') bulk updates.
+struct BulkLP4
+{
+  static constexpr int ncols = 4;
+  static constexpr int nrows = 2;
+  // Column-major CSC: each col contributes one entry to each row.
+  std::array<int, 5> matbeg {0, 2, 4, 6, 8};
+  std::array<int, 8> matind {0, 1, 0, 1, 0, 1, 0, 1};
+  std::array<double, 8> matval {1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0};
+  std::array<double, 4> collb {0.0, 0.0, 0.0, 0.0};
+  std::array<double, 4> colub {};
+  std::array<double, 4> obj {1.0, 1.0, 1.0, 1.0};
+  std::array<double, 2> rowlb {0.0, 0.0};
+  std::array<double, 2> rowub {};
+
+  explicit BulkLP4(double inf)
+  {
+    colub.fill(inf);
+    rowub.fill(inf);
+  }
+
+  void load_into(SolverBackend& b) const
+  {
+    b.load_problem(ncols,
+                   nrows,
+                   matbeg.data(),
+                   matind.data(),
+                   matval.data(),
+                   collb.data(),
+                   colub.data(),
+                   obj.data(),
+                   rowlb.data(),
+                   rowub.data());
+  }
+};
+
+[[nodiscard]] std::unique_ptr<SolverBackend> make_default_backend_or_skip()
+{
+  auto& reg = SolverRegistry::instance();
+  reg.load_all_plugins();
+  const auto name = reg.default_solver();
+  if (name.empty()) {
+    return nullptr;
+  }
+  return reg.create(name);
+}
+
+}  // namespace
+
+TEST_CASE(  // NOLINT
+    "set_col_bounds_bulk: 'L'/'U' bulk matches per-element loop")
+{
+  auto a = make_default_backend_or_skip();
+  auto b = make_default_backend_or_skip();
+  if (!a || !b) {
+    return;
+  }
+  const double inf = a->infinity();
+  const BulkLP4 lp {inf};
+  lp.load_into(*a);
+  lp.load_into(*b);
+
+  // Copy A — per-element loop.
+  a->set_col_lower(0, 1.0);
+  a->set_col_upper(0, 5.0);
+  a->set_col_lower(1, 2.0);
+  a->set_col_upper(1, 6.0);
+
+  // Copy B — single bulk call.
+  // idx = [0, 0, 1, 1], lu = "LULU", vals = [1.0, 5.0, 2.0, 6.0]
+  const std::array<int, 4> idx {0, 0, 1, 1};
+  const std::array<char, 4> lu {'L', 'U', 'L', 'U'};
+  const std::array<double, 4> vals {1.0, 5.0, 2.0, 6.0};
+  b->set_col_bounds_bulk(
+      static_cast<int>(idx.size()), idx.data(), lu.data(), vals.data());
+
+  // Per-element comparison of resulting bounds.
+  const double* a_low = a->col_lower();
+  const double* a_upp = a->col_upper();
+  const double* b_low = b->col_lower();
+  const double* b_upp = b->col_upper();
+  REQUIRE(a_low != nullptr);
+  REQUIRE(a_upp != nullptr);
+  REQUIRE(b_low != nullptr);
+  REQUIRE(b_upp != nullptr);
+  for (int i = 0; i < BulkLP4::ncols; ++i) {
+    CAPTURE(i);
+    // NOLINTBEGIN(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+    CHECK(a_low[i] == doctest::Approx(b_low[i]));
+    CHECK(a_upp[i] == doctest::Approx(b_upp[i]));
+    // NOLINTEND(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+  }
+}
+
+TEST_CASE(  // NOLINT
+    "set_col_bounds_bulk: 'B' (both) sets lower and upper to same value")
+{
+  auto a = make_default_backend_or_skip();
+  auto b = make_default_backend_or_skip();
+  if (!a || !b) {
+    return;
+  }
+  const double inf = a->infinity();
+  const BulkLP4 lp {inf};
+  lp.load_into(*a);
+  lp.load_into(*b);
+
+  // Copy A — per-element loop emulating 'B': set both bounds to the
+  // same value (this is what 'B' means in the CPLEX `lu` convention).
+  a->set_col_lower(0, 3.0);
+  a->set_col_upper(0, 3.0);
+  a->set_col_lower(1, 7.0);
+  a->set_col_upper(1, 7.0);
+
+  // Copy B — bulk with 'B'.
+  const std::array<int, 2> idx {0, 1};
+  const std::array<char, 2> lu {'B', 'B'};
+  const std::array<double, 2> vals {3.0, 7.0};
+  b->set_col_bounds_bulk(
+      static_cast<int>(idx.size()), idx.data(), lu.data(), vals.data());
+
+  const double* a_low = a->col_lower();
+  const double* a_upp = a->col_upper();
+  const double* b_low = b->col_lower();
+  const double* b_upp = b->col_upper();
+  REQUIRE(a_low != nullptr);
+  REQUIRE(a_upp != nullptr);
+  REQUIRE(b_low != nullptr);
+  REQUIRE(b_upp != nullptr);
+  for (int i = 0; i < BulkLP4::ncols; ++i) {
+    CAPTURE(i);
+    // NOLINTBEGIN(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+    CHECK(a_low[i] == doctest::Approx(b_low[i]));
+    CHECK(a_upp[i] == doctest::Approx(b_upp[i]));
+    // NOLINTEND(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+  }
+  // Sanity: col 0 ends up at [3, 3], col 1 at [7, 7].
+  // NOLINTBEGIN(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+  CHECK(b_low[0] == doctest::Approx(3.0));
+  CHECK(b_upp[0] == doctest::Approx(3.0));
+  CHECK(b_low[1] == doctest::Approx(7.0));
+  CHECK(b_upp[1] == doctest::Approx(7.0));
+  // NOLINTEND(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+}
+
+TEST_CASE(  // NOLINT
+    "set_col_bounds_bulk: empty input is a safe no-op")
+{
+  auto backend = make_default_backend_or_skip();
+  if (!backend) {
+    return;
+  }
+  const double inf = backend->infinity();
+  const BulkLP4 lp {inf};
+  lp.load_into(*backend);
+
+  // Snapshot current bounds.
+  std::array<double, BulkLP4::ncols> before_low {};
+  std::array<double, BulkLP4::ncols> before_upp {};
+  backend->fill_col_lower(before_low);
+  backend->fill_col_upper(before_upp);
+
+  // Bulk with num=0 — must not crash and must not change anything.
+  backend->set_col_bounds_bulk(0, nullptr, nullptr, nullptr);
+
+  std::array<double, BulkLP4::ncols> after_low {};
+  std::array<double, BulkLP4::ncols> after_upp {};
+  backend->fill_col_lower(after_low);
+  backend->fill_col_upper(after_upp);
+  for (int i = 0; i < BulkLP4::ncols; ++i) {
+    CAPTURE(i);
+    CHECK(before_low.at(static_cast<size_t>(i))
+          == doctest::Approx(after_low.at(static_cast<size_t>(i))));
+    CHECK(before_upp.at(static_cast<size_t>(i))
+          == doctest::Approx(after_upp.at(static_cast<size_t>(i))));
+  }
+}

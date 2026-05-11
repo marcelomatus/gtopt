@@ -181,6 +181,44 @@ TEST_CASE(
   CHECK(result.empty());
 }
 
+// Gap C4: pin the count-accumulation contract that backs the per-chunk
+// UID memo in solve_apertures_for_phase.  Non-contiguous duplicates
+// (e.g. [1, 2, 1]) must be collapsed by UID into a single ApertureEntry
+// per UID with count == total occurrences, regardless of layout — the
+// memo branch hashes on UID, not list position.
+TEST_CASE(
+    "build_effective_apertures — non-contiguous duplicates "
+    "accumulate counts")  // NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  const std::vector<Aperture> defs {
+      {
+          .uid = Uid {1},
+          .source_scenario = Uid {10},
+      },
+      {
+          .uid = Uid {2},
+          .source_scenario = Uid {20},
+      },
+  };
+
+  // UID 1 appears twice, separated by UID 2.  First-appearance order
+  // is [1, 2], so the deduplicated result must be [{uid=1, count=2},
+  // {uid=2, count=1}] — the second uid1 must NOT create a new entry.
+  const std::vector<Uid> phase_aps {
+      Uid {1},
+      Uid {2},
+      Uid {1},
+  };
+  const auto result = build_effective_apertures(defs, phase_aps);
+  REQUIRE(result.size() == 2);
+  CHECK(result[0].aperture.get().uid == Uid {1});
+  CHECK(result[0].count == 2);
+  CHECK(result[1].aperture.get().uid == Uid {2});
+  CHECK(result[1].count == 1);
+}
+
 TEST_CASE(
     "build_effective_apertures — inactive apertures in phase list are skipped")  // NOLINT
 {

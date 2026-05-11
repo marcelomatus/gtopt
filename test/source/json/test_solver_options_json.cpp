@@ -160,6 +160,43 @@ TEST_CASE("SolverOptions JSON partial object uses defaults for missing")
   CHECK(opts.log_level == 0);
 }
 
+// Gap I2: pin the JSON binding for `crossover` exposed in commit
+// dbeb01cb.  The forward pass typically sets crossover=false (skip
+// crossover for speed), the backward pass needs crossover=true to
+// produce duals; both must round-trip exactly through to_json/
+// from_json.
+TEST_CASE("SolverOptions JSON crossover field round-trip")
+{
+  SUBCASE("crossover=false (forward) parses and round-trips")
+  {
+    const std::string_view json_data = R"({"crossover": false})";
+    const SolverOptions opts = daw::json::from_json<SolverOptions>(json_data);
+    CHECK(opts.crossover == false);
+
+    const auto out = daw::json::to_json(opts);
+    const SolverOptions rt = daw::json::from_json<SolverOptions>(out);
+    CHECK(rt.crossover == false);
+  }
+
+  SUBCASE("crossover=true (backward) parses and round-trips")
+  {
+    const std::string_view json_data = R"({"crossover": true})";
+    const SolverOptions opts = daw::json::from_json<SolverOptions>(json_data);
+    CHECK(opts.crossover == true);
+
+    const auto out = daw::json::to_json(opts);
+    const SolverOptions rt = daw::json::from_json<SolverOptions>(out);
+    CHECK(rt.crossover == true);
+  }
+
+  SUBCASE("default when missing is true")
+  {
+    const std::string_view json_data = R"({})";
+    const SolverOptions opts = daw::json::from_json<SolverOptions>(json_data);
+    CHECK(opts.crossover == true);
+  }
+}
+
 TEST_CASE("SolverOptions JSON max_fallbacks parsing and round-trip")
 {
   SUBCASE("default when missing is 2")
