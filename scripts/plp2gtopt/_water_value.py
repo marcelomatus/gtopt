@@ -151,31 +151,33 @@ class WaterValueResolver:
     # ------------------------------------------------------------------
     @cached_property
     def anchor(self) -> float:
-        """``ANCHOR = (max_unit_gcost + min_falla_gcost) / 2`` (in ``$/MWh``).
+        """``ANCHOR = (avg_thermal_gcost + min_falla_gcost) / 2`` ($/MWh).
 
         Economic interpretation: water shortage is priced midway
         between
 
-          * the **most expensive supply unit** still in the merit order
-            — the marginal cost of the priciest non-``falla`` generator
-            that the LP would dispatch to avoid curtailment, and
+          * the **average thermal generator marginal cost** — a
+            representative "base power price" that reflects the
+            typical replacement cost when hydro is curtailed, rather
+            than the peakers' marginal cost.  Using the **average**
+            (rather than the max) keeps water-value moderate and
+            stays well below the SDDP `2 × thermal_cost` LB-overshoot
+            threshold under `backward_resolve_target=true` (see the
+            DIAG test ladder in test_sddp_method.cpp), and
           * the **cheapest curtailment rung** — the lowest-tier
             ``falla`` price (PLP's per-bus tiered unserved-energy cost).
 
-        This is the natural break-even: any time the system would
-        rather pay a thermal unit at ``max_unit_gcost`` than curtail
-        at ``min_falla_gcost``, the water value sits halfway between
-        — strictly above the most expensive unit (so water doesn't
-        force-displace dispatchable thermal) and strictly below the
-        cheapest unserved-energy tier (so water shortage isn't
-        priced like demand shortage).
+        Switching the upper end from `max(non-falla.gcost)` to
+        `avg(termica.gcost)` is a deliberate reduction in the auto
+        water value: it lowers `efin_cost` on every reservoir and
+        keeps the resulting LP inside the SDDP cut-validity envelope
+        on cases where the previous (max-based) anchor produced LB
+        overshoots on juan/IPLP-scale runs.
 
-        Replaces the previous formula ``max(falla.gcost) + 1`` which
-        clipped the anchor to the *most expensive* curtailment rung
-        and produced over-pricing of water (e.g. juan/IPLP: 1,589,575
-        $/hm³ for LMAULE) that drove the LP to over-fill reservoirs
-        and triggered cascade infeasibilities at iter-0 forward
-        passes.
+        No `(1 + losses)` factor is added — losses are accounted for
+        at the LP level (line_losses) and double-applying a 10%
+        margin here would re-introduce the over-pricing this formula
+        is designed to avoid.
 
         Falls back to ``0`` when either side is missing (degenerate
         cases / unit-test fixtures); callers should treat the
@@ -185,11 +187,8 @@ class WaterValueResolver:
 
         1. Explicit ``--water-fail-cost`` override (option key
            ``water_fail_cost``) — when set, used directly as the anchor
-           in ``$/MWh`` and the auto formula is bypassed.  This is the
-           knob users reach for when they want to set the entire anchor
-           by hand (e.g. 500 $/MWh) instead of letting it derive from
-           the case data.
-        2. Auto-derive from ``(max_unit_gcost + min_falla_gcost) / 2``.
+           in ``$/MWh`` and the auto formula is bypassed.
+        2. Auto-derive from ``(avg_thermal_gcost + min_falla_gcost) / 2``.
         """
         explicit = self.options.get("water_fail_cost")
         if explicit is not None:
@@ -198,7 +197,7 @@ class WaterValueResolver:
             except (TypeError, ValueError):
                 pass
 
-        max_unit_gcost = 0.0  # most expensive non-falla generator
+        thermal_gcosts: list[float] = []
         min_falla_gcost = float("inf")  # cheapest curtailment rung
         for c in getattr(self.central_parser, "centrals", []) or []:
             ctype = c.get("type")
@@ -209,16 +208,18 @@ class WaterValueResolver:
             if ctype == "falla":
                 if gcost > 0.0:
                     min_falla_gcost = min(min_falla_gcost, gcost)
-            else:
-                # Skip generators with no marginal cost (renewables /
-                # zero-fuel hydros) — they don't define a meaningful
-                # "most expensive unit" floor for the water anchor.
+            elif ctype == "termica":
+                # Thermal plants define the "base power price".  Average
+                # (not max) so the anchor sits at a representative
+                # replacement cost.  Skip zero-gcost thermals (idle
+                # placeholder entries) so they don't pull the mean down.
                 if gcost > 0.0:
-                    max_unit_gcost = max(max_unit_gcost, gcost)
+                    thermal_gcosts.append(gcost)
 
-        if max_unit_gcost <= 0.0 or min_falla_gcost == float("inf"):
+        if not thermal_gcosts or min_falla_gcost == float("inf"):
             return 0.0
-        return (max_unit_gcost + min_falla_gcost) / 2.0
+        avg_thermal_gcost = sum(thermal_gcosts) / len(thermal_gcosts)
+        return (avg_thermal_gcost + min_falla_gcost) / 2.0
 
     @property
     def water_fail_cost(self) -> float:
@@ -284,14 +285,46 @@ class WaterValueResolver:
     # lost_pf — cascade and single-junction rules
     # ------------------------------------------------------------------
     def cascade_lost_pf(self, start_central_number: int) -> float:
-        """Sum of ``max_rendi`` along the ``ser_hid`` chain (bus>0 only).
+        """Sum of ``max_rendi`` along ``ser_hid`` up to the next reservoir.
 
         The walk starts at *start_central_number* and follows
-        ``ser_hid`` until it hits 0 (terminal) or a previously visited
-        node (cycle guard).  Only visited centrals with ``bus > 0`` are
-        included in the sum — transit-only centrals (``bus = 0``)
-        contribute no energy value.  Returns ``0.0`` for unknown
-        starting numbers.
+        ``ser_hid`` until one of:
+
+          * ``ser_hid = 0`` (chain terminates at the ocean / no further
+            downstream), or
+          * a previously visited node (cycle guard), or
+          * **the next ``embalse`` (reservoir) central downstream** —
+            water reaching another reservoir is captured there and
+            its future energy value becomes that reservoir's
+            responsibility, not the current one's.
+
+        Only visited centrals with ``bus > 0`` AND
+        ``type in ("embalse", "serie")`` are included in the sum.
+        Reasons for the type filter:
+
+          * ``serie`` units are the storage-attached hydro turbines
+            whose energy production is directly enabled by water
+            released from the start reservoir.
+          * ``embalse`` is allowed only for the start central; the
+            walk terminates BEFORE adding any other embalse (water
+            captured by an intermediate reservoir becomes that
+            reservoir's responsibility).
+          * ``pasada`` (run-of-river) units are excluded — they
+            generate from whatever water passes through them
+            regardless of reservoir storage, so reservoir-level
+            shortage does not change their dispatch.  Including
+            them would over-count the marginal energy value of
+            stored water.
+
+        Returns ``0.0`` for unknown starting numbers.
+
+        The "stop at next reservoir" rule deliberately undercounts
+        the cascade compared to the older "sum to terminal" form —
+        this is the cascade analogue of switching the anchor from
+        max thermal to avg thermal, both aimed at keeping the
+        resulting ``efin_cost`` strictly below the
+        ``2 × thermal_cost`` SDDP LB-overshoot threshold under
+        ``backward_resolve_target=true``.
         """
         if start_central_number is None:
             return 0.0
@@ -306,15 +339,27 @@ class WaterValueResolver:
         visited: set[int] = set()
         cur_num = start
         while cur_num and cur_num > 0 and cur_num not in visited:
-            visited.add(cur_num)
             cur = self._by_number.get(cur_num)
             if cur is None:
                 break
+            # Stop at the NEXT reservoir downstream — water entering it
+            # becomes its responsibility for cost-of-shortage pricing.
+            # The start central itself is allowed to be an embalse
+            # (the typical caller passes a reservoir-bound central);
+            # only intermediate embalses terminate the walk.
+            if cur.get("type") == "embalse" and cur_num != start:
+                break
+            visited.add(cur_num)
             try:
                 bus = int(cur.get("bus", 0) or 0)
             except (TypeError, ValueError):
                 bus = 0
-            if bus > 0:
+            # Only hydro-basin units (embalse, serie) contribute to
+            # the PF sum.  Pasada (run-of-river) generates from
+            # transient flow regardless of reservoir storage and
+            # therefore does not represent saved-water marginal value.
+            ctype = cur.get("type")
+            if bus > 0 and ctype in ("embalse", "serie"):
                 cname = cur.get("name")
                 if isinstance(cname, str):
                     total += self.max_rendi(cname)

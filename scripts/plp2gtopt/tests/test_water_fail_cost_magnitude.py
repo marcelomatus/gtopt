@@ -41,11 +41,35 @@ from plp2gtopt._water_value import WaterValueResolver
 # ``max(falla.gcost) + 1`` formula by the ratio of the two anchors,
 # but the *proportionality* between reservoirs is unchanged because
 # every cost surface scales linearly in the anchor.
+#
+# Re-baselined 2026-05-11 after switching:
+#
+#   * cascade walk to **stop at the next reservoir** (instead of
+#     walking to the ocean) — affects LMAULE / CIPRESES / RALCO
+#     whose downstream chains hit a `type=embalse` central in
+#     real PLP topology, AND
+#   * cascade walk to **exclude pasada** centrals from the PF sum
+#     (only embalse / serie contribute), AND
+#   * anchor to ``avg(termica.gcost)`` (instead of ``max(non-falla.gcost)``).
+#
+# Per-reservoir change vs. the old cascade-to-ocean rule:
+#
+#   reservoir   | old   | new    | diff   reason
+#   ------------|------:|-------:|------|-----------------------
+#   LMAULE      | 10.050| 8.270  | -1.78 stops at PEHUENCHE (embalse)
+#   CIPRESES    | 6.914 | 5.134  | -1.78 stops at next embalse
+#   RALCO       | 2.976 | 1.746  | -1.23 stops at next embalse
+#   (all others unchanged — their cascade already terminated at
+#   the ocean without crossing an intermediate embalse)
+#
+# FR (junction_lost_pf) values are unchanged because that path
+# uses only the FR-bound central's own ``max_rendi`` and was not
+# modified by the cascade rules.
 _REFERENCE_RESERVOIRS_LOST_PF = {
-    "LMAULE": 10.050,
-    "CIPRESES": 6.914,
+    "LMAULE": 8.270,
+    "CIPRESES": 5.134,
     "ELTORO": 6.627930,  # cenre lift
-    "RALCO": 2.975756,  # cenre lift
+    "RALCO": 1.745756,  # cenre lift
     "CANUTILLAR": 2.074676,  # cenre lift
     "COLBUN": 1.942115,  # cenre lift
     "PEHUENCHE": 1.780,

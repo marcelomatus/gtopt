@@ -47,12 +47,19 @@ class _FakeCenreParser:
 # tier-4 falla rung (568.4 $/MWh) and a small LMAULE-like cascade so we can
 # spot-check the documented numbers without needing the full PLP case on
 # disk.
-# Reference juan/IPLP-style magnitudes for the new
-# ``ANCHOR = (max_unit_gcost + min_falla_gcost) / 2`` formula:
+# Reference juan/IPLP-style magnitudes for the
+# ``ANCHOR = (avg_thermal_gcost + min_falla_gcost) / 2`` formula:
 #
 #   * cheapest curtailment rung   = 100 $/MWh  (FALLA_T1)
-#   * most expensive supply unit  = 200 $/MWh  (PEAKER thermal)
-#   * anchor                       = (200 + 100) / 2 = 150 $/MWh
+#   * thermal plants in fixture   = [PEAKER 200, BASE_THERMAL 50]
+#   * average thermal gcost       = (200 + 50) / 2 = 125 $/MWh
+#   * anchor                       = (125 + 100) / 2 = 112.5 $/MWh
+#
+# Switched from `max(non-falla.gcost)` to `avg(termica.gcost)` so the
+# anchor reflects a representative *base* power price rather than the
+# peakers' marginal cost — keeps water value strictly below the SDDP
+# `2 × thermal_cost` LB-overshoot threshold (see DIAG ladder in
+# test/source/test_sddp_method.cpp).
 #
 # ``_FALLA_GCOST_MAX`` is retained for the higher tier-4 rung so the
 # fixture still exercises the "min reduction over falla" path
@@ -60,7 +67,9 @@ class _FakeCenreParser:
 _FALLA_GCOST_MIN = 100.0
 _FALLA_GCOST_MAX = 568.4
 _PEAKER_GCOST = 200.0  # most expensive non-falla unit
-_ANCHOR_AUTO = (_PEAKER_GCOST + _FALLA_GCOST_MIN) / 2.0  # 150.0
+_BASE_THERMAL_GCOST = 50.0  # cheaper thermal — both enter the mean
+_AVG_THERMAL_GCOST = (_PEAKER_GCOST + _BASE_THERMAL_GCOST) / 2.0  # 125.0
+_ANCHOR_AUTO = (_AVG_THERMAL_GCOST + _FALLA_GCOST_MIN) / 2.0  # 112.5
 
 
 def _make_centrals() -> List[Dict[str, Any]]:
@@ -237,13 +246,17 @@ def _make_centrals_with_eltoro() -> List[Dict[str, Any]]:
 
 
 def test_water_fail_cost_auto_formula() -> None:
-    """Anchor = (max_unit_gcost + min_falla_gcost) / 2 = (200 + 100) / 2 = 150.
+    """Anchor = (avg_thermal_gcost + min_falla_gcost) / 2.
 
-    Pins the new "midpoint between most-expensive supply unit and
-    cheapest curtailment rung" formula and the directional reductions:
-    ``max(non-falla.gcost)`` selects the PEAKER (200) over BASE_THERMAL
-    (50); ``min(falla.gcost)`` selects FALLA_T1 (100) over FALLA_T4
-    (568.4).
+    Fixture thermals: PEAKER (200) + BASE_THERMAL (50) → avg = 125.
+    Fixture falla:    FALLA_T1 (100) and FALLA_T4 (568.4) → min = 100.
+    Anchor = (125 + 100) / 2 = 112.5 $/MWh.
+
+    Pins the "midpoint between average-thermal-base-power-price and
+    cheapest curtailment rung" formula and its directional reductions:
+    ``avg(termica.gcost)`` averages both PEAKER and BASE_THERMAL (no
+    longer just the max); ``min(falla.gcost)`` selects FALLA_T1 (100)
+    over FALLA_T4 (568.4).
     """
     cp = _FakeCentralParser(_make_centrals())
     resolver = WaterValueResolver(
@@ -454,9 +467,10 @@ def test_junction_lost_pf_unknown_number() -> None:
 def test_efin_cost_formula() -> None:
     """anchor × lost_pf × 1e6 / 3600 [$/hm³].
 
-    LMAULE cascade lost_pf = 10.05 → 150 × 10.05 × 1e6 / 3600 ≈ 418,750
-    under the new ``ANCHOR = (max_unit_gcost + min_falla_gcost) / 2``
-    formula (= 150 from the PEAKER 200 + FALLA_T1 100 fixture).
+    LMAULE cascade lost_pf = 10.05 → 112.5 × 10.05 × 1e6 / 3600 ≈ 314,063
+    under the ``ANCHOR = (avg_thermal_gcost + min_falla_gcost) / 2``
+    formula (= 112.5 from the avg([PEAKER 200, BASE_THERMAL 50]) +
+    FALLA_T1 100 fixture).
     """
     cp = _FakeCentralParser(_make_centrals())
     resolver = WaterValueResolver(
@@ -472,8 +486,8 @@ def test_efin_cost_formula() -> None:
 def test_fail_cost_formula() -> None:
     """anchor × lost_pf [$/(m³/s·h)].
 
-    ABANICO own rendi 1.2 → 150 × 1.2 = 180 under the new anchor.
-    ANTUCO own rendi 1.6 → 150 × 1.6 = 240.
+    ABANICO own rendi 1.2 → 112.5 × 1.2 = 135 under the avg-thermal anchor.
+    ANTUCO own rendi 1.6 → 112.5 × 1.6 = 180.
     """
     cp = _FakeCentralParser(_make_centrals())
     resolver = WaterValueResolver(
