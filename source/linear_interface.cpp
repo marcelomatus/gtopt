@@ -632,11 +632,28 @@ void LinearInterface::apply_post_load_replay(const LpReplayBuffer& source)
   //    construction-time bounds while off mode (which never
   //    reloads) keeps the propagated pins — producing different
   //    cuts and ultimately the juan/iplp compress LB stall.
-  //    Calls `m_backend_->set_col_lower/upper` directly to bypass
-  //    the recording path in our own raw setters.
-  for (const auto& [col, bounds] : source.pending_col_bounds()) {
-    m_backend_->set_col_lower(col, bounds.first);
-    m_backend_->set_col_upper(col, bounds.second);
+  //    Uses the bulk `set_col_bounds_bulk` API (one CPXchgbds call
+  //    on CPLEX, one HighsLp update on HiGHS) instead of N pairs of
+  //    `set_col_lower/upper` virtual dispatches — matters on cases
+  //    with many forward-pass dep_col pins (production juan/IPLP).
+  if (const auto& pending = source.pending_col_bounds(); !pending.empty()) {
+    const auto n = pending.size();
+    std::vector<int> idx;
+    std::vector<char> lu;
+    std::vector<double> values;
+    idx.reserve(n * 2U);
+    lu.reserve(n * 2U);
+    values.reserve(n * 2U);
+    for (const auto& [col, bounds] : pending) {
+      idx.push_back(static_cast<int>(col));
+      lu.push_back('L');
+      values.push_back(bounds.first);
+      idx.push_back(static_cast<int>(col));
+      lu.push_back('U');
+      values.push_back(bounds.second);
+    }
+    m_backend_->set_col_bounds_bulk(
+        static_cast<int>(idx.size()), idx.data(), lu.data(), values.data());
   }
 
   // No warm-start step: the barrier method (default solver algorithm)

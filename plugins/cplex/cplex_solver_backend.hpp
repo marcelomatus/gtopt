@@ -128,6 +128,10 @@ public:
   void set_col_upper(int index, double value) override;
   void set_obj_coeff(int index, double value) override;
   void set_obj_coeffs(const double* values, int num_cols) override;
+  void set_col_bounds_bulk(int num,
+                           const int* indices,
+                           const char* lu,
+                           const double* values) override;
 
   // ---- row ops ----
   void add_row(int num_elements,
@@ -145,6 +149,13 @@ public:
   void set_row_upper(int index, double value) override;
   void set_row_bounds(int index, double lb, double ub) override;
   void delete_rows(int num, const int* indices) override;
+  // Note: `set_row_bounds_bulk` uses the base class default (per-row
+  // loop calling set_row_lower/upper/bounds).  CPLEX has bulk
+  // CPXchgsense/CPXchgrhs/CPXchgrngval but each row needs a
+  // (sense, rhs, range) recomputation from the (new_lb, new_ub) tuple
+  // — that recompute is the dominant cost, not the dispatch overhead.
+  // A future PR can override this if profiling shows row-bound mutation
+  // on the hot path.
 
   // ---- coefficients ----
   [[nodiscard]] double get_coeff(int row, int col) const override;

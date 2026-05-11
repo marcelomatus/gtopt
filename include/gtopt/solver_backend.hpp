@@ -133,6 +133,41 @@ public:
   virtual void set_col_upper(int index, double value) = 0;
   virtual void set_obj_coeff(int index, double value) = 0;
 
+  /// Bulk column-bound mutation: parallel arrays of length `num`.
+  /// `lu[i]` ∈ {'L','U','B'} per CPLEX convention (lower / upper / both).
+  /// Default fallback is a per-element loop over `set_col_lower` /
+  /// `set_col_upper`, matching `set_obj_coeffs` shape.  Plugins SHOULD
+  /// override when the native API is genuinely batched (CPXchgbds with
+  /// `cnt > 1`, HighsLp::col_{lower,upper}, etc.) — those drop the per-
+  /// call dispatch overhead and often skip per-element bookkeeping.
+  ///
+  /// Hot in `LinearInterface::apply_post_load_replay`'s `pending_col_bounds`
+  /// loop and the SDDP forward-pass `propagate_trial_values` step.
+  virtual void set_col_bounds_bulk(int num,
+                                   const int* indices,
+                                   const char* lu,
+                                   const double* values)
+  {
+    for (int i = 0; i < num; ++i) {
+      // NOLINTBEGIN(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+      switch (lu[i]) {
+        case 'L':
+          set_col_lower(indices[i], values[i]);
+          break;
+        case 'U':
+          set_col_upper(indices[i], values[i]);
+          break;
+        case 'B':
+          set_col_lower(indices[i], values[i]);
+          set_col_upper(indices[i], values[i]);
+          break;
+        default:
+          break;
+      }
+      // NOLINTEND(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+    }
+  }
+
   /// Bulk update of all objective coefficients.  `values` MUST have size
   /// equal to the current number of columns; the implementation overwrites
   /// every coefficient.  Default fallback is a per-column loop over
@@ -177,6 +212,40 @@ public:
   virtual void set_row_upper(int index, double value) = 0;
   virtual void set_row_bounds(int index, double lb, double ub) = 0;
   virtual void delete_rows(int num, const int* indices) = 0;
+
+  /// Bulk row-bound mutation: parallel arrays of length `num`.
+  /// `lu[i]` ∈ {'L','U','B'} per CPLEX convention (lower / upper / both).
+  /// Default fallback is a per-element loop over `set_row_lower` /
+  /// `set_row_upper` / `set_row_bounds`.  Plugins SHOULD override when
+  /// the native API is genuinely batched (CPXchgrhs/CPXchgrngval for
+  /// equality and ranged RHS, HighsLp::row_{lower,upper}, etc.).
+  ///
+  /// Hot in `LinearInterface::update_lp_for_phase` row-RHS recomputation
+  /// across many constraints in one phase.
+  virtual void set_row_bounds_bulk(int num,
+                                   const int* indices,
+                                   const char* lu,
+                                   const double* lo,
+                                   const double* up)
+  {
+    for (int i = 0; i < num; ++i) {
+      // NOLINTBEGIN(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+      switch (lu[i]) {
+        case 'L':
+          set_row_lower(indices[i], lo[i]);
+          break;
+        case 'U':
+          set_row_upper(indices[i], up[i]);
+          break;
+        case 'B':
+          set_row_bounds(indices[i], lo[i], up[i]);
+          break;
+        default:
+          break;
+      }
+      // NOLINTEND(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+    }
+  }
 
   // ---- coefficient access ----
 

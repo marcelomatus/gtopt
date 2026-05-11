@@ -629,6 +629,69 @@ void CplexSolverBackend::set_obj_coeffs(const double* values, int num_cols)
   CPXchgobj(m_env_lp_.env(), m_env_lp_.lp(), num_cols, indices.data(), values);
 }
 
+void CplexSolverBackend::set_col_bounds_bulk(int num,
+                                             const int* indices,
+                                             const char* lu,
+                                             const double* values)
+{
+  // CPXchgbds accepts parallel `(indices, lu, bd)` arrays in one call.
+  // The 'B' (both) case is expanded into one 'L' + one 'U' pair because
+  // CPXchgbds doesn't accept 'B' directly — it interprets each row of
+  // `lu` as a single side selector.  For chunks with no 'B' entries
+  // (the typical aperture pending-bound replay path) the values arrays
+  // are forwarded verbatim, costing one CPXchgbds dispatch instead of
+  // N virtual calls.
+  invalidate_problem_data();
+  if (num <= 0) {
+    return;
+  }
+  // Fast path: no 'B' (both-sides) entries — forward parallel arrays
+  // unchanged.  Single allocation-free CPXchgbds dispatch.
+  bool has_both = false;
+  for (int i = 0; i < num; ++i) {
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+    if (lu[i] == 'B') {
+      has_both = true;
+      break;
+    }
+  }
+  if (!has_both) {
+    CPXchgbds(m_env_lp_.env(), m_env_lp_.lp(), num, indices, lu, values);
+    return;
+  }
+  // Expand 'B' into 'L'+'U' pairs.  Worst case the expanded vectors are
+  // 2× the input; reserve up front to skip reallocations.
+  std::vector<int> idx;
+  std::vector<char> sides;
+  std::vector<double> vals;
+  idx.reserve(static_cast<size_t>(num) * 2U);
+  sides.reserve(static_cast<size_t>(num) * 2U);
+  vals.reserve(static_cast<size_t>(num) * 2U);
+  for (int i = 0; i < num; ++i) {
+    // NOLINTBEGIN(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+    const char c = lu[i];
+    if (c == 'B') {
+      idx.push_back(indices[i]);
+      sides.push_back('L');
+      vals.push_back(values[i]);
+      idx.push_back(indices[i]);
+      sides.push_back('U');
+      vals.push_back(values[i]);
+    } else {
+      idx.push_back(indices[i]);
+      sides.push_back(c);
+      vals.push_back(values[i]);
+    }
+    // NOLINTEND(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+  }
+  CPXchgbds(m_env_lp_.env(),
+            m_env_lp_.lp(),
+            static_cast<int>(idx.size()),
+            idx.data(),
+            sides.data(),
+            vals.data());
+}
+
 void CplexSolverBackend::add_row(int num_elements,
                                  const int* columns,
                                  const double* elements,
