@@ -307,7 +307,7 @@ void apply_terminal_alpha_floor(PlanningLP& planning_lp, SceneIndex scene_index)
   // observed on juan/gtopt_iplp_plain regardless of whether boundary
   // cuts were loaded for the current scene.
   double tightest_floor = 0.0;
-  std::size_t cuts_with_alpha = 0;
+  [[maybe_unused]] std::size_t cuts_with_alpha = 0;
   for (const auto& cut : li.active_cuts()) {
     // Skip non-α cuts (pure state-coupling rows from feasibility
     // cuts).  Boundary cuts always carry `row[α] = 1.0`.
