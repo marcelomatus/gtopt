@@ -307,7 +307,6 @@ void apply_terminal_alpha_floor(PlanningLP& planning_lp, SceneIndex scene_index)
   // observed on juan/gtopt_iplp_plain regardless of whether boundary
   // cuts were loaded for the current scene.
   double tightest_floor = 0.0;
-  std::size_t cuts_with_alpha = 0;
   for (const auto& cut : li.active_cuts()) {
     // Skip non-α cuts (pure state-coupling rows from feasibility
     // cuts).  Boundary cuts always carry `row[α] = 1.0`.
@@ -315,7 +314,6 @@ void apply_terminal_alpha_floor(PlanningLP& planning_lp, SceneIndex scene_index)
     if (alpha_it == cut.cmap.end()) {
       continue;
     }
-    ++cuts_with_alpha;
 
     double cut_floor = cut.lowb;
     for (const auto& [col, coef] : cut.cmap) {
@@ -354,7 +352,10 @@ void apply_terminal_alpha_floor(PlanningLP& planning_lp, SceneIndex scene_index)
                sim.uid_of(scene_index),
                sim.uid_of(last_phase),
                tightest_floor,
-               cuts_with_alpha);
+               std::ranges::count_if(
+                   li.active_cuts(),
+                   [&](const auto& c)
+                   { return c.cmap.find(alpha_col) != c.cmap.end(); }));
 }
 
 // Free-function implementation declared in <gtopt/sddp_types.hpp>.
