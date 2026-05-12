@@ -702,7 +702,7 @@ public:
                                double new_lowb) noexcept;
 
   /// Two-sided bound update for a dynamic column — used by the SDDP
-  /// `free_alpha` path which relaxes both the pinned `lowb = 0` and
+  /// `bound_alpha` path which relaxes both the pinned `lowb = 0` and
   /// `uppb = 0` bootstrap in a single call.  Semantics mirror
   /// `update_dynamic_col_lowb`: no-op under `LowMemoryMode::off`,
   /// returns `true` iff a matching `(class_name, variable_name)`

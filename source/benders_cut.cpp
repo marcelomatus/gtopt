@@ -961,7 +961,7 @@ auto elastic_filter_solve(const LinearInterface& li,
 
   // α is intentionally NOT pinned / modified in the clone: leave it in
   // whatever bound state the original LP has (bootstrap `lowb=uppb=0`
-  // on first iter, or `[-DblMax, +DblMax]` after `free_alpha` has fired
+  // on first iter, or `[-DblMax, +DblMax]` after `bound_alpha` has fired
   // from a prior optimality cut).  Pinning α at 0 here would make the
   // clone infeasible whenever the target phase has an installed
   // optimality cut `α + Σ rc·s ≥ Z` with positive Z at the current

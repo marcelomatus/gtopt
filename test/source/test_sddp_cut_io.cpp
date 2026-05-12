@@ -632,7 +632,7 @@ TEST_CASE(
   // SDDP init (unified across all phases); the cut loader no
   // longer creates it.  Set up the same precondition here for
   // the isolated-loader call.  After install, the loader calls
-  // `free_alpha` per cut — the freed-bounds assertion lives in
+  // `bound_alpha` per cut — the freed-bounds assertion lives in
   // `test_sddp_alpha_relax.cpp`, which goes through the full
   // SDDPMethod::ensure_initialized path (`get_col_low_raw` needs
   // a fully-loaded backend to return non-NaN values).

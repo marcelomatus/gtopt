@@ -245,7 +245,7 @@ auto SDDPMethod::install_aperture_backward_cut(
   // `capture_state_variable_values` during the forward solve of
   // phase k) and Z is `target_state.forward_full_obj_physical`.
   //
-  // `free_alpha` fires as usual — that is exactly the point of an
+  // `bound_alpha` fires as usual — that is exactly the point of an
   // optimality cut: it certifies a tighter lower bound on α and
   // releases the bootstrap floor.  Feasibility cuts (if any) are
   // installed from the FORWARD pass when its elastic branch fires
@@ -494,6 +494,12 @@ auto SDDPMethod::backward_pass_aperture_phase_impl(
       ? &m_lp_debug_writer_
       : nullptr;
 
+  // Compute α_T floor from any boundary cuts loaded at the terminal
+  // phase before aperture clones inherit the LP state.
+  if (phase_index == planning_lp().simulation().last_phase_index()) {
+    apply_terminal_alpha_floor(planning_lp(), scene_index);
+  }
+
   auto expected_cut = solve_apertures_for_phase(
       scene_index,
       phase_index,
@@ -726,6 +732,12 @@ auto SDDPMethod::backward_pass_with_apertures(SceneIndex scene_index,
                               m_options_.lp_debug_phase_max))
         ? &m_lp_debug_writer_
         : nullptr;
+
+    // Compute α_T floor from any boundary cuts loaded at the terminal
+    // phase before aperture clones inherit the LP state.
+    if (phase_index == planning_lp().simulation().last_phase_index()) {
+      apply_terminal_alpha_floor(planning_lp(), scene_index);
+    }
 
     auto expected_cut = solve_apertures_for_phase(
         scene_index,

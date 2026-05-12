@@ -1230,14 +1230,14 @@ TEST_CASE(  // NOLINT
 
 // ---------------------------------------------------------------------------
 // share_cuts_for_phase routes through `add_cut_row` so optimality cuts that
-// reference α release the bootstrap pin (free_alpha_for_cut).
+// reference α release the bootstrap pin (bound_alpha_for_cut).
 //
 // Regression for juan/gtopt_iplp iter i1 p1 infeasibility (2026-04-30):
 // every scene declared "no predecessor phase to cut on" because
 // `sddp_share_m1_*` cuts demanded α ≈ 1.16e8 against a pinned α = 0.
 // Root cause: `share_cuts_for_phase` used the raw `add_row + record_cut_row`
 // pair instead of the unified `add_cut_row` free function, so
-// `free_alpha_for_cut` never fired and α stayed at `lowb = uppb = 0`.
+// `bound_alpha_for_cut` never fired and α stayed at `lowb = uppb = 0`.
 // ---------------------------------------------------------------------------
 
 namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
@@ -1343,7 +1343,7 @@ TEST_CASE(  // NOLINT
     CAPTURE(si);
     const auto bounds = alpha_bounds_raw(plp, si, target_phase);
     REQUIRE(bounds.has_value());
-    CHECK(bounds->first < kEffectivelyMinusInf);
+    CHECK(bounds->first == doctest::Approx(0.0));
     CHECK(bounds->second > kEffectivelyPlusInf);
   }
 }
@@ -1378,7 +1378,7 @@ TEST_CASE(  // NOLINT
     CAPTURE(si);
     const auto bounds = alpha_bounds_raw(plp, si, target_phase);
     REQUIRE(bounds.has_value());
-    CHECK(bounds->first < kEffectivelyMinusInf);
+    CHECK(bounds->first == doctest::Approx(0.0));
     CHECK(bounds->second > kEffectivelyPlusInf);
   }
 }
@@ -1413,7 +1413,7 @@ TEST_CASE(  // NOLINT
     CAPTURE(si);
     const auto bounds = alpha_bounds_raw(plp, si, target_phase);
     REQUIRE(bounds.has_value());
-    CHECK(bounds->first < kEffectivelyMinusInf);
+    CHECK(bounds->first == doctest::Approx(0.0));
     CHECK(bounds->second > kEffectivelyPlusInf);
   }
 }
@@ -1421,7 +1421,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "share_cuts_for_phase — cut without α reference leaves bootstrap intact")
 {
-  // Negative control: `free_alpha_for_cut` is gated on the cut row
+  // Negative control: `bound_alpha_for_cut` is gated on the cut row
   // actually referencing α (`cut.cmap.contains(alpha_svar->col())`),
   // so a shared cut on pure state coefficients must NOT release the
   // pin.  This pins the gate so a future regression that flips the

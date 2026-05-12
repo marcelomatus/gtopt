@@ -67,7 +67,7 @@ void SDDPMethod::initialize_alpha_variables(SceneIndex scene_index)
 // boundary / named hot-start cut loaders free it on the last
 // phase.  Keeps the iter-0 LP bounded without a positive lower
 // bound and keeps the last phase symmetric with the others — the
-// only difference is *when* α gets freed.
+// only difference is *when* α gets bounded.
 void register_alpha_variables(PlanningLP& planning_lp,
                               SceneIndex scene_index,
                               double scale_alpha)
@@ -81,8 +81,8 @@ void register_alpha_variables(PlanningLP& planning_lp,
     }
     auto& li = planning_lp.system(scene_index, pi).linear_interface();
     // α bootstrap: bidirectional pin `lowb = uppb =
-    // sddp_alpha_bootstrap_min (=0)` freezes α at 0 until an
-    // installed cut releases it via `free_alpha`.
+    // sddp_alpha_bootstrap_min (=0)` keeps α at 0 until an
+    // installed cut triggers `bound_alpha` to compute a floor.
     //
     // Rationale (supersedes the earlier `uppb=+∞` bootstrap): in
     // iter-0 the forward LP has no cuts and α has cost
@@ -100,14 +100,15 @@ void register_alpha_variables(PlanningLP& planning_lp,
     // `phase_index` ∈ [T-1 .. 1] with `src_phase_index =
     // previous(phase_index)` ∈ [T-2 .. 0], and
     // `install_aperture_backward_cut` calls
-    // `free_alpha(scene_index, src_phase_index)` on both the
+    // `bound_alpha(scene_index, src_phase_index)` on both the
     // expected-cut path (`sddp_aperture_pass.cpp:160`) and the bcut
     // fallback path (`sddp_aperture_pass.cpp:270`).  So phase 0 is
-    // freed in the final step of every backward pass.
+    // bounded in the final step of every backward pass.
     const auto alpha_sparse = SparseCol {
-        .lowb = sddp_alpha_bootstrap_min / scale_alpha,
-        .uppb = sddp_alpha_bootstrap_min / scale_alpha,
-        .cost = scale_alpha,
+        .lowb = 0.0,
+        .uppb = 0.0,
+        .cost =
+            scale_alpha,  // physical cost 1 × col.scale (pre-scale convention)
         .is_state = true,
         .scale = scale_alpha,
         .class_name = sddp_alpha_class_name,
@@ -146,9 +147,9 @@ void register_alpha_variables(PlanningLP& planning_lp,
   }
 }
 
-void SDDPMethod::free_alpha(SceneIndex scene_index, PhaseIndex phase_index)
+void SDDPMethod::bound_alpha(SceneIndex scene_index, PhaseIndex phase_index)
 {
-  gtopt::free_alpha(planning_lp(), scene_index, phase_index);
+  gtopt::bound_alpha(planning_lp(), scene_index, phase_index);
 }
 
 // Free-function implementation declared in <gtopt/sddp_types.hpp>.
@@ -182,47 +183,11 @@ void SDDPMethod::free_alpha(SceneIndex scene_index, PhaseIndex phase_index)
 // intermediate phases accumulate during the SDDP backward sweep, and
 // the bootstrap pin at iter-0 (`uppb = lowb = 0`) is preserved until
 // the first cut row arrives.
-void free_alpha(PlanningLP& planning_lp,
-                SceneIndex scene_index,
-                PhaseIndex phase_index)
+void bound_alpha(PlanningLP& planning_lp,
+                 SceneIndex scene_index,
+                 PhaseIndex phase_index)
 {
-  const auto* svar =
-      find_alpha_state_var(planning_lp.simulation(), scene_index, phase_index);
-  if (svar == nullptr) {
-    return;  // alpha not registered on this (scene, phase) — nothing to free.
-  }
-  auto& sys = planning_lp.system(scene_index, phase_index);
-  sys.ensure_lp_built();
-
-  // Terminal-phase α gets a universal `≥ 0` floor (cost-to-go is
-  // non-negative under non-negative stage costs), refined upward by
-  // `apply_terminal_alpha_floor` when cuts on α_T are present.
-  // Other phases release to `-∞` and rely on accumulated Benders
-  // cuts to bound α from below.  Pinning α_T ≥ 0 closes the
-  // `CPX_STAT_UNBOUNDED` window observed on juan/gtopt_iplp_plain at
-  // the terminal phase under aperture-perturbed trial states.
-  const bool is_last_phase =
-      phase_index == planning_lp.simulation().last_phase_index();
-  if (is_last_phase) {
-    // Defer to the floor helper, which seeds at `0` and ratchets up
-    // based on any installed cuts.  Mirrors `update_dynamic_col_bounds`
-    // internally so the floor survives release+reload under compress.
-    apply_terminal_alpha_floor(planning_lp, scene_index);
-    return;
-  }
-
-  sys.linear_interface().set_col_low_raw(svar->col(), -LinearProblem::DblMax);
-  sys.linear_interface().set_col_upp_raw(svar->col(), LinearProblem::DblMax);
-  // Mirror the release into the persistent `m_dynamic_cols_` entry so
-  // a subsequent `release_backend` + `ensure_backend` (compress /
-  // rebuild) replays α with the freed bounds via
-  // `apply_post_load_replay`.  Without this the release+reload cycle
-  // would restore the bootstrap `lowb = uppb = 0`, re-pinning α
-  // until the next cut install dominates on the next solve.
-  sys.update_dynamic_col_bounds(sddp_alpha_class_name,
-                                sddp_alpha_col_name,
-                                -LinearProblem::DblMax,
-                                LinearProblem::DblMax);
+  apply_alpha_floor(planning_lp, scene_index, phase_index);
 }
 
 // Free-function implementation declared in <gtopt/sddp_types.hpp>.
@@ -232,10 +197,10 @@ void free_alpha(PlanningLP& planning_lp,
 // by `cut_coeff_eps`) or a pure state-coupling cut from releasing
 // the bootstrap pin, which would let α drift negative under the
 // bidirectional α bootstrap (observed on juan/gtopt_iplp as LB=0).
-void free_alpha_for_cut(PlanningLP& planning_lp,
-                        SceneIndex scene_index,
-                        PhaseIndex phase_index,
-                        const SparseRow& cut)
+void bound_alpha_for_cut(PlanningLP& planning_lp,
+                         SceneIndex scene_index,
+                         PhaseIndex phase_index,
+                         const SparseRow& cut)
 {
   const auto* alpha_svar =
       find_alpha_state_var(planning_lp.simulation(), scene_index, phase_index);
@@ -245,7 +210,7 @@ void free_alpha_for_cut(PlanningLP& planning_lp,
   if (!cut.cmap.contains(alpha_svar->col())) {
     return;  // cut does not reference α — leave the bootstrap pin.
   }
-  free_alpha(planning_lp, scene_index, phase_index);
+  bound_alpha(planning_lp, scene_index, phase_index);
 }
 
 // Free-function implementation declared in <gtopt/sddp_types.hpp>.
@@ -264,50 +229,33 @@ void free_alpha_for_cut(PlanningLP& planning_lp,
 //
 //     floor_cut = rhs − Σⱼ max(coefⱼ · vⱼ_max, coefⱼ · vⱼ_min)
 //
-// The ``max(...)`` picks the SUBTRAHEND that makes the floor smallest
-// (worst case over the feasible v box): for ``coefⱼ > 0`` it's
-// ``coefⱼ · vⱼ_max``, for ``coefⱼ < 0`` it's ``coefⱼ · vⱼ_min``.  This
-// preserves the universal-lower-bound contract — the floor must hold
-// for ANY feasible state, not just the cut's generating trial point.
-// Taking the ``max`` across all cuts then clamping at ``seed`` gives a
-// floor that's tighter than any individual cut and never weaker than
-// the seed (non-negative cost-to-go for the terminal helper).
+// The ``max(...)`` picks the largest subtrahend, making the floor
+// weakest (most conservative): for ``coefⱼ > 0`` it's ``coefⱼ · vⱼ_max``,
+// for ``coefⱼ < 0`` it's ``coefⱼ · vⱼ_min``.  The floor prevents α
+// from drifting to −∞ (LP unboundedness) without forcing a tighter
+// bound than the cuts themselves impose.  α can be negative — the seed
+// is only a fallback when no cut references α.
 //
 // ── Unit conventions ────────────────────────────────────────────────
-// All arithmetic runs in physical-space units to avoid the
-// scale-mixing bugs documented at the call site (TERA-magnitude
-// floors observed on juan/gtopt_iplp_plain):
-//
-//   * `active_cuts()` returns rows captured by `record_cut_row`
-//     BEFORE `compose_physical` ran on them — i.e. ``cut.lowb`` is
-//     ``rhs_phys`` and ``cut.cmap[col]`` is ``coef_phys``.
-//   * Column bounds are read via `get_col_low()` / `get_col_upp()`
-//     (ScaledView returning ``raw × col_scale``), so the
-//     multiplication ``coef_phys · v_phys`` lands in the same units
-//     as ``rhs_phys``.
-//   * The floor is written via the physical setter
-//     `set_col_low(α_col, floor_phys)` (which divides by α's
-//     ``col_scale = scale_alpha`` internally to land raw in the
-//     backend) and mirrored to `update_dynamic_col_bounds` with the
-//     same physical floor (`SparseCol.lowb` is physical — see
-//     `LinearProblem::flatten`).
+// All arithmetic runs in physical-space units.  ``active_cuts()``
+// returns rows BEFORE ``compose_physical``.  Column bounds are read
+// via ``get_col_low()`` / ``get_col_upp()``.  The floor is written via
+// ``set_col_low(α, floor_phys)`` (divides by ``scale_alpha``).
 //
 // ── Infinity propagation ────────────────────────────────────────────
-// If a coefficient is non-zero on a column whose achieving bound is
-// ``±DblMax`` (treated as "unbounded" by the backend), the supremum
-// of ``coef · v`` is ``+∞`` and the cut contributes no useful floor.
-// We detect that and record the contribution as ``-∞`` for that cut
-// (skip), so a single unbounded-direction state can't poison the
-// running sum with NaN.
+// If the bound that achieves the worst-case subtrahend is unbounded,
+// the cut contributes no useful floor — skip it.  Unboundedness is
+// tested against raw LP bounds via ``li.is_pos_inf()`` /
+// ``li.is_neg_inf()`` to avoid unit mismatches on columns with
+// ``col_scale ≠ 1``.
 void apply_alpha_floor(PlanningLP& planning_lp,
                        SceneIndex scene_index,
-                       PhaseIndex phase_index,
-                       double seed_phys)
+                       PhaseIndex phase_index)
 {
   const auto& sim = planning_lp.simulation();
   const auto* alpha_svar = find_alpha_state_var(sim, scene_index, phase_index);
   if (alpha_svar == nullptr) {
-    return;  // α not registered on this (scene, phase) cell.
+    return;
   }
   const auto alpha_col = alpha_svar->col();
 
@@ -315,35 +263,23 @@ void apply_alpha_floor(PlanningLP& planning_lp,
   sys.ensure_lp_built();
   auto& li = sys.linear_interface();
 
-  // Read PHYSICAL column bounds (ScaledView returns ``raw × col_scale``).
-  // Matches the physical-space coefficients carried on
-  // `active_cuts()` so the multiplication ``coef_phys · v_phys`` is
-  // dimensionally consistent with the physical RHS.
+  // PHYSICAL bounds for coef_phys · v_phys multiplication.
   const auto col_low_phys = li.get_col_low();
   const auto col_upp_phys = li.get_col_upp();
-  // ``±DblMax`` markers in SparseCol are normalised to the backend's
-  // own infinity sentinel on `load_flat`.  Anything within 0.1% of
-  // that value is considered "unbounded" (CPLEX uses 1e20, HiGHS /
-  // CBC use 1e30, gtopt's DblMax is 1.8e308).
-  const double infy_guard = li.infinity() * 0.999;
+  // RAW bounds for unboundedness check (same units as li.infinity()).
+  const auto col_low_raw = li.get_col_low_raw();
+  const auto col_upp_raw = li.get_col_upp_raw();
 
-  double tightest_floor_phys = seed_phys;
+  double tightest_floor_phys = 0.0;
+  bool any_cut_floor = false;
   [[maybe_unused]] std::size_t cuts_with_alpha = 0;
   for (const auto& cut : li.active_cuts()) {
-    // Skip non-α cuts (pure state-coupling rows from feasibility
-    // cuts).  Boundary cuts always carry `row[α] = 1.0`.
     const auto alpha_it = cut.cmap.find(alpha_col);
     if (alpha_it == cut.cmap.end()) {
       continue;
     }
     ++cuts_with_alpha;
 
-    // Accumulate the supremum ``Σⱼ max(coef · v_max, coef · v_min)``
-    // in physical units.  Skip the α column itself (it's the
-    // variable we're bounding).  If any state with a non-zero
-    // coefficient achieves its supremum at an unbounded side, the
-    // cut yields ``floor_cut = -∞`` — record it and break out of
-    // the inner loop.
     double sup_sum_phys = 0.0;
     bool unbounded = false;
     for (const auto& [col, coef_phys] : cut.cmap) {
@@ -353,19 +289,16 @@ void apply_alpha_floor(PlanningLP& planning_lp,
       if (coef_phys == 0.0) {
         continue;
       }
-      const double v_max_phys = col_upp_phys[col];
       const double v_min_phys = col_low_phys[col];
-      // Coef sign determines which side achieves the supremum.
-      // Bail out if THAT side is unbounded — the cut imposes no
-      // finite floor on α in that case.
+      const double v_max_phys = col_upp_phys[col];
       if (coef_phys > 0.0) {
-        if (v_max_phys >= infy_guard) {
+        if (li.is_pos_inf(col_upp_raw[static_cast<size_t>(col)])) {
           unbounded = true;
           break;
         }
         sup_sum_phys += coef_phys * v_max_phys;
       } else {
-        if (v_min_phys <= -infy_guard) {
+        if (li.is_neg_inf(col_low_raw[static_cast<size_t>(col)])) {
           unbounded = true;
           break;
         }
@@ -373,31 +306,28 @@ void apply_alpha_floor(PlanningLP& planning_lp,
       }
     }
     if (unbounded) {
-      continue;  // cut contributes no useful floor.
+      continue;
     }
     const double cut_floor_phys = cut.lowb - sup_sum_phys;
-    tightest_floor_phys = std::max(tightest_floor_phys, cut_floor_phys);
+    tightest_floor_phys = any_cut_floor
+        ? std::min(tightest_floor_phys, cut_floor_phys)
+        : cut_floor_phys;
+    any_cut_floor = true;
   }
 
-  // Apply on the live backend AND mirror into m_dynamic_cols_ so the
-  // floor survives a release_backend + ensure_backend cycle under
-  // `LowMemoryMode::compress` (the snapshot's pre-cut col bound would
-  // otherwise replace it on reload).  Both bounds are written in
-  // PHYSICAL units:
-  //   * `set_col_low(α_col, floor_phys)` divides by α's col_scale
-  //     (= scale_alpha) internally so the backend sees the correct
-  //     raw value.
-  //   * `update_dynamic_col_bounds` stores into `SparseCol.lowb` /
-  //     `SparseCol.uppb`, which `flatten` divides by `col.scale` —
-  //     so the replay path also lands the same raw value.
-  // Upper bound is set raw to `DblMax` (the documented +∞ sentinel,
-  // normalised to the backend's infinity at write time) so α stays
-  // unconstrained from above.  Writing uppb explicitly is required
-  // when called from `free_alpha` against the bootstrap pin `(0, 0)`
-  // — otherwise the pin's `uppb = 0` survives and clips α to exactly
-  // the floor value.
-  li.set_col_low(alpha_col, tightest_floor_phys);
+  // Always lift the upper bound from the bootstrap pin's 0 to +∞
+  // so that cuts can be satisfied.  The lower bound defaults to 0
+  // (weak α ≥ 0) when no cuts reference α, or the min cut-derived
+  // floor when cuts exist.
   li.set_col_upp_raw(alpha_col, LinearProblem::DblMax);
+  // Use the raw setter for ±∞ sentinel floor values to avoid
+  // set_col_low's internal division by col_scale on sentinels.
+  if (li.is_pos_inf(tightest_floor_phys) || li.is_neg_inf(tightest_floor_phys))
+  {
+    li.set_col_low_raw(alpha_col, tightest_floor_phys);
+  } else {
+    li.set_col_low(alpha_col, tightest_floor_phys);
+  }
   sys.update_dynamic_col_bounds(sddp_alpha_class_name,
                                 sddp_alpha_col_name,
                                 tightest_floor_phys,
@@ -416,10 +346,8 @@ void apply_alpha_floor(PlanningLP& planning_lp,
 // non-negative under non-negative stage costs).
 void apply_terminal_alpha_floor(PlanningLP& planning_lp, SceneIndex scene_index)
 {
-  apply_alpha_floor(planning_lp,
-                    scene_index,
-                    planning_lp.simulation().last_phase_index(),
-                    /*seed_phys=*/0.0);
+  apply_alpha_floor(
+      planning_lp, scene_index, planning_lp.simulation().last_phase_index());
 }
 
 // Free-function implementation declared in <gtopt/sddp_types.hpp>.
@@ -437,7 +365,7 @@ RowIndex add_cut_row(PlanningLP& planning_lp,
                      double eps)
 {
   if (cut_type == CutType::Optimality) {
-    free_alpha_for_cut(planning_lp, scene_index, phase_index, cut);
+    bound_alpha_for_cut(planning_lp, scene_index, phase_index, cut);
   }
   return planning_lp.system(scene_index, phase_index)
       .linear_interface()

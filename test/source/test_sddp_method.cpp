@@ -4873,7 +4873,7 @@ TEST_CASE("SDDPMethod cut store API surface")  // NOLINT
 
 TEST_CASE("SDDPMethod alpha lifecycle re-entry after solve")  // NOLINT
 {
-  // Pin ``initialize_alpha_variables`` + ``free_alpha`` (moves into
+  // Pin ``initialize_alpha_variables`` + ``bound_alpha`` (moves into
   // ``sddp_method_alpha.cpp``).  These helpers are normally driven
   // by ``solve()``'s internal iteration loop after the per-scene
   // state vectors have been sized.  We drive ``solve()`` first to
@@ -4894,9 +4894,9 @@ TEST_CASE("SDDPMethod alpha lifecycle re-entry after solve")  // NOLINT
 
   // Free alpha on each phase.  The method must accept any in-range
   // phase index without throwing.
-  sddp.free_alpha(SceneIndex {0}, PhaseIndex {0});
-  sddp.free_alpha(SceneIndex {0}, PhaseIndex {1});
-  sddp.free_alpha(SceneIndex {0}, PhaseIndex {2});
+  sddp.bound_alpha(SceneIndex {0}, PhaseIndex {0});
+  sddp.bound_alpha(SceneIndex {0}, PhaseIndex {1});
+  sddp.bound_alpha(SceneIndex {0}, PhaseIndex {2});
   CHECK(true);  // reaching here = no link / runtime regression
 }
 

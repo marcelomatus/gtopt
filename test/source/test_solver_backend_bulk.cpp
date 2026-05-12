@@ -18,6 +18,7 @@
  */
 
 #include <array>
+#include <cmath>
 #include <vector>
 
 #include <doctest/doctest.h>
@@ -235,6 +236,16 @@ namespace
   return reg.create("highs");
 }
 
+// doctest::Approx degenerates to NaN for IEEE inf — direct == for
+// non-finite values (HiGHS stores ±∞ raw in col_upper/col_lower).
+[[nodiscard]] bool bounds_approx(double a, double b)
+{
+  if (!std::isfinite(a) || !std::isfinite(b)) {
+    return a == b;
+  }
+  return a == doctest::Approx(b);
+}
+
 }  // namespace
 
 TEST_CASE(  // NOLINT
@@ -271,10 +282,10 @@ TEST_CASE(  // NOLINT
   b->fill_col_upper(b_upp);
   for (int i = 0; i < BulkLP4::ncols; ++i) {
     CAPTURE(i);
-    CHECK(a_low.at(static_cast<size_t>(i))
-          == doctest::Approx(b_low.at(static_cast<size_t>(i))));
-    CHECK(a_upp.at(static_cast<size_t>(i))
-          == doctest::Approx(b_upp.at(static_cast<size_t>(i))));
+    CHECK(bounds_approx(a_low.at(static_cast<size_t>(i)),
+                        b_low.at(static_cast<size_t>(i))));
+    CHECK(bounds_approx(a_upp.at(static_cast<size_t>(i)),
+                        b_upp.at(static_cast<size_t>(i))));
   }
 }
 
@@ -313,10 +324,10 @@ TEST_CASE(  // NOLINT
   b->fill_col_upper(b_upp);
   for (int i = 0; i < BulkLP4::ncols; ++i) {
     CAPTURE(i);
-    CHECK(a_low.at(static_cast<size_t>(i))
-          == doctest::Approx(b_low.at(static_cast<size_t>(i))));
-    CHECK(a_upp.at(static_cast<size_t>(i))
-          == doctest::Approx(b_upp.at(static_cast<size_t>(i))));
+    CHECK(bounds_approx(a_low.at(static_cast<size_t>(i)),
+                        b_low.at(static_cast<size_t>(i))));
+    CHECK(bounds_approx(a_upp.at(static_cast<size_t>(i)),
+                        b_upp.at(static_cast<size_t>(i))));
   }
   CHECK(b_low.at(0) == doctest::Approx(3.0));
   CHECK(b_upp.at(0) == doctest::Approx(3.0));
@@ -364,10 +375,10 @@ TEST_CASE(  // NOLINT
   b->fill_col_upper(b_upp);
   for (int i = 0; i < BulkLP4::ncols; ++i) {
     CAPTURE(i);
-    CHECK(a_low.at(static_cast<size_t>(i))
-          == doctest::Approx(b_low.at(static_cast<size_t>(i))));
-    CHECK(a_upp.at(static_cast<size_t>(i))
-          == doctest::Approx(b_upp.at(static_cast<size_t>(i))));
+    CHECK(bounds_approx(a_low.at(static_cast<size_t>(i)),
+                        b_low.at(static_cast<size_t>(i))));
+    CHECK(bounds_approx(a_upp.at(static_cast<size_t>(i)),
+                        b_upp.at(static_cast<size_t>(i))));
   }
 }
 
@@ -395,9 +406,9 @@ TEST_CASE(  // NOLINT
   backend->fill_col_upper(after_upp);
   for (int i = 0; i < BulkLP4::ncols; ++i) {
     CAPTURE(i);
-    CHECK(before_low.at(static_cast<size_t>(i))
-          == doctest::Approx(after_low.at(static_cast<size_t>(i))));
-    CHECK(before_upp.at(static_cast<size_t>(i))
-          == doctest::Approx(after_upp.at(static_cast<size_t>(i))));
+    CHECK(bounds_approx(before_low.at(static_cast<size_t>(i)),
+                        after_low.at(static_cast<size_t>(i))));
+    CHECK(bounds_approx(before_upp.at(static_cast<size_t>(i)),
+                        after_upp.at(static_cast<size_t>(i))));
   }
 }

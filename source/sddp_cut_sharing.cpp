@@ -133,7 +133,7 @@ void share_cuts_for_phase(
       // Single accumulated cut per scene → ``extra = 0`` is unique.
       stamp_for_scene(scene_local, scene_index, /*extra=*/0);
       // Route through the unified `add_cut_row`: it gates on
-      // `CutType::Optimality` to call `free_alpha_for_cut`, releasing
+      // `CutType::Optimality` to call `bound_alpha_for_cut`, releasing
       // the α^phase_index bootstrap pin if (and only if) the cut row
       // references α.  The previous raw `add_row + record_cut_row`
       // pair skipped that step, so shared optimality cuts that
@@ -197,7 +197,7 @@ void share_cuts_for_phase(
       // Single expected cut per scene → ``extra = 0`` is unique.
       stamp_for_scene(scene_local, scene_index, /*extra=*/0);
       // Route through the unified `add_cut_row`: it gates on
-      // `CutType::Optimality` to call `free_alpha_for_cut`, releasing
+      // `CutType::Optimality` to call `bound_alpha_for_cut`, releasing
       // the α^phase_index bootstrap pin if (and only if) the cut row
       // references α.  The previous raw `add_row + record_cut_row`
       // pair skipped that step, so shared optimality cuts that
@@ -267,7 +267,7 @@ void share_cuts_for_phase(
       // per-cut `record_cut_row` for low-memory replay.  Saves
       // N-1 backend round-trips per destination scene.
       //
-      // `free_alpha_for_cut` is idempotent across the batch (it's just
+      // `bound_alpha_for_cut` is idempotent across the batch (it's just
       // a `set_col_low_raw / set_col_upp_raw` to ±DblMax on the same α
       // column, mirrored into `m_dynamic_cols_`).  The early-out on
       // `cut.cmap.contains(α_col)` short-circuits cuts that don't
@@ -295,7 +295,7 @@ void share_cuts_for_phase(
       // left α frozen at `lowb = uppb = 0`, observed on
       // juan/gtopt_iplp iter i1 p1 as silent infeasibility.
       for (const auto& cut : stamped_cuts) {
-        free_alpha_for_cut(planning, scene_index, phase_index, cut);
+        bound_alpha_for_cut(planning, scene_index, phase_index, cut);
       }
 
       // Step 2: bulk row dispatch — single backend call.

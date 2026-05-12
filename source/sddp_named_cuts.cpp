@@ -244,7 +244,7 @@ using namespace gtopt::detail;
 
       // α is already registered on every phase by
       // `SDDPMethod::initialize_alpha_variables`; the install loop
-      // below calls `free_alpha(…)` per cell before `add_row` to
+      // below calls `bound_alpha(…)` per cell before `add_row` to
       // release the bootstrap pin, mirroring the backward-pass
       // contract.
 
@@ -344,7 +344,7 @@ using namespace gtopt::detail;
         // in one bulk pass after the file is fully streamed (below).
         // Named hot-start cuts are always Optimality (they carry α at
         // coefficient `sa` by construction above) — α release happens
-        // in the bulk pass via `free_alpha_for_cut`.
+        // in the bulk pass via `bound_alpha_for_cut`.
         accum[std::make_pair(scene_index, phase_index)].push_back(
             std::move(row));
       }
@@ -363,7 +363,7 @@ using namespace gtopt::detail;
       const auto [scene_index, phase_index] = cell_key;
       // Step 1: release α (idempotent across the batch).
       for (const auto& cut : cuts) {
-        free_alpha_for_cut(planning_lp, scene_index, phase_index, cut);
+        bound_alpha_for_cut(planning_lp, scene_index, phase_index, cut);
       }
       // Step 2: bulk row dispatch.
       auto& li =

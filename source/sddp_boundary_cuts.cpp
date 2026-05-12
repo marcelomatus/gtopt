@@ -288,7 +288,7 @@ using namespace gtopt::detail;
     // ── α is already registered on every phase (including the
     //    last) by `SDDPMethod::initialize_alpha_variables`, pinned
     //    at `lowb = uppb = 0`.  Each successful boundary-cut
-    //    install below calls `free_alpha(…, last_phase)` to
+    //    install below calls `bound_alpha(…, last_phase)` to
     //    release that pin — same contract as the backward-pass
     //    cut sites.  No separate add-α pass is needed here.
 
@@ -460,7 +460,7 @@ using namespace gtopt::detail;
         // horizon (optimality-style: α ≥ state-dependent RHS on the
         // last phase).  Each row always carries α (set above via
         // `row[alpha_svar->col()] = 1.0`), so the Optimality gate in
-        // `free_alpha_for_cut` releases the bootstrap pin during the
+        // `bound_alpha_for_cut` releases the bootstrap pin during the
         // batched install pass below.  Pass `cut_coeff_eps` so loaded
         // cuts share the same numerical-noise filter that the SDDP
         // backward-pass uses for generated cuts (audit P2-1) — without
@@ -478,7 +478,7 @@ using namespace gtopt::detail;
     // cuts take in `SDDPMethod::backward_pass_single_phase`.  That
     // single call handles, per cut, in this order:
     //
-    //   1. α-release via `free_alpha_for_cut` when the cut references
+    //   1. α-release via `bound_alpha_for_cut` when the cut references
     //      α (boundary cuts always do — `row[alpha_svar->col()] = 1.0`
     //      is set in the build loop above).  Idempotent across the
     //      batch, so a redundant release across N cuts is a cheap

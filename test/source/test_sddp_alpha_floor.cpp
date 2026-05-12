@@ -211,14 +211,14 @@ TEST_CASE(
     CHECK(lowb.value_or(-1.0) == doctest::Approx(100.0));
   }
 
-  SUBCASE("rhs below worst-case sup → floor clamps to 0")
+  SUBCASE("rhs below worst-case sup → floor < 0 (no clamping)")
   {
     AlphaFloorFixture fix {2, /*scale_alpha=*/1.0};
     fix.install_cut(/*coef=*/2.0, /*rhs=*/100.0);
     apply_terminal_alpha_floor(*fix.plp, fix.scene);
 
     const auto lowb = alpha_lowb_raw(*fix.plp, fix.scene, fix.last_phase);
-    CHECK(lowb.value_or(-1.0) == doctest::Approx(0.0));
+    CHECK(lowb.value_or(-1.0) == doctest::Approx(-100.0));
   }
 }
 
@@ -365,16 +365,16 @@ TEST_CASE(
 }
 
 // ───────────────────────────────────────────────────────────────────────────
-// Test 8 — multiple cuts → tightest wins (clamp absorbs negatives)
+// Test 8 — multiple cuts → weakest wins
 // ───────────────────────────────────────────────────────────────────────────
 
-TEST_CASE("apply_terminal_alpha_floor — multiple cuts: tightest wins")
+TEST_CASE("apply_terminal_alpha_floor — multiple cuts: weakest wins")
 {
   // v ∈ [0, 100].
   // Cut1: α + 1·v ≥ 150 → floor = 150 − 100 =  50.
   // Cut2: α + 2·v ≥ 400 → floor = 400 − 200 = 200.
-  // Cut3: α + 1·v ≥  90 → floor =  90 − 100 = -10 (clamped to 0).
-  // Tightest (max) → 200.
+  // Cut3: α + 1·v ≥  90 → floor =  90 − 100 = -10.
+  // Weakest (min) → -10.
   AlphaFloorFixture fix {2, /*scale_alpha=*/1.0};
   fix.install_cut(/*coef=*/1.0, /*rhs=*/150.0);
   fix.install_cut(/*coef=*/2.0, /*rhs=*/400.0);
@@ -382,7 +382,7 @@ TEST_CASE("apply_terminal_alpha_floor — multiple cuts: tightest wins")
   apply_terminal_alpha_floor(*fix.plp, fix.scene);
 
   const auto lowb = alpha_lowb_raw(*fix.plp, fix.scene, fix.last_phase);
-  CHECK(lowb.value_or(-1.0) == doctest::Approx(200.0));
+  CHECK(lowb.value_or(-1.0) == doctest::Approx(-10.0));
 }
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -413,12 +413,12 @@ TEST_CASE(
 }
 
 // ───────────────────────────────────────────────────────────────────────────
-// Test 10 — integration: free_alpha at last phase invokes the floor helper
+// Test 10 — integration: bound_alpha at last phase invokes the floor helper
 // ───────────────────────────────────────────────────────────────────────────
 
-TEST_CASE("free_alpha at last phase routes through apply_terminal_alpha_floor")
+TEST_CASE("bound_alpha at last phase routes through apply_terminal_alpha_floor")
 {
-  // Pins the dispatch in `sddp_method_alpha.cpp` `free_alpha`:
+  // Pins the dispatch in `sddp_method_alpha.cpp` `bound_alpha`:
   // when `phase_index == last_phase_index`, the helper is called
   // instead of the legacy `[-DblMax, +DblMax]` release.  Result:
   // α_T's lower bound is the cut-derived floor (not -∞), and the
@@ -426,7 +426,7 @@ TEST_CASE("free_alpha at last phase routes through apply_terminal_alpha_floor")
   AlphaFloorFixture fix {2, /*scale_alpha=*/1.0};
   fix.install_cut(/*coef=*/2.0, /*rhs=*/300.0);
 
-  free_alpha(*fix.plp, fix.scene, fix.last_phase);
+  bound_alpha(*fix.plp, fix.scene, fix.last_phase);
 
   const auto lowb = alpha_lowb_raw(*fix.plp, fix.scene, fix.last_phase);
   REQUIRE(lowb.has_value());

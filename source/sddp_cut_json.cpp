@@ -341,7 +341,7 @@ using namespace gtopt::detail;
     //   * Optimality cuts → release α (idempotent across the batch),
     //     then bulk `add_rows`, then per-cut `record_cut_row`.
     //   * Feasibility cuts → bulk `add_rows` + per-cut `record_cut_row`
-    //     (no α release, by `free_alpha_for_cut`'s gating contract).
+    //     (no α release, by `bound_alpha_for_cut`'s gating contract).
     // `auto&&` because `gtopt::flat_map` (std::flat_map under GCC 15)
     // yields a proxy `pair<key&, value&>` that doesn't bind to `auto&`.
     for (auto&& [cell_key, cell_cuts] : accum) {
@@ -349,7 +349,7 @@ using namespace gtopt::detail;
 
       if (!cell_cuts.opt.empty()) {
         for (const auto& cut : cell_cuts.opt) {
-          free_alpha_for_cut(planning_lp, scene_index, phase_index, cut);
+          bound_alpha_for_cut(planning_lp, scene_index, phase_index, cut);
         }
         auto& li =
             planning_lp.system(scene_index, phase_index).linear_interface();

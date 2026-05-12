@@ -978,7 +978,7 @@ TEST_CASE(  // NOLINT
   //   * `lp_replay_buffer.hpp:record_*_if_tracked` (cut + dynamic row/col)
   //   * `linear_interface.cpp:add_col` (replay-buffer push for α)
   //   * `linear_interface.cpp:set_col_low_raw / set_col_upp_raw`
-  //     (pending-bound push for `free_alpha`)
+  //     (pending-bound push for `bound_alpha`)
   //
   // The buffer is now populated regardless of mode, so the manual
   // clone reproduces the live backend.  Pinned here so a future

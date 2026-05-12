@@ -13,7 +13,7 @@
  * redundant and, if kept at `0 = 0`, artificially clips any legitimately-
  * nonzero future-cost value.
  *
- * `SDDPMethod::free_alpha()` / the free-function `gtopt::free_alpha`
+ * `SDDPMethod::bound_alpha()` / the free-function `gtopt::bound_alpha`
  * releases BOTH bounds (`lowb ← -DblMax`, `uppb ← +DblMax`) at each
  * cut-install site.  Three coverage axes:
  *
@@ -24,7 +24,7 @@
  *       freed bounds (not reverted to 0/0).  Guards the
  *       `update_dynamic_col_bounds` mirror in `apply_post_load_replay`.
  *   L:  α is registered on the *last* phase too (new contract), so
- *       `free_alpha(…, last_phase)` is no longer a silent no-op — it
+ *       `bound_alpha(…, last_phase)` is no longer a silent no-op — it
  *       actually flips both bounds, which is what the boundary-cut
  *       loader relies on.
  */
@@ -78,10 +78,10 @@ auto alpha_bounds_raw(const PlanningLP& plp,
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// M1 — basic: free_alpha on the live backend releases both bounds
+// M1 — basic: bound_alpha on the live backend releases both bounds
 // ═══════════════════════════════════════════════════════════════════════════
 
-TEST_CASE("SDDPMethod::free_alpha — live backend: 0/+∞ → -DblMax/+DblMax")
+TEST_CASE("SDDPMethod::bound_alpha — live backend: 0/+∞ → -DblMax/+DblMax")
 {
   auto planning = make_nphase_simple_hydro_planning(3);
   PlanningLP plp(std::move(planning));
@@ -101,7 +101,7 @@ TEST_CASE("SDDPMethod::free_alpha — live backend: 0/+∞ → -DblMax/+DblMax")
   // would drift to whatever value simplex picks and contaminate
   // the captured trial / bcut Z.  Phase 0 is released in the last
   // step of every backward pass via
-  // `install_aperture_backward_cut → free_alpha(src_phase_index=0)`.
+  // `install_aperture_backward_cut → bound_alpha(src_phase_index=0)`.
   REQUIRE(sddp.ensure_initialized().has_value());
 
   const auto scene = first_scene_index();
@@ -115,34 +115,34 @@ TEST_CASE("SDDPMethod::free_alpha — live backend: 0/+∞ → -DblMax/+DblMax")
     CHECK(bounds->uppb == doctest::Approx(sddp_alpha_bootstrap_min));
   }
 
-  SUBCASE("after free_alpha, both bounds are released")
+  SUBCASE("after bound_alpha, uppb released, lowb stays at 0")
   {
-    sddp.free_alpha(scene, phase);
+    sddp.bound_alpha(scene, phase);
 
     const auto bounds = alpha_bounds_raw(plp, scene, phase);
     REQUIRE(bounds.has_value());
-    CHECK(bounds->lowb < kEffectivelyMinusInf);
+    CHECK(bounds->lowb == doctest::Approx(sddp_alpha_bootstrap_min));
     CHECK(bounds->uppb > kEffectivelyPlusInf);
   }
 
-  SUBCASE("free_alpha is idempotent")
+  SUBCASE("bound_alpha is idempotent")
   {
-    sddp.free_alpha(scene, phase);
-    sddp.free_alpha(scene, phase);
-    sddp.free_alpha(scene, phase);
+    sddp.bound_alpha(scene, phase);
+    sddp.bound_alpha(scene, phase);
+    sddp.bound_alpha(scene, phase);
 
     const auto bounds = alpha_bounds_raw(plp, scene, phase);
     REQUIRE(bounds.has_value());
-    CHECK(bounds->lowb < kEffectivelyMinusInf);
+    CHECK(bounds->lowb == doctest::Approx(sddp_alpha_bootstrap_min));
     CHECK(bounds->uppb > kEffectivelyPlusInf);
   }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// L — α now exists on the last phase too, and free_alpha works on it
+// L — α now exists on the last phase too, and bound_alpha works on it
 // ═══════════════════════════════════════════════════════════════════════════
 
-TEST_CASE("SDDPMethod::free_alpha — last phase has α and can be freed")
+TEST_CASE("SDDPMethod::bound_alpha — last phase has α and can be unbounded")
 {
   auto planning = make_nphase_simple_hydro_planning(3);
   PlanningLP plp(std::move(planning));
@@ -165,35 +165,24 @@ TEST_CASE("SDDPMethod::free_alpha — last phase has α and can be freed")
     CHECK(bounds->uppb == doctest::Approx(sddp_alpha_bootstrap_min));
   }
 
-  SUBCASE("free_alpha on the last phase releases the pin with α≥0 floor")
+  SUBCASE("bound_alpha on the last phase: uppb released, lowb=0")
   {
-    // Terminal-phase α gets a universal `≥ 0` floor instead of the
-    // `-∞` release applied to intermediate phases.  See the inline
-    // rationale block in `sddp_method_alpha.cpp::free_alpha` — α_T's
-    // cost-to-go is non-negative under non-negative stage costs, so
-    // pinning the column at `0` (refined upward by
-    // `apply_terminal_alpha_floor` when cuts are present) is
-    // mathematically correct and closes the `CPX_STAT_UNBOUNDED`
-    // aperture-clone failures seen on juan/gtopt_iplp_plain.
-    sddp.free_alpha(scene, last);
+    sddp.bound_alpha(scene, last);
 
     const auto bounds = alpha_bounds_raw(plp, scene, last);
     REQUIRE(bounds.has_value());
-    CHECK(bounds->lowb == doctest::Approx(0.0));
+    CHECK(bounds->lowb == doctest::Approx(sddp_alpha_bootstrap_min));
     CHECK(bounds->uppb > kEffectivelyPlusInf);
   }
 
-  SUBCASE("free_alpha on an intermediate phase releases lowb to -∞")
+  SUBCASE("bound_alpha on an intermediate phase: uppb released, lowb=0")
   {
-    // Non-terminal phases keep the legacy unbounded release; cuts on
-    // α_t accumulate during the SDDP backward sweep and bound α from
-    // below once the first cut row lands.
     const auto mid_phase = PhaseIndex {1};
-    sddp.free_alpha(scene, mid_phase);
+    sddp.bound_alpha(scene, mid_phase);
 
     const auto bounds = alpha_bounds_raw(plp, scene, mid_phase);
     REQUIRE(bounds.has_value());
-    CHECK(bounds->lowb < kEffectivelyMinusInf);
+    CHECK(bounds->lowb == doctest::Approx(sddp_alpha_bootstrap_min));
     CHECK(bounds->uppb > kEffectivelyPlusInf);
   }
 }
@@ -203,7 +192,7 @@ TEST_CASE("SDDPMethod::free_alpha — last phase has α and can be freed")
 // ═══════════════════════════════════════════════════════════════════════════
 
 TEST_CASE(
-    "SDDPMethod::free_alpha — survives low_memory compress release+reload")
+    "SDDPMethod::bound_alpha — survives low_memory compress release+reload")
 {
   auto planning = make_nphase_simple_hydro_planning(3);
   PlanningLP plp(std::move(planning));
@@ -220,32 +209,29 @@ TEST_CASE(
   const auto scene = first_scene_index();
   constexpr PhaseIndex phase {0};
 
-  // 1. Free on the live backend.
-  sddp.free_alpha(scene, phase);
+  // 1. bound_alpha on the live backend — no cuts → uppb released, lowb=0.
+  sddp.bound_alpha(scene, phase);
   {
     const auto bounds = alpha_bounds_raw(plp, scene, phase);
     REQUIRE(bounds.has_value());
-    REQUIRE(bounds->lowb < kEffectivelyMinusInf);
+    REQUIRE(bounds->lowb == doctest::Approx(sddp_alpha_bootstrap_min));
     REQUIRE(bounds->uppb > kEffectivelyPlusInf);
   }
 
-  // 2. Release+reload.  The flat snapshot captured the ORIGINAL
-  //    `lowb = uppb = 0` pin, so only the `m_dynamic_cols_` mirror
-  //    — updated by `update_dynamic_col_bounds` inside free_alpha
-  //    — preserves the freed bounds on replay.
+  // 2. Release+reload.  Bounds survive the cycle.
   auto& sys = plp.system(scene, phase);
   sys.release_backend();
   sys.ensure_lp_built();
 
   const auto bounds = alpha_bounds_raw(plp, scene, phase);
   REQUIRE(bounds.has_value());
-  CHECK(bounds->lowb < kEffectivelyMinusInf);
+  CHECK(bounds->lowb == doctest::Approx(sddp_alpha_bootstrap_min));
   CHECK(bounds->uppb > kEffectivelyPlusInf);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
 // M2b — regression guard for bc257d1d's α bidirectional bootstrap pin:
-//       the pin survives release+reload even when `free_alpha` was
+//       the pin survives release+reload even when `bound_alpha` was
 //       never called.
 // ═══════════════════════════════════════════════════════════════════════════
 //
@@ -260,12 +246,12 @@ TEST_CASE(
 //   leak into `StateVariable.col_sol()`.
 //
 // This test is symmetric to "survives low_memory compress
-// release+reload" above, but deliberately WITHOUT calling free_alpha
+// release+reload" above, but deliberately WITHOUT calling bound_alpha
 // first.  The pin must survive a release+reload cycle on its own —
 // both bounds still pinned at `sddp_alpha_bootstrap_min` after
 // `release_backend` + `ensure_lp_built`.
 TEST_CASE(
-    "SDDPMethod::free_alpha — bootstrap pin survives low_memory compress "
+    "SDDPMethod::bound_alpha — bootstrap pin survives low_memory compress "
     "release+reload")
 {
   auto planning = make_nphase_simple_hydro_planning(3);
@@ -287,7 +273,7 @@ TEST_CASE(
   const auto scene = first_scene_index();
   constexpr PhaseIndex phase {0};
 
-  // Release+reload: no `free_alpha` in between.  The pin must be
+  // Release+reload: no `bound_alpha` in between.  The pin must be
   // preserved by the snapshot/replay path — neither the flat snapshot
   // nor `apply_post_load_replay`'s `m_dynamic_cols_` mirror may widen
   // uppb back to +∞ (the pre-bc257d1d default, which left α as a

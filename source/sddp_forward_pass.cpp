@@ -457,7 +457,7 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
                 m_options_.cut_coeff_eps,
                 static_cast<int>(infeas_count));
             // Bulk install — Feasibility cuts have no α-release coupling
-            // (only Optimality cuts trigger `free_alpha_for_cut` in the
+            // (only Optimality cuts trigger `bound_alpha_for_cut` in the
             // unified `add_cut_row`), so the per-cut path reduces to
             // `add_row + record_cut_row`.  Replace the N-call loop with one
             // `add_rows` dispatch + a tight bookkeeping loop, saving N-1

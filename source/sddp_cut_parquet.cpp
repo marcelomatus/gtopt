@@ -789,7 +789,7 @@ struct CellCuts
 
       if (!cell_cuts.opt.empty()) {
         for (const auto& cut : cell_cuts.opt) {
-          free_alpha_for_cut(planning_lp, scene_index, phase_index, cut);
+          bound_alpha_for_cut(planning_lp, scene_index, phase_index, cut);
         }
         auto& li =
             planning_lp.system(scene_index, phase_index).linear_interface();

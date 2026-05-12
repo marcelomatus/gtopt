@@ -222,7 +222,7 @@ public:
   /// so `apply_post_load_replay` preserves the freed bounds across a
   /// release+reload cycle.  Under `LowMemoryMode::off` only the live
   /// backend is modified — there is no snapshot to re-sync.
-  void free_alpha(SceneIndex scene_index, PhaseIndex phase_index);
+  void bound_alpha(SceneIndex scene_index, PhaseIndex phase_index);
 
   // ── Live query (thread-safe, atomic-shared_ptr reads) ──
   //

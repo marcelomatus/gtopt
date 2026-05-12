@@ -1048,9 +1048,9 @@ struct SDDPIterationResult
 /// backward/feasibility paths and the boundary-cut loader in
 /// `source/sddp_cut_io.cpp` so every cut-install site uses the
 /// same free-α semantics.
-void free_alpha(PlanningLP& planning_lp,
-                SceneIndex scene_index,
-                PhaseIndex phase_index);
+void bound_alpha(PlanningLP& planning_lp,
+                 SceneIndex scene_index,
+                 PhaseIndex phase_index);
 
 /// Release α's bootstrap pin at `(scene, phase)` ONLY when @p cut
 /// actually references α — i.e., α is registered on the cell AND
@@ -1063,16 +1063,16 @@ void free_alpha(PlanningLP& planning_lp,
 /// does not prematurely release the bootstrap pin.  Feasibility cuts
 /// should never call this (they carry no lower-bound information on
 /// the future-cost variable); callers must gate on cut type upstream.
-void free_alpha_for_cut(PlanningLP& planning_lp,
-                        SceneIndex scene_index,
-                        PhaseIndex phase_index,
-                        const SparseRow& cut);
+void bound_alpha_for_cut(PlanningLP& planning_lp,
+                         SceneIndex scene_index,
+                         PhaseIndex phase_index,
+                         const SparseRow& cut);
 
 /// Install an SDDP cut (feasibility or optimality) on the LP backend
 /// at `(scene, phase)`.  Single unified entry point for every cut
 /// install site:
 ///   1. For optimality cuts that reference α, release α's bootstrap
-///      pin via `free_alpha_for_cut`.  Feasibility cuts, and
+///      pin via `bound_alpha_for_cut`.  Feasibility cuts, and
 ///      optimality cuts with no α term, leave the pin intact.
 ///   2. Add the row to the live LP backend and record it for
 ///      low-memory replay via `LinearInterface::add_cut_row`.
@@ -1094,7 +1094,7 @@ void free_alpha_for_cut(PlanningLP& planning_lp,
 /// low-memory replay, and registered in the simulation-level
 /// `StateVariable` map so cross-level / cut I/O machinery treats α
 /// uniformly.  Cut-install sites (backward pass, boundary/named
-/// cut loaders) subsequently call `free_alpha(...)` to release the
+/// cut loaders) subsequently call `bound_alpha(...)` to release the
 /// pin.  Called once per scene during `SDDPMethod::initialize_solver`;
 /// exposed here so isolated callers (tests, direct cut-loader
 /// harnesses) can establish the same precondition without standing
@@ -1189,8 +1189,7 @@ void apply_terminal_alpha_floor(PlanningLP& planning_lp,
 ///                    non-negative stage costs).
 void apply_alpha_floor(PlanningLP& planning_lp,
                        SceneIndex scene_index,
-                       PhaseIndex phase_index,
-                       double seed_phys = 0.0);
+                       PhaseIndex phase_index);
 
 // ─── Per-phase tracking ─────────────────────────────────────────────────────
 
