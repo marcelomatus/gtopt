@@ -26,6 +26,7 @@
 #include <doctest/doctest.h>
 #include <gtopt/linear_interface.hpp>
 #include <gtopt/linear_problem.hpp>
+#include <gtopt/lp_replay_buffer.hpp>
 
 using namespace gtopt;  // NOLINT(google-global-names-in-headers)
 
@@ -487,4 +488,201 @@ TEST_CASE("set_col_bounds_raw / set_col_bounds — edge cases")  // NOLINT
     CHECK(lo_raw[fixture.c1] != doctest::Approx(999.0));
     CHECK(hi_raw[fixture.c1] != doctest::Approx(999.0));
   }
+}
+
+// ────────────────────────────────────────────────────────────────────
+// Test 10 — bulk-set bounds capture into the replay buffer.
+//
+// Regression guard for the unification: per-element setters used to
+// each record into the replay buffer individually.  After routing them
+// through `set_col_bounds_raw`, the bulk path must still record each
+// element so a `release_backend → reconstruct_backend` cycle replays
+// every updated bound (matches the contract previously verified by
+// `LinearInterface — low_memory reconstruct with dynamic cols`).
+// ────────────────────────────────────────────────────────────────────
+TEST_CASE(  // NOLINT
+    "set_col_bounds_raw — every element is recorded in the replay buffer")
+{
+  ScaledLP4 fixture;
+  auto li = fixture.make_li();
+
+  // Activate the replay-buffer tracking path (off by default for raw
+  // user-space writes; compress mode is the production trigger).
+  li.set_low_memory(LowMemoryMode::compress);
+
+  const std::array<ColIndex, 4> idx {
+      fixture.c0,
+      fixture.c1,
+      fixture.c2,
+      fixture.c3,
+  };
+  const std::array<char, 4> lu {
+      'L',
+      'U',
+      'B',
+      'L',
+  };
+  const std::array<double, 4> vals {
+      2.5,
+      50.0,
+      9.0,
+      -7.5,
+  };
+  li.set_col_bounds_raw(idx, lu, vals);
+
+  // Every distinct column index should have a pending entry.
+  const auto& pending = li.replay_buf().pending_col_bounds();
+  CHECK(pending.contains(fixture.c0));
+  CHECK(pending.contains(fixture.c1));
+  CHECK(pending.contains(fixture.c2));
+  CHECK(pending.contains(fixture.c3));
+  CHECK(pending.at(fixture.c0).first == doctest::Approx(2.5));  // L only
+  CHECK(pending.at(fixture.c1).second == doctest::Approx(50.0));  // U only
+  // 'B' writes both sides on c2.
+  CHECK(pending.at(fixture.c2).first == doctest::Approx(9.0));
+  CHECK(pending.at(fixture.c2).second == doctest::Approx(9.0));
+  CHECK(pending.at(fixture.c3).first == doctest::Approx(-7.5));  // L only
+}
+
+// ────────────────────────────────────────────────────────────────────
+// Test 11 — bulk-set bounds (incl. ±DblMax) survive a release+reconstruct
+// cycle under LowMemoryMode::compress.
+//
+// This is the end-to-end version of Test 10: the buffer recording is
+// only useful if `apply_post_load_replay` (which now also routes
+// through `set_col_bounds_raw`) actually re-applies the values on
+// reconstruct.  Includes a `±DblMax` entry to pin the ±∞ contract
+// across the round-trip.
+// ────────────────────────────────────────────────────────────────────
+TEST_CASE(  // NOLINT
+    "set_col_bounds_raw — finite + ±DblMax bounds survive release+reconstruct"
+    " under compress mode")
+{
+  ScaledLP4 fixture;
+  auto flat = fixture.lp.flatten({});
+
+  LinearInterface li;
+  li.set_low_memory(LowMemoryMode::compress);
+  li.load_flat(flat);
+  li.save_snapshot(flat);
+  li.save_base_numrows();
+  REQUIRE(li.has_snapshot_data());
+
+  // Bulk-bound update: finite values on c0/c2, +DblMax on c1, -DblMax on c3.
+  const std::array<ColIndex, 4> idx {
+      fixture.c0,
+      fixture.c1,
+      fixture.c2,
+      fixture.c3,
+  };
+  const std::array<char, 4> lu {
+      'U',
+      'U',
+      'L',
+      'L',
+  };
+  const std::array<double, 4> vals {
+      42.0,
+      LinearProblem::DblMax,
+      -3.0,
+      -LinearProblem::DblMax,
+  };
+  li.set_col_bounds_raw(idx, lu, vals);
+
+  // Pin pre-cycle state.
+  const auto inf_pre = li.infinity();
+  const auto hi_pre = li.get_col_upp_raw();
+  const auto lo_pre = li.get_col_low_raw();
+  CHECK(hi_pre[fixture.c0] == doctest::Approx(42.0));
+  CHECK(hi_pre[fixture.c1] >= inf_pre * 0.999);  // normalised to +inf
+  CHECK(lo_pre[fixture.c2] == doctest::Approx(-3.0));
+  CHECK(lo_pre[fixture.c3] <= -inf_pre * 0.999);  // normalised to -inf
+
+  // Round-trip through release/reconstruct — `apply_post_load_replay`
+  // now routes through the bulk raw API; the same bounds should
+  // re-appear on the rebuilt backend.
+  li.release_backend();
+  li.reconstruct_backend();
+
+  const auto inf_post = li.infinity();
+  const auto hi_post = li.get_col_upp_raw();
+  const auto lo_post = li.get_col_low_raw();
+  CHECK(hi_post[fixture.c0] == doctest::Approx(42.0));
+  CHECK(hi_post[fixture.c1] >= inf_post * 0.999);
+  CHECK(lo_post[fixture.c2] == doctest::Approx(-3.0));
+  CHECK(lo_post[fixture.c3] <= -inf_post * 0.999);
+}
+
+// ────────────────────────────────────────────────────────────────────
+// Test 12 — phys bulk-set bounds (incl. ±solver_inf) survive a clone
+// via `clone_from_flat(with_replay=true)`.
+//
+// The aperture-clone path (PR comment context) uses
+// `clone_from_flat(with_replay=true)` so the shallow clone inherits
+// every pending bound override.  This test pins that:
+//   (a) the phys setter records ±solver_inf passthrough into the
+//       replay buffer (no col_scale divide),
+//   (b) the clone sees the same effective bounds after replay.
+// ────────────────────────────────────────────────────────────────────
+TEST_CASE(  // NOLINT
+    "set_col_bounds (phys) — ±solver_inf passthrough survives clone_from_flat")
+{
+  ScaledLP4 fixture;
+  auto flat = fixture.lp.flatten({});
+
+  LinearInterface li;
+  li.set_low_memory(LowMemoryMode::compress);
+  li.load_flat(flat);
+  li.save_snapshot(flat);
+  li.save_base_numrows();
+  REQUIRE(li.has_snapshot_data());
+
+  const double solver_inf = li.infinity();
+
+  // Phys bulk-set: finite phys value on c0 (s0=1.0; descale-noop),
+  // finite on c1 (s1=4.0; descales to 25.0 raw), +solver_inf on c2
+  // (must NOT descale — would yield finite-but-huge), -solver_inf
+  // on c3.
+  const std::array<ColIndex, 4> idx {
+      fixture.c0,
+      fixture.c1,
+      fixture.c2,
+      fixture.c3,
+  };
+  const std::array<char, 4> lu {
+      'U',
+      'U',
+      'U',
+      'L',
+  };
+  const std::array<double, 4> phys_vals {
+      8.0,
+      100.0,
+      solver_inf,
+      -solver_inf,
+  };
+  li.set_col_bounds(idx, lu, phys_vals);
+
+  // Source-side checks: phys descale on c1, passthrough on c2/c3.
+  const auto hi_src = li.get_col_upp_raw();
+  const auto lo_src = li.get_col_low_raw();
+  CHECK(hi_src[fixture.c0] == doctest::Approx(8.0));  // s0=1
+  CHECK(hi_src[fixture.c1] == doctest::Approx(25.0));  // 100/4
+  CHECK(hi_src[fixture.c2] >= solver_inf * 0.999);  // passthrough
+  CHECK(lo_src[fixture.c3] <= -solver_inf * 0.999);  // passthrough
+
+  // Clone via `clone_from_flat(with_replay=true)` — the pending
+  // bound overrides must be re-applied on the clone after it loads
+  // the same flat snapshot.  This is the exact path used by SDDP
+  // aperture clones in the production hot loop.
+  const auto clone = li.clone_from_flat(LinearInterface::CloneKind::shallow,
+                                        /*with_replay=*/true);
+
+  const double clone_inf = clone.infinity();
+  const auto hi_clone = clone.get_col_upp_raw();
+  const auto lo_clone = clone.get_col_low_raw();
+  CHECK(hi_clone[fixture.c0] == doctest::Approx(8.0));
+  CHECK(hi_clone[fixture.c1] == doctest::Approx(25.0));
+  CHECK(hi_clone[fixture.c2] >= clone_inf * 0.999);
+  CHECK(lo_clone[fixture.c3] <= -clone_inf * 0.999);
 }
