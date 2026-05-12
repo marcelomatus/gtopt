@@ -64,11 +64,26 @@ void propagate_trial_values(std::span<StateVarLink> links,
                             std::span<const double> source_solution,
                             LinearInterface& target_li) noexcept
 {
+  // Collapse the per-link `set_col_low_raw + set_col_upp_raw` pair into a
+  // single bulk dispatch.  Same N → 1 backend-round-trip motivation as
+  // `apply_post_load_replay` — matters on cases with many forward-pass
+  // dep_col pins (production juan/IPLP, RALCO/sini chains).  The bulk
+  // path applies the same validation, replay-buffer capture, and
+  // cached-optimal invalidation as the per-element setters.
+  const auto n = links.size();
+  std::vector<ColIndex> idx;
+  std::vector<char> lu;
+  std::vector<double> values;
+  idx.reserve(n);
+  lu.reserve(n);
+  values.reserve(n);
   for (auto& link : links) {
     link.trial_value = source_solution[link.source_col];
-    target_li.set_col_low_raw(link.dependent_col, link.trial_value);
-    target_li.set_col_upp_raw(link.dependent_col, link.trial_value);
+    idx.push_back(link.dependent_col);
+    lu.push_back('B');  // pin both lower and upper to the trial value
+    values.push_back(link.trial_value);
   }
+  target_li.set_col_bounds_raw(idx, lu, values);
 }
 
 void propagate_trial_values(std::span<StateVarLink> links,
@@ -88,20 +103,35 @@ void propagate_trial_values(std::span<StateVarLink> links,
   // The fix: read the physical trial value via `col_sol_physical()`
   // and pin the dependent bound via the physical setter, which
   // internally divides by the dependent column's own `col_scale`.
+  //
+  // Routed through the bulk `set_col_bounds` so the N per-link
+  // (set_col_low + set_col_upp) pairs collapse to a single bulk
+  // dispatch — same motivation as the raw overload above.  The phys
+  // bulk path also passes ±DblMax / ±solver-infinity through
+  // unchanged, which the singular `set_col_low/upp(phys)` could not.
+  const auto n = links.size();
+  std::vector<ColIndex> idx;
+  std::vector<char> lu;
+  std::vector<double> phys_values;
+  idx.reserve(n);
+  lu.reserve(n);
+  phys_values.reserve(n);
   for (auto& link : links) {
     const double v_phys =
         (link.state_var != nullptr) ? link.state_var->col_sol_physical() : 0.0;
-    target_li.set_col_low(link.dependent_col, v_phys);
-    target_li.set_col_upp(link.dependent_col, v_phys);
+    idx.push_back(link.dependent_col);
+    lu.push_back('B');
+    phys_values.push_back(v_phys);
     // Keep `trial_value` in dependent-column raw LP units so
     // downstream cut-builders (which compare against the bound
     // snapshot in `StateVarLink::source_{low,upp}` also captured in
     // raw) see a self-consistent value.  Hoist the descale once —
-    // `set_col_low/upp(physical)` above already paid the descale
-    // internally, so a second division here is unavoidable, but at
-    // least it's computed only once per link.
+    // `set_col_bounds(phys)` below also divides by `col_scale` but
+    // does it internally on the cached vector, so a second division
+    // here is unavoidable yet computed only once per link.
     link.trial_value = v_phys / target_li.get_col_scale(link.dependent_col);
   }
+  target_li.set_col_bounds(idx, lu, phys_values);
 }
 
 auto build_benders_cut_physical(ColIndex alpha_col,
