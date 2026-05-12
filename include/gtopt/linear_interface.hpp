@@ -1507,6 +1507,58 @@ public:
   void set_col_upp(ColIndex index, double physical_value);
   void set_col(ColIndex index, double physical_value);
 
+  // ── Bulk column-bound setters ──
+
+  /**
+   * @brief Bulk col-bound mutation in LP-raw units.
+   *
+   * Parallel arrays of length `indices.size()`:
+   *   * `indices[i]` — target column.
+   *   * `lu[i]`      — 'L' (lower), 'U' (upper), or 'B' (both).
+   *   * `values[i]`  — raw LP value (normalised via
+   *                    `normalize_bound` so `±DblMax` / `±std::inf`
+   *                    map to the solver's signed infinity).
+   *
+   * One dispatch into `SolverBackend::set_col_bounds_bulk` — CPLEX
+   * collapses it to a single `CPXchgbds` call.  Per element the
+   * method runs the same bookkeeping the singular `set_col_low_raw`
+   * / `set_col_upp_raw` setters do: validation hooks
+   * (`note_bound`), replay-buffer pending-bound capture (so a
+   * `release_backend` → `reconstruct_backend` cycle re-applies the
+   * override), and cached-solution invalidation.
+   *
+   * Companion to `set_obj_coeffs_raw(span)` and the row-side
+   * `add_rows_raw(span)` bulk APIs.  Empty input is a safe no-op;
+   * size mismatch between the three spans throws
+   * `std::invalid_argument`.
+   */
+  void set_col_bounds_raw(std::span<const ColIndex> indices,
+                          std::span<const char> lu,
+                          std::span<const double> values);
+
+  /**
+   * @brief Bulk col-bound mutation in physical (descaled) units.
+   *
+   * Each `physical_values[i]` is divided by `col_scale[indices[i]]`
+   * before being routed through `set_col_bounds_raw`, mirroring the
+   * per-element `set_col_low(idx, phys)` / `set_col_upp(idx, phys)`
+   * descale:  raw = physical / col_scale.
+   *
+   * ±infinity handling: values that already represent a solver-side
+   * unbounded marker — `±DblMax`, `± solver infinity()`, or
+   * `± std::numeric_limits<double>::infinity()` — are passed through
+   * to the raw setter UNCHANGED (not divided by `col_scale`).
+   * Dividing a finite solver-infinity (e.g. HiGHS `1e30`) by a
+   * non-unit scale would yield a huge-but-finite value that
+   * `normalize_bound` could no longer map back to the solver's
+   * signed infinity, producing an incorrect tight bound.  The raw
+   * setter's `normalize_bound` then maps the pass-through value to
+   * the active solver's signed infinity.
+   */
+  void set_col_bounds(std::span<const ColIndex> indices,
+                      std::span<const char> lu,
+                      std::span<const double> physical_values);
+
   /**
    * @brief Gets the objective value in physical (unscaled) units.
    *
