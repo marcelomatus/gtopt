@@ -90,6 +90,10 @@ public:
   void set_col_upper(int index, double value) override;
   void set_obj_coeff(int index, double value) override;
   void set_obj_coeffs(const double* values, int num_cols) override;
+  void set_col_bounds_bulk(int num,
+                           const int* indices,
+                           const char* lu,
+                           const double* values) override;
 
   // ---- row ops ----
   void add_row(int num_elements,
