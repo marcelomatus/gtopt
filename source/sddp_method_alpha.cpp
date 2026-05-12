@@ -315,27 +315,19 @@ void apply_alpha_floor(PlanningLP& planning_lp,
   sys.ensure_lp_built();
   auto& li = sys.linear_interface();
 
-  // Column bounds in *raw LP space*.  The cut coefficients we read
-  // from `SparseRow::cmap` are also LP-space (`compose_physical` ran
-  // at add_row time), so the multiplication `coef · v_bound` lands
-  // in the same space as `row.lowb` — no scale_obj / col_scale fiddly
-  // arithmetic needed.
-  const auto col_low = li.get_col_low_raw();
-  const auto col_upp = li.get_col_upp_raw();
+  // Read PHYSICAL column bounds (ScaledView returns ``raw × col_scale``).
+  // Matches the physical-space coefficients carried on
+  // `active_cuts()` so the multiplication ``coef_phys · v_phys`` is
+  // dimensionally consistent with the physical RHS.
+  const auto col_low_phys = li.get_col_low();
+  const auto col_upp_phys = li.get_col_upp();
+  // ``±DblMax`` markers in SparseCol are normalised to the backend's
+  // own infinity sentinel on `load_flat`.  Anything within 0.1% of
+  // that value is considered "unbounded" (CPLEX uses 1e20, HiGHS /
+  // CBC use 1e30, gtopt's DblMax is 1.8e308).
+  const double infy_guard = li.infinity() * 0.999;
 
-  // Seed at `0` — the weak universal floor that ALWAYS holds:
-  // cost-to-go is non-negative under non-negative stage costs.  Every
-  // cut-derived `floor_cut` is then folded in via `max(..., 0)`, so
-  // the final floor is at least `0` even when:
-  //   - no cuts are installed (the loop below executes 0 times),
-  //   - no installed cut references α (e.g. only pure state-coupling
-  //     feasibility cuts at the last phase),
-  //   - every α-cut produces a negative `floor_cut` (loose support
-  //     point relative to the state box).
-  // This closes the "α_T unbounded below in aperture clones" hole
-  // observed on juan/gtopt_iplp_plain regardless of whether boundary
-  // cuts were loaded for the current scene.
-  double tightest_floor = 0.0;
+  double tightest_floor_phys = seed_phys;
   [[maybe_unused]] std::size_t cuts_with_alpha = 0;
   for (const auto& cut : li.active_cuts()) {
     // Skip non-α cuts (pure state-coupling rows from feasibility
