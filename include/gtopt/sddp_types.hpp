@@ -1142,8 +1142,55 @@ void register_alpha_variables(PlanningLP& planning_lp,
 /// `update_dynamic_col_bounds` is called so the floor survives a
 /// `release_backend` + `ensure_backend` cycle under
 /// `LowMemoryMode::compress`.
+///
+/// **Unit convention.** All arithmetic in this helper runs in
+/// **physical-space** units:
+///   * `LinearInterface::active_cuts()` returns rows captured by
+///     `record_cut_row` BEFORE `compose_physical` mutated them — so
+///     ``cut.lowb`` is ``rhs_phys`` and ``cut.cmap[col]`` is
+///     ``coef_phys``.
+///   * State-variable column bounds are read via
+///     `get_col_low()` / `get_col_upp()` (ScaledView returning
+///     ``raw × col_scale``), so the multiplication
+///     ``coef_phys · v_phys`` lands in the same units as
+///     ``rhs_phys``.
+///   * The floor is written via the **physical** setter
+///     `set_col_low(α_col, floor_phys)` (which divides by α's
+///     ``col_scale = scale_alpha`` internally to land raw in the
+///     backend) and mirrored to `update_dynamic_col_bounds` with the
+///     same physical floor (``SparseCol.lowb`` is physical — see
+///     `LinearProblem::flatten`).  Both representations stay
+///     coherent across `release_backend` / `ensure_backend` cycles.
 void apply_terminal_alpha_floor(PlanningLP& planning_lp,
                                 SceneIndex scene_index);
+
+/// Generalised cut-derived α floor for an arbitrary phase.
+///
+/// Same projection logic as `apply_terminal_alpha_floor` but
+/// parametrised on the phase index and on the seed (universal weak
+/// floor that always holds before any cut is examined).  The terminal
+/// helper is a one-line wrapper around this with
+/// ``phase_index = sim.last_phase_index()`` and ``seed_phys = 0.0``.
+///
+/// Exposed so a follow-up can refresh the floor at every interior
+/// (scene, phase) cell after a new optimality cut is installed —
+/// closing the same `CPX_STAT_UNBOUNDED` window at intermediate
+/// phases whose backward cuts cover only a sub-region of the
+/// post-aperture trial-state polytope.  See plan §4 in the issue
+/// thread for the wiring proposal (`SDDPOptions::alpha_floor_mode`).
+///
+/// @param planning_lp Owning planning LP carrying the per-cell
+///                    LinearInterface / SystemContext.
+/// @param scene_index Target scene cell.
+/// @param phase_index Target phase cell.  No-op when α is not
+///                    registered on (scene_index, phase_index).
+/// @param seed_phys   Weak universal floor used to seed the
+///                    cut-driven max.  Defaults to ``0`` (valid under
+///                    non-negative stage costs).
+void apply_alpha_floor(PlanningLP& planning_lp,
+                       SceneIndex scene_index,
+                       PhaseIndex phase_index,
+                       double seed_phys = 0.0);
 
 // ─── Per-phase tracking ─────────────────────────────────────────────────────
 
