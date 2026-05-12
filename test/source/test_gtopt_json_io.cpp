@@ -250,3 +250,226 @@ TEST_CASE(
 
   std::filesystem::remove_all(dir);
 }
+
+// ─── parse_planning_json / parse_planning_files extra coverage ─────────────
+
+TEST_CASE("parse_planning_json: direct string_view entry point")  // NOLINT
+{
+  // `parse_planning_json` is the single instantiation point for
+  // `daw::json::from_json<Planning>` with StrictParsePolicy.  All the
+  // file-based call sites delegate through `parse_planning_files`, so
+  // this is the only direct coverage of the string-view overload.
+  constexpr std::string_view json = R"({
+    "options": {"demand_fail_cost": 1234.0},
+    "simulation": {
+      "block_array":    [{"uid": 1, "duration": 1.0}],
+      "stage_array":    [{"uid": 1, "first_block": 0, "count_block": 1}],
+      "scenario_array": [{"uid": 0}]
+    },
+    "system": {
+      "name": "FROM_STRING",
+      "bus_array": [{"uid": 1, "name": "b1"}]
+    }
+  })";
+
+  const Planning planning = parse_planning_json(json);
+  CHECK(planning.system.name == "FROM_STRING");
+  REQUIRE(planning.system.bus_array.size() == 1);
+  CHECK(planning.system.bus_array.front().name == "b1");
+  CHECK(planning.options.demand_fail_cost.value_or(0.0)
+        == doctest::Approx(1234.0));
+}
+
+TEST_CASE("parse_planning_files: empty file list returns default Planning")
+// NOLINT
+{
+  // The loop body never executes, so a default-constructed Planning is
+  // returned.  This exercises the "no inputs" branch which the
+  // end-to-end driver short-circuits.
+  const auto result = parse_planning_files({});
+  REQUIRE(result.has_value());
+  CHECK(result->system.name.empty());
+  CHECK(result->system.bus_array.empty());
+}
+
+TEST_CASE("parse_planning_files: missing file returns error")  // NOLINT
+{
+  // No fallback `input_directory` provided, so the "does not exist"
+  // branch fires immediately.
+  const auto result =
+      parse_planning_files({"/nonexistent/dir/no_such_file.json"});
+  REQUIRE_FALSE(result.has_value());
+  CHECK(result.error().contains("does not exist"));
+}
+
+TEST_CASE("parse_planning_files: input_directory fallback resolves file")
+// NOLINT
+{
+  // Place the file in a directory that's NOT the current working
+  // directory; pass only the file's basename and rely on the
+  // input_directory fallback to find it.
+  const auto dir = unique_tmpdir("parse_indir");
+  const auto basename = std::string {"resolved.json"};
+  const auto full = (dir / basename).string();
+  {
+    std::ofstream ofs(full);
+    ofs << R"({"system": {"name": "RESOLVED"}})";
+  }
+
+  // Pass `basename` (does NOT exist in cwd) plus the directory as
+  // `input_directory` — the loader must locate the file via fallback.
+  const auto result = parse_planning_files({basename}, dir.string());
+  REQUIRE(result.has_value());
+  CHECK(result->system.name == "RESOLVED");
+
+  std::filesystem::remove_all(dir);
+}
+
+TEST_CASE(
+    "parse_planning_files: missing file with input_directory fallback also "
+    "missing")  // NOLINT
+{
+  // Both the primary path and the input_directory fallback miss the
+  // file — the loader must return an error.
+  const auto dir = unique_tmpdir("parse_indir_miss");
+  const auto result =
+      parse_planning_files({"/no/such/primary.json"}, dir.string());
+  REQUIRE_FALSE(result.has_value());
+  CHECK(result.error().contains("does not exist"));
+
+  std::filesystem::remove_all(dir);
+}
+
+TEST_CASE("parse_planning_files: extension is normalised to .json")  // NOLINT
+{
+  // The implementation calls `replace_extension(".json")` on the
+  // user-supplied path before checking existence.  Supplying a
+  // user-extension-less path should still locate `<stem>.json`.
+  const auto dir = unique_tmpdir("parse_ext");
+  const auto json_path = (dir / "norm.json").string();
+  {
+    std::ofstream ofs(json_path);
+    ofs << R"({"system": {"name": "EXT_OK"}})";
+  }
+
+  // Pass the stem WITHOUT the .json extension.
+  const auto stem = (dir / "norm").string();
+  const auto result = parse_planning_files({stem});
+  REQUIRE(result.has_value());
+  CHECK(result->system.name == "EXT_OK");
+
+  std::filesystem::remove_all(dir);
+}
+
+TEST_CASE("parse_planning_files: malformed JSON returns error")  // NOLINT
+{
+  // The DAW JSON parser throws on malformed input; the loader catches
+  // and converts it to an `unexpected` with the filename embedded.
+  const auto dir = unique_tmpdir("parse_bad");
+  const auto bad_path = (dir / "bad.json").string();
+  {
+    std::ofstream ofs(bad_path);
+    ofs << "{ this is not valid JSON }";
+  }
+
+  const auto result = parse_planning_files({bad_path});
+  REQUIRE_FALSE(result.has_value());
+  // Error message mentions the offending file path.
+  CHECK(result.error().contains("bad.json"));
+
+  std::filesystem::remove_all(dir);
+}
+
+TEST_CASE("parse_planning_files: multiple files are merged")  // NOLINT
+{
+  // Two files contribute different parts of the same Planning.  The
+  // loader calls `Planning::merge` once per file; the final result
+  // should contain entries from both.
+  const auto dir = unique_tmpdir("parse_merge");
+  const auto p1 = (dir / "p1.json").string();
+  const auto p2 = (dir / "p2.json").string();
+  {
+    std::ofstream ofs(p1);
+    ofs << R"({"system": {"name": "MERGED",
+                          "bus_array": [{"uid": 1, "name": "b1"}]}})";
+  }
+  {
+    std::ofstream ofs(p2);
+    ofs << R"({"system": {"bus_array": [{"uid": 2, "name": "b2"}]}})";
+  }
+
+  const auto result = parse_planning_files({p1, p2});
+  REQUIRE(result.has_value());
+  // Both buses should be present after the merge.
+  CHECK(result->system.bus_array.size() == 2);
+
+  std::filesystem::remove_all(dir);
+}
+
+// ─── load_user_constraints extra coverage ──────────────────────────────────
+
+TEST_CASE("load_user_constraints: PAMPL extension dispatches to PamplParser")
+// NOLINT
+{
+  // A `.pampl` extension routes through `PamplParser::parse_file`
+  // instead of the JSON path.  Verify the constraints land in the
+  // planning's array with names taken from the PAMPL `constraint NAME`
+  // headers.
+  const auto dir = unique_tmpdir("uc_pampl");
+  const auto pampl_path = (dir / "rules.pampl").string();
+  {
+    std::ofstream ofs(pampl_path);
+    ofs << "constraint pampl_a: generator('G1').generation <= 100;\n"
+        << "constraint pampl_b: generator('G2').generation <= 200;\n";
+  }
+
+  Planning planning {};
+  planning.system.user_constraint_file = pampl_path;
+  const auto result = load_user_constraints(planning);
+  REQUIRE(result.has_value());
+  REQUIRE(planning.system.user_constraint_array.size() == 2);
+  // Names come from the PAMPL `constraint <name>:` headers.
+  CHECK(planning.system.user_constraint_array[0].name == "pampl_a");
+  CHECK(planning.system.user_constraint_array[1].name == "pampl_b");
+
+  std::filesystem::remove_all(dir);
+}
+
+TEST_CASE(
+    "load_user_constraints: relative path resolves against "
+    "input_directory")  // NOLINT
+{
+  // The loader resolves relative `user_constraint_file` paths against
+  // `planning.options.input_directory`.  Drop a UC file in a subdir,
+  // refer to it by basename, and rely on this resolution.
+  const auto dir = unique_tmpdir("uc_relpath");
+  const auto uc_path = (dir / "uc.json").string();
+  {
+    std::ofstream ofs(uc_path);
+    ofs << R"([{"uid": 7, "name": "rel_uc", "expression": "0 <= 1"}])";
+  }
+
+  Planning planning {};
+  planning.options.input_directory = dir.string();
+  // Reference by basename only — relative path resolution kicks in.
+  planning.system.user_constraint_file = std::string {"uc.json"};
+
+  const auto result = load_user_constraints(planning);
+  REQUIRE(result.has_value());
+  REQUIRE(planning.system.user_constraint_array.size() == 1);
+  CHECK(planning.system.user_constraint_array.front().name == "rel_uc");
+
+  std::filesystem::remove_all(dir);
+}
+
+TEST_CASE("load_user_constraints: PAMPL file missing returns error")  // NOLINT
+{
+  // The catch handler converts PamplParser::parse_file failures into
+  // an error string carrying the file path.
+  Planning planning {};
+  planning.system.user_constraint_file = std::string {"/no/such/file.pampl"};
+
+  const auto result = load_user_constraints(planning);
+  REQUIRE_FALSE(result.has_value());
+  CHECK(result.error().contains("user_constraint_file"));
+}
