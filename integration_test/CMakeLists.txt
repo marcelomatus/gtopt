@@ -271,10 +271,10 @@ add_sddp_case(sddp_hydro_3phase_iter50_rebuild sddp_hydro_3phase.json
 #             (UB = 323 100) — golden_iter50.json is shared with the
 #             direct iter=50 run above.
 #
-# The load test CTest-DEPENDS on the save test so the shared CSV
-# exists before the load step runs.
+# The load test CTest-DEPENDS on the save test so the shared Parquet
+# cuts file exists before the load step runs.
 set(_hotstart_cuts
-    "${CMAKE_CURRENT_BINARY_DIR}/test_output/sddp_hydro_3phase_hotstart_save_sddp/cuts/sddp_cuts.csv")
+    "${CMAKE_CURRENT_BINARY_DIR}/test_output/sddp_hydro_3phase_hotstart_save_sddp/cuts/sddp_cuts.parquet")
 
 add_sddp_case(sddp_hydro_3phase_hotstart_save sddp_hydro_3phase.json
   CASE_DIR sddp_hydro_3phase MAX_ITERATIONS 50
@@ -288,7 +288,7 @@ add_sddp_case(sddp_hydro_3phase_hotstart_load sddp_hydro_3phase.json
     "sddp_options.recovery_mode=cuts"
   GOLDEN golden_iter50_hotstart.json)
 
-# The load run reads the CSV produced by the save run — enforce
+# The load run reads the Parquet cuts file produced by the save run — enforce
 # ordering via CTest dependency on the save-side validate step
 # (which in turn depends on save-side solve).  Without this, a
 # parallel ctest run could launch both tests concurrently and the

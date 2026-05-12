@@ -82,11 +82,6 @@ private:
   /// 2026-04-30).
   static void auto_scale_reservoirs(Planning& planning, double solver_infinity);
 
-  /// Compute adaptive energy scales for LNG terminals from emax.
-  /// Same `solver_infinity` semantics as `auto_scale_reservoirs`.
-  static void auto_scale_lng_terminals(Planning& planning,
-                                       double solver_infinity);
-
   /// State variable I/O uses the StateVariable map (ColIndex-based)
   /// directly — no column name strings are needed.  This method is
   /// kept for API compatibility but is now a pass-through.
@@ -137,6 +132,13 @@ public:
   /// Static so unit tests can exercise it without standing up a full
   /// PlanningLP, mirroring `validate_line_reactance`.
   static void auto_scale_loss_link(Planning& planning);
+
+  /// Compute adaptive energy scales for LNG terminals from emax.
+  /// Same `solver_infinity` semantics as `auto_scale_reservoirs`.
+  /// Static so unit tests can exercise it without standing up a
+  /// full PlanningLP.
+  static void auto_scale_lng_terminals(Planning& planning,
+                                       double solver_infinity);
 
   /// Renormalise ``Scenario::probability_factor`` so that the sum
   /// over scenarios contained in *active* scenes (and themselves

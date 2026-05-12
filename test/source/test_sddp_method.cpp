@@ -3363,6 +3363,7 @@ TEST_CASE(  // NOLINT
       });
     }
     for (auto& r : planning.system.reservoir_array) {
+      r.efin = OptReal {170.0};
       r.efin_cost = efin_cost_opt;
     }
     PlanningLP plp(std::move(planning));
@@ -3654,6 +3655,7 @@ TEST_CASE(  // NOLINT
   {
     auto planning = make_backtracking_recovery_two_reservoir_planning();
     for (auto& r : planning.system.reservoir_array) {
+      r.efin = OptReal {170.0};
       r.efin_cost = efin_cost_opt;
     }
     // Push the low_memory_mode through the JSON-facing optional so the
@@ -3888,6 +3890,7 @@ TEST_CASE(  // NOLINT
           SddpOptions {.low_memory_mode = LowMemoryMode::rebuild};
     }
     for (auto& r : planning.system.reservoir_array) {
+      r.efin = OptReal {170.0};
       r.efin_cost = efin_cost_opt;
     }
     PlanningLP plp(std::move(planning));
@@ -4096,6 +4099,7 @@ TEST_CASE(  // NOLINT
   {
     auto planning = make_2scene_backtracking_recovery_two_reservoir_planning();
     for (auto& r : planning.system.reservoir_array) {
+      r.efin = OptReal {170.0};
       r.efin_cost = efin_cost_opt;
     }
     PlanningLP plp(std::move(planning));
@@ -5645,22 +5649,22 @@ TEST_CASE(  // NOLINT
                          << "  max_rhs=" << max_rhs << "  min_LB=" << min_lb
                          << "  FLIP=" << flip);
   }
-  // Solver-agnostic invariants (the cut-RHS sign at the degenerate
-  // crossover depends on which LP vertex the backend picks, which
-  // differs between CLP simplex and CPLEX barrier — see the CLP run
-  // in 2026-05-10 investigation notes).  What is universal:
+  // Solver-agnostic invariants (with the α_T floor from
+  // `apply_terminal_alpha_floor` now preventing LB-overshoot):
   //
   //   * efin_cost in [0.01, 50] (well below degeneracy):
   //       min cut RHS > 0 AND min LB stays at the iter-0 baseline.
   //
   //   * efin_cost = 500 (well above degeneracy):
-  //       min LB drops well below 0 regardless of solver — the
-  //       LB-overshoot is structural, not a per-solver artifact.
+  //       With the unit-correct α floor for terminal-phase boundary
+  //       cuts (eaa613ec), the LB-overshoot is now suppressed — the
+  //       α_T floor keeps the lower bound anchored at the physical
+  //       optimum regardless of soft-efin penalty magnitude.
   const auto [safe_min_rhs, _, safe_lb] = sweep_efin_cost_for_flip(50.0);
   CHECK(safe_min_rhs > 0.0);
   CHECK(safe_lb > 0.0);
   const auto [__, ___, big_lb] = sweep_efin_cost_for_flip(500.0);
-  CHECK(big_lb < -1000.0);  // observed −70 000 on both CLP and CPLEX
+  CHECK(big_lb > 0.0);  // α_T floor prevents LB overshoot
 }
 
 // ─── DIAG: explore mitigations for the efin_cost=500 LB-overshoot ─────────

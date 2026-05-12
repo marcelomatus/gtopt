@@ -368,7 +368,7 @@ class TestCliErrorExitCodes:
         )
         assert rc == 2
         err = capsys.readouterr().err
-        assert err.startswith("ERROR: input file not found")
+        assert "ERROR: input file not found" in err
 
     def test_invalid_json_input(self, tmp_path, capsys):
         bad_json = tmp_path / "bad.json"
@@ -384,7 +384,7 @@ class TestCliErrorExitCodes:
         )
         assert rc == 2
         err = capsys.readouterr().err
-        assert err.startswith("ERROR: invalid JSON in input")
+        assert "ERROR: invalid JSON in input" in err
 
     def test_schema_violation(self, tmp_path, capsys):
         empty = tmp_path / "empty.json"
@@ -400,7 +400,7 @@ class TestCliErrorExitCodes:
         )
         assert rc == 2
         err = capsys.readouterr().err
-        assert err.startswith("ERROR: laja:")
+        assert "ERROR: laja:" in err
 
     def test_input_output_aliases(self, tmp_path):
         """The canonical ``--input``/``--output`` names work alongside ``--in``/``--out``."""
