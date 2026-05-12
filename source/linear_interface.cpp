@@ -632,28 +632,29 @@ void LinearInterface::apply_post_load_replay(const LpReplayBuffer& source)
   //    construction-time bounds while off mode (which never
   //    reloads) keeps the propagated pins — producing different
   //    cuts and ultimately the juan/iplp compress LB stall.
-  //    Uses the bulk `set_col_bounds_bulk` API (one CPXchgbds call
+  //    Uses the bulk `set_col_bounds_raw` API (one CPXchgbds call
   //    on CPLEX, one HighsLp update on HiGHS) instead of N pairs of
   //    `set_col_lower/upper` virtual dispatches — matters on cases
   //    with many forward-pass dep_col pins (production juan/IPLP).
+  //    The `ReplayGuard` above already makes the bulk call skip the
+  //    per-element `set_pending_col_*` re-record path.
   if (const auto& pending = source.pending_col_bounds(); !pending.empty()) {
     const auto n = pending.size();
-    std::vector<int> idx;
+    std::vector<ColIndex> idx;
     std::vector<char> lu;
     std::vector<double> values;
     idx.reserve(n * 2U);
     lu.reserve(n * 2U);
     values.reserve(n * 2U);
     for (const auto& [col, bounds] : pending) {
-      idx.push_back(static_cast<int>(col));
+      idx.push_back(col);
       lu.push_back('L');
       values.push_back(bounds.first);
-      idx.push_back(static_cast<int>(col));
+      idx.push_back(col);
       lu.push_back('U');
       values.push_back(bounds.second);
     }
-    m_backend_->set_col_bounds_bulk(
-        static_cast<int>(idx.size()), idx.data(), lu.data(), values.data());
+    set_col_bounds_raw(idx, lu, values);
   }
 
   // No warm-start step: the barrier method (default solver algorithm)
@@ -2839,6 +2840,156 @@ void LinearInterface::set_col(const ColIndex index, const double physical_value)
 {
   set_col_low(index, physical_value);
   set_col_upp(index, physical_value);
+}
+
+// ── Bulk column-bound setters ──────────────────────────────────────────────
+//
+// Mirrors `set_obj_coeffs_raw(span)` for the column-bound axis.  The phys
+// variant descales finite values by `col_scale[idx[i]]`, but passes
+// `±DblMax` / `± solver infinity()` / `± std::numeric_limits<double>::
+// infinity()` through unchanged so `normalize_bound` in the raw layer
+// can still map them to the active solver's signed infinity.  Dividing
+// a finite solver-infinity (e.g. HiGHS 1e30) by a non-unit scale would
+// otherwise yield a huge-but-finite value that no longer rounds to the
+// solver's infinity threshold, producing an incorrect tight bound.
+
+void LinearInterface::set_col_bounds_raw(
+    const std::span<const ColIndex> indices,
+    const std::span<const char> lu,
+    const std::span<const double> values)
+{
+  if (indices.empty()) {
+    return;
+  }
+  if (indices.size() != lu.size() || indices.size() != values.size()) {
+    throw std::invalid_argument(
+        std::format("LinearInterface::set_col_bounds_raw: span size mismatch "
+                    "(indices={}, lu={}, values={})",
+                    indices.size(),
+                    lu.size(),
+                    values.size()));
+  }
+
+  ensure_backend();
+  assert(m_backend_ != nullptr);
+
+  const auto ncols = m_backend_->get_num_cols();
+  const double inf = m_backend_->infinity();
+  const double infy_guard = inf * 0.999;
+  const bool validate = m_validation_options_.effective_enable();
+  const bool record_replay = !m_replay_.replaying() && !m_is_throwaway_clone_;
+
+  // Live raw bounds — needed to populate the OTHER side of a 'L'/'U'
+  // pending entry when the column is seen for the first time.  Reading
+  // a backend pointer is allocation-free and we only deref it under
+  // `record_replay`, so the cost is negligible.
+  const double* col_low_live =
+      record_replay ? m_backend_->col_lower() : nullptr;
+  const double* col_upp_live =
+      record_replay ? m_backend_->col_upper() : nullptr;
+
+  const auto n = indices.size();
+  std::vector<int> bk_idx;
+  std::vector<char> bk_lu;
+  std::vector<double> bk_vals;
+  bk_idx.reserve(n);
+  bk_lu.reserve(n);
+  bk_vals.reserve(n);
+
+  for (std::size_t i = 0; i < n; ++i) {
+    const ColIndex c = indices[i];
+    check_col_index("set_col_bounds_raw", c, ncols);
+    const char which = lu[i];
+    const double raw = values[i];
+    const double normalised = normalize_bound(raw);
+
+    if (validate && std::abs(raw) < infy_guard) {
+      m_validation_stats_.note_bound(raw, c, m_validation_options_);
+    }
+
+    bk_idx.push_back(static_cast<int>(c));
+    bk_lu.push_back(which);
+    bk_vals.push_back(normalised);
+
+    if (record_replay) {
+      const auto cu = static_cast<std::size_t>(c);
+      switch (which) {
+        case 'L': {
+          // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+          const double upper_now = col_upp_live[cu];
+          m_replay_.set_pending_col_lower(c, normalised, upper_now);
+          break;
+        }
+        case 'U': {
+          // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+          const double lower_now = col_low_live[cu];
+          m_replay_.set_pending_col_upper(c, lower_now, normalised);
+          break;
+        }
+        case 'B':
+          m_replay_.set_pending_col_lower(c, normalised, normalised);
+          m_replay_.set_pending_col_upper(c, normalised, normalised);
+          break;
+        default:
+          // Same default-skip behaviour as the SolverBackend fallback.
+          break;
+      }
+    }
+  }
+
+  m_backend_->set_col_bounds_bulk(static_cast<int>(bk_idx.size()),
+                                  bk_idx.data(),
+                                  bk_lu.data(),
+                                  bk_vals.data());
+  invalidate_cached_optimal_on_mutation();
+}
+
+void LinearInterface::set_col_bounds(
+    const std::span<const ColIndex> indices,
+    const std::span<const char> lu,
+    const std::span<const double> physical_values)
+{
+  if (indices.empty()) {
+    return;
+  }
+  if (indices.size() != lu.size() || indices.size() != physical_values.size()) {
+    throw std::invalid_argument(
+        std::format("LinearInterface::set_col_bounds: span size mismatch "
+                    "(indices={}, lu={}, physical_values={})",
+                    indices.size(),
+                    lu.size(),
+                    physical_values.size()));
+  }
+
+  // Cache `inf` once — `infinity()` walks a virtual dispatch into
+  // the backend (or the cached fallback when the backend is released),
+  // and we want one such call per bulk dispatch, not N.  Ensure the
+  // backend is loaded first so we read the active solver's infinity,
+  // not the stale `m_cached_infinity_` from before reconstruct.
+  ensure_backend();
+  const double inf = infinity();
+
+  const auto n = physical_values.size();
+  std::vector<double> raw_values;
+  raw_values.reserve(n);
+  for (std::size_t i = 0; i < n; ++i) {
+    const double phys = physical_values[i];
+    // Pass through ±DblMax / ± solver infinity / ± std::inf without
+    // applying col_scale.  `inf <= DblMax` is the universal solver
+    // invariant (CPLEX 1e20, HiGHS 1e30, OSI/CLP 1e30, all ≤ DblMax
+    // ≈ 1.8e308), so `phys >= inf` subsumes both `phys >= DblMax`
+    // and `std::isinf(phys) && phys > 0`.  Checked explicitly anyway
+    // so a future solver with `infinity() > DblMax` would still be
+    // covered.
+    if (phys >= inf || phys >= DblMax) {
+      raw_values.push_back(phys);
+    } else if (phys <= -inf || phys <= -DblMax) {
+      raw_values.push_back(phys);
+    } else {
+      raw_values.push_back(phys / get_col_scale(indices[i]));
+    }
+  }
+  set_col_bounds_raw(indices, lu, raw_values);
 }
 
 // ── Raw row bound setters (LP/solver units) ──
