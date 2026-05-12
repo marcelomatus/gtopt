@@ -346,13 +346,16 @@ void HighsSolverBackend::set_col_bounds_bulk(int num,
   // NOLINTBEGIN(cppcoreguidelines-pro-bounds-pointer-arithmetic)
   for (int i = 0; i < num; ++i) {
     const int col = indices[i];
+    if (col < 0 || static_cast<size_t>(col) >= ncols) {
+      // Skip out-of-range indices: the per-element fallback would
+      // call `set_col_lower(col, ...)` which is undefined for such
+      // inputs.  Dispatching garbage bounds to HiGHS is strictly
+      // worse, so drop these entries entirely.
+      continue;
+    }
     const auto cidx = static_cast<size_t>(col);
-    const double seed_lo =
-        (col >= 0 && cidx < ncols) ? lp.col_lower_[cidx] : 0.0;
-    const double seed_up =
-        (col >= 0 && cidx < ncols) ? lp.col_upper_[cidx] : kHighsInf;
-    auto [it, inserted] =
-        pending.try_emplace(col, std::pair {seed_lo, seed_up});
+    auto [it, inserted] = pending.try_emplace(
+        col, std::pair {lp.col_lower_[cidx], lp.col_upper_[cidx]});
     switch (lu[i]) {
       case 'L':
         it->second.first = values[i];
