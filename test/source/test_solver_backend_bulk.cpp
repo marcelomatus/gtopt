@@ -211,3 +211,193 @@ TEST_CASE(  // NOLINT
           == doctest::Approx(after_upp.at(static_cast<size_t>(i))));
   }
 }
+
+// -----------------------------------------------------------------------
+// HiGHS-specific regression tests.  These pin the HiGHS plugin override
+// of `set_col_bounds_bulk` (dispatch to `Highs::changeColsBounds` by set,
+// i.e. the C++ wrapper for `Highs_changeColsBoundsBySet`) against the
+// per-element `set_col_lower` / `set_col_upper` loop.  The above
+// "default backend" tests already exercise this transitively when HiGHS
+// is the highest-priority loaded plugin, but the explicit cases below
+// also run when HiGHS coexists with a higher-priority backend (CPLEX),
+// so the HiGHS override stays covered as long as `reg.create("highs")`
+// succeeds.
+namespace
+{
+
+[[nodiscard]] std::unique_ptr<SolverBackend> make_highs_backend_or_skip()
+{
+  auto& reg = SolverRegistry::instance();
+  reg.load_all_plugins();
+  if (!reg.has_solver("highs")) {
+    return nullptr;
+  }
+  return reg.create("highs");
+}
+
+}  // namespace
+
+TEST_CASE(  // NOLINT
+    "set_col_bounds_bulk [highs]: 'L'/'U' bulk matches per-element loop")
+{
+  auto a = make_highs_backend_or_skip();
+  auto b = make_highs_backend_or_skip();
+  if (!a || !b) {
+    return;
+  }
+  const double inf = a->infinity();
+  const BulkLP4 lp {inf};
+  lp.load_into(*a);
+  lp.load_into(*b);
+
+  a->set_col_lower(0, 1.0);
+  a->set_col_upper(0, 5.0);
+  a->set_col_lower(1, 2.0);
+  a->set_col_upper(1, 6.0);
+
+  const std::array<int, 4> idx {0, 0, 1, 1};
+  const std::array<char, 4> lu {'L', 'U', 'L', 'U'};
+  const std::array<double, 4> vals {1.0, 5.0, 2.0, 6.0};
+  b->set_col_bounds_bulk(
+      static_cast<int>(idx.size()), idx.data(), lu.data(), vals.data());
+
+  std::array<double, BulkLP4::ncols> a_low {};
+  std::array<double, BulkLP4::ncols> a_upp {};
+  std::array<double, BulkLP4::ncols> b_low {};
+  std::array<double, BulkLP4::ncols> b_upp {};
+  a->fill_col_lower(a_low);
+  a->fill_col_upper(a_upp);
+  b->fill_col_lower(b_low);
+  b->fill_col_upper(b_upp);
+  for (int i = 0; i < BulkLP4::ncols; ++i) {
+    CAPTURE(i);
+    CHECK(a_low.at(static_cast<size_t>(i))
+          == doctest::Approx(b_low.at(static_cast<size_t>(i))));
+    CHECK(a_upp.at(static_cast<size_t>(i))
+          == doctest::Approx(b_upp.at(static_cast<size_t>(i))));
+  }
+}
+
+TEST_CASE(  // NOLINT
+    "set_col_bounds_bulk [highs]: 'B' (both) sets lower and upper to same "
+    "value")
+{
+  auto a = make_highs_backend_or_skip();
+  auto b = make_highs_backend_or_skip();
+  if (!a || !b) {
+    return;
+  }
+  const double inf = a->infinity();
+  const BulkLP4 lp {inf};
+  lp.load_into(*a);
+  lp.load_into(*b);
+
+  a->set_col_lower(0, 3.0);
+  a->set_col_upper(0, 3.0);
+  a->set_col_lower(1, 7.0);
+  a->set_col_upper(1, 7.0);
+
+  const std::array<int, 2> idx {0, 1};
+  const std::array<char, 2> lu {'B', 'B'};
+  const std::array<double, 2> vals {3.0, 7.0};
+  b->set_col_bounds_bulk(
+      static_cast<int>(idx.size()), idx.data(), lu.data(), vals.data());
+
+  std::array<double, BulkLP4::ncols> a_low {};
+  std::array<double, BulkLP4::ncols> a_upp {};
+  std::array<double, BulkLP4::ncols> b_low {};
+  std::array<double, BulkLP4::ncols> b_upp {};
+  a->fill_col_lower(a_low);
+  a->fill_col_upper(a_upp);
+  b->fill_col_lower(b_low);
+  b->fill_col_upper(b_upp);
+  for (int i = 0; i < BulkLP4::ncols; ++i) {
+    CAPTURE(i);
+    CHECK(a_low.at(static_cast<size_t>(i))
+          == doctest::Approx(b_low.at(static_cast<size_t>(i))));
+    CHECK(a_upp.at(static_cast<size_t>(i))
+          == doctest::Approx(b_upp.at(static_cast<size_t>(i))));
+  }
+  CHECK(b_low.at(0) == doctest::Approx(3.0));
+  CHECK(b_upp.at(0) == doctest::Approx(3.0));
+  CHECK(b_low.at(1) == doctest::Approx(7.0));
+  CHECK(b_upp.at(1) == doctest::Approx(7.0));
+}
+
+TEST_CASE(  // NOLINT
+    "set_col_bounds_bulk [highs]: mixed 'L'/'U'/'B' across distinct cols")
+{
+  // Covers the override's pending-table path with all three side
+  // selectors in one call -- ensures L-only and U-only entries pick
+  // up the live opposite-side bound from the LP state rather than
+  // resetting it to the seed default.
+  auto a = make_highs_backend_or_skip();
+  auto b = make_highs_backend_or_skip();
+  if (!a || !b) {
+    return;
+  }
+  const double inf = a->infinity();
+  const BulkLP4 lp {inf};
+  lp.load_into(*a);
+  lp.load_into(*b);
+
+  // Per-element reference: col 0 -> [0.5, inf], col 1 -> [0, 4.0],
+  // col 2 -> [2.0, 2.0].
+  a->set_col_lower(0, 0.5);
+  a->set_col_upper(1, 4.0);
+  a->set_col_lower(2, 2.0);
+  a->set_col_upper(2, 2.0);
+
+  const std::array<int, 4> idx {0, 1, 2, 2};
+  const std::array<char, 4> lu {'L', 'U', 'L', 'U'};
+  const std::array<double, 4> vals {0.5, 4.0, 2.0, 2.0};
+  b->set_col_bounds_bulk(
+      static_cast<int>(idx.size()), idx.data(), lu.data(), vals.data());
+
+  std::array<double, BulkLP4::ncols> a_low {};
+  std::array<double, BulkLP4::ncols> a_upp {};
+  std::array<double, BulkLP4::ncols> b_low {};
+  std::array<double, BulkLP4::ncols> b_upp {};
+  a->fill_col_lower(a_low);
+  a->fill_col_upper(a_upp);
+  b->fill_col_lower(b_low);
+  b->fill_col_upper(b_upp);
+  for (int i = 0; i < BulkLP4::ncols; ++i) {
+    CAPTURE(i);
+    CHECK(a_low.at(static_cast<size_t>(i))
+          == doctest::Approx(b_low.at(static_cast<size_t>(i))));
+    CHECK(a_upp.at(static_cast<size_t>(i))
+          == doctest::Approx(b_upp.at(static_cast<size_t>(i))));
+  }
+}
+
+TEST_CASE(  // NOLINT
+    "set_col_bounds_bulk [highs]: empty input is a safe no-op")
+{
+  auto backend = make_highs_backend_or_skip();
+  if (!backend) {
+    return;
+  }
+  const double inf = backend->infinity();
+  const BulkLP4 lp {inf};
+  lp.load_into(*backend);
+
+  std::array<double, BulkLP4::ncols> before_low {};
+  std::array<double, BulkLP4::ncols> before_upp {};
+  backend->fill_col_lower(before_low);
+  backend->fill_col_upper(before_upp);
+
+  backend->set_col_bounds_bulk(0, nullptr, nullptr, nullptr);
+
+  std::array<double, BulkLP4::ncols> after_low {};
+  std::array<double, BulkLP4::ncols> after_upp {};
+  backend->fill_col_lower(after_low);
+  backend->fill_col_upper(after_upp);
+  for (int i = 0; i < BulkLP4::ncols; ++i) {
+    CAPTURE(i);
+    CHECK(before_low.at(static_cast<size_t>(i))
+          == doctest::Approx(after_low.at(static_cast<size_t>(i))));
+    CHECK(before_upp.at(static_cast<size_t>(i))
+          == doctest::Approx(after_upp.at(static_cast<size_t>(i))));
+  }
+}
