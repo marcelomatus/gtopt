@@ -9,7 +9,9 @@
 #include <format>
 #include <stdexcept>
 #include <thread>
+#include <unordered_map>
 #include <utility>
+#include <vector>
 
 #include "highs_solver_backend.hpp"
 
@@ -311,6 +313,86 @@ void HighsSolverBackend::set_obj_coeffs(const double* values, int num_cols)
     return;
   }
   m_highs_->changeColsCost(0, num_cols - 1, values);
+}
+
+void HighsSolverBackend::set_col_bounds_bulk(int num,
+                                             const int* indices,
+                                             const char* lu,
+                                             const double* values)
+{
+  // HiGHS' bulk-by-set API,
+  //   changeColsBounds(num_set_entries, set, lower, upper)
+  // (the C++ wrapper for `Highs_changeColsBoundsBySet`), requires *both*
+  // bounds for every column in the set.  We synthesize the unmodified
+  // side from the live LP state (or from an earlier override on the same
+  // column when duplicate entries appear), then dispatch one bulk call --
+  // collapsing N per-element `changeColBounds` calls into a single
+  // changeColsBounds dispatch.  Mirrors the CPLEX plugin's CPXchgbds
+  // override added in commit b85011e1.
+  if (num <= 0) {
+    return;
+  }
+  const auto& lp = m_highs_->getLp();
+  const auto ncols = lp.col_lower_.size();
+
+  // Override table keyed by column index storing the running
+  // (lower, upper) override.  Seeded from the live LP state on first
+  // touch and updated in iteration order so duplicate entries against
+  // the same column see the previous override (mirrors the per-element
+  // semantics of the base-class fallback).
+  std::unordered_map<int, std::pair<double, double>> pending;
+  pending.reserve(static_cast<size_t>(num));
+
+  // NOLINTBEGIN(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+  for (int i = 0; i < num; ++i) {
+    const int col = indices[i];
+    const auto cidx = static_cast<size_t>(col);
+    const double seed_lo =
+        (col >= 0 && cidx < ncols) ? lp.col_lower_[cidx] : 0.0;
+    const double seed_up =
+        (col >= 0 && cidx < ncols) ? lp.col_upper_[cidx] : kHighsInf;
+    auto [it, inserted] =
+        pending.try_emplace(col, std::pair {seed_lo, seed_up});
+    switch (lu[i]) {
+      case 'L':
+        it->second.first = values[i];
+        break;
+      case 'U':
+        it->second.second = values[i];
+        break;
+      case 'B':
+        it->second.first = values[i];
+        it->second.second = values[i];
+        break;
+      default:
+        // Unknown side selector: drop the freshly-inserted entry so we
+        // don't issue a no-op change for this column.
+        if (inserted) {
+          pending.erase(it);
+        }
+        break;
+    }
+  }
+  // NOLINTEND(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+
+  if (pending.empty()) {
+    return;
+  }
+  std::vector<HighsInt> set;
+  std::vector<double> lower;
+  std::vector<double> upper;
+  set.reserve(pending.size());
+  lower.reserve(pending.size());
+  upper.reserve(pending.size());
+  for (const auto& [col, bnds] : pending) {
+    set.push_back(static_cast<HighsInt>(col));
+    lower.push_back(bnds.first);
+    upper.push_back(bnds.second);
+  }
+  m_highs_->changeColsBounds(static_cast<HighsInt>(set.size()),
+                             set.data(),
+                             lower.data(),
+                             upper.data());
 }
 
 void HighsSolverBackend::add_row(int num_elements,
