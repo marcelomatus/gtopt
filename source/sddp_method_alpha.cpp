@@ -107,8 +107,8 @@ void register_alpha_variables(PlanningLP& planning_lp,
     const auto alpha_sparse = SparseCol {
         .lowb = 0.0,
         .uppb = 0.0,
-        .cost =
-            scale_alpha,  // physical cost 1 × col.scale (pre-scale convention)
+        .cost = 1.0,  // physical cost: α is in $ — scaling handled by
+                      // emit_col_to_backend
         .is_state = true,
         .scale = scale_alpha,
         .class_name = sddp_alpha_class_name,

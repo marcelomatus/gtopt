@@ -1364,18 +1364,16 @@ ColIndex LinearInterface::emit_col_to_backend(const SparseCol& col)
     m_validation_stats_.note_obj(col.cost, cidx, m_validation_options_);
   }
 
-  // Apply the global objective scaling to the obj coefficient,
-  // matching the per-column / scale_objective divide that
-  // `LinearProblem::flatten()` performs at structural-build time
-  // (linear_problem.cpp:725-729).  Without this, columns added
-  // post-flatten land in the LP with cost `scale_objective` times
-  // larger than structural columns' costs — breaking the SDDP
-  // backward-pass cut dynamics on `add_alpha_state_var` (juan/
-  // gtopt_iplp at scale_obj=1000: LB inflated to 1.5e+19 at iter 1).
-  // `col.scale` is left unchanged here because callers pre-apply it
-  // to `col.cost` themselves; treating col.scale as a physical
-  // multiplier would double-apply.
-  m_backend_->add_col(lowb, uppb, col.cost / m_scale_objective_);
+  // Apply col.scale and scale_objective multiplicatively, matching
+  // `LinearProblem::flatten`'s convention for structural columns
+  // and `add_row`'s compose_physical path for cuts:
+  //   raw_cost = col.cost × col.scale / scale_objective
+  //
+  // Callers pass the PHYSICAL cost — col.scale is folded in here
+  // (unlike the previous pre-scale requirement that forced callers
+  // to know the effective col.scale, which is impossible when ruiz
+  // equilibration adds a factor on top of the user-declared scale).
+  m_backend_->add_col(lowb, uppb, col.cost * col.scale / m_scale_objective_);
   invalidate_cached_optimal_on_mutation();
 
   return ColIndex {index};
@@ -1756,7 +1754,7 @@ ColIndex LinearInterface::emit_cols_to_backend(std::span<const SparseCol> cols)
     const auto [lowb, uppb] = normalize_bounds(col.lowb, col.uppb);
     collb[c] = lowb;
     colub[c] = uppb;
-    colobj[c] = col.cost * inv_so;
+    colobj[c] = col.cost * col.scale * inv_so;
     colbeg[c + 1] = static_cast<int>(colind.size());
 
     // Validation hooks (Phase 2): note bounds + obj per column in

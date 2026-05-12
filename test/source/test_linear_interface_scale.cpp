@@ -1667,3 +1667,78 @@ TEST_CASE(  // NOLINT
     });
   }
 }
+
+// add_col physical-cost × scale parity with flatten ————————————
+
+TEST_CASE("add_col: physical cost * col.scale matches flatten convention")
+{
+  using namespace gtopt;  // NOLINT
+
+  SUBCASE("cost=2, scale=1, scale_obj=1000 -> raw = 2/1000 = 0.002")
+  {
+    LinearProblem lp;
+    lp.set_infinity(1e30);
+    std::ignore = lp.add_col(SparseCol {.cost = 0.0});
+    auto r0 = SparseRow {.lowb = 0.0, .uppb = 1.0};
+    r0[ColIndex {0}] = 1.0;
+    std::ignore = lp.add_row(std::move(r0));
+
+    LpMatrixOptions opts;
+    opts.scale_objective = 1000.0;
+    auto li = LinearInterface("", lp.flatten(opts));
+
+    const auto c = li.add_col(SparseCol {
+        .lowb = 0.0,
+        .uppb = 10.0,
+        .cost = 2.0,
+        .scale = 1.0,
+    });
+    // raw = 2 × 1 / 1000 = 0.002
+    CHECK(li.get_obj_coeff()[c] == doctest::Approx(2.0 / 1000.0));
+  }
+
+  SUBCASE("cost=2, scale=10, scale_obj=1000 -> raw = 20/1000 = 0.02")
+  {
+    LinearProblem lp;
+    lp.set_infinity(1e30);
+    std::ignore = lp.add_col(SparseCol {.cost = 0.0});
+    auto r0 = SparseRow {.lowb = 0.0, .uppb = 1.0};
+    r0[ColIndex {0}] = 1.0;
+    std::ignore = lp.add_row(std::move(r0));
+
+    LpMatrixOptions opts;
+    opts.scale_objective = 1000.0;
+    auto li = LinearInterface("", lp.flatten(opts));
+
+    const auto c = li.add_col(SparseCol {
+        .lowb = 0.0,
+        .uppb = 10.0,
+        .cost = 2.0,
+        .scale = 10.0,
+    });
+    CHECK(li.get_obj_coeff()[c] == doctest::Approx(20.0 / 1000.0));
+  }
+
+  SUBCASE("cost=1, scale=100, scale_obj=1000 -> raw = 0.1")
+  {
+    LinearProblem lp;
+    lp.set_infinity(1e30);
+    std::ignore = lp.add_col(SparseCol {.cost = 0.0});
+    auto r0 = SparseRow {.lowb = 0.0, .uppb = 1.0};
+    r0[ColIndex {0}] = 1.0;
+    std::ignore = lp.add_row(std::move(r0));
+
+    LpMatrixOptions opts;
+    opts.scale_objective = 1000.0;
+    auto li = LinearInterface("", lp.flatten(opts));
+
+    const auto c = li.add_col(SparseCol {
+        .lowb = 0.0,
+        .uppb = 10.0,
+        .cost = 1.0,
+        .scale = 100.0,
+    });
+    // raw = 1 × 100 / 1000 = 0.1
+    CHECK(li.get_obj_coeff()[c] == doctest::Approx(0.1));
+  }
+}

@@ -792,10 +792,10 @@ bool UserConstraintLP::add_to_lp(const SystemContext& sc,
 
     if (!has_vars) {
       SPDLOG_DEBUG(
-          std::format("user_constraint '{}': no LP columns resolved "
-                      "for block {} — skipping",
-                      uc.name,
-                      block.uid()));
+          "user_constraint '{}': no LP columns resolved "
+          "for block {} — skipping",
+          uc.name,
+          block.uid());
       continue;
     }
 
