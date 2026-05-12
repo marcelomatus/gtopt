@@ -1716,7 +1716,8 @@ std::vector<RowIndex> LinearInterface::add_rows_disposable(
 }
 
 // NOLINTNEXTLINE(misc-no-recursion)
-ColIndex LinearInterface::emit_cols_to_backend(std::span<const SparseCol> cols)
+ColIndex LinearInterface::emit_cols_to_backend(std::span<const SparseCol> cols,
+                                               bool apply_col_scale)
 {
   // Bulk equivalent of `emit_col_to_backend`: assembles CSC buffers
   // for the batch and dispatches a single `m_backend_->add_cols(...)`
@@ -1736,13 +1737,13 @@ ColIndex LinearInterface::emit_cols_to_backend(std::span<const SparseCol> cols)
     return first_col_index;
   }
 
-  const auto num_cols = static_cast<int>(cols.size());
-  std::vector<int> colbeg(static_cast<size_t>(num_cols) + 1, 0);
+  const int ncols = std::ssize(cols);
+  std::vector<int> colbeg(ncols + 1, 0);
   std::vector<int> colind;
   std::vector<double> colval;
-  std::vector<double> collb(static_cast<size_t>(num_cols));
-  std::vector<double> colub(static_cast<size_t>(num_cols));
-  std::vector<double> colobj(static_cast<size_t>(num_cols));
+  std::vector<double> collb(ncols);
+  std::vector<double> colub(ncols);
+  std::vector<double> colobj(ncols);
 
   const auto inv_so = 1.0 / m_scale_objective_;
   const bool validate = m_validation_options_.effective_enable();
@@ -1754,8 +1755,9 @@ ColIndex LinearInterface::emit_cols_to_backend(std::span<const SparseCol> cols)
     const auto [lowb, uppb] = normalize_bounds(col.lowb, col.uppb);
     collb[c] = lowb;
     colub[c] = uppb;
-    colobj[c] = col.cost * col.scale * inv_so;
-    colbeg[c + 1] = static_cast<int>(colind.size());
+    colobj[c] =
+        apply_col_scale ? col.cost * col.scale * inv_so : col.cost * inv_so;
+    colbeg[c + 1] = std::ssize(colind);
 
     // Validation hooks (Phase 2): note bounds + obj per column in
     // the bulk path so bulk callers see the same warnings as
@@ -1773,7 +1775,7 @@ ColIndex LinearInterface::emit_cols_to_backend(std::span<const SparseCol> cols)
     }
   }
 
-  m_backend_->add_cols(num_cols,
+  m_backend_->add_cols(ncols,
                        colbeg.data(),
                        colind.data(),
                        colval.data(),
@@ -1786,7 +1788,7 @@ ColIndex LinearInterface::emit_cols_to_backend(std::span<const SparseCol> cols)
 }
 
 // NOLINTNEXTLINE(misc-no-recursion)
-void LinearInterface::add_cols_raw(std::span<const SparseCol> cols)
+ColIndex LinearInterface::add_cols_raw(std::span<const SparseCol> cols)
 {
   // Raw bulk path — mirrors `add_col_raw(SparseCol)`'s shape:
   // dispatch via the shared `emit_cols_to_backend` helper, then capture
@@ -1794,15 +1796,17 @@ void LinearInterface::add_cols_raw(std::span<const SparseCol> cols)
   // across aperture clones via `std::shared_ptr`.  `col.scale` is
   // intentionally ignored on every entry — see `add_col_raw` for the
   // rationale.
-  auto col_idx = emit_cols_to_backend(cols);
+  const auto first_col = emit_cols_to_backend(cols, /*apply_col_scale=*/false);
+  auto col_idx = first_col;
   for (const auto& col : cols) {
     track_col_label_meta(col_idx, col);
     ++col_idx;
   }
+  return first_col;
 }
 
 // NOLINTNEXTLINE(misc-no-recursion)
-void LinearInterface::add_cols(std::span<const SparseCol> cols)
+ColIndex LinearInterface::add_cols(std::span<const SparseCol> cols)
 {
   // Physical bulk path — mirrors `add_col(SparseCol)`'s shape:
   //   1. dispatch the bulk backend insert via `emit_cols_to_backend`
@@ -1810,7 +1814,8 @@ void LinearInterface::add_cols(std::span<const SparseCol> cols)
   //   3. capture label-meta for every column
   //
   // Order matches the singular path: scale first, then label meta.
-  auto col_idx = emit_cols_to_backend(cols);
+  const auto first_col = emit_cols_to_backend(cols, /*apply_col_scale=*/true);
+  auto col_idx = first_col;
   for (const auto& col : cols) {
     if (col.scale != 1.0) {
       set_col_scale(col_idx, col.scale);
@@ -1818,6 +1823,7 @@ void LinearInterface::add_cols(std::span<const SparseCol> cols)
     track_col_label_meta(col_idx, col);
     ++col_idx;
   }
+  return first_col;
 }
 
 // ── Row operations ──
@@ -2339,7 +2345,7 @@ void LinearInterface::add_rows_raw(const std::span<const SparseRow> rows,
     return;
   }
 
-  const auto num_rows = static_cast<int>(rows.size());
+  const int nrows = std::ssize(rows);
   const auto first_row_index = RowIndex {m_backend_->get_num_rows()};
 
   // Sum cmap sizes for the CSR reserve hint.  When `eps > 0` this
@@ -2353,11 +2359,11 @@ void LinearInterface::add_rows_raw(const std::span<const SparseRow> rows,
   }
 
   // Allocate CSR arrays
-  std::vector<int> rowbeg(static_cast<size_t>(num_rows) + 1);
+  std::vector<int> rowbeg(nrows + 1);
   std::vector<int> rowind;
   std::vector<double> rowval;
-  std::vector<double> rowlb(static_cast<size_t>(num_rows));
-  std::vector<double> rowub(static_cast<size_t>(num_rows));
+  std::vector<double> rowlb(nrows);
+  std::vector<double> rowub(nrows);
   rowind.reserve(total_nnz);
   rowval.reserve(total_nnz);
 
@@ -2422,10 +2428,10 @@ void LinearInterface::add_rows_raw(const std::span<const SparseRow> rows,
     }
     ++row_idx;
   }
-  rowbeg[static_cast<size_t>(num_rows)] = static_cast<int>(rowind.size());
+  rowbeg[nrows] = static_cast<int>(rowind.size());
 
   // Dispatch bulk add to solver backend
-  m_backend_->add_rows(num_rows,
+  m_backend_->add_rows(nrows,
                        rowbeg.data(),
                        rowind.data(),
                        rowval.data(),
@@ -2453,12 +2459,12 @@ void LinearInterface::add_rows_raw(const std::span<const SparseRow> rows,
         static_cast<size_t>(first_row_index) >= frozen_count
         ? static_cast<size_t>(first_row_index) - frozen_count
         : 0U;
-    const auto needed_size = first_post_offset + static_cast<size_t>(num_rows);
+    const auto needed_size = first_post_offset + static_cast<size_t>(nrows);
     if (m_post_flatten_row_labels_meta_.size() < needed_size) {
       m_post_flatten_row_labels_meta_.resize(needed_size);
     }
     m_post_flatten_row_meta_index_.reserve(m_post_flatten_row_meta_index_.size()
-                                           + static_cast<size_t>(num_rows));
+                                           + static_cast<size_t>(nrows));
   }
 
   auto bookkeep_idx = first_row_index;

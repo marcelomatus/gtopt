@@ -1742,3 +1742,158 @@ TEST_CASE("add_col: physical cost * col.scale matches flatten convention")
     CHECK(li.get_obj_coeff()[c] == doctest::Approx(0.1));
   }
 }
+
+TEST_CASE("add_cols: bulk path applies col.scale consistently with add_col")
+{
+  using namespace gtopt;  // NOLINT
+
+  LinearProblem lp;
+  lp.set_infinity(1e30);
+  std::ignore = lp.add_col(SparseCol {.cost = 0.0});
+  auto r0 = SparseRow {.lowb = 0.0, .uppb = 1.0};
+  r0[ColIndex {0}] = 1.0;
+  std::ignore = lp.add_row(std::move(r0));
+
+  LpMatrixOptions opts;
+  opts.scale_objective = 1000.0;
+  auto li = LinearInterface("", lp.flatten(opts));
+
+  // Add two columns via bulk path: different costs and scales
+  const auto cols = std::to_array<SparseCol>({
+      {
+          .lowb = 0.0,
+          .uppb = 10.0,
+          .cost = 2.0,
+          .scale = 1.0,
+      },
+      {
+          .lowb = 0.0,
+          .uppb = 10.0,
+          .cost = 2.0,
+          .scale = 10.0,
+      },
+  });
+  li.add_cols(cols);
+
+  // raw = cost × scale / scale_obj
+  // col0: 2 × 1 / 1000 = 0.002
+  // col1: 2 × 10 / 1000 = 0.02
+  const auto c0 = ColIndex {li.get_numcols() - 2};
+  const auto c1 = ColIndex {li.get_numcols() - 1};
+  CHECK(li.get_obj_coeff()[c0] == doctest::Approx(0.002));
+  CHECK(li.get_obj_coeff()[c1] == doctest::Approx(0.02));
+
+  // Compare against the single-column path for parity
+  LinearProblem lp2;
+  lp2.set_infinity(1e30);
+  std::ignore = lp2.add_col(SparseCol {.cost = 0.0});
+  auto r1 = SparseRow {.lowb = 0.0, .uppb = 1.0};
+  r1[ColIndex {0}] = 1.0;
+  std::ignore = lp2.add_row(std::move(r1));
+
+  auto li2 = LinearInterface("", lp2.flatten(opts));
+  const auto c0s = li2.add_col(cols[0]);
+  const auto c1s = li2.add_col(cols[1]);
+
+  CHECK(li2.get_obj_coeff()[c0s] == doctest::Approx(0.002));
+  CHECK(li2.get_obj_coeff()[c1s] == doctest::Approx(0.02));
+}
+
+TEST_CASE("add_cols_raw: does NOT apply col.scale to cost")
+{
+  using namespace gtopt;  // NOLINT
+
+  LinearProblem lp;
+  lp.set_infinity(1e30);
+  std::ignore = lp.add_col(SparseCol {.cost = 0.0});
+  auto r0 = SparseRow {.lowb = 0.0, .uppb = 1.0};
+  r0[ColIndex {0}] = 1.0;
+  std::ignore = lp.add_row(std::move(r0));
+
+  LpMatrixOptions opts;
+  opts.scale_objective = 1000.0;
+  auto li = LinearInterface("", lp.flatten(opts));
+
+  // raw path: cost / scale_obj only — col.scale is ignored
+  const auto cols = std::to_array<SparseCol>({
+      {
+          .lowb = 0.0,
+          .uppb = 10.0,
+          .cost = 20.0,
+          .scale = 10.0,
+      },
+  });
+  li.add_cols_raw(cols);
+
+  // raw path ignores col.scale: 20 / 1000 = 0.02
+  // (physical path would be 20 × 10 / 1000 = 0.2)
+  const auto last = ColIndex {li.get_numcols() - 1};
+  CHECK(li.get_obj_coeff()[last] == doctest::Approx(0.02));
+}
+
+TEST_CASE(
+    "LinearInterface - compress/replay preserves col.scale on dynamic "
+    "cols (regression test for emit_cols_to_backend bulk path)")
+{
+  using namespace gtopt;  // NOLINT
+
+  // Build a base LP with one structural column (x0, scale=1) and
+  // one binding row.  Then add a dynamic column (α, scale=10) with
+  // non-unit col.scale — this mirrors SDDP alpha registration.
+  //
+  // Regression: before the `apply_col_scale` fix, the bulk replay
+  // path (`emit_cols_to_backend` via `add_cols(span)`) applied only
+  // `cost / scale_obj`, skipping `col.scale`.  The cost survived
+  // the compress/decompress round-trip at 1/scale_alpha of the
+  // correct value, causing SDDP compress-mode LBs to undershoot.
+  LinearProblem lp("replay_scale");
+  lp.set_infinity(1e30);
+  std::ignore = lp.add_col(SparseCol {
+      .lowb = 0.0,
+      .uppb = 1000.0,
+      .cost = 0.0,
+      .scale = 1.0,
+  });
+  auto r0 = SparseRow {.lowb = 0.0, .uppb = 1.0};
+  r0[ColIndex {0}] = 1.0;
+  std::ignore = lp.add_row(std::move(r0));
+
+  LpMatrixOptions opts;
+  opts.scale_objective = 1000.0;
+
+  // Save the flat LP before the constructor consumes it,
+  // so we can install it as a snapshot for the compress cycle.
+  auto flat_lp = lp.flatten(opts);
+
+  auto li = LinearInterface("", flat_lp);
+  li.save_snapshot(flat_lp);
+  li.set_low_memory(LowMemoryMode::compress, CompressionCodec::zstd);
+  li.enable_compression();
+  li.save_base_numrows();
+
+  // Add dynamic column with non-unit scale (like SDDP alpha).
+  const SparseCol alpha {
+      .lowb = 0.0,
+      .uppb = 1e6,
+      .cost = 1.0,
+      .scale = 10.0,
+  };
+  const auto alpha_col = li.add_col(alpha);
+
+  // Record the cost BEFORE compression.
+  const double cost_before = li.get_obj_coeff()[alpha_col];
+  // cost = 1.0 × 10.0 / 1000.0 = 0.01
+  CHECK(cost_before == doctest::Approx(0.01));
+
+  // Compress → release → reconstruct → replay.
+  li.release_backend();
+  REQUIRE(li.has_snapshot_data());
+
+  // Trigger reconstruction (hits ensure_backend → reconstruct_backend
+  // → load_flat → apply_post_load_replay → add_cols(span)).
+  li.ensure_backend();
+
+  // The replayed alpha column lands at the same index as before.
+  const double cost_after = li.get_obj_coeff()[alpha_col];
+  CHECK(cost_after == doctest::Approx(cost_before));
+}

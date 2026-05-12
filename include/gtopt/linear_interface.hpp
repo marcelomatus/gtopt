@@ -961,8 +961,9 @@ public:
    * `add_cols_raw` instead.
    *
    * @param cols Sparse columns with physical-space cost / bounds.
+   * @return Index of the first column added.
    */
-  void add_cols(std::span<const SparseCol> cols);
+  ColIndex add_cols(std::span<const SparseCol> cols);
 
   /**
    * @brief Bulk-add columns WITHOUT extending `m_col_scales_`.
@@ -976,8 +977,9 @@ public:
    * aperture clones via `std::shared_ptr`.
    *
    * @param cols Sparse column specifications with `scale == 1.0`.
+   * @return Index of the first column added.
    */
-  void add_cols_raw(std::span<const SparseCol> cols);
+  ColIndex add_cols_raw(std::span<const SparseCol> cols);
 
   /**
    * @brief Adds a new constraint row to the problem
@@ -1706,7 +1708,8 @@ private:
   /// the `emit_col_to_backend` ↔ `add_col` / `add_col_raw` shape.
   /// Returns the `ColIndex` of the FIRST added column; callers
   /// compute per-element indices as `first + c`.
-  ColIndex emit_cols_to_backend(std::span<const SparseCol> cols);
+  ColIndex emit_cols_to_backend(std::span<const SparseCol> cols,
+                                bool apply_col_scale = true);
 
   /// Pure backend emit: append a row to the solver's matrix.  Composes
   /// `SparseRow::scale` (mirroring `flatten()`'s static-row handling)
