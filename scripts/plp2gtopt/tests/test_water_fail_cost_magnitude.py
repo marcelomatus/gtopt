@@ -116,6 +116,10 @@ def _convert_juan(case_dir: Path, output_dir: Path, *, extra_flags: list[str]) -
     Always uses ``-F csv -t 1y --first-scenario --no-check`` to keep
     the run fast and avoid downstream consistency checks that depend
     on solver plugins.
+
+    The returned dict carries a ``_output_dir`` key pointing at the
+    conversion's output directory so callers can inspect side
+    artifacts (``boundary_cuts.csv``, parquet schedules, …).
     """
     cmd = [
         sys.executable,
@@ -152,7 +156,46 @@ def _convert_juan(case_dir: Path, output_dir: Path, *, extra_flags: list[str]) -
     json_files = [p for p in json_files if p.name not in _aux]
     assert len(json_files) == 1, f"Expected 1 main JSON file, got {json_files}"
     with open(json_files[0], encoding="utf-8") as f:
-        return json.load(f)
+        planning = json.load(f)
+    # Stash the output dir so cap-aware tests can re-read boundary_cuts.csv.
+    planning["_output_dir"] = str(output_dir)
+    return planning
+
+
+def _read_boundary_cap(output_dir: Path) -> dict[str, float]:
+    """Compute per-reservoir average ``|GradX|`` from boundary_cuts.csv.
+
+    Mirrors :meth:`PlanosParser.average_abs_gradient_by_reservoir` at
+    test time so the test does not depend on the parser's internal
+    cap dict — it inspects only the on-disk artifact gtopt actually
+    consumes.
+    """
+    import csv as _csv
+
+    csv_path = output_dir / "boundary_cuts.csv"
+    if not csv_path.exists():
+        return {}
+    sums: dict[str, float] = {}
+    counts: dict[str, int] = {}
+    with open(csv_path, encoding="utf-8") as f:
+        reader = _csv.DictReader(f)
+        # Reservoir columns are everything after the fixed 4 header fields.
+        cols = [
+            c
+            for c in reader.fieldnames or []
+            if c not in ("name", "iteration", "scene", "rhs")
+        ]
+        for row in reader:
+            for c in cols:
+                try:
+                    v = float(row[c])
+                except (TypeError, ValueError, KeyError):
+                    continue
+                if v == 0.0:
+                    continue
+                sums[c] = sums.get(c, 0.0) + abs(v)
+                counts[c] = counts.get(c, 0) + 1
+    return {c: total / counts[c] for c, total in sums.items() if counts.get(c, 0) > 0}
 
 
 @pytest.mark.integration
@@ -199,19 +242,49 @@ class TestAutoWaterFailCostMagnitude:
     def _resolved_anchor(planning_auto) -> float:
         """Recover the anchor (in ``$/MWh``) from the emitted JSON.
 
-        Picks the reservoir with the highest ``lost_pf`` whose
-        reference is in the table, then back-solves ``efin_cost =
-        anchor × lost_pf × 1e6 / 3600``.  This avoids hard-coding the
-        anchor magnitude (which depends on the case's
-        ``max(non-falla.gcost)`` and ``min(falla.gcost)``) while still
-        validating the rest of the pipeline.
+        Back-solves ``fail_cost = anchor × lost_pf`` from one of the
+        FlowRights (which are NOT subject to the boundary-cut
+        ``efin_cost`` cap, so they remain pinned to the formula).
+        Falls back to a reservoir-derived anchor when no FR is
+        present in the JSON.
+
+        The earlier reservoir-derived form was broken by the
+        boundary-cut cap on ``efin_cost``: any reservoir whose
+        formula value lies above the SDDP-revealed marginal water
+        value is capped down, so reservoir-based back-solving
+        under-reports the anchor.
         """
+        frs = planning_auto.get("system", {}).get("flow_right_array", [])
+        for central, lost_pf in _REFERENCE_FLOW_RIGHTS_LOST_PF.items():
+            match = next(
+                (
+                    fr
+                    for fr in frs
+                    if fr.get("name", "").startswith(f"{central}_pmin_as_flow_right")
+                ),
+                None,
+            )
+            if match is not None and match.get("fail_cost"):
+                return float(match["fail_cost"]) / float(lost_pf)
+        # Fallback (legacy path / no FRs in case): assume LMAULE is
+        # not capped — best-effort calibration.
         reservoirs = planning_auto.get("system", {}).get("reservoir_array", [])
-        # Use LMAULE (cascade_pf=10.05) as the calibration probe.
         lmaule = next((r for r in reservoirs if r.get("name") == "LMAULE"), None)
         assert lmaule is not None and lmaule.get("efin_cost") is not None
         lost_pf = _REFERENCE_RESERVOIRS_LOST_PF["LMAULE"]
         return lmaule["efin_cost"] / lost_pf * 3600.0 / 1e6
+
+    @staticmethod
+    def _boundary_cut_caps(out_dir_planning) -> dict[str, float]:  # pragma: no cover
+        """Stub left for compatibility — see test docstring.
+
+        The actual ``efin_cost`` test loads the cap dict from the
+        per-test fixture, not from the planning JSON.  This helper
+        was originally proposed to share the cap discovery between
+        tests but ended up unused; kept as a placeholder for
+        future refactoring.
+        """
+        return {}
 
     # ------------------------------------------------------------------
     # Auto pipeline — proportionality across reservoirs
@@ -221,23 +294,33 @@ class TestAutoWaterFailCostMagnitude:
         list(_REFERENCE_RESERVOIRS_LOST_PF.items()),
     )
     def test_reservoir_efin_cost_matches_reference(self, planning_auto, name, lost_pf):
-        """``efin_cost = anchor × lost_pf × 1e6/3600`` for each reservoir.
+        """``efin_cost = min(anchor × lost_pf × 1e6/3600, boundary_cut_avg)``.
 
         Validates the cascade / cenre-lift chain that produces
-        ``lost_pf`` while remaining anchor-formula-agnostic — the
-        absolute magnitude depends only on the case's electricity
-        prices, but every reservoir must scale by the same anchor.
+        ``lost_pf`` together with the per-reservoir cap on
+        ``efin_cost`` derived from the average ``|GradX_i|`` in the
+        boundary cuts.  Reservoirs whose formula value lies above the
+        SDDP-revealed marginal water value must be capped down to the
+        latter; reservoirs whose formula value is already below the
+        cap match the formula exactly.
         """
         anchor = self._resolved_anchor(planning_auto)
-        expected_efin = anchor * lost_pf * 1e6 / 3600.0
+        formula_efin = anchor * lost_pf * 1e6 / 3600.0
+        # Read the boundary-cut CSV emitted by this same conversion
+        # and compute the per-reservoir cap (= average |GradX|).
+        out_dir = Path(planning_auto["_output_dir"])
+        caps = _read_boundary_cap(out_dir)
+        cap = caps.get(name)
+        expected_efin = min(formula_efin, cap) if cap is not None else formula_efin
+
         reservoirs = planning_auto.get("system", {}).get("reservoir_array", [])
         match = next((r for r in reservoirs if r.get("name") == name), None)
         assert match is not None, f"Reservoir {name} not found in planning"
         actual = match.get("efin_cost")
         assert actual is not None, f"Reservoir {name} has no efin_cost"
         assert actual == pytest.approx(expected_efin, rel=_TOL_REL), (
-            f"{name}: efin_cost={actual} vs anchor*lost_pf*1e6/3600="
-            f"{expected_efin} (anchor={anchor:.2f}, lost_pf={lost_pf})"
+            f"{name}: efin_cost={actual} vs min(formula={formula_efin}, "
+            f"cap={cap}) (anchor={anchor:.2f}, lost_pf={lost_pf})"
         )
 
     @pytest.mark.parametrize(

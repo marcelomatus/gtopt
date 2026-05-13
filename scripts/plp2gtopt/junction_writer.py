@@ -1686,7 +1686,11 @@ class JunctionWriter(BaseWriter):
             and central_number is not None
         ):
             lost_pf = self._water_value_resolver.cascade_lost_pf(central_number)
-            cost = self._water_value_resolver.efin_cost(lost_pf)
+            # Cap the auto-derived efin_cost by the boundary-cut
+            # average |GradX| for this reservoir (when available).
+            # Reservoirs missing from the cap dict degrade gracefully
+            # to the uncapped value.
+            cost = self._water_value_resolver.efin_cost_for(central_name, lost_pf)
         else:
             cost = self._resolve_storage_bound_cost(central_name)
 

@@ -27,6 +27,34 @@ class HydroMixin:
     parser: Any
     planning: Dict[str, Dict[str, Any]]
 
+    def _build_efin_cost_cap(self) -> Dict[str, float]:
+        """Return the per-reservoir efin_cost cap dict for the resolver.
+
+        Derived from PLP's boundary cuts (plpplem2.dat) as the average
+        ``|GradX_i|`` across all parsed cuts, divided by the gtopt
+        scenario count to land in per-scene ``$/hm³`` (the same space
+        ``Reservoir.efin_cost`` lives in).  Returns an empty dict when
+        no boundary cuts are available, in which case the resolver
+        treats every reservoir as uncapped.
+
+        The divisor mirrors the ``1/NVarPhi`` factor applied at write
+        time by :func:`planos_writer.write_boundary_cuts_csv`, so the
+        cap is comparable to what gtopt actually loads from
+        ``boundary_cuts.csv``.
+        """
+        planos = self.parser.parsed_data.get("planos_parser")
+        if planos is None:
+            return {}
+        scenario_array = self.planning.get("simulation", {}).get("scenario_array") or []
+        num_scenarios = len(scenario_array) or None
+        try:
+            return planos.average_abs_gradient_by_reservoir(num_scenarios=num_scenarios)
+        except (AttributeError, TypeError):
+            # Defensive — older parser fixtures may not implement the
+            # helper.  Treat as "no cap available" instead of crashing
+            # mid-build.
+            return {}
+
     def process_ror_spec(self, options):
         """Resolve ``--ror-as-reservoirs`` once so downstream writers share it.
 
@@ -178,10 +206,17 @@ class HydroMixin:
         # with downstream writers (JunctionWriter, PminFlowRightWriter).
         # Construction is cheap (just builds lookup tables); whether it
         # actually drives prices depends on ``resolver.is_active``.
+        #
+        # ``efin_cost_cap`` carries the per-reservoir SDDP-revealed
+        # marginal water value (avg ``|GradX_i|`` from the boundary
+        # cuts).  When the auto formula yields a number larger than
+        # what the cuts say the water is actually worth, we cap it
+        # down so the LP stays inside the cut-validity envelope.
         water_value_resolver = WaterValueResolver(
             central_parser=centrals,
             cenre_parser=cenre,
             options=options,
+            efin_cost_cap=self._build_efin_cost_cap(),
         )
         # Stash on self so other hydro phases (pmin_as_flowright) can
         # pick up the same instance instead of rebuilding.
@@ -268,6 +303,7 @@ class HydroMixin:
                 central_parser=self.parser.parsed_data.get("central_parser"),
                 cenre_parser=self.parser.parsed_data.get("cenre_parser"),
                 options=options,
+                efin_cost_cap=self._build_efin_cost_cap(),
             )
 
         laja_parser = self.parser.parsed_data.get("laja_parser")
@@ -628,6 +664,7 @@ class HydroMixin:
                 central_parser=self.parser.parsed_data.get("central_parser"),
                 cenre_parser=self.parser.parsed_data.get("cenre_parser"),
                 options=options,
+                efin_cost_cap=self._build_efin_cost_cap(),
             )
         writer = PminFlowRightWriter(
             whitelist=whitelist,
@@ -648,6 +685,7 @@ class HydroMixin:
         from gtopt_expand.pmin_flowright_expand import (  # noqa: PLC0415
             ensure_drain_for_flowrights,
         )
+
         ensure_drain_for_flowrights(self.planning["system"])
 
     def process_flow_turbines(self, options):

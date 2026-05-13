@@ -530,3 +530,100 @@ def test_resolver_is_active_when_explicit_override_set() -> None:
         options={"water_fail_cost": 700.0},
     )
     assert resolver.is_active is True
+
+
+# ---------------------------------------------------------------------------
+# efin_cost cap (boundary-cut average |GradX|) — see _water_value.efin_cost_for
+# ---------------------------------------------------------------------------
+
+
+def test_efin_cost_for_capped_by_boundary_avg() -> None:
+    """``efin_cost_for`` returns ``min(auto_value, cap[name])``.
+
+    LMAULE: auto = 500 (forced via override), cap = 200 → 200.
+    COLBUN: auto = 100 (forced via override), cap = 200 → 100.
+    """
+    cp = _FakeCentralParser(_make_centrals())
+
+    # Pick a small lost_pf so the $/hm³ conversion stays comparable
+    # to the cap numbers; the exact value does not matter as long as
+    # the synthetic auto value lands either above or below the cap.
+    resolver_high = WaterValueResolver(
+        central_parser=cp,
+        cenre_parser=None,
+        options={"water_fail_cost": 500.0 * 3600.0 / 1e6},
+        efin_cost_cap={"LMAULE": 200.0, "COLBUN": 200.0},
+    )
+    # auto = 500.0 * 1.0 = 500.0
+    assert resolver_high.efin_cost(1.0) == pytest.approx(500.0, rel=1e-3)
+    # LMAULE auto=500 vs cap=200 → 200 wins
+    assert resolver_high.efin_cost_for("LMAULE", 1.0) == pytest.approx(200.0)
+
+    resolver_low = WaterValueResolver(
+        central_parser=cp,
+        cenre_parser=None,
+        options={"water_fail_cost": 100.0 * 3600.0 / 1e6},
+        efin_cost_cap={"COLBUN": 200.0},
+    )
+    # auto = 100.0; cap=200 → 100 wins (auto is already cheaper)
+    assert resolver_low.efin_cost_for("COLBUN", 1.0) == pytest.approx(100.0)
+
+
+def test_efin_cost_for_no_boundary_data_falls_back() -> None:
+    """Empty cap dict ⇒ ``efin_cost_for`` returns the auto value."""
+    cp = _FakeCentralParser(_make_centrals())
+    resolver = WaterValueResolver(
+        central_parser=cp,
+        cenre_parser=None,
+        options={"auto_water_fail_cost": True},
+        efin_cost_cap={},
+    )
+    auto = resolver.efin_cost(10.05)
+    assert resolver.efin_cost_for("LMAULE", 10.05) == pytest.approx(auto)
+
+
+def test_efin_cost_for_missing_reservoir_falls_back() -> None:
+    """Reservoirs not in the cap dict are treated as +inf (no cap)."""
+    cp = _FakeCentralParser(_make_centrals())
+    resolver = WaterValueResolver(
+        central_parser=cp,
+        cenre_parser=None,
+        options={"auto_water_fail_cost": True},
+        efin_cost_cap={"OTHER": 1.0},
+    )
+    auto = resolver.efin_cost(10.05)
+    assert resolver.efin_cost_for("LMAULE", 10.05) == pytest.approx(auto)
+
+
+def test_efin_cost_back_compat_uncapped() -> None:
+    """Back-compat: ``efin_cost(lost_pf)`` ignores the cap dict."""
+    cp = _FakeCentralParser(_make_centrals())
+    resolver = WaterValueResolver(
+        central_parser=cp,
+        cenre_parser=None,
+        options={"auto_water_fail_cost": True},
+        efin_cost_cap={"LMAULE": 1.0},  # would cap to 1.0 if applied
+    )
+    # The legacy non-reservoir-aware method must not apply the cap.
+    expected = _ANCHOR_AUTO * 10.05 * 1e6 / 3600.0
+    assert resolver.efin_cost(10.05) == pytest.approx(expected, rel=1e-6)
+
+
+def test_soft_emin_cost_not_capped() -> None:
+    """The cap dict is plumbed only through :meth:`efin_cost_for`.
+
+    The legacy :meth:`efin_cost` method (used by the soft-emin path
+    via the same cost variable in junction_writer) is unaffected.
+    This regression-tests the design constraint: the cap belongs on
+    ``efin_cost``, not on ``soft_emin_cost``.
+    """
+    cp = _FakeCentralParser(_make_centrals())
+    resolver = WaterValueResolver(
+        central_parser=cp,
+        cenre_parser=None,
+        options={"auto_water_fail_cost": True},
+        efin_cost_cap={"LMAULE": 1.0},
+    )
+    # Identical input → identical output: the cap is not applied.
+    expected = _ANCHOR_AUTO * 10.05 * 1e6 / 3600.0
+    assert resolver.efin_cost(10.05) == pytest.approx(expected, rel=1e-6)

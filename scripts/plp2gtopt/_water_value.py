@@ -109,6 +109,7 @@ class WaterValueResolver:
         central_parser: Any,
         cenre_parser: Any = None,
         options: Optional[Dict[str, Any]] = None,
+        efin_cost_cap: Optional[Dict[str, float]] = None,
     ) -> None:
         """Bind input parsers and option bag.
 
@@ -123,10 +124,27 @@ class WaterValueResolver:
             options: plp2gtopt option bag.  Reads ``water_fail_cost``
                 (manual override in $/MWh) and ``auto_water_fail_cost``
                 (boolean gate).
+            efin_cost_cap: Optional per-reservoir cap on ``efin_cost``
+                in ``$/hm³`` — typically the average ``|GradX_i|`` from
+                PLP's boundary cuts (the marginal water value
+                ``∂α/∂v_i`` revealed by the SDDP cuts).  When provided,
+                :meth:`efin_cost_for` returns ``min(auto_value, cap)``.
+                Missing reservoirs are treated as ``+inf`` (no cap).
+                The legacy :meth:`efin_cost` method is unaffected and
+                continues to return the uncapped auto value
+                (back-compat for callers that do not have a reservoir
+                name handy).
+
+                **Equal-probability caveat**: the cap dict the caller
+                builds from boundary cuts assumes equal scenario
+                probabilities (PLP's ``1/NVarPhi`` weighting).  If
+                ``--probability-factors`` overrides this, the cap is
+                approximate.
         """
         self.central_parser = central_parser
         self.cenre_parser = cenre_parser
         self.options = options or {}
+        self._efin_cost_cap: Dict[str, float] = dict(efin_cost_cap or {})
         # Pre-build the (number → central) and (name → central) maps so
         # cascade walks and per-central lookups are O(1).
         centrals = list(getattr(central_parser, "centrals", []) or [])
@@ -414,5 +432,30 @@ class WaterValueResolver:
     def efin_cost(self, lost_pf: float) -> float:
         """``ANCHOR × lost_pf × 1e6 / 3600``  [units: $/hm³], rounded
         to 2 d.p.  See :meth:`fail_cost` for the rounding rationale.
+
+        Back-compat surface: this method ignores any boundary-cut cap
+        passed via ``efin_cost_cap``.  Reservoir-aware callers should
+        prefer :meth:`efin_cost_for`.
         """
         return round(self.anchor * float(lost_pf) * _HM3_PER_M3 / _SECONDS_PER_HOUR, 2)
+
+    def efin_cost_for(self, reservoir_name: str, lost_pf: float) -> float:
+        """Return ``min(auto_efin_cost(lost_pf), cap[reservoir_name])``.
+
+        Combines the auto-water-value-derived ``efin_cost`` with the
+        per-reservoir cap (typically the average ``|GradX_i|`` from PLP
+        boundary cuts).  Reservoirs missing from the cap dict are
+        treated as ``+inf`` (no cap), so the call degrades gracefully
+        to the legacy :meth:`efin_cost` behaviour when no cuts are
+        available.
+
+        Both inputs are in ``$/hm³`` (gtopt's per-scene α-space — see
+        :class:`PlanosParser.average_abs_gradient_by_reservoir`).
+        """
+        auto_value = self.efin_cost(lost_pf)
+        cap = self._efin_cost_cap.get(reservoir_name)
+        if cap is None:
+            return auto_value
+        # Round the cap to the same 2-decimal precision used for the
+        # auto value so spot-checks against the JSON stay stable.
+        return round(min(auto_value, float(cap)), 2)

@@ -604,3 +604,131 @@ class TestNameAlias:
         ]
         assert float(first[5]) == pytest.approx(0.5)
         assert float(first[6]) == pytest.approx(0.25)
+
+
+# ---------------------------------------------------------------------------
+# average_abs_gradient_by_reservoir — boundary-cut-derived efin_cost cap
+# ---------------------------------------------------------------------------
+
+
+class TestAverageAbsGradientByReservoir:
+    """Tests for PlanosParser.average_abs_gradient_by_reservoir.
+
+    See :meth:`PlanosParser.average_abs_gradient_by_reservoir` for the
+    unit derivation (raw PLP $/Hm³ → per-scene $/hm³ via 1/NVarPhi).
+    """
+
+    def test_basic_three_cuts(self, tmp_path):
+        """Three cuts with GradX_LMAULE = [-100, -200, -300] → avg = 200."""
+        p1 = tmp_path / "plpplaem1.dat"
+        p2 = tmp_path / "plpplaem2.dat"
+        p1.write_text("1\n1 'LMAULE'\n")
+        # Boundary stage 5; three boundary cuts with the same reservoir
+        # but different GradX values to exercise the average.
+        p2.write_text(
+            "5\n"
+            "1  5  1  1000.0  -100.0\n"
+            "1  5  2  1000.0  -200.0\n"
+            "1  5  3  1000.0  -300.0\n"
+        )
+        parser = PlanosParser(p1, p2)
+        parser.parse()
+
+        # No NVarPhi scaling: average over the raw PLP gradients.
+        out = parser.average_abs_gradient_by_reservoir()
+        assert "LMAULE" in out
+        assert out["LMAULE"] == pytest.approx(200.0)
+
+    def test_skips_zero_coefficients(self, tmp_path):
+        """Zeros must not pollute the average (they are filtered out)."""
+        p1 = tmp_path / "plpplaem1.dat"
+        p2 = tmp_path / "plpplaem2.dat"
+        p1.write_text("1\n1 'R1'\n")
+        # Two cuts, one with zero coefficient.  The parser already
+        # drops 0.0 from the coefficients dict (see
+        # ``test_zero_coefficient_excluded``) so the average is taken
+        # over the surviving non-zero gradient only.
+        p2.write_text("5\n1  5  1  1000.0  -100.0\n1  5  2  1000.0   0.0\n")
+        parser = PlanosParser(p1, p2)
+        parser.parse()
+
+        out = parser.average_abs_gradient_by_reservoir()
+        # Average over non-zero only ⇒ 100.0
+        assert out["R1"] == pytest.approx(100.0)
+
+    def test_reservoir_with_no_nonzero_cuts_omitted(self, tmp_path):
+        """A reservoir whose cuts are all zero is missing from the result."""
+        p1 = tmp_path / "plpplaem1.dat"
+        p2 = tmp_path / "plpplaem2.dat"
+        p1.write_text("2\n1 'R1'\n2 'R2'\n")
+        # R1 has non-zero gradients; R2 is always zero.
+        p2.write_text("5\n1  5  1  1000.0  -100.0  0.0\n1  5  2  1000.0  -200.0  0.0\n")
+        parser = PlanosParser(p1, p2)
+        parser.parse()
+
+        out = parser.average_abs_gradient_by_reservoir()
+        assert out == {"R1": pytest.approx(150.0)}
+
+    def test_includes_non_boundary_stages(self, tmp_path):
+        """``all_cuts`` is the source — non-boundary stages count too.
+
+        The cap is meant to reflect the FULL revealed marginal water
+        value across the SDDP pass, not just the last stage.  Both
+        boundary and hot-start cuts contribute.
+        """
+        p1 = tmp_path / "plpplaem1.dat"
+        p2 = tmp_path / "plpplaem2.dat"
+        p1.write_text("1\n1 'R1'\n")
+        # Boundary stage = 5; one boundary cut and one earlier cut.
+        p2.write_text(
+            "5\n"
+            "1  5  1  1000.0  -100.0\n"  # boundary
+            "1  3  1  500.0   -300.0\n"  # hot-start (stage 3)
+        )
+        parser = PlanosParser(p1, p2)
+        parser.parse()
+
+        # Average across both: (100 + 300) / 2 = 200
+        out = parser.average_abs_gradient_by_reservoir()
+        assert out["R1"] == pytest.approx(200.0)
+
+    def test_num_scenarios_divides_average(self, tmp_path):
+        """``num_scenarios=N`` divides each gradient by N before averaging.
+
+        Mirrors the ``1/NVarPhi`` scaling applied by the writer at CSV
+        export time, so the dict lands in gtopt per-scene ``$/hm³``.
+        """
+        p1 = tmp_path / "plpplaem1.dat"
+        p2 = tmp_path / "plpplaem2.dat"
+        p1.write_text("1\n1 'R1'\n")
+        p2.write_text("5\n1  5  1  1000.0  -100.0\n1  5  2  1000.0  -200.0\n")
+        parser = PlanosParser(p1, p2)
+        parser.parse()
+
+        # avg(|GradX|) = 150 raw; divide by 4 ⇒ 37.5
+        out = parser.average_abs_gradient_by_reservoir(num_scenarios=4)
+        assert out["R1"] == pytest.approx(37.5)
+
+    def test_num_scenarios_one_is_no_op(self, tmp_path):
+        """``num_scenarios=1`` (or ``None``) leaves the raw average."""
+        p1 = tmp_path / "plpplaem1.dat"
+        p2 = tmp_path / "plpplaem2.dat"
+        p1.write_text("1\n1 'R1'\n")
+        p2.write_text("5\n1  5  1  1000.0  -100.0\n")
+        parser = PlanosParser(p1, p2)
+        parser.parse()
+
+        assert parser.average_abs_gradient_by_reservoir(num_scenarios=1)[
+            "R1"
+        ] == pytest.approx(100.0)
+        assert parser.average_abs_gradient_by_reservoir()["R1"] == pytest.approx(100.0)
+
+    def test_empty_cuts_empty_result(self, tmp_path):
+        """No cuts ⇒ empty dict (degenerate / fixture path)."""
+        p1 = tmp_path / "plpplaem1.dat"
+        p2 = tmp_path / "plpplaem2.dat"
+        p1.write_text("")
+        p2.write_text("")
+        parser = PlanosParser(p1, p2)
+        parser.parse()
+        assert parser.average_abs_gradient_by_reservoir() == {}
