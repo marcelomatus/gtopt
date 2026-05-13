@@ -16,6 +16,7 @@
 #include <thread>
 #include <vector>
 
+#include <gtopt/log_format.hpp>
 #include <gtopt/lp_debug_writer.hpp>
 #include <gtopt/planning_lp.hpp>
 #include <gtopt/sddp_common.hpp>
@@ -677,22 +678,52 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
       const auto gk = global_max_kappa();
       const auto kappa_clause =
           (gk >= 0.0) ? std::format(" kappa={:.2e}", gk) : std::string {};
-      SPDLOG_INFO(
-          "SDDP Iter [i{}]: done in {:.3f}s (fwd {:.2f}s + bwd {:.2f}s) — "
-          "UB={} LB={} gap={:.2f}% Δgap={:.2f}%{} cuts={}/{}{}{}",
-          gtopt::uid_of(iteration_index),
-          ir.iteration_s,
-          ir.forward_pass_s,
-          ir.backward_pass_s,
-          format_si(ir.upper_bound),
-          format_si(ir.lower_bound),
-          100.0 * ir.gap,
-          100.0 * ir.gap_change,
-          kappa_clause,
-          ir.cuts_added,
-          ir.infeasible_cuts_added,
-          feasibility_clause,
-          ir.converged ? " [CONVERGED]" : "");
+      // ── Three-line iteration summary ──
+      // Line 1: header with elapsed & ETA so operators can tell
+      //         "are we 30% done?" at a glance.
+      // Line 2: objective + convergence telemetry.
+      // Line 3: wall-time breakdown + cut count.
+      // Each line carries `iter N` so a grep for the iteration index
+      // returns the whole block.
+      const auto iter_id = gtopt::uid_of(iteration_index);
+      const auto elapsed_s = std::chrono::duration<double>(
+                                 std::chrono::steady_clock::now() - solve_start)
+                                 .count();
+      const auto avg_iter_s = elapsed_s / static_cast<double>(iter_id + 1);
+      const auto max_iters = m_options_.max_iterations;
+      const auto remaining_iters = (max_iters > 0 && iter_id + 1 < max_iters)
+          ? static_cast<int>(max_iters) - 1 - static_cast<int>(iter_id)
+          : 0;
+      const auto eta_s = (remaining_iters > 0 && !ir.converged)
+          ? remaining_iters * avg_iter_s
+          : 0.0;
+      const auto eta_clause = (eta_s > 0.0)
+          ? std::format("  ETA={}", gtopt::log::dur(eta_s))
+          : std::string {};
+      const auto conv_clause =
+          ir.converged ? std::string {"  [CONVERGED]"} : std::string {};
+      SPDLOG_INFO("─── iter {} ───  elapsed={}{}{}",
+                  iter_id,
+                  gtopt::log::dur(elapsed_s),
+                  eta_clause,
+                  conv_clause);
+      SPDLOG_INFO("    iter {}  obj   UB={}  LB={}  gap={}  Δgap={}{}{}",
+                  iter_id,
+                  gtopt::log::money(ir.upper_bound),
+                  gtopt::log::money(ir.lower_bound),
+                  gtopt::log::pct(ir.gap),
+                  gtopt::log::pct(ir.gap_change),
+                  kappa_clause,
+                  feasibility_clause);
+      SPDLOG_INFO("    iter {}  time  total={}  (fwd={} + bwd={})  cuts={}{}",
+                  iter_id,
+                  gtopt::log::dur(ir.iteration_s),
+                  gtopt::log::dur(ir.forward_pass_s),
+                  gtopt::log::dur(ir.backward_pass_s),
+                  ir.cuts_added,
+                  ir.infeasible_cuts_added > 0
+                      ? std::format(" (+{} feas)", ir.infeasible_cuts_added)
+                      : std::string {});
 
       // ── Post-iteration housekeeping (timed) ──
       // Single INFO line at the end summarises the breakdown so the
@@ -1487,13 +1518,13 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
           {
             const double scene_gap =
                 compute_convergence_gap(sp.upper_bound, sp.lower_bound);
-            SPDLOG_INFO("{}: completed (ub={:.4f} lb={:.4f} gap={:.6f})",
+            SPDLOG_INFO("{}: completed  UB={}  LB={}  gap={}",
                         sddp_log("Async",
                                  gtopt::uid_of(sp.current_iteration_index),
                                  uid_of(scene)),
-                        sp.upper_bound,
-                        sp.lower_bound,
-                        scene_gap);
+                        gtopt::log::money(sp.upper_bound),
+                        gtopt::log::money(sp.lower_bound),
+                        gtopt::log::pct(scene_gap));
           }
 
           // Per-scene convergence check
@@ -1681,31 +1712,64 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
       // Log aggregate with pool stats.  Append the cumulative worst
       // kappa so the async-mode iteration headline carries the same
       // conditioning telemetry as the synchronous path above.
+      //
+      // Three-line block mirroring the synchronous path:
+      //   ─── iter K (async) ───  elapsed=…  ETA=…
+      //     iter K  obj   UB=…  LB=…  gap=…  Δgap=…  kappa=…
+      //     iter K  scenes  spread=[a,b]  conv=K/N  pool(active=… pending=…)
+      // Each line carries `iter K` for grep-friendliness; the second
+      // line uses `(async)` so tail readers can tell a sync run from
+      // an async run at a glance.
       {
         const auto pool_stats = pool.get_statistics();
         const auto gk_async = global_max_kappa();
         const auto kappa_clause_async = (gk_async >= 0.0)
-            ? std::format(" kappa={:.2e}", gk_async)
+            ? std::format("  kappa={:.2e}", gk_async)
             : std::string {};
+        const auto iter_id_async = next_converge_iteration_index;
+        const auto elapsed_async_s =
+            std::chrono::duration<double>(std::chrono::steady_clock::now()
+                                          - solve_start)
+                .count();
+        const auto avg_iter_async_s =
+            elapsed_async_s / std::max(1, iter_id_async + 1);
+        const auto max_iters_async = m_options_.max_iterations;
+        const auto remaining_async =
+            (max_iters_async > 0
+             && iter_id_async + 1 < static_cast<int>(max_iters_async))
+            ? static_cast<int>(max_iters_async) - 1 - iter_id_async
+            : 0;
+        const auto eta_async_s = (remaining_async > 0 && !ir.converged)
+            ? remaining_async * avg_iter_async_s
+            : 0.0;
+        const auto eta_clause_async = (eta_async_s > 0.0)
+            ? std::format("  ETA={}", gtopt::log::dur(eta_async_s))
+            : std::string {};
+        const auto conv_clause_async =
+            ir.converged ? std::string {"  [CONVERGED]"} : std::string {};
+        SPDLOG_INFO("─── iter {} (async) ───  elapsed={}{}{}",
+                    iter_id_async,
+                    gtopt::log::dur(elapsed_async_s),
+                    eta_clause_async,
+                    conv_clause_async);
+        SPDLOG_INFO("    iter {}  obj     UB={}  LB={}  gap={}  Δgap={}{}",
+                    iter_id_async,
+                    gtopt::log::money(ir.upper_bound),
+                    gtopt::log::money(ir.lower_bound),
+                    gtopt::log::pct(ir.gap),
+                    gtopt::log::pct(ir.gap_change),
+                    kappa_clause_async);
         SPDLOG_INFO(
-            "SDDP Iter [i{}]: async aggregate — "
-            "UB={} LB={} gap={:.2f}% Δgap={:.2f}%{} "
-            "spread=[{},{}] converged_scenes={}/{} "
-            "pool(active={} pending={} cpu={:.0f}%){}",
-            next_converge_iteration_index,
-            format_si(ir.upper_bound),
-            format_si(ir.lower_bound),
-            100.0 * ir.gap,
-            100.0 * ir.gap_change,
-            kappa_clause_async,
+            "    iter {}  scenes  spread=[{},{}]  conv={}/{}  "
+            "pool(active={} pending={} cpu={:.0f}%)",
+            iter_id_async,
             tracker.min_completed_iteration(),
             tracker.max_completed_iteration(),
             tracker.num_converged(),
             num_scenes,
             pool_stats.tasks_active,
             pool_stats.tasks_pending,
-            pool_stats.current_cpu_load,
-            ir.converged ? " [CONVERGED]" : "");
+            pool_stats.current_cpu_load);
       }
 
       // Monitoring API: build async-aware snapshot

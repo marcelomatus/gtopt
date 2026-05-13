@@ -156,7 +156,16 @@ def scan_redundant_index_cast(rule: Rule, files: list[Path]) -> None:
         r")\)"
     )
     # Allow-list: legitimate narrowing-from-size_t or m_-prefixed members.
-    skip_substr = (".size()", "size_t", "std::ssize", "static_cast<Index>(m_")
+    # `std::cmp_*` integer comparators are constrained to standard
+    # integer types per [intcmp]/1 — strong types fail the requires
+    # clause, so the cast is mandatory, not noise.
+    skip_substr = (
+        ".size()",
+        "size_t",
+        "std::ssize",
+        "static_cast<Index>(m_",
+        "std::cmp_",
+    )
     file_line_allow = {
         ("source/sddp_iteration.cpp", "static_cast<Index>"),
         ("source/sddp_cut_store.cpp", "static_cast<Index>(psi.base_nrows)"),

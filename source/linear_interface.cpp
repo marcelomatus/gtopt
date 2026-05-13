@@ -2350,7 +2350,8 @@ void LinearInterface::add_rows_raw(const std::span<const SparseRow> rows,
   {
     const auto frozen_count = flatten_row_count();
     const auto first_post_offset =
-        std::cmp_greater_equal(first_row_index, frozen_count)
+        std::cmp_greater_equal(static_cast<Index>(first_row_index),
+                               frozen_count)
         ? static_cast<size_t>(first_row_index) - frozen_count
         : 0U;
     const auto needed_size = first_post_offset + static_cast<size_t>(nrows);

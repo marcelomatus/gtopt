@@ -140,6 +140,14 @@ void setup_trace_log(const MainOptions& opts)
     auto trace_sink = std::make_shared<spdlog::sinks::basic_file_sink_mt>(
         trace_path, /*truncate=*/true);
     trace_sink->set_level(spdlog::level::trace);
+    // Explicit pattern: drop the `[file.cpp:NNN]` source-location field
+    // that spdlog's default pattern (`%+`) renders for SPDLOG_INFO /
+    // SPDLOG_WARN macros.  End-users don't care about source location;
+    // a uniform `[date time] [level] message` is easier to scan and
+    // matches the stdout sink's terse pattern (`[%H:%M:%S.%e] %v`).
+    // TRACE-level lines emitted via `spdlog::trace(...)` (function form)
+    // never carried source-location anyway, so this is a no-op for them.
+    trace_sink->set_pattern("[%Y-%m-%d %H:%M:%S.%e] [%l] %v");
     // Keep the first sink (assumed to be the console/stdout sink) at its
     // current level so trace messages only go to the file, not terminal.
     auto& sinks = spdlog::default_logger()->sinks();
@@ -228,6 +236,8 @@ void setup_file_logging(const MainOptions& opts, bool suppress_stdout)
     // Inherit the default logger's level so --verbose / --quiet behave
     // the same on the file as they did on stdout.
     file_sink->set_level(spdlog::default_logger()->level());
+    // Match the trace sink: drop source-location, keep date + level.
+    file_sink->set_pattern("[%Y-%m-%d %H:%M:%S.%e] [%l] %v");
 
     auto& sinks = spdlog::default_logger()->sinks();
     if (suppress_stdout) {
