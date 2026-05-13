@@ -937,8 +937,7 @@ auto elastic_filter_solve(const LinearInterface& li,
   const bool can_use_manual = li.has_decompressed_snapshot()
       && li.low_memory_mode() != LowMemoryMode::off;
   auto cloned = can_use_manual
-      ? li.clone_from_flat(LinearInterface::CloneKind::shallow,
-                           /*with_replay=*/true)
+      ? li.clone_from_flat(LinearInterface::CloneKind::shallow)
       : li.clone(LinearInterface::CloneKind::shallow);
 
   // Chinneck Phase-1 feasibility LP: zero every original objective
@@ -1682,8 +1681,7 @@ auto BendersCut::elastic_filter_solve(const LinearInterface& li,
   const bool can_use_manual = li.has_decompressed_snapshot()
       && li.low_memory_mode() != LowMemoryMode::off;
   auto cloned = can_use_manual
-      ? li.clone_from_flat(LinearInterface::CloneKind::shallow,
-                           /*with_replay=*/true)
+      ? li.clone_from_flat(LinearInterface::CloneKind::shallow)
       : li.clone(LinearInterface::CloneKind::shallow);
 
   ElasticSolveResult result;

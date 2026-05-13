@@ -676,8 +676,7 @@ TEST_CASE(  // NOLINT
   // bound overrides must be re-applied on the clone after it loads
   // the same flat snapshot.  This is the exact path used by SDDP
   // aperture clones in the production hot loop.
-  const auto clone = li.clone_from_flat(LinearInterface::CloneKind::shallow,
-                                        /*with_replay=*/true);
+  const auto clone = li.clone_from_flat(LinearInterface::CloneKind::shallow);
 
   const double clone_inf = clone.infinity();
   const auto hi_clone = clone.get_col_upp_raw();

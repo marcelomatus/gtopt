@@ -639,8 +639,7 @@ TEST_CASE(  // NOLINT
 
   // --- 5. Clone via both routes.
   const auto native = src.clone(LinearInterface::CloneKind::shallow);
-  const auto manual = src.clone_from_flat(LinearInterface::CloneKind::shallow,
-                                          /*with_replay=*/true);
+  const auto manual = src.clone_from_flat(LinearInterface::CloneKind::shallow);
 
   // --- 6. Structural equivalence.
   CAPTURE(native.get_numcols());
@@ -660,8 +659,7 @@ TEST_CASE(  // NOLINT
 
   // --- 7. Solve equivalence.
   auto native_solve = src.clone(LinearInterface::CloneKind::shallow);
-  auto manual_solve = src.clone_from_flat(LinearInterface::CloneKind::shallow,
-                                          /*with_replay=*/true);
+  auto manual_solve = src.clone_from_flat(LinearInterface::CloneKind::shallow);
   const SolverOptions opts {};
   const auto rn = native_solve.resolve(opts);
   const auto rm = manual_solve.resolve(opts);
@@ -734,8 +732,7 @@ TEST_CASE(  // NOLINT
   // Clone the LP via both routes — these are the two LPs that
   // elastic_filter_solve would receive at the "auto cloned = ..." line.
   auto clone_native = src.clone(LinearInterface::CloneKind::shallow);
-  auto clone_manual = src.clone_from_flat(LinearInterface::CloneKind::shallow,
-                                          /*with_replay=*/true);
+  auto clone_manual = src.clone_from_flat(LinearInterface::CloneKind::shallow);
 
   // --- Apply the same elastic transformation to BOTH clones. ---
   auto apply_elastic = [&](LinearInterface& clone)
@@ -928,8 +925,7 @@ TEST_CASE(  // NOLINT
   REQUIRE(src.low_memory_mode() == LowMemoryMode::compress);
 
   const auto native = src.clone(LinearInterface::CloneKind::shallow);
-  const auto manual = src.clone_from_flat(LinearInterface::CloneKind::shallow,
-                                          /*with_replay=*/true);
+  const auto manual = src.clone_from_flat(LinearInterface::CloneKind::shallow);
 
   // Structural equivalence: same dims, same bounds, same costs.
   REQUIRE(manual.get_numcols() == native.get_numcols());
@@ -942,8 +938,7 @@ TEST_CASE(  // NOLINT
 
   // Solve equivalence.
   auto native_s = src.clone(LinearInterface::CloneKind::shallow);
-  auto manual_s = src.clone_from_flat(LinearInterface::CloneKind::shallow,
-                                      /*with_replay=*/true);
+  auto manual_s = src.clone_from_flat(LinearInterface::CloneKind::shallow);
   const SolverOptions opts {};
   REQUIRE(native_s.resolve(opts).has_value());
   REQUIRE(manual_s.resolve(opts).has_value());
@@ -985,8 +980,7 @@ TEST_CASE(  // NOLINT
   REQUIRE(src.low_memory_mode() == LowMemoryMode::off);
 
   const auto native = src.clone(LinearInterface::CloneKind::shallow);
-  const auto manual = src.clone_from_flat(LinearInterface::CloneKind::shallow,
-                                          /*with_replay=*/true);
+  const auto manual = src.clone_from_flat(LinearInterface::CloneKind::shallow);
 
   // Native and manual clones must now be structurally identical.
   CHECK(native.get_numcols() == src.get_numcols());
@@ -999,8 +993,7 @@ TEST_CASE(  // NOLINT
   // Solving both must produce the same objective (the cut on α
   // and the freed α-col bounds must be present in both).
   auto native_s = src.clone(LinearInterface::CloneKind::shallow);
-  auto manual_s = src.clone_from_flat(LinearInterface::CloneKind::shallow,
-                                      /*with_replay=*/true);
+  auto manual_s = src.clone_from_flat(LinearInterface::CloneKind::shallow);
   const SolverOptions opts {};
   REQUIRE(native_s.resolve(opts).has_value());
   REQUIRE(manual_s.resolve(opts).has_value());
@@ -1039,8 +1032,7 @@ TEST_CASE(  // NOLINT
 
     // Manual route requires a populated snapshot.
     REQUIRE(src.has_snapshot_data());
-    auto manual = src.clone_from_flat(LinearInterface::CloneKind::shallow,
-                                      /*with_replay=*/true);
+    auto manual = src.clone_from_flat(LinearInterface::CloneKind::shallow);
     CHECK(manual.get_numcols() == native.get_numcols());
     CHECK(manual.get_numrows() == native.get_numrows());
 
@@ -1105,8 +1097,7 @@ TEST_CASE(  // NOLINT
   };
 
   auto cn = src.clone(LinearInterface::CloneKind::shallow);
-  auto cm = src.clone_from_flat(LinearInterface::CloneKind::shallow,
-                                /*with_replay=*/true);
+  auto cm = src.clone_from_flat(LinearInterface::CloneKind::shallow);
   apply_elastic(cn);
   apply_elastic(cm);
 
@@ -1142,8 +1133,7 @@ TEST_CASE(  // NOLINT
     threads.emplace_back(
         [&src, &obj_values, i]
         {
-          auto clone = src.clone_from_flat(LinearInterface::CloneKind::shallow,
-                                           /*with_replay=*/true);
+          auto clone = src.clone_from_flat(LinearInterface::CloneKind::shallow);
           const SolverOptions opts {};
           if (clone.resolve(opts).has_value() && clone.is_optimal()) {
             obj_values[static_cast<size_t>(i)] = clone.get_obj_value();
@@ -1190,8 +1180,7 @@ TEST_CASE(  // NOLINT
   // source's pending_col_bounds map has at least one entry.
   const auto pending_before = src.replay_buf().pending_col_bounds_size();
 
-  auto clone = src.clone_from_flat(LinearInterface::CloneKind::shallow,
-                                   /*with_replay=*/true);
+  auto clone = src.clone_from_flat(LinearInterface::CloneKind::shallow);
 
   // The clone starts with the SAME pending_col_bounds (its replay
   // buffer was deep-copied from src in apply_post_load_replay).
@@ -1244,8 +1233,7 @@ TEST_CASE(  // NOLINT
   REQUIRE_FALSE(replay_before);  // Idle source: flag is always false.
 
   {
-    auto clone = src.clone_from_flat(LinearInterface::CloneKind::shallow,
-                                     /*with_replay=*/true);
+    auto clone = src.clone_from_flat(LinearInterface::CloneKind::shallow);
 
     // Replay flag flipped on OWN buffer, then released by the
     // ReplayGuard's dtor; at this point both source and clone show

@@ -335,8 +335,7 @@ auto solve_apertures_for_phase(
           {
             if (use_manual_clone && phase_li.has_snapshot_data()) {
               return phase_li.clone_from_flat(
-                  LinearInterface::CloneKind::shallow,
-                  /*with_replay=*/true);
+                  LinearInterface::CloneKind::shallow);
             }
             const std::scoped_lock lock(*clone_mutex);
             return phase_li.clone(LinearInterface::CloneKind::shallow);

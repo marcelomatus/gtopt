@@ -926,8 +926,7 @@ LinearInterface LinearInterface::clone(CloneKind kind) const
   return cloned;
 }
 
-LinearInterface LinearInterface::clone_from_flat(CloneKind kind,
-                                                 bool with_replay) const
+LinearInterface LinearInterface::clone_from_flat(CloneKind kind) const
 {
   // Pre-conditions: the manual route reads from
   // `m_snapshot_holder_.snapshot().flat_lp`, which is only populated when
@@ -1001,58 +1000,34 @@ LinearInterface LinearInterface::clone_from_flat(CloneKind kind,
     cloned.m_row_index_to_name_ = m_row_index_to_name_;
   }
 
-  // Post-flatten metadata handling depends on the replay mode:
+  // Current-state replay: borrow the source's replay buffer and
+  // re-apply it so the clone matches the SOURCE's live backend state
+  // (post-snapshot α col, installed cuts, forward-pass-pinned bounds,
+  // raw coefficient/RHS overrides) instead of the snapshot-frozen
+  // state.  This gives elastic / forward-pass callers a parallel-safe
+  // equivalent of `clone()` without needing the native CPXcloneprob
+  // mutex.
   //
-  //   * `with_replay == false`: snapshot-state clone (aperture path).
-  //     Copy source's `m_post_flatten_*_metas_` so the clone's
-  //     `write_lp` / `row_label_at` can resolve labels for inherited
-  //     rows (α, installed cuts) even though the clone's backend
-  //     itself doesn't carry those rows.  Matches `clone(kind)`'s
-  //     contract.
+  // The `add_cols` / `add_rows` calls inside `apply_post_load_replay`
+  // register their own post-flatten metadata entries on the clone, so
+  // we deliberately do NOT copy `m_post_flatten_*_metas_` from the
+  // source here — copying first would double-register every entry,
+  // tripping the duplicate-detection guard in `track_col_label_meta`
+  // and producing observable infeasibility on elastic / aperture
+  // clones (the 2026-05-08 "relaxed clone infeasible" regression).
   //
-  //   * `with_replay == true`: current-state clone (elastic path).
-  //     `apply_post_load_replay` (below) will re-add the α col and
-  //     cut rows to the clone's backend via `add_cols` / `add_rows`,
-  //     and those calls themselves register the post-flatten
-  //     metadata.  Copying source's metadata first would
-  //     double-register every entry: `track_col_label_meta` would
-  //     find a pre-existing entry at the same col index and either
-  //     throw on duplicate detection or silently corrupt the
-  //     dedup→index map (observed: ElasticFilterMode comparison
-  //     tests reported "relaxed clone infeasible" because the
-  //     backend ended up with two α columns).
-  if (!with_replay) {
-    cloned.m_post_flatten_col_labels_meta_ = m_post_flatten_col_labels_meta_;
-    cloned.m_post_flatten_row_labels_meta_ = m_post_flatten_row_labels_meta_;
-    cloned.m_post_flatten_col_meta_index_ = m_post_flatten_col_meta_index_;
-    cloned.m_post_flatten_row_meta_index_ = m_post_flatten_row_meta_index_;
-  }
-
-  // Optional current-state replay: copy source's replay buffer onto
-  // the clone and re-apply it so the clone matches the SOURCE's live
-  // backend state (post-snapshot α col, installed cuts, forward-
-  // pass-pinned bounds), instead of the snapshot-frozen state.  This
-  // gives elastic / forward-pass callers a parallel-safe equivalent
-  // of `clone()` without needing the native CPXcloneprob mutex.  The
-  // copy is intentionally a value-copy (not a move) — the source's
-  // `m_replay_` must stay intact for its own future replays (e.g.
-  // the next `release_backend` → `reconstruct_backend` cycle).
-  if (with_replay) {
-    // Borrow-from-source replay: the clone reads dynamic_cols / cuts /
-    // pending bounds from the SOURCE's `m_replay_` (no value copy onto
-    // `cloned.m_replay_`).  At late SDDP iterations the source's
-    // active_cuts vector grows to several MB, and N concurrent chunk
-    // tasks would each pay that copy cost — eliminated here.
-    cloned.apply_post_load_replay(m_replay_);
-    // After the initial replay, the clone is a "throwaway" instance: it
-    // is owned by one chunk task and destroyed at end-of-task; its
-    // replay buffer is never re-applied to any backend.  Subsequent
-    // mutations (e.g. dense `update_aperture` bound writes in the
-    // aperture inner loop) don't need to be recorded.  Flipping this
-    // flag short-circuits the per-mutation recording in
-    // `set_col_low/upp_raw`, `add_col`, etc.
-    cloned.m_is_throwaway_clone_ = true;
-  }
+  // The borrow is intentionally read-only — the source's `m_replay_`
+  // must stay intact for its own future replays (e.g. the next
+  // `release_backend` → `reconstruct_backend` cycle).
+  cloned.apply_post_load_replay(m_replay_);
+  // After the initial replay, the clone is a "throwaway" instance: it
+  // is owned by one chunk task and destroyed at end-of-task; its
+  // replay buffer is never re-applied to any backend.  Subsequent
+  // mutations (e.g. dense `update_aperture` bound writes in the
+  // aperture inner loop) don't need to be recorded.  Flipping this
+  // flag short-circuits the per-mutation recording in
+  // `set_col_low/upp_raw`, `add_col`, etc.
+  cloned.m_is_throwaway_clone_ = true;
 
   return cloned;
 }

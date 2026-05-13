@@ -306,8 +306,7 @@ TEST_CASE(  // NOLINT
   // Pre-condition: clone_from_flat(with_replay=true) must show both
   // cuts (base + alpha-col is structural; cuts add 2 rows).
   {
-    auto pre_clone = src.clone_from_flat(LinearInterface::CloneKind::shallow,
-                                         /*with_replay=*/true);
+    auto pre_clone = src.clone_from_flat(LinearInterface::CloneKind::shallow);
     CHECK(pre_clone.get_numrows() == base + 2);
   }
 
@@ -324,8 +323,7 @@ TEST_CASE(  // NOLINT
 
   // Post-condition: a fresh clone_from_flat(with_replay=true) must
   // show ONLY cut1 (base + 1 cut, no re-injection of cut0).
-  auto post_clone = src.clone_from_flat(LinearInterface::CloneKind::shallow,
-                                        /*with_replay=*/true);
+  auto post_clone = src.clone_from_flat(LinearInterface::CloneKind::shallow);
   CHECK(post_clone.get_numrows() == base + 1);
 
   // And the clone must remain solvable — the recovery sequence

@@ -416,8 +416,7 @@ TEST_CASE(  // NOLINT
   // kept compressed between aperture windows; the guard decompresses
   // it on construction and re-compresses on scope exit.
   const DecompressionGuard guard(source_li);
-  auto clone = source_li.clone_from_flat(LinearInterface::CloneKind::shallow,
-                                         /*with_replay=*/true);
+  auto clone = source_li.clone_from_flat(LinearInterface::CloneKind::shallow);
 
   // 1) Size + dense readback equivalence — under compress mode this
   //    is the load-bearing invariant: `load_flat` restored the pre-

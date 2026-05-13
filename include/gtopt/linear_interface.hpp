@@ -360,8 +360,13 @@ public:
    *
    * @return A new LinearInterface populated from the saved snapshot.
    */
+  /// Always replays the source's `m_replay_` onto the clone after the
+  /// `load_flat` (the `with_replay` parameter that gated this was
+  /// dropped 2026-05-13 — no production caller invoked it with
+  /// `false`, and the snapshot-frozen clone variant is no longer
+  /// needed).
   [[nodiscard]] LinearInterface clone_from_flat(
-      CloneKind kind = CloneKind::shallow, bool with_replay = false) const;
+      CloneKind kind = CloneKind::shallow) const;
 
   /// Test/diagnostic accessor: `shared_ptr::use_count()` of one of
   /// the wrapped metadata members.  All of them are detached together
